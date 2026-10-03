@@ -101,14 +101,20 @@ end
 --- Reads one position against `at`, moves `at` to it, and returns it.
 --- Anything that is not a position (`invalid sloc`) leaves `at` alone.
 local function located(at: Cursor, s: string): string, integer, integer
-  local col = s:match("^col:(%d+)$")
-  if col ~= nil then
-    return at.file, at.line, math.tointeger(tonumber(col))
-  end
-  local line, lcol = s:match("^line:(%d+):(%d+)$")
-  if line ~= nil then
-    at.line = math.tointeger(tonumber(line))
-    return at.file, at.line, math.tointeger(tonumber(lcol))
+  -- Most positions are one of the two short forms, and the first byte
+  -- says which one a position could be.
+  local first = s:byte(1)
+  if first == 99 then -- c
+    local col = s:match("^col:(%d+)$")
+    if col ~= nil then
+      return at.file, at.line, math.tointeger(tonumber(col))
+    end
+  elseif first == 108 then -- l
+    local line, lcol = s:match("^line:(%d+):(%d+)$")
+    if line ~= nil then
+      at.line = math.tointeger(tonumber(line))
+      return at.file, at.line, math.tointeger(tonumber(lcol))
+    end
   end
   local file, fline, fcol = s:match("^(.+):(%d+):(%d+)$")
   if file ~= nil then
@@ -128,8 +134,9 @@ end
 
 --- Splits `rest`, what follows a node's kind, into its address, range and
 --- the text after them, reading every position against `at` on the way.
---- Returns the address, the begin position, and the remaining text.
-local function header(at: Cursor, rest: string): string, string, integer, integer, string
+--- Returns the address, the begin position, and where the remaining
+--- text starts in `rest`.
+local function header(at: Cursor, rest: string): string, string, integer, integer, integer
   local id = rest:match("^ (0x%x+)")
   local pos = 1
   if id ~= nil then
@@ -144,26 +151,18 @@ local function header(at: Cursor, rest: string): string, string, integer, intege
   local file, line, col: string, integer, integer
   if rest:sub(pos, pos + 1) == " <" then
     -- The range is balanced: `<<built-in>:1:1, col:5>` nests one.
-    local depth = 0
-    local stop = pos + 1
-    for i = pos + 1, #rest do
-      local c = rest:sub(i, i)
-      if c == "<" then
-        depth = depth + 1
-      elseif c == ">" then
-        depth = depth - 1
-        if depth == 0 then
-          stop = i
-          break
-        end
-      end
-    end
+    local _, stop = rest:find("^%b<>", pos + 1)
+    stop = stop or pos + 1
     local range = rest:sub(pos + 2, stop - 1)
-    for part in (range .. ", "):gmatch("(.-), ") do
-      local f, l, c = located(at, part)
+    local from = 1
+    while true do
+      local comma = range:find(", ", from, true)
+      local f, l, c = located(at, range:sub(from, (comma or #range + 1) - 1))
       if file == nil and f ~= nil then
         file, line, col = f, l, c
       end
+      if comma == nil then break end
+      from = comma + 2
     end
     pos = stop + 1
     local word = rest:match("^ (%S+)", pos)
@@ -178,7 +177,7 @@ local function header(at: Cursor, rest: string): string, string, integer, intege
       pos = pos + #word + 1
     end
   end
-  return id, file, line, col, rest:sub(pos + 1)
+  return id, file, line, col, pos + 1
 end
 
 --- The declarations of this tree's own C in `dump`, a translation unit's
@@ -192,11 +191,13 @@ function tree.parse(dump: string, root?: string): {tree.Node}
   local open: {integer: tree.Node} = {}
   local keeping = false
   for raw in dump:gmatch("[^\n]+") do
-    local prefix = raw:match("^[| `]*[|`]%-") or ""
+    local prefix, kind, rest = raw:match("^([| `]*[|`]%-)(%S*)(.*)$")
+    if prefix == nil then
+      prefix = ""
+      kind, rest = raw:match("^(%S*)(.*)$")
+    end
     local depth = #prefix // 2
-    local content = raw:sub(#prefix + 1)
-    local kind = content:match("^(%S+)") or ""
-    local id, file, line, col, text = header(at, content:sub(#kind + 1))
+    local id, file, line, col, from = header(at, rest)
     if depth == 1 then
       keeping = own(file)
     end
@@ -204,7 +205,7 @@ function tree.parse(dump: string, root?: string): {tree.Node}
       local parent = open[depth - 1]
       local node: tree.Node = {
         kind = kind, id = id, file = file, line = line, col = col,
-        text = text, children = {}, parent = parent,
+        text = rest:sub(from), children = {}, parent = parent,
       }
       if depth == 1 then
         node.parent = nil
