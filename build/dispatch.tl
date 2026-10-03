@@ -351,7 +351,7 @@ end
 ---   slot 1; the file sees only what follows it, as its own `argv`
 local function run(file: string, argv: {integer:string}): integer
   local Store = require("cosmic.store")
-  local Time = require("cosmic.time")
+  local Clock = require("cosmic.clock")
   local clock = require("build.clock")
   local importer = require("build.importer")
   local shared_compiles = require("build.shared_compiles")
@@ -371,7 +371,7 @@ local function run(file: string, argv: {integer:string}): integer
     return 1
   end
 
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local own_tree, own_trouble = tree.is_own(root)
   if own_tree == nil then
     log:complain(own_trouble)
@@ -542,11 +542,11 @@ local help_spec: verb_spec.Spec
 ---   read the words after `help` itself
 local function help(argv: {integer:string}, asked: string | nil): integer
   local Cli = require("cosmic.cli")
-  local Time = require("cosmic.time")
+  local Clock = require("cosmic.clock")
   local clock = require("build.clock")
   local plural = require("build.plural")
   local verb_list = require("build.verb_list")
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   -- Cache maintenance must remain usable when this directory's candidate
   -- cannot build. Its help comes from this binary too, without opening a
   -- candidate database or passing through the stale-tool guard.

@@ -40,7 +40,8 @@ local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
+
 local errors = require("cosmic.internal.errors")
 
 --- The raw module behind this one lives under the reserved
@@ -214,7 +215,7 @@ end
 
 local DEFAULT_READ <const> = 64 * 1024
 local DEFAULT_BACKLOG <const> = 64
-local MS <const> = Time.ms(1)
+local MS <const> = Clock.ms(1)
 
 --- The address of the socket file at `path`.
 function Net.unix(path: string): Net.Address
@@ -231,7 +232,7 @@ end
 --- timeout of any length is never none, or -1 for no limit.
 local function milliseconds(timeout_ns: integer | nil): integer
   if timeout_ns == nil then return -1 end
-  return Time.ceil(timeout_ns, MS)
+  return Clock.ceil(timeout_ns, MS)
 end
 
 --- What a failed call says: its own words for a deadline or a signal,
@@ -729,7 +730,7 @@ local serving_mt: metatable<Serving> = {
 --- How long a listener waits after an accept failed -- out of
 --- descriptors, say -- before it tries again, so a failure that lasts is
 --- not retried, and reported, without pause.
-local ACCEPT_PAUSE_NS <const> = Time.ms(100)
+local ACCEPT_PAUSE_NS <const> = Clock.ms(100)
 
 --- Gives `trouble` to the spec's [`Net.ServeSpec.on_error`], or stderr.
 local function report(s: Serving, trouble: string)
@@ -805,14 +806,14 @@ local function drain(s: Serving)
   if s.stopper ~= nil then local _, _ = s.stopper:join() end
   if not s.hurried then
     local grace = s.spec.grace_ns
-    local deadline = grace ~= nil and Time.monotonic_ns() + grace or nil
+    local deadline = grace ~= nil and Clock.monotonic_ns() + grace or nil
     -- A task of its own, so a signal can end the grace by cancelling it.
     s.grace = Poll.spawn(function()
       while true do
         local task = next(s.conns)
         if task == nil then return end
         local left: integer = nil
-        if deadline ~= nil then left = math.max(deadline - Time.monotonic_ns(), 0) end
+        if deadline ~= nil then left = math.max(deadline - Clock.monotonic_ns(), 0) end
         local ended, _ = task:join(left)
         if not ended then return end
       end

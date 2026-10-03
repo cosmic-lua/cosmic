@@ -6,7 +6,8 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
+
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 
@@ -36,7 +37,7 @@ local function launch(program: string, cache: string, dir: string)
   local env = environment()
   env.COSMIC_PORTABLE_CACHE = cache
   local r = assert(Child.run({ program, "ok.tl" }, { env = env, cwd = dir,
-    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(r.ok and r.stdout == "ok\n", tostring(r.stderr))
 end
 
@@ -59,7 +60,7 @@ local function test_a_fresh_cache_entry_is_stamped_once_it_settles(tmp: string)
   local cache = tmp .. "/cache"
   assert(Fs.write(tmp .. "/ok.tl", "return function(): integer print('ok') return 0 end\n"))
   launch(program, cache, tmp)
-  assert(Time.sleep_ns(1100000000))
+  assert(Clock.sleep_ns(1100000000))
   launch(program, cache, tmp)
   assert(stamps(cache) == 1, "a settled entry is stamped")
 end

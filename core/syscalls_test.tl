@@ -20,7 +20,7 @@ local type raw_hash = require("cosmic.internal.hash")
 local type raw_process = require("cosmic.internal.process")
 local stand_in = require("build.stand_in")
 local sandbox_skip = require("build.sandbox_skip")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 -- TODO: declare /proc for Linux alone once a declaration can name a
 -- host path per platform (a `host` entry for Linux and one for macOS):
@@ -639,9 +639,9 @@ end
 --- loopback and over a unix socket file, as one held to none does.
 local function test_a_landlock_ruleset_leaves_a_child_its_loopback(tmp: string)
   local probe = probe_in(tmp)
-  local tcp = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Time.seconds(5) }))
+  local tcp = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
   local socket = tmp .. "/s"
-  local unix = assert(Net.listen(Net.unix(socket), { timeout_ns = Time.seconds(5) }))
+  local unix = assert(Net.listen(Net.unix(socket), { timeout_ns = Clock.seconds(5) }))
   local ruleset, trouble = process.landlock_ruleset({ probe }, {})
   if ruleset == nil then
     assert(tcp:close() and unix:close())

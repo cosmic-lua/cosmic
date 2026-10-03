@@ -53,7 +53,8 @@ local Hash = require("cosmic.hash")
 local Log = require("cosmic.log")
 local Compress = require("cosmic.compress")
 local Sqlite = require("cosmic.sqlite")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
+
 local sys = require("cosmic.sys")
 local type importer = require("build.importer")
 local type receivers = require("build.receivers")
@@ -109,7 +110,7 @@ local variable <const> = "COSMIC_BUILD_CACHE"
 local kept_bytes <const> = 256 * 1024 * 1024
 
 --- How long a row no build uses is kept: thirty days.
-local kept_ns <const> = Time.hours(30 * 24)
+local kept_ns <const> = Clock.hours(30 * 24)
 
 --- The table rows are in, named by the format's version, which any
 --- change to the table's shape or to what a row holds bumps. A later
@@ -608,7 +609,7 @@ function shared_compiles.for_build(environment?: {string:string}): importer.Shar
     end,
     finish = function()
       if cache == nil then return end
-      local settled, settle_trouble = shared_compiles.settle(cache, owed, Time.now_ns())
+      local settled, settle_trouble = shared_compiles.settle(cache, owed, Clock.now_ns())
       if not settled then
         drop(settle_trouble)
         return

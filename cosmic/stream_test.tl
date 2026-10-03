@@ -4,7 +4,7 @@
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- A plain-table stand-in for a [`cosmic.compress`] codec.
 local record Fake is Stream.Transform
@@ -907,9 +907,9 @@ local function test_a_long_line_in_small_chunks_costs_linear_time()
   local shorts = string.rep(short .. "\n", 8)
   -- The time to read `text` a byte at a time, checking its lines.
   local function timed(text: string, want: {string}): integer
-    local started = Time.monotonic_ns()
+    local started = Clock.monotonic_ns()
     local got, trouble = all_lines(trickle(text))
-    local elapsed = Time.monotonic_ns() - started
+    local elapsed = Clock.monotonic_ns() - started
     assert(trouble == "" and #got == #want, trouble)
     for i, line in ipairs(want) do assert(got[i] == line) end
     return elapsed

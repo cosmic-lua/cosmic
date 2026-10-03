@@ -3,7 +3,8 @@
 
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
+
 local identity = require("build.identity")
 local work = require("build.work")
 
@@ -90,7 +91,7 @@ local function test_an_unsettled_row_is_read_again_at_the_epoch(tmp: string)
   local path = tmp .. "/probe.tl"
   assert(Fs.write(path, "return 1\n"))
   -- An hour ahead, so it is unsettled however long staging takes.
-  assert(Fs.set_mtime(path, Time.now_ns() // 1000000000 + 3600, 0))
+  assert(Fs.set_mtime(path, Clock.now_ns() // 1000000000 + 3600, 0))
   local handle = assert(work.open(tmp))
   assert(work.stage(handle, false))
   assert(staged_bytes(handle.db, "probe.tl") == "return 1\n")

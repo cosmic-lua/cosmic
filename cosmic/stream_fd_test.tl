@@ -5,7 +5,7 @@
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- The two ends of a named pipe in `dir`, neither waiting: the reading
 --- end open first, as a pipe with no reader refuses a nonblocking writer.
@@ -42,13 +42,13 @@ end
 --- later is read, and a closed writer ends it.
 local function test_a_read_with_a_timeout_fails_with_the_timeout_word(tmp: string)
   local reader, writer = fifo(tmp, "quiet")
-  local r = Stream.from_fd(reader, { nonblocking = true, timeout_ns = Time.ms(80) })
-  local before = Time.monotonic_ns()
+  local r = Stream.from_fd(reader, { nonblocking = true, timeout_ns = Clock.ms(80) })
+  local before = Clock.monotonic_ns()
   local chunk, why = r:read()
-  local elapsed = Time.monotonic_ns() - before
+  local elapsed = Clock.monotonic_ns() - before
   assert(chunk == nil and why == Poll.TIMEOUT, tostring(why))
-  assert(elapsed >= Time.ms(79) and elapsed < Time.seconds(5),
-    "timed out after " .. elapsed // Time.ms(1) .. " ms")
+  assert(elapsed >= Clock.ms(79) and elapsed < Clock.seconds(5),
+    "timed out after " .. elapsed // Clock.ms(1) .. " ms")
   assert(sys.write(writer, "late") == 4)
   assert(r:read() == "late")
   assert(sys.close(writer))
@@ -73,26 +73,26 @@ end
 --- The same wait in a task lets the others run meanwhile.
 local function test_a_read_with_a_timeout_in_a_task_lets_the_others_run(tmp: string)
   local reader, writer = fifo(tmp, "task")
-  local r = Stream.from_fd(reader, { nonblocking = true, timeout_ns = Time.ms(120) })
+  local r = Stream.from_fd(reader, { nonblocking = true, timeout_ns = Clock.ms(120) })
   local ticks, elapsed = 0, 0
   local chunk, why: string | nil, string
   Poll.run(function()
     local done = false
     local ticker = Poll.spawn(function()
       while not done do
-        assert(Poll.delay(Time.ms(5)))
+        assert(Poll.delay(Clock.ms(5)))
         ticks = ticks + 1
       end
     end)
-    local before = Time.monotonic_ns()
+    local before = Clock.monotonic_ns()
     chunk, why = r:read()
-    elapsed = Time.monotonic_ns() - before
+    elapsed = Clock.monotonic_ns() - before
     done = true
     assert(ticker:join())
   end)
   assert(chunk == nil and why == Poll.TIMEOUT, tostring(why))
-  assert(elapsed >= Time.ms(119) and elapsed < Time.seconds(5),
-    "timed out after " .. elapsed // Time.ms(1) .. " ms")
+  assert(elapsed >= Clock.ms(119) and elapsed < Clock.seconds(5),
+    "timed out after " .. elapsed // Clock.ms(1) .. " ms")
   assert(ticks >= 2, "the other task ticked " .. ticks .. " times while the read waited")
   assert(sys.close(reader))
   assert(sys.close(writer))
@@ -112,14 +112,14 @@ local function test_a_write_goes_whole_into_a_slow_reader(tmp: string)
         assert(chunk ~= nil or why == "", tostring(why))
         if chunk == nil then break end
         received[#received + 1] = chunk
-        assert(Poll.delay(Time.ms(1)))
+        assert(Poll.delay(Clock.ms(1)))
       end
     end)
     local w = Stream.to_fd(writer, { nonblocking = true })
     assert(w:write(body))
     assert(w:written() == #body)
     assert(sys.close(writer))
-    assert(taking:join(Time.seconds(30)))
+    assert(taking:join(Clock.seconds(30)))
   end)
   assert(table.concat(received) == body)
   assert(sys.close(reader))
@@ -130,14 +130,14 @@ end
 --- from there.
 local function test_a_write_that_expires_reports_the_bytes_written(tmp: string)
   local reader, writer = fifo(tmp, "full")
-  local w = Stream.to_fd(writer, { nonblocking = true, timeout_ns = Time.ms(60) })
+  local w = Stream.to_fd(writer, { nonblocking = true, timeout_ns = Clock.ms(60) })
   local body = string.rep("0123456789abcdef", 1 << 16)
-  local before = Time.monotonic_ns()
+  local before = Clock.monotonic_ns()
   local ok, why = w:write(body)
-  local elapsed = Time.monotonic_ns() - before
+  local elapsed = Clock.monotonic_ns() - before
   assert(not ok and why == Poll.TIMEOUT, tostring(why))
-  assert(elapsed >= Time.ms(59) and elapsed < Time.seconds(5),
-    "timed out after " .. elapsed // Time.ms(1) .. " ms")
+  assert(elapsed >= Clock.ms(59) and elapsed < Clock.seconds(5),
+    "timed out after " .. elapsed // Clock.ms(1) .. " ms")
   local went = w:written()
   assert(went > 0 and went < #body, "wrote " .. went)
   assert(drained(reader) == body:sub(1, went), "the reader found other bytes than went")
@@ -202,8 +202,8 @@ end
 --- A timeout or a wait of the caller's means a descriptor that does not
 --- block, and a timeout is a span a wait can last.
 local function test_the_options_are_checked()
-  raises(function() local _ = Stream.from_fd(0, { timeout_ns = Time.ms(5) }) end, "nonblocking")
-  raises(function() local _ = Stream.to_fd(1, { timeout_ns = Time.ms(5) }) end, "nonblocking")
+  raises(function() local _ = Stream.from_fd(0, { timeout_ns = Clock.ms(5) }) end, "nonblocking")
+  raises(function() local _ = Stream.to_fd(1, { timeout_ns = Clock.ms(5) }) end, "nonblocking")
   raises(function()
     local _ = Stream.to_fd(1, { wait = function(_: integer, _: integer, _: integer | nil):
         boolean, string return true, "" end })

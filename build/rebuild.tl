@@ -7,7 +7,8 @@
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
+
 local clock = require("build.clock")
 local importer = require("build.importer")
 local shared_compiles = require("build.shared_compiles")
@@ -60,7 +61,7 @@ local function project(root: string, verb: string, start: boolean): boolean, str
   end
   local own_tree, own_trouble = tree.is_own(root)
   if own_tree == nil then return false, own_trouble end
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local handle, open_trouble = work.open(root)
   if handle == nil then return false, open_trouble end
   local staged, stage_trouble = work.stage(handle, own_tree)

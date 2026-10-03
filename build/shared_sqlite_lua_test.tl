@@ -5,7 +5,8 @@
 local Child = require("cosmic.child")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
+
 local this_program = require("build.this_program")
 local _ = require("build.shared_sqlite") -- the child loads it after installing its observer
 
@@ -64,7 +65,7 @@ end
 if holder then assert(holder:close()) end
 ]]):format(scenario, path)
   local command = this_program.program({ "-e", script },
-    { stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(5) })
+    { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(5) })
   local result, trouble = Child.run(command.argv, command.options)
   assert(result ~= nil and result.ok, tostring(trouble) .. (result and result.stderr or ""))
 end

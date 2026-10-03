@@ -13,7 +13,8 @@ local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
+
 local sys = require("cosmic.sys")
 
 local record Perf
@@ -249,7 +250,7 @@ end
 
 local function command(argv: {string}, fixture: Fixture): Child.Result
   local result, trouble = Child.run(argv, { cwd = fixture.root, env = fixture.env,
-    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   if result == nil then
     save(fixture.logs .. "/failure.json", { argv = argv, trouble = trouble })
     error(trouble)
@@ -397,9 +398,9 @@ local function measure(f: Fixture, w: Workload, phase: string, pair: integer,
   end
   local before = latest_build(f)
   local result: Child.Result
-  local start = Time.monotonic_ns()
+  local start = Clock.monotonic_ns()
   for _ = 1, w.batch do result = command(argv, f) end
-  local elapsed = Time.monotonic_ns() - start
+  local elapsed = Clock.monotonic_ns() - start
   local stdout, stderr = result.stdout or "", result.stderr or ""
   local observation: Observation = { phase = phase, workload = w.name, pair = pair, label = label,
     elapsed_ns = elapsed, batch = w.batch, argv = argv, cwd = f.root,
@@ -497,8 +498,8 @@ function Perf.main(argv: {integer:string}): integer
   local pin, _ = Fs.read(pin_path)
   local timer: {number} = {}
   for _ = 1, 100 do
-    local start = Time.monotonic_ns()
-    timer[#timer + 1] = Time.monotonic_ns() - start
+    local start = Clock.monotonic_ns()
+    timer[#timer + 1] = Clock.monotonic_ns() - start
   end
   local metadata: {string:any} = { cache = "warm OS page cache, fresh process per command",
     sandbox = "unsandboxed fixtures; no shared compile or verdict cache",
@@ -533,9 +534,9 @@ function Perf.main(argv: {integer:string}): integer
   if has_true then
     local supervisor: {number} = {}
     for _ = 1, 30 do
-      local start = Time.monotonic_ns()
+      local start = Clock.monotonic_ns()
       command({ "/usr/bin/true" }, a)
-      supervisor[#supervisor + 1] = Time.monotonic_ns() - start
+      supervisor[#supervisor + 1] = Clock.monotonic_ns() - start
     end
     metadata.supervisor_with_true_ns = Perf.distribution(supervisor)
   else

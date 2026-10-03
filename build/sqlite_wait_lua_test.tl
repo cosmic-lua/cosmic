@@ -4,7 +4,7 @@ local type _ = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
 local type Log = require("cosmic.log")
 local rebuild_lock = require("build.rebuild_lock")
@@ -40,13 +40,13 @@ end
 local function signaller(): Child.Handle
   local sender = child(([[
 local Fs = require("cosmic.fs")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
 print("ready")
 Fs.take(Fs.stdin, 1)
-Time.sleep_ns(%d)
+Clock.sleep_ns(%d)
 assert(sys.kill(%d, sys.SIGTERM))
-]]):format(Time.ms(100), sys.getpid()))
+]]):format(Clock.ms(100), sys.getpid()))
   assert(Stream.lines(assert(sender.stdout_stream)):read() == "ready")
   return sender
 end
@@ -57,7 +57,7 @@ local function signal(sender: Child.Handle)
 end
 
 local function done(started: Child.Handle)
-  assert(assert(started:wait(Time.seconds(5))).ok)
+  assert(assert(started:wait(Clock.seconds(5))).ok)
 end
 
 local function test_work_begin_stops_the_long_wait_and_can_be_used_again(tmp: string)
@@ -133,7 +133,7 @@ local function test_rebuild_sqlite_wait_releases_the_flock_after_cancellation(tm
   -- Long past the signal, which the ready handshake leaves only its
   -- 100 ms and a wake-up from, and within CI's 10 s per-test deadline:
   -- a wait the signal did not end answers "busy".
-  local taken, reason = rebuild_lock.take(tmp, Time.seconds(6))
+  local taken, reason = rebuild_lock.take(tmp, Clock.seconds(6))
   local caught = guard:take()
   guard:release()
   assert(taken == nil and reason:find("interrupted", 1, true), tostring(taken) .. " " .. reason)

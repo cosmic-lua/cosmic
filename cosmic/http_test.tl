@@ -12,7 +12,8 @@ local Http = require("cosmic.http")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
+
 local Url = require("cosmic.url")
 
 --- Requests to a closed local port, which a loopback alone answers:
@@ -395,7 +396,7 @@ end
 local function test_connection_refused_on_a_closed_local_port()
   -- Nothing binds port 1, so the connection is refused.
   local response, trouble = Http.open("http://127.0.0.1:1/",
-    { connect_timeout_ns = Time.seconds(2) })
+    { connect_timeout_ns = Clock.seconds(2) })
   assert(response == nil)
   assert(trouble ~= "")
   assert(trouble:lower():find("refus", 1, true) ~= nil or
@@ -404,7 +405,7 @@ end
 
 local function test_get_reports_the_same_failure_as_open()
   local got, trouble = Http.get("http://127.0.0.1:1/",
-    { connect_timeout_ns = Time.seconds(2) })
+    { connect_timeout_ns = Clock.seconds(2) })
   assert(got == nil)
   assert(trouble ~= "")
 end
@@ -478,7 +479,7 @@ end
 
 local function test_download_reports_the_same_failure_as_open(tmp: string)
   local ok, trouble = Http.download("http://127.0.0.1:1/", tmp .. "/unreached",
-    { connect_timeout_ns = Time.seconds(2) })
+    { connect_timeout_ns = Clock.seconds(2) })
   assert(not ok)
   assert(trouble ~= "")
 end
@@ -582,8 +583,8 @@ end
 local function test_an_integer_option_curl_would_clamp_is_refused()
   local err = raised({ max_redirects = 40000 })
   assert(err:find("http: opts.max_redirects must be between 0 and 32767", 1, true) ~= nil, err)
-  err = raised({ low_speed_ns = Time.seconds(70000) })
-  assert(err:find("http: opts.low_speed_ns must be between 0 and " .. Time.seconds(65535), 1, true) ~= nil,
+  err = raised({ low_speed_ns = Clock.seconds(70000) })
+  assert(err:find("http: opts.low_speed_ns must be between 0 and " .. Clock.seconds(65535), 1, true) ~= nil,
     err)
 end
 

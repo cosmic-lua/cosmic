@@ -15,7 +15,7 @@ local this_program = require("build.this_program")
 local worker = require("build.test_worker")
 -- The module the worker below runs, which its store must hold.
 local _ = require("build.key_parts")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- The program itself, which it starts as a worker.
 Test.needs{ tool = true }
@@ -34,7 +34,7 @@ local function test_a_worker_loads_what_worker_loads_names(tmp: string)
   local started = this_program.program({ "test", "--worker", root, "build.key_parts",
     "test_none", tmp .. "/tmp", tmp .. "/children" }, {
       cwd = root, stdin = "null", stdout = "capture", stderr = "stdout",
-      fds = { [worker.report_fd] = "capture" }, timeout_ns = Time.seconds(30),
+      fds = { [worker.report_fd] = "capture" }, timeout_ns = Clock.seconds(30),
     })
   local result = assert(Child.run(started.argv, started.options))
   local report = worker.decode(result.captured[worker.report_fd])
@@ -71,7 +71,7 @@ local function test_a_worker_attaches_the_store_it_is_given(tmp: string)
     "test_none", tmp .. "/tmp", tmp .. "/children", "", "--store", missing,
     "build.key_parts", "--tree", "build.key_parts", "--declared" }, {
       cwd = root, stdin = "null", stdout = "capture", stderr = "stdout",
-      fds = { [worker.report_fd] = "capture" }, timeout_ns = Time.seconds(30),
+      fds = { [worker.report_fd] = "capture" }, timeout_ns = Clock.seconds(30),
     })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.code == 2, tostring(result.code) .. ": " .. tostring(result.stdout))
@@ -81,7 +81,7 @@ local function test_a_worker_attaches_the_store_it_is_given(tmp: string)
     "test_none", tmp .. "/tmp", tmp .. "/children-again", "",
     "build.key_parts", "--tree", "build.key_parts", "--declared" }, {
       cwd = root, stdin = "null", stdout = "capture", stderr = "stdout",
-      fds = { [worker.report_fd] = "capture" }, timeout_ns = Time.seconds(30),
+      fds = { [worker.report_fd] = "capture" }, timeout_ns = Clock.seconds(30),
     })
   result = assert(Child.run(started.argv, started.options))
   local report = worker.decode(result.captured[worker.report_fd])

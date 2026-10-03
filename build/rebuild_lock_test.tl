@@ -1,7 +1,8 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Poll = require("cosmic.poll")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
+
 local sys = require("cosmic.sys")
 local rebuild_lock = require("build.rebuild_lock")
 
@@ -24,7 +25,7 @@ local function test_a_held_flock_keeps_another_run_out(tmp: string)
   assert(sys.flock(other, "exclusive"))
   local taken, trouble = rebuild_lock.take(root, 0)
   assert(taken == "busy", tostring(taken) .. " " .. trouble)
-  taken, trouble = rebuild_lock.take(root, Time.ms(50))
+  taken, trouble = rebuild_lock.take(root, Clock.ms(50))
   assert(taken == "busy", tostring(taken) .. " " .. trouble)
   assert(sys.close(other))
   taken, trouble = rebuild_lock.take(root, 0)

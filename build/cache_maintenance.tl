@@ -6,7 +6,8 @@ local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
+
 local sys = require("cosmic.sys")
 local formats = require("build.cache_formats")
 
@@ -266,7 +267,7 @@ local function maintain_file(path: string, options: maintenance.Options,
   if opened == nil then return failed(file, open_why) end
   local database <close> = owned(opened)
   local db = database.db
-  db:busy_timeout(Time.seconds(10))
+  db:busy_timeout(Clock.seconds(10))
   local begun = db:exec_result("BEGIN IMMEDIATE")
   if begun.code ~= Sqlite.OK then return failed(file, begun.reason) end
   database.transaction = true
@@ -331,7 +332,7 @@ local function feed_rows(hasher: Hash.Hasher, path: string, guard: Child.Guard):
   if opened == nil then return false, open_why end
   local database <close> = owned(opened)
   local db = database.db
-  db:busy_timeout(Time.seconds(10))
+  db:busy_timeout(Clock.seconds(10))
   local begun = db:exec_result("BEGIN")
   if begun.code ~= Sqlite.OK then return false, begun.reason end
   database.transaction = true
@@ -429,13 +430,13 @@ local function fresh_keys(path: string, restored: string, expected: {string:Shap
   local opened, why = Sqlite.open(path, { writable = true, create = false })
   if opened == nil then return nil, why end
   local live <close> = owned(opened)
-  live.db:busy_timeout(Time.seconds(10))
+  live.db:busy_timeout(Clock.seconds(10))
   local old <close> = owned(nil)
   local st, stat_why, errno = sys.stat(restored)
   if st ~= nil then
     old.db, why = Sqlite.open(restored)
     if old.db == nil then return nil, why end
-    old.db:busy_timeout(Time.seconds(10))
+    old.db:busy_timeout(Clock.seconds(10))
   elseif errno ~= sys.ENOENT then
     return nil, stat_why
   end

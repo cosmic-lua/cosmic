@@ -4,7 +4,8 @@ local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
+
 local Patch = require("build.patch")
 local ZigFetch = require("build.zig_fetch")
 local this_program = require("build.this_program")
@@ -29,7 +30,7 @@ end
 
 --- How long a wait for a child to end is given: a guard against a hang
 --- alone, generous for a slow host.
-local finish_ns <const> = Time.seconds(20)
+local finish_ns <const> = Clock.seconds(20)
 
 local function release(child: Child.Handle)
   assert(assert(child.stdin_stream):close())
@@ -66,7 +67,7 @@ local function test_sweeps_preserve_live_owners_and_reap_killed_ones(tmp: string
     prepare(root, cache, patch)
     assert(Fs.exists(wrapper), "a live owner's payload was swept")
     assert(sys.kill(child.pid, sys.SIGKILL))
-    local _ = assert(child:wait(Time.seconds(5)))
+    local _ = assert(child:wait(Clock.seconds(5)))
     -- Move the patched content so the second prepare is also a cache miss.
     assert(Fs.write(root .. "/vendor/lib/file", "next"))
     prepare(root, cache, patch)
@@ -95,7 +96,7 @@ require("build.zig_fetch").install(cache, cache .. "/install", "v", "host", nil)
     local child = assert(Child.start(command.argv, command.options))
     local lines = Stream.lines(assert(child.stdout_stream))
     assert(lines:read() == "started")
-    local result, _ = Child.wait_any({ child }, Time.ms(100))
+    local result, _ = Child.wait_any({ child }, Clock.ms(100))
     assert(result == nil, "creation bypassed the held gate")
     assert(table.concat(assert(Fs.list(cache)), " ") == ".scratch-gate")
     release(gate)
@@ -166,7 +167,7 @@ end
       { stdout = "stream", stderr = "capture" })
     local second = assert(Child.start(second_command.argv, second_command.options))
     assert(Stream.lines(assert(second.stdout_stream)):read() == "started")
-    local done, _ = Child.wait_any({ second }, Time.ms(100))
+    local done, _ = Child.wait_any({ second }, Clock.ms(100))
     assert(done == nil, "another install entered the creation/ownership gap")
     assert(Fs.exists(wrapper), "the new ownerless wrapper was swept")
     local wrappers = 0

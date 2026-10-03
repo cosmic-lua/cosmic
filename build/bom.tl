@@ -42,7 +42,8 @@ local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
+
 local bind = require("build.bind")
 local clock = require("build.clock")
 local log = require("build.verdict").log
@@ -427,7 +428,7 @@ end
 --- itself first, since [`build.reboot`] requires this module through
 --- [`build.writer`].
 local function run(argv: {integer:string}): integer
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local function finish(code: integer, detail: string): integer
     log:verdict("bom", code == 0, detail .. ", " .. clock.took(started))
     return code

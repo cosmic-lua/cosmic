@@ -16,7 +16,8 @@ local Removed = require("cosmic.removed")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
+
 local alias_members = require("build.alias_members")
 local clock = require("build.clock")
 local link_text = require("build.link_text")
@@ -2574,7 +2575,7 @@ local function run(argv: {integer:string}): integer
   if not built then
     log:complain("docs: not rebuilt, answering from the last build: " .. build_trouble)
   end
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local sources = docs.databases()
   local view, view_trouble = docs.view(sources.handles, sources.public)
   if view == nil then
@@ -2623,7 +2624,7 @@ local function run_uses(argv: {integer:string}): integer
   if not built then
     log:complain("uses: not rebuilt, answering from the last build: " .. build_trouble)
   end
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local sources = docs.databases()
   local view, view_trouble = docs.view(sources.handles, sources.public)
   if view == nil then

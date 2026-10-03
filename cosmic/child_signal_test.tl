@@ -7,7 +7,7 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- The system's sh, which ignores SIGINT for the program it execs, and
 --- the program itself, through its launcher.
@@ -46,7 +46,7 @@ end
   -- disposition, and move this case back to cosmic/child_test.tl.
   local r = assert(Child.run({ "/bin/sh", "-c", "trap '' INT; exec \"$0\" \"$@\"",
     assert(Proc.executable()), fixture, report },
-    { env = nested_cosmic_environment(), stderr = "capture", timeout_ns = Time.seconds(30) }))
+    { env = nested_cosmic_environment(), stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
       " " .. tostring(r.stderr))
   local got = Fs.read(report)

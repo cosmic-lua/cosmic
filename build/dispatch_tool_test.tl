@@ -5,7 +5,7 @@
 local Child = require("cosmic.child")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- The program itself, started with `-e`.
 Test.needs{ lua = true }
@@ -37,7 +37,7 @@ for name in pairs(package.loaded) do
 end
 table.sort(names)
 print(table.concat(names, " "))
-]] }, { env = {}, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })
+]] }, { env = {}, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))
   local names: {string} = {}

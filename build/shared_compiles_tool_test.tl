@@ -14,7 +14,7 @@ local Sqlite = require("cosmic.sqlite")
 local this_program = require("build.this_program")
 local shared_compiles = require("build.shared_compiles")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- The program itself, which its tests start.
 Test.needs{ tool = true }
@@ -80,7 +80,7 @@ local function build(root: string, env: {string:string}, fails?: boolean): strin
   local fd = assert(Fs.open_write(output))
   local started = this_program.program({ "test" }, {
     cwd = root, env = env, stdout = fd, stderr = fd,
-    process_group = true, timeout_ns = Time.seconds(60),
+    process_group = true, timeout_ns = Clock.seconds(60),
   })
   local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))
@@ -316,7 +316,7 @@ local function test_two_builds_writing_at_once_keep_both(tmp: string)
     handles[index] = assert(Child.start(started.argv, started.options))
   end
   for index, handle in ipairs(handles) do
-    local result, trouble = handle:wait(Time.seconds(60))
+    local result, trouble = handle:wait(Clock.seconds(60))
     assert(Fs.close(outputs[index]))
     local text = assert(Fs.read(tmp .. "/" .. (index == 1 and "one" or "two") .. ".out"))
     assert(result ~= nil and result.ok, tostring(trouble) .. text)
@@ -349,11 +349,11 @@ local function test_a_cache_another_build_is_making_is_opened(tmp: string)
   local chunk = string.format([[
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local db = assert(Sqlite.open(%q, { writable = true }))
 assert(db:exec("BEGIN IMMEDIATE"))
 assert(Fs.write(%q, ""))
-assert(Time.sleep_ns(500 * 1000000))
+assert(Clock.sleep_ns(500 * 1000000))
 assert(db:exec("COMMIT"))
 assert(db:close())
 return 0
@@ -363,7 +363,7 @@ return 0
   local waited = 0
   while Fs.exists(held) ~= true do
     assert(waited < 10000, "the holder never took the lock")
-    assert(Time.sleep_ns(Time.ms(10)))
+    assert(Clock.sleep_ns(Clock.ms(10)))
     waited = waited + 10
   end
   local cache, trouble = shared_compiles.open(path)
@@ -371,6 +371,6 @@ return 0
   local rows = assert(Sqlite.text_rows(cache.db, "PRAGMA journal_mode"))
   assert(rows[1][1] == "wal", rows[1][1])
   shared_compiles.close(cache)
-  local result, wait_trouble = handle:wait(Time.seconds(10))
+  local result, wait_trouble = handle:wait(Clock.seconds(10))
   assert(result ~= nil and result.ok, tostring(wait_trouble))
 end

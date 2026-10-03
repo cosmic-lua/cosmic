@@ -9,7 +9,8 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
+
 local rebuild_lock = require("build.rebuild_lock")
 local this_program = require("build.this_program")
 
@@ -48,10 +49,10 @@ end
 --- Waits up to 20 s for `holds` to answer true, checking every 20 ms,
 --- and answers true once it has.
 local function await(what: string, holds: function(): boolean): boolean
-  local deadline = Time.monotonic_ns() + Time.seconds(20)
+  local deadline = Clock.monotonic_ns() + Clock.seconds(20)
   while not holds() do
-    assert(Time.monotonic_ns() < deadline, "gave up waiting for " .. what)
-    assert(sys.nanosleep(Time.ms(20)))
+    assert(Clock.monotonic_ns() < deadline, "gave up waiting for " .. what)
+    assert(sys.nanosleep(Clock.ms(20)))
   end
   return true
 end
@@ -71,7 +72,7 @@ local function test_a_second_run_waits_for_the_first_then_passes(tmp: string)
   end)
   local running, _ = h:try_wait()
   rebuild_lock.release()
-  local result = assert(h:wait(Time.seconds(20)))
+  local result = assert(h:wait(Clock.seconds(20)))
   local text = assert(Fs.read(output))
   assert(ok, tostring(failure) .. "\n" .. text)
   assert(running ~= nil and not running.finished, "the second run did not wait:\n" .. text)
@@ -86,14 +87,14 @@ end
 --- lock at once.
 local function test_a_run_lets_the_lock_go_on_failure_and_interrupt(tmp: string)
   local root = tmp .. "/project"
-  project(root, Time.seconds(60))
+  project(root, Clock.seconds(60))
   local h = start_test(root, tmp .. "/interrupted.out")
   local _ = await("the run to take the lock", function(): boolean
     return Fs.read(root .. "/o/rebuild.lock.pid") ~= nil and
       rebuild_lock.take(root, 0, "write") == "busy"
   end)
   assert(h:stop(sys.SIGINT))
-  local interrupted = assert(h:wait(Time.seconds(20)))
+  local interrupted = assert(h:wait(Clock.seconds(20)))
   assert(not interrupted.ok, "an interrupted run passed")
   -- Each half is let go with its descriptor, which the run opens
   -- close-on-exec: these fail should a process the run starts inherit
@@ -105,7 +106,7 @@ local function test_a_run_lets_the_lock_go_on_failure_and_interrupt(tmp: string)
 
   assert(Fs.write(root .. "/suite/slow_test.tl",
     "local function test_fails()\n  error(\"no\")\nend\n"))
-  local failed = assert(start_test(root, tmp .. "/failed.out"):wait(Time.seconds(20)))
+  local failed = assert(start_test(root, tmp .. "/failed.out"):wait(Clock.seconds(20)))
   assert(not failed.ok, tostring((Fs.read(tmp .. "/failed.out"))))
   assert(rebuild_lock.take(root, 0, "write") == "held", "a failed run left the lock held")
   rebuild_lock.release()
@@ -137,7 +138,7 @@ local function test_a_write_of_the_projection_waits_for_the_lock(tmp: string)
   local projection, _ = sys.stat(root .. "/o/cosmic.db")
   local unwritten = projection == nil
   rebuild_lock.release()
-  local result = assert(h:wait(Time.seconds(20)))
+  local result = assert(h:wait(Clock.seconds(20)))
   local text = assert(Fs.read(output))
   assert(ok, tostring(failure) .. "\n" .. text)
   assert(running ~= nil and not running.finished, "the write did not wait:\n" .. text)

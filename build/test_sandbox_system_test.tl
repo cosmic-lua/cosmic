@@ -10,7 +10,8 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
+
 local confine = require("build.confine")
 local sandbox_skip = require("build.sandbox_skip")
 local stand_in = require("build.stand_in")
@@ -148,7 +149,7 @@ end
   local fd = assert(Fs.open_write(output))
   local started = this_program.program({ "test", "--all" }, {
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true,
-    timeout_ns = Time.seconds(60),
+    timeout_ns = Clock.seconds(60),
   })
   local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))

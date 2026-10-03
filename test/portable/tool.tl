@@ -10,7 +10,8 @@ local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
+
 local artifact = require("build.artifact")
 local fixture = require("test.portable")
 local sys = require("cosmic.sys")
@@ -371,13 +372,13 @@ local function time_runtime(argv: {string}): integer
       "runtime timing re-entry changed logical executable")
     local before = assert(math.tointeger(tonumber(started)),
       "runtime timing marker is invalid")
-    local after = Time.monotonic_ns()
+    local after = Clock.monotonic_ns()
     print(string.format("real %.6f", (after - before) / 1000000000))
     return 0
   end
 
   local environment = Env.all()
-  environment[marker] = tostring(Time.monotonic_ns())
+  environment[marker] = tostring(Clock.monotonic_ns())
   environment["COSMIC_PORTABLE_CACHE"] = cache
   local arguments = { target, argv[0], "time-runtime", target, cache }
   local _, trouble = Proc.exec(arguments, { env = environment })

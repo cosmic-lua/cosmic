@@ -4,7 +4,7 @@
 ---
 ---     Poll.run(function()
 ---       local worker = Poll.spawn(function()
----         assert(Poll.readable(fd, Time.seconds(5)))
+---         assert(Poll.readable(fd, Clock.seconds(5)))
 ---         print(sys.read(fd, 4096))
 ---       end)
 ---       assert(worker:join())
@@ -35,7 +35,7 @@
 
 local errors = require("cosmic.internal.errors")
 local sys = require("cosmic.sys")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 local record Poll
   --- A function running under [`Poll.run`] beside the others, answered by
@@ -84,9 +84,9 @@ end
 Poll.TIMEOUT = "timed out"
 Poll.CANCELLED = "cancelled"
 
-Poll.MOST_NS = Time.ms(0x7fffffff)
+Poll.MOST_NS = Clock.ms(0x7fffffff)
 --- One millisecond, which [`sys.poll`] counts its waits in.
-local MS <const> = Time.ms(1)
+local MS <const> = Clock.ms(1)
 --- The highest descriptor [`sys.poll`] takes: a C `int`.
 local MOST_FD <const> = 0x7fffffff
 --- What [`sys.poll`] answers of a descriptor whether asked or not.
@@ -419,7 +419,7 @@ local function park(task: State, w: Wait, timeout_ns: integer | nil): boolean, s
       for place, fd in ipairs(w.fds) do enter(w, fd, w.masks[place], place) end
     end
     if timeout_ns ~= nil then
-      w.at, w.in_heap = Time.monotonic_ns() + timeout_ns, true
+      w.at, w.in_heap = Clock.monotonic_ns() + timeout_ns, true
       heap_push(loop.timers, w)
     end
   end
@@ -466,7 +466,7 @@ end
 --- up so a wait with time left never polls for none, or -1 for no limit.
 local function poll_ms(timeout_ns: integer | nil): integer
   if timeout_ns == nil then return -1 end
-  return Time.ceil(timeout_ns, MS)
+  return Clock.ceil(timeout_ns, MS)
 end
 
 --- Waits for `fd` to have `events` through the run's task, or, for a
@@ -482,13 +482,13 @@ local function wait_on(fd: integer, events: integer, timeout_ns: integer | nil,
   if task ~= nil then
     return park(task, { task = task, fd = fd, events = events }, timeout_ns)
   end
-  local deadline = timeout_ns ~= nil and Time.monotonic_ns() + timeout_ns or nil
+  local deadline = timeout_ns ~= nil and Clock.monotonic_ns() + timeout_ns or nil
   while true do
-    local left = deadline ~= nil and math.max(deadline - Time.monotonic_ns(), 0) or nil
+    local left = deadline ~= nil and math.max(deadline - Clock.monotonic_ns(), 0) or nil
     local revents, trouble = sys.poll({ fd }, { events }, poll_ms(left))
     if revents == nil then return false, trouble end
     if revents[1] ~= 0 then return true, "" end
-    if deadline ~= nil and Time.monotonic_ns() >= deadline then return false, Poll.TIMEOUT end
+    if deadline ~= nil and Clock.monotonic_ns() >= deadline then return false, Poll.TIMEOUT end
   end
 end
 
@@ -709,9 +709,9 @@ local function next_timeout(): integer
   if #loop.ready > 0 then return 0 end
   while #loop.timers > 0 and loop.timers[1].done do pop_timer() end
   if #loop.timers == 0 then return -1 end
-  local left = loop.timers[1].at - Time.monotonic_ns()
+  local left = loop.timers[1].at - Clock.monotonic_ns()
   if left <= 0 then return 0 end
-  return math.min(Time.ceil(left, MS), Time.ceil(Poll.MOST_NS, MS))
+  return math.min(Clock.ceil(left, MS), Clock.ceil(Poll.MOST_NS, MS))
 end
 
 --- Waits on every watched descriptor for as long as `timeout`, and
@@ -753,7 +753,7 @@ end
 
 --- Answers every time wait whose time has come.
 local function expire()
-  local t = Time.monotonic_ns()
+  local t = Clock.monotonic_ns()
   while #loop.timers > 0 and (loop.timers[1].done or loop.timers[1].at <= t) do
     local w = pop_timer()
     if not w.done then

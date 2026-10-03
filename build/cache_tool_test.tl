@@ -8,7 +8,8 @@ local type _ = require("build.cache")
 local type _ = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
+
 local this_program = require("build.this_program")
 
 Test.needs{ tool = true }
@@ -17,7 +18,7 @@ local function run(dir: string, words: {string}): Child.Result
   local env = this_program.environment()
   env.COSMIC_TREE = dir .. "/does-not-exist"
   local started = this_program.program(words, { cwd = dir, env = env,
-    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(10) })
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(10) })
   return (assert(Child.run(started.argv, started.options)))
 end
 
@@ -42,7 +43,7 @@ local function test_busy_cache_cancellation_is_prompt_and_preserves_file(tmp: st
   local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("CREATE TABLE untouched (value TEXT); INSERT INTO untouched VALUES ('keep'); BEGIN IMMEDIATE"))
   local started = this_program.program({ "cache", "trim", "compiles", path, "--since-ns", "0", "--json" },
-    { cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(0.2) })
+    { cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(0.2) })
   local result = assert(Child.run(started.argv, started.options))
   assert(db:exec("ROLLBACK"))
   assert(db:close())
@@ -67,12 +68,12 @@ local function test_long_lived_reader_prevents_a_save_ready_wal_snapshot(tmp: st
   assert(assert(reader.stdout_stream):read(1) == "r")
   assert(db:exec("INSERT INTO keep VALUES ('later')"))
   local started = this_program.program({ "cache", "trim", "verdicts", path, "--whole", "--json" },
-    { cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Time.ms(200) })
+    { cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.ms(200) })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.timed_out and not (result.stdout or ""):find('"digest"', 1, true))
   assert(Fs.stat(path .. "-wal") ~= nil, "maintenance must never unlink a live WAL")
   assert(assert(reader.stdin_stream):close())
-  assert(assert(reader:wait(Time.seconds(5))).code == 0)
+  assert(assert(reader:wait(Clock.seconds(5))).code == 0)
   assert(#assert(Sqlite.rows(db, "SELECT * FROM keep")) == 2)
   assert(db:close())
 end
@@ -94,16 +95,16 @@ local function test_signal_exits_cooperatively_with_an_incomplete_json_report(tm
   local output = assert(child.stdout_stream)
   local ready, ready_why = output:read(1)
   if ready ~= "r" then
-    local stopped = assert(child:wait(Time.seconds(5)))
+    local stopped = assert(child:wait(Clock.seconds(5)))
     error(ready_why .. (stopped.stderr or ""))
   end
-  Poll.run(function() assert(Poll.delay(Time.ms(20))) end)
-  local before = Time.monotonic_ns()
+  Poll.run(function() assert(Poll.delay(Clock.ms(20))) end)
+  local before = Clock.monotonic_ns()
   assert(child:stop())
-  local result = assert(child:wait(Time.seconds(5)))
-  local elapsed = Time.monotonic_ns() - before
+  local result = assert(child:wait(Clock.seconds(5)))
+  local elapsed = Clock.monotonic_ns() - before
   local report = assert(Stream.read_all(output))
-  assert(result.code == 1 and not result.timed_out and elapsed < Time.seconds(2), result.stderr)
+  assert(result.code == 1 and not result.timed_out and elapsed < Clock.seconds(2), result.stderr)
   assert(Json.decode(report) ~= nil and report:find('"state":"failed"', 1, true), report)
   assert(not report:find('"digest"', 1, true) and not report:find('"fresh"', 1, true), report)
   assert(db:exec("ROLLBACK"))

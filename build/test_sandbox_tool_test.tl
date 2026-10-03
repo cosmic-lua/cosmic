@@ -12,7 +12,8 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
+
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 local stand_in = require("build.stand_in")
@@ -297,7 +298,7 @@ end
 local function run(root: string, output: string, env: {string:string}): string, boolean
   local fd = assert(Fs.open_write(output))
   local started = this_program.program({ "test", "--all" }, {
-    cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ns = Time.seconds(60),
+    cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ns = Clock.seconds(60),
   })
   local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))
@@ -311,7 +312,7 @@ end
 local function run_again(root: string, output: string, env: {string:string}): string, boolean
   local fd = assert(Fs.open_write(output))
   local started = this_program.program({ "test" }, {
-    cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ns = Time.seconds(60),
+    cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ns = Clock.seconds(60),
   })
   local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))
@@ -611,22 +612,22 @@ local function test_second(tmp: string) hold(tmp) end
   local runner, trouble = Child.start(interrupted.argv, interrupted.options)
   assert(Fs.close(fd))
   local handle <close> = assert(runner, trouble)
-  local deadline = Time.monotonic_ns() + Time.seconds(30)
+  local deadline = Clock.monotonic_ns() + Clock.seconds(30)
   while held() < 2 do
-    assert(Time.monotonic_ns() < deadline, assert(Fs.read(output)))
-    local done, _ = Child.wait_any({ handle }, Time.ms(50))
+    assert(Clock.monotonic_ns() < deadline, assert(Fs.read(output)))
+    local done, _ = Child.wait_any({ handle }, Clock.ms(50))
     assert(done == nil, "the runner ended before its tests started\n" .. assert(Fs.read(output)))
   end
   local text = assert(Fs.read(output))
   if unsandboxed(text) then
     -- Unsandboxed here: build/test_isolation_tool_test.tl's case.
     assert(handle:stop(sys.SIGKILL))
-    local _, _ = handle:wait(Time.seconds(30))
+    local _, _ = handle:wait(Clock.seconds(30))
     return
   end
   assert(text:find("test: sandbox: each worker is held", 1, true), text)
   assert(handle:stop(sys.SIGINT))
-  local result = assert(handle:wait(Time.seconds(30)))
+  local result = assert(handle:wait(Clock.seconds(30)))
   text = assert(Fs.read(output))
   assert(not result.timed_out and result.signal == sys.SIGINT, text)
   assert(text:find("test: cancelled; every running test was ended", 1, true), text)

@@ -11,7 +11,7 @@ local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local Url = require("cosmic.url")
 
 --- A server on the worker's own loopback, and the program itself,
@@ -63,7 +63,7 @@ end
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local base = "http://127.0.0.1:" .. addresses[1].port
       local started = this_program.program({ "--standalone", script, base },
-        { stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(60) })
+        { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
       result = assert(Child.run(started.argv, started.options))
       server:stop()
     end,
@@ -113,7 +113,7 @@ end
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local base = "http://127.0.0.1:" .. addresses[1].port
       local started = this_program.program({ "--standalone", script, base },
-        { stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(60) })
+        { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
       result = assert(Child.run(started.argv, started.options))
       server:stop()
     end,
@@ -138,11 +138,11 @@ local function test_sigterm_stops_a_server_and_it_exits_0(tmp: string)
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local Net = require("cosmic.net")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 return function(argv: {string}): integer
   local ok, why = Http.serve{
     listeners = { Net.unix(argv[1]) },
-    idle_ns = Time.seconds(60),
+    idle_ns = Clock.seconds(60),
     handle = function(_req: Http.Request): Http.Reply return { status = 200, body = "up" } end,
     on_ready = function(_addresses: {Net.Address}, _server: Net.Server)
       assert(Fs.write(argv[2], ""))
@@ -160,18 +160,18 @@ end
   local child <close> = assert(Child.start(started.argv, started.options))
   for _ = 1, 3000 do
     if Fs.stat(marker) ~= nil then break end
-    assert(sys.nanosleep(Time.ms(10)))
+    assert(sys.nanosleep(Clock.ms(10)))
   end
   assert(Fs.stat(marker) ~= nil, "the server never listened")
-  local conn <close> = assert(Net.connect(Net.unix(socket), { timeout_ns = Time.seconds(20) }))
+  local conn <close> = assert(Net.connect(Net.unix(socket), { timeout_ns = Clock.seconds(20) }))
   assert(conn:write("GET / HTTP/1.1\r\nHost: test\r\n\r\n"))
   local head = ""
   while not head:find("\r\n\r\nup", 1, true) do head = head .. assert(conn:read()) end
-  local stopped_at = Time.monotonic_ns()
+  local stopped_at = Clock.monotonic_ns()
   assert(child:stop(sys.SIGTERM))
-  local result = assert(child:wait(Time.seconds(30)))
+  local result = assert(child:wait(Clock.seconds(30)))
   assert(result.code == 0, tostring(result.code) .. " " .. tostring(result.stderr))
-  assert(Time.monotonic_ns() - stopped_at < Time.seconds(10), "the idle connection held the stop")
+  assert(Clock.monotonic_ns() - stopped_at < Clock.seconds(10), "the idle connection held the stop")
   local after, why = conn:read()
   assert(after == nil and why == "", tostring(after) .. " " .. why)
 end

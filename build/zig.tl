@@ -73,6 +73,12 @@ local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
+-- TODO: require cosmic.clock for the clock this reads ([`Time.monotonic_ns`],
+-- `ms`, ...) once ci/cosmic-driver.pin names a release that carries it:
+-- this script runs standalone on the pinned release, which has only
+-- cosmic.time, so every test that reaches it still reaches the calendar code.
+-- ci/ is held to the same pin: its modules that only read a clock take
+-- cosmic.clock then too.
 local Time = require("cosmic.time")
 
 local record Zig

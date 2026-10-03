@@ -8,7 +8,7 @@ local Fs = require("cosmic.fs")
 local this_program = require("build.this_program")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- The program itself, which its tests start to run a file `--standalone`
 --- (`standalone`).
@@ -32,7 +32,7 @@ return Script
 ]]))
   local started = this_program.program({ "--standalone", script, "one", "two" }, {
     cwd = tmp, stdout = "capture", stderr = "capture",
-    timeout_ns = Time.seconds(30),
+    timeout_ns = Clock.seconds(30),
   })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.code == 5, tostring(result.stderr))
@@ -49,7 +49,7 @@ local function test_the_compile_cache_is_kept_only_where_others_cannot_write(tmp
   assert(Fs.write(script, "return function(_argv: {string}): integer return 3 end\n"))
   local function run(env: {string:string}): integer
     local started = this_program.program({ "--standalone", script }, {
-      env = env, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30),
+      env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
     })
     local result = assert(Child.run(started.argv, started.options))
     return result.code
@@ -79,7 +79,7 @@ local function test_a_main_that_returns_no_exit_status_is_refused(tmp: string)
         returned .. "\nend\n"))
     local started = this_program.program({ "--standalone", script }, {
       env = { XDG_CACHE_HOME = tmp .. "/cache" },
-      stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30),
+      stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
     })
     return (assert(Child.run(started.argv, started.options)))
   end
@@ -100,7 +100,7 @@ end
 
 local function test_a_run_without_a_file_is_a_usage_error()
   local started = this_program.program({ "--standalone" }, {
-    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30),
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
   })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.code == 2)

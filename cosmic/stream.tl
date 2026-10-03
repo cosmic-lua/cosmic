@@ -21,7 +21,7 @@ local Hash = require("cosmic.hash")
 local Poll = require("cosmic.poll")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 -- The raw declaration holds the interface. A declaration may require only
 -- declarations, and Teal's interface conformance is nominal: the raw
@@ -420,7 +420,7 @@ end
 local function wait_for(fd: integer, events: integer, opts: Stream.FdOptions,
                         deadline: integer | nil): boolean, string
   local left: integer = nil
-  if deadline ~= nil then left = math.max(deadline - Time.monotonic_ns(), 0) end
+  if deadline ~= nil then left = math.max(deadline - Clock.monotonic_ns(), 0) end
   if opts.wait ~= nil then return opts.wait(fd, events, left) end
   return Poll.wait(fd, events, left)
 end
@@ -466,7 +466,7 @@ function FdReader:read(max_bytes?: integer): string | nil, string
   if self.ended then return nil, "" end
   local fd, opts = self.fd, self.opts
   local deadline: integer = nil
-  if opts.timeout_ns ~= nil then deadline = Time.monotonic_ns() + opts.timeout_ns end
+  if opts.timeout_ns ~= nil then deadline = Clock.monotonic_ns() + opts.timeout_ns end
   while true do
     local data, trouble, errno = sys.read(fd, max_bytes or chunk_size)
     if data ~= nil then
@@ -546,7 +546,7 @@ end
 --- [`Poll.TIMEOUT`], and may be called again. A deadline or a cancelled
 --- task is the one failure that is not sticky.
 ---
----     local r = Stream.from_fd(fd, { nonblocking = true, timeout_ns = Time.ms(50) })
+---     local r = Stream.from_fd(fd, { nonblocking = true, timeout_ns = Clock.ms(50) })
 ---     local chunk, why = r:read()
 ---     if chunk == nil and why == Poll.TIMEOUT then print("nothing for 50 ms") end
 function Stream.from_fd(fd: integer, opts?: Stream.FdOptions): Stream.Reader
@@ -1096,7 +1096,7 @@ function ToFdWriter:write(data: string): boolean, string
   if self.failed then return false, self.failed end
   local fd, options = self.fd, self.options
   local deadline: integer = nil
-  if options.timeout_ns ~= nil then deadline = Time.monotonic_ns() + options.timeout_ns end
+  if options.timeout_ns ~= nil then deadline = Clock.monotonic_ns() + options.timeout_ns end
   local at = 0
   while at < #data do
     -- Handed in pieces, so a body of any size is not copied whole
@@ -1164,7 +1164,7 @@ ToFdWriter.abort = ToFdWriter.close
 --- counts, so the caller can write the rest, or give up knowing how
 --- much of it went.
 ---
----     local w = Stream.to_fd(fd, { nonblocking = true, timeout_ns = Time.seconds(5) })
+---     local w = Stream.to_fd(fd, { nonblocking = true, timeout_ns = Clock.seconds(5) })
 ---     local ok, why = w:write(body)
 ---     if not ok and why == Poll.TIMEOUT then print(w:written() .. " bytes went") end
 function Stream.to_fd(fd: integer, opts?: Stream.FdOptions): Stream.FdWriter

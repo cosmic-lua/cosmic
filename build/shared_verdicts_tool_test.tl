@@ -12,7 +12,8 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
+
 local this_program = require("build.this_program")
 local shared_verdicts = require("build.shared_verdicts")
 local sandbox_skip = require("build.sandbox_skip")
@@ -36,7 +37,7 @@ local function run(root: string, output: string, env: {string:string},
   for _, word in ipairs(words or {}) do args[#args + 1] = word end
   local started = this_program.program(args, {
     cwd = root, env = env, stdout = fd, stderr = fd,
-    process_group = true, timeout_ns = Time.seconds(60),
+    process_group = true, timeout_ns = Clock.seconds(60),
   })
   local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))
@@ -611,7 +612,7 @@ end
 --- its modification time not.
 local function touch(path: string)
   local data = assert(Fs.read(path))
-  assert(Time.sleep_ns(10000000))
+  assert(Clock.sleep_ns(10000000))
   assert(Fs.write(path, data))
 end
 

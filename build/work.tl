@@ -19,7 +19,8 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
+
 local sys = require("cosmic.sys")
 local identity = require("build.identity")
 local analysis_schema = require("build.analysis_schema")
@@ -407,10 +408,10 @@ end
 --- (core/sqlite.c), which a waiting run would otherwise meet as
 --- "database is locked". It is as long as build.reboot waits for
 --- another run's rebuild lock.
-local wait_ns <const> = Time.minutes(30)
+local wait_ns <const> = Clock.minutes(30)
 
 --- How long a run waits for that transaction before it says so.
-local notice_ns <const> = Time.seconds(1)
+local notice_ns <const> = Clock.seconds(1)
 
 --- Begins the run's transaction on `db`, the working database at `path`,
 --- waiting up to `wait_ns` for another run that holds it and saying so
@@ -633,7 +634,7 @@ local once = bind.once
 
 --- How long a file's modification time has to be in the past before
 --- a stat is trusted to stand for its bytes.
-local settle_ns = Time.seconds(2)
+local settle_ns = Clock.seconds(2)
 
 --- Whether a file's row no longer stands for it, consuming the row
 --- from `known` either way, so what is left in `known` at the end is
@@ -667,7 +668,7 @@ function work.tool_moved(handle: work.Handle): boolean | nil, string
     if st == nil then
       return true, ""
     end
-    local mtime_ns = Time.seconds(st.mtime) + st.mtime_ns
+    local mtime_ns = Clock.seconds(st.mtime) + st.mtime_ns
     if moved(known, path, st, mtime_ns) then
       return true, ""
     end
@@ -866,7 +867,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
     end
     put[name] = statement
   end
-  local now = Time.now_ns()
+  local now = Clock.now_ns()
   local staged: work.Staged = { files = 0, read = 0 }
   -- The text of each file of `linked` read here, by path.
   local texts: {string:string} = {}
@@ -886,7 +887,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
       scan = false
     end
     if input or tool or scan or link_kind ~= nil then
-      local mtime_ns = Time.seconds(st.mtime) + st.mtime_ns
+      local mtime_ns = Clock.seconds(st.mtime) + st.mtime_ns
       local settled = mtime_ns < now - settle_ns
       if input or tool then
         staged.files = staged.files + 1

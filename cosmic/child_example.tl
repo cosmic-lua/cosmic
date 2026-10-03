@@ -7,7 +7,8 @@ local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local Stream = require("cosmic.stream")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
+
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
@@ -39,7 +40,7 @@ function Example.guard()
     running[i] = assert(Child.start(argv, { env = again.env, fds = again.fds }))
   end
   while #running > 0 and guard:cancelled() == 0 do
-    local done, trouble = Child.wait_any(running, Time.ms(100))
+    local done, trouble = Child.wait_any(running, Clock.ms(100))
     if done == nil and trouble ~= Poll.TIMEOUT then error(trouble) end
     local still: {Child.Handle} = {}
     for _, h in ipairs(running) do
@@ -70,14 +71,14 @@ function Example.supervisor()
   for _, name in ipairs({ "build", "upload" }) do
     local argv = { table.unpack(again.argv) }
     argv[#argv + 1] = "-e"
-    argv[#argv + 1] = "require('cosmic.time').sleep_ns(60 * 1000000000)"
+    argv[#argv + 1] = "require('cosmic.clock').sleep_ns(60 * 1000000000)"
     local h = assert(Child.start(argv, { env = again.env, fds = again.fds }))
     running[#running + 1] = h
     names[h] = name
   end
   local report: {string} = {}
   while #running > 0 and guard:cancelled() == 0 do
-    local done, trouble = Child.wait_any(running, Time.ms(100))
+    local done, trouble = Child.wait_any(running, Clock.ms(100))
     if done == nil and trouble ~= Poll.TIMEOUT then error(trouble) end
     local still: {Child.Handle} = {}
     for _, h in ipairs(running) do
@@ -126,7 +127,7 @@ function Example.release()
     else
       local taken = guard:take()
       if taken ~= 0 then assert(h:stop(taken)) end
-      Time.sleep_ns(Time.ms(10))
+      Clock.sleep_ns(Clock.ms(10))
     end
   end
   local caught = assert(guard:release())
@@ -176,7 +177,7 @@ assert(Fs.put(2, "diagnostic\n"))]]
     { env = again.env, fds = again.fds, stdout = "stream", stderr = "stream" }))
   local options: Child.DrainOptions = {
     stdout = Stream.to_fd(Fs.stdout), stderr = Stream.to_fd(Fs.stderr),
-    timeout_ns = Time.seconds(5), max_bytes = 8,
+    timeout_ns = Clock.seconds(5), max_bytes = 8,
   }
   while true do
     local drained = h:drain(options)

@@ -13,7 +13,7 @@ local this_program = require("build.this_program")
 local sandbox_skip = require("build.sandbox_skip")
 local Test = require("cosmic.test")
 local String = require("cosmic.string")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- What these tests start is this very program, which runs the
 --- tool's own modules besides the closure's, in a root of its own
@@ -47,7 +47,7 @@ local function run(root: string, output: string, env: {string:string},
   for _, word in ipairs(words or {}) do args[#args + 1] = word end
   local started = this_program.program(args, {
     cwd = root, env = env, stdout = fd, stderr = fd,
-    process_group = true, timeout_ns = Time.seconds(60),
+    process_group = true, timeout_ns = Clock.seconds(60),
   })
   local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))

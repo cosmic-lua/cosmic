@@ -6,7 +6,7 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- What `program` copies is the whole of this process's environment,
 --- and what it starts is this very program, which reads its own command
@@ -79,7 +79,7 @@ local function test_program_adds_the_relaunch_to_a_copy_of_the_options()
     -- Every field of [`Child.Options`], so one the copy drops fails.
     local given: Child.Options = { env = env, cwd = "/somewhere", stdin = "stream", input = "bytes",
       stdout = "capture", stderr = "stdout", fds = fds, capture_limit = 9,
-      process_group = true, timeout_ns = Time.ms(5), sandbox = sandbox }
+      process_group = true, timeout_ns = Clock.ms(5), sandbox = sandbox }
     local opts = this_program.program({}, given).options
     assert(opts.env ~= env and opts.fds ~= fds, "the caller's tables are copied")
     assert(opts.env.HOME == "/home" and opts.env.COSMIC_PORTABLE_ARTIFACT == "/a" and
@@ -90,7 +90,7 @@ local function test_program_adds_the_relaunch_to_a_copy_of_the_options()
         opts.fds[255] == 8)
     assert(opts.cwd == "/somewhere" and opts.stdin == "stream" and opts.stdout == "capture" and
         opts.input == "bytes" and opts.stderr == "stdout" and opts.capture_limit == 9 and opts.process_group == true and
-        opts.timeout_ns == Time.ms(5) and opts.sandbox == sandbox)
+        opts.timeout_ns == Clock.ms(5) and opts.sandbox == sandbox)
     assert(given.env == env and given.fds == fds)
     assert(env.SHARED == "caller" and env.COSMIC_PORTABLE_ARTIFACT == nil and
         env.COSMIC_PORTABLE_STARTUP_TEST_READY == "r" and env.COSMIC_PORTABLE_STARTUP_TEST_GO == "g")
@@ -124,7 +124,7 @@ local function test_program_starts_this_program_with_no_environment(tmp: string)
 local Fs = require("cosmic.fs")
 local cmdline = Fs.read("/proc/self/cmdline")
 print(cmdline ~= nil and cmdline:match("^[^%z]*") or "")
-]] }, { env = {}, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })
+]] }, { env = {}, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))
   local relaunch = Proc.relaunch()

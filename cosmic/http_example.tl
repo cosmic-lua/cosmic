@@ -9,7 +9,7 @@ local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local Net = require("cosmic.net")
 local Stream = require("cosmic.stream")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 local Example = {}
 
@@ -85,7 +85,7 @@ function Example.serve()
       return { status = 405, headers = { Allow = "GET, HEAD, PUT" } }
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local conn <close> = assert(Net.connect(addresses[1], { timeout_ns = Time.seconds(5) }))
+      local conn <close> = assert(Net.connect(addresses[1], { timeout_ns = Clock.seconds(5) }))
       assert(conn:write("PUT /greeting HTTP/1.1\r\nHost: kv\r\nContent-Length: 5\r\n\r\nhello" ..
           "GET /greeting HTTP/1.1\r\nHost: kv\r\nConnection: close\r\n\r\n"))
       local answer = assert(Stream.read_all(conn))

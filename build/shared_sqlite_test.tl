@@ -4,7 +4,8 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
+
 local shared_sqlite = require("build.shared_sqlite")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
@@ -25,7 +26,7 @@ local function test_an_open_cache_is_in_wal_mode_and_prepared(tmp: string)
   assert(timeout[1][1] == "10000", "busy timeout " .. timeout[1][1])
   assert(Sqlite.text_rows(db, "SELECT key FROM kept"))
   db:close()
-  local waiting = assert(shared_sqlite.open(path, prepare, Time.ms(50)))
+  local waiting = assert(shared_sqlite.open(path, prepare, Clock.ms(50)))
   timeout = assert(Sqlite.text_rows(waiting, "PRAGMA busy_timeout"))
   assert(timeout[1][1] == "50", "busy timeout " .. timeout[1][1])
   waiting:close()
@@ -61,9 +62,9 @@ local function held_open(path: string, statements: {string},
   local holder = assert(Sqlite.open(path, { writable = true }))
   assert(holder:exec("CREATE TABLE held (x)"))
   for _, statement in ipairs(statements) do assert(holder:exec(statement)) end
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local db, trouble = shared_sqlite.open(path, prepare, wait_ns)
-  local waited = Time.monotonic_ns() - started
+  local waited = Clock.monotonic_ns() - started
   assert(db == nil, "opened a cache another holds")
   assert(holder:exec("COMMIT"))
   holder:close()
@@ -76,14 +77,14 @@ end
 --- short of the ten seconds it waits when given none or a try sits out
 --- the connection's minute-long busy timeout: an open that took this
 --- long did not keep to the wait it was given.
-local gave_up_late_ns <const> = Time.seconds(5)
+local gave_up_late_ns <const> = Clock.seconds(5)
 
 --- A cache another connection is writing, before it is in write-ahead
 --- mode, is answered locked at once by SQLite, which calls no busy
 --- handler: the switch is tried again until the wait has passed, then
 --- answered busy.
 local function test_a_cache_being_written_is_tried_again_then_answered_busy(tmp: string)
-  local wait_ns = Time.ms(100)
+  local wait_ns = Clock.ms(100)
   local waited, trouble = held_open(tmp .. "/cache.db",
     { "BEGIN IMMEDIATE", "INSERT INTO held (x) VALUES (1)" }, wait_ns)
   assert(trouble:find("locked", 1, true) ~= nil, trouble)
@@ -95,7 +96,7 @@ end
 --- mode, is waited on no longer than the wait in all: no try sits out a
 --- busy timeout of its own, so the wait never grows with the tries.
 local function test_a_cache_held_whole_is_waited_on_no_longer_than_the_wait(tmp: string)
-  local wait_ns = Time.ms(100)
+  local wait_ns = Clock.ms(100)
   local waited, trouble = held_open(tmp .. "/cache.db", { "BEGIN EXCLUSIVE" }, wait_ns)
   assert(trouble:find("locked", 1, true) ~= nil, trouble)
   assert(waited >= wait_ns, "answered busy after " .. waited .. " ns")
@@ -109,7 +110,7 @@ local function test_a_wal_cache_opens_while_another_writes(tmp: string)
   local first = assert(shared_sqlite.open(path, prepare))
   assert(first:exec("BEGIN IMMEDIATE"))
   assert(first:exec("INSERT INTO kept (key) VALUES ('k')"))
-  local second = assert(shared_sqlite.open(path, prepare, Time.ms(50)))
+  local second = assert(shared_sqlite.open(path, prepare, Clock.ms(50)))
   assert(first:exec("COMMIT"))
   local rows = assert(Sqlite.text_rows(second, "SELECT key FROM kept"))
   assert(#rows == 1 and rows[1][1] == "k")
@@ -125,16 +126,16 @@ local function test_a_captured_cancellation_stops_the_wal_retry(tmp: string)
   assert(holder:exec("CREATE TABLE held (x); BEGIN EXCLUSIVE"))
   local guard <close> = assert(Child.guard())
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
-  local started = Time.monotonic_ns()
-  local db, trouble = shared_sqlite.open(path, prepare, Time.seconds(2))
-  local waited = Time.monotonic_ns() - started
+  local started = Clock.monotonic_ns()
+  local db, trouble = shared_sqlite.open(path, prepare, Clock.seconds(2))
+  local waited = Clock.monotonic_ns() - started
   local signal = guard:take()
   guard:release()
   assert(holder:exec("COMMIT"))
   assert(holder:close())
   assert(db == nil and trouble ~= "", trouble)
   assert(signal == sys.SIGTERM, "the cache consumed the guard's signal")
-  assert(waited < Time.seconds(1), "cancelled after " .. waited .. " ns")
+  assert(waited < Clock.seconds(1), "cancelled after " .. waited .. " ns")
   local opened = assert(shared_sqlite.open(path, prepare))
   assert(opened:close())
 end

@@ -5,7 +5,8 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
+
 local this_program = require("build.this_program")
 local work = require("build.work")
 local sandbox_skip = require("build.sandbox_skip")
@@ -47,9 +48,9 @@ local function test_a_second_build_of_a_tree_waits_for_the_first(tmp: string)
   local second, trouble = Child.start(build.argv, build.options)
   assert(Fs.close(fd))
   assert(second, trouble)
-  assert(Time.sleep_ns(300000000))
+  assert(Clock.sleep_ns(300000000))
   assert(work.abort(held))
-  local result = assert(second:wait(Time.seconds(60)))
+  local result = assert(second:wait(Clock.seconds(60)))
   assert(result.ok, "the second build failed: " .. (Fs.read(output) or ""))
 end
 
@@ -66,7 +67,7 @@ local function test_cosmic_test_runs_a_project_reached_through_links(tmp: string
   env.COSMIC_TEST_SANDBOX = nil
   local started = this_program.program({ "test" }, {
     cwd = project, env = env, stdout = "capture", stderr = "capture",
-    timeout_ns = Time.seconds(60),
+    timeout_ns = Clock.seconds(60),
   })
   local result = assert(Child.run(started.argv, started.options))
   local out = (result.stdout or "") .. (result.stderr or "")

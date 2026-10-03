@@ -35,7 +35,7 @@ local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
 local type raw_process = require("cosmic.internal.process")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 local type Searcher = function(string): any, any
 
@@ -249,8 +249,8 @@ local function test_net_leaves_no_descriptor_or_socket_file_whenever_an_allocati
   local path = tmp .. "/s.sock"
   local before = next_descriptor(tmp)
   local ended = under_every_failure(function()
-    local server <close> = assert(Net.listen(Net.unix(path), { timeout_ns = Time.seconds(5) }))
-    local client <close> = assert(Net.connect(server.address, { timeout_ns = Time.seconds(5) }))
+    local server <close> = assert(Net.listen(Net.unix(path), { timeout_ns = Clock.seconds(5) }))
+    local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
     local accepted <close> = assert(server:accept())
     assert(client:write("hello"))
     assert(accepted:read() == "hello")
@@ -269,9 +269,9 @@ local function test_net_in_a_run_leaves_no_descriptor_whenever_an_allocation_fai
   local path = tmp .. "/r.sock"
   local before = next_descriptor(tmp)
   local ended = under_every_failure(function()
-    local server <close> = assert(Net.listen(Net.unix(path), { timeout_ns = Time.seconds(5) }))
+    local server <close> = assert(Net.listen(Net.unix(path), { timeout_ns = Clock.seconds(5) }))
     Poll.run(function()
-      local client <close> = assert(Net.connect(server.address, { timeout_ns = Time.seconds(5) }))
+      local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
       local accepted <close> = assert(server:accept())
       assert(client:write("x"))
       assert(accepted:read() == "x")
@@ -645,7 +645,7 @@ end
 local function test_sqlite_exec_result_releases_its_snapshot_under_allocation_failure()
   if not checked then return end
   local db = assert(Sqlite.memory())
-  db:busy_timeout(Time.ms(10))
+  db:busy_timeout(Clock.ms(10))
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
   for _, sql in ipairs({ "SELECT 1", "SELECT * FROM missing" }) do
@@ -665,7 +665,7 @@ end
 local function test_prepared_statements_keep_the_busy_handlers_owner_under_allocation_failure()
   if not checked then return end
   local db = assert(Sqlite.memory())
-  db:busy_timeout(Time.ms(10))
+  db:busy_timeout(Clock.ms(10))
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
   local ended = under_every_failure(function()

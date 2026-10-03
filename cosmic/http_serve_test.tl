@@ -6,7 +6,7 @@ local Http = require("cosmic.http")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- A reply as a client read it.
 local record Got
@@ -30,7 +30,7 @@ local peer_mt: metatable<Peer> = {
 }
 
 local function peer(address: Net.Address): Peer
-  local conn = assert(Net.connect(address, { timeout_ns = Time.seconds(5) }))
+  local conn = assert(Net.connect(address, { timeout_ns = Clock.seconds(5) }))
   return setmetatable({ conn = conn, buf = "" }, peer_mt)
 end
 
@@ -304,10 +304,10 @@ local function test_each_limit_is_answered(tmp: string)
     assert(reply(first).status == 200)
     local second <close> = peer(address)
     send(second, get("/"))
-    second.conn:set_timeout(Time.ms(100))
+    second.conn:set_timeout(Clock.ms(100))
     local nothing, why = second.conn:read()
     assert(nothing == nil and why == Poll.TIMEOUT, why)
-    second.conn:set_timeout(Time.seconds(5))
+    second.conn:set_timeout(Clock.seconds(5))
     local _, _ = first.conn:close()
     assert(reply(second).status == 200)
   end, { limits = { head_bytes = 1024, body_bytes = 100, connections = 1 } })
@@ -399,41 +399,41 @@ end
 local function test_a_slow_head_and_an_idle_connection_are_closed(tmp: string)
   serving(tmp, echo, function(address: Net.Address)
     local slow <close> = peer(address)
-    local started = Time.monotonic_ns()
+    local started = Clock.monotonic_ns()
     local request = get("/")
     for i = 1, #request do
       if not slow.conn:write(request:sub(i, i)) then break end
-      local _, _ = Poll.delay(Time.ms(20))
-      if Time.monotonic_ns() - started > Time.seconds(2) then break end
+      local _, _ = Poll.delay(Clock.ms(20))
+      if Clock.monotonic_ns() - started > Clock.seconds(2) then break end
     end
     local got = reply(slow)
     assert(got.status == 408, tostring(got.status))
-    assert(Time.monotonic_ns() - started < Time.seconds(2))
+    assert(Clock.monotonic_ns() - started < Clock.seconds(2))
     local stalled <close> = peer(address)
     send(stalled, "PUT / HTTP/1.1\r\nHost: test\r\nContent-Length: 10\r\n\r\nabc")
     local timed_out = reply(stalled)
     assert(timed_out.status == 408 and timed_out.headers["connection"] == "close", tostring(timed_out.status))
     local idle <close> = peer(address)
-    local waited_from = Time.monotonic_ns()
+    local waited_from = Clock.monotonic_ns()
     assert(ended(idle))
-    assert(Time.monotonic_ns() - waited_from < Time.seconds(2))
-  end, { head_ns = Time.ms(200), idle_ns = Time.ms(200), timeout_ns = Time.ms(200) })
+    assert(Clock.monotonic_ns() - waited_from < Clock.seconds(2))
+  end, { head_ns = Clock.ms(200), idle_ns = Clock.ms(200), timeout_ns = Clock.ms(200) })
 end
 
 --- Stopping closes a kept-alive connection idle at once, rather than
 --- waiting out idle_ns, and a request in flight finishes with
 --- `Connection: close`.
 local function test_stopping_closes_idle_connections_at_once(tmp: string)
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local idle_ended = false
   local in_flight: Got = nil
   local release = false
   assert(Http.serve{
     listeners = { Net.unix(tmp .. "/s.sock") },
-    idle_ns = Time.seconds(60),
+    idle_ns = Clock.seconds(60),
     handle = function(req: Http.Request): Http.Reply
       if req.path == "/slow" then
-        while not release do assert(Poll.delay(Time.ms(5))) end
+        while not release do assert(Poll.delay(Clock.ms(5))) end
       end
       return { status = 200, body = "ok" }
     end,
@@ -443,7 +443,7 @@ local function test_stopping_closes_idle_connections_at_once(tmp: string)
       assert(reply(idle).status == 200)
       local busy = peer(addresses[1])
       send(busy, get("/slow"))
-      assert(Poll.delay(Time.ms(20)))
+      assert(Poll.delay(Clock.ms(20)))
       Poll.spawn(function()
         idle_ended = ended(idle)
         release = true
@@ -455,7 +455,7 @@ local function test_stopping_closes_idle_connections_at_once(tmp: string)
   })
   assert(idle_ended)
   assert(in_flight.status == 200 and in_flight.headers["connection"] == "close")
-  assert(Time.monotonic_ns() - started < Time.seconds(10))
+  assert(Clock.monotonic_ns() - started < Clock.seconds(10))
 end
 
 --- A body the handler reads in part, or not at all, is dropped before

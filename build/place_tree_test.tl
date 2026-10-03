@@ -9,7 +9,7 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- The script under test, and the system's `sh` and tools, which run it.
 Test.needs{ reads = { ".github/scripts/place-tree.sh" }, system = true }
@@ -26,7 +26,7 @@ local function name(sha: string, leg: string, event?: string, declared?: string)
     GITHUB_SHA = sha, COSMIC_WORKER = leg, GITHUB_EVENT_NAME = event or "push",
     COSMIC_CI_DECLARED_KEYS = declared or "0" }
   local result = assert(Child.run({ "/bin/sh", SCRIPT, "--name" },
-    { env = env, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
+    { env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(result.ok, (result.stdout or "") .. (result.stderr or ""))
   return ((result.stdout or ""):gsub("\n$", ""))
 end
@@ -92,7 +92,7 @@ end
 local function test_a_missing_input_is_refused()
   local result = assert(Child.run({ "/bin/sh", SCRIPT, "--name" },
     { env = { PATH = Env.get("PATH") or "/usr/bin:/bin", GITHUB_SHA = SHA },
-      stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
+      stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(result.code == 2 and (result.stderr or ""):find("COSMIC_WORKER", 1, true), result.stderr)
 end
 
@@ -106,7 +106,7 @@ local function place(workspace: string, argument?: string, leg?: string,
   local argv = { "/bin/sh", SCRIPT }
   if argument then argv[#argv + 1] = argument end
   local result = assert(Child.run(argv,
-    { env = env, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
+    { env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(result.ok, (result.stdout or "") .. (result.stderr or ""))
   return result.stderr or ""
 end

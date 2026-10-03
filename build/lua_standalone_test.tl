@@ -13,7 +13,7 @@ local Test = require("cosmic.test")
 local closure_store = require("build.closure_store")
 local test_inputs = require("build.test_inputs")
 local this_program = require("build.this_program")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 Test.needs{ lua = true, standalone = true }
 
@@ -21,7 +21,7 @@ Test.needs{ lua = true, standalone = true }
 --- whether it exited 0, and what it wrote to stdout and stderr.
 local function run(words: {string}): boolean, string, string
   local started = this_program.program(words, { stdout = "capture", stderr = "capture",
-    timeout_ns = Time.seconds(30) })
+    timeout_ns = Clock.seconds(30) })
   local result = assert(Child.run(started.argv, started.options))
   return result.ok, result.stdout or "", result.stderr or ""
 end

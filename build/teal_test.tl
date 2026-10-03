@@ -7,7 +7,7 @@
 --- filesystem.
 local type compiler = require("build.compiler")
 local teal = require("build.teal")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- A field written through the capsule reaches the loaded compiler:
 --- the capsule itself never holds it, and reading it back through the
@@ -359,11 +359,11 @@ local keyword_head = "local record, recd, enum, enmd, n, a = 1, 1, 1, 1, 2, 1\n"
 local function costs_what_it_reads(source: string)
   local built = assert(teal.load())
   local function took(text: string): integer
-    local started = Time.monotonic_ns()
+    local started = Clock.monotonic_ns()
     local _, result = built.gen(keyword_head .. text, nil, nil, "tl")
     assert(#assert(result).syntax_errors == 0, text:sub(1, 200) ..
         tostring((result.syntax_errors[1] or {}).msg))
-    return Time.monotonic_ns() - started
+    return Clock.monotonic_ns() - started
   end
   local plain = (source:gsub("record", "recd"):gsub("enum", "enmd"))
   -- The least of up to three of each, taken in turn, so neither a first

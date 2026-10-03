@@ -9,7 +9,8 @@
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
+
 local sys = require("cosmic.sys")
 local sandbox_skip = require("build.sandbox_skip")
 local stand_in = require("build.stand_in")
@@ -260,7 +261,7 @@ local function test_u_connects_to_a_granted_socket_where_the_kernel_can_hold_it(
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   assert(Fs.mkdirs(tmp .. "/s"))
   local socket = tmp .. "/s/sock"
-  local _listener <close> = assert(Net.listen(Net.unix(socket), { timeout_ns = Time.seconds(5) }))
+  local _listener <close> = assert(Net.listen(Net.unix(socket), { timeout_ns = Clock.seconds(5) }))
   local script = "connect " .. socket
   local grants: {raw_process.Grant} = { { path = probe, access = "rx" }, { path = socket, access = "u" } }
   local with = start(tmp, probe, grants, script)
