@@ -32,13 +32,6 @@ local ast = require("build.ast")
 local type compiler = require("build.compiler")
 local receivers = require("build.receivers")
 
--- TODO: a tool older than this module cannot compile a module that calls
--- [`Shape.record_of`] (its checker answers the result as `T (unresolved
--- generic)`). build/patch.tl's comment moves the image fingerprint once, so
--- that stale tool boots; teach build/reboot.tl to boot when a teal rebuild's
--- compile fails and the compiler identity ([`build.identity.compiler_modules`])
--- moved, then drop that comment.
-
 local record shape_specs
 end
 
