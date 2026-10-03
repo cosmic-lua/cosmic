@@ -180,6 +180,28 @@ local function test_a_manifest_names_its_own_cache_by_prefix_2(tmp: string)
   end
 end
 
+--- `zig build`'s maker, built for each CPU model a cache meets, goes
+--- with its manifest whatever the run, and what it is not alone in does
+--- not.
+local function test_the_maker_goes_with_its_manifest(tmp: string)
+  local project = cache(tmp .. "/zig-cache")
+  project.prefix = 2
+  local shared = cache(tmp .. "/zig-global")
+  shared.prefix = 3
+  local g = shared.path
+  local maker = step(g, hex("a"), { "1 compiler/Maker.zig" }, { "maker", "maker_zcu.o" })
+  local other = step(g, hex("b"), { "1 compiler/Maker.zig" }, { "maker" })
+  local libc = step(g, hex("c"), { "1 libc/musl/x.c" }, { "maker", "libc.a" })
+  local plan = assert(ZigPrune.plan({ project, shared }))
+  assert(table.concat(plan.manifests, " ") == g .. "/h/" .. hex("a") .. " " .. g .. "/h/" .. hex("b"),
+    table.concat(plan.manifests, " "))
+  local want = { g .. "/o/" .. maker, g .. "/o/" .. other }
+  table.sort(want)
+  assert(table.concat(plan.outputs, " ") == table.concat(want, " "), table.concat(plan.outputs, " "))
+  assert(ZigPrune.apply(plan))
+  assert(Fs.exists(g .. "/o/" .. libc .. "/libc.a") and Fs.exists(g .. "/h/" .. hex("c")))
+end
+
 --- `zig build`'s configuration is a file of the cache's `c/`, which its
 --- manifest vouches for as a step's does its output, and goes with
 --- that manifest.

@@ -265,6 +265,25 @@ function ZigPrune.plan(caches: {ZigPrune.Cache}): ZigPrune.Plan | nil, string
     end
   end
   local gone: {string:boolean} = {}
+  -- `zig build`'s maker, which zig builds for the host's own CPU model:
+  -- a cache restored on a runner of another model builds it again, so
+  -- one is kept for each model a cache meets, 89 MB apiece. It goes,
+  -- with its manifest, whatever the run: it builds again in 10 s
+  -- (build/zig.tl's `build_environment`).
+  for output, list in pairs(vouching) do
+    local names = files[output] or {}
+    local maker = #names > 0
+    for _, under in ipairs(names) do
+      if under ~= "maker" and under ~= "maker_zcu.o" then
+        maker = false
+        break
+      end
+    end
+    if maker then
+      removed[output] = true
+      for _, path in ipairs(list) do gone[path] = true end
+    end
+  end
   local moved = true
   while moved do
     moved = false
