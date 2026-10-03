@@ -9,7 +9,11 @@
 --- a reader may keep across builds.
 
 local record schema
+  --- The name of the `docs` index of a module's `local` declarations.
+  local_index: string
 end
+
+schema.local_index = "docs_by_local"
 
 --- Each table's name and its column list, in creation order.
 local tables: {{string}} = {
@@ -181,13 +185,45 @@ local settings: {string} = {
   "encoding = 'UTF-8'",
 }
 
+--- The SQL for the last dotted name of the SQL `symbol`, a method's `:`
+--- read as `.` (`Box:grow` and `X.Box.grow` both end in `grow`): what
+--- follows `symbol`'s last `.`, by dropping the longest prefix that ends
+--- in one. The `docs` index on it ([`schema.create`]) is found by the
+--- planner only through this very text, so a query that means to use it
+--- builds the expression here.
+function schema.last_name(symbol: string): string
+  local dotted = "replace(" .. symbol .. ", ':', '.')"
+  return "replace(" .. dotted .. ", rtrim(" .. dotted .. ", replace(" .. dotted ..
+    ", '.', '')), '')"
+end
+
+--- The indexes of the `docs` table, each as its name and what follows
+--- `ON docs` in its statement. A lookup by name reads a symbol by its
+--- last name, its source spelling or its module rather than scanning
+--- every row. A module is found by the end of its name in the index of
+--- the modules' own rows. A public source's filter
+--- ([`symbols.shown_docs`]) finds a module's `local` declarations in
+--- the index of those alone. A query answers the same rows with them or
+--- without them, so a database written before they existed is only
+--- slower to read.
+local docs_indexes: {{string}} = {
+  { "docs_by_last_name", "(" .. schema.last_name("symbol") .. ")" },
+  { "docs_by_source_symbol", "(source_symbol)" },
+  { "docs_by_module", "(module)" },
+  { "docs_by_module_row", "(module) WHERE symbol = ''" },
+  { schema.local_index, "(module, source_symbol) WHERE exported = 0 AND signature LIKE 'local %'" },
+}
+
 --- The statements that create an empty database, in order, every table
---- under `qualifier`: `"out."` for a schema attached under that name,
---- `""` for a connection's own.
+--- and then every index under `qualifier`: `"out."` for a schema
+--- attached under that name, `""` for a connection's own.
 function schema.create(qualifier: string): {string}
   local out: {string} = {}
   for _, pair in ipairs(tables) do
     out[#out + 1] = "CREATE TABLE " .. qualifier .. pair[1] .. " " .. pair[2]
+  end
+  for _, pair in ipairs(docs_indexes) do
+    out[#out + 1] = "CREATE INDEX " .. qualifier .. pair[1] .. " ON docs " .. pair[2]
   end
   for _, pair in ipairs(virtual_tables) do
     out[#out + 1] =
