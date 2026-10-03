@@ -45,6 +45,11 @@ local record Sqlite
   --- An open database, as `open` and `memory` return it: the type to
   --- name for a parameter or field that holds one.
   type Handle = raw_sqlite.Handle
+  --- A validated artifact retained independently of its pathname. Closing
+  --- or collecting it releases its reference; open connections keep theirs.
+  --- `open()` returns an owned read-only inspection connection, and [`close()`]
+  --- is idempotent. Calling open after close raises.
+  type Artifact = raw_sqlite.Artifact
   --- One prepared statement.
   type Statement = raw_sqlite.Statement
 
@@ -229,6 +234,31 @@ end
 --- closes.
 function Sqlite.memory(): Sqlite.Handle | nil, string
   return sqlite.open(":memory:", true)
+end
+
+--- Retains a host or portable artifact for read-only inspection, without
+--- loading any modules. The running artifact is refused, including aliases:
+--- use the runtime store within its existing access restrictions instead.
+--- Ordinary file-read authority still applies. An independently copied file
+--- is an external input: this guard does not revoke bytes already readable.
+--- Framing is validated without choosing a compatible core; this does not
+--- verify core digests or the integrity of the whole SQLite database.
+---
+--- The file's inode must not be changed in place until every consumer closes.
+--- Rename, replacement and unlink do not redirect an existing consumer.
+--- `artifact:open()` reads its database as main. Its handle accepts
+--- `attach_artifact(other, schema)` for joins; ordinary and borrowed handles
+--- refuse that method. Inspection connections refuse writes and raw ATTACH,
+--- including ordinary files. SQL DETACH releases an attachment when no active
+--- statement needs it. Ordinary [`Sqlite.open`] attachment behavior is unchanged.
+---
+--- Inspection permits SELECT, transactions and read-only PRAGMAs:
+--- application_id, user_version, schema_version, data_version, database_list,
+--- page_count, page_size, freelist_count, encoding, compile_options, query_only,
+--- table_info, table_xinfo, table_list, index_info, index_xinfo, index_list,
+--- foreign_key_list, foreign_key_check, integrity_check and quick_check.
+function Sqlite.artifact(path: string): Sqlite.Artifact | nil, string
+  return sqlite.artifact(path)
 end
 
 --- Raises, blaming the caller of the public function that calls the

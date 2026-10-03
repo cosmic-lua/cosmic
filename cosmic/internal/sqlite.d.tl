@@ -5,6 +5,12 @@
 --- method.
 
 local record sqlite
+  --- A retained artifact descriptor, independent of module loading.
+  record Artifact
+    userdata
+    open: function(Artifact): Handle | nil, string
+    close: function(Artifact): boolean, string
+  end
   interface Outcome
     code: integer
     extended_code: integer
@@ -93,6 +99,9 @@ local record sqlite
   record Handle
     userdata
 
+    --- Only an owned inspection connection accepts artifact attachments.
+    attach_artifact: function(Handle, artifact: Artifact, schema: string): boolean, string
+
     --- Runs every statement in `sql`, discarding any rows, with no
     --- parameter binding: schema DDL, PRAGMAs, or several
     --- `;`-separated statements in one call -- the one thing
@@ -156,6 +165,7 @@ local record sqlite
   open: function(path: string, writable?: boolean, immutable?: boolean, create?: boolean): Handle | nil, string
   --- A captured open outcome. Invalid path/options raise.
   open_result: function(path: string, writable?: boolean, immutable?: boolean, create?: boolean): OpenResult
+  artifact: function(path: string): Artifact | nil, string
   --- The SQLite library's version, such as "3.53.4".
   version: string
 end

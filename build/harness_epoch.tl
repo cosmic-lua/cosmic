@@ -131,7 +131,9 @@ harness_epoch.acknowledged = {
 
   ["cosmic.proc"] = "bbafb94bfa1671115f839c6fe57c921893d31d0e5baa1c4b1692e802b9c06212",
 
-  ["cosmic.sqlite"] = "ac3fd16dd89251feaee572e4e4b1d29257037afeca3b5c9b141557f2ce732390",
+  -- The harness uses ordinary handles; artifact inspection is opt-in.
+
+  ["cosmic.sqlite"] = "9d91113a709d1a701c747264c837570a59a515f7ae1ef2bdeb0696fb1f8659b3",
 
   ["cosmic.string"] = "bf0e5e828de84f23aa818887e0280a3ebc844c9ca5e384c33227cb42715b8655",
 

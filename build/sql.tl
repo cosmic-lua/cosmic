@@ -605,7 +605,7 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
     verdict(false, "usage: see `cosmic help sql`")
     return 2
   end
-  for _, other in ipairs({ "--db", "--build", "--store" }) do
+  for _, other in ipairs({ "--db", "--build", "--store", "--artifact", "--attach-artifact" }) do
     if parsed.set[other] or parsed.all[other] then
       return refuse("--from is a database of its own, not to be given with " .. other)
     end
@@ -691,6 +691,73 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
   return 0
 end
 
+--- Artifact sources stay separate from ordinary database paths: their
+--- owned connections accept only explicit, validated artifact attachments.
+local function run_artifacts(parsed: Flags.Parsed, to: sql.Output,
+                             verdict: function(boolean, string),
+                             complain: function(string)): integer
+  local function refuse(why: string): integer
+    complain(why)
+    verdict(false, "usage: see `cosmic help sql`")
+    return 2
+  end
+  local paths = parsed.all["--artifact"] or {}
+  if #paths ~= 1 or paths[1] == "" then
+    return refuse("give exactly one nonempty --artifact path")
+  end
+  for _, option in ipairs(parsed.given) do
+    if option ~= "--artifact" and option ~= "--attach-artifact" then
+      return refuse("--artifact cannot be combined with " .. option)
+    end
+  end
+  if #parsed.words ~= 1 then return refuse("give one statement, quoted as one argument") end
+  local names: {string} = {}
+  local attachments: {string} = {}
+  local seen: {string:boolean} = { main = true, temp = true }
+  for _, value in ipairs(parsed.all["--attach-artifact"] or {}) do
+    local name, path = value:match("^([%a_][%w_]*)=(.+)$")
+    if name == nil then
+      return refuse("--attach-artifact needs name=path (a SQL identifier and a nonempty path)")
+    end
+    if seen[name:lower()] then return refuse("duplicate or reserved artifact schema: " .. name) end
+    seen[name:lower()] = true
+    names[#names + 1] = name
+    attachments[#attachments + 1] = path
+  end
+  local artifact, why = Sqlite.artifact(paths[1])
+  if artifact == nil then
+    complain(paths[1] .. ": " .. why)
+    verdict(false, paths[1])
+    return 1
+  end
+  local opened, open_trouble = artifact:open()
+  assert(artifact:close())
+  if opened == nil then
+    complain(paths[1] .. ": " .. open_trouble)
+    verdict(false, paths[1])
+    return 1
+  end
+  local db: Sqlite.Handle = opened
+  local function fail(reason: string): integer
+    local _, _ = db:close()
+    complain(reason)
+    verdict(false, paths[1])
+    return 1
+  end
+  for index, path in ipairs(attachments) do
+    local other, trouble = Sqlite.artifact(path)
+    if other == nil then return fail(path .. ": " .. trouble) end
+    local attached, attach_trouble = db:attach_artifact(other, names[index])
+    assert(other:close())
+    if not attached then return fail(path .. ": " .. attach_trouble) end
+  end
+  local rows, trouble = stream(db, parsed.words[1], to.out)
+  if rows == nil then return fail(trouble) end
+  assert(db:close())
+  verdict(true, rows .. (rows == 1 and " row" or " rows") .. " from " .. paths[1])
+  return 0
+end
+
 --- `cosmic sql [--db <path> | --build | --store] <statement>`: runs the
 --- statement read-only against the database [`sql.source`] names, prints
 --- its rows, and returns the exit code: 0 when it ran (no rows is not a
@@ -713,7 +780,8 @@ function sql.run(argv: {integer:string}, root?: string, output?: sql.Output,
   local function verdict(passed: boolean, detail: string)
     to.verdict(passed, detail .. ", " .. clock.took(started))
   end
-  local usage = "cosmic sql [--db <path> | --build | --store] '<statement>' | " .. from_usage
+  local usage = "cosmic sql [--db <path> | --build | --store | --artifact <path> " ..
+    "[--attach-artifact <name=path>...]] '<statement>' | " .. from_usage
   local parsed, parse_trouble = Flags.parse(argv, 2, spec)
   if parsed == nil then
     complain(parse_trouble .. "; " .. usage)
@@ -722,6 +790,9 @@ function sql.run(argv: {integer:string}, root?: string, output?: sql.Output,
   end
   if parsed.all["--from"] or parsed.all["--as"] or parsed.all["--at"] or parsed.set["--raw"] then
     return run_from(parsed, to, verdict, complain, stdin or read_stdin)
+  end
+  if parsed.all["--artifact"] or parsed.all["--attach-artifact"] then
+    return run_artifacts(parsed, to, verdict, complain)
   end
   if #parsed.words ~= 1 then
     complain("give one statement, quoted as one argument: " .. usage)
