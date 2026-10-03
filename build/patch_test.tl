@@ -194,6 +194,57 @@ local function test_a_failed_tree_leaves_nothing_behind(dir: string)
   assert(left == nil or #left == 0, "a failed tree left something in the cache")
 end
 
+--- A zig library at `dir/lib` holding `files`, and a checkout at
+--- `dir/root` with the records `records` under patch/zig/.
+local function zig_lib(dir: string, files: {string: string}, records: {string: string})
+  for name, data in pairs(files) do
+    assert(Fs.mkdirs(Fs.dirname(dir .. "/lib/" .. name)))
+    assert(Fs.write(dir .. "/lib/" .. name, data))
+  end
+  assert(Fs.mkdirs(dir .. "/root/patch/zig"))
+  for name, data in pairs(records) do
+    assert(Fs.write(dir .. "/root/patch/zig/" .. name, data))
+  end
+end
+
+--- zig's library is copied whole, its records applied in name order to
+--- the copy, each file keeping its mode, and the release's own library
+--- left as it was.
+local function test_zig_lib_applies_records_to_a_copy(dir: string)
+  zig_lib(dir, { ["std/Cache.zig"] = "a b\n", ["std/other.zig"] = "same\n" }, {
+    ["02-second.txt"] = record("std/Cache.zig", "x b", "x y"),
+    ["01-first.txt"] = record("std/Cache.zig", "a b", "x b"),
+    ["README"] = "not a record",
+  })
+  assert(Fs.chmod(dir .. "/lib/std/Cache.zig", 0x124))
+  local out = dir .. "/cache/lib-key"
+  assert(Fs.mkdirs(dir .. "/cache"))
+  assert(Patch.zig_lib(dir .. "/root", dir .. "/lib", out))
+  assert(Fs.read(out .. "/std/Cache.zig") == "x y\n")
+  assert(Fs.read(out .. "/std/other.zig") == "same\n")
+  local st = assert(sys.stat(out .. "/std/Cache.zig"))
+  assert(st.mode & 0x1ff == 0x124, string.format("mode %o", st.mode & 0x1ff))
+  assert(Fs.read(dir .. "/lib/std/Cache.zig") == "a b\n", "the release's own library was edited")
+end
+
+--- A record that does not apply fails by name, and leaves nothing at the
+--- library's name for a later build to take as whole.
+local function test_zig_lib_that_fails_leaves_nothing(dir: string)
+  zig_lib(dir, { ["std/Cache.zig"] = "a b\n" }, {
+    ["01-absent.txt"] = record("std/Cache.zig", "absent", "x"),
+  })
+  local out = dir .. "/cache/lib-key"
+  assert(Fs.mkdirs(dir .. "/cache"))
+  local written, err = Patch.zig_lib(dir .. "/root", dir .. "/lib", out)
+  assert(not written and err:find("patch/zig/01-absent.txt: found 0 matches", 1, true), err)
+  assert(not Fs.exists(out), "a failed library was left at its name")
+  local missing, missing_err = Patch.zig_lib(dir .. "/root", dir .. "/lib", out)
+  assert(not missing and missing_err ~= "")
+  assert(Fs.write(dir .. "/root/patch/zig/01-absent.txt", record("std/Gone.zig", "a", "b")))
+  local gone, gone_err = Patch.zig_lib(dir .. "/root", dir .. "/lib", out)
+  assert(not gone and gone_err:find("no file std/Gone.zig to patch", 1, true), gone_err)
+end
+
 --- Every vendored tree with a PIN, in name order.
 local function test_names_are_the_pinned_trees(dir: string)
   assert(Fs.mkdirs(dir .. "/vendor/b"))

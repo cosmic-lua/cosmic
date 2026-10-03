@@ -23,9 +23,12 @@
 --- output it never reads at all.
 
 -- TODO: remove this module, and its call in cosmic_ci/orchestration.tl's
--- boot, once the pinned zig's `checkInputPath` compares a re-hashed
--- direct input against the digest its manifest holds (zig 0.17.0 and
--- master compare one never computed; unreported upstream as of 0.17.0).
+-- boot, once the pinned zig's compiler compares a re-hashed direct input
+-- against the digest its manifest holds (zig 0.17.0 and master compare
+-- one never computed). patch/zig/01 to 04 fix the copy `zig build`'s
+-- maker compiles from zig's library; the compiler's own copy, which keys
+-- every compile, waits on a zig release carrying that fix (branch
+-- cache-same-contents-hit of cosmic-lua/zig, not yet sent upstream).
 
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")

@@ -2,6 +2,10 @@
 --- written whole to a directory of its own.
 ---
 ---     cosmic --standalone build/patch.tl <root> <cache>
+---     cosmic --standalone build/patch.tl --zig-lib <root> <lib> <out>
+---
+--- The second writes zig's library directory with `patch/zig/`'s records
+--- applied ([`Patch.zig_lib`]).
 ---
 --- For every `vendor/<name>/PIN` under `root` it prints `<name>`, a tab,
 --- and the directory holding `vendor/<name>` with every record under
@@ -553,6 +557,75 @@ function Patch.prepare(root: string, name: string, cache: string): string | nil,
   return dir, ""
 end
 
+--- Writes zig's library directory `lib` into `out`, which must not
+--- exist, with every record under `root/patch/zig/` applied in name
+--- order, each `file:` a path under `lib`: what bin/zig points zig at
+--- (build/zig.tl's `patched_lib`). The copy is `cp -Rp`'s
+--- ([`Fs.copy_tree`]), made under a scratch directory beside `out` and
+--- renamed into place whole, so a directory at that name is always a
+--- whole patched library. One another build put there first is kept.
+function Patch.zig_lib(root: string, lib: string, out: string): boolean, string
+  local dir = root .. "/patch/zig"
+  local names, list_trouble = Fs.list(dir)
+  if names == nil then
+    return false, list_trouble
+  end
+  local cache = Fs.dirname(out)
+  local owned, own_trouble = scratch(cache)
+  if owned == nil then return false, own_trouble end
+  local holding <close> = owned
+  local payload = holding.path .. "/payload"
+  local copied, copy_trouble = Fs.copy_tree(lib, payload)
+  if not copied then
+    return false, copy_trouble
+  end
+  for _, entry in ipairs(names) do
+    if #entry > 4 and entry:sub(-4) == ".txt" then
+      local name = "patch/zig/" .. entry
+      local text, text_trouble = Fs.read(dir .. "/" .. entry)
+      if text == nil then
+        return false, text_trouble
+      end
+      local parsed, parse_trouble = Patch.parse(text, name)
+      if parsed == nil then
+        return false, parse_trouble
+      end
+      local path = payload .. "/" .. parsed.file
+      local st, _ = sys.lstat(path)
+      if st == nil or st.kind ~= "file" then
+        return false, name .. ": no file " .. parsed.file .. " to patch"
+      end
+      local source, read_trouble = Fs.read(path)
+      if source == nil then
+        return false, read_trouble
+      end
+      local applied, apply_trouble = Patch.apply(source, parsed, name)
+      if applied == nil then
+        return false, apply_trouble
+      end
+      -- A fresh file, for one the copy keeps read-only.
+      local removed, remove_trouble = Fs.remove(path)
+      if not removed then
+        return false, remove_trouble
+      end
+      local written, write_trouble = write_synced(path, applied, st.mode & 0x1ff)
+      if not written then
+        return false, write_trouble
+      end
+    end
+  end
+  local moved, move_trouble = Fs.rename(payload, out)
+  if not moved then
+    -- Another build may have won the race; its library is the same bytes.
+    local raced, _ = Fs.exists(out)
+    if raced then
+      return true, ""
+    end
+    return false, move_trouble
+  end
+  return true, ""
+end
+
 --- Every vendored tree's name under `root`: each `vendor/<name>` with a
 --- PIN, in name order.
 function Patch.names(root: string): {string} | nil, string
@@ -573,6 +646,19 @@ end
 --- The whole entry point, over `argv` as the entry-point contract
 --- hands it: `argv[0]` is this script's own path.
 function Patch.main(argv: {integer:string}): integer
+  if argv[1] == "--zig-lib" then
+    local root, lib, out = argv[2], argv[3], argv[4]
+    if root == nil or lib == nil or out == nil or argv[5] ~= nil then
+      log:complain("usage: cosmic --standalone build/patch.tl --zig-lib <root> <lib> <out>")
+      return 2
+    end
+    local written, trouble = Patch.zig_lib(root, lib, out)
+    if not written then
+      log:complain(trouble)
+      return 1
+    end
+    return 0
+  end
   local root, cache = argv[1], argv[2]
   if root == nil or cache == nil or argv[3] ~= nil then
     log:complain("usage: cosmic --standalone build/patch.tl <root> <cache>")
