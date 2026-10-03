@@ -83,3 +83,18 @@ local function test_each_part_of_a_nested_range_is_read()
   assert(decls[2].file == "core/a.c" and decls[2].line == 3 and decls[2].col == 2,
     tostring(decls[2].file) .. ":" .. tostring(decls[2].line))
 end
+
+--- A dropped declaration's line whose name is placed in a file called
+--- `col` (`col:1:14`, which `#line` can make) moves the cursor to that
+--- file, so a declaration after it written as `line:` is read there.
+local function test_a_file_named_col_moves_the_cursor_from_a_dropped_line()
+  local decls = tree.parse(table.concat({
+    "TranslationUnitDecl 0x1 <<invalid sloc>> <invalid sloc>",
+    "|-RecordDecl 0x2 </abs/v2.h:10:1, col:25> col:8 struct S definition",
+    "| `-FieldDecl 0x3 <col:12, col:22> col:1:14 a 'int[3]'",
+    "`-VarDecl 0x4 <line:5:1, col:5> col:5 y 'int'",
+  }, "\n"))
+  assert(#decls == 1, "kept " .. #decls)
+  assert(decls[1].kind == "VarDecl" and decls[1].file == "col" and decls[1].line == 5,
+    tostring(decls[1].file) .. ":" .. tostring(decls[1].line))
+end
