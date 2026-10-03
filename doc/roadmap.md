@@ -66,7 +66,7 @@ Contain a dead worker's escaped descendants on macOS. Linux adopts them as a
 child subreaper and [`Child.end_strays`] ends them; macOS has no subreaper, so a
 process group a timed-out test started for itself is left to launchd.
 
-Add build and test sandbox fencing: a `cosmic.sandbox` module and conformance
+Add build and test sandbox fencing: a [`cosmic.sandbox`] module and conformance
 matrix implementing the portable policy in design.md, required in CI, with
 degraded or skipped enforcement reported on hosts that cannot provide a section.
 [`cosmic.http`] now gives the core network egress, which makes the fence's
@@ -138,12 +138,6 @@ promises lean on come first:
     `Shape.list(RECORD)` is `Shape.list(RECORD.spec)`. Teal has no
     polymorphic function a module can implement, so `into` and `decode_into`
     cannot take both without a second name.
-  - a tool that predates [`build/shape_specs.tl`] cannot compile a module that
-    calls `record_of` (its checker reports the result as `T (unresolved
-    generic)`). A comment in [`build/patch.tl`] moves the image fingerprint so
-    that such a tool boots the tree rather than rebuilding it. Teach
-    [`build/reboot.tl`] to boot when a rebuild's compile fails and the
-    compiler's identity moved, and drop the comment.
 - read clang's JSON syntax tree in [`build/c/tree.tl`]. It reads the text form
   of `-Xclang -ast-dump`, and `rules.tl` digs about sixteen facts out of a
   node's text line (an operator, a cast's kind, a type, `static`, a literal's
@@ -306,14 +300,13 @@ four-producer provenance join.
 [`build/contracts.tl`]: ../build/contracts.tl
 [`build/fix/rule.tl`]: ../build/fix/rule.tl
 [`build/locator_fuzz_test.tl`]: ../build/locator_fuzz_test.tl
-[`build/patch.tl`]: ../build/patch.tl
-[`build/reboot.tl`]: ../build/reboot.tl
 [`build/shape_specs.tl`]: ../build/shape_specs.tl
 [`Child.end_strays`]: ../cosmic/child.tl
 [`core/coverage.c`]: ../core/coverage.c
 [`core/json.c`]: ../core/json.c
 [`cosmic.http`]: ../cosmic/http/init.tl
 [`cosmic.net`]: ../cosmic/net.tl
+[`cosmic.sandbox`]: ../cosmic/sandbox.tl
 [`cosmic.shape`]: ../cosmic/shape.tl
 [`cosmic.test`]: ../cosmic/test.tl
 [`cosmic.url`]: ../cosmic/url.tl

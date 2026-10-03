@@ -283,6 +283,17 @@ local verbs: {string:function(string, string): integer} = {
     if fd == nil or fd < 0 then return failed("write-fd", "no descriptor " .. word) end
     return put_all(fd, text .. "\n")
   end,
+  rlimit = function(name: string): integer
+    local resources: {string:integer} = {
+      nofile = sys.RLIMIT_NOFILE, fsize = sys.RLIMIT_FSIZE, cpu = sys.RLIMIT_CPU,
+      core = sys.RLIMIT_CORE,
+    }
+    local resource = resources[name]
+    if resource == nil then return failed("rlimit", "no resource " .. name) end
+    local limits, trouble = sys.getrlimit(resource)
+    if limits == nil then return failed("rlimit", trouble) end
+    return put_all(1, name .. " " .. limits.soft .. " " .. limits.hard .. "\n")
+  end,
   ["env-of"] = function(name: string): integer
     local value = sys.getenv(name)
     return put_all(1, value ~= nil and name .. "=" .. value .. "\n" or name .. " unset\n")

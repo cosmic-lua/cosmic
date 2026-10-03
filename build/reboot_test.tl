@@ -1,8 +1,10 @@
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
+local type Log = require("cosmic.log")
 local reboot = require("build.reboot")
 local rebuild_lock = require("build.rebuild_lock")
 local stand_in = require("build.stand_in")
+local verdict = require("build.verdict")
 local work = require("build.work")
 
 --- A core change boots unless COSMIC_AUTO_BOOT is "0".
@@ -69,6 +71,74 @@ local function test_boot_into_boots_once(tmp: string)
   local trouble = reboot.boot_into(root, { [0] = "cosmic", "test" },
     { COSMIC_REBOOTED = "1" })
   assert(trouble == "the tool is still stale after a reboot", trouble)
+end
+
+--- The tree's compiler has moved from the tool's when their identities
+--- differ; an identity that could not be taken, on either side, is no
+--- evidence of a move.
+local function test_compiler_moved_compares_identities()
+  assert(reboot.compiler_moved("old", "new"))
+  assert(not reboot.compiler_moved("same", "same"))
+  assert(not reboot.compiler_moved(nil, "new"))
+  assert(not reboot.compiler_moved("old", nil))
+  assert(not reboot.compiler_moved(nil, nil))
+end
+
+-- TODO: `into`'s second answer, its nil fallback for the tree's compiler
+-- identity and `guard`'s passing it to `rebuild_failed` are untested here
+-- (forcing `moved` to false would pass): add a ci/fixtures/self_rebuild_test.tl
+-- case that stages a tree whose compiler module changed and whose rebuild
+-- fails with the stale tool, asserting a boot is attempted, and exit 3 with
+-- COSMIC_AUTO_BOOT=0.
+
+--- A rebuild whose compile failed because the compiler moved boots, as a
+--- core change does, and re-enters the tool the boot wrote.
+local function test_rebuild_failed_boots_when_the_compiler_moved(tmp: string)
+  local root = tree_with_zig(tmp, 1)
+  local code = reboot.rebuild_failed(root, { [0] = "cosmic", "test" },
+    "checker: T (unresolved generic)", true, {})
+  assert(code == 3, code)
+  assert(Fs.read(root .. "/bin/ran") == "build boot\n")
+end
+
+--- A boot that then fails says the compile failure it was to mend, which
+--- would otherwise be lost to the boot's own trouble.
+local function test_rebuild_failed_says_the_compile_failure_of_a_failed_boot(tmp: string)
+  local root = tree_with_zig(tmp, 1)
+  local said: {string} = {}
+  local log = verdict.log
+  local complain = log.complain
+  log.complain = function(_: Log.Logger, line: string): boolean, string
+    table.insert(said, line)
+    return true, ""
+  end
+  local ran, code = pcall(reboot.rebuild_failed, root, { [0] = "cosmic", "test" },
+    "checker: T (unresolved generic)", true, {})
+  log.complain = complain
+  assert(ran, tostring(code))
+  assert(code == 3, tostring(code))
+  local all = table.concat(said, "\n")
+  assert(all:find("checker: T (unresolved generic)", 1, true), all)
+  assert(all:find("bin/zig build boot failed", 1, true), all)
+end
+
+--- A failure while the compiler has not moved is the tree's own error:
+--- nothing boots.
+local function test_rebuild_failed_does_not_boot_while_the_compiler_stands(tmp: string)
+  local root = tree_with_zig(tmp, 0)
+  local code = reboot.rebuild_failed(root, { [0] = "cosmic", "test" },
+    "a type error in the tree", false, {})
+  assert(code == 3, code)
+  assert(Fs.read(root .. "/bin/ran") == nil, "a failure of the tree's own booted")
+end
+
+--- COSMIC_AUTO_BOOT=0 refuses, exit 3, in place of the boot.
+local function test_rebuild_failed_refuses_when_told_not_to_boot(tmp: string)
+  local root = tree_with_zig(tmp, 0)
+  local code = reboot.rebuild_failed(root, { [0] = "cosmic", "test" },
+    "checker: T (unresolved generic)", true, { COSMIC_AUTO_BOOT = "0" })
+  assert(code == 3, code)
+  assert(Fs.read(root .. "/bin/ran") == nil, "booted although told not to")
 end
 
 --- Only a binary under the tree's o/ is its own tool, judged by the

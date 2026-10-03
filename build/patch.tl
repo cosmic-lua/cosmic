@@ -74,10 +74,6 @@ local record Patch
   end
 end
 
--- This comment moves the image fingerprint on purpose: the compiler's own
--- semantics moved with build/shape_specs.tl, and a tool older than this
--- line cannot compile the tree, so a stale tool is routed to `bin/zig
--- build boot` rather than to a rebuild it cannot finish.
 local log = Log.new("patch")
 
 --- A line found in a record: what it holds (a header's value), where it
