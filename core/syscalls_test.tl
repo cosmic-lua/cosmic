@@ -387,7 +387,7 @@ end
 local LINKED_ENTRIES <const> = 7
 
 --- Checks readdir's answer for [`linked_directory`].
-local function names_links_as_links(entries: {string:string}, what: string)
+local function names_links_as_links(entries: {string:sys.Kind}, what: string)
   assert(entries["file"] == "file" and entries["sub"] == "dir", what)
   assert(entries["fifo"] == "fifo", what .. ": a named pipe: " .. tostring(entries["fifo"]))
   assert(entries["socket"] == "socket", what .. ": a socket file: " .. tostring(entries["socket"]))

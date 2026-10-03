@@ -231,7 +231,7 @@ end
 --- writable by no one else, as [`Fs.cache_dir`] holds its directories.
 --- A file is taken as it is, never through a link: SQLite writes its
 --- log beside where a link leads, which the directory checked is not.
-local function private(path: string, kind: string): boolean, string
+local function private(path: string, kind: sys.Kind): boolean, string
   local st, trouble: sys.Stat, string = nil, ""
   if kind == "file" then st, trouble = sys.lstat(path) else st, trouble = sys.stat(path) end
   if st == nil then return false, path .. ": " .. trouble end

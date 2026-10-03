@@ -2,6 +2,7 @@
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
+local sys = require("cosmic.sys")
 local cache = require("build.cache")
 local formats = require("build.cache_formats")
 local maintenance = require("build.cache_maintenance")
@@ -138,13 +139,99 @@ end
 
 local function test_only_exact_retired_basename_siblings_are_removed(tmp: string)
   local path = tmp .. "/cache.db"
-  assert(Fs.write(path .. ".corrupt-1", "retired"))
-  assert(Fs.write(tmp .. "/other.db.corrupt-1", "other"))
-  assert(Fs.write(path .. "-wal", "unowned"))
+  local retired = { ".corrupt-1", ".corrupt-1234567890123456789-wal", ".corrupt-2-shm" }
+  local kept = { ".corrupt-notes", ".corrupt-", ".corrupt--1", ".corrupt-1.extra",
+    ".corrupt-1-wal.extra", ".corrupt-1-shm.extra", ".corrupt-1-journal", "-wal", "-shm" }
+  for _, suffix in ipairs(retired) do assert(Fs.write(path .. suffix, "retired")) end
+  for _, suffix in ipairs(kept) do assert(Fs.write(path .. suffix, "unowned")) end
+  local other = tmp .. "/other.db.corrupt-1"
+  assert(Fs.write(other, "other"))
   local result = trim(path, "compiles", 5)
-  assert(result.complete and #result.report.files[1].removed_set_aside == 1)
-  assert(Fs.stat(path .. ".corrupt-1") == nil)
-  assert(Fs.read(tmp .. "/other.db.corrupt-1") == "other" and Fs.read(path .. "-wal") == "unowned")
+  assert(result.complete and #result.report.files[1].removed_set_aside == #retired)
+  for _, suffix in ipairs(retired) do assert(Fs.stat(path .. suffix) == nil) end
+  for _, suffix in ipairs(kept) do assert(Fs.read(path .. suffix) == "unowned") end
+  assert(Fs.read(other) == "other")
+end
+
+local function test_retired_names_do_not_authorize_removing_other_file_kinds(tmp: string)
+  local path = tmp .. "/cache.db"
+  local db = database(path, formats.compiles)
+  compiled(db, "keep", 5)
+  assert(db:close())
+  local directory = path .. ".corrupt-1"
+  local link = path .. ".corrupt-2-wal"
+  local pipe = path .. ".corrupt-3-shm"
+  assert(Fs.mkdirs(directory))
+  assert(Fs.write(directory .. "/keep", "inside"))
+  assert(Fs.symlink(path, link))
+  assert(sys.mkfifo(pipe))
+  local result = trim(path, "compiles", 5)
+  assert(result.complete, result.report.files[1].reason)
+  assert(#result.report.files[1].removed_set_aside == 0)
+  assert(Fs.read(directory .. "/keep") == "inside")
+  assert(assert(sys.lstat(link)).kind == "link" and Fs.readlink(link) == path)
+  assert(assert(sys.lstat(pipe)).kind == "fifo")
+  assert(count(path, "compiled_v2") == 1)
+end
+
+local function test_failed_retired_file_removal_withholds_save_digest(tmp: string)
+  local path = tmp .. "/cache.db"
+  local db = database(path, formats.compiles)
+  compiled(db, "keep", 5)
+  assert(db:close())
+  local retired = path .. ".corrupt-1"
+  assert(Fs.write(retired, "retired"))
+  local original = Fs.remove
+  Fs.remove = function(name: string): boolean, string
+    if name == retired then return false, "injected unlink failure" end
+    return original(name)
+  end
+  local result: maintenance.Result
+  local ok = pcall(function() result = trim(path, "compiles", 5) end)
+  Fs.remove = original
+  assert(ok and not result.complete and result.report.digest == nil)
+  assert(result.report.files[1].reason == "injected unlink failure")
+  assert(#result.report.files[1].removed_set_aside == 0)
+  assert(Fs.read(retired) == "retired" and count(path, "compiled_v2") == 1)
+end
+
+local function test_retired_file_disappearance_before_inspection_is_harmless(tmp: string)
+  local path = tmp .. "/cache.db"
+  local retired = path .. ".corrupt-1"
+  assert(Fs.write(retired, "retired"))
+  local original = Fs.list
+  Fs.list = function(dir: string): {string} | nil, string
+    local names, why = original(dir)
+    if dir == tmp then assert(Fs.remove(retired)) end
+    return names, why
+  end
+  local result: maintenance.Result
+  local ok = pcall(function() result = trim(path, "compiles", 5) end)
+  Fs.list = original
+  assert(ok and result.complete and result.report.files[1].state == "missing")
+  assert(#result.report.files[1].removed_set_aside == 0)
+  assert(Fs.stat(retired) == nil)
+end
+
+local function test_failed_retired_file_inspection_withholds_save_digest(tmp: string)
+  local path = tmp .. "/cache.db"
+  local db = database(path, formats.compiles)
+  compiled(db, "keep", 5)
+  assert(db:close())
+  local retired = path .. ".corrupt-1"
+  assert(Fs.write(retired, "retired"))
+  local original = sys.lstat
+  sys.lstat = function(name: string): sys.Stat | nil, string, integer
+    if name == retired then return nil, "injected lstat failure", sys.EACCES end
+    return original(name)
+  end
+  local result: maintenance.Result
+  local ok = pcall(function() result = trim(path, "compiles", 5) end)
+  sys.lstat = original
+  assert(ok and not result.complete and result.report.digest == nil)
+  assert(result.report.files[1].reason == "injected lstat failure")
+  assert(#result.report.files[1].removed_set_aside == 0)
+  assert(Fs.read(retired) == "retired" and count(path, "compiled_v2") == 1)
 end
 
 local function test_digest_ignores_stamps_pages_and_locations_but_keeps_cell_kinds(tmp: string)

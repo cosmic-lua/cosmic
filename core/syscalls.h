@@ -92,11 +92,26 @@ bool cosmic_mountinfo_local_flock (const char *text, size_t used, const char *de
 #endif
 
 /*
+ * --- What a path is, as `stat`, `lstat` and `fstat` name it in a `Stat`'s
+ * --- `kind` and `readdir` names each entry. A name outside these is a
+ * --- compile error, not a comparison that is never true.
+ * ---@alias Kind
+ * ---| "file" # a regular file
+ * ---| "dir" # a directory
+ * ---| "link" # a symbolic link
+ * ---| "socket" # a socket
+ * ---| "fifo" # a named pipe
+ * ---| "char" # a character device
+ * ---| "block" # a block device
+ * ---| "other" # any other type a system has
+ */
+
+/*
  * --- What `stat`, `lstat` and `fstat` report about a path.
  * ---@class Stat
  * ---@field size integer the size in bytes
  * ---@field mode integer the type and permission bits
- * ---@field kind string one of "file", "dir", "link" (a symbolic link), "socket", "fifo" (a named pipe), "char" (a character device), "block" (a block device), or "other" for any other type a system has
+ * ---@field kind Kind what the path is
  * ---@field mtime integer the modification time, whole seconds
  * ---@field mtime_ns integer the nanoseconds part of the modification time
  * ---@field atime integer the access time, whole seconds
@@ -286,7 +301,7 @@ COSMIC_SYSCALL(chown, 3);
 /*
  * --- Lists a directory's entries, without `.` and `..`, each with what it is, as `lstat` names it (its `kind`): "link" for a symbolic link, which is never followed.
  * ---@param path string the directory to list
- * ---@return {string:string}|nil entries each entry's kind by its name, or nil on failure
+ * ---@return {string:Kind}|nil entries each entry's kind by its name, or nil on failure
  * ---@return string error what went wrong, when entries is nil
  * ---@return integer errno the error number, when entries is nil
  */

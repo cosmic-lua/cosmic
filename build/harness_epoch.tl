@@ -89,7 +89,7 @@ harness_epoch.acknowledged = {
 
   ["build.caches"] = "57bac59a121d7520f3d30b9052a6f6c5d67a51e8785c5a75d021760317fb9312",
 
-  ["build.confine"] = "a634df4c601ff80358fed52acb14590c95e5ad6b1dee2bb5da7cf08ce5103df6",
+  ["build.confine"] = "48e77dd57e067375742772f04e0787549f02d8f3aad8ed3dbf45584101935bf2",
 
   ["build.core_image"] = "4942e488c251af85703efc977c9e33260b199134d39316c3b9a5579dcaff7830",
 
@@ -127,7 +127,7 @@ harness_epoch.acknowledged = {
 
   ["cosmic.env"] = "9ae16736e69ff2305de1aff7db0f15db90993e1e61ef786d7bf6f33528ef0057",
 
-  ["cosmic.fs"] = "86ca970b6bba1653b9f04806fced5b01ca17e8240d9eb41665d4ef508309c75d",
+  ["cosmic.fs"] = "31b569c0a50fc6143be2128f3e39c4318dbdb5e8e561480aa5915037e54358ec",
 
   ["cosmic.proc"] = "bbafb94bfa1671115f839c6fe57c921893d31d0e5baa1c4b1692e802b9c06212",
 
