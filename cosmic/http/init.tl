@@ -1184,13 +1184,13 @@ end
 --- unit is "bytes" in any case; a comma-separated list may hold empty
 --- elements and spaces or tabs beside its commas, but none between
 --- `=` and the range, nor within it. A server may ignore Range, and
---- this one does, answering "whole", for any other unit, a range it
---- cannot read (`b` before `a`, a sign, a space), and more than one
---- range: it writes no `multipart/byteranges`. A range it can read
---- but holding none of the bytes -- `a` at or past `size`, or `-0`
---- -- is "unsatisfiable"; `bytes=-n` of an empty representation is
---- "whole" instead, as the RFC holds it satisfiable with no bytes to
---- send. A count past the largest integer is read as that integer,
+--- this one does, answering "whole", for any other unit, a range the
+--- RFC holds invalid (`b` before `a`) or that is none (a sign, a
+--- space), and more than one range: it writes no
+--- `multipart/byteranges`. A valid range holding none of the bytes --
+--- `a` at or past `size`, or `-0` -- is "unsatisfiable". `bytes=-n`
+--- of an empty representation is "whole": the RFC holds it
+--- satisfiable, so no 416, yet a 206 would have no bytes to carry. A count past the largest integer is read as that integer,
 --- which no size passes, so it is answered as the count it is.
 ---
 --- Range concerns only GET, and a server ignores it for every other

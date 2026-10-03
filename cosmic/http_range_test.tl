@@ -134,7 +134,7 @@ local function test_an_element_that_is_no_tag_matches_nothing_and_the_rest_are_r
   assert(not Http.none_match('w/"v1"', '"v1"'))
   assert(not Http.none_match('"v1" x', '"v1"'))
   assert(not Http.none_match('"v1', '"v1"'))
-  assert(Http.none_match('v0, "v1', '"v1"') == false)
+  assert(not Http.none_match('v0, "v1', '"v1"'))
   assert(Http.none_match('junk, "v1"', '"v1"'))
   assert(Http.none_match('"x" "y", "v1"', '"v1"'))
   assert(Http.none_match('*, "v1"', '"v1"'))

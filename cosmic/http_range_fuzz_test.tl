@@ -16,42 +16,43 @@ local DIGITS <const> = { "0", "1", "9", "00", "10", "99", "1000", "9223372036854
   "9223372036854775808", "18446744073709551616", "000000000000000000000000000000000001" }
 local SIZES <const> = { 0, 1, 2, 10, 100, 1000, math.maxinteger - 1, math.maxinteger }
 
---- A count, as digits: a small one drawn, or one of the counts at the
---- edges of the integers.
+--- A count, as digits: mostly a small one, else one of the counts at
+--- the edges of the integers.
 local function draw_digits(src: Fuzz.Source): string
-  if src:int(0, 1) == 0 then return tostring(src:int(0, 120)) end
+  if src:int(0, 4) ~= 0 then return tostring(src:int(0, 120)) end
   return Fuzz.pick(src, DIGITS)
 end
 
 --- One range-spec in one of its three forms, or something near one.
 local function draw_spec(src: Fuzz.Source): string
-  local form = src:int(1, 7)
-  if form <= 3 then
-    -- A digit appended makes a count no less, so half of these hold
-    -- their last at or past their first.
+  local form = src:int(1, 12)
+  if form <= 5 then
+    -- A digit appended makes a count no less, and 99999 is past every
+    -- small size, so most of these hold their last at or past their
+    -- first, and half run past the end.
     local first = draw_digits(src)
-    local last = src:int(0, 1) == 0 and first .. tostring(src:int(0, 9)) or draw_digits(src)
+    local last = Fuzz.pick(src, { first .. tostring(src:int(0, 9)), draw_digits(src), "99999", "99999" })
     return first .. "-" .. last
   end
-  if form == 4 then return draw_digits(src) .. "-" end
-  if form == 5 then return "-" .. draw_digits(src) end
-  if form == 6 then return Fuzz.pick(src, { "-", "", "+1-2", "1-2-3", "a-b", "-+1" }) end
+  if form <= 7 then return draw_digits(src) .. "-" end
+  if form <= 10 then return "-" .. draw_digits(src) end
+  if form == 11 then return Fuzz.pick(src, { "-", "", "+1-2", "1-2-3", "a-b", "-+1" }) end
   return Fuzz.bytes(src, 6)
 end
 
---- A Range header, sometimes edited, then the size it is read against.
+--- A Range header, now and then edited, then the size it is read
+--- against. Each way to make it one the server ignores is drawn rarely,
+--- so most are one range to read.
 local function gen_range(src: Fuzz.Source): string
-  -- Mostly one range, and that one mostly after `=` with no space: a
-  -- header with more, or a space there, is ignored.
-  local elements: {string} = { (src:int(0, 3) == 0 and Fuzz.pick(src, SPACES) or "") .. draw_spec(src) }
-  while src:int(0, 2) == 0 and Fuzz.more(src, #elements - 1, 2) do
+  local elements: {string} = { (src:int(0, 7) == 0 and Fuzz.pick(src, SPACES) or "") .. draw_spec(src) }
+  while src:int(0, 5) == 0 and Fuzz.more(src, #elements - 1, 2) do
     local spec = src:int(0, 2) == 0 and draw_spec(src) or ""
     elements[#elements + 1] = Fuzz.pick(src, SPACES) .. spec .. Fuzz.pick(src, SPACES)
   end
   local header = Fuzz.pick(src, SPACES) ..
-    (src:int(0, 2) == 0 and Fuzz.pick(src, UNITS) or "bytes") .. "=" .. table.concat(elements, ",")
-  if src:int(0, 3) == 0 then header = Fuzz.mutate(src, header, 3) end
-  local size = src:int(0, 2) == 0 and Fuzz.pick(src, SIZES) or src:int(0, 200)
+    (src:int(0, 5) == 0 and Fuzz.pick(src, UNITS) or "bytes") .. "=" .. table.concat(elements, ",")
+  if src:int(0, 7) == 0 then header = Fuzz.mutate(src, header, 3) end
+  local size = src:int(0, 4) == 0 and Fuzz.pick(src, SIZES) or src:int(0, 300)
   return Fuzz.pack({ header, tostring(size) })
 end
 
@@ -70,7 +71,8 @@ end
 --- The count in `digits` where it fits an integer, or nil.
 local function small(digits: string): integer | nil
   local bare = digits:match("^0*(%d*)$")
-  if #bare > 18 then return nil end
+  if #bare > #tostring(math.maxinteger) then return nil end
+  -- One past the largest integer reads as a float, which this refuses.
   return math.tointeger(tonumber(bare ~= "" and bare or "0"))
 end
 
@@ -138,13 +140,19 @@ local function test_reading_a_range_is_total_and_within_the_representation(tmp: 
         end
       elseif a ~= nil and (b ~= nil or last == "") then
         local want_last = last == "" and size - 1 or math.min(b, size - 1)
-        if want_last < size - 1 or last == "" then Fuzz.label("bounded") else Fuzz.label("clamped") end
+        if last == "" then
+          Fuzz.label("open")
+        elseif b > size - 1 then
+          Fuzz.label("clamped")
+        else
+          Fuzz.label("within")
+        end
         if r.first ~= a or r.last ~= want_last then return false, "the span differs" end
       end
       return true, ""
     end,
-    requires = { "whole", "span", "unsatisfiable", "suffix", "bounded", "clamped" },
-    shares = { span = 0.1 },
+    requires = { "whole", "span", "unsatisfiable", "suffix", "clamped" },
+    shares = { span = 0.2 },
   })
 end
 
@@ -226,7 +234,9 @@ local function test_none_match_finds_a_tag_in_any_list_of_tags(tmp: string)
       end
       local header = table.concat(parts)
       local got = Http.none_match(header, etag)
-      if every_ok and #parts > 0 then
+      if #parts == 0 then
+        if got then return false, "an empty header matched" end
+      elseif every_ok then
         Fuzz.label(listed and "listed" or "unlisted")
         if got ~= listed then
           return false, ("%q in %q: %s"):format(etag, header, tostring(got))
