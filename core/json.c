@@ -498,7 +498,71 @@ struct layout {
    * text is this one line of a larger one, a JSON Lines record, which
    * nothing inside ends. */
   lua_Integer record;
+  /* Where the text's first byte is in a larger one, for a text that is
+   * a part of it: 1 and 1 for a whole. */
+  lua_Integer line;
+  lua_Integer column;
+  /* The JSON Pointer of the value the text is in the larger one, NULL
+   * for a whole: a pointer in a message is put under it. */
+  const char *prefix;
 };
+
+/* Pushes the JSON Pointer s[0..n), whose segments are written as a
+ * pointer writes them, for a message as [`push_path`] pushes a path: whole
+ * when it fits a path, else its innermost segments that fit, and the
+ * innermost alone shortened when even it does not, as [`prepend_key`]
+ * shortens a key -- the rule a pointer cosmic.json writes in Teal is
+ * shortened by too. */
+static void push_pointer_text (lua_State *L, const char *s, size_t n) {
+  struct path p;
+  memset(&p, 0, sizeof p);
+  size_t end = n;
+  while (end > 0 && !p.cut) {
+    size_t start = end;
+    while (start > 0 && s[start - 1] != '/') start--;
+    size_t slash = start > 0 ? start - 1 : 0;
+    size_t width = end - slash;
+    if (p.len == 0 && width >= sizeof p.text) {
+      size_t used = 0;
+      p.text[used++] = '/';
+      for (size_t i = slash + 1; i < end && used < 1 + KEPT_KEY;) {
+        unsigned char c = (unsigned char)s[i];
+        size_t step = c == '~' ? 2 : c < 0x80 ? 1 : c >= 0xf0 ? 4 : c >= 0xe0 ? 3 : 2;
+        if (i + step > end || used + step > 1 + KEPT_KEY) break;
+        memcpy(p.text + used, s + i, step);
+        used += step;
+        i += step;
+      }
+      memcpy(p.text + used, "...", 3);
+      p.len = used + 3;
+      p.cut = true;
+      break;
+    }
+    char *at = path_room(&p, width);
+    if (at == NULL) break;
+    memcpy(at, s + slash, width);
+    end = slash;
+  }
+  push_path(L, &p);
+}
+
+/* Pushes `p` as [`push_path`] does, under the layout's prefix, a JSON
+ * Pointer, when it has one: the two shortened as one pointer, when the
+ * path itself is whole. */
+static void push_placed_path (lua_State *L, const struct layout *layout,
+                              const struct path *p) {
+  if (layout->prefix == NULL || p->cut) {
+    push_path(L, p);
+    return;
+  }
+  lua_pushstring(L, layout->prefix);
+  lua_pushlstring(L, p->text, p->len);
+  lua_concat(L, 2);
+  size_t n;
+  const char *whole = lua_tolstring(L, -1, &n);
+  push_pointer_text(L, whole, n);
+  lua_remove(L, -2);
+}
 
 /* The line and column of byte `pos` of `text`, both counted from 1,
  * the column in bytes. A line ends at \n, \r, or \r\n taken as one:
@@ -511,13 +575,13 @@ struct layout {
 static void position (const char *text, size_t pos,
                       const struct layout *layout, size_t *line,
                       size_t *column) {
-  *line = 1;
-  *column = 1;
   if (layout->record > 0) {
     *line = (size_t)layout->record;
     *column = pos + 1;
     return;
   }
+  *line = (size_t)layout->line;
+  *column = (size_t)layout->column;
   bool json5 = layout->json5;
   for (size_t i = 0; i < pos; i++) {
     unsigned char c = (unsigned char)text[i];
@@ -684,24 +748,26 @@ static void repeat_failure (lua_State *L, const char *text, size_t len,
   position(text, pos < len ? pos : len, layout, &line, &column);
   lua_pushfstring(L, "duplicate key at line %I, column %I (",
                   (lua_Integer)line, (lua_Integer)column);
-  push_path(L, path);
+  push_placed_path(L, layout, path);
   lua_pushliteral(L, ")");
   lua_concat(L, 3);
 }
 
-/* Pushes that the array or object at `path` in `text` nests
- * deeper than `max_depth`. The position is the first bracket in the text
- * that opens that deep, which is that container: the walk that found it
- * visits the document in the order the text holds it. */
+/* Pushes that the array or object at `path` in `text`, with `opened`
+ * open around the text, nests deeper than `max_depth`. The position is
+ * the first bracket in the text that opens that deep, which is that
+ * container: the walk that found it visits the document in the order
+ * the text holds it. */
 static void deep_failure (lua_State *L, const char *text, size_t len,
                           const struct layout *layout, int max_depth,
-                          const struct path *path) {
+                          int opened, const struct path *path) {
   size_t line, column;
-  position(text, deep_offset(text, len, max_depth, layout->json5), layout,
-           &line, &column);
-  lua_pushfstring(L, "JSON nests deeper than %d levels at line %I, column %I (",
-                  max_depth, (lua_Integer)line, (lua_Integer)column);
-  push_path(L, path);
+  position(text, deep_offset(text, len, max_depth - opened, layout->json5),
+           layout, &line, &column);
+  lua_pushfstring(L, "JSON nests deeper than %d level%s at line %I, column %I (",
+                  max_depth, max_depth == 1 ? "" : "s", (lua_Integer)line,
+                  (lua_Integer)column);
+  push_placed_path(L, layout, path);
   lua_pushliteral(L, ")");
   lua_concat(L, 3);
 }
@@ -717,6 +783,9 @@ struct reading {
   bool lone_surrogates;
   bool duplicate_keys;
   int max_depth;
+  /* How many arrays and objects are open around the text's value in a
+   * larger text: 0 for a whole. */
+  int opened;
 };
 
 /* Reads the options every read takes from the arguments at `at`:
@@ -726,10 +795,14 @@ static void read_options (lua_State *L, int at, struct reading *r) {
   r->max_depth = checked_depth(L, at);
   r->layout.json5 = lua_toboolean(L, at + 1);
   r->layout.record = 0;
+  r->layout.line = 1;
+  r->layout.column = 1;
+  r->layout.prefix = NULL;
   r->flags = r->layout.json5 ? YYJSON_READ_JSON5 : YYJSON_READ_NOFLAG;
   r->lone_surrogates = lua_toboolean(L, at + 2);
   if (lua_toboolean(L, at + 3)) r->flags |= READ_ALLOW_HASH_COMMENTS;
   r->duplicate_keys = lua_toboolean(L, at + 4);
+  r->opened = 0;
 }
 
 /* Reads `r->text` into a document, which it sets as `guard`'s resource,
@@ -764,13 +837,13 @@ static yyjson_doc *read_text (lua_State *L, struct reading *r,
   struct path path;
   memset(&path, 0, sizeof path);
   yyjson_val *key = NULL;
-  switch (first_problem(L, yyjson_doc_get_root(doc), 0, r->max_depth,
+  switch (first_problem(L, yyjson_doc_get_root(doc), r->opened, r->max_depth,
                         r->duplicate_keys, &path, &key)) {
     case REPEATED_KEY:
     repeat_failure(L, r->text, r->len, &r->layout, doc, key, &path);
     return NULL;
     case TOO_DEEP:
-    deep_failure(L, r->text, r->len, &r->layout, r->max_depth, &path);
+    deep_failure(L, r->text, r->len, &r->layout, r->max_depth, r->opened, &path);
     return NULL;
     default:
     return doc;
@@ -785,7 +858,8 @@ static int refused (lua_State *L) {
 }
 
 /* decode(text, null?, max_depth?, json5?, big_as_string?,
- * lone_surrogates?, record?, hash_comments?, duplicate_keys?): the value
+ * lone_surrogates?, record?, hash_comments?, duplicate_keys?, line?,
+ * column?, prefix?, opened?): the value
  * `text` holds, and "". nil and a message when it is not one JSON
  * value -- RFC 8259, or JSON5 when `json5` is true, either with `#`
  * line comments when `hash_comments` is -- holds an object with a key
@@ -793,7 +867,13 @@ static int refused (lua_State *L) {
  * `max_depth` (64 by default). JSON `null` is `null` when given, and
  * nil when not. With `big_as_string`, an integer past 64 bits, or a
  * number past a double's range, is its own text. With `record`, the
- * text is that line of a JSON Lines text, and a failure names it. */
+ * text is that line of a JSON Lines text, and a failure names it. With
+ * `line` and `column`, the text starts there in a larger one, and a
+ * failure counts from there; with `prefix`, the JSON Pointer of the
+ * value the text is, a pointer a failure names is put under it; with
+ * `opened`, that
+ * many arrays and objects are open around it there, and count toward
+ * `max_depth`. */
 static int json_decode (lua_State *L) {
   struct reading r;
   r.text = luaL_checklstring(L, 1, &r.len);
@@ -801,6 +881,15 @@ static int json_decode (lua_State *L) {
   r.layout.json5 = lua_toboolean(L, 4);
   r.layout.record = luaL_optinteger(L, 7, 0);
   luaL_argcheck(L, r.layout.record >= 0, 7, "a record's line is not negative");
+  r.layout.line = luaL_optinteger(L, 10, 1);
+  luaL_argcheck(L, r.layout.line >= 1, 10, "a line is counted from 1");
+  r.layout.column = luaL_optinteger(L, 11, 1);
+  luaL_argcheck(L, r.layout.column >= 1, 11, "a column is counted from 1");
+  r.layout.prefix = luaL_optstring(L, 12, NULL);
+  lua_Integer opened = luaL_optinteger(L, 13, 0);
+  luaL_argcheck(L, opened >= 0 && opened < r.max_depth, 13,
+                "fewer levels open than max_depth");
+  r.opened = (int)opened;
   r.flags = r.layout.json5 ? YYJSON_READ_JSON5 : YYJSON_READ_NOFLAG;
   struct decoding d;
   d.L = L;
@@ -814,18 +903,18 @@ static int json_decode (lua_State *L) {
   d.duplicate_keys = r.duplicate_keys;
   memset(&d.path, 0, sizeof d.path);
   d.repeated = NULL;
-  lua_settop(L, 9);
+  lua_settop(L, 13);
   /* Building the value allocates, and an allocation can raise: the
    * guard frees the document then, and on every return. */
   struct cosmic_guard *guard = cosmic_guard_push(L, release_doc);
   yyjson_doc *doc = read_text(L, &r, guard, false);
   if (doc == NULL) return refused(L);
-  switch (push_value(&d, yyjson_doc_get_root(doc), 0)) {
+  switch (push_value(&d, yyjson_doc_get_root(doc), r.opened)) {
     case REPEATED_KEY:
     repeat_failure(L, r.text, r.len, &r.layout, doc, d.repeated, &d.path);
     return refused(L);
     case TOO_DEEP:
-    deep_failure(L, r.text, r.len, &r.layout, r.max_depth, &d.path);
+    deep_failure(L, r.text, r.len, &r.layout, r.max_depth, r.opened, &d.path);
     return refused(L);
     default:
     return cosmic_succeeded(L);
