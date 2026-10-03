@@ -613,16 +613,16 @@ function Zig.run(argv: {string}, env?: {string:string}): integer
         pending = taken
       end
       if pending ~= 0 and now >= pass_on_at then
-        -- TODO: this reaches zig's own pid alone, so once zig build has
-        -- started its runner, the runner and its compile jobs outlive
-        -- zig, orphaned, and build on to the end (a SIGINT sent to
-        -- bin/zig alone mid-build leaves them). Pass it on to zig's
-        -- descendants as well -- or to this whole process group with
-        -- kill(0, signal), weighing that it also reaches the rest of a
-        -- pipeline such as `| tee`, and that this same guard catches
-        -- the signal sent to the group: such a fix must drop its own
-        -- reflected signal rather than take it as a new one and pass it
-        -- on again every PASS_ON_NS.
+        -- TODO: this reaches zig's own pid alone -- `zig build` execs its
+        -- maker there, which exits on it -- so the compile jobs the
+        -- maker started outlive it, orphaned, and build on to the end
+        -- (a SIGINT sent to bin/zig alone mid-build leaves them). Pass
+        -- it on to zig's descendants as well -- or to this whole process
+        -- group with kill(0, signal), weighing that it also reaches the
+        -- rest of a pipeline such as `| tee`, and that this same guard
+        -- catches the signal sent to the group: such a fix must drop its
+        -- own reflected signal rather than take it as a new one and pass
+        -- it on again every PASS_ON_NS.
         local _, _ = h:stop(pending)
         pending = 0
       end
