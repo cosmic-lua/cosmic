@@ -37,6 +37,13 @@ end
 --- The field that points back up the tree, never followed.
 local back_up: {string: boolean} = { if_parent = true }
 
+--- The kinds of expression that hold no node, which a walk need not
+--- look inside.
+local leaves: {string: boolean} = {
+  variable = true, string = true, number = true, integer = true, boolean = true,
+  ["nil"] = true, ["..."] = true,
+}
+
 local type Stack = {{string: string}}
 
 local function binding(stack: Stack, name: string): string | nil
@@ -158,6 +165,7 @@ function scopes.walk(parsed: ast.Parsed,
   local walk_expression: function(ast.Node)
 
   walk_expression = function(n: ast.Node)
+    if leaves[n.kind] then return end
     if n.kind == "function" then
       process_function(n)
       return
@@ -176,9 +184,7 @@ function scopes.walk(parsed: ast.Parsed,
         member(module, n.e2.tk, n.e1.y)
       end
     end
-    for _, child in ipairs(ast.children(n, back_up)) do
-      walk_expression(child)
-    end
+    ast.each_child_node(n, back_up, walk_expression)
   end
 
   --- A function, or a macroexp, whose body is one expression.

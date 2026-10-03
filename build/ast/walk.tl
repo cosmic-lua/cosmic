@@ -123,6 +123,33 @@ local function children(node: Node, skipped?: {string: boolean}, passed?: {Node}
   return out
 end
 
+--- Calls `visit` on each node [`children`] lists for `node` and
+--- `skipped`, in the same order, without making the list: a walk that
+--- descends through every node of a file saves a table for each.
+--- `visit` must not change `node`.
+--- @param node Node
+--- @param skipped? {string: boolean} Field names not followed
+--- @param visit function(Node) Called once per child
+local function each_child_node(node: Node, skipped: {string: boolean} | nil, visit: function(Node))
+  for _, v in ipairs(array_of(node)) do
+    local child = classify(v)
+    if child then visit(child) end
+  end
+  for k, v in pairs(map_of(node)) do
+    if not (k is integer) and not (k is string and skipped ~= nil and skipped[k] == true) then
+      local child, rest = classify(v)
+      if child then
+        visit(child)
+      elseif rest then
+        for _, e in ipairs(rest) do
+          local grandchild = classify(e)
+          if grandchild then visit(grandchild) end
+        end
+      end
+    end
+  end
+end
+
 --- Walk `node`'s subtree in depth-first order, calling `visit` once on
 --- every node reached, `node` itself first. A guard by identity stops
 --- the cycle through an "if_block" node's `if_parent`, which points
@@ -315,6 +342,7 @@ local record WalkModule
   end
   walk: function(node: Node, visit: function(Node))
   children: function(node: Node, skipped?: {string: boolean}, passed?: {Node}): {Node}
+  each_child_node: function(node: Node, skipped: {string: boolean} | nil, visit: function(Node))
   span_start: function(node: Node, memo?: {Node: {integer}}): Position
   span_end: function(node: Node, tokens: {compiler.Token}): Position
 end
@@ -322,6 +350,7 @@ end
 local M: WalkModule = {
   walk = walk,
   children = children,
+  each_child_node = each_child_node,
   span_start = function(node: Node, memo?: {Node: {integer}}): WalkModule.Position
     local y, x = span_start(node, memo)
     return { y = y, x = x }
