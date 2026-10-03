@@ -82,6 +82,8 @@
 ---                      making it
 ---     mode P           P's permission bits in octal and a newline, to
 ---                      stdout, as `stat -c %a` prints them
+---     chmod P M        sets P's permission bits to M, in octal, as
+---                      `chmod M P` does
 ---     find-writable D  each regular file beneath D that opens to write,
 ---                      as `writable` opens one, a line each: a link is
 ---                      neither listed nor walked into, as `find D -type

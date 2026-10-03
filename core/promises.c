@@ -1,0 +1,776 @@
+/*-*- mode:c;indent-tabs-mode:nil;c-basic-offset:2;tab-width:8;coding:utf-8 -*-│
+│ vi: set et ft=c ts=2 sts=2 sw=2 fenc=utf-8                               :vi │
+╞══════════════════════════════════════════════════════════════════════════════╡
+│ Copyright 2022 Justine Alexandra Roberts Tunney                              │
+│                                                                              │
+│ Permission to use, copy, modify, and/or distribute this software for         │
+│ any purpose with or without fee is hereby granted, provided that the         │
+│ above copyright notice and this permission notice appear in all copies.      │
+│                                                                              │
+│ THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL                │
+│ WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED                │
+│ WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE             │
+│ AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL         │
+│ DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR        │
+│ PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER               │
+│ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR             │
+│ PERFORMANCE OF THIS SOFTWARE.                                                │
+╚─────────────────────────────────────────────────────────────────────────────*/
+
+/*
+ * The promises filter (core/promises.h), whose tables and argument rules
+ * are ported by hand from Cosmopolitan libc's libc/calls/pledge-linux.c,
+ * whose notice heads this file and whose commit is recorded in
+ * build/bom/cosmopolitan.pin. Where that file
+ * names promises after OpenBSD's pledge(2) and filters by the calls a
+ * promise needs, this one is an allow list over three promises (`fork`,
+ * `jit`, `fattr`) and the basics every program has, for a sandbox whose
+ * paths Landlock holds: a call that only reaches a file is a basic, since
+ * what it may reach is not for a filter to say.
+ *
+ * Every table is a list of call names, so a call's number is the
+ * architecture's (core/promises_calls.h), and a call an architecture has
+ * no number for (open on aarch64) is left out of its program. A program
+ * is a binary decision tree over the allowed numbers, so a call costs
+ * about ten instructions however many the tables hold; a call with an
+ * argument rule jumps from its leaf to the rule's block after the tree.
+ * Every path ends in a return, and a rule that ends without one denies.
+ */
+
+#include <errno.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+#if defined(__linux__)
+#include <asm/unistd.h>
+#include <linux/filter.h>
+#include <linux/seccomp.h>
+#include <sys/prctl.h>
+#endif
+
+#include "check.h"
+#include "fail.h"
+#include "lauxlib.h"
+#include "process.h"
+#include "promises.h"
+#include "promises_calls.h"
+
+/* The promises, as a set of bits: `fork` is fork and clone without a
+ * namespace flag, `jit` anonymous executable memory, `fattr` changing a
+ * file's mode, times, owner and extended attributes. */
+#define COSMIC_PROMISE_FORK 0x1u
+#define COSMIC_PROMISE_JIT 0x2u
+#define COSMIC_PROMISE_FATTR 0x4u
+
+/* The architectures a filter is written for. */
+enum cosmic_arch { COSMIC_ARCH_X86_64, COSMIC_ARCH_AARCH64 };
+
+/* One instruction of a classic BPF program, as the kernel's `struct
+ * sock_filter` lays it out, so a program is handed to seccomp as it is,
+ * and an interpreter on any host reads the bytes. */
+struct cosmic_insn {
+  uint16_t code;
+  uint8_t jt;
+  uint8_t jf;
+  uint32_t k;
+};
+
+/* The most instructions a program holds, which the kernel's own limit
+ * (BPF_MAXINSNS) is. The full tables fit in about a fifth of it. */
+#define COSMIC_PROMISE_INSNS 4096
+
+
+/* Every call, by the name core/promises_calls.h gives it. */
+enum call {
+#define NAME(name, number) CALL_##name,
+  X86_64_CALLS(NAME)
+#undef NAME
+  CALL_COUNT
+};
+
+/* A call's number plus one for each architecture, by call, so that 0 is
+ * a call the architecture has no number for. */
+#define NUMBER(name, number) [CALL_##name] = (number) + 1,
+static const short x86_64_numbers[CALL_COUNT] = { X86_64_CALLS(NUMBER) };
+static const short aarch64_numbers[CALL_COUNT] = { AARCH64_CALLS(NUMBER) };
+#undef NUMBER
+
+/* Each architecture's numbers by name, for the check below. */
+#define NUMBER_OF(name, number) NUMBER_##name = (number),
+#if defined(__linux__) && defined(__x86_64__)
+enum { X86_64_CALLS(NUMBER_OF) };
+#elif defined(__linux__) && defined(__aarch64__)
+enum { AARCH64_CALLS(NUMBER_OF) };
+#endif
+#undef NUMBER_OF
+
+/* A sample of calls every set of headers has -- the calls a loader and a
+ * libc make before main -- which the host's headers must number as the
+ * tables do: a table of another architecture's, or one shifted, is a
+ * build that fails. Not every call: a header older than the tables (the
+ * kernel's calls past 451 are only in the newest) leaves the rest of
+ * them unchecked, which are numbered from the kernel's own list. */
+#if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__))
+#define HOST_NUMBER(name) \
+  _Static_assert(__NR_##name == NUMBER_##name, "core/promises_calls.h and the headers disagree on " #name);
+HOST_NUMBER(read)
+HOST_NUMBER(write)
+HOST_NUMBER(close)
+HOST_NUMBER(mmap)
+HOST_NUMBER(mprotect)
+HOST_NUMBER(munmap)
+HOST_NUMBER(brk)
+HOST_NUMBER(ioctl)
+HOST_NUMBER(clone)
+HOST_NUMBER(execve)
+HOST_NUMBER(exit_group)
+HOST_NUMBER(openat)
+HOST_NUMBER(futex)
+HOST_NUMBER(getrandom)
+HOST_NUMBER(prctl)
+HOST_NUMBER(seccomp)
+HOST_NUMBER(socket)
+HOST_NUMBER(kill)
+HOST_NUMBER(pipe2)
+HOST_NUMBER(rt_sigaction)
+#undef HOST_NUMBER
+#endif
+
+/* How a call is granted, ordered by how much it allows, so that a call
+ * two promises grant differently is granted as the more allowing one
+ * says: a thread-only clone is a fork's, and either is anything's. */
+enum rule {
+  RULE_NONE,
+  /* The call answers ENOSYS. */
+  RULE_ENOSYS,
+  /* mmap, mprotect and memfd_create, which `jit` grants whole. */
+  RULE_MMAP,
+  RULE_MPROTECT,
+  RULE_MEMFD,
+  /* clone: a thread only; and any but one into a namespace. */
+  RULE_CLONE_THREAD,
+  RULE_CLONE_FORK,
+  /* Held to one argument, which no promise loosens. */
+  RULE_PID_SELF,
+  RULE_PID_SELF_OR_ZERO,
+  RULE_PRLIMIT,
+  RULE_PRIORITY,
+  RULE_FCNTL,
+  RULE_IOCTL,
+  RULE_PRCTL,
+  RULE_SOCKET_UNIX,
+  RULE_OPEN,
+  RULE_OPENAT,
+  RULE_MODE1,
+  RULE_MODE2,
+  RULE_MKNOD1,
+  RULE_MKNOD2,
+  /* The call is allowed whole. */
+  RULE_ALLOW,
+  RULE_COUNT
+};
+
+struct grant {
+  uint16_t call;
+  uint8_t rule;
+};
+
+#define A(name) { CALL_##name, RULE_ALLOW }
+#define R(name, rule) { CALL_##name, RULE_##rule }
+
+/* What every program has. Memory, time, signals to itself, threads,
+ * descriptors, files, a unix socketpair, execve, and what a loader and a
+ * libc ask before main. A file call is here, not under a promise,
+ * because Landlock holds the paths; what a promise adds is a call that
+ * reaches past them.
+ *
+ * Left out on purpose, so every one answers EPERM: tkill, whose thread
+ * id says nothing of whose it is (raise and pthread_kill, both musl's,
+ * fail, where tgkill with the own pid does not); setrlimit and a
+ * prlimit64 that sets, which a sandbox's limits are not the program's to
+ * move; SysV IPC; chroot; mount and the namespace calls; pidfd_send_signal,
+ * which signals through a descriptor no pid rule sees; vmsplice; and the
+ * never-allowed set (ptrace, bpf, io_uring, ...), which no table names.
+ * `clone3` and `openat2` answer ENOSYS, since the filter cannot read the
+ * structure they take, and a libc falls back to clone and openat. */
+static const struct grant basics[] = {
+  /* Memory. mmap and mprotect refuse executable memory that is anonymous
+   * or writable, which `jit` grants. */
+  R(mmap, MMAP), R(mprotect, MPROTECT), A(munmap), A(mremap), A(brk), A(madvise),
+  A(mlock), A(mlock2), A(munlock), A(mlockall), A(munlockall), A(mincore),
+  A(msync), A(membarrier), A(mseal), A(map_shadow_stack), A(cachestat),
+  R(memfd_create, MEMFD),
+  /* Time. */
+  A(clock_gettime), A(clock_getres), A(clock_nanosleep), A(gettimeofday),
+  A(nanosleep), A(time), A(times), A(getitimer), A(setitimer), A(alarm),
+  A(timer_create), A(timer_settime), A(timer_gettime), A(timer_getoverrun),
+  A(timer_delete), A(timerfd_create), A(timerfd_settime), A(timerfd_gettime),
+  /* Signals, and only to itself. */
+  A(rt_sigaction), A(rt_sigprocmask), A(rt_sigreturn), A(rt_sigpending),
+  A(rt_sigsuspend), A(rt_sigtimedwait), A(sigaltstack), A(signalfd),
+  A(signalfd4), A(pause), A(restart_syscall), R(kill, PID_SELF),
+  R(tgkill, PID_SELF), R(rt_sigqueueinfo, PID_SELF),
+  R(rt_tgsigqueueinfo, PID_SELF),
+  /* Threads, and who it is. */
+  R(clone, CLONE_THREAD), R(clone3, ENOSYS), A(set_tid_address),
+  A(set_robust_list), R(get_robust_list, PID_SELF_OR_ZERO), A(futex),
+  A(futex_waitv), A(futex_wake), A(futex_wait), A(futex_requeue), A(gettid),
+  A(getpid), A(getppid), R(getpgid, PID_SELF_OR_ZERO), A(getpgrp),
+  R(getsid, PID_SELF_OR_ZERO), A(setsid), R(setpgid, PID_SELF_OR_ZERO),
+  A(exit), A(exit_group), A(sched_yield),
+  R(sched_getaffinity, PID_SELF_OR_ZERO), R(sched_setaffinity, PID_SELF_OR_ZERO),
+  R(sched_getparam, PID_SELF_OR_ZERO), R(sched_setparam, PID_SELF_OR_ZERO),
+  R(sched_getscheduler, PID_SELF_OR_ZERO), R(sched_setscheduler, PID_SELF_OR_ZERO),
+  R(sched_rr_get_interval, PID_SELF_OR_ZERO), R(sched_getattr, PID_SELF_OR_ZERO),
+  R(sched_setattr, PID_SELF_OR_ZERO), A(sched_get_priority_max),
+  A(sched_get_priority_min), A(getcpu), R(getpriority, PRIORITY),
+  R(setpriority, PRIORITY), A(getuid), A(geteuid), A(getgid), A(getegid),
+  A(getgroups), A(getresuid), A(getresgid), A(umask), A(uname), A(sysinfo),
+  A(getrusage), A(getrlimit), R(prlimit64, PRLIMIT), R(prctl, PRCTL),
+  A(arch_prctl), A(rseq), A(getrandom), A(wait4), A(waitid),
+  /* Filters and rulesets, which only narrow what the process may do. */
+  A(seccomp), A(landlock_create_ruleset), A(landlock_add_rule),
+  A(landlock_restrict_self),
+  A(execve), A(execveat),
+  /* Descriptors it has: handed in, or made by the calls below. */
+  A(read), A(write), A(readv), A(writev), A(pread64), A(pwrite64), A(preadv),
+  A(pwritev), A(preadv2), A(pwritev2), A(close), A(close_range), A(dup),
+  A(dup2), A(dup3), R(fcntl, FCNTL), R(ioctl, IOCTL), A(lseek), A(pipe),
+  A(pipe2), A(poll), A(ppoll), A(select), A(pselect6), A(epoll_create),
+  A(epoll_create1), A(epoll_ctl), A(epoll_wait), A(epoll_pwait),
+  A(epoll_pwait2), A(eventfd), A(eventfd2), A(sendfile), A(splice), A(tee),
+  A(copy_file_range), A(readahead), A(fadvise64), A(fallocate), A(fsync),
+  A(fdatasync), A(sync_file_range), A(sync), A(syncfs), A(flock),
+  A(ftruncate), A(truncate), A(inotify_init), A(inotify_init1),
+  A(inotify_add_watch), A(inotify_rm_watch),
+  /* Sockets: a socketpair of unix sockets, and the calls on a socket it
+   * already has. `socket` itself is granted only where a unix socket may
+   * be made (`collect`). A descriptor handed in is the grant that lets
+   * it reach where its owner meant. */
+  R(socketpair, SOCKET_UNIX), A(bind), A(connect), A(listen), A(accept),
+  A(accept4), A(getsockname), A(getpeername), A(sendto), A(recvfrom),
+  A(sendmsg), A(recvmsg), A(sendmmsg), A(recvmmsg), A(shutdown),
+  A(setsockopt), A(getsockopt),
+  /* Files: what Landlock holds, but for a mode with a setuid, setgid or
+   * sticky bit, which no call here creates. */
+  R(open, OPEN), R(openat, OPENAT), R(creat, MODE1), R(openat2, ENOSYS),
+  A(stat), A(fstat), A(lstat), A(newfstatat), A(statx), A(statfs), A(fstatfs),
+  A(access), A(faccessat), A(faccessat2), A(readlink), A(readlinkat),
+  A(getcwd), A(chdir), A(fchdir), A(rename), A(renameat), A(renameat2),
+  R(mkdir, MODE1), R(mkdirat, MODE2), A(rmdir), A(link), A(linkat), A(unlink),
+  A(unlinkat), A(symlink), A(symlinkat), R(mknod, MKNOD1), R(mknodat, MKNOD2),
+  A(getdents), A(getdents64), A(getxattr), A(lgetxattr), A(fgetxattr),
+  A(listxattr), A(llistxattr), A(flistxattr), A(getxattrat), A(listxattrat),
+  A(file_getattr),
+};
+
+/* TODO: the `nest` promise -- unshare, mount and pivot_root, which reach
+ * only a program's own namespaces, for a program that builds a sandbox of
+ * its own -- once phase 2 of the sandbox plan (doc/plans/sandbox.md on
+ * the unveil-landlock-cli branch: `isolate file`, which `nest` needs, and
+ * a Landlock hold it gives up, since Landlock refuses mounts) lands;
+ * until then every namespace call is refused, whatever was promised. */
+
+/* `fork`: a process of its own, and the descriptor to wait for it on. */
+static const struct grant fork_calls[] = {
+  A(fork), A(vfork), R(clone, CLONE_FORK), A(pidfd_open),
+};
+
+/* `jit`: memory that is executable and not a file's, and what makes it. */
+static const struct grant jit_calls[] = {
+  A(mmap), A(mprotect), A(pkey_mprotect), A(pkey_alloc), A(pkey_free),
+  A(memfd_create),
+};
+
+/* `fattr`: a file's mode (never with a setuid, setgid or sticky bit),
+ * times, owner and extended attributes. */
+static const struct grant fattr_calls[] = {
+  R(chmod, MODE1), R(fchmod, MODE1), R(fchmodat, MODE2), R(fchmodat2, MODE2),
+  A(chown), A(fchown), A(lchown), A(fchownat), A(utime), A(utimes),
+  A(futimesat), A(utimensat), A(setxattr), A(lsetxattr), A(fsetxattr),
+  A(removexattr), A(lremovexattr), A(fremovexattr), A(setxattrat),
+  A(removexattrat),
+};
+
+#undef A
+#undef R
+
+/* The classic BPF an instruction is made of, and what seccomp hands a
+ * program: the call's number, the architecture, and its arguments, each
+ * 64 bits, from a little-endian offset (both architectures are). */
+#define OP_LOAD 0x20u
+#define OP_AND 0x54u
+#define OP_JUMP 0x05u
+#define OP_EQ 0x15u
+#define OP_GREATER 0x25u
+#define OP_AT_LEAST 0x35u
+#define OP_ANY_SET 0x45u
+#define OP_RETURN 0x06u
+
+#define DATA_NUMBER 0u
+#define DATA_ARCH 4u
+#define DATA_ARGUMENT(n) (16u + 8u * (n))
+#define DATA_LOW 0u
+#define DATA_HIGH 4u
+
+/* What a program returns: seccomp's own values, with Linux's errno
+ * numbers, which are no host's. */
+#define RETURN_ALLOW 0x7fff0000u
+#define RETURN_KILL_PROCESS 0x80000000u
+#define RETURN_ERRNO(number) (0x00050000u | (number))
+#define LINUX_EPERM 1u
+#define LINUX_ENOTTY 25u
+#define LINUX_ENOSYS 38u
+
+#define AUDIT_X86_64 0xc000003eu
+#define AUDIT_AARCH64 0xc00000b7u
+
+/* The flags and options the rules read, as Linux has them on both
+ * architectures. */
+#define PROT_WRITE_BIT 0x2u
+#define PROT_EXEC_BIT 0x4u
+#define MAP_ANONYMOUS_BIT 0x20u
+#define MFD_NOEXEC_SEAL_BIT 0x8u
+#define O_CREAT_BIT 0x40u
+#define O_TMPFILE_BIT 0x400000u
+#define SPECIAL_MODE_BITS 0xe00u
+#define FILE_TYPE_BITS 0xf000u
+#define TYPE_REGULAR 0x8000u
+#define TYPE_FIFO 0x1000u
+#define TYPE_SOCKET 0xc000u
+#define AF_UNIX_FAMILY 1u
+
+/* clone's flags: the namespaces (CLONE_NEWNS, CLONE_NEWCGROUP, UTS, IPC,
+ * USER, PID and NET), CLONE_PTRACE and CLONE_PARENT, which a process
+ * never has; and what a thread has: CLONE_VM, FILES, SIGHAND and THREAD.
+ * The low byte is the signal the child ends with, not a flag. */
+#define CLONE_NAMESPACES 0x7e020000u
+#define CLONE_FORBIDDEN (CLONE_NAMESPACES | 0x2000u | 0x8000u)
+#define CLONE_THREAD_REQUIRED (0x100u | 0x400u | 0x800u | 0x10000u)
+
+/* What a rule's block is built with: instructions appended to `code`,
+ * which `full` says ran out of room for, or a jump too far. */
+struct builder {
+  struct cosmic_insn *code;
+  size_t length;
+  bool full;
+};
+
+/* Appends one instruction, answers where it went (0 when it did not). */
+static size_t emit (struct builder *b, uint16_t code, uint8_t jt, uint8_t jf, uint32_t k) {
+  if (b->length >= COSMIC_PROMISE_INSNS) {
+    b->full = true;
+    return 0;
+  }
+  b->code[b->length] = (struct cosmic_insn){ code, jt, jf, k };
+  return b->length++;
+}
+
+/* Where a jump in a block goes: the next instruction, the one after it,
+ * or the block's end, where a call is allowed or denied. */
+enum target { JUMP_NEXT, JUMP_SKIP, JUMP_ALLOW, JUMP_DENY };
+
+struct patch {
+  size_t at;
+  bool when_false;
+  enum target target;
+};
+
+/* A rule's block, whose jumps to its end are patched once it has one. */
+struct block {
+  struct builder *b;
+  struct patch patches[32];
+  size_t patch_count;
+};
+
+static uint8_t jump_to (struct block *k, size_t at, bool when_false, enum target target) {
+  if (target == JUMP_NEXT) return 0;
+  if (target == JUMP_SKIP) return 1;
+  if (k->patch_count < sizeof k->patches / sizeof k->patches[0])
+    k->patches[k->patch_count++] = (struct patch){ at, when_false, target };
+  else
+    k->b->full = true;
+  return 0;
+}
+
+/* A comparison of the accumulator with `value`, going `yes` where it
+ * holds and `no` where it does not. */
+static void test (struct block *k, uint16_t op, uint32_t value, enum target yes, enum target no) {
+  size_t at = k->b->length;
+  uint8_t jt = jump_to(k, at, false, yes);
+  uint8_t jf = jump_to(k, at, true, no);
+  emit(k->b, op, jt, jf, value);
+}
+
+/* The accumulator is argument `n`'s low 32 bits -- where an `int` or an
+ * `unsigned` the kernel truncates to is, so a high bit set by the
+ * caller reads as the kernel will -- or its high ones. */
+static void load (struct block *k, uint32_t offset) {
+  emit(k->b, OP_LOAD, 0, 0, offset);
+}
+
+static void mask (struct block *k, uint32_t value) {
+  emit(k->b, OP_AND, 0, 0, value);
+}
+
+/* Closes the block with a denial -- what falls off its end -- then an
+ * allowance, and points its jumps at them. */
+static void finish (struct block *k, uint32_t denial) {
+  struct builder *b = k->b;
+  size_t deny = emit(b, OP_RETURN, 0, 0, denial);
+  size_t allow = emit(b, OP_RETURN, 0, 0, RETURN_ALLOW);
+  for (size_t i = 0; i < k->patch_count; i++) {
+    const struct patch *p = &k->patches[i];
+    size_t to = p->target == JUMP_ALLOW ? allow : deny;
+    size_t distance = to - (p->at + 1);
+    if (distance > 255) {
+      b->full = true;
+      continue;
+    }
+    if (p->when_false) b->code[p->at].jf = (uint8_t)distance;
+    else b->code[p->at].jt = (uint8_t)distance;
+  }
+}
+
+/* Allowed when the accumulator is one of `values`. */
+static void allow_one_of (struct block *k, const uint32_t *values, size_t count) {
+  for (size_t i = 0; i < count; i++) test(k, OP_EQ, values[i], JUMP_ALLOW, JUMP_NEXT);
+}
+
+/* The commands fcntl may be given: duplicating, flags, locks (record and
+ * open file description), the owner read, pipe sizes and seals. Not
+ * F_SETOWN, which points signals at another process, F_SETSIG, F_NOTIFY
+ * or any lease. */
+static const uint32_t fcntl_commands[] = {
+  0, 1, 2, 3, 4, 5, 6, 7, 9, 36, 37, 38, 1030, 1031, 1032, 1033, 1034,
+};
+
+/* The ioctls that read a descriptor or a terminal: FIONREAD, FIONBIO,
+ * FIOCLEX and FIONCLEX; TCGETS, TCGETA and TCGETS2, TIOCGWINSZ, TIOCGPGRP,
+ * TIOCGSID and TIOCOUTQ. The same numbers on both architectures. */
+static const uint32_t ioctl_commands[] = {
+  0x541b, 0x5421, 0x5451, 0x5450, 0x5401, 0x5405, 0x802c542a, 0x5413, 0x540f,
+  0x5429, 0x5411,
+};
+
+/* The prctl options a program may use: its parent-death signal, whether it
+ * dumps core, its name, the filter and no_new_privs it holds, the
+ * bounding set read, being a subreaper, its timer slack, naming an
+ * anonymous mapping (PR_SET_VMA), the transparent huge page switch, and
+ * the memory-deny-write-execute setting. Not the keep-capabilities,
+ * securebits, ptracer, memory map or ambient capability ones. */
+static const uint32_t prctl_options[] = {
+  1, 2, 3, 4, 15, 16, 21, 22, 23, 29, 30, 36, 37, 38, 39, 40, 41, 42, 65, 66,
+  0x53564d41,
+};
+
+/* The block of `rule`, entered with a call's arguments in the data.
+ * `pid` is the process's own, which a rule about who a call is aimed at
+ * compares with. */
+static void rule_block (struct builder *b, enum rule rule, uint32_t pid) {
+  struct block k = { .b = b, .patch_count = 0 };
+  uint32_t denial = RETURN_ERRNO(LINUX_EPERM);
+  switch (rule) {
+    case RULE_MMAP:
+    /* Executable only where it is a file's and not writable: never
+     * W and X at once, never anonymous. */
+    load(&k, DATA_ARGUMENT(2) + DATA_LOW);
+    test(&k, OP_ANY_SET, PROT_EXEC_BIT, JUMP_NEXT, JUMP_ALLOW);
+    test(&k, OP_ANY_SET, PROT_WRITE_BIT, JUMP_DENY, JUMP_NEXT);
+    load(&k, DATA_ARGUMENT(3) + DATA_LOW);
+    test(&k, OP_ANY_SET, MAP_ANONYMOUS_BIT, JUMP_DENY, JUMP_ALLOW);
+    break;
+    case RULE_MPROTECT:
+    load(&k, DATA_ARGUMENT(2) + DATA_LOW);
+    test(&k, OP_ANY_SET, PROT_EXEC_BIT, JUMP_DENY, JUMP_ALLOW);
+    break;
+    case RULE_MEMFD:
+    /* A memfd that can never be executed: MFD_NOEXEC_SEAL. */
+    load(&k, DATA_ARGUMENT(1) + DATA_LOW);
+    mask(&k, MFD_NOEXEC_SEAL_BIT);
+    test(&k, OP_EQ, MFD_NOEXEC_SEAL_BIT, JUMP_ALLOW, JUMP_DENY);
+    break;
+    case RULE_CLONE_THREAD:
+    load(&k, DATA_ARGUMENT(0) + DATA_LOW);
+    test(&k, OP_ANY_SET, CLONE_FORBIDDEN, JUMP_DENY, JUMP_NEXT);
+    mask(&k, CLONE_THREAD_REQUIRED);
+    test(&k, OP_EQ, CLONE_THREAD_REQUIRED, JUMP_ALLOW, JUMP_DENY);
+    break;
+    case RULE_CLONE_FORK:
+    load(&k, DATA_ARGUMENT(0) + DATA_LOW);
+    test(&k, OP_ANY_SET, CLONE_FORBIDDEN, JUMP_DENY, JUMP_ALLOW);
+    break;
+    case RULE_PID_SELF:
+    /* TODO: let a call signal any process once Landlock's signal scope
+     * (ABI 6) holds a sandbox's signals to itself, and drop the pid
+     * from this rule: it is the one the program started under, so a
+     * process it forks, which has another, cannot signal itself
+     * (kill(getpid()), tgkill) until then. */
+    load(&k, DATA_ARGUMENT(0) + DATA_LOW);
+    test(&k, OP_EQ, pid, JUMP_ALLOW, JUMP_DENY);
+    break;
+    case RULE_PID_SELF_OR_ZERO:
+    load(&k, DATA_ARGUMENT(0) + DATA_LOW);
+    test(&k, OP_EQ, 0, JUMP_ALLOW, JUMP_NEXT);
+    test(&k, OP_EQ, pid, JUMP_ALLOW, JUMP_DENY);
+    break;
+    case RULE_PRLIMIT:
+    /* Its own limits, read and not set: a null new limit. */
+    load(&k, DATA_ARGUMENT(0) + DATA_LOW);
+    test(&k, OP_EQ, 0, JUMP_SKIP, JUMP_NEXT);
+    test(&k, OP_EQ, pid, JUMP_NEXT, JUMP_DENY);
+    load(&k, DATA_ARGUMENT(2) + DATA_LOW);
+    test(&k, OP_EQ, 0, JUMP_NEXT, JUMP_DENY);
+    load(&k, DATA_ARGUMENT(2) + DATA_HIGH);
+    test(&k, OP_EQ, 0, JUMP_ALLOW, JUMP_DENY);
+    break;
+    case RULE_PRIORITY:
+    /* `who` is the calling process's, which 0 names. */
+    load(&k, DATA_ARGUMENT(1) + DATA_LOW);
+    test(&k, OP_EQ, 0, JUMP_ALLOW, JUMP_DENY);
+    break;
+    case RULE_FCNTL:
+    load(&k, DATA_ARGUMENT(1) + DATA_LOW);
+    allow_one_of(&k, fcntl_commands, sizeof fcntl_commands / sizeof fcntl_commands[0]);
+    break;
+    case RULE_IOCTL:
+    denial = RETURN_ERRNO(LINUX_ENOTTY);
+    load(&k, DATA_ARGUMENT(1) + DATA_LOW);
+    allow_one_of(&k, ioctl_commands, sizeof ioctl_commands / sizeof ioctl_commands[0]);
+    break;
+    case RULE_PRCTL:
+    load(&k, DATA_ARGUMENT(0) + DATA_LOW);
+    allow_one_of(&k, prctl_options, sizeof prctl_options / sizeof prctl_options[0]);
+    break;
+    case RULE_SOCKET_UNIX:
+    /* The family is the first argument of socket and socketpair. */
+    load(&k, DATA_ARGUMENT(0) + DATA_LOW);
+    test(&k, OP_EQ, AF_UNIX_FAMILY, JUMP_ALLOW, JUMP_DENY);
+    break;
+    case RULE_OPEN:
+    case RULE_OPENAT: {
+      /* A mode is read only where the call creates a file. */
+      uint32_t flags = rule == RULE_OPEN ? 1 : 2;
+      load(&k, DATA_ARGUMENT(flags) + DATA_LOW);
+      test(&k, OP_ANY_SET, O_CREAT_BIT | O_TMPFILE_BIT, JUMP_NEXT, JUMP_ALLOW);
+      load(&k, DATA_ARGUMENT(flags + 1) + DATA_LOW);
+      test(&k, OP_ANY_SET, SPECIAL_MODE_BITS, JUMP_DENY, JUMP_ALLOW);
+      break;
+    }
+    case RULE_MODE1:
+    case RULE_MODE2:
+    load(&k, DATA_ARGUMENT(rule == RULE_MODE1 ? 1 : 2) + DATA_LOW);
+    test(&k, OP_ANY_SET, SPECIAL_MODE_BITS, JUMP_DENY, JUMP_ALLOW);
+    break;
+    case RULE_MKNOD1:
+    case RULE_MKNOD2:
+    /* A file, a fifo or a socket, and never a device. */
+    load(&k, DATA_ARGUMENT(rule == RULE_MKNOD1 ? 1 : 2) + DATA_LOW);
+    test(&k, OP_ANY_SET, SPECIAL_MODE_BITS, JUMP_DENY, JUMP_NEXT);
+    mask(&k, FILE_TYPE_BITS);
+    test(&k, OP_EQ, 0, JUMP_ALLOW, JUMP_NEXT);
+    test(&k, OP_EQ, TYPE_REGULAR, JUMP_ALLOW, JUMP_NEXT);
+    test(&k, OP_EQ, TYPE_FIFO, JUMP_ALLOW, JUMP_NEXT);
+    test(&k, OP_EQ, TYPE_SOCKET, JUMP_ALLOW, JUMP_DENY);
+    break;
+    default:
+    break;
+  }
+  finish(&k, denial);
+}
+
+/* One call that is allowed, by its number on the architecture, and how. */
+struct entry {
+  uint16_t number;
+  uint8_t rule;
+};
+
+/* A call a rule's block is jumped to from: its jump, to be pointed at the
+ * block once every block has a place. */
+struct pending {
+  size_t at;
+  uint8_t rule;
+};
+
+/* How many instructions a run of entries is left to compare one by one
+ * instead of halving. */
+#define LEAF_RUN 4
+
+/* The decision tree over `entries`, sorted by number: past a handful it
+ * halves, a jump over the lower half to the upper where the number is the
+ * middle one or more, and each leaf compares one number and returns, or
+ * jumps to its rule. A run that matches nothing ends in the denial. A
+ * leaf's jump to a rule is left for `pending`. */
+static void tree (struct builder *b, const struct entry *entries, size_t count,
+                  struct pending *pending, size_t *pending_count) {
+  if (count <= LEAF_RUN) {
+    for (size_t i = 0; i < count; i++) {
+      emit(b, OP_EQ, 0, 1, entries[i].number);
+      if (entries[i].rule == RULE_ALLOW) {
+        emit(b, OP_RETURN, 0, 0, RETURN_ALLOW);
+      } else if (entries[i].rule == RULE_ENOSYS) {
+        emit(b, OP_RETURN, 0, 0, RETURN_ERRNO(LINUX_ENOSYS));
+      } else {
+        size_t at = emit(b, OP_JUMP, 0, 0, 0);
+        pending[(*pending_count)++] = (struct pending){ at, entries[i].rule };
+      }
+    }
+    emit(b, OP_RETURN, 0, 0, RETURN_ERRNO(LINUX_EPERM));
+    return;
+  }
+  size_t middle = count / 2;
+  emit(b, OP_AT_LEAST, 0, 1, entries[middle].number);
+  size_t over = emit(b, OP_JUMP, 0, 0, 0);
+  tree(b, entries, middle, pending, pending_count);
+  b->code[over].k = (uint32_t)(b->length - over - 1);
+  tree(b, entries + middle, count - middle, pending, pending_count);
+}
+
+/* Adds each call of `table` to `rules`, the more allowing of two grants
+ * of one call winning. */
+static void add (uint8_t *rules, const struct grant *table, size_t count) {
+  for (size_t i = 0; i < count; i++) {
+    if (table[i].rule > rules[table[i].call]) rules[table[i].call] = table[i].rule;
+  }
+}
+
+#define ADD(table) add(rules, table, sizeof table / sizeof table[0])
+
+/* Writes to `out`, room for COSMIC_PROMISE_INSNS, the program that holds
+ * a process of `arch` and pid `pid` to `promises`, and answers how many
+ * instructions it is, or 0 where it did not fit. `unix_sockets` lets it
+ * make a unix socket (socket(AF_UNIX)); a socketpair of one it always
+ * may. Nothing in it depends on the host. */
+static size_t program_for (struct cosmic_insn *out, enum cosmic_arch arch,
+                                      unsigned promises, bool unix_sockets, uint32_t pid) {
+  const short *numbers = arch == COSMIC_ARCH_X86_64 ? x86_64_numbers : aarch64_numbers;
+  uint32_t audit = arch == COSMIC_ARCH_X86_64 ? AUDIT_X86_64 : AUDIT_AARCH64;
+  uint8_t rules[CALL_COUNT];
+  memset(rules, 0, sizeof rules);
+  ADD(basics);
+  if (unix_sockets) rules[CALL_socket] = RULE_SOCKET_UNIX;
+  if (promises & COSMIC_PROMISE_FORK) ADD(fork_calls);
+  if (promises & COSMIC_PROMISE_JIT) ADD(jit_calls);
+  if (promises & COSMIC_PROMISE_FATTR) ADD(fattr_calls);
+
+  /* The calls this architecture has a number for, in number order. */
+  struct entry entries[CALL_COUNT];
+  size_t count = 0;
+  for (int call = 0; call < CALL_COUNT; call++) {
+    if (rules[call] == RULE_NONE || numbers[call] == 0) continue;
+    struct entry entry = { (uint16_t)(numbers[call] - 1), rules[call] };
+    size_t at = count++;
+    while (at > 0 && entries[at - 1].number > entry.number) {
+      entries[at] = entries[at - 1];
+      at--;
+    }
+    entries[at] = entry;
+  }
+
+  struct builder b = { out, 0, false };
+  emit(&b, OP_LOAD, 0, 0, DATA_ARCH);
+  emit(&b, OP_EQ, 1, 0, audit);
+  emit(&b, OP_RETURN, 0, 0, RETURN_KILL_PROCESS);
+  /* Above the reviewed table is ENOSYS: x32's numbers, which set a high
+   * bit, are among them. */
+  emit(&b, OP_LOAD, 0, 0, DATA_NUMBER);
+  emit(&b, OP_GREATER, 0, 1, PROMISE_CALLS_REVIEWED - 1);
+  emit(&b, OP_RETURN, 0, 0, RETURN_ERRNO(LINUX_ENOSYS));
+
+  struct pending pending[CALL_COUNT];
+  size_t pending_count = 0;
+  tree(&b, entries, count, pending, &pending_count);
+
+  size_t blocks[RULE_COUNT] = { 0 };
+  bool needed[RULE_COUNT];
+  memset(needed, 0, sizeof needed);
+  for (size_t i = 0; i < pending_count; i++) needed[pending[i].rule] = true;
+  for (int rule = 0; rule < RULE_COUNT; rule++) {
+    if (!needed[rule]) continue;
+    blocks[rule] = b.length;
+    rule_block(&b, (enum rule)rule, pid);
+  }
+  for (size_t i = 0; i < pending_count; i++)
+    b.code[pending[i].at].k = (uint32_t)(blocks[pending[i].rule] - pending[i].at - 1);
+  return b.full ? 0 : b.length;
+}
+
+#undef ADD
+
+unsigned cosmic_promise_named (const char *name) {
+  if (strcmp(name, "fork") == 0) return COSMIC_PROMISE_FORK;
+  if (strcmp(name, "jit") == 0) return COSMIC_PROMISE_JIT;
+  if (strcmp(name, "fattr") == 0) return COSMIC_PROMISE_FATTR;
+  return 0;
+}
+
+#if defined(__linux__) && defined(__NR_syscalls)
+const int cosmic_promise_headers_end = __NR_syscalls;
+#else
+const int cosmic_promise_headers_end = 0;
+#endif
+
+int cosmic_promises_apply (unsigned promises) {
+#if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__))
+#if defined(__x86_64__)
+  enum cosmic_arch arch = COSMIC_ARCH_X86_64;
+#else
+  enum cosmic_arch arch = COSMIC_ARCH_AARCH64;
+#endif
+  struct cosmic_insn code[COSMIC_PROMISE_INSNS];
+  /* TODO: allow a unix socket (`unix_sockets`) for a program that is
+   * granted one (`u`), once the sandbox plan's phase 1 Landlock grants
+   * land and `spawn` has a way to ask: until then only a socketpair is
+   * made. */
+  size_t length = program_for(code, arch, promises, false, (uint32_t)getpid());
+  if (length == 0) return ENOSPC;
+  if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) return errno;
+  _Static_assert(sizeof(struct sock_filter) == sizeof(struct cosmic_insn), "one instruction");
+  struct sock_fprog program = { (unsigned short)length, (struct sock_filter *)code };
+  if (prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &program) != 0) return errno;
+  return 0;
+#else
+  (void)promises;
+  return ENOSYS;
+#endif
+}
+
+COSMIC_SYSCALL(promise_filter, 3) {
+  luaL_checktype(L, 1, LUA_TTABLE);
+  unsigned promises = 0;
+  lua_Integer listed = (lua_Integer)lua_rawlen(L, 1);
+  for (lua_Integer i = 1; i <= listed; i++) {
+    lua_rawgeti(L, 1, i);
+    unsigned bit = lua_type(L, -1) == LUA_TSTRING ? cosmic_promise_named(lua_tostring(L, -1)) : 0;
+    if (bit == 0) return luaL_argerror(L, 1, "a promise is \"fork\", \"jit\" or \"fattr\"");
+    promises |= bit;
+    lua_pop(L, 1);
+  }
+  const char *name = luaL_checkstring(L, 2);
+  enum cosmic_arch arch;
+  if (strcmp(name, "x86_64") == 0) arch = COSMIC_ARCH_X86_64;
+  else if (strcmp(name, "aarch64") == 0) arch = COSMIC_ARCH_AARCH64;
+  else return luaL_argerror(L, 2, "an architecture is \"x86_64\" or \"aarch64\"");
+  lua_Integer pid = 1;
+  bool unix_sockets = false;
+  if (!lua_isnoneornil(L, 3)) {
+    luaL_checktype(L, 3, LUA_TTABLE);
+    lua_getfield(L, 3, "pid");
+    if (!lua_isnil(L, -1)) {
+      pid = lua_isinteger(L, -1) ? lua_tointeger(L, -1) : -1;
+      if (pid < 1 || pid > INT32_MAX) return luaL_argerror(L, 3, "pid must be a positive integer");
+    }
+    lua_getfield(L, 3, "unix");
+    unix_sockets = lua_toboolean(L, -1);
+    lua_pop(L, 2);
+  }
+  struct cosmic_insn code[COSMIC_PROMISE_INSNS];
+  size_t length = program_for(code, arch, promises, unix_sockets, (uint32_t)pid);
+  if (length == 0) return luaL_error(L, "the filter does not fit");
+  lua_pushlstring(L, (const char *)code, length * sizeof code[0]);
+  return 1;
+}

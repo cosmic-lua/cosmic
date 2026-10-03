@@ -22,6 +22,7 @@
 #include <stdint.h>
 
 #include "lua.h"
+#include "promises.h"
 #include "syscalls.h"
 
 /* The most paths a sandbox unveils (`Unveil`): a test worker's
@@ -153,6 +154,7 @@ COSMIC_SYSCALL(user, 1);
  * ---@field offline boolean a network namespace of its own, with nothing but a loopback, which is up: a connection to 127.0.0.1 reaches a listener of the child's own processes, or is refused
  * ---@field user integer with `unveil` and `group`, the user the child runs as in place of this process's root, which must hold CAP_SETUID, CAP_SETGID and CAP_SETFCAP where that user and group are mapped (root, most often), or nil to run as this process's own: its namespace maps root and that user beside it, written from outside by a process of this one's, and its root is built by root there, with what it makes owned by that user, as an unprivileged caller's child's is; then it gives root up for that user and group, with no supplementary group, and, where its /proc is its own, makes a user namespace mapping that user and group alone, as such a caller's child has -- so, as that one can, it confines one of its own at any depth. Neither 0 nor -1. EPERM where this process may not map them
  * ---@field group integer the group the child runs as with `user`, which needs one
+ * ---@field promises {string} the promises the child is held to, or nil for no filter: a seccomp allow list (core/promises.c), which answers EPERM to every call the basics and these do not name. The basics are what every program has: memory, time, signals to itself, threads, descriptors, the file calls Landlock holds the paths of, executable mappings of files, execve, a unix socketpair and read-only terminal queries. `"fork"` adds fork, vfork and clone without a namespace flag; `"jit"` adds executable memory that is not a file's; `"fattr"` adds changing a file's mode, times, owner and extended attributes (never with a setuid, setgid or sticky bit). `clone3` and `openat2` answer ENOSYS, a refused ioctl ENOTTY, and socket() of any family is refused. It is built in the child, after Landlock and just before exec, and holds every process the child starts. Beside `pledge`, whose filter it adds to. Linux on x86_64 and aarch64; ENOSYS elsewhere
  * ---@field pledge {string} the promises the child may keep, or nil for no filter: with one, a socket may be only of a family promised -- "unix" for AF_UNIX, "inet" for AF_INET and AF_INET6 -- and the calls that reach past the process (ptrace, pidfd_getfd, mounting, bpf, loading modules, io_uring and the like) fail with EPERM; keeping a child from another process's /proc/<pid>/mem takes a ruleset too. Linux on x86_64 and aarch64; ENOSYS elsewhere
  */
 
@@ -359,12 +361,32 @@ COSMIC_SYSCALL(child_signal_read, 1);
 COSMIC_SYSCALL(child_signal_fd, 0);
 
 /*
+ * --- How `promise_filter` builds the program.
+ * ---@class PromiseOptions
+ * ---@field pid integer the process id the program is for, which the calls that signal or ask about a process hold it to (default 1)
+ * ---@field unix boolean whether a unix socket may be made with socket(), which a socketpair always may (default false)
+ */
+
+/*
+ * --- The seccomp program `spawn`'s `promises` hold a child to, as the instructions of classic BPF a kernel would be handed, eight bytes each, little-endian (`struct sock_filter`: a 16-bit code, two 8-bit jumps, a 32-bit operand), for either architecture whatever this host is. A test runs it against a call it makes up, as the kernel would (core/promises_test.tl).
+ * ---@param promises {string} the promises, as `spawn`'s `promises` takes them
+ * ---@param arch string "x86_64" or "aarch64"
+ * ---@param options? PromiseOptions what the program is for
+ * ---@return string program the instructions
+ */
+COSMIC_SYSCALL(promise_filter, 3);
+
+/*
  * --- The numbers this table's calls take, from this build.
  * ---@class Constants
  * ---@field UNVEIL_MAX integer the most paths a sandbox unveils, its reads and writes together
  * ---@field SIGNAL_STAMP_UNIT integer what a stamp counts each caught signal as, above the last one's number
  * ---@field SPAWN_PLACED_ABOVE integer how many descriptors `spawn` places above the highest it hands a child, besides a copy of each it hands
+ * ---@field PROMISE_CALLS_REVIEWED integer one past the highest system call number the promises' tables have been reviewed to: a call above it answers ENOSYS
+ * ---@field PROMISE_CALLS_HEADERS integer one past the highest number the headers this core was built with name, or 0 where they name no count: past PROMISE_CALLS_REVIEWED, they name calls no one has judged
  */
 COSMIC_CONSTANT(UNVEIL_MAX)
 COSMIC_CONSTANT(SIGNAL_STAMP_UNIT)
 COSMIC_CONSTANT(SPAWN_PLACED_ABOVE)
+COSMIC_CONSTANT(PROMISE_CALLS_REVIEWED)
+COSMIC_CONSTANT(PROMISE_CALLS_HEADERS)
