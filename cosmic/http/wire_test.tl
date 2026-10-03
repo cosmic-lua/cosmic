@@ -21,9 +21,12 @@ end
 local function test_the_three_target_forms_are_read()
   local origin = assert(read("GET /a/b%20c?x=1&y HTTP/1.1\r\nHost: h\r\n\r\n").head)
   assert(origin.path == "/a/b%20c" and origin.query == "x=1&y", origin.path)
-  local absolute = assert(read("GET http://h.test:8080?q HTTP/1.1\r\nHost: h\r\n\r\n").head)
+  local absolute = assert(read("GET http://H.test:8080?q HTTP/1.1\r\nHost: h\r\n\r\n").head)
   assert(absolute.path == "/" and absolute.query == "q", absolute.path)
-  assert(absolute.target == "http://h.test:8080?q")
+  assert(absolute.headers["host"] == "h.test:8080", absolute.headers["host"])
+  local v6 = assert(read("GET http://[::1]/ HTTP/1.1\r\nHost: h\r\n\r\n").head)
+  assert(v6.headers["host"] == "[::1]", v6.headers["host"])
+  assert(absolute.target == "http://H.test:8080?q")
   local star = assert(read("OPTIONS * HTTP/1.1\r\nHost: h\r\n\r\n").head)
   assert(star.path == "*" and star.query == "")
   assert(refusal("GET * HTTP/1.1\r\nHost: h\r\n\r\n") == 400)
@@ -103,6 +106,16 @@ local function test_ambiguous_framing_is_refused()
   assert(chunked.chunked and chunked.length == nil)
 end
 
+--- An expectation but 100-continue is 417; that one, in any case, is
+--- waited on, and HTTP/1.0's is not.
+local function test_an_expectation_but_100_continue_is_417()
+  assert(refusal("PUT / HTTP/1.1\r\nHost: h\r\nExpect: something\r\n\r\n") == 417)
+  assert(refusal("PUT / HTTP/1.1\r\nHost: h\r\nExpect: 100-continue, x\r\n\r\n") == 417)
+  assert(read("PUT / HTTP/1.1\r\nHost: h\r\nExpect: 100-Continue\r\n\r\n").head.continue)
+  local old = assert(read("PUT / HTTP/1.0\r\nExpect: 100-continue\r\n\r\n").head)
+  assert(not old.continue)
+end
+
 local function test_a_declared_body_past_its_limit_is_413()
   local head = "POST / HTTP/1.1\r\nHost: h\r\n"
   assert(refusal(head .. "Content-Length: 101\r\n\r\n") == 413)
@@ -146,6 +159,26 @@ local function test_a_chunked_body_is_decoded_and_held_to_its_limits()
   end
   local _, cut = body_of(head .. "5\r\nab")
   assert(cut == "failed", cut)
+  -- A bare LF ends no line of chunked framing, where a proxy may read
+  -- the line on past it.
+  for _, bare in ipairs({ "2\nab\r\n0\r\n\r\n", "2\r\nab\n0\r\n\r\n", "0\r\nX: 1\n\r\n",
+      "0\r\n\n" }) do
+    local _, why = body_of(head .. bare)
+    assert(why == "bad", bare .. ": " .. why)
+  end
+  local _, long_extension = body_of(head .. "1;" .. string.rep("e", 1000) .. "\r\nx\r\n0\r\n\r\n")
+  assert(long_extension == "over", long_extension)
+end
+
+--- The framing every chunk has counts against no limit but the body's:
+--- many small chunks are taken as one large one is.
+local function test_many_small_chunks_pass_as_one_large_one()
+  local limits: wire.Limits = { head_bytes = 1024, body_bytes = 50000 }
+  local parts: {string} = { "POST / HTTP/1.1\r\nHost: h\r\nTransfer-Encoding: chunked\r\n\r\n" }
+  for _ = 1, 20000 do parts[#parts + 1] = "1\r\nx\r\n" end
+  parts[#parts + 1] = "0\r\n\r\n"
+  local got, state = body_of(table.concat(parts), limits)
+  assert(state == "done" and #got == 20000, state)
 end
 
 --- What the writer refuses, for the server to answer 500.

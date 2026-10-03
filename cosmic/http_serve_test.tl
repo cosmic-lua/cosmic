@@ -353,7 +353,8 @@ local function test_a_failing_handler_is_answered_500(tmp: string)
 end
 
 --- A head sent slower than head_ns is answered 408 and closed, however
---- steadily its bytes come; a connection idle past idle_ns is closed.
+--- steadily its bytes come, and so is a body that stalls past
+--- timeout_ns; a connection idle past idle_ns is closed.
 local function test_a_slow_head_and_an_idle_connection_are_closed(tmp: string)
   serving(tmp, echo, function(address: Net.Address)
     local slow <close> = peer(address)
@@ -367,11 +368,15 @@ local function test_a_slow_head_and_an_idle_connection_are_closed(tmp: string)
     local got = reply(slow)
     assert(got.status == 408, tostring(got.status))
     assert(Time.monotonic_ns() - started < Time.seconds(2))
+    local stalled <close> = peer(address)
+    send(stalled, "PUT / HTTP/1.1\r\nHost: test\r\nContent-Length: 10\r\n\r\nabc")
+    local timed_out = reply(stalled)
+    assert(timed_out.status == 408 and timed_out.headers["connection"] == "close", tostring(timed_out.status))
     local idle <close> = peer(address)
     local waited_from = Time.monotonic_ns()
     assert(ended(idle))
     assert(Time.monotonic_ns() - waited_from < Time.seconds(2))
-  end, { head_ns = Time.ms(200), idle_ns = Time.ms(200) })
+  end, { head_ns = Time.ms(200), idle_ns = Time.ms(200), timeout_ns = Time.ms(200) })
 end
 
 --- Stopping closes a kept-alive connection idle at once, rather than
@@ -481,4 +486,54 @@ local function test_a_304_carries_no_length(tmp: string)
     assert(first.headers["etag"] == '"v1"')
     assert(reply(p).status == 304)
   end)
+end
+
+--- A reply whose Reader body reads the request's own, to a client
+--- waiting for `100 Continue`, tells it to go on before the reply's
+--- head, never after, where it would be read as the body.
+local function test_a_reply_reading_the_request_body_sends_100_first(tmp: string)
+  serving(tmp, function(req: Http.Request): Http.Reply
+    return { status = 200, body = req.body }
+  end, function(address: Net.Address)
+    local p <close> = peer(address)
+    send(p, "PUT / HTTP/1.1\r\nHost: test\r\nExpect: 100-continue\r\nContent-Length: 4\r\n\r\n")
+    assert(line(p) == "HTTP/1.1 100 Continue")
+    assert(line(p) == "")
+    send(p, "echo")
+    local got = reply(p)
+    assert(got.status == 200 and got.body == "echo", got.body)
+    send(p, get("/"))
+    assert(reply(p).status == 200)
+  end)
+end
+
+--- A Reader body that raises cuts the reply short: the connection
+--- closes, the Reader is closed, and what it raised, with its stack,
+--- goes to on_error.
+local function test_a_reply_body_that_raises_closes_the_connection(tmp: string)
+  local closed = false
+  local record Raising is Stream.Reader
+    read: function(Raising, max_bytes?: integer): string | nil, string
+    close: function(Raising): boolean, string
+  end
+  local raising: Raising = setmetatable({}, { __index = {
+    read = function(_self: Raising, _max_bytes?: integer): string | nil, string
+      error("the body broke")
+    end,
+    close = function(_self: Raising): boolean, string
+      closed = true
+      return true, ""
+    end,
+  } })
+  local troubles = serving(tmp, function(_req: Http.Request): Http.Reply
+    return { status = 200, body = raising, length = 5 }
+  end, function(address: Net.Address)
+    local p <close> = peer(address)
+    send(p, get("/"))
+    assert(line(p) == "HTTP/1.1 200 OK")
+    while more(p) do end
+  end)
+  assert(closed)
+  assert(#troubles == 1 and troubles[1]:find("the body broke", 1, true) ~= nil, troubles[1])
+  assert(troubles[1]:find("stack traceback", 1, true) ~= nil, troubles[1])
 end

@@ -230,7 +230,8 @@ local record Http
     --- "HTTP/1.1" or "HTTP/1.0".
     version: string
     --- The headers, by lowercased name; a name sent more than once has
-    --- its values joined with ", ".
+    --- its values joined with ", ". For an absolute-form target, `host`
+    --- is the target's host and port, whatever Host said.
     headers: {string:string}
     --- The body, read as it arrives: a Content-Length's bytes, or a
     --- chunked body decoded, and nothing for a request with neither.
@@ -282,8 +283,9 @@ local record Http
     record Limits
       --- The most connections open at once (256).
       connections: integer
-      --- The most bytes of a request's head (64 KiB), and of a chunked
-      --- body's size lines and trailers; past it, 431.
+      --- The most bytes of a request's head (64 KiB), past which it is
+      --- answered 431, and of the head with a chunked body's chunk
+      --- extensions and trailers, past which 413.
       head_bytes: integer
       --- The most bytes of a request's body (1 MiB); past it, 413.
       body_bytes: integer
@@ -297,8 +299,8 @@ local record Http
     --- As [`Net.ServeSpec.grace_ns`]: how long requests in flight have
     --- to finish once the server stops; nil to wait for every one.
     grace_ns: integer
-    --- How long a connection waits for the first byte of its next
-    --- request before it is closed (5 seconds).
+    --- How long a connection waits for the first byte of a request, its
+    --- first or the next after a reply, before it is closed (5 seconds).
     idle_ns: integer
     --- How long a request's head may take to arrive whole, from its
     --- first byte (30 seconds): past it, 408 and the connection closed,
@@ -879,14 +881,17 @@ end
 --- writes its reply, or the server's own. True where the connection
 --- stays open for the next request.
 local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wire.Head): boolean
-  local continued = false
-  local body = wire.body(input, head, s.limits, function()
-    if head.continue and not continued then
+  -- Whether `100 Continue` went, and whether the final head has: an
+  -- interim reply after it would be read as the final reply's body.
+  local continued, replied = false, false
+  local function go_on()
+    if head.continue and not continued and not replied then
       continued = true
       conn:set_timeout(s.timeout_ns)
       local _, _ = conn:write("HTTP/1.1 100 Continue\r\n\r\n")
     end
-  end)
+  end
+  local body = wire.body(input, head, s.limits, go_on)
   local request: Http.Request = {
     method = head.method, target = head.target, path = head.path, query = head.query,
     version = head.version, headers = head.headers, body = body, length = head.length,
@@ -901,6 +906,8 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
     if state ~= "failed" then
       answer(s, conn, head, state == "over" and 413 or 400, (body.failure:gsub("^http: ", "")))
       linger(conn)
+    elseif body.failure == Poll.TIMEOUT then
+      answer(s, conn, head, 408, "the body came slower than timeout_ns")
     end
     return false
   end
@@ -925,14 +932,29 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   end
   local close = reply.close == true or head.close or s.stopping or reply.status >= 400
   -- A client still waiting for `100 Continue` sends its body only once
-  -- told to, or not at all: what follows on the connection is unknown.
-  if head.continue and not continued and body.state == "open" then close = true end
+  -- told to, or not at all. A Reader reply may read the request's body
+  -- as it goes, so the client is told now; after another, what follows
+  -- on the connection is unknown, and it closes.
+  if head.continue and not continued and body.state == "open" then
+    local given = reply.body
+    if given ~= nil and not given is string then go_on() else close = true end
+  end
+  replied = true
   conn:set_timeout(s.timeout_ns)
-  local sent = wire.send(conn, {
-    status = reply.status, headers = reply.headers, body = reply.body, length = reply.length,
-    close = close, method = head.method, version = head.version,
-    date = Time.format_http(Time.now_ns()),
-  })
+  local sent: wire.Sent = nil
+  local sending, raised_sending: boolean, any = xpcall(function()
+    sent = wire.send(conn, {
+      status = reply.status, headers = reply.headers, body = reply.body, length = reply.length,
+      close = close, method = head.method, version = head.version,
+      date = Time.format_http(Time.now_ns()),
+    })
+  end, traced)
+  if not sending then
+    -- A Reader body that raised: the reply is cut short.
+    drop_body(reply)
+    report(s, "http: " .. where .. ": the reply's body: " .. tostring(raised_sending))
+    return false
+  end
   local failed = body.state ~= "open" and body.state ~= "done"
   if sent.body_failure ~= "" and not failed then
     report(s, "http: " .. where .. ": the reply's body: " .. sent.body_failure)
@@ -943,12 +965,20 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   end
   -- What of the body the handler left is dropped, so the next request
   -- starts where this one ends.
-  if body.state == "open" and not body:drain() then return false end
+  if body.state == "open" and not body:drain() then
+    linger(conn)
+    return false
+  end
   return true
 end
 
 --- Serves `conn`, one request after another, until it closes, fails,
 --- or idles past `idle_ns`.
+-- TODO: bound a request's body as head_ns bounds its head, with a
+-- `body_ns` from the head's end (the reads' deadline, as Timed's is for
+-- the head): today only timeout_ns, each read's, holds it, so a client
+-- sending a body a byte a read holds its connection, and a stop with
+-- no grace_ns, for as long as the body lasts.
 local function serve_conn(s: Serving, conn: Net.Conn)
   local timed: Timed = setmetatable({ conn = conn, each = s.timeout_ns }, timed_mt)
   local input = wire.input(timed)
@@ -1006,10 +1036,11 @@ end
 --- Transfer-Encoding, or a transfer coding other than a last chunked
 --- (400, or 501 for a coding it does not decode); a version but 1.0 or
 --- 1.1 (505); a head past `limits.head_bytes` (431); a head slower than
---- `head_ns` (408); a body past `limits.body_bytes` (413, at once where
---- the Content-Length says so, before a client waiting with `Expect:
---- 100-continue` sends it). A client sending that expectation is sent
---- `100 Continue` when the handler first reads the body.
+--- `head_ns` (408), or a body read slower than `timeout_ns` (408); a
+--- body past `limits.body_bytes` (413, at once where the Content-Length
+--- says so, before a client waiting with `Expect: 100-continue` sends
+--- it); any other expectation (417). A client sending that expectation
+--- is sent `100 Continue` when the handler first reads the body.
 ---
 --- A handler that raises, or answers what [`Reply`] refuses, is
 --- answered 500, and what it raised, with its stack, or why its reply

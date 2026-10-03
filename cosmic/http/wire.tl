@@ -18,7 +18,8 @@ local record wire
   --- The bounds one request is read under.
   record Limits
     --- The most bytes of a head, its request line and blank lines before
-    --- it included, and of a chunked body's size lines and trailers.
+    --- it included, and of the head with a chunked body's chunk
+    --- extensions and trailers.
     head_bytes: integer
     --- The most bytes of a body, once decoded.
     body_bytes: integer
@@ -65,7 +66,7 @@ local record wire
     --- Whether the client waits for `100 Continue` before its body.
     continue: boolean
     --- Bytes of the head, counted against `head_bytes` with a chunked
-    --- body's size lines and trailers.
+    --- body's chunk extensions and trailers.
     spent: integer
   end
 
@@ -328,6 +329,9 @@ end
 local record Target
   path: string
   query: string
+  --- An absolute-form target's host, and port when it names one; nil
+  --- for another form.
+  authority: string
 end
 
 --- The request line's target as a [`Target`], or nil and why.
@@ -346,7 +350,9 @@ local function target_parts(method: string, target: string): Target | nil, strin
       return nil, "an absolute target's scheme is not http or https"
     end
     if parts.userinfo ~= nil then return nil, "an absolute target holds userinfo" end
-    return { path = parts.path ~= "" and parts.path or "/", query = parts.query or "" }, ""
+    local host = parts.host:find(":", 1, true) and "[" .. parts.host .. "]" or parts.host
+    return { path = parts.path ~= "" and parts.path or "/", query = parts.query or "",
+      authority = parts.port ~= nil and host .. ":" .. parts.port or host }, ""
   end
   local mark = target:find("?", 1, true)
   if mark == nil then return { path = target, query = "" }, "" end
@@ -355,9 +361,10 @@ end
 
 --- Reads one request's head from `input`, leaving its body and anything
 --- after where they are. Answers the head; or a status and why for one
---- refused -- 400 malformed, 413 a Content-Length past `body_bytes`, 431
---- past `head_bytes`, 501 a transfer coding other than chunked, 505 a
---- version other than 1.0 or 1.1; or, with status 0, why reading
+--- refused -- 400 malformed, 413 a Content-Length past `body_bytes`, 417
+--- an expectation other than 100-continue, 431 past `head_bytes`, 501 a
+--- transfer coding other than chunked, 505 a version other than 1.0 or
+--- 1.1; or, with status 0, why reading
 --- failed, "" where the source ended before the request's first byte.
 function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
   local start = input.taken
@@ -459,9 +466,18 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
     if option == "close" then close = true end
   end
   local continue = false
-  if version == "HTTP/1.1" and headers["expect"] ~= nil then
-    continue = headers["expect"]:lower() == "100-continue"
+  local expect = headers["expect"]
+  if version == "HTTP/1.1" and expect ~= nil then
+    for _, expectation in ipairs(members(expect:lower())) do
+      if expectation ~= "100-continue" then
+        return refused(417, "this server meets no expectation but 100-continue")
+      end
+      continue = true
+    end
   end
+  -- An absolute-form target names the host, and Host is replaced by it
+  -- (RFC 9112 3.2.2).
+  if parts.authority ~= nil then headers["host"] = parts.authority end
   return { status = 0, why = "", head = {
     method = method, target = target, path = parts.path, query = parts.query, version = version,
     headers = headers, length = length, chunked = chunked, close = close,
@@ -505,18 +521,21 @@ local function stopped(self: BodyReader, state: wire.BodyState, why: string): bo
   return false, why
 end
 
---- A chunked body's next line, against what is left of `head_bytes`.
+--- A chunked body's next line, ended by CRLF: a bare LF, which a
+--- proxy before this server may read otherwise, is refused here though
+--- a head may hold one. No line passes `head_bytes`, and `spent` counts
+--- a trailer against it, and a size line's extension ([`next_chunk`]),
+--- but not the framing every chunk has, so many small chunks pass as
+--- one large one does.
 local function meta_line(self: BodyReader): string | nil, string
-  local used = self.head.spent
-  local before = self.input.taken
-  local text, why = line(self.input, self.limits.head_bytes - used)
-  self.head.spent = used + (self.input.taken - before)
+  local text, why = line(self.input, self.limits.head_bytes)
   if text == nil then
     if self.input.long then
-      return fail(self, "over", "http: a chunked body's size lines and trailers pass limits.head_bytes")
+      return fail(self, "over", "http: a chunked body's extensions and trailers pass limits.head_bytes")
     end
     return fail(self, "failed", why ~= "" and why or "http: the request body ended early")
   end
+  if text:sub(-1) ~= "\r" then return fail(self, "bad", "http: a chunked body's line ends in a bare LF") end
   local bare = without_cr(text)
   if bare == nil then return fail(self, "bad", "http: a chunked body holds a bare CR") end
   return bare, ""
@@ -531,6 +550,10 @@ local function next_chunk(self: BodyReader): boolean, string
   if hex == nil then return stopped(self, "bad", "http: a chunk's size is not hex") end
   if rest ~= "" and (not rest:find("^[ \t]*;") or rest:find(VALUE_CONTROL)) then
     return stopped(self, "bad", "http: a chunk's extension is malformed")
+  end
+  self.head.spent = self.head.spent + #rest
+  if self.head.spent > self.limits.head_bytes then
+    return stopped(self, "over", "http: a chunked body's extensions and trailers pass limits.head_bytes")
   end
   hex = hex:gsub("^0+", "")
   if #hex > 15 then
@@ -557,6 +580,10 @@ local function trailers(self: BodyReader): boolean, string
     if text == "" then
       self.state = "done"
       return true, ""
+    end
+    self.head.spent = self.head.spent + #text + 2
+    if self.head.spent > self.limits.head_bytes then
+      return stopped(self, "over", "http: a chunked body's extensions and trailers pass limits.head_bytes")
     end
     local got, field_why = field(text)
     if got == nil then return stopped(self, "bad", "http: a trailer is malformed: " .. field_why) end
@@ -729,6 +756,14 @@ local function copy_body(w: Stream.Writer, body: Stream.Reader, length: integer 
         return "", "the reply body ended " .. String.counted(left, "byte") .. " short of its length"
       end
       break
+    end
+    -- What the Reader contract rules out, a user's Reader may still do:
+    -- an empty chunk would end a chunked body early, and one longer than
+    -- asked for run past the Content-Length, the bytes after read as a
+    -- reply of their own.
+    if piece == "" then return "", "the reply body's Reader gave an empty chunk" end
+    if left ~= nil and #piece > left then
+      return "", "the reply body's Reader gave more bytes than asked for"
     end
     if left ~= nil then left = left - #piece end
     local ok, write_why: boolean, string

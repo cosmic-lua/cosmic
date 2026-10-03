@@ -14,15 +14,16 @@ local wire = require("cosmic.http.wire")
 local LIMITS <const>: wire.Limits = { head_bytes = 512, body_bytes = 256 }
 
 --- The statuses a request may be refused with.
-local REFUSALS <const>: {integer:boolean} = { [400] = true, [413] = true, [431] = true,
-  [501] = true, [505] = true }
+local REFUSALS <const>: {integer:boolean} = { [400] = true, [413] = true, [417] = true,
+  [431] = true, [501] = true, [505] = true }
 
 local METHODS <const> = { "GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "X-Custom!" }
 
---- Targets, and the path and query each is read as.
+--- Targets, and the path, query and Host each is read as.
 local TARGETS <const> = {
-  { "/", "/", "" }, { "/a/b", "/a/b", "" }, { "/a?b=c&d", "/a", "b=c&d" }, { "/%41?", "/%41", "" },
-  { "/x?y?z", "/x", "y?z" }, { "http://h.test/p?q", "/p", "q" }, { "https://h.test:8443", "/", "" },
+  { "/", "/", "", "h.test" }, { "/a/b", "/a/b", "", "h.test" }, { "/a?b=c&d", "/a", "b=c&d", "h.test" },
+  { "/%41?", "/%41", "", "h.test" }, { "/x?y?z", "/x", "y?z", "h.test" },
+  { "http://other.test/p?q", "/p", "q", "other.test" }, { "https://H.test:8443", "/", "", "h.test:8443" },
 }
 
 local NAMES <const> = { "Accept", "X-A", "user-agent", "Cookie", "X-Empty", "Expect" }
@@ -89,8 +90,9 @@ local function requests_of(fields: {string}): {Request}
   return out
 end
 
---- `r` as the bytes a client sends. An HTTP/1.0 request is never
---- chunked, which that version cannot carry.
+--- `r` as the bytes a client sends: its head's lines ended by `eol`,
+--- and a chunked body's by CRLF, as a server holds them to. An
+--- HTTP/1.0 request is never chunked, which that version cannot carry.
 local function written(r: Request): string
   local eol = r.eol
   local framing = r.framing
@@ -106,9 +108,9 @@ local function written(r: Request): string
     lines[#lines + 1] = "Transfer-Encoding: chunked"
     local parts: {string} = {}
     for _, chunk in ipairs(r.chunks) do
-      if chunk ~= "" then parts[#parts + 1] = ("%x"):format(#chunk) .. eol .. chunk .. eol end
+      if chunk ~= "" then parts[#parts + 1] = ("%x"):format(#chunk) .. "\r\n" .. chunk .. "\r\n" end
     end
-    parts[#parts + 1] = "0" .. eol .. eol
+    parts[#parts + 1] = "0\r\n\r\n"
     encoded = table.concat(parts)
   end
   return table.concat(lines, eol) .. eol .. eol .. encoded
@@ -266,17 +268,34 @@ local function test_a_written_request_reads_back(tmp: string)
       local in_put = wire.input(Stream.from_string(written(r)))
       local read = wire.read_head(in_put, LIMITS)
       local head = read.head
+      local expectations: {string} = {}
+      for _, pair in ipairs(r.headers) do
+        if pair[1] == "Expect" and r.version == "HTTP/1.1" then
+          for member in pair[2]:lower():gmatch("[^,]+") do
+            local bare = member:match("^%s*(%S.-)%s*$")
+            if bare ~= nil then expectations[#expectations + 1] = bare end
+          end
+        end
+      end
+      for _, expectation in ipairs(expectations) do
+        if expectation ~= "100-continue" then
+          if read.status ~= 417 then return false, "an expectation was taken: " .. expectation end
+          Fuzz.label("refused expectation")
+          return true, ""
+        end
+      end
       if head == nil then return false, "refused: " .. read.status .. " " .. read.why end
       local target = TARGETS[r.target]
       if head.method ~= r.method or head.target ~= target[1] or head.version ~= r.version or
           head.path ~= target[2] or head.query ~= target[3] then
         return false, "the request line read differs"
       end
-      local expected: {string:string} = { host = "h.test" }
+      local expected: {string:string} = {}
       for _, pair in ipairs(r.headers) do
         local name = pair[1]:lower()
         expected[name] = expected[name] ~= nil and expected[name] .. ", " .. pair[2] or pair[2]
       end
+      expected["host"] = target[4]
       if framing == "length" then expected["content-length"] = tostring(#body) end
       if framing == "chunked" then expected["transfer-encoding"] = "chunked" end
       for name, value in pairs(expected) do
