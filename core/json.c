@@ -76,76 +76,108 @@ static int checked_depth (lua_State *L, int arg) {
 
 /* ---- paths ------------------------------------------------------ */
 
-/* Where in a value a failure is, as a path below `$`: `[3].name`. A
- * walk that fails puts its own segment in front at each level it
- * returns through, so the path is whole once the walk is out. `cut`
- * says the outermost segments did not fit. */
+/* Where in a value a failure is, as a JSON Pointer (RFC 6901): `/3/name`,
+ * an array's index counted from 0. A walk that fails puts its own
+ * segment in front at each level it returns through, so the pointer is
+ * whole once the walk is out. `cut` says the outermost segments did not
+ * fit. */
 struct path {
   char text[200];
   size_t len;
   bool cut;
 };
 
-static void prepend_path (struct path *p, const char *segment, size_t n) {
+/* Makes room for `n` bytes in front of `p`, and answers where they go;
+ * NULL, the path cut, when they do not fit. */
+static char *path_room (struct path *p, size_t n) {
   if (p->cut || n >= sizeof p->text - p->len) {
+    p->cut = true;
+    return NULL;
+  }
+  memmove(p->text + n, p->text, p->len);
+  p->len += n;
+  return p->text;
+}
+
+/* `/i`: an array's index, counted from 0. */
+static void prepend_index (struct path *p, size_t i) {
+  char segment[32];
+  int n = snprintf(segment, sizeof segment, "/%zu", i);
+  char *at = path_room(p, (size_t)n);
+  if (at != NULL) memcpy(at, segment, (size_t)n);
+}
+
+/* The most bytes of a key a path keeps when the key alone does not fit:
+ * its start, then `...`, the path cut. */
+#define KEPT_KEY 40
+
+/* `/key`, with `~` written `~0` and `/` written `~1`. A key too long
+ * for the path even alone, the innermost, keeps its first KEPT_KEY
+ * bytes or fewer, ending on a whole escape and a whole UTF-8 character,
+ * and `...`. */
+static void prepend_key (struct path *p, const char *s, size_t n) {
+  size_t escapes = 0;
+  for (size_t i = 0; i < n; i++) escapes += s[i] == '~' || s[i] == '/';
+  if (p->len == 0 && !p->cut && 1 + n + escapes >= sizeof p->text) {
+    size_t used = 0;
+    p->text[used++] = '/';
+    for (size_t i = 0; i < n && used < 1 + KEPT_KEY; i++) {
+      unsigned char c = (unsigned char)s[i];
+      if (c == '~' || c == '/') {
+        if (used + 2 > 1 + KEPT_KEY) break;
+        p->text[used++] = '~';
+        p->text[used++] = c == '~' ? '0' : '1';
+      } else if (c >= 0x80 && (c & 0xc0) == 0xc0) {
+        /* A lead byte: the character fits whole, or not at all. */
+        size_t width = c >= 0xf0 ? 4 : c >= 0xe0 ? 3 : 2;
+        if (i + width > n || used + width > 1 + KEPT_KEY) break;
+        memcpy(p->text + used, s + i, width);
+        used += width;
+        i += width - 1;
+      } else {
+        p->text[used++] = (char)c;
+      }
+    }
+    memcpy(p->text + used, "...", 3);
+    p->len = used + 3;
     p->cut = true;
     return;
   }
-  memmove(p->text + n, p->text, p->len);
-  memcpy(p->text, segment, n);
-  p->len += n;
-}
-
-/* `[i]`: an array's index, as Lua counts it, from 1. */
-static void prepend_index (struct path *p, lua_Integer i) {
-  char segment[32];
-  int n = snprintf(segment, sizeof segment, "[%lld]", (long long)i);
-  prepend_path(p, segment, (size_t)n);
-}
-
-static bool is_word_byte (unsigned char c, bool first) {
-  return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' ||
-         (!first && c >= '0' && c <= '9');
-}
-
-/* `.name` for a key that is a word, and `["some key"]` for any other,
- * its unprintable bytes shown as `?` and a long one cut short. */
-static void prepend_key (struct path *p, const char *s, size_t n) {
-  char segment[48];
-  size_t used = 0;
-  bool word = n > 0 && n <= 40;
-  for (size_t i = 0; word && i < n; i++) {
-    word = is_word_byte((unsigned char)s[i], i == 0);
-  }
-  if (word) {
-    segment[used++] = '.';
-    memcpy(segment + used, s, n);
-    used += n;
-  } else {
-    segment[used++] = '[';
-    segment[used++] = '"';
-    for (size_t i = 0; i < n; i++) {
-      if (used > sizeof segment - 8) {
-        memcpy(segment + used, "...", 3);
-        used += 3;
-        break;
-      }
-      unsigned char c = (unsigned char)s[i];
-      if (c == '"' || c == '\\') segment[used++] = '\\';
-      segment[used++] = c >= 0x20 && c < 0x7f ? (char)c : '?';
+  char *at = path_room(p, 1 + n + escapes);
+  if (at == NULL) return;
+  *at++ = '/';
+  for (size_t i = 0; i < n; i++) {
+    if (s[i] == '~' || s[i] == '/') {
+      *at++ = '~';
+      *at++ = s[i] == '~' ? '0' : '1';
+    } else {
+      *at++ = s[i];
     }
-    segment[used++] = '"';
-    segment[used++] = ']';
   }
-  prepend_path(p, segment, used);
 }
 
-/* Pushes `p` as `$` and its segments, `$...` in front when the
- * outermost were cut. */
+/* Pushes `p` for a message, a JSON string as RFC 6901 writes a pointer
+ * in JSON: `pointer "/users/2/name"`, or `pointer ending "..."` when the
+ * outermost segments were cut. */
 static void push_path (lua_State *L, const struct path *p) {
-  lua_pushfstring(L, "$%s", p->cut ? "..." : "");
-  lua_pushlstring(L, p->text, p->len);
-  lua_concat(L, 2);
+  luaL_Buffer b;
+  luaL_buffinit(L, &b);
+  luaL_addstring(&b, p->cut ? "pointer ending \"" : "pointer \"");
+  for (size_t i = 0; i < p->len; i++) {
+    unsigned char c = (unsigned char)p->text[i];
+    if (c == '"' || c == '\\') {
+      luaL_addchar(&b, '\\');
+      luaL_addchar(&b, (char)c);
+    } else if (c < 0x20 || c == 0x7f) {
+      char escape[8];
+      snprintf(escape, sizeof escape, "\\u%04x", c);
+      luaL_addstring(&b, escape);
+    } else {
+      luaL_addchar(&b, (char)c);
+    }
+  }
+  luaL_addchar(&b, '"');
+  luaL_pushresult(&b);
 }
 
 /* ---- decoding ---------------------------------------------------- */
@@ -311,7 +343,7 @@ static enum problem push_value (struct decoding *d, yyjson_val *val,
         enum problem found = push_value(d, item, depth + 1);
         if (found != NO_PROBLEM) {
           lua_pop(L, 1);
-          prepend_index(&d->path, (lua_Integer)idx + 1);
+          prepend_index(&d->path, idx);
           return found;
         }
         lua_rawseti(L, -2, (lua_Integer)idx + 1);
@@ -433,7 +465,7 @@ static enum problem first_problem (lua_State *L, yyjson_val *val, int depth,
       enum problem found =
           first_problem(L, item, depth + 1, max_depth, duplicate_keys, path, key);
       if (found != NO_PROBLEM) {
-        prepend_index(path, (lua_Integer)idx + 1);
+        prepend_index(path, idx);
         return found;
       }
     }
@@ -995,7 +1027,7 @@ static int put_array (struct encoding *e, int idx, lua_Integer top,
     int status = put_value(e, lua_gettop(L), depth + 1);
     lua_pop(L, 1);
     if (status < 0) {
-      prepend_index(&e->path, i);
+      prepend_index(&e->path, (size_t)(i - 1));
       return -1;
     }
   }
@@ -1492,7 +1524,7 @@ static int put_text_value (struct encoding *e, yyjson_val *val, int depth,
       if (idx > 0 && PUT_LITERAL(e, ",") < 0) return -1;
       if (put_break(e, depth + 1) < 0) return -1;
       if (put_text_value(e, item, depth + 1, canonical) < 0) {
-        prepend_index(&e->path, (lua_Integer)idx + 1);
+        prepend_index(&e->path, idx);
         return -1;
       }
     }

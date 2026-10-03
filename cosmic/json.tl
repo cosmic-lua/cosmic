@@ -77,9 +77,22 @@
 ---     assert(Json.canonical('{"b": 1.50, "a": []}') == '{"a":[],"b":1.5}')
 ---
 --- A failure that is not in the text's syntax -- a key twice, nesting
---- past `max_depth` -- also names where it is in the value, as a path
---- [`Json.encode`] spells one: `json: duplicate key at line 3, column 5
---- ($.users[2].role)`.
+--- past `max_depth` -- also names where it is in the value, by its JSON
+--- Pointer, as every message of this module names a place: `json:
+--- duplicate key at line 3, column 5 (pointer "/users/1/role")`, an
+--- array's index counted from 0. A pointer too long for a message keeps
+--- its innermost segments, named `pointer ending "..."`.
+---
+--- A place in a value has three spellings, each named for what it is.
+--- [`Json.Steps`] are Lua's: `{"users", 2, "role"}`, a position counted
+--- from 1 or, negative, from the end. A JSON Pointer (RFC 6901),
+--- `/users/1/role`, and a JSONPath query (RFC 9535), `$.users[1].role`,
+--- count from 0. [`Json.pointer`] and [`Json.path`] write steps as either;
+--- [`Json.from_pointer`] and [`Json.from_path`] read them back;
+--- [`Json.get`] follows steps; [`Json.query`] reads a JSONPath query
+--- that can select many values (`*`, `..`), strictly and in a subset
+--- that leaves filters, slices and unions out, and [`Json.select`] runs
+--- it.
 
 -- The raw module behind this one lives under the reserved
 -- `cosmic.internal.` namespace -- see cosmic/store.tl for why this
@@ -193,6 +206,64 @@ local record Json
     extent: integer
   end
 
+  --- A path to one value inside another, as Lua steps: each a member's
+  --- name (a string) or an array's position (an integer), counted from
+  --- 1 as Lua counts, or from the end when negative, -1 the last, as
+  --- `string.sub` counts. `{"users", 3, "name"}` is the third user's
+  --- name: JSON Pointer's `/users/2/name` and JSONPath's
+  --- `$['users'][2]['name']`, which count from 0.
+  type Steps = {string | integer}
+
+  --- What a JSONPath selector selects: see [`Json.Segment`].
+  enum SelectorKind
+    --- An object's member of one name.
+    "name"
+    --- An array's element at one index.
+    "index"
+    --- Every member of an object, every element of an array.
+    "wildcard"
+  end
+
+  --- One segment of a JSONPath query: one selector, applied to the
+  --- values the query has reached or, for a descendant segment (`..`),
+  --- to them and to every value beneath them.
+  record Segment
+    --- Whether it is a descendant segment.
+    descendant: boolean
+    --- What it selects.
+    kind: Json.SelectorKind
+    --- The member's name, for a "name" selector.
+    name: string
+    --- The element's index, for an "index" selector: counted from 0,
+    --- or from the end when negative, as JSONPath writes it.
+    index: integer
+  end
+
+  --- A JSONPath query (RFC 9535), as [`Json.query`] reads one.
+  record Query
+    --- The query as it was written.
+    text: string
+    --- Its segments, in order.
+    segments: {Json.Segment}
+  end
+
+  --- One value a query selected, and where it is.
+  record Match
+    --- The steps from the queried value to it, each position counted
+    --- from 1.
+    steps: Json.Steps
+    --- The value itself.
+    value: any
+  end
+
+  --- What [`Json.select`] may be told. Every field is optional.
+  record SelectOptions
+    --- How deep a descendant segment (`..`) may walk, 1 to
+    --- [`Json.depth_limit`] (the default): a table that contains itself
+    --- fails here.
+    max_depth: integer
+  end
+
   --- The stand-in for JSON `null`: pass it as `null_value` to keep a
   --- document's nulls, and it encodes as `null`. It is a userdata, so
   --- indexing it by mistake raises; `v == Json.null` is the test.
@@ -285,9 +356,9 @@ end
 --- holds a function, userdata other than [`Json.null`], NaN or an infinity,
 --- a string that is not UTF-8, a table whose keys are neither all strings
 --- nor all integers from 1 up, an array with a hole, or nesting past
---- `max_depth`. The message says where, as a path from the value:
---- `json: cannot encode a function at $.users[3].name`, with array indices
---- counted from 1 as Lua counts them. nil encodes as `null`.
+--- `max_depth`. The message says where, by its JSON Pointer: `json:
+--- cannot encode a function at pointer "/users/2/name"`, an array's
+--- index counted from 0. nil encodes as `null`.
 function Json.encode(value: any, opts?: Json.EncodeOptions): string | nil, string
   local text: string
   local err: string
@@ -489,6 +560,593 @@ end
 --- refuses what is not UTF-8. Use [`Json.encode`] to write JSON.
 function Json.quote(s: string): string
   return '"' .. s:gsub('[%c"\\]', escape) .. '"'
+end
+
+-- ---- paths ---------------------------------------------------------
+
+--- A JSON Pointer's segment for the member `name`: `~` written `~0` and
+--- `/` written `~1`.
+local function pointer_segment(name: string): string
+  return (name:gsub("~", "~0"):gsub("/", "~1"))
+end
+
+--- Where `pointer` is, for a message: `pointer "/users/2"`.
+--- Where `pointer` is, for a message, as the core's messages name a
+--- place: `pointer "/users/2"`; when it runs past 199 bytes, as many of
+--- its innermost segments as fit, `pointer ending "..."`, the innermost
+--- alone cut to its first 40 bytes or fewer and `...` when even it does
+--- not fit.
+local function at_pointer(pointer: string): string
+  if #pointer < 200 then return "pointer " .. Json.quote(pointer) end
+  local segments: {string} = {}
+  for segment in pointer:gmatch("/[^/]*") do segments[#segments + 1] = segment end
+  local kept = segments[#segments]
+  if #kept >= 200 then
+    kept = kept:sub(1, 41)
+    while utf8.len(kept) == nil or kept:sub(-1) == "~" do kept = kept:sub(1, -2) end
+    return "pointer ending " .. Json.quote(kept .. "...")
+  end
+  for i = #segments - 1, 1, -1 do
+    if #kept + #segments[i] >= 200 then break end
+    kept = segments[i] .. kept
+  end
+  return "pointer ending " .. Json.quote(kept)
+end
+
+--- Why step `i` of a path is none, or nil when it is one: a name that
+--- is UTF-8, or an integer.
+local function bad_step(i: integer, step: any): string
+  if step is string then
+    if utf8.len(step) == nil then return ("step %d is a name that is not UTF-8"):format(i) end
+    return nil
+  end
+  if math.type(step) ~= "integer" then
+    return ("step %d is %s, neither a name nor an integer"):format(i, tostring(step))
+  end
+  if step == 0 then
+    return ("step %d is 0: positions count from 1, or from -1 at the end"):format(i)
+  end
+  return nil
+end
+
+--- `v` as a table, or nil when it is none.
+local function table_of(v: any): {any: any}
+  if v is {any: any} then return v end
+  return nil
+end
+
+--- The JSON Pointer for steps that all count from 1, as a match's do.
+local function pointer_of(steps: Json.Steps): string
+  local parts: {string} = {}
+  for i, step in ipairs(steps) do
+    if step is string then
+      parts[i] = "/" .. pointer_segment(step)
+    else
+      parts[i] = "/" .. tostring(step - 1)
+    end
+  end
+  return table.concat(parts)
+end
+
+--- The highest position of the array `t`, holes and all.
+local function last_position(t: {any: any}): integer
+  local m = Json.members(t, true)
+  local last = m.keys[#m.keys]
+  if m.layout == "hole" and last is integer then return last end
+  return m.extent
+end
+
+--- Whether `t` holds an array's elements, as `encode` would write it:
+--- one marked, or keyed 1 up with or without gaps; "mixed" when it is
+--- neither an array nor an object.
+local function container(t: {any: any}): string
+  local layout = Json.layout(t)
+  if layout == "hole" then return "array" end
+  return layout
+end
+
+--- `steps` as a JSON Pointer (RFC 6901), and "": `/users/2/name`, each
+--- position counted from 0. nil and a message for a step a pointer
+--- cannot say, one counted from the end, or for one that is no step: 0,
+--- a number that is no integer, or a name that is not UTF-8.
+---
+---     assert(Json.pointer({ "users", 3, "a/b" }) == "/users/2/a~1b")
+function Json.pointer(steps: Json.Steps): string | nil, string
+  local parts: {string} = {}
+  for i, step in ipairs(steps) do
+    local bad = bad_step(i, step)
+    if bad ~= nil then return refuse(bad) end
+    if step is string then
+      parts[i] = "/" .. pointer_segment(step)
+    elseif step >= 1 then
+      parts[i] = "/" .. tostring(step - 1)
+    else
+      return refuse(("step %d is %d, from the end, which a JSON Pointer cannot say"):format(i, step))
+    end
+  end
+  return table.concat(parts), ""
+end
+
+--- The steps the JSON Pointer `text` (RFC 6901) takes through `value`,
+--- and "". A pointer does not say whether `/2` is a member named "2" or
+--- an array's third element, so it is read against the value: a
+--- segment into an array is an index, `0` or a number with no leading
+--- zero, and one into an object is a member's name. nil and a message
+--- when the text is no pointer -- not empty and not starting with `/`,
+--- or holding a `~` that is not `~0` or `~1` -- or names no value in
+--- `value`, `-` (past the last element) included.
+---
+---     local doc = assert(Json.decode('{"users": [{"name": "ada"}]}'))
+---     local steps = assert(Json.from_pointer(doc, "/users/0/name"))
+---     assert(steps[1] == "users" and steps[2] == 1 and Json.get(doc, steps) == "ada")
+function Json.from_pointer(value: any, text: string): Json.Steps | nil, string
+  local steps: Json.Steps = {}
+  if text == "" then return steps, "" end
+  if text:sub(1, 1) ~= "/" then
+    return refuse(at_pointer(text) .. ": a JSON Pointer is empty or starts with `/`")
+  end
+  local at = value
+  local start = 2
+  while true do
+    local stop = text:find("/", start, true) or #text + 1
+    local segment = text:sub(start, stop - 1)
+    local tilde = segment:find("~[^01]") or (segment:sub(-1) == "~" and #segment or nil)
+    if tilde ~= nil then
+      return refuse(("%s: the `~` at byte %d is neither `~0` nor `~1`"):format(at_pointer(text), start + tilde - 1))
+    end
+    local name = segment:gsub("~1", "/"):gsub("~0", "~")
+    local reached = text:sub(1, stop - 1)
+    local before = text:sub(1, start - 2)
+    local t = table_of(at)
+    if t == nil then
+      return refuse(("no value at %s: the value at %s is %s"):format(at_pointer(reached), at_pointer(before), kind(at)))
+    end
+    local shape = container(t)
+    if shape == "array" then
+      if name == "-" then
+        return refuse(("no value at %s: `-` names the place past the last element"):format(at_pointer(reached)))
+      end
+      if not (name == "0" or name:match("^[1-9]%d*$")) or #name > 15 then
+        return refuse(("no value at %s: the value at %s is an array, and %s is no index"):
+            format(at_pointer(reached), at_pointer(before), Json.quote(name)))
+      end
+      local index = math.tointeger(tonumber(name)) + 1
+      steps[#steps + 1] = index
+      at = t[index]
+    elseif shape == "object" then
+      steps[#steps + 1] = name
+      at = t[name]
+    else
+      return refuse(("no value at %s: the value at %s is a table with mixed keys"):
+          format(at_pointer(reached), at_pointer(before)))
+    end
+    if at == nil then return refuse("no value at " .. at_pointer(reached)) end
+    if stop > #text then return steps, "" end
+    start = stop + 1
+  end
+end
+
+--- The value `steps` reach in `value`, and "". A negative position
+--- counts from the end. nil and a message naming, by its JSON Pointer,
+--- the first step that reaches nothing: a member or element not there,
+--- or a step into a value that is not an array or object, or a name
+--- into an array, or a position into an object. A member read as nil
+--- (a JSON `null` decoded without `null_value`) is not there.
+function Json.get(value: any, steps: Json.Steps): any | nil, string
+  local at = value
+  local reached = ""
+  for i, step in ipairs(steps) do
+    local bad = bad_step(i, step)
+    if bad ~= nil then return refuse(bad) end
+    local t = table_of(at)
+    if t == nil then
+      return refuse(("the value at %s is %s, not an array or object"):format(at_pointer(reached), kind(at)))
+    end
+    local shape = container(t)
+    if step is string then
+      if shape ~= "object" then
+        return refuse(("the value at %s is %s, not an object"):format(at_pointer(reached),
+          shape == "array" and "an array" or "a table with mixed keys"))
+      end
+      reached = reached .. "/" .. pointer_segment(step)
+      at = t[step]
+    else
+      if shape ~= "array" then
+        return refuse(("the value at %s is %s, not an array"):format(at_pointer(reached),
+          shape == "object" and "an object" or "a table with mixed keys"))
+      end
+      local position = step
+      if position < 0 then position = last_position(t) + 1 + position end
+      if position < 1 then
+        return refuse(("no element %d from the end at %s"):format(-step, at_pointer(reached)))
+      end
+      reached = reached .. "/" .. tostring(position - 1)
+      at = t[position]
+    end
+    if at == nil then return refuse("no value at " .. at_pointer(reached)) end
+  end
+  return at, ""
+end
+
+--- The control characters a normalized path writes by a short escape.
+local SHORT_ESCAPES <const>: {string: string} = {
+  ["\b"] = "\\b", ["\f"] = "\\f", ["\n"] = "\\n", ["\r"] = "\\r", ["\t"] = "\\t",
+}
+
+--- `name` in a normalized path's single quotes (RFC 9535, 2.7): `'` and
+--- `\` escaped, and each control character as JSON escapes it, by its
+--- short escape where it has one.
+local function normal_name(name: string): string
+  return "'" .. name:gsub("[%c'\\]", function(c: string): string
+    if c == "'" or c == "\\" then return "\\" .. c end
+    local short = SHORT_ESCAPES[c]
+    if short ~= nil then return short end
+    if c:byte() == 127 then return c end
+    return ("\\u%04x"):format(c:byte())
+  end) .. "'"
+end
+
+--- `steps` as a JSONPath query (RFC 9535), and "": the normalized path
+--- `$['users'][2]['name']`, each position counted from 0, a member's
+--- name always in single quotes. A step counted from the end is written
+--- `[-1]`, which a query reads as the same element but no normalized
+--- path holds. nil and a message for a step that is no step: 0, a
+--- number that is no integer, or a name that is not UTF-8.
+---
+---     assert(Json.path({ "users", 3, "it's" }) == "$['users'][2]['it\\'s']")
+function Json.path(steps: Json.Steps): string | nil, string
+  local parts: {string} = { "$" }
+  for i, step in ipairs(steps) do
+    local bad = bad_step(i, step)
+    if bad ~= nil then return refuse(bad) end
+    if step is string then
+      parts[#parts + 1] = "[" .. normal_name(step) .. "]"
+    elseif step >= 1 then
+      parts[#parts + 1] = "[" .. tostring(step - 1) .. "]"
+    else
+      parts[#parts + 1] = "[" .. tostring(step) .. "]"
+    end
+  end
+  return table.concat(parts), ""
+end
+
+--- Why a JSONPath query cannot be read, at byte `at` of it.
+local function query_why(at: integer, why: string): string
+  return ("json: JSONPath byte %d: %s"):format(at, why)
+end
+
+--- A failure to read a JSONPath query at byte `at` of it.
+local function query_error(at: integer, why: string): nil, string
+  return nil, query_why(at, why)
+end
+
+--- What a piece of a JSONPath query reads as, and the byte after it.
+local record Piece
+  segment: Json.Segment
+  name: string
+  after: integer
+end
+
+--- What each escape a JSONPath string may hold (but `\u` and its
+--- quote) stands for.
+local STRING_ESCAPES <const>: {string: string} = {
+  b = "\b", f = "\f", n = "\n", r = "\r", t = "\t", ["/"] = "/", ["\\"] = "\\",
+}
+
+--- The largest index RFC 9535 reads: I-JSON's integers, 2^53 - 1.
+local MAX_INDEX <const> = (1 << 53) - 1
+
+--- Whether byte `b` may start a member name written without quotes.
+local function name_first(b: integer): boolean
+  return b ~= nil and ((b >= 65 and b <= 90) or (b >= 97 and b <= 122) or b == 95 or b >= 128)
+end
+
+--- The string literal at byte `at` of `text`, quoted by the byte there,
+--- as a piece's name, and ""; or nil and why.
+local function query_string(text: string, at: integer): Piece | nil, string
+  local quote = text:sub(at, at)
+  local out: {string} = {}
+  local i = at + 1
+  while true do
+    local b = text:byte(i)
+    if b == nil then return query_error(at, "a string the query ends inside") end
+    local c = text:sub(i, i)
+    if c == quote then return { name = table.concat(out), after = i + 1 }, "" end
+    if b < 32 then
+      return query_error(i, "a control character in a string, which must be escaped")
+    elseif c == "\\" then
+      local e = text:sub(i + 1, i + 1)
+      local simple = STRING_ESCAPES[e]
+      if simple ~= nil then
+        out[#out + 1] = simple
+        i = i + 2
+      elseif e == quote then
+        out[#out + 1] = quote
+        i = i + 2
+      elseif e == "u" then
+        local hex = text:sub(i + 2, i + 5)
+        if not hex:match("^%x%x%x%x$") then
+          return query_error(i, "`\\u` takes four hexadecimal digits")
+        end
+        local unit = math.tointeger(tonumber(hex, 16))
+        i = i + 6
+        if unit >= 0xDC00 and unit <= 0xDFFF then
+          return query_error(i - 6, "a low surrogate with no high one before it")
+        end
+        if unit >= 0xD800 and unit <= 0xDBFF then
+          local low = text:match("^\\u(%x%x%x%x)", i)
+          local low_unit = low ~= nil and math.tointeger(tonumber(low, 16)) or 0
+          if low_unit < 0xDC00 or low_unit > 0xDFFF then
+            return query_error(i - 6, "a high surrogate with no low one after it")
+          end
+          unit = 0x10000 + ((unit - 0xD800) << 10) + (low_unit - 0xDC00)
+          i = i + 6
+        end
+        out[#out + 1] = utf8.char(unit)
+      else
+        return query_error(i, "`\\" .. e .. "` is no escape a JSONPath string has")
+      end
+    else
+      out[#out + 1] = c
+      i = i + 1
+    end
+  end
+end
+
+--- Passes blank space (RFC 9535's `S`) from byte `at`.
+local function blank(text: string, at: integer): integer
+  local _, last = text:find("^[ \t\n\r]*", at)
+  return last + 1
+end
+
+--- The selector of the bracketed selection at byte `at` (`[`), as a
+--- piece's segment, and ""; or nil and why.
+local function bracketed(text: string, at: integer, descendant: boolean): Piece | nil, string
+  local i = blank(text, at + 1)
+  local c = text:sub(i, i)
+  local seg: Json.Segment = { descendant = descendant }
+  if c == "'" or c == '"' then
+    local piece, why = query_string(text, i)
+    if piece == nil then return nil, why end
+    seg.kind, seg.name, i = "name", piece.name, piece.after
+  elseif c == "*" then
+    seg.kind, i = "wildcard", i + 1
+  elseif c == "-" or c:match("^%d$") then
+    local digits = text:match("^%-?%d+", i)
+    if digits == nil or not (digits:match("^0$") or digits:match("^%-?[1-9]%d*$")) then
+      return query_error(i, "an index is 0, or has no leading zero and is not -0")
+    end
+    local index = #digits <= 17 and math.tointeger(tonumber(digits)) or nil
+    if index == nil or index > MAX_INDEX or index < -MAX_INDEX then
+      return query_error(i, "an index past 2^53 - 1")
+    end
+    seg.kind, seg.index, i = "index", index, i + #digits
+  elseif c == ":" then
+    return query_error(i, "slices (`start:end:step`) are not in the subset cosmic reads")
+  elseif c == "?" then
+    return query_error(i, "filters (`?`) are not in the subset cosmic reads")
+  elseif c == "" then
+    return query_error(i, "the query ends inside `[`")
+  else
+    return query_error(i, "a selector is a name in quotes, an index or `*`")
+  end
+  i = blank(text, i)
+  c = text:sub(i, i)
+  if c == ":" then
+    return query_error(i, "slices (`start:end:step`) are not in the subset cosmic reads")
+  end
+  if c == "," then return query_error(i, "unions (`[a, b]`) are not in the subset cosmic reads") end
+  if c ~= "]" then return query_error(i, "expected `]`") end
+  return { segment = seg, after = i + 1 }, ""
+end
+
+--- The member name written without quotes at byte `at`, and the byte
+--- after it.
+local function shorthand(text: string, at: integer): string, integer
+  local i = at
+  while true do
+    local b = text:byte(i)
+    if b == nil or not (name_first(b) or (b >= 48 and b <= 57)) then break end
+    i = i + 1
+  end
+  return text:sub(at, i - 1), i
+end
+
+--- Reads the JSONPath query `text` (RFC 9535) in the subset cosmic
+--- reads: the root `$`, then segments, each a member's name (`.name`,
+--- `['name']` or `["name"]`), an element's index (`[2]`, or `[-1]` from
+--- the end), or `*` (`.*` or `[*]`) for every member or element, and
+--- any of them after `..` for the same at every depth below. Each is
+--- read exactly as the RFC's grammar reads it, blank space and string
+--- escapes included. Filters (`?`), slices (`1:3`), unions (`[0, 1]`)
+--- and functions are refused, naming what was meant, rather than read
+--- as anything else. nil and a message naming the byte where it stops being one.
+---
+---     local q = assert(Json.query("$.users[*]['name']"))
+---     assert(#q.segments == 3 and q.segments[2].kind == "wildcard")
+function Json.query(text: string): Json.Query | nil, string
+  local valid, bad = utf8.len(text)
+  if valid == nil then return query_error(bad, "a byte that is not UTF-8") end
+  if text:sub(1, 1) ~= "$" then return query_error(1, "a query starts with `$`") end
+  local segments: {Json.Segment} = {}
+  local at = 2
+  while at <= #text do
+    local before = at
+    at = blank(text, at)
+    if at > #text then return query_error(before, "blank space after the last segment") end
+    local descendant = text:sub(at, at + 1) == ".."
+    local seg: Json.Segment
+    local after: integer
+    if descendant or text:sub(at, at) == "." then
+      local i = at + (descendant and 2 or 1)
+      local c = text:sub(i, i)
+      if c == "[" and descendant then
+        local piece, why = bracketed(text, i, true)
+        if piece == nil then return nil, why end
+        seg, after = piece.segment, piece.after
+      elseif c == "*" then
+        seg, after = { descendant = descendant, kind = "wildcard" }, i + 1
+      elseif name_first(text:byte(i)) then
+        local name, next_at = shorthand(text, i)
+        seg, after = { descendant = descendant, kind = "name", name = name }, next_at
+      else
+        return query_error(i, descendant and "after `..` comes a name, `*` or `[`" or
+            "after `.` comes a name or `*`")
+      end
+    elseif text:sub(at, at) == "[" then
+      local piece, why = bracketed(text, at, false)
+      if piece == nil then return nil, why end
+      seg, after = piece.segment, piece.after
+    else
+      return query_error(at, "a segment starts with `.`, `..` or `[`")
+    end
+    segments[#segments + 1] = seg
+    at = after
+  end
+  return { text = text, segments = segments }, ""
+end
+
+--- The steps the JSONPath query `text` names, and "": a singular query,
+--- `$` and names and indices alone, as [`Json.query`] reads one, each
+--- index counted from 1 (or from the end, when negative). nil and a
+--- message when it is no query or can select more than one value
+--- (`*`, `..`): [`Json.select`] reads those.
+---
+---     local steps = assert(Json.from_path("$.users[0]['a key']"))
+---     assert(steps[1] == "users" and steps[2] == 1 and steps[3] == "a key")
+function Json.from_path(text: string): Json.Steps | nil, string
+  local q, err = Json.query(text)
+  if q == nil then return nil, err end
+  local steps: Json.Steps = {}
+  for i, seg in ipairs(q.segments) do
+    if seg.descendant or seg.kind == "wildcard" then
+      return refuse(("JSONPath %s selects many values (segment %d): read it with Json.query"):
+          format(Json.quote(text), i))
+    end
+    if seg.kind == "name" then
+      steps[i] = seg.name
+    else
+      steps[i] = seg.index >= 0 and seg.index + 1 or seg.index
+    end
+  end
+  return steps, ""
+end
+
+--- The children of the table `t`, in order, each with its step: an
+--- array's elements by position, an object's members by name in byte
+--- order; nil and why for a table with mixed keys.
+local function children(t: {any: any}): {Json.Match} | nil, string
+  local m = Json.members(t, true)
+  local out: {Json.Match} = {}
+  if m.layout == "array" or m.layout == "hole" then
+    if #m.keys > 0 then
+      for _, k in ipairs(m.keys) do out[#out + 1] = { steps = { k }, value = t[k] } end
+    else
+      for i = 1, m.extent do
+        if t[i] ~= nil then out[#out + 1] = { steps = { i }, value = t[i] } end
+      end
+    end
+  elseif m.layout == "object" then
+    for _, k in ipairs(m.keys) do out[#out + 1] = { steps = { k }, value = t[k] } end
+  else
+    return nil, "a table with mixed keys"
+  end
+  return out, ""
+end
+
+--- `steps` and one step more, a new list.
+local function extended(steps: Json.Steps, step: string | integer): Json.Steps
+  local out: Json.Steps = table.move(steps, 1, #steps, 1, {})
+  out[#out + 1] = step
+  return out
+end
+
+--- Appends to `out` what `seg`'s selector selects in `node`.
+local function apply(seg: Json.Segment, node: Json.Match, out: {Json.Match}): boolean, string
+  local t = table_of(node.value)
+  if t == nil then return true, "" end
+  local shape = container(t)
+  if shape == "mixed" then
+    return false, "json: the value at " .. at_pointer(pointer_of(node.steps)) .. " is a table with mixed keys"
+  end
+  if seg.kind == "name" then
+    if shape == "object" and t[seg.name] ~= nil then
+      out[#out + 1] = { steps = extended(node.steps, seg.name), value = t[seg.name] }
+    end
+  elseif seg.kind == "index" then
+    if shape == "array" then
+      local position = seg.index + 1
+      if seg.index < 0 then position = last_position(t) + 1 + seg.index end
+      if position >= 1 and t[position] ~= nil then
+        out[#out + 1] = { steps = extended(node.steps, position), value = t[position] }
+      end
+    end
+  else
+    local kids, mixed = children(t)
+    if kids == nil then return false, "json: " .. mixed end
+    for _, kid in ipairs(kids) do
+      out[#out + 1] = { steps = extended(node.steps, kid.steps[1]), value = kid.value }
+    end
+  end
+  return true, ""
+end
+
+--- Applies `seg` to `node` and to every value beneath it, the node
+--- before its children and an array's in order, as RFC 9535 visits
+--- them; `depth` counts the levels walked, up to `limit`.
+local function descend(seg: Json.Segment, node: Json.Match, out: {Json.Match}, depth: integer,
+                       limit: integer): boolean, string
+  local ok, why = apply(seg, node, out)
+  if not ok then return false, why end
+  local t = table_of(node.value)
+  if t == nil then return true, "" end
+  if depth >= limit then
+    return false, "json: a value nests deeper than " .. String.counted(limit, "level") ..
+      " at " .. at_pointer(pointer_of(node.steps)) .. " (does it contain itself?)"
+  end
+  local kids, mixed = children(t)
+  if kids == nil then
+    return false, "json: the value at " .. at_pointer(pointer_of(node.steps)) .. " is " .. mixed
+  end
+  for _, kid in ipairs(kids) do
+    ok, why = descend(seg, { steps = extended(node.steps, kid.steps[1]), value = kid.value }, out,
+      depth + 1, limit)
+    if not ok then return false, why end
+  end
+  return true, ""
+end
+
+--- The values `query` selects in `value`, in the order RFC 9535 gives
+--- them, each with its steps, and "": a member or element a name or an
+--- index does not find selects nothing, and an object's members are
+--- taken in byte order of their names, as `encode` writes them. nil and
+--- a message for a table with mixed keys on the way, or a descendant
+--- segment walking past `max_depth`.
+---
+---     local doc = assert(Json.decode('{"a": {"id": 1}, "b": [{"id": 2}]}'))
+---     local found = assert(Json.select(doc, assert(Json.query("$..id"))))
+---     assert(#found == 2 and found[1].value == 1 and found[2].value == 2)
+---     assert(Json.pointer(found[2].steps) == "/b/0/id")
+function Json.select(value: any, query: Json.Query, opts?: Json.SelectOptions): {Json.Match} | nil, string
+  local limit = (opts or {}).max_depth or Json.depth_limit
+  if math.type(limit) ~= "integer" or limit < 1 or limit > Json.depth_limit then
+    error(("json: max_depth must be an integer from 1 to %d"):format(Json.depth_limit), 2)
+  end
+  local nodes: {Json.Match} = { { steps = {}, value = value } }
+  for _, seg in ipairs(query.segments) do
+    local out: {Json.Match} = {}
+    for _, node in ipairs(nodes) do
+      local ok, why: boolean, string
+      if seg.descendant then
+        ok, why = descend(seg, node, out, 0, limit)
+      else
+        ok, why = apply(seg, node, out)
+      end
+      if not ok then return nil, why end
+    end
+    nodes = out
+  end
+  return nodes, ""
 end
 
 return Json
