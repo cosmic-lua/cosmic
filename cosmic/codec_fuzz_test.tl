@@ -7,6 +7,7 @@
 
 local Codec = require("cosmic.codec")
 local Fuzz = require("build.fuzz")
+local Strategy = require("build.fuzz_strategy")
 
 local record Pair
   name: string
@@ -24,26 +25,16 @@ local PAIRS <const>: {Pair} = {
 --- hex, padding, whitespace, and the bytes at either end.
 local TEXT <const> = "0123456789abcdefABCDEFxyzXYZ+/-_==\n \0\xff"
 
-local function gen_text(src: Fuzz.Source): string
-  if src:int(0, 1) == 0 then
-    return Fuzz.bytes(src, 64)
-  end
-  local out: {string} = {}
-  while Fuzz.more(src, #out, 64) do
-    local at = src:int(1, #TEXT)
-    out[#out + 1] = TEXT:sub(at, at)
-  end
-  return table.concat(out)
-end
+local alphabet: {string} = {}
+for i = 1, #TEXT do alphabet[i] = TEXT:sub(i, i) end
+local gen_text = Strategy.one_of({ Strategy.bytes(64), Strategy.text(alphabet, 64) })
 
 local function test_every_decoder_takes_back_what_its_encoder_writes(tmp: string)
   for _, p in ipairs(PAIRS) do
     Fuzz.run({
       name = p.name .. " round trip",
       dir = tmp,
-      gen = function(src: Fuzz.Source): string
-        return Fuzz.bytes(src, 300)
-      end,
+      gen = Strategy.bytes(300),
       check = function(input: string): boolean, string
         local text = p.encode(input)
         local back, why = p.decode(text)

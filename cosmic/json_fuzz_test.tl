@@ -10,6 +10,7 @@
 --- values, the encoder, its error paths -- and the Teal above it.
 
 local Fuzz = require("build.fuzz")
+local Strategy = require("build.fuzz_strategy")
 local Json = require("cosmic.json")
 
 --- Well-formed and nearly well-formed texts to mutate: every shape the
@@ -70,35 +71,41 @@ local function leaf(src: Fuzz.Source, lists: {{string}}, json5: boolean): string
   return Fuzz.pick(src, lists[1])
 end
 
---- A value drawn from the grammar, nested at most `depth` deep, each
---- container's elements drawn with [`Fuzz.more`] so shrinking can cut
---- any of them. Strict JSON unless `json5`, which adds its forms and
---- trailing commas.
-local function gen_value(src: Fuzz.Source, depth: integer, json5: boolean): string
-  local kind = src:int(0, depth > 0 and 5 or 2)
-  if kind == 0 then return Fuzz.pick(src, { "null", "true", "false" }) end
-  if kind == 1 then return leaf(src, NUMBERS, json5) end
-  if kind == 2 or kind == 3 then
-    local chunks: {string} = {}
-    while Fuzz.more(src, #chunks, 8) do
-      chunks[#chunks + 1] = src:int(0, 31) == 0 and Fuzz.pick(src, LONE) or leaf(src, CHUNKS, json5)
-    end
-    local text = table.concat(chunks)
+--- Grammar generators retain each nested value's span, including its
+--- collection continuation. Both strict JSON and JSON5 share the tree.
+local function grammar(json5: boolean): Strategy.Gen<string>
+  local function scalar(src: Fuzz.Source): string
+    local kind = src:int(0, 2)
+    if kind == 0 then return Fuzz.pick(src, { "null", "true", "false" }) end
+    if kind == 1 then return leaf(src, NUMBERS, json5) end
+    local chunks = Strategy.list(function(s: Fuzz.Source): string
+      return s:int(0, 31) == 0 and Fuzz.pick(s, LONE) or leaf(s, CHUNKS, json5)
+    end, 8)
+    local text = table.concat(chunks(src))
     if json5 and src:int(0, 3) == 0 then return "'" .. text:gsub("'", "\\'") .. "'" end
     return '"' .. text .. '"'
   end
-  local items: {string} = {}
-  while Fuzz.more(src, #items, 6) do
-    local item = gen_value(src, depth - 1, json5)
-    if kind == 5 then
-      item = leaf(src, KEYS, json5) .. leaf(src, GAPS, json5) .. ":" .. leaf(src, GAPS, json5) .. item
+  return Strategy.recursive(scalar, function(child: Strategy.Gen<string>): Strategy.Gen<string>
+    return function(src: Fuzz.Source): string
+      local object = Strategy.boolean(src)
+      local items = Strategy.list(function(s: Fuzz.Source): string
+        local item = Strategy.draw(s, "value", child)
+        if object then
+          item = leaf(s, KEYS, json5) .. leaf(s, GAPS, json5) .. ":" .. leaf(s, GAPS, json5) .. item
+        end
+        return leaf(s, GAPS, json5) .. item .. leaf(s, GAPS, json5)
+      end, 6)(src)
+      local trailing = json5 and #items > 0 and src:int(0, 3) == 0 and "," or ""
+      return (object and "{" or "[") .. table.concat(items, ",") .. trailing .. (object and "}" or "]")
     end
-    items[#items + 1] = leaf(src, GAPS, json5) .. item .. leaf(src, GAPS, json5)
-  end
-  local trailing = json5 and #items > 0 and src:int(0, 3) == 0 and "," or ""
-  local open, close = "[", "]"
-  if kind == 5 then open, close = "{", "}" end
-  return open .. table.concat(items, ",") .. trailing .. close
+  end, 4)
+end
+
+local strict_value = grammar(false)
+local json5_value = grammar(true)
+
+local function gen_value(src: Fuzz.Source): string
+  return Strategy.draw(src, "json", Strategy.boolean(src) and json5_value or strict_value)
 end
 
 --- A text drawn from the grammar with each `//` comment a `#` one and a
@@ -126,7 +133,7 @@ local function gen_text(src: Fuzz.Source): string
   if src:int(0, 1) == 0 then
     base = Fuzz.pick(src, SAMPLES)
   else
-    base = gen_value(src, 4, src:int(0, 1) == 0)
+    base = gen_value(src)
     -- On a third of drawn texts, `#` comments only `hash_comments`
     -- reads.
     if src:int(0, 2) == 0 then base = hashed(base) end
@@ -262,7 +269,7 @@ local function test_hash_comments_read_as_line_comments(tmp: string)
   Fuzz.run({
     name = "json hash comments",
     dir = tmp,
-    gen = function(src: Fuzz.Source): string return gen_value(src, 4, src:int(0, 1) == 0) end,
+    gen = function(src: Fuzz.Source): string return gen_value(src) end,
     check = function(input: string): boolean, string
       local text = hashed(input)
       for _, five in ipairs({ false, true }) do
@@ -430,6 +437,7 @@ end
 
 --- An input `n` containers deep, and the limit to read it under.
 local function test_the_depth_limits_are_exact(tmp: string)
+  local limits = Strategy.integer(1, 1000)
   Fuzz.run({
     name = "json depth",
     dir = tmp,
@@ -438,7 +446,7 @@ local function test_the_depth_limits_are_exact(tmp: string)
       while Fuzz.more(src, #opens, 1200) do
         opens[#opens + 1] = src:int(0, 1) == 0 and "[" or '{"k":'
       end
-      return Fuzz.pack({ table.concat(opens), tostring(src:int(1, 1000)) })
+      return Fuzz.pack({ table.concat(opens), tostring(limits(src)) })
     end,
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
