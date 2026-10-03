@@ -622,7 +622,7 @@ seed that is 1.2 of its 1.8 GB (147 of its 165 linked cores), leaving
 some 140 MB compressed; a build of the tree it was built from reads
 none of what goes, and one of an older core compiles it again. The
 prune keeps everything where a manifest reads otherwise than zig
-0.16's, and an orphan holding files no current output holds (zig's
+0.17's, and an orphan holding files no current output holds (zig's
 `dependencies.zig`, which `zig build` writes with no manifest).
 When
 main saved after every run, GitHub evicted the least recently used

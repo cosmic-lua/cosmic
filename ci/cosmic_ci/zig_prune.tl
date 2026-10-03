@@ -1,16 +1,17 @@
 --- What a leg's zig build outputs no longer vouch for, cut before ci.yml
 --- saves them (`driver.tl zig-prune`).
 ---
---- zig keeps two caches, each a directory of manifests (`h/<name>.txt`)
---- and of outputs (`o/<digest>/`). A step's manifest is named by the
+--- zig keeps two caches, each a directory of manifests (`h/<name>`)
+--- and of outputs (`o/<digest>/`, or for `zig build`'s configuration
+--- the file `c/<digest>`). A step's manifest is named by the
 --- step's own inputs (its command, the paths of its files) and lists
 --- each file it read with that file's digest; the output directory it
 --- vouches for is named by the manifest's name and those digests, in the
 --- manifest's order, under zig's SipHash128-1-3 (std/Build/Cache.zig's
---- `hit` and `final`). zig trusts a manifest's output whole: on a hit it
---- uses the directory without looking inside, so a build fails where a
---- manifest is kept and its output is not. It finds a missing input a
---- miss, though, and builds again.
+--- `checkProgressless` and `finalDigest`). zig trusts a manifest's
+--- output whole: on a hit it uses the directory without looking inside,
+--- so a build fails where a manifest is kept and its output is not. It
+--- finds a missing input a miss, though, and builds again.
 ---
 --- A step whose inputs change writes its manifest again, under the same
 --- name, vouching for a new directory: the old one is then no manifest's
@@ -72,12 +73,12 @@ end
 --- The zig whose caches this reads (bin/zig.pin's `version`), which
 --- cosmic_ci/zig_prune_test.tl holds the pin to: a new one may name its
 --- outputs otherwise, and then `plan` keeps every cache whole.
-ZigPrune.zig_version = "0.16.0"
+ZigPrune.zig_version = "0.17.0"
 
 --- zig's `hasher_init` key (std/Build/Cache.zig), which a zig that
 --- changes its manifests' format changes too.
-local key <const> = string.char(0x33, 0x52, 0xa2, 0x84, 0xcf, 0x17, 0x56, 0x57,
-  0x01, 0xbb, 0xcd, 0xe4, 0x77, 0xd6, 0xf0, 0x60)
+local key <const> = string.char(0x02, 0xe9, 0xfa, 0xfe, 0xe0, 0x95, 0x81, 0x55,
+  0xf5, 0x5a, 0x15, 0xcb, 0x4a, 0xf4, 0x00, 0x09)
 
 local function rotl(x: integer, b: integer): integer
   return (x << b) | (x >> (64 - b))
@@ -125,42 +126,42 @@ local record Manifest
   inputs: {string}
 end
 
---- The manifest `name` (its file's name, `<hex>.txt`) whose text is
---- `text`, in a cache of `prefix`: nil and why where it does not read
---- as zig's (a header of "0", then a line a file:
---- `size inode mtime digest prefix path`). A file's prefix 2 is the
+--- The manifest `name` (its file's name, 32 hex digits) whose bytes are
+--- `text`, in a cache of `prefix`: nil and why where it does not read as
+--- zig's (std/Build/Cache.zig's `Manifest.File`, one after another, then
+--- a zero byte: a file's size, inode and mtime, 8 bytes each, its
+--- 16-byte digest, a flags byte holding its prefix in the high six
+--- bits, and its path, ended by a zero byte). A file's prefix 2 is the
 --- manifest's own cache (see [`Cache`]), and 3 the global one.
 local function read(name: string, text: string, prefix: integer): Manifest | nil, string
-  local hex = name:match("^(%x+)%.txt$")
-  local named = hex and #hex == 32 and Codec.unhex(hex) or nil
+  local named = #name == 32 and name:match("^%x+$") and Codec.unhex(name) or nil
   if named == nil then return nil, "not named as a manifest" end
   local parts: {string} = { named }
   local inputs: {string} = {}
-  local first = true
-  for line in text:gmatch("([^\n]*)\n?") do
-    if first then
-      if line ~= "0" then return nil, "a header of '" .. line:sub(1, 40) .. "'" end
-      first = false
-    elseif line ~= "" then
-      local digest, file_prefix, path = line:match("^%d+ %d+ %-?%d+ (%x+) (%d+) (.*)$")
-      local raw = digest and #digest == 32 and Codec.unhex(digest) or nil
-      if raw == nil then return nil, "a line '" .. line:sub(1, 80) .. "'" end
-      parts[#parts + 1] = raw
-      local within = path:match("^o/(%x+)/") or path:match("^o/(%x+)$")
-      if within and file_prefix == "2" then
-        inputs[#inputs + 1] = prefix .. "/" .. within
-      elseif within and file_prefix == "3" then
-        inputs[#inputs + 1] = "3/" .. within
-      end
+  local at = 1
+  while at < #text do
+    -- 24 bytes of size, inode and mtime, then the digest at 25.
+    if at + 41 > #text then return nil, "a file cut short at byte " .. at end
+    local ends = text:find("\0", at + 41, true)
+    if ends == nil then return nil, "a path with no end at byte " .. at end
+    local path = text:sub(at + 41, ends - 1)
+    parts[#parts + 1] = text:sub(at + 24, at + 39)
+    local file_prefix = text:byte(at + 40) >> 2
+    local within = path:match("^o/(%x+)/") or path:match("^o/(%x+)$")
+    if within and file_prefix == 2 then
+      inputs[#inputs + 1] = prefix .. "/" .. within
+    elseif within and file_prefix == 3 then
+      inputs[#inputs + 1] = "3/" .. within
     end
+    at = ends + 1
   end
-  if first then return nil, "empty" end
+  if at ~= #text or text:byte(at) ~= 0 then return nil, "no closing zero byte" end
   local output = prefix .. "/" .. Codec.hex(ZigPrune.siphash128(key, table.concat(parts)))
   return { output = output, inputs = inputs }, ""
 end
 
 --- The output directory, by its name under `o/`, that the manifest
---- `name` (its file's name, `<hex>.txt`) whose text is `text` vouches
+--- `name` (its file's name, 32 hex digits) whose bytes are `text` vouches
 --- for: nil and why where it does not read as zig's.
 function ZigPrune.vouches(name: string, text: string): string | nil, string
   local manifest, trouble = read(name, text, 0)
@@ -196,12 +197,19 @@ function ZigPrune.plan(caches: {ZigPrune.Cache}): ZigPrune.Plan | nil, string
       if list then list[#list + 1] = under end
     end
   end
+  -- The manifests an older zig wrote (`<name>.txt`), in a cache restored
+  -- from a build on it. This zig reads none, so their outputs are
+  -- orphans here and may go; each goes too, so that the zig that wrote
+  -- it misses rather than trusting an output that is gone.
+  local older: {string} = {}
   for _, cache in ipairs(caches) do
     local names, names_trouble = Fs.list(cache.path .. "/h")
     if names == nil then return nil, cache.path .. "/h: " .. names_trouble end
     for _, name in ipairs(names) do
-      -- `timestamp`, zig's clock's mark, is no manifest.
       if name:sub(-4) == ".txt" then
+        older[#older + 1] = cache.path .. "/h/" .. name
+      -- `timestamp`, zig's clock's mark, is no manifest.
+      elseif name ~= "timestamp" then
         local path = cache.path .. "/h/" .. name
         local text, text_trouble = Fs.read(path)
         if text == nil then return nil, path .. ": " .. text_trouble end
@@ -213,6 +221,17 @@ function ZigPrune.plan(caches: {ZigPrune.Cache}): ZigPrune.Plan | nil, string
         if text ~= "" then
           local manifest, trouble = read(name, text, cache.prefix)
           if manifest == nil then return nil, path .. ": " .. trouble end
+          -- `zig build`'s configuration (the build graph build.zig
+          -- made) is a file, `c/<digest>`, rather than a directory.
+          if outputs[manifest.output] == nil then
+            local configuration = cache.path .. "/c/" .. manifest.output:match("/(.*)$")
+            local there, there_trouble = Fs.exists(configuration)
+            if there == nil then return nil, configuration .. ": " .. there_trouble end
+            if there then
+              manifest.output = "c" .. manifest.output
+              outputs[manifest.output] = configuration
+            end
+          end
           if outputs[manifest.output] == nil then
             return nil, path .. " vouches for " .. where[cache.prefix] .. "/o/" ..
               manifest.output:match("/(.*)$") .. ", which is not there"
@@ -228,12 +247,12 @@ function ZigPrune.plan(caches: {ZigPrune.Cache}): ZigPrune.Plan | nil, string
   -- The names of the files of every output some manifest vouches for.
   local vouched_files: {string:boolean} = {}
   for output in pairs(vouching) do
-    for _, under in ipairs(files[output]) do vouched_files[under] = true end
+    for _, under in ipairs(files[output] or {}) do vouched_files[under] = true end
   end
   local removed: {string:boolean} = {}
   local orphans, orphans_kept = 0, 0
   for output in pairs(outputs) do
-    if vouching[output] == nil then
+    if vouching[output] == nil and files[output] ~= nil then
       orphans = orphans + 1
       local superseded = #files[output] > 0
       for _, under in ipairs(files[output]) do
@@ -273,6 +292,10 @@ function ZigPrune.plan(caches: {ZigPrune.Cache}): ZigPrune.Plan | nil, string
   for path in pairs(manifests) do
     plan.manifests_seen = plan.manifests_seen + 1
     if gone[path] then plan.manifests[#plan.manifests + 1] = path end
+  end
+  for _, path in ipairs(older) do
+    plan.manifests_seen = plan.manifests_seen + 1
+    plan.manifests[#plan.manifests + 1] = path
   end
   for output in pairs(removed) do plan.outputs[#plan.outputs + 1] = outputs[output] end
   table.sort(plan.manifests)
