@@ -113,7 +113,7 @@ harness_epoch.acknowledged = {
 
   ["build.test_sandbox"] = "c9eb959925d7f4c7408fa344891e46c94ad0f39bd99a8ee881b382543961f775",
 
-  ["build.test_worker"] = "38e58309da62ac75a1055f3a97e308abb47e0832108515b5fe6001877bd160c8",
+  ["build.test_worker"] = "2ff44e9789422c140ce28a4e127076cadda65a26cf9bd16a0bb812fb638a939c",
 
   ["build.this_program"] = "975740a93eb1e88680fe402a0bf6e5e52d1acad579dbdfedd0be27d10ae02980",
 

@@ -218,9 +218,9 @@ local function complain(line: string)
 end
 
 --- The monotonic clock, in nanoseconds, straight from the binding.
---- build.declared_key spells the same five lines: a harness module reaches
---- the clock through the raw binding alone, and no module both load is
---- about clocks, so a shared home would be a module of one function.
+--- build.declared_key spells the same five lines, as cosmic.time's
+--- monotonic_ns does: a harness module reaches the clock through the raw
+--- binding, and cosmic.time is no library module the harness may load.
 local function monotonic_ns(): integer
   local reading, trouble = sys.clock_gettime(sys.CLOCK_MONOTONIC)
   if reading == nil then error("clock_gettime(CLOCK_MONOTONIC): " .. trouble, 2) end
