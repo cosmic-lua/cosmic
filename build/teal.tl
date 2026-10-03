@@ -588,8 +588,8 @@ local function optional_spelling(source: string, starts: {integer}, argument: as
   if not (colon is integer) then
     return nil
   end
-  -- The type's text, a comment after it (`b: string | nil -- why`)
-  -- left out to its line's end.
+  -- The type's text, a comment in it (`b: string | nil -- why`) read
+  -- as a space.
   local kept: {string} = {}
   local depth = 0
   local i = colon + 1
@@ -598,12 +598,19 @@ local function optional_spelling(source: string, starts: {integer}, argument: as
     if c == "" then
       return nil
     elseif source:sub(i, i + 1) == "--" then
-      local newline = source:find("\n", i, true)
-      if newline == nil then
+      local level = source:match("^%[(=*)%[", i + 2)
+      local close: integer | nil = nil
+      if level ~= nil then
+        local _, last = source:find("]" .. level .. "]", i, true)
+        close = last
+      else
+        close = source:find("\n", i, true)
+      end
+      if close == nil then
         return nil
       end
-      i = newline
-      c = "\n"
+      i = close
+      c = " "
     elseif c == "(" or c == "{" or c == "<" or c == "[" then
       depth = depth + 1
     elseif depth > 0 and (c == ")" or c == "}" or c == ">" or c == "]") then
@@ -622,32 +629,182 @@ local function optional_spelling(source: string, starts: {integer}, argument: as
   return name .. "?: " .. spelled
 end
 
---- The argument lists of the functions `root` declares as `name`, as
---- a call names it: `local function name`, `function name` and `name =
---- function`, with or without `local`, for a bare `name` (`member`
---- false); `function R.name`, `function R:name` (`self` first) and
---- `R.name = function` for `x.name` or `x:name` (`member` true).
-local function declared_arguments(root: ast.Node, name: string, member: boolean): {ast.Node}
-  local found: {ast.Node} = {}
-  ast.walk(root, function(n: ast.Node)
-    local kind = n.kind
-    local named = n.name ~= nil and n.name.tk == name and n.args ~= nil
-    if named and (kind == "record_function") == member and
-        (kind == "local_function" or kind == "global_function" or kind == "record_function") then
-      found[#found + 1] = n.args
-    elseif kind == "local_declaration" or kind == "assignment" then
-      local names, values = n.vars, n.exps
-      for i, target in ipairs(names ~= nil and names or {}) do
-        local value = values ~= nil and values[i] or nil
-        local field = target.kind == "op" and target.op ~= nil and target.op.op == "." and
-          target.e2 ~= nil and target.e2.tk or nil
-        local bound = member and field or (not member and target.tk or nil)
-        if bound == name and value ~= nil and value.kind == "function" and value.args ~= nil then
-          found[#found + 1] = value.args
-        end
+--- What a name in scope is bound to, as far as [`callee_arguments`]
+--- cares: the argument list of the function it was declared as
+--- (`local function f`, `local f = function`), and the nominal type it
+--- was declared of (`local r: R`).
+local record Callee
+  args: ast.Node | nil
+  type_name: string | nil
+end
+
+--- A function a file declares as a field: `function R.name`, `function
+--- R:name` (`self` first in `args`) or `R.name = function`, and what
+--- `R` was bound to there.
+local record Member
+  owner: Callee
+  name: string
+  args: ast.Node
+end
+
+--- The argument lists of each function the call whose `(` is at
+--- `y`:`x` of `root` may be calling, resolved through the scopes the
+--- parser built as [`target_of`] resolves a name: `f(...)` the local
+--- `f` in scope, or, with none, each `function f` the file declares;
+--- `R.name(...)` and `r:name(...)` each `function R.name` (or `R.name =
+--- function`) whose `R` is the receiver's binding, or the type a
+--- receiver was declared of (`local r: R`). Empty when the callee is a
+--- parameter, any other local, a receiver that is no name in scope (a
+--- library global, a string value) or a function the file does not
+--- declare.
+local function callee_arguments(root: ast.Node, y: integer, x: integer): {ast.Node}
+  local scopes: {{string: Callee}} = {}
+  local globals: {string: {ast.Node}} = {}
+  local members: {Member} = {}
+  local bare: string | nil = nil
+  local bound: Callee | nil = nil
+  local key: string | nil = nil
+  local receivers: {Callee} = {}
+  local function lookup(name: string | nil): Callee | nil
+    for i = #scopes, 1, -1 do
+      local found = name ~= nil and scopes[i][name] or nil
+      if found ~= nil then
+        return found
       end
     end
-  end)
+    return nil
+  end
+  local function declare(name: string | nil, callee: Callee)
+    if name ~= nil then
+      scopes[#scopes][name] = callee
+    end
+  end
+  local visit: function(ast.Node)
+  local function visit_all(n: ast.Node | nil)
+    if n ~= nil then
+      visit(n)
+    end
+  end
+  local function descend(n: ast.Node)
+    for _, child in ipairs(ast.children(n, { if_parent = true, fn_owner = true })) do
+      visit(child)
+    end
+  end
+  local function member(owner: ast.Node | nil, name: string | nil, args: ast.Node | nil)
+    local callee = owner ~= nil and owner.e1 == nil and lookup(owner.tk) or nil
+    if callee ~= nil and name ~= nil and args ~= nil then
+      members[#members + 1] = { owner = callee, name = name, args = args }
+    end
+  end
+  visit = function(n: ast.Node)
+    local kind = n.kind
+    if kind == "statements" then
+      scopes[#scopes + 1] = {}
+      for _, statement in ipairs(n) do
+        visit(statement)
+      end
+      scopes[#scopes] = nil
+    elseif kind == "local_declaration" then
+      visit_all(n.exps)
+      local types = n.decltuple ~= nil and n.decltuple.tuple or nil
+      for i, name in ipairs(n.vars ~= nil and n.vars or {}) do
+        local value = n.exps ~= nil and n.exps[i] or nil
+        local typed = types ~= nil and #types == 1 and types[1] or nil
+        local names = typed ~= nil and typed.typename == "nominal" and typed.names or nil
+        declare(name.tk, {
+          args = value ~= nil and value.kind == "function" and value.args or nil,
+          type_name = names ~= nil and #names == 1 and names[1] or nil,
+        })
+      end
+    elseif kind == "local_type" then
+      declare(n.var ~= nil and n.var.tk or nil, {})
+      visit_all(n.value)
+    elseif kind == "assignment" then
+      for i, target in ipairs(n.vars ~= nil and n.vars or {}) do
+        local value = n.exps ~= nil and n.exps[i] or nil
+        if target.kind == "op" and target.op ~= nil and target.op.op == "." and
+            value ~= nil and value.kind == "function" then
+          member(target.e1, target.e2 ~= nil and target.e2.tk or nil, value.args)
+        end
+      end
+      descend(n)
+    elseif kind == "op" and n.op ~= nil and n.op.op == "@funcall" and n.y == y and n.x == x then
+      local e1 = n.e1
+      local info = e1 ~= nil and e1.op or nil
+      local index = info ~= nil and info.op or nil
+      local object = e1 ~= nil and e1.e1 or nil
+      local field = e1 ~= nil and e1.e2 or nil
+      if e1 ~= nil and e1.kind == "variable" then
+        bare, bound = e1.tk, lookup(e1.tk)
+      elseif (index == "." or index == ":") and object ~= nil and object.kind == "variable" then
+        key = field ~= nil and field.tk or nil
+        local receiver = lookup(object.tk)
+        if receiver ~= nil then
+          receivers[1] = receiver
+          receivers[2] = lookup(receiver.type_name)
+        end
+      end
+      descend(n)
+    elseif kind == "fornum" then
+      visit_all(n.from)
+      visit_all(n.to)
+      visit_all(n.step)
+      scopes[#scopes + 1] = {}
+      declare(n.var ~= nil and n.var.tk or nil, {})
+      visit_all(n.body)
+      scopes[#scopes] = nil
+    elseif kind == "forin" then
+      visit_all(n.exps)
+      scopes[#scopes + 1] = {}
+      for _, name in ipairs(n.vars ~= nil and n.vars or {}) do
+        declare(name.tk, {})
+      end
+      visit_all(n.body)
+      scopes[#scopes] = nil
+    elseif kind == "repeat" then
+      scopes[#scopes + 1] = {}
+      for _, statement in ipairs(n.body ~= nil and n.body or {}) do
+        visit(statement)
+      end
+      visit_all(n.exp)
+      scopes[#scopes] = nil
+    elseif n.args ~= nil and n.body ~= nil then
+      local name = n.name ~= nil and n.name.tk or nil
+      if kind == "local_function" then
+        declare(name, { args = n.args })
+      elseif kind == "global_function" and name ~= nil and lookup(name) == nil then
+        local declared = globals[name] or {}
+        declared[#declared + 1] = n.args
+        globals[name] = declared
+      elseif kind == "record_function" then
+        member(n.fn_owner, name, n.args)
+      end
+      scopes[#scopes + 1] = {}
+      if n.is_method == true then
+        declare("self", {})
+      end
+      for _, argument in ipairs(n.args) do
+        declare(argument.tk, {})
+      end
+      visit_all(n.body)
+      scopes[#scopes] = nil
+    else
+      descend(n)
+    end
+  end
+  scopes[1] = {}
+  visit(root)
+  local found: {ast.Node} = {}
+  if bound ~= nil then
+    found[1] = bound.args
+  elseif bare ~= nil then
+    found = globals[bare] or {}
+  end
+  for _, m in ipairs(key ~= nil and members or {}) do
+    if m.name == key and (m.owner == receivers[1] or m.owner == receivers[2]) then
+      found[#found + 1] = m.args
+    end
+  end
   return found
 end
 
@@ -665,45 +822,28 @@ local function arity_hint(source: string, y: integer, x: integer, given: integer
   if parsed == nil then
     return nil
   end
-  local callee: ast.Node | nil = nil
-  ast.walk(parsed.node, function(n: ast.Node)
-    if n.kind == "op" and n.op ~= nil and n.op.op == "@funcall" and n.y == y and n.x == x then
-      callee = n.e1
-    end
-  end)
-  if callee == nil then
-    return nil
-  end
-  local name: string | nil = nil
-  local member = false
-  if callee.kind == "variable" then
-    name = callee.tk
-  elseif callee.kind == "op" and callee.op ~= nil and (callee.op.op == "." or callee.op.op == ":") then
-    name, member = callee.e2 ~= nil and callee.e2.tk or nil, true
-  end
-  if name == nil then
-    return nil
-  end
-  -- TODO: resolve the callee through scopes and types rather than by
-  -- name, which hints a function declared as a record field's type
-  -- (`run: function(a: string, b: string | nil)`) and one a module
-  -- declares too: it waits on a patch/tl record giving this error the
-  -- callee's parameters, as patch/tl/33a gives a missing key's fields.
+  -- TODO: hint a callee the file declares no function body for -- a
+  -- record field's function type (`run: function(a: string, b: string
+  -- | nil)`), a module's function, a receiver of an inferred type: it
+  -- waits on a patch/tl record giving this error the callee's
+  -- parameters, as patch/tl/33a gives a missing key's fields.
   local spelled: {string} | nil = nil
   local starts = ast.line_starts(source)
-  for _, arguments in ipairs(declared_arguments(parsed.node, name, member)) do
+  for _, arguments in ipairs(callee_arguments(parsed.node, y, x)) do
     if #arguments == expected then
-      -- Every declaration of the name that could be the callee must
-      -- leave the missing parameters to nil, spelled alike, or the
-      -- call is what is short.
+      -- Every function the call may reach must leave the missing
+      -- parameters to nil, spelled alike, or the call is what is short.
       local these: {string} = {}
       for i = given + 1, expected do
         local argument = arguments[i]
         if not admits_nil(argument.argtype) then
           return nil
         end
-        these[#these + 1] = optional_spelling(source, starts, argument) or
-          (argument.tk or "name") .. "?: T"
+        local optional = optional_spelling(source, starts, argument)
+        if optional == nil then
+          return nil
+        end
+        these[#these + 1] = optional
       end
       if spelled ~= nil and table.concat(spelled, ", ") ~= table.concat(these, ", ") then
         return nil
@@ -860,8 +1000,8 @@ end
 --- ignored and then not, within a third of its length and at most 2, or
 --- the one [`synonyms`] names for it, or, with none so near, those
 --- holding a `key` of three letters or more as whole words or held so
---- by it ([`holds`]); then the
---- fields themselves, the first [`listed`] alphabetically.
+--- by it ([`holds`]); then the fields themselves, the first [`listed`]
+--- alphabetically.
 local function field_hint(key: string, owner: string, fields: {string}): string | nil
   if #fields == 0 then
     return nil
@@ -1014,13 +1154,10 @@ end
 --- A call given fewer arguments than its callee takes exactly
 --- (`wrong number of arguments (given 1, expects 2)`, the checker's
 --- position the call's `(`) is told how to declare the parameters it
---- leaves out optional (`b?: string`, or `b?: T` where its type's
---- text is not plain to read), when each declaration of the
---- callee's name in `source` taking that many admits nil for each of
---- them, spelled alike ([`arity_hint`]); nothing when one does not, since then the
---- call is short, and nothing when the file declares no function of
---- that name in the call's form (a bare name, a member): one the
---- program does not declare may well require them.
+--- leaves out optional (`b?: string`), when every function of the file
+--- the call may reach ([`callee_arguments`]) admits nil for each of
+--- them, spelled alike; nothing when one does not, since then the call
+--- is short, nor when the file declares no function the call reaches.
 ---
 --- One nominal type refused for another of the same last name
 --- (`Store is not a Kv.Store`) is told they are two types, and an

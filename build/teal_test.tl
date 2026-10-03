@@ -702,8 +702,10 @@ local function test_a_short_call_names_the_optional_parameter()
     short) == "a parameter a caller may leave out is written 'b?: string'")
   assert(replacement_for("local function f(a: string, -- what\n  b: string | nil -- why, if any\n) " ..
     "print(a, b) end\nf('x')\n", short) == "a parameter a caller may leave out is written 'b?: string'")
-  assert(replacement_for("local function f(a: string, b: nil) print(a, b) end\nf('x')\n", short)
-    == "a parameter a caller may leave out is written 'b?: T'")
+  assert(replacement_for("local function f(a: string, b: nil) print(a, b) end\nf('x')\n", short) == nil)
+  assert(replacement_for("local function f(a: string, b: nil | string --[[x]], c: string | nil)\n" ..
+    "  print(a, b, c)\nend\nf('x', 'y')\n", "wrong number of arguments (given 2, expects 3)")
+    == "a parameter a caller may leave out is written 'c?: string'")
   assert(replacement_for("local function f(a: string, b: string) print(a, b) end\nf('x')\n", short) == nil)
   assert(replacement_for("local function f(a: string, b: string | nil) print(a, b) end\nf()\n",
     "wrong number of arguments (given 0, expects 2)") == nil)
@@ -721,10 +723,28 @@ local function test_a_short_call_to_an_unseen_callee()
   assert(replacement_for("local record File\n  open: function(path: string, mode: string)\nend\n" ..
     "local function open(a: string, b: string | nil) print(a, b) end\nprint(open)\n" ..
     "local f: File = {open = function(p: string, m: string) print(p, m) end}\nf.open('x')\n", short) == nil)
+  assert(replacement_for("local M = {}\nfunction M.put(path: string, data: string | nil) print(path, data) end\n" ..
+    "local N = {}\nN.put = function(path: string, data: string) print(path, data) end\nN.put('x')\n", short)
+    == nil)
+  assert(replacement_for("local function cb(a: string, b: string | nil) print(a, b) end\nprint(cb)\n" ..
+    "local function apply(cb: function(string, string)) cb('x') end\nprint(apply)\n", short) == nil)
   assert(replacement_for("local function f(a: string) print(a) end\nf('x', 'y')\n",
     "wrong number of arguments (given 2, expects 1)") == nil)
-  assert(replacement_for("do\n  local function f(a: string, b: string | nil) print(a, b) end\nend\n" ..
-    "local function f(a: string, b: integer | nil) print(a, b) end\nf('x')\n", short) == nil)
+  assert(replacement_for("global function g(a: string, b: string | nil) print(a, b) end\n" ..
+    "global function g(a: string, b: integer | nil) print(a, b) end\ng('x')\n", short) == nil)
+end
+
+--- The callee is the function in scope at the call: a local of a
+--- closed block is not, and a method is found through the type its
+--- receiver was declared of.
+local function test_a_short_call_reads_the_callee_in_scope()
+  assert(replacement_for("do\n  local function f(a: string, b: string | nil) print(a, b) end\n" ..
+    "  print(f)\nend\nlocal function f(a: string, b: integer | nil) print(a, b) end\nf('x')\n", short)
+    == "a parameter a caller may leave out is written 'b?: integer'")
+  assert(replacement_for("local record R\n  n: integer\nend\n" ..
+    "function R:m(b: string | nil) print(self, b) end\nlocal r: R = {n = 1}\nr:m()\n",
+    "wrong number of arguments (given 1, expects 2)")
+    == "a parameter a caller may leave out is written 'b?: string'")
 end
 
 --- A key no field is near by spelling is told the fields that hold it
