@@ -121,7 +121,9 @@ local function fence_line(text: string, at: integer, fence: string,
   return nil
 end
 
---- Parses the record `text`, named `name` in what it says of it.
+--- Parses the record `text`, named `name` in what it says of it. What
+--- it takes as a record decides the TODOs build.todo_scan keeps of one,
+--- so a change to that bumps build/work.tl's `version`.
 function Patch.parse(text: string, name: string): Patch.Record | nil, string
   local at = 1
   local fence = "---"

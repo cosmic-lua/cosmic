@@ -1594,7 +1594,8 @@ local function test_the_writer_modules_are_closed_under_require()
     ["build.importer"] = "coordinates semantic operations and cache transport, and renders diagnostics",
     ["build.positions"] = "fails a whole build before any key is looked up, and stores nothing",
     ["build.todo_scan"] = "fills the TODO tables, which no projection carries",
-    ["build.patch"] = "parses a patch record for build.todo_scan's TODOs",
+    ["build.patch"] = "parses a patch record only for the TODO rows build.todo_scan " ..
+      "fills, which no projection carries",
   }
   local reached: {string:boolean} = {}
   local stack: {string} = { "build.writer" }

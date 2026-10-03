@@ -133,7 +133,9 @@ local version <const> = "28"
 --- staged file, keyed by the file's content hash like `parsed`: staging
 --- scans a file in the same moment it reads it, so an unchanged file
 --- costs nothing, and a row is a function of the bytes and the scan's
---- rule alone -- a change to the rule bumps `version`. A row no
+--- rule alone -- a change to the rule bumps `version`, and so does one
+--- to what [`build.patch`]'s [`Patch.parse`] takes as a record, whose
+--- TODOs the rule reads apart. A row no
 --- staged file hashes to any more is dropped at the end of the stage.
 --- `todos_fts` indexes their text for `cosmic todos <words>`, in FTS5's
 --- external-content mode over `todos` -- which is why `todos` has a
@@ -713,8 +715,8 @@ end
 
 --- Records the TODOs in one file's bytes under their hash, unless a
 --- file with the same bytes already has: text that parses as a patch
---- record as a record holds them, wherever it sits, since the rows are
---- keyed by the bytes alone. Text holding no `TODO:`, or holding a NUL,
+--- record is scanned as one wherever it sits, since the rows are keyed
+--- by the bytes alone. Text holding no `TODO:`, or holding a NUL,
 --- is not scanned.
 local function put_todos(put: Sqlite.Statement, data: string,
                          sha256: string): boolean, string

@@ -133,8 +133,8 @@ local function line_at(source: string, at: integer): integer
   return breaks + 1
 end
 
---- The TODO a record's note holds, if one opens it or one of its
---- sentences: from there to the note's end. The note is its `note:`
+--- The TODO a record's note holds, if one opens it, one of its lines
+--- or one of its sentences: from there to the note's end. The note is its `note:`
 --- line, at `first`, and the lines under it up to the find fence's,
 --- before `after`.
 local function note_todo(lines: {string}, first: integer, after: integer): todo_scan.Found | nil
@@ -151,10 +151,12 @@ local function note_todo(lines: {string}, first: integer, after: integer): todo_
       joined = joined .. text
     end
   end
-  local from = joined:find("^TODO:")
-  if from == nil then
-    local sentence = joined:find("[.!?][ \t]+TODO:")
-    from = sentence and joined:find("TODO:", sentence, true)
+  local sentence = joined:find("[.!?][ \t]+TODO:")
+  local from = sentence and joined:find("TODO:", sentence, true)
+  for _, start in ipairs(starts) do
+    if (from == nil or start < from) and joined:sub(start, start + 4) == "TODO:" then
+      from = start
+    end
   end
   if from == nil then
     return nil
@@ -168,8 +170,9 @@ end
 
 --- Every TODO in a patch record's text (see [`build/patch.tl`], whose
 --- [`Patch.parse`] reads it) that is the tree's own, or nil when the
---- text is no record. Its note's is, from a `TODO:` that opens the note
---- or one of its sentences to the note's end; so is each in its replace
+--- text is no record. Its note's TODO is the tree's, from a `TODO:` that
+--- opens the note, one of its lines or one of its sentences to the
+--- note's end; so is each in its replace
 --- block, as [`scan`] finds them, that has a line the find block does
 --- not. The find block is upstream's code, matched rather than written
 --- here, so its TODOs, and the ones a replace block carries over from it

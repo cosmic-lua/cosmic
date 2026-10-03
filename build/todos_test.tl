@@ -356,7 +356,7 @@ end
 local function test_a_record_s_note_spans_lines_and_upstream_lines_stay_upstream_s()
   local found = assert(todo_scan.scan_record(text({
     "file: a.tl",
-    "note: why it is so.",
+    "note: why it is so, as upstream says",
     "  TODO: drop once",
     "  upstream takes it",
     "--- find",
