@@ -95,4 +95,41 @@ function Example.serve()
   assert(Fs.remove_tree(dir))
 end
 
+--- A handler's answer to a GET of a file it holds in memory, honoring
+--- Range: 206 with the span asked for, 416 for a range holding none of
+--- its bytes, and 200 with the whole for no Range, or one it ignores.
+function Example.range()
+  local data = "0123456789"
+  local function answer(range: string | nil): Http.Reply
+    local r = Http.range(range, #data)
+    if r.kind == "span" then
+      return { status = 206, body = data:sub(r.first + 1, r.last + 1),
+        headers = { ["Content-Range"] = ("bytes %d-%d/%d"):format(r.first, r.last, #data) } }
+    elseif r.kind == "unsatisfiable" then
+      return { status = 416, headers = { ["Content-Range"] = ("bytes */%d"):format(#data) } }
+    end
+    return { status = 200, body = data }
+  end
+  local tail = answer("bytes=-3")
+  print(tail.status, tail.headers["Content-Range"], tail.body)
+  assert(tail.status == 206 and tail.body == "789" and tail.headers["Content-Range"] == "bytes 7-9/10")
+  assert(answer("bytes=20-").status == 416)
+  assert(answer("bytes=0-1,5-6").status == 200 and answer(nil).status == 200)
+end
+
+--- A handler's answer to a GET a client may already hold: 304, with
+--- no body, where If-None-Match names the version it would send.
+function Example.none_match()
+  local etag = '"v7"'
+  local function answer(if_none_match: string | nil): Http.Reply
+    if Http.none_match(if_none_match, etag) then
+      return { status = 304, headers = { ETag = etag } }
+    end
+    return { status = 200, headers = { ETag = etag }, body = "version 7\n" }
+  end
+  print(answer('W/"v6", W/"v7"').status, answer('"v6"').status)
+  assert(answer('W/"v6", W/"v7"').status == 304 and answer("*").status == 304)
+  assert(answer('"v6"').status == 200 and answer(nil).status == 200)
+end
+
 return Example

@@ -19,7 +19,8 @@
 ---
 --- [`Http.serve`] is the other side: an HTTP/1.1 server over
 --- [`Net.serve`], calling a handler with each [`Request`], its body a
---- Reader, and writing the [`Reply`] it answers.
+--- Reader, and writing the [`Reply`] it answers. [`Http.range`] and
+--- [`Http.none_match`] read a request's Range and If-None-Match for it.
 ---
 ---     assert(Http.serve{
 ---       listeners = { Net.tcp("127.0.0.1", 8080) },
@@ -313,6 +314,27 @@ local record Http
     --- could not be sent; nil to write each to stderr. See
     --- [`Net.ServeSpec.on_error`].
     on_error: function(trouble: string)
+  end
+
+  --- What a Range header asks of a representation, as [`Http.range`]
+  --- reads it: all of it, one span of its bytes, or none.
+  enum RangeKind
+    "whole"
+    "span"
+    "unsatisfiable"
+  end
+
+  --- One Range header read against a representation's size: see
+  --- [`Http.range`].
+  record Range
+    --- "whole" for a 200 with every byte, "span" for a 206 with the
+    --- bytes from `first` to `last`, "unsatisfiable" for a 416.
+    kind: RangeKind
+    --- The span's first byte, counted from 0; set only for "span".
+    first: integer
+    --- The span's last byte, counted from 0 and sent with it; set only
+    --- for "span".
+    last: integer
   end
 end
 
@@ -1098,6 +1120,179 @@ function Http.serve(spec: Http.ServeSpec): boolean, string
     end,
     on_error = spec.on_error,
   }
+end
+
+-- What a handler reads of a request's Range and If-None-Match, as RFC
+-- 9110 sections 13 and 14 say.
+
+--- Whether byte `b` is a space or a tab, RFC 9110's OWS; nil, past
+--- the text's end, is not.
+local function ows(b: integer | nil): boolean
+  return b == 32 or b == 9
+end
+
+--- `text` from `from` to `to`, without the spaces and tabs at either
+--- end. Scanned a byte at a time: a pattern anchored at `$` would retry
+--- at every position of an inner run of them.
+local function stripped(text: string, from: integer, to: integer): string
+  while from <= to and ows(text:byte(from)) do from = from + 1 end
+  while to >= from and ows(text:byte(to)) do to = to - 1 end
+  return text:sub(from, to)
+end
+
+--- Decimal `digits` without the zeros that lead them, but the last.
+local function significant(digits: string): string
+  local from = 1
+  while from < #digits and digits:byte(from) == 48 do from = from + 1 end
+  return digits:sub(from)
+end
+
+--- Whether the count in [`significant`] digits `a` is less than `b`'s.
+local function fewer(a: string, b: string): boolean
+  if #a ~= #b then return #a < #b end
+  return a < b
+end
+
+local MOST <const> = tostring(math.maxinteger)
+
+--- The count in [`significant`] `digits`, or math.maxinteger where it
+--- is more: no size is, so a count compared with a size or clamped to
+--- one comes out the same either way.
+local function count(digits: string): integer
+  if fewer(MOST, digits) then return math.maxinteger end
+  return math.tointeger(tonumber(digits))
+end
+
+--- Reads the Range `header` of a GET (nil where it sent none) against
+--- a representation of `size` bytes, as RFC 9110 section 14 says. A
+--- handler of [`Http.serve`] answers what it says:
+---
+--- - "span": 206 with `Content-Range: bytes <first>-<last>/<size>` and
+---   the `last - first + 1` bytes from `first`;
+--- - "unsatisfiable": 416 with `Content-Range: bytes */<size>`;
+--- - "whole": 200 with every byte, as though no Range were sent.
+---
+---     local r = Http.range(req.headers["range"], #data)
+---     if r.kind == "span" then
+---       return { status = 206, body = data:sub(r.first + 1, r.last + 1),
+---         headers = { ["Content-Range"] = ("bytes %d-%d/%d"):format(r.first, r.last, #data) } }
+---     end
+---
+--- One range is served, in each of its forms: `bytes=a-b` (`b` past
+--- the end taken as the last byte), `bytes=a-` (from `a` on) and
+--- `bytes=-n` (the last `n`, or every byte where there are fewer). The
+--- unit is "bytes" in any case; a comma-separated list may hold empty
+--- elements and spaces or tabs beside its commas, but none between
+--- `=` and the range, nor within it. A server may ignore Range, and
+--- this one does, answering "whole", for any other unit, a range it
+--- cannot read (`b` before `a`, a sign, a space), and more than one
+--- range: it writes no `multipart/byteranges`. A range it can read
+--- but holding none of the bytes -- `a` at or past `size`, or `-0`
+--- -- is "unsatisfiable"; `bytes=-n` of an empty representation is
+--- "whole" instead, as the RFC holds it satisfiable with no bytes to
+--- send. A count past the largest integer is read as that integer,
+--- which no size passes, so it is answered as the count it is.
+---
+--- Range concerns only GET, and a server ignores it for every other
+--- method; a handler that honors If-Range passes nil where its
+--- validator does not match. A `size` that is no integer from 0
+--- raises.
+function Http.range(header: string | nil, size: integer): Http.Range
+  if not (math.type(size) == "integer" and size >= 0) then
+    error("http: Http.range's size must be an integer from 0", 2)
+  end
+  local unranged: Http.Range = { kind = "whole" }
+  if header == nil then return unranged end
+  local value = stripped(header, 1, #header)
+  local equals = value:find("=", 1, true)
+  if equals == nil or value:sub(1, equals - 1):lower() ~= "bytes" or ows(value:byte(equals + 1)) then
+    return unranged
+  end
+  local spec: string = nil
+  local from = equals + 1
+  while true do
+    local comma = value:find(",", from, true)
+    local element = stripped(value, from, comma ~= nil and comma - 1 or #value)
+    if element ~= "" then
+      if spec ~= nil then return unranged end
+      spec = element
+    end
+    if comma == nil then break end
+    from = comma + 1
+  end
+  if spec == nil then return unranged end
+  local first_digits, last_digits = spec:match("^([0-9]+)%-([0-9]*)$")
+  if first_digits ~= nil then
+    local first_count, last_count = significant(first_digits), significant(last_digits)
+    if last_digits ~= "" and fewer(last_count, first_count) then return unranged end
+    local first = count(first_count)
+    if first >= size then return { kind = "unsatisfiable" } end
+    local last = size - 1
+    if last_digits ~= "" then last = math.min(count(last_count), last) end
+    return { kind = "span", first = first, last = last }
+  end
+  local suffix = spec:match("^%-([0-9]+)$")
+  if suffix == nil then return unranged end
+  local n = count(significant(suffix))
+  if n == 0 then return { kind = "unsatisfiable" } end
+  if size == 0 then return unranged end
+  return { kind = "span", first = size - math.min(n, size), last = size - 1 }
+end
+
+--- Where the entity tag that starts at `at` in `text` ends, and its
+--- opaque tag, quotes and all, which a weak comparison compares; nil
+--- where none starts there.
+local function entity_tag(text: string, at: integer): integer, string
+  local from = at
+  if text:sub(at, at + 1) == "W/" then from = at + 2 end
+  local _, last = text:find('^"[!\x23-\x7e\x80-\xff]*"', from)
+  if last == nil then return nil, nil end
+  return last, text:sub(from, last)
+end
+
+--- Whether the If-None-Match `header` (nil where none was sent) names
+--- `etag`, the entity tag the server sends for the representation
+--- (`"v1"`, or `W/"v1"` for a weak one), as RFC 9110 section 13.1.2
+--- says: `*` names any, and a list names each tag in it, compared
+--- weakly -- `W/"v1"` and `"v1"` name the same. Where it does, the
+--- request's condition fails, and a handler answers a GET or HEAD 304
+--- Not Modified, with the ETag and no body, and any other method 412.
+---
+---     local etag = '"' .. version .. '"'
+---     if Http.none_match(req.headers["if-none-match"], etag) then
+---       return { status = 304, headers = { ETag = etag } }
+---     end
+---
+--- `*` names a representation that exists, so a handler asks only of
+--- one it has. A list element that is no entity tag names nothing, and
+--- the rest are still read. An `etag` that is no entity tag raises.
+function Http.none_match(header: string | nil, etag: string): boolean
+  local own_last, own = entity_tag(etag, 1)
+  if own_last ~= #etag then
+    error(("http: Http.none_match's etag %q is no entity tag, as \"v1\" or W/\"v1\""):format(etag), 2)
+  end
+  if header == nil then return false end
+  local value = stripped(header, 1, #header)
+  if value == "*" then return true end
+  local at = 1
+  while at <= #value do
+    local b = value:byte(at)
+    if b == 44 or ows(b) then
+      at = at + 1
+    else
+      local last, opaque = entity_tag(value, at)
+      local after = last ~= nil and last + 1 or at
+      while ows(value:byte(after)) do after = after + 1 end
+      if last ~= nil and (after > #value or value:byte(after) == 44) then
+        if opaque == own then return true end
+      else
+        -- What is no entity tag runs to the next comma.
+        after = value:find(",", after, true) or #value + 1
+      end
+      at = after
+    end
+  end
+  return false
 end
 
 return Http
