@@ -50,7 +50,7 @@ local function test_standard_input_feeds_list_and_the_json_verb(tmp: string)
   local bytes = assert(Fs.read(tmp .. "/s.zip"))
   local listed = cosmic(tmp, { "archive", "list", "--json", "-" }, bytes)
   assert(listed.code == 0, listed.err)
-  local piped = cosmic(tmp, { "json", "-r", "$[1].path", "-" }, listed.out)
+  local piped = cosmic(tmp, { "json", "-r", "$[0].path", "-" }, listed.out)
   assert(piped.code == 0 and piped.out == "f.txt\n", piped.out .. piped.err)
 end
 

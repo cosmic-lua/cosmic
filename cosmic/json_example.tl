@@ -102,7 +102,7 @@ end
 function Example.encode_failure()
   local _, why = Json.encode({ users = { { name = "ada" }, { name = print } } })
   print(why)
-  assert(why == "json: cannot encode a function at $.users[2].name")
+  assert(why == "json: cannot encode a function at pointer \"/users/1/name\"")
 end
 
 --- Read a list from outside: [`decode_array`] checks the outermost shape.
@@ -179,6 +179,44 @@ function Example.text_as_text()
   local canonical = assert(Json.canonical(text))
   assert(canonical == '{"a":[1,2],"b":1.5}')
   assert(Json.canonical('{"a": [1.0, 2e0], "b": 15e-1}') == canonical, "the same value, the same text")
+end
+
+--- One place, three spellings: Lua steps count from 1, a JSON Pointer
+--- and a JSONPath query from 0. [`Json.get`] follows steps;
+--- [`Json.select`] runs a query that can match many values.
+function Example.paths()
+  local doc = assert(Json.decode('{"users": [{"name": "ada"}, {"name": "bob"}]}'))
+  local steps: Json.Steps = { "users", 2, "name" }
+  assert(Json.get(doc, steps) == "bob")
+  assert(Json.pointer(steps) == "/users/1/name")
+  assert(Json.path(steps) == "$['users'][1]['name']")
+  local back = assert(Json.from_pointer(doc, "/users/1/name"))
+  assert(Json.get(doc, back) == "bob")
+  local last = assert(Json.from_path("$.users[-1].name"))
+  assert(Json.get(doc, last) == "bob", "a negative index counts from the end")
+  local names = assert(Json.select(doc, (assert(Json.query("$.users[*].name")))))
+  for _, found in ipairs(names) do print(Json.pointer(found.steps), found.value) end
+end
+
+--- Read a document too large to hold whole a token at a time, and
+--- decode only the parts wanted: here each row of a long array.
+function Example.reader()
+  local r = Json.reader(Stream.from_string('{"rows": [{"id": 1}, {"id": 2}], "total": 2}'))
+  local first = assert(r:next())
+  assert(first.kind == "object")
+  local key = assert(r:next())
+  assert(key.kind == "key" and key.value == "rows")
+  assert(assert(r:next()).kind == "array")
+  local ids: {integer} = {}
+  while r:peek() == "object" do
+    local row, err = r:value()
+    assert(err == "", err)
+    local id = (row as {string: any}).id
+    assert(id is integer)
+    ids[#ids + 1] = id
+  end
+  print(Json.path(r:steps()), #ids)
+  assert(#ids == 2)
 end
 
 return Example

@@ -69,7 +69,6 @@
 local Csv = require("cosmic.csv")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
-local json_query = require("build.json_query")
 local plural = require("build.plural")
 
 --- What a failure of this module answers, nil and `why` under the
@@ -93,12 +92,11 @@ local record dataset
 
   --- What a reader may be told.
   record ReadOptions
-    --- Where in the document the rows are, as the steps of a path: a
-    --- string is an object's key and an integer an array's index, counted
-    --- from 1, so `{ "a", "rows", 1 }` is `$.a.rows[1]`; the whole
-    --- document when nil. Only a format that reads a document takes one
+    --- Where in the document the rows are, as [`Json.Steps`]:
+    --- `{ "a", "rows", 1 }` is `$['a']['rows'][0]`; the whole document
+    --- when nil. Only a format that reads a document takes one
     --- (`json`); the others refuse it.
-    at: {string | integer}
+    at: Json.Steps
     --- Keep every cell as the text it is: no number is read and an empty
     --- cell is `''`, not NULL. Only a format of text cells (`csv`,
     --- `tsv`) takes it; the JSON formats, typed by their syntax, refuse it.
@@ -133,9 +131,8 @@ end
 --- A row for one JSON value: an object is the row; anything else (a
 --- number, a string, a nested array) is a row of one column, `value`.
 local function row_of(element: any): dataset.Row
-  local object, _ = json_query.entries(element)
-  if object ~= nil then
-    return object
+  if element is dataset.Row and Json.layout(element) == "object" then
+    return element
   end
   return { value = element }
 end
@@ -144,12 +141,11 @@ end
 --- [`row_of`] makes it; a value that is not an array is one row.
 local function rows_of(value: any): dataset.Rows
   local rows: dataset.Rows = {}
-  local items, _ = json_query.items(value)
-  if items == nil then
+  if not (value is {any} and Json.layout(value) == "array") then
     rows[1] = row_of(value)
     return rows
   end
-  for index, element in ipairs(items) do
+  for index, element in ipairs(value) do
     rows[index] = row_of(element)
   end
   return rows
@@ -238,7 +234,7 @@ local formats: {string:dataset.Format} = {
       if trouble ~= "" then
         return nil, trouble
       end
-      local value, missing = json_query.get(document, opts.at or {})
+      local value, missing = Json.get(document, opts.at or {})
       if missing ~= "" then
         return nil, missing
       end

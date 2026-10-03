@@ -121,7 +121,7 @@ local function test_a_moved_json_member_names_its_new_home(tmp: string)
       'local function f(step: Json.Step): integer\n  return step and 1 or 0\nend\nreturn f\n')
   assert(chunk == nil)
   assert(trouble:find("step.tl:2:24: unknown type Json.Step -- Json.Step was removed: " ..
-      "moved to build.json_query", 1, true) ~= nil, trouble)
+      "use Json.Segment", 1, true) ~= nil, trouble)
   chunk, trouble = compile(tmp, "lines.tl",
     'local Json = require("cosmic.json")\nreturn Json.encode_lines({})\n')
   assert(chunk == nil)

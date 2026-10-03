@@ -119,8 +119,8 @@ end
 
 local function test_a_value_that_breaks_the_record_is_refused_by_path()
   local cases: {{string}} = {
-    { [[{"name": 1}]], "$.address: expected record, got nothing" },
-    { [[{"address": {"street": "s", "floor": "two"}}]], "$.address.floor: expected integer, got string" },
+    { [[{"name": 1}]], "pointer \"/address\": expected record, got nothing" },
+    { [[{"address": {"street": "s", "floor": "two"}}]], "pointer \"/address/floor\": expected integer, got string" },
   }
   for _, case in ipairs(cases) do
     local profile, err = PROFILE:decode_into(case[1])
@@ -131,9 +131,9 @@ local function test_a_value_that_breaks_the_record_is_refused_by_path()
   local loud = (GOOD:gsub('"level": "info"', '"level": "loud"'))
   local broken = Json.decode(loud, { null_value = Json.null })
   local _, level = PROFILE:into(broken)
-  assert(level == '$.level: expected one of "debug", "info", "warn", got "loud"', level)
+  assert(level == 'pointer "/level": expected one of "debug", "info", "warn", got "loud"', level)
   local _, nested = INNER:into((Json.decode('{"deep": {"k": ["x"]}}')))
-  assert(nested == '$.deep.k[1]: expected integer, got string', nested)
+  assert(nested == 'pointer "/deep/k/0": expected integer, got string', nested)
   assert(PROFILE:into(value) ~= nil)
 end
 

@@ -1,0 +1,45 @@
+file: tl.tl
+note: a `while true do ... end` that no `break` leaves never falls through to the statement after it, any more than `return` does: control leaves it only by a `return`, an error, or a `goto`, so it ends the block holding it as 22 through 25 let `break`, `goto` and `error` end one, and a function literal ending in one needs no return after it (37f). A `break` counts against the loop it leaves: one in its body, or in an `if` or `do` there, but not one in a nested loop, which leaves that loop instead, and a function body holds none. Only the literal `true` makes a loop endless here: a condition that is always true some other way still reads as one that can be false. A `goto` out of the loop is sound for the narrow, as in 23, since the code it reaches starts at a label, which widens every live narrow; and for 37f, since a loop that is the last statement of a function body has no label after it to reach
+--- find
+   local function end_scope_and_none_type(self: TypeChecker, node: Node, _children: {Type}): Type
+      self:end_scope(node)
+      return NONE
+   end
+--- replace
+   local function end_scope_and_none_type(self: TypeChecker, node: Node, _children: {Type}): Type
+      self:end_scope(node)
+      return NONE
+   end
+
+   -- Whether `body`, a loop's body, holds a `break` that leaves that loop.
+   local function breaks_out(body: Node): boolean
+      for _, stmt in ipairs(body) do
+         if stmt.kind == "break" then
+            return true
+         elseif stmt.kind == "do" then
+            if breaks_out(stmt.body) then
+               return true
+            end
+         elseif stmt.kind == "if" then
+            for _, b in ipairs(stmt.if_blocks) do
+               if breaks_out(b.body) then
+                  return true
+               end
+            end
+         end
+      end
+      return false
+   end
+
+   -- Ends a `while` or `repeat` loop's scope, marking the loop as
+   -- ending the block holding it when its condition is the literal that
+   -- never ends it (`while true`, `until false`) and no `break` leaves it.
+   local function end_loop(self: TypeChecker, node: Node, _children: {Type}): Type
+      self:end_scope(node)
+      local endless = node.kind == "while" and "true" or "false"
+      if node.exp.kind == "boolean" and node.exp.tk == endless and not breaks_out(node.body) then
+         node.block_returns = true
+      end
+      return NONE
+   end
+--- end

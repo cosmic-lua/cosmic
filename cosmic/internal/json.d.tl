@@ -17,12 +17,19 @@ local record json
   -- of a JSON Lines text: a failure names that line, its column
   -- counted from the text's start, whatever line ends the text holds;
   -- one out of memory or holding no value names that line alone.
-  -- Raises when `record` is negative.
+  -- Raises when `record` is negative. With `line` and `column` (each
+  -- from 1), the text starts there in a larger text, and a failure counts
+  -- from there; with `prefix`, the JSON Pointer of the value the text is,
+  -- the pointer a failure names is put under it; with `opened`, that many
+  -- arrays and objects are open
+  -- around it there, and count toward `max_depth`, which they must be
+  -- fewer than.
   decode: function(text: string, null?: any, max_depth?: integer,
                    json5?: boolean, big_as_string?: boolean,
                    lone_surrogates?: boolean, record?: integer,
                    hash_comments?: boolean,
-                   duplicate_keys?: boolean): any | nil, string
+                   duplicate_keys?: boolean, line?: integer, column?: integer,
+                   prefix?: string, opened?: integer): any | nil, string
   -- true and "" when `decode` would read `text` under the same
   -- options; else false and the message it would fail with. It builds
   -- no value.
@@ -40,7 +47,7 @@ local record json
                    duplicate_keys?: boolean, pretty?: boolean,
                    canonical?: boolean): string | nil, string
   -- `value` as JSON text. nil and a message when it holds something
-  -- JSON cannot say, naming where: `... at $.users[3].name`. Keys are
+  -- JSON cannot say, naming where: `... at pointer "/users/2/name"`. Keys are
   -- sorted by their bytes; `pretty` lays it out two spaces a level. Raises
   -- when `max_depth` is outside 1 to `depth_limit`.
   encode: function(value: any, pretty?: boolean, max_depth?: integer): string | nil, string

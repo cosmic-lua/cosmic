@@ -70,15 +70,23 @@ local function test_the_removed_coders_name_the_verb_and_the_whole_string_functi
   end
 end
 
---- A program that called one of the lookups that moved with the dataset
---- loader is told where they went and that it indexes the table directly.
-local function test_the_removed_json_lookups_name_build_json_query_and_direct_indexing()
-  for _, member in ipairs({ "get", "entries", "items" }) do
+--- A program that called one of the removed lookups is told the path
+--- API that does what it did. `get` and `select` are back, as Json.get
+--- and Json.select over Json.Steps and a JSONPath query.
+local function test_the_removed_json_lookups_name_the_path_api()
+  for member, api in pairs({
+      entries = "Json.get", items = "Json.get", parse_path = "Json.from_path", parse_pattern = "Json.query",
+      child_path = "Json.path", Step = "Json.Segment", Located = "Json.Match",
+  }) do
     local instead = Removed.members["cosmic.json." .. member]
     assert(instead ~= nil, member)
-    assert(instead:find("build.json_query", 1, true), instead)
+    assert(instead:find(api, 1, true), instead)
+    assert(not instead:find("[1]", 1, true), "a 1-based path: " .. instead)
   end
-  assert(Removed.members["cosmic.json.get"]:find("directly", 1, true))
+  for _, member in ipairs({ "flatten", "flat_line", "describe" }) do
+    assert(Removed.members["cosmic.json." .. member]:find("build.json_query", 1, true), member)
+  end
+  assert(Removed.members["cosmic.json.get"] == nil and Removed.members["cosmic.json.select"] == nil)
 end
 
 local function test_the_removed_csv_functions_name_what_to_use_instead()

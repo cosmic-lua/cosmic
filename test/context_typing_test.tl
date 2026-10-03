@@ -4,7 +4,9 @@
 --- table field, a return -- gives each parameter it leaves untyped the
 --- expected parameter type, and an omitted return list the expected
 --- returns, which its `return` statements are then checked against;
---- one that can reach its end where a value is expected is refused. A
+--- one that can reach its end where a value is expected is refused,
+--- and one ending in a `do` block that ends, or in a `while true` or
+--- `repeat ... until false` no `break` leaves (39a through 39d), cannot. A
 --- generic call's arguments before the literal bind the type variables
 --- it reads (`table.sort(xs, function(a, b) ... end)`), and an
 --- overloaded callee gives a literal the parameter type all its
@@ -122,6 +124,61 @@ print(ok, trouble)
 ]])
   assert(ok, "an if with an else, an error at the end, declared returns and " ..
       "pcall's optional returns need no return at the end, but: " .. tostring(trouble))
+end
+
+--- Each body that ends a block in a way 39a through 39d add, as its
+--- own fixture, so each fails alone without them.
+local endless_bodies: {{string}} = {
+  { "do-return", "do return k == \"dir\" end" },
+  { "do-nested", "do do if k == \"dir\" then return true else return false end end end" },
+  { "while-true", "while true do if k == \"dir\" then return true end end" },
+  { "repeat-false", "repeat if k == \"dir\" then return true end until false" },
+  { "inner-break", [[
+while true do
+   for _ = 1, 2 do break end
+   while true do break end
+   repeat break until false
+   if k == "dir" then return true end
+end]] },
+  { "do-while", "do while true do if k == \"dir\" then return true end end end" },
+  { "goto-back", "::top:: while true do if k == \"dir\" then return true end goto top end" },
+}
+
+local function test_an_ending_block_or_endless_loop_needs_no_return(tmp: string)
+  for _, case in ipairs(endless_bodies) do
+    local ok, trouble = compiles(tmp, "ends-" .. case[1], each_prelude ..
+        "print(each(function(k)\n" .. case[2] .. "\nend))\n")
+    assert(ok, case[1] .. ": a body ending in a do block that ends, or a loop no " ..
+        "break leaves, cannot reach its end, but: " .. tostring(trouble))
+  end
+end
+
+--- Each body that can still reach its end: a loop whose condition is
+--- not the literal that never ends it, one a `break` leaves (in its
+--- body, an `if` or a `do` there), one a `goto` leaves for a label at
+--- the end, a `for`, and a `do` whose body falls through.
+local falling_bodies: {{string}} = {
+  { "while-cond", "while k == \"dir\" do return true end" },
+  { "while-break", "while true do if k == \"dir\" then break end return true end" },
+  { "while-do-break", "while true do do break end end" },
+  { "while-else-break", "while true do if k == \"dir\" then return true else break end end" },
+  { "repeat-true", "repeat if k == \"dir\" then return true end until true" },
+  { "repeat-break", "repeat if k == \"dir\" then break end until false" },
+  { "goto-out", "while true do if k == \"dir\" then goto out end end ::out::" },
+  { "for", "for _ = 1, 2 do return true end" },
+  { "forin", "for _ in pairs({}) do return true end" },
+  { "do-falls", "do if k == \"dir\" then return true end end" },
+  { "do-loop-break", "do while true do break end end" },
+}
+
+local function test_a_loop_or_block_that_can_end_still_needs_a_return(tmp: string)
+  for _, case in ipairs(falling_bodies) do
+    local ok, trouble = compiles(tmp, "falls-" .. case[1], each_prelude ..
+        "print(each(function(k)\n" .. case[2] .. "\nend))\n")
+    assert(refused(ok, trouble, "missing return"),
+      case[1] .. ": this body can reach its end, so it needs a return, but: " ..
+        tostring(trouble))
+  end
 end
 
 local function test_a_generic_call_binds_before_the_literal(tmp: string)

@@ -76,76 +76,108 @@ static int checked_depth (lua_State *L, int arg) {
 
 /* ---- paths ------------------------------------------------------ */
 
-/* Where in a value a failure is, as a path below `$`: `[3].name`. A
- * walk that fails puts its own segment in front at each level it
- * returns through, so the path is whole once the walk is out. `cut`
- * says the outermost segments did not fit. */
+/* Where in a value a failure is, as a JSON Pointer (RFC 6901): `/3/name`,
+ * an array's index counted from 0. A walk that fails puts its own
+ * segment in front at each level it returns through, so the pointer is
+ * whole once the walk is out. `cut` says the outermost segments did not
+ * fit. */
 struct path {
   char text[200];
   size_t len;
   bool cut;
 };
 
-static void prepend_path (struct path *p, const char *segment, size_t n) {
+/* Makes room for `n` bytes in front of `p`, and answers where they go;
+ * NULL, the path cut, when they do not fit. */
+static char *path_room (struct path *p, size_t n) {
   if (p->cut || n >= sizeof p->text - p->len) {
+    p->cut = true;
+    return NULL;
+  }
+  memmove(p->text + n, p->text, p->len);
+  p->len += n;
+  return p->text;
+}
+
+/* `/i`: an array's index, counted from 0. */
+static void prepend_index (struct path *p, size_t i) {
+  char segment[32];
+  int n = snprintf(segment, sizeof segment, "/%zu", i);
+  char *at = path_room(p, (size_t)n);
+  if (at != NULL) memcpy(at, segment, (size_t)n);
+}
+
+/* The most bytes of a key a path keeps when the key alone does not fit:
+ * its start, then `...`, the path cut. */
+#define KEPT_KEY 40
+
+/* `/key`, with `~` written `~0` and `/` written `~1`. A key too long
+ * for the path even alone, the innermost, keeps its first KEPT_KEY
+ * bytes or fewer, ending on a whole escape and a whole UTF-8 character,
+ * and `...`. */
+static void prepend_key (struct path *p, const char *s, size_t n) {
+  size_t escapes = 0;
+  for (size_t i = 0; i < n; i++) escapes += s[i] == '~' || s[i] == '/';
+  if (p->len == 0 && !p->cut && 1 + n + escapes >= sizeof p->text) {
+    size_t used = 0;
+    p->text[used++] = '/';
+    for (size_t i = 0; i < n && used < 1 + KEPT_KEY; i++) {
+      unsigned char c = (unsigned char)s[i];
+      if (c == '~' || c == '/') {
+        if (used + 2 > 1 + KEPT_KEY) break;
+        p->text[used++] = '~';
+        p->text[used++] = c == '~' ? '0' : '1';
+      } else if (c >= 0x80 && (c & 0xc0) == 0xc0) {
+        /* A lead byte: the character fits whole, or not at all. */
+        size_t width = c >= 0xf0 ? 4 : c >= 0xe0 ? 3 : 2;
+        if (i + width > n || used + width > 1 + KEPT_KEY) break;
+        memcpy(p->text + used, s + i, width);
+        used += width;
+        i += width - 1;
+      } else {
+        p->text[used++] = (char)c;
+      }
+    }
+    memcpy(p->text + used, "...", 3);
+    p->len = used + 3;
     p->cut = true;
     return;
   }
-  memmove(p->text + n, p->text, p->len);
-  memcpy(p->text, segment, n);
-  p->len += n;
-}
-
-/* `[i]`: an array's index, as Lua counts it, from 1. */
-static void prepend_index (struct path *p, lua_Integer i) {
-  char segment[32];
-  int n = snprintf(segment, sizeof segment, "[%lld]", (long long)i);
-  prepend_path(p, segment, (size_t)n);
-}
-
-static bool is_word_byte (unsigned char c, bool first) {
-  return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' ||
-         (!first && c >= '0' && c <= '9');
-}
-
-/* `.name` for a key that is a word, and `["some key"]` for any other,
- * its unprintable bytes shown as `?` and a long one cut short. */
-static void prepend_key (struct path *p, const char *s, size_t n) {
-  char segment[48];
-  size_t used = 0;
-  bool word = n > 0 && n <= 40;
-  for (size_t i = 0; word && i < n; i++) {
-    word = is_word_byte((unsigned char)s[i], i == 0);
-  }
-  if (word) {
-    segment[used++] = '.';
-    memcpy(segment + used, s, n);
-    used += n;
-  } else {
-    segment[used++] = '[';
-    segment[used++] = '"';
-    for (size_t i = 0; i < n; i++) {
-      if (used > sizeof segment - 8) {
-        memcpy(segment + used, "...", 3);
-        used += 3;
-        break;
-      }
-      unsigned char c = (unsigned char)s[i];
-      if (c == '"' || c == '\\') segment[used++] = '\\';
-      segment[used++] = c >= 0x20 && c < 0x7f ? (char)c : '?';
+  char *at = path_room(p, 1 + n + escapes);
+  if (at == NULL) return;
+  *at++ = '/';
+  for (size_t i = 0; i < n; i++) {
+    if (s[i] == '~' || s[i] == '/') {
+      *at++ = '~';
+      *at++ = s[i] == '~' ? '0' : '1';
+    } else {
+      *at++ = s[i];
     }
-    segment[used++] = '"';
-    segment[used++] = ']';
   }
-  prepend_path(p, segment, used);
 }
 
-/* Pushes `p` as `$` and its segments, `$...` in front when the
- * outermost were cut. */
+/* Pushes `p` for a message, a JSON string as RFC 6901 writes a pointer
+ * in JSON: `pointer "/users/2/name"`, or `pointer ending "..."` when the
+ * outermost segments were cut. */
 static void push_path (lua_State *L, const struct path *p) {
-  lua_pushfstring(L, "$%s", p->cut ? "..." : "");
-  lua_pushlstring(L, p->text, p->len);
-  lua_concat(L, 2);
+  luaL_Buffer b;
+  luaL_buffinit(L, &b);
+  luaL_addstring(&b, p->cut ? "pointer ending \"" : "pointer \"");
+  for (size_t i = 0; i < p->len; i++) {
+    unsigned char c = (unsigned char)p->text[i];
+    if (c == '"' || c == '\\') {
+      luaL_addchar(&b, '\\');
+      luaL_addchar(&b, (char)c);
+    } else if (c < 0x20 || c == 0x7f) {
+      char escape[8];
+      snprintf(escape, sizeof escape, "\\u%04x", c);
+      luaL_addstring(&b, escape);
+    } else {
+      luaL_addchar(&b, (char)c);
+    }
+  }
+  luaL_addchar(&b, '"');
+  luaL_pushresult(&b);
 }
 
 /* ---- decoding ---------------------------------------------------- */
@@ -311,7 +343,7 @@ static enum problem push_value (struct decoding *d, yyjson_val *val,
         enum problem found = push_value(d, item, depth + 1);
         if (found != NO_PROBLEM) {
           lua_pop(L, 1);
-          prepend_index(&d->path, (lua_Integer)idx + 1);
+          prepend_index(&d->path, idx);
           return found;
         }
         lua_rawseti(L, -2, (lua_Integer)idx + 1);
@@ -433,7 +465,7 @@ static enum problem first_problem (lua_State *L, yyjson_val *val, int depth,
       enum problem found =
           first_problem(L, item, depth + 1, max_depth, duplicate_keys, path, key);
       if (found != NO_PROBLEM) {
-        prepend_index(path, (lua_Integer)idx + 1);
+        prepend_index(path, idx);
         return found;
       }
     }
@@ -466,7 +498,71 @@ struct layout {
    * text is this one line of a larger one, a JSON Lines record, which
    * nothing inside ends. */
   lua_Integer record;
+  /* Where the text's first byte is in a larger one, for a text that is
+   * a part of it: 1 and 1 for a whole. */
+  lua_Integer line;
+  lua_Integer column;
+  /* The JSON Pointer of the value the text is in the larger one, NULL
+   * for a whole: a pointer in a message is put under it. */
+  const char *prefix;
 };
+
+/* Pushes the JSON Pointer s[0..n), whose segments are written as a
+ * pointer writes them, for a message as [`push_path`] pushes a path: whole
+ * when it fits a path, else its innermost segments that fit, and the
+ * innermost alone shortened when even it does not, as [`prepend_key`]
+ * shortens a key -- the rule a pointer cosmic.json writes in Teal is
+ * shortened by too. */
+static void push_pointer_text (lua_State *L, const char *s, size_t n) {
+  struct path p;
+  memset(&p, 0, sizeof p);
+  size_t end = n;
+  while (end > 0 && !p.cut) {
+    size_t start = end;
+    while (start > 0 && s[start - 1] != '/') start--;
+    size_t slash = start > 0 ? start - 1 : 0;
+    size_t width = end - slash;
+    if (p.len == 0 && width >= sizeof p.text) {
+      size_t used = 0;
+      p.text[used++] = '/';
+      for (size_t i = slash + 1; i < end && used < 1 + KEPT_KEY;) {
+        unsigned char c = (unsigned char)s[i];
+        size_t step = c == '~' ? 2 : c < 0x80 ? 1 : c >= 0xf0 ? 4 : c >= 0xe0 ? 3 : 2;
+        if (i + step > end || used + step > 1 + KEPT_KEY) break;
+        memcpy(p.text + used, s + i, step);
+        used += step;
+        i += step;
+      }
+      memcpy(p.text + used, "...", 3);
+      p.len = used + 3;
+      p.cut = true;
+      break;
+    }
+    char *at = path_room(&p, width);
+    if (at == NULL) break;
+    memcpy(at, s + slash, width);
+    end = slash;
+  }
+  push_path(L, &p);
+}
+
+/* Pushes `p` as [`push_path`] does, under the layout's prefix, a JSON
+ * Pointer, when it has one: the two shortened as one pointer, when the
+ * path itself is whole. */
+static void push_placed_path (lua_State *L, const struct layout *layout,
+                              const struct path *p) {
+  if (layout->prefix == NULL || p->cut) {
+    push_path(L, p);
+    return;
+  }
+  lua_pushstring(L, layout->prefix);
+  lua_pushlstring(L, p->text, p->len);
+  lua_concat(L, 2);
+  size_t n;
+  const char *whole = lua_tolstring(L, -1, &n);
+  push_pointer_text(L, whole, n);
+  lua_remove(L, -2);
+}
 
 /* The line and column of byte `pos` of `text`, both counted from 1,
  * the column in bytes. A line ends at \n, \r, or \r\n taken as one:
@@ -479,13 +575,13 @@ struct layout {
 static void position (const char *text, size_t pos,
                       const struct layout *layout, size_t *line,
                       size_t *column) {
-  *line = 1;
-  *column = 1;
   if (layout->record > 0) {
     *line = (size_t)layout->record;
     *column = pos + 1;
     return;
   }
+  *line = (size_t)layout->line;
+  *column = (size_t)layout->column;
   bool json5 = layout->json5;
   for (size_t i = 0; i < pos; i++) {
     unsigned char c = (unsigned char)text[i];
@@ -652,24 +748,26 @@ static void repeat_failure (lua_State *L, const char *text, size_t len,
   position(text, pos < len ? pos : len, layout, &line, &column);
   lua_pushfstring(L, "duplicate key at line %I, column %I (",
                   (lua_Integer)line, (lua_Integer)column);
-  push_path(L, path);
+  push_placed_path(L, layout, path);
   lua_pushliteral(L, ")");
   lua_concat(L, 3);
 }
 
-/* Pushes that the array or object at `path` in `text` nests
- * deeper than `max_depth`. The position is the first bracket in the text
- * that opens that deep, which is that container: the walk that found it
- * visits the document in the order the text holds it. */
+/* Pushes that the array or object at `path` in `text`, with `opened`
+ * open around the text, nests deeper than `max_depth`. The position is
+ * the first bracket in the text that opens that deep, which is that
+ * container: the walk that found it visits the document in the order
+ * the text holds it. */
 static void deep_failure (lua_State *L, const char *text, size_t len,
                           const struct layout *layout, int max_depth,
-                          const struct path *path) {
+                          int opened, const struct path *path) {
   size_t line, column;
-  position(text, deep_offset(text, len, max_depth, layout->json5), layout,
-           &line, &column);
-  lua_pushfstring(L, "JSON nests deeper than %d levels at line %I, column %I (",
-                  max_depth, (lua_Integer)line, (lua_Integer)column);
-  push_path(L, path);
+  position(text, deep_offset(text, len, max_depth - opened, layout->json5),
+           layout, &line, &column);
+  lua_pushfstring(L, "JSON nests deeper than %d level%s at line %I, column %I (",
+                  max_depth, max_depth == 1 ? "" : "s", (lua_Integer)line,
+                  (lua_Integer)column);
+  push_placed_path(L, layout, path);
   lua_pushliteral(L, ")");
   lua_concat(L, 3);
 }
@@ -685,6 +783,9 @@ struct reading {
   bool lone_surrogates;
   bool duplicate_keys;
   int max_depth;
+  /* How many arrays and objects are open around the text's value in a
+   * larger text: 0 for a whole. */
+  int opened;
 };
 
 /* Reads the options every read takes from the arguments at `at`:
@@ -694,10 +795,14 @@ static void read_options (lua_State *L, int at, struct reading *r) {
   r->max_depth = checked_depth(L, at);
   r->layout.json5 = lua_toboolean(L, at + 1);
   r->layout.record = 0;
+  r->layout.line = 1;
+  r->layout.column = 1;
+  r->layout.prefix = NULL;
   r->flags = r->layout.json5 ? YYJSON_READ_JSON5 : YYJSON_READ_NOFLAG;
   r->lone_surrogates = lua_toboolean(L, at + 2);
   if (lua_toboolean(L, at + 3)) r->flags |= READ_ALLOW_HASH_COMMENTS;
   r->duplicate_keys = lua_toboolean(L, at + 4);
+  r->opened = 0;
 }
 
 /* Reads `r->text` into a document, which it sets as `guard`'s resource,
@@ -732,13 +837,13 @@ static yyjson_doc *read_text (lua_State *L, struct reading *r,
   struct path path;
   memset(&path, 0, sizeof path);
   yyjson_val *key = NULL;
-  switch (first_problem(L, yyjson_doc_get_root(doc), 0, r->max_depth,
+  switch (first_problem(L, yyjson_doc_get_root(doc), r->opened, r->max_depth,
                         r->duplicate_keys, &path, &key)) {
     case REPEATED_KEY:
     repeat_failure(L, r->text, r->len, &r->layout, doc, key, &path);
     return NULL;
     case TOO_DEEP:
-    deep_failure(L, r->text, r->len, &r->layout, r->max_depth, &path);
+    deep_failure(L, r->text, r->len, &r->layout, r->max_depth, r->opened, &path);
     return NULL;
     default:
     return doc;
@@ -753,7 +858,8 @@ static int refused (lua_State *L) {
 }
 
 /* decode(text, null?, max_depth?, json5?, big_as_string?,
- * lone_surrogates?, record?, hash_comments?, duplicate_keys?): the value
+ * lone_surrogates?, record?, hash_comments?, duplicate_keys?, line?,
+ * column?, prefix?, opened?): the value
  * `text` holds, and "". nil and a message when it is not one JSON
  * value -- RFC 8259, or JSON5 when `json5` is true, either with `#`
  * line comments when `hash_comments` is -- holds an object with a key
@@ -761,7 +867,13 @@ static int refused (lua_State *L) {
  * `max_depth` (64 by default). JSON `null` is `null` when given, and
  * nil when not. With `big_as_string`, an integer past 64 bits, or a
  * number past a double's range, is its own text. With `record`, the
- * text is that line of a JSON Lines text, and a failure names it. */
+ * text is that line of a JSON Lines text, and a failure names it. With
+ * `line` and `column`, the text starts there in a larger one, and a
+ * failure counts from there; with `prefix`, the JSON Pointer of the
+ * value the text is, a pointer a failure names is put under it; with
+ * `opened`, that
+ * many arrays and objects are open around it there, and count toward
+ * `max_depth`. */
 static int json_decode (lua_State *L) {
   struct reading r;
   r.text = luaL_checklstring(L, 1, &r.len);
@@ -769,6 +881,15 @@ static int json_decode (lua_State *L) {
   r.layout.json5 = lua_toboolean(L, 4);
   r.layout.record = luaL_optinteger(L, 7, 0);
   luaL_argcheck(L, r.layout.record >= 0, 7, "a record's line is not negative");
+  r.layout.line = luaL_optinteger(L, 10, 1);
+  luaL_argcheck(L, r.layout.line >= 1, 10, "a line is counted from 1");
+  r.layout.column = luaL_optinteger(L, 11, 1);
+  luaL_argcheck(L, r.layout.column >= 1, 11, "a column is counted from 1");
+  r.layout.prefix = luaL_optstring(L, 12, NULL);
+  lua_Integer opened = luaL_optinteger(L, 13, 0);
+  luaL_argcheck(L, opened >= 0 && opened < r.max_depth, 13,
+                "fewer levels open than max_depth");
+  r.opened = (int)opened;
   r.flags = r.layout.json5 ? YYJSON_READ_JSON5 : YYJSON_READ_NOFLAG;
   struct decoding d;
   d.L = L;
@@ -782,18 +903,18 @@ static int json_decode (lua_State *L) {
   d.duplicate_keys = r.duplicate_keys;
   memset(&d.path, 0, sizeof d.path);
   d.repeated = NULL;
-  lua_settop(L, 9);
+  lua_settop(L, 13);
   /* Building the value allocates, and an allocation can raise: the
    * guard frees the document then, and on every return. */
   struct cosmic_guard *guard = cosmic_guard_push(L, release_doc);
   yyjson_doc *doc = read_text(L, &r, guard, false);
   if (doc == NULL) return refused(L);
-  switch (push_value(&d, yyjson_doc_get_root(doc), 0)) {
+  switch (push_value(&d, yyjson_doc_get_root(doc), r.opened)) {
     case REPEATED_KEY:
     repeat_failure(L, r.text, r.len, &r.layout, doc, d.repeated, &d.path);
     return refused(L);
     case TOO_DEEP:
-    deep_failure(L, r.text, r.len, &r.layout, r.max_depth, &d.path);
+    deep_failure(L, r.text, r.len, &r.layout, r.max_depth, r.opened, &d.path);
     return refused(L);
     default:
     return cosmic_succeeded(L);
@@ -995,7 +1116,7 @@ static int put_array (struct encoding *e, int idx, lua_Integer top,
     int status = put_value(e, lua_gettop(L), depth + 1);
     lua_pop(L, 1);
     if (status < 0) {
-      prepend_index(&e->path, i);
+      prepend_index(&e->path, (size_t)(i - 1));
       return -1;
     }
   }
@@ -1492,7 +1613,7 @@ static int put_text_value (struct encoding *e, yyjson_val *val, int depth,
       if (idx > 0 && PUT_LITERAL(e, ",") < 0) return -1;
       if (put_break(e, depth + 1) < 0) return -1;
       if (put_text_value(e, item, depth + 1, canonical) < 0) {
-        prepend_index(&e->path, (lua_Integer)idx + 1);
+        prepend_index(&e->path, idx);
         return -1;
       }
     }
