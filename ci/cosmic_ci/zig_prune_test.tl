@@ -1,39 +1,50 @@
+local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local ZigPrune = require("cosmic_ci.zig_prune")
 
---- Manifests zig 0.16 wrote, each with the output it made: what a
+--- Manifests zig 0.17 wrote, each with the output it made: what a
 --- manifest vouches for is zig's to say, so a hash read wrongly here
 --- fails these rather than pruning what a build would hit.
 local function test_a_manifest_vouches_for_the_output_zig_made()
   local cases: {{string}} = {
-    -- A step that read no file (build.zig's targets.tsv).
-    { "3d3983ba1978c19c52224be5a1e6decc.txt", "0\n", "26ca864f5afd2cebb5d762f0976c4b93" },
-    -- A compile's analysis, of one file of the tree.
-    { "e84aa90f22106bea32784581fe6d112c.txt",
-      "0\n9519 950868 1790826720911876459 ad42f989e48ea8a9847327fd320352b4 1 core/vfs.c\n",
-      "1552f59e485ab27098b322a1a12a3c1f" },
+    -- A step that read no file.
+    { "0e9f1edc8959b359682157069501abb6", "\x00", "89af20b2482bc6827ca7dbe2a5af4028" },
+    -- A compile's analysis, of one file of the project cache.
+    { "71f3cc44bf6c4ed887751ef3be920bd0",
+      "\xd5.\x00\x00\x00\x00\x00\x00q\xc8\x09\x00\x00\x00\x00\x00Vz\x93\xda" ..
+      "\x8d\xdf\xda\x18p\xd1\xf1\x93\xe2R\xc0\xd2\xdeZ\x1b\xbb\xa1*\xa6\x0a" ..
+      "\x08cosmic-vendor/cares-f159dbcc3d49893fb5f9a28c6d4caee36f8d8a86f34072" ..
+      "fd3ea7c308ebd2f5db/src/lib/ares_sysconfig_mac.c\x00\x00",
+      "9f1d104adad6a05512d52bab36bb854a" },
     -- A run step, of two outputs of the cache's own.
-    { "08c6f89275274ae49d5eda3093f55744.txt",
-      "0\n18163170 2442127 1790826734263877252 5192d54871eb75cd3ffd2c584c32b9a6 2 " ..
-      "o/6f91c2131f0673d6b7a02c50554e2aea/coverage-map\n" ..
-      "38301664 615460 1790829018072013009 28371f4664bcd70c5042467d755207cd 2 " ..
-      "o/27232b1d6a4f014c8396c1c7943e6afe/cosmic-core\n",
-      "13c72f998ad0891ee60da6246619e1bb" },
+    { "20846e46d0063433728d69b15ed4801d",
+      "M\x8c\x12\x01\x00\x00\x00\x00f\x01\x0a\x00\x00\x00\x00\x00\xa50q<\xd7" ..
+      "\xdf\xda\x18\x9a\xbe\xc5pd\x88HHG\xf9\x5cG t\xc5\xc2\x08o/04bbf2e4d047" ..
+      "d5cadb88df8d955afa9f/coverage-map\x00\xf8B`\x00\x00\x00\x00\x00\x18" ..
+      "\xa2\x0a\x00\x00\x00\x00\x00\xbc\x06\x97c\xef\xdf\xda\x18$I\xc5F\x9b^W" ..
+      "\x89\xdb\xefX\xe3\xf9\x9d\x0b\xd7\x08o/4e24a4c3b4892d00b4f4b1f52e3b5ca" ..
+      "d/cosmic-core\x00\x00",
+      "60b2f3b2be10737eb5f6979227bf0540" },
   }
   for _, case in ipairs(cases) do
     local got, trouble = ZigPrune.vouches(case[1], case[2])
     assert(got == case[3], case[1] .. ": " .. tostring(got) .. " " .. trouble)
   end
   -- What is not zig's manifest vouches for nothing.
-  assert(ZigPrune.vouches("timestamp", "0\n") == nil)
-  assert(ZigPrune.vouches("3d3983ba1978c19c52224be5a1e6decc.txt", "1\n") == nil)
-  assert(ZigPrune.vouches("3d3983ba1978c19c52224be5a1e6decc.txt", "0\nnot a file line\n") == nil)
+  assert(ZigPrune.vouches("timestamp", "\0") == nil)
+  assert(ZigPrune.vouches("0e9f1edc8959b359682157069501abb6.txt", "0\n") == nil)
+  assert(ZigPrune.vouches("0e9f1edc8959b359682157069501abb6", "") == nil)
+  assert(ZigPrune.vouches("0e9f1edc8959b359682157069501abb6", "\0\0") == nil)
+  assert(ZigPrune.vouches("0e9f1edc8959b359682157069501abb6", string.rep("\1", 41) .. "a") == nil)
+  -- An input may be a prefix's own root, an empty path.
+  assert(ZigPrune.vouches("0e9f1edc8959b359682157069501abb6",
+    string.rep("\0", 40) .. "\8\0\0") ~= nil)
 end
 
 --- The known answers above are the pinned zig's: a new pin re-reads
---- std/Build/Cache.zig (its `hasher_init`, `hit`, `final` and the
---- manifest's lines), takes new answers from a cache it wrote, and
---- moves [`ZigPrune.zig_version`].
+--- std/Build/Cache.zig (its `hasher_init`, `checkProgressless`,
+--- `finalDigest` and `Manifest.File`), takes new answers from a cache
+--- it wrote, and moves [`ZigPrune.zig_version`].
 local function test_the_answers_are_the_pinned_zigs()
   local cwd = assert(Fs.absolute("."))
   local root = assert(cwd:match("^(.*)/[^/]+$"), cwd)
@@ -56,13 +67,16 @@ end
 --- in), with the output it vouches for holding `outputs`; the output's
 --- name.
 local function step(root: string, name: string, files: {string}, outputs: {string}): string
-  local lines: {string} = { "0" }
+  local records: {string} = {}
   for i, file in ipairs(files) do
-    lines[#lines + 1] = "1 " .. i .. " 1 " .. string.rep(name:sub(-1), 32) .. " " .. file
+    local prefix, path = file:match("^(%d+) (.*)$")
+    records[#records + 1] = string.pack("<i8i8i8", 1, i, 1) ..
+      Codec.unhex(string.rep(name:sub(-1), 32)) ..
+      string.char(math.tointeger(prefix) << 2) .. path .. "\0"
   end
-  local text = table.concat(lines, "\n") .. "\n"
-  assert(Fs.write(root .. "/h/" .. name .. ".txt", text))
-  local output = assert(ZigPrune.vouches(name .. ".txt", text))
+  local text = table.concat(records) .. "\0"
+  assert(Fs.write(root .. "/h/" .. name, text))
+  local output = assert(ZigPrune.vouches(name, text))
   for _, file in ipairs(outputs) do
     assert(Fs.mkdirs(Fs.dirname(root .. "/o/" .. output .. "/" .. file)))
     assert(Fs.write(root .. "/o/" .. output .. "/" .. file, name))
@@ -108,7 +122,7 @@ local function test_a_core_change_prunes_the_old_core_alone(tmp: string)
     { "build" })
 
   local plan = assert(ZigPrune.plan({ project, shared }))
-  local want_manifests = { p .. "/h/" .. hex("1") .. ".txt", p .. "/h/" .. hex("c") .. ".txt" }
+  local want_manifests = { p .. "/h/" .. hex("1"), p .. "/h/" .. hex("c") }
   local want_outputs = { p .. "/o/" .. old_copies, p .. "/o/" .. old_object, p .. "/o/" .. old_core }
   table.sort(want_outputs)
   assert(table.concat(plan.manifests, " ") == table.concat(want_manifests, " "),
@@ -149,10 +163,10 @@ local function test_a_manifest_names_its_own_cache_by_prefix_2(tmp: string)
   local old_stubs = orphan(g, hex("9"), { "m.s" })
   local libm = step(g, hex("b"), { "2 o/" .. stubs .. "/m.s" }, { "libm.so" })
   local old_libm = step(g, hex("c"), { "2 o/" .. old_stubs .. "/m.s" }, { "libm.so" })
-  assert(Fs.write(p .. "/h/" .. hex("d") .. ".txt", ""))
+  assert(Fs.write(p .. "/h/" .. hex("d"), ""))
 
   local plan = assert(ZigPrune.plan({ project, shared }))
-  assert(table.concat(plan.manifests, " ") == g .. "/h/" .. hex("c") .. ".txt",
+  assert(table.concat(plan.manifests, " ") == g .. "/h/" .. hex("c"),
     table.concat(plan.manifests, " "))
   local want_outputs = { g .. "/o/" .. old_stubs, g .. "/o/" .. old_libm }
   table.sort(want_outputs)
@@ -161,9 +175,68 @@ local function test_a_manifest_names_its_own_cache_by_prefix_2(tmp: string)
   assert(plan.manifests_seen == 3, tostring(plan.manifests_seen))
   assert(ZigPrune.apply(plan))
   for _, kept in ipairs({ g .. "/o/" .. stubs .. "/m.s", g .. "/o/" .. libm .. "/libm.so",
-      p .. "/h/" .. hex("d") .. ".txt" }) do
+      p .. "/h/" .. hex("d") }) do
     assert(Fs.exists(kept), kept)
   end
+end
+
+--- `zig build`'s configuration is a file of the cache's `c/`, which its
+--- manifest vouches for as a step's does its output, and goes with
+--- that manifest.
+local function test_a_configuration_goes_with_its_manifest(tmp: string)
+  local project = cache(tmp .. "/zig-cache")
+  project.prefix = 2
+  local shared = cache(tmp .. "/zig-global")
+  shared.prefix = 3
+  local p = project.path
+  local dependencies = step(p, hex("a"), {}, { "dependencies.zig" })
+  local old_dependencies = orphan(p, hex("9"), { "dependencies.zig" })
+  local configured = step(p, hex("b"), { "2 o/" .. dependencies .. "/dependencies.zig" }, {})
+  local old_configured = step(p, hex("c"), { "2 o/" .. old_dependencies .. "/dependencies.zig" }, {})
+  assert(Fs.mkdirs(p .. "/c"))
+  for _, output in ipairs({ configured, old_configured }) do
+    assert(Fs.remove_tree(p .. "/o/" .. output))
+    assert(Fs.write(p .. "/c/" .. output, "configuration"))
+  end
+
+  local plan = assert(ZigPrune.plan({ project, shared }))
+  assert(table.concat(plan.manifests, " ") == p .. "/h/" .. hex("c"),
+    table.concat(plan.manifests, " "))
+  local want_outputs = { p .. "/c/" .. old_configured, p .. "/o/" .. old_dependencies }
+  table.sort(want_outputs)
+  assert(table.concat(plan.outputs, " ") == table.concat(want_outputs, " "),
+    table.concat(plan.outputs, " "))
+  assert(plan.orphans == 1 and plan.orphans_kept == 0, plan.orphans .. " " .. plan.orphans_kept)
+  assert(ZigPrune.apply(plan))
+  for _, kept in ipairs({ p .. "/c/" .. configured, p .. "/h/" .. hex("b") }) do
+    assert(Fs.exists(kept), kept)
+  end
+end
+
+--- A cache restored from a build on an older zig holds its manifests
+--- (`<name>.txt`), which this zig never reads: their outputs are
+--- orphans here, and one superseded goes. Each such manifest goes too,
+--- first, so that the older zig, restoring what is saved, misses
+--- rather than trusting an output that is gone.
+local function test_an_older_zigs_manifests_go_before_their_outputs(tmp: string)
+  local project = cache(tmp .. "/zig-cache")
+  project.prefix = 2
+  local shared = cache(tmp .. "/zig-global")
+  shared.prefix = 3
+  local p = project.path
+  local object = step(p, hex("a"), { "1 core/a.c" }, { "a.o" })
+  local older_object = orphan(p, hex("9"), { "a.o" })
+  local older = p .. "/h/" .. hex("e") .. ".txt"
+  assert(Fs.write(older, "0\n1 1 1 " .. hex("e") .. " 2 o/" .. older_object .. "/a.o\n"))
+
+  local plan = assert(ZigPrune.plan({ project, shared }))
+  assert(table.concat(plan.manifests, " ") == older, table.concat(plan.manifests, " "))
+  assert(table.concat(plan.outputs, " ") == p .. "/o/" .. older_object,
+    table.concat(plan.outputs, " "))
+  assert(plan.manifests_seen == 2, tostring(plan.manifests_seen))
+  assert(ZigPrune.apply(plan))
+  assert(not Fs.exists(older) and not Fs.exists(p .. "/o/" .. older_object))
+  assert(Fs.exists(p .. "/o/" .. object .. "/a.o") and Fs.exists(p .. "/h/" .. hex("a")))
 end
 
 --- A manifest not read as zig's, or one whose output is not there, says
@@ -181,9 +254,9 @@ local function test_nothing_is_removed_where_a_manifest_is_not_understood(tmp: s
     step(p, hex("a"), { "1 core/a.c" }, { "core/a.c" })
     local old_object = step(p, hex("c"), { "2 o/" .. old_copies .. "/core/a.c" }, { "a.o" })
     if broken == "header" then
-      assert(Fs.write(p .. "/h/" .. hex("f") .. ".txt", "1\n"))
+      assert(Fs.write(p .. "/h/" .. hex("f"), "\1"))
     else
-      assert(Fs.write(p .. "/h/" .. hex("f") .. ".txt", "0\n"))
+      assert(Fs.write(p .. "/h/" .. hex("f"), "\0"))
     end
     local plan, trouble = ZigPrune.plan({ project, shared })
     assert(plan == nil and trouble:find(hex("f"), 1, true), trouble)
