@@ -1,0 +1,13 @@
+file: std/Build/Cache.zig
+note: A file input: Each re-hash compares to the digest the manifest recorded, unless the caller gave one. (01's note says why.)
+--- find
+                .populated => unreachable,
+            }
+
+            if (mem.eql(u8, &disk_file.digest, &input_file.digest)) return .hit;
+--- replace
+                .populated => unreachable,
+            }
+
+            if (mem.eql(u8, &disk_file.digest, &expected_digest)) return .hit;
+--- end

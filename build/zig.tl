@@ -67,6 +67,7 @@
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Log = require("cosmic.log")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
@@ -176,17 +177,15 @@ end
 --- say). A read build.zig does not declare, it cannot catch: build.zig
 --- declares each (`dependOn*`).
 ---
---- `--build-file` names build.zig by its absolute path, though zig would
---- find it in the working directory: a build root found there has no path
---- in zig 0.17 (compiler/Maker.zig's `findBuildRoot`), so its cache
---- (std/Build/Cache.zig's `resolveAppendPath`) keys every file of the tree
---- by its absolute path rather than by its path under the root, and a
---- checkout elsewhere (CI's Linux legs move the tree with every commit,
---- .github/scripts/place-tree.sh) misses each step that copies one,
---- with every compile that reads the copy: the three vendored libraries'
---- among them, about 100 s.
---- TODO: drop `--build-file` once zig keys a build root found in the
---- working directory by its path.
+--- `--build-file` names build.zig by its absolute path, so `bin/zig build`
+--- runs from any working directory, and its build root has a path: one
+--- found in the working directory has none in zig 0.17's own library
+--- (compiler/Maker.zig's `findBuildRoot`), whose cache then keys every
+--- file of the tree by its absolute path, and a checkout elsewhere (CI's
+--- Linux legs move the tree with every commit) compiles the vendored
+--- libraries again. patch/zig-lib/05 fixes that for a bare `zig build`;
+--- this keeps it fixed where zig runs without that library (`COSMIC_ZIG`,
+--- a `ZIG_LIB_DIR` of the caller's).
 function Zig.build_args(root: string, project: string,
                         argv: {string}, cpus: integer, defines?: {string}): {string}
   local out: {string} = {}
@@ -358,12 +357,100 @@ function Zig.pinned_install(root: string, cache: string): Zig.Install | nil, str
   return { path = cache .. "/" .. name, pin = pin, host = host }, ""
 end
 
---- The zig to run and its first trouble: `COSMIC_ZIG` when set,
---- otherwise the pinned release for this host, fetched if need be.
-local function locate(root: string): string | nil, string
+--- The name a patched zig library is given ([`patched_lib`]): the first
+--- 16 hex digits of the sha256 of each record's name and the sha256 of
+--- its bytes, in name order, `records` mapping each name to its bytes.
+--- A record edited, added or removed names a new library; the release
+--- it patches is named by the directory it sits in.
+function Zig.lib_key(records: {string:string}): string
+  local names: {string} = {}
+  for name in pairs(records) do names[#names + 1] = name end
+  table.sort(names)
+  local lines: {string} = {}
+  for _, name in ipairs(names) do
+    lines[#lines + 1] = name .. " " .. Hash.hex_sha256(records[name]) .. "\n"
+  end
+  return Hash.hex_sha256(table.concat(lines)):sub(1, 16)
+end
+
+--- zig's library directory as the pinned release installed at `install`
+--- ships it, with every record under `root/patch/zig-lib/` applied:
+--- `install/lib-<key>` ([`Zig.lib_key`]), written by build/patch.tl
+--- run standalone when it is not there yet, so nothing that copies a
+--- tree or applies a record is this file's to load. zig compiles `zig
+--- build`'s maker, and the cache code it runs, from its library at run
+--- time, so a record there fixes what `zig build` does without a zig of
+--- our own; the compiler's own copy of that code is fixed only in a
+--- rebuilt zig. Nil and "" when there are no records, nil and why when
+--- the library cannot be written: every zig command then fails, `cc` and
+--- `env` among them, rather than run on a library the tree did not ask
+--- for. Builds that start at once before it exists each copy it, and all
+--- but the first to finish discard theirs.
+-- TODO: remove the `lib-<key>` libraries no record set names any more:
+-- each record edit leaves the one before beside the install (234 MB for
+-- zig 0.17), as Zig.install_name's TODO says of whole installs.
+-- TODO: drop patch/zig-lib/ and this function's call once bin/zig.pin
+-- names a zig whose library carries its fixes (cosmic-lua/zig's branches
+-- cache-same-contents-hit and build-root-path, not yet sent upstream).
+local function patched_lib(root: string, install: string): string | nil, string
+  local dir = root .. "/patch/zig-lib"
+  local present, present_trouble = Fs.exists(dir)
+  if present == nil then
+    return nil, present_trouble
+  end
+  if not present then
+    return nil, ""
+  end
+  local names, list_trouble = Fs.list(dir)
+  if names == nil then
+    return nil, list_trouble
+  end
+  local records: {string:string} = {}
+  local any = false
+  for _, name in ipairs(names) do
+    if #name > 4 and name:sub(-4) == ".txt" then
+      local data, read_trouble = Fs.read(dir .. "/" .. name)
+      if data == nil then
+        return nil, read_trouble
+      end
+      records[name] = data
+      any = true
+    end
+  end
+  if not any then
+    return nil, ""
+  end
+  local out = install .. "/lib-" .. Zig.lib_key(records)
+  local made, made_trouble = Fs.exists(out)
+  if made == nil then
+    return nil, made_trouble
+  end
+  if made then
+    return out, ""
+  end
+  local result, trouble = standalone(root, "build/patch.tl",
+    { "--zig-lib", root, install .. "/lib", out })
+  if result == nil then
+    return nil, trouble
+  end
+  if not result.ok then
+    return nil, "build/patch.tl could not patch zig's library into " .. out
+  end
+  return out, ""
+end
+
+--- The zig to run, and the directory of its pinned install, if it is one.
+local record Located
+  zig: string
+  install: string | nil
+end
+
+--- `COSMIC_ZIG` when set, with no install, otherwise the pinned release
+--- for this host, fetched if need be. Nil and why when it cannot be had.
+local function locate(root: string): Located | nil, string
   local env_zig = Env.get("COSMIC_ZIG")
   if env_zig ~= nil and env_zig ~= "" then
-    return env_zig, ""
+    return { zig = env_zig }, ""
   end
   local cache, ctrouble = Fs.cache_dir("zig")
   if cache == nil then
@@ -373,7 +460,12 @@ local function locate(root: string): string | nil, string
   if install == nil then
     return nil, trouble
   end
-  return Zig.ensure_installed(root, cache, install.path, install.pin, install.host)
+  local zig, install_trouble = Zig.ensure_installed(root, cache, install.path, install.pin,
+    install.host)
+  if zig == nil then
+    return nil, install_trouble
+  end
+  return { zig = zig, install = install.path }, ""
 end
 
 --- Where one of zig's caches is: `variable` from `environment` (the
@@ -928,10 +1020,22 @@ function Zig.main(argv: {integer:string}): integer
     log:complain(root_trouble)
     return 2
   end
-  local zig, ztrouble = locate(root)
-  if zig == nil then
+  local found, ztrouble = locate(root)
+  if found == nil then
     log:complain(ztrouble)
     return 1
+  end
+  local zig = found.zig
+  -- The pinned release runs on its library with patch/zig-lib/'s records
+  -- applied, unless the caller names a library of their own.
+  local environment = Env.all()
+  if found.install ~= nil and (environment.ZIG_LIB_DIR or "") == "" then
+    local lib, lib_trouble = patched_lib(root, found.install)
+    if lib_trouble ~= "" then
+      log:complain(lib_trouble)
+      return 1
+    end
+    if lib ~= nil then environment.ZIG_LIB_DIR = lib end
   end
   local resolved = Zig.resolve(zig, Env.get_or("PATH", "/usr/bin:/bin"))
   if resolved.kind ~= "resolved" then
@@ -951,7 +1055,7 @@ function Zig.main(argv: {integer:string}): integer
     -- The vendored trees are patched once the snapshot is taken, so a
     -- vendored file edited while they are is caught as any source is.
     local function build(env?: {string:string}): integer
-      local zig_env = Zig.build_environment(Zig.global_cache(root), env or Env.all())
+      local zig_env = Zig.build_environment(Zig.global_cache(root), env or environment)
       return watched_build(root, zig_env, function(): {string} | nil
         local manifest, patch_trouble = patch(root, Zig.project_cache(root))
         if manifest == nil then
@@ -968,7 +1072,7 @@ function Zig.main(argv: {integer:string}): integer
       end)
     end
     if Zig.boots(given) then
-      return Zig.with_lock(root, Env.all(), build)
+      return Zig.with_lock(root, environment, build)
     end
     return build()
   end
@@ -978,7 +1082,7 @@ function Zig.main(argv: {integer:string}): integer
     exec_argv[#exec_argv + 1] = a
   end
   local _, trouble, number = sys.execve(program, exec_argv,
-    Zig.passthrough_environment(root, Env.all()))
+    Zig.passthrough_environment(root, environment))
   log:complain(program .. ": " .. tostring(trouble))
   return Zig.exec_status(math.tointeger(number) or 0)
 end

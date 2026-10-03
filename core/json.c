@@ -74,6 +74,80 @@ static int checked_depth (lua_State *L, int arg) {
   return (int)depth;
 }
 
+/* ---- paths ------------------------------------------------------ */
+
+/* Where in a value a failure is, as a path below `$`: `[3].name`. A
+ * walk that fails puts its own segment in front at each level it
+ * returns through, so the path is whole once the walk is out. `cut`
+ * says the outermost segments did not fit. */
+struct path {
+  char text[200];
+  size_t len;
+  bool cut;
+};
+
+static void prepend_path (struct path *p, const char *segment, size_t n) {
+  if (p->cut || n >= sizeof p->text - p->len) {
+    p->cut = true;
+    return;
+  }
+  memmove(p->text + n, p->text, p->len);
+  memcpy(p->text, segment, n);
+  p->len += n;
+}
+
+/* `[i]`: an array's index, as Lua counts it, from 1. */
+static void prepend_index (struct path *p, lua_Integer i) {
+  char segment[32];
+  int n = snprintf(segment, sizeof segment, "[%lld]", (long long)i);
+  prepend_path(p, segment, (size_t)n);
+}
+
+static bool is_word_byte (unsigned char c, bool first) {
+  return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' ||
+         (!first && c >= '0' && c <= '9');
+}
+
+/* `.name` for a key that is a word, and `["some key"]` for any other,
+ * its unprintable bytes shown as `?` and a long one cut short. */
+static void prepend_key (struct path *p, const char *s, size_t n) {
+  char segment[48];
+  size_t used = 0;
+  bool word = n > 0 && n <= 40;
+  for (size_t i = 0; word && i < n; i++) {
+    word = is_word_byte((unsigned char)s[i], i == 0);
+  }
+  if (word) {
+    segment[used++] = '.';
+    memcpy(segment + used, s, n);
+    used += n;
+  } else {
+    segment[used++] = '[';
+    segment[used++] = '"';
+    for (size_t i = 0; i < n; i++) {
+      if (used > sizeof segment - 8) {
+        memcpy(segment + used, "...", 3);
+        used += 3;
+        break;
+      }
+      unsigned char c = (unsigned char)s[i];
+      if (c == '"' || c == '\\') segment[used++] = '\\';
+      segment[used++] = c >= 0x20 && c < 0x7f ? (char)c : '?';
+    }
+    segment[used++] = '"';
+    segment[used++] = ']';
+  }
+  prepend_path(p, segment, used);
+}
+
+/* Pushes `p` as `$` and its segments, `$...` in front when the
+ * outermost were cut. */
+static void push_path (lua_State *L, const struct path *p) {
+  lua_pushfstring(L, "$%s", p->cut ? "..." : "");
+  lua_pushlstring(L, p->text, p->len);
+  lua_concat(L, 2);
+}
+
 /* ---- decoding ---------------------------------------------------- */
 
 struct decoding {
@@ -85,15 +159,101 @@ struct decoding {
   /* Whether a number no Lua number holds exactly as an integer, or at
    * all, decodes as its text rather than the nearest float. */
   int big_as_string;
+  /* Whether an object may hold a key twice, the last member standing. */
+  bool duplicate_keys;
+  /* Where the value decode refuses is, once it refuses one, and, for a
+   * key twice, the second. */
+  struct path path;
+  yyjson_val *repeated;
 };
 
-/* Pushes `val` as a Lua value and answers 1, or answers 0 having pushed
- * nothing when it nests deeper than the limit. `depth` counts the
- * arrays and objects open around it. A `null` without a stand-in pushes
+/* What makes a document that read cleanly one decode refuses. */
+enum problem { NO_PROBLEM, REPEATED_KEY, TOO_DEEP };
+
+/* What a member read as `null` holds while its object is built, when
+ * `null` decodes to nil and keys are checked: a nil would leave the key
+ * out, and a key twice after it unseen. */
+static const char null_member = 0;
+
+/* The most members an object may have for its keys to be compared
+ * pair by pair, and through a set of them on the C stack, twice as many
+ * slots as members. A larger object's keys are looked up in the table
+ * as they go in: Lua's string hash is seeded, where the set's is not, so
+ * keys chosen to collide make only a small set's search slow. */
+#define FEW_MEMBERS 8
+#define SET_MEMBERS 64
+
+/* FNV-1a over a key's bytes, for the set of an object's keys below. */
+static uint32_t key_hash (const char *s, size_t n) {
+  uint32_t h = 2166136261u;
+  for (size_t i = 0; i < n; i++) {
+    h = (h ^ (unsigned char)s[i]) * 16777619u;
+  }
+  return h;
+}
+
+/* The index of the first member of `obj`, of SET_MEMBERS at most, whose
+ * key an earlier member has, or its size when none does, found through
+ * a set of its keys. Never inlined: the set would sit in each frame of
+ * the recursive walk that calls it, a kilobyte a level. */
+__attribute__((noinline)) static size_t repeated_in_set (yyjson_val *obj) {
+  size_t count = yyjson_obj_size(obj);
+  size_t idx;
+  size_t max;
+  yyjson_val *key;
+  yyjson_val *item;
+  yyjson_val *set[2 * SET_MEMBERS];
+  size_t slots = 4;
+  while (slots < 2 * count) slots *= 2;
+  memset(set, 0, slots * sizeof *set);
+  yyjson_obj_foreach(obj, idx, max, key, item) {
+    const char *s = yyjson_get_str(key);
+    size_t n = yyjson_get_len(key);
+    size_t at = key_hash(s, n) & (slots - 1);
+    while (set[at] != NULL) {
+      if (yyjson_get_len(set[at]) == n &&
+          memcmp(yyjson_get_str(set[at]), s, n) == 0) {
+        return idx;
+      }
+      at = (at + 1) & (slots - 1);
+    }
+    set[at] = key;
+  }
+  return count;
+}
+
+/* The index of the first member of `obj`, of SET_MEMBERS at most, whose
+ * key an earlier member has, or its size when none does. */
+static size_t repeated_member (yyjson_val *obj) {
+  size_t count = yyjson_obj_size(obj);
+  if (count > FEW_MEMBERS) return repeated_in_set(obj);
+  const char *s[FEW_MEMBERS];
+  size_t n[FEW_MEMBERS];
+  size_t idx;
+  size_t max;
+  yyjson_val *key;
+  yyjson_val *item;
+  yyjson_obj_foreach(obj, idx, max, key, item) {
+    s[idx] = yyjson_get_str(key);
+    n[idx] = yyjson_get_len(key);
+    for (size_t k = 0; k < idx; k++) {
+      if (n[k] == n[idx] && memcmp(s[k], s[idx], n[idx]) == 0) return idx;
+    }
+  }
+  return count;
+}
+
+/* Pushes `val` as a Lua value, or answers what decode refuses in it --
+ * an array or object nested `max_depth` deep, a key twice unless
+ * `duplicate_keys` -- having pushed nothing, with the path to it in
+ * `d->path`. It finds the first such in the order the text holds them:
+ * a member's key is checked before its value is read. `depth` counts the
+ * arrays and objects open around `val`. A `null` without a stand-in is
  * nil, which leaves a hole in an array and, set into an object, leaves
- * the key out -- after an earlier duplicate, too, since the last value
- * of a key is the one that stands. */
-static int push_value (struct decoding *d, yyjson_val *val, int depth) {
+ * the key out -- after an earlier member of the key too, which
+ * `duplicate_keys` lets through: the last value of a key stands. */
+static enum problem push_value (struct decoding *d, yyjson_val *val,
+                                int depth) {
   lua_State *L = d->L;
   size_t idx;
   size_t max;
@@ -102,7 +262,7 @@ static int push_value (struct decoding *d, yyjson_val *val, int depth) {
   switch (yyjson_get_type(val)) {
     case YYJSON_TYPE_BOOL:
     lua_pushboolean(L, yyjson_get_bool(val));
-    return 1;
+    return NO_PROBLEM;
     case YYJSON_TYPE_NUM:
     switch (yyjson_get_subtype(val)) {
       case YYJSON_SUBTYPE_SINT:
@@ -128,45 +288,94 @@ static int push_value (struct decoding *d, yyjson_val *val, int depth) {
       lua_pushnumber(L, (lua_Number)yyjson_get_real(val));
       break;
     }
-    return 1;
+    return NO_PROBLEM;
     /* TODO: a big number read this way encodes back as a JSON string.
      * A marker the encoder writes verbatim (Json.number(text), checked
      * to be a JSON number) would let it round-trip as a number. */
     case YYJSON_TYPE_RAW: /* only a big number, and only when asked */
     lua_pushlstring(L, yyjson_get_raw(val), yyjson_get_len(val));
-    return 1;
+    return NO_PROBLEM;
     case YYJSON_TYPE_STR:
     lua_pushlstring(L, yyjson_get_str(val), yyjson_get_len(val));
-    return 1;
+    return NO_PROBLEM;
     case YYJSON_TYPE_ARR: {
-      if (depth >= d->max_depth) return 0;
+      if (depth >= d->max_depth) return TOO_DEEP;
       luaL_checkstack(L, 3, "JSON nests too deeply");
       size_t count = yyjson_arr_size(val);
       lua_createtable(L, count > INT32_MAX ? INT32_MAX : (int)count, 0);
       luaL_setmetatable(L, ARRAY_TYPE);
       yyjson_arr_foreach(val, idx, max, item) {
-        if (!push_value(d, item, depth + 1)) {
+        enum problem found = push_value(d, item, depth + 1);
+        if (found != NO_PROBLEM) {
           lua_pop(L, 1);
-          return 0;
+          prepend_index(&d->path, (lua_Integer)idx + 1);
+          return found;
         }
         lua_rawseti(L, -2, (lua_Integer)idx + 1);
       }
-      return 1;
+      return NO_PROBLEM;
     }
     case YYJSON_TYPE_OBJ: {
-      if (depth >= d->max_depth) return 0;
+      if (depth >= d->max_depth) return TOO_DEEP;
       luaL_checkstack(L, 4, "JSON nests too deeply");
       size_t count = yyjson_obj_size(val);
+      /* A small object's keys are compared with each other before it
+       * is built, which costs less than a lookup of each in the table;
+       * a large one's are looked up as they go in. */
+      size_t repeat = count;
+      bool check = false;
+      if (!d->duplicate_keys) {
+        if (count <= SET_MEMBERS) {
+          repeat = repeated_member(val);
+        } else {
+          check = true;
+        }
+      }
       lua_createtable(L, 0, count > INT32_MAX ? INT32_MAX : (int)count);
+      bool held = false;
       yyjson_obj_foreach(val, idx, max, key, item) {
+        if (idx == repeat) {
+          lua_pop(L, 1);
+          d->repeated = key;
+          prepend_key(&d->path, yyjson_get_str(key), yyjson_get_len(key));
+          return REPEATED_KEY;
+        }
         lua_pushlstring(L, yyjson_get_str(key), yyjson_get_len(key));
-        if (!push_value(d, item, depth + 1)) {
+        /* The key, pushed to be set, is looked up first in the table it
+         * goes into: one lookup more for each member. */
+        if (check) {
+          lua_pushvalue(L, -1);
+          if (lua_rawget(L, -3) != LUA_TNIL) {
+            lua_pop(L, 3);
+            d->repeated = key;
+            prepend_key(&d->path, yyjson_get_str(key), yyjson_get_len(key));
+            return REPEATED_KEY;
+          }
+          lua_pop(L, 1);
+        }
+        enum problem found = push_value(d, item, depth + 1);
+        if (found != NO_PROBLEM) {
           lua_pop(L, 2);
-          return 0;
+          prepend_key(&d->path, yyjson_get_str(key), yyjson_get_len(key));
+          return found;
+        }
+        if (check && lua_isnil(L, -1)) {
+          lua_pop(L, 1);
+          lua_pushlightuserdata(L, (void *)&null_member);
+          held = true;
         }
         lua_rawset(L, -3);
       }
-      return 1;
+      if (held) {
+        yyjson_obj_foreach(val, idx, max, key, item) {
+          if (yyjson_is_null(item)) {
+            lua_pushlstring(L, yyjson_get_str(key), yyjson_get_len(key));
+            lua_pushnil(L);
+            lua_rawset(L, -3);
+          }
+        }
+      }
+      return NO_PROBLEM;
     }
     default: /* YYJSON_TYPE_NULL: nothing else reads without a flag */
     if (d->null_index == 0) {
@@ -174,7 +383,7 @@ static int push_value (struct decoding *d, yyjson_val *val, int depth) {
     } else {
       lua_pushvalue(L, d->null_index);
     }
-    return 1;
+    return NO_PROBLEM;
   }
 }
 
@@ -359,11 +568,55 @@ static size_t repair_surrogates (char *s, size_t n) {
  * rather than vendor/ itself (build/c/init.tl's include_dirs). */
 #define READ_ALLOW_HASH_COMMENTS ((yyjson_read_flag)1 << 14)
 
+/* Pushes nil and that `key`, a member's key in `doc`, read from
+ * `text`, repeats a key of its object at `path`. A document read
+ * without YYJSON_READ_INSITU holds every string in `str_pool`, a copy
+ * of the text unescaped in place, so a key's offset there is its offset
+ * in the text: the first byte after its opening quote, or its own first
+ * when JSON5 leaves it unquoted. */
+static int repeat_failure (lua_State *L, const char *text, size_t len,
+                           const struct layout *layout, yyjson_doc *doc,
+                           yyjson_val *key, const struct path *path) {
+  size_t pos = (size_t)(yyjson_get_str(key) - doc->str_pool);
+  if (pos > 0 && pos <= len && (text[pos - 1] == '"' || text[pos - 1] == '\'')) {
+    pos--;
+  }
+  size_t line, column;
+  position(text, pos < len ? pos : len, layout, &line, &column);
+  lua_pushnil(L);
+  lua_pushfstring(L, "duplicate key at line %I, column %I (",
+                  (lua_Integer)line, (lua_Integer)column);
+  push_path(L, path);
+  lua_pushliteral(L, ")");
+  lua_concat(L, 3);
+  return 2;
+}
+
+/* Pushes nil and that the array or object at `path` in `text` nests
+ * deeper than `max_depth`. The position is the first bracket in the text
+ * that opens that deep, which is that container: the walk that found it
+ * visits the document in the order the text holds it. */
+static int deep_failure (lua_State *L, const char *text, size_t len,
+                         const struct layout *layout, int max_depth,
+                         const struct path *path) {
+  size_t line, column;
+  position(text, deep_offset(text, len, max_depth, layout->json5), layout,
+           &line, &column);
+  lua_pushnil(L);
+  lua_pushfstring(L, "JSON nests deeper than %d levels at line %I, column %I (",
+                  max_depth, (lua_Integer)line, (lua_Integer)column);
+  push_path(L, path);
+  lua_pushliteral(L, ")");
+  lua_concat(L, 3);
+  return 2;
+}
+
 /* decode(text, null?, max_depth?, json5?, big_as_string?,
- * lone_surrogates?, record?, hash_comments?): the value
+ * lone_surrogates?, record?, hash_comments?, duplicate_keys?): the value
  * `text` holds, and "". nil and a message when it is not one JSON
  * value -- RFC 8259, or JSON5 when `json5` is true, either with `#`
- * line comments when `hash_comments` is -- or nests past
+ * line comments when `hash_comments` is -- holds an object with a key
+ * twice unless `duplicate_keys`, or nests past
  * `max_depth` (64 by default). JSON `null` is `null` when given, and
  * nil when not. With `big_as_string`, an integer past 64 bits, or a
  * number past a double's range, is its own text. With `record`, the
@@ -385,7 +638,10 @@ static int json_decode (lua_State *L) {
   if (d.big_as_string) flags |= YYJSON_READ_BIGNUM_AS_RAW;
   int lone_surrogates = lua_toboolean(L, 6);
   if (lua_toboolean(L, 8)) flags |= READ_ALLOW_HASH_COMMENTS;
-  lua_settop(L, 8);
+  d.duplicate_keys = lua_toboolean(L, 9);
+  memset(&d.path, 0, sizeof d.path);
+  d.repeated = NULL;
+  lua_settop(L, 9);
   /* Building the value allocates, and an allocation can raise: the
    * guard frees the document then, and on every return. */
   struct cosmic_guard *guard = cosmic_guard_push(L, release_doc);
@@ -406,16 +662,14 @@ static int json_decode (lua_State *L) {
   }
   if (doc == NULL) return read_failure(L, text, len, &layout, &err);
   guard->resource = doc;
-  if (!push_value(&d, yyjson_doc_get_root(doc), 0)) {
-    lua_pushnil(L);
-    size_t line, column;
-    position(text, deep_offset(text, len, d.max_depth, layout.json5), &layout, &line,
-             &column);
-    lua_pushfstring(L, "JSON nests deeper than %d levels at line %I, column %I",
-                    d.max_depth, (lua_Integer)line, (lua_Integer)column);
-    return 2;
+  switch (push_value(&d, yyjson_doc_get_root(doc), 0)) {
+    case REPEATED_KEY:
+    return repeat_failure(L, text, len, &layout, doc, d.repeated, &d.path);
+    case TOO_DEEP:
+    return deep_failure(L, text, len, &layout, d.max_depth, &d.path);
+    default:
+    return cosmic_succeeded(L);
   }
-  return cosmic_succeeded(L);
 }
 
 /* ---- encoding ---------------------------------------------------- */
@@ -434,14 +688,9 @@ struct encoding {
   int max_depth;
   /* Why the value cannot be encoded, once it cannot. */
   char failure[160];
-  /* Where, as a path below `$`: `[3].name`. Each level the failure
-   * returns through puts its own segment in front, so the path is
-   * whole once the walk is out. `path_cut` says the outermost segments
-   * did not fit; `out_of_memory` that the failure was not the value's,
-   * so no path is told. */
-  char path[200];
-  size_t path_len;
-  int path_cut;
+  /* Where. `out_of_memory` says the failure was not the value's, so no
+   * path is told. */
+  struct path path;
   int out_of_memory;
 };
 
@@ -455,60 +704,6 @@ static int refuse (struct encoding *e, const char *why) {
 static int refuse_memory (struct encoding *e) {
   e->out_of_memory = 1;
   return refuse(e, "out of memory");
-}
-
-static void prepend_path (struct encoding *e, const char *segment, size_t n) {
-  if (e->path_cut || n >= sizeof e->path - e->path_len) {
-    e->path_cut = 1;
-    return;
-  }
-  memmove(e->path + n, e->path, e->path_len);
-  memcpy(e->path, segment, n);
-  e->path_len += n;
-}
-
-/* `[i]`: an array's index, as Lua counts it, from 1. */
-static void prepend_index (struct encoding *e, lua_Integer i) {
-  char segment[32];
-  int n = snprintf(segment, sizeof segment, "[%lld]", (long long)i);
-  prepend_path(e, segment, (size_t)n);
-}
-
-static int is_word_byte (unsigned char c, int first) {
-  return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' ||
-         (!first && c >= '0' && c <= '9');
-}
-
-/* `.name` for a key that is a word, and `["some key"]` for any other,
- * its unprintable bytes shown as `?` and a long one cut short. */
-static void prepend_key (struct encoding *e, const char *s, size_t n) {
-  char segment[48];
-  size_t used = 0;
-  int word = n > 0 && n <= 40;
-  for (size_t i = 0; word && i < n; i++) {
-    word = is_word_byte((unsigned char)s[i], i == 0);
-  }
-  if (word) {
-    segment[used++] = '.';
-    memcpy(segment + used, s, n);
-    used += n;
-  } else {
-    segment[used++] = '[';
-    segment[used++] = '"';
-    for (size_t i = 0; i < n; i++) {
-      if (used > sizeof segment - 8) {
-        memcpy(segment + used, "...", 3);
-        used += 3;
-        break;
-      }
-      unsigned char c = (unsigned char)s[i];
-      if (c == '"' || c == '\\') segment[used++] = '\\';
-      segment[used++] = c >= 0x20 && c < 0x7f ? (char)c : '?';
-    }
-    segment[used++] = '"';
-    segment[used++] = ']';
-  }
-  prepend_path(e, segment, used);
 }
 
 static int put (struct encoding *e, const char *s, size_t n) {
@@ -653,7 +848,7 @@ static int put_array (struct encoding *e, int idx, lua_Integer top,
     int status = put_value(e, lua_gettop(L), depth + 1);
     lua_pop(L, 1);
     if (status < 0) {
-      prepend_index(e, i);
+      prepend_index(&e->path, i);
       return -1;
     }
   }
@@ -676,7 +871,7 @@ static int put_member (struct encoding *e, int key, int value, int first,
   if (PUT_LITERAL(e, ":") < 0) return -1;
   if (e->pretty && PUT_LITERAL(e, " ") < 0) return -1;
   if (put_value(e, value, depth + 1) < 0) {
-    prepend_key(e, s, n);
+    prepend_key(&e->path, s, n);
     return -1;
   }
   return 0;
@@ -850,12 +1045,12 @@ static int json_encode (lua_State *L) {
   e.guard = cosmic_guard_push(L, cosmic_free);
   if (put_value(&e, 1, 0) < 0) {
     lua_pushnil(L);
-    if (e.path_len == 0 || e.out_of_memory) {
+    if (e.path.len == 0 || e.out_of_memory) {
       lua_pushstring(L, e.failure);
     } else {
-      e.path[e.path_len] = '\0';
-      lua_pushfstring(L, "%s at $%s%s", e.failure, e.path_cut ? "..." : "",
-                      e.path);
+      lua_pushfstring(L, "%s at ", e.failure);
+      push_path(L, &e.path);
+      lua_concat(L, 2);
     }
     return 2;
   }

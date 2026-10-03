@@ -1,0 +1,17 @@
+file: tl.tl
+note: a '_' continues a number's digits, as in Python, Rust and Go (`1_000_000`); the lexer reads it into the number here and in 38b through 38g, and 38i refuses one that is not between two digits, which Lua would refuse as a malformed number rather than split into a number and a name
+--- find
+         elseif state == "got 0" then
+            if c == "x" or c == "X" then
+               state = "number hex"
+            elseif c == "e" or c == "E" then
+               state = "number powersign"
+            elseif lex_decimals[c] then
+--- replace
+         elseif state == "got 0" then
+            if c == "x" or c == "X" then
+               state = "number hex"
+            elseif c == "e" or c == "E" then
+               state = "number powersign"
+            elseif lex_decimals[c] or c == "_" then
+--- end

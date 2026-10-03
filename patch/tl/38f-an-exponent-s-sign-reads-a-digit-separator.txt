@@ -1,0 +1,13 @@
+file: tl.tl
+note: a '_' just after an exponent's letter is read into the number (38a), so 38i can name the whole literal (`1e_5`) rather than end it at the letter
+--- find
+            if c == "-" or c == "+" then
+               state = "number power"
+            elseif lex_decimals[c] then
+               state = "number power"
+--- replace
+            if c == "-" or c == "+" then
+               state = "number power"
+            elseif lex_decimals[c] or c == "_" then
+               state = "number power"
+--- end
