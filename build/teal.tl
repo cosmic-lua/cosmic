@@ -556,10 +556,6 @@ local standard_libraries <const> = present({
   "coroutine", "debug", "io", "math", "os", "package", "string", "table", "utf8",
 })
 
---- What [`teal.replacement`] says of a call short of arguments when no
---- declaration of its callee in the file can be read.
-local optional_parameter <const> = "a parameter a caller may leave out is written 'name?: T'"
-
 --- Whether the declared type `t` holds nil: nil itself, or a union
 --- with nil among its members.
 local function admits_nil(t: ast.TypeNode | nil): boolean
@@ -626,22 +622,27 @@ local function optional_spelling(source: string, starts: {integer}, argument: as
   return name .. "?: " .. spelled
 end
 
---- The argument lists of the functions `root` declares as `name` --
---- `local function name`, `function name`, `function R.name` or
---- `R:name` (`self` first), and `name = function` with or without
---- `local` -- wherever they are: scope is not read.
-local function declared_arguments(root: ast.Node, name: string): {ast.Node}
+--- The argument lists of the functions `root` declares as `name`, as
+--- a call names it: `local function name`, `function name` and `name =
+--- function`, with or without `local`, for a bare `name` (`member`
+--- false); `function R.name`, `function R:name` (`self` first) and
+--- `R.name = function` for `x.name` or `x:name` (`member` true).
+local function declared_arguments(root: ast.Node, name: string, member: boolean): {ast.Node}
   local found: {ast.Node} = {}
   ast.walk(root, function(n: ast.Node)
     local kind = n.kind
-    if (kind == "local_function" or kind == "global_function" or kind == "record_function")
-        and n.name ~= nil and n.name.tk == name and n.args ~= nil then
+    local named = n.name ~= nil and n.name.tk == name and n.args ~= nil
+    if named and (kind == "record_function") == member and
+        (kind == "local_function" or kind == "global_function" or kind == "record_function") then
       found[#found + 1] = n.args
     elseif kind == "local_declaration" or kind == "assignment" then
       local names, values = n.vars, n.exps
       for i, target in ipairs(names ~= nil and names or {}) do
         local value = values ~= nil and values[i] or nil
-        if target.tk == name and value ~= nil and value.kind == "function" and value.args ~= nil then
+        local field = target.kind == "op" and target.op ~= nil and target.op.op == "." and
+          target.e2 ~= nil and target.e2.tk or nil
+        local bound = member and field or (not member and target.tk or nil)
+        if bound == name and value ~= nil and value.kind == "function" and value.args ~= nil then
           found[#found + 1] = value.args
         end
       end
@@ -674,22 +675,27 @@ local function arity_hint(source: string, y: integer, x: integer, given: integer
     return nil
   end
   local name: string | nil = nil
-  local owner: string | nil = nil
+  local member = false
   if callee.kind == "variable" then
     name = callee.tk
   elseif callee.kind == "op" and callee.op ~= nil and (callee.op.op == "." or callee.op.op == ":") then
-    name = callee.e2 ~= nil and callee.e2.tk or nil
-    owner = callee.e1 ~= nil and callee.e1.kind == "variable" and callee.e1.tk or nil
+    name, member = callee.e2 ~= nil and callee.e2.tk or nil, true
   end
   if name == nil then
     return nil
   end
+  -- TODO: resolve the callee through scopes and types rather than by
+  -- name, which hints a function declared as a record field's type
+  -- (`run: function(a: string, b: string | nil)`) and one a module
+  -- declares too: it waits on a patch/tl record giving this error the
+  -- callee's parameters, as patch/tl/33a gives a missing key's fields.
   local spelled: {string} | nil = nil
   local starts = ast.line_starts(source)
-  for _, arguments in ipairs(declared_arguments(parsed.node, name)) do
+  for _, arguments in ipairs(declared_arguments(parsed.node, name, member)) do
     if #arguments == expected then
-      -- Every declaration that could be the callee must leave its
-      -- missing parameters to nil, or the call is what is short.
+      -- Every declaration of the name that could be the callee must
+      -- leave the missing parameters to nil, spelled alike, or the
+      -- call is what is short.
       local these: {string} = {}
       for i = given + 1, expected do
         local argument = arguments[i]
@@ -699,18 +705,14 @@ local function arity_hint(source: string, y: integer, x: integer, given: integer
         these[#these + 1] = optional_spelling(source, starts, argument) or
           (argument.tk or "name") .. "?: T"
       end
-      if spelled == nil then
-        spelled = these
+      if spelled ~= nil and table.concat(spelled, ", ") ~= table.concat(these, ", ") then
+        return nil
       end
+      spelled = these
     end
   end
   if spelled == nil then
-    -- A library's function is the library's to declare.
-    local module = owner ~= nil and module_bound(source, owner) or nil
-    if owner ~= nil and (standard_globals[owner] or (module ~= nil and module:match("^cosmic%.") ~= nil)) then
-      return nil
-    end
-    return optional_parameter
+    return nil
   end
   if #spelled == 1 then
     return "a parameter a caller may leave out is written '" .. spelled[1] .. "'"
@@ -839,11 +841,26 @@ local function either(names: {string}): string
   return table.concat(quoted, ", ", 1, #quoted - 1) .. " or " .. quoted[#quoted]
 end
 
+--- Whether `name` holds `part` as whole words of a snake_case name:
+--- `from_string` holds `string`, `target` does not hold `get`.
+local function holds(name: string, part: string): boolean
+  local at = name:find(part, 1, true)
+  while at ~= nil do
+    local before, after = name:sub(at - 1, at - 1), name:sub(at + #part, at + #part)
+    if (at == 1 or before == "_") and (after == "" or after == "_") then
+      return true
+    end
+    at = name:find(part, at + 1, true)
+  end
+  return false
+end
+
 --- The hint for `key` refused on the record `owner` names, whose value
 --- fields are `fields`: the fields nearest `key` by [`distance`], case
 --- ignored and then not, within a third of its length and at most 2, or
 --- the one [`synonyms`] names for it, or, with none so near, those
---- holding a `key` of three letters or more or held by it; then the
+--- holding a `key` of three letters or more as whole words or held so
+--- by it ([`holds`]); then the
 --- fields themselves, the first [`listed`] alphabetically.
 local function field_hint(key: string, owner: string, fields: {string}): string | nil
   if #fields == 0 then
@@ -881,7 +898,7 @@ local function field_hint(key: string, owner: string, fields: {string}): string 
     if #near == 0 and #key >= 3 then
       for _, name in ipairs(sorted) do
         local folded = name:lower()
-        if (folded:find(lower, 1, true) ~= nil or (#name >= 3 and lower:find(folded, 1, true) ~= nil)) then
+        if holds(folded, lower) or (#name >= 3 and holds(lower, folded)) then
           near[#near + 1] = name
         end
       end
@@ -1000,10 +1017,10 @@ end
 --- leaves out optional (`b?: string`, or `b?: T` where its type's
 --- text is not plain to read), when each declaration of the
 --- callee's name in `source` taking that many admits nil for each of
---- them ([`arity_hint`]); nothing when one does not, since then the
---- call is short. With no such declaration it is told the form
---- (`name?: T`), unless the callee is a field of a standard library or
---- of a `cosmic.*` module, which the program does not declare.
+--- them, spelled alike ([`arity_hint`]); nothing when one does not, since then the
+--- call is short, and nothing when the file declares no function of
+--- that name in the call's form (a bare name, a member): one the
+--- program does not declare may well require them.
 ---
 --- One nominal type refused for another of the same last name
 --- (`Store is not a Kv.Store`) is told they are two types, and an
