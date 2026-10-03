@@ -5,8 +5,7 @@
 --- without them, and the emitted Lua holds the text without them, since
 --- Lua reads none. A `_` anywhere else in a literal -- trailing, doubled,
 --- beside `.`, `x`, an exponent's letter or its sign -- is refused at the
---- literal, naming it and the rule, where stock Teal read a number and
---- then a name and the parser refused what followed, often a line on.
+--- literal, naming it and the rule.
 ---
 --- Separators are for source literals alone: `tonumber("1_000")` is
 --- still nil.
@@ -82,8 +81,7 @@ local function test_a_separated_index_picks_a_tuple_member()
   assert(code ~= nil, "pair[0_2] should be pair's integer member, but: " .. trouble)
 end
 
---- The case that hid its mistake: a scale written with separators, where
---- stock Teal read `1` and the name `_000_000` and refused the line after.
+--- A scale written with separators divides as the plain one does.
 local function test_a_scale_with_separators_compiles()
   local code, trouble = compiled([[
 local start = 5
@@ -98,11 +96,11 @@ return elapsed_ms(2_000_005)
 end
 
 --- Every `_` not between two digits of its literal is refused at the
---- literal, naming it and the rule, and nothing is reported on the
---- line after.
+--- literal, naming it and the rule; where the literal ends its
+--- statement, that is the only error.
 local function test_a_misplaced_separator_is_refused_at_its_literal()
   for _, literal in ipairs({ "1_", "1__0", "1_.5", "1._5", "0x_FF", "0xF_", "1_e5", "1e_5",
-      "1e+_5", "1e5_", "0x1_p4", "0x1p_4", "0x1_.8" }) do
+      "1e+_5", "1e5_", "0x1_p4", "0x1p_4", "0x1_.8", ".5_", "0x1p+_4" }) do
     local code, trouble = compiled("local x = " .. literal .. "\nlocal y = 2\nprint(x, y)\n")
     local want = "1:11: malformed number '" .. literal .. "': a '_' in a number goes between two digits"
     assert(code == nil and trouble == want, literal .. " should be refused with\n" .. want ..
