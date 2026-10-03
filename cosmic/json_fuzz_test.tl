@@ -176,6 +176,52 @@ local function decode_once(input: string, opts: Json.DecodeOptions, where: strin
   return true, value, err
 end
 
+--- Whether `compact`, the text [`Json.format`] writes, has an object that
+--- holds one key twice, or nil when it is nothing. One scan keeps, for
+--- each open object, the key literals it has had; it shares nothing with
+--- the check in core/json.c. Format writes a string one way, so equal
+--- keys are equal literals.
+local function holds_key_twice(compact: string | nil): boolean | nil
+  if compact == nil then return nil end
+  local open: {{string: boolean}} = {}
+  local objects: {boolean} = {}
+  local expecting = false
+  local i = 1
+  while i <= #compact do
+    local c = compact:sub(i, i)
+    if c == '"' then
+      local j = i + 1
+      while compact:sub(j, j) ~= '"' do
+        j = j + (compact:sub(j, j) == "\\" and 2 or 1)
+      end
+      if expecting then
+        local keys = open[#open]
+        local literal = compact:sub(i, j)
+        if keys[literal] then return true end
+        keys[literal] = true
+        expecting = false
+      end
+      i = j
+    elseif c == "{" then
+      open[#open + 1] = {}
+      objects[#open] = true
+      expecting = true
+    elseif c == "[" then
+      open[#open + 1] = {}
+      objects[#open] = false
+      expecting = false
+    elseif c == "}" or c == "]" then
+      open[#open] = nil
+      objects[#objects] = nil
+      expecting = false
+    elseif c == "," then
+      expecting = #open > 0 and objects[#open]
+    end
+    i = i + 1
+  end
+  return false
+end
+
 local function decode_holds(input: string): boolean, string
   local strict_text: string = nil
   for _, json5 in ipairs({ false, true }) do
@@ -189,10 +235,17 @@ local function decode_holds(input: string): boolean, string
       local once_ok, once_value, once_err = decode_once(input, { null_value = Json.null, json5 = json5,
         big_numbers_as_strings = big }, where .. " refusing duplicate keys")
       if not once_ok then return false, once_err end
-      -- TODO: nothing here checks that a refused text holds a key twice;
-      -- an oracle independent of core/json.c's walk (counting each
-      -- object's members in the text against the keys decode keeps)
-      -- would catch a key refused that is not repeated.
+      -- Whether a text that reads holds a key twice is answered from
+      -- the members `format` writes, not by decode's own check.
+      if err == "" then
+        local twice = holds_key_twice((Json.format(input, { json5 = json5, duplicate_keys = true })))
+        if twice ~= nil then
+          Fuzz.label(twice and "oracle saw a key twice" or "oracle saw no key twice")
+          if twice ~= (once_err ~= "") then
+            return false, where .. ": a key twice in the members, but decode said \"" .. once_err .. "\""
+          end
+        end
+      end
       if once_err:match("^json: duplicate key ") then
         -- A key twice comes before whatever the text holds after it,
         -- which may nest too deep to read.
@@ -342,10 +395,368 @@ end
 -- Most drawn texts parse -- 44% strictly and 51% as JSON5, far above
 -- the 13% and 15% that edits and token soup alone reach -- so the walk
 -- into Lua values and the re-encoding checks run on most; a share under
--- a fifth fails the run.
+-- a fifth fails the run. A key twice is too rare among them (one input
+-- in fifty) for a share of 64 inputs to hold; the key-twice property
+-- below draws it.
 local function test_decode_is_total_on_mutated_json(tmp: string)
   Fuzz.run({ name = "json decode total", dir = tmp, gen = gen_text, check = decode_holds,
-    shares = { decoded = 0.2, ["decoded as JSON5"] = 0.2, ["refused a key twice"] = 0.005 } })
+    shares = { decoded = 0.2, ["decoded as JSON5"] = 0.2, ["oracle saw no key twice"] = 0.2 } })
+end
+
+--- Texts that hold a key twice, or do not, with the answer known from
+--- how each was drawn: a member's key is written where the text records
+--- it, so the first key to repeat one of its own object's, in text
+--- order, is the one decode must name, with the line and column it
+--- starts at and the pointer to it. Nothing here reads core/json.c's
+--- check.
+local record Shape
+  --- The members the object holds, set when it is whole.
+  count: integer
+end
+
+--- The first key written that repeats an earlier one of its object.
+local record Repeat
+  --- The 1-based byte offset in the text where the key starts.
+  at: integer
+  --- The JSON Pointer to the member, as a message names it.
+  pointer: string
+  --- Whether it is spelled otherwise than the key it repeats.
+  spelled: boolean
+  --- The containers open around the object that holds it.
+  depth: integer
+  --- That object, whose size says which way core/json.c looked.
+  object: Shape
+end
+
+--- A text being written.
+local record Built
+  parts: {string}
+  --- The bytes in `parts`.
+  length: integer
+  json5: boolean
+  --- Whether objects but the top one repeat no key, so that a key twice
+  --- in a large top object is the first in the text.
+  quiet: boolean
+  first: Repeat
+end
+
+--- FNV-1a as core/json.c's `key_hash` computes it. A change to that hash
+--- leaves these keys no longer colliding, and nothing here fails: change
+--- this copy with it.
+local function fnv(s: string): integer
+  local h = 2166136261
+  for i = 1, #s do h = ((h ~ s:byte(i)) * 16777619) & 0xffffffff end
+  return h
+end
+
+--- Keys whose hashes share their low 7 bits, so that in a set of 32,
+--- 64 or 128 slots (what 9 to 64 members take) each probes from the
+--- slot the one before it filled.
+local COLLIDING <const>: {string} = (function(): {string}
+  local keys: {string} = {}
+  local n = 0
+  while #keys < 20 do
+    local key = "h" .. n
+    if fnv(key) & 127 == 0 then keys[#keys + 1] = key end
+    n = n + 1
+  end
+  return keys
+end)()
+
+--- Names a key is drawn from before numbered ones: one that a pointer
+--- escapes, empty, multibyte, astral, with a NUL, a line end, a quote,
+--- a backslash, a word cannot be, and keys that differ only in their
+--- last byte.
+local NAMES <const> = { "a", "b", "k", "", "\xc3\xa9", "a b", "x~y", "p/q", "\0", "\n", '"', "\\",
+  "\xf0\x9f\x98\x80", "ab", "ac", "a\xc3\xa9", "a\xc3\xa8" }
+
+--- Gaps between tokens. Strict JSON has whitespace; JSON5 has comments
+--- that hold line ends, and U+2028 and U+2029.
+local OFFICIAL_GAPS <const> = { "", "", "", " ", "\n", "\t", "\r\n", "\r" }
+local JSON5_GAPS <const> = { "/* c */", "// c\n", "/* a\nb */", "\xe2\x80\xa8", "\xe2\x80\xa9", "\xc2\xa0" }
+
+local function emit(b: Built, text: string)
+  b.parts[#b.parts + 1] = text
+  b.length = b.length + #text
+end
+
+--- A gap, which before a key is never one of the Unicode spaces: the
+--- JSON5 reader refuses a bare key after one.
+local function gap(src: Fuzz.Source, b: Built, before_key: boolean)
+  if b.json5 and src:int(0, 3) == 0 then
+    local choice = Fuzz.pick(src, JSON5_GAPS)
+    emit(b, before_key and choice:byte(1) > 127 and " " or choice)
+  else
+    emit(b, Fuzz.pick(src, OFFICIAL_GAPS))
+  end
+end
+
+--- The ways one character of a key may be written in a quoted string,
+--- the plainest first.
+local function forms_of(ch: string, json5: boolean): {string}
+  local code = utf8.codepoint(ch)
+  local forms: {string} = {}
+  if code >= 32 and ch ~= '"' and ch ~= "\\" then forms[1] = ch end
+  if ch == "\n" then forms[#forms + 1] = "\\n" end
+  if ch == '"' then forms[#forms + 1] = '\\"' end
+  if ch == "\\" then forms[#forms + 1] = "\\\\" end
+  if ch == "/" then forms[#forms + 1] = "\\/" end
+  if code >= 0x10000 then
+    local high, low = 0xd800 + ((code - 0x10000) >> 10), 0xdc00 + ((code - 0x10000) & 0x3ff)
+    forms[#forms + 1] = ("\\u%04x\\u%04x"):format(high, low)
+    forms[#forms + 1] = ("\\u%04X\\u%04X"):format(high, low)
+  else
+    forms[#forms + 1] = ("\\u%04x"):format(code)
+    forms[#forms + 1] = ("\\u%04X"):format(code)
+  end
+  if json5 and code < 256 then forms[#forms + 1] = ("\\x%02x"):format(code) end
+  return forms
+end
+
+--- `key` spelled as a text may: quoted, each character plain or
+--- another way, and in JSON5 also single-quoted, with `\x` escapes, or
+--- bare. A key of a large object is mostly written plain, since the
+--- draws for 70 members would dominate a run.
+local function spell(src: Fuzz.Source, key: string, json5: boolean, large: boolean): string
+  local plain = large and src:int(0, 3) ~= 0
+  if json5 and not plain and key:match("^[%a_$][%w_$]*$") and src:int(0, 3) == 0 then return key end
+  local quote = json5 and not plain and src:int(0, 3) == 0 and "'" or '"'
+  local varied = not plain
+  local body: {string} = {}
+  for ch in key:gmatch(utf8.charpattern) do
+    local forms = forms_of(ch, json5)
+    body[#body + 1] = varied and src:int(0, 2) == 0 and Fuzz.pick(src, forms) or forms[1]
+  end
+  return quote .. table.concat(body) .. quote
+end
+
+--- `pointer` as a message writes it inside quotes: a quote or backslash
+--- escaped, a control character as `\u00XX`.
+local function quoted(pointer: string): string
+  return (pointer:gsub('[%c"\\]', function(c: string): string
+    if c == '"' or c == "\\" then return "\\" .. c end
+    return ("\\u%04x"):format(c:byte())
+  end))
+end
+
+--- `key` as a pointer's segment.
+local function segment(key: string): string
+  return "/" .. key:gsub("~", "~0"):gsub("/", "~1")
+end
+
+local gen_member_value: function(Fuzz.Source, Built, integer, string, integer)
+
+--- An object of `size` members at least, and `more` draws up to `most`
+--- unless `exact`, written into `b` at `path`, `depth` containers open
+--- around it. Each member after the first repeats an earlier key at the
+--- rate its object draws, some objects never repeating; `large` says
+--- the object is one whose members are many, so the rate is per
+--- member lower.
+local function gen_object(src: Fuzz.Source, b: Built, depth: integer, path: string,
+                          size: integer, most: integer, exact: boolean, large: boolean)
+  emit(b, "{")
+  local names: {string} = {}
+  local spelling: {string: string} = {}
+  local shape: Shape = { count = 0 }
+  local rate = b.quiet and not large and 0 or Fuzz.pick(src, large and { 0, 3, 4, 4 } or { 0, 2, 3, 4, 5 })
+  local colliding = src:int(0, 3) == 0
+  local count = 0
+  while count < size or (not exact and Fuzz.more(src, count, most)) do
+    if count > 0 then emit(b, ",") end
+    gap(src, b, true)
+    local key: string
+    if count > 0 and src:int(0, large and 30 or 6) < rate then
+      key = names[src:int(1, #names)]
+    else
+      local fresh = #names + 1
+      if colliding and fresh <= #COLLIDING then
+        key = COLLIDING[fresh]
+      elseif fresh <= #NAMES then
+        key = NAMES[fresh]
+      else
+        key = "k" .. #names
+      end
+      names[#names + 1] = key
+    end
+    local written = spell(src, key, b.json5, large)
+    if b.first == nil and spelling[key] ~= nil then
+      b.first = { at = b.length + 1, pointer = path .. segment(key), depth = depth,
+        spelled = written ~= spelling[key], object = shape }
+    end
+    spelling[key] = spelling[key] or written
+    emit(b, written)
+    if not large then gap(src, b, false) end
+    emit(b, ":")
+    if not large then gap(src, b, false) end
+    gen_member_value(src, b, depth, path .. segment(key), large and 8 or 3)
+    if not large then gap(src, b, false) end
+    count = count + 1
+  end
+  shape.count = count
+  if b.json5 and count > 0 and src:int(0, 3) == 0 then emit(b, ",") end
+  emit(b, "}")
+end
+
+--- A member's value: usually a scalar, a null often, else a small
+--- array or object, one in `nest_in` draws.
+gen_member_value = function(src: Fuzz.Source, b: Built, depth: integer, path: string, nest_in: integer)
+  if depth >= 4 or src:int(0, nest_in) ~= 0 then
+    emit(b, Fuzz.pick(src, { "null", "null", "1", "true", '"s"', "2.5" }))
+  elseif src:int(0, 2) == 0 then
+    emit(b, "[")
+    local n = 0
+    while Fuzz.more(src, n, 3) do
+      if n > 0 then emit(b, ",") end
+      gap(src, b, false)
+      gen_member_value(src, b, depth + 1, path .. "/" .. n, 1)
+      gap(src, b, false)
+      n = n + 1
+    end
+    emit(b, "]")
+  else
+    gen_object(src, b, depth + 1, path, 0, 6, false, false)
+  end
+end
+
+--- The line and column of byte `at` of `text`, counted from 1, a line
+--- ending at \n, \r or \r\n, and in JSON5 at U+2028 and U+2029 too.
+local function place(text: string, at: integer, json5: boolean): integer, integer
+  local line, column = 1, 1
+  local i = 1
+  while i < at do
+    local c = text:sub(i, i)
+    if c == "\r" and text:sub(i + 1, i + 1) == "\n" then i = i + 1 end
+    local separator = text:sub(i, i + 2)
+    if json5 and (separator == "\xe2\x80\xa8" or separator == "\xe2\x80\xa9") then
+      i = i + 2
+      c = "\n"
+    end
+    if c == "\n" or c == "\r" then
+      line, column = line + 1, 1
+    else
+      column = column + 1
+    end
+    i = i + 1
+  end
+  return line, column
+end
+
+--- An input for [`repeating_holds`], packed with [`Fuzz.pack`]: a text,
+--- whether it is JSON5, the options to read it under, what decode must
+--- answer (empty for a text with no key twice) and the labels for what
+--- the repeat is. The top object has the size that decides how
+--- core/json.c looks for a key twice: at most 8 members, 9 to 64, or 65
+--- and more, with the edges of each drawn on their own; and sits bare,
+--- in an array or in an object. A top object of more than 8 members
+--- holds no repeat in the objects below it, so its own is the first.
+local function gen_repeating(src: Fuzz.Source): string
+  local b: Built = { parts = {}, length = 0, json5 = src:int(0, 2) == 0 }
+  local wrap = src:int(0, 2)
+  local path = ""
+  if wrap == 1 then
+    emit(b, "[1,")
+    path = "/1"
+  elseif wrap == 2 then
+    emit(b, '{"w":')
+    path = "/w"
+  end
+  local depth = wrap == 0 and 1 or 2
+  local size, most, exact = 2, 8, false
+  local shape = src:int(0, 7)
+  if shape == 4 then
+    size, exact = Fuzz.pick(src, { 8, 9, 64, 65 }), true
+  elseif shape == 5 or shape == 6 then
+    size, most = 9, 64
+  elseif shape == 7 then
+    size, most = 65, 70
+  end
+  b.quiet = size > 8
+  -- A strict text reads as JSON5 too, which is drawn half the time.
+  local as_json5 = b.json5 or src:int(0, 1) == 0
+  local null_value = src:int(0, 1) == 0
+  gap(src, b, false)
+  gen_object(src, b, depth, path, size, most, exact, size > 8)
+  gap(src, b, false)
+  emit(b, wrap == 1 and "]" or wrap == 2 and "}" or "")
+  local text = table.concat(b.parts)
+  local expected, labels = "", {} as {string}
+  local first = b.first
+  if first ~= nil then
+    local line, column = place(text, first.at, b.json5)
+    expected = ('json: duplicate key at line %d, column %d (pointer "%s")'):format(line, column, quoted(first.pointer))
+    local n = first.object.count
+    labels[#labels + 1] = n <= 8 and "key twice in 8 or fewer" or n <= 64 and "key twice in 9 to 64" or
+      "key twice in more than 64"
+    if first.spelled then labels[#labels + 1] = "key twice spelled otherwise" end
+    if first.depth > 1 then labels[#labels + 1] = "key twice in a nested object" end
+  end
+  return Fuzz.pack({ text, b.json5 and "json5" or "", as_json5 and "json5" or "", null_value and "null" or "",
+    expected, table.concat(labels, ";") })
+end
+
+local function repeating_holds(input: string): boolean, string
+  local fields = Fuzz.unpack(input)
+  local text, as_json5, null_value = fields[1], fields[3] == "json5", fields[4] == "null"
+  local expected, labels = fields[5], fields[6]
+  for label in (expected == "" and "no key twice" or labels):gmatch("[^;]+") do
+    Fuzz.label(label)
+  end
+  local opts: Json.DecodeOptions = { json5 = as_json5, null_value = null_value and Json.null or nil }
+  local where = ("json5=%s null_value=%s"):format(tostring(as_json5), tostring(null_value))
+  local value, err = Json.decode(text, opts)
+  if err ~= expected then
+    return false, where .. ": decode said \"" .. err .. "\", expected \"" .. expected .. "\""
+  end
+  if expected ~= "" and value ~= nil then return false, where .. ": a refusal with a value" end
+  local ok, check_err = Json.check(text, { json5 = as_json5 })
+  if ok ~= (expected == "") or check_err ~= expected then
+    return false, where .. ": check said \"" .. check_err .. "\""
+  end
+  if expected ~= "" then
+    local _, format_err = Json.format(text, { json5 = as_json5 })
+    if format_err ~= expected then
+      return false, where .. ": format said \"" .. format_err .. "\""
+    end
+  end
+  opts.duplicate_keys = true
+  local _, allowed = Json.decode(text, opts)
+  if allowed ~= "" then return false, where .. ": duplicate_keys refused: " .. allowed end
+  return true, ""
+end
+
+-- Whether a text holds a key twice is known from how it is drawn, not
+-- from decode: the object that has one is drawn at each size the walk
+-- tells apart -- compared pair by pair (8 or fewer members), through a
+-- set (9 to 64) and through the table being built (65 or more) -- its
+-- keys including ones that share a hash, and the repeat spelled as
+-- escapes, quotes or bare in JSON5, the object nested, and the first
+-- repeat in the text is the one named, by line, column and pointer.
+-- Decode, check and format are held to it, each input under one choice
+-- of JSON5 and of a stand-in for null. What a repeat of a key is
+-- compared as is checked only for what the names and spellings reach:
+-- the NUL, empty, multibyte and astral keys, and keys differing in
+-- their last byte. A break that overlooks a repeat of one particular
+-- key, the empty one say, in objects of one size is found only once a
+-- draw repeats that key there: a few hundred inputs, not 64. A share
+-- well under what a run reaches fails the run.
+-- TODO: a key twice under `lone_surrogates` is not drawn: it reads two
+-- different lone surrogates in keys as one key, U+FFFD twice; spell
+-- them in keys and expect the repeat.
+local function test_a_refusal_for_a_key_twice_is_exactly_a_key_twice(tmp: string)
+  Fuzz.run({
+    name = "json key twice",
+    dir = tmp,
+    gen = gen_repeating,
+    check = repeating_holds,
+    -- An input draws hundreds of values for its large objects, so each
+    -- costs several times a mutated text.
+    max_iters = 3000,
+    requires = { "no key twice", "key twice in 8 or fewer", "key twice in 9 to 64",
+      "key twice in more than 64", "key twice spelled otherwise", "key twice in a nested object" },
+    shares = { ["no key twice"] = 0.1, ["key twice in 8 or fewer"] = 0.1, ["key twice in 9 to 64"] = 0.05,
+      ["key twice in more than 64"] = 0.03, ["key twice spelled otherwise"] = 0.1,
+      ["key twice in a nested object"] = 0.1 },
+  })
 end
 
 --- What the text-to-text functions hold to on `input`, read as RFC
