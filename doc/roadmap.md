@@ -155,12 +155,6 @@ promises lean on come first:
     `Shape.list(RECORD)` is `Shape.list(RECORD.spec)`. Teal has no
     polymorphic function a module can implement, so `into` and `decode_into`
     cannot take both without a second name.
-  - a tool that predates [`build/shape_specs.tl`] cannot compile a module that
-    calls `record_of` (its checker reports the result as `T (unresolved
-    generic)`). A comment in [`build/patch.tl`] moves the image fingerprint so
-    that such a tool boots the tree rather than rebuilding it. Teach
-    [`build/reboot.tl`] to boot when a rebuild's compile fails and the
-    compiler's identity moved, and drop the comment.
 - read clang's JSON syntax tree in [`build/c/tree.tl`]. It reads the text form
   of `-Xclang -ast-dump`, and `rules.tl` digs about sixteen facts out of a
   node's text line (an operator, a cast's kind, a type, `static`, a literal's
@@ -328,9 +322,7 @@ four-producer provenance join.
 [`build/hash_test.tl`]: ../build/hash_test.tl
 [`build/json.tl`]: ../build/json.tl
 [`build/locator_fuzz_test.tl`]: ../build/locator_fuzz_test.tl
-[`build/patch.tl`]: ../build/patch.tl
 [`build/queue_seed_test.tl`]: ../build/queue_seed_test.tl
-[`build/reboot.tl`]: ../build/reboot.tl
 [`build/shape_specs.tl`]: ../build/shape_specs.tl
 [`build/workflows_test.tl`]: ../build/workflows_test.tl
 [`Child.end_strays`]: ../cosmic/child.tl
