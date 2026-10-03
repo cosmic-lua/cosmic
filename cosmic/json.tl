@@ -1,4 +1,8 @@
---- JSON text to Lua values and back.
+--- JSON text to Lua values and back. What `decode` answers is `any`:
+--- to read it as a record of your own, check it with [`cosmic.shape`]
+--- -- `Shape.record_of("Job"):into(value)` answers a `Job`, or the path
+--- of the first field that does not fit -- rather than casting fields
+--- with `as`, which checks nothing (`cosmic docs cosmic.shape`).
 ---
 --- Reading is RFC 8259 and nothing else: no comments, no trailing
 --- commas, no NaN, and a string must be UTF-8 with no lone surrogate.
@@ -384,9 +388,12 @@ end
 --- Parses JSON text into the value it holds, and "". nil and a message,
 --- naming the line and column, when the text is not one JSON value,
 --- holds an object with a key twice, or nests past `max_depth`. The
---- value is `any`: when the text is from outside, narrow it with `is`
---- before trusting its shape, or use [`decode_object`] or
---- [`decode_array`], which check the outermost one.
+--- value is `any`. To read it as a record of your own, check it with
+--- [`cosmic.shape`], whose `Shape.record_of("Job"):into(value)` answers
+--- a `Job`, or nil and the path of the first field that does not fit,
+--- where `value.cmd as {string}` checks nothing and a wrong field fails
+--- later, far from the text. To check only the outermost value, narrow
+--- it with `is`, or use [`decode_object`] or [`decode_array`].
 function Json.decode(text: string, opts?: Json.DecodeOptions): any | nil, string
   if opts == nil then
     local value, err = raw.decode(text)
