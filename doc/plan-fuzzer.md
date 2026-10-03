@@ -63,10 +63,10 @@ verdicts into measurements. If reproduced, diagnose the smallest cause separatel
 
 | Step | Scope | Dependencies | Status | PR |
 | --- | --- | --- | --- | --- |
-| 1 | Faithful failures and saved evidence | baseline | planned | |
-| 2 | Efficient, bounded reduction | baseline | planned | |
-| 3 | Structured choices and reusable generators | 2 | planned | |
-| 4 | Failure artifacts, exact replay, shrink and promotion commands | 1, 2 | planned | |
+| 1 | Faithful failures and saved evidence | baseline | implementation and independent review underway | |
+| 2 | Efficient, bounded reduction | baseline | implementation underway | |
+| 3 | Structured choices and reusable generators | 2 | implementation underway | |
+| 4 | Failure artifacts, exact replay, shrink and promotion commands | 1, 2 | runner integration underway | |
 | 5 | Persistent exploration and explicit search guidance | 3, 4 | planned | |
 | 6 | Stateful model testing with a real Cosmic target | 3 | planned | |
 | 7 | Per-case coverage feedback | 5 | planned | |
@@ -315,3 +315,10 @@ or CI requirements to obtain a green PR.
   https://hypothesis.readthedocs.io/en/latest/reference/api.html
 - Stateful testing:
   https://hypothesis.readthedocs.io/en/latest/stateful.html
+
+## Execution log
+
+- 2026-10-03: plan published as draft #2617; it will not be merged.
+- Fresh boot on e9c5647 succeeded, but the normal test command reproduced the working-database corruption. Packaged databases and shared compile cache pass integrity checks. A separate agent is isolating this prerequisite while the first four work packages proceed in separate worktrees.
+- Direct baseline reducer probe still ends at 999999500 after 2000 checks for the 600000000 threshold.
+- Current main has no cosmic.literal module. Step 4 will use non-executable bounded JSON artifacts with hex-encoded byte inputs; cosmic.json preserves signed 64-bit integer seeds and choices.
