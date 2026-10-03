@@ -45,6 +45,28 @@ local record near
     text: string
   end
 
+  --- What the notes read of the library's functions, made once for
+  --- every module compared ([`near.index`]).
+  --- Each field but `named` and `named_in` is by a function's place in
+  --- the `known` the index was made of, which [`near.notes`] is given
+  --- with it.
+  record Index
+    --- How many public symbols are called each name, a raw binding's
+    --- not counted: in all (`named`) and in each module (`named_in`).
+    named: {string: integer}
+    named_in: {string: {string: integer}}
+    --- How many distinct words each function's doc comment has.
+    their_counts: {integer: integer}
+    --- The functions that use each word, in order.
+    using: {string: {integer}}
+    --- The patterns that find a function's name in a doc comment:
+    --- qualified, and as code.
+    qualified: {integer: string}
+    coded: {integer: string}
+    --- Whether a function is compared at all.
+    comparable: {integer: boolean}
+  end
+
   --- One exported function of a fixed file.
   record Candidate
     source_symbol: string
@@ -133,17 +155,13 @@ local function names(lower: string, qualified: string, coded: string): boolean
   return lower:find(qualified) ~= nil or lower:find(coded, 1, true) ~= nil
 end
 
---- The notes for `candidates`, declared in `module`, against `known`.
---- Each is one line, `line: message`, in the candidates' order.
----
---- Each library function's words and patterns are made once, not once
---- per candidate, each candidate's lowercased text once, and the words
---- two doc comments share
---- are counted through an index of which functions use each word, so a
---- pair that shares none costs nothing.
-function near.notes(module: string, candidates: {near.Candidate},
-                    known: {near.Known}): {string}
+--- The index of `known`, made once to hand [`near.notes`] for each of
+--- many modules compared with the same library.
+--- @param known {near.Known} The library's symbols
+--- @return near.Index
+function near.index(known: {near.Known}): near.Index
   local named: {string: integer} = {}
+  local named_in: {string: {string: integer}} = {}
   local their_counts: {integer: integer} = {}
   local using: {string: {integer}} = {}
   local qualified: {integer: string} = {}
@@ -152,9 +170,15 @@ function near.notes(module: string, candidates: {near.Candidate},
   for index, other in ipairs(known) do
     -- A raw binding's name (sys.mkdir) is what its wrapper stands in
     -- for, so it takes nothing.
-    if other.module ~= module and other.module ~= "cosmic.sys" then
+    if other.module ~= "cosmic.sys" then
       local taken = last_name(other.symbol)
       named[taken] = (named[taken] or 0) + 1
+      local within = named_in[other.module]
+      if within == nil then
+        within = {}
+        named_in[other.module] = within
+      end
+      within[taken] = (within[taken] or 0) + 1
     end
     comparable[index] = (other.kind == "function" or other.kind == "method") and
       other.text ~= "" and not EXAMPLES_ONLY[other.module]
@@ -173,21 +197,55 @@ function near.notes(module: string, candidates: {near.Candidate},
       coded[index] = "`" .. last_name(other.symbol) .. "`"
     end
   end
+  return { named = named, named_in = named_in, their_counts = their_counts,
+    using = using, qualified = qualified, coded = coded, comparable = comparable }
+end
+
+--- The notes for `candidates`, declared in `module`, against `known`.
+--- Each is one line, `line: message`, in the candidates' order.
+---
+--- Each library function's words and patterns are made once, not once
+--- per candidate, each candidate's lowercased text once, and the words
+--- two doc comments share
+--- are counted through an index of which functions use each word, so a
+--- pair that shares none costs nothing. A caller comparing many modules
+--- with one `known` makes the index once ([`near.index`]) and passes it
+--- as `prepared`.
+function near.notes(module: string, candidates: {near.Candidate},
+                    known: {near.Known}, prepared?: near.Index): {string}
+  local made = prepared or near.index(known)
+  local named_all, named_in = made.named, made.named_in[module]
+  local their_counts, using = made.their_counts, made.using
+  local qualified, coded, comparable = made.qualified, made.coded, made.comparable
   local out: {string} = {}
   for _, mine in ipairs(candidates) do
     local name = last_name(mine.source_symbol)
     local lower = mine.text:lower()
     local my_words, my_count = words(mine.text)
     local shared: {integer: integer} = {}
+    local order: {integer} = {}
     if my_count >= MIN_WORDS then
       for word in pairs(my_words) do
         for _, index in ipairs(using[word] or {}) do
-          shared[index] = (shared[index] or 0) + 1
+          local seen = shared[index]
+          if seen == nil then order[#order + 1] = index end
+          shared[index] = (seen or 0) + 1
         end
       end
     end
-    local commands = COMMANDS[name] and named[name] == nil
-    for index, other in ipairs(known) do
+    local commands = COMMANDS[name] and
+      (named_all[name] or 0) - (named_in ~= nil and named_in[name] or 0) == 0
+    -- A pair that shares no words can only be noted as a command's
+    -- stand-in, so only then is every library function looked at.
+    local scan: {integer} = order
+    if commands then
+      scan = {}
+      for index = 1, #known do scan[index] = index end
+    else
+      table.sort(order)
+    end
+    for _, index in ipairs(scan) do
+      local other = known[index]
       if comparable[index] then
         local same = other.module == module and
           (other.source_symbol == mine.source_symbol or other.symbol == name)

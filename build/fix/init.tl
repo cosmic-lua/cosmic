@@ -889,6 +889,7 @@ function fix.notes(built: compiler, root: string, files: {string},
   if known == nil then
     return { "comparing with the standard library: " .. known_trouble }
   end
+  local prepared = near.index(known)
   local out: {string} = {}
   for _, file in ipairs(files) do
     local plain = compared(file)
@@ -913,7 +914,7 @@ function fix.notes(built: compiler, root: string, files: {string},
     end
     if candidates ~= nil and relative ~= nil then
       local module = relative:gsub("%.tl$", ""):gsub("/init$", ""):gsub("/", ".")
-      for _, note in ipairs(near.notes(module, candidates, known)) do
+      for _, note in ipairs(near.notes(module, candidates, known, prepared)) do
         out[#out + 1] = file .. ":" .. note
       end
     end
