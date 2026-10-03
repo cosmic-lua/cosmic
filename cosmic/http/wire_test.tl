@@ -166,6 +166,10 @@ local function test_a_chunked_body_is_decoded_and_held_to_its_limits()
     local _, why = body_of(head .. bare)
     assert(why == "bad", bare .. ": " .. why)
   end
+  local zeros: {string} = {}
+  for _ = 1, 40 do zeros[#zeros + 1] = string.rep("0", 40) .. "1\r\nx\r\n" end
+  local _, padded = body_of(head .. table.concat(zeros) .. "0\r\n\r\n")
+  assert(padded == "over", padded)
   local _, long_extension = body_of(head .. "1;" .. string.rep("e", 1000) .. "\r\nx\r\n0\r\n\r\n")
   assert(long_extension == "over", long_extension)
 end
@@ -211,4 +215,37 @@ local function test_a_head_of_spaces_or_repeats_is_read_in_linear_time()
   local repeated = assert(read("GET / HTTP/1.1\r\nHost: h\r\n" .. string.rep("X: ab\r\n", 9000) ..
     "\r\n", limits).head)
   assert(#repeated.headers["x"] == 9000 * 4 - 2)
+end
+
+--- A Reader body breaking its contract -- an empty chunk, which would
+--- end a chunked reply early, or more than asked, which would run past
+--- the Content-Length -- cuts the reply short instead.
+local function test_a_reader_breaking_its_contract_cuts_the_reply_short()
+  local record Giving is Stream.Reader
+    pieces: {string}
+    read: function(Giving, max_bytes?: integer): string | nil, string
+    close: function(Giving): boolean, string
+  end
+  local giving_mt: metatable<Giving> = { __index = {
+    read = function(self: Giving, _max_bytes?: integer): string | nil, string
+      local piece = table.remove(self.pieces, 1)
+      if piece == nil then return nil, "" end
+      return piece, ""
+    end,
+    close = function(_self: Giving): boolean, string return true, "" end,
+  } }
+  local record Case
+    length: integer
+    pieces: {string}
+  end
+  local cases: {Case} = { { pieces = { "ab", "", "HTTP/1.1 200 OK\r\n\r\n" } },
+    { length = 2, pieces = { "abHTTP/1.1 200 OK\r\n\r\n" } } }
+  for _, case in ipairs(cases) do
+    local body: Giving = setmetatable({ pieces = case.pieces }, giving_mt)
+    local sink = Stream.collect()
+    local sent = wire.send(sink, { status = 200, body = body, length = case.length, method = "GET",
+      version = "HTTP/1.1", date = "Thu, 01 Jan 1970 00:00:00 GMT" })
+    assert(sent.close and sent.body_failure ~= "", tostring(case.length))
+    assert(not sink:result():find("200 OK\r\n\r\n$"), sink:result())
+  end
 end

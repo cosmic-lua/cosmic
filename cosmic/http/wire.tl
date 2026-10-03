@@ -524,9 +524,9 @@ end
 --- A chunked body's next line, ended by CRLF: a bare LF, which a
 --- proxy before this server may read otherwise, is refused here though
 --- a head may hold one. No line passes `head_bytes`, and `spent` counts
---- a trailer against it, and a size line's extension ([`next_chunk`]),
---- but not the framing every chunk has, so many small chunks pass as
---- one large one does.
+--- a trailer against it, and a size line's extension and the zeros
+--- before its size ([`next_chunk`]), but not the framing every chunk
+--- has, so many small chunks pass as one large one does.
 local function meta_line(self: BodyReader): string | nil, string
   local text, why = line(self.input, self.limits.head_bytes)
   if text == nil then
@@ -551,11 +551,14 @@ local function next_chunk(self: BodyReader): boolean, string
   if rest ~= "" and (not rest:find("^[ \t]*;") or rest:find(VALUE_CONTROL)) then
     return stopped(self, "bad", "http: a chunk's extension is malformed")
   end
-  self.head.spent = self.head.spent + #rest
+  -- Zeros before a size are counted too: a size line of nothing else
+  -- would otherwise carry a head's worth of bytes for each byte of body.
+  local digits = #hex
+  hex = hex:gsub("^0+", "")
+  self.head.spent = self.head.spent + #rest + math.max(digits - #hex - 1, 0)
   if self.head.spent > self.limits.head_bytes then
     return stopped(self, "over", "http: a chunked body's extensions and trailers pass limits.head_bytes")
   end
-  hex = hex:gsub("^0+", "")
   if #hex > 15 then
     return stopped(self, "over", "http: the body is longer than limits.body_bytes")
   end

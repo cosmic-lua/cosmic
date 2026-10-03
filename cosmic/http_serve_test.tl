@@ -537,3 +537,37 @@ local function test_a_reply_body_that_raises_closes_the_connection(tmp: string)
   assert(#troubles == 1 and troubles[1]:find("the body broke", 1, true) ~= nil, troubles[1])
   assert(troubles[1]:find("stack traceback", 1, true) ~= nil, troubles[1])
 end
+
+--- A request body that fails while a reply's Reader reads it closes the
+--- connection after the reply, however cleanly that Reader ends: the
+--- bytes after it are no request to serve.
+local function test_a_body_failing_under_the_reply_closes_the_connection(tmp: string)
+  local paths: {string} = {}
+  local record Lenient is Stream.Reader
+    source: Stream.Reader
+    read: function(Lenient, max_bytes?: integer): string | nil, string
+    close: function(Lenient): boolean, string
+  end
+  local lenient_mt: metatable<Lenient> = { __index = {
+    -- Reads every failure as the end.
+    read = function(self: Lenient, max_bytes?: integer): string | nil, string
+      local piece, _ = self.source:read(max_bytes)
+      if piece == nil then return nil, "" end
+      return piece, ""
+    end,
+    close = function(_self: Lenient): boolean, string return true, "" end,
+  } }
+  serving(tmp, function(req: Http.Request): Http.Reply
+    paths[#paths + 1] = req.path
+    local lenient: Lenient = setmetatable({ source = req.body }, lenient_mt)
+    return { status = 200, body = lenient }
+  end, function(address: Net.Address)
+    local p <close> = peer(address)
+    send(p, "POST /up HTTP/1.1\r\nHost: t\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabcX\r\n" ..
+      get("/smuggled"))
+    local got = reply(p)
+    assert(got.status == 200 and got.body == "abc", got.body)
+    while more(p) do end
+  end)
+  assert(#paths == 1 and paths[1] == "/up", table.concat(paths, " "))
+end

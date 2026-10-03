@@ -873,7 +873,8 @@ local function drop_body(reply: Http.Reply)
   if type(reply) ~= "table" then return end
   local body = reply.body
   if type(body) == "table" and not body is string and type(body.close) == "function" then
-    local _, _ = body:close()
+    -- Protected: a close that raised once, in the reply's send, may again.
+    local _, _ = pcall(body.close, body)
   end
 end
 
@@ -908,6 +909,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
       linger(conn)
     elseif body.failure == Poll.TIMEOUT then
       answer(s, conn, head, 408, "the body came slower than timeout_ns")
+      linger(conn)
     end
     return false
   end
@@ -937,7 +939,8 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   -- on the connection is unknown, and it closes.
   if head.continue and not continued and body.state == "open" then
     local given = reply.body
-    if given ~= nil and not given is string then go_on() else close = true end
+    local sends_body = head.method ~= "HEAD" and reply.status ~= 204 and reply.status ~= 304
+    if given ~= nil and not given is string and sends_body and not close then go_on() else close = true end
   end
   replied = true
   conn:set_timeout(s.timeout_ns)
@@ -961,6 +964,13 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   end
   if sent.close then
     if sent.write_failure == "" and body.state == "open" then linger(conn) end
+    return false
+  end
+  -- A reply Reader that read the request's body may have ended cleanly
+  -- where the body failed: what follows it on the connection is no
+  -- request to read.
+  if failed then
+    if body.state ~= "failed" then linger(conn) end
     return false
   end
   -- What of the body the handler left is dropped, so the next request
