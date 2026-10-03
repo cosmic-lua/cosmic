@@ -316,7 +316,7 @@ function rebuild_lock.wait(root: string, role: rebuild_lock.Role,
     end
     waited_ns = waited_ns + reminder_ns
     log:complain("still waiting, " .. plural.count(waited_ns // Time.minutes(1), "minute") ..
-      " on: " .. rebuild_lock.holder(root) .. rebuild_lock.suffix(root))
+        " on: " .. rebuild_lock.holder(root) .. rebuild_lock.suffix(root))
   end
 end
 
@@ -352,7 +352,7 @@ function rebuild_lock.hold(root: string, role: rebuild_lock.Role,
     return false, ""
   end
   local waited, wait_trouble = rebuild_lock.wait(root, role, what .. ": " ..
-    rebuild_lock.holder(root) .. "; waiting for it" .. rebuild_lock.suffix(root))
+      rebuild_lock.holder(root) .. "; waiting for it" .. rebuild_lock.suffix(root))
   if not waited then
     return nil, wait_trouble
   end

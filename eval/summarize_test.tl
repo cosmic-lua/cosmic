@@ -65,7 +65,7 @@ end
 local function test_paths_outside_the_arena_are_listed_once_and_sorted()
   local text = lines({
     call("1", "Bash", { command = "ls /b/x /a/y /b/x " .. arena .. " " .. arena ..
-      "/project/ok " .. arena .. "x/near /usr/bin/env /usr /tmp//w" }),
+        "/project/ok " .. arena .. "x/near /usr/bin/env /usr /tmp//w" }),
     -- Relative paths, and those under a variable or home, are not absolute.
     call("2", "Bash", { command = "cat ./a/b a/b $HOME/c ~/d <x>/e" }),
     -- A file's contents are not where the call acts.

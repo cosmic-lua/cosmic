@@ -394,18 +394,18 @@ function test_inputs.resolved(declared: string, environment: {string:string},
     local value = environment[name]
     if value == nil or value == "" then
       return nil, string.format("%s: %s is %s; a path a variable names needs the variable " ..
-        "set to where it is", said, name, value == nil and "unset" or "empty")
+          "set to where it is", said, name, value == nil and "unset" or "empty")
     end
     if value:sub(1, 1) ~= "/" then
       return nil, string.format("%s: %s is %q, a relative path; a variable a host path " ..
-        "names holds an absolute one", said, name, value)
+          "names holds an absolute one", said, name, value)
     end
     -- Spelled plainly, as a declared path is: the test opens the value
     -- as it is spelled, which through a link before a ".." is not where
     -- a key made from the text alone would look.
     if value ~= "/" and test_inputs.plain(value) ~= value:gsub("/$", "") then
       return nil, string.format("%s: %s is %q, which names \".\", \"..\" or an empty " ..
-        "name; a variable a host path names holds an absolute path spelled plainly",
+          "name; a variable a host path names holds an absolute path spelled plainly",
         said, name, value)
     end
     path = test_inputs.plain(value .. rest)
@@ -418,7 +418,7 @@ function test_inputs.resolved(declared: string, environment: {string:string},
           said, path)
       elseif where ~= "" and root ~= "" and beneath(root, where) then
         return nil, string.format("%s: %s holds the tree; declare the paths beneath it " ..
-          "the tests read", said, path)
+            "the tests read", said, path)
       end
     end
   end
@@ -446,7 +446,7 @@ function test_inputs.resolve(effective: test_inputs.Effective, environment: {str
     end
     if st ~= nil and st.kind == "dir" and not beneath(path, "/proc") then
       path, trouble = nil, string.format("Test.needs host %q: %s is a directory; host names " ..
-        "files, or /proc: declare the files the tests read", declared, path)
+          "files, or /proc: declare the files the tests read", declared, path)
     end
     if path == nil then
       if effective.unresolved == "" then effective.unresolved = trouble end
@@ -477,7 +477,7 @@ function test_inputs.spelling(effective: test_inputs.Effective, path: string,
   for name, value in pairs(effective.located or {}) do
     if (not named_only or (effective.named or {})[name]) and value ~= "/" and
         beneath(path, value) and (#value > #best_value or
-        (#value == #best_value and (best == nil or name < best))) then
+            (#value == #best_value and (best == nil or name < best))) then
       best, best_value = name, value
     end
   end

@@ -19,13 +19,13 @@ local Zig = require("build.zig")
 local function test_read_pin_parses_version_and_hosts()
   local pin = assert(Zig.read_pin(
     "version 0.16.0\n" ..
-    "x86_64-linux 70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00\n" ..
-    "aarch64-macos b23d70deaa879b5c2d486ed3316f7eaa53e84acf6fc9cc747de152450d401489\n"))
+      "x86_64-linux 70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00\n" ..
+      "aarch64-macos b23d70deaa879b5c2d486ed3316f7eaa53e84acf6fc9cc747de152450d401489\n"))
   assert(pin.version == "0.16.0")
   assert(pin.shas["x86_64-linux"] ==
-    "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00")
+      "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00")
   assert(pin.shas["aarch64-macos"] ==
-    "b23d70deaa879b5c2d486ed3316f7eaa53e84acf6fc9cc747de152450d401489")
+      "b23d70deaa879b5c2d486ed3316f7eaa53e84acf6fc9cc747de152450d401489")
   assert(pin.shas["aarch64-linux"] == nil)
 end
 
@@ -101,7 +101,7 @@ local function test_other_subcommands_use_the_build_s_caches()
   local got = Zig.passthrough_environment("/repo", { COSMIC_ZIG_GLOBAL_CACHE = "/g",
     COSMIC_ZIG_CACHE = "/p", PATH = "/bin" })
   assert(got.ZIG_GLOBAL_CACHE_DIR == "/g" and got.ZIG_LOCAL_CACHE_DIR == "/p" and
-    got.PATH == "/bin")
+      got.PATH == "/bin")
   local kept = Zig.passthrough_environment("/repo", { COSMIC_ZIG_GLOBAL_CACHE = "/g",
     COSMIC_ZIG_CACHE = "/p", ZIG_GLOBAL_CACHE_DIR = "/mine" })
   assert(kept.ZIG_GLOBAL_CACHE_DIR == "/mine" and kept.ZIG_LOCAL_CACHE_DIR == "/p")
@@ -239,7 +239,7 @@ local function test_snapshot_holds_what_a_build_reads_and_nothing_else(tmp: stri
   end
   table.sort(paths)
   assert(table.concat(paths, " ") == "bin/zig.pin build.zig core/a.c doc/guides/start.md " ..
-    "test/portable/probe.c test/unit_test.tl vendor/lua/lua.c", table.concat(paths, " "))
+      "test/portable/probe.c test/unit_test.tl vendor/lua/lua.c", table.concat(paths, " "))
 end
 
 local function test_snapshot_follows_a_link_as_staging_does(tmp: string)
@@ -287,13 +287,13 @@ end
 
 local function test_race_report_names_five_paths_then_counts_the_rest()
   assert(Zig.race_report({ "core/a.c" }) ==
-    "sources changed during the build: core/a.c; run it again")
+      "sources changed during the build: core/a.c; run it again")
   local many: {string} = {}
   for i = 1, 8 do
     many[i] = "core/" .. tostring(i) .. ".c"
   end
   assert(Zig.race_report(many) == "sources changed during the build: " ..
-    "core/1.c, core/2.c, core/3.c, core/4.c, core/5.c and 3 more; run it again",
+      "core/1.c, core/2.c, core/3.c, core/4.c, core/5.c and 3 more; run it again",
     Zig.race_report(many))
 end
 
@@ -350,7 +350,7 @@ local function test_a_boot_names_a_holder_as_the_tool_does(tmp: string)
   for _, text in ipairs(contents) do
     assert(Fs.write(root .. "/o/rebuild.lock.pid", text))
     assert(Zig.holder(root) == rebuild_lock.holder(root), text .. ": " ..
-      Zig.holder(root) .. " against " .. rebuild_lock.holder(root))
+        Zig.holder(root) .. " against " .. rebuild_lock.holder(root))
   end
 end
 

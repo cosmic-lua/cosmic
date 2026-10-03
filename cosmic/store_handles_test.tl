@@ -96,7 +96,7 @@ local function test_alone_searches_only_the_binarys_own_database()
   assert(#Store.databases() == before)
   -- More results than a C function has free slots are dropped, not kept.
   local many = assert(load("local t = {} for i = 1, 100 do t[i] = i end " ..
-    "return table.unpack(t)"))
+      "return table.unpack(t)"))
   Store.alone(many)
   assert(#Store.databases() == before)
   assert(Store.meta("compiler") ~= nil)

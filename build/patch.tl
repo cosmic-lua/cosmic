@@ -157,8 +157,8 @@ function Patch.parse(text: string, name: string): Patch.Record | nil, string
     replaced = text:sub(replace.after, finish.start - 2)
   end
   return { file = file.value, note = note.value,
-           find = text:sub(find.after, replace.start - 2),
-           replace = replaced }, ""
+    find = text:sub(find.after, replace.start - 2),
+    replace = replaced }, ""
 end
 
 --- `source` with the record's one match replaced, or nil and why when it

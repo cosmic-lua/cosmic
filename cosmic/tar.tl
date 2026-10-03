@@ -195,7 +195,7 @@ end
 local function read_special_body(raw: Stream.Reader, size: integer): string | nil, string
   if size < 0 or size > SPECIAL_BODY_LIMIT then
     return refuse("a long-name or pax header body of " .. String.counted(size, "byte") ..
-      " is over the " .. tostring(SPECIAL_BODY_LIMIT) .. "-byte limit")
+        " is over the " .. tostring(SPECIAL_BODY_LIMIT) .. "-byte limit")
   end
   local data, trouble = Stream.read_exact(raw, size)
   if data == nil then return nil, trouble end
@@ -241,7 +241,7 @@ local function parse_pax(body: string): {string:string}
       if key:sub(1, 11) == "GNU.sparse." then
         out["GNU.sparse."] = ""
       elseif key == "path" or key == "linkpath" or key == "size" or key == "mtime" or
-        key == "uid" or key == "gid" then
+          key == "uid" or key == "gid" then
         out[key] = rec:sub(eq + 1, #rec - 1) -- drop the trailing newline
       end
     end
@@ -303,7 +303,7 @@ end
 --- applied over what the block says, the entry's own first. Nil and why
 --- when a field is refused.
 local function parse_header(block: string, long_name: string | nil, long_link: string | nil,
-    pax_local: {string:string} | nil, pax_global: {string:string}): Fields | nil, string
+                            pax_local: {string:string} | nil, pax_global: {string:string}): Fields | nil, string
   local name = long_name
   if name == nil then
     name = text_at(block, 1, 100)
@@ -628,7 +628,7 @@ end
 --- A ustar header block. Every entry is owned by uid and gid 0 with no
 --- user or group name, as [`Tar.WriterOptions`] documents.
 local function build_header(name: string, prefix: string, typeflag: string, size: integer,
-    mode: integer, mtime: integer, linkname: string): string
+                            mode: integer, mtime: integer, linkname: string): string
   local block = txt(name, 100) .. oct(mode, 8) .. oct(0, 8) .. oct(0, 8) ..
     oct(size, 12) .. oct(mtime, 12) .. string.rep(" ", 8) .. typeflag ..
     txt(linkname, 100) .. "ustar\0" .. "00" .. txt("", 32) .. txt("", 32) ..
@@ -696,7 +696,7 @@ end
 local entry_writer_mt: metatable<EntryWriter> = { __index = EntryWriter }
 
 local function put_entry(self: EntryWriter, path: string, typeflag: string, size: integer,
-    mode: integer, mtime: integer, linkname: string): boolean, string
+                         mode: integer, mtime: integer, linkname: string): boolean, string
   local sink = self.sink
   local ok, trouble = sink:usable()
   if not ok then return false, trouble end
@@ -726,7 +726,7 @@ local function put_entry(self: EntryWriter, path: string, typeflag: string, size
 end
 
 function EntryWriter:add_file(path: string, data: string | Stream.Reader,
-    fopts?: Stream.EntryOptions): boolean, string
+                              fopts?: Stream.EntryOptions): boolean, string
   fopts = fopts or {}
   local size = fopts.size
   if size ~= nil and (math.type(size) ~= "integer" or size < 0) then

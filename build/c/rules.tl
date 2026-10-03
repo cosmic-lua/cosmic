@@ -348,8 +348,8 @@ local function narrowed(ctx: Context, body: Node)
     local id = referenced(operand)
     if id == nil or not bounded[id] then
       report(ctx, node, "narrowed-integer", "casts a lua_Integer to " .. to ..
-        " without checking its range first, which wraps one that does not fit: " ..
-        "take it with cosmic_checkint or cosmic_optint (core/check.h)")
+          " without checking its range first, which wraps one that does not fit: " ..
+          "take it with cosmic_checkint or cosmic_optint (core/check.h)")
     end
   end)
 end
@@ -397,7 +397,7 @@ local function above_buffer(ctx: Context, body: Node, params: {Node})
     elseif buffer ~= nil and open[buffer] then
       if above > 0 then
         report(ctx, node, "above-buffer", name .. " finds a value above the open buffer: " ..
-          "only luaL_addvalue may, so add it with luaL_addvalue or pop it first")
+            "only luaL_addvalue may, so add it with luaL_addvalue or pop it first")
         above = 0
       end
       if name == "luaL_pushresult" or name == "luaL_pushresultsize" then
@@ -450,7 +450,7 @@ local function copy(state: State): State
     strings[id] = { name = s.name, line = s.line, above = s.above, gone = s.gone }
   end
   return { held = held, locals = state.locals, reported = state.reported,
-           status = state.status, strings = strings }
+    status = state.status, strings = strings }
 end
 
 --- The local a call's value is given to: the variable it initializes,
@@ -617,9 +617,9 @@ local function expression(ctx: Context, node: Node, state: State)
           if not state.reported[id] then
             state.reported[id] = true
             report(ctx, n, "held-across-raise", "holds " .. h.name .. " (from " .. h.from ..
-              " on line " .. h.line .. ") across " .. (name or "a call") ..
-              ", which can raise and would leak it: hold it in a guard (core/guard.h), " ..
-              "or acquire it after everything that allocates")
+                " on line " .. h.line .. ") across " .. (name or "a call") ..
+                ", which can raise and would leak it: hold it in a guard (core/guard.h), " ..
+                "or acquire it after everything that allocates")
           end
         end
       end
@@ -651,8 +651,8 @@ local function expression(ctx: Context, node: Node, state: State)
       if p ~= nil and p.gone ~= 0 and not assigned and not state.reported["s" .. id] then
         state.reported["s" .. id] = true
         report(ctx, n, "string-after-pop", "reads " .. p.name .. " (from line " .. p.line ..
-          "), which points into a string that left the stack on line " .. p.gone ..
-          ": copy it first, or keep the string on the stack while it is read")
+            "), which points into a string that left the stack on line " .. p.gone ..
+            ": copy it first, or keep the string on the stack while it is read")
       end
     elseif n.kind == "BinaryOperator" and n.text:match("'='$") then
       -- A pointer given another value points into nothing on the stack.
@@ -976,7 +976,7 @@ local function truth_locals(body: Node, known: Truths): {string: boolean}
       end
     elseif n.kind == "CompoundAssignOperator" or (n.kind == "UnaryOperator" and
         (n.text:find("'++'", 1, true) or n.text:find("'--'", 1, true) or
-          n.text:find("'&'", 1, true))) then
+            n.text:find("'&'", 1, true))) then
       -- Changed in place, or handed out by address to be written
       -- anything at all: `fetch(&status)`.
       local r = tree.referent(tree.bare(n.children[1]))
@@ -1037,10 +1037,10 @@ local function returned_constant(ctx: Context, fn: Function)
   end
   if all_same then
     report(ctx, fn.decl, "constant-return", fn.name .. " returns " .. same ..
-      " on every path, which tells its caller nothing: return void")
+        " on every path, which tells its caller nothing: return void")
   elseif fn.prototype ~= nil and fn.type:match("^int %(") and ctx.truthful[fn.name] then
     report(ctx, fn.decl, "pass-fail-int", fn.name .. " returns only 0, 1 or a truth, " ..
-      "a pass or a fail: return bool (<stdbool.h>), true for success, rather than int")
+        "a pass or a fail: return bool (<stdbool.h>), true for success, rather than int")
   end
 end
 
@@ -1088,7 +1088,7 @@ local function true_alone(ctx: Context, fn: Function)
   end
   if any then
     report(ctx, fn.decl, "true-alone", fn.name .. " returns true and nothing else " ..
-      "on every path, which tells its caller nothing: return no values")
+        "on every path, which tells its caller nothing: return no values")
   end
 end
 
@@ -1148,22 +1148,22 @@ local function returned_shape(ctx: Context, name: string, body: Node,
       " (through " .. helper .. ")" or ""
     if d.fallible and d.effect and shape == "fail" then
       report(ctx, n, "failure-shape", "cosmic.sys." .. call .. " is declared an effect " ..
-        "(boolean), whose failure is false, a message and an errno: return " ..
-        "cosmic_fail_effect, not cosmic_fail" .. through .. " (core/fail.h)")
+          "(boolean), whose failure is false, a message and an errno: return " ..
+          "cosmic_fail_effect, not cosmic_fail" .. through .. " (core/fail.h)")
     elseif d.fallible and not d.effect and (shape == "effect" or shape == "ok") then
       report(ctx, n, "failure-shape", "cosmic.sys." .. call .. " is declared to return " ..
-        "a value, whose failure is nil, a message and an errno, and never a bare true: " ..
-        "return the value, or cosmic_fail" .. through .. " (core/fail.h)")
+          "a value, whose failure is nil, a message and an errno, and never a bare true: " ..
+          "return the value, or cosmic_fail" .. through .. " (core/fail.h)")
     end
     local count = constant(n.children[1])
     if count == nil then return end
     if count > d.count then
       report(ctx, n, "returned-shape", "returns " .. plural.count(count, "value") .. " where binding " ..
-        call .. " is declared to return " .. d.count .. " (core/syscalls.h or core/process.h)")
+          call .. " is declared to return " .. d.count .. " (core/syscalls.h or core/process.h)")
     elseif d.fallible and count == 2 then
       report(ctx, n, "returned-shape", "returns 2 values where a failure of binding " ..
-        call .. " is nil or false, a message and an errno: return cosmic_fail or " ..
-        "cosmic_fail_effect (core/fail.h)")
+          call .. " is nil or false, a message and an errno: return cosmic_fail or " ..
+          "cosmic_fail_effect (core/fail.h)")
     end
   end)
 end
@@ -1243,8 +1243,8 @@ local function descriptor_arguments(ctx: Context, fn: Function, byname: {string:
   end
   local function flag(at: Node, name: string, taker: string)
     report(ctx, at, "descriptor-argument", "takes descriptor " .. name .. " through " ..
-      taker .. ", which passes the artifact's retained descriptor: take it through " ..
-      "cosmic_checkfd (core/check.h)")
+        taker .. ", which passes the artifact's retained descriptor: take it through " ..
+        "cosmic_checkfd (core/check.h)")
   end
   after(fn.body, function(n: Node)
     if descriptor_checks[fn.name] then return end
@@ -1269,9 +1269,9 @@ local function descriptor_arguments(ctx: Context, fn: Function, byname: {string:
   for _, at in ipairs(d.descriptors) do
     if not out[at] then
       report(ctx, fn.body, "descriptor-argument", "cosmic.sys." .. call .. "'s argument " ..
-        at .. " is a descriptor (core/syscalls.h or core/process.h) it takes through " ..
-        "neither cosmic_checkfd nor cosmic_argfd (core/check.h), which " ..
-        "refuse the artifact's retained descriptor")
+          at .. " is a descriptor (core/syscalls.h or core/process.h) it takes through " ..
+          "neither cosmic_checkfd nor cosmic_argfd (core/check.h), which " ..
+          "refuse the artifact's retained descriptor")
     end
   end
 end
@@ -1345,8 +1345,8 @@ function rules.check(decls: {Node}, file: string,
   local fns = functions(decls)
   local findings: {rules.Finding} = {}
   local ctx: Context = { file = file, within = "", findings = findings,
-                         releasing = releasing(fns), truthful = truthful(fns),
-                         shapes = failure_shapes(fns) }
+    releasing = releasing(fns), truthful = truthful(fns),
+    shapes = failure_shapes(fns) }
   local byname: {string: Function} = {}
   for _, fn in ipairs(fns) do byname[fn.name] = fn end
   for _, fn in ipairs(fns) do

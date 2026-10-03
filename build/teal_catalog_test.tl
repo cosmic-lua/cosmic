@@ -15,7 +15,7 @@ local function test_the_withheld_globals_are_the_catalog_s_order()
     table.concat(teal.withheld, " ") .. " against " .. table.concat(Removed.order, " "))
   for i, name in ipairs(Removed.order) do
     assert(teal.withheld[i] == name, i .. ": " .. tostring(teal.withheld[i]) ..
-      " against the catalog's " .. name)
+        " against the catalog's " .. name)
   end
 end
 
@@ -35,14 +35,14 @@ end
 --- field's replacement for a removed global, and a removed member's.
 local function test_a_refusal_quotes_the_catalog()
   assert(teal.replacement("unknown variable: os", "return os.getenv('HOME')\n", 1, 8) ==
-    Removed.message("os", "getenv"))
+      Removed.message("os", "getenv"))
   local source = 'local Hash = require("cosmic.hash")\nreturn Hash.hex\n'
   assert(teal.replacement("invalid key 'hex' in record 'Hash' of type Hash", source, 2, 13) ==
-    "Hash.hex was removed: " .. Removed.members["cosmic.hash.hex"])
+      "Hash.hex was removed: " .. Removed.members["cosmic.hash.hex"])
   -- A removed member's answer comes before the record's fields.
   assert(teal.replacement("invalid key 'hex' in record 'Hash' of type Hash", source, 2, 13,
     { "hmac", "sha256" }) == "Hash.hex was removed: " .. Removed.members["cosmic.hash.hex"])
   local cache = 'local Fs = require("cosmic.fs")\nreturn Fs.cache_path("zig")\n'
   assert(teal.replacement("invalid key 'cache_path' in record 'Fs' of type Fs", cache, 2, 11) ==
-    "Fs.cache_path was removed: " .. Removed.members["cosmic.fs.cache_path"])
+      "Fs.cache_path was removed: " .. Removed.members["cosmic.fs.cache_path"])
 end

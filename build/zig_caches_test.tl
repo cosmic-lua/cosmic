@@ -7,10 +7,10 @@ local zig_caches = require("build.zig_caches")
 
 local function test_the_caches_are_where_zig_puts_them(tmp: string)
   for _, env in ipairs({
-    { XDG_CACHE_HOME = tmp .. "/xdg" },
-    { HOME = tmp .. "/home" },
-    { XDG_CACHE_HOME = tmp .. "/xdg", COSMIC_ZIG_GLOBAL_CACHE = "/g", COSMIC_ZIG_CACHE = "/p" },
-    {},
+      { XDG_CACHE_HOME = tmp .. "/xdg" },
+      { HOME = tmp .. "/home" },
+      { XDG_CACHE_HOME = tmp .. "/xdg", COSMIC_ZIG_GLOBAL_CACHE = "/g", COSMIC_ZIG_CACHE = "/p" },
+      {},
   } as {{string:string}}) do
     local paths = zig_caches.paths("/repo", env)
     local shared, project = Zig.global_cache("/repo", env), Zig.project_cache("/repo", env)

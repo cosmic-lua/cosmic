@@ -18,7 +18,7 @@ end
 
 local function good(result: Child.Result)
   assert(result.ok, (result.stderr or "") .. (result.stdout or "") ..
-    "proof child status " .. tostring(result.code))
+      "proof child status " .. tostring(result.code))
 end
 
 function Proof.main(argv: {integer:string}): integer
@@ -173,7 +173,7 @@ printf 'error: fixture phase\n'
   assert(runtime_scratch() == initial_scratch, "runtime grant survived proof failure")
   local after = assert(Fs.stat(relaunch.argv[1]))
   assert(after.uid == cached.uid and after.mode == cached.mode and after.ino == cached.ino and
-    Hash.hex_sha256((assert(Fs.read(relaunch.argv[1])))) == cache_digest, "private runtime cache changed")
+      Hash.hex_sha256((assert(Fs.read(relaunch.argv[1])))) == cache_digest, "private runtime cache changed")
   if not ok then error(why) end
   assert(removed, trouble)
   print("run-local: PASS (real credentials, physical ownership, snapshot, rerun and refusal)")

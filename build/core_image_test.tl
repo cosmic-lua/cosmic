@@ -24,7 +24,7 @@ local function test_a_core_carrying_dwarf_is_keyed_by_its_image()
   assert(digest(one) == digest(other), "its DWARF moved the core")
   assert(digest(one) ~= Hash.sha256(one))
   assert(digest(fixture.elf("edoc", "DW_AT_comp_dir /home/runner/work/one")) ~=
-    digest(one), "its code left the core")
+      digest(one), "its code left the core")
 end
 
 --- Every release core is stripped: it is keyed by its bytes whole, as

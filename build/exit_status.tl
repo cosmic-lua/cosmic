@@ -34,8 +34,8 @@ function exit_status.of(what: string, value: any): integer
   local status = exit_status.status(value)
   if status == nil then
     log:complain(what .. " returned " ..
-      (value is string and string.format("%q", value) or tostring(value)) ..
-      ", not an exit status 0-255")
+        (value is string and string.format("%q", value) or tostring(value)) ..
+        ", not an exit status 0-255")
     return 2
   end
   return status

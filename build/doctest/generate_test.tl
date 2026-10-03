@@ -144,7 +144,7 @@ local function test_a_file_block_after_the_entry_still_reaches_output()
   assert(code ~= nil, "generate failed: " .. tostring(trouble))
   assert(code:find("local function test_1(tmp: string)", 1, true) ~= nil,
     "expected a file= block after the entry to still let 'output' attach " ..
-    "to the same example:\n" .. tostring(code))
+      "to the same example:\n" .. tostring(code))
 end
 
 local function test_a_multi_file_example_writes_every_file_before_the_entry()
@@ -194,7 +194,7 @@ local function test_a_docs_needs_become_its_declaration()
   local code, trouble = generate.from_blocks(blocks, "fixture.md")
   assert(code ~= nil, "generate failed: " .. tostring(trouble))
   assert(code:find('\nlocal __doctest_test = require("cosmic.test")\n' ..
-    "__doctest_test.needs { tool = true }\n", 1, true) ~= nil, "got:\n" .. code)
+      "__doctest_test.needs { tool = true }\n", 1, true) ~= nil, "got:\n" .. code)
   assert(code:find("local function example_1", 1, true) ~= nil, "got:\n" .. code)
   blocks[#blocks + 1] = { lang = "needs", modifiers = no_mods, content = "tool = true", line = 9 }
   local again, again_trouble = generate.from_blocks(blocks, "fixture.md")

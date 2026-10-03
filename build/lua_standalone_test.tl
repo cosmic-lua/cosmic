@@ -34,9 +34,9 @@ end
 local function test_a_standalone_file_runs_on_what_it_loads(tmp: string)
   local good = tmp .. "/good.tl"
   assert(Fs.write(good, "local Child = require(\"cosmic.child\")\n" ..
-    "local ok = type(Child.run) == \"function\"\n" ..
-    "return function(argv: {integer:string}): integer\n" ..
-    "  print(ok, argv[1])\n  return 0\nend\n"))
+      "local ok = type(Child.run) == \"function\"\n" ..
+      "return function(argv: {integer:string}): integer\n" ..
+      "  print(ok, argv[1])\n  return 0\nend\n"))
   local ok, out, err = run({ "--standalone", good, "word" })
   assert(ok and out == "true\tword\n", out .. err)
   local bad = tmp .. "/bad.tl"
@@ -52,8 +52,8 @@ end
 local function test_a_standalone_file_runs_on_what_standalone_loads(tmp: string)
   local file = tmp .. "/loaded.tl"
   assert(Fs.write(file, "local t: {string} = {}\n" ..
-    "for name in pairs(package.loaded) do t[#t + 1] = tostring(name) end\n" ..
-    "table.sort(t)\nprint(table.concat(t, ' '))\n"))
+      "for name in pairs(package.loaded) do t[#t + 1] = tostring(name) end\n" ..
+      "table.sort(t)\nprint(table.concat(t, ' '))\n"))
   local ok, out, err = run({ "--standalone", file })
   assert(ok, err)
   local allowed: {string:boolean} = { ["cosmic.sys"] = true }
@@ -67,7 +67,7 @@ local function test_a_standalone_file_runs_on_what_standalone_loads(tmp: string)
     if name:find("^build%.") or name:find("^cosmic%.") or name:find("^cmd%.") then
       seen = seen + 1
       assert(allowed[name], name .. " is loaded by --standalone but not in " ..
-        "standalone_loads: " .. out)
+          "standalone_loads: " .. out)
     end
   end
   assert(seen > 0, out)

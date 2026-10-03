@@ -101,9 +101,9 @@ function todo_scan.scan(source: string): {todo_scan.Found}
         local aligned = next_indent == indent or
           (following ~= marker and next_indent == indent .. " ")
         if not aligned or
-          (next_marker ~= marker and next_marker ~= following) or
-          next_rest == "" or next_rest:match("^TODO:") or
-          (parts[#parts]:match("%.$") and next_rest:match("^%u")) then
+            (next_marker ~= marker and next_marker ~= following) or
+            next_rest == "" or next_rest:match("^TODO:") or
+            (parts[#parts]:match("%.$") and next_rest:match("^%u")) then
           break
         end
         parts[#parts + 1] = next_rest

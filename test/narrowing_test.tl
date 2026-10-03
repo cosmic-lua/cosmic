@@ -86,7 +86,7 @@ end
 print(use())
 ]])
   assert(ok, "assert(r, \"msg\") on a plain variable of a nil union " ..
-    "should narrow it, but: " .. tostring(trouble))
+      "should narrow it, but: " .. tostring(trouble))
 end
 
 local function test_truthy_record_field_narrows(tmp: string)
@@ -101,7 +101,7 @@ end
 print(use({ field = { x = 1 } }))
 ]])
   assert(ok, "if h.field then ... should narrow h.field, but: " ..
-    tostring(trouble))
+      tostring(trouble))
 end
 
 local function test_assert_record_field_narrows(tmp: string)
@@ -114,7 +114,7 @@ end
 print(use({ field = { x = 1 } }))
 ]])
   assert(ok, "assert(h.field) should narrow h.field, but: " ..
-    tostring(trouble))
+      tostring(trouble))
 end
 
 local function test_eq_nil_record_field_narrows(tmp: string)
@@ -137,7 +137,7 @@ print(use_eq({ field = { x = 1 } }))
 print(use_neq({ field = { x = 1 } }))
 ]])
   assert(ok, "h.field == nil / ~= nil should narrow h.field, but: " ..
-    tostring(trouble))
+      tostring(trouble))
 end
 
 local function test_early_return_record_field_narrows(tmp: string)
@@ -152,7 +152,7 @@ end
 print(use({ field = { x = 1 } }))
 ]])
   assert(ok, "if not h.field then return end should narrow h.field " ..
-    "below the guard, but: " .. tostring(trouble))
+      "below the guard, but: " .. tostring(trouble))
 end
 
 local function test_record_field_narrow_chains_through_base(tmp: string)
@@ -177,7 +177,7 @@ end
 print(use({ sub = { field = { x = 1 } } }))
 ]])
   assert(ok, "guarding o.sub should let o.sub.field see the narrow " ..
-    "through o.sub's own return value, but: " .. tostring(trouble))
+      "through o.sub's own return value, but: " .. tostring(trouble))
 end
 
 local function test_record_field_narrow_invalidated_by_field_write(tmp: string)
@@ -191,7 +191,7 @@ local function use(h: Holder): number
 end
 ]])
   assert(not ok, "writing h.field after guarding it should drop the " ..
-    "narrow, requiring the guard again")
+      "narrow, requiring the guard again")
 end
 
 local function test_record_field_narrow_invalidated_by_base_write(tmp: string)
@@ -205,7 +205,7 @@ local function use(h: Holder, other: Holder): number
 end
 ]])
   assert(not ok, "reassigning h after guarding h.field should drop the " ..
-    "narrow, requiring the guard again")
+      "narrow, requiring the guard again")
 end
 
 local function test_record_field_narrow_does_not_chain_through_field_base(tmp: string)
@@ -228,8 +228,8 @@ local function use(o: Outer): number
 end
 ]])
   assert(not ok, "o.sub.field's base, o.sub, is itself a field access " ..
-    "rather than a bare variable, so guarding o.sub.field must never " ..
-    "narrow it")
+      "rather than a bare variable, so guarding o.sub.field must never " ..
+      "narrow it")
 end
 
 local entry_prelude = [[
@@ -267,7 +267,7 @@ local e = next_entry() or { size = 0 }
 print(e.size)
 ]])
   assert(ok, "`list(dir) or {}` cannot be nil, so it should be {string}, " ..
-    "but: " .. tostring(trouble))
+      "but: " .. tostring(trouble))
 end
 
 local function test_or_takes_one_value_of_a_call(tmp: string)
@@ -278,7 +278,7 @@ end
 print(count(list("x") or {}))
 ]])
   assert(ok, "`f() or {}` is one value -- f's first, without its nil -- " ..
-    "so it fills a one-argument call, but: " .. tostring(trouble))
+      "so it fills a one-argument call, but: " .. tostring(trouble))
 end
 
 -- Both sides one record type, into a declared union: `a`'s nil-less
@@ -332,7 +332,7 @@ while true do
 end
 ]])
   assert(ok, "a guard ending in break should narrow below it, as one " ..
-    "ending in return does, but: " .. tostring(trouble))
+      "ending in return does, but: " .. tostring(trouble))
 end
 
 local function test_break_narrow_stays_in_the_loop(tmp: string)
@@ -346,7 +346,7 @@ end
 print(e.size)
 ]])
   assert(refused_nil_index(ok, trouble), "the break leaves the loop with e nil, so the narrow " ..
-    "must not reach the code after it")
+      "must not reach the code after it")
 end
 
 local function test_break_on_one_path_does_not_narrow(tmp: string)
@@ -361,7 +361,7 @@ for _ = 1, 3 do
 end
 ]])
   assert(refused_nil_index(ok, trouble), "a guard that falls through when its inner branch does " ..
-    "not break must not narrow")
+      "not break must not narrow")
 end
 
 local function test_return_on_one_path_does_not_narrow(tmp: string)
@@ -377,7 +377,7 @@ end
 use()
 ]])
   assert(refused_nil_index(ok, trouble), "an inner if with no else can " ..
-    "fall through, so the outer guard must not narrow")
+      "fall through, so the outer guard must not narrow")
 end
 
 local function test_goto_narrows_below_the_guard(tmp: string)
@@ -392,7 +392,7 @@ for _ = 1, 3 do
 end
 ]])
   assert(ok, "a guard ending in goto should narrow below it, but: " ..
-    tostring(trouble))
+      tostring(trouble))
 end
 
 local function test_goto_narrow_ends_at_a_label(tmp: string)
@@ -406,7 +406,7 @@ do
 end
 ]])
   assert(refused_nil_index(ok, trouble), "a label is reached by the goto with e nil, so the " ..
-    "narrow must not reach the code after it")
+      "narrow must not reach the code after it")
 end
 
 local function test_error_narrows_below_the_guard(tmp: string)
@@ -418,7 +418,7 @@ end
 print(e.size)
 ]])
   assert(ok, "a guard ending in error(...) should narrow below it, but: " ..
-    tostring(trouble))
+      tostring(trouble))
 end
 
 local function test_a_local_error_does_not_narrow(tmp: string)
@@ -433,7 +433,7 @@ end
 print(e.size)
 ]])
   assert(refused_nil_index(ok, trouble), "a local function named error returns, so calling it " ..
-    "must not narrow")
+      "must not narrow")
 end
 
 --- Whether a refused build was refused for indexing `key`, the refusal
@@ -452,7 +452,7 @@ while e and e.size > 0 do e = next_entry() end
 print(size, grown)
 ]])
   assert(ok, "`e and e.size` reads e.size only when e is truthy, so not nil, but: " ..
-    tostring(trouble))
+      tostring(trouble))
 end
 
 local function test_and_narrow_stays_in_its_right_operand(tmp: string)
@@ -476,7 +476,7 @@ local e = next_entry()
 print(e and e.size)
 ]])
   assert(refused_nil_index(ok, trouble), "a truthy Entry | boolean | nil is Entry or true, " ..
-    "so `e and e.size` must stay refused")
+      "so `e and e.size` must stay refused")
 end
 
 local function test_type_test_narrows_any(tmp: string)
@@ -507,7 +507,7 @@ end
 print(upper("a"), describe(1, "b"), asserted("c"), raised("d"))
 ]])
   assert(ok, "type(v) == \"string\" should narrow an any to string as `v is string` " ..
-    "does, but: " .. tostring(trouble))
+      "does, but: " .. tostring(trouble))
 end
 
 local function test_type_test_narrows_a_union_to_its_members(tmp: string)
@@ -527,7 +527,7 @@ end
 print(count("a"), whole(1))
 ]])
   assert(ok, "type() should narrow a union to the members it answers for, " ..
-    "and its negation to the rest, but: " .. tostring(trouble))
+      "and its negation to the rest, but: " .. tostring(trouble))
 end
 
 local function test_type_test_negation_keeps_the_other_members(tmp: string)
@@ -553,7 +553,7 @@ end
 print(upper(1))
 ]])
   assert(refused_index(ok, trouble, "upper"), "a local function named type answers anything, " ..
-    "so a test of it must not narrow")
+      "so a test of it must not narrow")
 end
 
 local function test_another_name_for_type_does_not_narrow(tmp: string)
@@ -566,7 +566,7 @@ end
 print(upper(1))
 ]])
   assert(refused_index(ok, trouble, "upper"), "a variable holding type is not trusted to keep " ..
-    "holding it, so a test of it must not narrow")
+      "holding it, so a test of it must not narrow")
 end
 
 local function test_type_test_of_a_field_does_not_narrow(tmp: string)
@@ -594,7 +594,7 @@ end
 print(check(1, "a"))
 ]])
   assert(ok, "a type() test no member answers to stays a runtime check, " ..
-    "not an error, but: " .. tostring(trouble))
+      "not an error, but: " .. tostring(trouble))
 end
 
 local function test_type_never_answers_a_typo(tmp: string)
@@ -620,7 +620,7 @@ end
 print(upper(1))
 ]])
   assert(refused_index(ok, trouble, "upper"), "`local type = type` can be assigned " ..
-    "another function, so a test of it must not narrow")
+      "another function, so a test of it must not narrow")
 end
 
 local function test_a_reassignable_local_error_does_not_narrow(tmp: string)
@@ -631,7 +631,7 @@ if e == nil then error("x") end
 print(e.size)
 ]])
   assert(refused_nil_index(ok, trouble), "`local error = error` can be assigned " ..
-    "a function that returns, so calling it must not narrow")
+      "a function that returns, so calling it must not narrow")
 end
 
 local function test_type_test_with_an_interface_member_does_not_narrow(tmp: string)
@@ -646,5 +646,5 @@ end
 print(size("a"))
 ]])
   assert(refused_index(ok, trouble, "n"), "a userdata record may implement an interface, " ..
-    "so type() telling a table says nothing of it")
+      "so type() telling a table says nothing of it")
 end

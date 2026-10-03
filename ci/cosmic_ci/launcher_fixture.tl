@@ -34,7 +34,7 @@ local private_environment = {
 --- The environment the launcher runs in: the fixture's own, none of the
 --- launcher's private contract, the cache `cache`, and `extra` over it.
 function LauncherFixture.environment(cache?: string,
-    extra?: {string:string}): {string:string}
+                                     extra?: {string:string}): {string:string}
   local values = Fixture.environment({
     PORTABLE_ORDINARY_ENV = "preserved",
     PORTABLE_CALLER_LOCALE = "preserved",
@@ -72,12 +72,12 @@ end
 
 function LauncherFixture.outcome_ok(outcome: Fixture.Outcome, label: string)
   assert(outcome.result.ok, label .. " failed; stdout=" .. outcome.out ..
-    "; stderr=" .. outcome.err)
+      "; stderr=" .. outcome.err)
 end
 
 --- Runs the launcher (or `program`) from the case's directory.
 function LauncherFixture.run(ctx: Context, label: string, cache?: string,
-    extra?: {string:string}, program?: string): Fixture.Outcome
+                             extra?: {string:string}, program?: string): Fixture.Outcome
   return Fixture.call_with_environment(label, { program or ctx.artifact }, ctx.work,
     ctx.diagnostics, LauncherFixture.environment(cache, extra), child_timeout_ns)
 end

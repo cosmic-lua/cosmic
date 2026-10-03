@@ -62,7 +62,7 @@ local function test_a_project_test_requiring_outside_its_closure_fails(tmp: stri
   local ok, text = run(root, tmp .. "/run.out")
   assert(not ok, text)
   assert(text:find("test: FAIL  suite.dynamic_test test_dynamic: suite.dynamic_test:3: " ..
-    "module 'suite.helper' is outside the import closure of suite.dynamic_test", 1, true), text)
+      "module 'suite.helper' is outside the import closure of suite.dynamic_test", 1, true), text)
   assert(text:find("(1 of 3 failed", 1, true), text)
 end
 
@@ -114,7 +114,7 @@ local function test_a_project_test_reading_the_store_outside_its_closure_needs_s
       assert(text:find("test: FAIL  suite." .. module .. " " .. name .. ": ", 1, true), text)
     end
     assert(text:find("module 'suite.helper' is held from the store: suite." .. module .. "'s " ..
-      "verdict is keyed by what the store holds of its import closure alone", 1, true), text)
+        "verdict is keyed by what the store holds of its import closure alone", 1, true), text)
   end
   assert(text:find("declare store = true in its Test.needs", 1, true), text)
   assert(not text:find("suite.whole_test", 1, true), text)

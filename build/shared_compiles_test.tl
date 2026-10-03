@@ -47,7 +47,7 @@ local function test_a_kept_compile_comes_back_whole(tmp: string)
   local found = assert(shared_compiles.look(cache, "new"))
   assert(found.lua == lua and found.bytecode == bytecode)
   assert(#found.references == 2 and found.references[2].module == "cosmic.fs" and
-    found.references[2].member == "Stat.size" and found.references[2].line == 12)
+      found.references[2].member == "Stat.size" and found.references[2].line == 12)
   local gone, trouble = shared_compiles.look(cache, "old")
   assert(gone == nil and trouble == "", "a row unused for thirty days was kept")
   shared_compiles.close(cache)

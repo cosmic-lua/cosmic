@@ -346,7 +346,7 @@ function Solve.main(argv: {integer: string}): integer
     return 2
   elseif Solve.status(probe) ~= 0 then
     complain("the sandbox's /proc is the host's, not its own; not running the solver there " ..
-      "(eval/README.md has the manual launch)")
+        "(eval/README.md has the manual launch)")
     return 2
   end
   local outputs: {integer} = {}
@@ -392,8 +392,8 @@ function Solve.main(argv: {integer: string}): integer
   local _, _ = Fs.write(arena .. "/exit_code", tostring(status) .. "\n")
   local seconds = (Time.monotonic_ns() - started) // 1000000000
   complain(arena .. ": exit " .. tostring(status) .. " after " .. tostring(seconds) .. "s" ..
-    (result ~= nil and result.timed_out and " (past the " .. tostring(options.timeout) ..
-      "s deadline)" or ""))
+      (result ~= nil and result.timed_out and " (past the " .. tostring(options.timeout) ..
+        "s deadline)" or ""))
   return status
 end
 

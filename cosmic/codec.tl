@@ -139,7 +139,7 @@ local BATCH <const> = 4096
 --- Bytes gather in a buffer and leave a batch at a time through one
 --- `string.char`: a string per group would intern millions of them.
 local function expand(value: {integer:integer}, s: string, whole: integer,
-    out: {string}, k: integer): integer
+                      out: {string}, k: integer): integer
   local buf: {integer} = {}
   for first = 1, whole, BATCH do
     local last = math.min(first + BATCH - 1, whole)

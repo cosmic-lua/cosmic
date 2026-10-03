@@ -550,7 +550,7 @@ local function test_create_closes_every_file_it_opens(tmp: string)
     local ran, opens, closes = create_counting(src, tmp .. "/" .. name, "")
     assert(ran.code == 0, ran.err)
     assert(opens > 0 and opens == closes, name .. ": " .. tostring(opens) .. " opened, " ..
-      tostring(closes) .. " closed")
+        tostring(closes) .. " closed")
   end
 end
 
@@ -666,10 +666,10 @@ end
 local function test_a_command_line_that_is_not_one_is_refused(tmp: string)
   local path = make_tar(tmp .. "/c.tar", SAMPLE)
   for _, words in ipairs({
-    {}, { "bogus" }, { "list" }, { "list", path, "extra" }, { "extract" }, { "create" },
-    { "create", tmp .. "/o.zip" }, { "list", "--no-such", path }, { "list", "-C", tmp, path },
-    { "extract", "--json", path }, { "list", "--force", path }, { "extract", "--reproducible", path },
-    { "list", "" }, { "extract", path, "" },
+      {}, { "bogus" }, { "list" }, { "list", path, "extra" }, { "extract" }, { "create" },
+      { "create", tmp .. "/o.zip" }, { "list", "--no-such", path }, { "list", "-C", tmp, path },
+      { "extract", "--json", path }, { "list", "--force", path }, { "extract", "--reproducible", path },
+      { "list", "" }, { "extract", path, "" },
   } as {{string}}) do
     local ran = run(words)
     assert(ran.code == 2 and ran.out == "", table.concat(words, " ") .. " exited " .. ran.code)
@@ -830,7 +830,7 @@ end
 --- with `words` after, each into a destination `prepare` readies: the
 --- two runs, then what each run's directory holds after.
 local function both_ways(tmp: string, name: string, bytes: string, words: {string},
-    prepare: function(string)): Ran, Ran, {string}, {string}
+                         prepare: function(string)): Ran, Ran, {string}, {string}
   assert(Fs.mkdirs(tmp))
   assert(Fs.write(tmp .. "/" .. name, bytes))
   local results: {Ran} = {}
@@ -905,7 +905,7 @@ local function test_a_stream_and_a_file_are_refused_alike(tmp: string)
       function(_dest: string) end)
     assert(file.code == stdin.code and file.out == stdin.out, name)
     assert(anonymous(file.err, tmp .. "/" .. name .. ".d", name .. ".tar") ==
-      anonymous(stdin.err, tmp .. "/" .. name .. ".d", name .. ".tar"), file.err .. stdin.err)
+        anonymous(stdin.err, tmp .. "/" .. name .. ".d", name .. ".tar"), file.err .. stdin.err)
   end
 end
 
@@ -922,7 +922,7 @@ local function test_a_stream_overwrite_refusal_writes_nothing(tmp: string)
   assert(ran.code == 1 and ran.out == "", ran.out)
   assert(ran.err:find("would overwrite 1 existing path under", 1, true) and ran.err:find("(mine.txt)", 1, true), ran.err)
   assert(table.concat(tree_of(tmp), ",") ==
-    "c.tgz,dest,dest/mine.txt", table.concat(tree_of(tmp), ","))
+      "c.tgz,dest,dest/mine.txt", table.concat(tree_of(tmp), ","))
   assert(Fs.read(dest .. "/mine.txt") == "mine")
   local direct = run({ "extract", tmp .. "/c.tgz", "-C", dest })
   assert(direct.code == 1 and direct.err:gsub("[^\n]*: would", "would") == ran.err:gsub("[^\n]*: would", "would"),
@@ -932,7 +932,7 @@ local function test_a_stream_overwrite_refusal_writes_nothing(tmp: string)
   assert(forced.code == 0, forced.err)
   assert(Fs.read(dest .. "/mine.txt") == "theirs" and Fs.read(dest .. "/sub/new2.txt") == "2")
   assert(table.concat(tree_of(tmp), ",") ==
-    "c.tgz,dest,dest/mine.txt,dest/new1.txt,dest/sub,dest/sub/new2.txt", table.concat(tree_of(tmp), ","))
+      "c.tgz,dest,dest/mine.txt,dest/new1.txt,dest/sub,dest/sub/new2.txt", table.concat(tree_of(tmp), ","))
 end
 
 local function test_a_stream_is_moved_into_a_destination_that_holds_files(tmp: string)
@@ -947,7 +947,7 @@ local function test_a_stream_is_moved_into_a_destination_that_holds_files(tmp: s
   assert(Fs.read(dest .. "/proj/a.txt") == "alpha" and Fs.read(dest .. "/proj/sub/b.txt") == "bravo!")
   assert(Fs.read(dest .. "/top.txt") == "top")
   assert(table.concat(tree_of(tmp), ",") == "dest,dest/other.txt,dest/proj,dest/proj/a.txt," ..
-    "dest/proj/keep.txt,dest/proj/sub,dest/proj/sub/b.txt,dest/top.txt,m.tar", table.concat(tree_of(tmp), ","))
+      "dest/proj/keep.txt,dest/proj/sub,dest/proj/sub/b.txt,dest/top.txt,m.tar", table.concat(tree_of(tmp), ","))
   -- A link may lead through a directory only the destination holds.
   local via = assert(Fs.read(make_tar(tmp .. "/v.tar", { link_member("via", "proj/keep.txt") })))
   assert(run({ "extract", "-", "-C", dest }, via).code == 0)

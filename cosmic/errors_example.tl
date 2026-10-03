@@ -54,7 +54,7 @@ function Example.guidance_in()
   local text = Errors.guidance_in(db, "app: config file is missing: ./app.toml")
   print(text)
   assert(text == "cosmic: Config.load (app/config.tl:42): " ..
-    "Run `app init` to write a config file.\n", tostring(text))
+      "Run `app init` to write a config file.\n", tostring(text))
   assert(Errors.guidance_in(db, "the network is unreachable") == nil)
   assert(db:close())
 end

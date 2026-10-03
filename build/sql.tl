@@ -550,7 +550,7 @@ local function describe(db: Sqlite.Handle, tables: {dataset.Table}): {string} | 
     local from = ' FROM "' .. each.name:gsub('"', '""') .. '"'
     for _, column in ipairs(each.columns) do
       local rows, trouble = Sqlite.text_rows(db, 'SELECT DISTINCT typeof("' ..
-        column:gsub('"', '""') .. '")' .. from .. " ORDER BY 1")
+          column:gsub('"', '""') .. '")' .. from .. " ORDER BY 1")
       if rows == nil then
         return nil, trouble
       end

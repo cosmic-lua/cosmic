@@ -169,8 +169,8 @@ end
 local function test_informational_responses_before_the_final_one_are_skipped()
   local response, body = fetch({
     "HTTP/1.1 100 Continue\r\n\r\n" ..
-    "HTTP/1.1 103 Early Hints\r\nLink: </style.css>\r\n\r\n" ..
-    reply("200 OK", "X-Final: yes\r\n", "ok"),
+      "HTTP/1.1 103 Early Hints\r\nLink: </style.css>\r\n\r\n" ..
+      reply("200 OK", "X-Final: yes\r\n", "ok"),
   })
   assert(response.status == 200, tostring(response.status))
   assert(body == "ok", body)
@@ -191,7 +191,7 @@ end
 local function test_a_chunked_body_is_decoded()
   local _, body = fetch({
     "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n" ..
-    "5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n",
+      "5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n",
   })
   assert(body == "hello world", body)
 end
@@ -281,7 +281,7 @@ local function test_a_space_or_control_byte_before_the_path_is_refused_naming_it
   assert(trouble == "http: the URL holds a NUL at byte 19, in its host, which holds none", trouble)
   local got, why = Http.get("http://us er@cosmic.test/", { script = {} })
   assert(got == nil and why == "http: the URL holds a space at byte 10, in its user info; " ..
-    "a user name or password goes in through Url.escape", why)
+      "a user name or password goes in through Url.escape", why)
   got, why = Http.request("PUT", "cosmic\n.test/a b", { script = {} })
   assert(got == nil and why:find("control byte 0x0a at byte 7, in its host,", 1, true), why)
   got, why = Http.get("http:/co smic.test/a", { script = {} })
@@ -330,10 +330,10 @@ end
 local function test_repeated_headers_keep_every_value()
   local response = fetch({ reply("200 OK",
     "X-Many: a\r\nx-many: b\r\nSet-Cookie: a=1; Expires=Wed, 21 Oct 2026 07:28:00 GMT\r\n" ..
-    "Set-Cookie: b=2\r\n") })
+      "Set-Cookie: b=2\r\n") })
   assert(response.headers["x-many"] == "a, b", response.headers["x-many"])
   assert(response.headers["set-cookie"] ==
-    "a=1; Expires=Wed, 21 Oct 2026 07:28:00 GMT\nb=2", response.headers["set-cookie"])
+      "a=1; Expires=Wed, 21 Oct 2026 07:28:00 GMT\nb=2", response.headers["set-cookie"])
 end
 
 local function test_a_post_body_outlives_the_options_that_held_it()
@@ -399,7 +399,7 @@ local function test_connection_refused_on_a_closed_local_port()
   assert(response == nil)
   assert(trouble ~= "")
   assert(trouble:lower():find("refus", 1, true) ~= nil or
-    trouble:lower():find("connect", 1, true) ~= nil, trouble)
+      trouble:lower():find("connect", 1, true) ~= nil, trouble)
 end
 
 local function test_get_reports_the_same_failure_as_open()
@@ -641,7 +641,7 @@ local function test_a_refused_option_is_raised_at_the_callers_line()
     local refused, at = raised_at(entry, { timeout_ns = -5, script = {} }, "")
     assert(refused == file and ahead < at and at < behind,
       name .. ": raised at " .. refused .. ":" .. at .. ", not between " .. file .. ":" ..
-      ahead .. " and " .. behind)
+        ahead .. " and " .. behind)
   end
 end
 
@@ -1109,10 +1109,10 @@ end
 local function test_request_refuses_what_it_would_not_send_as_asked()
   local script = { reply("200 OK", "") }
   for method, opts in pairs({
-    [""] = { script = script },
-    PUT = { method = "POST", script = script },
-    GET = { body = "x", script = script },
-    HEAD = { body = "x", script = script },
+      [""] = { script = script },
+      PUT = { method = "POST", script = script },
+      GET = { body = "x", script = script },
+      HEAD = { body = "x", script = script },
   } as {string:Http.Options}) do
     local ok, why = pcall(Http.request, method, url, opts)
     assert(not ok and tostring(why):find("Http.request", 1, true), method .. ": " .. tostring(why))
@@ -1133,9 +1133,9 @@ end
 local function test_get_refuses_another_method_and_a_body()
   local script = { reply("200 OK", "") }
   for _, opts in ipairs({
-    { method = "PUT", script = script },
-    { method = "HEAD", script = script },
-    { body = "x", script = script },
+      { method = "PUT", script = script },
+      { method = "HEAD", script = script },
+      { body = "x", script = script },
   } as {Http.Options}) do
     local ok, why = pcall(Http.get, url, opts)
     assert(not ok and tostring(why):find("Http.request", 1, true), tostring(why))

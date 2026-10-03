@@ -307,7 +307,7 @@ function dataset.format_of(path: string): string | nil, string
   end
   table.sort(known)
   return refuse((extension and "unknown extension ." .. extension or "no extension") ..
-    " (known: " .. table.concat(known, ", ") .. ")")
+      " (known: " .. table.concat(known, ", ") .. ")")
 end
 
 --- The rows `text` holds in the format `name`, and ""; nil and why when
@@ -410,8 +410,8 @@ function dataset.load(handle: Sqlite.Handle, name: string, rows: dataset.Rows): 
   local names, key_of, renamed = columns_of(rows, rows.columns)
   if #names + 1 > max_columns then
     return refuse("too many columns: " .. plural.count(#names, "distinct key") ..
-      ", and SQLite holds at most " .. plural.count(max_columns, "column") ..
-      " in a table (one is `_json`)")
+        ", and SQLite holds at most " .. plural.count(max_columns, "column") ..
+        " in a table (one is `_json`)")
   end
   local declared: {string} = {}
   local marks: {string} = {}
@@ -425,7 +425,7 @@ function dataset.load(handle: Sqlite.Handle, name: string, rows: dataset.Rows): 
   local insert = "INSERT INTO " .. quoted(name) .. " VALUES (" .. table.concat(marks, ", ") .. ")"
   local ok, trouble = Sqlite.transact(handle, function(): boolean, string
     local created, why = handle:exec("CREATE TABLE " .. quoted(name) ..
-      " (" .. table.concat(declared, ", ") .. ")")
+        " (" .. table.concat(declared, ", ") .. ")")
     if not created then
       return false, why
     end

@@ -110,6 +110,7 @@ end
 local function block(c: Ctx, body: Node)
   local outer = c.margin
   local outer_shift = c.shift
+  local outer_opens, outer_header = c.opens, c.header
   if body.tk == ";" then
     -- A `;` in front of the first statement flags none: the block's own
     -- node opens on it, and keeps it only as its first token.
@@ -137,17 +138,23 @@ local function block(c: Ctx, body: Node)
       c.shift = emit.column(c.em) - (x - 1)
       c.em.shift = c.shift
     end
+    -- Each statement opens no bracket of the expression a function
+    -- literal holding it sits in.
+    c.opens = {}
+    c.header = 2
     statement(c, s)
     if s.semicolon then
       local t = semicolon(c, body, i)
       if t ~= nil then
-        ctx_mod.lead_at(c, t.y, t.x, "")
+        -- One that opens its line is the statement's, at its column.
+        ctx_mod.lead_to(c, t.y, t.x, c.margin, "")
       end
       emit.put(c.em, ";")
     end
   end
   c.margin = outer
   c.shift = outer_shift
+  c.opens, c.header = outer_opens, outer_header
   c.em.shift = outer_shift
 end
 
@@ -197,7 +204,10 @@ local function closes(c: Ctx, n: Node, word: string): boolean
     return false
   end
   local inline = y <= c.em.line
-  ctx_mod.lead_to(c, y, n.xend or 1, c.margin, " ")
+  -- The recorded end is the keyword's last column; a comment is placed
+  -- against its first.
+  local xend = n.xend
+  ctx_mod.lead_to(c, y, xend ~= nil and xend - #word + 1 or 1, c.margin, " ")
   emit.put(c.em, word)
   if word == "end" then
     ctx_mod.ended(c, n, inline)
@@ -218,9 +228,12 @@ local function signature_and_body(c: Ctx, n: Node, name: Node)
     ctx_mod.refuse(c, "a function with no signature")
     return
   end
+  -- A signature is a block's header, its lines set apart from the body.
+  c.header = 4
   sig.typeargs(c, typescan.index_at(c.scan, name.y, name.x))
   sig.arguments(c, args)
   sig.returns(c, rets, args, body.y, body.x)
+  c.header = 2
   block(c, body)
   closes(c, n, "end")
 end
@@ -348,9 +361,11 @@ local function macroexp(c: Ctx, n: Node)
   emit.text(c.em, "local macroexp")
   ctx_mod.lead(c, name, " ")
   emit.text(c.em, name.tk or "")
+  c.header = 4
   sig.typeargs(c, typescan.index_at(c.scan, name.y, name.x))
   sig.arguments(c, args)
   sig.returns(c, rets, args, t.y, t.x)
+  c.header = 2
   local listed: Node = { kind = "expression_list", f = n.f, y = at.y, x = at.x }
   listed[1] = exp
   local body: Node = { kind = "statements", f = n.f, y = t.y, x = t.x }
@@ -377,9 +392,11 @@ local function conditional(c: Ctx, n: Node)
     local condition = b.exp
     if condition ~= nil then
       local opens = typescan.index_at(c.scan, b.y, b.x)
+      c.header = 4
       ctx_mod.lead(c, condition, " ")
       expr.expression(c, condition)
       keyword(c, opens, "then")
+      c.header = 2
     end
     local body = b.body
     if body ~= nil then
@@ -506,6 +523,7 @@ statement = function(c: Ctx, n: Node)
       ctx_mod.refuse(c, "a repeat with no condition")
       return
     end
+    c.header = 4
     ctx_mod.lead(c, condition, " ")
     expr.expression(c, condition)
     ctx_mod.ended(c, n, inline)
@@ -524,14 +542,17 @@ statement = function(c: Ctx, n: Node)
     end
     local opens = typescan.index_at(c.scan, n.y, n.x)
     emit.text(c.em, "while")
+    c.header = 4
     ctx_mod.lead(c, condition, " ")
     expr.expression(c, condition)
     keyword(c, opens, "do")
+    c.header = 2
     block(c, body)
     closes(c, n, "end")
   elseif kind == "fornum" or kind == "forin" then
     local body = n.body
     local opens = typescan.index_at(c.scan, n.y, n.x)
+    c.header = 4
     if kind == "fornum" then
       numeric_for(c, n)
     else
@@ -546,6 +567,7 @@ statement = function(c: Ctx, n: Node)
       expr.items(c, exps, " ")
     end
     keyword(c, opens, "do")
+    c.header = 2
     if body ~= nil then
       block(c, body)
     end

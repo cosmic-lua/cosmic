@@ -48,8 +48,8 @@ end
 
 -- Runs argv with fd 8 open on the artifact and fd 9 on the core.
 local function run_with_descriptors(label: string, artifact_fd_source: string,
-    core_fd_source: string, argv: {string}, cwd: string, diagnostics: string,
-    values: {string:string}): Fixture.Outcome
+                                    core_fd_source: string, argv: {string}, cwd: string, diagnostics: string,
+                                    values: {string:string}): Fixture.Outcome
   return Fixture.call_with_descriptors(label, argv, cwd, diagnostics, values,
     { [8] = artifact_fd_source, [9] = core_fd_source })
 end
@@ -70,8 +70,8 @@ end
 -- launcher_test.tl's `hook_environment` drives), running the copied
 -- `probe.tl` fixture script from `work/run space`.
 local function run_paused(tool: string, work: string, diagnostics: string,
-    hook: string, program: string, cache: string, expected_hash: string,
-    expected_marker: string): Running, string
+                          hook: string, program: string, cache: string, expected_hash: string,
+                          expected_marker: string): Running, string
   local ready = fifo(work, diagnostics, "ready")
   local go = fifo(work, diagnostics, "go")
   local child: Running
@@ -155,7 +155,7 @@ local function parse_selected_header(artifact_bytes: string, host: string):
 end
 
 local function target_name_for_id(targets_path: string,
-    target_id: string): string
+                                  target_id: string): string
   local wanted = assert(math.tointeger(tonumber(target_id)))
   for _, target in ipairs(Fixture.targets(targets_path)) do
     if target.id == wanted then return target.name end
@@ -251,7 +251,7 @@ local function test_runtime_logical_paths(tmp: string)
     { work .. "/bin/cosmic-runtime", "probe.tl", release_hash, "old" },
     work .. "/run space", diagnostics, { COSMIC_PORTABLE_CACHE = cache })
   assert(Fixture.small(script_run.out, 256) ==
-    "script " .. release_hash .. " old\n",
+      "script " .. release_hash .. " old\n",
     "probe script output did not match exactly")
 end
 
@@ -304,10 +304,10 @@ end
 --------------------------------------------------------------------------
 
 local function expect_contract_error(fixture_dir: string, work: string,
-    diagnostics: string, wrong_core: string, target_id: string,
-    configuration_id: string, offset: integer, length: integer,
-    digest: string, name: string, artifact_fd: string, core_fd: string,
-    pattern: string)
+                                     diagnostics: string, wrong_core: string, target_id: string,
+                                     configuration_id: string, offset: integer, length: integer,
+                                     digest: string, name: string, artifact_fd: string, core_fd: string,
+                                     pattern: string)
   local values = Fixture.environment({
     COSMIC_PORTABLE_ARTIFACT_FD = artifact_fd,
     COSMIC_PORTABLE_CORE_FD = core_fd,
@@ -426,7 +426,7 @@ local function test_runtime_corrupt_ranges(tmp: string)
       diagnostics, { COSMIC_PORTABLE_CACHE = cache })
 
     local probe = Fixture.call_with_environment("corrupt-probe-" ..
-      tostring(index),
+        tostring(index),
       { path, tool .. "/test/portable/tool.tl", "retained-prefix-probe",
         release_hash, "corrupt" }, tool, diagnostics,
       Fixture.environment({ COSMIC_PORTABLE_CACHE = cache }))
@@ -627,7 +627,7 @@ local function test_runtime_mismatch_after_select(tmp: string)
     -- loudly.
     assert(err:find("no tree to boot", 1, true) == nil,
       "mismatch-after-select: startup fell back to \"no tree to boot\" " ..
-      "instead of rejecting the mismatched replacement")
+        "instead of rejecting the mismatched replacement")
   end)
 end
 
@@ -659,9 +659,9 @@ local function test_runtime_timing(tmp: string)
     { COSMIC_PORTABLE_CACHE = driver_cache })
 
   assert(Fs.put(Fs.stderr, "portable runtime.release entry cold timing (" ..
-    tostring(runtime_bytes) .. " bytes): " ..
-    Fixture.small(cold.out, 256):gsub("\n", " ") .. "\n"))
+      tostring(runtime_bytes) .. " bytes): " ..
+      Fixture.small(cold.out, 256):gsub("\n", " ") .. "\n"))
   assert(Fs.put(Fs.stderr, "portable runtime.release entry warm timing (" ..
-    tostring(runtime_bytes) .. " bytes): " ..
-    Fixture.small(warm.out, 256):gsub("\n", " ") .. "\n"))
+      tostring(runtime_bytes) .. " bytes): " ..
+      Fixture.small(warm.out, 256):gsub("\n", " ") .. "\n"))
 end

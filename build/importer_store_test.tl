@@ -97,8 +97,8 @@ local function test_project_keeps_uses_of_bundled_symbols()
   assert(rows[1][3] == "main" and rows[1][4] == "6")
   local guidance = assert(Sqlite.text_rows(shipped,
     "SELECT coalesce(c.text, (SELECT d.text FROM docs d " ..
-    "WHERE d.module = c.module AND d.source_symbol = c.symbol)) " ..
-    "FROM catalog c WHERE c.module = 'main' AND c.symbol = 'Main.check'"))
+      "WHERE d.module = c.module AND d.source_symbol = c.symbol)) " ..
+      "FROM catalog c WHERE c.module = 'main' AND c.symbol = 'Main.check'"))
   assert(#guidance == 1 and guidance[1][1] == "Checks whether a path exists.")
   local databases: {Sqlite.Handle} = { shipped }
   for _, database in ipairs(Store.databases()) do
@@ -145,8 +145,8 @@ local function test_a_removed_field_names_its_replacement_at_compile_time()
   local result, compile_trouble = compile_fixture(root)
   assert(result == nil, "expected `os.getenv` to refuse the compile")
   assert(compile_trouble:find("thing.tl:2:10: unknown variable: os -- os.getenv is not " ..
-    'available: use Env.get(name) (local Env = require("cosmic.env"))' ..
-    " -- see also in docs: Removed.os", 1, true) ~= nil, compile_trouble)
+      'available: use Env.get(name) (local Env = require("cosmic.env"))' ..
+      " -- see also in docs: Removed.os", 1, true) ~= nil, compile_trouble)
 end
 
 --- The same hint, for a literal `require` of a removed name: tl
@@ -176,8 +176,8 @@ local function test_a_hint_names_what_the_tree_s_own_projection_documents()
   local projection = assert(Sqlite.open(root .. "/o/cosmic.db", { writable = true }))
   for _, statement in ipairs(schema.create("")) do assert(projection:exec(statement)) end
   assert(projection:exec("INSERT INTO docs (module, symbol, source_symbol, exported, " ..
-    "kind, signature, text, file, line) VALUES ('greeter', '', 'greeter', 1, " ..
-    "'module', '', 'Greets.', 'greeter.tl', 1)"))
+      "kind, signature, text, file, line) VALUES ('greeter', '', 'greeter', 1, " ..
+      "'module', '', 'Greets.', 'greeter.tl', 1)"))
   assert(projection:close())
   local result, compile_trouble = compile_fixture(root)
   assert(result == nil, "expected the undeclared name to refuse the compile")

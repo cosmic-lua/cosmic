@@ -186,17 +186,17 @@ end
 local function test_a_command_line_it_cannot_read_exits_2(tmp: string)
   local path = file(tmp)
   for _, words in ipairs({
-    { "--no-such-flag", path },
-    { "--exists", "--keys", path },
-    { "--keys", "--shape", path },
-    { "--exists", "-r", path },
-    { "--keys", "--compact", path },
-    { ".a", path, "extra" },
-    { "--flat", "--exists", path },
-    { "--flat", "-r", path },
-    { "--flat", "--compact", path },
-    { "--keys", "$.users[*]", path },
-    { "--shape", "$..id", path },
+      { "--no-such-flag", path },
+      { "--exists", "--keys", path },
+      { "--keys", "--shape", path },
+      { "--exists", "-r", path },
+      { "--keys", "--compact", path },
+      { ".a", path, "extra" },
+      { "--flat", "--exists", path },
+      { "--flat", "-r", path },
+      { "--flat", "--compact", path },
+      { "--keys", "$.users[*]", path },
+      { "--shape", "$..id", path },
   }) do
     local ran = run(words)
     assert(ran.code == 2 and ran.out == "", table.concat(words, " ") .. ": " .. ran.out)

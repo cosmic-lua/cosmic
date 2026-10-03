@@ -33,10 +33,10 @@ local function test_fix_links_alike_before_and_after_a_build(tmp: string)
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/other.tl", "local record other\nend\n\n--- Answers one.\n" ..
-    "function other.thing(): integer\n  return 1\nend\n\nreturn other\n"))
+      "function other.thing(): integer\n  return 1\nend\n\nreturn other\n"))
   assert(Fs.write(root .. "/a.tl", 'local Other = require("other")\n\n' ..
-    "--- Two, from [`Other.thing`] and `Other.thing`.\n" ..
-    "local function two(): integer\n  return Other.thing() + 1\nend\n\nreturn two\n"))
+      "--- Two, from [`Other.thing`] and `Other.thing`.\n" ..
+      "local function two(): integer\n  return Other.thing() + 1\nend\n\nreturn two\n"))
   local want = "fix: FAIL  a.tl:3: link: `Other.thing` would link to other.thing"
   local fresh = check(root)
   assert(fresh == want, "fresh:\n" .. fresh)
@@ -51,7 +51,7 @@ local function test_a_failed_build_still_checks_a_standard_librarys_members(tmp:
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/a.tl", 'local Fs = require("cosmic.fs")\n\n--- Reads with [`Fs.nosuch`].\n' ..
-    'local function f(): string return (Fs.read("x")) end\n\nreturn f\n'))
+      'local function f(): string return (Fs.read("x")) end\n\nreturn f\n'))
   assert(Fs.write(root .. "/b.tl", 'local x: integer = "no"\n\nreturn x\n'))
   local found = check(root)
   assert(found == "fix: FAIL  a.tl:3: link: Fs.nosuch does not resolve (cosmic.fs has no nosuch)",

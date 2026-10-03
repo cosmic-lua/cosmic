@@ -19,10 +19,10 @@ local function test_child_timeout_retains_diagnostics(tmp: string)
   assert(diagnostic:find("timed_out=true", 1, true),
     "fixture timeout diagnostic omitted its verdict")
   assert(diagnostic:find("stdout=" .. diagnostics .. "/timeout.out", 1, true) and
-    diagnostic:find("stderr=" .. diagnostics .. "/timeout.err", 1, true),
+      diagnostic:find("stderr=" .. diagnostics .. "/timeout.err", 1, true),
     "fixture timeout diagnostic omitted its retained log paths")
   assert(Fixture.small(diagnostics .. "/timeout.out", 1024) ==
-    "before timeout\n", "fixture timeout output was not retained")
+      "before timeout\n", "fixture timeout output was not retained")
   assert(assert(Fs.stat(diagnostics .. "/timeout.err")).kind == "file",
     "fixture timeout stderr was not retained")
 end
@@ -34,7 +34,7 @@ local function test_target_records_are_exact(tmp: string)
   Fixture.write(path, valid)
   local targets = Fixture.targets(path)
   assert(#targets == 2 and targets[1].id == 1 and targets[2].id == 1 and
-    targets[1].configuration == 1 and targets[2].configuration == 2)
+      targets[1].configuration == 1 and targets[2].configuration == 2)
   local invalid: {string:string} = {
     extra = "1\t1\trelease\tone\tLinux\tx86_64\textra\n",
     unterminated = "1\t1\trelease\tone\tLinux\tx86_64",
@@ -77,7 +77,7 @@ local function test_a_fixtures_children_take_no_shared_compiles()
   assert(Fixture.environment().COSMIC_BUILD_CACHE == "0",
     "a fixture's child takes the fixture's shared compiles")
   assert(Fixture.environment({ COSMIC_BUILD_CACHE = "/elsewhere.db" }).COSMIC_BUILD_CACHE ==
-    "/elsewhere.db", "a fixture cannot give its child a cache")
+      "/elsewhere.db", "a fixture cannot give its child a cache")
 end
 
 --- A `cosmic test` a fixture's child runs does not sandbox its workers,
@@ -90,6 +90,6 @@ local function test_a_fixtures_children_run_cosmic_test_unsandboxed()
     "a fixture's child sandboxes the workers of a cosmic test it runs")
   assert(child.COSMIC_SANDBOX == "must" and sandboxed.COSMIC_TEST_SANDBOX == "1")
   assert(Fixture.environment_of(sandboxed, { COSMIC_TEST_SANDBOX = "1" }).COSMIC_TEST_SANDBOX ==
-    "1", "a fixture cannot choose its child's sandbox")
+      "1", "a fixture cannot choose its child's sandbox")
   assert(Fixture.environment().COSMIC_TEST_SANDBOX == "0")
 end

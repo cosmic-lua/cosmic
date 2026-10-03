@@ -101,6 +101,6 @@ local function test_needs_is_called_once_while_the_module_loads(tmp: string)
   assert(#lines == 3, said)
   assert(lines[1] == "handed data/ 127.0.0.1 false", said)
   assert(lines[2]:match("^false needs is called once, and .*script%.tl:15 called it already; " ..
-    "a test module never requires another that calls it$") ~= nil, said)
+      "a test module never requires another that calls it$") ~= nil, said)
   assert(lines[3] == "false needs is called at the top of a test module, while it loads", said)
 end

@@ -106,7 +106,7 @@ local function names_by_hash(db: Sqlite.Handle,
                              table_name: string): {string:{string}} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT source_hash, name FROM " .. table_name ..
-    " ORDER BY source_hash, ordinal")
+      " ORDER BY source_hash, ordinal")
   if rows == nil then
     return nil, trouble
   end
@@ -134,8 +134,8 @@ end
 --- are content-addressed when a project imports them. Each module's
 --- [`Keys`], by path.
 function compilation.dependency_keys(db: Sqlite.Handle, modules: {Module},
-                               built: compiler,
-                               tool: string): {string:Keys} | nil, string
+                                     built: compiler,
+                                     tool: string): {string:Keys} | nil, string
   local requires, requires_trouble = names_by_hash(db, "requires")
   if requires == nil then
     return nil, requires_trouble
@@ -143,7 +143,7 @@ function compilation.dependency_keys(db: Sqlite.Handle, modules: {Module},
   local dependencies: {string:Dependency} = {}
   local rows, rows_trouble = Sqlite.text_rows(db,
     "SELECT path, kind, source_hash FROM inputs WHERE kind <> 'vendor' " ..
-    "ORDER BY path, kind = 'decl' DESC")
+      "ORDER BY path, kind = 'decl' DESC")
   if rows == nil then
     return nil, rows_trouble
   end
@@ -269,8 +269,8 @@ end
 function compilation.collect(db: Sqlite.Handle): {Module} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT i.path, i.file, i.kind, i.origin, i.source, i.source_hash, " ..
-    "p.has_return FROM inputs i JOIN parsed p ON p.source_hash = i.source_hash " ..
-    "WHERE i.kind NOT IN ('decl', 'vendor') ORDER BY i.path")
+      "p.has_return FROM inputs i JOIN parsed p ON p.source_hash = i.source_hash " ..
+      "WHERE i.kind NOT IN ('decl', 'vendor') ORDER BY i.path")
   if rows == nil then
     return nil, trouble
   end
@@ -484,8 +484,8 @@ end
 --- [`Shape.record_of`] call resolved first, [`build.shape_specs`]), the test
 --- tail when it is a test, and the bytecode.
 function compilation.generate(m: Module, built: compiler, env: compiler.Env,
-                        typed: receivers.State, own_tree: boolean, judged: boolean,
-                        render: function(string, string, compiler.Result): string): compilation.Generated | nil, string
+                              typed: receivers.State, own_tree: boolean, judged: boolean,
+                              render: function(string, string, compiler.Result): string): compilation.Generated | nil, string
   local source, spec_trouble = shape_specs.resolve(built, env, m.file, m.path, m.source)
   if source == nil then
     return nil, spec_trouble
@@ -538,7 +538,7 @@ end
 --- the compile itself, replacing whatever an earlier compile under the
 --- same key left.
 function compilation.keep_references(db: Sqlite.Handle, key: string,
-                               references: {receivers.Reference}): boolean, string
+                                     references: {receivers.Reference}): boolean, string
   local ok, why = Sqlite.run(db, "DELETE FROM typed_refs WHERE key = ?1", { text(key) })
   if not ok then
     return false, why
@@ -546,7 +546,7 @@ function compilation.keep_references(db: Sqlite.Handle, key: string,
   for ordinal, entry in ipairs(references) do
     ok, why = Sqlite.run(db,
       "INSERT INTO typed_refs (key, ordinal, module, member, line) " ..
-      "VALUES (?1, ?2, ?3, ?4, ?5)",
+        "VALUES (?1, ?2, ?3, ?4, ?5)",
       { text(key), { integer = ordinal }, text(entry.module), text(entry.member),
         { integer = entry.line } })
     if not ok then

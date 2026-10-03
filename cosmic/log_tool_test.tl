@@ -35,6 +35,6 @@ log:verdict("build", false)
 log:verdict("fix", true, "")
 ]])
   assert(out == "found 2\nrm: FAIL (no such note)\nls: PASS (2 notes, 3 ms)\n" ..
-    "build: FAIL\nfix: PASS\n", out)
+      "build: FAIL\nfix: PASS\n", out)
   assert(err == "notes: no such note: 9\n", err)
 end

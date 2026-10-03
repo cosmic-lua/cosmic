@@ -203,7 +203,7 @@ end
 --- @param x integer
 --- @return boolean
 local function is_close_bracket_at(tokens: {compiler.Token},
-    y: integer, x: integer): boolean
+                                   y: integer, x: integer): boolean
   for _, t in ipairs(tokens) do
     if t.y == y and t.x == x then
       return t.tk == ")" or t.tk == "]" or t.tk == "}"

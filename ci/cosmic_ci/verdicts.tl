@@ -159,7 +159,7 @@ local function merge_file(from: string, into: string): string, string
       globs[#globs + 1] = "name GLOB '" .. pattern .. "'"
     end
     local names, trouble = Sqlite.text_rows(db, "SELECT name, sql FROM ahead.sqlite_schema " ..
-      "WHERE type = 'table' AND (" .. table.concat(globs, " OR ") .. ") ORDER BY name")
+        "WHERE type = 'table' AND (" .. table.concat(globs, " OR ") .. ") ORDER BY name")
     if names == nil then return false, trouble end
     for _, row in ipairs(names) do
       local name, sql = row[1], row[2]
@@ -179,7 +179,7 @@ local function merge_file(from: string, into: string): string, string
           local made, made_trouble = db:exec(sql)
           if not made then return false, made_trouble end
           local indexes, index_trouble = Sqlite.text_rows(db, "SELECT sql FROM ahead.sqlite_schema " ..
-            "WHERE type = 'index' AND tbl_name = ?1 AND sql IS NOT NULL ORDER BY name", { { text = name } })
+              "WHERE type = 'index' AND tbl_name = ?1 AND sql IS NOT NULL ORDER BY name", { { text = name } })
           if indexes == nil then return false, index_trouble end
           for _, index in ipairs(indexes) do
             if index[1]:sub(1, 13) == "CREATE INDEX " then
@@ -200,8 +200,8 @@ local function merge_file(from: string, into: string): string, string
         -- a store's writer made two stores of it. Ours is kept.
         if #ours > 0 and name:match("^stores_v%d+$") then
           local other, other_trouble = counted(db, "SELECT count(*) FROM main." .. q ..
-            " AS m JOIN ahead." .. q .. " AS a ON a.address = m.address " ..
-            "WHERE a.digest <> m.digest")
+              " AS m JOIN ahead." .. q .. " AS a ON a.address = m.address " ..
+              "WHERE a.digest <> m.digest")
           if other == nil then return false, other_trouble end
           if other > 0 then
             differing[#differing + 1] = Plural.count(other, "address", "addresses") .. " of " .. name
@@ -210,8 +210,8 @@ local function merge_file(from: string, into: string): string, string
         local before, before_trouble = counted(db, "SELECT count(*) FROM main." .. q)
         if before == nil then return false, before_trouble end
         local inserted, insert_trouble = Sqlite.run(db, "INSERT OR IGNORE INTO main." .. q ..
-          " (" .. table.concat(list, ", ") .. ") SELECT " .. table.concat(values, ", ") ..
-          " FROM ahead." .. q)
+            " (" .. table.concat(list, ", ") .. ") SELECT " .. table.concat(values, ", ") ..
+            " FROM ahead." .. q)
         if not inserted then return false, insert_trouble end
         local after, after_trouble = counted(db, "SELECT count(*) FROM main." .. q)
         if after == nil then return false, after_trouble end

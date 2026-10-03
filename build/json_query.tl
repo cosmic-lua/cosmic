@@ -129,7 +129,7 @@ local function descend(value: any, path: {string | integer}): Reached
     if step_value is integer then
       if not (here is {any:any}) or Json.layout(here) ~= "array" then
         return { err = at .. ": expected an array to look up " .. json_query.child_path("", step_value) ..
-          ", got " .. shape_kind(here), at = at }
+            ", got " .. shape_kind(here), at = at }
       end
       local size = rawlen(here)
       if step_value > size and Json.is_array(here) then
@@ -146,14 +146,14 @@ local function descend(value: any, path: {string | integer}): Reached
         found = here[step_value]
       elseif not (here is {any:any}) or Json.layout(here) ~= "object" then
         return { err = at .. ": expected an object to look up " .. Json.quote(step_value) ..
-          ", got " .. shape_kind(here), at = at }
+            ", got " .. shape_kind(here), at = at }
       else
         found = here[step_value]
       end
       if found == nil then
         if here is {any:any} and Json.layout(here) ~= "object" then
           return { err = at .. ": expected an object to look up " .. Json.quote(step_value) ..
-            ", got " .. shape_kind(here), at = at }
+              ", got " .. shape_kind(here), at = at }
         end
         return { err = at .. ": no key " .. Json.quote(step_value), at = at }
       end
@@ -304,7 +304,7 @@ local function read_steps(text: string, wild: boolean): {json_query.Step} | nil,
       if name == "*" then
         if not wild then
           return refuse(begin, "`*` (a wildcard) is a pattern, not a path; " ..
-            'a key named * is `["*"]`')
+              'a key named * is `["*"]`')
         end
         any = true
       else
@@ -375,7 +375,7 @@ local function read_steps(text: string, wild: boolean): {json_query.Step} | nil,
         if text:sub(at + 1, at + 2) == "*]" then
           if not wild then
             return refuse(begin, "`[*]` (a wildcard) is a pattern, not a path; " ..
-              'a key named * is `["*"]`')
+                'a key named * is `["*"]`')
           end
           any = true
           at = at + 3

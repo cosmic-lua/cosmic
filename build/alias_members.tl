@@ -79,8 +79,8 @@ end
 --- through the module `module` binds `name` to: the one that module
 --- exports as `Member`. Nil when it names none, or nil and why.
 local function bound_type<T is alias_members.Declared>(source: alias_members.Source<T>,
-                                                             module: string,
-                                                             reference: string): T | nil, string
+                                                       module: string,
+                                                       reference: string): T | nil, string
   local stem, rest = reference:match("^([%w_]+)%.([%w_%.]+)$")
   if stem == nil then
     return nil
@@ -106,8 +106,8 @@ end
 --- innermost first, then at the top. Neither field set when it names
 --- none; nil and why when `source` cannot be read.
 local function scoped<T is alias_members.Declared>(source: alias_members.Source<T>,
-                                                     module: string, written: string,
-                                                     reference: string): Scoped<T> | nil, string
+                                                   module: string, written: string,
+                                                   reference: string): Scoped<T> | nil, string
   local stem = reference:match("^([%w_]+)%.")
   local scope = written:match("^(.*)%.[^.]*$") or ""
   while true do
@@ -147,8 +147,8 @@ end
 --- module. Nil when it names none, or past `DEPTH` aliases, which a
 --- cycle of them reaches; nil and why when `source` cannot be read.
 function alias_members.resolved<T is alias_members.Declared>(source: alias_members.Source<T>,
-                                                           from: T,
-                                                           reference: string): T | nil, string
+                                                             from: T,
+                                                             reference: string): T | nil, string
   local depth = 0
   while true do
     local named, named_trouble = scoped(source, from.module, from.source_symbol, reference)
@@ -187,7 +187,7 @@ end
 --- the owner's own member (`Handle.close` of [`cosmic.sqlite`] for the
 --- `close` of the record its `Handle` aliases).
 function alias_members.named<T is alias_members.Declared>(source: alias_members.Source<T>,
-                                                        owners: {T}, name: string): {T} | nil, string
+                                                          owners: {T}, name: string): {T} | nil, string
   local out: {T} = {}
   for _, owner in ipairs(owners) do
     for _, reference in ipairs(alias_members.references(owner)) do

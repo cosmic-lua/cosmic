@@ -479,7 +479,7 @@ local function test_copy_tree_names_why_a_target_cannot_be_made(tmp: string)
   assert(Fs.write(tmp .. "/file", "f"))
   local copied, trouble = Fs.copy_tree(tmp .. "/file", tmp .. "/file/x")
   assert(not copied and not trouble:find("already exists", 1, true) and
-    trouble:find(tmp .. "/file/x", 1, true), trouble)
+      trouble:find(tmp .. "/file/x", 1, true), trouble)
 end
 
 local function test_copy_tree_drops_setuid_and_setgid(tmp: string)

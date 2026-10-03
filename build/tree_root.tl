@@ -71,7 +71,7 @@ local function staged(root: string, path: string): boolean | nil, string
   local db, open_trouble = Sqlite.open(file)
   if db == nil then return nil, open_trouble end
   local rows, trouble = Sqlite.rows(db, "SELECT 1 FROM files WHERE path = ?1 OR " ..
-    "substr(path, 1, length(?2)) = ?2 LIMIT 1", { { text = path }, { text = path .. "/" } })
+      "substr(path, 1, length(?2)) = ?2 LIMIT 1", { { text = path }, { text = path .. "/" } })
   local _, _ = db:close()
   if rows == nil then return nil, file .. ": " .. trouble end
   return #rows > 0
@@ -156,8 +156,8 @@ end
 --- @param home the home directory, or nil for none, where the climb ends
 --- @param named `COSMIC_TREE`, or nil: the root, `.` for the working directory
 function tree_root.move(argv: {integer:string},
-    options: {string:boolean | Flags.Option}, home: string | nil,
-    named?: string): tree_root.Answer
+                        options: {string:boolean | Flags.Option}, home: string | nil,
+                        named?: string): tree_root.Answer
   local kind = paths[argv[1]]
   if kind == nil then return { refused = "", note = "" } end
   local from, _ = Fs.absolute(".")

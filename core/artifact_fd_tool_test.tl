@@ -108,8 +108,8 @@ local function test_a_change_through_the_artifact_descriptor_changes_nothing(tmp
   assert(Hash.hex_sha256((assert(Fs.read(copy)))) == digest and after.size == before.size,
     "a change through the descriptor wrote the artifact:\n" .. tostring(result.stdout))
   assert(after.mode == before.mode and after.mtime == before.mtime and
-    after.mtime_ns == before.mtime_ns, "a change through the descriptor reached the " ..
-    "artifact's mode or times:\n" .. tostring(result.stdout))
+      after.mtime_ns == before.mtime_ns, "a change through the descriptor reached the " ..
+      "artifact's mode or times:\n" .. tostring(result.stdout))
   local out = tostring(result.stdout)
   for _, what in ipairs({ "write", "read-write", "create", "truncate", "chmod" }) do
     assert(out:find(what .. " " .. sys.EACCES .. "\n", 1, true) ~= nil,
@@ -226,16 +226,16 @@ local function test_a_link_swapped_after_the_check_changes_nothing(tmp: string)
   local fds = { [slot] = opened, [core_slot] = relaunch.fds[core_slot] }
   local flipping = assert(Child.start({ relaunch.argv[1], "--artifact", copy, "-e",
     filled(flipper, values) }, { env = env, fds = fds, stdin = "stream", stdout = "stream",
-    stderr = "capture" }))
+      stderr = "capture" }))
   local said = Stream.lines(assert(flipping.stdout_stream)):read()
   if said ~= "flipping" then
     local ended, why = flipping:wait(Time.seconds(2))
     error("the flipper did not start: " .. tostring(said) .. "\n" ..
-      (ended ~= nil and tostring(ended.stderr) or why))
+        (ended ~= nil and tostring(ended.stderr) or why))
   end
   local result = assert(Child.run({ relaunch.argv[1], "--artifact", copy, "-e",
     filled(caller, values) }, { env = env, fds = fds, stdout = "capture", stderr = "capture",
-    timeout_ns = Time.seconds(7) }))
+      timeout_ns = Time.seconds(7) }))
   if not Fs.exists(stop) then assert(Fs.write(stop, "")) end
   local flipped = assert(flipping:wait())
   assert(sys.close(opened))

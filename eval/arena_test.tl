@@ -25,9 +25,9 @@ local function test_an_arena_holds_the_binary_the_task_and_their_hashes(dir: str
   assert(assert(Fs.stat(arena .. "/bin/cosmic")).mode & 0x1ff == 0x1ed)
   assert(Fs.is_dir(arena .. "/tmp"))
   assert(Fs.read(arena .. "/inputs.sha256") ==
-    Hash.hex_sha256("#!/bin/sh\n") .. "  bin/cosmic\n" ..
-    Hash.hex_sha256("# Task\n## Journal\n") .. "  project/TASK.md\n" ..
-    Hash.hex_sha256(Arena.prompt(arena)) .. "  PROMPT.md\n")
+      Hash.hex_sha256("#!/bin/sh\n") .. "  bin/cosmic\n" ..
+      Hash.hex_sha256("# Task\n## Journal\n") .. "  project/TASK.md\n" ..
+      Hash.hex_sha256(Arena.prompt(arena)) .. "  PROMPT.md\n")
 end
 
 local function test_an_arena_must_be_new(dir: string)

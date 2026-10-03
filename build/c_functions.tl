@@ -229,7 +229,7 @@ function c_functions.tally(functions: {Coverage.Function}, hits: Coverage.Hits,
   end
   table.sort(keys)
   local tally: c_functions.Tally = { unentered = {}, entered = 0, exempted = 0,
-                                     total = #keys, stale = {} }
+    total = #keys, stale = {} }
   for _, key in ipairs(keys) do
     if entered[key] then
       tally.entered = tally.entered + 1

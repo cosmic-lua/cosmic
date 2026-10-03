@@ -442,7 +442,7 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
       flow_files = workflows
     end
     return { files = all, c_files = c_files, flow_files = flow_files, checked = checked,
-             refused = {}, whole = own }
+      refused = {}, whole = own }
   end
   local out: {string} = {}
   local c_out: {string} = {}
@@ -502,7 +502,7 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
     end
   end
   return { files = out, c_files = c_out, flow_files = flow_out, checked = checked_out,
-           refused = refused, whole = own and covers(root, out) }
+    refused = refused, whole = own and covers(root, out) }
 end
 
 --- The modules whose code checks each file alone, with every module
@@ -519,9 +519,9 @@ end
 --- whole -- the build, the tree checks, the links -- is not among them:
 --- such a run makes those checks over the whole tree anyway.
 local file_checks: {string} = { "build.fix.rule", "build.fix.render", "build.fix.breaks",
-                                "build.fix.equiv", "build.ast", "build.teal", "build.flow", "build.c",
-                                "build.fix.near", "build.analyzer", "build.verdict",
-                                "build.tree", "cosmic.flags", "cosmic.cli" }
+  "build.fix.equiv", "build.ast", "build.teal", "build.flow", "build.c",
+  "build.fix.near", "build.analyzer", "build.verdict",
+  "build.tree", "cosmic.flags", "cosmic.cli" }
 
 --- What else a run of `--changed` lays out the whole tree for, by a
 --- path's first directory, and why: what the program, its Teal compiler
@@ -624,8 +624,8 @@ function fix.narrowed(root: string, every: fix.Chosen, changed: {string},
                       databases: {Sqlite.Handle}): fix.Chosen
   local function widened(why: string): fix.Chosen
     return { files = every.files, c_files = every.c_files, flow_files = every.flow_files,
-             checked = every.checked, refused = every.refused, whole = every.whole,
-             every = every, widened = why }
+      checked = every.checked, refused = every.refused, whole = every.whole,
+      every = every, widened = why }
   end
   local named: {string} = {}
   for _, path in ipairs(changed) do
@@ -675,7 +675,7 @@ function fix.narrowed(root: string, every: fix.Chosen, changed: {string},
     if not tree_checks.standard(under(root, file) or file) then noted[#noted + 1] = file end
   end
   return { files = files, c_files = c_files, flow_files = picked(every.flow_files),
-           checked = {}, refused = {}, whole = every.whole, every = every, noted = noted }
+    checked = {}, refused = {}, whole = every.whole, every = every, noted = noted }
 end
 
 --- Lays out each YAML file of `files` ([`build.flow`]), writing it back
@@ -951,8 +951,8 @@ local function fix_verb(argv: {integer:string}): integer
       log:say("fix: --changed: laying out the whole tree, since " .. picked.widened)
     else
       log:say("fix: --changed: laying out " .. plural.count(#picked.files + #picked.c_files +
-        #picked.flow_files, "file") .. " of the paths named; the checks spanning files " ..
-        "cover the whole tree")
+          #picked.flow_files, "file") .. " of the paths named; the checks spanning files " ..
+          "cover the whole tree")
     end
   end
   -- What the checks spanning files cover: a run of `--changed` lays out
@@ -1301,11 +1301,11 @@ local function fix_verb(argv: {integer:string}): integer
   end
   if checking and #changed > 0 then
     log:verdict("fix", false, #changed .. " of " .. plural.count(counted, "file") .. " to fix, " ..
-      clock.took(started) .. "; `cosmic fix` rewrites them in place")
+        clock.took(started) .. "; `cosmic fix` rewrites them in place")
     return 1
   end
   log:verdict("fix", true, plural.count(counted, "file") .. ", " .. #changed ..
-    (checking and " to fix, " or " fixed, ") .. clock.took(started))
+      (checking and " to fix, " or " fixed, ") .. clock.took(started))
   return 0
 end
 

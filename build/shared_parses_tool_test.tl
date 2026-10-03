@@ -141,7 +141,7 @@ end
 --- The line `cosmic docs` gives `symbol` of the checkout at `root`.
 local function doc_line(root: string, symbol: string): string
   return dump(root .. "/o/build.db", "SELECT d.line FROM docs d JOIN inputs i " ..
-    "ON i.source_hash = d.source_hash WHERE d.symbol = '" .. symbol .. "'")
+      "ON i.source_hash = d.source_hash WHERE d.symbol = '" .. symbol .. "'")
 end
 
 local function test_a_second_checkout_parses_nothing_the_first_parsed(tmp: string)
@@ -151,7 +151,7 @@ local function test_a_second_checkout_parses_nothing_the_first_parsed(tmp: strin
   built_as(tmp .. "/first", env, "(4 compiled, 0 cached; 4 sources parsed;")
   checkout(tmp .. "/second")
   built_as(tmp .. "/second", env, "(0 compiled, 4 cached, 4 of them taken from another " ..
-    "checkout; 0 sources parsed, 4 taken from another checkout;")
+      "checkout; 0 sources parsed, 4 taken from another checkout;")
   -- What each checkout keeps of a parse, and what its projection makes
   -- of it -- docs, uses, the catalog, examples, tests -- are the same.
   local first, second = parse_rows_of(tmp .. "/first"), parse_rows_of(tmp .. "/second")
@@ -232,7 +232,7 @@ local function test_a_damaged_parse_is_parsed_again_and_replaced(tmp: string)
   local cache = assert(Sqlite.open(path, { writable = true }))
   -- `b`'s rows become `c`'s, and `c`'s become no stream at all.
   assert(Sqlite.run(cache, "UPDATE parsed_v1 SET rows = (SELECT rows FROM parsed_v1 " ..
-    "WHERE source_hash = ?2) WHERE source_hash = ?1", { { text = b_hash }, { text = c_hash } }))
+      "WHERE source_hash = ?2) WHERE source_hash = ?1", { { text = b_hash }, { text = c_hash } }))
   assert(Sqlite.run(cache, "UPDATE parsed_v1 SET rows = x'deadbeef' WHERE source_hash = ?1",
     { { text = c_hash } }))
   assert(cache:close())

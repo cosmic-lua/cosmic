@@ -40,7 +40,7 @@ local function test_mistakes_are_refused_with_why()
   for _, next_word in ipairs({ "--check", "--" }) do
     local got, why = Flags.parse({ "x", "--jobs", next_word }, 2, spec)
     assert(got == nil and why == "--jobs needs a value, not " .. next_word ..
-      "; give one that begins with \"-\" as --jobs=" .. next_word, why)
+        "; give one that begins with \"-\" as --jobs=" .. next_word, why)
   end
   for _, case in ipairs(cases) do
     local got, why = Flags.parse({ "x", case[1] }, 2, spec)
@@ -119,11 +119,11 @@ local function test_a_value_is_never_a_word_that_looks_like_an_option()
   for _, next_word in ipairs({ "-v", "-vq", "--", "-n4", "-x", "--chek", "--check=1" }) do
     local got, why = Flags.parse({ "-n", next_word }, 1, short)
     assert(got == nil and why == "-n needs a value, not " .. next_word ..
-      "; give one that begins with \"-\" as -n" .. next_word, why)
+        "; give one that begins with \"-\" as -n" .. next_word, why)
   end
   local got, why = Flags.parse({ "x", "--jobs", "--chek" }, 2, spec)
   assert(got == nil and why == "--jobs needs a value, not --chek; " ..
-    "give one that begins with \"-\" as --jobs=--chek", why)
+      "give one that begins with \"-\" as --jobs=--chek", why)
   for _, number in ipairs({ "-1", "-0.5", "-1e3", "-0x10" }) do
     assert(assert(Flags.parse({ "-n", number }, 1, short)).values["-n"] == number)
   end
@@ -174,7 +174,7 @@ local function test_help_of_a_command_says_options_where_its_usage_is_unwritten(
   local lines = "\n\noptions:\n  -v  say more"
   assert(Flags.help({ spec = described }, "prog run") == "usage: prog run [options]" .. lines)
   assert(Flags.help({ spec = described, usage = "<file>" }, "prog run") ==
-    "usage: prog run <file>" .. lines)
+      "usage: prog run <file>" .. lines)
   assert(Flags.help({ spec = described, usage = "" }, "prog run") == "usage: prog run" .. lines)
   assert(Flags.help({ about = "Runs." }, "prog run") == "usage: prog run\n\nRuns.")
   assert(not pcall(Flags.help, {}, ""))
@@ -268,8 +268,8 @@ local function test_dispatch_answers_help_rather_than_running()
     assert(done ~= nil and done.code == 0 and done.help == program_help, why)
   end
   for _, argv in ipairs({
-    { "help", "build" }, { "build", "--help" }, { "build", "-j", "2", "-h" },
-    { "build", "--nope", "--help" },
+      { "help", "build" }, { "build", "--help" }, { "build", "-j", "2", "-h" },
+      { "build", "--nope", "--help" },
   }) do
     local done = assert(Flags.dispatch(argv, 1, help_commands, "prog"))
     assert(done.code == 0 and done.help == build_help, done.help)

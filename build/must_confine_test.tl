@@ -217,16 +217,16 @@ end
   assert(failure(text, "test_passed_over") == refused, text)
   local raised = assert(failure(text, "test_raised_too"))
   assert(String.starts_with(raised, refused .. "; and then: ") and
-    raised:find("its own failure$"), text)
+      raised:find("its own failure$"), text)
   assert(assert(failure(text, "test_too_many")):find("^must_confine: bin/probe could not start " ..
-    "confined: unveil could not be applied: %d+ paths, more than the 256 a sandbox unveils " ..
-    "%(EINVAL%)$"), text)
+      "confined: unveil could not be applied: %d+ paths, more than the 256 a sandbox unveils " ..
+      "%(EINVAL%)$"), text)
   assert(assert(failure(text, "test_pledged_alone")):find("^must_confine: bin/probe could not " ..
-    "start confined: unveil and offline could not be applied: a sandbox of its own that does " ..
-    "not unveil and take the network, which must_confine does not add to %(EINVAL%)$"), text)
+      "start confined: unveil and offline could not be applied: a sandbox of its own that does " ..
+      "not unveil and take the network, which must_confine does not add to %(EINVAL%)$"), text)
   assert(assert(failure(text, "test_stale")):find("^must_confine: bin/probe could not start " ..
-    "confined: unveil and offline could not be applied: started through a spawn taken " ..
-    "while an earlier stand%-in ran %(EINVAL%)$"), text)
+      "confined: unveil and offline could not be applied: started through a spawn taken " ..
+      "while an earlier stand%-in ran %(EINVAL%)$"), text)
 end
 
 --- Where the kernel confines a process, one under `must_confine` runs
@@ -277,7 +277,7 @@ end
   end
   local why = text:match("FAIL  suite%.real_test test_confined: ([^\n]*)")
   assert(why ~= nil and why:find("^must_confine: %S*bin/probe could not start confined: .+ could " ..
-    "not be applied: .+ %(E[A-Z0-9]+%)$"), text)
+      "not be applied: .+ %(E[A-Z0-9]+%)$"), text)
   if unsandboxed(text) then return end
   sandbox_skip.refused("a sandboxed worker could not confine what it started: " .. why)
 end
@@ -321,7 +321,7 @@ end
   text, ok = run(root, tmp .. "/must", environment("must"))
   assert(not ok, text)
   assert(text:find("FAIL  suite%.fallback_test test_falls_back: confine %(COSMIC_SANDBOX=must%): " ..
-    "%S*bin/probe could not start confined: unveil could not be applied: "), text)
+      "%S*bin/probe could not start confined: unveil could not be applied: "), text)
   text, ok = run(root, tmp .. "/misspelt", environment("Must"))
   assert(not ok and text:find('COSMIC_SANDBOX is "Must"', 1, true), text)
 end
@@ -401,8 +401,8 @@ end
   env.COSMIC_TEST_SANDBOX = nil
   text, ok = run(root, tmp .. "/nested", env)
   assert(not ok and text:find("test: this run was started in suite.outer_test's worker, " ..
-    "which a Landlock ruleset holds", 1, true) and
-    text:find("declare nests = true in its Test.needs", 1, true), text)
+      "which a Landlock ruleset holds", 1, true) and
+      text:find("declare nests = true in its Test.needs", 1, true), text)
   -- Sandboxed, its own worker is held so.
   env[confine.held_variable] = nil
   text, ok = run(root, tmp .. "/sandboxed", env, { "--all" })

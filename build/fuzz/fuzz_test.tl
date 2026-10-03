@@ -217,7 +217,7 @@ local function test_a_report_says_how_to_keep_the_input(tmp: string)
     end,
   })
   assert(err:find("mkdir -p testdata/fuzz/keep-me && cp " .. tmp .. "/keep-me.input " ..
-    "testdata/fuzz/keep-me/6e340b9cffb37a98.input", 1, true), err)
+      "testdata/fuzz/keep-me/6e340b9cffb37a98.input", 1, true), err)
 end
 
 -- Labels count what the drawn inputs reached; a required label no input
@@ -235,7 +235,7 @@ local function test_a_required_label_no_input_reached_fails_the_run(tmp: string)
   local err = report({ name = "never long", dir = tmp, iters = 64, gen = any_bytes, check = check,
     requires = { "checked", "long" } })
   assert(err == 'fuzz never long: seed=1: no input of 64 reached "long", which the ' ..
-    "property requires: its inputs do not exercise what it is meant to", err)
+      "property requires: its inputs do not exercise what it is meant to", err)
   assert(not Fs.exists(tmp .. "/never-long.input"))
 end
 
@@ -252,7 +252,7 @@ local function test_a_label_under_its_required_share_fails_the_run(tmp: string)
   local err = report({ name = "too rare", dir = tmp, iters = 64, gen = any_bytes, check = check,
     shares = { ["a quarter"] = 0.6 } })
   assert(err:find('^fuzz too rare: seed=1: %d+ inputs of 64 reached "a quarter", under the share of 0.6 ' ..
-    "the property requires: its inputs exercise it too rarely$"), err)
+      "the property requires: its inputs exercise it too rarely$"), err)
   assert(not Fs.exists(tmp .. "/too-rare.input"))
 end
 
@@ -367,7 +367,7 @@ local function test_a_check_that_fails_once_is_reported_flaky()
       return false, "the first time"
     end })
   assert(err:find("fuzz once: seed=1 iteration=1: flaky: failed (the first time), then held " ..
-    "when the same input was checked again", 1, true), err)
+      "when the same input was checked again", 1, true), err)
   assert(not err:find("shrunk", 1, true), err)
 end
 

@@ -54,7 +54,7 @@ local function test_a_skipped_test_is_counted_and_runs_every_time(tmp: string)
   local out, code = run(root, {})
   assert(code == 0, out)
   assert(out:find("(2 tests, 1 module; 2 ran, 0 stood, 1 skipped (this host could not " ..
-    "check it), ", 1, true), out)
+      "check it), ", 1, true), out)
   -- Each reason once.
   assert(out:find("test: SKIP  skip_test test_skips: this host cannot\n", 1, true), out)
   -- No verdict is kept of it: the pass stands on its declared key, the
@@ -71,7 +71,7 @@ local function test_a_run_held_to_sandboxing_fails_a_skipped_test(tmp: string)
     local out, code = run(project(tmp .. "/" .. tostring(i)), held)
     assert(code ~= 0, out)
     assert(out:find("test: FAIL  skip_test test_skips: skipped (this host cannot), but the " ..
-      "run is held to sandboxing", 1, true), out)
+        "run is held to sandboxing", 1, true), out)
     assert(out:find("test: FAIL (1 of 2 failed, ", 1, true), out)
     assert(not out:find("test: SKIP", 1, true), out)
   end
@@ -95,5 +95,5 @@ local function test_requires_noexec() error("must not execute") end
   local out, code = run(root, { COSMIC_SANDBOX = "must" })
   assert(code ~= 0, out)
   assert(out:find("skipped (noexec scratch requires a Linux filesystem sandbox), but the " ..
-    "run is held to sandboxing", 1, true), out)
+      "run is held to sandboxing", 1, true), out)
 end

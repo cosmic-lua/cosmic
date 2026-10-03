@@ -105,9 +105,9 @@ end
 
 local function test_only_rfc_8259_is_read()
   for _, text in ipairs({
-    "[1,]", '{"a":1,}', "// c\n1", "/* c */ 1", "NaN", "Infinity", "-Infinity",
-    "'s'", "{a:1}", "0x10", "+1", ".5", "1.", "01", '"\\x41"', '"\\a"',
-    '"tab\tinside"', "\239\187\191{}", "[1] [2]", "tru", "nul",
+      "[1,]", '{"a":1,}', "// c\n1", "/* c */ 1", "NaN", "Infinity", "-Infinity",
+      "'s'", "{a:1}", "0x10", "+1", ".5", "1.", "01", '"\\x41"', '"\\a"',
+      '"tab\tinside"', "\239\187\191{}", "[1] [2]", "tru", "nul",
   }) do
     decode_failure(text)
   end
@@ -245,9 +245,9 @@ local function test_duplicate_keys_are_refused()
   assert(decode_failure('{"a b": 1, "a b": 2}') == 'json: duplicate key at line 1, column 12 ($["a b"])',
     "a key that is no word is quoted")
   assert(decode_failure("{a: 1, 'b': 2, a: 3}", { json5 = true }) ==
-    "json: duplicate key at line 1, column 16 ($.a)", "an unquoted key")
+      "json: duplicate key at line 1, column 16 ($.a)", "an unquoted key")
   assert(decode_failure("{a: 1, 'a': 3}", { json5 = true }) ==
-    "json: duplicate key at line 1, column 8 ($.a)", "a single-quoted key")
+      "json: duplicate key at line 1, column 8 ($.a)", "a single-quoted key")
   local many: {string} = {}
   for i = 1, 40 do many[#many + 1] = ('"k%d": %d'):format(i, i) end
   many[#many + 1] = '"k7": 0'
@@ -262,7 +262,7 @@ local function test_duplicate_keys_are_refused()
     members[2] = '"k2": {"x": 1, "x": 2}'
     members[#members + 1] = '"k1": 0'
     assert(decode_failure("{" .. table.concat(members, ", ") .. "}") ==
-      "json: duplicate key at line 1, column 33 ($.k2.x)",
+        "json: duplicate key at line 1, column 33 ($.k2.x)",
       size .. " members, compared in pairs, in a set or in the table: a repeat inside an earlier member comes first")
     -- Scalars but for one value nested too deep, after a null and
     -- before the repeated key: the nesting is named, and nothing held
@@ -274,8 +274,8 @@ local function test_duplicate_keys_are_refused()
     flat[#flat + 1] = '"deep": [[1]]'
     flat[#flat + 1] = '"k1": 0'
     assert(decode_failure("{" .. table.concat(flat, ", ") .. "}", { max_depth = 2 }) ==
-      ("json: JSON nests deeper than 2 levels at line 1, column %d ($.deep[1])"):format(
-        #("{" .. table.concat(flat, ", ", 1, size - 2) .. ', "deep": [') + 1),
+        ("json: JSON nests deeper than 2 levels at line 1, column %d ($.deep[1])"):format(
+          #("{" .. table.concat(flat, ", ", 1, size - 2) .. ', "deep": [') + 1),
       size .. " members: nesting too deep before the repeat is named first")
   end
   -- An object looked up as it is built holds a null member's key until
@@ -301,10 +301,10 @@ local function test_duplicate_keys_are_refused()
   assert(decode_failure('{"a": [[{"x": 1, "x": 1}]]}', { max_depth = 2 }):match("^json: JSON nests deeper"),
     "nothing past max_depth is searched")
   assert(decode_failure('{"a": [[[1]]], "b": 1, "b": 2}', { max_depth = 2 }) ==
-    "json: JSON nests deeper than 2 levels at line 1, column 8 ($.a[1])",
+      "json: JSON nests deeper than 2 levels at line 1, column 8 ($.a[1])",
     "a depth failure earlier in the text comes first")
   assert(decode_failure('{"b": 1, "b": 2, "a": [[[1]]]}', { max_depth = 2 }) ==
-    "json: duplicate key at line 1, column 10 ($.b)", "and a key twice before it does")
+      "json: duplicate key at line 1, column 10 ($.b)", "and a key twice before it does")
   local allowed = { duplicate_keys = true }
   assert((decoded('{"a": 1, "a": 2}', allowed) as {string: any}).a == 2, "the last value of a key stands")
   assert((decoded('{"a": 1, "a": null}', allowed) as {string: any}).a == nil, "even when it is null")
@@ -316,7 +316,7 @@ end
 local function test_repaired_surrogates_can_repeat_a_key()
   local text = '{"\\ud800": 1, "\\udc00": 2}'
   assert(decode_failure(text, { lone_surrogates = true }) ==
-    "json: duplicate key at line 1, column 15 ($[\"???\"])", decode_failure(text, { lone_surrogates = true }))
+      "json: duplicate key at line 1, column 15 ($[\"???\"])", decode_failure(text, { lone_surrogates = true }))
   local v = decoded(text, { lone_surrogates = true, duplicate_keys = true }) as {string: any}
   assert(v["\u{fffd}"] == 2, "the last stands")
 end
@@ -370,7 +370,7 @@ local function test_depth_limits()
   local deep = string.rep("[", 65) .. "1" .. string.rep("]", 65)
   assert(decode_failure(deep) == "json: JSON nests deeper than 64 levels at line 1, column 65 ($" .. string.rep("[1]", 64) .. ")", "65 do not")
   assert(decode_failure(string.rep("[", 100) .. string.rep("]", 100), { max_depth = 99 }) ==
-    "json: JSON nests deeper than 99 levels at line 1, column 100 ($..." .. string.rep("[1]", 66) .. ")",
+      "json: JSON nests deeper than 99 levels at line 1, column 100 ($..." .. string.rep("[1]", 66) .. ")",
     "a path too long to tell keeps its innermost segments")
   assert(decode_failure('{"a":{"b":1}}', { max_depth = 1 }) == "json: JSON nests deeper than 1 levels at line 1, column 6 ($.a)",
     "an object counts")
@@ -399,13 +399,13 @@ end
 
 local function test_pretty()
   assert(encoded({ b = { 1, 2 }, a = {}, c = Json.array() }, { pretty = true }) ==
-    '{\n  "a": {},\n  "b": [\n    1,\n    2\n  ],\n  "c": []\n}', "two spaces by default")
+      '{\n  "a": {},\n  "b": [\n    1,\n    2\n  ],\n  "c": []\n}', "two spaces by default")
   assert(encoded({ a = { 1 } }) == '{"a":[1]}', "compact without pretty")
 end
 
 local function test_sorted_is_byte_order()
   assert(encoded({ ["b"] = 1, ["a"] = 2, ["ab"] = 3, ["B"] = 4, ["\xc3\xa9"] = 5 }) ==
-    '{"B":4,"a":2,"ab":3,"b":1,"\xc3\xa9":5}', "keys in byte order")
+      '{"B":4,"a":2,"ab":3,"b":1,"\xc3\xa9":5}', "keys in byte order")
 end
 
 local function test_a_large_document_round_trips()
@@ -504,7 +504,7 @@ local function test_an_encode_failure_says_where()
   assert(encode_failure({ ['q"\1'] = print }) == 'json: cannot encode a function at $["q\\"?"]',
     "its quotes escaped and its unprintable bytes shown as ?")
   assert(encode_failure({ x = { 1, nil, 3 } as {any} }) ==
-    "json: cannot encode an array with a hole (index 2 is nil) at $.x", "a table's own failure names the table")
+      "json: cannot encode an array with a hole (index 2 is nil) at $.x", "a table's own failure names the table")
   assert(encode_failure({ x = { ["\xff"] = 1 } }) == "json: cannot encode a key that is not UTF-8 at $.x",
     "a bad key is the object's")
   assert(encode_failure(print) == "json: cannot encode a function", "nothing to say at the top")
@@ -519,7 +519,7 @@ end
 local function test_big_numbers_as_strings()
   local keep = { big_numbers_as_strings = true }
   local v = decoded('{"id": 18446744073709551615, "big": 123456789012345678901234567890,' ..
-    ' "fits": 9223372036854775807, "neg": -9223372036854775809, "huge": 1e400, "f": 0.5}', keep)
+      ' "fits": 9223372036854775807, "neg": -9223372036854775809, "huge": 1e400, "f": 0.5}', keep)
     as {string: any}
   assert(v.id == "18446744073709551615", "past a Lua integer, below 2^64")
   assert(v.big == "123456789012345678901234567890", "past 64 bits")
@@ -604,10 +604,10 @@ end
 local function test_a_depth_failure_says_where()
   local text = '{"s": "[[{", "a": [\n  [1, {"x": [2]}]]}'
   assert(decode_failure(text, { max_depth = 3 }) ==
-    "json: JSON nests deeper than 3 levels at line 2, column 7 ($.a[1][2])", decode_failure(text, { max_depth = 3 }))
+      "json: JSON nests deeper than 3 levels at line 2, column 7 ($.a[1][2])", decode_failure(text, { max_depth = 3 }))
   local five = "// [[[\n{'s': '[{', /* { */ a: [[0]]}"
   assert(decode_failure(five, { json5 = true, max_depth = 2 }) ==
-    "json: JSON nests deeper than 2 levels at line 2, column 25 ($.a[1])", decode_failure(five, { json5 = true, max_depth = 2 }))
+      "json: JSON nests deeper than 2 levels at line 2, column 25 ($.a[1])", decode_failure(five, { json5 = true, max_depth = 2 }))
   -- JSON5 ends a line comment at \r, U+2028 and U+2029 as well as \n,
   -- and the line it names counts each as a line end.
   for _, eol in ipairs({ "\r", "\r\n", "\u{2028}", "\u{2029}" }) do
@@ -692,7 +692,7 @@ local function test_members_lists_what_a_walk_visits()
   assert(object.extent == 0)
   local hole = Json.members({ [7] = "g", [1] = "a", [3] = "c" } as {any: any})
   assert(hole.layout == "hole" and #hole.keys == 3 and hole.keys[1] == 1 and hole.keys[2] == 3 and
-    hole.keys[3] == 7 and hole.extent == 0)
+      hole.keys[3] == 7 and hole.extent == 0)
   local array = Json.members({ "x", "y" })
   assert(array.layout == "array" and #array.keys == 0 and array.extent == 2, "no key list for an array")
   local holed = Json.members(decoded("[1, null, null, 4, null]") as {any: any})

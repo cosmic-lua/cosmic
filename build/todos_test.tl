@@ -31,7 +31,7 @@ local function test_a_todo_carries_on_through_its_paragraph()
   assert(#found == 1, "found " .. #found)
   assert(found[1].line == 2 and found[1].last == 3)
   assert(found[1].text ==
-    "drop the cast once the pin names a cosmic carrying patch/tl/24.",
+      "drop the cast once the pin names a cosmic carrying patch/tl/24.",
     found[1].text)
 end
 
@@ -61,7 +61,7 @@ local function test_a_sentence_opened_on_a_new_line_starts_a_new_paragraph()
   }))
   assert(#found == 1 and found[1].last == 3, found[1] and found[1].last)
   assert(found[1].text ==
-    "replace with a Teal script run by `cosmic --standalone`, as bin/zig is.",
+      "replace with a Teal script run by `cosmic --standalone`, as bin/zig is.",
     found[1].text)
 end
 
@@ -285,7 +285,7 @@ local function test_own_tree_scans_github_for_todos()
     seen[#seen + 1] = todo.file .. ":" .. todo.line .. ": " .. todo.text
   end
   assert(table.concat(seen, "|") == ".github/actions/driver/action.yml:2: lint these steps|" ..
-    ".github/check.tl:1: not an input|.github/workflows/ci.yml:1: pin the runner", table.concat(seen, "|"))
+      ".github/check.tl:1: not an input|.github/workflows/ci.yml:1: pin the runner", table.concat(seen, "|"))
   local rows = assert(Sqlite.text_rows(handle.db,
     "SELECT count(*) FROM files WHERE path LIKE '.github/%'"))
   assert(rows[1][1] == "0", rows[1][1])

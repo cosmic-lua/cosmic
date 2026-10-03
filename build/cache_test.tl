@@ -19,7 +19,7 @@ local function compiled(db: Sqlite.Handle, key: string, stamp: integer)
 end
 
 local function trim(path: string, family: maintenance.Family, since?: integer,
-    restored?: string): maintenance.Result
+                    restored?: string): maintenance.Result
   return maintenance.run({ family = family, paths = { path }, since_ns = since,
     whole = since == nil, restored = restored })
 end
@@ -75,7 +75,7 @@ local function test_verdicts_keep_unreached_then_trim_all_supported_tables(tmp: 
   assert(db:close())
   local untouched = trim(path, "verdicts", 5)
   assert(untouched.complete and untouched.report.files[1].kept == 3 and
-    untouched.report.files[1].removed == 0 and not untouched.report.files[1].reached)
+      untouched.report.files[1].removed == 0 and not untouched.report.files[1].reached)
   db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("INSERT INTO stores_v1 VALUES ('new','digest',5)"))
   assert(db:close())
@@ -402,6 +402,6 @@ local function test_one_failed_verdict_file_suppresses_the_aggregate_save(tmp: s
   local result = maintenance.run({ family = "verdicts", paths = { healthy, broken }, whole = true })
   assert(not result.complete and result.report.digest == nil and result.report.fresh == nil)
   assert(#result.report.files == 2 and result.report.files[1].state == "kept" and
-    result.report.files[1].kept == 1 and result.report.files[2].state == "failed")
+      result.report.files[1].kept == 1 and result.report.files[2].state == "failed")
   assert(count(healthy, "stores_v1") == 1 and Fs.read(broken) == "unreadable active cache")
 end

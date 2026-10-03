@@ -91,9 +91,9 @@ local function layout(bytes: string): Layout | nil
   local shoff = field(bytes, 41, 8)
   local shentsize, shnum, shstrndx = field(bytes, 59, 2), field(bytes, 61, 2), field(bytes, 63, 2)
   if phoff < header_length or phentsize ~= program_header_length or phnum == 0 or
-     phoff > #bytes - phnum * program_header_length or
-     shnum == 0 or shoff < header_length or shentsize ~= section_header_length or
-     shoff > #bytes - shnum * section_header_length or shstrndx >= shnum then
+      phoff > #bytes - phnum * program_header_length or
+      shnum == 0 or shoff < header_length or shentsize ~= section_header_length or
+      shoff > #bytes - shnum * section_header_length or shstrndx >= shnum then
     return nil
   end
   local reach = math.max(phoff + phnum * program_header_length,
@@ -113,7 +113,7 @@ local function layout(bytes: string): Layout | nil
   local names, names_size = field(bytes, names_at + 24, 8), field(bytes, names_at + 32, 8)
   -- SHT_NOBITS (8) has no bytes in the file to name anything with.
   if field(bytes, names_at + 4, 4) == 8 or names < 0 or names_size < 0 or
-     names > #bytes - names_size then
+      names > #bytes - names_size then
     return nil
   end
   local dwarf = false
@@ -180,8 +180,8 @@ end
 function core_image.runtime(image: string, target_id: integer, configuration_id: integer,
                             basis: string): string
   return hex_sha256("cosmic-runtime-image-v1\0" ..
-    string.pack(">I4I4", target_id, configuration_id) .. image ..
-    string.pack(">I8", #basis) .. basis)
+      string.pack(">I4I4", target_id, configuration_id) .. image ..
+      string.pack(">I8", #basis) .. basis)
 end
 
 return core_image

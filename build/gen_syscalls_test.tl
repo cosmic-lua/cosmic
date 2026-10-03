@@ -83,7 +83,7 @@ local function test_classes_and_fields_carry_their_prose()
   assert(by_symbol["O_RDONLY"].text == "open for reading", by_symbol["O_RDONLY"].text)
   local module = by_symbol[""].text
   assert(module == "The syscall table: one C function per call, the same on Linux\n" ..
-    "and on macOS.", module)
+      "and on macOS.", module)
 end
 
 --- The table is documented under the name every caller gives it,
@@ -102,7 +102,7 @@ end
 local function test_each_declaration_names_its_header_line()
   local source = assert(gen_syscalls.declaration(header))
   for _, want in ipairs({ "-- line Stat 3", "-- line Stat.size 4", "-- line Kind 10",
-                          "-- line open 25", "-- line O_RDONLY 29" }) do
+      "-- line open 25", "-- line O_RDONLY 29" }) do
     assert(source:find("\n" .. want .. "\n", 1, true), want .. " missing from:\n" .. source)
   end
 end
@@ -220,11 +220,11 @@ local function test_a_userdata_class_declares_methods_and_metamethods()
   end
   local source = assert(gen_syscalls.declaration(with("Owner: userdata")))
   for _, want in ipairs({
-    "  record Owner\n    userdata\n",
-    "    fd: function(self: Owner): integer\n",
-    "    close: function(self: Owner): boolean, string, integer\n",
-    "    metamethod __close: function(self: Owner)\n",
-    "  make: function(): Owner | nil, string, integer\n",
+      "  record Owner\n    userdata\n",
+      "    fd: function(self: Owner): integer\n",
+      "    close: function(self: Owner): boolean, string, integer\n",
+      "    metamethod __close: function(self: Owner)\n",
+      "  make: function(): Owner | nil, string, integer\n",
   }) do
     assert(source:find(want, 1, true), want .. " missing from:\n" .. source)
   end
@@ -274,7 +274,7 @@ local function test_a_malformed_alias_is_refused()
       refusal = "a member line is not" },
     { body = { " What it is.", "@alias Kind string" }, refusal = "names no alias" },
     { body = { " What it is.", "@class Kind", "@field a integer a", "@alias Other",
-               '| "a" # a' }, refusal = "both a class and an alias" },
+      '| "a" # a' }, refusal = "both a class and an alias" },
     { body = { " What it is.", "@alias Kind", '| "file" # a file', '| "file" # again' },
       refusal = 'the member "file" is listed twice' },
     { body = { " What it is.", "@alias Kind", "@type string", '| "file" # a file' },

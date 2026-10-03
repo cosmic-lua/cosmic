@@ -46,7 +46,7 @@ end
 local function test_a_macro_expansion_is_placed_where_it_was_used()
   local parent: tree.Node = { kind = "CallExpr", file = "core/a.c", line = 3, children = {} }
   local child: tree.Node = { kind = "CallExpr", file = "vendor/lua/src/lua.h", line = 9,
-                             children = {}, parent = parent }
+    children = {}, parent = parent }
   local at = assert(tree.placed(child))
   assert(at.file == "core/a.c" and at.line == 3)
 end
