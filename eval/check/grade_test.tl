@@ -246,6 +246,9 @@ local function test_a_journal_beside_an_earlier_aside_is_the_one_checked(dir: st
   assert(status == 1, said)
   assert(said:find("is an earlier grading's, beside a new JOURNAL.md", 1, true), said)
   assert(said:find(dir .. "/project/JOURNAL.md is empty\n", 1, true), said)
+  -- The new journal stayed in place through `fix --check`, which the
+  -- stand-in fails on finding it.
+  assert(said:find("check: FAIL " .. dir .. "/bin/cosmic fix --check\n", 1, true), said)
   assert(Fs.read(dir .. "/JOURNAL.md.aside") == "kept\n")
   assert(Fs.read(dir .. "/project/JOURNAL.md") == " \n")
 end
