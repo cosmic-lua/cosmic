@@ -580,17 +580,30 @@ alone. This decision does not reclassify either study or change the harness,
 thresholds, full CI requirement, or separate performance gates for later PRs.
 
 The two lifecycle cases now use dedicated CI fixtures after the ordinary
-10-second deadline interrupted them on Linux and macOS. Release and checked
-cases pass locally. All branch CI checks pass in light scope; full-scope remote CI,
-which runs the moved fixtures, remains a gate. Counts, assertions and the frozen
-measurement script are unchanged. Only these cases receive 60 seconds each
-and 150 seconds per phase; their controller child retains its 30-second bound.
+10-second deadline interrupted them on Linux and macOS. Only these cases
+receive 60 seconds each and 150 seconds per phase; their controller child
+retains its 30-second bound. The integrated release and checked fixtures pass
+locally. All branch CI checks in run `37132306624` pass; full merge-queue CI,
+including the moved fixtures, remains required.
 
 The layout PR merged as `67d9c5bfcee912ddf8b8fc4c6b736f41a608fe90` under
 that exception after separate integration review and full merge-queue CI passed.
-Integration of the harness PR onto that exact parent is underway in fresh
-parent and candidate worktrees. Independently measure it before merge, then
-integrate and measure step 2 against the exact main containing both prerequisites.
+The harness integration onto that exact parent is published as
+`1da3f7bd9de0c7f9280fb5b398d422d7696b40a0`, tree `33a8441d`.
+Separate source and statistical-semantics review approve it. Applying main's
+formatter changes the controller's source identity without changing its
+statistical semantics. Its own integrated performance gate is not complete:
+the first launch failed before collecting samples because its cache was not
+writable. Corrected launch controls were reviewed; an external fuzzer then
+interrupted the second launch after 15 seconds. Independent review confirmed
+that run invalid, unchanged inputs, and cleanup with no remaining descendants.
+Both invalid attempts are retained; neither supplies a performance summary or
+gate result. Further collection waits for a coordinated quiet window, with no
+retries seeking a favorable gap in unrelated work.
+
+#2593 remains draft with auto-merge off. It must pass its unchanged independent
+performance and full CI gates before merge. Then integrate and measure step 2,
+which remains draft, against the exact main containing both prerequisites.
 This order isolates the layout change from the harness module's own carried
 bytes. The reference plan remains draft and never merges.
 Earlier experiments retain their recorded outcomes, but their later stateful
@@ -932,15 +945,18 @@ review approved the exact original six-file patch, with no conflict edits and
 no intervening changes to schema producers, loader, VFS, SQLite implementation
 or SQLite pin. Intervening Zig, core and compiler changes mean historical
 timing and size results do not describe the merged binary; no new measurement
-is claimed. #2593 is being integrated onto that exact merge. It and #2591
-retain their own full CI and integrated performance requirements.
+is claimed. #2593 is integrated onto that exact merge; its performance study
+awaits a coordinated quiet window after two invalid launches. It and #2591
+remain draft with their own full CI and integrated performance requirements.
 
 The environment reset removed the private scratch raw observations, frozen
 inputs, binaries and audit files from the completed studies. Their published
 review summaries and conclusions remain historical records; the missing files
 have not been recreated and are not claimed available for another audit.
 Earlier references to locally retained evidence describe its state at the time
-of those studies. Raw evidence will not be published.
+of those studies. New raw records have been archived privately to guard against
+another reset; this does not recover the lost records. Raw evidence will not
+be published.
 
 | Step | Status | PR / merge | Review and evidence |
 | --- | --- | --- | --- |
@@ -950,7 +966,7 @@ of those studies. Raw evidence will not be published.
 | 0.6 Performance inference | Merged | [#2588](https://github.com/cosmic-lua/cosmic/pull/2588), merge `117d49cdc61746c6be375d399f2c92650d551c1b` | Independent statistical/source review approved identical local tree `ee1493a4`. All 42 configurations / 210,000 frozen simulation trials met criteria: supported null passes 93.16–94.24%, minimum interval coverage 95.50%, strong location block 100%, doubled tail block 95.08%. Thirteen focused tests and 660-file check pass. Prescribed local full suite timed out with host failures; the three opaque assertions were diagnosed identically on parent/candidate as denied socket sends and confined compiler starts. All required push and merge-queue CI passed. Core bytes unchanged against the PR parent; database +16 KiB. Small noisy shifts retain limited detection power. Historical step-1 finding remains open. |
 | 2 Artifact handles | Draft; performance blocks merge | [#2591](https://github.com/cosmic-lua/cosmic/pull/2591), head `9d2b2c1974fe8a1bc57e8d2d48f47114bc9bccd5`, parent `8f43b4d751da5635b9902ee89e94ea2e4603467e` | Independent review approves the exact published tree: owned handles, lazy inspection VFS, CLI joins, host/portable alias denial, explicit artifact-only connections and immutable-input contract. Focused 21 pass (12 ran, 9 stood); checked 13 pass, all ran, including allocation failures. Removing the first-use metatable safeguard makes its regression fail. Analyzer and whole-tree/CI-tree checks pass. Full 30-second attempt times out with host EROFS/EPERM and three previously diagnosed derived assertions; updated local CI cannot start its nonroot credential preflight (EPERM). Remote CI found only a missing Artifact instance in the declaration-surface fixture; a separately reviewed test-only correction now passes release and checked declaration guards (12 ran each), with unchanged executable bytes. No added TODOs. Frozen 200-pair all-15-workload protocol updated only for the corrected commit identity; the previous record remains untouched and collected no samples. Corrected-head CI passed. The fixed experiment completed once: 5 pass, 8 inconclusive, 2 regression; independent audit validated all observations and counters. Native tool startup paired median +0.0567 ms [0.0308, 0.0858], fixture test execution +1.5889 ms [0.9065, 2.2066]; both lower bounds exceed A/A resolution. Eight other workloads have wholly positive median intervals. No invalidity, input changes, residuals or cgroup throttling. Keep this result; diagnose shared startup/SQLite initialization with untimed counts before a concrete fix and separately declared experiment. Candidate grows 49,152 bytes. Later main `437ecf40` is independently reviewed roadmap-only documentation; no separately measured queued-artifact claim. Separate preallocation correction now published as `5e008b58` (tree `9ddbfeeb`), with 55 release and 59 checked tests all run and passing, sanitizer/analyzer and whole-tree/CI-tree checks passing. Full attempt and local CI remain host-blocked; no added TODOs. Renewed remote CI passed; feature measurement against the future merged layout parent remains required. |
 | 1.5 Module lookup layout | Merged under user-approved calibration exception | [#2592](https://github.com/cosmic-lua/cosmic/pull/2592), merge `67d9c5bfcee912ddf8b8fc4c6b736f41a608fe90`; measured head `f7aa71c1581255f86c815b5f599eb545b4eb7901`, parent `437ecf40` | Exact tree independently reviewed. NULL/duplicate constraints, actual loader reads, all five producer determinism and schema-sensitive cache tests pass. Four old/pinned/new core-layout combinations pass. Whole-tree 666 and CI-tree 63 checks pass. Prescribed sequential full run times out with host failures; two additional isolation/todos assertions reproduce identically on parent. Initial concurrent check was discarded; clean sequential checks and database integrity checks pass. Normal local CI credential preflight is blocked by EPERM. No added TODOs. Untimed audit confirms identical native core and loaded module inventories/payloads, 162 to 32 total reads and 119 to zero unloaded-module overflow reads. This establishes the mechanism, not timing. Database shrinks 192,512 bytes. All required exact-head remote CI passes. The separately frozen fixed-200 experiment completed once in 502.648 seconds: 14 pass, 1 inconclusive, no regression. The sole nonpass is uses A/A median calibration +0.2811 ms [0.0324, 0.6272], despite candidate paired median -3.3948 ms [-3.6017, -3.1690] and p95 upper change -1.5023 ms. That study remains a nonpass; no unchanged-input retry or threshold relaxation. Runner reports no invalidity, changed inputs, descendants or cgroup throttle events. Independent completed-run audit validates all 12,000 observations and 180 warmups and confirms the block. A separately justified fixture-balance repair is described below; no causal attribution of the calibration bias is established. The corrected v3 study is complete and independently audited as valid: 13 pass, 2 calibration-inconclusive, 0 regressions. All candidate median intervals are negative, but first_require and exact_docs A/A intervals exclude zero. This remains a nonpassing study; no basis for another unchanged-input retry. The user approved a #2592-only calibration exception on 2026-10-03. Merged after separate integration review approved the unchanged patch and all full merge-queue CI passed. Historical timing and size results do not describe the merged binary. |
-| 1.6 Balanced performance fixtures | Draft; integration onto merged layout underway | [#2593](https://github.com/cosmic-lua/cosmic/pull/2593), head `4e3b8e1d28a787f29a75ed26e922c764d5c7a972` | Four independent histories and stateful-query counter checks; no statistics or threshold changes. Frozen harness used in the completed v3 layout study. Both moved lifecycle cases pass locally against explicit release and checked candidates; local sandbox unavailable. Exact candidate and controller source are declared inputs. Counts, assertions and frozen script are unchanged. All branch/light CI checks pass; full-scope release/checked fixture coverage remains pending (manual or merge-queue runs). Integration onto merged step 1.5 (`67d9c5bf`) is underway in fresh parent/candidate worktrees. Its own full CI and integrated performance gates remain unchanged and required before merge. |
+| 1.6 Balanced performance fixtures | Draft; integrated; branch CI passes; valid performance study pending | [#2593](https://github.com/cosmic-lua/cosmic/pull/2593), head `1da3f7bd9de0c7f9280fb5b398d422d7696b40a0`, tree `33a8441d`, parent `67d9c5bf` | Four independent histories and stateful-query counter checks; no statistics or threshold changes. Exact integrated source and statistical semantics independently approved; main formatter changes controller source identity only. Root focused tests 54, CI orchestration tests 36, both release and both checked lifecycle cases actually run and pass. Whole-tree 689-file and CI-tree 66-file checks and analyzer pass. Prescribed full 30-second attempt times out with 37 EROFS, 25 EPERM and three assertions reproduced on parent. No new TODOs. All branch CI in run `37132306624` passes; full merge-queue CI remains required. Own integrated performance study is incomplete: an unwritable-cache launch failed before samples; after reviewed control fixes, external fuzzer work invalidated the next launch. Independent review confirms unchanged inputs and complete descendant cleanup; neither launch produces a gate result. Await a coordinated quiet window. Draft, auto-merge off; unchanged performance and full CI gates still required. |
 | 3 Schema/reader contract | Pending; split below | — | Original acceptance remains open until 3c. |
 | 3a Existing database recognition | Planned independent work | — | Read-only dependency review complete; no new access APIs. |
 | 3b Additive format metadata | Planned independent work | — | Reader-first rollout; existing compatible table layout. |
