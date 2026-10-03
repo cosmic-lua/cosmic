@@ -107,7 +107,7 @@ end
       targets[#targets + 1] = req.target
       local names = assert(Url.segments(req.path))
       local body = Fs.read(root .. "/" .. table.concat(names, "/"))
-      if body == nil then return { status = 404, body = "no " .. table.concat(names, "/") } end
+      if body == nil then return { status = 404 } end
       return { status = 200, body = body }
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
@@ -122,7 +122,7 @@ end
   assert(table.concat(targets, " ") == "/two%20words.txt /caf%C3%A9.txt /two%20words.txt /a=b&c;d?e=f",
     table.concat(targets, " "))
   local expected = table.concat({
-    "200 this is two words.txt", "200 this is caf\xc3\xa9.txt", "200 this is two words.txt", "404 no a=b&c;d",
+    "200 this is two words.txt", "200 this is caf\xc3\xa9.txt", "200 this is two words.txt", "404 ",
   }, "\n")
   assert(result.stdout == expected, result.stdout)
 end

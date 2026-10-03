@@ -278,12 +278,14 @@ end
 local function test_a_space_or_control_byte_before_the_path_is_refused_naming_it()
   local response, trouble = Http.open("http://cosmic.test\0.evil/", { script = {} })
   assert(response == nil)
-  assert(trouble == "http: the URL holds a NUL at byte 19, in its host or user info, where it cannot be sent; " ..
-    "a user name or password goes in through Url.escape", trouble)
+  assert(trouble == "http: the URL holds a NUL at byte 19, in its host, which holds none", trouble)
   local got, why = Http.get("http://us er@cosmic.test/", { script = {} })
-  assert(got == nil and why:find("a space at byte 10, in its host", 1, true), why)
+  assert(got == nil and why == "http: the URL holds a space at byte 10, in its user info; " ..
+    "a user name or password goes in through Url.escape", why)
   got, why = Http.request("PUT", "cosmic\n.test/a b", { script = {} })
-  assert(got == nil and why:find("control byte 0x0a at byte 7, in its host", 1, true), why)
+  assert(got == nil and why:find("control byte 0x0a at byte 7, in its host,", 1, true), why)
+  got, why = Http.get("http:/co smic.test/a", { script = {} })
+  assert(got == nil and why:find("a space at byte 9, in its host,", 1, true), why)
 end
 
 local function test_a_url_escaped_with_url_escape_is_sent_as_written()

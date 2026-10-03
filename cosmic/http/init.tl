@@ -467,22 +467,28 @@ do
 end
 
 --- `url` as curl is handed it, or nil and why: past its scheme and
---- authority, each `%` not followed by two hex digits is written `%25`,
---- as requests writes one, and each byte `escape_unsafe` holds is
---- escaped, so a URL holding none of them is sent as written and one
---- escaped already is not escaped again. A space or control byte in the
---- authority is refused, naming it: a host takes no escape, and curl
---- would refuse it as "Malformed input to a URL function". A URL with
---- no scheme is read as curl reads it, its authority from the start.
+--- authority, each `%` not followed by two hex digits is written `%25`
+--- (requests, finding one, writes every `%` so; this keeps the escapes
+--- around it), and each byte `escape_unsafe` holds is escaped, so a URL
+--- holding none of them is sent as written and one escaped already is
+--- not escaped again. A space or control byte in the authority is
+--- refused, naming it: a host takes no escape, and curl would refuse it
+--- as "Malformed input to a URL function". The scheme is read as curl
+--- reads it, with any number of slashes after its `:`, and a URL with
+--- none starts with its authority.
 local function sendable(url: string): string | nil, string
-  local _, scheme_end = url:find("^[A-Za-z][A-Za-z0-9+.-]*://")
+  local _, scheme_end = url:find("^[A-Za-z][A-Za-z0-9+.-]*:/*")
   local rest = url:find("[/?#]", (scheme_end or 0) + 1) or #url + 1
   local at = url:sub(1, rest - 1):find("[\0-\32\127]")
   if at ~= nil then
     local byte = url:byte(at)
     local what = byte == 32 and "a space" or byte == 0 and "a NUL" or ("control byte 0x%02x"):format(byte)
-    return nil, ("http: the URL holds %s at byte %d, in its host or user info, where it cannot be sent; " ..
-      "a user name or password goes in through Url.escape"):format(what, at)
+    local user_end = url:find("@", at, true)
+    if user_end ~= nil and user_end < rest then
+      return nil, ("http: the URL holds %s at byte %d, in its user info; " ..
+        "a user name or password goes in through Url.escape"):format(what, at)
+    end
+    return nil, ("http: the URL holds %s at byte %d, in its host, which holds none"):format(what, at)
   end
   local tail = url:sub(rest)
   local percents = tail:gsub("()%%", function(percent: integer): string
@@ -535,7 +541,7 @@ end
 --- may hold a reserved byte or a `%` (a file named "50% off?.txt") goes
 --- in through [`Url.escape`], a path segment or query value at a time.
 --- A space or control byte in the host or user info fails, naming
---- the byte.
+--- the byte; a user name or password goes in through [`Url.escape`].
 function Http.open(url: string, opts?: Http.Options): Http.Response | nil, string
   local response, trouble = opened(url, opts, nil)
   if response == nil then

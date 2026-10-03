@@ -76,10 +76,11 @@ end
 --- answers is safe as a path segment, a query name or a query value:
 --- a `/`, `?`, `&`, `=`, `#`, `+`, space or `%` in `text` is escaped
 --- too, so it reads back as itself and never as part of the URL's
---- structure. [`Http.open`] escapes a space, a control byte or a byte
---- past ASCII in the URL it is given, but leaves a reserved byte, and a
---- `%` before two hex digits, as written, as part of that structure: a
---- name that may hold one goes in through this.
+--- structure. [`Http.open`] escapes the bytes a URL never holds
+--- literally (a space, a control byte, a byte past ASCII, ...) in the
+--- URL it is given, but leaves a reserved byte, and a `%` before two
+--- hex digits, as written, as part of that structure: a name that may
+--- hold one goes in through this.
 --- @param text string Any bytes
 --- @return string The escaped text
 function Url.escape(text: string): string
