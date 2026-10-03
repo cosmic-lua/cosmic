@@ -66,8 +66,8 @@ end
 --- build.contracts' own.
 local function exempting(which: string, keys: {string}): contracts.Exemptions
   local out: contracts.Exemptions = { exempt = {}, parsing = {}, casts = {}, modes = {} }
-  local named: {string: string} = which == "exempt" and out.exempt
-    or which == "parsing" and out.parsing or which == "modes" and out.modes or out.casts
+  local named: {string: string} = which == "exempt" and out.exempt or
+    which == "parsing" and out.parsing or which == "modes" and out.modes or out.casts
   for _, key in ipairs(keys) do named[key] = "a test's own exemption" end
   return out
 end
@@ -492,8 +492,8 @@ local function test_an_exemption_key_names_the_function_as_written()
   -- A top-level function of the same name excuses nothing nested.
   local inherited = problems_in(nested, exempting("casts", { "x.tl:g" }))
   local joined = table.concat(inherited, "\n")
-  assert(#inherited == 2 and joined:find("f.g: " .. cast, 1, true) ~= nil
-    and joined:find("contracts.casts names x.tl:g,", 1, true) ~= nil, joined)
+  assert(#inherited == 2 and joined:find("f.g: " .. cast, 1, true) ~= nil and
+    joined:find("contracts.casts names x.tl:g,", 1, true) ~= nil, joined)
   local exempt = problems_in(nested, exempting("casts", { "x.tl:f.g" }))
   assert(#exempt == 0, table.concat(exempt, "\n"))
 end

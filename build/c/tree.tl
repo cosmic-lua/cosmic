@@ -122,8 +122,8 @@ end
 --- Whether `word` is a position, the kind a declaration prints for its
 --- name after its range.
 local function is_position(word: string): boolean
-  return word:match("^col:%d+$") ~= nil or word:match("^line:%d+:%d+$") ~= nil
-    or word:match("^[^']+:%d+:%d+$") ~= nil
+  return word:match("^col:%d+$") ~= nil or word:match("^line:%d+:%d+$") ~= nil or
+    word:match("^[^']+:%d+:%d+$") ~= nil
 end
 
 --- Splits `rest`, what follows a node's kind, into its address, range and
@@ -244,8 +244,8 @@ end
 --- `node` with every implicit conversion and parenthesis around it seen
 --- through.
 function tree.bare(node: tree.Node): tree.Node
-  while node ~= nil and (node.kind == "ImplicitCastExpr" or node.kind == "ParenExpr")
-      and #node.children == 1 do
+  while node ~= nil and (node.kind == "ImplicitCastExpr" or node.kind == "ParenExpr") and
+      #node.children == 1 do
     node = node.children[1]
   end
   return node

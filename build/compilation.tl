@@ -310,9 +310,9 @@ function compilation.collect(db: Sqlite.Handle): {Module} | nil, string
       source = source,
       source_hash = source_hash,
       requires = requires[source_hash] or {},
-      tests = kind == "test" and (tests[source_hash] or {})
-        or kind == "example" and (examples[source_hash] or {})
-        or {},
+      tests = kind == "test" and (tests[source_hash] or {}) or
+        kind == "example" and (examples[source_hash] or {}) or
+        {},
       inputs = inputs,
       has_top_level_return = has_return == "1",
       generated = origin == "doctest",

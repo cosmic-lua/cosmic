@@ -250,18 +250,18 @@ end
 --- which field is wrong. A year either side of the range is let through,
 --- so an offset can still reach the range's edges.
 local function seconds_of(c: Time.Civil): integer | nil, string
-  local why = outside("year", c.year, math.mininteger, math.maxinteger)
-    or outside("month", c.month, 1, 12)
+  local why = outside("year", c.year, math.mininteger, math.maxinteger) or
+    outside("month", c.month, 1, 12)
   if why ~= nil then return nil, why end
   if c.year < 1676 or c.year > 2263 then return nil, RANGE end
-  why = outside("day", c.day, 1, month_days(c.year, c.month))
-    or outside("hour", c.hour, 0, 23)
-    or outside("minute", c.minute, 0, 59)
-    or outside("second", c.second, 0, 59)
-    or outside("ns", c.ns, 0, NS - 1)
+  why = outside("day", c.day, 1, month_days(c.year, c.month)) or
+    outside("hour", c.hour, 0, 23) or
+    outside("minute", c.minute, 0, 59) or
+    outside("second", c.second, 0, 59) or
+    outside("ns", c.ns, 0, NS - 1)
   if why ~= nil then return nil, why end
-  return days_from_civil(c.year, c.month, c.day) * DAY
-    + c.hour * 3600 + c.minute * 60 + c.second, ""
+  return days_from_civil(c.year, c.month, c.day) * DAY +
+    c.hour * 3600 + c.minute * 60 + c.second, ""
 end
 
 --- The nanoseconds `s` seconds and `n` nanoseconds past the epoch
@@ -1381,9 +1381,9 @@ function Time.add_calendar(ns: integer, duration: Time.Duration, zone?: Time.Zon
   integral("months", months)
   integral("days", days)
   integral("ns", exact)
-  local why = outside("years", years, -10000, 10000) or outside("months", months, -120000, 120000)
-    or outside("days", days, -3650000, 3650000)
-    or outside("ns", exact, math.mininteger, math.maxinteger)
+  local why = outside("years", years, -10000, 10000) or outside("months", months, -120000, 120000) or
+    outside("days", days, -3650000, 3650000) or
+    outside("ns", exact, math.mininteger, math.maxinteger)
   if why ~= nil then return refuse(why) end
   local overflow = opts ~= nil and opts.overflow or "reject"
   if overflow ~= "reject" and overflow ~= "clamp" then

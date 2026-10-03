@@ -317,8 +317,8 @@ function tree_checks.anchors(db: Sqlite.Handle, expected?: {string}): {string}
   -- whose type is a function.
   local callable: {string} = {}
   for _, r in ipairs(all) do
-    if r.kind == "function" or r.kind == "method"
-        or (r.kind == "field" and r.signature:find("function", 1, true) ~= nil) then
+    if r.kind == "function" or r.kind == "method" or
+        (r.kind == "field" and r.signature:find("function", 1, true) ~= nil) then
       callable[#callable + 1] = r.signature
     end
   end
@@ -330,8 +330,8 @@ function tree_checks.anchors(db: Sqlite.Handle, expected?: {string}): {string}
       local fields: {Row} = {}
       local anchor = true
       for _, r in ipairs(all) do
-        if r.module == owner.module and String.starts_with(r.symbol, prefix)
-            and r.symbol:find(".", #prefix + 1, true) == nil then
+        if r.module == owner.module and String.starts_with(r.symbol, prefix) and
+            r.symbol:find(".", #prefix + 1, true) == nil then
           local name = r.symbol:sub(#prefix + 1)
           fields[#fields + 1] = r
           if r.kind ~= "field" or r.signature ~= name .. ": string" or r.text == "" then
@@ -719,9 +719,9 @@ local function spec_fields(text: string, start: integer): Fields
       depth = depth + 1
     elseif token.kind == "mark" and token.value == "}" then
       depth = depth - 1
-    elseif depth == 1 and token.kind == "word" and tokens[i + 1] ~= nil
-      and tokens[i + 1].value == "=" and tokens[i + 1].kind == "mark"
-      and tokens[i + 2] ~= nil and tokens[i + 2].value ~= "=" then
+    elseif depth == 1 and token.kind == "word" and tokens[i + 1] ~= nil and
+      tokens[i + 1].value == "=" and tokens[i + 1].kind == "mark" and
+      tokens[i + 2] ~= nil and tokens[i + 2].value ~= "=" then
       local name, value = token.value, tokens[i + 2]
       if value.kind == "str" then
         if fields.strings[name] == nil then fields.strings[name] = value.value end
@@ -1115,8 +1115,8 @@ end
 --- Whether `word` reads as a plural noun: lowercase, an `s` at its end,
 --- and none of the words that end so and are not.
 local function is_plural_noun(word: string): boolean
-  return #word >= 4 and word:match("^%l+$") ~= nil and word:sub(-1) == "s"
-    and not word:match("ss$") and not word:match("[iu]s$") and not NOT_NOUNS[word]
+  return #word >= 4 and word:match("^%l+$") ~= nil and word:sub(-1) == "s" and
+    not word:match("ss$") and not word:match("[iu]s$") and not NOT_NOUNS[word]
 end
 
 --- The plural noun `text` leads with, after one space: its first word,
@@ -1169,8 +1169,8 @@ local function counted(node: Node): boolean
     local callee = inner.e1
     return callee ~= nil and callee.tk == "tostring"
   end
-  return info.op == "+" or info.op == "-" or info.op == "*" or info.op == "//"
-    or info.op == "%" or info.op == "/"
+  return info.op == "+" or info.op == "-" or info.op == "*" or info.op == "//" or
+    info.op == "%" or info.op == "/"
 end
 
 --- Whether `node` is a `..`.
@@ -1199,8 +1199,8 @@ local function plural_sites(built: compiler, source: string, file: string):
   local sites: {{string}} = {}
   ast.walk(parsed.node, function(node: Node)
     local left, right = node.e1, node.e2
-    if is_concat(node) and left ~= nil and right ~= nil and left.kind ~= "string"
-        and not is_concat(left) then
+    if is_concat(node) and left ~= nil and right ~= nil and left.kind ~= "string" and
+        not is_concat(left) then
       local literal = leading_literal(right)
       local noun = literal ~= nil and plural_after_space(literal, counted(left)) or nil
       if literal ~= nil and noun ~= nil then

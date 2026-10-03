@@ -50,8 +50,8 @@ local function begins_at(c: Ctx, s: Node): integer, integer
   elseif kind == "local_macroexp" then
     anchor = s
     back = 2
-  elseif (kind == "global_function" and not s.implicit_global_function)
-      or kind == "pragma" then
+  elseif (kind == "global_function" and not s.implicit_global_function) or
+      kind == "pragma" then
     anchor = s
     back = 1
   end
@@ -260,9 +260,9 @@ local function declaration(c: Ctx, n: Node, word: string)
       return
     end
     local exps = n.exps
-    local last = exps ~= nil
-      and typescan.bounded_end(c.scan, exps.y, exps.x)
-      or typescan.rets_end(c.scan, colon + 1)
+    local last = exps ~= nil and
+      typescan.bounded_end(c.scan, exps.y, exps.x) or
+      typescan.rets_end(c.scan, colon + 1)
     if not ctx_mod.annotation(c, colon + 1, last) then
       ctx_mod.refuse(c, "a type annotation with no tokens of its own")
     end

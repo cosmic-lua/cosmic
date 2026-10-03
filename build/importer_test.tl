@@ -1526,8 +1526,8 @@ local function test_the_compiler_modules_are_closed_under_require()
     local source = assert(Fs.read(file))
     local parsed = assert(ast.parse(assert(built), source, file))
     for _, required in ipairs((assert(ast.all_requires(assert(built), parsed)))) do
-      local ours = (required:match("^build%.") or required:match("^cosmic%."))
-        and not required:match("^cosmic%.internal%.") and tree_file_of(required) ~= nil
+      local ours = (required:match("^build%.") or required:match("^cosmic%.")) and
+        not required:match("^cosmic%.internal%.") and tree_file_of(required) ~= nil
       if ours and not covered[required] then
         if name == "build.importer" and left_out[required] ~= nil then
           used[required] = true
@@ -1667,8 +1667,8 @@ local function test_the_analyzer_modules_are_closed_under_require()
       local source = assert(Fs.read(file))
       local parsed = assert(ast.parse(assert(built), source, file))
       for _, required in ipairs((assert(ast.all_requires(assert(built), parsed)))) do
-        local ours = (required:match("^build%.") or required:match("^cosmic%."))
-          and not required:match("^cosmic%.internal%.")
+        local ours = (required:match("^build%.") or required:match("^cosmic%.")) and
+          not required:match("^cosmic%.internal%.")
         if ours and not listed[required] and file_of(required) ~= nil then
           missing[#missing + 1] = name .. " requires " .. required
         end

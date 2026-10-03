@@ -158,8 +158,8 @@ those up is the author's judgement, not the tool's.]]
 ---   run, `--standalone`, `-e`, `--version`)
 local function spec_notes(verb: string, spec: verb_spec.Spec | nil): string
   if spec == nil then
-    return wrapped("Prints only what its program prints, and exits with what it returns, "
-      .. "as `cosmic help exit` says.", help_width)
+    return wrapped("Prints only what its program prints, and exits with what it returns, " ..
+      "as `cosmic help exit` says.", help_width)
   end
   local paragraphs: {string} = {}
   if verb == "fix" then
@@ -169,8 +169,8 @@ local function spec_notes(verb: string, spec: verb_spec.Spec | nil): string
   if spec.exits ~= nil then
     paragraphs[#paragraphs + 1] = wrapped(spec.exits, help_width)
   else
-    paragraphs[#paragraphs + 1] = wrapped("Ends in a verdict line, `" .. verb .. ": PASS (...)` or `"
-      .. verb .. ": FAIL (...)`, and an exit code: see `cosmic help exit`.", help_width)
+    paragraphs[#paragraphs + 1] = wrapped("Ends in a verdict line, `" .. verb .. ": PASS (...)` or `" ..
+      verb .. ": FAIL (...)`, and an exit code: see `cosmic help exit`.", help_width)
   end
   return table.concat(paragraphs, "\n\n")
 end

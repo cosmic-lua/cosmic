@@ -588,8 +588,8 @@ local function walk_steps(where: string, steps: {{string: any}}, holders: {{stri
       if here ~= "" then
         local present = false
         for _, prefix in ipairs(walk.sparse) do
-          if here == prefix or String.starts_with(here, prefix .. "/")
-              or String.starts_with(prefix, here .. "/") then
+          if here == prefix or String.starts_with(here, prefix .. "/") or
+              String.starts_with(prefix, here .. "/") then
             present = true
           end
         end

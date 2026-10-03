@@ -662,10 +662,10 @@ local function ustar(name: string, data: string): string
   local function octal(n: integer, width: integer): string
     return padded(string.format("%0" .. (width - 1) .. "o", n), width)
   end
-  local head = padded(name, 100) .. octal(420, 8) .. octal(0, 8) .. octal(0, 8)
-    .. octal(#data, 12) .. octal(0, 12) .. "        " .. "0" .. padded("", 100)
-    .. "ustar\0" .. "00" .. padded("", 32) .. padded("", 32) .. octal(0, 8) .. octal(0, 8)
-    .. padded("", 155)
+  local head = padded(name, 100) .. octal(420, 8) .. octal(0, 8) .. octal(0, 8) ..
+    octal(#data, 12) .. octal(0, 12) .. "        " .. "0" .. padded("", 100) ..
+    "ustar\0" .. "00" .. padded("", 32) .. padded("", 32) .. octal(0, 8) .. octal(0, 8) ..
+    padded("", 155)
   head = padded(head, 512)
   local sum = 0
   for i = 1, #head do
@@ -730,8 +730,8 @@ local function pack(g: Grade)
   refuses(g, { "list", "src/a.txt" })
   refuses(g, { "list", "missing.tar" })
 
-  write(g, "evil.tar", ustar("ok.txt", "fine\n") .. ustar("../evil.txt", "escaped\n")
-    .. string.rep("\0", 1024))
+  write(g, "evil.tar", ustar("ok.txt", "fine\n") .. ustar("../evil.txt", "escaped\n") ..
+    string.rep("\0", 1024))
   local err = refuses(g, { "extract", "evil.tar", "dest-evil" })
   check(g, err:find("../evil.txt", 1, true) ~= nil, "extract evil.tar names the entry ../evil.txt",
     first_line(err))

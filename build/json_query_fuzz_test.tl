@@ -251,8 +251,8 @@ local function test_a_spelled_pattern_reads_back(tmp: string)
       local steps = steps_of(input)
       if #steps == 0 then Fuzz.label("empty") end
       for _, step in ipairs(steps) do
-        Fuzz.label(step.kind == "deep_key" and "deep key" or step.kind == "deep_index" and "deep index"
-          or step.kind == "deep_any" and "deep any" or step.kind == "any" and "any" or "plain step")
+        Fuzz.label(step.kind == "deep_key" and "deep key" or step.kind == "deep_index" and "deep index" or
+          step.kind == "deep_any" and "deep any" or step.kind == "any" and "any" or "plain step")
       end
       local text = json_query.spell_pattern(steps)
       local ok, read, err = pcall(json_query.parse_pattern, text)
@@ -365,9 +365,9 @@ local function reference(root: Node, pattern: {json_query.Step}): {string}
       end
       for _, cand in ipairs(candidates) do
         local last = cand.steps[#cand.steps]
-        local hit = step.kind == "any" or step.kind == "deep_any"
-          or ((step.kind == "key" or step.kind == "deep_key") and last == step.key)
-          or ((step.kind == "index" or step.kind == "deep_index") and last == step.index)
+        local hit = step.kind == "any" or step.kind == "deep_any" or
+          ((step.kind == "key" or step.kind == "deep_key") and last == step.key) or
+          ((step.kind == "index" or step.kind == "deep_index") and last == step.index)
         local at = spelled(cand.steps)
         if hit and not seen[at] then
           seen[at] = true
