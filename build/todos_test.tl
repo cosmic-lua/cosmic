@@ -320,7 +320,7 @@ local record_text = text({
 })
 
 local function test_a_patch_record_s_todos_are_its_note_s_and_replace_block_s()
-  local found = todo_scan.scan_record(record_text)
+  local found = assert(todo_scan.scan_record(record_text))
   assert(#found == 2, "found " .. #found)
   assert(found[1].line == 2 and found[1].last == 2, found[1].line)
   assert(found[1].text == "drop this once upstream takes it", found[1].text)
@@ -330,7 +330,7 @@ local function test_a_patch_record_s_todos_are_its_note_s_and_replace_block_s()
 
   -- A fence of its own; a note opening with the TODO; a TODO only
   -- the find block holds, and one in prose, are none.
-  found = todo_scan.scan_record(text({
+  found = assert(todo_scan.scan_record(text({
     "fence: ===",
     "file: src/a.h",
     "note: TODO: the whole note",
@@ -339,14 +339,52 @@ local function test_a_patch_record_s_todos_are_its_note_s_and_replace_block_s()
     "=== replace",
     "/* a TODO: in prose */",
     "=== end",
-  }))
+  })))
   assert(#found == 1 and found[1].line == 3 and found[1].text == "the whole note",
     found[1] and found[1].text)
-  found = todo_scan.scan_record(text({ "file: a", "note: a TODO: mid-sentence",
-    "--- find", "x", "--- replace", "y", "--- end" }))
+  found = assert(todo_scan.scan_record(text({ "file: a", "note: a TODO: mid-sentence",
+    "--- find", "x", "--- replace", "y", "--- end" })))
   assert(#found == 0, "found " .. #found)
-  -- Text that is no record holds none, whatever comments it has.
-  assert(#todo_scan.scan_record(text({ "-- TODO: not a record" })) == 0)
+  -- Text that is no record is none, nor is a record Patch.parse refuses.
+  assert(todo_scan.scan_record(text({ "-- TODO: not a record" })) == nil)
+  assert(todo_scan.scan_record((record_text:gsub("\n", "\r\n"))) == nil)
+end
+
+--- A note's TODO may open any of its lines' sentences and runs to the
+--- note's end, and a replace block's TODO is upstream's while each of its
+--- lines is one of the find block's.
+local function test_a_record_s_note_spans_lines_and_upstream_lines_stay_upstream_s()
+  local found = assert(todo_scan.scan_record(text({
+    "file: a.tl",
+    "note: why it is so.",
+    "  TODO: drop once",
+    "  upstream takes it",
+    "--- find",
+    "-- TODO: up",
+    "-- stream",
+    "-- TODO: moved",
+    "x",
+    "--- replace",
+    "x",
+    "-- TODO: moved",
+    "-- TODO: up",
+    "-- TODO: up",
+    "-- stream",
+    "-- and ours",
+    "--- end",
+  })))
+  local seen: {string} = {}
+  for _, each in ipairs(found) do
+    seen[#seen + 1] = each.line .. "-" .. each.last .. " " .. each.text
+  end
+  assert(table.concat(seen, "|") == "3-4 drop once upstream takes it|" ..
+      "14-16 up stream and ours", table.concat(seen, "|"))
+
+  -- A fence line with a `\r` is no fence, so a TODO after it is in the
+  -- replace block still, as Patch.parse reads it.
+  found = assert(todo_scan.scan_record(text({ "file: a", "note: n",
+    "--- find", "x", "--- replace", "--- end\r", "-- TODO: ours", "--- end" })))
+  assert(#found == 1 and found[1].line == 7, "found " .. #found)
 end
 
 --- In cosmic's own tree a patch record is listed with its own TODOs,
@@ -358,6 +396,10 @@ local function test_own_tree_lists_a_patch_record_s_own_todos()
   assert(Fs.mkdirs(root .. "/patch/tl"))
   assert(Fs.mkdirs(root .. "/vendor/tl"))
   assert(Fs.write(root .. "/patch/tl/01-x.txt", record_text))
+  -- The same bytes elsewhere, staged first, are scanned as the record is:
+  -- a file's TODOs are kept by its bytes alone.
+  assert(Fs.mkdirs(root .. "/aaa"))
+  assert(Fs.write(root .. "/aaa/copy.txt", record_text))
   assert(Fs.write(root .. "/patch/tl/notes.md", text({ "# TODO: not a record" })))
   assert(Fs.write(root .. "/vendor/tl/PIN", text({ "# TODO: upstream's pin" })))
   local handle = assert(work.open(root))
@@ -367,9 +409,14 @@ local function test_own_tree_lists_a_patch_record_s_own_todos()
   local id_of: {integer:string} = {}
   for _, todo in ipairs(listed) do
     seen[#seen + 1] = todo.file .. ":" .. todo.line .. ": " .. todo.text
-    id_of[todo.id] = todo.file .. ":" .. todo.line
+    if todo.file:sub(1, 6) == "patch/" then
+      id_of[todo.id] = todo.file .. ":" .. todo.line
+    end
   end
-  assert(table.concat(seen, "|") == "patch/tl/01-x.txt:2: drop this once upstream takes it|" ..
+  table.sort(seen)
+  assert(table.concat(seen, "|") == "aaa/copy.txt:2: drop this once upstream takes it|" ..
+      "aaa/copy.txt:9: ours, once ci/cosmic-driver.pin names a release carrying it|" ..
+      "patch/tl/01-x.txt:2: drop this once upstream takes it|" ..
       "patch/tl/01-x.txt:9: ours, once ci/cosmic-driver.pin names a release carrying it",
     table.concat(seen, "|"))
   local hits: {string} = {}

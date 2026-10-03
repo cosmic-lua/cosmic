@@ -14,6 +14,7 @@
 --- listed. A patch record's TODOs are its note's and its replace
 --- block's, never its find block's ([`scan_record`]).
 
+local Patch = require("build.patch")
 local String = require("cosmic.string")
 
 local record todo_scan
@@ -70,8 +71,8 @@ local function continued(marker: string): string
   return marker
 end
 
---- Every TODO in one file's text, in order.
-function todo_scan.scan(source: string): {todo_scan.Found}
+--- `source`'s lines, each without its line break or a `\r` before it.
+local function lines_of(source: string): {string}
   local lines: {string} = {}
   for line in String.lines(source) do
     lines[#lines + 1] = (line:gsub("\r$", ""))
@@ -79,6 +80,12 @@ function todo_scan.scan(source: string): {todo_scan.Found}
   if source:sub(-1) == "\n" then
     lines[#lines] = nil
   end
+  return lines
+end
+
+--- Every TODO in one file's text, in order.
+function todo_scan.scan(source: string): {todo_scan.Found}
+  local lines = lines_of(source)
   local found: {todo_scan.Found} = {}
   local index = 1
   while index <= #lines do
@@ -120,92 +127,78 @@ function todo_scan.scan(source: string): {todo_scan.Found}
   return found
 end
 
---- Where a patch record's parts sit, by line (see [`build/patch.tl`]):
---- its `note:` line, the first line of its find and of its replace
---- block, and its closing `end` fence.
-local record Record
-  note: integer
-  find: integer
-  replace: integer
-  last: integer
+--- The line of `source` that byte `at` is on.
+local function line_at(source: string, at: integer): integer
+  local _, breaks = source:sub(1, at - 1):gsub("\n", "")
+  return breaks + 1
 end
 
---- Where `lines`' record parts sit, as [`build/patch.tl`]'s [`Patch.parse`]
---- reads them: an optional `fence:` line, `file:`, `note:`, then the
---- first lines that are exactly the fence and `find`, `replace` and
---- `end`, in that order.
-local function record_of(lines: {string}): Record | nil
-  local at = 1
-  local fence = "---"
-  if lines[1] ~= nil and lines[1]:sub(1, 7) == "fence: " then
-    fence = lines[1]:sub(8)
-    at = 2
+--- The TODO a record's note holds, if one opens it or one of its
+--- sentences: from there to the note's end. The note is its `note:`
+--- line, at `first`, and the lines under it up to the find fence's,
+--- before `after`.
+local function note_todo(lines: {string}, first: integer, after: integer): todo_scan.Found | nil
+  local joined = ""
+  local starts: {integer} = {}
+  local rows: {integer} = {}
+  for index = first, after - 1 do
+    local text = (index == first and lines[index]:sub(7) or lines[index]):
+      gsub("^[ \t]+", ""):gsub("[ \t]+$", "")
+    if text ~= "" then
+      if joined ~= "" then joined = joined .. " " end
+      starts[#starts + 1] = #joined + 1
+      rows[#rows + 1] = index
+      joined = joined .. text
+    end
   end
-  if lines[at] == nil or lines[at]:sub(1, 6) ~= "file: " or
-      lines[at + 1] == nil or lines[at + 1]:sub(1, 6) ~= "note: " then
+  local from = joined:find("^TODO:")
+  if from == nil then
+    local sentence = joined:find("[.!?][ \t]+TODO:")
+    from = sentence and joined:find("TODO:", sentence, true)
+  end
+  if from == nil then
     return nil
   end
-  local found: {integer} = {}
-  local index = at + 2
-  for _, word in ipairs({ "find", "replace", "end" }) do
-    while lines[index] ~= nil and lines[index] ~= fence .. " " .. word do
-      index = index + 1
-    end
-    if lines[index] == nil then
-      return nil
-    end
-    found[#found + 1] = index
-    index = index + 1
+  local line = first
+  for k, start in ipairs(starts) do
+    if start <= from then line = rows[k] end
   end
-  return { note = at + 1, find = found[1] + 1, replace = found[2] + 1, last = found[3] }
+  return { line = line, last = rows[#rows], text = (joined:sub(from + 5):gsub("^[ \t]+", "")) }
 end
 
---- The lines `lines` holds from `first` up to but not including `after`,
---- as one text.
-local function block(lines: {string}, first: integer, after: integer): string
-  if after <= first then
-    return ""
-  end
-  return table.concat(lines, "\n", first, after - 1) .. "\n"
-end
-
---- Every TODO in a patch record's text (see [`build/patch.tl`]) that is
---- the tree's own: its note's, from a `TODO:` that opens the note or one
---- of its sentences to the note's end, and each in its replace block, as
---- [`scan`] finds them, but one the find block holds too. The find block
---- is upstream's code, matched rather than written here, so its TODOs,
---- and the ones a replace block carries over from it, are upstream's. A
---- text that is no record holds none.
-function todo_scan.scan_record(source: string): {todo_scan.Found}
-  local lines: {string} = {}
-  for line in String.lines(source) do
-    lines[#lines + 1] = (line:gsub("\r$", ""))
-  end
-  if source:sub(-1) == "\n" then
-    lines[#lines] = nil
-  end
-  local record = record_of(lines)
+--- Every TODO in a patch record's text (see [`build/patch.tl`], whose
+--- [`Patch.parse`] reads it) that is the tree's own, or nil when the
+--- text is no record. Its note's is, from a `TODO:` that opens the note
+--- or one of its sentences to the note's end; so is each in its replace
+--- block, as [`scan`] finds them, that has a line the find block does
+--- not. The find block is upstream's code, matched rather than written
+--- here, so its TODOs, and the ones a replace block carries over from it
+--- line for line, moved or cut short, are upstream's; one a line of the
+--- tree's own runs into is the tree's, upstream's lines and all.
+function todo_scan.scan_record(source: string): {todo_scan.Found} | nil
+  local record, _ = Patch.parse(source, "")
   if record == nil then
-    return {}
+    return nil
   end
+  local lines = lines_of(source)
+  local note = source:sub(1, 7) == "fence: " and 3 or 2
   local found: {todo_scan.Found} = {}
-  local note = lines[record.note]:sub(7)
-  local from = note:find("^TODO:")
-  if from == nil then
-    local sentence = note:find("[.!?][ \t]+TODO:")
-    from = sentence and note:find("TODO:", sentence, true)
-  end
-  if from ~= nil then
-    local text = note:sub(from + 5):gsub("^[ \t]+", ""):gsub("[ \t]+$", "")
-    found[1] = { line = record.note, last = record.note, text = text }
+  local from_note = note_todo(lines, note, line_at(source, record.find_at) - 1)
+  if from_note ~= nil then
+    found[1] = from_note
   end
   local upstream: {string:boolean} = {}
-  for _, each in ipairs(todo_scan.scan(block(lines, record.find, record.replace - 1))) do
-    upstream[each.text] = true
+  for _, line in ipairs(lines_of(record.find)) do
+    upstream[line] = true
   end
-  local offset = record.replace - 1
-  for _, each in ipairs(todo_scan.scan(block(lines, record.replace, record.last))) do
-    if not upstream[each.text] then
+  local replaced = lines_of(record.replace)
+  local offset = line_at(source, record.replace_at) - 1
+  for _, each in ipairs(todo_scan.scan(record.replace)) do
+    local own = false
+    for index = each.line, each.last do
+      own = own or not upstream[replaced[index]]
+    end
+    if own then
       found[#found + 1] = {
         line = each.line + offset,
         last = each.last + offset,

@@ -705,22 +705,23 @@ end
 
 --- Whether a file holds TODOs of the tree's own: a vendored tree and
 --- its pin are upstream's, and so is everything under `patch/` but a
---- record, whose find blocks are too ([`todo_scan.scan_record`]).
+--- record, whose find blocks are too ([`build.todo_scan.scan_record`]).
 local function holds_own_todos(file: string): boolean
   local first = identity.first_of(file)
   return first ~= "vendor" and (first ~= "patch" or is_record(file))
 end
 
 --- Records the TODOs in one file's bytes under their hash, unless a
---- file with the same bytes already has: a patch record's as a record
---- holds them (`record`). Text holding no `TODO:`, or holding a NUL, is
---- not scanned.
+--- file with the same bytes already has: text that parses as a patch
+--- record as a record holds them, wherever it sits, since the rows are
+--- keyed by the bytes alone. Text holding no `TODO:`, or holding a NUL,
+--- is not scanned.
 local function put_todos(put: Sqlite.Statement, data: string,
-                         sha256: string, record: boolean): boolean, string
+                         sha256: string): boolean, string
   if data:find("TODO:", 1, true) == nil or data:find("\0", 1, true) ~= nil then
     return true, ""
   end
-  local scanned = record and todo_scan.scan_record(data) or todo_scan.scan(data)
+  local scanned = todo_scan.scan_record(data) or todo_scan.scan(data)
   for _, found in ipairs(scanned) do
     local ok, trouble = put:bind_text(1, sha256)
     if ok then ok, trouble = put:bind_integer(2, found.line) end
@@ -901,7 +902,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
         staged.read = staged.read + 1
         local sha256 = Hash.hex_sha256(data)
         if (input or tool or scan) and holds_own_todos(file) then
-          local ok, why = put_todos(put["todo"], data, sha256, is_record(file))
+          local ok, why = put_todos(put["todo"], data, sha256)
           if not ok then
             finish(put)
             return nil, file .. ": " .. why
