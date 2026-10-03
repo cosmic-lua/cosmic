@@ -145,7 +145,6 @@ local function read(name: string, text: string, prefix: integer): Manifest | nil
     local ends = text:find("\0", at + 41, true)
     if ends == nil then return nil, "a path with no end at byte " .. at end
     local path = text:sub(at + 41, ends - 1)
-    if path == "" then return nil, "an empty path at byte " .. at end
     parts[#parts + 1] = text:sub(at + 24, at + 39)
     local file_prefix = text:byte(at + 40) >> 2
     local within = path:match("^o/(%x+)/") or path:match("^o/(%x+)$")
@@ -198,14 +197,19 @@ function ZigPrune.plan(caches: {ZigPrune.Cache}): ZigPrune.Plan | nil, string
       if list then list[#list + 1] = under end
     end
   end
+  -- The manifests an older zig wrote (`<name>.txt`), in a cache restored
+  -- from a build on it. This zig reads none, so their outputs are
+  -- orphans here and may go; each goes too, so that the zig that wrote
+  -- it misses rather than trusting an output that is gone.
+  local older: {string} = {}
   for _, cache in ipairs(caches) do
     local names, names_trouble = Fs.list(cache.path .. "/h")
     if names == nil then return nil, cache.path .. "/h: " .. names_trouble end
     for _, name in ipairs(names) do
-      -- `timestamp`, zig's clock's mark, is no manifest, nor is a
-      -- `<name>.txt` an older zig wrote, in a cache restored from a
-      -- build on it: this zig reads neither.
-      if name ~= "timestamp" and name:sub(-4) ~= ".txt" then
+      if name:sub(-4) == ".txt" then
+        older[#older + 1] = cache.path .. "/h/" .. name
+      -- `timestamp`, zig's clock's mark, is no manifest.
+      elseif name ~= "timestamp" then
         local path = cache.path .. "/h/" .. name
         local text, text_trouble = Fs.read(path)
         if text == nil then return nil, path .. ": " .. text_trouble end
@@ -288,6 +292,10 @@ function ZigPrune.plan(caches: {ZigPrune.Cache}): ZigPrune.Plan | nil, string
   for path in pairs(manifests) do
     plan.manifests_seen = plan.manifests_seen + 1
     if gone[path] then plan.manifests[#plan.manifests + 1] = path end
+  end
+  for _, path in ipairs(older) do
+    plan.manifests_seen = plan.manifests_seen + 1
+    plan.manifests[#plan.manifests + 1] = path
   end
   for output in pairs(removed) do plan.outputs[#plan.outputs + 1] = outputs[output] end
   table.sort(plan.manifests)

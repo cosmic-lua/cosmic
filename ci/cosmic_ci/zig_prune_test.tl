@@ -36,6 +36,9 @@ local function test_a_manifest_vouches_for_the_output_zig_made()
   assert(ZigPrune.vouches("0e9f1edc8959b359682157069501abb6", "") == nil)
   assert(ZigPrune.vouches("0e9f1edc8959b359682157069501abb6", "\0\0") == nil)
   assert(ZigPrune.vouches("0e9f1edc8959b359682157069501abb6", string.rep("\1", 41) .. "a") == nil)
+  -- An input may be a prefix's own root, an empty path.
+  assert(ZigPrune.vouches("0e9f1edc8959b359682157069501abb6",
+    string.rep("\0", 40) .. "\8\0\0") ~= nil)
 end
 
 --- The known answers above are the pinned zig's: a new pin re-reads
@@ -179,9 +182,7 @@ end
 
 --- `zig build`'s configuration is a file of the cache's `c/`, which its
 --- manifest vouches for as a step's does its output, and goes with
---- that manifest. A manifest an older zig wrote (`<name>.txt`, in a
---- cache restored from a build on it) this zig never reads, and it is
---- passed by.
+--- that manifest.
 local function test_a_configuration_goes_with_its_manifest(tmp: string)
   local project = cache(tmp .. "/zig-cache")
   project.prefix = 2
@@ -197,7 +198,6 @@ local function test_a_configuration_goes_with_its_manifest(tmp: string)
     assert(Fs.remove_tree(p .. "/o/" .. output))
     assert(Fs.write(p .. "/c/" .. output, "configuration"))
   end
-  assert(Fs.write(p .. "/h/" .. hex("d") .. ".txt", "0\n"))
 
   local plan = assert(ZigPrune.plan({ project, shared }))
   assert(table.concat(plan.manifests, " ") == p .. "/h/" .. hex("c"),
@@ -208,10 +208,35 @@ local function test_a_configuration_goes_with_its_manifest(tmp: string)
     table.concat(plan.outputs, " "))
   assert(plan.orphans == 1 and plan.orphans_kept == 0, plan.orphans .. " " .. plan.orphans_kept)
   assert(ZigPrune.apply(plan))
-  for _, kept in ipairs({ p .. "/c/" .. configured, p .. "/h/" .. hex("b"),
-      p .. "/h/" .. hex("d") .. ".txt" }) do
+  for _, kept in ipairs({ p .. "/c/" .. configured, p .. "/h/" .. hex("b") }) do
     assert(Fs.exists(kept), kept)
   end
+end
+
+--- A cache restored from a build on an older zig holds its manifests
+--- (`<name>.txt`), which this zig never reads: their outputs are
+--- orphans here, and one superseded goes. Each such manifest goes too,
+--- first, so that the older zig, restoring what is saved, misses
+--- rather than trusting an output that is gone.
+local function test_an_older_zigs_manifests_go_before_their_outputs(tmp: string)
+  local project = cache(tmp .. "/zig-cache")
+  project.prefix = 2
+  local shared = cache(tmp .. "/zig-global")
+  shared.prefix = 3
+  local p = project.path
+  local object = step(p, hex("a"), { "1 core/a.c" }, { "a.o" })
+  local older_object = orphan(p, hex("9"), { "a.o" })
+  local older = p .. "/h/" .. hex("e") .. ".txt"
+  assert(Fs.write(older, "0\n1 1 1 " .. hex("e") .. " 2 o/" .. older_object .. "/a.o\n"))
+
+  local plan = assert(ZigPrune.plan({ project, shared }))
+  assert(table.concat(plan.manifests, " ") == older, table.concat(plan.manifests, " "))
+  assert(table.concat(plan.outputs, " ") == p .. "/o/" .. older_object,
+    table.concat(plan.outputs, " "))
+  assert(plan.manifests_seen == 2, tostring(plan.manifests_seen))
+  assert(ZigPrune.apply(plan))
+  assert(not Fs.exists(older) and not Fs.exists(p .. "/o/" .. older_object))
+  assert(Fs.exists(p .. "/o/" .. object .. "/a.o") and Fs.exists(p .. "/h/" .. hex("a")))
 end
 
 --- A manifest not read as zig's, or one whose output is not there, says
