@@ -88,9 +88,10 @@ evidence unavailable locally. Performance acceptance is preservation of
 successful legacy allocations, warm cache reuse and deterministic artifacts,
 not an unsupported speedup claim.
 
-Execution status: E1 implementation and independent review underway. E2's
-online-retirement removal is checkpointed separately, with typed WAL handling
-pending E1. E3 is PR #2619, source-reviewed tree
+Execution status: E1 is PR #2624, latest head `60d10fe6`, tree `e33a2316`;
+E2a is PR #2626, head `d90d5324`, tree `2af6f7a4`. Both have independent
+source approval and native branch CI underway. E2b's typed WAL migration is
+being implemented separately on their combined source. E3 is PR #2619, source-reviewed tree
 `acc1ede353a611eed83c468929c22898f630daf5`, head `e1656450`; native CI is running
 and auto-merge remains off pending validation. E4 awaits these changes.
 No follow-up PR has merged yet.
@@ -112,6 +113,30 @@ existing entry and none added. Local whole-check hit the journal issue,
 and full30 exited124 with read-only child-start failures before cancellation.
 These are explicit local limits, not passing full checks. Queue CI
 `37132247460` remains the merge gate.
+
+E1's focused validation ran and passed all 25 tests across four modules;
+independent direct-native probes cover legacy lifecycle, captured errors,
+parameter validation and same-statement finalizer reentry. Eight paired
+legacy prepare/step benchmarks produced overlapping timings (medians
+40.844 ms baseline, 39.407 ms candidate): no regression observed, no speedup
+claim. Legacy statements gain one reference slot; no guard is allocated on
+their legacy path. A reviewed follow-up preserves the existing ExecResult
+table's four-field allocation capacity. Current corrected core separately
+passes eight API regressions and its worked example. The required full30
+attempt was blocked by the local malformed-database/auto-boot condition and
+exited3; it is not a full-suite pass. Changed-path TODO inventory found only
+two existing core entries and none added. Native CI remains mandatory.
+
+E2a boot, formatting, whole-tree checks and focused validation passed. The
+final integrated focused run executed all 53 cases; 17 pre-existing nested
+sandbox cases were explicitly skipped on this host and no new regression
+was skipped. The required full30 attempt exited124 after clean cancellation,
+without assertion failures, and is not a passing full suite. Independent
+review confirmed unchanged verdict inputs and criteria and the three exact
+acknowledgments. New TODOs at `build/shared_compiles.tl:536` and
+`build/test.tl:1329` name lifetime ownership and identity checks as the
+prerequisites for safe automatic recovery; E2b retires the narrowed existing
+busy-code TODO and corrects maintenance's incomplete retirement prerequisite.
 
 Local validation found the same generated working-database failure in fresh
 unchanged main and independent changed checkouts. A successful boot leaves a
