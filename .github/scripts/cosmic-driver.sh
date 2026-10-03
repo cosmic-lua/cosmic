@@ -55,7 +55,8 @@ if [ "${1-}" = zig-cache ]; then
   # (build/shared_compiles.tl), in a cache of their own that ci.yml
   # restores before the leg's builds and saves after them, trimmed to
   # what the run used; the fixtures, which check what a fresh tree
-  # compiles, share none
-  # (cosmic_ci/orchestration.tl's `fixture`).
+  # compiles, share none (cosmic_ci/orchestration.tl's `fixture`),
+  # but for the self-rebuild cases that take back a copy of it
+  # (`seed_compiles`).
   echo "COSMIC_BUILD_CACHE=$RUNNER_TEMP/build-cache/cache.db" >> "$GITHUB_ENV"
 fi
