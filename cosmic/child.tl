@@ -1,15 +1,16 @@
 --- Bounded child-process supervision with explicit argv, environment,
 --- directory and descriptors. A child started with [`Child.start`]
 --- keeps running if a signal ends this process, which then never closes
---- its handle: only [`Child.run`] holds SIGINT and SIGTERM for you. A
---- supervisor takes a [`Child.guard`] and asks `g:cancelled()` after
---- each round of [`Child.wait_any`] or `h:try_wait`, which do not read
---- the guard. Once one is caught, it closes its handles, ending their
---- children, and calls `g:release()` -- not `g:close()`, which delivers
---- the signal again and so ends this process -- before it prints its
---- report and exits non-zero, as the `supervisor` example in
---- [`cosmic/child_example.tl`] does (`cosmic docs Child.wait_any` shows
---- it).
+--- its handle -- unless a `sandbox` that unveils holds it, whose pid
+--- namespace ends with this process. Only [`Child.run`] holds SIGINT
+--- and SIGTERM for you. A supervisor takes a [`Child.guard`] and asks
+--- `g:cancelled()` after each round of [`Child.wait_any`] or
+--- `h:try_wait`, which do not read the guard. Once one is caught, it
+--- closes its handles, ending their children, and calls `g:release()`
+--- -- not `g:close()`, which delivers the signal again and so ends this
+--- process -- before it prints its report and exits non-zero, as the
+--- `supervisor` example in [`cosmic/child_example.tl`] does
+--- (`cosmic docs Child.wait_any` shows it).
 ---
 --- A child owns a new process group by default, and its Handle owns
 --- that group: once a wait, a timeout, or a close has an answer, no
@@ -238,18 +239,19 @@ local record Options
   --- and ends with it; true by default. False for a child meant to
   --- outlive the call that started it.
   process_group: boolean
-  --- How long the child may run, from its start, before it is ended as
-  --- an expired [`Handle.wait`] ends it -- SIGTERM, a grace period, then
+  --- How long the child may run, from its start, before it is ended as an
+  --- expired [`Handle.wait`] ends it -- SIGTERM, a grace period, then
   --- SIGKILL, its group included -- its Result `timed_out`. Nil for no
-  --- limit, not 0, which ends it at the first wait on it. [`Child.run`]'s wait ends the child at it. A started child
-  --- is ended for it by whatever waits on it once it has passed: its
-  --- handle's `wait` (with a timeout of its own or not), [`try_wait`],
-  --- [`Child.wait_any`], or a read or write of its streams. A child that
-  --- exited by itself before that is not `timed_out`. Nothing ends it
-  --- while nothing waits on it, as no thread runs here but the caller's:
-  --- it runs past the deadline until something waits, or its handle
-  --- closes. [`Handle.drain`], which ends no process, does not end it
-  --- either: a loop over it asks [`try_wait`] to have the deadline kept.
+  --- limit, not 0, which ends it at the first wait on it. [`Child.run`]'s
+  --- wait ends the child at it. A started child is ended for it by
+  --- whatever waits on it once it has passed: its handle's `wait` (with a
+  --- timeout of its own or not), [`try_wait`], [`Child.wait_any`], or a
+  --- read or write of its streams. A child that exited by itself before
+  --- that is not `timed_out`. Nothing ends it while nothing waits on it,
+  --- as no thread runs here but the caller's: it runs past the deadline
+  --- until something waits, or its handle closes. [`Handle.drain`], which
+  --- ends no process, does not end it either: a loop over it asks
+  --- [`try_wait`] to have the deadline kept.
   timeout_ns: integer
   --- What the child is held to (see [`Sandbox`]); nil for nothing.
   sandbox: Sandbox
