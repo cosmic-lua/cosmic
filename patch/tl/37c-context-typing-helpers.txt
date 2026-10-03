@@ -1,0 +1,92 @@
+file: tl.tl
+note: the helpers contextual typing uses: whether a type still holds a type variable no binding has reached, which a function literal's parameter or return is then left without (any, as before, rather than a guess); the function type a literal is expected to have, with the type variables bound so far applied and a union's one function member picked, since a function value can be no other member; and binding a generic call's type variables from an argument already checked, in a scope kept only when the argument fits, so a mismatch binds nothing, and only from an argument whose type holds no type variable of its own (a nested generic call's), so no variable is bound to another
+--- find
+   function TypeChecker:add_internal_function_variables(node: Node, args: TupleType)
+--- replace
+   local record TypeVarSearch
+      tc: TypeChecker
+      unbound: boolean
+   end
+
+   local unbound_typevar_fns: TypeFunctionMap<TypeVarSearch> = {
+      ["typevar"] = function(s: TypeVarSearch, tv: TypeVarType): Type, boolean
+         local bound = s.tc:find_var_type(tv.typevar, "check_only")
+         if not (bound and bound is TypeArgType) then
+            s.unbound = true
+         end
+         return tv, false
+      end,
+   }
+
+   -- Whether t holds a type variable other than an enclosing generic
+   -- function's own: one a generic call applied and no argument has
+   -- bound yet, or one bound to another, which a single resolution
+   -- leaves in place.
+   local function has_unbound_typevars(self: TypeChecker, t: Type): boolean
+      local search: TypeVarSearch = { tc = self, unbound = false }
+      map_type(search, t, unbound_typevar_fns)
+      return search.unbound
+   end
+
+   -- The function type a function literal is expected to have: the
+   -- expected type with the type variables bound so far applied, or of
+   -- a union the one function member. nil for no expectation, a generic
+   -- or overloaded one, or a union with more than one function member.
+   local function context_function_type(self: TypeChecker, expected: Type): FunctionType
+      if not expected then
+         return nil
+      end
+      local resolved, errs = resolve_typevars(self, expected)
+      if errs then
+         return nil
+      end
+      local t = self:to_structural(resolved)
+      if t is UnionType then
+         local found: FunctionType
+         for _, m in ipairs(t.types) do
+            local rm = self:to_structural(m)
+            if rm is FunctionType then
+               if found then
+                  return nil
+               end
+               found = rm
+            elseif rm is GenericType or rm is PolyType then
+               return nil
+            end
+         end
+         return found
+      end
+      if t is FunctionType then
+         return t
+      end
+      return nil
+   end
+
+   -- Binds the type variables of the generic call being checked that
+   -- given, an argument's type, binds against expected, its parameter's,
+   -- as the call's own check will once every argument is known; only
+   -- when given fits, so an argument the call refuses binds nothing.
+   -- A nested generic call's result (`f(g(xs), function(x) ... end)`)
+   -- binds nothing: its variables are bound only in its own check, and
+   -- binding the outer call's to them left a literal a variable bound
+   -- to another rather than a type.
+   -- TODO: bind from it too, resolving the chain of variables the inner
+   -- check commits to the type at its end, so x is xs's element type.
+   local function bind_typevars_from(self: TypeChecker, given: Type, expected: Type)
+      if has_unbound_typevars(self, given) then
+         return
+      end
+      local st = self.st
+      table.insert(st, { vars = {} })
+      local ok = self:is_a(given, expected)
+      local scope = table.remove(st)
+      if ok then
+         local outer = st[#st].vars
+         for name, var in pairs(scope.vars) do
+            outer[name] = var
+         end
+      end
+   end
+
+   function TypeChecker:add_internal_function_variables(node: Node, args: TupleType)
+--- end

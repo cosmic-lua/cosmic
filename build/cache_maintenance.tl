@@ -260,8 +260,9 @@ local function maintain_file(path: string, options: maintenance.Options,
   file.before_bytes = before.size
   local opened, open_why = Sqlite.open(path, { writable = true, create = false })
   -- TODO: restore automatic retirement of a provably corrupt active cache
-  -- once SQLite exposes typed open/prepare/step failures. Until then keep
-  -- every unreadable file and omit its save digest; diagnostics authorize no deletion.
+  -- once cache-wide lifetime ownership and identity checks exclude concurrent
+  -- users and replacements. Typed failure codes alone authorize no deletion;
+  -- keep every unreadable file and omit its save digest.
   if opened == nil then return failed(file, open_why) end
   local database <close> = owned(opened)
   local db = database.db
