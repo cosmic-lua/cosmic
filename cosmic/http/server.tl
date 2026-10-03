@@ -324,7 +324,7 @@ end
 --- send, or "".
 local function reply_trouble(reply: any): string
   if not reply is {any: any} then
-    return "the handler answered " .. type(reply) .. ", not an Server.Reply"
+    return "the handler answered " .. type(reply) .. ", not a Server.Reply"
   end
   for key in pairs(reply) do
     if not (key is string and REPLY_FIELDS[key]) then

@@ -156,8 +156,7 @@ local http <const> = 'local Http = require("cosmic.http")'
 local upload <const> = "no caller in the tree sent a streamed request body; send one whole with " ..
   "Http.request(\"PUT\", url, { body = body }) (" .. http .. ")"
 local server <const> = 'local Server = require("cosmic.http.server")'
---- What to write for a member of the server that cosmic.http carried
---- before it moved to cosmic.http.server, apart from the client.
+--- The replacement text for a member of cosmic.http.server.
 local function moved_to_server(member: string): string
   return "moved to cosmic.http.server, apart from the client: use Server." .. member ..
     " (" .. server .. ")"
