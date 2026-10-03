@@ -53,7 +53,10 @@ return st.kind == "directory"
   assert(trouble:find('"directory" is not a member of', 1, true), trouble)
 end
 
-local function test_a_walk_is_told_a_kind(tmp: string)
+-- An untyped parameter of a function literal is `any`, not what the
+-- callee declares, so a `skip` holds its kind to the enum only when its
+-- parameter names [`Fs.Kind`].
+local function test_fs_kind_is_the_enum(tmp: string)
   local ok, trouble = compiles(tmp, "walk", [[
 local Fs = require("cosmic.fs")
 return Fs.walk(".", function(_: string, _: string, kind: Fs.Kind): boolean
