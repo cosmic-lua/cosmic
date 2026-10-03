@@ -209,16 +209,16 @@ function Fuzz.label(name: string)
   if reached ~= nil then reached[name] = true end
 end
 
-local checking = false
-local spent = false
-local active_path: string
-local active_input: string
-
 local record Outcome
   held: boolean
   why: string
   identity: string
 end
+
+local checking = false
+local spent = false
+local active_path: string
+local active_input: string
 
 --- Persistence is part of executing a case: no check may run with an
 --- older input masquerading as its crash evidence.
@@ -250,7 +250,8 @@ local function attempt(p: Fuzz.Property, input: string, budget: integer,
     local ok, held, why = pcall(p.check, input)
     if not nested and arm then arm() end
     if not ok then error(held, 0) end
-    return held, why
+    if held ~= true then return false, why or "check returned false" end
+    return true, ""
   end)
   checking = nested
   active_path, active_input = outer_path, outer_input
@@ -563,21 +564,20 @@ function Fuzz.run(p: Fuzz.Property): integer
   return n
 end
 
---- Checks one input directly, under the same budget as `run`: what
---- reproducing a kept input needs.
+--- Checks one input directly, under the same budget as `run`.
 --- @param p Property The property; its generator is not used
 --- @param input string The input to check
 --- @return boolean True when the property held
 --- @return string What failed, when it did not
---- @return string The stable failure identity, or empty when it held
-function Fuzz.replay(p: Fuzz.Property, input: string): boolean, string, string
+function Fuzz.replay(p: Fuzz.Property, input: string): boolean, string
   local enclosing = reached
   reached = nil
   local kept = p.dir ~= nil and (p.dir .. "/" .. slug(p.name) .. ".input") or nil
   local ok, outcome = pcall(attempt, p, input, p.budget or DEFAULT_BUDGET, kept)
   reached = enclosing
   if not ok then error(outcome, 0) end
-  return outcome.held, outcome.why, outcome.identity
+  if not outcome.held then return false, outcome.why end
+  return true, ""
 end
 
 --- Draws one of `choices`, which must not be empty.

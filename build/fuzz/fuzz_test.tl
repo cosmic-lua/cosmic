@@ -592,16 +592,16 @@ local function test_secondary_evidence_is_bounded(tmp: string)
   assert(not Fs.exists(tmp .. "/many-failures.input.secondary-5"))
 end
 
-local function test_returned_and_raised_failures_have_distinct_identities()
-  local function key(raises: boolean): string
-    local held, _, identity = Fuzz.replay({ name = "kinds",
-      failure_id = function(_input: string, _why: string): string return "raised: boom" end,
-      check = function(_input: string): boolean, string
-        if raises then error("boom", 0) end
-        return false, "raised: boom"
-      end }, "")
-    assert(not held)
-    return identity
-  end
-  assert(key(false) ~= key(true))
+local function test_returned_and_raised_failures_have_distinct_identities(tmp: string)
+  local original: string
+  local err = report({ name = "kinds", dir = tmp, iters = 1,
+    gen = function(src: Fuzz.Source): string return tostring(src:int(1, 1000000)) end,
+    failure_id = function(_input: string, _why: string): string return "raised: boom" end,
+    check = function(input: string): boolean, string
+      if original == nil then original = input end
+      if input ~= original then error("boom", 0) end
+      return false, "raised: boom"
+    end })
+  assert(Fs.read(tmp .. "/kinds.input") == original, err)
+  assert(err:find("secondary failure 1: raised: boom", 1, true), err)
 end
