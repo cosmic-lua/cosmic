@@ -155,6 +155,14 @@ are correcting the control flow without suppressing the analyzer. A new
 reviewed head, analyzer proof and native branch/queue gates are required;
 E2b publication stays on hold until the actual corrected E1 merge.
 
+Correction `3bbb6ec4`, tree `17757401`, explicitly returns after the
+allocation-error raise. Independent review found only four added/one removed
+C lines, no ownership or successful-path change and no analyzer suppression.
+The pinned `bin/zig build analyze` passed locally. Corrected branch run
+`37135224719` is underway, and the author is checking the allocation-failure
+matrix on the actual sanitized core. E2b absorbed the same reviewed C fix;
+its separately approved five-file consumer delta remains unchanged.
+
 E2a boot, formatting, whole-tree checks and focused validation passed. The
 final integrated focused run executed all 53 cases; 17 pre-existing nested
 sandbox cases were explicitly skipped on this host and no new regression
