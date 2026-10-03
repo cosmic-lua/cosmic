@@ -89,11 +89,12 @@ successful legacy allocations, warm cache reuse and deterministic artifacts,
 not an unsupported speedup claim.
 
 Execution status: E3 #2619 merged as `a1dd0d43` at 15:30:35 UTC.
-E2a #2626 passed branch CI `37132821965` and is in the normal merge queue
-at `e94a155d`, tree `0cd14e1f`, run `37133600063`. Independent review
+E2a #2626 merged as `e94a155d`, tree `0cd14e1f`, at 15:50:35 UTC after
+green branch `37132821965` and queue `37133600063`. Independent review
 confirmed identical patch content over incoming E3 and fuzzer #2618.
-E1 #2624 now has reviewed head `c4dd34b1`, tree `dbc9011b`; native CI
-gates the correction described below. E2b is implemented and locally
+E1 #2624 reviewed head `c4dd34b1`, tree `dbc9011b`, passed corrected
+branch `37134207777` and entered queue `096c6baf`, run `37134615585`.
+E2b is implemented and locally
 validated, awaiting integration of actual merged parents before publication.
 E4 will pin a verified published release containing all four changes,
 so standalone CI maintenance executes the corrected code, then audit reuse.
@@ -138,7 +139,10 @@ native shard passed. Correction `c4dd34b1` adds those comments and the
 independently recomputed `d5293d78` acknowledgement, with no epoch change.
 Existing verdict criteria are unchanged and C changes alter runtime identity.
 The latest local guard rerun was blocked before tests by the database issue;
-the corrected native branch and queue remain mandatory.
+the corrected native branch passed. Both x86 shards, ARM and Darwin ran
+all native cases (3602 total; only three Darwin Linux-noexec skips).
+The light branch's checked-named job only formatted and checked the tree;
+actual checked-core allocation-failure execution remains a queue gate.
 
 E2a boot, formatting, whole-tree checks and focused validation passed. The
 final integrated focused run executed all 53 cases; 17 pre-existing nested
@@ -150,6 +154,11 @@ acknowledgments. New TODOs at `build/shared_compiles.tl:536` and
 `build/test.tl:1329` name lifetime ownership and identity checks as the
 prerequisites for safe automatic recovery; E2b retires the narrowed existing
 busy-code TODO and corrects maintenance's incomplete retirement prerequisite.
+
+E2a's merged queue ran all 3604 tests on ARM and checked Linux, zero stood
+or skipped; Darwin ran all with only three Linux-noexec skips. All required
+jobs passed. The actual merge retains exact reviewed tree
+`0cd14e1fad541d8cdd5428dcdd88f4e03dc99c70`.
 
 E2b checkpoint `8db2ef38`, tree `705bdd85`, passed all 32 focused tests
 with no skips, whole-tree checks across 692 files and its TODO inventory.
