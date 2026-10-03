@@ -16,6 +16,12 @@ note: a generic call binds its type variables only once every argument is checke
                         node.e2[i].expected = self:infer_at(node.e2[i], typ)
                      end
                   end
+                  -- TODO: a literal before the arguments binding its type
+                  -- variables (`map(function(x) ... end, xs)`) reads none,
+                  -- and a call whose result goes where `any` is expected
+                  -- (`print(apply(v, function(x) ... end))`) has them bound
+                  -- to any by its expected returns above; both wait on
+                  -- checking a literal after the arguments that bind them.
                   for k, arg in ipairs(node.e2) do
                      if arg.kind == "function" and arg.expected and has_unbound_typevars(self, arg.expected) then
                         for j = 1, k - 1 do

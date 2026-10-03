@@ -19,6 +19,9 @@ note: a function literal passed to an overloaded function reads the parameter ty
                      end
                   end
                elseif e1type is PolyType then
+                  -- TODO: an overload with a generic function gives no
+                  -- context; it waits on applying each generic member's
+                  -- type variables, as a single generic callee's are.
                   local argdelta = (node.e1.op and node.e1.op.op == ":") and -1 or 0
                   for k, arg in ipairs(node.e2) do
                      if arg.kind == "function" then

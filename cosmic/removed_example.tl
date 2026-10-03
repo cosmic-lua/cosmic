@@ -328,10 +328,11 @@ end
 --- Generics preserve input/output relationships; `<T is Constraint>` restricts
 --- types. Multiple returns fill assignments left-to-right, and only a
 --- final expression expands. Varargs use `...`. A function literal passed
---- or assigned where a function type is expected takes it: each untyped
---- parameter is the type it will be called with, and a literal omitting
---- its return types returns the expected ones, so it must return a value
---- where one is expected (declare its returns to let it end without).
+--- or assigned where a function type is expected takes it: an untyped
+--- parameter is the type the expected one declares there (still `any` for
+--- a type variable no earlier argument binds), and a literal omitting its
+--- return types returns the expected ones, so it must return a value where
+--- one is expected (declare its returns to let it end without).
 function Example.generics_functions_returns()
   local interface HasName
     name: string
@@ -342,7 +343,7 @@ function Example.generics_functions_returns()
   local q, r = quotient(7, 3)
   assert(identity("x") == "x" and name_of({ name = "Ada" }) == "Ada" and q == 2 and r == 1)
   local sizes = { 3, 1, 2 }
-  table.sort(sizes, function(a, b) return a // 1 > b // 1 end)
+  table.sort(sizes, function(a, b) return a > b end)
   assert(sizes[1] == 3 and sizes[3] == 1)
 end
 

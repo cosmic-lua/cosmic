@@ -70,6 +70,8 @@ note: the helpers contextual typing uses: whether a type still holds a type vari
    -- binds nothing: its variables are bound only in its own check, and
    -- binding the outer call's to them left a literal a variable bound
    -- to another rather than a type.
+   -- TODO: bind from it too, resolving the chain of variables the inner
+   -- check commits to the type at its end, so x is xs's element type.
    local function bind_typevars_from(self: TypeChecker, given: Type, expected: Type)
       if has_unbound_typevars(self, given) then
          return
