@@ -377,15 +377,25 @@ end
 
 local function test_merge_writes_a_path_once_and_joins_its_spellings()
   local out = merged({ grants = {
-    { path = "/a//b/./c/../d/", letters = "r" }, { path = "/a/b/d", letters = "x" },
-    { path = "rel/./x/..", letters = "r" }, { path = "./", letters = "w" }, { path = "..//y/", letters = "r" },
-    { path = "/../..", letters = "r" }, { path = "/", letters = "x" },
+    { path = "/a//b/./", letters = "r" }, { path = "/a/b", letters = "x" },
+    { path = "rel/./x/", letters = "r" }, { path = "./", letters = "w" }, { path = "/", letters = "x" },
+    { path = "//", letters = "r" },
   } })
   local seen: {string:string} = {}
   for _, grant in ipairs(out.grants) do seen[grant.path] = grant.letters end
-  assert(seen["/a/b/d"] == "rx", tostring(seen["/a/b/d"]))
-  assert(seen["rel"] == "r" and seen["."] == "w" and seen["../y"] == "r")
-  assert(seen["/"] == "rx" and #out.grants == 5)
+  assert(seen["/a/b"] == "rx" and seen["rel/x"] == "r" and seen["."] == "w", "paths")
+  assert(seen["/"] == "rx" and #out.grants == 4)
+end
+
+local function test_a_dot_dot_in_a_grant_path_is_refused_naming_the_field()
+  for _, path in ipairs({ "..", "/a/../b", "a/b/..", "../x", "/data/x/link/.." }) do
+    local why = refused('{"grants": [{"path": "' .. path .. '", "letters": "r"}]}', "/grants/0/path")
+    assert(why:find('".." is not allowed', 1, true), why)
+    local none, trouble = Sandbox.merge({ grants = { { path = "ok", letters = "r" }, { path = path, letters = "r" } } })
+    assert(none == nil and trouble:find("/grants/1/path", 1, true) and trouble:find("..", 1, true), trouble)
+  end
+  -- A name that only contains dots is a name.
+  assert(merged({ grants = { { path = "/a/..b/c..", letters = "r" } } }).grants[1].path == "/a/..b/c..")
 end
 
 local function test_isolate_file_implies_proc_in_the_text()
@@ -397,6 +407,6 @@ end
 
 local function test_equal_policies_written_differently_encode_alike()
   local a = Sandbox.encode(merged({ grants = { { path = "/x/", letters = "wr" } }, isolate = { "file" } }))
-  local b = Sandbox.encode(merged({ grants = { { path = "/x/./", letters = "rw" } }, isolate = { "proc", "file" } }))
+  local b = Sandbox.encode(merged({ grants = { { path = "//x/./", letters = "rw" } }, isolate = { "proc", "file" } }))
   assert(a == b, a .. " vs " .. b)
 end

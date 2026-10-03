@@ -216,6 +216,11 @@ local function invalid(p: Sandbox.Policy, exact: boolean): string
     if grant.path == nil or grant.path == "" or grant.path:find("\0", 1, true) then
       return at(base .. "/path", "a path is not empty and holds no NUL")
     end
+    for segment in grant.path:gmatch("[^/]+") do
+      if segment == ".." then
+        return at(base .. "/path", "\"..\" is not allowed; name the directory itself")
+      end
+    end
     local canonical = grant.letters ~= nil and canonical_letters(grant.letters) or nil
     if canonical == nil then
       return at(base .. "/letters", "letters are of \"" .. LETTERS .. "\", at least one")
@@ -318,28 +323,17 @@ function Sandbox.decode(json: string): Sandbox.Policy | nil, string
   return policy, ""
 end
 
---- `path` written once: no repeated or trailing "/", no "." segment, and
---- each ".." taken lexically against the segment before it (a ".." at the
---- start of an absolute path stays at the root, and of a relative one
---- stays). Lexical: a ".." after a link is not the link's target's parent,
---- as the kernel would read it, so write a path without one where that
---- matters. An empty result is "." (relative) or "/".
+--- `path` written once: no repeated or trailing "/" and no "." segment.
+--- A ".." segment is not cleaned, since lexically it is not what the
+--- kernel reads after a link; [`invalid`] refuses it. An empty result
+--- is "." (relative) or "/".
 local function clean_path(path: string): string
-  local absolute = path:sub(1, 1) == "/"
   local parts: {string} = {}
   for part in path:gmatch("[^/]+") do
-    if part == ".." then
-      if #parts > 0 and parts[#parts] ~= ".." then
-        parts[#parts] = nil
-      elseif not absolute then
-        parts[#parts + 1] = part
-      end
-    elseif part ~= "." then
-      parts[#parts + 1] = part
-    end
+    if part ~= "." then parts[#parts + 1] = part end
   end
   local joined = table.concat(parts, "/")
-  if absolute then return "/" .. joined end
+  if path:sub(1, 1) == "/" then return "/" .. joined end
   if joined == "" then return "." end
   return joined
 end
@@ -456,8 +450,9 @@ end
 --- ([`Sandbox.profile`]) and joined in before the policy's own, then
 --- the grants joined by path (and `from`): the letters of one path are
 --- the union of each grant's, in the order of "rwxcu", whatever order
---- they came in; each path is cleaned first ("a//b/./c/../d/" is "a/b/d",
---- lexically). Lists are unions, each member once, sorted; `tmp`
+--- they came in; each path is cleaned first ("a//b/./c/" is "a/b/c"; a
+--- ".." is refused, since cleaning it could name another directory than
+--- the kernel does after a link). Lists are unions, each member once, sorted; `tmp`
 --- holds if any policy has it; a limit is the one value given, and
 --- two different values for one limit are refused, as two different
 --- values for one `set_env` name are (without saying them: they may be

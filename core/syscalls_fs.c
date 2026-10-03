@@ -720,7 +720,19 @@ static int remove_entry (int parent, const char *name, int depth) {
 COSMIC_SYSCALL(remove_tree, 1) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail_effect(L, EINVAL);
-  int number = remove_entry(AT_FDCWD, path, 0);
+  /* The kernel follows a link whose path ends in "/", O_NOFOLLOW or not,
+   * so the slashes go: "link/" removes the link, as "link" does. A path
+   * of nothing but slashes is the root, which is not removed. */
+  char room[PATH_MAX];
+  size_t length = strlen(path);
+  if (length >= sizeof room) return cosmic_fail_effect(L, ENAMETOOLONG);
+  memcpy(room, path, length + 1);
+  while (length > 1 && room[length - 1] == '/') room[--length] = '\0';
+  if (strcmp(room, "/") == 0) return cosmic_fail_effect(L, EINVAL);
+  int number = remove_entry(AT_FDCWD, room, 0);
+  /* A part of the path that is no directory leaves nothing there to
+   * remove, as a name that is not there. */
+  if (number == ENOTDIR) number = 0;
   if (number != 0) return cosmic_fail_effect(L, number);
   return cosmic_ok(L);
 }
