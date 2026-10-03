@@ -777,3 +777,82 @@ local function test_a_missing_field_names_one_that_holds_it()
   assert(teal.replacement("invalid key 'get' in record 'T' of type T", "", 1, 1, { "target", "set_get" }) ==
       "did you mean 'set_get'? T's fields: set_get, target")
 end
+
+--- Holds the checker to reporting `msg` for `source`, and
+--- [`teal.replacement`] to answering it `want`.
+local function answers(source: string, msg: string, want: string)
+  local got = replacement_for(source, msg)
+  if got == "no such diagnostic" then
+    local seen: {string} = {}
+    for _, e in ipairs(type_errors(source)) do seen[#seen + 1] = e.msg end
+    error("no '" .. msg .. "' among: " .. table.concat(seen, "; "))
+  end
+  assert(got == want, tostring(got))
+end
+
+--- What every refusal of an untyped value is told for a variable named
+--- `name`: the check and the cast, written out.
+local function untyped(name: string): string
+  return "'" .. name .. "' is any (untyped, as Json.decode answers): check it against a " ..
+    "record with `local spec, err = Shape.record_of(\"Spec\"):into(" .. name .. ")` " ..
+    "(local Shape = require(\"cosmic.shape\")), or cast it unchecked: `" .. name .. " as Spec`"
+end
+
+--- A field read of `any`, what [`Json.decode`] answers, is told the line
+--- that checks it into a record and the cast that does not, whether the
+--- value may also be nil or not; a value with no variable is called
+--- `value`, and one handed where a type is expected names that type.
+local function test_an_untyped_value_is_told_the_check_and_the_cast()
+  local decoded = "local function decode(_: string): any | nil, string return nil, '' end\n"
+  answers(decoded .. "local cfg = decode('')\nprint(cfg.cmd)\n",
+    "cannot index key 'cmd' in variable 'cfg' of type <any type> | nil", untyped("cfg"))
+  answers("local function f(cfg: any) print(cfg.cmd) end\nprint(f)\n",
+    "cannot index key 'cmd' in variable 'cfg' of type <any type>", untyped("cfg"))
+  local record_spec = "local record Spec\n  cmd: string\nend\n" ..
+    "local function run(s: Spec) print(s) end\n"
+  answers(decoded .. record_spec .. "local cfg = decode('')\nrun(cfg)\n",
+    "argument 1: got <any type> | nil, expected Spec",
+    "the value is any (untyped, as Json.decode answers): check it against a record with " ..
+      "`local spec, err = Shape.record_of(\"Spec\"):into(value)` " ..
+      "(local Shape = require(\"cosmic.shape\")), or cast it unchecked: `value as Spec`")
+  answers(decoded .. "local n: integer = decode('')\nprint(n)\n",
+    "in local declaration: n: got <any type> | nil, expected integer",
+    "the value is any (untyped): narrow it with `if value is integer then ... end`, " ..
+      "or cast it unchecked: `value as integer`")
+  answers(decoded .. "local n: {string} = decode('')\nprint(n)\n",
+    "in local declaration: n: got <any type> | nil, expected {string}",
+    "the value is any (untyped): cast it unchecked: `value as {string}`")
+end
+
+--- A value that may be nil, read, closed or iterated, is told the
+--- check and the `assert` that drop it.
+local function test_a_value_that_may_be_nil_is_told_the_check()
+  local record_r = "local record R\n  n: integer\nend\n" ..
+    "local function find(): R | nil, string return nil, 'none' end\n" ..
+    "local function list(): {string} | nil, string return nil, 'none' end\n"
+  answers(record_r .. "local r = find()\nprint(r.n)\n",
+    "cannot index key 'n' in variable 'r' of type R | nil",
+    "'r' may be nil: check it first (`if r == nil then return nil, err end`) " ..
+      "or take it with `local r = assert(<the call>)`")
+  answers(record_r .. "print(find().n)\n",
+    "cannot index key 'n' in type R | nil",
+    "the value may be nil: check it first (`if value == nil then return nil, err end`) " ..
+      "or take it with `local value = assert(<the call>)`")
+  answers(record_r .. "for _, s in ipairs(list()) do print(s) end\n",
+    "attempting ipairs on something that's not an array: {string} | nil",
+    "the table may be nil: check it first (`if t == nil then return nil, err end`) " ..
+      "or loop over `ipairs(t or {})`")
+  -- The checker's target here is 5.3, which has no `<close>`: the
+  -- message is the one a cosmic compile reports.
+  assert(teal.replacement("to-be-closed variable g has a non-closable type R | nil", "", 1, 1) ==
+      "the call may answer nil: `local g <close> = assert(<the call>)` closes what it " ..
+      "answers, and raises its error in place of the nil")
+end
+
+--- An operator refused an operand of a union is told to narrow it.
+local function test_a_union_operand_is_told_to_narrow_it()
+  answers("local function f(x: string | integer): integer\n  return x + 1\nend\nprint(f)\n",
+    "cannot use operator '+' for types string | integer and integer",
+    "an operand is a union: narrow it first, as `if v is string then ... end` " ..
+      "or `type(v) == \"string\"` does")
+end
