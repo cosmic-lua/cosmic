@@ -1603,6 +1603,54 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
   return out, ""
 end
 
+--- What a chunk's own statement array says: its `test_*` functions, in
+--- order, whether it ends in a `return`, the name returned, and the
+--- value returned.
+local record Chunk
+  tests: {string}
+  has_return: boolean
+  export: string
+  returned: ast.Node
+end
+
+local function chunk_of(parsed: ast.Parsed): Chunk
+  local out: Chunk = { tests = {}, has_return = false, export = "" }
+  for _, stmt in ipairs(parsed.node) do
+    if stmt.kind == "local_function" then
+      local fn_name = stmt.name
+      local tk = fn_name ~= nil and fn_name.tk or nil
+      if tk ~= nil and tk:match("^test_") ~= nil then
+        out.tests[#out.tests + 1] = tk
+      end
+    elseif stmt.kind == "return" then
+      out.has_return = true
+      local exps = stmt.exps
+      out.returned = exps ~= nil and exps[1] or nil
+      local returned = out.returned
+      if returned ~= nil and returned.kind == "variable" and returned.tk ~= nil then
+        out.export = returned.tk
+      end
+    end
+  end
+  return out
+end
+
+--- A chunk's doc entries, as [`analyzer.analysis_of`] gives them but for
+--- the module entry's signature, and no more of its analysis: what reads only what a module documents need
+--- not match every function body against the catalog.
+--- @param parsed ast.Parsed A parse already made of `source`
+--- @param source string The text `parsed` came from
+--- @return {DocEntry} The entries
+function analyzer.docs(parsed: ast.Parsed, source: string): {analyzer.DocEntry}
+  local chunk = chunk_of(parsed)
+  local lines = lines_of(source)
+  local doc_entries = docs_of(lines, parsed)
+  canonicalize_docs(doc_entries, parsed, chunk.export, chunk.returned)
+  local surface = surface_of(parsed, chunk.export, doc_entries)
+  mark_reachable_types(doc_entries, surface, chunk.export)
+  return doc_entries
+end
+
 --- The facts of `analyze`, read off a chunk that was parsed already, so a
 --- caller that needs the parse for another question too pays for it
 --- once. `built` is needed only to compile the patterns the catalog
@@ -1612,26 +1660,9 @@ end
 --- quote.
 function analyzer.analysis_of(built: compiler, parsed: ast.Parsed,
                               source: string): analyzer.Analysis | nil, string
-  local names: {string} = {}
-  local has_return = false
-  local export = ""
-  local returned: ast.Node = nil
-  for _, stmt in ipairs(parsed.node) do
-    if stmt.kind == "local_function" then
-      local fn_name = stmt.name
-      local tk = fn_name ~= nil and fn_name.tk or nil
-      if tk ~= nil and tk:match("^test_") ~= nil then
-        names[#names + 1] = tk
-      end
-    elseif stmt.kind == "return" then
-      has_return = true
-      local exps = stmt.exps
-      returned = exps ~= nil and exps[1] or nil
-      if returned ~= nil and returned.kind == "variable" and returned.tk ~= nil then
-        export = returned.tk
-      end
-    end
-  end
+  local chunk = chunk_of(parsed)
+  local names, has_return, export, returned = chunk.tests, chunk.has_return, chunk.export,
+    chunk.returned
   local catalog, catalog_trouble = catalog_of(built, parsed)
   if catalog_trouble ~= "" then
     return nil, catalog_trouble
