@@ -146,9 +146,9 @@ end
 
 local function test_a_bad_url_or_command_line_is_a_usage_error()
   for _, words in ipairs({
-    { "notaurl" }, { "ftp://example.com/x" }, { "http://" }, { "http://@/" }, { "http://:80/" }, { "http://u:p@:80/x" }, {}, { url, "extra" },
-    { url, "--bogus" }, { url, "--sha256", "abc" }, { url, "--json" },
-    { url, "--head", "-o", "x" }, { url, "-o", "" },
+      { "notaurl" }, { "ftp://example.com/x" }, { "http://" }, { "http://@/" }, { "http://:80/" }, { "http://u:p@:80/x" }, {}, { url, "extra" },
+      { url, "--bogus" }, { url, "--sha256", "abc" }, { url, "--json" },
+      { url, "--head", "-o", "x" }, { url, "-o", "" },
   } as {{string}}) do
     local ran = run(words, {})
     assert(ran.code == 2, table.concat(words, " ") .. " exited " .. ran.code .. ": " .. ran.err)

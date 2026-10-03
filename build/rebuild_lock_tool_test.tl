@@ -77,7 +77,7 @@ local function test_a_second_run_waits_for_the_first_then_passes(tmp: string)
   assert(running ~= nil and not running.finished, "the second run did not wait:\n" .. text)
   assert(result.ok, text)
   assert(text:find("test: another cosmic run (pid " .. tostring(sys.getpid()) ..
-    ") in this checkout is running its tests; waiting for it", 1, true), text)
+      ") in this checkout is running its tests; waiting for it", 1, true), text)
   assert(text:find("test: PASS", 1, true), text)
 end
 
@@ -144,6 +144,6 @@ local function test_a_write_of_the_projection_waits_for_the_lock(tmp: string)
   assert(unwritten, "the projection was written under the lock")
   assert(result.ok, text)
   assert(text:find("o/cosmic.db: another cosmic run (pid " .. tostring(sys.getpid()) ..
-    ") in this checkout is running its tests; waiting for it", 1, true), text)
+      ") in this checkout is running its tests; waiting for it", 1, true), text)
   assert(text:find("hello\n", 1, true), text)
 end

@@ -36,14 +36,14 @@ local function test_a_record_names_its_license()
   assert(#component.notices == 2)
   assert(component.notices[1].file == "LICENSE" and component.notices[1].first == nil)
   assert(component.notices[2].file == "src/lua.h" and component.notices[2].first == 524 and
-    component.notices[2].last == 543)
+      component.notices[2].last == 543)
 end
 
 --- Every key but `notice` is read once, the first line winning, as
 --- [`bin/vendor`] reads a PIN: a second `url` names no other archive.
 local function test_the_first_line_naming_a_key_wins()
   local component = assert(bom.parse("a", "version 1\nurl first\nurl second\n" ..
-    "license MIT\nlicense GPL-3.0\nnotice A\nnotice B\n"))
+      "license MIT\nlicense GPL-3.0\nnotice A\nnotice B\n"))
   assert(component.url == "first" and component.license == "MIT")
   assert(#component.notices == 2)
 end
@@ -68,16 +68,16 @@ local function test_fill_reads_every_record_and_its_notices(tmp: string)
   assert(Fs.mkdirs(tmp .. "/build/bom"))
   assert(Fs.mkdirs(tmp .. "/patch/zlib"))
   assert(Fs.write(tmp .. "/vendor/zlib/PIN", "version 1.3\nurl https://zlib.net/z.tar.gz\n" ..
-    "sha256 00ff\nlicense Zlib\nnotice zlib.h:2-3\n"))
+      "sha256 00ff\nlicense Zlib\nnotice zlib.h:2-3\n"))
   assert(Fs.write(tmp .. "/vendor/zlib/zlib.h", "/*\n (C) Jean-loup Gailly\n Mark Adler\n*/\n"))
   assert(Fs.write(tmp .. "/patch/zlib/01-fix.txt", "a patch"))
   assert(Fs.write(tmp .. "/patch/zlib/.01-fix.txt.swp", "an editor's"))
   assert(Fs.write(tmp .. "/patch/zlib/README", "not a patch"))
   assert(Fs.mkdirs(tmp .. "/vendor/roots"))
   assert(Fs.write(tmp .. "/vendor/roots/PIN", "version 7\nurl https://roots.example/r.pem\n" ..
-    "kind data\nlicense MPL-2.0\n"))
+      "kind data\nlicense MPL-2.0\n"))
   assert(Fs.write(tmp .. "/build/bom/libc.pin", "version 2\nurl https://libc.example/\n" ..
-    "license MIT\nnotice libc.COPYRIGHT\n"))
+      "license MIT\nnotice libc.COPYRIGHT\n"))
   assert(Fs.write(tmp .. "/build/bom/libc.COPYRIGHT", "(C) libc\r\nMIT"))
   local db = database()
   assert(bom.fill(db, tmp, "main."))
@@ -203,7 +203,7 @@ local function test_every_license_a_vendored_file_is_tagged_with_is_named()
           for tag in data:gmatch("SPDX%-License%-Identifier:%s*([^\n*]+)") do
             for id in pairs(ids_of(tag)) do
               assert(named[id], "vendor/" .. name .. "/" .. file .. " is under " .. id ..
-                ", which vendor/" .. name .. "/PIN's license does not name")
+                  ", which vendor/" .. name .. "/PIN's license does not name")
             end
           end
         end

@@ -273,7 +273,7 @@ local function serve(built: compiler, db: Sqlite.Handle, root: string)
   built.search_module = function(name: string, _search_all: boolean): string | nil, any
     local rows, _ = Sqlite.text_rows(db,
       "SELECT kind, source FROM inputs WHERE path = ?1 " ..
-      "ORDER BY kind = 'decl' DESC LIMIT 1", { { text = name } })
+        "ORDER BY kind = 'decl' DESC LIMIT 1", { { text = name } })
     local stem = name:gsub("%.", "/")
     if rows ~= nil and #rows > 0 then
       local kind, source = rows[1][1], rows[1][2]

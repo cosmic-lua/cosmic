@@ -474,7 +474,7 @@ end
 --- wait goes on past a signal, which ends [`sys.poll`] early with
 --- nothing ready.
 local function wait_on(fd: integer, events: integer, timeout_ns: integer | nil,
-    what: string): boolean, string
+                       what: string): boolean, string
   Poll.checked_ns(timeout_ns, "poll", "timeout_ns", 3)
   checked_fd(fd, "fd", 3)
   checked_events(events, "events", 3)

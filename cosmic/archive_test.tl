@@ -805,7 +805,7 @@ local function test_one_writer_interface_packs_a_tar_and_a_zip_alike(tmp: string
     local z = from_zip[i]
     -- A zip symlink's body is its target, so only a file's size is alike.
     assert(t.path == z.path and t.kind == z.kind and t.mtime == z.mtime and
-      t.linkpath == z.linkpath and (t.kind ~= "file" or t.size == z.size),
+        t.linkpath == z.linkpath and (t.kind ~= "file" or t.size == z.size),
       t.path .. " differs from " .. z.path)
     -- A zip records the permission bits of what a Unix tool made it from.
     assert(t.mode == z.mode, t.path)

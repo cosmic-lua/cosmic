@@ -140,7 +140,7 @@ local function test_every_descriptor_argument_refuses_the_artifact_descriptor()
     end
   end
   assert(#missing == 0, "bindings that take a descriptor with no case here: " ..
-    table.concat(missing, ", "))
+      table.concat(missing, ", "))
   assert(tried >= 18, "only " .. tried .. " descriptor arguments were tried")
 end
 
@@ -204,7 +204,7 @@ local function test_an_open_through_the_artifact_descriptor_is_refused(tmp: stri
         local opened, trouble, errno = sys.open(name, sys.O_RDONLY)
         if opened ~= nil then sys.close(opened) end
         assert(opened == nil and errno == sys.EACCES, name .. " opened the artifact: " ..
-          tostring(opened) .. " " .. tostring(trouble))
+            tostring(opened) .. " " .. tostring(trouble))
       end
       -- Through a thread's own descriptors, by name and relative to its
       -- directory.
@@ -216,7 +216,7 @@ local function test_an_open_through_the_artifact_descriptor_is_refused(tmp: stri
             local opened, trouble, errno = sys.open(name, sys.O_RDONLY)
             if opened ~= nil then sys.close(opened) end
             assert(opened == nil and errno == sys.EACCES, name .. " opened the artifact: " ..
-              tostring(opened) .. " " .. tostring(trouble))
+                tostring(opened) .. " " .. tostring(trouble))
           end
         end
         local here, _ = sys.getcwd()

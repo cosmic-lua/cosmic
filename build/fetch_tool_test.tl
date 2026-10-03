@@ -75,7 +75,7 @@ end
   local result = assert(Child.run(started.argv, started.options))
   assert(result.signal == sys.SIGINT,
     "code=" .. tostring(result.code) .. " signal=" .. tostring(result.signal) ..
-    " " .. tostring(result.stderr))
+      " " .. tostring(result.stderr))
   assert(Fs.stat(tmp .. "/target") == nil, "the target was created")
   for _, name in ipairs((assert(Fs.list(tmp)))) do
     assert(name == "interrupted.tl", "left behind: " .. name)
@@ -114,6 +114,6 @@ local function test_a_fetch_interrupted_mid_body_leaves_no_file(tmp: string)
   local result = assert(child:wait(Time.seconds(20)))
   assert(result.signal == sys.SIGINT,
     "code=" .. tostring(result.code) .. " signal=" .. tostring(result.signal) ..
-    " " .. tostring(result.stderr))
+      " " .. tostring(result.stderr))
   assert(#(assert(Fs.list(tmp))) == 0, "left behind: " .. table.concat(assert(Fs.list(tmp)), ","))
 end

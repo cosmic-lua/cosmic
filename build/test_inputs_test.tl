@@ -54,7 +54,7 @@ local function test_the_default_inputs_are_the_closure_and_the_pinned_environmen
   for file in pairs(effective.files) do files[#files + 1] = file end
   table.sort(files)
   assert(table.concat(files, " ") ==
-    "lib/declared.d.tl lib/deep/init.tl lib/helper.tl lib/thing_test.tl", table.concat(files, " "))
+      "lib/declared.d.tl lib/deep/init.tl lib/helper.tl lib/thing_test.tl", table.concat(files, " "))
   assert(#effective.reads == 0 and #effective.host == 0)
   assert(effective.env.TMPDIR and effective.env.HOME and effective.env.FUZZ_SEED)
   -- How a test of the sandbox itself confines what it starts.
@@ -71,7 +71,7 @@ end
 local function test_the_closure_names_its_modules()
   local m, by_path = tree()
   assert(table.concat(test_inputs.modules(m, by_path, staged), " ") ==
-    "lib.declared lib.deep lib.helper lib.thing_test")
+      "lib.declared lib.deep lib.helper lib.thing_test")
 end
 
 --- A module's declaration adds to its defaults.
@@ -125,11 +125,11 @@ local function test_a_host_path_a_variable_names_is_where_it_says()
     UNDECLARED = "/fixture" }, { "/fixture/tree" })
   assert(effective.unresolved == "", effective.unresolved)
   assert(#effective.host == 2 and effective.host[1] == "/fixture/product/o/bin/cosmic" and
-    effective.host[2] == "/fixture/written", table.concat(effective.host, " "))
+      effective.host[2] == "/fixture/written", table.concat(effective.host, " "))
   assert(effective.spelled["/fixture/product/o/bin/cosmic"] == "$PRODUCT/o/bin/cosmic")
   assert(effective.spelled["/fixture/written"] == nil)
   assert(test_inputs.spelling(effective, "/fixture/product/o/bin/other") ==
-    "$PRODUCT/o/bin/other")
+      "$PRODUCT/o/bin/other")
   assert(test_inputs.spelling(effective, "/fixture/product") == "$PRODUCT")
   assert(test_inputs.spelling(effective, "/fixture/other/x") == "$OTHER/x")
   assert(test_inputs.spelling(effective, "/fixture/other/x", true) == "/fixture/other/x")
@@ -189,7 +189,7 @@ local function test_a_host_directory_is_refused_but_proc(tmp: string)
   for _, declared in ipairs({ dir, "$D", "$D/" }) do
     local said = trouble({ dir .. "/f", declared })
     assert(said == string.format("Test.needs host %q: %s is a directory; host names files, " ..
-      "or /proc: declare the files the tests read", declared, dir), said)
+        "or /proc: declare the files the tests read", declared, dir), said)
   end
   assert(trouble({ dir .. "/f", "$D/f", dir .. "/missing" }) == "")
 end
@@ -215,19 +215,19 @@ local function test_canonical_text_names_one_declaration()
   assert(test_inputs.canonical(nil) == "" and of(nil) == "")
   assert(of({}) == "" and of({ reads = {}, tool = false, network = {} }) == "")
   assert(of({ network = { "127.0.0.1" } }) ==
-    test_inputs.canonical(declaring({ network = { "127.0.0.1" } })))
+      test_inputs.canonical(declaring({ network = { "127.0.0.1" } })))
   assert(of({ reads = { "a", "b" } }) ~= of({ reads = { "b", "a" } }))
   assert(of({ reads = { "a", "a" } }) ~= of({ reads = { "a" } }))
   assert(of({ reads = { "a\nreads \"b\"" } }) ~= of({ reads = { "a", "b" } }))
   assert(of({ reads = { "a b" } }) ~= of({ reads = { "a", "b" } }))
   assert(of({ env = { "A" } }) ~= of({ host = { "A" } }))
   assert(of({ reads = { "x" }, tool = true, store = true }) ==
-    'reads "x"\ntool true\nstore true', of({ reads = { "x" }, tool = true, store = true }))
+      'reads "x"\ntool true\nstore true', of({ reads = { "x" }, tool = true, store = true }))
   assert(of({ tool = true }) == test_inputs.canonical(declaring({ tool = true })))
   assert(of({ lua = true }) == "lua true" and
-    of({ lua = true }) == test_inputs.canonical(declaring({ lua = true })))
+      of({ lua = true }) == test_inputs.canonical(declaring({ lua = true })))
   assert(of({ lua = true, standalone = true }) == "lua true\nstandalone true" and
-    of({ lua = true, standalone = true }) ==
+      of({ lua = true, standalone = true }) ==
       test_inputs.canonical(declaring({ lua = true, standalone = true })))
 end
 

@@ -252,7 +252,7 @@ local function test_a_spelled_pattern_reads_back(tmp: string)
       if #steps == 0 then Fuzz.label("empty") end
       for _, step in ipairs(steps) do
         Fuzz.label(step.kind == "deep_key" and "deep key" or step.kind == "deep_index" and "deep index" or
-          step.kind == "deep_any" and "deep any" or step.kind == "any" and "any" or "plain step")
+            step.kind == "deep_any" and "deep any" or step.kind == "any" and "any" or "plain step")
       end
       local text = json_query.spell_pattern(steps)
       local ok, read, err = pcall(json_query.parse_pattern, text)

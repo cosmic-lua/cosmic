@@ -82,7 +82,7 @@ local function test_sibling_reachable_from_within_its_own_directory(tmp: string)
   write_fixture(root, false)
   local ok, trouble = try_build(root)
   assert(ok, "a sibling required from within its own directory should " ..
-    "build, but: " .. tostring(trouble))
+      "build, but: " .. tostring(trouble))
 end
 
 local function test_sibling_refused_from_outside_its_own_directory(tmp: string)
@@ -90,11 +90,11 @@ local function test_sibling_refused_from_outside_its_own_directory(tmp: string)
   write_fixture(root, true)
   local ok, trouble = try_build(root)
   assert(not ok, "a sibling required from outside its own directory " ..
-    "should have been refused")
+      "should have been refused")
   assert(trouble:find("case.sibling", 1, true) ~= nil and
-    trouble:find("case/", 1, true) ~= nil,
+      trouble:find("case/", 1, true) ~= nil,
     "the refusal should name the path and the private directory it " ..
-    "belongs to: " .. trouble)
+      "belongs to: " .. trouble)
 end
 
 local function test_entry_reachable_from_outside_by_its_own_bare_name(tmp: string)
@@ -102,7 +102,7 @@ local function test_entry_reachable_from_outside_by_its_own_bare_name(tmp: strin
   write_entry_fixture(root)
   local ok, trouble = try_build(root)
   assert(ok, "require(\"case\") from outside case/ should resolve to " ..
-    "case/init.tl, but: " .. tostring(trouble))
+      "case/init.tl, but: " .. tostring(trouble))
 end
 
 local function test_nested_directory_without_an_entry_refused_from_outside(tmp: string)
@@ -110,7 +110,7 @@ local function test_nested_directory_without_an_entry_refused_from_outside(tmp: 
   write_unentered_fixture(root, false)
   local ok, trouble = try_build(root)
   assert(not ok, "a module in a nested directory with no init.tl, " ..
-    "required from outside it, should have been refused")
+      "required from outside it, should have been refused")
   assert(trouble:find("outsider.tl: deep.dir.x is private to deep/dir/", 1, true) ~= nil,
     trouble)
 end
@@ -120,5 +120,5 @@ local function test_nested_directory_without_an_entry_reachable_from_inside(tmp:
   write_unentered_fixture(root, true)
   local ok, trouble = try_build(root)
   assert(ok, "a module required from within its own entry-less directory " ..
-    "should build, but: " .. tostring(trouble))
+      "should build, but: " .. tostring(trouble))
 end

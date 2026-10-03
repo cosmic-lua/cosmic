@@ -73,7 +73,7 @@ print(each(function(k) return k:upper() == "FILE" end))
 print(each(function(k) return k == "dir" end))
 ]])
   assert(ok, "an untyped parameter should be the Kind each calls it with, " ..
-    "and the omitted returns each's boolean, but: " .. tostring(trouble))
+      "and the omitted returns each's boolean, but: " .. tostring(trouble))
 end
 
 local function test_a_kind_typo_in_an_untyped_parameter_is_refused(tmp: string)
@@ -90,7 +90,7 @@ print(each(function(k) return #k end))
 ]])
   assert(refused(ok, trouble, "got integer, expected boolean"),
     "each's callback returns a boolean, so returning an integer is refused, but: " ..
-    tostring(trouble))
+      tostring(trouble))
 end
 
 local function test_a_missing_return_is_refused(tmp: string)
@@ -99,7 +99,7 @@ print(each(function(k) print(k) end))
 ]])
   assert(refused(ok, trouble, "missing return"),
     "a callback that returns nothing where a boolean is expected is refused, but: " ..
-    tostring(trouble))
+      tostring(trouble))
   ok, trouble = compiles(tmp, "missing-branch", each_prelude .. [[
 print(each(function(k) if k == "dir" then return true end end))
 ]])
@@ -121,7 +121,7 @@ local ok, trouble = pcall(function() print(1) end)
 print(ok, trouble)
 ]])
   assert(ok, "an if with an else, an error at the end, declared returns and " ..
-    "pcall's optional returns need no return at the end, but: " .. tostring(trouble))
+      "pcall's optional returns need no return at the end, but: " .. tostring(trouble))
 end
 
 local function test_a_generic_call_binds_before_the_literal(tmp: string)
@@ -138,7 +138,7 @@ local shout = apply("x", function(s) return s:upper() end)
 print(shout)
 ]])
   assert(ok, "a and b are the integers xs holds, and s the string, but: " ..
-    tostring(trouble))
+      tostring(trouble))
 end
 
 local function test_an_unbound_type_variable_stays_any(tmp: string)
@@ -169,7 +169,7 @@ end)
 print(inner, outer)
 ]])
   assert(ok, "the inner call's result binds the outer call's A to no type early, " ..
-    "so the outer literal is checked as before, but: " .. tostring(trouble))
+      "so the outer literal is checked as before, but: " .. tostring(trouble))
 end
 
 local function test_an_optional_callback_takes_its_function_type(tmp: string)
@@ -181,7 +181,7 @@ end
 print(run(function(s) return #s:upper() end, function(s) return #s:lower() end))
 ]])
   assert(ok, "the one function type of a union with nil, and an optional " ..
-    "parameter's, give the literal its context, but: " .. tostring(trouble))
+      "parameter's, give the literal its context, but: " .. tostring(trouble))
 end
 
 local function test_declarations_fields_and_returns_give_context(tmp: string)
@@ -198,7 +198,7 @@ end
 print(h.on(4), double(2), make()("x"))
 ]])
   assert(ok, "a table field, an assignment, a declared local and a return " ..
-    "each give a literal its context, but: " .. tostring(trouble))
+      "each give a literal its context, but: " .. tostring(trouble))
 end
 
 local function test_a_declared_parameter_keeps_its_type(tmp: string)
@@ -206,7 +206,7 @@ local function test_a_declared_parameter_keeps_its_type(tmp: string)
 print(each(function(k: string): boolean return k == "directory" end))
 ]])
   assert(ok, "a parameter declared string compares with any string, as before, but: " ..
-    tostring(trouble))
+      tostring(trouble))
 end
 
 local function test_varargs_take_the_expected_vararg(tmp: string)

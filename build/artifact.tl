@@ -105,7 +105,7 @@ local function parse(records: string, cores: {string:string}): {Target} | nil, s
     local id_text, configuration_id_text, configuration, target, uname_os, uname_arch =
       line:match("^(%d+)\t(%d+)\t([^\t]+)\t([^\t]+)\t([^\t]+)\t([^\t]+)$")
     if id_text == nil or configuration_id_text == nil or
-       configuration == nil or target == nil or uname_os == nil or uname_arch == nil then
+        configuration == nil or target == nil or uname_os == nil or uname_arch == nil then
       return nil, "invalid generated target record"
     end
     local target_id = positive_u32(id_text)
@@ -146,7 +146,7 @@ local function launcher(targets: {Target}, test_hooks: boolean,
   local systems: {string:boolean} = {}
   for _, target in ipairs(targets) do
     if selected_configuration == nil or
-       target.configuration_id == selected_configuration then
+        target.configuration_id == selected_configuration then
       local system = target.uname_os .. ":" .. target.uname_arch
       if systems[system] then
         return nil, "duplicate generated uname record for launcher configuration"
@@ -154,8 +154,8 @@ local function launcher(targets: {Target}, test_hooks: boolean,
       systems[system] = true
       arms[#arms + 1] = string.format(
         "  '%s %s') cosmic_os=%s; cosmic_target_id=%d; " ..
-        "cosmic_configuration_id=%d; cosmic_offset=%d; cosmic_block=%d; " ..
-        "cosmic_length=%d; cosmic_sha256=%s ;;",
+          "cosmic_configuration_id=%d; cosmic_offset=%d; cosmic_block=%d; " ..
+          "cosmic_length=%d; cosmic_sha256=%s ;;",
         target.uname_os, target.uname_arch, target.uname_os, target.target_id,
         target.configuration_id, target.offset, target.offset // core_alignment,
         target.length,
@@ -260,7 +260,7 @@ function artifact.program(prefix: string, database: string): string | nil, strin
   local manifest_version, encoded_length, encoded_prefix =
     string.unpack(">I4I4I8", prefix, manifest_at + 8)
   if manifest_version ~= version or encoded_length ~= manifest_length or
-     encoded_prefix ~= #prefix then
+      encoded_prefix ~= #prefix then
     return nil, "portable prefix manifest fields differ"
   end
   local trailer = trailer_magic .. string.pack(">I4I4I8I8I8I8",
@@ -284,7 +284,7 @@ function artifact.host_program(core: raw_store.Core, database: string): string |
   local prefix_length = manifest_offset + manifest_length
   local manifest = manifest_magic .. string.pack(">I4I4I8I4I4", version, manifest_length,
     prefix_length, 1, entry_length) .. string.pack(">I4I4I8I8", core.target_id,
-    core.configuration_id, 0, #core.bytes) .. core.digest
+      core.configuration_id, 0, #core.bytes) .. core.digest
   local trailer = host_trailer_magic .. string.pack(">I4I4I8I8I8I8",
     version, trailer_length, manifest_offset, manifest_length,
     prefix_length, #database)
@@ -319,9 +319,9 @@ function artifact.split(bytes: string): artifact.Split | nil, string
   end
   -- An unsigned 64-bit field past math.maxinteger reads as negative.
   if manifest_size ~= manifest_length or manifest_offset < 0 or
-     database_offset ~= manifest_offset + manifest_length or
-     database_length < #sqlite_header or
-     database_length ~= #bytes - trailer_length - database_offset then
+      database_offset ~= manifest_offset + manifest_length or
+      database_length < #sqlite_header or
+      database_length ~= #bytes - trailer_length - database_offset then
     return nil, "the artifact trailer's ranges do not fit the file"
   end
   local manifest_at = manifest_offset + 1
@@ -366,7 +366,7 @@ function artifact.keyed_head(head: string): string
   local manifest_version, encoded_length, prefix_length, count, size, at =
     string.unpack(">I4I4I8I4I4", head, manifest_at + 8)
   if manifest_version ~= version or encoded_length ~= manifest_length or
-     prefix_length ~= #head or count < 1 or count > max_entries or size ~= entry_length then
+      prefix_length ~= #head or count < 1 or count > max_entries or size ~= entry_length then
     return head
   end
   local shell_end = -1
@@ -397,7 +397,7 @@ function artifact.keyed_head(head: string): string
     local keyed = image ~= nil and ("i" .. image) or ("b" .. digest)
     entries[#entries + 1] = string.pack(">I4I4", target, configuration) .. keyed
     arms[#arms + 1] = { string.format("cosmic_offset=%d; cosmic_block=%d; cosmic_length=%d; " ..
-      "cosmic_sha256=%s ", offset, offset // core_alignment, length, hex(digest)),
+        "cosmic_sha256=%s ", offset, offset // core_alignment, length, hex(digest)),
       "cosmic_core=" .. hex(keyed) .. " " }
     was_end = offset + length
   end

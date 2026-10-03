@@ -241,7 +241,7 @@ end
 function identity.hash_over(db: Sqlite.Handle, where: string): string | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT lower(hex(sha256(group_concat(path || ' ' || sha256, char(10) " ..
-    "ORDER BY path)))) FROM tool WHERE " .. where)
+      "ORDER BY path)))) FROM tool WHERE " .. where)
   if rows == nil then
     return nil, trouble
   end
@@ -272,11 +272,11 @@ function identity.record_fingerprint(db: Sqlite.Handle): identity.Fingerprint | 
   end
   local image, image_trouble = identity.hash_over(db,
     "(path GLOB 'core/*' AND NOT path GLOB 'core/*.tl') OR " ..
-    "path IN ('build.zig', 'build.zig.zon', " ..
-    "'bin/zig', 'bin/zig.pin', 'build/artifact.tl', 'build/launcher.tl', " ..
-    "'build/patch.tl') OR " ..
-    "path GLOB 'vendor/*/PIN' OR " ..
-    "path GLOB 'patch/*'")
+      "path IN ('build.zig', 'build.zig.zon', " ..
+      "'bin/zig', 'bin/zig.pin', 'build/artifact.tl', 'build/launcher.tl', " ..
+      "'build/patch.tl') OR " ..
+      "path GLOB 'vendor/*/PIN' OR " ..
+      "path GLOB 'patch/*'")
   if image == nil then
     return nil, image_trouble
   end
@@ -324,8 +324,8 @@ local function requires_in(db: Sqlite.Handle): function(string): {string} | nil,
   return function(name: string): {string} | nil, string
     local rows, rows_trouble = Sqlite.text_rows(db,
       "SELECT DISTINCT r.name FROM inputs i " ..
-      "JOIN requires r ON r.source_hash = i.source_hash WHERE i.path = ?1 " ..
-      "ORDER BY r.name", { text(name) })
+        "JOIN requires r ON r.source_hash = i.source_hash WHERE i.path = ?1 " ..
+        "ORDER BY r.name", { text(name) })
     if rows == nil then return nil, rows_trouble end
     local required: {string} = {}
     for _, row in ipairs(rows) do required[#required + 1] = row[1] end
@@ -344,8 +344,8 @@ local function hash_of(db: Sqlite.Handle, names: {string}, extra: string): strin
   end
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT lower(hex(sha256(coalesce((SELECT group_concat(path || ' ' || " ..
-    "source_hash, char(10) ORDER BY path) FROM inputs WHERE path IN (" ..
-    table.concat(slots, ", ") .. ")), '') || char(10) || " .. extra .. ")))", values)
+      "source_hash, char(10) ORDER BY path) FROM inputs WHERE path IN (" ..
+      table.concat(slots, ", ") .. ")), '') || char(10) || " .. extra .. ")))", values)
   if rows == nil then
     return nil, trouble
   end
@@ -554,8 +554,8 @@ function identity.record_identities(db: Sqlite.Handle): identity.Identities | ni
     writer = writer,
   }
   for _, pair in ipairs({ { "compiler", identities.compiler },
-                          { "runtime_basis", identities.runtime_basis },
-                          { "writer", identities.writer } }) do
+      { "runtime_basis", identities.runtime_basis },
+      { "writer", identities.writer } }) do
     local ok, why = Sqlite.run(db,
       "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
       { text(pair[1]), text(pair[2]) })

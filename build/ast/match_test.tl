@@ -186,9 +186,9 @@ local function test_rest_capture_in_block_matches_and_ignores_tk()
   local candidate = parse_ok("if a then print(1)\nprint(2) end", "block.tl")[1]
   local caps = match.match(pattern, candidate)
   assert(caps ~= nil, "if $C then $$$BODY() end must match a real if with a differing" ..
-    " first-statement token")
+      " first-statement token")
   assert(#caps["___BODY"] == 2, "expected 2 captured body statements, got " ..
-    tostring(#caps["___BODY"]))
+      tostring(#caps["___BODY"]))
 end
 
 --- `tk` is ignored only on a compound node; a "variable",

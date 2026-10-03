@@ -43,5 +43,5 @@ local function test_the_compiler_compiles_itself_to_itself()
   assert(code ~= nil and #result.syntax_errors == 0 and #result.type_errors == 0,
     "the compiler refused its own source")
   assert(code == carried, "the compiler compiled its own source to other Lua " ..
-    "than it is: " .. tostring(#code) .. " bytes against " .. tostring(#carried))
+      "than it is: " .. tostring(#code) .. " bytes against " .. tostring(#carried))
 end

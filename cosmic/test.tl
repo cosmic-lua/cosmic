@@ -290,7 +290,7 @@ function Test.needs(needs: Test.Needs)
   end
   if called_at ~= nil then
     error("test: needs is called once, and " .. called_at .. " called it already; " ..
-      "a test module never requires another that calls it", 2)
+        "a test module never requires another that calls it", 2)
   end
   called_at = caller()
   local handed = installed ~= nil and installed.handed or nil

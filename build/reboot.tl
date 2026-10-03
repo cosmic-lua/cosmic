@@ -183,7 +183,7 @@ end
 function reboot.carries_tree_code(handle: work.Handle): boolean
   local rows, _ = Sqlite.text_rows(handle.db,
     "SELECT path, source_hash FROM inputs WHERE (origin = 'tree' " ..
-    "AND kind IN ('module', 'main')) OR origin = 'vendor' ORDER BY path")
+      "AND kind IN ('module', 'main')) OR origin = 'vendor' ORDER BY path")
   if rows == nil or #rows == 0 then
     return false
   end
@@ -203,7 +203,7 @@ end
 --- `settle` rebuilds a fresh but `unsettled` tool, which a rebuild may
 --- enter; anything else refuses once a reboot has entered this process.
 local function into(handle: work.Handle, built: compiler,
-                     argv: {integer:string}, settle: boolean): string
+                    argv: {integer:string}, settle: boolean): string
   local refused = refusal(settle)
   if refused ~= nil then
     return closing(handle, refused)

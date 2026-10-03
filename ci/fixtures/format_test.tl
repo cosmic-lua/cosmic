@@ -27,7 +27,7 @@ local function test_decoder_inspection_records_are_exact(tmp: string)
       suffix = prefix .. entry:sub(1, -2) .. " trailing\n",
       duplicate = prefix .. entry .. entry,
       blank = prefix .. "\n" .. entry,
-    }) do
+  }) do
     local path = tmp .. "/" .. name
     Fixture.write(path, contents)
     assert(not pcall(Fixture.inspection, path),
@@ -72,8 +72,8 @@ local function test_portable_format_contract(tmp: string)
       "host inspection identity differs: " .. target.name)
     local host_bytes = Fixture.read(host_path)
     assert(host.entry_count == 1 and host_entry.offset == 0 and
-      host_entry.length == #core and host_bytes:sub(1, #core) == core and
-      host_entry.digest == Hash.hex_sha256(core),
+        host_entry.length == #core and host_bytes:sub(1, #core) == core and
+        host_entry.digest == Hash.hex_sha256(core),
       "host inspection does not describe the leading core: " .. target.name)
     local subset_path = program .. ".subset-" .. target.name
     local subset_inspection = Fixture.run("subset-inspection-" .. target.name,
@@ -83,8 +83,8 @@ local function test_portable_format_contract(tmp: string)
       "subset inspection identity differs: " .. target.name)
     local subset_bytes = Fixture.read(subset_path)
     assert(subset.entry_count == 1 and subset_entry.length == #core and
-      subset_bytes:sub(subset_entry.offset + 1, subset_entry.offset + #core) == core and
-      subset_entry.digest == Hash.hex_sha256(core),
+        subset_bytes:sub(subset_entry.offset + 1, subset_entry.offset + #core) == core and
+        subset_entry.digest == Hash.hex_sha256(core),
       "subset inspection does not describe its core: " .. target.name)
     assert(#core == entry.length, "format core length differs: " .. target.name)
     local extracted = artifact:sub(entry.offset + 1,
@@ -115,5 +115,5 @@ local function test_portable_format_contract(tmp: string)
     "portable-format-" .. publish_target }, root, diagnostics, nil,
     native_build_timeout_ns)
   Fixture.copy(root .. "/o/portable-fixture/format/format-test-" ..
-    publish_target, publish .. "/format-test-" .. publish_target, 0x1ed)
+      publish_target, publish .. "/format-test-" .. publish_target, 0x1ed)
 end

@@ -52,7 +52,7 @@ local function unsandboxed(text: string): boolean
 end
 
 local function invoke(root: string, output: string, args: {string},
-    env?: {string:string}): Child.Result
+                      env?: {string:string}): Child.Result
   local words: {string} = { "test" }
   for _, value in ipairs(args) do words[#words + 1] = value end
   local fd = assert(Fs.open_write(output))
@@ -155,7 +155,7 @@ local function test_a_hung_or_exiting_test_fails_alone(tmp: string)
     assert(Time.monotonic_ns() - started < Time.seconds(30), text)
     assert(text:find("suite.hang_test test_hangs: timed out after 2 s", 1, true), text)
     assert(text:find("suite.exits_test test_exits: the test process exited with status 0 " ..
-      "before it reported", 1, true), text)
+        "before it reported", 1, true), text)
     assert(text:find("  | said something", 1, true), text)
     assert(not text:find("quiet", 1, true), text)
     assert(text:find("2 of 3 failed", 1, true), text)

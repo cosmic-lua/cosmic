@@ -10,9 +10,10 @@
 --- costs a few lookups per statement. It writes a line break into the
 --- source in front of each statement or closing keyword that must start
 --- a line, and the renderer then indents those lines as it indents any
---- other. Each break keeps what follows it at the column it had, so a
---- continuation line of the statement moved keeps its place relative to
---- that statement.
+--- other, the lines continuing a statement included. Each break keeps
+--- what follows it at the column it had, so what keeps a column relative
+--- to the statement moved (a comment not lined up with code, type syntax
+--- written as its bytes) keeps its place beside it.
 ---
 --- A statement shares no line with the statement before it. A block --
 --- the body of an `if`, a loop, a `do`, a `repeat` or a function --
@@ -333,14 +334,9 @@ local function open_line(p: Pass, out: string, b: Break, t: compiler.Token): str
   end
   local rest = between:sub(#(between:match("^%s*") or "") + 1)
   -- What opens the new line is placed so the statement or keyword the
-  -- break is for keeps its column, and its continuation lines with it.
+  -- break is for keeps its column, and what keeps a column relative to
+  -- it moves with it when the renderer indents it.
   local column = b.x - 1 - #rest
-  -- TODO: give a continuation line an indentation of its own, from the
-  -- statement's and the brackets open, rather than its column relative
-  -- to where the statement was: a statement moved left here pulls its
-  -- continuation lines left with it, to column 0 at worst
-  -- (`f() local x = a\n  as integer`). It waits on the change that sets
-  -- a canonical continuation indent in [`build.fix.render`].
   if column < 0 then
     column = 0
   end

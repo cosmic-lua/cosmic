@@ -122,7 +122,7 @@ local function to_items(blocks: {Block}): {Item} | nil, string
         -- closed) it waits in `pending_files` for the next entry, and is
         -- refused below if none follows.
         local write: FileWrite = { path = b.modifiers.file, content = b.content,
-                                    line = b.line }
+          line = b.line }
         if current ~= nil then
           current.files[#current.files + 1] = write
         else

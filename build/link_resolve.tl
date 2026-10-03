@@ -82,7 +82,7 @@ end
 --- A resolver over `context`.
 function link_resolve.resolver(context: link_resolve.Context): link_resolve.Resolver
   return { context = context, kinds = {}, headings = {}, symbols = {}, members = {},
-           unchecked = 0 }
+    unchecked = 0 }
 end
 
 --- What `resolver`'s context says is at `path`, asked once.
@@ -368,8 +368,8 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
                               path_first: boolean): link_resolve.Target | nil, string
   local function made(kind: string, fields: {string: string}): link_resolve.Target
     return { kind = kind, name = fields.name or "", module = fields.module or "",
-             symbol = fields.symbol or "", path = fields.path or "", anchor = fields.anchor or "",
-             file = fields.file or "" }
+      symbol = fields.symbol or "", path = fields.path or "", anchor = fields.anchor or "",
+      file = fields.file or "" }
   end
   if target:match("^https?://") ~= nil or target:match("^mailto:") ~= nil then
     return made("url", {})
@@ -437,7 +437,7 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
         return nil, problem
       end
       return made("symbol", { module = members[1].module, symbol = members[1].symbol,
-                               file = members[1].file })
+        file = members[1].file })
     end
     -- A name alone is its own file's: another module's symbol is
     -- written in full, so a link does not start naming another thing
@@ -568,7 +568,7 @@ function link_resolve.linkable(resolver: link_resolve.Resolver, from: string, co
     if declared().names[dotted] then
       if module_level()[dotted] then
         return { kind = "declared", name = dotted, module = "", symbol = "", path = "",
-                 anchor = "", file = "" }
+          anchor = "", file = "" }
       end
       return nil
     end

@@ -87,20 +87,20 @@ local function test_transported_product(tmp: string)
     selected.configuration), "selected product entry is missing")
   local artifact = Fixture.read(product .. "/cosmic")
   local core = Fixture.read(product .. "/cores/" .. target_name ..
-    "/cosmic-core")
+      "/cosmic-core")
   local extracted = artifact:sub(entry.offset + 1, entry.offset + entry.length)
   assert(#core == entry.length and extracted == core and
-    Hash.hex_sha256(extracted) == entry.digest, "selected core range differs")
+      Hash.hex_sha256(extracted) == entry.digest, "selected core range differs")
 
   assert(decoded.manifest_length == 4096 and
-    decoded.manifest_offset % 16384 == 0, "product prefix record differs")
+      decoded.manifest_offset % 16384 == 0, "product prefix record differs")
   local prefix = Fixture.read(product .. "/prefix")
   assert(#prefix == decoded.prefix_length and
-    artifact:sub(1, decoded.prefix_length) == prefix,
+      artifact:sub(1, decoded.prefix_length) == prefix,
     "product prefix differs")
   assert(artifact:sub(decoded.manifest_offset + 1,
     decoded.manifest_offset + decoded.manifest_length) ==
-    Fixture.read(product .. "/manifest"),
+      Fixture.read(product .. "/manifest"),
     "product manifest differs")
   for _, application in ipairs({ "hello", "second" }) do
     assert(Fixture.read(product .. "/apps/" .. application):sub(

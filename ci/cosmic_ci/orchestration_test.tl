@@ -55,7 +55,7 @@ end
 --- or append to its real step summary; every test builds this context
 --- explicitly and passes it as Fixture.call's extra env instead.
 local function context(candidate: string, runner_temp: string,
-    extra?: {string:string}): {string:string}
+                       extra?: {string:string}): {string:string}
   local env: {string:string} = {
     GITHUB_WORKSPACE = candidate,
     GITHUB_RUN_ID = "run",
@@ -93,7 +93,7 @@ local function test_provenance_failures_are_durable(tmp: string)
     assert(Fs.mkdirs(product) and Fs.write(product .. "/cosmic", "bytes"))
     local digest = Hash.hex_sha256("bytes")
     assert(Fs.write(product .. "/executed-cosmic.sha256", digest .. "  cosmic\n") and
-      Fs.write(product .. "/expected-platforms", "2\n"))
+        Fs.write(product .. "/expected-platforms", "2\n"))
   end
 
   -- Each scenario gets its own RUNNER_TEMP: the operations database and
@@ -155,9 +155,9 @@ local function test_platform_protects_paths_and_retains_primary_failure(tmp: str
   local base, project = command(tmp)
   local fake, seed = tmp .. "/fake", tmp .. "/seed"
   assert(Fs.mkdirs(fake .. "/bin") and
-    Fs.mkdirs(fake .. "/ci/testdata/portable") and
-    Fs.mkdirs(seed .. "/zig-cache") and Fs.mkdirs(seed .. "/zig-global") and
-    Fs.mkdirs(tmp .. "/temporary"))
+      Fs.mkdirs(fake .. "/ci/testdata/portable") and
+      Fs.mkdirs(seed .. "/zig-cache") and Fs.mkdirs(seed .. "/zig-global") and
+      Fs.mkdirs(tmp .. "/temporary"))
   assert(Fs.write(seed .. "/build.db", "poison"))
   assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
   Fixture.copy(checkout_root() .. "/ci/testdata/portable/work_db_integrity.tl",
@@ -256,16 +256,16 @@ end
 local function test_the_sandbox_phase_fails_where_confinement_is_unavailable(tmp: string)
   local base, project = command(tmp)
   for _, case in ipairs({
-    { name = "unavailable", said = "Confinement: **unavailable** (unveil).", require = "1", ok = false },
-    { name = "available", said = "Confinement: available.", require = "1", ok = true },
-    { name = "unrequired", said = "Confinement: **unavailable** (unveil).", require = "", ok = true },
+      { name = "unavailable", said = "Confinement: **unavailable** (unveil).", require = "1", ok = false },
+      { name = "available", said = "Confinement: available.", require = "1", ok = true },
+      { name = "unrequired", said = "Confinement: **unavailable** (unveil).", require = "", ok = true },
   }) do
     local fake = tmp .. "/" .. case.name
     local runner_temp = fake .. "-runner-temp"
     assert(Fs.mkdirs(fake .. "/o/bin") and Fs.mkdirs(runner_temp))
     assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
     Fixture.write(fake .. "/o/bin/cosmic", "#!/bin/sh\nprintf '| Part |\\n\\n" ..
-      case.said .. "\\nswitch=%s mode=%s.\\n' \"$COSMIC_TEST_SANDBOX\" \"$COSMIC_SANDBOX\"\n", 493)
+        case.said .. "\\nswitch=%s mode=%s.\\n' \"$COSMIC_TEST_SANDBOX\" \"$COSMIC_SANDBOX\"\n", 493)
     local summary = runner_temp .. "/summary.md"
     local outcome = Fixture.call("sandbox-" .. case.name, append(base, { "platform", "sandbox" }),
       project, tmp .. "/logs", context(fake, runner_temp, {
@@ -278,7 +278,7 @@ local function test_the_sandbox_phase_fails_where_confinement_is_unavailable(tmp
         COSMIC_TEST_SANDBOX = "", COSMIC_SANDBOX = "",
       }))
     assert(outcome.result.ok == case.ok, "the sandbox phase answered " ..
-      tostring(outcome.result.ok) .. " where the probe said " .. case.said)
+        tostring(outcome.result.ok) .. " where the probe said " .. case.said)
     Fixture.contains(summary, case.said)
     Fixture.contains(summary, case.require == "1" and "switch=1 mode=must." or "switch= mode=.")
     if not case.ok then Fixture.contains(outcome.err, "cannot confine a test") end
@@ -398,9 +398,9 @@ end
 local function test_the_portable_suite_keeps_verdicts_of_its_own()
   local Orchestration = require("cosmic_ci.orchestration")
   for shared, portable in pairs({
-    ["/runner/_temp/verdicts/verdicts.db"] = "/runner/_temp/verdicts/portable.db",
-    ["/verdicts.db"] = "/portable.db",
-    ["0"] = "0", [""] = "0", ["verdicts.db"] = "0",
+      ["/runner/_temp/verdicts/verdicts.db"] = "/runner/_temp/verdicts/portable.db",
+      ["/verdicts.db"] = "/portable.db",
+      ["0"] = "0", [""] = "0", ["verdicts.db"] = "0",
   }) do
     local said = Orchestration.suite_verdicts({ COSMIC_VERDICT_CACHE = shared }, "portable")
     assert(said == portable, shared .. ": " .. said)
@@ -414,7 +414,7 @@ local function test_the_checked_suite_keeps_verdicts_of_its_own()
   local Orchestration = require("cosmic_ci.orchestration")
   local shared = { COSMIC_VERDICT_CACHE = "/runner/_temp/verdicts/verdicts.db" }
   assert(Orchestration.suite_verdicts(shared, "checked") ==
-    "/runner/_temp/verdicts/checked.db")
+      "/runner/_temp/verdicts/checked.db")
   assert(Orchestration.suite_verdicts({ COSMIC_VERDICT_CACHE = "0" }, "checked") == "0")
 end
 
@@ -453,7 +453,7 @@ local function test_the_self_rebuild_seed_copies_the_legs_compiles(tmp: string)
     local db = assert(Sqlite.open(path, { writable = true }))
     assert(db:exec("PRAGMA journal_mode = WAL"))
     assert(db:exec("CREATE TABLE compiles (key TEXT); INSERT INTO compiles VALUES ('" ..
-      path .. "')"))
+        path .. "')"))
     return db
   end
   local function seeded_from(path: string): string
@@ -550,13 +550,13 @@ local function test_fixture_run_shares_only_a_sandboxed_fixtures_verdicts(tmp: s
     end
     local sandboxed = Orchestration.fixture_run("runtime", env(), tmp .. "/tmp", tmp .. "/c.db")
     assert(sandboxed.COSMIC_VERDICT_CACHE == tmp .. "/v/fixtures.db", leg .. ": " ..
-      tostring(sandboxed.COSMIC_VERDICT_CACHE))
+        tostring(sandboxed.COSMIC_VERDICT_CACHE))
     assert(sandboxed.COSMIC_TEST_NO_SHARED == nil, leg .. ": a push's fixture stands on nothing")
     assert(sandboxed.COSMIC_TEST_SANDBOX == values.COSMIC_TEST_SANDBOX,
       leg .. ": the fixture's workers are not held as the leg's are")
     local plain = Orchestration.fixture_run("self_driven", env(), tmp .. "/tmp", tmp .. "/c.db")
     assert(plain.COSMIC_VERDICT_CACHE == "0" and plain.COSMIC_TEST_NO_SHARED == "1" and
-      plain.COSMIC_TEST_SANDBOX == "0",
+        plain.COSMIC_TEST_SANDBOX == "0",
       leg .. ": an unsandboxed fixture shares verdicts")
     local bare = env()
     bare.COSMIC_FIXTURE_PRODUCT = nil
@@ -617,19 +617,19 @@ local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
         for _, whole in ipairs({ "cosmic", "cosmic.db" }) do
           assert(not host["$COSMIC_FIXTURE_PRODUCT/" .. whole],
             name .. ": a sandboxed fixture that does not check the whole product declares its " ..
-            whole .. ", which moves with every edit to the tool's code")
+              whole .. ", which moves with every edit to the tool's code")
         end
       end
     else
       local needs = code_of(name):match("\nTest%.needs%s*%(?%s*(%b{})")
       assert(needs ~= nil and needs:gsub("%s", "") == '{env={"*"}}',
         name .. ": an unsandboxed fixture declares other than the whole environment: " ..
-        tostring(needs))
+          tostring(needs))
     end
   end
   local whole = declared_host("product")
   for _, part in ipairs({ "cosmic", "hashes.sha256", "prefix", "manifest", "apps/hello",
-                          "apps/second", "cosmic.db", "targets.tsv" }) do
+      "apps/second", "cosmic.db", "targets.tsv" }) do
     assert(whole["$COSMIC_FIXTURE_PRODUCT/" .. part],
       "product: the fixture that checks the whole product does not declare " .. part)
   end
@@ -643,9 +643,9 @@ end
 local function test_the_format_check_runs_unless_the_leg_skips_it(tmp: string)
   local base, project = command(tmp)
   for _, case in ipairs({
-    { name = "skip", switch = "skip", ok = true, ran = false },
-    { name = "run", switch = "run", ok = false, ran = true },
-    { name = "unset", switch = "", ok = false, ran = true },
+      { name = "skip", switch = "skip", ok = true, ran = false },
+      { name = "run", switch = "run", ok = false, ran = true },
+      { name = "unset", switch = "", ok = false, ran = true },
   }) do
     local fake = tmp .. "/format-" .. case.name
     local runner_temp = fake .. "-runner-temp"
@@ -659,7 +659,7 @@ local function test_the_format_check_runs_unless_the_leg_skips_it(tmp: string)
         TARGET = "x86_64-linux-musl", COSMIC_CI_FORMAT = case.switch,
       }))
     assert(outcome.result.ok == case.ok, case.name .. ": the format phase answered " ..
-      tostring(outcome.result.ok))
+        tostring(outcome.result.ok))
     local ran = Fs.read(fake .. "/o/bin/cosmic.ran")
     assert((ran ~= nil) == case.ran, case.name .. ": the check ran: " .. tostring(ran))
     if case.ran then assert(ran == "fix --check .", ran) end
@@ -677,10 +677,10 @@ local function test_the_format_check_lays_out_only_the_paths_changed(tmp: string
   local empty = tmp .. "/changed-none"
   assert(Fs.write(empty, ""))
   for _, case in ipairs({
-    { name = "listed", changed = listed, ran = "fix --check --changed -- cosmic/fs.tl doc/a b.md" },
-    { name = "none", changed = empty, ran = "fix --check --changed --" },
-    { name = "unread", changed = tmp .. "/no-such-list", ran = "fix --check ." },
-    { name = "unset", changed = "", ran = "fix --check ." },
+      { name = "listed", changed = listed, ran = "fix --check --changed -- cosmic/fs.tl doc/a b.md" },
+      { name = "none", changed = empty, ran = "fix --check --changed --" },
+      { name = "unread", changed = tmp .. "/no-such-list", ran = "fix --check ." },
+      { name = "unset", changed = "", ran = "fix --check ." },
   }) do
     local fake = tmp .. "/format-changed-" .. case.name
     local runner_temp = fake .. "-runner-temp"
@@ -705,9 +705,9 @@ end
 local function test_the_format_check_waits_on_a_suites_boundary_alone(tmp: string)
   local base, project = command(tmp)
   for _, case in ipairs({
-    { name = "no-suite", immediate = false, boundary = false, ran = true },
-    { name = "suite-unbounded", immediate = true, boundary = false, ran = false },
-    { name = "suite-bounded", immediate = true, boundary = true, ran = true },
+      { name = "no-suite", immediate = false, boundary = false, ran = true },
+      { name = "suite-unbounded", immediate = true, boundary = false, ran = false },
+      { name = "suite-bounded", immediate = true, boundary = true, ran = true },
   }) do
     local fake = tmp .. "/format-boundary-" .. case.name
     local runner_temp = fake .. "-runner-temp"
@@ -726,7 +726,7 @@ local function test_the_format_check_waits_on_a_suites_boundary_alone(tmp: strin
         TARGET = "x86_64-linux-musl", COSMIC_CI_FORMAT = "run",
       }))
     assert(outcome.result.ok == case.ran, case.name .. ": the format phase answered " ..
-      tostring(outcome.result.ok))
+        tostring(outcome.result.ok))
     local ran = Fs.read(fake .. "/o/bin/cosmic.ran")
     assert((ran ~= nil) == case.ran, case.name .. ": the check ran: " .. tostring(ran))
   end
@@ -752,7 +752,7 @@ local function test_only_a_leg_that_runs_the_checked_suite_runs_the_checked_cosm
     return "printf '%s\\t%s\\t%s\\n' " .. fields .. "\n"
   end
   local function candidate(name: string, host_image: string,
-      checked: string): string, string
+                           checked: string): string, string
     local fake = tmp .. "/checked-" .. name
     local runner_temp = fake .. "-runner-temp"
     local format = runner_temp .. "/cosmic-ci/platform/contract/format"
@@ -761,17 +761,17 @@ local function test_only_a_leg_that_runs_the_checked_suite_runs_the_checked_cosm
     assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
     assert(Fs.write(fake .. "/o/sanitized/targets.tsv",
       "1\t1\trelease\t" .. target .. "\tLinux\tx86_64\n" ..
-      "1\t2\tsanitized\tsanitized-" .. target .. "\tLinux\tx86_64\n"))
+        "1\t2\tsanitized\tsanitized-" .. target .. "\tLinux\tx86_64\n"))
     assert(Fs.write(fake .. "/o/sanitized/cosmic-core", core))
     -- The release cosmic, which fails if run.
     Fixture.write(fake .. "/o/bin/cosmic", "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$0.ran\"\n" ..
-      "exit 9\n", 493)
+        "exit 9\n", 493)
     -- The contract's decoder, which reads the checked artifact's entry.
     Fixture.write(format .. "/format-test-" .. target, "#!/bin/sh\n" ..
-      "case \"$1 $2\" in '--inspect '*/o/sanitized/bin/cosmic) ;; *) exit 9 ;; esac\n" ..
-      "printf '%s\\n' 'prefix 32768 manifest 28672 4096 database 32768 0 entries 2' " ..
-      "'entry 1 1 16384 1 " .. string.rep("1", 64) .. "' " ..
-      "'entry 1 2 16384 " .. #core .. " " .. digest .. "'\n", 493)
+        "case \"$1 $2\" in '--inspect '*/o/sanitized/bin/cosmic) ;; *) exit 9 ;; esac\n" ..
+        "printf '%s\\n' 'prefix 32768 manifest 28672 4096 database 32768 0 entries 2' " ..
+        "'entry 1 1 16384 1 " .. string.rep("1", 64) .. "' " ..
+        "'entry 1 2 16384 " .. #core .. " " .. digest .. "'\n", 493)
     -- The checked artifact: a script that answers each run as the tool
     -- would, `tool.tl entry` with `checked`, its core at the first
     -- aligned offset past it. Its `-e` answers only a chunk that prints
@@ -790,14 +790,14 @@ local function test_only_a_leg_that_runs_the_checked_suite_runs_the_checked_cosm
     return fake, runner_temp
   end
   for _, case in ipairs({
-    { name = "skip", switch = "skip", image = digest, checked = right,
-      ok = true, ran = "-e\n", removed = true },
-    { name = "run", switch = "run", image = digest, checked = right,
-      ok = true, ran = "-e\n/tool.tl\ntest\n", removed = false },
-    { name = "another-core", switch = "skip", image = string.rep("0", 64),
-      checked = right, ok = false, ran = "-e\n", removed = false },
-    { name = "checked-disagrees", switch = "run", image = digest,
-      checked = wrong, ok = false, ran = "-e\n/tool.tl\n", removed = false },
+      { name = "skip", switch = "skip", image = digest, checked = right,
+          ok = true, ran = "-e\n", removed = true },
+      { name = "run", switch = "run", image = digest, checked = right,
+          ok = true, ran = "-e\n/tool.tl\ntest\n", removed = false },
+      { name = "another-core", switch = "skip", image = string.rep("0", 64),
+          checked = right, ok = false, ran = "-e\n", removed = false },
+      { name = "checked-disagrees", switch = "run", image = digest,
+          checked = wrong, ok = false, ran = "-e\n/tool.tl\n", removed = false },
   }) do
     local fake, runner_temp = candidate(case.name, case.image, case.checked)
     local verdicts = runner_temp .. "/verdicts"
@@ -810,7 +810,7 @@ local function test_only_a_leg_that_runs_the_checked_suite_runs_the_checked_cosm
         COSMIC_VERDICT_CACHE = verdicts .. "/verdicts.db",
       }))
     assert(outcome.result.ok == case.ok, case.name .. ": the checked phase answered " ..
-      tostring(outcome.result.ok) .. ": " .. Fixture.read(outcome.err))
+        tostring(outcome.result.ok) .. ": " .. Fixture.read(outcome.err))
     assert(Fs.read(verdicts .. "/verdicts.db") == "native\n", case.name .. ": the native verdicts moved")
     assert((Fs.read(verdicts .. "/checked.db") == nil) == case.removed,
       case.name .. ": the checked verdicts were " .. (case.removed and "kept" or "removed"))
@@ -850,13 +850,13 @@ local function test_the_checked_job_boots_and_builds_what_the_checked_phase_read
   assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
   -- bin/zig logs each build, and leaves what it names.
   Fixture.write(fake .. "/bin/zig", "#!/bin/sh\nmkdir -p o\nprintf '%s\\n' \"$*\" >> o/zig.ran\n" ..
-    "case \"$*\" in\n" ..
-    "'build cores boot') mkdir -p o/bin && printf '#!/bin/sh\\necho ran >> \"$0.ran\"\\n' > o/bin/cosmic && " ..
-    "chmod 755 o/bin/cosmic ;;\n" ..
-    "'build sanitized') mkdir -p o/sanitized/bin ;;\n" ..
-    "'build portable-format-" .. target .. "') mkdir -p o/portable-fixture/format && " ..
-    "printf decoder > o/portable-fixture/format/format-test-" .. target .. " ;;\n" ..
-    "*) exit 9 ;;\nesac\n", 493)
+      "case \"$*\" in\n" ..
+      "'build cores boot') mkdir -p o/bin && printf '#!/bin/sh\\necho ran >> \"$0.ran\"\\n' > o/bin/cosmic && " ..
+      "chmod 755 o/bin/cosmic ;;\n" ..
+      "'build sanitized') mkdir -p o/sanitized/bin ;;\n" ..
+      "'build portable-format-" .. target .. "') mkdir -p o/portable-fixture/format && " ..
+      "printf decoder > o/portable-fixture/format/format-test-" .. target .. " ;;\n" ..
+      "*) exit 9 ;;\nesac\n", 493)
   local env = context(fake, runner_temp, { TARGET = target })
   for _, phase in ipairs({ "boot", "checked-build" }) do
     local outcome = Fixture.call("checked-job-" .. phase, append(base, { "platform", phase }),
@@ -864,7 +864,7 @@ local function test_the_checked_job_boots_and_builds_what_the_checked_phase_read
     assert(outcome.result.ok, phase .. " failed: " .. Fixture.read(outcome.err))
   end
   assert(Fs.read(fake .. "/o/zig.ran") == "build cores boot\nbuild sanitized\n" ..
-    "build portable-format-" .. target .. "\n", tostring((Fs.read(fake .. "/o/zig.ran"))))
+      "build portable-format-" .. target .. "\n", tostring((Fs.read(fake .. "/o/zig.ran"))))
   assert(Fs.read(fake .. "/o/bin/cosmic.ran") == nil, "boot ran the native suite")
   local decoder = runner_temp .. "/cosmic-ci/platform/contract/format/format-test-" .. target
   assert(Fs.read(decoder) == "decoder", "the decoder is not where the checked phase reads it")
@@ -895,11 +895,11 @@ local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing
     -- bin/zig's boot leaves a cosmic whose suite says its figures, and
     -- which answers the integrity check.
     Fixture.write(fake .. "/bin/zig", "#!/bin/sh\nmkdir -p o/bin\nprintf db > o/build.db\n" ..
-      "cat > o/bin/cosmic <<'EOF'\n#!/bin/sh\n" ..
-      "if [ \"$1 $2\" = \"test --census\" ]; then printf '%s\\n' " ..
-      "'test: key parts: host features 01, host 02, system 03, runtime 04, compiler 05, harness 06' " ..
-      "'test: PASS (9 tests, 2 modules; 5 ran, 4 stood, 77 ms; sandboxed)'; fi\nexit 0\nEOF\n" ..
-      "chmod 755 o/bin/cosmic\n", 493)
+        "cat > o/bin/cosmic <<'EOF'\n#!/bin/sh\n" ..
+        "if [ \"$1 $2\" = \"test --census\" ]; then printf '%s\\n' " ..
+        "'test: key parts: host features 01, host 02, system 03, runtime 04, compiler 05, harness 06' " ..
+        "'test: PASS (9 tests, 2 modules; 5 ran, 4 stood, 77 ms; sandboxed)'; fi\nexit 0\nEOF\n" ..
+        "chmod 755 o/bin/cosmic\n", 493)
     local database = runner_temp .. "/cosmic-ci/operations.db"
     if case.broken then
       local db = assert(Sqlite.open(database, { writable = true }))
@@ -926,7 +926,7 @@ local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing
       assert(row.parts.runtime == "04" and row.parts.harness == "06")
     end
     local phases = assert(Sqlite.text_rows(db, "SELECT phase, status FROM operation_events " ..
-      "WHERE event = 'complete' AND phase IN ('local suite', 'platform: build') ORDER BY id"))
+        "WHERE event = 'complete' AND phase IN ('local suite', 'platform: build') ORDER BY id"))
     assert(#phases == 2 and phases[1][2] == "success" and phases[2][2] == "success",
       case.name .. ": the phases did not succeed")
     assert(db:close())
@@ -969,7 +969,7 @@ local function test_the_checked_suite_runs_in_its_own_job_and_the_format_check_o
   local legs = full_run_legs(platform)
   local env = platform.env as {string: string}
   assert(env.COSMIC_CI_CHECKED_SUITE == "skip", "a leg runs the checked suite: " ..
-    tostring(env.COSMIC_CI_CHECKED_SUITE))
+      tostring(env.COSMIC_CI_CHECKED_SUITE))
   local format = assert(env.COSMIC_CI_FORMAT, "ci.yml's platform job sets no COSMIC_CI_FORMAT")
   local one = format:match("^%${{ matrix%.name == '([%w_-]+)' && 'run' || 'skip' }}$")
   assert(one and legs[one], "COSMIC_CI_FORMAT runs on no one leg of the matrix: " .. format)
@@ -1001,9 +1001,9 @@ local function test_the_fixed_point_fixture_runs_on_one_leg_and_on_every_schedul
   local legs, env = platform_legs_and_env()
   local value = assert(env.COSMIC_CI_FIXED_POINT, "ci.yml's platform job sets no COSMIC_CI_FIXED_POINT")
   local one = value:match("^%${{ %(matrix%.name == '([%w_-]+)' || " ..
-    "github%.event_name == 'schedule'%) && 'run' || 'skip' }}$")
+      "github%.event_name == 'schedule'%) && 'run' || 'skip' }}$")
   assert(one and legs[one], "the fixed-point fixture runs on no one leg of the matrix, " ..
-    "or not on every leg of the scheduled run: " .. value)
+      "or not on every leg of the scheduled run: " .. value)
 end
 
 --- The self-rebuild regression runs on two legs of a gating run
@@ -1014,10 +1014,10 @@ local function test_the_self_rebuild_fixture_runs_on_two_legs_and_on_every_sched
   local legs, env = platform_legs_and_env()
   local value = assert(env.COSMIC_CI_SELF_REBUILD, "ci.yml's platform job sets no COSMIC_CI_SELF_REBUILD")
   local one, two = value:match("^%${{ %(matrix%.name == '([%w_-]+)' || " ..
-    "matrix%.name == '([%w_-]+)' || github%.event_name == 'schedule'%) && 'run' || 'skip' }}$")
+      "matrix%.name == '([%w_-]+)' || github%.event_name == 'schedule'%) && 'run' || 'skip' }}$")
   assert(one and two and one ~= two and legs[one] and legs[two],
     "the self-rebuild fixture runs on no two legs of the matrix, " ..
-    "or not on every leg of the scheduled run: " .. value)
+      "or not on every leg of the scheduled run: " .. value)
   assert(legs[one].runner:sub(1, 5) == "macos" or legs[two].runner:sub(1, 5) == "macos",
     "the self-rebuild fixture runs on no macOS leg of a gating run: " .. value)
 end
@@ -1030,18 +1030,18 @@ local function test_the_portable_suite_runs_on_two_legs_and_on_every_scheduled_o
   local legs, env = platform_legs_and_env()
   local value = assert(env.COSMIC_CI_PORTABLE_SUITE, "ci.yml's platform job sets no COSMIC_CI_PORTABLE_SUITE")
   local one, two = value:match("^%${{ %(%(matrix%.name == '([%w_-]+)' && " ..
-    "github%.event_name != 'merge_group'%) || " ..
-    "matrix%.name == '([%w_-]+)' || github%.event_name == 'schedule' || " ..
-    "github%.event_name == 'workflow_dispatch'%) && 'run' || 'skip' }}$")
+      "github%.event_name != 'merge_group'%) || " ..
+      "matrix%.name == '([%w_-]+)' || github%.event_name == 'schedule' || " ..
+      "github%.event_name == 'workflow_dispatch'%) && 'run' || 'skip' }}$")
   assert(one and two and one ~= two and legs[one] and legs[two],
     "the portable suite runs on no two legs of a push to main, on more than " ..
-    "one of the merge queue, or not on every leg of the scheduled and a manual run: " .. value)
+      "one of the merge queue, or not on every leg of the scheduled and a manual run: " .. value)
   assert(legs[one].target:sub(1, 7) == "x86_64-" and legs[two].target:sub(1, 7) == "x86_64-",
     "the portable suite runs on a leg of a gating run that is no x86-64 one: " .. value)
   -- Both Linux legs, the queue's in the Alpine (musl) image, the other
   -- not (glibc).
   assert(legs[one].image ~= "" and legs[one].image:find("alpine", 1, true) == nil and
-    legs[two].image:find("alpine", 1, true) ~= nil,
+      legs[two].image:find("alpine", 1, true) ~= nil,
     "the portable suite's gating legs are not a glibc host and, in the queue too, a musl one: " .. value)
 end
 
@@ -1056,7 +1056,7 @@ local function test_a_leg_that_skips_the_portable_suite_still_attests(tmp: strin
   local work = runner_temp .. "/cosmic-ci/platform"
   local diagnostics = work .. "/portable-diagnostics"
   assert(Fs.mkdirs(fake) and Fs.mkdirs(diagnostics) and
-    Fs.mkdirs(work .. "/portable-source"))
+      Fs.mkdirs(work .. "/portable-source"))
   assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
   local executable = diagnostics .. "/cosmic-portable"
   local seen = fake .. "-seen"
@@ -1078,11 +1078,11 @@ local function test_a_leg_that_skips_the_portable_suite_still_attests(tmp: strin
       phase .. ": " .. err)
   end
   assert(Fs.read(seen) == nil, "a skipped portable suite ran the artifact: " ..
-    tostring((Fs.read(seen))))
+      tostring((Fs.read(seen))))
   assert(Fs.read(diagnostics .. "/portable-artifact.after.sha256") == digest,
     "a skipped portable suite recorded no digest for attest")
   assert(Fs.read(diagnostics .. "/portable-immediate/hashes.sha256") == nil and
-    Fs.read(diagnostics .. "/portable-boundary/hashes.sha256") == nil,
+      Fs.read(diagnostics .. "/portable-boundary/hashes.sha256") == nil,
     "a skipped portable suite snapshotted a database")
 end
 
@@ -1160,8 +1160,8 @@ end
 local function test_a_shard_leg_runs_its_share_of_the_native_suite(tmp: string)
   local base, project = command(tmp)
   for _, case in ipairs({
-    { name = "second", shard = "2/2", words = "test --census --shard 2/2\n" },
-    { name = "whole", shard = "", words = "test --census\n" },
+      { name = "second", shard = "2/2", words = "test --census --shard 2/2\n" },
+      { name = "whole", shard = "", words = "test --census\n" },
   }) do
     local fake = tmp .. "/shard-" .. case.name
     assert(Fs.mkdirs(fake .. "/bin") and Fs.mkdirs(fake .. "/ci/testdata/portable"))
@@ -1202,9 +1202,9 @@ end
 local function test_the_portable_suite_stands_on_its_own_verdicts(tmp: string)
   local base, project = command(tmp)
   for _, case in ipairs({
-    { event = "merge_group", words = "test --census\n", shared = false },
-    { event = "push", words = "test --census\n", shared = false },
-    { event = "schedule", words = "test --census --all\n", shared = true },
+      { event = "merge_group", words = "test --census\n", shared = false },
+      { event = "push", words = "test --census\n", shared = false },
+      { event = "schedule", words = "test --census --all\n", shared = true },
   }) do
     local fake = tmp .. "/portable-" .. case.event
     local runner_temp = fake .. "-runner-temp"
@@ -1212,7 +1212,7 @@ local function test_the_portable_suite_stands_on_its_own_verdicts(tmp: string)
     local diagnostics = work .. "/portable-diagnostics"
     local fresh = work .. "/portable-source"
     assert(Fs.mkdirs(fake) and Fs.mkdirs(diagnostics) and
-      Fs.mkdirs(fresh .. "/o") and Fs.mkdirs(fresh .. "/ci/testdata/portable"))
+        Fs.mkdirs(fresh .. "/o") and Fs.mkdirs(fresh .. "/ci/testdata/portable"))
     assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
     assert(Fs.write(fresh .. "/o/build.db", "db"))
     assert(Fs.write(fresh .. "/ci/testdata/portable/work_db_integrity.tl", "\n"))
@@ -1236,9 +1236,9 @@ exit 0
         XDG_CACHE_HOME = tmp .. "/cache",
       }))
     assert(outcome.result.ok, case.event .. ": the portable phase failed: " ..
-      Fixture.read(outcome.err))
+        Fixture.read(outcome.err))
     assert(Fs.read(seen .. ".words") == case.words, case.event .. ": " ..
-      tostring((Fs.read(seen .. ".words"))))
+        tostring((Fs.read(seen .. ".words"))))
     local env: {string:string} = {}
     for line in (assert(Fs.read(seen .. ".env"))):gmatch("[^\n]+") do
       local name, value = line:match("^([^=]+)=(.*)$")
@@ -1268,11 +1268,11 @@ local function test_a_suite_run_forgets_the_run_after_deciding_its_words()
     assert(env[name] == nil, "the suite was given " .. name)
   end
   assert(env.COSMIC_CI_REQUIRE_SANDBOX == "1" and env.HOME == "/home/runner" and
-    env.COSMIC_WORKER == "w" and env.FUZZ_ITERS == "0")
+      env.COSMIC_WORKER == "w" and env.FUZZ_ITERS == "0")
   local all, all_env = Orchestration.suite_run({
     COSMIC_CI_EVENT = "schedule", COSMIC_CI_REQUIRE_SANDBOX = "1" })
   assert(table.concat(all, " ") == "test --all" and
-    all_env.COSMIC_TEST_NO_SHARED == "1", "main's scheduled run")
+      all_env.COSMIC_TEST_NO_SHARED == "1", "main's scheduled run")
 end
 
 --- The macOS leg's suites stand on shared verdicts in pushes and the
@@ -1317,8 +1317,8 @@ local function test_the_darwin_list_runs_where_the_native_suite_stands()
   local modules = { "core/a_test.tl", "build/b_test.tl" }
   local words = Orchestration.darwin_words({ "test" }, modules)
   assert(words ~= nil and table.concat(words, " ") ==
-    "test --all --census core/a_test.tl build/b_test.tl", tostring(words and
-    table.concat(words, " ")))
+      "test --all --census core/a_test.tl build/b_test.tl", tostring(words and
+          table.concat(words, " ")))
   assert(Orchestration.darwin_words({ "test", "--all" }, modules) == nil,
     "a run of every test ran the darwin list again")
   assert(Orchestration.darwin_words({ "test" }, {}) == nil)
@@ -1392,14 +1392,14 @@ local function test_the_darwin_suite_runs_on_the_macos_legs_gating_runs_alone(tm
       "if [ \"$*\" = '" .. darwin .. "' ]; then printf '%s\\n' " ..
       "'test: FAIL (1 of 2 failed, 0 infrastructure errors, 5 ms; unsandboxed)'; exit 1; fi\n"
     Fixture.write(fake .. "/bin/zig", "#!/bin/sh\nmkdir -p o/bin\nprintf db > o/build.db\n" ..
-      "cat > o/bin/cosmic <<'EOF'\n#!/bin/sh\n" ..
-      "if [ \"$1\" = test ]; then printf '%s\\n' \"$*\" >> \"$0.ran\"; fi\n" .. failing ..
-      "case \"$*\" in 'test --census'*) printf '%s\\n' " ..
-      "'test: PASS (" .. (2 + case.stood) .. " tests, 2 modules; 2 ran, " .. case.stood ..
-      " stood, 5 ms; unsandboxed)'; exit 0;; esac\n" ..
-      "if [ \"$1\" = test ]; then printf '%s\\n' " ..
-      "'test: PASS (2 tests, 2 modules; 2 ran, 0 stood, 5 ms; unsandboxed)'; fi\nexit 0\nEOF\n" ..
-      "chmod 755 o/bin/cosmic\n", 493)
+        "cat > o/bin/cosmic <<'EOF'\n#!/bin/sh\n" ..
+        "if [ \"$1\" = test ]; then printf '%s\\n' \"$*\" >> \"$0.ran\"; fi\n" .. failing ..
+        "case \"$*\" in 'test --census'*) printf '%s\\n' " ..
+        "'test: PASS (" .. (2 + case.stood) .. " tests, 2 modules; 2 ran, " .. case.stood ..
+        " stood, 5 ms; unsandboxed)'; exit 0;; esac\n" ..
+        "if [ \"$1\" = test ]; then printf '%s\\n' " ..
+        "'test: PASS (2 tests, 2 modules; 2 ran, 0 stood, 5 ms; unsandboxed)'; fi\nexit 0\nEOF\n" ..
+        "chmod 755 o/bin/cosmic\n", 493)
     local env = context(fake, runner_temp, { TARGET = case.target,
       TMPDIR = tmp, COSMIC_CI_EVENT = case.event, COSMIC_CI_HARNESS_MOVED = "0",
       COSMIC_CI_REQUIRE_SANDBOX = case.sandbox,
@@ -1419,7 +1419,7 @@ local function test_the_darwin_suite_runs_on_the_macos_legs_gating_runs_alone(tm
       names[#names + 1] = row.suite
       local passed = case.ok or row.suite ~= "darwin"
       assert(row.status == (passed and "pass" or "fail"), case.name .. ": " .. row.suite ..
-        ": " .. tostring(row.status))
+          ": " .. tostring(row.status))
       local stood = row.suite == "local" and case.stood or 0
       assert(not passed or (row.ran == 2 and row.stood == stood), case.name .. ": " .. row.suite)
     end
@@ -1457,7 +1457,7 @@ local function test_noexec_launcher_declares_its_grant_and_keeps_keyed_verdicts(
   assert(source:match("noexec%s*=%s*true") and source:match("system%s*=%s*true"))
   assert(source:find('Env.get("COSMIC_TEST_NOEXEC")', 1, true))
   assert(not source:find("COSMIC_PORTABLE_NOEXEC_ROOT", 1, true) and
-    not source:find("/dev/shm", 1, true), "noexec fixture discovers host scratch")
+      not source:find("/dev/shm", 1, true), "noexec fixture discovers host scratch")
   for _, target in ipairs({ "x86_64-linux-musl", "aarch64-linux-musl" }) do
     assert(Orchestration.noexec_fixture(target), target .. ": no noexec fixture scheduled")
     local env = Orchestration.fixture_run("launcher_noexec", {

@@ -113,8 +113,8 @@ local function start(c: Runner.Context, phase: string, at?: integer): Recording
 end
 
 local function complete(recording: Recording, finished: integer, elapsed: integer,
-    status: string, code: integer | nil, signal: integer | nil,
-    timed_out: integer, detail: string | nil)
+                        status: string, code: integer | nil, signal: integer | nil,
+                        timed_out: integer, detail: string | nil)
   local c = recording.context
   State.complete(recording.database, recording.id, c.worker, c.run, c.attempt,
     recording.phase, finished, elapsed, status, code, signal, timed_out, detail)
@@ -123,7 +123,7 @@ end
 -- Runs `attempt` as one operation named `phase`: a start event, then a
 -- complete event with its outcome, which a failure also names on stderr.
 local function recorded(c: Runner.Context, phase: string,
-    attempt: function(): Runner.Outcome): Runner.Outcome
+                        attempt: function(): Runner.Outcome): Runner.Outcome
   local recording = start(c, phase)
   local called, answer = pcall(attempt)
   local outcome: Runner.Outcome
@@ -150,13 +150,13 @@ local function recorded(c: Runner.Context, phase: string,
   if outcome.status ~= "success" then
     local why = outcome.trouble and (": " .. outcome.trouble) or ""
     Fs.put(Fs.stderr, phase .. ": " .. outcome.status .. " (status " ..
-      tostring(outcome.code) .. ")" .. why .. "\n")
+        tostring(outcome.code) .. ")" .. why .. "\n")
   end
   return outcome
 end
 
 function Runner.operation(c: Runner.Context, phase: string,
-    request: Runner.Request): Runner.Outcome
+                          request: Runner.Request): Runner.Outcome
   return recorded(c, phase, function(): Runner.Outcome
     return Runner.execute(request)
   end)
@@ -166,7 +166,7 @@ end
 --- as `operation` records a command: "success" when it returns true, and
 --- "error" with its message when it returns false or raises.
 function Runner.step(c: Runner.Context, phase: string,
-    work: function(): boolean, string): Runner.Outcome
+                     work: function(): boolean, string): Runner.Outcome
   return recorded(c, phase, function(): Runner.Outcome
     local started = Time.monotonic_ns()
     local ok, trouble = work()
@@ -181,7 +181,7 @@ end
 --- A raised error records exit code 1 and its full text, also said on stderr;
 --- a returned nonzero status is kept as an exit without another diagnostic.
 function Runner.phase(c: Runner.Context, phase: string,
-    action: function(): integer): integer
+                      action: function(): integer): integer
   local recording = start(c, phase, Time.monotonic_ns())
   local called, answer = pcall(action)
   local code = called and answer or 1

@@ -155,7 +155,7 @@ function test_sandbox.mode(): string | nil, string
   if value == "1" then return "on", "" end
   if value == "0" then return "off", "" end
   return nil, string.format("%s is %q: set it to 1 to require it, 0 to turn it off, " ..
-    "or leave it unset", test_sandbox.switch, value)
+      "or leave it unset", test_sandbox.switch, value)
 end
 
 --- Where a sandboxed worker that declares the `bootstrap` cache has
@@ -425,7 +425,7 @@ end
 --- A probe is shared only by workers with the same credentials. Ordinary
 --- workers require no probe and keep their existing sandbox capability.
 function test_sandbox.resolve_noexec(effective: test_inputs.Effective, sandboxed: boolean,
-                                    known: {string:string})
+                                     known: {string:string})
   effective.noexec_ready, effective.noexec_trouble = false, ""
   if not effective.noexec then return end
   if not sandboxed then

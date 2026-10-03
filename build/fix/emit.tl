@@ -19,15 +19,16 @@
 --- A comment inside a range written verbatim (type syntax, a record
 --- body) came along with the bytes, and `consume` says so.
 ---
---- An own-line comment keeps its own column rather than borrowing the
---- indentation of what follows it. It can sit where no statement does,
---- alone inside an empty branch or halfway down a multi-line
---- expression, and nothing after it has the right indentation to
---- borrow.
+--- An own-line comment lined up with the code it comes before, code
+--- that opens its line, takes that code's indentation. Any other keeps
+--- its own column, moved as its statement moved: it can sit where no
+--- code does, alone inside an empty branch, and nothing after it has the
+--- right indentation to borrow.
 ---
 --- One line in the gap can hold several comments: a long one
 --- (`--[[ ... ]]`) closing on it followed by another, or two long ones
---- in a row. They are written as a run: the first at its own column,
+--- in a row. They are written as a run: the first where the rule above
+--- puts it,
 --- each later one a space along, and only the last ending in a line
 --- break. When the run reaches the line being moved to because the
 --- source wrote code after a `]]`, even that break is not written.
@@ -54,7 +55,8 @@
 --- Because a comment can open a statement's line, [`opening_column`]
 --- gives where that line began, not where the statement's first keyword
 --- sits. A statement the renderer indents elsewhere moves by the
---- distance its line moves, and every continuation line moves with it.
+--- distance its line moves, and what keeps a column relative to it
+--- moves with it.
 
 local String = require("cosmic.string")
 
@@ -84,8 +86,9 @@ local record Emitter
   --- The first comment not yet written out.
   at: integer
   --- Columns to move a preserved column by, the same `shift` the
-  --- renderer applies everywhere else. An own-line comment keeps its
-  --- own column, so it moves with the statement a rewrite moved.
+  --- renderer applies everywhere else. An own-line comment not lined up
+  --- with code keeps its own column, so it moves with the statement a
+  --- rewrite moved.
   shift: integer
   --- How far the output line in progress is indented: the width of the
   --- spaces it opens with, whatever wrote them. A construct that opens
@@ -148,8 +151,8 @@ local function new(source: string, tokens: {compiler.Token}): Emitter
     end
   end
   return { parts = {}, line = 0, blank = blank, lines = wrote, comments = comments,
-           code_after = code_after, opens_line = opens_line, at = 1,
-           shift = 0, indent = 0, bare = true }
+    code_after = code_after, opens_line = opens_line, at = 1,
+    shift = 0, indent = 0, bare = true }
 end
 
 --- Follow `s` through the output line in progress. A newline starts the
@@ -276,10 +279,11 @@ end
 --- @param e Emitter
 --- @param y integer The line being moved to
 --- @param x integer The column on `y` being moved to
+--- @param pad string The leading whitespace of the line being moved to
 --- @return boolean Whether a blank line is still owed, which the caller
 ---   emits last so a run of blanks before `y` collapses to one
 --- @return integer The line the gap finished on
-local function gap(e: Emitter, y: integer, x: integer): boolean, integer
+local function gap(e: Emitter, y: integer, x: integer, pad: string): boolean, integer
   local pending = false
   local cy = e.line + 1
   while cy <= y do
@@ -292,9 +296,15 @@ local function gap(e: Emitter, y: integer, x: integer): boolean, integer
       local ended = cy
       local opened = false
       while e.at <= #e.comments and e.comments[e.at].y == ended and
-            (ended < y or (e.code_after[e.at] and e.comments[e.at].x < x)) do
+          (ended < y or (e.code_after[e.at] and e.comments[e.at].x < x)) do
         local c = e.comments[e.at]
-        put(e, (opened and " " or indent_of(e, c.x)) .. c.text)
+        -- A comment lined up with the code it comes before stays lined
+        -- up with it, wherever that is indented to: code that opens its
+        -- line, and not code behind a long comment's `]]`, whose column
+        -- says nothing of an indentation.
+        local lined_up = c.x == x and (e.lines[y] or ""):sub(1, x - 1):match("^%s*$") ~= nil
+        local lead = opened and " " or lined_up and pad or indent_of(e, c.x)
+        put(e, lead .. c.text)
         ended = ended + newlines(c.text)
         opened = true
         e.at = e.at + 1
@@ -430,7 +440,7 @@ local function advance(e: Emitter, y: integer, pad: string, inline: string,
     end
     put(e, "\n")
   end
-  local pending, ended = gap(e, y, x)
+  local pending, ended = gap(e, y, x, pad)
   if ended >= y then
     -- A comment run in the gap ran into `y` itself, so the output is
     -- already on the line being moved to and the break the source had

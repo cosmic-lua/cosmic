@@ -79,17 +79,17 @@ local function test_a_broken_bundle_is_refused(tmp: string)
   local _, open = filled(tmp, "-----BEGIN CERTIFICATE-----\nAAAA\n")
   assert(open:find("the last certificate is not closed", 1, true), open)
   local _, nested = filled(tmp, "-----BEGIN CERTIFICATE-----\nAAAA\n" ..
-    "-----BEGIN CERTIFICATE-----\n")
+      "-----BEGIN CERTIFICATE-----\n")
   assert(nested:find("not closed", 1, true), nested)
   local _, garbled = filled(tmp, "-----BEGIN CERTIFICATE-----\n!!!!\n" ..
-    "-----END CERTIFICATE-----\n")
+      "-----END CERTIFICATE-----\n")
   assert(garbled:find("not base64", 1, true), garbled)
 end
 
 local function test_fill_writes_one_row_per_distinct_certificate(tmp: string)
   assert(Fs.mkdirs(tmp .. "/vendor/cacert"))
   assert(Fs.write(tmp .. "/" .. bundle, "A\n=\n" .. block("\5\6") .. "\n" ..
-    "B\n=\n" .. block("\7") .. "\n" .. "A again\n=\n" .. block("\5\6") .. "\n"))
+      "B\n=\n" .. block("\7") .. "\n" .. "A again\n=\n" .. block("\5\6") .. "\n"))
   local db = database()
   assert(roots.fill(db, tmp, "main."))
   local rows = assert(Sqlite.text_rows(db,
@@ -126,7 +126,7 @@ local function test_the_tree_s_bundle_becomes_a_row_per_certificate()
   assert(roots.fill(db, root, "main."))
   local counted = assert(Sqlite.text_rows(db,
     "SELECT count(*), count(*) FILTER (WHERE label = ''), " ..
-    "count(*) FILTER (WHERE sha256 <> sha256(der)) FROM ca_roots"))
+      "count(*) FILTER (WHERE sha256 <> sha256(der)) FROM ca_roots"))
   assert(db:close())
   assert(tonumber(counted[1][1]) == blocks, counted[1][1] .. " rows for " .. blocks)
   assert(counted[1][2] == "0", "every root of the bundle is labelled")

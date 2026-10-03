@@ -63,6 +63,6 @@ local function test_a_search_in_words_finds_the_symbol_meant()
       end
     end
     assert(found, "'" .. row[1] .. "' should reach " .. table.concat(row, " or ", 2) ..
-      " in its first three answers, not " .. table.concat(top, ", "))
+        " in its first three answers, not " .. table.concat(top, ", "))
   end
 end

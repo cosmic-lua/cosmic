@@ -42,7 +42,7 @@ end
 
 local function test_a_field_with_no_replacement_names_where_to_look()
   assert(Removed.message("debug", "getinfo") ==
-    "debug.getinfo is not available: " .. Removed.names.debug)
+      "debug.getinfo is not available: " .. Removed.names.debug)
   assert(Removed.message("print") == "print is not available")
 end
 
@@ -132,7 +132,7 @@ end
 local function test_the_sqlite_options_name_each_old_boolean_call()
   local instead = Removed.arguments["cosmic.sqlite.OpenOptions"]
   assert(instead ~= nil and instead:find("{ writable = true }", 1, true) and
-    instead:find("nothing for `false`", 1, true), instead)
+      instead:find("nothing for `false`", 1, true), instead)
 end
 
 --- A program that made a raw pipe for a child's stdin is told to use
@@ -141,7 +141,7 @@ local function test_the_removed_raw_pipe_names_the_stdin_stream()
   for _, member in ipairs({ "pipe", "Pipe", "ignore_sigpipe" }) do
     local instead = Removed.members["cosmic.sys." .. member]
     assert(instead ~= nil and instead:find('stdin = "stream"', 1, true) and
-      not instead:find('"pipe"', 1, true), member)
+        not instead:find('"pipe"', 1, true), member)
   end
   assert(Removed.members["cosmic.sys.pipe"]:find("h.stdin_stream", 1, true))
 end
@@ -151,9 +151,9 @@ end
 --- `Duration` and `AddOptions` for the records.
 local function test_the_removed_time_members_name_their_replacements()
   for member, want in pairs({
-    months_between = "Time.between", days_between = "Time.between",
-    zone_from_posix = "Time.local_zone", Change = "Time.Duration",
-    CivilOptions = "Time.AddOptions", parse_input = "build.time",
+      months_between = "Time.between", days_between = "Time.between",
+      zone_from_posix = "Time.local_zone", Change = "Time.Duration",
+      CivilOptions = "Time.AddOptions", parse_input = "build.time",
   } as {string:string}) do
     local instead = Removed.members["cosmic.time." .. member]
     assert(instead ~= nil and instead:find(want, 1, true), member)
@@ -175,10 +175,10 @@ end
 --- through [`Http.request`], [`sys.ftruncate`], and `cache_dir` with `make = false`.
 local function test_the_removed_fs_and_http_members_name_their_replacements()
   for member, want in pairs({
-    ["http.upload"] = "Http.request(\"PUT\", url, { body = body })",
-    ["http.Upload"] = "Http.request(\"PUT\", url, { body = body })",
-    ["fs.truncate"] = "sys.ftruncate(fd, length)",
-    ["fs.cache_path"] = "Fs.cache_dir(tool, { environment = environment, make = false })",
+      ["http.upload"] = "Http.request(\"PUT\", url, { body = body })",
+      ["http.Upload"] = "Http.request(\"PUT\", url, { body = body })",
+      ["fs.truncate"] = "sys.ftruncate(fd, length)",
+      ["fs.cache_path"] = "Fs.cache_dir(tool, { environment = environment, make = false })",
   } as {string:string}) do
     local instead = Removed.members["cosmic." .. member]
     assert(instead ~= nil and instead:find(want, 1, true), member)
@@ -191,12 +191,12 @@ end
 local function test_the_removed_net_and_proc_members_say_what_to_do_instead()
   local pair = Removed.members["cosmic.net.pair"]
   assert(pair ~= nil and pair:find("Net.listen(Net.unix(path))", 1, true) and
-    pair:find("Net.connect(server.address)", 1, true), tostring(pair))
+      pair:find("Net.connect(server.address)", 1, true), tostring(pair))
   local record = Removed.members["cosmic.net.Pair"]
   assert(record ~= nil and record:find("Net.pair is gone", 1, true), tostring(record))
   local kind = Removed.members["cosmic.net.Kind"]
   assert(kind ~= nil and kind:find("Net.unix", 1, true), tostring(kind))
   local arguments = Removed.members["cosmic.proc.arguments"]
   assert(arguments ~= nil and arguments:find("Proc.relaunch()", 1, true) and
-    arguments:find("argv", 1, true), tostring(arguments))
+      arguments:find("argv", 1, true), tostring(arguments))
 end

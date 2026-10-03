@@ -118,7 +118,7 @@ local function test_a_time_in_an_overlap_is_the_earlier_by_default()
   assert(rejected.code == 2 and rejected.err:find("happens twice", 1, true), rejected.err)
   -- An offset in the text says which one it is.
   assert(said({ "convert", "2026-11-01T01:30:00-05:00", "--to", "UTC", "--disambiguate", "reject" }) ==
-    "2026-11-01T06:30:00+00:00\n")
+      "2026-11-01T06:30:00+00:00\n")
 end
 
 local function test_convert_reads_epoch_dates_and_local_times()
@@ -129,7 +129,7 @@ local function test_convert_reads_epoch_dates_and_local_times()
   assert(said({ "convert", "2026-05-01", "--from", "Asia/Tokyo", "--to", "UTC" }) == "2026-04-30T15:00:00+00:00\n")
   assert(said({ "convert", "2026-05-01T09:30:15", "--to", "UTC" }) == "2026-05-01T00:30:15+00:00\n")
   assert(said({ "convert", "2026-05-01T09:30", "--from", "Europe/Berlin", "--to", "UTC" }) ==
-    "2026-05-01T07:30:00+00:00\n")
+      "2026-05-01T07:30:00+00:00\n")
   assert(said({ "convert", "2026-05-01T00:00:00Z[Europe/Berlin]" }) == "2026-05-01T09:00:00+09:00\n")
 end
 
@@ -143,7 +143,7 @@ local function test_between_counts_days_months_and_seconds()
   -- The day the clocks spring forward is 23 hours long but one calendar day.
   assert(said({ "between", "2026-03-08T00:00", "2026-03-09T00:00", "--days", "--zone", "America/New_York" }) == "1\n")
   assert(said({ "between", "2026-03-08T00:00", "2026-03-09T00:00", "--seconds", "--zone", "America/New_York" }) ==
-    "82800\n")
+      "82800\n")
 end
 
 local function test_between_defaults_to_a_duration_add_reads_back()
@@ -155,7 +155,7 @@ local function test_between_defaults_to_a_duration_add_reads_back()
   local stop = "2027-03-01T03:04:05Z"
   local span = said({ "between", start, stop, "--zone", "UTC" }):gsub("\n", "")
   assert(said({ "add", start, span, "--clamp", "--zone", "UTC", "--format", "epoch" }) ==
-    said({ "convert", stop, "--format", "epoch" }))
+      said({ "convert", stop, "--format", "epoch" }))
 end
 
 --- A day the zone skipped whole, as Apia's 2011-12-30, is no day of the span:
@@ -246,9 +246,9 @@ end
 
 local function test_a_bad_zone_is_refused()
   for _, words in ipairs({
-    { "now", "--zone", "Mars/Base" }, { "convert", "@0", "--to", "Nowhere" },
-    { "convert", "2026-01-01T00:00", "--from", "../etc/passwd" }, { "add", "@0", "1d", "--zone", "" },
-    { "between", "@0", "@1", "--zone", "Europe/Atlantis" },
+      { "now", "--zone", "Mars/Base" }, { "convert", "@0", "--to", "Nowhere" },
+      { "convert", "2026-01-01T00:00", "--from", "../etc/passwd" }, { "add", "@0", "1d", "--zone", "" },
+      { "between", "@0", "@1", "--zone", "Europe/Atlantis" },
   }) do
     local ran = run(words)
     assert(ran.code == 2 and ran.out == "", table.concat(words, " ") .. ": " .. ran.out)
@@ -268,8 +268,8 @@ end
 
 local function test_a_bad_time_is_refused()
   for _, words in ipairs({
-    { "convert", "yesterday" }, { "convert", "2026-02-30" }, { "convert", "@" }, { "convert", "2026-03-08T12:00" .. "x" },
-    { "add", "nonsense", "1d" }, { "between", "2026-01-01", "soon" },
+      { "convert", "yesterday" }, { "convert", "2026-02-30" }, { "convert", "@" }, { "convert", "2026-03-08T12:00" .. "x" },
+      { "add", "nonsense", "1d" }, { "between", "2026-01-01", "soon" },
   }) do
     local ran = run(words)
     assert(ran.code == 2 and ran.out == "", table.concat(words, " ") .. ": " .. ran.out)
@@ -280,10 +280,10 @@ end
 
 local function test_a_command_line_it_cannot_read_is_refused()
   for _, words in ipairs({
-    {}, { "later" }, { "now", "extra" }, { "convert" }, { "convert", "@0", "@1" }, { "add", "@0" },
-    { "between", "@0" }, { "now", "--days" }, { "convert", "@0", "--zone", "UTC" }, { "now", "--bogus" },
-    { "between", "@0", "@1", "--days", "--months" }, { "now", "--json", "--format", "epoch" },
-    { "convert", "@0", "--disambiguate", "sometimes" }, { "add", "@0", "1d", "--from", "UTC" },
+      {}, { "later" }, { "now", "extra" }, { "convert" }, { "convert", "@0", "@1" }, { "add", "@0" },
+      { "between", "@0" }, { "now", "--days" }, { "convert", "@0", "--zone", "UTC" }, { "now", "--bogus" },
+      { "between", "@0", "@1", "--days", "--months" }, { "now", "--json", "--format", "epoch" },
+      { "convert", "@0", "--disambiguate", "sometimes" }, { "add", "@0", "1d", "--from", "UTC" },
   }) do
     local ran = run(words)
     assert(ran.code == 2 and ran.out == "", table.concat(words, " ") .. ": " .. ran.code .. ran.out)

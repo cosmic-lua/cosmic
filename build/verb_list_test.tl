@@ -61,7 +61,7 @@ local function test_the_list_and_cli_order_agree()
   for _, name in ipairs(after) do want[#want + 1] = name end
   assert(table.concat(want, " ") == table.concat(Cli.order, " "),
     "verb_list and Cli.order differ:\n  " .. table.concat(want, " ") .. "\n  " ..
-    table.concat(Cli.order, " "))
+      table.concat(Cli.order, " "))
 end
 
 local function test_every_verb_record_is_a_verb_in_order_and_back()

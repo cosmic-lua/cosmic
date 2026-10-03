@@ -124,14 +124,14 @@ local function test_checked_manifest_keeps_release_entries_but_selects_checked()
 
   local absent, absent_trouble = artifact.prefix(records, cores, 2)
   assert(absent == nil and
-    absent_trouble:find("has no generated", 1, true) ~= nil)
+      absent_trouble:find("has no generated", 1, true) ~= nil)
   local duplicate_system = checked_records ..
     "2\t2\tsanitized\tsanitized-arm\tLinux\tx86_64\n"
   checked_cores["sanitized-arm"] = "ELF-other-checked-contents"
   local ambiguous, ambiguous_trouble =
     artifact.prefix(duplicate_system, checked_cores, 2)
   assert(ambiguous == nil and
-    ambiguous_trouble:find("duplicate generated uname", 1, true) ~= nil)
+      ambiguous_trouble:find("duplicate generated uname", 1, true) ~= nil)
 end
 
 --- A portable and a host program alike split at their database, and
@@ -201,9 +201,9 @@ local function test_a_head_is_keyed_by_its_cores_images()
   assert(#one ~= #other and artifact.keyed_head(one) ~= one)
   assert(artifact.keyed_head(one) == artifact.keyed_head(other), "the DWARF moved the head")
   assert(artifact.keyed_head(head(fixture.elf("edoc", "comp_dir /one"))) ~=
-    artifact.keyed_head(one), "the code left the head")
+      artifact.keyed_head(one), "the code left the head")
   assert(artifact.keyed_head(head(fixture.elf("code", "comp_dir /one"), "x86_65")) ~=
-    artifact.keyed_head(one), "the launcher left the head")
+      artifact.keyed_head(one), "the launcher left the head")
   -- A core whose manifest digest is not its own is keyed whole.
   local wrong = one:gsub("comp_dir /one", "comp_dir /eno", 1)
   assert(artifact.keyed_head(wrong) == wrong)
@@ -213,7 +213,7 @@ local function test_a_head_is_keyed_by_its_cores_images()
       configuration_id = 2, digest = Hash.sha256(core) }, database))))).head
   end
   assert(artifact.keyed_head(host(fixture.elf("code", "one"))) ==
-    artifact.keyed_head(host(fixture.elf("code", "another one"))))
+      artifact.keyed_head(host(fixture.elf("code", "another one"))))
   assert(artifact.keyed_head(host(fixture.elf("code", "one"))) ~=
-    artifact.keyed_head(host(fixture.elf("edoc", "one"))))
+      artifact.keyed_head(host(fixture.elf("edoc", "one"))))
 end

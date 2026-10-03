@@ -254,7 +254,7 @@ end
 --- entry's extra field, replaced by the zip64 (id 1) extra field's
 --- 8-byte values wherever the 32-bit field was the 0xFFFFFFFF sentinel.
 local function apply_zip64_extra(extra: string, usize: integer, csize: integer,
-    local_offset: integer): integer, integer, integer
+                                 local_offset: integer): integer, integer, integer
   local at = 1
   while at + 3 <= #extra do
     local id, sz = string.unpack("<I2I2", extra, at)
@@ -539,8 +539,8 @@ local function next_record(c: Cursor, mt: metatable<Zip.Entry>, bare?: boolean):
   local cd_offset = c.start
   if local_offset > cd_offset - 30 or csize > cd_offset - 30 - local_offset then
     return refuse("entry " .. buf:sub(name_start, name_end) .. " (offset " ..
-      tostring(local_offset) .. ", " .. String.counted(csize, "compressed byte") .. ") runs past " ..
-      "the start of the central directory at " .. tostring(cd_offset))
+        tostring(local_offset) .. ", " .. String.counted(csize, "compressed byte") .. ") runs past " ..
+        "the start of the central directory at " .. tostring(cd_offset))
   end
   if bare and kind ~= "symlink" then return CHECKED, "" end
   local entry: Zip.Entry = setmetatable({
@@ -562,7 +562,7 @@ end
 local function read_link(entry: Zip.Entry): string | nil, string
   if entry.size > LINK_LIMIT then
     return refuse("symlink " .. entry.path .. " has a " .. tostring(entry.size) ..
-      "-byte target")
+        "-byte target")
   end
   local body, trouble = entry:open()
   if body == nil then return nil, trouble end
@@ -664,11 +664,11 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
   if cd_offset < 0 or cd_size < 0 or cd_offset + cd_size > cd_limit or
       cd_offset + cd_size < cd_offset then
     return refuse("central directory (offset " .. tostring(cd_offset) .. ", " ..
-      String.counted(cd_size, "byte") .. ") lies outside the file")
+        String.counted(cd_size, "byte") .. ") lies outside the file")
   end
   if total < 0 or total > cd_size // 46 then
     return refuse(String.counted(total, "entry", "entries") .. " cannot fit a " .. tostring(cd_size) ..
-      "-byte central directory")
+        "-byte central directory")
   end
 
   -- One `open` serves every entry this reader makes, through their
@@ -704,7 +704,7 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
   end
   if count ~= total then
     return refuse("central directory holds " .. String.counted(count, "entry", "entries") ..
-      ", but the end record says " .. tostring(total))
+        ", but the end record says " .. tostring(total))
   end
 
   local zr: EntryReader = setmetatable({
@@ -778,7 +778,7 @@ end
 --- 0xFFFFFFFF sentinel, with both real sizes in a zip64 extra field
 --- (a local header's zip64 field always holds both).
 local function local_header(name: string, method: integer, dos_time: integer, dos_date: integer,
-    crc: integer, csize: integer, usize: integer, flags?: integer, wide?: boolean): string
+                            crc: integer, csize: integer, usize: integer, flags?: integer, wide?: boolean): string
   local extra = ""
   local version = 20
   if wide or usize >= U32_MAX or csize >= U32_MAX then
@@ -797,8 +797,8 @@ end
 --- bits becomes the sentinel, with its real value in the zip64 extra
 --- field, in that order.
 local function central_header(name: string, method: integer, dos_time: integer, dos_date: integer,
-    crc: integer, csize: integer, usize: integer, ext_attrs: integer, local_offset: integer,
-    flags?: integer): string
+                              crc: integer, csize: integer, usize: integer, ext_attrs: integer, local_offset: integer,
+                              flags?: integer): string
   local wide: {integer} = {}
   if usize >= U32_MAX then
     wide[#wide + 1] = usize
@@ -868,7 +868,7 @@ end
 --- A string body, compressed up front so its CRC32 and sizes go in
 --- the local header. Fills `done` with what it came to.
 local function write_whole(self: EntryWriter, path: string, data: string, method: integer,
-    dos_time: integer, dos_date: integer, done: Written): boolean, string
+                           dos_time: integer, dos_date: integer, done: Written): boolean, string
   local payload = data
   done.crc, done.usize = Compress.crc32(data), #data
   if method == 8 then
@@ -933,7 +933,7 @@ end
 --- goes, its CRC32 and sizes in a data descriptor after it. `hint` is
 --- the size `opts.size` promised, if any. Fills `done`.
 local function write_streamed(self: EntryWriter, path: string, body: Stream.Reader, method: integer,
-    dos_time: integer, dos_date: integer, hint: integer | nil, done: Written): boolean, string
+                              dos_time: integer, dos_date: integer, hint: integer | nil, done: Written): boolean, string
   local deflater: Compress.Stream
   if method == 8 then
     local made, dtrouble = Compress.deflater("raw")
@@ -964,7 +964,7 @@ local function write_streamed(self: EntryWriter, path: string, body: Stream.Read
   end
   if hint ~= nil and hint ~= done.usize then
     return sink:fail("zip: " .. path .. ": body is " .. String.counted(done.usize, "byte") .. ", not " ..
-      String.counted(hint, "byte"))
+        String.counted(hint, "byte"))
   end
   if wide then
     return put(self, DESCRIPTOR_SIG .. string.pack("<I4I8I8", done.crc, done.csize, done.usize))
@@ -976,8 +976,8 @@ end
 --- the central directory record that lists it. `hint` is a streamed
 --- body's promised size.
 local function put_entry(self: EntryWriter, path: string, body: string | Stream.Reader,
-    method_name: Zip.Method, type_bits: integer, mode: integer, mtime: integer,
-    hint?: integer): boolean, string
+                         method_name: Zip.Method, type_bits: integer, mode: integer, mtime: integer,
+                         hint?: integer): boolean, string
   local usable, why = self.sink:usable()
   if not usable then return false, why end
   local refusal = nul_refusal(path, "in a path")
@@ -1008,7 +1008,7 @@ local function put_entry(self: EntryWriter, path: string, body: string | Stream.
 end
 
 function EntryWriter:add_file(path: string, data: string | Stream.Reader,
-    fopts?: Zip.EntryOptions): boolean, string
+                              fopts?: Zip.EntryOptions): boolean, string
   fopts = fopts or {}
   local size = fopts.size
   if size ~= nil and (math.type(size) ~= "integer" or size < 0) then

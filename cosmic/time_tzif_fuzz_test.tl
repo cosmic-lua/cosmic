@@ -57,7 +57,7 @@ end
 --- block standing for nothing (a reader of the 64-bit block skips it),
 --- then the 64-bit block and the footer.
 local function write(version: string, times: {integer}, indices: {integer}, types: {Type},
-    footer: string): string
+                     footer: string): string
   local chars: {string} = {}
   local at: {string:integer} = {}
   local length = 0

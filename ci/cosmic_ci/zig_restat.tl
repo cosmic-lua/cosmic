@@ -57,7 +57,7 @@ local metadata_flag <const> = 2
 --- of its prefix -- the manifest's own cache for 2, `roots[prefix]`
 --- otherwise -- or nil where no root is known.
 local function located(record: ZigPrune.Record, own: string,
-    roots: {integer:string}): string | nil
+                       roots: {integer:string}): string | nil
   if record.path:sub(1, 1) == "/" then return record.path end
   local root = record.prefix == 2 and own or roots[record.prefix]
   if root == nil then return nil end
@@ -163,7 +163,7 @@ end
 --- fails (0): a cache it cannot read is left as it was and said so,
 --- since a cache left so costs only time.
 function ZigRestat.command(project: string, shared: string | nil, root: string,
-    lib?: string): integer, string, string
+                           lib?: string): integer, string, string
   if not Predicate.is_dir(project .. "/h") then
     return 0, "zig-restat: no zig cache at '" .. project .. "'; nothing to restat\n", ""
   end

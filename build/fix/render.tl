@@ -26,11 +26,11 @@
 --- line stays on one line, a call spread over five stays spread over
 --- five, and an operator at the end of a line stays there. Wrapping is
 --- a judgement about a whole line that no rule here can make, so it is
---- left to the author. A line that continues a statement keeps its
---- column relative to that statement. The breaks [`build.fix`] does add
---- -- a statement to a line, a block opened up -- are noted as the file
---- is rendered, written into its source by [`build.fix.breaks`], and
---- rendered again.
+--- left to the author. A line that continues a statement is indented
+--- from the brackets open where it starts ([`build.fix.ctx`]). The
+--- breaks [`build.fix`] does add -- a statement to a line, a block
+--- opened up -- are noted as the file is rendered, written into its
+--- source by [`build.fix.breaks`], and rendered again.
 ---
 --- One thing is added rather than decided or carried: where tl's parser
 --- inserted a `;` to settle which of two readings a `f()` followed by
@@ -83,6 +83,10 @@ local function laid_out(parsed: ast.Parsed, source: string): Layout | nil, strin
     block = stmt.block,
     parted = {},
     leading = {},
+    opens = {},
+    header = 2,
+    starting = false,
+    closing = false,
     continues = {},
     constructs = {},
     ends = {},

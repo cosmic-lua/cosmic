@@ -224,8 +224,8 @@ end
   suite(tmp .. "/beyond", "beyond", '"127.0.0.1", "example.com"', false)
   local refused = run(tmp .. "/beyond", tmp .. "/beyond.out", env, nil, true)
   assert(refused:find('suite/beyond_test.tl:6: test.needs: network "example.com": network ' ..
-    "takes loopback addresses 127.a.b.c only", 1, true) and
-    not refused:find("test: PASS", 1, true), refused)
+      "takes loopback addresses 127.a.b.c only", 1, true) and
+      not refused:find("test: PASS", 1, true), refused)
   suite(tmp .. "/root", "loopback", '"127.0.0.1", "127.0.0.2"', false)
   local first = run(tmp .. "/root", tmp .. "/first.out", env)
   if unsandboxed(first) then return end
@@ -251,12 +251,12 @@ local function test_a_sandboxed_verdict_stands_in_another_checkout(tmp: string)
   checkout(tmp .. "/second")
   local second = run(tmp .. "/second", tmp .. "/second.out", env)
   assert(second:find("0 ran, 3 stood", 1, true) and
-    second:find("3 of them on another checkout's verdict", 1, true), second)
+      second:find("3 of them on another checkout's verdict", 1, true), second)
   checkout(tmp .. "/third")
   assert(Fs.write(tmp .. "/third/suite/data/f", "three\n"))
   local third = run(tmp .. "/third", tmp .. "/third.out", env)
   assert(third:find("1 ran, 2 stood", 1, true) and
-    third:find("2 of them on another checkout's verdict", 1, true), third)
+      third:find("2 of them on another checkout's verdict", 1, true), third)
 end
 
 --- Told to stand on no other checkout's verdicts, a checkout runs
@@ -401,7 +401,7 @@ local function tool_project(tmp: string): function(string), function(string): st
   -- /tmp: what it declares is all its key turns on.
   assert(Fs.write(root .. "/suite/tool_test.tl",
     "local Test = require(\"cosmic.test\")\n\nTest.needs { tool = true }\n\n" ..
-    "local function test_tool()\nend\n"))
+      "local function test_tool()\nend\n"))
   assert(Fs.write(root .. "/suite/plain_test.tl", "local function test_plain()\nend\n"))
   local tool = root .. "/o/bin/cosmic"
   local function rebuild(statements: string)
@@ -450,7 +450,7 @@ local function test_a_tool_test_runs_again_when_a_module_the_tool_carries_moves(
   local rebuild, ran = tool_project(tmp)
   if rebuild == nil then return end
   rebuild("UPDATE modules SET source = deflate(CAST(inflate(source) AS TEXT) || " ..
-    "char(10) || '-- edited' || char(10)) WHERE path = 'cosmic.json'")
+      "char(10) || '-- edited' || char(10)) WHERE path = 'cosmic.json'")
   ran("1 ran, 1 stood")
 end
 
@@ -613,7 +613,7 @@ end
   local db = assert(Sqlite.open(root .. "/o/build.db"))
   local rows = assert(Sqlite.text_rows(db,
     "SELECT group_concat(path, ' ') FROM (SELECT path FROM runs " ..
-    "WHERE run_at_ns = (SELECT max(run_at_ns) FROM runs) ORDER BY path)"))
+      "WHERE run_at_ns = (SELECT max(run_at_ns) FROM runs) ORDER BY path)"))
   assert(db:close())
   assert(rows[1][1] == "core.allocation_test", "ran under another compiler: " .. rows[1][1])
 end
@@ -717,13 +717,13 @@ local function test_a_store_is_keyed_by_its_bytes_not_its_address(tmp: string)
   env.COSMIC_TEST_STORE_SALT = "another writer"
   local rewritten = run(root, tmp .. "/rewritten.out", env)
   assert(rewritten:find("0 ran, 3 stood", 1, true) and
-    rewritten:find("3 closure stores written", 1, true), rewritten)
+      rewritten:find("3 closure stores written", 1, true), rewritten)
   -- So does the core that runs that code -- SQLite, and its bindings --
   -- stood in for by COSMIC_TEST_STORE_RUNTIME.
   env.COSMIC_TEST_STORE_RUNTIME = "another core"
   local recored = run(root, tmp .. "/recored.out", env)
   assert(recored:find("0 ran, 3 stood", 1, true) and
-    recored:find("3 closure stores written", 1, true), recored)
+      recored:find("3 closure stores written", 1, true), recored)
   assert(Fs.write(root .. "/suite/lib.tl", "-- edited\nreturn { value = 1 }\n"))
   local edited = run(root, tmp .. "/edited.out", env)
   assert(edited:find("1 ran, 2 stood", 1, true), edited)
@@ -731,7 +731,7 @@ local function test_a_store_is_keyed_by_its_bytes_not_its_address(tmp: string)
   assert(Fs.write(tmp .. "/second/suite/lib.tl", "-- edited\nreturn { value = 1 }\n"))
   local second = run(tmp .. "/second", tmp .. "/second.out", env)
   assert(second:find("0 ran, 3 stood", 1, true) and
-    not second:find("closure store", 1, true), second)
+      not second:find("closure store", 1, true), second)
   local stores, _ = Fs.list(tmp .. "/second/o/stores")
   assert(stores == nil or #stores == 0, "a checkout that stood wrote a store")
 end
@@ -757,15 +757,15 @@ local function test_a_store_whose_bytes_differ_from_its_kept_digest_fails_the_ru
   forge()
   local here = run(root, tmp .. "/here.out", env, nil, true)
   assert(here:find("must follow from its address alone", 1, true) and
-    here:find("the shared verdicts at", 1, true) and here:find("The next run keeps", 1, true) and
-    here:find("test: FAIL", 1, true), here)
+      here:find("the shared verdicts at", 1, true) and here:find("The next run keeps", 1, true) and
+      here:find("test: FAIL", 1, true), here)
   -- Where they are not: the checkout takes the digests kept, and its
   -- tests, given stores that are not those bytes, are keyed again.
   forge()
   checkout(tmp .. "/second")
   local second = run(tmp .. "/second", tmp .. "/second.out", env, { "--all" }, true)
   assert(second:find("must follow from its address alone", 1, true) and
-    second:find("test: FAIL", 1, true), second)
+      second:find("test: FAIL", 1, true), second)
   local kept_aside = false
   for _, entry in ipairs(Fs.list(tmp .. "/second/o/stores") or {}) do
     if entry:match("%.mismatch%.db$") then kept_aside = true end
@@ -800,5 +800,5 @@ local function test_a_run_that_writes_no_store_checks_one(tmp: string)
   assert(db:close())
   local checked = run(root, tmp .. "/checked.out", env, nil, true)
   assert(checked:find("must follow from its address alone", 1, true) and
-    checked:find("%.db has %x+") ~= nil and checked:find("test: FAIL", 1, true), checked)
+      checked:find("%.db has %x+") ~= nil and checked:find("test: FAIL", 1, true), checked)
 end

@@ -63,13 +63,13 @@ end
 
 local function test_malformed_header_lines_are_400()
   for _, bad in ipairs({
-    "Host: h\r\nX: a\rb\r\n",
-    "Host: h\r\nX: a\r\n folded\r\n",
-    "Host: h\r\nX : a\r\n",
-    "Host: h\r\n: a\r\n",
-    "Host: h\r\nno colon\r\n",
-    "Host: h\r\nX: a\0b\r\n",
-    "Host: h\r\nX: a\1b\r\n",
+      "Host: h\r\nX: a\rb\r\n",
+      "Host: h\r\nX: a\r\n folded\r\n",
+      "Host: h\r\nX : a\r\n",
+      "Host: h\r\n: a\r\n",
+      "Host: h\r\nno colon\r\n",
+      "Host: h\r\nX: a\0b\r\n",
+      "Host: h\r\nX: a\1b\r\n",
   }) do
     assert(refusal("GET / HTTP/1.1\r\n" .. bad .. "\r\n") == 400, bad)
   end
@@ -277,7 +277,7 @@ local function test_a_head_of_spaces_or_repeats_is_read_in_linear_time()
   local spaces = assert(read("GET / HTTP/1.1\r\nHost: h\r\nX:  " .. inside .. " \t\r\n\r\n", limits).head)
   assert(spaces.headers["x"] == inside)
   local repeated = assert(read("GET / HTTP/1.1\r\nHost: h\r\n" .. string.rep("X: ab\r\n", 9000) ..
-    "\r\n", limits).head)
+      "\r\n", limits).head)
   assert(#repeated.headers["x"] == 9000 * 4 - 2)
 end
 

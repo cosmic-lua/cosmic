@@ -116,7 +116,7 @@ local function test_each_fault_point_in_open_fails_the_request_cleanly(tmp: stri
     assert(response == nil, what .. " did not fail the request")
     local call = fault.point:match("^[%w_]+")
     assert(trouble:find(call, 1, true) ~= nil, what .. ": the message does not name " ..
-      call .. ": " .. trouble)
+        call .. ": " .. trouble)
     if fault.point:find("(", 1, true) ~= nil then
       local option = fault.point:match("%((.*)%)")
       assert(trouble:find(option, 1, true) ~= nil, what .. ": " .. trouble)

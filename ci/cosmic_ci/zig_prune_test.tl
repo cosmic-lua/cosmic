@@ -12,18 +12,18 @@ local function test_a_manifest_vouches_for_the_output_zig_made()
     -- A compile's analysis, of one file of the project cache.
     { "71f3cc44bf6c4ed887751ef3be920bd0",
       "\xd5.\x00\x00\x00\x00\x00\x00q\xc8\x09\x00\x00\x00\x00\x00Vz\x93\xda" ..
-      "\x8d\xdf\xda\x18p\xd1\xf1\x93\xe2R\xc0\xd2\xdeZ\x1b\xbb\xa1*\xa6\x0a" ..
-      "\x08cosmic-vendor/cares-f159dbcc3d49893fb5f9a28c6d4caee36f8d8a86f34072" ..
-      "fd3ea7c308ebd2f5db/src/lib/ares_sysconfig_mac.c\x00\x00",
+        "\x8d\xdf\xda\x18p\xd1\xf1\x93\xe2R\xc0\xd2\xdeZ\x1b\xbb\xa1*\xa6\x0a" ..
+        "\x08cosmic-vendor/cares-f159dbcc3d49893fb5f9a28c6d4caee36f8d8a86f34072" ..
+        "fd3ea7c308ebd2f5db/src/lib/ares_sysconfig_mac.c\x00\x00",
       "9f1d104adad6a05512d52bab36bb854a" },
     -- A run step, of two outputs of the cache's own.
     { "20846e46d0063433728d69b15ed4801d",
       "M\x8c\x12\x01\x00\x00\x00\x00f\x01\x0a\x00\x00\x00\x00\x00\xa50q<\xd7" ..
-      "\xdf\xda\x18\x9a\xbe\xc5pd\x88HHG\xf9\x5cG t\xc5\xc2\x08o/04bbf2e4d047" ..
-      "d5cadb88df8d955afa9f/coverage-map\x00\xf8B`\x00\x00\x00\x00\x00\x18" ..
-      "\xa2\x0a\x00\x00\x00\x00\x00\xbc\x06\x97c\xef\xdf\xda\x18$I\xc5F\x9b^W" ..
-      "\x89\xdb\xefX\xe3\xf9\x9d\x0b\xd7\x08o/4e24a4c3b4892d00b4f4b1f52e3b5ca" ..
-      "d/cosmic-core\x00\x00",
+        "\xdf\xda\x18\x9a\xbe\xc5pd\x88HHG\xf9\x5cG t\xc5\xc2\x08o/04bbf2e4d047" ..
+        "d5cadb88df8d955afa9f/coverage-map\x00\xf8B`\x00\x00\x00\x00\x00\x18" ..
+        "\xa2\x0a\x00\x00\x00\x00\x00\xbc\x06\x97c\xef\xdf\xda\x18$I\xc5F\x9b^W" ..
+        "\x89\xdb\xefX\xe3\xf9\x9d\x0b\xd7\x08o/4e24a4c3b4892d00b4f4b1f52e3b5ca" ..
+        "d/cosmic-core\x00\x00",
       "60b2f3b2be10737eb5f6979227bf0540" },
   }
   for _, case in ipairs(cases) do
@@ -51,7 +51,7 @@ local function test_the_answers_are_the_pinned_zigs()
   local pin = assert(Fs.read(root .. "/bin/zig.pin"))
   local version = pin:match("^version (%S+)")
   assert(version == ZigPrune.zig_version, "bin/zig.pin names zig " .. tostring(version) ..
-    ", and cosmic_ci/zig_prune.tl reads " .. ZigPrune.zig_version .. "'s caches")
+      ", and cosmic_ci/zig_prune.tl reads " .. ZigPrune.zig_version .. "'s caches")
 end
 
 --- A cache under `root`, as zig lays one out, with no manifest yet.

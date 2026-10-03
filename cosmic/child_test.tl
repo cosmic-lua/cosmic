@@ -19,7 +19,7 @@ local function test_a_bare_name_not_found_points_at_proc_find(tmp: string)
   local _, trouble = Child.run({ "cosmic-no-such-program" }, { cwd = tmp })
   assert(trouble:sub(1, 13) == "child: start:", trouble)
   assert(trouble:find("with no PATH search; " ..
-    "Proc.find(\"cosmic-no-such-program\") answers", 1, true) ~= nil, trouble)
+      "Proc.find(\"cosmic-no-such-program\") answers", 1, true) ~= nil, trouble)
   local _, pathed = Child.run({ tmp .. "/cosmic-no-such-program" })
   assert(pathed:find("Proc.find(", 1, true) == nil, pathed)
   -- A missing directory, or a script whose interpreter is missing, fails
@@ -48,7 +48,7 @@ local function test_a_start_past_the_descriptor_limit_names_it(tmp: string)
   assert(ok, tostring(child))
   assert(child == nil, "started past the limit")
   assert(trouble:find("handed descriptor 255", 1, true) ~= nil and
-    trouble:find("RLIMIT_NOFILE's soft limit of 256", 1, true) ~= nil, trouble)
+      trouble:find("RLIMIT_NOFILE's soft limit of 256", 1, true) ~= nil, trouble)
 end
 
 --- A refused option is blamed on the line that passed it, not on a line
@@ -56,9 +56,9 @@ end
 --- caller's caller.
 local function test_a_refused_option_names_the_caller_s_line()
   for _, opts in ipairs({
-    { stdout = "bad" } as Child.Options,
-    { cwd = "/tmp\0bad" } as Child.Options,
-    { timeout_ns = -1 } as Child.Options,
+      { stdout = "bad" } as Child.Options,
+      { cwd = "/tmp\0bad" } as Child.Options,
+      { timeout_ns = -1 } as Child.Options,
   }) do
     local ok, why: boolean, any = pcall(function()
       local _, _ = Child.run({ "/bin/sh" }, opts)
@@ -92,7 +92,7 @@ end
 
 local function test_run_refuses_a_stream()
   for _, opts in ipairs({
-    { stdin = "stream" }, { stdout = "stream" }, { stderr = "stream" },
+      { stdin = "stream" }, { stdout = "stream" }, { stderr = "stream" },
   } as {Child.Options}) do
     local ok, message = pcall(Child.run, { "/bin/sh", "-c", "exit 0" }, opts)
     assert(not ok and tostring(message):find("Child.start", 1, true), tostring(message))
@@ -228,7 +228,7 @@ local function test_credentials_reject_invalid_ids_and_namespace_options()
     assert(not ok and tostring(why):find("credentials need integer user and group", 1, true), tostring(why))
   end
   for _, sandbox in ipairs({
-    { unveil = { reads = {} } }, { offline = true }, { user = 1 }, { group = 1 },
+      { unveil = { reads = {} } }, { offline = true }, { user = 1 }, { group = 1 },
   } as {Child.Sandbox}) do
     local ok, why = pcall(Child.start, { "/never-started" },
       { credentials = { user = 1, group = 1 }, sandbox = sandbox })

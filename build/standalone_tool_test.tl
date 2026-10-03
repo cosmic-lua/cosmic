@@ -76,7 +76,7 @@ local function test_a_main_that_returns_no_exit_status_is_refused(tmp: string)
   local function run(returned: string): Child.Result
     local script = tmp .. "/script.tl"
     assert(Fs.write(script, "return function(_argv: {string}): any\n  return " ..
-      returned .. "\nend\n"))
+        returned .. "\nend\n"))
     local started = this_program.program({ "--standalone", script }, {
       env = { XDG_CACHE_HOME = tmp .. "/cache" },
       stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30),
@@ -87,7 +87,7 @@ local function test_a_main_that_returns_no_exit_status_is_refused(tmp: string)
       ["1.5"] = "1.5" } as {string:string}) do
     local result = run(returned)
     assert(result.code == 2, returned .. " exited " .. tostring(result.code) .. ": " ..
-      tostring(result.stderr))
+        tostring(result.stderr))
     local complaint = "cosmic: " .. tmp .. "/script.tl returned " .. shown ..
       ", not an exit status 0-255"
     assert(tostring(result.stderr):find(complaint, 1, true) ~= nil, tostring(result.stderr))

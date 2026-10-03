@@ -43,19 +43,19 @@ local function test_a_block_of_two_statements_is_opened()
   writes("if x then a() b() end\n", "if x then\n  a()\n  b()\nend\n")
   writes("repeat a() b() until c\n", "repeat\n  a()\n  b()\nuntil c\n")
   writes("local function f() a() return 1 end\n",
-         "local function f()\n  a()\n  return 1\nend\n")
+    "local function f()\n  a()\n  return 1\nend\n")
 end
 
 --- A block holding a block is opened; the one inside stays on its line
 --- when it holds one statement.
 local function test_a_block_holding_a_block_is_opened()
   writes("for _, v in ipairs(t) do if v then n = n + 1 end end\n",
-         "for _, v in ipairs(t) do\n  if v then n = n + 1 end\nend\n")
+    "for _, v in ipairs(t) do\n  if v then n = n + 1 end\nend\n")
 end
 
 local function test_an_if_of_three_branches_is_opened()
   writes("if a then x = 1 elseif b then x = 2 else x = 3 end\n",
-         "if a then\n  x = 1\nelseif b then\n  x = 2\nelse\n  x = 3\nend\n")
+    "if a then\n  x = 1\nelseif b then\n  x = 2\nelse\n  x = 3\nend\n")
 end
 
 --- A block ending past the width is opened; one ending on it is not.
@@ -77,7 +77,7 @@ end
 --- block no longer on one line, and it is opened in turn.
 local function test_opening_an_inner_block_opens_the_one_around_it()
   writes("if x then f(function() a() b() end) end\n",
-         "if x then\n  f(function()\n    a()\n    b()\n  end)\nend\n")
+    "if x then\n  f(function()\n    a()\n    b()\n  end)\nend\n")
 end
 
 --- A `;` a break replaces goes; one the parser needs, or that a comment
@@ -89,10 +89,10 @@ local function test_a_semicolon_goes_only_where_a_break_replaces_it()
   writes("do a() b(); end\n", "do\n  a()\n  b()\nend\n")
 end
 
---- A statement moved onto a line of its own keeps the lines that
---- continue it where they were relative to it.
+--- A statement moved onto a line of its own takes the lines that
+--- continue it along, indented from it.
 local function test_a_moved_statement_carries_its_continuation()
-  writes("a = 1; b = f(1,\n             2)\n", "a = 1\nb = f(1,\n      2)\n")
+  writes("a = 1; b = f(1,\n             2)\n", "a = 1\nb = f(1,\n  2)\n")
 end
 
 --- A block behind another statement on its line is judged where it is
@@ -112,7 +112,7 @@ end
 --- A `repeat` whose condition runs onto another line is no block on
 --- one line.
 local function test_a_repeat_whose_condition_spans_lines_is_opened()
-  writes("repeat a() until x and\n  y\n", "repeat\n  a()\nuntil x and\n  y\n")
+  writes("repeat a() until x and\n  y\n", "repeat\n  a()\nuntil x and\n    y\n")
 end
 
 --- A function literal inside a one-line block's statement is judged on
@@ -126,7 +126,7 @@ end
 local function test_an_inner_block_is_judged_where_it_lands()
   local call = "f(\"" .. string.rep("a", 60) .. "\")"
   writes("for _, v in ipairs(t) do if v then " .. call .. " end end\n",
-         "for _, v in ipairs(t) do\n  if v then " .. call .. " end\nend\n")
+    "for _, v in ipairs(t) do\n  if v then " .. call .. " end\nend\n")
 end
 
 --- A comment in front of a closing keyword that moves trails the code
@@ -134,7 +134,7 @@ end
 local function test_a_comment_before_a_moved_closer_trails_its_code()
   writes("if x then a() b() --[[ c ]] end\n", "if x then\n  a()\n  b() --[[ c ]]\nend\n")
   writes("if x then a() b() --[[ c ]] else d() end\n",
-         "if x then\n  a()\n  b() --[[ c ]]\nelse\n  d()\nend\n")
+    "if x then\n  a()\n  b() --[[ c ]]\nelse\n  d()\nend\n")
 end
 
 --- An `else` written on an open line is opened onto its own, and so is
@@ -150,7 +150,7 @@ local function test_an_operator_opening_a_line_moves_to_the_line_before()
   writes("local x = a\n  and b\n", "local x = a and\n  b\n")
   writes("local s = a\n  .. b\n  .. c\n", "local s = a ..\n  b ..\n  c\n")
   writes("if p ~= nil and f(p)\n   and g(p) then\n  return\nend\n",
-         "if p ~= nil and f(p) and\n   g(p) then\n  return\nend\n")
+    "if p ~= nil and f(p) and\n    g(p) then\n  return\nend\n")
   writes("local w = (a\n  == b)\n", "local w = (a ==\n  b)\n")
 end
 

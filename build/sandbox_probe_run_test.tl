@@ -21,8 +21,8 @@ local function test_every_part_is_tried(tmp: string)
     assert(part.held == (part.said == "held") and part.said ~= "", part.name .. ": " .. part.said)
   end
   assert(table.concat(names, ",") ==
-    "landlock,pledge,offline,unveil,unveil + offline (a confined test)," ..
-    "unveiled: a pid namespace of its own,unveiled: a /proc of its own,all four",
+      "landlock,pledge,offline,unveil,unveil + offline (a confined test)," ..
+      "unveiled: a pid namespace of its own,unveiled: a /proc of its own,all four",
     table.concat(names, ","))
   assert(#report.host > 0)
 end

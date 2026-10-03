@@ -81,7 +81,7 @@ local function standard(dir: string): {near.Known}
       "",
       "return syscalls"),
   }, { "Proc.find", "Fs.mkdirs", "Fs.close", "Json.decode", "Stream.close",
-       "syscalls.mkdir" }))
+    "syscalls.mkdir" }))
 end
 
 --- A function named for what another module's function stands in for

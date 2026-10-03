@@ -11,13 +11,23 @@
 --- range of the original bytes out untouched, which is how type syntax
 --- and record bodies are rendered at all.
 ---
---- `shift` is the difference between the column a statement is written
---- at and the column it was read from. The renderer sets a statement's
---- indentation (two columns per level of block), so a file indented
---- another way moves, and every line that continues the statement moves
---- by the same amount. `indent` applies it: a continuation line keeps
---- its column relative to its statement, and the renderer never decides
+--- A line that continues a statement is indented by the renderer too,
+--- from the brackets open where it starts ([`continuation`]): two
+--- columns past the line that opened the innermost one (four in a
+--- block's header), two more where the line continues an expression
+--- inside one entry rather than starting the next, and a closing
+--- bracket that starts a line level with the line that opened it.
+--- Outside any bracket a line continues its statement two columns in,
+--- or four in a block's header (an `if`'s or a loop's condition, an
+--- `until`'s, a function's signature), so it stands apart from the
+--- block's body. A parameter list whose first parameter follows its `(`
+--- lines the rest up under that one. The renderer still never decides
 --- where to wrap.
+---
+--- `shift` is the difference between the column a statement is written
+--- at and the column it was read from. What keeps its column relative
+--- to the statement moves by it: a comment not lined up with the code
+--- after it, and type syntax written as its bytes.
 
 local ast = require("build.ast")
 local emit = require("build.fix.emit")
@@ -34,6 +44,23 @@ local record Ending
   line: integer
   --- Whether its closing keyword was written on the line already open.
   inline: boolean
+end
+
+--- A bracket open in the statement being written.
+local record Open
+  --- The indentation of the line it opened on.
+  indent: integer
+  --- How far past that a line inside it starts: the `header` of the
+  --- statement it opened in, so a bracket in a block's header sets its
+  --- lines apart from the block's body as the header's own lines are.
+  step: integer
+  --- The column a line inside it starts at instead: a parameter list's
+  --- first parameter's, when that follows the `(`.
+  align: integer | nil
+  --- Whether it holds one expression and no list of them (a
+  --- parenthesized expression, an index), so no line inside it starts
+  --- an entry apart from the one before.
+  single: boolean
 end
 
 local record Ctx
@@ -79,6 +106,15 @@ local record Ctx
   --- The `;` tokens, by index, that a node opens on (a block's, an
   --- empty `return` list's): one is the node's own and stays.
   owned: {integer:boolean}
+  --- The brackets open in the statement being written, innermost
+  --- last; the indentation a line continuing it outside them takes past
+  --- the statement's (`header`); and what the next lead is to: the
+  --- start of an entry of the innermost bracket (`starting`), or its
+  --- closing bracket (`closing`).
+  opens: {Open}
+  header: integer
+  starting: boolean
+  closing: boolean
   --- The tokens, by index, of each binary operator written at the
   --- start of a line, which [`build.fix.breaks`] moves to the end of
   --- the line before.
@@ -98,16 +134,52 @@ local function start_of(ctx: Ctx, node: Node): ast.Position
   return known
 end
 
---- The leading whitespace of a line that begins at source column `x`.
+--- The leading whitespace of a line that continues the statement being
+--- written, by the rules this module's header sets out. It reads and
+--- clears `starting` and `closing`, so a caller sets either just before
+--- the lead it is for.
 --- @param ctx Ctx
---- @param x integer
 --- @return string
-local function indent(ctx: Ctx, x: integer): string
-  local width = x - 1 + ctx.shift
-  if width < 0 then
-    width = 0
+local function continuation(ctx: Ctx): string
+  local top = ctx.opens[#ctx.opens]
+  local width: integer
+  if top == nil then
+    width = ctx.margin + ctx.header
+  elseif ctx.closing then
+    width = top.indent
+  else
+    local align = top.align
+    local base = align ~= nil and align or top.indent + top.step
+    width = (ctx.starting or top.single) and base or base + 2
   end
-  return string.rep(" ", width)
+  ctx.starting = false
+  ctx.closing = false
+  return string.rep(" ", width < 0 and 0 or width)
+end
+
+--- What to lead with at line `y`: the continuation's indentation when
+--- `y` is a line still to start, and nothing when it is the line open.
+--- Either way `starting` and `closing` are cleared.
+local function pad(ctx: Ctx, y: integer): string
+  if y <= ctx.em.line then
+    ctx.starting = false
+    ctx.closing = false
+    return ""
+  end
+  return continuation(ctx)
+end
+
+--- Open a bracket just written: lines inside it are indented from the
+--- line it opened on, or lined up at `align` when one is given; one
+--- holding a `single` expression has no entries to set apart.
+local function opens(ctx: Ctx, align?: integer, single?: boolean)
+  ctx.opens[#ctx.opens + 1] = { indent = ctx.em.indent, step = ctx.header, align = align,
+    single = single == true }
+end
+
+--- Close the innermost bracket, its closing bracket written.
+local function closes(ctx: Ctx)
+  ctx.opens[#ctx.opens] = nil
 end
 
 --- Move to where `node` starts: onto its own line when the source put
@@ -117,7 +189,7 @@ end
 --- @param inline string The separator to write when no line break is due
 local function lead(ctx: Ctx, node: Node, inline: string)
   local at = start_of(ctx, node)
-  emit.advance(ctx.em, at.y, indent(ctx, at.x), inline, at.x)
+  emit.advance(ctx.em, at.y, pad(ctx, at.y), inline, at.x)
 end
 
 --- Move to a bare position rather than a node's -- a continuation the
@@ -127,7 +199,7 @@ end
 --- @param x integer The column the terminator's first character sits at
 --- @param inline string The separator to write when no line break is due
 local function lead_at(ctx: Ctx, y: integer, x: integer, inline: string)
-  emit.advance(ctx.em, y, indent(ctx, x), inline, x)
+  emit.advance(ctx.em, y, pad(ctx, y), inline, x)
 end
 
 --- Move to source line `y` at the indentation the renderer chose, not
@@ -155,9 +227,10 @@ local function offset(ctx: Ctx, y: integer, x: integer): integer
 end
 
 --- Set the indentation of the statement about to be written: `margin`
---- columns in, read from source column `x`. Everything the statement
---- carries onto a later line moves by the same amount, comments in
---- front of it included.
+--- columns in, read from source column `x`. What the statement carries
+--- onto a later line at a column of its own (a comment not lined up
+--- with code, type syntax written as its bytes) moves by the same
+--- amount, comments in front of it included.
 --- @param ctx Ctx
 --- @param margin integer The column to write the statement at
 --- @param x integer The column the statement was read at
@@ -290,7 +363,7 @@ local function ended(ctx: Ctx, n: Node, inline: boolean)
   -- Only a construct closing on an open line can be one on one line,
   -- and only then does the column it reached matter.
   ctx.ends[n] = { column = inline and emit.column(ctx.em) or 0, line = ctx.em.line,
-                  inline = inline }
+    inline = inline }
 end
 
 --- Note that the `;` at (`y`, `x`) is the token a node opens on.
@@ -314,7 +387,8 @@ local record CtxModule
   owns: function(ctx: Ctx, y: integer, x: integer)
   refuse: function(ctx: Ctx, what: string)
   start_of: function(ctx: Ctx, node: Node): ast.Position
-  indent: function(ctx: Ctx, x: integer): string
+  opens: function(ctx: Ctx, align?: integer, single?: boolean)
+  closes: function(ctx: Ctx)
   lead: function(ctx: Ctx, node: Node, inline: string)
   lead_at: function(ctx: Ctx, y: integer, x: integer, inline: string)
   lead_to: function(ctx: Ctx, y: integer, x: integer, margin: integer,
@@ -330,7 +404,8 @@ local M: CtxModule = {
   owns = owns,
   refuse = refuse,
   start_of = start_of,
-  indent = indent,
+  opens = opens,
+  closes = closes,
   lead = lead,
   lead_at = lead_at,
   lead_to = lead_to,

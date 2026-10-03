@@ -141,7 +141,7 @@ end
 
 --- Whether `text` parses as `want` (nil for a refusal), and why not.
 local function parses_as(parse: function(string): (integer | nil, string), text: string,
-    want: integer, ns: integer): boolean, string
+                         want: integer, ns: integer): boolean, string
   local back, why = parse(text)
   if back ~= want then
     return false, ("%d wrote %q, which parsed as %s, not %s: %s"):format(ns, text,

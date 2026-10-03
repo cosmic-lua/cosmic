@@ -395,7 +395,7 @@ local function read_digits(cur: Cursor, most: integer, what: string, least?: int
   end
   if at - first < (least or most) then
     fail(cur, ("%s: expected %s at byte %d"):format(what, least == nil and
-      String.counted(most, "digit") or "a number", first))
+        String.counted(most, "digit") or "a number", first))
     return nil
   end
   cur.at = at
@@ -597,7 +597,7 @@ local function posix_kind(p: Posix, s: integer): Kind
     local changes = p.years[y]
     if changes == nil then
       changes = { rule_day(p.start, y) * DAY + p.start.time - p.std.offset,
-                  rule_day(p.finish, y) * DAY + p.finish.time - p.dst.offset }
+        rule_day(p.finish, y) * DAY + p.finish.time - p.dst.offset }
       p.years[y] = changes
     end
     if changes[2] <= s and changes[2] > best then
@@ -1280,7 +1280,7 @@ local function disambiguation_of(how: Time.Disambiguation): Time.Disambiguation
   how = how or "reject"
   if not DISAMBIGUATIONS[how] then
     error("time: disambiguation is \"reject\", \"earlier\", \"later\" or \"compatible\", not " ..
-      tostring(how), 3)
+        tostring(how), 3)
   end
   return how
 end
@@ -1323,7 +1323,7 @@ local function resolve(c: Time.Civil, zone: Time.Zone, how: Time.Disambiguation)
       if how == "reject" then
         return nil, ("%s happens twice in %s: clocks moved from %s to %s; disambiguation " ..
           "\"earlier\" or \"later\" picks one"):format(civil_text(c, "minute"), rules.name,
-          offset_text(before), offset_text(after))
+            offset_text(before), offset_text(after))
       end
       chosen = how == "later" and found[#found] or found[1]
     end
@@ -1374,7 +1374,7 @@ end
 --- field that is no integer, an `overflow` or a `disambiguation` that is
 --- none of its type's, or a `zone` no function here made.
 function Time.add_calendar(ns: integer, duration: Time.Duration, zone?: Time.Zone,
-    opts?: Time.AddOptions): integer | nil, string
+                           opts?: Time.AddOptions): integer | nil, string
   local years, months, days = duration.years or 0, duration.months or 0, duration.days or 0
   local exact = duration.ns or 0
   integral("years", years)

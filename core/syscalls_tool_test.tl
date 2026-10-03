@@ -170,9 +170,9 @@ local function test_an_offline_child_s_loopback_is_up(tmp: string)
   local report = create(tmp .. "/report")
   local started = this_program.program({ "-e",
     "local t = assert(require('cosmic.fs').read('/proc/self/net/fib_trie')) " ..
-    "print(t:find('127.0.0.1', 1, true) and 'up' or 'down') " ..
-    "local Net = require('cosmic.net') local Time = require('cosmic.time') " ..
-    "print(select(2, Net.connect(Net.tcp('127.0.0.1', 1), { timeout_ns = Time.seconds(5) })))" })
+      "print(t:find('127.0.0.1', 1, true) and 'up' or 'down') " ..
+      "local Net = require('cosmic.net') local Time = require('cosmic.time') " ..
+      "print(select(2, Net.connect(Net.tcp('127.0.0.1', 1), { timeout_ns = Time.seconds(5) })))" })
   local pid, trouble, errno = process.spawn(started.argv[1], started.argv, started.options.env,
     tmp, nil, report, report, false,
     spawn_fds(started),
@@ -181,7 +181,7 @@ local function test_an_offline_child_s_loopback_is_up(tmp: string)
     sys.close(report)
     unsandboxable("network namespace", trouble)
     assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
-      errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
+        errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
     return
   end
   local status = assert(process.waitpid(pid, false))
@@ -217,23 +217,23 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
   local report = create(tmp .. "/report")
   local pid, trouble, errno = process.spawn(probe, { probe,
     "cat link/f; print; present out/f && print outside-seen || print outside-absent; " ..
-    "cat " .. assert(sys.realpath(inside)) .. "/f; print; " ..
-    "write link/g x || print read-only; write w/f w && cat w/f; status-field CapEff; " ..
-    "present /proc/self/net/dev && grep-count /proc/self/net/dev : || print 1" },
+      "cat " .. assert(sys.realpath(inside)) .. "/f; print; " ..
+      "write link/g x || print read-only; write w/f w && cat w/f; status-field CapEff; " ..
+      "present /proc/self/net/dev && grep-count /proc/self/net/dev : || print 1" },
     nil, tmp, nil, report, report, false, nil,
     { unveil = { reads = reads, writes = { out } }, offline = true })
   if pid == nil then
     sys.close(report)
     unsandboxable("unveiling", trouble)
     assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
-      errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
+        errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
     return
   end
   assert(assert(process.waitpid(pid, false)).code == 0)
   local said = assert(sys.pread(report, 4096, 0))
   sys.close(report)
   assert(said == "in\noutside-absent\nin\nread-only\nw\n" ..
-    "CapEff:\t0000000000000000\n1\n", said)
+      "CapEff:\t0000000000000000\n1\n", said)
   -- The parent is not held.
   assert(sys.stat(outside .. "/f") ~= nil)
   -- With /proc, /dev/fd leads into it; a directory made above a given
@@ -249,10 +249,10 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
   local second = create(tmp .. "/second")
   local again = assert(process.spawn(probe, { probe,
     "present /dev/fd/0 && print fd; mode " .. assert(sys.realpath(private)) ..
-    "; ls /tmp; write /tmp/f t && cat /tmp/f; " ..
-    "present /proc/sys && print host-proc || print own-proc; " ..
-    "writable /proc/self/uid_map && print own-writable || print own-read-only; " ..
-    "writable /proc/sys/vm/swappiness || print sys-read-only" },
+      "; ls /tmp; write /tmp/f t && cat /tmp/f; " ..
+      "present /proc/sys && print host-proc || print own-proc; " ..
+      "writable /proc/self/uid_map && print own-writable || print own-read-only; " ..
+      "writable /proc/sys/vm/swappiness || print sys-read-only" },
     nil, "/", nil, second, second, false, nil,
     { unveil = { reads = mirrored }, offline = true }))
   assert(assert(process.waitpid(again, false)).code == 0)
@@ -280,7 +280,7 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
   local common = "fd\n700\n" .. table.concat(listed) .. "t\n"
   local own = confine.own_proc_given()
   assert(seen == common .. (own and "own-proc\nown-writable\n" or "host-proc\nown-read-only\n") ..
-    "sys-read-only\n", seen)
+      "sys-read-only\n", seen)
   local nothing, _, nothing_errno = process.spawn(probe, { probe }, nil, tmp,
     nil, nil, nil, false, nil, { unveil = { reads = {}, writes = {} } })
   assert(nothing == nil and nothing_errno == sys.ENOENT, "an empty unveiling leaves no program")
@@ -300,7 +300,7 @@ local function start_confined(probe: string, script: string, output: integer,
   if pid ~= nil then return pid end
   unsandboxable("unveiling", trouble)
   assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
-    errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
+      errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
   return nil
 end
 
@@ -366,9 +366,9 @@ local function test_an_unveiled_child_runs_as_the_user_given(tmp: string)
   local reads = probe_reads(probe)
   local user = sys.getuid() == 65533 and 65531 or 65533
   for _, sandbox in ipairs({
-    { unveil = { reads = reads, writes = {} }, user = 0, group = user },
-    { unveil = { reads = reads, writes = {} }, user = user },
-    { offline = true, user = user, group = user },
+      { unveil = { reads = reads, writes = {} }, user = 0, group = user },
+      { unveil = { reads = reads, writes = {} }, user = user },
+      { offline = true, user = user, group = user },
   } as {raw_process.Sandbox}) do
     assert(not pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil,
       sandbox), "a user is refused unless given with its group and unveil, and not as root")
@@ -393,8 +393,8 @@ local function test_an_unveiled_child_runs_as_the_user_given(tmp: string)
   end
   local pid, trouble, errno = process.spawn(probe, { probe,
     "status-field Uid; status-field Gid; status-field Groups; status-field CapEff; " ..
-    "print uid_map; cat /proc/self/uid_map; print mountinfo; cat /proc/self/mountinfo; " ..
-    "print setuid; run " .. setuid .. " status-field Uid" },
+      "print uid_map; cat /proc/self/uid_map; print mountinfo; cat /proc/self/mountinfo; " ..
+      "print setuid; run " .. setuid .. " status-field Uid" },
     nil, "/", nil, report, report, false, nil,
     { unveil = { reads = reads, writes = {} }, offline = true, user = user, group = user })
   if was ~= nil then
@@ -451,7 +451,7 @@ local function test_an_unveiled_path_is_bound_at_the_name_given(tmp: string)
   local report = create(tmp .. "/report")
   local pid, trouble, errno = process.spawn("/probe", { "/probe",
     "cat sub/f; print; cwd; present " .. real_tree .. " && print own-name || print no-own-name; " ..
-    "write /tmp/g w && print tmp-written; write sub/g x || print tree-read-only" },
+      "write /tmp/g w && print tmp-written; write sub/g x || print tree-read-only" },
     nil, "/tree", nil, report, report, false, nil,
     { unveil = { reads = given, writes = { scratch },
       at = { [tree] = "/tree", [scratch] = "/tmp", [probe] = "/probe" } }, offline = true })
@@ -459,7 +459,7 @@ local function test_an_unveiled_path_is_bound_at_the_name_given(tmp: string)
     sys.close(report)
     unsandboxable("unveiling", trouble)
     assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
-      errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
+        errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
     return
   end
   assert(assert(process.waitpid(pid, false)).code == 0)
@@ -492,8 +492,8 @@ local function test_an_unveiled_path_is_bound_at_the_name_given(tmp: string)
     if sys.errno_name(escaped_errno) ~= "ELOOP" then
       unsandboxable("unveiling", sys.errno_name(escaped_errno))
       assert(escaped_errno == sys.ENOSYS or escaped_errno == sys.EPERM or
-        escaped_errno == sys.EACCES or escaped_errno == sys.EINVAL or
-        escaped_errno == sys.ENOSPC, tostring(escaped_errno))
+          escaped_errno == sys.EACCES or escaped_errno == sys.EINVAL or
+          escaped_errno == sys.ENOSPC, tostring(escaped_errno))
     end
   end
   assert(sys.stat(victim .. "/new.txt") == nil, "a file was made through the link")
@@ -544,8 +544,8 @@ local function test_an_unveiled_child_sees_and_signals_only_its_own_processes(tm
   local outside = assert(process.spawn(probe, { probe, "sleep 30000" }, nil, nil, nil,
     nil, nil, false))
   local status, said = run_confined(tmp, probe, "status-field Pid; signal KILL " ..
-    tostring(outside) .. " && print killed || print spared; present /proc/" ..
-    tostring(outside) .. " && print seen || print unseen; cat /proc/1/comm; ls /proc")
+      tostring(outside) .. " && print killed || print spared; present /proc/" ..
+      tostring(outside) .. " && print seen || print unseen; cat /proc/1/comm; ls /proc")
   -- Still running, not a zombie, which a signal of 0 would find too.
   local alive = assert(process.waitpid(outside, true)).pid == 0
   if alive then
@@ -629,15 +629,19 @@ local function test_an_unveiled_child_s_status_is_its_program_s(tmp: string)
   while not closed and assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) < by do
     assert(sys.poll({ ends.reader }, { sys.POLLIN }, 100))
     local data, _, errno = sys.read(ends.reader, 4096)
-    if data == "" then closed = true
-    elseif data ~= nil then read = read .. data
-    else assert(errno == sys.EAGAIN, "read: " .. tostring(errno)) end
+    if data == "" then
+      closed = true
+    elseif data ~= nil then
+      read = read .. data
+    else
+      assert(errno == sys.EAGAIN, "read: " .. tostring(errno))
+    end
   end
   sys.close(ends.reader)
   assert(read == "started\n" and closed, "what it left running outlived it: " .. read)
   -- One it runs starts one more, which outlives it: an orphan.
   local status, said = run_confined(tmp, probe, "run " .. probe .. " start " .. probe ..
-    " sleep 100; sleep 1000; cat /proc/1/comm; ls /proc")
+      " sleep 100; sleep 1000; cat /proc/1/comm; ls /proc")
   assert(status ~= nil and status.code == 0, said)
   -- Only a procfs of its own shows its namespace's processes alone: its
   -- init and itself, and no orphan, reaped or not.
@@ -734,14 +738,14 @@ local function test_proc_given_to_write_changes_nothing_of_the_host_s(tmp: strin
   local report = create(tmp .. "/written")
   local pid, trouble, errno = process.spawn(probe, { probe,
     "writable /proc/sys/vm/swappiness && print sys-writable || print sys-read-only; " ..
-    "writable /proc/sys/kernel/hostname && print name-writable || print name-read-only" },
+      "writable /proc/sys/kernel/hostname && print name-writable || print name-read-only" },
     nil, "/", nil, report, report, false, nil,
     { unveil = { reads = without, writes = writes }, offline = true })
   if pid == nil then
     sys.close(report)
     unsandboxable("unveiling", trouble)
     assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
-      errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
+        errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
     return
   end
   assert(assert(process.waitpid(pid, false)).code == 0)
@@ -773,7 +777,7 @@ local function test_a_confined_child_is_started_and_waited_for_quickly(tmp: stri
   end
   table.sort(times)
   assert(times[3] < Time.ms(500), "the middle of five confined starts and waits took " ..
-    tostring(times[3] // Time.ms(1)) .. " ms")
+      tostring(times[3] // Time.ms(1)) .. " ms")
 end
 
 --- `exit_watch`'s descriptor is readable once its child has exited, and

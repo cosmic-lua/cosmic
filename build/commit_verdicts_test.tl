@@ -111,10 +111,10 @@ local function test_the_queue_names_its_base_and_main_none(tmp: string)
     SHA = SHA, QUEUE_BASE = BASE }, "FAIL")
   assert(output == "sha=" .. BASE .. "\n" and calls == "", output .. calls)
   for _, env in ipairs({
-    { EVENT = "push", REF = "refs/heads/main", SHA = SHA },
-    { EVENT = "schedule", REF = "refs/heads/main", SHA = SHA },
-    { EVENT = "workflow_dispatch", REF = "refs/heads/topic", SHA = SHA },
-    { EVENT = "merge_group", REF = "refs/heads/gh-readonly-queue/main/x", SHA = SHA, QUEUE_BASE = "" },
+      { EVENT = "push", REF = "refs/heads/main", SHA = SHA },
+      { EVENT = "schedule", REF = "refs/heads/main", SHA = SHA },
+      { EVENT = "workflow_dispatch", REF = "refs/heads/topic", SHA = SHA },
+      { EVENT = "merge_group", REF = "refs/heads/gh-readonly-queue/main/x", SHA = SHA, QUEUE_BASE = "" },
   }) do
     output, calls = run(tmp, MERGE_BASE, env, "FAIL")
     assert(output == "" and calls == "", env.EVENT .. " " .. env.REF .. ": " .. output .. calls)

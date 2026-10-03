@@ -88,11 +88,11 @@ local function carries_what_a_final_newline_would(source: string)
   local without, with = carried(source), carried(source .. "\n")
   assert(#without == #with,
     source .. ": carried " .. #without .. " comments without a final " ..
-    "newline and " .. #with .. " with one")
+      "newline and " .. #with .. " with one")
   for i, text in ipairs(with) do
     assert(without[i] == text,
       source .. ": comment " .. i .. " is " .. tostring(without[i]) ..
-      ", not " .. text)
+        ", not " .. text)
   end
 end
 
@@ -106,12 +106,12 @@ end
 --- without it.
 local function test_a_comment_ending_at_the_end_of_input_still_reaches_a_token()
   for _, source in ipairs({
-    "local a = 1\nprint(a) -- why",
-    "local a = 1\nprint(a)\n-- the end",
-    "local a = 1\nprint(a)\n-- one\n-- two",
-    "local q = [[\nhi\n]] -- tail",
-    "local a = 1\nprint(a)\n--",
-    "local a = 1\nprint(a)\n--[",
+      "local a = 1\nprint(a) -- why",
+      "local a = 1\nprint(a)\n-- the end",
+      "local a = 1\nprint(a)\n-- one\n-- two",
+      "local q = [[\nhi\n]] -- tail",
+      "local a = 1\nprint(a)\n--",
+      "local a = 1\nprint(a)\n--[",
   }) do
     carries_what_a_final_newline_would(source)
   end
@@ -124,18 +124,18 @@ end
 local function test_a_trailing_comment_at_the_end_of_a_file_with_no_newline()
   writes("local a = 1\nprint(a) -- why", "local a = 1\nprint(a) -- why\n")
   writes("local a = 1\nprint(a) --[[ blk ]]",
-         "local a = 1\nprint(a) --[[ blk ]]\n")
+    "local a = 1\nprint(a) --[[ blk ]]\n")
 end
 
 --- The same for a comment on a line of its own, and for a run of them:
 --- every one of them, not every one but the last.
 local function test_own_line_comments_at_the_end_of_a_file_with_no_newline()
   writes("local a = 1\nprint(a)\n-- the end",
-         "local a = 1\nprint(a)\n-- the end\n")
+    "local a = 1\nprint(a)\n-- the end\n")
   writes("local a = 1\nprint(a)\n-- one\n-- two",
-         "local a = 1\nprint(a)\n-- one\n-- two\n")
+    "local a = 1\nprint(a)\n-- one\n-- two\n")
   writes("local a = 1\nprint(a)\n--[[ own line ]]",
-         "local a = 1\nprint(a)\n--[[ own line ]]\n")
+    "local a = 1\nprint(a)\n--[[ own line ]]\n")
 end
 
 --- And for one after a long string's own `]]`, which is the case where
@@ -162,12 +162,12 @@ end
 --- a lost one.
 local function test_a_pragma_shaped_comment_at_the_end_of_input()
   for _, source in ipairs({
-    "--#region\nprint(1)\n--#endregion",
-    "print(1) --#tail",
-    "--#foo",
-    "--#",
-    "print(1)\n--#region\n--#endregion",
-    "--#pragmatic",
+      "--#region\nprint(1)\n--#endregion",
+      "print(1) --#tail",
+      "--#foo",
+      "--#",
+      "print(1)\n--#region\n--#endregion",
+      "--#pragmatic",
   }) do
     carries_what_a_final_newline_would(source)
   end
@@ -178,7 +178,7 @@ end
 --- the one final newline the renderer always ends a file with.
 local function test_a_pragma_shaped_comment_survives_the_rewrite()
   writes("--#region\nprint(1)\n--#endregion",
-         "--#region\nprint(1)\n--#endregion\n")
+    "--#region\nprint(1)\n--#endregion\n")
   writes("print(1) --#tail", "print(1) --#tail\n")
   writes("--#foo", "--#foo\n")
   writes("--#", "--#\n")
@@ -208,7 +208,7 @@ local function test_a_comment_in_front_of_a_pragma_shaped_comment()
   keeps("--[[ b ]] --#region\nprint(1)\n")
   keeps("-- one\n-- two\n--#region\n--#endregion\nprint(1)\n")
   writes("print(1)\n-- hello\n--#endregion",
-         "print(1)\n-- hello\n--#endregion\n")
+    "print(1)\n-- hello\n--#endregion\n")
   assert(#carried("-- hello\n--#region\nprint(1)\n") == 2,
     "a comment in front of a `--#` run was dropped")
 end
@@ -243,7 +243,7 @@ local function test_comments_around_globals_macroexps_and_pragmas()
   keeps("-- a\nglobal type T = integer -- t\n")
   keeps("global type U -- t\n")
   keeps("-- m\nlocal macroexp m(a: integer): integer\n" ..
-        "  -- body\n  return a + 1 -- sum\nend\n")
+      "  -- body\n  return a + 1 -- sum\nend\n")
   keeps("-- p\n--#pragma arity on\nprint(1)\n")
 end
 
@@ -310,13 +310,13 @@ end
 --- a `---` doc comment runs to the end of its line.
 local function test_a_comment_in_front_of_an_operator_moves_past_it()
   writes("local a --[[ c ]] = 1\nprint(a)\n",
-         "local a = --[[ c ]] 1\nprint(a)\n")
+    "local a = --[[ c ]] 1\nprint(a)\n")
   writes("local x: integer --[[ c ]] = 1\nprint(x)\n",
-         "local x: integer = --[[ c ]] 1\nprint(x)\n")
+    "local x: integer = --[[ c ]] 1\nprint(x)\n")
   writes("local t = { 1--[[ c ]], 2 }\nprint(#t)\n",
-         "local t = { 1, --[[ c ]] 2 }\nprint(#t)\n")
+    "local t = { 1, --[[ c ]] 2 }\nprint(#t)\n")
   writes("for k, v --[[ c ]] in pairs({}) do print(k, v) end\n",
-         "for k, v in --[[ c ]] pairs({}) do print(k, v) end\n")
+    "for k, v in --[[ c ]] pairs({}) do print(k, v) end\n")
 end
 
 --- The gap costs placement only: the comment is still there, and the
@@ -324,10 +324,10 @@ end
 --- it a token further.
 local function test_a_comment_moved_past_an_operator_is_kept_and_settles()
   for _, source in ipairs({
-    "local a --[[ c ]] = 1\nprint(a)\n",
-    "local t = { 1--[[ c ]], 2 }\nprint(#t)\n",
-    "for k, v --[[ c ]] in pairs({}) do print(k, v) end\n",
-    "local --[[ c ]] function h() end\nh()\n",
+      "local a --[[ c ]] = 1\nprint(a)\n",
+      "local t = { 1--[[ c ]], 2 }\nprint(#t)\n",
+      "for k, v --[[ c ]] in pairs({}) do print(k, v) end\n",
+      "local --[[ c ]] function h() end\nh()\n",
   }) do
     local once = fixed(source)
     assert(once:find("--[[ c ]]", 1, true) ~= nil,
@@ -342,7 +342,7 @@ end
 --- were.
 local function test_a_long_comment_in_a_moved_record_keeps_its_lines()
   writes("  local type T = record\n  --[=[ keep\n\n   this ]=]\n  end\n",
-         "local type T = record\n--[=[ keep\n\n   this ]=]\nend\n")
+    "local type T = record\n--[=[ keep\n\n   this ]=]\nend\n")
 end
 
 --- A long comment closing on a later line ends the run of trailing
@@ -358,7 +358,7 @@ end
 --- renderer writes itself, stays in front of the code it was written
 --- before, and one further along stays there.
 local function test_a_comment_inside_a_continuation_line_stays_before_its_code()
-  writes("b -- why\n= --[[ c ]] 1\n", "b = -- why\n            --[[ c ]] 1\n")
+  writes("b -- why\n= --[[ c ]] 1\n", "b = -- why\n  --[[ c ]] 1\n")
   keeps("b = function(a,\n  --[[ x ]] ...: y): --[[ z ]] e end\n")
 end
 
@@ -366,7 +366,7 @@ end
 --- one token along as any comment in front of an operator is.
 local function test_a_comment_in_a_type_alias_is_kept()
   writes("global type T --[[ c ]] = {string: integer}\n",
-         "global type T = --[[ c ]] {string: integer}\n")
+    "global type T = --[[ c ]] {string: integer}\n")
 end
 
 --- A long comment after a unary `-` keeps its space from it, or the two
