@@ -274,7 +274,10 @@ function ZigPrune.plan(caches: {ZigPrune.Cache}): ZigPrune.Plan | nil, string
     local names = files[output] or {}
     local maker = #names > 0
     for _, under in ipairs(names) do
-      if under ~= "maker" and under ~= "maker_zcu.o" then maker = false; break end
+      if under ~= "maker" and under ~= "maker_zcu.o" then
+        maker = false
+        break
+      end
     end
     if maker then
       removed[output] = true
