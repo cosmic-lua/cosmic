@@ -509,7 +509,9 @@ local function encode_holds(input: string): boolean, string
   Fuzz.label(text ~= nil and "encoded" or "refused")
   if text == nil then
     if not (err is string) or err == "" then return false, "a failure without a message" end
-    if err:find(" at ", 1, true) and not err:find(' at pointer "') then
+    -- A path too long to tell whole names its innermost part.
+    if err:find(" at ", 1, true) and not err:find(' at pointer "', 1, true) and
+        not err:find(' at pointer ending "', 1, true) then
       return false, "a location that is not a pointer: " .. err
     end
     return true, ""
