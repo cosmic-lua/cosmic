@@ -288,6 +288,10 @@ local record Options
   ---   always has.
   --- - `isolate`, `connect` and `loopback` are not yet available.
   ---
+  --- A child runs as the user this process is, root included: the design's
+  --- mapped, unprivileged per-sandbox user is not yet made. A policy
+  --- whose `stdio` is a terminal is not refused either.
+  ---
   --- Not with `sandbox`, whose root of its own it does not build. Where
   --- the platform has no Landlock or seccomp (anything but Linux) the
   --- start fails. Nothing is printed about grants.
@@ -946,12 +950,18 @@ local function group_gone(self: Handle, until_ns: integer): boolean
   end
 end
 
---- Removes the temporary directory a policy's `tmp` made for the child,
---- links not followed.
--- TODO: clear a directory the child made unreadable (its `fattr` promise
--- lets it chmod), once Fs.remove_tree gives a directory it cannot open
--- its owner's mode back; until then that tree is left behind, which
--- this does not report.
+--- Removes the temporary directory a policy's `tmp` made for the child.
+--- [`Fs.remove_tree`] walks by descriptor and follows no link, which
+--- matters here: a process of the child's that outlived it (one with the
+--- `fork` promise that left its group) may swap a subdirectory for a link
+--- to a host directory while the walk runs, and a walk by path would
+--- delete through it.
+-- TODO: report a removal that failed -- a directory the child made
+-- unreadable (its `fattr` promise lets it chmod), or one a surviving
+-- descendant keeps filling -- on the Result or the Handle, once Result
+-- carries a field beside the exit status for what a settle left behind
+-- (see the TODO at Child.wait_any); until then the tree is left behind and
+-- nothing says so.
 local function remove_tmp(self: Handle)
   local dir = self._tmp
   if dir == nil then return end
@@ -2032,9 +2042,16 @@ local record Held
   env: {string:string}
   --- What spawn is handed to hold the child to it.
   sandbox: raw_process.Sandbox
-  --- The temporary directory made for the child, "" for none.
+  --- The temporary directory made for the child, "" for none: made by
+  --- [`make_tmp`], the last step before the spawn.
   tmp: string
+  --- Whether the policy asks for one.
+  wants_tmp: boolean
 end
+
+--- The most grants spawn takes (`GRANT_MAX` in core/syscalls.c), the
+--- temporary directory's included.
+local MAX_GRANTS <const> = 256
 
 --- Whether `file` is `grant` or beneath it.
 local function beneath(file: string, grant: string): boolean
@@ -2075,11 +2092,20 @@ local function ungranted(files: {string}, grants: {Rules.Grant}, cwd?: string): 
 end
 
 --- A policy's fields not yet met, by what each would need.
+-- TODO: run a policy's child as a mapped unprivileged user, never root as
+-- a root caller's is, once the mapped per-sandbox user lands (the
+-- design's phase 2); and refuse a policy whose stdin, stdout or stderr is
+-- a terminal, which only the pty relay (its phase 7) may carry.
 -- TODO: meet `isolate`, `connect`, `loopback`, a grant's `from`, the
 -- `nest` promise and `limits.processes`, and delete this refusal, once a
 -- start can make the user, mount and network namespaces (the design's
 -- phase 2) and the relay (its phase 6) they are made of.
 local function unmet(merged: Rules.Policy): string
+  if #merged.grants + (merged.tmp and 1 or 0) > MAX_GRANTS then
+    return "grants: the policy holds " .. (#merged.grants + (merged.tmp and 1 or 0)) ..
+      ", tmp's included, past the most a start takes, " .. MAX_GRANTS ..
+      "; grant a directory above them instead"
+  end
   if #merged.isolate > 0 then
     return "isolate \"" .. merged.isolate[1] .. "\" is not yet available: it needs a user " ..
       "namespace, which a policy does not yet make"
@@ -2114,7 +2140,7 @@ end
 --- Makes a policy's start: merges it, refuses what is not yet available
 --- and a program its grants do not let start, then builds the
 --- environment, the limits and, for `tmp`, the directory. Nil and why when
---- it cannot; a `tmp` made is removed then.
+--- it cannot. It acquires nothing: `tmp`'s directory is [`make_tmp`]'s.
 local function held_to(argv: {string}, opts: Options): Held | nil, string
   local merged, why = Rules.merge(opts.policy)
   if merged == nil then return nil, why end
@@ -2149,14 +2175,6 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
     if value ~= nil then env[name] = value end
   end
   for name, value in pairs(merged.set_env) do env[name] = value end
-  local made = ""
-  if merged.tmp then
-    local dir, tmp_trouble = Fs.mkdtemp("cosmic-sandbox-")
-    if dir == nil then return nil, "sandbox: tmp: " .. tmp_trouble end
-    made = dir
-    grants[#grants + 1] = { path = dir, access = "rwc" }
-    env.TMPDIR = dir
-  end
   local open_files = merged.limits.open_files
   if open_files == nil then
     open_files = DEFAULT_OPEN_FILES
@@ -2169,8 +2187,26 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
   rlimits.cpu = merged.limits.cpu_seconds
   local promises: {string} = {}
   for _, promise in ipairs(merged.promises) do promises[#promises + 1] = promise end
-  return { path = path, env = env, tmp = made,
+  return { path = path, env = env, tmp = "", wants_tmp = merged.tmp,
     sandbox = { grants = grants, promises = promises, rlimits = rlimits } }, ""
+end
+
+--- Makes the temporary directory a policy's `tmp` asks for, as an absolute
+--- path whatever TMPDIR is (the child may start in another directory),
+--- grants it `rwc` and names it in TMPDIR. "" or why not.
+local function make_tmp(held: Held): string
+  local dir, trouble = Fs.mkdtemp("cosmic-sandbox-")
+  if dir == nil then return "tmp: " .. trouble end
+  local real, real_trouble = sys.realpath(dir)
+  if real == nil then
+    local _, _ = Fs.remove_tree(dir)
+    return "tmp: " .. dir .. ": " .. real_trouble
+  end
+  held.tmp = real
+  local grants = held.sandbox.grants
+  grants[#grants + 1] = { path = real, access = "rwc" }
+  held.env.TMPDIR = real
+  return ""
 end
 
 --- [`Child.start`] on options already validated.
@@ -2191,9 +2227,6 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
   local slots, wire_trouble = wire(opts, wiring)
   if slots == nil then
     unwire(wiring, false)
-    if held ~= nil and held.tmp ~= "" then
-      local _, _ = Fs.remove_tree(held.tmp)
-    end
     return refuse("start: " .. wire_trouble)
   end
   local extra: {integer:integer}
@@ -2221,14 +2254,35 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
     credentials = { user = opts.credentials.user, group = opts.credentials.group }
   end
   local path, env = argv[1], opts.env
-  if held ~= nil then path, env, sandbox = held.path, held.env, held.sandbox end
-  local pid, trouble, errno = raw.spawn(path, argv, env, opts.cwd,
+  if held ~= nil then
+    path, env, sandbox = held.path, held.env, held.sandbox
+    if held.wants_tmp then
+      local why = make_tmp(held)
+      if why ~= "" then
+        unwire(wiring, false)
+        return refuse("start: sandbox: " .. why)
+      end
+    end
+  end
+  -- Nothing but the spawn lies between the directory's making and its
+  -- owner, the handle: a spawn that raises (an argument it refuses) must
+  -- not leave it, nor the descriptors wired, behind.
+  local called, pid, trouble, errno = pcall(raw.spawn, path, argv, env, opts.cwd,
     slots[0], slots[1], slots[2], grouped, extra, sandbox, credentials)
+  if not called then
+    unwire(wiring, false)
+    if held ~= nil and held.tmp ~= "" then
+      local _, _ = Fs.remove_tree(held.tmp)
+    end
+    error(pid, 0)
+  end
   unwire(wiring, pid ~= nil)
   if not pid then
     if held ~= nil and held.tmp ~= "" then
       local _, _ = Fs.remove_tree(held.tmp)
     end
+    -- TODO: hold a policy's child by Seatbelt on macOS, where this start
+    -- fails ENOSYS, once the design's phase 8 lands.
     if held ~= nil and errno == sys.ENOSYS then
       trouble = trouble .. ": a policy is held by Landlock and seccomp, which only Linux gives"
     elseif (errno == sys.ENOENT or errno == sys.ENOTDIR) and missing_cwd(opts) then

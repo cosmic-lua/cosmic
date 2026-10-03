@@ -299,16 +299,27 @@ end
 
 local function test_a_limit_above_this_processs_hard_limit_fails_the_start(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  local hard = assert(sys.getrlimit(sys.RLIMIT_NOFILE)).hard
-  if hard == math.maxinteger then return end
-  local none, why = Child.start({ probe, "print hi" },
-    { policy = { grants = itself(probe), limits = { open_files = hard + 1 } } })
-  assert(none == nil)
+  local ceiling = 1 << 20
+  local held = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
+  -- A hard limit of none leaves nothing to exceed: give this process one
+  -- well past what any test of it opens, which only lowers it.
+  if held.hard > ceiling then
+    assert(sys.setrlimit(sys.RLIMIT_NOFILE, math.min(held.soft, ceiling), ceiling))
+    held = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
+  end
+  local policy: Sandbox.Policy = { grants = itself(probe), limits = { open_files = held.hard + 1 } }
+  local none, why = Child.start({ probe, "print hi" }, { policy = policy })
+  if none ~= nil then
+    -- A process that may raise its hard limit (root) is given what it asked.
+    local result = assert(none:wait())
+    assert(result.ok, "the start succeeded, and the child failed")
+    return
+  end
   if unsandboxable(why) then
     sandbox_skip.refused(why)
     return
   end
-  assert(why:find("^child: start: "), why)
+  assert(why:find("^child: start: ") and why:find("not permitted", 1, true), why)
 end
 
 local function test_promises_are_the_filters_and_fattr_changes_a_mode(tmp: string)
@@ -329,11 +340,34 @@ local function test_only_the_descriptors_named_reach_the_program(tmp: string)
   local kept = assert(sys.open(tmp .. "/f", sys.O_RDONLY))
   local dropped = assert(sys.open(tmp .. "/f", sys.O_RDONLY))
   local policy: Sandbox.Policy = { grants = itself(probe) }
-  local open = under(probe, policy, "fd-closed 3", { fds = { [3] = kept } })
-  local shut = under(probe, policy, "fd-closed 30", { fds = { [3] = kept } })
+  local named = under(probe, policy, "fd-closed 3", { fds = { [3] = kept } })
+  -- The descriptor this process has open and does not name is shut in the child.
+  local unnamed = under(probe, policy, "fd-closed " .. dropped, { fds = { [3] = kept } })
   local _, _ = sys.close(kept), sys.close(dropped)
-  if open == nil then return end
+  if named == nil then return end
   -- fd-closed ends with status 1 for a descriptor that is open.
-  assert(open.code == 1, "descriptor 3 should be open: " .. open.said)
-  assert(shut.code == 0, "descriptor 30 should be closed: " .. shut.said)
+  assert(named.code == 1, "descriptor 3 should be open: " .. named.said)
+  assert(dropped ~= 3 and unnamed.code == 0, "descriptor " .. dropped .. " reached the child: " .. unnamed.said)
+end
+
+local function test_a_policy_of_too_many_grants_fails_before_it_makes_anything(tmp: string)
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local before = #sandbox_directories()
+  for _, count in ipairs({ 256, 300 }) do
+    local grants = itself(probe)
+    for i = #grants + 1, count do grants[i] = { path = tmp .. "/g" .. i, letters = "r" } end
+    local none, why = Child.start({ probe, "print hi" }, { policy = { grants = grants, tmp = true } })
+    assert(none == nil and why:find("^child: start: sandbox: grants: ") and why:find("256", 1, true), why)
+    assert(#sandbox_directories() == before, count .. " grants left a directory behind")
+  end
+end
+
+local function test_the_tmp_directory_is_absolute_and_usable_from_another_directory(tmp: string)
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  assert(Fs.mkdirs(tmp .. "/elsewhere"))
+  local out = under(probe, { grants = itself(probe), tmp = true },
+    "env-of TMPDIR; write $TMPDIR/note hi; cat $TMPDIR/note", { cwd = tmp .. "/elsewhere" })
+  if out == nil then return end
+  assert(out.code == 0, out.said)
+  assert(out.said:find("^TMPDIR=/") and out.said:find("\nhi\n", 1, true), out.said)
 end

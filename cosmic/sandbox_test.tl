@@ -69,6 +69,7 @@ local function test_decode_refusals_name_the_field()
     { '{"profiles": ["system", "bogus"]}', "/profiles/1" },
     { '{"connect": ["example.com"]}', "/connect/0" },
     { '{"connect": ["example.com:0"]}', "/connect/0" },
+    { '{"connect": ["example.com:00080"]}', "/connect/0" },
     { '{"connect": ["example.com:65536"]}', "/connect/0" },
     { '{"connect": [":80"]}', "/connect/0" },
     { '{"loopback": ["10.0.0.1"]}', "/loopback/0" },
@@ -223,12 +224,10 @@ local function test_a_profile_joins_with_the_policys_own_grant_of_the_same_path(
 end
 
 local function test_profile_names_what_it_holds_and_refuses_what_it_has_not()
+  -- The "system" profile's paths are the host's, and are checked on a
+  -- host that has them (cosmic/child_policy_system_test.tl).
   local system = assert(Sandbox.profile("system"))
-  for _, grant in ipairs(system.grants) do
-    assert(grant.path:sub(1, 1) == "/" and grant.from == nil)
-    assert(grant.letters == "rx" or grant.letters == "r" or grant.letters == "rw", grant.path)
-    assert(sys.stat(grant.path) ~= nil, grant.path .. " is granted but absent")
-  end
+  assert(system.profiles == nil and system.grants ~= nil)
   local cosmic = assert(Sandbox.profile("cosmic"))
   assert(#cosmic.grants == 1 and cosmic.grants[1].path == assert(Proc.executable()))
   assert(cosmic.grants[1].letters == "rx")
@@ -374,4 +373,30 @@ local function test_loaders_reads_an_elf_interpreter_of_every_layout(tmp: string
   assert(Fs.write(tmp .. "/lost", elf(2, 1, tmp .. "/no-loader"), 493))
   local none, why = Sandbox.loaders(tmp .. "/lost")
   assert(none == nil and why:find("no-loader", 1, true), why)
+end
+
+local function test_merge_writes_a_path_once_and_joins_its_spellings()
+  local out = merged({ grants = {
+    { path = "/a//b/./c/../d/", letters = "r" }, { path = "/a/b/d", letters = "x" },
+    { path = "rel/./x/..", letters = "r" }, { path = "./", letters = "w" }, { path = "..//y/", letters = "r" },
+    { path = "/../..", letters = "r" }, { path = "/", letters = "x" },
+  } })
+  local seen: {string:string} = {}
+  for _, grant in ipairs(out.grants) do seen[grant.path] = grant.letters end
+  assert(seen["/a/b/d"] == "rx", tostring(seen["/a/b/d"]))
+  assert(seen["rel"] == "r" and seen["."] == "w" and seen["../y"] == "r")
+  assert(seen["/"] == "rx" and #out.grants == 5)
+end
+
+local function test_isolate_file_implies_proc_in_the_text()
+  local file = Sandbox.encode(merged({ isolate = { "file" } }))
+  assert(file == Sandbox.encode(merged({ isolate = { "proc", "file" } })), file)
+  assert(file:find('"isolate":["file","proc"]', 1, true), file)
+  assert(Sandbox.encode(merged({ isolate = { "proc" } })):find('"isolate":["proc"]', 1, true))
+end
+
+local function test_equal_policies_written_differently_encode_alike()
+  local a = Sandbox.encode(merged({ grants = { { path = "/x/", letters = "wr" } }, isolate = { "file" } }))
+  local b = Sandbox.encode(merged({ grants = { { path = "/x/./", letters = "rw" } }, isolate = { "proc", "file" } }))
+  assert(a == b, a .. " vs " .. b)
 end

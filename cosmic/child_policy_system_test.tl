@@ -55,6 +55,11 @@ local function test_without_the_profile_the_loader_is_not_granted_and_the_start_
   local none, why = Child.start({ CAT, tmp }, { policy = { grants = { { path = real, letters = "rx" } } } })
   -- A static program, as on some hosts, needs nothing more and starts.
   if none ~= nil then return end
+  -- Where the host gives no sandbox the start is refused for that, past the grants.
+  if why:find("Landlock", 1, true) or why:find("seccomp", 1, true) or why:find("not implemented", 1, true) then
+    sandbox_skip.refused(why)
+    return
+  end
   assert(why:find("^child: start: sandbox: ") and why:find("interpreter", 1, true), why)
   assert(why:find("system", 1, true), why)
 end

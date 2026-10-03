@@ -84,7 +84,9 @@ local record Sandbox
     open_files: integer
     --- The most bytes a process may write to one file.
     file_bytes: integer
-    --- The CPU seconds a process may spend before it is signalled (at least 1).
+    --- The CPU seconds a process may spend (at least 1). Soft and hard
+    --- limit are the same, so a process past it is ended by SIGKILL, with
+    --- no SIGXCPU to catch first.
     cpu_seconds: integer
     --- The most processes of the whole sandbox, counted by a user
     --- namespace (at least 1).
@@ -174,7 +176,7 @@ local function connect_ok(target: string): boolean
   local host, port = target:match("^(.+):([^:]+)$")
   if host == nil or host:find("[%s%z]") then return false end
   if port == "*" then return true end
-  if not port:match("^%d+$") or #port > 5 then return false end
+  if not port:match("^[1-9]%d*$") or #port > 5 then return false end
   local number = tonumber(port)
   return number >= 1 and number <= 65535
 end
@@ -316,6 +318,32 @@ function Sandbox.decode(json: string): Sandbox.Policy | nil, string
   return policy, ""
 end
 
+--- `path` written once: no repeated or trailing "/", no "." segment, and
+--- each ".." taken lexically against the segment before it (a ".." at the
+--- start of an absolute path stays at the root, and of a relative one
+--- stays). Lexical: a ".." after a link is not the link's target's parent,
+--- as the kernel would read it, so write a path without one where that
+--- matters. An empty result is "." (relative) or "/".
+local function clean_path(path: string): string
+  local absolute = path:sub(1, 1) == "/"
+  local parts: {string} = {}
+  for part in path:gmatch("[^/]+") do
+    if part == ".." then
+      if #parts > 0 and parts[#parts] ~= ".." then
+        parts[#parts] = nil
+      elseif not absolute then
+        parts[#parts + 1] = part
+      end
+    elseif part ~= "." then
+      parts[#parts + 1] = part
+    end
+  end
+  local joined = table.concat(parts, "/")
+  if absolute then return "/" .. joined end
+  if joined == "" then return "." end
+  return joined
+end
+
 --- The members of every list given, each once, in byte order.
 local function sorted_set<T>(...: {T}): {T}
   local seen: {T:boolean} = {}
@@ -386,12 +414,17 @@ local function system_profile(): Sandbox.Policy
   return { grants = grants }
 end
 
---- The "cosmic" profile: this program's own executable, read and run, so a
---- child of this very program can start under a policy.
--- TODO: grant the core cache a relaunched child unpacks to, and the
--- descriptors Proc.relaunch hands it, once the test harness starts its
--- workers under a policy; a child of the executable alone starts only
--- where the core needs nothing besides itself.
+--- The "cosmic" profile: `rx` on what [`Proc.executable`] names, which is
+--- the path this program is started by: under a development build or a
+--- portable artifact that is the launcher (a `#!/bin/sh` script) or the
+--- artifact, not the native core the launcher runs. It is the grant a
+--- policy needs to start that path, and not enough for the core to run.
+-- TODO: grant what the core needs to run past its launcher -- the native
+-- core, the core cache it unpacks to, the descriptors Proc.relaunch hands
+-- it, and the shell and libraries the launcher itself runs -- once the
+-- test harness starts its workers under a policy and needs a child of
+-- this program to run: today a child of the launcher under "system" and
+-- "cosmic" cannot fork or find its cache.
 local function cosmic_profile(): Sandbox.Policy | nil, string
   local path, why = Proc.executable()
   if path == nil then
@@ -405,7 +438,9 @@ end
 --- start (`rx` on /usr and the library and binary directories, `r` on
 --- /etc/ld.so.cache, nsswitch.conf, passwd, group and localtime, and the
 --- null, zero and random devices), each only where it exists; "cosmic"
---- grants `rx` on this program's own executable ([`Proc.executable`]).
+--- grants `rx` on the path this program is started by ([`Proc.executable`]),
+--- which is its launcher where it has one, so a child of this program
+--- needs more than the profile gives.
 --- Nil and why for a name it has not, or one this host cannot give.
 ---
 ---     local system = assert(Sandbox.profile("system"))
@@ -421,13 +456,15 @@ end
 --- ([`Sandbox.profile`]) and joined in before the policy's own, then
 --- the grants joined by path (and `from`): the letters of one path are
 --- the union of each grant's, in the order of "rwxcu", whatever order
---- they came in. Lists are unions, each member once, sorted; `tmp`
+--- they came in; each path is cleaned first ("a//b/./c/../d/" is "a/b/d",
+--- lexically). Lists are unions, each member once, sorted; `tmp`
 --- holds if any policy has it; a limit is the one value given, and
 --- two different values for one limit are refused, as two different
 --- values for one `set_env` name are (without saying them: they may be
 --- secrets). A name with a value in one policy and a digest in another
 --- must have the value's digest. The answer has no `profiles`, and every
---- list and table of it, empty or not: it is what [`Sandbox.encode`] writes and
+--- list and table of it, empty or not, and `isolate` "file" holds "proc"
+--- too, which it implies: it is what [`Sandbox.encode`] writes and
 --- [`Child.start`] meets. A value a policy's type does not stop -- an
 --- unknown profile, a letter outside "rwxcu", a malformed address -- is
 --- refused naming its field, as [`Sandbox.decode`] does.
@@ -461,10 +498,11 @@ function Sandbox.merge(...: Sandbox.Policy): Sandbox.Policy | nil, string
   local tmp = false
   for _, p in ipairs(flat) do
     for _, grant in ipairs(p.grants or {}) do
-      local key = grant.path .. "\0" .. (grant.from or "")
+      local at = clean_path(grant.path)
+      local key = at .. "\0" .. (grant.from or "")
       local held = joined[key]
       if held == nil then
-        held = { path = grant.path, from = grant.from, letters = {} }
+        held = { path = at, from = grant.from, letters = {} }
         joined[key] = held
         order[#order + 1] = held
       end
@@ -513,6 +551,14 @@ function Sandbox.merge(...: Sandbox.Policy): Sandbox.Policy | nil, string
     if a.path ~= b.path then return a.path < b.path end
     return (a.from or "") < (b.from or "")
   end)
+  -- `file` implies `proc`: written out, so the two spellings are one policy.
+  local implied: Sandbox.Isolate = "proc"
+  local has_file, has_proc = false, false
+  for _, kind in ipairs(isolate) do
+    if kind == "file" then has_file = true end
+    if kind == "proc" then has_proc = true end
+  end
+  if has_file and not has_proc then isolate = sorted_set(isolate, { implied }) end
   for name, value in pairs(set_env) do
     if digests[name] ~= nil and digests[name] ~= digest_of(value) then
       return refuse("set_env_digests \"" .. name .. "\" is not the digest of set_env's value")
@@ -531,7 +577,12 @@ end
 --- `set_env`'s values written as `set_env_digests`, so the text names a
 --- variable and shows its value changed without showing it. The same
 --- policy is the same text, and [`Sandbox.decode`] reads it back to a
---- policy that encodes to the same text again. Raises for a policy that
+--- policy that encodes to the same text again. A digest is the SHA-256 of
+--- the value, unsalted: one of a value that can be guessed (a short
+--- password, a flag) can be found by trying guesses, so a printed policy
+--- keeps a value's change from view, not a secret from a reader who can
+--- guess it. What a profile names is a path of this host, so an encoding
+--- that resolved one is one host's. Raises for a policy that
 --- is not merged -- one with `profiles`, or [`Sandbox.merge`] would refuse
 --- -- since text cannot say what was dropped.
 ---
@@ -656,6 +707,10 @@ end
 ---
 --- A script that starts with `#!/usr/bin/env python3` names /usr/bin/env;
 --- the program env then finds is its own start, which this cannot know.
+-- TODO: name the program `env` finds, searching the policy's own PATH
+-- (`set_env` or the caller's `env`), for a `#!/usr/bin/env` script, so a
+-- policy that omits it fails the start rather than the script's run,
+-- once a start knows the environment the program will run in.
 ---
 ---     local files = assert(Sandbox.loaders("/bin/sh"))
 ---     print(#files >= 1) -- true

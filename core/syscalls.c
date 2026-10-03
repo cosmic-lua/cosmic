@@ -2509,8 +2509,10 @@ static uint64_t grants_handled (long abi) {
  * on as the descriptor `ruleset` takes, restricted by the child in
  * [`run_program`] before the promises filter, which follows it.
  * TODO: report a grant whose target (the path of its descriptor, read
- * from /proc/self/fd) differs from its name, once [`cosmic.sandbox`] has a
- * place to carry the report: `spawn` answers a pid alone. */
+ * from /proc/self/fd) differs from its name, once `spawn` can answer the
+ * resolutions it made beside the pid and [`cosmic.child`]'s policy start
+ * (held_to in cosmic/child.tl) hands them to the caller on the Handle: it
+ * prints nothing about grants, and `spawn` answers a pid alone. */
 static int grants_ruleset (const char *const *paths, const unsigned *letters, int count,
                            char *message, size_t room, int *error) {
   long abi = syscall(SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION);
