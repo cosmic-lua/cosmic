@@ -5,8 +5,5 @@ note: `repeat ... until false` with no `break` that leaves it ends the block hol
          after = end_scope_and_none_type,
 --- replace
          -- only end scope after checking `until`, `statements` in repeat body has is_repeat == true
-         after = function(self: TypeChecker, node: Node, _children: {Type}): Type
-            end_loop(self, node, "false")
-            return NONE
-         end,
+         after = end_loop,
 --- end

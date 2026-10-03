@@ -12,9 +12,6 @@ note: `while true do ... end` with no `break` that leaves it ends the block hold
             self:begin_scope(node)
             self:apply_facts(node.exp, node.exp.known)
          end,
-         after = function(self: TypeChecker, node: Node, _children: {Type}): Type
-            end_loop(self, node, "true")
-            return NONE
-         end,
+         after = end_loop,
       },
 --- end

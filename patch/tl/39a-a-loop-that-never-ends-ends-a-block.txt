@@ -11,7 +11,7 @@ note: a `while true do ... end` that no `break` leaves never falls through to th
       return NONE
    end
 
-   -- Whether a `break` in `body` leaves the loop `body` is the body of.
+   -- Whether `body`, a loop's body, holds a `break` that leaves that loop.
    local function breaks_out(body: Node): boolean
       for _, stmt in ipairs(body) do
          if stmt.kind == "break" then
@@ -31,13 +31,15 @@ note: a `while true do ... end` that no `break` leaves never falls through to th
       return false
    end
 
-   -- Ends a loop's scope, marking the loop as ending the block holding
-   -- it when its condition is the literal `forever` and no `break`
-   -- leaves it.
-   local function end_loop(self: TypeChecker, node: Node, forever: string)
+   -- Ends a `while` or `repeat` loop's scope, marking the loop as
+   -- ending the block holding it when its condition is the literal that
+   -- never ends it (`while true`, `until false`) and no `break` leaves it.
+   local function end_loop(self: TypeChecker, node: Node, _children: {Type}): Type
       self:end_scope(node)
-      if node.exp.kind == "boolean" and node.exp.tk == forever and not breaks_out(node.body) then
+      local endless = node.kind == "while" and "true" or "false"
+      if node.exp.kind == "boolean" and node.exp.tk == endless and not breaks_out(node.body) then
          node.block_returns = true
       end
+      return NONE
    end
 --- end
