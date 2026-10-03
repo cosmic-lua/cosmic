@@ -87,9 +87,24 @@ evidence unavailable locally. Performance acceptance is preservation of
 successful legacy allocations, warm cache reuse and deterministic artifacts,
 not an unsupported speedup claim.
 
-Execution status: E1 implementation started; E2 pending E1; E3 independent
-implementation started; E4 pending the production changes. No follow-up PR
-has merged yet.
+Execution status: E1 implementation and independent review underway. E2's
+online-retirement removal is checkpointed separately, with typed WAL handling
+pending E1. E3 is PR #2619, source-reviewed tree
+`acc1ede353a611eed83c468929c22898f630daf5`, head `e1656450`; native CI is running
+and auto-merge remains off pending validation. E4 awaits these changes.
+No follow-up PR has merged yet.
+
+Local validation found the same generated working-database failure in fresh
+unchanged main and independent changed checkouts. A successful boot leaves a
+valid large database; a historical hot rollback journal appears again after
+an execution boundary, causing a later opener to roll it back to a small,
+invalid file. Traces, original database/journal bytes and valid snapshots
+are retained separately. A recovered unchanged baseline passed all 32
+focused cache tests. The execution-boundary behavior is still under
+investigation; no repository fix or unsupported root-cause claim is made.
+Validation uses a bounded evidence-preserving recovery procedure and still
+requires native branch and merge-queue CI. No shared cache is deleted to
+hide a failure and no timeout is extended.
 
 The execution ledger below is the sole status record.
 
