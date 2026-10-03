@@ -922,13 +922,19 @@ function fix.notes(built: compiler, root: string, files: {string},
 end
 
 --- What a run keeps of `file`'s parse, made in fixing it, so nothing
---- after parses it again: what its links read (`facts`), and what the
---- notes compare (`ready`).
+--- after parses it again: what its links read (`facts`), what the
+--- notes compare (`ready`), and, where the tree checks will run, the
+--- plurals they look for (`plurals`, by the file's path from the root).
 local function read_off(file: string, result: fix.Fixed,
-                        facts: {string: links.Facts}, ready: {string: {near.Candidate}})
+                        facts: {string: links.Facts}, ready: {string: {near.Candidate}},
+                        plurals: {string: tree_checks.Plurals} | nil)
   facts[file] = links.facts(result.parsed, result.source)
   if compared(file) then
     ready[file] = candidates_of(result.parsed, result.source)
+  end
+  if plurals ~= nil then
+    while file:sub(1, 2) == "./" do file = file:sub(3) end
+    plurals[file] = tree_checks.plurals_in(file, result.source, result.parsed)
   end
 end
 
@@ -1065,6 +1071,9 @@ local function fix_verb(argv: {integer:string}): integer
   -- What the notes compare of each file whose text on disk the parse
   -- read, kept from that parse rather than parsing it again.
   local ready: {string: {near.Candidate}} = {}
+  -- What the tree checks' plurals read of each file, when they will run.
+  local plurals: {string: tree_checks.Plurals} | nil = nil
+  if picked.whole then plurals = {} end
   for _, file in ipairs(files) do
     local source, read_trouble = Fs.read(file)
     if source == nil then
@@ -1080,11 +1089,11 @@ local function fix_verb(argv: {integer:string}): integer
           if not written then
             failures[#failures + 1] = write_trouble
           else
-            read_off(file, result, facts, ready)
+            read_off(file, result, facts, ready, plurals)
           end
         end
       else
-        read_off(file, result, facts, ready)
+        read_off(file, result, facts, ready, plurals)
       end
     end
   end
@@ -1184,7 +1193,8 @@ local function fix_verb(argv: {integer:string}): integer
       if help == nil then
         findings[#findings + 1] = "tree checks: " .. help_trouble
       end
-      local found = tree_checks.run(db, guide, built, tree_checks.ci_sources(root), carried, help)
+      local found = tree_checks.run(db, guide, built, tree_checks.ci_sources(root), carried, help,
+        plurals)
       for _, line in ipairs(found) do
         findings[#findings + 1] = line
       end
