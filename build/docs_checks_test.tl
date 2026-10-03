@@ -192,7 +192,10 @@ local function test_a_comment_in_a_signature_and_an_internal_path_are_refused()
     rows = clean()
     rows[3].text = "Adds one to `a`; " .. path .. " says how."
     found = docs_checks.rendered(projection(rows), none)
-    assert(#found == 1 and found[1]:find("names " .. path, 1, true) ~= nil,
+    -- The call's own page, and its module's, whose listing shows its
+    -- first sentence.
+    assert(#found == 2 and found[1]:find("names " .. path, 1, true) ~= nil and
+        found[2]:find("names " .. path, 1, true) ~= nil,
       path .. ": " .. table.concat(found, "\n"))
   end
 

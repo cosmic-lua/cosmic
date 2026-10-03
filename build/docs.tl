@@ -1898,10 +1898,18 @@ end
 --- fields are a glance; its own page keeps the whole sentence.
 local NOTE_LIMIT <const> = 100
 
+--- Whether a declared symbol is a call: a function, method or
+--- metamethod, or a function-typed field.
+local function is_call(item: docs.Entry): boolean
+  return item.kind == "function" or item.kind == "method" or item.kind == "metamethod" or
+    (item.kind == "field" and item.signature:match("^[%w_]+: function%(") ~= nil)
+end
+
 --- One declared symbol as a module's listing shows it: a function,
 --- method or metamethod by its signature (a function-typed field as
 --- `function` and its name, then the signature's parameters and
---- results), anything else (a record's signature spans lines) by kind
+--- results) and the first sentence of what it says, anything else (a
+--- record's signature spans lines, and its fields follow it) by kind
 --- and name, then its uses and examples.
 local function listed(item: docs.Entry): string
   local marks: {string} = {}
@@ -1925,7 +1933,9 @@ local function listed(item: docs.Entry): string
       shown = "function " .. item.source_symbol .. rest
     end
   end
-  return shown .. (#marks > 0 and "  (" .. table.concat(marks, ", ") .. ")" or "")
+  local note = is_call(item) and clipped(first_sentence(item.text), NOTE_LIMIT) or ""
+  return shown .. (note ~= "" and " -- " .. note or "") ..
+    (#marks > 0 and "  (" .. table.concat(marks, ", ") .. ")" or "")
 end
 
 --- The first row `sql` finds in any of `view`'s databases: the databases
@@ -2180,6 +2190,10 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
   -- of the long prose: a reader scanning for a call wants the shapes
   -- first, and the prose that follows explains their shared contract.
   local index: {string} = {}
+  -- The member a module's page ends by naming, as the way to see any
+  -- member's own page: the first call it lists with an example, else
+  -- the first call, else the first declaration.
+  local pointed: string
   if entry.symbol == "" then
     local declared, declared_trouble = across(view,
       function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
@@ -2211,7 +2225,12 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
     for _, item in ipairs(declared) do
       listed_symbols[item.symbol] = true
     end
+    local first_call, first_shown: string, string
     for _, item in ipairs(declared) do
+      if is_call(item) then
+        first_call = first_call or item.source_symbol
+        if item.examples > 0 then first_shown = first_shown or item.source_symbol end
+      end
       index[#index + 1] = "  " .. listed(item)
       for _, member in ipairs(under[item.source_symbol] or {}) do
         if not listed_symbols[member.symbol] then
@@ -2219,6 +2238,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
         end
       end
     end
+    pointed = first_shown or first_call or (declared[1] ~= nil and declared[1].source_symbol or nil)
   end
   -- The listing goes after the first paragraph, or, when that ends in
   -- a colon, after the run of indented or fenced blocks it introduces
@@ -2298,6 +2318,10 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
   if entry.links > 0 and entry.symbol == "" then
     lines[#lines + 1] = "  linked from " .. plural.count(entry.links, "place") ..
       "; cosmic uses " .. entry.module
+  end
+  if pointed ~= nil then
+    lines[#lines + 1] = "  a symbol's own page has its whole doc and its examples: cosmic docs " ..
+      pointed
   end
   if entry.symbol ~= "" then
     if entry.uses > 0 or entry.links > 0 then

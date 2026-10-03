@@ -161,9 +161,52 @@ local function test_looks_up_a_module_and_lists_its_symbols(dir: string)
   assert(lines[2] == "  Files and directories.", lines[2])
   assert(lines[3] == "", lines[3])
   assert(lines[4] == "  record Fs", lines[4])
-  assert(lines[5] == "  function Fs.read(path: string): string | nil, string  (2 uses)", lines[5])
-  assert(lines[6] == "  function Fs.write(path: string, data: string): boolean, string",
+  assert(lines[5] == "  function Fs.read(path: string): string | nil, string -- The whole of a file.  " ..
+      "(2 uses)", lines[5])
+  assert(lines[6] == "  function Fs.write(path: string, data: string): boolean, string -- " ..
+      "Writes the whole of a file.",
     lines[6])
+end
+
+--- A module's listing shows each call with the first sentence of its
+--- doc, cut short past a glance, and the page ends by naming how to see
+--- a member's own page: through a call with an example where one has
+--- one, as that page shows it.
+local function test_a_module_listing_says_what_each_call_does(dir: string)
+  local long = string.rep("word ", 30)
+  local db = built(dir, fs_tree({
+    ["cosmic/fs_example.tl"] = fs_example("put", "Writes a file.",
+      "  print(Fs.write(\"x\", \"y\"))"),
+    ["cosmic/fs.tl"] = source(
+      "--- Files and directories.",
+      "",
+      "local record Fs",
+      "end",
+      "",
+      "--- " .. long .. "and more. A second sentence.",
+      "function Fs.read(path: string): string | nil, string",
+      "  return nil, path",
+      "end",
+      "",
+      "--- Writes the whole of a file.",
+      "--- Creates no parent directory.",
+      "function Fs.write(path: string, data: string): boolean, string",
+      "  return false, path .. data",
+      "end",
+      "",
+      "return Fs"),
+  }))
+  local found = assert(docs.lookup(view({ db }), "cosmic.fs"))
+  local lines = assert(docs.render(view({ db }), found[1]))
+  local read = assert(lines[5]:match("^  function Fs%.read%(path: string%): string | nil, string %-%- (.*)$"),
+    lines[5])
+  assert(read:find("^word word") and read:find("…", 1, true) and not read:find("second", 1, true),
+    read)
+  assert(lines[6]:find(" -- Writes the whole of a file.  (", 1, true) and
+      not lines[6]:find("Creates", 1, true), lines[6])
+  assert(lines[4] == "  record Fs  (1 example)", lines[4])
+  assert(lines[#lines] ==
+      "  a symbol's own page has its whole doc and its examples: cosmic docs Fs.write", lines[#lines])
 end
 
 --- A module's listing shows each function's signature, so a reader need
@@ -596,7 +639,9 @@ local function test_a_module_listing_leaves_out_private_functions(dir: string)
   assert(lines[4] == "  record Stat", lines[4])
   assert(lines[5] == "  record Fs", lines[5])
   assert(lines[6] == "  function Fs.stat(path: string): Stat", lines[6])
-  assert(lines[7] == nil, lines[7])
+  assert(lines[7] == "  a symbol's own page has its whole doc and its examples: cosmic docs Fs.stat",
+    lines[7])
+  assert(lines[8] == nil, lines[8])
   local helper = assert(docs.lookup(view({ db }), "write_all"))
   assert(#helper == 1 and helper[1].symbol == "write_all", tostring(#helper))
 end
@@ -1082,9 +1127,11 @@ local function test_renders_a_symbols_example(dir: string)
 
   local module = assert(docs.lookup(view({ db }), "cosmic.fs"))
   local module_lines = assert(docs.render(view({ db }), module[1]))
-  assert(module_lines[5] == "  function Fs.read(path: string): string | nil, string  (3 uses, 1 example)",
+  assert(module_lines[5] == "  function Fs.read(path: string): string | nil, string -- The whole of a file.  " ..
+      "(3 uses, 1 example)",
     module_lines[5])
-  assert(module_lines[6] == "  function Fs.write(path: string, data: string): boolean, string",
+  assert(module_lines[6] == "  function Fs.write(path: string, data: string): boolean, string -- " ..
+      "Writes the whole of a file.",
     module_lines[6])
 end
 
@@ -1123,7 +1170,8 @@ local function test_many_examples_for_one_symbol(dir: string)
 
   local module = assert(docs.lookup(view({ db }), "cosmic.fs"))
   local module_lines = assert(docs.render(view({ db }), module[1]))
-  assert(module_lines[5] == "  function Fs.read(path: string): string | nil, string  (4 uses, 2 examples)",
+  assert(module_lines[5] == "  function Fs.read(path: string): string | nil, string -- The whole of a file.  " ..
+      "(4 uses, 2 examples)",
     module_lines[5])
 end
 
