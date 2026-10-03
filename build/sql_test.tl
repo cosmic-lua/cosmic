@@ -360,11 +360,33 @@ local function test_as_and_at_belong_to_the_from_before_them()
   code, written = run(dir, { "--from", dir .. "/nested.json", "--at", "$.a[", "SELECT 1" })
   assert(code == 2 and written.err[1]:find("--at $.a[:", 1, true), written.err[1])
   code, written = run(dir, { "--from", dir .. "/nested.json", "--at", "$.zz", "SELECT 1" })
-  assert(code == 1 and written.err[1]:find('no key "zz"', 1, true), written.err[1])
+  assert(code == 1 and written.err[1]:find('no value at pointer "/zz"', 1, true), written.err[1])
   code, written = run(dir, { "--from", dir .. "/nested.json", "--as", "xml", "SELECT 1" })
   assert(code == 2 and written.err[1]:find("dataset: no format xml (known: csv, json, ndjson, tsv)", 1, true), written.err[1])
   code, written = run(dir, { "--from", dir .. "/lines.dat", "--as", "ndjson", "--at", "$.a", "SELECT 1" })
   assert(code == 1 and written.err[1]:find("takes no path", 1, true), written.err[1])
+  assert(Fs.remove_tree(dir))
+end
+
+--- `--at` is a singular JSONPath query, as `cosmic json` reads one:
+--- `$` first, indices from 0 or from the end, and nothing that can
+--- match many values.
+local function test_at_is_a_singular_jsonpath_query()
+  local dir = data()
+  local nested = dir .. "/nested.json"
+  local code, written = run(dir, { "--from", nested, "--at", "$.a.rows[0]", "SELECT n FROM nested" })
+  assert(code == 0 and written.out[2] == "1", table.concat(written.out, "|") .. table.concat(written.err, "|"))
+  code, written = run(dir, { "--from", nested, "--at", "$['a']['rows'][-1]", "SELECT n FROM nested" })
+  assert(code == 0 and written.out[2] == "4", table.concat(written.out, "|") .. table.concat(written.err, "|"))
+  for _, case in ipairs({
+      { "a.rows", "a query starts with `$`" },
+      { "$.a.rows[?@.n]", "filters (`?`) are not in the subset cosmic reads" },
+      { "$.a.rows[*]", "--at names one value, and `*` and `..` can match many" },
+  }) do
+    code, written = run(dir, { "--from", nested, "--at", case[1], "SELECT 1" })
+    assert(code == 2 and written.err[1]:find("--at " .. case[1] .. ": ", 1, true) and
+        written.err[1]:find(case[2], 1, true) and not written.err[1]:find("json: ", 1, true), written.err[1])
+  end
   assert(Fs.remove_tree(dir))
 end
 

@@ -1,7 +1,7 @@
 --- `cosmic fetch`: one GET, a small curl over [`cosmic.http`], for the
 --- ten-second question ("what does this URL send?") and for a download
 --- checked against a digest. With no `-o` the body goes to standard
---- output, so `cosmic fetch <url> | cosmic json '.items'` reads it; with
+--- output, so `cosmic fetch <url> | cosmic json '$.items'` reads it; with
 --- `-o` it goes to a file that is renamed into place only once the
 --- whole body is in and matches every digest asked for. The digests are
 --- computed while the file is written, and a mismatch leaves no target
