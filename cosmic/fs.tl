@@ -7,8 +7,8 @@
 --- answer. A call that only has an effect returns `boolean, string`.
 ---
 --- A descriptor from [`Fs.open_read`] or [`Fs.open_write`] is a plain
---- integer, closed with [`Fs.close`]. A `<close>` variable holds a value
---- whose type has a `__close` metamethod, such as a child, written
+--- integer, closed with [`Fs.close`], so a `<close>` variable cannot hold
+--- it. One holds a value whose type has a `__close` metamethod, written
 --- `local h <close> = assert(Child.start(argv))`: `assert` narrows the
 --- `T | nil` an opener answers, which `<close>` refuses, to `T`.
 ---

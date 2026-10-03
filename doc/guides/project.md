@@ -88,9 +88,7 @@ A record is also how a module makes values that carry methods. The
 methods are functions on the record's own table, and each value finds
 them through a metatable whose `__index` is that table: a value made
 without `setmetatable` type-checks, then fails when a method is called,
-with `attempt to call a nil value (method 'add')`. A record declared
-inside another, like `Entry` here, is `Counts.Entry` to every module;
-`record Counts.Entry` written outside the record's body is refused.
+with `attempt to call a nil value (method 'add')`.
 
 ```teal file=counts.tl
 --- How many times each word appears in some text.
@@ -137,7 +135,9 @@ end
 return Counts
 ```
 
-Another module names the types through the same `require`:
+A record declared inside another, like `Entry` here, is `Counts.Entry`
+to every module; `record Counts.Entry` written outside the record's body
+is refused. Another module names the types through the same `require`:
 `local Counts = require("counts")` is the module, `Counts` the type of
 a value `Counts.new()` makes, and `Counts.Entry` the nested one. A
 module that only names the types, and calls nothing, writes `local
@@ -254,12 +254,11 @@ the cat saw the dog
 ## the verbs
 
 ```text
-cosmic fix                          format every file, and check it parses
-cosmic test                         run every test and example
-cosmic cmd/tally/main.tl words words.txt
-                                    run the program
-cosmic build                        write o/bin/tally
-cosmic docs tally                   what your own module offers
+cosmic fix                                format every file, and check it parses
+cosmic test                               run every test and example
+cosmic cmd/tally/main.tl words words.txt  run the program
+cosmic build                              write o/bin/tally
+cosmic docs tally                         what your own module offers
 ```
 
 `cosmic fix` rewrites each file in canonical layout, in place: run it
