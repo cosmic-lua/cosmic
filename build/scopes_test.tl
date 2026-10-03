@@ -108,10 +108,35 @@ local function test_a_leaf_expression_holds_no_node()
     if kind == "variable" or kind == "string" or kind == "number" or kind == "integer" or
         kind == "boolean" or kind == "nil" or kind == "..." then
       seen[kind] = true
-      assert(#ast.children(node) == 0, kind .. " holds a node")
+      local passed: {ast.Node} = {}
+      assert(#ast.children(node, nil, passed) == 0 and #passed == 0, kind .. " holds a node")
     end
   end)
   for _, kind in ipairs({ "variable", "string", "number", "integer", "boolean", "nil", "..." }) do
     assert(seen[kind], "no " .. kind .. " was read")
   end
+end
+
+--- What a walk finds inside brackets, a table and a call's arguments is
+--- found as at the top: a member read through an alias, and a function
+--- literal's parameter.
+local function test_a_walk_looks_inside_every_expression_that_holds_one()
+  local parsed = assert(ast.parse(built, lines({
+    "local fs = require(\"m\")",
+    "local a = (fs.read)",
+    "local b = { fs.write, k = fs.stat }",
+    "print(#(fs.list), -(fs.size), not fs.ok, (function(p: integer) return p end)(1))",
+  }), "fixture.tl"))
+  local read: {string} = {}
+  local found = scopes.walk(parsed, function(module: string, name: string, line: integer)
+    read[#read + 1] = module .. "." .. name .. ":" .. line
+  end)
+  table.sort(read)
+  local want = "m.list:4 m.ok:4 m.read:2 m.size:4 m.stat:3 m.write:3"
+  assert(table.concat(read, " ") == want, table.concat(read, " "))
+  local named = false
+  for _, each in ipairs(found) do
+    if each.name == "p" then named = true end
+  end
+  assert(named, "the literal's parameter was not bound")
 end
