@@ -82,7 +82,7 @@ local record Calls
   realpath: function(path: string): string | nil, string, integer
   lstat: function(path: string): sys.Stat | nil, string, integer
   stat: function(path: string): sys.Stat | nil, string, integer
-  readdir: function(path: string): {string:string} | nil, string, integer
+  readdir: function(path: string): {string:sys.Kind} | nil, string, integer
   getenv: function(name: string): string | nil
   environ: function(): {string:string}
   access: function(path: string, mode: integer): boolean, string, integer

@@ -316,9 +316,17 @@ local function parse_alias(lines: {string}, at: {integer}): Alias | nil, string
       if said == nil or said == "" then
         return nil, alias.name .. ": the member \"" .. value .. "\" says nothing about what it means"
       end
+      for _, member in ipairs(alias.members) do
+        if member.value == value then
+          return nil, alias.name .. ": the member \"" .. value .. "\" is listed twice"
+        end
+      end
       alias.members[#alias.members + 1] = { value = value, description = said }
     elseif tag == nil then
       alias.prose[#alias.prose + 1] = (line:gsub("^%s+", ""))
+    else
+      return nil, (alias.name ~= "" and alias.name or "an alias") .. ": an alias block takes no @" ..
+        tag
     end
   end
   if alias.name == "" then
@@ -445,6 +453,14 @@ function generator.read(header: string): Declarations | nil, string
   end
   if #calls == 0 then
     return nil, "the header declares no calls"
+  end
+  -- Both become types of one record, so a shared name would be declared twice.
+  for _, alias in ipairs(aliases) do
+    for _, class in ipairs(classes) do
+      if class.name == alias.name then
+        return nil, alias.name .. ": names both a class and an alias"
+      end
+    end
   end
   -- core/syscalls.c registers every COSMIC_CONSTANT in the header, so
   -- one anywhere but after the `Constants` block, where

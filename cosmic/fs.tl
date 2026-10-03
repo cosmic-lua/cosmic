@@ -23,8 +23,10 @@ local record Fs
   Stat: sys.Stat
 
   --- What a path is, as a [`Stat`]'s `kind` and [`Fs.walk`]'s `skip`
-  --- name it: [`sys.Kind`]'s members, so a name outside them
-  --- (`"directory"`) is a compile error.
+  --- name it: [`sys.Kind`]'s members. Comparing a `Stat`'s `kind`, or a
+  --- value declared [`Fs.Kind`], with a name outside them
+  --- (`"directory"`) is a compile error; a `skip` gets that check only
+  --- where its third parameter is declared [`Fs.Kind`].
   type Kind = sys.Kind
 
   --- A file at a path being written through a temporary neighbor and a

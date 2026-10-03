@@ -275,8 +275,16 @@ local function test_a_malformed_alias_is_refused()
     { body = { " What it is.", "@alias Kind string" }, refusal = "names no alias" },
     { body = { " What it is.", "@class Kind", "@field a integer a", "@alias Other",
                '| "a" # a' }, refusal = "both a class and an alias" },
+    { body = { " What it is.", "@alias Kind", '| "file" # a file', '| "file" # again' },
+      refusal = 'the member "file" is listed twice' },
+    { body = { " What it is.", "@alias Kind", "@type string", '| "file" # a file' },
+      refusal = "Kind: an alias block takes no @type" },
   }
   assert(gen_syscalls.read(with({ " What it is.", "@alias Kind", '| "file" # a file' })))
+  local clash = with({ " What it is.", "@alias Stat", '| "file" # a file' }) ..
+    lines({ "/*", " * --- A class.", " * ---@class Stat", " * ---@field a integer a", " */" })
+  local refused, why = gen_syscalls.read(clash)
+  assert(refused == nil and why:find("Stat: names both a class and an alias", 1, true), tostring(why))
   for _, case in ipairs(cases) do
     local read, trouble = gen_syscalls.read(with(case.body))
     assert(read == nil and trouble:find(case.refusal, 1, true), tostring(trouble))

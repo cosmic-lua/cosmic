@@ -591,7 +591,7 @@ local function test_walk_following_tells_skip_a_link_is_one(tmp: string)
   assert(Fs.write(root .. "/sub/f", "f"))
   assert(Fs.symlink("sub", root .. "/to_dir"))
   local kinds: {string} = {}
-  local found, trouble = Fs.walk_following(root, function(entry: string, _name: string, kind: string): boolean
+  local found, trouble = Fs.walk_following(root, function(entry: string, _name: string, kind: Fs.Kind): boolean
     kinds[#kinds + 1] = entry .. "=" .. kind
     return kind == "link"
   end)

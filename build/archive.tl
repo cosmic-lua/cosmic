@@ -679,7 +679,7 @@ end
 local record Item
   name: string
   full: string
-  kind: string
+  kind: sys.Kind
   mode: integer
   mtime: integer
   size: integer
@@ -726,7 +726,7 @@ local function gather(paths: {string}, skip_file: string | nil): {Item} | nil, O
     if (root and rooted) or (not root and by_name[name].kind == "dir") then
       local seen: {{string, string}} = {}
       local odd: string | nil
-      local listed, walk_why = Fs.walk(given, function(relative: string, _bare: string, kind: string): boolean
+      local listed, walk_why = Fs.walk(given, function(relative: string, _bare: string, kind: Fs.Kind): boolean
         if kind == "dir" or kind == "link" then
           seen[#seen + 1] = { relative, kind }
         elseif kind ~= "file" and odd == nil then
