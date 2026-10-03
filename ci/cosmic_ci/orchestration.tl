@@ -476,6 +476,12 @@ local identity_test_timeout_ns <const> = Time.seconds(120)
 -- two or more processors, so both near this bound still end inside the
 -- whole file's.
 local identity_per_test_timeout_s <const> = "60"
+-- Each performance lifecycle case starts four fixtures and 30 checked pairs
+-- per phase. CI's ordinary 10 s deadline cut these off on Linux and macOS.
+-- Their child remains bounded at 30 s; allow setup and result inspection
+-- around it, and two serial tests plus runner setup in the whole-file bound.
+local performance_per_test_timeout_s <const> = "60"
+local performance_test_timeout_ns <const> = Time.seconds(150)
 -- The checked cosmic's first file in the tree after the checked build
 -- ([`checked_suite`]). A boot names the analyzer as the tool it writes
 -- does (build/importer.tl's `tree_code`), so that file builds nothing
@@ -532,8 +538,10 @@ end
 --- launcher, manifest and cores, which [`fixture_test`] gives it, and
 --- the content-keyed artifacts it runs, each by its bytes, so no fixture
 --- stands on a verdict another launcher, core or artifact reached
---- (orchestration_test.tl holds each to the prefix). `product` checks
---- the whole product, and declares every file of it; the rest run
+--- (orchestration_test.tl holds these to the prefix). `performance`
+--- instead keys the entire selected program and its controller source, since
+--- it exercises carried modules. `product` checks
+--- the whole product, and declares every file of it; the other fixtures run
 --- artifacts of their own setup, and do not declare the product's
 --- `cosmic`, whose database moves with every edit to the tool's code
 --- though none of theirs runs it.
@@ -550,7 +558,7 @@ end
 --- `launcher_noexec` declares private noexec scratch and runs on Linux
 --- only; the ordinary launcher fixture still runs on every platform.
 Orchestration.sandboxed_fixtures = {
-  product = true, runtime = true, launcher = true, launcher_noexec = true, identity = true,
+  product = true, runtime = true, launcher = true, launcher_noexec = true, identity = true, performance = true,
 }
 
 --- Only the Linux legs can supply the launcher's private noexec grant.
@@ -655,6 +663,22 @@ local function fixture_test(c: Context, work: string, name: string,
       work .. "/fixture-compiles.db"))
   record_suite(c, "fixture " .. name, status, out)
   return status
+end
+
+-- Copy the exact selected candidate and controller into declared external
+-- inputs. Full program bytes key this fixture: it exercises carried modules,
+-- not only the native prefix. Release and checked runs keep distinct inputs.
+local function performance_fixture(c: Context, work: string, kind: string, program: string): integer
+  local inputs = work .. "/performance-" .. kind .. "-inputs"
+  mkdir(inputs)
+  assert(Fs.write(inputs .. "/program", read(program), 0x1ed))
+  write(inputs .. "/perf.tl", read(c.root .. "/build/perf.tl"))
+  return fixture_test(c, work, "performance-" .. kind .. "-regression", "performance",
+    performance_test_timeout_ns, {
+      COSMIC_FIXTURE_PRODUCT = inputs,
+      COSMIC_FIXTURE_PERFORMANCE = inputs,
+      COSMIC_TEST_TIMEOUT = performance_per_test_timeout_s,
+    })
 end
 
 --- The checked core, verified on every leg -- its manifest entry in the
@@ -1507,6 +1531,8 @@ local function phase_fixtures(p: PlatformContext): integer
       COSMIC_TEST_TIMEOUT = identity_per_test_timeout_s,
     })
   if s ~= 0 then return s end
+  s = performance_fixture(c, work, "release", product .. "/cosmic")
+  if s ~= 0 then return s end
   -- The product fixture ran on these bytes in assemble
   -- (product-verification); run again on the same bytes and inputs, it
   -- would check nothing more than that none of them moved since.
@@ -1552,6 +1578,8 @@ local function platform_impl(phase: string, p: PlatformContext): integer
   elseif phase == "checked" then
     return checked_suite(p.operation, p.target, p.work,
       p.contract .. "/format/format-test-" .. p.target)
+  elseif phase == "performance-checked" then
+    return performance_fixture(p.operation, p.work, "checked", p.root .. "/o/sanitized/bin/cosmic")
   elseif phase == "sandbox" then
     return phase_sandbox(p)
   elseif phase == "assemble" then
