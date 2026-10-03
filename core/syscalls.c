@@ -662,6 +662,17 @@ COSMIC_SYSCALL(landlock_ruleset, 2) {
 #endif
 }
 
+COSMIC_SYSCALL(landlock_abi, 0) {
+#if defined(__linux__)
+  long abi = syscall(SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION);
+  if (abi < 1) return cosmic_fail(L, abi < 0 ? errno : ENOSYS);
+  lua_pushinteger(L, (lua_Integer)abi);
+  return 1;
+#else
+  return cosmic_fail(L, ENOSYS);
+#endif
+}
+
 /* Whether this process can no longer run its own core -- held by
  * `landlock_restrict_execute` to files none of which is beneath it --
  * and so hands its artifact's descriptor on to no child ([`handed_on`]):
@@ -2356,6 +2367,187 @@ static bool handed_on (lua_State *L, lua_Integer target, lua_Integer fd) {
   return exact && named == target;
 }
 
+/* The most grants one `spawn` takes: UNVEIL_MAX's bound on the paths a
+ * sandbox names, and, with their letters, about 3 KB of its frame -- a
+ * frame that already holds several times that, so these arrays are not
+ * worth an allocation a failure path would have to free. No caller
+ * grants more than a few dozen. */
+#define GRANT_MAX UNVEIL_MAX
+
+/* A grant's letters, in the order the plan lists them: "rwxcu". */
+enum { GRANT_READ = 1, GRANT_WRITE = 2, GRANT_EXECUTE = 4, GRANT_CREATE = 8, GRANT_UNIX = 16 };
+
+#if defined(__linux__)
+#ifndef LANDLOCK_ACCESS_FS_RESOLVE_UNIX
+#define LANDLOCK_ACCESS_FS_RESOLVE_UNIX (1ULL << 16)
+#endif
+#define LANDLOCK_ABI_RESOLVE_UNIX 9
+/* The headers this core builds with may predate these (ABI 4 and 6). */
+#ifndef LANDLOCK_ACCESS_NET_BIND_TCP
+#define LANDLOCK_ACCESS_NET_BIND_TCP (1ULL << 0)
+#define LANDLOCK_ACCESS_NET_CONNECT_TCP (1ULL << 1)
+#endif
+#ifndef LANDLOCK_SCOPE_SIGNAL
+#define LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET (1ULL << 0)
+#define LANDLOCK_SCOPE_SIGNAL (1ULL << 1)
+#endif
+
+/* `struct landlock_ruleset_attr` as the newest kernel has it, so a
+ * header older than a field does not leave it out; a kernel older than
+ * a field is handed the struct only up to the one it knows. */
+struct grants_attr {
+  uint64_t handled_access_fs;
+  uint64_t handled_access_net;
+  uint64_t scoped;
+};
+
+/* What the letters allow beneath a path on a kernel of this ABI. A right
+ * the ABI lacks is left out, which the ruleset does not handle either.
+ * `c` takes no device: LANDLOCK_ACCESS_FS_MAKE_CHAR and _BLOCK are
+ * handled and never granted, so a sandboxed program makes no device
+ * node, and a device file's ioctls (LANDLOCK_ACCESS_FS_IOCTL_DEV) are
+ * refused too, whatever `w` allows of the file. */
+static uint64_t grant_rights (unsigned letters, long abi) {
+  uint64_t rights = 0;
+  if (letters & GRANT_READ) rights |= LANDLOCK_ACCESS_FS_READ_FILE | LANDLOCK_ACCESS_FS_READ_DIR;
+  if (letters & GRANT_WRITE) {
+    rights |= LANDLOCK_ACCESS_FS_WRITE_FILE;
+    if (abi >= 3) rights |= LANDLOCK_ACCESS_FS_TRUNCATE;
+  }
+  if (letters & GRANT_EXECUTE) rights |= LANDLOCK_ACCESS_FS_EXECUTE;
+  if (letters & GRANT_CREATE) {
+    rights |= LANDLOCK_ACCESS_FS_MAKE_REG | LANDLOCK_ACCESS_FS_MAKE_DIR |
+              LANDLOCK_ACCESS_FS_MAKE_SYM | LANDLOCK_ACCESS_FS_MAKE_SOCK |
+              LANDLOCK_ACCESS_FS_MAKE_FIFO | LANDLOCK_ACCESS_FS_REMOVE_FILE |
+              LANDLOCK_ACCESS_FS_REMOVE_DIR;
+    if (abi >= 2) rights |= LANDLOCK_ACCESS_FS_REFER;
+  }
+  if ((letters & GRANT_UNIX) && abi >= LANDLOCK_ABI_RESOLVE_UNIX)
+    rights |= LANDLOCK_ACCESS_FS_RESOLVE_UNIX;
+  return rights;
+}
+
+/* Every filesystem right a kernel of this ABI knows, up to ABI 9's.
+ * TODO: a kernel past ABI 9 has rights this does not handle, so a ruleset
+ * built here leaves them allowed: add each as the ABI that brings it is
+ * met (refusing a start on a newer kernel instead would break every new
+ * one).
+ * TODO: share this and the scoping below with `landlock_ruleset`, whose
+ * rights stop at ABI 5 and whose scoping this build's headers may leave
+ * out, once its callers can take a ruleset that refuses unix sockets by
+ * path and signals out of the domain: today that would change what they
+ * run under. */
+static uint64_t grants_handled (long abi) {
+  uint64_t handled = (LANDLOCK_ACCESS_FS_MAKE_SYM << 1) - 1;
+  if (abi >= 2) handled |= LANDLOCK_ACCESS_FS_REFER;
+  if (abi >= 3) handled |= LANDLOCK_ACCESS_FS_TRUNCATE;
+  if (abi >= 5) handled |= LANDLOCK_ACCESS_FS_IOCTL_DEV;
+  if (abi >= LANDLOCK_ABI_RESOLVE_UNIX) handled |= LANDLOCK_ACCESS_FS_RESOLVE_UNIX;
+  return handled;
+}
+
+/* A Landlock ruleset holding a child to `count` grants, as a descriptor,
+ * or -1 with the errno in `error` and what to tell the caller in
+ * `message`, which names the path or the remedy.
+ *
+ * The ruleset handles every filesystem right the kernel's ABI knows, up
+ * to ABI 9 ([`grants_handled`]), so what no grant gives is refused: EACCES, and EXDEV for a rename or link
+ * between grants that REFER does not allow. Beyond the filesystem it
+ * scopes the child where the kernel can: no abstract unix socket and no
+ * signal reaches a process outside its domain (ABI 6), and TCP is
+ * handled with no rule, so a bind or a connect is refused (ABI 4).
+ * Below those ABIs the ruleset holds what the kernel's does, and the
+ * start does not fail for the rest, except a `u` grant, whose right
+ * (ABI 9) nothing else stands in for.
+ * TODO: refuse where the kernel's ABI leaves out a right a grant's
+ * letters or the scoping rely on, once a policy can ask for a start that
+ * must be held whole (`isolate file` and a network namespace stand in
+ * for the rights an older kernel lacks): `cosmic.sandbox`'s preflight.
+ *
+ * Each path is opened once, followed through links, with O_PATH, and its
+ * rule is added from that descriptor, so the rule is on the file the
+ * path named at that moment and a link swapped in later changes nothing.
+ * A path that cannot be opened fails the start. A file takes only the
+ * rights Landlock allows on one (a directory-only right is EINVAL
+ * there); a grant whose letters leave nothing for a file -- `c` on one
+ * -- adds no rule.
+ *
+ * Built here, in the parent, not in the child: the child shares this
+ * process's memory (clone with CLONE_VM) and tells the parent only an
+ * errno, so a path that does not exist could not be named from it, and
+ * an unveiled child resolves paths in a root of its own. It is handed
+ * on as the descriptor `ruleset` takes, restricted by the child in
+ * [`run_program`] before the promises filter, which follows it.
+ * TODO: report a grant whose target (the path of its descriptor, read
+ * from /proc/self/fd) differs from its name, once `cosmic.sandbox` has a
+ * place to carry the report: `spawn` answers a pid alone. */
+static int grants_ruleset (const char *const *paths, const unsigned *letters, int count,
+                           char *message, size_t room, int *error) {
+  long abi = syscall(SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION);
+  if (abi < 1) {
+    *error = abi < 0 ? errno : ENOSYS;
+    snprintf(message, room,
+             "Landlock is not available here (%s): the kernel needs CONFIG_SECURITY_LANDLOCK and "
+             "\"landlock\" among its lsm= boot parameter, and a container's seccomp profile must "
+             "allow landlock_create_ruleset",
+             cosmic_errno_describe(*error, NULL));
+    return -1;
+  }
+  for (int i = 0; i < count; i++) {
+    if ((letters[i] & GRANT_UNIX) && abi < LANDLOCK_ABI_RESOLVE_UNIX) {
+      *error = EOPNOTSUPP;
+      snprintf(message, room,
+               "Landlock ABI %d is needed for a `u` grant (%s); this kernel gives %ld: run a "
+               "kernel that does, or give no grant to a unix socket by path",
+               LANDLOCK_ABI_RESOLVE_UNIX, paths[i], abi);
+      return -1;
+    }
+  }
+  struct grants_attr attr;
+  memset(&attr, 0, sizeof attr);
+  attr.handled_access_fs = grants_handled(abi);
+  size_t size = sizeof attr.handled_access_fs;
+  if (abi >= 4) {
+    attr.handled_access_net = LANDLOCK_ACCESS_NET_BIND_TCP | LANDLOCK_ACCESS_NET_CONNECT_TCP;
+    size = offsetof(struct grants_attr, handled_access_net) + sizeof attr.handled_access_net;
+  }
+  if (abi >= 6) {
+    attr.scoped = LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET | LANDLOCK_SCOPE_SIGNAL;
+    size = offsetof(struct grants_attr, scoped) + sizeof attr.scoped;
+  }
+  long made = syscall(SYS_landlock_create_ruleset, &attr, size, 0);
+  if (made < 0) {
+    *error = errno;
+    snprintf(message, room, "landlock_create_ruleset: %s", cosmic_errno_describe(*error, NULL));
+    return -1;
+  }
+  int ruleset = (int)made;
+  for (int i = 0; i < count; i++) {
+    int fd = open(paths[i], O_PATH | O_CLOEXEC);
+    struct stat st;
+    int number = 0;
+    if (fd < 0 || fstat(fd, &st) != 0) {
+      number = errno;
+    } else {
+      uint64_t rights = grant_rights(letters[i], abi);
+      if (!S_ISDIR(st.st_mode)) rights &= LANDLOCK_FILE_ACCESS | LANDLOCK_ACCESS_FS_RESOLVE_UNIX;
+      struct landlock_path_beneath_attr beneath = { .allowed_access = rights, .parent_fd = fd };
+      if (rights != 0 &&
+          syscall(SYS_landlock_add_rule, ruleset, LANDLOCK_RULE_PATH_BENEATH, &beneath, 0) != 0)
+        number = errno;
+    }
+    if (fd >= 0) close(fd);
+    if (number != 0) {
+      close(ruleset);
+      *error = number;
+      snprintf(message, room, "grant %s: %s", paths[i], cosmic_errno_describe(number, NULL));
+      return -1;
+    }
+  }
+  return ruleset;
+}
+#endif
+
 COSMIC_SYSCALL(spawn, 11) {
   const char *path = plain_string(L, 1, "path");
   luaL_checktype(L, 2, LUA_TTABLE);
@@ -2396,6 +2588,9 @@ COSMIC_SYSCALL(spawn, 11) {
   int pledged = 0, unix_ok = 0, inet_ok = 0;
   int promising = 0;
   unsigned promise_bits = 0;
+  const char *grant_paths[GRANT_MAX];
+  unsigned grant_letters[GRANT_MAX];
+  int granting = 0, grant_count = 0;
   const char *unveiled[UNVEIL_MAX];
   const char *unveiled_at[UNVEIL_MAX];
   int unveiled_writable[UNVEIL_MAX];
@@ -2446,6 +2641,40 @@ COSMIC_SYSCALL(spawn, 11) {
         if (bit == 0) return luaL_argerror(L, 10, "a promise is \"fork\", \"jit\" or \"fattr\"");
         promise_bits |= bit;
         lua_pop(L, 1);
+      }
+    }
+    lua_pop(L, 1);
+    lua_pushliteral(L, "grants");
+    lua_rawget(L, 10);
+    if (!lua_isnil(L, -1)) {
+      if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "grants must be a list");
+      if (confine >= 0) return luaL_argerror(L, 10, "grants and a ruleset exclude each other");
+      granting = 1;
+      lua_Integer granted_count = (lua_Integer)lua_rawlen(L, -1);
+      for (lua_Integer i = 1; i <= granted_count; i++) {
+        if (grant_count >= GRANT_MAX) return luaL_argerror(L, 10, "too many grants");
+        lua_rawgeti(L, -1, i);
+        if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "a grant is a table of path and access");
+        lua_pushliteral(L, "path");
+        lua_rawget(L, -2);
+        const char *grant_path = plain_string(L, -1, "a grant's path");
+        if (grant_path[0] == '\0') return luaL_argerror(L, 10, "a grant's path is empty");
+        lua_pushliteral(L, "access");
+        lua_rawget(L, -3);
+        const char *access = plain_string(L, -1, "a grant's access");
+        unsigned letters = 0;
+        for (const char *c = access; *c != '\0'; c++) {
+          const char *at = strchr("rwxcu", *c);
+          if (at == NULL) return luaL_argerror(L, 10, "a grant's access is letters of \"rwxcu\"");
+          letters |= 1u << (at - "rwxcu");
+        }
+        if (letters == 0) return luaL_argerror(L, 10, "a grant's access names no letter of \"rwxcu\"");
+        grant_paths[grant_count] = grant_path;
+        grant_letters[grant_count] = letters;
+        grant_count++;
+        /* The path and access strings stay alive in the grant, which
+         * stays in the list, which stays in the options. */
+        lua_pop(L, 3);
       }
     }
     lua_pop(L, 1);
@@ -2569,7 +2798,7 @@ COSMIC_SYSCALL(spawn, 11) {
   }
 #endif
 #if !defined(__linux__)
-  if (unveiling || offline || credentials) return cosmic_fail(L, ENOSYS);
+  if (unveiling || offline || credentials || granting) return cosmic_fail(L, ENOSYS);
 #else
   if (unveiling && !sandbox_room()) return cosmic_fail(L, errno);
 #endif
@@ -2785,7 +3014,18 @@ COSMIC_SYSCALL(spawn, 11) {
 #if defined(__linux__)
   unmap_root = (unveiling || offline) && inner_user_namespace() && geteuid() == 0;
 #endif
-  char **carried = cosmic_store_environment(envp);
+  /* Built last of what can fail, so the one cleanup below serves it: a
+   * ruleset to close is the only thing past here that is not the
+   * environment's. */
+  int grant_error = 0;
+  char grant_message[PATH_MAX + 512];
+#if defined(__linux__)
+  if (granting) {
+    confine = grants_ruleset(grant_paths, grant_letters, grant_count, grant_message,
+                             sizeof grant_message, &grant_error);
+  }
+#endif
+  char **carried = grant_error != 0 ? NULL : cosmic_store_environment(envp);
   if (carried == NULL) {
     close(status_read);
     close(status_write);
@@ -2793,6 +3033,13 @@ COSMIC_SYSCALL(spawn, 11) {
     if (!lua_isnoneornil(L, 3)) free_environment(envp, envc);
     free(argv);
     free(resolved);
+    if (grant_error != 0) {
+      lua_pushnil(L);
+      lua_pushstring(L, grant_message);
+      lua_pushinteger(L, grant_error);
+      return 3;
+    }
+    if (granting) close(confine);
     return cosmic_fail(L, ENOMEM);
   }
   char **given = cosmic_coverage_environment(carried);
@@ -2830,6 +3077,9 @@ COSMIC_SYSCALL(spawn, 11) {
   int dumpable = dropping ? prctl(PR_GET_DUMPABLE, 0, 0, 0, 0) : -1;
 #endif
   pid_t pid = start_child(&plan, &fork_error);
+  /* The child has its own copy of the ruleset's descriptor from its
+   * start, or never started. */
+  if (granting) close(confine);
 #if defined(__linux__)
   int restore_error = 0;
   if (credentials) {
@@ -2906,8 +3156,17 @@ COSMIC_SYSCALL(spawn, 11) {
 #if defined(__linux__)
     if (pid > 0) sandbox_reaped(pid);
 #endif
-    return cosmic_fail(L, received == sizeof child_error ? child_error :
-                       (read_error != 0 ? read_error : EIO));
+    int number = received == sizeof child_error ? child_error : (read_error != 0 ? read_error : EIO);
+    if (granting && number == EACCES) {
+      /* The likeliest cause: the program, or the loader or interpreter
+       * it names, was not granted `rx`. */
+      lua_pushnil(L);
+      lua_pushfstring(L, "%s: a child held to `grants` needs an `rx` grant for its program, and "
+                      "for the interpreter or loader that program names", cosmic_errno_describe(number, NULL));
+      lua_pushinteger(L, number);
+      return 3;
+    }
+    return cosmic_fail(L, number);
   }
   lua_pushinteger(L, (lua_Integer)pid);
   return 1;
