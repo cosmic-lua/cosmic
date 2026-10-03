@@ -11,7 +11,7 @@ bin/perf /absolute/parent/o/bin/cosmic /absolute/candidate/o/bin/cosmic /new/res
 ```
 
 [`bin/perf`] uses the pinned bootstrap as one fixed controller. It copies and hashes
-both executables, creates three independent fixture trees, and retains all
+both executables, creates four independent fixture trees, and retains all
 inputs. The output directory must be new. Allow room for the binaries, working
 databases and test closure stores. `COSMIC_BOOTSTRAP` can select a different
 controller explicitly; keep it identical throughout a comparison series.
@@ -43,7 +43,7 @@ identities; `compiler.tsv` records the external artifact's compiler identities
 through its SQL command. `o/perf/setup.json` retains untimed setup command results,
 and `query-plan.txt` records a representative reverse-import plan. Raw per-phase
 observations, including checked warmups, are saved after every pair under
-`a/o/perf/`; `raw.json` combines measured observations only. A failing child is
+`aa-a/o/perf/` and `ab-a/o/perf/`; `raw.json` combines measured observations only. A failing child is
 recorded in its fixture's `o/perf/failure.json`; the latest completed observation
 and build counters are retained beside it. Generated files stay outside Git.
 
@@ -84,3 +84,38 @@ result appears. Artifact
 size growth is recorded and does not fail the gate.
 
 [`bin/perf`]: ../bin/perf
+
+The `fixed-sample-v3` fixture manifest names `aa-a`, `aa-b`, `ab-a`, and
+`ab-b`, in that order. A/A and A/B have separate parent trees, so each fixture
+belongs to one phase and receives the same warmup and sample commands as its
+partner. Reusing the A/A parent for A/B
+would append twice as many build-history rows, including through `docs` and
+`uses`, despite zero source reads and compilations. This is a logical-state
+matching requirement; it does not establish the cause of any past timing.
+
+Every observation, including warmups, records `before` and `after` counters
+outside the timed region (including the additional history-count query): compiled, cached, read, verdict, run, and total
+build-history rows. Building commands must advance both history counters
+exactly once; other commands must leave all counters unchanged. No-op builds
+must read and compile zero modules and reuse all six fixture modules. Histories
+must match within each pair and across all four trees before A/A and after A/B
+at each workload boundary. The phase logs live in `aa-a/o/perf` and
+`ab-a/o/perf`, respectively.
+
+Leaf edits use the same content sequence in both phases while retaining
+distinct observation pair IDs. With the selected workload's one-based index,
+`stride = ((pairs + 4) // 2) * 2`, and iteration starting at one (including
+warmups), the recorded `leaf_value` is `1000 + index * stride + iteration`.
+The initial value is one. Thus each fixture sees new content each time, never
+an earlier content-addressed verdict, and both phases see matching inputs.
+
+The actual fixture lifecycle and old shared-parent regression cases run in
+[`ci/fixtures/performance_test.tl`], against the release candidate on each
+platform and the checked candidate in the checked job. Their 30-pair runs
+ignore elapsed times. CI gives these two cases 60 seconds each (150 seconds
+for the phase), while each controller child retains its 30-second bound.
+The release suite keeps its 10-second per-test deadline; that deadline had
+interrupted these process-heavy correctness cases on Linux and macOS. The
+checked suite retains its separate 120-second per-test deadline.
+
+[`ci/fixtures/performance_test.tl`]: ../ci/fixtures/performance_test.tl
