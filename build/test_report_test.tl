@@ -45,3 +45,24 @@ local function test_summaries_keep_the_figures_ci_reads_in_order()
   assert(test_report.coverage(0, 0) ==
       "test: coverage 0.0% (0/0 lines; informational, never a failure)")
 end
+
+--- A test that called a method its value lacks -- a record's value made
+--- as a table literal, never given the record as its metatable -- is
+--- told how to make one that has it, straight under its failure line
+--- and ahead of what the runner appended to the message.
+local function test_a_missing_method_is_told_the_metatable()
+  local lines = test_report.failures({ { message =
+      "kv_example basic_usage: kv_example:9: attempt to call a nil value (method 'set')\n" ..
+      "  its directory is kept: /tmp/x",
+    rerun = "kv_example.tl:basic_usage" } }, "")
+  local text = table.concat(lines, "\n")
+  assert(text ==
+      "test: FAIL  kv_example basic_usage: kv_example:9: attempt to call a nil value (method 'set')\n" ..
+      "  hint: 'set' is nil on that value: either it was made as a table literal, " ..
+      "which gets none of R's methods (make it with `setmetatable({ ... }, { __index = R })`), " ..
+      "or R declares 'set' and nothing defines `function R:set`\n" ..
+      "  its directory is kept: /tmp/x\n" ..
+      "  rerun: cosmic test kv_example.tl:basic_usage", text)
+  lines = test_report.failures({ { message = "a test_b: a:1: attempt to call a nil value (field 'x')" } }, "")
+  assert(#lines == 1)
+end
