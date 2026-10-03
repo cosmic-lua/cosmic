@@ -560,22 +560,28 @@ local function test_a_long_comment_in_small_chunks_reads_in_linear_time()
       assert(#got >= 4)
     end
   end
-  -- Many short line comments in one chunk: each costs its own length.
+  -- Many short line comments in one chunk: each costs its own length, so
+  -- four times the comments take about four times as long, where a scan
+  -- of the rest of the chunk for each takes sixteen. A ratio holds on
+  -- every core, the checked one too, where a bound in seconds would not.
   for _, comment in ipairs({ "// c\n", "# c\n", "// c\u{2028}", "// \xe2\x80\n" }) do
-    local r = Json.reader(Stream.from_string("[" .. string.rep("1, " .. comment, 20000) .. "2]"), BOTH)
-    local started, count = Time.now_ns(), 0
-    while true do
-      local t, err = r:next()
-      if t == nil then
-        assert(err == "", err)
-        break
+    local function read(n: integer): integer
+      local r = Json.reader(Stream.from_string("[" .. string.rep("1, " .. comment, n) .. "2]"), BOTH)
+      local started, count = Time.now_ns(), 0
+      while true do
+        local t, err = r:next()
+        if t == nil then
+          assert(err == "", err)
+          break
+        end
+        count = count + 1
       end
-      count = count + 1
+      assert(count == n + 3)
+      return Time.now_ns() - started
     end
-    assert(count == 20003)
-    -- Linear takes a tenth of a second; a scan of the rest of the chunk
-    -- for each comment takes nine.
-    assert(Time.now_ns() - started < Time.seconds(3), "many short comments take linear time")
+    -- The faster of two runs each, so a pause in one does not count.
+    local few, many = math.min(read(2500), read(2500)), math.min(read(10000), read(10000))
+    assert(many < 8 * few, ("%q: 10,000 comments took %d ns, 2,500 %d"):format(comment, many, few))
   end
   local text = "[" .. string.rep("1, /* c */ ", 10000) .. "2]"
   local r = Json.reader(chunked("[" .. text .. "]", 1), JSON5)
