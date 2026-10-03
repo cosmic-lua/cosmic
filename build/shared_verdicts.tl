@@ -258,19 +258,6 @@ function shared_verdicts.close(cache: shared_verdicts.Cache)
   local _, _ = cache.db:close()
 end
 
---- Whether `trouble`, from a query of the cache, says the file itself
---- is broken ([`shared_sqlite.corrupt`]).
-function shared_verdicts.corrupt(trouble: string): boolean
-  return shared_sqlite.corrupt(trouble)
-end
-
---- Moves a broken cache aside, write-ahead log and all, to
---- `<path>.corrupt-<now_ns>` ([`shared_sqlite.set_aside`]). Answers where
---- it went, or nil and why.
-function shared_verdicts.set_aside(path: string, now_ns: integer): string | nil, string
-  return shared_sqlite.set_aside(path, now_ns)
-end
-
 --- The coverage and duration of the passing verdict under the declared
 --- `key` ([`build.declared_key`]), or nil: the key is the whole check.
 function shared_verdicts.declared(cache: shared_verdicts.Cache,

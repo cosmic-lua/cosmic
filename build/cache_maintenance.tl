@@ -199,7 +199,8 @@ local function failed(file: maintenance.File, why: string): maintenance.File
   return file
 end
 
---- Only already retired siblings of this exact basename belong to cleanup.
+--- Only regular files with the exact historical retirement names belong to
+--- cleanup. A matching prefix alone says nothing about who owns a sibling.
 local function clean_aside(file: maintenance.File): boolean, string
   local dir, base = Fs.dirname(file.path), Fs.basename(file.path)
   local st, why, errno = sys.stat(dir)
@@ -212,10 +213,19 @@ local function clean_aside(file: maintenance.File): boolean, string
   local prefix = base .. ".corrupt-"
   for _, name in ipairs(names) do
     if name:sub(1, #prefix) == prefix then
-      local path = dir .. "/" .. name
-      local ok, remove_why = Fs.remove(path)
-      if not ok then return false, remove_why end
-      file.removed_set_aside[#file.removed_set_aside + 1] = path
+      local tail = name:sub(#prefix + 1)
+      local retired = tail:match("^%d+$") or tail:match("^%d+%-wal$") or tail:match("^%d+%-shm$")
+      if retired then
+        local path = dir .. "/" .. name
+        local entry, entry_why, entry_errno = sys.lstat(path)
+        if entry == nil then
+          if entry_errno ~= sys.ENOENT then return false, entry_why end
+        elseif entry.kind == "file" then
+          local ok, remove_why = Fs.remove(path)
+          if not ok then return false, remove_why end
+          file.removed_set_aside[#file.removed_set_aside + 1] = path
+        end
+      end
     end
   end
   table.sort(file.removed_set_aside)
