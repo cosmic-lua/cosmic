@@ -198,8 +198,72 @@ local function test_check_refuses_what_cannot_be_sent()
   assert(wire.check({ status = 304, body = "x" }) ~= "")
   assert(wire.check({ status = 204, body = Stream.from_string("") }) ~= "")
   assert(wire.check({ status = 204, body = "" }) == "")
-  assert(wire.check({ status = 200, body = "x", length = 1 }) ~= "")
+  assert(wire.check({ status = 200, body = "x", length = 2 }) ~= "")
   assert(wire.check({ status = 200, body = Stream.from_string("x"), length = -1 }) ~= "")
+end
+
+--- `reply`, checked and sent: the bytes written.
+local function sent_bytes(reply: wire.Reply): string
+  reply.version, reply.date = "HTTP/1.1", "Thu, 01 Jan 1970 00:00:00 GMT"
+  local why = wire.check(reply)
+  assert(why == "", why)
+  local sink = Stream.collect()
+  local _ = wire.send(sink, reply)
+  return sink:result()
+end
+
+--- A reply's own Content-Length, under any case of its name, is the
+--- body's size as `length` is: held to the body, and written once, as
+--- the server frames it. Without a body it is a HEAD's size, sent with
+--- no bytes, or a 304's, passed on.
+local function test_a_given_content_length_is_held_to_the_body()
+  local function framed(out: string): string, integer, string
+    local head, rest = out:match("^(.-\r\n)\r\n(.*)$")
+    local _, count = head:lower():gsub("\r\ncontent%-length:", "")
+    return head, count, rest
+  end
+  local cases: {{any}} = {
+    { { status = 200, headers = { ["content-length"] = "5" }, body = "hello", method = "GET" }, "5", "hello" },
+    { { status = 200, headers = { ["CONTENT-LENGTH"] = "005" }, body = "hello" }, "5", "hello" },
+    { { status = 200, headers = { ["Content-Length"] = "3" }, body = Stream.from_string("abc") }, "3", "abc" },
+    { { status = 200, headers = { ["Content-Length"] = "3" }, body = Stream.from_string("abc"), length = 3 },
+      "3", "abc" },
+    { { status = 200, body = "hello", length = 5 }, "5", "hello" },
+    { { status = 200, headers = { ["Content-Length"] = "1234" }, method = "HEAD" }, "1234", "" },
+    { { status = 200, length = 1234, method = "HEAD" }, "1234", "" },
+    { { status = 200, headers = { ["Content-Length"] = "0" }, method = "GET" }, "0", "" },
+    { { status = 304, headers = { ["Content-Length"] = "10" }, method = "GET" }, "10", "" },
+    { { status = 200, headers = { ["Content-Length"] = "10" }, body = "", method = "HEAD" }, "10", "" },
+  }
+  for i, case in ipairs(cases) do
+    local head, count, rest = framed(sent_bytes(case[1] as wire.Reply))
+    assert(count == 1, tostring(i) .. ": " .. head)
+    assert(head:find("\r\nContent%-Length: " .. (case[2] as string) .. "\r\n") ~= nil, tostring(i) .. ": " .. head)
+    assert(head:find("Transfer-Encoding", 1, true) == nil, tostring(i))
+    assert(rest == case[3], tostring(i) .. ": " .. rest)
+  end
+  local refused: {{any}} = {
+    { { status = 200, headers = { ["Content-Length"] = "4" }, body = "hello" }, "is 4, but the body is 5 bytes" },
+    { { status = 200, headers = { ["Content-Length"] = "4" }, body = "hello", method = "HEAD" }, "is 4" },
+    { { status = 200, headers = { ["Content-Length"] = "5" }, method = "GET" }, "no body" },
+    { { status = 200, length = 5 }, "no body" },
+    { { status = 200, length = 5, body = "" }, "no body" },
+    { { status = 200, headers = { ["Content-Length"] = "3" }, body = Stream.from_string("abc"), length = 4 },
+      "header is 3, but the length is 4" },
+    { { status = 204, headers = { ["Content-Length"] = "0" } }, "status 204" },
+    { { status = 101, length = 0 }, "status 101" },
+    { { status = 200, headers = { ["Content-Length"] = "5", ["content-length"] = "5" }, body = "hello" },
+      "headers Content-Length and content-length: Content-Length is given twice" },
+    { { status = 200, headers = { ["Content-Length"] = "5 " }, body = "hello" }, "not digits" },
+    { { status = 200, headers = { ["Content-Length"] = "+5" }, body = "hello" }, "not digits" },
+    { { status = 200, headers = { ["Content-Length"] = "5, 5" }, body = "hello" }, "not digits" },
+    { { status = 200, headers = { ["Content-Length"] = "" }, method = "HEAD" }, "not digits" },
+    { { status = 200, headers = { ["Content-Length"] = string.rep("9", 19) }, method = "HEAD" }, "too large" },
+  }
+  for i, case in ipairs(refused) do
+    local why = wire.check(case[1] as wire.Reply)
+    assert(why:find(case[2] as string, 1, true) ~= nil, tostring(i) .. ": " .. why)
+  end
 end
 
 --- A head is read in time that grows with its size alone: a value with

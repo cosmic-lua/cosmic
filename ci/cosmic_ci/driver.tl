@@ -14,6 +14,7 @@ local State = require("cosmic_ci.state")
 local SuiteOutput = require("cosmic_ci.suite_output")
 local Verdicts = require("cosmic_ci.verdicts")
 local ZigPrune = require("cosmic_ci.zig_prune")
+local ZigRestat = require("cosmic_ci.zig_restat")
 
 local function open_database(path: string): Sqlite.Handle
   return State.open(path)
@@ -107,6 +108,8 @@ local commands: {string:Command} = {
     usage = "SINCE|whole", handler = Verdicts.trim_command },
   ["zig-prune"] = { about = "remove the zig build outputs no manifest of a current step vouches for",
     usage = "", handler = ZigPrune.prune_command },
+  ["zig-restat"] = { about = "take restored zig caches' new inodes into their manifests",
+    usage = "", handler = ZigRestat.restat_command },
   ["verdicts-merge"] = { about = "add the verdicts of the merge queue's run ahead, in DIR, to this run's",
     usage = "DIR", handler = Verdicts.merge_command },
   platform = { about = "run one phase of this worker's platform job",

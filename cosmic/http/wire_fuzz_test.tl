@@ -4,7 +4,8 @@
 --- out is read back as it was; the same bytes read the same in any
 --- chunking, which a reader that kept bytes it read ahead in the wrong
 --- place would not; and a reply is written with no body where it may
---- carry none, and with a Content-Length equal to the bytes sent.
+--- carry none, and with a Content-Length equal to the bytes sent, given
+--- one by the handler or not.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
 local Fuzz = require("build.fuzz")
@@ -334,8 +335,12 @@ end
 --- A Reader body that ends short of a reply's length: the bytes it has.
 local SHORT <const> = "short"
 
+--- The spellings of a Content-Length header a handler gives.
+local LENGTH_NAMES <const> = { "Content-Length", "content-length", "CONTENT-LENGTH" }
+
 -- A reply carries no body where it may not, and its Content-Length is
--- the bytes sent after its head; a reply cut short closes.
+-- the bytes sent after its head, one the handler gave held to them; a
+-- reply cut short closes.
 local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
   Fuzz.run({
     name = "http wire reply",
@@ -348,17 +353,26 @@ local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
         Fuzz.pick(src, { "HTTP/1.1", "HTTP/1.0" }),
         Fuzz.pick(src, { "none", "string", "reader", "sized", SHORT }),
         src:int(0, 2) == 0 and "" or Fuzz.bytes(src, 40),
+        -- A Content-Length the handler gives: none, the body's size, or
+        -- one more.
+        Fuzz.pick(src, { "", "", "same", "more" }), Fuzz.pick(src, LENGTH_NAMES),
       })
     end,
     check = function(input: string): boolean, string
       local f = Fuzz.unpack(input)
       local method, status, version, kind, text = f[1], math.tointeger(tonumber(f[2])), f[3], f[4], f[5]
+      local given, given_name = f[6] or "", f[7] or "Content-Length"
       local reply: wire.Reply = { status = status, headers = { ["X-A"] = "1" }, method = method,
         version = version, date = "Thu, 01 Jan 1970 00:00:00 GMT" }
       if kind == "string" then reply.body = text end
       if kind == "reader" then reply.body = Stream.from_string(text) end
       if kind == "sized" then reply.body, reply.length = Stream.from_string(text), #text end
       if kind == SHORT then reply.body, reply.length = Stream.from_string(text), #text + 3 end
+      local declared: integer = nil
+      if given ~= "" then
+        declared = given == "same" and #text or #text + 1
+        reply.headers[given_name] = tostring(declared)
+      end
       local bodiless = status < 200 or status == 204 or status == 304
       local sent_text = kind == "none" and "" or text
       local why = wire.check(reply)
@@ -367,7 +381,24 @@ local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
         Fuzz.label("bodiless")
         return true, ""
       end
+      -- What a given size may not be: other than `length`, given a 1xx
+      -- or 204, or not the body's, which is 0 for none but to HEAD.
+      local own: integer = nil
+      if kind == "string" and text ~= "" then
+        own = #text
+      elseif (kind == "none" or kind == "string") and method ~= "HEAD" then
+        own = 0
+      end
+      if declared ~= nil and ((reply.length ~= nil and declared ~= reply.length) or
+          (bodiless and status ~= 304) or (not bodiless and own ~= nil and declared ~= own)) then
+        if why == "" then return false, "a Content-Length of " .. declared .. " was taken" end
+        Fuzz.label("refused length")
+        return true, ""
+      end
       if why ~= "" then return false, "refused: " .. why end
+      if declared ~= nil then Fuzz.label("given length") end
+      -- A Reader given a size past its bytes ends short of it.
+      local short = kind == SHORT or (kind == "reader" and given == "more")
       local sink = Stream.collect()
       local sent = wire.send(sink, reply)
       local out = sink:result()
@@ -375,10 +406,17 @@ local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
       if stop == nil then return false, "no head" end
       local head, rest = out:sub(1, stop + 1), out:sub(stop + 4)
       local headers: {string:string} = {}
-      for name, value in head:gmatch("\r\n([^:]+): ([^\r]*)") do headers[name:lower()] = value end
+      for name, value in head:gmatch("\r\n([^:]+): ([^\r]*)") do
+        if headers[name:lower()] ~= nil then return false, "header " .. name .. " is written twice" end
+        headers[name:lower()] = value
+      end
+      if declared ~= nil and headers["content-length"] ~= tostring(declared) then
+        return false, ("a Content-Length of %d was sent as %s"):format(declared,
+          tostring(headers["content-length"]))
+      end
       if bodiless then
         Fuzz.label("bodiless")
-        if headers["content-length"] ~= nil or headers["transfer-encoding"] ~= nil then
+        if (declared == nil and headers["content-length"] ~= nil) or headers["transfer-encoding"] ~= nil then
           return false, "a " .. status .. " reply is framed"
         end
         if rest ~= "" then return false, "a " .. status .. " reply carries a body" end
@@ -393,7 +431,7 @@ local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
         Fuzz.label("content-length")
         if method == "HEAD" then return true, "" end
         local n = math.tointeger(tonumber(cl))
-        if kind == SHORT then
+        if short then
           if not (sent.close and sent.body_failure ~= "" and #rest < n) then
             return false, "a body cut short was not said so"
           end
@@ -426,6 +464,7 @@ local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
       end
       return true, ""
     end,
-    requires = { "bodiless", "head", "content-length", "chunked", "until close" },
+    requires = { "bodiless", "head", "content-length", "chunked", "until close", "given length",
+      "refused length" },
   })
 end

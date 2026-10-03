@@ -17,6 +17,7 @@ local RuntimeSetup = require("cosmic_ci.runtime_setup")
 local State = require("cosmic_ci.state")
 local SuiteOutput = require("cosmic_ci.suite_output")
 local Time = require("cosmic.time")
+local ZigRestat = require("cosmic_ci.zig_restat")
 local Plural = require("cosmic_ci.plural")
 local String = require("cosmic.string")
 
@@ -959,6 +960,13 @@ local function boot(p: PlatformContext): integer
       return Fs.copy_tree(from, root .. "/o/zig-cache")
     end)
     if copied ~= 0 then return copied end
+  end
+  -- A restore or a copy gives every file of zig's caches a new inode,
+  -- which zig 0.17 reads as a changed C source (cosmic_ci/zig_restat.tl).
+  if cache then
+    local project = seed and cache or root .. "/o/zig-cache"
+    local _, out, err = ZigRestat.run(root, project, named("COSMIC_ZIG_GLOBAL_CACHE"))
+    Fs.put(Fs.stderr, out .. err)
   end
   return checked(c, "core build and boot", { root .. "/bin/zig", "build", "cores", "boot" }, 0)
 end

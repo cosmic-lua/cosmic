@@ -1,0 +1,16 @@
+file: tl.tl
+note: `x and y` evaluates y only when x is truthy, so a bare variable on the left of `and` carries the truthiness fact 02 gives a guard's variable, and y sees x narrowed: `if st and st.kind == "dir"` and `local k = st and st.kind` both read st's fields. Only an `and` in an if's condition gave its right operand a boolean context; its left one, and both of an `and` used as a value, had none, so x carried no fact. The fact is 02's own, refused for a union with a boolean, any or a type variable among its members, since false is falsy too
+--- find
+            if node.op.op == "and" then
+               self:apply_facts(node, node.e1.known)
+            elseif node.op.op == "or" then
+--- replace
+            if node.op.op == "and" then
+               local e1_type = node.e1.kind == "variable" and not node.e1.known and resolve_tuple(e1type)
+               local e1_typ = e1_type and without_nil(self, node.e1, e1_type, true)
+               if e1_typ then
+                  node.e1.known = IsFact { var = node.e1.tk, typ = e1_typ, w = node.e1 }
+               end
+               self:apply_facts(node, node.e1.known)
+            elseif node.op.op == "or" then
+--- end

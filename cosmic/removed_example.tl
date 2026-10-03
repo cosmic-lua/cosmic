@@ -276,10 +276,14 @@ end
 
 --- A union `A | B` accepts only values assignable to one member; operations
 --- must be valid for every member until control flow narrows it. Comparisons
---- with nil, `is` tests, and assert conditions narrow locals. `is` accepts a
---- variable, not an arbitrary expression. A union may contain only one table
---- type unless every table member is a record/interface declared with a
---- runtime discriminator using `where`. string|enum and unions of two enums
+--- with nil, `is` tests, Lua's own `type(v) == "string"` tests, truthiness
+--- (`if v`, and `v and v.field`, whose right operand sees v not nil) and
+--- assert conditions narrow locals. A `type()` test narrows as `is` would:
+--- `any` to string, number, boolean or nil, and a union to the members of
+--- that Lua type ("number" answers for integer too; `is integer` tells them
+--- apart). Each accepts a variable, not an arbitrary expression. A union
+--- may contain only one table type unless every table member is a
+--- record/interface declared with a runtime discriminator using `where`. string|enum and unions of two enums
 --- are rejected because their values are indistinguishable at runtime.
 --- Narrowing tracks stable local bindings, not arbitrary mutable table fields.
 --- `value as T` asks the checker to treat a value as T and adds no runtime check.
@@ -302,6 +306,14 @@ function Example.unions_narrowing_casts()
     if value is integer then return tostring(value + 1) end
     return string.upper(value as string)
   end
+  local function length(value: any): integer
+    if type(value) ~= "string" then return 0 end
+    return #value
+  end
+  local function first_size(sizes: {integer} | nil): integer | nil
+    return sizes and sizes[1]
+  end
+  assert(length("abc") == 3 and length(3) == 0 and first_size({ 7 }) == 7 and first_size(nil) == nil)
   local maybe: string | nil = "present"
   assert(maybe ~= nil)
   local definitely: string = maybe

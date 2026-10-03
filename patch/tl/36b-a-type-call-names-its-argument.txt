@@ -1,0 +1,10 @@
+file: tl.tl
+note: a call to the standard `type` keeps its one argument, so the comparison holding the call (36d) can find the variable it asks about
+--- find
+   if_widens: {string: boolean}
+   block_returns: boolean
+--- replace
+   if_widens: {string: boolean}
+   block_returns: boolean
+   type_of: Node
+--- end
