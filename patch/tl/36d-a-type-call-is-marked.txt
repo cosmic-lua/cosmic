@@ -1,11 +1,13 @@
 file: tl.tl
-note: a call of the standard `type` with one argument is marked with it (36b). Only a call spelled `type` whose type is the standard library's own function counts, as for `error` (25): a local function of that name carries no handler, and another variable merely holding type is not trusted to keep holding it
+note: a call of the standard `type` with one argument is marked with it (36b). Only a call spelled `type` whose type is the standard library's own function counts, as for `error` (25): a local function of that name carries no handler, and another variable merely holding type is not trusted to keep holding it: only the global, scope 1, or a `<const>` local, since `local type = type` carries the handler too and could be assigned another function after
 --- find
       ["assert"] = function(self: TypeChecker, node: Node, a: Type, b: TupleType, argdelta?: integer): InvalidOrTupleType
          node.known = FACT_TRUTHY
 --- replace
       ["type"] = function(self: TypeChecker, node: Node, a: Type, b: TupleType, argdelta?: integer): InvalidOrTupleType
-         if node.e1.kind == "variable" and node.e1.tk == "type" and node.e2 and #node.e2 == 1 then
+         local _, scope, attribute = self:find_var("type", "check_only")
+         if node.e1.kind == "variable" and node.e1.tk == "type" and (scope == 1 or attribute == "const")
+            and node.e2 and #node.e2 == 1 then
             node.type_of = node.e2[1]
          end
          return (self:type_check_function_call(node, a, b, argdelta))

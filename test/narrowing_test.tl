@@ -17,7 +17,8 @@
 --- as a guard's does in its block (35), but not past it and not for a
 --- union with a boolean member. `type(x) == "<name>"` narrows x as
 --- `x is T` does (36a through 36g) -- only for a variable, only for
---- the standard `type`, and a name type() never answers is refused.
+--- the standard `type` (the global or a `<const>` local holding it, as
+--- for `error`), and a name type() never answers is refused.
 ---
 --- Every fixture is a single file in its own fresh subdirectory,
 --- rather than several files sharing one `tmp`, because
@@ -606,4 +607,44 @@ print(check(1))
 ]])
   assert(not ok and trouble:find("type() never answers \"strnig\"", 1, true) ~= nil,
     "type() never answers \"strnig\", so the test is a typo, but: " .. tostring(trouble))
+end
+
+local function test_a_reassignable_local_type_does_not_narrow(tmp: string)
+  local ok, trouble = try_build(tmp, "type-localized", [[
+local type = type
+type = function(_: any): string return "string" end
+local function upper(v: any): string
+   if type(v) == "string" then return v:upper() end
+   return ""
+end
+print(upper(1))
+]])
+  assert(refused_index(ok, trouble, "upper"), "`local type = type` can be assigned " ..
+    "another function, so a test of it must not narrow")
+end
+
+local function test_a_reassignable_local_error_does_not_narrow(tmp: string)
+  local ok, trouble = try_build(tmp, "error-localized", entry_prelude .. [[
+local error = error
+local e = next_entry()
+if e == nil then error("x") end
+print(e.size)
+]])
+  assert(refused_nil_index(ok, trouble), "`local error = error` can be assigned " ..
+    "a function that returns, so calling it must not narrow")
+end
+
+local function test_type_test_with_an_interface_member_does_not_narrow(tmp: string)
+  local ok, trouble = try_build(tmp, "type-interface", [[
+local interface Sized
+   n: integer
+end
+local function size(v: Sized | string): integer
+   if type(v) ~= "table" then return 0 end
+   return v.n
+end
+print(size("a"))
+]])
+  assert(refused_index(ok, trouble, "n"), "a userdata record may implement an interface, " ..
+    "so type() telling a table says nothing of it")
 end
