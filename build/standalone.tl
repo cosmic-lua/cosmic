@@ -93,9 +93,9 @@ end
 local function generate(file: string, source: string): string | nil, string
   -- TODO: a test pays the coverage hook on every line of a compiler
   -- loaded with its lines, so build/standalone_test.tl's tests that type
-  -- cosmic.json take about 15 s on the checked core: let a caller ask for
-  -- one loaded stripped (`teal.load(true)`), as build/shape_specs_test.tl
-  -- loads its own.
+  -- cosmic.json take about 15 s on the checked core, loading it again for
+  -- each compile: let a caller pass one compiler, loaded stripped
+  -- (`teal.load(true)`), as build/shape_specs_test.tl loads its own.
   local built, load_trouble = teal.load()
   if built == nil then
     return nil, load_trouble

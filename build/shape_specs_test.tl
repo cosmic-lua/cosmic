@@ -14,11 +14,10 @@ local type _shape = require("cosmic.shape")
 
 Test.needs{ reads = { "core" } }
 
--- The compiler without its line information, which compiles to the same
--- Lua. Every test runs under the coverage hook, and the compiler's lines
--- are no coverage of the tree's: with them, a fixture, which types the
--- whole of cosmic.json's closure, takes about 9.6 s on the checked core,
--- and a test that compiles three ran up against the runner's 30 s.
+-- Loaded stripped ([`teal.load`]): with its lines, a fixture, which
+-- types the whole of cosmic.json's closure, takes about 9.6 s on the
+-- checked core, and a test that compiles two or three would run up
+-- against the runner's 30 s.
 local built, load_trouble = teal.load(true)
 if built == nil then
   error("could not load the compiler: " .. tostring(load_trouble))
