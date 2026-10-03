@@ -71,14 +71,15 @@ local function test_the_removed_coders_name_the_verb_and_the_whole_string_functi
 end
 
 --- A program that called one of the lookups that moved with the dataset
---- loader is told where they went and that it indexes the table directly.
-local function test_the_removed_json_lookups_name_build_json_query_and_direct_indexing()
-  for _, member in ipairs({ "get", "entries", "items" }) do
+--- loader is told where they went. `get` and `select` are back, as
+--- Json.get and Json.select over Json.Steps and a JSONPath query.
+local function test_the_removed_json_lookups_name_build_json_query()
+  for _, member in ipairs({ "entries", "items" }) do
     local instead = Removed.members["cosmic.json." .. member]
     assert(instead ~= nil, member)
     assert(instead:find("build.json_query", 1, true), instead)
   end
-  assert(Removed.members["cosmic.json.get"]:find("directly", 1, true))
+  assert(Removed.members["cosmic.json.get"] == nil and Removed.members["cosmic.json.select"] == nil)
 end
 
 local function test_the_removed_csv_functions_name_what_to_use_instead()

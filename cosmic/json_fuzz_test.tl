@@ -199,7 +199,7 @@ local function decode_holds(input: string): boolean, string
         if err ~= "" and not err:match("^json: JSON nests deeper ") then
           return false, where .. ": a key twice in text that did not read: " .. err
         end
-        if not once_err:match("^json: duplicate key at line %d+, column %d+ %(%$[^\n]*%)$") then
+        if not once_err:match('^json: duplicate key at line %d+, column %d+ %(pointer "[^\n]*"%)$') then
           return false, where .. ": " .. once_err
         end
         Fuzz.label("refused a key twice")
@@ -319,23 +319,24 @@ local function deepest(opens: string, n: integer): integer
   return at
 end
 
---- The path to the container the `limit + 1`th open of `opens` starts:
---- `[1]` into each array and `.k` into each object before it. Only its
---- innermost segments are kept when they run past the 199 bytes a
---- message's path holds, behind `$...`.
+--- The JSON Pointer to the container the `limit + 1`th open of
+--- `opens` starts, as a message names it: `/0` into each array and
+--- `/k` into each object before it. Only its innermost segments are
+--- kept when they run past the 199 bytes a message's pointer holds,
+--- named then as the pointer's ending.
 local function path_into(opens: string, limit: integer): string
   local segments: {string} = {}
   for open in opens:gmatch("[%[{]") do
     if #segments == limit then break end
-    segments[#segments + 1] = open == "[" and "[1]" or ".k"
+    segments[#segments + 1] = open == "[" and "/0" or "/k"
   end
   local kept, length = "", 0
   for i = #segments, 1, -1 do
-    if length + #segments[i] >= 200 then return "$..." .. kept end
+    if length + #segments[i] >= 200 then return 'pointer ending "' .. kept .. '"' end
     kept = segments[i] .. kept
     length = length + #segments[i]
   end
-  return "$" .. kept
+  return 'pointer "' .. kept .. '"'
 end
 
 -- Most drawn texts parse -- 44% strictly and 51% as JSON5, far above
@@ -508,8 +509,8 @@ local function encode_holds(input: string): boolean, string
   Fuzz.label(text ~= nil and "encoded" or "refused")
   if text == nil then
     if not (err is string) or err == "" then return false, "a failure without a message" end
-    if err:find(" at ", 1, true) and not err:find(" at %$") then
-      return false, "a location that is not a path: " .. err
+    if err:find(" at ", 1, true) and not err:find(' at pointer "') then
+      return false, "a location that is not a pointer: " .. err
     end
     return true, ""
   end
