@@ -606,3 +606,18 @@ local function test_a_misplaced_digit_separator_is_refused()
   assert(result == nil and tostring(trouble):find("malformed number '1__0'", 1, true),
     "fix should refuse 1__0, but: " .. tostring(trouble))
 end
+
+--- A `>>` closing two type argument lists at once is written whole:
+--- tl's parser reads it as two `>` and leaves one in the token stream,
+--- which once lost the second from every type it ended.
+local function test_a_double_angle_closing_two_type_argument_lists_is_kept()
+  for _, source in ipairs({
+      "local m: metatable<R<K>> = {}\n",
+      "local m = {} as metatable<R<K>>\n",
+      "local function f(r: R<K>): R<K>\n  return setmetatable(r, {} as metatable<R<K>>)\nend\n",
+      "local record R<K>\n  m: metatable<R<K>>\n  f: function(): S<T<K>>\nend\n",
+      "local x = a >> b\n",
+  }) do
+    writes(source, source)
+  end
+end
