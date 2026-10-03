@@ -61,6 +61,24 @@ local function start(tmp: string, program: string, grants: {raw_process.Grant}, 
   return { code = status.code, signal = status.signal, said = (Fs.read(path)) or "" }
 end
 
+--- Whether `outcome` is a start refused for want of a sandbox: no Landlock
+--- on this kernel, or none on this platform (ENOSYS).
+local function unsandboxable(outcome: Outcome): boolean
+  return outcome.refused ~= nil and (outcome.errno == sys.ENOSYS or
+    outcome.refused:find("Landlock is not available", 1, true) ~= nil)
+end
+
+--- The kernel's Landlock ABI, or nil, having skipped the test, where it
+--- gives none.
+local function abi_or_skip(): integer
+  local abi, trouble = process.landlock_abi()
+  if abi == nil then
+    sandbox_skip.refused("no Landlock here: " .. tostring(trouble))
+    return nil
+  end
+  return abi
+end
+
 --- The same, held to the grants of `program` itself (`rx`, which a
 --- child needs to run at all) and `more`. Skips the test where the host
 --- gives no Landlock, returning true.
@@ -68,7 +86,7 @@ local function under(tmp: string, program: string, more: {raw_process.Grant}, sc
   local grants: {raw_process.Grant} = { { path = program, access = "rx" } }
   for _, grant in ipairs(more) do grants[#grants + 1] = grant end
   local outcome = start(tmp, program, grants, script)
-  if outcome.refused ~= nil and outcome.refused:find("Landlock is not available", 1, true) then
+  if unsandboxable(outcome) then
     sandbox_skip.refused(outcome.refused)
     return outcome, true
   end
@@ -187,7 +205,7 @@ local function test_a_grant_that_does_not_exist_fails_the_start_naming_it(tmp: s
   local missing = tmp .. "/missing"
   local outcome = start(tmp, probe, { { path = probe, access = "rx" }, { path = missing, access = "r" } },
     "print never")
-  if outcome.refused ~= nil and outcome.refused:find("Landlock is not available", 1, true) then
+  if unsandboxable(outcome) then
     sandbox_skip.refused(outcome.refused)
     return
   end
@@ -227,37 +245,51 @@ local function test_a_degenerate_grant_raises(tmp: string)
   assert(raises({ { path = probe, access = "r" } }, { ruleset = 0 }), "a ruleset beside grants")
 end
 
---- A listener on a unix socket `path`, and the grants a program connecting to it is given.
+local function test_the_landlock_abi_is_a_version_or_a_refusal(_tmp: string)
+  local abi, trouble, number = process.landlock_abi()
+  if abi == nil then
+    assert(type(trouble) == "string" and math.type(number) == "integer", "a failure says why")
+    return
+  end
+  assert(math.type(abi) == "integer" and abi >= 1, "a version: " .. tostring(abi))
+end
+
 local function test_u_connects_to_a_granted_socket_where_the_kernel_can_hold_it(tmp: string)
+  local abi = abi_or_skip()
+  if abi == nil then return end
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   assert(Fs.mkdirs(tmp .. "/s"))
   local socket = tmp .. "/s/sock"
   local _listener <close> = assert(Net.listen(Net.unix(socket), { timeout_ns = Time.seconds(5) }))
   local script = "connect " .. socket
-  local with = start(tmp, probe, { { path = probe, access = "rx" }, { path = socket, access = "u" } }, script)
-  if with.refused ~= nil and with.refused:find("Landlock is not available", 1, true) then
-    sandbox_skip.refused(with.refused)
-    return
-  end
-  if with.refused ~= nil then
+  local grants: {raw_process.Grant} = { { path = probe, access = "rx" }, { path = socket, access = "u" } }
+  local with = start(tmp, probe, grants, script)
+  if abi < 9 then
     -- Below ABI 9 the start fails, naming the ABI that is needed and the one given.
-    assert(with.errno == sys.EOPNOTSUPP, "EOPNOTSUPP: " .. tostring(with.errno))
+    assert(with.refused ~= nil and with.errno == sys.EOPNOTSUPP, "EOPNOTSUPP: " .. tostring(with.refused))
     assert(with.refused:find("Landlock ABI 9 is needed", 1, true) and
-        with.refused:find("this kernel gives %d+"), with.refused)
+        with.refused:find("this kernel gives " .. abi, 1, true), with.refused)
     return
   end
+  assert(with.refused == nil, "the start was refused: " .. tostring(with.refused))
   assert(with.code == 0 and with.said == "connected\n", "connects: " .. with.said)
   local without = under(tmp, probe, { { path = tmp .. "/s", access = "r" } }, script)
   assert(without.said:find(DENIED, 1, true), "refused: " .. without.said)
 end
 
-local function test_the_child_is_held_beyond_the_filesystem(tmp: string)
+local function test_the_child_is_held_to_no_tcp_where_the_kernel_can(tmp: string)
+  local abi = abi_or_skip()
+  if abi == nil then return end
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  local tcp, skipped = under(tmp, probe, {}, "connect-tcp 127.0.0.1 9")
-  if skipped then return end
-  -- ABI 4 refuses a connect outright, whatever the port, and no grant gives one;
-  -- below it the connection reaches the stack and is refused as nothing listens.
-  assert(tcp.said:find(DENIED, 1, true) or tcp.said:find("refused", 1, true), tcp.said)
+  local tcp = under(tmp, probe, {}, "connect-tcp 127.0.0.1 9")
+  -- ABI 4 refuses a connect outright, whatever the port, and no grant gives
+  -- one; below it the connection reaches the stack and is refused as nothing
+  -- listens there.
+  if abi >= 4 then
+    assert(tcp.said:find(DENIED, 1, true), "held: " .. tcp.said)
+  else
+    assert(tcp.said:find("refused", 1, true), "unheld: " .. tcp.said)
+  end
   local plain = assert(sys.open(tmp .. "/plain", sys.O_CREAT | sys.O_RDWR, 420))
   local pid = assert(process.spawn(probe, { probe, "connect-tcp 127.0.0.1 9" }, nil, nil, nil, plain,
     plain, false))
@@ -267,15 +299,46 @@ local function test_the_child_is_held_beyond_the_filesystem(tmp: string)
 end
 
 local function test_a_signal_to_a_process_outside_is_refused_where_the_kernel_scopes_it(tmp: string)
+  local abi = abi_or_skip()
+  if abi == nil then return end
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local sleeper = assert(process.spawn(probe, { probe, "sleep-forever" }, nil, nil, nil, nil, nil,
     false))
-  local sent, skipped = under(tmp, probe, {}, "signal KILL " .. sleeper)
-  local alive = sys.kill(sleeper, 0)
+  local sent = under(tmp, probe, {}, "signal KILL " .. sleeper)
   sys.kill(sleeper, sys.SIGKILL)
   assert(assert(process.waitpid(sleeper, false)).signal == sys.SIGKILL)
+  if abi >= 6 then
+    assert(sent.code == 1 and sent.said:find("not permitted", 1, true), "scoped: " .. sent.said)
+  else
+    -- Nothing scopes a signal below ABI 6: the child's kill lands.
+    assert(sent.code == 0, "sent: " .. sent.said)
+  end
+end
+
+local function test_no_grants_grant_nothing_and_the_program_needs_its_own(tmp: string)
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local none = start(tmp, probe, {}, "print never")
+  if unsandboxable(none) then
+    sandbox_skip.refused(none.refused)
+    return
+  end
+  -- Held to nothing, the child cannot run its own program: the start fails, and says why.
+  assert(none.refused ~= nil and none.errno == sys.EACCES, "EACCES: " .. tostring(none.refused))
+  assert(none.refused:find("`rx` grant", 1, true), none.refused)
+  local read_only = start(tmp, probe, { { path = probe, access = "r" } }, "print never")
+  assert(read_only.errno == sys.EACCES, "execute is its own letter: " .. tostring(read_only.refused))
+end
+
+local function test_c_on_a_file_grants_nothing(tmp: string)
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local file = tmp .. "/f"
+  assert(Fs.write(file, "kept\n"))
+  -- A file takes no creation right, so the grant adds no rule: the start goes on and
+  -- the file is as ungranted as if it were not named.
+  local read, skipped = under(tmp, probe, { { path = file, access = "c" } }, "cat " .. file)
   if skipped then return end
-  -- Below ABI 6 nothing scopes signals and the child's kill lands.
-  assert((sent.code == 1 and sent.said:find("not permitted", 1, true) and alive) or
-      (sent.code == 0 and not alive), "scoped or, on an older kernel, sent: " .. sent.said)
+  assert(read.code == 1 and read.said:find(DENIED, 1, true), "not read: " .. read.said)
+  local removed = under(tmp, probe, { { path = file, access = "c" } }, "rm " .. file)
+  assert(removed.code == 1 and removed.said:find(DENIED, 1, true), "not removed: " .. removed.said)
+  assert(Fs.read(file) == "kept\n")
 end

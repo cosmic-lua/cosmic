@@ -662,6 +662,17 @@ COSMIC_SYSCALL(landlock_ruleset, 2) {
 #endif
 }
 
+COSMIC_SYSCALL(landlock_abi, 0) {
+#if defined(__linux__)
+  long abi = syscall(SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION);
+  if (abi < 1) return cosmic_fail(L, abi < 0 ? errno : ENOSYS);
+  lua_pushinteger(L, (lua_Integer)abi);
+  return 1;
+#else
+  return cosmic_fail(L, ENOSYS);
+#endif
+}
+
 /* Whether this process can no longer run its own core -- held by
  * `landlock_restrict_execute` to files none of which is beneath it --
  * and so hands its artifact's descriptor on to no child ([`handed_on`]):
@@ -2356,8 +2367,12 @@ static bool handed_on (lua_State *L, lua_Integer target, lua_Integer fd) {
   return exact && named == target;
 }
 
-/* The most grants one `spawn` takes. */
-#define GRANT_MAX 256
+/* The most grants one `spawn` takes: UNVEIL_MAX's bound on the paths a
+ * sandbox names, and, with their letters, about 3 KB of its frame -- a
+ * frame that already holds several times that, so these arrays are not
+ * worth an allocation a failure path would have to free. No caller
+ * grants more than a few dozen. */
+#define GRANT_MAX UNVEIL_MAX
 
 /* A grant's letters, in the order the plan lists them: "rwxcu". */
 enum { GRANT_READ = 1, GRANT_WRITE = 2, GRANT_EXECUTE = 4, GRANT_CREATE = 8, GRANT_UNIX = 16 };
@@ -2412,7 +2427,16 @@ static uint64_t grant_rights (unsigned letters, long abi) {
   return rights;
 }
 
-/* Every filesystem right a kernel of this ABI knows. */
+/* Every filesystem right a kernel of this ABI knows, up to ABI 9's.
+ * TODO: a kernel past ABI 9 has rights this does not handle, so a ruleset
+ * built here leaves them allowed: add each as the ABI that brings it is
+ * met (refusing a start on a newer kernel instead would break every new
+ * one).
+ * TODO: share this and the scoping below with `landlock_ruleset`, whose
+ * rights stop at ABI 5 and whose scoping this build's headers may leave
+ * out, once its callers can take a ruleset that refuses unix sockets by
+ * path and signals out of the domain: today that would change what they
+ * run under. */
 static uint64_t grants_handled (long abi) {
   uint64_t handled = (LANDLOCK_ACCESS_FS_MAKE_SYM << 1) - 1;
   if (abi >= 2) handled |= LANDLOCK_ACCESS_FS_REFER;
@@ -2426,8 +2450,8 @@ static uint64_t grants_handled (long abi) {
  * or -1 with the errno in `error` and what to tell the caller in
  * `message`, which names the path or the remedy.
  *
- * The ruleset handles every filesystem right the kernel's ABI knows, so
- * what no grant gives is refused: EACCES, and EXDEV for a rename or link
+ * The ruleset handles every filesystem right the kernel's ABI knows, up
+ * to ABI 9 ([`grants_handled`]), so what no grant gives is refused: EACCES, and EXDEV for a rename or link
  * between grants that REFER does not allow. Beyond the filesystem it
  * scopes the child where the kernel can: no abstract unix socket and no
  * signal reaches a process outside its domain (ABI 6), and TCP is
@@ -3132,8 +3156,17 @@ COSMIC_SYSCALL(spawn, 11) {
 #if defined(__linux__)
     if (pid > 0) sandbox_reaped(pid);
 #endif
-    return cosmic_fail(L, received == sizeof child_error ? child_error :
-                       (read_error != 0 ? read_error : EIO));
+    int number = received == sizeof child_error ? child_error : (read_error != 0 ? read_error : EIO);
+    if (granting && number == EACCES) {
+      /* The likeliest cause: the program, or the loader or interpreter
+       * it names, was not granted `rx`. */
+      lua_pushnil(L);
+      lua_pushfstring(L, "%s: a child held to `grants` needs an `rx` grant for its program, and "
+                      "for the interpreter or loader that program names", cosmic_errno_describe(number, NULL));
+      lua_pushinteger(L, number);
+      return 3;
+    }
+    return cosmic_fail(L, number);
   }
   lua_pushinteger(L, (lua_Integer)pid);
   return 1;

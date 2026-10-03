@@ -1376,7 +1376,7 @@ local function test_the_process_calls_are_off_the_public_table()
   local raw: {string: any} = process as {string: any} -- cast: to look a member up by name
   for _, name in ipairs({ "spawn", "waitpid", "subreaper", "sandbox_inits", "children", "maps_id",
       "may_map_ids", "own_proc", "sandbox_platform", "relaunch", "pipe",
-      "ignore_sigpipe", "landlock_ruleset", "exit_watch",
+      "ignore_sigpipe", "landlock_ruleset", "landlock_abi", "exit_watch",
       "landlock_restrict_execute",
       "guard_child_signals", "unguard_child_signals", "child_signal_read", "child_signal_fd" }) do
     assert(public[name] == nil, "cosmic.sys." .. name .. " is public")
