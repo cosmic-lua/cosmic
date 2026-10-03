@@ -1,7 +1,8 @@
---- Grades a task in an arena: the project's tests and format check
---- pass, with recorded tests and examples behind them, cosmic builds
---- the task's executable, and that executable, copied alone into an
---- empty directory and run there, does what the task asks.
+--- Grades a task in an arena: the project keeps a journal, its tests
+--- and format check pass, with recorded tests and examples behind them,
+--- cosmic builds the task's executable, and that executable, copied
+--- alone into an empty directory and run there, does what the task
+--- asks.
 ---
 ---     cosmic --standalone eval/check/grade.tl <task> <dir>
 ---
@@ -24,6 +25,7 @@ local Net = require("cosmic.net")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 local Time = require("cosmic.time")
+local sys = require("cosmic.sys")
 
 local record Grader
   --- How many tests and examples passed.
@@ -224,15 +226,29 @@ local function command_step(g: Grade, argv: {string}, cwd: string): boolean
   end)
 end
 
---- Checks that the project keeps the journal eval/journal.md's
---- contract, appended to every task's TASK.md, asks for: a
---- `JOURNAL.md` with something in it. The contract names its parts (a
---- log, a summary) in prose rather than as exact headings, so their
---- content is the journal's reader's to judge, not the grader's.
+--- Checks the journal eval/journal.md's contract, appended to every
+--- task's TASK.md, asks for: a regular file at `path` with something
+--- in it. Answers why not when it is not one. A link, a pipe or a
+--- device is refused unread, so no journal can stall the grader or
+--- stand in for one kept elsewhere.
+---
+--- The contract labels its two parts in bold, not as headings a
+--- journal must spell one way, and what they say is its reader's to
+--- judge, so nothing past this is required of the text.
 function Grader.journal(path: string): boolean, string
-  local text, trouble = Fs.read(path)
+  local st, trouble, number = sys.lstat(path)
+  if st == nil then
+    if number == sys.ENOENT then
+      return false, "no " .. path
+    end
+    return false, path .. ": " .. trouble
+  end
+  if st.kind ~= "file" then
+    return false, path .. " is not a regular file"
+  end
+  local text, unread = Fs.read(path)
   if text == nil then
-    return false, "no " .. path .. " (" .. trouble .. ")"
+    return false, unread
   end
   if text:match("^%s*$") then
     return false, path .. " is empty"
@@ -240,33 +256,40 @@ function Grader.journal(path: string): boolean, string
   return true, ""
 end
 
---- Runs `cosmic fix --check` with the journal set aside: it is prose
---- the task asks for, not a source the task asks to have formatted,
---- and `fix --check` holds a project's Markdown to its link rules. The
---- journal is checked here, once one an earlier grading set aside is
---- back in place.
-local function fix_check(g: Grade, cosmic: string, project: string)
+--- Puts back a journal an earlier grading, killed while it had the
+--- journal set aside for `fix --check`, left in the arena. Answers
+--- whether [`fix_check`] may set the journal aside: not when the aside
+--- is kept beside a new journal.
+local function put_back_journal(g: Grade, project: string): boolean
   local journal = project .. "/JOURNAL.md"
   local aside = g.dir .. "/JOURNAL.md.aside"
-  -- A grading killed during the step left the journal aside: put it
-  -- back, or, beside a new journal, keep it and say so.
-  local both = false
-  if exists(aside) then
-    if exists(journal) then
-      fail(g, aside .. " is an earlier grading's, beside a new JOURNAL.md; " ..
-        "keeping both, and checking the new one")
-      both = true
-    else
-      local _, _ = Fs.rename(aside, journal)
-    end
+  if not exists(aside) then
+    return true
   end
-  local kept, why = Grader.journal(journal)
-  check(g, kept, "JOURNAL.md kept, as TASK.md's journal contract asks", why)
-  if both then
-    command_step(g, { cosmic, "fix", "--check" }, project)
-    return
+  if exists(journal) then
+    fail(g, aside .. " is an earlier grading's, beside a new JOURNAL.md; " ..
+      "keeping both, and checking the new one")
+    return false
   end
-  local moved, _ = Fs.rename(journal, aside)
+  local back, trouble = Fs.rename(aside, journal)
+  if not back then
+    fail(g, "could not put JOURNAL.md back from " .. aside .. ": " .. trouble)
+  end
+  return true
+end
+
+--- Runs `cosmic fix --check`, with the journal set aside when
+--- `set_aside`: it is prose the task asks for, not a source the task
+--- asks to have formatted, and `fix --check` holds a project's
+--- Markdown to its link rules.
+local function fix_check(g: Grade, cosmic: string, project: string, set_aside: boolean)
+  local journal = project .. "/JOURNAL.md"
+  local aside = g.dir .. "/JOURNAL.md.aside"
+  local moved = false
+  if set_aside then
+    local renamed, _ = Fs.rename(journal, aside)
+    moved = renamed
+  end
   command_step(g, { cosmic, "fix", "--check" }, project)
   if moved then
     local back, trouble = Fs.rename(aside, journal)
@@ -1462,6 +1485,9 @@ function Grader.grade(name: string, dir: string): integer
   local g: Grade = { dir = dir, name = name, exe = project .. "/o/bin/" .. name,
     empty = dir .. "/empty", steps = 0, failed = false,
     timeout_ns = Time.seconds(task.timeout), null_stdin = task.null_stdin, own_group = task.own_group }
+  local set_aside = put_back_journal(g, project)
+  local kept, why = Grader.journal(project .. "/JOURNAL.md")
+  check(g, kept, "JOURNAL.md kept, as TASK.md's journal contract asks", why)
   for _, file in ipairs(task.stale) do
     local _, _ = Fs.remove(project .. "/" .. file)
   end
@@ -1484,7 +1510,7 @@ function Grader.grade(name: string, dir: string): integer
       evidence.examples .. " examples\n")
     return evidence.tests > 0 and evidence.examples > 0
   end)
-  fix_check(g, cosmic, project)
+  fix_check(g, cosmic, project, set_aside)
   local passed = command_step(g, { cosmic, "build" }, project)
   -- Only a build that passed and names o/bin/<name> among what it wrote
   -- vouches for the file: after a failed build, or one that no longer

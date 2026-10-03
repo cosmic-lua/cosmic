@@ -1,6 +1,6 @@
 --- `eval/check/grade.tl`: the evidence it reads from a build database,
---- an arena with nothing to grade, and a build that vouches for no
---- executable.
+--- the journal it requires, an arena with nothing to grade, and a build
+--- that vouches for no executable.
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
@@ -162,10 +162,10 @@ local function test_an_unknown_task_is_a_usage_error()
   assert(Grader.main({ "notes", "/nowhere", "extra" }) == 2)
 end
 
-local function test_a_journal_is_a_file_with_something_in_it(dir: string)
+local function test_a_journal_is_a_regular_file_with_something_in_it(dir: string)
   local path = dir .. "/JOURNAL.md"
   local kept, why = Grader.journal(path)
-  assert(not kept and why:find("no " .. path, 1, true), why)
+  assert(not kept and why == "no " .. path, why)
   assert(Fs.write(path, ""))
   kept, why = Grader.journal(path)
   assert(not kept and why == path .. " is empty", why)
@@ -174,9 +174,16 @@ local function test_a_journal_is_a_file_with_something_in_it(dir: string)
   assert(not kept and why == path .. " is empty", why)
   assert(Fs.write(path, "**Log**\n\n1. tried it\n"))
   assert(Grader.journal(path))
+  -- Neither a link to a journal nor a pipe, which a read would wait on,
+  -- is one.
   assert(Fs.mkdirs(dir .. "/dir.md"))
-  kept, why = Grader.journal(dir .. "/dir.md")
-  assert(not kept and why:find("no " .. dir .. "/dir.md", 1, true), why)
+  assert(Fs.symlink(path, dir .. "/link.md"))
+  assert(sys.mkfifo(dir .. "/pipe.md", 420))
+  for _, name in ipairs({ "dir.md", "link.md", "pipe.md" }) do
+    local other = dir .. "/" .. name
+    kept, why = Grader.journal(other)
+    assert(not kept and why == other .. " is not a regular file", why)
+  end
 end
 
 --- Grades the arena at `dir`, whose project's JOURNAL.md holds
@@ -198,7 +205,7 @@ local function test_a_project_without_a_journal_fails(dir: string)
   local status, said = graded_with_journal(dir, nil)
   assert(status == 1, said)
   assert(said:find("check: FAIL JOURNAL.md kept, as TASK.md's journal contract asks: no " ..
-    dir .. "/project/JOURNAL.md", 1, true), said)
+    dir .. "/project/JOURNAL.md\n", 1, true), said)
   assert(said:sub(-12) == "check: FAIL\n", said)
 end
 
@@ -229,4 +236,16 @@ local function test_a_journal_left_aside_is_put_back_and_checked(dir: string)
   assert(status == 1, said)
   assert(said:find("check: ok   JOURNAL.md kept, as TASK.md's journal contract asks\n", 1, true), said)
   assert(Fs.read(dir .. "/project/JOURNAL.md") == "kept\n")
+end
+
+--- An earlier grading's aside beside a new journal is kept, and the
+--- new journal is the one checked and left in place.
+local function test_a_journal_beside_an_earlier_aside_is_the_one_checked(dir: string)
+  assert(Fs.write(dir .. "/JOURNAL.md.aside", "kept\n"))
+  local status, said = graded_with_journal(dir, " \n")
+  assert(status == 1, said)
+  assert(said:find("is an earlier grading's, beside a new JOURNAL.md", 1, true), said)
+  assert(said:find(dir .. "/project/JOURNAL.md is empty\n", 1, true), said)
+  assert(Fs.read(dir .. "/JOURNAL.md.aside") == "kept\n")
+  assert(Fs.read(dir .. "/project/JOURNAL.md") == " \n")
 end

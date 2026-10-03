@@ -269,14 +269,15 @@ One grader, [`eval/check/grade.tl`], grades every task; each
 and every task's checks live in that one file, requiring `cosmic.*`
 modules only. For each task it
 
-1. clears the runs `project/o/build.db` records, runs the arena's own
+1. requires `project/JOURNAL.md` to be a regular file with something
+   in it, as the journal contract asks -- what it says is the
+   reader's to judge, not the grader's;
+2. clears the runs `project/o/build.db` records, runs the arena's own
    `bin/cosmic test`, and requires a passing test and a passing example
    (or doctest) among the runs that test recorded;
-2. requires a `project/JOURNAL.md` with something in it, as the
-   journal contract asks -- what it says is the reader's to judge, not
-   the grader's -- then runs `cosmic fix --check` with it set aside, and
+3. runs `cosmic fix --check` with `JOURNAL.md` set aside, and
    `cosmic build`;
-3. copies `o/bin/<task>` -- only when that build passed and named it --
+4. copies `o/bin/<task>` -- only when that build passed and named it --
    alone into the arena's `empty/`, and runs the task's checks there,
    the executable with an empty environment but for a variable a check
    names.
