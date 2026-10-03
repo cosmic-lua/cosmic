@@ -499,6 +499,10 @@ const Own = struct {
 
     fn init(b: *std.Build) *Own {
         const io = b.graph.io;
+        // zig caches what build.zig configures, keyed by what it reads
+        // through the build API alone: a header added to core/ would
+        // otherwise go uncopied until something else moved the key.
+        b.dependOnDirectoryContents(b.path("core"));
         var names: std.ArrayList([]const u8) = .empty;
         var dir = b.root.openDir(io, "core", .{ .iterate = true }) catch |err| {
             std.debug.print("build.zig: cannot open core/: {s}\n", .{@errorName(err)});
@@ -975,6 +979,9 @@ fn patchedTrees(b: *std.Build) []const u8 {
         std.debug.print("build.zig: no -Dpatched=; run bin/zig build, which patches vendor/ first\n", .{});
         std.process.exit(1);
     };
+    // The manifest's path is the same from build to build while the trees
+    // it names move with every patch, so its contents key the configuration.
+    b.dependOnFileContents(b.graph.cwdRelativePath(manifest));
     return std.Io.Dir.cwd().readFileAlloc(b.graph.io, manifest, b.allocator, .limited(1 << 20)) catch |err| {
         std.debug.print("build.zig: cannot read {s}: {s}\n", .{ manifest, @errorName(err) });
         std.process.exit(1);
