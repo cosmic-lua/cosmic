@@ -167,21 +167,35 @@ local function test_a_promise_no_one_keeps_is_refused_before_a_start(tmp: string
     { promises = scalar as {string} }))
 end
 
+--- How many seccomp filters `probe` reports when started with `sandbox`:
+--- nil when the start is refused.
+local function filters(tmp: string, probe: string, sandbox?: raw_process.Sandbox): integer | nil
+  local path = tmp .. "/filters"
+  local output = assert(sys.open(path, sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
+  local pid = process.spawn(probe, { probe, "status-field Seccomp_filters" }, nil, nil, nil,
+    output, output, false, nil, sandbox)
+  if pid == nil then
+    sys.close(output)
+    return nil
+  end
+  assert(assert(process.waitpid(pid, false)).code == 0)
+  sys.close(output)
+  local said = assert(Fs.read(path))
+  return math.tointeger(said:match("Seccomp_filters:\t(%d+)")) or error(said)
+end
+
 --- A filter beside a pledge: both hold, and the stricter answer stands.
+--- Counted from the filters this worker already inherits, which a
+--- container's runtime may have installed.
 local function test_the_filter_stacks_with_a_pledge(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local outcome = under(tmp, {}, "status-field Seccomp", probe)
   if skipped(outcome) then return end
-  local output = assert(sys.open(tmp .. "/both", sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
-  local pid, trouble = process.spawn(probe, { probe, "status-field Seccomp_filters" }, nil, nil, nil,
-    output, output, false, nil, { promises = {}, pledge = {} })
-  if pid == nil then
-    sys.close(output)
-    sandbox_skip.refused("the kernel gives no seccomp filter: " .. tostring(trouble))
+  local inherited = assert(filters(tmp, probe, nil))
+  local both = filters(tmp, probe, { promises = {}, pledge = {} })
+  if both == nil then
+    sandbox_skip.refused("the kernel gives no seccomp filter beside a pledge")
     return
   end
-  assert(assert(process.waitpid(pid, false)).code == 0)
-  sys.close(output)
-  local said = assert(Fs.read(tmp .. "/both"))
-  assert(said:find("Seccomp_filters:\t2", 1, true) ~= nil, said)
+  assert(both == inherited + 2, "filters: " .. inherited .. " inherited, " .. both .. " under both")
 end
