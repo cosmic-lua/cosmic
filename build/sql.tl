@@ -45,7 +45,6 @@ local Time = require("cosmic.time")
 local bare = require("build.bare")
 local clock = require("build.clock")
 local dataset = require("build.dataset")
-local json_query = require("build.json_query")
 local verdicts = require("build.verdict")
 local verb_spec = require("build.verb_spec")
 
@@ -88,7 +87,7 @@ local record sql
     --- The format's name, as [`dataset.read`] takes it.
     format: string
     --- Where in the document the rows are; nil for all of it.
-    at: {string | integer}
+    at: Json.Steps
     --- Keep every cell of a CSV or TSV as text.
     raw: boolean
   end
@@ -475,9 +474,13 @@ local function read_inputs(parsed: Flags.Parsed): {sql.Input} | nil, string
         end
         input.format = value
       else
-        local steps, why = json_query.parse_path(value)
+        local steps, why = Json.from_path(value)
         if steps == nil then
-          return nil, "--at " .. value .. ": " .. why
+          local query, _ = Json.query(value)
+          if query ~= nil then
+            why = "--at names one value, and `*` and `..` can match many"
+          end
+          return nil, "--at " .. value .. ": " .. (why:gsub("^json: ", ""))
         end
         input.at = steps
       end

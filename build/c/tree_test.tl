@@ -65,3 +65,21 @@ local function test_a_declaration_beginning_in_a_macro_is_placed_at_its_name()
   assert(decls[2].file == "core/a.c" and decls[2].line == 5 and decls[2].col == 6,
     tostring(decls[2].file) .. ":" .. tostring(decls[2].line))
 end
+
+--- A range nests a made-up position in brackets of its own, and every
+--- part of it moves the cursor: the declaration after the expression
+--- is read against core/a.c's line 3, the range's second part.
+local function test_each_part_of_a_nested_range_is_read()
+  local decls = tree.parse(table.concat({
+    "TranslationUnitDecl 0x1 <<invalid sloc>> <invalid sloc>",
+    "|-FunctionDecl 0x2 <core/a.c:2:1, line:4:1> line:2:5 f 'int (void)'",
+    "| `-ParenExpr 0x3 <<scratch space>:1:1, core/a.c:3:9> 'int'",
+    "`-VarDecl 0x4 <col:2, col:9> col:5 y 'int'",
+  }, "\n"))
+  assert(#decls == 2, "kept " .. #decls)
+  local paren = decls[1].children[1]
+  assert(paren.file == "<scratch space>" and paren.line == 1, tostring(paren.file))
+  assert(paren.text == "'int'", paren.text)
+  assert(decls[2].file == "core/a.c" and decls[2].line == 3 and decls[2].col == 2,
+    tostring(decls[2].file) .. ":" .. tostring(decls[2].line))
+end

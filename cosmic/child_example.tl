@@ -55,6 +55,55 @@ function Example.guard()
   for _, h in ipairs(running) do assert(h:close()) end
 end
 
+--- A supervisor that reports what it was running when a signal
+--- interrupts it: it asks the guard after each round, closes the
+--- handles still running, which ends their children, and releases the
+--- guard rather than closing it, so the signal does not end this
+--- process before its report is out. The SIGTERM it sends itself
+--- stands in for a Ctrl-C or a `kill`.
+function Example.supervisor()
+  local guard <close> = assert(Child.guard())
+  -- This program again, past its launcher, each child sleeping a minute.
+  local again = assert(Proc.relaunch())
+  local running: {Child.Handle} = {}
+  local names: {Child.Handle:string} = {}
+  for _, name in ipairs({ "build", "upload" }) do
+    local argv = { table.unpack(again.argv) }
+    argv[#argv + 1] = "-e"
+    argv[#argv + 1] = "require('cosmic.time').sleep_ns(60 * 1000000000)"
+    local h = assert(Child.start(argv, { env = again.env, fds = again.fds }))
+    running[#running + 1] = h
+    names[h] = name
+  end
+  local report: {string} = {}
+  while #running > 0 and guard:cancelled() == 0 do
+    local done, trouble = Child.wait_any(running, Time.ms(100))
+    if done == nil and trouble ~= Poll.TIMEOUT then error(trouble) end
+    local still: {Child.Handle} = {}
+    for _, h in ipairs(running) do
+      if rawequal(h, done) then
+        local result = assert(h:wait())
+        report[#report + 1] = names[h] .. (result.ok and " ok" or " failed")
+      else
+        still[#still + 1] = h
+      end
+    end
+    running = still
+    -- Stands in for a Ctrl-C that comes while the children run.
+    assert(sys.kill(sys.getpid(), sys.SIGTERM))
+  end
+  for _, h in ipairs(running) do
+    assert(h:close())
+    report[#report + 1] = names[h] .. " interrupted"
+  end
+  local caught = assert(guard:release())
+  for _, line in ipairs(report) do print(line) end
+  -- A program would exit with this status, as a shell's does for a
+  -- command a signal ended.
+  local status = caught ~= 0 and 128 + caught or 0
+  assert(status == 128 + sys.SIGTERM, tostring(status))
+end
+
 --- One child supervised as a shell supervises a command: each signal
 --- sent to this process alone is passed on to the child, and releasing
 --- the guard, rather than closing it, re-raises the last one only if

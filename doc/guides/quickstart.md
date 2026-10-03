@@ -50,34 +50,37 @@ hello from notes.txt
 ## a quick question about a JSON file
 
 For a ten-second question about a JSON file, skip the script: `cosmic
-json` looks one value up. `cosmic json --exists '.users[1].email'
+json` looks one value up. `cosmic json --exists '$.users[0].email'
 export.json` prints nothing and answers by its exit status (0 found, 1
 not there); `cosmic json --keys export.json` lists the top-level keys,
-sorted, or an array's length; `cosmic json --shape '.users' export.json`
-summarizes what is inside; `cosmic json -r '.users[1].name' export.json`
-prints a string without its quotes. The path is the `$.users[1].name`
-style the JSON messages print, with indices counted from 1; quote it in
-single quotes, as a shell expands `$` and `[1]`. The file is `-` or left
-out to read standard input, so `curl ... | cosmic json '.items[1]'`
-works. Numbers print as [`Json.encode`] writes them, so `1e2` reads
-`100.0`.
+sorted, or an array's length; `cosmic json --shape '$.users' export.json`
+summarizes what is inside; `cosmic json -r '$.users[0].name' export.json`
+prints a string without its quotes. The path is a JSONPath query: `$`
+first, then names and indices counted from 0 (`[-1]` is the last), as
+JSON Pointer counts them in the messages; quote it in single quotes, as
+a shell expands `$` and `[0]`. The file is `-` or left out to read
+standard input, so `curl ... | cosmic json '$.items[0]'` works. Numbers
+print as [`Json.encode`] writes them, so `1e2` reads `100.0`.
 
 When you do not know where a value lives, list them all: `cosmic json
 --flat export.json` prints every leaf as a `path = value` line, keys
 sorted, and `cosmic json --flat export.json | grep -i email` finds the
-one you want, say `$.users[2].contact.email = "bo@example.com"`. That
-path is exactly what `cosmic json` takes, so paste it back: `cosmic json
-'$.users[2].contact'` shows what is around it. A `*` stands for every
+one you want, say `$.users[1].contact.email = "bo@example.com"`. That
+path is one `cosmic json` reads, so paste it back in single quotes:
+`cosmic json '$.users[1].contact' export.json` shows what is around it.
+A key that is not a word prints as `$["a key"]`; one holding `'` needs
+`'\''` inside the shell's single quotes. A `*` stands for every
 member or element, and `..` for any depth: `cosmic json '$.users[*].name'
 export.json` prints each user's name as such a line, `cosmic json -r
 '$..email' export.json` every email in the file, bare (a string with a
 newline in it takes more than one line), and `cosmic json
 --exists '$..error' export.json` asks whether any `error` key is there.
-`--keys` and `--shape` take one path, not a pattern. There are no
-JSONPath filters or slices, on purpose: it is only a lookup, and `grep`
-over `--flat` covers the simple cases. To count or sum, use `cosmic sql
---from` (next section); for anything else write the script with
-`cosmic.json`: [`Json.decode`] the file and walk the value in Lua.
+`--keys` and `--shape` take one path, not a query of `*` or `..`.
+JSONPath filters, slices and unions are refused, on purpose: it is only
+a lookup, and `grep` over `--flat` covers the simple cases. To count or
+sum, use `cosmic sql --from` (next section); for anything else write
+the script with `cosmic.json`: [`Json.decode`] the file and walk the
+value in Lua, or look a path up with [`Json.get`] and [`Json.select`].
 `cosmic help json` has the rest.
 
 ## a random id, token or number
@@ -96,7 +99,7 @@ holds -- takes three steps, and none is a script. Stop at the first that
 answers:
 
 1. Look it up with `cosmic json`: `cosmic json --shape export.json` says
-   what is in the file, and `cosmic json '.users[1]' export.json` prints
+   what is in the file, and `cosmic json '$.users[0]' export.json` prints
    one value.
 2. Find where something is with `cosmic json --flat export.json | grep
    needle`, and paste the path it prints back into `cosmic json`.
@@ -131,7 +134,7 @@ exist is answered with the ones that do. `cosmic help sql` has the rest.
 
 `cosmic fetch <url>` is a small curl: it prints the body, fails on a
 non-2xx, and takes `-o file` and `--sha256 hex`, so `cosmic fetch <url> |
-cosmic json '.items'` works. A URL may carry its digest, as pip's do:
+cosmic json '$.items'` works. A URL may carry its digest, as pip's do:
 `cosmic fetch -o tool.tgz https://host/tool.tgz#sha256=<hex>` renames the file into place only if it matches. `cosmic help fetch` has the rest.
 
 ## the digest of a file
@@ -349,5 +352,7 @@ for a variable that holds floats. A function declared `: number` may still
 [`Hash.hex_sha256`]: ../../cosmic/hash.tl
 [`Json.decode`]: ../../cosmic/json.tl
 [`Json.encode`]: ../../cosmic/json.tl
+[`Json.get`]: ../../cosmic/json.tl
+[`Json.select`]: ../../cosmic/json.tl
 [`Poll.TIMEOUT`]: ../../cosmic/poll.tl
 [`Proc.exit`]: ../../cosmic/proc.tl
