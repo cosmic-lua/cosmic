@@ -8,6 +8,7 @@ local LauncherSetup = require("cosmic_ci.launcher_setup")
 local ProductSetup = require("cosmic_ci.product_setup")
 local Archive = require("cosmic.archive")
 local Sqlite = require("cosmic.sqlite")
+local sys = require("cosmic.sys")
 local Child = require("cosmic.child")
 local Proc = require("cosmic.proc")
 local Runner = require("cosmic_ci.runner")
@@ -1325,19 +1326,34 @@ end
 --- into that file, so a tool it built rebuilding itself from the
 --- candidate's tree takes back every module it has not edited. A copy,
 --- taken through SQLite since the file is in WAL mode, so the rows the
---- fixture's rebuilds write are never saved with the leg's. False and
---- why when the leg keeps no such file.
+--- fixture's rebuilds write are never saved with the leg's. A row's
+--- bytecode runs, so the file is held to what build/shared_compiles.tl
+--- holds it to before a build reads it: an absolute path, a file and
+--- no link, this user's, and writable by no one else. False and why
+--- when the leg keeps no such file; a leg whose COSMIC_BUILD_CACHE is
+--- `0` keeps none, and is refused rather than left to compile every
+--- case cold.
 function Orchestration.seed_compiles(env: {string:string},
     destination: string): boolean, string
   local source = env.COSMIC_BUILD_CACHE or ""
   if source == "0" then
     return false, "COSMIC_BUILD_CACHE=0: the leg keeps no compiles to seed " ..
-      "the self-rebuild fixture with"
+      "the self-rebuild fixture with; unset it, or name a file"
   end
   if source == "" then
     local dir, trouble = Fs.cache_dir("build", { environment = env, make = false })
     if dir == nil then return false, trouble end
     source = dir .. "/cache.db"
+  end
+  if source:sub(1, 1) ~= "/" then
+    return false, "COSMIC_BUILD_CACHE names no absolute path: " .. source
+  end
+  local st, stat_trouble = sys.lstat(source)
+  if st == nil then return false, source .. ": " .. stat_trouble end
+  if st.kind ~= "file" then return false, source .. ": not a file" end
+  if st.uid ~= sys.getuid() then return false, source .. ": owned by another user" end
+  if st.mode & 0x12 ~= 0 then
+    return false, source .. ": writable by its group or others"
   end
   if Fs.exists(destination) then
     return false, destination .. ": already exists"

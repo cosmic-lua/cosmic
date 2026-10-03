@@ -441,8 +441,9 @@ end
 --- The self-rebuild fixture's seed is a copy of the leg's compiles,
 --- where COSMIC_BUILD_CACHE names them or, unnamed, in the cache
 --- directory, rows still in the WAL among them; a leg that keeps none
---- (`0`, or no file) is refused rather than seeded with nothing, and a
---- seed already there is never written over.
+--- (`0`, or no file) is refused rather than seeded with nothing, as is
+--- one a build would refuse to read (a relative path, a file others may
+--- write), and a seed already there is never written over.
 local function test_the_self_rebuild_seed_copies_the_legs_compiles(tmp: string)
   local Orchestration = require("cosmic_ci.orchestration")
   local function cache_at(path: string): Sqlite.Handle
@@ -483,7 +484,16 @@ local function test_the_self_rebuild_seed_copies_the_legs_compiles(tmp: string)
   local missing, missing_trouble = Orchestration.seed_compiles(
     { COSMIC_BUILD_CACHE = tmp .. "/missing.db" }, tmp .. "/four.db")
   assert(not missing and missing_trouble:find(tmp .. "/missing.db", 1, true), missing_trouble)
-  assert(not Fs.exists(tmp .. "/three.db") and not Fs.exists(tmp .. "/four.db"))
+  local relative, relative_trouble = Orchestration.seed_compiles(
+    { COSMIC_BUILD_CACHE = "named/cache.db" }, tmp .. "/five.db")
+  assert(not relative and relative_trouble:find("absolute", 1, true), relative_trouble)
+  assert(Fs.chmod(default, 0x1b4))
+  local shared, shared_trouble = Orchestration.seed_compiles(
+    { COSMIC_BUILD_CACHE = default }, tmp .. "/six.db")
+  assert(not shared and shared_trouble:find("writable by its group", 1, true), shared_trouble)
+  for _, name in ipairs({ "three", "four", "five", "six" }) do
+    assert(not Fs.exists(tmp .. "/" .. name .. ".db"), name)
+  end
 end
 
 --- A fixture of `sandboxed_fixtures` runs as the leg's suites do: its
