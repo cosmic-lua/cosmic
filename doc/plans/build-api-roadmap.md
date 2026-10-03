@@ -103,8 +103,8 @@ branch `37138818328`, all three CI-image jobs and full queue `37139084798`.
 Its exact audited tree `2002e09a` and parent `b8a3` are unchanged.
 All five selected follow-up production PRs are merged; the release boundary,
 independent reviews, native gates and final preservation audit are complete.
-E4 will pin a verified published release containing all four changes,
-so standalone CI maintenance executes the corrected code, then audit reuse.
+E4 pins a verified published release containing all four changes,
+so standalone CI maintenance executes the corrected code; reuse was audited.
 
 Review separated E2a's independent removal of unsafe mutation from E2b's
 new-API consumption. E2a may land before E1; its success-path behavior,
