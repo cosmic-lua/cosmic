@@ -56,9 +56,8 @@ local record Module
   -- (put Json.null where the hole is, as decode's `null_value` does);
   -- and for the fields cosmic.archive's ExtractOptions lost:
   -- `unsupported` (an entry that cannot be extracted always fails the
-  -- extraction; `filter` leaves its path out), `mtimes` (every file,
-  -- directory and symlink gets its archived time) and `max_bytes` (no
-  -- replacement; `max_entries` bounds the entries).
+  -- extraction; `filter` leaves its path out) and `mtimes` (every file,
+  -- directory and symlink gets its archived time).
   -- Likewise for what cosmic.time's records lost: `Civil.nanosecond` and
   -- `Duration.nanoseconds` (both `ns` now), and the `zone` field of
   -- FormatOptions and AddOptions (the zone is an argument, right after the

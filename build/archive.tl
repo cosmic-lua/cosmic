@@ -664,9 +664,11 @@ local function extract(file: string, dest: string, force: boolean, members: {str
     -- `tar -x`'s way of extracting into a directory that already holds
     -- files, with only what a look at the listing can settle first (a
     -- missing member, an overwrite) checked before anything is written.
-    -- The verb names no size limit, so [`Archive.extract`]'s defaults
-    -- hold, here and in [`extract_streamed`]; a tree past them is for a
-    -- script that sets its own.
+    -- TODO: the verb names no size limit, so [`Archive.extract`]'s defaults
+    -- (1 GiB a file, 8 GiB in all) hold, here and in [`extract_streamed`],
+    -- and a tree past them cannot be extracted by it. Add `--max-bytes`
+    -- and `--max-entry-bytes` flags, passed through as
+    -- [`Archive.ExtractOptions`]' `max_bytes` and `max_entry_bytes`.
     local written, extract_why = Archive.extract(path, dest, {
       links = "create",
       filter = selected,

@@ -693,35 +693,78 @@ local function test_extract_refuses_a_tgz_bomb_and_leaves_no_file(tmp: string)
   holds_only(tmp .. "/out2", { "small" })
 end
 
-local function test_extract_counts_the_bytes_it_writes_not_the_size_a_header_records(tmp: string)
-  local sent = 0
-  local lying: Archive.Entry = {
-    path = "grows", kind = "file", mode = 0x1a4, size = 1, mtime = 0, linkpath = "",
+--- A reader of one regular file `path` of size `size` as its header says,
+--- whose body answers each `read` with `answer(asked)`.
+local function reader_of_one_file(path: string, size: integer,
+                                  answer: function(integer): string | nil, string): Archive.Reader
+  local entry: Archive.Entry = {
+    path = path, kind = "file", mode = 0x1a4, size = size, mtime = 0, linkpath = "",
     open = function(_self: Archive.Entry): Stream.Reader | nil, string
       local r: Stream.Reader = {}
       r.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
-        local n = max_bytes or 65536
-        sent = sent + n
-        return string.rep("x", n), ""
+        return answer(max_bytes or 65536)
       end
       r.close = function(_self: Stream.Reader): boolean, string return true, "" end
       return r
     end,
   }
   local given = false
-  local reader: Archive.Reader = {
+  return {
     next = function(_self: Archive.Reader): Archive.Entry | nil, string
       if given then return nil, "" end
       given = true
-      return lying, ""
+      return entry, ""
     end,
     close = function(_self: Archive.Reader): boolean, string return true, "" end,
   }
+end
+
+local function test_extract_counts_the_bytes_it_writes_not_the_size_a_header_records(tmp: string)
+  local sent = 0
+  local reader = reader_of_one_file("grows", 1, function(asked: integer): string | nil, string
+    sent = sent + asked
+    return string.rep("x", asked), ""
+  end)
   local written, why = Archive.extract_reader(reader, tmp .. "/out", { max_entry_bytes = 1000 })
   assert(written == nil, "extracted a body that outgrew its header")
   assert(why:find("grows is larger than max_entry_bytes (1000 bytes)", 1, true), why)
-  -- Never more than one byte past the limit was asked of the body.
-  assert(sent == 1001, "read " .. sent .. " bytes")
+  -- A body that answers whatever it is asked is never asked for more than
+  -- one byte past the limit.
+  assert(sent <= 1001, "asked for " .. sent .. " bytes")
+  holds_only(tmp .. "/out", {})
+end
+
+local function test_extract_refusing_a_file_keeps_the_one_already_at_its_path(tmp: string)
+  -- Stream.create writes a temporary and renames it on close, so a file
+  -- refused partway never replaces the one it would have.
+  local archive = tmp .. "/t.tar"
+  tar_of(archive, function(tw: Tar.Writer)
+    assert(tw:add_file("a", string.rep("n", 600)))
+  end)
+  local dest = tmp .. "/out"
+  assert(Fs.mkdirs(dest))
+  assert(Fs.write(dest .. "/a", "old"))
+  local written, why = Archive.extract(archive, dest, { max_entry_bytes = 100 })
+  assert(written == nil and why:find("max_entry_bytes (100 bytes)", 1, true), tostring(why))
+  assert(Fs.read(dest .. "/a") == "old")
+  holds_only(dest, { "a" })
+  written, why = Archive.extract(archive, dest, { max_bytes = 100 })
+  assert(written == nil and why:find("max_bytes (100 bytes)", 1, true), tostring(why))
+  assert(Fs.read(dest .. "/a") == "old")
+  holds_only(dest, { "a" })
+end
+
+local function test_extract_a_body_that_fails_to_read_leaves_no_file(tmp: string)
+  local reads = 0
+  local reader = reader_of_one_file("half", 10, function(_asked: integer): string | nil, string
+    reads = reads + 1
+    if reads == 1 then return "12345", "" end
+    return nil, "disk on fire"
+  end)
+  local written, why = Archive.extract_reader(reader, tmp .. "/out", {})
+  assert(written == nil and why == "disk on fire", tostring(why))
+  assert(reads == 2)
+  -- Neither the file nor the temporary it was staged in.
   holds_only(tmp .. "/out", {})
 end
 
@@ -826,7 +869,7 @@ local function test_extract_byte_limits_that_are_not_whole_numbers_of_bytes_rais
     Archive.extract_reader(reader, tmp .. "/o", { max_bytes = -1 })
     return true
   end)
-  assert(not ok and tostring(why):find("archive: max_bytes is negative", 1, true), tostring(why))
+  assert(not ok and tostring(why):find("archive_test:%d+: archive: max_bytes is negative"), tostring(why))
   assert(reader:close())
 end
 

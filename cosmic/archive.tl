@@ -417,8 +417,9 @@ local DEFAULT_MAX_ENTRY_BYTES <const> = 1 << 30
 local DEFAULT_MAX_BYTES <const> = 8 << 30
 
 --- The limit `value` names for the option `name`, or `default` when
---- there is none; raises, blaming the caller of [`extract_from`]'s
---- caller, for one that is no whole number of at least 0.
+--- there is none; raises, blaming level 3 (the caller of `extract` or
+--- [`extract_reader`], which tail-call [`extract_from`]), for one that is
+--- no whole number of at least 0.
 local function byte_limit(name: string, value: number | nil, default: integer): integer
   if value == nil then return default end
   local whole = math.tointeger(value)
@@ -549,7 +550,8 @@ local function extract_from(from: string | Archive.Reader, dest: string,
     local size = 0
     while true do
       -- One byte past the room is read, to tell a body that ends at a
-      -- limit from one that goes on; the sum cannot overflow.
+      -- limit from one that goes on. `left + 1` cannot overflow: `left`
+      -- is under `CHUNK` there.
       local want = CHUNK
       local left = math.min(entry_limit - size, total_limit - bytes_written - size)
       if left < want then want = left + 1 end
