@@ -592,3 +592,17 @@ end
 local function test_a_semicolon_keeps_its_own_line()
   writes("f()\n; g()\n", "f()\n; g()\n")
 end
+
+--- A number's digit separators (patch/tl/38a) are written back as the
+--- source has them: only the Lua the compiler emits drops them.
+local function test_a_number_keeps_its_digit_separators()
+  writes("local n = 1_000_000 + 0xFF_FF + 3.141_592 + 6.02e2_3\n",
+    "local n = 1_000_000 + 0xFF_FF + 3.141_592 + 6.02e2_3\n")
+end
+
+--- A misplaced separator is refused, naming the literal.
+local function test_a_misplaced_digit_separator_is_refused()
+  local result, trouble = fix.source(built, "local n = 1__0\nprint(n)\n", "fixture.tl")
+  assert(result == nil and tostring(trouble):find("malformed number '1__0'", 1, true),
+    "fix should refuse 1__0, but: " .. tostring(trouble))
+end

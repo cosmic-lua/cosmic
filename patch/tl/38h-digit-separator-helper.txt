@@ -1,0 +1,21 @@
+file: tl.tl
+note: whether every '_' a number's text holds (38a) sits between two of its digits: hexadecimal digits in a literal starting 0x, decimal ones otherwise; a hexadecimal exponent holds only decimal digits, which are hexadecimal ones too
+--- find
+   tl.lex = function(input: string, filename: string): {Token}, {Error}
+      local tokens: {Token} = {}
+--- replace
+   local function lex_separators_between_digits(tk: string): boolean
+      local digits = tk:match("^0[xX]") and lex_hexadecimals or lex_decimals
+      local p = tk:find("_", 1, true)
+      while p do
+         if not (digits[tk:sub(p - 1, p - 1)] and digits[tk:sub(p + 1, p + 1)]) then
+            return false
+         end
+         p = tk:find("_", p + 1, true)
+      end
+      return true
+   end
+
+   tl.lex = function(input: string, filename: string): {Token}, {Error}
+      local tokens: {Token} = {}
+--- end

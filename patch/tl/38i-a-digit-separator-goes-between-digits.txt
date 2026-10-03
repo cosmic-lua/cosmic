@@ -1,0 +1,39 @@
+file: tl.tl
+note: a number whose '_' is not between two digits (`1_`, `1__0`, `1_.5`, `0x_FF`, `1e_5`) is refused naming the literal and the rule, at the literal, rather than read as a number and a name that the parser refuses further on
+--- find
+      local function end_token_prev(kind: TokenKind)
+         local tk = input:sub(ti, i - 1)
+         nt = nt + 1
+         tokens[nt] = {
+            x = tx,
+            y = ty,
+            tk = tk,
+            kind = kind,
+            comments = comments,
+         }
+         comments = nil
+         in_token = false
+      end
+--- replace
+      local function end_token_prev(kind: TokenKind)
+         local tk = input:sub(ti, i - 1)
+         nt = nt + 1
+         tokens[nt] = {
+            x = tx,
+            y = ty,
+            tk = tk,
+            kind = kind,
+            comments = comments,
+         }
+         comments = nil
+         in_token = false
+         if (kind == "integer" or kind == "number") and not lex_separators_between_digits(tk) then
+            table.insert(errs, {
+               filename = filename,
+               y = ty,
+               x = tx,
+               msg = "malformed number '" .. tk .. "': a '_' in a number goes between two digits",
+            })
+         end
+      end
+--- end

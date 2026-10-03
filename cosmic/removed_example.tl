@@ -172,13 +172,18 @@ end
 
 --- math.abs, math.floor, math.ceil, math.modf, math.fmod, math.min and math.max
 --- cover ordinary numeric operations. math.tointeger returns nil unless exact;
---- math.type distinguishes "integer", "float", and non-numbers.
+--- math.type distinguishes "integer", "float", and non-numbers. A number
+--- literal may separate its digits with `_`, each between two digits
+--- (`1_000_000`, `0xFF_FF`, `6.02e2_3`): the compiled Lua holds the digits
+--- alone, so `1_000` is the integer 1000. Stock Teal and Lua refuse such a
+--- literal, and `tonumber("1_000")` is still nil.
 function Example.math_numeric()
   local whole, fraction = math.modf(2.25)
   assert(math.abs(-3) == 3 and math.floor(1.9) == 1 and math.ceil(1.1) == 2)
   assert(whole == 2 and fraction == .25 and math.fmod(-7, 3) == -1)
   assert(math.min(3, 1, 2) == 1 and math.max(3, 1, 2) == 3)
   assert(math.type(1) == "integer" and math.tointeger(1.5) == nil)
+  assert(1_000_000 == 1000000 and math.type(1_000) == "integer" and tonumber("1_000") == nil)
 end
 
 --- math.sin, math.cos, math.tan, math.asin, math.acos and math.atan(y[, x]) use

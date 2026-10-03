@@ -80,6 +80,11 @@ local function test_an_integer_inferred_accumulator_names_the_fix()
   assert(hint_for("local x = 0\nx = 1.5\nprint(x)\n") == said("x", 1, "0"))
 end
 
+--- A literal with digit separators (patch/tl/38a) is quoted as written.
+local function test_an_integer_hint_quotes_a_separated_literal()
+  assert(hint_for("local x = 1_000\nx = x / 2\nprint(x)\n") == said("x", 1, "1_000"))
+end
+
 --- A trailing comment or semicolon on the declaration, an inner
 --- function reading the outer local, and an `if` branch all resolve.
 local function test_an_integer_hint_reads_the_declaration_through_the_parse()

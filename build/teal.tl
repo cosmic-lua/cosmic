@@ -548,7 +548,7 @@ local function integer_hint(source: string, y: integer, x: integer): string | ni
   end
   local target, value = names[1], values[1]
   local name, literal = target.tk, value.tk
-  if name == nil or literal == nil or value.kind ~= "integer" or literal:match("^%d+$") == nil then
+  if name == nil or literal == nil or value.kind ~= "integer" or literal:match("^%d[%d_]*$") == nil then
     return nil
   end
   return name .. " is an integer, inferred from 'local " .. name .. " = " .. literal ..
