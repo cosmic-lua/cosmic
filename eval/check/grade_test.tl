@@ -161,3 +161,72 @@ local function test_an_unknown_task_is_a_usage_error()
   assert(Grader.main({ "notes" }) == 2)
   assert(Grader.main({ "notes", "/nowhere", "extra" }) == 2)
 end
+
+local function test_a_journal_is_a_file_with_something_in_it(dir: string)
+  local path = dir .. "/JOURNAL.md"
+  local kept, why = Grader.journal(path)
+  assert(not kept and why:find("no " .. path, 1, true), why)
+  assert(Fs.write(path, ""))
+  kept, why = Grader.journal(path)
+  assert(not kept and why == path .. " is empty", why)
+  assert(Fs.write(path, " \n\t\n"))
+  kept, why = Grader.journal(path)
+  assert(not kept and why == path .. " is empty", why)
+  assert(Fs.write(path, "**Log**\n\n1. tried it\n"))
+  assert(Grader.journal(path))
+  assert(Fs.mkdirs(dir .. "/dir.md"))
+  kept, why = Grader.journal(dir .. "/dir.md")
+  assert(not kept and why:find("no " .. dir .. "/dir.md", 1, true), why)
+end
+
+--- Grades the arena at `dir`, whose project's JOURNAL.md holds
+--- `journal` (none when nil), with a stand-in cosmic whose every
+--- command passes and whose `fix` fails where the journal was not set
+--- aside; answers the status and lines.
+local function graded_with_journal(dir: string, journal: string | nil): integer, string
+  assert(Fs.mkdirs(dir .. "/bin") and Fs.mkdirs(dir .. "/project"))
+  if journal ~= nil then
+    assert(Fs.write(dir .. "/project/JOURNAL.md", journal))
+  end
+  local probe = assert(stand_in.build(dir .. "/stand-in"))
+  assert(stand_in.place(probe, dir .. "/bin/cosmic",
+    "[fix] exists JOURNAL.md 1\nexit 0"))
+  return graded("kv", dir)
+end
+
+local function test_a_project_without_a_journal_fails(dir: string)
+  local status, said = graded_with_journal(dir, nil)
+  assert(status == 1, said)
+  assert(said:find("check: FAIL JOURNAL.md kept, as TASK.md's journal contract asks: no " ..
+    dir .. "/project/JOURNAL.md", 1, true), said)
+  assert(said:sub(-12) == "check: FAIL\n", said)
+end
+
+local function test_a_project_with_an_empty_journal_fails(dir: string)
+  local status, said = graded_with_journal(dir, "\n  \n")
+  assert(status == 1, said)
+  assert(said:find("check: FAIL JOURNAL.md kept, as TASK.md's journal contract asks: " ..
+    dir .. "/project/JOURNAL.md is empty\n", 1, true), said)
+  assert(Fs.read(dir .. "/project/JOURNAL.md") == "\n  \n")
+end
+
+--- A journal passes its check, is set aside for `fix --check`, and is
+--- put back after it.
+local function test_a_project_with_a_journal_passes_that_check(dir: string)
+  local status, said = graded_with_journal(dir, "**Log**\n\n1. tried it\n")
+  assert(status == 1, said) -- the stand-in builds no kv
+  assert(said:find("check: ok   JOURNAL.md kept, as TASK.md's journal contract asks\n", 1, true), said)
+  assert(said:find("check: ok   " .. dir .. "/bin/cosmic fix --check\n", 1, true), said)
+  assert(Fs.read(dir .. "/project/JOURNAL.md") == "**Log**\n\n1. tried it\n")
+  assert(not Fs.exists(dir .. "/JOURNAL.md.aside"))
+end
+
+--- A journal an earlier, killed grading left aside is put back before
+--- it is checked.
+local function test_a_journal_left_aside_is_put_back_and_checked(dir: string)
+  assert(Fs.write(dir .. "/JOURNAL.md.aside", "kept\n"))
+  local status, said = graded_with_journal(dir, nil)
+  assert(status == 1, said)
+  assert(said:find("check: ok   JOURNAL.md kept, as TASK.md's journal contract asks\n", 1, true), said)
+  assert(Fs.read(dir .. "/project/JOURNAL.md") == "kept\n")
+end

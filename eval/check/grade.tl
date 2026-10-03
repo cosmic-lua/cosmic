@@ -224,22 +224,47 @@ local function command_step(g: Grade, argv: {string}, cwd: string): boolean
   end)
 end
 
+--- Checks that the project keeps the journal eval/journal.md's
+--- contract, appended to every task's TASK.md, asks for: a
+--- `JOURNAL.md` with something in it. The contract names its parts (a
+--- log, a summary) in prose rather than as exact headings, so their
+--- content is the journal's reader's to judge, not the grader's.
+function Grader.journal(path: string): boolean, string
+  local text, trouble = Fs.read(path)
+  if text == nil then
+    return false, "no " .. path .. " (" .. trouble .. ")"
+  end
+  if text:match("^%s*$") then
+    return false, path .. " is empty"
+  end
+  return true, ""
+end
+
 --- Runs `cosmic fix --check` with the journal set aside: it is prose
 --- the task asks for, not a source the task asks to have formatted,
---- and `fix --check` holds a project's Markdown to its link rules.
+--- and `fix --check` holds a project's Markdown to its link rules. The
+--- journal is checked here, once one an earlier grading set aside is
+--- back in place.
 local function fix_check(g: Grade, cosmic: string, project: string)
   local journal = project .. "/JOURNAL.md"
   local aside = g.dir .. "/JOURNAL.md.aside"
   -- A grading killed during the step left the journal aside: put it
   -- back, or, beside a new journal, keep it and say so.
+  local both = false
   if exists(aside) then
     if exists(journal) then
       fail(g, aside .. " is an earlier grading's, beside a new JOURNAL.md; " ..
         "keeping both, and checking the new one")
-      command_step(g, { cosmic, "fix", "--check" }, project)
-      return
+      both = true
+    else
+      local _, _ = Fs.rename(aside, journal)
     end
-    local _, _ = Fs.rename(aside, journal)
+  end
+  local kept, why = Grader.journal(journal)
+  check(g, kept, "JOURNAL.md kept, as TASK.md's journal contract asks", why)
+  if both then
+    command_step(g, { cosmic, "fix", "--check" }, project)
+    return
   end
   local moved, _ = Fs.rename(journal, aside)
   command_step(g, { cosmic, "fix", "--check" }, project)

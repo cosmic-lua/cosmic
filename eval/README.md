@@ -272,7 +272,9 @@ modules only. For each task it
 1. clears the runs `project/o/build.db` records, runs the arena's own
    `bin/cosmic test`, and requires a passing test and a passing example
    (or doctest) among the runs that test recorded;
-2. runs `cosmic fix --check` with `JOURNAL.md` set aside, and
+2. requires a `project/JOURNAL.md` with something in it, as the
+   journal contract asks -- what it says is the reader's to judge, not
+   the grader's -- then runs `cosmic fix --check` with it set aside, and
    `cosmic build`;
 3. copies `o/bin/<task>` -- only when that build passed and named it --
    alone into the arena's `empty/`, and runs the task's checks there,
