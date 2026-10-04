@@ -268,6 +268,24 @@ local verbs: {string:function(string, string): integer} = {
     started[#started + 1] = handle
     return nil
   end,
+  ["start-count"] = function(word: string, rest: string): integer
+    local program, argument = rest:match("^(%S+)%s*(.-)$")
+    if program == nil then return failed("start-count", "no program") end
+    local wanted = number(word)
+    if wanted == nil or wanted < 0 then return failed("start-count", "no count " .. word) end
+    local count = 0
+    local refusal = ""
+    for _ = 1, wanted do
+      local handle, trouble = Child.start(argv_of(program, argument), { process_group = false })
+      if handle == nil then
+        refusal = trouble
+        break
+      end
+      started[#started + 1] = handle
+      count = count + 1
+    end
+    return put_all(1, "started " .. count .. (refusal ~= "" and (" then " .. refusal) or "") .. "\n")
+  end,
   ["fd-closed"] = function(word: string): integer
     local fd = number(word)
     if fd == nil or fd < 0 then
@@ -286,7 +304,7 @@ local verbs: {string:function(string, string): integer} = {
   rlimit = function(name: string): integer
     local resources: {string:integer} = {
       nofile = sys.RLIMIT_NOFILE, fsize = sys.RLIMIT_FSIZE, cpu = sys.RLIMIT_CPU,
-      core = sys.RLIMIT_CORE,
+      core = sys.RLIMIT_CORE, nproc = sys.RLIMIT_NPROC,
     }
     local resource = resources[name]
     if resource == nil then return failed("rlimit", "no resource " .. name) end

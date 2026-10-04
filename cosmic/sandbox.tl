@@ -32,10 +32,10 @@
 --- program to it is [`Child.start`]'s, or [`Sandbox.restrict`]'s for the
 --- running process: Landlock for the paths, a seccomp filter for the
 --- system calls, and rlimits, and, for a child, the namespaces `isolate`,
---- `loopback` and a `u` grant need. `connect` and the `nest` and
---- `processes` that need a relay or a user namespace of the program's
---- own are part of the policy but not yet met by it: a start under one
---- fails, saying so.
+--- `loopback`, a `u` grant and `limits.processes` need. `connect` and
+--- the `nest` that need a relay or a user namespace of the program's own
+--- to build one are part of the policy but not yet met by it: a start
+--- under one fails, saying so.
 
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
@@ -97,7 +97,9 @@ local record Sandbox
   end
 
   --- Resource limits on every process the program starts. Nil is the
-  --- start's default: 1024 open files, no core dump, nothing else.
+  --- start's default: 1024 open files, no core dump, and under `isolate`
+  --- 4096 processes where the kernel counts them per user namespace;
+  --- nothing else.
   record Limits
     --- The most descriptors a process may hold open (at least 1).
     open_files: integer
@@ -107,8 +109,9 @@ local record Sandbox
     --- limit are the same, so a process past it is ended by SIGKILL, with
     --- no SIGXCPU to catch first.
     cpu_seconds: integer
-    --- The most processes of the whole sandbox, counted by a user
-    --- namespace (at least 1).
+    --- The most processes and threads of the whole sandbox, counted by
+    --- the user namespace it runs in (at least 1): a child's, with
+    --- `isolate` "proc" or "file", on a Linux kernel from 5.17.
     processes: integer
   end
 
@@ -144,6 +147,14 @@ local record Sandbox
     tmp: boolean
     --- The resources it may spend.
     limits: Limits
+  end
+
+  --- What [`Sandbox.reach`] finds.
+  record Reach
+    --- Who gives the user its rights: "other", "owner" or "" for no one.
+    by: string
+    --- With no one, what its owner lacks, as words.
+    lacks: string
   end
 
   --- What [`Sandbox.restrict`] takes beside the policy.
@@ -894,6 +905,136 @@ function Sandbox.restrict(policy: Sandbox.Policy, options?: Sandbox.RestrictOpti
     return denied(held)
   end
   return true, ""
+end
+
+--- How many ids a root caller's sandboxes choose their user from
+--- ([`Sandbox.user_id`]).
+local USER_POOL <const> = 4096
+
+--- Whether one range of `text`, a uid_map or gid_map's lines of the first
+--- id inside, the first outside and how many, holds every id from `low`
+--- to `high`.
+local function mapped_run(text: string, low: integer, high: integer): boolean
+  for line in text:gmatch("[^\n]+") do
+    local first, _, count = line:match("^%s*(%d+)%s+(%d+)%s+(%d+)")
+    if first ~= nil then
+      local from, many = math.tointeger(tonumber(first)), math.tointeger(tonumber(count))
+      if from ~= nil and many ~= nil and from <= low and from + many - 1 >= high then
+        return true
+      end
+    end
+  end
+  return false
+end
+
+--- The highest id `text`, a uid_map or gid_map, maps, or nil for none.
+local function highest_mapped(text: string): integer | nil
+  local top: integer | nil
+  for line in text:gmatch("[^\n]+") do
+    local first, _, count = line:match("^%s*(%d+)%s+(%d+)%s+(%d+)")
+    if first ~= nil then
+      local from, many = math.tointeger(tonumber(first)), math.tointeger(tonumber(count))
+      if from ~= nil and many ~= nil and many > 0 and (top == nil or from + many - 1 > top) then
+        top = from + many - 1
+      end
+    end
+  end
+  return top
+end
+
+--- The user and group a root caller's program runs as, which is never
+--- root: one id of a pool, `serial` choosing which, from the top of what
+--- the caller's user namespace (`uid_map` and `gid_map`, as
+--- /proc/self/uid_map and gid_map read) maps. The pool is the 4096 ids
+--- below the highest both maps hold, kept clear of the topmost two ids of
+--- the host (-1 and -2 as a signed id) and of 65534 and 65535, which
+--- every system gives to nobody and to the overflow id: on the host, ids
+--- 4294963198 to 4294967293, which no distribution or container runtime
+--- assigns to a user (systemd keeps 2147483648 and up unallocated),
+--- and in a namespace that maps only 65536 ids, 61438 to 65533. A
+--- sandbox is given `serial % 4096` of them, so sandboxes whose serials
+--- differ get different users; two with equal serials share one, which
+--- costs only what a shared user does -- the files each owns that the
+--- other can reach -- since each has a pid namespace and its own user
+--- namespace's process count. Nil and why where the namespace maps no
+--- such run of ids.
+---
+---     local id = assert(Sandbox.user_id("0 0 4294967295\n", "0 0 4294967295\n", 0))
+---     print(id) -- 4294963198
+function Sandbox.user_id(uid_map: string, gid_map: string, serial: integer): integer | nil, string
+  local uid_top, gid_top = highest_mapped(uid_map), highest_mapped(gid_map)
+  if uid_top == nil or gid_top == nil then
+    return refuse("this user namespace maps no user or no group")
+  end
+  local top = math.min(uid_top, gid_top, 4294967293)
+  if top == 65534 or top == 65535 then top = 65533 end
+  local first = top - USER_POOL + 1
+  if first < 1 or not mapped_run(uid_map, first, top) or not mapped_run(gid_map, first, top) then
+    return refuse("this user namespace maps no run of " .. USER_POOL .. " ids ending at " ..
+        top .. ", from which a sandbox's own user is taken: a root caller's program never " ..
+        "runs as root, so it needs a namespace that maps more ids, as a host's does")
+  end
+  return first + serial % USER_POOL
+end
+
+--- Whether a kernel, by its release as /proc/sys/kernel/osrelease names
+--- it, counts the processes of a user namespace apart from the user's in
+--- the namespace it was made in, which `limits.processes` needs: Linux
+--- 5.17, where the per-namespace counts were fixed. A stable kernel that
+--- has the fixes under an older release is not recognized. A release this
+--- cannot read is not one.
+---
+---     print(Sandbox.counts_per_namespace("6.1.0-generic")) -- true
+---     print(Sandbox.counts_per_namespace("5.15.0")) -- false
+function Sandbox.counts_per_namespace(release: string): boolean
+  local major, minor = release:match("^(%d+)%.(%d+)")
+  if major == nil then return false end
+  local m, n = math.tointeger(tonumber(major)), math.tointeger(tonumber(minor))
+  return m ~= nil and n ~= nil and (m > 5 or (m == 5 and n >= 17))
+end
+
+--- What a user that owns none of the files and is in none of the groups
+--- they belong to -- the user of a root caller's sandbox, which has no
+--- supplementary group -- can do at the path `st` describes, to meet the
+--- grant letters `letters`: `"other"` when the mode's bits for everyone
+--- else give it all of them, `"owner"` when only the owner's bits do
+--- (an idmapped mount makes the sandbox's user the owner), and `""`,
+--- with what is missing, when neither does: reading needs `r`, and `x`
+--- to reach what is in a directory; writing or creating needs `w`, and
+--- `x` in a directory; running needs `x`; connecting to a socket needs
+--- `w`; `by` names which. Only the mode is read: an access control list, a mount's flags
+--- or a file system's own rules can allow or refuse more, and what is
+--- beneath a directory has modes of its own.
+---
+---     local st = assert(sys.stat("/etc/hostname"))
+---     print(Sandbox.reach("r", st).by) -- other
+function Sandbox.reach(letters: string, st: sys.Stat): Sandbox.Reach
+  local need = 0
+  local isdir = st.kind == "dir"
+  for i = 1, #letters do
+    local letter = letters:sub(i, i)
+    if letter == "r" then
+      need = need | 4 | (isdir and 1 or 0)
+    elseif letter == "w" or letter == "c" then
+      need = need | 2 | (isdir and 1 or 0)
+    elseif letter == "x" then
+      need = need | 1
+    elseif letter == "u" then
+      need = need | 2
+    end
+  end
+  local other = st.mode & 7
+  local owner = (st.mode >> 6) & 7
+  if other & need == need then return { by = "other", lacks = "" } end
+  if owner & need == need then return { by = "owner", lacks = "" } end
+  local names: {string} = {}
+  for bit, name in ipairs({ "execute", "write", "read" }) do
+    if need & (1 << (bit - 1)) ~= 0 and owner & (1 << (bit - 1)) == 0 then
+      names[#names + 1] = name
+    end
+  end
+  return { by = "", lacks = "its mode " .. string.format("%04o", st.mode & 4095) ..
+      " does not give its owner the right to " .. table.concat(names, " and ") }
 end
 
 return Sandbox

@@ -390,7 +390,8 @@ local function test_from_needs_isolate_file_and_what_is_not_met_stays_refused(tm
   assert(from:find("from", 1, true) and from:find("isolate", 1, true) and from:find("file", 1, true), from)
   assert(refused({ connect = { "example.com:443" } }):find("connect", 1, true))
   assert(refused({ promises = { "nest" } }):find("nest", 1, true))
-  assert(refused({ limits = { processes = 4 } }):find("processes", 1, true))
+  local counted = refused({ limits = { processes = 4 } })
+  assert(counted:find("limits.processes", 1, true) and counted:find("isolate", 1, true), counted)
   -- /tmp is the sandbox's own where tmp asks for it.
   local clash = refused({ isolate = { "file" }, tmp = true, grants = {
     { path = probe, letters = "rx" }, { path = "/tmp", letters = "r" } } })

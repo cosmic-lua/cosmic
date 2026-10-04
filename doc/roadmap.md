@@ -78,7 +78,9 @@ as a user of its own, mapped from outside (build/test_sandbox.tl's
 `runs_as`, spawn's `user`), and its fallback to root where the host refuses
 that user a user namespace -- runs only on developers' and agents' hosts,
 and core/syscalls_tool_test.tl checks the drop itself only in a run as root
-unsandboxed.
+unsandboxed. So does a policy's child for a root caller, whose user is its
+own, with a grant it cannot use idmapped or refused
+(cosmic/child_policy_user_test.tl).
 
 ## surface
 

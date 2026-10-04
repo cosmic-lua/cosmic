@@ -194,7 +194,6 @@ local function test_a_policy_that_is_not_met_fails_naming_the_field(tmp: string)
   local cases: {{any}} = {
     { { grants = grants(), connect = { "example.com:443" } }, 'connect "example.com:443"' },
     { { grants = grants(), promises = { "fork", "nest" } }, 'promises "nest"' },
-    { { grants = grants(), limits = { processes = 4 } }, "limits.processes" },
     { { grants = grants(), set_env_digests = { X = string.rep("0", 64) } }, 'set_env_digests "X"' },
   }
   for _, case in ipairs(cases) do

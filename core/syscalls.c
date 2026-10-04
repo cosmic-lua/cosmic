@@ -331,7 +331,7 @@ static rlim_t check_limit (lua_State *L, int index) {
 
 /* The most limits one `spawn` takes: one for each resource its
  * `rlimits` names, in RLIMIT_NAMES. */
-#define SPAWN_RLIMIT_MAX 4
+#define SPAWN_RLIMIT_MAX 5
 
 /* The resources `spawn`'s `rlimits` names, by the key it takes. */
 static const struct {
@@ -339,7 +339,7 @@ static const struct {
   int resource;
 } RLIMIT_NAMES[SPAWN_RLIMIT_MAX] = {
   { "nofile", RLIMIT_NOFILE }, { "fsize", RLIMIT_FSIZE }, { "cpu", RLIMIT_CPU },
-  { "core", RLIMIT_CORE },
+  { "core", RLIMIT_CORE }, { "nproc", RLIMIT_NPROC },
 };
 
 COSMIC_SYSCALL(getrlimit, 1) {
@@ -1100,6 +1100,18 @@ struct cosmic_mount_attr {
   uint64_t attr_set, attr_clr, propagation, userns_fd;
 };
 
+/* An idmapped mount ([`idmapped_tree`], [`build_root`]): open_tree(2)
+ * and move_mount(2), which a libc may not name either. */
+#ifndef SYS_open_tree
+#define SYS_open_tree 428
+#endif
+#ifndef SYS_move_mount
+#define SYS_move_mount 429
+#endif
+#define COSMIC_MOUNT_ATTR_IDMAP 0x00100000
+#define COSMIC_OPEN_TREE_CLONE 1
+#define COSMIC_MOVE_MOUNT_F_EMPTY_PATH 4
+
 /* Where in building a policy's sandbox (`spawn`'s `strict`) a child
  * failed, which its errno alone does not say: the status pipe carries
  * the stage above the errno's bits, and `spawn` reads both back to
@@ -1108,6 +1120,7 @@ enum {
   STAGE_NAMESPACE = 1, /* a user, pid, mount or network namespace, or mapping its ids */
   STAGE_PROC,          /* a procfs of its own */
   STAGE_ROOT,          /* the root's mounts */
+  STAGE_IDMAP,         /* an idmapped mount of a path, which the plan's `idmap_failed` names */
   STAGE_SHIFT = 16,
 };
 
@@ -1122,9 +1135,17 @@ static int staged (int strict, int stage, int number) {
  * (an errno): the remedy, which the errno alone does not name. Isolation
  * needs unprivileged user namespaces, and a procfs of its own needs a
  * container that does not mask /proc. */
-static void staged_message (int stage, int number, char *message, size_t room) {
+static void staged_message (int stage, int number, const char *path, char *message,
+                            size_t room) {
   const char *what = cosmic_errno_describe(number, NULL);
-  if (stage == STAGE_PROC) {
+  if (stage == STAGE_IDMAP) {
+    snprintf(message, room,
+             "an idmapped mount of %s was refused (%s): the sandbox's user must write or read "
+             "what its owner alone may, which needs a Linux kernel from 5.12, a file system that "
+             "supports idmapped mounts (ext4, xfs, btrfs and tmpfs do; an overlay or network file "
+             "system may not) and CAP_SYS_ADMIN here: make the path's mode readable and "
+             "writable by every user instead", path != NULL ? path : "a grant", what);
+  } else if (stage == STAGE_PROC) {
     snprintf(message, room,
              "this sandbox's own /proc was refused (%s): a container's runtime masks parts of "
              "/proc, and a user namespace may mount a procfs only where all of it is visible: "
@@ -1316,9 +1337,9 @@ static int place_proc (const char *target, int *own, int strict) {
  * A UTS namespace would change nothing a child sees: its host's name
  * and kernel stay what `uname` answers, which no key holds. */
 static int build_root (const char *root, char *const *paths, char *const *names,
-                       const char *const *at, const int *writable, const int *noexec, int count,
-                       int mapped, int noexec_scratch, int strict, unsigned long tmp_bytes,
-                       int *own) {
+                       const char *const *at, const int *writable, const int *noexec,
+                       const int *idmapped, int count, int mapped, int noexec_scratch, int strict,
+                       unsigned long tmp_bytes, int *own) {
   int number = 0;
   *own = 0;
   /* A private writable tmpfs needs a mapped owner. Refuse before an
@@ -1385,7 +1406,13 @@ static int build_root (const char *root, char *const *paths, char *const *names,
       if (number != 0) return number;
       continue;
     }
-    if (mount(paths[i], target, NULL, MS_BIND | MS_REC, NULL) != 0) return errno;
+    if (idmapped != NULL && idmapped[i] >= 0) {
+      if (syscall(SYS_move_mount, idmapped[i], "", AT_FDCWD, target,
+                  COSMIC_MOVE_MOUNT_F_EMPTY_PATH) != 0)
+        return errno;
+    } else if (mount(paths[i], target, NULL, MS_BIND | MS_REC, NULL) != 0) {
+      return errno;
+    }
     /* A path in the host's /proc is its state, read-only whoever asks:
      * /proc itself too, bound at another name (`at`). */
     if (!writable[i] || strncmp(paths[i], "/proc/", 6) == 0 || strcmp(paths[i], "/proc") == 0) {
@@ -1540,6 +1567,16 @@ struct spawn_plan {
   const char *const *bound_at;
   const int *unveiled_writable;
   const int *unveiled_noexec;
+  /* With `dropping`: whether each path is mounted idmapped, so the user
+   * the child runs as owns what the path's owner does ([`idmapped_tree`]);
+   * and, where the child makes each mount, its descriptor, which it
+   * places before its namespaces and [`build_root`] moves into the
+   * root, or -1. `idmap_failed` is the index of the path whose mount
+   * the child could not make, written by the child, which shares this
+   * memory. */
+  const int *unveiled_idmap;
+  int *idmap_fds;
+  int *idmap_failed;
   int unveil_count;
   const char *uid_map;
   const char *gid_map;
@@ -1859,6 +1896,7 @@ static _Noreturn int start_program (void *argument) {
     failure = staged(plan->strict, STAGE_ROOT,
                      build_root(plan->root_dir, plan->resolved_paths, plan->given_names,
                                 plan->bound_at, plan->unveiled_writable, plan->unveiled_noexec,
+                                plan->idmap_fds,
                                 plan->unveil_count, start->mapped, plan->noexec_scratch,
                                 plan->strict, plan->tmp_bytes, &own_proc));
   }
@@ -1938,6 +1976,110 @@ static _Noreturn int map_from_outside (void *argument) {
   _exit(failure ? 127 : 0);
 }
 
+/* What [`idmapped_tree`] shares with the process that makes the user
+ * namespace the mount is mapped through: the pipe it says over that it
+ * has made it, and the one it then waits on until it is ended. */
+struct idmap_holder {
+  int told;
+  int hold;
+};
+
+/* On the unveiled child's memory, in a process of its own that
+ * [`idmapped_tree`] starts: makes a user namespace, says so with a byte
+ * of 1 -- or 0 -- and waits, holding it, until it is killed. */
+static _Noreturn int idmap_holder (void *argument) {
+  const struct idmap_holder *holder = argument;
+  char byte = syscall(SYS_unshare, CLONE_NEWUSER) == 0 ? 1 : 0;
+  if (write(holder->told, &byte, 1) != 1) _exit(127);
+  while (byte == 1 && read(holder->hold, &byte, 1) < 0 && errno == EINTR) {}
+  _exit(0);
+}
+
+/* In the unveiled child, before its own namespaces, as the root of
+ * this process's own: at `fd` (placed above `top`), a detached copy of
+ * the mount tree at `path`, idmapped so that the user and group that
+ * own `path` -- the owner of the file the mount shows -- are the user
+ * and group `plan` drops to, and every other owner none: what the
+ * path's owner may do, the child's user may, and what it creates is
+ * the owner's on the host. The mapping is a user namespace of its own,
+ * made by [`idmap_holder`] and mapped here, `owner` to the drop user
+ * and group, which a mount may be idmapped through only where this
+ * process may mount (CAP_SYS_ADMIN where the file system is
+ * mounted), so the mount is made here, not by the child, which has no
+ * capability there. 0, or an errno. */
+static int idmapped_tree (const struct spawn_plan *plan, const char *path, int top, int *fd) {
+  *fd = -1;
+  struct stat st;
+  if (stat(path, &st) != 0) return errno;
+  int made[2], held[2];
+  if (pipe(made) != 0) return errno;
+  if (pipe(held) != 0) {
+    int number = errno;
+    close(made[0]);
+    close(made[1]);
+    return number;
+  }
+  struct idmap_holder holder = { made[1], held[0] };
+  int failure = 0;
+  pid_t pid = clone(idmap_holder, plan->helper_stack, CLONE_VM | SIGCHLD, &holder);
+  close(made[1]);
+  close(held[0]);
+  if (pid < 0) {
+    failure = errno;
+  } else {
+    char byte = 0;
+    ssize_t got;
+    while ((got = read(made[0], &byte, 1)) < 0 && errno == EINTR) {}
+    if (got != 1 || byte != 1) failure = EPERM;
+    char at[64], text[96];
+    if (!failure) {
+      snprintf(at, sizeof at, "/proc/%d/setgroups", (int)pid);
+      failure = write_whole(at, "deny");
+    }
+    if (!failure) {
+      snprintf(at, sizeof at, "/proc/%d/uid_map", (int)pid);
+      snprintf(text, sizeof text, "%lu %lu 1\n", (unsigned long)st.st_uid,
+               (unsigned long)plan->drop_uid);
+      failure = write_whole(at, text);
+    }
+    if (!failure) {
+      snprintf(at, sizeof at, "/proc/%d/gid_map", (int)pid);
+      snprintf(text, sizeof text, "%lu %lu 1\n", (unsigned long)st.st_gid,
+               (unsigned long)plan->drop_gid);
+      failure = write_whole(at, text);
+    }
+    int namespace = -1;
+    if (!failure) {
+      snprintf(at, sizeof at, "/proc/%d/ns/user", (int)pid);
+      namespace = open(at, O_RDONLY | O_CLOEXEC);
+      if (namespace < 0) failure = errno;
+    }
+    if (!failure) {
+      int tree = (int)syscall(SYS_open_tree, AT_FDCWD, path,
+                              COSMIC_OPEN_TREE_CLONE | O_CLOEXEC | AT_RECURSIVE);
+      if (tree < 0) {
+        failure = errno;
+      } else {
+        struct cosmic_mount_attr attr = { COSMIC_MOUNT_ATTR_IDMAP, 0, 0, (uint64_t)namespace };
+        if (syscall(SYS_mount_setattr, tree, "", AT_EMPTY_PATH | AT_RECURSIVE, &attr,
+                    sizeof attr) != 0) {
+          failure = errno;
+          close(tree);
+        } else {
+          failure = raise_descriptor(tree, top, fd);
+        }
+      }
+    }
+    if (namespace >= 0) close(namespace);
+    kill(pid, SIGKILL);
+    int ignored;
+    while (waitpid(pid, &ignored, 0) < 0 && errno == EINTR) {}
+  }
+  close(made[0]);
+  close(held[1]);
+  return failure;
+}
+
 /* An unveiled child, from where [`spawn_child`] placed its descriptors:
  * it makes a user namespace of its own, which it maps ([`map_ids`]), a pid
  * namespace for what it starts, a mount namespace, System V IPC, and
@@ -1976,7 +2118,18 @@ static _Noreturn void start_unveiled (const struct spawn_plan *plan, const int *
    * by a process started before its namespace is made, and waited for. */
   struct outside_map outside = { plan, (pid_t)syscall(SYS_getpid), -1, -1, -1, ECHILD };
   pid_t helper = -1;
-  if (plan->dropping) {
+  /* An idmapped mount is made while this is root where the file system
+   * is, with the one stack the user-mapping helper has not yet taken. */
+  for (int i = 0; !failure && plan->unveiled_idmap != NULL && i < plan->unveil_count; i++) {
+    plan->idmap_fds[i] = -1;
+    if (!plan->unveiled_idmap[i]) continue;
+    failure = idmapped_tree(plan, plan->resolved_paths[i], top, &plan->idmap_fds[i]);
+    if (failure) {
+      *plan->idmap_failed = i;
+      failure = staged(plan->strict, STAGE_IDMAP, failure);
+    }
+  }
+  if (!failure && plan->dropping) {
     int made[2];
     failure = raise_descriptor(open("/proc/self", O_RDONLY | O_DIRECTORY | O_CLOEXEC), top,
                                &outside.proc);
@@ -2765,7 +2918,7 @@ static int read_rlimits (lua_State *L, int table, int arg, struct spawn_rlimit *
       if (strcmp(name, RLIMIT_NAMES[n].name) == 0) resource = RLIMIT_NAMES[n].resource;
     }
     if (resource < 0)
-      luaL_argerror(L, arg, "an rlimit is \"nofile\", \"fsize\", \"cpu\" or \"core\"");
+      luaL_argerror(L, arg, "an rlimit is \"nofile\", \"fsize\", \"cpu\", \"core\" or \"nproc\"");
     if (!lua_isinteger(L, -1)) luaL_argerror(L, arg, "an rlimit is an integer");
     into[count].resource = resource;
     if (lua_tointeger(L, -1) < 0) luaL_argerror(L, arg, "an rlimit is not negative");
@@ -3188,6 +3341,12 @@ COSMIC_SYSCALL(spawn, 11) {
   int unveiled_writable[UNVEIL_MAX];
   int unveiling = 0, unveil_count = 0, offline = 0, noexec_scratch = 0;
   int unveiled_noexec[UNVEIL_MAX];
+  int unveiled_idmap[UNVEIL_MAX];
+  int idmap_fds[UNVEIL_MAX];
+  int idmap_failed = -1;
+  char idmap_path[PATH_MAX];
+  idmap_path[0] = '\0';
+  int idmapping = 0;
   int strict = 0, proc_only = 0;
   unsigned sockets = 0;
   unsigned long tmp_bytes = 0;
@@ -3299,6 +3458,7 @@ COSMIC_SYSCALL(spawn, 11) {
             unveiled_at[unveil_count] = NULL;
             unveiled_writable[unveil_count] = w;
             unveiled_noexec[unveil_count] = 0;
+            unveiled_idmap[unveil_count] = 0;
             unveil_count++;
             lua_pop(L, 1);
           }
@@ -3341,10 +3501,14 @@ COSMIC_SYSCALL(spawn, 11) {
           lua_pushliteral(L, "noexec");
           lua_rawget(L, -5);
           unveiled_noexec[unveil_count] = lua_toboolean(L, -1);
+          lua_pushliteral(L, "idmap");
+          lua_rawget(L, -6);
+          unveiled_idmap[unveil_count] = lua_toboolean(L, -1);
+          if (unveiled_idmap[unveil_count]) idmapping = 1;
           unveiled[unveil_count] = bind_path;
           unveiled_at[unveil_count] = bind_at;
           unveil_count++;
-          lua_pop(L, 5);
+          lua_pop(L, 6);
         }
       }
       lua_pop(L, 1);
@@ -3412,12 +3576,14 @@ COSMIC_SYSCALL(spawn, 11) {
       if (user <= 0 || user >= (lua_Integer)UINT32_MAX || group <= 0 ||
           group >= (lua_Integer)UINT32_MAX)
         return luaL_argerror(L, 10, "a user and its group are 1 to 4294967294");
-      if (!unveiling) return luaL_argerror(L, 10, "a user is given with unveil");
+      if (!unveiling && !proc_only)
+        return luaL_argerror(L, 10, "a user is given with unveil or proc");
       dropping = 1;
       drop_uid = (uid_t)user;
       drop_gid = (gid_t)group;
     }
     lua_pop(L, 2);
+    if (idmapping && !dropping) return luaL_argerror(L, 10, "a bind's idmap requires a user");
     if (proc_only && unveiling) return luaL_argerror(L, 10, "proc and unveil exclude each other");
     if (tmp_bytes != 0 && !unveiling) return luaL_argerror(L, 10, "unveil's tmp requires unveil");
     if (tmp_bytes != 0 && !strict) return luaL_argerror(L, 10, "unveil's tmp requires strict");
@@ -3646,6 +3812,9 @@ COSMIC_SYSCALL(spawn, 11) {
           int x = unveiled_noexec[j];
           unveiled_noexec[j] = unveiled_noexec[j - 1];
           unveiled_noexec[j - 1] = x;
+          int m = unveiled_idmap[j];
+          unveiled_idmap[j] = unveiled_idmap[j - 1];
+          unveiled_idmap[j - 1] = m;
         }
       }
     }
@@ -3730,6 +3899,8 @@ COSMIC_SYSCALL(spawn, 11) {
     .unveiled_noexec = unveiled_noexec, .root_dir = root_dir,
     .resolved_paths = resolved_paths, .given_names = given_names, .bound_at = unveiled_at,
     .unveiled_writable = unveiled_writable, .unveil_count = unveil_count,
+    .unveiled_idmap = idmapping ? unveiled_idmap : NULL, .idmap_fds = idmapping ? idmap_fds : NULL,
+    .idmap_failed = &idmap_failed,
     .uid_map = uid_map, .gid_map = gid_map, .unmap_root = unmap_root,
     .dropping = dropping, .drop_uid = drop_uid, .drop_gid = drop_gid,
     .outer_uid_map = outer_uid_map, .outer_gid_map = outer_gid_map,
@@ -3771,6 +3942,8 @@ COSMIC_SYSCALL(spawn, 11) {
   if (carried != envp) free(carried);
   if (!lua_isnoneornil(L, 3)) free_environment(envp, envc);
   free(argv);
+  if (idmap_failed >= 0 && idmap_failed < unveil_count)
+    snprintf(idmap_path, sizeof idmap_path, "%s", resolved_paths[idmap_failed]);
   free(resolved);
 #if defined(__linux__)
   if (restore_error != 0) {
@@ -3833,8 +4006,8 @@ COSMIC_SYSCALL(spawn, 11) {
 #if defined(__linux__)
     if (strict && number >> STAGE_SHIFT != 0) {
       char message[PATH_MAX + 512];
-      staged_message(number >> STAGE_SHIFT, number & ((1 << STAGE_SHIFT) - 1), message,
-                     sizeof message);
+      staged_message(number >> STAGE_SHIFT, number & ((1 << STAGE_SHIFT) - 1),
+                     idmap_path[0] != '\0' ? idmap_path : NULL, message, sizeof message);
       lua_pushnil(L);
       lua_pushstring(L, message);
       lua_pushinteger(L, number & ((1 << STAGE_SHIFT) - 1));
