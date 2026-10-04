@@ -179,9 +179,13 @@ local function test_a_root_caller_without_isolation_drops_to_a_pool_user(tmp: st
   if not root_that_maps() then return end
   local at = placed(tmp)
   local first, last = pool()
-  -- The child makes the file as its user, so the work directory is opened
-  -- to everyone, as `reached_by` asks of a root caller's grants.
-  assert(sys.chmod(at.work, octal("777")))
+  -- The child runs as its user and makes a file in the work directory, so
+  -- both are opened to everyone: the probe the builder wrote under a
+  -- restrictive umask, the work directory as `reached_by` asks of a root
+  -- caller's grants.
+  assert(sys.chmod(at.probe, octal("755")))
+  searchable.open(Fs.dirname(at.probe))
+  searchable.share(at.work)
   local handle, why = Child.start({ at.probe, "create made x" },
     { policy = { grants = { { path = at.probe, letters = "rx" },
       { path = at.work, letters = "rwc" } } },
