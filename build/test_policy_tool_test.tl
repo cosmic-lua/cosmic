@@ -340,6 +340,8 @@ local function test_a_nesting_module_without_store_or_tool_reads_the_artifact_of
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.write(root .. "/suite/other.tl", "return {}\n"))
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/analyzer.tl", "return {}\n"))
   assert(Fs.write(root .. "/suite/bare_test.tl", [[
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
@@ -366,6 +368,9 @@ local function test_reads_the_artifact_of_its_closure(tmp: string)
   assert(paths["suite.bare_test"] and paths["cmd.cosmic.main"] and paths["cosmic.sqlite"],
     "holds the closure, what the worker loads and the program's own")
   assert(not paths["suite.other"], "holds a module of the tree outside its closure")
+  -- A module the tree names is the tree's, not the program's, to give: the
+  -- program's own of that name stays out.
+  assert(not paths["build.analyzer"], "holds the program's module of a name the tree has")
 end
 ]]))
   local env = environment()

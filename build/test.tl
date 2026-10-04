@@ -1472,7 +1472,7 @@ local store_digest: function(rec: Recording, m: importer.Module): string | nil, 
 --- Digesting the program reads every row its database carries, some
 --- 0.2 s, which a run none of whose tests runs it need not spend.
 local function program_of(rec: Recording): string
-  if rec.artifact_read == nil then
+  if rec.program == nil then
     rec.tool = rec.tool or confine.itself()
     rec.program = declared_key.program_identity(rec.digests, rec.tool)
   end
@@ -1952,7 +1952,7 @@ local function closure_artifact_for(rec: Recording, m: importer.Module): string 
   local program = rec.artifact_read
   if program == nil then return nil, rec.artifact_trouble end
   local directory = stores_directory(rec.root)
-  local path = directory .. "/" .. closure_artifact.name(address, program)
+  local path = directory .. "/" .. closure_artifact.name(address, program, worker.loads, rec.tree_names)
   local there, _ = sys.stat(path)
   if there == nil then
     local store, store_trouble = given_store(rec, m)
@@ -2848,7 +2848,8 @@ local function choose_sandbox(ctx: Run): integer | nil
     -- the policy path's tests again without a bump of the epoch.
     local made = ctx.harness.modules
     ctx.runtime = ctx.runtime .. " policy " .. hashing.hex_sha256(test_policy.common() .. "\0" ..
-        (made["build.test_policy"] or "") .. "\0" .. (made["build.test_sandbox"] or ""))
+        (made["build.test_policy"] or "") .. "\0" .. (made["build.test_sandbox"] or "") .. "\0" ..
+        (made["build.closure_artifact"] or ""))
     sandbox_summary = sandbox_summary .. ", under a policy (" .. test_policy.switch .. "=1)"
   end
   local shares = sandboxed or shared_verdicts.chosen()

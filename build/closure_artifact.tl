@@ -54,13 +54,19 @@ function closure_artifact.read(path: string): closure_artifact.Program | nil, st
 end
 
 --- The file name, in the stores directory, of the artifact of the closure
---- store at `address` made from `program`: it holds both, so a rebuilt
---- program or an edited closure is another file.
+--- store at `address` made from `program`, `loads` and `tree` (`write`): it
+--- holds all of them, so a rebuilt program, an edited closure, or a tree
+--- whose modules are others is another file.
 --- @param address the closure store's address ([`build.closure_store`]'s `address`)
 --- @param program the program's artifact
+--- @param loads the modules every worker loads
+--- @param tree the modules of the tree
 --- @return the name
-function closure_artifact.name(address: string, program: closure_artifact.Program): string
-  return address .. "-" .. program.digest:sub(1, 16) .. ".artifact"
+function closure_artifact.name(address: string, program: closure_artifact.Program,
+                               loads: {string}, tree: {string}): string
+  local text = program.digest .. "\0" .. table.concat(loads, "\n") .. "\0" ..
+    table.concat(tree, "\n")
+  return address .. "-" .. hashing.hex_sha256(text):sub(1, 16) .. ".artifact"
 end
 
 --- The statements that add to a closure store the modules of the program's

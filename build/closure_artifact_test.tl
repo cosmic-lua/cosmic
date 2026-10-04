@@ -65,6 +65,41 @@ local function test_the_artifact_of_a_closure_is_the_head_with_the_closure_and_w
   assert(Fs.stat(tmp .. "/closure.artifact.program") == nil)
 end
 
+local function test_the_rows_beside_the_modules_are_those_of_carried_modules_alone(tmp: string)
+  program_at(tmp .. "/program", "ELF-core", { "cmd.main", "build.loaded", "build.other" }, tmp)
+  local db = assert(Sqlite.open(tmp .. "/program.db", { writable = true }))
+  for _, pair in ipairs({ { "cmd.main", "build.loaded" }, { "build.other", "build.loaded" },
+      { "build.loaded", "build.other" } }) do
+    assert(Sqlite.run(db, "INSERT INTO imports VALUES (?1, ?2)",
+      { { text = pair[1] }, { text = pair[2] } }))
+    assert(Sqlite.run(db, "INSERT INTO bound VALUES (?1, 'x', ?2)",
+      { { text = pair[1] }, { text = pair[2] } }))
+  end
+  assert(db:close())
+  local data = assert(Fs.read(tmp .. "/program.db"))
+  local prefix = assert(artifact.prefix(records, { x86 = "ELF-core" }))
+  local made = assert(artifact.program(prefix, data))
+  assert(Fs.write(tmp .. "/program", made))
+  database_at(tmp .. "/store.db", { "m" }, "")
+  local program = assert(closure_artifact.read(tmp .. "/program"))
+  assert(closure_artifact.write(program, tmp .. "/store.db", { "cmd.main", "build.loaded" },
+    { "cmd.main", "build.loaded", "build.other", "m" }, tmp .. "/closure.artifact"))
+  local bytes = assert(Fs.read(tmp .. "/closure.artifact"))
+  local split = assert(artifact.split(bytes))
+  assert(Fs.write(tmp .. "/held.db", split.database))
+  local held_db = assert(Sqlite.open(tmp .. "/held.db"))
+  -- Imports among the carried modules, and the names each binds.
+  local expected: {string:string} = { imports = "cmd.main", bound = "build.loaded cmd.main" }
+  for _, table_name in ipairs({ "imports", "bound" }) do
+    local rows = assert(Sqlite.text_rows(held_db, "SELECT path FROM " .. table_name ..
+        " ORDER BY path"))
+    local paths: {string} = {}
+    for i, row in ipairs(rows) do paths[i] = row[1] end
+    assert(table.concat(paths, " ") == expected[table_name], table.concat(paths, " "))
+  end
+  assert(held_db:close())
+end
+
 local function test_a_module_the_tree_lacks_is_the_programs_to_give(tmp: string)
   program_at(tmp .. "/program", "ELF-core", { "cmd.main", "lib.std", "build.other", "m" }, tmp)
   database_at(tmp .. "/store.db", { "m" }, "")
@@ -84,12 +119,15 @@ local function test_a_name_holds_both_the_closure_and_the_program(tmp: string)
   local one = assert(closure_artifact.read(tmp .. "/one"))
   local two = assert(closure_artifact.read(tmp .. "/two"))
   local same = assert(closure_artifact.read(tmp .. "/same"))
-  assert(closure_artifact.name("ab12", one) ~= closure_artifact.name("ab12", two))
+  assert(closure_artifact.name("ab12", one, {}, {}) ~= closure_artifact.name("ab12", two, {}, {}))
   -- A change of the program's rows is another program: what the artifact
   -- carries of the modules every worker loads is theirs.
-  assert(closure_artifact.name("ab12", one) ~= closure_artifact.name("ab12", same))
-  assert(closure_artifact.name("ab12", one) ~= closure_artifact.name("cd34", one))
-  assert(closure_artifact.name("ab12", one) == closure_artifact.name("ab12", one))
+  assert(closure_artifact.name("ab12", one, {}, {}) ~= closure_artifact.name("ab12", same, {}, {}))
+  assert(closure_artifact.name("ab12", one, {}, {}) ~= closure_artifact.name("cd34", one, {}, {}))
+  assert(closure_artifact.name("ab12", one, {}, {}) == closure_artifact.name("ab12", one, {}, {}))
+  -- Nor is it the same where what every worker loads, or the tree's modules, are others.
+  assert(closure_artifact.name("ab12", one, {}, {}) ~= closure_artifact.name("ab12", one, { "a" }, {}))
+  assert(closure_artifact.name("ab12", one, {}, {}) ~= closure_artifact.name("ab12", one, {}, { "a" }))
 end
 
 local function test_what_is_no_portable_artifact_has_no_program_to_read(tmp: string)
