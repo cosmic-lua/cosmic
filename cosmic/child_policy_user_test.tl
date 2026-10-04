@@ -190,7 +190,7 @@ local function test_a_root_caller_s_policy_with_no_namespace_drops_to_a_pool_use
       cwd = at.work, stdout = "capture", stderr = "stdout" })
   if result == nil then
     if why:find("own /proc", 1, true) == nil and unsandboxable(why) then
-      sandbox_skip.refused(why)
+      if confine.sandbox_platform() then Test.skip(why) end
       return
     end
     error("the start was refused: " .. why)
