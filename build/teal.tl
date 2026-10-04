@@ -335,15 +335,18 @@ local function line_at(source: string, y: integer): string | nil
   return source:sub(start, stop ~= nil and stop - 1 or #source)
 end
 
---- The `cosmic.*` module `source` binds to the local `name` by a line
---- of its own (`local Hash <const> = require("cosmic.hash")`): nil when
---- no line does, or when lines bind it to more than one module.
+--- The module `source` binds to the local `name` by a line of its own
+--- (`local Hash <const> = require("cosmic.hash")`, or `local type
+--- Ledger = require("ledger")`): nil when no line does, or when lines
+--- bind it to more than one module.
 local function module_bound(source: string, name: string): string | nil
   local module: string | nil = nil
   local head = "^%s*local%s+" .. name
+  local typed = "^%s*local%s+type%s+" .. name
   local tail = "%s*=%s*require%(%s*[\"']([%w_.]+)[\"']%s*%)"
   for line in source:gmatch("[^\n]+") do
-    local named = line:match(head .. tail) or line:match(head .. "%s*<%s*%a+%s*>" .. tail)
+    local named = line:match(head .. tail) or line:match(head .. "%s*<%s*%a+%s*>" .. tail) or
+      line:match(typed .. tail)
     if named ~= nil then
       if module ~= nil and module ~= named then
         return nil
@@ -988,6 +991,48 @@ local function narrowing_hint(msg: string, source: string): string | nil
   return nil
 end
 
+--- The kind of type `source` declares as `name` at its top level, by a
+--- line of its own (`local record Month`, `local type Month = ...`):
+--- nil when none does.
+local function declared_kind(source: string, name: string): string | nil
+  for line in source:gmatch("[^\n]+") do
+    local kind, named = line:match("^local%s+(%a+)%s+([%a_][%w_]*)")
+    if named == name and (kind == "record" or kind == "enum" or kind == "interface" or
+        kind == "type") then
+      return kind
+    end
+  end
+  return nil
+end
+
+--- The hint for `unknown type Owner.Member`, a type named as declared
+--- inside `Owner` when it is not: told how to move it where `source`
+--- declares both at its top level, and, where `source` binds `Owner` to
+--- the `require` of a module of the program's own, that the name is
+--- misspelt or that module must declare it inside the record it
+--- returns; nil otherwise, and for a `cosmic.*` module, whose types the
+--- catalog answers.
+local function nesting_hint(source: string, owner: string, member: string): string | nil
+  local kind = declared_kind(source, member)
+  if kind ~= nil and declared_kind(source, owner) ~= nil then
+    local declared = kind == "type" and "type " .. member .. " = ..." or
+      kind .. " " .. member .. " ... end"
+    return member .. " is declared beside " .. owner .. ", not inside it: move `" .. declared ..
+      "` into `local record " .. owner .. " ... end` to name it " .. owner .. "." .. member
+  end
+  local module = module_bound(source, owner)
+  if module == nil or module:match("^cosmic%.") ~= nil then
+    return nil
+  end
+  -- TODO: name the members the module's record does declare, as a
+  -- missing field is told them: it waits on the checker giving this
+  -- error the required record's types, as patch/tl/33a gives a missing
+  -- key's fields.
+  return owner .. " has no type " .. member .. ": check its spelling, or declare `record " ..
+    member .. " ... end` inside the record " .. module .. " returns (a `local record " ..
+    member .. "` beside that record is its file's alone)"
+end
+
 --- What [`replacement`] reads of [`cosmic.removed`].
 local record Catalog
   names: {string:string}
@@ -1329,6 +1374,13 @@ function teal.replacement(msg: string, source: string, y: integer, x: integer,
     local instead = removed ~= nil and removed.members[module .. "." .. key] or nil
     if instead ~= nil then
       return alias .. "." .. key .. " was removed: " .. instead
+    end
+  end
+  local holder, held = msg:match("^unknown type ([%a_][%w_]*)%.([%a_][%w_]*)$")
+  if holder ~= nil then
+    local nested = nesting_hint(source, holder, held)
+    if nested ~= nil then
+      return nested
     end
   end
   -- TODO: hint a field a table literal names that its record lacks

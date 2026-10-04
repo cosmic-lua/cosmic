@@ -564,7 +564,11 @@ local function test_a_module_type_named_twice_is_told_its_name()
   assert(teal.replacement("unknown type Kv.Kv", source, 2, 10) ==
       "Kv is itself the type of the record its module returns: write Kv, not Kv.Kv")
   assert(teal.replacement("unknown type Kv.Kv", "local Kv = {}\nlocal k: Kv.Kv\n", 2, 10) == nil)
-  assert(teal.replacement("unknown type Kv.Store", source, 2, 10) == nil)
+  -- Another type of the module is told what the module must declare.
+  assert(teal.replacement("unknown type Kv.Store", source, 2, 10) ==
+      "Kv has no type Store: check its spelling, or declare `record Store ... end` " ..
+      "inside the record kv returns (a `local record Store` beside that record is its " ..
+      "file's alone)")
 end
 
 local rec = "local record R\n  alpha: integer\n  beta: string\n  record Inner\n    n: integer\n  end\nend\n" ..
@@ -869,4 +873,37 @@ local function test_a_union_operand_is_told_to_narrow_it()
       "or `type(v) == \"string\"` does")
   answers("local function f(g: function(string | nil): integer): integer\n  return g + 1\nend\nprint(f)\n",
     "cannot use operator '+' for types function(string | nil): integer and integer", nil)
+end
+
+--- A module's type named but declared beside its record, not inside, is
+--- told to move it there; one named through a `require` of a module of
+--- the program's own is told what that module must declare. A
+--- `cosmic.*` module's is left to the catalog.
+local function test_a_module_type_is_told_to_nest_inside_the_record()
+  answers("local record Transaction\n  amount: integer\nend\nlocal record Ledger\nend\n" ..
+      "function Ledger.total(t: Ledger.Transaction): integer\n  return t.amount\nend\n" ..
+      "print(Transaction)\nreturn Ledger\n",
+    "unknown type Ledger.Transaction",
+    "Transaction is declared beside Ledger, not inside it: move `record Transaction ... end` " ..
+      "into `local record Ledger ... end` to name it Ledger.Transaction")
+  -- The checker here has no module `ledger`: the message is the one a
+  -- project's compile reports (build/importer_test.tl).
+  assert(teal.replacement("unknown type Ledger.Transaction",
+    'local Ledger = require("ledger")\n', 1, 1) ==
+      "Ledger has no type Transaction: check its spelling, or declare `record Transaction ... end` " ..
+      "inside the record ledger returns (a `local record Transaction` beside that record is its " ..
+      "file's alone)")
+  -- Bound by a type-only `require` alike.
+  assert(teal.replacement("unknown type Ledger.Month", 'local type Ledger = require("ledger")\n',
+    1, 1) == "Ledger has no type Month: check its spelling, or declare `record Month ... end` " ..
+      "inside the record ledger returns (a `local record Month` beside that record is its " ..
+      "file's alone)")
+  -- An enum beside the record is told to move as itself.
+  answers("local enum Month\n  \"may\"\nend\nlocal record Ledger\nend\n" ..
+      "local m: Ledger.Month = \"may\"\nprint(m)\nlocal x: Month = \"may\"\nprint(x)\nreturn Ledger\n",
+    "unknown type Ledger.Month",
+    "Month is declared beside Ledger, not inside it: move `enum Month ... end` " ..
+      "into `local record Ledger ... end` to name it Ledger.Month")
+  assert(teal.replacement("unknown type Http.Address", 'local Http = require("cosmic.http")\n',
+    1, 1) == nil)
 end
