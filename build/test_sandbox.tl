@@ -598,9 +598,12 @@ end
 --- (its profile "system"), a /proc of the sandbox's own -- and the user a
 --- root runner's worker runs as, which a policy chooses. Its `sandbox`
 --- holds the paths alone (`unveil`), and `runs` says which reads are run.
+--- With `closure_artifact`, a module that nests and declares neither
+--- `store` nor `tool` is given that artifact ([`build.closure_artifact`]) at
+--- the program's name, to open by path, in place of the program's own.
 function test_sandbox.plan(root: string, scratch: string, effective: test_inputs.Effective,
                            environment: {string:string}, closure_store?: string,
-                           policy?: boolean): test_sandbox.Plan
+                           policy?: boolean, closure_artifact?: string): test_sandbox.Plan
   -- The program is given at its own name only where the worker does
   -- not have it as the tree's own, at /tree/o/bin/cosmic. A worker
   -- whose module does not declare `tool` has no name to read it by, so
@@ -700,14 +703,19 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   if effective.tool then of_tree("o/bin", true) end
   -- A worker that builds roots of its own has no descriptor of the artifact
   -- handed it ([`build.test_worker`]'s `invocation`) and opens it by its
-  -- path. The artifact holds every module of the tree, which a read of it
-  -- would show a test beyond its closure, so only a module that declares
-  -- `store`, whose key holds the whole projection, is given it; any other
-  -- that nests is refused ([`build.test_policy`]'s `refusal`).
-  if policy and effective.nests and effective.store and not effective.tool then
+  -- path, which holds every module of the tree, beyond what the key of a
+  -- test that declares neither `store` nor `tool` holds. One that declares
+  -- `store` is given the real one; any other that nests is given
+  -- `closure_artifact` at its name ([`build.closure_artifact`]), the
+  -- program's head with its closure's store, which its key holds.
+  if policy and effective.nests and not effective.tool then
     local launched, _ = Proc.relaunch()
     if launched ~= nil and launched.argv[2] == "--artifact" and launched.argv[3] ~= nil then
-      give(launched.argv[3])
+      if effective.store then
+        give(launched.argv[3])
+      elseif closure_artifact ~= nil then
+        give(closure_artifact, launched.argv[3])
+      end
     end
   end
   -- Why a `host` path cannot be given: where a variable names it, one

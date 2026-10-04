@@ -113,6 +113,7 @@ local teal = require("build.teal")
 local tree = require("build.tree")
 local work = require("build.work")
 local writer = require("build.writer")
+local closure_artifact = require("build.closure_artifact")
 local closure_store = require("build.closure_store")
 local confine = require("build.confine")
 local shared_compiles = require("build.shared_compiles")
@@ -830,11 +831,14 @@ end
 
 --- The modules of the harness beside what every worker loads
 --- ([`build.test_worker`]'s [`worker.loads`]): build.test_sandbox and the
---- tree modules it requires, build.test_policy, build.caches and
---- build.zig_caches. build.test_sandbox makes the plan of a worker's
+--- tree modules it requires, build.test_policy, build.closure_artifact,
+--- build.caches and build.zig_caches. build.test_sandbox makes the plan of a worker's
 --- sandbox (`plan`): what it binds, unveils and holds, and the
 --- environment it gives. build.test_policy turns that plan into the
 --- policy a worker is started under, where a run asks for one.
+--- build.closure_artifact makes the artifact a worker that nests opens in
+--- place of the program's, from what a key holds (its head, its closure's
+--- store) and the program's rows of what every worker loads.
 --- build.caches says where each declared host cache is bound from and
 --- makes it; build.zig_caches does so for zig's.
 ---
@@ -861,7 +865,7 @@ end
 -- itself, where today it moves none unless someone bumps the epoch by
 -- hand.
 local harness_own <const>: {string} = { "build.test_sandbox", "build.test_policy",
-  "build.caches", "build.zig_caches" }
+  "build.closure_artifact", "build.caches", "build.zig_caches" }
 
 --- The modules of the harness held alone, by their own source and
 --- bytecode, their requires not walked: cosmic.child, whose `start`
@@ -1276,6 +1280,11 @@ local record Recording
   --- store by its bytes ([`declared_key.store_digest`]), the address
   --- only where it is and whether it must be written.
   stores: {string:string}
+  --- The program's artifact cut at its database, read once for the artifacts
+  --- of closures that nest ([`closure_artifact_for`]); the reason it has none,
+  --- or nil before it is read.
+  artifact_read: closure_artifact.Program | nil
+  artifact_trouble: string | nil
   projection: string
   basis: closure_store.Basis
   built: {string:string}
@@ -1859,7 +1868,12 @@ local function sweep_stores(rec: Recording)
   local listed, _ = Fs.list(directory)
   for _, entry in ipairs(listed or {}) do
     -- One kept aside for a report ([`mismatch_path`]) stays until removed.
-    if not named[entry] and not entry:match("%.mismatch%.db$") then
+    -- The artifact of a closure that nests stays with the closure's store
+    -- ([`closure_artifact_for`], which takes out those of a program since
+    -- rebuilt).
+    local artifact_of = entry:match("^(%x+)%-%x+%.artifact$")
+    local kept_artifact = artifact_of ~= nil and named[artifact_of .. ".db"]
+    if not named[entry] and not kept_artifact and not entry:match("%.mismatch%.db$") then
       local gone, trouble = Fs.remove(directory .. "/" .. entry)
       if not gone then
         log:complain("test: " .. directory .. "/" .. entry .. ": " .. trouble)
@@ -1905,6 +1919,48 @@ local function given_store(rec: Recording, m: importer.Module): string | nil, st
   local address = rec.stores ~= nil and rec.stores[m.path] or nil
   if address == nil then return nil, "" end
   return store_at(rec, address, rec.closures[m.path])
+end
+
+--- The path of the artifact a worker of `m`'s tests that nests is given at
+--- the program's own name ([`build.closure_artifact`]), made where it is
+--- not there yet from the program's artifact, the store of `m`'s closure
+--- and what every worker loads ([`worker.loads`]) or the tree lacks, which
+--- its own start reads from the artifact it opens by path. Nil where `m` is given none
+--- (a module that does not nest, or declares `store` or `tool`, or a program
+--- that is no portable artifact), and nil and why where it could not be
+--- made.
+local function closure_artifact_for(rec: Recording, m: importer.Module): string | nil, string
+  local declared = m.inputs
+  local address = rec.stores[m.path]
+  if not rec.policy or address == nil or declared == nil or not declared.nests or declared.tool then
+    return nil, ""
+  end
+  local launched, _ = Proc.relaunch()
+  if launched == nil or launched.argv[2] ~= "--artifact" or launched.argv[3] == nil then
+    return nil, ""
+  end
+  if rec.artifact_read == nil and rec.artifact_trouble == nil then
+    rec.artifact_read, rec.artifact_trouble = closure_artifact.read(launched.argv[3])
+  end
+  local program = rec.artifact_read
+  if program == nil then return nil, rec.artifact_trouble end
+  local directory = stores_directory(rec.root)
+  local path = directory .. "/" .. closure_artifact.name(address, program, worker.loads, rec.tree_names)
+  local there, _ = sys.stat(path)
+  if there == nil then
+    local store, store_trouble = given_store(rec, m)
+    if store == nil then return nil, store_trouble end
+    -- Another program's artifact of the same store is of no use again.
+    local listed, _ = Fs.list(directory)
+    for _, entry in ipairs(listed or {}) do
+      if entry:sub(1, #address + 1) == address .. "-" and entry:match("%.artifact$") then
+        local _, _ = Fs.remove(directory .. "/" .. entry)
+      end
+    end
+    local written, trouble = closure_artifact.write(program, store, worker.loads, rec.tree_names, path)
+    if not written then return nil, "the artifact of its closure: " .. trouble end
+  end
+  return path, ""
 end
 
 --- Where a store whose bytes did not match another write of its
@@ -2135,8 +2191,13 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
       finish(rec, job, nil, store_trouble, limits)
       return false
     end
+    local nested, nested_trouble = closure_artifact_for(rec, job.m)
+    if nested == nil and nested_trouble ~= "" then
+      finish(rec, job, nil, nested_trouble, limits)
+      return false
+    end
     local plan = test_sandbox.plan(rec.root, scratch, rec.effective[job.m.path], worker_view(),
-      store, rec.policy)
+      store, rec.policy, nested)
     if plan.over > 0 then
       finish(rec, job, nil, "its sandbox would give it " .. plural.count(plan.over, "path") ..
           " more than the most one holds", limits)
@@ -2218,13 +2279,6 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   -- `forbid_running`), as the default sandbox's does.
   local policy: Sandbox.Policy = nil
   if rec.policy then
-    -- A module the policy path cannot hold yet is skipped, as a test is
-    -- that says its host cannot check it, not failed.
-    local later = test_policy.deferred(rec.effective[job.m.path])
-    if later ~= "" then
-      finish(rec, job, nil, "", limits, false, later)
-      return false
-    end
     -- A worker that may run the program has nothing to forbid: the ruleset
     -- the policy puts up already refuses it every mount.
     if hold == "mounts" then hold = "none" end
@@ -2817,7 +2871,8 @@ local function choose_sandbox(ctx: Run): integer | nil
     -- the policy path's tests again without a bump of the epoch.
     local made = ctx.harness.modules
     ctx.runtime = ctx.runtime .. " policy " .. hashing.hex_sha256(test_policy.common() .. "\0" ..
-        (made["build.test_policy"] or "") .. "\0" .. (made["build.test_sandbox"] or ""))
+        (made["build.test_policy"] or "") .. "\0" .. (made["build.test_sandbox"] or "") .. "\0" ..
+        (made["build.closure_artifact"] or ""))
     sandbox_summary = sandbox_summary .. ", under a policy"
   elseif sandboxed and unmet == "" then
     sandbox_summary = sandbox_summary .. ", older sandbox (" .. test_policy.switch .. "=0)"

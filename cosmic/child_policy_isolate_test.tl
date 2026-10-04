@@ -18,6 +18,7 @@ local sys = require("cosmic.sys")
 local confine = require("build.confine")
 local searchable = require("build.searchable")
 local stand_in = require("build.stand_in")
+local unix_socket = require("build.unix_socket")
 
 --- The temporary directory, and a loopback address for the host's own
 --- listener the child must not reach. `nests`: a policy's isolation makes
@@ -275,6 +276,7 @@ local function test_inet_sockets_stay_refused_without_loopback(tmp: string)
   assert(plain.said ~= "connected\n" and plain.said:find("not permitted", 1, true), plain.said)
   -- A unix grant gives the network namespace and unix sockets, not inet ones.
   local socket = tmp .. "/inet.sock"
+  if unix_socket.skipped(tmp) then return end
   local server = assert(Net.listen(Net.unix(socket), { timeout_ns = 1000000000 }))
   local unix = under(at.probe, { isolate = { "file" },
     grants = with(at.bare, { path = socket, letters = "u" }) }, at.home,
@@ -287,6 +289,7 @@ end
 local function test_a_u_grant_under_isolate_file_reaches_the_socket_bound_into_the_root(tmp: string)
   local at = placed(tmp)
   local socket = tmp .. "/s.sock"
+  if unix_socket.skipped(tmp) then return end
   local server = assert(Net.listen(Net.unix(socket), { timeout_ns = 1000000000 }))
   local policy: Sandbox.Policy = { isolate = { "file" },
     grants = with(at.bare, { path = socket, letters = "u" }) }
@@ -310,6 +313,7 @@ end
 local function test_a_u_grant_beside_a_directory_of_sockets_is_refused_or_held(tmp: string)
   local at = placed(tmp)
   assert(Fs.mkdirs(tmp .. "/socks"))
+  if unix_socket.skipped(tmp) then return end
   local granted = assert(Net.listen(Net.unix(tmp .. "/socks/s.sock"), { timeout_ns = 1000000000 }))
   local other = assert(Net.listen(Net.unix(tmp .. "/socks/s2.sock"), { timeout_ns = 1000000000 }))
   local policy: Sandbox.Policy = { isolate = { "file" }, grants = with(at.bare,
@@ -336,6 +340,7 @@ end
 local function test_a_u_grant_beside_files_alone_is_met(tmp: string)
   local at = placed(tmp)
   local socket = tmp .. "/solo.sock"
+  if unix_socket.skipped(tmp) then return end
   local server = assert(Net.listen(Net.unix(socket), { timeout_ns = 1000000000 }))
   local result = under(at.probe, { isolate = { "file" }, grants = with(at.bare,
     { path = at.probe, letters = "r" }, { path = socket, letters = "u" }) }, at.home,

@@ -142,31 +142,9 @@ local function shape(effective: test_inputs.Effective): Sandbox.Policy
   }
 end
 
---- Why a worker of `effective` cannot be started under a policy for want of
---- something the policy path does not have yet, or "": its tests are
---- skipped ([`Test.skip`]'s way) with this reason, not failed, since the
---- declaration is right and the harness is what is missing. A module a
---- policy can never hold is `refusal`'s.
---- @param effective what the module declares, as the runner resolved it
---- @return why, "" for nothing
--- TODO: give a worker that nests a per-closure artifact -- the core and its
--- closure store, not the real o/bin/cosmic -- to open by path, and delete
--- this skip, once the artifact format can be cut down to a closure
--- (build/artifact.tl): the real one holds every module of the tree, which
--- no key of a test that does not declare `store` or `tool` holds.
-function test_policy.deferred(effective: test_inputs.Effective): string
-  if effective.nests and not effective.store and not effective.tool then
-    return 'nests: a worker that builds roots of its own is handed no descriptor of the ' ..
-      'program and so opens the artifact by its path, which holds every module of the tree, ' ..
-      'beyond what its key holds; declare `store` or `tool`, or wait for a per-closure artifact'
-  end
-  return ""
-end
-
 --- Why a worker of `effective` cannot be started under a policy, or "":
---- what its module declares that no policy says, naming the field, or
---- what is `deferred`. A refusal fails its tests; a `deferred` one is
---- skipped by the runner before it asks.
+--- what its module declares that no policy says, naming the field. A
+--- refusal fails its tests.
 --- @param effective what the module declares, as the runner resolved it
 --- @return why, "" for nothing
 -- TODO: delete this refusal, and the `"*"` that [`Test.needs`] still takes,
@@ -177,8 +155,6 @@ end
 -- snippets of the wildcard itself): a policy has no wildcard. It waits on
 -- step (e) of the sandbox plan, which deletes [`Test.needs`].
 local function refusal(effective: test_inputs.Effective): string
-  local later = test_policy.deferred(effective)
-  if later ~= "" then return later end
   if effective.env["*"] then
     return 'env "*": the policy path names each variable a worker is given, and a policy ' ..
       'has no wildcard; name the variables the module reads'
