@@ -10,6 +10,7 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local Sandbox = require("cosmic.sandbox")
+local searchable = require("build.searchable")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
@@ -119,9 +120,9 @@ local function test_a_change_through_the_artifact_descriptor_changes_nothing(tmp
 end
 
 --- The artifact reached by names alone is let through, however they
---- spell it: a relative link, a link to its directory, a "..", a "//",
----. The walk
---- (core/syscalls_fs.c's `walk_without_descriptor_links`) follows each.
+--- spell it: a relative link, a link to its directory, a "..", a "//".
+--- The walk (core/syscalls_fs.c's `walk_without_descriptor_links`)
+--- follows each.
 local function test_the_artifact_reached_by_names_is_not_refused(tmp: string)
   local relaunch, _ = Proc.relaunch()
   if relaunch == nil then return end
@@ -301,6 +302,16 @@ end
 local function test_a_link_swapped_after_the_check_changes_nothing_under_promises(tmp: string)
   local relaunch, _ = Proc.relaunch()
   if relaunch == nil then return end
+  -- A root runner's policy child is a user of its own, which owns none of
+  -- these: the test's directory is opened to it. The core, in a cache
+  -- of the host's, is not this test's to chmod.
+  local core = sys.stat(relaunch.argv[1])
+  if sys.getuid() == 0 and (core == nil or core.mode & 5 ~= 5) then
+    Test.skip("the core " .. relaunch.argv[1] .. " is not open to the user a root runner's policy " ..
+        "child runs as")
+    return
+  end
+  searchable.share(searchable.open(tmp))
   swapped_link_changes_nothing(tmp, { promises = { "fattr" }, grants = {
     { path = relaunch.argv[1], letters = "rx" }, { path = tmp, letters = "rwc" } } })
 end

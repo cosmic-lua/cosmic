@@ -332,6 +332,12 @@ static int artifact_through_descriptor (const char *path, bool follow,
   if (!named) return 0;
   int walked;
   int number = walk_without_descriptor_links(path, follow, &walked);
+  /* TODO: this judges the walk by plain names, not how the kernel's own
+   * resolution reached the file the call holds. A link flipped between
+   * /proc/self/fd/<artifact> and a link to the artifact's real path
+   * passes: the walk now reaches the artifact by plain names. openat2
+   * had the same gap. Resolve once, with the walk, and act on its O_PATH
+   * descriptor, reopening through /proc/self/fd/N for `open`. */
   if (number == 0) {
     struct stat again;
     bool same = fstat(walked, &again) == 0 && again.st_dev == st.st_dev &&
