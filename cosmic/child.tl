@@ -285,8 +285,12 @@ local record Options
   ---   MiB, noexec, `TMPDIR` naming it, gone with the sandbox. Landlock
   ---   holds the same grants from inside, with the root's own /proc and
   ---   /tmp added to it; it cannot list the root's directories above a
-  ---   grant. A `u` grant needs only the socket bound into the root, not
-  ---   Landlock ABI 9, which is used where there is one.
+  ---   grant. A `u` grant is held by Landlock ABI 9 where there is one;
+  ---   below it, by the root alone, which can then hold no other socket:
+  ---   the start fails unless the `u` grant is the only grant of a socket or
+  ---   a directory. Under `file` /dev holds only what is granted (the
+  ---   "system" profile grants /dev/null, zero, urandom and random), besides
+  ---   the /dev/fd links.
   --- - `isolate` "proc" (which "file" implies) is a pid namespace and a /proc
   ---   of the sandbox's own, read-only, showing its processes alone: the
   ---   child is pid 2 beneath an init, and with "proc" alone it has the
@@ -2245,6 +2249,39 @@ local function root_of(merged: Rules.Policy, base: string): raw_process.Unveil |
   return { reads = reads, writes = {}, binds = binds, tmp = tmp }, ""
 end
 
+--- Why a `u` grant cannot be held under `isolate` file, or "". Below
+--- Landlock ABI 9 nothing tells one unix socket of the root from another
+--- (the filter allows AF_UNIX to the program whole, and a read-only bind
+--- does not stop a connect), so the granted socket is the only one the
+--- root may hold: no other grant may be a directory, which may hold
+--- sockets, or a socket. A limit for good below ABI 9; at 9 Landlock holds it.
+local function unix_unheld(merged: Rules.Policy, base: string): string
+  local abi, _ = raw.landlock_abi()
+  if abi == nil or abi >= 9 then return "" end
+  local reachable = 0
+  local only: string
+  for _, grant in ipairs(merged.grants) do
+    local st, _ = sys.stat(named(grant.from or grant.path, base))
+    if st ~= nil and (st.kind == "dir" or st.kind == "socket") then
+      reachable = reachable + 1
+      only = lettered(grant.letters, "u") and st.kind == "socket" and grant.path or nil
+    end
+  end
+  if reachable <= 1 and (reachable == 0 or only ~= nil) then return "" end
+  return "a `u` grant under isolate file needs Landlock ABI 9 beside any other grant of a " ..
+    "directory or a socket: this kernel gives ABI " .. abi .. ", where the granted socket " ..
+    "cannot be told from another socket in the root, and the root holds every socket a " ..
+    "granted directory holds. Grant the socket alone (and files), or run a kernel with ABI 9"
+end
+
+--- Whether a grant of `merged` has `u`.
+local function isolated_unix(merged: Rules.Policy): boolean
+  for _, grant in ipairs(merged.grants) do
+    if lettered(grant.letters, "u") then return true end
+  end
+  return false
+end
+
 --- Makes a policy's start: merges it, refuses what is not yet available
 --- and a program its grants do not let start, then builds the
 --- environment, the limits, what isolates it and, for `tmp`, the
@@ -2267,6 +2304,10 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
     base = here
   end
   local root: raw_process.Unveil
+  if file and isolated_unix(merged) then
+    local unheld = unix_unheld(merged, base)
+    if unheld ~= "" then return nil, "sandbox: " .. unheld end
+  end
   if file then
     local made, root_trouble = root_of(merged, base)
     if made == nil then return nil, "sandbox: " .. root_trouble end

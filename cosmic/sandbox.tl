@@ -86,8 +86,10 @@ local record Sandbox
     --- What the program may do there, letters of "rwxcu" in that order: `r`
     --- reads files and lists directories, `w` writes and truncates files,
     --- `x` runs files, `c` creates and removes, `u` connects to the unix
-    --- socket at the path. A grant on a directory reaches what is beneath
-    --- it.
+    --- socket at the path (Landlock ABI 9; below it only under `isolate`
+    --- file, and only where no other grant is a directory or a socket, since
+    --- nothing else tells the granted socket from the root's others). A
+    --- grant on a directory reaches what is beneath it.
     letters: string
     --- The host's path, when it differs from `path`: the program sees this
     --- file or directory under another name. Needs `isolate` file.

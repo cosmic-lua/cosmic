@@ -1985,27 +1985,11 @@ local function test_a_policys_sandbox_fields_are_checked_before_a_start()
     "proc and unveil exclude each other")
   says(refused_sandbox({ sockets = { "inet" } }), "sockets require promises")
   says(refused_sandbox({ promises = {}, sockets = { "packet" } }), "a socket family is")
+  says(refused_sandbox({ promises = {}, sockets = { "inet" } }), "sockets require offline")
+  says(refused_sandbox({ unveil = { tmp = 4096 } }), "unveil's tmp requires strict")
   says(refused_sandbox({ promises = {}, sockets = "inet" }), "sockets must be a list")
   says(refused_sandbox({ unveil = { tmp = 0 } }), "unveil's tmp is a size in bytes")
   says(refused_sandbox({ unveil = { tmp = "big" } }), "unveil's tmp is a size in bytes")
-end
-
---- A policy's sandbox, `strict`, that cannot be built says what to allow.
---- This worker is held by a Landlock ruleset, under which the kernel refuses
---- the mounts a procfs of its own is made with.
-local function test_a_strict_sandbox_that_cannot_be_built_says_what_to_allow(tmp: string)
-  local probe = probe_in(tmp)
-  local pid, trouble, errno = process.spawn(probe, { probe, "print hi" }, nil, nil, nil, nil, nil,
-    false, nil, { strict = true, proc = true })
-  if pid ~= nil then
-    local _, _ = process.waitpid(pid, false)
-    Test.skip("this worker is not held by a Landlock ruleset, so the sandbox was built")
-    return
-  end
-  if errno == sys.ENOSYS then return end
-  assert(errno == sys.EPERM or errno == sys.EACCES, tostring(trouble))
-  assert(trouble:find("Landlock", 1, true) and (trouble:find("unprivileged user namespaces", 1, true) or
-    trouble:find("root could not be built", 1, true)), trouble)
 end
 
 local function test_unveils_binds_are_checked_before_a_start()

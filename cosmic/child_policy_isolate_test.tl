@@ -60,6 +60,10 @@ local record Place
   probe: string
   work: string
   grants: {Sandbox.Grant}
+  --- The program alone, to run in `home`, its directory: no grant of a
+  --- directory, which a `u` grant below Landlock ABI 9 allows none beside it.
+  bare: {Sandbox.Grant}
+  home: string
 end
 
 --- Builds the stand-in and a working directory holding `ro/a` and, beside
@@ -70,7 +74,8 @@ local function placed(tmp: string): Place
   assert(Fs.mkdirs(work .. "/ro") and Fs.mkdirs(tmp .. "/other"))
   assert(Fs.write(work .. "/ro/a", "alpha\n") and Fs.write(tmp .. "/other/b", "beta\n"))
   return { probe = probe, work = work,
-    grants = { { path = probe, letters = "rx" }, { path = work, letters = "r" } } }
+    grants = { { path = probe, letters = "rx" }, { path = work, letters = "r" } },
+    bare = { { path = probe, letters = "rx" } }, home = Fs.dirname(probe) }
 end
 
 --- A copy of `grants` with `more` after them.
@@ -271,7 +276,7 @@ local function test_inet_sockets_stay_refused_without_loopback(tmp: string)
   local socket = tmp .. "/inet.sock"
   local server = assert(Net.listen(Net.unix(socket), { timeout_ns = 1000000000 }))
   local unix = under(at.probe, { isolate = { "file" },
-    grants = with(at.grants, { path = socket, letters = "u" }) }, at.work,
+    grants = with(at.bare, { path = socket, letters = "u" }) }, at.home,
     "loopback-tcp 127.0.0.1")
   assert(server:close())
   assert(unix ~= nil and unix.said ~= "connected\n" and unix.said:find("not permitted", 1, true),
@@ -283,18 +288,94 @@ local function test_a_u_grant_under_isolate_file_reaches_the_socket_bound_into_t
   local socket = tmp .. "/s.sock"
   local server = assert(Net.listen(Net.unix(socket), { timeout_ns = 1000000000 }))
   local policy: Sandbox.Policy = { isolate = { "file" },
-    grants = with(at.grants, { path = socket, letters = "u" }) }
-  local reached = under(at.probe, policy, at.work, "connect " .. socket)
+    grants = with(at.bare, { path = socket, letters = "u" }) }
+  local reached = under(at.probe, policy, at.home, "connect " .. socket)
   if reached == nil then
     assert(server:close())
     return
   end
   assert(reached.code == 0 and reached.said == "connected\n", reached.said)
   -- Not granted, the socket is not in the root at all, nor may it make one.
-  local without = under(at.probe, { isolate = { "file" }, grants = at.grants }, at.work,
+  local without = under(at.probe, { isolate = { "file" }, grants = at.bare }, at.home,
     "connect " .. socket)
   assert(without.said ~= "connected\n" and without.said:find("not permitted", 1, true), without.said)
   assert(server:close())
+end
+
+--- A `u` grant reaches the one socket it names. Below Landlock ABI 9 the root
+--- cannot tell it from another socket a granted directory holds, and the filter
+--- lets the program connect to any: the start is refused. At ABI 9 or more
+--- Landlock holds it, and the other socket is out of reach.
+local function test_a_u_grant_beside_a_directory_of_sockets_is_refused_or_held(tmp: string)
+  local at = placed(tmp)
+  assert(Fs.mkdirs(tmp .. "/socks"))
+  local granted = assert(Net.listen(Net.unix(tmp .. "/socks/s.sock"), { timeout_ns = 1000000000 }))
+  local other = assert(Net.listen(Net.unix(tmp .. "/socks/s2.sock"), { timeout_ns = 1000000000 }))
+  local policy: Sandbox.Policy = { isolate = { "file" }, grants = with(at.bare,
+    { path = tmp .. "/socks", letters = "r" }, { path = tmp .. "/socks/s.sock", letters = "u" }) }
+  local result, why = Child.run({ at.probe, "connect " .. tmp .. "/socks/s2.sock" },
+    { policy = policy, cwd = at.home, stdout = "capture", stderr = "stdout" })
+  if result == nil then
+    if why:find("ABI 9", 1, true) then
+      assert(why:find("directory or a socket", 1, true), why)
+    else
+      assert(unsandboxable(why), why)
+      assert(granted:close() and other:close())
+      sandbox_skip.refused(why)
+      return
+    end
+  else
+    -- Landlock ABI 9: the socket the grant does not name is refused.
+    assert(result.stdout ~= "connected\n", result.stdout)
+  end
+  assert(granted:close() and other:close())
+end
+
+--- A grant of a file that is no socket stands beside a `u` one at any ABI.
+local function test_a_u_grant_beside_files_alone_is_met(tmp: string)
+  local at = placed(tmp)
+  local socket = tmp .. "/solo.sock"
+  local server = assert(Net.listen(Net.unix(socket), { timeout_ns = 1000000000 }))
+  local result = under(at.probe, { isolate = { "file" }, grants = with(at.bare,
+    { path = at.probe, letters = "r" }, { path = socket, letters = "u" }) }, at.home,
+    "connect " .. socket)
+  assert(server:close())
+  if result == nil then return end
+  assert(result.code == 0 and result.said == "connected\n", result.said)
+end
+
+--- Under `isolate` file /dev holds what is granted: the "system" profile's
+--- devices work, and a device it does not grant is not there.
+local function test_the_system_profiles_devices_are_in_the_root(tmp: string)
+  local at = placed(tmp)
+  local policy: Sandbox.Policy = { isolate = { "file" }, profiles = { "system" },
+    grants = with(at.grants) }
+  local null = under(at.probe, policy, at.work, "cat /dev/null && present /dev/zero")
+  if null == nil then return end
+  assert(null.code == 0 and null.said == "", null.said)
+  local tty = under(at.probe, policy, at.work, "present /dev/tty")
+  assert(tty.code == 1 and tty.said:find("not there", 1, true), tty.said)
+end
+
+--- A step of building the root that fails for a reason of its own says so,
+--- rather than blaming user namespaces: a name placed beneath a link in a
+--- directory bound from the host (core/syscalls.c's make_target) is ELOOP.
+local function test_a_root_that_cannot_be_built_says_which_step_failed(tmp: string)
+  local at = placed(tmp)
+  assert(Fs.mkdirs(tmp .. "/linked") and Fs.mkdirs(tmp .. "/under"))
+  assert(Fs.symlink(".", tmp .. "/linked/l"))
+  local policy: Sandbox.Policy = { isolate = { "file" }, grants = with(at.bare,
+    { path = "/x", letters = "r", from = tmp .. "/linked" },
+    { path = "/x/l/y", letters = "r", from = tmp .. "/under" }) }
+  local result, why = Child.run({ at.probe, "print hi" }, { policy = policy, cwd = at.home })
+  assert(result == nil)
+  if not why:find("root could not be built", 1, true) then
+    assert(unsandboxable(why), why)
+    sandbox_skip.refused(why)
+    return
+  end
+  assert(why:find("Symbolic link loop", 1, true) and why:find("step of making", 1, true), why)
+  assert(not why:find("user namespace", 1, true), why)
 end
 
 local function test_from_needs_isolate_file_and_what_is_not_met_stays_refused(tmp: string)

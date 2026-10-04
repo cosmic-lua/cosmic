@@ -1142,6 +1142,11 @@ static void staged_message (int stage, int number, char *message, size_t room) {
                    "program's AppArmor profile (Ubuntu 24.04), let a container's seccomp "
                    "profile allow unshare and clone with CLONE_NEWUSER, and start it from a "
                    "process no Landlock ruleset holds");
+  } else if (number != EPERM && number != EACCES) {
+    snprintf(message, room,
+             "this sandbox's root could not be built (%s): a path it binds, or a step of making "
+             "its mount points, failed (a link beneath a bound path, a name too long, a path "
+             "that went away since the start began)", what);
   } else {
     snprintf(message, room,
              "this sandbox's root could not be built (%s): it needs mounts in a user namespace "
@@ -3415,6 +3420,9 @@ COSMIC_SYSCALL(spawn, 11) {
     lua_pop(L, 2);
     if (proc_only && unveiling) return luaL_argerror(L, 10, "proc and unveil exclude each other");
     if (tmp_bytes != 0 && !unveiling) return luaL_argerror(L, 10, "unveil's tmp requires unveil");
+    if (tmp_bytes != 0 && !strict) return luaL_argerror(L, 10, "unveil's tmp requires strict");
+    if (sockets != 0 && !offline)
+      return luaL_argerror(L, 10, "sockets require offline: the network namespace is their hold");
     /* A pid namespace and a procfs of its own are an unveiled child's, with no paths to bind. */
     if (proc_only) unveiling = 1;
   }
