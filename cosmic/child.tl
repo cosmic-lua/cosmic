@@ -371,10 +371,14 @@ local record Options
   --- one id from the top of what this process's user namespace maps
   --- ([`Sandbox.user_id`], 4294963198 to 4294967293 on a host), chosen by
   --- the pid and a count of the sandboxes this process has started, so
-  --- concurrent sandboxes differ, and mapped into a user namespace from
-  --- outside, which needs CAP_SETUID, CAP_SETGID and CAP_SETFCAP (the
-  --- start fails, saying so, where it lacks them). Only a user namespace
-  --- maps it, so a policy with no `isolate` gets "proc"'s. That user is
+  --- concurrent sandboxes differ, which needs CAP_SETUID, CAP_SETGID and
+  --- CAP_SETFCAP (the start fails, saying so, where it lacks them). A
+  --- policy that makes a namespace (`isolate`, `loopback`, a `u` grant)
+  --- maps that user into a user namespace from outside; one that makes
+  --- none gives root up for it directly, as `credentials` does, and so
+  --- has the host's /proc and pid namespace, as an unprivileged caller's
+  --- child with no `isolate` has, and starts where a container masks
+  --- /proc. That user is
   --- none of the owners of the host's files: a grant it cannot use by the
   --- file's mode -- one that is not open to everyone, as a directory
   --- made 0700 is not -- fails the start naming it; under `isolate`
@@ -395,8 +399,8 @@ local record Options
   --- the platform has no Landlock or seccomp (anything but Linux) the
   --- start fails. Nothing is printed about grants.
   policy: Rules.Policy
-  --- The IDs and privilege limits for this launch. Excludes sandbox
-  --- unveil, offline, user and group. Child setup errors precede exec;
+  --- The IDs and privilege limits for this launch. Excludes `policy` and
+  --- sandbox unveil, offline, user and group. Child setup errors precede exec;
   --- a parent dumpability restoration error can follow exec and ends
   --- the owned child before reporting failure.
   credentials: Credentials
@@ -1946,6 +1950,10 @@ local function validate(argv: {string}, opts: Options)
           "child's whole environment", 3)
     end
     if opts.sandbox ~= nil then error("child: policy and sandbox exclude each other", 3) end
+    if opts.credentials ~= nil then
+      error("child: policy and credentials exclude each other: a policy's program never runs " ..
+          "as root, and where this process is root the policy chooses its user", 3)
+    end
   end
   if opts.credentials ~= nil then
     local user, group = opts.credentials.user, opts.credentials.group
@@ -2174,6 +2182,9 @@ local record Held
   --- which a program of a policy never is ([`mapped_user`]); nil for this
   --- process's own. The directory `tmp` makes is given to them.
   user: MappedUser
+  --- `user`, where the child gives root up for it directly, in no
+  --- namespace (spawn's `credentials`); nil where it is mapped into one.
+  drop: MappedUser
 end
 
 --- The most grants spawn takes (`GRANT_MAX` in core/syscalls.c), the
@@ -2441,6 +2452,10 @@ local function mapped_user(): MappedUser | nil, string
   local platform, _, _ = raw.sandbox_platform()
   if not platform or effective_user() ~= 0 then return nil, "" end
   local mayed, _, _ = raw.may_map_ids()
+  -- TODO: ask only CAP_SETUID and CAP_SETGID of a policy that makes no
+  -- namespace, whose child gives root up directly and maps nothing, once
+  -- this is told the policy: a container that leaves out CAP_SETFCAP
+  -- refuses that start today for a capability it does not use.
   if not mayed then
     return nil, "this process is root, and a program of a policy never runs as root: it runs " ..
       "as a user of its own, mapped into its user namespace from outside, which needs " ..
@@ -2604,19 +2619,27 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
     if here == nil then return nil, "sandbox: cwd " .. (opts.cwd or ".") .. ": " .. here_trouble end
     base = here
   end
-  -- Where this process is root its program runs as a user of its own,
-  -- which only a user namespace maps: so a policy with no isolation gets
-  -- a pid namespace and a procfs, `proc`'s, at least.
+  -- Where this process is root its program runs as a user of its own.
+  -- A policy that makes no namespace -- no isolation, no network of its
+  -- own -- gives root up for that user directly (spawn's `credentials`),
+  -- as an unprivileged caller's child runs as it, so it needs no procfs
+  -- of its own, which a container masking /proc refuses. One that makes a
+  -- namespace maps the user into it from outside.
   local user, user_trouble = mapped_user()
   if user == nil and user_trouble ~= "" then return nil, "sandbox: " .. user_trouble end
   local idmap: {boolean} = {}
+  local drop: MappedUser
   if user ~= nil then
     local here, here_trouble = sys.realpath(opts.cwd or ".")
     if here == nil then return nil, "sandbox: cwd " .. (opts.cwd or ".") .. ": " .. here_trouble end
     local reached, reach_trouble = reached_by(merged, here, file)
     if reached == nil then return nil, "sandbox: " .. reach_trouble end
     idmap = reached
-    proc = true
+    if file or proc or #merged.loopback > 0 or isolated_unix(merged) then
+      proc = true
+    else
+      drop = user
+    end
   end
   local root: raw_process.Unveil
   if file and isolated_unix(merged) then
@@ -2713,14 +2736,14 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
   local sandbox: raw_process.Sandbox = { grants = not nest and grants or nil, promises = promises,
     rlimits = rlimits,
     sockets = sockets, offline = inet or unix, strict = file or proc or inet or unix,
-    proc = proc and not file, user = user ~= nil and user.uid or nil,
-    group = user ~= nil and user.gid or nil }
+    proc = proc and not file, user = user ~= nil and drop == nil and user.uid or nil,
+    group = user ~= nil and drop == nil and user.gid or nil }
   if root ~= nil then
     sandbox.unveil = root
     if merged.tmp then env.TMPDIR = "/tmp" end
   end
   return { path = path, env = env, tmp = "", wants_tmp = merged.tmp and not file,
-    sandbox = sandbox, cwd = file and base or nil, user = user, nests = nest }, ""
+    sandbox = sandbox, cwd = file and base or nil, user = user, drop = drop, nests = nest }, ""
 end
 
 --- Makes the temporary directory a policy's `tmp` asks for, as an absolute
@@ -2851,6 +2874,7 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
   local path, env, cwd = argv[1], opts.env, opts.cwd
   if held ~= nil then
     path, env, sandbox = held.path, held.env, held.sandbox
+    if held.drop ~= nil then credentials = { user = held.drop.uid, group = held.drop.gid } end
     if held.cwd ~= nil then cwd = held.cwd end
     if held.wants_tmp then
       local why = make_tmp(held)
