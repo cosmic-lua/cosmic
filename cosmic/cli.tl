@@ -515,6 +515,10 @@ local record Cli
   --- without one), and must exist, and paths and `--set-env` values must be UTF-8, as they are
   --- written as JSON. `cosmic docs cosmic.sandbox` names the policy's
   --- fields. `--connect` is refused until the relay it needs exists.
+  --- `--user` names the user and group the program runs as, by number
+  --- (the group is the user's number unless given): only a caller that is
+  --- root chooses one, the same every run, in place of a fresh one of its
+  --- own each run; any other caller may name only itself.
   --- Each option is one field of the policy, and a number is a whole one. The
   --- program's standard streams are this program's own, and it gets no
   --- other descriptor but those `--fd` names. Nothing is printed when it
@@ -796,6 +800,7 @@ local module: Module = {
         ["--file-bytes"] = { value = "n", about = "the most bytes a process writes to one file" },
         ["--cpu-seconds"] = { value = "n", about = "the CPU seconds a process may spend" },
         ["--processes"] = { value = "n", about = "the most processes and threads of the whole sandbox" },
+        ["--user"] = { value = "uid[:gid]", about = "run it as this user and group (a root caller's choice)" },
         ["--fd"] = { value = "n", about = "hand it descriptor n (3 to 255), as the same number" },
         ["--timeout"] = { value = "seconds", about = "end it after this many whole seconds" },
         ["--cwd"] = { value = "dir", about = "start it in this directory, which relative paths are taken from" },

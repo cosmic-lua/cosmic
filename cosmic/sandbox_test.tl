@@ -79,6 +79,46 @@ local function test_merge_agrees_on_one_limit_and_refuses_two()
   end
 end
 
+local function test_merge_takes_one_user_and_group_and_refuses_two()
+  local out = merged({ user = 1000 }, {})
+  assert(out.user == 1000 and out.group == nil, "a group left out is the start's to choose")
+  out = merged({ user = 1000 }, { user = 1000, group = 100 })
+  assert(out.user == 1000 and out.group == 100)
+  assert(merged().user == nil and merged().group == nil)
+  local none, why = Sandbox.merge({ user = 1 }, { user = 2 })
+  assert(none == nil and why:find("user is given two values", 1, true), why)
+  none, why = Sandbox.merge({ user = 1, group = 1 }, { user = 1, group = 2 })
+  assert(none == nil and why:find("group is given two values", 1, true), why)
+end
+
+local function test_merge_refuses_root_and_a_group_without_a_user()
+  for _, policy in ipairs({ { user = 0 }, { user = 4294967295 }, { user = 1, group = 0 } } as {Sandbox.Policy}) do
+    local none, why = Sandbox.merge(policy)
+    assert(none == nil and why:find("never root", 1, true), why)
+  end
+  for _, policy in ipairs({ { user = 65534 }, { user = 1, group = 65535 } } as {Sandbox.Policy}) do
+    local none, why = Sandbox.merge(policy)
+    assert(none == nil and why:find("overflow id", 1, true), why)
+  end
+  local none, why = Sandbox.merge({ group = 5 })
+  assert(none == nil and why:find("/group", 1, true) and why:find("with a user", 1, true), why)
+end
+
+local function test_in_pool_is_whether_an_id_is_a_pool_user_s()
+  local host = "0 0 4294967295\n"
+  assert(Sandbox.in_pool(host, host, 4294963198) and Sandbox.in_pool(host, host, 4294967293))
+  assert(not Sandbox.in_pool(host, host, 4294963197) and not Sandbox.in_pool(host, host, 1000))
+  -- A namespace that maps no pool has none to collide with.
+  assert(not Sandbox.in_pool("0 100000 10\n", "0 100000 10\n", 5))
+end
+
+local function test_maps_id_is_whether_a_map_holds_the_id()
+  assert(Sandbox.maps_id("0 0 4294967295\n", 1000))
+  assert(Sandbox.maps_id("0 100000 1\n1000 1000 1\n", 1000))
+  assert(not Sandbox.maps_id("0 100000 65536\n", 70000))
+  assert(not Sandbox.maps_id("", 1))
+end
+
 local function test_merge_refuses_two_values_for_one_variable_without_saying_them()
   local out = merged({ set_env = { A = "1", B = "2" } }, { set_env = { A = "1", C = "3" } })
   assert(out.set_env.A == "1" and out.set_env.B == "2" and out.set_env.C == "3")
@@ -306,9 +346,10 @@ local function test_counts_per_namespace_is_linux_5_17_on()
   end
 end
 
---- A Stat with the mode and kind a reach is judged on.
-local function described(mode: integer, kind: string): sys.Stat
-  return { mode = mode, kind = kind as sys.Kind } as sys.Stat
+--- A Stat with the mode and kind a reach is judged on, and its owner and
+--- group, 0 unless given.
+local function described(mode: integer, kind: string, uid?: integer, gid?: integer): sys.Stat
+  return { mode = mode, kind = kind as sys.Kind, uid = uid or 0, gid = gid or 0 } as sys.Stat
 end
 
 local function test_reach_says_who_gives_a_user_that_owns_nothing_its_rights()
@@ -327,6 +368,25 @@ local function test_reach_says_who_gives_a_user_that_owns_nothing_its_rights()
   -- Only the owner's bits: what an idmapped mount gives.
   assert(Sandbox.reach("rw", described(tonumber("100600", 8), "file")).by == "owner")
   assert(Sandbox.reach("x", described(tonumber("100700", 8), "file")).by == "owner")
+end
+
+local function test_reach_of_a_named_user_reads_its_own_class_alone()
+  local mine = tonumber("40700", 8)
+  -- Its own directory, 0700: the owner's bits are its own.
+  assert(Sandbox.reach("rwc", described(mine, "dir", 1000, 1000), 1000, 1000).by == "user")
+  -- Another user's, 0700, in no group of its: only an idmapped mount gives it.
+  assert(Sandbox.reach("r", described(mine, "dir", 2000, 2000), 1000, 1000).by == "owner")
+  -- Its group's, 0750: the group's bits.
+  assert(Sandbox.reach("r", described(tonumber("40750", 8), "dir", 2000, 1000), 1000, 1000).by == "user")
+  -- Its own file, 0077: open to everyone but its owner, which the kernel
+  -- holds to the owner's bits.
+  local own = Sandbox.reach("r", described(tonumber("100077", 8), "file", 1000, 1000), 1000, 1000)
+  assert(own.by == "" and own.lacks:find("its owner, user 1000,", 1, true), own.lacks)
+  -- Its group's file, 0604: the group's bits, not everyone's.
+  local grouped = Sandbox.reach("r", described(tonumber("100604", 8), "file", 2000, 1000), 1000, 1000)
+  assert(grouped.by == "owner", grouped.by)
+  -- No match: as for a user that owns nothing.
+  assert(Sandbox.reach("r", described(tonumber("100644", 8), "file", 2000, 2000), 1000, 1000).by == "other")
 end
 
 local function test_reach_names_what_even_the_owner_lacks()

@@ -360,6 +360,7 @@ local REFUSED <const>: {{string}} = {
   { "{ set_env = { MODE = \"x\" } }", "set_env \"MODE\"" },
   { "{ tmp = true }", "tmp is" },
   { "{ limits = { processes = 4 } }", "limits.processes" },
+  { "{ user = 4294967000 }", "user 4294967000" },
   { "{ profiles = { \"nonesuch\" } }", "nonesuch" },
 }
 

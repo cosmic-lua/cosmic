@@ -264,6 +264,10 @@ local record Test
     tmp: boolean
     --- The resources the tests may spend. Not yet taken.
     limits: Limits
+    --- The user the tests run as. Refused: the harness chooses a worker's.
+    user: integer
+    --- The group the tests run as. Refused, as `user` is.
+    group: integer
   end
 end
 
@@ -381,12 +385,12 @@ end
 local POLICY_FIELDS <const>: {string:string} = {
   profiles = "list", grants = "grants", isolate = "list", promises = "list",
   connect = "list", loopback = "list", env = "list", set_env = "map",
-  set_env_digests = "map", tmp = "flag", limits = "limits",
+  set_env_digests = "map", tmp = "flag", limits = "limits", user = "id", group = "id",
 }
 
 local POLICY_FIELD_NAMES <const>: {string} = {
-  "connect", "env", "grants", "isolate", "limits", "loopback", "profiles", "promises",
-  "set_env", "set_env_digests", "tmp",
+  "connect", "env", "grants", "group", "isolate", "limits", "loopback", "profiles", "promises",
+  "set_env", "set_env_digests", "tmp", "user",
 }
 
 local LIMIT_FIELDS <const>: {string:boolean} = {
@@ -505,6 +509,14 @@ local function policy_of(given: any): Test.Policy | nil, string
     local why = ""
     if takes == "flag" then
       if value is boolean then out.tmp = value else why = key .. " takes true or false" end
+    elseif takes == "id" then
+      if not value is integer then
+        why = key .. " takes a whole number"
+      elseif key == "user" then
+        out.user = value
+      else
+        out.group = value
+      end
     elseif takes == "grants" then
       out.grants, why = grants_of(value)
     elseif takes == "limits" then
@@ -549,8 +561,9 @@ end
 --- "nest"). What it cannot say is refused, naming the field, rather than
 --- accepted as a declaration that moves no key: `isolate`, `set_env`,
 --- `limits`, a grant of more than "r" or from another path, `tmp = false`.
---- `connect` and `set_env_digests` are refused outright, since no test
---- reaches a host but loopback and a digest holds no value to set.
+--- `connect`, `set_env_digests`, `user` and `group` are refused outright,
+--- since no test reaches a host but loopback, a digest holds no value to
+--- set, and the harness chooses a worker's user.
 --- The promises "fork", "jit" and "fattr" are accepted and change
 --- nothing: no worker holds them yet.
 ---
@@ -609,6 +622,10 @@ function Test.needs_of(given: any): Test.Needs | nil, string
   end
   if policy.tmp == false then
     return nil, "tmp = false " .. NOT_YET .. "; every test has a temporary directory today"
+  end
+  if policy.user ~= nil or policy.group ~= nil then
+    return nil, (policy.user ~= nil and "user" or "group") .. " is refused: the harness " ..
+      "chooses the user a worker runs as"
   end
   out.tool, out.system, out.nests = flags.tool, flags.system, flags.nests
   if #reads > 0 then out.reads = reads end

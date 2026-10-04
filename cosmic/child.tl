@@ -371,17 +371,20 @@ local record Options
   --- one id from the top of what this process's user namespace maps
   --- ([`Sandbox.user_id`], 4294963198 to 4294967293 on a host), chosen by
   --- the pid and a count of the sandboxes this process has started, so
-  --- concurrent sandboxes differ, which needs CAP_SETUID, CAP_SETGID and
+  --- concurrent sandboxes differ -- or the policy's `user` and `group`,
+  --- the same every start, which may own the files it works on (a caller
+  --- that is not root may name only itself) -- which needs CAP_SETUID, CAP_SETGID and
   --- CAP_SETFCAP (the start fails, saying so, where it lacks them). A
   --- policy that makes a namespace (`isolate`, `loopback`, a `u` grant)
   --- maps that user into a user namespace from outside; one that makes
   --- none gives root up for it directly, as `credentials` does, and so
   --- has the host's /proc and pid namespace, as an unprivileged caller's
   --- child with no `isolate` has, and starts where a container masks
-  --- /proc. That user is
-  --- none of the owners of the host's files: a grant it cannot use by the
-  --- file's mode -- one that is not open to everyone, as a directory
-  --- made 0700 is not -- fails the start naming it; under `isolate`
+  --- /proc. A pool's user is
+  --- none of the owners of the host's files, and a named one is the owner
+  --- of its own and in its group's (in no other group): a grant it cannot
+  --- use by the file's mode -- one not open to it, as another user's
+  --- directory made 0700 is not -- fails the start naming it; under `isolate`
   --- "file" the grant is mounted idmapped instead, where the kernel
   --- (Linux 5.12) and the file system (ext4, xfs, btrfs, tmpfs) allow and
   --- this process holds CAP_SYS_ADMIN, so that user is the file's owner
@@ -2441,16 +2444,44 @@ local function effective_user(): integer
   return number or sys.getuid()
 end
 
+--- The group this process runs as, which a caller that is not root may
+--- name as its program's, and which a root caller's namespace maps beside
+--- its program's.
+local function effective_group(): integer
+  local status, _ = Fs.read("/proc/self/status")
+  local effective = status ~= nil and status:match("\nGid:%s+%d+%s+(%d+)") or nil
+  local number = effective ~= nil and math.tointeger(tonumber(effective)) or nil
+  return number or sys.getgid()
+end
+
 --- The user and group a program runs as where this process is root,
 --- which a program of a policy never is: nil with no reason where this
 --- process is not root (the program then runs as it does, mapped as itself
---- in a user namespace of its own); a user of its own, mapped from outside
---- ([`Sandbox.user_id`]'s pool), where it is and may; nil and why where it
---- is root but may not map one -- it needs CAP_SETUID, CAP_SETGID and
---- CAP_SETFCAP, and a user namespace that maps the pool.
-local function mapped_user(): MappedUser | nil, string
+--- in a user namespace of its own), and nil and why where `merged` names
+--- another `user` or `group` than its own then; where it is root and may,
+--- `merged`'s `user` and `group`, or else a user of its own from
+--- [`Sandbox.user_id`]'s pool; nil and why where it is root but may not
+--- map one -- it needs CAP_SETUID, CAP_SETGID and CAP_SETFCAP, and a user
+--- namespace that maps the user.
+local function mapped_user(merged: Rules.Policy): MappedUser | nil, string
   local platform, _, _ = raw.sandbox_platform()
-  if not platform or effective_user() ~= 0 then return nil, "" end
+  local own = effective_user()
+  if not platform and own == 0 then
+    if merged.user ~= nil then
+      return nil, "user " .. merged.user .. ": a program runs as a user of the policy's only " ..
+        "where it is sandboxed, on Linux"
+    end
+    return nil, ""
+  end
+  if own ~= 0 then
+    local group = effective_group()
+    if merged.user ~= nil and (merged.user ~= own or (merged.group ~= nil and merged.group ~= group)) then
+      return nil, "user " .. merged.user .. (merged.group ~= nil and ", group " .. merged.group or "") ..
+        ": only a root caller chooses the user its program runs as, and this process is user " ..
+        own .. ", group " .. group .. ", which its program runs as: name that or none"
+    end
+    return nil, ""
+  end
   local mayed, _, _ = raw.may_map_ids()
   -- TODO: ask only CAP_SETUID and CAP_SETGID of a policy that makes no
   -- namespace, whose child gives root up directly and maps nothing, once
@@ -2468,6 +2499,19 @@ local function mapped_user(): MappedUser | nil, string
     return nil, "this process's user and group maps cannot be read, so the user a program " ..
       "of a policy runs as (never root) cannot be chosen: /proc/self/uid_map"
   end
+  if merged.user ~= nil then
+    local group = merged.group or merged.user
+    if not Rules.maps_id(uid_map, merged.user) or not Rules.maps_id(gid_map, group) then
+      return nil, "user " .. merged.user .. " and group " .. group .. ": this " ..
+        "process's user namespace does not map both, so its program cannot run as them"
+    end
+    if Rules.in_pool(uid_map, gid_map, merged.user) or Rules.in_pool(uid_map, gid_map, group) then
+      return nil, "user " .. merged.user .. " and group " .. group .. ": one is of the pool a " ..
+        "root caller's sandboxes are each given a user from, which a concurrent one may be " ..
+        "given: name one outside it"
+    end
+    return { uid = merged.user, gid = group }, ""
+  end
   sandboxes_started = sandboxes_started + 1
   local id, why = Rules.user_id(uid_map, gid_map, sys.getpid() * PID_SPREAD + sandboxes_started)
   if id == nil then return nil, why end
@@ -2475,35 +2519,35 @@ local function mapped_user(): MappedUser | nil, string
 end
 
 --- Whether every directory above `path`, an absolute real path, may be
---- searched by a user that owns none of them, as the user of a root
---- caller's sandbox must to reach it in the host's own tree: "" or the
---- directory that may not.
-local function unsearchable_above(path: string): string
+--- searched by `user`, the user of a root caller's sandbox, as it must to
+--- reach it in the host's own tree: "" or the directory that may not.
+local function unsearchable_above(path: string, user: MappedUser): string
   local at = Fs.dirname(path)
   while true do
     local st, _ = sys.stat(at)
-    if st ~= nil and Rules.reach("x", st).by ~= "other" then return at end
+    local by = st ~= nil and Rules.reach("x", st, user.uid, user.gid).by or "other"
+    if by ~= "other" and by ~= "user" then return at end
     if at == "/" or at == "." then return "" end
     at = Fs.dirname(at)
   end
 end
 
---- Which of `merged`'s grants the user of a root caller's sandbox, which
---- owns none of the host's files, can use only as their owner can
---- ([`Sandbox.reach`]): those are mounted idmapped, so that user is the
+--- Which of `merged`'s grants `user`, the user of a root caller's sandbox,
+--- can use only as their owner can ([`Sandbox.reach`]): those are mounted idmapped, so that user is the
 --- owner, where `file` gives the sandbox a root of its own to mount them
 --- in. Nil, and why, where one cannot be used either way, or, without
 --- `file`, only as its owner can, which only that mount gives; naming it
 --- and what to do. Without `file` every directory above a grant must also
---- be searchable by everyone, and so must `base`, the directory the
+--- be searchable by that user, and so must `base`, the directory the
 --- program starts in, and, for `tmp`, TMPDIR's; under it the root is built without walking to a
 --- grant. A grant that does not exist is left for the start's own report.
-local function reached_by(merged: Rules.Policy, base: string, file: boolean): {boolean} | nil, string
+local function reached_by(merged: Rules.Policy, base: string, file: boolean,
+                          user: MappedUser): {boolean} | nil, string
   if merged.tmp and not file then
     local tmpdir = sys.getenv("TMPDIR")
     if tmpdir == nil or tmpdir == "" then tmpdir = "/tmp" end
     local real, _ = sys.realpath(tmpdir)
-    local above = real ~= nil and unsearchable_above(real .. "/.") or ""
+    local above = real ~= nil and unsearchable_above(real .. "/.", user) or ""
     if above ~= "" then
       return nil, "tmp makes its directory in TMPDIR, " .. string.format("%q", tmpdir) ..
         ", which the user a root caller's program runs as cannot reach: " .. above ..
@@ -2521,20 +2565,26 @@ local function reached_by(merged: Rules.Policy, base: string, file: boolean): {b
       st = got
     end
     if st ~= nil then
-      local reach = Rules.reach(grant.letters, st)
+      local reach = Rules.reach(grant.letters, st, user.uid, user.gid)
       local what = "grant " .. string.format("%q", grant.path) .. " (" .. real .. ")"
       if reach.by == "" then
-        return nil, what .. " cannot be used by the user a root caller's program runs as, which " ..
-          "is none of its owners: " .. reach.lacks .. "; change its mode so everyone may"
+        return nil, what .. " cannot be used by the user a root caller's program runs as, " ..
+          "user " .. user.uid .. ": " .. reach.lacks .. "; change its mode so it may"
       elseif reach.by == "owner" then
         if not file then
-          return nil, what .. " is owned by user " .. st.uid .. " and not open to everyone, so " ..
-            "the user a root caller's program runs as, which is none of its owners, cannot " ..
-            "use it: change its mode, or isolate \"file\", which mounts it so that user owns it"
+          return nil, what .. " is owned by user " .. st.uid .. " and not open to the user a " ..
+            "root caller's program runs as, user " .. user.uid .. ", which is not its owner, so " ..
+            "it cannot use it: change its mode, or isolate \"file\", which mounts it so that " ..
+            "user owns it"
         end
+        -- TODO: map the named user to itself in the idmapped mount too,
+        -- where it is not the grant's owner (core/syscalls.c's
+        -- idmapped_tree maps the owner alone): the files of a policy's
+        -- `user` beneath another owner's grant show as the overflow id
+        -- through it, so that user cannot write its own files there.
         idmap[index] = true
       elseif not file then
-        local above = unsearchable_above(real)
+        local above = unsearchable_above(real, user)
         if above ~= "" then
           return nil, what .. " is beneath the directory " .. above .. ", which the user a " ..
             "root caller's program runs as cannot search: change its mode, or isolate " ..
@@ -2544,7 +2594,7 @@ local function reached_by(merged: Rules.Policy, base: string, file: boolean): {b
     end
   end
   if not file then
-    local above = unsearchable_above(base .. "/.")
+    local above = unsearchable_above(base .. "/.", user)
     if above ~= "" then
       return nil, "the directory the program starts in, " .. string.format("%q", base) ..
         ", or one above it, " .. above .. ", cannot be searched by the user a root caller's " ..
@@ -2625,18 +2675,25 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
   -- as an unprivileged caller's child runs as it, so it needs no procfs
   -- of its own, which a container masking /proc refuses. One that makes a
   -- namespace maps the user into it from outside.
-  local user, user_trouble = mapped_user()
+  local user, user_trouble = mapped_user(merged)
   if user == nil and user_trouble ~= "" then return nil, "sandbox: " .. user_trouble end
   local idmap: {boolean} = {}
   local drop: MappedUser
   if user ~= nil then
     local here, here_trouble = sys.realpath(opts.cwd or ".")
     if here == nil then return nil, "sandbox: cwd " .. (opts.cwd or ".") .. ": " .. here_trouble end
-    local reached, reach_trouble = reached_by(merged, here, file)
+    local reached, reach_trouble = reached_by(merged, here, file, user)
     if reached == nil then return nil, "sandbox: " .. reach_trouble end
     idmap = reached
     if file or proc or #merged.loopback > 0 or isolated_unix(merged) then
       proc = true
+      -- The namespace is mapped from outside with this process's own group
+      -- beside the program's, which may not be one id twice.
+      if user.gid == effective_group() then
+        return nil, "sandbox: group " .. user.gid .. " is this process's own, which its " ..
+          "program's user namespace maps beside the program's: name another group, or a " ..
+          "policy that makes no namespace"
+      end
     else
       drop = user
     end
