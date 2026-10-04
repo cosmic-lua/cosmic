@@ -214,7 +214,6 @@ end
 
 local DEFAULT_READ <const> = 64 * 1024
 local DEFAULT_BACKLOG <const> = 64
-local MS <const> = Time.ms(1)
 
 --- The address of the socket file at `path`.
 function Net.unix(path: string): Net.Address
@@ -224,14 +223,6 @@ end
 --- The address of TCP `port` at `host`, a numeric IPv4 or IPv6 address.
 function Net.tcp(host: string, port: integer): Net.Address
   return { kind = "tcp", host = host, port = port }
-end
-
---- `timeout_ns`, which [`Poll.checked_ns`] has held to what a wait can
---- last, as the raw calls take it: in milliseconds, rounded up so a
---- timeout of any length is never none, or -1 for no limit.
-local function milliseconds(timeout_ns: integer | nil): integer
-  if timeout_ns == nil then return -1 end
-  return Time.ceil(timeout_ns, MS)
 end
 
 --- What a failed call says: its own words for a deadline or a signal,
@@ -269,7 +260,7 @@ local function waited(fd: integer, writable: boolean, timeout_ns: integer | nil)
   if Poll.in_task() then
     return Poll.wait(fd, writable and sys.POLLOUT or sys.POLLIN, timeout_ns)
   end
-  local ok, trouble, errno = raw.wait(fd, writable, milliseconds(timeout_ns))
+  local ok, trouble, errno = raw.wait(fd, writable, Poll.milliseconds(timeout_ns))
   if ok then return true, "" end
   return false, said(trouble, errno)
 end
@@ -522,7 +513,7 @@ local function connection(address: Net.Address, timeout_ns: integer | nil): Atte
   -- replaces.
   Poll.checked_ns(timeout_ns, "net", "timeout_ns", 3)
   if not Poll.in_task() then
-    local socket, trouble, errno = raw.connect(address, milliseconds(timeout_ns))
+    local socket, trouble, errno = raw.connect(address, Poll.milliseconds(timeout_ns))
     return { socket = socket, trouble = trouble, errno = errno }
   end
   local socket, trouble, errno = raw.start(address)

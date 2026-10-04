@@ -33,6 +33,14 @@ local function raises(fn: function(), words: string)
   assert(tostring(err):find(words, 1, true), tostring(err))
 end
 
+local function test_milliseconds_round_a_timeout_up_and_no_limit_is_minus_one()
+  assert(Poll.milliseconds(nil) == -1)
+  assert(Poll.milliseconds(0) == 0)
+  assert(Poll.milliseconds(1) == 1)
+  assert(Poll.milliseconds(Time.ms(3)) == 3)
+  assert(Poll.milliseconds(Time.ms(3) + 1) == 4)
+end
+
 local function test_tasks_take_turns_as_each_waits()
   local seen: {string} = {}
   Poll.run(function()

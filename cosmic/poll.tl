@@ -462,9 +462,11 @@ local function checked_events(mask: any, name: string, level: integer)
   end
 end
 
---- `timeout_ns` as [`sys.poll`] counts it, in whole milliseconds rounded
---- up so a wait with time left never polls for none, or -1 for no limit.
-local function poll_ms(timeout_ns: integer | nil): integer
+--- `timeout_ns`, which [`Poll.checked_ns`] has held to what a wait can
+--- last, as [`sys.poll`] and the raw socket calls count it: in whole
+--- milliseconds rounded up so a wait with time left never polls for none,
+--- or -1 for no limit.
+function Poll.milliseconds(timeout_ns: integer | nil): integer
   if timeout_ns == nil then return -1 end
   return Time.ceil(timeout_ns, MS)
 end
@@ -485,7 +487,7 @@ local function wait_on(fd: integer, events: integer, timeout_ns: integer | nil,
   local deadline = timeout_ns ~= nil and Time.monotonic_ns() + timeout_ns or nil
   while true do
     local left = deadline ~= nil and math.max(deadline - Time.monotonic_ns(), 0) or nil
-    local revents, trouble = sys.poll({ fd }, { events }, poll_ms(left))
+    local revents, trouble = sys.poll({ fd }, { events }, Poll.milliseconds(left))
     if revents == nil then return false, trouble end
     if revents[1] ~= 0 then return true, "" end
     if deadline ~= nil and Time.monotonic_ns() >= deadline then return false, Poll.TIMEOUT end

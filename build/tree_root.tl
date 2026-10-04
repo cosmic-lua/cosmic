@@ -27,6 +27,7 @@
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local narrow = require("build.narrow")
 
 local record tree_root
   --- Where a verb was started and the tree it runs in instead.
@@ -114,27 +115,6 @@ local paths <const>: {string:string} = {
   docs = "none",
 }
 
---- `path` with its `.` and `..` and repeated slashes settled, lexically,
---- and no link followed: the way to name what may not exist. Absolute
---- when `path` is.
-local function normalized(path: string): string
-  local parts: {string} = {}
-  for part in path:gmatch("[^/]+") do
-    if part == ".." then
-      if #parts > 0 and parts[#parts] ~= ".." then
-        parts[#parts] = nil
-      elseif path:sub(1, 1) ~= "/" then
-        parts[#parts + 1] = part
-      end
-    elseif part ~= "." then
-      parts[#parts + 1] = part
-    end
-  end
-  local joined = table.concat(parts, "/")
-  if path:sub(1, 1) == "/" then return "/" .. joined end
-  return joined == "" and "." or joined
-end
-
 --- `word` read from the directory `from`, unnormalized.
 local function joined_to(from: string, word: string): string
   if word:sub(1, 1) == "/" then return word end
@@ -144,7 +124,7 @@ end
 --- `word`, read from `from`, as a path from `root`: absolute where it is
 --- not within it.
 local function from_root(word: string, from: string, root: string): string
-  local absolute = normalized(joined_to(from, word))
+  local absolute = narrow.lexical(joined_to(from, word))
   local relative, _ = Fs.relative(absolute, root)
   return relative or absolute
 end
@@ -165,7 +145,7 @@ function tree_root.move(argv: {integer:string},
   local root: string | nil
   local note = ""
   if named ~= nil and named ~= "" then
-    root = normalized(joined_to(from, named))
+    root = narrow.lexical(joined_to(from, named))
     local directory, _ = Fs.is_dir(root)
     if not directory then
       return { refused = "COSMIC_TREE=" .. named .. " is not a directory", note = "" }
@@ -178,7 +158,7 @@ function tree_root.move(argv: {integer:string},
     local resolved: string | nil = nil
     if home ~= nil and home ~= "" then
       local real, _ = Fs.absolute(home)
-      resolved = real or normalized(home)
+      resolved = real or narrow.lexical(home)
     end
     root, note = above(from, resolved)
   end

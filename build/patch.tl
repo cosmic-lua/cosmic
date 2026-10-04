@@ -456,6 +456,8 @@ local scratch_mt: metatable<Scratch> = {
   end,
 }
 
+-- build/zig_fetch.tl holds an identical copy, and the TODO to take both
+-- from cosmic.fs.
 local function scratch(cache: string): Scratch | nil, string
   local fd, trouble = sys.open(cache .. "/.scratch-gate", sys.O_RDWR | sys.O_CREAT | sys.O_NOFOLLOW, 0x180)
   if fd == nil then return nil, trouble end
