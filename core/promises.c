@@ -178,6 +178,8 @@ enum rule {
   RULE_IOCTL,
   RULE_PRCTL,
   RULE_SOCKET_UNIX,
+  RULE_SOCKET_INET,
+  RULE_SOCKET_UNIX_INET,
   RULE_OPEN,
   RULE_OPENAT,
   RULE_MODE1,
@@ -288,10 +290,12 @@ static const struct grant basics[] = {
 
 /* TODO: the `nest` promise -- unshare, mount and pivot_root, which reach
  * only a program's own namespaces, for a program that builds a sandbox of
- * its own -- once phase 2 of the sandbox plan (doc/plans/sandbox.md on
- * the unveil-landlock-cli branch: `isolate file`, which `nest` needs, and
- * a Landlock hold it gives up, since Landlock refuses mounts) lands;
- * until then every namespace call is refused, whatever was promised. */
+ * its own -- once the rest of phase 2 of the sandbox plan
+ * (doc/plans/sandbox.md on the unveil-landlock-cli branch) lands: the
+ * Landlock hold `nest` gives up, since Landlock refuses mounts, which
+ * `isolate file` (met by a policy's start) then leaves the program inside
+ * its own root; until then every namespace call is refused, whatever was
+ * promised. */
 
 /* `fork`: a process of its own, and the descriptor to wait for it on. */
 static const struct grant fork_calls[] = {
@@ -362,6 +366,8 @@ static const struct grant fattr_calls[] = {
 #define TYPE_FIFO 0x1000u
 #define TYPE_SOCKET 0xc000u
 #define AF_UNIX_FAMILY 1u
+#define AF_INET_FAMILY 2u
+#define AF_INET6_FAMILY 10u
 #define SCHED_RESET_ON_FORK_BIT 0x40000000u
 
 /* clone's flags: the namespaces (CLONE_NEWNS, CLONE_NEWCGROUP, UTS, IPC,
@@ -617,6 +623,15 @@ static void rule_block (struct builder *b, enum rule rule, uint32_t pid, enum co
     load(&k, DATA_ARGUMENT(0) + DATA_LOW);
     test(&k, OP_EQ, AF_UNIX_FAMILY, JUMP_ALLOW, JUMP_DENY);
     break;
+    case RULE_SOCKET_INET:
+    case RULE_SOCKET_UNIX_INET:
+    /* Only the families: netlink and packet sockets (16, 17) stay
+     * refused, and a raw one needs a capability no program has. */
+    load(&k, DATA_ARGUMENT(0) + DATA_LOW);
+    if (rule == RULE_SOCKET_UNIX_INET) test(&k, OP_EQ, AF_UNIX_FAMILY, JUMP_ALLOW, JUMP_NEXT);
+    test(&k, OP_EQ, AF_INET_FAMILY, JUMP_ALLOW, JUMP_NEXT);
+    test(&k, OP_EQ, AF_INET6_FAMILY, JUMP_ALLOW, JUMP_DENY);
+    break;
     case RULE_OPEN:
     case RULE_OPENAT: {
       /* A mode is read only where the call creates a file. */
@@ -708,17 +723,21 @@ static void add (uint8_t *rules, const struct grant *table, size_t count) {
 
 /* Writes to `out`, room for COSMIC_PROMISE_INSNS, the program that holds
  * a process of `arch` and pid `pid` to `promises`, and answers how many
- * instructions it is, or 0 where it did not fit. `unix_sockets` lets it
- * make a unix socket (socket(AF_UNIX)); a socketpair of one it always
- * may. Nothing in it depends on the host. */
+ * instructions it is, or 0 where it did not fit. `sockets`
+ * (COSMIC_SOCKETS_ bits) lets it make a socket of those families --
+ * socket(AF_UNIX), AF_INET and AF_INET6 -- a socketpair of unix ones it
+ * always may. Nothing in it depends on the host. */
 static size_t program_for (struct cosmic_insn *out, enum cosmic_arch arch,
-                                      unsigned promises, bool unix_sockets, uint32_t pid) {
+                                      unsigned promises, unsigned sockets, uint32_t pid) {
   const short *numbers = arch == COSMIC_ARCH_X86_64 ? x86_64_numbers : aarch64_numbers;
   uint32_t audit = arch == COSMIC_ARCH_X86_64 ? AUDIT_X86_64 : AUDIT_AARCH64;
   uint8_t rules[CALL_COUNT];
   memset(rules, 0, sizeof rules);
   ADD(basics);
-  if (unix_sockets) rules[CALL_socket] = RULE_SOCKET_UNIX;
+  if (sockets == COSMIC_SOCKETS_UNIX) rules[CALL_socket] = RULE_SOCKET_UNIX;
+  else if (sockets == COSMIC_SOCKETS_INET) rules[CALL_socket] = RULE_SOCKET_INET;
+  else if (sockets == (COSMIC_SOCKETS_UNIX | COSMIC_SOCKETS_INET))
+    rules[CALL_socket] = RULE_SOCKET_UNIX_INET;
   if (promises & COSMIC_PROMISE_FORK) ADD(fork_calls);
   if (promises & COSMIC_PROMISE_JIT) ADD(jit_calls);
   if (promises & COSMIC_PROMISE_FATTR) ADD(fattr_calls);
@@ -780,7 +799,7 @@ const int cosmic_promise_headers_end = __NR_syscalls;
 const int cosmic_promise_headers_end = 0;
 #endif
 
-int cosmic_promises_apply (unsigned promises) {
+int cosmic_promises_apply (unsigned promises, unsigned sockets) {
 #if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__))
 #if defined(__x86_64__)
   enum cosmic_arch arch = COSMIC_ARCH_X86_64;
@@ -788,11 +807,7 @@ int cosmic_promises_apply (unsigned promises) {
   enum cosmic_arch arch = COSMIC_ARCH_AARCH64;
 #endif
   struct cosmic_insn code[COSMIC_PROMISE_INSNS];
-  /* TODO: allow a unix socket (`unix_sockets`) for a program that is
-   * granted one (`u`), once the sandbox plan's phase 1 Landlock grants
-   * land and `spawn` has a way to ask: until then only a socketpair is
-   * made. */
-  size_t length = program_for(code, arch, promises, false, (uint32_t)getpid());
+  size_t length = program_for(code, arch, promises, sockets, (uint32_t)getpid());
   if (length == 0) return ENOSPC;
   if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) return errno;
   _Static_assert(sizeof(struct sock_filter) == sizeof(struct cosmic_insn), "one instruction");
@@ -801,6 +816,7 @@ int cosmic_promises_apply (unsigned promises) {
   return 0;
 #else
   (void)promises;
+  (void)sockets;
   return ENOSYS;
 #endif
 }
@@ -822,7 +838,7 @@ COSMIC_SYSCALL(promise_filter, 3) {
   else if (strcmp(name, "aarch64") == 0) arch = COSMIC_ARCH_AARCH64;
   else return luaL_argerror(L, 2, "an architecture is \"x86_64\" or \"aarch64\"");
   lua_Integer pid = 1;
-  bool unix_sockets = false;
+  unsigned sockets = 0;
   if (!lua_isnoneornil(L, 3)) {
     luaL_checktype(L, 3, LUA_TTABLE);
     lua_getfield(L, 3, "pid");
@@ -831,11 +847,13 @@ COSMIC_SYSCALL(promise_filter, 3) {
       if (pid < 1 || pid > INT32_MAX) return luaL_argerror(L, 3, "pid must be a positive integer");
     }
     lua_getfield(L, 3, "unix");
-    unix_sockets = lua_toboolean(L, -1);
-    lua_pop(L, 2);
+    if (lua_toboolean(L, -1)) sockets |= COSMIC_SOCKETS_UNIX;
+    lua_getfield(L, 3, "inet");
+    if (lua_toboolean(L, -1)) sockets |= COSMIC_SOCKETS_INET;
+    lua_pop(L, 3);
   }
   struct cosmic_insn code[COSMIC_PROMISE_INSNS];
-  size_t length = program_for(code, arch, promises, unix_sockets, (uint32_t)pid);
+  size_t length = program_for(code, arch, promises, sockets, (uint32_t)pid);
   if (length == 0) return luaL_error(L, "the filter does not fit");
   lua_pushlstring(L, (const char *)code, length * sizeof code[0]);
   return 1;

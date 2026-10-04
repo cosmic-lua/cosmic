@@ -655,11 +655,30 @@ local function raw_strings(list: any): {string} | nil
   end
 end
 
+--- The fields of a sandbox and of its `unveil` that [`plain_sandbox`]
+--- carries: one with any other (a policy's: grants, promises, strict) is
+--- the core's to read as it stands, and no copy of it is made.
+local plain_fields <const>: {string:boolean} = {
+  ruleset = true, unveil = true, noexec_scratch = true, offline = true, user = true,
+  group = true, pledge = true,
+}
+local plain_unveil_fields <const>: {string:boolean} = { reads = true, writes = true, at = true }
+
 --- `sandbox` as the core reads it -- raw, with no metamethod answering
 --- for a field -- in a plain table of its own; nil when a field holds
---- what the core would refuse, for the core to refuse.
+--- what the core would refuse, for the core to refuse, or one this does
+--- not copy, which the core is given as it is.
 local function plain_sandbox(sandbox: raw_process.Sandbox): raw_process.Sandbox | nil
   local raw = sandbox as {string:any}
+  for key, _ in next, raw do
+    if not key is string or not plain_fields[key] then return nil end
+  end
+  local listed = rawget(raw, "unveil")
+  if listed is {any:any} then
+    for key, _ in next, listed do
+      if not key is string or not plain_unveil_fields[key] then return nil end
+    end
+  end
   local plain: raw_process.Sandbox = {}
   local ruleset = rawget(raw, "ruleset")
   if ruleset is integer then plain.ruleset = ruleset elseif ruleset ~= nil then return nil end

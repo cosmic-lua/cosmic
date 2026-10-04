@@ -1967,6 +1967,61 @@ local function test_spawn_credentials_runtime_refusal(tmp: string)
   assert(not Fs.exists(marker))
 end
 
+--- What spawn raises for `sandbox` taken as a raw table, malformed.
+local function refused_sandbox(fields: {string:any}): string
+  local ok, trouble = pcall(process.spawn, "/missing", { "/missing" }, nil, nil,
+    nil, nil, nil, false, nil, fields as raw_process.Sandbox) -- cast: malformed input exercises raw validation
+  assert(not ok, "spawn took a malformed sandbox")
+  return tostring(trouble)
+end
+
+local function test_a_policys_sandbox_fields_are_checked_before_a_start()
+  local function says(trouble: string, text: string)
+    assert(trouble:find(text, 1, true), trouble)
+  end
+  says(refused_sandbox({ strict = "yes" }), "strict must be a boolean")
+  says(refused_sandbox({ proc = 1 }), "proc must be a boolean")
+  says(refused_sandbox({ proc = true, unveil = { reads = { "/" } } }),
+    "proc and unveil exclude each other")
+  says(refused_sandbox({ sockets = { "inet" } }), "sockets require promises")
+  says(refused_sandbox({ promises = {}, sockets = { "packet" } }), "a socket family is")
+  says(refused_sandbox({ promises = {}, sockets = "inet" }), "sockets must be a list")
+  says(refused_sandbox({ unveil = { tmp = 0 } }), "unveil's tmp is a size in bytes")
+  says(refused_sandbox({ unveil = { tmp = "big" } }), "unveil's tmp is a size in bytes")
+end
+
+--- A policy's sandbox, `strict`, that cannot be built says what to allow.
+--- This worker is held by a Landlock ruleset, under which the kernel refuses
+--- the mounts a procfs of its own is made with.
+local function test_a_strict_sandbox_that_cannot_be_built_says_what_to_allow(tmp: string)
+  local probe = probe_in(tmp)
+  local pid, trouble, errno = process.spawn(probe, { probe, "print hi" }, nil, nil, nil, nil, nil,
+    false, nil, { strict = true, proc = true })
+  if pid ~= nil then
+    local _, _ = process.waitpid(pid, false)
+    Test.skip("this worker is not held by a Landlock ruleset, so the sandbox was built")
+    return
+  end
+  if errno == sys.ENOSYS then return end
+  assert(errno == sys.EPERM or errno == sys.EACCES, tostring(trouble))
+  assert(trouble:find("Landlock", 1, true) and (trouble:find("unprivileged user namespaces", 1, true) or
+    trouble:find("root could not be built", 1, true)), trouble)
+end
+
+local function test_unveils_binds_are_checked_before_a_start()
+  local function says(binds: any, text: string)
+    local trouble = refused_sandbox({ unveil = { binds = binds } })
+    assert(trouble:find(text, 1, true), trouble)
+  end
+  says("/x", "unveil's binds must be a list")
+  says({ "/x" }, "a bind is a table")
+  says({ { path = "x" } }, "a bind's path must be absolute")
+  says({ { path = "/x", at = "relative" } }, "a bind is at an absolute name")
+  says({ { path = "/x", at = "/" } }, "a bind is at an absolute name")
+  says({ { path = "/x", at = "/.old/y" } }, "no name beneath /.old")
+  says({ { path = "/x", at = "/y" }, { path = "/z", at = "/y" } }, "two paths are bound at one name")
+end
+
 local function test_noexec_scratch_requires_a_boolean_and_unveiling()
   local invalid: {any} = { "yes", 1, {} }
   for _, value in ipairs(invalid) do

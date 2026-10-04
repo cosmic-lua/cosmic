@@ -31,10 +31,11 @@
 --- This is the policy's data and the host paths it names. What holds a
 --- program to it is [`Child.start`]'s, or [`Sandbox.restrict`]'s for the
 --- running process: Landlock for the paths, a seccomp filter for the
---- system calls, and rlimits. `isolate`, `connect`,
---- `loopback` and the `from`, `nest` and `processes` that need a
---- namespace are part of the policy but not yet met by it: a start under
---- one fails, saying so.
+--- system calls, and rlimits, and, for a child, the namespaces `isolate`,
+--- `loopback` and a `u` grant need. `connect` and the `nest` and
+--- `processes` that need a relay or a user namespace of the program's
+--- own are part of the policy but not yet met by it: a start under one
+--- fails, saying so.
 
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")

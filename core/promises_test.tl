@@ -561,6 +561,22 @@ local function test_a_unix_socket_is_made_only_where_it_is_allowed()
   }, { unix = true })
 end
 
+local function test_an_inet_socket_is_made_only_where_it_is_allowed()
+  -- AF_INET and AF_INET6, for a program in a network namespace of its own;
+  -- never netlink or packet sockets, and a unix one only where allowed.
+  holds_on_both({}, {
+    call("socket", "allow", 2, 1, 0), call("socket", "allow", 10, 2, 0),
+    call("socket", "EPERM", 1, 1, 0), call("socket", "EPERM", 16, 3, 0),
+    call("socket", "EPERM", 17, 3, 0), call("socket", "EPERM", 9, 1, 0),
+    call("socketpair", "allow", 1, 1, 0), call("socketpair", "EPERM", 2, 1, 0),
+  }, { inet = true })
+  holds_on_both({}, {
+    call("socket", "allow", 1, 1, 0), call("socket", "allow", 2, 1, 0),
+    call("socket", "allow", 10, 1, 0), call("socket", "EPERM", 16, 3, 0),
+    call("socket", "EPERM", 17, 3, 0),
+  }, { unix = true, inet = true })
+end
+
 local function test_a_signal_goes_to_the_process_itself()
   local pid = 4242
   holds_on_both({}, {
@@ -628,11 +644,14 @@ local function test_every_call_gets_an_answer()
       if mask & 2 ~= 0 then promises[#promises + 1] = "jit" end
       if mask & 4 ~= 0 then promises[#promises + 1] = "fattr" end
       for _, unix in ipairs({ false, true }) do
-        local insns = decode(process.promise_filter(promises, arch, { pid = 9, unix = unix }))
-        for number = 0, process.PROMISE_CALLS_REVIEWED + 2 do
-          local got = verdict(run(insns, AUDIT[arch], number, {}))
-          assert(got == "allow" or got == "EPERM" or got == "ENOSYS" or got == "ENOTTY",
-            arch .. " " .. number .. " is " .. got)
+        for _, inet in ipairs({ false, true }) do
+          local insns = decode(process.promise_filter(promises, arch,
+            { pid = 9, unix = unix, inet = inet }))
+          for number = 0, process.PROMISE_CALLS_REVIEWED + 2 do
+            local got = verdict(run(insns, AUDIT[arch], number, {}))
+            assert(got == "allow" or got == "EPERM" or got == "ENOSYS" or got == "ENOTTY",
+              arch .. " " .. number .. " is " .. got)
+          end
         end
       end
     end

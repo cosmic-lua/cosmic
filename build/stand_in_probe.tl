@@ -314,6 +314,30 @@ local verbs: {string:function(string, string): integer} = {
     local _, _ = conn:close()
     return put_all(1, "connected\n")
   end,
+  ["loopback-tcp"] = function(host: string): integer
+    local server, trouble = Net.listen(Net.tcp(host, 0), { timeout_ns = Time.seconds(5) })
+    if server == nil then return put_all(1, trouble .. "\n") end
+    local conn, connect_trouble = Net.connect(Net.tcp(host, server.address.port),
+      { timeout_ns = Time.seconds(5) })
+    if conn == nil then
+      local _, _ = server:close()
+      return put_all(1, connect_trouble .. "\n")
+    end
+    local accepted, accept_trouble = server:accept()
+    local _, _ = conn:close()
+    local _, _ = server:close()
+    if accepted == nil then return put_all(1, accept_trouble .. "\n") end
+    local _, _ = accepted:close()
+    return put_all(1, "connected\n")
+  end,
+  ["start-isolated"] = function(program: string): integer
+    local handle, trouble = Child.start({ program }, { policy = {
+      isolate = { "file" }, grants = { { path = program, letters = "rx" },
+        { path = ".", letters = "r" } } } })
+    if handle == nil then return put_all(1, trouble .. "\n") end
+    local _, _ = handle:close()
+    return put_all(1, "started\n")
+  end,
   present = function(path: string): integer
     if exists(path) then return nil end
     return failed(path, "not there")
