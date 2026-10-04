@@ -161,6 +161,12 @@ local function moved_to_server(member: string): string
   return "moved to cosmic.http.server, apart from the client: use Server." .. member ..
     " (" .. server .. ")"
 end
+local policy_json <const> = 'local PolicyJson = require("cosmic.policy")'
+--- The replacement text for a member of cosmic.policy.
+local function moved_to_policy_json(member: string): string
+  return "moved to cosmic.policy, apart from the policy's data: use PolicyJson." .. member ..
+    " (" .. policy_json .. ")"
+end
 local module: Module = {
   fields = {
     io = "io", os = "os", debug = "debug",
@@ -414,6 +420,8 @@ local module: Module = {
     ["cosmic.http.ServeSpec"] = moved_to_server("ServeSpec"),
     ["cosmic.http.Range"] = moved_to_server("Range"),
     ["cosmic.http.RangeKind"] = moved_to_server("RangeKind"),
+    ["cosmic.sandbox.decode"] = moved_to_policy_json("decode"),
+    ["cosmic.sandbox.encode"] = moved_to_policy_json("encode"),
     ["cosmic.fs.truncate"] = "use sys.ftruncate(fd, length), which Fs.truncate wrapped (" .. sys .. ")",
     ["cosmic.fs.cache_path"] = "use Fs.cache_dir(tool, { environment = environment, make = false }), " ..
       "which answers the name alone, made, looked at and checked nowhere (" .. fs .. ")",

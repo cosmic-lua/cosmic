@@ -85,6 +85,8 @@ local function check(g: Grade, holds: boolean, line: string, why?: string)
   end
 end
 
+-- TODO: once ci/cosmic-driver.pin names a release whose cosmic.child carries
+-- Child.shell_status, take this from it and drop Grader.status.
 --- A child's exit as a shell reports it: its code, or 128 plus the
 --- signal that ended it.
 function Grader.status(result: Child.Result): integer

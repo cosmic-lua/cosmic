@@ -869,16 +869,18 @@ local harness_own <const>: {string} = { "build.test_sandbox", "build.test_policy
 --- spawn holds it to -- the unveils, the binds, offline -- so an edit
 --- that weakened it would pass a test that reads what it does not
 --- declare, and keep and share the pass. What it requires (cosmic.time,
---- cosmic.stream and the rest) applies no sandbox, and stays out.
+--- cosmic.stream and the rest) applies no sandbox, and stays out. The
+--- exception is cosmic.sandbox, held alone too: among others its `merge`
+--- (and the profiles it joins), `loaders`, `reach` and `user_id` decide
+--- what a worker started under a policy (`--policy`) may reach, and
+--- [`test_policy.runs`] merges a policy through it. Its own requires are
+--- not walked, and none of them decides a grant.
 -- TODO: move the translation of a plan's `sandbox` into spawn's
 -- options into build.confine, which the harness holds already, and
 -- drop cosmic.child from here and from build/harness_epoch.tl's
 -- `library`, once cosmic.child's `start` takes spawn's sandbox as it is
 -- (the TODO above its `raw.spawn` call, which would offer the rest of
 -- it): today only cosmic.child reaches spawn for the runner.
---- So too cosmic.sandbox, whose `merge` resolves a policy's profiles into
---- the grants a worker started under it is held to, and so into the paths
---- its second ruleset leaves it to run ([`test_policy.runs`]).
 local harness_alone <const>: {string} = { "cosmic.child", "cosmic.sandbox" }
 
 --- The code that makes a key and looks a verdict up under one:

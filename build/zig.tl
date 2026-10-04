@@ -660,6 +660,8 @@ function Zig.race_report(paths: {string}): string
   return "sources changed during the build: " .. list .. "; run it again"
 end
 
+-- TODO: once ci/cosmic-driver.pin names a release whose cosmic.child carries
+-- Child.shell_status, take this from it and drop Zig.child_status.
 --- The status a shell reports for a child: its exit code, or 128 plus
 --- the signal that ended it.
 function Zig.child_status(result: Child.Result): integer

@@ -50,8 +50,8 @@
 ---   each worker to);
 --- * the sandbox's maker (`harness_own`);
 --- * build.test itself, cosmic.child, which applies a worker's
----   sandbox, and cosmic.sandbox, which merges a policy's profiles into
----   the grants it holds a worker to (`harness_alone`), each held alone;
+---   sandbox, and cosmic.sandbox, which decides a policy worker's grants
+---   (`harness_alone`), each held alone;
 --- * the closure of the key's roots (`key_roots`) over the requires each
 ---   makes by value, as its bytecode names them ([`test.value_imports`]).
 ---   A `local type` require is not followed, since Teal erases it and
@@ -108,11 +108,11 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "516c08e34d1fc392de5363af92b6d669344fc3c8b504c469ae3771a424d0db6b",
 
-  ["build.test"] = "ef55a71fdd015b83f2261f9b00fd85bf288d276cb2803c3fed118f30c1c9630e",
+  ["build.test"] = "8fd61dfffd487b9c49966d6d9ee04adb3d7a2acccd0c5f3bf277a6d172befb77",
 
   ["build.test_inputs"] = "5da3827a258c10dd0399f75b97fbbb4bde0251eef950f66783191421227519c7",
 
-  ["build.test_policy"] = "3bbe7372989009d1cada5c7ae690e1f52f3ec0343d6db4f0dd1dbfa030bf8727",
+  ["build.test_policy"] = "54629070d694d02aca809dd1efe5923b7b22c714c88ae0e5362ef45071a1e038",
 
   ["build.test_sandbox"] = "b529cddb2c0c54824f94418400205b9ed0004441ed0ede5bc97463815ab916ae",
 
@@ -124,17 +124,17 @@ harness_epoch.acknowledged = {
 
   ["cmd.cosmic.main"] = "d00f469acf42d89c76c2e9ebabd40e73e20d00cb3a5ad6d9189716265fcdf9bf",
 
-  ["cosmic.child"] = "0cf1cc27e2cd99fee8e1f1122e6d8f18718ff955649cbee3baeebf497db32df9",
+  ["cosmic.child"] = "0fcbacc11a478955c76d4b63d770e12aa609d782c93917c26adfd2c9cceaca2c",
 
   ["cosmic.coverage"] = "079fe202231c4ae3ee642e27f6703a37850132c28c2a6d1daf50c7eb1669ac9a",
 
   ["cosmic.env"] = "9ae16736e69ff2305de1aff7db0f15db90993e1e61ef786d7bf6f33528ef0057",
 
-  ["cosmic.fs"] = "305ad1298fa4642378bb8013af654023b35157ef68a2e1feb064a7d688fc1049",
+  ["cosmic.fs"] = "befc25dee33fd54963b4a28dfe6a825724c37ed9f0f26a29b8908b1a72f628ed",
 
   ["cosmic.proc"] = "bbafb94bfa1671115f839c6fe57c921893d31d0e5baa1c4b1692e802b9c06212",
 
-  ["cosmic.sandbox"] = "742a9b2f8c71228563f087d711ce9df25ea514f033887c2774b2e5fe2a419350",
+  ["cosmic.sandbox"] = "96b9d698446d40bfd1c0635fa899c7601c2e6440eb0b034ae55c8fc2f3ceaba6",
 
   ["cosmic.sqlite"] = "ac3fd16dd89251feaee572e4e4b1d29257037afeca3b5c9b141557f2ce732390",
 

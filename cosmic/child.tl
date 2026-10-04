@@ -1855,6 +1855,17 @@ function Child.guard(): Guard | nil, string
   return opened()
 end
 
+--- The status a shell reports for a child that ended as `result` says:
+--- its exit status, or 128 plus the number of the signal that ended it.
+--- A result carrying neither, which [`Child.run`] and `h:wait` never
+--- answer, is 1. Use it to exit as the child did; a child ended for
+--- running past its timeout answers the signal that ended it, not the
+--- 124 of `timeout(1)`.
+function Child.shell_status(result: Result): integer
+  if result.signal ~= nil then return 128 + result.signal end
+  return result.code or 1
+end
+
 --- Raises at level 4, the caller of [`Child.start`] or [`Child.run`]: it and
 --- [`without_nul`] run under `validate`, which runs under either one.
 local function descriptor(value: integer | string, name: string, words: {string:boolean}):
