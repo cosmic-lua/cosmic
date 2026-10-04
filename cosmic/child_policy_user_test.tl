@@ -208,6 +208,63 @@ local function test_a_root_caller_s_policy_with_no_namespace_drops_to_a_pool_use
   assert(made.uid == ids[1] and made.gid == ids[5], "made is " .. made.uid .. ":" .. made.gid)
 end
 
+local function test_a_caller_that_is_not_root_may_name_only_itself(tmp: string)
+  if sys.getuid() == 0 then return end
+  local at = placed(tmp)
+  local grants: {Sandbox.Grant} = { { path = at.probe, letters = "rx" }, { path = "/proc", letters = "r" } }
+  local ran = under(at.probe, { user = sys.getuid(), grants = grants }, at.work, "status-field Uid")
+  if ran == nil then return end
+  assert(ran.code == 0, ran.said)
+  local ids = uids(ran.said)
+  assert(#ids == 4 and ids[1] == sys.getuid(), ran.said)
+  local why = refused(at.probe, { user = sys.getuid() + 1, grants = grants }, at.work)
+  assert(why:find("^child: start: sandbox: user ") and why:find("only a root caller", 1, true), why)
+end
+
+--- A user a root caller names is the same every start and owns what it
+--- owns on the host: a directory of its own, closed to everyone else, is
+--- its to read and write without `isolate` "file", and what one start
+--- makes the next one changes.
+local function test_a_root_caller_s_named_user_owns_its_files_from_start_to_start(tmp: string)
+  if not root_that_maps() then return end
+  local at = placed(tmp)
+  local named = 4242
+  local dir = tmp .. "/theirs"
+  assert(Fs.mkdirs(dir) and Fs.write(dir .. "/inside", "secret\n"))
+  assert(sys.chown(dir, named, named) and sys.chown(dir .. "/inside", named, named))
+  assert(sys.chmod(dir, octal("700")) and sys.chmod(dir .. "/inside", octal("600")))
+  local policy: Sandbox.Policy = { user = named, grants = { { path = at.probe, letters = "rx" },
+    { path = dir, letters = "rwc" }, { path = "/proc", letters = "r" } } }
+  for round = 1, 2 do
+    local result, why = Child.run({ at.probe, "status-field Uid; cat " .. dir .. "/inside; " ..
+        "append " .. dir .. "/made " .. round }, { policy = policy, cwd = at.work, stdout = "capture",
+          stderr = "stdout" })
+    assert(result ~= nil, "the start was refused: " .. tostring(why))
+    local said = result.stdout or ""
+    assert(result.code == 0, said)
+    local ids = uids(said:match("^(.-\n)") or "")
+    assert(#ids == 4 and ids[1] == named and ids[4] == named, said)
+    assert(said:find("secret", 1, true), said)
+  end
+  local text = Fs.read(dir .. "/made")
+  assert(text == "1\n2\n", tostring(text))
+  local made = assert(sys.stat(dir .. "/made"))
+  assert(made.uid == named and made.gid == named, made.uid .. ":" .. made.gid)
+end
+
+local function test_a_root_caller_s_named_user_and_group_hold_under_isolation(tmp: string)
+  if not root_that_maps() then return end
+  local at = placed(tmp)
+  local ran = under(at.probe, { isolate = { "proc" }, user = 4242, group = 4343, grants = {
+    { path = at.probe, letters = "rx" }, { path = at.work, letters = "r" } } }, at.work,
+    "status-field Uid; status-field Gid")
+  if ran == nil then return end
+  assert(ran.code == 0, ran.said)
+  local ids = uids(ran.said)
+  assert(#ids == 8 and ids[1] == 4242 and ids[4] == 4242 and ids[5] == 4343 and ids[8] == 4343,
+    ran.said)
+end
+
 local function test_a_root_caller_s_concurrent_sandboxes_run_as_different_users(tmp: string)
   if not root_that_maps() then return end
   local at = placed(tmp)

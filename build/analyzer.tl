@@ -1484,12 +1484,14 @@ local record PolicyData
   set_env_digests: {string:string}
   limits: {string:integer}
   tmp: boolean
+  user: integer
+  group: integer
 end
 
 --- What each field of a `policy` declaration takes: a list of string
 --- literals ("list"), a table of names to string literals ("map"), `true`
 --- or `false` ("flag"), a list of tables of string literals ("grants") or
---- a table of integers ("limits"). [`cosmic.test`] cannot be required here --
+--- a table of integers ("limits"), or an integer ("id"). [`cosmic.test`] cannot be required here --
 --- the writer's identity would then hold it -- so the translation of a
 --- policy into a declaration is written twice, and the worker holds the
 --- one to the other: a module whose `policy` call was handed anything but
@@ -1498,7 +1500,7 @@ end
 local policy_fields <const>: {string:string} = {
   profiles = "list", grants = "grants", isolate = "list", promises = "list",
   connect = "list", loopback = "list", env = "list", set_env = "map",
-  set_env_digests = "map", tmp = "flag", limits = "limits",
+  set_env_digests = "map", tmp = "flag", limits = "limits", user = "id", group = "id",
 }
 
 local policy_field_order: {string} = {}
@@ -1603,6 +1605,15 @@ local function policy_data(node: ast.Node): PolicyData | nil, string
       else
         out.set_env_digests, why = string_map(given, field)
       end
+    elseif takes == "id" then
+      local number = given.kind == "integer" and math.tointeger(tonumber(given.tk)) or nil
+      if number == nil then
+        why = field .. " takes a whole number"
+      elseif field == "user" then
+        out.user = number
+      else
+        out.group = number
+      end
     elseif takes == "limits" then
       out.limits = {}
       if given.kind ~= "literal_table" then why = "limits takes a table, written out" end
@@ -1700,6 +1711,10 @@ local function policy_declared(data: PolicyData, line: integer): analyzer.Declar
   end
   if data.tmp == false then
     return nil, "tmp = false" .. not_yet .. "; every test has a temporary directory today"
+  end
+  if data.user ~= nil or data.group ~= nil then
+    return nil, (data.user ~= nil and "user" or "group") .. " is refused: the harness " ..
+      "chooses the user a worker runs as"
   end
   for _, name in ipairs(data.env or {}) do
     if name == "*" then

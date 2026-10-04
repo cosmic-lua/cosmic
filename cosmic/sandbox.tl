@@ -120,10 +120,7 @@ local record Sandbox
     profiles: {string}
     --- The paths the program reaches.
     grants: {Grant}
-    --- How far it is isolated from the host. A child whose caller is root
-    --- gets "proc" at least, whatever this says, since the unprivileged user
-    --- it runs as is mapped only into a user namespace of its own. With
-    --- "file", a writable grant on a tree that user does not own (`/etc`
+    --- How far it is isolated from the host. With "file", a writable grant on a tree that user does not own (`/etc`
     --- as `rwc`, say) is mounted so that it is the tree's owner there: it
     --- writes the owner's files, root's included, through that mount.
     isolate: {Isolate}
@@ -150,11 +147,21 @@ local record Sandbox
     tmp: boolean
     --- The resources it may spend.
     limits: Limits
+    --- The user a child runs as (1 to 4294967294, never root), in place of
+    --- the one of its own a root caller's child is given from a pool
+    --- ([`Sandbox.user_id`]): the same one every start, which may own the
+    --- files it works on. Only a root caller chooses one; any other may
+    --- name only itself, which changes nothing.
+    user: integer
+    --- The group a child runs as, with `user`; `user`'s own number where
+    --- it is left out.
+    group: integer
   end
 
   --- What [`Sandbox.reach`] finds.
   record Reach
-    --- Who gives the user its rights: "other", "owner" or "" for no one.
+    --- Who gives the user its rights: "user" (its own bits, as owner or
+    --- group, where it was named), "other", "owner" or "" for no one.
     by: string
     --- With no one, what its owner lacks, as words.
     lacks: string
@@ -307,6 +314,15 @@ local function invalid(p: Sandbox.Policy, exact: boolean): string
     if not digest:match("^%x+$") or #digest ~= 64 or digest:find("%u") then
       return at("/set_env_digests/" .. name, "a digest is 64 lowercase hex digits")
     end
+  end
+  for _, field in ipairs({ "user", "group" }) do
+    local id = field == "user" and p.user or p.group
+    if id ~= nil and (math.type(id) ~= "integer" or id < 1 or id > 4294967294) then
+      return at("/" .. field, "an id is a whole number from 1 to 4294967294: never root")
+    end
+  end
+  if p.group ~= nil and p.user == nil then
+    return at("/group", "a group is given with a user")
   end
   local limits = p.limits or {}
   for _, why in ipairs({
@@ -466,8 +482,9 @@ end
 --- they came in; each path is cleaned first ("a//b/./c/" is "a/b/c"; a
 --- ".." is refused, since cleaning it could name another directory than
 --- the kernel does after a link). Lists are unions, each member once, sorted; `tmp`
---- holds if any policy has it; a limit is the one value given, and
---- two different values for one limit are refused, as two different
+--- holds if any policy has it; a limit, `user` and `group` are the one
+--- value given (`group` is `user`'s where only `user` is), and two
+--- different values for one are refused, as two different
 --- values for one `set_env` name are (without saying them: they may be
 --- secrets). A name with a value in one policy and a digest in another
 --- must have the value's digest. The answer has no `profiles`, and every
@@ -504,6 +521,7 @@ function Sandbox.merge(...: Sandbox.Policy): Sandbox.Policy | nil, string
   local loopback: {string} = {}
   local env: {string} = {}
   local tmp = false
+  local user, group: integer, integer
   for _, p in ipairs(flat) do
     for _, grant in ipairs(p.grants or {}) do
       local at = clean_path(grant.path)
@@ -534,6 +552,13 @@ function Sandbox.merge(...: Sandbox.Policy): Sandbox.Policy | nil, string
       digests[name] = digest
     end
     if p.tmp then tmp = true end
+    if p.user ~= nil and user ~= nil and p.user ~= user then
+      return refuse("user is given two values, " .. user .. " and " .. p.user)
+    end
+    if p.group ~= nil and group ~= nil and p.group ~= group then
+      return refuse("group is given two values, " .. group .. " and " .. p.group)
+    end
+    user, group = p.user or user, p.group or group
     local own = p.limits or {}
     local why: string
     limits.open_files, why = join_limit("open_files", limits.open_files, own.open_files)
@@ -577,6 +602,7 @@ function Sandbox.merge(...: Sandbox.Policy): Sandbox.Policy | nil, string
     grants = grants, isolate = isolate, promises = promises,
     connect = connect, loopback = loopback, env = env, set_env = set_env,
     set_env_digests = digests, tmp = tmp, limits = limits,
+    user = user, group = user ~= nil and (group or user) or nil,
   }, ""
 end
 
@@ -751,6 +777,10 @@ local function not_in_process(merged: Sandbox.Policy): string
     return "limits.processes counts the processes of a user namespace of its own, which only " ..
       "a child has"
   end
+  if merged.user ~= nil and (merged.user ~= sys.getuid() or merged.group ~= sys.getgid()) then
+    return "user " .. merged.user .. " and group " .. merged.group .. " are who a child runs " ..
+      "as; a running process stays the user it is (" .. sys.getuid() .. ")"
+  end
   return ""
 end
 
@@ -858,6 +888,15 @@ local function mapped_run(text: string, low: integer, high: integer): boolean
   return false
 end
 
+--- Whether `text`, a uid_map or gid_map as /proc/self/uid_map reads,
+--- maps `id`, so a process of the namespace can take it.
+---
+---     print(Sandbox.maps_id("0 0 4294967295\n", 1000)) -- true
+---     print(Sandbox.maps_id("0 100000 65536\n", 70000)) -- false
+function Sandbox.maps_id(text: string, id: integer): boolean
+  return mapped_run(text, id, id)
+end
+
 --- The highest id `text`, a uid_map or gid_map, maps, or nil for none.
 local function highest_mapped(text: string): integer | nil
   local top: integer | nil
@@ -924,13 +963,16 @@ function Sandbox.counts_per_namespace(release: string): boolean
   return m ~= nil and n ~= nil and (m > 5 or (m == 5 and n >= 17))
 end
 
---- What a user that owns none of the files and is in none of the groups
---- they belong to -- the user of a root caller's sandbox, which has no
---- supplementary group -- can do at the path `st` describes, to meet the
---- grant letters `letters`: `"other"` when the mode's bits for everyone
---- else give it all of them, `"owner"` when only the owner's bits do
---- (an idmapped mount makes the sandbox's user the owner), and `""`,
---- with what is missing, when neither does: reading needs `r`, and `x`
+--- What the user of a root caller's sandbox, which has no supplementary
+--- group, can do at the path `st` describes, to meet the grant letters
+--- `letters`. Without `uid` it owns none of the files and is in none of
+--- their groups: `"other"` when the mode's bits for everyone else give it
+--- all of them, `"owner"` when only the owner's bits do (an idmapped
+--- mount makes the sandbox's user the owner), and `""`, with what is
+--- missing, when neither does. With `uid` and `gid`, a policy's `user`
+--- and `group`, the kernel's own order holds: the owner's bits for the
+--- file's owner and the group's for its group, `"user"` when they give it
+--- all, the class after them not looked at. Reading needs `r`, and `x`
 --- to reach what is in a directory; writing or creating needs `w`, and
 --- `x` in a directory; running needs `x`; connecting to a socket needs
 --- `w`; `by` names which. Only the mode is read: an access control list, a mount's flags
@@ -939,7 +981,7 @@ end
 ---
 ---     local st = assert(sys.stat("/etc/hostname"))
 ---     print(Sandbox.reach("r", st).by) -- other
-function Sandbox.reach(letters: string, st: sys.Stat): Sandbox.Reach
+function Sandbox.reach(letters: string, st: sys.Stat, uid?: integer, gid?: integer): Sandbox.Reach
   local need = 0
   local isdir = st.kind == "dir"
   for i = 1, #letters do
@@ -955,17 +997,30 @@ function Sandbox.reach(letters: string, st: sys.Stat): Sandbox.Reach
     end
   end
   local other = st.mode & 7
+  local group = (st.mode >> 3) & 7
   local owner = (st.mode >> 6) & 7
+  local function lacking(bits: integer, whom: string): Sandbox.Reach
+    local names: {string} = {}
+    for bit, name in ipairs({ "execute", "write", "read" }) do
+      if need & (1 << (bit - 1)) ~= 0 and bits & (1 << (bit - 1)) == 0 then
+        names[#names + 1] = name
+      end
+    end
+    return { by = "", lacks = "its mode " .. string.format("%04o", st.mode & 4095) ..
+        " does not give " .. whom .. " the right to " .. table.concat(names, " and ") }
+  end
+  if uid ~= nil and st.uid == uid then
+    if owner & need == need then return { by = "user", lacks = "" } end
+    return lacking(owner, "its owner, user " .. uid .. ",")
+  end
+  if gid ~= nil and st.gid == gid then
+    if group & need == need then return { by = "user", lacks = "" } end
+    if owner & need == need then return { by = "owner", lacks = "" } end
+    return lacking(group, "its group, " .. gid .. ",")
+  end
   if other & need == need then return { by = "other", lacks = "" } end
   if owner & need == need then return { by = "owner", lacks = "" } end
-  local names: {string} = {}
-  for bit, name in ipairs({ "execute", "write", "read" }) do
-    if need & (1 << (bit - 1)) ~= 0 and owner & (1 << (bit - 1)) == 0 then
-      names[#names + 1] = name
-    end
-  end
-  return { by = "", lacks = "its mode " .. string.format("%04o", st.mode & 4095) ..
-      " does not give its owner the right to " .. table.concat(names, " and ") }
+  return lacking(owner, "its owner")
 end
 
 return Sandbox
