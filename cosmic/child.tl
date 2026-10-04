@@ -2577,11 +2577,12 @@ local function reached_by(merged: Rules.Policy, base: string, file: boolean,
             "it cannot use it: change its mode, or isolate \"file\", which mounts it so that " ..
             "user owns it"
         end
-        -- TODO: map the named user to itself in the idmapped mount too,
-        -- where it is not the grant's owner (core/syscalls.c's
-        -- idmapped_tree maps the owner alone): the files of a policy's
-        -- `user` beneath another owner's grant show as the overflow id
-        -- through it, so that user cannot write its own files there.
+        -- The mount shows the grant's owner as the program's user, and so
+        -- cannot show that user's own files as its own too: a user
+        -- namespace's map takes each outside id once. They show as the
+        -- owner's instead (core/syscalls.c's swapped_map), which a
+        -- policy's `user` reaches by their mode for everyone (and for the
+        -- group, where it is the owner's).
         idmap[index] = true
       elseif not file then
         local above = unsearchable_above(real, user)
