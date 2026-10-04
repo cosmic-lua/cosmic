@@ -66,6 +66,19 @@ local record Fs
     make: boolean
   end
 
+  --- A private directory made by [`Fs.scratch`], removed with everything
+  --- in it when a `<close>` variable holding it ends its scope.
+  record Scratch
+    --- The directory, a child of the one [`Fs.scratch`] was given.
+    path: string
+    --- A descriptor of the `owner` file inside `path`, which is on the
+    --- directory's own filesystem and locked for as long as the
+    --- scratch directory is open. Leave the file alone, and neither
+    --- read nor close the descriptor.
+    owner: integer
+    metamethod __close: function(Scratch)
+  end
+
   --- The descriptor of standard input, 0: what [`Fs.take`] reads from.
   stdin: integer
   --- The descriptor of standard output, 1: what [`Fs.put`] writes to.
@@ -486,7 +499,7 @@ function Fs.remove(path: string): boolean, string
 end
 
 --- Removes a path and, when it is a directory, everything under it:
---- the `rm -rf` a scratch directory wants. A link is removed, never
+--- the `rm -rf` a scratch directory wants ([`Fs.scratch`] makes one). A link is removed, never
 --- followed, so nothing outside `path` is touched -- not even by a
 --- process that swaps an entry for a link while this walks, which is
 --- removed with the rest: the walk is by descriptor, from each directory
@@ -617,6 +630,77 @@ end
 function Fs.walk_following(root: string,
                            skip?: function(string, string, Fs.Kind): boolean): {string} | nil, string
   return walk(root, skip, true)
+end
+
+local record Descriptor
+  fd: integer
+  metamethod __close: function(Descriptor)
+end
+local descriptor_mt: metatable<Descriptor> = {
+  __close = function(self: Descriptor) local _, _ = sys.close(self.fd) end,
+}
+
+local scratch_mt: metatable<Fs.Scratch> = {
+  __close = function(self: Fs.Scratch)
+    local _, _ = Fs.remove_tree(self.path)
+    local _, _ = sys.close(self.owner)
+  end,
+}
+
+--- A fresh, empty, private directory under `parent`, which must exist,
+--- and a `.scratch-gate` file there. The directory is removed, with its
+--- contents, when the result's `<close>` variable ends its scope. A
+--- process that dies first leaves it, and the next call under the same
+--- `parent` removes it: a directory is swept only when its owner file
+--- can be locked, which no live holder allows, so the directories of
+--- other live processes, even in other namespaces or containers sharing
+--- `parent`, are never touched. A name the sweep does not recognize, or
+--- a directory with no owner file, is left alone. The directory holds
+--- one file, `owner`, so work goes in a subdirectory of it.
+---
+--- The gate is locked by every call from before its sweep until the new
+--- directory's owner is locked, so no sweep sees a directory whose owner
+--- is not yet held. It is released before this returns, and the work in
+--- the directory runs outside it. Use one `parent` for one kind of
+--- scratch directory: calls under it sweep each other's.
+function Fs.scratch(parent: string): Fs.Scratch | nil, string
+  local fd, trouble = sys.open(parent .. "/.scratch-gate", sys.O_RDWR | sys.O_CREAT | sys.O_NOFOLLOW, 0x180)
+  if fd == nil then return nil, parent .. ": " .. trouble end
+  local opened: Descriptor = { fd = fd }
+  local gate <close> = setmetatable(opened, descriptor_mt)
+  local locked, lock_trouble = sys.flock(gate.fd, "exclusive", -1)
+  if not locked then return nil, parent .. ": " .. lock_trouble end
+  local names, list_trouble = Fs.list(parent)
+  if names == nil then return nil, list_trouble end
+  for _, name in ipairs(names) do
+    -- PID-only names belong to old tools and say nothing about ownership
+    -- across namespaces. Missing owner files are also left alone.
+    if name:match("^%.scratch%.[%w]+$") then
+      local path = parent .. "/" .. name
+      local owner, _ = sys.open(path .. "/owner", sys.O_RDWR | sys.O_NOFOLLOW)
+      if owner ~= nil then
+        local descriptor: Descriptor = { fd = owner }
+        local probe <close> = setmetatable(descriptor, descriptor_mt)
+        local dead, _ = sys.flock(probe.fd, "exclusive", 0)
+        if dead then local _, _ = Fs.remove_tree(path) end
+      end
+    end
+  end
+  local path, create_trouble = sys.mkdtemp(parent .. "/.scratch.XXXXXX")
+  if path == nil then return nil, parent .. ": " .. create_trouble end
+  local owner, owner_trouble = sys.open(path .. "/owner", sys.O_RDWR | sys.O_CREAT | sys.O_EXCL, 0x180)
+  if owner == nil then
+    local _, _ = Fs.remove_tree(path)
+    return nil, path .. "/owner: " .. owner_trouble
+  end
+  local owned: Fs.Scratch = { path = path, owner = owner }
+  local holding = setmetatable(owned, scratch_mt)
+  local held, hold_trouble = sys.flock(owner, "exclusive", 0)
+  if not held then
+    local _cleanup <close> = holding
+    return nil, path .. "/owner: " .. hold_trouble
+  end
+  return holding, ""
 end
 
 --- A path with no link and no `..` left in it: `realpath`.

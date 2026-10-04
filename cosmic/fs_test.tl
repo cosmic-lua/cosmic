@@ -345,6 +345,53 @@ local function test_fsync_reports_bad_descriptor(tmp: string)
   assert(not failed and failed_trouble ~= "")
 end
 
+local function test_scratch_is_private_and_removed_when_closed(tmp: string)
+  local path: string
+  do
+    local scratch <close> = assert(Fs.scratch(tmp))
+    path = scratch.path
+    assert(Fs.dirname(path) == tmp and Fs.basename(path):match("^%.scratch%.%w+$"), path)
+    assert(assert(Fs.stat(path)).mode & 0x1ff == 0x1c0, "private to its user")
+    assert(Fs.write(path .. "/payload", "x"))
+  end
+  assert(Fs.exists(path) == false)
+  -- The gate stays: every creator and sweeper must lock one inode.
+  assert(table.concat(assert(Fs.list(tmp)), " ") == ".scratch-gate")
+end
+
+local function test_scratch_holds_its_owner_lock_while_open(tmp: string)
+  local scratch <close> = assert(Fs.scratch(tmp))
+  local other = assert(sys.open(scratch.path .. "/owner", sys.O_RDWR))
+  local locked = sys.flock(other, "exclusive", 0)
+  assert(not locked, "another opener of the owner file must not get its lock")
+  local _, _ = sys.close(other)
+end
+
+local function test_scratch_sweeps_only_a_provably_dead_owner(tmp: string)
+  local dead = tmp .. "/.scratch.dead"
+  assert(Fs.mkdirs(dead))
+  assert(Fs.write(dead .. "/owner", ""))
+  assert(Fs.write(dead .. "/payload", "x"))
+  local missing = tmp .. "/.scratch.missing"
+  assert(Fs.mkdirs(missing))
+  local legacy = tmp .. "/.work.2147483646"
+  assert(Fs.mkdirs(legacy))
+  local first <close> = assert(Fs.scratch(tmp))
+  assert(Fs.exists(dead) == false, "an owner nobody holds is dead")
+  assert(Fs.exists(missing) == true, "no owner file says nothing")
+  assert(Fs.exists(legacy) == true, "a name that is not ours is left alone")
+  local second <close> = assert(Fs.scratch(tmp))
+  assert(second.path ~= first.path)
+  assert(Fs.exists(first.path) == true, "a live owner is never swept")
+end
+
+local function test_scratch_in_a_missing_directory_names_it(tmp: string)
+  local missing = tmp .. "/missing"
+  local scratch, why = Fs.scratch(missing)
+  assert(scratch == nil and why:find(missing, 1, true), why)
+  assert(Fs.exists(missing) == false)
+end
+
 local function test_remove_tree_removes_everything_but_follows_no_link(tmp: string)
   local outside = tmp .. "/outside"
   assert(Fs.mkdirs(outside))
