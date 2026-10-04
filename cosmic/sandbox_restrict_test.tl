@@ -15,6 +15,7 @@ local _sys = require("cosmic.sys")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local Time = require("cosmic.time")
+local confine = require("build.confine")
 local sandbox_skip = require("build.sandbox_skip")
 local stand_in = require("build.stand_in")
 local this_program = require("build.this_program")
@@ -66,6 +67,11 @@ end
 --- what it printed. Skips the test where the child reports `skip=` and
 --- why, which it does where the host gives no sandbox.
 local function in_child(chunk: string): Said | nil
+  -- Off Linux every restriction is refused, so no case has anything to say.
+  if not confine.sandbox_platform() then
+    sandbox_skip.refused("Sandbox.restrict holds a process only on Linux")
+    return nil
+  end
   local started = this_program.program({ "-e", PRELUDE .. chunk }, {
     env = this_program.environment(), stdout = "capture", stderr = "stdout",
     timeout_ns = Time.seconds(60) })
