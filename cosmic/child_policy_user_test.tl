@@ -337,9 +337,10 @@ end
 
 --- Under `isolate` "file" a named user's grant of another owner's closed
 --- tree is mounted so that owner's files are its own; its own files there
---- show as the owner's, written and read as their mode lets the owner's
---- group and everyone, and stay its own on the host; a third user's are
---- read as their mode lets everyone and never written.
+--- show as the owner's, written and read as their mode lets everyone --
+--- their own group shows as the owner's, which the user is not in -- and
+--- stay its own on the host; a third user's are read as their mode lets
+--- everyone and never written.
 local function test_a_root_caller_s_named_user_meets_its_own_files_as_the_owner_s_through_an_idmap(tmp: string)
   if not root_that_maps() then return end
   local at = placed(tmp)
@@ -351,6 +352,7 @@ local function test_a_root_caller_s_named_user_meets_its_own_files_as_the_owner_
   end
   owned("open", 4242, "666")
   owned("shut", 4242, "600")
+  owned("grouped", 4242, "660")
   owned("third", 3000, "666")
   local policy: Sandbox.Policy = { isolate = { "file" }, user = 4242, grants = {
     { path = at.probe, letters = "rx" }, { path = at.work, letters = "r" },
@@ -363,6 +365,9 @@ local function test_a_root_caller_s_named_user_meets_its_own_files_as_the_owner_
   assert(open.uid == 4242 and open.gid == 4242, "open is " .. open.uid .. ":" .. open.gid)
   local shut = under(at.probe, policy, at.work, "cat " .. dir .. "/shut")
   assert(shut ~= nil and shut.code ~= 0 and shut.said:find("Permission denied", 1, true), shut.said)
+  local grouped = under(at.probe, policy, at.work, "cat " .. dir .. "/grouped")
+  assert(grouped ~= nil and grouped.code ~= 0 and grouped.said:find("Permission denied", 1, true),
+    grouped.said)
   local third = under(at.probe, policy, at.work, "append " .. dir .. "/third more")
   assert(third ~= nil and third.code ~= 0 and third.said:find("Permission denied", 1, true), third.said)
 end

@@ -2581,7 +2581,8 @@ local function reached_by(merged: Rules.Policy, base: string, file: boolean,
         -- cannot show that user's own files as its own too: a user
         -- namespace's map takes each outside id once. They show as the
         -- owner's instead (core/syscalls.c's swapped_map), which a
-        -- policy's `user` reaches by their group's and everyone's bits.
+        -- policy's `user` reaches by their mode for everyone (and for the
+        -- group, where it is the owner's).
         idmap[index] = true
       elseif not file then
         local above = unsearchable_above(real, user)

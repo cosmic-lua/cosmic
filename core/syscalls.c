@@ -2030,7 +2030,8 @@ static _Noreturn int idmap_holder (void *argument) {
  * where they differ, of `drop` to `owner`: a map takes each id once on
  * either side, so `drop`'s own files cannot show as `drop`'s too, and
  * left out of the map they would refuse every write, whatever their mode;
- * swapped, they show as `owner`'s and are written as their mode lets. */
+ * swapped, they show as `owner`'s and are written as their mode lets
+ * everyone. */
 static void swapped_map (char *text, size_t room, unsigned long owner, unsigned long drop) {
   if (owner == drop) snprintf(text, room, "%lu %lu 1\n", owner, drop);
   else snprintf(text, room, "%lu %lu 1\n%lu %lu 1\n", owner, drop, drop, owner);
