@@ -693,6 +693,50 @@ local function test_a_signal_goes_to_the_process_itself()
   }, { pid = pid })
 end
 
+--- Where Landlock's signal scope holds the process, the kernel refuses a
+--- signal to a process outside its domain, so the filter takes any pid:
+--- another's, a group's (negative, or 0) and every process's (-1), and a
+--- pidfd's signal too.
+local function test_a_scoped_filter_lets_a_signal_take_any_pid()
+  local pid = 4242
+  for _, promises in ipairs({ {}, { "fork" }, { "fork", "jit", "fattr" }, { "nest" } }) do
+    holds_on_both(promises, {
+      call("kill", "allow", pid + 1, 15), call("kill", "allow", 0, 15),
+      call("kill", "allow", -1, 9), call("kill", "allow", -(pid + 1), 15),
+      call("kill", "allow", 1, 0),
+      call("tgkill", "allow", pid + 1, pid + 2, 6), call("tkill", "allow", pid + 1, 6),
+      call("rt_sigqueueinfo", "allow", pid + 1, 10),
+      call("rt_tgsigqueueinfo", "allow", pid + 1, pid + 2, 10),
+      call("pidfd_send_signal", "allow", 3, 15),
+    }, { pid = pid, scoped = true })
+  end
+  -- Only the signal calls: who a call asks after, and what it sets, stay held.
+  holds_on_both({}, {
+    call("sched_getaffinity", "EPERM", pid + 1), call("sched_setaffinity", "EPERM", pid + 1),
+    call("getpgid", "EPERM", pid + 1), call("setpgid", "EPERM", pid + 1),
+    call("get_robust_list", "EPERM", pid + 1), call("prlimit64", "EPERM", pid + 1),
+    call("pidfd_open", "EPERM", pid + 1), call("pidfd_getfd", "EPERM"),
+    call("process_madvise", "EPERM"), call("ptrace", "EPERM"),
+    call("fork", "EPERM"), call("setrlimit", "EPERM"),
+  }, { pid = pid, scoped = true })
+  holds_on_both({ "fork" }, { call("pidfd_open", "allow") }, { pid = pid, scoped = true })
+end
+
+--- Without the scope, `scoped` unset or false, the signal calls keep to
+--- the pid, and pidfd_send_signal is refused.
+local function test_an_unscoped_filter_keeps_a_signal_to_the_starting_pid()
+  local pid = 4242
+  for _, options in ipairs({ { pid = pid }, { pid = pid, scoped = false } }) do
+    holds_on_both({ "fork" }, {
+      call("kill", "allow", pid, 15), call("kill", "EPERM", pid + 1, 15),
+      call("kill", "EPERM", 0, 15), call("kill", "EPERM", -1, 9),
+      call("kill", "EPERM", -pid, 9),
+      call("tgkill", "EPERM", pid + 1, pid + 1, 6), call("tkill", "EPERM", pid + 1, 6),
+      call("pidfd_send_signal", "EPERM", 3, 15),
+    }, options)
+  end
+end
+
 local function test_a_call_that_asks_after_a_process_is_held_to_the_process_itself()
   local pid = 4242
   holds_on_both({}, {

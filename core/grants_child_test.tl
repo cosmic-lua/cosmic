@@ -47,11 +47,12 @@ end
 
 --- Starts `program` with `script` under `grants`, in `tmp`'s directory:
 --- its output and how it ended, or, when the start fails, why.
-local function start(tmp: string, program: string, grants: {raw_process.Grant}, script: string): Outcome
+local function start(tmp: string, program: string, grants: {raw_process.Grant}, script: string,
+                     promises?: {string}): Outcome
   local path = tmp .. "/said"
   local output = assert(sys.open(path, sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
   local pid, trouble, number = process.spawn(program, { program, script }, nil, nil, nil, output,
-    output, false, nil, { grants = grants })
+    output, false, nil, { grants = grants, promises = promises })
   if pid == nil then
     sys.close(output)
     return { code = -1, signal = -1, said = "", refused = trouble, errno = number }
@@ -313,6 +314,103 @@ local function test_a_signal_to_a_process_outside_is_refused_where_the_kernel_sc
     -- Nothing scopes a signal below ABI 6: the child's kill lands.
     assert(sent.code == 0, "sent: " .. sent.said)
   end
+end
+
+--- Starts `program` with `script` held to `grants` and the `fork` promise,
+--- whose filter takes the scope of the ruleset the grants make: the grants
+--- are `program` itself (`rx`) and `tmp`, which the script may write.
+local function forking(tmp: string, program: string, script: string): Outcome, boolean
+  local outcome = start(tmp, program, { { path = program, access = "rx" },
+    { path = tmp, access = "rwcx" } }, script, { "fork" })
+  if unsandboxable(outcome) then
+    sandbox_skip.refused(outcome.refused)
+    return outcome, true
+  end
+  assert(outcome.refused == nil, "the start was refused: " .. tostring(outcome.refused))
+  return outcome, false
+end
+
+--- Ends the process whose pid file `path` holds, if there is one: a
+--- grandchild a refused signal left running.
+local function end_left_by(path: string)
+  local held = Fs.read(path)
+  local pid = held and math.tointeger(held:match("^(%d+)"))
+  if pid ~= nil then sys.kill(pid, sys.SIGKILL) end
+end
+
+local function test_a_forked_process_signals_itself_where_the_kernel_scopes_signals(tmp: string)
+  local abi = abi_or_skip()
+  if abi == nil then return end
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  -- The grandchild's pid is not the one the filter was built for.
+  local own, skipped = forking(tmp, probe, "run " .. probe .. " signal TERM")
+  if skipped then return end
+  if abi >= 6 then
+    assert(own.code == 128 + sys.SIGTERM, "its own signal lands: " .. own.code .. " " .. own.said)
+  else
+    assert(own.code == 1 and own.said:find("not permitted", 1, true),
+      "below ABI 6 the filter keeps it to the starting pid: " .. own.code .. " " .. own.said)
+  end
+end
+
+local function test_a_process_signals_what_it_forked_where_the_kernel_scopes_signals(tmp: string)
+  local abi = abi_or_skip()
+  if abi == nil then return end
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local pidfile = tmp .. "/grandchild.pid"
+  local grandchild = tmp .. "/grandchild"
+  assert(stand_in.place(probe, grandchild, "write-pid " .. pidfile .. "\nsleep-forever"))
+  local killed, skipped = forking(tmp, probe, "start " .. grandchild .. "; wait-for " .. pidfile ..
+      "; signal KILL @" .. pidfile)
+  if skipped then return end
+  end_left_by(pidfile)
+  if abi >= 6 then
+    assert(killed.code == 0, "its child is its to signal: " .. killed.code .. " " .. killed.said)
+  else
+    assert(killed.code == 1 and killed.said:find("not permitted", 1, true),
+      "below ABI 6 the filter refuses it: " .. killed.code .. " " .. killed.said)
+  end
+end
+
+local function test_a_signal_outside_the_domain_is_refused_though_the_filter_lets_it_pass(tmp: string)
+  local abi = abi_or_skip()
+  if abi == nil then return end
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local sleeper = assert(process.spawn(probe, { probe, "sleep-forever" }, nil, nil, nil, nil, nil,
+    false))
+  local sent, skipped = forking(tmp, probe, "signal KILL " .. sleeper)
+  local alive = sys.kill(sleeper, 0)
+  sys.kill(sleeper, sys.SIGKILL)
+  assert(assert(process.waitpid(sleeper, false)).signal == sys.SIGKILL)
+  if skipped then return end
+  -- Above ABI 6 the filter takes any pid and Landlock's EPERM is the answer;
+  -- below, the filter's own is.
+  assert(sent.code == 1 and sent.said:find("not permitted", 1, true), "refused: " .. sent.said)
+  assert(alive, "the process outside the sandbox was not signalled")
+end
+
+--- A ruleset the caller made says nothing of what it scopes, so the filter
+--- keeps its signal calls to the starting pid beside one.
+local function test_a_ruleset_descriptor_keeps_the_filter_to_the_starting_pid(tmp: string)
+  local abi = abi_or_skip()
+  if abi == nil then return end
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local ruleset, trouble = process.landlock_ruleset({ probe }, { tmp })
+  if ruleset == nil then
+    sandbox_skip.refused("no ruleset: " .. tostring(trouble))
+    return
+  end
+  local path = tmp .. "/said"
+  local output = assert(sys.open(path, sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
+  local pid, why = process.spawn(probe, { probe, "run " .. probe .. " signal TERM" }, nil, nil, nil,
+    output, output, false, nil, { ruleset = ruleset, promises = { "fork" } })
+  sys.close(ruleset)
+  assert(pid ~= nil, tostring(why))
+  local status = assert(process.waitpid(pid, false))
+  sys.close(output)
+  local said = Fs.read(path) or ""
+  assert(status.code == 1 and said:find("not permitted", 1, true),
+    "its own pid only: " .. status.code .. " " .. said)
 end
 
 local function test_no_grants_grant_nothing_and_the_program_needs_its_own(tmp: string)

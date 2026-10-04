@@ -870,10 +870,13 @@ end
 --- can leave the limits it lowered, and its ruleset if the filter is what
 --- failed; its message then ends "the process is now partly restricted".
 ---
---- The filter's rules for signals take this process's pid, so a process
+--- Where the kernel has Landlock's signal scope (ABI 6), which the ruleset
+--- sets, the filter lets a signal call take any pid and the scope refuses
+--- a target outside the process's domain, so a process it starts signals
+--- itself and what it started, and nothing outside. Below ABI 6 the
+--- filter's rules for signals take this process's pid, so a process
 --- started afterwards, which has another, cannot signal itself, and its
---- abort() ends by SIGSEGV, until Landlock's signal scope (ABI 6, which
---- the ruleset sets where the kernel has it) holds signals instead.
+--- abort() ends by SIGSEGV.
 --- Linux only; elsewhere it fails, saying so (Seatbelt waits for the
 --- design's phase 8).
 -- TODO: hold a process by Seatbelt on macOS, once the design's phase 8

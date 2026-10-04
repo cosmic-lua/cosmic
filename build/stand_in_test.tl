@@ -212,6 +212,11 @@ local function test_the_process_verbs(tmp: string)
   local absent = run({ probe, "run " .. tmp .. "/absent" })
   assert(absent.code == 127, tostring(absent.code))
 
+  -- `write-pid` names the process that runs it, which `signal S @F` then reaches.
+  local named = run({ probe, "write-pid " .. tmp .. "/pid; cat " .. tmp .. "/pid" })
+  local named_pid = math.tointeger(assert(named.stdout):match("^(%d+)\n$"))
+  assert(named.ok and named_pid ~= nil and named_pid > 1, tostring(named.stdout))
+
   local closed = run({ probe, "fd-closed 9; print closed; fd-closed 1; print never" })
   assert(closed.code == 1 and closed.stdout == "closed\n", tostring(closed.stdout))
   for _, word in ipairs({ "abc", "-1", "" }) do
