@@ -127,6 +127,24 @@ function Example.copy_tree()
   assert(Fs.remove_tree(dir))
 end
 
+--- A scratch directory for work in progress, removed with everything in
+--- it when the `<close>` variable ends its scope, however the block is
+--- left. One a crashed process left behind is removed by the next call
+--- under the same parent.
+function Example.scratch()
+  local parent = assert(Fs.mkdtemp("cosmic-fs-example-"))
+  local path: string
+  do
+    local scratch <close> = assert(Fs.scratch(parent))
+    path = scratch.path
+    assert(Fs.mkdirs(path .. "/work"))
+    assert(Fs.write(path .. "/work/part", "half"))
+    print(assert(Fs.read(path .. "/work/part")))
+  end
+  assert(Fs.exists(path) == false)
+  assert(Fs.remove_tree(parent))
+end
+
 --- Each path [`Fs.walk`] answers is relative to the root it was given,
 --- with no leading `./`, so a file is opened as `root .. "/" .. path`.
 function Example.walk()

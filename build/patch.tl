@@ -457,7 +457,8 @@ local scratch_mt: metatable<Scratch> = {
 }
 
 -- build/zig_fetch.tl holds an identical copy, and the TODO to take both
--- from cosmic.fs.
+-- from Fs.scratch once ci/cosmic-driver.pin names a release whose
+-- cosmic.fs carries it.
 local function scratch(cache: string): Scratch | nil, string
   local fd, trouble = sys.open(cache .. "/.scratch-gate", sys.O_RDWR | sys.O_CREAT | sys.O_NOFOLLOW, 0x180)
   if fd == nil then return nil, trouble end
