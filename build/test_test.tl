@@ -163,7 +163,8 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   for _, row in ipairs(imports) do
     assert(Sqlite.run(db, "INSERT INTO imports VALUES (?, ?)", { { text = row[1] }, { text = row[2] } }))
   end
-  local others = { "build.test_sandbox", "build.test_policy", "build.caches", "build.zig_caches",
+  local others = { "build.test_sandbox", "build.test_policy", "build.closure_artifact",
+    "build.caches", "build.zig_caches",
     "cosmic.child", "cosmic.sandbox",
     "build.closure_store", "build.writer",
     "build.test_report", "build.schema", "build.importer", "build.analyzer", "cosmic.removed",
@@ -293,8 +294,8 @@ local function test_the_harness_walks_the_key_code_by_value()
   end
   for _, name in ipairs(worker.loads) do add(name) end
   for _, name in ipairs({ "build.test", "build.declared_key", "build.shared_verdicts",
-      "build.artifact", "build.test_sandbox", "build.test_policy", "build.caches",
-      "build.zig_caches", "build.closure_store", "build.schema",
+      "build.artifact", "build.test_sandbox", "build.test_policy", "build.closure_artifact",
+      "build.caches", "build.zig_caches", "build.closure_store", "build.schema",
       "cosmic.child", "cosmic.sandbox", "cosmic.time", "cosmic.sqlite", "cosmic.stream" }) do
     add(name)
   end

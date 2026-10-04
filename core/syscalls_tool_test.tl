@@ -22,11 +22,14 @@ local Clock = require("cosmic.clock")
 --- What these cases are tested on: /proc and the program itself, which
 --- they start only to run a chunk (`lua`); and `nests`, since the
 --- unveiling cases give a child a root of its own, which a worker held
---- by a Landlock ruleset cannot (build.confine's `forbid_running`).
+--- by a Landlock ruleset cannot (build.confine's `forbid_running`); and
+--- loopback, which the offline child's own `lo` answers, as a worker under a
+--- policy makes no inet socket without it.
 Test.needs{
   host = { "/proc" },
   lua = true,
   nests = true,
+  network = { "127.0.0.1" },
 }
 
 local type Searcher = function(string): any, any

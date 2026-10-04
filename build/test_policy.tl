@@ -133,17 +133,7 @@ end
 -- wildcard_test.tl and build/test_isolation_tool_test.tl's hooks_test.tl,
 -- snippets of the wildcard itself) and the policy path is the default
 -- (step (c) of the sandbox plan): a policy has no wildcard.
--- TODO: give a worker that nests a per-closure artifact -- the core and its
--- closure store, not the real o/bin/cosmic -- to open by path, once the
--- artifact format can be cut down to a closure (build/artifact.tl): the
--- real one holds every module of the tree, which no key of a test that
--- does not declare `store` or `tool` holds.
 local function refusal(effective: test_inputs.Effective): string
-  if effective.nests and not effective.store and not effective.tool then
-    return 'nests: a worker that builds roots of its own is handed no descriptor of the ' ..
-      'program and so opens the artifact by its path, which holds every module of the tree, ' ..
-      'beyond what its key holds; declare `store` or `tool`, or wait for a per-closure artifact'
-  end
   if effective.env["*"] then
     return 'env "*": the policy path names each variable a worker is given, and a policy ' ..
       'has no wildcard; name the variables the module reads'
