@@ -2916,6 +2916,8 @@ COSMIC_SYSCALL(restrict_self, 2) {
     return restrict_refused(L, ECHILD, "this process has a child, pid %ld, not waited for: end "
                             "it and wait for it first, since a restriction holds what a process "
                             "starts after it, not what it started", child);
+  /* TODO: give the refusal of a second thread below a test, once the core
+   * can start a thread a test may use: no test reaches it today. */
   int threads = thread_count(&error);
   if (threads < 0)
     return restrict_refused(L, error, "the threads of this process cannot be counted "
