@@ -86,6 +86,40 @@ local function test_needs_takes_every_field_of_needs(tmp: string)
   assert(said == "handed nil nil true\ntrue \n", said)
 end
 
+--- `policy` hands the runner the `needs` its policy stands for, and is
+--- refused, saying why, for what no `Policy` could be or no `needs` could
+--- stand for. Which fields it translates, and how a build reads it, are
+--- cosmic/test_policy_test.tl's.
+local function test_policy_hands_the_runner_its_needs(tmp: string)
+  local said = run(tmp, table.concat({
+    "  local cases: {any} = { 1, { reeds = {} }, { env = \"a\" }, { isolate = { \"file\" } },",
+    "    { grants = { { path = \"d\", letters = \"rw\" } } } }",
+    "  for _, case in ipairs(cases) do",
+    "    say(try(function() T.policy(case as T.Policy) end))",
+    "  end",
+    "  T.policy { grants = { { path = \"data/\", letters = \"r\" } },",
+    "    profiles = { \"cosmic\" }, loopback = { \"127.0.0.1\" }, promises = { \"fork\" } }",
+    "  say(try(function() T.needs { tool = true } end))",
+    "  say(try(function() T.policy { } end))",
+    "  runner.loaded = true",
+    "  say(try(function() T.policy { } end))",
+  }, "\n"))
+  local lines: {string} = {}
+  for line in said:gmatch("[^\n]+") do lines[#lines + 1] = line end
+  assert(#lines == 9, said)
+  assert(lines[1] == "false policy takes a table, got number", said)
+  assert(lines[2]:find("^false policy has no field reeds; it has connect, env") ~= nil, said)
+  assert(lines[3] == "false policy env takes a list of strings", said)
+  assert(lines[4]:find("^false policy isolate is not yet taken") ~= nil, said)
+  assert(lines[5]:find("^false policy grants%[1%]%.letters \"rw\" is not yet taken") ~= nil, said)
+  assert(lines[6] == "handed data/ 127.0.0.1 true", said)
+  assert(lines[7]:match("^false needs is called once, and .*script%.tl:%d+ called policy already; " ..
+      "a module declares needs or policy, not both$") ~= nil, said)
+  assert(lines[8]:match("^false policy is called once, and .*script%.tl:%d+ called it already; " ..
+      "a test module never requires another that calls it$") ~= nil, said)
+  assert(lines[9] == "false policy is called at the top of a test module, while it loads", said)
+end
+
 --- One call reaches the runner as it was handed; a second is refused,
 --- naming where the first was made, as is one once the module has
 --- loaded.

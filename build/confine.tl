@@ -487,7 +487,7 @@ end
 -- TODO: replace this with [`Sandbox.restrict`] ([`cosmic.sandbox`]), which
 -- holds the running process to a policy's grants, promises and limits for
 -- good, and hold the worker by the policy the test declares, once the
--- harness moves to `Test.policy` (the design's test phase): this holds
+-- harness moves to [`Test.policy`] (the design's test phase): this holds
 -- a worker by a ruleset of its own making, which only the harness uses.
 -- TODO: let build/confine_tool_test.tl declare `nests` alone,
 -- dropping the `tool` it declares only to start what it confines,

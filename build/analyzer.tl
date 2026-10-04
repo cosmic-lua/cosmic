@@ -1424,14 +1424,39 @@ local function input_path_trouble(field: string, path: string): string
   return ""
 end
 
---- Whether `node` names [`cosmic.test`]'s `needs` through one of `names`,
---- the locals a chunk binds `require("cosmic.test")` to: [`Test.needs`].
-local function names_needs(node: ast.Node, names: {string:boolean}): boolean
+--- Why `value` is no entry of the list `field` (`reads`, `host`, `env`,
+--- `network` or `caches`) of a declaration, or "": the path rules, the
+--- loopback rule, the cache names. The message names the field.
+local function entry_trouble(field: string, value: string): string
+  local path_trouble = (field == "reads" or field == "host") and
+    input_path_trouble(field, value) or ""
+  if field == "env" and value == "" then path_trouble = "an empty name" end
+  if field == "network" then
+    -- The rule's own words, which name the field and the host.
+    return network_trouble(value)
+  end
+  if field == "caches" and cache_names.names[value] == nil then
+    local known: {string} = {}
+    for name in pairs(cache_names.names) do known[#known + 1] = name end
+    table.sort(known)
+    path_trouble = "no cache " .. value .. "; the caches are " .. table.concat(known, ", ")
+  end
+  if path_trouble ~= "" then return field .. ": " .. path_trouble end
+  return ""
+end
+
+--- Which declaration `node` names through one of `names`, the locals a
+--- chunk binds `require("cosmic.test")` to: "needs" for [`Test.needs`],
+--- "policy" for [`Test.policy`], "" for neither.
+local function names_declaration(node: ast.Node, names: {string:boolean}): string
   local index = node ~= nil and node.kind == "op" and node.op or nil
   local base: ast.Node = node ~= nil and node.e1 or nil
   local member: ast.Node = node ~= nil and node.e2 or nil
-  return index ~= nil and index.op == "." and base ~= nil and base.kind == "variable" and
-    names[base.tk] == true and member ~= nil and member.tk == "needs"
+  if index ~= nil and index.op == "." and base ~= nil and base.kind == "variable" and
+      names[base.tk] == true and member ~= nil and (member.tk == "needs" or member.tk == "policy") then
+    return member.tk
+  end
+  return ""
 end
 
 --- Whether `node` is `require("cosmic.test")`.
@@ -1445,6 +1470,247 @@ local function requires_test(node: ast.Node): boolean
     first.kind == "string" and first.conststr == "cosmic.test"
 end
 
+--- What a `policy` declaration ([`cosmic.test`]'s `Policy`) holds, as the
+--- build reads it from the source.
+local record PolicyData
+  profiles: {string}
+  isolate: {string}
+  promises: {string}
+  connect: {string}
+  loopback: {string}
+  env: {string}
+  grants: {{string:string}}
+  set_env: {string:string}
+  set_env_digests: {string:string}
+  limits: {string:integer}
+  tmp: boolean
+end
+
+--- What each field of a `policy` declaration takes: a list of string
+--- literals ("list"), a table of names to string literals ("map"), `true`
+--- or `false` ("flag"), a list of tables of string literals ("grants") or
+--- a table of integers ("limits"). [`cosmic.test`] cannot be required here --
+--- the writer's identity would then hold it -- so the translation of a
+--- policy into a declaration is written twice, and the worker holds the
+--- one to the other: a module whose `policy` call was handed anything but
+--- what this reads fails to load, and cosmic/test_policy_test.tl holds
+--- both to the same cases.
+local policy_fields <const>: {string:string} = {
+  profiles = "list", grants = "grants", isolate = "list", promises = "list",
+  connect = "list", loopback = "list", env = "list", set_env = "map",
+  set_env_digests = "map", tmp = "flag", limits = "limits",
+}
+
+local policy_field_order: {string} = {}
+for name in pairs(policy_fields) do policy_field_order[#policy_field_order + 1] = name end
+table.sort(policy_field_order)
+
+--- `node` as a string written plainly, or nil and why, naming `path`.
+local function plain_string(node: ast.Node, path: string): string | nil, string
+  if node.kind ~= "string" or node.conststr == nil then
+    return nil, path .. " takes a string written out as a literal"
+  end
+  -- The literal as written, which is what `conststr` holds: an escape the
+  -- running module decodes would read otherwise here.
+  local written = node.tk or ""
+  if written:find("\\", 1, true) ~= nil or written:sub(1, 1) == "[" then
+    return nil, path .. ": " .. written ..
+      ": write declared paths plainly, without escapes or long brackets"
+  end
+  return node.conststr, ""
+end
+
+--- The name an entry of a table literal is written with, in `name = ...`
+--- or `["name"] = ...`, or nil for an entry with none.
+local function entry_name(item: ast.Node): string | nil
+  local key = item.key
+  if key ~= nil and item.key_parsed ~= "implicit" and key.conststr ~= nil then
+    return key.conststr
+  end
+  return nil
+end
+
+--- The string literals of a list written out as a literal, or nil and why.
+local function string_list(node: ast.Node, path: string): {string} | nil, string
+  if node.kind ~= "literal_table" then
+    return nil, path .. " takes a list of string literals, written out"
+  end
+  local out: {string} = {}
+  for _, item in ipairs(node) do
+    if item.key_parsed ~= "implicit" or item.value == nil then
+      return nil, path .. " lists string literals only"
+    end
+    local text, why = plain_string(item.value, path)
+    if text == nil then return nil, why end
+    out[#out + 1] = text
+  end
+  return out, ""
+end
+
+--- The names and string literals of a table written out as a literal,
+--- or nil and why.
+local function string_map(node: ast.Node, path: string): {string:string} | nil, string
+  if node.kind ~= "literal_table" then return nil, path .. " takes a table, written out" end
+  local out: {string:string} = {}
+  for _, item in ipairs(node) do
+    local name = entry_name(item)
+    if name == nil or item.value == nil then return nil, path .. " names each entry" end
+    local text, why = plain_string(item.value, path .. "." .. name)
+    if text == nil then return nil, why end
+    out[name] = text
+  end
+  return out, ""
+end
+
+--- A `policy` table literal as [`PolicyData`], or nil and why.
+local function policy_data(node: ast.Node): PolicyData | nil, string
+  local out: PolicyData = {}
+  local seen: {string:boolean} = {}
+  for _, item in ipairs(node) do
+    local field = entry_name(item)
+    local takes = field ~= nil and policy_fields[field] or nil
+    if field == nil or takes == nil or item.value == nil then
+      return nil, (field ~= nil and ("has no field " .. field) or "has an entry with no name") ..
+        "; it has " .. table.concat(policy_field_order, ", ")
+    end
+    if seen[field] then return nil, field .. " is declared twice" end
+    seen[field] = true
+    local given: ast.Node = item.value
+    local why = ""
+    if takes == "flag" then
+      if given.kind == "boolean" then
+        out.tmp = given.tk == "true"
+      else
+        why = field .. " takes true or false"
+      end
+    elseif takes == "list" then
+      if field == "profiles" then
+        out.profiles, why = string_list(given, field)
+      elseif field == "isolate" then
+        out.isolate, why = string_list(given, field)
+      elseif field == "promises" then
+        out.promises, why = string_list(given, field)
+      elseif field == "connect" then
+        out.connect, why = string_list(given, field)
+      elseif field == "loopback" then
+        out.loopback, why = string_list(given, field)
+      else
+        out.env, why = string_list(given, field)
+      end
+    elseif takes == "map" then
+      if field == "set_env" then
+        out.set_env, why = string_map(given, field)
+      else
+        out.set_env_digests, why = string_map(given, field)
+      end
+    elseif takes == "limits" then
+      out.limits = {}
+      if given.kind ~= "literal_table" then why = "limits takes a table, written out" end
+      for _, entry in ipairs(given.kind == "literal_table" and given or {}) do
+        local name = entry_name(entry)
+        local number = entry.value ~= nil and entry.value.kind == "integer" and
+          math.tointeger(tonumber(entry.value.tk)) or nil
+        if name == nil or number == nil or not (name == "open_files" or name == "file_bytes" or
+            name == "cpu_seconds" or name == "processes") then
+          why = "limits takes open_files, file_bytes, cpu_seconds and processes, each an integer"
+        else
+          out.limits[name] = number
+        end
+      end
+    else
+      out.grants = {}
+      if given.kind ~= "literal_table" then why = "grants takes a list of grants" end
+      for i, entry in ipairs(given.kind == "literal_table" and given or {}) do
+        local at = "grants[" .. i .. "]"
+        if entry.value == nil or entry.key_parsed ~= "implicit" or
+            entry.value.kind ~= "literal_table" then
+          why = at .. " takes a table"
+          break
+        end
+        local grant, grant_why = string_map(entry.value, at)
+        if grant == nil then
+          why = grant_why
+          break
+        end
+        for name in pairs(grant) do
+          if not (name == "path" or name == "letters" or name == "from") then
+            why = at .. " has no field " .. name .. "; it has from, letters, path"
+          end
+        end
+        out.grants[#out.grants + 1] = grant
+      end
+    end
+    if why ~= "" then return nil, why end
+  end
+  return out, ""
+end
+
+--- The declaration the policy `data` stands for ([`Test.needs_of`] of
+--- cosmic.test, whose refusals these are): nil and why where it is none.
+local function policy_declared(data: PolicyData, line: integer): analyzer.Declared | nil, string
+  local out: analyzer.Declared = {
+    line = line, reads = {}, host = {}, env = {}, network = {},
+    tool = false, lua = false, standalone = false, nests = false, noexec = false, store = false,
+    system = false, caches = {},
+  }
+  local not_yet = " is not yet taken: a policy runs a worker as a `needs` does " ..
+    "(migration step a of the sandbox plan), and this takes effect where the policy's own " ..
+    "path runs it (step b)"
+  for _, profile in ipairs(data.profiles or {}) do
+    if profile == "system" then
+      out.system = true
+    elseif profile == "cosmic" then
+      out.tool = true
+    else
+      return nil, "profiles: no profile " .. profile .. "; the profiles are cosmic, system"
+    end
+  end
+  for i, grant in ipairs(data.grants or {}) do
+    local at = "grants[" .. i .. "]"
+    local path, letters = grant.path, grant.letters
+    if path == nil or path == "" then return nil, at .. ".path takes a path" end
+    if letters == nil or letters == "" or letters:find("^r?w?x?c?u?$") == nil then
+      return nil, at .. ".letters takes letters of rwxcu, in that order"
+    end
+    if grant.from ~= nil then return nil, at .. ".from" .. not_yet end
+    if letters ~= "r" then
+      return nil, at .. ".letters \"" .. letters .. "\"" .. not_yet ..
+        "; a test reads, with \"r\", what it declares"
+    end
+    local list = path:sub(1, 1) == "/" and out.host or out.reads
+    list[#list + 1] = path
+  end
+  for _, promise in ipairs(data.promises or {}) do
+    if promise == "nest" then
+      out.nests = true
+    elseif not (promise == "fork" or promise == "jit" or promise == "fattr") then
+      return nil, "promises: no promise " .. promise .. "; the promises are fattr, fork, jit, nest"
+    end
+  end
+  if #(data.isolate or {}) > 0 then return nil, "isolate" .. not_yet end
+  if next(data.limits or {}) ~= nil then return nil, "limits" .. not_yet end
+  if next(data.set_env or {}) ~= nil then return nil, "set_env" .. not_yet end
+  if next(data.set_env_digests or {}) ~= nil then
+    return nil, "set_env_digests is refused: a digest holds no value to set; " ..
+      "a test names the value in set_env"
+  end
+  if #(data.connect or {}) > 0 then
+    return nil, "connect is refused: no test reaches a host but loopback, whose answer no " ..
+      "key holds; declare the addresses in loopback and start the service in the test"
+  end
+  if data.tmp == false then
+    return nil, "tmp = false" .. not_yet .. "; every test has a temporary directory today"
+  end
+  for _, name in ipairs(data.env or {}) do
+    if name == "*" then
+      return nil, 'env: a policy names each variable it passes through; no wildcard "*" in a policy'
+    end
+  end
+  out.env = data.env or {}
+  out.network = data.loopback or {}
+  return out, ""
+end
+
 --- The chunk's `Test.needs { ... }` (see [`cosmic.test`]), read as data,
 --- never run: nil and "" when there is none, and nil and why, naming
 --- the line, for one the build cannot read so. The call is a statement
@@ -1453,8 +1719,9 @@ end
 --- any other way -- inside a function, under another name, handed a
 --- value computed -- is refused. Each field is held to its shape here.
 local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
+  local which = "needs"
   local function at(node: ast.Node): string
-    return (node.f or "") .. ":" .. tostring(node.y) .. ": test.needs: "
+    return (node.f or "") .. ":" .. tostring(node.y) .. ": test." .. which .. ": "
   end
   local names: {string:boolean} = {}
   local found: ast.Node = nil
@@ -1467,11 +1734,16 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
         if exps ~= nil and requires_test(exps[i]) then names[var.tk] = true end
       end
     elseif stmt.kind == "op" and stmt.op ~= nil and stmt.op.op == "@funcall" and
-        names_needs(stmt.e1, names) then
+        names_declaration(stmt.e1, names) ~= "" then
       if found ~= nil then
-        return nil, at(stmt) .. "a module declares its inputs once; line " ..
-          tostring(found.y) .. " did already"
+        local again = names_declaration(stmt.e1, names)
+        local first = which
+        which = again
+        return nil, at(stmt) .. "a module declares its inputs once" ..
+          (first == again and "" or ", with Test.needs or Test.policy and not both") ..
+          "; line " .. tostring(found.y) .. " did already"
       end
+      which = names_declaration(stmt.e1, names)
       found = stmt
       callees[stmt.e1] = true
     elseif (stmt.kind == "goto" or stmt.kind == "label") and jump == nil then
@@ -1481,17 +1753,18 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
   -- A jump could pass the call by, and the module would not make the
   -- declaration the build read.
   if found ~= nil and jump ~= nil then
-    return nil, (jump.f or "") .. ":" .. tostring(jump.y) .. ": test.needs: a module " ..
+    return nil, (jump.f or "") .. ":" .. tostring(jump.y) .. ": test." .. which .. ": a module " ..
       "that declares its inputs jumps nowhere at its top level, so the call is always made"
   end
   -- `needs` reached any other way than that one statement.
   local elsewhere: ast.Node = nil
   ast.walk(parsed.node, function(node: ast.Node)
-    if elsewhere == nil and names_needs(node, names) and not callees[node] then
+    if elsewhere == nil and names_declaration(node, names) ~= "" and not callees[node] then
       elsewhere = node
     end
   end)
   if elsewhere ~= nil then
+    which = names_declaration(elsewhere, names)
     return nil, at(elsewhere) .. "call it as a statement at the module's top level, " ..
       "on the name the module binds require(\"cosmic.test\") to, and nowhere else"
   end
@@ -1500,13 +1773,30 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
   local value = args ~= nil and args[1] or nil
   if args == nil or #args ~= 1 or value.kind ~= "literal_table" then
     return nil, at(found) .. "hand it one table written out as a literal: " ..
-      "Test.needs { reads = { ... } }"
+      (which == "policy" and "Test.policy { grants = { ... } }" or "Test.needs { reads = { ... } }")
   end
   local out: analyzer.Declared = {
     line = found.y, reads = {}, host = {}, env = {}, network = {},
     tool = false, lua = false, standalone = false, nests = false, noexec = false, store = false,
     system = false, caches = {},
   }
+  if which == "policy" then
+    -- The `needs` the policy stands for, held to the rules its own fields
+    -- are: the declaration is that, and nothing of the policy besides.
+    local data, why = policy_data(value)
+    if data == nil then return nil, at(found) .. why end
+    local declared, trouble = policy_declared(data, found.y)
+    if declared == nil then return nil, at(found) .. trouble end
+    local lists: {string:{string}} = { reads = declared.reads, host = declared.host,
+      env = declared.env, network = declared.network }
+    for _, field in ipairs({ "reads", "host", "env", "network" }) do
+      for _, entry in ipairs(lists[field]) do
+        local refused = entry_trouble(field, entry)
+        if refused ~= "" then return nil, at(found) .. refused end
+      end
+    end
+    return declared, ""
+  end
   local seen: {string:boolean} = {}
   for _, item in ipairs(value) do
     local key = item.key
@@ -1560,25 +1850,8 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
           return nil, at(entry) .. field .. ": " .. written ..
             ": write declared paths plainly, without escapes or long brackets"
         end
-        local path_trouble = (field == "reads" or field == "host") and
-          input_path_trouble(field, text.conststr) or ""
-        if field == "env" and text.conststr == "" then path_trouble = "an empty name" end
-        if field == "network" then
-          -- The rule's own words, which name the field and the host.
-          local refused = network_trouble(text.conststr)
-          if refused ~= "" then return nil, at(entry) .. refused end
-        end
-        if field == "caches" and cache_names.names[text.conststr] == nil then
-          local known: {string} = {}
-          for name in pairs(cache_names.names) do known[#known + 1] = name end
-          table.sort(known)
-          path_trouble = "no cache " .. text.conststr .. "; the caches are " ..
-            table.concat(known, ", ")
-        end
-        if path_trouble ~= "" then
-          return nil, at(entry) .. field ..
-            ": " .. path_trouble
-        end
+        local entry_refused = entry_trouble(field, text.conststr)
+        if entry_refused ~= "" then return nil, at(entry) .. entry_refused end
         list[#list + 1] = text.conststr
       end
       if field == "reads" then

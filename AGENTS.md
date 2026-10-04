@@ -237,7 +237,14 @@
    A test module declares what it reads beyond its import closure, its
    fuzz corpora and a pinned environment with a top-level
    `Test.needs { ... }` (`local Test = require("cosmic.test")`; see
-   `o/bin/cosmic docs cosmic.test`). Nothing lists what a test reads
+   `o/bin/cosmic docs cosmic.test`). [`Test.policy`] is [`Test.needs`]'
+   successor, being phased in: a module declares one or the other, in
+   the fields of cosmic.sandbox's `Policy`, which the harness translates
+   into the `needs` it stands for, so the key is the same (a grant "r" of
+   a path is a read, the profile "system" is `system`, "cosmic" is `tool`,
+   the promise "nest" is `nests`, `loopback` is `network`); what has no
+   `needs` yet (a grant to write, `isolate`, `limits`, `set_env`) is
+   refused. Nothing lists what a test reads
    undeclared: sandboxed, such a read finds nothing, and the test fails
    with its own error (a file not found, a program that could not
    start), which is the signal to declare it. Narrow a test before
@@ -465,4 +472,5 @@ unblocks: `o/bin/cosmic todos '"cosmic-driver.pin"'` lists them.
 [`Store.meta`]: cosmic/store.tl
 [`Store.source`]: cosmic/store.tl
 [`Test.needs`]: cosmic/test.tl
+[`Test.policy`]: cosmic/test.tl
 [`Test.skip`]: cosmic/test.tl

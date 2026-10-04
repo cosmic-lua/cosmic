@@ -24,7 +24,7 @@ local stand_in = require("build.stand_in")
 --- perl and shell, which the "system" profile gives a policy to run; and
 --- `nests`, since the sandboxes this test makes are roots a worker held by
 --- a Landlock ruleset cannot build.
-Test.needs{ env = { "TMPDIR" }, nests = true, system = true }
+Test.policy{ env = { "TMPDIR" }, promises = { "nest" }, profiles = { "system" } }
 
 --- Whether `why`, a start's failure, is the platform or the host giving no
 --- seccomp or user namespace.

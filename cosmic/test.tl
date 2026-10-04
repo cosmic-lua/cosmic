@@ -44,6 +44,12 @@
 --- another test module that calls `needs`. Every string is written
 --- plainly, without escapes or long brackets, as the build reads it.
 ---
+--- `policy` is `needs`' successor, being phased in: a module declares
+--- one or the other, never both, in the fields of [`cosmic.sandbox`]'s
+--- [`Policy`] -- see [`Test.policy`]. Until the policy runs a worker of its
+--- own, the harness translates it into the `needs` it stands for, so the
+--- test is sandboxed and keyed as that `needs` would have it.
+---
 --- A test that this host cannot give the sandbox it is about says so
 --- with `skip`, as it returns early: the run counts it skipped rather
 --- than passed.
@@ -199,6 +205,66 @@ local record Test
     --- locate it.
     caches: {string}
   end
+
+  --- One path a test may reach, and how: [`cosmic.sandbox`]'s [`Grant`].
+  record Grant
+    --- A path of the tree, relative to its root (the worker's directory),
+    --- or an absolute path of the host's.
+    path: string
+    --- What the test may do there: letters of "rwxcu". Only "r" takes
+    --- effect so far.
+    letters: string
+    --- The host's path where it differs from `path`. Not yet taken.
+    from: string
+  end
+
+  --- The resource limits of a policy: [`cosmic.sandbox`]'s [`Limits`]. None
+  --- is taken yet.
+  record Limits
+    --- The most descriptors a process may hold open.
+    open_files: integer
+    --- The most bytes a process may write to one file.
+    file_bytes: integer
+    --- The CPU seconds a process may spend.
+    cpu_seconds: integer
+    --- The most processes and threads of the whole sandbox.
+    processes: integer
+  end
+
+  --- What the tests of one module are held to: the fields of
+  --- [`cosmic.sandbox`]'s [`Policy`], which a test module writes in place
+  --- of [`Needs`]. Every field is optional. This module cannot require
+  --- cosmic.sandbox -- every worker would load it -- so the record is
+  --- written out here, and a test holds it to the same fields.
+  record Policy
+    --- Named policies to join in: "system" (`system` of [`Needs`]) and
+    --- "cosmic" (`tool`).
+    profiles: {string}
+    --- The paths the tests read: a grant of "r" on a path of the tree is
+    --- a read of it, on an absolute path a host file.
+    grants: {Grant}
+    --- How far the worker is isolated. Not yet taken.
+    isolate: {string}
+    --- What the tests may do beyond their basics: "nest" is `nests`;
+    --- "fork", "jit" and "fattr" are accepted and change nothing yet.
+    promises: {string}
+    --- The hosts the tests reach. Refused: no test reaches a host but
+    --- loopback.
+    connect: {string}
+    --- The loopback addresses the tests reach: `network` of [`Needs`].
+    loopback: {string}
+    --- The variables passed through: `env` of [`Needs`].
+    env: {string}
+    --- The variables set, by name. Not yet taken.
+    set_env: {string:string}
+    --- Digests of values set. Refused: a digest holds no value to set.
+    set_env_digests: {string:string}
+    --- Whether the tests have a temporary directory of their own, as
+    --- every test has: `false` is not yet taken.
+    tmp: boolean
+    --- The resources the tests may spend. Not yet taken.
+    limits: Limits
+  end
 end
 
 --- What each field of [`Needs`] takes: a list of strings ("list") or a
@@ -230,6 +296,8 @@ end
 
 --- Where the one `needs` call came from, once it has come.
 local called_at: string = nil
+--- Which of `needs` and `policy` made it.
+local called_by: string = nil
 
 --- Why `value`, handed to `needs`, is no [`Needs`], or "" when it is one.
 --
@@ -265,12 +333,32 @@ local function trouble_of(value: any): string
   return ""
 end
 
---- Where `needs` was called from, as the chunk and line a traceback
---- names -- its frame three up: this, `needs`, its caller -- or "an
---- earlier call".
+--- Where `needs` or `policy` was called from, as the chunk and line a
+--- traceback names -- its frame four up: this, `declare`, the call, its
+--- caller -- or "an earlier call".
 local function caller(): string
-  local trace = errors.trace(nil, 3)
+  local trace = errors.trace(nil, 4)
   return trace:match("\n%s*([^\n]-:%d+):") or "an earlier call"
+end
+
+--- Records that this module declared its inputs, by `which` (`needs` or
+--- `policy`), and hands `needs` to the runner: the one place both calls
+--- are held to being made once, as the module loads.
+local function declare(which: string, needs: Test.Needs)
+  local installed = runner_in(Test)
+  if installed ~= nil and installed.loaded == true then
+    error("test: " .. which .. " is called at the top of a test module, while it loads", 3)
+  end
+  if called_at ~= nil then
+    local first = called_by or which
+    error("test: " .. which .. " is called once, and " .. called_at .. " called " ..
+        (first == which and "it" or first) .. " already; " ..
+        (first == which and "a test module never requires another that calls it" or
+          "a module declares needs or policy, not both"), 3)
+  end
+  called_at, called_by = caller(), which
+  local handed = installed ~= nil and installed.handed or nil
+  if handed is function(Test.Needs) then handed(needs) end
 end
 
 --- Declares what this module's tests read beyond their default inputs
@@ -284,17 +372,288 @@ function Test.needs(needs: Test.Needs)
   if trouble ~= "" then
     error("test: needs " .. trouble, 2)
   end
-  local installed = runner_in(Test)
-  if installed ~= nil and installed.loaded == true then
-    error("test: needs is called at the top of a test module, while it loads", 2)
+  declare("needs", needs)
+end
+
+--- The fields of [`Policy`] and what each takes: a list of strings
+--- ("list"), a table ("map"), a boolean ("flag"), a list of grants
+--- ("grants") or the limits ("limits").
+local POLICY_FIELDS <const>: {string:string} = {
+  profiles = "list", grants = "grants", isolate = "list", promises = "list",
+  connect = "list", loopback = "list", env = "list", set_env = "map",
+  set_env_digests = "map", tmp = "flag", limits = "limits",
+}
+
+local POLICY_FIELD_NAMES <const>: {string} = {
+  "connect", "env", "grants", "isolate", "limits", "loopback", "profiles", "promises",
+  "set_env", "set_env_digests", "tmp",
+}
+
+local LIMIT_FIELDS <const>: {string:boolean} = {
+  open_files = true, file_bytes = true, cpu_seconds = true, processes = true,
+}
+
+--- The migration this module carries: what [`Test.policy`] refuses today
+--- it takes once the policy has a worker of its own.
+local NOT_YET <const> = "is not yet taken: a policy runs a worker as a `needs` does " ..
+  "(migration step a of the sandbox plan), and this takes effect where the policy's own " ..
+  "path runs it (step b)"
+
+--- The profiles a policy joins in, and the `needs` flag each stands for.
+local PROFILE_FLAGS <const>: {string:string} = { system = "system", cosmic = "tool" }
+
+--- The promises a policy makes, and whether one has a `needs` field.
+local PROMISE_FIELDS <const>: {string:string} = {
+  nest = "nests", fork = "", jit = "", fattr = "",
+}
+
+--- `value` as a list of strings, or nil and why, naming `field`.
+local function strings_of(field: string, value: any): {string} | nil, string
+  local out: {string} = {}
+  if value is {any:any} then
+    local count = 0
+    for i, item in pairs(value) do
+      if not (i is integer and item is string) then
+        return nil, field .. " takes a list of strings"
+      end
+      count = count + 1
+      out[i] = item
+    end
+    if count == #out then return out, "" end
   end
-  if called_at ~= nil then
-    error("test: needs is called once, and " .. called_at .. " called it already; " ..
-        "a test module never requires another that calls it", 2)
+  return nil, field .. " takes a list of strings"
+end
+
+--- `value` as a table of names to strings, or nil and why, naming `field`.
+local function names_of(field: string, value: any): {string:string} | nil, string
+  local out: {string:string} = {}
+  if value is {any:any} then
+    for k, v in pairs(value) do
+      if not (k is string and v is string) then
+        return nil, field .. " takes a table of names to strings"
+      end
+      out[k] = v
+    end
+    return out, ""
   end
-  called_at = caller()
-  local handed = installed ~= nil and installed.handed or nil
-  if handed is function(Test.Needs) then handed(needs) end
+  return nil, field .. " takes a table of names to strings"
+end
+
+--- `value` as a [`Policy`]'s grants, or nil and why.
+local function grants_of(value: any): {Test.Grant} | nil, string
+  local out: {Test.Grant} = {}
+  if not value is {any} then return nil, "grants takes a list of grants" end
+  for i, given in ipairs(value) do
+    local at = "grants[" .. i .. "]"
+    if not given is {any:any} then return nil, at .. " takes a table" end
+    local grant: Test.Grant = {}
+    for key, field in pairs(given) do
+      if not (key == "path" or key == "letters" or key == "from") then
+        return nil, at .. " has no field " .. tostring(key) .. "; it has from, letters, path"
+      end
+      if not field is string then return nil, at .. "." .. tostring(key) .. " takes a string" end
+      if key == "path" then
+        grant.path = field
+      elseif key == "letters" then
+        grant.letters = field
+      else
+        grant.from = field
+      end
+    end
+    out[i] = grant
+  end
+  return out, ""
+end
+
+--- `value` as a [`Policy`]'s limits, or nil and why.
+local function limits_of(value: any): Test.Limits | nil, string
+  local out: Test.Limits = {}
+  if value is {any:any} then
+    for key, field in pairs(value) do
+      if not (key is string and LIMIT_FIELDS[key] and field is integer) then
+        return nil, "limits takes open_files, file_bytes, cpu_seconds and processes, " ..
+          "each an integer"
+      end
+      if key == "open_files" then
+        out.open_files = field
+      elseif key == "file_bytes" then
+        out.file_bytes = field
+      elseif key == "cpu_seconds" then
+        out.cpu_seconds = field
+      else
+        out.processes = field
+      end
+    end
+    return out, ""
+  end
+  return nil, "limits takes a table of limits"
+end
+
+--- What was handed to `policy` as a [`Policy`], or nil and why, naming
+--- the field.
+local function policy_of(given: any): Test.Policy | nil, string
+  if not given is {any:any} then
+    return nil, "takes a table, got " .. type(given)
+  end
+  local out: Test.Policy = {}
+  for key, value in pairs(given) do
+    local takes = key is string and POLICY_FIELDS[key] or nil
+    if not (key is string) or takes == nil then
+      return nil, "has no field " .. tostring(key) .. "; it has " ..
+        table.concat(POLICY_FIELD_NAMES, ", ")
+    end
+    local why = ""
+    if takes == "flag" then
+      if value is boolean then out.tmp = value else why = key .. " takes true or false" end
+    elseif takes == "grants" then
+      out.grants, why = grants_of(value)
+    elseif takes == "limits" then
+      out.limits, why = limits_of(value)
+    elseif takes == "map" then
+      if key == "set_env" then
+        out.set_env, why = names_of(key, value)
+      else
+        out.set_env_digests, why = names_of(key, value)
+      end
+    elseif key == "profiles" then
+      out.profiles, why = strings_of(key, value)
+    elseif key == "isolate" then
+      out.isolate, why = strings_of(key, value)
+    elseif key == "promises" then
+      out.promises, why = strings_of(key, value)
+    elseif key == "connect" then
+      out.connect, why = strings_of(key, value)
+    elseif key == "loopback" then
+      out.loopback, why = strings_of(key, value)
+    else
+      out.env, why = strings_of(key, value)
+    end
+    if why ~= "" then return nil, why end
+  end
+  return out, ""
+end
+
+-- TODO: let a policy say what `store`, `caches`, `lua`, `standalone`,
+-- `noexec` and a `$NAME` host path say (a grant on the store, a per-user
+-- host cache, a writable grant without x, a variable-named grant), once
+-- the policy path (step b of the sandbox plan) gives each a field of
+-- cosmic.sandbox's [`Policy`]: a module that declares one stays on `needs`.
+-- TODO: hand the promises to the runner once the filter runs on every
+-- worker (step d of the sandbox plan, which keeps them in the key); until
+-- then a promise a test does not make cannot be told from one it does.
+--- The `needs` a policy stands for, or nil and why. The test is sandboxed
+--- and keyed as that `needs` would have it: reads of the tree, host
+--- files, the variables, loopback addresses, the program (profile
+--- "cosmic", `tool`), the system (profile "system") and nesting (promise
+--- "nest"). What it cannot say is refused, naming the field, rather than
+--- accepted as a declaration that moves no key: `isolate`, `set_env`,
+--- `limits`, a grant of more than "r" or from another path, `tmp = false`.
+--- `connect` and `set_env_digests` are refused outright, since no test
+--- reaches a host but loopback and a digest holds no value to set.
+--- The promises "fork", "jit" and "fattr" are accepted and change
+--- nothing: no worker holds them yet.
+---
+--- Internal to the harness: it exists so that cosmic/test_policy_test.tl
+--- can compare the runtime translation with the analyzer's; a test module
+--- declares with [`Test.policy`].
+--- @param given any What `policy` was handed, or the build read of it
+--- @return Needs|nil The `needs` it stands for
+--- @return string Why there is none, naming the field
+function Test.needs_of(given: any): Test.Needs | nil, string
+  local policy, why = policy_of(given)
+  if policy == nil then return nil, why end
+  local out: Test.Needs = {}
+  local reads: {string} = {}
+  local host: {string} = {}
+  local flags: {string:boolean} = {}
+  for _, profile in ipairs(policy.profiles or {}) do
+    local flag = PROFILE_FLAGS[profile]
+    if flag == nil then
+      return nil, "profiles: no profile " .. profile .. "; the profiles are cosmic, system"
+    end
+    flags[flag] = true
+  end
+  for i, grant in ipairs(policy.grants or {}) do
+    local at = "grants[" .. i .. "]"
+    local path, letters = grant.path, grant.letters
+    if path == nil or path == "" then return nil, at .. ".path takes a path" end
+    if letters == nil or letters == "" or letters:find("^r?w?x?c?u?$") == nil then
+      return nil, at .. ".letters takes letters of rwxcu, in that order"
+    end
+    if grant.from ~= nil then return nil, at .. ".from " .. NOT_YET end
+    if letters ~= "r" then
+      return nil, at .. ".letters \"" .. letters .. "\" " .. NOT_YET ..
+        "; a test reads, with \"r\", what it declares"
+    end
+    local list = path:sub(1, 1) == "/" and host or reads
+    list[#list + 1] = path
+  end
+  for _, promise in ipairs(policy.promises or {}) do
+    local field = PROMISE_FIELDS[promise]
+    if field == nil then
+      return nil, "promises: no promise " .. promise .. "; the promises are fattr, fork, jit, nest"
+    end
+    if field == "nests" then flags.nests = true end
+  end
+  if #(policy.isolate or {}) > 0 then return nil, "isolate " .. NOT_YET end
+  if next(policy.limits or {}) ~= nil then return nil, "limits " .. NOT_YET end
+  if next(policy.set_env or {}) ~= nil then return nil, "set_env " .. NOT_YET end
+  if next(policy.set_env_digests or {}) ~= nil then
+    return nil, "set_env_digests is refused: a digest holds no value to set; " ..
+      "a test names the value in set_env"
+  end
+  if #(policy.connect or {}) > 0 then
+    return nil, "connect is refused: no test reaches a host but loopback, whose answer no " ..
+      "key holds; declare the addresses in loopback and start the service in the test"
+  end
+  if policy.tmp == false then
+    return nil, "tmp = false " .. NOT_YET .. "; every test has a temporary directory today"
+  end
+  out.tool, out.system, out.nests = flags.tool, flags.system, flags.nests
+  if #reads > 0 then out.reads = reads end
+  if #host > 0 then out.host = host end
+  for _, name in ipairs(policy.env or {}) do
+    if name == "*" then
+      return nil, 'env: a policy names each variable it passes through; no wildcard "*" in a policy'
+    end
+  end
+  if #(policy.env or {}) > 0 then out.env = policy.env end
+  if #(policy.loopback or {}) > 0 then out.network = policy.loopback end
+  return out, ""
+end
+
+--- Declares what this module's tests are held to, in the fields of
+--- [`cosmic.sandbox`]'s [`Policy`], where `needs` declares what they read
+--- beyond their default inputs; a module declares one or the other, never
+--- both. The harness translates the policy into the `needs` it stands for
+--- ([`Test.needs_of`]), and the test runs, and is keyed, as that `needs`
+--- would have it:
+---
+---     local Test = require("cosmic.test")
+---     Test.policy {
+---       profiles = { "system" },
+---       grants = { { path = "testdata", letters = "r" } },
+---       env = { "PATH" },
+---       loopback = { "127.0.0.1" },
+---     }
+---
+--- is `Test.needs { system = true, reads = { "testdata" }, env = { "PATH" },
+--- network = { "127.0.0.1" } }`. The build reads the call as it does
+--- `needs`'s: one table written out as a literal, once, at the top of the
+--- module. A grant with a path of the tree is a read of it, an absolute
+--- path a read of that host file; the profile "system" is `system`,
+--- "cosmic" is `tool`; the promise "nest" is `nests`; `loopback` is
+--- `network`. What has no `needs` to stand for -- a grant to write, run
+--- or connect to, `isolate`, `limits`, `set_env`, `connect` -- fails the
+--- build, naming the field. Raises as `needs` does, for a value no
+--- [`Policy`] could be and for a call made twice or after the module has
+--- loaded.
+function Test.policy(policy: Test.Policy)
+  local needs, trouble = Test.needs_of(policy)
+  if needs == nil then
+    error("test: policy " .. trouble, 2)
+  end
+  declare("policy", needs)
 end
 
 --- Says the running test is skipped: this host cannot check what it
