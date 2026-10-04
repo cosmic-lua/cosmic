@@ -365,6 +365,15 @@ local record Options
   ---   always has.
   --- - `connect` is not yet available.
   ---
+  --- A program that is this program's own file ([`Proc.executable`]),
+  --- which the policy grants `rx` (the "cosmic" profile does), runs as its
+  --- core by a relaunch ([`Proc.relaunch`]), granted with it: its launcher
+  --- would fork and unpack a core into a cache the policy does not give
+  --- it. Where this process is root, the child's user runs a copy of the
+  --- core that every user may run, made once in /tmp/cosmic-sandbox-cores-0,
+  --- root's alone. The relaunch's descriptors are two more `fds` the child
+  --- gets; one `fds` names is refused, as is the `nest` promise.
+  ---
   --- A child never runs as root. Where this process is not root, it runs
   --- as this process's user, mapped as itself in its user namespace.
   --- Where this process is root, it runs as a user and group of its own,
@@ -2188,6 +2197,11 @@ local record Held
   --- `user`, where the child gives root up for it directly, in no
   --- namespace (spawn's `credentials`); nil where it is mapped into one.
   drop: MappedUser
+  --- The arguments to run with, where they are not the caller's: this
+  --- program's relaunch ([`relaunch_of`]).
+  argv: {string}
+  --- The descriptors the relaunch hands the child, by its number.
+  fds: {integer:integer}
 end
 
 --- The most grants spawn takes (`GRANT_MAX` in core/syscalls.c), the
@@ -2606,6 +2620,105 @@ local function reached_by(merged: Rules.Policy, base: string, file: boolean,
   return idmap, ""
 end
 
+--- Where a root caller's programs run this program's core from: a
+--- directory of root's, 0755, whose copies of the core are 0555 -- every
+--- user may run one, and no one but root may write or swap one. It is in
+--- /tmp, which every user may search, as root's own cache (in its home)
+--- is not; /tmp is sticky, so a directory another user made there first
+--- cannot be taken for it, and is refused.
+local SHARED_CORES <const> = "/tmp/cosmic-sandbox-cores-0"
+
+--- `core`, this program's core, where the user of a root caller's program
+--- may run it: a copy in [`SHARED_CORES`], made once per core. Startup
+--- hashes it against the artifact's digest every start, as no stamp is
+--- left beside it. The copy's path, or nil and why.
+local function shared_core(core: string): string | nil, string
+  local name = core:match("([^/]+)$")
+  if name == nil or not name:find("^core%-") then
+    return nil, core .. " is not a cached core of this program"
+  end
+  local st, _ = sys.lstat(SHARED_CORES)
+  if st == nil then
+    local made, made_trouble = sys.mkdir(SHARED_CORES, 0x1ed)
+    if not made then return nil, SHARED_CORES .. ": " .. made_trouble end
+    local shut, open_trouble = sys.chmod(SHARED_CORES, 0x1ed)
+    if not shut then return nil, SHARED_CORES .. ": " .. open_trouble end
+    st, _ = sys.lstat(SHARED_CORES)
+  end
+  if st == nil or st.kind ~= "dir" or st.uid ~= 0 or st.mode & 0xfff ~= 0x1ed then
+    return nil, SHARED_CORES .. " is not a directory of root's alone, mode 0755: remove it, " ..
+      "and the next start makes it again"
+  end
+  local copy = SHARED_CORES .. "/" .. name
+  local there, _ = sys.lstat(copy)
+  if there ~= nil and there.kind == "file" and there.uid == 0 and there.mode & 0xfff == 0x16d then
+    return copy, ""
+  end
+  local data, read_trouble = Fs.read(core)
+  if data == nil then return nil, core .. ": " .. read_trouble end
+  local staged = SHARED_CORES .. "/.staged-" .. tostring(sys.getpid())
+  local ok, trouble = Fs.write(staged, data, 0x16d)
+  if ok then ok, trouble = sys.chmod(staged, 0x16d) end
+  if ok then ok, trouble = sys.rename(staged, copy) end
+  if not ok then
+    local _, _ = sys.unlink(staged)
+    return nil, copy .. ": " .. trouble
+  end
+  return copy, ""
+end
+
+--- The descriptor open on each shared copy of the core, by its path: one
+--- serves every start, as [`Proc.relaunch`]'s does; a spawn hands a child
+--- only the descriptors it names.
+local shared_fds: {string:integer} = {}
+
+--- How a policy's program that is this program starts: by a relaunch of
+--- its core ([`Proc.relaunch`]), past the launcher, which would fork and
+--- unpack a core into a cache the policy does not give it. `user` is the
+--- user a root caller's program runs as, which runs a copy of the core it
+--- may run ([`shared_core`]); nil for this process's own. Nil and "" where
+--- this program has no relaunch (a host program), or nil and why.
+local function relaunch_of(user: MappedUser): Proc.Relaunch | nil, string
+  local launched, _ = Proc.relaunch()
+  if launched == nil or launched.env.COSMIC_PORTABLE_CORE_FD == nil then return nil, "" end
+  if user == nil then return launched, "" end
+  local copy, trouble = shared_core(launched.argv[1])
+  if copy == nil then return nil, trouble end
+  local fd = shared_fds[copy]
+  if fd == nil then
+    local handle, open_trouble = sys.open(copy, sys.O_RDONLY)
+    if handle == nil then return nil, copy .. ": " .. open_trouble end
+    fd = handle
+    shared_fds[copy] = fd
+  end
+  local core_fd = math.tointeger(tonumber(launched.env.COSMIC_PORTABLE_CORE_FD))
+  local fds: {integer:integer} = {}
+  for number, given in pairs(launched.fds) do fds[number] = number == core_fd and fd or given end
+  local argv: {string} = { copy }
+  for i = 2, #launched.argv do argv[i] = launched.argv[i] end
+  return { argv = argv, env = launched.env, fds = fds, cwd = launched.cwd }, ""
+end
+
+--- Whether `name`, a policy's program as the caller names it, from `cwd`
+--- (this process's own where nil), is this program's own file
+--- ([`Proc.executable`]), which `grants` let it read and run.
+local function runs_this_program(name: string, cwd: string, grants: {Rules.Grant}): boolean
+  local executable, _ = Proc.executable()
+  if executable == nil then return false end
+  local own, _ = sys.realpath(executable)
+  if own == nil then return false end
+  local found: string = name
+  if not name:find("/", 1, true) then
+    local on_path, _ = Proc.find(name)
+    if on_path == nil then return false end
+    found = on_path
+  elseif cwd ~= nil and name:sub(1, 1) ~= "/" then
+    found = cwd .. "/" .. name
+  end
+  local real, _ = sys.realpath(found)
+  return real == own and ungranted({ own }, grants, cwd) == ""
+end
+
 --- The kernel's release, as uname(2) answers it, or "" where it fails.
 local function kernel_release(): string
   local names, _ = sys.uname()
@@ -2678,6 +2791,25 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
   -- namespace maps the user into it from outside.
   local user, user_trouble = mapped_user(merged)
   if user == nil and user_trouble ~= "" then return nil, "sandbox: " .. user_trouble end
+  -- This program, granted, runs by a relaunch of its core, which is granted
+  -- with it: what runs is the file the grant names, through its core.
+  local relaunch: Proc.Relaunch
+  if runs_this_program(argv[1], opts.cwd, merged.grants) then
+    local found, relaunch_trouble = relaunch_of(user)
+    if found == nil and relaunch_trouble ~= "" then return nil, "sandbox: " .. relaunch_trouble end
+    if found ~= nil and nest then
+      -- TODO: run this program under `nest` once nest_descriptors can
+      -- hand it the descriptors of its artifact and core, read-only
+      -- regular files, which it refuses lest the child reopen them for
+      -- writing through /proc/self/fd where its user may.
+      return nil, "sandbox: this program runs from descriptors of its artifact and core, " ..
+        "which the \"nest\" promise refuses a child"
+    end
+    if found ~= nil then
+      relaunch = found
+      merged.grants[#merged.grants + 1] = { path = found.argv[1], letters = "rx" }
+    end
+  end
   local idmap: {boolean} = {}
   local drop: MappedUser
   if user ~= nil then
@@ -2721,7 +2853,9 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
   -- its name (a virtual environment's interpreter), once a bind can place
   -- a link: a root holds the real path alone, so the program is run by it.
   local path = argv[1]
-  if not path:find("/", 1, true) then
+  if relaunch ~= nil then
+    path = relaunch.argv[1]
+  elseif not path:find("/", 1, true) then
     local found, absent = Proc.find(path)
     if found == nil then return nil, absent end
     local real, real_trouble = sys.realpath(found)
@@ -2765,6 +2899,13 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
     if value ~= nil then env[name] = value end
   end
   for name, value in pairs(merged.set_env) do env[name] = value end
+  local run_argv: {string}
+  if relaunch ~= nil then
+    for name, value in pairs(relaunch.env) do env[name] = value end
+    run_argv = {}
+    for _, word in ipairs(relaunch.argv) do run_argv[#run_argv + 1] = word end
+    for i = 2, #argv do run_argv[#run_argv + 1] = argv[i] end
+  end
   local open_files = merged.limits.open_files
   if open_files == nil then
     open_files = DEFAULT_OPEN_FILES
@@ -2801,7 +2942,8 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
     if merged.tmp then env.TMPDIR = "/tmp" end
   end
   return { path = path, env = env, tmp = "", wants_tmp = merged.tmp and not file,
-    sandbox = sandbox, cwd = file and base or nil, user = user, drop = drop, nests = nest }, ""
+    sandbox = sandbox, cwd = file and base or nil, user = user, drop = drop, nests = nest,
+    argv = run_argv, fds = relaunch ~= nil and relaunch.fds or nil }, ""
 end
 
 --- Makes the temporary directory a policy's `tmp` asks for, as an absolute
@@ -2912,6 +3054,17 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
       extra[number] = fd
     end
   end
+  if held ~= nil and held.fds ~= nil then
+    for number, fd in pairs(held.fds) do
+      if slots[number] ~= nil then
+        unwire(wiring, false)
+        return refuse("start: sandbox: fds[" .. number .. "] is the descriptor this program's " ..
+            "relaunch hands its core on: name another")
+      end
+      extra = extra or {}
+      extra[number] = fd
+    end
+  end
   -- TODO: offer the rest of spawn's `sandbox` -- a ruleset from
   -- raw.landlock_ruleset, a pledge -- once a caller wants a child held
   -- to one: build/sandbox_probe.tl, which reaches the raw table for them.
@@ -2945,7 +3098,8 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
   -- Nothing but the spawn lies between the directory's making and its
   -- owner, the handle: a spawn that raises (an argument it refuses) must
   -- not leave it, nor the descriptors wired, behind.
-  local called, pid, trouble, errno = pcall(raw.spawn, path, argv, env, cwd,
+  local run_argv = held ~= nil and held.argv or argv
+  local called, pid, trouble, errno = pcall(raw.spawn, path, run_argv, env, cwd,
     slots[0], slots[1], slots[2], grouped, extra, sandbox, credentials)
   if not called then
     unwire(wiring, false)
