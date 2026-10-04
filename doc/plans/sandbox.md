@@ -1,6 +1,6 @@
 # Sandbox: a default-deny policy, its command line and its primitives
 
-Status: draft for discussion, revision 6; not to merge.
+Status: draft for discussion, revision 7; not to merge.
 
 ## Goal and the one rule
 
@@ -88,9 +88,13 @@ end
   granted paths.
 - `u`: connect to the unix socket at this path. A socket grant
   delegates to the program whatever that service does for its callers.
-  Held by Landlock ABI 9 or `isolate file`; on neither, the start
-  fails. Any `u` grant isolates the network, so the program cannot bind
-  an abstract name a host client expects.
+  Held by Landlock ABI 9. Below it, `isolate file` holds a `u` grant
+  only when no other grant is a directory or a socket: the filter's
+  AF_UNIX allowance cannot tell one socket from another, and a
+  read-only bind does not stop a connect, so any socket in a granted
+  directory would be reachable too. Otherwise the start fails. Any `u`
+  grant isolates the network, so the program cannot bind an abstract
+  name a host client expects.
 
 Each grant resolves once, links included, by descriptor; that one
 resolution makes the Landlock rule, the bind under `isolate file` and
@@ -333,6 +337,8 @@ nested sandboxes through a broker.
 6. Those fixed; grilled: `nest` as a promise, the harness changed so
    test-only fields go, never root without exceptions, a refused procfs
    failing, each test declaring its promises, `Test.policy`.
+7. Implementation (#2677) found `isolate file` does not hold a `u`
+   grant below ABI 9 beside a granted directory or socket.
 
 [`Child.Options`]: ../../cosmic/child.tl
 [`Child.start`]: ../../cosmic/child.tl
