@@ -172,3 +172,16 @@ local function test_equal_policies_written_differently_encode_alike()
   local b = PolicyJson.encode(merged({ grants = { { path = "//x/./", letters = "rw" } }, isolate = { "proc", "file" } }))
   assert(a == b, a .. " vs " .. b)
 end
+
+local function test_user_and_group_round_trip_and_are_integers()
+  local policy = assert(PolicyJson.decode('{"user":1000,"group":100}'))
+  assert(policy.user == 1000 and policy.group == 100)
+  local text = PolicyJson.encode((assert(Sandbox.merge({ user = 1000 }))))
+  assert(text == '{"user":1000}', text)
+  text = PolicyJson.encode((assert(Sandbox.merge({ user = 1000, group = 100 }))))
+  assert(text == '{"group":100,"user":1000}', text)
+  local none, why = PolicyJson.decode('{"user":"me"}')
+  assert(none == nil and why:find("/user", 1, true), why)
+  none, why = PolicyJson.decode('{"user":0}')
+  assert(none == nil and why:find("never root", 1, true), why)
+end

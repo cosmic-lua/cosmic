@@ -194,6 +194,18 @@ local function table_of(parsed: Flags.Parsed): {string:any} | nil, string
     end
   end
   if next(held) ~= nil then policy.limits = held end
+  local users = list("--user")
+  if #users > 1 then return nil, "--user is given more than once" end
+  if users[1] ~= nil then
+    local uid, gid = users[1]:match("^(%d+):(%d+)$")
+    if uid == nil then uid = users[1]:match("^(%d+)$") end
+    local user = uid ~= nil and whole(uid, 1, 4294967294) or nil
+    local group = gid ~= nil and whole(gid, 1, 4294967294) or nil
+    if user == nil or (gid ~= nil and group == nil) then
+      return nil, "--user takes UID or UID:GID, whole numbers from 1 to 4294967294, not " .. users[1]
+    end
+    policy.user, policy.group = user, group
+  end
   return policy, ""
 end
 

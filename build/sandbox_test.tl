@@ -164,6 +164,18 @@ local function test_a_line_without_a_program_or_with_an_unknown_option_is_refuse
   assert(refused({ "--read", "--tmp", "ls" }).err:find("--read needs a value", 1, true))
 end
 
+local function test_user_names_the_user_and_group_by_number()
+  local ran = run({ "--user", "1000", "prog" })
+  assert(ran.code == 0 and ran.opts.policy.user == 1000 and ran.opts.policy.group == nil, ran.err)
+  ran = run({ "--user=1000:100", "prog" })
+  assert(ran.opts.policy.user == 1000 and ran.opts.policy.group == 100, ran.err)
+  for _, given in ipairs({ "0", "me", "1000:", ":100", "1000:0", "4294967295", "1:2:3" }) do
+    local why = refused({ "--user", given, "prog" }).err
+    assert(why:find("--user takes UID or UID:GID", 1, true), given .. ": " .. why)
+  end
+  assert(refused({ "--user", "1", "--user", "2", "prog" }).err:find("more than once", 1, true))
+end
+
 local function test_a_number_is_a_whole_one_in_range()
   for _, case in ipairs({
       { "--open-files", "0" }, { "--open-files", "ten" }, { "--open-files", "1.5" },
@@ -296,6 +308,7 @@ local samples <const>: {string:{string}} = {
   set_env = { "--set-env", "X=1" }, tmp = { "--tmp" },
   open_files = { "--open-files", "5" }, file_bytes = { "--file-bytes", "5" },
   cpu_seconds = { "--cpu-seconds", "5" }, processes = { "--processes", "5" },
+  user = { "--user", "5" }, group = { "--user", "5:6" },
 }
 
 --- The fields no flag sets, each with why.

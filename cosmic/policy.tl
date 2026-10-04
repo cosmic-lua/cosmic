@@ -52,6 +52,8 @@ local POLICY_SPEC <const> = Shape.strict_record({
   set_env_digests = Shape.optional(Shape.map(Shape.string)),
   tmp = Shape.optional(Shape.boolean),
   limits = Shape.optional(LIMITS_SPEC),
+  user = Shape.optional(Shape.integer),
+  group = Shape.optional(Shape.integer),
 })
 
 --- The policy `json` holds. Strict: a key this module does not know, a
@@ -116,6 +118,7 @@ function PolicyJson.encode(p: Sandbox.Policy): string
   put("grants", grants)
   if next(digests) ~= nil then fields.set_env_digests = digests end
   if merged.tmp then fields.tmp = true end
+  fields.user, fields.group = merged.user, merged.group
   local limits = merged.limits
   if limits.open_files ~= nil or limits.file_bytes ~= nil or limits.cpu_seconds ~= nil or
       limits.processes ~= nil then
