@@ -18,12 +18,21 @@ yours for anything temporary.
 A small project, `mirror`, in Teal, using cosmic. It is a static file
 server over HTTP/1.1 and a client that mirrors a directory from one:
 
-- `serve <dir> <port>`: serves the files under `<dir>` on 127.0.0.1 at
-  `<port>`; port `0` means any free port. Once it is accepting
+- `serve <source> <port>`: serves the files of `<source>` on 127.0.0.1
+  at `<port>`; port `0` means any free port. Once it is accepting
   connections it prints exactly one line to stdout,
   `listening on 127.0.0.1:<port>` with the actual port, and keeps
-  serving until it is sent SIGTERM or SIGINT, when it exits 0. It
-  answers:
+  serving until it is sent SIGTERM or SIGINT, when it exits 0.
+  `<source>` is a directory, or an archive file whose name ends in
+  `.tar`, `.tar.gz`, `.tgz` or `.zip`, served read-only as if it were
+  the directory its entries were made from: an entry `sub/b.bin` is
+  served at `/sub/b.bin` (as is an entry `./sub/b.bin`), and `sub` is
+  a directory whether or not the archive holds an entry of its own for
+  it. Entries other than files and directories are left out. A source that is neither, or an
+  archive that cannot be read or holds an entry whose path starts with
+  `/` or has a `..` part, is an error before serving: a message on
+  stderr and a non-zero exit code. Below, `<dir>` is the source's
+  directory. It answers:
   - `GET` and `HEAD` of a URL path naming a regular file under `<dir>`
     (percent-encoded bytes decoded): `200` with the file's bytes, and
     an `ETag` header, a strong entity tag made of the lowercase hex
@@ -67,8 +76,32 @@ server over HTTP/1.1 and a client that mirrors a directory from one:
   and a non-zero exit code.
 - `help`: prints usage naming `serve` and `pull`, to stdout, and exits
   0. Run this one with no other arguments.
-- Use cosmic's own networking, HTTP, hashing and compression support
-  rather than calling other programs.
+- Use cosmic's own networking, HTTP, hashing, compression and archive
+  support rather than calling other programs.
+
+The project's library module is named `mirror`, `require("mirror")`,
+and exports at least this API, which the project's own program uses and
+which is checked through these names and types. A path here is
+relative to the source's top, its parts joined by `/`, with no `/` at
+either end: `""` is the top itself, `"sub/b.bin"` a file under it. A
+path with an empty, `.` or `..` part names nothing.
+
+- `mirror.Kind`, an enum: `"file"` or `"dir"`.
+- `mirror.Info`, a record: `kind: mirror.Kind`, and `size: integer`,
+  a file's length in bytes (0 for a directory).
+- `mirror.Source`, an interface, which both kinds of source implement,
+  with these methods, each answering nil and a message for a path
+  that names nothing of that kind:
+  - `stat(path: string): mirror.Info | nil, string`;
+  - `list(path: string): {string} | nil, string`, the names of a
+    directory's entries, sorted bytewise;
+  - `read(path: string): string | nil, string`, a file's bytes.
+- `mirror.open(path: string): mirror.Source | nil, string`: the source
+  at `path`, a directory or an archive as `serve` takes one, or nil and
+  why it is neither.
+- `mirror.listing(source: mirror.Source, path: string): string | nil,
+  string`: the JSON listing `serve` answers for the directory at
+  `path` of any `mirror.Source`, the project's own or another.
 
 The project must have all four of these:
 
