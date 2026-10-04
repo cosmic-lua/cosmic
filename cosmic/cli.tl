@@ -491,6 +491,37 @@ local record Cli
   --- bill of materials records the release each came from, and the
   --- binary it reads is never written
   refresh: string
+  --- `cosmic sandbox [options] [--] program [args...]`: runs a program held
+  --- to nothing at all but what the options grant, and everything it
+  --- starts with it: the paths it reads, runs, writes and creates, the
+  --- system calls it makes, the environment it sees, the resources it
+  --- spends. What is not granted does not work; and a policy that this
+  --- host cannot meet is not run in part: the start fails, naming what is
+  --- missing. The program is the first word that is no option, or the
+  --- word after `--`; everything after it is its own arguments, an
+  --- option-looking word among them. It is found on the PATH, and its
+  --- own file and loader must be granted to run: `--system` grants what a
+  --- host's programs need to start, `--cosmic` this program's own.
+  ---
+  ---     cosmic sandbox --system --read . -- ls -l
+  ---     cosmic sandbox --system --read . --promise fork -- sh -c 'ls | wc -l'
+  ---     cosmic sandbox --system --path rwxc:. --tmp --promise fork \
+  ---       --isolate file -- make
+  ---
+  --- `--read`, `--run` and `--write` grant a path as `r`, `rx` and `rwc`;
+  --- `--path` names the letters itself, of `rwxcu` in that order (`rwxc:.`),
+  --- each once. A path is relative to the working directory and must
+  --- exist, and paths and `--set-env` values must be UTF-8, as they are
+  --- written as JSON. `cosmic docs cosmic.sandbox` names the policy's
+  --- fields. `--connect` is refused until the relay it needs exists.
+  --- Each option is one field of the policy, and a number is a whole one. The
+  --- program's standard streams are this program's own, and it gets no
+  --- other descriptor but those `--fd` names. Nothing is printed when it
+  --- starts. Exits with the program's status (128 and the signal's number when a
+  --- signal ended it, 124 when `--timeout` did), 2 for a command line it
+  --- refuses, 125 when the start failed, and 126 or 127 for a program that
+  --- cannot be run or is not there
+  sandbox: string
   --- `cosmic help [verb | exit]`: with no word, the guides to start
   --- from, an index of every verb, one line each, and where to read
   --- more. `cosmic help <verb>`
@@ -527,7 +558,7 @@ local module: Module = {
   fields = {
     run = "run", standalone = "standalone", eval = "eval", version = "version", test = "test", fix = "fix", build = "build",
     db = "db", sql = "sql", cache = "cache", json = "json", hash = "hash", codec = "codec", archive = "archive", fetch = "fetch", time = "time", rand = "rand", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
-    refresh = "refresh", help = "help",
+    refresh = "refresh", sandbox = "sandbox", help = "help",
   },
   verbs = {
     run = {
@@ -740,20 +771,45 @@ local module: Module = {
         ["--tzdata"] = { value = "file", about = "read the time zones from this tzdata sdist" },
       },
     },
+    sandbox = {
+      about = "run a program held to what you grant it",
+      usage = "[options] [--] <program> [args...]",
+      spec = {
+        ["--read"] = { value = "path", about = "grant a path to read (r)" },
+        ["--run"] = { value = "path", about = "grant a path to read and run (rx)" },
+        ["--write"] = { value = "path", about = "grant a path to read, write and create in (rwc)" },
+        ["--path"] = { value = "letters:path", about = "grant a path the letters of rwxcu, in that order" },
+        ["--system"] = { about = "what a host's programs need to start" },
+        ["--cosmic"] = { about = "what this program's own core needs to start" },
+        ["--isolate"] = { value = "file|proc", about = "a root of its own, or a process space of its own" },
+        ["--promise"] = { value = "name", about = "a system call it may make: fork, jit, fattr or nest" },
+        ["--connect"] = { value = "host:port", about = "a host it may reach (not yet available: needs the relay)" },
+        ["--loopback"] = { value = "addr", about = "an address of 127/8 it uses in its own network" },
+        ["--env"] = { value = "name", about = "pass this variable through from the environment" },
+        ["--set-env"] = { value = "name=value", about = "set this variable" },
+        ["--tmp"] = { about = "a fresh temporary directory of its own, named by TMPDIR" },
+        ["--open-files"] = { value = "n", about = "the most descriptors a process holds open" },
+        ["--file-bytes"] = { value = "n", about = "the most bytes a process writes to one file" },
+        ["--cpu-seconds"] = { value = "n", about = "the CPU seconds a process may spend" },
+        ["--processes"] = { value = "n", about = "the most processes and threads of the whole sandbox" },
+        ["--fd"] = { value = "n", about = "hand it descriptor n (3 to 255), as the same number" },
+        ["--timeout"] = { value = "seconds", about = "end it after this many whole seconds" },
+      },
+    },
     help = {
       about = "this index, or a verb's full text",
       usage = "[verb]",
     },
   },
   groups = {
-    { "Running code", "run", "standalone", "eval", "version" },
+    { "Running code", "run", "standalone", "eval", "version", "sandbox" },
     { "Project", "test", "fix", "build", "db" },
     { "Quick tools", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand" },
     { "Lookup", "docs", "uses", "todos", "help" },
     { "This binary", "bom", "refresh" },
   },
   order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "docs", "uses", "todos",
-    "bom", "refresh", "help" },
+    "bom", "refresh", "sandbox", "help" },
 }
 
 return module

@@ -34,6 +34,12 @@ local record verb_spec
     --- Why build/verb_cases.tl holds the verb to no verdict-line case, when
     --- it has none.
     passthrough: string | nil
+    --- For a verb that runs another program, the slot of that program in
+    --- its command line (nil when it names none): the words from it on
+    --- are the program's own, so `cosmic <verb> prog --help` runs prog with
+    --- `--help` rather than asking for the verb's help, which only the
+    --- words before it can.
+    program_slot: function(argv: {integer:string}): integer | nil
     --- The verb's section of doc/guides/quickstart.md: the text of its `## `
     --- heading, without the marks, or a string beginning "none: " that says
     --- why the quickstart has none. [`build.tree_checks`]' `verbs` holds it to
