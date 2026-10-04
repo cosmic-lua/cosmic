@@ -43,11 +43,6 @@ curl, c-ares and yyjson are fuzzed upstream; record that as their evidence
 rather than fuzzing them here. [`core/json.c`]'s own walk into Lua values and
 its encoder are fuzzed here, in [`cosmic/json_fuzz_test.tl`].
 
-- cap what [`Archive.extract`] writes. `ExtractOptions.max_bytes` was the only
-  bound on extracted bytes and went with the removal of options no caller
-  used; without one, a zip entry that records 4 GiB and deflates from a few
-  kilobytes writes all 4 GiB. a size cap (total, and per entry) would refuse
-  it, as `max_entries` bounds the entries.
 - fuzz the portable launch. [`build/locator_fuzz_test.tl`] covers a host
   program's trailer and manifest, which share `decode_blocks` with a portable
   artifact, but not the launcher's own reading of the shell header or the core
@@ -83,26 +78,45 @@ as a user of its own, mapped from outside (build/test_sandbox.tl's
 `runs_as`, spawn's `user`), and its fallback to root where the host refuses
 that user a user namespace -- runs only on developers' and agents' hosts,
 and core/syscalls_tool_test.tl checks the drop itself only in a run as root
-unsandboxed.
+unsandboxed. So does a policy's child for a root caller, whose user is its
+own, with a grant it cannot use idmapped or refused
+(cosmic/child_policy_user_test.tl).
 
 ## surface
 
 design.md's core tier names modules the tree does not have yet. the ones the
 promises lean on come first:
 
-- convert the remaining sites that read fields off a decoded JSON value
-  through `as` casts to [`cosmic.shape`] checks, starting with those under
-  `build/` and `ci/`. `Shape.decode_into(text, spec, opts)` decodes and checks
-  in one call; the remaining call shapes decide whether the inference limit
-  in shape.tl's module comment needs a helper.
+- convert the sites that still read a decoded JSON value without a
+  [`cosmic.shape`] check. None casts it in a function that
+  [`build/contracts.tl`]'s `casts` names; what is left:
+  - [`ci/cosmic_ci/prerelease.tl`] narrows the `gh` answers with `is` and an
+    `assert` per field (`release_ids`, `target`, `workflows_moved`,
+    `asset_names`, `flag`). `prerelease_test.tl` pins `release_ids`'
+    messages, and it asks for an `id` only of the releases that carry the tag,
+    which a record would ask of every one.
+  - the workflow files, read as JSON5 and cast to maps in
+    [`build/queue_seed_test.tl`], [`build/workflows_test.tl`] and
+    `ci/cosmic_ci/orchestration_test.tl`: a record per job, step and matrix
+    entry would restate GitHub's schema for the few keys a test reads.
+  - readers that are lenient on purpose ([`eval/summarize.tl`] reads a
+    transcript as Python's `json` does) or hold no record ([`build/json.tl`],
+    [`build/dataset.tl`], [`build/flow.tl`]).
+  The call shapes: `record_of(...):decode_into(text)` needs no annotation. A
+  top-level array of records does, `Shape.list(ROW.spec)` with `local rows,
+  why: {Row} | nil, string` ([`build/archive_test.tl`] and [`build/hash_test.tl`]
+  each write a four-line `rows_of`); a `Typed` method for it waits for a
+  caller outside a test. `ci/` runs on the release [`ci/cosmic-driver.pin`]
+  names, whose [`cosmic.shape`] names a place as `$.a[1].b`, not as a JSON
+  Pointer, so its tests match the field and the failure, not the path.
 - a hand-written spec that agrees with its record. [`Shape.record_of`] derives
-  a spec from the record, so a field added to the record is checked from
-  then on; nothing checks that a [`Shape.record`] or [`Shape.strict_record`]
-  names the fields of the record its answer is annotated as, so a field added
-  to the record and not to such a spec is never set (and a strict one refuses
-  the key outright). Convert the specs that have a record (`o/bin/cosmic uses
-  Shape.record` lists them), and have `cosmic fix` compare the rest with the
-  record their `into` flows into.
+  a spec from the record, and no [`Shape.record`] or [`Shape.strict_record`]
+  outside a test or an example is left (`o/bin/cosmic uses Shape.record`
+  lists them). Nothing yet checks that one names the fields of the record its
+  answer is annotated as, so a field added to the record and not to such a
+  spec is never set (and a strict one refuses the key outright): have `cosmic
+  fix` compare the specs of [`cosmic/shape_example.tl`], and a project's own,
+  with the record their `into` flows into.
 - `shape`'s `record_of`, past what landed in the first form (a string literal
   naming a record, resolved where the module is built, in
   [`build/shape_specs.tl`]):
@@ -289,19 +303,27 @@ four-producer provenance join.
   and consequences; amend a record when the decision changes.
 
 [`Archive.create`]: ../cosmic/archive.tl
-[`Archive.extract`]: ../cosmic/archive.tl
 [`bin/vendor`]: ../bin/vendor
 [`bin/zig`]: ../bin/zig
 [`build.fuzz`]: ../build/fuzz/init.tl
 [`build.receivers`]: ../build/receivers.tl
 [`build/archive.tl`]: ../build/archive.tl
+[`build/archive_test.tl`]: ../build/archive_test.tl
 [`build/c/tree.tl`]: ../build/c/tree.tl
 [`build/c_functions.tl`]: ../build/c_functions.tl
 [`build/contracts.tl`]: ../build/contracts.tl
+[`build/dataset.tl`]: ../build/dataset.tl
 [`build/fix/rule.tl`]: ../build/fix/rule.tl
+[`build/flow.tl`]: ../build/flow.tl
+[`build/hash_test.tl`]: ../build/hash_test.tl
+[`build/json.tl`]: ../build/json.tl
 [`build/locator_fuzz_test.tl`]: ../build/locator_fuzz_test.tl
+[`build/queue_seed_test.tl`]: ../build/queue_seed_test.tl
 [`build/shape_specs.tl`]: ../build/shape_specs.tl
+[`build/workflows_test.tl`]: ../build/workflows_test.tl
 [`Child.end_strays`]: ../cosmic/child.tl
+[`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
+[`ci/cosmic_ci/prerelease.tl`]: ../ci/cosmic_ci/prerelease.tl
 [`core/coverage.c`]: ../core/coverage.c
 [`core/json.c`]: ../core/json.c
 [`cosmic.http`]: ../cosmic/http/init.tl
@@ -312,7 +334,9 @@ four-producer provenance join.
 [`cosmic.url`]: ../cosmic/url.tl
 [`cosmic/errors.tl`]: ../cosmic/errors.tl
 [`cosmic/json_fuzz_test.tl`]: ../cosmic/json_fuzz_test.tl
+[`cosmic/shape_example.tl`]: ../cosmic/shape_example.tl
 [`Errors.guidance`]: ../cosmic/errors.tl
+[`eval/summarize.tl`]: ../eval/summarize.tl
 [`Http.none_match`]: ../cosmic/http/init.tl
 [`Http.range`]: ../cosmic/http/init.tl
 [`Http.serve`]: ../cosmic/http/init.tl

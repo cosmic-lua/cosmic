@@ -132,7 +132,6 @@ end
 importer.diagnostic_queries = {
   arguments = "generics_functions_returns",
   record_key = "records_interfaces_methods",
-  union_operator = "unions_narrowing_casts",
 }
 
 -- `NOT IN (SELECT key FROM compiled)` leads SQLite to probe
@@ -797,15 +796,14 @@ end
 --- Checker forms that reliably identify a language topic. Argument failures
 --- point to the general checked function-contract guide; a diagnostic does
 --- not carry enough AST binding information here to claim a particular call.
+--- Only a message [`teal.replacement`] leaves unanswered is pointed here
+--- ([`with_hint`]).
 local function diagnostic_docs(msg: string): string | nil
   if msg:match("^wrong number of arguments %(") or
       msg:match("^argument %d+: got .+, expected ") then
     return importer.diagnostic_queries.arguments
   elseif msg:match("^invalid key '.-' in record ") then
     return importer.diagnostic_queries.record_key
-  elseif msg:match("^cannot use operator '.-' for types ") and
-      msg:find(" | ", 1, true) ~= nil then
-    return importer.diagnostic_queries.union_operator
   end
   return nil
 end
@@ -824,27 +822,52 @@ end
 
 --- Every hint a checker message earns, appended once, at the one place
 --- every message is rendered, rather than patched into the vendored
---- checker's own text or duplicated at each call site.
-local function with_hint(msg: string, hints: Hints): string
-  return with_diagnostic_docs(with_docs_hint(with_unused_hint(msg), hints), hints)
+--- checker's own text or duplicated at each call site. A message
+--- [`teal.replacement`] answers says what to write instead, which a
+--- reader acts on where a pointer at the docs goes unread, so it is
+--- given no such pointer.
+local function with_hint(msg: string, hints: Hints, answered: boolean): string
+  local said = with_docs_hint(with_unused_hint(msg), hints)
+  if answered then
+    return said
+  end
+  return with_diagnostic_docs(said, hints)
 end
 
 --- `file`'s own complaints, one line each. A removed name's replacement
 --- ([`teal.replacement`]) comes straight after the checker's own words,
 --- ahead of any pointer at the docs: it is the answer, they are more.
+--- A hint repeated word for word in one file (one variable's every
+--- field read, each unused name's) is printed on the first line that
+--- earns it, with how many more lines it holds for, and those lines
+--- carry the checker's words alone.
 local function complain(file: string, source: string, result: compiler.Result,
                         hints: Hints): string
   local lines: {string} = {}
+  local hinted: {string:integer} = {}
+  local repeats: {integer:integer} = {}
   for _, group in ipairs({ result.syntax_errors, result.type_errors, result.warnings }) do
     for _, e in ipairs(group or {}) do
       local where = e.filename ~= "" and e.filename or file
-      local said = with_hint(e.msg, hints)
       local instead = where == file and teal.replacement(e.msg, source, e.y, e.x, e.fields) or nil
+      local said = with_hint(e.msg, hints, instead ~= nil)
       if instead ~= nil then
         said = e.msg .. " -- " .. instead .. said:sub(#e.msg + 1)
       end
+      local hint = said:sub(#e.msg + 1)
+      local seen = where .. "\0" .. hint
+      local first = hint ~= "" and hinted[seen] or nil
+      if first ~= nil then
+        repeats[first] = (repeats[first] or 0) + 1
+        said = e.msg
+      elseif hint ~= "" then
+        hinted[seen] = #lines + 1
+      end
       lines[#lines + 1] = where .. ":" .. e.y .. ":" .. e.x .. ": " .. said
     end
+  end
+  for at, more in pairs(repeats) do
+    lines[at] = lines[at] .. " (same for " .. more .. " more)"
   end
   return table.concat(lines, "\n")
 end

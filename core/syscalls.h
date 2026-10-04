@@ -585,11 +585,12 @@ COSMIC_SYSCALL(cpu_features, 0);
  * ---@class Uname
  * ---@field sysname string the kernel name: "Linux", "Darwin"
  * ---@field machine string the machine: "x86_64", "aarch64", "arm64"
+ * ---@field release string the kernel's release, as /proc/sys/kernel/osrelease reads: "6.18.44-fc-v64"
  */
 
 /*
- * --- The host's kernel name and machine, as `uname(2)` reports them.
- * ---@return Uname|nil uname the two names, or nil on failure
+ * --- The host's kernel name, release and machine, as `uname(2)` reports them.
+ * ---@return Uname|nil uname the three names, or nil on failure
  * ---@return string error what went wrong, when uname is nil
  * ---@return integer errno the error number, when uname is nil
  */
@@ -857,6 +858,7 @@ COSMIC_SYSCALL(poll, 3);
  * ---@field RLIMIT_FSIZE integer for `getrlimit` and `setrlimit`: the most bytes of a file the process may write
  * ---@field RLIMIT_CPU integer for `getrlimit` and `setrlimit`: the CPU seconds the process may spend before SIGXCPU
  * ---@field RLIMIT_CORE integer for `getrlimit` and `setrlimit`: the most bytes of a core dump the process may write, 0 for none
+ * ---@field RLIMIT_NPROC integer for `getrlimit` and `setrlimit`: the most processes and threads the process's user may have, counted per user namespace from Linux 5.17
  */
 COSMIC_CONSTANT(O_RDONLY)
 COSMIC_CONSTANT(O_WRONLY)
@@ -912,3 +914,4 @@ COSMIC_CONSTANT(RLIMIT_NOFILE)
 COSMIC_CONSTANT(RLIMIT_FSIZE)
 COSMIC_CONSTANT(RLIMIT_CPU)
 COSMIC_CONSTANT(RLIMIT_CORE)
+COSMIC_CONSTANT(RLIMIT_NPROC)

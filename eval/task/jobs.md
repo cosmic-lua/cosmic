@@ -61,14 +61,55 @@ supervisor that runs a set of named jobs:
   (and what it started), starts no more, prints the report with those
   jobs `interrupted` and the ones never started `skipped`, and exits
   non-zero, within a second or two.
-- A jobfile that cannot be read or is malformed, a `needs` naming a job
-  that does not exist, or needs that form a cycle is an error before
-  any job runs: a message on stderr naming the problem (for a cycle,
-  a job in it) and a non-zero exit code.
+- A jobfile is checked whole before any job runs. A jobfile that
+  cannot be read or is not JSON is an error naming the problem. Past
+  that, the first problem found, in the order below, is an error whose
+  message is exactly the one shown, `<name>` the job's name and
+  `<other>` the job it needs:
+  1. the file's JSON is not an object (an array, a string, ...):
+     `jobfile: must be an object of jobs`;
+  2. then each job in byte order of its name, and in it each field in
+     this order: a job that is not an object:
+     `job <name>: must be an object`; `cmd` missing or not a non-empty
+     array of strings: `job <name>: cmd must be a non-empty array of
+     strings`; `needs` not an array of strings: `job <name>: needs
+     must be an array of strings`; `timeout` not a number greater than
+     0: `job <name>: timeout must be a positive number`; `retries` not
+     a whole number 0 or more: `job <name>: retries must be a
+     non-negative integer`; `env` not an object of strings: `job
+     <name>: env must be an object of strings`; `cwd` not a string:
+     `job <name>: cwd must be a string`; then any other field, the
+     first in byte order: `job <name>: unknown field <field>`;
+  3. then each job in name order, each of its `needs` in the order
+     given, naming a job that does not exist:
+     `job <name>: needs unknown job <other>`;
+  4. then needs that form a cycle: `job <name>: needs form a cycle`,
+     `<name>` a job in it.
+
+  An error is one line on stderr holding that message, and a non-zero
+  exit code; nothing runs.
 - `help`: prints usage naming `run`, `--parallel` and `--logs`, to
   stdout, and exits 0. Run this one with no other arguments.
 - Use cosmic's own process, JSON and time support rather than calling
   other programs to supervise yours.
+
+The project's library module is named `jobs`, `require("jobs")`, and
+exports at least this API, which the project's own program uses and
+which is checked through these names and types:
+
+- `jobs.Status`, an enum of the five statuses above: `"ok"`,
+  `"failed"`, `"timeout"`, `"skipped"` and `"interrupted"`.
+- `jobs.Job`, a record of one job as checked: `name: string` (its
+  key), `cmd: {string}`, `needs: {string}` (empty when absent),
+  `timeout: number` (nil when absent), `retries: integer` (0 when
+  absent), `env: {string: string}` (empty when absent) and
+  `cwd: string` (nil when absent).
+- `jobs.Plan`, a record: `jobs: {string: jobs.Job}` by name, and
+  `order: {string}`, every job's name once, each after every job it
+  needs, choosing at each step the name first in byte order among
+  those whose needs are all listed already.
+- `jobs.plan(text: string): jobs.Plan | nil, string`: the plan for a
+  jobfile's text, or nil and the message the error above names.
 
 The project must have all four of these:
 

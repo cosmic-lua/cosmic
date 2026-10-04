@@ -1002,9 +1002,10 @@ local function test_uname_reports_nonempty_sysname_and_machine()
   assert(names ~= nil and trouble == nil, "uname answers with one record")
   assert(#names.sysname > 0, "sysname is nonempty")
   assert(#names.machine > 0, "machine is nonempty")
+  assert(#names.release > 0, "release is nonempty")
   -- Stable across a call: this is the running host, not a moving target.
   local again = assert(sys.uname())
-  assert(again.sysname == names.sysname and again.machine == names.machine)
+  assert(again.sysname == names.sysname and again.machine == names.machine and again.release == names.release)
 end
 
 --- C reads a path up to its first NUL, so a call handed "<dir>\0/x"
@@ -1965,6 +1966,45 @@ local function test_spawn_credentials_runtime_refusal(tmp: string)
     nil, tmp .. "/absent", nil, nil, nil, false, nil, nil, { user = 65532, group = 65532 })
   failed(pid, trouble, errno)
   assert(not Fs.exists(marker))
+end
+
+--- What spawn raises for `sandbox` taken as a raw table, malformed.
+local function refused_sandbox(fields: {string:any}): string
+  local ok, trouble = pcall(process.spawn, "/missing", { "/missing" }, nil, nil,
+    nil, nil, nil, false, nil, fields as raw_process.Sandbox) -- cast: malformed input exercises raw validation
+  assert(not ok, "spawn took a malformed sandbox")
+  return tostring(trouble)
+end
+
+local function test_a_policys_sandbox_fields_are_checked_before_a_start()
+  local function says(trouble: string, text: string)
+    assert(trouble:find(text, 1, true), trouble)
+  end
+  says(refused_sandbox({ strict = "yes" }), "strict must be a boolean")
+  says(refused_sandbox({ proc = 1 }), "proc must be a boolean")
+  says(refused_sandbox({ proc = true, unveil = { reads = { "/" } } }),
+    "proc and unveil exclude each other")
+  says(refused_sandbox({ sockets = { "inet" } }), "sockets require promises")
+  says(refused_sandbox({ promises = {}, sockets = { "packet" } }), "a socket family is")
+  says(refused_sandbox({ promises = {}, sockets = { "inet" } }), "sockets require offline")
+  says(refused_sandbox({ unveil = { tmp = 4096 } }), "unveil's tmp requires strict")
+  says(refused_sandbox({ promises = {}, sockets = "inet" }), "sockets must be a list")
+  says(refused_sandbox({ unveil = { tmp = 0 } }), "unveil's tmp is a size in bytes")
+  says(refused_sandbox({ unveil = { tmp = "big" } }), "unveil's tmp is a size in bytes")
+end
+
+local function test_unveils_binds_are_checked_before_a_start()
+  local function says(binds: any, text: string)
+    local trouble = refused_sandbox({ unveil = { binds = binds } })
+    assert(trouble:find(text, 1, true), trouble)
+  end
+  says("/x", "unveil's binds must be a list")
+  says({ "/x" }, "a bind is a table")
+  says({ { path = "x" } }, "a bind's path must be absolute")
+  says({ { path = "/x", at = "relative" } }, "a bind is at an absolute name")
+  says({ { path = "/x", at = "/" } }, "a bind is at an absolute name")
+  says({ { path = "/x", at = "/.old/y" } }, "no name beneath /.old")
+  says({ { path = "/x", at = "/y" }, { path = "/z", at = "/y" } }, "two paths are bound at one name")
 end
 
 local function test_noexec_scratch_requires_a_boolean_and_unveiling()

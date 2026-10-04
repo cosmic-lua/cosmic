@@ -89,7 +89,7 @@ harness_epoch.acknowledged = {
 
   ["build.caches"] = "57bac59a121d7520f3d30b9052a6f6c5d67a51e8785c5a75d021760317fb9312",
 
-  ["build.confine"] = "e048a03aa605462dcccaf47869039f193f651c4b52f61d817875de4ccd2d31f0",
+  ["build.confine"] = "65a50a5a24bc8c1b54e409d7f46049d3063e5643c4bef139fbef93ed1efd32aa",
 
   ["build.core_image"] = "dfc18e0e6316237ab9fb11a957df68d6217e42cffc6f2f3a767018c5313700ac",
 
@@ -121,13 +121,13 @@ harness_epoch.acknowledged = {
 
   ["cmd.cosmic.main"] = "d00f469acf42d89c76c2e9ebabd40e73e20d00cb3a5ad6d9189716265fcdf9bf",
 
-  ["cosmic.child"] = "6c535b2ef6a7bfcc94f0cbfa23b45cc264a89dc1fffbb8b9986244f9c83d8bbb",
+  ["cosmic.child"] = "5be2fa2f133721143446527cfb34e6fd46e038e0bf0bacb5c4250e092f874306",
 
   ["cosmic.coverage"] = "079fe202231c4ae3ee642e27f6703a37850132c28c2a6d1daf50c7eb1669ac9a",
 
   ["cosmic.env"] = "9ae16736e69ff2305de1aff7db0f15db90993e1e61ef786d7bf6f33528ef0057",
 
-  ["cosmic.fs"] = "d4360ae2bf173d72ec9bffc9e6fc1d800edc269b32a828da249cd3507066bfa5",
+  ["cosmic.fs"] = "305ad1298fa4642378bb8013af654023b35157ef68a2e1feb064a7d688fc1049",
 
   ["cosmic.proc"] = "bbafb94bfa1671115f839c6fe57c921893d31d0e5baa1c4b1692e802b9c06212",
 

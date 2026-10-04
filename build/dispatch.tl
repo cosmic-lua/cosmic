@@ -255,7 +255,8 @@ local function index_help(): string
     "",
     "Start here: `cosmic docs doc.guides.quickstart` tours the standard",
     "library, and `cosmic docs doc.guides.project` builds a project with",
-    "a module, tests, an example and a program.",
+    "a module, tests, an example, a record with methods and a program",
+    "with commands.",
   }
   for _, group in ipairs(Cli.groups) do
     lines[#lines + 1] = ""

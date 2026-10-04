@@ -313,6 +313,19 @@ still running
 exit 3
 ```
 
+## closing what a block opened
+
+`local sleeper <close> = assert(Child.start(...))`, above, closes the
+child when the block ends, however it ends -- by its last line, a
+`return` or an error: `<close>` calls its type's `__close`, which ends
+a child still running. An opener answers `Handle | nil` and a reason,
+and the compiler refuses `<close>` on a type that may be nil, so
+`assert` narrows it first, raising the reason when there is no handle.
+The same line holds a [`Child.guard`], a [`cosmic.net`] socket or an
+[`Http.open`] response. A descriptor from [`Fs.open_read`] is an
+integer, which `<close>` cannot hold: [`Fs.close`] closes it, and
+[`Fs.read`] reads a whole file without one.
+
 ## ending early
 
 A program's entry returns its exit status. Where returning is awkward,
@@ -340,16 +353,21 @@ names the fix. Write `local peak = 0.0`, or annotate `local peak: number = 0`,
 for a variable that holds floats. A function declared `: number` may still
 `return 0`: an integer is a number.
 
+[`Child.guard`]: ../../cosmic/child.tl
 [`Child.start`]: ../../cosmic/child.tl
 [`Child.wait_any`]: ../../cosmic/child.tl
 [`cosmic.child`]: ../../cosmic/child.tl
 [`cosmic.fs`]: ../../cosmic/fs.tl
 [`cosmic.hash`]: ../../cosmic/hash.tl
+[`cosmic.net`]: ../../cosmic/net.tl
 [`cosmic.sys`]: ../../core/syscalls.h
+[`Fs.close`]: ../../cosmic/fs.tl
 [`Fs.mkdtemp`]: ../../cosmic/fs.tl
+[`Fs.open_read`]: ../../cosmic/fs.tl
 [`Fs.read`]: ../../cosmic/fs.tl
 [`Fs.write`]: ../../cosmic/fs.tl
 [`Hash.hex_sha256`]: ../../cosmic/hash.tl
+[`Http.open`]: ../../cosmic/http/init.tl
 [`Json.decode`]: ../../cosmic/json.tl
 [`Json.encode`]: ../../cosmic/json.tl
 [`Json.get`]: ../../cosmic/json.tl
