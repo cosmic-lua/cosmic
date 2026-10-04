@@ -28,8 +28,17 @@
 extern const int cosmic_promise_headers_end;
 #define PROMISE_CALLS_HEADERS cosmic_promise_headers_end
 
+/* The promises, as a set of bits: `fork` is fork and clone without a
+ * namespace flag, `jit` anonymous executable memory, `fattr` changing a
+ * file's mode, times, owner and extended attributes, `nest` building a
+ * sandbox of its own. */
+#define COSMIC_PROMISE_FORK 0x1u
+#define COSMIC_PROMISE_JIT 0x2u
+#define COSMIC_PROMISE_FATTR 0x4u
+#define COSMIC_PROMISE_NEST 0x8u
+
 /* The promise `name` names, as one bit of the set [`cosmic_promises_apply`]
- * takes, or 0 for a name that is none: "fork", "jit" or "fattr". */
+ * takes, or 0 for a name that is none: "fork", "jit", "fattr" or "nest". */
 unsigned cosmic_promise_named (const char *name);
 
 /* The socket families a filter lets a process make with socket(): the

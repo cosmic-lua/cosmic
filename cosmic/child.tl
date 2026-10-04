@@ -267,8 +267,8 @@ local record Options
   --- The policy is merged ([`Sandbox.merge`], which resolves its
   --- `profiles`), and then:
   ---
-  --- - `grants` are the only paths the child reaches, by Landlock, a
-  ---   relative one from `cwd`; the child's program, found on this
+  --- - `grants` are the only paths the child reaches, by Landlock (by the
+  ---   root alone under the `nest` promise), a relative one from `cwd`; the child's program, found on this
   ---   process's PATH when its name has no slash, and the interpreter it
   ---   names (`#!`, or an ELF's), need `r` and `x` grants: the "system"
   ---   profile gives them for the host's own programs.
@@ -308,7 +308,32 @@ local record Options
   ---   sockets only with a `u` grant. With neither, every inet socket is
   ---   refused.
   --- - `promises` are the system calls it may make beyond its basics
-  ---   (a seccomp filter). `nest` is not yet available.
+  ---   (a seccomp filter). `nest` lets the program build a sandbox of its
+  ---   own: it needs `isolate` "file", and it gives up Landlock, which the
+  ---   kernel's refusal of a mount to a process it holds would make
+  ---   useless, so the program's files are held by the root alone:
+  ---   - A grant is a bind, read-only unless granted `w` or `c`, and noexec
+  ---     unless granted `x`, so a program that can mount can unshare and
+  ---     remount nothing wider: the mounts it copies into a user namespace
+  ---     of its own are locked (read-only, noexec, nosuid and nodev stay),
+  ---     and in the sandbox's own user namespace it has no capability to
+  ---     mount at all.
+  ---   - What Landlock told apart and a bind cannot is refused at the
+  ---     start, naming the letters to add: `w` without `c` on a directory
+  ---     (a writable bind lets it make and remove files, too), `c` without
+  ---     `w`, and `x` without `r` (a bind that can be run can be read). A
+  ---     read-only grant without `x` is mounted noexec as well, so a file
+  ---     of it is neither run nor mapped executable.
+  ---   - A `u` grant is held by the root alone, as below Landlock ABI 9: no
+  ---     other grant may be a directory or a socket.
+  ---   - Held as ever: the pid and IPC namespaces, the network namespace
+  ---     (with `loopback` or `u`), which the program may make others of but
+  ---     not leave (the filter refuses setns), the socket families, signals
+  ---     (to its own pid) and every other rule of the filter.
+  ---   - Not held: Landlock's scoping (ABI 6) of abstract unix sockets;
+  ---     the size of a tmpfs the program mounts itself, which counts as its
+  ---     memory does, not as `tmp`'s; and a sysfs it mounts in a network
+  ---     namespace of its own, which shows what the host's /sys shows a user.
   --- - `env` names the variables passed through from this process's
   ---   environment and `set_env` the ones set: the child's whole
   ---   environment, so `env` beside `policy` raises. `tmp` makes a fresh
@@ -2183,13 +2208,19 @@ local function isolates(merged: Rules.Policy, kind: Rules.Isolate): boolean
   return false
 end
 
+--- Whether `merged` promises `nest`.
+local function nests(merged: Rules.Policy): boolean
+  for _, promise in ipairs(merged.promises) do
+    if promise == "nest" then return true end
+  end
+  return false
+end
+
 --- A policy's fields not yet met, by what each would need.
 -- TODO: refuse a policy whose stdin, stdout or stderr is a terminal,
 -- which only the pty relay (the design's phase 7) may carry.
--- TODO: meet `connect` and the `nest` promise, and delete this refusal,
--- once the relay (the design's phase 6) and a start that gives a
--- program a mount and user namespace of its own to build (`nest`:
--- Landlock's hold given up inside it) land.
+-- TODO: meet `connect`, and delete this refusal, once the relay (the
+-- design's phase 6) lands.
 local function unmet(merged: Rules.Policy): string
   local file = isolates(merged, "file")
   local held = #merged.grants + (merged.tmp and not file and 1 or 0)
@@ -2202,11 +2233,10 @@ local function unmet(merged: Rules.Policy): string
   if #merged.connect > 0 then
     return "connect \"" .. merged.connect[1] .. "\" is not yet available: it needs the relay"
   end
-  for _, promise in ipairs(merged.promises) do
-    if promise == "nest" then
-      return "promises \"nest\" is not yet available: it needs a sandbox that may build one of " ..
-        "its own"
-    end
+  if nests(merged) and not file then
+    return "promises \"nest\" needs isolate \"file\": the root of the program's own is what " ..
+      "holds its files once Landlock's hold is given up, since the kernel refuses a mount to " ..
+      "a process Landlock holds"
   end
   for _, grant in ipairs(merged.grants) do
     if grant.from ~= nil and not file then
@@ -2263,8 +2293,9 @@ end
 --- at its name when that differs, writable where it may be written or
 --- created in, and noexec where it is and may not be run; and the sandbox's
 --- own /proc; `idmap` says which are mounted idmapped ([`reached_by`]).
---- Nil and why where a grant cannot be placed.
-local function root_of(merged: Rules.Policy, base: string, idmap: {boolean}): raw_process.Unveil | nil, string
+--- With `nest`, which has no Landlock to refuse running a file, every grant
+--- without `x` is noexec. Nil and why where a grant cannot be placed.
+local function root_of(merged: Rules.Policy, base: string, idmap: {boolean}, nest: boolean): raw_process.Unveil | nil, string
   local binds: {raw_process.Bind} = {}
   local reads: {string} = {}
   local proc = true
@@ -2282,7 +2313,7 @@ local function root_of(merged: Rules.Policy, base: string, idmap: {boolean}): ra
     local writable = lettered(grant.letters, "w") or lettered(grant.letters, "c")
     binds[#binds + 1] = { path = named(grant.from or grant.path, base),
       at = grant.from ~= nil and name or nil, writable = writable,
-      noexec = writable and not lettered(grant.letters, "x"), idmap = idmap[index] or nil }
+      noexec = (writable or nest) and not lettered(grant.letters, "x"), idmap = idmap[index] or nil }
   end
   if proc then reads[1] = "/proc" end
   local tmp: integer
@@ -2295,10 +2326,11 @@ end
 --- (the filter allows AF_UNIX to the program whole, and a read-only bind
 --- does not stop a connect), so the granted socket is the only one the
 --- root may hold: no other grant may be a directory, which may hold
---- sockets, or a socket. A limit for good below ABI 9; at 9 Landlock holds it.
-local function unix_unheld(merged: Rules.Policy, base: string): string
+--- sockets, or a socket. A limit for good below ABI 9; at 9 Landlock holds
+--- it, unless `nest` gives Landlock up, which leaves the root alone to.
+local function unix_unheld(merged: Rules.Policy, base: string, nest: boolean): string
   local abi, _ = raw.landlock_abi()
-  if abi == nil or abi >= 9 then return "" end
+  if not nest and (abi == nil or abi >= 9) then return "" end
   local reachable = 0
   local only: string
   for _, grant in ipairs(merged.grants) do
@@ -2309,10 +2341,45 @@ local function unix_unheld(merged: Rules.Policy, base: string): string
     end
   end
   if reachable <= 1 and (reachable == 0 or only ~= nil) then return "" end
+  if nest then
+    return "a `u` grant under isolate file beside any other grant of a directory or a socket " ..
+      "needs Landlock, which promises \"nest\" gives up: the granted socket cannot be told " ..
+      "from another socket in the root, and the root holds every socket a granted directory " ..
+      "holds. Grant the socket alone (and files), or leave nest out"
+  end
   return "a `u` grant under isolate file needs Landlock ABI 9 beside any other grant of a " ..
-    "directory or a socket: this kernel gives ABI " .. abi .. ", where the granted socket " ..
+    "directory or a socket: this kernel gives ABI " .. tostring(abi) .. ", where the granted socket " ..
     "cannot be told from another socket in the root, and the root holds every socket a " ..
     "granted directory holds. Grant the socket alone (and files), or run a kernel with ABI 9"
+end
+
+--- Why a grant cannot be held by the root alone, which is all that holds
+--- a program's files once `nest` gives up Landlock, or "". The root has a
+--- bind that is writable or not and, where it is not given `x`, noexec:
+--- it cannot tell writing a file from making or removing one in a
+--- directory, nor running a file from reading it, as Landlock's `w` and
+--- `c`, `x` and `r` do. So a directory granted one of `w` and `c` without
+--- the other, a file granted `c` without `w`, and a grant of `x` without
+--- `r` are refused, naming the letters to add.
+local function nest_unheld(merged: Rules.Policy, base: string): string
+  for _, grant in ipairs(merged.grants) do
+    local letters = grant.letters
+    local what = "grant " .. string.format("%q", grant.path) .. " (" .. letters .. ")"
+    local st, _ = sys.stat(named(grant.from or grant.path, base))
+    local directory = st ~= nil and st.kind == "dir"
+    if lettered(letters, "x") and not lettered(letters, "r") then
+      return what .. " runs files it cannot read, which a root cannot hold once \"nest\" gives " ..
+        "up Landlock: add `r`"
+    elseif lettered(letters, "c") and not lettered(letters, "w") then
+      return what .. " creates what it cannot write, which a root cannot hold once \"nest\" gives " ..
+        "up Landlock: add `w`"
+    elseif directory and lettered(letters, "w") and not lettered(letters, "c") then
+      return what .. " writes files but makes and removes none, which a root cannot hold once " ..
+        "\"nest\" gives up Landlock: a writable directory is one a program may create in " ..
+        "too; add `c`"
+    end
+  end
+  return ""
 end
 
 --- Whether a grant of `merged` has `u`.
@@ -2505,6 +2572,7 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
   if trouble ~= "" then return nil, "sandbox: " .. trouble end
   local file = isolates(merged, "file")
   local proc = isolates(merged, "proc")
+  local nest = nests(merged)
   -- The directory the root of `isolate` file is built around, and the one
   -- the program starts in there: the caller's (or `cwd`'s) real path, which
   -- is what the grants' names are relative to.
@@ -2530,11 +2598,15 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
   end
   local root: raw_process.Unveil
   if file and isolated_unix(merged) then
-    local unheld = unix_unheld(merged, base)
+    local unheld = unix_unheld(merged, base, nest)
+    if unheld ~= "" then return nil, "sandbox: " .. unheld end
+  end
+  if nest then
+    local unheld = nest_unheld(merged, base)
     if unheld ~= "" then return nil, "sandbox: " .. unheld end
   end
   if file then
-    local made, root_trouble = root_of(merged, base, idmap)
+    local made, root_trouble = root_of(merged, base, idmap, nest)
     if made == nil then return nil, "sandbox: " .. root_trouble end
     root = made
   end
@@ -2613,7 +2685,11 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
   local sockets: {string} = {}
   if unix then sockets[#sockets + 1] = "unix" end
   if inet then sockets[#sockets + 1] = "inet" end
-  local sandbox: raw_process.Sandbox = { grants = grants, promises = promises, rlimits = rlimits,
+  -- Under `nest` no ruleset holds the paths: the kernel refuses a mount to
+  -- a process Landlock holds, so the root, which only the grants are bound
+  -- into, does ([`nest_unheld`]).
+  local sandbox: raw_process.Sandbox = { grants = not nest and grants or nil, promises = promises,
+    rlimits = rlimits,
     sockets = sockets, offline = inet or unix, strict = file or proc or inet or unix,
     proc = proc and not file, user = user ~= nil and user.uid or nil,
     group = user ~= nil and user.gid or nil }

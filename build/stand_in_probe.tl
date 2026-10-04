@@ -356,6 +356,13 @@ local verbs: {string:function(string, string): integer} = {
     local _, _ = handle:close()
     return put_all(1, "started\n")
   end,
+  ["run-isolated"] = function(program: string, script: string): integer
+    local result, trouble = Child.run({ program, script }, { policy = {
+      isolate = { "file" }, grants = { { path = program, letters = "rx" },
+        { path = ".", letters = "r" } } }, stdout = "capture", stderr = "stdout" })
+    if result == nil then return put_all(1, trouble .. "\n") end
+    return put_all(1, "exit " .. tostring(result.code) .. "\n" .. (result.stdout or ""))
+  end,
   present = function(path: string): integer
     if exists(path) then return nil end
     return failed(path, "not there")

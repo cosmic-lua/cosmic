@@ -978,15 +978,37 @@ static mode_t mirrored_mode (const char *path, size_t skip) {
   return 0755;
 }
 
+/* Makes the directory `name` in the one `dir` holds (AT_FDCWD for this
+ * process's own) with `mode`, whatever the umask, which is cleared while
+ * it does and put back, so no chmod is asked of a child whose filter
+ * grants none (a `nest` program, whose start of its own builds a root as
+ * this does): a mode with a setuid, setgid or sticky bit is made without
+ * them where the filter refuses one, as it does a mode made with them,
+ * and the bits the kernel does not make a directory with are set after,
+ * where that is allowed. 0, or an errno. */
+static int make_directory (int dir, const char *name, mode_t mode) {
+  mode_t before = umask(0);
+  int number = 0;
+  if (mkdirat(dir, name, mode) != 0 && errno != EEXIST) {
+    number = errno;
+    if (number == EPERM && (mode & 07000) != 0) {
+      number = 0;
+      mode &= 0777;
+      if (mkdirat(dir, name, mode) != 0 && errno != EEXIST) number = errno;
+    }
+  }
+  umask(before);
+  if (number == 0 && (mode & 06000) != 0 && fchmodat(dir, name, mode, 0) != 0 && errno != EPERM)
+    number = errno;
+  return number;
+}
+
 /* Makes the directory `path` in the root being built with the mode of
- * the one it stands for, whatever the umask, and one its owner -- the
- * child, once it has given up its capabilities -- can pass through
- * even where the host's let only its group: 0, or an errno. */
+ * the one it stands for, and one its owner -- the child, once it has
+ * given up its capabilities -- can pass through even where the host's let
+ * only its group: 0, or an errno. */
 static int make_mirrored (const char *path, size_t skip) {
-  mode_t mode = mirrored_mode(path, skip) | 0700;
-  if (mkdir(path, mode) != 0) return errno;
-  if (chmod(path, mode) != 0) return errno;
-  return 0;
+  return make_directory(AT_FDCWD, path, mirrored_mode(path, skip) | 0700);
 }
 
 /* The directory `name` in the one `dir` holds, opened without following
@@ -1031,10 +1053,8 @@ static int make_target (char *target, size_t skip, int directory) {
     if (*name != '\0') {
       next = open_unlinked_directory(dir, name);
       if (next < 0 && errno == ENOENT) {
-        mode_t mode = mirrored_mode(target, skip) | 0700;
-        if (mkdirat(dir, name, mode) != 0 && errno != EEXIST) number = errno;
-        else if (fchmodat(dir, name, mode, 0) != 0) number = errno;
-        else next = open_unlinked_directory(dir, name);
+        number = make_directory(dir, name, mirrored_mode(target, skip) | 0700);
+        if (number == 0) next = open_unlinked_directory(dir, name);
       }
       if (number == 0 && next < 0) number = errno;
     }
@@ -1368,7 +1388,9 @@ static int build_root (const char *root, char *const *paths, char *const *names,
   if (tmp) {
     int made = snprintf(target, sizeof target, "%s/tmp", root);
     if (made < 0 || (size_t)made >= sizeof target) return ENAMETOOLONG;
-    if (mkdir(target, 01777) != 0) return errno;
+    /* The mode made here never shows: a tmpfs covers it, or the chmod below sets it,
+     * and a sticky bit asked of mkdir is one a `nest` program's filter refuses. */
+    if (mkdir(target, 0777) != 0) return errno;
     if (strict) {
       /* Writable and so never executable, as a grant `rwc` is. */
       char options[64];
@@ -1384,7 +1406,7 @@ static int build_root (const char *root, char *const *paths, char *const *names,
   if (noexec_scratch) {
     int made = snprintf(target, sizeof target, "%s/noexec", root);
     if (made < 0 || (size_t)made >= sizeof target) return ENAMETOOLONG;
-    if (mkdir(target, 01777) != 0) return errno;
+    if (mkdir(target, 0777) != 0) return errno;
     /* No host backing path remains reachable through an executable
      * alias, unlike a bind of ordinary scratch. */
     if (mount("tmpfs", target, "tmpfs", MS_NOSUID | MS_NODEV | MS_NOEXEC, "mode=1777") != 0)
@@ -2899,7 +2921,7 @@ static unsigned read_promises (lua_State *L, int list, int arg) {
   for (lua_Integer i = 1; i <= promised; i++) {
     lua_rawgeti(L, list, i);
     unsigned bit = lua_type(L, -1) == LUA_TSTRING ? cosmic_promise_named(lua_tostring(L, -1)) : 0;
-    if (bit == 0) luaL_argerror(L, arg, "a promise is \"fork\", \"jit\" or \"fattr\"");
+    if (bit == 0) luaL_argerror(L, arg, "a promise is \"fork\", \"jit\", \"fattr\" or \"nest\"");
     bits |= bit;
     lua_pop(L, 1);
   }
@@ -3185,6 +3207,9 @@ COSMIC_SYSCALL(restrict_self, 2) {
   lua_rawget(L, 1);
   if (!lua_istable(L, -1)) return luaL_argerror(L, 1, "promises must be a list");
   promise_bits = read_promises(L, lua_gettop(L), 1);
+  if (promise_bits & COSMIC_PROMISE_NEST)
+    return luaL_argerror(L, 1, "the \"nest\" promise is a child's: it needs a root and pid "
+                         "namespace of its own, which a running process is not in");
   lua_pop(L, 1);
   lua_pushliteral(L, "rlimits");
   lua_rawget(L, 1);
@@ -3589,6 +3614,12 @@ COSMIC_SYSCALL(spawn, 11) {
     if (tmp_bytes != 0 && !strict) return luaL_argerror(L, 10, "unveil's tmp requires strict");
     if (sockets != 0 && !offline)
       return luaL_argerror(L, 10, "sockets require offline: the network namespace is their hold");
+    /* What `nest` leaves to the child's own root and pid namespace: its files, which Landlock
+     * would hold but for the mounts it refuses, and its signals, which the filter lets reach
+     * any pid. */
+    if ((promise_bits & COSMIC_PROMISE_NEST) && !(strict && unveiling))
+      return luaL_argerror(L, 10, "the \"nest\" promise needs strict and unveil: the root and "
+                           "pid namespace of its own that hold its files and signals");
     /* A pid namespace and a procfs of its own are an unveiled child's, with no paths to bind. */
     if (proc_only) unveiling = 1;
   }

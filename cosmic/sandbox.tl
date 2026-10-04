@@ -30,12 +30,12 @@
 ---
 --- This is the policy's data and the host paths it names. What holds a
 --- program to it is [`Child.start`]'s, or [`Sandbox.restrict`]'s for the
---- running process: Landlock for the paths, a seccomp filter for the
---- system calls, and rlimits, and, for a child, the namespaces `isolate`,
---- `loopback`, a `u` grant and `limits.processes` need. `connect` and
---- the `nest` that need a relay or a user namespace of the program's own
---- to build one are part of the policy but not yet met by it: a start
---- under one fails, saying so.
+--- running process: Landlock for the paths (the root of `isolate` file
+--- alone, under the `nest` promise, which Landlock's refusal of mounts
+--- gives up), a seccomp filter for the system calls, and rlimits, and,
+--- for a child, the namespaces `isolate`, `loopback`, a `u` grant and
+--- `limits.processes` need. `connect`, which needs a relay, is part of
+--- the policy but not yet met by it: a start under one fails, saying so.
 
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
