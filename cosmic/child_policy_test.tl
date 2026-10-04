@@ -192,10 +192,7 @@ local function test_a_policy_that_is_not_met_fails_naming_the_field(tmp: string)
     return copy
   end
   local cases: {{any}} = {
-    { { grants = grants(), isolate = { "file" } }, 'isolate "file"' },
-    { { grants = grants(), isolate = { "proc" } }, 'isolate "proc"' },
     { { grants = grants(), connect = { "example.com:443" } }, 'connect "example.com:443"' },
-    { { grants = grants(), loopback = { "127.0.0.2" } }, 'loopback "127.0.0.2"' },
     { { grants = grants(), promises = { "fork", "nest" } }, 'promises "nest"' },
     { { grants = grants(), limits = { processes = 4 } }, "limits.processes" },
     { { grants = grants(), set_env_digests = { X = string.rep("0", 64) } }, 'set_env_digests "X"' },
@@ -210,7 +207,7 @@ local function test_a_policy_that_is_not_met_fails_naming_the_field(tmp: string)
   from[#from + 1] = { path = "/data", letters = "r", from = "/srv/data" }
   local none, why = Child.start({ probe }, { policy = { grants = from } })
   assert(none == nil and why:find('grant "/data"', 1, true) and why:find("from", 1, true), why)
-  assert(why:find("isolate file", 1, true), why)
+  assert(why:find('isolate "file"', 1, true), why)
 end
 
 local function test_a_policy_that_does_not_merge_fails_naming_the_field(tmp: string)

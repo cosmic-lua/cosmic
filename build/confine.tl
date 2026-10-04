@@ -655,11 +655,50 @@ local function raw_strings(list: any): {string} | nil
   end
 end
 
+--- The fields of a sandbox and of its `unveil` that [`plain_sandbox`]
+--- carries: one with any other (a policy's: grants, promises, strict) is
+--- the core's to read as it stands, and no copy of it is made.
+local plain_fields <const>: {string:boolean} = {
+  ruleset = true, unveil = true, noexec_scratch = true, offline = true, user = true,
+  group = true, pledge = true,
+}
+local plain_unveil_fields <const>: {string:boolean} = { reads = true, writes = true, at = true }
+
+--- What a policy's sandbox ([`plain_sandbox`] copies none) is, read raw as
+--- the core reads it: "rooted" where it builds a root of its own, "isolating"
+--- where it makes a procfs or a network namespace, "held" where it only holds
+--- the child to grants, promises or limits, and "" for a sandbox that is not
+--- a policy's.
+local function policy_kind(sandbox: raw_process.Sandbox): string
+  local raw = sandbox as {string:any}
+  local policy = false
+  for _, key in ipairs({ "grants", "promises", "rlimits", "sockets", "strict", "proc" }) do
+    if rawget(raw, key) ~= nil then policy = true end
+  end
+  if not policy then return "" end
+  -- A policy's start sets `strict`; a sandbox that does not is no policy's,
+  -- whatever else it names, and the core judges what it is.
+  if rawget(raw, "strict") ~= true then return "held" end
+  if rawget(raw, "unveil") ~= nil then return "rooted" end
+  if rawget(raw, "proc") == true or rawget(raw, "offline") == true then return "isolating" end
+  return "held"
+end
+
 --- `sandbox` as the core reads it -- raw, with no metamethod answering
 --- for a field -- in a plain table of its own; nil when a field holds
---- what the core would refuse, for the core to refuse.
+--- what the core would refuse, for the core to refuse, or one this does
+--- not copy, which the core is given as it is.
 local function plain_sandbox(sandbox: raw_process.Sandbox): raw_process.Sandbox | nil
   local raw = sandbox as {string:any}
+  for key, _ in next, raw do
+    if not key is string or not plain_fields[key] then return nil end
+  end
+  local listed = rawget(raw, "unveil")
+  if listed is {any:any} then
+    for key, _ in next, listed do
+      if not key is string or not plain_unveil_fields[key] then return nil end
+    end
+  end
   local plain: raw_process.Sandbox = {}
   local ruleset = rawget(raw, "ruleset")
   if ruleset is integer then plain.ruleset = ruleset elseif ruleset ~= nil then return nil end
@@ -926,7 +965,11 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
     -- A root of its own, which a worker held by a Landlock ruleset
     -- cannot make: refused outright, naming `nests`.
     local holder = held_by()
+    -- A policy's sandbox that makes a root, a procfs or a network namespace
+    -- is refused so as well: it is not copied ([`plain_sandbox`]).
+    local kind = sandbox ~= nil and plain == nil and policy_kind(sandbox) or ""
     if holder ~= nil and ((plain ~= nil and plain.unveil ~= nil) or
+        kind == "rooted" or kind == "isolating" or
         (sandbox == nil and confinement ~= nil)) then
       return nil, refuse_nesting(path, holder), sys.EPERM
     end
@@ -945,7 +988,10 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
     -- reading what its test did not declare: under [`must_confine`] it
     -- does not start, rather than be held to a sandbox it was not given.
     -- One the core would refuse raises there.
-    if plain ~= nil and must ~= nil then
+    -- A policy's that builds no root of its own is no more the sandbox the
+    -- test was given, so it does not start either; one that does is a
+    -- confinement of its own, as an unveil and offline is.
+    if (plain ~= nil or kind == "held" or kind == "isolating") and must ~= nil then
       return nil, refuse(must, path, "unveil and offline",
         "a sandbox of its own that does not unveil and take the network, which " ..
           "must_confine does not add to", sys.EINVAL), sys.EINVAL

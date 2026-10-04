@@ -1095,9 +1095,66 @@ static int make_link (char *path, size_t skip, const char *to) {
 #endif
 #define COSMIC_MOUNT_ATTR_RDONLY 0x1
 #define COSMIC_MOUNT_ATTR_NOSUID 0x2
+#define COSMIC_MOUNT_ATTR_NOEXEC 0x8
 struct cosmic_mount_attr {
   uint64_t attr_set, attr_clr, propagation, userns_fd;
 };
+
+/* Where in building a policy's sandbox (`spawn`'s `strict`) a child
+ * failed, which its errno alone does not say: the status pipe carries
+ * the stage above the errno's bits, and `spawn` reads both back to
+ * name the remedy. A child that is not strict reports its errno only. */
+enum {
+  STAGE_NAMESPACE = 1, /* a user, pid, mount or network namespace, or mapping its ids */
+  STAGE_PROC,          /* a procfs of its own */
+  STAGE_ROOT,          /* the root's mounts */
+  STAGE_SHIFT = 16,
+};
+
+/* `number`, an errno, as the failure of `stage` where `strict` asks for
+ * stages. A failure already staged stays as it is. */
+static int staged (int strict, int stage, int number) {
+  if (!strict || number == 0 || number >> STAGE_SHIFT != 0) return number;
+  return (stage << STAGE_SHIFT) | number;
+}
+
+/* What to tell the caller of a start that failed at `stage` with `number`
+ * (an errno): the remedy, which the errno alone does not name. Isolation
+ * needs unprivileged user namespaces, and a procfs of its own needs a
+ * container that does not mask /proc. */
+static void staged_message (int stage, int number, char *message, size_t room) {
+  const char *what = cosmic_errno_describe(number, NULL);
+  if (stage == STAGE_PROC) {
+    snprintf(message, room,
+             "this sandbox's own /proc was refused (%s): a container's runtime masks parts of "
+             "/proc, and a user namespace may mount a procfs only where all of it is visible: "
+             "run the container with --security-opt systempaths=unconfined (Docker, Podman), "
+             "or on a host with no masked /proc; a sandbox never falls back to the host's /proc",
+             what);
+  } else if (stage == STAGE_NAMESPACE) {
+    snprintf(message, room,
+             "this sandbox's user, mount, pid or network namespace was refused (%s): isolation "
+             "needs unprivileged user namespaces, which %s", what,
+             number == ENOSPC
+                 ? "this host allows none of: user.max_user_namespaces is 0, raise it"
+                 : "this host may refuse: set kernel.unprivileged_userns_clone=1 (Debian), "
+                   "kernel.apparmor_restrict_unprivileged_userns=0 or allow `userns` in this "
+                   "program's AppArmor profile (Ubuntu 24.04), let a container's seccomp "
+                   "profile allow unshare and clone with CLONE_NEWUSER, and start it from a "
+                   "process no Landlock ruleset holds");
+  } else if (number != EPERM && number != EACCES) {
+    snprintf(message, room,
+             "this sandbox's root could not be built (%s): a path it binds, or a step of making "
+             "its mount points, failed (a link beneath a bound path, a name too long, a path "
+             "that went away since the start began)", what);
+  } else {
+    snprintf(message, room,
+             "this sandbox's root could not be built (%s): it needs mounts in a user namespace "
+             "of its own, which a container's seccomp or AppArmor profile may refuse, as may "
+             "a Landlock ruleset the starting process is held by, and a mapped user, which a "
+             "root inside another sandbox lacks", what);
+  }
+}
 
 /* Brings up the loopback of the network namespace the child has just made
  * its own, which the kernel makes down: a connection to 127.0.0.1 is then
@@ -1190,8 +1247,9 @@ static int drop_capabilities (void) {
  * does not escape as of Linux 6.18), EPERM; a kernel before 5.8 knows
  * no subset, EINVAL -- the host's /proc is bound there instead,
  * read-only even where given to write, since what it holds to write is
- * the host's (/proc/sys, other processes' entries). `own` says whether
- * the procfs is the child's own. 0, or an errno.
+ * the host's (/proc/sys, other processes' entries) -- unless `strict`,
+ * a policy's sandbox, which has no fallback: a refusal is STAGE_PROC's.
+ * `own` says whether the procfs is the child's own. 0, or an errno.
  * TODO: keep a child from setting its own audit login id
  * (/proc/self/loginuid), which it may while that is unset (the kernel
  * asks no capability to set an unset one, unless audit's
@@ -1203,16 +1261,18 @@ static int drop_capabilities (void) {
  * kernel only lets a process holding CAP_AUDIT_CONTROL do.
  * TODO: refuse the sandbox where the kernel refuses a procfs of its
  * own (EPERM, which build.confine's `unconfinable` falls back on and
- * `must_confine` fails), rather than bind the host's, once
+ * `must_confine` fails), rather than bind the host's, as a policy's
+ * (`strict`) already does, once
  * no container the tree is tested in masks /proc: CI's Linux legs run
  * with systempaths=unconfined (.github/scripts/leg-container.sh), but a
  * developer's docker may not. Meanwhile a child with the host's /proc
  * cannot confine one of its own (EROFS writing its uid_map there), and
  * sees the host's processes and state, whose pids are not the ones it
  * is in (it is pid 2 of its own namespace). */
-static int place_proc (const char *target, int *own) {
+static int place_proc (const char *target, int *own, int strict) {
   *own = mount("proc", target, "proc", MS_NOSUID | MS_NODEV | MS_NOEXEC, "subset=pid") == 0;
   if (*own) return 0;
+  if (strict) return staged(1, STAGE_PROC, errno);
   if (errno != EPERM && errno != EINVAL) return errno;
   if (mount("/proc", target, NULL, MS_BIND | MS_REC, NULL) != 0) return errno;
   struct cosmic_mount_attr attr = { COSMIC_MOUNT_ATTR_RDONLY, 0, 0, 0 };
@@ -1241,6 +1301,11 @@ static int place_proc (const char *target, int *own) {
  * whether its /proc is a procfs of its own ([`place_proc`]). The root is
  * this process's own and its working directory's, and every process's
  * in the namespace whose root was the old one. 0, or an errno.
+ * With `strict`, a policy's root: no /tmp but the sized, noexec tmpfs
+ * `tmp_bytes` asks for (none for 0), a tmpfs of its own to build on
+ * ([`staged`]'s STAGE_ROOT where the user is not mapped), a procfs of
+ * its own or the failure of the start, and each path `noexec` flags
+ * mounted noexec.
  * TODO: remove the directory an unmapped child's root is built on once
  * the child ends: its root and its /tmp are that directory, in its
  * parent's TMPDIR, which `spawn`, returning at the child's exec, leaves
@@ -1251,13 +1316,14 @@ static int place_proc (const char *target, int *own) {
  * A UTS namespace would change nothing a child sees: its host's name
  * and kernel stay what `uname` answers, which no key holds. */
 static int build_root (const char *root, char *const *paths, char *const *names,
-                       const char *const *at, const int *writable, int count, int mapped,
-                       int noexec_scratch, int *own) {
+                       const char *const *at, const int *writable, const int *noexec, int count,
+                       int mapped, int noexec_scratch, int strict, unsigned long tmp_bytes,
+                       int *own) {
   int number = 0;
   *own = 0;
   /* A private writable tmpfs needs a mapped owner. Refuse before an
    * unmapped child's root leaves directories on its host backing. */
-  if (noexec_scratch && !mapped) return EPERM;
+  if ((noexec_scratch || strict) && !mapped) return strict ? staged(1, STAGE_ROOT, EPERM) : EPERM;
   if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0) return errno;
   /* A tmpfs of this namespace takes no file from a user it does not
    * map: an unmapped one builds on `root` itself, which its parent's
@@ -1270,8 +1336,8 @@ static int build_root (const char *root, char *const *paths, char *const *names,
    * beneath the host's, which a program takes for granted -- unless
    * /tmp or / is given, under its own name or another; mounted first,
    * so a path given beneath the host's /tmp is bound into it. */
-  int tmp = 1;
-  for (int i = 0; i < count; i++) {
+  int tmp = strict ? tmp_bytes > 0 : 1;
+  for (int i = 0; tmp && i < count; i++) {
     const char *placed = at[i] != NULL ? at[i] : paths[i];
     if (strcmp(placed, "/tmp") == 0 || strcmp(placed, "/") == 0 ||
         (names[i] != NULL && strcmp(names[i], "/tmp") == 0)) {
@@ -1282,9 +1348,17 @@ static int build_root (const char *root, char *const *paths, char *const *names,
     int made = snprintf(target, sizeof target, "%s/tmp", root);
     if (made < 0 || (size_t)made >= sizeof target) return ENAMETOOLONG;
     if (mkdir(target, 01777) != 0) return errno;
-    if (mapped ? mount("tmpfs", target, "tmpfs", MS_NOSUID | MS_NODEV, "mode=1777") != 0
-               : chmod(target, 01777) != 0 || mount(target, target, NULL, MS_BIND, NULL) != 0)
+    if (strict) {
+      /* Writable and so never executable, as a grant `rwc` is. */
+      char options[64];
+      snprintf(options, sizeof options, "mode=1777,size=%lu", tmp_bytes);
+      if (mount("tmpfs", target, "tmpfs", MS_NOSUID | MS_NODEV | MS_NOEXEC, options) != 0)
+        return errno;
+    } else if (mapped ? mount("tmpfs", target, "tmpfs", MS_NOSUID | MS_NODEV, "mode=1777") != 0
+                      : chmod(target, 01777) != 0 ||
+                        mount(target, target, NULL, MS_BIND, NULL) != 0) {
       return errno;
+    }
   }
   if (noexec_scratch) {
     int made = snprintf(target, sizeof target, "%s/noexec", root);
@@ -1307,7 +1381,7 @@ static int build_root (const char *root, char *const *paths, char *const *names,
     if (length < 0 || (size_t)length >= sizeof target) return ENAMETOOLONG;
     if ((number = make_target(target, strlen(root), S_ISDIR(st.st_mode))) != 0) return number;
     if (at[i] == NULL && strcmp(paths[i], "/proc") == 0) {
-      number = place_proc(target, &own_proc);
+      number = place_proc(target, &own_proc, strict);
       if (number != 0) return number;
       continue;
     }
@@ -1316,6 +1390,11 @@ static int build_root (const char *root, char *const *paths, char *const *names,
      * /proc itself too, bound at another name (`at`). */
     if (!writable[i] || strncmp(paths[i], "/proc/", 6) == 0 || strcmp(paths[i], "/proc") == 0) {
       struct cosmic_mount_attr attr = { COSMIC_MOUNT_ATTR_RDONLY, 0, 0, 0 };
+      if (syscall(SYS_mount_setattr, AT_FDCWD, target, AT_RECURSIVE, &attr, sizeof attr) != 0)
+        return errno;
+    }
+    if (noexec != NULL && noexec[i]) {
+      struct cosmic_mount_attr attr = { COSMIC_MOUNT_ATTR_NOEXEC, 0, 0, 0 };
       if (syscall(SYS_mount_setattr, AT_FDCWD, target, AT_RECURSIVE, &attr, sizeof attr) != 0)
         return errno;
     }
@@ -1366,19 +1445,34 @@ static int build_root (const char *root, char *const *paths, char *const *names,
   return 0;
 }
 
+/* In an unveiled child's program's process that builds no root
+ * ([`start_program`]), in its namespaces: its mounts made private, and
+ * a procfs of its own pid namespace over the host's /proc there, so
+ * what it reads of /proc is its own sandbox's processes and nothing
+ * else, while it keeps the host's filesystem. There is no fallback to
+ * the host's /proc: a refusal is STAGE_PROC's. `own` says it is there.
+ * 0, or an errno. */
+static int mount_proc_only (int *own) {
+  *own = 0;
+  if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0) return errno;
+  int number = place_proc("/proc", own, 1);
+  return number;
+}
+
 /* In a child that is `offline` and unveils nothing, before anything
  * else of the sandbox: a user namespace of its own, mapping its user
  * and group to themselves, and a network namespace of its own, which
  * has nothing but a loopback, brought up; then it gives up every
  * capability they gave it. It keeps the host's pid namespace, as it
  * keeps the host's filesystem and /proc with it. 0, or an errno. */
-static int go_offline (int unmap_root, const char *uid_map, const char *gid_map) {
-  if (syscall(SYS_unshare, CLONE_NEWUSER | CLONE_NEWNET) != 0) return errno;
+static int go_offline (int unmap_root, const char *uid_map, const char *gid_map, int strict) {
+  if (syscall(SYS_unshare, CLONE_NEWUSER | CLONE_NEWNET) != 0)
+    return staged(strict, STAGE_NAMESPACE, errno);
   int mapped = 1;
   int number = map_ids(unmap_root, uid_map, gid_map, &mapped);
   if (number == 0) number = loopback_up();
   if (number == 0) number = drop_capabilities();
-  return number;
+  return staged(strict, STAGE_NAMESPACE, number);
 }
 #endif
 
@@ -1423,17 +1517,29 @@ struct spawn_plan {
    * and to which promises: COSMIC_PROMISE_ bits. */
   int promising;
   unsigned promises;
+  /* The socket families it may make (COSMIC_SOCKETS_ bits). */
+  unsigned sockets;
   /* The limits to set, last but the filter: `rlimit_count` of them. */
   int rlimit_count;
   const struct spawn_rlimit *rlimits;
   int unveiling;
   int offline;
   int noexec_scratch;
+  /* A policy's sandbox ([`staged`], [`build_root`]): the child gives its
+   * failures' stages, and its own procfs and tmpfs are Landlock-granted
+   * ([`own_rules`]). */
+  int strict;
+  /* An unveiled child that builds no root: a pid namespace and a procfs
+   * of its own over the host's filesystem ([`mount_proc_only`]). */
+  int proc_only;
+  /* The size of the /tmp of a strict root's own, or 0 for none. */
+  unsigned long tmp_bytes;
   const char *root_dir;
   char *const *resolved_paths;
   char *const *given_names;
   const char *const *bound_at;
   const int *unveiled_writable;
+  const int *unveiled_noexec;
   int unveil_count;
   const char *uid_map;
   const char *gid_map;
@@ -1508,6 +1614,38 @@ static int set_credentials (const struct spawn_plan *plan) {
   return 0;
 }
 
+/* A grant's letters, in the order the plan lists them: "rwxcu". */
+enum { GRANT_READ = 1, GRANT_WRITE = 2, GRANT_EXECUTE = 4, GRANT_CREATE = 8, GRANT_UNIX = 16 };
+
+#if defined(__linux__)
+static uint64_t grant_rights (unsigned letters, long abi);
+#endif
+
+/* What a policy's sandbox ([`build_root`]'s `strict`) makes of its own, which no path
+ * the ruleset was built from names -- built after it, in the child --
+ * the ruleset is given, so it is not left refusing it: the procfs of its
+ * own, to read (a program expects /proc/self), and the sized tmpfs at
+ * /tmp, to read, write and create, as a grant `rwc` is. The ruleset is
+ * this child's alone, made for its start, so what is added widens no
+ * other's. Raw calls only ([`run_program`]). 0, or an errno. */
+static int own_rules (const struct spawn_plan *plan, int ruleset, int own_proc) {
+  long abi = syscall(SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION);
+  if (abi < 1) return abi < 0 ? errno : ENOSYS;
+  for (int tmp = 0; tmp < 2; tmp++) {
+    if (tmp ? plan->tmp_bytes == 0 : !own_proc) continue;
+    uint64_t rights = tmp ? grant_rights(GRANT_READ | GRANT_WRITE | GRANT_CREATE, abi)
+                          : grant_rights(GRANT_READ, abi);
+    int fd = open(tmp ? "/tmp" : "/proc", O_PATH | O_DIRECTORY | O_CLOEXEC);
+    if (fd < 0) return errno;
+    struct landlock_path_beneath_attr beneath = { .allowed_access = rights, .parent_fd = fd };
+    int number = syscall(SYS_landlock_add_rule, ruleset, LANDLOCK_RULE_PATH_BENEATH, &beneath, 0) != 0
+                     ? errno : 0;
+    close(fd);
+    if (number != 0) return number;
+  }
+  return 0;
+}
+
 /* Holds this process, for good, to the Landlock ruleset `ruleset`: no_new_privs,
  * which the kernel asks of a process without CAP_SYS_ADMIN, and the
  * restriction. 0, or an errno. Raw calls only, for a child that shares its
@@ -1528,7 +1666,7 @@ static int enforce_ruleset (int ruleset) {
  * Landlock's `confined` ruleset and the pledge, the parent's mask, and
  * exec. A failure goes to the parent over `status_fd` as an errno. */
 static _Noreturn void run_program (const struct spawn_plan *plan, const int *pinned,
-                                   int confined, int status_fd) {
+                                   int confined, int status_fd, int own_proc) {
   int top = plan->top;
   int failure = 0;
   if (plan->unveiling) {
@@ -1561,8 +1699,11 @@ static _Noreturn void run_program (const struct spawn_plan *plan, const int *pin
    * ([`place_proc`]), once `landlock_ruleset` records which paths a
    * ruleset holds: adding the rule here, in the child, would widen the
    * caller's ruleset for every later child besides, and a ruleset that
-   * left /proc out would gain it. Until then a child held to one reads
-   * nothing of its own /proc. */
+   * left /proc out would gain it. Until then a child held to a `ruleset`
+   * reads nothing of its own /proc; `grants` are the caller's own, made
+   * for this child alone, and a strict one's get it ([`own_rules`]). */
+  if (!failure && confined >= 0 && plan->strict && plan->unveiling)
+    failure = own_rules(plan, confined, own_proc);
   if (!failure && confined >= 0) failure = enforce_ruleset(confined);
   /* A pledge last of all: the filter would refuse nothing above, but
    * it is the one a later step could trip over. */
@@ -1600,7 +1741,7 @@ static _Noreturn void run_program (const struct spawn_plan *plan, const int *pin
    * starts it on an address space of its own instead of
    * clone(CLONE_VM). The filter then drops the PROT_EXEC | PROT_BTI
    * mprotect it allows on aarch64 for glibc's loader. */
-  if (!failure && plan->promising) failure = cosmic_promises_apply(plan->promises);
+  if (!failure && plan->promising) failure = cosmic_promises_apply(plan->promises, plan->sockets);
   if (!failure) execve(plan->path, plan->argv, plan->envp);
   if (!failure) failure = errno;
   report_child_error(status_fd, failure);
@@ -1712,10 +1853,15 @@ static _Noreturn int start_program (void *argument) {
     if (prctl(PR_SET_DUMPABLE, 1, 0, 0, 0) != 0 && !failure) failure = errno;
   }
   int own_proc = 0;
-  if (!failure)
-    failure = build_root(plan->root_dir, plan->resolved_paths, plan->given_names,
-                         plan->bound_at, plan->unveiled_writable, plan->unveil_count,
-                         start->mapped, plan->noexec_scratch, &own_proc);
+  if (!failure && plan->proc_only) {
+    failure = staged(plan->strict, STAGE_ROOT, mount_proc_only(&own_proc));
+  } else if (!failure) {
+    failure = staged(plan->strict, STAGE_ROOT,
+                     build_root(plan->root_dir, plan->resolved_paths, plan->given_names,
+                                plan->bound_at, plan->unveiled_writable, plan->unveiled_noexec,
+                                plan->unveil_count, start->mapped, plan->noexec_scratch,
+                                plan->strict, plan->tmp_bytes, &own_proc));
+  }
   if (!failure) failure = drop_capabilities();
   /* Then it gives root up for good, its groups first, while it may.
    * Where its /proc is its own, it makes a user namespace as that user,
@@ -1744,7 +1890,7 @@ static _Noreturn int start_program (void *argument) {
     report_child_error(start->status_fd, failure);
     _exit(127);
   }
-  run_program(plan, start->pinned, start->confined, start->status_fd);
+  run_program(plan, start->pinned, start->confined, start->status_fd, own_proc);
 }
 
 /* What an unveiled child that gives root up (`spawn`'s `user`) shares
@@ -1845,7 +1991,8 @@ static _Noreturn void start_unveiled (const struct spawn_plan *plan, const int *
       if (helper < 0) failure = errno;
     }
   }
-  if (!failure && syscall(SYS_unshare, flags) != 0) failure = errno;
+  if (!failure && syscall(SYS_unshare, flags) != 0)
+    failure = staged(plan->strict, STAGE_NAMESPACE, errno);
   if (helper > 0) {
     char byte = failure ? 0 : 1;
     ssize_t put = write(outside.tell, &byte, 1);
@@ -1862,8 +2009,9 @@ static _Noreturn void start_unveiled (const struct spawn_plan *plan, const int *
   if (outside.told >= 0) close(outside.told);
   if (outside.tell >= 0) close(outside.tell);
   if (!failure && !plan->dropping)
-    failure = map_ids(plan->unmap_root, plan->uid_map, plan->gid_map, &start.mapped);
-  if (!failure && plan->offline) failure = loopback_up();
+    failure = staged(plan->strict, STAGE_NAMESPACE,
+                     map_ids(plan->unmap_root, plan->uid_map, plan->gid_map, &start.mapped));
+  if (!failure && plan->offline) failure = staged(plan->strict, STAGE_NAMESPACE, loopback_up());
   if (!failure)
     failure = raise_descriptor(open("/proc/self/exe", O_RDONLY | O_CLOEXEC), top, &start.exe);
   int started[2] = { -1, -1 }, ready[2] = { -1, -1 };
@@ -1977,11 +2125,11 @@ static _Noreturn int spawn_child (void *argument) {
   /* The sandbox's own namespaces first: the root the rest resolves in,
    * and mounting, which Landlock and a pledge would refuse. */
   if (plan->unveiling) start_unveiled(plan, pinned, confined, status_fd);
-  if (plan->offline && (failure = go_offline(plan->unmap_root, plan->uid_map, plan->gid_map)) != 0) {
+  if (plan->offline && (failure = go_offline(plan->unmap_root, plan->uid_map, plan->gid_map, plan->strict)) != 0) {
     report_child_error(status_fd, failure);
     _exit(127);
   }
-  run_program(plan, pinned, confined, status_fd);
+  run_program(plan, pinned, confined, status_fd, 0);
 }
 
 /* The kind of descriptor `fd` is (S_IFIFO and the like), or 0 where it
@@ -2414,9 +2562,6 @@ static bool handed_on (lua_State *L, lua_Integer target, lua_Integer fd) {
  * grants more than a few dozen. */
 #define GRANT_MAX UNVEIL_MAX
 
-/* A grant's letters, in the order the plan lists them: "rwxcu". */
-enum { GRANT_READ = 1, GRANT_WRITE = 2, GRANT_EXECUTE = 4, GRANT_CREATE = 8, GRANT_UNIX = 16 };
-
 #if defined(__linux__)
 #ifndef LANDLOCK_ACCESS_FS_RESOLVE_UNIX
 #define LANDLOCK_ACCESS_FS_RESOLVE_UNIX (1ULL << 16)
@@ -2495,10 +2640,13 @@ static uint64_t grants_handled (long abi) {
  * between grants that REFER does not allow. Beyond the filesystem it
  * scopes the child where the kernel can: no abstract unix socket and no
  * signal reaches a process outside its domain (ABI 6), and TCP is
- * handled with no rule, so a bind or a connect is refused (ABI 4).
+ * handled with no rule, so a bind or a connect is refused (ABI 4) --
+ * unless `inet`, a child in a network namespace of its own with a
+ * loopback it is to use, whose namespace is the hold instead.
  * Below those ABIs the ruleset holds what the kernel's does, and the
  * start does not fail for the rest, except a `u` grant, whose right
- * (ABI 9) nothing else stands in for.
+ * (ABI 9) nothing else stands in for -- unless `unix_bound`, where the
+ * socket is bound into a root of the child's own, which holds no other.
  * TODO: refuse where the kernel's ABI leaves out a right a grant's
  * letters or the scoping rely on, once a policy can ask for a start that
  * must be held whole (`isolate file` and a network namespace stand in
@@ -2524,7 +2672,7 @@ static uint64_t grants_handled (long abi) {
  * (held_to in cosmic/child.tl) hands them to the caller on the Handle: it
  * prints nothing about grants, and `spawn` answers a pid alone. */
 static int grants_ruleset (const char *const *paths, const unsigned *letters, int count,
-                           char *message, size_t room, int *error) {
+                           int inet, int unix_bound, char *message, size_t room, int *error) {
   long abi = syscall(SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION);
   if (abi < 1) {
     *error = abi < 0 ? errno : ENOSYS;
@@ -2536,7 +2684,7 @@ static int grants_ruleset (const char *const *paths, const unsigned *letters, in
     return -1;
   }
   for (int i = 0; i < count; i++) {
-    if ((letters[i] & GRANT_UNIX) && abi < LANDLOCK_ABI_RESOLVE_UNIX) {
+    if ((letters[i] & GRANT_UNIX) && abi < LANDLOCK_ABI_RESOLVE_UNIX && !unix_bound) {
       *error = EOPNOTSUPP;
       snprintf(message, room,
                "Landlock ABI %d is needed for a `u` grant (%s); this kernel gives %ld: run a "
@@ -2549,7 +2697,7 @@ static int grants_ruleset (const char *const *paths, const unsigned *letters, in
   memset(&attr, 0, sizeof attr);
   attr.handled_access_fs = grants_handled(abi);
   size_t size = sizeof attr.handled_access_fs;
-  if (abi >= 4) {
+  if (abi >= 4 && !inet) {
     attr.handled_access_net = LANDLOCK_ACCESS_NET_BIND_TCP | LANDLOCK_ACCESS_NET_CONNECT_TCP;
     size = offsetof(struct grants_attr, handled_access_net) + sizeof attr.handled_access_net;
   }
@@ -2943,8 +3091,8 @@ COSMIC_SYSCALL(restrict_self, 2) {
       return restrict_refused(L, error, "getrlimit: %s", cosmic_errno_describe(error, NULL));
   }
   char message[PATH_MAX + 512];
-  int ruleset = grants_ruleset(grant_paths, grant_letters, grant_count, message, sizeof message,
-                               &error);
+  int ruleset = grants_ruleset(grant_paths, grant_letters, grant_count, 0, 0, message,
+                               sizeof message, &error);
   if (ruleset < 0) return restrict_refused(L, error, "%s", message);
   /* Limits first, since the filter refuses setrlimit. A limit that is
    * already at least as low asks for no call, so a restriction repeated
@@ -2972,7 +3120,7 @@ COSMIC_SYSCALL(restrict_self, 2) {
                             cosmic_errno_describe(error, NULL), limits_moved ? partly : "");
   /* Last, as in a child: the filter allows Landlock and the filter's own
    * installation, so a later restriction narrows both. */
-  error = cosmic_promises_apply(promise_bits);
+  error = cosmic_promises_apply(promise_bits, 0);
   if (error != 0)
     return restrict_refused(L, error, "seccomp filter: %s%s", cosmic_errno_describe(error, NULL),
                             partly);
@@ -3039,6 +3187,10 @@ COSMIC_SYSCALL(spawn, 11) {
   const char *unveiled_at[UNVEIL_MAX];
   int unveiled_writable[UNVEIL_MAX];
   int unveiling = 0, unveil_count = 0, offline = 0, noexec_scratch = 0;
+  int unveiled_noexec[UNVEIL_MAX];
+  int strict = 0, proc_only = 0;
+  unsigned sockets = 0;
+  unsigned long tmp_bytes = 0;
   int dropping = 0;
   uid_t drop_uid = 0;
   gid_t drop_gid = 0;
@@ -3081,6 +3233,34 @@ COSMIC_SYSCALL(spawn, 11) {
       promise_bits = read_promises(L, lua_gettop(L), 10);
     }
     lua_pop(L, 1);
+    lua_pushliteral(L, "sockets");
+    lua_rawget(L, 10);
+    if (!lua_isnil(L, -1)) {
+      if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "sockets must be a list");
+      if (!promising) return luaL_argerror(L, 10, "sockets require promises");
+      lua_Integer families = (lua_Integer)lua_rawlen(L, -1);
+      for (lua_Integer i = 1; i <= families; i++) {
+        lua_rawgeti(L, -1, i);
+        const char *family = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+        if (strcmp(family, "unix") == 0) sockets |= COSMIC_SOCKETS_UNIX;
+        else if (strcmp(family, "inet") == 0) sockets |= COSMIC_SOCKETS_INET;
+        else return luaL_argerror(L, 10, "a socket family is \"unix\" or \"inet\"");
+        lua_pop(L, 1);
+      }
+    }
+    lua_pop(L, 1);
+    lua_pushliteral(L, "strict");
+    lua_rawget(L, 10);
+    if (!lua_isnil(L, -1) && !lua_isboolean(L, -1))
+      return luaL_argerror(L, 10, "strict must be a boolean");
+    strict = lua_toboolean(L, -1);
+    lua_pop(L, 1);
+    lua_pushliteral(L, "proc");
+    lua_rawget(L, 10);
+    if (!lua_isnil(L, -1) && !lua_isboolean(L, -1))
+      return luaL_argerror(L, 10, "proc must be a boolean");
+    proc_only = lua_toboolean(L, -1);
+    lua_pop(L, 1);
     lua_pushliteral(L, "rlimits");
     lua_rawget(L, 10);
     if (!lua_isnil(L, -1)) {
@@ -3118,12 +3298,64 @@ COSMIC_SYSCALL(spawn, 11) {
             unveiled[unveil_count] = unveil_path;
             unveiled_at[unveil_count] = NULL;
             unveiled_writable[unveil_count] = w;
+            unveiled_noexec[unveil_count] = 0;
             unveil_count++;
             lua_pop(L, 1);
           }
         }
         lua_pop(L, 1);
       }
+      /* Paths with more said of each than `reads` and `writes` can: where
+       * it is bound, and whether it may not execute. */
+      lua_pushliteral(L, "binds");
+      lua_rawget(L, -2);
+      if (!lua_isnil(L, -1)) {
+        if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "unveil's binds must be a list");
+        lua_Integer n = (lua_Integer)lua_rawlen(L, -1);
+        for (lua_Integer i = 1; i <= n; i++) {
+          lua_rawgeti(L, -1, i);
+          if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "a bind is a table");
+          if (unveil_count >= UNVEIL_MAX) return luaL_argerror(L, 10, "too many unveiled paths");
+          lua_pushliteral(L, "path");
+          lua_rawget(L, -2);
+          const char *bind_path = plain_string(L, -1, "a bind's path");
+          if (bind_path[0] != '/') return luaL_argerror(L, 10, "a bind's path must be absolute");
+          lua_pushliteral(L, "at");
+          lua_rawget(L, -3);
+          const char *bind_at = NULL;
+          if (!lua_isnil(L, -1)) {
+            bind_at = plain_string(L, -1, "the name a bind is at");
+            size_t length = strlen(bind_at);
+            if (!plain_name(bind_at) || length < 2 || bind_at[length - 1] == '/')
+              return luaL_argerror(L, 10, "a bind is at an absolute name, plain, and not /");
+            if (strcmp(bind_at, "/.old") == 0 || strncmp(bind_at, "/.old/", 6) == 0)
+              return luaL_argerror(L, 10, "a bind is at no name beneath /.old");
+            for (int j = 0; j < unveil_count; j++) {
+              if (unveiled_at[j] != NULL && strcmp(unveiled_at[j], bind_at) == 0)
+                return luaL_argerror(L, 10, "two paths are bound at one name");
+            }
+          }
+          lua_pushliteral(L, "writable");
+          lua_rawget(L, -4);
+          unveiled_writable[unveil_count] = lua_toboolean(L, -1);
+          lua_pushliteral(L, "noexec");
+          lua_rawget(L, -5);
+          unveiled_noexec[unveil_count] = lua_toboolean(L, -1);
+          unveiled[unveil_count] = bind_path;
+          unveiled_at[unveil_count] = bind_at;
+          unveil_count++;
+          lua_pop(L, 5);
+        }
+      }
+      lua_pop(L, 1);
+      lua_pushliteral(L, "tmp");
+      lua_rawget(L, -2);
+      if (!lua_isnil(L, -1)) {
+        if (!lua_isinteger(L, -1) || lua_tointeger(L, -1) < 1)
+          return luaL_argerror(L, 10, "unveil's tmp is a size in bytes, at least 1");
+        tmp_bytes = (unsigned long)lua_tointeger(L, -1);
+      }
+      lua_pop(L, 1);
       /* The name each path given is bound at instead of its own. */
       lua_pushliteral(L, "at");
       lua_rawget(L, -2);
@@ -3186,6 +3418,13 @@ COSMIC_SYSCALL(spawn, 11) {
       drop_gid = (gid_t)group;
     }
     lua_pop(L, 2);
+    if (proc_only && unveiling) return luaL_argerror(L, 10, "proc and unveil exclude each other");
+    if (tmp_bytes != 0 && !unveiling) return luaL_argerror(L, 10, "unveil's tmp requires unveil");
+    if (tmp_bytes != 0 && !strict) return luaL_argerror(L, 10, "unveil's tmp requires strict");
+    if (sockets != 0 && !offline)
+      return luaL_argerror(L, 10, "sockets require offline: the network namespace is their hold");
+    /* A pid namespace and a procfs of its own are an unveiled child's, with no paths to bind. */
+    if (proc_only) unveiling = 1;
   }
   int credentials = !lua_isnoneornil(L, 11);
   uid_t credential_user = 0;
@@ -3354,6 +3593,14 @@ COSMIC_SYSCALL(spawn, 11) {
       if (length < 0 || (size_t)length >= sizeof cwd_abs) prepare_error = ENAMETOOLONG;
       cwd = cwd_abs;
     }
+    /* TODO: bind each path from the descriptor [`grants_ruleset`] opened for
+     * its grant (a mount of /proc/self/fd/<n>), not from its path
+     * resolved again here, so a grant's one resolution makes the Landlock
+     * rule, the bind and the report, as the sandbox design has it, once
+     * `spawn` hands [`build_root`] the grants' descriptors and answers the
+     * resolutions it made. A link a host process swaps in between the two
+     * resolutions fails closed: the rule is on the file the grant named,
+     * so Landlock refuses what the swapped path holds. */
     if (!prepare_error && unveil_count > 0) {
       resolved = malloc((size_t)unveil_count * 2 * PATH_MAX);
       if (resolved == NULL) prepare_error = ENOMEM;
@@ -3396,6 +3643,9 @@ COSMIC_SYSCALL(spawn, 11) {
           int w = unveiled_writable[j];
           unveiled_writable[j] = unveiled_writable[j - 1];
           unveiled_writable[j - 1] = w;
+          int x = unveiled_noexec[j];
+          unveiled_noexec[j] = unveiled_noexec[j - 1];
+          unveiled_noexec[j - 1] = x;
         }
       }
     }
@@ -3412,7 +3662,7 @@ COSMIC_SYSCALL(spawn, 11) {
         }
       }
     }
-    if (!prepare_error && unveiling) {
+    if (!prepare_error && unveiling && !proc_only) {
       const char *base = getenv("TMPDIR");
       if (base == NULL || base[0] != '/') base = "/tmp";
       int length = snprintf(root_dir, sizeof root_dir, "%s/cosmic-root-XXXXXX", base);
@@ -3440,8 +3690,9 @@ COSMIC_SYSCALL(spawn, 11) {
   char grant_message[PATH_MAX + 512];
 #if defined(__linux__)
   if (granting) {
-    confine = grants_ruleset(grant_paths, grant_letters, grant_count, grant_message,
-                             sizeof grant_message, &grant_error);
+    confine = grants_ruleset(grant_paths, grant_letters, grant_count,
+                             (sockets & COSMIC_SOCKETS_INET) != 0, strict && unveiling && !proc_only,
+                             grant_message, sizeof grant_message, &grant_error);
   }
 #endif
   (void)grant_count; /* only the Linux build holds a child to its grants */
@@ -3475,7 +3726,8 @@ COSMIC_SYSCALL(spawn, 11) {
     .promising = promising, .promises = promise_bits,
     .rlimit_count = rlimit_count, .rlimits = rlimits,
     .unveiling = unveiling, .offline = offline, .noexec_scratch = noexec_scratch,
-    .root_dir = root_dir,
+    .strict = strict, .proc_only = proc_only, .tmp_bytes = tmp_bytes, .sockets = sockets,
+    .unveiled_noexec = unveiled_noexec, .root_dir = root_dir,
     .resolved_paths = resolved_paths, .given_names = given_names, .bound_at = unveiled_at,
     .unveiled_writable = unveiled_writable, .unveil_count = unveil_count,
     .uid_map = uid_map, .gid_map = gid_map, .unmap_root = unmap_root,
@@ -3578,6 +3830,17 @@ COSMIC_SYSCALL(spawn, 11) {
     if (pid > 0) sandbox_reaped(pid);
 #endif
     int number = received == sizeof child_error ? child_error : (read_error != 0 ? read_error : EIO);
+#if defined(__linux__)
+    if (strict && number >> STAGE_SHIFT != 0) {
+      char message[PATH_MAX + 512];
+      staged_message(number >> STAGE_SHIFT, number & ((1 << STAGE_SHIFT) - 1), message,
+                     sizeof message);
+      lua_pushnil(L);
+      lua_pushstring(L, message);
+      lua_pushinteger(L, number & ((1 << STAGE_SHIFT) - 1));
+      return 3;
+    }
+#endif
     if (granting && number == EACCES) {
       /* The likeliest cause: the program, or the loader or interpreter
        * it names, was not granted `rx`. */

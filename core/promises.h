@@ -32,12 +32,19 @@ extern const int cosmic_promise_headers_end;
  * takes, or 0 for a name that is none: "fork", "jit" or "fattr". */
 unsigned cosmic_promise_named (const char *name);
 
-/* Holds the calling process, for good, to `promises`: no_new_privs, and
+/* The socket families a filter lets a process make with socket(): the
+ * bits of the `sockets` of [`cosmic_promises_apply`]. A socketpair of unix
+ * sockets is always allowed, and netlink and packet sockets never. */
+#define COSMIC_SOCKETS_UNIX 0x1u
+#define COSMIC_SOCKETS_INET 0x2u
+
+/* Holds the calling process, for good, to `promises` and to making
+ * sockets of the families `sockets` names: no_new_privs, and
  * the program for this architecture and the process's own pid, installed.
  * 0, or an errno; ENOSYS off Linux, and on any architecture but x86_64
  * and aarch64. The pid is the one the kill and scheduling rules hold a
  * call to, which stays the process's across exec: a child calls this
  * once it is the child, as the last step before it execs. */
-int cosmic_promises_apply (unsigned promises);
+int cosmic_promises_apply (unsigned promises, unsigned sockets);
 
 #endif

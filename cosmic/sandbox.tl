@@ -31,10 +31,11 @@
 --- This is the policy's data and the host paths it names. What holds a
 --- program to it is [`Child.start`]'s, or [`Sandbox.restrict`]'s for the
 --- running process: Landlock for the paths, a seccomp filter for the
---- system calls, and rlimits. `isolate`, `connect`,
---- `loopback` and the `from`, `nest` and `processes` that need a
---- namespace are part of the policy but not yet met by it: a start under
---- one fails, saying so.
+--- system calls, and rlimits, and, for a child, the namespaces `isolate`,
+--- `loopback` and a `u` grant need. `connect` and the `nest` and
+--- `processes` that need a relay or a user namespace of the program's
+--- own are part of the policy but not yet met by it: a start under one
+--- fails, saying so.
 
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
@@ -85,8 +86,10 @@ local record Sandbox
     --- What the program may do there, letters of "rwxcu" in that order: `r`
     --- reads files and lists directories, `w` writes and truncates files,
     --- `x` runs files, `c` creates and removes, `u` connects to the unix
-    --- socket at the path. A grant on a directory reaches what is beneath
-    --- it.
+    --- socket at the path (Landlock ABI 9; below it only under `isolate`
+    --- file, and only where no other grant is a directory or a socket, since
+    --- nothing else tells the granted socket from the root's others). A
+    --- grant on a directory reaches what is beneath it.
     letters: string
     --- The host's path, when it differs from `path`: the program sees this
     --- file or directory under another name. Needs `isolate` file.
