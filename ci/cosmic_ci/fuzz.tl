@@ -3,13 +3,13 @@
 -- summary, which says what failed; and, for a run cancelled before it
 -- finished, how far it got. FUZZ_SEED and FUZZ_ITERS come from the job.
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Context = require("cosmic_ci.context")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local State = require("cosmic_ci.state")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
-local Time = require("cosmic.time")
 local String = require("cosmic.string")
 
 local record Fuzz
@@ -229,15 +229,15 @@ local function streamed(guard: Child.Guard, argv: {string}, cwd: string,
         if state == nil then return why end
         if state.finished and status == nil then
           status = state.result.code or (128 + (state.result.signal or 0))
-          deadline = Time.monotonic_ns() + final_output_ns
+          deadline = Clock.monotonic_ns() + final_output_ns
         end
         if eof then
           if status ~= nil then return "" end
-          Time.sleep_ns(poll_ns)
+          Clock.sleep_ns(poll_ns)
         else
           local wait = poll_ns
           if deadline ~= nil then
-            wait = math.min(wait, math.max(0, deadline - Time.monotonic_ns()))
+            wait = math.min(wait, math.max(0, deadline - Clock.monotonic_ns()))
             if wait == 0 then return "fuzz output remained open after the child exited" end
           end
           local drained = handle:drain{ stdout = sink, timeout_ns = wait, max_bytes = drain_bytes }

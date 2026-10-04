@@ -1,7 +1,7 @@
+local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
-local Time = require("cosmic.time")
 local Fixture = require("cosmic_ci.fixture")
 local Process = require("cosmic_ci.process")
 local Test = require("cosmic.test")
@@ -490,7 +490,7 @@ local function test_runtime_warm_core_stamp_and_repair(tmp: string)
     assert(String.starts_with(Fixture.read(stamp), prefix),
       "a cold stamp does not record the entry")
   end
-  assert(Time.sleep_ns(1100000000))
+  assert(Clock.sleep_ns(1100000000))
   Fixture.run("stamp-warm", { program, "help" }, work, diagnostics, values)
   local st = assert(sys.lstat(core))
   local recorded = string.format("%d|%d|%d|", st.size, st.ino, st.mtime)

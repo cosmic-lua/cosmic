@@ -1,5 +1,5 @@
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-local Time = require("cosmic.time")
 local Fixture = require("cosmic_ci.fixture")
 
 -- The bound leaves the shell time to print on a slow or loaded runner;
@@ -8,12 +8,12 @@ local Fixture = require("cosmic_ci.fixture")
 -- COSMIC_TEST_TIMEOUT), shows the bound is what ended the child.
 local function test_child_timeout_retains_diagnostics(tmp: string)
   local diagnostics = tmp .. "/timeout-logs"
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local called, failure = pcall(Fixture.run, "timeout",
     { "/bin/sh", "-c", "printf 'before timeout\\n'; exec sleep 60" },
-    tmp, diagnostics, nil, Time.seconds(5))
-  local elapsed = Time.monotonic_ns() - started
-  assert(not called and elapsed < Time.seconds(25),
+    tmp, diagnostics, nil, Clock.seconds(5))
+  local elapsed = Clock.monotonic_ns() - started
+  assert(not called and elapsed < Clock.seconds(25),
     "fixture timeout did not remain bounded")
   local diagnostic = tostring(failure)
   assert(diagnostic:find("timed_out=true", 1, true),

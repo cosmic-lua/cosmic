@@ -1,8 +1,8 @@
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Fixture = require("cosmic_ci.fixture")
 local Process = require("cosmic_ci.process")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
 
 -- What the runtime setup made (COSMIC_FIXTURE_RUNTIME,
 -- cosmic_ci/runtime_setup.tl), each file the tests read or run by name,
@@ -266,7 +266,7 @@ end
 -- 60 s the driver gives each identity test (cosmic_ci/orchestration.tl's
 -- `identity_per_test_timeout_s`), so a hang fails naming the run's
 -- output rather than by the runner ending the test.
-local focused_embed_timeout_ns <const> = Time.seconds(50)
+local focused_embed_timeout_ns <const> = Clock.seconds(50)
 
 local function test_identity_focused_embed(tmp: string)
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")

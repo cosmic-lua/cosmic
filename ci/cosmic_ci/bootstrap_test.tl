@@ -1,10 +1,10 @@
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
-local Time = require("cosmic.time")
 
 --- The environment a test's child runs with: this one's, less what
 --- would change which cosmic bin/cosmic-bootstrap answers (a
@@ -23,7 +23,7 @@ end
 --- How long a spawned driver.tl may take. It compiles every cosmic_ci
 --- module before it does anything, alongside the other self-tests, and on a
 --- CI runner that alone has taken over 2 s: a few seconds is too little.
-local driver_timeout = Time.seconds(60)
+local driver_timeout = Clock.seconds(60)
 
 --- How long any other child may take: only a hang reaches it. A retry in
 --- bin/cosmic-bootstrap pauses 2 s, and copies and hashes this whole
@@ -33,11 +33,11 @@ local driver_timeout = Time.seconds(60)
 --- COSMIC_TEST_TIMEOUT), so a hang in a test's first call is named by
 --- that call's own failure and its output; one later in a test may meet
 --- the runner's end first.
-local child_timeout = Time.seconds(20)
+local child_timeout = Clock.seconds(20)
 
 --- The bound `driver.tl run` is given for a trivial /bin/sh child, which
 --- only a hang reaches: this is no test of how fast the shell starts.
-local trivial_timeout = tostring(Time.seconds(10))
+local trivial_timeout = tostring(Clock.seconds(10))
 
 local function call(argv: {string}, cwd: string, output: string,
                     extra?: {string:string}, timeout?: integer): Child.Result
@@ -409,17 +409,17 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
   assert(assert(Fs.read(spaced)) == "ok", "success child lost cwd or spaced argv")
   assert(run("nonzero", trivial_timeout, { "/bin/sh", "-c", "exit 23" }).code == 23)
   assert(run("start-failure", trivial_timeout, { "/definitely/not/a/command" }).code == 1)
-  assert(run("timeout", tostring(Time.ms(20)), { "/bin/sh", "-c", "sleep 30" }).code == 124)
+  assert(run("timeout", tostring(Clock.ms(20)), { "/bin/sh", "-c", "sleep 30" }).code == 124)
 
   local ready = tmp .. "/ready"
-  local command = { runner, driver, "run", "interrupted", tostring(Time.seconds(30)), "--", "/bin/sh", "-c",
+  local command = { runner, driver, "run", "interrupted", tostring(Clock.seconds(30)), "--", "/bin/sh", "-c",
     "printf ready > \"$1\"; sleep 30", "sh", ready }
   local fd = assert(Fs.open_write(tmp .. "/interrupted.out"))
   local child = assert(Child.start(command, { cwd = project, env = environment(ctx_env),
     stdout = fd, stderr = fd, process_group = true }))
-  for _ = 1, driver_timeout // Time.ms(20) do
+  for _ = 1, driver_timeout // Clock.ms(20) do
     if Predicate.exists(ready) then break end
-    Time.sleep_ns(10 * 1000 * 1000)
+    Clock.sleep_ns(10 * 1000 * 1000)
   end
   assert(Predicate.exists(ready), "interrupted operation never started")
   assert(child:stop())

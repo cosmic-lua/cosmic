@@ -1,6 +1,6 @@
-local Time = require("cosmic.time")
 local Archive = require("cosmic.archive")
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -9,7 +9,7 @@ local Plural = require("cosmic_ci.plural")
 
 -- Candidate scripts, applications, and decoder executions normally finish in
 -- well under a second. Native decoder compilation opts into its larger bound.
-local default_child_timeout_ns <const> = Time.seconds(30)
+local default_child_timeout_ns <const> = Clock.seconds(30)
 
 local record Fixture
   record Target

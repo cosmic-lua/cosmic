@@ -65,6 +65,7 @@
 --- starting.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -73,13 +74,6 @@ local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
--- TODO: require cosmic.clock for the clock this reads ([`Time.monotonic_ns`],
--- `ms`, ...) once ci/cosmic-driver.pin names a release that carries it:
--- this script runs standalone on the pinned release, which has only
--- cosmic.time, so every test that reaches it still reaches the calendar code.
--- ci/ is held to the same pin: its modules that only read a clock take
--- cosmic.clock then too.
-local Time = require("cosmic.time")
 
 local record Zig
   record Pin
@@ -675,9 +669,9 @@ function Zig.child_status(result: Child.Result): integer
   return result.code or 1
 end
 
-local MS <const> = Time.ms(1)
-local POLL_NS <const> = Time.ms(20)
-local PASS_ON_NS <const> = Time.ms(250)
+local MS <const> = Clock.ms(1)
+local POLL_NS <const> = Clock.ms(20)
+local PASS_ON_NS <const> = Clock.ms(250)
 
 --- Runs `argv` (`argv[1]` an exact path) to its end in this process
 --- group, with the standard streams shared, and answers its status.
@@ -726,7 +720,7 @@ function Zig.run(argv: {string}, env?: {string:string}): integer
       if state.finished then
         return state.result, ""
       end
-      local now = Time.monotonic_ns()
+      local now = Clock.monotonic_ns()
       local taken = g:take()
       if taken ~= 0 then
         -- A repeat within the window is passed on once, as the last.
@@ -869,7 +863,7 @@ local doing: {string:string} = {
 }
 
 --- How long a waiting boot waits in one go before it says it still is.
-local reminder_ns <const> = Time.minutes(5)
+local reminder_ns <const> = Clock.minutes(5)
 
 --- Whether `given`, the words after bin/zig, is a build of a step that
 --- boots, writing the working database under o/ beside a tool: `boot`,
@@ -942,8 +936,8 @@ local lock_mt: metatable<Lock> = {
 }
 
 local function take(lock: Lock, path: string, wait_ns: integer): string | nil, string
-  local started = Time.monotonic_ns()
-  local flocked, trouble, errno = sys.flock(lock.fd, "exclusive", Time.ceil(wait_ns, MS))
+  local started = Clock.monotonic_ns()
+  local flocked, trouble, errno = sys.flock(lock.fd, "exclusive", Clock.ceil(wait_ns, MS))
   if not flocked then
     if sys.errno_name(errno) == "ETIMEDOUT" then return "busy", "" end
     return nil, path .. ": " .. trouble
@@ -956,7 +950,7 @@ local function take(lock: Lock, path: string, wait_ns: integer): string | nil, s
       if db == nil then return nil, path .. ": " .. db_trouble end
       lock.db = db
     end
-    local left = math.max(0, wait_ns - (Time.monotonic_ns() - started))
+    local left = math.max(0, wait_ns - (Clock.monotonic_ns() - started))
     return begin(lock.db, path, left)
   end
   return "held", ""
@@ -995,7 +989,7 @@ function Zig.with_lock(root: string, environment: {string:string},
         taken, trouble = take(lock, path, reminder_ns)
         if taken == "busy" then
           waited_ns = waited_ns + reminder_ns
-          local minutes = waited_ns // Time.minutes(1)
+          local minutes = waited_ns // Clock.minutes(1)
           log:complain("still waiting, " .. tostring(minutes) ..
               (minutes == 1 and " minute" or " minutes") .. " on: " ..
               Zig.holder(root) .. " (one run at a time holds " .. path .. ")")

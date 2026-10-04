@@ -2,11 +2,11 @@
 --- [`./run-local`] loads this file standalone on the pinned library;
 --- the phase driver remains the checkout's built `o/bin/cosmic`.
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Stream = require("cosmic.stream")
-local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 
 local record Local
@@ -346,7 +346,7 @@ local function execute(argv: {integer:string}): integer
     values.GITHUB_RUN_ID, values.GITHUB_RUN_ATTEMPT, values.COSMIC_WORKER = "local", "1", "local"
     values.TARGET, values.XDG_CACHE_HOME = target, state .. "/cache"
     values.COSMIC_ZIG_CACHE_FROM, values.COSMIC_ZIG_GLOBAL_CACHE = seed, zig_global
-    local start = Time.monotonic_ns()
+    local start = Clock.monotonic_ns()
     local result, why = Child.run({ cosmic, "cosmic_ci/driver.tl", "platform", phase, "success" },
       { cwd = project, env = values, credentials = credentials, stdout = file.fd, stderr = file.fd })
     local log = file.fd
@@ -356,7 +356,7 @@ local function execute(argv: {integer:string}): integer
     assert(closed, close_why)
     local status = result.signal and 128 + result.signal or result.code or 1
     say(phase .. ": status " .. tostring(status) .. ", " ..
-        tostring((Time.monotonic_ns() - start) // Time.seconds(1)) .. " s, log " .. path)
+        tostring((Clock.monotonic_ns() - start) // Clock.seconds(1)) .. " s, log " .. path)
     if status ~= 0 then
       -- Diagnostics must not replace the phase status, or retain an entire
       -- build/fuzzer log in memory. Stop at an overlong line as well.

@@ -1,8 +1,8 @@
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Fixture = require("cosmic_ci.fixture")
 
-local native_build_timeout_ns <const> = Time.seconds(120)
+local native_build_timeout_ns <const> = Clock.seconds(120)
 
 local record LauncherSetup
 end

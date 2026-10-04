@@ -1,4 +1,4 @@
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local Sqlite = require("cosmic.sqlite")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
@@ -36,7 +36,7 @@ local fifo, await_ready, release = Process.fifo, Process.await_ready, Process.re
 -- compiles at once on four cores would take 86 to 90 s each, past it.
 -- The driver bounds each test here at 120 s (orchestration.tl), which
 -- this leaves room inside.
-local rebuild_timeout_ns <const> = Time.seconds(90)
+local rebuild_timeout_ns <const> = Clock.seconds(90)
 
 --- A copy of the leg's compiles (COSMIC_FIXTURE_COMPILES, orchestration.tl's
 --- `seed_compiles`) for one case's rebuild to take back
@@ -261,7 +261,7 @@ local function run_rebuild_case(fixture_dir: string,
   local go = fifo(case_root, diagnostics, "go-" .. action)
 
   local seed = seeded_compiles(case_root)
-  local since = Time.now_ns()
+  local since = Clock.now_ns()
   supervised(function(active: {Running})
     local values = Fixture.environment({
       COSMIC_BUILD_CACHE = seed.path,
@@ -499,7 +499,7 @@ local function test_self_rebuild_by_concurrent_runs(tmp: string)
   apply_docs_marker_edit(tree)
 
   local seed = seeded_compiles(case_root)
-  local since = Time.now_ns()
+  local since = Clock.now_ns()
   local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache,
     COSMIC_BUILD_CACHE = seed.path })
   local said: {string} = {}
@@ -601,7 +601,7 @@ local function test_self_rebuild_fix_verb(tmp: string)
   apply_fix_marker_edit(tree)
 
   local seed = seeded_compiles(case_root)
-  local since = Time.now_ns()
+  local since = Clock.now_ns()
   local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache,
     COSMIC_BUILD_CACHE = seed.path })
   local outcome = Fixture.call_with_environment("fix-rebuild",
