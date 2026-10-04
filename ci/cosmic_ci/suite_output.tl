@@ -202,4 +202,51 @@ function SuiteOutput.markdown(rows: {State.SuiteRun}): string
   return table.concat(lines)
 end
 
+--- The reason of a skipped test with what differs from test to test taken
+--- out: a scratch path under /tmp/cosmic-test-, which names the test's own
+--- directory, becomes `<dir>`.
+local function generic_reason(reason: string): string
+  return (reason:gsub("/tmp/cosmic%-test%-[^%s:)]*", "<dir>"))
+end
+
+--- Each reason a skipped test gave in `text`, a suite's stdout (its
+--- `test: SKIP  <module> <test>: <reason>` lines), with how many gave it,
+--- the most first, ties by reason.
+function SuiteOutput.skips(text: string): {{string | integer}}
+  local counts: {string:integer} = {}
+  for raw in text:gmatch("[^\n]+") do
+    local line = raw:gsub("\r$", "")
+    local reason = line:match("^test: SKIP  %S+ %S+: (.*)$")
+    if reason ~= nil then
+      local key = generic_reason(reason)
+      counts[key] = (counts[key] or 0) + 1
+    end
+  end
+  local out: {{string | integer}} = {}
+  for reason, count in pairs(counts) do out[#out + 1] = { reason, count } end
+  table.sort(out, function(a: {string | integer}, b: {string | integer}): boolean
+    if a[2] ~= b[2] then return (a[2] as integer) > (b[2] as integer) end
+    return (a[1] as string) < (b[1] as string)
+  end)
+  return out
+end
+
+--- The skips of suite `name`, from its stdout `text`, as a page of the
+--- run's summary: a heading with the total and a table of each reason with
+--- its count; "" where nothing was skipped. A report only: nothing fails
+--- for a skip.
+function SuiteOutput.skip_report(name: string, text: string): string
+  local reasons = SuiteOutput.skips(text)
+  if #reasons == 0 then return "" end
+  local total = 0
+  for _, row in ipairs(reasons) do total = total + (row[2] as integer) end
+  local lines: {string} = { "### Skipped tests: " .. name .. " (" .. total .. ")\n\n",
+    "| tests | reason |\n| ---: | --- |\n" }
+  for _, row in ipairs(reasons) do
+    lines[#lines + 1] = "| " .. tostring(row[2]) .. " | " .. (row[1] as string):gsub("|", "\\|") .. " |\n"
+  end
+  lines[#lines + 1] = "\n"
+  return table.concat(lines)
+end
+
 return SuiteOutput

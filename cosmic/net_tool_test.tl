@@ -10,22 +10,20 @@ local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
-local unix_socket = require("build.unix_socket")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 local Clock = require("cosmic.clock")
 
 --- The program itself, which the test starts, running a file `--standalone`
 --- (`standalone`).
-Test.needs{ lua = true, standalone = true }
+Test.needs{ lua = true, standalone = true, network = { "127.0.0.1" } }
 
 local function test_a_write_to_a_closed_peer_does_not_end_the_process(tmp: string)
-  if unix_socket.skipped(tmp) then return end
   local script = tmp .. "/write.tl"
   assert(Fs.write(script, [[
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
-return function(argv: {string}): integer
+return function(_argv: {string}): integer
   -- SIGPIPE ignored from outside (its bit, 13, of /proc's SigIgn), the
   -- write below would pass whatever the socket asks: say so, and stop.
   local status = Fs.read("/proc/self/status")
@@ -34,7 +32,7 @@ return function(argv: {string}): integer
     Fs.put(Fs.stdout, "ignored")
     return 0
   end
-  local server <close> = assert(Net.listen(Net.unix(argv[1] .. "/s.sock")))
+  local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
   local client <close> = assert(Net.connect(server.address))
   local accepted = assert(server:accept())
   assert(accepted:close())
@@ -55,11 +53,10 @@ end
 
 --- A connection's protocol runs a child while the server holds its
 --- signal guard: the run holds one of its own inside the server's.
-local function test_a_protocol_runs_a_child_under_the_server_s_guard(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+local function test_a_protocol_runs_a_child_under_the_server_s_guard()
   local answer = ""
   assert(Net.serve{
-    listeners = { Net.unix(tmp .. "/s.sock") },
+    listeners = { Net.tcp("127.0.0.1", 0) },
     serve = function(conn: Net.Conn)
       local started = this_program.program({ "-e", "return 6" }, { timeout_ns = Clock.seconds(30) })
       local r, why = Child.run(started.argv, started.options)
@@ -86,14 +83,13 @@ end
 --- on_ready raises after SIGTERM, the process dies of the signal, as it
 --- would without the server's guard.
 local function test_a_signal_is_delivered_where_on_ready_raises(tmp: string)
-  if unix_socket.skipped(tmp) then return end
   local script = tmp .. "/raises.tl"
   assert(Fs.write(script, [[
 local Net = require("cosmic.net")
 local sys = require("cosmic.sys")
-return function(argv: {string}): integer
+return function(_argv: {string}): integer
   local _, _ = pcall(Net.serve, {
-    listeners = { Net.unix(argv[1] .. "/s.sock") },
+    listeners = { Net.tcp("127.0.0.1", 0) },
     serve = function(_conn: Net.Conn) end,
     on_ready = function(_addresses: {Net.Address}, _server: Net.Server)
       assert(sys.kill(sys.getpid(), sys.SIGTERM))
@@ -111,7 +107,6 @@ end
 --- drain ends: the connection in flight finishes, and the process then
 --- dies of the signal.
 local function test_a_signal_in_a_drain_stop_began_is_delivered(tmp: string)
-  if unix_socket.skipped(tmp) then return end
   local script = tmp .. "/stopped.tl"
   local report = tmp .. "/report"
   assert(Fs.write(script, [[
@@ -124,7 +119,7 @@ local sys = require("cosmic.sys")
 return function(argv: {string}): integer
   local started = false
   assert(Net.serve{
-    listeners = { Net.unix(argv[1] .. "/s.sock") },
+    listeners = { Net.tcp("127.0.0.1", 0) },
     serve = function(conn: Net.Conn)
       local line = assert(Stream.lines(conn):read())
       started = true

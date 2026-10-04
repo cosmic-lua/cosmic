@@ -3,7 +3,6 @@
 --- other test -- see doc/design.md's `examples` table.
 
 local Clock = require("cosmic.clock")
-local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
@@ -12,39 +11,15 @@ local Test = require("cosmic.test")
 --- The TCP example listens on the worker's own loopback.
 Test.needs{ network = { "127.0.0.1" } }
 
---- Skips the running example, and answers true, where the worker may make
---- no unix socket in `dir`: its seccomp filter refuses `socket` unless its
---- policy has a `u` grant, which needs Landlock ABI 9 beside another
---- directory (as build/unix_socket.tl, which an example may not import).
--- TODO: delete this once the kernels the suite runs on give Landlock ABI 9
--- and the worker is granted its scratch directory's sockets (the TODO at
--- build/unix_socket.tl).
-local function unix_refused(dir: string): boolean
-  local probe, why = Net.listen(Net.unix(dir .. "/probe.sock"))
-  if probe ~= nil then
-    local _, _ = probe:close()
-    return false
-  end
-  -- Only a failure under a seccomp filter is the policy's refusal.
-  local status, _ = Fs.read("/proc/self/status")
-  if status == nil or status:match("\nSeccomp:%s*(%d+)") ~= "2" then return false end
-  Test.skip("the worker cannot make a unix socket (" .. why .. "): its policy has no `u` grant")
-  return true
-end
-
 local Example = {}
 
---- A server on a socket file: it makes the file, and `close` (here, the
---- `<close>` variable going out of scope) removes it. Every wait is
---- bounded by `timeout_ns`, which a connection accepted inherits.
+--- A server on the loopback at a port the kernel chose: `close` (here, the
+--- `<close>` variable going out of scope) closes its listener. Every wait is
+--- bounded by `timeout_ns`, which a connection accepted inherits. A socket
+--- file is made by [`Net.unix`]'s address instead.
 function Example.listen()
-  local dir = assert(Fs.mkdtemp("cosmic-net-example-"))
-  if unix_refused(dir) then
-    assert(Fs.remove_tree(dir))
-    return
-  end
   do
-    local server <close> = assert(Net.listen(Net.unix(dir .. "/app.sock"), { timeout_ns = Clock.seconds(5) }))
+    local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
     local client <close> = assert(Net.connect(server.address))
     local conn <close> = assert(server:accept())
     assert(client:write("ping\n"))
@@ -52,8 +27,6 @@ function Example.listen()
     print(line)
     assert(line == "ping", line)
   end
-  assert(Fs.stat(dir .. "/app.sock") == nil, "the socket file was left")
-  assert(Fs.remove_tree(dir))
 end
 
 --- A request and its answer: `shutdown("write")` tells the server the

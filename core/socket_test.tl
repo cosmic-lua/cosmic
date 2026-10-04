@@ -96,22 +96,39 @@ local function test_a_relative_socket_file_is_removed_after_a_chdir(tmp: string)
   assert(Fs.stat(tmp .. "/rel.sock") == nil, "the socket file was left")
 end
 
+--- A listener on the loopback at a port the kernel chose, for a case that
+--- is about the socket and not the socket file.
+local function tcp_listener(): raw_socket.Socket
+  return (assert(raw.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 1)))
+end
+
 --- A closed socket closes again, and has no descriptor to give; one
 --- held `<close>` is closed as its block ends.
 local function test_a_closed_socket_closes_again_and_has_no_descriptor(tmp: string)
-  if unix_socket.skipped(tmp) then return end
-  local path = tmp .. "/s.sock"
   local before = next_descriptor(tmp)
   do
-    local _held <close> = assert(raw.listen(unix(path), 1))
+    local _held <close> = tcp_listener()
   end
   assert(next_descriptor(tmp) == before, "a socket held <close> was left open")
-  assert(Fs.stat(path) == nil, "a socket held <close> left its socket file")
-  local listener = assert(raw.listen(unix(path), 1))
+  local listener = tcp_listener()
   assert(listener:close())
   assert(listener:close())
   local ok, why = pcall(listener.fd, listener)
   assert(not ok and tostring(why):find("the socket is closed", 1, true) ~= nil, tostring(why))
+end
+
+--- A unix listener held `<close>` leaves no socket file as its block ends.
+local function test_a_unix_socket_held_close_leaves_no_socket_file(tmp: string)
+  if unix_socket.skipped(tmp) then return end
+  local path = tmp .. "/s.sock"
+  do
+    local _held <close> = assert(raw.listen(unix(path), 1))
+    assert(Fs.stat(path) ~= nil, "no socket file")
+  end
+  assert(Fs.stat(path) == nil, "a socket held <close> left its socket file")
+  local again = assert(raw.listen(unix(path), 1))
+  assert(again:close())
+  assert(Fs.stat(path) == nil, "a closed listener left its socket file")
 end
 
 --- An address whose `path` answers once and then nil -- read twice,
@@ -195,18 +212,19 @@ end
 
 --- A send starts at the first byte, or at the byte it is given: one
 --- past the last sends nothing, and one outside the string raises.
-local function test_a_send_from_a_byte_sends_the_rest(tmp: string)
-  if unix_socket.skipped(tmp) then return end
-  local path = tmp .. "/s.sock"
-  local listener <close> = assert(raw.listen(unix(path), 1))
-  local client <close> = assert(raw.connect(unix(path), 5000))
+local function test_a_send_from_a_byte_sends_the_rest()
+  local listener <close> = tcp_listener()
+  local bound = assert(raw.bound(listener:fd()))
+  local client <close> = assert(raw.connect({ kind = "tcp", host = "127.0.0.1", port = bound.port }, 5000))
   assert(raw.wait(listener:fd(), false, 5000))
   local accepted <close> = assert(raw.accept(listener:fd()))
   assert(assert(raw.send(client:fd(), "ab")) == 2)
   assert(assert(raw.send(client:fd(), "abcdef", 4)) == 3)
   assert(assert(raw.send(client:fd(), "abcdef", 7)) == 0)
   assert(raw.wait(accepted:fd(), false, 5000))
-  assert(assert(sys.read(accepted:fd(), 16)) == "abdef")
+  local got = ""
+  while #got < 5 do got = got .. assert(sys.read(accepted:fd(), 16)) end
+  assert(got == "abdef", got)
   for _, from in ipairs({ 0, 8, math.mininteger, math.maxinteger }) do
     local ok, err = pcall(raw.send, client:fd(), "abcdef", from)
     assert(not ok and tostring(err):find("out of range", 1, true) ~= nil, tostring(err))

@@ -635,33 +635,50 @@ local function test_a_landlock_ruleset_holds_a_child_to_what_it_names(tmp: strin
   assert(bad == nil and bad_trouble ~= "", "a path that is not there refuses the ruleset")
 end
 
---- A ruleset holds files and not the network, on every kernel: a child
---- held to one reaches a listener of this process's over TCP on
---- loopback and over a unix socket file, as one held to none does.
-local function test_a_landlock_ruleset_leaves_a_child_its_loopback(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+--- Runs a child held to a ruleset of its own program alone, whose `script`
+--- connects to the listener `listen` makes at `tmp`/s, and checks it did.
+local function connects_through_a_ruleset(tmp: string, listen: function(string): Net.Listener,
+                                          script: function(Net.Listener, string): string)
   local probe = probe_in(tmp)
-  local tcp = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
   local socket = tmp .. "/s"
-  local unix = assert(Net.listen(Net.unix(socket), { timeout_ns = Clock.seconds(5) }))
+  local listener = listen(socket)
   local ruleset, trouble = process.landlock_ruleset({ probe }, {})
   if ruleset == nil then
-    assert(tcp:close() and unix:close())
+    assert(listener:close())
     unsandboxable("Landlock ruleset", trouble)
     return
   end
   local output = create(tmp .. "/said")
-  local pid = assert(process.spawn(probe, { probe,
-    "connect-tcp 127.0.0.1 " .. tostring(tcp.address.port) .. "; connect " .. socket },
+  local pid = assert(process.spawn(probe, { probe, script(listener, socket) },
     nil, tmp, nil, output, output, false, nil, { ruleset = ruleset }))
   sys.close(ruleset)
   local status = assert(process.waitpid(pid, false))
   local said = assert(sys.pread(output, 4096, 0))
   sys.close(output)
-  assert(status.code == 0 and said == "connected\nconnected\n", said)
-  assert(assert(tcp:accept()):close())
-  assert(assert(unix:accept()):close())
-  assert(tcp:close() and unix:close())
+  assert(status.code == 0 and said == "connected\n", said)
+  assert(assert(listener:accept()):close())
+  assert(listener:close())
+end
+
+--- A ruleset holds files and not the network, on every kernel: a child
+--- held to one reaches a listener of this process's over TCP on
+--- loopback, as one held to none does.
+local function test_a_landlock_ruleset_leaves_a_child_its_loopback(tmp: string)
+  connects_through_a_ruleset(tmp, function(_socket: string): Net.Listener
+    return (assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) })))
+  end, function(listener: Net.Listener, _socket: string): string
+    return "connect-tcp 127.0.0.1 " .. tostring(listener.address.port)
+  end)
+end
+
+--- The same over a unix socket file.
+local function test_a_landlock_ruleset_leaves_a_child_its_unix_socket(tmp: string)
+  if unix_socket.skipped(tmp) then return end
+  connects_through_a_ruleset(tmp, function(socket: string): Net.Listener
+    return (assert(Net.listen(Net.unix(socket), { timeout_ns = Clock.seconds(5) })))
+  end, function(_listener: Net.Listener, socket: string): string
+    return "connect " .. socket
+  end)
 end
 
 --- A process held to running what is beneath some paths runs a program
@@ -724,7 +741,6 @@ end
 --- is refused (EPERM), where one promised is made and then refused its
 --- connection.
 local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
-  if unix_socket.skipped(tmp) then return end
   local probe = probe_in(tmp)
   local refused = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil,
     false, nil, { pledge = { "fly" } })
@@ -767,7 +783,10 @@ local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
   end
   local plain = filtered(nil)
   assert(plain == "Seccomp: " .. own .. " Seccomp: " .. own .. " ", plain)
-  if pledged ~= "unsupported" then
+  -- What a pledge does to a unix connect is checked where the worker may make
+  -- a unix socket: under its own filter the socket is refused whatever is
+  -- promised.
+  if pledged ~= "unsupported" and not unix_socket.skipped(tmp) then
     local function connected(promises: {string}): string
       local output = create(tmp .. "/connect")
       local pid = assert(process.spawn(probe, { probe, "connect " .. tmp .. "/none.sock" },

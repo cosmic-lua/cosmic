@@ -412,6 +412,9 @@ local function record_suite(c: Context, name: string, code: integer, out: string
       shared = figures.shared, failed = figures.failed,
       elapsed_ms = figures.elapsed_ms, sandbox = figures.sandbox,
       parts = figures.parts, held = figures.held })
+    -- The skips go to the job's summary page, and fail nothing.
+    local skips = SuiteOutput.skip_report(name, said)
+    if skips ~= "" then ContextEnv.summarize(skips) end
     return true
   end)
   if not called then
