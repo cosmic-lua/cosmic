@@ -37,10 +37,11 @@ local stand_in = require("build.stand_in")
 Test.needs{ env = { "TMPDIR" }, nests = true }
 
 --- Whether `why`, a start's failure, is the platform or the host giving no
---- Landlock, seccomp or user namespace.
+--- Landlock, seccomp, user namespace or idmapped mount (a container's
+--- runtime may refuse one on a file system that supports it).
 local function unsandboxable(why: string): boolean
   for _, word in ipairs({ "Landlock", "seccomp", "not implemented", "namespace", "own /proc",
-      "root could not be built" }) do
+      "root could not be built", "an idmapped mount of " }) do
     if why:find(word, 1, true) then return true end
   end
   return false
