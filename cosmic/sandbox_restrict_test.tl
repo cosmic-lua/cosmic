@@ -10,6 +10,7 @@ local Child = require("cosmic.child")
 -- The child loads these from the store, which holds this test's closure alone.
 local _net = require("cosmic.net")
 local _sandbox = require("cosmic.sandbox")
+local _store = require("cosmic.store")
 local _sys = require("cosmic.sys")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
@@ -33,6 +34,7 @@ local sys = require("cosmic.sys")
 local Sandbox = require("cosmic.sandbox")
 local Child = require("cosmic.child")
 local Net = require("cosmic.net")
+local Store = require("cosmic.store")
 local function say(name, ...)
   local words = {}
   for i = 1, select("#", ...) do words[i] = tostring((select(i, ...))) end
@@ -87,7 +89,8 @@ end
 local function restricted(policy: string, rest: string): string
   return string.format([[
 local ok, why = Sandbox.restrict(%s)
-if not ok and (why:find("Landlock", 1, true) or why:find("seccomp", 1, true)) then
+if not ok and (why:find("Landlock is not available here", 1, true) or
+    why:find("which only Linux gives", 1, true)) then
   say("skip", why)
   os.exit(0)
 end
@@ -260,6 +263,7 @@ local function test_every_refusal_holds_nothing(tmp: string)
 -- What the kernel's side refuses: an open descriptor, one fds names that is
 -- not open, a grant of a path that is not there (after its limit is planned),
 -- and a child not yet waited for.
+local nofile_before = sys.getrlimit(sys.RLIMIT_NOFILE).soft
 local fd = assert(sys.open(%q, sys.O_RDONLY))
 say("fd", fd)
 say("unnamed", Sandbox.restrict({}))
@@ -271,6 +275,11 @@ local running = assert(Child.start({ %q, "sleep-forever" }, { process_group = fa
 say("child", Sandbox.restrict({}))
 assert(running:close())
 say("cpu", sys.getrlimit(sys.RLIMIT_CPU).soft ~= 7)
+say("nofile", sys.getrlimit(sys.RLIMIT_NOFILE).soft == nofile_before)
+say("with_limits", Sandbox.restrict({ isolate = { "file" }, grants = { { path = "/", letters = "r" } },
+  limits = { cpu_seconds = 9, open_files = 12 } }))
+say("cpu_after", sys.getrlimit(sys.RLIMIT_CPU).soft ~= 9)
+say("nofile_after", sys.getrlimit(sys.RLIMIT_NOFILE).soft == nofile_before)
 say("free", reads(%q))
 ]], tmp .. "/held", tmp .. "/absent", probe, tmp .. "/free"))
   if said == nil then return end
@@ -287,6 +296,72 @@ say("free", reads(%q))
   assert(said.lines.child:find("^false sandbox: restrict: this process has a child, pid %d+, not waited for"),
     said.raw)
   assert(said.lines.cpu == "true" and said.lines.free == "free", said.raw)
+  -- A refusal that comes with limits and grants sets no limit and holds nothing.
+  assert(said.lines.nofile == "true" and said.lines.nofile_after == "true", said.raw)
+  assert(said.lines.with_limits:find("^false sandbox: restrict: isolate", 1) and
+      said.lines.cpu_after == "true", said.raw)
+end
+
+--- The slot of one of the three /proc handles a restriction keeps (the
+--- threads, the descriptors, the children) is closed and a file the
+--- program may write put in it: the next restriction must not trust the
+--- number, whichever it is.
+local function replaced_handle(tmp: string, which: integer)
+  assert(Fs.mkdirs(tmp .. "/rw") and Fs.write(tmp .. "/rw/f", "x"))
+  local said = in_child(string.format([[
+local before = {}
+for n = 3, 80 do if sys.fd_flags(n) then before[n] = true end end
+say("first", Sandbox.restrict({ grants = { { path = %q, letters = "rw" } } }))
+local new = {}
+for n = 3, 80 do if sys.fd_flags(n) and not before[n] then new[#new + 1] = n end end
+local slot = new[%d]
+say("slots", #new)
+assert(sys.close(slot))
+local fd = assert(sys.open(%q, sys.O_RDWR))
+say("reused", fd == slot)
+say("second", Sandbox.restrict({}))
+say("write", writes(%q))
+]], tmp .. "/rw", which, tmp .. "/rw/f", tmp .. "/rw/f"))
+  if said == nil then return end
+  assert(said.lines.first == "true " and said.lines.slots == "3" and said.lines.reused == "true", said.raw)
+  -- Refused, naming the descriptor or failing closed; never accepted.
+  assert(said.lines.second:find("^false sandbox: restrict: "), said.raw)
+end
+
+local function test_a_replaced_threads_handle_is_not_trusted(tmp: string)
+  replaced_handle(tmp, 1)
+end
+
+local function test_a_replaced_descriptors_handle_is_not_trusted(tmp: string)
+  replaced_handle(tmp, 2)
+end
+
+local function test_a_replaced_children_handle_is_not_trusted(tmp: string)
+  replaced_handle(tmp, 3)
+end
+
+local function test_a_writable_descriptor_on_a_store_database_is_the_programs_own(tmp: string)
+  local said = in_child(string.format([[
+-- A database of the store's own kind, attached: the store holds it read-only.
+local original = "o/cosmic.db"
+local copy = %q .. "/copy.db"
+local source = assert(sys.open(original, sys.O_RDONLY))
+local target = assert(sys.open(copy, sys.O_WRONLY | sys.O_CREAT, 420))
+while true do
+  local chunk = sys.read(source, 65536)
+  if chunk == nil or chunk == "" then break end
+  assert(sys.write(target, chunk))
+end
+sys.close(source) sys.close(target)
+assert(Store.attach(copy))
+local mine = assert(sys.open(copy, sys.O_RDWR))
+say("mine", mine)
+say("refused", Sandbox.restrict({}))
+say("named", Sandbox.restrict({}, { fds = { mine } }))
+]], tmp))
+  if said == nil then return end
+  assert(said.lines.refused == "false sandbox: restrict: descriptor " .. said.lines.mine ..
+      " is open and not named in fds: close it, or name it to keep it", said.raw)
 end
 
 local function test_a_named_descriptor_is_kept_and_the_path_it_was_opened_by_is_not(tmp: string)

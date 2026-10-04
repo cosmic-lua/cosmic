@@ -825,7 +825,9 @@ end
 --- do not let run. The policy is merged first ([`Sandbox.merge`]), so it
 --- may name `profiles`, and its limits have a child's defaults: no core
 --- dump and 1024 open files; a limit is only ever lowered, never
---- raised.
+--- raised. `cpu_seconds` is RLIMIT_CPU, which counts the CPU time the
+--- process has already spent: lowering it below that on a process that has
+--- run long ends it by SIGKILL at once.
 ---
 --- Called again, it narrows: the kernel holds the process to every
 --- ruleset and every filter made, so what a later call grants beyond
@@ -842,9 +844,12 @@ end
 --- name, bar the ones the runtime keeps itself: this program's own
 --- artifact and the databases of its store. A restriction does not
 --- close a descriptor, and what one names is reached whatever the grants
---- say, so a caller names the ones it keeps. A failure from the kernel's
---- own calls, which come after those checks, can leave the limits it
---- lowered, and its ruleset if the filter is what failed.
+--- say, so a caller names the ones it keeps. The runtime's own descriptors
+--- stay open and read-only, so a restricted process still reads the whole
+--- store through them, the modules a test's closure leaves out among them.
+--- A failure from the kernel's own calls, which come after those checks,
+--- can leave the limits it lowered, and its ruleset if the filter is what
+--- failed; its message then ends "the process is now partly restricted".
 ---
 --- The filter's rules for signals take this process's pid, so a process
 --- started afterwards, which has another, cannot signal itself, and its

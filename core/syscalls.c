@@ -2696,7 +2696,10 @@ static struct {
   int tasks;
   int descriptors;
   int children;
-} inspected = { 0, -1, -1, -1 };
+  /* What each descriptor named when it was opened, to tell it from a
+   * file the program closed it for and opened in its number. */
+  struct stat identity[3];
+} inspected = { 0, -1, -1, -1, { { 0 } } };
 
 static void inspected_close (void) {
   if (inspected.tasks >= 0) close(inspected.tasks);
@@ -2705,11 +2708,37 @@ static void inspected_close (void) {
   inspected.tasks = inspected.descriptors = inspected.children = -1;
 }
 
+/* Whether `fd` still names what `before` recorded: the same file, of the
+ * kind a /proc entry is (a directory, or for the children list a regular
+ * file) on a procfs, which a file the program put in its number is not. */
+static bool inspected_same (int fd, const struct stat *before, bool directory) {
+  struct stat now;
+  struct statfs system;
+  if (fd < 0 || fstat(fd, &now) != 0 || fstatfs(fd, &system) != 0) return false;
+  return now.st_dev == before->st_dev && now.st_ino == before->st_ino &&
+         (S_ISDIR(now.st_mode) != 0) == directory && (unsigned long)system.f_type == 0x9fa0UL; /* PROC_SUPER_MAGIC */
+}
+
+/* Gives up a handle the program replaced, without closing it: the number
+ * is the program's now, and the scan of its descriptors counts it. */
+static void inspected_forget (int *fd, const struct stat *before, bool directory) {
+  if (!inspected_same(*fd, before, directory)) *fd = -1;
+}
+
 /* Has the /proc entries to read for this process, as `inspected`: 0, or the
- * errno, with `what` naming the one that could not be opened. */
+ * errno, with `what` naming the one that could not be opened. A handle the
+ * program closed and put another file in the place of is let go and made
+ * again, which fails once Landlock holds the process: the restriction then
+ * fails closed rather than trust it. */
 static int inspected_open (const char **what) {
   pid_t self = getpid();
-  if (inspected.pid == self && inspected.tasks >= 0) return 0;
+  if (inspected.pid == self) {
+    inspected_forget(&inspected.tasks, &inspected.identity[0], true);
+    inspected_forget(&inspected.descriptors, &inspected.identity[1], true);
+    inspected_forget(&inspected.children, &inspected.identity[2], false);
+    if (inspected.tasks >= 0 && inspected.descriptors >= 0 && inspected.children >= 0) return 0;
+    /* What is left of the three is still ours. */
+  }
   inspected_close();
   inspected.pid = self;
   *what = "/proc/self/task";
@@ -2722,8 +2751,13 @@ static int inspected_open (const char **what) {
     *what = "/proc/thread-self/children";
     inspected.children = open(*what, O_RDONLY | O_CLOEXEC);
   }
-  if (inspected.children >= 0) return 0;
-  int failure = errno;
+  int failure = 0;
+  if (inspected.children < 0) failure = errno;
+  else if (fstat(inspected.tasks, &inspected.identity[0]) != 0 ||
+           fstat(inspected.descriptors, &inspected.identity[1]) != 0 ||
+           fstat(inspected.children, &inspected.identity[2]) != 0)
+    failure = errno;
+  if (failure == 0) return 0;
   inspected_close();
   return failure;
 }
@@ -2914,13 +2948,17 @@ COSMIC_SYSCALL(restrict_self, 2) {
    * already at least as low asks for no call, so a restriction repeated
    * with the limits it first set passes under the filter it made. */
   bool nofile_moved = false;
+  bool limits_moved = false;
+  static const char partly[] = "; the process is now partly restricted";
   for (int i = 0; i < rlimit_count; i++) {
     if (!planned[i].changes) continue;
     if (setrlimit(rlimits[i].resource, &planned[i].target) != 0) {
       error = errno;
       close(ruleset);
-      return restrict_refused(L, error, "setrlimit: %s", cosmic_errno_describe(error, NULL));
+      return restrict_refused(L, error, "setrlimit: %s%s", cosmic_errno_describe(error, NULL),
+                              limits_moved ? partly : "");
     }
+    limits_moved = true;
     if (rlimits[i].resource == RLIMIT_NOFILE) nofile_moved = true;
   }
   /* A limit the program set is the one its children get. */
@@ -2928,12 +2966,14 @@ COSMIC_SYSCALL(restrict_self, 2) {
   error = enforce_ruleset(ruleset);
   close(ruleset);
   if (error != 0)
-    return restrict_refused(L, error, "landlock_restrict_self: %s", cosmic_errno_describe(error, NULL));
+    return restrict_refused(L, error, "landlock_restrict_self: %s%s",
+                            cosmic_errno_describe(error, NULL), limits_moved ? partly : "");
   /* Last, as in a child: the filter allows Landlock and the filter's own
    * installation, so a later restriction narrows both. */
   error = cosmic_promises_apply(promise_bits);
   if (error != 0)
-    return restrict_refused(L, error, "seccomp filter: %s", cosmic_errno_describe(error, NULL));
+    return restrict_refused(L, error, "seccomp filter: %s%s", cosmic_errno_describe(error, NULL),
+                            partly);
   return cosmic_ok(L);
 #else
   (void)promise_bits;

@@ -85,7 +85,8 @@ const struct cosmic_artifact *cosmic_store_artifact (lua_State *L);
  * artifact's, or one of a store database's files (the database, its
  * write-ahead log or its shared memory), found by the file the descriptor
  * names, so a descriptor the program opened itself on one of those files
- * is taken for the store's too. For a caller that must tell the
+ * is taken for the store's too, if it opened it read-only as the store
+ * does (a shared-memory file, which SQLite opens for writing, excepted). For a caller that must tell the
  * descriptors a program opened from the runtime's own. */
 bool cosmic_store_holds_descriptor (lua_State *L, int fd);
 

@@ -2,6 +2,7 @@
 
 #include "store.h"
 
+#include <fcntl.h>
 #include <limits.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -1343,16 +1344,29 @@ bool cosmic_store_holds_descriptor (lua_State *L, int fd) {
   const struct cosmic_artifact *artifact = cosmic_store_artifact(L);
   if (artifact != NULL && fd == artifact->fd) return true;
   struct stat held;
-  if (fstat(fd, &held) != 0) return false;
-  static const char *const parts[] = { "", "-wal", "-shm" };
+  int mode = fcntl(fd, F_GETFL);
+  if (mode < 0 || fstat(fd, &held) != 0) return false;
+  /* The store opens its databases SQLITE_OPEN_READONLY, so a descriptor on
+   * the database or its log that can write is the program's own, and must
+   * not pass as the runtime's: a write through it would change what the
+   * store reads. A shared-memory file (-shm) is the exception: SQLite
+   * opens it for writing whatever the database's mode, and it holds
+   * locks, not content. */
+  static const struct {
+    const char *suffix;
+    bool read_only;
+  } parts[] = { { "", true }, { "-wal", true }, { "-shm", false } };
+  bool reads_only = (mode & O_ACCMODE) == O_RDONLY;
   for (int index = 1; index <= cosmic_store_count(L); index++) {
     sqlite3 *db = cosmic_store_database(L, index);
     const char *name = db == NULL ? NULL : sqlite3_db_filename(db, "main");
     if (name == NULL || name[0] == '\0') continue;
     for (size_t part = 0; part < sizeof parts / sizeof parts[0]; part++) {
+      if (parts[part].read_only && !reads_only) continue;
       char path[PATH_MAX];
       struct stat file;
-      if (snprintf(path, sizeof path, "%s%s", name, parts[part]) >= (int)sizeof path) continue;
+      if (snprintf(path, sizeof path, "%s%s", name, parts[part].suffix) >= (int)sizeof path)
+        continue;
       if (stat(path, &file) == 0 && file.st_dev == held.st_dev && file.st_ino == held.st_ino)
         return true;
     }
