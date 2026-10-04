@@ -656,7 +656,9 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   if closure_store ~= nil and not effective.store then given_store = closure_store end
   if policy then
     local launched, _ = Proc.relaunch()
-    if executable ~= nil then runs[executable] = true end
+    -- The artifact is run only where the module declares `tool`: a worker that
+    -- nests is given it to read alone, where it is given it at all (below).
+    if executable ~= nil and effective.tool then runs[executable] = true end
     if launched ~= nil then runs[launched.argv[1]] = true end
   end
   for _, path in ipairs(base.reads) do
@@ -696,6 +698,18 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- program is given at its own name too (`worker_unveil`'s
   -- `with_program`).
   if effective.tool then of_tree("o/bin", true) end
+  -- A worker that builds roots of its own has no descriptor of the artifact
+  -- handed it ([`build.test_worker`]'s `invocation`) and opens it by its
+  -- path. The artifact holds every module of the tree, which a read of it
+  -- would show a test beyond its closure, so only a module that declares
+  -- `store`, whose key holds the whole projection, is given it; any other
+  -- that nests is refused ([`build.test_policy`]'s `refusal`).
+  if policy and effective.nests and effective.store and not effective.tool then
+    local launched, _ = Proc.relaunch()
+    if launched ~= nil and launched.argv[2] == "--artifact" and launched.argv[3] ~= nil then
+      give(launched.argv[3])
+    end
+  end
   -- Why a `host` path cannot be given: where a variable names it, one
   -- [`test_inputs.resolve`] could not put anywhere, or one that is where
   -- the sandbox has its own -- its scratch directory, which it gives

@@ -600,6 +600,14 @@ end
 --- [`Hold`] but "none".
 local hold_flag: {worker.Hold:string} = { forbid = "--worker-no-tool", mounts = "--worker-held" }
 
+--- Whether `policy` promises `nest`.
+local function promises_nest(policy: Sandbox.Policy): boolean
+  for _, promise in ipairs(policy.promises or {}) do
+    if promise == "nest" then return true end
+  end
+  return false
+end
+
 --- The command line and the start options of the worker `given`
 --- describes: `start`'s program (`program`), then `test --worker
 --- <root> <module> <test> <scratch>/tmp <scratch>/children <needs>
@@ -647,6 +655,18 @@ function worker.invocation(given: worker.Invocation): worker.Command
   env.COSMIC_COVERAGE_STARTUP = "1"
   local fds: {integer:integer | string} = { [worker.report_fd] = "capture" }
   for number, fd in pairs(given.start.fds) do fds[number] = fd end
+  if given.policy ~= nil and promises_nest(given.policy) then
+    -- A worker that builds roots of its own is handed no descriptor of the
+    -- program ([`Child.start`] refuses it any file open for reading alone:
+    -- its owner could reopen it for writing through /proc/self/fd). Its
+    -- startup, told of none, opens the artifact by its path and the core
+    -- by itself, inside its own root (core/startup.c's `by_path`).
+    for _, name in ipairs({ "COSMIC_PORTABLE_ARTIFACT_FD", "COSMIC_PORTABLE_CORE_FD" }) do
+      local number = math.tointeger(tonumber(env[name] or ""))
+      if number ~= nil then fds[number] = nil end
+      env[name] = nil
+    end
+  end
   if given.policy ~= nil then
     -- A policy is the whole of its child's environment, which `env` beside
     -- it would contradict: what the worker is given, the one place it is

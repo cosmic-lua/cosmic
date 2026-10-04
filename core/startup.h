@@ -58,6 +58,10 @@ struct cosmic_startup {
    * the joined `--artifact=<path>`, which a `#!` line carries and the
    * kernel may have cut short. */
   bool artifact_path_names_descriptor;
+  /* Whether no descriptor was handed on: the artifact is opened by
+   * artifact_path and the core is the running executable, so a start into
+   * a root of its own holds only what that root shows of them. */
+  bool by_path;
   int artifact_fd;
   int core_fd;
   uint32_t launcher_target_id;

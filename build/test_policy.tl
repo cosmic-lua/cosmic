@@ -66,6 +66,14 @@ test_policy.switch = "COSMIC_TEST_POLICY"
 -- (cosmic/child.tl's `unix_unheld`): below it a `u` grant beside another
 -- directory fails the start, and without one the filter refuses the
 -- socket, so a test of a unix socket fails EPERM under the policy path.
+-- TODO: let a `nest` worker start a `cosmic test` or a [`Child.start`] `sandbox`
+-- of the default path, which the filter refuses today: the start's
+-- `socket(AF_UNIX, SOCK_DGRAM)`, made right after it unshares its namespaces,
+-- answers EPERM (core/noexec_tool_test.tl's nested
+-- start, build/test_policy_tool_test.tl's run of the default sandbox), and a
+-- runner's `getpgid` of a pid but its own does too
+-- (build/test_isolation_tool_test.tl's orphans); both wait on `nest` allowing
+-- them, or on the default path's deletion (step (e) of the sandbox plan).
 local base_promises <const>: {Sandbox.Promise} = { "fattr", "fork", "jit" }
 
 --- The devices a worker is given, as the policy's letters have them: the
@@ -121,13 +129,17 @@ end
 -- `o/bin/cosmic uses` finds them by their declaration), and delete this
 -- refusal, once the policy path is the default (step (c) of the sandbox
 -- plan): a policy has no wildcard.
--- TODO: start the worker of a module that declares `nests` without the
--- descriptors of its core and artifact that [`Proc.relaunch`] hands it,
--- once a worker can find them by path (or the nest promise can hand a
--- read-only descriptor its holder cannot reopen): [`Child.start`] refuses a
--- file open for reading alone to a nest child, so each such module fails
--- under the policy path, naming the descriptor.
+-- TODO: give a worker that nests a per-closure artifact -- the core and its
+-- closure store, not the real o/bin/cosmic -- to open by path, once the
+-- artifact format can be cut down to a closure (build/artifact.tl): the
+-- real one holds every module of the tree, which no key of a test that
+-- does not declare `store` or `tool` holds.
 local function refusal(effective: test_inputs.Effective): string
+  if effective.nests and not effective.store and not effective.tool then
+    return 'nests: a worker that builds roots of its own is handed no descriptor of the ' ..
+      'program and so opens the artifact by its path, which holds every module of the tree, ' ..
+      'beyond what its key holds; declare `store` or `tool`, or wait for a per-closure artifact'
+  end
   if effective.env["*"] then
     return 'env "*": the policy path names each variable a worker is given, and a policy ' ..
       'has no wildcard; name the variables the module reads'

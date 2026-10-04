@@ -3,6 +3,7 @@
 --- worker ran to what its test's key holds.
 
 local type Child = require("cosmic.child")
+local type Sandbox = require("cosmic.sandbox")
 local Clock = require("cosmic.clock")
 local worker = require("build.test_worker")
 
@@ -118,6 +119,34 @@ local function test_a_worker_is_started_as_its_command_line_says()
       "--store /stores/a.db suite.a_test --tree --declared"
     assert(said == wanted, said)
   end
+end
+
+--- A worker started under a policy that promises `nest` is handed no
+--- descriptor of the program and told of none: [`Child.start`] refuses a
+--- nest child one open for reading alone, and its startup opens the
+--- artifact and core itself where it is told of none. Any other worker, or
+--- one under a policy without `nest`, has both as the relaunch hands them.
+local function test_a_nesting_worker_is_handed_no_descriptor_of_the_program()
+  local function started(promises: {string}): worker.Command
+    return worker.invocation({
+      start = { argv = { "/core", "--artifact", "/a" },
+        env = { COSMIC_PORTABLE_ARTIFACT_FD = "254", COSMIC_PORTABLE_CORE_FD = "255",
+          COSMIC_PORTABLE_CORE_LENGTH = "9" },
+        fds = { [254] = 7, [255] = 8 } },
+      env = {}, root = "/tree", module_path = "suite.a_test", name = "test_x", scratch = "/tmp",
+      needs = "", hold = "none", open = true, closure = {}, tree = {}, declared = {},
+      policy = { isolate = { "file" }, promises = promises as {Sandbox.Promise} },
+    })
+  end
+  local nesting = started({ "fork", "nest" })
+  local env = nesting.options.policy.set_env
+  assert(env.COSMIC_PORTABLE_ARTIFACT_FD == nil and env.COSMIC_PORTABLE_CORE_FD == nil)
+  assert(env.COSMIC_PORTABLE_CORE_LENGTH == "9", "the rest of the contract stays")
+  assert(nesting.options.fds[254] == nil and nesting.options.fds[255] == nil)
+  assert(nesting.options.fds[worker.report_fd] == "capture")
+  local plain = started({ "fork" })
+  assert(plain.options.policy.set_env.COSMIC_PORTABLE_ARTIFACT_FD == "254")
+  assert(plain.options.fds[254] == 7 and plain.options.fds[255] == 8)
 end
 
 --- A test that said it could not check what it exists to check

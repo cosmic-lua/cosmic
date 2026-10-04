@@ -111,7 +111,7 @@ local function test_the_declaration_beside_the_paths_is_the_policys_other_fields
       holds(policy.promises, "jit") and not holds(policy.promises, "nest"),
     table.concat(policy.promises, ","))
   assert(policy.profiles == nil and #policy.loopback == 0)
-  inputs.nests, inputs.system = true, true
+  inputs.nests, inputs.system, inputs.tool = true, true, true
   inputs.network = { ["127.0.0.3"] = true, ["127.0.0.1"] = true }
   policy = worker_of(plan, inputs)
   assert(holds(policy.promises, "nest"), table.concat(policy.promises, ","))
