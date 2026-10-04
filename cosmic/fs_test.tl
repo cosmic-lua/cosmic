@@ -1,4 +1,5 @@
 local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 
 local function test_path_predicates_distinguish_answers_from_errors(tmp: string)
@@ -317,12 +318,30 @@ local function test_set_mtime_defaults_to_a_whole_second_and_checks_ns(tmp: stri
   assert(not pcall(Fs.set_mtime, path, 4000, -1))
 end
 
+--- Whether a chmod of `path` to `mode`, which has a setuid bit, is refused
+--- by the worker's seccomp filter, which `fattr` never lets set one: EPERM,
+--- where a process may set the bits of its own file. Says the running test
+--- is skipped then.
+-- TODO: set a setuid mode again under the policy path, and delete this
+-- skip, once a promise lets a test that declares it set the special bits
+-- (core/promises.c's `fattr` refuses them for good): a process the test
+-- starts is held by the same filter, so no other process can set them.
+local function special_bits_refused(path: string, mode: integer): boolean
+  local set, _, errno = sys.chmod(path, mode)
+  if set or errno ~= sys.EPERM then return false end
+  Test.skip("the worker's filter refuses a mode with a setuid bit: `fattr` never allows one")
+  return true
+end
+
 local function test_chmod_sets_the_bits_stat_reads_back(tmp: string)
   local path = tmp .. "/file"
   assert(Fs.write(path, "contents", 0x1a4))
-  local set, trouble = Fs.chmod(path, 0x9c0)
+  local bits = 0x9c0
+  -- What the rest of the case checks needs no special bit.
+  if special_bits_refused(path, bits) then bits = 0x1c0 end
+  local set, trouble = Fs.chmod(path, bits)
   assert(set and trouble == "", trouble)
-  assert(assert(Fs.stat(path)).mode & 0xfff == 0x9c0)
+  assert(assert(Fs.stat(path)).mode & 0xfff == bits)
   assert(Fs.chmod(path, 0))
   assert(assert(Fs.stat(path)).mode & 0xfff == 0)
 
@@ -624,6 +643,7 @@ end
 
 local function test_copy_tree_drops_setuid_and_setgid(tmp: string)
   assert(Fs.write(tmp .. "/run", "#!/bin/sh\n", 0x1ed))
+  if special_bits_refused(tmp .. "/run", 0x9ed) then return end
   assert(sys.chmod(tmp .. "/run", 0x9ed))
   assert(Fs.copy_tree(tmp .. "/run", tmp .. "/copy"))
   assert(assert(Fs.stat(tmp .. "/copy")).mode & 0xfff == 0x1ed)

@@ -12,7 +12,6 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local confine = require("build.confine")
-local sandbox_skip = require("build.sandbox_skip")
 local stand_in = require("build.stand_in")
 local this_program = require("build.this_program")
 local test_inputs = require("build.test_inputs")
@@ -26,10 +25,10 @@ local Test = require("cosmic.test")
 --- finds this program's core, a process confined is given the program,
 --- and a case starts it; and the variables that hold a run to sandboxing, which a case
 --- whose run sandboxed none of its workers reads to skip
---- (build.sandbox_skip).
+--- (Test.skip).
 Test.needs{
   host = { "/dev/urandom", "/proc" },
-  env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
+  env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
   tool = true,
   nests = true,
   system = true,
@@ -155,7 +154,7 @@ end
   local text = assert(Fs.read(output))
   assert(result ~= nil and not result.ok, tostring(trouble) .. text)
   if text:find("no worker can be sandboxed here", 1, true) then
-    sandbox_skip.nested(text)
+    if confine.sandbox_platform() then Test.skip(confine.unsandboxed_reason(text)) end
     return
   end
   --- What the run said of `test`'s failure, up to where it says to rerun it.

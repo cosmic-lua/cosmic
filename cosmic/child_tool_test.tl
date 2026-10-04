@@ -15,7 +15,6 @@ local Proc = require("cosmic.proc")
 local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
-local sandbox_skip = require("build.sandbox_skip")
 local this_program = require("build.this_program")
 
 --- What the tests read: /proc, where a test finds a child's processes;
@@ -97,7 +96,7 @@ end
 --- the pid 1 that would pass over a signal it does not catch from
 --- outside the namespace. Where the kernel will not sandbox a child, the
 --- sandboxed case is the kernel's to refuse, which skips the test
---- (build.sandbox_skip).
+--- (Test.skip).
 local function test_a_timeout_ends_a_child_that_catches_nothing(tmp: string)
   local r = assert(Child.run(lua(sleep(100000), nil,
     { timeout_ns = Clock.ms(200), process_group = false })))
@@ -111,7 +110,9 @@ local function test_a_timeout_ends_a_child_that_catches_nothing(tmp: string)
   local sandboxed, trouble = Child.run(lua(sleep(100000), nil,
     { cwd = tmp, timeout_ns = Clock.ms(200), sandbox = { unveil = { reads = reads }, offline = true } }))
   if sandboxed == nil then
-    sandbox_skip.refused("no sandbox for the child: " .. tostring(trouble))
+    if confine.sandbox_platform() then
+      Test.skip("no sandbox for the child: " .. tostring(trouble))
+    end
     return
   end
   assert(sandboxed.timed_out and sandboxed.signal == sys.SIGTERM,
@@ -266,7 +267,7 @@ end
 --- starts; a relative unveiled path is refused. Where the kernel will not
 --- sandbox a child (not Linux, or no unprivileged user namespaces), the
 --- start fails and says why, and the test is skipped where the platform
---- could have given one (build.sandbox_skip).
+--- could have given one (Test.skip).
 local function test_a_sandboxed_child_has_only_what_it_unveils(tmp: string)
   local given, hidden = tmp .. "/given", tmp .. "/hidden"
   assert(Fs.mkdirs(given))
@@ -285,7 +286,9 @@ local function test_a_sandboxed_child_has_only_what_it_unveils(tmp: string)
     { cwd = "/given", stdout = "capture", stderr = "stdout",
       sandbox = { unveil = { reads = reads, at = { [given] = "/given" } }, offline = true } }))
   if r == nil then
-    sandbox_skip.refused("no sandbox for the child: " .. tostring(trouble))
+    if confine.sandbox_platform() then
+      Test.skip("no sandbox for the child: " .. tostring(trouble))
+    end
     -- Only as a kernel that cannot sandbox refuses.
     local refused = false
     for _, errno in ipairs({ sys.ENOSYS, sys.EPERM, sys.EACCES, sys.EINVAL, sys.ENOSPC }) do

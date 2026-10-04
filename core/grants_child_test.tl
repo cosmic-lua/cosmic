@@ -4,14 +4,15 @@
 --- (build/stand_in.tl), which does what its script says, so a path the
 --- ruleset refuses shows as a command that fails, with the errno Landlock
 --- answers. A host whose kernel gives no Landlock skips them
---- (build.sandbox_skip).
+--- (Test.skip).
 
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Test = require("cosmic.test")
+local unix_socket = require("build.unix_socket")
 local sys = require("cosmic.sys")
-local sandbox_skip = require("build.sandbox_skip")
+local confine = require("build.confine")
 local stand_in = require("build.stand_in")
 local type raw_process = require("cosmic.internal.process")
 -- Required, so the module whose loader is handed the raw table is of this
@@ -76,7 +77,7 @@ end
 local function abi_or_skip(): integer
   local abi, trouble = process.landlock_abi()
   if abi == nil then
-    sandbox_skip.refused("no Landlock here: " .. tostring(trouble))
+    if confine.sandbox_platform() then Test.skip("no Landlock here: " .. tostring(trouble)) end
     return nil
   end
   return abi
@@ -90,7 +91,7 @@ local function under(tmp: string, program: string, more: {raw_process.Grant}, sc
   for _, grant in ipairs(more) do grants[#grants + 1] = grant end
   local outcome = start(tmp, program, grants, script)
   if unsandboxable(outcome) then
-    sandbox_skip.refused(outcome.refused)
+    if confine.sandbox_platform() then Test.skip(outcome.refused) end
     return outcome, true
   end
   assert(outcome.refused == nil, "the start was refused: " .. tostring(outcome.refused))
@@ -209,7 +210,7 @@ local function test_a_grant_that_does_not_exist_fails_the_start_naming_it(tmp: s
   local outcome = start(tmp, probe, { { path = probe, access = "rx" }, { path = missing, access = "r" } },
     "print never")
   if unsandboxable(outcome) then
-    sandbox_skip.refused(outcome.refused)
+    if confine.sandbox_platform() then Test.skip(outcome.refused) end
     return
   end
   assert(outcome.refused ~= nil and outcome.refused:find(missing, 1, true), "names the path: " .. tostring(outcome.refused))
@@ -259,7 +260,7 @@ end
 
 local function test_u_connects_to_a_granted_socket_where_the_kernel_can_hold_it(tmp: string)
   local abi = abi_or_skip()
-  if abi == nil then return end
+  if abi == nil or unix_socket.skipped(tmp) then return end
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   assert(Fs.mkdirs(tmp .. "/s"))
   local socket = tmp .. "/s/sock"
@@ -325,7 +326,7 @@ local function forking(tmp: string, program: string, script: string): Outcome, b
   local outcome = start(tmp, program, { { path = program, access = "rx" },
     { path = tmp, access = "rwcx" } }, script, { "fork" })
   if unsandboxable(outcome) then
-    sandbox_skip.refused(outcome.refused)
+    if confine.sandbox_platform() then Test.skip(outcome.refused) end
     return outcome, true
   end
   assert(outcome.refused == nil, "the start was refused: " .. tostring(outcome.refused))
@@ -401,7 +402,9 @@ local function test_promises_without_grants_keep_the_filter_to_the_starting_pid(
     output, output, false, nil, { promises = { "fork" } })
   if pid == nil then
     sys.close(output)
-    sandbox_skip.refused("the kernel gives no seccomp filter: " .. tostring(why))
+    if confine.sandbox_platform() then
+      Test.skip("the kernel gives no seccomp filter: " .. tostring(why))
+    end
     return
   end
   local status = assert(process.waitpid(pid, false))
@@ -419,7 +422,7 @@ local function test_a_ruleset_descriptor_keeps_the_filter_to_the_starting_pid(tm
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local ruleset, trouble = process.landlock_ruleset({ probe }, { tmp })
   if ruleset == nil then
-    sandbox_skip.refused("no ruleset: " .. tostring(trouble))
+    if confine.sandbox_platform() then Test.skip("no ruleset: " .. tostring(trouble)) end
     return
   end
   local path = tmp .. "/said"
@@ -439,7 +442,7 @@ local function test_no_grants_grant_nothing_and_the_program_needs_its_own(tmp: s
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local none = start(tmp, probe, {}, "print never")
   if unsandboxable(none) then
-    sandbox_skip.refused(none.refused)
+    if confine.sandbox_platform() then Test.skip(none.refused) end
     return
   end
   -- Held to nothing, the child cannot run its own program: the start fails, and says why.

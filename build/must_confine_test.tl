@@ -10,7 +10,6 @@ local Fs = require("cosmic.fs")
 local confine = require("build.confine")
 local stand_in = require("build.stand_in")
 local this_program = require("build.this_program")
-local sandbox_skip = require("build.sandbox_skip")
 local Test = require("cosmic.test")
 local String = require("cosmic.string")
 local Clock = require("cosmic.clock")
@@ -20,7 +19,7 @@ local Clock = require("cosmic.clock")
 --- (`nests`); and the variables `unsandboxed` reads, which hold a run
 --- to sandboxing.
 Test.needs{
-  env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
+  env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
   tool = true,
   nests = true,
 }
@@ -63,11 +62,10 @@ end
 --- test's own sandbox, which a host may refuse: the kernel lets root
 --- nest one only two deep (core/syscalls.c's `map_ids`) where a root
 --- runner cannot run its workers as a user of their own
---- (build.test_sandbox's `runs_as`). A run held to sandboxing fails the
---- skip; CI's unprivileged runners nest them.
+--- (build.test_sandbox's `runs_as`). CI's unprivileged runners nest them.
 local function unsandboxed(text: string): boolean
-  if text:find("; sandboxed)", 1, true) then return false end
-  sandbox_skip.nested(text)
+  if text:find("; sandboxed", 1, true) then return false end
+  if confine.sandbox_platform() then Test.skip(confine.unsandboxed_reason(text)) end
   return true
 end
 
@@ -82,6 +80,14 @@ local function environment(mode: string | nil): {string:string}
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_TEST_SANDBOX = nil
   env.COSMIC_SANDBOX = mode
+  -- The suites' modules nest and declare neither `store` nor `tool`, whose
+  -- tests the policy path skips; what they check is the older sandbox's
+  -- `confine`.
+  -- TODO: run these suites on the policy path, and drop the switch, once a
+  -- worker that nests may be given a per-closure artifact (build/test_policy.tl's
+  -- `deferred`), or step (e) of doc/plans/sandbox.md moves `confine` onto
+  -- policies.
+  env.COSMIC_TEST_POLICY = "0"
   return env
 end
 
@@ -290,7 +296,9 @@ end
   assert(why ~= nil and why:find("^must_confine: %S*bin/probe could not start confined: .+ could " ..
       "not be applied: .+ %(E[A-Z0-9]+%)$"), text)
   if unsandboxed(text) then return end
-  sandbox_skip.refused("a sandboxed worker could not confine what it started: " .. why)
+  if confine.sandbox_platform() then
+    Test.skip("a sandboxed worker could not confine what it started: " .. why)
+  end
 end
 
 --- COSMIC_SANDBOX=must makes every `confine` a `must_confine`, and every

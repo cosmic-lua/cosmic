@@ -40,7 +40,9 @@ worktree's state stays until deleted).
 
 The `sandbox` phase writes what spawn's sandbox can hold on this machine
 (`build/sandbox_probe.tl`) to its log and the summary, and fails only when
-`COSMIC_CI_REQUIRE_SANDBOX=1` and a part a confined test needs did not hold.
+`COSMIC_CI_REQUIRE_SANDBOX=1` and a part a confined test needs did not hold:
+that probe alone is fatal, and a test skipped for a part the host lacks
+fails no `cosmic test` run, held or not.
 ci.yml sets it on the Linux legs, whose container is given what the sandbox
 needs; run-local leaves it unset, since many a development host refuses an
 unprivileged user namespace (Ubuntu 24.04's
@@ -48,9 +50,10 @@ unprivileged user namespace (Ubuntu 24.04's
 phases after it still run there. Set it to hold a local run to the same.
 
 Where `COSMIC_CI_REQUIRE_SANDBOX=1`, every phase's `cosmic test` runs each
-worker sandboxed to its declared inputs (`COSMIC_TEST_SANDBOX=1`,
-`build/test_sandbox.tl`), as it does by default wherever it can, and fails
-where none can be rather than run them unsandboxed.
+worker sandboxed to its declared inputs (`COSMIC_TEST_SANDBOX=1`), under
+a `cosmic.sandbox` policy (`build/test_policy.tl`), as it does by default
+wherever it can, and fails where none can be rather than run them
+unsandboxed.
 
 CI runs the driver unprivileged, and as root a permission a fixture expects
 to be refused may be granted. So invoked as root, run-local runs the driver
@@ -455,26 +458,6 @@ at that path, so a path of another length each commit varies what the
 sanitizers see. The tree moves back before the seed and the verdicts'
 save, whose path actions/cache names relative to the workspace
 (below).
-
-### the policy workflow
-
-`.github/workflows/policy.yml` is a workflow of its own, not a job of
-ci.yml, and gates nothing: no ruleset requires it, the `ci` join does
-not wait on it, and its suite step passes whatever the suite did. It
-is step (b) of #2621's doc/plans/sandbox.md: the native suite, every
-test, with each sandboxed worker started under a
-`cosmic.sandbox` policy (`COSMIC_TEST_POLICY=1`, build/test_policy.tl)
-in place of the sandbox the runner plans by default. It runs
-linux-x86_64's host, in the container the legs use, boots as the
-checked job does (restoring linux-x86_64's zig build outputs, saving
-none), and runs the `policy-suite` phase (`platform policy-suite`), which
-records a `policy` suite row: the failures under the policy path, and
-why, are in that row's summary and in the step's output, kept as
-`policy-suite-linux-x86_64`. Its verdicts are the policy path's own,
-kept apart from the default's by a runtime of their own, so it stands
-on none the legs earned. The step fails when a test does and the job
-does not, until the suite is green and step (c) makes the policy path
-the default, which deletes this workflow with the flag.
 
 ### the Linux legs' container
 

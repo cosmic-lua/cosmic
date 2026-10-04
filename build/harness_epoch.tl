@@ -77,7 +77,7 @@ local record harness_epoch
   library: {string:string}
 end
 
-harness_epoch.epoch = "17-3c746d0f" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
+harness_epoch.epoch = "18-97867c56" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
 harness_epoch.acknowledged = {
 
   ["build.artifact"] = "4405196f6511a21a7493aa3d1ee196c6318d3ceec2e0202800494c46b9502745",
@@ -90,7 +90,7 @@ harness_epoch.acknowledged = {
 
   ["build.caches"] = "57bac59a121d7520f3d30b9052a6f6c5d67a51e8785c5a75d021760317fb9312",
 
-  ["build.confine"] = "d8899b62da8be9917a1d4d108acee8c659538afa86e579ee3cb012b660a58d60",
+  ["build.confine"] = "b9a6db294014190ad107bc3ac2482f2d3cbb20279f6b301e4667f71debe3f566",
 
   ["build.core_image"] = "dfc18e0e6316237ab9fb11a957df68d6217e42cffc6f2f3a767018c5313700ac",
 
@@ -108,11 +108,11 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "516c08e34d1fc392de5363af92b6d669344fc3c8b504c469ae3771a424d0db6b",
 
-  ["build.test"] = "8fd61dfffd487b9c49966d6d9ee04adb3d7a2acccd0c5f3bf277a6d172befb77",
+  ["build.test"] = "cb536211978d5472947a634a64b6bcbbc317d8ad29dbe59be21b59c2e0109003",
 
   ["build.test_inputs"] = "5da3827a258c10dd0399f75b97fbbb4bde0251eef950f66783191421227519c7",
 
-  ["build.test_policy"] = "d2937b8438663d1facb1894fe47a058e4a4ca67d6a730d57c5ddde624b923eef",
+  ["build.test_policy"] = "ae3d688dfdc37bf087e0704a9ac0ef29762bf8ea1d64b90e701f7cb414c023e0",
 
   ["build.test_sandbox"] = "b529cddb2c0c54824f94418400205b9ed0004441ed0ede5bc97463815ab916ae",
 
@@ -140,7 +140,7 @@ harness_epoch.acknowledged = {
 
   ["cosmic.string"] = "bf0e5e828de84f23aa818887e0280a3ebc844c9ca5e384c33227cb42715b8655",
 
-  ["cosmic.test"] = "ad07e2029491e2b1986148050664d2b0c09b2a771827421768981b050d782d96",
+  ["cosmic.test"] = "fb414601bcea382aa039addeb5e9a088de8e7b8e931bf8d3b3d99d783d382853",
 
 }
 
@@ -190,6 +190,7 @@ harness_epoch.retired = {
   "09244ac2",
   "e83f51b3",
   "a2b093aa",
+  "3c746d0f",
 }
 
 return harness_epoch

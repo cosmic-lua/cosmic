@@ -5,12 +5,12 @@
 --- the basics and does what its script says, so a call the filter refuses
 --- shows as a command that fails, with the errno the filter answers.
 --- A host whose kernel gives no seccomp, or a container that already
---- filters more than this allows, skips them (build.sandbox_skip).
+--- filters more than this allows, skips them (Test.skip).
 
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local sandbox_skip = require("build.sandbox_skip")
+local confine = require("build.confine")
 local stand_in = require("build.stand_in")
 local type raw_process = require("cosmic.internal.process")
 -- Required, so the module whose loader is handed the raw table is of this
@@ -51,7 +51,9 @@ local function under(tmp: string, promises: {string}, script: string, probe?: st
     false, nil, { promises = promises })
   if pid == nil then
     sys.close(output)
-    sandbox_skip.refused("the kernel gives no seccomp filter: " .. tostring(trouble))
+    if confine.sandbox_platform() then
+      Test.skip("the kernel gives no seccomp filter: " .. tostring(trouble))
+    end
     return { code = -1, signal = -1, said = "" }
   end
   local status = assert(process.waitpid(pid, false))
@@ -143,13 +145,18 @@ local function test_no_socket_is_made_but_a_socketpair(tmp: string)
     local unix = under(tmp, promises, "connect " .. tmp .. "/none.sock", probe)
     assert(unix.said:find("not permitted", 1, true) ~= nil, "a unix socket is refused too: " .. unix.said)
   end
-  -- Unfiltered, the same commands reach the network stack and fail on their own.
+  -- A child given no filter of its own reaches the network stack and fails
+  -- on its own, unless this worker is itself held by a filter (as one
+  -- under the policy path is), which every process it starts has too.
   local plain = assert(sys.open(tmp .. "/plain", sys.O_CREAT | sys.O_RDWR, 420))
   local pid = assert(process.spawn(probe, { probe, "connect-tcp 127.0.0.1 9" }, nil, nil, nil, plain,
     plain, false))
   assert(assert(process.waitpid(pid, false)).code == 0)
   sys.close(plain)
-  assert(assert(Fs.read(tmp .. "/plain")):find("not permitted", 1, true) == nil)
+  local said = assert(Fs.read(tmp .. "/plain"))
+  local own = assert(Fs.read("/proc/self/status")):match("\nSeccomp:%s*(%d+)") == "2"
+  assert((said:find("not permitted", 1, true) ~= nil) == own,
+    (own and "the worker's own filter holds what it starts: " or "unfiltered: ") .. said)
 end
 
 --- Whether this process has CAP_SYS_RESOURCE in its permitted set, which
@@ -235,7 +242,9 @@ local function test_the_filter_stacks_with_a_pledge(tmp: string)
   local inherited = assert(filters(tmp, probe, nil))
   local both = filters(tmp, probe, { promises = {}, pledge = {} })
   if both == nil then
-    sandbox_skip.refused("the kernel gives no seccomp filter beside a pledge")
+    if confine.sandbox_platform() then
+      Test.skip("the kernel gives no seccomp filter beside a pledge")
+    end
     return
   end
   assert(both == inherited + 2, "filters: " .. inherited .. " inherited, " .. both .. " under both")

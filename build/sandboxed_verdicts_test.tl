@@ -23,7 +23,6 @@ local artifact = require("build.artifact")
 local confine = require("build.confine")
 local this_program = require("build.this_program")
 local harness_epoch = require("build.harness_epoch")
-local sandbox_skip = require("build.sandbox_skip")
 local Test = require("cosmic.test")
 
 --- What a sandboxed run of `cosmic test` needs of the host, the
@@ -31,7 +30,7 @@ local Test = require("cosmic.test")
 --- the variables `unsandboxed` reads, which hold a run to sandboxing.
 Test.needs{
   host = { "/dev/urandom", "/proc" },
-  env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
+  env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
   tool = true,
   nests = true,
 }
@@ -80,12 +79,10 @@ end
 --- running test is skipped ([`Test.skip`]). A host that refuses a
 --- worker's workers a sandbox of their own -- one running the tests as
 --- root, this test's run confined in a sandbox already -- checks nothing
---- here. A run held to sandboxing fails the skip, so it proves the runs
---- it starts sandbox theirs, nested in its own as they are (CI's
---- unprivileged runner nests them).
+--- here (CI's unprivileged runner nests them).
 local function unsandboxed(text: string): boolean
-  if text:find("; sandboxed)", 1, true) then return false end
-  sandbox_skip.nested(text)
+  if text:find("; sandboxed", 1, true) then return false end
+  if confine.sandbox_platform() then Test.skip(confine.unsandboxed_reason(text)) end
   return true
 end
 

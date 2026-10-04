@@ -16,10 +16,11 @@ local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
 local Test = require("cosmic.test")
+local unix_socket = require("build.unix_socket")
 local type raw_hash = require("cosmic.internal.hash")
 local type raw_process = require("cosmic.internal.process")
 local stand_in = require("build.stand_in")
-local sandbox_skip = require("build.sandbox_skip")
+local confine = require("build.confine")
 local Clock = require("cosmic.clock")
 
 -- TODO: declare /proc for Linux alone once a declaration can name a
@@ -55,12 +56,12 @@ local hash = raw_behind("cosmic.hash") as raw_hash -- cast: the table cosmic/int
 
 --- Says a sandbox test is skipped ([`Test.skip`]) where this Linux host
 --- refuses the sandbox it is about -- no Landlock, no pledge -- as it
---- returns early: the run counts it skipped rather than passed, and a
---- run held to sandboxing (COSMIC_SANDBOX=must among them) fails it.
---- Another platform has no such sandbox to check, and returns silently
---- (build.sandbox_skip).
+--- returns early: the run counts it skipped rather than passed.
+--- Another platform has no such sandbox to check, and returns silently.
 local function unsandboxable(what: string, trouble: string)
-  sandbox_skip.refused("the kernel gives no " .. what .. ": " .. tostring(trouble))
+  if confine.sandbox_platform() then
+    Test.skip("the kernel gives no " .. what .. ": " .. tostring(trouble))
+  end
 end
 
 --- A stand-in program built under `tmp` (build/stand_in.tl), which runs
@@ -221,6 +222,7 @@ end
 --- a device in a listing: a worker is given no block device, and no
 --- directory of the system's to list.
 local function test_stat_names_a_socket_a_fifo_and_a_device(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local socket = tmp .. "/socket"
   socket_file(socket)
   local found = assert(sys.lstat(socket)).kind
@@ -367,35 +369,45 @@ local function test_readdir_lists_entries_without_dot_and_dot_dot(tmp: string)
 end
 
 --- A directory under `tmp` holding a file, a directory, a named pipe,
---- a socket file, and a link to each of the first two and to nothing.
-local function linked_directory(tmp: string): string
+--- a socket file where `socket` says, and a link to each of the first two
+--- and to nothing.
+local function linked_directory(tmp: string, socket: boolean): string
   local d = tmp .. "/d"
   assert(sys.mkdir(d))
   sys.close(create(d .. "/file"))
   assert(sys.mkdir(d .. "/sub"))
   assert(sys.mkfifo(d .. "/fifo"))
-  socket_file(d .. "/socket")
+  if socket then socket_file(d .. "/socket") end
   assert(sys.symlink("file", d .. "/to_file"))
   assert(sys.symlink("sub", d .. "/to_dir"))
   assert(sys.symlink("missing", d .. "/dangling"))
   return d
 end
 
---- The entries of [`linked_directory`].
+--- The entries of [`linked_directory`] with a socket file.
 local LINKED_ENTRIES <const> = 7
 
 --- Checks readdir's answer for [`linked_directory`].
-local function names_links_as_links(entries: {string:sys.Kind}, what: string)
+local function names_links_as_links(entries: {string:sys.Kind}, what: string, socket: boolean)
   assert(entries["file"] == "file" and entries["sub"] == "dir", what)
   assert(entries["fifo"] == "fifo", what .. ": a named pipe: " .. tostring(entries["fifo"]))
-  assert(entries["socket"] == "socket", what .. ": a socket file: " .. tostring(entries["socket"]))
+  if socket then
+    assert(entries["socket"] == "socket", what .. ": a socket file: " .. tostring(entries["socket"]))
+  end
   assert(entries["to_file"] == "link", what .. ": a link to a file: " .. tostring(entries["to_file"]))
   assert(entries["to_dir"] == "link", what .. ": a link to a directory: " .. tostring(entries["to_dir"]))
   assert(entries["dangling"] == "link", what .. ": a dangling link: " .. tostring(entries["dangling"]))
 end
 
 local function test_readdir_names_a_link_as_a_link_whatever_it_leads_to(tmp: string)
-  names_links_as_links(assert(sys.readdir(linked_directory(tmp))), "readdir")
+  names_links_as_links(assert(sys.readdir(linked_directory(tmp, false))), "readdir", false)
+end
+
+--- A socket file in a listing is named a socket.
+local function test_readdir_names_a_socket_file_a_socket(tmp: string)
+  if unix_socket.skipped(tmp) then return end
+  local d = linked_directory(tmp, true)
+  names_links_as_links(assert(sys.readdir(d)), "readdir", true)
 end
 
 --- An entry whose type the filesystem leaves unknown is asked with an
@@ -403,12 +415,13 @@ end
 --- point makes each entry in turn unknown.
 local function test_readdir_names_an_entry_of_unknown_type_as_lstat_does(tmp: string)
   if testing.configuration ~= "sanitized" then return end
-  local d = linked_directory(tmp)
-  for skip = 0, LINKED_ENTRIES - 1 do
+  local socket = unix_socket.available(tmp)
+  local d = linked_directory(tmp, socket)
+  for skip = 0, LINKED_ENTRIES - (socket and 1 or 2) do
     testing.fail_at("readdir_d_type", skip)
     local entries = assert(sys.readdir(d))
     assert(not testing.fail_at(), "entry " .. skip .. " never reached readdir_d_type")
-    names_links_as_links(entries, "entry " .. skip .. " of unknown type")
+    names_links_as_links(entries, "entry " .. skip .. " of unknown type", socket)
   end
 end
 
@@ -632,32 +645,50 @@ local function test_a_landlock_ruleset_holds_a_child_to_what_it_names(tmp: strin
   assert(bad == nil and bad_trouble ~= "", "a path that is not there refuses the ruleset")
 end
 
---- A ruleset holds files and not the network, on every kernel: a child
---- held to one reaches a listener of this process's over TCP on
---- loopback and over a unix socket file, as one held to none does.
-local function test_a_landlock_ruleset_leaves_a_child_its_loopback(tmp: string)
+--- Runs a child held to a ruleset of its own program alone, whose `script`
+--- connects to the listener `listen` makes at `tmp`/s, and checks it did.
+local function connects_through_a_ruleset(tmp: string, listen: function(string): Net.Listener,
+                                          script: function(Net.Listener, string): string)
   local probe = probe_in(tmp)
-  local tcp = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
   local socket = tmp .. "/s"
-  local unix = assert(Net.listen(Net.unix(socket), { timeout_ns = Clock.seconds(5) }))
+  local listener = listen(socket)
   local ruleset, trouble = process.landlock_ruleset({ probe }, {})
   if ruleset == nil then
-    assert(tcp:close() and unix:close())
+    assert(listener:close())
     unsandboxable("Landlock ruleset", trouble)
     return
   end
   local output = create(tmp .. "/said")
-  local pid = assert(process.spawn(probe, { probe,
-    "connect-tcp 127.0.0.1 " .. tostring(tcp.address.port) .. "; connect " .. socket },
+  local pid = assert(process.spawn(probe, { probe, script(listener, socket) },
     nil, tmp, nil, output, output, false, nil, { ruleset = ruleset }))
   sys.close(ruleset)
   local status = assert(process.waitpid(pid, false))
   local said = assert(sys.pread(output, 4096, 0))
   sys.close(output)
-  assert(status.code == 0 and said == "connected\nconnected\n", said)
-  assert(assert(tcp:accept()):close())
-  assert(assert(unix:accept()):close())
-  assert(tcp:close() and unix:close())
+  assert(status.code == 0 and said == "connected\n", said)
+  assert(assert(listener:accept()):close())
+  assert(listener:close())
+end
+
+--- A ruleset holds files and not the network, on every kernel: a child
+--- held to one reaches a listener of this process's over TCP on
+--- loopback, as one held to none does.
+local function test_a_landlock_ruleset_leaves_a_child_its_loopback(tmp: string)
+  connects_through_a_ruleset(tmp, function(_socket: string): Net.Listener
+    return (assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) })))
+  end, function(listener: Net.Listener, _socket: string): string
+    return "connect-tcp 127.0.0.1 " .. tostring(listener.address.port)
+  end)
+end
+
+--- The same over a unix socket file.
+local function test_a_landlock_ruleset_leaves_a_child_its_unix_socket(tmp: string)
+  if unix_socket.skipped(tmp) then return end
+  connects_through_a_ruleset(tmp, function(socket: string): Net.Listener
+    return (assert(Net.listen(Net.unix(socket), { timeout_ns = Clock.seconds(5) })))
+  end, function(_listener: Net.Listener, socket: string): string
+    return "connect " .. socket
+  end)
 end
 
 --- A process held to running what is beneath some paths runs a program
@@ -716,9 +747,7 @@ end
 --- A pledged child runs under a seccomp filter, and so does what it
 --- starts; an unpledged one runs as this process does (under a filter
 --- of its own when a container gives it one), and a promise no one keeps
---- is refused before anything starts. A socket of a family not promised
---- is refused (EPERM), where one promised is made and then refused its
---- connection.
+--- is refused before anything starts.
 local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
   local probe = probe_in(tmp)
   local refused = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil,
@@ -762,22 +791,34 @@ local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
   end
   local plain = filtered(nil)
   assert(plain == "Seccomp: " .. own .. " Seccomp: " .. own .. " ", plain)
-  if pledged ~= "unsupported" then
-    local function connected(promises: {string}): string
-      local output = create(tmp .. "/connect")
-      local pid = assert(process.spawn(probe, { probe, "connect " .. tmp .. "/none.sock" },
-        nil, nil, nil, output, output, false, nil, { pledge = promises }))
-      assert(assert(process.waitpid(pid, false)).code == 0)
-      local said = assert(sys.pread(output, 4096, 0))
+end
+
+--- A socket of a family not promised is refused (EPERM), where one promised
+--- is made and then refused its connection: a unix connect to a path that is
+--- not there says so only with "unix" promised.
+local function test_a_pledge_without_unix_refuses_a_unix_connect(tmp: string)
+  if unix_socket.skipped(tmp) then return end
+  local probe = probe_in(tmp)
+  local function connected(promises: {string}): string
+    local output = create(tmp .. "/connect")
+    local pid, trouble = process.spawn(probe, { probe, "connect " .. tmp .. "/none.sock" },
+      nil, nil, nil, output, output, false, nil, { pledge = promises })
+    if pid == nil then
       sys.close(output)
-      return said
+      unsandboxable("pledge", trouble)
+      return "unsupported"
     end
-    local socket = tmp .. "/none.sock: "
-    local unpromised = connected({})
-    assert(unpromised == socket .. "Operation not permitted\n", unpromised)
-    local promised = connected({ "unix" })
-    assert(promised == socket .. "No such file or directory\n", promised)
+    assert(assert(process.waitpid(pid, false)).code == 0)
+    local said = assert(sys.pread(output, 4096, 0))
+    sys.close(output)
+    return said
   end
+  local socket = tmp .. "/none.sock: "
+  local unpromised = connected({})
+  if unpromised == "unsupported" then return end
+  assert(unpromised == socket .. "Operation not permitted\n", unpromised)
+  local promised = connected({ "unix" })
+  assert(promised == socket .. "No such file or directory\n", promised)
 end
 
 --- A child has a descriptor table of its own, though it starts on this
@@ -1579,7 +1620,7 @@ end
 --- elsewhere there is nothing to check.
 local function test_a_tree_digest_of_dev_full_is_not_special()
   if sys.stat("/dev/full") == nil then
-    sandbox_skip.refused("this worker has no /dev/full")
+    if confine.sandbox_platform() then Test.skip("this worker has no /dev/full") end
     return
   end
   local walked = assert(sys.tree_digest("/dev/full", false))

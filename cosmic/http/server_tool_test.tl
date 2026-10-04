@@ -136,7 +136,6 @@ end
 local function test_sigterm_stops_a_server_and_it_exits_0(tmp: string)
   local script = tmp .. "/server.tl"
   local marker = tmp .. "/ready"
-  local socket = tmp .. "/s.sock"
   assert(Fs.write(script, [[
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -144,11 +143,13 @@ local Server = require("cosmic.http.server")
 local Net = require("cosmic.net")
 return function(argv: {string}): integer
   local ok, why = Server.serve{
-    listeners = { Net.unix(argv[1]) },
+    listeners = { Net.tcp("127.0.0.1", 0) },
     idle_ns = Clock.seconds(60),
     handle = function(_req: Server.Request): Server.Reply return { status = 200, body = "up" } end,
-    on_ready = function(_addresses: {Net.Address}, _server: Net.Server)
-      assert(Fs.write(argv[2], ""))
+    on_ready = function(addresses: {Net.Address}, _server: Net.Server)
+      -- Written whole, then renamed in, so the test never reads half a port.
+      assert(Fs.write(argv[1] .. ".tmp", tostring(addresses[1].port)))
+      assert(Fs.rename(argv[1] .. ".tmp", argv[1]))
     end,
   }
   if not ok then
@@ -158,15 +159,16 @@ return function(argv: {string}): integer
   return 0
 end
 ]]))
-  local started = this_program.program({ "--standalone", script, socket, marker },
+  local started = this_program.program({ "--standalone", script, marker },
     { stdout = "capture", stderr = "capture" })
   local child <close> = assert(Child.start(started.argv, started.options))
   for _ = 1, 3000 do
     if Fs.stat(marker) ~= nil then break end
     assert(sys.nanosleep(Clock.ms(10)))
   end
-  assert(Fs.stat(marker) ~= nil, "the server never listened")
-  local conn <close> = assert(Net.connect(Net.unix(socket), { timeout_ns = Clock.seconds(20) }))
+  local port = math.tointeger(tonumber(Fs.read(marker) or ""))
+  assert(port ~= nil, "the server never listened")
+  local conn <close> = assert(Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(20) }))
   assert(conn:write("GET / HTTP/1.1\r\nHost: test\r\n\r\n"))
   local head = ""
   while not head:find("\r\n\r\nup", 1, true) do head = head .. assert(conn:read()) end

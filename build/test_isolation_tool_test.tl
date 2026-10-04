@@ -12,7 +12,7 @@ local sys = require("cosmic.sys")
 local test = require("build.test")
 local this_program = require("build.this_program")
 local stand_in = require("build.stand_in")
-local sandbox_skip = require("build.sandbox_skip")
+local confine = require("build.confine")
 local Test = require("cosmic.test")
 
 --- A worker a test starts, to hang or exit, and /proc, where what a
@@ -22,7 +22,7 @@ local Test = require("cosmic.test")
 --- to sandboxing.
 Test.needs{
   host = { "/proc" },
-  env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
+  env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
   tool = true,
   nests = true,
 }
@@ -43,11 +43,10 @@ end
 --- this test's own sandbox, which a host may refuse: the kernel lets
 --- root nest one only two deep (core/syscalls.c's `map_ids`) where a
 --- root runner cannot run its workers as a user of their own
---- (build.test_sandbox's `runs_as`). A run held to sandboxing fails the
---- skip; CI's unprivileged runners nest them.
+--- (build.test_sandbox's `runs_as`). CI's unprivileged runners nest them.
 local function unsandboxed(text: string): boolean
-  if text:find("; sandboxed)", 1, true) ~= nil then return false end
-  sandbox_skip.nested(text)
+  if text:find("; sandboxed", 1, true) ~= nil then return false end
+  if confine.sandbox_platform() then Test.skip(confine.unsandboxed_reason(text)) end
   return true
 end
 
@@ -159,7 +158,7 @@ local function test_a_hung_or_exiting_test_fails_alone(tmp: string)
     assert(text:find("  | said something", 1, true), text)
     assert(not text:find("quiet", 1, true), text)
     assert(text:find("2 of 3 failed", 1, true), text)
-    local sandboxed = text:find("; sandboxed)", 1, true) ~= nil
+    local sandboxed = text:find("; sandboxed", 1, true) ~= nil
     if mode == "0" then
       assert(not sandboxed, text)
     else

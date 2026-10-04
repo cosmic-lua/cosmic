@@ -7,6 +7,7 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
+local unix_socket = require("build.unix_socket")
 local sys = require("cosmic.sys")
 local stand_in = require("build.stand_in")
 local artifact = require("build.artifact")
@@ -352,10 +353,6 @@ local function test_it_writes_to_a_descriptor_and_names_a_variable(tmp: string)
     { env = {}, fds = { [3] = fd }, stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(handed.ok, tostring(handed.stderr))
   assert(assert(sys.pread(fd, 64, 0)) == "to three\n")
-  -- `connect` says why a unix socket file cannot be connected to.
-  local missing = run({ probe, "connect " .. tmp .. "/none.sock" }, {})
-  assert(missing.ok and missing.stdout == tmp .. "/none.sock: No such file or directory\n",
-    missing.stdout)
   -- `connect-tcp` says why a port cannot be connected to, and refuses
   -- a port that is none.
   local refused = run({ probe, "connect-tcp 127.0.0.1 1" }, {})
@@ -367,6 +364,15 @@ local function test_it_writes_to_a_descriptor_and_names_a_variable(tmp: string)
   local unnamed = run({ probe, "write-fd x y" })
   assert(unnamed.code == 1 and assert(unnamed.stderr):find("no descriptor x", 1, true),
     tostring(unnamed.stderr))
+end
+
+--- `connect` says why a unix socket file cannot be connected to.
+local function test_connect_says_why_a_unix_socket_file_cannot_be_connected_to(tmp: string)
+  if unix_socket.skipped(tmp) then return end
+  local probe = built(tmp)
+  local missing = run({ probe, "connect " .. tmp .. "/none.sock" }, {})
+  assert(missing.ok and missing.stdout == tmp .. "/none.sock: No such file or directory\n",
+    missing.stdout)
 end
 
 --- A file whose first line is `#!<stand-in>`, and nothing more, runs its

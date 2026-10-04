@@ -2,12 +2,12 @@
 --- child reads back with getrlimit, soft and hard together. The child is a
 --- stand-in (build/stand_in.tl), which prints what its script says. A host
 --- that refuses to set one (ENOSYS: anything but Linux) skips the test
---- (build.sandbox_skip).
+--- (Test.skip).
 
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local sandbox_skip = require("build.sandbox_skip")
+local confine = require("build.confine")
 local stand_in = require("build.stand_in")
 local type raw_process = require("cosmic.internal.process")
 -- Required, so the module whose loader is handed the raw table is of this
@@ -52,7 +52,8 @@ local function test_every_limit_is_the_childs_soft_and_hard(tmp: string)
     "rlimit nofile; rlimit fsize; rlimit cpu; rlimit core")
   if said == nil then
     assert(errno == sys.ENOSYS, why)
-    return sandbox_skip.refused(why)
+    if confine.sandbox_platform() then Test.skip(why) end
+    return
   end
   assert(said == "nofile 48 48\nfsize 1073741824 1073741824\ncpu 5 5\ncore 0 0\n", said)
 end
@@ -61,7 +62,8 @@ local function test_a_limit_not_named_is_the_one_the_child_inherits(tmp: string)
   local said, why, errno = run(tmp, { core = 0 }, "rlimit core; rlimit cpu")
   if said == nil then
     assert(errno == sys.ENOSYS, why)
-    return sandbox_skip.refused(why)
+    if confine.sandbox_platform() then Test.skip(why) end
+    return
   end
   local own = assert(sys.getrlimit(sys.RLIMIT_CPU))
   assert(said == ("core 0 0\ncpu %d %d\n"):format(own.soft, own.hard), said)
@@ -71,7 +73,8 @@ local function test_math_maxinteger_is_no_limit_and_an_empty_table_names_none(tm
   local said, why, errno = run(tmp, { fsize = math.maxinteger }, "rlimit fsize")
   if said == nil then
     assert(errno == sys.ENOSYS, why)
-    return sandbox_skip.refused(why)
+    if confine.sandbox_platform() then Test.skip(why) end
+    return
   end
   assert(said == ("fsize %d %d\n"):format(math.maxinteger, math.maxinteger), said)
   local none = assert(run(tmp, {}, "rlimit core"))
