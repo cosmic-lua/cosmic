@@ -307,6 +307,24 @@ COSMIC_SYSCALL(sandbox_inits, 0);
 COSMIC_SYSCALL(children, 0);
 
 /*
+ * --- What a process holds itself to (`restrict_self`), in the fields `spawn`'s `sandbox` holds a child to.
+ * ---@class Restriction
+ * ---@field grants {Grant} the paths it may reach and how, as `spawn`'s `grants`: a Landlock ruleset of its own, which may be empty. A `u` grant needs ABI 9
+ * ---@field promises {string} the promises, as `spawn`'s `promises`: always a filter, which may be empty
+ * ---@field rlimits {string:integer} the limits, as `spawn`'s `rlimits`, soft and hard together but never raised: a limit already as low is left as it is, and one that must be lowered asks for setrlimit, which an earlier restriction's filter refuses
+ */
+
+/*
+ * --- Holds this process, and everything it starts, for good to what `restriction` names: its limits, then Landlock's ruleset, then the promises filter (core/promises.c), the last, so a later call narrows both and lowers no limit the filter refuses. Called again it adds: Landlock stacks rulesets and the kernel takes the intersection of the filters. Refused while this process has another thread (a restriction holds the thread that makes it), a child not yet reaped, or a descriptor above 2 is open that neither `keep` names nor the runtime keeps itself (this program's artifact and the databases of its store), or where `keep` names one that is not open: those checks change nothing, and the kernel's own calls after them, which can fail, can leave the limits lowered or the ruleset made. The process's /proc is read through descriptors it opens at its first restriction and keeps (close-on-exec, and not counted as the program's), since Landlock then refuses the path: a process forked from a restricted one cannot be inspected, and refuses. The filter's kill and scheduling rules take this process's pid, so a process it starts afterwards, which has another, cannot signal itself, and its abort() ends by SIGSEGV, until Landlock's signal scope (ABI 6, which the ruleset sets where the kernel has it) holds signals instead. Linux on x86_64 and aarch64; ENOSYS elsewhere
+ * ---@param restriction Restriction what to hold this process to
+ * ---@param keep? {integer} the descriptors above 2 this process keeps open, which no restriction closes
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, naming the descriptor, the path or the call, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(restrict_self, 2);
+
+/*
  * --- Whether this process's user namespace maps `id` inside, as a user and as a group, as its /proc/self/uid_map and gid_map list them: false with EINVAL, setuid's answer for an id it does not map, where either does not, and ENOSYS off Linux.
  * ---@param id integer the id, from 0 below 2^32 - 1
  * ---@return boolean ok false on failure

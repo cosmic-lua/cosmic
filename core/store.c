@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "check.h"
 #include "fail.h"
@@ -95,8 +96,9 @@ static bool out_of_memory (int rc) { return (rc & 0xff) == SQLITE_NOMEM; }
  * does not offer. [`build.fuzz`] gets the instruction
  * budget alone, which shares the coverage collector's hook but none of
  * its collection. The process table is [`cosmic.child`]'s,
- * [`cosmic.proc`]'s and [`build.confine`]'s, whose stand-in for its `spawn`
- * confines each child a test starts. [`build.digest`] shares
+ * [`cosmic.proc`]'s, [`cosmic.sandbox`]'s (to restrict this process and
+ * to know its children) and [`build.confine`]'s, whose stand-in for its
+ * `spawn` confines each child a test starts. [`build.digest`] shares
  * [`cosmic.hash`]'s, so the code that computes a verdict key hashes
  * through no raw function a test can replace: it takes them as it
  * loads, and only a hasher's `update` and `digest`, in the runner alone,
@@ -116,6 +118,7 @@ static const struct raw_module {
   {"build.digest", "cosmic.internal.hash", NULL},
   {"cosmic.child", "cosmic.internal.process", cosmic_open_process},
   {"cosmic.proc", "cosmic.internal.process", NULL},
+  {"cosmic.sandbox", "cosmic.internal.process", NULL},
   {"build.confine", "cosmic.internal.process", NULL},
   {"cosmic.compress", "cosmic.internal.compress", cosmic_open_compress},
   {"cosmic.http", "cosmic.internal.http", cosmic_open_http},
@@ -1334,6 +1337,27 @@ const struct cosmic_artifact *cosmic_store_artifact (lua_State *L) {
   lua_pop(L, 1);
   if (artifact == NULL || artifact->fd < 0) return NULL;
   return artifact;
+}
+
+bool cosmic_store_holds_descriptor (lua_State *L, int fd) {
+  const struct cosmic_artifact *artifact = cosmic_store_artifact(L);
+  if (artifact != NULL && fd == artifact->fd) return true;
+  struct stat held;
+  if (fstat(fd, &held) != 0) return false;
+  static const char *const parts[] = { "", "-wal", "-shm" };
+  for (int index = 1; index <= cosmic_store_count(L); index++) {
+    sqlite3 *db = cosmic_store_database(L, index);
+    const char *name = db == NULL ? NULL : sqlite3_db_filename(db, "main");
+    if (name == NULL || name[0] == '\0') continue;
+    for (size_t part = 0; part < sizeof parts / sizeof parts[0]; part++) {
+      char path[PATH_MAX];
+      struct stat file;
+      if (snprintf(path, sizeof path, "%s%s", name, parts[part]) >= (int)sizeof path) continue;
+      if (stat(path, &file) == 0 && file.st_dev == held.st_dev && file.st_ino == held.st_ino)
+        return true;
+    }
+  }
+  return false;
 }
 
 void cosmic_argfd (lua_State *L, int arg, lua_Integer fd) {

@@ -81,4 +81,12 @@ char **cosmic_store_environment (char **envp);
  * for a native start. It stays owned by the entry. */
 const struct cosmic_artifact *cosmic_store_artifact (lua_State *L);
 
+/* Whether `fd` is a descriptor the runtime itself keeps open: the
+ * artifact's, or one of a store database's files (the database, its
+ * write-ahead log or its shared memory), found by the file the descriptor
+ * names, so a descriptor the program opened itself on one of those files
+ * is taken for the store's too. For a caller that must tell the
+ * descriptors a program opened from the runtime's own. */
+bool cosmic_store_holds_descriptor (lua_State *L, int fd);
+
 #endif

@@ -6,10 +6,12 @@
 #endif
 #define _XOPEN_SOURCE 700
 
+#include <dirent.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <poll.h>
 #include <pwd.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -1506,6 +1508,17 @@ static int set_credentials (const struct spawn_plan *plan) {
   return 0;
 }
 
+/* Holds this process, for good, to the Landlock ruleset `ruleset`: no_new_privs,
+ * which the kernel asks of a process without CAP_SYS_ADMIN, and the
+ * restriction. 0, or an errno. Raw calls only, for a child that shares its
+ * parent's memory ([`run_program`]) and for the process itself
+ * (`restrict_self`) alike. */
+static int enforce_ruleset (int ruleset) {
+  if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) return errno;
+  if (syscall(SYS_landlock_restrict_self, ruleset, 0) != 0) return errno;
+  return 0;
+}
+
 /* The rest of a child's start once its sandbox's namespaces are made
  * ([`spawn_child`]): its process group -- for an unveiled child, a
  * session of its own, and so a group of its own whatever
@@ -1550,10 +1563,7 @@ static _Noreturn void run_program (const struct spawn_plan *plan, const int *pin
    * caller's ruleset for every later child besides, and a ruleset that
    * left /proc out would gain it. Until then a child held to one reads
    * nothing of its own /proc. */
-  if (!failure && confined >= 0) {
-    if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) failure = errno;
-    else if (syscall(SYS_landlock_restrict_self, confined, 0) != 0) failure = errno;
-  }
+  if (!failure && confined >= 0) failure = enforce_ruleset(confined);
   /* A pledge last of all: the filter would refuse nothing above, but
    * it is the one a later step could trip over. */
   if (!failure && plan->pledged) {
@@ -2580,6 +2590,364 @@ static int grants_ruleset (const char *const *paths, const unsigned *letters, in
 }
 #endif
 
+/* The promises the list at stack index `list` names, as COSMIC_PROMISE_
+ * bits: a name that is none is an error of argument `arg`. */
+static unsigned read_promises (lua_State *L, int list, int arg) {
+  unsigned bits = 0;
+  lua_Integer promised = (lua_Integer)lua_rawlen(L, list);
+  for (lua_Integer i = 1; i <= promised; i++) {
+    lua_rawgeti(L, list, i);
+    unsigned bit = lua_type(L, -1) == LUA_TSTRING ? cosmic_promise_named(lua_tostring(L, -1)) : 0;
+    if (bit == 0) luaL_argerror(L, arg, "a promise is \"fork\", \"jit\" or \"fattr\"");
+    bits |= bit;
+    lua_pop(L, 1);
+  }
+  return bits;
+}
+
+/* The limits the table at stack index `table` names, by `RLIMIT_NAMES`,
+ * into `into`, which holds SPAWN_RLIMIT_MAX: how many. */
+static int read_rlimits (lua_State *L, int table, int arg, struct spawn_rlimit *into) {
+  int count = 0;
+  lua_pushnil(L);
+  while (lua_next(L, table) != 0) {
+    const char *name = lua_type(L, -2) == LUA_TSTRING ? lua_tostring(L, -2) : "";
+    int resource = -1;
+    for (size_t n = 0; n < sizeof RLIMIT_NAMES / sizeof RLIMIT_NAMES[0]; n++) {
+      if (strcmp(name, RLIMIT_NAMES[n].name) == 0) resource = RLIMIT_NAMES[n].resource;
+    }
+    if (resource < 0)
+      luaL_argerror(L, arg, "an rlimit is \"nofile\", \"fsize\", \"cpu\" or \"core\"");
+    if (!lua_isinteger(L, -1)) luaL_argerror(L, arg, "an rlimit is an integer");
+    into[count].resource = resource;
+    if (lua_tointeger(L, -1) < 0) luaL_argerror(L, arg, "an rlimit is not negative");
+    into[count].value = check_limit(L, -1);
+    count++;
+    lua_pop(L, 1);
+  }
+  return count;
+}
+
+/* The grants the list at stack index `list` holds, as paths and letter
+ * sets, into arrays of GRANT_MAX: how many. The strings stay alive in the
+ * list, which the caller keeps on the stack. */
+static int read_grants (lua_State *L, int list, int arg, const char **paths, unsigned *letters) {
+  int count = 0;
+  lua_Integer granted_count = (lua_Integer)lua_rawlen(L, list);
+  for (lua_Integer i = 1; i <= granted_count; i++) {
+    if (count >= GRANT_MAX) luaL_argerror(L, arg, "too many grants");
+    lua_rawgeti(L, list, i);
+    if (!lua_istable(L, -1)) luaL_argerror(L, arg, "a grant is a table of path and access");
+    lua_pushliteral(L, "path");
+    lua_rawget(L, -2);
+    const char *grant_path = plain_string(L, -1, "a grant's path");
+    if (grant_path[0] == '\0') luaL_argerror(L, arg, "a grant's path is empty");
+    lua_pushliteral(L, "access");
+    lua_rawget(L, -3);
+    const char *access = plain_string(L, -1, "a grant's access");
+    static const char order[] = "rwxcu";
+    unsigned held = 0;
+    for (const char *c = access; *c != '\0'; c++) {
+      const char *at = strchr(order, *c);
+      if (at == NULL) luaL_argerror(L, arg, "a grant's access is letters of \"rwxcu\"");
+      else held |= 1u << (at - order);
+    }
+    if (held == 0) luaL_argerror(L, arg, "a grant's access names no letter of \"rwxcu\"");
+    paths[count] = grant_path;
+    letters[count] = held;
+    count++;
+    lua_pop(L, 3);
+  }
+  return count;
+}
+
+/* The most descriptors `restrict_self` is told to keep. */
+#define RESTRICT_KEEP_MAX 256
+
+#if defined(__linux__)
+
+/* Answers `restrict_self`'s refusal: false, `what` formatted, and `number`. */
+static int restrict_refused (lua_State *L, int number, const char *format, ...)
+    __attribute__((format(printf, 3, 4)));
+static int restrict_refused (lua_State *L, int number, const char *format, ...) {
+  char message[PATH_MAX + 256];
+  va_list arguments;
+  va_start(arguments, format);
+  vsnprintf(message, sizeof message, format, arguments);
+  va_end(arguments);
+  lua_pushboolean(L, 0);
+  lua_pushstring(L, message);
+  lua_pushinteger(L, number);
+  return 3;
+}
+
+/* The directories and file of this process's /proc a restriction reads,
+ * held open from the first one: once Landlock holds the process, a path
+ * of /proc is refused it, and a restriction made again must still count
+ * the threads, descriptors and children it holds to. They are opened
+ * before anything is restricted and read through descriptors, which
+ * Landlock checks at open only. `pid` is the process they were opened by:
+ * a copy a fork gave another process names its parent's /proc, and is
+ * closed, to open afresh where /proc can still be read. Close-on-exec
+ * and never listed as a descriptor the program holds
+ * ([`unaccounted_descriptor`]). */
+static struct {
+  pid_t pid;
+  int tasks;
+  int descriptors;
+  int children;
+} inspected = { 0, -1, -1, -1 };
+
+static void inspected_close (void) {
+  if (inspected.tasks >= 0) close(inspected.tasks);
+  if (inspected.descriptors >= 0) close(inspected.descriptors);
+  if (inspected.children >= 0) close(inspected.children);
+  inspected.tasks = inspected.descriptors = inspected.children = -1;
+}
+
+/* Has the /proc entries to read for this process, as `inspected`: 0, or the
+ * errno, with `what` naming the one that could not be opened. */
+static int inspected_open (const char **what) {
+  pid_t self = getpid();
+  if (inspected.pid == self && inspected.tasks >= 0) return 0;
+  inspected_close();
+  inspected.pid = self;
+  *what = "/proc/self/task";
+  inspected.tasks = open(*what, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+  if (inspected.tasks >= 0) {
+    *what = "/proc/self/fd";
+    inspected.descriptors = open(*what, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+  }
+  if (inspected.descriptors >= 0) {
+    *what = "/proc/thread-self/children";
+    inspected.children = open(*what, O_RDONLY | O_CLOEXEC);
+  }
+  if (inspected.children >= 0) return 0;
+  int failure = errno;
+  inspected_close();
+  return failure;
+}
+
+/* A stream over the directory `directory`, held open, read from its
+ * start: its own descriptor is a duplicate, which `closedir` closes. */
+static DIR *inspected_listing (int directory) {
+  int copy = fcntl(directory, F_DUPFD_CLOEXEC, 3);
+  if (copy < 0) return NULL;
+  DIR *listing = fdopendir(copy);
+  if (listing == NULL) {
+    close(copy);
+    return NULL;
+  }
+  rewinddir(listing);
+  return listing;
+}
+
+/* How many threads this process has, counted from /proc/self/task, or -1
+ * with the errno that refused it. A restriction binds the thread that makes
+ * it and the threads it starts afterwards, not the ones already running. */
+static int thread_count (int *error) {
+  DIR *tasks = inspected_listing(inspected.tasks);
+  if (tasks == NULL) {
+    *error = errno;
+    return -1;
+  }
+  int count = 0;
+  struct dirent *entry;
+  while ((entry = readdir(tasks)) != NULL) {
+    if (entry->d_name[0] >= '0' && entry->d_name[0] <= '9') count++;
+  }
+  closedir(tasks);
+  return count;
+}
+
+/* The pid of a child of this thread not yet reaped, or 0 for none, or -1
+ * with the errno in `error` where the list cannot be read. The list is
+ * read from its start, and its first number is all that is asked. */
+static long first_child (int *error) {
+  char text[32];
+  ssize_t got;
+  do { got = pread(inspected.children, text, sizeof text - 1, 0); } while (got < 0 && errno == EINTR);
+  if (got < 0) {
+    *error = errno;
+    return -1;
+  }
+  text[got] = '\0';
+  char *end;
+  long pid = strtol(text, &end, 10);
+  return end == text ? 0 : pid;
+}
+
+/* The first descriptor above 2 that is open, is not one of the `kept`
+ * the caller names and is not one the runtime keeps itself
+ * (`cosmic_store_holds_descriptor`, and `inspected`), or -1 for none; -2
+ * with the errno in `error` where it cannot be listed. The stream's own
+ * descriptor is not counted. */
+static int unaccounted_descriptor (lua_State *L, const int *kept, int kept_count, int *error) {
+  DIR *open_files = inspected_listing(inspected.descriptors);
+  if (open_files == NULL) {
+    *error = errno;
+    return -2;
+  }
+  int own = dirfd(open_files);
+  int found = -1;
+  struct dirent *entry;
+  while ((entry = readdir(open_files)) != NULL) {
+    if (entry->d_name[0] < '0' || entry->d_name[0] > '9') continue;
+    long number = strtol(entry->d_name, NULL, 10);
+    if (number <= 2 || number > INT_MAX || number == own || number == inspected.tasks ||
+        number == inspected.descriptors || number == inspected.children)
+      continue;
+    bool accounted = false;
+    for (int i = 0; i < kept_count; i++) accounted = accounted || kept[i] == number;
+    if (accounted || cosmic_store_holds_descriptor(L, (int)number)) continue;
+    if (found < 0 || number < found) found = (int)number;
+  }
+  closedir(open_files);
+  return found;
+}
+
+/* What lowering `resource`'s limits to at most `value`, soft and hard,
+ * needs, never raising either: `target` is the limits as they are to be,
+ * and `changes` whether that differs from what they are. 0, or the errno
+ * of reading them. Planned before anything is changed, so a restriction
+ * that fails later has set no limit. */
+static int plan_limit (int resource, rlim_t value, struct rlimit *target, bool *changes) {
+  struct rlimit limits;
+  if (getrlimit(resource, &limits) != 0) return errno;
+  *target = limits;
+  if (target->rlim_cur > value) target->rlim_cur = value;
+  if (target->rlim_max > value) target->rlim_max = value;
+  *changes = target->rlim_cur != limits.rlim_cur || target->rlim_max != limits.rlim_max;
+  return 0;
+}
+#endif
+
+COSMIC_SYSCALL(restrict_self, 2) {
+  luaL_checktype(L, 1, LUA_TTABLE);
+  int kept[RESTRICT_KEEP_MAX];
+  int kept_count = 0;
+  if (!lua_isnoneornil(L, 2)) {
+    luaL_checktype(L, 2, LUA_TTABLE);
+    lua_Integer listed = (lua_Integer)lua_rawlen(L, 2);
+    for (lua_Integer i = 1; i <= listed; i++) {
+      if (kept_count >= RESTRICT_KEEP_MAX) return luaL_argerror(L, 2, "too many descriptors");
+      lua_rawgeti(L, 2, i);
+      if (!lua_isinteger(L, -1)) return luaL_argerror(L, 2, "a descriptor is an integer");
+      lua_Integer fd = lua_tointeger(L, -1);
+      if (fd < 0 || fd > INT_MAX) return luaL_argerror(L, 2, "descriptor is out of range");
+      cosmic_argfd(L, 2, fd);
+      kept[kept_count++] = (int)fd;
+      lua_pop(L, 1);
+    }
+  }
+  unsigned promise_bits = 0;
+  struct spawn_rlimit rlimits[SPAWN_RLIMIT_MAX];
+  int rlimit_count = 0;
+  const char *grant_paths[GRANT_MAX];
+  unsigned grant_letters[GRANT_MAX];
+  int grant_count = 0;
+  lua_pushliteral(L, "promises");
+  lua_rawget(L, 1);
+  if (!lua_istable(L, -1)) return luaL_argerror(L, 1, "promises must be a list");
+  promise_bits = read_promises(L, lua_gettop(L), 1);
+  lua_pop(L, 1);
+  lua_pushliteral(L, "rlimits");
+  lua_rawget(L, 1);
+  if (!lua_istable(L, -1)) return luaL_argerror(L, 1, "rlimits must be a table");
+  rlimit_count = read_rlimits(L, lua_gettop(L), 1, rlimits);
+  lua_pop(L, 1);
+  lua_pushliteral(L, "grants");
+  lua_rawget(L, 1);
+  if (!lua_istable(L, -1)) return luaL_argerror(L, 1, "grants must be a list");
+  grant_count = read_grants(L, lua_gettop(L), 1, grant_paths, grant_letters);
+  /* The grants stay on the stack: their strings are what the paths point at. */
+#if defined(__linux__)
+  for (int i = 0; i < kept_count; i++) {
+    if (fcntl(kept[i], F_GETFD) < 0)
+      return restrict_refused(L, errno, "descriptor %d, which fds names, is not open", kept[i]);
+  }
+  int error = 0;
+  const char *unreadable = "";
+  error = inspected_open(&unreadable);
+  if (error != 0)
+    return restrict_refused(L, error, "this process cannot be inspected (%s: %s): a process "
+                            "restricted already reads no /proc, and one forked from it "
+                            "cannot be counted",
+                            unreadable, cosmic_errno_describe(error, NULL));
+  long child = first_child(&error);
+  if (child < 0)
+    return restrict_refused(L, error, "the children of this process cannot be listed "
+                            "(/proc/thread-self/children: %s)", cosmic_errno_describe(error, NULL));
+  if (child > 0)
+    return restrict_refused(L, ECHILD, "this process has a child, pid %ld, not waited for: end "
+                            "it and wait for it first, since a restriction holds what a process "
+                            "starts after it, not what it started", child);
+  int threads = thread_count(&error);
+  if (threads < 0)
+    return restrict_refused(L, error, "the threads of this process cannot be counted "
+                            "(/proc/self/task: %s)", cosmic_errno_describe(error, NULL));
+  if (threads > 1)
+    return restrict_refused(L, EBUSY, "this process has %d threads: a restriction holds the "
+                            "thread that makes it, not the others", threads);
+  int open_fd = unaccounted_descriptor(L, kept, kept_count, &error);
+  if (open_fd == -2)
+    return restrict_refused(L, error, "the descriptors of this process cannot be listed "
+                            "(/proc/self/fd: %s)", cosmic_errno_describe(error, NULL));
+  if (open_fd >= 0)
+    return restrict_refused(L, EBADF, "descriptor %d is open and not named in fds: close it, or "
+                            "name it to keep it", open_fd);
+  struct {
+    struct rlimit target;
+    bool changes;
+  } planned[SPAWN_RLIMIT_MAX] = {0};
+  for (int i = 0; i < rlimit_count; i++) {
+    error = plan_limit(rlimits[i].resource, rlimits[i].value, &planned[i].target,
+                       &planned[i].changes);
+    if (error != 0)
+      return restrict_refused(L, error, "getrlimit: %s", cosmic_errno_describe(error, NULL));
+  }
+  char message[PATH_MAX + 512];
+  int ruleset = grants_ruleset(grant_paths, grant_letters, grant_count, message, sizeof message,
+                               &error);
+  if (ruleset < 0) return restrict_refused(L, error, "%s", message);
+  /* Limits first, since the filter refuses setrlimit. A limit that is
+   * already at least as low asks for no call, so a restriction repeated
+   * with the limits it first set passes under the filter it made. */
+  bool nofile_moved = false;
+  for (int i = 0; i < rlimit_count; i++) {
+    if (!planned[i].changes) continue;
+    if (setrlimit(rlimits[i].resource, &planned[i].target) != 0) {
+      error = errno;
+      close(ruleset);
+      return restrict_refused(L, error, "setrlimit: %s", cosmic_errno_describe(error, NULL));
+    }
+    if (rlimits[i].resource == RLIMIT_NOFILE) nofile_moved = true;
+  }
+  /* A limit the program set is the one its children get. */
+  if (nofile_moved) descriptor_limit_raised = false;
+  error = enforce_ruleset(ruleset);
+  close(ruleset);
+  if (error != 0)
+    return restrict_refused(L, error, "landlock_restrict_self: %s", cosmic_errno_describe(error, NULL));
+  /* Last, as in a child: the filter allows Landlock and the filter's own
+   * installation, so a later restriction narrows both. */
+  error = cosmic_promises_apply(promise_bits);
+  if (error != 0)
+    return restrict_refused(L, error, "seccomp filter: %s", cosmic_errno_describe(error, NULL));
+  return cosmic_ok(L);
+#else
+  (void)promise_bits;
+  (void)rlimits;
+  (void)rlimit_count;
+  (void)grant_paths;
+  (void)grant_letters;
+  (void)grant_count;
+  (void)kept;
+  (void)kept_count;
+  return cosmic_fail_effect(L, ENOSYS);
+#endif
+}
+
 COSMIC_SYSCALL(spawn, 11) {
   const char *path = plain_string(L, 1, "path");
   luaL_checktype(L, 2, LUA_TTABLE);
@@ -2668,36 +3036,14 @@ COSMIC_SYSCALL(spawn, 11) {
     if (!lua_isnil(L, -1)) {
       if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "promises must be a list");
       promising = 1;
-      lua_Integer promised = (lua_Integer)lua_rawlen(L, -1);
-      for (lua_Integer i = 1; i <= promised; i++) {
-        lua_rawgeti(L, -1, i);
-        unsigned bit = lua_type(L, -1) == LUA_TSTRING ? cosmic_promise_named(lua_tostring(L, -1)) : 0;
-        if (bit == 0) return luaL_argerror(L, 10, "a promise is \"fork\", \"jit\" or \"fattr\"");
-        promise_bits |= bit;
-        lua_pop(L, 1);
-      }
+      promise_bits = read_promises(L, lua_gettop(L), 10);
     }
     lua_pop(L, 1);
     lua_pushliteral(L, "rlimits");
     lua_rawget(L, 10);
     if (!lua_isnil(L, -1)) {
       if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "rlimits must be a table");
-      lua_pushnil(L);
-      while (lua_next(L, -2) != 0) {
-        const char *name = lua_type(L, -2) == LUA_TSTRING ? lua_tostring(L, -2) : "";
-        int resource = -1;
-        for (size_t n = 0; n < sizeof RLIMIT_NAMES / sizeof RLIMIT_NAMES[0]; n++) {
-          if (strcmp(name, RLIMIT_NAMES[n].name) == 0) resource = RLIMIT_NAMES[n].resource;
-        }
-        if (resource < 0)
-          return luaL_argerror(L, 10, "an rlimit is \"nofile\", \"fsize\", \"cpu\" or \"core\"");
-        if (!lua_isinteger(L, -1)) return luaL_argerror(L, 10, "an rlimit is an integer");
-        rlimits[rlimit_count].resource = resource;
-        if (lua_tointeger(L, -1) < 0) return luaL_argerror(L, 10, "an rlimit is not negative");
-        rlimits[rlimit_count].value = check_limit(L, -1);
-        rlimit_count++;
-        lua_pop(L, 1);
-      }
+      rlimit_count = read_rlimits(L, lua_gettop(L), 10, rlimits);
     }
     lua_pop(L, 1);
     lua_pushliteral(L, "grants");
@@ -2706,32 +3052,7 @@ COSMIC_SYSCALL(spawn, 11) {
       if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "grants must be a list");
       if (confine >= 0) return luaL_argerror(L, 10, "grants and a ruleset exclude each other");
       granting = 1;
-      lua_Integer granted_count = (lua_Integer)lua_rawlen(L, -1);
-      for (lua_Integer i = 1; i <= granted_count; i++) {
-        if (grant_count >= GRANT_MAX) return luaL_argerror(L, 10, "too many grants");
-        lua_rawgeti(L, -1, i);
-        if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "a grant is a table of path and access");
-        lua_pushliteral(L, "path");
-        lua_rawget(L, -2);
-        const char *grant_path = plain_string(L, -1, "a grant's path");
-        if (grant_path[0] == '\0') return luaL_argerror(L, 10, "a grant's path is empty");
-        lua_pushliteral(L, "access");
-        lua_rawget(L, -3);
-        const char *access = plain_string(L, -1, "a grant's access");
-        unsigned letters = 0;
-        for (const char *c = access; *c != '\0'; c++) {
-          const char *at = strchr("rwxcu", *c);
-          if (at == NULL) return luaL_argerror(L, 10, "a grant's access is letters of \"rwxcu\"");
-          letters |= 1u << (at - "rwxcu");
-        }
-        if (letters == 0) return luaL_argerror(L, 10, "a grant's access names no letter of \"rwxcu\"");
-        grant_paths[grant_count] = grant_path;
-        grant_letters[grant_count] = letters;
-        grant_count++;
-        /* The path and access strings stay alive in the grant, which
-         * stays in the list, which stays in the options. */
-        lua_pop(L, 3);
-      }
+      grant_count = read_grants(L, lua_gettop(L), 10, grant_paths, grant_letters);
     }
     lua_pop(L, 1);
     lua_pushliteral(L, "unveil");
@@ -3081,6 +3402,7 @@ COSMIC_SYSCALL(spawn, 11) {
                              sizeof grant_message, &grant_error);
   }
 #endif
+  (void)grant_count; /* only the Linux build holds a child to its grants */
   char **carried = grant_error != 0 ? NULL : cosmic_store_environment(envp);
   if (carried == NULL) {
     close(status_read);

@@ -17,6 +17,8 @@
 --- - [`Sandbox.profile`] is what a named profile holds on this host:
 ---   "system" and "cosmic".
 --- - [`Sandbox.loaders`] is what a program needs read and run to start.
+--- - [`Sandbox.restrict`] holds the calling process, and what it starts,
+---   to a policy for good.
 ---
 ---     local policy = assert(Sandbox.decode('{"grants":[{"path":"data","letters":"r"}],"tmp":true}'))
 ---     local merged = assert(Sandbox.merge(policy, { promises = { "fork" } }))
@@ -27,8 +29,9 @@
 --- module's name.
 ---
 --- This is the policy's data and the host paths it names. What holds a
---- program to it is [`Child.start`]'s: Landlock for the paths, a seccomp
---- filter for the system calls, and rlimits. `isolate`, `connect`,
+--- program to it is [`Child.start`]'s, or [`Sandbox.restrict`]'s for the
+--- running process: Landlock for the paths, a seccomp filter for the
+--- system calls, and rlimits. `isolate`, `connect`,
 --- `loopback` and the `from`, `nest` and `processes` that need a
 --- namespace are part of the policy but not yet met by it: a start under
 --- one fails, saying so.
@@ -39,6 +42,19 @@ local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
 local Shape = require("cosmic.shape")
 local sys = require("cosmic.sys")
+
+-- What holds the running process lives in the raw process table, under
+-- the reserved `cosmic.internal.` namespace -- see cosmic/store.tl for
+-- why: its restriction takes the checks (threads, descriptors) with it.
+local type raw_process = require("cosmic.internal.process")
+
+local handed: any = select(2, ...)
+local raw: raw_process
+if type(handed) == "table" then
+  raw = handed as raw_process
+else
+  raw = require("cosmic.internal.process")
+end
 
 local record Sandbox
   --- How far a program is isolated from the host: `file` gives it a root
@@ -125,6 +141,15 @@ local record Sandbox
     tmp: boolean
     --- The resources it may spend.
     limits: Limits
+  end
+
+  --- What [`Sandbox.restrict`] takes beside the policy.
+  record RestrictOptions
+    --- The descriptors above 2 the process keeps open. Any other one it
+    --- holds, bar the runtime's own, makes the call fail, since a
+    --- restriction does not close a descriptor and what one names is
+    --- reached whatever the grants say.
+    fds: {integer}
   end
 end
 
@@ -726,6 +751,141 @@ function Sandbox.loaders(path: string, cwd?: string): {string} | nil, string
     at = next_file
   end
   return files, ""
+end
+
+--- The most open files a restricted process may hold, unless a policy's
+--- `open_files` says: what [`Child.start`] gives a child.
+local DEFAULT_OPEN_FILES <const> = 1024
+
+--- What a failure of [`Sandbox.restrict`] answers: false and `why`.
+local function denied(why: string): boolean, string
+  return false, "sandbox: restrict: " .. why
+end
+
+--- Why a merged policy cannot hold the running process, or "": what it
+--- names that only a child can have, which is made in a namespace the
+--- process is not in, or by a relay it has not.
+local function not_in_process(merged: Sandbox.Policy): string
+  if #merged.isolate > 0 then
+    return "isolate \"" .. merged.isolate[1] .. "\" needs a namespace of its own: start " ..
+      "a child with Child.start and a policy instead"
+  end
+  if #merged.connect > 0 then
+    return "connect \"" .. merged.connect[1] .. "\" needs a relay in a network namespace of " ..
+      "its own: start a child with Child.start and a policy instead"
+  end
+  if #merged.loopback > 0 then
+    return "loopback \"" .. merged.loopback[1] .. "\" needs a network namespace of its own: " ..
+      "start a child with Child.start and a policy instead"
+  end
+  for _, promise in ipairs(merged.promises) do
+    if promise == "nest" then
+      return "promises \"nest\" needs isolate file, which only a child can have"
+    end
+  end
+  for _, grant in ipairs(merged.grants) do
+    if grant.from ~= nil then
+      return "grant \"" .. grant.path .. "\" has from, which needs isolate file, which only a " ..
+        "child can have"
+    end
+    if grant.letters:find("u", 1, true) then
+      -- The filter refuses socket(), so a grant to connect to a unix
+      -- socket by path could not be used by the process that holds it.
+      return "grant \"" .. grant.path .. "\" has u, which needs the network isolated and " ..
+        "a socket the filter allows: start a child with Child.start and a policy instead"
+    end
+  end
+  if next(merged.env) ~= nil then
+    return "env \"" .. merged.env[1] .. "\" is the environment of a child, which a running " ..
+      "process already has"
+  end
+  for name, _ in pairs(merged.set_env) do
+    return "set_env \"" .. name .. "\" is the environment of a child, which a running " ..
+      "process already has"
+  end
+  for name, _ in pairs(merged.set_env_digests) do
+    return "set_env_digests \"" .. name .. "\" holds a digest, not a value to set"
+  end
+  if merged.tmp then
+    return "tmp is a directory made for a child, which a running process makes for itself"
+  end
+  if merged.limits.processes ~= nil then
+    return "limits.processes counts the processes of a user namespace of its own, which only " ..
+      "a child has"
+  end
+  return ""
+end
+
+--- Holds the calling process, and everything it starts, for good to the
+--- policy's `grants`, `promises` and `limits`: Landlock holds the paths
+--- (a process with no grant reaches no file, its own program and the
+--- files it has open aside), a seccomp filter the system calls, and
+--- rlimits the resources, set first, since the filter refuses setrlimit.
+--- Nothing lifts it, and the process cannot start a program its grants
+--- do not let run. The policy is merged first ([`Sandbox.merge`]), so it
+--- may name `profiles`, and its limits have a child's defaults: no core
+--- dump and 1024 open files; a limit is only ever lowered, never
+--- raised.
+---
+--- Called again, it narrows: the kernel holds the process to every
+--- ruleset and every filter made, so what a later call grants beyond
+--- an earlier one's has no effect. Its limits narrow likewise, but a
+--- limit lower than the process already has needs `setrlimit`, which an
+--- earlier call's filter refuses: give every limit in the first call.
+---
+--- It fails, and holds the process to nothing it was not, for what only
+--- a child can be held to -- `isolate`, `connect`, `loopback`, a grant's
+--- `from` or `u`, the `nest` promise, `env`, `set_env`, `tmp` and
+--- `limits.processes`, each failing by its name -- and while the process
+--- has another thread (a restriction binds the thread that makes it), a
+--- child not yet waited for, or a descriptor above 2 that `fds` does not
+--- name, bar the ones the runtime keeps itself: this program's own
+--- artifact and the databases of its store. A restriction does not
+--- close a descriptor, and what one names is reached whatever the grants
+--- say, so a caller names the ones it keeps. A failure from the kernel's
+--- own calls, which come after those checks, can leave the limits it
+--- lowered, and its ruleset if the filter is what failed.
+---
+--- The filter's rules for signals take this process's pid, so a process
+--- started afterwards, which has another, cannot signal itself, and its
+--- abort() ends by SIGSEGV, until Landlock's signal scope (ABI 6, which
+--- the ruleset sets where the kernel has it) holds signals instead.
+--- Linux only; elsewhere it fails, saying so (Seatbelt waits for the
+--- design's phase 8).
+-- TODO: hold a process by Seatbelt on macOS, once the design's phase 8
+-- lands.
+function Sandbox.restrict(policy: Sandbox.Policy, options?: Sandbox.RestrictOptions): boolean, string
+  local merged, why = Sandbox.merge(policy)
+  if merged == nil then return false, why end
+  local trouble = not_in_process(merged)
+  if trouble ~= "" then return denied(trouble) end
+  local kept: {integer} = {}
+  for _, fd in ipairs(options and options.fds or {}) do
+    if math.type(fd) ~= "integer" or fd < 3 then
+      return denied("fds names " .. tostring(fd) .. ", which is not a descriptor above 2")
+    end
+    kept[#kept + 1] = fd
+  end
+  local grants: {raw_process.Grant} = {}
+  for _, grant in ipairs(merged.grants) do
+    grants[#grants + 1] = { path = grant.path, access = grant.letters }
+  end
+  local rlimits: {string:integer} = { nofile = merged.limits.open_files or DEFAULT_OPEN_FILES,
+    core = 0 }
+  rlimits.fsize = merged.limits.file_bytes
+  rlimits.cpu = merged.limits.cpu_seconds
+  local promises: {string} = {}
+  for _, promise in ipairs(merged.promises) do promises[#promises + 1] = promise end
+  local done, held, failure = raw.restrict_self({ grants = grants, promises = promises,
+    rlimits = rlimits }, kept)
+  if not done then
+    if failure == sys.ENOSYS then
+      return denied("this system cannot hold a process: it needs Landlock and seccomp, " ..
+          "which only Linux gives")
+    end
+    return denied(held)
+  end
+  return true, ""
 end
 
 return Sandbox

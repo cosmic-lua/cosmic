@@ -40,6 +40,7 @@ local type _http = require("cosmic.http")
 local type _json = require("cosmic.json")
 local type _net = require("cosmic.net")
 local type _proc = require("cosmic.proc")
+local type _sandbox = require("cosmic.sandbox")
 local type _sqlite = require("cosmic.sqlite")
 local type _store = require("cosmic.store")
 
@@ -272,6 +273,7 @@ local wrappers <const>: {string: string} = {
   ["cosmic.json"] = "json",
   ["cosmic.net"] = "socket",
   ["cosmic.proc"] = "process",
+  ["cosmic.sandbox"] = "process",
   ["cosmic.sqlite"] = "sqlite",
   ["cosmic.store"] = "store",
 }
