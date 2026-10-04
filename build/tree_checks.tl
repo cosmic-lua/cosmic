@@ -56,6 +56,10 @@ end
 --- uses them, by `<module>.<member>`, and why each is kept.
 local allowed: {string: string} = {}
 
+allowed["cosmic.sandbox.restrict"] = "tested directly: it holds the process that calls it " ..
+  "for good, so a worked example would hold the run that shows it; the test restricts " ..
+  "a child of this program, and the harness holds its workers with it once the " ..
+  "design's test phase lands (the TODO at build.confine's forbid_running)"
 allowed["build.c.layout.same"] = "tested directly: whether two layouts are one " ..
   "token stream is the rule `cosmic fix` holds a C rewrite to, and the test " ..
   "states it on sources too small to be a file"

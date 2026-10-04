@@ -92,6 +92,9 @@ local cases: {string: function(at: integer, fd: integer): {any}} = {
   shutdown = function(_: integer, fd: integer): {any} return { fd, "both" } end,
   wait = function(_: integer, fd: integer): {any} return { fd, false, 0 } end,
   poll = function(_: integer, fd: integer): {any} return { { fd }, { sys.POLLIN }, 0 } end,
+  restrict_self = function(_: integer, fd: integer): {any}
+    return { { grants = {}, promises = {}, rlimits = {} }, { fd } }
+  end,
   spawn = function(at: integer, fd: integer): {any}
     local args: {any} = { "/nonexistent/program", { "program" }, nil, nil, nil, nil, nil, false,
       nil, nil }
