@@ -12,6 +12,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local Time = require("cosmic.time")
+local sys = require("cosmic.sys")
 local sandbox_skip = require("build.sandbox_skip")
 local searchable = require("build.searchable")
 local this_program = require("build.this_program")
@@ -27,9 +28,9 @@ end
 
 --- Runs `cosmic <words>` in `dir`, and skips the test, where the host
 --- refused the sandbox a start asked for.
-local function cosmic(dir: string, words: {string}): Ran
+local function cosmic(dir: string, words: {string}, fds?: {integer:integer}): Ran
   local started = this_program.program(words, {
-    cwd = dir, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(60),
+    cwd = dir, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(60), fds = fds,
   })
   local result = assert(Child.run(started.argv, started.options))
   local ran: Ran = { code = result.code or -1, out = result.stdout or "", err = result.stderr or "" }
@@ -112,4 +113,39 @@ local function test_help_is_the_verbs_before_the_program_and_the_programs_after(
   local program = cosmic(tmp, { "sandbox", "--system", "--", "sh", "--help" })
   assert(not program.out:find("cosmic sandbox", 1, true), program.out)
   assert(program.code ~= 0 and program.code < 125 and program.err ~= "", program.code .. program.err)
+end
+
+local function test_a_program_not_granted_exits_125_not_127(tmp: string)
+  -- It is found on the PATH; the policy lacks the grants to run it.
+  local ran = cosmic(tmp, { "sandbox", "--", "true" })
+  assert(ran.code == 125 and ran.out == "", ran.code .. ran.err)
+  assert(ran.err:find("not granted", 1, true) and ran.err:find("system", 1, true), ran.err)
+  assert(not ran.err:find("no PATH search", 1, true), ran.err)
+  -- A missing grant is the start's, not the program's, whatever the program.
+  local grant = cosmic(tmp, { "sandbox", "--system", "--read", tmp .. "/absent", "--", "ls" })
+  assert(grant.code == 125 and not grant.err:find("no PATH search", 1, true), grant.code .. grant.err)
+end
+
+local function test_a_program_that_cannot_be_run_exits_126(tmp: string)
+  assert(Fs.write(tmp .. "/plain", "#!/bin/sh\n"))
+  assert(sys.chmod(tmp .. "/plain", 420))
+  searchable.open(tmp)
+  local ran = cosmic(tmp, { "sandbox", "--system", "--run", tmp .. "/plain", "--", tmp .. "/plain" })
+  assert(ran.code == 126 and ran.out == "", ran.code .. ran.err)
+end
+
+local function test_fd_hands_the_callers_descriptor_to_the_program(tmp: string)
+  assert(Fs.write(tmp .. "/data", "carried\n"))
+  local fd = assert(sys.open(tmp .. "/data", sys.O_RDONLY))
+  local ran = cosmic(tmp, { "sandbox", "--system", "--fd", "5", "--promise", "fork", "--", "sh", "-c", "cat <&5" }, { [5] = fd })
+  local _ = sys.close(fd)
+  assert(ran.code == 0 and ran.out == "carried\n", ran.code .. ran.out .. ran.err)
+  -- Not named, it is not the program's, though the caller holds it.
+  local other = assert(sys.open(tmp .. "/data", sys.O_RDONLY))
+  local shut = cosmic(tmp, { "sandbox", "--system", "--promise", "fork", "--", "sh", "-c", "cat <&5" }, { [5] = other })
+  local _ = sys.close(other)
+  assert(shut.code ~= 0 and shut.out == "", shut.code .. shut.out)
+  -- A descriptor the caller does not hold fails the start.
+  local none = cosmic(tmp, { "sandbox", "--system", "--fd", "9", "--", "true" })
+  assert(none.code == 125 and none.err:find("^cosmic: sandbox: "), none.code .. none.err)
 end

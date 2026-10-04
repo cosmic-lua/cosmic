@@ -35,6 +35,7 @@ local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
 local Sandbox = require("cosmic.sandbox")
+local sys = require("cosmic.sys")
 local bare = require("build.bare")
 local plural = require("build.plural")
 local verb_spec = require("build.verb_spec")
@@ -241,19 +242,36 @@ local function policy_of(request: Request): Sandbox.Policy | nil, string
   return Sandbox.decode(request.json)
 end
 
---- The exit status for a program that could not be started, given that
---- a start failed: 127 if it is not there, 126 if it is there and cannot
---- run, and otherwise 125.
-local function failed_start(program: string): integer
+--- What Child adds to a name it could not find, which the verb, that
+--- looks a name up on the PATH itself, makes no use of.
+local function without_hint(why: string): string
+  return (why:gsub(': "[^"]*" is run as a path, with no PATH search; Proc%.find%b() answers ' ..
+      'where a shell would find it$', ""))
+end
+
+--- The exit status of a start that failed with `why`, and `why` as the
+--- verb says it: 127 where the failure is the program not being found,
+--- 126 where it is there and this process cannot run it, and otherwise 125,
+--- whatever else the program's state is (a grant it lacks, a missing
+--- directory).
+local function failed_start(program: string, why: string): integer, string
+  local said = without_hint(why)
   if program:find("/", 1, true) then
-    local there, _ = Fs.exists(program)
-    if there == false then return NOT_FOUND end
-    return START_FAILED
+    local ok, _, errno = sys.access(program, sys.X_OK)
+    if not ok and errno == sys.ENOENT and
+        said:find(Fs.basename(program) .. ": No such file or directory", 1, true) then
+      return NOT_FOUND, said
+    elseif not ok and errno == sys.EACCES then
+      return NOT_EXECUTABLE, said
+    end
+    return START_FAILED, said
   end
   local found = Proc.find_result(program)
-  if found.kind == "not_found" then return NOT_FOUND end
-  if found.kind == "not_executable" then return NOT_EXECUTABLE end
-  return START_FAILED
+  if found.kind == "not_found" and said:find(found.reason, 1, true) then return NOT_FOUND, said end
+  if found.kind == "not_executable" and said:find(found.reason, 1, true) then
+    return NOT_EXECUTABLE, said
+  end
+  return START_FAILED, said
 end
 
 local standard: verb.Io = { err = bare.err, run = Child.run }
@@ -286,12 +304,17 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     return bare.refused
   end
   local run = to.run or Child.run
+  -- TODO: have the child end with this process where this one is ended by
+  -- SIGKILL, which no handler sees: PR_SET_PDEATHSIG in the child, once
+  -- Child.Options has an option for it. Until then only SIGINT and SIGTERM
+  -- (Child.run's guard) end it, and a killed verb leaves it running.
   local result, started = run(request.argv, {
     policy = policy, fds = request.fds, timeout_ns = request.timeout_ns,
   })
   if result == nil then
-    complain(started)
-    return failed_start(request.argv[1])
+    local code, said = failed_start(request.argv[1], started)
+    complain(said)
+    return code
   end
   if result.timed_out then
     complain("timed out after " .. plural.count(request.timeout_ns // 1000000000, "second"))

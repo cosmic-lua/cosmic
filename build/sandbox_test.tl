@@ -9,6 +9,7 @@ local Cli = require("cosmic.cli")
 local Fs = require("cosmic.fs")
 local Sandbox = require("cosmic.sandbox")
 local Shape = require("cosmic.shape")
+local sys = require("cosmic.sys")
 local sandbox = require("build.sandbox")
 
 local record Ran
@@ -195,7 +196,7 @@ local function test_the_other_values_are_the_decoders_too()
 end
 
 local function test_a_connect_is_left_to_the_start_to_refuse(tmp: string)
-  assert(Fs.write(tmp .. "/there", "x"))
+  assert(Fs.write(tmp .. "/there", "x") and sys.chmod(tmp .. "/there", 493))
   local ran = run({ "--connect", "github.com:443", tmp .. "/there" },
     { why = "child: start: sandbox: connect \"github.com:443\" is not yet available: it needs the relay" })
   assert(ran.code == 125, ran.code .. ran.err)
@@ -224,7 +225,7 @@ local function test_the_programs_end_is_the_exit_status()
 end
 
 local function test_a_start_that_fails_exits_125_with_the_reason(tmp: string)
-  assert(Fs.write(tmp .. "/there", "x"))
+  assert(Fs.write(tmp .. "/there", "x") and sys.chmod(tmp .. "/there", 493))
   local ran = run({ tmp .. "/there" }, { why = "child: start: Landlock is not available" })
   assert(ran.code == 125 and ran.err == "cosmic: sandbox: child: start: Landlock is not available\n",
     ran.code .. ran.err)
@@ -232,11 +233,38 @@ local function test_a_start_that_fails_exits_125_with_the_reason(tmp: string)
 end
 
 local function test_a_program_that_is_not_there_exits_127(tmp: string)
-  local ran = run({ tmp .. "/absent" }, { why = "child: start: no such file" })
+  local ran = run({ tmp .. "/absent" },
+    { why = "child: start: sandbox: " .. tmp .. "/absent: No such file or directory" })
   assert(ran.code == 127, ran.code .. ran.err)
-  assert(ran.err:find("no such file", 1, true))
+  assert(ran.err:find("No such file", 1, true))
   ran = run({ "zzqqx-no-such-program" }, { why = "child: start: zzqqx-no-such-program: not found" })
   assert(ran.code == 127, ran.code .. ran.err)
+end
+
+local function test_127_is_only_for_a_failure_that_is_the_program_not_found(tmp: string)
+  local ran = run({ "zzqqx-no-such-program" }, { why = "child: start: cwd \"/x\" does not exist" })
+  assert(ran.code == 125 and ran.err:find("cwd", 1, true), ran.code .. ran.err)
+  ran = run({ tmp .. "/absent" }, { why = "child: start: grant /y: No such file or directory" })
+  assert(ran.code == 125, ran.code .. ran.err)
+end
+
+local function test_a_program_that_cannot_be_run_exits_126(tmp: string)
+  assert(Fs.write(tmp .. "/plain", "x"))
+  assert(sys.chmod(tmp .. "/plain", 420))
+  local ran = run({ tmp .. "/plain" }, { why = "child: start: Permission denied" })
+  assert(ran.code == 126 and ran.err:find("Permission denied", 1, true), ran.code .. ran.err)
+  -- Where it can run, a failure is the start's.
+  assert(Fs.write(tmp .. "/runs", "x"))
+  assert(sys.chmod(tmp .. "/runs", 493))
+  assert(run({ tmp .. "/runs" }, { why = "child: start: sandbox: not granted" }).code == 125)
+end
+
+local function test_childs_hint_about_a_path_search_is_left_out()
+  local ran = run({ "zzqqx-no-such-program" }, { why = "child: start: grant /nope: No such file or " ..
+      "directory: \"zzqqx-no-such-program\" is run as a path, with no PATH search; " ..
+      "Proc.find(\"zzqqx-no-such-program\") answers where a shell would find it" })
+  assert(ran.code == 125, ran.code .. ran.err)
+  assert(ran.err == "cosmic: sandbox: child: start: grant /nope: No such file or directory\n", ran.err)
 end
 
 --- The fields of [`Sandbox.Policy`], from its declaration.

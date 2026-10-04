@@ -511,8 +511,10 @@ local record Cli
   --- `--read`, `--run` and `--write` grant a path as `r`, `rx` and `rwc`;
   --- `--path` names the letters itself, of `rwxcu` in that order (`rwxc:.`),
   --- each once. A path is relative to the working directory and must
-  --- exist. `cosmic docs cosmic.sandbox` names the policy's fields. `--connect` is refused until the relay it needs exists. Each
-  --- option is one field of the policy, and a number is a whole one. The
+  --- exist, and paths and `--set-env` values must be UTF-8, as they are
+  --- written as JSON. `cosmic docs cosmic.sandbox` names the policy's
+  --- fields. `--connect` is refused until the relay it needs exists.
+  --- Each option is one field of the policy, and a number is a whole one. The
   --- program's standard streams are this program's own, and it gets no
   --- other descriptor but those `--fd` names. Nothing is printed when it
   --- starts. Exits with the program's status (128 and the signal's number when a
