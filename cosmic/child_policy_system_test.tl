@@ -10,6 +10,7 @@ local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local sandbox_skip = require("build.sandbox_skip")
+local searchable = require("build.searchable")
 
 --- A host program starts, so the system's own paths are given.
 Test.needs{ system = true }
@@ -32,6 +33,7 @@ end
 
 local function test_the_system_profile_lets_a_host_program_read_what_is_granted(tmp: string)
   if sys.stat(CAT) == nil then return end
+  searchable.open(tmp)
   assert(Fs.mkdirs(tmp .. "/ro") and Fs.mkdirs(tmp .. "/other"))
   assert(Fs.write(tmp .. "/ro/a", "alpha\n") and Fs.write(tmp .. "/other/b", "beta\n"))
   local policy: Sandbox.Policy = { profiles = { "system" }, grants = { { path = tmp .. "/ro", letters = "r" } } }

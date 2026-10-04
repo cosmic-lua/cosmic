@@ -352,7 +352,8 @@ local record Options
   --- on the host; only the files of the grant's own owner are its, so
   --- those of other users beneath stay out of its reach. Without
   --- `isolate` "file" every directory above a grant, and the one the child
-  --- starts in, must also be searchable by everyone. The check reads the
+  --- starts in (`cwd`, else this process's), and the TMPDIR a `tmp` makes
+  --- its directory in, must also be searchable by everyone. The check reads the
   --- grant's own mode; an access control list or what is beneath a
   --- directory is not read. A policy whose `stdio` is a terminal is not
   --- refused.
@@ -2391,9 +2392,21 @@ end
 --- `file`, only as its owner can, which only that mount gives; naming it
 --- and what to do. Without `file` every directory above a grant must also
 --- be searchable by everyone, and so must `base`, the directory the
---- program starts in; under it the root is built without walking to a
+--- program starts in, and, for `tmp`, TMPDIR's; under it the root is built without walking to a
 --- grant. A grant that does not exist is left for the start's own report.
 local function reached_by(merged: Rules.Policy, base: string, file: boolean): {boolean} | nil, string
+  if merged.tmp and not file then
+    local tmpdir = sys.getenv("TMPDIR")
+    if tmpdir == nil or tmpdir == "" then tmpdir = "/tmp" end
+    local real, _ = sys.realpath(tmpdir)
+    local above = real ~= nil and unsearchable_above(real .. "/.") or ""
+    if above ~= "" then
+      return nil, "tmp makes its directory in TMPDIR, " .. string.format("%q", tmpdir) ..
+        ", which the user a root caller's program runs as cannot reach: " .. above ..
+        " is not searchable by everyone; point TMPDIR at a directory everyone may search, " ..
+        "or isolate \"file\", whose /tmp is a tmpfs of the sandbox's own"
+    end
+  end
   local idmap: {boolean} = {}
   for index, grant in ipairs(merged.grants) do
     local named_at = named(grant.from or grant.path, base)
@@ -2431,17 +2444,17 @@ local function reached_by(merged: Rules.Policy, base: string, file: boolean): {b
     if above ~= "" then
       return nil, "the directory the program starts in, " .. string.format("%q", base) ..
         ", or one above it, " .. above .. ", cannot be searched by the user a root caller's " ..
-        "program runs as: start in a directory everyone may search, or isolate \"file\""
+        "program runs as: pass `cwd` of a directory everyone may search (this process's own is " ..
+        "the default), or isolate \"file\""
     end
   end
   return idmap, ""
 end
 
---- The kernel's release, or "" where it cannot be read.
+--- The kernel's release, as uname(2) answers it, or "" where it fails.
 local function kernel_release(): string
-  local text, _ = Fs.read("/proc/sys/kernel/osrelease")
-  if text == nil then return "" end
-  return (text:gsub("%s+$", ""))
+  local names, _ = sys.uname()
+  return names ~= nil and names.release or ""
 end
 
 --- What a program started under `isolate` with no `processes` of its

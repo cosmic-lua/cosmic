@@ -585,11 +585,12 @@ COSMIC_SYSCALL(cpu_features, 0);
  * ---@class Uname
  * ---@field sysname string the kernel name: "Linux", "Darwin"
  * ---@field machine string the machine: "x86_64", "aarch64", "arm64"
+ * ---@field release string the kernel's release, as /proc/sys/kernel/osrelease reads: "6.18.44-fc-v64"
  */
 
 /*
- * --- The host's kernel name and machine, as `uname(2)` reports them.
- * ---@return Uname|nil uname the two names, or nil on failure
+ * --- The host's kernel name, release and machine, as `uname(2)` reports them.
+ * ---@return Uname|nil uname the three names, or nil on failure
  * ---@return string error what went wrong, when uname is nil
  * ---@return integer errno the error number, when uname is nil
  */

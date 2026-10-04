@@ -4762,9 +4762,11 @@ COSMIC_SYSCALL(uname, 0) {
   if (uname(&info) != 0) {
     return cosmic_fail(L, errno);
   }
-  lua_createtable(L, 0, 2);
+  lua_createtable(L, 0, 3);
   lua_pushstring(L, info.sysname);
   lua_setfield(L, -2, "sysname");
+  lua_pushstring(L, info.release);
+  lua_setfield(L, -2, "release");
   lua_pushstring(L, info.machine);
   lua_setfield(L, -2, "machine");
   return 1;

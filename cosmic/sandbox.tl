@@ -122,7 +122,12 @@ local record Sandbox
     profiles: {string}
     --- The paths the program reaches.
     grants: {Grant}
-    --- How far it is isolated from the host.
+    --- How far it is isolated from the host. A child whose caller is root
+    --- gets "proc" at least, whatever this says, since the unprivileged user
+    --- it runs as is mapped only into a user namespace of its own. With
+    --- "file", a writable grant on a tree that user does not own (`/etc`
+    --- as `rwc`, say) is mounted so that it is the tree's owner there: it
+    --- writes the owner's files, root's included, through that mount.
     isolate: {Isolate}
     --- The system calls it may make beyond its basics.
     promises: {Promise}

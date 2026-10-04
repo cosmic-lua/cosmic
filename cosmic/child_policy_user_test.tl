@@ -29,6 +29,7 @@ local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local confine = require("build.confine")
 local sandbox_skip = require("build.sandbox_skip")
+local searchable = require("build.searchable")
 local stand_in = require("build.stand_in")
 
 --- The temporary directory. `nests`: a policy's isolation makes a root of
@@ -81,11 +82,9 @@ local function refused(program: string, policy: Sandbox.Policy, cwd: string): st
 end
 
 --- Whether the kernel counts a user namespace's processes apart from its
---- creator's, as a start under `processes` takes it to: where the release
---- cannot be read (a sandboxed worker's /proc holds no /proc/sys), it does.
+--- creator's, as a start under `processes` takes it to.
 local function kernel_counts(): boolean
-  local release, _ = Fs.read("/proc/sys/kernel/osrelease")
-  return release == nil or Sandbox.counts_per_namespace(release)
+  return Sandbox.counts_per_namespace(assert(sys.uname()).release)
 end
 
 --- A permission mode written in octal.
@@ -104,10 +103,15 @@ local function uids(said: string): {integer}
 end
 
 --- Whether this process is root and may map the user a root caller's
---- sandbox runs as, from outside (build.confine's `may_map_ids`); false
---- where it is not root, which has nothing to check.
+--- sandbox runs as, from outside (build.confine's `may_map_ids`). False
+--- where it is not root, which has nothing to check, and, with the test
+--- skipped, where it is root and cannot.
 local function root_that_maps(): boolean
-  return sys.getuid() == 0 and confine.may_map_ids()
+  if sys.getuid() ~= 0 then return false end
+  if confine.may_map_ids() then return true end
+  sandbox_skip.refused("this process is root without CAP_SETUID, CAP_SETGID and CAP_SETFCAP in " ..
+      "effect, so it cannot map the user a sandbox runs as")
+  return false
 end
 
 --- The program, a working directory and a directory every user may search.
@@ -119,16 +123,7 @@ end
 --- Builds the stand-in and a working directory in `tmp`, opened to
 --- everyone as a sandbox's own user needs it of the host's tree.
 local function placed(tmp: string): Place
-  -- The directories above it too, which a test's own are made private to
-  -- its owner, as the host's tree is searched by the sandbox's user.
-  local above = tmp
-  while above ~= "/" do
-    local st = sys.stat(above)
-    if st ~= nil and st.mode & 1 == 0 then
-      local _, _ = sys.chmod(above, st.mode & 4095 | 5)
-    end
-    above = Fs.dirname(above)
-  end
+  searchable.open(tmp)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local work = assert(Fs.mkdirs(tmp .. "/work") and tmp .. "/work")
   assert(sys.chmod(work, octal("755")))
@@ -387,4 +382,21 @@ local function test_processes_above_the_callers_hard_limit_fails_naming_it(tmp: 
   else
     assert(why:find("Linux 5.17", 1, true), why)
   end
+end
+
+local function test_a_root_caller_s_tmp_beneath_a_directory_it_cannot_search_fails_naming_tmpdir(tmp: string)
+  if not root_that_maps() then return end
+  local at = placed(tmp)
+  -- TMPDIR is this test's own directory, which the start makes `tmp`'s in.
+  local tmpdir = assert(sys.getenv("TMPDIR"))
+  assert(sys.chmod(tmpdir, octal("700")))
+  local grants: {Sandbox.Grant} = { { path = at.probe, letters = "rx" }, { path = at.work, letters = "r" } }
+  local why = refused(at.probe, { isolate = { "proc" }, tmp = true, grants = grants }, at.work)
+  assert(why:find("^child: start: sandbox: tmp makes its directory in TMPDIR", 1) and
+      why:find(tmpdir, 1, true) and why:find("isolate", 1, true), why)
+  -- Under isolate file /tmp is the sandbox's own tmpfs, whatever TMPDIR is.
+  local ran = under(at.probe, { isolate = { "file" }, tmp = true, grants = grants }, at.work,
+    "create /tmp/made z")
+  if ran == nil then return end
+  assert(ran.code == 0, ran.said)
 end
