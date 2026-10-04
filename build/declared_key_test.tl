@@ -166,6 +166,44 @@ local function test_a_chunk_module_is_keyed_without_what_standalone_loads(tmp: s
   assert(key_declaring(false) ~= chunk and key_declaring(true) ~= both_after)
 end
 
+--- A module the closure reaches only through a `local type` require
+--- loads nothing when its importer runs, so an edit to it leaves the
+--- key; one reached by a value require moves it, and so does one the
+--- test itself requires by type, which a snippet it type-checks may need.
+local function test_a_type_only_module_is_no_part_of_the_key(tmp: string)
+  tree(tmp)
+  for _, name in ipairs({ "typed", "valued", "named" }) do
+    assert(Fs.write(tmp .. "/suite/" .. name .. ".tl", "return {} -- " .. name .. "\n"))
+  end
+  local function key_with(type_only: {string:{string:boolean}}): string
+    local lib: positions.Module = { path = "suite.lib", file = "suite/lib.tl", kind = "module",
+      requires = { "suite.typed", "suite.valued" }, tests = {} }
+    local by_path: {string:positions.Module} = { ["suite.lib"] = lib }
+    for _, name in ipairs({ "typed", "valued", "named" }) do
+      local path = "suite." .. name
+      by_path[path] = { path = path, file = "suite/" .. name .. ".tl", kind = "module",
+        requires = {}, tests = {} }
+    end
+    local m: positions.Module = { path = "suite.t_test", file = "suite/t_test.tl",
+      kind = "test", requires = { "suite.lib", "suite.named" }, tests = { "test_t" } }
+    by_path[m.path] = m
+    local s = spec()
+    s.effective = test_inputs.effective(m, by_path, {}, type_only)
+    return key_of(tmp, s)
+  end
+  local by_type = { ["suite.lib"] = { ["suite.typed"] = true } }
+  local before, whole = key_with(by_type), key_with({})
+  assert(before ~= whole, "a type-only edge was followed")
+  assert(Fs.write(tmp .. "/suite/typed.tl", "return {} -- typed, edited\n"))
+  assert(key_with(by_type) == before, "an edit to a type-only module moved the key")
+  assert(key_with({}) ~= whole, "the same edit left the key of a closure that follows it")
+  assert(Fs.write(tmp .. "/suite/valued.tl", "return {} -- valued, edited\n"))
+  assert(key_with(by_type) ~= before, "an edit to a value-required module left the key")
+  local edited = key_with(by_type)
+  assert(Fs.write(tmp .. "/suite/named.tl", "return {} -- named, edited\n"))
+  assert(key_with(by_type) ~= edited, "an edit to a module the test requires itself left the key")
+end
+
 --- Each thing it is a digest of moves it: a declared file's contents,
 --- one added beneath a declared directory, a file's mode, a module of
 --- the closure, the declaration, a variable's value, the runtime (the

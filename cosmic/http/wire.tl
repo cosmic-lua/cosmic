@@ -1,4 +1,4 @@
---- HTTP/1.1 on the wire, for [`Http.serve`]: a request's head read
+--- HTTP/1.1 on the wire, for [`Server.serve`]: a request's head read
 --- from a connection's bytes, its body decoded as the handler reads it,
 --- and a reply's head and body written. It is apart from the server so
 --- that what reads untrusted bytes is fuzzed on its own

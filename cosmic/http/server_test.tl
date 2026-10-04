@@ -1,8 +1,8 @@
---- [`Http.serve`] over a socket file in the test's own directory: a
+--- [`Server.serve`] over a socket file in the test's own directory: a
 --- client here writes a request's bytes as given and reads the reply as
 --- sent, so what the server does on the wire is what is checked.
 
-local Http = require("cosmic.http")
+local Server = require("cosmic.http.server")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
@@ -112,10 +112,10 @@ end
 --- Runs a server of `handle` (and `spec`'s other fields) at a socket
 --- file in `tmp`, running `client` with its address once it listens,
 --- and stops it once `client` returns. Answers what went to on_error.
-local function serving(tmp: string, handle: function(Http.Request): Http.Reply,
-                       client: function(Net.Address), spec?: Http.ServeSpec): {string}
+local function serving(tmp: string, handle: function(Server.Request): Server.Reply,
+                       client: function(Net.Address), spec?: Server.ServeSpec): {string}
   local troubles: {string} = {}
-  local given: Http.ServeSpec = spec or {}
+  local given: Server.ServeSpec = spec or {}
   given.listeners = { Net.unix(tmp .. "/s.sock") }
   given.handle = handle
   given.on_error = function(trouble: string) troubles[#troubles + 1] = trouble end
@@ -123,12 +123,12 @@ local function serving(tmp: string, handle: function(Http.Request): Http.Reply,
     client(addresses[1])
     server:stop()
   end
-  assert(Http.serve(given))
+  assert(Server.serve(given))
   return troubles
 end
 
 --- Answers each request with its method, path and query.
-local function echo(req: Http.Request): Http.Reply
+local function echo(req: Server.Request): Server.Reply
   local body = assert(Stream.read_all(req.body))
   return { status = 200, headers = { ["Content-Type"] = "text/plain" },
     body = req.method .. " " .. req.path .. " " .. req.query .. " " .. body }
@@ -164,7 +164,7 @@ end
 --- HTTP/1.0 request each end the connection after their reply, which
 --- says so.
 local function test_a_connection_closes_where_either_side_asks(tmp: string)
-  serving(tmp, function(req: Http.Request): Http.Reply
+  serving(tmp, function(req: Server.Request): Server.Reply
     return { status = 200, body = "ok", close = req.path == "/bye" }
   end, function(address: Net.Address)
     for _, request in ipairs({ get("/", "Connection: close\r\n"), get("/bye"),
@@ -199,7 +199,7 @@ local function test_head_is_answered_with_no_body(tmp: string)
       return true, ""
     end,
   } })
-  serving(tmp, function(req: Http.Request): Http.Reply
+  serving(tmp, function(req: Server.Request): Server.Reply
     if req.path == "/reader" then return { status = 200, body = watched, length = 42 } end
     return { status = 200, body = "hello" }
   end, function(address: Net.Address)
@@ -220,7 +220,7 @@ end
 --- dropped; a Reader reply without a length goes chunked to HTTP/1.1,
 --- and to HTTP/1.0 until the connection closes.
 local function test_chunked_bodies_both_ways(tmp: string)
-  serving(tmp, function(req: Http.Request): Http.Reply
+  serving(tmp, function(req: Server.Request): Server.Reply
     if req.path == "/stream" then
       return { status = 200, body = Stream.from_string(string.rep("z", 70000)) }
     end
@@ -252,7 +252,7 @@ end
 --- reads it closes the connection after its reply, since the client
 --- may never send it.
 local function test_100_continue(tmp: string)
-  serving(tmp, function(req: Http.Request): Http.Reply
+  serving(tmp, function(req: Server.Request): Server.Reply
     if req.path == "/ignore" then return { status = 200, body = "ignored" } end
     return { status = 200, body = assert(Stream.read_all(req.body)) }
   end, function(address: Net.Address)
@@ -280,7 +280,7 @@ end
 --- -- and a connection past `connections` waits until one closes.
 local function test_each_limit_is_answered(tmp: string)
   local handled = 0
-  local troubles = serving(tmp, function(req: Http.Request): Http.Reply
+  local troubles = serving(tmp, function(req: Server.Request): Server.Reply
     handled = handled + 1
     return { status = 200, body = assert(Stream.read_all(req.body)) }
   end, function(address: Net.Address)
@@ -330,10 +330,10 @@ local function test_a_failing_handler_is_answered_500(tmp: string)
   }
   local paths = { "/raise", "/nil", "/owned", "/cr", "/nocontent", "/interim", "/typo", "/unsent",
     "/mismatch" }
-  local troubles = serving(tmp, function(req: Http.Request): Http.Reply
+  local troubles = serving(tmp, function(req: Server.Request): Server.Reply
     if req.path == "/raise" then error("the handler failed") end
     local answer: any = bad[req.path]
-    return answer as Http.Reply
+    return answer as Server.Reply
   end, function(address: Net.Address)
     for _, path in ipairs(paths) do
       local p <close> = peer(address)
@@ -347,7 +347,7 @@ local function test_a_failing_handler_is_answered_500(tmp: string)
   assert(#troubles == #paths, tostring(#troubles))
   assert(troubles[1]:find("http: GET /raise: .*the handler failed") ~= nil, troubles[1])
   assert(troubles[1]:find("stack traceback", 1, true) ~= nil, troubles[1])
-  assert(troubles[2]:find("not an Http.Reply", 1, true) ~= nil, troubles[2])
+  assert(troubles[2]:find("not a Server.Reply", 1, true) ~= nil, troubles[2])
   assert(troubles[3]:find("Date: the server writes it itself", 1, true) ~= nil, troubles[3])
   assert(troubles[4]:find("CR, LF or NUL", 1, true) ~= nil, troubles[4])
   assert(troubles[5]:find("no body goes with status 204", 1, true) ~= nil, troubles[5])
@@ -363,7 +363,7 @@ end
 --- `length` and no body: the size is sent, and no bytes, so the next
 --- reply on the connection follows at once.
 local function test_a_handler_may_give_the_content_length(tmp: string)
-  local troubles = serving(tmp, function(req: Http.Request): Http.Reply
+  local troubles = serving(tmp, function(req: Server.Request): Server.Reply
     if req.path == "/match" then
       return { status = 200, headers = { ["content-length"] = "5" }, body = "hello" }
     elseif req.path == "/reader" then
@@ -428,10 +428,10 @@ local function test_stopping_closes_idle_connections_at_once(tmp: string)
   local idle_ended = false
   local in_flight: Got = nil
   local release = false
-  assert(Http.serve{
+  assert(Server.serve{
     listeners = { Net.unix(tmp .. "/s.sock") },
     idle_ns = Time.seconds(60),
-    handle = function(req: Http.Request): Http.Reply
+    handle = function(req: Server.Request): Server.Reply
       if req.path == "/slow" then
         while not release do assert(Poll.delay(Time.ms(5))) end
       end
@@ -461,7 +461,7 @@ end
 --- A body the handler reads in part, or not at all, is dropped before
 --- the next request, which is read from where the body ends.
 local function test_a_body_left_unread_is_dropped_before_the_next_request(tmp: string)
-  serving(tmp, function(req: Http.Request): Http.Reply
+  serving(tmp, function(req: Server.Request): Server.Reply
     if req.path == "/part" then
       local piece = assert(req.body:read(3))
       return { status = 200, body = piece }
@@ -503,7 +503,7 @@ end
 --- A Reader body that ends short of its length cuts the reply short:
 --- the connection closes, and why goes to on_error.
 local function test_a_reader_body_short_of_its_length_closes_the_connection(tmp: string)
-  local troubles = serving(tmp, function(_req: Http.Request): Http.Reply
+  local troubles = serving(tmp, function(_req: Server.Request): Server.Reply
     return { status = 200, body = Stream.from_string("abc"), length = 10 }
   end, function(address: Net.Address)
     local p <close> = peer(address)
@@ -518,7 +518,7 @@ end
 --- A 304 carries no body, and a Content-Length only where the handler
 --- gives one, the size of a 200's body, which is passed on.
 local function test_a_304_carries_no_length_but_one_given(tmp: string)
-  serving(tmp, function(req: Http.Request): Http.Reply
+  serving(tmp, function(req: Server.Request): Server.Reply
     if req.path == "/sized" then
       return { status = 304, headers = { ["Content-Length"] = "10" } }
     end
@@ -539,7 +539,7 @@ end
 --- waiting for `100 Continue`, tells it to go on before the reply's
 --- head, never after, where it would be read as the body.
 local function test_a_reply_reading_the_request_body_sends_100_first(tmp: string)
-  serving(tmp, function(req: Http.Request): Http.Reply
+  serving(tmp, function(req: Server.Request): Server.Reply
     return { status = 200, body = req.body }
   end, function(address: Net.Address)
     local p <close> = peer(address)
@@ -572,7 +572,7 @@ local function test_a_reply_body_that_raises_closes_the_connection(tmp: string)
       return true, ""
     end,
   } })
-  local troubles = serving(tmp, function(_req: Http.Request): Http.Reply
+  local troubles = serving(tmp, function(_req: Server.Request): Server.Reply
     return { status = 200, body = raising, length = 5 }
   end, function(address: Net.Address)
     local p <close> = peer(address)
@@ -604,7 +604,7 @@ local function test_a_body_failing_under_the_reply_closes_the_connection(tmp: st
     end,
     close = function(_self: Lenient): boolean, string return true, "" end,
   } }
-  serving(tmp, function(req: Http.Request): Http.Reply
+  serving(tmp, function(req: Server.Request): Server.Reply
     paths[#paths + 1] = req.path
     local lenient: Lenient = setmetatable({ source = req.body }, lenient_mt)
     return { status = 200, body = lenient }

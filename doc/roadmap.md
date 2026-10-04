@@ -191,15 +191,15 @@ promises lean on come first:
   following a `Location` or a crawler needs and [`Url.parse`] refuses;
   and an IPv6 host with a zone (`[fe80::1%25eth0]`, RFC 6874), which
   [`Url.parse`] refuses.
-- [`Http.serve`] past HTTP/1.1 over plain sockets, each once a caller
+- [`Server.serve`] past HTTP/1.1 over plain sockets, each once a caller
   needs it: TLS, for a server reached past the loopback (a certificate
   and key handed to the listener, over the TLS stack curl already
   carries); HTTP/2; a reply compressed for an `Accept-Encoding` the
   client sent, the server choosing the coding and writing `Vary`;
   routing, a table of methods and path patterns to handlers in place
   of one handler's `if`s; and static files, a directory served by
-  [`Url.segments`] with types, answering ranges ([`Http.range`]) and
-  conditional requests ([`Http.none_match`]).
+  [`Url.segments`] with types, answering ranges ([`Server.range`]) and
+  conditional requests ([`Server.none_match`]).
 - an `Archive.add_tree(writer, dir, opts?)` that walks a directory into an
   [`Archive.create`] writer, once a caller needs one. `cosmic archive
   create` ([`build/archive.tl`]) is the only walk today, and it gathers and
@@ -337,12 +337,12 @@ four-producer provenance join.
 [`cosmic/shape_example.tl`]: ../cosmic/shape_example.tl
 [`Errors.guidance`]: ../cosmic/errors.tl
 [`eval/summarize.tl`]: ../eval/summarize.tl
-[`Http.none_match`]: ../cosmic/http/init.tl
-[`Http.range`]: ../cosmic/http/init.tl
-[`Http.serve`]: ../cosmic/http/init.tl
 [`Json.decode`]: ../cosmic/json.tl
 [`Net.serve`]: ../cosmic/net.tl
 [`receivers.record_named`]: ../build/receivers.tl
+[`Server.none_match`]: ../cosmic/http/server.tl
+[`Server.range`]: ../cosmic/http/server.tl
+[`Server.serve`]: ../cosmic/http/server.tl
 [`Shape.list`]: ../cosmic/shape.tl
 [`Shape.record_of`]: ../cosmic/shape.tl
 [`Shape.record`]: ../cosmic/shape.tl

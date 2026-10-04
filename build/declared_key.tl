@@ -98,6 +98,16 @@
 --- `where`, an enum's membership) is compiled into the importer's
 --- bytecode.
 ---
+--- A test's closure is walked by the same rule ([`build.test`]'s
+--- `type_only_imports`): a module an importer of it requires only by
+--- type is none of its closure, and so none of its key, its store or
+--- the modules its worker may `require`. An edit to one that leaves the
+--- importer's bytecode as it was runs no test again; one the importer's
+--- bytecode answers to moves the importer's. A test module's own
+--- `local type` requires are followed, which is how a test that
+--- type-checks a snippet brings the sources the checker reads into its
+--- closure.
+---
 --- The harness -- what a worker loads, the sandbox's maker, and the
 --- code that computes a key -- is held by the epoch rather than by its
 --- source, so an edit to it, a comment's or a doc's, runs no test
