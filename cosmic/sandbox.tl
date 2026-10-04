@@ -774,7 +774,8 @@ end
 --- limit lower than the process already has needs `setrlimit`, which an
 --- earlier call's filter allows only to a process that cannot raise a hard
 --- limit (it lacks CAP_SYS_RESOURCE, as a program started under a policy
---- does): give every limit in the first call where it may.
+--- does), so each call of any number may lower a limit there; where the
+--- process holds the capability, give every limit in the first call.
 ---
 --- It fails, and holds the process to nothing it was not, for what only
 --- a child can be held to -- `isolate`, `connect`, `loopback`, a grant's

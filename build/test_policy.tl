@@ -56,12 +56,12 @@ test_policy.switch = "COSMIC_TEST_POLICY"
 -- tests declare them (the plan's step (c)-(d), which makes the policy path
 -- the default and bumps the epoch): until then no test can say what it
 -- makes, and the filter refuses only what no test is meant to.
--- TODO: give the filter a rule for the unix sockets a test makes under
--- `isolate` "file", where the scratch directory is granted no `u`, once the
--- kernels the suite runs on give Landlock ABI 9 (cosmic/child.tl's
--- `unix_unheld`): below it a `u` grant beside another directory fails the
--- start, and without one the filter refuses `socket(AF_UNIX)` EPERM, so a
--- test of a unix socket fails under the policy path.
+-- TODO: let a root's start make a unix socket without a `u` grant below
+-- Landlock ABI 9, once the kernels the suite runs on give ABI 9
+-- (core/syscalls.c's TODO on the same; cosmic/child.tl's `unix_unheld`):
+-- below it a `u` grant beside another directory fails the start, and
+-- without one the filter refuses `socket(AF_UNIX)` EPERM, so a test of a
+-- unix socket in a worker's scratch directory fails under the policy path.
 local base_promises <const>: {Sandbox.Promise} = { "fattr", "fork", "jit" }
 
 --- The devices a worker is given, as the policy's letters have them: the

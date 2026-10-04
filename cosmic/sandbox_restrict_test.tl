@@ -297,6 +297,25 @@ say("cpu", cpu.soft, cpu.hard)
   assert(said.lines.second == "true " and said.lines.cpu == "5 5", said.raw)
 end
 
+--- Every restriction lowers a limit, however many are stacked: a later one
+--- reads no capability once an earlier filter refuses it, and takes the
+--- earlier filter's allowing setrlimit as proof it holds none.
+local function test_stacked_restrictions_each_lower_a_limit()
+  local said = in_child(restricted("{ limits = { cpu_seconds = 100 } }", [[
+local seconds = { 50, 25, 10 }
+for i, n in ipairs(seconds) do
+  local ok, why = Sandbox.restrict({ limits = { cpu_seconds = n } })
+  say("r" .. i, ok, why)
+  local cpu = sys.getrlimit(sys.RLIMIT_CPU)
+  say("cpu" .. i, cpu.soft, cpu.hard)
+end
+]]))
+  if said == nil then return end
+  for i, n in ipairs({ 50, 25, 10 }) do
+    assert(said.lines["r" .. i] == "true " and said.lines["cpu" .. i] == n .. " " .. n, said.raw)
+  end
+end
+
 --- The filter a restriction makes lets the process lower its own limits where
 --- it cannot raise a hard limit (its capabilities lack CAP_SYS_RESOURCE, which
 --- the kernel asks for it), and the kernel keeps the rest: a hard limit is not

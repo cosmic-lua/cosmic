@@ -60,6 +60,7 @@
 #include <linux/filter.h>
 #include <linux/seccomp.h>
 #include <sys/prctl.h>
+#include <sys/resource.h>
 #include <sys/syscall.h>
 extern long syscall (long, ...);
 #endif
@@ -212,8 +213,8 @@ struct grant {
  * Every call left out answers EPERM:
  * - setrlimit, and a prlimit64 that sets, unless the process cannot raise
  *   a hard limit (COSMIC_HELD_LIMITS): it may then lower its limits, and
- *   raise a soft one to its hard one, which a start that set both
- *   together (`rlimits`) leaves no more room than the program began with.
+ *   raise a soft one to its hard one. A start that sets soft and hard
+ *   together (`rlimits`) leaves it no more than it began with.
  * - SysV IPC, chroot, mount and the namespace calls, which `nest` grants.
  * - pidfd_send_signal, which signals through a descriptor no pid rule sees,
  *   unless the signal scope holds (see RULE_SIGNAL).
@@ -331,9 +332,11 @@ static const struct grant basics[] = {
  *   up, and setrlimit and prlimit64 that set, which a process may only
  *   lower without a capability the host's user namespace gives.
  * - the ioctls SIOCGIFFLAGS and SIOCSIFFLAGS (RULE_IOCTL_NEST), with which
- *   a start brings up the loopback of a network namespace it made: the
- *   kernel asks CAP_NET_ADMIN over the namespace the socket is in, which
- *   only a namespace of its own user namespace's gives.
+ *   a start brings up the loopback of a network namespace it made.
+ *   SIOCGIFFLAGS reveals the flags of an interface of the namespace the
+ *   socket is in, by name. SIOCSIFFLAGS needs CAP_NET_ADMIN over that
+ *   namespace's own user namespace, so it reaches only a namespace the
+ *   sandbox made, never the host's.
  * - signals to any process, not only its own: a sandbox that starts one
  *   of its own ends and reaps it by pid and group. They reach only the
  *   processes of the pid namespace the program is in, which `isolate
@@ -555,10 +558,10 @@ static const uint32_t ioctl_commands[] = {
 
 /* The ioctls `nest` adds: SIOCGIFFLAGS and SIOCSIFFLAGS, with which a
  * sandbox's start brings up the loopback of the network namespace it made
- * for the program. The kernel holds them to the network namespace the
- * socket is in: reading the flags of an interface shows what the sandbox's
- * own /proc/net already does, and setting them needs CAP_NET_ADMIN over the
- * namespace, which only one the program's own user namespace made gives. */
+ * for the program. SIOCGIFFLAGS reveals the flags of a named interface of
+ * the namespace the socket is in, which the filter cannot narrow to the
+ * program's own. SIOCSIFFLAGS needs CAP_NET_ADMIN over that namespace's own
+ * user namespace, so it reaches only a namespace the sandbox made. */
 static const uint32_t nest_ioctl_commands[] = { 0x8913, 0x8914 };
 
 /* The prctl options a program may use: its parent-death signal, whether it
@@ -830,18 +833,20 @@ static void add (uint8_t *rules, const struct grant *table, size_t count) {
  * a process of `arch` and pid `pid` to `promises`, and answers how many
  * instructions it is, or 0 where it did not fit. `held` says what else
  * holds the process (core/promises.h's COSMIC_HELD_ bits).
+ *
  * COSMIC_HELD_SIGNALS says it is in a Landlock domain that handles
  * LANDLOCK_SCOPE_SIGNAL (ABI 6): its signal calls then take any pid, and
- * pidfd_send_signal is allowed. The kernel's check holds them, per target: a signal to a
- * process outside the domain -- a parent domain or a process with none
- * (linux/landlock.h) -- is refused with EPERM, and every way of naming a
- * target goes through it: a pid, a thread, a group (negative, or 0), every
- * process (-1, which the kernel answers 0 when it signalled none),
- * a pidfd, and the queueing calls. Without COSMIC_HELD_SIGNALS they keep to the
- * process's own pid. `sockets`
- * (COSMIC_SOCKETS_ bits) lets it make a socket of those families --
- * socket(AF_UNIX), AF_INET and AF_INET6 -- a socketpair of unix ones it
- * always may; COSMIC_HELD_UNIX adds AF_UNIX.
+ * pidfd_send_signal is allowed. The kernel's check holds them, per
+ * target: a signal to a process outside the domain -- a parent domain or
+ * a process with none (linux/landlock.h) -- is refused with EPERM, and
+ * every way of naming a target goes through it: a pid, a thread, a group
+ * (negative, or 0), every process (-1, which the kernel answers 0 when it
+ * signalled none), a pidfd, and the queueing calls. Without
+ * COSMIC_HELD_SIGNALS they keep to the process's own pid.
+ *
+ * `sockets` (COSMIC_SOCKETS_ bits) lets it make a socket of those
+ * families -- socket(AF_UNIX), AF_INET and AF_INET6 -- a socketpair of
+ * unix ones it always may; COSMIC_HELD_UNIX adds AF_UNIX.
  *
  * COSMIC_HELD_LIMITS lets it set its own limits. A pointer is all
  * setrlimit and prlimit64 take, which no rule can read, so no call that
@@ -964,11 +969,20 @@ const int cosmic_promise_headers_end = 0;
  * (set by the caller) keeps an exec from giving a permitted set more than
  * this one. A capability of a user namespace the process made reads as
  * held, which refuses where it need not: the caller that made one says so
- * with COSMIC_HELD_LIMITS. False where the set cannot be read. */
+ * with COSMIC_HELD_LIMITS. Where an earlier filter refuses capget (EPERM,
+ * which capget itself never answers), a setrlimit of a limit to the value
+ * it has stands in: it succeeds only if that filter allows setrlimit, which
+ * it does only after proving the capability absent (or, under `nest`, in a
+ * user namespace of its own), and the process only ever loses capabilities.
+ * False where neither can be told. */
 static bool lacks_resource_capability (void) {
   struct __user_cap_header_struct header = { _LINUX_CAPABILITY_VERSION_3, 0 };
   struct __user_cap_data_struct data[_LINUX_CAPABILITY_U32S_3];
-  if (syscall(SYS_capget, &header, data) != 0) return false;
+  if (syscall(SYS_capget, &header, data) != 0) {
+    struct rlimit current;
+    if (errno != EPERM || getrlimit(RLIMIT_NOFILE, &current) != 0) return false;
+    return setrlimit(RLIMIT_NOFILE, &current) == 0;
+  }
   return (data[CAP_TO_INDEX(CAP_SYS_RESOURCE)].permitted & CAP_TO_MASK(CAP_SYS_RESOURCE)) == 0;
 }
 #endif

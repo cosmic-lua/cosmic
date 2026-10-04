@@ -2897,13 +2897,13 @@ static int grants_ruleset (const char *const *paths, const unsigned *letters, in
     size = offsetof(struct grants_attr, scoped) + sizeof attr.scoped;
   }
   if ((attr.scoped & LANDLOCK_SCOPE_SIGNAL) != 0) *held |= COSMIC_HELD_SIGNALS;
-  /* TODO: let a root's start make a unix socket below ABI 9 too, once the
-   * kernels the suite runs on give it (build/test_policy.tl's TODO on `u`)
-   * or a start can tell a granted directory holds no socket but its own:
-   * below it nothing tells one socket file of a granted directory from
-   * another, so a program that connected to one a host service put there
-   * would reach it, and a test of a unix socket in its scratch directory
-   * fails EPERM under the policy path. */
+  /* TODO: let a root's start make a unix socket without a `u` grant below
+   * Landlock ABI 9, once the kernels the suite runs on give ABI 9
+   * (build/test_policy.tl's TODO on the same): below it nothing tells one
+   * socket file of a granted directory from another, so a program that
+   * connected to one a host service put there would reach it, and a test of
+   * a unix socket in its scratch directory fails `socket(AF_UNIX)` EPERM
+   * under the policy path. */
   if (unix_bound && offline && abi >= LANDLOCK_ABI_RESOLVE_UNIX) *held |= COSMIC_HELD_UNIX;
   long made = syscall(SYS_landlock_create_ruleset, &attr, size, 0);
   if (made < 0) {
