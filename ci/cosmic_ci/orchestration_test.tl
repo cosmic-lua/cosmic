@@ -5,6 +5,7 @@ local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
+local Shape = require("cosmic.shape")
 local Fixture = require("cosmic_ci.fixture")
 local Sqlite = require("cosmic.sqlite")
 local State = require("cosmic_ci.state")
@@ -950,7 +951,9 @@ local function full_run_legs(platform: {string: any}): {string: {string: string}
   local matrix = (platform.strategy as {string: any}).matrix as {string: any}
   local full = assert((matrix.name as string):match("&& '(%[.-%])' ||"), "the legs' names are no scope's choice")
   local legs: {string: {string: string}} = {}
-  for _, name in ipairs(assert(Json.decode(full)) as {string}) do
+  local names, why: {string} | nil, string = Shape.decode_into(full, Shape.list(Shape.string))
+  assert(names ~= nil, why)
+  for _, name in ipairs(names) do
     local leg: {string: string} = { name = name }
     for _, entry in ipairs(matrix.include as {{string: string}}) do
       if entry.name == nil or entry.name == name then

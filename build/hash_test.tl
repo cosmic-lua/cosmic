@@ -10,7 +10,7 @@
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
-local Json = require("cosmic.json")
+local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
 local hash = require("build.hash")
 
@@ -18,6 +18,21 @@ local record Ran
   code: integer
   out: string
   err: string
+end
+
+--- One member of `--json`'s array.
+local record Row
+  path: string
+  algorithm: string
+  digest: string
+end
+local ROW <const> = Shape.record_of("Row")
+
+--- `--json`'s array, checked against [`Row`].
+local function rows_of(text: string): {Row}
+  local rows, why: {Row} | nil, string = Shape.decode_into(text, Shape.list(ROW.spec))
+  assert(rows ~= nil, tostring(why) .. ": " .. text)
+  return rows
 end
 
 --- One run: `words` after `cosmic hash`, and `stdin` standing in for
@@ -155,7 +170,7 @@ local function test_json_refuses_a_path_it_cannot_write_and_exits_2(tmp: string)
   local ran = run({ "--json", odd, good })
   assert(ran.code == 2, ran.code)
   assert(ran.err:find("--json cannot write this path", 1, true), ran.err)
-  local rows = assert(Json.decode(ran.out)) as {{string:string}}
+  local rows = rows_of(ran.out)
   assert(#rows == 1 and rows[1].path == good)
 end
 
@@ -184,12 +199,12 @@ local function test_json_is_an_array_of_path_algorithm_digest(tmp: string)
   local a = file(tmp, "a", "abc")
   local ran = run({ "--json", "--sha1", a, "-" }, "abc")
   assert(ran.code == 0, ran.err)
-  local rows = assert(Json.decode(ran.out)) as {{string:string}}
+  local rows = rows_of(ran.out)
   assert(#rows == 2)
   assert(rows[1].path == a and rows[1].algorithm == "sha1" and rows[1].digest == ABC["sha1"])
   assert(rows[2].path == "-" and rows[2].digest == ABC["sha1"])
   local hmac = run({ "--json", "--hmac", "k", a })
-  local row = (assert(Json.decode(hmac.out)) as {{string:string}})[1]
+  local row = rows_of(hmac.out)[1]
   assert(row.algorithm == "hmac-sha256", row.algorithm)
   assert(run({ "--json" }, "").out:find('"digest"', 1, true))
 end
