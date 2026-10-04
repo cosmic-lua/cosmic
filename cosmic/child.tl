@@ -395,13 +395,6 @@ local record Options
   --- the platform has no Landlock or seccomp (anything but Linux) the
   --- start fails. Nothing is printed about grants.
   policy: Rules.Policy
-  --- For `cosmic test`'s own workers ([`build.test_policy`]): hold the
-  --- child to `policy`'s grants and isolation but not its promises, which
-  --- are a seccomp filter that this start then does not install. Not part
-  --- of the API: a caller's policy always gets its filter, and what the
-  --- policy promises is met or the start fails; the runner uses this
-  --- until its workers declare their promises. Raises without `policy`.
-  _landlock_only: boolean
   --- The IDs and privilege limits for this launch. Excludes sandbox
   --- unveil, offline, user and group. Child setup errors precede exec;
   --- a parent dumpability restoration error can follow exec and ends
@@ -1943,9 +1936,6 @@ local function validate(argv: {string}, opts: Options)
     end
     if opts.sandbox ~= nil then error("child: policy and sandbox exclude each other", 3) end
   end
-  if opts._landlock_only ~= nil and (opts._landlock_only ~= true or opts.policy == nil) then
-    error("child: _landlock_only is true, and only with a policy", 3)
-  end
   if opts.credentials ~= nil then
     local user, group = opts.credentials.user, opts.credentials.group
     if not (user is integer) or not (group is integer) or
@@ -2709,14 +2699,6 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
   -- Under `nest` no ruleset holds the paths: the kernel refuses a mount to
   -- a process Landlock holds, so the root, which only the grants are bound
   -- into, does ([`nest_unheld`]).
-  -- Without the filter (`_landlock_only`) no socket is refused by family,
-  -- but a ruleset that handles TCP would refuse the child's loopback: spawn
-  -- takes "inet" alone to leave it unhandled, the network namespace being
-  -- what holds it.
-  if opts._landlock_only then
-    promises = nil
-    sockets = inet and { "inet" } or {}
-  end
   local sandbox: raw_process.Sandbox = { grants = not nest and grants or nil, promises = promises,
     rlimits = rlimits,
     sockets = sockets, offline = inet or unix, strict = file or proc or inet or unix,

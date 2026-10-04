@@ -1982,7 +1982,7 @@ local function test_a_policys_sandbox_fields_are_checked_before_a_start()
   says(refused_sandbox({ proc = 1 }), "proc must be a boolean")
   says(refused_sandbox({ proc = true, unveil = { reads = { "/" } } }),
     "proc and unveil exclude each other")
-  says(refused_sandbox({ sockets = { "inet" } }), "sockets require offline")
+  says(refused_sandbox({ sockets = { "inet" } }), "sockets require promises")
   says(refused_sandbox({ promises = {}, sockets = { "packet" } }), "a socket family is")
   says(refused_sandbox({ promises = {}, sockets = { "inet" } }), "sockets require offline")
   says(refused_sandbox({ unveil = { tmp = 4096 } }), "unveil's tmp requires strict")

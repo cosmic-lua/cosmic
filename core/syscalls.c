@@ -3430,6 +3430,7 @@ COSMIC_SYSCALL(spawn, 11) {
     lua_rawget(L, 10);
     if (!lua_isnil(L, -1)) {
       if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "sockets must be a list");
+      if (!promising) return luaL_argerror(L, 10, "sockets require promises");
       lua_Integer families = (lua_Integer)lua_rawlen(L, -1);
       for (lua_Integer i = 1; i <= families; i++) {
         lua_rawgeti(L, -1, i);

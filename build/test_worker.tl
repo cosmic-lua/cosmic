@@ -690,11 +690,6 @@ function worker.invocation(given: worker.Invocation): worker.Command
     return { argv = argv, options = {
       policy = policy, cwd = given.cwd, stdin = "null", stdout = "capture", stderr = "stdout",
       fds = fds, process_group = false,
-      -- TODO: hold a worker by its promises' filter too, dropping this, in
-      -- step (d) of the sandbox plan (doc/plans/sandbox.md): the policy
-      -- path is Landlock only until then, as the default sandbox is, so that
-      -- moving to it changes no test's outcome by a call it refuses.
-      _landlock_only = true,
     } }
   end
   return { argv = argv, options = {

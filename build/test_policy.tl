@@ -49,31 +49,21 @@ end
 
 test_policy.switch = "COSMIC_TEST_POLICY"
 
---- The promises every worker's policy names: all that a test may make but
---- `nest` ([`worker_promises`]). They are not yet a hold: a worker is
---- started with [`Child.start`]'s `_landlock_only`, so the policy's grants and
---- isolation hold it and no seccomp filter does, as in the default sandbox.
---- They name the key's part of the policy and what `nest` asks of a start
---- (no descriptor of the program) until step (d) of the sandbox plan
---- (doc/plans/sandbox.md) puts the filter on every worker.
--- TODO: start a worker with the filter its promises make, dropping
--- `_landlock_only` (build/test_worker.tl), in step (d) of the sandbox plan,
--- which bumps the epoch, and hold it by the promises its module declares
--- ([`Test.policy`]'s `promises`) rather than all but `nest`, once the tests
--- declare them: until then no test can say what it makes.
--- TODO: let a worker signal the processes it starts under the filter, in
--- step (d), once Landlock's signal scope holds a sandbox's signals to itself
--- (the TODO at core/promises.c's RULE_PID_SELF): the filter refuses a
--- `kill` of any pid but the worker's own, so a test that ends what it
--- started (a [`Child.Handle`] closed, a stop, a timeout) fails with "still
--- has members after SIGKILL". Landlock alone refuses no such call.
--- TODO: grant the scratch directory `u`, in step (d), so a test may bind a
--- unix socket there, once the kernels the suite runs on give Landlock ABI 9
--- (cosmic/child.tl's `unix_unheld`): below it a `u` grant beside another
--- directory fails the start, and under the filter without one the socket is
--- refused EPERM.
+--- The promises every worker is started with: all that a test may make
+--- but `nest` ([`worker_promises`]).
+-- TODO: hold a worker by the promises its module declares
+-- ([`Test.policy`]'s `promises`) rather than all but `nest`, once the
+-- tests declare them (the plan's step (c)-(d), which makes the policy path
+-- the default and bumps the epoch): until then no test can say what it
+-- makes, and the filter refuses only what no test is meant to.
+-- TODO: give the filter a rule for the unix sockets a test makes under
+-- `isolate` "file", where the scratch directory is granted no `u`, once the
+-- kernels the suite runs on give Landlock ABI 9 (cosmic/child.tl's
+-- `unix_unheld`): below it a `u` grant beside another directory fails the
+-- start, and without one the filter refuses `socket(AF_UNIX)` EPERM, so a
+-- test of a unix socket fails under the policy path.
 -- TODO: let a `nest` worker start a `cosmic test` or a [`Child.start`] `sandbox`
--- of the default path under the filter, in step (d): the start's
+-- of the default path, which the filter refuses today: the start's
 -- `socket(AF_UNIX, SOCK_DGRAM)`, made right after it unshares its namespaces,
 -- answers EPERM (core/noexec_tool_test.tl's nested start,
 -- build/test_policy_tool_test.tl's run of the default sandbox), and a
@@ -122,9 +112,12 @@ local function shape(effective: test_inputs.Effective): Sandbox.Policy
   local loopback: {string} = {}
   for address in pairs(effective.network) do loopback[#loopback + 1] = address end
   table.sort(loopback)
-  -- A policy's descriptors default to 1024, where a default sandbox's
-  -- worker has the runner's: a test that holds more open is told the
-  -- runner's hard limit, which it may raise its own soft one to.
+  -- A policy's descriptors default to 1024, soft and hard, where a default
+  -- sandbox's worker has the runner's limits: a test that holds more open
+  -- is given the runner's hard limit, as both, since the core sets the two
+  -- alike and a worker cannot raise its soft one past it. The limit is no
+  -- part of a key, as the runner's own, which a default worker inherits,
+  -- is none.
   local limits: Sandbox.Limits = {}
   local held, _ = sys.getrlimit(sys.RLIMIT_NOFILE)
   if held ~= nil then limits.open_files = math.min(held.hard, MOST_OPEN_FILES) end
@@ -168,14 +161,12 @@ end
 
 --- The part of every worker's policy that is the same for all of them and
 --- that a verdict's key holds: the isolation, the promises every worker
---- has and that they are not yet a filter, as text, whatever its module
---- declares. A change to any is a change to what every worker is held to,
---- so it names the runtime the key holds ([`build.test`]'s `runtime`); what
+--- has, as text, whatever its module declares. A change to either is a
+--- change to what every worker is held to, so it names the runtime the key holds ([`build.test`]'s `runtime`); what
 --- a module declares is in its key already, by `effective`.
 --- @return the text
 function test_policy.common(): string
-  return "isolate file\npromises " .. table.concat(worker_promises(false), " ") ..
-    "\nfilter none"
+  return "isolate file\npromises " .. table.concat(worker_promises(false), " ")
 end
 
 --- The letters a read of the plan at host path `path` is granted: `rx` for

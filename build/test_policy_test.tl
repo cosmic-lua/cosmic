@@ -145,8 +145,6 @@ local function test_what_every_policy_has_alike_is_text()
   assert(text == test_policy.common())
   assert(text:find("isolate file", 1, true) and text:find("fork", 1, true) and
       not text:find("nest", 1, true), text)
-  -- Its promises are named but no filter is made of them yet.
-  assert(text:find("filter none", 1, true), text)
 end
 
 --- The paths a policy lets a worker run are those of its grants with `x`,
