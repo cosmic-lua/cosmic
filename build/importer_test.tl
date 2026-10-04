@@ -15,6 +15,10 @@ local compilation = require("build.compilation")
 local receivers = require("build.receivers")
 local type Compiler = require("build.compiler")
 local type _ = require("build.test_inputs")
+-- Read as source by the closure checks below, though the modules above
+-- name it only by type, which no closure follows.
+local type _ = require("build.module")
+local type _ = require("build.inputs")
 local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")

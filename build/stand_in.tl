@@ -91,6 +91,12 @@
 ---     start-isolated P starts program P under a policy of `isolate`
 ---                      file, granting P alone, and says `started` or the
 ---                      start's failure, a line to stdout
+---     run-isolated P T runs program P, with T its one argument, under a
+---                      policy of `isolate` file granting P alone and the
+---                      working directory read-only, waits for it, and
+---                      says `exit` and its status, then what it printed
+---                      to stdout and stderr, or the start's failure, to
+---                      stdout
 ---     writable P       fails unless file P opens to write, appending
 ---                      and writing nothing, as `: >> P` does, but never
 ---                      making it

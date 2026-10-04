@@ -163,6 +163,8 @@ local numbers: {string: {integer}} = {
   ["io_uring_setup"] = { 425, 425 },
   ["io_uring_enter"] = { 426, 426 },
   ["io_uring_register"] = { 427, 427 },
+  ["sethostname"] = { 170, 161 },
+  ["mount_setattr"] = { 442, 442 },
   ["open_tree"] = { 428, 428 },
   ["move_mount"] = { 429, 429 },
   ["fsopen"] = { 430, 430 },
@@ -315,21 +317,27 @@ local NAMESPACES: {integer} = {
 }
 
 --- Every call a sandbox never has, whatever it promised: each reaches
---- another process's memory or descriptors, the mount table, the
---- kernel, or calls this filter cannot see.
+--- another process's memory or descriptors, the kernel, or calls this
+--- filter cannot see.
 local NEVER: {string} = {
-  "ptrace", "process_vm_readv", "process_vm_writev", "mount", "umount2", "pivot_root",
-  "move_mount", "open_tree", "fsopen", "fsmount", "fsconfig", "fspick", "bpf",
-  "perf_event_open", "kexec_load", "kexec_file_load", "init_module", "finit_module",
-  "delete_module", "add_key", "request_key", "keyctl", "io_uring_setup", "io_uring_enter",
-  "io_uring_register", "userfaultfd", "setns", "name_to_handle_at", "open_by_handle_at",
-  "pidfd_getfd", "process_madvise", "unshare", "vmsplice", "setuid", "setgid", "setresuid",
-  "chroot", "reboot", "pidfd_send_signal", "sched_setattr",
+  "ptrace", "process_vm_readv", "process_vm_writev", "fsopen", "fsmount", "fsconfig",
+  "fspick", "bpf", "perf_event_open", "kexec_load", "kexec_file_load", "init_module",
+  "finit_module", "delete_module", "add_key", "request_key", "keyctl", "io_uring_setup",
+  "io_uring_enter", "io_uring_register", "userfaultfd", "setns", "name_to_handle_at",
+  "open_by_handle_at", "pidfd_getfd", "process_madvise", "vmsplice", "setuid", "setgid",
+  "setresuid", "chroot", "sethostname", "reboot", "pidfd_send_signal", "sched_setattr",
+}
+
+--- The calls that reach the program's own namespaces and mounts, which
+--- only `nest` grants.
+local NESTED: {string} = {
+  "mount", "umount2", "pivot_root", "move_mount", "open_tree", "mount_setattr", "unshare",
 }
 
 local function never(): {Case}
   local cases: {Case} = {}
   for _, name in ipairs(NEVER) do cases[#cases + 1] = call(name, "EPERM") end
+  for _, name in ipairs(NESTED) do cases[#cases + 1] = call(name, "EPERM") end
   return cases
 end
 
@@ -547,6 +555,99 @@ local function test_a_file_is_never_made_with_a_special_bit()
   })
 end
 
+--- The namespaces `nest` lets a program make: user, mount, pid, IPC and network.
+local NEST_NAMESPACES: {integer} = { 0x00020000, 0x08000000, 0x10000000, 0x20000000, 0x40000000 }
+--- And those it never does: cgroup, UTS, and unshare's time namespace.
+local NEST_REFUSED: {integer} = { 0x02000000, 0x04000000, 0x80 }
+
+local function test_nest_grants_the_calls_a_sandbox_is_built_with()
+  local pid = 4242
+  local cases: {Case} = {}
+  local everything = 0
+  for _, flag in ipairs(NEST_NAMESPACES) do
+    cases[#cases + 1] = call("unshare", "allow", flag)
+    everything = everything | flag
+  end
+  for _, name in ipairs({ "mount", "umount2", "pivot_root", "move_mount", "open_tree",
+      "mount_setattr", "setrlimit" }) do
+    cases[#cases + 1] = call(name, "allow")
+  end
+  cases[#cases + 1] = call("unshare", "allow", everything)
+  cases[#cases + 1] = call("unshare", "allow", 0)
+  for _, flag in ipairs(NEST_REFUSED) do
+    cases[#cases + 1] = call("unshare", "EPERM", flag)
+    cases[#cases + 1] = call("unshare", "EPERM", 0x10000000 | flag)
+  end
+  -- Not a thread's or a file table's own: only the namespaces.
+  cases[#cases + 1] = call("unshare", "EPERM", 0x400)
+  -- A sandbox gives its capabilities up, and sets limits it can only lower.
+  cases[#cases + 1] = call("prctl", "allow", 24)
+  cases[#cases + 1] = call("prctl", "allow", 47)
+  cases[#cases + 1] = call("prctl", "allow", 38)
+  cases[#cases + 1] = call("prctl", "EPERM", 8)
+  cases[#cases + 1] = call("prctl", "EPERM", 28)
+  cases[#cases + 1] = call("prlimit64", "allow", 0, 7, 1 << 40, 0x7000)
+  cases[#cases + 1] = call("prlimit64", "allow", pid, 7, 1 << 40, 0x7000)
+  cases[#cases + 1] = call("prlimit64", "EPERM", pid + 1, 7, 1 << 40, 0x7000)
+  -- A sandbox of its own ends what it starts by pid and group: its pid
+  -- namespace is what holds the signal.
+  cases[#cases + 1] = call("kill", "allow", pid + 1, 9)
+  cases[#cases + 1] = call("kill", "allow", -pid, 0)
+  cases[#cases + 1] = call("tgkill", "allow", pid + 1, pid + 1, 9)
+  cases[#cases + 1] = call("tkill", "allow", pid + 1, 9)
+  cases[#cases + 1] = call("rt_sigqueueinfo", "allow", pid + 1, 9)
+  cases[#cases + 1] = call("rt_tgsigqueueinfo", "allow", pid + 1, pid + 1, 9)
+  cases[#cases + 1] = call("pidfd_send_signal", "EPERM")
+  -- Whatever it promised, it holds no process's descriptor or a namespace of the host's.
+  cases[#cases + 1] = call("setns", "EPERM")
+  cases[#cases + 1] = call("fsopen", "EPERM")
+  cases[#cases + 1] = call("chroot", "EPERM")
+  cases[#cases + 1] = call("sethostname", "EPERM")
+  cases[#cases + 1] = call("fork", "EPERM")
+  cases[#cases + 1] = call("chmod", "EPERM", 0, 0x1a4)
+  -- Making a process is `fork`'s, namespace or not.
+  cases[#cases + 1] = call("clone", "EPERM", SIGCHLD)
+  cases[#cases + 1] = call("clone", "EPERM", 0x10000000 | SIGCHLD)
+  cases[#cases + 1] = call("clone", "allow", THREAD)
+  holds_on_both({ "nest" }, cases, { pid = pid })
+  local still: {Case} = {}
+  for _, name in ipairs(NEVER) do still[#still + 1] = call(name, "EPERM") end
+  holds_on_both({ "nest" }, still)
+  holds_on_both({ "nest", "fork" }, still)
+end
+
+local function test_nest_beside_fork_lets_a_process_start_in_the_namespaces()
+  local cases: {Case} = {
+    call("fork", "allow"), call("clone", "allow", SIGCHLD), call("clone", "allow", THREAD),
+    -- A sandbox's init is cloned as the sibling of the process that starts it.
+    call("clone", "allow", 0x4000 | 0x100 | 0x8000 | SIGCHLD),
+    call("clone", "allow", 0x8000 | SIGCHLD),
+    call("clone", "EPERM", 0x2000 | SIGCHLD), call("clone", "EPERM", 0x2000 | 0x8000),
+    call("unshare", "allow", 0x10000000), call("unshare", "EPERM", 0x02000000),
+  }
+  for _, flag in ipairs(NEST_NAMESPACES) do
+    cases[#cases + 1] = call("clone", "allow", flag | SIGCHLD)
+  end
+  for _, flag in ipairs({ 0x02000000, 0x04000000 }) do
+    cases[#cases + 1] = call("clone", "EPERM", flag | SIGCHLD)
+    cases[#cases + 1] = call("clone", "EPERM", 0x10000000 | flag | SIGCHLD)
+  end
+  holds_on_both({ "nest", "fork" }, cases)
+end
+
+local function test_the_namespace_calls_are_refused_without_nest()
+  local cases: {Case} = {}
+  for _, name in ipairs(NESTED) do cases[#cases + 1] = call(name, "EPERM") end
+  cases[#cases + 1] = call("unshare", "EPERM", 0x10000000)
+  cases[#cases + 1] = call("setrlimit", "EPERM")
+  cases[#cases + 1] = call("kill", "EPERM", 4243, 9)
+  cases[#cases + 1] = call("prctl", "EPERM", 24)
+  cases[#cases + 1] = call("prctl", "EPERM", 47)
+  for _, promises in ipairs({ {}, { "fork" }, { "jit" }, { "fattr" }, { "fork", "jit", "fattr" } }) do
+    holds_on_both(promises, cases)
+  end
+end
+
 local function test_a_unix_socket_is_made_only_where_it_is_allowed()
   holds_on_both({}, {
     call("socketpair", "allow", 1, 1, 0), call("socketpair", "EPERM", 2, 1, 0),
@@ -620,8 +721,8 @@ local function test_a_call_that_asks_after_a_process_is_held_to_the_process_itse
   }, { pid = pid })
 end
 
-local function test_a_promise_is_one_of_the_three()
-  for _, bad in ipairs({ "nest", "inet", "stdio", "" }) do
+local function test_a_promise_is_one_of_the_four()
+  for _, bad in ipairs({ "inet", "stdio", "" }) do
     local ok = pcall(process.promise_filter, { bad }, "x86_64")
     assert(not ok, bad .. " is no promise")
   end
@@ -635,14 +736,15 @@ end
 
 --- Every number from 0 through the reviewed table's end, with every
 --- combination of promises, ends in a return the kernel accepts: allowed,
---- or refused as one of the three errnos, never off the end of the program.
+--- or refused as one of the four errnos, never off the end of the program.
 local function test_every_call_gets_an_answer()
   for _, arch in ipairs(ARCHES) do
-    for mask = 0, 7 do
+    for mask = 0, 15 do
       local promises: {string} = {}
       if mask & 1 ~= 0 then promises[#promises + 1] = "fork" end
       if mask & 2 ~= 0 then promises[#promises + 1] = "jit" end
       if mask & 4 ~= 0 then promises[#promises + 1] = "fattr" end
+      if mask & 8 ~= 0 then promises[#promises + 1] = "nest" end
       for _, unix in ipairs({ false, true }) do
         for _, inet in ipairs({ false, true }) do
           local insns = decode(process.promise_filter(promises, arch,
@@ -663,7 +765,7 @@ end
 local function test_a_promise_only_adds()
   for _, arch in ipairs(ARCHES) do
     local base = decode(process.promise_filter({}, arch))
-    local full = decode(process.promise_filter({ "fork", "jit", "fattr" }, arch))
+    local full = decode(process.promise_filter({ "fork", "jit", "fattr", "nest" }, arch))
     assert(#full > #base and #full < 1500, #base .. " and " .. #full .. " instructions")
     for number = 0, process.PROMISE_CALLS_REVIEWED - 1 do
       local before = verdict(run(base, AUDIT[arch], number, { 0, 0, 0, 0 }))

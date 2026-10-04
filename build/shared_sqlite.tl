@@ -7,7 +7,7 @@
 --- an edit to it is acknowledged in build/harness_epoch.tl, and a
 --- change to that file makes the merge queue run every test (`--all`),
 --- which is what sharing it with the compile cache costs. Its clock is the raw binding's,
---- since the harness reaches no cosmic.time.
+--- since the harness reaches no cosmic.clock.
 
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
@@ -18,7 +18,7 @@ local record shared_sqlite
 end
 
 -- One millisecond in nanoseconds, which SQLite counts its busy timeout
--- in: cosmic.time, whose `ms` and `ceil` this is, is no module the
+-- in: cosmic.clock, whose `ms` and `ceil` this is, is no module the
 -- harness may reach (build/harness_epoch.tl's `library`).
 local MS <const> = 1000 * 1000
 

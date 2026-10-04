@@ -86,6 +86,9 @@ local function append(path: string, data: string): integer
   return nil
 end
 
+-- TODO: once cosmic.child carries the shell's status of a Result, take it
+-- from there. build/zig.tl's Zig.child_status and several other scripts
+-- spell the same rule.
 local function status_of(result: Child.Result): integer
   if result.signal ~= nil then return 128 + result.signal end
   return result.code or 1
@@ -355,6 +358,13 @@ local verbs: {string:function(string, string): integer} = {
     if handle == nil then return put_all(1, trouble .. "\n") end
     local _, _ = handle:close()
     return put_all(1, "started\n")
+  end,
+  ["run-isolated"] = function(program: string, script: string): integer
+    local result, trouble = Child.run({ program, script }, { policy = {
+      isolate = { "file" }, grants = { { path = program, letters = "rx" },
+        { path = ".", letters = "r" } } }, stdout = "capture", stderr = "stdout" })
+    if result == nil then return put_all(1, trouble .. "\n") end
+    return put_all(1, "exit " .. tostring(result.code) .. "\n" .. (result.stdout or ""))
   end,
   present = function(path: string): integer
     if exists(path) then return nil end

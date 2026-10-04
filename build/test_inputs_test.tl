@@ -43,6 +43,31 @@ end
 --- `inputs` view names them.
 local staged: {string:string} = { ["lib.declared"] = "lib/declared.d.tl" }
 
+--- An edge `type_only` names is no part of the closure: the module it
+--- reaches, and what only it reaches, are left out, and one reached
+--- another way stays. A test module's own requires are all followed.
+local function test_a_type_only_edge_is_no_part_of_the_closure()
+  local m, by_path = tree()
+  local type_only = { ["lib.helper"] = { ["lib.deep"] = true, ["lib.declared"] = true } }
+  assert(table.concat(test_inputs.modules(m, by_path, staged, type_only), " ") ==
+      "lib.helper lib.thing_test")
+  local files: {string} = {}
+  for file in pairs(test_inputs.effective(m, by_path, staged, type_only).files) do
+    files[#files + 1] = file
+  end
+  table.sort(files)
+  assert(table.concat(files, " ") == "lib/helper.tl lib/thing_test.tl", table.concat(files, " "))
+  local direct = module("lib.direct_test", "lib/direct_test.tl", { "lib.helper", "lib.deep" })
+  by_path[direct.path] = direct
+  assert(table.concat(test_inputs.modules(direct, by_path, staged, type_only), " ") ==
+      "lib.deep lib.direct_test lib.helper")
+  local lone = module("lib.lone_test", "lib/lone_test.tl", { "lib.helper" })
+  by_path[lone.path] = lone
+  local other = { ["lib.lone_test"] = { ["lib.helper"] = true } }
+  assert(table.concat(test_inputs.modules(lone, by_path, staged, other), " ") ==
+      "lib.lone_test")
+end
+
 --- A test's default inputs are its module's import closure, as files --
 --- a declaration file for a module only it answers for included, and a
 --- module the binary carries left out -- the pinned environment, and

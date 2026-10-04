@@ -50,6 +50,10 @@ local record ZigFetch
   end
 end
 
+-- TODO: once ci/cosmic-driver.pin names a release whose cosmic.fs carries
+-- a scratch-directory helper (the gate, the owner lock, the sweep of dead
+-- owners), take this from it, and build/patch.tl's identical copy with it.
+
 --- The gate is never unlinked: every creator and sweeper must lock the
 --- same inode. It covers creation through ownership, so no sweep sees a
 --- new wrapper before its owner is locked. Expensive work runs outside it.

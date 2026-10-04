@@ -159,7 +159,9 @@ local function test_the_page_says_what_the_compiler_hint_says(dir: string)
   for _, case in ipairs({
       { "Net.pair", "invalid key 'pair' in record 'Net' of type Net", "cosmic.net" },
       { "Http.upload", "invalid key 'upload' in record 'Http' of type Http", "cosmic.http" },
+      { "Http.serve", "invalid key 'serve' in record 'Http' of type Http", "cosmic.http" },
       { "Net.Pair", "unknown type Net.Pair", "cosmic.net" },
+      { "Http.Request", "unknown type Http.Request", "cosmic.http" },
   }) do
     local owner = case[1]:match("^(%a+)%.")
     local bound = "local " .. owner .. " = require(\"" .. case[3] .. "\")\nreturn " ..
