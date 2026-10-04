@@ -204,6 +204,21 @@ to see how others call it before you do:
 
 `cosmic help docs` and `cosmic help uses` have the rest.
 
+## a program held to what you grant it
+
+`cosmic sandbox --system --read . -- ls -l` runs `ls` held to nothing but
+what you name: it reads this directory and starts, and a path you did not
+grant, a program you did not run and a call it did not promise all fail. A
+policy that this host cannot meet is not run in part: the start fails
+(exit 125) and says what is missing. `--read`, `--run` and `--write` grant
+a path; `--path rwxc:work` names the letters; `--promise fork` lets it start
+processes; `--isolate file` gives it a root of its own; `--tmp`, `--env` and
+`--set-env` shape its environment; `--timeout` and the limits bound what it
+spends. Everything after the program is the program's own, so `cosmic
+sandbox --system -- sh --version` asks `sh`. It exits with the program's
+status. `cosmic help sandbox` has the rest, and `cosmic docs
+cosmic.sandbox` the policy these options write.
+
 ## below cosmic.fs
 
 [`cosmic.fs`] is built on [`cosmic.sys`], the syscall table: one C function
