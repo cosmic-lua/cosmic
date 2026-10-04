@@ -1,6 +1,6 @@
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
-local Json = require("cosmic.json")
+local Shape = require("cosmic.shape")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local bom = require("build.bom")
@@ -120,6 +120,36 @@ local function test_two_records_may_not_name_one_component(tmp: string)
   assert(db:close())
 end
 
+--- The parts of a CycloneDX document that [`bom.cyclonedx`] writes and
+--- these tests read.
+local record Checksum
+  alg: string
+  content: string
+end
+local record Reference
+  hashes: {Checksum} | nil
+end
+local record License
+  expression: string
+end
+local record Pedigree
+  notes: string
+end
+local record Component
+  type: string
+  name: string
+  purl: string
+  licenses: {License}
+  externalReferences: {Reference}
+  pedigree: Pedigree | nil
+end
+local record Document
+  bomFormat: string
+  specVersion: string
+  components: {Component}
+end
+local DOCUMENT <const> = Shape.record_of("Document")
+
 local function test_the_json_is_a_cyclonedx_document()
   local document = assert(bom.cyclonedx({
     { name = "zlib", kind = "library", version = "1.3", license = "Zlib",
@@ -127,23 +157,21 @@ local function test_the_json_is_a_cyclonedx_document()
     { name = "roots", kind = "data", version = "1", license = "MPL-2.0",
       url = "https://example.com/r.pem", sha256 = "", patches = "" },
   }, "cosmic", "abc"))
-  local decoded = assert(Json.decode_object(document))
+  local decoded, why = DOCUMENT:decode_into(document)
+  assert(decoded ~= nil, tostring(why))
   assert(decoded.bomFormat == "CycloneDX" and decoded.specVersion == "1.6")
-  local components = decoded.components as {{string:any}}
+  local components = decoded.components
   local zlib = components[1]
   assert(zlib.purl == "pkg:generic/zlib@1.3?download_url=https%3A%2F%2Fzlib.net%2Fz%201.tar.gz",
-    tostring(zlib.purl))
-  local licenses = zlib.licenses as {{string:any}}
-  assert(licenses[1].expression == "Zlib")
-  local pedigree = zlib.pedigree as {string:any}
-  assert(pedigree.notes == "patched by cosmic:\npatch/zlib/a 01", tostring(pedigree.notes))
-  local references = zlib.externalReferences as {{string:any}}
-  local hashes = references[1].hashes as {{string:any}}
-  assert(hashes[1].alg == "SHA-256" and hashes[1].content == "00ff")
+    zlib.purl)
+  assert(zlib.licenses[1].expression == "Zlib")
+  local pedigree = zlib.pedigree
+  assert(pedigree ~= nil and pedigree.notes == "patched by cosmic:\npatch/zlib/a 01")
+  local hashes = zlib.externalReferences[1].hashes
+  assert(hashes ~= nil and hashes[1].alg == "SHA-256" and hashes[1].content == "00ff")
   local roots = components[2]
   assert(roots.type == "data" and roots.pedigree == nil)
-  local roots_references = roots.externalReferences as {{string:any}}
-  assert(roots_references[1].hashes == nil, "no digest is named when the record has none")
+  assert(roots.externalReferences[1].hashes == nil, "no digest is named when the record has none")
 end
 
 -- TODO: hold build/bom/musl.pin's version and both notices copied

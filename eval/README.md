@@ -63,11 +63,12 @@ of the solver's project. The prompt varies only in arena paths.
   Record actual elapsed time and enforcement method. A turn cap is an
   additional runner-specific limit, not a claim of equal model budgets.
 - **Independent grading.** After the solver stops, run
-  `timeout 30 eval/check/<task> <absolute-arena>` (`timeout 60` for jobs
-  and mirror, whose checks wait out timeouts of their own) and save
+  `timeout 30 eval/check/<task> <absolute-arena>` (`timeout 60` for jobs,
+  mirror and relay, whose checks wait out timeouts of their own) and save
   stdout/stderr as `grade.log` outside `project/`. A timeout is distinct
   from an assertion failure. The grader requires recorded tests and
-  examples (including guide doctests), checks formatting, builds exactly
+  examples (including guide doctests), checks formatting, runs a hidden
+  test of the library API the task names, builds exactly
   `o/bin/<task>`, then exercises it without supporting files or
   environment (see [grading](#grading)). It runs on the pinned bootstrap
   cosmic, which is no solver dependency either; run
@@ -260,6 +261,14 @@ something the agent was never told. Beyond that bar, what has worked:
   an empty environment; the task says so in the same words.
 - **Keep the journal contract out of the task.** It is the same for
   every task and lives in [`eval/journal.md`].
+- **Name a library API the grader holds the project to.** A task whose
+  checks only run the executable is met by glue around the standard
+  library, with every decoded value cast to the shape it is assumed to
+  have. Each task but pack also names its module and a small API --
+  exact names, records, enums, an interface, a generic, methods, a
+  `<close>`-able value -- that a hidden test (below) compiles against
+  and calls, so a type the project exports as `any`, or a value cast
+  rather than checked, fails it.
 
 ## grading
 
@@ -275,17 +284,26 @@ modules only. For each task it
 2. clears the runs `project/o/build.db` records, runs the arena's own
    `bin/cosmic test`, and requires a passing test and a passing example
    (or doctest) among the runs that test recorded;
-3. runs `cosmic fix --check` with `JOURNAL.md` set aside, and
-   `cosmic build`;
-4. copies `o/bin/<task>` -- only when that build passed and named it --
+3. runs `cosmic fix --check` with `JOURNAL.md` set aside;
+4. for a task that names a library API, copies the project, but for
+   its `o/`, into a temporary directory, adds the task's hidden test,
+   [`eval/check/testdata/<task>_api_test.tl`](check/testdata), and runs
+   `cosmic test` on that file alone there: each test that fails, or
+   each line the compiler refuses (a module, type or method missing, a
+   type that does not fit), is a `check: FAIL hidden api: ...` line.
+   The solver never sees the test, the project never holds it, and
+   the copy is removed afterward; its output is kept as a
+   `check-<n>.out`;
+5. runs `cosmic build`;
+6. copies `o/bin/<task>` -- only when that build passed and named it --
    alone into the arena's `empty/`, and runs the task's checks there,
    the executable with an empty environment but for a variable a check
    names.
 
 Each step's output is kept in the arena as `check-<n>.out`, and a server
-task's as `check-serve.out`. Every check prints one `check: ok` or
-`check: FAIL` line, and the last line is `check: PASS` or `check: FAIL`,
-exiting 0 or 1.
+task's as `check-serve.out` (relay's as `check-relay*.out`). Every check
+prints one `check: ok` or `check: FAIL` line, and the last line is
+`check: PASS` or `check: FAIL`, exiting 0 or 1.
 
 To add a task: write `eval/task/<task>.md`, a function `<task>(g)` in
 grade.tl's section for it, built from the helpers above them (`expect`,
@@ -293,10 +311,14 @@ grade.tl's section for it, built from the helpers above them (`expect`,
 `stops` and `exchange`), an entry in `TASKS` (how long one run may take,
 whether its stdin is /dev/null and its children outlive it, and the
 files a solver's own runs leave in the project that would answer for
-the executable), and
+the executable, and whether it has a hidden API test),
+`eval/check/testdata/<task>_api_test.tl` for that test -- under
+`testdata/`, so this tree neither builds nor runs it -- and
 `eval/check/<task>`, a copy of a sibling naming the task. Before running
 a model on it, grade a reference solution and a few broken ones (a
-mutation for each check that matters) and see each fail where it should.
+mutation for each check that matters, the hidden test's included) and
+see each fail where it should. No reference solution is kept here: a
+solver's arena must never be able to reach one.
 
 ## reading a journal
 

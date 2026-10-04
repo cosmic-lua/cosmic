@@ -32,7 +32,8 @@ tool that summarizes a CSV file of transactions as JSON:
   `{"month": "YYYY-MM", "total_cents": <integer>, "categories":
   {"<category>": <integer cents>, ...}}`. `rows` counts the
   transactions included, `skipped` every record that was refused,
-  whatever its date.
+  whatever its date. A transaction outside `--from`/`--to` (below) is
+  neither: it is not in `rows` and not in `skipped`.
 - Options, which may come before or after `<file>`:
   - `--zone <name>`: an IANA time zone name such as `America/New_York`.
     Months, and the dates below, are calendar dates in that zone; the
@@ -51,6 +52,33 @@ tool that summarizes a CSV file of transactions as JSON:
   stdout, and exits 0. Run this one with no other arguments.
 - Use cosmic's own CSV, JSON and time support rather than writing your
   own parsers or calendar arithmetic.
+
+The project's library module is named `ledger`, `require("ledger")`,
+and exports at least this API, which the project's own program uses and
+which is checked through these names and types:
+
+- `ledger.Transaction`, a record of one transaction read: `line:
+  integer` (the line its record starts on), `at: integer` (its `when`
+  as whole seconds since the Unix epoch), `cents: integer`,
+  `category: string` and `note: string`.
+- `ledger.Skip`, a record of one record refused: `line: integer` and
+  `reason: string`.
+- `ledger.Parsed`, a record: `transactions: {ledger.Transaction}` and
+  `skipped: {ledger.Skip}`, each in file order.
+- `ledger.parse(text: string): ledger.Parsed | nil, string`: the CSV
+  text read, or nil and why it is no such file (not CSV, the wrong
+  header).
+- `ledger.Options`, a record: `zone: string` (nil for UTC), `from:
+  string` and `to: string` (`YYYY-MM-DD`, nil for no bound).
+- `ledger.Month`, a record: `month: string`, `total_cents: integer`
+  and `categories: {string: integer}`, as in the JSON above.
+- `ledger.Report`, a record: `months: {ledger.Month}` in ascending
+  order, and `rows: integer`.
+- `ledger.summarize(transactions: {ledger.Transaction}, options:
+  ledger.Options): ledger.Report | nil, string`: the months and rows
+  `report` prints for those transactions, reading only the fields of
+  `ledger.Transaction` named above, or nil and why for an unknown zone
+  or a malformed date.
 
 The project must have all four of these:
 
