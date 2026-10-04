@@ -160,6 +160,11 @@ local record Sandbox
     --- values among it) and reopen its descriptors through /proc, ptrace
     --- it where the host's Yama allows, and use the directory `tmp` makes.
     --- Name a user nothing else runs as where the child holds a secret.
+    ---
+    --- Under `isolate` "file", a grant it cannot use but as the grant's
+    --- owner is mounted so the owner's files are its own; its own files
+    --- beneath, if any, are then another user's there (the overflow id),
+    --- reached only as their mode lets everyone.
     user: integer
     --- The group a child runs as, with `user`: for a root caller, `user`'s
     --- own number where it is left out; for any other, its own group.
