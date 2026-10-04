@@ -169,6 +169,33 @@ local function test_a_root_caller_runs_its_child_as_a_user_of_a_range_of_its_own
   end
 end
 
+--- A root caller with no isolation needs none of it: the child runs as a
+--- user of the pool dropped to, not mapped through a user namespace, so
+--- the start needs no procfs of its own and works where a container masks
+--- /proc. Until the start drops privs instead of mapping them, this fails
+--- naming the sandbox's own /proc -- which is the bug, not the host, so
+--- unlike `under` this does not skip that refusal.
+local function test_a_root_caller_without_isolation_drops_to_a_pool_user(tmp: string)
+  if not root_that_maps() then return end
+  local at = placed(tmp)
+  local first, last = pool()
+  -- The child makes the file as its user, so the work directory is opened
+  -- to everyone, as `reached_by` asks of a root caller's grants.
+  assert(sys.chmod(at.work, octal("777")))
+  local handle, why = Child.start({ at.probe, "create made x" },
+    { policy = { grants = { { path = at.probe, letters = "rx" },
+      { path = at.work, letters = "rwc" } } },
+      cwd = at.work, stdout = "capture", stderr = "stdout" })
+  assert(handle ~= nil, "the start was refused: " .. tostring(why))
+  local result = assert(handle:wait())
+  assert(result.code == 0, tostring(result.stdout))
+  -- What the child made is its user's on the host: a user of the pool,
+  -- never root.
+  local made = assert(sys.stat(at.work .. "/made"))
+  assert(made.uid ~= 0 and made.uid >= first and made.uid <= last and made.gid == made.uid,
+    "made is owned by " .. made.uid .. ":" .. made.gid .. ", not a user of the pool")
+end
+
 local function test_a_root_caller_s_concurrent_sandboxes_run_as_different_users(tmp: string)
   if not root_that_maps() then return end
   local at = placed(tmp)
