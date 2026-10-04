@@ -366,7 +366,8 @@ local function sorted_set<T>(...: {T}): {T}
   return out
 end
 
---- The SHA-256 of `value`, in lowercase hex.
+--- The SHA-256 of `value`, in lowercase hex. cosmic/policy.tl's `encode`
+--- keeps a copy, which must answer the same digest.
 local function digest_of(value: string): string
   return Codec.hex(Hash.sha256(value))
 end
