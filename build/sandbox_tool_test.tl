@@ -127,10 +127,10 @@ local function test_help_is_the_verbs_before_the_program_and_the_programs_after(
   assert(cosmic(tmp, { "sandbox", "--system", "--help" }).out:find("--isolate", 1, true))
   local index = cosmic(tmp, { "help" })
   assert(index.out:find("sandbox", 1, true), index.out)
-  -- After the program, --help is the program's: sh reports it as its own.
-  local program = cosmic(tmp, { "sandbox", "--system", "--", "sh", "--help" })
-  assert(not program.out:find("cosmic sandbox", 1, true), program.out)
-  assert(program.code ~= 0 and program.code < 125 and program.err ~= "", program.code .. program.err)
+  -- After the program, --help is the program's: sh is handed it as an
+  -- argument and prints it back.
+  local program = cosmic(tmp, { "sandbox", "--system", "--", "sh", "-c", 'echo "$1"', "x", "--help" })
+  assert(program.code == 0 and program.out == "--help\n", program.code .. program.out .. program.err)
 end
 
 local function test_a_program_not_granted_exits_125_not_127(tmp: string)
