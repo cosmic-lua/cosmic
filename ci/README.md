@@ -456,6 +456,26 @@ sanitizers see. The tree moves back before the seed and the verdicts'
 save, whose path actions/cache names relative to the workspace
 (below).
 
+### the policy workflow
+
+`.github/workflows/policy.yml` is a workflow of its own, not a job of
+ci.yml, and gates nothing: no ruleset requires it, the `ci` join does
+not wait on it, and its suite step passes whatever the suite did. It
+is step (b) of the sandbox plan's migration (doc/plans/sandbox.md): the
+native suite, every test, with each sandboxed worker started under a
+`cosmic.sandbox` policy (`COSMIC_TEST_POLICY=1`, build/test_policy.tl)
+in place of the sandbox the runner plans by default. It runs
+linux-x86_64's host, in the container the legs use, boots as the
+checked job does (restoring linux-x86_64's zig build outputs, saving
+none), and runs the `policy-suite` phase (`platform policy-suite`), which
+records a `policy` suite row: the failures under the policy path, and
+why, are in that row's summary and in the step's output, kept as
+`policy-suite-linux-x86_64`. Its verdicts are the policy path's own,
+kept apart from the default's by a runtime of their own, so it stands
+on none the legs earned. The step fails when a test does and the job
+does not, until the suite is green and step (c) makes the policy path
+the default, which deletes this workflow with the flag.
+
 ### the Linux legs' container
 
 spawn's sandbox (`core/process.h`'s `Sandbox`) confines a test's child

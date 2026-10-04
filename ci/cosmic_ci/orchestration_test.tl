@@ -942,6 +942,43 @@ local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing
   end
 end
 
+--- The `policy-suite` phase, run by .github/workflows/policy.yml on a booted
+--- tree, runs the native suite again with COSMIC_TEST_POLICY=1 -- the
+--- policy path of the test runner, which no other suite asks for -- and
+--- writes the row of a suite of its own, `policy`, from what it said.
+local function test_the_policy_suite_runs_the_native_suite_under_a_policy(tmp: string)
+  local base, project = command(tmp)
+  local fake = tmp .. "/policy-suite"
+  local runner_temp = fake .. "-runner-temp"
+  assert(Fs.mkdirs(fake .. "/bin") and Fs.mkdirs(fake .. "/ci/testdata/portable"))
+  assert(Fs.mkdirs(runner_temp .. "/cosmic-ci"))
+  assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
+  assert(Fs.write(fake .. "/ci/testdata/portable/work_db_integrity.tl", "\n"))
+  -- bin/zig's boot leaves a cosmic that keeps the switch a suite gave it
+  -- and says its figures.
+  Fixture.write(fake .. "/bin/zig", "#!/bin/sh\nmkdir -p o/bin\nprintf db > o/build.db\n" ..
+      "cat > o/bin/cosmic <<'EOF'\n#!/bin/sh\n" ..
+      "if [ \"$1 $2\" = \"test --census\" ]; then printf '%s' \"${COSMIC_TEST_POLICY-unset}\" > \"$0.policy\"; " ..
+      "printf '%s\\n' " ..
+      "'test: key parts: host features 01, host 02, system 03, runtime 04, compiler 05, harness 06' " ..
+      "'test: PASS (9 tests, 2 modules; 9 ran, 0 stood, 77 ms; sandboxed, under a policy (COSMIC_TEST_POLICY=1))'; fi\n" ..
+      "exit 0\nEOF\nchmod 755 o/bin/cosmic\n", 493)
+  local env = context(fake, runner_temp, { TARGET = "x86_64-linux-musl", TMPDIR = tmp })
+  for _, phase in ipairs({ "boot", "policy-suite" }) do
+    local outcome = Fixture.call("policy-suite-" .. phase, append(base, { "platform", phase }),
+      project, tmp .. "/logs", env)
+    assert(outcome.result.ok, phase .. " failed: " .. Fixture.read(outcome.err))
+  end
+  assert(Fs.read(fake .. "/o/bin/cosmic.policy") == "1",
+    tostring((Fs.read(fake .. "/o/bin/cosmic.policy"))))
+  local db = assert(Sqlite.open(runner_temp .. "/cosmic-ci/operations.db"))
+  local rows = State.suite_rows(db)
+  assert(#rows == 1, #rows .. " suite rows")
+  assert(rows[1].suite == "policy" and rows[1].phase == "policy-suite" and
+      rows[1].status == "pass" and rows[1].ran == 9, rows[1].suite .. " " .. rows[1].phase)
+  assert(db:close())
+end
+
 --- ci.yml's platform legs on a full run, by name: each of the `name`
 --- list a full run takes, with the values of every `include` entry
 --- that names it or names no leg, a later one's over an earlier one's

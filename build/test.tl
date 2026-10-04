@@ -96,6 +96,7 @@ local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
+local type Sandbox = require("cosmic.sandbox")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
@@ -118,6 +119,7 @@ local shared_compiles = require("build.shared_compiles")
 local shared_verdicts = require("build.shared_verdicts")
 local test_inputs = require("build.test_inputs")
 local test_report = require("build.test_report")
+local test_policy = require("build.test_policy")
 local test_sandbox = require("build.test_sandbox")
 local test_sandbox_probe = require("build.test_sandbox_probe")
 local declared_key = require("build.declared_key")
@@ -828,9 +830,11 @@ end
 
 --- The modules of the harness beside what every worker loads
 --- ([`build.test_worker`]'s [`worker.loads`]): build.test_sandbox and the
---- tree modules it requires, build.caches and build.zig_caches.
---- build.test_sandbox makes the plan of a worker's sandbox (`plan`):
---- what it binds, unveils and holds, and the environment it gives.
+--- tree modules it requires, build.test_policy, build.caches and
+--- build.zig_caches. build.test_sandbox makes the plan of a worker's
+--- sandbox (`plan`): what it binds, unveils and holds, and the
+--- environment it gives. build.test_policy turns that plan into the
+--- policy a worker is started under, where a run asks for one.
 --- build.caches says where each declared host cache is bound from and
 --- makes it; build.zig_caches does so for zig's.
 ---
@@ -856,8 +860,8 @@ end
 -- then a change to a hold or a bind moves every key it touches by
 -- itself, where today it moves none unless someone bumps the epoch by
 -- hand.
-local harness_own <const>: {string} = { "build.test_sandbox", "build.caches",
-  "build.zig_caches" }
+local harness_own <const>: {string} = { "build.test_sandbox", "build.test_policy",
+  "build.caches", "build.zig_caches" }
 
 --- The modules of the harness held alone, by their own source and
 --- bytecode, their requires not walked: cosmic.child, whose `start`
@@ -1192,6 +1196,10 @@ local record Recording
   --- holds every selected module's inputs, and `views` the environment
   --- its workers are given, by module path.
   sandbox: boolean
+  --- Whether each sandboxed worker is started under a [`cosmic.sandbox`]
+  --- policy ([`build.test_policy`]) rather than by the sandbox
+  --- [`build.test_sandbox`] plans; only where `sandbox` holds.
+  policy: boolean
   --- What reruns one test as this run ran it: the switch as the run was
   --- given it ([`test_sandbox.mode`]), or "" when unset.
   rerun_prefix: string
@@ -1694,7 +1702,7 @@ local launch_only: {string:boolean} = { COSMIC_REBOOTED = true, OLDPWD = true, S
 ---   pause one startup of a fixture runtime for a handshake and belong to
 ---   this process's own launch, not to every worker it starts;
 --- - what `launch_only` names; and
---- - COSMIC_TEST_NO_SHARED;
+--- - COSMIC_TEST_NO_SHARED and COSMIC_TEST_POLICY;
 ---
 --- and with the shared verdict cache off (`COSMIC_VERDICT_CACHE=0`) and
 --- the shared compiles too (`COSMIC_BUILD_CACHE=0`).
@@ -1717,6 +1725,9 @@ function test.worker_environment(environment: {string:string}): {string:string}
   -- Nor does it take this run's choice not to stand on them: a test
   -- that runs `cosmic test` says for itself what that run does.
   out.COSMIC_TEST_NO_SHARED = nil
+  -- Nor which path a run starts its workers on: a test that starts
+  -- `cosmic test` chooses for that run itself.
+  out[test_policy.switch] = nil
   out.COSMIC_TEST_NOEXEC = nil
   -- Nor a rebuild lock handed to this run (build.rebuild_lock): what a
   -- test starts holds none of this run's.
@@ -2072,6 +2083,22 @@ local function base_store_digest(rec: Recording): string
   return digest or ""
 end
 
+--- The policy `job`'s worker is started under ([`build.test_policy`]), from
+--- the plan of its paths (`job.plan`). Its environment is added by
+--- [`worker.invocation`], which gives a policy's `set_env` the whole of the
+--- worker's. Nil and why where its module declares what a policy cannot
+--- say, or its directory cannot be made.
+local function policy_of(rec: Recording, job: Job): Sandbox.Policy | nil, string
+  local effective = rec.effective[job.m.path]
+  local policy, why = test_policy.worker(job.plan, effective)
+  if policy == nil then return nil, why end
+  if effective.noexec_ready then
+    local made, made_trouble = Fs.mkdirs(job.scratch .. "/noexec")
+    if not made then return nil, "its private noexec scratch: " .. made_trouble end
+  end
+  return policy, ""
+end
+
 --- Starts one job's worker. False when it could not start, which is
 --- recorded as that test's failure.
 local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
@@ -2111,7 +2138,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
       return false
     end
     local plan = test_sandbox.plan(rec.root, scratch, rec.effective[job.m.path], worker_view(),
-      store)
+      store, rec.policy)
     if plan.over > 0 then
       finish(rec, job, nil, "its sandbox would give it " .. plural.count(plan.over, "path") ..
           " more than the most one holds", limits)
@@ -2124,6 +2151,11 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     job.plan = plan
     env, sandbox = plan.env, plan.sandbox
     root, inside, cwd = test_sandbox.tree, test_sandbox.scratch, test_sandbox.tree
+    if rec.policy then
+      -- The worker starts in the root of its sandbox, which has no tree
+      -- to start in until the worker enters it ([`worker.run`]).
+      sandbox, cwd = nil, "/"
+    end
   else
     -- Unsandboxed, the worker is given the environment its key holds
     -- (the pinned variables, its declared ones and the host's cores
@@ -2181,12 +2213,29 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     given[confine.held_variable] = hold ~= "none" and job.m.path or nil
     env = given
   end
+  -- Under a policy the grants hold the worker from its first instruction,
+  -- but the core it is started from must be run to start it, so a worker
+  -- whose module does not declare `tool` still puts up the ruleset that
+  -- forbids it running the program again ([`worker.run`]'s
+  -- `forbid_running`), as the default sandbox's does.
+  local policy: Sandbox.Policy = nil
+  if rec.policy then
+    -- A worker that may run the program has nothing to forbid: the ruleset
+    -- the policy puts up already refuses it every mount.
+    if hold == "mounts" then hold = "none" end
+    local made, made_trouble = policy_of(rec, job)
+    if made == nil then
+      finish(rec, job, nil, made_trouble, limits, true)
+      return false
+    end
+    policy = made
+  end
   local command = worker.invocation({
     start = job.plan ~= nil and job.plan.start or start, env = env, root = root, cwd = cwd, module_path = job.m.path,
     name = job.name, scratch = inside, needs = test_inputs.canonical(declared), hold = hold,
     lua = rec.effective[job.m.path].lua, open = declared ~= nil and declared.store, store = attached,
     closure = rec.closures[job.m.path], tree = rec.tree_names, declared = rec.declared_names,
-    sandbox = sandbox, program = job.plan ~= nil and job.plan.program or nil,
+    sandbox = sandbox, policy = policy, program = job.plan ~= nil and job.plan.program or nil,
   })
   local handle, trouble = Child.start(command.argv, command.options)
   if handle == nil then
@@ -2414,6 +2463,7 @@ local record Run
   limits: test.Limits
   shard: test.Shard
   sandbox_mode: string
+  policy: boolean
   selectors: {string}
   forced: boolean
   consult: boolean
@@ -2510,6 +2560,13 @@ local function read_command(ctx: Run): integer | nil
     return 2
   end
   ctx.sandbox_mode = sandbox_mode
+  local policy_trouble: string
+  ctx.policy, policy_trouble = test_policy.requested(Env.get(test_policy.switch))
+  if ctx.policy == nil then
+    log:complain("test: " .. policy_trouble)
+    return 2
+  end
+  ctx.policy = ctx.policy or parsed.set["--policy"] == true
   local selectors: {string} = {}
   for _, word in ipairs(parsed.words) do
     local module, name = split(word)
@@ -2698,6 +2755,26 @@ local function choose_sandbox(ctx: Run): integer | nil
     sandbox_summary = "; unsandboxed (" .. test_sandbox.switch .. "=0)"
     log:say("test: declared: workers run unsandboxed (" .. test_sandbox.switch .. "=0); " ..
         unenforced)
+  end
+  -- Under a policy a worker is held by what test_policy makes of its
+  -- declaration, so its verdict is kept apart from one the default
+  -- sandbox gave, by a runtime of its own as a sandboxed run's is from
+  -- an unsandboxed one's: neither stands for the other. The runtime
+  -- holds what every worker's policy has alike, the isolation and the
+  -- promises ([`test_policy.common`]).
+  if ctx.policy and not sandboxed then
+    local _, _ = work.close(handle)
+    log:complain("test: " .. test_policy.switch .. "=1 (--policy), but no worker can be " ..
+        "sandboxed here, and a policy holds a worker only so")
+    return 1
+  end
+  if ctx.policy then
+    -- And the code that makes a worker's policy, so an edit to a grant runs
+    -- the policy path's tests again without a bump of the epoch.
+    local made = ctx.harness.modules
+    ctx.runtime = ctx.runtime .. " policy " .. hashing.hex_sha256(test_policy.common() .. "\0" ..
+        (made["build.test_policy"] or "") .. "\0" .. (made["build.test_sandbox"] or ""))
+    sandbox_summary = sandbox_summary .. ", under a policy (" .. test_policy.switch .. "=1)"
   end
   local shares = sandboxed or shared_verdicts.chosen()
   if not sandboxed then
@@ -2917,13 +2994,14 @@ local function make_recording(ctx: Run)
     owed = { kept = {}, used = {}, failed = {}, stores = {} }, shared_keys = {},
     consult_shared = ctx.consult,
     origin = checkout_id(records, ctx.root, ctx.run_at_ns),
-    sandbox = ctx.sandboxed, views = {}, caches = {}, unkeyed = {},
+    sandbox = ctx.sandboxed, policy = ctx.policy, views = {}, caches = {}, unkeyed = {},
     forbiddable = {},
     epoch = ctx.epoch, timeout_ns = ctx.limits.timeout_ns,
     store_salt = ctx.harness.store_salt, carried = ctx.harness.carried,
     closure_sets = {}, type_only = {},
-    rerun_prefix = (sandbox_mode == "on" and (test_sandbox.switch .. "=1 ") or
-      sandbox_mode == "off" and (test_sandbox.switch .. "=0 ") or ""),
+    rerun_prefix = (ctx.policy and (test_policy.switch .. "=1 ") or "") ..
+      (sandbox_mode == "on" and (test_sandbox.switch .. "=1 ") or
+        sandbox_mode == "off" and (test_sandbox.switch .. "=0 ") or ""),
   }
   ctx.rec = rec
   -- An edit to the code that writes a closure store a test stands in

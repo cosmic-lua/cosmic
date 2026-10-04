@@ -208,6 +208,24 @@ local function test_nest_hands_no_directory_nor_half_open_file(tmp: string)
   sys.close(both)
 end
 
+--- A descriptor this runtime retains of its own -- the artifact and the core
+--- a relaunch hands on -- is refused to a `nest` child as a half-open file
+--- is, naming it, where stat-ing it raised.
+local function test_nest_refuses_the_runtimes_own_descriptors_rather_than_raising(tmp: string)
+  if no_sandbox_here() then return end
+  local launched, _ = Proc.relaunch()
+  if launched == nil or next(launched.fds) == nil then return end
+  local at = placed(tmp)
+  local policy: Sandbox.Policy = { isolate = { "file" }, promises = { "nest" }, grants = at.grants }
+  local handle, why = Child.start({ at.probe, "print hi" },
+    { policy = policy, cwd = at.work, fds = launched.fds })
+  if handle ~= nil then
+    local _, _ = handle:close()
+  end
+  assert(handle == nil and why:find("retains of its own", 1, true) and
+      why:find("nest", 1, true), tostring(why))
+end
+
 local function test_a_handed_directory_is_held_by_landlock_without_nest(tmp: string)
   local at = placed(tmp)
   local dir = assert(sys.open(at.extra, sys.O_RDONLY))
