@@ -243,8 +243,8 @@ function SuiteOutput.skip_report(name: string, text: string): string
   local lines: {string} = { "### Skipped tests: " .. name .. " (" .. total .. ")\n\n",
     "| tests | reason |\n| ---: | --- |\n" }
   for _, row in ipairs(reasons) do
-    local text = (row[1] as string):gsub("[|`*<>]", "\\%0")
-    lines[#lines + 1] = "| " .. tostring(row[2]) .. " | " .. text .. " |\n"
+    local escaped = ((row[1] as string):gsub("[|`*<>]", "\\%0"))
+    lines[#lines + 1] = "| " .. tostring(row[2]) .. " | " .. escaped .. " |\n"
   end
   lines[#lines + 1] = "\n"
   return table.concat(lines)
