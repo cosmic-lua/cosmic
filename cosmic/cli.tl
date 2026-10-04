@@ -501,12 +501,34 @@ local record Cli
   --- word after `--`; everything after it is its own arguments, an
   --- option-looking word among them. It is found on the PATH, and its
   --- own file and loader must be granted to run: `--system` grants what a
-  --- host's programs need to start, `--cosmic` this program's own.
+  --- host's programs need to start, `--cosmic` this program's own file.
   ---
   ---     cosmic sandbox --system --read . -- ls -l
   ---     cosmic sandbox --system --read . --promise fork -- sh -c 'ls | wc -l'
   ---     cosmic sandbox --system --path rwxc:. --tmp --promise fork \
   ---       --isolate file -- make
+  ---
+  --- `--cosmic` grants this program's file alone, which does not run it:
+  --- its launcher, a shell script, forks, and finds its core in a cache or
+  --- unpacks it there, writing it and marking it executable. A caller that
+  --- is not root hands the program the core it already has, read-only,
+  --- where the `cosmic` it runs is its own and has run before (the cache is
+  --- `$XDG_CACHE_HOME/cosmic/cores` where that is set):
+  ---
+  ---     cosmic sandbox --system --cosmic --promise fork \
+  ---       --path "rx:$HOME/.cache/cosmic/cores" \
+  ---       --set-env "COSMIC_PORTABLE_CACHE=$HOME/.cache/cosmic/cores" -- cosmic ...
+  ---
+  --- The launcher takes a cache only from the user that runs it, which a
+  --- root caller's program is not, so there it unpacks a core of its own in
+  --- a DIR that program's user may write (mode 1777, as /tmp is, unless
+  --- `--isolate file` mounts DIR as that user's):
+  ---
+  ---     cosmic sandbox --system --cosmic --promise fork --promise fattr \
+  ---       --path rwxc:DIR --set-env TMPDIR=DIR -- cosmic ...
+  ---
+  --- Each run's user is a new one, so each unpacks a core of its own into
+  --- DIR; `--user N` runs as one user, which unpacks it once.
   ---
   --- `--read`, `--run` and `--write` grant a path as `r`, `rx` and `rwc`;
   --- `--path` names the letters itself, of `rwxcu` in that order (`rwxc:.`),
@@ -788,7 +810,7 @@ local module: Module = {
         ["--write"] = { value = "path", about = "grant a path to read, write and create in (rwc)" },
         ["--path"] = { value = "letters:path", about = "grant a path the letters of rwxcu, in that order" },
         ["--system"] = { about = "what a host's programs need to start" },
-        ["--cosmic"] = { about = "what this program's own core needs to start" },
+        ["--cosmic"] = { about = "this program's own file (not enough to run it: see above)" },
         ["--isolate"] = { value = "file|proc", about = "a root of its own, or a process space of its own" },
         ["--promise"] = { value = "name", about = "a system call it may make: fork, jit, fattr or nest" },
         ["--connect"] = { value = "host:port", about = "a host it may reach (not yet available: needs the relay)" },
