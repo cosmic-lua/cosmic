@@ -21,6 +21,7 @@
 --- program that only fetches does not carry the networking stack a
 --- server needs.
 
+local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
 
@@ -32,7 +33,6 @@ local Hash = require("cosmic.hash")
 -- mode falls back to requiring it by name, which only boot's own
 -- preload answers.
 local type raw_http = require("cosmic.internal.http")
-local Time = require("cosmic.time")
 
 local extra: any = select(2, ...)
 local http: raw_http
@@ -203,8 +203,8 @@ local record Http
   end
 end
 
-local MS <const> = Time.ms(1)
-local SECOND <const> = Time.seconds(1)
+local MS <const> = Clock.ms(1)
+local SECOND <const> = Clock.seconds(1)
 
 -- How an object of this module is made: see the note on objects in
 -- cosmic/stream.tl.
@@ -273,7 +273,7 @@ local function counted(ns: integer | nil, unit: integer, most_ns: integer,
   if ns < 0 or ns > most_ns then
     error(("http: opts.%s must be between 0 and %d"):format(name, most_ns), CALLER)
   end
-  return Time.ceil(ns, unit)
+  return Clock.ceil(ns, unit)
 end
 
 --- `opts` as the raw module reads them: its spans in the milliseconds

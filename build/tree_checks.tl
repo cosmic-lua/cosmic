@@ -69,6 +69,8 @@ allowed["cosmic.test.needs_of"] = "tested directly: the worker's translation of 
 allowed["build.c.layout.same"] = "tested directly: whether two layouts are one " ..
   "token stream is the rule `cosmic fix` holds a C rewrite to, and the test " ..
   "states it on sources too small to be a file"
+allowed["cosmic.time.sleep_ns"] = "the old name of cosmic.clock's sleep_ns, kept for " ..
+  "callers of it; the remaining callers are ci/, which runs on the pinned release"
 allowed["build.flow.bare"] = "the subset build/workflows_test.tl holds " ..
   "workflows to takes a bare key by the same rule the layout writes one by"
 allowed["build.flow.problems"] = "the subset build/workflows_test.tl holds " ..
@@ -479,7 +481,7 @@ local stand_ins_expected: {{string}} = {
   { "tar -x", "Archive.extract" },
   { "unzip", "Archive.extract" },
   { "sha256sum", "Hash.hex_sha256" },
-  { "sleep", "Time.sleep_ns" },
+  { "sleep", "Clock.sleep_ns" },
   { "getentropy", "Rand.entropy" },
   { "getenv", "Env.get" },
   { "urandom", "Rand.entropy" },

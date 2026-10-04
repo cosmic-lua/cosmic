@@ -9,9 +9,9 @@
 --- could have given one (build.sandbox_skip).
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local confine = require("build.confine")
 local sandbox_skip = require("build.sandbox_skip")
@@ -34,7 +34,7 @@ local function cosmic(dir: string, words: {string}, fds?: {integer:integer}): Ra
   -- search the directory it starts in.
   searchable.open(dir)
   local started = this_program.program(words, {
-    cwd = dir, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(60), fds = fds,
+    cwd = dir, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60), fds = fds,
   })
   local result = assert(Child.run(started.argv, started.options))
   local ran: Ran = { code = result.code or -1, out = result.stdout or "", err = result.stderr or "" }

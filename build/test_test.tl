@@ -2,9 +2,9 @@
 --- test, how a failing one is named to be run again, and what the
 --- harness's digest holds.
 
+local Clock = require("cosmic.clock")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
-local Time = require("cosmic.time")
 local test = require("build.test")
 local worker = require("build.test_worker")
 
@@ -79,11 +79,11 @@ end
 --- part, up to a space: two bumps of the epoch from one count say
 --- a moved harness, as another timeout does.
 local function test_the_census_says_each_bump_of_the_epoch_apart()
-  local word = test.harness_word("8-072f7458", Time.seconds(30))
-  assert(word == "e8-072f7458-t" .. Time.seconds(30), word)
+  local word = test.harness_word("8-072f7458", Clock.seconds(30))
+  assert(word == "e8-072f7458-t" .. Clock.seconds(30), word)
   assert(word:match("^%S+$") and not word:find("[,;]"), word)
-  assert(test.harness_word("8-3f9c2a1b", Time.seconds(30)) ~= word, "two bumps from one count")
-  assert(test.harness_word("8-072f7458", Time.seconds(60)) ~= word, "another timeout")
+  assert(test.harness_word("8-3f9c2a1b", Clock.seconds(30)) ~= word, "two bumps from one count")
+  assert(test.harness_word("8-072f7458", Clock.seconds(60)) ~= word, "another timeout")
 end
 
 local function test_a_selector_can_name_one_test_of_one_module()

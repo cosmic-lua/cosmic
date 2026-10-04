@@ -2,9 +2,9 @@
 --- reads it whole: the same values, however the stream splits the text,
 --- the same refusals, placed by line, column and path.
 
+local Clock = require("cosmic.clock")
 local Json = require("cosmic.json")
 local Stream = require("cosmic.stream")
-local Time = require("cosmic.time")
 
 --- A Reader that answers `text` in chunks of `size` bytes, then `last`
 --- (nil for the end) on every read after.
@@ -567,7 +567,7 @@ local function test_a_long_comment_in_small_chunks_reads_in_linear_time()
   for _, comment in ipairs({ "// c\n", "# c\n", "// c\u{2028}", "// \xe2\x80\n" }) do
     local function read(n: integer): integer
       local r = Json.reader(Stream.from_string("[" .. string.rep("1, " .. comment, n) .. "2]"), BOTH)
-      local started, count = Time.now_ns(), 0
+      local started, count = Clock.now_ns(), 0
       while true do
         local t, err = r:next()
         if t == nil then
@@ -577,7 +577,7 @@ local function test_a_long_comment_in_small_chunks_reads_in_linear_time()
         count = count + 1
       end
       assert(count == n + 3)
-      return Time.now_ns() - started
+      return Clock.now_ns() - started
     end
     -- The faster of two runs each, so a pause in one does not count.
     local few, many = math.min(read(2500), read(2500)), math.min(read(10000), read(10000))

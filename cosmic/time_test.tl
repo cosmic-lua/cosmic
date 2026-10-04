@@ -1,3 +1,4 @@
+local Clock = require("cosmic.clock")
 local Time = require("cosmic.time")
 
 local NS <const> = 1000000000
@@ -341,44 +342,6 @@ local function test_between_spans_the_whole_range()
   assert(far.years == 584 and far.months == 6, ("%d %d"):format(far.years, far.months))
 end
 
-local function test_the_constructors_scale_a_count_to_nanoseconds()
-  assert(Time.ms(1) == 1000000 and Time.seconds(1) == NS and Time.minutes(1) == 60 * NS)
-  assert(Time.hours(1) == 3600 * NS and Time.ms(0) == 0 and Time.ms(-5) == -5000000)
-  -- A float is as good as an integer when the span is whole, and is answered as one.
-  assert(Time.ms(1.5) == 1500000 and math.type(Time.ms(1.5)) == "integer")
-  assert(Time.seconds(0.25) == 250000000 and Time.minutes(1.5) == 90 * NS)
-  assert(Time.hours(0.5) == 1800 * NS and Time.hours(2.0) == 7200 * NS)
-  assert(Time.hours(24) == Time.seconds(86400) and Time.minutes(60) == Time.hours(1))
-  -- Float rounding in the product is no refusal: a count whose span is whole to within it.
-  assert(Time.seconds(1.005) == 1005000000 and Time.seconds(1.1) == 1100000000)
-  assert(Time.seconds(0.1 + 0.2) == 300000000 and Time.ms(0.1 + 0.2) == 300000)
-  assert(Time.minutes(0.1) == 6 * NS and Time.hours(1 / 3) == 1200 * NS)
-  -- The largest count each takes.
-  assert(Time.seconds(math.maxinteger // NS) == math.maxinteger // NS * NS)
-  assert(Time.ms(-(math.maxinteger // 1000000)) == -(math.maxinteger // 1000000) * 1000000)
-end
-
-local function test_the_constructors_refuse_what_is_no_span_an_integer_holds()
-  local constructors: {string:function(number): integer} = {
-    ["Time.ms"] = Time.ms, ["Time.seconds"] = Time.seconds, ["Time.minutes"] = Time.minutes,
-    ["Time.hours"] = Time.hours,
-  }
-  for name, make in pairs(constructors) do
-    for _, bad in ipairs({ 1e-12, 0 / 0, math.huge, -math.huge,
-        math.maxinteger, math.mininteger + 1, 2 ^ 62 } as {number}) do
-      local ok, err = pcall(make, bad)
-      assert(not ok and tostring(err):find(name, 1, true), name .. " " .. tostring(bad))
-    end
-    local text: any = "5"
-    local ok, err = pcall(make, text as number)
-    assert(not ok and tostring(err):find("takes a number, not string", 1, true), tostring(err))
-  end
-  local ok, err = pcall(Time.ms, 0.0000001)
-  assert(not ok and tostring(err):find("not a whole number of nanoseconds", 1, true), tostring(err))
-  ok, err = pcall(Time.seconds, math.maxinteger // NS + 1)
-  assert(not ok and tostring(err):find("outside what an integer", 1, true), tostring(err))
-end
-
 --- What a malformed RFC 3339 or HTTP text is told, by where it goes wrong.
 local function test_a_text_that_stops_says_where_and_what_it_wanted()
   local function why(parse: function(string): (integer | nil, string), text: string): string
@@ -548,21 +511,10 @@ local function test_parse_http_reaches_the_ranges_edges()
   assert(Time.parse_http("Tue, 21 Sep 1677 00:12:44 GMT") == (math.mininteger // NS + 1) * NS)
 end
 
---- A span as the count of a unit that covers it: rounded up, so a span
---- that is not none is never counted as none, whatever its sign.
-local function test_ceil_rounds_a_span_up_to_a_count_of_the_unit()
-  local ms = Time.ms(1)
-  assert(Time.ceil(0, ms) == 0 and Time.ceil(1, ms) == 1 and Time.ceil(ms, ms) == 1)
-  assert(Time.ceil(ms + 1, ms) == 2 and Time.ceil(Time.ms(7), ms) == 7)
-  assert(Time.ceil(-1, ms) == 0 and Time.ceil(-ms, ms) == -1 and Time.ceil(-ms - 1, ms) == -1)
-  assert(Time.ceil(math.maxinteger, ms) == math.maxinteger // ms + 1)
-  assert(Time.ceil(math.mininteger, ms) == math.mininteger // ms + 1)
-  assert(Time.ceil(math.maxinteger, 1) == math.maxinteger and Time.ceil(math.mininteger, 1) == math.mininteger)
-  assert(Time.ceil(Time.ms(1500), Time.seconds(1)) == 2)
-  for _, bad in ipairs({ 0, -1 }) do
-    local ok, why = pcall(Time.ceil, 1, bad)
-    assert(not ok and tostring(why):find("unit must be", 1, true), tostring(why))
+--- The clock and span helpers moved to cosmic.clock stay under their old names here.
+local function test_the_clock_helpers_are_answered_under_their_old_names()
+  for _, name in ipairs({ "now_ns", "monotonic_ns", "sleep_ns", "ms", "seconds", "minutes", "hours",
+      "ceil" }) do
+    assert((Time as {string:any})[name] == (Clock as {string:any})[name], name)
   end
-  local ok, why = pcall(Time.ceil, 1.5 as integer, ms)
-  assert(not ok and tostring(why):find("ns must be an integer", 1, true), tostring(why))
 end

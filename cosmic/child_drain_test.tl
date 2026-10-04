@@ -5,7 +5,7 @@ local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local this_program = require("build.this_program")
 
 --- Each child only runs a chunk through this program's core.
@@ -17,7 +17,7 @@ local function start(script: string, options?: Child.Options): Child.Handle
 end
 
 local function options(out: Stream.Writer, limit?: integer, ns?: integer): Child.DrainOptions
-  return { stdout = out, max_bytes = limit or 65536, timeout_ns = ns or Time.seconds(5) }
+  return { stdout = out, max_bytes = limit or 65536, timeout_ns = ns or Clock.seconds(5) }
 end
 
 local function finish(h: Child.Handle, opts: Child.DrainOptions): integer
@@ -78,7 +78,7 @@ end
 local function test_deadline_keeps_the_child_running()
   local h <close> = start('assert(require("cosmic.fs").take(0, 1))',
     { stdin = "stream", stdout = "stream" })
-  local got = h:drain(options(Stream.collect(), nil, Time.ms(10)))
+  local got = h:drain(options(Stream.collect(), nil, Clock.ms(10)))
   assert(got.kind == "timeout" and got.bytes == 0)
   assert(not assert(h:try_wait()).finished)
   assert(assert(h.stdin_stream):close())
@@ -90,11 +90,11 @@ end
 local function test_fresh_guard_event_is_not_consumed_and_old_reader_stays_failed()
   local h <close> = start([[
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-local Time = require("cosmic.time")
 local guard = assert(Child.guard())
 assert(Fs.put(1, "ready"))
-while guard:cancelled() == 0 do Time.sleep_ns(Time.ms(1)) end
+while guard:cancelled() == 0 do Clock.sleep_ns(Clock.ms(1)) end
 assert(Fs.put(1, "last"))
 assert(guard:release() ~= 0)]])
   assert(assert(h.stdout_stream):read() == "ready")
@@ -268,7 +268,7 @@ local function test_killing_a_task_in_a_yielding_sink_releases_ownership()
   local writing = false
   sink.write = function(_self: Stream.Collector, _data: string): boolean, string
     writing = true
-    return Poll.delay(Time.seconds(10))
+    return Poll.delay(Clock.seconds(10))
   end
   Poll.run(function()
     local task = Poll.spawn(function() h:drain(options(sink)) end)
@@ -337,9 +337,9 @@ end
 
 local function test_escaped_writer_is_drained_after_the_leader_exits()
   local h <close> = escaped([[
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-local Time = require("cosmic.time")
-Time.sleep_ns(Time.ms(50)) assert(Fs.put(1, "late"))]])
+Clock.sleep_ns(Clock.ms(50)) assert(Fs.put(1, "late"))]])
   local out = Stream.collect()
   assert(finish(h, options(out)) == 4 and out:result() == "late")
   assert(assert(h:wait()).ok)
@@ -347,8 +347,8 @@ Time.sleep_ns(Time.ms(50)) assert(Fs.put(1, "late"))]])
 end
 
 local function test_silent_escaped_writer_obeys_deadline_without_ending_child()
-  local h <close> = escaped('require("cosmic.time").sleep_ns(require("cosmic.time").seconds(10))')
-  local got = h:drain(options(Stream.collect(), nil, Time.ms(20)))
+  local h <close> = escaped('require("cosmic.clock").sleep_ns(require("cosmic.clock").seconds(10))')
+  local got = h:drain(options(Stream.collect(), nil, Clock.ms(20)))
   assert(got.kind == "timeout" and got.bytes == 0)
   Child.end_strays()
   assert(assert(h:wait()).ok)
@@ -420,7 +420,7 @@ assert(Fs.put(1, "output")) assert(Fs.put(2, "error"))]],
 end
 
 local function test_reader_abandonment_of_escaped_writer_is_not_drain_eof()
-  local h <close> = escaped('require("cosmic.time").sleep_ns(require("cosmic.time").seconds(10))')
+  local h <close> = escaped('require("cosmic.clock").sleep_ns(require("cosmic.clock").seconds(10))')
   assert(assert(h:wait()).ok)
   local reader = assert(h.stdout_stream)
   local data, why = reader:read()

@@ -4,10 +4,10 @@
 --- `tool`; the verb's own cases are in `sql_test.tl`.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
-local Time = require("cosmic.time")
 
 --- The program itself, which its tests start.
 Test.needs{ tool = true }
@@ -21,7 +21,7 @@ end
 local function cosmic(dir: string, words: {string}, input?: string): Ran
   local started = this_program.program(words, {
     cwd = dir, stdout = "capture", stderr = "capture", input = input,
-    timeout_ns = Time.seconds(30),
+    timeout_ns = Clock.seconds(30),
   })
   local result = assert(Child.run(started.argv, started.options))
   return { code = result.code, out = result.stdout or "", err = result.stderr or "" }

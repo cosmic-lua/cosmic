@@ -11,7 +11,7 @@ local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 --- What the chunk the program runs requires besides.
 local type _ = require("cosmic.env")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- `system` for /bin/sh, whose `ulimit` starts the program at a low
 --- limit and says the limit a host program is given. `tool` for the
@@ -64,7 +64,7 @@ local function started_low(tmp: string, chunk: string): {string} | nil
   local limits = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
   if limits.hard < 2 * LOW then return nil end
   local started = this_program.program({ "-e", chunk }, { env = this_program.environment(),
-    cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })
+    cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local argv = { "/bin/sh", "-c", 'ulimit -Sn "$0" && exec "$@"', tostring(LOW) }
   for _, word in ipairs(started.argv) do argv[#argv + 1] = word end
   local r = assert(Child.run(argv, started.options))

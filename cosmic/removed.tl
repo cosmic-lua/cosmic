@@ -85,7 +85,7 @@ local record Module
   -- Net.ServeSpec and Http.Options), `grace_ms` (Net.ServeSpec),
   -- `connect_timeout_ms` and `low_speed_seconds` (Http.Options) are
   -- `timeout_ns`, `grace_ns`, `connect_timeout_ns` and `low_speed_ns`,
-  -- each a count of nanoseconds written `Time.ms(n)` or `Time.seconds(n)`.
+  -- each a count of nanoseconds written `Clock.ms(n)` or `Clock.seconds(n)`.
   -- A positional span whose name stays (Poll.delay, Poll.readable,
   -- Poll.writable, Poll.ready, `:join`, `:wait`, `:accept`,
   -- Child.wait_any, g:wait) changed its unit too, which no compile error
@@ -131,6 +131,7 @@ local env <const> = 'local Env = require("cosmic.env")'
 local proc <const> = 'local Proc = require("cosmic.proc")'
 local net <const> = 'local Net = require("cosmic.net")'
 local time <const> = 'local Time = require("cosmic.time")'
+local clock <const> = 'local Clock = require("cosmic.clock")'
 local child <const> = 'local Child = require("cosmic.child")'
 local errors <const> = 'local Errors = require("cosmic.errors")'
 local codec <const> = 'local Codec = require("cosmic.codec")'
@@ -191,19 +192,19 @@ local module: Module = {
       "list, run without a shell or a PATH search (" .. child .. ")",
     ["os.getenv"] = "use Env.get(name) (" .. env .. ")",
     ["os.exit"] = "use Proc.exit(status) (" .. proc .. ")",
-    ["os.time"] = "use Time.now_ns(), the wall clock in nanoseconds since " ..
+    ["os.time"] = "use Clock.now_ns(), the wall clock in nanoseconds since " ..
       "the epoch (// 1000000000 for seconds), or Time.from_civil(fields, zone) " ..
       "for a calendar date, which reads it as UTC unless given a zone " ..
       "(Time.local_zone() for local time, Time.zone(\"Europe/Paris\") for " ..
       "another) and refuses a field out of range (day 32) rather than " ..
-      "normalizing it (" .. time .. ")",
-    ["os.clock"] = "use Time.monotonic_ns() to measure elapsed time; there " ..
-      "is no process CPU clock (" .. time .. ")",
-    ["os.difftime"] = "subtract two Time.now_ns() readings (" .. time .. ")",
-    ["os.date"] = "use Time.civil(Time.now_ns(), zone) for the calendar's " ..
+      "normalizing it (" .. clock .. "; " .. time .. ")",
+    ["os.clock"] = "use Clock.monotonic_ns() to measure elapsed time; there " ..
+      "is no process CPU clock (" .. clock .. ")",
+    ["os.difftime"] = "subtract two Clock.now_ns() readings (" .. clock .. ")",
+    ["os.date"] = "use Time.civil(Clock.now_ns(), zone) for the calendar's " ..
       "fields -- UTC's without a zone, local time with Time.local_zone(), " ..
       "or Time.zone(\"Europe/Paris\")'s -- or Time.format_rfc3339(ns, zone) " ..
-      "for text; there is no strftime (" .. time .. ")",
+      "for text; there is no strftime (" .. clock .. "; " .. time .. ")",
     ["os.remove"] = "use Fs.remove(path) (" .. fs .. ")",
     ["os.rename"] = "use Fs.rename(from, to) (" .. fs .. ")",
     ["os.tmpname"] = "use Fs.mkdtemp(prefix), which makes a private " ..
@@ -359,7 +360,8 @@ local module: Module = {
     ["cosmic.time.days_between"] = "use Time.between(from, to, zone), whose Duration " ..
       "holds the whole years, months and days between two moments; the days between " ..
       "two dates alone are (Time.parse_date(Time.format_date(to, zone)) - " ..
-      "Time.parse_date(Time.format_date(from, zone))) // Time.hours(24) (" .. time .. ")",
+      "Time.parse_date(Time.format_date(from, zone))) // Clock.hours(24) (" ..
+      clock .. "; " .. time .. ")",
     ["cosmic.time.months_between"] = "use Time.between(from, to, zone): its years * 12 " ..
       "+ months are the whole months (" .. time .. ")",
     ["cosmic.time.parse_input"] = "moved to build.time, which only `cosmic time` calls; " ..

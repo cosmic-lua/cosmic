@@ -6,7 +6,7 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- The program itself, which its tests start.
 Test.needs{ tool = true }
@@ -24,7 +24,7 @@ local function invoke(root: string, output: string, selector: string): Child.Res
   env.TMPDIR = Fs.dirname(output)
   local started = this_program.program({ "test", selector }, {
     cwd = root, env = env, stdout = fd, stderr = fd,
-    process_group = true, timeout_ns = Time.seconds(30),
+    process_group = true, timeout_ns = Clock.seconds(30),
   })
   local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))
@@ -41,7 +41,7 @@ local function invoke_words(root: string, output: string, words: {string}): Chil
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local started = this_program.program(argv, {
     cwd = root, env = env, stdout = fd, stderr = fd,
-    process_group = true, timeout_ns = Time.seconds(30),
+    process_group = true, timeout_ns = Clock.seconds(30),
   })
   local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))
@@ -238,9 +238,9 @@ local function test_records_the_tests_elapsed_duration(tmp: string)
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root .. "/timing"))
   assert(Fs.write(root .. "/timing/sleep_test.tl", [[
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local function test_sleeps_a_known_duration()
-  assert(Time.sleep_ns(50 * 1000 * 1000))
+  assert(Clock.sleep_ns(50 * 1000 * 1000))
 end
 ]]))
   local output = tmp .. "/sleep.out"
@@ -254,9 +254,9 @@ end
   assert(#rows == 1, "expected exactly one recorded run")
   local elapsed = math.tointeger(tonumber(rows[1][1]))
   assert(elapsed ~= nil)
-  assert(elapsed >= Time.ms(50),
+  assert(elapsed >= Clock.ms(50),
     "elapsed_ns " .. tostring(elapsed) .. " is shorter than the sleep")
-  assert(elapsed < Time.seconds(5),
+  assert(elapsed < Clock.seconds(5),
     "elapsed_ns " .. tostring(elapsed) .. " is implausibly large")
 end
 
@@ -306,7 +306,7 @@ local function test_a_test_without_a_directory_fails_alone(tmp: string)
   environment.COSMIC_TEST_SANDBOX = "0"
   local fd = assert(Fs.open_write(output))
   local started = this_program.program({ "test", "suite/selected_test.tl" }, {
-    cwd = root, env = environment, stdout = fd, stderr = fd, timeout_ns = Time.seconds(30),
+    cwd = root, env = environment, stdout = fd, stderr = fd, timeout_ns = Clock.seconds(30),
   })
   local result = assert(Child.run(started.argv, started.options))
   assert(Fs.close(fd))

@@ -9,7 +9,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- The program itself, which its tests start.
 Test.needs{ tool = true }
@@ -23,7 +23,7 @@ local function run(root: string, output: string, env: {string:string}, fails?: b
   for _, word in ipairs(words or { "suite" }) do args[#args + 1] = word end
   local started = this_program.program(args, {
     cwd = root, env = env, stdout = fd, stderr = fd,
-    process_group = true, timeout_ns = Time.seconds(60),
+    process_group = true, timeout_ns = Clock.seconds(60),
   })
   local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))

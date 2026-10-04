@@ -8,7 +8,7 @@ local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local sandbox_skip = require("build.sandbox_skip")
 local this_program = require("build.this_program")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- The program itself, which its tests start.
 Test.needs{ tool = true }
@@ -22,7 +22,7 @@ end
 local function cosmic(dir: string, words: {string}, input?: string): Ran
   local started = this_program.program(words, {
     cwd = dir, stdout = "capture", stderr = "capture", input = input,
-    timeout_ns = Time.seconds(30),
+    timeout_ns = Clock.seconds(30),
   })
   local result = assert(Child.run(started.argv, started.options))
   return { code = result.code, out = result.stdout or "", err = result.stderr or "" }
@@ -62,7 +62,7 @@ local function test_a_failed_standard_output_write_exits_2(tmp: string)
   end
   local full = assert(Fs.open_write("/dev/full"))
   local started = this_program.program({ "codec", "hex" }, {
-    cwd = tmp, stdout = full, stderr = "capture", input = "abc", timeout_ns = Time.seconds(30),
+    cwd = tmp, stdout = full, stderr = "capture", input = "abc", timeout_ns = Clock.seconds(30),
   })
   local result = assert(Child.run(started.argv, started.options))
   assert(Fs.close(full))

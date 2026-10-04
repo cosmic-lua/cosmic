@@ -8,7 +8,7 @@ local Coverage = require("cosmic.coverage")
 local Fs = require("cosmic.fs")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- The program itself, which its test starts to run a file `--standalone`
 --- (`standalone`).
@@ -36,7 +36,7 @@ end
 ]]))
   local started = this_program.program({ "--standalone", script },
     { env = this_program.environment(), cwd = tmp, stdout = "capture", stderr = "capture",
-      timeout_ns = Time.seconds(30) })
+      timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stderr))
   local out = assert(r.stdout)

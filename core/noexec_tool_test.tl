@@ -2,11 +2,11 @@
 --- skips this module where it cannot grant the capability; held runs
 --- fail that skip. Copying bytes to ordinary scratch is allowed.
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local stand_in = require("build.stand_in")
 local type raw_process = require("cosmic.internal.process")
@@ -42,11 +42,11 @@ local function test_noexec_files_and_symlink_aliases_refuse_native_exec(tmp: str
   local fd = assert(sys.open(path, sys.O_RDONLY))
   refused("/proc/self/fd/" .. tostring(fd))
   assert(sys.close(fd))
-  local result = assert(Child.run({ ordinary, "exit 0" }, { timeout_ns = Time.seconds(10) }))
+  local result = assert(Child.run({ ordinary, "exit 0" }, { timeout_ns = Clock.seconds(10) }))
   assert(result.ok)
   local copied = tmp .. "/copied"
   assert(Fs.write(copied, assert(Fs.read(path)), 0x1c0))
-  result = assert(Child.run({ copied, "exit 0" }, { timeout_ns = Time.seconds(10) }))
+  result = assert(Child.run({ copied, "exit 0" }, { timeout_ns = Clock.seconds(10) }))
   assert(result.ok)
 end
 
@@ -74,7 +74,7 @@ fi
 ]]
   local result, trouble = Child.run({ unshare, "-U", "-r", "-m", "--",
     shell, "-c", script, "noexec-bind", mount, "/noexec", alias },
-    { stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(10) })
+    { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(10) })
   assert(result ~= nil, trouble)
   assert(result.ok, result.stderr or "nested bind failed")
   refused(path)
@@ -86,7 +86,7 @@ local function test_noexec_is_inherited_through_an_explicit_child_sandbox(tmp: s
     cwd = "/",
     sandbox = { unveil = { reads = { ordinary, "/noexec", "/proc", "/dev/null" },
       writes = { tmp } }, offline = true },
-    stdout = "null", stderr = "capture", timeout_ns = Time.seconds(10),
+    stdout = "null", stderr = "capture", timeout_ns = Clock.seconds(10),
   })
   assert(result ~= nil, trouble)
   assert(result.ok, result.stderr)

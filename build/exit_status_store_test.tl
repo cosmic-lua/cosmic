@@ -8,7 +8,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local embed = require("build.embed")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- The program itself, whose core the programs it builds run on.
 --- `store`: [`embed.tree`] joins every `cosmic.*` module's rows.
@@ -16,7 +16,7 @@ Test.needs{ tool = true, store = true }
 
 local function run_program(path: string): Child.Result
   return (assert(Child.run({ path }, {
-    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })))
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })))
 end
 
 --- An exit keeps only the low byte, so 256 would read as success. It is

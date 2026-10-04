@@ -21,7 +21,7 @@ local QUERIES: {{string}} = {
   { "run a program", "Child.run" },
   { "parse json", "Json.decode" },
   { "write a test", "Layout", "cosmic.layout", "cosmic.test" },
-  { "sleep", "Time.sleep_ns" },
+  { "sleep", "Clock.sleep_ns" },
   { "http get", "Http.get" },
   { "sha256", "Hash." },
   { "temporary directory", "Fs.mkdtemp" },

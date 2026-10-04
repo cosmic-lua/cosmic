@@ -15,6 +15,7 @@
 ---       end,
 ---     })
 
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
@@ -175,7 +176,7 @@ local KIB <const> = 1024
 --- after a reply that left part of the request unread, so the client
 --- reads the reply before the close: closed with bytes unread, a TCP
 --- connection resets, and the reset can reach the client first.
-local LINGER_NS <const> = Time.seconds(1)
+local LINGER_NS <const> = Clock.seconds(1)
 local LINGER_BYTES <const> = 256 * KIB
 
 local SPEC_FIELDS <const>: {string:boolean} = {
@@ -235,7 +236,7 @@ local function checked_spec(spec: any)
 end
 
 --- A connection read under a deadline: each read waits at most `each`,
---- and none past `deadline`, a [`Time.monotonic_ns`] reading (nil for
+--- and none past `deadline`, a [`Clock.monotonic_ns`] reading (nil for
 --- none).
 local record Timed is Stream.Reader
   conn: Net.Conn
@@ -250,7 +251,7 @@ local timed_mt: metatable<Timed> = { __index = Timed }
 function Timed:read(max_bytes?: integer): string | nil, string
   local wait = self.each
   if self.deadline ~= nil then
-    local left = self.deadline - Time.monotonic_ns()
+    local left = self.deadline - Clock.monotonic_ns()
     if left <= 0 then return nil, Poll.TIMEOUT end
     if wait == nil or left < wait then wait = left end
   end
@@ -299,7 +300,7 @@ local function answer(s: Serving, conn: Net.Conn, head: wire.Head | nil, status:
   local _ = wire.send(conn, {
     status = status, headers = { ["Content-Type"] = "text/plain; charset=utf-8" },
     body = text .. "\n", close = true, method = head ~= nil and head.method or "GET",
-    version = head ~= nil and head.version or "HTTP/1.1", date = Time.format_http(Time.now_ns()),
+    version = head ~= nil and head.version or "HTTP/1.1", date = Time.format_http(Clock.now_ns()),
   })
 end
 
@@ -308,10 +309,10 @@ end
 --- reaches the client before the close.
 local function linger(conn: Net.Conn)
   local _, _ = conn:shutdown("write")
-  local deadline = Time.monotonic_ns() + LINGER_NS
+  local deadline = Clock.monotonic_ns() + LINGER_NS
   local dropped = 0
   while dropped < LINGER_BYTES do
-    local left = deadline - Time.monotonic_ns()
+    local left = deadline - Clock.monotonic_ns()
     if left <= 0 then return end
     conn:set_timeout(left)
     local piece, _ = conn:read()
@@ -446,7 +447,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
     sent = wire.send(conn, {
       status = reply.status, headers = reply.headers, body = reply.body, length = reply.length,
       close = close, method = head.method, version = head.version,
-      date = Time.format_http(Time.now_ns()),
+      date = Time.format_http(Clock.now_ns()),
     })
   end, traced)
   if not sending then
@@ -493,12 +494,12 @@ local function serve_conn(s: Serving, conn: Net.Conn)
     if not wire.buffered(input) then
       if s.stopping then return end
       s.idle[conn] = true
-      timed.deadline = Time.monotonic_ns() + s.idle_ns
+      timed.deadline = Clock.monotonic_ns() + s.idle_ns
       local ok, _ = wire.fill(input)
       s.idle[conn] = nil
       if not ok then return end
     end
-    timed.deadline = Time.monotonic_ns() + s.head_ns
+    timed.deadline = Clock.monotonic_ns() + s.head_ns
     local read = wire.read_head(input, s.limits)
     timed.deadline = nil
     local head = read.head
@@ -576,9 +577,9 @@ function Server.serve(spec: Server.ServeSpec): boolean, string
   local s: Serving = {
     spec = spec,
     limits = { head_bytes = limits.head_bytes or 64 * KIB, body_bytes = limits.body_bytes or 1024 * KIB },
-    timeout_ns = spec.timeout_ns or Time.seconds(30),
-    idle_ns = spec.idle_ns or Time.seconds(5),
-    head_ns = spec.head_ns or Time.seconds(30),
+    timeout_ns = spec.timeout_ns or Clock.seconds(30),
+    idle_ns = spec.idle_ns or Clock.seconds(5),
+    head_ns = spec.head_ns or Clock.seconds(30),
     stopping = false,
     idle = {},
   }

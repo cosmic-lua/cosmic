@@ -144,7 +144,7 @@ test_sandbox.switch = "COSMIC_TEST_SANDBOX"
 --- ([`Plan.program`]).
 local program_place <const> = "/program"
 -- How long the probe's child may run: 30 seconds, in the nanoseconds a
--- wait takes, which cosmic.time's `seconds` would write but is no module
+-- wait takes, which cosmic.clock's `seconds` would write but is no module
 -- the harness may reach (build/harness_epoch.tl's `library`).
 local probe_timeout_ns <const> = 30 * 1000 * 1000 * 1000
 

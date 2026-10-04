@@ -48,11 +48,11 @@
 --- -- is handed it instead (`handed_variable`), since a lock its parent
 --- holds keeps it out.
 
+local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local Sqlite = require("cosmic.sqlite")
-local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local log = require("build.verdict").log
 local plural = require("build.plural")
@@ -77,7 +77,7 @@ end
 local lock_name = "/o/rebuild.lock"
 
 --- One millisecond, which [`sys.flock`] and SQLite count their waits in.
-local MS <const> = Time.ms(1)
+local MS <const> = Clock.ms(1)
 
 --- Where the holder writes its process id and role, a line each, for
 --- a waiting run to name it. build/zig.tl writes and reads it too.
@@ -102,7 +102,7 @@ local doing: {string:string} = {
 local handed_variable <const> = "COSMIC_REBUILD_LOCK_HANDED"
 
 --- How long a waiting run waits in one go before it says it still is.
-local reminder_ns <const> = Time.minutes(5)
+local reminder_ns <const> = Clock.minutes(5)
 
 --- The lock's descriptor and SQLite handle, each nil once let go or
 --- never taken.
@@ -170,7 +170,7 @@ function rebuild_lock.take(root: string, wait_ns: integer,
       " and cannot take another checkout's too"
   end
   local path = root .. lock_name
-  local started_ns = Time.monotonic_ns()
+  local started_ns = Clock.monotonic_ns()
   -- For writing, which an exclusive flock over NFS or SMB needs.
   local fd, open_trouble = sys.open(path, sys.O_RDWR | sys.O_CREAT, 0x1a4)
   if fd == nil then
@@ -178,7 +178,7 @@ function rebuild_lock.take(root: string, wait_ns: integer,
   end
   local opened: Lock = { fd = fd }
   local taking <close> = setmetatable(opened, lock_mt)
-  local flocked, flock_trouble, errno = sys.flock(fd, "exclusive", Time.ceil(wait_ns, MS))
+  local flocked, flock_trouble, errno = sys.flock(fd, "exclusive", Clock.ceil(wait_ns, MS))
   if not flocked then
     local name = sys.errno_name(errno)
     if name == "ETIMEDOUT" then
@@ -193,7 +193,7 @@ function rebuild_lock.take(root: string, wait_ns: integer,
     return nil, path .. ": " .. kind_trouble
   end
   if kind == "apart" then
-    local left_ns = wait_ns - (Time.monotonic_ns() - started_ns)
+    local left_ns = wait_ns - (Clock.monotonic_ns() - started_ns)
     local taken, trouble = take_sqlite(taking, path, math.max(left_ns, 0))
     if taken == nil then
       return nil, trouble
@@ -315,7 +315,7 @@ function rebuild_lock.wait(root: string, role: rebuild_lock.Role,
       return true, ""
     end
     waited_ns = waited_ns + reminder_ns
-    log:complain("still waiting, " .. plural.count(waited_ns // Time.minutes(1), "minute") ..
+    log:complain("still waiting, " .. plural.count(waited_ns // Clock.minutes(1), "minute") ..
         " on: " .. rebuild_lock.holder(root) .. rebuild_lock.suffix(root))
   end
 end

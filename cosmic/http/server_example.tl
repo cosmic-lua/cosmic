@@ -2,11 +2,11 @@
 --- the symbol each one demonstrates and run by `cosmic test` like any
 --- other test -- see doc/design.md's `examples` table.
 
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Server = require("cosmic.http.server")
 local Stream = require("cosmic.stream")
-local Time = require("cosmic.time")
 
 local Example = {}
 
@@ -38,7 +38,7 @@ function Example.serve()
       return { status = 405, headers = { Allow = "GET, HEAD, PUT" } }
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local conn <close> = assert(Net.connect(addresses[1], { timeout_ns = Time.seconds(5) }))
+      local conn <close> = assert(Net.connect(addresses[1], { timeout_ns = Clock.seconds(5) }))
       assert(conn:write("PUT /greeting HTTP/1.1\r\nHost: kv\r\nContent-Length: 5\r\n\r\nhello" ..
           "GET /greeting HTTP/1.1\r\nHost: kv\r\nConnection: close\r\n\r\n"))
       local answer = assert(Stream.read_all(conn))

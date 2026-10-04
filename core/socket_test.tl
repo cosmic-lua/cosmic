@@ -2,9 +2,9 @@
 --- listener's socket file, from the moment the call makes them, so one
 --- dropped before [`cosmic.net`] has wrapped it leaks neither.
 
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local type _net = require("cosmic.net")
 local type raw_socket = require("cosmic.internal.socket")
@@ -219,9 +219,9 @@ local function test_a_full_unix_backlog_refuses_a_connection_at_once(tmp: string
     held[#held + 1] = client
   end
   local want = assert(sys.uname()).sysname == "Darwin" and raw.ECONNREFUSED or raw.EAGAIN
-  local began = Time.monotonic_ns()
+  local began = Clock.monotonic_ns()
   local client, why, errno = raw.connect(unix(path), 20000)
-  assert(Time.monotonic_ns() - began < Time.seconds(10), "the connection waited for room")
+  assert(Clock.monotonic_ns() - began < Clock.seconds(10), "the connection waited for room")
   assert(client == nil and errno == want, why)
   local started, start_why, start_errno = raw.start(unix(path))
   assert(started == nil and start_errno == want, start_why)

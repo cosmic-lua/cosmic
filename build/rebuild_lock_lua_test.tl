@@ -14,7 +14,7 @@ local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local rebuild_lock = require("build.rebuild_lock")
 local this_program = require("build.this_program")
 
@@ -27,9 +27,9 @@ Test.needs{ lua = true }
 --- it for the `%d` nanoseconds, or until its standard input ends when
 --- that is negative, then writes o/let-go, still holding it, and exits.
 local old_tool = [[
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local Time = require("cosmic.time")
 local root = %q
 local db = assert(Sqlite.open(root .. "/o/rebuild.lock", { writable = true }))
 assert(db:exec("PRAGMA busy_timeout = 0"))
@@ -39,20 +39,20 @@ if not db:exec("BEGIN IMMEDIATE") then
 end
 print("held")
 local hold_ns = %d
-if hold_ns < 0 then Fs.take(Fs.stdin, 1) else Time.sleep_ns(hold_ns) end
+if hold_ns < 0 then Fs.take(Fs.stdin, 1) else Clock.sleep_ns(hold_ns) end
 assert(Fs.write(root .. "/o/let-go", ""))
 ]]
 
 --- The same, as this tool does.
 local new_tool = [[
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-local Time = require("cosmic.time")
 local root = %q
 local taken = require("build.rebuild_lock").take(root, 0)
 print(taken)
 if taken ~= "held" then return end
 local hold_ns = %d
-if hold_ns < 0 then Fs.take(Fs.stdin, 1) else Time.sleep_ns(hold_ns) end
+if hold_ns < 0 then Fs.take(Fs.stdin, 1) else Clock.sleep_ns(hold_ns) end
 assert(Fs.write(root .. "/o/let-go", ""))
 ]]
 
@@ -79,7 +79,7 @@ end
 --- Lets `child` go and waits for it to exit.
 local function finish(child: Child.Handle)
   assert(assert(child.stdin_stream):close())
-  local result = assert(child:wait(Time.seconds(30)))
+  local result = assert(child:wait(Clock.seconds(30)))
   assert(result.ok, result.stderr)
 end
 
@@ -145,9 +145,9 @@ end
 local function test_a_waiting_run_takes_the_lock_once_let_go(tmp: string)
   local root = tree(tmp)
   for _, script in ipairs({ old_tool, new_tool }) do
-    local holder, said = start(script, root, Time.seconds(1))
+    local holder, said = start(script, root, Clock.seconds(1))
     assert(said == "held", said)
-    local taken, trouble = rebuild_lock.take(root, Time.seconds(20))
+    local taken, trouble = rebuild_lock.take(root, Clock.seconds(20))
     local let_go = Fs.exists(root .. "/o/let-go")
     rebuild_lock.release()
     finish(holder)
@@ -160,10 +160,10 @@ end
 --- Waits up to 20 s for `holds` to answer true, checking every 20 ms,
 --- and answers true once it has.
 local function await(what: string, holds: function(): boolean): boolean
-  local deadline = Time.monotonic_ns() + Time.seconds(20)
+  local deadline = Clock.monotonic_ns() + Clock.seconds(20)
   while not holds() do
-    assert(Time.monotonic_ns() < deadline, "gave up waiting for " .. what)
-    assert(sys.nanosleep(Time.ms(20)))
+    assert(Clock.monotonic_ns() < deadline, "gave up waiting for " .. what)
+    assert(sys.nanosleep(Clock.ms(20)))
   end
   return true
 end
@@ -197,7 +197,7 @@ local function test_a_handed_lock_lets_a_write_on_but_not_a_test_run(tmp: string
   local root = tree(tmp)
   assert(rebuild_lock.take(root, 0, "test") == "held")
   local write = start_handed(root, "write", tmp .. "/write.out")
-  local written, write_trouble = write:wait(Time.seconds(20))
+  local written, write_trouble = write:wait(Clock.seconds(20))
   local test_run = start_handed(root, "test", tmp .. "/test.out")
   local ok, failure = pcall(await, "the test run to wait", function(): boolean
     local text = Fs.read(tmp .. "/test.out") or ""
@@ -205,7 +205,7 @@ local function test_a_handed_lock_lets_a_write_on_but_not_a_test_run(tmp: string
   end)
   local running, _ = test_run:try_wait()
   rebuild_lock.release()
-  local ran = assert(test_run:wait(Time.seconds(20)))
+  local ran = assert(test_run:wait(Clock.seconds(20)))
   local write_text = tostring((Fs.read(tmp .. "/write.out")))
   local test_text = tostring((Fs.read(tmp .. "/test.out")))
   assert(written ~= nil and written.ok, tostring(write_trouble) .. "\n" .. write_text)

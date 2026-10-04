@@ -11,7 +11,7 @@ local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 Test.needs{ tool = true }
 
@@ -101,7 +101,7 @@ local function test_a_change_through_the_artifact_descriptor_changes_nothing(tmp
   for name, value in pairs(relaunch.env) do env[name] = value end
   local result = assert(Child.run({ relaunch.argv[1], "--artifact", copy, "-e", probe }, {
     env = env, fds = { [slot] = opened, [core_slot] = relaunch.fds[core_slot] },
-    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(sys.close(opened))
   assert(result.ok, tostring(result.stderr))
   local after = assert(sys.stat(copy))
@@ -153,8 +153,8 @@ assert(sys.rename(spare, link))
 --- rename replaces it can end at the link's directory (Linux 6.18
 --- does, a few times in 100000), which it changes too.
 local caller <const> = [==[
+local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
-local Time = require("cosmic.time")
 local link, stop = LINK, STOP
 local counts = { chmod = { done = 0, refused = 0 }, truncate = { done = 0, refused = 0 } }
 local function said(what, ok, errno)
@@ -173,8 +173,8 @@ local function met()
   return true
 end
 local least <const>, bound_ns <const> = 20000, 5 * 1000000000
-local deadline, i = Time.monotonic_ns() + bound_ns, 0
-while i < least or (not met() and Time.monotonic_ns() < deadline) do
+local deadline, i = Clock.monotonic_ns() + bound_ns, 0
+while i < least or (not met() and Clock.monotonic_ns() < deadline) do
   i = i + 1
   local ok, _, errno = sys.chmod(link, 448)
   said("chmod", ok, errno)
@@ -229,13 +229,13 @@ local function test_a_link_swapped_after_the_check_changes_nothing(tmp: string)
       stderr = "capture" }))
   local said = Stream.lines(assert(flipping.stdout_stream)):read()
   if said ~= "flipping" then
-    local ended, why = flipping:wait(Time.seconds(2))
+    local ended, why = flipping:wait(Clock.seconds(2))
     error("the flipper did not start: " .. tostring(said) .. "\n" ..
         (ended ~= nil and tostring(ended.stderr) or why))
   end
   local result = assert(Child.run({ relaunch.argv[1], "--artifact", copy, "-e",
     filled(caller, values) }, { env = env, fds = fds, stdout = "capture", stderr = "capture",
-      timeout_ns = Time.seconds(7) }))
+      timeout_ns = Clock.seconds(7) }))
   if not Fs.exists(stop) then assert(Fs.write(stop, "")) end
   local flipped = assert(flipping:wait())
   assert(sys.close(opened))

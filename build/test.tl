@@ -89,6 +89,7 @@
 
 local Child = require("cosmic.child")
 local Cli = require("cosmic.cli")
+local Clock = require("cosmic.clock")
 local Coverage = require("cosmic.coverage")
 local Env = require("cosmic.env")
 local Flags = require("cosmic.flags")
@@ -99,7 +100,6 @@ local type Sandbox = require("cosmic.sandbox")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
-local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local clock = require("build.clock")
 local coverage_report = require("build.coverage")
@@ -1361,7 +1361,7 @@ local function checkout_id(records: Sqlite.Handle, root: string, now_ns: integer
   local rows, _ = Sqlite.text_rows(records, "SELECT value FROM meta WHERE key = 'checkout'")
   if rows ~= nil and rows[1] ~= nil then return rows[1][1] end
   local made = hex_sha256(root .. "\0" .. tostring(now_ns) .. "\0" ..
-      tostring(Time.monotonic_ns()) .. "\0" .. tostring({}))
+      tostring(Clock.monotonic_ns()) .. "\0" .. tostring({}))
   local _, _ = Sqlite.run(records, "INSERT OR REPLACE INTO meta (key, value) VALUES ('checkout', ?1)",
     { text(made) })
   return made
@@ -1522,7 +1522,7 @@ local function stand(rec: Recording, credited: test.Credited, m: importer.Module
   end
   owed[#owed + 1] = id
   local kept, keep_trouble = record_run(rec.records, m.path, name, true, "",
-    Time.now_ns(), run_key(key, rec.shared_keys[key]), stood.run_at_ns, stood.elapsed_ns)
+    Clock.now_ns(), run_key(key, rec.shared_keys[key]), stood.run_at_ns, stood.elapsed_ns)
   if not kept then
     rec.errors[#rec.errors + 1] = id .. ": record: " .. keep_trouble
   end
@@ -1552,7 +1552,7 @@ local function share(rec: Recording, m: importer.Module, name: string, id: strin
   rec.by_test[id] = encode_hits(hit)
   local elapsed = found.elapsed_ns
   local kept, keep_trouble = record_run(rec.records, m.path, name, true, "",
-    Time.now_ns(), run_key(key, key), rec.run_at_ns, elapsed)
+    Clock.now_ns(), run_key(key, key), rec.run_at_ns, elapsed)
   if not kept then
     rec.errors[#rec.errors + 1] = id .. ": record: " .. keep_trouble
   end
@@ -1585,7 +1585,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
                       trouble: string, limits: test.Limits, refused?: boolean, unavailable?: string)
   rec.tally.ran = rec.tally.ran + 1
   local id = job.id
-  local wall_ns = Time.monotonic_ns() - job.started_ns
+  local wall_ns = Clock.monotonic_ns() - job.started_ns
   local judged: worker.Judgement
   if unavailable ~= nil then
     judged = { passed = true, skipped = unavailable, message = "" }
@@ -1640,7 +1640,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
   if key == nil then rec.tally.every = rec.tally.every + 1 end
   local held = key ~= nil and declared_of(rec, job.m, id) == key
   local saved, save_trouble = record_run(rec.records, job.m.path, job.name, kept_pass,
-    message, Time.now_ns(), run_key(key or "", key), rec.run_at_ns, elapsed)
+    message, Clock.now_ns(), run_key(key or "", key), rec.run_at_ns, elapsed)
   if not saved then
     rec.errors[#rec.errors + 1] = id .. ": record: " .. save_trouble
   end
@@ -1886,11 +1886,11 @@ local function store_at(rec: Recording, address: string, names: {string},
   if there == nil then
     local made, trouble = Fs.mkdirs(directory)
     if not made then return nil, directory .. ": " .. trouble end
-    local started = Time.monotonic_ns()
+    local started = Clock.monotonic_ns()
     local written, write_trouble = closure_store.write(rec.projection, path, names, rec.basis)
     if not written then return nil, "the store of its closure: " .. write_trouble end
     if not base then
-      rec.writing_ns = rec.writing_ns + (Time.monotonic_ns() - started)
+      rec.writing_ns = rec.writing_ns + (Clock.monotonic_ns() - started)
       local wrote, _ = sys.stat(path)
       rec.written = rec.written + 1
       rec.written_bytes = rec.written_bytes + (wrote ~= nil and wrote.size or 0)
@@ -1985,7 +1985,7 @@ end
 --- Nil and why where it could not be written.
 local function address_digest(rec: Recording, address: string, names: {string},
                               base: boolean): string | nil, string
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   rec.store_names[address] = names
   rec.store_bases[address] = base
   local path = stores_directory(rec.root) .. "/" .. (base and base_name(address) or
@@ -1997,10 +1997,10 @@ local function address_digest(rec: Recording, address: string, names: {string},
     if digest == nil and rec.consult_shared then digest = shared_digest(rec, address) end
   end
   if digest == nil then
-    rec.digests.spent_ns = rec.digests.spent_ns + (Time.monotonic_ns() - started)
+    rec.digests.spent_ns = rec.digests.spent_ns + (Clock.monotonic_ns() - started)
     local made, trouble = store_at(rec, address, names, base)
     if made == nil then return nil, trouble end
-    started = Time.monotonic_ns()
+    started = Clock.monotonic_ns()
     digest = declared_key.store_digest(rec.digests, made)
     -- Held to what this run took for it, else to what the shared
     -- verdicts keep, whether this run wrote it or found it here.
@@ -2017,7 +2017,7 @@ local function address_digest(rec: Recording, address: string, names: {string},
   end
   rec.store_digests[address] = digest
   rec.owed.stores[address] = digest
-  rec.digests.spent_ns = rec.digests.spent_ns + (Time.monotonic_ns() - started)
+  rec.digests.spent_ns = rec.digests.spent_ns + (Clock.monotonic_ns() - started)
   return digest, ""
 end
 
@@ -2034,7 +2034,7 @@ local function verify_sample(rec: Recording)
   for address in pairs(rec.store_digests) do addresses[#addresses + 1] = address end
   if #addresses == 0 then return end
   table.sort(addresses)
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local address = addresses[(rec.run or 0) % #addresses + 1]
   local path = stores_directory(rec.root) .. "/" .. address .. ".verify.db"
   local made, _ = Fs.mkdirs(stores_directory(rec.root))
@@ -2060,7 +2060,7 @@ local function verify_sample(rec: Recording)
     end
   end
   local _, _ = Fs.remove(path)
-  rec.digests.spent_ns = rec.digests.spent_ns + (Time.monotonic_ns() - started)
+  rec.digests.spent_ns = rec.digests.spent_ns + (Clock.monotonic_ns() - started)
 end
 
 --- The digest of the bytes of the closure store a worker of `m`'s tests
@@ -2112,7 +2112,7 @@ end
 local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
                       limits: test.Limits): boolean
   -- Set before anything can fail, since `finish` reckons the time from it.
-  job.started_ns = Time.monotonic_ns()
+  job.started_ns = Clock.monotonic_ns()
   local scratch, tmp_trouble = test.scratch()
   if scratch == nil then
     finish(rec, job, nil, "could not make a temporary directory: " .. tmp_trouble, limits)
@@ -2202,7 +2202,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     attached = store
     env = test_sandbox.unenforced_environment(worker_view(), rec.effective[job.m.path], scratch)
   end
-  job.started_ns = Time.monotonic_ns()
+  job.started_ns = Clock.monotonic_ns()
   job.deadline_ns = job.started_ns + limits.timeout_ns
   -- Sandboxed, a worker whose module does not declare `tool` may not
   -- run this program ([`confine.forbid_running`]): what it would run
@@ -2286,8 +2286,8 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
       handles[i] = job.handle
       if job.deadline_ns < earliest then earliest = job.deadline_ns end
     end
-    local left_ns = earliest - Time.monotonic_ns()
-    local done, trouble = Child.wait_any(handles, math.max(0, math.min(Time.ms(100), left_ns)))
+    local left_ns = earliest - Clock.monotonic_ns()
+    local done, trouble = Child.wait_any(handles, math.max(0, math.min(Clock.ms(100), left_ns)))
     local still: {Job} = {}
     for _, job in ipairs(running) do
       if job.handle == done then
@@ -2299,7 +2299,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
         -- Supervision itself failed; end this worker and say why.
         local _, _ = job.handle:close()
         finish(rec, job, nil, trouble, limits)
-      elseif Time.monotonic_ns() >= job.deadline_ns then
+      elseif Clock.monotonic_ns() >= job.deadline_ns then
         -- Past its deadline: `wait(0)` ends it, and says why when the
         -- guard's signal came first. `close` makes sure it is gone.
         local result, stop_trouble = job.handle:wait(0)
@@ -2376,7 +2376,7 @@ end
 --- positive whole number.
 local function limits_of(values: {string:string}): test.Limits | nil, string
   local limits: test.Limits = {
-    timeout_ns = Time.seconds(default_timeout_s),
+    timeout_ns = Clock.seconds(default_timeout_s),
     jobs = Proc.cpu_count(),
   }
   local function positive(value: string, what: string): integer | nil, string
@@ -2388,7 +2388,7 @@ local function limits_of(values: {string:string}): test.Limits | nil, string
   end
   -- A deadline is kept in nanoseconds and added to the clock's reading,
   -- so seconds past half what an integer holds would wrap.
-  local most_seconds = (math.maxinteger // 2) // Time.seconds(1)
+  local most_seconds = (math.maxinteger // 2) // Clock.seconds(1)
   local function seconds_of(value: string, what: string): integer | nil, string
     local seconds, trouble = positive(value, what)
     if seconds == nil then return nil, trouble end
@@ -2401,12 +2401,12 @@ local function limits_of(values: {string:string}): test.Limits | nil, string
   if from_env ~= nil and from_env ~= "" then
     local seconds, trouble = seconds_of(from_env, timeout_variable)
     if seconds == nil then return nil, trouble end
-    limits.timeout_ns = Time.seconds(seconds)
+    limits.timeout_ns = Clock.seconds(seconds)
   end
   if values["--timeout"] ~= nil then
     local seconds, trouble = seconds_of(values["--timeout"], "--timeout")
     if seconds == nil then return nil, trouble end
-    limits.timeout_ns = Time.seconds(seconds)
+    limits.timeout_ns = Clock.seconds(seconds)
   end
   if values["--jobs"] ~= nil then
     local jobs, trouble = positive(values["--jobs"], "--jobs")
@@ -2616,7 +2616,7 @@ local function hold_checkout(ctx: Run): integer | nil
     log:complain("test: " .. lock_trouble)
     return 1
   end
-  ctx.started = Time.monotonic_ns()
+  ctx.started = Clock.monotonic_ns()
   local own_tree, own_trouble = tree.is_own(root)
   if own_tree == nil then
     log:complain(own_trouble)
@@ -3406,7 +3406,7 @@ local function settle(ctx: Run)
   -- whatever went wrong with keeping it here.
   if rec.shared ~= nil then
     local settled, settle_trouble = shared_verdicts.settle(rec.shared, rec.origin, rec.owed,
-      Time.now_ns())
+      Clock.now_ns())
     shared_verdicts.close(rec.shared)
     if not settled then
       log:complain("test: shared verdicts: " .. rec.shared.path .. ": " .. settle_trouble)
@@ -3470,7 +3470,7 @@ local function run(argv: {integer:string}): integer
   -- Captured once, up front, and threaded through everything below as
   -- this run's own identifier: see build/work.tl for why a nanosecond
   -- timestamp, not an autoincrement id, identifies a run.
-  local ctx: Run = { run_at_ns = Time.now_ns(), argv = argv }
+  local ctx: Run = { run_at_ns = Clock.now_ns(), argv = argv }
   local code = read_command(ctx)
   if code ~= nil then return code end
   code = hold_checkout(ctx)

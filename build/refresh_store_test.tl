@@ -20,7 +20,7 @@ local artifact = require("build.artifact")
 local embed = require("build.embed")
 local invoke = require("build.invoke")
 local refresh = require("build.refresh")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- The vendored bundle and zones a refresh replaces, and this program,
 --- whose core a program it builds runs on.
@@ -128,7 +128,7 @@ local function test_a_new_bundle_replaces_the_roots(tmp: string)
   assert(after:close())
 
   local ran = assert(Child.run({ out }, { stdout = "capture",
-    stderr = "capture", timeout_ns = Time.seconds(30) }))
+    stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(ran.ok and ran.stdout == "ok\n", tostring(ran.stderr))
 end
 

@@ -7,7 +7,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- The program itself, which its test starts.
 Test.needs{ tool = true }
@@ -16,7 +16,7 @@ local function fix(root: string, check: boolean): Child.Result
   local args: {string} = { "fix" }
   if check then args[#args + 1] = "--check" end
   local started = this_program.program(args, { cwd = root,
-    stdout = "capture", stderr = "stdout", timeout_ns = Time.seconds(60) })
+    stdout = "capture", stderr = "stdout", timeout_ns = Clock.seconds(60) })
   return (assert(Child.run(started.argv, started.options)))
 end
 
@@ -69,7 +69,7 @@ local function test_a_check_fails_on_a_spill_outside_it(tmp: string)
   assert(Fs.write(root .. "/b.tl", 'local function read(): string | nil, string return "7", "" end\n' ..
       "return tonumber(assert(read()))\n"))
   local started = this_program.program({ "fix", "--check", "a.tl" }, { cwd = root,
-    stdout = "capture", stderr = "stdout", timeout_ns = Time.seconds(60) })
+    stdout = "capture", stderr = "stdout", timeout_ns = Clock.seconds(60) })
   local result = assert(Child.run(started.argv, started.options))
   local out = assert(result.stdout)
   assert(not result.ok, out)
@@ -88,7 +88,7 @@ local function test_a_file_that_does_not_parse_is_refused_once(tmp: string)
   -- Named as the tree names it, and as `fix .` names it (`./a.tl`).
   for _, args in ipairs({ { "fix", "--check" }, { "fix", "--check", "." } }) do
     local started = this_program.program(args, { cwd = root,
-      stdout = "capture", stderr = "stdout", timeout_ns = Time.seconds(60) })
+      stdout = "capture", stderr = "stdout", timeout_ns = Clock.seconds(60) })
     local out = assert(assert(Child.run(started.argv, started.options)).stdout)
     local _, count = out:gsub("fix: FAIL  [^\n]*" .. said:gsub("%p", "%%%0"), "")
     assert(count == 1, out)

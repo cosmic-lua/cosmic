@@ -14,7 +14,7 @@ local teal = require("build.teal")
 local test_inputs = require("build.test_inputs")
 local work = require("build.work")
 local writer = require("build.writer")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 local built, load_trouble = teal.load()
 if built == nil then
@@ -491,7 +491,7 @@ local function test_a_key_holds_a_closure_store_by_its_bytes(tmp: string)
     local key, why = declared_key.compute(digests, {
       id = "greet_test test_hello", group = "greet_test", module_key = "module",
       runtime = "runtime", compiler = "", host = "host", epoch = "1-00000000",
-      timeout_ns = Time.seconds(30), declaration = "", environment = {},
+      timeout_ns = Clock.seconds(30), declaration = "", environment = {},
       effective = { files = {}, reads = {}, host = {}, env = {}, network = {}, tool = false,
         store = false, caches = {}, cache_paths = {} },
       closure_store = declared_key.store_digest(digests, out),
