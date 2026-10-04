@@ -92,6 +92,8 @@ function Runner.execute(request: Runner.Request): Runner.Outcome
   elseif result.ok then
     status, code = "success", 0
   elseif result.signal then
+    -- TODO: once ci/cosmic-driver.pin names a release whose cosmic.child carries
+    -- Child.shell_status, take this code from it.
     status, code = "signal", 128 + result.signal
   end
   return { result = result, status = status, code = code, elapsed_ns = elapsed }
