@@ -18,9 +18,11 @@ local type raw_process = require("cosmic.internal.process")
 -- test's import closure, and the store has it to hand it from.
 local type _ = require("cosmic.child")
 
---- The loopback a listener's socket needs is none: a unix socket in the
---- test's own directory. Nothing else is read beyond the closure.
-Test.needs{}
+--- A listener's socket is a unix one in the test's own directory; the
+--- loopback is for the connections to a port nothing listens on, which a
+--- child with no grants must find refused. Nothing else is read beyond the
+--- closure.
+Test.needs{ network = { "127.0.0.1" } }
 
 local type Searcher = function(string): any, any
 

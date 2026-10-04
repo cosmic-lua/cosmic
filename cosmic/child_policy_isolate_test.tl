@@ -268,6 +268,21 @@ local function test_loopback_gives_a_network_of_its_own_the_host_does_not_share(
   assert(rooted.code == 0 and rooted.said == "connected\n", rooted.said)
 end
 
+local function test_landlock_only_keeps_the_loopback_a_policy_gives(tmp: string)
+  local at = placed(tmp)
+  -- No filter lets the sockets in, and the ruleset must leave TCP alone:
+  -- the child's network namespace is what holds it.
+  local result, why = Child.run({ at.probe, "loopback-tcp 127.0.0.1" }, { cwd = at.work,
+    policy = { loopback = { "127.0.0.1" }, grants = at.grants }, _landlock_only = true,
+    stdout = "capture", stderr = "stdout" })
+  if result == nil then
+    assert(unsandboxable(why), "the start was refused: " .. why)
+    sandbox_skip.refused(why)
+    return
+  end
+  assert(result.stdout == "connected\n", tostring(result.stdout))
+end
+
 local function test_inet_sockets_stay_refused_without_loopback(tmp: string)
   local at = placed(tmp)
   local plain = under(at.probe, { grants = at.grants }, at.work, "loopback-tcp 127.0.0.1")

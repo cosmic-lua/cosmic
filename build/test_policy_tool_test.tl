@@ -182,10 +182,11 @@ local function test_a_plan_for_a_nesting_worker_grants_the_artifact_only_with_st
 end
 
 --- A suite of two modules and a program-less tree: `held_test.tl`, whose
---- first test reads what it declares and is held as a policy holds it --
---- a filter on its system calls, no root, a /proc of its own -- and whose
---- second reads a file it does not declare and so fails; and
---- `plain_test.tl`, which passes under either sandbox.
+--- first test reads what it declares and is held as the policy path holds a
+--- worker -- by Landlock alone, which refuses even the listing of a
+--- directory above what it declares, with no filter on its system calls
+--- and no root -- and whose second reads a file it does not declare and so
+--- fails; and `plain_test.tl`, which passes under either sandbox.
 local function suite_tree(root: string)
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.write(root .. "/suite/data.txt", "declared"))
@@ -197,15 +198,21 @@ local Test = require("cosmic.test")
 
 Test.needs { reads = { "suite/data.txt" }, env = { "BASELINE_FILTERS" } }
 
-local function test_a_declared_read_is_held_as_a_policy_holds_it()
+local function test_a_declared_read_is_held_by_landlock_alone()
   assert(Fs.read("suite/data.txt") == "declared")
   local status = assert(Fs.read("/proc/self/status"))
-  -- One filter beyond the ones inherited, which a container's runtime may
-  -- have installed on every process.
+  -- No filter beyond the ones inherited, which a container's runtime may
+  -- have installed on every process: a worker is held by the policy's
+  -- grants alone until the filter is put on every worker.
   local filters = math.tointeger(status:match("Seccomp_filters:\t(%d+)"))
   local baseline = math.tointeger(sys.getenv("BASELINE_FILTERS"))
-  assert(filters == baseline + 1, "no filter holds this worker: " .. tostring(filters) ..
+  assert(filters == baseline, "a seccomp filter holds this worker: " .. tostring(filters) ..
     " filters, " .. tostring(baseline) .. " inherited")
+  -- The directory is in the root of the sandbox, for what is granted in it
+  -- is, and a ruleset that grants no read of it refuses its listing. The
+  -- default sandbox, which holds a worker to what its root has, lists it.
+  local listed, _, errno = sys.readdir("suite")
+  assert(listed == nil and errno == sys.EACCES, "no Landlock ruleset holds this worker")
   assert(sys.getuid() ~= 0, "this worker is root")
 end
 
@@ -222,7 +229,7 @@ end
 end
 
 --- End to end, under the policy: a test that reads what it declares passes,
---- a filter holds its worker, and one that reads a file it does not
+--- Landlock alone holds its worker, and one that reads a file it does not
 --- declare fails -- the file is not there to read -- as the default
 --- sandbox fails it; the run says it is under a policy. `--policy` is the
 --- variable's word on the command line.
@@ -241,7 +248,7 @@ local function test_a_run_under_a_policy_passes_what_is_declared_and_fails_what_
   assert(text:find("FAIL  suite.held_test test_an_undeclared_read_fails", 1, true), text)
   assert(text:find("suite/secret.txt: No such file or directory", 1, true) and
       text:find("rerun: COSMIC_TEST_POLICY=1 cosmic test suite/held_test.tl:", 1, true), text)
-  assert(not text:find("test_a_declared_read_is_held_as_a_policy_holds_it", 1, true), text)
+  assert(not text:find("test_a_declared_read_is_held_by_landlock_alone", 1, true), text)
   -- The same, asked for by the option.
   env.COSMIC_TEST_POLICY = nil
   local option, option_ok = run(root, tmp .. "/option", env,
@@ -249,11 +256,12 @@ local function test_a_run_under_a_policy_passes_what_is_declared_and_fails_what_
   assert(not option_ok and option:find("1 of 2 failed", 1, true) and
       option:find("under a policy (COSMIC_TEST_POLICY=1)", 1, true), option)
   -- Not asked for, the same test is held by the default sandbox, which
-  -- has no filter: the policy is what held it above.
+  -- has no filter either and no ruleset over its root: the policy's
+  -- ruleset is what held it above.
   local plain, plain_ok = run(root, tmp .. "/plain", env, { "--all", "suite/held_test.tl" })
   assert(not plain_ok and not plain:find("under a policy", 1, true), plain)
-  assert(plain:find("test_a_declared_read_is_held_as_a_policy_holds_it", 1, true) and
-      plain:find("no filter holds this worker", 1, true), plain)
+  assert(plain:find("test_a_declared_read_is_held_by_landlock_alone", 1, true) and
+      plain:find("no Landlock ruleset holds this worker", 1, true), plain)
 end
 
 --- A module that declares `nests` starts and passes under the policy: its

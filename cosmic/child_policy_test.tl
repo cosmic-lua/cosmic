@@ -16,15 +16,17 @@ local stand_in = require("build.stand_in")
 local Sandbox = require("cosmic.sandbox")
 
 --- The temporary directory and the environment the tests read.
-Test.needs{ env = { "TMPDIR" } }
+Test.needs{ env = { "TMPDIR" }, host = { "/proc" } }
 
 local DENIED <const> = "Permission denied"
 
 --- Whether `why`, a start's failure, is the platform or the host giving no
---- Landlock or seccomp.
+--- Landlock, seccomp, user namespace or /proc of its own.
 local function unsandboxable(why: string): boolean
-  return why:find("Landlock", 1, true) ~= nil or why:find("seccomp", 1, true) ~= nil or
-    why:find("not implemented", 1, true) ~= nil
+  for _, word in ipairs({ "Landlock", "seccomp", "not implemented", "namespace", "own /proc" }) do
+    if why:find(word, 1, true) then return true end
+  end
+  return false
 end
 
 --- What a script left and how its program ended.
@@ -72,6 +74,41 @@ local function test_a_granted_path_is_read_and_its_sibling_is_not(tmp: string)
   -- Nothing is written where only read is given.
   local blind = under(probe, policy, "create " .. tmp .. "/ro/new x")
   assert(blind.code == 1 and blind.said:find(DENIED, 1, true), blind.said)
+end
+
+--- The seccomp filters `field`, a line of a /proc/<pid>/status the stand-in
+--- prints, counts.
+local function filters_of(field: string): integer
+  return math.tointeger(field:match("Seccomp_filters:%s*(%d+)")) or 0
+end
+
+local function test_landlock_only_starts_a_child_with_the_grants_and_no_filter(tmp: string)
+  local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
+  assert(Fs.mkdirs(tmp .. "/ro") and Fs.mkdirs(tmp .. "/other"))
+  assert(Fs.write(tmp .. "/ro/a", "alpha\n") and Fs.write(tmp .. "/other/b", "beta\n"))
+  -- The /proc the child reads its own status in.
+  local policy: Sandbox.Policy = { grants = itself(probe,
+    { { path = tmp .. "/ro", letters = "r" }, { path = "/proc", letters = "r" } }) }
+  local mine = filters_of((assert(Fs.read("/proc/self/status"))))
+  -- A policy is held by a filter beyond this process's own.
+  local filtered = under(probe, policy, "status-field Seccomp_filters")
+  if filtered == nil then return end
+  assert(filters_of(filtered.said) == mine + 1, filtered.said)
+  -- Started Landlock only, it has none, and its grants hold it all the same.
+  local landlocked = under(probe, policy, "status-field Seccomp_filters", { _landlock_only = true })
+  assert(filters_of(landlocked.said) == mine, landlocked.said)
+  local read = under(probe, policy, "cat " .. tmp .. "/ro/a", { _landlock_only = true })
+  assert(read.code == 0 and read.said == "alpha\n", read.said)
+  local sibling = under(probe, policy, "cat " .. tmp .. "/other/b", { _landlock_only = true })
+  assert(sibling.code == 1 and sibling.said:find(DENIED, 1, true), "refused: " .. sibling.said)
+end
+
+local function test_landlock_only_is_for_a_policys_start_alone()
+  local started, why = pcall(Child.start, { "/bin/true" }, { _landlock_only = true })
+  assert(not started and tostring(why):find("_landlock_only", 1, true), tostring(why))
+  local falsely, falsely_why = pcall(Child.start, { "/bin/true" },
+    { policy = { grants = {} }, _landlock_only = false })
+  assert(not falsely and tostring(falsely_why):find("_landlock_only", 1, true), tostring(falsely_why))
 end
 
 local function test_a_relative_grant_is_relative_to_the_childs_directory(tmp: string)

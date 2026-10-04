@@ -876,7 +876,10 @@ local harness_own <const>: {string} = { "build.test_sandbox", "build.test_policy
 -- `library`, once cosmic.child's `start` takes spawn's sandbox as it is
 -- (the TODO above its `raw.spawn` call, which would offer the rest of
 -- it): today only cosmic.child reaches spawn for the runner.
-local harness_alone <const>: {string} = { "cosmic.child" }
+--- So too cosmic.sandbox, whose `merge` resolves a policy's profiles into
+--- the grants a worker started under it is held to, and so into the paths
+--- its second ruleset leaves it to run ([`test_policy.runs`]).
+local harness_alone <const>: {string} = { "cosmic.child", "cosmic.sandbox" }
 
 --- The code that makes a key and looks a verdict up under one:
 --- build.test itself, whose closure is the build's, and the closure of
@@ -2230,12 +2233,21 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     end
     policy = made
   end
+  local runs: {string} = {}
+  if policy ~= nil and hold == "forbid" then
+    local ran, ran_trouble = test_policy.runs(policy)
+    if ran == nil then
+      finish(rec, job, nil, ran_trouble, limits, true)
+      return false
+    end
+    runs = ran
+  end
   local command = worker.invocation({
     start = job.plan ~= nil and job.plan.start or start, env = env, root = root, cwd = cwd, module_path = job.m.path,
     name = job.name, scratch = inside, needs = test_inputs.canonical(declared), hold = hold,
     lua = rec.effective[job.m.path].lua, open = declared ~= nil and declared.store, store = attached,
     closure = rec.closures[job.m.path], tree = rec.tree_names, declared = rec.declared_names,
-    sandbox = sandbox, policy = policy, program = job.plan ~= nil and job.plan.program or nil,
+    sandbox = sandbox, policy = policy, runs = runs, program = job.plan ~= nil and job.plan.program or nil,
   })
   local handle, trouble = Child.start(command.argv, command.options)
   if handle == nil then

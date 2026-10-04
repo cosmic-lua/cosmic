@@ -108,6 +108,11 @@ local record worker
     --- ([`build.test_policy`]), whose `set_env` is its whole environment
     --- but for what `env` and `start` add; nil for none.
     policy: Sandbox.Policy
+    --- The paths the policy lets the worker run, which a worker held to
+    --- running nothing but what its test may (`hold` "forbid") is told,
+    --- since a worker the policy holds cannot list / to find them
+    --- (`--runs`).
+    runs: {string}
     --- The name the worker is to have its program by, in place of the
     --- artifact path `start` names (build.test_sandbox's
     --- [`Plan.program`]), or nil to keep that.
@@ -611,7 +616,7 @@ end
 --- The command line and the start options of the worker `given`
 --- describes: `start`'s program (`program`), then `test --worker
 --- <root> <module> <test> <scratch>/tmp <scratch>/children <needs>
---- [--sandboxed] [--lua] [--open | --store <store>] <closure>... --tree <tree>...
+--- [--sandboxed [--runs <count> <path>...]] [--lua] [--open | --store <store>] <closure>... --tree <tree>...
 --- --declared <declared>...` (`run`), with the report captured at `report_fd`,
 --- and its environment `env` with `start`'s variables added and
 --- coverage collected from its first instruction (core/coverage.c,
@@ -637,6 +642,12 @@ function worker.invocation(given: worker.Invocation): worker.Command
     argv[#argv + 1] = value
   end
   if given.sandbox ~= nil or given.policy ~= nil then argv[#argv + 1] = "--sandboxed" end
+  if given.policy ~= nil and given.hold == "forbid" then
+    local runs = given.runs or {}
+    argv[#argv + 1] = "--runs"
+    argv[#argv + 1] = tostring(#runs)
+    for _, path in ipairs(runs) do argv[#argv + 1] = path end
+  end
   if given.lua then argv[#argv + 1] = "--lua" end
   if given.open then
     argv[#argv + 1] = "--open"
@@ -679,6 +690,11 @@ function worker.invocation(given: worker.Invocation): worker.Command
     return { argv = argv, options = {
       policy = policy, cwd = given.cwd, stdin = "null", stdout = "capture", stderr = "stdout",
       fds = fds, process_group = false,
+      -- TODO: hold a worker by its promises' filter too, dropping this, in
+      -- step (d) of the sandbox plan (doc/plans/sandbox.md): the policy
+      -- path is Landlock only until then, as the default sandbox is, so that
+      -- moving to it changes no test's outcome by a call it refuses.
+      _landlock_only = true,
     } }
   end
   return { argv = argv, options = {
@@ -849,21 +865,34 @@ function worker.run(argv: {integer:string}): integer
     complain("test --worker needs a root, a module, a test and two directories")
     return 2
   end
+  -- The closure's names start after `--open`, or `--store` and its
+  -- path, where either is given.
+  local first = 9
+  local sandboxed = argv[first] == "--sandboxed"
+  local runs: {string} = nil
+  if sandboxed then
+    first = first + 1
+    if argv[first] == "--runs" then
+      local count = math.tointeger(tonumber(argv[first + 1] or "")) or -1
+      if count < 0 then
+        complain("test --worker: --runs needs a count")
+        return 2
+      end
+      runs = {}
+      for i = 1, count do runs[i] = argv[first + 1 + i] or "" end
+      first = first + 2 + count
+    end
+  end
   if argv[2] == "--worker-no-tool" or argv[2] == "--worker-held" then
     local no_tool = argv[2] == "--worker-no-tool"
-    local forbidden, forbid_trouble = confine.forbid_running(no_tool and confine.itself() or {})
+    local forbidden, forbid_trouble = confine.forbid_running(no_tool and confine.itself() or {}, runs)
     if not forbidden then
       complain("test " .. argv[2] .. ": this program cannot be held by a Landlock " ..
           "ruleset: " .. forbid_trouble)
       return 2
     end
   end
-  -- The closure's names start after `--open`, or `--store` and its
-  -- path, where either is given.
-  local first = 9
-  local sandboxed = argv[first] == "--sandboxed"
   if sandboxed then
-    first = first + 1
     -- A worker started under a policy starts in the root of its sandbox,
     -- which has the tree at `root` but not as a directory to start in
     -- ([`build.test_policy`]); one a sandbox starts in `root` already.
