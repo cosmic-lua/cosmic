@@ -13,7 +13,7 @@
 --- `--opt=value` are both taken and help lists exactly what is read.
 ---
 --- THE POLICY is each flag's field of a [`Sandbox.Policy`], written as the
---- JSON a policy holds and read back by [`Sandbox.decode`], so a flag is
+--- JSON a policy holds and read back by [`PolicyJson.decode`], so a flag is
 --- judged by the strict decoder, which names what it refuses by JSON
 --- Pointer. There are no policy files: they wait on the design's
 --- narrow-only form, since a file is input from elsewhere.
@@ -35,6 +35,7 @@ local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
 local Sandbox = require("cosmic.sandbox")
+local PolicyJson = require("cosmic.policy")
 local sys = require("cosmic.sys")
 local bare = require("build.bare")
 local plural = require("build.plural")
@@ -239,7 +240,7 @@ end
 
 --- The policy `request` holds, or nil and why it is refused.
 local function policy_of(request: Request): Sandbox.Policy | nil, string
-  return Sandbox.decode(request.json)
+  return PolicyJson.decode(request.json)
 end
 
 --- What Child adds to a name it could not find, which the verb, that
