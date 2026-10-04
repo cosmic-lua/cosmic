@@ -218,8 +218,14 @@ local function test_a_caller_that_is_not_root_may_name_only_itself(tmp: string)
   assert(ran.code == 0, ran.said)
   local ids = uids(ran.said)
   assert(#ids == 4 and ids[1] == sys.getuid(), ran.said)
+  local mine = under(at.probe, { user = sys.getuid(), group = sys.getgid(), grants = grants },
+    at.work, "status-field Uid")
+  if mine == nil then return end
+  assert(mine.code == 0, mine.said)
   local why = refused(at.probe, { user = sys.getuid() + 1, grants = grants }, at.work)
   assert(why:find("^child: start: sandbox: user ") and why:find("only a root caller", 1, true), why)
+  why = refused(at.probe, { user = sys.getuid(), group = sys.getgid() + 1, grants = grants }, at.work)
+  assert(why:find("only a root caller", 1, true), why)
 end
 
 --- A user a root caller names is the same every start and owns what it
@@ -251,6 +257,15 @@ local function test_a_root_caller_s_named_user_owns_its_files_from_start_to_star
   assert(text == "1\n2\n", tostring(text))
   local made = assert(sys.stat(dir .. "/made"))
   assert(made.uid == named and made.gid == named, made.uid .. ":" .. made.gid)
+end
+
+local function test_a_root_caller_may_not_name_a_user_of_the_pool(tmp: string)
+  if not root_that_maps() then return end
+  local at = placed(tmp)
+  local first = pool()
+  local why = refused(at.probe, { user = first + 7, grants = { { path = at.probe, letters = "rx" } } },
+    at.work)
+  assert(why:find("^child: start: sandbox: user ") and why:find("of the pool", 1, true), why)
 end
 
 local function test_a_root_caller_s_named_user_and_group_hold_under_isolation(tmp: string)

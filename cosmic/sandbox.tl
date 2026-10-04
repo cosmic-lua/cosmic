@@ -147,14 +147,22 @@ local record Sandbox
     tmp: boolean
     --- The resources it may spend.
     limits: Limits
-    --- The user a child runs as (1 to 4294967294, never root), in place of
-    --- the one of its own a root caller's child is given from a pool
-    --- ([`Sandbox.user_id`]): the same one every start, which may own the
-    --- files it works on. Only a root caller chooses one; any other may
-    --- name only itself, which changes nothing.
+    --- The user a child runs as (1 to 4294967294, never root, nor the
+    --- overflow ids 65534 and 65535), in place of the one of its own a root
+    --- caller's child is given from a pool ([`Sandbox.user_id`]): the same
+    --- one every start, which may own the files it works on, and which
+    --- may not be one of that pool's. Only a root caller chooses one; any
+    --- other may name only itself, which changes nothing.
+    ---
+    --- A user named so is shared with whatever else runs as it on the
+    --- host, which a pool's user never is: every process of that user,
+    --- sandboxed or not, may read the child's environment (`set_env`'s
+    --- values among it) and reopen its descriptors through /proc, ptrace
+    --- it where the host's Yama allows, and use the directory `tmp` makes.
+    --- Name a user nothing else runs as where the child holds a secret.
     user: integer
-    --- The group a child runs as, with `user`; `user`'s own number where
-    --- it is left out.
+    --- The group a child runs as, with `user`: for a root caller, `user`'s
+    --- own number where it is left out; for any other, its own group.
     group: integer
   end
 
@@ -320,6 +328,10 @@ local function invalid(p: Sandbox.Policy, exact: boolean): string
     if id ~= nil and (math.type(id) ~= "integer" or id < 1 or id > 4294967294) then
       return at("/" .. field, "an id is a whole number from 1 to 4294967294: never root")
     end
+    if id == 65534 or id == 65535 then
+      return at("/" .. field, id .. " is the overflow id, which the kernel shows for an id " ..
+          "a namespace does not map: name another")
+    end
   end
   if p.group ~= nil and p.user == nil then
     return at("/group", "a group is given with a user")
@@ -483,8 +495,7 @@ end
 --- ".." is refused, since cleaning it could name another directory than
 --- the kernel does after a link). Lists are unions, each member once, sorted; `tmp`
 --- holds if any policy has it; a limit, `user` and `group` are the one
---- value given (`group` is `user`'s where only `user` is), and two
---- different values for one are refused, as two different
+--- value given, and two different values for one are refused, as two different
 --- values for one `set_env` name are (without saying them: they may be
 --- secrets). A name with a value in one policy and a digest in another
 --- must have the value's digest. The answer has no `profiles`, and every
@@ -602,7 +613,7 @@ function Sandbox.merge(...: Sandbox.Policy): Sandbox.Policy | nil, string
     grants = grants, isolate = isolate, promises = promises,
     connect = connect, loopback = loopback, env = env, set_env = set_env,
     set_env_digests = digests, tmp = tmp, limits = limits,
-    user = user, group = user ~= nil and (group or user) or nil,
+    user = user, group = group,
   }, ""
 end
 
@@ -777,9 +788,10 @@ local function not_in_process(merged: Sandbox.Policy): string
     return "limits.processes counts the processes of a user namespace of its own, which only " ..
       "a child has"
   end
-  if merged.user ~= nil and (merged.user ~= sys.getuid() or merged.group ~= sys.getgid()) then
-    return "user " .. merged.user .. " and group " .. merged.group .. " are who a child runs " ..
-      "as; a running process stays the user it is (" .. sys.getuid() .. ")"
+  if merged.user ~= nil and (merged.user ~= sys.getuid() or
+      (merged.group ~= nil and merged.group ~= sys.getgid())) then
+    return "user " .. merged.user .. " is who a child runs as; a running process stays the " ..
+      "user it is (" .. sys.getuid() .. ")"
   end
   return ""
 end
@@ -945,6 +957,17 @@ function Sandbox.user_id(uid_map: string, gid_map: string, serial: integer): int
         "runs as root, so it needs a namespace that maps more ids, as a host's does")
   end
   return first + serial % USER_POOL
+end
+
+--- Whether `id` is one of the pool [`Sandbox.user_id`] takes a root
+--- caller's users from, for the maps `uid_map` and `gid_map`, which a
+--- policy's `user` may not name: a concurrent sandbox may be given it.
+---
+---     print(Sandbox.in_pool("0 0 4294967295\n", "0 0 4294967295\n", 4294963198)) -- true
+---     print(Sandbox.in_pool("0 0 4294967295\n", "0 0 4294967295\n", 1000)) -- false
+function Sandbox.in_pool(uid_map: string, gid_map: string, id: integer): boolean
+  local first, _ = Sandbox.user_id(uid_map, gid_map, 0)
+  return first ~= nil and id >= first and id < first + USER_POOL
 end
 
 --- Whether a kernel, by its release as /proc/sys/kernel/osrelease names

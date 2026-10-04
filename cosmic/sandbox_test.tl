@@ -81,7 +81,7 @@ end
 
 local function test_merge_takes_one_user_and_group_and_refuses_two()
   local out = merged({ user = 1000 }, {})
-  assert(out.user == 1000 and out.group == 1000, "the group is the user's number")
+  assert(out.user == 1000 and out.group == nil, "a group left out is the start's to choose")
   out = merged({ user = 1000 }, { user = 1000, group = 100 })
   assert(out.user == 1000 and out.group == 100)
   assert(merged().user == nil and merged().group == nil)
@@ -96,8 +96,20 @@ local function test_merge_refuses_root_and_a_group_without_a_user()
     local none, why = Sandbox.merge(policy)
     assert(none == nil and why:find("never root", 1, true), why)
   end
+  for _, policy in ipairs({ { user = 65534 }, { user = 1, group = 65535 } } as {Sandbox.Policy}) do
+    local none, why = Sandbox.merge(policy)
+    assert(none == nil and why:find("overflow id", 1, true), why)
+  end
   local none, why = Sandbox.merge({ group = 5 })
   assert(none == nil and why:find("/group", 1, true) and why:find("with a user", 1, true), why)
+end
+
+local function test_in_pool_is_whether_an_id_is_a_pool_user_s()
+  local host = "0 0 4294967295\n"
+  assert(Sandbox.in_pool(host, host, 4294963198) and Sandbox.in_pool(host, host, 4294967293))
+  assert(not Sandbox.in_pool(host, host, 4294963197) and not Sandbox.in_pool(host, host, 1000))
+  -- A namespace that maps no pool has none to collide with.
+  assert(not Sandbox.in_pool("0 100000 10\n", "0 100000 10\n", 5))
 end
 
 local function test_maps_id_is_whether_a_map_holds_the_id()
