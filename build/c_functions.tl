@@ -89,12 +89,7 @@ local exempt: {string: string} = {
 --- uname(2) sysname and then by [`key_of`], and why: another host's run
 --- still holds them to being entered.
 local exempt_on: {string: {string: string}} = {
-  Linux = {
-    ["core/syscalls_fs.c:reaches_descriptor_name"] = "the walk by hand stands in for openat2's, which every " ..
-      "Linux host CI and a sandboxed worker runs on answers: it runs only where openat2 is missing or refused " ..
-      "(a kernel older than 5.6, a filter), and on macOS, whose run enters it (core/artifact_fd_test.tl)",
-    ["core/syscalls_fs.c:descriptor_name"] = "called only from reaches_descriptor_name (see it)",
-  },
+  Linux = {},
   Darwin = {
     -- Every Linux core, the checked one too, is static musl, whose printf
     -- measures each `%s` with the core's strnlen, so a Linux run holds it.

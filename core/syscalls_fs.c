@@ -24,7 +24,7 @@
 #include <time.h>
 #include <unistd.h>
 #if defined(__linux__)
-#include <linux/openat2.h>
+#include <sys/statfs.h>
 #include <sys/syscall.h>
 /* glibc shows O_PATH only to _GNU_SOURCE, which this file does not ask
  * for; its value is the kernel's, the same on every target here. */
@@ -39,6 +39,10 @@
 #ifndef SYS_fchmodat2
 #define SYS_fchmodat2 452
 #endif
+/* The magic number of /proc's filesystem (linux/magic.h), and the inode
+ * of its root (PROC_ROOT_INO). */
+#define COSMIC_PROC_SUPER_MAGIC 0x9fa0
+#define COSMIC_PROC_ROOT_INO 1
 #endif
 
 #include "check.h"
@@ -115,6 +119,7 @@ static void push_stat (lua_State *L, const struct stat *st) {
   lua_setfield(L, -2, "kind");
 }
 
+#if !defined(__linux__)
 /* Whether `path`, spelled plainly, is a descriptor's own name that
  * reaches `artifact`: /dev/fd/<its descriptor> -- on macOS no link but
  * a node of its own (fdesc), whose stat need not be the artifact's, and
@@ -183,6 +188,100 @@ static bool reaches_descriptor_name (const char *path, bool follow,
     memcpy(at, joined, (size_t)made + 1);
   }
 }
+#endif
+
+#if defined(__linux__)
+/* Walks `path` as the kernel would, one part at a time, and holds the
+ * file it names in an O_PATH descriptor in *found, which the caller
+ * closes: 0, or the errno the walk met. No part is ever resolved twice:
+ * each is opened O_PATH|O_NOFOLLOW from the descriptor held for the one
+ * before it, and a link met (a last one only where `follow` says) is
+ * read from the descriptor held on it and its text walked on, so what
+ * the walk ends on is the file the names it held lead to, whatever a
+ * process swaps in on the path meanwhile. A descriptor link -- a link
+ * of /proc/<pid>/..., anywhere but /proc's own root, where "self" and
+ * the like are plain links -- is not followed but refused, EACCES: the
+ * kernel follows one to the file its descriptor holds, which is what
+ * [`artifact_through_descriptor`] keeps a call from. ELOOP past the 40
+ * links the kernel follows.
+ *
+ * This stands in for openat2's RESOLVE_NO_MAGICLINKS, which cannot be had
+ * under a promises filter: classic BPF cannot read openat2's `struct
+ * open_how`, so core/promises.c answers it ENOSYS. */
+static int walk_without_descriptor_links (const char *path, bool follow, int *found) {
+  char rest[PATH_MAX], target[PATH_MAX];
+  if (snprintf(rest, sizeof rest, "%s", path) >= (int)sizeof rest) return ENAMETOOLONG;
+  if (rest[0] == '\0') return ENOENT;
+  int at = open(rest[0] == '/' ? "/" : ".", O_PATH | O_DIRECTORY | O_CLOEXEC);
+  if (at < 0) return errno;
+  int links = 0;
+  size_t used = 0;
+  for (;;) {
+    while (rest[used] == '/') used++;
+    if (rest[used] == '\0') break;
+    size_t length = strcspn(rest + used, "/");
+    char part[NAME_MAX + 1];
+    if (length > NAME_MAX) {
+      close(at);
+      return ENAMETOOLONG;
+    }
+    memcpy(part, rest + used, length);
+    part[length] = '\0';
+    used += length;
+    /* A last part with a "/" after it is followed whatever `follow` says. */
+    bool last = rest[used] == '\0';
+    int next = openat(at, part, O_PATH | O_NOFOLLOW | O_CLOEXEC);
+    if (next < 0) {
+      int number = errno;
+      close(at);
+      return number;
+    }
+    struct stat st;
+    if (fstat(next, &st) != 0) {
+      int number = errno;
+      close(next);
+      close(at);
+      return number;
+    }
+    if (!S_ISLNK(st.st_mode) || (last && !follow)) {
+      close(at);
+      at = next;
+      continue;
+    }
+    struct statfs fs;
+    struct stat parent;
+    int number = 0;
+    ssize_t size = 0;
+    if (fstatfs(next, &fs) != 0 || fstat(at, &parent) != 0) number = errno;
+    else if ((uint64_t)fs.f_type == COSMIC_PROC_SUPER_MAGIC &&
+             (uint64_t)parent.st_ino != COSMIC_PROC_ROOT_INO) number = EACCES;
+    else if (++links > 40) number = ELOOP;
+    else if ((size = readlinkat(next, "", target, sizeof target - 1)) < 0) number = errno;
+    else if (size == 0) number = ENOENT;
+    close(next);
+    if (number != 0) {
+      close(at);
+      return number;
+    }
+    target[size] = '\0';
+    char joined[PATH_MAX];
+    int made = snprintf(joined, sizeof joined, "%s/%s", target, rest + used);
+    if (made < 0 || made >= (int)sizeof joined) {
+      close(at);
+      return ENAMETOOLONG;
+    }
+    memcpy(rest, joined, (size_t)made + 1);
+    used = 0;
+    if (target[0] == '/') {
+      close(at);
+      at = open("/", O_PATH | O_DIRECTORY | O_CLOEXEC);
+      if (at < 0) return errno;
+    }
+  }
+  *found = at;
+  return 0;
+}
+#endif
 
 /* Why a call may not act on `path` (EACCES), or 0 where it may: whether
  * `path` names the file `artifact` retains a descriptor on --
@@ -197,21 +296,24 @@ static bool reaches_descriptor_name (const char *path, bool follow,
  * (O_TRUNC, chmod), so a refusal leaves the file as it was.
  *
  * On Linux every such name stats as the file it reaches, so a path whose
- * stat is not the artifact's costs that stat alone. One that is: the
- * kernel says how it got there, walking it again refusing every
- * descriptor link (openat2's RESOLVE_NO_MAGICLINKS), which reaches the
- * artifact only by a name, where it could be reached as well -- and
- * where it could, the name gives it anyway, so a link swapped on the
- * path between the call and this walk gains nothing; with `reached`, a
- * walk that fails, or reaches another file, refuses. That
- * refuses the program named through /proc/self/cwd/... or
- * /proc/self/root/... too, which are such links: this program's own
- * file is the one file refused that way, and it has a name of its own to
- * be reached by. Where openat2 is not to be had -- macOS, a kernel older
- * than 5.6, a filter refusing it -- the path is walked by hand
- * ([`reaches_descriptor_name`]), and what resolves under /dev or /proc is
- * refused too. A walk that fails otherwise answers its own errno, which
- * the call would have met. */
+ * stat is not the artifact's costs that stat alone. One that is is
+ * walked again, refusing every descriptor link
+ * ([`walk_without_descriptor_links`]), and reaches the artifact only by
+ * a name, where it could be reached as well -- and where it could, the
+ * name gives it anyway, so a link swapped on the path between the call
+ * and this walk gains nothing; with `reached`, a walk that fails, or
+ * reaches another file, refuses: a link flipped from the artifact's
+ * descriptor to a plain file after the call resolved it must not
+ * clear the call, which holds the artifact. The walk, not a name
+ * resolved afresh, is what is judged, so the check holds under a
+ * promises filter too, as openat2 would not. That refuses the program
+ * named through /proc/self/cwd/... or /proc/self/root/... too, which are
+ * such links: this program's own file is the one file refused that way,
+ * and it has a name of its own to be reached by. A walk that fails
+ * otherwise answers its own errno, which the call would have met.
+ * Elsewhere -- macOS -- the path is walked by name
+ * ([`reaches_descriptor_name`]), and what resolves under /dev or /proc
+ * is refused too. */
 static int artifact_through_descriptor (const char *path, bool follow,
                                         const struct cosmic_artifact *artifact,
                                         const struct stat *reached) {
@@ -228,25 +330,18 @@ static int artifact_through_descriptor (const char *path, bool follow,
           (uint64_t)st.st_ino == artifact->inode;
 #if defined(__linux__)
   if (!named) return 0;
-#endif
-#if defined(__linux__) && defined(SYS_openat2)
-  struct open_how how;
-  memset(&how, 0, sizeof how);
-  how.flags = O_PATH | O_CLOEXEC | (follow ? 0 : O_NOFOLLOW);
-  how.resolve = RESOLVE_NO_MAGICLINKS;
-  long walked = syscall(SYS_openat2, AT_FDCWD, path, &how, sizeof how);
-  if (walked >= 0) {
+  int walked;
+  int number = walk_without_descriptor_links(path, follow, &walked);
+  if (number == 0) {
     struct stat again;
-    bool same = fstat((int)walked, &again) == 0 && again.st_dev == st.st_dev &&
+    bool same = fstat(walked, &again) == 0 && again.st_dev == st.st_dev &&
                 again.st_ino == st.st_ino;
-    close((int)walked);
+    close(walked);
     return same ? 0 : EACCES;
   }
-  /* A descriptor link on the way is refused ELOOP (or EXDEV, for one
-   * that leaves the walk's root). */
-  if (errno == ELOOP || errno == EXDEV) return EACCES;
-  if (errno != ENOSYS && errno != EPERM) return reached != NULL ? EACCES : errno;
-#endif
+  if (number == EACCES || number == ELOOP) return EACCES;
+  return reached != NULL ? EACCES : number;
+#else
   if (reaches_descriptor_name(path, follow, artifact)) return EACCES;
   if (!named) return 0;
   char resolved[PATH_MAX];
@@ -254,6 +349,7 @@ static int artifact_through_descriptor (const char *path, bool follow,
   bool through = strncmp(path, "/dev/", 5) == 0 || strncmp(path, "/proc/", 6) == 0 ||
                  strncmp(resolved, "/dev/", 5) == 0 || strncmp(resolved, "/proc/", 6) == 0;
   return through ? EACCES : 0;
+#endif
 }
 
 #if defined(__linux__)
