@@ -33,8 +33,8 @@
 -- TODO: let a worker hold itself with [`Sandbox.restrict`] to what its
 -- module declares, with the runner's own reads (the store, the core, the
 -- report) granted only to the start, once the policy path is the default
--- (step (c) of the sandbox plan, #2621): today the worker
--- is held from its first instruction by the whole policy it is started
+-- (step (c) of #2621's doc/plans/sandbox.md): today the worker is held
+-- from its first instruction by the whole policy it is started
 -- under, which is all that it and its test may reach.
 
 local type Sandbox = require("cosmic.sandbox")
