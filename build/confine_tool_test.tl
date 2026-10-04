@@ -15,14 +15,12 @@ local type raw_process = require("cosmic.internal.process")
 -- host path per platform (a `host` entry for Linux and one for macOS):
 -- macOS has no /proc, so there this declares a path that is not there,
 -- which gives and keys nothing but says what the tests need wrongly.
---- What the stand-in is tested holding: the environment, which a
---- process it confines inherits, and /proc, where the stand-in program
+--- What the stand-in is tested holding: /proc, where the stand-in program
 --- a test starts finds itself; `nests`, since the processes it confines
 --- have roots of their own; and `tool`, since a process confined is
 --- given the program (the TODO above build.confine's `forbid_running`).
 Test.needs{
   host = { "/proc" },
-  env = { "*" },
   tool = true,
   nests = true,
 }

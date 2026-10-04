@@ -11,13 +11,11 @@ local stand_in = require("build.stand_in")
 -- TODO: start the session with cosmic once cosmic.sys carries setsid,
 -- rather than the host's setsid program, and fold this module back into
 -- core/syscalls_test.tl, which then needs no `system`.
---- What the session is tested on: /proc, the whole environment, which
---- this program started again inherits, the program itself, which it
+--- What the session is tested on: /proc, the program itself, which it
 --- starts again, and the host's setsid program, beneath the system's
 --- own paths.
 Test.needs{
   host = { "/proc" },
-  env = { "*" },
   tool = true,
   system = true,
 }

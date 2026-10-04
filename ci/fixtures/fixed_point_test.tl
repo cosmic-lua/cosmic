@@ -8,6 +8,13 @@ local Test = require("cosmic.test")
 --- all of it, which says where the candidate and its products are
 --- (COSMIC_FIXTURE_*) and where the host's toolchain is. A release that
 --- keys every unsandboxed run by declaration gives a worker only that.
+-- TODO: name the variables this fixture reads, and drop the wildcard
+-- (then the wildcard in Test.needs and the policy path's refusal of it,
+-- build/test_policy.tl): beside the COSMIC_FIXTURE_* it is handed, its
+-- nested builds and runs inherit whatever the host's toolchain reads
+-- (the fixture's environment functions copy the whole environment on),
+-- which only a run on every leg, macOS's included, lists; a list read
+-- off the Linux leg's alone would fail the others.
 Test.needs{ env = { "*" } }
 
 -- A rebuild from a fresh tree compiles all of it (about 20 s on a

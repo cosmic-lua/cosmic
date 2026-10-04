@@ -116,11 +116,11 @@ end
 --- what its module declares that no policy says, naming the field.
 --- @param effective what the module declares, as the runner resolved it
 --- @return why, "" for nothing
--- TODO: name the variables each module that declares `env = { "*" }` reads
--- (cosmic/child_tool_test.tl, cosmic/child_lua_test.tl and the like:
--- `o/bin/cosmic uses` finds them by their declaration), and delete this
--- refusal, once the policy path is the default (step (c) of the sandbox
--- plan): a policy has no wildcard.
+-- TODO: delete this refusal, and the `"*"` that [`Test.needs`] still takes,
+-- once the four unsandboxed fixtures under ci/fixtures name the variables
+-- they read (each carries the TODO saying why it cannot yet) and the policy
+-- path is the default (step (c) of the sandbox plan): a policy has no
+-- wildcard.
 -- TODO: start the worker of a module that declares `nests` without the
 -- descriptors of its core and artifact that [`Proc.relaunch`] hands it,
 -- once a worker can find them by path (or the nest promise can hand a
