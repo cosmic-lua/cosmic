@@ -81,6 +81,10 @@
 ---     rlimit R         `R soft hard` and a newline, to stdout, for R one of
 ---                      nofile, fsize, cpu, core, nproc: a limit of none is
 ---                      math.maxinteger
+---     setrlimit R N    sets limit R (as `rlimit` names it) to N, soft and
+---                      hard, and says `set`, or fails with why
+---     getpgid P        says `pgid` and the process group of process P
+---                      (0 for itself), or fails with why
 ---     present P        fails unless P exists, as `test -e` does
 ---     connect P        connects to the unix socket file P, waiting five
 ---                      seconds at most, saying `connected` or why not,
@@ -99,6 +103,8 @@
 ---                      says `exit` and its status, then what it printed
 ---                      to stdout and stderr, or the start's failure, to
 ---                      stdout
+---     run-looped P T   as `run-isolated`, with a network namespace of its own
+---                      and a loopback in it (the policy's `loopback`)
 ---     writable P       fails unless file P opens to write, appending
 ---                      and writing nothing, as `: >> P` does, but never
 ---                      making it

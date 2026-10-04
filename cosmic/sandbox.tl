@@ -758,7 +758,8 @@ end
 --- policy's `grants`, `promises` and `limits`: Landlock holds the paths
 --- (a process with no grant reaches no file, its own program and the
 --- files it has open aside), a seccomp filter the system calls, and
---- rlimits the resources, set first, since the filter refuses setrlimit.
+--- rlimits the resources, set first, since the filter refuses setrlimit
+--- to a process that holds CAP_SYS_RESOURCE.
 --- Nothing lifts it, and the process cannot start a program its grants
 --- do not let run. The policy is merged first ([`Sandbox.merge`]), so it
 --- may name `profiles`, and its limits have a child's defaults: no core
@@ -771,7 +772,10 @@ end
 --- ruleset and every filter made, so what a later call grants beyond
 --- an earlier one's has no effect. Its limits narrow likewise, but a
 --- limit lower than the process already has needs `setrlimit`, which an
---- earlier call's filter refuses: give every limit in the first call.
+--- earlier call's filter allows only to a process that cannot raise a hard
+--- limit (it lacks CAP_SYS_RESOURCE, as a program started under a policy
+--- does), so each call of any number may lower a limit there; where the
+--- process holds the capability, give every limit in the first call.
 ---
 --- It fails, and holds the process to nothing it was not, for what only
 --- a child can be held to -- `isolate`, `connect`, `loopback`, a grant's

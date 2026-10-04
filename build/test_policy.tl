@@ -56,20 +56,12 @@ test_policy.switch = "COSMIC_TEST_POLICY"
 -- tests declare them (the plan's step (c)-(d), which makes the policy path
 -- the default and bumps the epoch): until then no test can say what it
 -- makes, and the filter refuses only what no test is meant to.
--- TODO: give the filter a rule for the unix sockets a test makes under
--- `isolate` "file", where the scratch directory is granted no `u`, once the
--- kernels the suite runs on give Landlock ABI 9 (cosmic/child.tl's
--- `unix_unheld`): below it a `u` grant beside another directory fails the
--- start, and without one the filter refuses `socket(AF_UNIX)` EPERM, so a
--- test of a unix socket fails under the policy path.
--- TODO: let a `nest` worker start a `cosmic test` or a [`Child.start`] `sandbox`
--- of the default path, which the filter refuses today: the start's
--- `socket(AF_UNIX, SOCK_DGRAM)`, made right after it unshares its namespaces,
--- answers EPERM (core/noexec_tool_test.tl's nested start,
--- build/test_policy_tool_test.tl's run of the default sandbox), and a
--- runner's `getpgid` of a pid but its own does too
--- (build/test_isolation_tool_test.tl's orphans); both wait on `nest` allowing
--- them, or on the default path's deletion (step (e) of the sandbox plan).
+-- TODO: let a root's start make a unix socket without a `u` grant below
+-- Landlock ABI 9, once the kernels the suite runs on give ABI 9
+-- (core/syscalls.c's TODO on the same; cosmic/child.tl's `unix_unheld`):
+-- below it a `u` grant beside another directory fails the start, and
+-- without one the filter refuses `socket(AF_UNIX)` EPERM, so a test of a
+-- unix socket in a worker's scratch directory fails under the policy path.
 local base_promises <const>: {Sandbox.Promise} = { "fattr", "fork", "jit" }
 
 --- The devices a worker is given, as the policy's letters have them: the

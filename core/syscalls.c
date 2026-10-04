@@ -1203,9 +1203,12 @@ static void staged_message (int stage, int number, const char *path, char *messa
  * on a host, rather than finding no network at all. 0, or an errno. */
 static int loopback_up (void) {
   /* A unix socket, which any socket's interface ioctls fall through to,
-   * so a parent pledged to no "inet" still starts an offline child. */
-  int fd = socket(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0);
-  if (fd < 0) return errno;
+   * so a parent pledged to no "inet" still starts an offline child. Made
+   * as a pair, which the promises filter allows where it refuses socket():
+   * a program that builds sandboxes (`nest`) starts this one's own. */
+  int pair[2];
+  if (socketpair(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0, pair) != 0) return errno;
+  int fd = pair[0];
   struct ifreq request;
   memset(&request, 0, sizeof request);
   memcpy(request.ifr_name, "lo", sizeof "lo");
@@ -1216,7 +1219,8 @@ static int loopback_up (void) {
     request.ifr_flags |= IFF_UP;
     if (ioctl(fd, SIOCSIFFLAGS, &request) != 0) number = errno;
   }
-  close(fd);
+  close(pair[0]);
+  close(pair[1]);
   return number;
 }
 
@@ -1566,9 +1570,10 @@ struct spawn_plan {
    * and to which promises: COSMIC_PROMISE_ bits. */
   int promising;
   unsigned promises;
-  /* Whether `confine` scopes signals ([`grants_ruleset`]), so the filter
-   * lets a signal call take any pid. */
-  bool scoped;
+  /* What else holds the child, as COSMIC_HELD_ bits (core/promises.h): the
+   * signal scope of `confine` ([`grants_ruleset`]), and what the child's
+   * namespaces make of the calls the filter cannot read. */
+  unsigned held;
   /* The socket families it may make (COSMIC_SOCKETS_ bits). */
   unsigned sockets;
   /* The limits to set, last but the filter: `rlimit_count` of them. */
@@ -1796,7 +1801,7 @@ static _Noreturn void run_program (const struct spawn_plan *plan, const int *pin
    * holds the scheduling calls, and the signals where Landlock does not
    * scope them, to the process's own pid, which only the child has; it
    * follows Landlock so the ruleset is made with calls the filter has
-   * not yet limited, and so `scoped` is what the kernel now holds.
+   * not yet limited, and so `held` is what the kernel now holds.
    * PR_SET_MDWE is not set for a child with no `jit`: it is a property
    * of the address space, which this child shares with its parent until
    * exec, so it would hold the parent too.
@@ -1804,7 +1809,7 @@ static _Noreturn void run_program (const struct spawn_plan *plan, const int *pin
    * starts it on an address space of its own instead of
    * clone(CLONE_VM). The filter then drops the PROT_EXEC | PROT_BTI
    * mprotect it allows on aarch64 for glibc's loader. */
-  if (!failure && plan->promising) failure = cosmic_promises_apply(plan->promises, plan->sockets, plan->scoped);
+  if (!failure && plan->promising) failure = cosmic_promises_apply(plan->promises, plan->sockets, plan->held);
   if (!failure) execve(plan->path, plan->argv, plan->envp);
   if (!failure) failure = errno;
   report_child_error(status_fd, failure);
@@ -2812,9 +2817,12 @@ static uint64_t grants_handled (long abi) {
 
 /* A Landlock ruleset holding a child to `count` grants, as a descriptor,
  * or -1 with the errno in `error` and what to tell the caller in
- * `message`, which names the path or the remedy. `scoped` says whether
- * the ruleset scopes signals, which the promises filter's signal calls
- * rely on.
+ * `message`, which names the path or the remedy. `held` is what the
+ * ruleset holds that the promises filter relies on (core/promises.h's
+ * COSMIC_HELD_ bits): the signal scope (ABI 6), and, where `unix_bound` (a
+ * root of the child's own that shows only its grants) and `offline` (a
+ * network namespace of its own) too, that a unix socket file is
+ * reached only by a `u` grant (ABI 9).
  *
  * The ruleset handles every filesystem right the kernel's ABI knows, up
  * to ABI 9 ([`grants_handled`]), so what no grant gives is refused: EACCES, and EXDEV for a rename or link
@@ -2853,8 +2861,9 @@ static uint64_t grants_handled (long abi) {
  * (held_to in cosmic/child.tl) hands them to the caller on the Handle: it
  * prints nothing about grants, and `spawn` answers a pid alone. */
 static int grants_ruleset (const char *const *paths, const unsigned *letters, int count,
-                           int inet, int unix_bound, char *message, size_t room, int *error,
-                           bool *scoped) {
+                           int inet, int unix_bound, int offline, char *message, size_t room,
+                           int *error, unsigned *held) {
+  *held = 0;
   long abi = syscall(SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION);
   if (abi < 1) {
     *error = abi < 0 ? errno : ENOSYS;
@@ -2887,7 +2896,15 @@ static int grants_ruleset (const char *const *paths, const unsigned *letters, in
     attr.scoped = LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET | LANDLOCK_SCOPE_SIGNAL;
     size = offsetof(struct grants_attr, scoped) + sizeof attr.scoped;
   }
-  *scoped = (attr.scoped & LANDLOCK_SCOPE_SIGNAL) != 0;
+  if ((attr.scoped & LANDLOCK_SCOPE_SIGNAL) != 0) *held |= COSMIC_HELD_SIGNALS;
+  /* TODO: let a root's start make a unix socket without a `u` grant below
+   * Landlock ABI 9, once the kernels the suite runs on give ABI 9
+   * (build/test_policy.tl's TODO on the same): below it nothing tells one
+   * socket file of a granted directory from another, so a program that
+   * connected to one a host service put there would reach it, and a test of
+   * a unix socket in its scratch directory fails `socket(AF_UNIX)` EPERM
+   * under the policy path. */
+  if (unix_bound && offline && abi >= LANDLOCK_ABI_RESOLVE_UNIX) *held |= COSMIC_HELD_UNIX;
   long made = syscall(SYS_landlock_create_ruleset, &attr, size, 0);
   if (made < 0) {
     *error = errno;
@@ -3277,9 +3294,9 @@ COSMIC_SYSCALL(restrict_self, 2) {
       return restrict_refused(L, error, "getrlimit: %s", cosmic_errno_describe(error, NULL));
   }
   char message[PATH_MAX + 512];
-  bool scoped = false;
-  int ruleset = grants_ruleset(grant_paths, grant_letters, grant_count, 0, 0, message,
-                               sizeof message, &error, &scoped);
+  unsigned held = 0;
+  int ruleset = grants_ruleset(grant_paths, grant_letters, grant_count, 0, 0, 0, message,
+                               sizeof message, &error, &held);
   if (ruleset < 0) return restrict_refused(L, error, "%s", message);
   /* Limits first, since the filter refuses setrlimit. A limit that is
    * already at least as low asks for no call, so a restriction repeated
@@ -3307,7 +3324,7 @@ COSMIC_SYSCALL(restrict_self, 2) {
                             cosmic_errno_describe(error, NULL), limits_moved ? partly : "");
   /* Last, as in a child: the filter allows Landlock and the filter's own
    * installation, so a later restriction narrows both. */
-  error = cosmic_promises_apply(promise_bits, 0, scoped);
+  error = cosmic_promises_apply(promise_bits, 0, held);
   if (error != 0)
     return restrict_refused(L, error, "seccomp filter: %s%s", cosmic_errno_describe(error, NULL),
                             partly);
@@ -3896,21 +3913,27 @@ COSMIC_SYSCALL(spawn, 11) {
    * ruleset to close is the only thing past here that is not the
    * environment's. */
   int grant_error = 0;
-  /* Whether the child's ruleset scopes signals. Only one made from
-   * `grants` says so: a `ruleset` descriptor carries no record of what
-   * it handles.
+  /* What else holds the child (core/promises.h's COSMIC_HELD_ bits). Only a
+   * ruleset made from `grants` says what it handles: a `ruleset` descriptor
+   * carries no record of it.
    * TODO: let a child held to a `ruleset` descriptor signal its own
    * processes under the promises filter, once the descriptor can say
-   * whether its ruleset scopes signals (core/promises.h's `scoped`); until
+   * whether its ruleset scopes signals (COSMIC_HELD_SIGNALS); until
    * then its filter holds the signal calls to the child's starting pid. */
-  bool scoped = false;
+  unsigned held = 0;
   char grant_message[PATH_MAX + 512];
 #if defined(__linux__)
   if (granting) {
     confine = grants_ruleset(grant_paths, grant_letters, grant_count,
                              (sockets & COSMIC_SOCKETS_INET) != 0, strict && unveiling && !proc_only,
-                             grant_message, sizeof grant_message, &grant_error, &scoped);
+                             offline, grant_message, sizeof grant_message, &grant_error, &held);
   }
+  /* The namespaces the child makes itself ([`start_unveiled`], [`go_offline`]):
+   * a user namespace, whose capabilities the kernel does not take for the
+   * initial one's, so it cannot raise a hard limit; and for an unveiled
+   * child a pid namespace of its own. */
+  if (unveiling || offline) held |= COSMIC_HELD_LIMITS;
+  if (unveiling) held |= COSMIC_HELD_PIDS;
 #endif
   (void)grant_count; /* only the Linux build holds a child to its grants */
   char **carried = grant_error != 0 ? NULL : cosmic_store_environment(envp);
@@ -3940,7 +3963,7 @@ COSMIC_SYSCALL(spawn, 11) {
 #if defined(PLEDGE_ARCH)
     .pledge = &pledge,
 #endif
-    .promising = promising, .promises = promise_bits, .scoped = scoped,
+    .promising = promising, .promises = promise_bits, .held = held,
     .rlimit_count = rlimit_count, .rlimits = rlimits,
     .unveiling = unveiling, .offline = offline, .noexec_scratch = noexec_scratch,
     .strict = strict, .proc_only = proc_only, .tmp_bytes = tmp_bytes, .sockets = sockets,

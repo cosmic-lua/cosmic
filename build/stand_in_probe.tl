@@ -312,6 +312,27 @@ local verbs: {string:function(string, string): integer} = {
     if limits == nil then return failed("rlimit", trouble) end
     return put_all(1, name .. " " .. limits.soft .. " " .. limits.hard .. "\n")
   end,
+  setrlimit = function(name: string, word: string): integer
+    local resources: {string:integer} = {
+      nofile = sys.RLIMIT_NOFILE, fsize = sys.RLIMIT_FSIZE, cpu = sys.RLIMIT_CPU,
+      core = sys.RLIMIT_CORE, nproc = sys.RLIMIT_NPROC,
+    }
+    local resource = resources[name]
+    local limit = number(word)
+    if resource == nil or limit == nil then
+      return failed("setrlimit", "no resource or limit in " .. name .. " " .. word)
+    end
+    local ok, trouble = sys.setrlimit(resource, limit, limit)
+    if not ok then return failed("setrlimit", trouble) end
+    return put_all(1, "set\n")
+  end,
+  getpgid = function(word: string): integer
+    local pid = number(word)
+    if pid == nil or pid < 0 then return failed("getpgid", "no pid " .. word) end
+    local group, trouble = sys.getpgid(pid)
+    if group == nil then return failed("getpgid", trouble) end
+    return put_all(1, "pgid " .. group .. "\n")
+  end,
   ["env-of"] = function(name: string): integer
     local value = sys.getenv(name)
     return put_all(1, value ~= nil and name .. "=" .. value .. "\n" or name .. " unset\n")
@@ -359,6 +380,13 @@ local verbs: {string:function(string, string): integer} = {
   ["run-isolated"] = function(program: string, script: string): integer
     local result, trouble = Child.run({ program, script }, { policy = {
       isolate = { "file" }, grants = { { path = program, letters = "rx" },
+        { path = ".", letters = "r" } } }, stdout = "capture", stderr = "stdout" })
+    if result == nil then return put_all(1, trouble .. "\n") end
+    return put_all(1, "exit " .. tostring(result.code) .. "\n" .. (result.stdout or ""))
+  end,
+  ["run-looped"] = function(program: string, script: string): integer
+    local result, trouble = Child.run({ program, script }, { policy = {
+      isolate = { "file" }, loopback = { "127.0.0.1" }, grants = { { path = program, letters = "rx" },
         { path = ".", letters = "r" } } }, stdout = "capture", stderr = "stdout" })
     if result == nil then return put_all(1, trouble .. "\n") end
     return put_all(1, "exit " .. tostring(result.code) .. "\n" .. (result.stdout or ""))

@@ -152,6 +152,34 @@ local function test_no_socket_is_made_but_a_socketpair(tmp: string)
   assert(assert(Fs.read(tmp .. "/plain")):find("not permitted", 1, true) == nil)
 end
 
+--- Whether this process has CAP_SYS_RESOURCE in its permitted set, which
+--- a child it starts without a user namespace of its own has too.
+local function holds_resource_capability(): boolean
+  local status = assert(Fs.read("/proc/self/status"))
+  local permitted = assert(status:match("CapPrm:%s*(%x+)"), status)
+  return (assert(math.tointeger(tonumber(permitted, 16))) >> 24) & 1 == 1
+end
+
+local function test_a_child_that_cannot_raise_a_hard_limit_sets_its_own_limits(tmp: string)
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local lowers = under(tmp, {}, "setrlimit nofile 64", probe)
+  if skipped(lowers) then return end
+  local raises = under(tmp, {}, "setrlimit nofile 64; setrlimit nofile 128", probe)
+  if holds_resource_capability() then
+    -- A child that can raise a hard limit keeps the filter's refusal.
+    assert(lowers.code == 1 and lowers.said:find("not permitted", 1, true), lowers.said)
+    assert(raises.code == 1 and raises.said:find("not permitted", 1, true), raises.said)
+    return
+  end
+  assert(lowers.code == 0 and lowers.said == "set\n", "it lowers its limits: " .. lowers.said)
+  -- The first is let through, and the kernel refuses the raised hard limit.
+  assert(raises.code == 1 and raises.said:find("set\n", 1, true) == 1 and
+      raises.said:find("not permitted", 1, true), "it raises none: " .. raises.said)
+  -- Never another's, which the filter holds to the process itself.
+  local other = under(tmp, {}, "rlimit nofile", probe)
+  assert(other.code == 0, other.said)
+end
+
 local function test_a_promise_no_one_keeps_is_refused_before_a_start(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   for _, bad in ipairs({ "inet", "" }) do
