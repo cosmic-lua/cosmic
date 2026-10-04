@@ -126,6 +126,7 @@ local function test_a_policy_with_no_needs_is_refused()
     { 'Test.policy { grants = { { path = "/d/", letters = "r" } } }',
       "test.policy: host: \"/d/\" names a directory" },
     { 'Test.policy { grants = { { path = "../x", letters = "r" } } }', "test.policy: reads:" },
+    { 'Test.policy { env = { "PATH", "*" } }', 'no wildcard "*" in a policy' },
     { 'Test.policy { env = { "" } }', "test.policy: env: an empty name" },
     { "Test.policy { env = { \"A\\n\" } }", "write declared paths plainly" },
     { "Test.policy { env = { X } }", "test.policy: env takes a string written out as a literal" },

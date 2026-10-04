@@ -553,6 +553,9 @@ end
 --- The promises "fork", "jit" and "fattr" are accepted and change
 --- nothing: no worker holds them yet.
 ---
+--- Internal to the harness: it exists so that cosmic/test_policy_test.tl
+--- can compare the runtime translation with the analyzer's; a test module
+--- declares with [`Test.policy`].
 --- @param given any What `policy` was handed, or the build read of it
 --- @return Needs|nil The `needs` it stands for
 --- @return string Why there is none, naming the field
@@ -609,6 +612,11 @@ function Test.needs_of(given: any): Test.Needs | nil, string
   out.tool, out.system, out.nests = flags.tool, flags.system, flags.nests
   if #reads > 0 then out.reads = reads end
   if #host > 0 then out.host = host end
+  for _, name in ipairs(policy.env or {}) do
+    if name == "*" then
+      return nil, 'env: a policy names each variable it passes through; no wildcard "*" in a policy'
+    end
+  end
   if #(policy.env or {}) > 0 then out.env = policy.env end
   if #(policy.loopback or {}) > 0 then out.network = policy.loopback end
   return out, ""

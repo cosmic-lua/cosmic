@@ -1701,6 +1701,11 @@ local function policy_declared(data: PolicyData, line: integer): analyzer.Declar
   if data.tmp == false then
     return nil, "tmp = false" .. not_yet .. "; every test has a temporary directory today"
   end
+  for _, name in ipairs(data.env or {}) do
+    if name == "*" then
+      return nil, 'env: a policy names each variable it passes through; no wildcard "*" in a policy'
+    end
+  end
   out.env = data.env or {}
   out.network = data.loopback or {}
   return out, ""
