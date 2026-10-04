@@ -121,6 +121,9 @@
 ---     rm F             removes file F
 ---     rmdir D          removes the empty directory D
 ---     rename A B       moves A to B, as `mv A B` does
+---     flip A B         swaps A and B, two paths, over and over until it is
+---                      ended, so each is at the other's name half the
+---                      time and absent for an instant between
 ---     chmod P M        sets P's permission bits to M, in octal, as
 ---                      `chmod M P` does
 ---     find-writable D  each regular file beneath D that opens to write,

@@ -248,9 +248,11 @@ local function test_a_descriptor_that_opens_a_directory_or_a_socket_is_not_held_
   -- an O_PATH descriptor of a socket file is a way to connect to it.
   local directory = assert(sys.open(tmp .. "/socks", sys.O_RDONLY))
   local named = assert(sys.open(socket, O_PATH))
-  for _, handed in ipairs({ directory, named }) do
-    local result = in_sandbox(tmp, probe, rooted_with(probe, {}), "connect /proc/self/fd/3",
-      { [3] = handed })
+  local ways: {{integer | string}} = { { directory, "/proc/self/fd/3/host.sock" },
+    { named, "/proc/self/fd/3" } }
+  for _, way in ipairs(ways) do
+    local result = in_sandbox(tmp, probe, rooted_with(probe, {}), "connect " .. (way[2] as string),
+      { [3] = way[1] as integer })
     assert(result.said ~= "connected\n", "not reached: " .. result.said)
     if abi < 9 then
       assert(refused(result.said), "socket() refused below ABI 9: " .. result.said)
@@ -259,4 +261,81 @@ local function test_a_descriptor_that_opens_a_directory_or_a_socket_is_not_held_
   sys.close(directory)
   sys.close(named)
   assert(listener:close())
+end
+
+--- Starts `sandbox` with the stand-in, with no script of weight: the pid,
+--- or nil and why the start failed.
+local function start(probe: string, sandbox: raw_process.Sandbox): integer | nil, string
+  local null = assert(sys.open("/dev/null", sys.O_RDWR))
+  local pid, trouble = process.spawn(probe, { probe, "print started" }, nil, "/", nil, null, null, false,
+    nil, sandbox)
+  sys.close(null)
+  if pid ~= nil then assert(process.waitpid(pid, false)) end
+  return pid, trouble
+end
+
+local function test_a_unix_socket_below_abi_9_fails_a_start_that_binds_a_directory(tmp: string)
+  local abi, trouble = process.landlock_abi()
+  if abi == nil then
+    if confine.sandbox_platform() then Test.skip("no Landlock here: " .. tostring(trouble)) end
+    return
+  end
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  assert(Fs.mkdirs(tmp .. "/socks") and Fs.write(tmp .. "/u.file", "x"))
+  -- A `u` grant allows unix sockets (the start's `sockets`), so the root alone must
+  -- show no directory below ABI 9: Lua's check of it is one stat of a path, which a
+  -- swap may outrun, so the child refuses a path that is a directory when bound.
+  local function with_u(shown: {string}): raw_process.Sandbox
+    local sandbox = rooted_with(probe, shown)
+    sandbox.sockets = { "unix" }
+    sandbox.grants = { { path = probe, access = "rx" }, { path = tmp .. "/u.file", access = "u" } }
+    sandbox.unveil.reads[#sandbox.unveil.reads + 1] = tmp .. "/u.file"
+    return sandbox
+  end
+  local pid, why = start(probe, with_u({}))
+  if pid == nil and confine.sandbox_platform() then
+    Test.skip("no such sandbox: " .. tostring(why))
+  end
+  if pid == nil then return end
+  local shown, refusal = start(probe, with_u({ tmp .. "/socks" }))
+  if abi < 9 then
+    assert(shown == nil and tostring(refusal):find("changed kind", 1, true), "refused: " .. tostring(refusal))
+  else
+    assert(shown ~= nil, "Landlock holds it from ABI 9: " .. tostring(refusal))
+  end
+end
+
+local function test_a_path_swapped_for_a_directory_after_the_check_fails_the_start(tmp: string)
+  local abi, trouble = process.landlock_abi()
+  if abi == nil then
+    if confine.sandbox_platform() then Test.skip("no Landlock here: " .. tostring(trouble)) end
+    return
+  end
+  if abi >= 9 then return end
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  assert(Fs.write(tmp .. "/swap-a", "x") and Fs.mkdirs(tmp .. "/swap-b"))
+  local null = assert(sys.open("/dev/null", sys.O_RDWR))
+  local racer, started = process.spawn(probe, { probe, "flip " .. tmp .. "/swap-a " .. tmp .. "/swap-b" },
+    nil, "/", nil, null, null, false, nil, nil)
+  sys.close(null)
+  assert(racer ~= nil, tostring(started))
+  -- The racer puts a file and a directory at the path in turn: a start whose check
+  -- meets the file and whose bind meets the directory is the one this holds, and
+  -- one in four does, so a few hundred meet it but for a start the kernel refuses.
+  local caught = false
+  for _ = 1, 400 do
+    local pid, why = start(probe, rooted_with(probe, { tmp .. "/swap-a" }))
+    if pid == nil and tostring(why):find("changed kind", 1, true) then
+      caught = true
+      break
+    elseif pid == nil and tostring(why):find("user namespace", 1, true) then
+      break
+    end
+  end
+  sys.kill(racer, 9)
+  assert(process.waitpid(racer, false))
+  if not caught and confine.sandbox_platform() then
+    Test.skip("no start was refused for the swap: this host gives no such sandbox, or the racer lost")
+  end
+  assert(caught or not confine.sandbox_platform(), "a path swapped for a directory was bound")
 end

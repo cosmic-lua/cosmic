@@ -444,6 +444,14 @@ local verbs: {string:function(string, string): integer} = {
     if not ok then return failed(from, trouble) end
     return nil
   end,
+  flip = function(a: string, b: string): integer
+    while true do
+      local _, _ = sys.rename(a, a .. ".t")
+      local _, _ = sys.rename(b, a)
+      local _, _ = sys.rename(a .. ".t", b)
+    end
+    return nil
+  end,
   chmod = function(path: string, word: string): integer
     local bits = math.tointeger(tonumber(word, 8))
     if bits == nil then return failed("chmod", "no mode " .. word) end
