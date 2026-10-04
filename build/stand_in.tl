@@ -94,6 +94,9 @@
 ---     loopback-tcp H   listens on a port of numeric host H, connects to
 ---                      it and accepts the connection, saying `connected`
 ---                      or why not, a line to stdout
+---     loopback-unix P  listens on a unix socket file P, connects to it
+---                      and accepts the connection, saying `connected`
+---                      or why not, a line to stdout; the file is left
 ---     start-isolated P starts program P under a policy of `isolate`
 ---                      file, granting P alone, and says `started` or the
 ---                      start's failure, a line to stdout

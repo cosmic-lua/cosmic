@@ -369,6 +369,21 @@ local verbs: {string:function(string, string): integer} = {
     local _, _ = accepted:close()
     return put_all(1, "connected\n")
   end,
+  ["loopback-unix"] = function(path: string): integer
+    local server, trouble = Net.listen(Net.unix(path), { timeout_ns = Time.seconds(5) })
+    if server == nil then return put_all(1, trouble .. "\n") end
+    local conn, connect_trouble = Net.connect(Net.unix(path), { timeout_ns = Time.seconds(5) })
+    if conn == nil then
+      local _, _ = server:close()
+      return put_all(1, connect_trouble .. "\n")
+    end
+    local accepted, accept_trouble = server:accept()
+    local _, _ = conn:close()
+    local _, _ = server:close()
+    if accepted == nil then return put_all(1, accept_trouble .. "\n") end
+    local _, _ = accepted:close()
+    return put_all(1, "connected\n")
+  end,
   ["start-isolated"] = function(program: string): integer
     local handle, trouble = Child.start({ program }, { policy = {
       isolate = { "file" }, grants = { { path = program, letters = "rx" },

@@ -1187,7 +1187,7 @@ static void staged_message (int stage, int number, const char *path, char *messa
     snprintf(message, room,
              "this sandbox's root could not be built (%s): a path it binds, or a step of making "
              "its mount points, failed (a link beneath a bound path, a name too long, a path "
-             "that went away since the start began)", what);
+             "that went away or changed kind since the start began)", what);
   } else {
     snprintf(message, room,
              "this sandbox's root could not be built (%s): it needs mounts in a user namespace "
@@ -1350,7 +1350,12 @@ static int place_proc (const char *target, int *own, int strict) {
  * `tmp_bytes` asks for (none for 0), a tmpfs of its own to build on
  * ([`staged`]'s STAGE_ROOT where the user is not mapped), a procfs of
  * its own or the failure of the start, and each path `noexec` flags
- * mounted noexec.
+ * mounted noexec. With `unix_tmp`, where the caller has set COSMIC_HELD_UNIX
+ * on the strength of the root showing no directory and no socket file of
+ * the host's ([`root_shows_no_socket`]), each path bound is checked once
+ * placed, on what the mount shows, and one that is a directory or a socket
+ * fails the start (ESTALE: it changed kind since the caller looked), so a
+ * path swapped for one in between is not the sandbox's.
  * TODO: remove the directory an unmapped child's root is built on once
  * the child ends: its root and its /tmp are that directory, in its
  * parent's TMPDIR, which `spawn`, returning at the child's exec, leaves
@@ -1363,7 +1368,7 @@ static int place_proc (const char *target, int *own, int strict) {
 static int build_root (const char *root, char *const *paths, char *const *names,
                        const char *const *at, const int *writable, const int *noexec,
                        const int *idmapped, int count, int mapped, int noexec_scratch, int strict,
-                       unsigned long tmp_bytes, int *own) {
+                       unsigned long tmp_bytes, int unix_tmp, int *own) {
   int number = 0;
   *own = 0;
   /* A private writable tmpfs needs a mapped owner. Refuse before an
@@ -1450,6 +1455,12 @@ static int build_root (const char *root, char *const *paths, char *const *names,
       struct cosmic_mount_attr attr = { COSMIC_MOUNT_ATTR_NOEXEC, 0, 0, 0 };
       if (syscall(SYS_mount_setattr, AT_FDCWD, target, AT_RECURSIVE, &attr, sizeof attr) != 0)
         return errno;
+    }
+    if (unix_tmp) {
+      /* What the mount shows, not what the path named a moment ago. */
+      struct stat shown;
+      if (stat(target, &shown) != 0) return errno;
+      if (S_ISDIR(shown.st_mode) || S_ISSOCK(shown.st_mode)) return ESTALE;
     }
   }
   for (int i = 0; i < count; i++) {
@@ -1591,6 +1602,10 @@ struct spawn_plan {
   int proc_only;
   /* The size of the /tmp of a strict root's own, or 0 for none. */
   unsigned long tmp_bytes;
+  /* Whether `held` has COSMIC_HELD_UNIX on the strength of the root alone
+   * ([`grants_ruleset`]): [`build_root`] then fails the start for a path it
+   * binds that is a directory or a socket. */
+  int unix_tmp;
   const char *root_dir;
   char *const *resolved_paths;
   char *const *given_names;
@@ -1929,7 +1944,7 @@ static _Noreturn int start_program (void *argument) {
                                 plan->bound_at, plan->unveiled_writable, plan->unveiled_noexec,
                                 plan->idmap_fds,
                                 plan->unveil_count, start->mapped, plan->noexec_scratch,
-                                plan->strict, plan->tmp_bytes, &own_proc));
+                                plan->strict, plan->tmp_bytes, plan->unix_tmp, &own_proc));
   }
   if (!failure) failure = drop_capabilities();
   /* Then it gives root up for good, its groups first, while it may.
@@ -2825,6 +2840,44 @@ static uint64_t grants_handled (long abi) {
   return handled;
 }
 
+/* Whether the root a strict start builds from the `count` paths `resolved`
+ * (each placed at `at`, or at its own name where that is NULL) shows no
+ * directory and no socket file of the host's, and no descriptor the child
+ * is handed leads to one: the facts a unix socket is harmless on where no
+ * Landlock ABI tells one socket file from another ([`grants_ruleset`]).
+ * What it shows is its own tmpfs (the root, and /tmp), a procfs of its own
+ * pid namespace ([`place_proc`]), and the paths bound: each a file that is
+ * not a socket, which a bind shows alone. A directory bound -- /dev, a
+ * parent of a socket -- shows whatever a host process put in it, and the
+ * /proc of the host, which strict never binds, shows the host's
+ * processes' roots.
+ * A descriptor handed leads to a directory when it is one, and to a socket
+ * file when it was opened O_PATH: /proc/self/fd/N then opens what is
+ * beneath it, or connects to it. `source` and `top` are the plan's: the
+ * descriptor each of 0 to `top` is, or -1 for the parent's own where
+ * that is 0 to 2 and closed above. Each is read through the descriptor the
+ * parent holds, which is the child's, not by a name.
+ * The paths are read by name here, and again by [`build_root`] once the
+ * child binds them, which fails the start for one that is a directory or
+ * a socket by then; so this decides, and the child enforces. */
+static bool root_shows_no_socket (char *const *resolved, const char *const *at, int count,
+                                  const int *source, int top) {
+  for (int i = 0; i < count; i++) {
+    /* The root's own /proc replaces this one. */
+    if (at[i] == NULL && strcmp(resolved[i], "/proc") == 0) continue;
+    struct stat st;
+    if (stat(resolved[i], &st) != 0 || S_ISDIR(st.st_mode) || S_ISSOCK(st.st_mode)) return false;
+  }
+  for (int t = 0; t <= top; t++) {
+    int fd = source[t] >= 0 ? source[t] : (t < 3 ? t : -1);
+    struct stat st;
+    if (fd < 0 || fstat(fd, &st) != 0) continue;
+    int flags = fcntl(fd, F_GETFL);
+    if (S_ISDIR(st.st_mode) || (flags >= 0 && (flags & O_PATH) != 0)) return false;
+  }
+  return true;
+}
+
 /* A Landlock ruleset holding a child to `count` grants, as a descriptor,
  * or -1 with the errno in `error` and what to tell the caller in
  * `message`, which names the path or the remedy. `held` is what the
@@ -2832,7 +2885,8 @@ static uint64_t grants_handled (long abi) {
  * COSMIC_HELD_ bits): the signal scope (ABI 6), and, where `unix_bound` (a
  * root of the child's own that shows only its grants) and `offline` (a
  * network namespace of its own) too, that a unix socket file is
- * reached only by a `u` grant (ABI 9).
+ * reached only by a `u` grant (ABI 9), or, below it, that the root shows
+ * no socket file at all (`unix_tmp`, [`root_shows_no_socket`]).
  *
  * The ruleset handles every filesystem right the kernel's ABI knows, up
  * to ABI 9 ([`grants_handled`]), so what no grant gives is refused: EACCES, and EXDEV for a rename or link
@@ -2871,8 +2925,8 @@ static uint64_t grants_handled (long abi) {
  * (held_to in cosmic/child.tl) hands them to the caller on the Handle: it
  * prints nothing about grants, and `spawn` answers a pid alone. */
 static int grants_ruleset (const char *const *paths, const unsigned *letters, int count,
-                           int inet, int unix_bound, int offline, char *message, size_t room,
-                           int *error, unsigned *held) {
+                           int inet, int unix_bound, int offline, int unix_tmp, char *message,
+                           size_t room, int *error, unsigned *held) {
   *held = 0;
   long abi = syscall(SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION);
   if (abi < 1) {
@@ -2907,14 +2961,48 @@ static int grants_ruleset (const char *const *paths, const unsigned *letters, in
     size = offsetof(struct grants_attr, scoped) + sizeof attr.scoped;
   }
   if ((attr.scoped & LANDLOCK_SCOPE_SIGNAL) != 0) *held |= COSMIC_HELD_SIGNALS;
-  /* TODO: let a root's start make a unix socket without a `u` grant below
-   * Landlock ABI 9, once the kernels the suite runs on give ABI 9
-   * (build/test_policy.tl's TODO on the same): below it nothing tells one
-   * socket file of a granted directory from another, so a program that
-   * connected to one a host service put there would reach it, and a test of
-   * a unix socket in its scratch directory fails `socket(AF_UNIX)` EPERM
-   * under the policy path. */
-  if (unix_bound && offline && abi >= LANDLOCK_ABI_RESOLVE_UNIX) *held |= COSMIC_HELD_UNIX;
+  /* socket(AF_UNIX) is let through (COSMIC_HELD_UNIX) where nothing the process
+   * can reach by a path is a socket it was not given. Two holds do it:
+   *
+   * - From ABI 9, Landlock refuses a connect to a socket file no `u` grant
+   *   names, whatever the root shows ([`grants_handled`]).
+   * - Below it, nothing does: Landlock does not govern a connect to a
+   *   pathname socket, which asks only write permission on the file, so
+   *   a read-only bind does not stop it, and a network namespace does not
+   *   scope pathname sockets. The root alone holds, where it shows no
+   *   socket file but the ones the process makes itself (`unix_tmp`: no
+   *   directory bound, no socket file bound, no descriptor handed that
+   *   opens either): its own tmpfs holds only what the process made, since
+   *   a mount that lives in the child's mount namespace alone is one no
+   *   host process can put a socket in by any name it can reach; a file
+   *   bound shows that file alone; its procfs is its pid namespace's, so
+   *   /proc/N/root is the sandbox's own root, and /proc/self/fd/N its own
+   *   descriptors. Its mounts are private ([`build_root`]), and the host's
+   *   is detached from it by pivot_root, which no process the sandbox has
+   *   keeps open: a descriptor handed is checked (above), the rest are
+   *   closed.
+   *
+   * Both need `unix_bound` (a root of its own, not the host's: strict and
+   * unveiling, not `proc` alone) and `offline`, a network namespace of its
+   * own, which holds the abstract sockets (below ABI 6 nothing else does:
+   * an abstract name is the network namespace's, so a host client's is not
+   * there to connect to, nor does one the process binds reach a host
+   * client; from ABI 6 Landlock's scope refuses them too). The bit is set
+   * only from what this start has made and checked, never from what the
+   * caller says: `unix_tmp` is read from the descriptors and paths the
+   * start holds, and the child enforces it, failing the start where a
+   * path it binds is a directory or a socket by the time it does
+   * ([`build_root`]).
+   * Left out, below ABI 9: a directory of the host bound into the root,
+   * which may hold a socket a host service put there (and a `u` grant
+   * beside one, which [`cosmic.child`] refuses).
+   * TODO: let a root that binds a directory of the host make a unix socket
+   * without a `u` grant below Landlock ABI 9, once the kernels the suite
+   * runs on give ABI 9 (build/test_policy.tl's TODO on the same): below it
+   * nothing tells one socket file of a bound directory from another, so a
+   * program that connected to one a host service put there would reach it. */
+  if (unix_bound && offline && (abi >= LANDLOCK_ABI_RESOLVE_UNIX || unix_tmp))
+    *held |= COSMIC_HELD_UNIX;
   long made = syscall(SYS_landlock_create_ruleset, &attr, size, 0);
   if (made < 0) {
     *error = errno;
@@ -3305,7 +3393,7 @@ COSMIC_SYSCALL(restrict_self, 2) {
   }
   char message[PATH_MAX + 512];
   unsigned held = 0;
-  int ruleset = grants_ruleset(grant_paths, grant_letters, grant_count, 0, 0, 0, message,
+  int ruleset = grants_ruleset(grant_paths, grant_letters, grant_count, 0, 0, 0, 0, message,
                                sizeof message, &error, &held);
   if (ruleset < 0) return restrict_refused(L, error, "%s", message);
   /* Limits first, since the filter refuses setrlimit. A limit that is
@@ -3932,11 +4020,15 @@ COSMIC_SYSCALL(spawn, 11) {
    * then its filter holds the signal calls to the child's starting pid. */
   unsigned held = 0;
   char grant_message[PATH_MAX + 512];
+  int unix_tmp = 0;
 #if defined(__linux__)
   if (granting) {
+    unix_tmp = strict && unveiling && !proc_only && offline &&
+               root_shows_no_socket(resolved_paths, unveiled_at, unveil_count, source, top);
     confine = grants_ruleset(grant_paths, grant_letters, grant_count,
                              (sockets & COSMIC_SOCKETS_INET) != 0, strict && unveiling && !proc_only,
-                             offline, grant_message, sizeof grant_message, &grant_error, &held);
+                             offline, unix_tmp, grant_message, sizeof grant_message, &grant_error,
+                             &held);
   }
   /* The namespaces the child makes itself ([`start_unveiled`], [`go_offline`]):
    * a user namespace, whose capabilities the kernel does not take for the
@@ -3976,7 +4068,8 @@ COSMIC_SYSCALL(spawn, 11) {
     .promising = promising, .promises = promise_bits, .held = held,
     .rlimit_count = rlimit_count, .rlimits = rlimits,
     .unveiling = unveiling, .offline = offline, .noexec_scratch = noexec_scratch,
-    .strict = strict, .proc_only = proc_only, .tmp_bytes = tmp_bytes, .sockets = sockets,
+    .strict = strict, .proc_only = proc_only, .tmp_bytes = tmp_bytes, .unix_tmp = unix_tmp,
+    .sockets = sockets,
     .unveiled_noexec = unveiled_noexec, .root_dir = root_dir,
     .resolved_paths = resolved_paths, .given_names = given_names, .bound_at = unveiled_at,
     .unveiled_writable = unveiled_writable, .unveil_count = unveil_count,

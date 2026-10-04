@@ -85,8 +85,9 @@ local record Sandbox
     --- reads files and lists directories, `w` writes and truncates files,
     --- `x` runs files, `c` creates and removes, `u` connects to the unix
     --- socket at the path (Landlock ABI 9; below it only under `isolate`
-    --- file, and only where no other grant is a directory or a socket, since
-    --- nothing else tells the granted socket from the root's others). A
+    --- file, and only where no grant is a directory or a socket not granted
+    --- `u`, since nothing else tells the granted socket from the root's
+    --- others). A
     --- grant on a directory reaches what is beneath it.
     letters: string
     --- The host's path, when it differs from `path`: the program sees this

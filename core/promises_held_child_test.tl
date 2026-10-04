@@ -7,7 +7,9 @@
 --- architectures, are core/promises_test.tl's.
 
 local Fs = require("cosmic.fs")
+local Net = require("cosmic.net")
 local Test = require("cosmic.test")
+local unix_socket = require("build.unix_socket")
 local sys = require("cosmic.sys")
 local confine = require("build.confine")
 local stand_in = require("build.stand_in")
@@ -55,11 +57,12 @@ end
 --- Runs `script` in a stand-in started with `sandbox` (its `promises`
 --- among them): its output and how it ended. Skips the test where the
 --- start is refused, as the host gives no sandbox of that kind.
-local function in_sandbox(tmp: string, probe: string, sandbox: raw_process.Sandbox, script: string): Outcome
+local function in_sandbox(tmp: string, probe: string, sandbox: raw_process.Sandbox, script: string,
+                          fds?: {integer:integer}): Outcome
   local path = tmp .. "/said"
   local output = assert(sys.open(path, sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
   local pid, trouble = process.spawn(probe, { probe, script }, nil, "/", nil, output, output, false,
-    nil, sandbox)
+    fds, sandbox)
   if pid == nil then
     sys.close(output)
     if confine.sandbox_platform() then
@@ -118,13 +121,12 @@ local function test_a_unix_socket_is_made_only_where_the_root_the_network_and_la
   local script = "connect /none.sock"
   local held = in_sandbox(tmp, probe, rooted(probe, true), script)
   if held.code == -1 then return end
-  -- Landlock decides what a unix socket reaches by path from ABI 9 only; before it
-  -- a granted directory's sockets would be reachable, so the filter keeps socket()
-  -- refused.
-  if abi >= 9 then
+  -- A root that shows no directory and no socket file holds it on every ABI,
+  -- and Landlock does from ABI 9 whatever the root shows.
+  -- A worker whose own filter refuses unix sockets passes that on to every
+  -- process it starts, so nothing here can be made: the refusals below stand.
+  if not unix_socket.skipped(tmp) then
     assert(held.said:find("not permitted", 1, true) == nil, "made where held: " .. held.said)
-  else
-    assert(held.said:find("not permitted", 1, true), "refused below ABI 9: " .. held.said)
   end
   -- Never without the network namespace, where a name it binds is the host's to find.
   local shared = in_sandbox(tmp, probe, rooted(probe, false), script)
@@ -134,4 +136,127 @@ local function test_a_unix_socket_is_made_only_where_the_root_the_network_and_la
     grants = { { path = probe, access = "rx" } } }
   local unrooted = in_sandbox(tmp, probe, open, script)
   assert(unrooted.said:find("not permitted", 1, true), "refused without a root of its own: " .. unrooted.said)
+end
+
+--- `rooted`, whose root shows a /tmp of its own of a mebibyte, and each of
+--- `shown`, files or directories of the host, at their own names.
+local function rooted_with(probe: string, shown: {string}): raw_process.Sandbox
+  local sandbox = rooted(probe, true)
+  for _, path in ipairs(shown) do sandbox.unveil.reads[#sandbox.unveil.reads + 1] = path end
+  sandbox.unveil.tmp = 1 << 20
+  return sandbox
+end
+
+--- A socket file of the host, made in a directory of `tmp`'s that holds
+--- nothing else: its path and its listener, which stays open.
+local function host_socket(tmp: string): string, Net.Listener
+  assert(Fs.mkdirs(tmp .. "/socks"))
+  local path = tmp .. "/socks/host.sock"
+  return path, (assert(Net.listen(Net.unix(path), { timeout_ns = 1000000000 })))
+end
+
+--- Whether `said` is the filter's refusal of the socket call, which a
+--- connect that reached the kernel is not.
+local function refused(said: string): boolean
+  return said:find("not permitted", 1, true) ~= nil
+end
+
+-- TODO: run the tests below under the policy path on a kernel below
+-- Landlock ABI 9, once a worker may make a unix socket there (a worker's
+-- own filter, which every process it starts inherits, refuses socket(AF_UNIX)
+-- there: a start's own cannot lift it), so they discriminate on CI's kernels;
+-- they skip there, and run under COSMIC_TEST_POLICY=0 or from ABI 9.
+
+local function test_a_root_of_its_own_tmpfs_alone_makes_a_unix_socket_there(tmp: string)
+  local abi, trouble = process.landlock_abi()
+  if abi == nil then
+    if confine.sandbox_platform() then Test.skip("no Landlock here: " .. tostring(trouble)) end
+    return
+  end
+  if unix_socket.skipped(tmp) then return end
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  -- What it makes in its own /tmp it also reaches there, whatever Landlock's ABI.
+  local made = in_sandbox(tmp, probe, rooted_with(probe, {}), "loopback-unix /tmp/pair.sock")
+  if made.code == -1 then return end
+  assert(made.code == 0 and made.said == "connected\n", "made in its own tmpfs: " .. made.said)
+  -- A file that is no socket beside it changes nothing.
+  local beside = in_sandbox(tmp, probe, rooted_with(probe, { "/dev/zero" }), "loopback-unix /tmp/pair.sock")
+  assert(beside.code == 0 and beside.said == "connected\n", "beside a file: " .. beside.said)
+  -- Never beyond its own network: an abstract name is the namespace's.
+  local shared = rooted_with(probe, {})
+  shared.offline = false
+  local open = in_sandbox(tmp, probe, shared, "loopback-unix /tmp/pair.sock")
+  assert(refused(open.said), "refused without its own network: " .. open.said)
+end
+
+local function test_a_root_that_shows_a_directory_of_the_host_is_held_by_landlock_alone(tmp: string)
+  local abi = process.landlock_abi()
+  if abi == nil or unix_socket.skipped(tmp) then return end
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local socket, listener = host_socket(tmp)
+  local control = in_sandbox(tmp, probe, rooted_with(probe, {}), "connect /none.sock")
+  if control.code == -1 then
+    assert(listener:close())
+    return
+  end
+  assert(not refused(control.said), "held, with nothing shown: " .. control.said)
+  -- The directory holds a socket a host service made: below ABI 9 nothing
+  -- else tells it from the program's own, so socket() is refused; from
+  -- ABI 9 it is made and the connect is refused by Landlock.
+  local shown = in_sandbox(tmp, probe, rooted_with(probe, { tmp .. "/socks" }), "connect " .. socket)
+  assert(shown.said ~= "connected\n", "not reached: " .. shown.said)
+  if abi < 9 then assert(refused(shown.said), "socket() refused below ABI 9: " .. shown.said) end
+  assert(listener:close())
+end
+
+local function test_a_socket_file_in_the_root_is_not_held_below_abi_9(tmp: string)
+  local abi = process.landlock_abi()
+  if abi == nil or unix_socket.skipped(tmp) then return end
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local socket, listener = host_socket(tmp)
+  local control = in_sandbox(tmp, probe, rooted_with(probe, {}), "connect /none.sock")
+  if control.code == -1 then
+    assert(listener:close())
+    return
+  end
+  assert(not refused(control.said), "held, with nothing shown: " .. control.said)
+  local shown = in_sandbox(tmp, probe, rooted_with(probe, { socket }), "connect " .. socket)
+  assert(shown.said ~= "connected\n", "not reached: " .. shown.said)
+  if abi < 9 then assert(refused(shown.said), "socket() refused below ABI 9: " .. shown.said) end
+  assert(listener:close())
+end
+
+--- O_PATH, which sys.open takes as a number.
+local O_PATH <const> = 2097152
+
+local function test_a_descriptor_that_opens_a_directory_or_a_socket_is_not_held_below_abi_9(tmp: string)
+  local abi = process.landlock_abi()
+  if abi == nil or unix_socket.skipped(tmp) then return end
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local socket, listener = host_socket(tmp)
+  local sandbox = rooted_with(probe, {})
+  -- A file descriptor leads nowhere beyond its file.
+  local file = assert(sys.open(tmp .. "/file", sys.O_CREAT | sys.O_RDWR, 420))
+  local plain = in_sandbox(tmp, probe, sandbox, "connect /none.sock", { [3] = file })
+  sys.close(file)
+  if plain.code == -1 then
+    assert(listener:close())
+    return
+  end
+  assert(not refused(plain.said), "held with a file handed: " .. plain.said)
+  -- A directory is a way to its sockets (/proc/self/fd/N/host.sock), and
+  -- an O_PATH descriptor of a socket file is a way to connect to it.
+  local directory = assert(sys.open(tmp .. "/socks", sys.O_RDONLY))
+  local named = assert(sys.open(socket, O_PATH))
+  for _, handed in ipairs({ directory, named }) do
+    local result = in_sandbox(tmp, probe, rooted_with(probe, {}), "connect /proc/self/fd/3",
+      { [3] = handed })
+    assert(result.said ~= "connected\n", "not reached: " .. result.said)
+    if abi < 9 then
+      assert(refused(result.said), "socket() refused below ABI 9: " .. result.said)
+    end
+  end
+  sys.close(directory)
+  sys.close(named)
+  assert(listener:close())
 end
