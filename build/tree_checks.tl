@@ -69,8 +69,10 @@ allowed["cosmic.test.needs_of"] = "tested directly: the worker's translation of 
 allowed["build.c.layout.same"] = "tested directly: whether two layouts are one " ..
   "token stream is the rule `cosmic fix` holds a C rewrite to, and the test " ..
   "states it on sources too small to be a file"
-allowed["cosmic.time.sleep_ns"] = "the old name of cosmic.clock's sleep_ns, kept for " ..
-  "callers of it; the remaining callers are ci/, which runs on the pinned release"
+for _, name in ipairs({ "sleep_ns", "ceil" }) do
+  allowed["cosmic.time." .. name] = "the old name of cosmic.clock's " .. name .. ", kept " ..
+    "for programs outside the tree that call it; in the tree only its own tests do"
+end
 allowed["build.flow.bare"] = "the subset build/workflows_test.tl holds " ..
   "workflows to takes a bare key by the same rule the layout writes one by"
 allowed["build.flow.problems"] = "the subset build/workflows_test.tl holds " ..

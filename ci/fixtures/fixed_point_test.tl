@@ -1,4 +1,4 @@
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local Fixture = require("cosmic_ci.fixture")
 
 local Test = require("cosmic.test")
@@ -13,7 +13,7 @@ Test.needs{ env = { "*" } }
 -- A rebuild from a fresh tree compiles all of it (about 20 s on a
 -- runner), and one whose compiler moved compiles it again on
 -- re-entry; the driver bounds each test here (orchestration.tl).
-local rebuild_timeout_ns <const> = Time.seconds(150)
+local rebuild_timeout_ns <const> = Clock.seconds(150)
 
 local function count_occurrences(text: string, needle: string): integer
   local count = 0

@@ -1,4 +1,4 @@
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
 local Fixture = require("cosmic_ci.fixture")
@@ -12,7 +12,7 @@ local Test = require("cosmic.test")
 --- keys every unsandboxed run by declaration gives a worker only that.
 Test.needs{ env = { "*" } }
 
-local native_build_timeout_ns <const> = Time.seconds(120)
+local native_build_timeout_ns <const> = Clock.seconds(120)
 
 local function test_decoder_inspection_records_are_exact(tmp: string)
   local digest = string.rep("a", 64)

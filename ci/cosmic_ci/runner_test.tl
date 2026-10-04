@@ -1,4 +1,4 @@
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Runner = require("cosmic_ci.runner")
@@ -10,7 +10,7 @@ local Sqlite = require("cosmic.sqlite")
 --- pinned CI driver" sets no COSMIC_TEST_TIMEOUT), so a hang in a test's
 --- first wait fails here, recorded, rather than by the runner ending the
 --- test.
-local hang_guard = Time.seconds(20)
+local hang_guard = Clock.seconds(20)
 
 local function test_runner_records_without_aliasing_subject(tmp: string)
   local candidate, state = tmp .. "/candidate", tmp .. "/state"
@@ -25,9 +25,9 @@ local function test_runner_records_without_aliasing_subject(tmp: string)
   assert(execute("exit", { "/bin/sh", "-c", "exit 23" }).code == 23)
   assert(execute("start", { "/missing/command" }).status == "start-error")
   assert(execute("delayed-success", { "/bin/sh", "-c", "sleep 0.05" }).code == 0)
-  local timed = execute("timeout", { "/bin/sh", "-c", "sleep 30" }, Time.ms(20))
-  assert(timed.code == 124 and timed.elapsed_ns >= Time.ms(10) and
-      timed.elapsed_ns < Time.seconds(5), "timeout did not preserve its nanosecond duration")
+  local timed = execute("timeout", { "/bin/sh", "-c", "sleep 30" }, Clock.ms(20))
+  assert(timed.code == 124 and timed.elapsed_ns >= Clock.ms(10) and
+      timed.elapsed_ns < Clock.seconds(5), "timeout did not preserve its nanosecond duration")
   assert(Fs.write(candidate .. "/o.db", "candidate state"))
   local database_exists = Predicate.exists(c.database)
   assert(database_exists and assert(Fs.read(candidate .. "/o.db")) == "candidate state")
@@ -140,12 +140,12 @@ local function test_phase_keeps_exit_codes_full_errors_and_callback_times(tmp: s
   local entered, leaving, returned = 0, 0, 0
   local called, failure = pcall(function(): boolean
     assert(Runner.phase(context, "done", function(): integer
-      entered = Time.monotonic_ns()
-      Time.sleep_ns(Time.ms(1))
-      leaving = Time.monotonic_ns()
+      entered = Clock.monotonic_ns()
+      Clock.sleep_ns(Clock.ms(1))
+      leaving = Clock.monotonic_ns()
       return 0
     end) == 0)
-    returned = Time.monotonic_ns()
+    returned = Clock.monotonic_ns()
     assert(Runner.phase(context, "refused", function(): integer return 23 end) == 23)
     assert(#messages == 0, "a returned status logged another diagnostic")
     assert(Runner.phase(context, "raised", function(): integer error(detail, 0) end) == 1)
@@ -182,7 +182,7 @@ local function test_phase_keeps_a_nested_child_timeout_separate(tmp: string)
     run = "run", attempt = "1", candidate = candidate }
   assert(Runner.phase(context, "outer", function(): integer
     return Runner.operation(context, "child", { argv = { "/bin/sh", "-c", "sleep 30" },
-      cwd = candidate, timeout_ns = Time.ms(20) }).code
+      cwd = candidate, timeout_ns = Clock.ms(20) }).code
   end) == 124)
   local db = assert(Sqlite.open(context.database))
   local rows = assert(Sqlite.text_rows(db, [[

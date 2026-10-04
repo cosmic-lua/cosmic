@@ -1,4 +1,5 @@
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Fuzz = require("cosmic_ci.fuzz")
@@ -6,7 +7,6 @@ local Predicate = require("cosmic_ci.fs_predicate")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 local Stream = require("cosmic.stream")
-local Time = require("cosmic.time")
 
 local function write(path: string, data: string, mode?: integer)
   assert(Fs.mkdirs(Fs.dirname(path)))
@@ -264,11 +264,11 @@ end
 
 --- Waits up to `seconds` for the file at `path` to hold `text`.
 local function until_found(path: string, text: string, seconds: integer): boolean
-  local deadline = Time.monotonic_ns() + seconds * 1000000000
-  while Time.monotonic_ns() < deadline do
+  local deadline = Clock.monotonic_ns() + seconds * 1000000000
+  while Clock.monotonic_ns() < deadline do
     local held = Fs.read(path) or ""
     if held:find(text, 1, true) then return true end
-    Time.sleep_ns(20 * 1000 * 1000)
+    Clock.sleep_ns(20 * 1000 * 1000)
   end
   return false
 end
@@ -309,7 +309,7 @@ local function test_fuzz_passes_a_signal_on_and_keeps_the_status(tmp: string)
   assert(until_found(temp .. "/fuzz.out", "ready\n", 120),
     "the core did not start")
   assert(handle:stop(sys.SIGTERM))
-  local result = assert(handle:wait(Time.seconds(30)))
+  local result = assert(handle:wait(Clock.seconds(30)))
   assert(result.signal == sys.SIGTERM,
     "the driver ended with " .. tostring(result.code) .. "/" .. tostring(result.signal))
   assert(read(temp .. "/fuzz.status") == "143\n", read(temp .. "/fuzz.status"))
@@ -337,7 +337,7 @@ local function test_fuzz_streams_the_log_as_the_core_runs(tmp: string)
   local seen = started and until_found(log, "first\n", 5)
   -- Let the core go on either way, so nothing is left running.
   write(go, "")
-  local result = assert(handle:wait(Time.seconds(30)))
+  local result = assert(handle:wait(Clock.seconds(30)))
   assert(seen, "the log did not get the core's first line while it ran")
   assert(result.code == 0, tostring(result.code) .. "/" .. tostring(result.signal))
   assert(read(temp .. "/fuzz.status") == "0\n")
@@ -353,7 +353,7 @@ local function test_fuzz_forwards_repeated_signals_and_keeps_each_trap(tmp: stri
   assert(handle:stop(sys.SIGTERM))
   assert(until_found(log, "trap1\n", 5), "first signal was not forwarded")
   assert(handle:stop(sys.SIGTERM))
-  local result = assert(handle:wait(Time.seconds(30)))
+  local result = assert(handle:wait(Clock.seconds(30)))
   assert(result.signal == sys.SIGTERM)
   assert(read(temp .. "/fuzz.status") == "143\n")
   assert(read(log):find("trap2\n", 1, true))
@@ -364,7 +364,7 @@ local function test_fuzz_waits_after_output_eof_and_drains_a_finite_post_exit_ta
   local eof = tmp .. "/eof"
   assert(Fs.mkdirs(eof))
   local first <close>, temp = start_fuzz(eof, { "#!/bin/sh", "exec 1>&- 2>&-", "sleep 0.2", "exit 7" })
-  assert(assert(first:wait(Time.seconds(30))).code == 7)
+  assert(assert(first:wait(Clock.seconds(30))).code == 7)
   assert(read(temp .. "/fuzz.status") == "7\n")
   local setsid = Proc.find("setsid")
   if setsid == nil then return end
@@ -374,7 +374,7 @@ local function test_fuzz_waits_after_output_eof_and_drains_a_finite_post_exit_ta
     { "#!/bin/sh", "\"$FUZZ_SETSID\" /bin/sh -c 'echo ready > \"$FUZZ_TAIL_READY\"; sleep 0.2; echo final-tail' &",
       "while [ ! -e \"$FUZZ_TAIL_READY\" ]; do sleep 0.01; done", "exit 3" },
     { FUZZ_SETSID = setsid, FUZZ_TAIL_READY = tail .. "/ready" })
-  assert(assert(second:wait(Time.seconds(30))).code == 3)
+  assert(assert(second:wait(Clock.seconds(30))).code == 3)
   assert(read(tail_temp .. "/fuzz.status") == "3\n")
   assert(read(log) == "final-tail\n" and read(tail_temp .. "/fuzz.out") == read(log))
 end
@@ -382,7 +382,7 @@ end
 local function test_fuzz_output_exceeding_capture_limit_is_saved_without_truncation(tmp: string)
   local handle <close>, temp, log = start_fuzz(tmp,
     { "#!/bin/sh", "head -c 20000000 /dev/zero", "echo complete" })
-  assert(assert(handle:wait(Time.seconds(30))).code == 0)
+  assert(assert(handle:wait(Clock.seconds(30))).code == 0)
   assert(assert(Fs.stat(log)).size == 20000009)
   assert(read(temp .. "/fuzz.out") == read(log))
 end
@@ -452,7 +452,7 @@ local function test_an_escaped_writer_bounds_final_drain_without_replacing_child
     "echo before-exit", "exit 23",
   }, { FUZZ_SETSID = setsid, FUZZ_ESCAPE_PID = pid_file })
   local ok, result = pcall(function(): Child.Result
-    return (assert(handle:wait(Time.seconds(30))))
+    return (assert(handle:wait(Clock.seconds(30))))
   end)
   local pid = math.tointeger(tonumber(Fs.read(pid_file) or ""))
   if pid ~= nil then local _, _ = sys.kill(-pid, sys.SIGKILL) end

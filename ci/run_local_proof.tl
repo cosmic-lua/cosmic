@@ -1,10 +1,10 @@
 --- A narrow root-only fixture for the real local-runner privilege boundary.
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
-local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 
 local record Proof
@@ -12,7 +12,7 @@ end
 
 local function command(argv: {string}, env: {string:string}): Child.Result
   local result, trouble = Child.run(argv, { env = env, stdout = "capture", stderr = "capture",
-    process_group = true, timeout_ns = Time.seconds(20) })
+    process_group = true, timeout_ns = Clock.seconds(20) })
   return (assert(result, trouble))
 end
 

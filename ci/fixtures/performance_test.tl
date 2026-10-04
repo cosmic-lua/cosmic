@@ -1,9 +1,9 @@
 --- Exercise the measurement fixture lifecycle; elapsed times are ignored and
 --- thirty pairs are always exploratory, never performance acceptance evidence.
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
-local Time = require("cosmic.time")
 local Fixture = require("cosmic_ci.fixture")
 local Test = require("cosmic.test")
 
@@ -27,7 +27,7 @@ local function run(tmp: string, source: string): Child.Result
   -- carry a core the CI driver has never extracted.
   local env = Fixture.environment({ COSMIC_PORTABLE_CACHE = tmp .. "/cores" })
   return (assert(Child.run({ binary, "--standalone", script, binary, binary, tmp .. "/results", "30", "uses" },
-    { cwd = tmp, env = env, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })))
+    { cwd = tmp, env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })))
 end
 
 local function test_independent_fixture_histories_match_through_warmups_and_samples(tmp: string)

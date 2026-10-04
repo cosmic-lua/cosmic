@@ -1,7 +1,7 @@
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Predicate = require("cosmic_ci.fs_predicate")
 local sys = require("cosmic.sys")
-local Time = require("cosmic.time")
 local Fixture = require("cosmic_ci.fixture")
 local LauncherFixture = require("cosmic_ci.launcher_fixture")
 local Process = require("cosmic_ci.process")
@@ -458,12 +458,12 @@ local function test_launcher_timing_and_immutability(tmp: string)
   local ctx = setup(tmp)
   local before = Fixture.hash(ctx.artifact)
   local timing = ctx.work .. "/timing cache"
-  local cold_started = Time.monotonic_ns()
+  local cold_started = Clock.monotonic_ns()
   outcome_ok(run(ctx, "timing-cold", timing), "cold timing launch")
-  local cold_ms = (Time.monotonic_ns() - cold_started) // 1000000
-  local warm_started = Time.monotonic_ns()
+  local cold_ms = (Clock.monotonic_ns() - cold_started) // 1000000
+  local warm_started = Clock.monotonic_ns()
   outcome_ok(run(ctx, "timing-warm", timing), "warm timing launch")
-  local warm_ms = (Time.monotonic_ns() - warm_started) // 1000000
+  local warm_ms = (Clock.monotonic_ns() - warm_started) // 1000000
   assert(Fs.put(Fs.stderr, "portable launcher timing: cold=" ..
       tostring(cold_ms) .. "ms warm=" .. tostring(warm_ms) .. "ms\n"))
   assert(Fixture.hash(ctx.artifact) == before, "launcher artifact changed")

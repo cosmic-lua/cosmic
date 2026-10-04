@@ -1,11 +1,11 @@
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Local = require("run_local")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 
 Test.needs{ system = true, tool = true }
@@ -14,7 +14,7 @@ local function git(root: string, args: {string}): string
   local argv = { assert(Proc.find("git")), "-C", root }
   for _, word in ipairs(args) do argv[#argv + 1] = word end
   local result = assert(Child.run(argv, { stdout = "capture", stderr = "capture",
-    timeout_ns = Time.seconds(10) }))
+    timeout_ns = Clock.seconds(10) }))
   assert(result.code == 0, result.stderr)
   return ((assert(result.stdout)):gsub("\n$", ""))
 end
@@ -306,7 +306,7 @@ local function test_root_probe_grants_a_copy_without_mutating_cached_relaunch(tm
     probe[#probe] = "assert(require('cosmic.proc').executable()==" ..
       string.format("%q", tostring((assert(Proc.executable())))) .. "); print('copied runtime identity')"
     local result = assert(run(probe, { env = options.env, fds = options.fds, cwd = "/",
-      stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(10) }))
+      stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(10) }))
     assert(result.ok and result.stdout == "copied runtime identity\n", result.stderr)
     return nil, "injected credential refusal after copied-runtime check"
   end

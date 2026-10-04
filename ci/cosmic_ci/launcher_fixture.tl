@@ -1,12 +1,12 @@
-local Time = require("cosmic.time")
 --- What launcher_test.tl and launcher_noexec_test.tl share: the
 --- launcher contract's artifact, copied where a case may run it, and
 --- how a case runs it.
+local Clock = require("cosmic.clock")
 local Fixture = require("cosmic_ci.fixture")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 
-local child_timeout_ns <const> = Time.seconds(30)
+local child_timeout_ns <const> = Clock.seconds(30)
 
 local record LauncherFixture
   record Context

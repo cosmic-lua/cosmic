@@ -88,19 +88,15 @@ local function test_source_valid()
   -- A source.json of another shape is refused naming its first wrong
   -- value, where a missing or mistyped field was once reported as
   -- another commit, or as a run_url that is no string.
-  -- TODO: pin the whole message (`pointer "/run_url": expected string,
-  -- got integer`) once ci/cosmic-driver.pin names a release whose
-  -- cosmic.shape names a place as a JSON Pointer: the pinned one writes
-  -- `$.run_url`, and this test runs under both.
   local function unshaped(text: string, at: string, expected: string)
     local accepted, trouble = Prerelease.source_valid(text, commit, digest, run_prefix)
     assert(not accepted, text)
     assert(trouble:find("source.json is no source record: ", 1, true) and
-        trouble:find(at, 1, true) and trouble:find(": expected " .. expected, 1, true), trouble)
+        trouble:find('pointer "' .. at .. '": expected ' .. expected, 1, true), trouble)
   end
   unshaped('{"commit":"' .. commit .. '","digest":"' .. digest .. '","run_url":1}',
-    "run_url", "string, got integer")
-  unshaped('{"commit":"' .. commit .. '"}', "digest", "string, got nothing")
+    "/run_url", "string, got integer")
+  unshaped('{"commit":"' .. commit .. '"}', "/digest", "string, got nothing")
   unshaped('["' .. commit .. '"]', "", "record, got array")
 end
 

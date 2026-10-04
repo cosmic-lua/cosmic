@@ -27,21 +27,17 @@
 --- (2 for words it cannot read).
 
 local Archive = require("cosmic.archive")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local sys = require("cosmic.sys")
--- TODO: require cosmic.clock for the clock this reads ([`Time.monotonic_ns`],
--- `ms`, ...) once ci/cosmic-driver.pin names a release that carries it:
--- this script runs standalone on the pinned release, which has only
--- cosmic.time, so every test that reaches it still reaches the calendar code.
-local Time = require("cosmic.time")
 
-local SECOND <const> = Time.seconds(1)
+local SECOND <const> = Clock.seconds(1)
 
 local record ZigFetch
   --- What [`ZigFetch.fetch`] downloads with, pauses with (for
   --- nanoseconds) and reads the time from (in nanoseconds):
-  --- [`Http.download_result`], [`sys.nanosleep`] and [`Time.monotonic_ns`]
+  --- [`Http.download_result`], [`sys.nanosleep`] and [`Clock.monotonic_ns`]
   --- unless a test says otherwise.
   record Fetcher
     download: function(url: string, path: string, opts: Http.Options): Http.DownloadResult
@@ -243,7 +239,7 @@ function ZigFetch.fetch(urls: {string}, path: string, sha256: string,
                         via?: ZigFetch.Fetcher): boolean, string
   local download = via ~= nil and via.download or Http.download_result
   local sleep = via ~= nil and via.sleep or real_sleep
-  local now = via ~= nil and via.now or Time.monotonic_ns
+  local now = via ~= nil and via.now or Clock.monotonic_ns
   local deadline = now() + BUDGET_NS
   local last: {string:string} = {}
   local wrong: {string:boolean} = {}

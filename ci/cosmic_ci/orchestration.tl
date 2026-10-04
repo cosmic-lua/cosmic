@@ -1,3 +1,4 @@
+local Clock = require("cosmic.clock")
 local ContextEnv = require("cosmic_ci.context")
 local Env = require("cosmic.env")
 local Fixture = require("cosmic_ci.fixture")
@@ -16,7 +17,6 @@ local RunNames = require("cosmic_ci.run_names")
 local RuntimeSetup = require("cosmic_ci.runtime_setup")
 local State = require("cosmic_ci.state")
 local SuiteOutput = require("cosmic_ci.suite_output")
-local Time = require("cosmic.time")
 local ZigRestat = require("cosmic_ci.zig_restat")
 local Plural = require("cosmic_ci.plural")
 local String = require("cosmic.string")
@@ -117,7 +117,7 @@ local epoch_file <const> = "build/harness_epoch.tl"
 
 --- How long a git command [`harness_moved`] runs may take: a local
 --- lookup, or a fetch of one commit.
-local git_timeout_ns <const> = Time.seconds(60)
+local git_timeout_ns <const> = Clock.seconds(60)
 
 --- Runs git in the checkout at `root`, never asking for credentials
 --- (GIT_TERMINAL_PROMPT=0) and ended past `git_timeout_ns`: what it
@@ -131,7 +131,7 @@ local function git(root: string, words: {string}): string | nil, string
     stderr = "capture", timeout_ns = git_timeout_ns })
   if result == nil then return nil, "git " .. words[1] .. ": " .. trouble end
   if result.timed_out then
-    return nil, "git " .. words[1] .. ": timed out after " .. (git_timeout_ns // Time.seconds(1)) .. " s"
+    return nil, "git " .. words[1] .. ": timed out after " .. (git_timeout_ns // Clock.seconds(1)) .. " s"
   end
   if not result.ok then
     return nil, "git " .. words[1] .. ": exit " .. tostring(result.code) .. ": " ..
@@ -426,15 +426,15 @@ end
 
 -- Whole-project guards include compilation and test-runner overhead. The
 -- direct children inside them have the shorter bounds defined by fixture.tl.
-local product_test_timeout_ns <const> = Time.seconds(60)
-local format_test_timeout_ns <const> = Time.seconds(300)
+local product_test_timeout_ns <const> = Clock.seconds(60)
+local format_test_timeout_ns <const> = Clock.seconds(300)
 -- The sandboxed fixtures (`sandboxed_fixtures`) take 6 to 28 s where
 -- they run, under ci/run-local on a loaded four-core host (launcher 6 s,
 -- runtime 10 s, identity 28 s), and 4 to 6 s where their verdicts stand;
 -- each bound is several times that.
-local launcher_test_timeout_ns <const> = Time.seconds(60)
-local launcher_noexec_test_timeout_ns <const> = Time.seconds(60)
-local self_rebuild_test_timeout_ns <const> = Time.seconds(180)
+local launcher_test_timeout_ns <const> = Clock.seconds(60)
+local launcher_noexec_test_timeout_ns <const> = Clock.seconds(60)
+local self_rebuild_test_timeout_ns <const> = Clock.seconds(180)
 -- A self-rebuild test rebuilds the tool: the docs verb's from a cold
 -- compile of the whole tree, 50 to 60 s of one core on a runner, past the
 -- runner's default 30 s per test; the rest from the leg's compiles
@@ -446,10 +446,10 @@ local self_rebuild_per_test_timeout_s <const> = "120"
 -- about twice over (80 s alone on four cores; the combined case, the last of
 -- these, adds about 20 to 30 s to the fixture), so each runs apart from
 -- the self-rebuild file's.
-local fixed_point_test_timeout_ns <const> = Time.seconds(300)
+local fixed_point_test_timeout_ns <const> = Clock.seconds(300)
 --- The whole suite on the checked core: see [`checked_suite`]'s comment
 --- for what it takes.
-local checked_suite_timeout_ns <const> = Time.seconds(1200)
+local checked_suite_timeout_ns <const> = Clock.seconds(1200)
 -- Each test's bound on the checked core: the release suites' (below)
 -- scaled by how much slower the checked core runs a test, about 2.9
 -- times over the suite and 5.5 times for a compile-heavy module
@@ -463,13 +463,13 @@ local fixed_point_per_test_timeout_s <const> = "240"
 -- about 110 s for the whole fixture in a local run on four cores, loaded.
 -- TODO: lower these bounds once CI's own runs show the fixture's time
 -- without the core's C compile they were sized for (about 110 s of it).
-local self_driven_test_timeout_ns <const> = Time.seconds(600)
+local self_driven_test_timeout_ns <const> = Clock.seconds(600)
 local self_driven_per_test_timeout_s <const> = "480"
-local runtime_test_timeout_ns <const> = Time.seconds(90)
+local runtime_test_timeout_ns <const> = Clock.seconds(90)
 -- The sandbox probe starts six trivial children; its bound is the
 -- tree's own load, which a booted tree has already paid.
-local sandbox_probe_timeout_ns <const> = Time.seconds(60)
-local identity_test_timeout_ns <const> = Time.seconds(120)
+local sandbox_probe_timeout_ns <const> = Clock.seconds(60)
+local identity_test_timeout_ns <const> = Clock.seconds(120)
 -- The identity suite takes 21-30 s whole on macOS, and 35 s at worst, past
 -- the runner's default 30 s per test. Its focused-embed step takes 21 s of
 -- that alone and is a test of its own. The two run at once on a runner of
@@ -481,7 +481,7 @@ local identity_per_test_timeout_s <const> = "60"
 -- Their child remains bounded at 30 s; allow setup and result inspection
 -- around it, and two serial tests plus runner setup in the whole-file bound.
 local performance_per_test_timeout_s <const> = "60"
-local performance_test_timeout_ns <const> = Time.seconds(150)
+local performance_test_timeout_ns <const> = Clock.seconds(150)
 -- The checked cosmic's first file in the tree after the checked build
 -- ([`checked_suite`]). A boot names the analyzer as the tool it writes
 -- does (build/importer.tl's `tree_code`), so that file builds nothing
@@ -489,7 +489,7 @@ local performance_test_timeout_ns <const> = Time.seconds(150)
 -- the checked cosmic under ci/run-local on a 4-core host, once 41 s.
 -- TODO: lower this bound once CI's own runs show the step's time
 -- without that reparse; it is still sized for it.
-local checked_compile_timeout_ns <const> = Time.seconds(300)
+local checked_compile_timeout_ns <const> = Clock.seconds(300)
 
 -- A whole `cosmic test` run of every test, sandboxed, takes about 96 s of
 -- tests on a four-core runner (1872 tests), after a build of up to 25 s
@@ -498,7 +498,7 @@ local checked_compile_timeout_ns <const> = Time.seconds(300)
 -- bound is about twice that. Each test gets far less than the whole run,
 -- so a test that hangs is ended and named by the runner, not hidden under
 -- a cancelled run.
-local suite_timeout_ns <const> = Time.seconds(270)
+local suite_timeout_ns <const> = Clock.seconds(270)
 local suite_test_timeout_s <const> = "10"
 
 local function copy_flat_tl_dir(source: string, destination: string)
@@ -715,7 +715,7 @@ local function checked_suite(c: Context, target: string, work: string,
   -- The checked artifact's manifest entry, as the contract's decoder
   -- reads it (as ci/fixtures/product_test.tl reads the product's).
   local s = capture_small(c, "checked manifest entry",
-    { decoder, "--inspect", cosmic }, entry, Time.seconds(30))
+    { decoder, "--inspect", cosmic }, entry, Clock.seconds(30))
   if s ~= 0 then return s end
   local found = Fixture.entry(Fixture.inspection(entry),
     assert(math.tointeger(tonumber(target_id))), 2)
@@ -769,7 +769,7 @@ local function checked_suite(c: Context, target: string, work: string,
   local context = work .. "/checked-context.txt"
   s = capture_small(c, "checked runtime context", { cosmic, "-e",
     "local Store = require('cosmic.store'); print(Store.meta('runtime_context'), " ..
-      "Store.meta('host'), Store.meta('host_image'))" }, context, Time.seconds(30))
+      "Store.meta('host'), Store.meta('host_image'))" }, context, Clock.seconds(30))
   if s ~= 0 then return s end
   assert(read(context) == "portable-v1\t" .. target .. "\t" .. digest .. "\n",
     "checked artifact did not execute the checked raw core: " .. read(context))
@@ -888,7 +888,7 @@ local function snapshot(c: Context, diagnostics: string, label: string,
       read(c.root .. "/ci/testdata/portable/work_db_integrity.tl"))
     return logged(c, label .. " integrity",
       { cosmic, "work_db_integrity.tl", "--recover-copy", "build.db" },
-      out .. "/integrity.out", out .. "/integrity.err", Time.seconds(30), inspect)
+      out .. "/integrity.out", out .. "/integrity.err", Clock.seconds(30), inspect)
   end)
   local removed, remove_trouble = Fs.remove_tree(inspect)
   assert(removed and not exists(inspect),
@@ -1367,7 +1367,7 @@ local function phase_portable_boundary(p: PlatformContext): integer
       function(): boolean, string return Fs.chmod(cache, 0x140) end)
     if locked ~= 0 then return locked end
     local help = checked(portable_context, "read-only cache execution",
-      { executable, "help" }, Time.seconds(30), fresh, environment({ COSMIC_PORTABLE_CACHE = cache }))
+      { executable, "help" }, Clock.seconds(30), fresh, environment({ COSMIC_PORTABLE_CACHE = cache }))
     local restored = step(portable_context, "portable cache restore mode",
       function(): boolean, string return Fs.chmod(cache, 0x1c0) end)
     if help ~= 0 then return help end
