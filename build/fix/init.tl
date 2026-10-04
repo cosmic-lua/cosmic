@@ -1297,9 +1297,14 @@ local function fix_verb(argv: {integer:string}): integer
   if picked.whole then
     log:say("fix: tree checks: ran over the whole tree, " .. #findings .. " found")
   end
+  -- A file's own failure names it as it was given (`./a.tl` for `fix
+  -- .`), the build's as the tree's: compared without the `./`.
+  local function plain(line: string): string
+    return (line:gsub("^%./([^:]*): %./", "%1: "))
+  end
   local failed: {string:boolean} = {}
   for _, line in ipairs(failures) do
-    failed[line] = true
+    failed[plain(line)] = true
     log:say("fix: FAIL  " .. line)
   end
   for _, line in ipairs(findings) do
@@ -1316,7 +1321,7 @@ local function fix_verb(argv: {integer:string}): integer
   end
   -- A file that does not parse is refused by its own check and by the
   -- build in the same words: the line is said once.
-  if unbuilt ~= nil and not failed[unbuilt] then
+  if unbuilt ~= nil and not failed[plain(unbuilt)] then
     log:say("fix: FAIL  " .. unbuilt)
   end
   if links_unbuilt ~= nil then

@@ -82,11 +82,15 @@ local function test_a_file_that_does_not_parse_is_refused_once(tmp: string)
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/a.tl", "local record A\nend\nlocal record A.B\nend\nreturn A\n"))
-  local out = assert(fix(root, true).stdout)
-  local line = "fix: FAIL  a.tl: a.tl:3:15: syntax error, expected identifier -- declare " ..
+  local said = "a.tl:3:15: syntax error, expected identifier -- declare " ..
     "`record B ... end` inside `local record A ... end`: it is then A.B, here and in every " ..
     "module that requires this one\n"
-  local first = out:find(line, 1, true)
-  assert(first ~= nil, out)
-  assert(out:find(line, first + 1, true) == nil, out)
+  -- Named as the tree names it, and as `fix .` names it (`./a.tl`).
+  for _, args in ipairs({ { "fix", "--check" }, { "fix", "--check", "." } }) do
+    local started = this_program.program(args, { cwd = root,
+      stdout = "capture", stderr = "stdout", timeout_ns = Time.seconds(60) })
+    local out = assert(assert(Child.run(started.argv, started.options)).stdout)
+    local _, count = out:gsub("fix: FAIL  [^\n]*" .. said:gsub("%p", "%%%0"), "")
+    assert(count == 1, out)
+  end
 end

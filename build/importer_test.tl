@@ -1203,8 +1203,8 @@ local function test_a_repeated_hint_is_printed_once()
 end
 
 --- A module's type named from another module, where the module declares
---- it beside its record rather than inside, is told what the module must
---- declare.
+--- it beside its record rather than inside, is told that the name is
+--- misspelt or what the module must declare.
 local function test_a_type_beside_a_module_s_record_is_told_to_nest()
   local root = assert(write_fixture("module-type-hint", {
     ["ledger.tl"] = "local record Transaction\n  amount: integer\nend\nlocal record Ledger\n" ..
@@ -1216,9 +1216,9 @@ local function test_a_type_beside_a_module_s_record_is_told_to_nest()
   local result, compile_trouble = compile_fixture(root)
   assert(result == nil, "expected the unknown type to refuse the compile")
   assert(compile_trouble:find("main.tl:2:20: unknown type Ledger.Transaction -- " ..
-      "Ledger.Transaction is a type only if ledger declares `record Transaction ... end` " ..
-      "inside the record it returns; a `local record Transaction` beside that record is its " ..
-      "file's alone", 1, true) ~= nil, compile_trouble)
+      "Ledger has no type Transaction: check its spelling, or declare `record Transaction ... end` " ..
+      "inside the record ledger returns (a `local record Transaction` beside that record is its " ..
+      "file's alone)", 1, true) ~= nil, compile_trouble)
 end
 
 --- `ci/` is the pinned CI driver's own project, walked and built by
