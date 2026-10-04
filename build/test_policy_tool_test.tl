@@ -95,6 +95,10 @@ end
 --- shared verdicts, and nothing of this run's choice of sandbox or policy.
 local function environment(): {string:string}
   local env = this_program.environment()
+  -- The seccomp filters this worker has, which each worker of a run it
+  -- starts inherits.
+  local status = assert((Fs.read("/proc/self/status")))
+  env.BASELINE_FILTERS = status:match("Seccomp_filters:\t(%d+)") or "0"
   env.COSMIC_VERDICT_CACHE = "0"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil
@@ -160,12 +164,17 @@ local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "suite/data.txt" } }
+Test.needs { reads = { "suite/data.txt" }, env = { "BASELINE_FILTERS" } }
 
 local function test_a_declared_read_is_held_as_a_policy_holds_it()
   assert(Fs.read("suite/data.txt") == "declared")
   local status = assert(Fs.read("/proc/self/status"))
-  assert(status:find("Seccomp:\t2", 1, true), "no filter holds this worker")
+  -- One filter beyond the ones inherited, which a container's runtime may
+  -- have installed on every process.
+  local filters = math.tointeger(status:match("Seccomp_filters:\t(%d+)"))
+  local baseline = math.tointeger(sys.getenv("BASELINE_FILTERS"))
+  assert(filters == baseline + 1, "no filter holds this worker: " .. tostring(filters) ..
+    " filters, " .. tostring(baseline) .. " inherited")
   assert(sys.getuid() ~= 0, "this worker is root")
 end
 
