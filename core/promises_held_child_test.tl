@@ -319,23 +319,28 @@ local function test_a_path_swapped_for_a_directory_after_the_check_fails_the_sta
     nil, "/", nil, null, null, false, nil, nil)
   sys.close(null)
   assert(racer ~= nil, tostring(started))
-  -- The racer puts a file and a directory at the path in turn: a start whose check
-  -- meets the file and whose bind meets the directory is the one this holds, and
-  -- one in four does, so a few hundred meet it but for a start the kernel refuses.
+  -- The racer puts a file and a directory at the path in turn, and leaves it
+  -- absent for an instant between: a start whose check meets the file and whose
+  -- bind meets the directory is the one this holds. Where the racer is slow to
+  -- run (a host of one processor) most starts meet the gap or no change and
+  -- fail or succeed with nothing to judge, so the test says it lost the race
+  -- rather than fail: a start that binds a directory and was held to a root
+  -- of files alone is refused ("changed kind"), and the other outcomes are the
+  -- kernel's own (the path absent, or a directory made for a file) or a start
+  -- whose check met the directory, which is held to nothing. The check itself
+  -- is the deterministic test above's.
   local caught = false
-  for _ = 1, 400 do
+  for _ = 1, 1500 do
     local pid, why = start(probe, rooted_with(probe, { tmp .. "/swap-a" }))
     if pid == nil and tostring(why):find("changed kind", 1, true) then
       caught = true
-      break
-    elseif pid == nil and tostring(why):find("user namespace", 1, true) then
       break
     end
   end
   sys.kill(racer, 9)
   assert(process.waitpid(racer, false))
   if not caught and confine.sandbox_platform() then
-    Test.skip("no start was refused for the swap: this host gives no such sandbox, or the racer lost")
+    Test.skip("the racer won no start in 1500: this host runs it too seldom to meet the " ..
+        "window between the start's check and its bind")
   end
-  assert(caught or not confine.sandbox_platform(), "a path swapped for a directory was bound")
 end
