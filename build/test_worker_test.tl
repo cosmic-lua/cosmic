@@ -3,8 +3,8 @@
 --- worker ran to what its test's key holds.
 
 local type Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local worker = require("build.test_worker")
-local Time = require("cosmic.time")
 
 --- A worker's end, having written `report` to the report's descriptor.
 local function ended(report: worker.Report): Child.Result
@@ -35,7 +35,7 @@ local function test_a_worker_that_ran_an_unkeyed_module_fails_its_test()
     ["cosmic.removed"] = true }
   local closure = { ["build.lib"] = true, ["build.lib_test"] = true }
   local function judged(modules: {string}, held?: boolean): worker.Judgement
-    return worker.judge({ result = ended(passing(modules)), trouble = "", timeout_ns = Time.seconds(1),
+    return worker.judge({ result = ended(passing(modules)), trouble = "", timeout_ns = Clock.seconds(1),
       sandboxed = true, carried = held ~= false and carried or nil,
       closure = held ~= false and closure or nil })
   end
@@ -58,19 +58,19 @@ end
 
 --- A worker that reported nothing fails its test by what went wrong.
 local function test_a_worker_without_a_report_fails_its_test()
-  local unsupervised = worker.judge({ trouble = "no fork", timeout_ns = Time.seconds(1), sandboxed = false })
+  local unsupervised = worker.judge({ trouble = "no fork", timeout_ns = Clock.seconds(1), sandboxed = false })
   assert(not unsupervised.passed and unsupervised.report == nil)
   assert(unsupervised.message == "the test process could not be supervised: no fork")
   local late = worker.judge({ result = { ok = false, timed_out = true, truncated = false,
-    captured = {} }, trouble = "", timeout_ns = Time.seconds(30), sandboxed = true })
+    captured = {} }, trouble = "", timeout_ns = Clock.seconds(30), sandboxed = true })
   assert(late.message == "timed out after 30 s; its pid namespace was ended", late.message)
   local crashed = worker.judge({ result = { ok = false, signal = 9, timed_out = false,
-    truncated = false, captured = {} }, trouble = "", timeout_ns = Time.seconds(1), sandboxed = false })
+    truncated = false, captured = {} }, trouble = "", timeout_ns = Clock.seconds(1), sandboxed = false })
   assert(crashed.message == "the test process was killed by signal 9 before it reported " ..
       "(no report)", crashed.message)
   -- A pass whose processes outlived it is not one.
   local outlived = worker.judge({ result = ended(passing({})), trouble = "a process outlived it",
-    timeout_ns = Time.seconds(1), sandboxed = false })
+    timeout_ns = Clock.seconds(1), sandboxed = false })
   assert(not outlived.passed and outlived.message == "a process outlived it")
 end
 
@@ -129,16 +129,16 @@ local function test_a_skip_is_reported_and_judged_only_of_a_pass()
   local back = assert(worker.decode(worker.encode(report)))
   assert(back.skipped == "no Landlock: ENOSYS; no pledge", back.skipped)
   assert(assert(worker.decode(worker.encode(passing({})))).skipped == "")
-  local skipped = worker.judge({ result = ended(report), trouble = "", timeout_ns = Time.seconds(1),
+  local skipped = worker.judge({ result = ended(report), trouble = "", timeout_ns = Clock.seconds(1),
     sandboxed = false })
   assert(skipped.passed and skipped.skipped == "no Landlock: ENOSYS; no pledge", skipped.skipped)
   report.passed, report.message = false, "asserted"
-  local failed = worker.judge({ result = ended(report), trouble = "", timeout_ns = Time.seconds(1),
+  local failed = worker.judge({ result = ended(report), trouble = "", timeout_ns = Clock.seconds(1),
     sandboxed = false })
   assert(not failed.passed and failed.skipped == "", failed.skipped)
   -- A pass whose processes outlived it fails, skip or not.
   report.passed = true
   local outlived = worker.judge({ result = ended(report), trouble = "a process outlived it",
-    timeout_ns = Time.seconds(1), sandboxed = false })
+    timeout_ns = Clock.seconds(1), sandboxed = false })
   assert(not outlived.passed and outlived.skipped == "")
 end

@@ -2,6 +2,7 @@
 --- symbol each one demonstrates and run by `cosmic test` like any
 --- other test -- see doc/design.md's `examples` table.
 
+local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
@@ -9,7 +10,6 @@ local Hash = require("cosmic.hash")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
-local Time = require("cosmic.time")
 
 local Example = {}
 
@@ -50,7 +50,7 @@ function Example.from_fd()
   assert(sys.mkfifo(dir .. "/quiet", 384))
   local quiet = assert(sys.open(dir .. "/quiet", sys.O_RDONLY | sys.O_NONBLOCK, 0))
   local writer = assert(sys.open(dir .. "/quiet", sys.O_WRONLY | sys.O_NONBLOCK, 0))
-  local waiting = Stream.from_fd(quiet, { nonblocking = true, timeout_ns = Time.ms(20) })
+  local waiting = Stream.from_fd(quiet, { nonblocking = true, timeout_ns = Clock.ms(20) })
   local chunk, why = waiting:read()
   print(why)
   assert(chunk == nil and why == Poll.TIMEOUT, why)
@@ -109,7 +109,7 @@ function Example.to_fd()
   assert(sys.mkfifo(dir .. "/full", 384))
   local reader = assert(sys.open(dir .. "/full", sys.O_RDONLY | sys.O_NONBLOCK, 0))
   local pipe = assert(sys.open(dir .. "/full", sys.O_WRONLY | sys.O_NONBLOCK, 0))
-  local slow = Stream.to_fd(pipe, { nonblocking = true, timeout_ns = Time.ms(20) })
+  local slow = Stream.to_fd(pipe, { nonblocking = true, timeout_ns = Clock.ms(20) })
   local body = string.rep("x", 1 << 20)
   local ok, why = slow:write(body)
   print(why, slow:written())

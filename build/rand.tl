@@ -41,7 +41,7 @@ local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Rand = require("cosmic.rand")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
 local plural = require("build.plural")
@@ -62,7 +62,7 @@ local record verb
     stdin: function(): string | nil, string
     --- The operating system's entropy: [`Rand.entropy`] when nil.
     entropy: function(count: integer): string | nil, string
-    --- The wall clock in nanoseconds: [`Time.now_ns`] when nil.
+    --- The wall clock in nanoseconds: [`Clock.now_ns`] when nil.
     now_ns: function(): integer
   end
 
@@ -220,7 +220,7 @@ local standard: verb.Io = {
   err = bare.err,
   stdin = read_stdin,
   entropy = Rand.entropy,
-  now_ns = Time.now_ns,
+  now_ns = Clock.now_ns,
 }
 
 --- The lines of `text`, split at "\n" with a "\r" before it dropped. A
@@ -258,7 +258,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
   local request: Request = found
   local draw_entropy = to.entropy or Rand.entropy
-  local now_ns = to.now_ns or Time.now_ns
+  local now_ns = to.now_ns or Clock.now_ns
 
   -- THE ONE READ OF THE OPERATING SYSTEM'S ENTROPY. Every value that
   -- may be a secret is made from bytes this returns; a seeded

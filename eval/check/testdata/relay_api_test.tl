@@ -1,17 +1,17 @@
 --- The relay task's hidden API test: eval/check/grade.tl runs it
 --- against a copy of a solver's project, never shown to the solver.
+local Clock = require("cosmic.clock")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
-local Time = require("cosmic.time")
 local relay = require("relay")
 
 --- Both ends of a fresh connection over a socket file at `path`: the
 --- one that connected and the one accepted.
 local function pair(path: string): Net.Conn, Net.Conn
   local listener = assert(Net.listen(Net.unix(path)))
-  local near = assert(Net.connect(Net.unix(path), { timeout_ns = Time.seconds(5) }))
-  local far = assert(listener:accept(Time.seconds(5)))
-  far:set_timeout(Time.seconds(5))
+  local near = assert(Net.connect(Net.unix(path), { timeout_ns = Clock.seconds(5) }))
+  local far = assert(listener:accept(Clock.seconds(5)))
+  far:set_timeout(Clock.seconds(5))
   assert(listener:close())
   return near, far
 end
@@ -39,7 +39,7 @@ local function piped(dir: string, options: relay.Options,
       stats = relay.pipe(a, b, options)
     end)
     body(client, target)
-    assert(task:join(Time.seconds(5)), "pipe did not return once both ways ended")
+    assert(task:join(Clock.seconds(5)), "pipe did not return once both ways ended")
     local _, _ = client:close()
     local _, _ = target:close()
   end)
@@ -82,8 +82,8 @@ local function test_pipe_lets_b_speak_first(dir: string)
 end
 
 local function test_pipe_ends_a_quiet_pair_at_its_idle_limit(dir: string)
-  local started = Time.monotonic_ns()
-  local stats = piped(dir, { idle_ns = Time.ms(200) }, function(client: Net.Conn, target: Net.Conn)
+  local started = Clock.monotonic_ns()
+  local stats = piped(dir, { idle_ns = Clock.ms(200) }, function(client: Net.Conn, target: Net.Conn)
     assert(client:write("x"))
     assert(read_n(target, 1) == "x")
     local more, ended = client:read()
@@ -91,17 +91,17 @@ local function test_pipe_ends_a_quiet_pair_at_its_idle_limit(dir: string)
     local other, done = target:read()
     assert(other == nil and done == "", "the idle pair's other side was not closed")
   end)
-  local took = (Time.monotonic_ns() - started) // Time.ms(1)
+  local took = (Clock.monotonic_ns() - started) // Clock.ms(1)
   assert(stats.idle == true and stats.up == 1 and stats.down == 0, "stats")
   assert(took >= 150 and took < 2000, "closed after " .. took .. " ms")
 end
 
 local function test_pipe_keeps_a_busy_pair_past_its_idle_limit(dir: string)
-  local stats = piped(dir, { idle_ns = Time.ms(200) }, function(client: Net.Conn, target: Net.Conn)
+  local stats = piped(dir, { idle_ns = Clock.ms(200) }, function(client: Net.Conn, target: Net.Conn)
     for _ = 1, 6 do
       assert(client:write("a"))
       assert(read_n(target, 1) == "a", "a byte was lost")
-      assert(Poll.delay(Time.ms(100)))
+      assert(Poll.delay(Clock.ms(100)))
     end
     assert(client:close())
     assert(target:close())
@@ -120,7 +120,7 @@ local function test_pipe_moves_megabytes_whole(dir: string)
     local ended: string
     got, ended = read_n(target, #data + 1)
     assert(ended == "", "the end did not follow the data: " .. ended)
-    assert(writer:join(Time.seconds(5)))
+    assert(writer:join(Clock.seconds(5)))
     assert(target:close())
   end)
   assert(got == data, #got .. " bytes of " .. #data)

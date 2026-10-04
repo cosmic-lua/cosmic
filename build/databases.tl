@@ -4,10 +4,10 @@
 --- noticed, and how a change to what the build stores is judged by
 --- what it costs.
 
+local Clock = require("cosmic.clock")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local Time = require("cosmic.time")
 local clock = require("build.clock")
 local narrow = require("build.narrow")
 local plural = require("build.plural")
@@ -235,7 +235,7 @@ end
 --- @param argv the command line, re-entered if this binary embeds a
 ---   stale copy of [`build.databases`] itself -- see [`build.reboot.stale_exit`]
 local function run(argv: {integer:string}): integer
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local parsed, parse_trouble = Flags.parse(argv, 2, {})
   if parsed == nil then
     log:complain("db: " .. parse_trouble)

@@ -6,12 +6,12 @@
 --- ([`build.stand_in`]). The tests
 --- that start bin/zig are build/zig_tool_test.tl's.
 
+local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
-local Time = require("cosmic.time")
 local rebuild_lock = require("build.rebuild_lock")
 local stand_in = require("build.stand_in")
 local Zig = require("build.zig")
@@ -328,11 +328,11 @@ local function test_run_passes_on_a_signal_sent_to_it_alone(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   -- The child has this process interrupted, as a `kill -INT` aimed at
   -- bin/zig alone would; the child hears of it only if it is passed on.
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local status = Zig.run({ probe,
     "trap 42; signal INT " .. tostring(sys.getpid()) .. "; sleep 10000" })
   assert(status == 42, tostring(status))
-  assert(Time.monotonic_ns() - started < 5 * 1000 * 1000 * 1000)
+  assert(Clock.monotonic_ns() - started < 5 * 1000 * 1000 * 1000)
 end
 
 --- A build of the boot step holds the checkout's rebuild lock, as a

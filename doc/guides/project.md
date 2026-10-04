@@ -292,7 +292,7 @@ This runs the verbs above on the files of this guide, each through
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Proc = require("cosmic.proc")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 local relaunch = assert(Proc.relaunch())
 local env = Env.all()
@@ -302,7 +302,7 @@ local function cosmic_in(dir: string, ...: string): Child.Result
   local argv = { table.unpack(relaunch.argv) }
   for _, word in ipairs({ ... }) do argv[#argv + 1] = word end
   return (assert(Child.run(argv, { env = env, fds = relaunch.fds, cwd = dir,
-    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(120) })))
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(120) })))
 end
 local function cosmic(...: string): Child.Result
   return cosmic_in(tmp, ...)
@@ -320,7 +320,7 @@ print(missing.code, ((missing.stderr or ""):gsub("\n$", "")))
 print(((cosmic("cmd/tally/main.tl", "--help").stdout or ""):gsub("\n$", "")))
 verdict(cosmic("build", "--host"), "build")
 local built = assert(Child.run({ tmp .. "/o/bin/tally", "words", "words.txt" },
-  { cwd = tmp, stdout = "capture", timeout_ns = Time.seconds(60) }))
+  { cwd = tmp, stdout = "capture", timeout_ns = Clock.seconds(60) }))
 print(((built.stdout or ""):gsub("\n$", "")))
 verdict(cosmic_in(tmp .. "/cmd/tally", "test"), "test")
 print((cosmic("docs", "tally").stdout or ""):match("^[^\n]*"))

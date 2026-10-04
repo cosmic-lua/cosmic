@@ -47,7 +47,7 @@ local rules = require("build.c.rules")
 local tree = require("build.c.tree")
 local Zig = require("build.zig")
 local plural = require("build.plural")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 local record c
   --- What checking one file came to: its findings, or why it could not
@@ -317,7 +317,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
         next_file = next_file + 1
       end
       if #running > 0 then
-        local done, trouble = Child.wait_any(running, Time.seconds(120))
+        local done, trouble = Child.wait_any(running, Clock.seconds(120))
         if done == nil then
           if trouble == Poll.TIMEOUT then trouble = "clang gave no answer in 120 seconds" end
           for _, handle in ipairs(running) do

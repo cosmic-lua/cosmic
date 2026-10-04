@@ -68,7 +68,7 @@ local identity = require("build.identity")
 local c_check = require("build.c")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local clock = require("build.clock")
 local docs = require("build.docs")
 local docs_checks = require("build.docs_checks")
@@ -953,7 +953,7 @@ end
 --- @param argv {integer:string} The command line, the verb at slot 1
 --- @return integer The exit code: 0 when nothing is left to fix
 local function fix_verb(argv: {integer:string}): integer
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local parsed, parse_trouble = Flags.parse(argv, 2, Cli.verbs.fix.spec)
   if parsed == nil then
     log:complain("fix: " .. parse_trouble)

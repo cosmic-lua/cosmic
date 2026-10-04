@@ -17,11 +17,11 @@
 --- builds the tool.
 
 local Cli = require("cosmic.cli")
+local Clock = require("cosmic.clock")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
-local Time = require("cosmic.time")
 local clock = require("build.clock")
 local artifact = require("build.artifact")
 local type raw_store = require("cosmic.internal.store")
@@ -320,7 +320,7 @@ function embed.tree(root: string, host?: boolean, under?: {string}): {string} | 
   if own_tree then
     return nil, "this is cosmic's own tree, which bin/zig build boot builds"
   end
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local handle, open_trouble = work.open(root)
   if handle == nil then
     return nil, open_trouble
@@ -423,7 +423,7 @@ end
 --- under one of the paths, when there are any. Ends in a verdict line
 --- that names what was written, or says why nothing was.
 local function run(argv: {integer:string}): integer
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local parsed, parse_trouble = Flags.parse(argv, 2, Cli.verbs.build.spec)
   if parsed == nil then
     log:complain("build: " .. parse_trouble)

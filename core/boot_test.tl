@@ -10,7 +10,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local artifact = require("build.artifact")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- The bridge a stand-in tree boots through, and the program itself,
 --- which its tests start.
@@ -65,7 +65,7 @@ local function run_boot(tmp: string, mode: string, bridge?: boolean): Child.Resu
   assert(Fs.write(tmp .. "/tl/tl.tl", compiler))
   return (assert(Child.run({ path, "--boot", tmp .. "/tree", tmp .. "/tl", mode },
     { stdout = "capture", stderr = "capture",
-      timeout_ns = Time.seconds(30) })))
+      timeout_ns = Clock.seconds(30) })))
 end
 
 local function test_boot_exits_with_the_status_build_boot_returns(tmp: string)

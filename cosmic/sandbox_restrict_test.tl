@@ -7,6 +7,7 @@
 --- but Linux, skips the cases that need the sandbox (build.sandbox_skip).
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 -- The child loads these from the store, which holds this test's closure alone.
 local _net = require("cosmic.net")
 local _sandbox = require("cosmic.sandbox")
@@ -14,7 +15,6 @@ local _store = require("cosmic.store")
 local _sys = require("cosmic.sys")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
 local confine = require("build.confine")
 local sandbox_skip = require("build.sandbox_skip")
 local stand_in = require("build.stand_in")
@@ -74,7 +74,7 @@ local function in_child(chunk: string): Said | nil
   end
   local started = this_program.program({ "-e", PRELUDE .. chunk }, {
     env = this_program.environment(), stdout = "capture", stderr = "stdout",
-    timeout_ns = Time.seconds(60) })
+    timeout_ns = Clock.seconds(60) })
   local result = assert(Child.run(started.argv, started.options))
   local said: Said = { code = result.code or -1, lines = {}, raw = result.stdout or "" }
   for line in said.raw:gmatch("[^\n]+") do

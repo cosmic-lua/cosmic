@@ -2,9 +2,9 @@
 --- The small setup/probe executable establishes privileged prerequisites;
 --- this driver exercises the real public API without a root test suite.
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
-local Time = require("cosmic.time")
 
 local record Proof
 end
@@ -68,7 +68,7 @@ function Proof.main(argv: {integer:string}): integer
       assert(assert(sys.lseek(grant, 0, sys.SEEK_SET)) == 0)
       local result, trouble = Child.run({ binary, "probe", secret, marker }, {
         credentials = credentials, cwd = directory .. "/target", fds = { [9] = grant },
-        stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(5),
+        stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(5),
       })
       assert(result ~= nil, trouble)
       assert(result.ok, tostring(result.stderr))

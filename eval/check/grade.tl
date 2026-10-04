@@ -23,6 +23,7 @@
 --- against the module the solver exported, types and all.
 local Archive = require("cosmic.archive")
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Compress = require("cosmic.compress")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
@@ -32,7 +33,6 @@ local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
-local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 
 local record Grader
@@ -225,7 +225,7 @@ end
 local function command_step(g: Grade, argv: {string}, cwd: string): boolean
   return step(g, table.concat(argv, " "), function(out: integer): boolean
     local result, trouble = Child.run(argv, { cwd = cwd, stdout = out, stderr = "stdout",
-      timeout_ns = Time.seconds(120) })
+      timeout_ns = Clock.seconds(120) })
     if result == nil then
       local _, _ = Fs.put(out, trouble .. "\n")
       return false
@@ -392,7 +392,7 @@ local function hidden_api(g: Grade, cosmic: string, project: string, test: strin
     env.COSMIC_BUILD_CACHE = "0"
     env.COSMIC_VERDICT_CACHE = "0"
     local result, rtrouble = Child.run({ cosmic, "test", "--timeout", "5", name }, { cwd = copy,
-      env = env, stdout = "capture", stderr = "stdout", timeout_ns = Time.seconds(20) })
+      env = env, stdout = "capture", stderr = "stdout", timeout_ns = Clock.seconds(20) })
     if result == nil then
       ready, why = false, rtrouble
     else
@@ -536,14 +536,14 @@ local function shown(value: any): string
 end
 
 local function since_ms(started: integer): integer
-  return (Time.monotonic_ns() - started) // Time.ms(1)
+  return (Clock.monotonic_ns() - started) // Clock.ms(1)
 end
 
 --- Sleeps until `deadline` on the monotonic clock.
 local function sleep_until(deadline: integer)
-  local left = deadline - Time.monotonic_ns()
+  local left = deadline - Clock.monotonic_ns()
   if left > 0 then
-    local _, _ = Time.sleep_ns(left)
+    local _, _ = Clock.sleep_ns(left)
   end
 end
 
@@ -579,8 +579,8 @@ local function serves(g: Grade, args: {string}, log?: string): Child.Handle, int
     fail(g, what .. " did not start: " .. trouble)
     return nil, 0
   end
-  local deadline = Time.monotonic_ns() + Time.seconds(5)
-  while Time.monotonic_ns() < deadline do
+  local deadline = Clock.monotonic_ns() + Clock.seconds(5)
+  while Clock.monotonic_ns() < deadline do
     local text, _ = Fs.read(out_path)
     local found = text ~= nil and text:match("listening on 127%.0%.0%.1:(%d+)\n")
     if found then
@@ -588,7 +588,7 @@ local function serves(g: Grade, args: {string}, log?: string): Child.Handle, int
       ok(what .. " -> listening on 127.0.0.1:" .. port)
       return server, port
     end
-    local _, _ = Time.sleep_ns(Time.ms(50))
+    local _, _ = Clock.sleep_ns(Clock.ms(50))
   end
   local text, _ = Fs.read(out_path)
   fail(g, what .. " printed no 'listening on 127.0.0.1:<port>' line in 5s: " ..
@@ -602,7 +602,7 @@ end
 local function stops(g: Grade, server: Child.Handle, what?: string)
   what = what or g.name .. " serve"
   local stopped, _ = server:stop()
-  local result, _ = server:wait(Time.seconds(3))
+  local result, _ = server:wait(Clock.seconds(3))
   if not stopped or result == nil or result.timed_out then
     fail(g, what .. " did not exit within 3s of SIGTERM")
   elseif status(result) ~= 0 then
@@ -675,7 +675,7 @@ local function receive(conn: Net.Conn, head_only: boolean, to_close: boolean): A
     if answer == nil then got = got .. chunk else answer.body = answer.body .. chunk end
   end
   if to_close then
-    conn:set_timeout(Time.ms(300))
+    conn:set_timeout(Clock.ms(300))
     while true do
       local chunk, _ = conn:read()
       if chunk == nil then break end
@@ -691,7 +691,7 @@ end
 --- response, as [`receive`] reads it.
 local function exchange(port: integer, request: string, head_only: boolean,
                         to_close: boolean): Answer | nil, string
-  local conn, ctrouble = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Time.seconds(3) })
+  local conn, ctrouble = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(3) })
   if conn == nil then return nil, ctrouble end
   local sent, strouble = conn:write(request)
   if not sent then
@@ -967,14 +967,14 @@ end
 --- A GET that waits answers once a PUT sets its key, holding up no
 --- other client meanwhile, or 404 once its time has passed.
 local function kv_wait(g: Grade, port: integer)
-  local waiting, trouble = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Time.seconds(8) })
+  local waiting, trouble = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(8) })
   if waiting == nil then
     fail(g, "GET /later?wait=5: " .. trouble)
     return
   end
   local _, _ = waiting:write("GET /later?wait=5 HTTP/1.1\r\nHost: x\r\n\r\n")
-  local _, _ = Time.sleep_ns(Time.ms(300))
-  local started = Time.monotonic_ns()
+  local _, _ = Clock.sleep_ns(Clock.ms(300))
+  local started = Clock.monotonic_ns()
   answers(g, port, "GET /beta HTTP/1.1\r\nHost: x\r\n\r\n", { "200" }, "two words")
   check(g, since_ms(started) < 1000, "GET /beta while another GET waits answered in " ..
       since_ms(started) .. " ms")
@@ -989,12 +989,12 @@ local function kv_wait(g: Grade, port: integer)
       "GET /later?wait=5 answers the PUT's value once it is set, in " .. took .. " ms",
       "status " .. answer.status .. ", body '" .. answer.body .. "'")
   end
-  started = Time.monotonic_ns()
+  started = Clock.monotonic_ns()
   answers(g, port, "GET /never?wait=0.5 HTTP/1.1\r\nHost: x\r\n\r\n", { "404" })
   took = since_ms(started)
   check(g, took >= 450 and took < 2500, "GET /never?wait=0.5 answered 404 after " .. took .. " ms",
     "wanted about 500 ms")
-  started = Time.monotonic_ns()
+  started = Clock.monotonic_ns()
   answers(g, port, "GET /beta?wait=5 HTTP/1.1\r\nHost: x\r\n\r\n", { "200" }, "two words")
   check(g, since_ms(started) < 1000, "GET /beta?wait=5 of a key set answered at once")
   for _, query in ipairs({ "wait=soon", "wait=61", "wait=-1", "color=red" }) do
@@ -1072,12 +1072,12 @@ local function kv(g: Grade)
   answers(g, port, "DELETE /raw HTTP/1.1\r\nHost: x\r\n\r\n", { "204" })
 
   -- A client that sends half a request and waits must not hold up the next.
-  local idle, itrouble = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Time.seconds(3) })
+  local idle, itrouble = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(3) })
   if idle == nil then
     fail(g, "idle connection: " .. itrouble)
   else
     local _, _ = idle:write("GET /beta HTTP/1.1\r\nHo")
-    local started = Time.monotonic_ns()
+    local started = Clock.monotonic_ns()
     local result = run(g, { "get", base .. "/beta" })
     local took = since_ms(started)
     if status(result) == 0 and trimmed(result.stdout or "") == "two words" and took < 3000 then
@@ -1166,7 +1166,7 @@ local function jobs_main(g: Grade, w: string): integer
   })
   local _, _ = Fs.mkdirs(w .. "/sub")
   local args = { "run", "w/main.json", "--parallel", "3", "--logs", "w/logs" }
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local result = run(g, args, { LEAK = "from jobs" })
   local took = since_ms(started)
   check(g, status(result) ~= 0, label(g, args) .. " exits non-zero when a job failed",
@@ -1176,7 +1176,7 @@ local function jobs_main(g: Grade, w: string): integer
   local report, trouble = jobs_report(result)
   if report == nil then
     fail(g, label(g, args) .. ": " .. trouble .. "; stderr: " .. first_line(result.stderr or ""))
-    return started + Time.ms(took + 2600)
+    return started + Clock.ms(took + 2600)
   end
   each_job(g, report, "status", { first = "ok", second = "ok", envcheck = "ok", here = "ok",
     flaky = "ok", broken = "failed", missing = "failed", after_broken = "skipped",
@@ -1211,7 +1211,7 @@ local function jobs_main(g: Grade, w: string): integer
   -- start, it may have started as late as the run ended, and a start
   -- the report puts outside the run (epoch milliseconds) is not slept on.
   local slow_at = math.floor(math.min(math.max(slow_start or took, 0), took))
-  return started + Time.ms(slow_at + 2600)
+  return started + Clock.ms(slow_at + 2600)
 end
 
 --- Runs term.json and sends it SIGTERM; answers when the interrupted
@@ -1224,25 +1224,25 @@ local function jobs_interrupt(g: Grade, w: string): integer
     next = { cmd = sh(": > " .. w .. "/next.ran"), needs = { "long" } },
   })
   local args = { "run", "w/term.json" }
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local handle, trouble = Child.start(argv_of(g, args), { cwd = g.empty, env = {},
     stdout = "capture", stderr = "capture", stdin = "null", process_group = false })
   if handle == nil then
     fail(g, label(g, args) .. " did not start: " .. trouble)
     return 0
   end
-  local deadline = Time.monotonic_ns() + Time.seconds(3)
-  while not exists(w .. "/quick.done") and Time.monotonic_ns() < deadline do
-    local _, _ = Time.sleep_ns(Time.ms(20))
+  local deadline = Clock.monotonic_ns() + Clock.seconds(3)
+  while not exists(w .. "/quick.done") and Clock.monotonic_ns() < deadline do
+    local _, _ = Clock.sleep_ns(Clock.ms(20))
   end
-  local _, _ = Time.sleep_ns(Time.ms(300))
-  local signalled = Time.monotonic_ns()
+  local _, _ = Clock.sleep_ns(Clock.ms(300))
+  local signalled = Clock.monotonic_ns()
   local _, _ = handle:stop()
-  local result, _ = handle:wait(Time.seconds(5))
+  local result, _ = handle:wait(Clock.seconds(5))
   local took = since_ms(signalled)
   local _, _ = handle:close()
   -- long starts with the run; it has no needs.
-  local late = started + Time.ms(1500 + 600)
+  local late = started + Clock.ms(1500 + 600)
   if result == nil or result.timed_out then
     fail(g, label(g, args) .. " was still running 5 s after SIGTERM")
     return late
@@ -1326,7 +1326,7 @@ local function jobs_parallel(g: Grade)
     two = { cmd = { "/bin/sleep", "1" } },
     three = { cmd = { "/bin/sleep", "1" } },
   })
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local args = { "run", "w/par.json" }
   local result = run(g, args)
   local took = since_ms(started)
@@ -1546,12 +1546,12 @@ local function mirror_requests(g: Grade, site: Site)
 
   -- A client that sends half a request and waits must not hold up the next.
   local idle, itrouble = Net.connect(Net.tcp("127.0.0.1", site.port),
-    { timeout_ns = Time.seconds(3) })
+    { timeout_ns = Clock.seconds(3) })
   if idle == nil then
     fail(g, "idle connection: " .. itrouble)
   else
     local _, _ = idle:write("GET /a.txt HTTP/1.1\r\nHo")
-    local started = Time.monotonic_ns()
+    local started = Clock.monotonic_ns()
     local answer, trouble = request(site.port, "GET", "/a.txt")
     local took = since_ms(started)
     local code = 0
@@ -1631,8 +1631,8 @@ local function mirror_lie(g: Grade)
   local args: {string} = {}
   local served, trouble = Net.serve({
     listeners = { Net.tcp("127.0.0.1", 0) },
-    timeout_ns = Time.seconds(5),
-    grace_ns = Time.ms(200),
+    timeout_ns = Clock.seconds(5),
+    grace_ns = Clock.ms(200),
     serve = function(conn: Net.Conn)
       local got = ""
       while not got:find("\r\n\r\n", 1, true) do
@@ -1800,7 +1800,7 @@ end
 --- A connection to the relay at `port`, whose every wait lasts 5 s at
 --- most.
 local function dial(port: integer): Net.Conn | nil, string
-  return Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Time.seconds(5) })
+  return Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(5) })
 end
 
 --- Reads `conn` until `n` bytes have come or it ends; answers what
@@ -1856,9 +1856,9 @@ local function relay_split(g: Grade, target: Target, port: integer)
   local before = #target.split
   local _, _ = conn:write("after")
   local _, _ = conn:shutdown("write")
-  local deadline = Time.monotonic_ns() + Time.seconds(2)
-  while #target.split == before and Time.monotonic_ns() < deadline do
-    local _, _ = Poll.delay(Time.ms(20))
+  local deadline = Clock.monotonic_ns() + Clock.seconds(2)
+  while #target.split == before and Clock.monotonic_ns() < deadline do
+    local _, _ = Poll.delay(Clock.ms(20))
   end
   local kept = target.split[before + 1]
   check(g, kept == "after", "what a client sends after its target half-closed still reaches it",
@@ -1880,12 +1880,12 @@ local function relay_stalled(g: Grade, port: integer)
       if not sent then return end
     end
   end)
-  local _, _ = Poll.delay(Time.ms(300))
-  local started = Time.monotonic_ns()
+  local _, _ = Poll.delay(Clock.ms(300))
+  local started = Clock.monotonic_ns()
   local other, otrouble = dial(port)
   local got, why = "", otrouble
   if other ~= nil then
-    other:set_timeout(Time.seconds(2))
+    other:set_timeout(Clock.seconds(2))
     local _, _ = other:write("ping")
     got, why = read_n(other, 4)
     local _, _ = other:close()
@@ -1939,7 +1939,7 @@ local function relay_idle(g: Grade, target_port: integer)
   else
     local _, _ = quiet:write("x")
     local got, _ = read_n(quiet, 1)
-    local started = Time.monotonic_ns()
+    local started = Clock.monotonic_ns()
     local more, ended = quiet:read()
     local took = since_ms(started)
     check(g, got == "x" and more == nil and ended == "" and took >= 350 and took < 2000,
@@ -1956,7 +1956,7 @@ local function relay_idle(g: Grade, target_port: integer)
       local _, _ = busy:write("a")
       local got, _ = read_n(busy, 1)
       echoed = echoed .. got
-      local _, _ = Poll.delay(Time.ms(150))
+      local _, _ = Poll.delay(Clock.ms(150))
     end
     local _, _ = busy:shutdown("write")
     local rest, ended = read_all(busy)
@@ -1989,7 +1989,7 @@ local function relay_refused(g: Grade)
     if conn == nil then
       fail(g, "connect to the relay: " .. ctrouble)
     else
-      local started = Time.monotonic_ns()
+      local started = Clock.monotonic_ns()
       local got, ended = read_all(conn)
       local took = since_ms(started)
       check(g, got == "" and took < 2000, "connection " .. i .. " to a refusing target is " ..
@@ -2018,8 +2018,8 @@ local function relay(g: Grade)
   local target: Target = { split = {} }
   local served, trouble = Net.serve({
     listeners = { Net.tcp("127.0.0.1", 0) },
-    timeout_ns = Time.seconds(10),
-    grace_ns = Time.ms(200),
+    timeout_ns = Clock.seconds(10),
+    grace_ns = Clock.ms(200),
     serve = function(conn: Net.Conn)
       echo(target, conn)
     end,
@@ -2110,7 +2110,7 @@ function Grader.grade(name: string, dir: string, testdata: string): integer
   end
   local g: Grade = { dir = dir, name = name, exe = project .. "/o/bin/" .. name,
     empty = dir .. "/empty", steps = 0, failed = false,
-    timeout_ns = Time.seconds(task.timeout), null_stdin = task.null_stdin, own_group = task.own_group }
+    timeout_ns = Clock.seconds(task.timeout), null_stdin = task.null_stdin, own_group = task.own_group }
   local set_aside = put_back_journal(g, project)
   local kept, why = Grader.journal(project .. "/JOURNAL.md")
   check(g, kept, "JOURNAL.md kept, as TASK.md's journal contract asks", why)

@@ -276,7 +276,7 @@ reaches outside the process: `string`, `table`, `math`, `utf8`,
 searcher reads the database; `path`, `cpath`, `loadlib`, and
 `searchpath` do not exist. `io`, `os`, and `debug` are not globals.
 files, standard streams, environment, time, and processes are
-[`cosmic.fs`], [`cosmic.env`], [`cosmic.time`], and [`cosmic.proc`], all
+[`cosmic.fs`], [`cosmic.env`], [`cosmic.clock`], [`cosmic.time`], and [`cosmic.proc`], all
 over the syscall table, so the same call behaves the same on both
 OSes and the sandbox has one door. `print` writes through the
 syscall table, and `fs` writes to a stream without a newline.
@@ -1123,6 +1123,7 @@ in [roadmap.md](roadmap.md).
 [`core/syscalls.h`]: ../core/syscalls.h
 [`cosmic.archive`]: ../cosmic/archive.tl
 [`cosmic.child`]: ../cosmic/child.tl
+[`cosmic.clock`]: ../cosmic/clock.tl
 [`cosmic.env`]: ../cosmic/env.tl
 [`cosmic.errors`]: ../cosmic/errors.tl
 [`cosmic.fs.walk`]: ../cosmic/fs.tl

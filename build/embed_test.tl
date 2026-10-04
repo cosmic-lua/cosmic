@@ -9,7 +9,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local artifact = require("build.artifact")
 local embed = require("build.embed")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 local greet_source = [[
 local record greet
@@ -44,7 +44,7 @@ end
 
 local function run_program(path: string): Child.Result
   return (assert(Child.run({ path }, {
-    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })))
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })))
 end
 
 --- A core started on its own, with no program inside and no tree to

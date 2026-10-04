@@ -30,6 +30,10 @@ local Archive = require("cosmic.archive")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local sys = require("cosmic.sys")
+-- TODO: require cosmic.clock for the clock this reads ([`Time.monotonic_ns`],
+-- `ms`, ...) once ci/cosmic-driver.pin names a release that carries it:
+-- this script runs standalone on the pinned release, which has only
+-- cosmic.time, so every test that reaches it still reaches the calendar code.
 local Time = require("cosmic.time")
 
 local SECOND <const> = Time.seconds(1)

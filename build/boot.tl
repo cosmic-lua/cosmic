@@ -6,9 +6,9 @@
 --- a searcher that compiles a `.tl` straight from it; everything from
 --- here is ordinary cosmic code.
 
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Log = require("cosmic.log")
-local Time = require("cosmic.time")
 local identity = require("build.identity")
 local clock = require("build.clock")
 local artifact = require("build.artifact")
@@ -32,7 +32,7 @@ local log = Log.new("cosmic")
 --- compiler the tool carries
 local function boot(root: string, argv: {integer:string},
                     compiler_source: string): integer
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local host = argv[4]
   if host == nil or host == "" then
     log:verdict("boot", false, "the command line names no host target")

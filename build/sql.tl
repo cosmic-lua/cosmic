@@ -36,12 +36,12 @@
 --- is built from the data alone, so nothing under o/ is read.
 
 local Cli = require("cosmic.cli")
+local Clock = require("cosmic.clock")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
-local Time = require("cosmic.time")
 local bare = require("build.bare")
 local clock = require("build.clock")
 local dataset = require("build.dataset")
@@ -705,7 +705,7 @@ end
 ---   why; the process's own when nil
 function sql.run(argv: {integer:string}, root?: string, output?: sql.Output,
                  stdin?: function(): string | nil, string): integer
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local to = output or standard
   local function complain(line: string)
     to.err("cosmic: sql: " .. line)

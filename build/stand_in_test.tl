@@ -3,10 +3,10 @@
 --- reads its script and words from.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
-local Time = require("cosmic.time")
 local stand_in = require("build.stand_in")
 local artifact = require("build.artifact")
 
@@ -18,15 +18,15 @@ end
 --- Runs `argv` to its end with only `env`, its output captured.
 local function run(argv: {string}, env?: {string:string}, input?: string): Child.Result
   return (assert(Child.run(argv, { env = env or {}, input = input, stdout = "capture",
-    stderr = "capture", timeout_ns = Time.seconds(30) })))
+    stderr = "capture", timeout_ns = Clock.seconds(30) })))
 end
 
 --- Waits, a little at a time, until `path` exists.
 local function await(path: string)
-  local deadline = Time.monotonic_ns() + Time.seconds(30)
+  local deadline = Clock.monotonic_ns() + Clock.seconds(30)
   while Fs.exists(path) ~= true do
-    assert(Time.monotonic_ns() < deadline, "waited for " .. path)
-    local _, _ = sys.nanosleep(Time.ms(5))
+    assert(Clock.monotonic_ns() < deadline, "waited for " .. path)
+    local _, _ = sys.nanosleep(Clock.ms(5))
   end
 end
 
@@ -155,7 +155,7 @@ local function test_the_signal_verbs(tmp: string)
       "; signal INT @" .. group .. "; exit 3" }, { env = {} }))
   assert(Fs.write(group .. ".writing", "-" .. tostring(grouped.pid) .. "\n"))
   assert(Fs.rename(group .. ".writing", group))
-  local grouped_ended = assert(grouped:wait(Time.seconds(30)))
+  local grouped_ended = assert(grouped:wait(Clock.seconds(30)))
   assert(grouped_ended.code == 0,
     tostring(grouped_ended.code) .. " " .. tostring(grouped_ended.signal))
 
@@ -164,17 +164,17 @@ local function test_the_signal_verbs(tmp: string)
   local sleeper = assert(Child.start({ probe, "trap 9; sleep 20; write " .. ready ..
       " ready; wait-for " .. tmp .. "/never; sleep-forever" }, { env = {} }))
   await(ready)
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local other = run({ probe, "signal TERM " .. tostring(sleeper.pid) .. "; print sent" })
   assert(other.ok and other.stdout == "sent\n", tostring(other.stdout))
-  local ended = assert(sleeper:wait(Time.seconds(30)))
+  local ended = assert(sleeper:wait(Clock.seconds(30)))
   assert(ended.code == 9, tostring(ended.code) .. " " .. tostring(ended.signal))
-  assert(Time.monotonic_ns() - started < Time.seconds(10))
+  assert(Clock.monotonic_ns() - started < Clock.seconds(10))
 
   -- `sleep-forever` untrapped ends of the signal itself.
   local forever = assert(Child.start({ probe, "sleep-forever" }, { env = {} }))
   assert(forever:stop(sys.SIGTERM))
-  local stopped = assert(forever:wait(Time.seconds(30)))
+  local stopped = assert(forever:wait(Clock.seconds(30)))
   assert(stopped.signal == sys.SIGTERM, tostring(stopped.code))
 end
 
@@ -182,16 +182,16 @@ end
 --- there.
 local function test_it_sleeps_and_waits(tmp: string)
   local probe = built(tmp)
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local slept = run({ probe, "sleep 60; print woke" })
   assert(slept.ok and slept.stdout == "woke\n", tostring(slept.stdout))
-  assert(Time.monotonic_ns() - started >= Time.ms(60))
+  assert(Clock.monotonic_ns() - started >= Clock.ms(60))
   local flag = tmp .. "/flag"
   local waiting = assert(Child.start({ probe, "write " .. tmp .. "/waiting w; wait-for " ..
       flag .. "; print seen" }, { env = {}, stdout = "capture" }))
   await(tmp .. "/waiting")
   assert(Fs.write(flag, ""))
-  local seen = assert(waiting:wait(Time.seconds(30)))
+  local seen = assert(waiting:wait(Clock.seconds(30)))
   assert(seen.ok and seen.stdout == "seen\n", tostring(seen.stdout))
 end
 
@@ -305,7 +305,7 @@ local function test_what_start_and_run_leave_running_runs_on(tmp: string)
     local word = how:match("(%S+)$")
     -- In no group of its own, which a wait would end with it.
     local r = assert(Child.run({ probe, how .. "; print gone on" },
-      { env = {}, process_group = false, stdout = "capture", timeout_ns = Time.seconds(30) }))
+      { env = {}, process_group = false, stdout = "capture", timeout_ns = Clock.seconds(30) }))
     assert(r.ok and r.stdout == "gone on\n", tostring(r.stdout))
     assert(not Fs.exists(tmp .. "/bin/done-" .. word), "it did not wait")
     assert(Fs.write(tmp .. "/bin/go-" .. word, ""))
@@ -318,12 +318,12 @@ end
 --- and a line saying so, rather than leave it waiting.
 local function test_a_signal_to_itself_that_does_not_land_ends_it_soon(tmp: string)
   local probe = built(tmp)
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local r = run({ probe, "trap -; signal TERM; print never" })
-  local took = Time.monotonic_ns() - started
+  local took = Clock.monotonic_ns() - started
   assert(r.code == 4 and r.stdout == "", tostring(r.code) .. " " .. tostring(r.stdout))
   assert(assert(r.stderr):find("SIGTERM sent to itself did not end it", 1, true), r.stderr)
-  assert(took >= Time.seconds(2) and took < Time.seconds(20), tostring(took))
+  assert(took >= Clock.seconds(2) and took < Clock.seconds(20), tostring(took))
   -- A trap that ends it still does.
   local trapped = run({ probe, "trap -; trap 6; signal INT" })
   assert(trapped.code == 6, tostring(trapped.code))
@@ -339,7 +339,7 @@ local function test_it_writes_to_a_descriptor_and_names_a_variable(tmp: string)
   assert(r.stdout == "SET=x\nEMPTY=\nUNSET unset\n", r.stdout)
   -- Handed one at 3, it writes there.
   local handed = assert(Child.run({ probe, "write-fd 3 to three" },
-    { env = {}, fds = { [3] = fd }, stderr = "capture", timeout_ns = Time.seconds(30) }))
+    { env = {}, fds = { [3] = fd }, stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(handed.ok, tostring(handed.stderr))
   assert(assert(sys.pread(fd, 64, 0)) == "to three\n")
   -- `connect` says why a unix socket file cannot be connected to.

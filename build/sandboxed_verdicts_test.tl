@@ -17,7 +17,7 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
 local artifact = require("build.artifact")
 local confine = require("build.confine")
@@ -115,7 +115,7 @@ local function run(root: string, output: string, env: {string:string}, words?: {
   local args: {string} = { "test" }
   for _, word in ipairs(words or {}) do args[#args + 1] = word end
   local started = this_program.program(args, {
-    cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ns = Time.seconds(60),
+    cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ns = Clock.seconds(60),
   })
   local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))
@@ -202,15 +202,15 @@ end
 --- and its verdict stands as any other's.
 local function test_a_test_that_declares_loopback_addresses_runs_offline_and_stands(tmp: string)
   local source = [[
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
 
 Test.needs { network = { HOSTS } }
 
 local function test_refused()
-  local response, trouble = Http.open("http://127.0.0.1:1/", { connect_timeout_ns = Time.seconds(2) })
+  local response, trouble = Http.open("http://127.0.0.1:1/", { connect_timeout_ns = Clock.seconds(2) })
   assert(response == nil and trouble ~= "")
   if PROBE then error("NAME in " .. tostring((Fs.readlink("/proc/self/ns/net"))) .. " |") end
 end
@@ -415,7 +415,7 @@ local function tool_project(tmp: string): function(string), function(string): st
     step = step + 1
     local fd = assert(Fs.open_write(tmp .. "/" .. step .. ".out"))
     local result, trouble = Child.run({ tool, "test" }, {
-      cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ns = Time.seconds(60),
+      cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ns = Clock.seconds(60),
     })
     assert(Fs.close(fd))
     local text = assert(Fs.read(tmp .. "/" .. step .. ".out"))
@@ -478,8 +478,8 @@ local function test_a_verdict_whose_inputs_moved_as_it_ran_is_not_kept(tmp: stri
   -- It says it started, and fails if what it reads moves before it is
   -- stopped (or 20 s pass, a bound no run here reaches).
   assert(Fs.write(root .. "/suite/moving_test.tl", [[
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-local Time = require("cosmic.time")
 local Test = require("cosmic.test")
 
 Test.needs { reads = { "suite/moving.txt" } }
@@ -487,10 +487,10 @@ Test.needs { reads = { "suite/moving.txt" } }
 local function test_moving(tmp: string)
   local was = Fs.read("suite/moving.txt")
   assert(Fs.write(tmp .. "/started", "yes"))
-  local deadline = Time.monotonic_ns() + 20000000000
-  while not Fs.exists(tmp .. "/stop") and Time.monotonic_ns() < deadline do
+  local deadline = Clock.monotonic_ns() + 20000000000
+  while not Fs.exists(tmp .. "/stop") and Clock.monotonic_ns() < deadline do
     assert(Fs.read("suite/moving.txt") == was, "it moved")
-    assert(Time.sleep_ns(20000000))
+    assert(Clock.sleep_ns(20000000))
   end
 end
 ]]))
@@ -513,10 +513,10 @@ end
       cwd = root, env = env, stdout = fd, stderr = fd, process_group = true,
     })
     local handle = assert(Child.start(started.argv, started.options))
-    local deadline = Time.monotonic_ns() + 30000000000
+    local deadline = Clock.monotonic_ns() + 30000000000
     local found = ""
     local ended = false
-    while found == "" and not ended and Time.monotonic_ns() < deadline do
+    while found == "" and not ended and Clock.monotonic_ns() < deadline do
       local now, _ = handle:try_wait()
       ended = now ~= nil and now.finished
       for _, entry in ipairs(Fs.list(tmp .. "/t") or {}) do
@@ -525,11 +525,11 @@ end
           if Fs.exists(dir .. "/started") and not Fs.exists(dir .. "/stop") then found = dir end
         end
       end
-      if found == "" then assert(Time.sleep_ns(20000000)) end
+      if found == "" then assert(Clock.sleep_ns(20000000)) end
     end
     assert(found ~= "" or ended, "the test never started")
     if found ~= "" then then_do(found) end
-    local result = assert(handle:wait(Time.seconds(60)))
+    local result = assert(handle:wait(Clock.seconds(60)))
     assert(Fs.close(fd))
     -- Its directory said it started: marked so the next run's is found.
     if found ~= "" then local _ = Fs.write(found .. "/stop", "") end

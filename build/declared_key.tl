@@ -167,7 +167,7 @@ local test_inputs = require("build.test_inputs")
 
 -- Hashed and spelled through build.digest and build.key_parts, and
 -- timed through the binding, not cosmic.hash, cosmic.codec or
--- cosmic.time: a key's value turns on no library module outside the
+-- cosmic.clock: a key's value turns on no library module outside the
 -- harness (build.test's `harness`).
 local hex, hex_sha256 = key_parts.hex, hashing.hex_sha256
 

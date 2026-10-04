@@ -14,7 +14,7 @@ local Test = require("cosmic.test")
 local stand_in = require("build.stand_in")
 local test_inputs = require("build.test_inputs")
 local this_program = require("build.this_program")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 Test.needs{ lua = true }
 
@@ -22,7 +22,7 @@ Test.needs{ lua = true }
 --- whether it exited 0, and what it wrote to stdout and stderr.
 local function run(words: {string}): boolean, string, string
   local started = this_program.program(words, { stdout = "capture", stderr = "capture",
-    timeout_ns = Time.seconds(30) })
+    timeout_ns = Clock.seconds(30) })
   local result = assert(Child.run(started.argv, started.options))
   return result.ok, result.stdout or "", result.stderr or ""
 end
@@ -134,7 +134,7 @@ end
 local function test_a_stand_in_runs_under_the_hold(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local direct = assert(Child.run({ probe, "print ran" }, { stdout = "capture",
-    stderr = "capture", timeout_ns = Time.seconds(30) }))
+    stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(direct.ok and direct.stdout == "ran\n", tostring(direct.stdout) ..
       tostring(direct.stderr))
   local ok, out, err = run({ "-e", "local r = assert(require('cosmic.child').run({ ... , " ..

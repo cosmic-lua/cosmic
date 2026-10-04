@@ -156,7 +156,7 @@ end
 worker.report_fd = 3
 
 local HEADER <const> = "cosmic-test-report-4"
--- A second in nanoseconds, which a timeout is counted in: cosmic.time,
+-- A second in nanoseconds, which a timeout is counted in: cosmic.clock,
 -- whose `seconds` this is, is no module the harness may reach
 -- (build/harness_epoch.tl's `library`).
 local SECOND_NS <const> = 1000 * 1000 * 1000
@@ -218,9 +218,9 @@ local function complain(line: string)
 end
 
 --- The monotonic clock, in nanoseconds, straight from the binding.
---- build.declared_key spells the same five lines, as cosmic.time's
+--- build.declared_key spells the same five lines, as cosmic.clock's
 --- monotonic_ns does: a harness module reaches the clock through the raw
---- binding, and cosmic.time is no library module the harness may load.
+--- binding, and cosmic.clock is no library module the harness may load.
 local function monotonic_ns(): integer
   local reading, trouble = sys.clock_gettime(sys.CLOCK_MONOTONIC)
   if reading == nil then error("clock_gettime(CLOCK_MONOTONIC): " .. trouble, 2) end

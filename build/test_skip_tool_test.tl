@@ -8,7 +8,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- The program itself, which its tests start.
 Test.needs{ tool = true }
@@ -43,7 +43,7 @@ local function run(root: string, extra: {string:string}): string, integer
   env.COSMIC_CI_REQUIRE_SANDBOX = nil
   for name, value in pairs(extra) do env[name] = value end
   local started = this_program.program({ "test" }, {
-    cwd = root, env = env, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(60),
+    cwd = root, env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60),
   })
   local result = assert(Child.run(started.argv, started.options))
   return (result.stdout or "") .. (result.stderr or ""), result.code

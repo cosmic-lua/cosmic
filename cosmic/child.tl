@@ -72,7 +72,7 @@ local Proc = require("cosmic.proc")
 local Rules = require("cosmic.sandbox")
 local sys = require("cosmic.sys")
 local Stream = require("cosmic.stream")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 -- The calls that start, feed and reap a child, and hold this process's
 -- signals while it does, live in the raw process table, under the
@@ -573,15 +573,15 @@ end
 --- How often a wait looks for what no descriptor tells it of: the exit
 --- of a child with no `_exit_fd` (a Linux before pidfd_open, a filter
 --- refusing it), a group's last member gone.
-local POLL_NS <const> = Time.ms(10)
+local POLL_NS <const> = Clock.ms(10)
 --- How often a wait of an adopting process wakes, at the least, to reap
 --- the orphans it adopted, which no descriptor announces: often enough
 --- that a long wait leaves none a zombie for long.
-local REAP_NS <const> = Time.seconds(1)
-local TERM_GRACE_NS <const> = Time.ms(250)
-local KILL_REAP_NS <const> = Time.seconds(1)
+local REAP_NS <const> = Clock.seconds(1)
+local TERM_GRACE_NS <const> = Clock.ms(250)
+local KILL_REAP_NS <const> = Clock.seconds(1)
 --- One millisecond, which [`sys.poll`] counts its waits in.
-local MS <const> = Time.ms(1)
+local MS <const> = Clock.ms(1)
 local INT_MAX <const> = 2147483647
 local CHUNK <const> = 65536
 local DEFAULT_CAPTURE_LIMIT <const> = 16 * 1024 * 1024
@@ -656,7 +656,7 @@ local reaped: {integer:raw_process.ChildStatus} = {}
 local adopting: boolean
 
 local function now(): integer
-  return Time.monotonic_ns()
+  return Clock.monotonic_ns()
 end
 
 --- Whether a wait on `handles` is woken by each one's exit: every one
@@ -1015,7 +1015,7 @@ local function pump(entries: {Entry}, timeout_ns: integer,
     revents = answers
   else
     -- Rounded up: a wait with time left polls for at least a millisecond.
-    local polled, why = sys.poll(fds, events, timeout_ns >= 0 and Time.ceil(timeout_ns, MS) or -1)
+    local polled, why = sys.poll(fds, events, timeout_ns >= 0 and Clock.ceil(timeout_ns, MS) or -1)
     revents, trouble = polled, why
   end
   if revents == nil then

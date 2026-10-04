@@ -171,7 +171,7 @@ end
 local function apply_step8_edit(tree: string)
   local path = tree .. "/build/test.tl"
   local lines = split_lines(Fixture.read(path))
-  lines = insert_after(lines, "local Time = require(\"cosmic.time\")",
+  lines = insert_after(lines, "local Clock = require(\"cosmic.clock\")",
     { "local step8_sys = require(\"cosmic.sys\")" })
   lines = insert_after(lines,
     "local function run(argv: {integer:string}): integer", {

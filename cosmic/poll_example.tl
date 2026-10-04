@@ -2,10 +2,10 @@
 --- symbol each one demonstrates and run by `cosmic test` like any
 --- other test -- see doc/design.md's `examples` table.
 
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local sys = require("cosmic.sys")
-local Time = require("cosmic.time")
 
 local Example = {}
 
@@ -24,7 +24,7 @@ function Example.run()
   local said: {string} = {}
   Poll.run(function()
     Poll.spawn(function()
-      assert(Poll.delay(Time.ms(20)))
+      assert(Poll.delay(Clock.ms(20)))
       said[#said + 1] = "later"
     end)
     said[#said + 1] = "first"
@@ -40,11 +40,11 @@ function Example.spawn()
   local reader, writer = pipe(dir)
   Poll.run(function()
     local listener = Poll.spawn(function()
-      assert(Poll.readable(reader, Time.seconds(5)))
+      assert(Poll.readable(reader, Clock.seconds(5)))
       print(sys.read(reader, 64))
     end)
     assert(sys.write(writer, "hello") == 5)
-    assert(listener:join(Time.seconds(5)))
+    assert(listener:join(Clock.seconds(5)))
   end)
   sys.close(reader)
   sys.close(writer)
@@ -57,7 +57,7 @@ function Example.readable()
   local dir = assert(Fs.mkdtemp("cosmic-poll-example-"))
   local reader, writer = pipe(dir)
   Poll.run(function()
-    local ok, why = Poll.readable(reader, Time.ms(10))
+    local ok, why = Poll.readable(reader, Clock.ms(10))
     print(ok, why)
     assert(not ok and why == Poll.TIMEOUT)
   end)
@@ -71,7 +71,7 @@ function Example.writable()
   local dir = assert(Fs.mkdtemp("cosmic-poll-example-"))
   local reader, writer = pipe(dir)
   Poll.run(function()
-    assert(Poll.writable(writer, Time.seconds(1)))
+    assert(Poll.writable(writer, Clock.seconds(1)))
     assert(sys.write(writer, "x") == 1)
   end)
   sys.close(reader)
@@ -85,7 +85,7 @@ function Example.delay()
   Poll.run(function()
     for _, ms in ipairs({ 20, 5 }) do
       Poll.spawn(function()
-        assert(Poll.delay(Time.ms(ms)))
+        assert(Poll.delay(Clock.ms(ms)))
         woke[#woke + 1] = ms
       end)
     end
@@ -100,7 +100,7 @@ function Example.cancel()
   local answer = ""
   Poll.run(function()
     local sleeper = Poll.spawn(function()
-      local _, why = Poll.delay(Time.seconds(60))
+      local _, why = Poll.delay(Clock.seconds(60))
       answer = why
     end)
     assert(Poll.delay(0))
@@ -123,11 +123,11 @@ function Example.kill()
   Poll.run(function()
     local stubborn = Poll.spawn(function()
       local _ <close> = setmetatable({} as Lease, lease_mt)
-      while true do local _, _ = Poll.delay(Time.seconds(60)) end
+      while true do local _, _ = Poll.delay(Clock.seconds(60)) end
     end)
     assert(Poll.delay(0))
     stubborn:cancel()
-    local _, still = stubborn:join(Time.ms(10))
+    local _, still = stubborn:join(Clock.ms(10))
     assert(still == Poll.TIMEOUT)
     stubborn:kill()
     local ended, why = stubborn:join()
