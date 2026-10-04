@@ -116,6 +116,12 @@ local record test_sandbox
     --- core it is handed must be: the runner's relaunch, with that
     --- copy's descriptor in the core's place. Nil for the runner's own.
     start: Proc.Relaunch | nil
+    --- Of a plan made for the policy path ([`plan`]'s `policy`), the host
+    --- paths among `sandbox.unveil.reads` that are run, which the policy
+    --- grants `x` as well: the program and its core, and what its module
+    --- declares it reads of the tree or the host (o/bin for `tool`) that
+    --- the mode of a file lets run. Empty otherwise.
+    runs: {string:boolean}
   end
 end
 
@@ -585,8 +591,16 @@ end
 --- ([`build.declared_key`]): the whole projection by its contents only
 --- where the module declares `store`, so it gives one that does not the
 --- store of its closure, keyed by its bytes.
+---
+--- With `policy`, the plan is the paths of a worker started under a
+--- [`cosmic.sandbox`] policy ([`build.test_policy`]) rather than by `sandbox`:
+--- the same paths, but for what a policy gives of itself -- the system's
+--- (its profile "system"), a /proc of the sandbox's own -- and the user a
+--- root runner's worker runs as, which a policy chooses. Its `sandbox`
+--- holds the paths alone (`unveil`), and `runs` says which reads are run.
 function test_sandbox.plan(root: string, scratch: string, effective: test_inputs.Effective,
-                           environment: {string:string}, closure_store?: string): test_sandbox.Plan
+                           environment: {string:string}, closure_store?: string,
+                           policy?: boolean): test_sandbox.Plan
   -- The program is given at its own name only where the worker does
   -- not have it as the tree's own, at /tree/o/bin/cosmic. A worker
   -- whose module does not declare `tool` has no name to read it by, so
@@ -594,24 +608,32 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   local program, own_program: string | nil, boolean = nil, false
   if effective.tool then program, own_program = program_name(root) end
   local executable, _ = Proc.executable()
-  local base = confine.worker_unveil(root, nil, scratch, effective.system,
+  local base = confine.worker_unveil(root, nil, scratch, effective.system and not policy,
     effective.tool and not own_program)
   local reads: {string} = {}
   local at: {string:string} = {}
   local seen: {string:boolean} = {}
-  local function give(path: string, inside?: string)
+  local runs: {string:boolean} = {}
+  -- With `run` where a plan for the policy has the path run, as it may be
+  -- by a worker's test; a read of a path of the closure is not.
+  local function give(path: string, inside?: string, run?: boolean)
     if seen[path] then return end
     local there, _ = sys.stat(path)
     if there == nil then return end -- a read of it finds nothing, as it would
     seen[path] = true
     reads[#reads + 1] = path
     if inside ~= nil then at[path] = inside end
+    -- A file no one may run is no file to grant `x` on: the start refuses
+    -- a grant its user could not use by the file's mode.
+    if run and policy and (there.kind == "dir" or there.mode & 0x49 ~= 0) then
+      runs[path] = true
+    end
   end
   -- A worker run as a user of its own (`worker_user`) has the core it
   -- runs from a copy that user may run ([`worker_cores`]), given in
   -- place of the cache it is in, where that is a launcher's: the core
   -- and its stamp in the cache are given no more.
-  local user = test_sandbox.worker_user(effective)
+  local user = not policy and test_sandbox.worker_user(effective) or nil
   local in_cache = ""
   if user ~= nil and worker_copy.copy ~= "" then
     in_cache = worker_copy.cache
@@ -632,8 +654,16 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- which a program a test starts reads for honest reasons.
   local given_store = store
   if closure_store ~= nil and not effective.store then given_store = closure_store end
+  if policy then
+    local launched, _ = Proc.relaunch()
+    if executable ~= nil then runs[executable] = true end
+    if launched ~= nil then runs[launched.argv[1]] = true end
+  end
   for _, path in ipairs(base.reads) do
-    if path == store then
+    if policy and path == "/proc" then
+      -- A policy's sandbox has a /proc of its own, which a grant of the
+      -- host's would replace.
+    elseif path == store then
       give(given_store, test_sandbox.tree .. "/o/cosmic.db")
     elseif path == executable and program ~= nil and not own_program then
       give(path, program)
@@ -641,12 +671,12 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
       give(path)
     end
   end
-  local function of_tree(relative: string)
+  local function of_tree(relative: string, run?: boolean)
     local plain = test_inputs.plain(relative)
     if plain == "." then
-      give(root, test_sandbox.tree)
+      give(root, test_sandbox.tree, run)
     elseif plain:sub(1, 1) ~= "/" and plain:sub(1, 3) ~= "../" and plain ~= ".." then
-      give(root .. "/" .. plain, test_sandbox.tree .. "/" .. plain)
+      give(root .. "/" .. plain, test_sandbox.tree .. "/" .. plain, run)
     end
   end
   local files: {string} = {}
@@ -654,13 +684,18 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   table.sort(files)
   -- The closure's files, which the module's key holds already.
   for _, file in ipairs(files) do of_tree(file) end
-  for _, relative in ipairs(effective.reads) do of_tree(relative) end
+  -- What a module declares it reads of the tree it may run too, as it may
+  -- under the default sandbox, whose files are all runnable.
+  -- TODO: run only the paths a test declares it runs, once [`Test.policy`]
+  -- grants `x` (step (c) of the sandbox plan): today [`Test.needs`]' `reads`
+  -- have no letters, and a path a test starts must be run.
+  for _, relative in ipairs(effective.reads) do of_tree(relative, true) end
   -- The tool is o/bin/cosmic, given as the directory it is in: where
   -- it is the program, the worker has it there alone ([`program_name`]),
   -- and a test that starts [`Proc.executable()`] starts it there; another
   -- program is given at its own name too (`worker_unveil`'s
   -- `with_program`).
-  if effective.tool then of_tree("o/bin") end
+  if effective.tool then of_tree("o/bin", true) end
   -- Why a `host` path cannot be given: where a variable names it, one
   -- [`test_inputs.resolve`] could not put anywhere, or one that is where
   -- the sandbox has its own -- its scratch directory, which it gives
@@ -686,7 +721,9 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
           end
         end
       end
-      give(trimmed(path))
+      -- A policy's sandbox has a /proc of its own, which is what a module
+      -- that declares the host's /proc is given there too.
+      if not (policy and plain == "/proc") then give(trimmed(path), nil, true) end
     end
   end
   local writes: {string} = { scratch }
@@ -746,7 +783,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   end
   reads = {}
   for _, path in ipairs(given_reads) do
-    if shown_by(path, given_reads, at) then
+    if not runs[path] and shown_by(path, given_reads, at) then
       at[path] = nil
     else
       reads[#reads + 1] = path
@@ -782,6 +819,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     trouble = refused ~= "" and refused or made and "" or "a cache it declares: " .. trouble,
     program = program,
     start = user ~= nil and worker_copy.start or nil,
+    runs = runs,
   }
 end
 

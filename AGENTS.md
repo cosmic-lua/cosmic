@@ -171,6 +171,12 @@
    `store` says why above its declaration. Only a test of one module
    may read the store so: a check over the whole tree is no test, and
    goes in [`build/tree_checks.tl`].
+   `COSMIC_TEST_POLICY=1` (`--policy`) starts each sandboxed worker under a
+   [`cosmic.sandbox`] policy ([`build/test_policy.tl`]) instead of the sandbox it has
+   by default: step (b) of doc/plans/sandbox.md's migration. Its verdicts stand
+   apart from the default's, a module the policy cannot yet hold fails naming
+   the field, and [`.github/workflows/policy.yml`] runs the suite so without
+   gating a merge.
    `--all` (`COSMIC_TEST_ALL=1`) runs everything. The worker still reads
    /proc, /dev/null, /dev/zero, /dev/full and /dev/urandom, keyed only
    through the host's identity, and the program, its core and its
@@ -429,6 +435,7 @@ unblocks: `o/bin/cosmic todos '"cosmic-driver.pin"'` lists them.
 
 [`.claude/skills/comments/SKILL.md`]: .claude/skills/comments/SKILL.md
 [`.github/scripts/place-tree.sh`]: .github/scripts/place-tree.sh
+[`.github/workflows/policy.yml`]: .github/workflows/policy.yml
 [`bin/cosmic-bootstrap`]: bin/cosmic-bootstrap
 [`bin/vendor`]: bin/vendor
 [`bin/verify-codesign`]: bin/verify-codesign
@@ -449,6 +456,7 @@ unblocks: `o/bin/cosmic todos '"cosmic-driver.pin"'` lists them.
 [`build/rebuild_lock.tl`]: build/rebuild_lock.tl
 [`build/sandboxed_verdicts_test.tl`]: build/sandboxed_verdicts_test.tl
 [`build/shared_compiles.tl`]: build/shared_compiles.tl
+[`build/test_policy.tl`]: build/test_policy.tl
 [`build/test_sandbox.tl`]: build/test_sandbox.tl
 [`build/test_sandbox_probe.tl`]: build/test_sandbox_probe.tl
 [`build/test_worker.tl`]: build/test_worker.tl
@@ -463,6 +471,7 @@ unblocks: `o/bin/cosmic todos '"cosmic-driver.pin"'` lists them.
 [`core/guard.h`]: core/guard.h
 [`core/syscalls.h`]: core/syscalls.h
 [`core/syscalls_test.tl`]: core/syscalls_test.tl
+[`cosmic.sandbox`]: cosmic/sandbox.tl
 [`doc/roadmap.md`]: doc/roadmap.md
 [`Fuzz.label`]: build/fuzz/init.tl
 [`Fuzz.more`]: build/fuzz/init.tl

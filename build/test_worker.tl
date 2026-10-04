@@ -13,6 +13,7 @@
 --- is itself the runner's answer that the test failed.
 
 local type Child = require("cosmic.child")
+local type Sandbox = require("cosmic.sandbox")
 local Coverage = require("cosmic.coverage")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
@@ -103,6 +104,10 @@ local record worker
     declared: {string}
     --- The worker's sandbox, or nil where it runs unsandboxed.
     sandbox: Child.Sandbox
+    --- The policy the worker is started under instead of a `sandbox`
+    --- ([`build.test_policy`]), whose `set_env` is its whole environment
+    --- but for what `env` and `start` add; nil for none.
+    policy: Sandbox.Policy
     --- The name the worker is to have its program by, in place of the
     --- artifact path `start` names (build.test_sandbox's
     --- [`Plan.program`]), or nil to keep that.
@@ -623,7 +628,7 @@ function worker.invocation(given: worker.Invocation): worker.Command
       given.scratch .. "/children", given.needs }) do
     argv[#argv + 1] = value
   end
-  if given.sandbox ~= nil then argv[#argv + 1] = "--sandboxed" end
+  if given.sandbox ~= nil or given.policy ~= nil then argv[#argv + 1] = "--sandboxed" end
   if given.lua then argv[#argv + 1] = "--lua" end
   if given.open then
     argv[#argv + 1] = "--open"
@@ -642,6 +647,20 @@ function worker.invocation(given: worker.Invocation): worker.Command
   env.COSMIC_COVERAGE_STARTUP = "1"
   local fds: {integer:integer | string} = { [worker.report_fd] = "capture" }
   for number, fd in pairs(given.start.fds) do fds[number] = fd end
+  if given.policy ~= nil then
+    -- A policy is the whole of its child's environment, which `env` beside
+    -- it would contradict: what the worker is given goes in the policy's
+    -- `set_env`.
+    local held = given.policy
+    local policy: Sandbox.Policy = { profiles = held.profiles, grants = held.grants,
+      isolate = held.isolate, promises = held.promises, connect = held.connect,
+      loopback = held.loopback, env = held.env, tmp = held.tmp, limits = held.limits }
+    policy.set_env = env
+    return { argv = argv, options = {
+      policy = policy, cwd = given.cwd, stdin = "null", stdout = "capture", stderr = "stdout",
+      fds = fds, process_group = false,
+    } }
+  end
   return { argv = argv, options = {
     env = env, cwd = given.cwd, stdin = "null", stdout = "capture", stderr = "stdout",
     fds = fds, sandbox = given.sandbox, process_group = given.sandbox == nil,
@@ -823,7 +842,17 @@ function worker.run(argv: {integer:string}): integer
   -- path, where either is given.
   local first = 9
   local sandboxed = argv[first] == "--sandboxed"
-  if sandboxed then first = first + 1 end
+  if sandboxed then
+    first = first + 1
+    -- A worker started under a policy starts in the root of its sandbox,
+    -- which has the tree at `root` but not as a directory to start in
+    -- ([`build.test_policy`]); one a sandbox starts in `root` already.
+    local entered, enter_trouble = sys.chdir(root)
+    if not entered then
+      complain("test --worker: " .. root .. ": " .. enter_trouble)
+      return 2
+    end
+  end
   local lua = argv[first] == "--lua"
   if lua then first = first + 1 end
   local open = argv[first] == "--open"

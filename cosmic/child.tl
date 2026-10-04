@@ -2757,8 +2757,15 @@ local function nest_descriptors(slots: {integer:integer}): string
   table.sort(numbers)
   for _, number in ipairs(numbers) do
     local fd = slots[number] or number
-    local st, _ = sys.fstat(fd)
     local what = "descriptor " .. number .. (fd ~= number and " (this process's " .. fd .. ")" or "")
+    -- The descriptors the runtime retains of its own (its artifact and core,
+    -- which a relaunch hands on) are refused to every binding that takes a
+    -- descriptor, a stat included, by raising.
+    local looked, st = pcall(sys.fstat, fd)
+    if not looked then
+      return what .. " is one this runtime retains of its own (its artifact or core), which " ..
+        "promises \"nest\" cannot hand a program: it is a file open for reading alone"
+    end
     if st ~= nil and st.kind == "dir" then
       return what .. " is a directory, which promises \"nest\" cannot hand a program: " ..
         "with Landlock given up, /proc/self/fd/" .. number .. " opens every file beneath " ..

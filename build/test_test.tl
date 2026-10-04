@@ -163,7 +163,8 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   for _, row in ipairs(imports) do
     assert(Sqlite.run(db, "INSERT INTO imports VALUES (?, ?)", { { text = row[1] }, { text = row[2] } }))
   end
-  local others = { "build.test_sandbox", "build.caches", "build.zig_caches", "cosmic.child",
+  local others = { "build.test_sandbox", "build.test_policy", "build.caches", "build.zig_caches",
+    "cosmic.child",
     "build.closure_store", "build.writer",
     "build.test_report", "build.schema", "build.importer", "build.analyzer", "cosmic.removed",
     "cosmic.sqlite", "cosmic.sys" }
@@ -211,7 +212,7 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   local commented = "-- a comment, and a blank line after it\n\nreturn 'a key'\n"
   local function edited(name: string): string return moves(name, commented, "bytecode") end
   for _, name in ipairs({ "build.test", "build.declared_key", "build.shared_verdicts",
-      "build.artifact", "build.test_worker", "build.test_sandbox",
+      "build.artifact", "build.test_worker", "build.test_sandbox", "build.test_policy",
       "cmd.cosmic.main", "build.confine",
       "build.test_inputs", "cosmic.test",
       "build.caches", "build.zig_caches" }) do
@@ -253,7 +254,8 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
       not named["build.harness_epoch"] and not named["build.test_report"])
   local runs: {string:boolean} = {}
   for _, name in ipairs(before.runs) do runs[name] = true end
-  assert(runs["build.test_sandbox"] and runs["build.test_worker"] and not runs["build.test"])
+  assert(runs["build.test_sandbox"] and runs["build.test_policy"] and runs["build.test_worker"] and
+      not runs["build.test"])
   -- A module that makes a key and that the binary does not carry fails
   -- the harness, naming it.
   assert(db:exec("DELETE FROM modules WHERE path = 'build.artifact'"))
@@ -291,7 +293,7 @@ local function test_the_harness_walks_the_key_code_by_value()
   end
   for _, name in ipairs(worker.loads) do add(name) end
   for _, name in ipairs({ "build.test", "build.declared_key", "build.shared_verdicts",
-      "build.artifact", "build.test_sandbox", "build.caches",
+      "build.artifact", "build.test_sandbox", "build.test_policy", "build.caches",
       "build.zig_caches", "build.closure_store", "build.schema",
       "cosmic.child", "cosmic.time", "cosmic.sqlite", "cosmic.stream" }) do
     add(name)
