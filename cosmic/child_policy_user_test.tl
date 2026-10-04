@@ -335,6 +335,43 @@ local function closed(tmp: string, name: string): string
   return dir
 end
 
+--- Under `isolate` "file" a named user's grant of another owner's closed
+--- tree is mounted so that owner's files are its own; its own files there
+--- show as the owner's, written and read as their mode lets everyone --
+--- their own group shows as the owner's, which the user is not in -- and
+--- stay its own on the host; a third user's are read as their mode lets
+--- everyone and never written.
+local function test_a_root_caller_s_named_user_meets_its_own_files_as_the_owner_s_through_an_idmap(tmp: string)
+  if not root_that_maps() then return end
+  local at = placed(tmp)
+  local dir = closed(tmp, "theirs")
+  assert(sys.chown(dir, 2000, 2000) and sys.chown(dir .. "/inside", 2000, 2000))
+  local function owned(name: string, owner: integer, mode: string)
+    assert(Fs.write(dir .. "/" .. name, name .. "\n") and sys.chown(dir .. "/" .. name, owner, owner))
+    assert(sys.chmod(dir .. "/" .. name, octal(mode)))
+  end
+  owned("open", 4242, "666")
+  owned("shut", 4242, "600")
+  owned("grouped", 4242, "660")
+  owned("third", 3000, "666")
+  local policy: Sandbox.Policy = { isolate = { "file" }, user = 4242, grants = {
+    { path = at.probe, letters = "rx" }, { path = at.work, letters = "r" },
+    { path = dir, letters = "rw" } } }
+  local ran = under(at.probe, policy, at.work, "cat " .. dir .. "/inside; append " .. dir ..
+      "/open more; cat " .. dir .. "/open; cat " .. dir .. "/third")
+  if ran == nil then return end
+  assert(ran.code == 0 and ran.said == "secret\nopen\nmore\nthird\n", ran.code .. ": " .. ran.said)
+  local open = assert(sys.stat(dir .. "/open"))
+  assert(open.uid == 4242 and open.gid == 4242, "open is " .. open.uid .. ":" .. open.gid)
+  local shut = under(at.probe, policy, at.work, "cat " .. dir .. "/shut")
+  assert(shut ~= nil and shut.code ~= 0 and shut.said:find("Permission denied", 1, true), shut.said)
+  local grouped = under(at.probe, policy, at.work, "cat " .. dir .. "/grouped")
+  assert(grouped ~= nil and grouped.code ~= 0 and grouped.said:find("Permission denied", 1, true),
+    grouped.said)
+  local third = under(at.probe, policy, at.work, "append " .. dir .. "/third more")
+  assert(third ~= nil and third.code ~= 0 and third.said:find("Permission denied", 1, true), third.said)
+end
+
 local function test_a_root_caller_s_closed_grant_is_idmapped_under_isolate_file(tmp: string)
   if not root_that_maps() then return end
   local at = placed(tmp)

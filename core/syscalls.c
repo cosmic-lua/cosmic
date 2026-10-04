@@ -2026,13 +2026,25 @@ static _Noreturn int idmap_holder (void *argument) {
   _exit(0);
 }
 
+/* An idmapped mount's map ([`idmapped_tree`]) of `owner` to `drop`, and,
+ * where they differ, of `drop` to `owner`: a map takes each id once on
+ * either side, so `drop`'s own files cannot show as `drop`'s too, and
+ * left out of the map they would refuse every write, whatever their mode;
+ * swapped, they show as `owner`'s and are written as their mode lets
+ * everyone. */
+static void swapped_map (char *text, size_t room, unsigned long owner, unsigned long drop) {
+  if (owner == drop) snprintf(text, room, "%lu %lu 1\n", owner, drop);
+  else snprintf(text, room, "%lu %lu 1\n%lu %lu 1\n", owner, drop, drop, owner);
+}
+
 /* In the unveiled child, before its own namespaces, as the root of
  * this process's own: at `fd` (placed above `top`), a detached copy of
  * the mount tree at `path`, idmapped so that the user and group that
  * own `path` -- the owner of the file the mount shows -- are the user
  * and group `plan` drops to, and every other owner none: what the
  * path's owner may do, the child's user may, and what it creates is
- * the owner's on the host. The mapping is a user namespace of its own,
+ * the owner's on the host; the drop user's own files show as the
+ * owner's ([`swapped_map`]). The mapping is a user namespace of its own,
  * made by [`idmap_holder`] and mapped here, `owner` to the drop user
  * and group, which a mount may be idmapped through only where this
  * process may mount (CAP_SYS_ADMIN where the file system is
@@ -2069,14 +2081,12 @@ static int idmapped_tree (const struct spawn_plan *plan, const char *path, int t
     }
     if (!failure) {
       snprintf(at, sizeof at, "/proc/%d/uid_map", (int)pid);
-      snprintf(text, sizeof text, "%lu %lu 1\n", (unsigned long)st.st_uid,
-               (unsigned long)plan->drop_uid);
+      swapped_map(text, sizeof text, (unsigned long)st.st_uid, (unsigned long)plan->drop_uid);
       failure = write_whole(at, text);
     }
     if (!failure) {
       snprintf(at, sizeof at, "/proc/%d/gid_map", (int)pid);
-      snprintf(text, sizeof text, "%lu %lu 1\n", (unsigned long)st.st_gid,
-               (unsigned long)plan->drop_gid);
+      swapped_map(text, sizeof text, (unsigned long)st.st_gid, (unsigned long)plan->drop_gid);
       failure = write_whole(at, text);
     }
     int namespace = -1;
