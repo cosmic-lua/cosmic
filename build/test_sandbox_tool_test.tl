@@ -392,7 +392,7 @@ end
       1, true), text)
     return
   end
-  assert(text:find("; sandboxed)", 1, true), text)
+  assert(text:find("; sandboxed", 1, true), text)
   seen = text:match("seen|([^\n]*)|end")
   assert(seen ~= nil, text)
   fields = {}
@@ -406,7 +406,7 @@ end
   -- Required where it can be, the same.
   env.COSMIC_TEST_SANDBOX = "1"
   text, ok = run(root, tmp .. "/required", env)
-  assert(not ok and text:find("; sandboxed)", 1, true), text)
+  assert(not ok and text:find("; sandboxed", 1, true), text)
   assert(text:find("rerun: COSMIC_TEST_SANDBOX=1 cosmic test suite/view_test.tl:test_view", 1,
     true), text)
   -- A misspelt switch is refused.
@@ -501,7 +501,7 @@ end
   local text, ok = run(root, tmp .. "/given", env)
   assert(not ok, text)
   if unsandboxed(text) then return end
-  assert(text:find("; sandboxed)", 1, true), text)
+  assert(text:find("; sandboxed", 1, true), text)
   assert(text:find("read|given|nil|end", 1, true), text)
 end
 
@@ -557,7 +557,7 @@ end
   end
   local first = said("2 ran, 0 stood")
   if unsandboxed(first) then return end
-  assert(first:find("; sandboxed)", 1, true), first)
+  assert(first:find("; sandboxed", 1, true), first)
   local again = said("0 ran, 2 stood")
   assert(not again:find("assumed", 1, true) and not again:find("every time", 1, true), again)
   assert(Fs.write(root .. "/suite/unrelated.txt", "two"))

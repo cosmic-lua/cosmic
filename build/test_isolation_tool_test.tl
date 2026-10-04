@@ -45,7 +45,7 @@ end
 --- root runner cannot run its workers as a user of their own
 --- (build.test_sandbox's `runs_as`). CI's unprivileged runners nest them.
 local function unsandboxed(text: string): boolean
-  if text:find("; sandboxed)", 1, true) ~= nil then return false end
+  if text:find("; sandboxed", 1, true) ~= nil then return false end
   if confine.sandbox_platform() then Test.skip(confine.unsandboxed_reason(text)) end
   return true
 end
@@ -158,7 +158,7 @@ local function test_a_hung_or_exiting_test_fails_alone(tmp: string)
     assert(text:find("  | said something", 1, true), text)
     assert(not text:find("quiet", 1, true), text)
     assert(text:find("2 of 3 failed", 1, true), text)
-    local sandboxed = text:find("; sandboxed)", 1, true) ~= nil
+    local sandboxed = text:find("; sandboxed", 1, true) ~= nil
     if mode == "0" then
       assert(not sandboxed, text)
     else

@@ -40,7 +40,9 @@ worktree's state stays until deleted).
 
 The `sandbox` phase writes what spawn's sandbox can hold on this machine
 (`build/sandbox_probe.tl`) to its log and the summary, and fails only when
-`COSMIC_CI_REQUIRE_SANDBOX=1` and a part a confined test needs did not hold.
+`COSMIC_CI_REQUIRE_SANDBOX=1` and a part a confined test needs did not hold:
+that probe alone is fatal, and a test skipped for a part the host lacks
+fails no `cosmic test` run, held or not.
 ci.yml sets it on the Linux legs, whose container is given what the sandbox
 needs; run-local leaves it unset, since many a development host refuses an
 unprivileged user namespace (Ubuntu 24.04's

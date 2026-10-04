@@ -25,6 +25,9 @@ local function unix_refused(dir: string): boolean
     local _, _ = probe:close()
     return false
   end
+  -- Only a failure under a seccomp filter is the policy's refusal.
+  local status, _ = Fs.read("/proc/self/status")
+  if status == nil or status:match("\nSeccomp:%s*(%d+)") ~= "2" then return false end
   Test.skip("the worker cannot make a unix socket (" .. why .. "): its policy has no `u` grant")
   return true
 end
@@ -36,7 +39,10 @@ local Example = {}
 --- bounded by `timeout_ns`, which a connection accepted inherits.
 function Example.listen()
   local dir = assert(Fs.mkdtemp("cosmic-net-example-"))
-  if unix_refused(dir) then return end
+  if unix_refused(dir) then
+    assert(Fs.remove_tree(dir))
+    return
+  end
   do
     local server <close> = assert(Net.listen(Net.unix(dir .. "/app.sock"), { timeout_ns = Clock.seconds(5) }))
     local client <close> = assert(Net.connect(server.address))

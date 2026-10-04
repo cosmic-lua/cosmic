@@ -227,7 +227,7 @@ local function test_a_sandboxed_and_an_unenforced_verdict_stand_apart(tmp: strin
   checkout(tmp .. "/first")
   local code, first = run(tmp .. "/first", tmp .. "/first.out", sandboxed)
   assert(code == 0, first)
-  if not first:find("; sandboxed)", 1, true) then
+  if not first:find("; sandboxed", 1, true) then
     if confine.sandbox_platform() then Test.skip(confine.unsandboxed_reason(first)) end
     return
   end
@@ -237,7 +237,7 @@ local function test_a_sandboxed_and_an_unenforced_verdict_stand_apart(tmp: strin
   checkout(tmp .. "/second")
   says(tmp .. "/second", tmp .. "/second-unenforced.out", unenforced, "2 ran, 0 stood")
   local second = says(tmp .. "/second", tmp .. "/second.out", sandboxed, "2 ran, 0 stood")
-  assert(second:find("; sandboxed)", 1, true), second)
+  assert(second:find("; sandboxed", 1, true), second)
 end
 
 --- Its worker attaches the store of its module's closure, not the

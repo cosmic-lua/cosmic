@@ -2810,6 +2810,7 @@ local function choose_sandbox(ctx: Run): integer | nil
   if unmet ~= "" then
     log:say("test: sandbox: no worker is started under a policy: " .. unmet ..
         "; each is started by the sandbox build.test_sandbox plans")
+    sandbox_summary = sandbox_summary .. ", older sandbox (" .. unmet .. ")"
   end
   if ctx.policy then
     -- And the code that makes a worker's policy, so an edit to a grant runs
@@ -2817,7 +2818,9 @@ local function choose_sandbox(ctx: Run): integer | nil
     local made = ctx.harness.modules
     ctx.runtime = ctx.runtime .. " policy " .. hashing.hex_sha256(test_policy.common() .. "\0" ..
         (made["build.test_policy"] or "") .. "\0" .. (made["build.test_sandbox"] or ""))
+    sandbox_summary = sandbox_summary .. ", under a policy"
   elseif sandboxed and unmet == "" then
+    sandbox_summary = sandbox_summary .. ", older sandbox (" .. test_policy.switch .. "=0)"
     log:say("test: sandbox: " .. test_policy.switch .. "=0: each worker is started by the " ..
         "sandbox build.test_sandbox plans, not under a policy")
   end

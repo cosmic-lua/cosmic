@@ -52,7 +52,7 @@ end
 --- it is skipped ([`Test.skip`]) and returns: CI's unprivileged
 --- runners nest them.
 local function shares(text: string): boolean
-  if text:find("; sandboxed)", 1, true) ~= nil then return true end
+  if text:find("; sandboxed", 1, true) ~= nil then return true end
   if confine.sandbox_platform() then Test.skip(confine.unsandboxed_reason(text)) end
   return false
 end

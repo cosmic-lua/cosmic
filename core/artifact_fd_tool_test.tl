@@ -203,9 +203,10 @@ end
 --- swapped between the walk and the call defeats
 --- (core/syscalls_fs.c's `artifact_through_descriptor`).
 -- TODO: hold this case under the policy path, and delete the skip, once
--- the promises' filter lets openat2 through (core/promises.c answers it
--- ENOSYS), so the core's walk is the kernel's, which no swapped link
--- defeats.
+-- the core's artifact check no longer needs openat2 under the filter
+-- (core/promises.c answers it ENOSYS, and a filter cannot read openat2's
+-- mode struct to allow it safely), so the check is not a walk by hand
+-- that a swapped link races.
 local function filtered(): boolean
   local status = Fs.read("/proc/self/status")
   if status == nil or status:match("\nSeccomp:%s*(%d+)") ~= "2" then return false end

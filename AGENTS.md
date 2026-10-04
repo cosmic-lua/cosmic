@@ -178,7 +178,11 @@
    sandbox [`build/test_sandbox.tl`] plans instead, until step (e) deletes
    that path; `--policy` (`COSMIC_TEST_POLICY=1`) fails a run whose workers
    cannot be sandboxed rather than run them without a policy. The two paths'
-   verdicts stand apart. A module whose workers the policy path cannot yet
+   verdicts stand apart. A root that lacks CAP_SETUID, CAP_SETGID or
+   CAP_SETFCAP cannot map the user a policy runs as (a program of a policy
+   never runs as root), so its run starts workers by the older sandbox
+   instead, and the summary says `older sandbox (<why>)` beside `sandboxed`,
+   as it says `under a policy` for the default. A module whose workers the policy path cannot yet
    hold -- one that nests and declares neither `store` nor `tool`, which
    waits for a per-closure artifact -- has its tests skipped with that
    reason; a module declaring what no policy says (`env = { "*" }`) fails.

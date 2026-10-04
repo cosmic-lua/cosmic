@@ -71,7 +71,7 @@ local function test_cosmic_test_runs_a_project_reached_through_links(tmp: string
   local out = (result.stdout or "") .. (result.stderr or "")
   assert(result.code == 0, out)
   assert(out:find("(2 tests, 2 modules", 1, true), out)
-  if not out:find("; sandboxed)", 1, true) then
+  if not out:find("; sandboxed", 1, true) then
     if confine.sandbox_platform() then Test.skip(confine.unsandboxed_reason(out)) end
   end
 end

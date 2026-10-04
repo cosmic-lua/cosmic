@@ -64,7 +64,7 @@ end
 --- runner cannot run its workers as a user of their own
 --- (build.test_sandbox's `runs_as`). CI's unprivileged runners nest them.
 local function unsandboxed(text: string): boolean
-  if text:find("; sandboxed)", 1, true) then return false end
+  if text:find("; sandboxed", 1, true) then return false end
   if confine.sandbox_platform() then Test.skip(confine.unsandboxed_reason(text)) end
   return true
 end

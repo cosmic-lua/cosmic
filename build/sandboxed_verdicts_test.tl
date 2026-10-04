@@ -81,7 +81,7 @@ end
 --- root, this test's run confined in a sandbox already -- checks nothing
 --- here (CI's unprivileged runner nests them).
 local function unsandboxed(text: string): boolean
-  if text:find("; sandboxed)", 1, true) then return false end
+  if text:find("; sandboxed", 1, true) then return false end
   if confine.sandbox_platform() then Test.skip(confine.unsandboxed_reason(text)) end
   return true
 end

@@ -226,6 +226,16 @@ end
 ]]))
 end
 
+--- Whether the summary of a run started here names the path its workers took:
+--- under a policy, or, where this process cannot start one (a root that may
+--- not map a user), the older sandbox and why.
+local function names_policy_path(text: string): boolean
+  if test_policy.unmet() == "" then
+    return text:find("; sandboxed, under a policy", 1, true) ~= nil
+  end
+  return text:find("; sandboxed, older sandbox (this process is root", 1, true) ~= nil
+end
+
 --- End to end, under the policy, which is the default where workers are
 --- sandboxed: a test that reads what it declares passes, a filter and
 --- Landlock hold its worker, and one that reads a file it does not declare
@@ -243,6 +253,7 @@ local function test_a_run_under_a_policy_passes_what_is_declared_and_fails_what_
   if unsandboxed(text) then return end
   assert(not ok, text)
   assert(not text:find("COSMIC_TEST_POLICY=0: each worker", 1, true), text)
+  assert(names_policy_path(text), text)
   assert(text:find("1 of 2 failed", 1, true), text)
   assert(text:find("FAIL  suite.held_test test_an_undeclared_read_fails", 1, true), text)
   assert(text:find("suite/secret.txt: No such file or directory", 1, true) and
@@ -252,6 +263,7 @@ local function test_a_run_under_a_policy_passes_what_is_declared_and_fails_what_
   local option, option_ok = run(root, tmp .. "/option", env,
     { "--all", "--policy", "suite/held_test.tl" })
   assert(not option_ok and option:find("1 of 2 failed", 1, true) and
+      names_policy_path(option) and
       not option:find("COSMIC_TEST_POLICY=0: each worker", 1, true), option)
   env.COSMIC_TEST_POLICY = "1"
   local asked, asked_ok = run(root, tmp .. "/asked", env, { "--all", "suite/held_test.tl" })
@@ -261,6 +273,7 @@ local function test_a_run_under_a_policy_passes_what_is_declared_and_fails_what_
   env.COSMIC_TEST_POLICY = "0"
   local plain, plain_ok = run(root, tmp .. "/plain", env, { "--all", "suite/held_test.tl" })
   assert(not plain_ok and plain:find("COSMIC_TEST_POLICY=0: each worker is started by the sandbox", 1, true), plain)
+  assert(plain:find("; sandboxed, older sandbox (COSMIC_TEST_POLICY=0)", 1, true), plain)
   assert(plain:find("test_a_declared_read_is_held_as_a_policy_holds_it", 1, true) and
       plain:find("no filter holds this worker", 1, true), plain)
   assert(plain:find("rerun: COSMIC_TEST_POLICY=0 cosmic test suite/held_test.tl:", 1, true), plain)
