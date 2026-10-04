@@ -77,7 +77,7 @@ local record harness_epoch
   library: {string:string}
 end
 
-harness_epoch.epoch = "17-3c746d0f" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
+harness_epoch.epoch = "18-97867c56" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
 harness_epoch.acknowledged = {
 
   ["build.artifact"] = "4405196f6511a21a7493aa3d1ee196c6318d3ceec2e0202800494c46b9502745",
@@ -92,7 +92,7 @@ harness_epoch.acknowledged = {
 
   ["build.closure_artifact"] = "f7673f288e7a65466e34db350127ca1bcfd6649de808e30504f14f1774a95cdd",
 
-  ["build.confine"] = "d8899b62da8be9917a1d4d108acee8c659538afa86e579ee3cb012b660a58d60",
+  ["build.confine"] = "b9a6db294014190ad107bc3ac2482f2d3cbb20279f6b301e4667f71debe3f566",
 
   ["build.core_image"] = "dfc18e0e6316237ab9fb11a957df68d6217e42cffc6f2f3a767018c5313700ac",
 
@@ -110,11 +110,11 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "516c08e34d1fc392de5363af92b6d669344fc3c8b504c469ae3771a424d0db6b",
 
-  ["build.test"] = "059aec9267a28ce974d7ab1c273ea06a29fa0e868b1fbd8584aa568638cd8229",
+  ["build.test"] = "832f530f434a8c983f0732db6aa3628393b2b955a2d5df24884f41dec81b7c0a",
 
   ["build.test_inputs"] = "5da3827a258c10dd0399f75b97fbbb4bde0251eef950f66783191421227519c7",
 
-  ["build.test_policy"] = "508fb26cca97bdcc804c22fcd68bc530453665db1c550c80ed9d31cbafd391dc",
+  ["build.test_policy"] = "6afee7e2456d5ba1a288b585576441ab88bbf2d6c24fbace13a532b70489f279",
 
   ["build.test_sandbox"] = "b1a0cabe3de9115772b697faf90ab7fa333c873d5211aaea8ae2f1c648506b24",
 
@@ -142,7 +142,7 @@ harness_epoch.acknowledged = {
 
   ["cosmic.string"] = "bf0e5e828de84f23aa818887e0280a3ebc844c9ca5e384c33227cb42715b8655",
 
-  ["cosmic.test"] = "ad07e2029491e2b1986148050664d2b0c09b2a771827421768981b050d782d96",
+  ["cosmic.test"] = "fb414601bcea382aa039addeb5e9a088de8e7b8e931bf8d3b3d99d783d382853",
 
 }
 
@@ -192,6 +192,7 @@ harness_epoch.retired = {
   "09244ac2",
   "e83f51b3",
   "a2b093aa",
+  "3c746d0f",
 }
 
 return harness_epoch

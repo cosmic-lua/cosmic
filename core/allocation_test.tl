@@ -36,6 +36,11 @@ local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
 local type raw_process = require("cosmic.internal.process")
 local Clock = require("cosmic.clock")
+local Test = require("cosmic.test")
+local unix_socket = require("build.unix_socket")
+
+--- The socket cases listen on the worker's own loopback.
+Test.needs{ network = { "127.0.0.1" } }
 
 local type Searcher = function(string): any, any
 
@@ -239,13 +244,31 @@ local function test_pipe_leaves_no_end_open_whenever_an_allocation_fails(tmp: st
   assert(after == before, "a refused allocation left descriptor " .. before .. " open")
 end
 
---- A socket owns its descriptor, and a unix listener's socket file,
---- from the call that makes it: a refusal anywhere after -- before
---- [`cosmic.net`] has wrapped it, or while it builds the wrap -- leaves
---- neither to the process, and the next listener takes the same path.
+--- A socket owns its descriptor from the call that makes it: a refusal
+--- anywhere after -- before [`cosmic.net`] has wrapped it, or while it
+--- builds the wrap -- leaves none to the process. Over the loopback, which
+--- needs no socket file.
+local function test_net_leaves_no_descriptor_whenever_an_allocation_fails(tmp: string)
+  if not checked then return end
+  local before = next_descriptor(tmp)
+  local ended = under_every_failure(function()
+    local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
+    local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
+    local accepted <close> = assert(server:accept())
+    assert(client:write("hello"))
+    assert(accepted:read() == "hello")
+  end)
+  assert(ended > 0, "listening, connecting and accepting allocate")
+  local after = next_descriptor(tmp)
+  assert(after == before, "a refused allocation left descriptor " .. before .. " open")
+end
+
+--- A unix listener owns its socket file too: a refusal anywhere leaves
+--- neither the descriptor nor the file to the process, and the next
+--- listener takes the same path.
 local function test_net_leaves_no_descriptor_or_socket_file_whenever_an_allocation_fails(
     tmp: string)
-  if not checked then return end
+  if not checked or unix_socket.skipped(tmp) then return end
   local path = tmp .. "/s.sock"
   local before = next_descriptor(tmp)
   local ended = under_every_failure(function()
@@ -266,10 +289,9 @@ end
 --- the process.
 local function test_net_in_a_run_leaves_no_descriptor_whenever_an_allocation_fails(tmp: string)
   if not checked then return end
-  local path = tmp .. "/r.sock"
   local before = next_descriptor(tmp)
   local ended = under_every_failure(function()
-    local server <close> = assert(Net.listen(Net.unix(path), { timeout_ns = Clock.seconds(5) }))
+    local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
     Poll.run(function()
       local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
       local accepted <close> = assert(server:accept())

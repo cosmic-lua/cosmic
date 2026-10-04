@@ -1,14 +1,14 @@
 --- `cosmic test` under a policy (build/test_policy.tl), end to end: a
---- `cosmic test` run on a suite of its own with `COSMIC_TEST_POLICY=1`
---- starts each worker under a [`cosmic.sandbox`] policy, a test that reads
---- what it declares passes and one that reads what it does not fails, and
---- the verdicts are kept apart from the default sandbox's. These cases
+--- `cosmic test` run on a suite of its own starts each worker under a
+--- [`cosmic.sandbox`] policy, a test that reads what it declares passes and
+--- one that reads what it does not fails, and the verdicts are kept apart
+--- from those of the older sandbox (`COSMIC_TEST_POLICY=0`). These cases
 --- declare `tool`, since they start this program, and `nests`, since the
 --- workers of that run build roots of their own in this test's, whose
 --- mounts the kernel refuses under the Landlock ruleset that holds every
 --- other worker (build/test_worker.tl's `Hold`). Where this host cannot
 --- sandbox the workers of that run, the case is skipped
---- ([`sandbox_skip`]); off Linux, which has no sandbox to give, it returns
+--- (Test.skip); off Linux, which has no sandbox to give, it returns
 --- at once.
 
 local Child = require("cosmic.child")
@@ -18,7 +18,6 @@ local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
-local sandbox_skip = require("build.sandbox_skip")
 local test_inputs = require("build.test_inputs")
 local test_policy = require("build.test_policy")
 local test_sandbox = require("build.test_sandbox")
@@ -29,7 +28,7 @@ local this_program = require("build.this_program")
 --- runs read, which hold them to sandboxing and to a path.
 Test.needs{
   host = { "/dev/urandom", "/proc" },
-  env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
+  env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
   tool = true,
   nests = true,
 }
@@ -45,14 +44,13 @@ end
 --- not start them under a policy for what this host refuses of one -- a
 --- Landlock ruleset, a seccomp filter, a namespace, a /proc of its own, a
 --- root it cannot build; if so, the running test is skipped
---- ([`Test.skip`]), since a case of a held run then has nothing to check.
+--- ([`Test.skip`]), since a case of a sandboxed run then has nothing to check.
 --- The workers nest in this test's own sandbox, which a host may refuse:
 --- the kernel lets root nest one only two deep (core/syscalls.c's
---- `map_ids`). A run held to sandboxing fails the skip; CI's unprivileged
---- runners nest them.
+--- `map_ids`). CI's unprivileged runners nest them.
 local function unsandboxed(text: string): boolean
   if text:find("no worker can be sandboxed here", 1, true) then
-    sandbox_skip.nested(text)
+    if confine.sandbox_platform() then Test.skip(confine.unsandboxed_reason(text)) end
     return true
   end
   local why = text:match("could not be supervised: (child: start: [^\n]*)")
@@ -60,7 +58,9 @@ local function unsandboxed(text: string): boolean
   for _, word in ipairs({ "Landlock", "seccomp", "namespace", "own /proc", "root could not be built",
       "not implemented" }) do
     if why:find(word, 1, true) then
-      sandbox_skip.refused("a policy's start in this test's own sandbox: " .. why)
+      if confine.sandbox_platform() then
+        Test.skip("a policy's start in this test's own sandbox: " .. why)
+      end
       return true
     end
   end
@@ -237,40 +237,61 @@ end
 ]]))
 end
 
---- End to end, under the policy: a test that reads what it declares passes,
---- a filter and Landlock hold its worker, and one that reads a file it does not
---- declare fails -- the file is not there to read -- as the default
---- sandbox fails it; the run says it is under a policy. `--policy` is the
---- variable's word on the command line.
+--- Whether the summary of a run started here names the path its workers took:
+--- under a policy, or, where this process cannot start one (a root that may
+--- not map a user), the older sandbox and why.
+local function names_policy_path(text: string): boolean
+  if test_policy.unmet() == "" then
+    return text:find("; sandboxed, under a policy", 1, true) ~= nil
+  end
+  return text:find("; sandboxed, older sandbox (this process is root", 1, true) ~= nil
+end
+
+--- End to end, under the policy, which is the default where workers are
+--- sandboxed: a test that reads what it declares passes, a filter and
+--- Landlock hold its worker, and one that reads a file it does not declare
+--- fails -- the file is not there to read -- as the older sandbox fails it.
+--- `--policy` is the default's word on the command line, and
+--- `COSMIC_TEST_POLICY=0` selects the older sandbox, whose worker no filter
+--- holds, and its rerun hints say so.
 local function test_a_run_under_a_policy_passes_what_is_declared_and_fails_what_is_not(tmp: string)
   if no_sandbox_here() then return end
   local root = tmp .. "/root"
   suite_tree(root)
   local env = environment()
-  env.COSMIC_TEST_POLICY = "1"
   local text, ok = run(root, tmp .. "/policy", env,
     { "--all", "suite/held_test.tl" })
   if unsandboxed(text) then return end
   assert(not ok, text)
-  assert(text:find("under a policy (COSMIC_TEST_POLICY=1)", 1, true), text)
+  assert(not text:find("COSMIC_TEST_POLICY=0: each worker", 1, true), text)
+  assert(names_policy_path(text), text)
   assert(text:find("1 of 2 failed", 1, true), text)
   assert(text:find("FAIL  suite.held_test test_an_undeclared_read_fails", 1, true), text)
   assert(text:find("suite/secret.txt: No such file or directory", 1, true) and
-      text:find("rerun: COSMIC_TEST_POLICY=1 cosmic test suite/held_test.tl:", 1, true), text)
+      text:find("rerun: cosmic test suite/held_test.tl:", 1, true), text)
   assert(not text:find("test_a_declared_read_is_held_as_a_policy_holds_it", 1, true), text)
-  -- The same, asked for by the option.
-  env.COSMIC_TEST_POLICY = nil
+  -- The same, asked for by the option or the variable.
   local option, option_ok = run(root, tmp .. "/option", env,
     { "--all", "--policy", "suite/held_test.tl" })
   assert(not option_ok and option:find("1 of 2 failed", 1, true) and
-      option:find("under a policy (COSMIC_TEST_POLICY=1)", 1, true), option)
-  -- Not asked for, the same test is held by the default sandbox, which
-  -- has no filter and no ruleset over its root: the policy is what held it
-  -- above.
+      names_policy_path(option) and
+      not option:find("COSMIC_TEST_POLICY=0: each worker", 1, true), option)
+  env.COSMIC_TEST_POLICY = "1"
+  local asked, asked_ok = run(root, tmp .. "/asked", env, { "--all", "suite/held_test.tl" })
+  assert(not asked_ok and asked:find("1 of 2 failed", 1, true), asked)
+  -- Asked for the older sandbox, the same test is held by it, which has no
+  -- filter and no ruleset over its root: the policy is what held it above.
+  env.COSMIC_TEST_POLICY = "0"
   local plain, plain_ok = run(root, tmp .. "/plain", env, { "--all", "suite/held_test.tl" })
-  assert(not plain_ok and not plain:find("under a policy", 1, true), plain)
+  assert(not plain_ok and plain:find("COSMIC_TEST_POLICY=0: each worker is started by the sandbox", 1, true), plain)
+  assert(plain:find("; sandboxed, older sandbox (COSMIC_TEST_POLICY=0)", 1, true), plain)
   assert(plain:find("test_a_declared_read_is_held_as_a_policy_holds_it", 1, true) and
       plain:find("no filter holds this worker", 1, true), plain)
+  assert(plain:find("rerun: COSMIC_TEST_POLICY=0 cosmic test suite/held_test.tl:", 1, true), plain)
+  -- The two words cannot be given together.
+  local both, both_ok = run(root, tmp .. "/both", env, { "--all", "--policy", "suite/held_test.tl" })
+  assert(not both_ok and both:find("--policy asks for the policy path, and " ..
+      "COSMIC_TEST_POLICY=0 for the sandbox's own", 1, true), both)
 end
 
 --- A module that declares neither `tool` nor `nests` is kept from running the
@@ -294,11 +315,10 @@ local function test_the_program_is_refused()
 end
 ]]))
   local env = environment()
-  env.COSMIC_TEST_POLICY = "1"
   local text, ok = run(root, tmp .. "/forbid", env, { "--all", "suite/forbid_test.tl" })
   if unsandboxed(text) then return end
   assert(ok, text)
-  assert(text:find("under a policy (COSMIC_TEST_POLICY=1)", 1, true), text)
+  assert(not text:find("COSMIC_TEST_POLICY=0: each worker", 1, true), text)
 end
 
 --- A module that declares `nests` starts and passes under the policy: its
@@ -318,11 +338,10 @@ local function test_a_worker_that_nests_runs()
 end
 ]]))
   local env = environment()
-  env.COSMIC_TEST_POLICY = "1"
   local text, ok = run(root, tmp .. "/nest", env, { "--all", "suite/nest_test.tl" })
   if unsandboxed(text) then return end
   assert(ok, text)
-  assert(text:find("under a policy (COSMIC_TEST_POLICY=1)", 1, true), text)
+  assert(not text:find("COSMIC_TEST_POLICY=0: each worker", 1, true) and not text:find("SKIP", 1, true), text)
   assert(not text:find("retains of its own", 1, true), text)
 end
 
@@ -374,15 +393,15 @@ local function test_reads_the_artifact_of_its_closure(tmp: string)
 end
 ]]))
   local env = environment()
-  env.COSMIC_TEST_POLICY = "1"
   local text, ok = run(root, tmp .. "/bare", env, { "--all", "suite/bare_test.tl" })
   if unsandboxed(text) then return end
   assert(ok, text)
-  assert(text:find("under a policy (COSMIC_TEST_POLICY=1)", 1, true), text)
+  assert(text:find("under a policy", 1, true), text)
+  assert(not text:find("SKIP", 1, true), text)
 end
 
---- A pass under the policy does not stand for a run without it, nor the
---- default sandbox's for a run under it: each keeps its own verdicts, in
+--- A pass under the policy does not stand for a run of the older sandbox, nor
+--- its pass for a run under the policy: each keeps its own verdicts, in
 --- one tree's working database, while each stands for a rerun of itself.
 local function test_the_verdicts_of_the_two_paths_stand_apart(tmp: string)
   if no_sandbox_here() then return end
@@ -392,7 +411,7 @@ local function test_the_verdicts_of_the_two_paths_stand_apart(tmp: string)
   local step = 0
   local function said(policy: boolean, wanted: string): string
     step = step + 1
-    env.COSMIC_TEST_POLICY = policy and "1" or nil
+    if policy then env.COSMIC_TEST_POLICY = nil else env.COSMIC_TEST_POLICY = "0" end
     local text, ok = run(root, tmp .. "/run" .. step, env, { "suite/plain_test.tl" })
     assert(ok and text:find(wanted, 1, true), step .. ": " .. text)
     return text
@@ -463,7 +482,6 @@ end
   assert(Fs.write(root .. "/suite/tool_exec_test.tl", string.format(body,
     'local Test = require("cosmic.test")\n\nTest.needs { tool = true }\n')))
   local env = environment()
-  env.COSMIC_TEST_POLICY = "1"
   local text, ok = run(root, tmp .. "/exec", env, { "--all" })
   if unsandboxed(text) then return end
   assert(not ok and text:find("1 of 2 failed", 1, true), text)

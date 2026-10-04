@@ -550,9 +550,10 @@ end
 -- host cache, a writable grant without x, a variable-named grant), once
 -- the policy path (step b of the sandbox plan) gives each a field of
 -- cosmic.sandbox's [`Policy`]: a module that declares one stays on `needs`.
--- TODO: hand the promises to the runner once the filter runs on every
--- worker (step d of the sandbox plan, which keeps them in the key); until
--- then a promise a test does not make cannot be told from one it does.
+-- TODO: hand the promises to the runner, which keeps them in the key, once
+-- [`Test.policy`] replaces `needs` (step e of the sandbox plan): the filter
+-- runs on every worker, but until then a promise a test does not make
+-- cannot be told from one it does.
 --- The `needs` a policy stands for, or nil and why. The test is sandboxed
 --- and keyed as that `needs` would have it: reads of the tree, host
 --- files, the variables, loopback addresses, the program (profile
@@ -687,19 +688,17 @@ end
 --- A test that called it and then passed is counted skipped, not
 --- passed, in the run's summary (`N skipped`), and no verdict is kept
 --- of it, so it runs again on the next run and stands on no host; one
---- that failed is a failure like any other. A run held to sandboxing
---- (COSMIC_TEST_SANDBOX=1, COSMIC_SANDBOX=must or
---- COSMIC_CI_REQUIRE_SANDBOX=1, as CI's Linux legs are) fails a
---- skipped test, naming its reason: such a run proves the host checked
---- everything. So a test skips only where its platform could give what
---- this host refused (root nests a sandbox only two deep; a container
---- refuses user namespaces); where the platform itself has none -- no
---- user namespaces or Landlock off Linux -- there is nothing to check,
---- and it returns silently, a pass that stands, since the key's kernel
---- part names the platform. Nor does a test skip for a host tool or
---- artifact it lacks. Raises for a reason that is not a string or is empty and,
---- under a runner, for a call as the module loads rather than from a
---- test. Outside a runner it does nothing.
+--- that failed is a failure like any other. A test skips only where
+--- its platform could give what this host refused (root nests a sandbox
+--- only two deep; a container refuses user namespaces), or where what it
+--- checks is not built yet, naming what it waits on in a comment beside the skip; where
+--- the platform itself has none -- no user namespaces or Landlock off
+--- Linux -- there is nothing to check, and it returns silently, a pass
+--- that stands, since the key's kernel part names the platform. Nor does
+--- a test skip for a host tool or artifact it lacks. Raises for a reason
+--- that is not a string or is empty and, under a runner, for a call as
+--- the module loads rather than from a test. Outside a runner it does
+--- nothing.
 function Test.skip(reason: string)
   if not (reason is string) then error("test: skip's reason is not a string", 2) end
   if reason == "" then error("test: skip's reason is empty", 2) end

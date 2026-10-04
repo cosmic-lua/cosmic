@@ -18,7 +18,7 @@ local this_program = require("build.this_program")
 local stand_in = require("build.stand_in")
 local test_inputs = require("build.test_inputs")
 local test_sandbox = require("build.test_sandbox")
-local sandbox_skip = require("build.sandbox_skip")
+local confine = require("build.confine")
 local Test = require("cosmic.test")
 
 --- What a worker's plan gives it of the host, the program it runs,
@@ -26,7 +26,7 @@ local Test = require("cosmic.test")
 --- the variables `unsandboxed` reads, which hold a run to sandboxing.
 Test.needs{
   host = { "/dev/urandom", "/proc" },
-  env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
+  env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
   tool = true,
   nests = true,
 }
@@ -284,11 +284,11 @@ end
 --- so, the running test is skipped ([`Test.skip`]), since a case of a
 --- sandboxed run then has nothing to check. The workers nest in this
 --- test's own sandbox, which a host may refuse: the kernel lets root nest
---- one only two deep (core/syscalls.c's `map_ids`). A run held to
---- sandboxing fails the skip; CI's unprivileged runners nest them.
+--- one only two deep (core/syscalls.c's `map_ids`). CI's unprivileged
+--- runners nest them.
 local function unsandboxed(text: string): boolean
   if not text:find("no worker can be sandboxed here", 1, true) then return false end
-  sandbox_skip.nested(text)
+  if confine.sandbox_platform() then Test.skip(confine.unsandboxed_reason(text)) end
   return true
 end
 
@@ -392,7 +392,7 @@ end
       1, true), text)
     return
   end
-  assert(text:find("; sandboxed)", 1, true), text)
+  assert(text:find("; sandboxed", 1, true), text)
   seen = text:match("seen|([^\n]*)|end")
   assert(seen ~= nil, text)
   fields = {}
@@ -406,7 +406,7 @@ end
   -- Required where it can be, the same.
   env.COSMIC_TEST_SANDBOX = "1"
   text, ok = run(root, tmp .. "/required", env)
-  assert(not ok and text:find("; sandboxed)", 1, true), text)
+  assert(not ok and text:find("; sandboxed", 1, true), text)
   assert(text:find("rerun: COSMIC_TEST_SANDBOX=1 cosmic test suite/view_test.tl:test_view", 1,
     true), text)
   -- A misspelt switch is refused.
@@ -501,7 +501,7 @@ end
   local text, ok = run(root, tmp .. "/given", env)
   assert(not ok, text)
   if unsandboxed(text) then return end
-  assert(text:find("; sandboxed)", 1, true), text)
+  assert(text:find("; sandboxed", 1, true), text)
   assert(text:find("read|given|nil|end", 1, true), text)
 end
 
@@ -557,7 +557,7 @@ end
   end
   local first = said("2 ran, 0 stood")
   if unsandboxed(first) then return end
-  assert(first:find("; sandboxed)", 1, true), first)
+  assert(first:find("; sandboxed", 1, true), first)
   local again = said("0 ran, 2 stood")
   assert(not again:find("assumed", 1, true) and not again:find("every time", 1, true), again)
   assert(Fs.write(root .. "/suite/unrelated.txt", "two"))

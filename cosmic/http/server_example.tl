@@ -3,10 +3,13 @@
 --- other test -- see doc/design.md's `examples` table.
 
 local Clock = require("cosmic.clock")
-local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Server = require("cosmic.http.server")
 local Stream = require("cosmic.stream")
+local Test = require("cosmic.test")
+
+--- The server example listens on the worker's own loopback.
+Test.needs{ network = { "127.0.0.1" } }
 
 local Example = {}
 
@@ -16,14 +19,13 @@ local Example = {}
 --- drops the body. The server writes each reply's Content-Length, Date
 --- and Connection itself. A real one
 --- listens at `Net.tcp("127.0.0.1", 8080)` for any client; here it
---- listens on a socket file, and the client writes raw HTTP over
+--- listens on the loopback at a port the kernel chooses, and the client writes raw HTTP over
 --- [`Net.connect`], two requests pipelined, since [`Http.get`] holds the
 --- thread the server runs on until it returns.
 function Example.serve()
-  local dir = assert(Fs.mkdtemp("cosmic-http-example-"))
   local store: {string:string} = {}
   assert(Server.serve{
-    listeners = { Net.unix(dir .. "/kv.sock") },
+    listeners = { Net.tcp("127.0.0.1", 0) },
     limits = { body_bytes = 64 * 1024 },
     handle = function(req: Server.Request): Server.Reply
       if req.method == "PUT" then
@@ -47,7 +49,6 @@ function Example.serve()
       server:stop()
     end,
   })
-  assert(Fs.remove_tree(dir))
 end
 
 --- A handler's answer to a GET of a file it holds in memory, honoring

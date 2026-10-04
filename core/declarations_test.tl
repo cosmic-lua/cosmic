@@ -47,7 +47,8 @@ local type _store = require("cosmic.store")
 --- Every declaration of the core's raw modules, the headers the process
 --- and socket tables' are derived from, and core/store.c, whose `raw_modules` names
 --- the wrapper each raw module is handed to.
-Test.needs{ reads = { "cosmic/internal/", "core/process.h", "core/socket.h", "core/store.c" } }
+Test.needs{ reads = { "cosmic/internal/", "core/process.h", "core/socket.h", "core/store.c" },
+  network = { "127.0.0.1" } }
 
 local built = assert(teal.load())
 
@@ -217,13 +218,13 @@ local function reply(): string
 end
 
 --- One of each userdata a raw module makes, by record name, and what
---- releases them, made in `tmp` where a file is made.
+--- releases them.
 local record Made
   instances: {string: any}
   release: function()
 end
 
-local makers: {string: function(raw: {string: any}, tmp: string): Made} = {
+local makers: {string: function(raw: {string: any}): Made} = {
   compress = function(raw: {string: any}): Made
     local stream = assert(call(raw.inflater, "raw"))
     return { instances = { Stream = stream }, release = nothing }
@@ -238,8 +239,10 @@ local makers: {string: function(raw: {string: any}, tmp: string): Made} = {
     return { instances = { Handle = handle },
       release = function() call(members(handle).close, handle) end }
   end,
-  socket = function(raw: {string: any}, tmp: string): Made
-    local socket = assert(call(raw.listen, { kind = "unix", path = tmp .. "/s.sock" }, 1))
+  socket = function(raw: {string: any}): Made
+    -- A TCP listener on the worker's own loopback: a unix one needs a `u`
+    -- grant the policy path cannot give below Landlock ABI 9.
+    local socket = assert(call(raw.listen, { kind = "tcp", host = "127.0.0.1", port = 0 }, 1))
     return { instances = { Socket = socket },
       release = function() call(members(socket).close, socket) end }
   end,
@@ -318,7 +321,7 @@ end
 
 --- Every declaration under cosmic/internal, and each the build derives
 --- from a header, is what the running core registers.
-local function test_every_declaration_is_what_the_core_registers(tmp: string)
+local function test_every_declaration_is_what_the_core_registers()
   local problems: {string} = {}
   local names: {string} = {}
   for _, entry in ipairs((assert(Fs.list("cosmic/internal")))) do
@@ -331,7 +334,7 @@ local function test_every_declaration_is_what_the_core_registers(tmp: string)
   for _, name in ipairs(names) do
     local raw = raw_module(name)
     local maker = makers[name]
-    local made: Made = maker ~= nil and maker(members(raw), tmp) or
+    local made: Made = maker ~= nil and maker(members(raw)) or
       { instances = {}, release = nothing }
     local source = declaration_of(name)
     for _, problem in ipairs(disagreements(name, source, raw, made.instances)) do

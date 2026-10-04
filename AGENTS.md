@@ -171,12 +171,21 @@
    `store` says why above its declaration. Only a test of one module
    may read the store so: a check over the whole tree is no test, and
    goes in [`build/tree_checks.tl`].
-   `COSMIC_TEST_POLICY=1` (`--policy`) starts each sandboxed worker under a
-   [`cosmic.sandbox`] policy ([`build/test_policy.tl`]) instead of the sandbox it has
-   by default: step (b) of #2621's doc/plans/sandbox.md. Its verdicts stand
-   apart from the default's, a module the policy cannot yet hold fails naming
-   the field, and [`.github/workflows/policy.yml`] runs the suite so without
-   gating a merge.
+   Each sandboxed worker starts under a [`cosmic.sandbox`] policy
+   ([`build/test_policy.tl`]), held by a Landlock ruleset and a seccomp filter
+   of the promises it declares, as step (c) and (d) of #2621's
+   doc/plans/sandbox.md have it. `COSMIC_TEST_POLICY=0` starts them by the
+   sandbox [`build/test_sandbox.tl`] plans instead, until step (e) deletes
+   that path; `--policy` (`COSMIC_TEST_POLICY=1`) fails a run whose workers
+   cannot be sandboxed rather than run them without a policy. The two paths'
+   verdicts stand apart. A root that lacks CAP_SETUID, CAP_SETGID or
+   CAP_SETFCAP cannot map the user a policy runs as (a program of a policy
+   never runs as root), so its run starts workers by the older sandbox
+   instead, and the summary says `older sandbox (<why>)` beside `sandboxed`,
+   as it says `under a policy` for the default. A module whose workers the policy path cannot yet
+   hold -- one that nests and declares neither `store` nor `tool`, which
+   waits for a per-closure artifact -- has its tests skipped with that
+   reason; a module declaring what no policy says (`env = { "*" }`) fails.
    `--all` (`COSMIC_TEST_ALL=1`) runs everything. The worker still reads
    /proc, /dev/null, /dev/zero, /dev/full and /dev/urandom, keyed only
    through the host's identity, and the program, its core and its
@@ -213,8 +222,7 @@
    `confine` starts it unconfined; `must_confine` fails
    the spawn, and the test, instead, naming the part of the sandbox
    refused and its errno. `COSMIC_SANDBOX=must` (off by default) makes
-   every `confine` one, and fails [`core/syscalls_test.tl`]'s sandbox
-   tests rather than counting them skipped. Likewise a test nests the workers of a
+   every `confine` one. Likewise a test nests the workers of a
    `cosmic test` it starts in its own sandbox only where its assertion
    is about their sandbox; every other run of `cosmic test` a test
    starts sets `COSMIC_TEST_SANDBOX=0`, so it means the same on every
@@ -229,17 +237,19 @@
    those tests call [`Test.skip`] and
    return before asserting: the summary counts them skipped, beside ran
    and stood, and lists each with its reason (`test: SKIP`); no verdict
-   is kept of one, so it runs again every run. A run held to sandboxing
+   is kept of one, so it runs again every run, in a held run too
    (`COSMIC_TEST_SANDBOX=1`, `COSMIC_SANDBOX=must` or
-   `COSMIC_CI_REQUIRE_SANDBOX=1`: build.confine's `held_to_sandbox`)
-   fails any skipped test instead. A test that returns early because
-   this host cannot be given the sandbox it is about calls [`Test.skip`]
-   too ([`build.sandbox_skip`]'s `refused`), never passing as though it
-   had checked -- but only where the platform could give it: off Linux
-   (no user namespaces, Landlock or subreaper) it returns silently, a
-   pass the key's kernel part pins to that platform. A test that
-   returns early for a host tool or artifact it lacks (jq, a portable
-   artifact) does not skip: a held run would fail it.
+   `COSMIC_CI_REQUIRE_SANDBOX=1`), which counts a skip as any run does.
+   A test that returns early because this host cannot be given the
+   sandbox it is about calls [`Test.skip`] too, never passing as though
+   it had checked -- but only where the platform could give it
+   ([`build.confine`]'s `sandbox_platform`): off Linux (no user
+   namespaces, Landlock or subreaper) it returns silently, a pass the
+   key's kernel part pins to that platform. So does a test for what the
+   policy path cannot yet give it (a unix socket by path, a mode with a
+   setuid bit): it skips naming the reason, beside a `TODO:` that says
+   what it waits on. A test that returns early for a host tool or
+   artifact it lacks (jq, a portable artifact) does not skip.
    A test module declares what it reads beyond its import closure, its
    fuzz corpora and a pinned environment with a top-level
    `Test.needs { ... }` (`local Test = require("cosmic.test")`; see
@@ -435,13 +445,12 @@ unblocks: `o/bin/cosmic todos '"cosmic-driver.pin"'` lists them.
 
 [`.claude/skills/comments/SKILL.md`]: .claude/skills/comments/SKILL.md
 [`.github/scripts/place-tree.sh`]: .github/scripts/place-tree.sh
-[`.github/workflows/policy.yml`]: .github/workflows/policy.yml
 [`bin/cosmic-bootstrap`]: bin/cosmic-bootstrap
 [`bin/vendor`]: bin/vendor
 [`bin/verify-codesign`]: bin/verify-codesign
 [`bin/zig`]: bin/zig
+[`build.confine`]: build/confine.tl
 [`build.fuzz`]: build/fuzz/init.tl
-[`build.sandbox_skip`]: build/sandbox_skip.tl
 [`build/artifact.tl`]: build/artifact.tl
 [`build/c/layout.tl`]: build/c/layout.tl
 [`build/c/rules.tl`]: build/c/rules.tl
@@ -470,7 +479,6 @@ unblocks: `o/bin/cosmic todos '"cosmic-driver.pin"'` lists them.
 [`core/fail.h`]: core/fail.h
 [`core/guard.h`]: core/guard.h
 [`core/syscalls.h`]: core/syscalls.h
-[`core/syscalls_test.tl`]: core/syscalls_test.tl
 [`cosmic.sandbox`]: cosmic/sandbox.tl
 [`doc/roadmap.md`]: doc/roadmap.md
 [`Fuzz.label`]: build/fuzz/init.tl

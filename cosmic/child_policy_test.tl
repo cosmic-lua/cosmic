@@ -4,13 +4,13 @@
 --- static program that does what its script says, so a refusal shows as a
 --- command that fails. A host whose kernel gives no Landlock or seccomp, and
 --- every platform but Linux, skips the tests that start a child
---- (build.sandbox_skip); the refusals that come before a child do not.
+--- (Test.skip); the refusals that come before a child do not.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local sandbox_skip = require("build.sandbox_skip")
+local confine = require("build.confine")
 local searchable = require("build.searchable")
 local stand_in = require("build.stand_in")
 local Sandbox = require("cosmic.sandbox")
@@ -45,7 +45,7 @@ local function under(program: string, policy: Sandbox.Policy, script: string, op
   local result, why = Child.run({ program, script }, options)
   if result == nil then
     assert(unsandboxable(why), "the start was refused: " .. why)
-    sandbox_skip.refused(why)
+    if confine.sandbox_platform() then Test.skip(why) end
     return nil
   end
   return { code = result.code or -1, signal = result.signal or -1, said = result.stdout or "",
@@ -92,7 +92,7 @@ local function test_a_grant_of_a_path_that_is_not_there_fails_naming_it(tmp: str
   local result, why = Child.run({ probe, "print hi" }, { policy = policy })
   assert(result == nil)
   if unsandboxable(why) then
-    sandbox_skip.refused(why)
+    if confine.sandbox_platform() then Test.skip(why) end
     return
   end
   assert(why:find("absent", 1, true), why)
@@ -127,7 +127,7 @@ local function test_an_interpreter_must_be_granted_too(tmp: string)
   local ran, trouble = Child.run({ tmp .. "/scripts/run" }, { policy = policy, stdout = "capture" })
   if ran == nil then
     assert(unsandboxable(trouble), trouble)
-    sandbox_skip.refused(trouble)
+    if confine.sandbox_platform() then Test.skip(trouble) end
     return
   end
   assert(ran.stdout == "scripted\n", ran.stdout)
@@ -144,7 +144,7 @@ local function test_a_program_named_without_a_path_must_be_found_and_a_link_is_g
     { policy = { grants = itself(probe) }, stdout = "capture" })
   if result == nil then
     assert(unsandboxable(trouble), trouble)
-    sandbox_skip.refused(trouble)
+    if confine.sandbox_platform() then Test.skip(trouble) end
     return
   end
   assert(result.stdout == "hi\n", result.stdout)
@@ -253,7 +253,7 @@ local function test_tmp_is_removed_after_a_child_ended_for_its_timeout(tmp: stri
     { policy = policy, stdout = "null", stderr = "null" })
   if handle == nil then
     assert(unsandboxable(why), why)
-    sandbox_skip.refused(why)
+    if confine.sandbox_platform() then Test.skip(why) end
     return
   end
   assert(#sandbox_directories() == 1, "expected the child's one directory")
@@ -268,7 +268,7 @@ local function test_a_start_that_fails_leaves_no_tmp_behind(tmp: string)
   local none, why = Child.start({ probe, "print hi" }, { policy = policy })
   assert(none == nil)
   if unsandboxable(why) then
-    sandbox_skip.refused(why)
+    if confine.sandbox_platform() then Test.skip(why) end
     return
   end
   assert(#sandbox_directories() == 0, "a failed start left its directory behind")
@@ -312,7 +312,7 @@ local function test_a_limit_above_this_processs_hard_limit_fails_the_start(tmp: 
     return
   end
   if unsandboxable(why) then
-    sandbox_skip.refused(why)
+    if confine.sandbox_platform() then Test.skip(why) end
     return
   end
   assert(why:find("^child: start: ") and why:find("not permitted", 1, true), why)

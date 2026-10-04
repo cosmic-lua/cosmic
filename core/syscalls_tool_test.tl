@@ -12,7 +12,6 @@ local type raw_process = require("cosmic.internal.process")
 local confine = require("build.confine")
 local this_program = require("build.this_program")
 local stand_in = require("build.stand_in")
-local sandbox_skip = require("build.sandbox_skip")
 local Clock = require("cosmic.clock")
 
 -- TODO: declare /proc for Linux alone once a declaration can name a
@@ -63,12 +62,13 @@ local function spawn_fds(started: this_program.Program): {integer:integer}
 end
 
 --- Says a sandbox test is skipped ([`Test.skip`]) where this Linux host
---- refuses the sandbox it is about (build.sandbox_skip), as core/syscalls_test.tl's
+--- refuses the sandbox it is about, as core/syscalls_test.tl's
 --- `unsandboxable` does, as it returns early: the run counts it skipped
---- rather than passed, and a run held to sandboxing (COSMIC_SANDBOX=must
---- among them) fails it.
+--- rather than passed.
 local function unsandboxable(what: string, trouble: string)
-  sandbox_skip.refused("the kernel gives no " .. what .. ": " .. tostring(trouble))
+  if confine.sandbox_platform() then
+    Test.skip("the kernel gives no " .. what .. ": " .. tostring(trouble))
+  end
 end
 
 --- A stand-in program built under `tmp` (build/stand_in.tl).

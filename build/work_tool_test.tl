@@ -8,13 +8,12 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local this_program = require("build.this_program")
 local work = require("build.work")
-local sandbox_skip = require("build.sandbox_skip")
+local confine = require("build.confine")
 local Test = require("cosmic.test")
 
---- The program itself, which its tests start, roots of their own for the
---- sandboxed workers of a run they start (`nests`), and what holds a run
---- to sandboxing, which fails a skipped test ([`Test.skip`]).
-Test.needs{ env = { "COSMIC_CI_REQUIRE_SANDBOX" }, tool = true, nests = true }
+--- The program itself, which its tests start, and roots of their own for
+--- the sandboxed workers of a run they start (`nests`).
+Test.needs{ tool = true, nests = true }
 
 --- A project whose module directory and one test are links into a
 --- tree beside it, and a `loop -> .`: `tmp/project`.
@@ -72,7 +71,7 @@ local function test_cosmic_test_runs_a_project_reached_through_links(tmp: string
   local out = (result.stdout or "") .. (result.stderr or "")
   assert(result.code == 0, out)
   assert(out:find("(2 tests, 2 modules", 1, true), out)
-  if not out:find("; sandboxed)", 1, true) then
-    sandbox_skip.nested(out)
+  if not out:find("; sandboxed", 1, true) then
+    if confine.sandbox_platform() then Test.skip(confine.unsandboxed_reason(out)) end
   end
 end

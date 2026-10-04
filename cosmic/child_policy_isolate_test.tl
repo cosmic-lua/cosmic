@@ -6,7 +6,7 @@
 --- a static program that does what its script says, so a refusal shows as a
 --- command that fails. A host that gives no user namespace, Landlock or
 --- seccomp, and every platform but Linux, skips the tests that start a child
---- (build.sandbox_skip); the refusals that come before a child do not.
+--- (Test.skip); the refusals that come before a child do not.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -15,9 +15,10 @@ local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
-local sandbox_skip = require("build.sandbox_skip")
+local confine = require("build.confine")
 local searchable = require("build.searchable")
 local stand_in = require("build.stand_in")
+local unix_socket = require("build.unix_socket")
 
 --- The temporary directory, and a loopback address for the host's own
 --- listener the child must not reach. `nests`: a policy's isolation makes
@@ -49,7 +50,7 @@ local function under(program: string, policy: Sandbox.Policy, cwd: string, scrip
     { policy = policy, cwd = cwd, stdout = "capture", stderr = "stdout" })
   if result == nil then
     assert(unsandboxable(why), "the start was refused: " .. why)
-    sandbox_skip.refused(why)
+    if confine.sandbox_platform() then Test.skip(why) end
     return nil
   end
   return { code = result.code or -1, said = result.stdout or "" }
@@ -275,6 +276,7 @@ local function test_inet_sockets_stay_refused_without_loopback(tmp: string)
   assert(plain.said ~= "connected\n" and plain.said:find("not permitted", 1, true), plain.said)
   -- A unix grant gives the network namespace and unix sockets, not inet ones.
   local socket = tmp .. "/inet.sock"
+  if unix_socket.skipped(tmp) then return end
   local server = assert(Net.listen(Net.unix(socket), { timeout_ns = 1000000000 }))
   local unix = under(at.probe, { isolate = { "file" },
     grants = with(at.bare, { path = socket, letters = "u" }) }, at.home,
@@ -287,6 +289,7 @@ end
 local function test_a_u_grant_under_isolate_file_reaches_the_socket_bound_into_the_root(tmp: string)
   local at = placed(tmp)
   local socket = tmp .. "/s.sock"
+  if unix_socket.skipped(tmp) then return end
   local server = assert(Net.listen(Net.unix(socket), { timeout_ns = 1000000000 }))
   local policy: Sandbox.Policy = { isolate = { "file" },
     grants = with(at.bare, { path = socket, letters = "u" }) }
@@ -310,6 +313,7 @@ end
 local function test_a_u_grant_beside_a_directory_of_sockets_is_refused_or_held(tmp: string)
   local at = placed(tmp)
   assert(Fs.mkdirs(tmp .. "/socks"))
+  if unix_socket.skipped(tmp) then return end
   local granted = assert(Net.listen(Net.unix(tmp .. "/socks/s.sock"), { timeout_ns = 1000000000 }))
   local other = assert(Net.listen(Net.unix(tmp .. "/socks/s2.sock"), { timeout_ns = 1000000000 }))
   local policy: Sandbox.Policy = { isolate = { "file" }, grants = with(at.bare,
@@ -322,7 +326,7 @@ local function test_a_u_grant_beside_a_directory_of_sockets_is_refused_or_held(t
     else
       assert(unsandboxable(why), why)
       assert(granted:close() and other:close())
-      sandbox_skip.refused(why)
+      if confine.sandbox_platform() then Test.skip(why) end
       return
     end
   else
@@ -336,6 +340,7 @@ end
 local function test_a_u_grant_beside_files_alone_is_met(tmp: string)
   local at = placed(tmp)
   local socket = tmp .. "/solo.sock"
+  if unix_socket.skipped(tmp) then return end
   local server = assert(Net.listen(Net.unix(socket), { timeout_ns = 1000000000 }))
   local result = under(at.probe, { isolate = { "file" }, grants = with(at.bare,
     { path = at.probe, letters = "r" }, { path = socket, letters = "u" }) }, at.home,
@@ -372,7 +377,7 @@ local function test_a_root_that_cannot_be_built_says_which_step_failed(tmp: stri
   assert(result == nil)
   if not why:find("root could not be built", 1, true) then
     assert(unsandboxable(why), why)
-    sandbox_skip.refused(why)
+    if confine.sandbox_platform() then Test.skip(why) end
     return
   end
   assert(why:find("Symbolic link loop", 1, true) and why:find("step of making", 1, true), why)
@@ -408,7 +413,7 @@ local function test_a_directory_nothing_grants_cannot_be_started_in_under_isolat
     policy = { isolate = { "file" }, grants = at.grants } })
   assert(result == nil)
   if unsandboxable(why) then
-    sandbox_skip.refused(why)
+    if confine.sandbox_platform() then Test.skip(why) end
     return
   end
   assert(why:find("must be at, beneath or above a grant", 1, true), why)

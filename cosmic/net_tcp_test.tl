@@ -3,6 +3,7 @@ local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
+local unix_socket = require("build.unix_socket")
 local sys = require("cosmic.sys")
 local Clock = require("cosmic.clock")
 
@@ -147,6 +148,7 @@ end
 --- One protocol serves every listener, a TCP one and a unix one alike,
 --- and on_ready is told the port the kernel chose for one at port 0.
 local function test_a_server_names_what_it_bound_and_serves_every_listener(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local bound: {Net.Address} = {}
   local answers: {string} = {}
   assert(Net.serve{
@@ -170,4 +172,33 @@ local function test_a_server_names_what_it_bound_and_serves_every_listener(tmp: 
   assert(bound[1].port > 0 and bound[1].port <= 65535, tostring(bound[1].port))
   assert(bound[2].kind == "unix" and bound[2].path == tmp .. "/s.sock", bound[2].path)
   assert(table.concat(answers, ",") == "TCP,UNIX", table.concat(answers, ","))
+end
+
+--- The same for two TCP listeners, which need no socket file.
+local function test_a_server_names_what_it_bound_and_serves_two_tcp_listeners()
+  local bound: {Net.Address} = {}
+  local answers: {string} = {}
+  assert(Net.serve{
+    listeners = { Net.tcp("127.0.0.1", 0), Net.tcp("127.0.0.1", 0) },
+    serve = function(conn: Net.Conn)
+      local line = assert(Stream.lines(conn):read())
+      assert(conn:write(line:upper() .. "\n"))
+    end,
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      bound = addresses
+      assert(server.addresses == addresses)
+      for _, address in ipairs(addresses) do
+        local conn <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(5) }))
+        assert(conn:write(address.kind .. "\n"))
+        answers[#answers + 1] = assert(Stream.lines(conn):read())
+      end
+      server:stop()
+    end,
+  })
+  for i = 1, 2 do
+    assert(bound[i].kind == "tcp" and bound[i].host == "127.0.0.1", bound[i].host)
+    assert(bound[i].port > 0 and bound[i].port <= 65535, tostring(bound[i].port))
+  end
+  assert(bound[1].port ~= bound[2].port)
+  assert(table.concat(answers, ",") == "TCP,TCP", table.concat(answers, ","))
 end

@@ -2,14 +2,14 @@
 --- on a host program, a dynamically linked one where the host has them:
 --- the profile is what lets one start, and nothing past it is reachable.
 --- A host whose kernel gives no Landlock or seccomp, and every platform
---- but Linux, skips them (build.sandbox_skip).
+--- but Linux, skips them (Test.skip).
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local sandbox_skip = require("build.sandbox_skip")
+local confine = require("build.confine")
 local searchable = require("build.searchable")
 
 --- A host program starts, so the system's own paths are given.
@@ -23,7 +23,7 @@ local function cat(policy: Sandbox.Policy, file: string): string, integer
   local result, why = Child.run({ CAT, file }, { policy = policy, stdout = "capture", stderr = "stdout" })
   if result == nil then
     if why:find("Landlock", 1, true) or why:find("seccomp", 1, true) or why:find("not implemented", 1, true) then
-      sandbox_skip.refused(why)
+      if confine.sandbox_platform() then Test.skip(why) end
       return nil, -1
     end
     error("the start was refused: " .. why)
@@ -59,7 +59,7 @@ local function test_without_the_profile_the_loader_is_not_granted_and_the_start_
   if none ~= nil then return end
   -- Where the host gives no sandbox the start is refused for that, past the grants.
   if why:find("Landlock", 1, true) or why:find("seccomp", 1, true) or why:find("not implemented", 1, true) then
-    sandbox_skip.refused(why)
+    if confine.sandbox_platform() then Test.skip(why) end
     return
   end
   assert(why:find("^child: start: sandbox: ") and why:find("interpreter", 1, true), why)
