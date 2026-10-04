@@ -121,10 +121,13 @@ local record Place
 end
 
 --- Builds the stand-in and a working directory in `tmp`, opened to
---- everyone as a sandbox's own user needs it of the host's tree.
+--- everyone as a sandbox's own user needs it of the host's tree, whatever
+--- the umask they were made under.
 local function placed(tmp: string): Place
   searchable.open(tmp)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  assert(sys.chmod(probe, octal("755")))
+  searchable.open(Fs.dirname(probe))
   local work = assert(Fs.mkdirs(tmp .. "/work") and tmp .. "/work")
   assert(sys.chmod(work, octal("755")))
   return { probe = probe, work = work }
@@ -155,7 +158,7 @@ local function test_a_root_caller_runs_its_child_as_a_user_of_a_range_of_its_own
   if not root_that_maps() then return end
   local at = placed(tmp)
   local first, last = pool()
-  for _, isolate in ipairs({ { "proc" }, { "file" }, {} }) do
+  for _, isolate in ipairs({ { "proc" }, { "file" } }) do
     local ran = under(at.probe, { isolate = isolate, grants = { { path = at.probe, letters = "rx" },
       { path = at.work, letters = "r" } } }, at.work, "status-field Uid; status-field Gid")
     if ran == nil then return end
@@ -169,35 +172,40 @@ local function test_a_root_caller_runs_its_child_as_a_user_of_a_range_of_its_own
   end
 end
 
---- A root caller with no isolation needs none of it: the child runs as a
---- user of the pool dropped to, not mapped through a user namespace, so
---- the start needs no procfs of its own and works where a container masks
---- /proc. Until the start drops privs instead of mapping them, this fails
---- naming the sandbox's own /proc -- which is the bug, not the host, so
---- unlike `under` this does not skip that refusal.
-local function test_a_root_caller_without_isolation_drops_to_a_pool_user(tmp: string)
+--- A root caller's policy that makes no namespace gives root up for its
+--- user directly, in this process's own user namespace, so it starts
+--- where a container masks /proc, whose procfs of a sandbox's own is
+--- refused: that refusal fails this test rather than skipping it.
+local function test_a_root_caller_s_policy_with_no_namespace_drops_to_a_pool_user(tmp: string)
   if not root_that_maps() then return end
   local at = placed(tmp)
-  local first, last = pool()
-  -- The child runs as its user and makes a file in the work directory, so
-  -- both are opened to everyone: the probe the builder wrote under a
-  -- restrictive umask, the work directory as `reached_by` asks of a root
-  -- caller's grants.
-  assert(sys.chmod(at.probe, octal("755")))
-  searchable.open(Fs.dirname(at.probe))
   searchable.share(at.work)
-  local handle, why = Child.start({ at.probe, "create made x" },
-    { policy = { grants = { { path = at.probe, letters = "rx" },
-      { path = at.work, letters = "rwc" } } },
+  local first, last = pool()
+  local result, why = Child.run({ at.probe,
+    "status-field Uid; status-field Gid; cat /proc/self/uid_map; create made x" },
+    { policy = { grants = { { path = at.probe, letters = "rx" }, { path = at.work, letters = "rwc" },
+      { path = "/proc", letters = "r" } } },
       cwd = at.work, stdout = "capture", stderr = "stdout" })
-  assert(handle ~= nil, "the start was refused: " .. tostring(why))
-  local result = assert(handle:wait())
-  assert(result.code == 0, tostring(result.stdout))
-  -- What the child made is its user's on the host: a user of the pool,
-  -- never root.
+  if result == nil then
+    if why:find("own /proc", 1, true) == nil and unsandboxable(why) then
+      sandbox_skip.refused(why)
+      return
+    end
+    error("the start was refused: " .. why)
+  end
+  local said = result.stdout or ""
+  assert(result.code == 0, said)
+  local ids = uids(said:match("^(.-\n.-\n)") or "")
+  assert(#ids == 8, said)
+  for _, id in ipairs(ids) do
+    assert(id ~= 0 and id >= first and id <= last, said)
+  end
+  assert(ids[1] == ids[5], said)
+  -- No user namespace of its own: it has this process's maps.
+  local own_map = assert(Fs.read("/proc/self/uid_map"))
+  assert(said:find(own_map, 1, true) ~= nil, "a user namespace of its own: " .. said)
   local made = assert(sys.stat(at.work .. "/made"))
-  assert(made.uid ~= 0 and made.uid >= first and made.uid <= last and made.gid == made.uid,
-    "made is owned by " .. made.uid .. ":" .. made.gid .. ", not a user of the pool")
+  assert(made.uid == ids[1] and made.gid == ids[5], "made is " .. made.uid .. ":" .. made.gid)
 end
 
 local function test_a_root_caller_s_concurrent_sandboxes_run_as_different_users(tmp: string)
