@@ -649,8 +649,8 @@ function worker.invocation(given: worker.Invocation): worker.Command
   for number, fd in pairs(given.start.fds) do fds[number] = fd end
   if given.policy ~= nil then
     -- A policy is the whole of its child's environment, which `env` beside
-    -- it would contradict: what the worker is given goes in the policy's
-    -- `set_env`.
+    -- it would contradict: what the worker is given, the one place it is
+    -- made whole, goes in the policy's `set_env`.
     local held = given.policy
     local policy: Sandbox.Policy = { profiles = held.profiles, grants = held.grants,
       isolate = held.isolate, promises = held.promises, connect = held.connect,

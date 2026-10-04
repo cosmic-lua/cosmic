@@ -24,7 +24,7 @@
 ---   `x`, at /noexec;
 --- - `nests` is the promise "nest", `network` is `loopback`, and the
 ---   variables a worker is given are its `set_env`, the policy being the
----   whole of its environment;
+---   whole of its environment ([`worker.invocation`] sets it);
 --- - `lua` and `standalone` say what the worker holds the processes of
 ---   its test to (a hold of the store, not of the sandbox) and need no
 ---   field.
@@ -99,7 +99,7 @@ end
 
 --- The fields of the policy of a worker of `effective` that name no path:
 --- what is the same wherever the tree is and whatever is declared beside it
---- ([`test_policy.worker`] adds the paths and the environment).
+--- ([`test_policy.worker`] adds the paths).
 local function shape(effective: test_inputs.Effective): Sandbox.Policy
   local loopback: {string} = {}
   for address in pairs(effective.network) do loopback[#loopback + 1] = address end
@@ -155,17 +155,15 @@ local function letters_of(path: string, inside: string, runs: {string:boolean}):
 end
 
 --- The policy a worker of `effective` is started under, from the paths of
---- `plan` (made for the policy, [`test_sandbox.plan`]'s `policy`), with
---- `environment` its whole environment: the variables the plan gave it
---- and those the runner adds to start it. Nil and why where the module
---- declares what a policy cannot say (`refusal`).
---- @param plan the worker's paths and environment
+--- `plan` (made for the policy, [`test_sandbox.plan`]'s `policy`). Nil and why where the module declares what a policy cannot say
+--- (`refusal`). It has no `set_env`: the worker's environment is whole
+--- only once what starts it is added ([`worker.invocation`]).
+--- @param plan the worker's paths
 --- @param effective what its module declares
---- @param environment the environment to start it with
 --- @return the policy, nil where it is refused
 --- @return why it is refused
-function test_policy.worker(plan: test_sandbox.Plan, effective: test_inputs.Effective,
-                            environment: {string:string}): Sandbox.Policy | nil, string
+function test_policy.worker(plan: test_sandbox.Plan,
+                            effective: test_inputs.Effective): Sandbox.Policy | nil, string
   local refused = refusal(effective)
   if refused ~= "" then return nil, refused end
   local policy = shape(effective)
@@ -190,8 +188,6 @@ function test_policy.worker(plan: test_sandbox.Plan, effective: test_inputs.Effe
     grants[#grants + 1] = { path = "/noexec", from = scratch .. "/noexec", letters = "rwc" }
   end
   policy.grants = grants
-  policy.set_env = {}
-  for name, value in pairs(environment) do policy.set_env[name] = value end
   return policy, ""
 end
 

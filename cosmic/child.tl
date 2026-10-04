@@ -2760,8 +2760,9 @@ local function nest_descriptors(slots: {integer:integer}): string
     local what = "descriptor " .. number .. (fd ~= number and " (this process's " .. fd .. ")" or "")
     -- The descriptors the runtime retains of its own (its artifact and core,
     -- which a relaunch hands on) are refused to every binding that takes a
-    -- descriptor, a stat included, by raising.
+    -- descriptor, a stat included, by raising; any other raise is rethrown.
     local looked, st = pcall(sys.fstat, fd)
+    if not looked and not tostring(st):find("retained", 1, true) then error(st, 0) end
     if not looked then
       return what .. " is one this runtime retains of its own (its artifact or core), which " ..
         "promises \"nest\" cannot hand a program: it is a file open for reading alone"

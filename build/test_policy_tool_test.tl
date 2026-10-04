@@ -272,3 +272,37 @@ end
   local misspelt, misspelt_ok = run(root, tmp .. "/misspelt", env, { "suite/plain_test.tl" })
   assert(not misspelt_ok and misspelt:find('COSMIC_TEST_POLICY is "yes"', 1, true), misspelt)
 end
+
+--- A worker whose module does not declare `tool` may not run this program
+--- again, as under the default sandbox, though the core is granted `x` for
+--- the worker to start from: its test's start of the core is refused;
+--- a module that declares `tool` starts it.
+local function test_a_worker_that_is_not_a_tool_cannot_run_the_core_again(tmp: string)
+  if no_sandbox_here() then return end
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/suite"))
+  local body = [[
+local Child = require("cosmic.child")
+local Proc = require("cosmic.proc")
+%s
+
+local function test_runs_the_core()
+  local launched, _ = Proc.relaunch()
+  if launched == nil then return end
+  local result, why = Child.run({ launched.argv[1], "-e", "" }, { process_group = false,
+    stdout = "capture", stderr = "stdout" })
+  assert(result ~= nil, tostring(why))
+end
+]]
+  assert(Fs.write(root .. "/suite/plain_exec_test.tl", string.format(body, "")))
+  assert(Fs.write(root .. "/suite/tool_exec_test.tl", string.format(body,
+    'local Test = require("cosmic.test")\n\nTest.needs { tool = true }\n')))
+  local env = environment()
+  env.COSMIC_TEST_POLICY = "1"
+  local text, ok = run(root, tmp .. "/exec", env, { "--all" })
+  if unsandboxed(text) then return end
+  assert(not ok and text:find("1 of 2 failed", 1, true), text)
+  assert(text:find("FAIL  suite.plain_exec_test test_runs_the_core", 1, true), text)
+  assert(text:find("Permission denied", 1, true), text)
+  assert(not text:find("FAIL  suite.tool_exec_test", 1, true), text)
+end

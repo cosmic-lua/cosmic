@@ -2084,21 +2084,13 @@ local function base_store_digest(rec: Recording): string
 end
 
 --- The policy `job`'s worker is started under ([`build.test_policy`]), from
---- the plan of its paths (`job.plan`) and `env`, the environment its
---- plan gave it with the hold's variable: with what starts it
---- (`start`'s variables) added, as a worker not under a policy has them
---- added to its environment ([`worker.invocation`]), since a policy is the
---- whole of its worker's. Nil and why where its module declares what a
---- policy cannot say, or its directory cannot be made.
-local function policy_of(rec: Recording, job: Job, env: {string:string},
-                         start: Proc.Relaunch): Sandbox.Policy | nil, string
+--- the plan of its paths (`job.plan`). Its environment is added by
+--- [`worker.invocation`], which gives a policy's `set_env` the whole of the
+--- worker's. Nil and why where its module declares what a policy cannot
+--- say, or its directory cannot be made.
+local function policy_of(rec: Recording, job: Job): Sandbox.Policy | nil, string
   local effective = rec.effective[job.m.path]
-  local plan = job.plan
-  local whole: {string:string} = {}
-  for name, value in pairs(env) do whole[name] = value end
-  for name, value in pairs((plan.start or start).env) do whole[name] = value end
-  whole.COSMIC_COVERAGE_STARTUP = "1"
-  local policy, why = test_policy.worker(plan, effective, whole)
+  local policy, why = test_policy.worker(job.plan, effective)
   if policy == nil then return nil, why end
   if effective.noexec_ready then
     local made, made_trouble = Fs.mkdirs(job.scratch .. "/noexec")
@@ -2221,14 +2213,17 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     given[confine.held_variable] = hold ~= "none" and job.m.path or nil
     env = given
   end
-  -- Under a policy the grants it is started with hold the worker from its
-  -- first instruction, so it puts up no ruleset of its own
-  -- ([`worker.run`]'s `forbid_running`); the processes it starts still
-  -- learn that it is held ([`confine.held_variable`]).
+  -- Under a policy the grants hold the worker from its first instruction,
+  -- but the core it is started from must be run to start it, so a worker
+  -- whose module does not declare `tool` still puts up the ruleset that
+  -- forbids it running the program again ([`worker.run`]'s
+  -- `forbid_running`), as the default sandbox's does.
   local policy: Sandbox.Policy = nil
   if rec.policy then
-    hold = "none"
-    local made, made_trouble = policy_of(rec, job, env, start)
+    -- A worker that may run the program has nothing to forbid: the ruleset
+    -- the policy puts up already refuses it every mount.
+    if hold == "mounts" then hold = "none" end
+    local made, made_trouble = policy_of(rec, job)
     if made == nil then
       finish(rec, job, nil, made_trouble, limits, true)
       return false
@@ -2774,7 +2769,11 @@ local function choose_sandbox(ctx: Run): integer | nil
     return 1
   end
   if ctx.policy then
-    ctx.runtime = ctx.runtime .. " policy " .. hashing.hex_sha256(test_policy.common())
+    -- And the code that makes a worker's policy, so an edit to a grant runs
+    -- the policy path's tests again without a bump of the epoch.
+    local made = ctx.harness.modules
+    ctx.runtime = ctx.runtime .. " policy " .. hashing.hex_sha256(test_policy.common() .. "\0" ..
+        (made["build.test_policy"] or "") .. "\0" .. (made["build.test_sandbox"] or ""))
     sandbox_summary = sandbox_summary .. ", under a policy (" .. test_policy.switch .. "=1)"
   end
   local shares = sandboxed or shared_verdicts.chosen()

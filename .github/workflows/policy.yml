@@ -19,8 +19,9 @@
   # the sandbox plan makes it the default and this workflow is deleted
   # with the flag.
   "on": {
-    # The merge queue's gh-readonly-queue/ branches are ci.yml's alone.
-    push: {"branches-ignore": ["gh-readonly-queue/**"]},
+    # Main's pushes, the day's run and a manual one: not every branch's,
+    # which would cost a runner for a check nobody waits on.
+    push: {branches: ["main"]},
     workflow_dispatch: {},
     # Every day, the whole suite whatever stood.
     schedule: [{cron: "23 4 * * *"}],

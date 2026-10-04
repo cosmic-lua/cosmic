@@ -42,9 +42,8 @@ local function holds(list: {string}, value: string): boolean
 end
 
 --- The policy of a worker, or fails the test saying why not.
-local function worker_of(plan: test_sandbox.Plan, inputs: test_inputs.Effective,
-                         env?: {string:string}): Sandbox.Policy
-  local policy, why = test_policy.worker(plan, inputs, env or {})
+local function worker_of(plan: test_sandbox.Plan, inputs: test_inputs.Effective): Sandbox.Policy
+  local policy, why = test_policy.worker(plan, inputs)
   assert(policy ~= nil, tostring(why))
   return policy
 end
@@ -124,28 +123,17 @@ local function test_the_declaration_beside_the_paths_is_the_policys_other_fields
   assert(merged ~= nil, tostring(why))
 end
 
---- The policy is the whole of the environment: the variables given are its
---- `set_env`, copied, so the plan's own are not the policy's to change.
-local function test_the_environment_is_the_policys_set_env()
-  local plan = plan_of({}, { "/host/scratch" }, {}, {})
-  local given = { PATH = "/bin", TMPDIR = test_sandbox.scratch }
-  local policy = worker_of(plan, effective(), given)
-  assert(policy.set_env.PATH == "/bin" and policy.set_env.TMPDIR == test_sandbox.scratch)
-  policy.set_env.PATH = "/elsewhere"
-  assert(given.PATH == "/bin")
-end
-
 --- What a policy has no word for is refused, naming the field, rather than
 --- run with less than the module declares: the whole environment, which
 --- a policy spells name by name.
 local function test_a_wildcard_environment_is_refused_naming_the_field()
   local inputs = effective()
   inputs.env = { ["*"] = true }
-  local policy, why = test_policy.worker(plan_of({}, {}, {}, {}), inputs, {})
+  local policy, why = test_policy.worker(plan_of({}, {}, {}, {}), inputs)
   assert(policy == nil and why:find('env "*"', 1, true) and why:find("wildcard", 1, true),
     tostring(why))
   inputs.env = { PATH = true }
-  assert(test_policy.worker(plan_of({}, {}, {}, {}), inputs, {}) ~= nil)
+  assert(test_policy.worker(plan_of({}, {}, {}, {}), inputs) ~= nil)
 end
 
 --- What every worker's policy has alike is text a key's runtime can hold:
