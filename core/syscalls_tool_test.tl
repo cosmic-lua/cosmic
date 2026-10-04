@@ -463,7 +463,10 @@ local function test_an_idmapped_bind_is_the_users_where_it_is_mapped(tmp: string
   if pid == nil then
     sys.close(report)
     assert(not may_run_as(user), "root, mapping " .. tostring(user) .. ", refused it: " .. why)
-    if errno ~= sys.EPERM then unsandboxable("unveiling", why) end
+    if errno ~= sys.EPERM then
+      unsandboxable("unveiling", why)
+      return
+    end
     assert(why:find("idmapped mount of " .. real, 1, true) or why:find("namespace", 1, true), why)
     return
   end
