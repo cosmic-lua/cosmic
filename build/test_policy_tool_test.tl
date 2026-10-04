@@ -13,12 +13,14 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
 local sandbox_skip = require("build.sandbox_skip")
 local test_inputs = require("build.test_inputs")
+local test_policy = require("build.test_policy")
 local test_sandbox = require("build.test_sandbox")
 local this_program = require("build.this_program")
 
@@ -150,6 +152,35 @@ local function test_a_plan_for_the_policy_leaves_the_system_and_proc_to_the_poli
   assert(policy.runs[root .. "/o/bin"] == true)
 end
 
+--- A worker whose module declares `nests` has no descriptor of the program
+--- handed it and so reads the artifact by its path, which holds every module
+--- of the tree: a plan for the policy grants it only where the module
+--- declares `store` (keyed on the whole projection), and `tool` has o/bin
+--- anyway; a module that nests and declares neither is refused outright.
+local function test_a_plan_for_a_nesting_worker_grants_the_artifact_only_with_store(tmp: string)
+  local launched = Proc.relaunch()
+  if launched == nil or launched.argv[2] ~= "--artifact" then return end
+  local artifact = launched.argv[3]
+  local root, scratch = tmp .. "/root", scratch_in(tmp)
+  assert(Fs.mkdirs(root .. "/o/bin"))
+  assert(Fs.write(root .. "/o/cosmic.db", "x"))
+  local bare = effective({})
+  bare.nests = true
+  local storing = effective({})
+  storing.nests, storing.store = true, true
+  local plain = test_sandbox.plan(root, scratch, bare, {}, nil, true)
+  local with = test_sandbox.plan(root, scratch, storing, {}, nil, true)
+  assert(with.trouble == "", with.trouble)
+  assert(holds(with.sandbox.unveil.reads, artifact), table.concat(with.sandbox.unveil.reads, " "))
+  assert(not with.runs[artifact], "the artifact is read, not run")
+  assert(not holds(plain.sandbox.unveil.reads, artifact),
+    table.concat(plain.sandbox.unveil.reads, " "))
+  local refused, why = test_policy.worker(plain, bare)
+  assert(refused == nil and why:find("declare `store` or `tool`", 1, true), tostring(why))
+  local allowed, _ = test_policy.worker(with, storing)
+  assert(allowed ~= nil)
+end
+
 --- A suite of two modules and a program-less tree: `held_test.tl`, whose
 --- first test reads what it declares and is held as a policy holds it --
 --- a filter on its system calls, no root, a /proc of its own -- and whose
@@ -223,6 +254,61 @@ local function test_a_run_under_a_policy_passes_what_is_declared_and_fails_what_
   assert(not plain_ok and not plain:find("under a policy", 1, true), plain)
   assert(plain:find("test_a_declared_read_is_held_as_a_policy_holds_it", 1, true) and
       plain:find("no filter holds this worker", 1, true), plain)
+end
+
+--- A module that declares `nests` starts and passes under the policy: its
+--- worker is handed no read-only descriptor of the program, which a start
+--- that promises `nest` refuses, and opens the program itself.
+local function test_a_nesting_module_starts_under_a_policy(tmp: string)
+  if no_sandbox_here() then return end
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.write(root .. "/suite/nest_test.tl", [[
+local Test = require("cosmic.test")
+
+Test.needs { nests = true, store = true }
+
+local function test_a_worker_that_nests_runs()
+  assert(1 + 1 == 2)
+end
+]]))
+  local env = environment()
+  env.COSMIC_TEST_POLICY = "1"
+  local text, ok = run(root, tmp .. "/nest", env, { "--all", "suite/nest_test.tl" })
+  if unsandboxed(text) then return end
+  assert(ok, text)
+  assert(text:find("under a policy (COSMIC_TEST_POLICY=1)", 1, true), text)
+  assert(not text:find("retains of its own", 1, true), text)
+end
+
+--- A module that declares `nests` but neither `store` nor `tool` is refused
+--- under the policy, naming why, and its worker reads nothing of the
+--- artifact: it never starts.
+local function test_a_nesting_module_without_store_or_tool_is_refused_under_a_policy(tmp: string)
+  if no_sandbox_here() then return end
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.write(root .. "/suite/bare_test.tl", [[
+local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
+local Test = require("cosmic.test")
+
+Test.needs { nests = true }
+
+local function test_reads_the_artifact()
+  local launched, _ = Proc.relaunch()
+  if launched == nil or launched.argv[3] == nil then return end
+  local data = Fs.read(launched.argv[3])
+  assert(data == nil, "read the whole artifact")
+end
+]]))
+  local env = environment()
+  env.COSMIC_TEST_POLICY = "1"
+  local text, ok = run(root, tmp .. "/bare", env, { "--all", "suite/bare_test.tl" })
+  if unsandboxed(text) then return end
+  assert(not ok, text)
+  assert(text:find("declare `store` or `tool`", 1, true), text)
+  assert(not text:find("read the whole artifact", 1, true), text)
 end
 
 --- A pass under the policy does not stand for a run without it, nor the
