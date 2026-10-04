@@ -31,7 +31,7 @@ end
 local record Probe
   --- Whether the listener was made (and closed again).
   made: boolean
-  --- Whether the failure was a refusal (EPERM or EACCES), not any other.
+  --- Whether the failure was a refusal (EPERM, the filter's errno), not any other.
   refused: boolean
   --- What the failed listen said, "" where it was made.
   why: string
@@ -41,16 +41,25 @@ end
 local function listens(dir: string): Probe
   local listener, why, errno = raw_table().listen({ kind = "unix", path = dir .. "/unix-probe.sock" }, 1)
   if listener == nil then
-    return { made = false, refused = errno == sys.EPERM or errno == sys.EACCES, why = tostring(why) }
+    return { made = false, refused = errno == sys.EPERM, why = tostring(why) }
   end
   local _, _ = listener:close()
   return { made = true, refused = false, why = "" }
 end
 
+--- Whether the process is not refused a unix socket in `dir` (a listener
+--- made there, or failed for another reason): for a case that adds a socket
+--- file to what it checks where it may, and skips nothing.
+--- @param dir a directory the process may make a socket file in
+--- @return whether a socket file may be made
+function unix_socket.available(dir: string): boolean
+  return not listens(dir).refused
+end
+
 --- Says the running test is skipped ([`Test.skip`]) where the process
 --- cannot make a unix socket in `dir`, and answers true then, for the test
 --- to return; false, having said nothing, where it can. It is skipped only
---- where the listen is refused (EPERM or EACCES), as the seccomp filter of
+--- where the listen is refused (EPERM, the filter's errno), as the seccomp filter of
 --- a policy without a `u` grant refuses `socket`: any other failure falls
 --- through, for the test to fail on.
 --- @param dir a directory the process may make a socket file in

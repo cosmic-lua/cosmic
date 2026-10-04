@@ -369,36 +369,45 @@ local function test_readdir_lists_entries_without_dot_and_dot_dot(tmp: string)
 end
 
 --- A directory under `tmp` holding a file, a directory, a named pipe,
---- a socket file, and a link to each of the first two and to nothing.
-local function linked_directory(tmp: string): string
+--- a socket file where `socket` says, and a link to each of the first two
+--- and to nothing.
+local function linked_directory(tmp: string, socket: boolean): string
   local d = tmp .. "/d"
   assert(sys.mkdir(d))
   sys.close(create(d .. "/file"))
   assert(sys.mkdir(d .. "/sub"))
   assert(sys.mkfifo(d .. "/fifo"))
-  socket_file(d .. "/socket")
+  if socket then socket_file(d .. "/socket") end
   assert(sys.symlink("file", d .. "/to_file"))
   assert(sys.symlink("sub", d .. "/to_dir"))
   assert(sys.symlink("missing", d .. "/dangling"))
   return d
 end
 
---- The entries of [`linked_directory`].
+--- The entries of [`linked_directory`] with a socket file.
 local LINKED_ENTRIES <const> = 7
 
 --- Checks readdir's answer for [`linked_directory`].
-local function names_links_as_links(entries: {string:sys.Kind}, what: string)
+local function names_links_as_links(entries: {string:sys.Kind}, what: string, socket: boolean)
   assert(entries["file"] == "file" and entries["sub"] == "dir", what)
   assert(entries["fifo"] == "fifo", what .. ": a named pipe: " .. tostring(entries["fifo"]))
-  assert(entries["socket"] == "socket", what .. ": a socket file: " .. tostring(entries["socket"]))
+  if socket then
+    assert(entries["socket"] == "socket", what .. ": a socket file: " .. tostring(entries["socket"]))
+  end
   assert(entries["to_file"] == "link", what .. ": a link to a file: " .. tostring(entries["to_file"]))
   assert(entries["to_dir"] == "link", what .. ": a link to a directory: " .. tostring(entries["to_dir"]))
   assert(entries["dangling"] == "link", what .. ": a dangling link: " .. tostring(entries["dangling"]))
 end
 
 local function test_readdir_names_a_link_as_a_link_whatever_it_leads_to(tmp: string)
+  names_links_as_links(assert(sys.readdir(linked_directory(tmp, false))), "readdir", false)
+end
+
+--- A socket file in a listing is named a socket.
+local function test_readdir_names_a_socket_file_a_socket(tmp: string)
   if unix_socket.skipped(tmp) then return end
-  names_links_as_links(assert(sys.readdir(linked_directory(tmp))), "readdir")
+  local d = linked_directory(tmp, true)
+  names_links_as_links(assert(sys.readdir(d)), "readdir", true)
 end
 
 --- An entry whose type the filesystem leaves unknown is asked with an
@@ -406,12 +415,13 @@ end
 --- point makes each entry in turn unknown.
 local function test_readdir_names_an_entry_of_unknown_type_as_lstat_does(tmp: string)
   if testing.configuration ~= "sanitized" then return end
-  local d = linked_directory(tmp)
-  for skip = 0, LINKED_ENTRIES - 1 do
+  local socket = unix_socket.available(tmp)
+  local d = linked_directory(tmp, socket)
+  for skip = 0, LINKED_ENTRIES - (socket and 1 or 2) do
     testing.fail_at("readdir_d_type", skip)
     local entries = assert(sys.readdir(d))
     assert(not testing.fail_at(), "entry " .. skip .. " never reached readdir_d_type")
-    names_links_as_links(entries, "entry " .. skip .. " of unknown type")
+    names_links_as_links(entries, "entry " .. skip .. " of unknown type", socket)
   end
 end
 
@@ -737,9 +747,7 @@ end
 --- A pledged child runs under a seccomp filter, and so does what it
 --- starts; an unpledged one runs as this process does (under a filter
 --- of its own when a container gives it one), and a promise no one keeps
---- is refused before anything starts. A socket of a family not promised
---- is refused (EPERM), where one promised is made and then refused its
---- connection.
+--- is refused before anything starts.
 local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
   local probe = probe_in(tmp)
   local refused = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil,
@@ -783,25 +791,34 @@ local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
   end
   local plain = filtered(nil)
   assert(plain == "Seccomp: " .. own .. " Seccomp: " .. own .. " ", plain)
-  -- What a pledge does to a unix connect is checked where the worker may make
-  -- a unix socket: under its own filter the socket is refused whatever is
-  -- promised.
-  if pledged ~= "unsupported" and not unix_socket.skipped(tmp) then
-    local function connected(promises: {string}): string
-      local output = create(tmp .. "/connect")
-      local pid = assert(process.spawn(probe, { probe, "connect " .. tmp .. "/none.sock" },
-        nil, nil, nil, output, output, false, nil, { pledge = promises }))
-      assert(assert(process.waitpid(pid, false)).code == 0)
-      local said = assert(sys.pread(output, 4096, 0))
+end
+
+--- A socket of a family not promised is refused (EPERM), where one promised
+--- is made and then refused its connection: a unix connect to a path that is
+--- not there says so only with "unix" promised.
+local function test_a_pledge_without_unix_refuses_a_unix_connect(tmp: string)
+  if unix_socket.skipped(tmp) then return end
+  local probe = probe_in(tmp)
+  local function connected(promises: {string}): string
+    local output = create(tmp .. "/connect")
+    local pid, trouble = process.spawn(probe, { probe, "connect " .. tmp .. "/none.sock" },
+      nil, nil, nil, output, output, false, nil, { pledge = promises })
+    if pid == nil then
       sys.close(output)
-      return said
+      unsandboxable("pledge", trouble)
+      return "unsupported"
     end
-    local socket = tmp .. "/none.sock: "
-    local unpromised = connected({})
-    assert(unpromised == socket .. "Operation not permitted\n", unpromised)
-    local promised = connected({ "unix" })
-    assert(promised == socket .. "No such file or directory\n", promised)
+    assert(assert(process.waitpid(pid, false)).code == 0)
+    local said = assert(sys.pread(output, 4096, 0))
+    sys.close(output)
+    return said
   end
+  local socket = tmp .. "/none.sock: "
+  local unpromised = connected({})
+  if unpromised == "unsupported" then return end
+  assert(unpromised == socket .. "Operation not permitted\n", unpromised)
+  local promised = connected({ "unix" })
+  assert(promised == socket .. "No such file or directory\n", promised)
 end
 
 --- A child has a descriptor table of its own, though it starts on this

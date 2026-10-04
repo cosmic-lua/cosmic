@@ -40,6 +40,29 @@ local function unix(path: string): raw_socket.Address
   return { kind = "unix", path = path }
 end
 
+--- A listener on the loopback at a port the kernel chose, for a case that
+--- is about the socket and not the socket file.
+local function tcp_listener(): raw_socket.Socket
+  return (assert(raw.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 1)))
+end
+
+--- A listener, a connection to it and the one it accepted over the loopback,
+--- dropped unclosed, are closed by the collector.
+local function test_a_tcp_socket_dropped_unclosed_is_closed_by_the_collector(tmp: string)
+  local before = next_descriptor(tmp)
+  do
+    local listener = tcp_listener()
+    local bound = assert(raw.bound(listener:fd()))
+    local client = assert(raw.connect({ kind = "tcp", host = "127.0.0.1", port = bound.port }, 5000))
+    assert(raw.wait(listener:fd(), false, 5000))
+    local accepted = assert(raw.accept(listener:fd()))
+    assert(accepted:fd() ~= client:fd() and client:fd() ~= listener:fd())
+  end
+  collectgarbage("collect")
+  collectgarbage("collect")
+  assert(next_descriptor(tmp) == before, "a dropped socket left descriptor " .. before .. " open")
+end
+
 --- A listener, a connection to it and the one it accepted, dropped
 --- unclosed, are closed by the collector, and the listener's socket
 --- file removed.
@@ -94,12 +117,6 @@ local function test_a_relative_socket_file_is_removed_after_a_chdir(tmp: string)
   assert(Fs.stat(tmp .. "/rel.sock") ~= nil, "no socket file")
   assert(listener:close())
   assert(Fs.stat(tmp .. "/rel.sock") == nil, "the socket file was left")
-end
-
---- A listener on the loopback at a port the kernel chose, for a case that
---- is about the socket and not the socket file.
-local function tcp_listener(): raw_socket.Socket
-  return (assert(raw.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 1)))
 end
 
 --- A closed socket closes again, and has no descriptor to give; one
@@ -223,7 +240,11 @@ local function test_a_send_from_a_byte_sends_the_rest()
   assert(assert(raw.send(client:fd(), "abcdef", 7)) == 0)
   assert(raw.wait(accepted:fd(), false, 5000))
   local got = ""
-  while #got < 5 do got = got .. assert(sys.read(accepted:fd(), 16)) end
+  while #got < 5 do
+    local chunk = assert(sys.read(accepted:fd(), 16))
+    assert(#chunk > 0, "the connection ended early")
+    got = got .. chunk
+  end
   assert(got == "abdef", got)
   for _, from in ipairs({ 0, 8, math.mininteger, math.maxinteger }) do
     local ok, err = pcall(raw.send, client:fd(), "abcdef", from)
