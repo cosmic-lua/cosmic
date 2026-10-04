@@ -11,7 +11,7 @@ local Test = require("cosmic.test")
 
 --- The system's sh, which ignores SIGINT for the program it execs, and
 --- the program itself, through its launcher.
-Test.needs{ env = { "*" }, tool = true, system = true }
+Test.needs{ tool = true, system = true }
 
 local function nested_cosmic_environment(): {string:string}
   local environment = Env.all()
