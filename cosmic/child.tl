@@ -370,7 +370,7 @@ local record Options
   --- core by a relaunch ([`Proc.relaunch`]), granted with it: its launcher
   --- would fork and unpack a core into a cache the policy does not give
   --- it. Where this process is root, the child's user runs a copy of the
-  --- core that every user may run, made once in /tmp/cosmic-sandbox-cores-0,
+  --- core that every user may run, made once in /run/cosmic-sandbox-cores,
   --- root's alone. The relaunch's descriptors are two more `fds` the child
   --- gets; one `fds` names is refused, as is the `nest` promise.
   ---
@@ -2623,47 +2623,73 @@ end
 --- Where a root caller's programs run this program's core from: a
 --- directory of root's, 0755, whose copies of the core are 0555 -- every
 --- user may run one, and no one but root may write or swap one. It is in
---- /tmp, which every user may search, as root's own cache (in its home)
---- is not; /tmp is sticky, so a directory another user made there first
---- cannot be taken for it, and is refused.
-local SHARED_CORES <const> = "/tmp/cosmic-sandbox-cores-0"
+--- /run, which every user may search and only root may write, as root's
+--- own cache (in its home) is not searched and /tmp is written by all.
+local SHARED_CORES <const> = "/run/cosmic-sandbox-cores"
+
+--- Whether `st` is a directory of root's that no one else may write.
+local function roots_alone(st: sys.Stat): boolean
+  return st ~= nil and st.kind == "dir" and st.uid == 0 and st.mode & 0x12 == 0
+end
 
 --- `core`, this program's core, where the user of a root caller's program
---- may run it: a copy in [`SHARED_CORES`], made once per core. Startup
---- hashes it against the artifact's digest every start, as no stamp is
---- left beside it. The copy's path, or nil and why.
+--- may run it: a copy in [`SHARED_CORES`], made once per core under a lock
+--- there, so concurrent starts take one copy and none replaces another's.
+--- Startup hashes it against the artifact's digest every start, as no
+--- stamp is left beside it. The copy's path, or nil and why.
+-- TODO: remove a copy no start has used for a while, as nothing prunes
+-- the launcher's own cores directory either, once that has a rule to
+-- share: each core a host's root runs this program under leaves one.
 local function shared_core(core: string): string | nil, string
   local name = core:match("([^/]+)$")
   if name == nil or not name:find("^core%-") then
     return nil, core .. " is not a cached core of this program"
   end
-  local st, _ = sys.lstat(SHARED_CORES)
-  if st == nil then
-    local made, made_trouble = sys.mkdir(SHARED_CORES, 0x1ed)
-    if not made then return nil, SHARED_CORES .. ": " .. made_trouble end
-    local shut, open_trouble = sys.chmod(SHARED_CORES, 0x1ed)
-    if not shut then return nil, SHARED_CORES .. ": " .. open_trouble end
-    st, _ = sys.lstat(SHARED_CORES)
+  local parent = Fs.dirname(SHARED_CORES)
+  local up, _ = sys.lstat(parent)
+  if not roots_alone(up) then
+    return nil, parent .. " is not a directory of root's that only root may write, where " ..
+      "the copy of this program's core a root caller's program runs is kept"
   end
-  if st == nil or st.kind ~= "dir" or st.uid ~= 0 or st.mode & 0xfff ~= 0x1ed then
-    return nil, SHARED_CORES .. " is not a directory of root's alone, mode 0755: remove it, " ..
-      "and the next start makes it again"
+  local made, made_trouble, made_errno = sys.mkdir(SHARED_CORES, 0x1ed)
+  if made then
+    local shut, shut_trouble = sys.chmod(SHARED_CORES, 0x1ed)
+    if not shut then return nil, SHARED_CORES .. ": " .. shut_trouble end
+  elseif made_errno ~= sys.EEXIST then
+    return nil, SHARED_CORES .. ": " .. made_trouble
+  end
+  local st, _ = sys.lstat(SHARED_CORES)
+  if st == nil or not roots_alone(st) or st.mode & 0xfff ~= 0x1ed then
+    return nil, SHARED_CORES .. " is not a directory of root's, mode 0755: remove it, and the " ..
+      "next start makes it again"
+  end
+  local lock, lock_trouble = sys.open(SHARED_CORES .. "/.lock", sys.O_RDWR | sys.O_CREAT, 0x180)
+  if lock == nil then return nil, SHARED_CORES .. "/.lock: " .. lock_trouble end
+  local locked, locked_trouble = sys.flock(lock, "exclusive", -1)
+  if not locked then
+    local _, _ = sys.close(lock)
+    return nil, SHARED_CORES .. "/.lock: " .. locked_trouble
   end
   local copy = SHARED_CORES .. "/" .. name
+  local failure = ""
   local there, _ = sys.lstat(copy)
-  if there ~= nil and there.kind == "file" and there.uid == 0 and there.mode & 0xfff == 0x16d then
-    return copy, ""
+  if there == nil or there.kind ~= "file" or there.uid ~= 0 or there.mode & 0xfff ~= 0x16d then
+    local data, read_trouble = Fs.read(core)
+    if data == nil then
+      failure = core .. ": " .. read_trouble
+    else
+      local staged = SHARED_CORES .. "/.staged-" .. tostring(sys.getpid())
+      local ok, trouble = Fs.write(staged, data, 0x16d)
+      if ok then ok, trouble = sys.chmod(staged, 0x16d) end
+      if ok then ok, trouble = sys.rename(staged, copy) end
+      if not ok then
+        local _, _ = sys.unlink(staged)
+        failure = copy .. ": " .. trouble
+      end
+    end
   end
-  local data, read_trouble = Fs.read(core)
-  if data == nil then return nil, core .. ": " .. read_trouble end
-  local staged = SHARED_CORES .. "/.staged-" .. tostring(sys.getpid())
-  local ok, trouble = Fs.write(staged, data, 0x16d)
-  if ok then ok, trouble = sys.chmod(staged, 0x16d) end
-  if ok then ok, trouble = sys.rename(staged, copy) end
-  if not ok then
-    local _, _ = sys.unlink(staged)
-    return nil, copy .. ": " .. trouble
-  end
+  local _, _ = sys.close(lock)
+  if failure ~= "" then return nil, failure end
   return copy, ""
 end
 
@@ -2684,7 +2710,19 @@ local function relaunch_of(user: MappedUser): Proc.Relaunch | nil, string
   if user == nil then return launched, "" end
   local copy, trouble = shared_core(launched.argv[1])
   if copy == nil then return nil, trouble end
+  -- The copy may have been removed and made again since it was opened
+  -- (a /run cleared, a hand): the descriptor handed on must be the file
+  -- the child runs, which its startup holds it to.
   local fd = shared_fds[copy]
+  if fd ~= nil then
+    local held, _ = sys.fstat(fd)
+    local named_now, _ = sys.lstat(copy)
+    if held == nil or named_now == nil or held.ino ~= named_now.ino or held.dev ~= named_now.dev then
+      local _, _ = sys.close(fd)
+      shared_fds[copy] = nil
+      fd = nil
+    end
+  end
   if fd == nil then
     local handle, open_trouble = sys.open(copy, sys.O_RDONLY)
     if handle == nil then return nil, copy .. ": " .. open_trouble end
@@ -3058,8 +3096,8 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
     for number, fd in pairs(held.fds) do
       if slots[number] ~= nil then
         unwire(wiring, false)
-        return refuse("start: sandbox: fds[" .. number .. "] is the descriptor this program's " ..
-            "relaunch hands its core on: name another")
+        return refuse("start: sandbox: fds[" .. number .. "] is a descriptor this program's " ..
+            "relaunch hands it (its artifact or core) on: name another")
       end
       extra = extra or {}
       extra[number] = fd

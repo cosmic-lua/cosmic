@@ -1,8 +1,11 @@
 --- [`Child.start`]'s `policy` starting this program: granted its own
 --- file, it runs as its core by a relaunch, with no shell, cache or
---- promise beyond what the policy gives. A root runner's child runs a
---- shared copy of the core (/tmp/cosmic-sandbox-cores-0) as a user of
---- its own; any other runs its own.
+--- promise beyond what the policy gives. A runner that is not root (every
+--- sandboxed worker, and CI's) checks that its child runs its own core;
+--- the copy a root caller's child runs (/run/cosmic-sandbox-cores) is
+--- checked only by a run as root unsandboxed (`COSMIC_TEST_SANDBOX=0`),
+--- as cosmic/child_policy_user_test.tl's root cases are, until a leg of
+--- CI runs as root.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -77,4 +80,14 @@ local function test_a_descriptor_the_relaunch_hands_on_is_refused(tmp: string)
     { policy = { profiles = { "cosmic" }, grants = { { path = work, letters = "rwc" } } },
       cwd = work, fds = { [taken] = 0 } })
   assert(result == nil and why:find("relaunch", 1, true), tostring(why))
+end
+
+local function test_this_program_under_nest_is_refused(tmp: string)
+  if not confine.sandbox_platform() then return end
+  local work = scripted(tmp, 'print("ran")\n')
+  local result, why = Child.run({ (assert(Proc.executable())), work .. "/run.tl" },
+    { policy = { profiles = { "cosmic" }, isolate = { "file" }, promises = { "nest" },
+      grants = { { path = work, letters = "rwc" } } }, cwd = work })
+  assert(result == nil and why:find("nest", 1, true) and why:find("artifact and core", 1, true),
+    tostring(why))
 end

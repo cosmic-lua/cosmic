@@ -461,10 +461,10 @@ end
 --- the path this program is started by: under a development build or a
 --- portable artifact that is the launcher (a `#!/bin/sh` script) or the
 --- artifact, not the native core the launcher runs. [`Child.start`] runs
---- a program a policy grants so as that core, by a relaunch, which needs
---- neither the launcher's shell nor a cache to unpack a core into; a
---- process that runs the path itself (a shell under the policy) runs the
---- launcher, which needs both.
+--- that path, where a policy grants it, as its core, by a relaunch, which
+--- needs neither the launcher's shell nor a cache to unpack a core into;
+--- a process that runs the path itself (a shell under the policy) runs
+--- the launcher, which needs both.
 local function cosmic_profile(): Sandbox.Policy | nil, string
   local path, why = Proc.executable()
   if path == nil then

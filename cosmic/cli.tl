@@ -512,7 +512,7 @@ local record Cli
   --- directly, past its launcher: it needs no shell, cache or promise to
   --- start, nor `--system` unless what it runs does. Where this process is
   --- root, the program's user runs a copy of the core every user may run,
-  --- made once in /tmp/cosmic-sandbox-cores-0:
+  --- made once in /run/cosmic-sandbox-cores:
   ---
   ---     cosmic sandbox --cosmic --write . -- cosmic run.tl
   ---
