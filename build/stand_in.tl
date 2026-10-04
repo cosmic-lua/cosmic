@@ -61,6 +61,11 @@
 ---                      runs on, and none of it is adopted here; ends
 ---                      with P's status where it fails (128 past a
 ---                      signal), and 127 where P cannot start
+---     start-count N P [T]
+---                      starts P, with T its one argument, up to N times,
+---                      going on as `start` does, and says `started K`,
+---                      and ` then` why when one failed to, a line to
+---                      stdout
 ---     start P [T]      starts P, with T its one argument, and goes on
 ---                      without waiting for it, as a shell's `P &` does:
 ---                      it outlives the script, which then ends by
@@ -72,7 +77,7 @@
 ---                      and a newline, to stdout: unlike `$NAME`, it
 ---                      tells an empty variable from an unset one
 ---     rlimit R         `R soft hard` and a newline, to stdout, for R one of
----                      nofile, fsize, cpu, core: a limit of none is
+---                      nofile, fsize, cpu, core, nproc: a limit of none is
 ---                      math.maxinteger
 ---     present P        fails unless P exists, as `test -e` does
 ---     connect P        connects to the unix socket file P, waiting five

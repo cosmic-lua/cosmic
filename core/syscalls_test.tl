@@ -1002,9 +1002,10 @@ local function test_uname_reports_nonempty_sysname_and_machine()
   assert(names ~= nil and trouble == nil, "uname answers with one record")
   assert(#names.sysname > 0, "sysname is nonempty")
   assert(#names.machine > 0, "machine is nonempty")
+  assert(#names.release > 0, "release is nonempty")
   -- Stable across a call: this is the running host, not a moving target.
   local again = assert(sys.uname())
-  assert(again.sysname == names.sysname and again.machine == names.machine)
+  assert(again.sysname == names.sysname and again.machine == names.machine and again.release == names.release)
 end
 
 --- C reads a path up to its first NUL, so a call handed "<dir>\0/x"

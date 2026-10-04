@@ -16,6 +16,7 @@ local Test = require("cosmic.test")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 local sandbox_skip = require("build.sandbox_skip")
+local searchable = require("build.searchable")
 local stand_in = require("build.stand_in")
 
 --- The temporary directory, and a loopback address for the host's own
@@ -69,7 +70,7 @@ end
 --- Builds the stand-in and a working directory holding `ro/a` and, beside
 --- it, `other/b`, which nothing grants.
 local function placed(tmp: string): Place
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
   local work = assert(Fs.mkdirs(tmp .. "/work") and tmp .. "/work")
   assert(Fs.mkdirs(work .. "/ro") and Fs.mkdirs(tmp .. "/other"))
   assert(Fs.write(work .. "/ro/a", "alpha\n") and Fs.write(tmp .. "/other/b", "beta\n"))
@@ -379,7 +380,7 @@ local function test_a_root_that_cannot_be_built_says_which_step_failed(tmp: stri
 end
 
 local function test_from_needs_isolate_file_and_what_is_not_met_stays_refused(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
   local function refused(policy: Sandbox.Policy): string
     local handle, why = Child.start({ probe, "print hi" }, { policy = policy })
     assert(handle == nil)
@@ -390,7 +391,8 @@ local function test_from_needs_isolate_file_and_what_is_not_met_stays_refused(tm
   assert(from:find("from", 1, true) and from:find("isolate", 1, true) and from:find("file", 1, true), from)
   assert(refused({ connect = { "example.com:443" } }):find("connect", 1, true))
   assert(refused({ promises = { "nest" } }):find("nest", 1, true))
-  assert(refused({ limits = { processes = 4 } }):find("processes", 1, true))
+  local counted = refused({ limits = { processes = 4 } })
+  assert(counted:find("limits.processes", 1, true) and counted:find("isolate", 1, true), counted)
   -- /tmp is the sandbox's own where tmp asks for it.
   local clash = refused({ isolate = { "file" }, tmp = true, grants = {
     { path = probe, letters = "rx" }, { path = "/tmp", letters = "r" } } })
@@ -419,6 +421,7 @@ local function test_a_refused_namespace_fails_naming_the_remedy(tmp: string)
   -- Where it writes the root it builds, which its start asks of TMPDIR.
   local scratch = tmp .. "/scratch"
   assert(Fs.mkdirs(scratch))
+  searchable.share(scratch)
   local policy: Sandbox.Policy = { promises = { "fork" }, set_env = { TMPDIR = scratch },
     grants = with(at.grants, { path = scratch, letters = "rwc" }) }
   local ran = under(at.probe, policy, at.work, "start-isolated " .. at.probe)

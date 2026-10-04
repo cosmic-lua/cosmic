@@ -410,3 +410,84 @@ local function test_equal_policies_written_differently_encode_alike()
   local b = Sandbox.encode(merged({ grants = { { path = "//x/./", letters = "rw" } }, isolate = { "proc", "file" } }))
   assert(a == b, a .. " vs " .. b)
 end
+
+local FULL <const> = "         0          0 4294967295\n"
+
+local function test_user_id_takes_a_pool_from_the_top_of_what_a_namespace_maps()
+  -- A host maps every id: the pool is the 4096 below the topmost two.
+  local first = assert(Sandbox.user_id(FULL, FULL, 0))
+  assert(first == 4294967293 - 4095, first)
+  assert(assert(Sandbox.user_id(FULL, FULL, 4095)) == 4294967293)
+  -- A namespace of 65536 ids keeps clear of nobody and the overflow id.
+  local small = "         0     100000      65536\n"
+  assert(assert(Sandbox.user_id(small, small, 4095)) == 65533)
+  assert(assert(Sandbox.user_id(small, small, 0)) == 65533 - 4095)
+  -- No id is root, whatever the serial.
+  for _, serial in ipairs({ 0, 1, 4095, 4096, 123456789, 2481 * 4000000 + 7 }) do
+    local id = assert(Sandbox.user_id(FULL, FULL, serial))
+    assert(id >= first and id <= 4294967293, id)
+  end
+end
+
+local function test_user_id_differs_for_serials_a_pool_apart_less_than_its_size()
+  local seen: {integer:boolean} = {}
+  for serial = 100, 100 + 4095 do
+    local id = assert(Sandbox.user_id(FULL, FULL, serial))
+    assert(not seen[id], "serial " .. serial .. " repeats " .. id)
+    seen[id] = true
+  end
+  assert(assert(Sandbox.user_id(FULL, FULL, 5)) == assert(Sandbox.user_id(FULL, FULL, 5 + 4096)))
+end
+
+local function test_user_id_fails_where_the_namespace_maps_no_such_run()
+  local few = "         0          0       1000\n"
+  local none, why = Sandbox.user_id(few, few, 0)
+  assert(none == nil and why:find("^sandbox: ") and why:find("never runs as root", 1, true), why)
+  -- A gap in one of the maps, or an empty one.
+  local gap = "0 0 1000\n4294965000 4294965000 2294\n"
+  assert(Sandbox.user_id(gap, gap, 0) == nil)
+  local missing, trouble = Sandbox.user_id("", FULL, 0)
+  assert(missing == nil and trouble:find("maps no user or no group", 1, true), trouble)
+  -- Both maps must hold the run: one that stops short of it does not.
+  assert(Sandbox.user_id(FULL, "0 0 1000\n", 0) == nil)
+end
+
+local function test_counts_per_namespace_is_linux_5_17_on()
+  for _, release in ipairs({ "5.17.0", "5.17", "5.19.2-generic", "6.0", "6.18.44-fc-v64", "7.1.0", "10.0.0" }) do
+    assert(Sandbox.counts_per_namespace(release), release)
+  end
+  for _, release in ipairs({ "5.16.20", "5.15.0-91-generic", "5.4.0", "4.19.0", "3.10.0-1160", "", "linux", "x.y" }) do
+    assert(not Sandbox.counts_per_namespace(release), release)
+  end
+end
+
+--- A Stat with the mode and kind a reach is judged on.
+local function described(mode: integer, kind: string): sys.Stat
+  return { mode = mode, kind = kind as sys.Kind } as sys.Stat
+end
+
+local function test_reach_says_who_gives_a_user_that_owns_nothing_its_rights()
+  -- Everyone: 0644 and 0755 files and directories.
+  assert(Sandbox.reach("r", described(tonumber("100644", 8), "file")).by == "other")
+  assert(Sandbox.reach("rx", described(tonumber("100755", 8), "file")).by == "other")
+  assert(Sandbox.reach("r", described(tonumber("40755", 8), "dir")).by == "other")
+  -- A directory is read and entered, written and entered.
+  assert(Sandbox.reach("r", described(tonumber("40744", 8), "dir")).by == "owner")
+  assert(Sandbox.reach("rwc", described(tonumber("40755", 8), "dir")).by == "owner")
+  assert(Sandbox.reach("rwc", described(tonumber("40757", 8), "dir")).by == "other")
+  assert(Sandbox.reach("w", described(tonumber("100646", 8), "file")).by == "other")
+  -- A socket is connected to by writing.
+  assert(Sandbox.reach("u", described(tonumber("140666", 8), "socket")).by == "other")
+  assert(Sandbox.reach("u", described(tonumber("140755", 8), "socket")).by == "owner")
+  -- Only the owner's bits: what an idmapped mount gives.
+  assert(Sandbox.reach("rw", described(tonumber("100600", 8), "file")).by == "owner")
+  assert(Sandbox.reach("x", described(tonumber("100700", 8), "file")).by == "owner")
+end
+
+local function test_reach_names_what_even_the_owner_lacks()
+  local result = Sandbox.reach("rw", described(tonumber("100400", 8), "file"))
+  assert(result.by == "" and result.lacks:find("0400", 1, true) and result.lacks:find("write", 1, true), result.lacks)
+  assert(not result.lacks:find("read", 1, true), result.lacks)
+  local both = Sandbox.reach("rx", described(tonumber("100200", 8), "file"))
+  assert(both.by == "" and both.lacks:find("execute and read", 1, true), both.lacks)
+end
