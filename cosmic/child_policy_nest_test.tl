@@ -267,6 +267,17 @@ local function test_a_nested_sandbox_is_confined_to_its_own_grants(tmp: string)
     scratch.said)
 end
 
+--- A start of the program's own with a network namespace of its own brings its
+--- loopback up with a socket pair and the interface ioctls, which `nest` lets
+--- through.
+local function test_a_nested_sandbox_with_a_network_of_its_own_brings_its_loopback_up(tmp: string)
+  local at = placed(tmp)
+  local ran = under({ at.probe, "run-looped " .. at.probe .. " print hi" },
+    nested(at), at.work)
+  if ran == nil then return end
+  assert(ran.code == 0 and ran.said == "exit 0\nhi\n", ran.code .. ": " .. ran.said)
+end
+
 local function test_a_nested_sandbox_needs_nest(tmp: string)
   local at = placed(tmp)
   local policy = nested(at)

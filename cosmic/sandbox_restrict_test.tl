@@ -284,13 +284,46 @@ say("c2", reads(%q))
   assert(said.lines.c2 == "denied: " .. DENIED, said.raw)
 end
 
-local function test_a_later_limit_that_asks_for_setrlimit_fails_under_the_filter()
+--- A limit a later restriction lowers asks for setrlimit, which the first
+--- filter allows where the process cannot raise a hard limit.
+local function test_a_later_limit_is_lowered_under_the_filter()
   local said = in_child(restricted("{}", [[
 local second, why = Sandbox.restrict({ limits = { cpu_seconds = 5 } })
 say("second", second, why)
+local cpu = sys.getrlimit(sys.RLIMIT_CPU)
+say("cpu", cpu.soft, cpu.hard)
 ]]))
   if said == nil then return end
-  assert(said.lines.second:find("^false sandbox: restrict: setrlimit: Operation not permitted"), said.raw)
+  assert(said.lines.second == "true " and said.lines.cpu == "5 5", said.raw)
+end
+
+--- The filter a restriction makes lets the process lower its own limits where
+--- it cannot raise a hard limit (its capabilities lack CAP_SYS_RESOURCE, which
+--- the kernel asks for it), and the kernel keeps the rest: a hard limit is not
+--- raised again. Where the process holds the capability its limits are its
+--- own to raise, and the filter refuses them.
+local function test_the_filter_lets_a_process_lower_its_own_limits_unless_it_can_raise_one()
+  local said = in_child([[
+local fd = assert(sys.open("/proc/self/status", sys.O_RDONLY))
+local status = assert(sys.read(fd, 8192))
+sys.close(fd)
+say("capable", (tonumber(status:match("CapPrm:%s*(%x+)"), 16) >> 24) & 1 == 1)
+]] .. restricted("{}", [[
+local lowered, why = sys.setrlimit(sys.RLIMIT_CPU, 5, 5)
+say("lowered", lowered, why)
+local cpu = sys.getrlimit(sys.RLIMIT_CPU)
+say("cpu", cpu.soft, cpu.hard)
+local raised, raised_why = sys.setrlimit(sys.RLIMIT_CPU, 50, 50)
+say("raised", raised, raised_why)
+]]))
+  if said == nil then return end
+  if said.lines.capable == "true" then
+    assert(said.lines.lowered:find("^false Operation not permitted"), said.raw)
+    return
+  end
+  assert(said.lines.lowered == "true nil", said.raw)
+  assert(said.lines.cpu == "5 5", said.raw)
+  assert(said.lines.raised:find("^false Operation not permitted"), said.raw)
 end
 
 --- A policy for each field a process cannot be held to, with the name

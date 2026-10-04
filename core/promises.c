@@ -56,9 +56,12 @@
 
 #if defined(__linux__)
 #include <asm/unistd.h>
+#include <linux/capability.h>
 #include <linux/filter.h>
 #include <linux/seccomp.h>
 #include <sys/prctl.h>
+#include <sys/syscall.h>
+extern long syscall (long, ...);
 #endif
 
 #include "check.h"
@@ -175,6 +178,7 @@ enum rule {
   RULE_MADVISE,
   RULE_FCNTL,
   RULE_IOCTL,
+  RULE_IOCTL_NEST,
   RULE_PRCTL,
   RULE_PRCTL_NEST,
   RULE_UNSHARE_NEST,
@@ -206,11 +210,16 @@ struct grant {
  * here rather than under a promise, since Landlock holds the paths.
  *
  * Every call left out answers EPERM:
- * - setrlimit, and a prlimit64 that sets: a sandbox's limits are not the
- *   program's to move.
+ * - setrlimit, and a prlimit64 that sets, unless the process cannot raise
+ *   a hard limit (COSMIC_HELD_LIMITS): it may then lower its limits, and
+ *   raise a soft one to its hard one, which a start that set both
+ *   together (`rlimits`) leaves no more room than the program began with.
  * - SysV IPC, chroot, mount and the namespace calls, which `nest` grants.
  * - pidfd_send_signal, which signals through a descriptor no pid rule sees,
  *   unless the signal scope holds (see RULE_SIGNAL).
+ * - socket, except where the process is held to a root, network namespace
+ *   and Landlock ABI that make a unix socket harmless (COSMIC_HELD_UNIX)
+ *   or the caller names the families (`sockets`).
  * - vmsplice.
  * - The never-allowed set (ptrace, bpf, io_uring, ...), which no table names.
  *
@@ -218,7 +227,10 @@ struct grant {
  * structure they take, and a libc falls back to clone and openat.
  *
  * The signal calls, tkill among them, take the process's own pid, or any
- * where Landlock's signal scope holds the process; see RULE_SIGNAL. */
+ * where Landlock's signal scope holds the process; see RULE_SIGNAL. getpgid,
+ * getsid and setpgid take the process's own pid, or any where it is in a
+ * pid namespace of its own (COSMIC_HELD_PIDS): kill's scope says nothing of
+ * them, since a pgid read of a host process reveals it. */
 static const struct grant basics[] = {
   /* Memory. mmap and mprotect refuse executable memory that is anonymous
    * or writable, which `jit` grants. */
@@ -318,6 +330,10 @@ static const struct grant basics[] = {
  * - prctl's PR_CAPBSET_DROP and PR_CAP_AMBIENT, which give capabilities
  *   up, and setrlimit and prlimit64 that set, which a process may only
  *   lower without a capability the host's user namespace gives.
+ * - the ioctls SIOCGIFFLAGS and SIOCSIFFLAGS (RULE_IOCTL_NEST), with which
+ *   a start brings up the loopback of a network namespace it made: the
+ *   kernel asks CAP_NET_ADMIN over the namespace the socket is in, which
+ *   only a namespace of its own user namespace's gives.
  * - signals to any process, not only its own: a sandbox that starts one
  *   of its own ends and reaps it by pid and group. They reach only the
  *   processes of the pid namespace the program is in, which `isolate
@@ -343,7 +359,7 @@ static const struct grant nest_calls[] = {
   R(unshare, UNSHARE_NEST), A(mount), A(umount2), A(pivot_root),
   A(mount_setattr), A(open_tree), A(move_mount), A(setrlimit),
   R(prlimit64, PRLIMIT_NEST), R(prctl, PRCTL_NEST), A(kill), A(tgkill), A(tkill),
-  A(rt_sigqueueinfo), A(rt_tgsigqueueinfo),
+  A(rt_sigqueueinfo), A(rt_tgsigqueueinfo), R(ioctl, IOCTL_NEST),
 };
 
 /* `fork`: a process of its own, and the descriptor to wait for it on. */
@@ -537,6 +553,14 @@ static const uint32_t ioctl_commands[] = {
   0x5429, 0x5411,
 };
 
+/* The ioctls `nest` adds: SIOCGIFFLAGS and SIOCSIFFLAGS, with which a
+ * sandbox's start brings up the loopback of the network namespace it made
+ * for the program. The kernel holds them to the network namespace the
+ * socket is in: reading the flags of an interface shows what the sandbox's
+ * own /proc/net already does, and setting them needs CAP_NET_ADMIN over the
+ * namespace, which only one the program's own user namespace made gives. */
+static const uint32_t nest_ioctl_commands[] = { 0x8913, 0x8914 };
+
 /* The prctl options a program may use: its parent-death signal, whether it
  * dumps core, its name, the filter and no_new_privs it holds, the
  * bounding set read, being a subreaper, its timer slack, naming an
@@ -684,6 +708,12 @@ static void rule_block (struct builder *b, enum rule rule, uint32_t pid, enum co
     load(&k, DATA_ARGUMENT(1) + DATA_LOW);
     allow_one_of(&k, ioctl_commands, sizeof ioctl_commands / sizeof ioctl_commands[0]);
     break;
+    case RULE_IOCTL_NEST:
+    denial = RETURN_ERRNO(LINUX_ENOTTY);
+    load(&k, DATA_ARGUMENT(1) + DATA_LOW);
+    allow_one_of(&k, ioctl_commands, sizeof ioctl_commands / sizeof ioctl_commands[0]);
+    allow_one_of(&k, nest_ioctl_commands, sizeof nest_ioctl_commands / sizeof nest_ioctl_commands[0]);
+    break;
     case RULE_PRCTL:
     load(&k, DATA_ARGUMENT(0) + DATA_LOW);
     allow_one_of(&k, prctl_options, sizeof prctl_options / sizeof prctl_options[0]);
@@ -798,27 +828,44 @@ static void add (uint8_t *rules, const struct grant *table, size_t count) {
 
 /* Writes to `out`, room for COSMIC_PROMISE_INSNS, the program that holds
  * a process of `arch` and pid `pid` to `promises`, and answers how many
- * instructions it is, or 0 where it did not fit. `scoped` says the
- * process is in a Landlock domain that handles LANDLOCK_SCOPE_SIGNAL
- * (ABI 6): its signal calls then take any pid, and pidfd_send_signal is
- * allowed. The kernel's check holds them, per target: a signal to a
+ * instructions it is, or 0 where it did not fit. `held` says what else
+ * holds the process (core/promises.h's COSMIC_HELD_ bits).
+ * COSMIC_HELD_SIGNALS says it is in a Landlock domain that handles
+ * LANDLOCK_SCOPE_SIGNAL (ABI 6): its signal calls then take any pid, and
+ * pidfd_send_signal is allowed. The kernel's check holds them, per target: a signal to a
  * process outside the domain -- a parent domain or a process with none
  * (linux/landlock.h) -- is refused with EPERM, and every way of naming a
  * target goes through it: a pid, a thread, a group (negative, or 0), every
  * process (-1, which the kernel answers 0 when it signalled none),
- * a pidfd, and the queueing calls. Without `scoped` they keep to the
+ * a pidfd, and the queueing calls. Without COSMIC_HELD_SIGNALS they keep to the
  * process's own pid. `sockets`
  * (COSMIC_SOCKETS_ bits) lets it make a socket of those families --
  * socket(AF_UNIX), AF_INET and AF_INET6 -- a socketpair of unix ones it
- * always may. Nothing in it depends on the host. */
+ * always may; COSMIC_HELD_UNIX adds AF_UNIX.
+ *
+ * COSMIC_HELD_LIMITS lets it set its own limits. A pointer is all
+ * setrlimit and prlimit64 take, which no rule can read, so no call that
+ * only lowers can be told from one that raises: the hold is that the
+ * kernel refuses a raised hard limit to a process without CAP_SYS_RESOURCE
+ * of the initial user namespace (`capable`, not `ns_capable`), so the
+ * process may not have it, now or after an exec (no_new_privs bounds
+ * what an exec gives by what it holds). Limits a start set soft and hard
+ * together then stay what it set, at most. A process that holds the
+ * capability keeps the refusal: its limits are its own to raise.
+ * COSMIC_HELD_PIDS lets getpgid, getsid, setpgid and capget (whose header
+ * names a pid, which no rule can read) take any pid: in a pid
+ * namespace of its own a pid names a process of the sandbox or none (the
+ * kernel answers ESRCH), and setpgid reaches only the caller and its
+ * children whichever pid it is given. Nothing in it depends on the host. */
 static size_t program_for (struct cosmic_insn *out, enum cosmic_arch arch,
                                       unsigned promises, unsigned sockets, uint32_t pid,
-                                      bool scoped) {
+                                      unsigned held) {
   const short *numbers = arch == COSMIC_ARCH_X86_64 ? x86_64_numbers : aarch64_numbers;
   uint32_t audit = arch == COSMIC_ARCH_X86_64 ? AUDIT_X86_64 : AUDIT_AARCH64;
   uint8_t rules[CALL_COUNT];
   memset(rules, 0, sizeof rules);
   ADD(basics);
+  if (held & COSMIC_HELD_UNIX) sockets |= COSMIC_SOCKETS_UNIX;
   if (sockets == COSMIC_SOCKETS_UNIX) rules[CALL_socket] = RULE_SOCKET_UNIX;
   else if (sockets == COSMIC_SOCKETS_INET) rules[CALL_socket] = RULE_SOCKET_INET;
   else if (sockets == (COSMIC_SOCKETS_UNIX | COSMIC_SOCKETS_INET))
@@ -832,10 +879,24 @@ static size_t program_for (struct cosmic_insn *out, enum cosmic_arch arch,
     if (promises & COSMIC_PROMISE_FORK) rules[CALL_clone] = RULE_CLONE_NEST;
   }
 
-  if (scoped) {
+  if (held & COSMIC_HELD_SIGNALS) {
     for (int call = 0; call < CALL_COUNT; call++)
       if (rules[call] == RULE_SIGNAL) rules[call] = RULE_ALLOW;
     rules[CALL_pidfd_send_signal] = RULE_ALLOW;
+  }
+  if (held & COSMIC_HELD_LIMITS) {
+    rules[CALL_setrlimit] = RULE_ALLOW;
+    /* Its own limits only: the rule holds the pid, which another process
+     * of the user could be set a limit of. */
+    if (rules[CALL_prlimit64] < RULE_PRLIMIT_NEST) rules[CALL_prlimit64] = RULE_PRLIMIT_NEST;
+  }
+  if (held & COSMIC_HELD_PIDS) {
+    rules[CALL_getpgid] = RULE_ALLOW;
+    rules[CALL_getsid] = RULE_ALLOW;
+    rules[CALL_setpgid] = RULE_ALLOW;
+    /* The capabilities of a process, which `restrict` reads to know it
+     * cannot raise a hard limit, and which name a pid in the header. */
+    rules[CALL_capget] = RULE_ALLOW;
   }
 
   /* The calls this architecture has a number for, in number order. */
@@ -896,17 +957,36 @@ const int cosmic_promise_headers_end = __NR_syscalls;
 const int cosmic_promise_headers_end = 0;
 #endif
 
-int cosmic_promises_apply (unsigned promises, unsigned sockets, bool scoped) {
+#if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__))
+/* Whether the process lacks CAP_SYS_RESOURCE in its permitted set, and so
+ * can never raise a hard limit: the kernel asks it of the initial user
+ * namespace, which no capability of a process's own gives, and no_new_privs
+ * (set by the caller) keeps an exec from giving a permitted set more than
+ * this one. A capability of a user namespace the process made reads as
+ * held, which refuses where it need not: the caller that made one says so
+ * with COSMIC_HELD_LIMITS. False where the set cannot be read. */
+static bool lacks_resource_capability (void) {
+  struct __user_cap_header_struct header = { _LINUX_CAPABILITY_VERSION_3, 0 };
+  struct __user_cap_data_struct data[_LINUX_CAPABILITY_U32S_3];
+  if (syscall(SYS_capget, &header, data) != 0) return false;
+  return (data[CAP_TO_INDEX(CAP_SYS_RESOURCE)].permitted & CAP_TO_MASK(CAP_SYS_RESOURCE)) == 0;
+}
+#endif
+
+int cosmic_promises_apply (unsigned promises, unsigned sockets, unsigned held) {
 #if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__))
 #if defined(__x86_64__)
   enum cosmic_arch arch = COSMIC_ARCH_X86_64;
 #else
   enum cosmic_arch arch = COSMIC_ARCH_AARCH64;
 #endif
-  struct cosmic_insn code[COSMIC_PROMISE_INSNS];
-  size_t length = program_for(code, arch, promises, sockets, (uint32_t)getpid(), scoped);
-  if (length == 0) return ENOSPC;
+  /* no_new_privs first: the capabilities read below are then all the
+   * process can have. */
   if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) return errno;
+  if (lacks_resource_capability()) held |= COSMIC_HELD_LIMITS;
+  struct cosmic_insn code[COSMIC_PROMISE_INSNS];
+  size_t length = program_for(code, arch, promises, sockets, (uint32_t)getpid(), held);
+  if (length == 0) return ENOSPC;
   _Static_assert(sizeof(struct sock_filter) == sizeof(struct cosmic_insn), "one instruction");
   struct sock_fprog program = { (unsigned short)length, (struct sock_filter *)code };
   if (prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &program) != 0) return errno;
@@ -914,7 +994,7 @@ int cosmic_promises_apply (unsigned promises, unsigned sockets, bool scoped) {
 #else
   (void)promises;
   (void)sockets;
-  (void)scoped;
+  (void)held;
   return ENOSYS;
 #endif
 }
@@ -937,7 +1017,7 @@ COSMIC_SYSCALL(promise_filter, 3) {
   else return luaL_argerror(L, 2, "an architecture is \"x86_64\" or \"aarch64\"");
   lua_Integer pid = 1;
   unsigned sockets = 0;
-  bool scoped = false;
+  unsigned held = 0;
   if (!lua_isnoneornil(L, 3)) {
     luaL_checktype(L, 3, LUA_TTABLE);
     lua_getfield(L, 3, "pid");
@@ -949,12 +1029,19 @@ COSMIC_SYSCALL(promise_filter, 3) {
     if (lua_toboolean(L, -1)) sockets |= COSMIC_SOCKETS_UNIX;
     lua_getfield(L, 3, "inet");
     if (lua_toboolean(L, -1)) sockets |= COSMIC_SOCKETS_INET;
-    lua_getfield(L, 3, "scoped");
-    scoped = lua_toboolean(L, -1);
-    lua_pop(L, 4);
+    static const struct { const char *name; unsigned bit; } holds[] = {
+      { "scoped", COSMIC_HELD_SIGNALS }, { "unix_held", COSMIC_HELD_UNIX },
+      { "limits_held", COSMIC_HELD_LIMITS }, { "pids_held", COSMIC_HELD_PIDS },
+    };
+    for (size_t i = 0; i < sizeof holds / sizeof holds[0]; i++) {
+      lua_getfield(L, 3, holds[i].name);
+      if (lua_toboolean(L, -1)) held |= holds[i].bit;
+      lua_pop(L, 1);
+    }
+    lua_pop(L, 3);
   }
   struct cosmic_insn code[COSMIC_PROMISE_INSNS];
-  size_t length = program_for(code, arch, promises, sockets, (uint32_t)pid, scoped);
+  size_t length = program_for(code, arch, promises, sockets, (uint32_t)pid, held);
   if (length == 0) return luaL_error(L, "the filter does not fit");
   lua_pushlstring(L, (const char *)code, length * sizeof code[0]);
   return 1;

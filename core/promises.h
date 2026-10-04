@@ -7,7 +7,7 @@
  * ENOTTY; a call of another architecture ends the process.
  *
  * The program is a pure function of the promises, the architecture and
- * the process's own pid and whether signals are scoped, so
+ * the process's own pid and what else holds it (COSMIC_HELD_), so
  * core/syscalls.c has the child build and install it
  * ([`cosmic_promises_apply`]), and `promise_filter` builds it for either
  * architecture, whatever the host, for core/promises_test.tl's
@@ -50,20 +50,47 @@ unsigned cosmic_promise_named (const char *name);
 #define COSMIC_SOCKETS_UNIX 0x1u
 #define COSMIC_SOCKETS_INET 0x2u
 
+/* What a process is held to by more than the filter, so that the filter
+ * lets through a call whose arguments the filter cannot read but the
+ * hold makes harmless: the bits of the `held` of [`cosmic_promises_apply`].
+ * Each is the caller's to know from what it made, never to guess: a bit
+ * set without its hold lets the process reach what the filter would have
+ * kept it from.
+ *
+ * - `COSMIC_HELD_SIGNALS`: the process is in a Landlock domain that
+ *   handles LANDLOCK_SCOPE_SIGNAL (ABI 6). The signal calls then take any
+ *   pid, since the kernel refuses a target outside the domain, and
+ *   pidfd_send_signal is allowed.
+ * - `COSMIC_HELD_UNIX`: socket(AF_UNIX) is allowed. The process is in a
+ *   root of its own that shows only what it was granted, in a network
+ *   namespace of its own (its abstract sockets are its own and no host
+ *   client reaches a name it binds), and in a Landlock domain that handles
+ *   LANDLOCK_ACCESS_FS_RESOLVE_UNIX (ABI 9), which refuses a connect to a
+ *   socket file no `u` grant names. Below ABI 9 nothing tells one socket
+ *   file of a granted directory from another, so the hold is not given.
+ * - `COSMIC_HELD_LIMITS`: setrlimit and prlimit64 that set the process's
+ *   own limits are allowed. The process cannot raise a hard limit: it is
+ *   in a user namespace the start made, or its capabilities lack
+ *   CAP_SYS_RESOURCE of the initial one, which the kernel asks for it
+ *   ([`cosmic_promises_apply`] sets this itself for the latter).
+ * - `COSMIC_HELD_PIDS`: getpgid, getsid, setpgid and capget take any pid. The
+ *   process is in a pid namespace of its own, so a pid it names is a
+ *   process of the sandbox or none. */
+#define COSMIC_HELD_SIGNALS 0x1u
+#define COSMIC_HELD_UNIX 0x2u
+#define COSMIC_HELD_LIMITS 0x4u
+#define COSMIC_HELD_PIDS 0x8u
+
 /* Holds the calling process, for good, to `promises` and to making
  * sockets of the families `sockets` names: no_new_privs, and
  * the program for this architecture and the process's own pid, installed.
  * 0, or an errno; ENOSYS off Linux, and on any architecture but x86_64
  * and aarch64. The pid is the one the scheduling rules, and the signal
- * calls unless `scoped`, hold a call to, which stays the process's across
- * exec: a child calls this once it is the child, as the last step before
- * it execs.
- *
- * `scoped` is true only where the process is already in a Landlock domain
- * that handles LANDLOCK_SCOPE_SIGNAL: the signal calls then take any pid,
- * since the kernel refuses a target outside the domain. It is the caller's
- * to know from the ruleset it applied, never to guess: true without that
- * scope lets the process signal any process its credentials reach. */
-int cosmic_promises_apply (unsigned promises, unsigned sockets, bool scoped);
+ * calls unless `held` has COSMIC_HELD_SIGNALS, hold a call to, which stays
+ * the process's across exec: a child calls this once it is the child, as
+ * the last step before it execs. `held` is what the process is held to
+ * besides (the COSMIC_HELD_ bits), which only the caller knows from what
+ * it applied. */
+int cosmic_promises_apply (unsigned promises, unsigned sockets, unsigned held);
 
 #endif

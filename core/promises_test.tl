@@ -91,6 +91,7 @@ local numbers: {string: {integer}} = {
   ["setresuid"] = { 117, 147 },
   ["getpgid"] = { 121, 155 },
   ["getsid"] = { 124, 156 },
+  ["capget"] = { 125, 90 },
   ["rt_sigqueueinfo"] = { 129, 138 },
   ["sigaltstack"] = { 131, 132 },
   ["mknod"] = { 133 },
@@ -635,6 +636,27 @@ local function test_nest_beside_fork_lets_a_process_start_in_the_namespaces()
   holds_on_both({ "nest", "fork" }, cases)
 end
 
+--- With `nest` an ioctl may read and set an interface's flags, which a start
+--- brings the loopback of its network namespace up with, and no other
+--- interface ioctl; without it neither.
+local function test_nest_adds_the_interface_flag_ioctls_and_no_other()
+  for _, promises in ipairs({ { "nest" }, { "nest", "fork" } }) do
+    holds_on_both(promises, {
+      call("ioctl", "allow", 3, 0x8913), call("ioctl", "allow", 3, 0x8914),
+      call("ioctl", "allow", 3, 0x541b), call("ioctl", "allow", 3, 0x5401),
+      call("ioctl", "ENOTTY", 3, 0x8912), call("ioctl", "ENOTTY", 3, 0x8915),
+      call("ioctl", "ENOTTY", 3, 0x8916), call("ioctl", "ENOTTY", 3, 0x8918),
+      call("ioctl", "ENOTTY", 3, 0x894c),
+    })
+  end
+  for _, promises in ipairs({ {}, { "fork", "jit", "fattr" } }) do
+    holds_on_both(promises, {
+      call("ioctl", "ENOTTY", 3, 0x8913), call("ioctl", "ENOTTY", 3, 0x8914),
+      call("ioctl", "allow", 3, 0x541b),
+    })
+  end
+end
+
 local function test_the_namespace_calls_are_refused_without_nest()
   local cases: {Case} = {}
   for _, name in ipairs(NESTED) do cases[#cases + 1] = call(name, "EPERM") end
@@ -763,6 +785,81 @@ local function test_a_call_that_asks_after_a_process_is_held_to_the_process_itse
     call("prlimit64", "EPERM", 0, 7, 1 << 40, 0x7000),
     call("getrlimit", "allow"),
   }, { pid = pid })
+end
+
+--- A unix socket is made where the process is in a root, a network
+--- namespace and a Landlock domain that hold what it reaches
+--- (`unix_held`), and only a unix one: an inet socket still needs `inet`.
+local function test_a_held_process_may_make_a_unix_socket_and_no_other()
+  for _, promises in ipairs({ {}, { "fork" }, { "fork", "jit", "fattr" }, { "nest" } }) do
+    holds_on_both(promises, {
+      call("socket", "allow", 1, 1, 0), call("socket", "allow", 1, 2, 0),
+      call("socket", "EPERM", 2, 1, 0), call("socket", "EPERM", 10, 1, 0),
+      call("socket", "EPERM", 16, 3, 0), call("socket", "EPERM", 17, 3, 0),
+      call("socketpair", "allow", 1, 1, 0), call("socketpair", "EPERM", 2, 1, 0),
+    }, { unix_held = true })
+  end
+  holds_on_both({}, {
+    call("socket", "allow", 1, 1, 0), call("socket", "allow", 2, 1, 0),
+    call("socket", "allow", 10, 1, 0), call("socket", "EPERM", 16, 3, 0),
+  }, { unix_held = true, inet = true })
+  -- Without it the filter keeps to its sockets, as `unix` names them.
+  holds_on_both({}, { call("socket", "EPERM", 1, 1, 0) }, { unix_held = false })
+  holds_on_both({}, { call("socket", "EPERM", 1, 1, 0) }, { scoped = true, limits_held = true,
+    pids_held = true })
+end
+
+--- A process that cannot raise a hard limit may set its own limits, with
+--- setrlimit or prlimit64 of itself; another process's limits stay out of
+--- reach, and nothing else is let through.
+local function test_a_process_that_cannot_raise_a_hard_limit_sets_its_own_limits()
+  local pid = 4242
+  for _, promises in ipairs({ {}, { "fork", "jit", "fattr" }, { "nest" } }) do
+    holds_on_both(promises, {
+      call("setrlimit", "allow", 7, 0x7000),
+      call("prlimit64", "allow", 0, 7, 0x7000, 0), call("prlimit64", "allow", pid, 7, 0x7000, 0x7100),
+      call("prlimit64", "allow", 0, 7, 0, 0x7000), call("prlimit64", "allow", pid, 7, 0, 0),
+      call("prlimit64", "EPERM", 1, 7, 0x7000, 0), call("prlimit64", "EPERM", pid + 1, 7, 0x7000, 0),
+      call("prlimit64", "EPERM", 1, 7, 0, 0x7000),
+      call("getrlimit", "allow"),
+    }, { pid = pid, limits_held = true })
+  end
+  holds_on_both({}, {
+    call("setrlimit", "EPERM", 7, 0x7000), call("prlimit64", "EPERM", 0, 7, 0x7000, 0),
+    call("prlimit64", "EPERM", pid, 7, 0x7000, 0),
+    call("prlimit64", "allow", 0, 7, 0, 0x7000),
+  }, { pid = pid, limits_held = false })
+  -- Only the limits: nothing else a namespace or a scope holds comes with them.
+  holds_on_both({}, {
+    call("kill", "EPERM", pid + 1, 9), call("getpgid", "EPERM", pid + 1),
+    call("setpgid", "EPERM", pid + 1, 0), call("socket", "EPERM", 1, 1, 0),
+    call("sched_setaffinity", "EPERM", pid + 1), call("unshare", "EPERM", 0x10000000),
+  }, { pid = pid, limits_held = true })
+end
+
+--- In a pid namespace of its own, a pid names a process of the sandbox or
+--- none: getpgid, getsid and setpgid take any. Without one they are held
+--- to the process itself, and what else asks after a process is, whatever
+--- is held.
+local function test_a_process_in_its_own_pid_namespace_asks_after_any_pid()
+  local pid = 4242
+  for _, promises in ipairs({ {}, { "fork" }, { "fork", "jit", "fattr" } }) do
+    holds_on_both(promises, {
+      call("getpgid", "allow", pid + 1), call("getpgid", "allow", 1), call("getpgid", "allow", 0),
+      call("getsid", "allow", pid + 1), call("getsid", "allow", 1),
+      call("setpgid", "allow", pid + 1, 0), call("setpgid", "allow", pid + 1, pid + 1),
+      call("capget", "allow", 0x7000, 0x7100),
+      call("sched_getaffinity", "EPERM", pid + 1), call("sched_setaffinity", "EPERM", pid + 1),
+      call("get_robust_list", "EPERM", pid + 1),
+      call("prlimit64", "EPERM", pid + 1, 7, 0, 0x7000), call("setpriority", "EPERM", 0, pid + 1, 5),
+      call("kill", "EPERM", pid + 1, 9), call("setrlimit", "EPERM", 7, 0x7000),
+    }, { pid = pid, pids_held = true })
+  end
+  holds_on_both({}, {
+    call("getpgid", "EPERM", pid + 1), call("getsid", "EPERM", pid + 1),
+    call("setpgid", "EPERM", pid + 1, 0), call("getpgid", "allow", pid),
+    call("setpgid", "allow", 0, 0), call("capget", "EPERM", 0x7000, 0x7100),
+  }, { pid = pid, pids_held = false, scoped = true })
 end
 
 local function test_a_promise_is_one_of_the_four()
