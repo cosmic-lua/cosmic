@@ -124,6 +124,11 @@ local verbs: {string:function(string, string): integer} = {
     if not ok then return failed(path, trouble) end
     return nil
   end,
+  ["write-pid"] = function(path: string): integer
+    local ok, trouble = Fs.write(path, tostring(sys.getpid()) .. "\n")
+    if not ok then return failed(path, trouble) end
+    return nil
+  end,
   append = function(path: string, text: string): integer
     return append(path, text .. "\n")
   end,

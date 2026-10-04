@@ -1566,6 +1566,9 @@ struct spawn_plan {
    * and to which promises: COSMIC_PROMISE_ bits. */
   int promising;
   unsigned promises;
+  /* Whether `confine` scopes signals ([`grants_ruleset`]), so the filter
+   * lets a signal call take any pid. */
+  bool scoped;
   /* The socket families it may make (COSMIC_SOCKETS_ bits). */
   unsigned sockets;
   /* The limits to set, last but the filter: `rlimit_count` of them. */
@@ -1790,9 +1793,10 @@ static _Noreturn void run_program (const struct spawn_plan *plan, const int *pin
   }
   /* The promises filter goes last, so no step above is refused by it,
    * and just before exec, which it allows. It is built here because it
-   * holds signals to the process's own pid, which only the child has;
-   * it follows Landlock so the ruleset is made with calls the filter has
-   * not yet limited.
+   * holds the scheduling calls, and the signals where Landlock does not
+   * scope them, to the process's own pid, which only the child has; it
+   * follows Landlock so the ruleset is made with calls the filter has
+   * not yet limited, and so `scoped` is what the kernel now holds.
    * PR_SET_MDWE is not set for a child with no `jit`: it is a property
    * of the address space, which this child shares with its parent until
    * exec, so it would hold the parent too.
@@ -1800,7 +1804,7 @@ static _Noreturn void run_program (const struct spawn_plan *plan, const int *pin
    * starts it on an address space of its own instead of
    * clone(CLONE_VM). The filter then drops the PROT_EXEC | PROT_BTI
    * mprotect it allows on aarch64 for glibc's loader. */
-  if (!failure && plan->promising) failure = cosmic_promises_apply(plan->promises, plan->sockets);
+  if (!failure && plan->promising) failure = cosmic_promises_apply(plan->promises, plan->sockets, plan->scoped);
   if (!failure) execve(plan->path, plan->argv, plan->envp);
   if (!failure) failure = errno;
   report_child_error(status_fd, failure);
@@ -2808,7 +2812,9 @@ static uint64_t grants_handled (long abi) {
 
 /* A Landlock ruleset holding a child to `count` grants, as a descriptor,
  * or -1 with the errno in `error` and what to tell the caller in
- * `message`, which names the path or the remedy.
+ * `message`, which names the path or the remedy. `scoped` says whether
+ * the ruleset scopes signals, which the promises filter's signal calls
+ * rely on.
  *
  * The ruleset handles every filesystem right the kernel's ABI knows, up
  * to ABI 9 ([`grants_handled`]), so what no grant gives is refused: EACCES, and EXDEV for a rename or link
@@ -2847,7 +2853,8 @@ static uint64_t grants_handled (long abi) {
  * (held_to in cosmic/child.tl) hands them to the caller on the Handle: it
  * prints nothing about grants, and `spawn` answers a pid alone. */
 static int grants_ruleset (const char *const *paths, const unsigned *letters, int count,
-                           int inet, int unix_bound, char *message, size_t room, int *error) {
+                           int inet, int unix_bound, char *message, size_t room, int *error,
+                           bool *scoped) {
   long abi = syscall(SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION);
   if (abi < 1) {
     *error = abi < 0 ? errno : ENOSYS;
@@ -2880,6 +2887,7 @@ static int grants_ruleset (const char *const *paths, const unsigned *letters, in
     attr.scoped = LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET | LANDLOCK_SCOPE_SIGNAL;
     size = offsetof(struct grants_attr, scoped) + sizeof attr.scoped;
   }
+  *scoped = (attr.scoped & LANDLOCK_SCOPE_SIGNAL) != 0;
   long made = syscall(SYS_landlock_create_ruleset, &attr, size, 0);
   if (made < 0) {
     *error = errno;
@@ -3269,8 +3277,9 @@ COSMIC_SYSCALL(restrict_self, 2) {
       return restrict_refused(L, error, "getrlimit: %s", cosmic_errno_describe(error, NULL));
   }
   char message[PATH_MAX + 512];
+  bool scoped = false;
   int ruleset = grants_ruleset(grant_paths, grant_letters, grant_count, 0, 0, message,
-                               sizeof message, &error);
+                               sizeof message, &error, &scoped);
   if (ruleset < 0) return restrict_refused(L, error, "%s", message);
   /* Limits first, since the filter refuses setrlimit. A limit that is
    * already at least as low asks for no call, so a restriction repeated
@@ -3298,7 +3307,7 @@ COSMIC_SYSCALL(restrict_self, 2) {
                             cosmic_errno_describe(error, NULL), limits_moved ? partly : "");
   /* Last, as in a child: the filter allows Landlock and the filter's own
    * installation, so a later restriction narrows both. */
-  error = cosmic_promises_apply(promise_bits, 0);
+  error = cosmic_promises_apply(promise_bits, 0, scoped);
   if (error != 0)
     return restrict_refused(L, error, "seccomp filter: %s%s", cosmic_errno_describe(error, NULL),
                             partly);
@@ -3887,12 +3896,20 @@ COSMIC_SYSCALL(spawn, 11) {
    * ruleset to close is the only thing past here that is not the
    * environment's. */
   int grant_error = 0;
+  /* Whether the child's ruleset scopes signals. Only one made from
+   * `grants` says so: a `ruleset` descriptor carries no record of what
+   * it handles.
+   * TODO: let a child held to a `ruleset` descriptor signal its own
+   * processes under the promises filter, once the descriptor can say
+   * whether its ruleset scopes signals (core/promises.h's `scoped`); until
+   * then its filter holds the signal calls to the child's starting pid. */
+  bool scoped = false;
   char grant_message[PATH_MAX + 512];
 #if defined(__linux__)
   if (granting) {
     confine = grants_ruleset(grant_paths, grant_letters, grant_count,
                              (sockets & COSMIC_SOCKETS_INET) != 0, strict && unveiling && !proc_only,
-                             grant_message, sizeof grant_message, &grant_error);
+                             grant_message, sizeof grant_message, &grant_error, &scoped);
   }
 #endif
   (void)grant_count; /* only the Linux build holds a child to its grants */
@@ -3923,7 +3940,7 @@ COSMIC_SYSCALL(spawn, 11) {
 #if defined(PLEDGE_ARCH)
     .pledge = &pledge,
 #endif
-    .promising = promising, .promises = promise_bits,
+    .promising = promising, .promises = promise_bits, .scoped = scoped,
     .rlimit_count = rlimit_count, .rlimits = rlimits,
     .unveiling = unveiling, .offline = offline, .noexec_scratch = noexec_scratch,
     .strict = strict, .proc_only = proc_only, .tmp_bytes = tmp_bytes, .sockets = sockets,

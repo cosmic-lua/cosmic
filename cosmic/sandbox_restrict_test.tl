@@ -12,19 +12,31 @@ local Clock = require("cosmic.clock")
 local _net = require("cosmic.net")
 local _sandbox = require("cosmic.sandbox")
 local _store = require("cosmic.store")
-local _sys = require("cosmic.sys")
+local sys = require("cosmic.sys")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
 local sandbox_skip = require("build.sandbox_skip")
 local stand_in = require("build.stand_in")
 local this_program = require("build.this_program")
+local type raw_process = require("cosmic.internal.process")
 
 --- The program is this one, which a test starts only with `tool`; its
 --- temporary directory is the test's own.
 Test.policy{ profiles = { "cosmic" }, env = { "TMPDIR" } }
 
 local DENIED <const> = "Permission denied"
+
+local type Searcher = function(string): any, any
+
+--- The raw table the store's searcher hands `wrapper`'s loader.
+local function raw_behind(wrapper: string): any
+  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
+    local loader, extra = searcher(wrapper)
+    if type(loader) == "function" and type(extra) == "table" then return extra end
+  end
+  error(wrapper .. " is handed no raw table")
+end
 
 --- What the child runs first: the modules it uses, loaded before it is
 --- restricted since it may read nothing after, and the helpers that
@@ -167,6 +179,51 @@ say("fork", result ~= nil and result.ok, result and result.stdout or trouble)
 ]], probe)))
   if said == nil then return end
   assert(said.lines.fork:find("^true"), said.raw)
+end
+
+--- Landlock's signal scope (ABI 6) is what lets the filter's signal calls
+--- take any pid: a process the sandbox forks signals itself and what it
+--- forked, and nothing outside the sandbox. Below ABI 6 the filter keeps
+--- the calls to the pid it was built for.
+local function test_the_signal_scope_lets_a_forked_process_signal_what_is_inside(tmp: string)
+  local abi, _ = (raw_behind("cosmic.child") as raw_process).landlock_abi() -- cast: the table core/process.h declares
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local sibling = assert(Child.start({ probe, "sleep-forever" }, { process_group = false }))
+  local said = in_child(restricted(
+    string.format("{ grants = { { path = %q, letters = \"rx\" } }, promises = { \"fork\" } }", probe),
+    string.format([[
+local own = Child.run({ %q, "signal TERM" }, { process_group = false, stdout = "capture", stderr = "stdout" })
+say("self", own and own.signal, own and own.code, own and own.stdout)
+local held = Child.start({ %q, "sleep-forever" }, { process_group = false })
+local ended, why = sys.kill(held.pid, sys.SIGKILL)
+say("child", ended, why)
+local waited = held:wait()
+say("reaped", waited and waited.signal)
+local mine, mine_why = sys.kill(sys.getpid(), 0)
+say("pid", mine, mine_why)
+local outside, outside_why = sys.kill(%d, sys.SIGKILL)
+say("sibling", outside, outside_why)
+local parent, parent_why = sys.kill(%d, 0)
+say("parent", parent, parent_why)
+]], probe, probe, sibling.pid, sys.getpid())))
+  local alive = sys.kill(sibling.pid, 0)
+  sibling:stop(sys.SIGKILL)
+  assert(sibling:wait())
+  if said == nil then return end
+  local refused = "^false.*Operation not permitted"
+  assert(said.lines.pid:find("^true"), said.raw)
+  -- Never a process outside it, whichever ABI: the kernel's, or the filter's.
+  assert(alive, "the sibling outside the sandbox was signalled: " .. said.raw)
+  assert(said.lines.sibling:find(refused), said.raw)
+  assert(said.lines.parent:find(refused), said.raw)
+  if abi ~= nil and abi >= 6 then
+    assert(said.lines.self == tostring(sys.SIGTERM) .. " nil ", said.raw)
+    assert(said.lines.child:find("^true"), said.raw)
+    assert(said.lines.reaped == tostring(sys.SIGKILL), said.raw)
+  else
+    assert(said.lines.self:find("not permitted", 1, true), said.raw)
+    assert(said.lines.child:find(refused), said.raw)
+  end
 end
 
 local function test_limits_lower_what_the_process_may_spend()

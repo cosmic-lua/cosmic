@@ -28,6 +28,8 @@
 ---     print T          T and a newline, to stdout
 ---     eprint T         T and a newline, to stderr
 ---     write F T        T and a newline, as the whole of file F
+---     write-pid F      its own pid and a newline, as the whole of file F
+---                      (`signal S @F` then names it)
 ---     append F T       T and a newline, at the end of file F
 ---     cat [F]          file F, or stdin to its end, to stdout
 ---     cat-quiet F      file F to stdout, or nothing where it cannot be read

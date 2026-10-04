@@ -7,14 +7,17 @@
  * ENOTTY; a call of another architecture ends the process.
  *
  * The program is a pure function of the promises, the architecture and
- * the process's own pid, so core/syscalls.c has the child build and
- * install it ([`cosmic_promises_apply`]), and `promise_filter` builds it
- * for either architecture, whatever the host, for core/promises_test.tl's
+ * the process's own pid and whether signals are scoped, so
+ * core/syscalls.c has the child build and install it
+ * ([`cosmic_promises_apply`]), and `promise_filter` builds it for either
+ * architecture, whatever the host, for core/promises_test.tl's
  * interpreter. The tables are core/promises.c's.
  */
 
 #ifndef COSMIC_PROMISES_H
 #define COSMIC_PROMISES_H
+
+#include <stdbool.h>
 
 /* One past the highest call number the tables are reviewed to: a call
  * above it is answered ENOSYS. */
@@ -51,9 +54,16 @@ unsigned cosmic_promise_named (const char *name);
  * sockets of the families `sockets` names: no_new_privs, and
  * the program for this architecture and the process's own pid, installed.
  * 0, or an errno; ENOSYS off Linux, and on any architecture but x86_64
- * and aarch64. The pid is the one the kill and scheduling rules hold a
- * call to, which stays the process's across exec: a child calls this
- * once it is the child, as the last step before it execs. */
-int cosmic_promises_apply (unsigned promises, unsigned sockets);
+ * and aarch64. The pid is the one the scheduling rules, and the signal
+ * calls unless `scoped`, hold a call to, which stays the process's across
+ * exec: a child calls this once it is the child, as the last step before
+ * it execs.
+ *
+ * `scoped` is true only where the process is already in a Landlock domain
+ * that handles LANDLOCK_SCOPE_SIGNAL: the signal calls then take any pid,
+ * since the kernel refuses a target outside the domain. It is the caller's
+ * to know from the ruleset it applied, never to guess: true without that
+ * scope lets the process signal any process its credentials reach. */
+int cosmic_promises_apply (unsigned promises, unsigned sockets, bool scoped);
 
 #endif

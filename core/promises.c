@@ -162,9 +162,11 @@ enum rule {
   RULE_CLONE_THREAD,
   RULE_CLONE_FORK,
   RULE_CLONE_NEST,
+  /* A signal call: held to the process's own pid, or, where the filter
+   * is told Landlock's signal scope holds the process, let through. */
+  RULE_SIGNAL,
   /* Held to one argument, which a promise loosens only where a rule of
    * its own says so (the `_NEST` ones). */
-  RULE_PID_SELF,
   RULE_PID_SELF_OR_ZERO,
   RULE_PRLIMIT,
   RULE_PRLIMIT_NEST,
@@ -207,15 +209,16 @@ struct grant {
  * - setrlimit, and a prlimit64 that sets: a sandbox's limits are not the
  *   program's to move.
  * - SysV IPC, chroot, mount and the namespace calls, which `nest` grants.
- * - pidfd_send_signal, which signals through a descriptor no pid rule sees.
+ * - pidfd_send_signal, which signals through a descriptor no pid rule sees,
+ *   unless the signal scope holds (see RULE_SIGNAL).
  * - vmsplice.
  * - The never-allowed set (ptrace, bpf, io_uring, ...), which no table names.
  *
  * `clone3` and `openat2` answer ENOSYS: the filter cannot read the
  * structure they take, and a libc falls back to clone and openat.
  *
- * The signal calls, tkill among them, take the process's own pid; see
- * RULE_PID_SELF. */
+ * The signal calls, tkill among them, take the process's own pid, or any
+ * where Landlock's signal scope holds the process; see RULE_SIGNAL. */
 static const struct grant basics[] = {
   /* Memory. mmap and mprotect refuse executable memory that is anonymous
    * or writable, which `jit` grants. */
@@ -228,12 +231,12 @@ static const struct grant basics[] = {
   A(nanosleep), A(time), A(times), A(getitimer), A(setitimer), A(alarm),
   A(timer_create), A(timer_settime), A(timer_gettime), A(timer_getoverrun),
   A(timer_delete), A(timerfd_create), A(timerfd_settime), A(timerfd_gettime),
-  /* Signals, and only to itself. */
+  /* Signals, to itself or, where the scope holds, anywhere in the domain. */
   A(rt_sigaction), A(rt_sigprocmask), A(rt_sigreturn), A(rt_sigpending),
   A(rt_sigsuspend), A(rt_sigtimedwait), A(sigaltstack), A(signalfd),
-  A(signalfd4), A(pause), A(restart_syscall), R(kill, PID_SELF),
-  R(tgkill, PID_SELF), R(tkill, PID_SELF), R(rt_sigqueueinfo, PID_SELF),
-  R(rt_tgsigqueueinfo, PID_SELF),
+  A(signalfd4), A(pause), A(restart_syscall), R(kill, SIGNAL),
+  R(tgkill, SIGNAL), R(tkill, SIGNAL), R(rt_sigqueueinfo, SIGNAL),
+  R(rt_tgsigqueueinfo, SIGNAL),
   /* Threads, and who it is. */
   R(clone, CLONE_THREAD), R(clone3, ENOSYS), A(set_tid_address),
   A(set_robust_list), R(get_robust_list, PID_SELF_OR_ZERO), A(futex),
@@ -625,14 +628,9 @@ static void rule_block (struct builder *b, enum rule rule, uint32_t pid, enum co
     mask(&k, ~NEST_NAMESPACES);
     test(&k, OP_EQ, 0, JUMP_ALLOW, JUMP_DENY);
     break;
-    case RULE_PID_SELF:
-    /* A tid equal to the pid is the thread group leader's own, so
-     * tkill takes this rule too.
-     * TODO: let a call signal any process once Landlock's signal scope
-     * (ABI 6) holds a sandbox's signals to itself, and drop the pid
-     * from this rule: it is the one the program started under, so a
-     * process it forks, which has another, cannot signal itself
-     * (kill(getpid()), tgkill) until then. */
+    case RULE_SIGNAL:
+    /* Unscoped, the pid is held. A tid equal to it is the thread group
+     * leader's own, so tkill takes this rule too. */
     load(&k, DATA_ARGUMENT(0) + DATA_LOW);
     test(&k, OP_EQ, pid, JUMP_ALLOW, JUMP_DENY);
     break;
@@ -800,12 +798,22 @@ static void add (uint8_t *rules, const struct grant *table, size_t count) {
 
 /* Writes to `out`, room for COSMIC_PROMISE_INSNS, the program that holds
  * a process of `arch` and pid `pid` to `promises`, and answers how many
- * instructions it is, or 0 where it did not fit. `sockets`
+ * instructions it is, or 0 where it did not fit. `scoped` says the
+ * process is in a Landlock domain that handles LANDLOCK_SCOPE_SIGNAL
+ * (ABI 6): its signal calls then take any pid, and pidfd_send_signal is
+ * allowed. The kernel's check holds them, per target: a signal to a
+ * process outside the domain -- a parent domain or a process with none
+ * (linux/landlock.h) -- is refused with EPERM, and every way of naming a
+ * target goes through it: a pid, a thread, a group (negative, or 0), every
+ * process (-1, which the kernel answers 0 when it signalled none),
+ * a pidfd, and the queueing calls. Without `scoped` they keep to the
+ * process's own pid. `sockets`
  * (COSMIC_SOCKETS_ bits) lets it make a socket of those families --
  * socket(AF_UNIX), AF_INET and AF_INET6 -- a socketpair of unix ones it
  * always may. Nothing in it depends on the host. */
 static size_t program_for (struct cosmic_insn *out, enum cosmic_arch arch,
-                                      unsigned promises, unsigned sockets, uint32_t pid) {
+                                      unsigned promises, unsigned sockets, uint32_t pid,
+                                      bool scoped) {
   const short *numbers = arch == COSMIC_ARCH_X86_64 ? x86_64_numbers : aarch64_numbers;
   uint32_t audit = arch == COSMIC_ARCH_X86_64 ? AUDIT_X86_64 : AUDIT_AARCH64;
   uint8_t rules[CALL_COUNT];
@@ -822,6 +830,12 @@ static size_t program_for (struct cosmic_insn *out, enum cosmic_arch arch,
     ADD(nest_calls);
     /* A sandbox's start makes processes, which is `fork`'s. */
     if (promises & COSMIC_PROMISE_FORK) rules[CALL_clone] = RULE_CLONE_NEST;
+  }
+
+  if (scoped) {
+    for (int call = 0; call < CALL_COUNT; call++)
+      if (rules[call] == RULE_SIGNAL) rules[call] = RULE_ALLOW;
+    rules[CALL_pidfd_send_signal] = RULE_ALLOW;
   }
 
   /* The calls this architecture has a number for, in number order. */
@@ -882,7 +896,7 @@ const int cosmic_promise_headers_end = __NR_syscalls;
 const int cosmic_promise_headers_end = 0;
 #endif
 
-int cosmic_promises_apply (unsigned promises, unsigned sockets) {
+int cosmic_promises_apply (unsigned promises, unsigned sockets, bool scoped) {
 #if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__))
 #if defined(__x86_64__)
   enum cosmic_arch arch = COSMIC_ARCH_X86_64;
@@ -890,7 +904,7 @@ int cosmic_promises_apply (unsigned promises, unsigned sockets) {
   enum cosmic_arch arch = COSMIC_ARCH_AARCH64;
 #endif
   struct cosmic_insn code[COSMIC_PROMISE_INSNS];
-  size_t length = program_for(code, arch, promises, sockets, (uint32_t)getpid());
+  size_t length = program_for(code, arch, promises, sockets, (uint32_t)getpid(), scoped);
   if (length == 0) return ENOSPC;
   if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) return errno;
   _Static_assert(sizeof(struct sock_filter) == sizeof(struct cosmic_insn), "one instruction");
@@ -900,6 +914,7 @@ int cosmic_promises_apply (unsigned promises, unsigned sockets) {
 #else
   (void)promises;
   (void)sockets;
+  (void)scoped;
   return ENOSYS;
 #endif
 }
@@ -922,6 +937,7 @@ COSMIC_SYSCALL(promise_filter, 3) {
   else return luaL_argerror(L, 2, "an architecture is \"x86_64\" or \"aarch64\"");
   lua_Integer pid = 1;
   unsigned sockets = 0;
+  bool scoped = false;
   if (!lua_isnoneornil(L, 3)) {
     luaL_checktype(L, 3, LUA_TTABLE);
     lua_getfield(L, 3, "pid");
@@ -933,10 +949,12 @@ COSMIC_SYSCALL(promise_filter, 3) {
     if (lua_toboolean(L, -1)) sockets |= COSMIC_SOCKETS_UNIX;
     lua_getfield(L, 3, "inet");
     if (lua_toboolean(L, -1)) sockets |= COSMIC_SOCKETS_INET;
-    lua_pop(L, 3);
+    lua_getfield(L, 3, "scoped");
+    scoped = lua_toboolean(L, -1);
+    lua_pop(L, 4);
   }
   struct cosmic_insn code[COSMIC_PROMISE_INSNS];
-  size_t length = program_for(code, arch, promises, sockets, (uint32_t)pid);
+  size_t length = program_for(code, arch, promises, sockets, (uint32_t)pid, scoped);
   if (length == 0) return luaL_error(L, "the filter does not fit");
   lua_pushlstring(L, (const char *)code, length * sizeof code[0]);
   return 1;
