@@ -64,7 +64,8 @@
 --- plumbing -- the probe of whether to sandbox
 --- ([`build.test_sandbox_probe`]), and what cosmic.child requires to start
 --- a worker -- which must fail loudly, as a failure or a refusal, never
---- as a pass. What a module of the harness calls through a library table
+--- as a pass; cosmic.sandbox, which decides a policy worker's grants, is
+--- not yet held ([`build.test`]'s `harness_alone` says so). What a module of the harness calls through a library table
 --- a test can replace, it takes as a local when it loads.
 local record harness_epoch
   epoch: string
@@ -107,11 +108,11 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "516c08e34d1fc392de5363af92b6d669344fc3c8b504c469ae3771a424d0db6b",
 
-  ["build.test"] = "ea626de4352dd6e06645d9a4ad49658178926a7d034957013a12678a277d21d1",
+  ["build.test"] = "88d092aa5c735ac88d8f4fad6aefdb4adcd9d2ce244d9ada3270af2327baf43f",
 
   ["build.test_inputs"] = "5da3827a258c10dd0399f75b97fbbb4bde0251eef950f66783191421227519c7",
 
-  ["build.test_policy"] = "dfa38436cac51a18fb47decb490be085fc386531d4014edfdd5c90575b925739",
+  ["build.test_policy"] = "bdedb3bec14b2e8b7fd4d3008c709df97161fe49c2b1af0e2ea7c21ea5b5686e",
 
   ["build.test_sandbox"] = "b529cddb2c0c54824f94418400205b9ed0004441ed0ede5bc97463815ab916ae",
 

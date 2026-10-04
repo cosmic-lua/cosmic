@@ -869,7 +869,17 @@ local harness_own <const>: {string} = { "build.test_sandbox", "build.test_policy
 --- spawn holds it to -- the unveils, the binds, offline -- so an edit
 --- that weakened it would pass a test that reads what it does not
 --- declare, and keep and share the pass. What it requires (cosmic.time,
---- cosmic.stream and the rest) applies no sandbox, and stays out.
+--- cosmic.stream and the rest) applies no sandbox, and stays out. The
+--- exception is cosmic.sandbox: among others its `merge` (and the
+--- profiles it joins), `loaders`, `reach` and `user_id` decide what a
+--- worker started under a policy (`--policy`) may reach, and it is not
+--- held yet (the first TODO below).
+-- TODO: hold cosmic.sandbox here too, or the parts of it that decide a
+-- grant, before the policy is a worker's default (step (c) of #2621's
+-- doc/plans/sandbox.md): today an edit to its `SYSTEM_PATHS` or `merge`
+-- moves the key of no test that does not import it, so a policy run keeps
+-- a pass earned under the old grants. Dropping cosmic.child from here, as
+-- the next TODO asks, does not close this.
 -- TODO: move the translation of a plan's `sandbox` into spawn's
 -- options into build.confine, which the harness holds already, and
 -- drop cosmic.child from here and from build/harness_epoch.tl's
