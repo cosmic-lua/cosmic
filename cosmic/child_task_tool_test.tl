@@ -12,11 +12,10 @@ local Test = require("cosmic.test")
 local type raw_process = require("cosmic.internal.process")
 local this_program = require("build.this_program")
 
---- What the tests read: the environment, which a child inherits, and
---- What the tests read: the environment, which a child inherits, the
---- program itself, which every child is, started only to run a chunk
---- (`lua`), and /proc, for the signal dispositions a run restores.
-Test.needs{ env = { "*" }, lua = true, host = { "/proc" } }
+--- What the tests read: the program itself, which every child is,
+--- started only to run a chunk (`lua`), and /proc, for the signal
+--- dispositions a run restores.
+Test.needs{ lua = true, host = { "/proc" } }
 
 local type Searcher = function(string): any, any
 local type ChildModule = require("cosmic.child")

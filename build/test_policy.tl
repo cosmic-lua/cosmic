@@ -124,11 +124,13 @@ end
 --- what its module declares that no policy says, naming the field.
 --- @param effective what the module declares, as the runner resolved it
 --- @return why, "" for nothing
--- TODO: name the variables each module that declares `env = { "*" }` reads
--- (cosmic/child_tool_test.tl, cosmic/child_lua_test.tl and the like:
--- `o/bin/cosmic uses` finds them by their declaration), and delete this
--- refusal, once the policy path is the default (step (c) of the sandbox
--- plan): a policy has no wildcard.
+-- TODO: delete this refusal, and the `"*"` that [`Test.needs`] still takes,
+-- once the four unsandboxed fixtures under ci/fixtures name the variables
+-- they read (each carries the TODO saying why it cannot yet), the two tests
+-- that declare one on purpose are reworked (build/test_policy_tool_test.tl's
+-- wildcard_test.tl and build/test_isolation_tool_test.tl's hooks_test.tl,
+-- snippets of the wildcard itself) and the policy path is the default
+-- (step (c) of the sandbox plan): a policy has no wildcard.
 -- TODO: give a worker that nests a per-closure artifact -- the core and its
 -- closure store, not the real o/bin/cosmic -- to open by path, once the
 -- artifact format can be cut down to a closure (build/artifact.tl): the

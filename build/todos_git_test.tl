@@ -10,13 +10,13 @@ local Test = require("cosmic.test")
 local todos = require("build.todos")
 local work = require("build.work")
 
---- The system's git, and the environment `cosmic todos` starts it with.
+--- The system's git.
 -- TODO: name git by what PATH finds rather than the whole of the
 -- system's paths, once a declaration can name a program (`processes` by
 -- name, which the sandbox resolves, with what its loader reads): on a
 -- host with git elsewhere (/nix/store, /opt), the tests that build a
 -- repository pass over it.
-Test.needs{ env = { "*" }, system = true }
+Test.needs{ system = true }
 
 --- Lines joined into one file's text, so no line of this file opens
 --- with a comment marker and is listed itself.

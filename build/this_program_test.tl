@@ -8,12 +8,11 @@ local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 
---- What `program` copies is the whole of this process's environment,
---- and what it starts is this very program, which reads its own command
---- line in /proc.
+--- What `program` copies is this process's environment, which for a
+--- worker is the variables it declares and the pinned ones, and what it
+--- starts is this very program, which reads its own command line in /proc.
 Test.needs{
   host = { "/proc" },
-  env = { "*" },
   lua = true,
 }
 
@@ -100,9 +99,12 @@ local function test_program_adds_the_relaunch_to_a_copy_of_the_options()
     local ok, trouble = pcall(this_program.program, {}, { fds = { [254] = "capture" } })
     assert(not ok and tostring(trouble):find("descriptor 254", 1, true), tostring(trouble))
     -- No environment given: this process's whole, which a child given
-    -- none would have inherited, with the relaunch's added.
+    -- none would have inherited, with the relaunch's added. A worker's
+    -- is the variables it declares and the pinned ones; TMPDIR is
+    -- always among them.
     local whole = this_program.program({ "x" }).options
     local own = Env.all()
+    assert(own.TMPDIR ~= nil, "the worker's environment is empty")
     for name, value in pairs(own) do
       if name ~= "COSMIC_PORTABLE_STARTUP_TEST_READY" and name ~= "COSMIC_PORTABLE_STARTUP_TEST_GO" and
           relaunch.env[name] == nil then
