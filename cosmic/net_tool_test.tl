@@ -10,6 +10,7 @@ local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
+local unix_socket = require("build.unix_socket")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 local Clock = require("cosmic.clock")
@@ -19,6 +20,7 @@ local Clock = require("cosmic.clock")
 Test.needs{ lua = true, standalone = true }
 
 local function test_a_write_to_a_closed_peer_does_not_end_the_process(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local script = tmp .. "/write.tl"
   assert(Fs.write(script, [[
 local Fs = require("cosmic.fs")
@@ -54,6 +56,7 @@ end
 --- A connection's protocol runs a child while the server holds its
 --- signal guard: the run holds one of its own inside the server's.
 local function test_a_protocol_runs_a_child_under_the_server_s_guard(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local answer = ""
   assert(Net.serve{
     listeners = { Net.unix(tmp .. "/s.sock") },
@@ -83,6 +86,7 @@ end
 --- on_ready raises after SIGTERM, the process dies of the signal, as it
 --- would without the server's guard.
 local function test_a_signal_is_delivered_where_on_ready_raises(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local script = tmp .. "/raises.tl"
   assert(Fs.write(script, [[
 local Net = require("cosmic.net")
@@ -107,6 +111,7 @@ end
 --- drain ends: the connection in flight finishes, and the process then
 --- dies of the signal.
 local function test_a_signal_in_a_drain_stop_began_is_delivered(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local script = tmp .. "/stopped.tl"
   local report = tmp .. "/report"
   assert(Fs.write(script, [[

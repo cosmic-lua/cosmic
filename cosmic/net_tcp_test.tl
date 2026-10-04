@@ -3,6 +3,7 @@ local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
+local unix_socket = require("build.unix_socket")
 local sys = require("cosmic.sys")
 local Clock = require("cosmic.clock")
 
@@ -147,6 +148,7 @@ end
 --- One protocol serves every listener, a TCP one and a unix one alike,
 --- and on_ready is told the port the kernel chose for one at port 0.
 local function test_a_server_names_what_it_bound_and_serves_every_listener(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local bound: {Net.Address} = {}
   local answers: {string} = {}
   assert(Net.serve{

@@ -4,7 +4,7 @@
 --- child of this program (`cosmic -e`, started past its launcher), which
 --- prints what it could and could not do and ends; the test reads that.
 --- A host whose kernel gives no Landlock or seccomp, and every platform
---- but Linux, skips the cases that need the sandbox (build.sandbox_skip).
+--- but Linux, skips the cases that need the sandbox (Test.skip).
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -16,7 +16,6 @@ local sys = require("cosmic.sys")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
-local sandbox_skip = require("build.sandbox_skip")
 local stand_in = require("build.stand_in")
 local this_program = require("build.this_program")
 local type raw_process = require("cosmic.internal.process")
@@ -81,7 +80,9 @@ end
 local function in_child(chunk: string): Said | nil
   -- Off Linux every restriction is refused, so no case has anything to say.
   if not confine.sandbox_platform() then
-    sandbox_skip.refused("Sandbox.restrict holds a process only on Linux")
+    if confine.sandbox_platform() then
+      Test.skip("Sandbox.restrict holds a process only on Linux")
+    end
     return nil
   end
   local started = this_program.program({ "-e", PRELUDE .. chunk }, {
@@ -95,7 +96,7 @@ local function in_child(chunk: string): Said | nil
   end
   local skip = said.lines.skip
   if skip ~= nil then
-    sandbox_skip.refused(skip)
+    if confine.sandbox_platform() then Test.skip(skip) end
     return nil
   end
   assert(result.code == 0, "the child ended " .. tostring(result.code) .. ": " .. said.raw)

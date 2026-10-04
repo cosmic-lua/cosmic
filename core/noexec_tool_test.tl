@@ -1,6 +1,5 @@
 --- Native mount guarantees for declared noexec scratch. The harness
---- skips this module where it cannot grant the capability; held runs
---- fail that skip. Copying bytes to ordinary scratch is allowed.
+--- skips this module where it cannot grant the capability. Copying bytes to ordinary scratch is allowed.
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")

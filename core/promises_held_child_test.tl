@@ -3,13 +3,13 @@
 --- verdict on the calls the filter lets through only where a namespace or
 --- a ruleset holds what they reach. The child is a stand-in
 --- (build/stand_in.tl). A host that gives no user namespace or seccomp
---- skips them (build.sandbox_skip). The filter's own rules, on both
+--- skips them (Test.skip). The filter's own rules, on both
 --- architectures, are core/promises_test.tl's.
 
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local sandbox_skip = require("build.sandbox_skip")
+local confine = require("build.confine")
 local stand_in = require("build.stand_in")
 local type raw_process = require("cosmic.internal.process")
 -- Required, so the module whose loader is handed the raw table is of this
@@ -62,7 +62,9 @@ local function in_sandbox(tmp: string, probe: string, sandbox: raw_process.Sandb
     nil, sandbox)
   if pid == nil then
     sys.close(output)
-    sandbox_skip.refused("this host gives no such sandbox: " .. tostring(trouble))
+    if confine.sandbox_platform() then
+      Test.skip("this host gives no such sandbox: " .. tostring(trouble))
+    end
     return { code = -1, signal = -1, said = "" }
   end
   local status = assert(process.waitpid(pid, false))
@@ -109,7 +111,7 @@ end
 local function test_a_unix_socket_is_made_only_where_the_root_the_network_and_landlock_hold_it(tmp: string)
   local abi, trouble = process.landlock_abi()
   if abi == nil then
-    sandbox_skip.refused("no Landlock here: " .. tostring(trouble))
+    if confine.sandbox_platform() then Test.skip("no Landlock here: " .. tostring(trouble)) end
     return
   end
   local probe = assert(stand_in.build(tmp .. "/stand-in"))

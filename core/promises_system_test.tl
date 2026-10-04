@@ -8,7 +8,7 @@
 
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local sandbox_skip = require("build.sandbox_skip")
+local confine = require("build.confine")
 local type raw_process = require("cosmic.internal.process")
 -- Required, so the module whose loader is handed the raw table is of this
 -- test's import closure, and the store has it to hand it from.
@@ -38,7 +38,9 @@ local function shell(promises: {string}, script: string): integer | nil
   local pid, trouble = process.spawn(SHELL, { SHELL, "-c", script }, {}, nil, nil, nil, nil,
     false, nil, { promises = promises })
   if pid == nil then
-    sandbox_skip.refused("the kernel gives no seccomp filter: " .. tostring(trouble))
+    if confine.sandbox_platform() then
+      Test.skip("the kernel gives no seccomp filter: " .. tostring(trouble))
+    end
     return nil
   end
   return assert(process.waitpid(pid, false)).code

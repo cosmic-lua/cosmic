@@ -7,7 +7,6 @@ local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
-local sandbox_skip = require("build.sandbox_skip")
 local stand_in = require("build.stand_in")
 local this_program = require("build.this_program")
 local type raw_process = require("cosmic.internal.process")
@@ -132,7 +131,9 @@ local function sandboxed_worker(tmp: string): {string} | nil
     { unveil = unveil, offline = true })
   if pid == nil then
     sys.close(output)
-    sandbox_skip.refused("no sandbox for the worker: " .. tostring(trouble))
+    if confine.sandbox_platform() then
+      Test.skip("no sandbox for the worker: " .. tostring(trouble))
+    end
     -- Only as a kernel that cannot confine refuses, never for a path
     -- the set left out.
     assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or

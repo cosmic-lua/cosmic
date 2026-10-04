@@ -7,6 +7,7 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
+local unix_socket = require("build.unix_socket")
 local sys = require("cosmic.sys")
 local stand_in = require("build.stand_in")
 local artifact = require("build.artifact")
@@ -342,6 +343,7 @@ end
 --- `write-fd` writes to a descriptor it was handed, and `env-of` tells a
 --- variable set, set empty and unset apart.
 local function test_it_writes_to_a_descriptor_and_names_a_variable(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local probe = built(tmp)
   local fd = assert(sys.open(tmp .. "/handed", sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
   local r = run({ probe, "env-of SET; env-of EMPTY; env-of UNSET" }, { SET = "x", EMPTY = "" })

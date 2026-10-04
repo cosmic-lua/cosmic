@@ -6,7 +6,7 @@
 --- perl, where the host has it, that makes the namespaces and mounts
 --- the filter lets a program make and tries the ones it must not. A host
 --- that gives no user namespace or seccomp, and every platform but Linux,
---- skips the tests that start a child (build.sandbox_skip); the refusals
+--- skips the tests that start a child (Test.skip); the refusals
 --- that come before a child do not.
 
 local Child = require("cosmic.child")
@@ -16,7 +16,6 @@ local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local confine = require("build.confine")
-local sandbox_skip = require("build.sandbox_skip")
 local searchable = require("build.searchable")
 local stand_in = require("build.stand_in")
 
@@ -41,7 +40,7 @@ end
 --- policy's start never runs, whatever its grants or descriptors.
 local function no_sandbox_here(): boolean
   if confine.sandbox_platform() then return false end
-  sandbox_skip.refused("a policy holds a program only on Linux")
+  if confine.sandbox_platform() then Test.skip("a policy holds a program only on Linux") end
   return true
 end
 
@@ -60,7 +59,7 @@ local function under(argv: {string}, policy: Sandbox.Policy, cwd: string,
     { policy = policy, cwd = cwd, stdout = "capture", stderr = "stdout", fds = fds })
   if result == nil then
     assert(unsandboxable(why), "the start was refused: " .. why)
-    sandbox_skip.refused(why)
+    if confine.sandbox_platform() then Test.skip(why) end
     return nil
   end
   return { code = result.code or -1, said = result.stdout or "" }

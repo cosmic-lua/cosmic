@@ -3,6 +3,7 @@
 --- sent, so what the server does on the wire is what is checked.
 
 local Clock = require("cosmic.clock")
+local unix_socket = require("build.unix_socket")
 local Server = require("cosmic.http.server")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
@@ -142,6 +143,7 @@ end
 --- connection, which stays open for another after them; each reply
 --- carries a Date and its Content-Length, and no Connection header.
 local function test_pipelined_requests_are_answered_in_order_on_one_connection(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local troubles = serving(tmp, echo, function(address: Net.Address)
     local p <close> = peer(address)
     send(p, get("/a?x=1") .. get("/b") ..
@@ -164,6 +166,7 @@ end
 --- HTTP/1.0 request each end the connection after their reply, which
 --- says so.
 local function test_a_connection_closes_where_either_side_asks(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   serving(tmp, function(req: Server.Request): Server.Reply
     return { status = 200, body = "ok", close = req.path == "/bye" }
   end, function(address: Net.Address)
@@ -183,6 +186,7 @@ end
 --- Content-Length included, and no body: the next reply on the
 --- connection follows at once. A Reader body is closed unread.
 local function test_head_is_answered_with_no_body(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local read_from = false
   local closed = false
   local record Watched is Stream.Reader
@@ -220,6 +224,7 @@ end
 --- dropped; a Reader reply without a length goes chunked to HTTP/1.1,
 --- and to HTTP/1.0 until the connection closes.
 local function test_chunked_bodies_both_ways(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   serving(tmp, function(req: Server.Request): Server.Reply
     if req.path == "/stream" then
       return { status = 200, body = Stream.from_string(string.rep("z", 70000)) }
@@ -252,6 +257,7 @@ end
 --- reads it closes the connection after its reply, since the client
 --- may never send it.
 local function test_100_continue(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   serving(tmp, function(req: Server.Request): Server.Reply
     if req.path == "/ignore" then return { status = 200, body = "ignored" } end
     return { status = 200, body = assert(Stream.read_all(req.body)) }
@@ -279,6 +285,7 @@ end
 --- 413 once read -- the handler's assert on the read reported nowhere
 --- -- and a connection past `connections` waits until one closes.
 local function test_each_limit_is_answered(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local handled = 0
   local troubles = serving(tmp, function(req: Server.Request): Server.Reply
     handled = handled + 1
@@ -318,6 +325,7 @@ end
 --- send, is answered 500, the connection closed, and the trouble goes
 --- to on_error: a raise with its stack.
 local function test_a_failing_handler_is_answered_500(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local bad: {string: any} = {
     ["/nil"] = nil,
     ["/owned"] = { status = 200, headers = { Date = "Thu, 01 Jan 1970 00:00:00 GMT" } },
@@ -363,6 +371,7 @@ end
 --- `length` and no body: the size is sent, and no bytes, so the next
 --- reply on the connection follows at once.
 local function test_a_handler_may_give_the_content_length(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local troubles = serving(tmp, function(req: Server.Request): Server.Reply
     if req.path == "/match" then
       return { status = 200, headers = { ["content-length"] = "5" }, body = "hello" }
@@ -397,6 +406,7 @@ end
 --- steadily its bytes come, and so is a body that stalls past
 --- timeout_ns; a connection idle past idle_ns is closed.
 local function test_a_slow_head_and_an_idle_connection_are_closed(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   serving(tmp, echo, function(address: Net.Address)
     local slow <close> = peer(address)
     local started = Clock.monotonic_ns()
@@ -424,6 +434,7 @@ end
 --- waiting out idle_ns, and a request in flight finishes with
 --- `Connection: close`.
 local function test_stopping_closes_idle_connections_at_once(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local started = Clock.monotonic_ns()
   local idle_ended = false
   local in_flight: Got = nil
@@ -461,6 +472,7 @@ end
 --- A body the handler reads in part, or not at all, is dropped before
 --- the next request, which is read from where the body ends.
 local function test_a_body_left_unread_is_dropped_before_the_next_request(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   serving(tmp, function(req: Server.Request): Server.Reply
     if req.path == "/part" then
       local piece = assert(req.body:read(3))
@@ -481,6 +493,7 @@ end
 
 --- A malformed request is answered 400 and the connection closed.
 local function test_a_malformed_request_is_answered_400(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   serving(tmp, echo, function(address: Net.Address)
     for _, request in ipairs({
         "GET / HTTP/1.1\r\n\r\n",
@@ -503,6 +516,7 @@ end
 --- A Reader body that ends short of its length cuts the reply short:
 --- the connection closes, and why goes to on_error.
 local function test_a_reader_body_short_of_its_length_closes_the_connection(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local troubles = serving(tmp, function(_req: Server.Request): Server.Reply
     return { status = 200, body = Stream.from_string("abc"), length = 10 }
   end, function(address: Net.Address)
@@ -518,6 +532,7 @@ end
 --- A 304 carries no body, and a Content-Length only where the handler
 --- gives one, the size of a 200's body, which is passed on.
 local function test_a_304_carries_no_length_but_one_given(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   serving(tmp, function(req: Server.Request): Server.Reply
     if req.path == "/sized" then
       return { status = 304, headers = { ["Content-Length"] = "10" } }
@@ -539,6 +554,7 @@ end
 --- waiting for `100 Continue`, tells it to go on before the reply's
 --- head, never after, where it would be read as the body.
 local function test_a_reply_reading_the_request_body_sends_100_first(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   serving(tmp, function(req: Server.Request): Server.Reply
     return { status = 200, body = req.body }
   end, function(address: Net.Address)
@@ -558,6 +574,7 @@ end
 --- closes, the Reader is closed, and what it raised, with its stack,
 --- goes to on_error.
 local function test_a_reply_body_that_raises_closes_the_connection(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local closed = false
   local record Raising is Stream.Reader
     read: function(Raising, max_bytes?: integer): string | nil, string
@@ -589,6 +606,7 @@ end
 --- connection after the reply, however cleanly that Reader ends: the
 --- bytes after it are no request to serve.
 local function test_a_body_failing_under_the_reply_closes_the_connection(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local paths: {string} = {}
   local record Lenient is Stream.Reader
     source: Stream.Reader

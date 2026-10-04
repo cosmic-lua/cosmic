@@ -5,6 +5,7 @@
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
+local unix_socket = require("build.unix_socket")
 local sys = require("cosmic.sys")
 local type _net = require("cosmic.net")
 local type raw_socket = require("cosmic.internal.socket")
@@ -43,6 +44,7 @@ end
 --- unclosed, are closed by the collector, and the listener's socket
 --- file removed.
 local function test_a_socket_dropped_unclosed_is_closed_by_the_collector(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local path = tmp .. "/s.sock"
   local before = next_descriptor(tmp)
   do
@@ -62,6 +64,7 @@ end
 --- A name another file has taken since the listener made its own is
 --- not the listener's to remove, whether it is closed or collected.
 local function test_a_file_that_took_the_name_is_left_alone(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local path = tmp .. "/s.sock"
   for _, collected in ipairs({ false, true }) do
     local moved = tmp .. "/moved-" .. tostring(collected) .. ".sock"
@@ -82,6 +85,7 @@ end
 --- A relative path's socket file is removed from where it was made,
 --- wherever the process has moved to since.
 local function test_a_relative_socket_file_is_removed_after_a_chdir(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local was = assert(sys.getcwd())
   assert(sys.chdir(tmp))
   local listener, trouble = raw.listen(unix("rel.sock"), 1)
@@ -95,6 +99,7 @@ end
 --- A closed socket closes again, and has no descriptor to give; one
 --- held `<close>` is closed as its block ends.
 local function test_a_closed_socket_closes_again_and_has_no_descriptor(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local path = tmp .. "/s.sock"
   local before = next_descriptor(tmp)
   do
@@ -113,6 +118,7 @@ end
 --- a second read would find none -- is read once: the listener binds
 --- and removes the file of that one read.
 local function test_an_address_is_read_once(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local path = tmp .. "/s.sock"
   local reads = 0
   local fickle: metatable<raw_socket.Address> = {
@@ -160,6 +166,7 @@ end
 --- directory that deep -- removes its socket file when closed and when
 --- collected, wherever the process has moved to since.
 local function test_a_socket_file_past_path_max_is_removed(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local was = assert(sys.getcwd())
   local ok, failure: boolean, any = pcall(function()
     for _, collected in ipairs({ false, true }) do
@@ -189,6 +196,7 @@ end
 --- A send starts at the first byte, or at the byte it is given: one
 --- past the last sends nothing, and one outside the string raises.
 local function test_a_send_from_a_byte_sends_the_rest(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local path = tmp .. "/s.sock"
   local listener <close> = assert(raw.listen(unix(path), 1))
   local client <close> = assert(raw.connect(unix(path), 5000))
@@ -210,6 +218,7 @@ end
 --- EAGAIN on Linux, kept apart from ECONNREFUSED, which a listener gone
 --- answers; macOS cannot tell the two apart, and answers ECONNREFUSED.
 local function test_a_full_unix_backlog_refuses_a_connection_at_once(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local path = tmp .. "/s.sock"
   local _listener <close> = assert(raw.listen(unix(path), 1))
   local held: {raw_socket.Socket} = {}

@@ -12,7 +12,7 @@
 --- is chosen from, which no sandboxed worker is, and none of CI's
 --- runners: those tests return silently where this process is not root,
 --- as a host program missing from the host does, and are skipped where it
---- is root and cannot map (build.sandbox_skip). They run in a run that
+--- is root and cannot map (Test.skip). They run in a run that
 --- is not sandboxed, as root (`COSMIC_TEST_SANDBOX=0 cosmic test`).
 -- TODO: run the root caller's tests in CI, where they return silently
 -- today, once a leg runs the suite as root (doc/roadmap.md's root leg):
@@ -28,7 +28,6 @@ local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local confine = require("build.confine")
-local sandbox_skip = require("build.sandbox_skip")
 local searchable = require("build.searchable")
 local stand_in = require("build.stand_in")
 
@@ -61,7 +60,7 @@ local function under(program: string, policy: Sandbox.Policy, cwd: string, scrip
     { policy = policy, cwd = cwd, stdout = "capture", stderr = "stdout" })
   if result == nil then
     assert(unsandboxable(why), "the start was refused: " .. why)
-    sandbox_skip.refused(why)
+    if confine.sandbox_platform() then Test.skip(why) end
     return nil
   end
   return { code = result.code or -1, said = result.stdout or "" }
@@ -76,7 +75,7 @@ local function refused(program: string, policy: Sandbox.Policy, cwd: string): st
   end
   -- A refusal of the policy itself is the answer; the host's is a skip.
   if unsandboxable(why) and not why:find("^child: start: sandbox: ") then
-    sandbox_skip.refused(why)
+    if confine.sandbox_platform() then Test.skip(why) end
   end
   return why
 end
@@ -109,8 +108,10 @@ end
 local function root_that_maps(): boolean
   if sys.getuid() ~= 0 then return false end
   if confine.may_map_ids() then return true end
-  sandbox_skip.refused("this process is root without CAP_SETUID, CAP_SETGID and CAP_SETFCAP in " ..
-      "effect, so it cannot map the user a sandbox runs as")
+  if confine.sandbox_platform() then
+    Test.skip("this process is root without CAP_SETUID, CAP_SETGID and CAP_SETFCAP in " ..
+        "effect, so it cannot map the user a sandbox runs as")
+  end
   return false
 end
 
@@ -179,7 +180,7 @@ local function test_a_root_caller_s_concurrent_sandboxes_run_as_different_users(
     local handle, why = Child.start({ at.probe, "status-field Uid; sleep 300" },
       { policy = policy, cwd = at.work, stdout = "capture", stderr = "stdout" })
     if handle == nil then
-      sandbox_skip.refused(why)
+      if confine.sandbox_platform() then Test.skip(why) end
       return
     end
     running[i] = handle

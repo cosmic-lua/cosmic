@@ -6,7 +6,7 @@
 --- `system`; the command line's own reading is in `sandbox_test.tl`. A
 --- host that gives no sandbox (anything but Linux, a kernel without
 --- Landlock or seccomp, a container that refuses one) skips them where it
---- could have given one (build.sandbox_skip).
+--- could have given one (Test.skip).
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -14,7 +14,6 @@ local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local confine = require("build.confine")
-local sandbox_skip = require("build.sandbox_skip")
 local searchable = require("build.searchable")
 local this_program = require("build.this_program")
 
@@ -40,7 +39,7 @@ local function cosmic(dir: string, words: {string}, fds?: {integer:integer}): Ra
   local ran: Ran = { code = result.code or -1, out = result.stdout or "", err = result.stderr or "" }
   if ran.code == 125 and (ran.err:find("Landlock", 1, true) or ran.err:find("seccomp", 1, true) or
       ran.err:find("not implemented", 1, true) or ran.err:find("only Linux gives", 1, true)) then
-    sandbox_skip.refused(ran.err)
+    if confine.sandbox_platform() then Test.skip(ran.err) end
   end
   return ran
 end
@@ -49,7 +48,7 @@ end
 --- needs a start to run: off Linux every policy's start is refused.
 local function no_sandbox_here(): boolean
   if confine.sandbox_platform() then return false end
-  sandbox_skip.refused("a policy holds a program only on Linux")
+  if confine.sandbox_platform() then Test.skip("a policy holds a program only on Linux") end
   return true
 end
 

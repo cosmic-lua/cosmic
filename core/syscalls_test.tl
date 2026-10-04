@@ -16,10 +16,11 @@ local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
 local Test = require("cosmic.test")
+local unix_socket = require("build.unix_socket")
 local type raw_hash = require("cosmic.internal.hash")
 local type raw_process = require("cosmic.internal.process")
 local stand_in = require("build.stand_in")
-local sandbox_skip = require("build.sandbox_skip")
+local confine = require("build.confine")
 local Clock = require("cosmic.clock")
 
 -- TODO: declare /proc for Linux alone once a declaration can name a
@@ -55,12 +56,12 @@ local hash = raw_behind("cosmic.hash") as raw_hash -- cast: the table cosmic/int
 
 --- Says a sandbox test is skipped ([`Test.skip`]) where this Linux host
 --- refuses the sandbox it is about -- no Landlock, no pledge -- as it
---- returns early: the run counts it skipped rather than passed, and a
---- run held to sandboxing (COSMIC_SANDBOX=must among them) fails it.
---- Another platform has no such sandbox to check, and returns silently
---- (build.sandbox_skip).
+--- returns early: the run counts it skipped rather than passed.
+--- Another platform has no such sandbox to check, and returns silently.
 local function unsandboxable(what: string, trouble: string)
-  sandbox_skip.refused("the kernel gives no " .. what .. ": " .. tostring(trouble))
+  if confine.sandbox_platform() then
+    Test.skip("the kernel gives no " .. what .. ": " .. tostring(trouble))
+  end
 end
 
 --- A stand-in program built under `tmp` (build/stand_in.tl), which runs
@@ -221,6 +222,7 @@ end
 --- a device in a listing: a worker is given no block device, and no
 --- directory of the system's to list.
 local function test_stat_names_a_socket_a_fifo_and_a_device(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local socket = tmp .. "/socket"
   socket_file(socket)
   local found = assert(sys.lstat(socket)).kind
@@ -395,6 +397,7 @@ local function names_links_as_links(entries: {string:sys.Kind}, what: string)
 end
 
 local function test_readdir_names_a_link_as_a_link_whatever_it_leads_to(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   names_links_as_links(assert(sys.readdir(linked_directory(tmp))), "readdir")
 end
 
@@ -636,6 +639,7 @@ end
 --- held to one reaches a listener of this process's over TCP on
 --- loopback and over a unix socket file, as one held to none does.
 local function test_a_landlock_ruleset_leaves_a_child_its_loopback(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local probe = probe_in(tmp)
   local tcp = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
   local socket = tmp .. "/s"
@@ -720,6 +724,7 @@ end
 --- is refused (EPERM), where one promised is made and then refused its
 --- connection.
 local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local probe = probe_in(tmp)
   local refused = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil,
     false, nil, { pledge = { "fly" } })
@@ -1579,7 +1584,7 @@ end
 --- elsewhere there is nothing to check.
 local function test_a_tree_digest_of_dev_full_is_not_special()
   if sys.stat("/dev/full") == nil then
-    sandbox_skip.refused("this worker has no /dev/full")
+    if confine.sandbox_platform() then Test.skip("this worker has no /dev/full") end
     return
   end
   local walked = assert(sys.tree_digest("/dev/full", false))

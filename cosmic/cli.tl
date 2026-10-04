@@ -586,8 +586,8 @@ local module: Module = {
         ["--no-shared"] = { about = "stand on no verdict another checkout reached; what " ..
             "this run reaches is still shared (COSMIC_TEST_NO_SHARED=1)" },
         ["--policy"] = { about = "start each sandboxed worker under a cosmic.sandbox policy, " ..
-            "not by the sandbox it has by default; its verdicts stand apart from the default's " ..
-            "(COSMIC_TEST_POLICY=1)" },
+            "as is the default where workers are sandboxed, and fail where none can be " ..
+            "(COSMIC_TEST_POLICY=1); COSMIC_TEST_POLICY=0 starts them by the older sandbox" },
         ["--census"] = { about = "say the digests every key of the run holds, and where none " ..
             "stood on the shared cache, how many rows it holds, even in a checkout " ..
             "that ran before" },

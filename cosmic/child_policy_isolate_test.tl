@@ -6,7 +6,7 @@
 --- a static program that does what its script says, so a refusal shows as a
 --- command that fails. A host that gives no user namespace, Landlock or
 --- seccomp, and every platform but Linux, skips the tests that start a child
---- (build.sandbox_skip); the refusals that come before a child do not.
+--- (Test.skip); the refusals that come before a child do not.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -15,7 +15,7 @@ local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
-local sandbox_skip = require("build.sandbox_skip")
+local confine = require("build.confine")
 local searchable = require("build.searchable")
 local stand_in = require("build.stand_in")
 
@@ -49,7 +49,7 @@ local function under(program: string, policy: Sandbox.Policy, cwd: string, scrip
     { policy = policy, cwd = cwd, stdout = "capture", stderr = "stdout" })
   if result == nil then
     assert(unsandboxable(why), "the start was refused: " .. why)
-    sandbox_skip.refused(why)
+    if confine.sandbox_platform() then Test.skip(why) end
     return nil
   end
   return { code = result.code or -1, said = result.stdout or "" }
@@ -322,7 +322,7 @@ local function test_a_u_grant_beside_a_directory_of_sockets_is_refused_or_held(t
     else
       assert(unsandboxable(why), why)
       assert(granted:close() and other:close())
-      sandbox_skip.refused(why)
+      if confine.sandbox_platform() then Test.skip(why) end
       return
     end
   else
@@ -372,7 +372,7 @@ local function test_a_root_that_cannot_be_built_says_which_step_failed(tmp: stri
   assert(result == nil)
   if not why:find("root could not be built", 1, true) then
     assert(unsandboxable(why), why)
-    sandbox_skip.refused(why)
+    if confine.sandbox_platform() then Test.skip(why) end
     return
   end
   assert(why:find("Symbolic link loop", 1, true) and why:find("step of making", 1, true), why)
@@ -408,7 +408,7 @@ local function test_a_directory_nothing_grants_cannot_be_started_in_under_isolat
     policy = { isolate = { "file" }, grants = at.grants } })
   assert(result == nil)
   if unsandboxable(why) then
-    sandbox_skip.refused(why)
+    if confine.sandbox_platform() then Test.skip(why) end
     return
   end
   assert(why:find("must be at, beneath or above a grant", 1, true), why)

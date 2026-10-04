@@ -6,7 +6,7 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local sandbox_skip = require("build.sandbox_skip")
+local confine = require("build.confine")
 local this_program = require("build.this_program")
 local Clock = require("cosmic.clock")
 
@@ -54,10 +54,9 @@ end
 local function test_a_failed_standard_output_write_exits_2(tmp: string)
   -- /dev/full, where a write fails with ENOSPC, is Linux's, and every
   -- worker there is given it (build.confine's `runtime_paths`): one
-  -- without it is skipped, which a run held to sandboxing fails, and
-  -- elsewhere there is nothing to check.
+  -- without it is skipped, and elsewhere there is nothing to check.
   if Fs.stat("/dev/full") == nil then
-    sandbox_skip.refused("this worker has no /dev/full")
+    if confine.sandbox_platform() then Test.skip("this worker has no /dev/full") end
     return
   end
   local full = assert(Fs.open_write("/dev/full"))

@@ -1,4 +1,5 @@
 local Child = require("cosmic.child")
+local unix_socket = require("build.unix_socket")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
@@ -31,6 +32,7 @@ local function pair(tmp: string): Pair
 end
 
 local function test_a_connection_carries_bytes_both_ways_to_the_end(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local p <close> = pair(tmp)
   local server, client, accepted = p.server, p.client, p.accepted
   assert(client:write("hello\nworld\n"))
@@ -49,6 +51,7 @@ end
 --- A write larger than the socket holds goes out whole, waiting as the
 --- peer takes it; one the peer never takes waits out its time.
 local function test_a_write_waits_while_the_peer_does_not_read(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local p <close> = pair(tmp)
   local client, accepted = p.client, p.accepted
   client:set_timeout(Clock.ms(50))
@@ -64,6 +67,7 @@ end
 --- and writing is left be. The accepted connection has its listener's
 --- timeout.
 local function test_a_read_that_times_out_leaves_the_connection_usable(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local server <close> = assert(Net.listen(Net.unix(tmp .. "/s.sock"), { timeout_ns = Clock.ms(20) }))
   local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
   local accepted <close> = assert(server:accept())
@@ -79,6 +83,7 @@ end
 --- field and the caller's line, for a connection and for a listener;
 --- the timeout it had stays.
 local function test_a_timeout_out_of_range_is_refused(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local p <close> = pair(tmp)
   for _, bad in ipairs({ -5, Poll.MOST_NS + 1, 1.5 } as {number}) do
     local ok, why: boolean, any = pcall(function() p.client:set_timeout(bad as integer) end)
@@ -105,6 +110,7 @@ end
 --- A timeout is nanoseconds: a read, an accept and a connection's wait
 --- end after about the time given, in a run and out of one.
 local function test_a_timeout_waits_the_nanoseconds_it_is_given(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local p <close> = pair(tmp)
   p.accepted:set_timeout(Clock.ms(100))
   local function bounded(took: integer, what: string)
@@ -171,6 +177,7 @@ end
 --- A connection to a unix listener whose backlog is full fails at once,
 --- however long it may wait, rather than waiting for room.
 local function test_connecting_to_a_full_backlog_fails_at_once(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local path = tmp .. "/s.sock"
   local _full <close> = full(path)
   local began = Clock.monotonic_ns()
@@ -180,6 +187,7 @@ local function test_connecting_to_a_full_backlog_fails_at_once(tmp: string)
 end
 
 local function test_accept_with_no_one_connecting_times_out(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local server <close> = assert(Net.listen(Net.unix(tmp .. "/s.sock"), { timeout_ns = Clock.seconds(60) }))
   local conn, why = server:accept(Clock.ms(20))
   assert(conn == nil and why == Poll.TIMEOUT, why)
@@ -191,6 +199,7 @@ end
 --- A signal a guard catches ends a wait at once, as it ends
 --- [`cosmic.http`]'s.
 local function test_a_caught_signal_ends_a_wait(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local p <close> = pair(tmp)
   local server, client, accepted = p.server, p.client, p.accepted
   local guard = assert(Child.guard())
@@ -209,6 +218,7 @@ end
 --- cosmic/net_tool_test.tl's, in a process that starts with SIGPIPE at
 --- its default, where this worker's may be ignored.
 local function test_a_write_to_a_closed_peer_fails(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local p <close> = pair(tmp)
   local client, accepted = p.client, p.accepted
   assert(accepted:close())
@@ -219,6 +229,7 @@ local function test_a_write_to_a_closed_peer_fails(tmp: string)
 end
 
 local function test_a_closed_connection_says_so_and_closes_again(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local p <close> = pair(tmp)
   local client, accepted = p.client, p.accepted
   assert(accepted:shutdown("read"))
@@ -236,6 +247,7 @@ end
 --- A `max_bytes` below 1 and a `how` of none of the three raise, at the line
 --- that called, in the module's own style.
 local function test_a_degenerate_read_or_shutdown_raises_at_the_caller(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local p <close> = pair(tmp)
   local accepted = p.accepted
   for _, max_bytes in ipairs({ 0, -1 }) do
@@ -267,6 +279,7 @@ end
 --- A listener's `address` is the one given, built again by [`Net.unix`]:
 --- a unix one keeps its path and nothing else.
 local function test_a_unix_listeners_address_is_built_again_from_its_path(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local given = { kind = "unix", path = tmp .. "/s.sock", host = "unused", port = 9 }
   local server <close> = assert(Net.listen(given))
   local address = server.address
@@ -280,6 +293,7 @@ end
 --- A listener at a relative path removes its own socket file at close
 --- wherever the process has moved since.
 local function test_close_removes_a_relative_socket_file_after_a_chdir(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local was = assert(sys.getcwd())
   assert(sys.chdir(tmp))
   local server, trouble = Net.listen(Net.unix("rel.sock"))
@@ -291,6 +305,7 @@ local function test_close_removes_a_relative_socket_file_after_a_chdir(tmp: stri
 end
 
 local function test_close_removes_the_socket_file_it_made(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local path = tmp .. "/s.sock"
   local server = assert(Net.listen(Net.unix(path)))
   assert(Fs.stat(path) ~= nil, "no socket file")
@@ -306,6 +321,7 @@ end
 --- with nothing listening: connecting there is refused, and listening
 --- there fails rather than take the name.
 local function test_a_socket_file_left_behind_is_refused_and_kept(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local path = tmp .. "/s.sock"
   local moved = tmp .. "/moved.sock"
   do
@@ -325,6 +341,7 @@ local function test_a_socket_file_left_behind_is_refused_and_kept(tmp: string)
 end
 
 local function test_connecting_where_there_is_no_socket_file_fails(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local path = tmp .. "/none.sock"
   local conn, why = Net.connect(Net.unix(path))
   assert(conn == nil and why == path .. ": No such file or directory", why)
@@ -366,6 +383,7 @@ end
 --- from its directory, absolute or relative: only the file's own name
 --- is bounded, and the working directory is where it was after.
 local function test_a_long_path_is_reached_from_its_directory(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local deep = tmp .. "/" .. string.rep("d", 100) .. "/" .. string.rep("e", 100)
   assert(Fs.mkdirs(deep))
   local was = assert(sys.getcwd())
@@ -423,6 +441,7 @@ end
 --- needs no whole path: the listener serves there, and close removes
 --- its file from wherever the process has moved to.
 local function test_a_listener_past_path_max_serves_and_removes_its_file(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local was = assert(sys.getcwd())
   local ok, failure: boolean, any = pcall(function()
     enter_deep(tmp)
@@ -453,6 +472,7 @@ end
 --- server answers the last to connect first, which a server whose reads
 --- held the thread could never do.
 local function test_in_a_run_a_server_serves_connections_at_once(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local server <close> = assert(Net.listen(Net.unix(tmp .. "/s.sock"), { timeout_ns = Clock.seconds(5) }))
   local answered: {string} = {}
   Poll.run(function()
@@ -482,6 +502,7 @@ end
 --- In a run, a read that waits lets the other tasks run, and ends
 --- "cancelled" once its task is cancelled; out of one, it waits alone.
 local function test_in_a_run_a_waiting_read_ends_when_its_task_is_cancelled(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local p <close> = pair(tmp)
   local answer = ""
   local others = 0
@@ -507,6 +528,7 @@ end
 --- "net: the connection is closed", even where a new connection has taken the
 --- same descriptor number with data waiting, which it leaves alone.
 local function test_in_a_run_a_read_on_a_connection_closed_under_it_ends(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local server <close> = assert(Net.listen(Net.unix(tmp .. "/s.sock"), { timeout_ns = Clock.seconds(5) }))
   local _first_client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
   local first = assert(server:accept())
@@ -534,6 +556,7 @@ end
 --- A write in a task that fills the peer's buffer waits for it to be
 --- drained by another task, and every byte arrives.
 local function test_in_a_run_a_write_waits_while_another_task_drains(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local p <close> = pair(tmp)
   local size = 4 * 1024 * 1024
   local got = 0
@@ -559,6 +582,7 @@ end
 --- In a task, a wait past its timeout fails with Poll.TIMEOUT, as it does out
 --- of one.
 local function test_in_a_run_waits_time_out_as_they_do_out_of_one(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local p <close> = pair(tmp)
   Poll.run(function()
     local conn, why = p.server:accept(Clock.ms(10))
@@ -572,6 +596,7 @@ end
 --- In a task, a connection to a unix listener whose backlog is full
 --- fails at once, as one out of a run does.
 local function test_in_a_run_a_connect_to_a_full_backlog_fails_at_once(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local path = tmp .. "/s.sock"
   local _full <close> = full(path)
   local conn: Net.Conn

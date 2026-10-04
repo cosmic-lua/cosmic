@@ -1,7 +1,8 @@
---- The policy path of `cosmic test`'s workers: with `COSMIC_TEST_POLICY=1`
---- (`--policy`), each sandboxed worker starts under a [`cosmic.sandbox`]
---- policy by [`Child.start`] instead of the sandbox [`build.test_sandbox`]
---- plans for it, as the design's test phase has it: a policy of its own
+--- The policy path of `cosmic test`'s workers, the default wherever they
+--- are sandboxed: each starts under a [`cosmic.sandbox`] policy by
+--- [`Child.start`] instead of the sandbox [`build.test_sandbox`] plans for
+--- it (`COSMIC_TEST_POLICY=0` selects that one), as the design's test phase
+--- has it: a policy of its own
 --- that names the tree at /tree, the scratch directory with `rwxc`, the
 --- store at o/cosmic.db, the core, and what the module declares, with
 --- `isolate` "file" and a /proc of the sandbox's own. The paths are
@@ -32,13 +33,14 @@
 --- Refused: `env = { "*" }`, which no policy holds (it names each variable).
 -- TODO: let a worker hold itself with [`Sandbox.restrict`] to what its
 -- module declares, with the runner's own reads (the store, the core, the
--- report) granted only to the start, once the policy path is the default
--- (step (c) of #2621's doc/plans/sandbox.md): today the worker is held
--- from its first instruction by the whole policy it is started
+-- report) granted only to the start, as a step after the policy path
+-- became the default (#2621's doc/plans/sandbox.md): today the worker is
+-- held from its first instruction by the whole policy it is started
 -- under, which is all that it and its test may reach.
 
 local Sandbox = require("cosmic.sandbox")
 local sys = require("cosmic.sys")
+local confine = require("build.confine")
 local test_inputs = require("build.test_inputs")
 local test_sandbox = require("build.test_sandbox")
 
@@ -53,15 +55,16 @@ test_policy.switch = "COSMIC_TEST_POLICY"
 --- but `nest` ([`worker_promises`]).
 -- TODO: hold a worker by the promises its module declares
 -- ([`Test.policy`]'s `promises`) rather than all but `nest`, once the
--- tests declare them (the plan's step (c)-(d), which makes the policy path
--- the default and bumps the epoch): until then no test can say what it
--- makes, and the filter refuses only what no test is meant to.
+-- tests declare them (step (e) of the plan, which replaces [`Test.needs`]
+-- with [`Test.policy`]): until then no test can say what it makes, and the
+-- filter refuses only what no test is meant to.
 -- TODO: let a root's start make a unix socket without a `u` grant below
 -- Landlock ABI 9, once the kernels the suite runs on give ABI 9
 -- (core/syscalls.c's TODO on the same; cosmic/child.tl's `unix_unheld`):
 -- below it a `u` grant beside another directory fails the start, and
 -- without one the filter refuses `socket(AF_UNIX)` EPERM, so a test of a
--- unix socket in a worker's scratch directory fails under the policy path.
+-- unix socket in a worker's scratch directory is skipped under the policy
+-- path (build/unix_socket.tl).
 local base_promises <const>: {Sandbox.Promise} = { "fattr", "fork", "jit" }
 
 --- The devices a worker is given, as the policy's letters have them: the
@@ -71,17 +74,34 @@ local devices <const>: {string:string} = {
   ["/dev/null"] = "rw", ["/dev/zero"] = "rw", ["/dev/full"] = "rw", ["/dev/urandom"] = "r",
 }
 
---- What `COSMIC_TEST_POLICY` asks for: true for "1", false for unset, empty
---- or "0". Any other value is an error, so a misspelt one never passes for
---- either.
+--- What `COSMIC_TEST_POLICY` asks for: "on" for "1", "off" for "0", and
+--- "default" for unset or empty, which is the policy path wherever workers
+--- are sandboxed. Any other value is an error, so a misspelt one never
+--- passes for any of them.
 --- @param value the variable's value, nil where it is unset
---- @return whether the policy path is asked for, nil on an error
+--- @return "on", "off" or "default", nil on an error
 --- @return why, on an error
-function test_policy.requested(value: string | nil): boolean | nil, string
-  if value == nil or value == "" or value == "0" then return false, "" end
-  if value == "1" then return true, "" end
-  return nil, string.format("%s is %q: set it to 1 to run workers under a policy, 0 or leave " ..
-      "it unset for the sandbox they have by default", test_policy.switch, value)
+function test_policy.requested(value: string | nil): string | nil, string
+  if value == nil or value == "" then return "default", "" end
+  if value == "0" then return "off", "" end
+  if value == "1" then return "on", "" end
+  return nil, string.format("%s is %q: set it to 0 to start workers by the sandbox " ..
+      "build.test_sandbox plans, 1 or leave it unset to start them under a policy",
+    test_policy.switch, value)
+end
+
+--- Why this process cannot start a worker under a policy, or "": a program
+--- of a policy never runs as root, so a process that is root -- the
+--- host's, or a sandbox's own, which maps root alone -- must map a user of
+--- its own for it, which takes CAP_SETUID, CAP_SETGID and CAP_SETFCAP in
+--- effect ([`confine.may_map_ids`]). Where it lacks them every start would
+--- fail, so a run that is not asked for the policy path runs its workers by
+--- the sandbox [`build.test_sandbox`] plans, which runs them as root still.
+--- @return why, "" for nothing
+function test_policy.unmet(): string
+  if sys.getuid() ~= 0 or confine.may_map_ids() then return "" end
+  return "this process is root without CAP_SETUID, CAP_SETGID and CAP_SETFCAP in effect, " ..
+    "so it cannot map the user a worker under a policy runs as (never root)"
 end
 
 --- The promises of a worker: `base_promises`, and `nest` where its module
@@ -122,28 +142,43 @@ local function shape(effective: test_inputs.Effective): Sandbox.Policy
   }
 end
 
---- Why a worker of `effective` cannot be started under a policy, or "":
---- what its module declares that no policy says, naming the field.
+--- Why a worker of `effective` cannot be started under a policy for want of
+--- something the policy path does not have yet, or "": its tests are
+--- skipped ([`Test.skip`]'s way) with this reason, not failed, since the
+--- declaration is right and the harness is what is missing. A module a
+--- policy can never hold is `refusal`'s.
 --- @param effective what the module declares, as the runner resolved it
 --- @return why, "" for nothing
--- TODO: delete this refusal, and the `"*"` that [`Test.needs`] still takes,
--- once the four unsandboxed fixtures under ci/fixtures name the variables
--- they read (each carries the TODO saying why it cannot yet), the two tests
--- that declare one on purpose are reworked (build/test_policy_tool_test.tl's
--- wildcard_test.tl and build/test_isolation_tool_test.tl's hooks_test.tl,
--- snippets of the wildcard itself) and the policy path is the default
--- (step (c) of the sandbox plan): a policy has no wildcard.
 -- TODO: give a worker that nests a per-closure artifact -- the core and its
--- closure store, not the real o/bin/cosmic -- to open by path, once the
--- artifact format can be cut down to a closure (build/artifact.tl): the
--- real one holds every module of the tree, which no key of a test that
--- does not declare `store` or `tool` holds.
-local function refusal(effective: test_inputs.Effective): string
+-- closure store, not the real o/bin/cosmic -- to open by path, and delete
+-- this skip, once the artifact format can be cut down to a closure
+-- (build/artifact.tl): the real one holds every module of the tree, which
+-- no key of a test that does not declare `store` or `tool` holds.
+function test_policy.deferred(effective: test_inputs.Effective): string
   if effective.nests and not effective.store and not effective.tool then
     return 'nests: a worker that builds roots of its own is handed no descriptor of the ' ..
       'program and so opens the artifact by its path, which holds every module of the tree, ' ..
       'beyond what its key holds; declare `store` or `tool`, or wait for a per-closure artifact'
   end
+  return ""
+end
+
+--- Why a worker of `effective` cannot be started under a policy, or "":
+--- what its module declares that no policy says, naming the field, or
+--- what is `deferred`. A refusal fails its tests; a `deferred` one is
+--- skipped by the runner before it asks.
+--- @param effective what the module declares, as the runner resolved it
+--- @return why, "" for nothing
+-- TODO: delete this refusal, and the `"*"` that [`Test.needs`] still takes,
+-- once the four unsandboxed fixtures under ci/fixtures name the variables
+-- they read (each carries the TODO saying why it cannot yet), and the two
+-- tests that declare one on purpose are reworked (build/test_policy_tool_test.tl's
+-- wildcard_test.tl and build/test_isolation_tool_test.tl's hooks_test.tl,
+-- snippets of the wildcard itself): a policy has no wildcard. It waits on
+-- step (e) of the sandbox plan, which deletes [`Test.needs`].
+local function refusal(effective: test_inputs.Effective): string
+  local later = test_policy.deferred(effective)
+  if later ~= "" then return later end
   if effective.env["*"] then
     return 'env "*": the policy path names each variable a worker is given, and a policy ' ..
       'has no wildcard; name the variables the module reads'

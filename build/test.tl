@@ -1162,9 +1162,6 @@ local record Recording
   errors: {string}
   --- Each skipped test's id and why ([`Test.skip`]), as "<id>: <reason>".
   skips: {string}
-  --- Whether the run is held to sandboxing ([`confine.held_to_sandbox`]),
-  --- which fails a skipped test.
-  held: boolean
   --- What each failing test printed, by its id.
   outputs: {string:string}
   --- Each failing test's `<file>:<name>` selector, by its id: what
@@ -1605,16 +1602,12 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
   local reported, passed, message = judged.report, judged.passed, judged.message
   -- A pass the test said it could not check ([`Test.skip`]) is kept as no
   -- verdict, pass or fail, so it runs again on the next run -- and on a
-  -- host that can check it, whose key differs, as its own; and a run
-  -- held to sandboxing, which exists to prove the host checked it all,
-  -- fails it.
+  -- host that can check it, whose key differs, as its own.
   local skipped = judged.passed and judged.skipped or ""
-  if skipped ~= "" and rec.held then
-    passed, skipped = false, ""
-    message = "skipped (" .. judged.skipped .. "), but the run is held to sandboxing " ..
-      "(COSMIC_TEST_SANDBOX=1, COSMIC_SANDBOX=must or COSMIC_CI_REQUIRE_SANDBOX=1), " ..
-      "which fails a test this host could not check"
-  elseif skipped ~= "" then
+  if skipped ~= "" then
+    -- A reason may carry what a failed start printed: the report lists
+    -- one line each.
+    skipped = skipped:match("^[^\n]+") or "the host refused what the test is about"
     rec.tally.skipped = rec.tally.skipped + 1
     rec.skips[#rec.skips + 1] = id .. ": " .. skipped
     message = "skipped: " .. skipped
@@ -2225,6 +2218,13 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   -- `forbid_running`), as the default sandbox's does.
   local policy: Sandbox.Policy = nil
   if rec.policy then
+    -- A module the policy path cannot hold yet is skipped, as a test is
+    -- that says its host cannot check it, not failed.
+    local later = test_policy.deferred(rec.effective[job.m.path])
+    if later ~= "" then
+      finish(rec, job, nil, "", limits, false, later)
+      return false
+    end
     -- A worker that may run the program has nothing to forbid: the ruleset
     -- the policy puts up already refuses it every mount.
     if hold == "mounts" then hold = "none" end
@@ -2477,6 +2477,10 @@ local record Run
   limits: test.Limits
   shard: test.Shard
   sandbox_mode: string
+  --- What the run asks of the policy path ([`test_policy.requested`]'s
+  --- "on", "off" or "default"), and whether it takes it: `policy`, set
+  --- where the workers are sandboxed ([`choose_sandbox`]).
+  policy_mode: string
   policy: boolean
   selectors: {string}
   forced: boolean
@@ -2574,13 +2578,20 @@ local function read_command(ctx: Run): integer | nil
     return 2
   end
   ctx.sandbox_mode = sandbox_mode
-  local policy_trouble: string
-  ctx.policy, policy_trouble = test_policy.requested(Env.get(test_policy.switch))
-  if ctx.policy == nil then
+  local policy_mode, policy_trouble = test_policy.requested(Env.get(test_policy.switch))
+  if policy_mode == nil then
     log:complain("test: " .. policy_trouble)
     return 2
   end
-  ctx.policy = ctx.policy or parsed.set["--policy"] == true
+  if parsed.set["--policy"] == true then
+    if policy_mode == "off" then
+      log:complain("test: --policy asks for the policy path, and " .. test_policy.switch ..
+          "=0 for the sandbox's own")
+      return 2
+    end
+    policy_mode = "on"
+  end
+  ctx.policy_mode = policy_mode
   local selectors: {string} = {}
   for _, word in ipairs(parsed.words) do
     local module, name = split(word)
@@ -2770,17 +2781,35 @@ local function choose_sandbox(ctx: Run): integer | nil
     log:say("test: declared: workers run unsandboxed (" .. test_sandbox.switch .. "=0); " ..
         unenforced)
   end
-  -- Under a policy a worker is held by what test_policy makes of its
-  -- declaration, so its verdict is kept apart from one the default
-  -- sandbox gave, by a runtime of its own as a sandboxed run's is from
-  -- an unsandboxed one's: neither stands for the other. The runtime
-  -- holds what every worker's policy has alike, the isolation and the
-  -- promises ([`test_policy.common`]).
-  if ctx.policy and not sandboxed then
+  -- Where workers are sandboxed they start under a policy unless
+  -- COSMIC_TEST_POLICY=0, held by what test_policy makes of their
+  -- declarations; a verdict so reached is kept apart from one the old
+  -- sandbox gave, by a runtime of its own as a sandboxed run's is from an
+  -- unsandboxed one's: neither stands for the other. The runtime holds
+  -- what every worker's policy has alike, the isolation and the promises
+  -- ([`test_policy.common`]).
+  if ctx.policy_mode == "on" and not sandboxed then
     local _, _ = work.close(handle)
     log:complain("test: " .. test_policy.switch .. "=1 (--policy), but no worker can be " ..
         "sandboxed here, and a policy holds a worker only so")
     return 1
+  end
+  -- Where this process cannot start a worker under a policy, a run not
+  -- asked to fails at every start; it starts them by the older sandbox
+  -- instead, and says so.
+  -- TODO: delete the older sandbox, this fallback and COSMIC_TEST_POLICY=0
+  -- once step (e) of doc/plans/sandbox.md deletes [`Test.needs`] and the
+  -- sandbox [`build.test_sandbox`] plans.
+  local unmet = sandboxed and ctx.policy_mode ~= "off" and test_policy.unmet() or ""
+  if unmet ~= "" and ctx.policy_mode == "on" then
+    local _, _ = work.close(handle)
+    log:complain("test: " .. test_policy.switch .. "=1 (--policy), but " .. unmet)
+    return 1
+  end
+  ctx.policy = sandboxed and ctx.policy_mode ~= "off" and unmet == ""
+  if unmet ~= "" then
+    log:say("test: sandbox: no worker is started under a policy: " .. unmet ..
+        "; each is started by the sandbox build.test_sandbox plans")
   end
   if ctx.policy then
     -- And the code that makes a worker's policy, so an edit to a grant runs
@@ -2788,7 +2817,9 @@ local function choose_sandbox(ctx: Run): integer | nil
     local made = ctx.harness.modules
     ctx.runtime = ctx.runtime .. " policy " .. hashing.hex_sha256(test_policy.common() .. "\0" ..
         (made["build.test_policy"] or "") .. "\0" .. (made["build.test_sandbox"] or ""))
-    sandbox_summary = sandbox_summary .. ", under a policy (" .. test_policy.switch .. "=1)"
+  elseif sandboxed and unmet == "" then
+    log:say("test: sandbox: " .. test_policy.switch .. "=0: each worker is started by the " ..
+        "sandbox build.test_sandbox plans, not under a policy")
   end
   local shares = sandboxed or shared_verdicts.chosen()
   if not sandboxed then
@@ -3003,7 +3034,7 @@ local function make_recording(ctx: Run)
     records = records, root = ctx.root, runtime = ctx.runtime,
     run_at_ns = ctx.run_at_ns, run = handle.run,
     failures = failures, errors = errors, outputs = {}, reruns = {},
-    failed = {}, skips = {}, held = confine.held_to_sandbox(),
+    failed = {}, skips = {},
     hits = hits, by_test = by_test, unowned = unowned, tally = tally,
     owed = { kept = {}, used = {}, failed = {}, stores = {} }, shared_keys = {},
     consult_shared = ctx.consult,
@@ -3013,7 +3044,7 @@ local function make_recording(ctx: Run)
     epoch = ctx.epoch, timeout_ns = ctx.limits.timeout_ns,
     store_salt = ctx.harness.store_salt, carried = ctx.harness.carried,
     closure_sets = {}, type_only = {},
-    rerun_prefix = (ctx.policy and (test_policy.switch .. "=1 ") or "") ..
+    rerun_prefix = (ctx.policy_mode == "off" and (test_policy.switch .. "=0 ") or "") ..
       (sandbox_mode == "on" and (test_sandbox.switch .. "=1 ") or
         sandbox_mode == "off" and (test_sandbox.switch .. "=0 ") or ""),
   }

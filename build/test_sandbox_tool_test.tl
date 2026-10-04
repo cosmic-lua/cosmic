@@ -18,7 +18,7 @@ local this_program = require("build.this_program")
 local stand_in = require("build.stand_in")
 local test_inputs = require("build.test_inputs")
 local test_sandbox = require("build.test_sandbox")
-local sandbox_skip = require("build.sandbox_skip")
+local confine = require("build.confine")
 local Test = require("cosmic.test")
 
 --- What a worker's plan gives it of the host, the program it runs,
@@ -26,7 +26,7 @@ local Test = require("cosmic.test")
 --- the variables `unsandboxed` reads, which hold a run to sandboxing.
 Test.needs{
   host = { "/dev/urandom", "/proc" },
-  env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
+  env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
   tool = true,
   nests = true,
 }
@@ -284,11 +284,11 @@ end
 --- so, the running test is skipped ([`Test.skip`]), since a case of a
 --- sandboxed run then has nothing to check. The workers nest in this
 --- test's own sandbox, which a host may refuse: the kernel lets root nest
---- one only two deep (core/syscalls.c's `map_ids`). A run held to
---- sandboxing fails the skip; CI's unprivileged runners nest them.
+--- one only two deep (core/syscalls.c's `map_ids`). CI's unprivileged
+--- runners nest them.
 local function unsandboxed(text: string): boolean
   if not text:find("no worker can be sandboxed here", 1, true) then return false end
-  sandbox_skip.nested(text)
+  if confine.sandbox_platform() then Test.skip(confine.unsandboxed_reason(text)) end
   return true
 end
 

@@ -20,15 +20,14 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
-local sandbox_skip = require("build.sandbox_skip")
+local confine = require("build.confine")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 
 --- What a run of `cosmic test` needs of the host, and the program it
---- runs; and whether this run is held to sandboxing, for the one case
---- that starts a sandboxed run, which `nests` lets it start.
+--- runs; and `nests`, which lets the one case that starts a sandboxed run
+--- start it.
 Test.needs{
-  env = { "COSMIC_CI_REQUIRE_SANDBOX" },
   tool = true,
   nests = true,
 }
@@ -206,8 +205,8 @@ end
 --- reach a runtime except through the keys these runs print.
 ---
 --- Where this host cannot sandbox a worker of the run it starts, there
---- is nothing to check, unless the run is held to sandboxing: then it
---- fails. That is macOS, which has no sandbox (decided before anything
+--- is nothing to check, and the case is skipped where Linux could have
+--- given it. That is macOS, which has no sandbox (decided before anything
 --- starts), a run nested in this test's own sandbox, which the kernel
 --- refuses root, and a host refusing user namespaces (told by the run's
 --- summary).
@@ -229,7 +228,7 @@ local function test_a_sandboxed_and_an_unenforced_verdict_stand_apart(tmp: strin
   local code, first = run(tmp .. "/first", tmp .. "/first.out", sandboxed)
   assert(code == 0, first)
   if not first:find("; sandboxed)", 1, true) then
-    sandbox_skip.nested(first)
+    if confine.sandbox_platform() then Test.skip(confine.unsandboxed_reason(first)) end
     return
   end
   assert(first:find("2 ran, 0 stood", 1, true), first)

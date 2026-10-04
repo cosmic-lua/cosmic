@@ -1,7 +1,6 @@
 --- End to end: a test that says this host cannot check it
 --- ([`Test.skip`]) is counted skipped in the summary of the `cosmic test`
---- that ran it, not passed, keeps no verdict, and fails a run held to
---- sandboxing. Each run here is unsandboxed (COSMIC_TEST_SANDBOX=0), so
+--- that ran it, not passed, and keeps no verdict. Each run here is unsandboxed (COSMIC_TEST_SANDBOX=0), so
 --- it means the same on every host.
 
 local Child = require("cosmic.child")
@@ -64,16 +63,14 @@ local function test_a_skipped_test_is_counted_and_runs_every_time(tmp: string)
   assert(out:find("; 1 ran, 1 stood, 1 skipped ", 1, true), out)
 end
 
---- A run held to sandboxing fails a skipped test, naming why it skipped:
---- held by COSMIC_SANDBOX=must, or by CI's COSMIC_CI_REQUIRE_SANDBOX=1.
-local function test_a_run_held_to_sandboxing_fails_a_skipped_test(tmp: string)
+--- A run held to sandboxing counts a skipped test skipped as any other
+--- does: it passes, the reason listed.
+local function test_a_run_held_to_sandboxing_skips_a_skipped_test(tmp: string)
   for i, held in ipairs({ { COSMIC_SANDBOX = "must" }, { COSMIC_CI_REQUIRE_SANDBOX = "1" } }) do
     local out, code = run(project(tmp .. "/" .. tostring(i)), held)
-    assert(code ~= 0, out)
-    assert(out:find("test: FAIL  skip_test test_skips: skipped (this host cannot), but the " ..
-        "run is held to sandboxing", 1, true), out)
-    assert(out:find("test: FAIL (1 of 2 failed, ", 1, true), out)
-    assert(not out:find("test: SKIP", 1, true), out)
+    assert(code == 0, out)
+    assert(out:find("test: SKIP  skip_test test_skips: this host cannot", 1, true), out)
+    assert(out:find("1 skipped", 1, true), out)
   end
 end
 
@@ -93,7 +90,6 @@ local function test_requires_noexec() error("must not execute") end
     assert(not out:find("must not load", 1, true), out)
   end
   local out, code = run(root, { COSMIC_SANDBOX = "must" })
-  assert(code ~= 0, out)
-  assert(out:find("skipped (noexec scratch requires a Linux filesystem sandbox), but the " ..
-      "run is held to sandboxing", 1, true), out)
+  assert(code == 0, out)
+  assert(out:find("SKIP  noexec_test test_requires_noexec: noexec scratch requires", 1, true), out)
 end
