@@ -44,9 +44,10 @@ end
 --- Runs `argv` under `policy`, starting in `cwd`: its output (stderr beside
 --- stdout) and how it ended. Skips the test, returning nil, where the host
 --- gives no sandbox; fails it where the start is refused for another reason.
-local function under(argv: {string}, policy: Sandbox.Policy, cwd: string): Outcome
+local function under(argv: {string}, policy: Sandbox.Policy, cwd: string,
+                     fds?: {integer:integer | string}): Outcome
   local result, why = Child.run(argv,
-    { policy = policy, cwd = cwd, stdout = "capture", stderr = "stdout" })
+    { policy = policy, cwd = cwd, stdout = "capture", stderr = "stdout", fds = fds })
   if result == nil then
     assert(unsandboxable(why), "the start was refused: " .. why)
     sandbox_skip.refused(why)
@@ -161,7 +162,49 @@ local function test_nest_holds_files_by_the_root_alone(tmp: string)
   local program = options_at(mounts.said, at.probe)
   assert(program ~= nil and not program:find("noexec", 1, true), tostring(program))
   local held = under({ at.probe, "status-field Seccomp" }, policy, at.work)
-  assert(held.said:find("2", 1, true), held.said)
+  assert(held.said:find("Seccomp:\t2", 1, true), held.said)
+end
+
+local function test_nest_hands_no_directory_nor_half_open_file(tmp: string)
+  local at = placed(tmp)
+  local policy: Sandbox.Policy = { isolate = { "file" }, promises = { "nest" }, grants = at.grants }
+  local plain: Sandbox.Policy = { isolate = { "file" }, grants = at.grants }
+  local dir = assert(sys.open(at.extra, sys.O_RDONLY))
+  local reading = assert(sys.open(at.extra .. "/e", sys.O_RDONLY))
+  local writing = assert(sys.open(at.extra .. "/e", sys.O_WRONLY))
+  local both = assert(sys.open(at.extra .. "/e", sys.O_RDWR))
+  local function start(held: Sandbox.Policy, fds: {integer:integer | string}): string
+    local handle, why = Child.start({ at.probe, "print hi" }, { policy = held, cwd = at.work, fds = fds })
+    if handle ~= nil then
+      local _, _ = handle:close()
+      return ""
+    end
+    return why
+  end
+  local why = start(policy, { [3] = dir })
+  assert(why:find("descriptor 3", 1, true) and why:find("directory", 1, true) and
+      why:find("nest", 1, true), why)
+  local shut = start(policy, { [4] = reading })
+  assert(shut:find("descriptor 4", 1, true) and shut:find("reading and writing", 1, true), shut)
+  assert(start(policy, { [5] = writing }):find("descriptor 5", 1, true))
+  assert(start(policy, { [3] = both }) == "")
+  -- A pipe has no path to reach.
+  assert(start(policy, { [3] = "capture" }) == "")
+  assert(start(plain, { [3] = dir }) == "")
+  sys.close(dir)
+  sys.close(reading)
+  sys.close(writing)
+  sys.close(both)
+end
+
+local function test_a_handed_directory_is_held_by_landlock_without_nest(tmp: string)
+  local at = placed(tmp)
+  local dir = assert(sys.open(at.extra, sys.O_RDONLY))
+  local policy: Sandbox.Policy = { isolate = { "file" }, promises = { "fork" }, grants = at.grants }
+  local ran = under({ at.probe, "cat /proc/self/fd/3/e" }, policy, at.work, { [3] = dir })
+  sys.close(dir)
+  if ran == nil then return end
+  assert(ran.code == 1 and ran.said:find("Permission denied", 1, true), ran.code .. ": " .. ran.said)
 end
 
 --- Where a start of the program's own meets its host: the directory a root

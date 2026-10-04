@@ -327,10 +327,11 @@ static const struct grant basics[] = {
  * Limits left, which no rule of this filter can close, since it cannot
  * tell one file system or one process from another by an argument that
  * is a string or a pid's parent:
- * - A procfs, or a sysfs in a network namespace the program made, that
- *   the program mounts shows what the host's /proc and /sys show a user
- *   (the host's processor and memory files, the sysctls it may read): the sandbox's own /proc
- *   is subset=pid, a mount of its own is not.
+ * - A procfs the program mounts in a pid namespace of its own shows what
+ *   the host's /proc shows a user (the processor and memory files, the
+ *   version, the sysctls it may read; writes are refused): the sandbox's
+ *   own /proc is subset=pid, a mount of its own is not. A sysfs it tries
+ *   is refused, the root having none for the kernel to find visible.
  * - A tmpfs it mounts is as large as its memory lets it, not `tmp`'s size.
  * - clone's CLONE_PARENT from the sandbox's first process gives the host
  *   process that started it a child, one inside the sandbox that the

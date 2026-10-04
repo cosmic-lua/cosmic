@@ -329,11 +329,19 @@ local record Options
   ---   - Held as ever: the pid and IPC namespaces, the network namespace
   ---     (with `loopback` or `u`), which the program may make others of but
   ---     not leave (the filter refuses setns), the socket families, signals
-  ---     (to its own pid) and every other rule of the filter.
-  ---   - Not held: Landlock's scoping (ABI 6) of abstract unix sockets;
-  ---     the size of a tmpfs the program mounts itself, which counts as its
-  ---     memory does, not as `tmp`'s; and a sysfs it mounts in a network
-  ---     namespace of its own, which shows what the host's /sys shows a user.
+  ---     (to any pid, which reaches only the sandbox's own, the pid
+  ---     namespace holding them) and every other rule of the filter.
+  ---   - A descriptor handed in (`fds`, and 0 to 2) is refused where it is
+  ---     a directory, or a regular file not open for reading and writing:
+  ---     /proc/self/fd/N would open what is beneath and above the one, or
+  ---     reopen the other for what it was not opened for, which Landlock
+  ---     stopped. Pipes, sockets and devices are handed as ever.
+  ---   - Not held: Landlock's scoping (ABI 6) of abstract unix sockets; the
+  ---     size of a tmpfs the program mounts itself, which counts as its
+  ---     memory does, not as `tmp`'s; and a procfs it mounts in a pid
+  ---     namespace of its own, which shows what the host's /proc shows a
+  ---     user (cpuinfo, meminfo, version, the sysctls it may read; writes
+  ---     are refused), where the sandbox's own /proc shows its processes alone.
   --- - `env` names the variables passed through from this process's
   ---   environment and `set_env` the ones set: the child's whole
   ---   environment, so `env` beside `policy` raises. `tmp` makes a fresh
@@ -2145,6 +2153,9 @@ local record Held
   --- Whether the policy asks for one: not under `isolate` file, whose
   --- /tmp is a tmpfs of the sandbox's own.
   wants_tmp: boolean
+  --- Whether it promises `nest`, which no descriptor to a directory or to a
+  --- file open for less than both may be handed to ([`nest_descriptors`]).
+  nests: boolean
   --- The directory to start in, as a path the root of `isolate` file
   --- holds; nil to start in the caller's.
   cwd: string
@@ -2698,7 +2709,7 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
     if merged.tmp then env.TMPDIR = "/tmp" end
   end
   return { path = path, env = env, tmp = "", wants_tmp = merged.tmp and not file,
-    sandbox = sandbox, cwd = file and base or nil, user = user }, ""
+    sandbox = sandbox, cwd = file and base or nil, user = user, nests = nest }, ""
 end
 
 --- Makes the temporary directory a policy's `tmp` asks for, as an absolute
@@ -2727,6 +2738,46 @@ local function make_tmp(held: Held): string
   return ""
 end
 
+--- Why a descriptor the child would get cannot be handed to a `nest`
+--- child, or "". Landlock, given up there, is what stopped a descriptor
+--- reaching past itself: a directory is a way to every file beneath and
+--- above it (/proc/self/fd/N/..), and a regular file opened read-only or
+--- write-only is reopened through /proc/self/fd/N for what it was not
+--- opened for, where its owner (this process's user) may. The root holds no
+--- descriptor. So a directory, or a regular file not open for both, is
+--- refused, naming it; pipes, sockets and devices have no path to reach.
+--- `slots` is [`wire`]'s: the descriptor each child number copies, and
+--- 0 to 2 not in it are this process's own.
+local function nest_descriptors(slots: {integer:integer}): string
+  local numbers: {integer} = {}
+  for number, _ in pairs(slots) do numbers[#numbers + 1] = number end
+  for number = 0, 2 do
+    if slots[number] == nil then numbers[#numbers + 1] = number end
+  end
+  table.sort(numbers)
+  for _, number in ipairs(numbers) do
+    local fd = slots[number] or number
+    local st, _ = sys.fstat(fd)
+    local what = "descriptor " .. number .. (fd ~= number and " (this process's " .. fd .. ")" or "")
+    if st ~= nil and st.kind == "dir" then
+      return what .. " is a directory, which promises \"nest\" cannot hand a program: " ..
+        "with Landlock given up, /proc/self/fd/" .. number .. " opens every file beneath " ..
+        "it and, by .., above it, and the root of its own holds no descriptor"
+    elseif st ~= nil and st.kind == "file" then
+      local info, _ = Fs.read("/proc/self/fdinfo/" .. fd)
+      local flags = info ~= nil and info:match("flags:%s*(%d+)") or nil
+      local mode = flags ~= nil and (math.tointeger(tonumber(flags, 8)) or 0) & 3 or nil
+      if mode ~= 2 then
+        return what .. " is a file not open for reading and writing, which promises " ..
+          "\"nest\" cannot hand a program: with Landlock given up, /proc/self/fd/" ..
+          number .. " reopens it for what it was not opened for wherever its owner may; " ..
+          "open it O_RDWR, or pass a pipe"
+      end
+    end
+  end
+  return ""
+end
+
 --- [`Child.start`] on options already validated.
 local function start(argv: {string}, opts: Options): Handle | nil, string
   local held: Held
@@ -2746,6 +2797,13 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
   if slots == nil then
     unwire(wiring, false)
     return refuse("start: " .. wire_trouble)
+  end
+  if held ~= nil and held.nests then
+    local why = nest_descriptors(slots)
+    if why ~= "" then
+      unwire(wiring, false)
+      return refuse("start: sandbox: " .. why)
+    end
   end
   local extra: {integer:integer}
   for number, fd in pairs(slots) do
