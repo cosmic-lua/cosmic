@@ -8,6 +8,7 @@ local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
+local sandbox_skip = require("build.sandbox_skip")
 local stand_in = require("build.stand_in")
 local this_program = require("build.this_program")
 local type raw_process = require("cosmic.internal.process")
@@ -278,6 +279,11 @@ end
 --- it is told, still runs. A process of its own takes the hold, which
 --- lasts for good.
 local function test_forbid_running_within_refuses_the_program_by_every_name(tmp: string)
+  -- The hold is a Landlock ruleset, which only Linux has.
+  if not confine.sandbox_platform() then
+    sandbox_skip.refused("forbid_running holds a process only on Linux")
+    return
+  end
   local sibling = assert(stand_in.build(tmp .. "/sibling/stand-in"))
   local program = confine.itself()[1]
   assert(Fs.mkdirs(tmp .. "/links"))
