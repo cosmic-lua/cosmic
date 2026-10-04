@@ -14,7 +14,7 @@ local Test = require("cosmic.test")
 --- program reads only the zones it carries. The test that starts the
 --- program, to see what its environment names, is
 --- cosmic/time_zone_tool_test.tl's.
-Test.needs{ reads = { "testdata/tzif/America-New_York.fat" } }
+Test.policy{ grants = { { path = "testdata/tzif/America-New_York.fat", letters = "r" } } }
 
 local NS <const> = 1000000000
 

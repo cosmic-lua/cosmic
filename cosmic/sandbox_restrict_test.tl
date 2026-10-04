@@ -22,7 +22,7 @@ local this_program = require("build.this_program")
 
 --- The program is this one, which a test starts only with `tool`; its
 --- temporary directory is the test's own.
-Test.needs{ tool = true, env = { "TMPDIR" } }
+Test.policy{ profiles = { "cosmic" }, env = { "TMPDIR" } }
 
 local DENIED <const> = "Permission denied"
 
