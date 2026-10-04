@@ -258,4 +258,8 @@ local function test_credentials_reject_invalid_ids_and_namespace_options()
       { credentials = { user = 1, group = 1 }, sandbox = sandbox })
     assert(not ok and tostring(why):find("credentials exclude sandbox", 1, true), tostring(why))
   end
+  local ok, why = pcall(Child.start, { "/never-started" },
+    { credentials = { user = 1, group = 1 }, policy = {} })
+  assert(not ok and tostring(why):find("policy and credentials exclude each other", 1, true),
+    tostring(why))
 end

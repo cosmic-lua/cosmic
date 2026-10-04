@@ -167,3 +167,15 @@ local function test_fd_hands_the_callers_descriptor_to_the_program(tmp: string)
   local none = cosmic(tmp, { "sandbox", "--system", "--fd", "9", "--", "true" })
   assert(none.code == 125 and none.err:find("^cosmic: sandbox: "), none.code .. none.err)
 end
+
+local function test_cwd_starts_the_program_there_and_relative_paths_are_its(tmp: string)
+  if no_sandbox_here() then return end
+  searchable.open(tmp)
+  assert(Fs.mkdirs(tmp .. "/work") and Fs.write(tmp .. "/work/a", "alpha\n"))
+  searchable.open(tmp .. "/work/.")
+  local ran = cosmic(tmp, { "sandbox", "--system", "--cwd", "work", "--read", ".", "--", "cat", "a" })
+  assert(ran.code == 0 and ran.out == "alpha\n" and ran.err == "", ran.code .. ran.out .. ran.err)
+  -- The grant is the directory --cwd names, not the caller's.
+  local caller = cosmic(tmp, { "sandbox", "--system", "--cwd", "work", "--read", ".", "--", "ls", ".." })
+  assert(caller.code ~= 0 and caller.out == "", caller.code .. caller.out)
+end

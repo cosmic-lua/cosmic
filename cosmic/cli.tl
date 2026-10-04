@@ -510,8 +510,9 @@ local record Cli
   ---
   --- `--read`, `--run` and `--write` grant a path as `r`, `rx` and `rwc`;
   --- `--path` names the letters itself, of `rwxcu` in that order (`rwxc:.`),
-  --- each once. A path is relative to the working directory and must
-  --- exist, and paths and `--set-env` values must be UTF-8, as they are
+  --- each once. A path is relative to the working directory, which
+  --- `--cwd` names (as though `cd` there first; it is this process's own
+  --- without one), and must exist, and paths and `--set-env` values must be UTF-8, as they are
   --- written as JSON. `cosmic docs cosmic.sandbox` names the policy's
   --- fields. `--connect` is refused until the relay it needs exists.
   --- Each option is one field of the policy, and a number is a whole one. The
@@ -797,6 +798,7 @@ local module: Module = {
         ["--processes"] = { value = "n", about = "the most processes and threads of the whole sandbox" },
         ["--fd"] = { value = "n", about = "hand it descriptor n (3 to 255), as the same number" },
         ["--timeout"] = { value = "seconds", about = "end it after this many whole seconds" },
+        ["--cwd"] = { value = "dir", about = "start it in this directory, which relative paths are taken from" },
       },
     },
     help = {
