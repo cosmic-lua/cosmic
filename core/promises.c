@@ -629,11 +629,8 @@ static void rule_block (struct builder *b, enum rule rule, uint32_t pid, enum co
     test(&k, OP_EQ, 0, JUMP_ALLOW, JUMP_DENY);
     break;
     case RULE_SIGNAL:
-    /* Reached only where the filter is not told the scope holds, which
-     * lets the call through whole instead ([`program_for`]). A tid equal
-     * to the pid is the thread group leader's own, so tkill takes this
-     * rule too. A process the program forks has another pid, so it
-     * cannot signal itself here; the scope is what lifts that. */
+    /* Unscoped, the pid is held. A tid equal to it is the thread group
+     * leader's own, so tkill takes this rule too. */
     load(&k, DATA_ARGUMENT(0) + DATA_LOW);
     test(&k, OP_EQ, pid, JUMP_ALLOW, JUMP_DENY);
     break;

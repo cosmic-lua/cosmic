@@ -389,6 +389,26 @@ local function test_a_signal_outside_the_domain_is_refused_though_the_filter_let
   assert(alive, "the process outside the sandbox was not signalled")
 end
 
+--- No grants, no Landlock domain, so no scope: the filter keeps its signal
+--- calls to the starting pid, on every ABI.
+local function test_promises_without_grants_keep_the_filter_to_the_starting_pid(tmp: string)
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local path = tmp .. "/said"
+  local output = assert(sys.open(path, sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
+  local pid, why = process.spawn(probe, { probe, "run " .. probe .. " signal TERM" }, nil, nil, nil,
+    output, output, false, nil, { promises = { "fork" } })
+  if pid == nil then
+    sys.close(output)
+    sandbox_skip.refused("the kernel gives no seccomp filter: " .. tostring(why))
+    return
+  end
+  local status = assert(process.waitpid(pid, false))
+  sys.close(output)
+  local said = Fs.read(path) or ""
+  assert(status.code == 1 and said:find("not permitted", 1, true),
+    "its own pid only: " .. status.code .. " " .. said)
+end
+
 --- A ruleset the caller made says nothing of what it scopes, so the filter
 --- keeps its signal calls to the starting pid beside one.
 local function test_a_ruleset_descriptor_keeps_the_filter_to_the_starting_pid(tmp: string)

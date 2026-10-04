@@ -7,9 +7,10 @@
  * ENOTTY; a call of another architecture ends the process.
  *
  * The program is a pure function of the promises, the architecture and
- * the process's own pid and whether signals are scoped, so core/syscalls.c has the child build and
- * install it ([`cosmic_promises_apply`]), and `promise_filter` builds it
- * for either architecture, whatever the host, for core/promises_test.tl's
+ * the process's own pid and whether signals are scoped, so
+ * core/syscalls.c has the child build and install it
+ * ([`cosmic_promises_apply`]), and `promise_filter` builds it for either
+ * architecture, whatever the host, for core/promises_test.tl's
  * interpreter. The tables are core/promises.c's.
  */
 
