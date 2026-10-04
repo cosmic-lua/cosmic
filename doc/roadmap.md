@@ -82,6 +82,12 @@ unsandboxed. So does a policy's child for a root caller, whose user is its
 own, with a grant it cannot use idmapped or refused
 (cosmic/child_policy_user_test.tl).
 
+A policy file given to `cosmic sandbox --policy` is read strictly and joined
+with the options as more of them: it adds, and cannot narrow. The design's
+policy files are narrow-only, judged after the policy is resolved, so a file
+from elsewhere can take rights from a command line but never give one; that
+waits on what a narrowing is for a path, a promise and a limit.
+
 ## surface
 
 design.md's core tier names modules the tree does not have yet. the ones the
