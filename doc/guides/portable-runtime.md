@@ -418,6 +418,44 @@ print("manifest: names the running core")
 manifest: names the running core
 ```
 
+## Inspecting independent artifacts
+
+`cosmic sql --artifact` reads a host or portable artifact without executing
+its core or adding its modules to the loader. Foreign targets and portable
+subsets can be inspected. Attach another artifact under an explicit schema
+name to join their shipped rows:
+
+`cosmic sql --artifact ./before --attach-artifact after=./after` followed
+by the quoted statement `SELECT a.path FROM main.modules a JOIN
+after.modules b USING(path)` joins two artifacts by module path.
+
+The library equivalent is `Sqlite.artifact(path)`, then `artifact:open()` and
+`db:attach_artifact(other, "after")`. Close the artifact handles when no longer
+needed; each open connection retains its own descriptor reference. An active
+statement keeps its connection alive, and SQLite refuses explicit close or
+detach when the statement still needs it.
+
+These owned inspection connections are artifact-only and read-only. They
+reject raw SQL ATTACH, including ordinary database files; ordinary and borrowed
+SQLite connections cannot call `attach_artifact`. Existing [`Sqlite.open`] and
+[`Sqlite.memory`] behavior is unchanged. Read PRAGMAs are explicitly enumerated in
+`cosmic docs cosmic.sqlite.artifact`. Inspection disables SQLite schema trust and enables defensive mode; the
+normal SQL digest/compression functions remain DIRECTONLY.
+
+The input inode must remain unchanged while any consumer is open. Make a
+snapshot first if the source may be modified in place. Renaming, replacing or
+unlinking its pathname does not redirect existing readers. Framing validation
+does not authenticate native cores or check every SQLite page; query errors and
+`PRAGMA integrity_check` still matter.
+
+The running artifact's inode is refused, including symlinks, hard links and
+descriptor aliases. Its retained runtime descriptor and VFS registration do not
+become inspection capabilities, and metadata filenames cannot be replayed to
+open another connection. Ordinary file-read authority remains the boundary for
+external inputs: a tool already allowed to copy executable bytes can inspect
+its independent copy. Inspection does not loosen the runtime store's hold or
+provide additional filesystem permissions.
+
 [`artifact.program`]: ../../build/artifact.tl
 [`build.artifact.trusted_prefix`]: ../../build/artifact.tl
 [`ci/cosmic_ci/orchestration.tl`]: ../../ci/cosmic_ci/orchestration.tl
@@ -426,5 +464,7 @@ manifest: names the running core
 [`embed.tree`]: ../../build/embed.tl
 [`Proc.executable()`]: ../../cosmic/proc.tl
 [`Proc.relaunch`]: ../../cosmic/proc.tl
+[`Sqlite.memory`]: ../../cosmic/sqlite.tl
+[`Sqlite.open`]: ../../cosmic/sqlite.tl
 [`Test.needs`]: ../../cosmic/test.tl
 [`writer.carried`]: ../../build/writer.tl

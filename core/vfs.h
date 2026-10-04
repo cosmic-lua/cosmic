@@ -31,4 +31,15 @@ int cosmic_vfs_register (const char *path, int fd, int64_t offset,
  * Returns false when the URI does not fit in `room`. */
 bool cosmic_vfs_uri (char *into, size_t room, const char *path);
 
+/* Independent inspection backing. Creation takes ownership of fd only on
+ * success. The caller owns one reference; each opened SQLite file owns
+ * another. No filename can acquire a reference outside these C calls. */
+struct cosmic_inspection;
+struct cosmic_inspection *cosmic_inspection_create (int fd, int64_t offset,
+                                                     int64_t length);
+void cosmic_inspection_release (struct cosmic_inspection *backing);
+int cosmic_inspection_open (struct cosmic_inspection *backing, sqlite3 **db);
+int cosmic_inspection_attach (struct cosmic_inspection *backing, sqlite3 *db,
+                               const char *schema);
+
 #endif
