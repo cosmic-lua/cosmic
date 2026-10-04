@@ -64,6 +64,8 @@ function VerifyCodesign.verify(sysname: string, binary: string, path?: string): 
       return 127
     end
     if not result.ok then
+      -- TODO: once ci/cosmic-driver.pin names a release whose cosmic.child carries
+      -- Child.shell_status, take this status from it.
       return result.code or 128 + (result.signal or 0)
     end
   end

@@ -321,8 +321,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     complain("timed out after " .. plural.count(request.timeout_ns // 1000000000, "second"))
     return TIMED_OUT
   end
-  if result.signal ~= nil then return 128 + result.signal end
-  return result.code or START_FAILED
+  return Child.shell_status(result)
 end
 
 verb.spec = {

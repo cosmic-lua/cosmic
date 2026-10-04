@@ -137,6 +137,24 @@ local function test_nonzero_and_signal_status()
   assert(signaled.code == nil and signaled.signal == sys.SIGTERM)
 end
 
+local function test_shell_status_of_a_real_exit_and_a_real_signal()
+  local clean = assert(Child.run(lua("return 0")))
+  assert(Child.shell_status(clean) == 0)
+  local exited = assert(Child.run(lua("return 23")))
+  assert(Child.shell_status(exited) == 23)
+  local signaled = assert(Child.run(lua(SYS .. "sys.kill(sys.getpid(), sys.SIGTERM) " ..
+      sleep(1000))))
+  assert(Child.shell_status(signaled) == 128 + sys.SIGTERM)
+end
+
+local function test_shell_status_of_a_result_with_neither_code_nor_signal_is_one()
+  local bare: Child.Result = { ok = false, timed_out = false, captured = {}, truncated = false }
+  assert(Child.shell_status(bare) == 1)
+  -- The signal wins, though a Result never carries both.
+  bare.signal = sys.SIGKILL
+  assert(Child.shell_status(bare) == 128 + sys.SIGKILL)
+end
+
 local function test_timeout_kills_the_process_group_and_reaps_child(tmp: string)
   local function check(name: string)
     local fd, path = output(tmp, name)
