@@ -499,9 +499,10 @@ function Fs.remove(path: string): boolean, string
 end
 
 --- Removes a path and, when it is a directory, everything under it:
---- the `rm -rf` a scratch directory wants ([`Fs.scratch`] makes one). A link is removed, never
---- followed, so nothing outside `path` is touched -- not even by a
---- process that swaps an entry for a link while this walks, which is
+--- the `rm -rf` a scratch directory wants ([`Fs.scratch`] makes one).
+--- A link is removed, never followed, so nothing outside `path` is
+--- touched -- not even by a process that swaps an entry for a link
+--- while this walks, which is
 --- removed with the rest: the walk is by descriptor, from each directory
 --- to its entries. A path that is already gone is not a failure. A
 --- directory that cannot be opened, or that something keeps filling,
@@ -642,8 +643,11 @@ local descriptor_mt: metatable<Descriptor> = {
 
 local scratch_mt: metatable<Fs.Scratch> = {
   __close = function(self: Fs.Scratch)
+    -- A second close would close whatever descriptor reused `owner`.
+    if self.owner < 0 then return end
     local _, _ = Fs.remove_tree(self.path)
     local _, _ = sys.close(self.owner)
+    self.owner = -1
   end,
 }
 
@@ -656,7 +660,9 @@ local scratch_mt: metatable<Fs.Scratch> = {
 --- other live processes, even in other namespaces or containers sharing
 --- `parent`, are never touched. A name the sweep does not recognize, or
 --- a directory with no owner file, is left alone. The directory holds
---- one file, `owner`, so work goes in a subdirectory of it.
+--- one file, `owner`, so work goes in a subdirectory of it. A relative
+--- `parent` gives a relative path, which a change of directory before
+--- the close would point elsewhere.
 ---
 --- The gate is locked by every call from before its sweep until the new
 --- directory's owner is locked, so no sweep sees a directory whose owner
@@ -673,8 +679,12 @@ function Fs.scratch(parent: string): Fs.Scratch | nil, string
   local names, list_trouble = Fs.list(parent)
   if names == nil then return nil, list_trouble end
   for _, name in ipairs(names) do
-    -- PID-only names belong to old tools and say nothing about ownership
-    -- across namespaces. Missing owner files are also left alone.
+    -- A name not of this form is not this function's to sweep, and one
+    -- with no owner file has nothing to prove its holder dead.
+    -- TODO: a removal that fails after deleting `owner` leaves a directory
+    -- no later sweep proves dead, so it stays; remove `owner` last (or
+    -- sweep an ownerless directory older than the gate's last hold) to
+    -- reclaim it.
     if name:match("^%.scratch%.[%w]+$") then
       local path = parent .. "/" .. name
       local owner, _ = sys.open(path .. "/owner", sys.O_RDWR | sys.O_NOFOLLOW)

@@ -367,6 +367,27 @@ local function test_scratch_holds_its_owner_lock_while_open(tmp: string)
   local _, _ = sys.close(other)
 end
 
+local function test_a_second_close_of_a_scratch_leaves_a_reused_descriptor(tmp: string)
+  local scratch = assert(Fs.scratch(tmp))
+  local close = (getmetatable(scratch) as metatable<Fs.Scratch>).__close as function(Fs.Scratch)
+  local owner = scratch.owner
+  close(scratch)
+  local opened: {integer} = {}
+  local reused: integer
+  for i = 1, 64 do
+    local fd = assert(sys.open(tmp .. "/reused" .. i, sys.O_RDWR | sys.O_CREAT, 0x180))
+    opened[#opened + 1] = fd
+    if fd == owner then
+      reused = fd
+      break
+    end
+  end
+  assert(reused ~= nil, "open hands the freed descriptor out again")
+  close(scratch)
+  assert(sys.fstat(reused) ~= nil, "a second close must not close the descriptor open reused")
+  for _, fd in ipairs(opened) do local _, _ = sys.close(fd) end
+end
+
 local function test_scratch_sweeps_only_a_provably_dead_owner(tmp: string)
   local dead = tmp .. "/.scratch.dead"
   assert(Fs.mkdirs(dead))
