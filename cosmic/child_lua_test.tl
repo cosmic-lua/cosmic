@@ -549,19 +549,25 @@ end
 --- `end_strays` ends a stray whatever it calls itself: one named as a
 --- sandbox's init is (/proc/<pid>/comm), since only the process table's
 --- own record says which children are inits. The stray is orphaned to
---- this process, which adopts it, in the worker's pid namespace.
+--- this process, which adopts it, in the worker's pid namespace. It has
+--- the name by the one it is run by, a link to this program, which exec
+--- gives its comm, and not by a write to /proc/self/comm, which a policy
+--- grants no process of a sandbox.
 --- Only where /proc lists a process's children does `end_strays` find
 --- any (Linux, as the guard test's zombie check finds /proc there).
-local function test_end_strays_ends_a_stray_named_as_an_init()
+local function test_end_strays_ends_a_stray_named_as_an_init(tmp: string)
   if not path_exists("/proc/thread-self/children") then return end
+  local link = tmp .. "/cosmic-init"
+  assert(Fs.symlink(this_program.program({}).argv[1], link))
   do
     -- A group started first makes this process the subreaper it adopts
     -- the stray as.
     assert(Child.run(lua("")))
-    local r = assert(Child.run(lua(AGAIN .. "local h = again([=[" .. SYS ..
-        'local fd = assert(sys.open("/proc/self/comm", sys.O_WRONLY)) ' ..
-        'assert(sys.write(fd, "cosmic-init")) while true do ' .. sleep(1000) .. "end]=], " ..
-        '{ process_group = false, stdout = "null", stderr = "null" }) ' .. FS ..
+    local r = assert(Child.run(lua(AGAIN .. 'local started = this_program.program({ "-e", [=[' ..
+        "while true do " .. sleep(1000) .. "end]=] }, " ..
+        '{ process_group = false, stdout = "null", stderr = "null" }) ' ..
+        "started.argv[1] = " .. string.format("%q", link) .. " " ..
+        "local h = assert(Child.start(started.argv, started.options)) " .. FS ..
         'Fs.put(1, tostring(h.pid)) require("cosmic.sys").exit(0)', nil,
       { stdout = "capture", process_group = false })))
     local pid = assert(math.tointeger(tonumber(r.stdout)))
