@@ -13,12 +13,10 @@
 --- `--opt=value` are both taken and help lists exactly what is read.
 ---
 --- THE POLICY is each flag's field of a [`Sandbox.Policy`], written as the
---- JSON a policy file holds and read back by [`Sandbox.decode`], so a flag
---- and a file are judged by one strict decoder, which names what it
---- refuses by JSON Pointer. `--policy FILE` (once or more) is decoded the
---- same way and merged with the flags by [`Sandbox.merge`]: a file adds to
---- what the line grants like another line of flags, and cannot be told
---- apart from one. Nothing narrows a grant yet.
+--- JSON a policy holds and read back by [`Sandbox.decode`], so a flag is
+--- judged by the strict decoder, which names what it refuses by JSON
+--- Pointer. There are no policy files: they wait on the design's
+--- narrow-only form, since a file is input from elsewhere.
 ---
 --- Like `cosmic json` it ends in no verdict line, and prints nothing of
 --- its own when the program starts: its exit status is the program's.
@@ -119,10 +117,8 @@ local limits <const>: {{string}} = {
 
 --- What the line holds besides the policy.
 local record Request
-  --- The policy the flags give, as a policy file's JSON.
+  --- The policy the flags give, as the JSON a policy holds.
   json: string
-  --- The `--policy` files, in order.
-  files: {string}
   --- The descriptors to hand the program.
   fds: {integer:integer}
   --- The wall-clock limit, in nanoseconds, or nil for none.
@@ -131,7 +127,7 @@ local record Request
   argv: {string}
 end
 
---- The policy `parsed` names, as the table a policy file's JSON holds.
+--- The policy `parsed` names, as the table a policy's JSON holds.
 local function table_of(parsed: Flags.Parsed): {string:any} | nil, string
   local policy: {string:any} = {}
   local function list(name: string): {string}
@@ -217,7 +213,7 @@ local function request_of(argv: {integer:string}): Request | nil, string
   local json, json_why = Json.encode(policy)
   if json == nil then return nil, json_why end
   local request: Request = {
-    json = json, files = parsed.all["--policy"] or {}, fds = {}, argv = {},
+    json = json, fds = {}, argv = {},
   }
   for _, text in ipairs(parsed.all["--fd"] or {}) do
     local number = whole(text, 3, 255)
@@ -240,22 +236,9 @@ local function request_of(argv: {integer:string}): Request | nil, string
   return request, ""
 end
 
---- The policy `request` holds, flags and files joined: nil and why it is
---- refused.
+--- The policy `request` holds, or nil and why it is refused.
 local function policy_of(request: Request): Sandbox.Policy | nil, string
-  local flags, why = Sandbox.decode(request.json)
-  if flags == nil then return nil, why end
-  if #request.files == 0 then return flags, "" end
-  local policies: {Sandbox.Policy} = {}
-  for _, file in ipairs(request.files) do
-    local text, read_why = Fs.read(file)
-    if text == nil then return nil, "--policy " .. file .. ": " .. read_why end
-    local policy, decode_why = Sandbox.decode(text)
-    if policy == nil then return nil, "--policy " .. file .. ": " .. decode_why end
-    policies[#policies + 1] = policy
-  end
-  policies[#policies + 1] = flags
-  return Sandbox.merge(table.unpack(policies))
+  return Sandbox.decode(request.json)
 end
 
 --- The exit status for a program that could not be started, given that

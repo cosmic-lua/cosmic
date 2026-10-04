@@ -194,34 +194,6 @@ local function test_the_other_values_are_the_decoders_too()
   assert(refused({ "--env", "A=B", "prog" }).err:find("/env/0", 1, true))
 end
 
-local function test_a_policy_file_is_read_strictly_and_joined_with_the_options(tmp: string)
-  assert(Fs.write(tmp .. "/p.json",
-    '{"grants":[{"path":"a","letters":"r"}],"promises":["fork"],"limits":{"open_files":8}}'))
-  local ran = run({ "--policy", tmp .. "/p.json", "--write", "a", "--promise", "jit", "prog" })
-  assert(ran.code == 0, ran.err)
-  local policy = ran.opts.policy
-  assert(letters(policy, "a") == "rwc", "the letters are joined: " .. letters(policy, "a"))
-  same(policy.promises, { "fork", "jit" })
-  assert(policy.limits.open_files == 8)
-  assert(ran.err == "")
-
-  assert(Fs.write(tmp .. "/q.json", '{"tmp":true}'))
-  ran = run({ "--policy", tmp .. "/p.json", "--policy", tmp .. "/q.json", "prog" })
-  assert(ran.opts.policy.tmp == true and letters(ran.opts.policy, "a") == "r")
-
-  assert(Fs.write(tmp .. "/typo.json", '{"grant":[]}'))
-  local typo = refused({ "--policy", tmp .. "/typo.json", "prog" })
-  assert(typo.err:find("typo.json", 1, true) and typo.err:find("unknown key", 1, true), typo.err)
-  assert(Fs.write(tmp .. "/bad.json", '{"grants":[{"path":"a","letters":"xr"}]}'))
-  assert(refused({ "--policy", tmp .. "/bad.json", "prog" }).err:find("/grants/0/letters", 1, true))
-  assert(Fs.write(tmp .. "/junk.json", "not json"))
-  refused({ "--policy", tmp .. "/junk.json", "prog" })
-  local missing = refused({ "--policy", tmp .. "/no-such.json", "prog" })
-  assert(missing.err:find("no-such.json", 1, true), missing.err)
-  local clash = refused({ "--policy", tmp .. "/p.json", "--open-files", "9", "prog" })
-  assert(clash.err:find("open_files", 1, true), clash.err)
-end
-
 local function test_a_connect_is_left_to_the_start_to_refuse(tmp: string)
   assert(Fs.write(tmp .. "/there", "x"))
   local ran = run({ "--connect", "github.com:443", tmp .. "/there" },
@@ -288,12 +260,11 @@ local exempt <const>: {string:string} = {
     "and no value cannot start a program, so a command line has no use for it",
 }
 
---- The options that set no field of the policy by themselves: the files
---- joined in, the descriptors handed over and the wall-clock limit, and
---- the ones that give a field another option gives (checked in
+--- The options that set no field of the policy by themselves: the descriptors handed over and the
+--- wall-clock limit, and the ones that give a field another option gives (checked in
 --- test_each_option_sets_its_field).
 local others <const>: {string:boolean} = {
-  ["--policy"] = true, ["--fd"] = true, ["--timeout"] = true,
+  ["--fd"] = true, ["--timeout"] = true,
   ["--run"] = true, ["--write"] = true, ["--path"] = true, ["--cosmic"] = true,
 }
 
@@ -336,8 +307,9 @@ local function test_every_policy_field_has_a_flag()
     local set = (policy_after(words).limits as {string:any})
     assert(set ~= nil and set[name] == 5, words[1] .. " does not set Policy.limits." .. name)
   end
-  -- A grant's path and letters are one option's; where it is bound from
-  -- is a policy file's alone.
+  -- A grant's path and letters are one option's. `from` has none: it needs
+  -- isolate file and names a host path; it waits on policy files (the
+  -- design's Roadmap).
   for _, name in ipairs(POLICY.spec.fields.grants.of.names) do
     assert(name == "path" or name == "letters" or name == "from", "Policy.grants[]." .. name ..
         " has no flag: add one, and say so here")

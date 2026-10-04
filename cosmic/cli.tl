@@ -511,10 +511,7 @@ local record Cli
   --- `--read`, `--run` and `--write` grant a path as `r`, `rx` and `rwc`;
   --- `--path` names the letters itself, of `rwxcu` in that order (`rwxc:.`),
   --- each once. A path is relative to the working directory and must
-  --- exist. `--policy FILE` reads a policy from a JSON file, strictly
-  --- (`cosmic docs cosmic.sandbox` names its fields), and joins it with
-  --- the options as another line of them would: it adds, and narrows
-  --- nothing. `--connect` is refused until the relay it needs exists. Each
+  --- exist. `cosmic docs cosmic.sandbox` names the policy's fields. `--connect` is refused until the relay it needs exists. Each
   --- option is one field of the policy, and a number is a whole one. The
   --- program's standard streams are this program's own, and it gets no
   --- other descriptor but those `--fd` names. Nothing is printed when it
@@ -795,7 +792,6 @@ local module: Module = {
         ["--processes"] = { value = "n", about = "the most processes and threads of the whole sandbox" },
         ["--fd"] = { value = "n", about = "hand it descriptor n (3 to 255), as the same number" },
         ["--timeout"] = { value = "seconds", about = "end it after this many whole seconds" },
-        ["--policy"] = { value = "file", about = "join in a policy file, which is read strictly" },
       },
     },
     help = {
