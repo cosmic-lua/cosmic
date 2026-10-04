@@ -15,6 +15,7 @@ local Proc = require("cosmic.proc")
 local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
+local confine = require("build.confine")
 local sandbox_skip = require("build.sandbox_skip")
 local searchable = require("build.searchable")
 local stand_in = require("build.stand_in")
@@ -33,6 +34,15 @@ local function unsandboxable(why: string): boolean
     if why:find(word, 1, true) then return true end
   end
   return false
+end
+
+--- Whether this platform cannot sandbox at all, which skips a test whose
+--- start would be refused for that before what it checks: off Linux a
+--- policy's start never runs, whatever its grants or descriptors.
+local function no_sandbox_here(): boolean
+  if confine.sandbox_platform() then return false end
+  sandbox_skip.refused("a policy holds a program only on Linux")
+  return true
 end
 
 --- What a program left and how it ended.
@@ -166,6 +176,7 @@ local function test_nest_holds_files_by_the_root_alone(tmp: string)
 end
 
 local function test_nest_hands_no_directory_nor_half_open_file(tmp: string)
+  if no_sandbox_here() then return end
   local at = placed(tmp)
   local policy: Sandbox.Policy = { isolate = { "file" }, promises = { "nest" }, grants = at.grants }
   local plain: Sandbox.Policy = { isolate = { "file" }, grants = at.grants }
@@ -302,6 +313,7 @@ print "wrote_ro=$wrote_ro\n";
 ]==]
 
 local function test_a_nested_program_cannot_widen_what_it_was_given(tmp: string)
+  if no_sandbox_here() then return end
   local perl = Proc.find("perl")
   if perl == nil then return end
   local at = placed(tmp)
