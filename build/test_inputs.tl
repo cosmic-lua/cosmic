@@ -5,8 +5,9 @@
 --- A test's default inputs are
 ---
 --- - its module's import closure, as source files: its own file and
----   the file of every module it requires, directly or not, as the
----   build's module graph has them, or the declaration file of one
+---   the file of every module it requires, directly or not, by value
+---   (a `local type` require of a module is no edge: see `closure`), as
+---   the build's module graph has them, or the declaration file of one
 ---   only a declaration answers for;
 --- - every fuzz corpus (`testdata/fuzz/`, where [`build.fuzz`] looks),
 ---   when the closure holds [`build.fuzz`]; and
@@ -206,6 +207,17 @@ local corpora <const> = "testdata/fuzz/"
 --- declaration files by import path, answers for. Whether [`build.fuzz`]
 --- is among them rides along, and so do the modules' names, sorted.
 ---
+--- `type_only` names the edges not followed (importer path, then required
+--- name): the `local type` requires of a module, which Teal erases, so
+--- that nothing of what the required module is loads when the importer
+--- runs ([`build.test`]'s `type_only_imports`). What the imported type
+--- does at run time (an `is` against a record's `where`, an enum's
+--- test) is compiled into the importer's bytecode, which the closure
+--- holds. A test module's own requires are all followed, so
+--- `local type _ = require("x")` in a test still brings `x` -- its
+--- source and declarations, for a snippet the test type-checks -- into
+--- its closure.
+---
 --- `requires` holds only the literal names handed to `require` itself,
 --- so a `require` of a computed name -- or, until [`build.ast.requires`]
 --- follows it (the TODO in build/embed.tl), of a literal one through
@@ -222,7 +234,8 @@ local corpora <const> = "testdata/fuzz/"
 --- build.teal ([`build.closure_store`]'s `loaded_beside`), as it holds every
 --- module of the closure by what the compiler made of it.
 local function closure(m: Module, by_path: {string:Module},
-                       declarations: {string:string}): {string}, boolean, {string}
+                       declarations: {string:string},
+                       type_only?: {string:{string:boolean}}): {string}, boolean, {string}
   local seen: {string:boolean} = {}
   local files: {string} = {}
   local names: {string} = {}
@@ -234,10 +247,13 @@ local function closure(m: Module, by_path: {string:Module},
       seen[here.path] = true
       files[#files + 1] = here.file
       names[#names + 1] = here.path
+      local erased = type_only ~= nil and type_only[here.path] or {}
       for _, name in ipairs(here.requires) do
         local other = by_path[name]
         if name == "build.fuzz" then fuzzes = true end
-        if other ~= nil and not seen[name] then
+        if erased[name] then
+          -- Loads nothing, so no part of the closure.
+        elseif other ~= nil and not seen[name] then
           stack[#stack + 1] = other
         elseif other == nil and declarations[name] ~= nil and not seen[name] then
           seen[name] = true
@@ -276,8 +292,9 @@ end
 --- requires that only a declaration of `declarations` answers for --
 --- what a worker lets its tests `require` of the tree.
 function test_inputs.modules(m: Module, by_path: {string:Module},
-                             declarations: {string:string}): {string}
-  local _, _, names = closure(m, by_path, declarations)
+                             declarations: {string:string},
+                             type_only?: {string:{string:boolean}}): {string}
+  local _, _, names = closure(m, by_path, declarations, type_only)
   return names
 end
 
@@ -294,7 +311,8 @@ end
 --- every module the build compiled, by path, and `declarations` every
 --- declaration file of the tree (`<path>.d.tl`), by import path.
 function test_inputs.effective(m: Module, by_path: {string:Module},
-                               declarations: {string:string}): test_inputs.Effective
+                               declarations: {string:string},
+                               type_only?: {string:{string:boolean}}): test_inputs.Effective
   local out: test_inputs.Effective = {
     files = {}, reads = {}, host = {}, env = {}, network = {},
     tool = false, lua = false, standalone = false, nests = false, noexec = false, noexec_ready = false,
@@ -302,7 +320,7 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
     system = false, caches = {},
     cache_paths = {}, variables = {}, named = {}, spelled = {}, located = {}, unresolved = "",
   }
-  local files, fuzzes = closure(m, by_path, declarations)
+  local files, fuzzes = closure(m, by_path, declarations, type_only)
   for _, file in ipairs(files) do out.files[file] = true end
   -- Every corpus, not only the ones the module names: a property's
   -- name may be computed, and corpora are small.

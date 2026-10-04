@@ -23,9 +23,9 @@
  * whose notice heads this file and whose commit is recorded in
  * build/bom/cosmopolitan.pin. Where that file
  * names promises after OpenBSD's pledge(2) and filters by the calls a
- * promise needs, this one is an allow list over three promises (`fork`,
- * `jit`, `fattr`) and the basics every program has, for a sandbox whose
- * paths Landlock holds: a call that opens, creates or changes a file is a
+ * promise needs, this one is an allow list over four promises (`fork`,
+ * `jit`, `fattr`, `nest`) and the basics every program has, for a sandbox
+ * whose paths Landlock holds (or, under `nest`, whose root does): a call that opens, creates or changes a file is a
  * basic, since which files it reaches is Landlock's to say. Landlock does
  * not cover the calls that only look (stat, access, readlink, getxattr,
  * statfs, inotify_add_watch); only a root of the program's own that
@@ -67,13 +67,6 @@
 #include "process.h"
 #include "promises.h"
 #include "promises_calls.h"
-
-/* The promises, as a set of bits: `fork` is fork and clone without a
- * namespace flag, `jit` anonymous executable memory, `fattr` changing a
- * file's mode, times, owner and extended attributes. */
-#define COSMIC_PROMISE_FORK 0x1u
-#define COSMIC_PROMISE_JIT 0x2u
-#define COSMIC_PROMISE_FATTR 0x4u
 
 /* The architectures a filter is written for. */
 enum cosmic_arch { COSMIC_ARCH_X86_64, COSMIC_ARCH_AARCH64 };
@@ -164,20 +157,28 @@ enum rule {
   RULE_MMAP,
   RULE_MPROTECT,
   RULE_MEMFD,
-  /* clone: a thread only; and any but one into a namespace. */
+  /* clone: a thread only; any but one into a namespace; and, for a
+   * program that builds a sandbox, one into the namespaces `nest` names. */
   RULE_CLONE_THREAD,
   RULE_CLONE_FORK,
-  /* Held to one argument, which no promise loosens. */
+  RULE_CLONE_NEST,
+  /* Held to one argument, which a promise loosens only where a rule of
+   * its own says so (the `_NEST` ones). */
   RULE_PID_SELF,
   RULE_PID_SELF_OR_ZERO,
   RULE_PRLIMIT,
+  RULE_PRLIMIT_NEST,
   RULE_PRIORITY,
   RULE_SCHED_POLICY,
   RULE_MADVISE,
   RULE_FCNTL,
   RULE_IOCTL,
   RULE_PRCTL,
+  RULE_PRCTL_NEST,
+  RULE_UNSHARE_NEST,
   RULE_SOCKET_UNIX,
+  RULE_SOCKET_INET,
+  RULE_SOCKET_UNIX_INET,
   RULE_OPEN,
   RULE_OPENAT,
   RULE_MODE1,
@@ -205,7 +206,7 @@ struct grant {
  * Every call left out answers EPERM:
  * - setrlimit, and a prlimit64 that sets: a sandbox's limits are not the
  *   program's to move.
- * - SysV IPC, chroot, mount and the namespace calls.
+ * - SysV IPC, chroot, mount and the namespace calls, which `nest` grants.
  * - pidfd_send_signal, which signals through a descriptor no pid rule sees.
  * - vmsplice.
  * - The never-allowed set (ptrace, bpf, io_uring, ...), which no table names.
@@ -286,12 +287,61 @@ static const struct grant basics[] = {
   A(file_getattr),
 };
 
-/* TODO: the `nest` promise -- unshare, mount and pivot_root, which reach
- * only a program's own namespaces, for a program that builds a sandbox of
- * its own -- once phase 2 of the sandbox plan (doc/plans/sandbox.md on
- * the unveil-landlock-cli branch: `isolate file`, which `nest` needs, and
- * a Landlock hold it gives up, since Landlock refuses mounts) lands;
- * until then every namespace call is refused, whatever was promised. */
+/* `nest`: what a program needs to build a sandbox of its own, as
+ * [`Child.start`] with a policy does: namespaces, a root in them, and
+ * the limits and capabilities it then sets. It is granted only to a
+ * program in a root of its own (`isolate file`), which holds its files
+ * instead of Landlock, since the kernel refuses a mount to a process a
+ * Landlock ruleset holds.
+ *
+ * What each reaches is the program's own: a user namespace made here is
+ * its own user namespace's child, in which its user is mapped and holds
+ * what that namespace gives, over the namespaces it makes in it alone;
+ * a mount is in a mount namespace it made, whose mounts it was given
+ * locked (a read-only, noexec or nosuid mount of the root it copies
+ * cannot be made writable, executable or setuid, nor unmounted to show
+ * what is beneath); and setns, which could join a namespace of the
+ * host through a descriptor it holds, is never granted.
+ * - unshare, only of the user, mount, pid, IPC and network namespaces
+ *   (RULE_UNSHARE_NEST): not cgroup, whose filesystem would then be
+ *   mountable, UTS, which a program that builds a sandbox needs none of,
+ *   or time.
+ * - mount, umount2, pivot_root, and open_tree, move_mount and
+ *   mount_setattr, which a mount of an idmapped tree and a flag
+ *   change are made with.
+ * - clone into those namespaces, and with CLONE_PARENT, as a start from
+ *   a sandbox of its own makes its init: only beside `fork`, which is
+ *   what makes a process.
+ * - prctl's PR_CAPBSET_DROP and PR_CAP_AMBIENT, which give capabilities
+ *   up, and setrlimit and prlimit64 that set, which a process may only
+ *   lower without a capability the host's user namespace gives.
+ * - signals to any process, not only its own: a sandbox that starts one
+ *   of its own ends and reaps it by pid and group. They reach only the
+ *   processes of the pid namespace the program is in, which `isolate
+ *   file` gives and the start of `nest` requires (core/syscalls.c's
+ *   `spawn`), and it has no Landlock signal scope to make it so.
+ * The calls that only the filesystem a mount shows or the host's own
+ * namespaces could make dangerous (setns, fsopen and its kind, chroot,
+ * sethostname) stay refused.
+ *
+ * Limits left, which no rule of this filter can close, since it cannot
+ * tell one file system or one process from another by an argument that
+ * is a string or a pid's parent:
+ * - A procfs the program mounts in a pid namespace of its own shows what
+ *   the host's /proc shows a user (the processor and memory files, the
+ *   version, the sysctls it may read; writes are refused): the sandbox's
+ *   own /proc is subset=pid, a mount of its own is not. A sysfs it tries
+ *   is refused, the root having none for the kernel to find visible.
+ * - A tmpfs it mounts is as large as its memory lets it, not `tmp`'s size.
+ * - clone's CLONE_PARENT from the sandbox's first process gives the host
+ *   process that started it a child, one inside the sandbox that the
+ *   host process then has to reap. */
+static const struct grant nest_calls[] = {
+  R(unshare, UNSHARE_NEST), A(mount), A(umount2), A(pivot_root),
+  A(mount_setattr), A(open_tree), A(move_mount), A(setrlimit),
+  R(prlimit64, PRLIMIT_NEST), R(prctl, PRCTL_NEST), A(kill), A(tgkill), A(tkill),
+  A(rt_sigqueueinfo), A(rt_tgsigqueueinfo),
+};
 
 /* `fork`: a process of its own, and the descriptor to wait for it on. */
 static const struct grant fork_calls[] = {
@@ -362,6 +412,8 @@ static const struct grant fattr_calls[] = {
 #define TYPE_FIFO 0x1000u
 #define TYPE_SOCKET 0xc000u
 #define AF_UNIX_FAMILY 1u
+#define AF_INET_FAMILY 2u
+#define AF_INET6_FAMILY 10u
 #define SCHED_RESET_ON_FORK_BIT 0x40000000u
 
 /* clone's flags: the namespaces (CLONE_NEWNS, CLONE_NEWCGROUP, UTS, IPC,
@@ -370,6 +422,11 @@ static const struct grant fattr_calls[] = {
  * The low byte is the signal the child ends with, not a flag. */
 #define CLONE_NAMESPACES 0x7e020000u
 #define CLONE_FORBIDDEN (CLONE_NAMESPACES | 0x2000u | 0x8000u)
+
+/* What `nest` lets a process make: the user, mount, pid, IPC and network
+ * namespaces, and clone's CLONE_PARENT. */
+#define NEST_NAMESPACES 0x78020000u
+#define CLONE_FORBIDDEN_NEST ((CLONE_NAMESPACES & ~NEST_NAMESPACES) | 0x2000u)
 #define CLONE_THREAD_REQUIRED (0x100u | 0x400u | 0x800u | 0x10000u)
 
 /* What a rule's block is built with: instructions appended to `code`,
@@ -488,6 +545,10 @@ static const uint32_t prctl_options[] = {
   0x53564d41,
 };
 
+/* The prctl options `nest` adds: PR_CAPBSET_DROP and PR_CAP_AMBIENT, with
+ * which a sandbox's start gives up the capabilities its namespace gave. */
+static const uint32_t nest_prctl_options[] = { 24, 47 };
+
 /* The scheduling policies a program may set itself to: SCHED_OTHER,
  * SCHED_BATCH and SCHED_IDLE, none of which is real-time. */
 static const uint32_t sched_policies[] = { 0, 3, 5 };
@@ -553,6 +614,17 @@ static void rule_block (struct builder *b, enum rule rule, uint32_t pid, enum co
     load(&k, DATA_ARGUMENT(0) + DATA_LOW);
     test(&k, OP_ANY_SET, CLONE_FORBIDDEN, JUMP_DENY, JUMP_ALLOW);
     break;
+    case RULE_CLONE_NEST:
+    load(&k, DATA_ARGUMENT(0) + DATA_LOW);
+    test(&k, OP_ANY_SET, CLONE_FORBIDDEN_NEST, JUMP_DENY, JUMP_ALLOW);
+    break;
+    case RULE_UNSHARE_NEST:
+    /* Only the namespaces `nest` names; the kernel refuses a flag it
+     * does not know, past the low 32 bits too. */
+    load(&k, DATA_ARGUMENT(0) + DATA_LOW);
+    mask(&k, ~NEST_NAMESPACES);
+    test(&k, OP_EQ, 0, JUMP_ALLOW, JUMP_DENY);
+    break;
     case RULE_PID_SELF:
     /* A tid equal to the pid is the thread group leader's own, so
      * tkill takes this rule too.
@@ -578,6 +650,12 @@ static void rule_block (struct builder *b, enum rule rule, uint32_t pid, enum co
     test(&k, OP_EQ, 0, JUMP_NEXT, JUMP_DENY);
     load(&k, DATA_ARGUMENT(2) + DATA_HIGH);
     test(&k, OP_EQ, 0, JUMP_ALLOW, JUMP_DENY);
+    break;
+    case RULE_PRLIMIT_NEST:
+    /* Its own limits, read or set: it may lower them. */
+    load(&k, DATA_ARGUMENT(0) + DATA_LOW);
+    test(&k, OP_EQ, 0, JUMP_ALLOW, JUMP_NEXT);
+    test(&k, OP_EQ, pid, JUMP_ALLOW, JUMP_DENY);
     break;
     case RULE_PRIORITY:
     /* PRIO_PROCESS (0) of the calling process, which `who` 0 names:
@@ -612,10 +690,24 @@ static void rule_block (struct builder *b, enum rule rule, uint32_t pid, enum co
     load(&k, DATA_ARGUMENT(0) + DATA_LOW);
     allow_one_of(&k, prctl_options, sizeof prctl_options / sizeof prctl_options[0]);
     break;
+    case RULE_PRCTL_NEST:
+    load(&k, DATA_ARGUMENT(0) + DATA_LOW);
+    allow_one_of(&k, prctl_options, sizeof prctl_options / sizeof prctl_options[0]);
+    allow_one_of(&k, nest_prctl_options, sizeof nest_prctl_options / sizeof nest_prctl_options[0]);
+    break;
     case RULE_SOCKET_UNIX:
     /* The family is the first argument of socket and socketpair. */
     load(&k, DATA_ARGUMENT(0) + DATA_LOW);
     test(&k, OP_EQ, AF_UNIX_FAMILY, JUMP_ALLOW, JUMP_DENY);
+    break;
+    case RULE_SOCKET_INET:
+    case RULE_SOCKET_UNIX_INET:
+    /* Only the families: netlink and packet sockets (16, 17) stay
+     * refused, and a raw one needs a capability no program has. */
+    load(&k, DATA_ARGUMENT(0) + DATA_LOW);
+    if (rule == RULE_SOCKET_UNIX_INET) test(&k, OP_EQ, AF_UNIX_FAMILY, JUMP_ALLOW, JUMP_NEXT);
+    test(&k, OP_EQ, AF_INET_FAMILY, JUMP_ALLOW, JUMP_NEXT);
+    test(&k, OP_EQ, AF_INET6_FAMILY, JUMP_ALLOW, JUMP_DENY);
     break;
     case RULE_OPEN:
     case RULE_OPENAT: {
@@ -708,20 +800,29 @@ static void add (uint8_t *rules, const struct grant *table, size_t count) {
 
 /* Writes to `out`, room for COSMIC_PROMISE_INSNS, the program that holds
  * a process of `arch` and pid `pid` to `promises`, and answers how many
- * instructions it is, or 0 where it did not fit. `unix_sockets` lets it
- * make a unix socket (socket(AF_UNIX)); a socketpair of one it always
- * may. Nothing in it depends on the host. */
+ * instructions it is, or 0 where it did not fit. `sockets`
+ * (COSMIC_SOCKETS_ bits) lets it make a socket of those families --
+ * socket(AF_UNIX), AF_INET and AF_INET6 -- a socketpair of unix ones it
+ * always may. Nothing in it depends on the host. */
 static size_t program_for (struct cosmic_insn *out, enum cosmic_arch arch,
-                                      unsigned promises, bool unix_sockets, uint32_t pid) {
+                                      unsigned promises, unsigned sockets, uint32_t pid) {
   const short *numbers = arch == COSMIC_ARCH_X86_64 ? x86_64_numbers : aarch64_numbers;
   uint32_t audit = arch == COSMIC_ARCH_X86_64 ? AUDIT_X86_64 : AUDIT_AARCH64;
   uint8_t rules[CALL_COUNT];
   memset(rules, 0, sizeof rules);
   ADD(basics);
-  if (unix_sockets) rules[CALL_socket] = RULE_SOCKET_UNIX;
+  if (sockets == COSMIC_SOCKETS_UNIX) rules[CALL_socket] = RULE_SOCKET_UNIX;
+  else if (sockets == COSMIC_SOCKETS_INET) rules[CALL_socket] = RULE_SOCKET_INET;
+  else if (sockets == (COSMIC_SOCKETS_UNIX | COSMIC_SOCKETS_INET))
+    rules[CALL_socket] = RULE_SOCKET_UNIX_INET;
   if (promises & COSMIC_PROMISE_FORK) ADD(fork_calls);
   if (promises & COSMIC_PROMISE_JIT) ADD(jit_calls);
   if (promises & COSMIC_PROMISE_FATTR) ADD(fattr_calls);
+  if (promises & COSMIC_PROMISE_NEST) {
+    ADD(nest_calls);
+    /* A sandbox's start makes processes, which is `fork`'s. */
+    if (promises & COSMIC_PROMISE_FORK) rules[CALL_clone] = RULE_CLONE_NEST;
+  }
 
   /* The calls this architecture has a number for, in number order. */
   struct entry entries[CALL_COUNT];
@@ -771,6 +872,7 @@ unsigned cosmic_promise_named (const char *name) {
   if (strcmp(name, "fork") == 0) return COSMIC_PROMISE_FORK;
   if (strcmp(name, "jit") == 0) return COSMIC_PROMISE_JIT;
   if (strcmp(name, "fattr") == 0) return COSMIC_PROMISE_FATTR;
+  if (strcmp(name, "nest") == 0) return COSMIC_PROMISE_NEST;
   return 0;
 }
 
@@ -780,7 +882,7 @@ const int cosmic_promise_headers_end = __NR_syscalls;
 const int cosmic_promise_headers_end = 0;
 #endif
 
-int cosmic_promises_apply (unsigned promises) {
+int cosmic_promises_apply (unsigned promises, unsigned sockets) {
 #if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__))
 #if defined(__x86_64__)
   enum cosmic_arch arch = COSMIC_ARCH_X86_64;
@@ -788,11 +890,7 @@ int cosmic_promises_apply (unsigned promises) {
   enum cosmic_arch arch = COSMIC_ARCH_AARCH64;
 #endif
   struct cosmic_insn code[COSMIC_PROMISE_INSNS];
-  /* TODO: allow a unix socket (`unix_sockets`) for a program that is
-   * granted one (`u`), once the sandbox plan's phase 1 Landlock grants
-   * land and `spawn` has a way to ask: until then only a socketpair is
-   * made. */
-  size_t length = program_for(code, arch, promises, false, (uint32_t)getpid());
+  size_t length = program_for(code, arch, promises, sockets, (uint32_t)getpid());
   if (length == 0) return ENOSPC;
   if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) return errno;
   _Static_assert(sizeof(struct sock_filter) == sizeof(struct cosmic_insn), "one instruction");
@@ -801,6 +899,7 @@ int cosmic_promises_apply (unsigned promises) {
   return 0;
 #else
   (void)promises;
+  (void)sockets;
   return ENOSYS;
 #endif
 }
@@ -812,7 +911,7 @@ COSMIC_SYSCALL(promise_filter, 3) {
   for (lua_Integer i = 1; i <= listed; i++) {
     lua_rawgeti(L, 1, i);
     unsigned bit = lua_type(L, -1) == LUA_TSTRING ? cosmic_promise_named(lua_tostring(L, -1)) : 0;
-    if (bit == 0) return luaL_argerror(L, 1, "a promise is \"fork\", \"jit\" or \"fattr\"");
+    if (bit == 0) return luaL_argerror(L, 1, "a promise is \"fork\", \"jit\", \"fattr\" or \"nest\"");
     promises |= bit;
     lua_pop(L, 1);
   }
@@ -822,7 +921,7 @@ COSMIC_SYSCALL(promise_filter, 3) {
   else if (strcmp(name, "aarch64") == 0) arch = COSMIC_ARCH_AARCH64;
   else return luaL_argerror(L, 2, "an architecture is \"x86_64\" or \"aarch64\"");
   lua_Integer pid = 1;
-  bool unix_sockets = false;
+  unsigned sockets = 0;
   if (!lua_isnoneornil(L, 3)) {
     luaL_checktype(L, 3, LUA_TTABLE);
     lua_getfield(L, 3, "pid");
@@ -831,11 +930,13 @@ COSMIC_SYSCALL(promise_filter, 3) {
       if (pid < 1 || pid > INT32_MAX) return luaL_argerror(L, 3, "pid must be a positive integer");
     }
     lua_getfield(L, 3, "unix");
-    unix_sockets = lua_toboolean(L, -1);
-    lua_pop(L, 2);
+    if (lua_toboolean(L, -1)) sockets |= COSMIC_SOCKETS_UNIX;
+    lua_getfield(L, 3, "inet");
+    if (lua_toboolean(L, -1)) sockets |= COSMIC_SOCKETS_INET;
+    lua_pop(L, 3);
   }
   struct cosmic_insn code[COSMIC_PROMISE_INSNS];
-  size_t length = program_for(code, arch, promises, unix_sockets, (uint32_t)pid);
+  size_t length = program_for(code, arch, promises, sockets, (uint32_t)pid);
   if (length == 0) return luaL_error(L, "the filter does not fit");
   lua_pushlstring(L, (const char *)code, length * sizeof code[0]);
   return 1;

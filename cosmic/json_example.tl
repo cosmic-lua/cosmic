@@ -2,6 +2,7 @@
 --- `cosmic test`.
 
 local Json = require("cosmic.json")
+local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
 
 local Example = {}
@@ -15,6 +16,27 @@ function Example.decode_object()
   local retries = config.retries
   assert(name is string and name == "cosmic")
   assert(retries is integer and retries == 3)
+end
+
+--- Read an object from outside as a record of your own: [`cosmic.shape`]
+--- checks the decoded value against the record's declaration once, and
+--- every read after it is typed, with no `as`. A field of the wrong type
+--- is refused by its path rather than failing later, wherever it is used.
+function Example.decode()
+  local record Job
+    cmd: {string}
+    timeout: integer | nil
+  end
+  local JOB <const> = Shape.record_of("Job")
+  local value, err = Json.decode('{"cmd": ["make", "all"], "timeout": 30}')
+  assert(err == "", err)
+  local job, why = JOB:into(value)
+  assert(job ~= nil, why)
+  print(job.cmd[1], job.timeout)
+  assert(job.cmd[2] == "all" and job.timeout == 30)
+  local _, bad = JOB:into((Json.decode('{"cmd": "make all"}')))
+  print(bad)
+  assert(bad == 'pointer "/cmd": expected list, got string', bad)
 end
 
 --- Test the message, not the value: `null` is a document too, and it

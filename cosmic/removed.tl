@@ -56,9 +56,8 @@ local record Module
   -- (put Json.null where the hole is, as decode's `null_value` does);
   -- and for the fields cosmic.archive's ExtractOptions lost:
   -- `unsupported` (an entry that cannot be extracted always fails the
-  -- extraction; `filter` leaves its path out), `mtimes` (every file,
-  -- directory and symlink gets its archived time) and `max_bytes` (no
-  -- replacement; `max_entries` bounds the entries).
+  -- extraction; `filter` leaves its path out) and `mtimes` (every file,
+  -- directory and symlink gets its archived time).
   -- Likewise for what cosmic.time's records lost: `Civil.nanosecond` and
   -- `Duration.nanoseconds` (both `ns` now), and the `zone` field of
   -- FormatOptions and AddOptions (the zone is an argument, right after the
@@ -155,6 +154,12 @@ local cli <const> = 'local Cli = require("cosmic.cli")'
 local http <const> = 'local Http = require("cosmic.http")'
 local upload <const> = "no caller in the tree sent a streamed request body; send one whole with " ..
   "Http.request(\"PUT\", url, { body = body }) (" .. http .. ")"
+local server <const> = 'local Server = require("cosmic.http.server")'
+--- The replacement text for a member of cosmic.http.server.
+local function moved_to_server(member: string): string
+  return "moved to cosmic.http.server, apart from the client: use Server." .. member ..
+    " (" .. server .. ")"
+end
 local module: Module = {
   fields = {
     io = "io", os = "os", debug = "debug",
@@ -399,6 +404,14 @@ local module: Module = {
       "caches; declare Test.needs and let `cosmic test` refuse a bad one",
     ["cosmic.http.upload"] = upload,
     ["cosmic.http.Upload"] = upload,
+    ["cosmic.http.serve"] = moved_to_server("serve"),
+    ["cosmic.http.range"] = moved_to_server("range"),
+    ["cosmic.http.none_match"] = moved_to_server("none_match"),
+    ["cosmic.http.Request"] = moved_to_server("Request"),
+    ["cosmic.http.Reply"] = moved_to_server("Reply"),
+    ["cosmic.http.ServeSpec"] = moved_to_server("ServeSpec"),
+    ["cosmic.http.Range"] = moved_to_server("Range"),
+    ["cosmic.http.RangeKind"] = moved_to_server("RangeKind"),
     ["cosmic.fs.truncate"] = "use sys.ftruncate(fd, length), which Fs.truncate wrapped (" .. sys .. ")",
     ["cosmic.fs.cache_path"] = "use Fs.cache_dir(tool, { environment = environment, make = false }), " ..
       "which answers the name alone, made, looked at and checked nowhere (" .. fs .. ")",

@@ -887,7 +887,7 @@ build step that loads the compiler chunk.
 
 one Lua state, one thread, coroutines over `poll`. every blocking
 binding takes a timeout and can be driven from one event loop, which
-is Teal over the `poll` binding; `http.serve` and `fetch` are
+is Teal over the `poll` binding; [`Server.serve`] and `fetch` are
 coroutine-driven; CPU parallelism is by process through `child`.
 
 the C layer is re-entrant, which costs discipline, not code: no
@@ -1142,6 +1142,7 @@ in [roadmap.md](roadmap.md).
 [`cosmic/fs.tl`]: ../cosmic/fs.tl
 [`cosmic/fs_example.tl`]: ../cosmic/fs_example.tl
 [`schema.tables_digest`]: ../build/schema.tl
+[`Server.serve`]: ../cosmic/http/server.tl
 [`Spec.tree`]: ../build/declared_key.tl
 [`Store.bytecode`]: ../cosmic/store.tl
 [`Store.databases()`]: ../cosmic/store.tl

@@ -27,8 +27,8 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
-local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
+local Shape = require("cosmic.shape")
 local Sqlite = require("cosmic.sqlite")
 local Stream = require("cosmic.stream")
 local State = require("cosmic_ci.state")
@@ -135,29 +135,62 @@ function Report.duration(seconds: integer | nil): string
   return string.format("%dm %02ds", seconds // 60, seconds % 60)
 end
 
-local function text_of(value: any): string
-  if value is string then return value end
-  if value is number then
-    local whole = math.tointeger(value)
-    if whole then return string.format("%d", whole) end
-    return tostring(value)
-  end
-  return ""
+--- What [`Report.runs`] reads of a `gh api .../runs` answer; GitHub's
+--- null is nil.
+local record RunItem
+  id: integer
+  event: string
+  head_branch: string | nil
+  head_sha: string
+  conclusion: string | nil
+  run_attempt: integer | nil
 end
+local record RunsAnswer
+  workflow_runs: {RunItem}
+end
+local RUNS <const> = Shape.record_of("RunsAnswer")
+
+--- What [`Report.jobs`] reads of a `gh api .../runs/<id>/jobs` answer. A
+--- skipped job has no `steps`, and a skipped step no times.
+local record StepItem
+  name: string
+  started_at: string | nil
+  completed_at: string | nil
+end
+local record JobItem
+  name: string
+  started_at: string | nil
+  completed_at: string | nil
+  steps: {StepItem} | nil
+end
+local record JobsAnswer
+  jobs: {JobItem}
+end
+local JOBS <const> = Shape.record_of("JobsAnswer")
+
+--- What [`Report.driver_artifacts`] reads of a
+--- `gh api .../runs/<id>/artifacts` answer.
+local record ArtifactItem
+  name: string
+  id: integer
+  created_at: string | nil
+  expired: boolean | nil
+end
+local record ArtifactsAnswer
+  artifacts: {ArtifactItem}
+end
+local ARTIFACTS <const> = Shape.record_of("ArtifactsAnswer")
 
 --- The runs a `gh api .../runs` answer lists, in its order (newest
 --- first), without their jobs or suites.
 function Report.runs(text: string): {Report.Run}
-  local answer = assert(Json.decode_object(text))
-  local listed = answer.workflow_runs
-  assert(listed is {any} and Json.is_array(listed), "the runs list is no array")
+  local answer, why = RUNS:decode_into(text)
+  assert(answer ~= nil, "the runs list: " .. why)
   local out: {Report.Run} = {}
-  for _, item in ipairs(listed as {any}) do
-    assert(item is {string:any}, "a run is no object")
-    local run = item as {string:any}
-    out[#out + 1] = { id = text_of(run.id), event = text_of(run.event),
-      branch = text_of(run.head_branch), sha = text_of(run.head_sha),
-      conclusion = text_of(run.conclusion), attempt = text_of(run.run_attempt),
+  for _, run in ipairs(answer.workflow_runs) do
+    out[#out + 1] = { id = tostring(run.id), event = run.event,
+      branch = run.head_branch or "", sha = run.head_sha,
+      conclusion = run.conclusion or "", attempt = tostring(run.run_attempt or ""),
       jobs = {}, suites = {}, missing = {}, qualifies = false, why = "" }
   end
   return out
@@ -166,28 +199,19 @@ end
 --- The jobs a `gh api .../runs/<id>/jobs` answer lists, each with its
 --- steps, slowest first.
 function Report.jobs(text: string): {Report.Job}
-  local answer = assert(Json.decode_object(text))
-  local listed = answer.jobs
-  assert(listed is {any} and Json.is_array(listed), "the jobs list is no array")
+  local answer, why = JOBS:decode_into(text)
+  assert(answer ~= nil, "the jobs list: " .. why)
   local out: {Report.Job} = {}
-  for _, item in ipairs(listed as {any}) do
-    assert(item is {string:any}, "a job is no object")
-    local job = item as {string:any}
+  for _, job in ipairs(answer.jobs) do
     local steps: {Report.Step} = {}
-    local listed_steps = job.steps
-    if listed_steps is {any} and Json.is_array(listed_steps) then
-      for _, entry in ipairs(listed_steps as {any}) do
-        if entry is {string:any} then
-          local step = entry as {string:any}
-          local seconds = span(step.started_at, step.completed_at)
-          if seconds then steps[#steps + 1] = { name = text_of(step.name), seconds = seconds } end
-        end
-      end
+    for _, step in ipairs(job.steps or {}) do
+      local seconds = span(step.started_at, step.completed_at)
+      if seconds then steps[#steps + 1] = { name = step.name, seconds = seconds } end
     end
     table.sort(steps, function(a: Report.Step, b: Report.Step): boolean
       return a.seconds > b.seconds
     end)
-    out[#out + 1] = { name = text_of(job.name),
+    out[#out + 1] = { name = job.name,
       seconds = span(job.started_at, job.completed_at), steps = steps }
   end
   return out
@@ -197,22 +221,18 @@ end
 --- answer lists that have not expired, sorted by name: of each name,
 --- the newest (by `created_at`), which a run's latest attempt uploaded.
 function Report.driver_artifacts(text: string): {Report.Artifact}
-  local answer = assert(Json.decode_object(text))
-  local listed = answer.artifacts
-  assert(listed is {any} and Json.is_array(listed), "the artifacts list is no array")
+  local answer, why = ARTIFACTS:decode_into(text)
+  assert(answer ~= nil, "the artifacts list: " .. why)
   local newest: {string:Report.Artifact} = {}
   local names: {string} = {}
-  for _, item in ipairs(listed as {any}) do
-    if item is {string:any} then
-      local artifact = item as {string:any}
-      local name, id = text_of(artifact.name), text_of(artifact.id)
-      local created = Report.seconds_of(artifact.created_at) or 0
-      if name:match("^ci%-driver%-") and artifact.expired ~= true and id:match("^%d+$") then
-        local held = newest[name]
-        if held == nil then names[#names + 1] = name end
-        if held == nil or created > held.created then
-          newest[name] = { name = name, id = id, created = created }
-        end
+  for _, artifact in ipairs(answer.artifacts) do
+    local name, id = artifact.name, tostring(artifact.id)
+    local created = Report.seconds_of(artifact.created_at) or 0
+    if name:match("^ci%-driver%-") and artifact.expired ~= true then
+      local held = newest[name]
+      if held == nil then names[#names + 1] = name end
+      if held == nil or created > held.created then
+        newest[name] = { name = name, id = id, created = created }
       end
     end
   end

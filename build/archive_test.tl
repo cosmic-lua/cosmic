@@ -8,7 +8,7 @@
 
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
-local Json = require("cosmic.json")
+local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
 local Tar = require("cosmic.tar")
 local Zip = require("cosmic.zip")
@@ -19,6 +19,25 @@ local record Ran
   code: integer
   out: string
   err: string
+end
+
+--- One member of `list --json`'s array. `mtime` is a `number`, which
+--- keeps an integer and a float apart where `integer` would read 5.0 as 5.
+local record Row
+  path: string
+  type: string
+  size: integer
+  mode: string
+  mtime: number
+  linkpath: string | nil
+end
+local ROW <const> = Shape.record_of("Row")
+
+--- `list --json`'s array, checked against [`Row`].
+local function rows_of(text: string): {Row}
+  local rows, why: {Row} | nil, string = Shape.decode_into(text, Shape.list(ROW.spec))
+  assert(rows ~= nil, tostring(why) .. ": " .. text)
+  return rows
 end
 
 --- One run: `words` after `cosmic archive`, `stdin` standing in for
@@ -141,7 +160,7 @@ local function test_list_json_is_an_array_of_objects_for_each_format(tmp: string
   for format, path in pairs(each_format(tmp)) do
     local ran = run({ "list", "--json", path })
     assert(ran.code == 0 and ran.err == "", format .. ": " .. ran.err)
-    local rows = assert(Json.decode(ran.out)) as {{string:any}}
+    local rows = rows_of(ran.out)
     assert(#rows == 4, format .. ": " .. ran.out)
     assert(rows[2].path == "proj/a.txt" and rows[2].size == 5 and rows[2].type == "file", format)
     assert(rows[2].mode == "0644" and math.type(rows[2].mtime) == "integer", format)
@@ -164,7 +183,7 @@ local function test_list_shows_a_symlink_and_escapes_a_name(tmp: string)
   assert(ran.code == 0, ran.err)
   assert(ran.out:find("ln -> t.txt\t0\t", 1, true), ran.out)
   assert(ran.out:find("odd\\tname\\n\t1\t", 1, true), ran.out)
-  local json = assert(Json.decode(run({ "list", "--json", path }).out)) as {{string:any}}
+  local json = rows_of(run({ "list", "--json", path }).out)
   assert(json[2].linkpath == "t.txt" and json[2].type == "symlink")
   assert(json[3].path == "odd\tname\n")
 end

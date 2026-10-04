@@ -1,5 +1,5 @@
 --- Fuzz properties for cosmic.http.wire, which reads the bytes any
---- client sends [`Http.serve`]: reading requests is total and bounded,
+--- client sends [`Server.serve`]: reading requests is total and bounded,
 --- answering a head or one of the server's refusals; a request written
 --- out is read back as it was; the same bytes read the same in any
 --- chunking, which a reader that kept bytes it read ahead in the wrong

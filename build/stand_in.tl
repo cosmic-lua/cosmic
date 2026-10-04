@@ -61,6 +61,11 @@
 ---                      runs on, and none of it is adopted here; ends
 ---                      with P's status where it fails (128 past a
 ---                      signal), and 127 where P cannot start
+---     start-count N P [T]
+---                      starts P, with T its one argument, up to N times,
+---                      going on as `start` does, and says `started K`,
+---                      and ` then` why when one failed to, a line to
+---                      stdout
 ---     start P [T]      starts P, with T its one argument, and goes on
 ---                      without waiting for it, as a shell's `P &` does:
 ---                      it outlives the script, which then ends by
@@ -71,12 +76,27 @@
 ---     env-of NAME      `NAME=` and the variable's value, or `NAME unset`,
 ---                      and a newline, to stdout: unlike `$NAME`, it
 ---                      tells an empty variable from an unset one
+---     rlimit R         `R soft hard` and a newline, to stdout, for R one of
+---                      nofile, fsize, cpu, core, nproc: a limit of none is
+---                      math.maxinteger
 ---     present P        fails unless P exists, as `test -e` does
 ---     connect P        connects to the unix socket file P, waiting five
 ---                      seconds at most, saying `connected` or why not,
 ---                      a line to stdout
 ---     connect-tcp H P  connects to port P of numeric host H, as
 ---                      `connect` does
+---     loopback-tcp H   listens on a port of numeric host H, connects to
+---                      it and accepts the connection, saying `connected`
+---                      or why not, a line to stdout
+---     start-isolated P starts program P under a policy of `isolate`
+---                      file, granting P alone, and says `started` or the
+---                      start's failure, a line to stdout
+---     run-isolated P T runs program P, with T its one argument, under a
+---                      policy of `isolate` file granting P alone and the
+---                      working directory read-only, waits for it, and
+---                      says `exit` and its status, then what it printed
+---                      to stdout and stderr, or the start's failure, to
+---                      stdout
 ---     writable P       fails unless file P opens to write, appending
 ---                      and writing nothing, as `: >> P` does, but never
 ---                      making it

@@ -74,10 +74,6 @@ local record Patch
   end
 end
 
--- This comment moves the image fingerprint on purpose: the compiler's own
--- semantics moved with build/shape_specs.tl, and a tool older than this
--- line cannot compile the tree, so a stale tool is routed to `bin/zig
--- build boot` rather than to a rebuild it cannot finish.
 local log = Log.new("patch")
 
 --- A line found in a record: what it holds (a header's value), where it
@@ -460,6 +456,8 @@ local scratch_mt: metatable<Scratch> = {
   end,
 }
 
+-- build/zig_fetch.tl holds an identical copy, and the TODO to take both
+-- from cosmic.fs.
 local function scratch(cache: string): Scratch | nil, string
   local fd, trouble = sys.open(cache .. "/.scratch-gate", sys.O_RDWR | sys.O_CREAT | sys.O_NOFOLLOW, 0x180)
   if fd == nil then return nil, trouble end

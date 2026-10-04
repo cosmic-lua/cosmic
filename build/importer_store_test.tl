@@ -201,7 +201,8 @@ local function test_an_unrelated_unknown_name_earns_no_hint()
   assert(compile_trouble:find("cosmic docs", 1, true) == nil, compile_trouble)
 end
 
---- Concrete checker families point at checked language examples. These are
+--- Concrete checker families that [`teal.replacement`] leaves unanswered
+--- point at checked language examples. These are
 --- real project compiles, so the original position and diagnostic remain in
 --- the output beside the hint. That every query advertised is answered by
 --- the tree's docs is held by `cosmic fix --check .` ([`build.tree_checks`]).
@@ -212,13 +213,9 @@ local function test_language_errors_name_relevant_checked_docs()
       "wrong number of arguments", "generics_functions_returns",
     },
     record_field = {
-      "local record R\n  x: integer\nend\nreturn function(): integer\n" ..
-        "  local r: R = { x = 1 }\n  return r.y\nend\n",
+      "local record R\nend\nreturn function(): integer\n" ..
+        "  local r: R = {}\n  return r.y\nend\n",
       "invalid key 'y' in record", "records_interfaces_methods",
-    },
-    union_operator = {
-      "return function(x: string | integer): integer\n  return x + 1\nend\n",
-      "cannot use operator '+'", "unions_narrowing_casts",
     },
     builtin_argument_type = {
       "return function(): string\n  return table.concat(123)\nend\n",
@@ -260,4 +257,21 @@ local function test_argument_hint_does_not_sniff_the_whole_source_line()
   assert(trouble:find("cosmic docs generics_functions_returns", 1, true) ~= nil,
     trouble)
   assert(trouble:find("cosmic docs table.concat", 1, true) == nil, trouble)
+end
+
+--- A message [`teal.replacement`] answers in place carries no pointer at
+--- the docs besides: a key a record lacks, told the record's fields, and
+--- a number where an integer was expected, told the conversions.
+local function test_an_answered_error_names_no_docs()
+  local root = assert(write_fixture("answered-no-docs", {
+    ["thing.tl"] = "local record R\n  x: integer\nend\nreturn function(n: number): integer\n" ..
+      "  local r: R = { x = 1 }\n  return r.y + math.abs(n) + string.byte(\"a\", n)\nend\n",
+  }))
+  local result, trouble = compile_fixture(root)
+  assert(result == nil)
+  assert(trouble:find("invalid key 'y' in record 'r' of type R -- R's fields: x\n", 1, true) ~= nil,
+    trouble)
+  assert(trouble:find("argument 2: got number, expected integer -- 'as integer' converts", 1, true) ~= nil,
+    trouble)
+  assert(trouble:find("cosmic docs", 1, true) == nil, trouble)
 end

@@ -86,6 +86,9 @@ local function append(path: string, data: string): integer
   return nil
 end
 
+-- TODO: once cosmic.child carries the shell's status of a Result, take it
+-- from there. build/zig.tl's Zig.child_status and several other scripts
+-- spell the same rule.
 local function status_of(result: Child.Result): integer
   if result.signal ~= nil then return 128 + result.signal end
   return result.code or 1
@@ -268,6 +271,24 @@ local verbs: {string:function(string, string): integer} = {
     started[#started + 1] = handle
     return nil
   end,
+  ["start-count"] = function(word: string, rest: string): integer
+    local program, argument = rest:match("^(%S+)%s*(.-)$")
+    if program == nil then return failed("start-count", "no program") end
+    local wanted = number(word)
+    if wanted == nil or wanted < 0 then return failed("start-count", "no count " .. word) end
+    local count = 0
+    local refusal = ""
+    for _ = 1, wanted do
+      local handle, trouble = Child.start(argv_of(program, argument), { process_group = false })
+      if handle == nil then
+        refusal = trouble
+        break
+      end
+      started[#started + 1] = handle
+      count = count + 1
+    end
+    return put_all(1, "started " .. count .. (refusal ~= "" and (" then " .. refusal) or "") .. "\n")
+  end,
   ["fd-closed"] = function(word: string): integer
     local fd = number(word)
     if fd == nil or fd < 0 then
@@ -282,6 +303,17 @@ local verbs: {string:function(string, string): integer} = {
     local fd = number(word)
     if fd == nil or fd < 0 then return failed("write-fd", "no descriptor " .. word) end
     return put_all(fd, text .. "\n")
+  end,
+  rlimit = function(name: string): integer
+    local resources: {string:integer} = {
+      nofile = sys.RLIMIT_NOFILE, fsize = sys.RLIMIT_FSIZE, cpu = sys.RLIMIT_CPU,
+      core = sys.RLIMIT_CORE, nproc = sys.RLIMIT_NPROC,
+    }
+    local resource = resources[name]
+    if resource == nil then return failed("rlimit", "no resource " .. name) end
+    local limits, trouble = sys.getrlimit(resource)
+    if limits == nil then return failed("rlimit", trouble) end
+    return put_all(1, name .. " " .. limits.soft .. " " .. limits.hard .. "\n")
   end,
   ["env-of"] = function(name: string): integer
     local value = sys.getenv(name)
@@ -302,6 +334,37 @@ local verbs: {string:function(string, string): integer} = {
     if conn == nil then return put_all(1, trouble .. "\n") end
     local _, _ = conn:close()
     return put_all(1, "connected\n")
+  end,
+  ["loopback-tcp"] = function(host: string): integer
+    local server, trouble = Net.listen(Net.tcp(host, 0), { timeout_ns = Time.seconds(5) })
+    if server == nil then return put_all(1, trouble .. "\n") end
+    local conn, connect_trouble = Net.connect(Net.tcp(host, server.address.port),
+      { timeout_ns = Time.seconds(5) })
+    if conn == nil then
+      local _, _ = server:close()
+      return put_all(1, connect_trouble .. "\n")
+    end
+    local accepted, accept_trouble = server:accept()
+    local _, _ = conn:close()
+    local _, _ = server:close()
+    if accepted == nil then return put_all(1, accept_trouble .. "\n") end
+    local _, _ = accepted:close()
+    return put_all(1, "connected\n")
+  end,
+  ["start-isolated"] = function(program: string): integer
+    local handle, trouble = Child.start({ program }, { policy = {
+      isolate = { "file" }, grants = { { path = program, letters = "rx" },
+        { path = ".", letters = "r" } } } })
+    if handle == nil then return put_all(1, trouble .. "\n") end
+    local _, _ = handle:close()
+    return put_all(1, "started\n")
+  end,
+  ["run-isolated"] = function(program: string, script: string): integer
+    local result, trouble = Child.run({ program, script }, { policy = {
+      isolate = { "file" }, grants = { { path = program, letters = "rx" },
+        { path = ".", letters = "r" } } }, stdout = "capture", stderr = "stdout" })
+    if result == nil then return put_all(1, trouble .. "\n") end
+    return put_all(1, "exit " .. tostring(result.code) .. "\n" .. (result.stdout or ""))
   end,
   present = function(path: string): integer
     if exists(path) then return nil end

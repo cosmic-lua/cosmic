@@ -431,6 +431,11 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
   -- gone: `cosmic docs` answers such a name, but a page that names it is
   -- stale.
   local gone: {string: string} = {}
+  -- TODO: take a query that names a worked example by its own name
+  -- (`cosmic docs records_interfaces_methods`, which the compiler's
+  -- see-also hints print), so a guide can point a reader at the one
+  -- place an interface is shown; only an exact symbol or a query of
+  -- several words passes here.
   local function resolves(query: string): boolean
     local words: {string} = {}
     for word in query:gmatch("%S+") do words[#words + 1] = word end

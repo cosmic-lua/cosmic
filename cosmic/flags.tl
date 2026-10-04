@@ -1,6 +1,11 @@
 --- A command line's options and the words among them. A spec names each
 --- option and whether it takes a value; everything else that begins with
---- "-" is refused, so a mistyped option is never read as a path.
+--- "-" is refused, so a mistyped option is never read as a path. A
+--- program whose first word is a command (`ledger report <file>`) reads
+--- it with [`Flags.dispatch`], which hands each command the words after
+--- it: `Flags.parse(argv, 1, spec)` reads no command, and would take
+--- "report" for the file. `cosmic docs Flags.dispatch` shows such a
+--- program whole.
 ---
 ---     local got, why = Flags.parse(argv, 2, { ["--check"] = false, ["--jobs"] = true })
 ---     -- cosmic fix --check a.tl  => got.set["--check"], got.words = { "a.tl" }

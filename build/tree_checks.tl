@@ -56,6 +56,10 @@ end
 --- uses them, by `<module>.<member>`, and why each is kept.
 local allowed: {string: string} = {}
 
+allowed["cosmic.sandbox.restrict"] = "tested directly: it holds the process that calls it " ..
+  "for good, so a worked example would hold the run that shows it; the test restricts " ..
+  "a child of this program, and the harness holds its workers with it once the " ..
+  "design's test phase lands (the TODO at build.confine's forbid_running)"
 allowed["build.c.layout.same"] = "tested directly: whether two layouts are one " ..
   "token stream is the rule `cosmic fix` holds a C rewrite to, and the test " ..
   "states it on sources too small to be a file"
@@ -131,6 +135,8 @@ allowed["build.closure_store.loaded_beside"] = "what build/lua_standalone_test.t
   "a module of their closure"
 allowed["build.test.value_imports"] = "tested directly: the harness's test reads, " ..
   "by it, what each module the harness runs requires by value, as `key_code` walks it"
+allowed["build.test.type_only_imports"] = "tested directly: the harness's test holds " ..
+  "it to the edges `value_imports` leaves out; `run` reads it through the projection"
 allowed["build.importer.prune_references"] = "tested directly: the test asks " ..
   "SQLite for the statement's plan, which must read `compiled` once rather " ..
   "than probe it per row, and no behaviour tells the two apart"
@@ -138,6 +144,10 @@ allowed["build.reboot.auto_boot"] = "tested directly: the test hands it an " ..
   "environment rather than setting COSMIC_AUTO_BOOT on the whole run"
 allowed["build.reboot.boot_into"] = "tested directly: the test runs it on a tree " ..
   "whose bin/zig is a stand-in, which no stale tool can reach"
+allowed["build.reboot.compiler_moved"] = "tested directly: the test hands it " ..
+  "identities, where a stale tool's compiler can only be had by building one"
+allowed["build.reboot.rebuild_failed"] = "tested directly: the test runs it on a " ..
+  "tree whose bin/zig is a stand-in, which no stale tool can reach"
 allowed["build.reboot.own_tool"] = "tested directly: the test hands it the path " ..
   "a tool was started as, which the running one cannot change"
 allowed["build.writer.signature"] = "tested directly: the test signs a database " ..
