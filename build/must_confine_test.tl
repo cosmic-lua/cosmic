@@ -201,6 +201,13 @@ local function test_pledged_alone()
   confine.confine(nil)
 end
 
+local function test_a_policys_grants_alone()
+  confine.must_confine({ reads = { "bin/probe" } })
+  local _, _ = raw().spawn("bin/probe", { "bin/probe", "exit 0" }, nil, nil, nil, nil, nil, false,
+    nil, { grants = {}, promises = {} })
+  confine.confine(nil)
+end
+
 local function test_stale(tmp: string)
   local taken: any = nil
   local _ = confine.call(function() taken = raw().spawn end, nil, { tmp })
@@ -224,6 +231,10 @@ end
   assert(assert(failure(text, "test_pledged_alone")):find("^must_confine: bin/probe could not " ..
       "start confined: unveil and offline could not be applied: a sandbox of its own that does " ..
       "not unveil and take the network, which must_confine does not add to %(EINVAL%)$"), text)
+  assert(assert(failure(text, "test_a_policys_grants_alone")):find("^must_confine: bin/probe " ..
+      "could not start confined: unveil and offline could not be applied: a sandbox of its own " ..
+      "that does not unveil and take the network, which must_confine does not add to " ..
+      "%(EINVAL%)$"), text)
   assert(assert(failure(text, "test_stale")):find("^must_confine: bin/probe could not start " ..
       "confined: unveil and offline could not be applied: started through a spawn taken " ..
       "while an earlier stand%-in ran %(EINVAL%)$"), text)

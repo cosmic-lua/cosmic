@@ -9,8 +9,8 @@ local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
-local Json = require("cosmic.json")
 local Net = require("cosmic.net")
+local Shape = require("cosmic.shape")
 local Test = require("cosmic.test")
 local fetch = require("build.fetch")
 
@@ -23,6 +23,14 @@ local record Ran
   out: string
   err: string
 end
+
+--- What `--head --json` prints.
+local record Head
+  status: integer
+  url: string
+  headers: {string:string}
+end
+local HEAD <const> = Shape.record_of("Head")
 
 local function reply(status: string, head: string, body?: string): string
   body = body or ""
@@ -130,11 +138,11 @@ end
 local function test_head_json_prints_an_object()
   local ran = run({ "--head", "--json", url }, { reply("200 OK", "X-One: 1\r\n", "body") })
   assert(ran.code == 0, ran.err)
-  local object = assert(Json.decode(ran.out)) as {string:any}
+  local object, why = HEAD:decode_into(ran.out)
+  assert(object ~= nil, tostring(why) .. ": " .. ran.out)
   assert(object.status == 200, ran.out)
   assert(object.url == url, ran.out)
-  local headers = object.headers as {string:string}
-  assert(headers["x-one"] == "1", ran.out)
+  assert(object.headers["x-one"] == "1", ran.out)
 end
 
 local function test_head_prints_then_fails_on_a_bad_status()

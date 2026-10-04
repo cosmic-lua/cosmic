@@ -1177,6 +1177,50 @@ local function test_unused_variable_warning_names_its_own_fix()
     compile_trouble)
 end
 
+--- A hint the same for several lines -- each field read of one untyped
+--- variable, each unused name -- is printed once, on the first, saying
+--- how many more it holds for; the rest carry the checker's words alone.
+local function test_a_repeated_hint_is_printed_once()
+  local root = assert(write_fixture("repeated-hint", {
+    ["thing.tl"] = "return function(cfg: any, a: integer, b: integer): integer\n" ..
+      "  print(cfg.cmd, cfg.cwd, cfg.env)\n  return 0\nend\n",
+  }))
+  local result, compile_trouble = compile_fixture(root)
+  assert(result == nil, "expected the untyped reads to refuse the compile")
+  assert(compile_trouble == table.concat({
+    "thing.tl: the compiler refused it",
+    "thing.tl:2:13: cannot index key 'cmd' in variable 'cfg' of type <any type> -- 'cfg' is " ..
+      "any (untyped, as Json.decode answers): check it against a record with " ..
+      "`local spec, err = Shape.record_of(\"Spec\"):into(cfg)` " ..
+      "(local Shape = require(\"cosmic.shape\")), or cast it unchecked: `cfg as Spec` " ..
+      "(same for 2 more)",
+    "thing.tl:2:22: cannot index key 'cwd' in variable 'cfg' of type <any type>",
+    "thing.tl:2:31: cannot index key 'env' in variable 'cfg' of type <any type>",
+    "thing.tl:1:27: unused argument a: integer -- name it _ or _<name> to mark it " ..
+      "intentionally unused (same for 1 more)",
+    "thing.tl:1:39: unused argument b: integer",
+  }, "\n"), compile_trouble)
+end
+
+--- A module's type named from another module, where the module declares
+--- it beside its record rather than inside, is told that the name is
+--- misspelt or what the module must declare.
+local function test_a_type_beside_a_module_s_record_is_told_to_nest()
+  local root = assert(write_fixture("module-type-hint", {
+    ["ledger.tl"] = "local record Transaction\n  amount: integer\nend\nlocal record Ledger\n" ..
+      "  total: function({Transaction}): integer\nend\n" ..
+      "function Ledger.total(ts: {Transaction}): integer\n  return #ts\nend\nreturn Ledger\n",
+    ["main.tl"] = 'local Ledger = require("ledger")\n' ..
+      "return function(t: Ledger.Transaction): integer\n  return Ledger.total({ t })\nend\n",
+  }))
+  local result, compile_trouble = compile_fixture(root)
+  assert(result == nil, "expected the unknown type to refuse the compile")
+  assert(compile_trouble:find("main.tl:2:20: unknown type Ledger.Transaction -- " ..
+      "Ledger has no type Transaction: check its spelling, or declare `record Transaction ... end` " ..
+      "inside the record ledger returns (a `local record Transaction` beside that record is its " ..
+      "file's alone)", 1, true) ~= nil, compile_trouble)
+end
+
 --- `ci/` is the pinned CI driver's own project, walked and built by
 --- the pinned host with cwd `ci/`, never by cosmic's own build: staging
 --- cosmic's own tree must record nothing under `ci/`, and deriving

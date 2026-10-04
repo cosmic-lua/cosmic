@@ -267,6 +267,15 @@ COSMIC_SYSCALL(rmdir, 1);
 COSMIC_SYSCALL(unlink, 1);
 
 /*
+ * --- Removes a path and, for a directory, everything beneath it: `rm -rf`. The walk is relative to descriptors and never follows a link -- a link is removed as itself, and an entry swapped for a link by a process still running while this walks is removed too, not followed -- so nothing outside the path is touched. A path already gone, or one beneath something that is no directory, is not a failure; a path ending in "/" names what it names without them, so a link is removed, not followed; "/" is refused, EINVAL. A directory it cannot open or that will not empty (something keeps making entries in it) fails, ENOTEMPTY or the open's errno; what was removed stays removed. The path's own directories above it are resolved as any path's are.
+ * ---@param path string the path to remove
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(remove_tree, 1);
+
+/*
  * --- Moves a name, replacing the destination if it exists.
  * ---@param from string the name to move
  * ---@param to string where to move it
@@ -576,11 +585,12 @@ COSMIC_SYSCALL(cpu_features, 0);
  * ---@class Uname
  * ---@field sysname string the kernel name: "Linux", "Darwin"
  * ---@field machine string the machine: "x86_64", "aarch64", "arm64"
+ * ---@field release string the kernel's release, as /proc/sys/kernel/osrelease reads: "6.18.44-fc-v64"
  */
 
 /*
- * --- The host's kernel name and machine, as `uname(2)` reports them.
- * ---@return Uname|nil uname the two names, or nil on failure
+ * --- The host's kernel name, release and machine, as `uname(2)` reports them.
+ * ---@return Uname|nil uname the three names, or nil on failure
  * ---@return string error what went wrong, when uname is nil
  * ---@return integer errno the error number, when uname is nil
  */
@@ -845,6 +855,10 @@ COSMIC_SYSCALL(poll, 3);
  * ---@field POLLHUP integer for `poll`: the other end hung up
  * ---@field POLLNVAL integer for `poll`: the descriptor is not open
  * ---@field RLIMIT_NOFILE integer for `getrlimit` and `setrlimit`: one more than the highest descriptor the process may open
+ * ---@field RLIMIT_FSIZE integer for `getrlimit` and `setrlimit`: the most bytes of a file the process may write
+ * ---@field RLIMIT_CPU integer for `getrlimit` and `setrlimit`: the CPU seconds the process may spend before SIGXCPU
+ * ---@field RLIMIT_CORE integer for `getrlimit` and `setrlimit`: the most bytes of a core dump the process may write, 0 for none
+ * ---@field RLIMIT_NPROC integer for `getrlimit` and `setrlimit`: the most processes and threads the process's user may have, counted per user namespace from Linux 5.17
  */
 COSMIC_CONSTANT(O_RDONLY)
 COSMIC_CONSTANT(O_WRONLY)
@@ -897,3 +911,7 @@ COSMIC_CONSTANT(POLLERR)
 COSMIC_CONSTANT(POLLHUP)
 COSMIC_CONSTANT(POLLNVAL)
 COSMIC_CONSTANT(RLIMIT_NOFILE)
+COSMIC_CONSTANT(RLIMIT_FSIZE)
+COSMIC_CONSTANT(RLIMIT_CPU)
+COSMIC_CONSTANT(RLIMIT_CORE)
+COSMIC_CONSTANT(RLIMIT_NPROC)

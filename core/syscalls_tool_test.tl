@@ -428,6 +428,57 @@ local function test_an_unveiled_child_runs_as_the_user_given(tmp: string)
   assert(said:match("\nsetuid\nUid:%s+" .. ids), "a setuid-root program ran as root: " .. said)
 end
 
+--- A bind given `idmap`, with a `user` and `group`, is mounted so that
+--- the user owns what the path's owner does: a child reads what only that
+--- owner may, in a directory made 0700, where this process may map the
+--- user and mount ([`may_run_as`]: root, as a run of this test
+--- unsandboxed as root is). A caller that may not has the start refused,
+--- and a policy's (`strict`) says which mount, by the path; and `idmap`
+--- without a user is a mistake of the caller's. A `user` is given with
+--- `proc` as with `unveil`.
+local function test_an_idmapped_bind_is_the_users_where_it_is_mapped(tmp: string)
+  local probe = probe_in(tmp)
+  local reads = probe_reads(probe)
+  local dir = tmp .. "/closed"
+  assert(sys.mkdir(dir, 0x1c0))
+  local inside = create(dir .. "/inside")
+  assert(sys.write(inside, "secret\n") == 7)
+  sys.close(inside)
+  local real = assert(sys.realpath(dir))
+  local user = sys.getuid() == 65533 and 65531 or 65533
+  local ok, trouble = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil,
+    { unveil = { reads = reads, writes = {}, binds = { { path = dir, idmap = true } } } })
+  assert(not ok and tostring(trouble):find("idmap requires a user", 1, true), tostring(trouble))
+  -- `proc` takes a user as `unveil` does: a caller that may not map it
+  -- has the start refused, never the arguments.
+  local started, proc_pid = pcall(process.spawn, probe, { probe, "print hi" }, nil, nil, nil, nil,
+    nil, false, nil, { proc = true, user = user, group = user })
+  assert(started, "a user is refused with proc: " .. tostring(proc_pid))
+  if proc_pid ~= nil then assert(process.waitpid(proc_pid as integer, false)) end
+  local sandbox: raw_process.Sandbox = { strict = true, user = user, group = user,
+    unveil = { reads = reads, writes = {}, binds = { { path = dir, idmap = true } } } }
+  local report = create(tmp .. "/report")
+  local pid, why, errno = process.spawn(probe, { probe, "cat " .. dir .. "/inside" },
+    nil, "/", nil, report, report, false, nil, sandbox)
+  if pid == nil then
+    sys.close(report)
+    assert(not may_run_as(user), "root, mapping " .. tostring(user) .. ", refused it: " .. why)
+    if errno ~= sys.EPERM then
+      unsandboxable("unveiling", why)
+      return
+    end
+    assert(why:find("idmapped mount of " .. real, 1, true) or why:find("namespace", 1, true), why)
+    return
+  end
+  local status = assert(process.waitpid(pid, false))
+  local said = assert(sys.pread(report, 65536, 0))
+  sys.close(report)
+  assert(status.code == 0 and said == "secret\n", said)
+  -- The path's owner is what the mapping makes the user, and no other:
+  -- the child's user owns it there, though the host's owner is root.
+  assert(assert(sys.stat(dir)).uid == sys.getuid())
+end
+
 --- A path given with a name in `at` is bound there, and not at its own
 --- name: a tree given at /tree is read, and written where given to
 --- write, at /tree alone, so what a child sees of it names nothing of

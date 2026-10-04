@@ -12,6 +12,7 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
+local Shape = require("cosmic.shape")
 local Plural = require("cosmic_ci.plural")
 local String = require("cosmic.string")
 
@@ -43,6 +44,15 @@ local record Prerelease
     temp: string
   end
 end
+
+--- The source.json a release holds: the commit and bytes it was made
+--- from, and the run that made it.
+local record Source
+  commit: string
+  digest: string
+  run_url: string
+end
+local SOURCE <const> = Shape.record_of("Source")
 
 Prerelease.lanes = { "alpine-x86_64", "linux-aarch64", "linux-x86_64", "macos-aarch64" }
 --- The lane whose bytes every other lane's must equal.
@@ -113,12 +123,11 @@ end
 --- first attempt uploaded.
 function Prerelease.source_valid(text: string, commit: string, digest: string,
                                  run_prefix: string): boolean, string
-  local source, why = Json.decode_object(text)
-  if source == nil then return false, "source.json is no JSON object: " .. why end
+  local source, why = SOURCE:decode_into(text)
+  if source == nil then return false, "source.json is no source record: " .. why end
   if source.commit ~= commit then return false, "source.json names another commit" end
   if source.digest ~= digest then return false, "source.json names another digest" end
   local run_url = source.run_url
-  if not run_url is string then return false, "source.json's run_url is no string" end
   if not String.starts_with(run_url, run_prefix) or
       not run_url:sub(#run_prefix + 1):match("^[0-9]+$") then
     return false, "source.json's run_url is not " .. run_prefix .. "<run id>"

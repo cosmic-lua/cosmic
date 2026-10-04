@@ -27,6 +27,10 @@
 --- a pid namespace of its own that ends when it does: nothing it starts
 --- outlives it there.
 ---
+--- A child started with a [`cosmic.sandbox`] policy (`policy`) is held to
+--- nothing but what the policy grants -- paths, system calls, environment,
+--- resources -- or does not start.
+---
 --- Standard streams are inherited unless redirected: to a caller-owned
 --- descriptor, to "null", or to "capture", which collects the stream in
 --- memory -- the last `capture_limit` bytes of it -- into the Result.
@@ -62,7 +66,10 @@
 --- memory, up to `capture_limit` unread bytes of each, after which the
 --- child is left to wait until the caller reads. Nothing streamed is
 --- dropped, and nothing is kept for the Result.
+local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
+local Proc = require("cosmic.proc")
+local Rules = require("cosmic.sandbox")
 local sys = require("cosmic.sys")
 local Stream = require("cosmic.stream")
 local Time = require("cosmic.time")
@@ -255,6 +262,106 @@ local record Options
   timeout_ns: integer
   --- What the child is held to (see [`Sandbox`]); nil for nothing.
   sandbox: Sandbox
+  --- A [`cosmic.sandbox`] policy the child is held to, met or the start
+  --- fails (nil, and a message naming what is missing and how to give it).
+  --- The policy is merged ([`Sandbox.merge`], which resolves its
+  --- `profiles`), and then:
+  ---
+  --- - `grants` are the only paths the child reaches, by Landlock, a
+  ---   relative one from `cwd`; the child's program, found on this
+  ---   process's PATH when its name has no slash, and the interpreter it
+  ---   names (`#!`, or an ELF's), need `r` and `x` grants: the "system"
+  ---   profile gives them for the host's own programs.
+  --- - `isolate` "file" runs the child in a root of its own holding only
+  ---   the granted paths, each bound at its name (anything else is
+  ---   ENOENT, not EACCES), read-only unless granted `w` or `c`, and a
+  ---   writable one noexec unless granted `x`; a grant's `from` is the
+  ---   host's path, bound at the grant's `path`, which only this has (a
+  ---   `from` without it fails). The program's own file, its loader and
+  ---   its directory (`cwd`, or this process's) must be granted, and it is
+  ---   run by its real path. Beside them the root has a /proc of its own
+  ---   (see `proc`), the links /dev/fd and /dev/stdin, /dev/stdout and
+  ---   /dev/stderr into it, and, with `tmp`, a /tmp that is a tmpfs of 256
+  ---   MiB, noexec, `TMPDIR` naming it, gone with the sandbox. Landlock
+  ---   holds the same grants from inside, with the root's own /proc and
+  ---   /tmp added to it; it cannot list the root's directories above a
+  ---   grant. A `u` grant is held by Landlock ABI 9 where there is one;
+  ---   below it, by the root alone, which can then hold no other socket:
+  ---   the start fails unless the `u` grant is the only grant of a socket or
+  ---   a directory. Under `file` /dev holds only what is granted (the
+  ---   "system" profile grants /dev/null, zero, urandom and random), besides
+  ---   the /dev/fd links.
+  --- - `isolate` "proc" (which "file" implies) is a pid namespace and a /proc
+  ---   of the sandbox's own, read-only, showing its processes alone: the
+  ---   child is pid 2 beneath an init, and with "proc" alone it has the
+  ---   host's filesystem otherwise, held by its grants. Where the kernel
+  ---   refuses a procfs of its own (a container that masks /proc, as
+  ---   Docker's does without --security-opt systempaths=unconfined) the
+  ---   start fails, naming that option: there is no fallback to the host's
+  ---   /proc. Every isolation needs unprivileged user namespaces; where
+  ---   refused, the failure names the sysctl or AppArmor setting.
+  --- - `loopback` and `u` grants give the child a network namespace of its
+  ---   own with its loopback up, so it reaches no host network, nor a
+  ---   service on the host's 127.0.0.1. `loopback` declares the addresses
+  ---   of 127/8 it uses there, all of which are its own: it may make AF_INET
+  ---   and AF_INET6 sockets, and bind and connect on them; AF_UNIX
+  ---   sockets only with a `u` grant. With neither, every inet socket is
+  ---   refused.
+  --- - `promises` are the system calls it may make beyond its basics
+  ---   (a seccomp filter). `nest` is not yet available.
+  --- - `env` names the variables passed through from this process's
+  ---   environment and `set_env` the ones set: the child's whole
+  ---   environment, so `env` beside `policy` raises. `tmp` makes a fresh
+  ---   directory the child may write, `TMPDIR` naming it (over a
+  ---   variable of the policy's), removed after the child is settled; under
+  ---   `isolate` file, the sandbox's own /tmp instead.
+  --- - `limits` are rlimits on every process of the child: 1024 open
+  ---   files unless `open_files` says, and no core dump; `file_bytes` and
+  ---   `cpu_seconds` as given. `processes` (RLIMIT_NPROC) holds the
+  ---   whole sandbox: the kernel counts the processes and threads of the
+  ---   user namespace the program runs in, so the program itself is
+  ---   counted and, depending on whose user namespace each is in, so may
+  ---   be the sandbox's init; one past it fails with EAGAIN. It needs
+  ---   `isolate` "proc" or "file", whose user namespace is the sandbox's
+  ---   own, and a kernel from Linux 5.17 (an older one counts every process
+  ---   of the user the namespace was made by); a limit above this
+  ---   process's own hard RLIMIT_NPROC fails too. Under `isolate`, with
+  ---   none given, it is 4096, where the kernel counts so and this
+  ---   process's hard limit allows.
+  --- - `fds` names the only descriptors above 2 the child gets, as it
+  ---   always has.
+  --- - `connect` is not yet available.
+  ---
+  --- A child never runs as root. Where this process is not root, it runs
+  --- as this process's user, mapped as itself in its user namespace.
+  --- Where this process is root, it runs as a user and group of its own,
+  --- one id from the top of what this process's user namespace maps
+  --- ([`Sandbox.user_id`], 4294963198 to 4294967293 on a host), chosen by
+  --- the pid and a count of the sandboxes this process has started, so
+  --- concurrent sandboxes differ, and mapped into a user namespace from
+  --- outside, which needs CAP_SETUID, CAP_SETGID and CAP_SETFCAP (the
+  --- start fails, saying so, where it lacks them). Only a user namespace
+  --- maps it, so a policy with no `isolate` gets "proc"'s. That user is
+  --- none of the owners of the host's files: a grant it cannot use by the
+  --- file's mode -- one that is not open to everyone, as a directory
+  --- made 0700 is not -- fails the start naming it; under `isolate`
+  --- "file" the grant is mounted idmapped instead, where the kernel
+  --- (Linux 5.12) and the file system (ext4, xfs, btrfs, tmpfs) allow and
+  --- this process holds CAP_SYS_ADMIN, so that user is the file's owner
+  --- there, with the owner's rights, and what it creates is the owner's
+  --- on the host; only the files of the grant's own owner are its, so
+  --- those of other users beneath stay out of its reach. Without
+  --- `isolate` "file" every directory above a grant, and the one the child
+  --- starts in (`cwd`, else this process's), and the TMPDIR a `tmp` makes
+  --- its directory in, must also be searchable by everyone. The check reads the
+  --- grant's own mode; an access control list or what is beneath a
+  --- directory is not read. A policy whose `stdio` is a terminal is not
+  --- refused.
+  ---
+  --- Not with `sandbox`, whose root of its own it does not build. Where
+  --- the platform has no Landlock or seccomp (anything but Linux) the
+  --- start fails. Nothing is printed about grants.
+  policy: Rules.Policy
   --- The IDs and privilege limits for this launch. Excludes sandbox
   --- unveil, offline, user and group. Child setup errors precede exec;
   --- a parent dumpability restoration error can follow exec and ends
@@ -381,6 +488,9 @@ local record Handle
   --- When the child's own `timeout_ns` passes, on the monotonic clock;
   --- nil for none ([`Options.timeout_ns`]).
   _deadline: integer | nil
+  --- The temporary directory a policy's `tmp` made for the child, removed
+  --- once the child is settled; nil for none.
+  _tmp: string | nil
   --- Waits for the child to exit and answers its Result. With
   --- `timeout_ns`, or once the child's own [`Options.timeout_ns`]
   --- passes, whichever is first, a child still running is ended --
@@ -906,6 +1016,25 @@ local function group_gone(self: Handle, until_ns: integer): boolean
   end
 end
 
+--- Removes the temporary directory a policy's `tmp` made for the child.
+--- [`Fs.remove_tree`] walks by descriptor and follows no link, which
+--- matters here: a process of the child's that outlived it (one with the
+--- `fork` promise that left its group) may swap a subdirectory for a link
+--- to a host directory while the walk runs, and a walk by path would
+--- delete through it.
+-- TODO: report a removal that failed -- a directory the child made
+-- unreadable (its `fattr` promise lets it chmod), or one a surviving
+-- descendant keeps filling -- on the Result or the Handle, once Result
+-- carries a field beside the exit status for what a settle left behind
+-- (see the TODO at Child.wait_any); until then the tree is left behind and
+-- nothing says so.
+local function remove_tmp(self: Handle)
+  local dir = self._tmp
+  if dir == nil then return end
+  self._tmp = nil
+  local _, _ = Fs.remove_tree(dir)
+end
+
 --- Ends what is left of the child and settles it, answering its Result.
 --- A child still running is sent SIGTERM -- its group's too -- and
 --- SIGKILL once TERM_GRACE_NS has passed, and its Result says
@@ -998,6 +1127,7 @@ local function end_child(self: Handle): Result | nil, string
     r.stderr = r.captured[2]
   end
   self._result, self._closed = r, true
+  remove_tmp(self)
   if not cleared then
     return refuse("process group " .. tostring(self.pid) .. " still has members after SIGKILL")
   end
@@ -1763,6 +1893,16 @@ local function validate(argv: {string}, opts: Options)
     error("child: capture_limit is out of range", 3)
   end
   Poll.checked_ns(opts.timeout_ns, "child", "timeout_ns", 3)
+  if opts.policy ~= nil then
+    if type(opts.policy) ~= "table" then
+      error("child: policy must be a cosmic.sandbox Policy", 3)
+    end
+    if opts.env ~= nil then
+      error("child: policy and env exclude each other: the policy's env and set_env are the " ..
+          "child's whole environment", 3)
+    end
+    if opts.sandbox ~= nil then error("child: policy and sandbox exclude each other", 3) end
+  end
   if opts.credentials ~= nil then
     local user, group = opts.credentials.user, opts.credentials.group
     if not (user is integer) or not (group is integer) or
@@ -1956,8 +2096,569 @@ local function descriptor_limit_hint(slots: {integer:integer}): string
     tostring(limits.soft) .. " (hard " .. tostring(limits.hard) .. "): " .. remedy
 end
 
+--- How much a start under a policy lets the child hold open unless the
+--- policy's `open_files` says.
+local DEFAULT_OPEN_FILES <const> = 1024
+
+--- The unprivileged user and group a root caller's program runs as.
+local record MappedUser
+  uid: integer
+  gid: integer
+end
+
+--- What a policy makes of a start.
+local record Held
+  --- The file to run.
+  path: string
+  --- The child's whole environment.
+  env: {string:string}
+  --- What spawn is handed to hold the child to it.
+  sandbox: raw_process.Sandbox
+  --- The temporary directory made for the child, "" for none: made by
+  --- [`make_tmp`], the last step before the spawn.
+  tmp: string
+  --- Whether the policy asks for one: not under `isolate` file, whose
+  --- /tmp is a tmpfs of the sandbox's own.
+  wants_tmp: boolean
+  --- The directory to start in, as a path the root of `isolate` file
+  --- holds; nil to start in the caller's.
+  cwd: string
+  --- The user and group the child runs as where this process is root,
+  --- which a program of a policy never is ([`mapped_user`]); nil for this
+  --- process's own. The directory `tmp` makes is given to them.
+  user: MappedUser
+end
+
+--- The most grants spawn takes (`GRANT_MAX` in core/syscalls.c), the
+--- temporary directory's included.
+local MAX_GRANTS <const> = 256
+
+--- Whether `file` is `grant` or beneath it.
+local function beneath(file: string, grant: string): boolean
+  if grant == "/" or file == grant then return true end
+  return file:sub(1, #grant + 1) == grant .. "/"
+end
+
+--- Why a start under `grants` cannot run the `files` a program needs to
+--- start ([`Rules.loaders`], the program itself first), or "": a file
+--- must be beneath a grant giving `r` and one giving `x`, which may be
+--- one. A grant whose path does not exist is skipped, as spawn names
+--- it.
+local function ungranted(files: {string}, grants: {Rules.Grant}, cwd?: string): string
+  local reals: {{string}} = {}
+  for _, grant in ipairs(grants) do
+    local at = grant.path
+    if cwd ~= nil and at:sub(1, 1) ~= "/" then at = cwd .. "/" .. at end
+    local real, _ = sys.realpath(at)
+    if real ~= nil then reals[#reals + 1] = { real, grant.letters } end
+  end
+  for i, file in ipairs(files) do
+    local missing: {string} = {}
+    for _, letter in ipairs({ "r", "x" }) do
+      local given = false
+      for _, held in ipairs(reals) do
+        if beneath(file, held[1]) and held[2]:find(letter, 1, true) then given = true end
+      end
+      if not given then missing[#missing + 1] = letter end
+    end
+    if #missing > 0 then
+      local what = i == 1 and "the program" or "the interpreter the program starts through"
+      return string.format("%s %s is not granted %s: grant it, { path = %q, letters = \"rx\" }, " ..
+          "or add the \"system\" profile for the host's own programs", what, file,
+        table.concat(missing, " and "), file)
+    end
+  end
+  return ""
+end
+
+--- The most a start under `isolate` file may grant: one of spawn's
+--- unveiled paths is the sandbox's own /proc.
+local MAX_ISOLATED_GRANTS <const> = MAX_GRANTS - 1
+
+--- Whether `merged`'s `isolate` holds `kind`.
+local function isolates(merged: Rules.Policy, kind: Rules.Isolate): boolean
+  for _, held in ipairs(merged.isolate) do
+    if held == kind then return true end
+  end
+  return false
+end
+
+--- A policy's fields not yet met, by what each would need.
+-- TODO: refuse a policy whose stdin, stdout or stderr is a terminal,
+-- which only the pty relay (the design's phase 7) may carry.
+-- TODO: meet `connect` and the `nest` promise, and delete this refusal,
+-- once the relay (the design's phase 6) and a start that gives a
+-- program a mount and user namespace of its own to build (`nest`:
+-- Landlock's hold given up inside it) land.
+local function unmet(merged: Rules.Policy): string
+  local file = isolates(merged, "file")
+  local held = #merged.grants + (merged.tmp and not file and 1 or 0)
+  local most = file and MAX_ISOLATED_GRANTS or MAX_GRANTS
+  if held > most then
+    return "grants: the policy holds " .. held ..
+      (file and ", and the sandbox's /proc is one more" or ", tmp's included") ..
+      ", past the most a start takes, " .. most .. "; grant a directory above them instead"
+  end
+  if #merged.connect > 0 then
+    return "connect \"" .. merged.connect[1] .. "\" is not yet available: it needs the relay"
+  end
+  for _, promise in ipairs(merged.promises) do
+    if promise == "nest" then
+      return "promises \"nest\" is not yet available: it needs a sandbox that may build one of " ..
+        "its own"
+    end
+  end
+  for _, grant in ipairs(merged.grants) do
+    if grant.from ~= nil and not file then
+      return "grant \"" .. grant.path .. "\" has from, which needs isolate \"file\": the host's " ..
+        "path is bound at that name in a root of the program's own"
+    end
+  end
+  if merged.limits.processes ~= nil and not isolates(merged, "proc") and not file then
+    return "limits.processes counts the processes of a user namespace of the sandbox's own, " ..
+      "which isolate \"proc\" or \"file\" makes: add one"
+  end
+  for name, _ in pairs(merged.set_env_digests) do
+    return "set_env_digests \"" .. name .. "\" holds a digest, not the value to set; the " ..
+      "policy cannot start a program"
+  end
+  return ""
+end
+
+--- The size of the /tmp of a sandbox's own under `isolate` file, in bytes.
+-- TODO: let a policy say how large its /tmp is (a field beside `limits`),
+-- once the design names one: every `isolate` file sandbox has this size.
+local TMP_BYTES <const> = 256 * 1024 * 1024
+
+--- `path` as a root holding it names it: unchanged where absolute, else
+--- beneath `base`, which is absolute.
+local function named(path: string, base: string): string
+  if path:sub(1, 1) == "/" then return path end
+  if path == "." then return base end
+  return base .. (base:sub(-1) == "/" and "" or "/") .. path
+end
+
+--- Whether `letters` holds `letter`.
+local function lettered(letters: string, letter: string): boolean
+  return letters:find(letter, 1, true) ~= nil
+end
+
+--- Whether a root of `grants` has the directory `base`, which it does when
+--- some grant is at it, beneath it (the directories above are made) or above it.
+local function holds_place(grants: {Rules.Grant}, base: string): boolean
+  for _, grant in ipairs(grants) do
+    local name = named(grant.path, base)
+    -- Where a grant with no `from` is placed is where it resolves to.
+    if grant.from == nil then
+      local real, _ = sys.realpath(name)
+      if real ~= nil then name = real end
+    end
+    if beneath(base, name) or beneath(name, base) then return true end
+  end
+  return false
+end
+
+--- What `isolate` file builds from a policy's grants, resolved against the
+--- directory `base`: each grant's host path (its `from`, else itself) bound
+--- at its name when that differs, writable where it may be written or
+--- created in, and noexec where it is and may not be run; and the sandbox's
+--- own /proc; `idmap` says which are mounted idmapped ([`reached_by`]).
+--- Nil and why where a grant cannot be placed.
+local function root_of(merged: Rules.Policy, base: string, idmap: {boolean}): raw_process.Unveil | nil, string
+  local binds: {raw_process.Bind} = {}
+  local reads: {string} = {}
+  local proc = true
+  for index, grant in ipairs(merged.grants) do
+    local name = named(grant.path, base)
+    if name == "/proc" and grant.from ~= nil then
+      return nil, "grant \"/proc\" has from, but /proc is the sandbox's own: grant its " ..
+        "contents at another name"
+    end
+    if merged.tmp and (name == "/tmp" or name == "/") then
+      return nil, "grant \"" .. grant.path .. "\" is the name of the sandbox's own /tmp, " ..
+        "which tmp makes: grant what is beneath it, or leave tmp out"
+    end
+    if name == "/proc" or name == "/" then proc = false end
+    local writable = lettered(grant.letters, "w") or lettered(grant.letters, "c")
+    binds[#binds + 1] = { path = named(grant.from or grant.path, base),
+      at = grant.from ~= nil and name or nil, writable = writable,
+      noexec = writable and not lettered(grant.letters, "x"), idmap = idmap[index] or nil }
+  end
+  if proc then reads[1] = "/proc" end
+  local tmp: integer
+  if merged.tmp then tmp = TMP_BYTES end
+  return { reads = reads, writes = {}, binds = binds, tmp = tmp }, ""
+end
+
+--- Why a `u` grant cannot be held under `isolate` file, or "". Below
+--- Landlock ABI 9 nothing tells one unix socket of the root from another
+--- (the filter allows AF_UNIX to the program whole, and a read-only bind
+--- does not stop a connect), so the granted socket is the only one the
+--- root may hold: no other grant may be a directory, which may hold
+--- sockets, or a socket. A limit for good below ABI 9; at 9 Landlock holds it.
+local function unix_unheld(merged: Rules.Policy, base: string): string
+  local abi, _ = raw.landlock_abi()
+  if abi == nil or abi >= 9 then return "" end
+  local reachable = 0
+  local only: string
+  for _, grant in ipairs(merged.grants) do
+    local st, _ = sys.stat(named(grant.from or grant.path, base))
+    if st ~= nil and (st.kind == "dir" or st.kind == "socket") then
+      reachable = reachable + 1
+      only = lettered(grant.letters, "u") and st.kind == "socket" and grant.path or nil
+    end
+  end
+  if reachable <= 1 and (reachable == 0 or only ~= nil) then return "" end
+  return "a `u` grant under isolate file needs Landlock ABI 9 beside any other grant of a " ..
+    "directory or a socket: this kernel gives ABI " .. abi .. ", where the granted socket " ..
+    "cannot be told from another socket in the root, and the root holds every socket a " ..
+    "granted directory holds. Grant the socket alone (and files), or run a kernel with ABI 9"
+end
+
+--- Whether a grant of `merged` has `u`.
+local function isolated_unix(merged: Rules.Policy): boolean
+  for _, grant in ipairs(merged.grants) do
+    if lettered(grant.letters, "u") then return true end
+  end
+  return false
+end
+
+--- What a process's pid is multiplied by to make a sandbox's serial
+--- ([`Sandbox.user_id`]): an odd number, so processes whose pids are
+--- near differ in it.
+local PID_SPREAD <const> = 2481
+
+--- The sandboxes this process has given a user: the part of the serial
+--- that makes two of its own differ.
+local sandboxes_started = 0
+
+--- The user this process runs as, which a program of a policy is not to
+--- be where it is root.
+local function effective_user(): integer
+  local status, _ = Fs.read("/proc/self/status")
+  local effective = status ~= nil and status:match("\nUid:%s+%d+%s+(%d+)") or nil
+  local number = effective ~= nil and math.tointeger(tonumber(effective)) or nil
+  return number or sys.getuid()
+end
+
+--- The user and group a program runs as where this process is root,
+--- which a program of a policy never is: nil with no reason where this
+--- process is not root (the program then runs as it does, mapped as itself
+--- in a user namespace of its own); a user of its own, mapped from outside
+--- ([`Sandbox.user_id`]'s pool), where it is and may; nil and why where it
+--- is root but may not map one -- it needs CAP_SETUID, CAP_SETGID and
+--- CAP_SETFCAP, and a user namespace that maps the pool.
+local function mapped_user(): MappedUser | nil, string
+  local platform, _, _ = raw.sandbox_platform()
+  if not platform or effective_user() ~= 0 then return nil, "" end
+  local mayed, _, _ = raw.may_map_ids()
+  if not mayed then
+    return nil, "this process is root, and a program of a policy never runs as root: it runs " ..
+      "as a user of its own, mapped into its user namespace from outside, which needs " ..
+      "CAP_SETUID, CAP_SETGID and CAP_SETFCAP in effect here (a container may leave out " ..
+      "CAP_SETFCAP: add it, or start from another user)"
+  end
+  local uid_map, _ = Fs.read("/proc/self/uid_map")
+  local gid_map, _ = Fs.read("/proc/self/gid_map")
+  if uid_map == nil or gid_map == nil then
+    return nil, "this process's user and group maps cannot be read, so the user a program " ..
+      "of a policy runs as (never root) cannot be chosen: /proc/self/uid_map"
+  end
+  sandboxes_started = sandboxes_started + 1
+  local id, why = Rules.user_id(uid_map, gid_map, sys.getpid() * PID_SPREAD + sandboxes_started)
+  if id == nil then return nil, why end
+  return { uid = id, gid = id }, ""
+end
+
+--- Whether every directory above `path`, an absolute real path, may be
+--- searched by a user that owns none of them, as the user of a root
+--- caller's sandbox must to reach it in the host's own tree: "" or the
+--- directory that may not.
+local function unsearchable_above(path: string): string
+  local at = Fs.dirname(path)
+  while true do
+    local st, _ = sys.stat(at)
+    if st ~= nil and Rules.reach("x", st).by ~= "other" then return at end
+    if at == "/" or at == "." then return "" end
+    at = Fs.dirname(at)
+  end
+end
+
+--- Which of `merged`'s grants the user of a root caller's sandbox, which
+--- owns none of the host's files, can use only as their owner can
+--- ([`Sandbox.reach`]): those are mounted idmapped, so that user is the
+--- owner, where `file` gives the sandbox a root of its own to mount them
+--- in. Nil, and why, where one cannot be used either way, or, without
+--- `file`, only as its owner can, which only that mount gives; naming it
+--- and what to do. Without `file` every directory above a grant must also
+--- be searchable by everyone, and so must `base`, the directory the
+--- program starts in, and, for `tmp`, TMPDIR's; under it the root is built without walking to a
+--- grant. A grant that does not exist is left for the start's own report.
+local function reached_by(merged: Rules.Policy, base: string, file: boolean): {boolean} | nil, string
+  if merged.tmp and not file then
+    local tmpdir = sys.getenv("TMPDIR")
+    if tmpdir == nil or tmpdir == "" then tmpdir = "/tmp" end
+    local real, _ = sys.realpath(tmpdir)
+    local above = real ~= nil and unsearchable_above(real .. "/.") or ""
+    if above ~= "" then
+      return nil, "tmp makes its directory in TMPDIR, " .. string.format("%q", tmpdir) ..
+        ", which the user a root caller's program runs as cannot reach: " .. above ..
+        " is not searchable by everyone; point TMPDIR at a directory everyone may search, " ..
+        "or isolate \"file\", whose /tmp is a tmpfs of the sandbox's own"
+    end
+  end
+  local idmap: {boolean} = {}
+  for index, grant in ipairs(merged.grants) do
+    local named_at = named(grant.from or grant.path, base)
+    local real, _ = sys.realpath(named_at)
+    local st: sys.Stat
+    if real ~= nil then
+      local got, _ = sys.stat(real)
+      st = got
+    end
+    if st ~= nil then
+      local reach = Rules.reach(grant.letters, st)
+      local what = "grant " .. string.format("%q", grant.path) .. " (" .. real .. ")"
+      if reach.by == "" then
+        return nil, what .. " cannot be used by the user a root caller's program runs as, which " ..
+          "is none of its owners: " .. reach.lacks .. "; change its mode so everyone may"
+      elseif reach.by == "owner" then
+        if not file then
+          return nil, what .. " is owned by user " .. st.uid .. " and not open to everyone, so " ..
+            "the user a root caller's program runs as, which is none of its owners, cannot " ..
+            "use it: change its mode, or isolate \"file\", which mounts it so that user owns it"
+        end
+        idmap[index] = true
+      elseif not file then
+        local above = unsearchable_above(real)
+        if above ~= "" then
+          return nil, what .. " is beneath the directory " .. above .. ", which the user a " ..
+            "root caller's program runs as cannot search: change its mode, or isolate " ..
+            "\"file\", which gives the program a root holding only what is granted"
+        end
+      end
+    end
+  end
+  if not file then
+    local above = unsearchable_above(base .. "/.")
+    if above ~= "" then
+      return nil, "the directory the program starts in, " .. string.format("%q", base) ..
+        ", or one above it, " .. above .. ", cannot be searched by the user a root caller's " ..
+        "program runs as: pass `cwd` of a directory everyone may search (this process's own is " ..
+        "the default), or isolate \"file\""
+    end
+  end
+  return idmap, ""
+end
+
+--- The kernel's release, as uname(2) answers it, or "" where it fails.
+local function kernel_release(): string
+  local names, _ = sys.uname()
+  return names ~= nil and names.release or ""
+end
+
+--- What a program started under `isolate` with no `processes` of its
+--- own is held to: the count of its whole user namespace.
+local DEFAULT_PROCESSES <const> = 4096
+
+--- The `processes` limit a start sets, as RLIMIT_NPROC, or nil for none,
+--- and why not: the policy's own, or [`DEFAULT_PROCESSES`] under `isolate`,
+--- both held by the kernel's count of the processes and threads of the
+--- sandbox's user namespace, which only a kernel from Linux 5.17 keeps
+--- apart from its creator's (an older one's counts every process of the
+--- user the namespace was made by, so a limit would hold the caller's
+--- other processes too). The default is dropped where the kernel is
+--- older, and a limit the policy names fails there; either is lowered
+--- to this process's hard limit if that is lower, but only the default
+--- may be: a limit the policy names above it fails.
+local function process_limit(merged: Rules.Policy, isolated: boolean): integer | nil, string
+  local named_limit = merged.limits.processes
+  if not isolated then return nil, "" end
+  local release = kernel_release()
+  if release ~= "" and not Rules.counts_per_namespace(release) then
+    if named_limit == nil then return nil, "" end
+    return nil, "limits.processes needs a kernel that counts the processes of a user " ..
+      "namespace apart from its creator's user, Linux 5.17 or a stable kernel with the fix: " ..
+      "this one is " .. release
+  end
+  local wanted = named_limit or DEFAULT_PROCESSES
+  local held, _ = sys.getrlimit(sys.RLIMIT_NPROC)
+  if held ~= nil and held.hard < wanted then
+    if named_limit ~= nil then
+      return nil, "limits.processes " .. named_limit .. " is above this process's own hard " ..
+        "limit on processes, " .. held.hard .. ", which a child cannot raise"
+    end
+    return held.hard, ""
+  end
+  return wanted, ""
+end
+
+--- Makes a policy's start: merges it, refuses what is not yet available
+--- and a program its grants do not let start, then builds the
+--- environment, the limits, what isolates it and, for `tmp`, the
+--- directory. Nil and why when it cannot. It acquires nothing: `tmp`'s
+--- directory is [`make_tmp`]'s.
+local function held_to(argv: {string}, opts: Options): Held | nil, string
+  local merged, why = Rules.merge(opts.policy)
+  if merged == nil then return nil, why end
+  local trouble = unmet(merged)
+  if trouble ~= "" then return nil, "sandbox: " .. trouble end
+  local file = isolates(merged, "file")
+  local proc = isolates(merged, "proc")
+  -- The directory the root of `isolate` file is built around, and the one
+  -- the program starts in there: the caller's (or `cwd`'s) real path, which
+  -- is what the grants' names are relative to.
+  local base: string = opts.cwd
+  if file then
+    local here, here_trouble = sys.realpath(opts.cwd or ".")
+    if here == nil then return nil, "sandbox: cwd " .. (opts.cwd or ".") .. ": " .. here_trouble end
+    base = here
+  end
+  -- Where this process is root its program runs as a user of its own,
+  -- which only a user namespace maps: so a policy with no isolation gets
+  -- a pid namespace and a procfs, `proc`'s, at least.
+  local user, user_trouble = mapped_user()
+  if user == nil and user_trouble ~= "" then return nil, "sandbox: " .. user_trouble end
+  local idmap: {boolean} = {}
+  if user ~= nil then
+    local here, here_trouble = sys.realpath(opts.cwd or ".")
+    if here == nil then return nil, "sandbox: cwd " .. (opts.cwd or ".") .. ": " .. here_trouble end
+    local reached, reach_trouble = reached_by(merged, here, file)
+    if reached == nil then return nil, "sandbox: " .. reach_trouble end
+    idmap = reached
+    proc = true
+  end
+  local root: raw_process.Unveil
+  if file and isolated_unix(merged) then
+    local unheld = unix_unheld(merged, base)
+    if unheld ~= "" then return nil, "sandbox: " .. unheld end
+  end
+  if file then
+    local made, root_trouble = root_of(merged, base, idmap)
+    if made == nil then return nil, "sandbox: " .. root_trouble end
+    root = made
+  end
+  -- A bare name is found on this process's PATH and run by its real path,
+  -- so what is granted is what runs; a name with a slash is run as written
+  -- (a virtual environment's interpreter link keeps its prefix), and its
+  -- grants are the real path's, which is what the kernel opens.
+  -- TODO: run a link as the link under `isolate` file too, binding it at
+  -- its name (a virtual environment's interpreter), once a bind can place
+  -- a link: a root holds the real path alone, so the program is run by it.
+  local path = argv[1]
+  if not path:find("/", 1, true) then
+    local found, absent = Proc.find(path)
+    if found == nil then return nil, absent end
+    local real, real_trouble = sys.realpath(found)
+    if real == nil then return nil, found .. ": " .. real_trouble end
+    path = real
+  elseif file then
+    local real, real_trouble = sys.realpath(named(path, base))
+    if real == nil then return nil, path .. ": " .. real_trouble end
+    path = real
+  end
+  local files, loader_trouble = Rules.loaders(path, base)
+  if files == nil then return nil, loader_trouble end
+  -- Under `isolate` file the program runs from where the host has it, so
+  -- only a grant at its own name gives it: one with `from` shows another.
+  local checked = merged.grants
+  if file then
+    checked = {}
+    for _, grant in ipairs(merged.grants) do
+      if grant.from == nil then checked[#checked + 1] = grant end
+    end
+  end
+  local missing = ungranted(files, checked, base)
+  if missing ~= "" then return nil, "sandbox: " .. missing end
+  if file and not holds_place(merged.grants, base) then
+    return nil, "sandbox: under isolate file the root holds only what is granted, so the " ..
+      "directory the program starts in, " .. string.format("%q", base) .. ", must be at, " ..
+      "beneath or above a grant: grant it, or start in a directory that is"
+  end
+
+  local grants: {raw_process.Grant} = {}
+  local unix = false
+  for _, grant in ipairs(merged.grants) do
+    local at = grant.from or grant.path
+    if base ~= nil and at:sub(1, 1) ~= "/" then at = base .. "/" .. at end
+    grants[#grants + 1] = { path = at, access = grant.letters }
+    if lettered(grant.letters, "u") then unix = true end
+  end
+  local env: {string:string} = {}
+  for _, name in ipairs(merged.env) do
+    local value = sys.getenv(name)
+    if value ~= nil then env[name] = value end
+  end
+  for name, value in pairs(merged.set_env) do env[name] = value end
+  local open_files = merged.limits.open_files
+  if open_files == nil then
+    open_files = DEFAULT_OPEN_FILES
+    local held, _ = sys.getrlimit(sys.RLIMIT_NOFILE)
+    -- A default is no reason to fail where this process's own hard limit is lower.
+    if held ~= nil and held.hard < open_files then open_files = held.hard end
+  end
+  local rlimits: {string:integer} = { nofile = open_files, core = 0 }
+  rlimits.fsize = merged.limits.file_bytes
+  rlimits.cpu = merged.limits.cpu_seconds
+  local counted, count_trouble = process_limit(merged, file or isolates(merged, "proc"))
+  if counted == nil and count_trouble ~= "" then return nil, "sandbox: " .. count_trouble end
+  rlimits.nproc = counted
+  local promises: {string} = {}
+  for _, promise in ipairs(merged.promises) do promises[#promises + 1] = promise end
+  -- A network namespace of its own with a loopback holds the network of a
+  -- program that declares addresses of it or a unix socket to reach: the
+  -- filter then lets it make inet sockets (the namespace is their hold)
+  -- when it declared a loopback, and unix ones when it was granted `u`.
+  local inet = #merged.loopback > 0
+  local sockets: {string} = {}
+  if unix then sockets[#sockets + 1] = "unix" end
+  if inet then sockets[#sockets + 1] = "inet" end
+  local sandbox: raw_process.Sandbox = { grants = grants, promises = promises, rlimits = rlimits,
+    sockets = sockets, offline = inet or unix, strict = file or proc or inet or unix,
+    proc = proc and not file, user = user ~= nil and user.uid or nil,
+    group = user ~= nil and user.gid or nil }
+  if root ~= nil then
+    sandbox.unveil = root
+    if merged.tmp then env.TMPDIR = "/tmp" end
+  end
+  return { path = path, env = env, tmp = "", wants_tmp = merged.tmp and not file,
+    sandbox = sandbox, cwd = file and base or nil, user = user }, ""
+end
+
+--- Makes the temporary directory a policy's `tmp` asks for, as an absolute
+--- path whatever TMPDIR is (the child may start in another directory),
+--- grants it `rwc` and names it in TMPDIR; it is the child's user's,
+--- where that is not this process's. "" or why not.
+local function make_tmp(held: Held): string
+  local dir, trouble = Fs.mkdtemp("cosmic-sandbox-")
+  if dir == nil then return "tmp: " .. trouble end
+  local real, real_trouble = sys.realpath(dir)
+  if real == nil then
+    local _, _ = Fs.remove_tree(dir)
+    return "tmp: " .. dir .. ": " .. real_trouble
+  end
+  if held.user ~= nil then
+    local given, given_trouble = sys.chown(real, held.user.uid, held.user.gid)
+    if not given then
+      local _, _ = Fs.remove_tree(dir)
+      return "tmp: " .. real .. ": " .. given_trouble
+    end
+  end
+  held.tmp = real
+  local grants = held.sandbox.grants
+  grants[#grants + 1] = { path = real, access = "rwc" }
+  held.env.TMPDIR = real
+  return ""
+end
+
 --- [`Child.start`] on options already validated.
 local function start(argv: {string}, opts: Options): Handle | nil, string
+  local held: Held
+  if opts.policy ~= nil then
+    local made, why = held_to(argv, opts)
+    if made == nil then return refuse("start: " .. why) end
+    held = made
+  end
   local grouped = opts.process_group
   if grouped == nil then grouped = true end
   if grouped and adopting == nil then
@@ -1994,11 +2695,40 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
   if opts.credentials ~= nil then
     credentials = { user = opts.credentials.user, group = opts.credentials.group }
   end
-  local pid, trouble, errno = raw.spawn(argv[1], argv, opts.env, opts.cwd,
+  local path, env, cwd = argv[1], opts.env, opts.cwd
+  if held ~= nil then
+    path, env, sandbox = held.path, held.env, held.sandbox
+    if held.cwd ~= nil then cwd = held.cwd end
+    if held.wants_tmp then
+      local why = make_tmp(held)
+      if why ~= "" then
+        unwire(wiring, false)
+        return refuse("start: sandbox: " .. why)
+      end
+    end
+  end
+  -- Nothing but the spawn lies between the directory's making and its
+  -- owner, the handle: a spawn that raises (an argument it refuses) must
+  -- not leave it, nor the descriptors wired, behind.
+  local called, pid, trouble, errno = pcall(raw.spawn, path, argv, env, cwd,
     slots[0], slots[1], slots[2], grouped, extra, sandbox, credentials)
+  if not called then
+    unwire(wiring, false)
+    if held ~= nil and held.tmp ~= "" then
+      local _, _ = Fs.remove_tree(held.tmp)
+    end
+    error(pid, 0)
+  end
   unwire(wiring, pid ~= nil)
   if not pid then
-    if (errno == sys.ENOENT or errno == sys.ENOTDIR) and missing_cwd(opts) then
+    if held ~= nil and held.tmp ~= "" then
+      local _, _ = Fs.remove_tree(held.tmp)
+    end
+    -- TODO: hold a policy's child by Seatbelt on macOS, where this start
+    -- fails ENOSYS, once the design's phase 8 lands.
+    if held ~= nil and errno == sys.ENOSYS then
+      trouble = trouble .. ": a policy is held by Landlock and seccomp, which only Linux gives"
+    elseif (errno == sys.ENOENT or errno == sys.ENOTDIR) and missing_cwd(opts) then
       trouble = trouble .. ": cwd " .. string.format("%q", opts.cwd) .. " does not exist"
     elseif errno == sys.ENOENT and unfound_name(argv[1], opts.cwd) then
       trouble = trouble .. ": " .. string.format("%q", argv[1]) ..
@@ -2012,6 +2742,7 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
   local deadline: integer
   if opts.timeout_ns ~= nil then deadline = now() + opts.timeout_ns end
   local h = make_handle(pid, grouped, opts.capture_limit or DEFAULT_CAPTURE_LIMIT, deadline)
+  if held ~= nil and held.tmp ~= "" then h._tmp = held.tmp end
   if #wiring.streams > 0 then h._streams = wiring.streams end
   if wiring.input_fd ~= nil then
     h._input_fd, h._input, h._input_at = wiring.input_fd, opts.input, 0

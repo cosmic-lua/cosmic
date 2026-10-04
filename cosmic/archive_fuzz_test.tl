@@ -1,7 +1,9 @@
 --- Fuzz properties for [`cosmic.archive`]: opening is total over any bytes,
 --- plain or behind a compressor's magic, and extraction never writes
 --- outside its destination or leaves a link there that leads out of it,
---- whatever paths, links and options an archive combines.
+--- whatever paths, links and options an archive combines, and never
+--- writes more than `max_bytes` in all or `max_entry_bytes` to a file,
+--- whatever the archive's bodies expand to.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
 local Archive = require("cosmic.archive")
@@ -9,6 +11,7 @@ local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Fuzz = require("build.fuzz")
 local Stream = require("cosmic.stream")
+local String = require("cosmic.string")
 local Tar = require("cosmic.tar")
 local Zip = require("cosmic.zip")
 local sys = require("cosmic.sys")
@@ -452,6 +455,190 @@ local function test_extract_reader_answers_as_extract_does_for_the_same_bytes(tm
       end
       Fuzz.label(from_file ~= nil and "both wrote" or "both refused")
       return true, ""
+    end,
+  })
+end
+
+--- An archive of files `f1`, `f2`... as [`Fuzz.pack`] fields: a format,
+--- `max_entry_bytes` and `max_bytes` ("" for neither), then a size and a
+--- fill per file. The fills compress to almost nothing, so a body is
+--- far larger than the archive that holds it, as a bomb is.
+local function gen_capped(src: Fuzz.Source): string
+  local fields: {string} = { Fuzz.pick(src, { "tar", "tar.gz", "zip" }) }
+  -- None is the low end, so a shrunk input falls back to the defaults.
+  local function cap(small: integer, large: integer): string
+    local kind = src:int(0, 2)
+    if kind == 0 then return "" end
+    return tostring(src:int(0, kind == 1 and small or large))
+  end
+  fields[#fields + 1] = cap(400, 100000)
+  fields[#fields + 1] = cap(1000, 200000)
+  repeat
+    -- A body past the 64 KiB a read takes at most, one in eight.
+    local big = src:int(0, 7) == 7
+    fields[#fields + 1] = tostring(big and src:int(65000, 140000) or src:int(0, 300))
+    fields[#fields + 1] = Fuzz.pick(src, { "z", "p" })
+  until not Fuzz.more(src, (#fields - 3) // 2, 6)
+  return Fuzz.pack(fields)
+end
+
+--- The limit a field spells, nil for none or for text no limit is.
+local function limit_of(field: string): integer | nil
+  local n = math.tointeger(tonumber(field))
+  if n ~= nil and n >= 0 then return n end
+  return nil
+end
+
+--- The archive `fields` describe, as [`gen_capped`] draws them, and the
+--- sizes of its files in order.
+local function build_capped(fields: {string}): string | nil, {integer}
+  local out = Stream.collect()
+  local zip = fields[1] == "zip"
+  local w: Stream.ArchiveWriter
+  if zip then
+    w = Zip.writer(out, { deterministic = true })
+  else
+    w = Tar.writer(out, { deterministic = true })
+  end
+  local sizes: {integer} = {}
+  for i = 4, #fields - 1, 2 do
+    local size = math.tointeger(tonumber(fields[i])) or 0
+    if size < 0 then size = 0 end
+    local unit = fields[i + 1] == "z" and "\0" or "pq1"
+    local body = unit:rep(size // #unit + 1):sub(1, size)
+    sizes[#sizes + 1] = size
+    if not w:add_file("f" .. #sizes, body) then return nil, sizes end
+  end
+  if not w:close() then return nil, sizes end
+  local archive = out:result()
+  if fields[1] == "tar.gz" then
+    local enc = Compress.deflater("gzip")
+    if enc == nil then return nil, sizes end
+    local head = enc:update(archive) as string
+    local tail = enc:finish()
+    if tail == nil then return nil, sizes end
+    archive = head .. tail
+  end
+  return archive, sizes
+end
+
+--- `reader`, its entries claiming to hold nothing: the sizes a header
+--- states are the archive's to lie about, so a limit that read them
+--- alone would pass any body.
+local function understating(reader: Archive.Reader): Archive.Reader
+  local r: Archive.Reader = {}
+  r.next = function(_self: Archive.Reader): Archive.Entry | nil, string
+    local entry, why = reader:next()
+    if entry == nil then return nil, why end
+    local real: Archive.Entry = entry
+    local lie: Archive.Entry = {
+      path = real.path, kind = real.kind, mode = real.mode, size = 0, mtime = real.mtime,
+      linkpath = real.linkpath,
+      open = function(_self: Archive.Entry): Stream.Reader | nil, string return real:open() end,
+    }
+    return lie, ""
+  end
+  r.close = function(_self: Archive.Reader): boolean, string return reader:close() end
+  return r
+end
+
+--- Extraction under `max_entry_bytes` and `max_bytes` refuses exactly the
+--- first file that passes one, leaves the files before it whole and no
+--- trace of it, and never has written more than a limit allows.
+local function test_extraction_stays_under_its_byte_limits(tmp: string)
+  local base = Fs.absolute(tmp) or tmp
+  local case = base .. "/case"
+  Fuzz.run({
+    name = "archive extraction byte limits",
+    dir = tmp,
+    gen = gen_capped,
+    requires = { "extracted", "refused by entry limit", "refused by total limit" },
+    shares = { ["refused by entry limit"] = 0.15, ["refused by total limit"] = 0.04 },
+    check = function(input: string): boolean, string
+      Fs.remove_tree(case)
+      assert(Fs.mkdirs(case))
+      local fields = Fuzz.unpack(input)
+      if #fields < 5 then return true, "" end
+      local archive, sizes = build_capped(fields)
+      if archive == nil then return true, "" end
+      local file = case .. "/archive"
+      assert(Fs.write(file, archive))
+      local per_file, total = limit_of(fields[2]), limit_of(fields[3])
+      local opts: Archive.ExtractOptions = { max_entry_bytes = per_file, max_bytes = total }
+
+      -- What the limits allow, from the sizes the archive was built of.
+      local kept, used = 0, 0
+      local refusal = ""
+      -- What a body that outgrows its header is refused for, if it hits
+      -- the other limit first, as it does when both are in reach.
+      local either: {string} = {}
+      for i, size in ipairs(sizes) do
+        local entry_says = "archive: f" .. i .. " is larger than max_entry_bytes (" ..
+          String.counted(per_file or 0, "byte") .. ")"
+        local total_says = "archive: extracting f" .. i .. " would write more than max_bytes (" ..
+          String.counted(total or 0, "byte") .. ")"
+        if per_file ~= nil and size > per_file then
+          refusal = entry_says
+          Fuzz.label("refused by entry limit")
+        elseif total ~= nil and used + size > total then
+          refusal = total_says
+          Fuzz.label("refused by total limit")
+        end
+        if refusal ~= "" then
+          either = { entry_says, total_says }
+          break
+        end
+        used = used + size
+        kept = i
+      end
+      if refusal == "" then Fuzz.label("extracted") end
+
+      local function check_dest(dest: string, written: {string} | nil, trouble: string,
+                                says: {string}): boolean, string
+        if (written == nil) ~= (refusal ~= "") then
+          return false, "extract " .. (written == nil and "refused" or "took") .. " what the limits " ..
+            (refusal ~= "" and "refuse" or "allow") .. ": " .. trouble
+        end
+        if written == nil and trouble ~= says[1] and trouble ~= says[2] then
+          return false, "refused as '" .. trouble .. "', not '" .. table.concat(says, "' or '") .. "'"
+        end
+        local names = Fs.list(dest) or {}
+        table.sort(names)
+        local want: {string} = {}
+        for i = 1, kept do want[i] = "f" .. i end
+        table.sort(want)
+        if table.concat(names, ",") ~= table.concat(want, ",") then
+          return false, "left " .. table.concat(names, ",") .. ", not " .. table.concat(want, ",")
+        end
+        local wrote = 0
+        for i = 1, kept do
+          local body = Fs.read(dest .. "/f" .. i)
+          if body == nil or #body ~= sizes[i] then return false, "f" .. i .. " is not whole" end
+          wrote = wrote + #body
+          if per_file ~= nil and #body > per_file then
+            return false, "f" .. i .. " passes max_entry_bytes"
+          end
+        end
+        if total ~= nil and wrote > total then
+          return false, "wrote " .. wrote .. ", past max_bytes"
+        end
+        return true, ""
+      end
+
+      local written, trouble = Archive.extract(file, case .. "/by-file", opts)
+      local ok, why = check_dest(case .. "/by-file", written, trouble, { refusal })
+      if not ok then return false, why end
+      -- Entries that state no size: only the bytes read tell.
+      local opened = Archive.open(file)
+      if opened == nil then return false, "open refused what extract took" end
+      written, trouble = Archive.extract_reader(understating(opened), case .. "/understated", opts)
+      ok, why = check_dest(case .. "/understated", written, trouble, either)
+      if not ok then return false, "understating its sizes: " .. why end
+      if fields[1] == "zip" then return true, "" end
+      local reader = Archive.open_stream(chunked(archive))
+      if reader == nil then return false, "open_stream refused what open took" end
+      written, trouble = Archive.extract_reader(reader, case .. "/by-stream", opts)
+      return check_dest(case .. "/by-stream", written, trouble, { refusal })
     end,
   })
 end

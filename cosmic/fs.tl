@@ -6,6 +6,12 @@
 --- an error. A predicate uses the same contract, with false as a valid
 --- answer. A call that only has an effect returns `boolean, string`.
 ---
+--- A descriptor from [`Fs.open_read`] or [`Fs.open_write`] is a plain
+--- integer, closed with [`Fs.close`], so a `<close>` variable cannot hold
+--- it. One holds a value whose type has a `__close` metamethod, written
+--- `local h <close> = assert(Child.start(argv))`: `assert` narrows the
+--- `T | nil` an opener answers, which `<close>` refuses, to `T`.
+---
 --- `basename`, `dirname`, `within` and `relative` work on a path's
 --- text alone and read nothing. The first three cannot fail, so each
 --- answers a plain value; `relative` answers nil and why when the path
@@ -481,33 +487,15 @@ end
 
 --- Removes a path and, when it is a directory, everything under it:
 --- the `rm -rf` a scratch directory wants. A link is removed, never
---- followed, so nothing outside `path` is touched. A path that is
---- already gone is not a failure.
+--- followed, so nothing outside `path` is touched -- not even by a
+--- process that swaps an entry for a link while this walks, which is
+--- removed with the rest: the walk is by descriptor, from each directory
+--- to its entries. A path that is already gone is not a failure. A
+--- directory that cannot be opened, or that something keeps filling,
+--- fails the call, with what was removed gone.
 function Fs.remove_tree(path: string): boolean, string
-  local st, trouble, number = sys.lstat(path)
-  if st == nil then
-    if number == sys.ENOENT or number == sys.ENOTDIR then
-      return true, ""
-    end
-    return false, path .. ": " .. trouble
-  end
-  if st.kind ~= "dir" then
-    return Fs.remove(path)
-  end
-  local entries, list_trouble = sys.readdir(path)
-  if entries == nil then
-    return false, path .. ": " .. list_trouble
-  end
-  for name in pairs(entries) do
-    local gone, why = Fs.remove_tree(path .. "/" .. name)
-    if not gone then
-      return false, why
-    end
-  end
-  local removed, rmdir_trouble, rmdir_number = sys.rmdir(path)
-  if not removed and rmdir_number ~= sys.ENOENT then
-    return false, path .. ": " .. rmdir_trouble
-  end
+  local removed, trouble = sys.remove_tree(path)
+  if not removed then return false, path .. ": " .. trouble end
   return true, ""
 end
 
@@ -672,6 +660,11 @@ end
 --- for reading and returns an integer descriptor instead. Most callers want
 --- [`Fs.read`]; use Fs.take and Fs.close when a file must be read in pieces.
 function Fs.open_read(path: string): integer | nil, string
+  -- TODO: a descriptor a `<close>` variable can hold (a record with
+  -- `__close` over the fd), here and in open_write, so a file read or
+  -- written in pieces is closed on every way out of its block: callers
+  -- write `local f <close> = assert(Fs.open_read(path))` and meet an
+  -- integer, which `<close>` refuses.
   local fd, trouble = sys.open(path, sys.O_RDONLY)
   if fd == nil then
     return nil, path .. ": " .. trouble

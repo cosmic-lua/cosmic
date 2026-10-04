@@ -363,6 +363,78 @@ local function test_remove_tree_removes_everything_but_follows_no_link(tmp: stri
   assert(Fs.exists(outside .. "/keep") == false)
 end
 
+local function test_remove_tree_of_a_link_removes_the_link_and_walks_a_deep_tree(tmp: string)
+  local outside = tmp .. "/outside"
+  assert(Fs.mkdirs(outside .. "/inner"))
+  assert(Fs.write(outside .. "/inner/keep", "kept"))
+  assert(Fs.symlink(outside, tmp .. "/link"))
+  assert(Fs.remove_tree(tmp .. "/link"))
+  assert(Fs.exists(tmp .. "/link") == false and Fs.read(outside .. "/inner/keep") == "kept")
+  -- A directory of links to directories, and one of wide and deep names.
+  local tree = tmp .. "/deep"
+  local path = tree
+  for i = 1, 40 do path = path .. "/d" .. i end
+  assert(Fs.mkdirs(path))
+  for i = 1, 300 do
+    assert(Fs.write(tree .. "/f" .. i, "x"))
+    assert(Fs.symlink(outside .. "/inner", tree .. "/l" .. i))
+  end
+  assert(Fs.remove_tree(tree))
+  assert(Fs.exists(tree) == false and Fs.read(outside .. "/inner/keep") == "kept")
+end
+
+local function test_remove_tree_under_a_file_is_gone_and_a_trailing_slash_does_not_follow_a_link(tmp: string)
+  assert(Fs.write(tmp .. "/file", "x"))
+  assert(Fs.remove_tree(tmp .. "/file/sub"), "beneath a file is nothing there")
+  assert(Fs.read(tmp .. "/file") == "x")
+  local outside = tmp .. "/outside"
+  assert(Fs.mkdirs(outside .. "/inner"))
+  assert(Fs.write(outside .. "/inner/keep", "kept"))
+  assert(Fs.symlink(outside, tmp .. "/link"))
+  assert(Fs.remove_tree(tmp .. "/link/"))
+  assert(Fs.exists(tmp .. "/link") == false, "the link is removed")
+  assert(Fs.read(outside .. "/inner/keep") == "kept", "a trailing slash followed the link")
+  assert(Fs.symlink(outside, tmp .. "/link"))
+  assert(Fs.remove_tree(tmp .. "/link///"))
+  assert(Fs.read(outside .. "/inner/keep") == "kept")
+  local refused, why = Fs.remove_tree("/")
+  assert(not refused and why:find("Invalid argument", 1, true), why)
+  local also = Fs.remove_tree("///")
+  assert(not also)
+end
+
+--- The tree is built and taken down a level at a time from inside it:
+--- its deepest path is past macOS's PATH_MAX of 1024, which no call
+--- taking a whole path accepts there.
+local function test_remove_tree_deeper_than_its_bound_fails_and_leaves_the_tree(tmp: string)
+  local levels = 1100
+  local deep = tmp .. "/deep"
+  local here = assert(sys.getcwd())
+  assert(sys.mkdir(deep, 448))
+  assert(sys.chdir(deep))
+  for _ = 1, levels do
+    assert(sys.mkdir("d", 448))
+    assert(sys.chdir("d"))
+  end
+  assert(sys.chdir(here))
+  local removed, why = Fs.remove_tree(deep)
+  assert(not removed and why ~= "", "a tree past the bound was removed")
+  assert(Fs.exists(deep) == true, "what failed to go is left")
+  -- What is left is taken from the bottom for the test's own directory
+  -- to be removable.
+  assert(sys.chdir(deep))
+  for _ = 1, levels do assert(sys.chdir("d")) end
+  for _ = 1, levels do
+    assert(sys.chdir(".."))
+    assert(sys.rmdir("d"))
+  end
+  assert(sys.chdir(here))
+  assert(Fs.remove_tree(deep))
+  assert(Fs.exists(deep) == false)
+  -- No descriptor was left open by the failed walk.
+  assert(Fs.mkdirs(tmp .. "/after/a/b") and Fs.remove_tree(tmp .. "/after"))
+end
+
 --- A regular file comes back in the one read its size asks for, and a
 --- file that says nothing true of its size (/proc's) in chunks.
 local function test_read_takes_a_file_in_the_one_read_its_size_asks_for(tmp: string)

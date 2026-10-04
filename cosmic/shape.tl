@@ -3,7 +3,12 @@
 --- is `any`, and reading a field from it costs a cast that nothing checks.
 --- `into` walks the value against a [`Spec`] built from the functions
 --- below, once, and answers a new value holding what the spec names and
---- nothing else, so every read after it is an ordinary typed read.
+--- nothing else, so every read after it is an ordinary typed read. Its
+--- answer is a generic `T`: name the type where it lands --
+--- `local server, err: Server | nil, string = Shape.into(value, SERVER)`,
+--- as below -- or build the spec with [`record_of`], whose `into`
+--- answers the record's own type. Without either, `server` is a `T
+--- (unresolved generic)`, and every read of it fails to compile.
 ---
 ---     local record Server
 ---       host: string
