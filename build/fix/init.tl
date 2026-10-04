@@ -1297,7 +1297,9 @@ local function fix_verb(argv: {integer:string}): integer
   if picked.whole then
     log:say("fix: tree checks: ran over the whole tree, " .. #findings .. " found")
   end
+  local failed: {string:boolean} = {}
   for _, line in ipairs(failures) do
+    failed[line] = true
     log:say("fix: FAIL  " .. line)
   end
   for _, line in ipairs(findings) do
@@ -1312,7 +1314,9 @@ local function fix_verb(argv: {integer:string}): integer
   for _, line in ipairs(redefined) do
     log:say("fix: FAIL  " .. line)
   end
-  if unbuilt ~= nil then
+  -- A file that does not parse is refused by its own check and by the
+  -- build in the same words: the line is said once.
+  if unbuilt ~= nil and not failed[unbuilt] then
     log:say("fix: FAIL  " .. unbuilt)
   end
   if links_unbuilt ~= nil then

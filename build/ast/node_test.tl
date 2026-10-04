@@ -124,3 +124,21 @@ local function test_parse_failure_reports_nil_and_message()
   assert(err ~= nil and err:find("unclosed.tl", 1, true) ~= nil,
     "error should name the file: " .. tostring(err))
 end
+
+--- A type declared under a dotted name, which the parser refuses, is
+--- told to nest it in the module's record; any other refusal is not.
+local function test_a_dotted_type_declaration_is_told_to_nest()
+  local nest = " -- declare `record Month ... end` inside `local record Ledger ... end`: " ..
+    "it is then Ledger.Month, here and in every module that requires this one"
+  local _, local_err = node_mod.parse(built,
+    "local record Ledger\nend\nlocal record Ledger.Month\n  total: integer\nend\nreturn Ledger\n",
+    "ledger.tl")
+  assert(local_err == "ledger.tl:3:20: syntax error, expected identifier" .. nest, local_err)
+  local _, bare_err = node_mod.parse(built,
+    "local record Ledger\nend\nrecord Ledger.Month\n  total: integer\nend\nreturn Ledger\n",
+    "ledger.tl")
+  assert(bare_err == "ledger.tl:3:1: record needs to be declared with 'local record' or " ..
+      "'global record'" .. nest, bare_err)
+  local _, plain_err = node_mod.parse(built, "local record\nend\n", "plain.tl")
+  assert(plain_err ~= nil and plain_err:find(" -- ", 1, true) == nil, plain_err)
+end

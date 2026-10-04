@@ -251,6 +251,41 @@ local record Parsed
   tokens: {compiler.Token}
 end
 
+--- What to write for a type declared under a dotted name, which the
+--- parser refuses: `local record Ledger.Month` as "expected identifier"
+--- at the dot, `record Ledger.Month` as needing a `local`. A module's
+--- type is declared inside the module's record, and the dotted name is
+--- how it is read, there and in every module that requires it. nil for
+--- any other refusal, or a line `e` names that declares no dotted name.
+local function dotted_declaration(source: string, e: compiler.Error): string | nil
+  if e.msg ~= "syntax error, expected identifier" and
+      e.msg ~= "record needs to be declared with 'local record' or 'global record'" then
+    return nil
+  end
+  local line: string | nil = nil
+  local y = 0
+  for text in (source .. "\n"):gmatch("([^\n]*)\n") do
+    y = y + 1
+    if y == e.y then
+      line = text
+      break
+    end
+  end
+  if line == nil then
+    return nil
+  end
+  local kind, outer, inner = line:match("^%s*local%s+(%a+)%s+([%a_][%w_]*)%.([%a_][%w_]*)")
+  if kind == nil then
+    kind, outer, inner = line:match("^%s*(%a+)%s+([%a_][%w_]*)%.([%a_][%w_]*)")
+  end
+  if kind ~= "record" and kind ~= "enum" and kind ~= "interface" then
+    return nil
+  end
+  return "declare `" .. kind .. " " .. inner .. " ... end` inside `local record " .. outer ..
+    " ... end`: it is then " .. outer .. "." .. inner ..
+    ", here and in every module that requires this one"
+end
+
 --- Lex and parse `source` into a [`Node`] tree and its token stream.
 ---
 --- Casts `parse_program`'s erased `any` result to [`Node`].
@@ -269,7 +304,9 @@ local function parse(built: compiler, source: string, name: string): Parsed | ni
   local ast = built.parse_program(tokens, parse_errs, name)
   if #parse_errs > 0 then
     local e = parse_errs[1]
-    return nil, string.format("%s:%d:%d: %s", name, e.y, e.x, e.msg)
+    local hint = dotted_declaration(source, e)
+    return nil, string.format("%s:%d:%d: %s", name, e.y, e.x, e.msg) ..
+      (hint ~= nil and " -- " .. hint or "")
   end
   -- cast: parse_program erases its AST to `any`
   return { node = ast as Node, tokens = tokens }, ""

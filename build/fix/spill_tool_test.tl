@@ -75,3 +75,18 @@ local function test_a_check_fails_on_a_spill_outside_it(tmp: string)
   assert(not result.ok, out)
   assert(out:find("fix: FAIL  b.tl: the compiler refused it", 1, true) ~= nil, out)
 end
+
+--- A file that does not parse is refused by its own check and by the
+--- build in the same words, which the run says once.
+local function test_a_file_that_does_not_parse_is_refused_once(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/a.tl", "local record A\nend\nlocal record A.B\nend\nreturn A\n"))
+  local out = assert(fix(root, true).stdout)
+  local line = "fix: FAIL  a.tl: a.tl:3:15: syntax error, expected identifier -- declare " ..
+    "`record B ... end` inside `local record A ... end`: it is then A.B, here and in every " ..
+    "module that requires this one\n"
+  local first = out:find(line, 1, true)
+  assert(first ~= nil, out)
+  assert(out:find(line, first + 1, true) == nil, out)
+end

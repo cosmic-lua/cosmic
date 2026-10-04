@@ -988,6 +988,41 @@ local function narrowing_hint(msg: string, source: string): string | nil
   return nil
 end
 
+--- Whether `source` declares a type `name` at its top level, by a line
+--- of its own (`local record Month`, `local type Month = ...`).
+local function declares(source: string, name: string): boolean
+  for line in source:gmatch("[^\n]+") do
+    local kind, named = line:match("^local%s+(%a+)%s+([%a_][%w_]*)")
+    if named == name and (kind == "record" or kind == "enum" or kind == "interface" or
+        kind == "type") then
+      return true
+    end
+  end
+  return false
+end
+
+--- The hint for `unknown type Owner.Member` where `Owner` is a module's
+--- record: a module's type is one declared inside that record, and a
+--- `local record Member` beside it is its file's alone. Told how to
+--- move it where `source` declares both at its top level, and what the
+--- module must declare where `source` binds `Owner` to the `require` of
+--- a module of the program's own; nil otherwise, and for a `cosmic.*`
+--- module, whose types the catalog answers.
+local function nesting_hint(source: string, owner: string, member: string): string | nil
+  if declares(source, owner) and declares(source, member) then
+    return member .. " is declared beside " .. owner .. ", not inside it: move `record " ..
+      member .. " ... end` into `local record " .. owner .. " ... end` to name it " ..
+      owner .. "." .. member
+  end
+  local module = module_bound(source, owner)
+  if module == nil or module:match("^cosmic%.") ~= nil then
+    return nil
+  end
+  return owner .. "." .. member .. " is a type only if " .. module .. " declares `record " ..
+    member .. " ... end` inside the record it returns; a `local record " .. member ..
+    "` beside that record is its file's alone"
+end
+
 --- What [`replacement`] reads of [`cosmic.removed`].
 local record Catalog
   names: {string:string}
@@ -1329,6 +1364,13 @@ function teal.replacement(msg: string, source: string, y: integer, x: integer,
     local instead = removed ~= nil and removed.members[module .. "." .. key] or nil
     if instead ~= nil then
       return alias .. "." .. key .. " was removed: " .. instead
+    end
+  end
+  local holder, held = msg:match("^unknown type ([%a_][%w_]*)%.([%a_][%w_]*)$")
+  if holder ~= nil then
+    local nested = nesting_hint(source, holder, held)
+    if nested ~= nil then
+      return nested
     end
   end
   -- TODO: hint a field a table literal names that its record lacks
