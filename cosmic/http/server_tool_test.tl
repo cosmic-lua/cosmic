@@ -1,11 +1,11 @@
---- [`Http.serve`] with a process of this program on the other side:
---- cosmic.http's own client, which holds its thread while it waits and
+--- [`Server.serve`] with a process of this program on the other side:
+--- [`cosmic.http`]'s client, which holds its thread while it waits and
 --- so runs in a child against a server here, and a server in a child
 --- stopped by SIGTERM.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local Http = require("cosmic.http")
+local Server = require("cosmic.http.server")
 local Net = require("cosmic.net")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
@@ -13,6 +13,9 @@ local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 local Time = require("cosmic.time")
 local Url = require("cosmic.url")
+--- What the client scripts its tests run standalone require, as in
+--- cosmic/http_tool_test.tl.
+local type _ = require("cosmic.http")
 
 --- A server on the worker's own loopback, and the program itself,
 --- started to run a script `--standalone`.
@@ -44,9 +47,9 @@ end
 ]]))
   local items: {string:string} = {}
   local result: Child.Result = nil
-  assert(Http.serve{
+  assert(Server.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
-    handle = function(req: Http.Request): Http.Reply
+    handle = function(req: Server.Request): Server.Reply
       local key = req.path:match("^/items/(.+)$")
       if key == nil then return { status = 404 } end
       if req.method == "PUT" then
@@ -101,9 +104,9 @@ end
 ]]))
   local targets: {string} = {}
   local result: Child.Result = nil
-  assert(Http.serve{
+  assert(Server.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
-    handle = function(req: Http.Request): Http.Reply
+    handle = function(req: Server.Request): Server.Reply
       targets[#targets + 1] = req.target
       local names = assert(Url.segments(req.path))
       local body = Fs.read(root .. "/" .. table.concat(names, "/"))
@@ -136,14 +139,14 @@ local function test_sigterm_stops_a_server_and_it_exits_0(tmp: string)
   local socket = tmp .. "/s.sock"
   assert(Fs.write(script, [[
 local Fs = require("cosmic.fs")
-local Http = require("cosmic.http")
+local Server = require("cosmic.http.server")
 local Net = require("cosmic.net")
 local Time = require("cosmic.time")
 return function(argv: {string}): integer
-  local ok, why = Http.serve{
+  local ok, why = Server.serve{
     listeners = { Net.unix(argv[1]) },
     idle_ns = Time.seconds(60),
-    handle = function(_req: Http.Request): Http.Reply return { status = 200, body = "up" } end,
+    handle = function(_req: Server.Request): Server.Reply return { status = 200, body = "up" } end,
     on_ready = function(_addresses: {Net.Address}, _server: Net.Server)
       assert(Fs.write(argv[2], ""))
     end,
