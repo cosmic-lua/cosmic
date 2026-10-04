@@ -2465,14 +2465,14 @@ end
 --- namespace that maps the user.
 local function mapped_user(merged: Rules.Policy): MappedUser | nil, string
   local platform, _, _ = raw.sandbox_platform()
-  if not platform then
+  local own = effective_user()
+  if not platform and own == 0 then
     if merged.user ~= nil then
       return nil, "user " .. merged.user .. ": a program runs as a user of the policy's only " ..
         "where it is sandboxed, on Linux"
     end
     return nil, ""
   end
-  local own = effective_user()
   if own ~= 0 then
     local group = effective_group()
     if merged.user ~= nil and (merged.user ~= own or (merged.group ~= nil and merged.group ~= group)) then
