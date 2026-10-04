@@ -19,9 +19,9 @@ local sandbox_skip = require("build.sandbox_skip")
 local this_program = require("build.this_program")
 
 --- What the tests read: /proc, where a test finds a child's processes;
---- the program itself (`tool`), which every child is, started past its launcher so
---- that no host program is read; and `nests`, for a child sandboxed in a
---- root of its own.
+--- the program itself (`tool`), which every child is, started past its
+--- launcher so that no host program is read; and `nests`, for a child
+--- sandboxed in a root of its own.
 Test.needs{ host = { "/proc" }, tool = true, nests = true }
 
 local function path_exists(path: string): boolean

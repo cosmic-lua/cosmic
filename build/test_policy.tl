@@ -118,9 +118,11 @@ end
 --- @return why, "" for nothing
 -- TODO: delete this refusal, and the `"*"` that [`Test.needs`] still takes,
 -- once the four unsandboxed fixtures under ci/fixtures name the variables
--- they read (each carries the TODO saying why it cannot yet) and the policy
--- path is the default (step (c) of the sandbox plan): a policy has no
--- wildcard.
+-- they read (each carries the TODO saying why it cannot yet), the two tests
+-- that declare one on purpose are reworked (build/test_policy_tool_test.tl's
+-- wildcard_test.tl and build/test_isolation_tool_test.tl's hooks_test.tl,
+-- snippets of the wildcard itself) and the policy path is the default
+-- (step (c) of the sandbox plan): a policy has no wildcard.
 -- TODO: start the worker of a module that declares `nests` without the
 -- descriptors of its core and artifact that [`Proc.relaunch`] hands it,
 -- once a worker can find them by path (or the nest promise can hand a

@@ -18,8 +18,8 @@ local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 
 --- What the tests read: /proc, where a test finds a child's processes;
---- and the program itself, started past its launcher so that no host program is
---- read, only to run Lua (`lua`).
+--- and the program itself, started past its launcher so that no host
+--- program is read, only to run Lua (`lua`).
 Test.needs{ host = { "/proc" }, lua = true }
 
 local function path_exists(path: string): boolean
