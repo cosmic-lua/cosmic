@@ -163,8 +163,10 @@ local record Sandbox
     ---
     --- Under `isolate` "file", a grant it cannot use but as the grant's
     --- owner is mounted so the owner's files are its own; its own files
-    --- beneath, if any, are then another user's there (the overflow id),
-    --- reached only as their mode lets everyone.
+    --- beneath, if any, then show as the owner's, reached as their mode
+    --- lets the owner's group and everyone, and stay its own on the host.
+    --- Any other user's there show as the overflow id: read and run as
+    --- their mode lets everyone, never written.
     user: integer
     --- The group a child runs as, with `user`: for a root caller, `user`'s
     --- own number where it is left out; for any other, its own group.

@@ -2579,9 +2579,9 @@ local function reached_by(merged: Rules.Policy, base: string, file: boolean,
         end
         -- The mount shows the grant's owner as the program's user, and so
         -- cannot show that user's own files as its own too: a user
-        -- namespace's map takes each outside id once. A policy's `user`
-        -- reaches its own files beneath another owner's grant by their
-        -- mode alone, as everyone else does.
+        -- namespace's map takes each outside id once. They show as the
+        -- owner's instead (core/syscalls.c's swapped_map), which a
+        -- policy's `user` reaches by their group's and everyone's bits.
         idmap[index] = true
       elseif not file then
         local above = unsearchable_above(real, user)
