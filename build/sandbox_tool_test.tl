@@ -13,6 +13,7 @@ local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
+local confine = require("build.confine")
 local sandbox_skip = require("build.sandbox_skip")
 local searchable = require("build.searchable")
 local this_program = require("build.this_program")
@@ -29,6 +30,9 @@ end
 --- Runs `cosmic <words>` in `dir`, and skips the test, where the host
 --- refused the sandbox a start asked for.
 local function cosmic(dir: string, words: {string}, fds?: {integer:integer}): Ran
+  -- A root caller's program runs as a user of its own, who must be able to
+  -- search the directory it starts in.
+  searchable.open(dir)
   local started = this_program.program(words, {
     cwd = dir, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(60), fds = fds,
   })
@@ -41,7 +45,16 @@ local function cosmic(dir: string, words: {string}, fds?: {integer:integer}): Ra
   return ran
 end
 
+--- Whether this platform cannot sandbox at all, which skips a test that
+--- needs a start to run: off Linux every policy's start is refused.
+local function no_sandbox_here(): boolean
+  if confine.sandbox_platform() then return false end
+  sandbox_skip.refused("a policy holds a program only on Linux")
+  return true
+end
+
 local function test_a_granted_file_is_read_and_an_ungranted_one_is_not(tmp: string)
+  if no_sandbox_here() then return end
   searchable.open(tmp)
   assert(Fs.mkdirs(tmp .. "/ro") and Fs.mkdirs(tmp .. "/other"))
   assert(Fs.write(tmp .. "/ro/a", "alpha\n") and Fs.write(tmp .. "/other/b", "beta\n"))
@@ -56,6 +69,7 @@ local function test_a_granted_file_is_read_and_an_ungranted_one_is_not(tmp: stri
 end
 
 local function test_the_programs_status_is_the_exit_status(tmp: string)
+  if no_sandbox_here() then return end
   assert(cosmic(tmp, { "sandbox", "--system", "--", "true" }).code == 0)
   assert(cosmic(tmp, { "sandbox", "--system", "--", "false" }).code == 1)
   local seven = cosmic(tmp, { "sandbox", "--system", "--", "sh", "-c", "exit 7" })
@@ -65,12 +79,14 @@ local function test_the_programs_status_is_the_exit_status(tmp: string)
 end
 
 local function test_everything_after_the_program_is_its_own(tmp: string)
+  if no_sandbox_here() then return end
   local ran = cosmic(tmp, { "sandbox", "--system", "sh", "-c", "printf '%s ' \"$@\"", "sh",
     "--read", "--help", "-h", "--" })
   assert(ran.code == 0 and ran.out == "--read --help -h -- ", ran.code .. ran.out .. ran.err)
 end
 
 local function test_a_program_that_runs_past_the_timeout_exits_124(tmp: string)
+  if no_sandbox_here() then return end
   local ran = cosmic(tmp, { "sandbox", "--system", "--timeout", "1", "--", "sleep", "30" })
   assert(ran.code == 124 and ran.err:find("timed out after 1 second", 1, true), ran.code .. ran.err)
 end
@@ -84,6 +100,7 @@ local function test_a_program_that_is_not_there_exits_127(tmp: string)
 end
 
 local function test_a_start_that_fails_exits_125_with_the_reason(tmp: string)
+  if no_sandbox_here() then return end
   local ran = cosmic(tmp, { "sandbox", "--system", "--connect", "example.com:443", "--", "true" })
   assert(ran.code == 125 and ran.out == "", ran.code .. ran.err)
   assert(ran.err:find("^cosmic: sandbox: ") and ran.err:find("relay", 1, true), ran.err)
@@ -103,6 +120,7 @@ local function test_a_command_line_it_refuses_exits_2(tmp: string)
 end
 
 local function test_help_is_the_verbs_before_the_program_and_the_programs_after(tmp: string)
+  if no_sandbox_here() then return end
   local ran = cosmic(tmp, { "sandbox", "--help" })
   assert(ran.code == 0 and ran.out:find("cosmic sandbox", 1, true) and ran.out:find("--read", 1, true),
     ran.out)
@@ -135,6 +153,7 @@ local function test_a_program_that_cannot_be_run_exits_126(tmp: string)
 end
 
 local function test_fd_hands_the_callers_descriptor_to_the_program(tmp: string)
+  if no_sandbox_here() then return end
   assert(Fs.write(tmp .. "/data", "carried\n"))
   local fd = assert(sys.open(tmp .. "/data", sys.O_RDONLY))
   local ran = cosmic(tmp, { "sandbox", "--system", "--fd", "5", "--promise", "fork", "--", "sh", "-c", "cat <&5" }, { [5] = fd })
