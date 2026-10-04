@@ -125,6 +125,9 @@ local record Request
   fds: {integer:integer}
   --- The wall-clock limit, in nanoseconds, or nil for none.
   timeout_ns: integer | nil
+  --- The directory the program starts in, which a relative grant or
+  --- program is taken from; nil for this process's own.
+  cwd: string | nil
   --- The program and its arguments.
   argv: {string}
 end
@@ -246,6 +249,9 @@ local function request_of(argv: {integer:string}): Request | nil, string
     end
     request.timeout_ns = number * 1000000000
   end
+  local cwd = parsed.all["--cwd"] or {}
+  if #cwd > 1 then return nil, "--cwd is given more than once" end
+  request.cwd = cwd[1]
   for slot = at, last_slot(argv) do request.argv[#request.argv + 1] = argv[slot] end
   return request, ""
 end
@@ -267,9 +273,10 @@ end
 --- 126 where it is there and this process cannot run it, and otherwise 125,
 --- whatever else the program's state is (a grant it lacks, a missing
 --- directory).
-local function failed_start(program: string, why: string): integer, string
+local function failed_start(program: string, cwd: string | nil, why: string): integer, string
   local said = without_hint(why)
   if program:find("/", 1, true) then
+    if cwd ~= nil and program:sub(1, 1) ~= "/" then program = cwd .. "/" .. program end
     local ok, _, errno = sys.access(program, sys.X_OK)
     if not ok and errno == sys.ENOENT and
         said:find(Fs.basename(program) .. ": No such file or directory", 1, true) then
@@ -322,10 +329,10 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   -- Child.Options has an option for it. Until then only SIGINT and SIGTERM
   -- (Child.run's guard) end it, and a killed verb leaves it running.
   local result, started = run(request.argv, {
-    policy = policy, fds = request.fds, timeout_ns = request.timeout_ns,
+    policy = policy, fds = request.fds, timeout_ns = request.timeout_ns, cwd = request.cwd,
   })
   if result == nil then
-    local code, said = failed_start(request.argv[1], started)
+    local code, said = failed_start(request.argv[1], request.cwd, started)
     complain(said)
     return code
   end

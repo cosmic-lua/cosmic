@@ -98,6 +98,15 @@ local function test_each_option_sets_its_field()
   assert(ran.opts.fds[3] == 3 and ran.opts.fds[7] == 7 and ran.opts.fds[4] == nil)
   assert(ran.opts.timeout_ns == 30000000000, tostring(ran.opts.timeout_ns))
   assert(ran.opts.env == nil, "the policy's environment alone")
+  assert(ran.opts.cwd == nil, "this process's own directory")
+
+  ran = run({ "--cwd", "work", "--read", ".", "prog" })
+  assert(ran.code == 0 and ran.opts.cwd == "work" and letters(ran.opts.policy, ".") == "r", ran.err)
+end
+
+local function test_cwd_is_given_once()
+  local ran = refused({ "--cwd", "a", "--cwd", "b", "prog" })
+  assert(ran.err:find("--cwd is given more than once", 1, true), ran.err)
 end
 
 local function test_a_policy_with_no_option_is_the_empty_one()
@@ -271,6 +280,13 @@ local function test_a_program_that_cannot_be_run_exits_126(tmp: string)
   assert(run({ tmp .. "/runs" }, { why = "child: start: sandbox: not granted" }).code == 125)
 end
 
+local function test_a_relative_program_is_judged_from_cwd(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/work"))
+  assert(Fs.write(tmp .. "/work/plain", "x") and sys.chmod(tmp .. "/work/plain", 420))
+  local ran = run({ "--cwd", tmp .. "/work", "./plain" }, { why = "child: start: Permission denied" })
+  assert(ran.code == 126, ran.code .. ran.err)
+end
+
 local function test_childs_hint_about_a_path_search_is_left_out()
   local ran = run({ "zzqqx-no-such-program" }, { why = "child: start: grant /nope: No such file or " ..
       "directory: \"zzqqx-no-such-program\" is run as a path, with no PATH search; " ..
@@ -305,7 +321,7 @@ local exempt <const>: {string:string} = {
 --- wall-clock limit, and the ones that give a field another option gives (checked in
 --- test_each_option_sets_its_field).
 local others <const>: {string:boolean} = {
-  ["--fd"] = true, ["--timeout"] = true,
+  ["--fd"] = true, ["--timeout"] = true, ["--cwd"] = true,
   ["--run"] = true, ["--write"] = true, ["--path"] = true, ["--cosmic"] = true,
 }
 
