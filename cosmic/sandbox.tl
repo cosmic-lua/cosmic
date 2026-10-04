@@ -460,14 +460,11 @@ end
 --- The "cosmic" profile: `rx` on what [`Proc.executable`] names, which is
 --- the path this program is started by: under a development build or a
 --- portable artifact that is the launcher (a `#!/bin/sh` script) or the
---- artifact, not the native core the launcher runs. It is the grant a
---- policy needs to start that path, and not enough for the core to run.
--- TODO: grant what the core needs to run past its launcher -- the native
--- core, the core cache it unpacks to, the descriptors Proc.relaunch hands
--- it, and the shell and libraries the launcher itself runs -- once the
--- test harness starts its workers under a policy and needs a child of
--- this program to run: today a child of the launcher under "system" and
--- "cosmic" cannot fork or find its cache.
+--- artifact, not the native core the launcher runs. [`Child.start`] runs
+--- that path, where a policy grants it, as its core, by a relaunch, which
+--- needs neither the launcher's shell nor a cache to unpack a core into;
+--- a process that runs the path itself (a shell under the policy) runs
+--- the launcher, which needs both.
 local function cosmic_profile(): Sandbox.Policy | nil, string
   local path, why = Proc.executable()
   if path == nil then
@@ -482,8 +479,8 @@ end
 --- /etc/ld.so.cache, nsswitch.conf, passwd, group and localtime, and the
 --- null, zero and random devices), each only where it exists; "cosmic"
 --- grants `rx` on the path this program is started by ([`Proc.executable`]),
---- which is its launcher where it has one, so a child of this program
---- needs more than the profile gives.
+--- which is its launcher where it has one: what [`Child.start`] runs as
+--- this program's core, by a relaunch.
 --- Nil and why for a name it has not, or one this host cannot give.
 ---
 ---     local system = assert(Sandbox.profile("system"))
