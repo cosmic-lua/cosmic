@@ -1,4 +1,4 @@
---- Fuzz properties for [`cosmic.sandbox`]'s `decode`, which reads a
+--- Fuzz properties for [`cosmic.policy`]'s `decode`, which reads a
 --- policy from text that may come from anywhere: it is total on any
 --- bytes, answering a policy or a refusal under the module's name; a
 --- policy it takes merges and encodes, and its encoding decodes and
@@ -8,6 +8,7 @@
 local Fuzz = require("build.fuzz")
 local Json = require("cosmic.json")
 local Sandbox = require("cosmic.sandbox")
+local PolicyJson = require("cosmic.policy")
 
 --- Values a field of a policy has to get right, valid and not.
 local LETTERS <const> = { "r", "rw", "rwxcu", "x", "xr", "rr", "", "z", "RX", "cu", "wc" }
@@ -83,7 +84,7 @@ local function test_decode_is_total_and_refuses_under_its_name(tmp: string)
     requires = { "decoded", "refused" },
     shares = { decoded = 0.05, refused = 0.2 },
     check = function(input: string): boolean, string
-      local policy, why = Sandbox.decode(input)
+      local policy, why = PolicyJson.decode(input)
       if policy == nil then
         if not why:find("^sandbox: ") and not why:find("^sandbox: json") then
           return false, "refused without its name: " .. why
@@ -106,7 +107,7 @@ local function test_a_decoded_policy_encodes_to_text_that_encodes_the_same(tmp: 
     requires = { "merged", "round tripped" },
     shares = { merged = 0.02 },
     check = function(input: string): boolean, string
-      local policy = Sandbox.decode(input)
+      local policy = PolicyJson.decode(input)
       if policy == nil then return true, "" end
       -- A policy naming "cosmic" merges here; one naming a profile this
       -- host cannot give is refused by merge, which says why.
@@ -118,11 +119,11 @@ local function test_a_decoded_policy_encodes_to_text_that_encodes_the_same(tmp: 
         return true, ""
       end
       Fuzz.label("merged")
-      local text = Sandbox.encode(merged)
-      local back, trouble = Sandbox.decode(text)
+      local text = PolicyJson.encode(merged)
+      local back, trouble = PolicyJson.decode(text)
       if back == nil then return false, "its encoding " .. text .. " was refused: " .. trouble end
-      if Sandbox.encode(back) ~= text then
-        return false, ("encoding %s decoded and encoded as %s"):format(text, Sandbox.encode(back))
+      if PolicyJson.encode(back) ~= text then
+        return false, ("encoding %s decoded and encoded as %s"):format(text, PolicyJson.encode(back))
       end
       Fuzz.label("round tripped")
       return true, ""

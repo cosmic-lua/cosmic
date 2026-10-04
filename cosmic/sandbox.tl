@@ -6,27 +6,27 @@
 --- one (`Child.start(argv, { policy = p })`), and a policy is met or the
 --- program does not start: there is no best-effort mode.
 ---
---- - [`Sandbox.decode`] reads a policy from JSON, strictly: a key it does
----   not know, a value of the wrong type or a letter outside "rwxcu" is
----   refused, naming the field by its JSON Pointer.
 --- - [`Sandbox.merge`] joins policies into one: it resolves `profiles`,
 ---   joins the letters of a path, unions the lists, and refuses two values
 ---   for one `set_env` name or one limit.
---- - [`Sandbox.encode`] writes a merged policy as canonical JSON, the
----   same text for the same policy, with `set_env`'s values as digests.
 --- - [`Sandbox.profile`] is what a named profile holds on this host:
 ---   "system" and "cosmic".
 --- - [`Sandbox.loaders`] is what a program needs read and run to start.
 --- - [`Sandbox.restrict`] holds the calling process, and what it starts,
 ---   to a policy for good.
+--- - [`Sandbox.check`] says whether a policy's values are ones a policy
+---   may hold.
 ---
----     local policy = assert(Sandbox.decode('{"grants":[{"path":"data","letters":"r"}],"tmp":true}'))
+--- A policy's JSON text, read and written, is [`cosmic.policy`]'s,
+--- apart from this module so that a program that only runs a child under a
+--- policy does not carry a JSON reader and a schema checker.
+---
+---     local policy = { grants = { { path = "data", letters = "r" } }, tmp = true }
 ---     local merged = assert(Sandbox.merge(policy, { promises = { "fork" } }))
 ---     print(merged.grants[1].path, merged.promises[1]) -- data  fork
 ---
---- Nothing here raises on a policy's contents but [`Sandbox.encode`],
---- which takes a merged one: a failure answers `nil` and why, under the
---- module's name.
+--- Nothing here raises on a policy's contents: a failure answers `nil`
+--- and why, under the module's name.
 ---
 --- This is the policy's data and the host paths it names. What holds a
 --- program to it is [`Child.start`]'s, or [`Sandbox.restrict`]'s for the
@@ -39,9 +39,7 @@
 
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
-local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
-local Shape = require("cosmic.shape")
 local sys = require("cosmic.sys")
 
 -- What holds the running process lives in the raw process table, under
@@ -143,7 +141,7 @@ local record Sandbox
     set_env: {string:string}
     --- What a decoded, encoded policy holds in place of `set_env`'s
     --- values: for each name, the SHA-256 of its value in lowercase
-    --- hex. [`Sandbox.encode`] writes these, so the text shows a value
+    --- hex. [`PolicyJson.encode`] writes these, so the text shows a value
     --- changed without showing it; a policy that holds one, and no value
     --- for the name, cannot start a program.
     set_env_digests: {string:string}
@@ -243,8 +241,8 @@ end
 --- The first thing wrong in a policy's values, as `pointer "/grants/0/letters":
 --- why`, or "" when none is: the field's types are Teal's, and these are the
 --- values a type does not hold. With `exact`, a grant's letters must be
---- already in the order of "rwxcu", each once, as [`Sandbox.decode`] takes
---- them.
+--- already in the order of "rwxcu", each once, as [`Sandbox.check`] with
+--- `exact` takes them.
 local function invalid(p: Sandbox.Policy, exact: boolean): string
   local function at(pointer: string, why: string): string
     return "pointer \"" .. pointer .. "\": " .. why
@@ -320,51 +318,21 @@ local function invalid(p: Sandbox.Policy, exact: boolean): string
   return ""
 end
 
-local LIMITS_SPEC <const> = Shape.strict_record({
-  open_files = Shape.optional(Shape.integer),
-  file_bytes = Shape.optional(Shape.integer),
-  cpu_seconds = Shape.optional(Shape.integer),
-  processes = Shape.optional(Shape.integer),
-})
-
-local GRANT_SPEC <const> = Shape.strict_record({
-  path = Shape.string,
-  letters = Shape.string,
-  from = Shape.optional(Shape.string),
-})
-
-local POLICY_SPEC <const> = Shape.strict_record({
-  profiles = Shape.optional(Shape.list(Shape.string)),
-  grants = Shape.optional(Shape.list(GRANT_SPEC)),
-  isolate = Shape.optional(Shape.list(Shape.one_of("file", "proc"))),
-  promises = Shape.optional(Shape.list(Shape.one_of("fork", "jit", "fattr", "nest"))),
-  connect = Shape.optional(Shape.list(Shape.string)),
-  loopback = Shape.optional(Shape.list(Shape.string)),
-  env = Shape.optional(Shape.list(Shape.string)),
-  set_env = Shape.optional(Shape.map(Shape.string)),
-  set_env_digests = Shape.optional(Shape.map(Shape.string)),
-  tmp = Shape.optional(Shape.boolean),
-  limits = Shape.optional(LIMITS_SPEC),
-})
-
---- The policy `json` holds. Strict: a key this module does not know, a
---- value of the wrong type, an `isolate` or a promise it does not name,
---- a profile it has not, and a grant whose `letters` are not in the order
---- of "rwxcu", each once, are refused, naming the field by its JSON
---- Pointer (`pointer "/grants/0/letters": ...`, arrays counted from 0).
---- A hand-built [`Sandbox.Policy`] is judged by [`Sandbox.merge`]
---- instead, which takes any order of letters and writes them in this one.
+--- Whether the values of `p` are ones a policy may hold: `true`, or
+--- `false` and why, naming the field by its JSON Pointer
+--- (`pointer "/grants/0/letters": ...`, arrays counted from 0). What a
+--- type holds is not looked at again, only what it does not stop: an
+--- unknown profile, a letter outside "rwxcu", a malformed address, a
+--- ".." in a path. With `exact`, a grant's `letters` must also be in the
+--- order of "rwxcu", each once, as the text [`PolicyJson.decode`] reads is;
+--- [`Sandbox.merge`] takes any order and writes this one.
 ---
----     local policy = assert(Sandbox.decode('{"env":["HOME"],"tmp":true}'))
----     print(policy.env[1], policy.tmp) -- HOME  true
----     local bad, why = Sandbox.decode('{"grants":[{"path":"x","letters":"xr"}]}')
----     print(why) -- sandbox: pointer "/grants/0/letters": "xr" is not in the order of "rwxcu", each letter once: "rx"
-function Sandbox.decode(json: string): Sandbox.Policy | nil, string
-  local policy, why: Sandbox.Policy | nil, string = Shape.decode_into(json, POLICY_SPEC)
-  if policy == nil then return refuse(why) end
-  local bad = invalid(policy, true)
-  if bad ~= "" then return refuse(bad) end
-  return policy, ""
+---     local ok, why = Sandbox.check({ grants = { { path = "x", letters = "xr" } } }, true)
+---     print(ok, why) -- false  sandbox: pointer "/grants/0/letters": "xr" is not in the order of "rwxcu", each letter once: "rx"
+function Sandbox.check(p: Sandbox.Policy, exact?: boolean): boolean, string
+  local bad = invalid(p, exact == true)
+  if bad ~= "" then return false, "sandbox: " .. bad end
+  return true, ""
 end
 
 --- `path` written once: no repeated or trailing "/" and no "." segment.
@@ -503,10 +471,10 @@ end
 --- secrets). A name with a value in one policy and a digest in another
 --- must have the value's digest. The answer has no `profiles`, and every
 --- list and table of it, empty or not, and `isolate` "file" holds "proc"
---- too, which it implies: it is what [`Sandbox.encode`] writes and
+--- too, which it implies: it is what [`PolicyJson.encode`] writes and
 --- [`Child.start`] meets. A value a policy's type does not stop -- an
 --- unknown profile, a letter outside "rwxcu", a malformed address -- is
---- refused naming its field, as [`Sandbox.decode`] does.
+--- refused naming its field, as [`PolicyJson.decode`] does.
 ---
 ---     local a = { grants = { { path = "/srv", letters = "x" } }, promises = { "fork" } }
 ---     local b = { grants = { { path = "/srv", letters = "r" } }, promises = { "fork", "jit" } }
@@ -609,56 +577,6 @@ function Sandbox.merge(...: Sandbox.Policy): Sandbox.Policy | nil, string
     connect = connect, loopback = loopback, env = env, set_env = set_env,
     set_env_digests = digests, tmp = tmp, limits = limits,
   }, ""
-end
-
---- A merged policy as canonical JSON: keys in byte order, lists sorted,
---- a field with nothing in it left out, `profiles` resolved away, and
---- `set_env`'s values written as `set_env_digests`, so the text names a
---- variable and shows its value changed without showing it. The same
---- policy is the same text, and [`Sandbox.decode`] reads it back to a
---- policy that encodes to the same text again. A digest is the SHA-256 of
---- the value, unsalted: one of a value that can be guessed (a short
---- password, a flag) can be found by trying guesses, so a printed policy
---- keeps a value's change from view, not a secret from a reader who can
---- guess it. What a profile names is a path of this host, so an encoding
---- that resolved one is one host's. Raises for a policy that
---- is not merged -- one with `profiles`, or [`Sandbox.merge`] would refuse
---- -- since text cannot say what was dropped.
----
----     local text = Sandbox.encode(assert(Sandbox.merge({ tmp = true, set_env = { MODE = "fast" } })))
----     print(text) -- {"set_env_digests":{"MODE":"..."},"tmp":true}
-function Sandbox.encode(p: Sandbox.Policy): string
-  if p.profiles ~= nil and #p.profiles > 0 then
-    error("sandbox: encode takes a merged policy: resolve profiles with Sandbox.merge first", 2)
-  end
-  local made, why = Sandbox.merge(p)
-  if made == nil then error(why, 2) end
-  local merged: Sandbox.Policy = made
-  local digests: {string:string} = {}
-  for name, digest in pairs(merged.set_env_digests) do digests[name] = digest end
-  for name, value in pairs(merged.set_env) do digests[name] = digest_of(value) end
-  local fields: {string:any} = {}
-  local function put(name: string, list: {any})
-    if #list > 0 then fields[name] = list end
-  end
-  put("isolate", merged.isolate)
-  put("promises", merged.promises)
-  put("connect", merged.connect)
-  put("loopback", merged.loopback)
-  put("env", merged.env)
-  local grants: {{string:string}} = {}
-  for _, grant in ipairs(merged.grants) do
-    grants[#grants + 1] = { path = grant.path, letters = grant.letters, from = grant.from }
-  end
-  put("grants", grants)
-  if next(digests) ~= nil then fields.set_env_digests = digests end
-  if merged.tmp then fields.tmp = true end
-  local limits = merged.limits
-  if limits.open_files ~= nil or limits.file_bytes ~= nil or limits.cpu_seconds ~= nil or
-      limits.processes ~= nil then
-    fields.limits = limits
-  end
-  return (assert(Json.encode(fields)))
 end
 
 --- How deep a chain of `#!` interpreters [`Sandbox.loaders`] follows,

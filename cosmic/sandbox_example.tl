@@ -8,21 +8,6 @@ local sys = require("cosmic.sys")
 
 local Example = {}
 
---- A policy read from JSON is checked as it is read: a letter out of
---- order, or a key the policy does not have, is a failure naming the
---- field by its JSON Pointer, never a program that runs with more than
---- its author meant.
-function Example.decode()
-  local policy = assert(Sandbox.decode('{"env":["HOME"],"grants":[{"path":"data","letters":"rx"}],"tmp":true}'))
-  print(policy.env[1], policy.grants[1].letters, policy.tmp) -- HOME  rx  true
-  assert(policy.env[1] == "HOME" and policy.grants[1].letters == "rx" and policy.tmp)
-  local bad, why = Sandbox.decode('{"grants":[{"path":"data","letters":"xr"}]}')
-  print(why) -- sandbox: pointer "/grants/0/letters": "xr" is not in the order of "rwxcu", each letter once: "rx"
-  assert(bad == nil and why:find("/grants/0/letters", 1, true), why)
-  local unknown, trouble = Sandbox.decode('{"network":true}')
-  assert(unknown == nil and trouble:find("/network", 1, true), trouble)
-end
-
 --- Two policies joined: the letters of a path are summed in the order of
 --- "rwxcu", the lists are unions without repeats, and two different
 --- values for one limit are refused -- here, naming the limit, not the
@@ -36,18 +21,6 @@ function Example.merge()
   local clash, why = Sandbox.merge({ limits = { open_files = 64 } }, { limits = { open_files = 128 } })
   print(why) -- sandbox: limits.open_files is given two values, 64 and 128
   assert(clash == nil and why:find("limits.open_files", 1, true), why)
-end
-
---- A merged policy as canonical text, the same for the same policy, for
---- a key or a report: a variable set shows as a digest, so the text shows
---- that its value changed and not what it is, and decoding the text gives a
---- policy that encodes to it again.
-function Example.encode()
-  local merged = assert(Sandbox.merge({ promises = { "jit", "fork" }, set_env = { TOKEN = "s3cret" } }))
-  local text = Sandbox.encode(merged)
-  print(text) -- {"promises":["fork","jit"],"set_env_digests":{"TOKEN":"..."}}
-  assert(text:find('"promises":["fork","jit"]', 1, true) and not text:find("s3cret", 1, true))
-  assert(Sandbox.encode((assert(Sandbox.decode(text)))) == text)
 end
 
 --- A profile's grants as a policy: "cosmic" is this program's own
