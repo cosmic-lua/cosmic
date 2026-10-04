@@ -870,23 +870,18 @@ local harness_own <const>: {string} = { "build.test_sandbox", "build.test_policy
 --- that weakened it would pass a test that reads what it does not
 --- declare, and keep and share the pass. What it requires (cosmic.time,
 --- cosmic.stream and the rest) applies no sandbox, and stays out. The
---- exception is cosmic.sandbox: among others its `merge` (and the
---- profiles it joins), `loaders`, `reach` and `user_id` decide what a
---- worker started under a policy (`--policy`) may reach, and it is not
---- held yet (the first TODO below).
--- TODO: hold cosmic.sandbox here too, or the parts of it that decide a
--- grant, before the policy is a worker's default (step (c) of #2621's
--- doc/plans/sandbox.md): today an edit to its `SYSTEM_PATHS` or `merge`
--- moves the key of no test that does not import it, so a policy run keeps
--- a pass earned under the old grants. Dropping cosmic.child from here, as
--- the next TODO asks, does not close this.
+--- exception is cosmic.sandbox, held alone too: among others its `merge`
+--- (and the profiles it joins), `loaders`, `reach` and `user_id` decide
+--- what a worker started under a policy (`--policy`) may reach, and
+--- [`test_policy.runs`] merges a policy through it. Its own requires are
+--- not walked, and none of them decides a grant.
 -- TODO: move the translation of a plan's `sandbox` into spawn's
 -- options into build.confine, which the harness holds already, and
 -- drop cosmic.child from here and from build/harness_epoch.tl's
 -- `library`, once cosmic.child's `start` takes spawn's sandbox as it is
 -- (the TODO above its `raw.spawn` call, which would offer the rest of
 -- it): today only cosmic.child reaches spawn for the runner.
-local harness_alone <const>: {string} = { "cosmic.child" }
+local harness_alone <const>: {string} = { "cosmic.child", "cosmic.sandbox" }
 
 --- The code that makes a key and looks a verdict up under one:
 --- build.test itself, whose closure is the build's, and the closure of
@@ -2240,12 +2235,21 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     end
     policy = made
   end
+  local runs: {string} = {}
+  if policy ~= nil and hold == "forbid" then
+    local ran, ran_trouble = test_policy.runs(policy)
+    if ran == nil then
+      finish(rec, job, nil, ran_trouble, limits, true)
+      return false
+    end
+    runs = ran
+  end
   local command = worker.invocation({
     start = job.plan ~= nil and job.plan.start or start, env = env, root = root, cwd = cwd, module_path = job.m.path,
     name = job.name, scratch = inside, needs = test_inputs.canonical(declared), hold = hold,
     lua = rec.effective[job.m.path].lua, open = declared ~= nil and declared.store, store = attached,
     closure = rec.closures[job.m.path], tree = rec.tree_names, declared = rec.declared_names,
-    sandbox = sandbox, policy = policy, program = job.plan ~= nil and job.plan.program or nil,
+    sandbox = sandbox, policy = policy, runs = runs, program = job.plan ~= nil and job.plan.program or nil,
   })
   local handle, trouble = Child.start(command.argv, command.options)
   if handle == nil then

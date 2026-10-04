@@ -164,7 +164,7 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
     assert(Sqlite.run(db, "INSERT INTO imports VALUES (?, ?)", { { text = row[1] }, { text = row[2] } }))
   end
   local others = { "build.test_sandbox", "build.test_policy", "build.caches", "build.zig_caches",
-    "cosmic.child",
+    "cosmic.child", "cosmic.sandbox",
     "build.closure_store", "build.writer",
     "build.test_report", "build.schema", "build.importer", "build.analyzer", "cosmic.removed",
     "cosmic.sqlite", "cosmic.sys" }
@@ -272,8 +272,8 @@ end
 --- The key's code is walked over the requires each module makes by
 --- value, as its bytecode names them: a `local type` require, which
 --- Teal erases, leaves what it names out of the harness, and a require
---- inside a function keeps it in. cosmic.child is held alone, its own
---- requires not walked.
+--- inside a function keeps it in. cosmic.child and cosmic.sandbox are held
+--- alone, their own requires not walked.
 local function test_the_harness_walks_the_key_code_by_value()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE modules (path TEXT, kind TEXT, source_hash BLOB, " ..
@@ -295,7 +295,7 @@ local function test_the_harness_walks_the_key_code_by_value()
   for _, name in ipairs({ "build.test", "build.declared_key", "build.shared_verdicts",
       "build.artifact", "build.test_sandbox", "build.test_policy", "build.caches",
       "build.zig_caches", "build.closure_store", "build.schema",
-      "cosmic.child", "cosmic.time", "cosmic.sqlite", "cosmic.stream" }) do
+      "cosmic.child", "cosmic.sandbox", "cosmic.time", "cosmic.sqlite", "cosmic.stream" }) do
     add(name)
   end
   -- build.declared_key's edge to cosmic.stream is a `local type` one.

@@ -49,8 +49,9 @@
 --- * what every worker loads ([`worker.loads`], which [`worker.judge`] holds
 ---   each worker to);
 --- * the sandbox's maker (`harness_own`);
---- * build.test itself and cosmic.child, which applies a worker's
----   sandbox (`harness_alone`), each held alone;
+--- * build.test itself, cosmic.child, which applies a worker's
+---   sandbox, and cosmic.sandbox, which decides a policy worker's grants
+---   (`harness_alone`), each held alone;
 --- * the closure of the key's roots (`key_roots`) over the requires each
 ---   makes by value, as its bytecode names them ([`test.value_imports`]).
 ---   A `local type` require is not followed, since Teal erases it and
@@ -64,8 +65,7 @@
 --- plumbing -- the probe of whether to sandbox
 --- ([`build.test_sandbox_probe`]), and what cosmic.child requires to start
 --- a worker -- which must fail loudly, as a failure or a refusal, never
---- as a pass; cosmic.sandbox, which decides a policy worker's grants, is
---- not yet held ([`build.test`]'s `harness_alone` says so). What a module of the harness calls through a library table
+--- as a pass. What a module of the harness calls through a library table
 --- a test can replace, it takes as a local when it loads.
 local record harness_epoch
   epoch: string
@@ -90,7 +90,7 @@ harness_epoch.acknowledged = {
 
   ["build.caches"] = "57bac59a121d7520f3d30b9052a6f6c5d67a51e8785c5a75d021760317fb9312",
 
-  ["build.confine"] = "eaec7b0848664eee6e67625873afd71f5a83ae43156b4595285e85a9676b3073",
+  ["build.confine"] = "d8899b62da8be9917a1d4d108acee8c659538afa86e579ee3cb012b660a58d60",
 
   ["build.core_image"] = "dfc18e0e6316237ab9fb11a957df68d6217e42cffc6f2f3a767018c5313700ac",
 
@@ -108,15 +108,15 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "516c08e34d1fc392de5363af92b6d669344fc3c8b504c469ae3771a424d0db6b",
 
-  ["build.test"] = "88d092aa5c735ac88d8f4fad6aefdb4adcd9d2ce244d9ada3270af2327baf43f",
+  ["build.test"] = "8fd61dfffd487b9c49966d6d9ee04adb3d7a2acccd0c5f3bf277a6d172befb77",
 
   ["build.test_inputs"] = "5da3827a258c10dd0399f75b97fbbb4bde0251eef950f66783191421227519c7",
 
-  ["build.test_policy"] = "bdedb3bec14b2e8b7fd4d3008c709df97161fe49c2b1af0e2ea7c21ea5b5686e",
+  ["build.test_policy"] = "54629070d694d02aca809dd1efe5923b7b22c714c88ae0e5362ef45071a1e038",
 
   ["build.test_sandbox"] = "b529cddb2c0c54824f94418400205b9ed0004441ed0ede5bc97463815ab916ae",
 
-  ["build.test_worker"] = "7294e756d8327b6371db34f7bc840aa38ffc7d71d77155b866b775ab617fd2fe",
+  ["build.test_worker"] = "45f91920d6ab8cf7b29e1fb49edc37e65f4a9fa9e9f8e8c18fdea079df14d3e5",
 
   ["build.this_program"] = "975740a93eb1e88680fe402a0bf6e5e52d1acad579dbdfedd0be27d10ae02980",
 
@@ -133,6 +133,8 @@ harness_epoch.acknowledged = {
   ["cosmic.fs"] = "befc25dee33fd54963b4a28dfe6a825724c37ed9f0f26a29b8908b1a72f628ed",
 
   ["cosmic.proc"] = "bbafb94bfa1671115f839c6fe57c921893d31d0e5baa1c4b1692e802b9c06212",
+
+  ["cosmic.sandbox"] = "96b9d698446d40bfd1c0635fa899c7601c2e6440eb0b034ae55c8fc2f3ceaba6",
 
   ["cosmic.sqlite"] = "ac3fd16dd89251feaee572e4e4b1d29257037afeca3b5c9b141557f2ce732390",
 
@@ -153,6 +155,8 @@ harness_epoch.library = {
     "the worker's report",
   ["cosmic.proc"] = "names this program (`executable`), which a worker whose test does " ..
     "not declare `tool` is held from running",
+  ["cosmic.sandbox"] = "`merge` resolves a policy's profiles into the grants a worker " ..
+    "is held to (`build.test_policy`'s `runs`); held alone, what it requires is not walked",
   -- TODO: take cosmic.sqlite out of the harness, and this entry out of
   -- `library`, once build.shared_sqlite gives build.declared_key's
   -- `program`, build.shared_verdicts and build.bind what they read and

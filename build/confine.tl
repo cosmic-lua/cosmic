@@ -474,7 +474,8 @@ end
 --- Landlock ruleset that handles running a file alone
 --- (core/process.h's `landlock_restrict_execute`): every entry of
 --- every directory above one of them, down from /, may be run beneath
---- it but for the ones on the way to them, and those are walked the same
+--- it -- or, with `within`, each of those paths, where this process may
+--- not list / -- but for the ones on the way to them, and those are walked the same
 --- way, so each program alone is left out -- by where it resolves, so a
 --- link to it, /proc/self/exe among them, runs nothing either. A link
 --- on the way that leads above one of them is left out too. For good:
@@ -500,7 +501,7 @@ end
 -- by exec -- once a ruleset can name a file by its contents: today a
 -- test that copies the program into its own directory runs it
 -- undeclared.
-function confine.forbid_running(programs: {string}): boolean, string
+function confine.forbid_running(programs: {string}, within?: {string}): boolean, string
   local now = asked
   local held: {string:boolean} = {}
   local above: {string:boolean} = {}
@@ -516,7 +517,20 @@ function confine.forbid_running(programs: {string}): boolean, string
     end
   end
   local allowed: {string} = {}
-  local function walk(dir: string)
+  local walk: function(dir: string)
+  local function visit(path: string)
+    local real, _ = now.realpath(path)
+    if held[path] or (real ~= nil and held[real]) then
+      -- The program, or a link to it.
+    elseif above[path] then
+      walk(path)
+    elseif real ~= nil and above[real] then
+      -- A link to a directory above it.
+    else
+      allowed[#allowed + 1] = path
+    end
+  end
+  walk = function(dir: string)
     -- A directory above a program that cannot be listed is run nothing
     -- beneath: the safe way to be wrong.
     local listed, _ = now.readdir(dir == "" and "/" or dir)
@@ -524,21 +538,15 @@ function confine.forbid_running(programs: {string}): boolean, string
     local names: {string} = {}
     for name in pairs(listed) do names[#names + 1] = name end
     table.sort(names)
-    for _, name in ipairs(names) do
-      local path = dir .. "/" .. name
-      local real, _ = now.realpath(path)
-      if held[path] or (real ~= nil and held[real]) then
-        -- The program, or a link to it.
-      elseif above[path] then
-        walk(path)
-      elseif real ~= nil and above[real] then
-        -- A link to a directory above it.
-      else
-        allowed[#allowed + 1] = path
-      end
-    end
+    for _, name in ipairs(names) do visit(dir .. "/" .. name) end
   end
-  walk("")
+  if within ~= nil then
+    -- A process a policy holds to its grants cannot list /: it is told the
+    -- paths it may run, and what the grants leave beneath them is theirs.
+    for _, path in ipairs(within) do visit(path) end
+  else
+    walk("")
+  end
   local held_now, trouble = process.landlock_restrict_execute(allowed)
   if not held_now then return false, trouble end
   return true, ""

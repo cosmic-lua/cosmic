@@ -5,6 +5,7 @@
 --- build/test_policy_tool_test.tl.
 
 local Sandbox = require("cosmic.sandbox")
+local sys = require("cosmic.sys")
 local test_inputs = require("build.test_inputs")
 local test_policy = require("build.test_policy")
 local test_sandbox = require("build.test_sandbox")
@@ -144,4 +145,22 @@ local function test_what_every_policy_has_alike_is_text()
   assert(text == test_policy.common())
   assert(text:find("isolate file", 1, true) and text:find("fork", 1, true) and
       not text:find("nest", 1, true), text)
+end
+
+--- The paths a policy lets a worker run are those of its grants with `x`,
+--- in the policy's order.
+local function test_the_paths_a_policy_runs_are_its_grants_with_x()
+  local policy: Sandbox.Policy = { grants = {
+    { path = "/tree/a", letters = "r" }, { path = "/tree/b", letters = "rx" },
+    { path = "/tree/c", letters = "rwxc" } } }
+  local runs = assert(test_policy.runs(policy))
+  assert(#runs == 2 and runs[1] == "/tree/b" and runs[2] == "/tree/c", table.concat(runs, " "))
+end
+
+--- A worker's policy gives it the descriptors the runner may hold, for a
+--- test that raises its own limit past a policy's default.
+local function test_a_workers_policy_has_the_runners_descriptor_limit()
+  local shaped = test_policy.worker(plan_of({}, {}, {}, {}), effective())
+  local held = sys.getrlimit(sys.RLIMIT_NOFILE)
+  assert(shaped ~= nil and held ~= nil and shaped.limits.open_files == math.min(held.hard, 1048576))
 end
