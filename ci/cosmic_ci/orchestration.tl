@@ -1108,7 +1108,7 @@ end
 --- The native suite again, on the tree `boot` built, with every sandboxed
 --- worker started under a cosmic.sandbox policy (COSMIC_TEST_POLICY=1,
 --- build/test_policy.tl): step (b) of the sandbox plan's migration
---- (doc/plans/sandbox.md), whose failures are listed and fixed before the
+--- (#2621), whose failures are listed and fixed before the
 --- policy path is the default. Its verdicts are the policy path's own, so
 --- it stands on none of the default path's. Only .github/workflows/policy.yml
 --- runs it, in a job that gates nothing.

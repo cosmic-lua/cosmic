@@ -3,7 +3,7 @@
 {
   name: "policy",
 
-  # Step (b) of the sandbox plan's migration (doc/plans/sandbox.md): the
+  # Step (b) of the sandbox plan's migration (#2621): the
   # suite with every sandboxed worker started under a cosmic.sandbox
   # policy (COSMIC_TEST_POLICY=1, build/test_policy.tl), on linux-x86_64's
   # image and host, so the tests that fail under the policy path are

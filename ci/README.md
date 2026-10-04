@@ -461,7 +461,7 @@ save, whose path actions/cache names relative to the workspace
 `.github/workflows/policy.yml` is a workflow of its own, not a job of
 ci.yml, and gates nothing: no ruleset requires it, the `ci` join does
 not wait on it, and its suite step passes whatever the suite did. It
-is step (b) of the sandbox plan's migration (doc/plans/sandbox.md): the
+is step (b) of the sandbox plan's migration (#2621): the
 native suite, every test, with each sandboxed worker started under a
 `cosmic.sandbox` policy (`COSMIC_TEST_POLICY=1`, build/test_policy.tl)
 in place of the sandbox the runner plans by default. It runs

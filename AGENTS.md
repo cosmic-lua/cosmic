@@ -173,7 +173,7 @@
    goes in [`build/tree_checks.tl`].
    `COSMIC_TEST_POLICY=1` (`--policy`) starts each sandboxed worker under a
    [`cosmic.sandbox`] policy ([`build/test_policy.tl`]) instead of the sandbox it has
-   by default: step (b) of doc/plans/sandbox.md's migration. Its verdicts stand
+   by default: step (b) of the migration in the sandbox design (#2621). Its verdicts stand
    apart from the default's, a module the policy cannot yet hold fails naming
    the field, and [`.github/workflows/policy.yml`] runs the suite so without
    gating a merge.
