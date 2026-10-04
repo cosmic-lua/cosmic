@@ -2401,24 +2401,91 @@ local function say_failures(rec: Recording, failures: {string})
   end
 end
 
---- Builds the tree in the working directory and runs every test it
---- discovered that its selectors choose ([`test.selects`]), printing a
---- verdict line and returning the exit code: 0
---- when every test passed.
---- @param argv the command line, which a stale tool re-enters after
----   rebuilding itself
-local function run(argv: {integer:string}): integer
-  -- Captured once, up front, and threaded through everything below as
-  -- this run's own identifier: see build/work.tl for why a nanosecond
-  -- timestamp, not an autoincrement id, identifies a run.
-  local run_at_ns = Time.now_ns()
+--- What one run of the verb carries from phase to phase: each of
+--- [`run`]'s phases fills the fields it owns, and reads only fields the
+--- driver or an earlier phase has set.
+local record Run
+  run_at_ns: integer
+  --- The command line, which a stale tool re-enters after rebuilding itself.
+  argv: {integer:string}
 
+  -- The command line ([`read_command`]).
+  root: string
+  limits: test.Limits
+  shard: test.Shard
+  sandbox_mode: string
+  selectors: {string}
+  forced: boolean
+  consult: boolean
+  census: boolean
+
+  -- The checkout ([`hold_checkout`]).
+  started: integer
+  own_tree: boolean
+  handle: work.Handle
+  staged: work.Staged
+  built: compiler
+
+  -- The binary's identities ([`read_identities`]).
+  tool: string
+  compiled_by: string
+  identity: string
+  runtime: string
+  harness: Harness
+  database: string
+
+  -- The sandbox ([`choose_sandbox`]).
+  sandboxed: boolean
+  sandbox_summary: string
+  shares: boolean
+  keying: string
+
+  -- The built tree ([`build_tree`]).
+  result: importer.Result
+
+  -- The tests chosen ([`select_tests`]).
+  selected_modules: {importer.Module}
+  selected_tests: {string:{string}}
+  whole: boolean
+  share_summary: string
+
+  -- The records the run reads and writes ([`open_records`]).
+  records_path: string
+  records: Sqlite.Handle
+  previous: {string:boolean}
+  verdicts: {string:test.Verdict}
+  epoch: string
+  credited: test.Credited
+
+  -- What the run tallies and reports ([`make_recording`]).
+  tally: test.Tally
+  failures: {string}
+  errors: {string}
+  hits: Coverage.Hits
+  by_test: {string:string}
+  native_lines: Coverage.Hits
+  rec: Recording
+
+  -- The tests that run ([`look_up_verdicts`]).
+  jobs: {Job}
+
+  -- What the run says last ([`settle`]).
+  total: integer
+  function_lines: {string}
+  cov_line: string
+end
+
+--- The command line read: where the run is, what it is told to do and
+--- which tests it is told to choose. The exit code to stop with, or nil
+--- to go on.
+local function read_command(ctx: Run): integer | nil
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
     log:complain(root_trouble)
     return 1
   end
-  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.verbs.test.spec)
+  ctx.root = root
+  local parsed, parse_trouble = Flags.parse(ctx.argv, 2, Cli.verbs.test.spec)
   if parsed == nil then
     log:complain("test: " .. parse_trouble)
     return 2
@@ -2428,20 +2495,21 @@ local function run(argv: {integer:string}): integer
     log:complain("test: " .. limits_trouble)
     return 2
   end
-  local shard: test.Shard = nil
+  ctx.limits = limits
   if parsed.values["--shard"] ~= nil then
     local chosen, shard_trouble = test.shard(parsed.values["--shard"])
     if chosen == nil then
       log:complain("test: " .. shard_trouble)
       return 2
     end
-    shard = chosen
+    ctx.shard = chosen
   end
   local sandbox_mode, sandbox_trouble = test_sandbox.mode()
   if sandbox_mode == nil then
     log:complain("test: " .. sandbox_trouble)
     return 2
   end
+  ctx.sandbox_mode = sandbox_mode
   local selectors: {string} = {}
   for _, word in ipairs(parsed.words) do
     local module, name = split(word)
@@ -2459,12 +2527,22 @@ local function run(argv: {integer:string}): integer
     if name ~= nil then selector = selector .. ":" .. name end
     selectors[#selectors + 1] = selector
   end
-  local forced = parsed.set["--all"] == true or Env.get("COSMIC_TEST_ALL") == "1"
+  ctx.selectors = selectors
+  ctx.forced = parsed.set["--all"] == true or Env.get("COSMIC_TEST_ALL") == "1"
   -- A run that stands on nothing another checkout reached, though it
   -- still shares what it reaches: what answers for every test is this
   -- checkout's own evidence, or a run.
-  local consult = not (parsed.set["--no-shared"] == true or
+  ctx.consult = not (parsed.set["--no-shared"] == true or
     Env.get("COSMIC_TEST_NO_SHARED") == "1")
+  ctx.census = parsed.set["--census"] == true
+  return nil
+end
+
+--- The checkout taken: its rebuild lock held, its working database
+--- opened and staged, and a stale tool rebuilt. The exit code to stop
+--- with, or nil to go on.
+local function hold_checkout(ctx: Run): integer | nil
+  local root = ctx.root
   -- One run per checkout at a time: this one holds the rebuild lock to
   -- its end, and one that finds another holding it waits for it, so
   -- two never write or sweep one another's closure stores, verdicts or
@@ -2476,35 +2554,45 @@ local function run(argv: {integer:string}): integer
     log:complain("test: " .. lock_trouble)
     return 1
   end
-  local started = Time.monotonic_ns()
+  ctx.started = Time.monotonic_ns()
   local own_tree, own_trouble = tree.is_own(root)
   if own_tree == nil then
     log:complain(own_trouble)
     return 1
   end
+  ctx.own_tree = own_tree
   local handle, open_trouble = work.open(root)
   if handle == nil then
     log:complain(open_trouble)
     return 1
   end
+  ctx.handle = handle
   local staged, stage_trouble = work.stage(handle, own_tree)
   if staged == nil then
     local _, _ = work.close(handle)
     log:complain(stage_trouble)
     return 1
   end
+  ctx.staged = staged
 
-  local built = teal.lazy()
+  ctx.built = teal.lazy()
 
   -- A stale tool refuses, or rebuilds itself or has zig boot the core
   -- and re-enters this command line ([`reboot.guard`]).
   if own_tree then
-    local code = reboot.guard(handle, root, argv)
+    local code = reboot.guard(handle, root, ctx.argv)
     if code ~= nil then
       return code
     end
   end
+  return nil
+end
 
+--- What the running binary is, which every verdict is keyed by: its
+--- compiler, runtime, data tables and harness. The exit code to stop
+--- with, or nil to go on.
+local function read_identities(ctx: Run): integer | nil
+  local handle = ctx.handle
   -- Both identities are read before the project's database is attached
   -- ahead of the binary's: they name this binary, and a project's own
   -- projection carries the ones of whichever binary wrote it.
@@ -2516,16 +2604,18 @@ local function run(argv: {integer:string}): integer
   -- binary of its own (build/sandboxed_verdicts_test.tl): the tree is
   -- compiled under it, and the run keys by it.
   local compiler_salt = Env.get("COSMIC_TEST_COMPILER_SALT")
-  if not own_tree and compiler_salt ~= nil and compiler_salt ~= "" then
+  if not ctx.own_tree and compiler_salt ~= nil and compiler_salt ~= "" then
     tool = hex_sha256(tool .. "\0" .. compiler_salt)
     compiled_by = tool
   end
+  ctx.tool, ctx.compiled_by = tool, compiled_by
   local identity = Store.meta("runtime")
   if identity == nil or identity == "" then
     local _, _ = work.close(handle)
     log:complain("the running binary names no runtime identity")
     return 1
   end
+  ctx.identity = identity
   -- Every verdict is keyed on the data tables the binary carries too
   -- ([`schema.tables_digest`]): `cosmic refresh` replaces its zones and
   -- roots without moving its runtime identity, and a test that read one
@@ -2542,14 +2632,23 @@ local function run(argv: {integer:string}): integer
     log:complain("the running binary's data tables: " .. tables_trouble)
     return 1
   end
-  local runtime = identity .. " tables " .. tables
+  ctx.runtime = identity .. " tables " .. tables
   local harness, harness_trouble = binary_harness()
   if harness == nil then
     local _, _ = work.close(handle)
     log:complain("the running binary's test harness: " .. harness_trouble)
     return 1
   end
-  local database = root .. "/o/cosmic.db"
+  ctx.harness = harness
+  ctx.database = ctx.root .. "/o/cosmic.db"
+  return nil
+end
+
+--- Whether the workers are sandboxed, which the runtime the keys hold
+--- says. The exit code to stop with, or nil to go on.
+local function choose_sandbox(ctx: Run): integer | nil
+  local handle = ctx.handle
+  local sandbox_mode = ctx.sandbox_mode
   -- Each worker runs sandboxed where the kernel can sandbox one, unless
   -- the switch turns it off. Either way each test is keyed by what it
   -- declares; unsandboxed, the run trusts that where a sandboxed run
@@ -2581,7 +2680,7 @@ local function run(argv: {integer:string}): integer
     if sandboxed then
       -- And whether it is held to confining what it starts
       -- ([`confine.must_confine`]), which a test's verdict turns on.
-      runtime = runtime .. " sandboxed" .. (must and " must" or "")
+      ctx.runtime = ctx.runtime .. " sandboxed" .. (must and " must" or "")
       sandbox_summary = "; sandboxed"
       log:say("test: sandbox: each worker is held to its inputs, the tree at " ..
           test_sandbox.tree)
@@ -2605,15 +2704,22 @@ local function run(argv: {integer:string}): integer
     -- The pinned COSMIC_TEST_SANDBOX and the " sandboxed" mark already
     -- tell these verdicts from a sandboxed run's; the tag says so in
     -- the key itself (build/declared_unenforced_test.tl).
-    runtime = runtime .. " declared" .. (must and " must" or "")
+    ctx.runtime = ctx.runtime .. " declared" .. (must and " must" or "")
     sandbox_summary = sandbox_summary .. ", keyed by declared inputs" ..
       (shares and "" or ", sharing no verdicts")
   end
+  ctx.sandboxed, ctx.sandbox_summary, ctx.shares = sandboxed, sandbox_summary, shares
   -- What names what a run says of its keys: the sandbox's, or, with no
   -- sandbox, the declarations'.
-  local keying = sandboxed and "test: sandbox: " or "test: declared: "
+  ctx.keying = sandboxed and "test: sandbox: " or "test: declared: "
+  return nil
+end
 
-  local result, compile_trouble = importer.compile(handle, built, tool, false,
+--- The tree compiled into the working database and its build said.
+--- The exit code to stop with, or nil to go on.
+local function build_tree(ctx: Run): integer | nil
+  local handle, staged, started = ctx.handle, ctx.staged, ctx.started
+  local result, compile_trouble = importer.compile(handle, ctx.built, ctx.tool, false,
     shared_compiles.for_build())
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
@@ -2622,7 +2728,7 @@ local function run(argv: {integer:string}): integer
     return 1
   end
   local written, write_trouble =
-    writer.write_result(handle, database, result)
+    writer.write_result(handle, ctx.database, result)
   local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled,
     result.cached, written and "PASS" or "FAIL")
   if not written then
@@ -2630,12 +2736,19 @@ local function run(argv: {integer:string}): integer
     log:complain(write_trouble)
     return 1
   end
+  ctx.result = result
   local parses = result.parses
   log:say(test_report.build({ modules = #result.modules, compiled = result.compiled,
     cached = result.cached, shared = result.shared, parsed = parses.parsed,
     shared_parses = parses.shared, files = staged.files, read = staged.read },
     clock.took(started)))
+  return nil
+end
 
+--- The tests the selectors and the shard choose, each selector held to
+--- matching one. The exit code to stop with, or nil to go on.
+local function select_tests(ctx: Run): integer | nil
+  local result, selectors, shard = ctx.result, ctx.selectors, ctx.shard
   -- Each selector must match a test module on its own: one mistyped
   -- among good ones would otherwise narrow the run without a word, and
   -- one naming a test must find it there.
@@ -2679,7 +2792,7 @@ local function run(argv: {integer:string}): integer
     end
   end
   if #unmatched > 0 or #unfound > 0 then
-    local _, _ = work.close(handle)
+    local _, _ = work.close(ctx.handle)
     if #unmatched > 0 then
       log:complain("no test module matches: " .. table.concat(unmatched, ", "))
     end
@@ -2715,13 +2828,20 @@ local function run(argv: {integer:string}): integer
     end
     selected_modules = kept
   end
+  ctx.selected_modules, ctx.selected_tests = selected_modules, selected_tests
   -- Whether this run chose every test of the tree: what only the whole
   -- suite answers for is checked on such a run alone.
-  local whole = #selectors == 0 and shard == nil
+  ctx.whole = #selectors == 0 and shard == nil
   -- Said after the sandbox, last on the summary line, whichever verdict.
-  local share_summary = shard ~= nil and
+  ctx.share_summary = shard ~= nil and
     string.format("; shard %d of %d", shard.index, shard.count) or ""
+  return nil
+end
 
+--- The verdict transaction begun and what earlier runs left in the
+--- records read. The exit code to stop with, or nil to go on.
+local function open_records(ctx: Run): integer | nil
+  local handle = ctx.handle
   -- Every verdict and every coverage row of this run lands together.
   local begun, begin_trouble = work.begin(handle)
   if not begun then
@@ -2729,8 +2849,9 @@ local function run(argv: {integer:string}): integer
     log:complain(begin_trouble)
     return 1
   end
-  local records_path = root .. "/o/build.db"
+  local records_path = ctx.root .. "/o/build.db"
   local records = handle.db
+  ctx.records_path, ctx.records = records_path, records
   local previous, previous_trouble = previous_runs(records)
   if previous == nil then
     local _, _ = work.rollback(handle)
@@ -2738,6 +2859,7 @@ local function run(argv: {integer:string}): integer
     log:complain(records_path .. ": " .. previous_trouble)
     return 1
   end
+  ctx.previous = previous
   local verdicts, verdicts_trouble = known_verdicts(records)
   if verdicts == nil then
     local _, _ = work.rollback(handle)
@@ -2745,6 +2867,7 @@ local function run(argv: {integer:string}): integer
     log:complain(records_path .. ": " .. verdicts_trouble)
     return 1
   end
+  ctx.verdicts = verdicts
   local epoch, epoch_trouble = harness_epoch_of()
   if epoch == nil then
     local _, _ = work.rollback(handle)
@@ -2752,66 +2875,89 @@ local function run(argv: {integer:string}): integer
     log:complain(epoch_trouble)
     return 1
   end
-  local credited: test.Credited = {}
+  ctx.epoch = epoch
+  ctx.credited = {}
+  return nil
+end
 
-  local tally: test.Tally = { ran = 0, cached = 0, shared = 0, every = 0,
+--- The recording every test's outcome is kept in, with the tallies and
+--- coverage it reports, and the verdicts shared with other checkouts
+--- opened where they are used.
+local function make_recording(ctx: Run)
+  local handle, records = ctx.handle, ctx.records
+  ctx.tally = { ran = 0, cached = 0, shared = 0, every = 0,
     skipped = 0 }
-  local modules_run = #selected_modules
+  local tally = ctx.tally
   local failures: {string} = {}
   local errors: {string} = {}
+  ctx.failures, ctx.errors = failures, errors
   -- Every hit line of the run, and each test's own, which is what lets
   -- a later run credit a standing verdict's lines to it by name.
   local hits: Coverage.Hits = {}
   local by_test: {string: string} = {}
+  ctx.hits, ctx.by_test = hits, by_test
   -- The core's C is cosmic's own: another project's run neither owns
   -- nor tests it, and counting it would make its lines most of that
   -- project's figure.
   local native_lines: Coverage.Hits = {}
   local unowned: Coverage.Hits = {}
-  if own_tree then
+  if ctx.own_tree then
     native_lines = Coverage.native_lines()
   else
     unowned = Coverage.native_lines()
   end
+  ctx.native_lines = native_lines
+  local sandbox_mode = ctx.sandbox_mode
   local rec: Recording = {
-    records = records, root = root, runtime = runtime,
-    run_at_ns = run_at_ns, run = handle.run,
+    records = records, root = ctx.root, runtime = ctx.runtime,
+    run_at_ns = ctx.run_at_ns, run = handle.run,
     failures = failures, errors = errors, outputs = {}, reruns = {},
     failed = {}, skips = {}, held = confine.held_to_sandbox(),
     hits = hits, by_test = by_test, unowned = unowned, tally = tally,
     owed = { kept = {}, used = {}, failed = {}, stores = {} }, shared_keys = {},
-    consult_shared = consult,
-    origin = checkout_id(records, root, run_at_ns),
-    sandbox = sandboxed, views = {}, caches = {}, unkeyed = {},
+    consult_shared = ctx.consult,
+    origin = checkout_id(records, ctx.root, ctx.run_at_ns),
+    sandbox = ctx.sandboxed, views = {}, caches = {}, unkeyed = {},
     forbiddable = {},
-    epoch = epoch, timeout_ns = limits.timeout_ns,
-    store_salt = harness.store_salt, carried = harness.carried,
+    epoch = ctx.epoch, timeout_ns = ctx.limits.timeout_ns,
+    store_salt = ctx.harness.store_salt, carried = ctx.harness.carried,
     closure_sets = {}, type_only = {},
     rerun_prefix = (sandbox_mode == "on" and (test_sandbox.switch .. "=1 ") or
       sandbox_mode == "off" and (test_sandbox.switch .. "=0 ") or ""),
   }
+  ctx.rec = rec
   -- An edit to the code that writes a closure store a test stands in
   -- for, in a tree not cosmic's own, so it can see one that writes the
   -- same bytes move no key without a binary of its own
   -- (build/sandboxed_verdicts_test.tl): mixed into the salt, never in
   -- its place, so one address still names one store's bytes.
   local store_salt = Env.get("COSMIC_TEST_STORE_SALT")
-  if not own_tree and store_salt ~= nil and store_salt ~= "" then
+  if not ctx.own_tree and store_salt ~= nil and store_salt ~= "" then
     rec.store_salt = hex_sha256(rec.store_salt .. "\0" .. store_salt)
   end
   -- The verdicts every checkout of the tree shares: one that stands
   -- here, run where another checkout reached it, is not run again.
   -- Without them the run goes on, and says so unless it was asked not
   -- to use them. An unsandboxed run reads and writes them only where
-  -- COSMIC_VERDICT_CACHE names them (see above).
+  -- COSMIC_VERDICT_CACHE names them (see [`choose_sandbox`]).
   local cache_path, cache_trouble: string, string = nil, ""
-  if shares then cache_path, cache_trouble = shared_verdicts.location() end
+  if ctx.shares then cache_path, cache_trouble = shared_verdicts.location() end
   if cache_path ~= nil then
     rec.shared, cache_trouble = shared_verdicts.open(cache_path)
   end
   if rec.shared == nil and cache_trouble ~= "" then
     log:complain("test: shared verdicts: " .. cache_trouble .. "; running without them")
   end
+end
+
+--- What every test's key is made of, read once before any test is
+--- keyed: each selected module's closure and declarations, the stores
+--- of the closures, and the host, system and launcher identities, then
+--- frozen. The exit code to stop with, or nil to go on.
+local function gather_key_inputs(ctx: Run): integer | nil
+  local handle, records, rec, result = ctx.handle, ctx.records, ctx.rec, ctx.result
+  local records_path, selected_modules = ctx.records_path, ctx.selected_modules
+  local identity = ctx.identity
   local by_path: {string:importer.Module} = {}
   for _, m in ipairs(result.modules) do by_path[m.path] = m end
   local declaration_rows, declaration_trouble = Sqlite.text_rows(records,
@@ -2838,7 +2984,7 @@ local function run(argv: {integer:string}): integer
     if by_path[name] == nil then rec.declared_names[#rec.declared_names + 1] = name end
   end
   table.sort(rec.declared_names)
-  local type_only, type_only_trouble = projection_type_only(database)
+  local type_only, type_only_trouble = projection_type_only(ctx.database)
   if type_only == nil then
     local _, _ = work.rollback(handle)
     local _, _ = work.close(handle)
@@ -2868,7 +3014,7 @@ local function run(argv: {integer:string}): integer
     log:complain(records_path .. ": " .. remembered_trouble)
     return 1
   end
-  rec.digests = declared_key.digests(root, remembered)
+  rec.digests = declared_key.digests(ctx.root, remembered)
   -- A core that carries debug information, as the checked core does,
   -- is keyed by its image (build.core_image): its DWARF names the
   -- directory musl was first built in, which moves between CI runs,
@@ -2886,12 +3032,12 @@ local function run(argv: {integer:string}): integer
   -- (build/sandboxed_verdicts_test.tl): mixed into the stores' salt
   -- alone, never in its place.
   local store_core = Env.get("COSMIC_TEST_STORE_RUNTIME")
-  if not own_tree and store_core ~= nil and store_core ~= "" then
+  if not ctx.own_tree and store_core ~= nil and store_core ~= "" then
     rec.store_runtime = hex_sha256(rec.store_runtime .. "\0" .. store_core)
   end
   -- The store of each test module's closure, by its address, salted with
   -- the core above, and none that no module names any longer.
-  rec.projection = database
+  rec.projection = ctx.database
   local addressed, address_trouble = address_stores(rec, result.modules, by_path, declarations)
   if not addressed then
     local _, _ = work.rollback(handle)
@@ -2900,7 +3046,7 @@ local function run(argv: {integer:string}): integer
     return 1
   end
   sweep_stores(rec)
-  rec.compiler = tool .. " " .. compiled_by
+  rec.compiler = ctx.tool .. " " .. ctx.compiled_by
   rec.host = declared_key.host_identity(rec.digests)
   rec.worker_host = rec.host
   if rec.sandbox then
@@ -2930,7 +3076,19 @@ local function run(argv: {integer:string}): integer
   -- Every test is keyed before any starts: one look at each input
   -- serves them all.
   declared_key.freeze(rec.digests)
+  return nil
+end
+
+--- Each selected test keyed and looked up: a test whose verdict stands,
+--- here or in another checkout, is credited or shared, and the rest
+--- become the run's jobs. What the keys are made of and how many were
+--- looked up is said.
+local function look_up_verdicts(ctx: Run)
+  local rec, selected_modules, selected_tests = ctx.rec, ctx.selected_modules, ctx.selected_tests
+  local verdicts, forced, consult, keying = ctx.verdicts, ctx.forced, ctx.consult, ctx.keying
+  local previous, credited, sandboxed = ctx.previous, ctx.credited, ctx.sandboxed
   local jobs: {Job} = {}
+  ctx.jobs = jobs
   -- The tests looked up in the shared cache, and whether any was found:
   -- where none was, `unmatched` says why.
   local looked: {string:boolean} = {}
@@ -2969,7 +3127,7 @@ local function run(argv: {integer:string}): integer
   -- shared cache is stamped with ([`shared_verdicts.settle`]): made only
   -- where there is a cache to stamp or a census to say, since
   -- `host_features` reads the processor's whole description.
-  local census_asked = parsed.set["--census"] == true
+  local census_asked = ctx.census
   local parts: {{string}} = {}
   if rec.shared ~= nil or census_asked then
     parts = {
@@ -2990,7 +3148,7 @@ local function run(argv: {integer:string}): integer
     if rec.base_store ~= nil then
       parts[#parts + 1] = { "store", base_store_digest(rec):sub(1, 12) }
     end
-    if not sandboxed then parts[#parts + 1] = { "tree", hex_sha256(root):sub(1, 12) } end
+    if not sandboxed then parts[#parts + 1] = { "tree", hex_sha256(ctx.root):sub(1, 12) } end
     local runs_tool = false
     for _, m in ipairs(selected_modules) do
       if rec.effective[m.path] ~= nil and rec.effective[m.path].tool then runs_tool = true end
@@ -3042,39 +3200,55 @@ local function run(argv: {integer:string}): integer
     log:say(keying .. path .. " has no key, so its tests run every time: " ..
         rec.unkeyed[path])
   end
+end
+
+--- The jobs run. The exit code to stop with, or nil to go on: 130 once
+--- a signal has cancelled the run.
+local function execute(ctx: Run): integer | nil
+  local rec, jobs = ctx.rec, ctx.jobs
   if #jobs > 0 then
     -- Nil only where the guard cannot be had (no descriptor left for
     -- its pipe): the run then goes unguarded, a signal acting as it
     -- would.
     local opened, _ = Child.guard()
     if opened == nil then
-      run_jobs(rec, jobs, limits, nil)
+      run_jobs(rec, jobs, ctx.limits, nil)
     else
       -- A signal the guard caught ends this process when it closes,
       -- once the run is aborted; under a guard of its caller's (test's
       -- `run` called in-process), it is left to that one.
       local guard <close> = opened
-      if run_jobs(rec, jobs, limits, guard) ~= 0 then
-        local _, _ = work.abort(handle)
+      if run_jobs(rec, jobs, ctx.limits, guard) ~= 0 then
+        local _, _ = work.abort(ctx.handle)
         if rec.shared ~= nil then shared_verdicts.close(rec.shared) end
         -- A test that failed before the signal keeps its directory,
         -- named as a finished run's report names it: the failures on
         -- stdout, as there, and the errors and the cancellation on stderr.
-        say_failures(rec, failures)
-        for _, line in ipairs(errors) do log:complain("test: ERROR  " .. line) end
+        say_failures(rec, ctx.failures)
+        for _, line in ipairs(ctx.errors) do log:complain("test: ERROR  " .. line) end
         log:complain("test: cancelled; every running test was ended")
         return 130
       end
     end
   end
+  return nil
+end
+
+--- What the finished tests leave: their coverage and the history and
+--- digests kept, the working database closed and the shared cache
+--- settled. Everything it meets goes in `errors`, never an exit.
+local function settle(ctx: Run)
+  local rec, records, tally = ctx.rec, ctx.records, ctx.tally
+  local failures, errors, hits, handle = ctx.failures, ctx.errors, ctx.hits, ctx.handle
+  local result = ctx.result
   if rec.written > 0 then
-    log:say(string.format("%s%s written (%s) in %.1f ms", keying,
+    log:say(string.format("%s%s written (%s) in %.1f ms", ctx.keying,
       plural.count(rec.written, "closure store"), plural.count(rec.written_bytes, "byte"),
       rec.writing_ns / 1e6))
   end
-  local total = tally.ran + tally.cached
+  ctx.total = tally.ran + tally.cached
 
-  local credit_trouble = credit_hits(records, credited, hits)
+  local credit_trouble = credit_hits(records, ctx.credited, hits)
   if credit_trouble ~= "" then
     errors[#errors + 1] = "coverage credit: " .. credit_trouble
   end
@@ -3086,12 +3260,13 @@ local function run(argv: {integer:string}): integer
   -- rest, and another project's tests owe nothing to the C underneath
   -- them. Every core cosmic tests with observes its own C.
   local function_lines: {string} = {}
+  ctx.function_lines = function_lines
   local functions = Coverage.native_functions()
-  if own_tree and whole and #functions > 0 then
+  if ctx.own_tree and ctx.whole and #functions > 0 then
     -- A host whose name cannot be had is held to every function.
     local names, uname_trouble = sys.uname()
     if names == nil then errors[#errors + 1] = "uname: " .. uname_trouble end
-    local entered = c_functions.tally(functions, hits, c_functions.sources(root, functions),
+    local entered = c_functions.tally(functions, hits, c_functions.sources(ctx.root, functions),
       names ~= nil and names.sysname or nil)
     for _, key in ipairs(entered.unentered) do
       failures[#failures + 1] = key .. ": a C function no test enters"
@@ -3104,15 +3279,17 @@ local function run(argv: {integer:string}): integer
       function_lines[2] = "test: C exemptions a test entered on this core: " ..
         table.concat(entered.stale, ", ")
     end
-  elseif own_tree and #selectors == 0 and #functions > 0 then
+  elseif ctx.own_tree and #ctx.selectors == 0 and #functions > 0 then
     -- A share's tests enter only some of them; a whole run, which CI's
     -- merge queue makes on every leg, holds the core to all of them.
     function_lines[1] = string.format("test: C functions not checked: shard %d of %d " ..
-        "runs part of the suite, and only a whole run enters every one", shard.index, shard.count)
+        "runs part of the suite, and only a whole run enters every one",
+      ctx.shard.index, ctx.shard.count)
   end
 
   local cov_hit, cov_total, cov_trouble =
-    write_coverage(records, built, result.modules, native_lines, hits, by_test, run_at_ns)
+    write_coverage(records, ctx.built, result.modules, ctx.native_lines, hits, ctx.by_test,
+      ctx.run_at_ns)
   if cov_trouble ~= "" then
     errors[#errors + 1] = "coverage: " .. cov_trouble
   end
@@ -3125,7 +3302,7 @@ local function run(argv: {integer:string}): integer
   -- some of it adds to what the rest looked at before.
   if rec.digests ~= nil and rec.digests.read > 0 then
     local kept, keep_trouble = true, ""
-    if whole then kept, keep_trouble = handle.db:exec("DELETE FROM digests") end
+    if ctx.whole then kept, keep_trouble = handle.db:exec("DELETE FROM digests") end
     for _, row in ipairs(kept and declared_key.kept(rec.digests) or {}) do
       if kept then
         kept, keep_trouble = Sqlite.run(records,
@@ -3165,8 +3342,14 @@ local function run(argv: {integer:string}): integer
     failures[#failures + 1] = line
   end
 
-  local cov_line = test_report.coverage(cov_hit, cov_total)
+  ctx.cov_line = test_report.coverage(cov_hit, cov_total)
+end
 
+--- The run's verdict said, with the skips, failures and errors that
+--- bear on it, and its exit code: 0 when every test passed.
+local function report(ctx: Run): integer
+  local rec, tally, failures, errors = ctx.rec, ctx.tally, ctx.failures, ctx.errors
+  local total, started = ctx.total, ctx.started
   if #failures == 0 and #errors == 0 then
     if total == 0 then
       log:say("test: nothing to run: a test is a top-level `local function " ..
@@ -3174,26 +3357,63 @@ local function run(argv: {integer:string}): integer
           "record a *_example.tl file returns")
     end
     say_skips(rec)
-    log:say(cov_line)
-    for _, function_line in ipairs(function_lines) do log:say(function_line) end
-    log:verdict("test", true, test_report.passed({ total = total, modules = modules_run,
+    log:say(ctx.cov_line)
+    for _, function_line in ipairs(ctx.function_lines) do log:say(function_line) end
+    log:verdict("test", true, test_report.passed({ total = total,
+      modules = #ctx.selected_modules,
       ran = tally.ran, cached = tally.cached, skipped = tally.skipped,
       every = tally.every, shared = tally.shared },
-      clock.took(started) .. sandbox_summary .. share_summary))
+      clock.took(started) .. ctx.sandbox_summary .. ctx.share_summary))
     return 0
   end
   say_skips(rec)
   say_failures(rec, failures)
   for _, line in ipairs(errors) do
-    log:say("test: ERROR  " .. records_path .. ": " .. line)
+    log:say("test: ERROR  " .. ctx.records_path .. ": " .. line)
   end
   if #errors == 0 then
-    log:say(cov_line)
-    for _, function_line in ipairs(function_lines) do log:say(function_line) end
+    log:say(ctx.cov_line)
+    for _, function_line in ipairs(ctx.function_lines) do log:say(function_line) end
   end
-  log:verdict("test", false, test_report.failed(#failures, total + #result.refused,
-    #errors, clock.took(started) .. sandbox_summary .. share_summary))
+  log:verdict("test", false, test_report.failed(#failures, total + #ctx.result.refused,
+    #errors, clock.took(started) .. ctx.sandbox_summary .. ctx.share_summary))
   return 1
+end
+
+--- Builds the tree in the working directory and runs every test it
+--- discovered that its selectors choose ([`test.selects`]), printing a
+--- verdict line and returning the exit code: 0
+--- when every test passed. Each phase above does one part, in order,
+--- and the first to answer an exit code ends the run.
+--- @param argv the command line, which a stale tool re-enters after
+---   rebuilding itself
+local function run(argv: {integer:string}): integer
+  -- Captured once, up front, and threaded through everything below as
+  -- this run's own identifier: see build/work.tl for why a nanosecond
+  -- timestamp, not an autoincrement id, identifies a run.
+  local ctx: Run = { run_at_ns = Time.now_ns(), argv = argv }
+  local code = read_command(ctx)
+  if code ~= nil then return code end
+  code = hold_checkout(ctx)
+  if code ~= nil then return code end
+  code = read_identities(ctx)
+  if code ~= nil then return code end
+  code = choose_sandbox(ctx)
+  if code ~= nil then return code end
+  code = build_tree(ctx)
+  if code ~= nil then return code end
+  code = select_tests(ctx)
+  if code ~= nil then return code end
+  code = open_records(ctx)
+  if code ~= nil then return code end
+  make_recording(ctx)
+  code = gather_key_inputs(ctx)
+  if code ~= nil then return code end
+  look_up_verdicts(ctx)
+  code = execute(ctx)
+  if code ~= nil then return code end
+  settle(ctx)
+  return report(ctx)
 end
 
 --- The `test` verb as [`build/verb_list.tl`] lists it.
