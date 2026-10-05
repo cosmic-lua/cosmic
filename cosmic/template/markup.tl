@@ -27,9 +27,6 @@
 ---   `<plaintext>` text, which browsers read as raw text (`noscript`
 ---   when scripting is on);
 --- - every attribute of `<script>`, and the `charset` of a `<meta>`;
---- - anything inside `<foreignObject>`, `<desc>`, `<title>` of an SVG,
----   `<annotation-xml>` or MathML's text elements: the browser reads
----   HTML there, in rules this tracker does not follow;
 --- - a URL attribute (`href`, `src`, ...) of a tag that makes the page
 ---   run or load what the URL names (`script`, `link`, `object`,
 ---   `embed`, `base`, `use`), or one not at the start of the value.
@@ -41,18 +38,24 @@
 --- first `/`, `?` or `#`, has no `:` or `&` (which could complete a scheme:
 --- `href="{{.p}}:alert(1)"`, `{{.p}}&colon;alert(1)`).
 ---
---- `<svg>` and `<math>` are kept on a stack, popped as an end tag pops
---- them, so nested ones and a self-closed `<svg/>` leave the tracker where
---- the browser is. It does not model the tags that take the parser out of
---- foreign content (`<svg><p>`) or ignore an `<svg>` (in `<select>`), and
---- does not need to: what the stack decides is a refusal (inside an
---- element the browser reads HTML in), or a `<script>`, `<style>`,
---- `<textarea>` or `<title>` in foreign content, which the tracker reads
---- as it would in HTML, where they are raw text or RCDATA. If the text
---- they hold has a `<`, the two readings could part ways, and the place
---- is murky: every later slot is refused. A slot in RCDATA is escaped as
---- text and takes no markup, which is safe in either reading, and
---- `<noscript>` text with a comment in it is the same.
+--- Foreign content (`<svg>`, `<math>`) is followed only as far as the
+--- elements in them, their attributes and plain text, on a stack of the
+--- elements open. Anything else the browser could read by other rules
+--- makes the place murky, for good (every later slot in the template is
+--- refused), because the tracker cannot tell where the browser comes out
+--- of it: `<!--`, `<![CDATA[`, any `<!` or `<?`; a tag that takes the
+--- parser out of foreign content (`<p>`, `<div>`, `<br>`, `<table>`, `<font
+--- size=1>`, ...); a tag the browser reads HTML in (`<foreignObject>`,
+--- `<desc>`, `<title>`, `<annotation-xml>`, `<mi>`, ...); an end tag that
+--- is not the innermost open element's (`</g>` after `<svg><a>`); an
+--- `<svg>` or `<math>` in a `<select>`; and the text of a `<script>`,
+--- `<style>`, `<textarea>` or `<title>` in foreign content when it holds a
+--- `<`, and `<noscript>` text with a comment in it. A tag that carries a
+--- `/` across a block boundary (`<svg {{if .a}}/{{end}}>`) is a place of
+--- its own, so the arms of a block that differ in it are refused.
+--- A slot in RCDATA is escaped as text and takes no markup, which is safe
+--- in either reading. `<svg>`, `<g>`, `<a href="{{.u}}">`, `<text>{{.x}}`
+--- and a slot after a cleanly closed `</svg>` are not murky.
 ---
 --- A URL attribute is `href`, `src`, `action`, `formaction`, `cite`,
 --- `data`, `poster`, `background`, `manifest`, `longdesc`, `codebase`,
@@ -114,6 +117,10 @@ local record Markup
     --- RCDATA inside `<svg>` or `<math>` that holds a `<`, `<noscript>`
     --- text that holds a comment.
     murky: boolean
+    --- Whether a `<select>` is open in HTML, where an `<svg>` may be ignored.
+    select: boolean
+    --- Whether the `<font>` being read has `color`, `face` or `size`.
+    fontattr: boolean
     --- Whether the last byte read was the `/` of a tag, which a `>` at the
     --- start of the next run of text then closes as self-closing.
     slash: boolean
@@ -209,12 +216,12 @@ local ANIMATION <const>: {string: boolean} = {
 
 local function start(): Place
   return { phase = "text", tag = "", attr = "", closing = false, fresh = false, stack = "", murky = false,
-    slash = false, after_url = false, colon = false, equiv = false, meta_line = 0, meta_col = 0, late = "", late_line = 0, late_col = 0 }
+    select = false, fontattr = false, slash = false, after_url = false, colon = false, equiv = false, meta_line = 0, meta_col = 0, late = "", late_line = 0, late_col = 0 }
 end
 
 local function copy(p: Place): Place
   return { phase = p.phase, tag = p.tag, attr = p.attr, closing = p.closing, fresh = p.fresh, stack = p.stack,
-    murky = p.murky, slash = p.slash, after_url = p.after_url, colon = p.colon, equiv = p.equiv,
+    murky = p.murky, select = p.select, fontattr = p.fontattr, slash = p.slash, after_url = p.after_url, colon = p.colon, equiv = p.equiv,
     meta_line = p.meta_line, meta_col = p.meta_col, late = p.late, late_line = p.late_line,
     late_col = p.late_col }
 end
@@ -232,10 +239,10 @@ local ATTRIBUTED <const>: {Phase: boolean} = {
 }
 
 local function same(a: Place, b: Place): boolean
-  if a.phase ~= b.phase or a.stack ~= b.stack or a.murky ~= b.murky then
+  if a.phase ~= b.phase or a.stack ~= b.stack or a.murky ~= b.murky or a.select ~= b.select or a.slash ~= b.slash then
     return false
   end
-  if TAGGED[a.phase] and (a.tag ~= b.tag or a.closing ~= b.closing or a.equiv ~= b.equiv or
+  if TAGGED[a.phase] and (a.tag ~= b.tag or a.closing ~= b.closing or a.equiv ~= b.equiv or a.fontattr ~= b.fontattr or
       (a.meta_line > 0) ~= (b.meta_line > 0)) then
     return false
   end
@@ -325,55 +332,51 @@ local function script_end(text: string, from: integer): integer | nil
   end
 end
 
---- The names in the stack of open foreign elements.
-local function names(p: Place): {string}
-  local out: {string} = {}
-  for name in p.stack:gmatch("%S+") do
-    out[#out + 1] = name
-  end
-  return out
+--- The tags that take the HTML parser out of `<svg>` or `<math>` (the
+--- standard's list; `font` only with a `color`, `face` or `size`).
+local BREAKOUT <const>: {string: boolean} = {}
+for _, name in ipairs({
+    "b", "big", "blockquote", "body", "br", "center", "code", "dd", "div", "dl", "dt", "em", "embed", "h1", "h2",
+    "h3", "h4", "h5", "h6", "head", "hr", "i", "img", "li", "listing", "menu", "meta", "nobr", "ol", "p", "pre",
+    "ruby", "s", "small", "span", "strong", "strike", "sub", "sup", "table", "tt", "u", "ul", "var",
+}) do
+  BREAKOUT[name] = true
 end
 
---- Pops the innermost `name` and all it holds, as the HTML parser does an
---- end tag in foreign content; an end tag with no such element open is
---- ignored, as it is there.
-local function pop(p: Place, name: string)
-  local open = names(p)
-  for at = #open, 1, -1 do
-    if open[at] == name then
-      p.stack = ""
-      for keep = 1, at - 1 do
-        p.stack = p.stack .. " " .. open[keep]
-      end
-      return
-    end
-  end
-end
-
---- Whether an element the browser reads HTML in is open inside `<svg>`
---- or `<math>`. A count too high only refuses more: after an unmatched
---- `<svg><mi>` every later slot is refused, as after any element the HTML
---- parser pops out of foreign content (`<svg><p>`) the stack keeps what
---- the parser dropped, and every decision that reads it errs to refusing.
-local function opaque(p: Place): boolean
-  for _, name in ipairs(names(p)) do
-    if INTEGRATION[name] then
-      return true
-    end
-  end
-  return false
-end
-
---- Counts a start or end tag of `<svg>`, `<math>` and the elements inside
---- them that the browser reads HTML in.
+--- Counts a start or end tag, for the stack of foreign elements. The
+--- tracker follows foreign content only as far as `<svg>` and `<math>`,
+--- the elements in them, and text; whatever else the browser could read
+--- differently makes the place murky for good, since the tracker cannot
+--- tell where the browser comes out of it: a breakout tag, a tag the
+--- browser reads HTML in, an end tag that is not the innermost element's,
+--- and an `<svg>` or `<math>` in a `<select>`, which the parser may ignore.
 local function count(p: Place, selfclosed: boolean)
   local tag = p.tag
-  if tag == "svg" or tag == "math" or (INTEGRATION[tag] and p.stack ~= "") then
-    if p.closing then
-      pop(p, tag)
-    elseif not selfclosed then
-      p.stack = p.stack .. " " .. tag
+  if p.stack == "" then
+    if tag == "select" then
+      p.select = not p.closing
+    elseif (tag == "svg" or tag == "math") and not p.closing then
+      if p.select then
+        p.murky = true
+      elseif not selfclosed then
+        p.stack = " " .. tag
+      end
     end
+    return
+  end
+  if p.closing then
+    if p.stack:match("%S+$") == tag then
+      p.stack = p.stack:gsub(" %S+$", "")
+    else
+      p.murky = true
+    end
+    return
+  end
+  if BREAKOUT[tag] or INTEGRATION[tag] or (tag == "font" and p.fontattr) then
+    p.murky = true
+  end
+  if not selfclosed then
+    p.stack = p.stack .. " " .. tag
   end
 end
 
@@ -403,6 +406,8 @@ end
 local function named(p: Place)
   if p.attr == "http-equiv" then
     p.equiv = true
+  elseif p.tag == "font" and (p.attr == "color" or p.attr == "face" or p.attr == "size") then
+    p.fontattr = true
   end
 end
 
@@ -412,6 +417,7 @@ local function open_tag(p: Place, closing: boolean)
   p.tag = ""
   p.closing = closing
   p.equiv = false
+  p.fontattr = false
   p.meta_line = 0
   p.meta_col = 0
 end
@@ -437,9 +443,11 @@ local function scan(p: Place, text: string)
         i = i + 1
       elseif b == 33 then
         p.phase = "decl"
+        p.murky = p.murky or p.stack ~= ""
         i = i + 1
       elseif b == 63 then
         p.phase = "bogus"
+        p.murky = p.murky or p.stack ~= ""
         i = i + 1
       elseif b ~= 60 then
         p.phase = "text"
@@ -648,9 +656,7 @@ end
 local function slot(p: Place): types.Slot | nil, string
   local phase = p.phase
   if p.murky then
-    return nil, "a slot after markup in <svg>, <math> or <noscript> that a browser may read differently from the tracker here"
-  elseif opaque(p) then
-    return nil, "a slot inside <" .. p.tag .. "> in an <svg> or <math>, where the browser reads HTML by rules not followed here"
+    return nil, "a slot after markup in <svg>, <math> or <noscript> that a browser may read differently from the tracker here (see the notes in markup.tl)"
   elseif phase == "text" then
     return "text", ""
   elseif phase == "rcdata" then
