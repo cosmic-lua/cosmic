@@ -138,7 +138,7 @@ allowed["build.test_inputs.lua_loads"] = "what build/lua_children_test.tl holds 
   "lets them load"
 allowed["build.test_inputs.standalone_loads"] = "what build/lua_standalone_test.tl " ..
   "holds a child's `--standalone` to loading no more than, beside `lua_loads`, as the " ..
-  "hold a `standalone` module's children get lets them load"
+  "hold a module that requires build.standalone gets lets them load"
 allowed["build.closure_store.loaded_beside"] = "what build/lua_standalone_test.tl " ..
   "holds build.test_inputs' copy to, which a `lua` module's children may load beside " ..
   "a module of their closure"

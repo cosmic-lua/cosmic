@@ -113,29 +113,23 @@ local record Test
     tool: boolean
     --- Whether the tests start this program only to run Lua in it: a
     --- `-e` chunk, past its launcher or by [`Proc.relaunch`] -- and a
-    --- file `--standalone` too where they declare `standalone`. Like
-    --- `tool`, it lets them run the program -- but not read it by its
-    --- name -- and every process they start, and each one those start,
-    --- is held as their worker is, whatever environment it is given: it
-    --- loads nothing of the program but the tests' import closure and
-    --- what `cosmic -e` loads before the chunk runs, and reads no rows
-    --- but theirs. So their key holds those, not every module the program
-    --- carries, and an edit to another module the program carries runs
-    --- them no more than one to a module of the tree outside their
-    --- closure. A chunk that requires a module outside them, or a verb
-    --- run that way -- `--standalone` among them, unless `standalone` is
-    --- declared -- fails, naming this field: require the module at the
-    --- top level of the test module, declare `standalone` beside it, or
-    --- declare `tool` in its place. It is refused beside `tool`, `store`,
-    --- `system` or `caches`: a host program, or a cosmic a cache holds,
-    --- could start the program with no hold.
+    --- file `--standalone` too, where the test module requires at its top
+    --- level the module that runs one. Like `tool`, it lets them run the
+    --- program -- but not read it by its name -- and every process they
+    --- start, and each one those start, is held as their worker is,
+    --- whatever environment it is given: it loads nothing of the program
+    --- but the tests' import closure and what `cosmic -e` loads before the
+    --- chunk runs, and reads no rows but theirs. So their key holds those,
+    --- not every module the program carries, and an edit to another module
+    --- the program carries runs them no more than one to a module of the
+    --- tree outside their closure. A chunk that requires a module outside
+    --- them, or a verb run that way -- `--standalone` among them, unless
+    --- the test module requires the module that runs it -- fails, naming
+    --- this field: require the module at the top level of the test
+    --- module, or declare `tool` in its place. It is refused beside
+    --- `tool`, `store`, `system` or `caches`: a host program, or a cosmic
+    --- a cache holds, could start the program with no hold.
     lua: boolean
-    --- Whether the tests, declaring `lua`, also run a file `cosmic
-    --- --standalone`: their closure holds what that way loads before the
-    --- file runs too -- the checker, the compiler beside it, and what
-    --- they require -- so their key moves with those, and their children
-    --- may load them. Refused without `lua`.
-    standalone: boolean
     --- Whether the tests confine a process in a root of its own: a
     --- `sandbox` that unveils ([`cosmic.child`]), or a `cosmic test` they
     --- start whose workers are sandboxed. A sandboxed worker whose
@@ -279,7 +273,7 @@ end
 --- `needs` holds a value to its shape and no more.
 local FIELDS <const>: {string:string} = {
   reads = "list", host = "list", env = "list", network = "list",
-  tool = "flag", lua = "flag", standalone = "flag", nests = "flag", noexec = "flag", store = "flag",
+  tool = "flag", lua = "flag", nests = "flag", noexec = "flag", store = "flag",
   system = "flag", caches = "list",
 }
 
@@ -575,10 +569,10 @@ local function policy_of(given: any): Test.Policy | nil, string
   return out, ""
 end
 
--- TODO: let a policy say what `standalone` and a `$NAME` host path say,
--- and env "*", once the policy path (step b of the sandbox plan) gives
--- each a field of cosmic.sandbox's [`Policy`]: a module that declares one
--- stays on `needs` until then, and converts mechanically once it does.
+-- TODO: delete the `$NAME` host path and env "*" from `needs`, which no
+-- policy says, once the last declarations of them in ci/fixtures are gone:
+-- they wait on ci/cosmic-driver.pin naming a release that takes the fixed
+-- o/fixtures paths and the fixtures' named env lists.
 -- TODO: hand the promises to the runner, which keeps them in the key, once
 -- [`Test.policy`] replaces `needs` (step e of the sandbox plan): the filter
 -- runs on every worker, but until then a promise a test does not make

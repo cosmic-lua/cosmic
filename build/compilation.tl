@@ -66,7 +66,7 @@ local function test_inputs_by_hash(db: Sqlite.Handle): {string:analyzer.Declared
     local one = declared[hash]
     if one == nil then
       one = { line = 0, reads = {}, host = {}, env = {}, network = {},
-        tool = false, lua = false, standalone = false, nests = false, store = false,
+        tool = false, lua = false, nests = false, store = false,
         system = false, caches = {} }
       declared[hash] = one
     end
@@ -84,8 +84,6 @@ local function test_inputs_by_hash(db: Sqlite.Handle): {string:analyzer.Declared
       one.tool = true
     elseif field == "lua" then
       one.lua = true
-    elseif field == "standalone" then
-      one.standalone = true
     elseif field == "nests" then
       one.nests = true
     elseif field == "noexec" then

@@ -6,11 +6,12 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
+local _ = require("build.standalone")
 local this_program = require("build.this_program")
 
 --- The program itself, which its tests start to run a file `--standalone`
---- (`standalone`).
-Test.needs{ lua = true, standalone = true }
+--- ([`build.standalone`]).
+Test.policy{ profiles = { "cosmic" } }
 
 --- Runs `body` as a standalone script and answers what it wrote.
 local function run(tmp: string, body: string): string, string

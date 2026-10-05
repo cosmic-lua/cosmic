@@ -174,7 +174,6 @@ local function insert_test_inputs(db: Sqlite.Handle, source_hash: string,
     each("network", declared.network)
     if declared.tool then rows[#rows + 1] = { "tool", "true" } end
     if declared.lua then rows[#rows + 1] = { "lua", "true" } end
-    if declared.standalone then rows[#rows + 1] = { "standalone", "true" } end
     if declared.nests then rows[#rows + 1] = { "nests", "true" } end
     if declared.noexec then rows[#rows + 1] = { "noexec", "true" } end
     if declared.store then rows[#rows + 1] = { "store", "true" } end

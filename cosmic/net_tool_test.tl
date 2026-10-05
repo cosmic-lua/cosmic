@@ -10,13 +10,14 @@ local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
+local _ = require("build.standalone")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 local Clock = require("cosmic.clock")
 
 --- The program itself, which the test starts, running a file `--standalone`
---- (`standalone`).
-Test.needs{ lua = true, standalone = true, network = { "127.0.0.1" } }
+--- ([`build.standalone`]).
+Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" } }
 
 local function test_a_write_to_a_closed_peer_does_not_end_the_process(tmp: string)
   local script = tmp .. "/write.tl"

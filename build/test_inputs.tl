@@ -59,10 +59,6 @@ local record test_inputs
     --- Whether it starts this program only to run Lua in it
     --- ([`cosmic.test`]'s `lua`): its closure holds `lua_loads` too.
     lua: boolean
-    --- Whether, declaring `lua`, it runs a file `--standalone` too
-    --- ([`cosmic.test`]'s `standalone`): its closure holds
-    --- `standalone_loads` as well.
-    standalone: boolean
     --- Whether its worker is left unheld by Landlock, so a process it
     --- starts may have a root of its own ([`cosmic.test`]'s `nests`).
     nests: boolean
@@ -137,12 +133,14 @@ test_inputs.lua_loads = {
 --- it checks and runs does ([`build.standalone`]): the checker it types
 --- the file with ([`build.teal`], which loads the compiler beside it:
 --- `loaded_beside`), with what each requires at its top level. A module
---- that declares `standalone` beside `lua` ([`cosmic.test`]) holds them
---- in its closure as it holds `lua_loads`; one that declares `lua` alone
---- does not, so an edit to the checker runs its tests no more, and a
---- child of it that runs a file standalone is refused, naming
---- `standalone`. build/lua_standalone_test.tl holds a standalone child
---- to loading no more. A standalone file that requires a module of the
+--- that declares `lua` ([`cosmic.test`]) and requires [`build.standalone`]
+--- at its top level holds them in its closure, which that module's
+--- requires reach; one that declares `lua` alone does not, so an edit to
+--- the checker runs its tests no more, and a child of it that runs a
+--- file standalone is refused, naming `lua`.
+--- build/lua_standalone_test.tl holds a standalone child to loading no
+--- more, and [`build.standalone`]'s closure to holding every one. A
+--- standalone file that requires a module of the
 --- standard library is typed from its declaration too, which the test
 --- module holds by requiring that module at its top level.
 test_inputs.standalone_loads = {
@@ -263,10 +261,9 @@ local function closure(m: Module, by_path: {string:Module},
       end
     end
   end
-  -- Each of `lua_loads`, for a module that declares `lua`, and of
-  -- `standalone_loads`, for one that declares `standalone` beside it, as
-  -- a module it requires whose own requires it does not follow: each
-  -- one's top-level requires are among them.
+  -- Each of `lua_loads`, for a module that declares `lua`, as a module it
+  -- requires whose own requires it does not follow: each one's top-level
+  -- requires are among them.
   local declared: analyzer.Declared = m.inputs
   local function hold(loads: {string})
     for _, name in ipairs(loads) do
@@ -280,7 +277,6 @@ local function closure(m: Module, by_path: {string:Module},
   end
   if declared ~= nil and declared.lua then
     hold(test_inputs.lua_loads)
-    if declared.standalone then hold(test_inputs.standalone_loads) end
   end
   table.sort(files)
   table.sort(names)
@@ -315,7 +311,7 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
                                type_only?: {string:{string:boolean}}): test_inputs.Effective
   local out: test_inputs.Effective = {
     files = {}, reads = {}, host = {}, env = {}, network = {},
-    tool = false, lua = false, standalone = false, nests = false, noexec = false, noexec_ready = false,
+    tool = false, lua = false, nests = false, noexec = false, noexec_ready = false,
     noexec_trouble = "", store = false,
     system = false, caches = {},
     cache_paths = {}, variables = {}, named = {}, spelled = {}, located = {}, unresolved = "",
@@ -350,7 +346,6 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
     for _, name in ipairs(declared.network) do out.network[name] = true end
     out.tool, out.store = declared.tool, declared.store
     out.lua = declared.lua == true
-    out.standalone = declared.standalone == true
     out.nests = declared.nests == true
     out.noexec = declared.noexec == true
     out.system = declared.system == true
@@ -524,7 +519,6 @@ function test_inputs.canonical(maybe: analyzer.Declared | nil): string
   list("network", declared.network)
   if declared.tool then lines[#lines + 1] = "tool true" end
   if declared.lua then lines[#lines + 1] = "lua true" end
-  if declared.standalone then lines[#lines + 1] = "standalone true" end
   if declared.nests then lines[#lines + 1] = "nests true" end
   if declared.noexec then lines[#lines + 1] = "noexec true" end
   if declared.store then lines[#lines + 1] = "store true" end
@@ -540,7 +534,7 @@ function test_inputs.as_declared(needs: inputs.Needs | nil): analyzer.Declared |
   return { line = 0, reads = needs.reads or {}, host = needs.host or {},
     env = needs.env or {}, network = needs.network or {},
     tool = needs.tool == true, lua = needs.lua == true,
-    standalone = needs.standalone == true, nests = needs.nests == true,
+    nests = needs.nests == true,
     noexec = needs.noexec == true,
     store = needs.store == true, system = needs.system == true,
     caches = needs.caches or {} }

@@ -9,11 +9,12 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
+local _ = require("build.standalone")
 local this_program = require("build.this_program")
 
 --- The program itself, which its tests start to run a file `--standalone`
---- (`standalone`).
-Test.needs{ lua = true, standalone = true }
+--- ([`build.standalone`]).
+Test.policy{ profiles = { "cosmic" } }
 
 --- Runs `body` as a script under this program, with a runner installed
 --- that says what `needs` is handed, answering what it wrote.
@@ -80,7 +81,7 @@ end
 local function test_needs_takes_every_field_of_needs(tmp: string)
   local said = run(tmp, table.concat({
     "  T.needs { reads = {}, host = {}, env = {}, network = {}, tool = true, lua = true,",
-    "    standalone = true, nests = true, store = true, system = true, caches = {} }",
+    "    nests = true, store = true, system = true, caches = {} }",
     "  say(try(function() end))",
   }, "\n"))
   assert(said == "handed nil nil true\ntrue \n", said)

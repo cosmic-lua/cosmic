@@ -556,8 +556,7 @@ end
 --- start -- as [`hold_store`] holds this one, whatever environment each
 --- is given (core/store.c's [`hold_children`]): on every module and
 --- declaration the program carries but those of `closure`, the set of
---- the names its import closure holds, `lua_loads` among them, and
---- `standalone_loads` where it declares `standalone` too
+--- the names its import closure holds, `lua_loads` among them
 --- ([`build.test_inputs`]), what those load beside them (its
 --- `loaded_beside`, which their closure store carries), the names a
 --- program built of the closure carries one of its modules under (its
