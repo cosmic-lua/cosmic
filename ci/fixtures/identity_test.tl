@@ -4,10 +4,10 @@ local Fixture = require("cosmic_ci.fixture")
 local Process = require("cosmic_ci.process")
 local Test = require("cosmic.test")
 
--- What the runtime setup made (COSMIC_FIXTURE_RUNTIME,
+-- What the runtime setup made (o/fixtures/runtime,
 -- cosmic_ci/runtime_setup.tl), each file the tests read or run by name,
 -- which holds the database it was written from, and the prefix of the
--- product it was made from (COSMIC_FIXTURE_PRODUCT's `prefix`: its
+-- product it was made from (o/fixtures/product's `prefix`: its
 -- launcher, manifest and cores): each is in every verdict's key, so no
 -- verdict stands for a product part it was not reached on
 -- (cosmic_ci/orchestration.tl's `sandboxed_fixtures`).
@@ -15,32 +15,32 @@ local Test = require("cosmic.test")
 -- `system`: runtime.* and the applications a build writes launch through
 -- /bin/sh, and the fixtures run uname, mkfifo, cat and tee through
 -- /usr/bin/env (cosmic_ci/process.tl).
-Test.needs{
-  host = {
-    "$COSMIC_FIXTURE_PRODUCT/prefix",
-    "$COSMIC_FIXTURE_RUNTIME/runtime.old",
-    "$COSMIC_FIXTURE_RUNTIME/runtime.old.prefix",
-    "$COSMIC_FIXTURE_RUNTIME/runtime.old.prefix-length",
-    "$COSMIC_FIXTURE_RUNTIME/runtime.new",
-    "$COSMIC_FIXTURE_RUNTIME/runtime.basis",
-    "$COSMIC_FIXTURE_RUNTIME/runtime.missing",
-    "$COSMIC_FIXTURE_RUNTIME/runtime.sanitized",
-    "$COSMIC_FIXTURE_RUNTIME/runtime.corrupt-x86_64-linux-musl",
-    "$COSMIC_FIXTURE_RUNTIME/runtime.corrupt-aarch64-linux-musl",
-    "$COSMIC_FIXTURE_RUNTIME/runtime.corrupt-aarch64-macos",
-    "$COSMIC_FIXTURE_RUNTIME/runtime_test.tl",
-    "$COSMIC_FIXTURE_RUNTIME/hello_main.tl",
-    "$COSMIC_FIXTURE_RUNTIME/second_main.tl",
-    "$COSMIC_FIXTURE_RUNTIME/targets.tsv",
-    "$COSMIC_FIXTURE_RUNTIME/sanitized-target-id",
-    "$COSMIC_FIXTURE_RUNTIME/sanitized-core-name",
-    "$COSMIC_FIXTURE_RUNTIME/sanitized-cores/sanitized-x86_64-linux-musl/cosmic-core",
-    "$COSMIC_FIXTURE_RUNTIME/sanitized-cores/sanitized-aarch64-linux-musl/cosmic-core",
-    "$COSMIC_FIXTURE_RUNTIME/sanitized-cores/sanitized-aarch64-macos/cosmic-core",
-    "$COSMIC_FIXTURE_RUNTIME/tool.tar",
-    "$COSMIC_FIXTURE_RUNTIME/focused-embed.tar",
+Test.policy{
+  grants = {
+    { path = "o/fixtures/product/prefix", letters = "r" },
+    { path = "o/fixtures/runtime/runtime.old", letters = "r" },
+    { path = "o/fixtures/runtime/runtime.old.prefix", letters = "r" },
+    { path = "o/fixtures/runtime/runtime.old.prefix-length", letters = "r" },
+    { path = "o/fixtures/runtime/runtime.new", letters = "r" },
+    { path = "o/fixtures/runtime/runtime.basis", letters = "r" },
+    { path = "o/fixtures/runtime/runtime.missing", letters = "r" },
+    { path = "o/fixtures/runtime/runtime.sanitized", letters = "r" },
+    { path = "o/fixtures/runtime/runtime.corrupt-x86_64-linux-musl", letters = "r" },
+    { path = "o/fixtures/runtime/runtime.corrupt-aarch64-linux-musl", letters = "r" },
+    { path = "o/fixtures/runtime/runtime.corrupt-aarch64-macos", letters = "r" },
+    { path = "o/fixtures/runtime/runtime_test.tl", letters = "r" },
+    { path = "o/fixtures/runtime/hello_main.tl", letters = "r" },
+    { path = "o/fixtures/runtime/second_main.tl", letters = "r" },
+    { path = "o/fixtures/runtime/targets.tsv", letters = "r" },
+    { path = "o/fixtures/runtime/sanitized-target-id", letters = "r" },
+    { path = "o/fixtures/runtime/sanitized-core-name", letters = "r" },
+    { path = "o/fixtures/runtime/sanitized-cores/sanitized-x86_64-linux-musl/cosmic-core", letters = "r" },
+    { path = "o/fixtures/runtime/sanitized-cores/sanitized-aarch64-linux-musl/cosmic-core", letters = "r" },
+    { path = "o/fixtures/runtime/sanitized-cores/sanitized-aarch64-macos/cosmic-core", letters = "r" },
+    { path = "o/fixtures/runtime/tool.tar", letters = "r" },
+    { path = "o/fixtures/runtime/focused-embed.tar", letters = "r" },
   },
-  system = true,
+  profiles = { "system" },
 }
 
 local type Running = Process.Running
@@ -269,7 +269,7 @@ end
 local focused_embed_timeout_ns <const> = Clock.seconds(50)
 
 local function test_identity_focused_embed(tmp: string)
-  local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
+  local fixture_dir = Fixture.placed("runtime")
   local work = tmp
   local diagnostics = work .. "/logs"
   Fixture.mkdir(diagnostics)
@@ -295,7 +295,7 @@ end
 -- Build the primary project, check every runtime context against it, then
 -- check it again transported to a new location.
 local function test_identity_primary(tmp: string)
-  local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
+  local fixture_dir = Fixture.placed("runtime")
   local work = tmp
   local diagnostics = work .. "/logs"
   Fixture.mkdir(diagnostics)
