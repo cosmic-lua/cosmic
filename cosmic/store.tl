@@ -389,11 +389,7 @@ local function write_database(names: {string}, file: string, main: string | nil,
           return false, why
         end
       end
-      -- What the program was made to run on and as. No identity of the
-      -- core is recorded yet.
-      -- TODO: record the core's digest here, once the core's --database
-      -- start (PR for claude/core-database) names its meta key; the core
-      -- refuses a database written for another.
+      -- What the program was made to run on and as.
       for _, pair in ipairs(identity) do
         local inserted, trouble = Sqlite.run(db,
           "INSERT INTO meta (key, value) VALUES (?1, ?2)", { text(pair[1]), text(pair[2]) })
@@ -423,7 +419,9 @@ end
 --- (attached databases first, but the binary's own for `cosmic.*` and
 --- the wrappers of raw bindings), carried with the `imports` rows of
 --- those modules, and the `meta` rows a program needs to run: its
---- `runtime_basis` and `image_hash`, and `main` when `opts.main` names
+--- `core_sha256` (the digest of the core that seals, which a core started
+--- on the file refuses to run unless it is its own), `runtime_basis` and
+--- `image_hash`, and `main` when `opts.main` names
 --- the module to run (one of `names`). Only the `imports` rows between
 --- the names given go along. Nothing else of the store goes
 --- along -- no docs, tests, catalog or notices -- except the time zones,
@@ -446,7 +444,9 @@ end
 --- included: seal only what the user chose to run. Raises when `names`
 --- is not a non-empty list, names a module no searched database holds,
 --- or `opts.main` is not among them; otherwise nil and why for a failure
---- to write, or when the store records no `runtime_basis`.
+--- to write, when the store records no `runtime_basis`, or when this process
+--- has no core digest to record (one run from source, with no core of its
+--- own).
 ---
 ---     local names = Store.closure({ "cosmic.json" })
 ---     local digest = assert(Store.seal(names, "json.db"))
@@ -464,9 +464,6 @@ function Store.seal(names: {string}, path?: string,
     end
   end
   table.sort(sorted)
-  -- TODO: test that a process boots on a sealed database once the
-  -- core's --database start (PR for claude/core-database) lands; until
-  -- then no test runs one.
   local main = opts ~= nil and opts.main or nil
   if main ~= nil and not present[main] then
     error("store: seal: main " .. main .. " is not among the modules sealed", 2)
@@ -478,7 +475,13 @@ function Store.seal(names: {string}, path?: string,
   if basis == nil or basis == "" then
     return nil, "the store records no runtime basis"
   end
-  local identity: {{string}} = { { "runtime_basis", basis } }
+  -- The core's digest is what the core started on this file checks
+  -- (`core_sha256`): the database is for the core that sealed it.
+  local core = Store.meta("host_image")
+  if core == nil or core == "" then
+    return nil, "this process has no core digest to record"
+  end
+  local identity: {{string}} = { { "core_sha256", core }, { "runtime_basis", basis } }
   local image = Store.meta("image_hash")
   if image ~= nil then
     table.insert(identity, 1, { "image_hash", image })

@@ -109,7 +109,7 @@ local function test_policy_hands_the_runner_its_needs(tmp: string)
   for line in said:gmatch("[^\n]+") do lines[#lines + 1] = line end
   assert(#lines == 9, said)
   assert(lines[1] == "false policy takes a table, got number", said)
-  assert(lines[2]:find("^false policy has no field reeds; it has connect, env") ~= nil, said)
+  assert(lines[2]:find("^false policy has no field reeds; it has connect, database, env") ~= nil, said)
   assert(lines[3] == "false policy env takes a list of strings", said)
   assert(lines[4]:find("^false policy isolate is not yet taken") ~= nil, said)
   assert(lines[5]:find("^false policy grants%[1%]%.letters \"rw\" is not yet taken") ~= nil, said)

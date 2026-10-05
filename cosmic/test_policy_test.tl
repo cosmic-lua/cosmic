@@ -178,7 +178,7 @@ local function test_a_policy_with_no_needs_is_refused()
     { 'Test.policy { grants = { { letters = "r" } } }', "test.policy: grants[1].path takes a path" },
     { 'Test.policy { profiles = { "net" } }', "test.policy: profiles: no profile net" },
     { 'Test.policy { promises = { "exec" } }', "test.policy: promises: no promise exec" },
-    { "Test.policy { reeds = {} }", "test.policy: has no field reeds; it has connect, env" },
+    { "Test.policy { reeds = {} }", "test.policy: has no field reeds; it has connect, database, env" },
     { 'Test.policy { env = "PATH" }', "test.policy: env takes a list of string literals, written out" },
     { "Test.policy { tmp = 1 }", "test.policy: tmp takes true or false" },
     { 'Test.policy { limits = { cpu = 1 } }', "test.policy: limits takes open_files" },

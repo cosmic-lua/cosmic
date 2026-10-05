@@ -1480,6 +1480,7 @@ local record PolicyData
   tmp: boolean
   user: integer
   group: integer
+  database: string
 end
 
 --- What each field of a `policy` declaration takes: a list of string
@@ -1495,6 +1496,7 @@ local policy_fields <const>: {string:string} = {
   profiles = "list", grants = "grants", isolate = "list", promises = "list",
   connect = "list", loopback = "list", env = "list", set_env = "map",
   set_env_digests = "map", tmp = "flag", limits = "limits", user = "id", group = "id",
+  database = "string",
 }
 
 local policy_field_order: {string} = {}
@@ -1593,6 +1595,8 @@ local function policy_data(node: ast.Node): PolicyData | nil, string
       else
         out.env, why = string_list(given, field)
       end
+    elseif takes == "string" then
+      out.database, why = plain_string(given, field)
     elseif takes == "map" then
       if field == "set_env" then
         out.set_env, why = string_map(given, field)
@@ -1738,6 +1742,11 @@ local function policy_declared(data: PolicyData, line: integer): analyzer.Declar
   if #(data.connect or {}) > 0 then
     return nil, "connect is refused: no test reaches a host but loopback, whose answer no " ..
       "key holds; declare the addresses in loopback and start the service in the test"
+  end
+  -- TODO: take `database` once the harness runs a worker on a sealed
+  -- database, as cosmic/test.tl's `needs_of` waits on.
+  if data.database ~= nil then
+    return nil, "database" .. not_yet .. "; no worker runs on a database yet"
   end
   if data.tmp == false then
     return nil, "tmp = false" .. not_yet .. "; every test has a temporary directory today"

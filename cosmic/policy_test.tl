@@ -1,3 +1,5 @@
+local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Sandbox = require("cosmic.sandbox")
 local PolicyJson = require("cosmic.policy")
@@ -184,4 +186,44 @@ local function test_user_and_group_round_trip_and_are_integers()
   assert(none == nil and why:find("/user", 1, true), why)
   none, why = PolicyJson.decode('{"user":0}')
   assert(none == nil and why:find("never root", 1, true), why)
+end
+
+local function database_of(tmp: string, text: string): string
+  local path = tmp .. "/program.db"
+  assert(Fs.write(path, text))
+  return path
+end
+
+local function test_a_database_is_written_with_its_digest_and_read_back(tmp: string)
+  local path = database_of(tmp, "bytes of a database")
+  local text = PolicyJson.encode(merged({ database = path }))
+  local digest = Hash.hex_sha256("bytes of a database")
+  assert(text == '{"database":{"path":"' .. path .. '","sha256":"' .. digest .. '"}}', text)
+  local policy = assert(PolicyJson.decode(text))
+  assert(policy.database == path)
+  assert(PolicyJson.encode(merged(policy)) == text)
+end
+
+--- The text names what the database is: another file at the same path is
+--- not it, and the text moves with the file.
+local function test_a_database_that_changed_is_not_the_one_the_text_names(tmp: string)
+  local path = database_of(tmp, "one")
+  local before = PolicyJson.encode(merged({ database = path }))
+  database_of(tmp, "two")
+  local policy, why = PolicyJson.decode(before)
+  assert(policy == nil and why:find("/database/sha256", 1, true), tostring(why))
+  assert(PolicyJson.encode(merged({ database = path })) ~= before, "the digest did not move")
+  assert(Fs.remove(path))
+  policy, why = PolicyJson.decode(before)
+  assert(policy == nil and why:find("/database", 1, true), tostring(why))
+end
+
+local function test_a_database_text_is_held_to_its_shape(tmp: string)
+  local path = database_of(tmp, "x")
+  refused('{"database":"' .. path .. '"}', "/database")
+  refused('{"database":{"path":"' .. path .. '"}}', "/database")
+  refused('{"database":{"path":"rel.db","sha256":"00"}}', "/database")
+  refused('{"database":{"path":"' .. path .. '","sha256":"00","more":1}}', "/database")
+  local ok, trouble = pcall(PolicyJson.encode, { database = tmp .. "/absent.db" })
+  assert(not ok and tostring(trouble):find("/database", 1, true), tostring(trouble))
 end

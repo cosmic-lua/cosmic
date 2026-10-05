@@ -398,3 +398,28 @@ local function test_the_embedded_database_is_reproducible(tmp: string)
   local two = assert(embed.database(tmp .. "/o/cosmic.db", "cmd.hello.main"))
   assert(one == two, "repeating the embed changed its database")
 end
+
+--- A host program is no core: a policy that runs a program on a database
+--- is refused one, saying so, before anything starts.
+local function test_a_host_program_runs_no_program_on_a_database(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/refuse"))
+  assert(Fs.write(tmp .. "/cmd/refuse/main.tl", [[
+local Child = require("cosmic.child")
+local Proc = require("cosmic.proc")
+
+return function(argv: {string}): integer
+  local started, why = Child.start({ assert(Proc.executable()), "x" },
+    { policy = { database = argv[1] } })
+  print(started == nil, why)
+  return 0
+end
+]]))
+  local names, trouble = embed.tree(tmp, true)
+  assert(names ~= nil and names[1] == "refuse", trouble)
+  assert(Fs.write(tmp .. "/some.db", "a file, which is all the policy's check asks"))
+  local r = assert(Child.run({ tmp .. "/o/bin/refuse", tmp .. "/some.db" }, {
+    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
+  assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
+  local printed = assert(r.stdout)
+  assert(String.starts_with(printed, "true\t") and printed:find("host program", 1, true), printed)
+end

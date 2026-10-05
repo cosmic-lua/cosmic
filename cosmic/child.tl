@@ -384,6 +384,18 @@ local record Options
   --- root's alone. The relaunch's descriptors are two more `fds` the child
   --- gets; one `fds` names is refused, as is the `nest` promise.
   ---
+  --- With a `database` (see [`Sandbox.Policy`]) the program is this
+  --- program's core run on that file (`core --database <path>`) whatever
+  --- the policy grants of this program: the command must be this program
+  --- ([`Proc.executable`]) and this process a cosmic core, not a host
+  --- program, or the start fails. The child is granted its core to read
+  --- and run and the database to read, and no more of this program: a
+  --- grant that reaches this program's own file (the "cosmic" profile's
+  --- among them, left out of a merge with a `database`) fails the start,
+  --- since that file holds the modules the database leaves out. The
+  --- child's [`Proc.relaunch`] is that same core and database, and so are
+  --- its own children's. The `nest` promise is refused with it.
+  ---
   --- A child never runs as root. Where this process is not root, it runs
   --- as this process's user, mapped as itself in its user namespace.
   --- Where this process is root, it runs as a user and group of its own,
@@ -2720,19 +2732,32 @@ local shared_fds: {string:integer} = {}
 --- its core ([`Proc.relaunch`]), past the launcher, which would fork and
 --- unpack a core into a cache the policy does not give it. `user` is the
 --- user a root caller's program runs as, which runs a copy of the core it
---- may run ([`shared_core`]); nil for this process's own. Nil and "" where
---- this program has no relaunch past its own start (a host program), or nil
---- and why. A core run against a database (`--database`) relaunches as
---- itself, with no descriptor to hand on.
-local function relaunch_of(user: MappedUser): Proc.Relaunch | nil, string
+--- may run ([`shared_core`]); nil for this process's own. With a
+--- `database`, the answer is the split shape, the core on that file
+--- (`core --database <real path>`), whatever this process runs on, with
+--- no descriptor to hand on; a core already run against a database
+--- relaunches so too, on its own. Nil and "" where this program has no
+--- core to start past its own start (a host program), or nil and why.
+local function relaunch_of(user: MappedUser, database?: string): Proc.Relaunch | nil, string
   local launched, _ = Proc.relaunch()
   if launched == nil then return nil, "" end
-  if launched.env.COSMIC_PORTABLE_CORE_FD == nil and launched.argv[2] ~= "--database" then
-    return nil, ""
+  local portable = launched.env.COSMIC_PORTABLE_CORE_FD ~= nil
+  if not portable and launched.argv[2] ~= "--database" then return nil, "" end
+  if database ~= nil then
+    local real, real_trouble = sys.realpath(database)
+    if real == nil then return nil, "database " .. database .. ": " .. real_trouble end
+    launched = { argv = { launched.argv[1], "--database", real }, env = {}, fds = {},
+      cwd = launched.cwd }
+    portable = false
   end
   if user == nil then return launched, "" end
   local copy, trouble = shared_core(launched.argv[1])
   if copy == nil then return nil, trouble end
+  if not portable then
+    local argv: {string} = { copy }
+    for i = 2, #launched.argv do argv[i] = launched.argv[i] end
+    return { argv = argv, env = launched.env, fds = launched.fds, cwd = launched.cwd }, ""
+  end
   -- The copy may have been removed and made again since it was opened
   -- (a /run cleared, a hand): the descriptor handed on must be the file
   -- the child runs, which its startup holds it to.
@@ -2760,24 +2785,47 @@ local function relaunch_of(user: MappedUser): Proc.Relaunch | nil, string
   return { argv = argv, env = launched.env, fds = fds, cwd = launched.cwd }, ""
 end
 
---- Whether `name`, a policy's program as the caller names it, from `cwd`
---- (this process's own where nil), is this program's own file
---- ([`Proc.executable`]), which `grants` let it read and run.
-local function runs_this_program(name: string, cwd: string, grants: {Rules.Grant}): boolean
+--- This program's own file's real path ([`Proc.executable`]) where `name`,
+--- a policy's program as the caller names it, from `cwd` (this process's
+--- own where nil), is it; nil for any other program.
+local function this_program(name: string, cwd: string): string | nil
   local executable, _ = Proc.executable()
-  if executable == nil then return false end
+  if executable == nil then return nil end
   local own, _ = sys.realpath(executable)
-  if own == nil then return false end
+  if own == nil then return nil end
   local found: string = name
   if not name:find("/", 1, true) then
     local on_path, _ = Proc.find(name)
-    if on_path == nil then return false end
+    if on_path == nil then return nil end
     found = on_path
   elseif cwd ~= nil and name:sub(1, 1) ~= "/" then
     found = cwd .. "/" .. name
   end
   local real, _ = sys.realpath(found)
-  return real == own and ungranted({ own }, grants, cwd) == ""
+  if real ~= own then return nil end
+  return own
+end
+
+--- Whether `name`, a policy's program, is this program's own file, which
+--- `grants` let it read and run.
+local function runs_this_program(name: string, cwd: string, grants: {Rules.Grant}): boolean
+  local own = this_program(name, cwd)
+  return own ~= nil and ungranted({ own }, grants, cwd) == ""
+end
+
+--- The path of the first of `grants` that reaches `file`, a real path
+--- (the grant is at it or above it, where it is a directory), as the
+--- grant names it; "" for none. A relative grant is from `base`, this
+--- process's own directory where nil; one with `from` reaches what `from`
+--- names.
+local function reaching(file: string, grants: {Rules.Grant}, base: string): string
+  for _, grant in ipairs(grants) do
+    local at = grant.from or grant.path
+    if base ~= nil and at:sub(1, 1) ~= "/" then at = base .. "/" .. at end
+    local real, _ = sys.realpath(at)
+    if beneath(file, real or at) then return grant.path end
+  end
+  return ""
 end
 
 --- The kernel's release, as uname(2) answers it, or "" where it fails.
@@ -2874,24 +2922,61 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
   local user, user_trouble = mapped_user(merged)
   if user == nil and user_trouble ~= "" then return nil, "sandbox: " .. user_trouble end
   -- This program, granted, runs by a relaunch of its core, which is granted
-  -- with it: what runs is the file the grant names, through its core.
+  -- with it: what runs is the file the grant names, through its core. On a
+  -- `database` it is the core and that file alone, so this program's own
+  -- file, which holds every module of the tree, is none of the child's.
   local relaunch: Proc.Relaunch
-  if runs_this_program(argv[1], opts.cwd, merged.grants) then
-    local found, relaunch_trouble = relaunch_of(user)
+  local on_database = merged.database
+  local program: string
+  if on_database ~= nil then
+    program = this_program(argv[1], opts.cwd)
+    if program == nil then
+      return nil, "sandbox: database " .. on_database .. ": a program runs on a database only " ..
+        "where it is this program's core, and " .. argv[1] .. " is not this program"
+    end
+  end
+  if on_database ~= nil or runs_this_program(argv[1], opts.cwd, merged.grants) then
+    local database_name: string = merged.database or ""
+    local found, relaunch_trouble = relaunch_of(user, merged.database)
     if found == nil and relaunch_trouble ~= "" then return nil, "sandbox: " .. relaunch_trouble end
+    if found == nil and merged.database ~= nil then
+      return nil, "sandbox: database " .. database_name .. ": this program is a host program, " ..
+        "which has no core to start on a database"
+    end
+    if found ~= nil and merged.database ~= nil then
+      -- The core a database program runs is the file it is started by only
+      -- where this process is that core already, so there it is granted.
+      local started, _ = Proc.relaunch()
+      local started_real: string
+      if started ~= nil then
+        local real, _ = sys.realpath(started.argv[1])
+        started_real = real
+      end
+      local own_core = started_real == program
+      local reached = own_core and "" or reaching(program, merged.grants, base)
+      if reached ~= "" then
+        return nil, "sandbox: grant \"" .. reached .. "\" reaches this program's own file, " ..
+          program .. ", which holds modules the database " .. database_name .. " leaves out: " ..
+          "a program on a database is given the core and the database alone"
+      end
+    end
     if found ~= nil and nest then
       -- TODO: run this program under `nest` once nest_descriptors can
       -- hand it the descriptors of its artifact and core, read-only
       -- regular files, which it refuses lest the child reopen them for
-      -- writing through /proc/self/fd where its user may.
-      return nil, "sandbox: this program runs from descriptors of its artifact and core, " ..
-        "which the \"nest\" promise refuses a child"
+      -- writing through /proc/self/fd where its user may. A core on a
+      -- database hands none: run it under `nest` once a test shows the
+      -- binds of its core and database hold it.
+      return nil, "sandbox: this program runs from " .. (next(found.fds) ~= nil and
+        "descriptors of its artifact and core" or "a core on a database") ..
+        ", which the \"nest\" promise refuses a child"
     end
     if found ~= nil then
       relaunch = found
       merged.grants[#merged.grants + 1] = { path = found.argv[1], letters = "rx" }
       -- A core on a database reads it, on its own start and on every
-      -- relaunch of its own; the grant is what a start that stays on it needs.
+      -- relaunch of its own; the grant is what a start that stays on it
+      -- needs, whether the database is the policy's or this process's.
       if found.argv[2] == "--database" then
         merged.grants[#merged.grants + 1] = { path = found.argv[3], letters = "r" }
       end
