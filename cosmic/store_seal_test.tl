@@ -5,6 +5,7 @@
 
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
+local schema = require("build.schema")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
@@ -167,7 +168,7 @@ local function test_seal_holds_exactly_the_named_modules(tmp: string)
     meta[row[1]] = row[2]
   end
   assert(meta.main == "fixture.lib")
-  assert(meta.runtime_basis == Store.meta("runtime_basis"))
+  assert(meta.runtime_basis ~= nil and meta.runtime_basis == Store.meta("runtime_basis"))
   assert(count_of(path, "zoneinfo") == 0 and count_of(path, "ca_roots") == 0)
   local keys = assert(Sqlite.text_rows(assert(Sqlite.open(path)), "SELECT hex(key) FROM modules"))
   assert(keys[1][1] == "", "a module's compile key is not carried")
@@ -198,7 +199,9 @@ end
 
 local function test_seal_refuses_what_it_cannot_carry(tmp: string)
   attach(tmp)
-  raises(function(): any return (Store.seal({}, tmp .. "/none.db")) end, "no modules")
+  raises(function(): any return (Store.seal({}, tmp .. "/none.db")) end, "non-empty")
+  raises(function(): any return (Store.seal(nil as {string}, tmp .. "/nil.db")) end, "store:")
+  raises(function(): any return Store.closure(nil as {string}) end, "store:")
   raises(function(): any return (Store.seal({ "fixture.nowhere" }, tmp .. "/gone.db")) end,
     "fixture.nowhere")
   raises(function(): any
@@ -210,7 +213,7 @@ end
 
 --- A seal replaces a file whole: a failure before the rename leaves the old
 --- one, and no temporary file is left beside the result.
-local function test_seal_writes_atomically(tmp: string)
+local function test_seal_writes_whole_or_leaves_the_old_file(tmp: string)
   attach(tmp)
   local dir = tmp .. "/out"
   assert(Fs.mkdirs(dir))
@@ -223,4 +226,57 @@ local function test_seal_writes_atomically(tmp: string)
   local ok, why = Store.seal({ "fixture.leaf" }, dir .. "/blocked")
   assert(ok == nil and why ~= "", "a directory is no place for a database")
   assert(#assert(Fs.list(dir)) == 2)
+end
+
+--- The tests that name a module are not carried, so adding one moves no
+--- digest; and an edge to a module left out of the set is not a row.
+local function test_seal_digest_ignores_tests_and_drops_dangling_edges(tmp: string)
+  attach(tmp)
+  local set = { "fixture.app", "fixture.lib", "fixture.leaf" }
+  local before = assert(Store.seal(set, tmp .. "/before.db"))
+  assert(count_of(tmp .. "/before.db", "imports") == 2, "the edge to fixture.shapes dangles")
+  local path = tmp .. "/tested.db"
+  local db = assert(Sqlite.open(path, { writable = true }))
+  assert(db:exec("CREATE TABLE meta (key TEXT PRIMARY KEY, value BLOB) WITHOUT ROWID"))
+  assert(db:exec("CREATE TABLE modules (path TEXT PRIMARY KEY NOT NULL, file TEXT NOT NULL, " ..
+      "kind TEXT NOT NULL, source_hash BLOB NOT NULL, key BLOB NOT NULL, " ..
+      "bytecode BLOB NOT NULL, tests TEXT NOT NULL, source BLOB NOT NULL)"))
+  assert(db:exec("CREATE TABLE imports (path TEXT NOT NULL, requires TEXT NOT NULL, " ..
+      "PRIMARY KEY (path, requires)) WITHOUT ROWID"))
+  assert(Sqlite.run(db, "INSERT INTO modules VALUES ('fixture.leaf', 'fixture.leaf.tl', " ..
+      "'module', X'00', X'0102', CAST('nothing' AS BLOB), 'fixture/leaf_test.tl', X'')"))
+  assert(db:close())
+  assert(Store.attach(path))
+  local after = assert(Store.seal(set, tmp .. "/after.db"))
+  assert(before == after, "a test moved the digest")
+end
+
+--- The tables the core reads, as the build's own schema makes them.
+local function test_seal_schema_is_the_builds(tmp: string)
+  local path = tmp .. "/schema.db"
+  assert(Store.seal({ "cosmic.time", "cosmic.http" }, path))
+  local reference = assert(Sqlite.memory())
+  for _, statement in ipairs(schema.settings("")) do
+    assert(reference:exec(statement))
+  end
+  for _, statement in ipairs(schema.create("")) do
+    assert(reference:exec(statement))
+  end
+  local sealed = assert(Sqlite.open(path))
+  for _, name in ipairs({ "meta", "modules", "imports", "decls", "zoneinfo", "ca_roots" }) do
+    local query = "SELECT name, type, \"notnull\", pk FROM pragma_table_info('" .. name .. "')"
+    local want = assert(Sqlite.text_rows(reference, query))
+    local got = assert(Sqlite.text_rows(sealed, query))
+    assert(#want > 0, name .. " is not a table of the schema")
+    assert(#want == #got, name .. ": columns differ")
+    for index, row in ipairs(want) do
+      assert(table.concat(row, " ") == table.concat(got[index], " "), name .. ": " .. row[1])
+    end
+  end
+  for _, pragma in ipairs({ "page_size", "auto_vacuum" }) do
+    assert(assert(Sqlite.text_rows(reference, "SELECT * FROM pragma_" .. pragma))[1][1] ==
+        assert(Sqlite.text_rows(sealed, "SELECT * FROM pragma_" .. pragma))[1][1], pragma)
+  end
+  assert(sealed:close())
+  assert(reference:close())
 end
