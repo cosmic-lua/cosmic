@@ -122,7 +122,8 @@ end
 local function test_a_safe_value_has_no_string_behavior()
   local html = untyped(Html.escape("x"))
   local attr = untyped(Html.escape_attr("x"))
-  for _, value in ipairs({ html, attr }) do
+  local url = untyped(Html.trust_url("x"))
+  for _, value in ipairs({ html, attr, url }) do
     assert(type(value) == "userdata")
     assert(not lua("return ... .. 'y'", value))
     assert(not lua("return 'y' .. ...", value))
@@ -137,7 +138,7 @@ local function test_a_safe_value_has_no_string_behavior()
   local function metatable_of(value: any): any
     return getmetatable(value)
   end
-  assert(metatable_of(html) == false and metatable_of(attr) == false)
+  assert(metatable_of(html) == false and metatable_of(attr) == false and metatable_of(url) == false)
   assert(not attempt(setmetatable, html, {}))
 end
 
@@ -164,6 +165,115 @@ local function test_the_functions_refuse_what_is_not_theirs()
   assert(not attempt(Html.concat, "a"))
   assert(not attempt(Html.trust, 1))
   assert(not attempt(Html.trust_attr, {}))
+  local url = untyped(Html.trust_url("x"))
+  for _, other in ipairs({ html, attr }) do
+    ok, why = attempt(Html.raw_url, other)
+    assert(not ok and tostring(why):find("SafeUrl expected", 1, true), tostring(why))
+  end
+  assert(not attempt(Html.raw, url) and not attempt(Html.raw_attr, url))
+  local urls: {any} = { Html.trust("a"), url }
+  assert(not attempt(Html.concat, urls))
+  assert(not attempt(Html.raw_url, "x"))
+  assert(not attempt(Html.href, {}))
+  assert(not attempt(Html.trust_url, {}))
+end
+
+--- What `href` makes of `input`, as a table a WHATWG-derived file of
+--- (input, allowed) pairs could also fill: `allowed` is whether the text
+--- must come back as it went in, and false that it must be `about:invalid`.
+local type UrlCase = {string, boolean}
+
+local URL_CASES <const>: {UrlCase} = {
+  -- Schemes a browser would run.
+  { "javascript:alert(1)", false },
+  { "JaVaScRiPt:alert(1)", false },
+  { " javascript:alert(1)", false },
+  { "javascript:alert(1) ", false },
+  { "java\tscript:alert(1)", false },
+  { "java\nscript:alert(1)", false },
+  { "java\rscript:alert(1)", false },
+  { "\x01javascript:alert(1)", false },
+  { "\0javascript:alert(1)", false },
+  { "\x1fjavascript:alert(1)", false },
+  { "\x7fjavascript:alert(1)", false },
+  { "j\x7favascript:alert(1)", false },
+  { "javascript\t:alert(1)", false },
+  { "data:text/html,<script>alert(1)</script>", false },
+  { "vbscript:msgbox(1)", false },
+  { "file:///etc/passwd", false },
+  { "ftp://host/", false },
+  { "about:blank", false },
+  { "httpx://ok", false },
+  { "xhttp://ok", false },
+  { "http+x://ok", false },
+  { "h\xc3\xa9ttp://ok", false },
+  -- Not a scheme, but a colon before any slash: refused, though a browser
+  -- would read these as relative paths.
+  { "%6Aavascript:alert(1)", false },
+  { "1a:b", false },
+  { "-a:b", false },
+  { ":b", false },
+  { "a b:c", false },
+  { "path:with:colons/after", false },
+  { "java script:alert(1)", false },
+  -- A host without a scheme.
+  { "//evil.com", false },
+  { "\\\\evil.com", false },
+  { "/\\evil.com", false },
+  { "\\/evil.com", false },
+  { "//", false },
+  -- What passes.
+  { "https://ok", true },
+  { "HTTPS://ok", true },
+  { "http://ok/a?b=c#d", true },
+  { "HtTp://ok", true },
+  { "mailto:a@b", true },
+  { "MAILTO:a@b?subject=x y", true },
+  { "http:relative", true },
+  { "https:", true },
+  { "/path?q=1#f", true },
+  { "/path:with:colons", true },
+  { "a/b:c", true },
+  { "a?b:c", true },
+  { "?x:y", true },
+  { "#x:y", true },
+  { "#", true },
+  { "", true },
+  { "relative", true },
+  { "./a:b", true },
+  { "../a", true },
+  { "/", true },
+  { "/a//b", true },
+  { "\\", true },
+  { "\\a", true },
+  { "a\\b", true },
+  { "a b", true },
+  { "http://caf\xc3\xa9/\xff", true },
+  { "\xc2\xa0javascript:x", false },
+}
+
+local function test_href_allows_what_a_browser_would_take_for_safe()
+  for _, case in ipairs(URL_CASES) do
+    local input, allowed = case[1], case[2]
+    local out = Html.raw_url(Html.href(input))
+    if allowed then
+      assert(out == input, ("%q was changed to %q"):format(input, out))
+    else
+      -- U+00A0 is not a space a browser strips, but it is no scheme
+      -- either: the case above is refused by its colon.
+      assert(out == "about:invalid", ("%q was let through as %q"):format(input, out))
+    end
+  end
+end
+
+local function test_href_does_not_escape_the_url()
+  assert(Html.raw_url(Html.href("/a?b=c&d=\"e\"<f>")) == "/a?b=c&d=\"e\"<f>")
+  assert(Html.raw_attr(Html.escape_attr(Html.raw_url(Html.href("/a?b=c&d")))) == "&#47;a&#63;b&#61;c&#38;d")
+end
+
+local function test_trust_url_keeps_the_string_as_it_is()
+  assert(Html.raw_url(Html.trust_url("javascript:x")) == "javascript:x")
+  assert(Html.raw_url(Html.trust_url("")) == "")
 end
 
 --- Compiles `source` as the one module of a fresh fixture project: true,
@@ -272,4 +382,53 @@ return s
 ]])
   assert(not ok, "a SafeHtml was taken for a string")
   assert(trouble:find("SafeHtml", 1, true), trouble)
+end
+
+local function test_a_safe_url_is_no_other_safe_type(tmp: string)
+  local ok, trouble = compiles(tmp, "url-valid", [[
+local Html = require("cosmic.html")
+local url: Html.SafeUrl = Html.href("/a")
+return Html.raw_url(url) .. Html.raw_url(Html.trust_url("b"))
+]])
+  assert(ok, trouble)
+  ok, trouble = compiles(tmp, "url-for-html", [[
+local Html = require("cosmic.html")
+local url: Html.SafeUrl = Html.href("/a")
+local as_html: Html.SafeHtml = url
+return Html.raw(as_html)
+]])
+  assert(not ok, "a SafeUrl was taken for a SafeHtml")
+  assert(trouble:find("SafeUrl is not a", 1, true), trouble)
+  ok, trouble = compiles(tmp, "url-for-attr", [[
+local Html = require("cosmic.html")
+return Html.raw_attr(Html.href("/a"))
+]])
+  assert(not ok, "a SafeUrl was taken for a SafeAttr")
+  assert(trouble:find("SafeUrl is not a", 1, true), trouble)
+  ok, trouble = compiles(tmp, "attr-for-url", [[
+local Html = require("cosmic.html")
+return Html.raw_url(Html.escape_attr("a"))
+]])
+  assert(not ok, "a SafeAttr was taken for a SafeUrl")
+  assert(trouble:find("SafeAttr is not a", 1, true), trouble)
+  ok, trouble = compiles(tmp, "url-table", [[
+local Html = require("cosmic.html")
+local forged: Html.SafeUrl = {}
+return Html.raw_url(forged)
+]])
+  assert(not ok, "a table literal was taken for a SafeUrl")
+  assert(trouble:find("got {}, expected Html.SafeUrl", 1, true), trouble)
+  ok, trouble = compiles(tmp, "url-string", [[
+local Html = require("cosmic.html")
+local forged: Html.SafeUrl = "javascript:x"
+return Html.raw_url(forged)
+]])
+  assert(not ok, "a string was taken for a SafeUrl")
+  assert(trouble:find("SafeUrl", 1, true), trouble)
+  ok, trouble = compiles(tmp, "url-concat", [[
+local Html = require("cosmic.html")
+return Html.href("/a") .. "b"
+]])
+  assert(not ok, "a SafeUrl was concatenated as a string")
+  assert(trouble:find("cannot use operator '..'", 1, true) and trouble:find("SafeUrl", 1, true), trouble)
 end

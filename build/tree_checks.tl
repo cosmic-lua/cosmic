@@ -82,6 +82,11 @@ allowed["build.flow.bare"] = "the subset build/workflows_test.tl holds " ..
 allowed["build.flow.problems"] = "the subset build/workflows_test.tl holds " ..
   "the workflows to, which the layout is also held to"
 allowed["build.flow.comments"] = "what the fuzz test holds a layout to keep"
+-- TODO: drop these once cosmic.template (step 3 of doc/plans/template.md) uses them.
+for _, name in ipairs({ "href", "trust_url", "raw_url" }) do
+  allowed["cosmic.html." .. name] = "the URL door of cosmic.html, used by the template compiler of " ..
+    "doc/plans/template.md once it lands"
+end
 allowed["build.analyzer.analyze"] = "a convenience the tests call, a parse and " ..
   "analysis_of; every caller outside them calls analysis_of on a parse it has"
 for _, name in ipairs({ "parse", "render", "scalar", "from", "write", "value", "get", "set", "update" }) do

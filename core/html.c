@@ -2,11 +2,13 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <string.h>
 
 #include "lauxlib.h"
 
 #define SAFE_HTML_TYPE "cosmic.html.SafeHtml"
 #define SAFE_ATTR_TYPE "cosmic.html.SafeAttr"
+#define SAFE_URL_TYPE "cosmic.html.SafeUrl"
 
 /* A safe value is a userdata with no memory of its own whose one user
  * value is the string: the string is Lua's, so `raw` hands it back
@@ -141,6 +143,108 @@ static int html_escape_attr (lua_State *L) {
   return 1;
 }
 
+static bool is_ascii_alpha (unsigned char c) {
+  return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+}
+
+static bool is_slash (unsigned char c) {
+  return c == '/' || c == '\\';
+}
+
+/* Whether the `len` bytes at `s` are `word`, a lower-case string, in any
+ * case. ASCII only: a byte of 0x80 or more never folds to a letter. */
+static bool equals_ignoring_case (const char *s, size_t len,
+                                  const char *word) {
+  if (strlen(word) != len) {
+    return false;
+  }
+  for (size_t i = 0; i < len; i++) {
+    unsigned char c = (unsigned char)s[i];
+    if (c >= 'A' && c <= 'Z') {
+      c = (unsigned char)(c - 'A' + 'a');
+    }
+    if (c != (unsigned char)word[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/* Whether `href` lets the `len` bytes at `s` through. Browsers drop
+ * leading and trailing C0 controls and spaces, and every tab, newline and
+ * carriage return, before they read a scheme, so a text with a control
+ * byte, a DEL, or a space at either end is refused rather than read as
+ * the browser would. What is left is read as a browser reads it:
+ *
+ * - a colon before the first `/`, `?` or `#` makes what precedes it the
+ *   scheme, which must be a letter and then letters, digits, `+`, `-` or
+ *   `.`, and be http, https or mailto in any case. A colon there after
+ *   anything else is refused, not read as a relative path as a browser
+ *   would read `%6Aavascript:` or `1a:`: another reader of the URL may
+ *   take it for a scheme;
+ * - with no scheme, the text is a relative reference, refused only when
+ *   it begins with two of `/` and `\`, which a browser reads as a host
+ *   (`//h`, `\\h`, `/\h`, `\/h`). */
+static bool url_allowed (const char *s, size_t len) {
+  if (len > 0 && (s[0] == ' ' || s[len - 1] == ' ')) {
+    return false;
+  }
+  for (size_t i = 0; i < len; i++) {
+    unsigned char c = (unsigned char)s[i];
+    if (c < 0x20 || c == 0x7f) {
+      return false;
+    }
+  }
+  size_t colon = 0;
+  while (colon < len && s[colon] != ':' && s[colon] != '/' &&
+         s[colon] != '?' && s[colon] != '#') {
+    colon++;
+  }
+  if (colon < len && s[colon] == ':') {
+    if (!is_ascii_alpha((unsigned char)s[0])) {
+      return false;
+    }
+    for (size_t i = 1; i < colon; i++) {
+      unsigned char c = (unsigned char)s[i];
+      if (!is_ascii_alphanumeric(c) && c != '+' && c != '-' && c != '.') {
+        return false;
+      }
+    }
+    return equals_ignoring_case(s, colon, "http") ||
+           equals_ignoring_case(s, colon, "https") ||
+           equals_ignoring_case(s, colon, "mailto");
+  }
+  return !(len >= 2 && is_slash((unsigned char)s[0]) &&
+           is_slash((unsigned char)s[1]));
+}
+
+/* `href`: the string itself when [`url_allowed`], else `about:invalid`. The
+ * text is not attribute-escaped: a SafeUrl is a URL, and the page escapes
+ * it where it puts it in an attribute. */
+static int html_href (lua_State *L) {
+  size_t len;
+  const char *s = luaL_checklstring(L, 1, &len);
+  if (url_allowed(s, len)) {
+    lua_pushvalue(L, 1);
+  } else {
+    lua_pushliteral(L, "about:invalid");
+  }
+  wrap(L, SAFE_URL_TYPE);
+  return 1;
+}
+
+static int html_trust_url (lua_State *L) {
+  luaL_checktype(L, 1, LUA_TSTRING);
+  lua_settop(L, 1);
+  wrap(L, SAFE_URL_TYPE);
+  return 1;
+}
+
+static int html_raw_url (lua_State *L) {
+  push_string_of(L, 1, SAFE_URL_TYPE);
+  return 1;
+}
+
 /* `trust` and `trust_attr`: the string is taken as already safe. The
  * only door that does not escape, kept apart in name so a review can
  * find every use. */
@@ -217,6 +321,9 @@ static const luaL_Reg module[] = {
   {"trust_attr", html_trust_attr},
   {"raw", html_raw},
   {"raw_attr", html_raw_attr},
+  {"href", html_href},
+  {"trust_url", html_trust_url},
+  {"raw_url", html_raw_url},
   {"concat", html_concat},
   {NULL, NULL},
 };
@@ -224,7 +331,8 @@ static const luaL_Reg module[] = {
 int cosmic_open_html (lua_State *L) {
   /* `__metatable` is false so no program can read the metatable to add
    * an operator or a `__tostring` to every safe value. */
-  const char *types[] = { SAFE_HTML_TYPE, SAFE_ATTR_TYPE };
+  const char *types[] = { SAFE_HTML_TYPE, SAFE_ATTR_TYPE,
+    SAFE_URL_TYPE };
   for (size_t i = 0; i < sizeof types / sizeof *types; i++) {
     luaL_newmetatable(L, types[i]);
     lua_pushboolean(L, 0);

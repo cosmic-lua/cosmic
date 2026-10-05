@@ -3,7 +3,9 @@
 --- undone by reading its five entities; the attribute escaper leaves
 --- only letters, digits, character references and bytes of 0x80 or more,
 --- and is undone by reading its references; and `concat` is the join
---- of its parts' strings.
+--- of its parts' strings; and `href` answers `about:invalid` or a URL
+--- with no control byte or edge space whose scheme a browser would see is
+--- http, https or mailto, or that is relative and no host.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
 local Fuzz = require("build.fuzz")
@@ -124,6 +126,85 @@ local function test_concat_is_the_join_of_its_parts(tmp: string)
       if Html.raw(Html.concat(made)) ~= table.concat(expected) then
         return false, "concat differs from the join of its parts"
       end
+      return true, ""
+    end,
+  })
+end
+
+local URL_TOKENS <const> = { "http", "https", "HTTPS", "mailto", "javascript", "data", "java", "script", ":", "://",
+  "/", "//", "\\", "?", "#", ".", "+", "-", "%6A", "a", "Z", "9", " ", "\t", "\n", "\r", "\0", "\1", "\127",
+  "\xc3\xa9", "\xff", "@", "=", "&", "<" }
+
+local SCHEMES <const> = { "http", "HTTPS", "mailto", "javascript", "data", "ftp", "x-y.z+1", "1a", "%6A" }
+
+local function gen_url(src: Fuzz.Source): string
+  local parts: {string} = {}
+  -- Half the inputs start as a scheme and a colon, so the allowlist is reached.
+  if src:int(0, 1) == 0 then
+    parts[1] = Fuzz.pick(src, SCHEMES) .. ":"
+  end
+  while Fuzz.more(src, #parts, 12) do
+    parts[#parts + 1] = src:int(0, 5) == 0 and Fuzz.bytes(src, 2) or Fuzz.pick(src, URL_TOKENS)
+  end
+  return table.concat(parts)
+end
+
+local ALLOWED_SCHEMES <const>: {string: boolean} = { http = true, https = true, mailto = true }
+
+--- The scheme of `text` as a browser's parser would see it, from the
+--- start: a letter, then letters, digits, `+`, `-` or `.`, then `:`.
+local function scheme_of(text: string): string | nil
+  local name = text:match("^(%a[%w+.%-]*):")
+  if name ~= nil and name:find("[^%w+.%-]") == nil then
+    return name:lower()
+  end
+  return nil
+end
+
+--- Whether `text` is a safe URL by the rules stated apart from the C: it
+--- holds no control byte and no edge space, and either has an allowed
+--- scheme or is relative (no colon ahead of a `/`, `?` or `#`, or not
+--- starting two slashes).
+local function url_is_safe(text: string): boolean
+  if text:find("[%z\1-\31\127]") or text:find("^ ") or text:find(" $") then
+    return false
+  end
+  local scheme = scheme_of(text)
+  if scheme ~= nil then
+    return ALLOWED_SCHEMES[scheme] == true
+  end
+  return text:find("^[/\\][/\\]") == nil
+end
+
+--- What `href` must answer for `text` when it does not refuse more than
+--- the browser's reading needs: the same, but a colon ahead of any `/`,
+--- `?` or `#` without an allowed scheme is refused too.
+local function url_expected(text: string): string
+  if not url_is_safe(text) then return "about:invalid" end
+  local head = text:match("^[^/?#]*")
+  if head:find(":", 1, true) and scheme_of(text) == nil then return "about:invalid" end
+  return text
+end
+
+local function test_href_answers_a_safe_url_or_about_invalid(tmp: string)
+  Fuzz.run({
+    name = "html href",
+    dir = tmp,
+    gen = gen_url,
+    requires = { "allowed", "refused", "scheme", "relative", "empty" },
+    shares = { allowed = 0.05, scheme = 0.2 },
+    check = function(input: string): boolean, string
+      local out = Html.raw_url(Html.href(input))
+      if out ~= "about:invalid" then
+        if out ~= input then return false, "answered a different text " .. out end
+        if not url_is_safe(out) then return false, "let through an unsafe URL" end
+      end
+      if out ~= url_expected(input) then
+        return false, "answered " .. out .. " where " .. url_expected(input)
+      end
+      if out == "about:invalid" then Fuzz.label("refused") else Fuzz.label("allowed") end
+      if scheme_of(input) ~= nil then Fuzz.label("scheme") else Fuzz.label("relative") end
+      if input == "" then Fuzz.label("empty") end
       return true, ""
     end,
   })
