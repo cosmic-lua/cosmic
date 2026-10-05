@@ -400,8 +400,8 @@ Test.needs { reads = { "suite/data.db" } }
 
 local function test_reads_an_attached_database()
   assert(Store.attach("suite/data.db"))
-  -- Through the store's own lookup: a hold on the store (this module
-  -- declares no `store`) hands no test its databases.
+  -- Through the store's own lookup, which searches a database the test
+  -- attached ahead of the rest.
   local value = Store.meta("v")
   assert(value == "one", tostring(value))
 end
@@ -412,9 +412,8 @@ local Test = require("cosmic.test")
 
 Test.needs { reads = { "o/build.db" } }
 
--- Through the store's own lookup: a hold on the store (this module
--- declares no `store`) hands no test its databases, and answers a row
--- no key holds from a database the test attached alone.
+-- Through the store's own lookup, which searches a database the test
+-- attached ahead of the rest.
 local function test_reads_the_working_database()
   assert(Store.attach("o/build.db"))
   assert(Store.meta("schema") ~= nil, "the working database records its schema")

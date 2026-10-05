@@ -1484,10 +1484,10 @@ end
 --- that needs them makes its own files in its temporary directory and
 --- sets them -- `utimensat` for the times, a fresh file for a new inode
 --- -- so they are the same in every checkout.
--- TODO: enforce the rule under a worker's hold, as the store's is held:
--- have `stat`, `lstat` and `fstat` of a path of the tree answer fixed
--- times and inode there, once core/syscalls_fs.c's stat takes a hold
--- from build.test_worker as core/store.c's lookups do (C, and a boot):
+-- TODO: enforce the rule in the worker, which holds only `require` to its
+-- closure today: have `stat`, `lstat` and `fstat` of a path of the tree
+-- answer fixed times and inode there, once core/syscalls_fs.c's stat takes a
+-- hold from build.test_worker (C, and a boot):
 -- today a test that leans on a file of the tree's times sees what its
 -- checkout gave it, and stands on a sibling's verdict where they differ.
 local function declared_of(rec: Recording, m: importer.Module, id: string): string | nil
@@ -1929,15 +1929,16 @@ end
 --- portable artifact, where a `nests` module's worker opens the program as
 --- it is), and nil and why where it could not be made, or where a `lua`
 --- module's worker could not be held to its closure without one.
--- TODO: give every sandboxed worker that declares neither `store` nor `tool`
--- its closure's artifact, not only one that nests or declares `lua`, once the
--- artifacts of every closure share one head (the TODO in
--- build/closure_artifact.tl): the program such a worker runs carries every
--- module of the tree beyond its closure, which it reads through
--- [`Store.bytecode`], [`Store.source`], [`Store.requires`], [`Store.databases()`],
--- [`Store.meta`] or a searcher called by hand with no key to hold them, and an
--- artifact for each of some three hundred closures costs the program's size
--- in o/stores.
+-- TODO: close a gap: the program a sandboxed worker runs that declares none of
+-- `lua`, `nests`, `store` or `tool` carries every module of the tree beyond
+-- its closure, which it reads through [`Store.bytecode`], [`Store.source`],
+-- [`Store.requires`], [`Store.databases()`], [`Store.meta`] or a searcher called
+-- by hand with no key to hold them; and `hold_requires` is up only around the
+-- module's load and its test, so a finalizer that runs after the test can
+-- `require` a module outside the closure too. One fix is to give each such
+-- worker its closure's artifact, which costs the program's size in o/stores
+-- one per closure, unless the artifacts share one head (the TODO in
+-- build/closure_artifact.tl); that is not chosen.
 local function closure_artifact_for(rec: Recording, m: importer.Module): string | nil, string
   local effective = rec.effective[m.path]
   local address = rec.stores[m.path]

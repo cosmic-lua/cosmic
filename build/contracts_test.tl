@@ -4,8 +4,8 @@ local ast = require("build.ast")
 local contracts = require("build.contracts")
 local receivers = require("build.receivers")
 local teal = require("build.teal")
--- In the closure, so the checker's [`Store.source`] of its declaration
--- ([`teal.serve_standard`]) is read past the worker's hold on the store.
+-- In the closure, so the store the worker is given carries the declaration
+-- the checker reads with [`Store.source`] ([`teal.serve_standard`]).
 local type _ = require("cosmic.internal.process")
 
 local built = teal.lazy()

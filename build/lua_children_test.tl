@@ -8,14 +8,16 @@
 --- than running what no key of its test holds. build/lua_standalone_test.tl
 --- holds what one that requires build.standalone starts. An unsandboxed
 --- run, which has no artifact to give, holds a child to nothing: what
---- narrows the program is asserted only where the worker has the tree at
---- /tree, as a sandboxed worker does.
+--- narrows the program is asserted only in a sandboxed worker, and skipped
+--- (`sandboxed`) where a Linux run gave none.
 
 local Child = require("cosmic.child")
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local stand_in = require("build.stand_in")
 local test_inputs = require("build.test_inputs")
+local confine = require("build.confine")
 local this_program = require("build.this_program")
 local Clock = require("cosmic.clock")
 
@@ -30,10 +32,19 @@ local function run(words: {string}): boolean, string, string
   return result.ok, result.stdout or "", result.stderr or ""
 end
 
---- Whether this worker is sandboxed, which shows it the tree at /tree.
+--- Whether this worker is sandboxed, which is what narrows what its children
+--- run: the runner marks every worker it holds with the module's name in
+--- the variable build.confine's `held_variable` names (set for a `lua`
+--- module's worker too). On Linux a worker without the mark was given no
+--- sandbox, so the test is skipped, saying so; off Linux there is none to
+--- give, and it returns unchecked.
 local function sandboxed(): boolean
-  local there, _ = Fs.exists("/tree/o/cosmic.db")
-  return there == true
+  if Env.get(confine.held_variable) ~= nil then return true end
+  if confine.sandbox_platform() then
+    Test.skip("this worker is not sandboxed, so no artifact of its closure narrows what " ..
+        "its children run")
+  end
+  return false
 end
 
 --- A chunk runs, and loads nothing of the tree beyond `lua_loads` and

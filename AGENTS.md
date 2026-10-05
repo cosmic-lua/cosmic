@@ -166,7 +166,9 @@
    every module of the tree outside the closure: [`Store.bytecode`],
    [`Store.source`], [`Store.requires`], [`Store.databases()`],
    [`Store.meta`] or a searcher called by hand reads them, with no key to
-   hold them (the TODO on `closure_artifact_for` in [`build/test.tl`]).
+   hold them (the TODO on `closure_artifact_for` in [`build/test.tl`]); and
+   `hold_requires` is up only around the module's load and its test, so a
+   finalizer that runs after it can `require` outside the closure.
    So require a module the test reads at its top level (`local type _ =
    require(...)` for a declaration a type-checked snippet needs), and read
    no other that way; declare `store = true` where a test reads rows of

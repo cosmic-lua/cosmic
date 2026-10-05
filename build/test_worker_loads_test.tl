@@ -69,7 +69,7 @@ local function test_a_worker_attaches_the_store_it_is_given(tmp: string)
   local missing = tmp .. "/missing/closure.db"
   local started = this_program.program({ "test", "--worker", root, "build.key_parts",
     "test_none", tmp .. "/tmp", tmp .. "/children", "", "--store", missing,
-    "build.key_parts", "--tree", "build.key_parts", "--declared" }, {
+    "build.key_parts", "--tree", "build.key_parts" }, {
       cwd = root, stdin = "null", stdout = "capture", stderr = "stdout",
       fds = { [worker.report_fd] = "capture" }, timeout_ns = Clock.seconds(30),
     })
@@ -79,7 +79,7 @@ local function test_a_worker_attaches_the_store_it_is_given(tmp: string)
   -- Without it, the same worker attaches the tree's own and runs.
   started = this_program.program({ "test", "--worker", root, "build.key_parts",
     "test_none", tmp .. "/tmp", tmp .. "/children-again", "",
-    "build.key_parts", "--tree", "build.key_parts", "--declared" }, {
+    "build.key_parts", "--tree", "build.key_parts" }, {
       cwd = root, stdin = "null", stdout = "capture", stderr = "stdout",
       fds = { [worker.report_fd] = "capture" }, timeout_ns = Clock.seconds(30),
     })

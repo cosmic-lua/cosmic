@@ -1,6 +1,6 @@
 --- How the runner starts a worker and reads what it reports into a
---- verdict ([`worker.invocation`], [`worker.judge`]), and the hold of what a
---- worker ran to what its test's key holds.
+--- verdict ([`worker.invocation`], [`worker.judge`]), and the check of what a
+--- worker ran against what its test's key holds.
 
 local type Child = require("cosmic.child")
 local type Sandbox = require("cosmic.sandbox")

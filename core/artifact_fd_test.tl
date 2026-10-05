@@ -3,8 +3,7 @@
 --- Lua program's: every binding that takes a descriptor refuses it
 --- (core/check.h's `cosmic_checkfd`), and so does an open that would
 --- reach it through /proc/<pid>/fd or /dev/fd. Without that a test
---- would read every module the program carries, past
---- build/test_worker.tl's hold on the store and past every key.
+--- would read every module the program carries, past every key.
 ---
 --- The worker that runs these is itself such a start (`cosmic test`
 --- relaunches this program), so each test here has the descriptor to

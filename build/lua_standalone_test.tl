@@ -10,21 +10,32 @@
 --- where only the artifact narrows what a child reads.
 
 local Child = require("cosmic.child")
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local _ = require("build.standalone")
 local Store = require("cosmic.store")
 local closure_store = require("build.closure_store")
 local test_inputs = require("build.test_inputs")
+local confine = require("build.confine")
 local this_program = require("build.this_program")
 local Clock = require("cosmic.clock")
 
 Test.policy{ profiles = { "cosmic" } }
 
---- Whether this worker is sandboxed, which shows it the tree at /tree.
+--- Whether this worker is sandboxed, which is what narrows what its children
+--- run: the runner marks every worker it holds with the module's name in
+--- the variable build.confine's `held_variable` names (set for a `lua`
+--- module's worker too). On Linux a worker without the mark was given no
+--- sandbox, so the test is skipped, saying so; off Linux there is none to
+--- give, and it returns unchecked.
 local function sandboxed(): boolean
-  local there, _ = Fs.exists("/tree/o/cosmic.db")
-  return there == true
+  if Env.get(confine.held_variable) ~= nil then return true end
+  if confine.sandbox_platform() then
+    Test.skip("this worker is not sandboxed, so no artifact of its closure narrows what " ..
+        "its children run")
+  end
+  return false
 end
 
 --- Runs `words` after this program, past its launcher, and answers
