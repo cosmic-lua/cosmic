@@ -1064,7 +1064,7 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
     if hint_databases == nil then
       local databases: {Sqlite.Handle} = {}
       local public: {boolean} = {}
-      local projection, _ = Sqlite.open(handle.root .. "/o/cosmic.db")
+      local projection, _ = Sqlite.open(handle.dir .. "/cosmic.db")
       if projection ~= nil then
         hint_projection = projection
         databases[1] = projection

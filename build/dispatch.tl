@@ -333,6 +333,35 @@ local function module_of(root: string, file: string): string | nil, string
   return (name:gsub("/", "."))
 end
 
+--- Whether `dir`, a build's o/, can be made and written: it, and the
+--- databases a build writes there.
+local function writable(dir: string): boolean
+  local Fs = require("cosmic.fs")
+  local sys = require("cosmic.sys")
+  local made, _ = Fs.mkdirs(dir)
+  if not made then return false end
+  local reached, _ = sys.access(dir, sys.W_OK | sys.X_OK)
+  if not reached then return false end
+  for _, name in ipairs({ "/build.db", "/cosmic.db" }) do
+    local there, _ = sys.access(dir .. name, 0)
+    local open, _ = sys.access(dir .. name, sys.W_OK)
+    if there and not open then return false end
+  end
+  return true
+end
+
+--- Where a run builds the tree around `root` when its o/ cannot be
+--- written (another user's, a read-only checkout): a directory of this
+--- user's cache of its own for `root`, named by its path's SHA-256, so a
+--- later run reuses it. Nil and why where there is no such cache.
+local function private_dir(root: string): string | nil, string
+  local Fs = require("cosmic.fs")
+  local Hash = require("cosmic.hash")
+  local base, trouble = Fs.cache_dir("runs")
+  if base == nil then return nil, trouble end
+  return base .. "/" .. Hash.hex_sha256(root), ""
+end
+
 --- Runs a file. The file is a module: it is required once its tree is
 --- built, and if what it returns is a function, that function is
 --- called with one argument: an array of the arguments after the
@@ -378,7 +407,21 @@ local function run(file: string, argv: {integer:string}): integer
     log:complain(own_trouble)
     return 1
   end
-  local handle, open_trouble = work.open(root)
+  -- A tree but this one builds where its o/ cannot be written into a
+  -- directory of this user's own instead; this tree's o/ is the one its
+  -- tool rebuilds from and its lock guards.
+  local dir = root .. "/o"
+  if not own_tree and not writable(dir) then
+    local private, private_trouble = private_dir(root)
+    if private == nil then
+      log:complain(dir .. " cannot be written, and there is nowhere else to build: " ..
+          private_trouble)
+      return 1
+    end
+    log:complain(dir .. " cannot be written; building into " .. private)
+    dir = private
+  end
+  local handle, open_trouble = work.open(root, dir)
   if handle == nil then
     log:complain(open_trouble)
     return 1
@@ -406,7 +449,7 @@ local function run(file: string, argv: {integer:string}): integer
   -- recompiles them.
   local tool = Store.meta("compiler") or ""
 
-  local database = root .. "/o/cosmic.db"
+  local database = dir .. "/cosmic.db"
 
   local result, compile_trouble = importer.compile(handle, built, tool, false,
     shared_compiles.for_build())
