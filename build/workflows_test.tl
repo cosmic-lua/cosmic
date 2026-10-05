@@ -2480,3 +2480,27 @@ local function test_the_credential_proof_follows_the_native_database_boundary()
   assert(runner["if"] == "runner.os == 'Linux'" and runner.shell == "leg-shell --root {0}" and
       runner["continue-on-error"] == nil, "local runner proof lost its required privileged Linux gate")
 end
+
+--- Each leg that runs a suite (the platform legs of a light and a full run,
+--- and the checked job) has an entry in ci/cosmic_ci/capabilities.tl, and
+--- each entry is such a leg: a renamed or mistyped leg would promise
+--- nothing, silently.
+local function test_every_leg_has_its_promises_and_no_other_does()
+  local text = assert(Fs.read("ci/cosmic_ci/capabilities.tl"))
+  local loaded = assert(load(text, "=capabilities", "t", {}))() as {string: {string: any}}
+  local promised: {string: boolean} = {}
+  for name in pairs(loaded.legs) do promised[name] = true end
+  local ran: {string: boolean} = {}
+  for _, scope in ipairs({ "light", "full" }) do
+    for name in pairs(platform_legs(scope)) do ran[name] = true end
+  end
+  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
+  local checked = (ci.jobs as {string: {string: any}}).checked
+  ran[(checked.env as {string: string}).COSMIC_WORKER] = true
+  for name in pairs(ran) do
+    assert(promised[name], name .. ": a leg with no entry in capabilities.tl")
+  end
+  for name in pairs(promised) do
+    assert(ran[name], name .. ": capabilities.tl names no such leg")
+  end
+end

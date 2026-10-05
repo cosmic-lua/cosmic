@@ -2840,11 +2840,19 @@ end
 local function choose_sandbox(ctx: Run): integer | nil
   local handle = ctx.handle
   local sandbox_mode = ctx.sandbox_mode
-  local promises, promises_trouble = host_names.read_promises(Env.get("COSMIC_TEST_PROMISES") or "")
-  if promises == nil then
-    local _, _ = work.close(handle)
-    log:complain("test: COSMIC_TEST_PROMISES: " .. promises_trouble)
-    return 1
+  -- Only a held run reads the promises, which only it fails for: a
+  -- project that sets COSMIC_TEST_PROMISES for another reason is no concern of a run
+  -- that is not held.
+  local promises: {string} = {}
+  if sandbox_mode == "on" or Env.get("COSMIC_SANDBOX") == "must" or
+      Env.get("COSMIC_CI_REQUIRE_SANDBOX") == "1" then
+    local read, promises_trouble = host_names.read_promises(Env.get("COSMIC_TEST_PROMISES") or "")
+    if read == nil then
+      local _, _ = work.close(handle)
+      log:complain("test: COSMIC_TEST_PROMISES: " .. promises_trouble)
+      return 1
+    end
+    promises = read
   end
   ctx.promises, ctx.leg = promises, Env.get("COSMIC_TEST_LEG") or ""
   -- Each worker runs sandboxed where the kernel can sandbox one, unless

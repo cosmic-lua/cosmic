@@ -667,6 +667,9 @@ function tree_checks.legs(root: string): {string:{string}} | nil, string
   return capabilities.legs
 end
 
+-- TODO: hold the requirements ci/'s own tests and fixtures declare to the
+-- same check: it reads the root tree's declarations alone, and ci/ is a
+-- tree of its own whose `fix --check` cannot read the leg list's tree.
 --- What the CI legs' promises ([`legs`]) and the tree's declared
 --- requirements ([`requirements`]) say against each other, one line a
 --- finding: a name a leg promises that the table of

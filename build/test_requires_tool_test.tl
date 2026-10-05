@@ -206,13 +206,15 @@ local function test_b() assert(true) end
   end
 end
 
---- A promise a name of the table does not accept fails the run before any
---- test, naming it.
-local function test_a_promise_the_table_refuses_fails_the_run(tmp: string)
+--- A promise a name of the table does not accept fails a held run before
+--- any test, naming it; a run that is not held never reads the variable.
+local function test_a_promise_the_table_refuses_fails_a_held_run(tmp: string)
   local root = project(tmp)
   assert(Fs.write(root .. "/plain_test.tl", "local function test_c() assert(true) end\n"))
-  local out, code = run(root, { COSMIC_TEST_PROMISES = "nest,sandbxo" })
+  local out, code = run(root, { COSMIC_TEST_PROMISES = "nest,sandbxo", COSMIC_SANDBOX = "must" })
   assert(code ~= 0 and out:find("COSMIC_TEST_PROMISES: unknown requirement \"sandbxo\"", 1, true), out)
+  out, code = run(root, { COSMIC_TEST_PROMISES = "nest,sandbxo" })
+  assert(code == 0, out)
 end
 
 --- A `path:` the worker is given no host grant of fails the build too.

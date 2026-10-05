@@ -1,24 +1,14 @@
---- The host requirements each CI leg promises (a `requires` name of
---- build/host_names.tl): the leg is given what spawn's sandbox needs
---- (.github/scripts/leg-container.sh, which turns off the host's
---- restriction of user namespaces, lets one be made, and leaves /proc
---- whole) and runs every worker sandboxed, so a held run
---- (COSMIC_CI_REQUIRE_SANDBOX=1) fails a test module that requires one
---- of these and finds it missing, naming the leg, rather than skip it
---- unrun. The driver hands the leg's list to every suite it runs as
---- COSMIC_TEST_PROMISES, and its name as COSMIC_TEST_LEG
---- (cosmic_ci.orchestration's `environment`). A leg is named as ci.yml's
---- COSMIC_WORKER names it: a light run's second share of linux-x86_64 is
---- linux-x86_64-shard.
+--- The host requirements (`requires` names of build/host_names.tl) each
+--- CI leg promises, named as ci.yml's COSMIC_WORKER names it. The driver
+--- gives every suite its leg's list as COSMIC_TEST_PROMISES and the name
+--- as COSMIC_TEST_LEG (cosmic_ci.orchestration's `promise`), and a held
+--- run fails a module whose promised requirement is absent. A name no leg
+--- promises, `program:jq` as much as `nest`, may not be required
+--- (build/tree_checks.tl's `promises`): that module would run nowhere. Add
+--- it to a leg whose image has it in the change that first requires it.
 ---
---- A name no leg promises is one a test module may not require
---- (build/tree_checks.tl's `promises`): a module n/a or skipped on every
---- leg would run nowhere. The macOS leg runs unsandboxed on the runner's
---- own user and has no Landlock, user namespace or procfs, so it
---- promises none.
----
---- Data alone, in text Lua reads as well as Teal: the tree's own
---- build/tree_checks.tl, which cannot require a module of ci/, loads it.
+--- Data alone, in text Lua reads as well as Teal: build/tree_checks.tl
+--- loads it.
 -- TODO: promise `portable` once the driver gives its portable suite a
 -- list of its own: it runs `cosmic test` on a portable artifact, which
 -- the native suite on the same leg is not, so a leg's one list cannot

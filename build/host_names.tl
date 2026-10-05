@@ -182,19 +182,13 @@ function host_names.promised(promises: {string}, name: string): boolean
   return false
 end
 
--- TODO: infer requirements from the rest of a policy -- the promise "nest"
--- is `nest`, a `host` grant of /proc or beneath it is `proc`, `isolate` is
--- `sandbox` and `userns` -- once a requirement can bind less than a whole
--- module. The audit of step 4 of the host requirements design found
--- inference would silence tests that run today: a module is the unit, so
--- `nest` inferred of cosmic/child_tool_test.tl, core/syscalls_tool_test.tl,
--- build/declared_key_test.tl and build/declared_unenforced_test.tl (all of
--- ci/darwin-tests.txt, whose macOS branches that leg runs every time)
--- would make every test of them n/a off Linux, as it would the tests of
--- build/must_confine_test.tl and the other modules that promise "nest" yet
--- hold tests that pass on a host with no user namespace (its refusal
--- checks). Each such module is first split, so what needs the requirement
--- is a module of its own.
+-- TODO: infer requirements from the rest of a policy (the promise "nest"
+-- is `nest`, a /proc grant is `proc`, `isolate` is `sandbox` and `userns`)
+-- once a requirement can bind less than a whole module: inferred now, it
+-- would make n/a off Linux every test of modules that run there today
+-- (child_tool_test, syscalls_tool_test, declared_key_test and
+-- declared_unenforced_test of ci/darwin-tests.txt, must_confine_test's
+-- refusal checks). Split such modules first.
 
 --- Whether `path` is /proc or beneath it, which a grant may name as a
 --- directory.

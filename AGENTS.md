@@ -291,7 +291,8 @@
    job, linux-aarch64 and alpine-x86_64 promise the Linux-class names and `path:/bin/sh`;
    macos-aarch64 promises `path:/bin/sh` alone; none promises `portable` or `root`), and the driver gives
    every suite of a leg the list as `COSMIC_TEST_PROMISES` (names
-   separated by commas; a name the table refuses fails the run) and the
+   separated by commas, read only by a held run, which a name the table
+   refuses fails) and the
    leg's name as `COSMIC_TEST_LEG` ([`build/host_names.tl`]'s `promised`
    matches a `landlock:N` by version). A held run
    (`COSMIC_TEST_SANDBOX=1`, `COSMIC_SANDBOX=must`,
