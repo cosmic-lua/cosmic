@@ -1968,7 +1968,6 @@ local function sweep_stores(rec: Recording)
   local listed, _ = Fs.list(directory)
   for _, entry in ipairs(listed or {}) do
     -- One kept aside for a report ([`mismatch_path`]) stays until removed.
-    -- A closure artifact an older run wrote beside the stores goes with them.
     if not named[entry] and not entry:match("%.mismatch%.db$") then
       local gone, trouble = Fs.remove(directory .. "/" .. entry)
       if not gone then
@@ -2534,8 +2533,12 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     end
     if sealed == nil and rec.effective[job.m.path].lua and not rec.effective[job.m.path].store and
         not rec.effective[job.m.path].tool then
+      local launched, _ = Proc.relaunch()
+      local why = (launched == nil or launched.argv[2] ~= "--artifact" or launched.argv[3] == nil) and
+        "this program is no portable artifact to take its database from" or
+        "it is given no closure store to seal"
       finish(rec, job, nil, "its module declares lua, so what its tests start runs a sealed " ..
-          "database of its closure, which this program cannot make: it is no portable artifact", limits)
+          "database of its closure, which cannot be made: " .. why, limits)
       return false
     end
     local plan = test_sandbox.plan(rec.root, scratch, rec.effective[job.m.path], worker_view(), store)

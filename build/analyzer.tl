@@ -1750,10 +1750,12 @@ local function policy_declared(data: PolicyData, line: integer): analyzer.Declar
     return nil, "connect is refused: no test reaches a host but loopback, whose answer no " ..
       "key holds; declare the addresses in loopback and start the service in the test"
   end
-  -- TODO: take `database` once the harness runs a worker on a sealed
-  -- database, as cosmic/test.tl's `needs_of` waits on.
+  -- TODO: take `database` once a module's [`Test.policy`] may name a database
+  -- of its own, whose digest the key then holds (as cosmic/test.tl's
+  -- `needs_of` waits on): the harness gives every worker its own sealed
+  -- database already, which a module's cannot replace.
   if data.database ~= nil then
-    return nil, "database" .. not_yet .. "; no worker runs on a database yet"
+    return nil, "database" .. not_yet .. "; a module cannot declare a database of its own yet"
   end
   if data.tmp == false then
     return nil, "tmp = false" .. not_yet .. "; every test has a temporary directory today"

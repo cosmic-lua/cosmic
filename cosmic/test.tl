@@ -683,11 +683,11 @@ function Test.needs_of(given: any): Test.Needs | nil, string
     return nil, "connect is refused: no test reaches a host but loopback, whose answer no " ..
       "key holds; declare the addresses in loopback and start the service in the test"
   end
-  -- TODO: take `database` once the harness runs a worker on a sealed
-  -- database (the sealed-programs design's harness step): the key then
-  -- holds the file's digest.
+  -- TODO: take `database` once a module's [`Test.policy`] may name a database
+  -- of its own, whose digest the key then holds: the harness gives every
+  -- worker its own sealed database already, which a module's cannot replace.
   if policy.database ~= nil then
-    return nil, "database " .. NOT_YET .. "; no worker runs on a database yet"
+    return nil, "database " .. NOT_YET .. "; a module cannot declare a database of its own yet"
   end
   if policy.tmp == false then
     return nil, "tmp = false " .. NOT_YET .. "; every test has a temporary directory today"
