@@ -53,8 +53,8 @@
 ---   COSMIC_TEST_COMPILER_SALT, for a test alone, stands in for a
 ---   compiler of another identity that makes the same bytecode;
 --- - the declaration itself, as [`test_inputs.canonical`] spells it;
---- - what the host answered to each requirement the module declares or
----   its policy implies ([`build.host_requires`]), by name and what the
+--- - what the host answered to each requirement the module declares
+---   ([`build.host_requires`]), by name and what the
 ---   answer holds (a Landlock ABI, the digest of a program): one line per
 ---   present answer, none for a module that has none. A module with an
 ---   absent requirement is not run and so has no key;
@@ -256,8 +256,8 @@ local record declared_key
     launcher: string
     --- The module's declaration, as [`test_inputs.canonical`] spells it.
     declaration: string
-    --- What the host answered to each requirement the module declares or
-    --- its policy implies ([`build.host_requires`]), by name: the key text
+    --- What the host answered to each requirement the module declares
+    --- ([`build.host_requires`]), by name: the key text
     --- of an answer that is `present`. Only a module whose requirements
     --- were all present is keyed at all, so it holds those, and nil or empty
     --- for a module that declares none, whose key has no such part.

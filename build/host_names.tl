@@ -40,11 +40,9 @@ local record host_names
     "host"
   end
 
-  --- What of a declaration `implied` and `check` read: the runner's `Declared`
-  --- (build.analyzer) as far as it says what the host must give.
+  --- What of a declaration `check` reads: the analyzer's `Declared`
+  --- as far as it says what the worker is given.
   record Inputs
-    --- Whether the promise "nest" is made.
-    nests: boolean
     --- Whether the profile "system" is joined.
     system: boolean
     --- The absolute paths granted as host files.
@@ -141,30 +139,29 @@ function host_names.class(name: string): host_names.Class | nil, string
   return spec.class
 end
 
+-- TODO: infer requirements from the rest of a policy -- the promise "nest"
+-- is `nest`, a `host` grant of /proc or beneath it is `proc`, `isolate` is
+-- `sandbox` and `userns` -- once ci/capabilities.tl lists each leg's
+-- promises, so a held run can fail a platform requirement its leg promised
+-- (step 4 of the host requirements design), and each module that would
+-- gain a requirement has been audited: inferred now, about 25 modules
+-- (build/must_confine_test.tl among them) would stop running on a host
+-- that lacks Linux's features, and no run would fail for it.
+-- TODO: let a policy name the Linux-class requirements `LINUX_NAMES`
+-- holds, which `check` refuses until that same step: declared now, a module
+-- would be skipped or n/a silently on a CI leg that should have given it.
+
+--- The Linux-class names, refused in a declaration until a leg's promises
+--- are written down.
+local LINUX_NAMES <const>: {string:boolean} = {
+  sandbox = true, landlock = true, userns = true, nest = true, own_proc = true, proc = true,
+}
+
 --- Whether `path` is /proc or beneath it, which a grant may name as a
 --- directory.
 local function in_proc(path: string): boolean
   return path == "/proc" or path:sub(1, 6) == "/proc/"
 end
-
---- What a policy's other fields imply, by name, each with the field that
---- says it, which a declared name may not repeat: the promise "nest" is
---- `nest`, and a `host` grant of /proc or beneath it is `proc`. `isolate`
---- will imply `sandbox` and `userns` once a policy takes it.
---- @param inputs the policy's fields as far as they say what a host gives
---- @return each implied name, by the field that implies it
-function host_names.implied(inputs: host_names.Inputs): {string:string}
-  local out: {string:string} = {}
-  if inputs.nests then out.nest = "the promise \"nest\"" end
-  for _, path in ipairs(inputs.host or {}) do
-    if in_proc(path) then out.proc = "the host grant of " .. path end
-  end
-  return out
-end
-
---- What each name's probe already asks, so a declaration of both is
---- redundant: `nest` asks `userns` first.
-local subsumes: {string:{string}} = { nest = { "userns" } }
 
 --- Whether a host grant `granted` lets the worker see `path`: the same
 --- path, or one beneath a /proc grant (the one directory a grant names).
@@ -172,46 +169,35 @@ local function grants(granted: string, path: string): boolean
   return granted == path or (in_proc(granted) and path:sub(1, #granted + 1) == granted .. "/")
 end
 
---- The requirements a policy asks of its host, or nil and the rule it
---- breaks: `declared` as written, and what `inputs` imply, as one sorted
---- list without repeats. A declaration breaks a rule where a name is one
---- the table does not have (`parse`), is written twice, repeats what the
---- policy implies (`implied`) or what a name beside it already asks, a
---- `path:` has no `host` grant of the same path (the worker sees what its
---- module grants, not what the runner found), or a `program:` has not the
---- profile "system" and the variable PATH in `env` (the worker runs what
---- its own search list finds).
+--- Whether the requirements a policy asks of its host break a rule, and
+--- the rule it breaks: a name is one the table does not have (`parse`),
+--- is a Linux-class name (refused for now, see the TODO above), is written
+--- twice, a `path:` has no `host` grant of the same path (the worker sees
+--- what its module grants, not what the runner found), or a `program:` has
+--- not the profile "system" and the variable PATH in `env` (the worker runs
+--- what its own search list finds).
 --- @param declared the names a policy's `requires` holds
 --- @param inputs the rest of the policy
---- @return the sorted names the host must give, or nil and why
-function host_names.check(declared: {string}, inputs: host_names.Inputs): {string} | nil, string
-  local implied = host_names.implied(inputs)
-  local all: {string:boolean} = {}
-  for name in pairs(implied) do all[name] = true end
-  for _, name in ipairs(declared) do all[name] = true end
+--- @return true, or false and why
+function host_names.check(declared: {string}, inputs: host_names.Inputs): boolean, string
   local seen: {string:boolean} = {}
   for _, name in ipairs(declared) do
     local spec, why = host_names.parse(name)
-    if spec == nil then return nil, "requires: " .. why end
-    if seen[name] then return nil, string.format("requires: %q is written twice", name) end
+    if spec == nil then return false, "requires: " .. why end
+    if LINUX_NAMES[spec.base] then
+      return false, string.format("requires: %q is a Linux-class requirement, which a policy may not " ..
+          "name yet: no leg's promises are written down, so a module that names one would be " ..
+          "skipped or n/a silently where CI should have given it (the TODO in build/host_names.tl)", name)
+    end
+    if seen[name] then return false, string.format("requires: %q is written twice", name) end
     seen[name] = true
-    if implied[name] ~= nil then
-      return nil, string.format("requires: %q is redundant: %s implies it", name, implied[name])
-    end
-    for wider, covered in pairs(subsumes) do
-      for _, narrower in ipairs(covered) do
-        if narrower == name and all[wider] then
-          return nil, string.format("requires: %q is redundant beside %q, whose probe asks it", name, wider)
-        end
-      end
-    end
     if spec.base == "path" then
       local granted = false
       for _, path in ipairs(inputs.host or {}) do
         if grants(path, spec.argument) then granted = true end
       end
       if not granted then
-        return nil, string.format("requires: %q needs a host grant of the path, which is what the " ..
+        return false, string.format("requires: %q needs a host grant of the path, which is what the " ..
             "worker sees of it: grants = { { path = %q, letters = \"r\" } }", name, spec.argument)
       end
     elseif spec.base == "program" then
@@ -220,15 +206,12 @@ function host_names.check(declared: {string}, inputs: host_names.Inputs): {strin
         if variable == "PATH" then path_named = true end
       end
       if not (inputs.system and path_named) then
-        return nil, string.format("requires: %q needs the profile \"system\" and env = { \"PATH\" }, " ..
+        return false, string.format("requires: %q needs the profile \"system\" and env = { \"PATH\" }, " ..
             "so the worker can find and run what the runner found", name)
       end
     end
   end
-  local out: {string} = {}
-  for name in pairs(all) do out[#out + 1] = name end
-  table.sort(out)
-  return out, ""
+  return true, ""
 end
 
 return host_names

@@ -3279,20 +3279,19 @@ end
 --- Which absence a module reports when it has several, the worst first.
 local UNMET_RANK <const>: {string:integer} = { refused = 3, na = 2, skipped = 1 }
 
---- The names a module requires of its host: those its policy declares and
---- those the policy implies ([`host_names.check`]), sorted.
+--- The names a module requires of its host, as its policy declares them
+--- ([`host_names.check`]), sorted.
 local function requirements_of(m: importer.Module): {string}
   local names: {string} = {}
   local declared = m.inputs
   if declared == nil then return names end
   for _, name in ipairs(declared.requires or {}) do names[#names + 1] = name end
-  for _, name in ipairs(declared.implied or {}) do names[#names + 1] = name end
   table.sort(names)
   return names
 end
 
 --- Asks the host, once, for every requirement the selected modules declare
---- or their policies imply ([`host_requires`]), before any worker starts,
+--- ([`host_requires`]), before any worker starts,
 --- and decides each module: where all are present, it runs, and its key
 --- holds each answer (`rec.answered`); otherwise none of its tests is
 --- started (`rec.unmet`), as one whose name breaks the table's rules fails
@@ -3309,12 +3308,14 @@ local function require_of_host(ctx: Run): integer | nil
     if #names > 0 then
       if host == nil then
         -- COSMIC_TEST_PLATFORM=other, for a test of this runner alone, stands in
-        -- for a platform without Linux's requirements on a host that has them:
-        -- it makes modules not applicable, which keeps no verdict.
+        -- for a platform without Linux's requirements or a portable artifact on
+        -- a host that has them: it makes modules not applicable, which keeps
+        -- no verdict and fails no run.
         local linux: boolean = nil
-        if Env.get("COSMIC_TEST_PLATFORM") == "other" then linux = false end
+        local portable = Store.meta("runtime_context") == "portable-v1"
+        if Env.get("COSMIC_TEST_PLATFORM") == "other" then linux, portable = false, false end
         host = host_requires.new({
-          portable = Store.meta("runtime_context") == "portable-v1",
+          portable = portable,
           linux = linux,
           sandbox = function(): host_requires.Sandbox
             if ctx.sandbox_answer == nil then ctx.sandbox_answer = sandbox_here() end
@@ -3324,14 +3325,13 @@ local function require_of_host(ctx: Run): integer | nil
         })
       end
       local found: {host_requires.Answer} = nil
-      local asked, answers = pcall(function() found = host_requires.answer(host, names) end)
+      local asked, trouble = pcall(function() found = host_requires.answer(host, names) end)
       if not asked then
-        -- A probe that cannot tell is a defect, which no pass may hide.
-        local _, _ = work.rollback(ctx.handle)
-        local _, _ = work.close(ctx.handle)
-        log:complain("test: " .. m.path .. ": the probe of what it requires of the host failed: " ..
-            tostring(answers))
-        return 1
+        -- A probe that cannot tell (a file it may not read) is no answer: the
+        -- modules that name it fail, saying why, and the run goes on.
+        found = {}
+        rec.unmet[m.path] = { kind = "refused", why = "the probe of what it requires of the host " ..
+            "failed: " .. tostring(trouble) }
       end
       local present: {string:string} = {}
       local unmet: Unmet = nil
@@ -3345,7 +3345,9 @@ local function require_of_host(ctx: Run): integer | nil
           end
         end
       end
-      if unmet ~= nil then
+      if rec.unmet[m.path] ~= nil then
+        unmet = nil
+      elseif unmet ~= nil then
         rec.unmet[m.path] = unmet
       else
         rec.answered[m.path] = present

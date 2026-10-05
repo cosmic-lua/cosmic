@@ -10,9 +10,10 @@ local host_names = require("build.host_names")
 local host_requires = require("build.host_requires")
 
 --- A run's probes with a stand-in for the runner's sandbox probe.
-local function host_with(answer: host_requires.Sandbox, path?: string): host_requires.Host
+local function host_with(answer: host_requires.Sandbox, path?: string, system?: {string}): host_requires.Host
   return host_requires.new({ sandbox = function(): host_requires.Sandbox return answer end,
-    path = path })
+    path = path,
+    system = system or (path ~= nil and { path, (Fs.absolute(path)) } or nil) })
 end
 
 --- The one answer for `name` of `host`.
@@ -361,42 +362,42 @@ local function test_a_setting_that_cannot_be_read_raises()
   assert(not unreadable and tostring(trouble):find("cannot be read", 1, true), tostring(trouble))
 end
 
---- What a policy implies is `nest` for the promise and `proc` for a host
---- grant of /proc or beneath it, by the field that says it.
-local function test_a_policy_implies_nest_and_proc()
-  local none = host_names.implied({ host = { "/etc/hosts", "/procfs/x" } })
-  assert(next(none) == nil)
-  local some = host_names.implied({ nests = true, host = { "/etc/hosts", "/proc/self/status" } })
-  assert(some.nest == "the promise \"nest\"" and some.proc == "the host grant of /proc/self/status")
-  assert(host_names.implied({ host = { "/proc" } }).proc ~= nil)
-end
-
---- `check` answers the names a policy asks of its host, declared and implied,
---- sorted, and refuses what repeats an implication or a name beside it.
-local function test_check_joins_declared_and_implied_names_and_refuses_repeats()
-  local inputs: host_names.Inputs = { nests = true, host = { "/proc/self/status", "/etc/hosts" },
+--- `check` refuses Linux-class names, repeats, and a `path:` or `program:` the
+--- worker could not use; a /proc grant covers the files beneath it only.
+local function test_check_refuses_what_the_worker_could_not_use()
+  local inputs: host_names.Inputs = { host = { "/proc/self/status", "/etc/hosts" },
     system = true, env = { "PATH" } }
-  local names = assert(host_names.check({ "root", "program:jq", "path:/etc/hosts" }, inputs))
-  assert(table.concat(names, " ") == "nest path:/etc/hosts proc program:jq root", table.concat(names, " "))
+  assert(host_names.check({ "root", "program:jq", "path:/etc/hosts", "portable" }, inputs))
   local cases: {{any}} = {
-    { { "nest" }, "the promise \"nest\" implies it" },
-    { { "proc" }, "the host grant of /proc/self/status implies it" },
-    { { "userns" }, "\"userns\" is redundant beside \"nest\"" },
+    { { "nest" }, "Linux-class" },
+    { { "landlock:2" }, "Linux-class" },
     { { "root", "root" }, "written twice" },
     { { "nope" }, "unknown requirement" },
     { { "path:/etc/passwd" }, "needs a host grant of the path" },
   }
   for _, case in ipairs(cases) do
     local found, why = host_names.check(case[1] as {string}, inputs)
-    assert(found == nil and why:find(case[2] as string, 1, true) ~= nil, tostring(why))
+    assert(not found and why:find(case[2] as string, 1, true) ~= nil, tostring(why))
   end
-  -- A /proc grant covers the files beneath it, and nothing beside it.
   assert(host_names.check({ "path:/proc/self/status" }, { host = { "/proc" } }))
-  assert(host_names.check({ "path:/procfs/x" }, { host = { "/proc" } }) == nil)
-  -- A program is found by the worker's own search list and system.
-  assert(host_names.check({ "program:jq" }, { system = true }) == nil)
-  assert(host_names.check({ "program:jq" }, { env = { "PATH" } }) == nil)
+  assert(not host_names.check({ "path:/procfs/x" }, { host = { "/proc" } }))
+  assert(not host_names.check({ "program:jq" }, { system = true }))
+  assert(not host_names.check({ "program:jq" }, { env = { "PATH" } }))
   assert(host_names.check({ "program:jq" }, { system = true, env = { "PATH" } }))
+end
+
+--- A program found only outside the system's paths is one a worker with
+--- the profile "system" cannot run: absent, though the runner finds it.
+local function test_a_program_outside_the_systems_paths_is_absent(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/bin"))
+  assert(Fs.write(tmp .. "/bin/elsewhere-tool", "x\n"))
+  assert(Fs.chmod(tmp .. "/bin/elsewhere-tool", tonumber("755", 8) as integer))
+  local answer = ask(host_with({ ok = true, why = "", broken = false }, tmp .. "/bin", { "/nonexistent-system" }),
+    "program:elsewhere-tool")
+  assert(answer.kind == "skipped" and answer.why:find("outside the system's paths", 1, true), answer.why)
+  if Fs.exists("/bin/sh") == true then
+    assert(ask(host_with({ ok = true, why = "", broken = false }, "/bin"), "program:sh").kind == "present")
+  end
 end
 
 --- A platform that is not Linux has none of Linux's requirements: n/a

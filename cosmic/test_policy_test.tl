@@ -245,25 +245,18 @@ local function test_the_policy_record_is_the_sandboxs()
   assert(listed == table.concat(theirs, ", "), listed .. " is not " .. table.concat(theirs, ", "))
 end
 
---- What a policy requires of the host is what it declares and what its
---- other fields imply (a `nest` promise, a /proc grant), which the build
---- reads and the worker is handed alike; a `needs` implies none.
-local function test_a_policy_declares_and_implies_requirements()
+--- What a policy requires of the host is what it declares, which the build
+--- reads and the worker is handed alike, and the key holds. Nothing is
+--- inferred from its other fields, and a `needs` has none.
+local function test_a_policy_declares_requirements()
   local function read(call: string): analyzer.Declared
     local found, why = declared(call)
     assert(found ~= nil, call .. ": " .. tostring(why))
     return found
   end
   local function names(list: {string}): string return table.concat(list, " ") end
-  local plain = read('Test.policy { requires = { "root", "landlock:3" } }')
-  assert(names(plain.requires) == "root landlock:3" and names(plain.implied) == "", names(plain.requires))
-  assert(names(read('Test.policy { promises = { "nest" } }').implied) == "nest")
-  assert(names(read('Test.policy { grants = { { path = "/proc/self/status", letters = "r" } } }').implied) ==
-      "proc")
-  assert(names(read('Test.policy { grants = { { path = "/proc", letters = "r" } }, promises = { "nest" } }').implied) ==
-      "nest proc")
-  assert(names(read('Test.needs { nests = true, host = { "/proc" } }').implied) == "")
-  -- The worker is handed the names as written, and the key holds them.
+  assert(names(read('Test.policy { requires = { "root", "portable" } }').requires) == "root portable")
+  assert(#read('Test.policy { promises = { "nest" }, grants = { { path = "/proc", letters = "r" } } }').requires == 0)
   local call = 'Test.policy { requires = { "root" }, promises = { "nest" } }'
   local handed = assert(runtime_needs(call))
   assert(names(handed.requires) == "root")
@@ -271,26 +264,22 @@ local function test_a_policy_declares_and_implies_requirements()
   assert(test_inputs.canonical(test_inputs.as_declared(handed)) == test_inputs.canonical(from_policy))
   assert(test_inputs.canonical(from_policy):find('requires "root"', 1, true))
   assert(test_inputs.canonical(read("Test.policy { }")) == "")
-  -- `needs` has no such field.
   local refused, why = declared('Test.needs { requires = { "root" } }')
   assert(refused == nil and why:find("no field requires", 1, true), tostring(why))
 end
 
---- A name the table does not have, a name written twice, one the policy
---- implies or another already asks, a `path:` the worker is given no host
---- grant of and a `program:` it cannot find fail the build, naming the rule.
+--- A name the table does not have, a Linux-class name (refused until the
+--- legs' promises are written down), a name written twice, a `path:` the
+--- worker is given no host grant of and a `program:` it cannot find fail
+--- the build, naming the rule.
 local function test_a_requirement_that_breaks_a_rule_fails_the_build()
   local cases: {{string}} = {
     { 'Test.policy { requires = { "sandbxo" } }', "unknown requirement \"sandbxo\"" },
-    { 'Test.policy { requires = { "landlock:0" } }', "landlock:N" },
+    { 'Test.policy { requires = { "path:relative" } }', "absolute path" },
+    { 'Test.policy { requires = { "nest" } }', "\"nest\" is a Linux-class requirement" },
+    { 'Test.policy { requires = { "landlock:3" } }', "Linux-class requirement" },
+    { 'Test.policy { requires = { "proc" } }', "Linux-class requirement" },
     { 'Test.policy { requires = { "root", "root" } }', "\"root\" is written twice" },
-    { 'Test.policy { promises = { "nest" }, requires = { "nest" } }',
-      "\"nest\" is redundant: the promise \"nest\" implies it" },
-    { 'Test.policy { promises = { "nest" }, requires = { "userns" } }',
-      "\"userns\" is redundant beside \"nest\"" },
-    { 'Test.policy { requires = { "nest", "userns" } }', "\"userns\" is redundant beside \"nest\"" },
-    { 'Test.policy { grants = { { path = "/proc/self/status", letters = "r" } }, requires = { "proc" } }',
-      "\"proc\" is redundant: the host grant of /proc/self/status implies it" },
     { 'Test.policy { requires = { "path:/etc/hosts" } }', "needs a host grant of the path" },
     { 'Test.policy { requires = { "path:/etc/hosts" }, grants = { { path = "/etc/passwd", letters = "r" } } }',
       "needs a host grant of the path" },
@@ -306,11 +295,11 @@ local function test_a_requirement_that_breaks_a_rule_fails_the_build()
     assert(found == nil and why:find("fixture_test.tl:2: test.policy: ", 1, true) ~= nil and
         why:find(case[2], 1, true) ~= nil, case[1] .. ": " .. tostring(why))
   end
-  -- And what is tied to the worker's view is accepted once it is.
   for _, call in ipairs({
       'Test.policy { requires = { "path:/etc/hosts" }, grants = { { path = "/etc/hosts", letters = "r" } } }',
       'Test.policy { requires = { "path:/proc/self/status" }, grants = { { path = "/proc", letters = "r" } } }',
       'Test.policy { requires = { "program:jq" }, profiles = { "system" }, env = { "PATH" } }',
+      'Test.policy { requires = { "root", "portable" } }',
   }) do
     local found, why = declared(call)
     assert(found ~= nil, call .. ": " .. tostring(why))

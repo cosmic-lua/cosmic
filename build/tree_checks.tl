@@ -70,7 +70,7 @@ for _, name in ipairs({ "sleep_ns", "ceil" }) do
   allowed["cosmic.time." .. name] = "the old name of cosmic.clock's " .. name .. ", kept " ..
     "for programs outside the tree that call it; in the tree only its own tests do"
 end
-for _, name in ipairs({ "names", "class", "implied" }) do
+for _, name in ipairs({ "names", "class" }) do
   allowed["build.host_names." .. name] = "tested directly: the table's own reading, which " ..
     "`parse` and `check`, the only calls outside the module, are made of"
 end

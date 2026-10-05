@@ -514,7 +514,7 @@ function test_inputs.as_declared(needs: inputs.Needs | nil): analyzer.Declared |
     nests = needs.nests == true,
     noexec = needs.noexec == true,
     store = needs.store == true, system = needs.system == true,
-    caches = needs.caches or {}, requires = needs.requires or {}, implied = {} }
+    caches = needs.caches or {}, requires = needs.requires or {} }
 end
 
 return test_inputs

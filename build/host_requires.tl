@@ -4,8 +4,8 @@
 --- names, which the build checks a declaration against (`check`) and the
 --- runner asks of the host once a run, before any worker starts.
 ---
---- The names, how they are read and refused, and what a policy implies of
---- them are [`build.host_names`]'s, which reads nothing of the host; this
+--- The names, how they are read and refused, and the rules a declaration
+--- breaks are [`build.host_names`]'s, which reads nothing of the host; this
 --- module probes each name:
 ---
 --- - `sandbox`: this host can run a worker under a policy (the runner's
@@ -78,6 +78,7 @@ local relaunch, getuid, realpath = Proc.relaunch, sys.getuid, Fs.absolute
 local sandbox_platform, may_map_ids = confine.sandbox_platform, confine.may_map_ids
 local own_proc_given, landlock_abi = confine.own_proc_given, confine.landlock_abi
 local hex_sha256 = digest.hex_sha256
+local system_paths = confine.system_paths
 
 local record host_requires
   --- What a probe found of one requirement.
@@ -141,6 +142,9 @@ local record host_requires
     --- sets it false to make every Linux requirement not applicable on a
     --- host that has them.
     linux: boolean
+    --- The paths a worker with the profile "system" is given, which a
+    --- `program:` must be under; [`confine.system_paths`] by default.
+    system: {string}
     --- The search list `program:` looks in; PATH by default
     --- ([`Proc.find`]).
     path: string
@@ -419,6 +423,14 @@ local function file_key(path: string): string | nil, string
   return "sha256:" .. hex_sha256(opened.data)
 end
 
+--- Whether `path` is under a path of the "system" profile a worker is given.
+local function given(path: string, host: host_requires.Host): boolean
+  for _, root in ipairs(host.context.system or system_paths) do
+    if path == root or path:sub(1, #root + 1) == root .. "/" then return true end
+  end
+  return false
+end
+
 local table_of: {string:Entry} = {
   sandbox = { platform_has = linux,
     probe = function(_: string, host: host_requires.Host): Found
@@ -495,6 +507,14 @@ local table_of: {string:Entry} = {
       -- PATH: `check` refuses a `program:` without both.
       local resolved, why = find_program(argument, host.context.path)
       if resolved == nil then return absent(why) end
+      -- A worker with the profile "system" sees only the system's paths
+      -- ([`confine.system_paths`]): a program found elsewhere on PATH is one
+      -- it cannot run, so it is absent for the test, whatever the runner finds.
+      local real, trouble = realpath(resolved)
+      if real == nil then error("host_requires: " .. trouble, 0) end
+      if not (given(resolved, host) and given(real, host)) then
+        return absent(resolved .. " is outside the system's paths a worker is given")
+      end
       -- Keyed by the file it finds, as `host` keys a file: a test's output
       -- may turn on the program's version.
       local key, rule = program_key(resolved, host.context.path)

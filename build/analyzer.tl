@@ -106,9 +106,6 @@ local record analyzer
     --- The host requirements a policy declares ([`Test.policy`]'s
     --- `requires`), as written; empty for [`Test.needs`], which has none.
     requires: {string}
-    --- What the policy implies beyond them ([`host_names.implied`]), by
-    --- name and sorted; empty for [`Test.needs`], which implies none.
-    implied: {string}
   end
 
   --- What a single parse of a module's source tells the importer: its
@@ -1670,7 +1667,7 @@ local function policy_declared(data: PolicyData, line: integer): analyzer.Declar
   local out: analyzer.Declared = {
     line = line, reads = {}, host = {}, env = {}, network = {},
     tool = false, lua = false, nests = false, noexec = false, store = false,
-    system = false, caches = {}, requires = {}, implied = {},
+    system = false, caches = {}, requires = {},
   }
   local not_yet = " is not yet taken: a policy runs a worker as a `needs` does " ..
     "(migration step a of the sandbox plan), and this takes effect where the policy's own " ..
@@ -1787,17 +1784,10 @@ local function policy_declared(data: PolicyData, line: integer): analyzer.Declar
   end
   out.env = data.env or {}
   out.network = data.loopback or {}
-  -- TODO: `isolate`, once taken, implies `sandbox` and `userns`
-  -- ([`host_names.implied`]); it is refused above until then.
-  local effective, trouble = host_names.check(data.requires or {},
-    { nests = out.nests, system = out.system, host = out.host, env = out.env })
-  if effective == nil then return nil, trouble end
+  local fine, trouble = host_names.check(data.requires or {},
+    { system = out.system, host = out.host, env = out.env })
+  if not fine then return nil, trouble end
   out.requires = data.requires or {}
-  local written: {string:boolean} = {}
-  for _, name in ipairs(out.requires) do written[name] = true end
-  for _, name in ipairs(effective) do
-    if not written[name] then out.implied[#out.implied + 1] = name end
-  end
   return out, ""
 end
 
@@ -1868,7 +1858,7 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
   local out: analyzer.Declared = {
     line = found.y, reads = {}, host = {}, env = {}, network = {},
     tool = false, lua = false, nests = false, noexec = false, store = false,
-    system = false, caches = {}, requires = {}, implied = {},
+    system = false, caches = {}, requires = {},
   }
   if which == "policy" then
     -- The `needs` the policy stands for, held to the rules its own fields

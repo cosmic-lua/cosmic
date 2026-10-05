@@ -266,14 +266,15 @@ local record Test
     --- on one yet.
     database: string
     --- What the tests need of the host that no other field says, by name
-    --- from a closed table: `sandbox`, `landlock:N`,
-    --- `userns`, `nest`, `own_proc`, `proc`, `portable`, `root`,
-    --- `path:<absolute path>` and `program:<name>`. The runner asks the host
+    --- from a closed table: `portable`, `root`, `path:<absolute path>` and
+    --- `program:<name>` (the Linux-class `sandbox`, `landlock:N`, `userns`,
+    --- `nest`, `own_proc` and `proc` are refused until each CI leg's promises
+    --- are written down). The runner asks the host
     --- once, before any worker starts, and a module whose requirement is
     --- absent is not run: its tests are counted n/a where the platform never
-    --- has it and skipped where this host lacks it. What the policy implies
-    --- is no entry here, and one that repeats it fails the build, as does a
-    --- name the table does not have. A `path:` needs a `host` grant of that
+    --- has it and skipped where this host lacks it. Nothing is inferred from
+    --- the other fields. A name the table does not have or one written twice
+    --- fails the build. A `path:` needs a `host` grant of that
     --- path and a `program:` the profile "system" and the variable PATH in
     --- `env`, so the worker can see what the runner found.
     requires: {string}
@@ -718,9 +719,8 @@ function Test.needs_of(given: any): Test.Needs | nil, string
   end
   if #(policy.env or {}) > 0 then out.env = policy.env end
   if #(policy.loopback or {}) > 0 then out.network = policy.loopback end
-  -- Only as written: which names are known, what the policy implies and
-  -- which are redundant is the build's to say (build.host_requires, which
-  -- this module cannot require), and the runner's to probe.
+  -- Only as written: which names are known and allowed is the build's to say
+  -- (build.host_names, which this module cannot require), and the runner's to probe.
   if #(policy.requires or {}) > 0 then out.requires = policy.requires end
   return out, ""
 end
@@ -762,9 +762,8 @@ end
 --- connect to, `isolate`, `limits`, `set_env`, `connect` -- fails the
 --- build, naming the field. `requires` names what the host must have, which
 --- the runner asks once before any worker starts; the build refuses a name
---- the table does not have, one written twice and one the policy implies (the
---- promise "nest" implies `nest`; a host grant of /proc or beneath it,
---- `proc`), and a `path:` with no host grant of its path or a `program:`
+--- the table does not have, a Linux-class one (for now) and one written twice,
+--- and a `path:` with no host grant of its path or a `program:`
 --- without the profile "system" and `env = { "PATH" }`. Raises as `needs`
 --- does, for a value no
 --- [`Policy`] could be and for a call made twice or after the module has
