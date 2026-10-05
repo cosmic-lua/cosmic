@@ -1,0 +1,9 @@
+version 9329e64694e7835d0dcff9811e22856ef6ad16f9
+url https://github.com/html5lib/html5lib-tests/archive/9329e64694e7835d0dcff9811e22856ef6ad16f9.tar.gz
+sha256 37d2a0619856234e0631cfb08cf77f32420cba07ad4f3b3871ea991126cc5b57
+strip html5lib-tests-9329e64694e7835d0dcff9811e22856ef6ad16f9/
+keep LICENSE
+keep tree-construction/*.dat
+kind test
+license MIT
+notice LICENSE
