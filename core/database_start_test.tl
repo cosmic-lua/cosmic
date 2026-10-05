@@ -12,6 +12,7 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
+local confine = require("build.confine")
 local schema = require("build.schema")
 local this_program = require("build.this_program")
 
@@ -343,7 +344,7 @@ end
 --- grants it to read.
 local function test_a_sandboxed_child_stays_on_the_database(tmp: string)
   local core = core_path()
-  if core == nil then return end
+  if core == nil or not confine.sandbox_platform() then return end
   local path = info_database(tmp)
   local r = run({ core, "--database", path, "sandboxed" })
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
@@ -351,7 +352,10 @@ local function test_a_sandboxed_child_stays_on_the_database(tmp: string)
   if out.sandbox_refused ~= nil then
     -- A host that gives no sandbox here has nothing to check.
     for _, word in ipairs({ "Landlock", "seccomp", "not implemented", "namespace", "own /proc" }) do
-      if out.sandbox_refused:find(word, 1, true) then Test.skip(out.sandbox_refused) end
+      if out.sandbox_refused:find(word, 1, true) then
+        Test.skip(out.sandbox_refused)
+        return
+      end
     end
     error("the sandboxed start was refused: " .. out.sandbox_refused)
   end
@@ -408,7 +412,9 @@ end
 
 local function test_no_artifact_or_launcher_is_opened_and_the_core_is_held_back(tmp: string)
   local core = core_path()
-  if core == nil then return end
+  -- The probe reads the descriptors it holds through /proc, which only
+  -- Linux has.
+  if core == nil or not Fs.is_dir("/proc/self/fd") then return end
   local path = tmp .. "/program.db"
   write_database(path, {
     { name = "probe.main", kind = "main", source = DESCRIPTORS, requires = { "cosmic.sys", "cosmic.fs" } },
