@@ -144,8 +144,11 @@
    loudly, never pass; and what a harness module calls through a
    library table a test can replace, it takes as a local at load. A test reaches no network but loopback,
    and loopback is 127/8: [`Test.needs`] takes `network` as a list of
-   addresses `127.a.b.c`, whose worker, like every sandboxed one, runs
-   offline on a loopback of its own and is keyed; `network = true`, any
+   addresses `127.a.b.c`, whose worker runs offline on a loopback of
+   its own and is keyed. A sandboxed worker whose module declares no
+   `network` has no network at all: its filter refuses it an inet
+   socket (under the older sandbox, `COSMIC_TEST_POLICY=0`, it too runs
+   on a loopback of its own). `network = true`, any
    other host, `::1` and `localhost` are refused, for this tree and
    every project, naming the rule. A test that needs a service starts
    its own on 127.0.0.1. A
