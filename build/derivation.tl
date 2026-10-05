@@ -179,6 +179,7 @@ local function insert_test_inputs(db: Sqlite.Handle, source_hash: string,
     if declared.store then rows[#rows + 1] = { "store", "true" } end
     if declared.system then rows[#rows + 1] = { "system", "true" } end
     each("caches", declared.caches)
+    each("requires", declared.requires or {})
   end
   for ordinal, row in ipairs(rows) do
     local ok, why = Sqlite.run(db,

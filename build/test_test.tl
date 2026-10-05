@@ -151,7 +151,8 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   assert(db:exec("CREATE TABLE modules (path TEXT, kind TEXT, source_hash BLOB, " ..
       "bytecode BLOB); CREATE TABLE imports (path TEXT, requires TEXT)"))
   local key_code = { "build.test", "build.declared_key", "build.shared_verdicts",
-    "build.artifact", "build.bind", "build.harness_epoch" }
+    "build.artifact", "build.bind", "build.harness_epoch", "build.host_requires",
+    "build.host_names" }
   local imports: {{string}} = {
     { "build.declared_key", "build.artifact" }, { "build.declared_key", "cosmic.fs" },
     { "build.shared_verdicts", "build.bind" }, { "build.test", "build.importer" },
@@ -159,6 +160,7 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
     { "build.shared_verdicts", "build.harness_epoch" },
     { "build.closure_store", "build.schema" }, { "build.closure_store", "cosmic.sqlite" },
     { "build.shared_verdicts", "cosmic.sqlite" }, { "cosmic.sqlite", "cosmic.sys" },
+    { "build.host_requires", "build.host_names" },
   }
   for _, row in ipairs(imports) do
     assert(Sqlite.run(db, "INSERT INTO imports VALUES (?, ?)", { { text = row[1] }, { text = row[2] } }))
@@ -215,7 +217,7 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   for _, name in ipairs({ "build.test", "build.declared_key", "build.shared_verdicts",
       "build.artifact", "build.test_worker", "build.test_sandbox", "build.test_policy",
       "cmd.cosmic.main", "build.confine",
-      "build.test_inputs", "cosmic.test",
+      "build.test_inputs", "cosmic.test", "build.host_requires", "build.host_names",
       "build.caches", "build.zig_caches" }) do
     assert(edited(name) == "harness", name .. " moved " .. edited(name))
   end
@@ -294,7 +296,8 @@ local function test_the_harness_walks_the_key_code_by_value()
   end
   for _, name in ipairs(worker.loads) do add(name) end
   for _, name in ipairs({ "build.test", "build.declared_key", "build.shared_verdicts",
-      "build.artifact", "build.test_sandbox", "build.test_policy", "build.closure_artifact",
+      "build.host_requires", "build.artifact", "build.test_sandbox", "build.test_policy",
+      "build.closure_artifact",
       "build.caches", "build.zig_caches", "build.closure_store", "build.schema",
       "cosmic.child", "cosmic.sandbox", "cosmic.time", "cosmic.sqlite", "cosmic.stream" }) do
     add(name)

@@ -26,7 +26,10 @@ local OPTIONAL <const>: {string:boolean} = { launcher = true, tree = true,
 --- The collections a spec's inputs name: its closure's files, the paths
 --- of the tree it reads, the host paths it declares, and the
 --- environment its worker is given, as names and values in turn.
-local LISTS <const> = { "files", "reads", "hosts", "environment" }
+local LISTS <const> = { "files", "reads", "hosts", "environment", "requires" }
+
+--- The lists that are names and values in turn, a map by name.
+local function is_map(name: string): boolean return name == "environment" or name == "requires" end
 
 --- A spec as a generator draws it: each scalar a string or, for an
 --- optional one, absent (nil); each list of strings.
@@ -67,21 +70,23 @@ local function canonical(d: Drawn): Drawn
     table.sort(set)
     out.lists[name] = set
   end
-  local values: {string:string} = {}
-  local env = d.lists.environment
-  for i = 1, #env - 1, 2 do
-    -- The last value of a name given twice, as [`spec_of`] gives it.
-    if env[i] ~= "" then values[env[i]] = env[i + 1] end
+  for _, map in ipairs({ "environment", "requires" }) do
+    local values: {string:string} = {}
+    local env = d.lists[map]
+    for i = 1, #env - 1, 2 do
+      -- The last value of a name given twice, as [`spec_of`] gives it.
+      if env[i] ~= "" then values[env[i]] = env[i + 1] end
+    end
+    local names: {string} = {}
+    for name in pairs(values) do names[#names + 1] = name end
+    table.sort(names)
+    local pairs_out: {string} = {}
+    for _, name in ipairs(names) do
+      pairs_out[#pairs_out + 1] = name
+      pairs_out[#pairs_out + 1] = values[name]
+    end
+    out.lists[map] = pairs_out
   end
-  local names: {string} = {}
-  for name in pairs(values) do names[#names + 1] = name end
-  table.sort(names)
-  local pairs_out: {string} = {}
-  for _, name in ipairs(names) do
-    pairs_out[#pairs_out + 1] = name
-    pairs_out[#pairs_out + 1] = values[name]
-  end
-  out.lists.environment = pairs_out
   return out
 end
 
@@ -128,10 +133,10 @@ local function draw_spec(src: Fuzz.Source): Drawn
   end
   for _, name in ipairs(LISTS) do
     local list: {string} = {}
-    local alphabet = name == "environment" and ALPHABET or PATH_ALPHABET
+    local alphabet = is_map(name) and ALPHABET or PATH_ALPHABET
     while Fuzz.more(src, #list, 6) do list[#list + 1] = draw_string(src, alphabet, 1) end
     -- The environment is names and values in turn.
-    if name == "environment" and #list % 2 == 1 then list[#list + 1] = "" end
+    if is_map(name) and #list % 2 == 1 then list[#list + 1] = "" end
     d.lists[name] = list
   end
   return d
@@ -175,7 +180,7 @@ local function edit(src: Fuzz.Source, d: Drawn): Drawn
   else
     local name = Fuzz.pick(src, LISTS)
     local list = out.lists[name]
-    local step = name == "environment" and 2 or 1
+    local step = is_map(name) and 2 or 1
     if kind == 2 and #list > 0 then
       -- An entry split in two, or two joined.
       local at = src:int(1, #list)
@@ -193,10 +198,10 @@ local function edit(src: Fuzz.Source, d: Drawn): Drawn
     else
       -- One added.
       for _ = 1, step do
-        list[#list + 1] = draw_string(src, name == "environment" and ALPHABET or PATH_ALPHABET, 1)
+        list[#list + 1] = draw_string(src, is_map(name) and ALPHABET or PATH_ALPHABET, 1)
       end
     end
-    if name == "environment" and #list % 2 == 1 then list[#list + 1] = "" end
+    if is_map(name) and #list % 2 == 1 then list[#list + 1] = "" end
   end
   return out
 end
@@ -214,6 +219,9 @@ local function spec_of(d: Drawn, host: string): declared_key.Spec
   local environment: {string:string} = {}
   local env = d.lists.environment
   for i = 1, #env - 1, 2 do environment[env[i]] = env[i + 1] end
+  local required: {string:string} = {}
+  local asked = d.lists.requires
+  for i = 1, #asked - 1, 2 do required[asked[i]] = asked[i + 1] end
   local effective: test_inputs.Effective = {
     files = files, reads = d.lists.reads, host = hosts, env = {}, network = {},
     tool = true, store = false, system = true, caches = {},
@@ -224,7 +232,7 @@ local function spec_of(d: Drawn, host: string): declared_key.Spec
     id = s.id, group = "group", module_key = s.module_key, runtime = s.runtime,
     compiler = s.compiler, epoch = "1-00000000", timeout_ns = Clock.seconds(30), program = s.program, host = s.host,
     system = s.system, launcher = s.launcher, declaration = s.declaration,
-    effective = effective, environment = environment, runs_tool = false,
+    effective = effective, environment = environment, requires = required, runs_tool = false,
     closure_store = s.closure_store, tree = s.tree,
   }
 end

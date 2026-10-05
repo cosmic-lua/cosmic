@@ -397,6 +397,7 @@ local function full_spec(hostdir: string): declared_key.Spec
     runtime = "runtime sandboxed", compiler = "compiler", epoch = "1-00000000", timeout_ns = Clock.seconds(30),
     program = "program", host = "host", system = "system", launcher = "launcher",
     declaration = 'reads "suite/data/"\nenv "DECLARED"', effective = effective,
+    requires = { proc = "mounted", ["program:jq"] = "sha256:jq" },
     environment = { DECLARED = "d", H = hostdir, TMPDIR = "/tmp" },
     runs_tool = true, closure_store = "address", tree = "/checkout",
   }
@@ -425,6 +426,10 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
       s.timeout_ns = s.timeout_ns + Clock.seconds(1)
     end },
     launcher = append("launcher"), declaration = append("declaration"),
+    -- Each present answer, by name and by what it holds.
+    requires = { change = function(s: declared_key.Spec)
+      s.requires["program:jq"] = "sha256:other"
+    end },
     -- Keyed only for an unsandboxed worker, which sees the tree there.
     tree = append("tree"),
     -- Keyed only for a module given the system's paths.

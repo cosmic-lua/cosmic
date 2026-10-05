@@ -38,6 +38,12 @@ local function test_summaries_keep_the_figures_ci_reads_in_order()
       "9 tests, 3 modules; 4 ran, 5 stood, 1 skipped (this host could not check it), " ..
       "2 run every time (no key holds them), 3 of them on another checkout's verdict, " ..
       "7 ms; sandboxed")
+  assert(test_report.passed({ total = 9, modules = 3, ran = 4, cached = 3,
+    skipped = 1, na = 2, every = 0, shared = 0 }, "7 ms") ==
+      "9 tests, 3 modules; 4 ran, 3 stood, 1 skipped (this host could not check it), " ..
+      "2 n/a (this platform has none of what they check), 7 ms")
+  assert(table.concat(test_report.nas({ "z: requires proc: none", "a: requires proc: none" }), "\n") ==
+      "test: N/A  a: requires proc: none\ntest: N/A  z: requires proc: none")
   assert(test_report.failed(2, 9, 1, "7 ms") ==
       "2 of 9 failed, 1 infrastructure error, 7 ms")
   assert(test_report.coverage(1, 4) ==
