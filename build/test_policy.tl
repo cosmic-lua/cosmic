@@ -11,7 +11,8 @@
 --- bind of the host's either but a directory the worker makes in the
 --- sandbox's own /tmp (`tmp`, with "/tmp" granted `rwxc`): a root of files
 --- alone and a tmpfs of its own, which holds a unix socket the worker makes
---- below Landlock ABI 9 (core/syscalls.c's `root_shows_no_socket`). The paths are
+--- below Landlock ABI 9, and, for a worker that declares `nests` and so has
+--- no ruleset, at any ABI (core/syscalls.c's `root_shows_no_socket`). The paths are
 --- [`test_sandbox.plan`]'s, taken as it plans them for the policy
 --- (`policy`); this module turns them into grants and the rest of the
 --- declaration into the policy's other fields, or refuses the module,

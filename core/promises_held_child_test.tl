@@ -19,8 +19,11 @@ local type raw_process = require("cosmic.internal.process")
 local type _ = require("cosmic.child")
 
 --- `nests`, since the children these tests start make namespaces of their
---- own, which a worker held by a Landlock ruleset cannot start.
-Test.needs{ nests = true }
+--- own, which a worker held by a Landlock ruleset cannot start; and a
+--- `network`, which gives the worker a network namespace of its own, one
+--- its filter lets it make a unix socket in (the children it starts inherit
+--- that filter).
+Test.needs{ nests = true, network = { "127.0.0.1" } }
 
 local type Searcher = function(string): any, any
 
@@ -161,12 +164,6 @@ local function refused(said: string): boolean
   return said:find("not permitted", 1, true) ~= nil
 end
 
--- TODO: run the tests below under the policy path on a kernel below
--- Landlock ABI 9, once a worker that declares `nests` may make a unix socket
--- (build/unix_socket.tl's TODO): its filter, which every process it starts
--- inherits, refuses socket(AF_UNIX), so they skip there and run under
--- COSMIC_TEST_POLICY=0 or from ABI 9.
-
 local function test_a_root_of_its_own_tmpfs_alone_makes_a_unix_socket_there(tmp: string)
   local abi, trouble = process.landlock_abi()
   if abi == nil then
@@ -187,6 +184,50 @@ local function test_a_root_of_its_own_tmpfs_alone_makes_a_unix_socket_there(tmp:
   shared.offline = false
   local open = in_sandbox(tmp, probe, shared, "loopback-unix /tmp/pair.sock")
   assert(refused(open.said), "refused without its own network: " .. open.said)
+end
+
+--- [`rooted_with`], as a start that promises `nest` makes it: no Landlock
+--- ruleset holds it, so its root alone does.
+local function nesting(probe: string, shown: {string}): raw_process.Sandbox
+  local sandbox = rooted_with(probe, shown)
+  sandbox.grants = nil
+  sandbox.promises = { "nest" }
+  return sandbox
+end
+
+local function test_a_nest_start_with_a_root_of_files_alone_makes_a_unix_socket(tmp: string)
+  if unix_socket.skipped(tmp) then return end
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local made = in_sandbox(tmp, probe, nesting(probe, {}), "loopback-unix /tmp/pair.sock")
+  if made.code == -1 then return end
+  assert(made.code == 0 and made.said == "connected\n", "made in its own tmpfs: " .. made.said)
+  -- A file that is no socket beside it changes nothing.
+  local beside = in_sandbox(tmp, probe, nesting(probe, { "/dev/zero" }), "loopback-unix /tmp/pair.sock")
+  assert(beside.code == 0 and beside.said == "connected\n", "beside a file: " .. beside.said)
+  -- Never without a network namespace of its own, where an abstract name is the host's.
+  local shared = nesting(probe, {})
+  shared.offline = false
+  local open = in_sandbox(tmp, probe, shared, "loopback-unix /tmp/pair.sock")
+  assert(refused(open.said), "refused without its own network: " .. open.said)
+end
+
+local function test_a_nest_start_whose_root_shows_a_host_directory_or_socket_is_refused_a_unix_socket(tmp: string)
+  if unix_socket.skipped(tmp) then return end
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local socket, listener = host_socket(tmp)
+  local control = in_sandbox(tmp, probe, nesting(probe, {}), "connect /none.sock")
+  if control.code == -1 then
+    assert(listener:close())
+    return
+  end
+  assert(not refused(control.said), "held, with nothing shown: " .. control.said)
+  -- No Landlock ABI tells the host's socket from the program's own, whatever
+  -- the kernel gives: the root is all that holds a nest start.
+  local directory = in_sandbox(tmp, probe, nesting(probe, { tmp .. "/socks" }), "connect " .. socket)
+  assert(refused(directory.said), "a directory of the host: " .. directory.said)
+  local file = in_sandbox(tmp, probe, nesting(probe, { socket }), "connect " .. socket)
+  assert(refused(file.said), "a socket file of the host: " .. file.said)
+  assert(listener:close())
 end
 
 local function test_a_root_that_shows_a_directory_of_the_host_is_held_by_landlock_alone(tmp: string)

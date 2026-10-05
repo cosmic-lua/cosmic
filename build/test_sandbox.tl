@@ -23,11 +23,12 @@
 ---   the processes it starts write their coverage (`children` there), and
 ---   its TMPDIR. Under a policy ([`build.test_policy`]), where the module
 ---   declares nothing that binds a directory of the host -- no `system`,
----   `tool`, `nests`, host cache or `noexec`, and no directory among its
+---   `tool`, host cache or `noexec`, and no directory among its
 ---   `reads` and `host` -- that directory is not the host's: the worker
 ---   makes it in the sandbox's own /tmp at the same name ([`Plan`]'s
 ---   `own_scratch`), so its root shows files alone, which holds a unix
----   socket it makes below Landlock ABI 9;
+---   socket it makes below Landlock ABI 9, and, for a module that declares
+---   `nests` (whose worker has no Landlock ruleset), at any ABI;
 --- - the host caches the module declares ([`build.caches`]), writable,
 ---   each at its own name, made first where missing, and the variables
 ---   that locate them -- but for the cores a portable cosmic extracts,
@@ -603,7 +604,7 @@ end
 --- (core/syscalls.c's `root_shows_no_socket`). The declaration decides,
 --- with the kind of the paths it names on this host, which the module's key
 --- records already ([`build.declared_key`]): `system`, `tool` (o/bin),
---- `nests`, a host `caches` or a private `noexec` scratch, and a `reads`
+--- a host `caches` or a private `noexec` scratch, and a `reads`
 --- or `host` path that is a directory (or a socket) here. The paths are
 --- those `reads` came to, the worker's.
 --- @param effective what the module declares
@@ -614,9 +615,6 @@ local function why_shared_scratch(effective: test_inputs.Effective, reads: {stri
     return "it declares `system`, which gives it the system's directories"
   end
   if effective.tool then return "it declares `tool`, which gives it the directory o/bin" end
-  if effective.nests then
-    return "it declares `nests`, which gives up the Landlock ruleset its unix sockets are held by"
-  end
   if effective.noexec then
     return "it declares `noexec`, whose private scratch is a bind of a host directory"
   end

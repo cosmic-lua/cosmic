@@ -66,10 +66,13 @@ unsigned cosmic_promise_named (const char *name);
  *   namespace of its own (its abstract sockets are its own and no host
  *   client reaches a name it binds), and held by one of two: a Landlock
  *   domain that handles LANDLOCK_ACCESS_FS_RESOLVE_UNIX (ABI 9), which
- *   refuses a connect to a socket file no `u` grant names; or, below it,
- *   a root that shows no directory of the host's and no socket file, so no
- *   socket exists there but the ones the process makes. A root that shows
- *   a directory below ABI 9 is held by neither, and the hold is not given.
+ *   refuses a connect to a socket file no `u` grant names; or a root that
+ *   shows no directory of the host's and no socket file, so no socket
+ *   exists there but the ones the process makes, which is all that holds a
+ *   process below it, and one that promises `nest`, which has no Landlock
+ *   domain, at any ABI. A root that shows a directory is held by neither
+ *   where there is no domain or it is below ABI 9, and the hold is not
+ *   given.
  * - `COSMIC_HELD_LIMITS`: setrlimit and prlimit64 that set the process's
  *   own limits are allowed. The process cannot raise a hard limit: it is
  *   in a user namespace the start made, or its capabilities lack
