@@ -47,9 +47,9 @@ local maps_ids <const> =
   "host that lets unshare(CLONE_NEWUSER) through and refuses the uid_map write (AppArmor's restriction) it is"
 
 local skipped_unix <const> =
-  "entered only by tests of a unix socket in a worker's scratch directory, which the policy path skips (a policy has " ..
-  "no `u` grant below Landlock ABI 9: build/unix_socket.tl); an unsandboxed run, macOS's, or one with " ..
-  "COSMIC_TEST_POLICY=0 enters it"
+  "entered only by tests of a unix socket in a worker's scratch directory, which the policy path skips (a worker's " ..
+  "root has host directories, so its filter keeps socket(AF_UNIX) refused below Landlock ABI 9: " ..
+  "build/unix_socket.tl); an unsandboxed run, macOS's, or one with COSMIC_TEST_POLICY=0 enters it"
 
 --- The C functions no test can enter, by [`key_of`], and why.
 -- TODO: delete the exemption that uses `skipped_unix`, once Landlock ABI 9

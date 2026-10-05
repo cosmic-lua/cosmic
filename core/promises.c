@@ -219,7 +219,8 @@ struct grant {
  * - pidfd_send_signal, which signals through a descriptor no pid rule sees,
  *   unless the signal scope holds (see RULE_SIGNAL).
  * - socket, except where the process is held to a root, network namespace
- *   and Landlock ABI that make a unix socket harmless (COSMIC_HELD_UNIX)
+ *   and either Landlock ABI 9 or a root showing no directory or socket of the
+ *   host's, that make a unix socket harmless (COSMIC_HELD_UNIX)
  *   or the caller names the families (`sockets`).
  * - vmsplice.
  * - The never-allowed set (ptrace, bpf, io_uring, ...), which no table names.

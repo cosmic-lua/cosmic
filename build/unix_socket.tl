@@ -1,8 +1,11 @@
 --- Whether the running process may make a unix socket, for the tests of
---- one: a worker started under the policy path makes one only with a `u`
---- grant, which a kernel below Landlock ABI 9 cannot give beside another
---- directory, so a test of a socket file in its scratch directory is
---- skipped there, naming why.
+--- one: a worker started under the policy path makes one only where
+--- Landlock ABI 9 tells a socket it was granted from another, or its root
+--- shows no directory of the host's (which a worker's does, the tree and its
+--- scratch directory). Every process it starts inherits its filter, so
+--- below ABI 9 none can make one either, whatever root it is started in:
+--- a test of a socket file in its scratch directory is skipped there,
+--- naming why.
 
 local type _net = require("cosmic.net")
 local Test = require("cosmic.test")
@@ -66,15 +69,18 @@ end
 --- @return whether the test is skipped
 -- TODO: delete this skip, and give each such test the `u` grant it
 -- needs, once the kernels the suite runs on give Landlock ABI 9 (the
--- TODOs at core/syscalls.c's `u` and build/test_policy.tl's
+-- TODOs at core/syscalls.c's `grants_ruleset` and build/test_policy.tl's
 -- `base_promises`): below it a worker that is granted a unix socket may
--- be granted no other directory, so a socket file in its scratch
--- directory cannot be reached.
+-- be granted no directory, so a socket file in its scratch directory
+-- cannot be reached. Or once a worker's root is a tmpfs of its own and
+-- files alone (a start's root then holds unix sockets by itself,
+-- core/syscalls.c's `grants_ruleset`), whose filter then allows them.
 function unix_socket.skipped(dir: string): boolean
   local tried = listens(dir)
   if not tried.refused then return false end
-  Test.skip("the worker cannot make a unix socket (" .. tried.why .. "): its policy has no `u` grant, " ..
-      "which needs Landlock ABI 9 to sit beside another directory")
+  Test.skip("the worker cannot make a unix socket (" .. tried.why .. "): its root binds host " ..
+      "directories, which hold a unix socket by Landlock ABI 9 alone, and every process it starts " ..
+      "inherits its filter")
   return true
 end
 

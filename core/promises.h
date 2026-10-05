@@ -64,10 +64,12 @@ unsigned cosmic_promise_named (const char *name);
  * - `COSMIC_HELD_UNIX`: socket(AF_UNIX) is allowed. The process is in a
  *   root of its own that shows only what it was granted, in a network
  *   namespace of its own (its abstract sockets are its own and no host
- *   client reaches a name it binds), and in a Landlock domain that handles
- *   LANDLOCK_ACCESS_FS_RESOLVE_UNIX (ABI 9), which refuses a connect to a
- *   socket file no `u` grant names. Below ABI 9 nothing tells one socket
- *   file of a granted directory from another, so the hold is not given.
+ *   client reaches a name it binds), and held by one of two: a Landlock
+ *   domain that handles LANDLOCK_ACCESS_FS_RESOLVE_UNIX (ABI 9), which
+ *   refuses a connect to a socket file no `u` grant names; or, below it,
+ *   a root that shows no directory of the host's and no socket file, so no
+ *   socket exists there but the ones the process makes. A root that shows
+ *   a directory below ABI 9 is held by neither, and the hold is not given.
  * - `COSMIC_HELD_LIMITS`: setrlimit and prlimit64 that set the process's
  *   own limits are allowed. The process cannot raise a hard limit: it is
  *   in a user namespace the start made, or its capabilities lack
