@@ -17,6 +17,10 @@ A file's name says what it is.
 - `name.tl` is a library module, `require("name")`. A directory
   `name/` holding an `init.tl` is the same module, `require("name")`,
   with room for files of its own beside it.
+- `name.tmpl` is a typed template ([`cosmic.template`]), built into the
+  module `require("name")` with a `render` function: `pages/home.tmpl`
+  is `pages.home`, `pages/init.tmpl` is `pages`. Nothing generated is
+  kept, and an error names the template's own line.
 - `name_test.tl` holds tests: each top-level `local function test_*`
   is one test. Nothing is returned or registered.
 - `name_example.tl` holds worked examples: it returns a record named
@@ -349,4 +353,5 @@ tally (tally.tl)
 [`cosmic.child`]: ../../cosmic/child.tl
 [`cosmic.flags`]: ../../cosmic/flags.tl
 [`cosmic.log`]: ../../cosmic/log.tl
+[`cosmic.template`]: ../../cosmic/template/init.tl
 [`Flags.dispatch`]: ../../cosmic/flags.tl

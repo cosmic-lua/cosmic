@@ -79,14 +79,6 @@ allowed["build.flow.bare"] = "the subset build/workflows_test.tl holds " ..
 allowed["build.flow.problems"] = "the subset build/workflows_test.tl holds " ..
   "the workflows to, which the layout is also held to"
 allowed["build.flow.comments"] = "what the fuzz test holds a layout to keep"
--- TODO: drop these once a `.tmpl` of the tree (step 4 of doc/plans/template.md) is
--- built into a module that uses them: cosmic.template writes the calls into
--- generated source, which no export check reads as a use.
-for _, name in ipairs({ "href", "trust_url", "raw_url" }) do
-  allowed["cosmic.html." .. name] = "the URL door of cosmic.html: the template compiler of " ..
-    "doc/plans/template.md writes href and raw_url into the modules it generates, " ..
-    "and trust_url is how a program makes the value a template is given"
-end
 allowed["build.analyzer.analyze"] = "a convenience the tests call, a parse and " ..
   "analysis_of; every caller outside them calls analysis_of on a parse it has"
 for _, name in ipairs({ "parse", "render", "scalar", "from", "write", "value", "get", "set", "update" }) do

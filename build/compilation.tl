@@ -322,7 +322,7 @@ function compilation.collect(db: Sqlite.Handle): {Module} | nil, string
         {},
       inputs = inputs,
       has_top_level_return = has_return == "1",
-      generated = origin == "doctest",
+      generated = origin == "doctest" or origin == "template",
       key = "",
       graph_key = "",
       lua = "",
@@ -497,7 +497,23 @@ function compilation.generate(m: Module, built: compiler, env: compiler.Env,
   if source == nil then
     return nil, spec_trouble
   end
-  local code, result = built.gen(source, env, nil, "tl")
+  -- Checked under the module's own file name, not `gen`'s empty
+  -- one: a mismatch between a value's type and the type a slot
+  -- expects is reported at the value's declaration when the checker
+  -- takes both for one file's and the declaration lies after the use,
+  -- which on a cold build put a template's error at the field in its
+  -- data module, under the template's name.
+  typed.checking = m.file
+  local result = built.check_string(source, env, m.file, "tl")
+  typed.checking = ""
+  local code: string | nil = nil
+  if result.ast ~= nil and #result.syntax_errors == 0 then
+    local written, write_trouble = built.generate(result.ast, env.defaults.gen_target, nil)
+    if written == nil then
+      return nil, m.file .. ": " .. write_trouble
+    end
+    code = written
+  end
   if m.kind == "test" and result ~= nil then
     result = discount_test_warnings(result, m.tests)
   end

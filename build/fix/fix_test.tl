@@ -179,9 +179,24 @@ local function test_a_path_that_is_not_there_is_missing_before_it_is_judged(tmp:
       what .. " should be reported as missing, not judged on its suffix: " ..
         picked.refused[i])
   end
-  assert(picked.refused[3]:find("not a Teal or C source, YAML, Markdown or Zig", 1, true) ~= nil,
+  assert(picked.refused[3]:find("not a Teal, C or template source, YAML, Markdown or Zig", 1, true) ~= nil,
     "a file that is there but is not Teal should be said so: " ..
       picked.refused[3])
+end
+
+--- A template is parsed and never rewritten: it is chosen apart from the
+--- Teal that is laid out, by name, by directory and by the whole tree.
+local function test_a_template_is_chosen_to_be_parsed_not_laid_out(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/pages"))
+  assert(Fs.write(tmp .. "/pages/init.tmpl", "{{type Page from pages.data}}\n"))
+  assert(Fs.write(tmp .. "/pages/data.tl", "return {}\n"))
+  local named = assert(fix.chosen(tmp, { tmp .. "/pages/init.tmpl" }))
+  assert(#named.files == 0 and #named.refused == 0, "a template is no Teal to lay out")
+  assert(#named.templates == 1 and named.templates[1] == tmp .. "/pages/init.tmpl")
+  local dir = assert(fix.chosen(tmp, { tmp .. "/pages" }))
+  assert(#dir.files == 1 and #dir.templates == 1 and dir.templates[1] == tmp .. "/pages/init.tmpl")
+  local every = assert(fix.chosen(tmp, {}))
+  assert(#every.templates == 1 and every.templates[1] == "pages/init.tmpl", table.concat(every.templates, " "))
 end
 
 --- C is checked only where the rules it is checked against belong:
@@ -239,7 +254,7 @@ local function program_modules(): Sqlite.Handle
       "build.fix.equiv", "build.ast",
       "build.teal", "build.flow", "build.c", "build.fix.near",
       "build.analyzer", "build.verdict", "build.tree", "cosmic.flags",
-      "cosmic.cli",
+      "cosmic.cli", "cosmic.template",
       "cosmic.string" }) do
     assert(Sqlite.run(db, "INSERT INTO modules VALUES (?1, ?2)",
       { { text = module }, { text = module:gsub("%.", "/") .. ".tl" } }))

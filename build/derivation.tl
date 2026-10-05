@@ -11,6 +11,7 @@ local ast = require("build.ast")
 local doctest = require("build.doctest")
 local gen_syscalls = require("build.gen_syscalls")
 local link_text = require("build.link_text")
+local Template = require("cosmic.template")
 local bind = require("build.bind")
 local type compiler = require("build.compiler")
 
@@ -82,6 +83,47 @@ local function derive_doc_guides(db: Sqlite.Handle): boolean, string
     local ok, insert_trouble = Sqlite.run(db, insert_derived,
       { text(file), text(import_path_of_doc(file)), text("test"),
         text("doctest"), text(from_hash), text(source) })
+    if not ok then
+      return false, file .. ": " .. insert_trouble
+    end
+  end
+  return true, ""
+end
+
+--- A template's import path, the convention a `.tl` file gets with its
+--- extension swapped: `pages/home.tmpl` is `pages.home`, and a
+--- directory's own `init.tmpl` is the directory, `pages`.
+local function import_path_of_template(file: string): string
+  local stem = file:gsub("%.tmpl$", "")
+  if stem:sub(-5) == "/init" then
+    stem = stem:sub(1, -6)
+  end
+  return (stem:gsub("/", "."))
+end
+
+--- The templates with no current `derived` row, each compiled to the
+--- module it is ([`cosmic.template`]). One it refuses fails the build
+--- with its own `file:line:col` reason. What the compiler last did to a
+--- template stands while the analyzer does ([`build.importer`]'s
+--- `forget_stale_analysis`): [`cosmic.template`] is in its closure.
+local function derive_templates(db: Sqlite.Handle): boolean, string
+  local templates, trouble = Sqlite.text_rows(db,
+    "SELECT path, CAST(data AS TEXT), sha256 FROM files " ..
+      "WHERE path GLOB '*.tmpl' AND path NOT GLOB 'testdata/*' " ..
+      "AND path NOT GLOB '*/testdata/*' " ..
+      "AND path NOT IN (SELECT file FROM derived) ORDER BY path")
+  if templates == nil then
+    return false, trouble
+  end
+  for _, row in ipairs(templates) do
+    local file, template_source, from_hash = row[1], row[2], row[3]
+    local source, compile_trouble = Template.compile(template_source, file)
+    if source == nil then
+      return false, compile_trouble
+    end
+    local ok, insert_trouble = Sqlite.run(db, insert_derived,
+      { text(file), text(import_path_of_template(file)), text("module"),
+        text("template"), text(from_hash), text(source) })
     if not ok then
       return false, file .. ": " .. insert_trouble
     end
@@ -529,7 +571,7 @@ end
 --- Produces generated inputs and rejects ambiguous import paths before
 --- any cached parse or compile can stand for them.
 function derivation.inputs(db: Sqlite.Handle): boolean, string
-  for _, step in ipairs({ derive_doc_guides, derive_syscalls, duplicate_import_paths }) do
+  for _, step in ipairs({ derive_doc_guides, derive_syscalls, derive_templates, duplicate_import_paths }) do
     local ok, trouble = step(db)
     if not ok then return false, trouble end
   end

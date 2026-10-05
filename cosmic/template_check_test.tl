@@ -1,16 +1,15 @@
---- What a compiled template does under Teal's checker and when run: the
---- generated source of each template below is built, in a project of its
---- own in the temporary directory, with [`importer.compile`] (so a warning
---- is a refusal, as for any module of the tree), and then loaded and
---- called. An error names the template's own line.
+--- What a compiled template does under Teal's checker and when run: each
+--- template below is a `page.tmpl` in a project of its own in the temporary
+--- directory, built with [`importer.compile`] (so a warning is a refusal,
+--- as for any module of the tree), and then loaded and called. An error
+--- names the template's own line.
 ---
---- The generated source is built as it is, against the real [`cosmic.html`]:
---- its types are checked, and what it renders is made by the core's own
---- escapers and `href`.
+--- The generated source is built as the build makes it, against the real
+--- [`cosmic.html`]. Its types are checked, and what it renders is made by
+--- the core's own escapers and `href`.
 
 local Fs = require("cosmic.fs")
 local Html = require("cosmic.html")
-local Template = require("cosmic.template")
 local importer = require("build.importer")
 local teal = require("build.teal")
 local work = require("build.work")
@@ -139,12 +138,8 @@ end
 
 --- Builds `template` as the module `page`, beside `data` and `fmt`.
 local function project(tmp: string, case: string, template: string): {string: string} | nil, string
-  local out, why = Template.compile(template, "page.tmpl")
-  if out == nil then
-    return nil, why
-  end
   return build(tmp, case, { ["data.tl"] = DATA, ["fmt.tl"] = FMT, ["util/string.tl"] = UTIL,
-    ["page.tl"] = out })
+    ["page.tmpl"] = template })
 end
 
 --- `s` as the core's `escape_attr` makes it in a document.
@@ -190,19 +185,10 @@ local function render(tmp: string, case: string, template: string, page: {string
   return out
 end
 
---- What building `template` refuses with, which it must. It is built
---- twice and the second refusal answered: when the checker compiles the
---- module that declares a type in the same run that finds the mismatch,
---- it reports the mismatch where that type was declared, in the wrong
---- file; with the module's compile cached, as it is the second time, it
---- reports the slot.
---- TODO: once the checker names the slot on a cold compile too (it names
---- the declaration of the field's type), take the first refusal.
+--- What building `template` refuses with, which it must.
 local function refused(tmp: string, case: string, template: string): string
-  local first, cold = project(tmp, case, template)
-  assert(first == nil, "built: " .. tostring(cold))
   local lua, trouble = project(tmp, case, template)
-  assert(lua == nil, "built the second time")
+  assert(lua == nil, "built")
   return trouble
 end
 
@@ -216,10 +202,10 @@ end
 local function test_a_type_error_in_a_text_template_is_on_the_templates_line(tmp: string)
   local template = "{{type Page from data}}{{mode text}}\nfine {{.title}}\n\nbad {{.items}}\n"
   local trouble = refused(tmp, "text-error", template)
-  assert(trouble:find("page.tl:4:", 1, true), trouble)
+  assert(trouble:find("page.tmpl:4:", 1, true), trouble)
   assert(trouble:find("string | number", 1, true), trouble)
   local multi = refused(tmp, "multi", "{{type Page from data}}{{mode text}}\n{{.title\n  | fmt.upper}}\n{{.items}}")
-  assert(multi:find("page.tl:4:", 1, true) and not multi:find("page.tl:2:", 1, true), multi)
+  assert(multi:find("page.tmpl:4:", 1, true) and not multi:find("page.tmpl:2:", 1, true), multi)
 end
 
 local function test_a_slot_takes_what_its_place_accepts(tmp: string)
@@ -258,7 +244,7 @@ local WRONG <const>: {{string}} = {
 local function test_a_slot_given_what_its_place_refuses_is_a_type_error_on_its_line(tmp: string)
   for index, case in ipairs(WRONG) do
     local trouble = refused(tmp, "wrong" .. index, HEAD .. "ok\n" .. case[1])
-    assert(trouble:find("page.tl:3:", 1, true), case[1] .. ": " .. trouble)
+    assert(trouble:find("page.tmpl:3:", 1, true), case[1] .. ": " .. trouble)
     assert(trouble:find(case[2], 1, true), case[1] .. ": " .. trouble)
   end
 end
@@ -273,7 +259,7 @@ local function test_nested_blocks_build_without_a_warning_or_a_repeated_name(tmp
 {{with .user}}{{end}}{{range .list}}{{range .}}{{end}}{{end}}
 ]])
   assert(lua == nil, "ranged over a string and a string")
-  assert(trouble:find("page.tl:5:", 1, true), trouble)
+  assert(trouble:find("page.tmpl:5:", 1, true), trouble)
   local clean, why = project(tmp, "nested-clean", HEAD .. [[
 {{range .items}}
   {{if .name}}{{with .name}}{{.}}{{end}}{{end}}
@@ -356,9 +342,9 @@ end
 
 local function test_a_title_takes_no_markup(tmp: string)
   local trouble = refused(tmp, "title", HEAD .. "<title>{{.h}}</title>")
-  assert(trouble:find("SafeHtml", 1, true) and trouble:find("page.tl:2:", 1, true), trouble)
+  assert(trouble:find("SafeHtml", 1, true) and trouble:find("page.tmpl:2:", 1, true), trouble)
   local area = refused(tmp, "area", HEAD .. "<textarea>{{.h}}</textarea>")
-  assert(area:find("page.tl:2:", 1, true), area)
+  assert(area:find("page.tmpl:2:", 1, true), area)
 end
 
 local function test_a_range_over_strings_and_a_with_over_an_optional_field(tmp: string)
@@ -380,7 +366,7 @@ local function test_a_stage_answering_a_safe_type_fits_the_slot_that_takes_it(tm
       "<a href=\"{{.title | fmt.attr}}\">", "<a href=\"{{.title | fmt.markup}}\">",
       "<i title=\"{{.title | fmt.url}}\">", "<p>{{.title | fmt.url}}</p>" }) do
     local trouble = refused(tmp, "stage-wrong" .. index, HEAD .. wrong)
-    assert(trouble:find("page.tl:2:", 1, true) and trouble:find("Safe", 1, true), wrong .. ": " .. trouble)
+    assert(trouble:find("page.tmpl:2:", 1, true) and trouble:find("Safe", 1, true), wrong .. ": " .. trouble)
   end
 end
 
@@ -391,7 +377,7 @@ local function test_a_crlf_template_goes_through_the_checker_and_keeps_its_line_
   local text = render(tmp, "crlf-text", "{{type Page from data}}{{mode text}}\r\na\r\n{{- .title}}\r\n", page)
   assert(text == "\r\nat\r\n", text)
   local trouble = refused(tmp, "crlf-error", "{{type Page from data}}{{mode text}}\r\na\r\n{{.items}}\r\n")
-  assert(trouble:find("page.tl:3:", 1, true), trouble)
+  assert(trouble:find("page.tmpl:3:", 1, true), trouble)
 end
 
 local function test_a_repeated_attribute_is_judged_each_time(tmp: string)

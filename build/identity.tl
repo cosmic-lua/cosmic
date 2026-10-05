@@ -179,15 +179,15 @@ function identity.skip_in_own_tree(entry: string, name: string): boolean
 end
 
 --- Whether a file the walk found is one the build consumes: Teal
---- source and declarations or a doc guide. Generated header inputs are
---- added by [`build.work`]. Never anything under the trees the tool alone
+--- source and declarations, a template or a doc guide. Generated header
+--- inputs are added by [`build.work`]. Never anything under the trees the tool alone
 --- is made of.
 function identity.is_input(file: string, own_tree: boolean): boolean
   local first = identity.first_of(file)
   if not_input[first] or (own_tree and foreign_trees[first]) then
     return false
   end
-  if String.ends_with(file, ".tl") then
+  if String.ends_with(file, ".tl") or String.ends_with(file, ".tmpl") then
     return true
   end
   if first == "doc" then
@@ -375,8 +375,10 @@ local compiler_roots: {string} = {
 --- The modules the compiler's identity holds, sorted, as `requires`
 --- answers what a module of the tree requires: every one `require`
 --- reaches from `compiler_roots` that is the build's own
---- (`build.*`). Every root is followed without exceptions; the importer
---- coordinates these operations from outside their closure.
+--- (`build.*`) or is the template compiler ([`cosmic.template`] and its
+--- submodules), whose output [`build.derivation`] stores. Every root is
+--- followed without exceptions; the importer coordinates these
+--- operations from outside their closure.
 function identity.compiler_modules(requires: function(string): {string} | nil, string): {string} | nil, string
   local reached: {string:boolean} = {}
   local stack: {string} = {}
@@ -392,7 +394,10 @@ function identity.compiler_modules(requires: function(string): {string} | nil, s
   end
   local names: {string} = {}
   for name in pairs(reached) do
-    if name:sub(1, 6) == "build." then names[#names + 1] = name end
+    if name:sub(1, 6) == "build." or name == "cosmic.template" or
+        name:sub(1, 16) == "cosmic.template." then
+      names[#names + 1] = name
+    end
   end
   table.sort(names)
   return names, ""
