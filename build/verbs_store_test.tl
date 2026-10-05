@@ -139,7 +139,7 @@ local function test_help_is_a_short_index_of_every_verb(tmp: string)
   -- A usage follows the word that names its verb, or what is typed
   -- where a verb has no word of its own.
   for _, line in ipairs({ "\n  cosmic test [selector...]  ", "\n  cosmic <file.tl> [args]  ",
-      "\n  cosmic --standalone <file.tl>  ", "\n  cosmic -e '<chunk>' [args]  ",
+      "\n  cosmic --standalone <file.tl> [args]  ", "\n  cosmic -e '<chunk>' [args]  ",
       "\n  cosmic --version  ", "\n  cosmic bom  " }) do
     assert(all:find(line, 1, true), line .. ":\n" .. all)
   end

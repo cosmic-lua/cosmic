@@ -106,3 +106,37 @@ local function test_a_run_without_a_file_is_a_usage_error()
   assert(result.code == 2)
   assert(tostring(result.stderr):find("usage", 1, true) ~= nil)
 end
+
+--- A file's top level finds its words in `arg`, as `lua file a b` gives
+--- them, where `...` is what `require` handed it.
+local function test_a_file_finds_its_words_in_arg_at_its_top_level(tmp: string)
+  local script = tmp .. "/top.tl"
+  assert(Fs.write(script, 'print(arg[0] .. "|" .. table.concat(arg, ","))\n'))
+  local started = this_program.program({ "--standalone", script, "one", "two" }, { cwd = tmp,
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
+  local result = assert(Child.run(started.argv, started.options))
+  assert(result.code == 0 and result.stdout == script .. "|one,two\n",
+    tostring(result.stdout) .. tostring(result.stderr))
+end
+
+--- COSMIC_STANDALONE=1 runs a file as `--standalone` does: its words
+--- reach it, and nothing is written beside it.
+local function test_cosmic_standalone_runs_a_file_standalone(tmp: string)
+  local dir = tmp .. "/alone"
+  assert(Fs.mkdirs(dir))
+  local script = dir .. "/script.tl"
+  assert(Fs.write(script, [[
+return function(argv: {string}): integer
+  print(table.concat(argv, ","))
+  return 0
+end
+]]))
+  local env = this_program.environment()
+  env.COSMIC_STANDALONE = "1"
+  local started = this_program.program({ script, "one", "two" }, { cwd = dir, env = env,
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
+  local result = assert(Child.run(started.argv, started.options))
+  assert(result.code == 0 and result.stdout == "one,two\n", tostring(result.stderr))
+  local names = assert(Fs.list(dir))
+  assert(#names == 1 and names[1] == "script.tl", "a standalone run wrote beside the file")
+end
