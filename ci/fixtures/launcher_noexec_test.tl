@@ -10,9 +10,9 @@ local Test = require("cosmic.test")
 -- The same launcher contract as launcher_test.tl, with private noexec
 -- scratch supplied only after the worker's execution-refusal probe.
 -- TODO: declare this with Test.policy (grants of the o/fixtures paths,
--- env and the system profile, as launcher_test.tl does) once #2713's
--- noexec form is merged and ci/cosmic-driver.pin names a release that
--- carries it.
+-- env and the system profile, as launcher_test.tl does) once
+-- ci/cosmic-driver.pin names a release whose Test.policy takes the noexec
+-- grant.
 Test.needs{
   reads = {
     "o/fixtures/product/prefix",

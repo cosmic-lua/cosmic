@@ -661,9 +661,8 @@ local record Placement
 end
 
 --- Places each of `placements` beneath `project`'s o/fixtures
---- ([`Placement`]). A copy: a fixture is free to run what it is placed,
---- and the leg checks afterwards that nothing it was given has moved
---- ([`phase_fixtures`]).
+--- ([`Placement`]). A copy, so a fixture is free to run what it is
+--- placed without touching the product the leg attests.
 local function place(project: string, placements: {Placement})
   for _, placement in ipairs(placements) do
     assert(placement.kind:match("^[%w_]+$"), "invalid fixture placement")
