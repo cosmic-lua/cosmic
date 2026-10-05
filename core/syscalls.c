@@ -4074,7 +4074,7 @@ COSMIC_SYSCALL(spawn, 11) {
    *   ([`root_shows_no_socket`]). Mounts it makes, in a mount namespace or a
    *   user namespace of its own, copy that and add what the kernel lets a
    *   user namespace's root mount (tmpfs, procfs, overlay of what it sees,
-   *   mqueue, devpts, cgroup2): none shows a file of the host's. The
+   *   mqueue, devpts): none shows a socket file of the host's. The
    *   mounts it copies are locked, so none is unmounted to show what is
    *   beneath. A sysfs, which the filter cannot refuse by its type, needs
    *   one already visible, as the kernel's `fs_fully_visible` asks, and
