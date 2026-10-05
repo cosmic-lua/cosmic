@@ -5,6 +5,7 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
@@ -82,4 +83,29 @@ local function test_a_project_cannot_shadow_a_raw_value_wrapper(tmp: string)
   for _, name in ipairs({ "build.artifact", "build.fuzz", "cosmic.store" }) do
     assert(out:find("wrapper " .. name .. "\n", 1, true), name .. " not found: " .. out)
   end
+end
+
+--- A seal with no path, in a process whose cache is the test's own: the
+--- file is `<cache>/cosmic/sandbox/<digest>.db` and its bytes are the
+--- digest's.
+local sealing <const> = [[
+local Store = require("cosmic.store")
+
+return function(): integer
+  print(assert(Store.seal({ "cosmic.codec" })))
+  return 0
+end
+]]
+
+local function test_a_seal_without_a_path_lands_in_the_cache(tmp: string)
+  local script = tmp .. "/sealing.tl"
+  assert(Fs.write(script, sealing))
+  local started = this_program.program({ "--standalone", script },
+    { env = { XDG_CACHE_HOME = tmp .. "/cache", TMPDIR = tmp },
+      stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
+  local result = assert(Child.run(started.argv, started.options))
+  assert(result.code == 0, tostring(result.stderr))
+  local digest = (assert(result.stdout):gsub("%s+$", ""))
+  local bytes = assert(Fs.read(tmp .. "/cache/cosmic/sandbox/" .. digest .. ".db"))
+  assert(Hash.hex_sha256(bytes) == digest)
 end
