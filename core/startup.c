@@ -484,11 +484,27 @@ bool cosmic_database_bind (struct cosmic_artifact *artifact, const char *path,
     *error = "it records a core_sha256 that is not a sha256 in hex";
     return false;
   }
+  /* The stamp a portable start leaves beside a cache entry says the
+   * entry was hashed and not written since: a core run from that entry,
+   * whose name holds the digest the database records, is not hashed again
+   * (a checked core is tens of megabytes, and every child of a sealed
+   * worker starts so). Any other core is hashed, and stamped if it is an
+   * entry. */
+  struct stat core_stat;
+  char stamp[COSMIC_ARTIFACT_PATH_CAPACITY + 160];
+  char stamp_directory[COSMIC_ARTIFACT_PATH_CAPACITY];
+  bool stamped = fstat(artifact->fd, &core_stat) == 0 &&
+                 stamp_path(&artifact->portable.selected, &core_stat, stamp,
+                            sizeof stamp, stamp_directory,
+                            sizeof stamp_directory);
+  bool fresh = stamped && stamp_holds(stamp, &core_stat);
+  if (fresh) artifact->core_checked = 1;
   if (!cosmic_artifact_core_matches(artifact)) {
     *error = "it was written for another core than this one: its "
              "core_sha256 differs from this core's digest";
     return false;
   }
+  if (stamped && !fresh) stamp_write(stamp, stamp_directory, &core_stat);
   memcpy(artifact->logical_path, path, length + 1);
   return true;
 }

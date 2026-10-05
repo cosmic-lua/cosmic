@@ -1335,6 +1335,11 @@ local record Recording
   --- The path of the sealed database of each closure store, by its
   --- address ([`sealed_for`]).
   sealed: {string:string}
+  --- How many sealed databases this run wrote, their bytes, and the time
+  --- taken ([`sealed_for`]).
+  sealed_written: integer
+  sealed_bytes: integer
+  sealed_ns: integer
   projection: string
   basis: closure_store.Basis
   built: {string:string}
@@ -1939,6 +1944,7 @@ local function address_stores(rec: Recording, modules: {importer.Module},
   if basis == nil then return false, trouble end
   rec.basis, rec.stores, rec.built, rec.store_digests = basis, {}, {}, {}
   rec.sealed = {}
+  rec.sealed_written, rec.sealed_bytes, rec.sealed_ns = 0, 0, 0
   rec.store_kept, rec.store_names, rec.store_bases, rec.store_mismatched = {}, {}, {}, {}
   -- The code that writes a store, and the core that runs it -- SQLite
   -- and its bindings -- whose bytes it follows from too: so one address
@@ -2054,10 +2060,9 @@ local sealed_schema <const>: {string} = {
 --- and every module the tree lacks (the standard library, in a project's
 --- tree), which a worker's key holds by their digest ([`extras_digest`]).
 --- The key and the tests of a module are left empty (the compile's, and the
---- tree's own). The zones and CA roots go whole, as every key holds them by
---- their digest ([`build.schema`]'s `tables_digest`) and a test may read them
---- without requiring the module that does ([`Store.seal`] carries them only
---- for [`cosmic.time`] and [`cosmic.http`]).
+--- tree's own). The time zones and CA roots go only where the set holds the
+--- module that reads them, as [`Store.seal`] does: they are most of a small
+--- database's bytes.
 -- TODO: carry only the standard library a closure requires, in a project's
 -- tree, once the projection's `imports` rows record the requires of its
 -- modules that name no module of the tree (today they are edges within the
@@ -2079,8 +2084,10 @@ local sealed_fill <const>: {string} = {
   "INSERT OR IGNORE INTO main.imports SELECT path, requires FROM program.imports " ..
     "WHERE path IN temp.extra AND requires IN (SELECT path FROM main.modules) " ..
     "ORDER BY path, requires",
-  "INSERT INTO main.zoneinfo SELECT name, data FROM program.zoneinfo ORDER BY name",
-  "INSERT INTO main.ca_roots SELECT sha256, label, der FROM program.ca_roots ORDER BY sha256",
+  "INSERT INTO main.zoneinfo SELECT name, data FROM program.zoneinfo WHERE EXISTS " ..
+    "(SELECT 1 FROM main.modules WHERE path = 'cosmic.time') ORDER BY name",
+  "INSERT INTO main.ca_roots SELECT sha256, label, der FROM program.ca_roots WHERE EXISTS " ..
+    "(SELECT 1 FROM main.modules WHERE path = 'cosmic.http') ORDER BY sha256",
 }
 
 --- What sealing the databases of this run's workers is made from
@@ -2282,8 +2289,13 @@ local function sealed_for(rec: Recording, m: importer.Module): string | nil, str
   local store, store_trouble = given_store(rec, m)
   if store == nil then return nil, store_trouble end
   local path = sealing.directory .. "/" .. name .. ".db"
+  local started = Clock.monotonic_ns()
   local written, trouble = write_sealed(sealing, store, rec.projection, path, with_compiler)
   if not written then return nil, "its sealed database: " .. trouble end
+  local wrote, _ = sys.stat(path)
+  rec.sealed_written = rec.sealed_written + 1
+  rec.sealed_bytes = rec.sealed_bytes + (wrote ~= nil and wrote.size or 0)
+  rec.sealed_ns = rec.sealed_ns + (Clock.monotonic_ns() - started)
   rec.sealed[name] = path
   return path, ""
 end
@@ -3986,6 +3998,11 @@ local function settle(ctx: Run)
     log:say(string.format("%s%s written (%s) in %.1f ms", ctx.keying,
       plural.count(rec.written, "closure store"), plural.count(rec.written_bytes, "byte"),
       rec.writing_ns / 1e6))
+  end
+  if rec.sealed_written > 0 then
+    log:say(string.format("%s%s written (%s) in %.1f ms", ctx.keying,
+      plural.count(rec.sealed_written, "sealed database"), plural.count(rec.sealed_bytes, "byte"),
+      rec.sealed_ns / 1e6))
   end
   ctx.total = tally.ran + tally.cached + tally.na
 

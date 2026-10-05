@@ -5,6 +5,11 @@
 --- this program.
 
 local Store = require("cosmic.store")
+local Test = require("cosmic.test")
+
+-- Declared for the tz database the program's own database carries, which
+-- a sealed database holds only for a program that requires cosmic.time.
+Test.needs{ store = true }
 
 local function test_attaching_a_missing_database_fails(tmp: string)
   local path = tmp .. "/missing.db"
