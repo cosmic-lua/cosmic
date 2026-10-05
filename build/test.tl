@@ -2107,6 +2107,29 @@ local function sealing_for(rec: Recording): Sealing | nil, string
   local program = rec.artifact_read
   if program == nil then return refuse(rec.artifact_trouble or "no artifact") end
   local database = program.parts.database
+  -- A root runner's workers run as a user of their own, which must be
+  -- able to search every directory above the database: the temporary
+  -- directory's, or /tmp's where that is shut to it (a test's own
+  -- directory, 0700, is where a nested run's temporary directory is); said
+  -- once if neither is, not as an opaque refusal of every worker's start.
+  local must_reach = rec.sandbox and sys.getuid() == 0
+  --- The first directory above `path` that other users cannot search, as
+  --- a sentence, or "".
+  local function shut_above(path: string): string
+    if not must_reach then return "" end
+    local above = Fs.dirname(path)
+    while above ~= "/" and above ~= "." do
+      local there, _ = sys.stat(above)
+      if there ~= nil and there.mode & 1 == 0 then
+        return above .. " is not searchable by other users (mode " ..
+          string.format("%o", there.mode & 0x1ff) .. "), so the user a worker runs as " ..
+          "cannot reach its sealed database below it: open it, or set TMPDIR to a " ..
+          "directory that is open"
+      end
+      above = Fs.dirname(above)
+    end
+    return ""
+  end
   local made, made_trouble = Fs.mkdtemp("sealed-")
   if made == nil then return refuse("a directory for the sealed databases: " .. made_trouble) end
   local directory, real_trouble = sys.realpath(made)
@@ -2114,28 +2137,26 @@ local function sealing_for(rec: Recording): Sealing | nil, string
     local _, _ = Fs.remove_tree(made)
     return refuse(made .. ": " .. real_trouble)
   end
+  local shut = shut_above(directory)
+  if shut ~= "" then
+    local _, _ = Fs.remove_tree(directory)
+    -- /tmp's own, under a name no other run has.
+    local elsewhere = string.format("/tmp/cosmic-sealed-%d-%d", sys.getpid(), Clock.monotonic_ns())
+    local ok, mkdir_trouble = sys.mkdir(elsewhere, tonumber("755", 8))
+    if not ok then return refuse(shut .. " (nor /tmp: " .. tostring(mkdir_trouble) .. ")") end
+    directory = elsewhere
+    shut = shut_above(directory)
+    if shut ~= "" then
+      local _, _ = Fs.remove_tree(directory)
+      return refuse(shut)
+    end
+  end
   local function fail(why: string): nil, string
     local _, _ = Fs.remove_tree(directory)
     return refuse(why)
   end
   local opened, open_trouble = sys.chmod(directory, tonumber("755", 8))
   if not opened then return fail(directory .. ": " .. tostring(open_trouble)) end
-  -- A root runner's workers run as a user of their own, which must be
-  -- able to search every directory above the database: said here, once,
-  -- not as an opaque refusal of every worker's start.
-  if rec.sandbox and sys.getuid() == 0 then
-    local above = Fs.dirname(directory)
-    while above ~= "/" and above ~= "." do
-      local there, _ = sys.stat(above)
-      if there ~= nil and there.mode & 1 == 0 then
-        return fail(above .. " is not searchable by other users (mode " ..
-            string.format("%o", there.mode & 0x1ff) .. "), so the user a worker runs as cannot " ..
-            "reach its sealed database in " .. directory .. ": open it, or set TMPDIR to a " ..
-            "directory that is open")
-      end
-      above = Fs.dirname(above)
-    end
-  end
   local path = directory .. "/program.db"
   local written, write_trouble = Fs.write(path, database)
   if not written then return fail(write_trouble) end

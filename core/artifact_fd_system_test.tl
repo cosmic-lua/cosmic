@@ -17,7 +17,9 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
 --- A shell, and `cat`, to read the worker's descriptors with.
-Test.policy{ profiles = { "system" } }
+-- Declared for the program's descriptor, which only a worker that runs the
+-- whole program holds (one on a sealed database has none).
+Test.needs{ system = true, store = true }
 
 --- The descriptor this process retains on its artifact, or nil for a
 --- start from none, or where this worker is not held from running its
