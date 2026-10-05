@@ -343,19 +343,26 @@ function confine.declaring(declared: confine.Confinement, fn: function())
   if not ok then error(trouble, 0) end
 end
 
---- Where this program is, as a sandbox can name it: [`Proc.executable`]'s
---- answer where that is already a path of its own, else where it
---- resolves. A program started by a relative name from a directory
---- beside its tree (`../o/bin/cosmic`, run in ci/) is answered
---- with the ".." in it, which no grant may name.
+--- `path` as a grant can name it: as given where it has no `.` or `..`
+--- segment, else where it resolves, since a grant may not contain "..".
+--- A program started by a relative name from beside its tree
+--- (`../o/bin/cosmic`, run in ci/) has its launcher's `$PWD/$0` and the
+--- artifact path of its relaunch named so.
+function confine.grantable(path: string): string
+  if not (path:find("/%.%./", 1) or path:find("/%.%.$") or path:find("/%./", 1) or
+      path:find("/%.$")) then
+    return path
+  end
+  local real, _ = asked.realpath(path)
+  -- Where it does not resolve, the dotted name stays, and is refused as before.
+  return real or path
+end
+
+--- Where this program is, as a sandbox can name it ([`confine.grantable`]).
 function confine.executable(): string | nil
   local executable, _ = Proc.executable()
   if executable == nil then return nil end
-  if not (executable:find("/%.%./", 1) or executable:find("/%.%.$") or executable:find("/%./", 1)) then
-    return executable
-  end
-  local real, _ = asked.realpath(executable)
-  return real or executable
+  return confine.grantable(executable)
 end
 
 --- What a confined process of this very program needs to start, for a

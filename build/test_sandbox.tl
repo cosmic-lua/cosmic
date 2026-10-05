@@ -452,10 +452,14 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   if (effective.nests or effective.lua) and not effective.tool then
     local launched, _ = Proc.relaunch()
     if launched ~= nil and launched.argv[2] == "--artifact" and launched.argv[3] ~= nil then
+      -- Given by a name a grant may name, which the worker is told it by
+      -- too (`program`) where that differs from the runner's.
+      local artifact = confine.grantable(launched.argv[3])
+      if artifact ~= launched.argv[3] then program = artifact end
       if effective.store then
-        give(launched.argv[3])
+        give(artifact)
       elseif closure_artifact ~= nil then
-        give(closure_artifact, launched.argv[3])
+        give(closure_artifact, artifact)
       end
     end
   end

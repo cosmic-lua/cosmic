@@ -148,9 +148,11 @@ local function test_a_plan_for_the_policy_leaves_the_system_and_proc_to_the_poli
 end
 
 --- A tree tested by a tool of another tree (ci/, run by ../o/bin/cosmic) is
---- started by a name with ".." in it, which [`Proc.executable`] keeps as
---- given. The policy grants the program where it is, so a grant may not
---- name it so: the plan names the directory it resolves to.
+--- started by a name with ".." in it: [`Proc.executable`] keeps it as given,
+--- and so does the artifact path of the relaunch. A grant may not name
+--- "..", so the plan names the program, and the artifact a worker that
+--- nests or declares `lua` reads, where it resolves, and tells the worker
+--- that name.
 local function test_a_program_started_by_a_name_with_dots_is_granted_where_it_is(tmp: string)
   local script = [[
 local Sandbox = require("cosmic.sandbox")
@@ -158,13 +160,37 @@ local sys = require("cosmic.sys")
 local test_policy = require("build.test_policy")
 local test_sandbox = require("build.test_sandbox")
 local root, scratch = sys.getenv("ROOT"), sys.getenv("SCRATCH")
-local inputs = { files = {}, reads = {}, host = {}, env = {}, network = {},
-  tool = true, store = false, system = true }
-local plan = test_sandbox.plan(root, scratch, inputs, {})
-local policy, why = test_policy.worker(plan, inputs)
-assert(policy ~= nil, why)
-local ok, trouble = Sandbox.check(policy)
-print(ok and "ok" or trouble)
+local artifact, closure = sys.getenv("ARTIFACT"), sys.getenv("CLOSURE")
+local function declared(more)
+  local inputs = { files = {}, reads = {}, host = {}, env = {}, network = {},
+    tool = false, store = false, system = true }
+  for name, value in pairs(more) do inputs[name] = value end
+  return inputs
+end
+local function holds(list, value)
+  for _, each in ipairs(list) do if each == value then return true end end
+  return false
+end
+for _, case in ipairs({
+  { name = "tool", inputs = declared({ tool = true }) },
+  { name = "nests", inputs = declared({ nests = true }), closure = closure },
+  { name = "nests store", inputs = declared({ nests = true, store = true }) },
+  { name = "lua", inputs = declared({ lua = true }), closure = closure },
+}) do
+  local plan = test_sandbox.plan(root, scratch, case.inputs, {}, nil, case.closure)
+  local policy, why = test_policy.worker(plan, case.inputs)
+  assert(policy ~= nil, why)
+  local ok, trouble = Sandbox.check(policy)
+  assert(ok, case.name .. ": " .. tostring(trouble))
+  if case.name ~= "tool" then
+    local unveil = plan.sandbox.unveil
+    local named = case.closure ~= nil and unveil.at[case.closure] or artifact
+    assert(named == artifact, case.name .. " is given at " .. tostring(named))
+    assert(plan.program == artifact, case.name .. " is told " .. tostring(plan.program))
+    assert(case.closure ~= nil or holds(unveil.reads, artifact), case.name)
+  end
+  print("ok")
+end
 ]]
   local launched = Proc.relaunch()
   if launched == nil or launched.argv[2] ~= "--artifact" then return end
@@ -173,7 +199,9 @@ print(ok and "ok" or trouble)
   local started = this_program.program({ "-e", script })
   local root, scratch = tmp .. "/beside/ci", scratch_in(tmp)
   local env = started.options.env or {}
+  assert(Fs.write(tmp .. "/closure.artifact", "y"))
   env.ROOT, env.SCRATCH, env.PATH = root, scratch, "/usr/bin:/bin"
+  env.ARTIFACT, env.CLOSURE = launched.argv[3], tmp .. "/closure.artifact"
   started.options.env, started.options.stdout, started.options.stderr = env, "capture", "capture"
   started.options.timeout_ns = Time.seconds(60)
   -- The launcher names the artifact by where it was started from: $PWD/$0.
@@ -183,7 +211,7 @@ print(ok and "ok" or trouble)
   local result, trouble = Child.run(started.argv, started.options)
   assert(result ~= nil, tostring(trouble))
   assert(result.code == 0, tostring(result.stderr) .. tostring(result.stdout))
-  assert(tostring(result.stdout):find("^ok\n"), tostring(result.stdout) .. tostring(result.stderr))
+  assert(tostring(result.stdout):find("^ok\nok\nok\nok\n$"), tostring(result.stdout) .. tostring(result.stderr))
 end
 
 --- A worker whose module declares `nests` has no descriptor of the program

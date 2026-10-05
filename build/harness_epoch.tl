@@ -92,7 +92,7 @@ harness_epoch.acknowledged = {
 
   ["build.closure_artifact"] = "9b1cb928388ed598043b0743d5311a748d1159b2190ae03d7f190bbaeca25d39",
 
-  ["build.confine"] = "c0a617f9044ef1106e902c316df4cee9e45d38c818a7a089473d2572641d5124",
+  ["build.confine"] = "a7da705d8f97b7d160646bb6fa522695225748602649fb4ca0cc16dfc7fe1a36",
 
   ["build.core_image"] = "dfc18e0e6316237ab9fb11a957df68d6217e42cffc6f2f3a767018c5313700ac",
 
@@ -116,7 +116,7 @@ harness_epoch.acknowledged = {
 
   ["build.test_policy"] = "44ba4848ef58bb6ae0d4525a407b51e47da27c2b992961224c901957b3a716e6",
 
-  ["build.test_sandbox"] = "57c40f82bd41176bcfc97870f3c3d13f9c70bbd8cb0d4ba2e2aa92301c5400f7",
+  ["build.test_sandbox"] = "05694570dd593cd528f32fc319331a2d51e29653b71e8c55ad62f1feb980d748",
 
   ["build.test_worker"] = "bb31365aa690a48f616b91abb91e97be909c3bde4b466dabf5f29f20c1d92a34",
 
