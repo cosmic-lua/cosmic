@@ -539,6 +539,36 @@ local record Cli
   --- only. `--set-env COSMIC_STANDALONE=0` builds the tree around it
   --- instead, which finds its own modules and needs a grant to write there.
   ---
+  --- `--database`, `--modules` and `--closure` run this program on a
+  --- database that holds the modules it may load and no more: a `require`
+  --- of any other fails, and none of this program's own file is read or
+  --- granted. `--cosmic` adds nothing beside `--database` or `--modules`
+  --- and is refused beside `--closure`; `--system` fails the start where
+  --- this program is installed under a directory it grants. The program is
+  --- this program (`cosmic`), or nothing, which is the same; what follows
+  --- it is the main's arguments.
+  ---
+  --- `--database PATH` runs a file [`Store.seal`] wrote, its main what runs.
+  --- `--modules a,b,...` seals exactly the names given, from this
+  --- program's own store, and follows no requires: the first is the main
+  --- (a module returning a function that gets the arguments and returns
+  --- the status) and the rest are what it may load. `--closure` runs a
+  --- script, given as the program's first argument: it is compiled here,
+  --- as a file run is, and sealed as the main with the `cosmic.*` modules
+  --- it requires by a literal name, and theirs in turn:
+  ---
+  ---     cosmic sandbox --closure -- cosmic run.tl IN OUT
+  ---
+  --- A `pcall(require, ...)` or a computed name is not followed, and fails
+  --- when it runs; a `require` of a module outside this program's store
+  --- (a project module beside the script) is refused before anything
+  --- starts. The database is written in a directory of the run's own, that
+  --- the program's user can search, and removed when the run ends. The
+  --- three options are exclusive, since each names the database. A
+  --- command line these refuse, a module no store holds or a `--database`
+  --- that is not there exits 2; a script that cannot be read or compiled
+  --- exits 125, as a seal that cannot be written does.
+  ---
   --- `--read`, `--run` and `--write` grant a path as `r`, `rx` and `rwc`;
   --- `--path` names the letters itself, of `rwxcu` in that order (`rwxc:.`),
   --- each once. A path is relative to the working directory, which
@@ -816,6 +846,9 @@ local module: Module = {
         ["--write"] = { value = "path", about = "grant a path to read, write and create in (rwc)" },
         ["--path"] = { value = "letters:path", about = "grant a path the letters of rwxcu, in that order" },
         ["--system"] = { about = "what a host's programs need to start" },
+        ["--database"] = { value = "path", about = "run this program on a sealed database: only its modules load" },
+        ["--modules"] = { value = "a,b,...", about = "seal these modules (the first the main) and run on that" },
+        ["--closure"] = { about = "seal a script and the modules it requires, and run it on that" },
         ["--cosmic"] = { about = "this program's own file, which then runs as its core" },
         ["--isolate"] = { value = "file|proc", about = "a root of its own, or a process space of its own" },
         ["--promise"] = { value = "name", about = "a system call it may make: fork, jit, fattr or nest" },

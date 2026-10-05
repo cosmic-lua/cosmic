@@ -441,6 +441,7 @@ const core_sources = [_][]const u8{
     "errnos.c",
     "executable.c",
     "hash.c",
+    "html.c",
     "http.c",
     "json.c",
     "socket.c",

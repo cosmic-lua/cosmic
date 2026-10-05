@@ -42,6 +42,26 @@ local record Store
     --- `main`. It must be one of the sealed names. Without it the database
     --- names no main.
     main: string
+    --- A module the store does not hold, carried as well and recorded as
+    --- the database's `main` (so `main` is left out): a script compiled
+    --- this run. Its name is none of the sealed names.
+    extra: Store.Extra
+  end
+
+  --- A module [`Store.seal`] is handed rather than finds: what a row of
+  --- the store holds of one, its compiled chunk and its source.
+  record Extra
+    --- The module's name, which a `require` of it asks for.
+    name: string
+    --- The chunk `string.dump` writes, which the core loads for the
+    --- name, and which returns the module's value, a function for a main.
+    bytecode: string
+    --- The text the chunk was compiled from, which an error's line is
+    --- read from.
+    source: string
+    --- The modules it requires by a literal name, kept where they are
+    --- among the sealed names, as the `imports` rows of the rest are.
+    requires: {string}
   end
 end
 
@@ -314,7 +334,7 @@ local module_columns <const> = { "path", "file", "kind", "source_hash", "key",
 --- `identity`, the meta rows to record, and `main`. False and why on a
 --- failure.
 local function write_database(names: {string}, file: string, main: string | nil,
-                              identity: {{string}}): boolean, string
+                              identity: {{string}}, script: Store.Extra | nil): boolean, string
   local binary = Store.databases()
   local binary_db = binary[#binary]
   local present: {string:boolean} = {}
@@ -370,6 +390,27 @@ local function write_database(names: {string}, file: string, main: string | nil,
         end
         zones = zones or name == "cosmic.time"
         roots = roots or name == "cosmic.http"
+      end
+      if script ~= nil then
+        -- Last, so the rows' order is the same whatever the script is.
+        local added, why = Sqlite.run(db,
+          "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
+            "VALUES (?1, ?2, 'main', ?3, X'', ?4, '', ?5)",
+          { text(script.name), text(script.name), { blob = Hash.sha256(script.source) },
+            { blob = script.bytecode }, { blob = script.source } })
+        if not added then
+          return false, script.name .. ": " .. why
+        end
+        for _, edge in ipairs(script.requires or {}) do
+          if present[edge] then
+            local inserted, insert_trouble = Sqlite.run(db,
+              "INSERT OR IGNORE INTO imports (path, requires) VALUES (?1, ?2)",
+              { text(script.name), text(edge) })
+            if not inserted then
+              return false, "imports: " .. insert_trouble
+            end
+          end
+        end
       end
       -- The zones cosmic.time falls back on where the host has none, and
       -- the roots core/http.c trusts: carried only for a program that
@@ -439,6 +480,12 @@ end
 --- With no `path` it goes to `<cache>/sandbox/<digest>.db` under
 --- [`Fs.cache_dir`], where a file of that digest is its own content.
 ---
+--- `opts.extra` adds one module the store does not hold, a script compiled
+--- this run, as the main (kind `main`, after the others): `names` may then
+--- be empty, and nothing else of the row is the store's. Its name is none
+--- of the sealed names, nor a module any searched database holds, nor under
+--- `cosmic.`: it raises rather than shadow one.
+---
 --- The modules of a sealed database are the program's own, and run with
 --- the trust any program the user can read runs with, raw bindings
 --- included: seal only what the user chose to run. Raises when `names`
@@ -452,7 +499,8 @@ end
 ---     local digest = assert(Store.seal(names, "json.db"))
 function Store.seal(names: {string}, path?: string,
                     opts?: Store.SealOptions): string | nil, string
-  if type(names) ~= "table" or #names == 0 then
+  local script = opts ~= nil and opts.extra or nil
+  if type(names) ~= "table" or (#names == 0 and script == nil) then
     error("store: seal: names is a non-empty list of module names", 2)
   end
   local sorted: {string} = {}
@@ -465,7 +513,26 @@ function Store.seal(names: {string}, path?: string,
   end
   table.sort(sorted)
   local main = opts ~= nil and opts.main or nil
-  if main ~= nil and not present[main] then
+  if script ~= nil then
+    if main ~= nil then
+      error("store: seal: main and extra are both given: the extra module is the main", 2)
+    end
+    if type(script.name) ~= "string" or type(script.bytecode) ~= "string" or
+        type(script.source) ~= "string" then
+      error("store: seal: extra holds a name, bytecode and source, all text", 2)
+    end
+    if present[script.name] then
+      error("store: seal: extra " .. script.name .. " is also one of the names sealed", 2)
+    end
+    -- A name a program's own `require` would find in the store (or in the
+    -- core's namespace) is not one to take over.
+    local holder, _ = locate(script.name)
+    if script.name:sub(1, 7) == "cosmic." or holder ~= nil then
+      error("store: seal: extra " .. script.name .. " is a module the store holds or the " ..
+          "core's namespace, which a main must not shadow", 2)
+    end
+    main = script.name
+  elseif main ~= nil and not present[main] then
     error("store: seal: main " .. main .. " is not among the modules sealed", 2)
   end
   for _, name in ipairs(sorted) do
@@ -492,7 +559,7 @@ function Store.seal(names: {string}, path?: string,
   end
   local function build(): string | nil, string
     local written, write_trouble = write_database(sorted, scratch .. "/building.db",
-      main, identity)
+      main, identity, script)
     if not written then
       return nil, write_trouble
     end
@@ -513,9 +580,11 @@ function Store.seal(names: {string}, path?: string,
     local target = path
     if target == nil then
       -- TODO: prune this directory: nothing removes a sealed database
-      -- once its run is over, so it grows with every distinct program.
-      -- The test runner (build.test) should own it, deleting what no
-      -- recorded run names, once it seals through this.
+      -- once its run is over, so it grows with every distinct program
+      -- sealed with no path (`cosmic sandbox` seals into a directory of
+      -- its own, removed after the run). The test runner (build.test)
+      -- should own it, deleting what no recorded run names, once it seals
+      -- through this.
       local dir, dir_trouble = Fs.cache_dir("sandbox")
       if dir == nil then
         return nil, dir_trouble
