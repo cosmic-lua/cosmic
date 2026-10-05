@@ -145,11 +145,24 @@ end
 ---   (the driver sets the project cache, cosmic-driver.sh the global).
 --- - ZIG_LIB_DIR, ZIG_GLOBAL_CACHE_DIR and ZIG_LOCAL_CACHE_DIR: zig's own,
 ---   which build/zig.tl leaves as the caller names them.
---- - SDKROOT and DEVELOPER_DIR: where zig and the system's toolchain
----   shims (xcrun) find macOS's SDK. Unset on the Linux legs.
--- TODO: list what a macOS leg's zig reads beyond SDKROOT and
--- DEVELOPER_DIR once a macOS leg's run has been read for it: a variable
--- missing here breaks that leg alone, naming nothing.
+--- - SDKROOT, DEVELOPER_DIR and MACOSX_DEPLOYMENT_TARGET: where zig and
+---   the system's toolchain shims (xcrun) find macOS's SDK, and the
+---   target zig builds for there. Unset on the Linux legs.
+--- - COSMIC_TEST_TIMEOUT: the deadline the driver gives a fixture's
+---   tests (orchestration.tl's `fixture_test`), which the nested
+---   `cosmic test` runs in self_rebuild_test inherit, since a rebuild
+---   there exceeds the 30 s default.
+--- - FUZZ_ITERS: 0 on every operation (orchestration.tl's `environment`),
+---   so a nested run draws no fuzz inputs.
+--- - COSMIC_BOOTSTRAP_ATTEMPTS, COSMIC_BOOTSTRAP_VERIFY, SSL_CERT_FILE,
+---   SSL_CERT_DIR, CURL_CA_BUNDLE and the proxy variables (HTTPS_PROXY,
+---   HTTP_PROXY, NO_PROXY, ALL_PROXY, and their lower-case forms): how
+---   a cold cache fetches. bin/cosmic-bootstrap's curl or wget read
+---   them, core/http.c reads SSL_CERT_FILE, and build/c/init.tl's
+---   `passed` names the same set for the C compiles.
+-- TODO: list what a macOS leg's zig and system shims read beyond these
+-- (TOOLCHAINS for xcrun, say) once a macOS leg's run has been read for
+-- it: a variable missing here breaks that leg alone, naming nothing.
 Fixture.inherited = {
   "PATH", "HOME", "XDG_CACHE_HOME", "TMPDIR",
   "COSMIC_PORTABLE_CACHE", "COSMIC_VERDICT_CACHE", "COSMIC_AUTO_BOOT",
@@ -157,7 +170,12 @@ Fixture.inherited = {
   "COSMIC_BOOTSTRAP",
   "COSMIC_ZIG", "COSMIC_ZIG_CACHE", "COSMIC_ZIG_GLOBAL_CACHE",
   "ZIG_LIB_DIR", "ZIG_GLOBAL_CACHE_DIR", "ZIG_LOCAL_CACHE_DIR",
-  "SDKROOT", "DEVELOPER_DIR",
+  "SDKROOT", "DEVELOPER_DIR", "MACOSX_DEPLOYMENT_TARGET",
+  "COSMIC_TEST_TIMEOUT", "FUZZ_ITERS",
+  "COSMIC_BOOTSTRAP_ATTEMPTS", "COSMIC_BOOTSTRAP_VERIFY",
+  "SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_CA_BUNDLE",
+  "ALL_PROXY", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY",
+  "all_proxy", "https_proxy", "http_proxy", "no_proxy",
 }
 
 --- The environment for a child a fixture starts, with `extra` set over

@@ -643,7 +643,7 @@ local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
       local env = assert(policy:match("env%s*=%s*(%b{})"), name .. ": no env")
       local declared: {string:boolean} = {}
       for variable in env:gmatch('"([^"]*)"') do
-        assert(variable ~= "*" and variable:match("^[A-Z][A-Z0-9_]*$"),
+        assert(variable ~= "*" and variable:match("^[%a][%w_]*$"),
           name .. ": an unsandboxed fixture declares the variable " .. variable)
         declared[variable] = true
       end
