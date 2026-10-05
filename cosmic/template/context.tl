@@ -7,7 +7,8 @@
 --- A slot's place must not depend on which branch ran. The arms of an
 --- `if` or `with` (counting the arm that is missing when there is no
 --- `else`) must leave the markup in the same place, and the body of a
---- `range` where it found it, since the next slot, or the next time round
+--- `range` where it found it (walked a second time, from the join of the
+--- two, as the loop runs again), since the next slot, or the next time round
 --- the loop, is judged from there: `{{if .a}}<b class="{{else}}<i class="{{end}}`
 --- is refused at the `{{if}}` rather than guessed at.
 
@@ -46,6 +47,20 @@ local function block(name: string, node: types.Node, from: markup.Place): markup
           " (a tag, attribute or comment is left open in one way and not another)")
     end
   end
+  if node.kind == "range" then
+    -- The body runs again from where it ended: a URL value it began is no
+    -- longer fresh, and text it ended after a URL slot is still watched.
+    -- The second walk, from the two joined, finds what a third would.
+    local again, why = walk(name, node.branches[1].body, ends[1])
+    if again == nil then
+      return nil, why
+    end
+    if not markup.same(again, ends[1]) then
+      return nil, refuse(name, node.line, node.col,
+        "the body of this {{range}} ends where it did not begin (a tag, attribute or comment is left open in one way and not another)")
+    end
+    markup.join(ends[1], again)
+  end
   return ends[1], ""
 end
 
@@ -58,7 +73,7 @@ walk = function(name: string, body: {types.Node}, from: markup.Place): markup.Pl
         return nil, refuse(name, node.line, node.col,
           "text after a URL slot, before its first / ? or #, holds a ':' and could complete a scheme")
       elseif at.late ~= "" then
-        return nil, refuse(name, at.meta_line, at.meta_col, at.late)
+        return nil, refuse(name, at.late_line, at.late_col, at.late)
       end
     elseif node.kind == "interp" then
       local slot, why = markup.slot(at)

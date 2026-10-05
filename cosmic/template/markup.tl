@@ -26,6 +26,7 @@
 --- - `<xmp>`, `<iframe>`, `<noembed>`, `<noframes>`, `<noscript>` and
 ---   `<plaintext>` text, which browsers read as raw text (`noscript`
 ---   when scripting is on);
+--- - every attribute of `<script>`, and the `charset` of a `<meta>`;
 --- - anything inside `<foreignObject>`, `<desc>`, `<title>` of an SVG,
 ---   `<annotation-xml>` or MathML's text elements: the browser reads
 ---   HTML there, in rules this tracker does not follow;
@@ -35,19 +36,27 @@
 ---
 --- What is left is a slot in text; in `<textarea>` and `<title>`, whose
 --- text ends at their end tag, which takes a string or a number and never
---- markup (outside `<svg>` and `<math>`, where they hold markup and are
---- tags like any other, as the standard has it); in a quoted attribute
---- value; and in a quoted URL attribute value that the slot begins, when
---- the literal text after it, up to the first `/`, `?` or `#`, has no `:`
---- (which could complete a scheme: `href="{{.p}}:alert(1)"`).
+--- markup; in a quoted attribute value; and in a quoted URL attribute
+--- value that the slot begins, when the literal text after it, up to the
+--- first `/`, `?` or `#`, has no `:` or `&` (which could complete a scheme:
+--- `href="{{.p}}:alert(1)"`, `{{.p}}&colon;alert(1)`).
 ---
---- `<svg>` and `<math>` are counted in and out, so nested ones, and a
---- self-closed `<svg/>` that opens nothing, leave the tracker where the
---- browser is.
+--- `<svg>` and `<math>` are kept on a stack, popped as an end tag pops
+--- them, so nested ones and a self-closed `<svg/>` leave the tracker where
+--- the browser is. It does not model the tags that take the parser out of
+--- foreign content (`<svg><p>`) or ignore an `<svg>` (in `<select>`), and
+--- does not need to: what the stack decides is a refusal (inside an
+--- element the browser reads HTML in), or a `<script>`, `<style>`,
+--- `<textarea>` or `<title>` in foreign content, which the tracker reads
+--- as it would in HTML, where they are raw text or RCDATA. If the text
+--- they hold has a `<`, the two readings could part ways, and the place
+--- is murky: every later slot is refused. A slot in RCDATA is escaped as
+--- text and takes no markup, which is safe in either reading, and
+--- `<noscript>` text with a comment in it is the same.
 ---
 --- A URL attribute is `href`, `src`, `action`, `formaction`, `cite`,
 --- `data`, `poster`, `background`, `manifest`, `longdesc`, `codebase`,
---- `profile`, `icon` and `xlink:href`: each takes one URL. A slot is
+--- `profile`, `icon`, `lowsrc`, `dynsrc`, `classid` and `xlink:href`: each takes one URL. A slot is
 --- taken as a whole URL (the escaper decides whether it may be a link),
 --- which is why it must begin the value: after `href="/a/` it would be a
 --- piece of one, which needs an escaper for a piece (doc/roadmap.md).
@@ -97,11 +106,17 @@ local record Markup
     closing: boolean
     --- Whether a quoted value has had only whitespace in it so far.
     fresh: boolean
-    --- How many `<svg>` and `<math>` are open: where `<title>` and
-    --- `<textarea>` hold markup, not text.
-    foreign: integer
-    --- How many elements in them that the browser reads HTML in are open.
-    opaque: integer
+    --- The `<svg>` and `<math>` open, and the elements inside them that
+    --- the browser reads HTML in, innermost last, each name after a space.
+    stack: string
+    --- Set when the browser may read what follows by rules this tracker
+    --- does not follow, so every later slot is refused: raw text or
+    --- RCDATA inside `<svg>` or `<math>` that holds a `<`, `<noscript>`
+    --- text that holds a comment.
+    murky: boolean
+    --- Whether the last byte read was the `/` of a tag, which a `>` at the
+    --- start of the next run of text then closes as self-closing.
+    slash: boolean
     --- Whether the literal text since a URL slot, in the same value, has
     --- not yet reached a `/`, `?` or `#`.
     after_url: boolean
@@ -114,8 +129,13 @@ local record Markup
     meta_line: integer
     --- Its column.
     meta_col: integer
-    --- A refusal found at the end of a tag, for the slot at `meta_line`.
+    --- A refusal found at the end of a tag, for the slot that stood at
+    --- `late_line` and `late_col`.
     late: string
+    --- The line of that slot.
+    late_line: integer
+    --- Its column.
+    late_col: integer
   end
 
   --- A new place: the start of the template, in text.
@@ -151,13 +171,13 @@ local type Place = Markup.Place
 local URL_ATTRS <const>: {string: boolean} = {
   href = true, src = true, action = true, formaction = true, cite = true, data = true,
   poster = true, background = true, manifest = true, longdesc = true, codebase = true,
-  profile = true, icon = true, ["xlink:href"] = true,
+  profile = true, icon = true, lowsrc = true, dynsrc = true, classid = true, ["xlink:href"] = true,
 }
 
 --- The tags whose URL attributes make the page run or load what they
 --- name, which no URL allowlist makes safe to take from data.
 local ACTIVE_TAGS <const>: {string: boolean} = {
-  script = true, link = true, object = true, embed = true, base = true, use = true,
+  script = true, link = true, object = true, embed = true, base = true, use = true, applet = true,
 }
 
 --- The attributes that hold code, a markup document or a list of URLs,
@@ -188,14 +208,15 @@ local ANIMATION <const>: {string: boolean} = {
 }
 
 local function start(): Place
-  return { phase = "text", tag = "", attr = "", closing = false, fresh = false, foreign = 0, opaque = 0,
-    after_url = false, colon = false, equiv = false, meta_line = 0, meta_col = 0, late = "" }
+  return { phase = "text", tag = "", attr = "", closing = false, fresh = false, stack = "", murky = false,
+    slash = false, after_url = false, colon = false, equiv = false, meta_line = 0, meta_col = 0, late = "", late_line = 0, late_col = 0 }
 end
 
 local function copy(p: Place): Place
-  return { phase = p.phase, tag = p.tag, attr = p.attr, closing = p.closing, fresh = p.fresh,
-    foreign = p.foreign, opaque = p.opaque, after_url = p.after_url, colon = p.colon, equiv = p.equiv,
-    meta_line = p.meta_line, meta_col = p.meta_col, late = p.late }
+  return { phase = p.phase, tag = p.tag, attr = p.attr, closing = p.closing, fresh = p.fresh, stack = p.stack,
+    murky = p.murky, slash = p.slash, after_url = p.after_url, colon = p.colon, equiv = p.equiv,
+    meta_line = p.meta_line, meta_col = p.meta_col, late = p.late, late_line = p.late_line,
+    late_col = p.late_col }
 end
 
 --- The phases in which the tag and whether it is an end tag mean something;
@@ -211,7 +232,7 @@ local ATTRIBUTED <const>: {Phase: boolean} = {
 }
 
 local function same(a: Place, b: Place): boolean
-  if a.phase ~= b.phase or a.foreign ~= b.foreign or a.opaque ~= b.opaque then
+  if a.phase ~= b.phase or a.stack ~= b.stack or a.murky ~= b.murky then
     return false
   end
   if TAGGED[a.phase] and (a.tag ~= b.tag or a.closing ~= b.closing or a.equiv ~= b.equiv or
@@ -304,21 +325,54 @@ local function script_end(text: string, from: integer): integer | nil
   end
 end
 
---- Counts a start or end tag of an element the HTML parser treats
---- specially inside `<svg>` and `<math>`.
+--- The names in the stack of open foreign elements.
+local function names(p: Place): {string}
+  local out: {string} = {}
+  for name in p.stack:gmatch("%S+") do
+    out[#out + 1] = name
+  end
+  return out
+end
+
+--- Pops the innermost `name` and all it holds, as the HTML parser does an
+--- end tag in foreign content; an end tag with no such element open is
+--- ignored, as it is there.
+local function pop(p: Place, name: string)
+  local open = names(p)
+  for at = #open, 1, -1 do
+    if open[at] == name then
+      p.stack = ""
+      for keep = 1, at - 1 do
+        p.stack = p.stack .. " " .. open[keep]
+      end
+      return
+    end
+  end
+end
+
+--- Whether an element the browser reads HTML in is open inside `<svg>`
+--- or `<math>`. A count too high only refuses more: after an unmatched
+--- `<svg><mi>` every later slot is refused, as after any element the HTML
+--- parser pops out of foreign content (`<svg><p>`) the stack keeps what
+--- the parser dropped, and every decision that reads it errs to refusing.
+local function opaque(p: Place): boolean
+  for _, name in ipairs(names(p)) do
+    if INTEGRATION[name] then
+      return true
+    end
+  end
+  return false
+end
+
+--- Counts a start or end tag of `<svg>`, `<math>` and the elements inside
+--- them that the browser reads HTML in.
 local function count(p: Place, selfclosed: boolean)
   local tag = p.tag
-  if tag == "svg" or tag == "math" then
+  if tag == "svg" or tag == "math" or (INTEGRATION[tag] and p.stack ~= "") then
     if p.closing then
-      p.foreign = math.max(0, p.foreign - 1)
+      pop(p, tag)
     elseif not selfclosed then
-      p.foreign = p.foreign + 1
-    end
-  elseif INTEGRATION[tag] and (p.foreign > 0 or p.opaque > 0) then
-    if p.closing then
-      p.opaque = math.max(0, p.opaque - 1)
-    elseif not selfclosed then
-      p.opaque = p.opaque + 1
+      p.stack = p.stack .. " " .. tag
     end
   end
 end
@@ -326,18 +380,21 @@ end
 --- Ends the tag just read, at the `>` before `from` (after a value with no
 --- quotes, which a `/` ends nothing in): into the text of a raw text
 --- element if it opens one, else into text. Answers where reading goes on.
+--- `<textarea>` and `<title>` are RCDATA wherever they stand: inside
+--- `<svg>` the browser may read them as ordinary elements instead, and
+--- `scan` marks the place murky if what they hold could tell the two apart.
 local function end_tag(p: Place, text: string, from: integer, unquoted: boolean): integer
   if p.attr == "http-equiv" and ATTRIBUTED[p.phase] then
     p.equiv = true
   end
-  count(p, not unquoted and text:byte(from - 2) == 47)
+  local before = from >= 3 and text:byte(from - 2) or (p.slash and 47 or 0)
+  count(p, not unquoted and before == 47)
   if p.tag == "meta" and not p.closing and p.equiv and p.meta_line > 0 then
     p.late = "a slot in the content of a <meta> that has http-equiv could be a redirect"
+    p.late_line = p.meta_line
+    p.late_col = p.meta_col
   end
   local phase = RAW_TAGS[p.tag]
-  if p.foreign > 0 and phase == "rcdata" then
-    phase = nil
-  end
   p.phase = (p.closing or phase == nil) and "text" or phase
   return from
 end
@@ -357,10 +414,9 @@ local function open_tag(p: Place, closing: boolean)
   p.equiv = false
   p.meta_line = 0
   p.meta_col = 0
-  p.late = ""
 end
 
-local function feed(p: Place, text: string)
+local function scan(p: Place, text: string)
   local i = 1
   local n = #text
   while i <= n do
@@ -465,7 +521,7 @@ local function feed(p: Place, text: string)
       if p.after_url then
         local seg = text:sub(i, last)
         local cut = seg:find("[/?#]")
-        if (cut and seg:sub(1, cut - 1) or seg):find(":", 1, true) then
+        if (cut and seg:sub(1, cut - 1) or seg):find("[:&]") then
           p.colon = true
         end
         if cut then
@@ -562,11 +618,18 @@ local function feed(p: Place, text: string)
       p.phase = "text"
       i = gt + 1
     else
+      if p.tag == "plaintext" then
+        return
+      end
       local found: integer | nil
       if p.tag == "script" then
         found = script_end(text, i)
       else
         found = plain_end(text, i, p.tag)
+      end
+      local region = text:sub(i, (found or n + 1) - 1)
+      if (p.stack ~= "" and region:find("<", 1, true)) or (p.tag == "noscript" and region:find("<!--", 1, true)) then
+        p.murky = true
       end
       if found == nil then
         return
@@ -577,9 +640,16 @@ local function feed(p: Place, text: string)
   end
 end
 
+local function feed(p: Place, text: string)
+  scan(p, text)
+  p.slash = p.phase == "before_attr" and text:byte(#text) == 47
+end
+
 local function slot(p: Place): types.Slot | nil, string
   local phase = p.phase
-  if p.opaque > 0 then
+  if p.murky then
+    return nil, "a slot after markup in <svg>, <math> or <noscript> that a browser may read differently from the tracker here"
+  elseif opaque(p) then
     return nil, "a slot inside <" .. p.tag .. "> in an <svg> or <math>, where the browser reads HTML by rules not followed here"
   elseif phase == "text" then
     return "text", ""
@@ -595,6 +665,12 @@ local function slot(p: Place): types.Slot | nil, string
     local code = CODE_ATTRS[attr]
     if code ~= nil then
       return nil, "a slot in the '" .. attr .. "' attribute would be " .. code
+    end
+    if p.tag == "script" then
+      return nil, "a slot in an attribute of <script> could name the code it runs"
+    end
+    if attr == "charset" and p.tag == "meta" then
+      return nil, "a slot in the charset of a <meta> could change how the page is read"
     end
     if ANIMATION[p.tag] then
       return nil, "a slot in an attribute of <" .. p.tag .. "> could animate one to a script URL"

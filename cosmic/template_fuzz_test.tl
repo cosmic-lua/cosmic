@@ -272,7 +272,8 @@ local function test_modes_agree_on_syntax_and_text_takes_what_html_does(tmp: str
       elseif as_text ~= nil then
         Fuzz.label("html refuses")
         if not html_why:find(": a slot ", 1, true) and not html_why:find(" end in different places", 1, true) and
-            not html_why:find(" ends where it did not", 1, true) then
+            not html_why:find(" ends where it did not", 1, true) and
+            not html_why:find("could complete a scheme", 1, true) then
           return false, "html refused what text takes, and not for its markup: " .. html_why
         end
       else
@@ -286,28 +287,79 @@ local function test_modes_agree_on_syntax_and_text_takes_what_html_does(tmp: str
   })
 end
 
-local SOUND_SLOTS <const>: {string} = { "{{.a}}", "{{.a}}", "{{.}}" }
-
---- Well-formed fragments with a slot in them, in each place a slot may
---- stand and several it may not, beside bare markup.
-local SOUND_MARKUP <const>: {string} = {
-  "<p>{{.a}}</p>", "<a href=\"{{.a}}\">x</a>", "<a href='{{.a}}'>", "<p title=\"{{.a}}\">", "<p title='{{.a}}'>",
-  "<textarea>{{.a}}</textarea>", "<title>{{.a}}</title>", "<img alt=\"{{.a}}\" src=\"{{.a}}\">",
-  "<a href=\"{{.a}}/x?y\">", "<a href={{.a}}>", "<p onclick=\"{{.a}}\">", "<script>{{.a}}</script>",
-  "<!-- {{.a}} -->", "<svg><a href=\"{{.a}}\">", "<svg><title>{{.a}}", "<form action=\"{{.a}}\" title=\"{{.a}}\">",
-  "<p ", "\"", "<svg>", "</svg>", "<!--", "\n", "x", "<p>", "</p>", "<p>", "x",
+--- Self-contained fragments, each with the kinds its slots must be judged
+--- as, in order: `t` text, `r` RCDATA text, `a` attribute, `u` URL, and
+--- `x` for one the compiler must refuse. Each leaves the markup in text,
+--- so the kinds of a template are those of its fragments, whatever order
+--- they come in. What each says about markup is written down here, apart
+--- from the tracker, which the property checks against it.
+local UNITS <const>: {{string}} = {
+  { "<p>{{.a}}</p>", "t" },
+  { "<a href=\"{{.a}}\">x</a>", "u" },
+  { "<a href='{{.a}}'>x</a>", "u" },
+  { "<a href=\"{{.a}}/x?y:z\">x</a>", "u" },
+  { "<img lowsrc=\"{{.a}}\">", "u" },
+  { "<p title=\"{{.a}}\">x</p>", "a" },
+  { "<textarea>{{.a}}</textarea>", "r" },
+  { "<title>{{.a}}</title>", "r" },
+  { "<img alt=\"{{.a}}\" src=\"{{.a}}\">", "au" },
+  { "<meta name=\"d\" content=\"{{.a}}\">", "a" },
+  { "<meta content=\"{{.a}}\" name=\"d\">", "a" },
+  { "<svg><a href=\"{{.a}}\">x</a></svg>", "u" },
+  { "<svg><p></svg><textarea>{{.a}}</textarea>", "r" },
+  { "<svg><div></div><textarea>{{.a}}</textarea></svg>", "r" },
+  { "<select><svg></svg></select><p>{{.a}}</p>", "t" },
+  { "<svg><br></svg>{{.a}}", "t" },
+  { "<svg><font size=1></svg>{{.a}}", "t" },
+  { "<math><svg></math>{{.a}}", "t" },
+  { "<svg><math></svg>{{.a}}", "t" },
+  { "<svg/>{{.a}}", "t" },
+  { "<math/><textarea>{{.a}}</textarea>", "r" },
+  { "<a href=\"{{if .a}}{{.a}}{{end}}\">x</a>", "u" },
+  { "<a title=\"{{range .l}}{{.a}}{{end}}\">x</a>", "a" },
+  { "<p {{if .a}}class=\"c\"{{end}}>{{.a}}</p>", "t" },
+  { "<a href={{.a}}>", "x" },
+  { "<p onclick=\"{{.a}}\">", "x" },
+  { "<p style=\"{{.a}}\">", "x" },
+  { "<script>{{.a}}</script>", "x" },
+  { "<script src=\"{{.a}}\"></script>", "x" },
+  { "<link href=\"{{.a}}\">", "x" },
+  { "<!-- {{.a}} -->", "x" },
+  { "<meta http-equiv=\"refresh\" content=\"{{.a}}\">", "x" },
+  { "<meta content=\"{{.a}}\" http-equiv=\"refresh\">", "x" },
+  { "<svg><title>{{.a}}</title></svg>", "x" },
+  { "<svg><foreignObject>{{.a}}</foreignObject></svg>", "x" },
+  { "<svg><set to=\"{{.a}}\"></svg>", "x" },
+  { "<iframe>{{.a}}</iframe>", "x" },
+  { "<a href=\"{{range .l}}{{.a}}{{end}}\">x</a>", "x" },
+  { "<a href=\"{{.a}}:x\">", "x" },
+  { "<a href=\"{{.a}}&#58;x\">", "x" },
+  { "<svg><textarea><a href=\"{{.a}}\"></textarea></svg>", "x" },
 }
 
-local SOUND <const>: Kit = { markup = SOUND_MARKUP, slots = SOUND_SLOTS, loose = SOUND_SLOTS }
-
---- A template of markup and slots, all of which compile unless a slot
---- has no escaping, and which payload to fill them with.
+--- A payload, the kinds its template's slots must be judged as, and a
+--- template of fragments, some inside a block.
 local function gen_sound(src: Fuzz.Source): string
-  local out: {string} = {}
-  gen_nodes(src, 0, out, SOUND)
+  local body: {string} = {}
+  local kinds: {string} = {}
+  while Fuzz.more(src, #body, 5) do
+    local first = Fuzz.pick(src, UNITS)
+    local wrap = src:int(0, 5)
+    if wrap == 1 then
+      local second = Fuzz.pick(src, UNITS)
+      body[#body + 1] = "{{if .a}}" .. first[1] .. "{{else}}" .. second[1] .. "{{end}}"
+      kinds[#kinds + 1] = first[2] .. second[2]
+    else
+      local open = wrap == 2 and "{{range .l}}" or wrap == 3 and "{{with .w}}" or ""
+      body[#body + 1] = open .. first[1] .. (open ~= "" and "{{end}}" or "")
+      kinds[#kinds + 1] = first[2]
+    end
+  end
   return Fuzz.pack({ Fuzz.pick(src, { "<\"'>& onload=x", "javascript:alert(1)", "\"'\n\t<script>" }),
-    table.concat(out) })
+    table.concat(kinds), table.concat(body) })
 end
+
+local HELPER_KIND <const>: {string: string} = { _text = "t", _rtext = "r", _attr = "a", _url = "u" }
 
 local function esc(s: any): string
   if not s is string then
@@ -362,17 +414,32 @@ local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
     name = "template sound",
     dir = tmp,
     gen = gen_sound,
-    requires = { "refused", "text", "attr", "url", "block" },
-    shares = { refused = 0.05, text = 0.1, attr = 0.05, url = 0.03 },
+    requires = { "refused", "text", "rtext", "attr", "url", "block" },
+    shares = { refused = 0.2, text = 0.05, rtext = 0.03, attr = 0.03, url = 0.03 },
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
       local payload = fields[1] or ""
-      local body = fields[2] or ""
-      local source, _ = Template.compile("{{type T from m.t}}" .. body, "t.tmpl")
-      if source == nil then
+      local kinds = fields[2] or ""
+      local body = fields[3] or ""
+      local source, why = Template.compile("{{type T from m.t}}" .. body, "t.tmpl")
+      if kinds:find("x", 1, true) then
         Fuzz.label("refused")
+        if source ~= nil then
+          return false, "compiled a template with a slot that must be refused (" .. kinds .. "): " .. body
+        end
         return true, ""
       end
+      if source == nil then
+        return false, "refused " .. body .. ": " .. why
+      end
+      local made_kinds: {string} = {}
+      for helper in source:gmatch("parts%[#parts %+ 1%] = (_%a+)%(v%) end") do
+        made_kinds[#made_kinds + 1] = HELPER_KIND[helper] or "?"
+      end
+      if table.concat(made_kinds) ~= kinds then
+        return false, "slots judged as " .. table.concat(made_kinds) .. ", not " .. kinds .. ": " .. body
+      end
+      if kinds:find("r", 1, true) then Fuzz.label("rtext") end
       local env: {string: any} = {
         require = function(name: string): any
           if name == "cosmic.html" then
