@@ -85,18 +85,7 @@ local function check(g: Grade, holds: boolean, line: string, why?: string)
   end
 end
 
--- TODO: once ci/cosmic-driver.pin names a release whose cosmic.child carries
--- Child.shell_status, take this from it and drop Grader.status.
---- A child's exit as a shell reports it: its code, or 128 plus the
---- signal that ended it.
-function Grader.status(result: Child.Result): integer
-  if result.code ~= nil then
-    return result.code
-  end
-  return 128 + (result.signal or 0)
-end
-
-local status = Grader.status
+local status = Child.shell_status
 
 --- Whether a failure's stderr is cosmic's own -- a launcher or
 --- runtime failure -- rather than the tool's: a line of it starts with

@@ -213,15 +213,12 @@ function Solve.host_reads(env: {string:string}): {string}
   return reads
 end
 
--- TODO: once ci/cosmic-driver.pin names a release whose cosmic.child carries
--- Child.shell_status, take the 128 and the signal from it.
 --- The exit status the manual launch's `timeout` would have recorded:
 --- the child's own, 124 past its deadline, or 128 and the signal that
 --- ended it.
 function Solve.status(result: Child.Result): integer
   if result.timed_out then return 124 end
-  if result.code ~= nil then return result.code end
-  return 128 + (result.signal or 0)
+  return Child.shell_status(result)
 end
 
 --- The command, run in the solver's sandbox, that exits 0 only when

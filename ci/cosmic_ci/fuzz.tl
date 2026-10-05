@@ -228,9 +228,7 @@ local function streamed(guard: Child.Guard, argv: {string}, cwd: string,
         local state, why = handle:try_wait()
         if state == nil then return why end
         if state.finished and status == nil then
-          -- TODO: once ci/cosmic-driver.pin names a release whose cosmic.child carries
-          -- Child.shell_status, take this status from it.
-          status = state.result.code or (128 + (state.result.signal or 0))
+          status = Child.shell_status(state.result)
           deadline = Clock.monotonic_ns() + final_output_ns
         end
         if eof then
@@ -257,9 +255,7 @@ local function streamed(guard: Child.Guard, argv: {string}, cwd: string,
     if status == nil then
       local observed, state = pcall(function(): Child.TryWait | nil return (handle:try_wait()) end)
       if observed and state ~= nil and state.finished then
-        -- TODO: once ci/cosmic-driver.pin names a release whose cosmic.child carries
-        -- Child.shell_status, take this status from it.
-        status = state.result.code or (128 + (state.result.signal or 0))
+        status = Child.shell_status(state.result)
       end
     end
     return ran and why or tostring(why)

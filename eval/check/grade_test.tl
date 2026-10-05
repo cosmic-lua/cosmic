@@ -69,11 +69,6 @@ local function test_a_failure_in_cosmic_is_one_a_line_of_stderr_opens_with()
   assert(not Grader.failed_in_cosmic("notes: no note 9 (cosmic)\n"))
 end
 
-local function test_a_signal_is_a_status_as_a_shell_reports_it()
-  assert(Grader.status({ code = 3, ok = false, timed_out = false, captured = {}, truncated = false }) == 3)
-  assert(Grader.status({ signal = 11, ok = false, timed_out = false, captured = {}, truncated = false }) == 139)
-end
-
 --- Grades the arena at `dir` for the task `name` with its lines --
 --- written to stdout -- taken into a file there, and answers its
 --- status and those lines. The hidden API tests are under
