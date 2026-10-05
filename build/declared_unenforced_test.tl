@@ -29,6 +29,7 @@ local Clock = require("cosmic.clock")
 --- start it.
 Test.policy{
   profiles = { "cosmic" },
+  grants = { { path = "o/bin", letters = "rx" } },
   promises = { "nest" },
 }
 

@@ -11,7 +11,7 @@ local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 
 --- The program itself, which builds the tree around the file it runs.
-Test.policy{ profiles = { "cosmic" } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- Runs `file` in `root` with this user's cache under `cache`.
 local function run(root: string, cache: string, file: string, word: string): Child.Result

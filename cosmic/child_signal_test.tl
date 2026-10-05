@@ -11,7 +11,7 @@ local Test = require("cosmic.test")
 
 --- The system's sh, which ignores SIGINT for the program it execs, and
 --- the program itself, through its launcher.
-Test.policy{ profiles = { "system", "cosmic" } }
+Test.policy{ profiles = { "system", "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local function nested_cosmic_environment(): {string:string}
   local environment = Env.all()

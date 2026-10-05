@@ -11,7 +11,7 @@ local String = require("cosmic.string")
 local Clock = require("cosmic.clock")
 
 --- The program itself, which its test starts.
-Test.policy{ profiles = { "cosmic" } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local function check(root: string): string
   local started = this_program.program({ "fix", "--check" }, { cwd = root,

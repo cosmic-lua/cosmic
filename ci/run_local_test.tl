@@ -8,6 +8,11 @@ local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 
+-- TODO: add grants = { { path = "o/bin", letters = "rx" } } beside the profile
+-- "cosmic" once ci/cosmic-driver.pin names a release that takes that grant as
+-- `tool`: the pinned driver reads it as a read of o/bin, and the profile alone
+-- is `lua` in this tree's tool, so this module keeps what the pinned driver
+-- runs as `tool` until then.
 Test.policy{ profiles = { "system", "cosmic" } }
 
 local function git(root: string, args: {string}): string

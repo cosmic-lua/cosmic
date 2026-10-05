@@ -23,6 +23,7 @@ local Zig = require("build.zig")
 Test.policy{
   profiles = { "cosmic" },
   grants = {
+    { path = "o/bin", letters = "rx" },
     { path = "build/patch.tl", letters = "r" },
     { path = "build/zig_fetch.tl", letters = "r" },
   },

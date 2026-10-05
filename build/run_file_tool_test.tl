@@ -9,7 +9,7 @@ local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 
 --- The program itself, which builds the tree around the file it runs.
-Test.policy{ profiles = { "cosmic" } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local function test_a_file_finds_its_words_in_arg_at_its_top_level(tmp: string)
   local root = tmp .. "/project"

@@ -20,6 +20,7 @@ local Clock = require("cosmic.clock")
 --- to sandboxing.
 Test.policy{
   profiles = { "cosmic" },
+  grants = { { path = "o/bin", letters = "rx" } },
   promises = { "nest" },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
 }

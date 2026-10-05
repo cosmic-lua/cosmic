@@ -24,7 +24,7 @@ local Time = require("cosmic.time")
 --- `store`: [`embed.database`] reads every `cosmic.*` module's rows.
 Test.policy{
   profiles = { "cosmic" },
-  grants = { { path = "o/cosmic.db", letters = "r" } },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "o/cosmic.db", letters = "r" } },
 }
 
 local main_source = [[

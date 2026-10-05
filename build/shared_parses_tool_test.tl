@@ -16,7 +16,7 @@ local String = require("cosmic.string")
 local Clock = require("cosmic.clock")
 
 --- The program itself, which its tests start.
-Test.policy{ profiles = { "cosmic" } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- Every row `sql` answers of the database at `path`, a line each, and
 --- every row of every parse table of a working database.

@@ -23,7 +23,7 @@ local this_program = require("build.this_program")
 --- sandboxed in a root of its own.
 Test.policy{
   profiles = { "cosmic" },
-  grants = { { path = "/proc", letters = "r" } },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "/proc", letters = "r" } },
   promises = { "nest" },
 }
 

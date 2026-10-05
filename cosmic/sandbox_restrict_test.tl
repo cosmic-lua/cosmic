@@ -22,7 +22,7 @@ local type raw_process = require("cosmic.internal.process")
 
 --- The program is this one, which a test starts only with `tool`; its
 --- temporary directory is the test's own.
-Test.policy{ profiles = { "cosmic" }, env = { "TMPDIR" } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } }, env = { "TMPDIR" } }
 
 local DENIED <const> = "Permission denied"
 

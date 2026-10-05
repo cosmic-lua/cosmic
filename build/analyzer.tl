@@ -1667,6 +1667,7 @@ local function policy_declared(data: PolicyData, line: integer): analyzer.Declar
   local not_yet = " is not yet taken: a policy runs a worker as a `needs` does " ..
     "(migration step a of the sandbox plan), and this takes effect where the policy's own " ..
     "path runs it (step b)"
+  local bin = false
   for _, profile in ipairs(data.profiles or {}) do
     if profile == "system" then
       out.system = true
@@ -1690,6 +1691,12 @@ local function policy_declared(data: PolicyData, line: integer): analyzer.Declar
           "{ path = \"o/cosmic.db\", letters = \"r\" } with no from"
       end
       out.store = true
+    elseif path == "o/bin" then
+      if letters ~= "rx" or grant.from ~= nil then
+        return nil, at .. ".path o/bin is the directory the program is in, granted " ..
+          "{ path = \"o/bin\", letters = \"rx\" } with no from, beside the profile \"cosmic\""
+      end
+      bin = true
     elseif path == "/noexec" then
       if letters ~= "rwc" or grant.from ~= nil then
         return nil, at .. ".path /noexec is the private scratch the harness gives, " ..
@@ -1749,6 +1756,10 @@ local function policy_declared(data: PolicyData, line: integer): analyzer.Declar
     if name == "*" then
       return nil, 'env: a policy names each variable it passes through; no wildcard "*" in a policy'
     end
+  end
+  if bin and not out.tool then
+    return nil, "grants: .path o/bin is the program's directory, granted only beside " ..
+      "the profile \"cosmic\"; add the profile, or drop the grant"
   end
   out.env = data.env or {}
   out.network = data.loopback or {}

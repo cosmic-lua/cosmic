@@ -23,6 +23,7 @@ local Test = require("cosmic.test")
 --- variables `shares` reads, which hold a run to sandboxing.
 Test.policy{
   profiles = { "cosmic" },
+  grants = { { path = "o/bin", letters = "rx" } },
   promises = { "nest" },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
 }

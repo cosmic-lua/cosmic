@@ -417,6 +417,12 @@ local NOEXEC_FORM <const> = ".path /noexec is the private scratch the harness gi
 local CACHE_FORM <const> = ".path /cache/<name> is a host cache, granted " ..
   "{ path = \"/cache/<name>\", letters = \"rwxc\" } with no from"
 
+--- The grant that, beside the profile "cosmic", is `tool`: the directory
+--- o/bin the program is in, read and run.
+local BIN_PATH <const> = "o/bin"
+local BIN_FORM <const> = ".path o/bin is the directory the program is in, granted " ..
+  "{ path = \"o/bin\", letters = \"rx\" } with no from, beside the profile \"cosmic\""
+
 --- The profiles a policy joins in, and the `needs` flag each stands for.
 local PROFILE_FLAGS <const>: {string:string} = { system = "system", cosmic = "tool" }
 
@@ -595,6 +601,7 @@ function Test.needs_of(given: any): Test.Needs | nil, string
   local host: {string} = {}
   local caches: {string} = {}
   local flags: {string:boolean} = {}
+  local bin = false
   for _, profile in ipairs(policy.profiles or {}) do
     local flag = PROFILE_FLAGS[profile]
     if flag == nil then
@@ -613,6 +620,9 @@ function Test.needs_of(given: any): Test.Needs | nil, string
     if path == STORE_PATH then
       if letters ~= "r" or grant.from ~= nil then return nil, at .. STORE_FORM end
       out.store = true
+    elseif path == BIN_PATH then
+      if letters ~= "rx" or grant.from ~= nil then return nil, at .. BIN_FORM end
+      bin = true
     elseif path == NOEXEC_PATH then
       if letters ~= "rwc" or grant.from ~= nil then return nil, at .. NOEXEC_FORM end
       out.noexec = true
@@ -655,6 +665,10 @@ function Test.needs_of(given: any): Test.Needs | nil, string
     return nil, (policy.user ~= nil and "user" or "group") .. " is refused: the harness " ..
       "chooses the user a worker runs as"
   end
+  if bin and not flags.tool then
+    return nil, "grants: .path o/bin is the program's directory, " ..
+      "granted only beside the profile \"cosmic\"; add the profile, or drop the grant"
+  end
   out.tool, out.system, out.nests = flags.tool, flags.system, flags.nests
   if #reads > 0 then out.reads = reads end
   if #host > 0 then out.host = host end
@@ -690,14 +704,16 @@ end
 --- module. A grant with a path of the tree is a read of it, an absolute
 --- path a read of that host file; the profile "system" is `system`,
 --- "cosmic" is `tool`; the promise "nest" is `nests`; `loopback` is
---- `network`. Three grants, written exactly so, are the fields they
+--- `network`. Four grants, written exactly so, are the fields they
 --- stand for rather than reads: `{ path = "o/cosmic.db", letters = "r" }`
 --- is `store = true`, `{ path = "/noexec", letters = "rwc" }` is
---- `noexec = true`, and `{ path = "/cache/<name>", letters = "rwxc" }`
+--- `noexec = true`, `{ path = "/cache/<name>", letters = "rwxc" }`
 --- is `caches = { "<name>" }` for a cache [`Needs.caches`] names (the
---- variables that locate it are passed as they are for `caches`). Each
---- refuses other letters and a `from`. "/noexec" and "/cache/..." are
---- paths the test harness reserves: no other grant is made at them. What
+--- variables that locate it are passed as they are for `caches`), and
+--- `{ path = "o/bin", letters = "rx" }`, the directory the program is in,
+--- is `tool` beside the profile "cosmic" and is refused without it. Each
+--- refuses other letters and a `from`. "/noexec", "/cache/..." and
+--- "o/bin" are paths the test harness reserves: no other grant is made at them. What
 --- has no `needs` to stand for -- any other grant to write, run or
 --- connect to, `isolate`, `limits`, `set_env`, `connect` -- fails the
 --- build, naming the field. Raises as `needs` does, for a value no

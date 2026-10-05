@@ -29,7 +29,7 @@ local Test = require("cosmic.test")
 --- (Test.skip).
 Test.policy{
   profiles = { "system", "cosmic" },
-  grants = { { path = "/dev/urandom", letters = "r" }, { path = "/proc", letters = "r" } },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" }, { path = "/proc", letters = "r" } },
   promises = { "nest" },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
 }

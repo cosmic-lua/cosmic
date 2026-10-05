@@ -18,7 +18,7 @@ local Clock = require("cosmic.clock")
 --- in a root of its own.
 Test.policy{
   profiles = { "cosmic" },
-  grants = { { path = "/proc", letters = "r" } },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "/proc", letters = "r" } },
   promises = { "nest" },
 }
 

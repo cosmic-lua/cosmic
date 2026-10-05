@@ -21,7 +21,7 @@ local type raw_process = require("cosmic.internal.process")
 --- what they start in a root of its own.
 Test.policy{
   profiles = { "cosmic" },
-  grants = { { path = "/proc", letters = "r" } },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "/proc", letters = "r" } },
   promises = { "nest" },
   env = { "COSMIC_SANDBOX" },
 }

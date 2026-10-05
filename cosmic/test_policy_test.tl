@@ -48,6 +48,9 @@ local SAME: {{string}} = {
       '{ path = "/etc/hosts", letters = "r" }, { path = "b", letters = "r" } } }' },
   { "Test.needs { system = true }", 'Test.policy { profiles = { "system" } }' },
   { "Test.needs { tool = true }", 'Test.policy { profiles = { "cosmic" } }' },
+  -- The profile and the grant of o/bin, which the program is in, are `tool`.
+  { "Test.needs { tool = true }",
+    'Test.policy { profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }' },
   { "Test.needs { tool = true, system = true }",
     'Test.policy { profiles = { "system", "cosmic" } }' },
   { "Test.needs { nests = true }", 'Test.policy { promises = { "nest" } }' },
@@ -126,6 +129,17 @@ local function test_a_policy_with_no_needs_is_refused()
       'test.policy: grants[1].path o/cosmic.db is the store, granted { path = "o/cosmic.db"' },
     { 'Test.policy { grants = { { path = "o/cosmic.db", letters = "r", from = "x" } } }',
       "test.policy: grants[1].path o/cosmic.db is the store" },
+    { 'Test.policy { grants = { { path = "o/bin", letters = "rx" } } }',
+      'test.policy: grants: .path o/bin is the program\'s directory, granted only beside ' ..
+        'the profile "cosmic"' },
+    { 'Test.policy { profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "r" } } }',
+      'test.policy: grants[1].path o/bin is the directory the program is in, granted ' ..
+        '{ path = "o/bin", letters = "rx" }' },
+    { 'Test.policy { profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rwx" } } }',
+      "test.policy: grants[1].path o/bin is the directory the program is in" },
+    { 'Test.policy { profiles = { "cosmic" }, ' ..
+        'grants = { { path = "o/bin", letters = "rx", from = "x" } } }',
+      "test.policy: grants[1].path o/bin is the directory the program is in" },
     { 'Test.policy { grants = { { path = "/noexec", letters = "rwxc" } } }',
       'test.policy: grants[1].path /noexec is the private scratch the harness gives, granted ' ..
         '{ path = "/noexec", letters = "rwc" }' },

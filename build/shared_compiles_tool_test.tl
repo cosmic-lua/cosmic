@@ -17,7 +17,7 @@ local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 
 --- The program itself, which its tests start.
-Test.policy{ profiles = { "cosmic" } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- The project every case builds: `a` requires `b`, which requires `c`
 --- and reads a field of a record `c` declares, so its compile finds a

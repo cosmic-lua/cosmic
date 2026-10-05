@@ -16,7 +16,7 @@ local stand_in = require("build.stand_in")
 --- own paths.
 Test.policy{
   profiles = { "system", "cosmic" },
-  grants = { { path = "/proc", letters = "r" } },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "/proc", letters = "r" } },
 }
 
 local type raw_process = require("cosmic.internal.process")
