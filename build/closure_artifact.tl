@@ -1,5 +1,6 @@
---- The artifact a sandboxed worker that builds roots of its own, or whose
---- module declares `lua`, opens by its path in place of the program's: the
+--- The artifact a sandboxed worker that builds roots of its own (`nests`),
+--- or whose module declares `lua` where it cannot run on a sealed database
+--- (build/test.tl's `sealed_for`), opens by its path in place of the program's: the
 --- program's launcher, cores and manifest, with a database of the worker's
 --- import closure ([`build.closure_store`]) and of what every worker loads.
 --- A worker of that kind is handed no descriptor of the program

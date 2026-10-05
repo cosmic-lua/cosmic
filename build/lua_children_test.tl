@@ -1,8 +1,8 @@
 --- What a module that declares `lua` ([`cosmic.test`]) alone starts:
 --- this program running a chunk, which a sandboxed worker runs from an
---- artifact of the module's import closure and what `cosmic -e` loads
---- (build/test_inputs.tl's `lua_loads`) in the program's place
---- ([`build.closure_artifact`]), and each process it starts in turn
+--- sealed database of the module's import closure and what `cosmic -e`
+--- loads (build/test_inputs.tl's `lua_loads`) in the program's place
+--- (build/test.tl's `sealed_for`), and each process it starts in turn
 --- inherits that -- so a child that reaches for any other module of the
 --- program, runs a verb, or runs a file `--standalone`, finds none rather
 --- than running what no key of its test holds. build/lua_standalone_test.tl

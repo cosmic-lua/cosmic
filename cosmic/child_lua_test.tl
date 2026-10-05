@@ -282,9 +282,11 @@ end
 
 local function test_more_descriptors_by_number(tmp: string)
   local fd, path = output(tmp, "five")
-  local r = assert(Child.run(lua(FS .. SYS .. 'Fs.put(3, "report") Fs.put(5, "five") ' ..
-      'return sys.fstat(4) == nil and 0 or 1', nil,
-    { fds = { [3] = "capture", [5] = fd }, stdout = "capture" })))
+  -- Descriptor 19, not 4: a child on a sealed database holds the file
+  -- open at a low number of its own.
+  local r = assert(Child.run(lua(FS .. SYS .. 'Fs.put(3, "report") Fs.put(20, "five") ' ..
+      'return sys.fstat(19) == nil and 0 or 1', nil,
+    { fds = { [3] = "capture", [20] = fd }, stdout = "capture" })))
   assert(Fs.close(fd))
   assert(r.ok, "code " .. tostring(r.code))
   assert(r.captured[3] == "report" and r.stdout == "")

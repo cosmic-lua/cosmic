@@ -316,11 +316,19 @@ local function test_is_refused_the_tool()
   -- the artifact's descriptor with it.
   local result, trouble = Child.run({ assert(Proc.executable()), "-e", "" })
   assert(result == nil, "the program ran undeclared")
-  assert(trouble:find("o such file", 1, true), trouble)
-  local ok, why = pcall(started, { "-e", "" })
-  assert(not ok, "the program's core ran undeclared")
-  assert(tostring(why):find("retained artifact descriptor", 1, true), tostring(why))
+  assert(trouble:find("o such file", 1, true) or trouble:find("ermission denied", 1, true), trouble)
   local relaunch = assert(Proc.relaunch())
+  if relaunch.argv[2] == "--database" then
+    -- A worker on a sealed database has no descriptor of the program to
+    -- be refused, and its core, which it is not granted to run, is.
+    local sealed, sealed_trouble = started({ "-e", "" })
+    assert(sealed == nil and tostring(sealed_trouble):find("ermission denied", 1, true),
+      tostring(sealed_trouble))
+  else
+    local ok, why = pcall(started, { "-e", "" })
+    assert(not ok, "the program's core ran undeclared")
+    assert(tostring(why):find("retained artifact descriptor", 1, true), tostring(why))
+  end
   local core, core_trouble = Child.run({ relaunch.argv[1], "-e", "" })
   assert(core == nil, "the program's core ran undeclared")
   assert(core_trouble:find("ermission denied", 1, true), core_trouble)

@@ -394,7 +394,10 @@ local type Held = function(fn: function(any...): (any...), argument?: any): any
 --- reaches the searcher too. It then puts both back, whether `fn`
 --- returned or raised, and returns or raises as `fn` did. A lookup that
 --- is not a `require` reads the store the worker is given, and the
---- program's own.
+--- program's own, which a sealed database narrows to the closure
+--- (build.test's `sealed_for`): this hold is its second guard there, which
+--- says why, and the only one for a worker that declares `store`, `tool` or
+--- `nests`.
 local function hold_requires(module_path: string, closure: {string:boolean},
                              tree: {string:boolean}): Held
   -- A refusal is a loader that raises, not a searcher that does: a
@@ -529,7 +532,8 @@ function worker.invocation(given: worker.Invocation): worker.Command
     local held = given.policy
     local policy: Sandbox.Policy = { profiles = held.profiles, grants = held.grants,
       isolate = held.isolate, promises = held.promises, connect = held.connect,
-      loopback = held.loopback, env = held.env, tmp = held.tmp, limits = held.limits }
+      loopback = held.loopback, env = held.env, tmp = held.tmp, limits = held.limits,
+      database = held.database }
     policy.set_env = env
     return { argv = argv, options = {
       policy = policy, cwd = given.cwd, stdin = "null", stdout = "capture", stderr = "stdout",
