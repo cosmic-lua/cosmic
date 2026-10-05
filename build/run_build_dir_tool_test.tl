@@ -34,11 +34,14 @@ local function test_a_tree_whose_o_cannot_be_written_builds_in_the_cache(tmp: st
   assert(sys.chmod(root .. "/o", tonumber("555", 8) as integer))
   local first = run(root, cache, "main.tl", "here")
   assert(first.code == 0 and first.stdout == "from here\n", tostring(first.stderr))
-  assert(tostring(first.stderr):find("cannot be written; building into " .. cache, 1, true),
-    tostring(first.stderr))
+  local said = tostring(first.stderr)
+  assert(said:find("cannot be written; building ", 1, true) and
+      said:find("/cosmic/runs/", 1, true), said)
   local listed = assert(Fs.list(root .. "/o"))
   assert(#listed == 0, "it wrote into the o/ it could not write")
   local again = run(root, cache, "main.tl", "again")
   assert(again.code == 0 and again.stdout == "from again\n", tostring(again.stderr))
+  assert(not tostring(again.stderr):find("cannot be written", 1, true), "said again: " ..
+      tostring(again.stderr))
   assert(sys.chmod(root .. "/o", tonumber("755", 8) as integer))
 end

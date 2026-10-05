@@ -343,7 +343,7 @@ local function writable(dir: string): boolean
   local reached, _ = sys.access(dir, sys.W_OK | sys.X_OK)
   if not reached then return false end
   for _, name in ipairs({ "/build.db", "/cosmic.db" }) do
-    local there, _ = sys.access(dir .. name, 0)
+    local there, _ = sys.access(dir .. name, 0) -- 0: whether it exists
     local open, _ = sys.access(dir .. name, sys.W_OK)
     if there and not open then return false end
   end
@@ -353,13 +353,19 @@ end
 --- Where a run builds the tree around `root` when its o/ cannot be
 --- written (another user's, a read-only checkout): a directory of this
 --- user's cache of its own for `root`, named by its path's SHA-256, so a
---- later run reuses it. Nil and why where there is no such cache.
-local function private_dir(root: string): string | nil, string
+--- later run reuses it, and whether it is new. Nil and why where there
+--- is no such cache.
+-- TODO: remove a directory of `runs` no run has used for a while, once
+-- the caches under $XDG_CACHE_HOME/cosmic share a rule to prune by: each
+-- tree run so keeps one, a copy of every file it staged among it.
+local function private_dir(root: string): string | nil, boolean, string
   local Fs = require("cosmic.fs")
   local Hash = require("cosmic.hash")
   local base, trouble = Fs.cache_dir("runs")
-  if base == nil then return nil, trouble end
-  return base .. "/" .. Hash.hex_sha256(root), ""
+  if base == nil then return nil, false, trouble end
+  local dir = base .. "/" .. Hash.hex_sha256(root)
+  local there, _ = Fs.exists(dir)
+  return dir, not there, ""
 end
 
 --- Runs a file. The file is a module: it is required once its tree is
@@ -407,18 +413,21 @@ local function run(file: string, argv: {integer:string}): integer
     log:complain(own_trouble)
     return 1
   end
-  -- A tree but this one builds where its o/ cannot be written into a
-  -- directory of this user's own instead; this tree's o/ is the one its
-  -- tool rebuilds from and its lock guards.
+  -- Any tree but cosmic's own whose o/ cannot be written builds into a
+  -- directory of this user's instead. Cosmic's o/ has no stand-in: its
+  -- tool rebuilds from it and its lock guards it.
   local dir = root .. "/o"
   if not own_tree and not writable(dir) then
-    local private, private_trouble = private_dir(root)
+    local private, new, private_trouble = private_dir(root)
     if private == nil then
-      log:complain(dir .. " cannot be written, and there is nowhere else to build: " ..
-          private_trouble)
+      log:complain(dir .. " cannot be written, and there is nowhere else to build " .. root ..
+          ": " .. private_trouble)
       return 1
     end
-    log:complain(dir .. " cannot be written; building into " .. private)
+    if new then
+      log:complain(dir .. " cannot be written; building " .. root .. " into " .. private ..
+          " instead, as every run of it will")
+    end
     dir = private
   end
   local handle, open_trouble = work.open(root, dir)
