@@ -238,9 +238,11 @@ local function test_a_send_from_a_byte_sends_the_rest()
   assert(assert(raw.send(client:fd(), "ab")) == 2)
   assert(assert(raw.send(client:fd(), "abcdef", 4)) == 3)
   assert(assert(raw.send(client:fd(), "abcdef", 7)) == 0)
-  assert(raw.wait(accepted:fd(), false, 5000))
   local got = ""
+  -- The sends may arrive as more than one segment, and the socket does not
+  -- block: wait before each read, not just the first.
   while #got < 5 do
+    assert(raw.wait(accepted:fd(), false, 5000))
     local chunk = assert(sys.read(accepted:fd(), 16))
     assert(#chunk > 0, "the connection ended early")
     got = got .. chunk
