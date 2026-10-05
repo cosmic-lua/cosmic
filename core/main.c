@@ -134,7 +134,10 @@ static bool open_database (const char *path, struct cosmic_artifact *artifact,
   /* SQLite opens the path again, so the file it holds is the one checked
    * above only if the path still names it: a path swapped in between is
    * refused here, the descriptor kept open until now so its inode cannot
-   * be reused meanwhile. */
+   * be reused meanwhile.
+   * TODO: a path swapped between sqlite3_open_v2 and this stat, and back,
+   * still passes; open SQLite on the checked descriptor itself (a VFS
+   * whose xOpen takes it) to close that. */
   struct stat named_now;
   bool same = rc == SQLITE_OK && stat(resolved, &named_now) == 0 &&
               named_now.st_dev == held.st_dev && named_now.st_ino == held.st_ino;
