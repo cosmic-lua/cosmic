@@ -257,6 +257,9 @@ local record Test
     user: integer
     --- The group the tests run as. Refused, as `user` is.
     group: integer
+    --- The database the tests' program runs on. Refused: no worker runs
+    --- on one yet.
+    database: string
   end
 end
 
@@ -376,11 +379,12 @@ local POLICY_FIELDS <const>: {string:string} = {
   profiles = "list", grants = "grants", isolate = "list", promises = "list",
   connect = "list", loopback = "list", env = "list", set_env = "map",
   set_env_digests = "map", tmp = "flag", limits = "limits", user = "id", group = "id",
+  database = "string",
 }
 
 local POLICY_FIELD_NAMES <const>: {string} = {
-  "connect", "env", "grants", "group", "isolate", "limits", "loopback", "profiles", "promises",
-  "set_env", "set_env_digests", "tmp", "user",
+  "connect", "database", "env", "grants", "group", "isolate", "limits", "loopback", "profiles",
+  "promises", "set_env", "set_env_digests", "tmp", "user",
 }
 
 local LIMIT_FIELDS <const>: {string:boolean} = {
@@ -537,6 +541,8 @@ local function policy_of(given: any): Test.Policy | nil, string
       else
         out.group = value
       end
+    elseif takes == "string" then
+      if value is string then out.database = value else why = key .. " takes a path" end
     elseif takes == "grants" then
       out.grants, why = grants_of(value)
     elseif takes == "limits" then
@@ -580,7 +586,7 @@ end
 --- `tool`, itself), the system (profile "system") and nesting (promise
 --- "nest"). What it cannot say is refused, naming the field, rather than
 --- accepted as a declaration that moves no key: `isolate`, `set_env`,
---- `limits`, a grant of more than "r" or from another path, `tmp = false`.
+--- `limits`, `database`, a grant of more than "r" or from another path, `tmp = false`.
 --- `connect`, `set_env_digests`, `user` and `group` are refused outright,
 --- since no test reaches a host but loopback, a digest holds no value to
 --- set, and the harness chooses a worker's user.
@@ -657,6 +663,12 @@ function Test.needs_of(given: any): Test.Needs | nil, string
   if #(policy.connect or {}) > 0 then
     return nil, "connect is refused: no test reaches a host but loopback, whose answer no " ..
       "key holds; declare the addresses in loopback and start the service in the test"
+  end
+  -- TODO: take `database` once the harness runs a worker on a sealed
+  -- database (the sealed-programs design's harness step): the key then
+  -- holds the file's digest.
+  if policy.database ~= nil then
+    return nil, "database " .. NOT_YET .. "; no worker runs on a database yet"
   end
   if policy.tmp == false then
     return nil, "tmp = false " .. NOT_YET .. "; every test has a temporary directory today"

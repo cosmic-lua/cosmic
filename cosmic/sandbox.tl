@@ -38,6 +38,7 @@
 --- the policy but not yet met by it: a start under one fails, saying so.
 
 local Codec = require("cosmic.codec")
+local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
@@ -177,6 +178,25 @@ local record Sandbox
     --- The group a child runs as, with `user`: for a root caller, `user`'s
     --- own number where it is left out; for any other, its own group.
     group: integer
+    --- A database the program runs on, by its absolute path: the program
+    --- is this program's core started on that database
+    --- (`core --database <path>`), so what it can `require` is the
+    --- modules the file holds and nothing of the tree or of this
+    --- program's own file. A file [`Store.seal`] wrote, whose `main` names what runs. It
+    --- is a regular file with no ".." in its path, which
+    --- [`Sandbox.check`] refuses otherwise. [`Child.start`] runs
+    --- only this program so, where it is a cosmic core (a host program has none), grants the
+    --- file read-only and the core, and refuses a grant that reaches this
+    --- program's own file, which holds modules the database leaves out.
+    --- [`Sandbox.restrict`] refuses it: a running process cannot change
+    --- its program. The "cosmic" profile adds nothing beside it, since its
+    --- grant is of that program's file; two different databases do not
+    --- merge. The "system" profile cannot be joined with it where this
+    --- program is installed under a directory the profile grants (/usr):
+    --- the grant reaches the program's own file, and the start fails, naming
+    --- it. [`PolicyJson.encode`] writes it with the SHA-256 of the
+    --- file, so the text holds what the database is and not only where.
+    database: string
   end
 
   --- What [`Sandbox.reach`] finds.
@@ -349,6 +369,28 @@ local function invalid(p: Sandbox.Policy, exact: boolean): string
   if p.group ~= nil and p.user == nil then
     return at("/group", "a group is given with a user")
   end
+  if p.database ~= nil then
+    local path = p.database
+    if path == "" or path:find("\0", 1, true) then
+      return at("/database", "a path is not empty and holds no NUL")
+    end
+    if path:sub(1, 1) ~= "/" then
+      return at("/database", "\"" .. path .. "\" is relative: the program's directory is not the " ..
+          "one this is read from, so name the file by its absolute path")
+    end
+    for segment in path:gmatch("[^/]+") do
+      if segment == ".." then
+        return at("/database", "\"..\" is not allowed; name the file itself")
+      end
+    end
+    local found, trouble = sys.stat(path)
+    if found == nil then
+      return at("/database", path .. ": " .. trouble)
+    end
+    if found.kind ~= "file" then
+      return at("/database", path .. " is not a regular file")
+    end
+  end
   local limits = p.limits or {}
   for _, why in ipairs({
       below("open_files", limits.open_files, 1), below("cpu_seconds", limits.cpu_seconds, 1),
@@ -497,6 +539,42 @@ function Sandbox.profile(name: string): Sandbox.Policy | nil, string
       table.concat(PROFILES, ", ") .. ")")
 end
 
+--- The SHA-256 of the database each policy was checked against
+--- ([`Sandbox.expect_digest`]), by the policy table; a merge carries it to
+--- its answer. Weak, so a policy that is dropped takes its entry along.
+local expected: {Sandbox.Policy:string} = setmetatable({}, { __mode = "k" })
+
+--- Records that `policy`, whose `database` was read from text naming
+--- `digest` (the SHA-256 of its bytes, in hex), is to run only on a file
+--- of that digest: [`Sandbox.database_is`] holds a start to it, and a merge
+--- of the policy keeps it. [`PolicyJson.decode`] calls it after
+--- checking the file.
+---
+---     local p: Sandbox.Policy = { database = "/srv/p.db" }
+---     Sandbox.expect_digest(p, string.rep("0", 64))
+function Sandbox.expect_digest(policy: Sandbox.Policy, digest: string)
+  expected[policy] = digest
+end
+
+--- Whether the file at `path` (the merged policy's database, by its real
+--- path) is the one `merged` was checked against: true where it hashes to
+--- the digest [`Sandbox.expect_digest`] recorded for it or for a policy
+--- merged into it, or where none was recorded; otherwise false and why.
+--- [`Child.start`] asks just before it starts the core on the file.
+---
+---     print(Sandbox.database_is({}, "/nowhere")) -- true
+function Sandbox.database_is(merged: Sandbox.Policy, path: string): boolean, string
+  local digest = expected[merged]
+  if digest == nil then return true, "" end
+  local bytes, why = Fs.read(path)
+  if bytes == nil then return false, "database " .. why end
+  if Hash.hex_sha256(bytes) ~= digest then
+    return false, "database " .. path .. " is not the one its policy was checked against: " ..
+      "its SHA-256 has changed since"
+  end
+  return true, ""
+end
+
 --- What the policies given hold together: each one's `profiles` resolved
 --- ([`Sandbox.profile`]) and joined in before the policy's own, then
 --- the grants joined by path (and `from`): the letters of one path are
@@ -507,8 +585,11 @@ end
 --- holds if any policy has it; a limit, `user` and `group` are the one
 --- value given, and two different values for one are refused, as two different
 --- values for one `set_env` name are (without saying them: they may be
---- secrets). A name with a value in one policy and a digest in another
---- must have the value's digest. The answer has no `profiles`, and every
+--- secrets). Two different `database`s are refused too, and with one given
+--- the "cosmic" profile resolves to nothing, since its grant is of this
+--- program's own file, which a program on a database is not given. A name
+--- with a value in one policy and a digest in another must have the
+--- value's digest. The answer has no `profiles`, and every
 --- list and table of it, empty or not, and `isolate` "file" holds "proc"
 --- too, which it implies: it is what [`PolicyJson.encode`] writes and
 --- [`Child.start`] meets. A value a policy's type does not stop -- an
@@ -521,13 +602,23 @@ end
 ---     print(merged.grants[1].letters, table.concat(merged.promises, ",")) -- rx  fork,jit
 function Sandbox.merge(...: Sandbox.Policy): Sandbox.Policy | nil, string
   local flat: {Sandbox.Policy} = {}
-  for _, p in ipairs({ ... }) do
+  local given: {Sandbox.Policy} = { ... }
+  local on_database = false
+  for _, p in ipairs(given) do
+    if p.database ~= nil then on_database = true end
+  end
+  for _, p in ipairs(given) do
     local bad = invalid(p, false)
     if bad ~= "" then return refuse(bad) end
     for _, name in ipairs(p.profiles or {}) do
-      local profile, why = Sandbox.profile(name)
-      if profile == nil then return nil, why end
-      flat[#flat + 1] = profile
+      -- The program on a database is a core and that file, which a start
+      -- grants: the profile's grant of this program's own file is
+      -- none of it, and one a start refuses.
+      if not (on_database and name == "cosmic") then
+        local profile, why = Sandbox.profile(name)
+        if profile == nil then return nil, why end
+        flat[#flat + 1] = profile
+      end
     end
     flat[#flat + 1] = p
   end
@@ -543,7 +634,23 @@ function Sandbox.merge(...: Sandbox.Policy): Sandbox.Policy | nil, string
   local env: {string} = {}
   local tmp = false
   local user, group: integer, integer
+  local database: string
+  local vouched: string
   for _, p in ipairs(flat) do
+    local seen = expected[p]
+    if seen ~= nil then
+      if vouched ~= nil and vouched ~= seen then
+        return refuse("database is checked against two digests")
+      end
+      vouched = seen
+    end
+    if p.database ~= nil then
+      local at = clean_path(p.database)
+      if database ~= nil and database ~= at then
+        return refuse("database is given two values, " .. database .. " and " .. at)
+      end
+      database = at
+    end
     for _, grant in ipairs(p.grants or {}) do
       local at = clean_path(grant.path)
       local key = at .. "\0" .. (grant.from or "")
@@ -619,12 +726,14 @@ function Sandbox.merge(...: Sandbox.Policy): Sandbox.Policy | nil, string
     end
     digests[name] = nil
   end
-  return {
+  local result: Sandbox.Policy = {
     grants = grants, isolate = isolate, promises = promises,
     connect = connect, loopback = loopback, env = env, set_env = set_env,
     set_env_digests = digests, tmp = tmp, limits = limits,
-    user = user, group = group,
-  }, ""
+    user = user, group = group, database = database,
+  }
+  if vouched ~= nil and database ~= nil then expected[result] = vouched end
+  return result, ""
 end
 
 --- How deep a chain of `#!` interpreters [`Sandbox.loaders`] follows,
@@ -751,6 +860,10 @@ end
 --- names that only a child can have, which is made in a namespace the
 --- process is not in, or by a relay it has not.
 local function not_in_process(merged: Sandbox.Policy): string
+  if merged.database ~= nil then
+    return "database \"" .. merged.database .. "\" is the program a child runs on, which a " ..
+      "running process cannot change: start a child with Child.start and a policy instead"
+  end
   if #merged.isolate > 0 then
     return "isolate \"" .. merged.isolate[1] .. "\" needs a namespace of its own: start " ..
       "a child with Child.start and a policy instead"
@@ -831,8 +944,8 @@ end
 ---
 --- It fails, and holds the process to nothing it was not, for what only
 --- a child can be held to -- `isolate`, `connect`, `loopback`, a grant's
---- `from` or `u`, the `nest` promise, `env`, `set_env`, `tmp` and
---- `limits.processes`, each failing by its name -- and while the process
+--- `from` or `u`, the `nest` promise, `env`, `set_env`, `tmp`, `database`
+--- and `limits.processes`, each failing by its name -- and while the process
 --- has another thread (a restriction binds the thread that makes it), a
 --- child not yet waited for, or a descriptor above 2 that `fds` does not
 --- name, bar the ones the runtime keeps itself: this program's own

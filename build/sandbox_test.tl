@@ -315,6 +315,8 @@ local samples <const>: {string:{string}} = {
 local exempt <const>: {string:string} = {
   set_env_digests = "what encode writes in place of set_env's values; a policy that holds one " ..
     "and no value cannot start a program, so a command line has no use for it",
+  -- TODO: give the verb a --database flag, once the sealed-programs design's CLI step lands.
+  database = "the verb has no flag for it yet",
 }
 
 --- The options that set no field of the policy by themselves: the descriptors handed over and the

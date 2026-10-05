@@ -396,3 +396,63 @@ local function test_reach_names_what_even_the_owner_lacks()
   local both = Sandbox.reach("rx", described(tonumber("100200", 8), "file"))
   assert(both.by == "" and both.lacks:find("execute and read", 1, true), both.lacks)
 end
+
+--- A file to name as a database, which the check reads only for being a
+--- regular file.
+local function database_file(tmp: string, name?: string): string
+  local path = tmp .. "/" .. (name or "program.db")
+  assert(Fs.write(path, "not read here"))
+  return path
+end
+
+local function test_check_refuses_a_database_that_is_not_a_file_by_its_absolute_path(tmp: string)
+  local path = database_file(tmp)
+  assert(Sandbox.check({ database = path }))
+  local ok, why = Sandbox.check({ database = "program.db" })
+  assert(not ok and why:find("/database", 1, true) and why:find("relative", 1, true), why)
+  ok, why = Sandbox.check({ database = tmp .. "/absent.db" })
+  assert(not ok and why:find("/database", 1, true) and why:find("absent.db", 1, true), why)
+  ok, why = Sandbox.check({ database = tmp .. "/../" .. assert(tmp:match("[^/]+$")) .. "/program.db" })
+  assert(not ok and why:find("\"..\"", 1, true), why)
+  ok, why = Sandbox.check({ database = tmp })
+  assert(not ok and why:find("not a regular file", 1, true), why)
+  ok, why = Sandbox.check({ database = "" })
+  assert(not ok and why:find("/database", 1, true), why)
+end
+
+local function test_merge_carries_a_database_and_refuses_two(tmp: string)
+  local path = database_file(tmp)
+  local other = database_file(tmp, "other.db")
+  assert(merged({ database = path }).database == path)
+  assert(merged({ database = path }, { database = tmp .. "//./program.db" }, {}).database == path)
+  local none, why = Sandbox.merge({ database = path }, { database = other })
+  assert(none == nil and why:find("database is given two values", 1, true), tostring(why))
+  assert(merged({}).database == nil)
+end
+
+--- The "cosmic" profile grants this program's own file, which a program
+--- on a database is not given: beside one it adds nothing.
+local function test_a_database_beside_the_cosmic_profile_leaves_the_programs_file_out(tmp: string)
+  local path = database_file(tmp)
+  local executable = assert(Proc.executable())
+  local plain = merged({ profiles = { "cosmic" } })
+  local found = false
+  for _, grant in ipairs(plain.grants) do
+    if grant.path == executable then found = true end
+  end
+  assert(found, "the profile no longer grants the program")
+  local out = merged({ profiles = { "cosmic" }, database = path })
+  assert(#out.grants == 0 and out.database == path)
+  -- In either order of the two.
+  out = merged({ database = path }, { profiles = { "cosmic", "system" } })
+  for _, grant in ipairs(out.grants) do
+    assert(grant.path ~= executable, "the profile's grant stayed")
+  end
+end
+
+local function test_restrict_refuses_a_database_before_it_holds_anything(tmp: string)
+  local path = database_file(tmp)
+  local ok, why = Sandbox.restrict({ database = path })
+  assert(not ok and why:find("^sandbox: restrict: "), why)
+  assert(why:find("database", 1, true) and why:find("Child.start", 1, true), why)
+end
