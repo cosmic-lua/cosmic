@@ -100,15 +100,22 @@ end
 --- slot that has no escaping.
 --- @param template types.Template The tree, changed in place
 --- @param name string The template's name, for messages
+--- @param end_line integer The line the template's source ends on
+--- @param end_col integer The column just after its last byte
 --- @return boolean True when every slot has a place
 --- @return string The reason, as `name:line:col: ...`, on a refusal
-function Context.annotate(template: types.Template, name: string): boolean, string
+function Context.annotate(template: types.Template, name: string, end_line: integer, end_col: integer): boolean, string
   if template.mode == "text" then
     return true, ""
   end
   local after, why = walk(name, template.body, markup.start())
   if after == nil then
     return false, why
+  end
+  local open = markup.ending(after)
+  if open ~= "" then
+    return false, refuse(name, end_line, end_col,
+      "the template ends " .. open .. ": it would put what follows it in another template into that place")
   end
   return true, ""
 end
