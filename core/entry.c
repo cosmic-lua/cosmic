@@ -62,6 +62,16 @@ int main (int argc, char **argv) {
     return cosmic_runtime_entry(&startup, argc, argv);
   }
   if (fd >= 0) close(fd);
+  /* A bare core, which takes no program arguments of its own but `--boot`,
+   * runs against a database file of its own when its first argument says
+   * so. It comes after the host check, so a host program's own first
+   * argument stays its own, and the runtime's argv begins with the path
+   * as it does under `--artifact`. */
+  if (argc >= 2 && strcmp(argv[1], "--database") == 0) {
+    cosmic_startup_database(&startup, argc >= 3 ? argv[2] : NULL);
+    int named = argc >= 3 ? 2 : 0;
+    return cosmic_runtime_entry(&startup, argc - named, argv + named);
+  }
   cosmic_startup_native(&startup);
   return cosmic_runtime_entry(&startup, argc, argv);
 }

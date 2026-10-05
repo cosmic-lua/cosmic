@@ -114,7 +114,10 @@ end
 --- private startup contract its launcher would give it, so the child
 --- skips the launcher and cannot land on another core -- a checked build
 --- relaunches as a checked build. A host program is executed again as it
---- is: `argv` is just its path, and `env` and `fds` are empty. Append the
+--- is: `argv` is just its path, and `env` and `fds` are empty. A core run
+--- against a database (`core --database <path>`) is started again on that
+--- database: `argv` is the core, `--database` and the database's absolute
+--- path, and `env` and `fds` are empty, so a child stays on it. Append the
 --- child's own arguments to `argv`, add `env` to its environment, and pass
 --- `fds` to [`Child.start`]. Returns nil and why when this process has no
 --- artifact to start again, or its executable or core cannot be reopened.
@@ -122,6 +125,10 @@ function Proc.relaunch(): Proc.Relaunch | nil, string
   if relaunch ~= nil then return relaunch, "" end
   local found, trouble = raw.relaunch(ARTIFACT_FD, CORE_FD)
   if found == nil then return nil, trouble end
+  if found.database ~= nil then
+    relaunch = { argv = { found.path, "--database", found.database }, env = {}, fds = {}, cwd = found.cwd }
+    return relaunch, ""
+  end
   if found.host then
     relaunch = { argv = { found.path }, env = {}, fds = {}, cwd = found.cwd }
     return relaunch, ""

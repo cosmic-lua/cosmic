@@ -245,7 +245,8 @@ local record declared_key
     --- Where an artifact runs the tests (Store.meta's
     --- `runtime_context` "portable-v1": o/bin/cosmic, or a portable
     --- cosmic), what runs its core ([`launcher_identity`]); nil where a
-    --- host program does, whose core is all there is ahead of its
+    --- host program ("host-v1") or a core run against a database of its own
+    --- ("database-v1") does, whose core is all there is ahead of its
     --- database.
     launcher: string
     --- The module's declaration, as [`test_inputs.canonical`] spells it.

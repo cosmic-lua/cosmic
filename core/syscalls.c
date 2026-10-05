@@ -4401,6 +4401,18 @@ COSMIC_SYSCALL(relaunch, 2) {
     int number = errno;
     return cosmic_fail(L, number == 0 ? ENAMETOOLONG : number);
   }
+  if (artifact->split) {
+    /* A core run against a database starts again as it was: the core and
+     * the database's absolute path, with no descriptor and no environment
+     * to hand on. */
+    lua_createtable(L, 0, 3);
+    lua_pushstring(L, physical);
+    lua_setfield(L, -2, "path");
+    lua_pushstring(L, artifact->logical_path);
+    lua_setfield(L, -2, "database");
+    set_cwd(L);
+    return 1;
+  }
   if (artifact->host) {
     /* A host program is its own launcher: executing it again is enough. */
     lua_createtable(L, 0, 3);

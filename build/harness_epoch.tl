@@ -96,7 +96,7 @@ harness_epoch.acknowledged = {
 
   ["build.core_image"] = "dfc18e0e6316237ab9fb11a957df68d6217e42cffc6f2f3a767018c5313700ac",
 
-  ["build.declared_key"] = "2c493574f2bb0dbbbef3279304217fb4b96c9bf6a92ee8eda14b3ee8ca050431",
+  ["build.declared_key"] = "fed7b1a5d4d1ae4fc7b1c3aa1a0ceca55ee40422a2c4b3fe348e1e2f69a209c8",
 
   ["build.digest"] = "dccca5b63f2992d4d23213450142bdd05eee403ebaf3a4e0acf7437da72558f0",
 
@@ -126,7 +126,7 @@ harness_epoch.acknowledged = {
 
   ["cmd.cosmic.main"] = "d00f469acf42d89c76c2e9ebabd40e73e20d00cb3a5ad6d9189716265fcdf9bf",
 
-  ["cosmic.child"] = "dcdd2affc68d3637763ebf1bdc36e0c5a85a01cdbe90ef7e23758375120c6394",
+  ["cosmic.child"] = "2c56ab604b4714048d2e70a0a8ed350778d98ed73af758ca1bc17682e7d38140",
 
   ["cosmic.coverage"] = "079fe202231c4ae3ee642e27f6703a37850132c28c2a6d1daf50c7eb1669ac9a",
 
@@ -134,7 +134,7 @@ harness_epoch.acknowledged = {
 
   ["cosmic.fs"] = "befc25dee33fd54963b4a28dfe6a825724c37ed9f0f26a29b8908b1a72f628ed",
 
-  ["cosmic.proc"] = "bbafb94bfa1671115f839c6fe57c921893d31d0e5baa1c4b1692e802b9c06212",
+  ["cosmic.proc"] = "1f2f124e7478daaf5955a2043d03a379d8dbc657ffe938ac71d221376f677bcf",
 
   ["cosmic.sandbox"] = "1ad6efaf103f483eaa89388ef75f7ed99d3595eab22994f5d55a0ce180de87d3",
 
