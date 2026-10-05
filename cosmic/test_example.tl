@@ -6,7 +6,7 @@ local Env = require("cosmic.env")
 local Test = require("cosmic.test")
 
 -- These examples read USER, which a test reads only once it says so.
-Test.needs{ env = { "USER" } }
+Test.policy{ env = { "USER" } }
 
 local Example = {}
 

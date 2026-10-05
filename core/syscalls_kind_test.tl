@@ -3,7 +3,12 @@ local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local gen_syscalls = require("build.gen_syscalls")
 
-Test.needs{ reads = { "core/syscalls.h", "core/syscalls_fs.c" } }
+Test.policy{
+  grants = {
+    { path = "core/syscalls.h", letters = "r" },
+    { path = "core/syscalls_fs.c", letters = "r" },
+  },
+}
 
 --- Every kind the core can answer is a member of the enum, and every
 --- member is one it answers: the header's `Kind` and the words

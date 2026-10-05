@@ -16,7 +16,10 @@ local confine = require("build.confine")
 local searchable = require("build.searchable")
 
 --- The temporary directory, and this program, which the child runs.
-Test.needs{ env = { "TMPDIR" }, tool = true }
+Test.policy{
+  profiles = { "cosmic" },
+  env = { "TMPDIR" },
+}
 
 --- Whether `why`, a start's failure, is the host giving no sandbox.
 local function unsandboxable(why: string): boolean

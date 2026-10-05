@@ -7,7 +7,10 @@ local Time = require("cosmic.time")
 local Test = require("cosmic.test")
 
 --- The host's own local zone.
-Test.needs{ host = { "/etc/localtime" }, env = { "TZ" } }
+Test.policy{
+  grants = { { path = "/etc/localtime", letters = "r" } },
+  env = { "TZ" },
+}
 
 local Example = {}
 

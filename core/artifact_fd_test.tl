@@ -24,8 +24,12 @@ local type raw_socket = require("cosmic.internal.socket")
 
 --- The binding headers, read for which of their bindings take a
 --- descriptor.
-Test.needs{
-  reads = { "core/syscalls.h", "core/process.h", "core/socket.h" },
+Test.policy{
+  grants = {
+    { path = "core/syscalls.h", letters = "r" },
+    { path = "core/process.h", letters = "r" },
+    { path = "core/socket.h", letters = "r" },
+  },
 }
 
 local type Searcher = function(string): any, any

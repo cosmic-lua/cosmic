@@ -18,7 +18,7 @@ local type raw_process = require("cosmic.internal.process")
 local type _ = require("cosmic.child")
 
 --- /proc: the child reads its own status for its filter.
-Test.needs{ host = { "/proc" } }
+Test.policy{ grants = { { path = "/proc", letters = "r" } } }
 
 local type Searcher = function(string): any, any
 

@@ -26,7 +26,7 @@ end
 local raw = socket_table()
 
 --- A TCP socket refused on the worker's own loopback.
-Test.needs{ network = { "127.0.0.1" } }
+Test.policy{ loopback = { "127.0.0.1" } }
 
 --- The descriptor the next open is handed: the lowest free one, so one
 --- left open shows as a higher number.

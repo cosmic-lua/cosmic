@@ -10,7 +10,7 @@ local Test = require("cosmic.test")
 
 --- The tests on TCP listen on the worker's own loopback; those of a unix
 --- socket make their own file.
-Test.needs{ network = { "127.0.0.1" } }
+Test.policy{ loopback = { "127.0.0.1" } }
 
 --- A listener on the loopback at a port the kernel chose, and a connection to
 --- it from each end, all closed with it. The tests of a unix socket make

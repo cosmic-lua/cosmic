@@ -14,10 +14,9 @@ local stand_in = require("build.stand_in")
 --- What the session is tested on: /proc, the program itself, which it
 --- starts again, and the host's setsid program, beneath the system's
 --- own paths.
-Test.needs{
-  host = { "/proc" },
-  tool = true,
-  system = true,
+Test.policy{
+  profiles = { "system", "cosmic" },
+  grants = { { path = "/proc", letters = "r" } },
 }
 
 local type raw_process = require("cosmic.internal.process")

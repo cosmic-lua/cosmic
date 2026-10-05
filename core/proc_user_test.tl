@@ -3,7 +3,7 @@ local Test = require("cosmic.test")
 local testing = require("cosmic.internal.testing")
 
 -- The real lookup consults the host's account service.
-Test.needs{ system = true }
+Test.policy{ profiles = { "system" } }
 
 local checked = testing.configuration == "sanitized"
 

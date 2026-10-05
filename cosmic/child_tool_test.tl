@@ -21,7 +21,11 @@ local this_program = require("build.this_program")
 --- the program itself (`tool`), which every child is, started past its
 --- launcher so that no host program is read; and `nests`, for a child
 --- sandboxed in a root of its own.
-Test.needs{ host = { "/proc" }, tool = true, nests = true }
+Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "/proc", letters = "r" } },
+  promises = { "nest" },
+}
 
 local function path_exists(path: string): boolean
   local answer, trouble = Fs.exists(path)

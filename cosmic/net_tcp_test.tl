@@ -8,7 +8,7 @@ local sys = require("cosmic.sys")
 local Clock = require("cosmic.clock")
 
 --- Each listener here is on the worker's own loopback.
-Test.needs{ network = { "127.0.0.1" } }
+Test.policy{ loopback = { "127.0.0.1" } }
 
 local function test_a_tcp_listener_at_port_zero_names_the_port_it_has()
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))

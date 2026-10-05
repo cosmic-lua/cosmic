@@ -15,7 +15,7 @@ local type raw_process = require("cosmic.internal.process")
 local type _ = require("cosmic.child")
 
 --- The system's own programs, which the shell and its libraries are.
-Test.needs{ system = true }
+Test.policy{ profiles = { "system" } }
 
 local type Searcher = function(string): any, any
 

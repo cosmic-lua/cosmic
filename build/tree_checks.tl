@@ -60,9 +60,6 @@ allowed["cosmic.sandbox.restrict"] = "tested directly: it holds the process that
   "for good, so a worked example would hold the run that shows it; the test restricts " ..
   "a child of this program, and the harness holds its workers with it once the " ..
   "design's test phase lands (the TODO at build.confine's forbid_running)"
-allowed["cosmic.test.policy"] = "declared once, at the top of a module, as `needs` is, and " ..
-  "cosmic/test_example.tl's one declaration is that; the test modules that declare a " ..
-  "policy (cosmic/http_test.tl and the like) are what use it"
 allowed["cosmic.test.needs_of"] = "tested directly: the worker's translation of a policy, " ..
   "which the build's own reading of one (build.analyzer, which cannot require this " ..
   "module) is held to by cosmic/test_policy_test.tl"
