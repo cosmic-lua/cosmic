@@ -597,7 +597,9 @@ static int store_meta (lua_State *L) {
   const struct cosmic_artifact *artifact = lua_touserdata(L, -1);
   lua_pop(L, 1);
   if (strcmp(key, "runtime_context") == 0) {
-    if (artifact != NULL && artifact->fd >= 0 && artifact->host)
+    if (artifact != NULL && artifact->fd >= 0 && artifact->split)
+      lua_pushliteral(L, "database-v1");
+    else if (artifact != NULL && artifact->fd >= 0 && artifact->host)
       lua_pushliteral(L, "host-v1");
     else if (artifact != NULL && artifact->fd >= 0)
       lua_pushliteral(L, "portable-v1");
@@ -852,8 +854,9 @@ static int store_trusted_prefix (lua_State *L) {
   }
   if (artifact->host) {
     lua_pushnil(L);
-    lua_pushliteral(L, "a host program carries only its own core, not the "
-                       "portable prefix a portable program is made from");
+    lua_pushliteral(L, "a host program or a core run against a database "
+                       "carries only its own core, not the portable prefix "
+                       "a portable program is made from");
     return 2;
   }
   uint64_t length = artifact->portable.prefix_length;

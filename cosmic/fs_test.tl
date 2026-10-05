@@ -318,6 +318,9 @@ local function test_set_mtime_defaults_to_a_whole_second_and_checks_ns(tmp: stri
   assert(not pcall(Fs.set_mtime, path, 4000, -1))
 end
 
+--- Why a test skips where the worker's filter refuses a setuid mode.
+local SPECIAL_BITS = "the worker's filter refuses a mode with a setuid bit: `fattr` never allows one"
+
 --- Whether a chmod of `path` to `mode`, which has a setuid bit, is refused
 --- by the worker's seccomp filter, which `fattr` never lets set one: EPERM,
 --- where a process may set the bits of its own file. A test that meets it
@@ -326,8 +329,6 @@ end
 -- skip, once a promise lets a test that declares it set the special bits
 -- (core/promises.c's `fattr` refuses them for good): a process the test
 -- starts is held by the same filter, so no other process can set them.
-local SPECIAL_BITS = "the worker's filter refuses a mode with a setuid bit: `fattr` never allows one"
-
 local function special_bits_refused(path: string, mode: integer): boolean
   local set, _, errno = sys.chmod(path, mode)
   return not set and errno == sys.EPERM
@@ -646,7 +647,10 @@ end
 
 local function test_copy_tree_drops_setuid_and_setgid(tmp: string)
   assert(Fs.write(tmp .. "/run", "#!/bin/sh\n", 0x1ed))
-  if special_bits_refused(tmp .. "/run", 0x9ed) then Test.skip(SPECIAL_BITS) end
+  if special_bits_refused(tmp .. "/run", 0x9ed) then
+    Test.skip(SPECIAL_BITS)
+    return
+  end
   assert(sys.chmod(tmp .. "/run", 0x9ed))
   assert(Fs.copy_tree(tmp .. "/run", tmp .. "/copy"))
   assert(assert(Fs.stat(tmp .. "/copy")).mode & 0xfff == 0x1ed)

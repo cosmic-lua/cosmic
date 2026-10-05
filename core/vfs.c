@@ -313,3 +313,21 @@ bool cosmic_vfs_uri (char *into, size_t room, const char *path) {
   memcpy(into + at, tail, written + 1);
   return true;
 }
+
+bool cosmic_database_uri (char *into, size_t room, const char *path) {
+  static const char scheme[] = "file:";
+  static const char tail[] = "?mode=ro&immutable=1";
+  size_t at = sizeof scheme - 1;
+  if (at + 1 >= room) {
+    return false;
+  }
+  memcpy(into, scheme, at);
+  if (!append_escaped(into, room, &at, path)) {
+    return false;
+  }
+  if (at + sizeof tail > room) {
+    return false;
+  }
+  memcpy(into + at, tail, sizeof tail);
+  return true;
+}

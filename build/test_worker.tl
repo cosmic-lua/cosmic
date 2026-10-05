@@ -810,8 +810,8 @@ function worker.run(argv: {integer:string}): integer
   local handed: Test.Needs = nil
   -- Each reason the test gives [`Test.skip`], once, in order.
   local reasons: {string} = {}
-  -- What [`Test.skip`] raises to end its test: this table and no other
-  -- error, which a test cannot make, is a skip rather than a failure.
+  -- What [`Test.skip`] raises to end its test. Only this table counts as
+  -- a skip; any other error is a failure, and a test cannot make this one.
   local ended_by_skip: {string:string} = {}
   setmetatable(ended_by_skip, {
     __tostring = function(): string return "the test was skipped" end,

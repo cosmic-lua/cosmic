@@ -105,6 +105,13 @@ void cosmic_startup_host (struct cosmic_startup *startup, int fd,
   startup->artifact_fd = fd;
 }
 
+void cosmic_startup_database (struct cosmic_startup *startup,
+                              const char *path) {
+  cosmic_startup_native(startup);
+  startup->kind = COSMIC_STARTUP_DATABASE;
+  startup->database_path = path;
+}
+
 bool cosmic_artifact_core_matches (struct cosmic_artifact *artifact) {
   if (artifact == NULL || artifact->fd < 0) return false;
   if (artifact->core_checked == 0) {
@@ -164,7 +171,10 @@ void cosmic_startup_portable (struct cosmic_startup *startup,
 }
 
 const char *cosmic_startup_validate (const struct cosmic_startup *startup) {
-  if (startup->kind != COSMIC_STARTUP_NATIVE &&
+  if (startup->kind == COSMIC_STARTUP_DATABASE) {
+    if (startup->database_path == NULL || startup->database_path[0] == '\0')
+      return "--database names no database";
+  } else if (startup->kind != COSMIC_STARTUP_NATIVE &&
       (startup->artifact_path == NULL || startup->artifact_path[0] == '\0'))
     return "portable startup names no artifact";
   if (startup->contract_error != NULL) return startup->contract_error;
@@ -266,6 +276,33 @@ bool cosmic_startup_adopt (const struct cosmic_startup *startup,
   cosmic_artifact_init(artifact);
   if (error != NULL) *error = NULL;
   if (startup->kind == COSMIC_STARTUP_NATIVE) return true;
+  if (startup->kind == COSMIC_STARTUP_DATABASE) {
+    /* The core is the whole of this program's file: the database is not
+     * inside it, so there is no manifest, launcher or artifact descriptor
+     * to check it against. What the database records of the core is
+     * checked once it is open ([`cosmic_database_bind`]). */
+    int core_fd = cosmic_executable_fd();
+    struct stat core_stat;
+    if (core_fd < 0)
+      return fail_adoption(artifact, -1, -1, error,
+                           "the running core cannot be opened");
+    if (fstat(core_fd, &core_stat) != 0 || !S_ISREG(core_stat.st_mode) ||
+        core_stat.st_size <= 0)
+      return fail_adoption(artifact, core_fd, -1, error,
+                           "the running core is not a regular file");
+    artifact->fd = core_fd;
+    artifact->host = 1;
+    artifact->split = 1;
+    artifact->device = (uint64_t)core_stat.st_dev;
+    artifact->inode = (uint64_t)core_stat.st_ino;
+    artifact->file_size = (uint64_t)core_stat.st_size;
+    artifact->portable.selected = (struct cosmic_portable_entry){
+      .target_id = COSMIC_TARGET_ID,
+      .configuration_id = COSMIC_CONFIGURATION_ID,
+      .length = (uint64_t)core_stat.st_size,
+    };
+    return true;
+  }
   if (startup->kind == COSMIC_STARTUP_HOST) {
     /* The kernel executed this very file: there is no launcher's choice to
      * check it against. Its structure is checked here, and its core's digest
@@ -428,5 +465,30 @@ bool cosmic_startup_adopt (const struct cosmic_startup *startup,
     return fail_adoption(artifact, -1, -1, error,
                          "cannot mark retained artifact close-on-exec");
   artifact->core_checked = 1;
+  return true;
+}
+
+bool cosmic_database_bind (struct cosmic_artifact *artifact, const char *path,
+                           const char *recorded, const char **error) {
+  size_t length = strlen(path);
+  if (length >= sizeof artifact->logical_path) {
+    *error = "the path is too long";
+    return false;
+  }
+  if (recorded == NULL) {
+    *error = "it records no core_sha256, so it is not a database written "
+             "for a core";
+    return false;
+  }
+  if (!hex_digest(recorded, artifact->portable.selected.sha256)) {
+    *error = "it records a core_sha256 that is not a sha256 in hex";
+    return false;
+  }
+  if (!cosmic_artifact_core_matches(artifact)) {
+    *error = "it was written for another core than this one: its "
+             "core_sha256 differs from this core's digest";
+    return false;
+  }
+  memcpy(artifact->logical_path, path, length + 1);
   return true;
 }

@@ -117,11 +117,9 @@ local function docker(env: {string:string}, words: {string},
   if result == nil then return 1, label .. ": " .. trouble, "" end
   if result.ok then return 0, "", result.stdout or "" end
   if result.signal then
-    -- TODO: once ci/cosmic-driver.pin names a release whose cosmic.child carries
-    -- Child.shell_status, take this status from it.
-    return 128 + result.signal, label .. ": signal " .. tostring(result.signal), ""
+    return Child.shell_status(result), label .. ": signal " .. tostring(result.signal), ""
   end
-  local code = result.code or 1
+  local code = Child.shell_status(result)
   return code, label .. ": exit " .. tostring(code), ""
 end
 

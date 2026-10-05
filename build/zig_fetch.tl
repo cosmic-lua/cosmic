@@ -46,75 +46,6 @@ local record ZigFetch
   end
 end
 
--- TODO: once ci/cosmic-driver.pin names a release whose cosmic.fs carries
--- Fs.scratch, take this from it (its Scratch's `path` and `owner` are
--- these), and build/patch.tl's identical copy with it.
-
---- The gate is never unlinked: every creator and sweeper must lock the
---- same inode. It covers creation through ownership, so no sweep sees a
---- new wrapper before its owner is locked. Expensive work runs outside it.
---- Kept here because this standalone script can load only the pinned
---- release's cosmic.* modules, not another module from the checkout.
-local record Descriptor
-  fd: integer
-  metamethod __close: function(Descriptor)
-end
-local descriptor_mt: metatable<Descriptor> = {
-  __close = function(self: Descriptor) local _, _ = sys.close(self.fd) end,
-}
-
-local record Scratch
-  path: string
-  owner: integer
-  metamethod __close: function(Scratch)
-end
-local scratch_mt: metatable<Scratch> = {
-  __close = function(self: Scratch)
-    local _, _ = Fs.remove_tree(self.path)
-    local _, _ = sys.close(self.owner)
-  end,
-}
-
-local function scratch(cache: string): Scratch | nil, string
-  local fd, trouble = sys.open(cache .. "/.scratch-gate", sys.O_RDWR | sys.O_CREAT | sys.O_NOFOLLOW, 0x180)
-  if fd == nil then return nil, trouble end
-  local opened: Descriptor = { fd = fd }
-  local gate <close> = setmetatable(opened, descriptor_mt)
-  local locked, lock_trouble = sys.flock(gate.fd, "exclusive", -1)
-  if not locked then return nil, lock_trouble end
-  local names, list_trouble = Fs.list(cache)
-  if names == nil then return nil, list_trouble end
-  for _, name in ipairs(names) do
-    -- PID-only names belong to old tools and say nothing about ownership
-    -- across namespaces. Missing owner files are also left alone.
-    if name:match("^%.scratch%.[%w]+$") then
-      local path = cache .. "/" .. name
-      local owner, _ = sys.open(path .. "/owner", sys.O_RDWR | sys.O_NOFOLLOW)
-      if owner ~= nil then
-        local descriptor: Descriptor = { fd = owner }
-        local probe <close> = setmetatable(descriptor, descriptor_mt)
-        local dead, _ = sys.flock(probe.fd, "exclusive", 0)
-        if dead then local _, _ = Fs.remove_tree(path) end
-      end
-    end
-  end
-  local path, create_trouble = sys.mkdtemp(cache .. "/.scratch.XXXXXX")
-  if path == nil then return nil, create_trouble end
-  local owner, owner_trouble = sys.open(path .. "/owner", sys.O_RDWR | sys.O_CREAT | sys.O_EXCL, 0x180)
-  if owner == nil then
-    local _, _ = Fs.remove_tree(path)
-    return nil, owner_trouble
-  end
-  local owned: Scratch = { path = path, owner = owner }
-  local holding = setmetatable(owned, scratch_mt)
-  local held, hold_trouble = sys.flock(owner, "exclusive", 0)
-  if not held then
-    local _cleanup <close> = holding
-    return nil, hold_trouble
-  end
-  return holding, ""
-end
-
 --- zig's community mirrors of `https://ziglang.org/download/`, copied
 --- from https://ziglang.org/download/community-mirrors.txt on
 --- 2026-09-24. Refresh this list by copying that file's lines here. A
@@ -342,7 +273,7 @@ function ZigFetch.install(cache: string, install: string, version: string, host:
   if not made then
     return nil, mtrouble
   end
-  local owned, own_trouble = scratch(cache)
+  local owned, own_trouble = Fs.scratch(cache)
   if owned == nil then return nil, own_trouble end
   local holding <close> = owned
   local work = holding.path .. "/payload"

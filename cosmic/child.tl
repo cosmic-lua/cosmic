@@ -2721,10 +2721,15 @@ local shared_fds: {string:integer} = {}
 --- unpack a core into a cache the policy does not give it. `user` is the
 --- user a root caller's program runs as, which runs a copy of the core it
 --- may run ([`shared_core`]); nil for this process's own. Nil and "" where
---- this program has no relaunch (a host program), or nil and why.
+--- this program has no relaunch past its own start (a host program), or nil
+--- and why. A core run against a database (`--database`) relaunches as
+--- itself, with no descriptor to hand on.
 local function relaunch_of(user: MappedUser): Proc.Relaunch | nil, string
   local launched, _ = Proc.relaunch()
-  if launched == nil or launched.env.COSMIC_PORTABLE_CORE_FD == nil then return nil, "" end
+  if launched == nil then return nil, "" end
+  if launched.env.COSMIC_PORTABLE_CORE_FD == nil and launched.argv[2] ~= "--database" then
+    return nil, ""
+  end
   if user == nil then return launched, "" end
   local copy, trouble = shared_core(launched.argv[1])
   if copy == nil then return nil, trouble end
@@ -2885,6 +2890,11 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
     if found ~= nil then
       relaunch = found
       merged.grants[#merged.grants + 1] = { path = found.argv[1], letters = "rx" }
+      -- A core on a database reads it, on its own start and on every
+      -- relaunch of its own; the grant is what a start that stays on it needs.
+      if found.argv[2] == "--database" then
+        merged.grants[#merged.grants + 1] = { path = found.argv[3], letters = "r" }
+      end
     end
   end
   local idmap: {boolean} = {}

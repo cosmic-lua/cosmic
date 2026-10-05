@@ -64,8 +64,8 @@ end
 
 --- Ends the running test as skipped ([`Test.skip`]) where this Linux host
 --- refuses the sandbox it is about, so the run counts it skipped rather
---- than passed. Another platform has no such sandbox to check, and
---- returns, as the test does silently.
+--- than passed. Another platform has no such sandbox to check, so there
+--- it does nothing and the test goes on to return silently.
 local function unsandboxable(what: string, trouble: string)
   local reason = unsandboxed_reason(what, trouble)
   if reason ~= nil then Test.skip(reason) end

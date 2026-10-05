@@ -241,10 +241,10 @@
    outside, and whose sandbox nests at any depth as on CI's
    unprivileged runners, with no setup. Where the kernel refuses a
    sandbox that deep, those tests call [`Test.skip`], which
-   ends the test where it is called (it raises what the runner takes for a
-   skip, so nothing after it runs, and a `pcall` or coroutine around it
-   must raise what it caught again; a test that has more to check first
-   defers the call to its end): the summary counts them skipped, beside ran
+   ends the test where it is called. It raises what the runner takes for
+   a skip, so nothing after it runs. A `pcall` or coroutine around it
+   must raise what it caught again. A test with more to check first
+   defers the call to its end. The summary counts them skipped, beside ran
    and stood, and lists each with its reason (`test: SKIP`); no verdict
    is kept of one, so it runs again every run, in a held run too
    (`COSMIC_TEST_SANDBOX=1`, `COSMIC_SANDBOX=must` or

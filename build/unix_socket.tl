@@ -126,7 +126,8 @@ end
 --- Ends the running test as skipped ([`Test.skip`]) where the process
 --- cannot make a unix socket in `dir` ([`unix_socket.refusal`]); false,
 --- having said nothing, where it can. Outside a runner [`Test.skip`]
---- returns, and so does this, answering true: the test returns then.
+--- does not end the test, so this answers true there and the caller
+--- returns.
 --- @param dir a directory the process may make a socket file in
 --- @return whether the test is skipped
 function unix_socket.skipped(dir: string): boolean
