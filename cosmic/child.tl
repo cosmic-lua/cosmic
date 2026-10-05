@@ -395,11 +395,13 @@ local record Options
   --- among them, left out of a merge with a `database`) fails the start,
   --- since that file holds the modules the database leaves out. The
   --- child's [`Proc.relaunch`] is that same core and database, and so are
-  --- its own children's. With `nest` the core and the database are binds
-  --- of the child's root that no grant lets it write, so the child, which
-  --- has no descriptor of either, starts children of its own on that
-  --- database and cannot change either file by its path or by
-  --- /proc/self/fd.
+  --- its own children's. With `nest` the core and the database are read-only
+  --- binds of the child's root, which the kernel locks once the child makes
+  --- a user namespace of its own, and it has no descriptor of either: it
+  --- starts children of its own on that database and cannot write either
+  --- file. A process started on a core with `--database` and no policy
+  --- `database` takes `nest` the same way, its database bound from its own
+  --- start.
   ---
   --- A child never runs as root. Where this process is not root, it runs
   --- as this process's user, mapped as itself in its user namespace.
@@ -2970,14 +2972,12 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
           "there, is such a grant: leave the profile out)"
       end
     end
-    -- Under `nest` a program holds no descriptor of its core: a core on a
-    -- database is started by path, and the root gives it that path as a
-    -- read-only bind (a grant without `w` or `c` is one), the core
-    -- beside its database. A descriptor opened on either, /proc/self/fd/N
-    -- of one included, is reopened through that mount, which refuses
-    -- writing whoever owns the file; the child's own children are started
-    -- from those same paths. A portable artifact hands its artifact and
-    -- core as descriptors, which [`nest_descriptors`] must refuse.
+    -- A core on a database is started by path with no descriptor, so
+    -- `nest` may run it: the root binds the core and the database read-only
+    -- (no `w`, no `c`), and once the child makes a user namespace of its own
+    -- the kernel locks those binds (MNT_LOCK_READONLY, MNT_LOCKED).
+    -- A portable artifact hands its artifact and core as descriptors, which
+    -- [`nest_descriptors`] must refuse.
     -- TODO: run a portable artifact under `nest` too, once its
     -- relaunch runs on a database (a core and a file, no descriptor), or
     -- nest_descriptors can hand its descriptors of read-only regular
