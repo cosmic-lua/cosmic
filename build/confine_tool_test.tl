@@ -279,10 +279,7 @@ end
 --- lasts for good.
 local function test_forbid_running_within_refuses_the_program_by_every_name(tmp: string)
   -- The hold is a Landlock ruleset, which only Linux has.
-  if not confine.sandbox_platform() then
-    if confine.sandbox_platform() then Test.skip("forbid_running holds a process only on Linux") end
-    return
-  end
+  if not confine.sandbox_platform() then return end
   local sibling = assert(stand_in.build(tmp .. "/sibling/stand-in"))
   local program = confine.itself()[1]
   assert(Fs.mkdirs(tmp .. "/links"))

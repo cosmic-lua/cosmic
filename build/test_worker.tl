@@ -810,14 +810,22 @@ function worker.run(argv: {integer:string}): integer
   local handed: Test.Needs = nil
   -- Each reason the test gives [`Test.skip`], once, in order.
   local reasons: {string} = {}
+  -- What [`Test.skip`] raises to end its test. Only this table counts as
+  -- a skip; any other error is a failure, and a test cannot make this one.
+  local ended_by_skip: {string:string} = {}
+  setmetatable(ended_by_skip, {
+    __tostring = function(): string return "the test was skipped" end,
+  })
   local runner = {
     loaded = false,
     handed = function(needs: Test.Needs) handed = needs end,
-    skipped = function(reason: string)
+    skipped = function(reason: string): {string:string}
+      local seen = false
       for _, given in ipairs(reasons) do
-        if given == reason then return end
+        if given == reason then seen = true end
       end
-      reasons[#reasons + 1] = reason
+      if not seen then reasons[#reasons + 1] = reason end
+      return ended_by_skip
     end,
   }
   install(Test, runner)
@@ -865,8 +873,11 @@ function worker.run(argv: {integer:string}): integer
         local hits, _ = Coverage.stop(test_session)
         report.test_hits = hits
       end
-      report.passed, report.message = ran.ok, ran.ok and "" or tostring(ran.produced)
-      if sandboxed and not ran.ok then
+      -- A test that skipped ends by raising `ended_by_skip`: it passed as far
+      -- as it ran, and `report.skipped` says it checked less than it exists to.
+      report.passed = ran.ok or ran.produced == ended_by_skip
+      report.message = report.passed and "" or tostring(ran.produced)
+      if sandboxed and not report.passed then
         report.message = report.message .. unseen_note(report.message, ran.unseen)
       end
       report.skipped = table.concat(reasons, "; ")
