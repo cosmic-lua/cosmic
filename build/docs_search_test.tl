@@ -10,8 +10,6 @@ local Test = require("cosmic.test")
 local docs = require("build.docs")
 local String = require("cosmic.string")
 
--- TODO: declare this with [`Test.policy`] once a policy field says `store` (the TODO
--- above [`Test.needs_of`] in cosmic/test.tl).
 Test.needs{ reads = { "core" }, store = true }
 
 --- The queries, each with the symbols any one of which must be among the

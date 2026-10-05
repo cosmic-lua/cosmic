@@ -12,8 +12,6 @@ local Clock = require("cosmic.clock")
 
 --- The program itself, which its tests start to run a file `--standalone`
 --- (`standalone`).
--- TODO: declare this with [`Test.policy`] once a policy field says `lua` (the TODO
--- above [`Test.needs_of`] in cosmic/test.tl).
 Test.needs{ lua = true, standalone = true }
 
 --- End to end, from a directory holding no tree: the file gets its own

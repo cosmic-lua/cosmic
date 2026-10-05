@@ -23,8 +23,6 @@ local test = require("build.test")
 --- edit to the tree runs this again, an edit to the harness among
 --- them, and so does a compiler that makes other bytecode of it; it
 --- is this module alone that pays that.
--- TODO: declare this with [`Test.policy`] once a policy field says `store` (the TODO
--- above [`Test.needs_of`] in cosmic/test.tl).
 Test.needs{ store = true }
 
 --- The line of build/harness_epoch.tl's `acknowledged` that holds

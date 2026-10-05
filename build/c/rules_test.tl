@@ -11,8 +11,6 @@ local rules = require("build.c.rules")
 --- tree, and what bin/zig reads to find or fetch zig, which the system's
 --- `sh` runs; the bootstrap cosmic and zig, and the caches zig builds
 --- in, which it writes.
--- TODO: declare this with [`Test.policy`] once a policy field says `caches` (the TODO
--- above [`Test.needs_of`] in cosmic/test.tl).
 Test.needs{
   reads = { "bin/cosmic-bootstrap", "bin/zig", "bin/zig.pin", "ci/cosmic-driver.pin", "core/",
     "vendor/bzip2/", "vendor/cares/include/", "vendor/curl/include/", "vendor/lua/src/",

@@ -549,7 +549,10 @@ end
 -- `noexec` and a `$NAME` host path say (a grant on the store, a per-user
 -- host cache, a writable grant without x, a variable-named grant), once
 -- the policy path (step b of the sandbox plan) gives each a field of
--- cosmic.sandbox's [`Policy`]: a module that declares one stays on `needs`.
+-- cosmic.sandbox's [`Policy`]: a module that declares one stays on `needs`,
+-- and the modules still on `needs` (the tests that declare `store`, `caches`,
+-- `lua`, `standalone`, `noexec` or a `$NAME` host path) convert mechanically
+-- once those fields exist.
 -- TODO: hand the promises to the runner, which keeps them in the key, once
 -- [`Test.policy`] replaces `needs` (step e of the sandbox plan): the filter
 -- runs on every worker, but until then a promise a test does not make

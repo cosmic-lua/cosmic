@@ -12,8 +12,6 @@ local Clock = require("cosmic.clock")
 local Zig = require("build.zig")
 local this_program = require("build.this_program")
 
--- TODO: declare this with [`Test.policy`] once a policy field says `lua` (the TODO
--- above [`Test.needs_of`] in cosmic/test.tl).
 Test.needs{ lua = true }
 
 --- An older tool takes only SQLite's transaction. A negative wait keeps

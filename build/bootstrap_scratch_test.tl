@@ -9,8 +9,6 @@ local Patch = require("build.patch")
 local ZigFetch = require("build.zig_fetch")
 local this_program = require("build.this_program")
 
--- TODO: declare this with [`Test.policy`] once a policy field says `lua` (the TODO
--- above [`Test.needs_of`] in cosmic/test.tl).
 Test.needs{ lua = true }
 
 local function holder(path: string): Child.Handle

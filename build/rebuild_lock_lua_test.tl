@@ -20,8 +20,6 @@ local this_program = require("build.this_program")
 
 --- The program itself, which holds the lock against this process,
 --- started only to run a chunk (`lua`).
--- TODO: declare this with [`Test.policy`] once a policy field says `lua` (the TODO
--- above [`Test.needs_of`] in cosmic/test.tl).
 Test.needs{ lua = true }
 
 --- Asks for the lock of the tree at the first `%q` as a tool from

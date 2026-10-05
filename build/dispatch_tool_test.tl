@@ -8,8 +8,6 @@ local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 
 --- The program itself, started with `-e`.
--- TODO: declare this with [`Test.policy`] once a policy field says `lua` (the TODO
--- above [`Test.needs_of`] in cosmic/test.tl).
 Test.needs{ lua = true }
 
 --- The `build.*` modules `-e` may have loaded as its chunk runs: dispatch,
