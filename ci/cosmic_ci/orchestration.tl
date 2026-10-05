@@ -627,7 +627,7 @@ function Orchestration.fixture(env: {string:string}, tmpdir: string,
   -- (COSMIC_CI_DECLARED_KEYS), by the pinned driver: it shares no verdict
   -- for a key to name. A release that keys every unsandboxed run by
   -- declaration keys it so anyway, and it shares nothing all the same
-  -- (COSMIC_VERDICT_CACHE=0); it declares the whole environment it reads.
+  -- (COSMIC_VERDICT_CACHE=0); it names each variable it reads.
   return env
 end
 
