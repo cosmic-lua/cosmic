@@ -131,6 +131,7 @@ local test_sandbox_probe = require("build.test_sandbox_probe")
 local declared_key = require("build.declared_key")
 local hashing = require("build.digest")
 local harness_epoch = require("build.harness_epoch")
+local host_names = require("build.host_names")
 local host_requires = require("build.host_requires")
 local host_caches = require("build.caches")
 local worker = require("build.test_worker")
@@ -2992,6 +2993,11 @@ local record Run
   --- the run was told not to ask ([`require_of_host`] asks then, if a
   --- module needs it).
   sandbox_answer: test_sandbox_probe.Answer
+  --- The requirements this run's leg promises (COSMIC_TEST_PROMISES), and
+  --- the leg's name (COSMIC_TEST_LEG, "" where none is given), which a held
+  --- run fails a module for lacking ([`require_of_host`]).
+  promises: {string}
+  leg: string
   sandboxed: boolean
   sandbox_summary: string
   shares: boolean
@@ -3206,6 +3212,21 @@ end
 local function choose_sandbox(ctx: Run): integer | nil
   local handle = ctx.handle
   local sandbox_mode = ctx.sandbox_mode
+  -- Only a held run reads the promises, which only it fails for: a
+  -- project that sets COSMIC_TEST_PROMISES for another reason is no concern of a run
+  -- that is not held.
+  local promises: {string} = {}
+  if sandbox_mode == "on" or Env.get("COSMIC_SANDBOX") == "must" or
+      Env.get("COSMIC_CI_REQUIRE_SANDBOX") == "1" then
+    local read, promises_trouble = host_names.read_promises(Env.get("COSMIC_TEST_PROMISES") or "")
+    if read == nil then
+      local _, _ = work.close(handle)
+      log:complain("test: COSMIC_TEST_PROMISES: " .. promises_trouble)
+      return 1
+    end
+    promises = read
+  end
+  ctx.promises, ctx.leg = promises, Env.get("COSMIC_TEST_LEG") or ""
   -- Each worker runs sandboxed where the kernel can sandbox one, unless
   -- the switch turns it off. Either way each test is keyed by what it
   -- declares; unsandboxed, the run trusts that where a sandboxed run
@@ -3671,11 +3692,16 @@ end
 --- (`refused`), one a platform never has is not applicable (`na`), and one
 --- this host lacks is skipped. A held run (COSMIC_TEST_SANDBOX=1,
 --- COSMIC_SANDBOX=must, COSMIC_CI_REQUIRE_SANDBOX=1) holds the sandbox
---- ([`choose_sandbox`]) and fails for none of these.
+--- ([`choose_sandbox`]), and fails a module for an n/a or a skip of a
+--- requirement its leg promises (COSMIC_TEST_PROMISES, COSMIC_TEST_LEG),
+--- naming the requirement and the leg; an absence of one it does not
+--- promise fails nothing.
 --- The exit code to stop with, or nil to go on.
 local function require_of_host(ctx: Run): integer | nil
   local rec = ctx.rec
   local host: host_requires.Host = nil
+  local held = ctx.sandbox_mode == "on" or Env.get("COSMIC_SANDBOX") == "must" or
+    Env.get("COSMIC_CI_REQUIRE_SANDBOX") == "1"
   for _, m in ipairs(ctx.selected_modules) do
     local names = requirements_of(m)
     if #names > 0 then
@@ -3713,8 +3739,14 @@ local function require_of_host(ctx: Run): integer | nil
           present[answer.name] = answer.key
         else
           local said = "requires " .. answer.name .. ": " .. answer.why
-          if unmet == nil or UNMET_RANK[answer.kind] > UNMET_RANK[unmet.kind] then
-            unmet = { kind = answer.kind, why = said }
+          local kind = answer.kind
+          if held and kind ~= "refused" and host_names.promised(ctx.promises, answer.name) then
+            said = said .. " (" .. (ctx.leg == "" and "this run" or "the leg " .. ctx.leg) ..
+              " promises " .. answer.name .. ", and a held run fails what its leg promised)"
+            kind = "refused"
+          end
+          if unmet == nil or UNMET_RANK[kind] > UNMET_RANK[unmet.kind] then
+            unmet = { kind = kind, why = said }
           end
         end
       end

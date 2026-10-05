@@ -1513,3 +1513,26 @@ local function test_noexec_launcher_declares_its_grant_and_keeps_keyed_verdicts(
     assert(not Orchestration.noexec_fixture(target), target .. ": unsupported noexec fixture scheduled")
   end
 end
+
+--- A suite on a leg is given the requirements the leg promises
+--- (ci/cosmic_ci/capabilities.tl) and its name, so a held `cosmic test`
+--- fails a module for lacking one; a worker that is no leg's is given
+--- none, and a list the caller set is left alone.
+local function test_a_leg_is_given_the_requirements_it_promises()
+  local Orchestration = require("cosmic_ci.orchestration")
+  local linux: {string:string} = { COSMIC_WORKER = "linux-x86_64-shard" }
+  Orchestration.promise(linux)
+  assert(linux.COSMIC_TEST_LEG == "linux-x86_64-shard")
+  assert(("," .. linux.COSMIC_TEST_PROMISES .. ","):find(",nest,", 1, true), linux.COSMIC_TEST_PROMISES)
+  local mac: {string:string} = { COSMIC_WORKER = "macos-aarch64" }
+  Orchestration.promise(mac)
+  assert(mac.COSMIC_TEST_PROMISES == "path:/bin/sh" and mac.COSMIC_TEST_LEG == "macos-aarch64")
+  for _, worker in ipairs({ "provenance", "fuzz", "" }) do
+    local other: {string:string} = { COSMIC_WORKER = worker }
+    Orchestration.promise(other)
+    assert(other.COSMIC_TEST_PROMISES == nil and other.COSMIC_TEST_LEG == nil, worker)
+  end
+  local chosen: {string:string} = { COSMIC_WORKER = "linux-x86_64", COSMIC_TEST_PROMISES = "proc" }
+  Orchestration.promise(chosen)
+  assert(chosen.COSMIC_TEST_PROMISES == "proc" and chosen.COSMIC_TEST_LEG == nil)
+end

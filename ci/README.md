@@ -49,6 +49,15 @@ unprivileged user namespace (Ubuntu 24.04's
 `kernel.apparmor_restrict_unprivileged_userns=1`, most containers), so the
 phases after it still run there. Set it to hold a local run to the same.
 
+Each leg also promises the host requirements cosmic_ci/capabilities.tl
+lists for it (a `requires` name of a test module's policy): the driver
+gives every suite's `cosmic test` the list as `COSMIC_TEST_PROMISES` and
+the leg's name (`COSMIC_WORKER`) as `COSMIC_TEST_LEG`, and a held run
+fails a module whose promised requirement is absent. A worker that is no
+leg's (provenance, fuzz) promises none, and `run-local` sets neither
+variable, so a local run only reports. `o/bin/cosmic fix --check .` fails a
+requirement no leg promises.
+
 Where `COSMIC_CI_REQUIRE_SANDBOX=1`, every phase's `cosmic test` runs each
 worker sandboxed to its declared inputs (`COSMIC_TEST_SANDBOX=1`), under
 a `cosmic.sandbox` policy (`build/test_policy.tl`), as it does by default
