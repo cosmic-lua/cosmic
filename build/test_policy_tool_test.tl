@@ -27,7 +27,7 @@ local this_program = require("build.this_program")
 --- their own for the workers it starts (`nests`), and the variables the
 --- runs read, which hold them to sandboxing and to a path.
 Test.policy{
-  profiles = { "cosmic" },
+  profiles = { "cosmic", "system" },
   grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" }, { path = "/proc", letters = "r" } },
   promises = { "nest" },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
@@ -145,6 +145,45 @@ local function test_a_plan_for_the_policy_leaves_the_system_and_proc_to_the_poli
   assert(holds(reads, "/dev/urandom") and holds(reads, "/dev/null"))
   assert(policy.sandbox.user == nil, "a policy chooses the user")
   assert(policy.runs[root .. "/o/bin"] == true)
+end
+
+--- A tree tested by a tool of another tree (ci/, run by ../o/bin/cosmic) is
+--- started by a name with ".." in it, which [`Proc.executable`] keeps as
+--- given. The policy grants the program where it is, so a grant may not
+--- name it so: the plan names the directory it resolves to.
+local function test_a_program_started_by_a_name_with_dots_is_granted_where_it_is(tmp: string)
+  local script = [[
+local Sandbox = require("cosmic.sandbox")
+local sys = require("cosmic.sys")
+local test_policy = require("build.test_policy")
+local test_sandbox = require("build.test_sandbox")
+local root, scratch = sys.getenv("ROOT"), sys.getenv("SCRATCH")
+local inputs = { files = {}, reads = {}, host = {}, env = {}, network = {},
+  tool = true, store = false, system = true }
+local plan = test_sandbox.plan(root, scratch, inputs, {})
+local policy, why = test_policy.worker(plan, inputs)
+assert(policy ~= nil, why)
+local ok, trouble = Sandbox.check(policy)
+print(ok and "ok" or trouble)
+]]
+  local launched = Proc.relaunch()
+  if launched == nil or launched.argv[2] ~= "--artifact" then return end
+  assert(Fs.mkdirs(tmp .. "/beside/ci"))
+  assert(Fs.symlink(launched.argv[3], tmp .. "/beside/cosmic"))
+  local started = this_program.program({ "-e", script })
+  local root, scratch = tmp .. "/beside/ci", scratch_in(tmp)
+  local env = started.options.env or {}
+  env.ROOT, env.SCRATCH, env.PATH = root, scratch, "/usr/bin:/bin"
+  started.options.env, started.options.stdout, started.options.stderr = env, "capture", "capture"
+  started.options.timeout_ns = Time.seconds(60)
+  -- The launcher names the artifact by where it was started from: $PWD/$0.
+  started.argv = { "../cosmic", "-e", script }
+  started.options.cwd = tmp .. "/beside/ci"
+  started.options.fds = nil
+  local result, trouble = Child.run(started.argv, started.options)
+  assert(result ~= nil, tostring(trouble))
+  assert(result.code == 0, tostring(result.stderr) .. tostring(result.stdout))
+  assert(tostring(result.stdout):find("^ok\n"), tostring(result.stdout) .. tostring(result.stderr))
 end
 
 --- A worker whose module declares `nests` has no descriptor of the program

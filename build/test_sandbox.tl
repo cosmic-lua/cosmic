@@ -280,7 +280,7 @@ end
 local function program_name(root: string): string | nil, boolean
   local relaunch, _ = Proc.relaunch()
   if relaunch == nil or relaunch.argv[2] ~= "--artifact" then return nil, false end
-  local program, _ = Proc.executable()
+  local program = confine.executable()
   if program == nil then return nil, false end
   local real = confine.resolution(program)
   if real ~= "" and real == confine.resolution(root .. "/o/bin/cosmic") then
@@ -361,7 +361,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- it keeps the runner's, which it cannot open either.
   local program, own_program: string | nil, boolean = nil, false
   if effective.tool then program, own_program = program_name(root) end
-  local executable, _ = Proc.executable()
+  local executable = confine.executable()
   local base = confine.worker_unveil(root, nil, scratch, false, effective.tool and not own_program)
   local reads: {string} = {}
   local at: {string:string} = {}
