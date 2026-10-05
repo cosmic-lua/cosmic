@@ -256,7 +256,8 @@ local makers: {string: function(raw: {string: any}): Made} = {
     return { instances = { Hasher = hasher }, release = nothing }
   end,
   html = function(raw: {string: any}): Made
-    return { instances = { SafeHtml = call(raw.escape, "<"), SafeAttr = call(raw.escape_attr, "<") },
+    return { instances = { SafeHtml = call(raw.escape, "<"), SafeAttr = call(raw.escape_attr, "<"),
+      SafeUrl = call(raw.href, "/") },
       release = nothing }
   end,
   http = function(raw: {string: any}): Made
