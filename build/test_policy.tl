@@ -58,13 +58,14 @@ test_policy.switch = "COSMIC_TEST_POLICY"
 -- tests declare them (step (e) of the plan, which replaces [`Test.needs`]
 -- with [`Test.policy`]): until then no test can say what it makes, and the
 -- filter refuses only what no test is meant to.
--- TODO: let a root's start make a unix socket without a `u` grant below
--- Landlock ABI 9, once the kernels the suite runs on give ABI 9
--- (core/syscalls.c's TODO on the same; cosmic/child.tl's `unix_unheld`):
--- below it a `u` grant beside another directory fails the start, and
--- without one the filter refuses `socket(AF_UNIX)` EPERM, so a test of a
--- unix socket in a worker's scratch directory is skipped under the policy
--- path (build/unix_socket.tl).
+-- TODO: let a worker make a unix socket below Landlock ABI 9, once the kernels
+-- the suite runs on give ABI 9 (core/syscalls.c's TODO on the same), or a
+-- worker's root is a tmpfs of its own and files alone: a start holds a unix
+-- socket by its root alone only then, and a worker's root binds the tree and
+-- its scratch directory, whose sockets it cannot tell from its own. Its filter
+-- refuses `socket(AF_UNIX)` EPERM, which every process the worker starts
+-- inherits, so a test of a unix socket is skipped under the policy path
+-- (build/unix_socket.tl).
 local base_promises <const>: {Sandbox.Promise} = { "fattr", "fork", "jit" }
 
 --- The devices a worker is given, as the policy's letters have them: the

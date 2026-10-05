@@ -287,8 +287,8 @@ local record Options
   ---   /tmp added to it; it cannot list the root's directories above a
   ---   grant. A `u` grant is held by Landlock ABI 9 where there is one;
   ---   below it, by the root alone, which can then hold no other socket:
-  ---   the start fails unless the `u` grant is the only grant of a socket or
-  ---   a directory. Under `file` /dev holds only what is granted (the
+  ---   the start fails beside a grant of a directory, or of a socket not
+  ---   granted `u`. Under `file` /dev holds only what is granted (the
   ---   "system" profile grants /dev/null, zero, urandom and random), besides
   ---   the /dev/fd links.
   --- - `isolate` "proc" (which "file" implies) is a pid namespace and a /proc
@@ -325,7 +325,14 @@ local record Options
   ---     read-only grant without `x` is mounted noexec as well, so a file
   ---     of it is neither run nor mapped executable.
   ---   - A `u` grant is held by the root alone, as below Landlock ABI 9: no
-  ---     other grant may be a directory or a socket.
+  ---     grant may be a directory, nor a socket but one granted `u`; the
+  ---     sandbox's own `tmp` is none.
+  ---   - Without a `u` grant, the program may make a unix socket where the
+  ---     root shows no directory of the host and no socket file (`tmp`'s
+  ---     own is the program's to make sockets in), in a network
+  ---     namespace of its own (`loopback`): from Landlock ABI 9 whatever
+  ---     it shows, since Landlock refuses a socket file no `u` grant names.
+  ---     Not under `nest`, which gives Landlock up and makes no such claim.
   ---   - Held as ever: the pid and IPC namespaces, the network namespace
   ---     (with `loopback` or `u`), which the program may make others of but
   ---     not leave (the filter refuses setns), the socket families, signals
@@ -2374,33 +2381,39 @@ end
 --- Why a `u` grant cannot be held under `isolate` file, or "". Below
 --- Landlock ABI 9 nothing tells one unix socket of the root from another
 --- (the filter allows AF_UNIX to the program whole, and a read-only bind
---- does not stop a connect), so the granted socket is the only one the
---- root may hold: no other grant may be a directory, which may hold
---- sockets, or a socket. A limit for good below ABI 9; at 9 Landlock holds
---- it, unless `nest` gives Landlock up, which leaves the root alone to.
+--- does not stop a connect), so the root alone holds: it may show no
+--- directory of the host, which may hold sockets a host service put
+--- there, and no socket but one granted `u`. The sandbox's own /tmp is
+--- no grant and holds only what the program makes. A `u` grant beside a
+--- directory grant waits on ABI 9, at which Landlock holds it, unless
+--- `nest` gives Landlock up, which leaves the root alone to.
+-- TODO: hold a `u` grant beside a directory grant below ABI 9, once the
+-- kernels the suite runs on give Landlock ABI 9 (core/syscalls.c's
+-- TODO on the same): the directory may hold a socket the grant does not
+-- name, which the filter cannot tell from the granted one.
 local function unix_unheld(merged: Rules.Policy, base: string, nest: boolean): string
   local abi, _ = raw.landlock_abi()
   if not nest and (abi == nil or abi >= 9) then return "" end
-  local reachable = 0
-  local only: string
   for _, grant in ipairs(merged.grants) do
     local st, _ = sys.stat(named(grant.from or grant.path, base))
-    if st ~= nil and (st.kind == "dir" or st.kind == "socket") then
-      reachable = reachable + 1
-      only = lettered(grant.letters, "u") and st.kind == "socket" and grant.path or nil
+    local kind = st ~= nil and st.kind or ""
+    if kind == "dir" or (kind == "socket" and not lettered(grant.letters, "u")) then
+      local what = kind == "dir" and "a directory" or "a socket without `u`"
+      if nest then
+        return "a `u` grant under isolate file beside " .. what .. " (" ..
+          string.format("%q", grant.path) .. ") needs Landlock, which promises \"nest\" gives " ..
+          "up: the granted socket cannot be told from another socket in the root, and the " ..
+          "root holds every socket a granted directory holds. Grant the socket alone (and " ..
+          "files), or leave nest out"
+      end
+      return "a `u` grant under isolate file needs Landlock ABI 9 beside " .. what .. " (" ..
+        string.format("%q", grant.path) .. "): this kernel gives ABI " .. tostring(abi) ..
+        ", where the granted socket cannot be told from another socket in the root, and " ..
+        "the root holds every socket a granted directory holds. Grant the socket alone " ..
+        "(and files, and `tmp`), or run a kernel with ABI 9"
     end
   end
-  if reachable <= 1 and (reachable == 0 or only ~= nil) then return "" end
-  if nest then
-    return "a `u` grant under isolate file beside any other grant of a directory or a socket " ..
-      "needs Landlock, which promises \"nest\" gives up: the granted socket cannot be told " ..
-      "from another socket in the root, and the root holds every socket a granted directory " ..
-      "holds. Grant the socket alone (and files), or leave nest out"
-  end
-  return "a `u` grant under isolate file needs Landlock ABI 9 beside any other grant of a " ..
-    "directory or a socket: this kernel gives ABI " .. tostring(abi) .. ", where the granted socket " ..
-    "cannot be told from another socket in the root, and the root holds every socket a " ..
-    "granted directory holds. Grant the socket alone (and files), or run a kernel with ABI 9"
+  return ""
 end
 
 --- Why a grant cannot be held by the root alone, which is all that holds

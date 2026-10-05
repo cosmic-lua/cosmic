@@ -94,6 +94,9 @@
 ---     loopback-tcp H   listens on a port of numeric host H, connects to
 ---                      it and accepts the connection, saying `connected`
 ---                      or why not, a line to stdout
+---     loopback-unix P  listens on a unix socket file P, connects to it
+---                      and accepts the connection, saying `connected`
+---                      or why not, a line to stdout; the file is left
 ---     start-isolated P starts program P under a policy of `isolate`
 ---                      file, granting P alone, and says `started` or the
 ---                      start's failure, a line to stdout
@@ -118,6 +121,9 @@
 ---     rm F             removes file F
 ---     rmdir D          removes the empty directory D
 ---     rename A B       moves A to B, as `mv A B` does
+---     flip A B         swaps A and B, two paths, over and over until it is
+---                      ended, so each is at the other's name half the
+---                      time and absent for an instant between
 ---     chmod P M        sets P's permission bits to M, in octal, as
 ---                      `chmod M P` does
 ---     find-writable D  each regular file beneath D that opens to write,
