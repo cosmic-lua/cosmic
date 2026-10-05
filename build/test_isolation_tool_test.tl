@@ -41,9 +41,8 @@ end
 --- so, the running test is skipped ([`Test.skip`]), its sandboxed case
 --- checking only what the unsandboxed one does. The workers nest in
 --- this test's own sandbox, which a host may refuse: the kernel lets
---- root nest one only two deep (core/syscalls.c's `map_ids`) where a
---- root runner cannot run its workers as a user of their own
---- (build.test_sandbox's `runs_as`). CI's unprivileged runners nest them.
+--- root nest one only two deep (core/syscalls.c's `map_ids`). CI's
+--- unprivileged runners nest them.
 local function unsandboxed(text: string): boolean
   if text:find("; sandboxed", 1, true) ~= nil then return false end
   if confine.sandbox_platform() then Test.skip(confine.unsandboxed_reason(text)) end

@@ -8,10 +8,10 @@
 --- ([`build.test_sandbox`]'s `plan`) nor how one is judged, and a wrong
 --- answer fails loudly, never passes:
 ---
---- - Answered wrongly yes, every worker is started sandboxed by the plan
----   and holds itself by [`confine.forbid_running`]. Where the host can do
----   neither, the start or the worker fails, and each test with it,
----   naming why.
+--- - Answered wrongly yes, every worker is started under its policy
+---   ([`build.test_policy`]) and holds itself by [`confine.forbid_running`].
+---   Where the host can do neither, the start or the worker fails, and each
+---   test with it, naming why.
 --- - Answered wrongly no, the run is unsandboxed. A run held to the
 ---   sandbox (`COSMIC_TEST_SANDBOX=1`) fails. Any other keys its verdicts
 ---   as unsandboxed, by what each test declares but apart from a
@@ -24,46 +24,73 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
+local Sandbox = require("cosmic.sandbox")
 local confine = require("build.confine")
+local test_inputs = require("build.test_inputs")
+local test_policy = require("build.test_policy")
 local test_sandbox = require("build.test_sandbox")
 local Clock = require("cosmic.clock")
 
 local record test_sandbox_probe
 end
 
---- Whether this host can run a worker sandboxed: `argv`, this program
---- started again with `env` and `fds`, runs a chunk that holds itself
---- to running anything but this program, as a worker whose test does not
---- declare `tool` does ([`confine.forbid_running`]), held to the
---- least a worker is given -- /proc, the devices and the program, none
---- of the system's own paths -- offline, in `scratch`. False and why
---- where it cannot: no worker then runs sandboxed, and no verdict is
---- keyed by its declared inputs.
-function test_sandbox_probe.available(argv: {string}, env: {string:string}, fds: {integer:integer},
-                                      scratch: string): boolean, string
-  local base = confine.worker_unveil(scratch, nil, scratch)
-  local command: {string} = {}
-  for i, word in ipairs(argv) do command[i] = word end
-  -- As a worker whose test does not declare `tool` holds itself
-  -- ([`confine.forbid_running`]): where it cannot, no worker is
-  -- sandboxed, since what such a test would run no key holds.
-  command[#command + 1] = "-e"
-  command[#command + 1] = "local o = require('build.confine') " ..
-    "local ok, why = o.forbid_running(o.itself()) if not ok then error(why) end"
+--- A fresh directory to probe the sandbox in (`available`), removed by
+--- the caller.
+function test_sandbox_probe.directory(): string | nil, string
+  local made, trouble = Fs.mkdtemp("cosmic-sandbox-probe-")
+  if made == nil then return nil, trouble end
+  return Fs.absolute(made)
+end
+
+--- How long a probe's child may run, in the nanoseconds a wait takes.
+local probe_timeout_ns <const> = Clock.seconds(30)
+
+--- The policy of a worker that has the least one is given -- /proc, the
+--- devices and the program, none of the system's own paths -- offline, and
+--- `scratch` to write at the name a worker has it, with `environment` its
+--- whole environment: the policy of a worker that declares nothing
+--- ([`test_policy.worker`]), whose program (`program`, the core a start
+--- names) is run.
+local function least_policy(program: string, scratch: string,
+                            environment: {string:string}): Sandbox.Policy | nil, string
+  local reads: {string} = {}
+  for _, path in ipairs(confine.worker_unveil(scratch, nil, scratch).reads) do
+    -- A policy's sandbox has a /proc of its own.
+    if path ~= "/proc" then reads[#reads + 1] = path end
+  end
+  local effective: test_inputs.Effective = {
+    files = {}, reads = {}, host = {}, env = {}, network = {}, tool = false, store = false,
+  }
+  local plan: test_sandbox.Plan = {
+    sandbox = { unveil = { reads = reads, writes = { scratch },
+      at = { [scratch] = test_sandbox.scratch } }, offline = true },
+    env = environment, over = 0, trouble = "", runs = { [program] = true },
+    own_scratch = false, why_shared = "",
+  }
+  local policy, why = test_policy.worker(plan, effective)
+  if policy == nil then return nil, why end
+  policy.set_env = environment
+  return policy, ""
+end
+
+--- Runs `argv`, this program started again with `fds`, under `policy`,
+--- and waits for it. False and why where it cannot be started, ends
+--- otherwise than by exiting 0, or takes longer than the bound.
+local function ran_under(argv: {string}, fds: {integer:integer | string},
+                         policy: Sandbox.Policy): boolean, string
   local given: {integer:integer | string} = {}
   for number, fd in pairs(fds) do given[number] = fd end
   -- Started and waited for, not [`Child.run`], which would take the one
   -- signal guard a caller running tests in-process may hold.
   -- No group of its own to end, nor strays to adopt: its sandbox gives
   -- it a pid namespace of its own, which ends when it does.
-  local handle, trouble = Child.start(command, { env = env, fds = given,
-    cwd = test_sandbox.scratch, stdin = "null", stdout = "capture", stderr = "stdout",
-    process_group = false, sandbox = { unveil = { reads = base.reads, writes = { scratch },
-      at = { [scratch] = test_sandbox.scratch } }, offline = true } })
+  local handle, trouble = Child.start(argv, { policy = policy, fds = given, cwd = "/",
+    stdin = "null", stdout = "capture", stderr = "stdout", process_group = false })
   if handle == nil then return false, test_sandbox.refusal(trouble) end
   -- Past the bound, `wait` ends it, and its pid namespace with it;
   -- `close` makes sure of it if the wait failed.
-  local result, wait_trouble = handle:wait(Clock.seconds(30))
+  local result, wait_trouble = handle:wait(probe_timeout_ns)
   if result == nil then
     local _, _ = handle:close()
     return false, wait_trouble
@@ -78,12 +105,102 @@ function test_sandbox_probe.available(argv: {string}, env: {string:string}, fds:
   return true, ""
 end
 
---- A fresh directory to probe the sandbox in (`available`), removed by
---- the caller.
-function test_sandbox_probe.directory(): string | nil, string
-  local made, trouble = Fs.mkdtemp("cosmic-sandbox-probe-")
-  if made == nil then return nil, trouble end
-  return Fs.absolute(made)
+--- Whether this host can run a worker sandboxed: `argv`, this program
+--- started again with `env` and `fds`, runs a chunk that holds itself
+--- to running anything but this program, as a worker whose test does not
+--- declare `tool` does ([`confine.forbid_running`]), under the policy of a
+--- worker that declares nothing, in `scratch`. False and why where it
+--- cannot: no worker then runs sandboxed, and no verdict is keyed by its
+--- declared inputs.
+function test_sandbox_probe.available(argv: {string}, env: {string:string}, fds: {integer:integer},
+                                      scratch: string): boolean, string
+  local unmet = test_policy.unmet()
+  if unmet ~= "" then return false, unmet end
+  local policy, why = least_policy(argv[1], scratch, env)
+  if policy == nil then return false, why end
+  local command: {string} = {}
+  for i, word in ipairs(argv) do command[i] = word end
+  -- As a worker whose test does not declare `tool` holds itself
+  -- ([`confine.forbid_running`]): where it cannot, no worker is
+  -- sandboxed, since what such a test would run no key holds.
+  command[#command + 1] = "-e"
+  command[#command + 1] = "local o = require('build.confine') " ..
+    "local ok, why = o.forbid_running(o.itself(), { " .. string.format("%q", argv[1]) ..
+    " }) if not ok then error(why) end"
+  return ran_under(command, fds, policy)
+end
+
+--- Where a worker has a private scratch directory that is no `x` grant
+--- (`noexec`), at the name a policy gives it.
+local noexec_place <const> = "/noexec"
+
+--- Whether a worker given a writable grant without `x` at /noexec can
+--- write a file there and not run it, which is what a module that
+--- declares `noexec` asks of its private scratch: this program, started
+--- again as `available` starts it, under the policy of a worker that
+--- declares nothing and that grant. False and why where it cannot.
+local function noexec_works(): boolean, string
+  local unmet = test_policy.unmet()
+  if unmet ~= "" then return false, unmet end
+  local launched, _ = Proc.relaunch()
+  local start: Proc.Relaunch = launched
+  if start == nil then
+    local executable, trouble = Proc.executable()
+    if executable == nil then return false, trouble end
+    start = { argv = { executable }, env = {}, fds = {} }
+  end
+  local directory, directory_trouble = test_sandbox_probe.directory()
+  if directory == nil then return false, directory_trouble end
+  local policy, why = least_policy(start.argv[1], directory, start.env)
+  if policy == nil then
+    local _, _ = Fs.remove_tree(directory)
+    return false, why
+  end
+  local made, made_trouble = Fs.mkdirs(directory .. "/noexec")
+  if not made then
+    local _, _ = Fs.remove_tree(directory)
+    return false, made_trouble
+  end
+  local grants = policy.grants or {}
+  grants[#grants + 1] = { path = noexec_place, from = directory .. "/noexec", letters = "rwc" }
+  policy.grants = grants
+  local command: {string} = {}
+  for i, word in ipairs(start.argv) do command[i] = word end
+  command[#command + 1] = "-e"
+  command[#command + 1] = [[
+local Fs = require("cosmic.fs")
+local sys = require("cosmic.sys")
+local path = "/noexec/probe"
+local bytes = assert(Fs.read("/proc/self/exe"))
+assert(Fs.write(path, bytes, 0x1c0))
+assert(Fs.read(path) == bytes)
+local ok, trouble, errno = sys.execve(path, { path, "-e", "os.exit(97)" }, {})
+assert(not ok and errno == sys.EACCES, trouble)
+]]
+  local ok, ran_why = ran_under(command, start.fds, policy)
+  local _, _ = Fs.remove_tree(directory)
+  if not ok then return false, ran_why end
+  return true, ""
+end
+
+--- Resolves a requested noexec scratch grant before the worker is keyed:
+--- `effective.noexec_ready`, and `noexec_trouble` where it is not. The
+--- probe runs once a run, its answer kept in `known`.
+function test_sandbox_probe.resolve_noexec(effective: test_inputs.Effective, sandboxed: boolean,
+                                           known: {string:string})
+  effective.noexec_ready, effective.noexec_trouble = false, ""
+  if not effective.noexec then return end
+  if not sandboxed then
+    effective.noexec_trouble = "noexec scratch requires a Linux filesystem sandbox"
+    return
+  end
+  local trouble = known.worker
+  if trouble == nil then
+    local ok, why = noexec_works()
+    trouble = ok and "" or "noexec scratch is unavailable: " .. why
+    known.worker = trouble
+  end
+  effective.noexec_ready, effective.noexec_trouble = trouble == "", trouble
 end
 
 return test_sandbox_probe

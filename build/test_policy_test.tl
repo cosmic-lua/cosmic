@@ -50,19 +50,6 @@ local function worker_of(plan: test_sandbox.Plan, inputs: test_inputs.Effective)
   return policy
 end
 
---- The switch asks for the policy path with "1", for the old sandbox with
---- "0", and for the default (the policy path where workers are sandboxed)
---- with nothing or ""; any other value is an error naming the variable, so
---- a misspelt one never passes for any of them.
-local function test_the_switch_is_one_zero_or_unset()
-  assert(test_policy.requested(nil) == "default")
-  assert(test_policy.requested("") == "default")
-  assert(test_policy.requested("0") == "off")
-  assert(test_policy.requested("1") == "on")
-  local asked, why = test_policy.requested("yes")
-  assert(asked == nil and why:find('COSMIC_TEST_POLICY is "yes"', 1, true), tostring(why))
-end
-
 --- A process that is root and may not map a user for a program (a container
 --- without CAP_SETFCAP, a sandbox's own root) cannot start a worker under a
 --- policy, which never runs as root, and says why; any other can.
