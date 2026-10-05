@@ -8,12 +8,7 @@ local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 
--- TODO: declare this with Test.policy { profiles = { "system", "cosmic" },
--- grants = { { path = "o/bin", letters = "rx" } } } once ci/cosmic-driver.pin
--- names a release that takes that grant as `tool`: the pinned driver, which
--- runs this test, refuses the grant's letters, and this tree's tool
--- reads the profile alone as `lua`, which `system` refuses.
-Test.needs{ system = true, tool = true }
+Test.policy{ profiles = { "system", "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local function git(root: string, args: {string}): string
   local argv = { assert(Proc.find("git")), "-C", root }

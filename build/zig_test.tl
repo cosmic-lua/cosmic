@@ -308,15 +308,6 @@ local function test_race_report_names_five_paths_then_counts_the_rest()
     Zig.race_report(many))
 end
 
-local function test_child_status_is_the_shells()
-  assert(Zig.child_status({ code = 0, ok = true, timed_out = false, captured = {},
-    truncated = false }) == 0)
-  assert(Zig.child_status({ code = 3, ok = false, timed_out = false, captured = {},
-    truncated = false }) == 3)
-  assert(Zig.child_status({ signal = sys.SIGKILL, ok = false, timed_out = false,
-    captured = {}, truncated = false }) == 128 + sys.SIGKILL)
-end
-
 local function test_run_answers_as_the_child_did(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   assert(Zig.run({ probe, "exit 0" }) == 0)

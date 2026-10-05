@@ -354,9 +354,7 @@ local function execute(argv: {integer:string}): integer
     local closed, close_why = Fs.close(log)
     assert(result, why)
     assert(closed, close_why)
-    -- TODO: once ci/cosmic-driver.pin names a release whose cosmic.child carries
-    -- Child.shell_status, take this status from it.
-    local status = result.signal and 128 + result.signal or result.code or 1
+    local status = Child.shell_status(result)
     say(phase .. ": status " .. tostring(status) .. ", " ..
         tostring((Clock.monotonic_ns() - start) // Clock.seconds(1)) .. " s, log " .. path)
     if status ~= 0 then
