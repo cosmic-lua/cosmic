@@ -270,9 +270,16 @@ local function test_a_script_is_keyed_with_its_interpreter(tmp: string)
   assert(Fs.write(interpreter, "#!/bin/sh\n# changed\n", tonumber("755", 8)))
   local second = ask(host_with({ ok = true, why = "", broken = false }, bin), "program:script")
   assert(second.key ~= first.key)
-  assert(Fs.write(bin .. "/env-script", "#!/usr/bin/env interp\n", tonumber("755", 8)))
+  -- env's options and assignments are skipped to the program it runs, which
+  -- is keyed, with env itself, beside the script.
+  assert(Fs.write(bin .. "/env", "env\n", tonumber("755", 8)))
+  assert(Fs.write(bin .. "/env-script", "#!" .. bin .. "/env -S -u HOME X=1 interp -v\n",
+    tonumber("755", 8)))
   local through_env = ask(host_with({ ok = true, why = "", broken = false }, bin), "program:env-script")
-  assert(through_env.key:find(";interpreter=sha256:", 1, true) or through_env.key:find("interpreter=absent", 1, true))
+  assert(through_env.key:find(";interpreter=sha256:%x+;runs=sha256:%x+$"), through_env.key)
+  assert(Fs.write(interpreter, "#!/bin/sh\n# changed again\n", tonumber("755", 8)))
+  local changed = ask(host_with({ ok = true, why = "", broken = false }, bin), "program:env-script")
+  assert(changed.key ~= through_env.key, "the program env runs is keyed")
 end
 
 --- Each answer carries its class.
@@ -293,10 +300,12 @@ end
 
 --- The settings `userns` reads, standing in for the host's.
 local function settings(files: {string:string}): host_requires.Host
-  return host_requires.new({ read = function(path: string): string | nil, string
+  return host_requires.new({ read = function(path: string): host_requires.Read
     local text = files[path]
-    if text == nil then return nil, path .. ": No such file or directory" end
-    return text, ""
+    if text == nil then
+      return { data = "", why = path .. ": No such file or directory", missing = true }
+    end
+    return { data = text, why = "", missing = false }
   end })
 end
 
@@ -340,13 +349,10 @@ local function test_a_setting_that_cannot_be_read_raises()
   assert(not garbled and tostring(why):find("holds no number", 1, true), tostring(why))
   local no_caps, caps_why = pcall(ask, settings({ [limit_file] = "9", [status_file] = "Name:\tx\n" }), "userns")
   assert(not no_caps and tostring(caps_why):find("CapEff", 1, true), tostring(caps_why))
-  -- A file that exists and cannot be read is a defect, not "no such setting".
-  local denied = host_requires.new({ read = function(path: string): string | nil, string
-    return nil, path .. ": Permission denied"
+  -- A read that fails for any reason but the file's absence is a defect.
+  local denied = host_requires.new({ read = function(path: string): host_requires.Read
+    return { data = "", why = path .. ": Permission denied", missing = false }
   end })
-  -- Only where the setting is there to be unreadable: a worker's own /proc has no /proc/sys.
-  if Fs.exists(limit_file) == true then
-    local unreadable, trouble = pcall(ask, denied, "userns")
-    assert(not unreadable and tostring(trouble):find("cannot be read", 1, true), tostring(trouble))
-  end
+  local unreadable, trouble = pcall(ask, denied, "userns")
+  assert(not unreadable and tostring(trouble):find("cannot be read", 1, true), tostring(trouble))
 end

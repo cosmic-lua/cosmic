@@ -30,9 +30,11 @@
 --- `unprivileged` is no name: it is `root`'s negation, which a test can
 --- state by skipping where `root` is present.
 ---
---- `path:` and `program:` are probed with the process that asks, its
---- filesystem and its PATH, which a sandboxed worker may not see
---- the same.
+--- Every probe runs in the process that asks (the runner's), not in a
+--- worker: `path:` and `program:` use its filesystem and its PATH, which a
+--- sandboxed worker may not see the same, and `nest` and `userns` say what
+--- that process may do, where a worker held by a Landlock ruleset and no
+--- `nest` promise is refused the mounts a root of its own is made of.
 
 --- Its class says what an absence means. A `platform` requirement is one
 --- only some platforms have (Landlock, /proc and a user namespace are
@@ -73,8 +75,8 @@ local confine = require("build.confine")
 local digest = require("build.digest")
 local type test_sandbox_probe = require("build.test_sandbox_probe")
 
-local find_program, read_file, exists, is_dir = Proc.find, Fs.read, Fs.exists, Fs.is_dir
-local relaunch, getuid, stat, realpath = Proc.relaunch, sys.getuid, Fs.stat, Fs.absolute
+local find_program, exists, is_dir = Proc.find, Fs.exists, Fs.is_dir
+local relaunch, getuid, realpath = Proc.relaunch, sys.getuid, Fs.absolute
 local runtime_context = Store.meta
 local sandbox_platform, may_map_ids = confine.sandbox_platform, confine.may_map_ids
 local own_proc_given, landlock_abi = confine.own_proc_given, confine.landlock_abi
@@ -114,6 +116,17 @@ local record host_requires
     why: string
   end
 
+  --- What reading a file came to.
+  record Read
+    --- Its bytes, where `why` is "".
+    data: string
+    --- Why it could not be read, "" where it was.
+    why: string
+    --- Whether it failed for there being no such file, which is the
+    --- setting's absence, not a defect.
+    missing: boolean
+  end
+
   --- What the caller hands in that the table cannot probe itself.
   record Context
     --- Whether a worker can run sandboxed here: the runner's own
@@ -123,9 +136,9 @@ local record host_requires
     --- The search list `program:` looks in; PATH by default
     --- ([`Proc.find`]).
     path: string
-    --- Reads a file as [`Fs.read`] does, for the settings `userns` and
-    --- `nest` read, which a test stands in for.
-    read: function(path: string): string | nil, string
+    --- Reads a file for the settings `userns` and `nest` read, which a
+    --- test stands in for.
+    read: function(path: string): host_requires.Read
   end
 
   --- The probes of one run: each requirement is asked of the host once.
@@ -203,32 +216,97 @@ local function absent(why: string): Found
   return { present = false, text = why }
 end
 
---- The digest of the file at `path`, as a verdict key holds it; raises
---- where it cannot be read, since a key that could not hold the file
---- would stand on whatever it held. Only a regular file is read: a device
---- or a FIFO would never end, and [`file_key`] keeps them out.
-local function contents_digest(path: string): string
-  local data, trouble = read_file(path)
-  if data == nil then error("host_requires: " .. path .. " cannot be read: " .. trouble, 0) end
-  return "sha256:" .. hex_sha256(data)
+--- The most bytes of a file a probe reads, which a key's digest or a
+--- setting never needs more than.
+local MOST_BYTES <const> = 64 << 20
+
+--- What opening a path once found.
+local record Opened
+  --- What it is, as fstat of the open descriptor says ("file", "dir",
+  --- "fifo", ...); "" where it could not be opened.
+  kind: string
+  --- Its bytes where it is a regular file within `MOST_BYTES`.
+  data: string
+  --- Why there is none, "" where there is; and the errno of a failed open.
+  why: string
+  errno: integer
 end
 
---- The reading a probe of a setting does: the context's, else the file's.
-local function reader(host: host_requires.Host): function(string): string | nil, string
-  return host.context.read or read_file
-end
-
---- The sysctl at `path` as a number, or nil where the host has none. A file
---- that is there and cannot be read, or says no number, raises: neither is
---- the setting's absence.
-local function sysctl(host: host_requires.Host, path: string): integer | nil
-  local text, trouble = reader(host)(path)
-  if text == nil then
-    if there(path) then error("host_requires: " .. path .. " cannot be read: " .. trouble, 0) end
-    return nil
+--- Opens `path` once, without waiting (a FIFO with no writer would
+--- block an open without O_NONBLOCK), asks the descriptor what it is, and,
+--- for a regular file, reads it from that descriptor: a path swapped
+--- for a FIFO between a check and a read cannot hang it. A file larger
+--- than `MOST_BYTES` is no regular file a key can hold.
+local function slurp(path: string): Opened
+  local fd, trouble, errno = sys.open(path, sys.O_RDONLY | sys.O_NONBLOCK)
+  if fd == nil then
+    return { kind = "", data = "", why = path .. ": " .. trouble, errno = errno }
   end
-  local number = math.tointeger(tonumber((text:gsub("%s+$", ""))))
-  if number == nil then error("host_requires: " .. path .. " holds no number: " .. text, 0) end
+  local st, why, st_errno = sys.fstat(fd)
+  if st == nil then
+    local _, _ = sys.close(fd)
+    return { kind = "", data = "", why = path .. ": " .. why, errno = st_errno }
+  end
+  local opened: Opened = { kind = st.kind, data = "", why = "", errno = 0 }
+  if st.kind == "file" then
+    local parts: {string} = {}
+    local total = 0
+    while true do
+      local chunk, failure, read_errno = sys.read(fd, 1 << 20)
+      if chunk == nil then
+        opened.kind, opened.why, opened.errno = "", path .. ": " .. failure, read_errno
+        break
+      end
+      if #chunk == 0 then
+        opened.data = table.concat(parts)
+        break
+      end
+      total = total + #chunk
+      if total > MOST_BYTES then
+        opened.why = string.format("%s is larger than %d MiB, which no key holds", path, MOST_BYTES >> 20)
+        break
+      end
+      parts[#parts + 1] = chunk
+    end
+  else
+    opened.why = string.format("%s is a %s, which no key can hold: name a regular file or a directory",
+      path, st.kind)
+  end
+  local _, _ = sys.close(fd)
+  return opened
+end
+
+--- `path`'s bytes, or nil and the rule a file that is no regular one or too
+--- large breaks; raises where it cannot be opened or read, since a key that
+--- could not hold the file would stand on whatever it held.
+local function bytes_of(path: string): string | nil, string
+  local opened = slurp(path)
+  if opened.kind == "" then error("host_requires: " .. opened.why, 0) end
+  if opened.why ~= "" then return nil, opened.why end
+  return opened.data, ""
+end
+
+--- The reading a probe of a setting does: the context's, else a regular
+--- file's.
+local function reader(host: host_requires.Host): function(string): host_requires.Read
+  return host.context.read or function(path: string): host_requires.Read
+    local opened = slurp(path)
+    return { data = opened.data, why = opened.why,
+      missing = opened.errno == sys.ENOENT or opened.errno == sys.ENOTDIR }
+  end
+end
+
+--- The sysctl at `path` as a number, or nil where the host has none: the read
+--- answers that there is no such file. Any other failure, or text that is
+--- no number, raises: neither is the setting's absence.
+local function sysctl(host: host_requires.Host, path: string): integer | nil
+  local read = reader(host)(path)
+  if read.why ~= "" then
+    if read.missing then return nil end
+    error("host_requires: " .. path .. " cannot be read: " .. read.why, 0)
+  end
+  local number = math.tointeger(tonumber((read.data:gsub("%s+$", ""))))
+  if number == nil then error("host_requires: " .. path .. " holds no number: " .. read.data, 0) end
   return number
 end
 
@@ -239,9 +317,11 @@ local CAP_SYS_ADMIN <const> = 21
 --- Whether this process holds CAP_SYS_ADMIN in effect; raises where
 --- /proc/self/status says no `CapEff`, since nothing else answers.
 local function admin(host: host_requires.Host): boolean
-  local text, trouble = reader(host)("/proc/self/status")
-  if text == nil then error("host_requires: /proc/self/status cannot be read: " .. trouble, 0) end
-  local effective = text:match("\nCapEff:%s*(%x+)")
+  local read = reader(host)("/proc/self/status")
+  if read.why ~= "" then
+    error("host_requires: /proc/self/status cannot be read: " .. read.why, 0)
+  end
+  local effective = read.data:match("\nCapEff:%s*(%x+)")
   if effective == nil then error("host_requires: /proc/self/status has no CapEff", 0) end
   local bits = math.tointeger(tonumber(effective:sub(-8), 16)) or 0 -- the low 32 bits hold bit 21
   return bits & (1 << CAP_SYS_ADMIN) ~= 0
@@ -251,7 +331,9 @@ end
 -- user namespace of its own is cheap enough to run once a run beside
 -- `own_proc` (core/process.h has no binding for it alone): the settings
 -- say what the kernel is told, not what a seccomp filter or a security
--- module then refuses.
+-- module then refuses. Nor is CapEff the whole answer: it is the process's
+-- capabilities in its own user namespace, so a process holding all of them
+-- in a nested one may still be refused by the initial namespace's checks.
 --- Whether the kernel's settings allow this process a user namespace: a
 --- limit above 0 and, unless it holds CAP_SYS_ADMIN, neither of the
 --- switches a distribution or a container adds turned against it. Which
@@ -280,44 +362,68 @@ local function userns_allowed(host: host_requires.Host): Found
   return present("allowed")
 end
 
---- What a regular file keys by, a plain statement of what it leaves out: the
---- digest of its own bytes. A script's interpreter is keyed beside it
---- (the first word of its `#!` line, or what `env` finds); the shared
---- libraries and data files a binary loads are not, so a library changed
---- under an unchanged program moves no key.
-local function program_key(path: string, search: string | nil): string
-  local text = contents_digest(path)
-  local data, _ = read_file(path)
-  local line = (data or ""):match("^#![ \t]*([^\n]*)")
-  if line == nil then return text end
+--- What a program keys by: the digest of its own bytes, read once, and
+--- for a script that of its interpreter beside it (the first word of its
+--- `#!` line) and, where that is `env`, of the program `env` runs (its
+--- options and NAME=value words skipped). The shared libraries and data files a
+--- binary loads are not keyed, so a library changed under an unchanged
+--- program moves no key. Nil and the rule where the file is no regular
+--- one or too large.
+local function program_key(path: string, search: string | nil): string | nil, string
+  local data, why = bytes_of(path)
+  if data == nil then return nil, why end
+  local key = "sha256:" .. hex_sha256(data)
+  local line = data:match("^#![ \t]*([^\n]*)")
+  if line == nil then return key, "" end
   local words: {string} = {}
   for word in line:gmatch("%S+") do words[#words + 1] = word end
-  local interpreter = words[1]
-  if interpreter ~= nil and interpreter:match("/env$") and words[2] ~= nil then
-    local found, _ = find_program(words[2], search)
-    interpreter = found
+  --- The digest of the file at `named`, as an interpreter's, or a marker where it cannot be keyed.
+  local function interpreter_digest(named: string | nil): string
+    if named == nil then return "absent" end
+    local opened = slurp(named)
+    if opened.kind == "" or opened.why ~= "" then return "unkeyed" end
+    return "sha256:" .. hex_sha256(opened.data)
   end
-  if interpreter == nil or not there(interpreter) then return text .. ";interpreter=absent" end
-  return text .. ";interpreter=" .. contents_digest(interpreter)
+  key = key .. ";interpreter=" .. interpreter_digest(words[1])
+  if words[1] ~= nil and words[1]:match("/env$") then
+    local index = 2
+    while words[index] ~= nil do
+      local word = words[index]
+      if word == "-u" or word == "-C" or word == "--unset" or word == "--chdir" then
+        index = index + 2
+      elseif word:sub(1, 1) == "-" or word:match("^[%w_]+=") then
+        index = index + 1
+      else
+        break
+      end
+    end
+    if words[index] ~= nil then
+      local found, _ = find_program(words[index], search)
+      key = key .. ";runs=" .. interpreter_digest(found)
+    end
+  end
+  return key, ""
 end
 
 --- What `path` is keyed by, following links: a regular file by its digest, a
---- directory as "dir", the virtual filesystems (/proc and /sys, by the
---- path with its links resolved) as "present", whose files change as they
---- are read. Nil and the rule where it is a device, a FIFO or a socket: a
---- read could never end, and a key could hold nothing of it.
+--- directory as "dir", /proc and /sys (by the path with its links
+--- resolved) as "present", whose files change as they are read. Nil and the
+--- rule where it is a device, a FIFO, a socket or a file too large. The
+--- prefix classifies only those two: a procfs or other virtual filesystem
+--- mounted elsewhere is caught by the regular-file check and the size cap,
+--- which a file that never ends or changes as it is read breaks, not by
+--- where it is.
 local function file_key(path: string): string | nil, string
   local real, trouble = realpath(path)
   if real == nil then error("host_requires: " .. trouble, 0) end
   for _, virtual in ipairs({ "/proc", "/sys" }) do
     if real == virtual or real:sub(1, #virtual + 1) == virtual .. "/" then return "present" end
   end
-  local st, why = stat(real)
-  if st == nil then error("host_requires: " .. why, 0) end
-  if st.kind == "dir" then return "dir" end
-  if st.kind == "file" then return contents_digest(real) end
-  return nil, string.format("path: %s is a %s, which no key can hold: name a regular file or a directory",
-    path, st.kind)
+  local opened = slurp(real)
+  if opened.kind == "" then error("host_requires: " .. opened.why, 0) end
+  if opened.kind == "dir" then return "dir" end
+  if opened.why ~= "" then return nil, opened.why end
+  return "sha256:" .. hex_sha256(opened.data)
 end
 
 local table_of: {string:Entry} = {
@@ -403,7 +509,9 @@ local table_of: {string:Entry} = {
       if resolved == nil then return absent(why) end
       -- Keyed by the file it finds, as `host` keys a file: a test's output
       -- may turn on the program's version.
-      return present(program_key(resolved, host.context.path))
+      local key, rule = program_key(resolved, host.context.path)
+      if key == nil then return absent(rule) end
+      return present(key)
     end },
 }
 
