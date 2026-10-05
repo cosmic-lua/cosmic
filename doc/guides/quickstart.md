@@ -219,6 +219,12 @@ sandbox --system -- sh --version` asks `sh`. It exits with the program's
 status. `cosmic help sandbox` has the rest, and `cosmic docs
 cosmic.sandbox` the policy these options write.
 
+`--cosmic` grants cosmic itself, so a script of yours runs held the same
+way: `cosmic sandbox --cosmic --read . -- cosmic convert.tl in.csv out.json`
+reads its words from the function it returns (`argv[1]`, `argv[2]`), runs
+as `--standalone` does and writes nothing beside it; add a `--write` for
+the output it makes.
+
 ## below cosmic.fs
 
 [`cosmic.fs`] is built on [`cosmic.sys`], the syscall table: one C function

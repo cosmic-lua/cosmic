@@ -91,3 +91,23 @@ local function test_this_program_under_nest_is_refused(tmp: string)
   assert(result == nil and why:find("nest", 1, true) and why:find("artifact and core", 1, true),
     tostring(why))
 end
+
+--- A file this program runs under a policy is run as `--standalone`
+--- (COSMIC_STANDALONE), so a grant to read is enough and nothing is
+--- written beside it; the policy may say otherwise.
+local function test_a_file_runs_standalone_on_a_grant_to_read(tmp: string)
+  if not confine.sandbox_platform() then return end
+  local work = scripted(tmp, 'return function(argv: {string}): integer\n' ..
+      '  print(table.concat(argv, ","))\n  return 0\nend\n')
+  local result = ran({ work .. "/run.tl", "one", "two" }, { profiles = { "cosmic" },
+    grants = { { path = work, letters = "r" } } }, work)
+  if result == nil then return end
+  assert(result.code == 0 and result.stdout == "one,two\n", tostring(result.code) .. ": " ..
+      tostring(result.stdout) .. tostring(result.stderr))
+  local names = assert(Fs.list(work))
+  assert(#names == 1 and names[1] == "run.tl", "a standalone run wrote beside the file")
+  local built = ran({ work .. "/run.tl" }, { profiles = { "cosmic" }, set_env = {
+    COSMIC_STANDALONE = "0" }, grants = { { path = work, letters = "r" } } }, work)
+  if built == nil then return end
+  assert(built.code ~= 0, "a run that builds a tree needs to write it")
+end

@@ -334,7 +334,8 @@ local function module_of(root: string, file: string): string | nil, string
 end
 
 --- Runs a file. The file is a module: it is required once its tree is
---- built, and if what it returns is a function, that function is
+--- built, with its arguments (below) in the global `arg` while its top
+--- level runs, and if what it returns is a function, that function is
 --- called with one argument: an array of the arguments after the
 --- file's own path on the command line, indexed from 1 like any
 --- ordinary Lua array, so `#argv` and `ipairs(argv)` see exactly
@@ -440,15 +441,18 @@ local function run(file: string, argv: {integer:string}): integer
   end
 
   local standalone = require("build.standalone")
+  local arguments: {string} = {}
+  arguments[0] = file
+  local slot = 2
+  while argv[slot] ~= nil do
+    arguments[slot - 1] = argv[slot]
+    slot = slot + 1
+  end
+  -- The file's top level, which `require` hands its own name and loader
+  -- data as `...`, finds its words in `arg`, as `lua file a b` gives them.
+  rawset(_G, "arg", arguments)
   local entry = standalone.entry(require(name))
   if entry ~= nil then
-    local arguments: {string} = {}
-    arguments[0] = file
-    local slot = 2
-    while argv[slot] ~= nil do
-      arguments[slot - 1] = argv[slot]
-      slot = slot + 1
-    end
     return exit_status.of(file, entry(arguments))
   end
   return 0
@@ -705,6 +709,19 @@ function dispatch.main(argv: {integer:string}): integer
     -- core never stops the tool that rebuilds it.
     local standalone = require("build.standalone")
     return standalone.run(argv)
+  end
+  -- COSMIC_STANDALONE=1 runs a file (a first word ending .tl, which no
+  -- verb does) as `--standalone` does, writing no o/: what a policy's run
+  -- of this program is given (cosmic.child), whose user may own no o/ to
+  -- build into.
+  if word ~= nil and word:sub(-3) == ".tl" and require("cosmic.env").get("COSMIC_STANDALONE") == "1" then
+    local shifted: {integer:string} = { [0] = argv[0], [1] = "--standalone" }
+    local slot = 1
+    while argv[slot] ~= nil do
+      shifted[slot + 1] = argv[slot]
+      slot = slot + 1
+    end
+    return require("build.standalone").run(shifted)
   end
   local Cli = require("cosmic.cli")
   local Env = require("cosmic.env")

@@ -185,15 +185,17 @@ function standalone.run(argv: {integer:string}): integer
     local _, _ = Fs.put(Fs.stderr, trouble .. "\n")
     return 1
   end
-  local main = standalone.entry(chunk())
-  if main == nil then
-    return 0
-  end
   local arguments: {integer:string} = { [0] = file }
   local slot = 3
   while argv[slot] ~= nil do
     arguments[slot - 2] = argv[slot]
     slot = slot + 1
+  end
+  -- Its top level finds them in `arg`, as `lua file a b` gives them.
+  rawset(_G, "arg", arguments)
+  local main = standalone.entry(chunk())
+  if main == nil then
+    return 0
   end
   return exit_status.of(file, main(arguments))
 end
