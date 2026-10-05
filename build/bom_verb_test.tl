@@ -17,6 +17,8 @@ local DOCUMENT <const> = Shape.record_of("Document")
 
 --- The verb reads the program's own database through a handle
 --- ([`Store.databases()`]), which reads every module's rows too.
+-- TODO: declare this with [`Test.policy`] once a policy field says `store` (the TODO
+-- above [`Test.needs_of`] in cosmic/test.tl).
 Test.needs{ store = true }
 
 --- `cosmic bom` answers from the running binary's own rows: each

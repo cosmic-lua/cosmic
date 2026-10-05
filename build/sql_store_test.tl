@@ -10,6 +10,8 @@ local sql = require("build.sql")
 
 --- The program's own database is read through a handle
 --- ([`Store.databases()`]), which reads every module's rows too.
+-- TODO: declare this with [`Test.policy`] once a policy field says `store` (the TODO
+-- above [`Test.needs_of`] in cosmic/test.tl).
 Test.needs{ store = true }
 
 --- A temporary root whose o/cosmic.db holds one small table.

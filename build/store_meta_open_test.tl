@@ -8,6 +8,8 @@ local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 
 --- Its key holds the projection, which holds these rows.
+-- TODO: declare this with [`Test.policy`] once a policy field says `store` (the TODO
+-- above [`Test.needs_of`] in cosmic/test.tl).
 Test.needs{ store = true }
 
 local function test_every_row_is_read_without_a_hold()

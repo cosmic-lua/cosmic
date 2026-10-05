@@ -12,6 +12,8 @@ local Clock = require("cosmic.clock")
 
 --- The program itself, whose core the programs it builds run on.
 --- `store`: [`embed.tree`] joins every `cosmic.*` module's rows.
+-- TODO: declare this with [`Test.policy`] once a policy field says `store` (the TODO
+-- above [`Test.needs_of`] in cosmic/test.tl).
 Test.needs{ tool = true, store = true }
 
 local function run_program(path: string): Child.Result

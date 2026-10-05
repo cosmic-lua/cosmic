@@ -26,6 +26,8 @@ local Clock = require("cosmic.clock")
 --- whose core a program it builds runs on.
 --- `store`: [`embed.database`] reads every `cosmic.*` module's rows, and
 --- `docs` searches them.
+-- TODO: declare this with [`Test.policy`] once a policy field says `store` (the TODO
+-- above [`Test.needs_of`] in cosmic/test.tl).
 Test.needs{ reads = { "vendor/cacert/", "vendor/tzdata/" }, tool = true, store = true }
 
 local bundle <const> = "vendor/cacert/cacert.pem"

@@ -7,6 +7,8 @@ local invoke = require("build.invoke")
 
 --- `store`: `help version`, run in this process, reads every module's
 --- docs through [`Store.databases()`].
+-- TODO: declare this with [`Test.policy`] once a policy field says `store` (the TODO
+-- above [`Test.needs_of`] in cosmic/test.tl).
 Test.needs{ store = true }
 
 local function test_help_describes_version_by_either_spelling(tmp: string)

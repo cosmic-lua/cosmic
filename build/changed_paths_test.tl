@@ -10,7 +10,10 @@ local Test = require("cosmic.test")
 
 --- The script under test, and the system's `sh`, git and tools, which
 --- run it.
-Test.needs{ reads = { ".github/scripts/changed-paths.sh" }, system = true }
+Test.policy{
+  profiles = { "system" },
+  grants = { { path = ".github/scripts/changed-paths.sh", letters = "r" } },
+}
 
 -- By its whole path: a process the test starts elsewhere finds it.
 local SCRIPT <const> = assert(Fs.absolute(".github/scripts/changed-paths.sh"))

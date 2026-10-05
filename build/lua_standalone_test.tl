@@ -15,6 +15,8 @@ local test_inputs = require("build.test_inputs")
 local this_program = require("build.this_program")
 local Clock = require("cosmic.clock")
 
+-- TODO: declare this with [`Test.policy`] once a policy field says `lua` (the TODO
+-- above [`Test.needs_of`] in cosmic/test.tl).
 Test.needs{ lua = true, standalone = true }
 
 --- Runs `words` after this program, past its launcher, and answers

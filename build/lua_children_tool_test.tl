@@ -13,7 +13,7 @@ local test_inputs = require("build.test_inputs")
 local this_program = require("build.this_program")
 local Clock = require("cosmic.clock")
 
-Test.needs{ tool = true }
+Test.policy{ profiles = { "cosmic" } }
 
 --- Runs `chunk` by `-e` in this program, past its launcher, with
 --- COSMIC_TEST_CHILD_HOLD set to `hold`, or unset for nil, and answers

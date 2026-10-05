@@ -10,7 +10,7 @@ local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 
 --- The program itself, which its tests start.
-Test.needs{ tool = true }
+Test.policy{ profiles = { "cosmic" } }
 
 --- Runs `cosmic test` on `root`, answering whether it passed and what
 --- it printed. Its workers run unsandboxed (`COSMIC_TEST_SANDBOX=0`):

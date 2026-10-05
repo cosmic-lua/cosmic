@@ -12,6 +12,8 @@ local this_program = require("build.this_program")
 local verdict = require("build.verdict")
 local work = require("build.work")
 
+-- TODO: declare this with [`Test.policy`] once a policy field says `lua` (the TODO
+-- above [`Test.needs_of`] in cosmic/test.tl).
 Test.needs{ lua = true }
 
 local function child(script: string): Child.Handle

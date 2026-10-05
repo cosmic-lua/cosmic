@@ -27,11 +27,11 @@ local this_program = require("build.this_program")
 --- What a worker's plan gives it of the host, the program it runs, roots of
 --- their own for the workers it starts (`nests`), and the variables the
 --- runs read, which hold them to sandboxing and to a path.
-Test.needs{
-  host = { "/dev/urandom", "/proc" },
+Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "/dev/urandom", letters = "r" }, { path = "/proc", letters = "r" } },
+  promises = { "nest" },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
-  tool = true,
-  nests = true,
 }
 
 --- Whether this platform has no sandbox to give, which leaves a case

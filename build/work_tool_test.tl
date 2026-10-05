@@ -13,7 +13,10 @@ local Test = require("cosmic.test")
 
 --- The program itself, which its tests start, and roots of their own for
 --- the sandboxed workers of a run they start (`nests`).
-Test.needs{ tool = true, nests = true }
+Test.policy{
+  profiles = { "cosmic" },
+  promises = { "nest" },
+}
 
 --- A project whose module directory and one test are links into a
 --- tree beside it, and a `loop -> .`: `tmp/project`.

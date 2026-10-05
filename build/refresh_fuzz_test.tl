@@ -14,7 +14,7 @@ local refresh = require("build.refresh")
 local roots = require("build.roots")
 
 --- The tree's CA bundle, which the parser is fuzzed from.
-Test.needs{ reads = { "vendor/cacert/cacert.pem" } }
+Test.policy{ grants = { { path = "vendor/cacert/cacert.pem", letters = "r" } } }
 
 --- A DER sequence around `body`, its length in the short or long form.
 local function sequence(body: string): string

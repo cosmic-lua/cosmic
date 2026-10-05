@@ -9,9 +9,18 @@ local String = require("cosmic.string")
 
 --- The tree's sources, the variables the driver keeps from a gating
 --- suite (ci/cosmic_ci/run_names.tl), and the darwin list.
-Test.needs{
-  reads = { "build/", "cosmic/", "core/", "test/", "eval/", "cmd/", "doc/",
-    "ci/cosmic_ci/run_names.tl", "ci/darwin-tests.txt" },
+Test.policy{
+  grants = {
+    { path = "build/", letters = "r" },
+    { path = "cosmic/", letters = "r" },
+    { path = "core/", letters = "r" },
+    { path = "test/", letters = "r" },
+    { path = "eval/", letters = "r" },
+    { path = "cmd/", letters = "r" },
+    { path = "doc/", letters = "r" },
+    { path = "ci/cosmic_ci/run_names.tl", letters = "r" },
+    { path = "ci/darwin-tests.txt", letters = "r" },
+  },
 }
 
 --- The names a gating suite's workers are not given, as

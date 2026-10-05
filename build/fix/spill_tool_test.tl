@@ -10,7 +10,7 @@ local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 
 --- The program itself, which its test starts.
-Test.needs{ tool = true }
+Test.policy{ profiles = { "cosmic" } }
 
 local function fix(root: string, check: boolean): Child.Result
   local args: {string} = { "fix" }

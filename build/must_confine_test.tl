@@ -18,10 +18,10 @@ local Clock = require("cosmic.clock")
 --- tool's own modules besides the closure's, in a root of its own
 --- (`nests`); and the variables `unsandboxed` reads, which hold a run
 --- to sandboxing.
-Test.needs{
+Test.policy{
+  profiles = { "cosmic" },
+  promises = { "nest" },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
-  tool = true,
-  nests = true,
 }
 
 -- What these tests start is this very program.

@@ -10,7 +10,7 @@ local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 
 --- The program itself, which its tests start.
-Test.needs{ tool = true }
+Test.policy{ profiles = { "cosmic" } }
 
 --- A project of one test module: one test that skips, one that passes.
 local function project(tmp: string): string

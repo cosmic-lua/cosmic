@@ -13,9 +13,12 @@ local Test = require("cosmic.test")
 local Time = require("cosmic.time")
 
 --- The scripts, and the system's `sh`, jq and tools, which run them.
-Test.needs{
-  reads = { ".github/scripts/merge-base.sh", ".github/scripts/prune-commit-verdicts.sh" },
-  system = true,
+Test.policy{
+  profiles = { "system" },
+  grants = {
+    { path = ".github/scripts/merge-base.sh", letters = "r" },
+    { path = ".github/scripts/prune-commit-verdicts.sh", letters = "r" },
+  },
 }
 
 -- By their whole paths: a process the test starts elsewhere finds them.

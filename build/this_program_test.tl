@@ -11,6 +11,8 @@ local this_program = require("build.this_program")
 --- What `program` copies is this process's environment, which for a
 --- worker is the variables it declares and the pinned ones, and what it
 --- starts is this very program, which reads its own command line in /proc.
+-- TODO: declare this with [`Test.policy`] once a policy field says `lua` (the TODO
+-- above [`Test.needs_of`] in cosmic/test.tl).
 Test.needs{
   host = { "/proc" },
   lua = true,

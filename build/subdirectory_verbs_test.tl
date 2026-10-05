@@ -9,6 +9,8 @@ local Test = require("cosmic.test")
 local invoke = require("build.invoke")
 
 -- `store`: the verbs, run in this process, read every module's docs.
+-- TODO: declare this with [`Test.policy`] once a policy field says `store` (the TODO
+-- above [`Test.needs_of`] in cosmic/test.tl).
 Test.needs{ env = { "COSMIC_TREE" }, store = true }
 
 --- `cosmic <args>` in `dir`, built without the shared cache, which lives

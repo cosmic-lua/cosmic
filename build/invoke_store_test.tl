@@ -8,6 +8,8 @@ local Test = require("cosmic.test")
 
 --- `help` reads every module's docs through [`Store.databases()`], and a
 --- test here counts the databases it returns. Without `store`, it raises.
+-- TODO: declare this with [`Test.policy`] once a policy field says `store` (the TODO
+-- above [`Test.needs_of`] in cosmic/test.tl).
 Test.needs{ store = true }
 
 --- A verb's output and exit come back as a started binary's would.

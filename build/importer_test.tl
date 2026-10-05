@@ -27,7 +27,7 @@ local shared_compiles = require("build.shared_compiles")
 --- Whether the tree is cosmic's own. The tests that read the projection
 --- beyond this module's closure -- the docs a compile's hint names --
 --- are build/importer_store_test.tl's.
-Test.needs{ reads = { "core" } }
+Test.policy{ grants = { { path = "core", letters = "r" } } }
 
 local built, load_trouble = teal.load()
 if built == nil then

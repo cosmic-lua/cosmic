@@ -17,6 +17,8 @@ local String = require("cosmic.string")
 --- bundle `refresh` reads, and what bin/zig reads to find or fetch zig.
 --- `store`: the verbs it runs in this process ([`build.invoke`]) read
 --- every module's rows.
+-- TODO: declare this with [`Test.policy`] once a policy field says `store` (the TODO
+-- above [`Test.needs_of`] in cosmic/test.tl).
 Test.needs{
   reads = { "vendor/cacert/cacert.pem" },
   env = { "ALL_PROXY", "COSMIC_BOOTSTRAP", "COSMIC_BOOTSTRAP_ATTEMPTS", "COSMIC_BOOTSTRAP_VERIFY",

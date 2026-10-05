@@ -9,6 +9,8 @@ local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 local _ = require("build.shared_sqlite") -- the child loads it after installing its observer
 
+-- TODO: declare this with [`Test.policy`] once a policy field says `lua` (the TODO
+-- above [`Test.needs_of`] in cosmic/test.tl).
 Test.needs{ lua = true }
 
 local function classified(tmp: string, scenario: string)

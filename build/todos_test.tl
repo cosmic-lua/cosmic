@@ -11,7 +11,7 @@ local work = require("build.work")
 --- repository, so `cosmic todos` starts no git for them
 --- ([`test_a_tree_in_no_repository_starts_no_git`]). The test that
 --- blames a repository's lines is build/todos_git_test.tl.
-Test.needs{}
+Test.policy{}
 
 --- Lines joined into one file's text, so no line of this file opens
 --- with a comment marker and is listed itself.

@@ -15,7 +15,7 @@ local this_program = require("build.this_program")
 
 --- The program itself, whose runs of a verb or a file hold the lock
 --- against this process.
-Test.needs{ tool = true }
+Test.policy{ profiles = { "cosmic" } }
 
 --- A project whose one test passes, and sleeps `sleep_ns` first.
 local function project(root: string, sleep_ns: integer)

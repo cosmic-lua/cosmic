@@ -20,6 +20,8 @@ local schema = require("build.schema")
 local _ = require("cosmic.removed")
 
 --- The projection, asked directly, and whether the tree is cosmic's own.
+-- TODO: declare this with [`Test.policy`] once a policy field says `store` (the TODO
+-- above [`Test.needs_of`] in cosmic/test.tl).
 Test.needs{ reads = { "core" }, store = true }
 
 local built, load_trouble = teal.load()

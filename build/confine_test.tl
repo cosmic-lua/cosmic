@@ -19,11 +19,11 @@ local type raw_process = require("cosmic.internal.process")
 --- stand-in it starts finds itself, and the program itself, which its
 --- tests start again as that worker; and `nests`, since they confine
 --- what they start in a root of its own.
-Test.needs{
-  host = { "/proc" },
+Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "/proc", letters = "r" } },
+  promises = { "nest" },
   env = { "COSMIC_SANDBOX" },
-  tool = true,
-  nests = true,
 }
 
 local type Searcher = function(string): any, any

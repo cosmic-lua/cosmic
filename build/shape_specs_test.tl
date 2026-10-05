@@ -15,7 +15,7 @@ local type _shape = require("cosmic.shape")
 -- by itself; the checker reads its source to type the fixtures.
 local type _stream = require("cosmic.stream")
 
-Test.needs{ reads = { "core" } }
+Test.policy{ grants = { { path = "core", letters = "r" } } }
 
 -- Loaded stripped ([`teal.load`]): with its lines, a fixture, which
 -- types the whole of cosmic.json's closure, takes about 9.6 s on the
