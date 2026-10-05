@@ -569,10 +569,10 @@ local function policy_of(given: any): Test.Policy | nil, string
   return out, ""
 end
 
--- TODO: let a policy say what a `$NAME` host path and env "*" say, once
--- the policy path (step b of the sandbox plan) gives each a field of
--- cosmic.sandbox's [`Policy`]: a module that declares one stays on
--- `needs` until then, and converts mechanically once it does.
+-- TODO: delete the `$NAME` host path and env "*" from `needs`, which no
+-- policy says, once the last declarations of them in ci/fixtures are gone:
+-- they wait on ci/cosmic-driver.pin naming a release that takes the fixed
+-- o/fixtures paths and the fixtures' named env lists.
 -- TODO: hand the promises to the runner, which keeps them in the key, once
 -- [`Test.policy`] replaces `needs` (step e of the sandbox plan): the filter
 -- runs on every worker, but until then a promise a test does not make

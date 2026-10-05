@@ -74,10 +74,13 @@ local function test_a_standalone_file_runs_on_what_standalone_loads(tmp: string)
   assert(seen > 0, out)
 end
 
---- Requiring build.standalone brings every module `--standalone` loads
---- into the closure, so a test module's key holds them and its children
---- may load them: `standalone_loads` is no more than that closure.
-local function test_requiring_build_standalone_holds_what_standalone_loads()
+--- Every name in `standalone_loads` is loaded in this worker, which loads
+--- its harness and this module's closure. It is a smoke check only: the
+--- harness already loads some of them, so it cannot show that
+--- build.standalone's own requires reach each one. That is held by
+--- [`test_a_standalone_file_runs_on_what_standalone_loads`], whose child may
+--- load only the closure, `lua_loads` and `standalone_loads`.
+local function test_standalone_loads_are_loaded_in_this_worker()
   for _, name in ipairs(test_inputs.standalone_loads) do
     assert(package.loaded[name] ~= nil, name .. " is in standalone_loads but " ..
         "build.standalone's closure does not hold it")

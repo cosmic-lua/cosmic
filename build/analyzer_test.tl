@@ -1778,7 +1778,7 @@ end
 --- requires build.standalone instead.
 local function test_standalone_is_no_field_of_needs()
   local why = refusal_of("{ lua = true, standalone = true }")
-  assert(why:find("it has ", 1, true), why)
+  assert(why:find("no field standalone", 1, true) and why:find("it has ", 1, true), why)
 end
 
 --- A chunk's docs alone are the docs its whole analysis gives.
