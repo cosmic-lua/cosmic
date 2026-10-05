@@ -597,10 +597,12 @@ end
 --- which it does not run. The performance fixture instead declares its
 --- entire candidate program and controller source: it exercises the carried
 --- database too. Each
---- unsandboxed one declares the whole environment and nothing else:
---- nothing holds it to a declaration, and it shares no verdict for one
---- to key, but a release that keys every unsandboxed run by declaration
---- gives its worker only the variables it declares.
+--- unsandboxed one names each variable it and its children read
+--- ([`Fixture.inherited`] and the COSMIC_FIXTURE_* it requires) and
+--- declares nothing else: nothing holds it to a declaration, and it
+--- shares no verdict for one to key, but a release that keys every
+--- unsandboxed run by declaration gives its worker only the variables it
+--- declares.
 local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
   local _ = tmp
   local Orchestration = require("cosmic_ci.orchestration")
@@ -631,10 +633,32 @@ local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
         end
       end
     else
-      local needs = code_of(name):match("\nTest%.needs%s*%(?%s*(%b{})")
-      assert(needs ~= nil and needs:gsub("%s", "") == '{env={"*"}}',
-        name .. ": an unsandboxed fixture declares other than the whole environment: " ..
-          tostring(needs))
+      -- Each variable the fixture requires of the driver (COSMIC_FIXTURE_*,
+      -- by its own [`Fixture.required`] or by [`Fixture.source_tree`]), and each
+      -- its children inherit, is named, and no other: never the whole
+      -- environment.
+      local code = code_of(name)
+      local policy = code:match("\nTest%.policy%s*%(?%s*(%b{})")
+      assert(policy ~= nil, name .. ": an unsandboxed fixture declares no Test.policy")
+      local env = assert(policy:match("env%s*=%s*(%b{})"), name .. ": no env")
+      local declared: {string:boolean} = {}
+      for variable in env:gmatch('"([^"]*)"') do
+        assert(variable ~= "*" and variable:match("^[A-Z][A-Z0-9_]*$"),
+          name .. ": an unsandboxed fixture declares the variable " .. variable)
+        declared[variable] = true
+      end
+      local wanted: {string:boolean} = {}
+      for _, variable in ipairs(Fixture.inherited) do wanted[variable] = true end
+      for variable in code:gmatch('Fixture%.required%("([A-Z_]+)"%)') do wanted[variable] = true end
+      if code:find("Fixture.source_tree(", 1, true) then wanted.COSMIC_FIXTURE_SOURCE = true end
+      for variable in pairs(wanted) do
+        assert(declared[variable], name .. ": an unsandboxed fixture does not declare " ..
+            variable .. ", which it or its children read")
+      end
+      for variable in pairs(declared) do
+        assert(wanted[variable], name .. ": an unsandboxed fixture declares " .. variable ..
+            ", which neither it nor its children read")
+      end
     end
   end
   local whole = declared_reads("product")

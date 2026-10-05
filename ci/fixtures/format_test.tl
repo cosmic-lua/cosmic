@@ -6,18 +6,37 @@ local Fixture = require("cosmic_ci.fixture")
 local Test = require("cosmic.test")
 
 --- Run unsandboxed and sharing nothing (cosmic_ci/orchestration.tl's
---- `fixture`), its workers are given the environment they declare:
---- all of it, which says where the candidate and its products are
---- (COSMIC_FIXTURE_*) and where the host's toolchain is. A release that
---- keys every unsandboxed run by declaration gives a worker only that.
--- TODO: name the variables this fixture reads, and drop the wildcard
--- (then the wildcard in Test.needs and the policy path's refusal of it,
--- build/test_policy.tl): beside the COSMIC_FIXTURE_* it is handed, its
--- nested builds and runs inherit whatever the host's toolchain reads
--- (the fixture's environment functions copy the whole environment on),
--- which only a run on every leg, macOS's included, lists; a list read
--- off the Linux leg's alone would fail the others.
-Test.needs{ env = { "*" } }
+--- `fixture`), its worker is given the variables it names: what the
+--- driver says where the candidate and its products are
+--- (COSMIC_FIXTURE_*) and what the children it starts read
+--- ([`Fixture.inherited`], which each of them hands on and no more, and
+--- which cosmic_ci/orchestration_test.tl holds this list to).
+Test.policy{
+  env = {
+    "COSMIC_FIXTURE_FORMAT",
+    "COSMIC_FIXTURE_ROOT",
+    "COSMIC_FIXTURE_TARGET",
+    "PATH",
+    "HOME",
+    "XDG_CACHE_HOME",
+    "TMPDIR",
+    "COSMIC_PORTABLE_CACHE",
+    "COSMIC_VERDICT_CACHE",
+    "COSMIC_AUTO_BOOT",
+    "COSMIC_TEST_SANDBOX",
+    "COSMIC_SANDBOX",
+    "COSMIC_TEST_HELD",
+    "COSMIC_BOOTSTRAP",
+    "COSMIC_ZIG",
+    "COSMIC_ZIG_CACHE",
+    "COSMIC_ZIG_GLOBAL_CACHE",
+    "ZIG_LIB_DIR",
+    "ZIG_GLOBAL_CACHE_DIR",
+    "ZIG_LOCAL_CACHE_DIR",
+    "SDKROOT",
+    "DEVELOPER_DIR",
+  },
+}
 
 local native_build_timeout_ns <const> = Clock.seconds(120)
 
