@@ -2978,6 +2978,9 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
   local run_argv: {string}
   if relaunch ~= nil then
     for name, value in pairs(relaunch.env) do env[name] = value end
+    -- A file it runs is run as `--standalone`, writing no o/ in a
+    -- directory its user may not own, unless the policy says otherwise.
+    if env.COSMIC_STANDALONE == nil then env.COSMIC_STANDALONE = "1" end
     run_argv = {}
     for _, word in ipairs(relaunch.argv) do run_argv[#run_argv + 1] = word end
     for i = 2, #argv do run_argv[#run_argv + 1] = argv[i] end
