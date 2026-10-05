@@ -52,7 +52,8 @@
 ---
 --- A test that this host cannot give the sandbox it is about says so
 --- with `skip`, which ends it: the run counts it skipped rather than
---- passed.
+--- passed. What the host must have for the module to run at all is
+--- declared as `requires` in a policy.
 
 -- TODO: take `environment` and `program` from build.this_program, which
 -- a test calls to say what a process of this program it starts needs
@@ -106,6 +107,10 @@ local record Test
     --- (a port, brackets, a leading zero) are refused, naming this
     --- rule, as the build refuses them before the module runs.
     network: {string}
+    --- What the tests need of the host, as `requires` of [`Policy`]
+    --- says. Only a policy's translation sets it: `needs` itself has no such
+    --- field, and refuses one.
+    requires: {string}
     --- Whether the tests read the tool itself, `o/bin/cosmic`, or the
     --- program running them, or start either: it gives them the program
     --- and nothing else -- not the store beyond their closure (`store`),
@@ -260,6 +265,18 @@ local record Test
     --- The database the tests' program runs on. Refused: no worker runs
     --- on one yet.
     database: string
+    --- What the tests need of the host that no other field says, by name
+    --- from a closed table: `sandbox`, `landlock:N`,
+    --- `userns`, `nest`, `own_proc`, `proc`, `portable`, `root`,
+    --- `path:<absolute path>` and `program:<name>`. The runner asks the host
+    --- once, before any worker starts, and a module whose requirement is
+    --- absent is not run: its tests are counted n/a where the platform never
+    --- has it and skipped where this host lacks it. What the policy implies
+    --- is no entry here, and one that repeats it fails the build, as does a
+    --- name the table does not have. A `path:` needs a `host` grant of that
+    --- path and a `program:` the profile "system" and the variable PATH in
+    --- `env`, so the worker can see what the runner found.
+    requires: {string}
   end
 end
 
@@ -379,12 +396,12 @@ local POLICY_FIELDS <const>: {string:string} = {
   profiles = "list", grants = "grants", isolate = "list", promises = "list",
   connect = "list", loopback = "list", env = "list", set_env = "map",
   set_env_digests = "map", tmp = "flag", limits = "limits", user = "id", group = "id",
-  database = "string",
+  database = "string", requires = "list",
 }
 
 local POLICY_FIELD_NAMES <const>: {string} = {
   "connect", "database", "env", "grants", "group", "isolate", "limits", "loopback", "profiles",
-  "promises", "set_env", "set_env_digests", "tmp", "user",
+  "promises", "requires", "set_env", "set_env_digests", "tmp", "user",
 }
 
 local LIMIT_FIELDS <const>: {string:boolean} = {
@@ -563,6 +580,8 @@ local function policy_of(given: any): Test.Policy | nil, string
       out.connect, why = strings_of(key, value)
     elseif key == "loopback" then
       out.loopback, why = strings_of(key, value)
+    elseif key == "requires" then
+      out.requires, why = strings_of(key, value)
     else
       out.env, why = strings_of(key, value)
     end
@@ -699,6 +718,10 @@ function Test.needs_of(given: any): Test.Needs | nil, string
   end
   if #(policy.env or {}) > 0 then out.env = policy.env end
   if #(policy.loopback or {}) > 0 then out.network = policy.loopback end
+  -- Only as written: which names are known, what the policy implies and
+  -- which are redundant is the build's to say (build.host_requires, which
+  -- this module cannot require), and the runner's to probe.
+  if #(policy.requires or {}) > 0 then out.requires = policy.requires end
   return out, ""
 end
 
@@ -737,7 +760,13 @@ end
 --- reserves: no other grant is made at them. What
 --- has no `needs` to stand for -- any other grant to write, run or
 --- connect to, `isolate`, `limits`, `set_env`, `connect` -- fails the
---- build, naming the field. Raises as `needs` does, for a value no
+--- build, naming the field. `requires` names what the host must have, which
+--- the runner asks once before any worker starts; the build refuses a name
+--- the table does not have, one written twice and one the policy implies (the
+--- promise "nest" implies `nest`; a host grant of /proc or beneath it,
+--- `proc`), and a `path:` with no host grant of its path or a `program:`
+--- without the profile "system" and `env = { "PATH" }`. Raises as `needs`
+--- does, for a value no
 --- [`Policy`] could be and for a call made twice or after the module has
 --- loaded.
 function Test.policy(policy: Test.Policy)
@@ -766,14 +795,17 @@ end
 --- passed is still counted skipped, but one that went on and failed is
 --- a failure. A test that skipped is counted skipped, not passed, in the
 --- run's summary (`N skipped`), and no verdict is kept of it, so it runs
---- again on the next run and stands on no host. A test skips only where
---- its platform could give what this host refused (root nests a sandbox
---- only two deep; a container refuses user namespaces), or where what it
---- checks is not built yet, naming what it waits on in a comment beside the skip; where
---- the platform itself has none -- no user namespaces or Landlock off
---- Linux -- there is nothing to check, and it returns silently, a pass
---- that stands, since the key's kernel part names the platform. Nor does
---- a test skip for a host tool or artifact it lacks. Raises for a reason
+--- again on the next run and stands on no host. A test skips for what only
+--- the running test can learn (a spawn the kernel refused with EPERM), or
+--- where what it checks is not built yet, naming what it waits on in a
+--- comment beside the skip. What a fact of the host alone says is no skip
+--- and no early return: a module declares it as `requires` in its
+--- [`Test.policy`] (`nest`, `proc`, `program:jq`, ...), and the runner
+--- decides before a worker starts: the tests are counted not applicable
+--- (`N n/a`) where the platform never has it, skipped where this host
+--- lacks it, and run, under a key that holds the answer, where it is
+--- present. A test that returns silently for a missing host tool or
+--- platform feature passes having checked nothing. Raises for a reason
 --- that is not a string or is empty and, under a runner, for a call as
 --- the module loads rather than from a test. Outside a runner it
 --- returns and does nothing: no one there takes what it would raise for

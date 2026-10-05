@@ -53,6 +53,11 @@
 ---   COSMIC_TEST_COMPILER_SALT, for a test alone, stands in for a
 ---   compiler of another identity that makes the same bytecode;
 --- - the declaration itself, as [`test_inputs.canonical`] spells it;
+--- - what the host answered to each requirement the module declares or
+---   its policy implies ([`build.host_requires`]), by name and what the
+---   answer holds (a Landlock ABI, the digest of a program): one line per
+---   present answer, none for a module that has none. A module with an
+---   absent requirement is not run and so has no key;
 --- - the contents of every input it declares or is given by default:
 ---   each file of its import closure; each path of the tree it `reads`
 ---   and the fuzz corpora, a file by its contents and a directory by
@@ -251,6 +256,12 @@ local record declared_key
     launcher: string
     --- The module's declaration, as [`test_inputs.canonical`] spells it.
     declaration: string
+    --- What the host answered to each requirement the module declares or
+    --- its policy implies ([`build.host_requires`]), by name: the key text
+    --- of an answer that is `present`. Only a module whose requirements
+    --- were all present is keyed at all, so it holds those, and nil or empty
+    --- for a module that declares none, whose key has no such part.
+    requires: {string:string}
     effective: test_inputs.Effective
     --- The environment its worker is given.
     environment: {string:string}
@@ -847,6 +858,12 @@ function declared_key.preimage(digests: declared_key.Digests,
     part("host", spec.host, ""),
     part("declaration", spec.declaration, ""),
   }
+  local required: {string} = {}
+  for name in pairs(spec.requires or {}) do required[#required + 1] = name end
+  table.sort(required)
+  for _, name in ipairs(required) do
+    lines[#lines + 1] = part("requires", name, spec.requires[name])
+  end
   if effective.noexec then
     lines[#lines + 1] = part("noexec", effective.noexec_ready and "granted" or "unavailable", "")
   end

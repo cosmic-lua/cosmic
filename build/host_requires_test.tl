@@ -6,12 +6,12 @@ local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local confine = require("build.confine")
+local host_names = require("build.host_names")
 local host_requires = require("build.host_requires")
-local type test_sandbox_probe = require("build.test_sandbox_probe")
 
 --- A run's probes with a stand-in for the runner's sandbox probe.
-local function host_with(answer: test_sandbox_probe.Answer, path?: string): host_requires.Host
-  return host_requires.new({ sandbox = function(): test_sandbox_probe.Answer return answer end,
+local function host_with(answer: host_requires.Sandbox, path?: string): host_requires.Host
+  return host_requires.new({ sandbox = function(): host_requires.Sandbox return answer end,
     path = path })
 end
 
@@ -24,18 +24,18 @@ end
 
 --- Every name of the table, and each form that takes an argument, is read.
 local function test_every_name_parses()
-  for _, name in ipairs(host_requires.names) do
+  for _, name in ipairs(host_names.names) do
     local text = name
     if name == "path" then text = "path:/etc/hostname" end
     if name == "program" then text = "program:sh" end
-    local spec, why = host_requires.parse(text)
+    local spec, why = host_names.parse(text)
     assert(spec ~= nil, why)
     assert(spec.base == name)
   end
-  local spec = assert(host_requires.parse("landlock:3"))
+  local spec = assert(host_names.parse("landlock:3"))
   assert(spec.base == "landlock" and spec.argument == "3")
-  assert(assert(host_requires.parse("landlock")).argument == "")
-  assert(assert(host_requires.parse("path:/a:b")).argument == "/a:b", "a colon in a path stays in it")
+  assert(assert(host_names.parse("landlock")).argument == "")
+  assert(assert(host_names.parse("path:/a:b")).argument == "/a:b", "a colon in a path stays in it")
 end
 
 --- Each way a name is wrong is refused with a message naming its rule.
@@ -63,12 +63,12 @@ local function test_a_bad_name_is_refused_naming_the_rule()
     { "root:yes", "takes no argument" },
   }
   for _, case in ipairs(cases) do
-    local spec, why = host_requires.parse(case[1])
+    local spec, why = host_names.parse(case[1])
     assert(spec == nil, string.format("%q was read", case[1]))
     assert(why:find(case[2], 1, true), string.format("%q: %s", case[1], why))
     local answer = ask(host_requires.new(), case[1])
     assert(answer.kind == "refused" and answer.key == "" and answer.why == why)
-    assert(host_requires.class(case[1]) == nil)
+    assert(host_names.class(case[1]) == nil)
   end
 end
 
@@ -87,10 +87,10 @@ end
 local function test_classes()
   for _, name in ipairs({ "sandbox", "landlock", "landlock:2", "userns", "nest", "own_proc", "proc",
       "portable" }) do
-    assert(host_requires.class(name) == "platform", name)
+    assert(host_names.class(name) == "platform", name)
   end
   for _, name in ipairs({ "root", "path:/etc", "program:sh" }) do
-    assert(host_requires.class(name) == "host", name)
+    assert(host_names.class(name) == "host", name)
   end
 end
 
@@ -98,7 +98,7 @@ end
 --- none is: what the host refuses is skipped, never n/a.
 local function test_a_platform_absence_is_n_a_and_a_host_absence_skipped()
   local asked = 0
-  local host = host_requires.new({ sandbox = function(): test_sandbox_probe.Answer
+  local host = host_requires.new({ sandbox = function(): host_requires.Sandbox
     asked = asked + 1
     return { ok = false, why = "refused here", broken = false }
   end })
@@ -149,7 +149,7 @@ end
 local function test_each_probe_runs_once_per_host()
   if not confine.sandbox_platform() then return end
   local asked = 0
-  local host = host_requires.new({ sandbox = function(): test_sandbox_probe.Answer
+  local host = host_requires.new({ sandbox = function(): host_requires.Sandbox
     asked = asked + 1
     return { ok = true, why = "", broken = false }
   end })
@@ -292,10 +292,14 @@ end
 --- is not one `portable` is n/a; one that is present has an artifact to start
 --- again.
 local function test_portable_is_a_portable_artifact()
-  local answer = ask(host_requires.new(), "portable")
+  local portable = Store.meta("runtime_context") == "portable-v1"
+  local answer = ask(host_requires.new({ portable = portable }), "portable")
   assert(answer.kind == "present" or answer.kind == "na", answer.kind)
-  assert((answer.kind == "present") == (Store.meta("runtime_context") == "portable-v1"))
+  assert((answer.kind == "present") == portable)
   if answer.kind == "present" then assert(answer.key == "artifact") end
+  -- A native start is the context's say, whatever this run is.
+  assert(ask(host_requires.new(), "portable").kind == "na")
+  assert(ask(host_requires.new({ portable = false }), "portable").kind == "na")
 end
 
 --- The settings `userns` reads, standing in for the host's.
@@ -355,4 +359,54 @@ local function test_a_setting_that_cannot_be_read_raises()
   end })
   local unreadable, trouble = pcall(ask, denied, "userns")
   assert(not unreadable and tostring(trouble):find("cannot be read", 1, true), tostring(trouble))
+end
+
+--- What a policy implies is `nest` for the promise and `proc` for a host
+--- grant of /proc or beneath it, by the field that says it.
+local function test_a_policy_implies_nest_and_proc()
+  local none = host_names.implied({ host = { "/etc/hosts", "/procfs/x" } })
+  assert(next(none) == nil)
+  local some = host_names.implied({ nests = true, host = { "/etc/hosts", "/proc/self/status" } })
+  assert(some.nest == "the promise \"nest\"" and some.proc == "the host grant of /proc/self/status")
+  assert(host_names.implied({ host = { "/proc" } }).proc ~= nil)
+end
+
+--- `check` answers the names a policy asks of its host, declared and implied,
+--- sorted, and refuses what repeats an implication or a name beside it.
+local function test_check_joins_declared_and_implied_names_and_refuses_repeats()
+  local inputs: host_names.Inputs = { nests = true, host = { "/proc/self/status", "/etc/hosts" },
+    system = true, env = { "PATH" } }
+  local names = assert(host_names.check({ "root", "program:jq", "path:/etc/hosts" }, inputs))
+  assert(table.concat(names, " ") == "nest path:/etc/hosts proc program:jq root", table.concat(names, " "))
+  local cases: {{any}} = {
+    { { "nest" }, "the promise \"nest\" implies it" },
+    { { "proc" }, "the host grant of /proc/self/status implies it" },
+    { { "userns" }, "\"userns\" is redundant beside \"nest\"" },
+    { { "root", "root" }, "written twice" },
+    { { "nope" }, "unknown requirement" },
+    { { "path:/etc/passwd" }, "needs a host grant of the path" },
+  }
+  for _, case in ipairs(cases) do
+    local found, why = host_names.check(case[1] as {string}, inputs)
+    assert(found == nil and why:find(case[2] as string, 1, true) ~= nil, tostring(why))
+  end
+  -- A /proc grant covers the files beneath it, and nothing beside it.
+  assert(host_names.check({ "path:/proc/self/status" }, { host = { "/proc" } }))
+  assert(host_names.check({ "path:/procfs/x" }, { host = { "/proc" } }) == nil)
+  -- A program is found by the worker's own search list and system.
+  assert(host_names.check({ "program:jq" }, { system = true }) == nil)
+  assert(host_names.check({ "program:jq" }, { env = { "PATH" } }) == nil)
+  assert(host_names.check({ "program:jq" }, { system = true, env = { "PATH" } }))
+end
+
+--- A platform that is not Linux has none of Linux's requirements: n/a
+--- without a probe, whatever the host has, and a host requirement is
+--- still asked.
+local function test_a_platform_that_is_not_linux_is_not_applicable()
+  local host = host_requires.new({ linux = false })
+  local answers = host_requires.answer(host, { "proc", "nest", "landlock:2", "root" })
+  for i = 1, 3 do
+    assert(answers[i].kind == "na" and answers[i].class == "platform", answers[i].name)
+  end
+  assert(answers[4].class == "host" and answers[4].kind ~= "na")
 end

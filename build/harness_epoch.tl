@@ -77,7 +77,7 @@ local record harness_epoch
   library: {string:string}
 end
 
-harness_epoch.epoch = "23-d2c79229" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
+harness_epoch.epoch = "24-312f48e5" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
 harness_epoch.acknowledged = {
 
   ["build.artifact"] = "4405196f6511a21a7493aa3d1ee196c6318d3ceec2e0202800494c46b9502745",
@@ -96,9 +96,13 @@ harness_epoch.acknowledged = {
 
   ["build.core_image"] = "dfc18e0e6316237ab9fb11a957df68d6217e42cffc6f2f3a767018c5313700ac",
 
-  ["build.declared_key"] = "fed7b1a5d4d1ae4fc7b1c3aa1a0ceca55ee40422a2c4b3fe348e1e2f69a209c8",
+  ["build.declared_key"] = "3d3eb2f71640b65c3fa717145784db5def60c73cc2b5ca947e2212b787f0b483",
 
   ["build.digest"] = "dccca5b63f2992d4d23213450142bdd05eee403ebaf3a4e0acf7437da72558f0",
+
+  ["build.host_names"] = "375bc7215263bba65fa3a393800532db9f2822b58b5112ba182b42eb252d24ec",
+
+  ["build.host_requires"] = "19abc88dae8f3a5a173d36e84a48960e39b101edeb39a2b4c1d99afe1efb9fdc",
 
   ["build.key_parts"] = "5d7e7852a5938ed34cdd452d5536608fea8c259faee423ea01bda47efb8adadf",
 
@@ -110,9 +114,9 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "516c08e34d1fc392de5363af92b6d669344fc3c8b504c469ae3771a424d0db6b",
 
-  ["build.test"] = "c93c714739425e7d20c3fecdac8969bcc6c0f1b07e0fc42362dbbeb6d70c53fe",
+  ["build.test"] = "1588a82b259b8b46606c80c53ca19cd55612272a4cb7deb7dc3bc5f170fa285c",
 
-  ["build.test_inputs"] = "1d386a687529da4207a684dc7d231bdf7d89e38effce9048ea71ea5728cbe0bf",
+  ["build.test_inputs"] = "7248c5b854717bcfe70ab1f0f989e7b14b2e9b7be316052ccb261fea312718e6",
 
   ["build.test_policy"] = "44ba4848ef58bb6ae0d4525a407b51e47da27c2b992961224c901957b3a716e6",
 
@@ -142,7 +146,7 @@ harness_epoch.acknowledged = {
 
   ["cosmic.string"] = "bf0e5e828de84f23aa818887e0280a3ebc844c9ca5e384c33227cb42715b8655",
 
-  ["cosmic.test"] = "67d8b2b73ab4ad6a9dbbe51044a67cd908ee10d37789d0208582c506402b3a55",
+  ["cosmic.test"] = "153b1be52671c00a3c88e3c5700386c2421097ff1291d10e53664a23fa904a6d",
 
 }
 
@@ -153,10 +157,13 @@ harness_epoch.library = {
     "counted by, whose session a test that imports it shares",
   ["cosmic.env"] = "the worker's environment, which its key holds, is read and built " ..
     "through it",
-  ["cosmic.fs"] = "places each read, bind and unveil (`within`, `relative`) and writes " ..
-    "the worker's report",
+  ["cosmic.fs"] = "places each read, bind and unveil (`within`, `relative`), writes " ..
+    "the worker's report, and probes the paths a module requires of the host " ..
+    "(`build.host_requires`: `exists`, `is_dir`, `absolute`)",
   ["cosmic.proc"] = "names this program (`executable`), which a worker whose test does " ..
-    "not declare `tool` is held from running",
+    "not declare `tool` is held from running; and finds a program a module requires " ..
+    "of the host (`find`) and whether a portable artifact can start again " ..
+    "(`relaunch`) for `build.host_requires`",
   ["cosmic.sandbox"] = "`merge` resolves a policy's profiles into the grants a worker " ..
     "is held to (`build.test_policy`'s `runs`); held alone, what it requires is not walked",
   -- TODO: take cosmic.sqlite out of the harness, and this entry out of
@@ -198,6 +205,7 @@ harness_epoch.retired = {
   "c81fe20a",
   "b6ac3eca",
   "3da8eb88",
+  "d2c79229",
 }
 
 return harness_epoch

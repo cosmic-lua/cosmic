@@ -131,6 +131,7 @@ local test_sandbox_probe = require("build.test_sandbox_probe")
 local declared_key = require("build.declared_key")
 local hashing = require("build.digest")
 local harness_epoch = require("build.harness_epoch")
+local host_requires = require("build.host_requires")
 local host_caches = require("build.caches")
 local worker = require("build.test_worker")
 local type compiler = require("build.compiler")
@@ -179,6 +180,11 @@ local record test
     --- [`Test.skip`], that this host could not check them: no verdict is
     --- kept of one, so each runs every time.
     skipped: integer
+    --- Of the tests chosen, how many are not applicable: their module
+    --- requires what this platform never has ([`host_requires`]), so none
+    --- ran or stood, and no verdict is kept of one. Neither in `ran` nor
+    --- in `cached`, but in the run's total.
+    na: integer
   end
 
   --- One of the shares `--shard I/N` splits a run's chosen tests into
@@ -775,6 +781,10 @@ end
 --- One test the run has to run: no verdict stands for it.
 local record Job
   m: importer.Module
+  --- Whether its worker was never started, since a requirement of its
+  --- module is absent: it has no key, which is no reason to say it runs
+  --- every time.
+  unrun: boolean
   name: string
   id: string
   --- The directory the runner made for the test, holding `real` and
@@ -899,7 +909,9 @@ local harness_alone <const>: {string} = { "cosmic.child", "cosmic.sandbox" }
 --- The code that makes a key and looks a verdict up under one:
 --- build.test itself, whose closure is the build's, and the closure of
 --- the key's computation ([`build.declared_key`]) and of the shared
---- verdicts' ([`build.shared_verdicts`]), as the `imports` table has it.
+--- verdicts' ([`build.shared_verdicts`]), and of what the host answers a
+--- module's requirements ([`build.host_requires`]), which a key holds,
+--- as the `imports` table has it.
 --- What build.test decides of a worker's hold is part of it: which
 --- names of the tree a `require` refuses (`tree_names`).
 ---
@@ -919,7 +931,8 @@ local harness_alone <const>: {string} = { "cosmic.child", "cosmic.sandbox" }
 -- edit to its remaining census plumbing acknowledges the harness, and
 -- what it requires beyond [`key_code`] (cosmic.time, cosmic.cli and the
 -- like) is outside build/harness_epoch.tl's `library` rule.
-local key_roots <const>: {string} = { "build.declared_key", "build.shared_verdicts" }
+local key_roots <const>: {string} = { "build.declared_key", "build.shared_verdicts",
+  "build.host_requires" }
 local key_own <const>: {string} = { "build.test" }
 
 --- The module that holds the epoch and the acknowledged digests, which
@@ -1162,6 +1175,16 @@ function test.harness_word(epoch: string, timeout_ns: integer): string
   return string.format("e%s-t%d", epoch, timeout_ns)
 end
 
+--- Why a module's tests are not run on this host: a requirement of its
+--- module ([`host_requires`]) it lacks.
+local record Unmet
+  --- "na" where the platform never has it, "skipped" where this host lacks
+  --- it, "refused" where its name breaks the table's rules.
+  kind: host_requires.Kind
+  --- The requirement and why, as the report says it.
+  why: string
+end
+
 --- Everything a finished job's verdict is recorded into.
 local record Recording
   records: Sqlite.Handle
@@ -1172,8 +1195,19 @@ local record Recording
   run: integer
   failures: {string}
   errors: {string}
-  --- Each skipped test's id and why ([`Test.skip`]), as "<id>: <reason>".
+  --- Each skipped test's id and why ([`Test.skip`], or a requirement of
+  --- its module the host lacks), as "<id>: <reason>".
   skips: {string}
+  --- Each not applicable test's id and why, in the same shape.
+  nas: {string}
+  --- The modules whose requirements ([`host_requires`]) are not all
+  --- present on this host, by path, and what each answered: their tests
+  --- are not started and have no key.
+  unmet: {string:Unmet}
+  --- What the host answered to each module's requirements, by path, as
+  --- its key holds them: each present answer's name and key text. Empty
+  --- for a module that requires nothing.
+  answered: {string:{string:string}}
   --- What each failing test printed, by its id.
   outputs: {string:string}
   --- Each failing test's `<file>:<name>` selector, by its id: what
@@ -1508,6 +1542,7 @@ local function declared_of(rec: Recording, m: importer.Module, id: string): stri
     program = (effective.tool or runs_tool) and program_of(rec) or nil,
     launcher = rec.launcher,
     declaration = test_inputs.canonical(m.inputs), effective = effective,
+    requires = rec.answered[m.path],
     environment = view_of(rec, m), runs_tool = runs_tool,
     closure_store = store,
     -- Unsandboxed, its worker sees the tree where it is (`launch`).
@@ -1639,7 +1674,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
   -- reads, its sandbox holds to what its key holds
   -- ([`test_sandbox.Plan`]'s `held`); unsandboxed, nothing does, and the
   -- key trusts its declaration as it trusts the test's own.
-  if key == nil then rec.tally.every = rec.tally.every + 1 end
+  if key == nil and not job.unrun then rec.tally.every = rec.tally.every + 1 end
   local held = key ~= nil and declared_of(rec, job.m, id) == key
   local saved, save_trouble = record_run(rec.records, job.m.path, job.name, kept_pass,
     message, Clock.now_ns(), run_key(key or "", key), rec.run_at_ns, elapsed)
@@ -2527,6 +2562,9 @@ local function say_skips(rec: Recording)
   local skips: {string} = {}
   for i, skip in ipairs(rec.skips) do skips[i] = skip end
   for _, line in ipairs(test_report.skips(skips)) do log:say(line) end
+  local nas: {string} = {}
+  for i, na in ipairs(rec.nas) do nas[i] = na end
+  for _, line in ipairs(test_report.nas(nas)) do log:say(line) end
 end
 
 local function say_failures(rec: Recording, failures: {string})
@@ -2578,6 +2616,10 @@ local record Run
   database: string
 
   -- The sandbox ([`choose_sandbox`]).
+  --- What asking whether a worker can be sandboxed came to, or nil where
+  --- the run was told not to ask ([`require_of_host`] asks then, if a
+  --- module needs it).
+  sandbox_answer: test_sandbox_probe.Answer
   sandboxed: boolean
   sandbox_summary: string
   shares: boolean
@@ -2819,6 +2861,7 @@ local function choose_sandbox(ctx: Run): integer | nil
   end
   if sandbox_mode ~= "off" then
     local answer = sandbox_here()
+    ctx.sandbox_answer = answer
     local why = answer.why
     sandboxed = answer.ok
     if answer.broken then
@@ -3052,7 +3095,7 @@ end
 local function make_recording(ctx: Run)
   local handle, records = ctx.handle, ctx.records
   ctx.tally = { ran = 0, cached = 0, shared = 0, every = 0,
-    skipped = 0 }
+    skipped = 0, na = 0 }
   local tally = ctx.tally
   local failures: {string} = {}
   local errors: {string} = {}
@@ -3078,7 +3121,7 @@ local function make_recording(ctx: Run)
     records = records, root = ctx.root, runtime = ctx.runtime,
     run_at_ns = ctx.run_at_ns, run = handle.run,
     failures = failures, errors = errors, outputs = {}, reruns = {},
-    failed = {}, skips = {},
+    failed = {}, skips = {}, nas = {}, unmet = {}, answered = {},
     hits = hits, by_test = by_test, unowned = unowned, tally = tally,
     owed = { kept = {}, used = {}, failed = {}, stores = {} }, shared_keys = {},
     consult_shared = ctx.consult,
@@ -3233,6 +3276,107 @@ local function gather_key_inputs(ctx: Run): integer | nil
   return nil
 end
 
+--- Which absence a module reports when it has several, the worst first.
+local UNMET_RANK <const>: {string:integer} = { refused = 3, na = 2, skipped = 1 }
+
+--- The names a module requires of its host: those its policy declares and
+--- those the policy implies ([`host_names.check`]), sorted.
+local function requirements_of(m: importer.Module): {string}
+  local names: {string} = {}
+  local declared = m.inputs
+  if declared == nil then return names end
+  for _, name in ipairs(declared.requires or {}) do names[#names + 1] = name end
+  for _, name in ipairs(declared.implied or {}) do names[#names + 1] = name end
+  table.sort(names)
+  return names
+end
+
+--- Asks the host, once, for every requirement the selected modules declare
+--- or their policies imply ([`host_requires`]), before any worker starts,
+--- and decides each module: where all are present, it runs, and its key
+--- holds each answer (`rec.answered`); otherwise none of its tests is
+--- started (`rec.unmet`), as one whose name breaks the table's rules fails
+--- (`refused`), one a platform never has is not applicable (`na`), and one
+--- this host lacks is skipped. A held run (COSMIC_TEST_SANDBOX=1,
+--- COSMIC_SANDBOX=must, COSMIC_CI_REQUIRE_SANDBOX=1) holds the sandbox
+--- ([`choose_sandbox`]) and fails for none of these.
+--- The exit code to stop with, or nil to go on.
+local function require_of_host(ctx: Run): integer | nil
+  local rec = ctx.rec
+  local host: host_requires.Host = nil
+  for _, m in ipairs(ctx.selected_modules) do
+    local names = requirements_of(m)
+    if #names > 0 then
+      if host == nil then
+        -- COSMIC_TEST_PLATFORM=other, for a test of this runner alone, stands in
+        -- for a platform without Linux's requirements on a host that has them:
+        -- it makes modules not applicable, which keeps no verdict.
+        local linux: boolean = nil
+        if Env.get("COSMIC_TEST_PLATFORM") == "other" then linux = false end
+        host = host_requires.new({
+          portable = Store.meta("runtime_context") == "portable-v1",
+          linux = linux,
+          sandbox = function(): host_requires.Sandbox
+            if ctx.sandbox_answer == nil then ctx.sandbox_answer = sandbox_here() end
+            local answer = ctx.sandbox_answer
+            return { ok = answer.ok, why = answer.why, broken = answer.broken }
+          end,
+        })
+      end
+      local found: {host_requires.Answer} = nil
+      local asked, answers = pcall(function() found = host_requires.answer(host, names) end)
+      if not asked then
+        -- A probe that cannot tell is a defect, which no pass may hide.
+        local _, _ = work.rollback(ctx.handle)
+        local _, _ = work.close(ctx.handle)
+        log:complain("test: " .. m.path .. ": the probe of what it requires of the host failed: " ..
+            tostring(answers))
+        return 1
+      end
+      local present: {string:string} = {}
+      local unmet: Unmet = nil
+      for _, answer in ipairs(found) do
+        if answer.kind == "present" then
+          present[answer.name] = answer.key
+        else
+          local said = "requires " .. answer.name .. ": " .. answer.why
+          if unmet == nil or UNMET_RANK[answer.kind] > UNMET_RANK[unmet.kind] then
+            unmet = { kind = answer.kind, why = said }
+          end
+        end
+      end
+      if unmet ~= nil then
+        rec.unmet[m.path] = unmet
+      else
+        rec.answered[m.path] = present
+      end
+    end
+  end
+  return nil
+end
+
+--- Settles the test `id` of a module whose requirements are not all
+--- present ([`require_of_host`]) without starting a worker or keying it,
+--- and keeps no verdict: a refused name fails it, an absence this host has
+--- skips it, and one the platform never lacks marks it not applicable.
+local function settle_unmet(rec: Recording, m: importer.Module, name: string, id: string,
+                            unmet: Unmet, limits: test.Limits)
+  if unmet.kind == "na" then
+    rec.tally.na = rec.tally.na + 1
+    rec.nas[#rec.nas + 1] = id .. ": " .. unmet.why
+    local saved, trouble = record_run(rec.records, m.path, name, false, "n/a: " .. unmet.why,
+      Clock.now_ns(), "", rec.run_at_ns, 0)
+    if not saved then rec.errors[#rec.errors + 1] = id .. ": record: " .. trouble end
+    return
+  end
+  local job: Job = { m = m, name = name, id = id, unrun = true, started_ns = Clock.monotonic_ns() }
+  if unmet.kind == "skipped" then
+    finish(rec, job, nil, "", limits, false, unmet.why)
+  else
+    finish(rec, job, nil, unmet.why, limits)
+  end
+end
+
 --- Each selected test keyed and looked up: a test whose verdict stands,
 --- here or in another checkout, is credited or shared, and the rest
 --- become the run's jobs. What the keys are made of and how many were
@@ -3248,8 +3392,13 @@ local function look_up_verdicts(ctx: Run)
   local looked: {string:boolean} = {}
   local keyed_count, looked_count, found_count, ran_here = 0, 0, 0, 0
   for _, m in ipairs(selected_modules) do
+    local unmet = rec.unmet[m.path]
     for _, name in ipairs(selected_tests[m.path]) do
       local id = m.path .. " " .. name
+      if unmet ~= nil then
+        settle_unmet(rec, m, name, id, unmet, ctx.limits)
+        goto next_test
+      end
       -- A test is keyed by what it is given, and runs unless a verdict
       -- under that key passed, here or in another checkout -- or it is
       -- forced, by --all or COSMIC_TEST_ALL, or reaches a
@@ -3275,6 +3424,7 @@ local function look_up_verdicts(ctx: Run)
       else
         share(rec, m, name, id, key, elsewhere)
       end
+      ::next_test::
     end
   end
   -- The digests the run's keys hold, which each row it keeps in the
@@ -3343,7 +3493,9 @@ local function look_up_verdicts(ctx: Run)
   -- key its inputs still reach once its test has run.
   declared_key.thaw(rec.digests)
   local tests = 0
-  for _, m in ipairs(selected_modules) do tests = tests + #selected_tests[m.path] end
+  for _, m in ipairs(selected_modules) do
+    if rec.unmet[m.path] == nil then tests = tests + #selected_tests[m.path] end
+  end
   log:say(string.format(keying .. "%s keyed by their declared inputs in %.1f ms (%s read)",
     plural.count(tests, "test"), rec.digests.spent_ns / 1e6,
     plural.count(rec.digests.read, "file")))
@@ -3400,7 +3552,7 @@ local function settle(ctx: Run)
       plural.count(rec.written, "closure store"), plural.count(rec.written_bytes, "byte"),
       rec.writing_ns / 1e6))
   end
-  ctx.total = tally.ran + tally.cached
+  ctx.total = tally.ran + tally.cached + tally.na
 
   local credit_trouble = credit_hits(records, ctx.credited, hits)
   if credit_trouble ~= "" then
@@ -3515,7 +3667,7 @@ local function report(ctx: Run): integer
     for _, function_line in ipairs(ctx.function_lines) do log:say(function_line) end
     log:verdict("test", true, test_report.passed({ total = total,
       modules = #ctx.selected_modules,
-      ran = tally.ran, cached = tally.cached, skipped = tally.skipped,
+      ran = tally.ran, cached = tally.cached, skipped = tally.skipped, na = tally.na,
       every = tally.every, shared = tally.shared },
       clock.took(started) .. ctx.sandbox_summary .. ctx.share_summary))
     return 0
@@ -3561,6 +3713,8 @@ local function run(argv: {integer:string}): integer
   code = open_records(ctx)
   if code ~= nil then return code end
   make_recording(ctx)
+  code = require_of_host(ctx)
+  if code ~= nil then return code end
   code = gather_key_inputs(ctx)
   if code ~= nil then return code end
   look_up_verdicts(ctx)

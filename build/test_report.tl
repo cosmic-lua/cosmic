@@ -30,6 +30,9 @@ local record test_report
     ran: integer
     cached: integer
     skipped: integer
+    --- Of the tests chosen, how many are not applicable on this platform,
+    --- none of which ran or stood.
+    na: integer
     every: integer
     shared: integer
   end
@@ -50,6 +53,15 @@ function test_report.skips(skips: {string}): {string}
   table.sort(skips)
   local lines: {string} = {}
   for _, skip in ipairs(skips) do lines[#lines + 1] = "test: SKIP  " .. skip end
+  return lines
+end
+
+--- Each not applicable test with why, sorted as the skips are: its
+--- module requires what this platform never has.
+function test_report.nas(nas: {string}): {string}
+  table.sort(nas)
+  local lines: {string} = {}
+  for _, na in ipairs(nas) do lines[#lines + 1] = "test: N/A  " .. na end
   return lines
 end
 
@@ -116,6 +128,7 @@ function test_report.passed(counts: test_report.Passed, elapsed: string): string
     counts.ran .. " ran, " .. counts.cached .. " stood, " ..
     (counts.skipped > 0 and (counts.skipped .. " skipped (this host could not check " ..
       (counts.skipped == 1 and "it" or "them") .. "), ") or "") ..
+    ((counts.na or 0) > 0 and (counts.na .. " n/a (this platform has none of what they check), ") or "") ..
     (counts.every > 0 and (counts.every .. " run every time (no key holds them), ") or "") ..
     (counts.shared > 0 and (counts.shared .. " of them on another checkout's verdict, ") or "") ..
     elapsed
