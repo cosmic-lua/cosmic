@@ -34,7 +34,9 @@ only by:
 - `escape(s): SafeHtml`, `escape_attr(s): SafeAttr`: the escaping is
   done in C, so making the value is the proof it was escaped.
   `escape_attr` turns every ASCII byte but a letter or digit into a
-  decimal character reference, so a value is safe quoted or not; bytes of
+  decimal character reference, so a value is safe in a quoted attribute
+  (not an unquoted one: an empty value leaves nothing, and the next
+  attribute is read as its value; the compiler refuses an unquoted slot); bytes of
   0x80 or more pass, since a reference per byte would not keep a UTF-8
   character whole (the document is UTF-8);
 - `href(s): SafeUrl`: a whole URL from data, through an allowlist

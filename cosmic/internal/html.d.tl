@@ -8,15 +8,16 @@ local record html
     userdata
   end
 
-  -- A value that can go inside an attribute, quoted or not.
+  -- A value that can go inside a quoted attribute value.
   record SafeAttr
     userdata
   end
 
   -- The string, with `& < > " '` made entities.
   escape: function(s: string): SafeHtml
-  -- The string with every byte but an ASCII letter or digit, and any byte
-  -- of 0x80 or more, made a numeric character reference.
+  -- The string with every ASCII byte but a letter or digit made a numeric
+  -- character reference; bytes of 0x80 or more pass through. For a
+  -- quoted attribute value.
   escape_attr: function(s: string): SafeAttr
   -- The string as markup, unchecked.
   trust: function(s: string): SafeHtml
@@ -26,8 +27,8 @@ local record html
   raw: function(x: SafeHtml): string
   -- The string a SafeAttr holds. Raises on anything else.
   raw_attr: function(x: SafeAttr): string
-  -- The markup of each part in order. Raises on an element that is not a
-  -- SafeHtml.
+  -- The markup of each part in order. Raises on a table that is not a
+  -- sequence, and on an element that is not a SafeHtml.
   concat: function(parts: {SafeHtml}): SafeHtml
 end
 

@@ -147,8 +147,14 @@ end
 --- The metamethods a declaration has no way to say, or no reason to:
 --- the lookup, the type's name and the collector's.
 local undeclared_metamethods <const>: {string: boolean} = {
-  __index = true, __name = true, __gc = true,
+  __index = true, __name = true, __gc = true, __metatable = true,
 }
+
+--- What `getmetatable` answers for `value`: `false` for a type that
+--- hides its metatable.
+local function metatable_of(value: any): any
+  return getmetatable(value)
+end
 
 --- Where the raw module `raw`, and `instances`, one value of each
 --- userdata record by the record's name, disagree with the declaration
@@ -169,6 +175,14 @@ local function disagreements(module: string, source: string, raw: any,
     local instance = instances[name]
     if instance == nil then
       problems[#problems + 1] = where .. " is userdata this test makes none of"
+    elseif metatable_of(instance) == false then
+      -- A type that hides its metatable (`__metatable = false`) has no
+      -- members to list, so a declaration that names one is refused.
+      -- TODO: read a hidden metatable once cosmic has a debug.getmetatable
+      -- replacement, to hold its own fields to the declaration too.
+      if next(nested.fields) ~= nil or next(nested.metamethods) ~= nil then
+        problems[#problems + 1] = where .. " is declared with members but hides its metatable"
+      end
     else
       local mt = members(getmetatable(instance))
       local index = mt.__index

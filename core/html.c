@@ -80,9 +80,11 @@ static bool is_ascii_alphanumeric (unsigned char c) {
 }
 
 /* `escape_attr`: an allowlist. Every ASCII byte but a letter or a digit
- * becomes a decimal character reference, so the value is as safe
- * between quotes as outside them: it holds no space, quote, `=`, `<`,
- * `>`, backtick or `&` that anything could end it at.
+ * becomes a decimal character reference, so the value holds no quote,
+ * `<`, `>`, `&` or other delimiter that could end a quoted value or
+ * open markup. It is for quoted values only: an empty result in an
+ * unquoted position leaves no value, and the next attribute is read as
+ * its value.
  *
  * A byte of 0x80 or more passes through. A reference per byte would be
  * wrong: the bytes of one UTF-8 character are not code points, and
@@ -168,13 +170,29 @@ static int html_raw_attr (lua_State *L) {
   return 1;
 }
 
-/* `concat`: the strings of a list of SafeHtml, one after another, in
- * one buffer. An element that is not a SafeHtml (a SafeAttr is not one)
- * raises, naming its place. Elements are read raw: a `__index` or
+/* `concat`: the strings of a sequence of SafeHtml, one after another, in
+ * one buffer. A table that is no sequence raises, as does an element
+ * that is not a SafeHtml (a SafeAttr is not one), naming its place.
+ * Elements are read raw: a `__index` or
  * `__len` of the list is not consulted. */
 static int html_concat (lua_State *L) {
   luaL_checktype(L, 1, LUA_TTABLE);
   lua_Unsigned count = lua_rawlen(L, 1);
+  /* A sequence has the keys 1 to its length and no others; `#` of a table
+   * with a hole may name either border, so one is refused. */
+  lua_Unsigned keys = 0;
+  lua_pushnil(L);
+  while (lua_next(L, 1) != 0) {
+    lua_pop(L, 1);
+    if (!lua_isinteger(L, -1) || lua_tointeger(L, -1) < 1 ||
+        (lua_Unsigned)lua_tointeger(L, -1) > count) {
+      return luaL_error(L, "html: parts is not a sequence");
+    }
+    keys++;
+  }
+  if (keys != count) {
+    return luaL_error(L, "html: parts is not a sequence");
+  }
   luaL_Buffer b;
   luaL_buffinit(L, &b);
   for (lua_Unsigned i = 1; i <= count; i++) {
@@ -204,10 +222,15 @@ static const luaL_Reg module[] = {
 };
 
 int cosmic_open_html (lua_State *L) {
-  luaL_newmetatable(L, SAFE_HTML_TYPE);
-  lua_pop(L, 1);
-  luaL_newmetatable(L, SAFE_ATTR_TYPE);
-  lua_pop(L, 1);
+  /* `__metatable` is false so no program can read the metatable to add
+   * an operator or a `__tostring` to every safe value. */
+  const char *types[] = { SAFE_HTML_TYPE, SAFE_ATTR_TYPE };
+  for (size_t i = 0; i < sizeof types / sizeof *types; i++) {
+    luaL_newmetatable(L, types[i]);
+    lua_pushboolean(L, 0);
+    lua_setfield(L, -2, "__metatable");
+    lua_pop(L, 1);
+  }
   luaL_newlib(L, module);
   return 1;
 }

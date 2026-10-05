@@ -90,6 +90,35 @@ local function test_concat_joins_in_order()
 end
 
 --- Nothing but `raw` reaches the string: a safe value has no operator.
+--- A table of the values given, as a sequence, with its type forgotten.
+local function table_of(...: any): {any: any}
+  local out: {any: any} = {}
+  for index, value in ipairs({ ... }) do out[index] = value end
+  return out
+end
+
+--- A table that is no sequence is refused, not read as far as `#` happens
+--- to reach: a hole would drop the parts after it.
+local function test_concat_refuses_a_table_that_is_no_sequence()
+  local a, b = Html.trust("a"), Html.trust("b")
+  local holes = table_of(a)
+  holes[3] = b
+  local extra = table_of(a, b)
+  extra["note"] = a
+  local sparse = table_of(a)
+  sparse[5] = b
+  local negative = table_of(a)
+  negative[-1] = b
+  local float = table_of(a)
+  float[1.5] = b
+  for name, parts in pairs({ holes = holes, extra = extra, sparse = sparse,
+      negative = negative, float = float }) do
+    local ok, why = attempt(Html.concat, parts)
+    assert(not ok and tostring(why):find("parts is not a sequence", 1, true), name .. ": " .. tostring(why))
+  end
+  assert(Html.raw(Html.concat({ a, b })) == "ab")
+end
+
 local function test_a_safe_value_has_no_string_behavior()
   local html = untyped(Html.escape("x"))
   local attr = untyped(Html.escape_attr("x"))
@@ -104,7 +133,12 @@ local function test_a_safe_value_has_no_string_behavior()
     assert(lua("return (...) == 'x'", value) and not select(2, lua("return (...) == 'x'", value)))
     assert(tostring(value):find("^cosmic%.html%.Safe%w+: ") ~= nil, tostring(value))
   end
-  assert(getmetatable(html) ~= getmetatable(attr))
+  -- The metatable is hidden, so no program adds an operator to every value.
+  local function metatable_of(value: any): any
+    return getmetatable(value)
+  end
+  assert(metatable_of(html) == false and metatable_of(attr) == false)
+  assert(not attempt(setmetatable, html, {}))
 end
 
 --- The raw functions and `concat` refuse a value of a type they were not
@@ -180,7 +214,7 @@ local forged: Html.SafeAttr = {}
 return Html.raw_attr(forged)
 ]])
   assert(not ok, "a table literal was taken for a SafeAttr")
-  assert(trouble:find("SafeAttr", 1, true) or trouble:find("userdata", 1, true), trouble)
+  assert(trouble:find("got {}, expected Html.SafeAttr", 1, true), trouble)
 end
 
 local function test_a_string_is_no_safe_value(tmp: string)
@@ -219,6 +253,8 @@ local Html = require("cosmic.html")
 return Html.concat({ Html.escape_attr("a") })
 ]])
   assert(not ok, "a SafeAttr was joined as SafeHtml")
+  assert(trouble:find("SafeAttr", 1, true) and trouble:find("is not a", 1, true) and
+      trouble:find("SafeHtml", 1, true), trouble)
 end
 
 --- A safe value does not concatenate or print as a string.
@@ -228,7 +264,7 @@ local Html = require("cosmic.html")
 return Html.escape("a") .. "b"
 ]])
   assert(not ok, "a SafeHtml was concatenated as a string")
-  assert(trouble ~= "")
+  assert(trouble:find("cannot use operator '..'", 1, true) and trouble:find("SafeHtml", 1, true), trouble)
   ok, trouble = compiles(tmp, "as-string", [[
 local Html = require("cosmic.html")
 local s: string = Html.escape("a")

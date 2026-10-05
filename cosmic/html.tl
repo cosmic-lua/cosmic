@@ -40,7 +40,7 @@ local record Html
   --- is made by [`Html.escape`], [`Html.trust`] or [`Html.concat`].
   type SafeHtml = raw_html.SafeHtml
 
-  --- A value that can go inside an attribute, quoted or not. Opaque: a
+  --- A value that can go inside a quoted attribute value. Opaque: a
   --- value is made by [`Html.escape_attr`] or [`Html.trust_attr`].
   type SafeAttr = raw_html.SafeAttr
 end
@@ -53,10 +53,12 @@ function Html.escape(s: string): Html.SafeHtml
   return raw.escape(s)
 end
 
---- `s` as the value of an attribute, quoted or not. Every ASCII byte
---- but a letter or a digit becomes a decimal character reference
+--- `s` as the value of a quoted attribute (`title="..."`). Every ASCII
+--- byte but a letter or a digit becomes a decimal character reference
 --- (`&#34;` for a quote, `&#32;` for a space), so nothing in it can end
---- an unquoted value or open a tag or a reference.
+--- the quotes or open a tag or a reference. It is not for an unquoted
+--- value: the empty string leaves nothing there, and `title= href=/y`
+--- swallows the next attribute.
 ---
 --- A byte of 0x80 or more is kept, so a UTF-8 character survives
 --- whole: a reference per byte would read as other characters. The
@@ -89,9 +91,10 @@ function Html.raw_attr(x: Html.SafeAttr): string
   return raw.raw_attr(x)
 end
 
---- The markup of `parts`, one after another. Raises on an element that
---- is not a [`Html.SafeHtml`], and on one the type checker would have
---- refused, such as a [`Html.SafeAttr`].
+--- The markup of `parts`, one after another. `parts` is a sequence:
+--- raises on a table with a hole, or a key other than 1 to its length,
+--- and on an element that is not a [`Html.SafeHtml`] (one the type
+--- checker would have refused, such as a [`Html.SafeAttr`]).
 function Html.concat(parts: {Html.SafeHtml}): Html.SafeHtml
   return raw.concat(parts)
 end
