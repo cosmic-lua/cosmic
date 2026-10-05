@@ -296,7 +296,7 @@ local function test_a_run_under_a_policy_passes_what_is_declared_and_fails_what_
 end
 
 --- A worker whose module declares nothing that puts a directory of the host
---- in its root -- no `system`, `tool`, `nests`, host cache or `noexec`, no
+--- in its root -- no `system`, `tool`, host cache or `noexec`, no
 --- directory among its `reads` or `host` -- has its scratch directory in the
 --- sandbox's own /tmp, and so a root of files alone: its policy has `tmp`, "/tmp"
 --- granted `rwxc` and no grant of a host directory, and its plan binds none.
@@ -324,6 +324,11 @@ local function test_a_plan_gives_a_scratch_of_its_own_only_where_no_host_directo
     if grant.path == "/tmp" then tmp_grant = grant end
   end
   assert(tmp_grant ~= nil and tmp_grant.letters == "rwxc")
+  -- A module that nests has no Landlock ruleset, and its root alone holds its
+  -- sockets: a scratch directory of its own too.
+  local nests = effective({})
+  nests.nests = true
+  assert(planned(nests, true).own_scratch)
   -- A file read is no directory.
   local file = effective({})
   file.reads = { "file.txt" }
@@ -345,7 +350,6 @@ local function test_a_plan_gives_a_scratch_of_its_own_only_where_no_host_directo
   end
   shared(function(inputs: test_inputs.Effective) inputs.system = true end, "`system`")
   shared(function(inputs: test_inputs.Effective) inputs.tool = true end, "`tool`")
-  shared(function(inputs: test_inputs.Effective) inputs.nests = true end, "`nests`")
   shared(function(inputs: test_inputs.Effective) inputs.reads = { "data" } end, root .. "/data")
   shared(function(inputs: test_inputs.Effective) inputs.host = { "/dev" } end, "/dev")
 end

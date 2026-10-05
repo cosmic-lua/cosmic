@@ -13,7 +13,6 @@
 local type _net = require("cosmic.net")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local confine = require("build.confine")
 local sys = require("cosmic.sys")
 local type raw_socket = require("cosmic.internal.socket")
 
@@ -103,25 +102,14 @@ end
 --- a policy without a `u` grant refuses `socket`: any other failure falls
 --- through, for the test to fail on. The reason names the directories the
 --- worker's root binds, which its module's [`Test.needs`] put there:
---- `system`, `tool`, a directory among its `reads` or `host`, a host cache,
---- a private `noexec` scratch or `nests`.
+--- `system`, `tool`, a directory among its `reads` or `host`, a host cache
+--- or a private `noexec` scratch.
 --- @param dir a directory the process may make a socket file in
 --- @return whether the test is skipped
--- TODO: let a worker whose module declares `nests` make a unix socket
--- too: core/syscalls.c sets COSMIC_HELD_UNIX only for a start held by a
--- Landlock ruleset (`grants_ruleset`), and a start that promises `nest` has
--- none; where its root shows no directory or socket of the host it could be
--- held by the root alone, as it is below ABI 9. The tests of a nested root's
--- own sockets (core/promises_held_child_test.tl,
--- cosmic/child_policy_isolate_test.tl) are skipped under the policy path until then.
 function unix_socket.skipped(dir: string): boolean
   local tried = listens(dir)
   if not tried.refused then return false end
   local reasons: {string} = {}
-  if sys.getenv(confine.held_variable) == nil then
-    reasons[#reasons + 1] = "its module declares `nests`, so no Landlock ruleset holds the worker " ..
-      "and its filter allows no unix socket"
-  end
   local inet = listens_inet()
   if inet.refused then
     reasons[#reasons + 1] = "its module declares no `network`, so it has no network namespace of " ..

@@ -334,7 +334,8 @@ local record Options
   ---     own is the program's to make sockets in), in a network
   ---     namespace of its own (`loopback`): from Landlock ABI 9 whatever
   ---     it shows, since Landlock refuses a socket file no `u` grant names.
-  ---     Not under `nest`, which gives Landlock up and makes no such claim.
+  ---     Under `nest`, which gives Landlock up, only where the root shows no
+  ---     directory and no socket file, at any ABI.
   ---   - Held as ever: the pid and IPC namespaces, the network namespace
   ---     (with `loopback` or `u`), which the program may make others of but
   ---     not leave (the filter refuses setns), the socket families, signals

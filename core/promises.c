@@ -220,7 +220,8 @@ struct grant {
  *   unless the signal scope holds (see RULE_SIGNAL).
  * - socket, except where the process is held to a root, network namespace
  *   and either Landlock ABI 9 or a root showing no directory or socket of the
- *   host's, that make a unix socket harmless (COSMIC_HELD_UNIX)
+ *   host's -- the latter alone for a start that promises `nest`, which has no
+ *   ruleset -- that make a unix socket harmless (COSMIC_HELD_UNIX)
  *   or the caller names the families (`sockets`).
  * - vmsplice.
  * - The never-allowed set (ptrace, bpf, io_uring, ...), which no table names.

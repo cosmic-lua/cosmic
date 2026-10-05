@@ -2873,7 +2873,8 @@ static bool close_range_works (void) {
  * (each placed at `at`, or at its own name where that is NULL) shows no
  * directory and no socket file of the host's, and no descriptor the child
  * is handed leads to one: the facts a unix socket is harmless on where no
- * Landlock ABI tells one socket file from another ([`grants_ruleset`]).
+ * Landlock ABI tells one socket file from another ([`grants_ruleset`]), or
+ * no ruleset holds the start at all (`nest`, in spawn).
  * What it shows is its own tmpfs (the root, and /tmp), a procfs of its own
  * pid namespace ([`place_proc`]), and the paths bound: each a file that is
  * not a socket, which a bind shows alone. A directory bound -- /dev, a
@@ -4062,9 +4063,40 @@ COSMIC_SYSCALL(spawn, 11) {
   int unveiled_unix[UNVEIL_MAX];
   memset(unveiled_unix, 0, sizeof unveiled_unix);
 #if defined(__linux__)
+  /* A start that promises `nest` has no ruleset ([`cosmic.child`] gives it no
+   * grants), so the root alone holds its unix sockets, at any Landlock ABI: it
+   * gets COSMIC_HELD_UNIX where [`root_shows_no_socket`] holds, and the child
+   * checks that ([`build_root`]'s `unix_guard`), as for a ruleset below ABI 9.
+   * It may build roots and mount, and none reaches a socket the host has:
+   * - Its mount namespace holds what this start bound, each a file that is
+   *   no socket, and its own tmpfs and procfs. The host's root was detached
+   *   by pivot_root ([`build_root`]), and no descriptor leads to it
+   *   ([`root_shows_no_socket`]). Mounts it makes, in a mount namespace or a
+   *   user namespace of its own, copy that and add what the kernel lets a
+   *   user namespace's root mount (tmpfs, procfs, overlay of what it sees,
+   *   mqueue, devpts): none shows a socket file of the host's. The
+   *   mounts it copies are locked, so none is unmounted to show what is
+   *   beneath. A sysfs, which the filter cannot refuse by its type, needs
+   *   one already visible, as the kernel's `fs_fully_visible` asks, and
+   *   holds no socket file in any case.
+   * - Its procfs is of its own pid namespace, which an unveiled start
+   *   always makes ([`start_unveiled`]): /proc/N/root, cwd and fd/N are
+   *   the sandbox's own, not a host process's. A procfs it mounts shows
+   *   that namespace or one it made, and it holds no descriptor of another
+   *   (setns is refused, and it was handed none that leads to one).
+   * - open_by_handle_at and name_to_handle_at are not in the filter, and
+   *   its capabilities are over its own user namespace alone, so it cannot
+   *   decode a handle of a host file.
+   * - Abstract sockets are the network namespace's, which `offline` makes
+   *   and the filter's refusal of setns keeps it in: a namespace it
+   *   makes beside it is another of its own, never the host's.
+   * A descriptor handed that is a connected socket reaches what it was
+   * connected to, as it would from any start: the caller handed it. */
+  int nesting = (promise_bits & COSMIC_PROMISE_NEST) != 0;
+  int unix_tmp = (granting || nesting) && strict && unveiling && !proc_only && offline &&
+                 close_range_works() &&
+                 root_shows_no_socket(resolved_paths, unveiled_at, unveil_count, source, top);
   if (granting) {
-    int unix_tmp = strict && unveiling && !proc_only && offline && close_range_works() &&
-               root_shows_no_socket(resolved_paths, unveiled_at, unveil_count, source, top);
     /* A `u` grant's socket is the one a bind may show. */
     for (int i = 0; i < unveil_count; i++) {
       for (int j = 0; j < grant_count; j++) {
@@ -4081,6 +4113,10 @@ COSMIC_SYSCALL(spawn, 11) {
                              (sockets & COSMIC_SOCKETS_INET) != 0, strict && unveiling && !proc_only,
                              offline, unix_tmp, grant_message, sizeof grant_message, &grant_error,
                              &held);
+  }
+  if (nesting && unix_tmp) {
+    held |= COSMIC_HELD_UNIX;
+    unix_guard = 1;
   }
   /* The namespaces the child makes itself ([`start_unveiled`], [`go_offline`]):
    * a user namespace, whose capabilities the kernel does not take for the
