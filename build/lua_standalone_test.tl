@@ -1,5 +1,5 @@
---- What a module that declares `standalone` beside `lua`
---- ([`cosmic.test`]) starts: this program running a file `--standalone`,
+--- What a module that declares `lua` ([`cosmic.test`]) and requires
+--- [`build.standalone`] starts: this program running a file `--standalone`,
 --- held to the module's import closure, what `cosmic -e` loads and what
 --- `cosmic --standalone` loads beyond it (build/test_inputs.tl's
 --- `lua_loads` and `standalone_loads`) -- so a file that reaches for any
@@ -10,12 +10,13 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
+local _ = require("build.standalone")
 local closure_store = require("build.closure_store")
 local test_inputs = require("build.test_inputs")
 local this_program = require("build.this_program")
 local Clock = require("cosmic.clock")
 
-Test.needs{ lua = true, standalone = true }
+Test.policy{ profiles = { "cosmic" } }
 
 --- Runs `words` after this program, past its launcher, and answers
 --- whether it exited 0, and what it wrote to stdout and stderr.
@@ -71,6 +72,16 @@ local function test_a_standalone_file_runs_on_what_standalone_loads(tmp: string)
     end
   end
   assert(seen > 0, out)
+end
+
+--- Requiring build.standalone brings every module `--standalone` loads
+--- into the closure, so a test module's key holds them and its children
+--- may load them: `standalone_loads` is no more than that closure.
+local function test_requiring_build_standalone_holds_what_standalone_loads()
+  for _, name in ipairs(test_inputs.standalone_loads) do
+    assert(package.loaded[name] ~= nil, name .. " is in standalone_loads but " ..
+        "build.standalone's closure does not hold it")
+  end
 end
 
 --- What a closure store carries beside a module is what a held process

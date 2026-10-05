@@ -137,8 +137,8 @@ end
 --- A module that declares `lua` alone is keyed without what `cosmic
 --- --standalone` loads beyond `-e` (build.test_inputs' `standalone_loads`):
 --- an edit to the checker, build/teal.tl, leaves its key, while it moves
---- the key of one that declares `standalone` beside it, and an edit to
---- what `-e` loads moves both.
+--- the key of one that requires build.standalone, whose closure holds
+--- them, and an edit to what `-e` loads moves both.
 local function test_a_chunk_module_is_keyed_without_what_standalone_loads(tmp: string)
   tree(tmp)
   local by_path: {string:positions.Module} = {}
@@ -150,12 +150,18 @@ local function test_a_chunk_module_is_keyed_without_what_standalone_loads(tmp: s
       by_path[name] = { path = name, file = file, kind = "lib", requires = {}, tests = {} }
     end
   end
+  local needed: {string} = {}
+  for _, name in ipairs(test_inputs.standalone_loads) do
+    if name ~= "build.standalone" then needed[#needed + 1] = name end
+  end
+  by_path["build.standalone"].requires = needed
   local function key_declaring(standalone: boolean): string
     local declared: analyzer.Declared = { line = 1, reads = {}, host = {}, env = {},
-      network = {}, tool = false, lua = true, standalone = standalone, nests = false,
+      network = {}, tool = false, lua = true, nests = false,
       store = false, system = false, caches = {} }
     local m: positions.Module = { path = "suite.t_test", file = "suite/t_test.tl",
-      kind = "test", requires = { "suite.lib" }, tests = { "test_t" }, inputs = declared }
+      kind = "test", requires = standalone and { "suite.lib", "build.standalone" } or
+        { "suite.lib" }, tests = { "test_t" }, inputs = declared }
     by_path[m.path] = m
     by_path["suite.lib"] = { path = "suite.lib", file = "suite/lib.tl", kind = "lib",
       requires = {}, tests = {} }
@@ -379,7 +385,7 @@ local function full_spec(hostdir: string): declared_key.Spec
     files = { ["suite/t_test.tl"] = true, ["suite/lib.tl"] = true },
     reads = { "suite/data/" }, host = { hostdir .. "/host.txt" },
     env = { DECLARED = true, H = true }, network = { ["127.0.0.1"] = true },
-    tool = true, lua = true, standalone = true, nests = true, noexec = true,
+    tool = true, lua = true, nests = true, noexec = true,
     noexec_ready = true, noexec_trouble = "no reason", store = true, system = true,
     caches = { "zig" }, cache_paths = { hostdir .. "/cache" },
     variables = { "DECLARED", "H" }, named = { H = true },
@@ -479,8 +485,6 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
       lua = declaration .. ", and what it adds to the closure (`lua_loads`) by `files` " ..
         "and `closure_store`: every process it starts is held to that closure " ..
         "(build.test_worker's `hold_children`)",
-      standalone = declaration .. ", and what it adds to the closure beside `lua` " ..
-        "(`standalone_loads`) by `files` and `closure_store`",
       nests = declaration .. ", and, where the module does not declare `tool`, " ..
         "`runs_tool` (build.test's `tool_use`)",
       caches = "content-addressed, which never changes a result (build.caches)",

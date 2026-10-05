@@ -1137,9 +1137,9 @@ static int put_up_inherited (lua_State *L) {
   lua_pushfstring(L, "%s declares lua = true, so what a process its tests start runs of "
     "this program is keyed by its import closure and by what `cosmic -e` loads "
     "(build/test_inputs.tl's `lua_loads`) alone, and by what `cosmic --standalone` loads "
-    "(`standalone_loads`) only where it declares standalone = true beside lua. Require the "
-    "module at the top level of %s, declare standalone = true beside lua where its tests "
-    "run a file --standalone, or declare tool = true in its Test.needs in place of lua",
+    "(`standalone_loads`) only where it requires build.standalone. Require the "
+    "module at the top level of %s (build.standalone, where its tests run a file "
+    "--standalone), or declare tool = true in its Test.needs in place of lua",
     who, who);
   lua_pushfstring(L, "a handle reads every module's rows, and %s declares lua = true, so "
     "what a process its tests start reads of this program is keyed by its import "

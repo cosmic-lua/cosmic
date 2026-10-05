@@ -97,7 +97,6 @@ local record analyzer
     network: {string}
     tool: boolean
     lua: boolean
-    standalone: boolean
     nests: boolean
     noexec: boolean
     store: boolean
@@ -1304,7 +1303,7 @@ end
 --- [`cosmic.test`]'s `Needs`, which build/analyzer_test.tl holds it to.
 local input_fields <const>: {string:string} = {
   reads = "list", host = "list", env = "list", network = "list",
-  tool = "flag", lua = "flag", standalone = "flag", nests = "flag", noexec = "flag", store = "flag",
+  tool = "flag", lua = "flag", nests = "flag", noexec = "flag", store = "flag",
   system = "flag", caches = "list",
 }
 
@@ -1333,19 +1332,14 @@ local function network_trouble(host: string): string
   return ""
 end
 
---- Why a declaration with `lua` and `standalone` set as given, beside
---- `tool`, `store`, `system` and any cache (`caches`) as given, is
---- refused, or "" when it is not: `lua` holds every process the tests
---- start to what a key holds of the program (`Needs.lua` of cosmic.test), which a
---- host program, or a cosmic a cache holds, could start the program
---- past; `tool` and `store` key the whole program already; and
---- `standalone` widens what `lua` holds, so it means nothing alone.
-local function lua_trouble(lua: boolean, standalone: boolean, tool: boolean, store: boolean,
+--- Why a declaration with `lua` set as given, beside `tool`, `store`,
+--- `system` and any cache (`caches`) as given, is refused, or "" when it
+--- is not: `lua` holds every process the tests start to what a key holds
+--- of the program (`Needs.lua` of cosmic.test), which a host program, or
+--- a cosmic a cache holds, could start the program past; `tool` and
+--- `store` key the whole program already.
+local function lua_trouble(lua: boolean, tool: boolean, store: boolean,
                            system: boolean, caches: boolean): string
-  if standalone and not lua then
-    return "standalone is refused without lua: it adds what `cosmic --standalone` " ..
-      "loads to what lua holds; declare lua = true beside it"
-  end
   if not lua then return "" end
   local beside: {string:boolean} = { tool = tool, store = store, system = system,
     caches = caches }
@@ -1661,7 +1655,7 @@ end
 local function policy_declared(data: PolicyData, line: integer): analyzer.Declared | nil, string
   local out: analyzer.Declared = {
     line = line, reads = {}, host = {}, env = {}, network = {},
-    tool = false, lua = false, standalone = false, nests = false, noexec = false, store = false,
+    tool = false, lua = false, nests = false, noexec = false, store = false,
     system = false, caches = {},
   }
   local not_yet = " is not yet taken: a policy runs a worker as a `needs` does " ..
@@ -1843,7 +1837,7 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
   end
   local out: analyzer.Declared = {
     line = found.y, reads = {}, host = {}, env = {}, network = {},
-    tool = false, lua = false, standalone = false, nests = false, noexec = false, store = false,
+    tool = false, lua = false, nests = false, noexec = false, store = false,
     system = false, caches = {},
   }
   if which == "policy" then
@@ -1889,8 +1883,6 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
         out.tool = on
       elseif field == "lua" then
         out.lua = on
-      elseif field == "standalone" then
-        out.standalone = on
       elseif field == "nests" then
         out.nests = on
       elseif field == "noexec" then
@@ -1936,7 +1928,7 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
       return nil, where .. field .. " takes " .. wanted .. ", written out"
     end
   end
-  local refused = lua_trouble(out.lua, out.standalone, out.tool, out.store, out.system,
+  local refused = lua_trouble(out.lua, out.tool, out.store, out.system,
     #out.caches > 0)
   if refused ~= "" then return nil, at(found) .. refused end
   return out, ""

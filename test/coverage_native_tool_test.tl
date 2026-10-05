@@ -8,11 +8,12 @@ local Coverage = require("cosmic.coverage")
 local Fs = require("cosmic.fs")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
+local _ = require("build.standalone")
 local Clock = require("cosmic.clock")
 
 --- The program itself, which its test starts to run a file `--standalone`
---- (`standalone`).
-Test.needs{ lua = true, standalone = true }
+--- ([`build.standalone`]).
+Test.policy{ profiles = { "cosmic" } }
 
 --- A process's first window keeps the C that ran before it opened --
 --- startup -- and every later one starts empty. Run in a fresh process,

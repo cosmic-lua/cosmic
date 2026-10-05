@@ -5,7 +5,7 @@
 --- -- so a child that reaches for any other module of the program, runs
 --- a verb, or runs a file `--standalone`, fails, naming `lua`, rather
 --- than running what no key of its test holds. build/lua_standalone_test.tl
---- holds what one that declares `standalone` beside it starts.
+--- holds what one that requires build.standalone starts.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -96,16 +96,15 @@ return failed == 3 and 0 or 1
   assert(ok, out .. err)
 end
 
---- A file run `--standalone` is refused, naming `standalone`: the
---- checker it loads is none of `lua_loads`, so a module that declares
---- `lua` alone is keyed without it, and its child may not load it.
-local function test_a_standalone_file_is_refused_without_standalone(tmp: string)
+--- A file run `--standalone` is refused, naming `lua`: the checker it
+--- loads is none of `lua_loads`, so a module that declares `lua` alone
+--- is keyed without it, and its child may not load it.
+local function test_a_standalone_file_is_refused_without_build_standalone(tmp: string)
   local file = tmp .. "/file.tl"
   assert(Fs.write(file, "print('ran')\n"))
   local ok, out, err = run({ "--standalone", file })
   assert(not ok and out == "", out .. err)
-  assert(err:find(REFUSED, 1, true) and err:find("declare standalone = true beside lua", 1,
-    true), err)
+  assert(err:find(REFUSED, 1, true) and err:find("requires build.standalone", 1, true), err)
 end
 
 --- The compiler's identity is refused to a child whose module's closure

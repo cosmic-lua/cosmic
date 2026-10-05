@@ -1389,7 +1389,6 @@ local function test_a_malformed_needs_call_is_refused()
     { 'Test.needs { lua = true, tool = true }', "fixture_test.tl:3: test.needs: lua is refused beside tool" },
     { 'Test.needs { lua = true, system = true }', "lua is refused beside system: a host program" },
     { 'Test.needs { lua = true, caches = { "zig" } }', "lua is refused beside caches" },
-    { 'Test.needs { standalone = true }', "standalone is refused without lua" },
     -- A host path names a file, or /proc.
     { 'Test.needs { host = { "/etc/" } }', 'host: "/etc/" names a directory; host names ' ..
         "files, or /proc: declare the files the tests read" },
@@ -1718,7 +1717,7 @@ end
 local function test_every_field_of_needs_is_one_the_build_reads()
   local every: Test.Needs = {
     reads = {}, host = {}, env = {}, network = {}, tool = true, lua = true,
-    standalone = true, nests = true, noexec = true, store = true, system = true, caches = {},
+    nests = true, noexec = true, store = true, system = true, caches = {},
   }
   local flags: {string:boolean} = {}
   local named: {string} = {}
@@ -1728,10 +1727,9 @@ local function test_every_field_of_needs_is_one_the_build_reads()
   end
   table.sort(named)
   for _, name in ipairs(named) do
-    -- Spelled as the field takes it, beside what it may stand beside.
+    -- Spelled as the field takes it.
     local given = flags[name] and "true" or "{}"
-    local beside = (name == "standalone") and "lua = true, " or ""
-    local why = refusal_of("{ " .. beside .. name .. " = " .. given .. " }")
+    local why = refusal_of("{ " .. name .. " = " .. given .. " }")
     assert(why == "", name .. ": " .. why)
     local other = flags[name] and "{}" or "true"
     assert(refusal_of("{ " .. name .. " = " .. other .. " }"):find(name .. " takes", 1, true),
@@ -1768,7 +1766,6 @@ end
 --- start it unheld, it is refused, naming the field it meets.
 local function test_lua_is_refused_beside_what_starts_the_program_unheld()
   assert(refusal_of("{ lua = true }") == "")
-  assert(refusal_of("{ lua = true, standalone = true }") == "")
   assert(refusal_of('{ tool = true, store = true, system = true, caches = { "zig" } }') == "")
   for name, field in pairs({ tool = "tool = true", store = "store = true",
       system = "system = true", caches = 'caches = { "zig" }' }) do
@@ -1777,11 +1774,11 @@ local function test_lua_is_refused_beside_what_starts_the_program_unheld()
   end
 end
 
---- `standalone` widens what `lua` holds, so alone it is refused, naming
---- `lua`.
-local function test_standalone_is_refused_without_lua()
-  local why = refusal_of("{ standalone = true }")
-  assert(why:find("standalone is refused without lua", 1, true), why)
+--- `standalone` is no field: a module that runs a file `--standalone`
+--- requires build.standalone instead.
+local function test_standalone_is_no_field_of_needs()
+  local why = refusal_of("{ lua = true, standalone = true }")
+  assert(why:find("it has ", 1, true), why)
 end
 
 --- A chunk's docs alone are the docs its whole analysis gives.
