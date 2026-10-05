@@ -14,14 +14,18 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
+local searchable = require("build.searchable")
 local this_program = require("build.this_program")
 
 --- [`Store.seal`] reads the rows of every module it carries through
 --- [`Store.databases()`], which a worker without the store is not given
 --- (the grant of o/cosmic.db). The core is started past its launcher
---- (the grant of o/bin).
+--- (the grant of o/bin). The sealed program under `nest` builds a root of its
+--- own, which a worker held by Landlock cannot ("nest"), and one test runs the
+--- host's unshare and mount, which "system" gives it.
 Test.policy{
-  profiles = { "cosmic" },
+  profiles = { "cosmic", "system" },
+  promises = { "nest" },
   grants = {
     { path = "o/bin", letters = "rx" },
     { path = "o/cosmic.db", letters = "r" },
@@ -40,8 +44,58 @@ local MAIN <const> = [==[
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
+local Child = require("cosmic.child")
+local sys = require("cosmic.sys")
 local function say(name, value) print(name .. "\t" .. tostring(value)) end
+-- "ok" where `path` opens for writing, else the errno.
+local function writes(path)
+  local fd, _, errno = sys.open(path, sys.O_WRONLY)
+  if fd ~= nil then sys.close(fd) return "ok" end
+  return tostring(errno)
+end
+-- With a mode (args[2]): what it can write of its core and database, by
+-- path and through its own descriptors, and then by mode: "child" starts a
+-- child on that database, "relay" one with no database of its policy's
+-- (so on the core and database this process runs on), "remount" runs the
+-- host's unshare to remount the database writable in a user namespace of
+-- its own. args[3] is a directory the root of a child is built in.
+local function probe(mode, scratch)
+  local core = assert(Proc.executable())
+  local db = assert(Proc.relaunch()).argv[3]
+  say("db_write", writes(db))
+  say("core_write", writes(core))
+  say("exe_write", writes("/proc/self/exe"))
+  local through = 0
+  for n = 0, 63 do
+    local target = sys.readlink("/proc/self/fd/" .. n)
+    if target == db or target == core then
+      through = through + 1
+      say("fd_write_" .. n, writes("/proc/self/fd/" .. n))
+    end
+  end
+  say("fds_into_them", through)
+  local function below(policy, next_mode)
+    local r, why = Child.run({ core, "x", next_mode, scratch }, { policy = policy,
+      stdout = "capture", stderr = "capture" })
+    if r == nil then say("grand_refused", why) return end
+    say("grand_code", r.code)
+    say("grand_stderr", r.stderr)
+    for line in r.stdout:gmatch("[^\n]+") do print("g_" .. line) end
+  end
+  if mode == "child" then
+    below({ database = db, isolate = { "file" } }, "plain")
+  elseif mode == "relay" then
+    below({ isolate = { "file" }, promises = { "fork", "nest" }, set_env = { TMPDIR = scratch },
+      grants = { { path = scratch, letters = "rwc" }, { path = core, letters = "rx" } } }, "plain")
+  elseif mode == "remount" then
+    local r, why = Child.run({ "/bin/sh", "-c",
+      "unshare -Urm sh -c 'echo ns; mount -o remount,rw,bind " .. db ..
+      " 2>&1; echo rc=$?' 2>&1" }, { stdout = "capture", stderr = "stdout" })
+    say("remount", r == nil and ("unstarted: " .. tostring(why)) or (r.stdout:gsub("\n", " ")))
+  end
+end
 return function(args)
+  if args[2] ~= nil then probe(args[2], args[3]) end
   say("main", Store.meta("main"))
   say("context", Store.meta("runtime_context"))
   say("databases", #Store.databases())
@@ -73,7 +127,7 @@ local function attach(tmp: string)
   local chunk = assert(load(MAIN, "=fixture.main"))
   assert(Sqlite.run(db, "INSERT INTO modules VALUES ('fixture.main', 'fixture.main.tl', 'main', " ..
       "X'00', X'', ?1, '', X'')", { { blob = string.dump(chunk, true) } }))
-  for _, name in ipairs({ "cosmic.fs", "cosmic.proc", "cosmic.store" }) do
+  for _, name in ipairs({ "cosmic.fs", "cosmic.proc", "cosmic.store", "cosmic.child" }) do
     assert(Sqlite.run(db, "INSERT INTO imports VALUES ('fixture.main', ?1)", { text(name) }))
   end
   assert(db:close())
@@ -225,4 +279,119 @@ local function test_a_decoded_policy_refuses_a_database_that_changed_since(tmp: 
   assert(Fs.write(path, bytes .. "x"))
   local started, why = Child.start({ executable, executable }, { policy = policy })
   assert(started == nil and why:find("has changed since", 1, true), tostring(why))
+end
+
+--- A sealed program run under `nest` by `mode` (see the probe in `MAIN`) with
+--- `policy` beside the database: what it printed, or nil where the host gives
+--- no sandbox (skipped). The database is writable by anyone, so that only the
+--- mount can refuse a write, whoever the program runs as.
+local function under_nest(tmp: string, mode: string, policy: Sandbox.Policy): {string:string} | nil
+  local path = tmp .. "/sealed.db"
+  seal(tmp, path)
+  assert(Fs.chmod(path, tonumber("666", 8)))
+  -- Where a start of the child's own builds the root it makes.
+  searchable.open(tmp)
+  local scratch = tmp .. "/scratch"
+  assert(Fs.mkdirs(scratch))
+  searchable.share(scratch)
+  policy.database = policy.database or path
+  policy.isolate = { "file" }
+  policy.promises = { "fork", "nest" }
+  policy.set_env = { TMPDIR = scratch }
+  policy.grants = policy.grants or {}
+  table.insert(policy.grants, { path = scratch, letters = "rwc" })
+  local executable = assert(Proc.executable())
+  local result, why = Child.run({ executable, executable, mode, scratch },
+    { policy = policy, cwd = tmp, stdout = "capture", stderr = "capture",
+      timeout_ns = Clock.seconds(60) })
+  if result == nil then
+    assert(unsandboxable(why), "the start was refused: " .. why)
+    Test.skip(why)
+    return nil
+  end
+  assert(result.ok, "exit " .. tostring(result.code) .. ": " .. tostring(result.stderr))
+  return fields(assert(result.stdout))
+end
+
+--- EROFS: what a write to a read-only mount fails with, which no permission
+--- (the database is writable by anyone) can be mistaken for.
+local EROFS <const> = "30"
+
+--- What a probe in `out` (under `prefix`) found of the core and database: it
+--- held descriptors into them, and none opened for writing, by path or not.
+local function assert_unwritable(out: {string:string}, prefix: string)
+  local held = tonumber(out[prefix .. "fds_into_them"])
+  assert(held ~= nil and held > 0, prefix .. "the probe found no descriptor of the core or database")
+  assert(out[prefix .. "db_write"] == EROFS, prefix .. "db: " .. tostring(out[prefix .. "db_write"]))
+  assert(out[prefix .. "core_write"] ~= "ok", prefix .. "core opened for writing")
+  assert(out[prefix .. "exe_write"] ~= "ok", prefix .. "/proc/self/exe opened for writing")
+  for name, value in pairs(out) do
+    if name:sub(1, #prefix + 9) == prefix .. "fd_write_" then
+      assert(value ~= "ok", name .. ": a descriptor of the core or database reopened for writing")
+    end
+  end
+end
+
+--- A sealed program under `nest` holds a core and a database that it can
+--- start children on and cannot write, by path or through /proc/self/fd:
+--- the child confines a grandchild on the same database, which runs the
+--- sealed main, and neither writes either file.
+local function test_a_sealed_program_under_nest_confines_children_of_its_own(tmp: string)
+  if not confine.sandbox_platform() or core_path() == nil then return end
+  local out = under_nest(tmp, "child", {})
+  if out == nil then return end
+  assert(out.main == "fixture.main", tostring(out.main))
+  assert(out.own_file == "false", "the child read this program's own file")
+  assert(out.grand_refused == nil, tostring(out.grand_refused))
+  -- The grandchild is the sealed main again, on the same database.
+  assert(out.grand_code == "0", tostring(out.grand_code) .. ": " .. tostring(out.grand_stderr))
+  assert(out.g_main == "fixture.main", tostring(out.g_main))
+  assert(out.g_outside == "false", "a module outside the sealed set loaded in the grandchild")
+  assert(out.g_relaunch ~= nil and out.g_relaunch:find("|--database|", 1, true),
+    tostring(out.g_relaunch))
+  assert_unwritable(out, "")
+  assert_unwritable(out, "g_")
+end
+
+--- A process started on a database, whatever its policy named, takes the
+--- `nest` promise for a child of its own that names no `database`: the child
+--- is on this process's core and database, bound read-only all the same.
+local function test_a_sealed_program_under_nest_starts_a_nest_child_with_no_database(tmp: string)
+  if not confine.sandbox_platform() or core_path() == nil then return end
+  local out = under_nest(tmp, "relay", {})
+  if out == nil then return end
+  assert(out.grand_refused == nil, tostring(out.grand_refused))
+  assert(out.grand_code == "0", tostring(out.grand_code) .. ": " .. tostring(out.grand_stderr))
+  assert(out.g_main == "fixture.main", tostring(out.g_main))
+  assert_unwritable(out, "")
+  assert_unwritable(out, "g_")
+end
+
+--- A policy's own grant of the database, writable, is one of the root's
+--- binds like the program's: the read-only bind of the database the program
+--- is given, which comes after, is the one the child sees.
+local function test_a_policy_grant_of_the_database_does_not_make_it_writable(tmp: string)
+  if not confine.sandbox_platform() or core_path() == nil then return end
+  local path = tmp .. "/sealed.db"
+  local out = under_nest(tmp, "child", { grants = { { path = path, letters = "rwc" } } })
+  if out == nil then return end
+  assert_unwritable(out, "")
+  assert_unwritable(out, "g_")
+end
+
+--- Remounting the database writable fails in a user namespace the child makes
+--- of its own: the bind is read-only, and the kernel locks that for a mount
+--- seen from a namespace below its owner's. Skipped where the host has no
+--- unshare to try it with.
+local function test_a_nest_child_cannot_remount_the_database_writable(tmp: string)
+  if not confine.sandbox_platform() or core_path() == nil then return end
+  local out = under_nest(tmp, "remount", { profiles = { "system" } })
+  if out == nil then return end
+  local said = tostring(out.remount)
+  if not said:find("ns", 1, true) then
+    Test.skip("unshare -Urm made no namespace: " .. said)
+    return
+  end
+  assert(said:find("rc=", 1, true) and not said:find("rc=0", 1, true),
+    "the database was remounted writable: " .. said)
 end
