@@ -109,11 +109,8 @@ local ACCEPTED <const>: {{string}} = {
   { "TestEscape: withElse", "{{with .e}}{{.}}{{else}}{{.x}}{{end}}", "", "text" },
   { "TestEscape: rangeBody", "{{range .l}}{{.}}{{end}}", "", "text" },
   { "TestEscape: nonStringValue", "{{.t}}", "", "text" },
-  { "TestEscape: urlStartRel", "<a href='{{.x}}'>", "", "url" },
-  { "TestEscape: urlStartAbsOk", "<a href='{{.x}}'>", "", "url" },
-  { "TestEscape: protocolRelativeURLStart", "<a href='{{.x}}'>", "", "url" },
+  { "TestEscape: urlStartRel, urlStartAbsOk, protocolRelativeURLStart, dangerousURLStart (one template; the values are in RENDERED)", "<a href='{{.x}}'>", "", "url" },
   { "TestEscape: pathRelativeURLStart", "<a href=\"{{.x}}\">", "", "url" },
-  { "TestEscape: dangerousURLStart", "<a href='{{.x}}'>", "", "url" },
   { "TestEscape: dangerousURLStart2", "<a href='  {{.x}}'>", "", "url" },
   { "TestEscape: urlBranch", "<a href=\"{{if .f}}/foo?a=b{{else}}/bar{{end}}\">", "", "none" },
   { "TestEscape: jsReAmbigOk", "<script>{{if .t}}var x = 1{{end}}</script>", "", "none" },
@@ -641,6 +638,12 @@ local RENDERED <const>: {{string}} = {
   { "<svg><a XLink:Href=\"{{.x}}\"></a></svg>", "javascript:alert(1)", "<svg><a XLink:Href=\"" .. INVALID .. "\"></a></svg>" },
   { "<IMG SRC='{{.x}}'>", "javascript:alert(1)", "<IMG SRC='" .. INVALID .. "'>" },
 }
+
+local function test_a_number_is_a_text_slot_as_go_prints_a_non_string_value()
+  assert(render("{{.n}}", { n = 42 }) == "42")
+  assert(render("<p>{{.n}}</p>", { n = 7 }) == "<p>7</p>")
+  assert(render("<p title=\"{{.n}}\">", { n = 7 }) == "<p title=\"" .. attr("7") .. "\">")
+end
 
 local function test_hostile_values_are_rendered_for_the_place_they_land_in()
   local wrong: {string} = {}

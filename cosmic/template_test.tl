@@ -228,6 +228,8 @@ local REFUSALS <const>: {{string}} = {
   { "<textarea>x", "2", "12", "the template ends inside the text of <textarea>" },
   { "<svg><g>", "2", "9", "the template ends inside <svg>" },
   { "<svg><p>", "2", "9", "could not follow" },
+  { "<select>", "2", "9", "the template ends inside <select>" },
+  { "<p>x</p><select><option>a", "2", "26", "the template ends inside <select>" },
   { "<a title=x", "2", "11", "the template ends inside the value of the attribute 'title'" },
 }
 
@@ -448,5 +450,6 @@ local function test_an_html_template_must_end_in_plain_text_since_another_splice
   assert(refused(HEAD .. "<p>x</p>\n<b"):find("^t.tmpl:3:3: the template ends inside a tag"))
   compiled(HEAD .. "<a href=\"{{.x}}\">x</a>\n")
   compiled(HEAD .. "<svg><g/></svg>")
+  compiled(HEAD .. "<select><option>a</option></select>")
   compiled("{{type T from m.t}}{{mode text}}\n<a href=\"")
 end

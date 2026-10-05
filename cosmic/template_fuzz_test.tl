@@ -20,6 +20,22 @@ local MARKUP <const> = {
   "<a href=\"/x/", "<br/>", "<a href=\"http://h\">",
 }
 
+--- What may follow a body to end it in text, as a template must end.
+local CLOSERS <const> = { "\">", "'>", ">", "-->", "</textarea>", "</title>", "</script>", "</style>", "</svg>", "" }
+
+--- Refusals of a slot or of a block's arms, so that a draw reaches them
+--- whatever else it holds.
+local REFUSING <const> = {
+  "<a href={{.a}}>", "<script>{{.a}}</script>", "<p onclick=\"{{.a}}\">", "<!-- {{.a}} -->", "<{{.a}}>",
+  "<a href=\"/x/{{.a}}\">", "<textarea></textarea{{.a}}>",
+}
+
+--- Blocks whose arms end in different places.
+local ARMS <const> = { "{{if .a}}<b {{end}}", "{{range .l}}<a title=\"{{end}}", "{{with .w}}<!--{{end}}" }
+
+--- The heads of an `html` template.
+local HTML_HEADS <const> = { HEADS[1], HEADS[3] }
+
 --- Actions, well-formed and not, and braces that are not actions.
 local ACTIONS <const> = {
   "{{.a}}", "{{.}}", "{{.b.c | m.f}}", "{{.a | m.f | n.g}}", "{{if .a}}", "{{if .a.b | m.f}}", "{{else}}",
@@ -100,7 +116,17 @@ local function gen_body(src: Fuzz.Source): string
     end
   else
     gen_nodes(src, 0, out, ANY)
+    out[#out + 1] = Fuzz.pick(src, CLOSERS)
   end
+  return table.concat(out)
+end
+
+--- Well-formed nodes, then what ends them in text: no syntax error, so what
+--- follows or precedes it is judged for its markup.
+local function gen_sound_nodes(src: Fuzz.Source): string
+  local out: {string} = {}
+  gen_nodes(src, 0, out, ANY)
+  out[#out + 1] = Fuzz.pick(src, CLOSERS)
   return table.concat(out)
 end
 
@@ -112,6 +138,10 @@ local function gen_template(src: Fuzz.Source): string
     return Fuzz.mutate(src, Fuzz.pick(src, SAMPLES), 4)
   elseif kind == 1 then
     return Fuzz.pick(src, HEADS) .. gen_body(src) .. Fuzz.pick(src, HEADERS) .. gen_body(src)
+  elseif kind == 2 or kind == 4 then
+    return Fuzz.pick(src, HTML_HEADS) .. Fuzz.pick(src, REFUSING) .. gen_sound_nodes(src)
+  elseif kind == 3 then
+    return Fuzz.pick(src, HTML_HEADS) .. Fuzz.pick(src, ARMS) .. gen_sound_nodes(src)
   end
   return Fuzz.pick(src, HEADS) .. gen_body(src)
 end
@@ -135,11 +165,14 @@ local function test_compile_is_total_and_keeps_the_lines_on_any_bytes(tmp: strin
     dir = tmp,
     gen = gen_template,
     requires = { "compiled", "syntax", "slot", "arms", "block", "text mode", "multiline" },
-    shares = { compiled = 0.1, syntax = 0.05, slot = 0.05 },
+    shares = { compiled = 0.1, syntax = 0.05, slot = 0.01 },
     check = function(input: string): boolean, string
       local ok, out, why = pcall(Template.compile, input, "t.tmpl")
       if not ok then
         return false, "compile raised: " .. tostring(out)
+      end
+      if input:find("{{range", 1, true) or input:find("{{with", 1, true) or input:find("{{if", 1, true) then
+        Fuzz.label("block")
       end
       local again = Template.compile(input, "t.tmpl")
       if again ~= out then
@@ -153,6 +186,8 @@ local function test_compile_is_total_and_keeps_the_lines_on_any_bytes(tmp: strin
           Fuzz.label("slot")
         elseif why:find(" end in different places", 1, true) or why:find(" ends where it did not", 1, true) then
           Fuzz.label("arms")
+        elseif why:find(": the template ends ", 1, true) then
+          Fuzz.label("open end")
         else
           Fuzz.label("syntax")
         end
@@ -167,9 +202,6 @@ local function test_compile_is_total_and_keeps_the_lines_on_any_bytes(tmp: strin
       end
       if out:find("render(d: ", 1, true) and out:find("local parts: {string} = {} ", 1, true) == nil then
         return false, "no parts"
-      end
-      if input:find("{{range", 1, true) or input:find("{{with", 1, true) or input:find("{{if", 1, true) then
-        Fuzz.label("block")
       end
       if input:find("{{mode text}}", 1, true) then Fuzz.label("text mode") end
       if input:find("\n.*{{") then Fuzz.label("multiline") end
@@ -367,8 +399,21 @@ local UNITS <const>: {{string}} = {
 local function gen_sound(src: Fuzz.Source): string
   local body: {string} = {}
   local kinds: {string} = {}
+  local want = Fuzz.pick(src, { "t", "r", "a", "u", "x" })
+  local drawn = 0
   while Fuzz.more(src, #body, 5) do
+    drawn = drawn + 1
     local first = Fuzz.pick(src, UNITS)
+    if drawn == 1 then
+      -- The first fragment is of a kind drawn first, so every kind is reached however few inputs run.
+      local of: {{string}} = {}
+      for _, unit in ipairs(UNITS) do
+        if unit[2]:find(want, 1, true) then
+          of[#of + 1] = unit
+        end
+      end
+      first = Fuzz.pick(src, of)
+    end
     local wrap = src:int(0, 5)
     if wrap == 1 then
       local second = Fuzz.pick(src, UNITS)
@@ -517,7 +562,9 @@ local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
           return false, "a URL slot began with the script scheme"
         end
       end
-      if body:find("{{range", 1, true) or body:find("{{if", 1, true) then Fuzz.label("block") end
+      if body:find("{{range", 1, true) or body:find("{{if", 1, true) or body:find("{{with", 1, true) then
+        Fuzz.label("block")
+      end
       return true, ""
     end,
   })

@@ -42,7 +42,8 @@
 --- a tag or attribute name, in an unquoted value, in a comment, in an
 --- `on...` or `style` attribute, in `<script>` or `<style>`, and a few
 --- like them (cosmic/template/markup.tl lists them). An `html` template must
---- also end in plain text, since its `SafeHtml` can go into another's text slot. `{{mode text}}` returns a `string` and escapes nothing, for
+--- also end in plain text, since its `SafeHtml` can go into another's text
+--- slot. `{{mode text}}` returns a `string` and escapes nothing, for
 --- anything that is not HTML; a slot there takes a string or a number.
 ---
 --- `{{` always starts an action: it cannot be written as literal text

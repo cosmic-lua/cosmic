@@ -15,7 +15,8 @@
 --- - `<script>` and `<style>` text, until their end tag: no escaper for
 ---   their languages is held to a standard here yet;
 --- - an attribute that is code or a URL list: any attribute whose name
----   begins with `on` (handlers), `style`, `srcdoc`, `srcset`, `imagesrcset`, `ping`,
+---   begins with `on` (handlers), `style`, `srcdoc`, `srcset`, `imagesrcset`,
+---   `ping`,
 ---   `content` of a `<meta>` that has `http-equiv` (anywhere in the
 ---   tag), and every attribute of the SVG animation elements (`set`,
 ---   `animate`, `animateMotion`, `animateTransform`: they can animate
@@ -63,7 +64,8 @@
 ---
 --- A URL attribute is `href`, `src`, `action`, `formaction`, `cite`,
 --- `data`, `poster`, `background`, `manifest`, `longdesc`, `codebase`,
---- `profile`, `icon`, `lowsrc`, `dynsrc`, `classid`, `archive` and `xlink:href`: each takes one URL. A slot is
+--- `profile`, `icon`, `lowsrc`, `dynsrc`, `classid`, `archive` and
+--- `xlink:href`: each takes one URL. A slot is
 --- taken as a whole URL (the escaper decides whether it may be a link),
 --- which is why it must begin the value: after `href="/a/` it would be a
 --- piece of one, which needs an escaper for a piece (doc/roadmap.md).
@@ -238,15 +240,10 @@ local ANIMATION <const>: {string: boolean} = {
   set = true, animate = true, animatemotion = true, animatetransform = true,
 }
 
--- TODO: a conditional bare attribute as the first attribute
--- (`<input{{if .a}} checked{{end}} name=n>`) is refused because the arms end
--- in different places (`attr_name` against the tag's start): once `same`
--- treats the places between attributes (before_attr, after_attr, a name
--- ended by a space or `>`) as one, such a template compiles.
-
 local function start(): Place
   return { phase = "text", tag = "", attr = "", closing = false, fresh = false, stack = "", murky = false,
-    select = false, fontattr = false, slash = false, after_url = false, colon = false, equiv = false, meta_line = 0, meta_col = 0, late = "", late_line = 0, late_col = 0, rc_tail = "" }
+    select = false, fontattr = false, slash = false, after_url = false, colon = false, equiv = false,
+    meta_line = 0, meta_col = 0, late = "", late_line = 0, late_col = 0, rc_tail = "" }
 end
 
 local function copy(p: Place): Place
@@ -269,6 +266,11 @@ local ATTRIBUTED <const>: {Phase: boolean} = {
 }
 
 local function same(a: Place, b: Place): boolean
+  -- TODO: a conditional bare attribute as the first attribute
+  -- (`<input{{if .a}} checked{{end}} name=n>`) is refused because the arms
+  -- end in different places (`attr_name` against the tag's start): once
+  -- this treats the places between attributes (before_attr, after_attr, a
+  -- name ended by a space or `>`) as one, such a template compiles.
   if a.phase ~= b.phase or a.stack ~= b.stack or a.murky ~= b.murky or a.select ~= b.select or a.slash ~= b.slash then
     return false
   end
@@ -704,7 +706,8 @@ local function slot(p: Place): types.Slot | nil, string
     return "text", ""
   elseif phase == "rcdata" then
     if p.rc_tail ~= "" then
-      return nil, "a slot after '" .. p.rc_tail .. "' in <" .. p.tag .. "> could complete its end tag"
+      return nil, "a slot after '" .. p.rc_tail .. "' in <" .. p.tag ..
+        "> could complete its end tag"
     end
     return "rtext", ""
   elseif phase == "raw" then
@@ -768,6 +771,8 @@ local function ending(p: Place): string
     return "in markup in <svg>, <math> or <noscript> that the tracker could not follow"
   elseif p.stack ~= "" then
     return "inside <" .. p.stack:match("%S+") .. ">"
+  elseif p.select then
+    return "inside <select>"
   end
   local phase = p.phase
   if phase == "text" then
@@ -783,5 +788,6 @@ local function ending(p: Place): string
   return "inside a comment or markup declaration"
 end
 
-local M: Markup = { start = start, ending = ending, copy = copy, same = same, join = join, feed = feed, slot = slot, wrote = wrote }
+local M: Markup = { start = start, ending = ending, copy = copy, same = same, join = join, feed = feed,
+  slot = slot, wrote = wrote }
 return M
