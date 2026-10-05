@@ -12,7 +12,7 @@ local Clock = require("cosmic.clock")
 local Zig = require("build.zig")
 local this_program = require("build.this_program")
 
-Test.needs{ lua = true }
+Test.policy{ profiles = { "cosmic" } }
 
 --- An older tool takes only SQLite's transaction. A negative wait keeps
 --- its hold until stdin closes; zero is a nonblocking probe.

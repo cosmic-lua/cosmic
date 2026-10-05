@@ -47,12 +47,19 @@ local SAME: {{string}} = {
     'Test.policy { grants = { { path = "a", letters = "r" }, ' ..
       '{ path = "/etc/hosts", letters = "r" }, { path = "b", letters = "r" } } }' },
   { "Test.needs { system = true }", 'Test.policy { profiles = { "system" } }' },
-  { "Test.needs { tool = true }", 'Test.policy { profiles = { "cosmic" } }' },
-  -- The profile and the grant of o/bin, which the program is in, are `tool`.
+  -- The profile alone is the program held to the module's closure; with the
+  -- grant of o/bin, which the program is in, it is the program itself.
+  { "Test.needs { lua = true }", 'Test.policy { profiles = { "cosmic" } }' },
+  { 'Test.needs { lua = true, host = { "/proc" }, nests = true, network = { "127.0.0.1" } }',
+    'Test.policy { profiles = { "cosmic" }, grants = { { path = "/proc", letters = "r" } }, ' ..
+      'promises = { "nest" }, loopback = { "127.0.0.1" } }' },
   { "Test.needs { tool = true }",
     'Test.policy { profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }' },
+  { 'Test.needs { tool = true, store = true, reads = { "a" } }',
+    'Test.policy { profiles = { "cosmic" }, grants = { { path = "a", letters = "r" }, ' ..
+      '{ path = "o/bin", letters = "rx" }, { path = "o/cosmic.db", letters = "r" } } }' },
   { "Test.needs { tool = true, system = true }",
-    'Test.policy { profiles = { "system", "cosmic" } }' },
+    'Test.policy { profiles = { "system", "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }' },
   { "Test.needs { nests = true }", 'Test.policy { promises = { "nest" } }' },
   { 'Test.needs { env = { "PATH", "HOME", "PATH" } }',
     'Test.policy { env = { "PATH", "HOME", "PATH" } }' },
@@ -76,7 +83,8 @@ local SAME: {{string}} = {
   { 'Test.needs { reads = { "testdata" }, system = true, tool = true, nests = true, ' ..
       'env = { "PATH", "TMPDIR" }, network = { "127.0.0.1" } }',
     'Test.policy { profiles = { "cosmic", "system" }, promises = { "nest", "fork" }, ' ..
-      'grants = { { path = "testdata", letters = "r" } }, env = { "PATH", "TMPDIR" }, ' ..
+      'grants = { { path = "testdata", letters = "r" }, { path = "o/bin", letters = "rx" } }, ' ..
+      'env = { "PATH", "TMPDIR" }, ' ..
       'loopback = { "127.0.0.1" }, tmp = true, isolate = {}, limits = {} }' },
 }
 
@@ -129,6 +137,13 @@ local function test_a_policy_with_no_needs_is_refused()
       'test.policy: grants[1].path o/cosmic.db is the store, granted { path = "o/cosmic.db"' },
     { 'Test.policy { grants = { { path = "o/cosmic.db", letters = "r", from = "x" } } }',
       "test.policy: grants[1].path o/cosmic.db is the store" },
+    { 'Test.policy { profiles = { "cosmic" }, grants = { { path = "o/cosmic.db", letters = "r" } } }',
+      'test.policy: profiles: "cosmic" without the grant of o/bin holds the program to what ' ..
+        'the module requires, which is refused beside o/cosmic.db' },
+    { 'Test.policy { profiles = { "system", "cosmic" } }',
+      "which is refused beside system; grant { path = \"o/bin\", letters = \"rx\" }" },
+    { 'Test.policy { profiles = { "cosmic" }, grants = { { path = "/cache/zig", letters = "rwxc" } } }',
+      "which is refused beside /cache/zig" },
     { 'Test.policy { grants = { { path = "o/bin", letters = "rx" } } }',
       'test.policy: grants: .path o/bin is the program\'s directory, granted only beside ' ..
         'the profile "cosmic"' },

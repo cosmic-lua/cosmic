@@ -24,11 +24,11 @@ local Clock = require("cosmic.clock")
 --- by a Landlock ruleset cannot (build.confine's `forbid_running`); and
 --- loopback, which the offline child's own `lo` answers, as a worker under a
 --- policy makes no inet socket without it.
-Test.needs{
-  host = { "/proc" },
-  lua = true,
-  nests = true,
-  network = { "127.0.0.1" },
+Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "/proc", letters = "r" } },
+  promises = { "nest" },
+  loopback = { "127.0.0.1" },
 }
 
 local type Searcher = function(string): any, any

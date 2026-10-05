@@ -11,9 +11,9 @@ local this_program = require("build.this_program")
 --- What `program` copies is this process's environment, which for a
 --- worker is the variables it declares and the pinned ones, and what it
 --- starts is this very program, which reads its own command line in /proc.
-Test.needs{
-  host = { "/proc" },
-  lua = true,
+Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "/proc", letters = "r" } },
 }
 
 --- Swaps [`Proc.relaunch`] for one answering `relaunch` while `fn` runs.

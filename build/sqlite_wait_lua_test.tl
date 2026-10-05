@@ -12,7 +12,7 @@ local this_program = require("build.this_program")
 local verdict = require("build.verdict")
 local work = require("build.work")
 
-Test.needs{ lua = true }
+Test.policy{ profiles = { "cosmic" } }
 
 local function child(script: string): Child.Handle
   local command = this_program.program({ "-e", script },

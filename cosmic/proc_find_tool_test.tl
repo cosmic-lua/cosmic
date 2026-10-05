@@ -9,7 +9,10 @@ local this_program = require("build.this_program")
 
 --- Only the default search's first candidate is needed; it is inspected,
 --- not run. The child itself is this program running a chunk.
-Test.needs{ lua = true, host = { "/bin/sh" } }
+Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "/bin/sh", letters = "r" } },
+}
 
 local function lookup(dir: string, path: string | nil): string
   local env = this_program.environment()

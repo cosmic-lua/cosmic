@@ -9,7 +9,7 @@ local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 
 --- Children run chunks through this program's core, without a shell.
-Test.needs{ lua = true }
+Test.policy{ profiles = { "cosmic" } }
 
 local function output(fd: integer): Child.Handle
   local options: Child.Options = { stdout = "null", stderr = "null" }

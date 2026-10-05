@@ -8,7 +8,7 @@ local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 
 --- The program itself, started with `-e`.
-Test.needs{ lua = true }
+Test.policy{ profiles = { "cosmic" } }
 
 --- The `build.*` modules `-e` may have loaded as its chunk runs: dispatch,
 --- the exit status its answer is read as, the verdict logger that reads

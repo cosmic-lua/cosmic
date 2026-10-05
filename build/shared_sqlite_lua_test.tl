@@ -9,7 +9,7 @@ local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 local _ = require("build.shared_sqlite") -- the child loads it after installing its observer
 
-Test.needs{ lua = true }
+Test.policy{ profiles = { "cosmic" } }
 
 local function classified(tmp: string, scenario: string)
   local path = tmp .. "/cache.db"

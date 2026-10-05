@@ -9,7 +9,7 @@ local Clock = require("cosmic.clock")
 local this_program = require("build.this_program")
 
 --- Each child only runs a chunk through this program's core.
-Test.needs{ lua = true }
+Test.policy{ profiles = { "cosmic" } }
 
 local function start(script: string, options?: Child.Options): Child.Handle
   local started = this_program.program({ "-e", script }, options or { stdout = "stream" })

@@ -97,7 +97,7 @@ local function test_policy_hands_the_runner_its_needs(tmp: string)
     "  for _, case in ipairs(cases) do",
     "    say(try(function() T.policy(case as T.Policy) end))",
     "  end",
-    "  T.policy { grants = { { path = \"data/\", letters = \"r\" } },",
+    "  T.policy { grants = { { path = \"data/\", letters = \"r\" }, { path = \"o/bin\", letters = \"rx\" } },",
     "    profiles = { \"cosmic\" }, loopback = { \"127.0.0.1\" }, promises = { \"fork\" } }",
     "  say(try(function() T.needs { tool = true } end))",
     "  say(try(function() T.policy { } end))",

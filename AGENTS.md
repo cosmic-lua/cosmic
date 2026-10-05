@@ -254,7 +254,8 @@
    successor, being phased in: a module declares one or the other, in
    the fields of cosmic.sandbox's `Policy`, which the harness translates
    into the `needs` it stands for, so the key is the same (a grant "r" of
-   a path is a read, the profile "system" is `system`, "cosmic" is `tool`,
+   a path is a read, the profile "system" is `system`, "cosmic" is `lua`,
+   and `tool` with the grant `{ path = "o/bin", letters = "rx" }` beside it,
    the promise "nest" is `nests`, `loopback` is `network`); what has no
    `needs` yet (a grant to write, `isolate`, `limits`, `set_env`) is
    refused. Nothing lists what a test reads
