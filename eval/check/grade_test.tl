@@ -154,6 +154,10 @@ local function test_a_failed_build_runs_no_binary_for_any_task(dir: string)
     local status, said = graded(name, dir)
     assert(status == 1, said)
     assert(said:find("skip o/bin/" .. name .. ": cosmic build failed", 1, true), said)
+    -- A copy of the checked core is 39.5 MB and a worker's directory is in
+    -- a 256 MiB tmpfs: one task's stand-in at a time stays inside it.
+    assert(Fs.remove(dir .. "/project/o/bin/" .. name))
+    assert(Fs.remove(dir .. "/project/o/bin/" .. name .. ".do"))
   end
   assert(not Fs.exists(dir .. "/empty"), "a binary was run")
 end
