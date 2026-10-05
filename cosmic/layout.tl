@@ -50,8 +50,9 @@ local record Layout
   --- of it ([`cosmic.template`]), imported by its path like a `.tl` file:
   --- `pages/home.tmpl` is `require("pages.home")` and `pages/init.tmpl` is
   --- `require("pages")`, each exporting `render`. Nothing generated is
-  --- checked in, and a type error or a template error names the
-  --- template's own line, as `pages/home.tmpl:12:`. A `.tmpl` and a `.tl`
+  --- checked in, and a type error or a template error carries the
+  --- template's own line, as `pages/home.tmpl:12:` (its column is the
+  --- generated code's). A `.tmpl` and a `.tl`
   --- at one import path are refused like any two files. `cosmic fix` parses
   --- a template and never rewrites it
   templates: string

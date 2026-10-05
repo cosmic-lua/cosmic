@@ -504,8 +504,16 @@ function compilation.generate(m: Module, built: compiler, env: compiler.Env,
   -- which on a cold build put a template's error at the field in its
   -- data module, under the template's name.
   typed.checking = m.file
-  local result = built.check_string(source, env, m.file, "tl")
+  local result: compiler.Result
+  local checked_ok, raised = pcall(function()
+    result = built.check_string(source, env, m.file, "tl")
+  end)
+  -- Put back before a raise goes on, so the run's state names no file
+  -- the checker has left.
   typed.checking = ""
+  if not checked_ok then
+    error(raised, 0)
+  end
   local code: string | nil = nil
   if result.ast ~= nil and #result.syntax_errors == 0 then
     local written, write_trouble = built.generate(result.ast, env.defaults.gen_target, nil)

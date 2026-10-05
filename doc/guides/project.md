@@ -20,7 +20,8 @@ A file's name says what it is.
 - `name.tmpl` is a typed template ([`cosmic.template`]), built into the
   module `require("name")` with a `render` function: `pages/home.tmpl`
   is `pages.home`, `pages/init.tmpl` is `pages`. Nothing generated is
-  kept, and an error names the template's own line.
+  kept, and an error carries the template's own line (its column is the
+  generated code's).
 - `name_test.tl` holds tests: each top-level `local function test_*`
   is one test. Nothing is returned or registered.
 - `name_example.tl` holds worked examples: it returns a record named

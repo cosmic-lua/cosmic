@@ -198,7 +198,8 @@ end
 
 --- Whether a Teal file is one the tool carries wherever it sits in the
 --- tree: every module the `inputs` view reads ([`build.analysis_schema`]:
---- Teal outside a `testdata/` directory) except a test, which [`is_tool`]
+--- Teal outside a `testdata/` directory, and a template, whose module
+--- the tool carries as it does Teal's) except a test, which [`is_tool`]
 --- has already left out. The tool carries every module of the tree but
 --- its tests and examples ([`build.writer`]'s `dropped_modules`), so
 --- eval/'s and test/portable's are carried as much as build/'s, and a
@@ -207,7 +208,8 @@ end
 --- as one inside them is: a carried module may require it, and one more
 --- reboot costs less than a stale tool.
 local function carried_teal(file: string, own_tree: boolean): boolean
-  if not String.ends_with(file, ".tl") or not identity.is_input(file, own_tree) then
+  if not (String.ends_with(file, ".tl") or String.ends_with(file, ".tmpl")) or
+      not identity.is_input(file, own_tree) then
     return false
   end
   return file:sub(1, 9) ~= "testdata/" and file:find("/testdata/", 1, true) == nil

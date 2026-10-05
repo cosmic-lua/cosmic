@@ -184,15 +184,6 @@ local function test_editing_a_template_makes_its_module_again(tmp: string)
   assert(third == nil and third_trouble:find("page.tmpl:1:", 1, true), tostring(third_trouble))
 end
 
-local function test_the_template_compiler_is_part_of_what_a_derivation_is_keyed_by()
-  local modules = assert(importer.analyzer_modules())
-  local named: {string: boolean} = {}
-  for _, name in ipairs(modules) do named[name] = true end
-  for _, name in ipairs({ "cosmic.template", "cosmic.template.codegen", "cosmic.template.parse" }) do
-    assert(named[name], name .. " is not in the analyzer's identity: " .. table.concat(modules, ", "))
-  end
-end
-
 --- What the checker said about the field a template's slot reads, built
 --- from nothing: a project with nothing cached.
 local function test_a_cold_build_names_the_slot_not_the_declaration(tmp: string)

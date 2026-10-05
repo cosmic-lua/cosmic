@@ -94,3 +94,19 @@ local function test_a_file_that_does_not_parse_is_refused_once(tmp: string)
     assert(count == 1, out)
   end
 end
+
+--- A template the compiler refuses fails the run with its own
+--- `file:line:col`, wherever the build meets it; one under `testdata/`,
+--- which the build never makes a module of, is not looked at.
+local function test_a_refused_template_fails_unless_it_is_testdata(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root .. "/testdata"))
+  assert(Fs.write(root .. "/testdata/broken.tmpl", "{{broken"))
+  assert(Fs.write(root .. "/a.tl", "return 1\n"))
+  local passed = fix(root, true)
+  assert(passed.ok, passed.stdout)
+  assert(Fs.write(root .. "/page.tmpl", "{{type Page from a}}\n<a href={{.x}}>\n"))
+  local failed = fix(root, true)
+  assert(not failed.ok and assert(failed.stdout):find("page.tmpl:2:9: ", 1, true) ~= nil,
+    failed.stdout)
+end

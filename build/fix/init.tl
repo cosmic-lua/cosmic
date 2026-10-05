@@ -208,7 +208,9 @@ local function sources(root: string): {string} | nil, string
   return out
 end
 
---- Every template under `root`, as paths relative to it.
+--- Every template under `root`, as paths relative to it, but those under
+--- a `testdata/` directory, which the build never makes a module of
+--- ([`build.derivation`]) and a test may keep broken on purpose.
 local function template_sources(root: string): {string} | nil, string
   local files, trouble = Fs.walk(root, skip)
   if files == nil then
@@ -216,7 +218,8 @@ local function template_sources(root: string): {string} | nil, string
   end
   local out: {string} = {}
   for _, file in ipairs(files) do
-    if String.ends_with(file, ".tmpl") then
+    if String.ends_with(file, ".tmpl") and file:sub(1, 9) ~= "testdata/" and
+        file:find("/testdata/", 1, true) == nil then
       out[#out + 1] = file
     end
   end
