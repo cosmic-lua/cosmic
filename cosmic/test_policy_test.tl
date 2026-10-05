@@ -268,17 +268,14 @@ local function test_a_policy_declares_requirements()
   assert(refused == nil and why:find("no field requires", 1, true), tostring(why))
 end
 
---- A name the table does not have, a Linux-class name (refused until the
---- legs' promises are written down), a name written twice, a `path:` the
+--- A name the table does not have, a name written twice, a `path:` the
 --- worker is given no host grant of and a `program:` it cannot find fail
---- the build, naming the rule.
+--- the build, naming the rule; a Linux-class name does not.
 local function test_a_requirement_that_breaks_a_rule_fails_the_build()
   local cases: {{string}} = {
     { 'Test.policy { requires = { "sandbxo" } }', "unknown requirement \"sandbxo\"" },
     { 'Test.policy { requires = { "path:relative" } }', "absolute path" },
-    { 'Test.policy { requires = { "nest" } }', "\"nest\" is a Linux-class requirement" },
-    { 'Test.policy { requires = { "landlock:3" } }', "Linux-class requirement" },
-    { 'Test.policy { requires = { "proc" } }', "Linux-class requirement" },
+    { 'Test.policy { requires = { "landlock:0" } }', "positive integer" },
     { 'Test.policy { requires = { "root", "root" } }', "\"root\" is written twice" },
     { 'Test.policy { requires = { "path:/etc/hosts" } }', "needs a host grant of the path" },
     { 'Test.policy { requires = { "path:/etc/hosts" }, grants = { { path = "/etc/passwd", letters = "r" } } }',
@@ -300,6 +297,7 @@ local function test_a_requirement_that_breaks_a_rule_fails_the_build()
       'Test.policy { requires = { "path:/proc/self/status" }, grants = { { path = "/proc", letters = "r" } } }',
       'Test.policy { requires = { "program:jq" }, profiles = { "system" }, env = { "PATH" } }',
       'Test.policy { requires = { "root", "portable" } }',
+      'Test.policy { requires = { "sandbox", "landlock", "landlock:3", "userns", "nest", "own_proc", "proc" } }',
   }) do
     local found, why = declared(call)
     assert(found ~= nil, call .. ": " .. tostring(why))

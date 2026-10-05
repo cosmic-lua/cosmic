@@ -1,3 +1,4 @@
+local Capabilities = require("cosmic_ci.capabilities")
 local Clock = require("cosmic.clock")
 local ContextEnv = require("cosmic_ci.context")
 local Env = require("cosmic.env")
@@ -214,6 +215,19 @@ function Orchestration.test_words(env: {string:string}): {string}
   return { "test", "--all" }
 end
 
+--- Sets `env`, a suite's, to the requirements the leg it runs on
+--- promises (ci/cosmic_ci/capabilities.tl): COSMIC_TEST_PROMISES, their list, and
+--- COSMIC_TEST_LEG, the leg's name, which a held `cosmic test` fails a
+--- module for lacking. The leg is COSMIC_WORKER's; a worker that is no
+--- leg's (the provenance join, fuzz.yml) promises nothing, and a
+--- variable the environment already sets is the caller's.
+function Orchestration.promise(env: {string:string})
+  local promised = (Capabilities.legs as {string:{string}})[env.COSMIC_WORKER or ""]
+  if promised == nil or env.COSMIC_TEST_PROMISES ~= nil then return end
+  env.COSMIC_TEST_PROMISES = table.concat(promised, ",")
+  env.COSMIC_TEST_LEG = env.COSMIC_WORKER
+end
+
 --- The environment every operation runs in: the driver's own, with
 --- FUZZ_ITERS=0, so a suite checks each fuzz property's corpus of kept
 --- failures but draws no inputs of its own. Drawing is fuzz.yml's, each
@@ -248,6 +262,7 @@ local function environment(extra?: {string:string}): {string:string}
     all.COSMIC_TEST_SANDBOX = "1"
     all.COSMIC_SANDBOX = "must"
   end
+  Orchestration.promise(all)
   return all
 end
 
