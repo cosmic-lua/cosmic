@@ -1493,7 +1493,8 @@ local function test_noexec_launcher_declares_its_grant_and_keeps_keyed_verdicts(
   local Orchestration = require("cosmic_ci.orchestration")
   assert(Orchestration.sandboxed_fixtures.launcher_noexec)
   local source = code_of("launcher_noexec")
-  assert(source:match("noexec%s*=%s*true") and source:match("system%s*=%s*true"))
+  assert(source:find('{ path = "/noexec", letters = "rwc" }', 1, true) and
+      source:find('profiles = { "system" }', 1, true))
   assert(source:find('Env.get("COSMIC_TEST_NOEXEC")', 1, true))
   assert(not source:find("COSMIC_PORTABLE_NOEXEC_ROOT", 1, true) and
       not source:find("/dev/shm", 1, true), "noexec fixture discovers host scratch")

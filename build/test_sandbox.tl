@@ -280,7 +280,7 @@ end
 local function program_name(root: string): string | nil, boolean
   local relaunch, _ = Proc.relaunch()
   if relaunch == nil or relaunch.argv[2] ~= "--artifact" then return nil, false end
-  local program, _ = Proc.executable()
+  local program = confine.executable()
   if program == nil then return nil, false end
   local real = confine.resolution(program)
   if real ~= "" and real == confine.resolution(root .. "/o/bin/cosmic") then
@@ -361,7 +361,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- it keeps the runner's, which it cannot open either.
   local program, own_program: string | nil, boolean = nil, false
   if effective.tool then program, own_program = program_name(root) end
-  local executable, _ = Proc.executable()
+  local executable = confine.executable()
   local base = confine.worker_unveil(root, nil, scratch, false, effective.tool and not own_program)
   local reads: {string} = {}
   local at: {string:string} = {}
@@ -452,10 +452,14 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   if (effective.nests or effective.lua) and not effective.tool then
     local launched, _ = Proc.relaunch()
     if launched ~= nil and launched.argv[2] == "--artifact" and launched.argv[3] ~= nil then
+      -- Given by a name a grant may name, which the worker is told it by
+      -- too (`program`) where that differs from the runner's.
+      local artifact = confine.grantable(launched.argv[3])
+      if artifact ~= launched.argv[3] then program = artifact end
       if effective.store then
-        give(launched.argv[3])
+        give(artifact)
       elseif closure_artifact ~= nil then
-        give(closure_artifact, launched.argv[3])
+        give(closure_artifact, artifact)
       end
     end
   end

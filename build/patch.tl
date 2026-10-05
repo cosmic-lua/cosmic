@@ -431,74 +431,6 @@ local function key_of(tree: Tree): string
   return Hash.hex_sha256(table.concat(lines))
 end
 
---- The gate is never unlinked: every creator and sweeper must lock the
---- same inode. It covers creation through ownership, so no sweep sees a
---- new wrapper before its owner is locked. Expensive work runs outside it.
---- Kept here because this standalone script can load only the pinned
---- release's cosmic.* modules, not another module from the checkout.
-local record Descriptor
-  fd: integer
-  metamethod __close: function(Descriptor)
-end
-local descriptor_mt: metatable<Descriptor> = {
-  __close = function(self: Descriptor) local _, _ = sys.close(self.fd) end,
-}
-
-local record Scratch
-  path: string
-  owner: integer
-  metamethod __close: function(Scratch)
-end
-local scratch_mt: metatable<Scratch> = {
-  __close = function(self: Scratch)
-    local _, _ = Fs.remove_tree(self.path)
-    local _, _ = sys.close(self.owner)
-  end,
-}
-
--- build/zig_fetch.tl holds an identical copy, and the TODO to take both
--- from Fs.scratch once ci/cosmic-driver.pin names a release whose
--- cosmic.fs carries it.
-local function scratch(cache: string): Scratch | nil, string
-  local fd, trouble = sys.open(cache .. "/.scratch-gate", sys.O_RDWR | sys.O_CREAT | sys.O_NOFOLLOW, 0x180)
-  if fd == nil then return nil, trouble end
-  local opened: Descriptor = { fd = fd }
-  local gate <close> = setmetatable(opened, descriptor_mt)
-  local locked, lock_trouble = sys.flock(gate.fd, "exclusive", -1)
-  if not locked then return nil, lock_trouble end
-  local names, list_trouble = Fs.list(cache)
-  if names == nil then return nil, list_trouble end
-  for _, name in ipairs(names) do
-    -- PID-only names belong to old tools and say nothing about ownership
-    -- across namespaces. Missing owner files are also left alone.
-    if name:match("^%.scratch%.[%w]+$") then
-      local path = cache .. "/" .. name
-      local owner, _ = sys.open(path .. "/owner", sys.O_RDWR | sys.O_NOFOLLOW)
-      if owner ~= nil then
-        local descriptor: Descriptor = { fd = owner }
-        local probe <close> = setmetatable(descriptor, descriptor_mt)
-        local dead, _ = sys.flock(probe.fd, "exclusive", 0)
-        if dead then local _, _ = Fs.remove_tree(path) end
-      end
-    end
-  end
-  local path, create_trouble = sys.mkdtemp(cache .. "/.scratch.XXXXXX")
-  if path == nil then return nil, create_trouble end
-  local owner, owner_trouble = sys.open(path .. "/owner", sys.O_RDWR | sys.O_CREAT | sys.O_EXCL, 0x180)
-  if owner == nil then
-    local _, _ = Fs.remove_tree(path)
-    return nil, owner_trouble
-  end
-  local owned: Scratch = { path = path, owner = owner }
-  local holding = setmetatable(owned, scratch_mt)
-  local held, hold_trouble = sys.flock(owner, "exclusive", 0)
-  if not held then
-    local _cleanup <close> = holding
-    return nil, hold_trouble
-  end
-  return holding, ""
-end
-
 --- The directory under `cache` holding `name`'s patched tree, written
 --- there first when it is not yet. Every file and directory of the tree
 --- is fsynced before it takes its name. On Darwin, a full device-cache
@@ -530,7 +462,7 @@ function Patch.prepare(root: string, name: string, cache: string): string | nil,
   if not made then
     return nil, made_trouble
   end
-  local owned, own_trouble = scratch(cache)
+  local owned, own_trouble = Fs.scratch(cache)
   if owned == nil then return nil, own_trouble end
   local holding <close> = owned
   local payload = holding.path .. "/payload"
@@ -576,7 +508,7 @@ function Patch.zig_lib(root: string, lib: string, out: string): boolean, string
     return false, list_trouble
   end
   local cache = Fs.dirname(out)
-  local owned, own_trouble = scratch(cache)
+  local owned, own_trouble = Fs.scratch(cache)
   if owned == nil then return false, own_trouble end
   local holding <close> = owned
   local payload = holding.path .. "/payload"

@@ -660,17 +660,6 @@ function Zig.race_report(paths: {string}): string
   return "sources changed during the build: " .. list .. "; run it again"
 end
 
--- TODO: once ci/cosmic-driver.pin names a release whose cosmic.child carries
--- Child.shell_status, take this from it and drop Zig.child_status.
---- The status a shell reports for a child: its exit code, or 128 plus
---- the signal that ended it.
-function Zig.child_status(result: Child.Result): integer
-  if result.signal ~= nil then
-    return 128 + result.signal
-  end
-  return result.code or 1
-end
-
 local MS <const> = Clock.ms(1)
 local POLL_NS <const> = Clock.ms(20)
 local PASS_ON_NS <const> = Clock.ms(250)
@@ -781,7 +770,7 @@ function Zig.run(argv: {string}, env?: {string:string}): integer
   if caught ~= nil and signal ~= nil and signal ~= 0 then
     local _, _ = sys.kill(Proc.pid(), signal)
   end
-  return Zig.child_status(result)
+  return Child.shell_status(result)
 end
 
 --- `build` between two snapshots of `root`: zig's own status, unless

@@ -343,6 +343,28 @@ function confine.declaring(declared: confine.Confinement, fn: function())
   if not ok then error(trouble, 0) end
 end
 
+--- `path` as a grant can name it: as given where it has no `.` or `..`
+--- segment, else where it resolves, since a grant may not contain "..".
+--- A program started by a relative name from beside its tree
+--- (`../o/bin/cosmic`, run in ci/) has its launcher's `$PWD/$0` and the
+--- artifact path of its relaunch named so.
+function confine.grantable(path: string): string
+  if not (path:find("/%.%./", 1) or path:find("/%.%.$") or path:find("/%./", 1) or
+      path:find("/%.$")) then
+    return path
+  end
+  local real, _ = asked.realpath(path)
+  -- Where it does not resolve, the dotted name stays, and is refused as before.
+  return real or path
+end
+
+--- Where this program is, as a sandbox can name it ([`confine.grantable`]).
+function confine.executable(): string | nil
+  local executable, _ = Proc.executable()
+  if executable == nil then return nil end
+  return confine.grantable(executable)
+end
+
 --- What a confined process of this very program needs to start, for a
 --- test's `confine`: the program, and the core its launcher runs it on
 --- where it is a portable artifact, with the stamp beside it in the
@@ -351,7 +373,7 @@ end
 --- (core/startup.c's `stamp_path`).
 function confine.itself(): {string}
   local program: {string} = {}
-  local executable, _ = Proc.executable()
+  local executable = confine.executable()
   if executable ~= nil then program[#program + 1] = executable end
   local launched, _ = Proc.relaunch()
   if launched ~= nil then
@@ -443,7 +465,7 @@ function confine.worker_unveil(tree: string, cwd: string | nil, scratch: string,
   -- opening /proc/self/exe again (core/executable.c's
   -- `cosmic_executable_fd`). Today such a worker, as in
   -- build/sandboxed_verdicts_test.tl's tool project, reads the program.
-  local program, _ = Proc.executable()
+  local program = confine.executable()
   local withheld = ""
   if not with_program and program ~= nil then
     local launched, _ = Proc.relaunch()
