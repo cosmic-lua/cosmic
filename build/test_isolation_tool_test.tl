@@ -20,11 +20,11 @@ local Test = require("cosmic.test")
 --- tests start, and roots of their own for its sandboxed workers
 --- (`nests`); and the variables `unsandboxed` reads, which hold a run
 --- to sandboxing.
-Test.needs{
-  host = { "/proc" },
+Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "/proc", letters = "r" } },
+  promises = { "nest" },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
-  tool = true,
-  nests = true,
 }
 
 --- The environment a run of `cosmic test` these tests start is given:

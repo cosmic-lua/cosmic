@@ -9,7 +9,7 @@ local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 
 --- The program itself, which its tests start.
-Test.needs{ tool = true }
+Test.policy{ profiles = { "cosmic" } }
 
 local function invoke(root: string, output: string, selector: string): Child.Result
   local fd = assert(Fs.open_write(output))

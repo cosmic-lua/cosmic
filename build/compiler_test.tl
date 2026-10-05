@@ -10,7 +10,7 @@ local Test = require("cosmic.test")
 local teal = require("build.teal")
 
 --- The compiler's own source, as the boot vendored it.
-Test.needs{ reads = { "o/vendor/tl/tl.tl" } }
+Test.policy{ grants = { { path = "o/vendor/tl/tl.tl", letters = "r" } } }
 
 --- The patched source a boot compiled, or nil in a tree no boot has
 --- built: the portable suite tests a fresh `git archive` of the tree,

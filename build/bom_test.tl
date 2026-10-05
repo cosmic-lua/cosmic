@@ -8,7 +8,14 @@ local schema = require("build.schema")
 
 --- What the bill of materials describes: every vendored tree, the patches
 --- to it and the pins it came by.
-Test.needs{ reads = { "bin/zig.pin", "build/bom/", "patch/", "vendor/" } }
+Test.policy{
+  grants = {
+    { path = "bin/zig.pin", letters = "r" },
+    { path = "build/bom/", letters = "r" },
+    { path = "patch/", letters = "r" },
+    { path = "vendor/", letters = "r" },
+  },
+}
 
 --- An empty database of the shipped shape.
 local function database(): Sqlite.Handle

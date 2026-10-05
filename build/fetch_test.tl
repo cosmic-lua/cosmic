@@ -14,7 +14,7 @@ local Shape = require("cosmic.shape")
 local Test = require("cosmic.test")
 local fetch = require("build.fetch")
 
-Test.needs{ network = { "127.0.0.1" } }
+Test.policy{ loopback = { "127.0.0.1" } }
 
 local url = "http://cosmic.test/data"
 

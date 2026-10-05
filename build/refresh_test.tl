@@ -10,7 +10,12 @@ local Vendor = require("build.vendor")
 local refresh = require("build.refresh")
 
 --- The vendored bundle, and the tzdata PIN whose rules a refresh keeps.
-Test.needs{ reads = { "vendor/cacert/", "vendor/tzdata/PIN" } }
+Test.policy{
+  grants = {
+    { path = "vendor/cacert/", letters = "r" },
+    { path = "vendor/tzdata/PIN", letters = "r" },
+  },
+}
 
 local bundle <const> = "vendor/cacert/cacert.pem"
 

@@ -5,10 +5,10 @@ local Test = require("cosmic.test")
 --- each sandbox, which, as a confined test that starts one would, needs
 --- the system's paths (`system`). The parts it tries unveil a root of
 --- the shell's own (`nests`).
-Test.needs{
-  host = { "/proc" },
-  nests = true,
-  system = true,
+Test.policy{
+  profiles = { "system" },
+  grants = { { path = "/proc", letters = "r" } },
+  promises = { "nest" },
 }
 
 --- Every part is tried, and each either held or says why not.

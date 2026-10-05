@@ -20,7 +20,13 @@ local Zig = require("build.zig")
 --- its tests start. bin/zig is started with an environment of the
 --- test's own, and the stand-in reads none of the one it inherits.
 --- build/zig_fetch.tl is the script a cache miss starts.
-Test.needs{ reads = { "build/patch.tl", "build/zig_fetch.tl" }, tool = true }
+Test.policy{
+  profiles = { "cosmic" },
+  grants = {
+    { path = "build/patch.tl", letters = "r" },
+    { path = "build/zig_fetch.tl", letters = "r" },
+  },
+}
 
 --- [`bin/zig`] exits as a shell would when the zig it is given cannot
 --- run: 127 when there is none on PATH, 126 when there is one that is

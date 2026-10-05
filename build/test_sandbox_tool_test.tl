@@ -24,11 +24,11 @@ local Test = require("cosmic.test")
 --- What a worker's plan gives it of the host, the program it runs,
 --- roots of their own for the sandboxed workers it starts (`nests`), and
 --- the variables `unsandboxed` reads, which hold a run to sandboxing.
-Test.needs{
-  host = { "/dev/urandom", "/proc" },
+Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "/dev/urandom", letters = "r" }, { path = "/proc", letters = "r" } },
+  promises = { "nest" },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
-  tool = true,
-  nests = true,
 }
 
 --- Makes `root`, a tree for a suite, with a stand-in program

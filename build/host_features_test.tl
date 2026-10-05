@@ -11,9 +11,12 @@ local Clock = require("cosmic.clock")
 
 --- The script, run by the system's `sh`; and where both read a macOS
 --- host's system version, which no other host has.
-Test.needs{
-  reads = { ".github/scripts/host-features.sh" }, system = true,
-  host = { "/System/Library/CoreServices/SystemVersion.plist" },
+Test.policy{
+  profiles = { "system" },
+  grants = {
+    { path = ".github/scripts/host-features.sh", letters = "r" },
+    { path = "/System/Library/CoreServices/SystemVersion.plist", letters = "r" },
+  },
 }
 
 local SCRIPT <const> = ".github/scripts/host-features.sh"

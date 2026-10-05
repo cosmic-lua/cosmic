@@ -7,7 +7,7 @@ local spill = require("build.fix.spill")
 local teal = require("build.teal")
 
 --- Where the checker looks for modules, which a test runs it without.
-Test.needs{ env = { "TL_PATH" } }
+Test.policy{ env = { "TL_PATH" } }
 
 --- Only the call the checker names is wrapped, whatever its arguments,
 --- and nothing else on the line moves.
