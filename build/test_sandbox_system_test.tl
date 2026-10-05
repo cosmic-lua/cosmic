@@ -27,12 +27,11 @@ local Test = require("cosmic.test")
 --- and a case starts it; and the variables that hold a run to sandboxing, which a case
 --- whose run sandboxed none of its workers reads to skip
 --- (Test.skip).
-Test.needs{
-  host = { "/dev/urandom", "/proc" },
+Test.policy{
+  profiles = { "system", "cosmic" },
+  grants = { { path = "/dev/urandom", letters = "r" }, { path = "/proc", letters = "r" } },
+  promises = { "nest" },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
-  tool = true,
-  nests = true,
-  system = true,
 }
 
 --- Whether `list` holds `value`.

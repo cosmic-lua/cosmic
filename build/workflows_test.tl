@@ -15,9 +15,14 @@ local flow = require("build.flow")
 local String = require("cosmic.string")
 
 --- The workflows and actions, and the programs and pins they name.
-Test.needs{
-  reads = { ".github/", "bin/cosmic-bootstrap", "ci/cosmic-driver.pin", "ci/cosmic_ci",
-    "ci/images" },
+Test.policy{
+  grants = {
+    { path = ".github/", letters = "r" },
+    { path = "bin/cosmic-bootstrap", letters = "r" },
+    { path = "ci/cosmic-driver.pin", letters = "r" },
+    { path = "ci/cosmic_ci", letters = "r" },
+    { path = "ci/images", letters = "r" },
+  },
 }
 
 local DIR <const> = ".github/workflows"

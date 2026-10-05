@@ -14,7 +14,7 @@ local artifact = require("build.artifact")
 
 --- The loopback is for the stand-in's `connect-tcp`, whose connection to a
 --- port nothing listens on is refused.
-Test.needs{ network = { "127.0.0.1" } }
+Test.policy{ loopback = { "127.0.0.1" } }
 
 --- A stand-in built under `tmp`.
 local function built(tmp: string): string

@@ -13,7 +13,10 @@ local this_program = require("build.this_program")
 
 --- The program itself, which its tests start, and a local port: closed,
 --- or one a test serves.
-Test.needs{ tool = true, network = { "127.0.0.1" } }
+Test.policy{
+  profiles = { "cosmic" },
+  loopback = { "127.0.0.1" },
+}
 
 local function cosmic(dir: string, words: {string}): integer, string, string
   local started = this_program.program(words, {

@@ -20,10 +20,10 @@ local type raw_process = require("cosmic.internal.process")
 --- a test starts finds itself; `nests`, since the processes it confines
 --- have roots of their own; and `tool`, since a process confined is
 --- given the program (the TODO above build.confine's `forbid_running`).
-Test.needs{
-  host = { "/proc" },
-  tool = true,
-  nests = true,
+Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "/proc", letters = "r" } },
+  promises = { "nest" },
 }
 
 --- A stand-in program built under `tmp` (build/stand_in.tl), which runs

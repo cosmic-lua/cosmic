@@ -27,9 +27,9 @@ local Clock = require("cosmic.clock")
 --- What a run of `cosmic test` needs of the host, and the program it
 --- runs; and `nests`, which lets the one case that starts a sandboxed run
 --- start it.
-Test.needs{
-  tool = true,
-  nests = true,
+Test.policy{
+  profiles = { "cosmic" },
+  promises = { "nest" },
 }
 
 --- The summary of an unenforced run that shares through the file

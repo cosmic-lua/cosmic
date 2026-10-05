@@ -22,9 +22,22 @@ local String = require("cosmic.string")
 --- Every tree build.zig compiles C from: the core's own, the vendored
 --- libraries' and the patches it applies to them, and build.zig itself,
 --- which names them and passes the compiler's definitions.
-Test.needs{ reads = { "build.zig", "core/", "patch/", "vendor/bzip2/", "vendor/cares/",
-  "vendor/curl/", "vendor/lua/", "vendor/mbedtls/", "vendor/miniz/", "vendor/sqlite/",
-  "vendor/xz/", "vendor/yyjson/" } }
+Test.policy{
+  grants = {
+    { path = "build.zig", letters = "r" },
+    { path = "core/", letters = "r" },
+    { path = "patch/", letters = "r" },
+    { path = "vendor/bzip2/", letters = "r" },
+    { path = "vendor/cares/", letters = "r" },
+    { path = "vendor/curl/", letters = "r" },
+    { path = "vendor/lua/", letters = "r" },
+    { path = "vendor/mbedtls/", letters = "r" },
+    { path = "vendor/miniz/", letters = "r" },
+    { path = "vendor/sqlite/", letters = "r" },
+    { path = "vendor/xz/", letters = "r" },
+    { path = "vendor/yyjson/", letters = "r" },
+  },
+}
 
 --- The vendored libraries build.zig compiles C from, each walked whole.
 local LIBRARIES <const> = { "bzip2", "cares", "curl", "lua", "mbedtls", "miniz", "sqlite",

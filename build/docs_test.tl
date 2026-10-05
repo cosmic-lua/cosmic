@@ -10,7 +10,7 @@ local symbols = require("build.symbols")
 --- Whether the tree is cosmic's own. No test here reads the binary's
 --- own databases, or the tree's o/cosmic.db, whole: [`docs.databases`]
 --- is handed databases of the test's own in the store's place.
-Test.needs{ reads = { "core" } }
+Test.policy{ grants = { { path = "core", letters = "r" } } }
 
 --- Lines as one source file's text.
 local function source(...: string): string

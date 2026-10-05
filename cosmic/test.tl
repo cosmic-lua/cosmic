@@ -562,7 +562,8 @@ end
 -- TODO: let a policy say what `lua`, `standalone` and a `$NAME` host path
 -- say, and env "*", once the policy path (step b of the sandbox plan)
 -- gives each a field of cosmic.sandbox's [`Policy`]: a module that
--- declares one stays on `needs`.
+-- declares one stays on `needs` until then, and converts mechanically
+-- once it does.
 -- TODO: hand the promises to the runner, which keeps them in the key, once
 -- [`Test.policy`] replaces `needs` (step e of the sandbox plan): the filter
 -- runs on every worker, but until then a promise a test does not make

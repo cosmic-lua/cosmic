@@ -16,7 +16,13 @@ local Time = require("cosmic.time")
 
 --- The script, and the system's `sh`, jq and tools, which run it; and
 --- ci.yml, whose keys `stage` is run with and whose `seed` job reads.
-Test.needs{ reads = { ".github/scripts/queue-seed.sh", ".github/workflows/ci.yml" }, system = true }
+Test.policy{
+  profiles = { "system" },
+  grants = {
+    { path = ".github/scripts/queue-seed.sh", letters = "r" },
+    { path = ".github/workflows/ci.yml", letters = "r" },
+  },
+}
 
 -- By its whole path: a process the test starts elsewhere finds it.
 local SCRIPT <const> = assert(Fs.absolute(".github/scripts/queue-seed.sh"))

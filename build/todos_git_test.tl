@@ -16,7 +16,7 @@ local work = require("build.work")
 -- name, which the sandbox resolves, with what its loader reads): on a
 -- host with git elsewhere (/nix/store, /opt), the tests that build a
 -- repository pass over it.
-Test.needs{ system = true }
+Test.policy{ profiles = { "system" } }
 
 --- Lines joined into one file's text, so no line of this file opens
 --- with a comment marker and is listed itself.

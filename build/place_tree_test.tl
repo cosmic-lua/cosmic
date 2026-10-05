@@ -12,7 +12,10 @@ local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
 --- The script under test, and the system's `sh` and tools, which run it.
-Test.needs{ reads = { ".github/scripts/place-tree.sh" }, system = true }
+Test.policy{
+  profiles = { "system" },
+  grants = { { path = ".github/scripts/place-tree.sh", letters = "r" } },
+}
 
 -- By its whole path: a process the test starts elsewhere finds it.
 local SCRIPT <const> = assert(Fs.absolute(".github/scripts/place-tree.sh"))

@@ -11,7 +11,7 @@ local work = require("build.work")
 local writer = require("build.writer")
 
 --- The docs fixture and the projects here build with the tree's own code.
-Test.needs{ reads = { "core" } }
+Test.policy{ grants = { { path = "core", letters = "r" } } }
 
 local built = assert(teal.load())
 

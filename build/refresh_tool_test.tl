@@ -20,7 +20,10 @@ local Time = require("cosmic.time")
 --- The zone a release is made of, and the tool it refreshes, run as a
 --- host program of this program's core: the kernel runs it, with no
 --- launcher of the system's `sh` to run.
-Test.needs{ reads = { "vendor/tzdata/zoneinfo/Etc/GMT" }, tool = true }
+Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "vendor/tzdata/zoneinfo/Etc/GMT", letters = "r" } },
+}
 
 local zones <const> = "vendor/tzdata/zoneinfo"
 

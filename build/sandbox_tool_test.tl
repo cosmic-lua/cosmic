@@ -19,7 +19,7 @@ local searchable = require("build.searchable")
 local this_program = require("build.this_program")
 
 --- The program itself, and the host programs it starts under a policy.
-Test.needs{ tool = true, system = true }
+Test.policy{ profiles = { "system", "cosmic" } }
 
 local record Ran
   code: integer

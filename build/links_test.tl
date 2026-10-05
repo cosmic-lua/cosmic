@@ -10,7 +10,7 @@ local teal = require("build.teal")
 local String = require("cosmic.string")
 
 --- The docs fixture builds its database with the tree's own code.
-Test.needs{ reads = { "core" } }
+Test.policy{ grants = { { path = "core", letters = "r" } } }
 
 local built = assert(teal.load())
 

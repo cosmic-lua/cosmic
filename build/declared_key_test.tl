@@ -22,10 +22,18 @@ local Clock = require("cosmic.clock")
 --- whichever system this is, what the host says of itself, and a file a
 --- link leads out of the tree to. The package databases are a copy of
 --- build/declared_key.tl's `package_databases`.
-Test.needs{
-  host = { "/etc/os-release", "/etc/passwd", "/lib/apk/db/installed", "/proc",
-    "/usr/lib/os-release", "/usr/lib/sysimage/rpm/rpmdb.sqlite", "/var/lib/dpkg/status",
-    "/var/lib/rpm/Packages", "/var/lib/rpm/rpmdb.sqlite" },
+Test.policy{
+  grants = {
+    { path = "/etc/os-release", letters = "r" },
+    { path = "/etc/passwd", letters = "r" },
+    { path = "/lib/apk/db/installed", letters = "r" },
+    { path = "/proc", letters = "r" },
+    { path = "/usr/lib/os-release", letters = "r" },
+    { path = "/usr/lib/sysimage/rpm/rpmdb.sqlite", letters = "r" },
+    { path = "/var/lib/dpkg/status", letters = "r" },
+    { path = "/var/lib/rpm/Packages", letters = "r" },
+    { path = "/var/lib/rpm/rpmdb.sqlite", letters = "r" },
+  },
   env = { "COSMIC_HOST_ID", "COSMIC_SYSTEM_ID" },
 }
 

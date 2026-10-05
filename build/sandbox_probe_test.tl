@@ -4,7 +4,7 @@ local Test = require("cosmic.test")
 
 --- Nothing beyond the closure: the probe's own run, whose shell needs
 --- the system's paths, is build/sandbox_probe_run_test.tl's.
-Test.needs{}
+Test.policy{}
 
 --- A report of a host where every part held but the unveiling.
 local function without_unveil(): SandboxProbe.Report

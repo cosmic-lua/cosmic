@@ -13,7 +13,10 @@ local Hash = require("cosmic.hash")
 local Test = require("cosmic.test")
 
 --- The script, and the system's `sh` and tools, which run it.
-Test.needs{ reads = { ".github/scripts/leg-host-id.sh" }, system = true }
+Test.policy{
+  profiles = { "system" },
+  grants = { { path = ".github/scripts/leg-host-id.sh", letters = "r" } },
+}
 
 -- By its whole path: a process the test starts elsewhere finds it.
 local SCRIPT <const> = assert(Fs.absolute(".github/scripts/leg-host-id.sh"))
