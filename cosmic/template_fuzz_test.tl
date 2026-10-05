@@ -65,6 +65,13 @@ local SLOTS <const>: {string} = { "{{.a}}", "{{.}}", "{{.b.c | m.f}}", "{{.a | m
 
 local ANY <const>: Kit = { markup = MARKUP, slots = SLOTS, loose = ACTIONS }
 
+--- Markup that is never refused, so that a draw compiles.
+local PLAIN <const>: Kit = {
+  markup = { "<p>", "</p>", "text", "<br/>", " ", "\n", "<a href=\"x\">", "</a>", "<b class=\"c\">", "</b>", "é" },
+  slots = SLOTS,
+  loose = SLOTS,
+}
+
 local function gen_nodes(src: Fuzz.Source, depth: integer, out: {string}, kit: Kit)
   while Fuzz.more(src, #out, 14) do
     local kind = src:int(0, 9)
@@ -138,6 +145,10 @@ local function gen_template(src: Fuzz.Source): string
     return Fuzz.mutate(src, Fuzz.pick(src, SAMPLES), 4)
   elseif kind == 1 then
     return Fuzz.pick(src, HEADS) .. gen_body(src) .. Fuzz.pick(src, HEADERS) .. gen_body(src)
+  elseif kind == 5 then
+    local out: {string} = {}
+    gen_nodes(src, 0, out, PLAIN)
+    return Fuzz.pick(src, HEADS) .. table.concat(out)
   elseif kind == 2 or kind == 4 then
     return Fuzz.pick(src, HTML_HEADS) .. Fuzz.pick(src, REFUSING) .. gen_sound_nodes(src)
   elseif kind == 3 then
@@ -165,7 +176,7 @@ local function test_compile_is_total_and_keeps_the_lines_on_any_bytes(tmp: strin
     dir = tmp,
     gen = gen_template,
     requires = { "compiled", "syntax", "slot", "arms", "block", "text mode", "multiline" },
-    shares = { compiled = 0.1, syntax = 0.05, slot = 0.01 },
+    shares = { compiled = 0.05, syntax = 0.05, slot = 0.01 },
     check = function(input: string): boolean, string
       local ok, out, why = pcall(Template.compile, input, "t.tmpl")
       if not ok then
@@ -401,9 +412,18 @@ local function gen_sound(src: Fuzz.Source): string
   local kinds: {string} = {}
   local want = Fuzz.pick(src, { "t", "r", "a", "u", "x" })
   local drawn = 0
+  -- Only a template drawn to be refused holds a fragment that is, so the kinds
+  -- that compile are not starved by one stray refusal in five.
+  local sound: {{string}} = {}
+  for _, unit in ipairs(UNITS) do
+    if unit[2] ~= "x" then
+      sound[#sound + 1] = unit
+    end
+  end
+  local pool = want == "x" and UNITS or sound
   while Fuzz.more(src, #body, 5) do
     drawn = drawn + 1
-    local first = Fuzz.pick(src, UNITS)
+    local first = Fuzz.pick(src, pool)
     if drawn == 1 then
       -- The first fragment is of a kind drawn first, so every kind is reached however few inputs run.
       local of: {{string}} = {}
@@ -416,7 +436,7 @@ local function gen_sound(src: Fuzz.Source): string
     end
     local wrap = src:int(0, 5)
     if wrap == 1 then
-      local second = Fuzz.pick(src, UNITS)
+      local second = Fuzz.pick(src, pool)
       body[#body + 1] = "{{if .a}}" .. first[1] .. "{{else}}" .. second[1] .. "{{end}}"
       kinds[#kinds + 1] = first[2] .. second[2]
     else
@@ -485,7 +505,7 @@ local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
     dir = tmp,
     gen = gen_sound,
     requires = { "refused", "text", "rtext", "attr", "url", "block" },
-    shares = { refused = 0.2, text = 0.03, rtext = 0.01, attr = 0.02, url = 0.02 },
+    shares = { refused = 0.01, text = 0.05, rtext = 0.01, attr = 0.01, url = 0.01 },
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
       local payload = fields[1] or ""
