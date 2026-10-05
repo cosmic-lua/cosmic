@@ -540,28 +540,34 @@ local record Cli
   --- instead, which finds its own modules and needs a grant to write there.
   ---
   --- `--database`, `--modules` and `--closure` run this program on a
-  --- database that holds the modules it may load, and no more: a
-  --- `require` of any other fails, and none of this program's own file is
-  --- read or granted: `--cosmic` adds nothing beside `--database` or
-  --- `--modules` and is refused beside `--closure`, and `--system` fails
-  --- the start where this program is installed under a directory it
-  --- grants. The program is this program (`cosmic`), or nothing, which
-  --- is the same; what follows it is the main's arguments. `--database PATH` runs a file [`Store.seal`]
-  --- wrote, its main what runs. `--modules a,b,...` seals those modules
-  --- alone from this program's own store, the first as the main (a module
-  --- returning a function that gets the arguments and returns the
-  --- status), and runs on that. `--closure` runs a script, given as the
-  --- program's first argument: it is compiled here, as a file run is, and
-  --- sealed as the main with the closure of the `cosmic.*` modules it
-  --- requires by a literal name (not by a computed one, which fails when
-  --- it runs):
+  --- database that holds the modules it may load and no more: a `require`
+  --- of any other fails, and none of this program's own file is read or
+  --- granted. `--cosmic` adds nothing beside `--database` or `--modules`
+  --- and is refused beside `--closure`; `--system` fails the start where
+  --- this program is installed under a directory it grants. The program is
+  --- this program (`cosmic`), or nothing, which is the same; what follows
+  --- it is the main's arguments.
+  ---
+  --- `--database PATH` runs a file [`Store.seal`] wrote, its main what runs.
+  --- `--modules a,b,...` seals exactly the names given, from this
+  --- program's own store, and follows no requires: the first is the main
+  --- (a module returning a function that gets the arguments and returns
+  --- the status) and the rest are what it may load. `--closure` runs a
+  --- script, given as the program's first argument: it is compiled here,
+  --- as a file run is, and sealed as the main with the `cosmic.*` modules
+  --- it requires by a literal name, and theirs in turn:
   ---
   ---     cosmic sandbox --closure -- cosmic run.tl IN OUT
   ---
-  --- A sealed database lands in the `sandbox` directory of cosmic's cache
-  --- ($XDG_CACHE_HOME/cosmic, `~/.cache/cosmic`) named by its digest, and
-  --- the same one is reused.
-  --- The three are exclusive, since each names the database.
+  --- A `pcall(require, ...)` or a computed name is not followed, and fails
+  --- when it runs; a `require` of a module outside this program's store
+  --- (a project module beside the script) is refused before anything
+  --- starts. The database is written in a directory of the run's own, that
+  --- the program's user can search, and removed when the run ends. The
+  --- three options are exclusive, since each names the database. A
+  --- command line these refuse, a module no store holds or a `--database`
+  --- that is not there exits 2; a script that cannot be read or compiled
+  --- exits 125, as a seal that cannot be written does.
   ---
   --- `--read`, `--run` and `--write` grant a path as `r`, `rx` and `rwc`;
   --- `--path` names the letters itself, of `rwxcu` in that order (`rwxc:.`),

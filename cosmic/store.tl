@@ -482,7 +482,9 @@ end
 ---
 --- `opts.extra` adds one module the store does not hold, a script compiled
 --- this run, as the main (kind `main`, after the others): `names` may then
---- be empty, and nothing else of the row is the store's.
+--- be empty, and nothing else of the row is the store's. Its name is none
+--- of the sealed names, nor a module any searched database holds, nor under
+--- `cosmic.`: it raises rather than shadow one.
 ---
 --- The modules of a sealed database are the program's own, and run with
 --- the trust any program the user can read runs with, raw bindings
@@ -521,6 +523,13 @@ function Store.seal(names: {string}, path?: string,
     end
     if present[script.name] then
       error("store: seal: extra " .. script.name .. " is also one of the names sealed", 2)
+    end
+    -- A name a program's own `require` would find in the store (or in the
+    -- core's namespace) is not one to take over.
+    local holder, _ = locate(script.name)
+    if script.name:sub(1, 7) == "cosmic." or holder ~= nil then
+      error("store: seal: extra " .. script.name .. " is a module the store holds or the " ..
+          "core's namespace, which a main must not shadow", 2)
     end
     main = script.name
   elseif main ~= nil and not present[main] then
@@ -571,9 +580,11 @@ function Store.seal(names: {string}, path?: string,
     local target = path
     if target == nil then
       -- TODO: prune this directory: nothing removes a sealed database
-      -- once its run is over, so it grows with every distinct program.
-      -- The test runner (build.test) should own it, deleting what no
-      -- recorded run names, once it seals through this.
+      -- once its run is over, so it grows with every distinct program
+      -- sealed with no path (`cosmic sandbox` seals into a directory of
+      -- its own, removed after the run). The test runner (build.test)
+      -- should own it, deleting what no recorded run names, once it seals
+      -- through this.
       local dir, dir_trouble = Fs.cache_dir("sandbox")
       if dir == nil then
         return nil, dir_trouble

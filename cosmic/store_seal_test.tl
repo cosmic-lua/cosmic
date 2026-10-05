@@ -256,6 +256,13 @@ local function test_seal_carries_an_extra_module_as_the_main(tmp: string)
   raises(function(): any
     return (Store.seal({ "fixture.leaf" }, tmp .. "/y.db", { extra = extra, main = "fixture.leaf" }))
   end, "both given")
+  -- It may not shadow a module the store holds, or any of `cosmic.`.
+  for _, name in ipairs({ "fixture.app", "cosmic.fs", "cosmic.nothing" }) do
+    raises(function(): any
+      return (Store.seal({ "fixture.leaf" }, tmp .. "/z.db", { extra = {
+        name = name, bytecode = extra.bytecode, source = "", requires = {} } }))
+    end, "must not shadow")
+  end
 end
 
 --- The tests that name a module are not carried, so adding one moves no

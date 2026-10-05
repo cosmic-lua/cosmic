@@ -231,10 +231,11 @@ with modules of its own beside it takes `--set-env COSMIC_STANDALONE=0
 program's own file: `cosmic sandbox --closure -- cosmic convert.tl in.csv
 out.json` compiles `convert.tl` here, seals it with the `cosmic.*` modules
 it requires by name, and runs it on that, so a `require` of anything else
-fails. `--database PATH` runs a file [`Store.seal`] wrote, and `--modules
-a,b` seals those modules (the first its main) from this program's store;
-the three are exclusive. A sealed database goes to cosmic's cache, named by
-its digest, and the same one is reused.
+fails; a module of your own beside the script is refused before the child
+starts, and a `pcall(require, ...)` or computed name is not followed.
+`--database PATH` runs a file [`Store.seal`] wrote, and `--modules a,b`
+seals exactly those modules (the first its main) from this program's store;
+the three are exclusive. The database a run seals is removed when it ends.
 
 ## below cosmic.fs
 

@@ -22,14 +22,16 @@
 --- database the program runs on ([`Sandbox.Policy`]'s `database`), the
 --- program being this program's core and the words after it the main's
 --- arguments. `--database` takes a file as it is. `--modules` and
---- `--closure` seal one first, through [`Store.seal`], into the sandbox
---- cache: the named modules (the first the main), or the closure of the
---- literal requires of a script, compiled here, in this unsealed process,
+--- `--closure` seal one first, through [`Store.seal`], into a directory
+--- of the run's own that the program's user can search, removed when it
+--- ends: the named modules (the first the main, and no requires followed),
+--- or the closure of the literal requires of a script, compiled here, in this unsealed process,
 --- by [`standalone.code`] (what a file run as `--standalone` is) and
---- sealed as the main. A seal that fails, a script that does not compile
---- or is not there, is a start that failed (125), and a command line
---- that names two of the three, or `--closure` with `--cosmic`, is refused
---- (2) before anything is read.
+--- sealed as the main. A command line that names two of the three, or
+--- `--closure` with `--cosmic`, a module no store holds (a script's
+--- require of one included) or a `--database` that is not there is refused (2); a script that cannot be read or does
+--- not compile, or a seal that cannot be written, is a start that failed
+--- (125).
 ---
 --- Like `cosmic json` it ends in no verdict line, and prints nothing of
 --- its own when the program starts: its exit status is the program's.
@@ -261,12 +263,16 @@ local function request_of(argv: {integer:string}): Request | nil, string
   if #listed > 1 then return nil, "--modules is given more than once" end
   if listed[1] ~= nil then
     local names: {string} = {}
+    local seen: {string:boolean} = {}
     for name in (listed[1] .. ","):gmatch("([^,]*),") do
       if name == "" then
         return nil, "--modules takes module names separated by commas, as cosmic.json,cosmic.fs, " ..
           "not " .. listed[1]
       end
-      names[#names + 1] = name
+      if not seen[name] then
+        seen[name] = true
+        names[#names + 1] = name
+      end
     end
     request.modules = names
   end
@@ -347,15 +353,20 @@ local function absolute(path: string, cwd: string | nil): string | nil, string
   return real, ""
 end
 
---- Where [`Store.seal`] with no path put the database of digest `digest`.
--- TODO: a root caller's program runs as a user of its own, which cannot
--- search the 0700 cache directory [`Fs.cache_dir`] makes, so a sealed run
--- fails to start there, naming the directory: seal into one that user
--- can search, once Fs.cache_dir takes a mode for a directory it makes.
-local function cached(digest: string): string | nil, string
-  local dir, why = Fs.cache_dir("sandbox")
+--- A directory of this run's own, which `held` keeps to be removed after the
+--- run, that the user the program runs as can search and read: a root
+--- caller's program runs as a user of its own, which the 0700 directory
+--- [`Fs.mkdtemp`] makes (and the cache's) is shut to. The directory's
+--- parents are the temporary directory's, which must be open to that user
+--- too; the start says which is not.
+local function scratch(held: {string}): string | nil, string
+  if held[1] ~= nil then return held[1], "" end
+  local dir, why = Fs.mkdtemp("sandbox-")
   if dir == nil then return nil, why end
-  return dir .. "/" .. digest .. ".db", ""
+  held[1] = dir
+  local opened, open_why = sys.chmod(dir, tonumber("755", 8))
+  if not opened then return nil, dir .. ": " .. tostring(open_why) end
+  return dir, ""
 end
 
 --- The module a sealed script is, named `main`: Lua that runs `code`, the
@@ -370,44 +381,79 @@ local function script_chunk(file: string, code: string): string
       "if type(main) ~= 'function' then return 0 end return main(args) end", file, code)
 end
 
---- Seals `names` (the main among them, or `opts.extra`) into the sandbox
---- cache, and answers the database's path there; nil and why where a name
---- is none the store holds or the cache cannot be written.
-local function sealed(names: {string}, opts: Store.SealOptions): string | nil, string
-  local ok, digest, why = pcall(Store.seal, names, nil, opts)
+--- Whether `name` is a module the core itself holds ([`cosmic.sys`]), which
+--- no database carries and every program has.
+local function preloaded(name: string): boolean
+  return package.preload[name] ~= nil
+end
+
+--- `names` without the core's own modules.
+local function stored(names: {string}): {string}
+  local out: {string} = {}
+  for _, name in ipairs(names) do
+    if not preloaded(name) then out[#out + 1] = name end
+  end
+  return out
+end
+
+--- What sealing a program came to: the database's path, or why there is
+--- none, and whether the command line is to blame.
+local record Sealing
+  path: string | nil
+  why: string
+  refused: boolean
+end
+
+--- Seals `names` (the main among them, or `opts.extra`) into a directory
+--- of this run's own ([`scratch`]), and answers the database's path there,
+--- or why not, and whether the command line is to blame (a name no store
+--- holds).
+local function sealed(names: {string}, opts: Store.SealOptions, held: {string}): Sealing
+  local dir, dir_why = scratch(held)
+  if dir == nil then return { why = dir_why, refused = false } end
+  local path = dir .. "/program.db"
+  local ok, digest, why = pcall(Store.seal, names, path, opts)
   if not ok then
     -- Store.seal raises, with its position, for a name no store holds.
-    return nil, ((tostring(digest):gsub("^.-:%d+: store: ", ""):gsub("^store: ", "")))
+    return { why = (tostring(digest):gsub("^.-:%d+: store: ", ""):gsub("^store: ", "")), refused = true }
   end
-  if digest == nil then return nil, why end
-  return cached(digest)
+  if digest == nil then return { why = why, refused = false } end
+  return { path = path, why = "", refused = false }
 end
 
 --- Seals the program of `file`, run as `--closure` asks: the closure of
---- the modules its source requires by a literal name, and the file
---- compiled as the standalone compiler does, as the main. The database's
---- path, or nil and why.
-local function seal_script(file: string, cwd: string | nil): string | nil, string
+--- the modules its source requires by a literal name (not a type-only
+--- require, which Teal erases), and the file compiled as the standalone
+--- compiler does, as the main. The database's path, or why not.
+local function seal_script(file: string, cwd: string | nil, held: {string}): Sealing
   local at = file
   if cwd ~= nil and file:sub(1, 1) ~= "/" then at = cwd .. "/" .. file end
   local source, read_trouble = Fs.read(at)
-  if source == nil then return nil, read_trouble end
+  if source == nil then return { why = read_trouble, refused = false } end
   local code, trouble = standalone.code(file, source)
-  if code == nil then return nil, trouble end
+  if code == nil then return { why = trouble, refused = false } end
   local built, load_trouble = teal.load()
-  if built == nil then return nil, load_trouble end
+  if built == nil then return { why = load_trouble, refused = false } end
   local parsed, parse_trouble = ast.parse(built, source, file)
-  if parsed == nil then return nil, parse_trouble end
-  local roots, roots_trouble = ast.all_requires(built, parsed)
-  if roots == nil then return nil, roots_trouble end
+  if parsed == nil then return { why = parse_trouble, refused = false } end
+  local found, roots_trouble = ast.all_requires(built, parsed)
+  if found == nil then return { why = roots_trouble, refused = false } end
+  -- What the generated Lua names is what the program loads.
+  local roots: {string} = {}
+  for _, name in ipairs(found) do
+    if not preloaded(name) and (code:find('"' .. name .. '"', 1, true) or
+        code:find("'" .. name .. "'", 1, true)) then
+      roots[#roots + 1] = name
+    end
+  end
   local ok, names = pcall(Store.closure, roots)
   if not ok then
-    return nil, file .. ": " .. (tostring(names):gsub("^.-:%d+: store: ", ""))
+    return { why = file .. ": " .. (tostring(names):gsub("^.-:%d+: store: ", "")), refused = true }
   end
   local chunk, chunk_trouble = load(script_chunk(file, code), "@" .. file, "t")
-  if chunk == nil then return nil, file .. ": " .. tostring(chunk_trouble) end
+  if chunk == nil then return { why = file .. ": " .. tostring(chunk_trouble), refused = false } end
   return sealed(names, { extra = {
-    name = "main", bytecode = string.dump(chunk), source = source, requires = roots } })
+    name = "main", bytecode = string.dump(chunk), source = source, requires = roots } }, held)
 end
 
 --- What Child adds to a name it could not find, which the verb, that
@@ -445,12 +491,9 @@ end
 
 local standard: verb.Io = { err = bare.err, run = Child.run }
 
---- Runs the command line `argv`, the verb at slot 1, and answers the
---- exit status ([`build/sandbox.tl`]'s head says what each means).
---- @param argv the command line
---- @param io where it complains and starts, or the process's own
---- @return the exit status
-function verb.run(argv: {integer:string}, io?: verb.Io): integer
+--- [`verb.run`], with the directories it makes for a sealed database put
+--- in `held`.
+local function execute(argv: {integer:string}, io: verb.Io | nil, held: {string}): integer
   local to = io or standard
   local complain = bare.complainer("sandbox", to.err)
   -- TODO: serve `cosmic sandbox connect HOST PORT`, the relay's client
@@ -467,23 +510,30 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     return bare.refused
   end
   local database: string | nil
-  local sealing_why: string
-  local line_refused = false
+  local sealing: Sealing | nil
   if request.database ~= nil then
-    line_refused = true
-    database, sealing_why = absolute(request.database, request.cwd)
+    local path, why = absolute(request.database, request.cwd)
+    sealing = { path = path, why = why, refused = true }
   elseif request.modules ~= nil then
     -- The first is the main, which the core runs; the rest are what it
     -- requires, as the program's whole set.
-    database, sealing_why = sealed(request.modules, { main = request.modules[1] })
+    if preloaded(request.modules[1]) then
+      sealing = { why = request.modules[1] .. " is the core's own, which has no main to run",
+        refused = true }
+    else
+      sealing = sealed(stored(request.modules), { main = request.modules[1] }, held)
+    end
   elseif request.closure then
-    database, sealing_why = seal_script(request.argv[2], request.cwd)
+    sealing = seal_script(request.argv[2], request.cwd, held)
     -- The script is the program's main, whose arguments are the rest.
-    if database ~= nil then table.remove(request.argv, 2) end
+    if sealing.path ~= nil then table.remove(request.argv, 2) end
   end
-  if database == nil and sealing_why ~= nil then
-    complain(line_refused and sealing_why .. "; see `cosmic help sandbox`" or sealing_why)
-    return line_refused and bare.refused or START_FAILED
+  if sealing ~= nil then
+    if sealing.path == nil then
+      complain(sealing.refused and sealing.why .. "; see `cosmic help sandbox`" or sealing.why)
+      return sealing.refused and bare.refused or START_FAILED
+    end
+    database = sealing.path
   end
   local policy, why = policy_of(request, database)
   if policy == nil then
@@ -509,6 +559,22 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     return TIMED_OUT
   end
   return Child.shell_status(result)
+end
+
+--- Runs the command line `argv`, the verb at slot 1, and answers the
+--- exit status ([`build/sandbox.tl`]'s head says what each means).
+--- @param argv the command line
+--- @param io where it complains and starts, or the process's own
+--- @return the exit status
+function verb.run(argv: {integer:string}, io?: verb.Io): integer
+  -- The directory a sealed database was written in, removed whatever the
+  -- run's end.
+  local held: {string} = {}
+  local status = execute(argv, io, held)
+  if held[1] ~= nil then
+    local _, _ = Fs.remove_tree(held[1])
+  end
+  return status
 end
 
 verb.spec = {

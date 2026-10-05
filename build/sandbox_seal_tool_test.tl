@@ -1,7 +1,7 @@
 --- `cosmic sandbox --database`, `--modules` and `--closure` run as this
 --- program: each runs the program on a sealed database, so what it may
 --- `require` is the sealed modules and nothing else of this program, and a
---- database lands in the sandbox cache named by its digest. The command
+--- database the run seals is removed with it. The command
 --- line's own reading is in `sandbox_test.tl`, and the rest of the verb's
 --- in `sandbox_tool_test.tl`. They start a sandboxed child, so a host that
 --- gives no sandbox skips them where it could have given one (Test.skip),
@@ -14,10 +14,10 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
+local sys = require("cosmic.sys")
 local confine = require("build.confine")
 local searchable = require("build.searchable")
 local this_program = require("build.this_program")
@@ -33,18 +33,14 @@ local record Ran
   err: string
 end
 
---- Runs `cosmic <words>` in `dir`, with a sandbox cache of its own at
---- `dir`/cache (made searchable, as the user a root caller's child runs as
---- must read the database in it). Skips the test, where the host refused
---- the sandbox the start asked for.
+--- Runs `cosmic <words>` in `dir`, which is made searchable, as the user a
+--- root caller's child runs as must reach the database sealed beneath
+--- TMPDIR. Skips the test, where the host refused the sandbox the start
+--- asked for.
 local function cosmic(dir: string, words: {string}): Ran
   searchable.open(dir)
-  assert(Fs.mkdirs(dir .. "/cache/cosmic/sandbox"))
-  searchable.open(dir .. "/cache/cosmic/sandbox")
-  local env = this_program.environment()
-  env.XDG_CACHE_HOME = dir .. "/cache"
   local started = this_program.program(words, {
-    cwd = dir, env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(120),
+    cwd = dir, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(120),
   })
   local result = assert(Child.run(started.argv, started.options))
   local ran: Ran = { code = result.code or -1, out = result.stdout or "", err = result.stderr or "" }
@@ -55,11 +51,13 @@ local function cosmic(dir: string, words: {string}): Ran
   return ran
 end
 
---- The databases in `dir`'s sandbox cache, by file name.
-local function sealed_in(dir: string): {string}
-  local names = assert(Fs.list(dir .. "/cache/cosmic/sandbox"))
-  table.sort(names)
-  return names
+--- What a run left of the directories it seals into, under TMPDIR.
+local function left_over(): {string}
+  local found: {string} = {}
+  for _, name in ipairs((assert(Fs.list((assert(sys.getenv("TMPDIR"))))))) do
+    if name:find("^sandbox%-") then found[#found + 1] = name end
+  end
+  return found
 end
 
 --- A script that requires one module of this program and reports what a
@@ -83,25 +81,40 @@ local function test_closure_runs_a_script_on_the_modules_it_requires(tmp: string
   local ran = cosmic(tmp, { "sandbox", "--closure", "--", program, "run.tl", "x", "y" })
   assert(ran.code == 3, ran.code .. ": " .. ran.out .. ran.err)
   assert(ran.out == 'json\t{"a":1}\nargs\trun.tl\tx\ty\noutside\tfalse\nmain\tx\n', ran.out)
-  -- The database is in the cache, named by its own digest, and the same
-  -- script seals the same file again.
-  local names = sealed_in(tmp)
-  assert(#names == 1 and names[1]:match("^%x+%.db$"), table.concat(names, " "))
-  local bytes = assert(Fs.read(tmp .. "/cache/cosmic/sandbox/" .. names[1]))
-  assert(names[1] == Hash.hex_sha256(bytes) .. ".db", "the name is the digest of the file")
+  -- No cache or directory was made for it beforehand, and none is left.
+  assert(#left_over() == 0, table.concat(left_over(), " "))
   local again = cosmic(tmp, { "sandbox", "--closure", "--", program, "run.tl" })
   assert(again.code == 3 and again.out:find("main\tnil", 1, true), again.out .. again.err)
-  assert(table.concat(sealed_in(tmp), " ") == names[1], "the same digest is the same file")
+end
+
+--- The core's own modules ([`cosmic.sys`]) are no database's, and a require
+--- only of a type is not carried.
+local function test_closure_takes_the_cores_modules_and_leaves_type_requires_out(tmp: string)
+  if not confine.sandbox_platform() then return end
+  assert(Fs.write(tmp .. "/sys.tl", [[
+local sys = require("cosmic.sys")
+local type Archive = require("cosmic.archive")
+local Fs = require("cosmic.fs")
+local _: Archive = nil
+print("sys", type(sys.getpid), type(Fs.read), (pcall(require, "cosmic." .. "archive")))
+]]))
+  searchable.share(tmp .. "/sys.tl")
+  local ran = cosmic(tmp, { "sandbox", "--closure", "--", (assert(Proc.executable())), "sys.tl" })
+  assert(ran.code == 0 and ran.out == "sys\tfunction\tfunction\tfalse\n", ran.code .. ran.out .. ran.err)
 end
 
 local function test_closure_refuses_a_script_that_does_not_compile_or_is_not_there(tmp: string)
   assert(Fs.write(tmp .. "/bad.tl", 'local x: integer = "no"\n'))
+  assert(Fs.write(tmp .. "/mine.tl", 'local Mine = require("mine_module")\nprint(Mine)\n'))
   local program = (assert(Proc.executable()))
   local bad = cosmic(tmp, { "sandbox", "--closure", "--", program, "bad.tl" })
   assert(bad.code == 125 and bad.out == "" and bad.err:find("^cosmic: sandbox: bad.tl:1"), bad.code .. bad.err)
   local gone = cosmic(tmp, { "sandbox", "--closure", "--", program, "absent.tl" })
   assert(gone.code == 125 and gone.err:find("absent.tl", 1, true), gone.code .. gone.err)
-  assert(#sealed_in(tmp) == 0, "a refused script seals nothing")
+  -- A module outside the store is refused before the child starts.
+  local mine = cosmic(tmp, { "sandbox", "--closure", "--", program, "mine.tl" })
+  assert(mine.code == 125 and mine.out == "" and mine.err:find("mine_module", 1, true), mine.code .. mine.err)
+  assert(#left_over() == 0, "a refused script leaves nothing")
 end
 
 --- A database that [`Store.seal`] wrote runs as it names, with no command
@@ -118,10 +131,17 @@ local function test_database_runs_a_sealed_file(tmp: string)
   assert(ran.code == 4 and ran.out:find("^db\ta\tfalse"), ran.code .. ran.out .. ran.err)
   local bare = cosmic(tmp, { "sandbox", "--database=" .. tmp .. "/p.db" })
   assert(bare.code == 4 and bare.out:find("^db\tnil\tfalse"), bare.code .. bare.out .. bare.err)
-  assert(#sealed_in(tmp) == 0, "--database seals nothing")
+  assert(#left_over() == 0, "--database seals nothing")
   -- Only this program runs on a database.
   local other = cosmic(tmp, { "sandbox", "--system", "--database", "p.db", "--", "true" })
   assert(other.code == 125 and other.err:find("is not this program", 1, true), other.code .. other.err)
+  -- A path no one can search is refused, naming it.
+  assert(Fs.mkdirs(tmp .. "/shut"))
+  assert(Fs.write(tmp .. "/shut/p.db", (assert(Fs.read(tmp .. "/p.db")))))
+  assert(sys.chmod(tmp .. "/shut", 0))
+  local shut = cosmic(tmp, { "sandbox", "--database", tmp .. "/shut/p.db" })
+  assert(sys.chmod(tmp .. "/shut", 448))
+  assert(shut.code == 2 and shut.err:find("shut", 1, true), shut.code .. shut.err)
 end
 
 --- `--modules` seals exactly the modules it names, the first the main:
@@ -140,12 +160,12 @@ local function test_modules_seals_exactly_the_named_modules(tmp: string)
   local whole = cosmic(tmp, { "sandbox", "--modules", table.concat(names, ","), "--", program,
     "exit 3" })
   assert(whole.code == 3, whole.code .. ": " .. whole.out .. whole.err)
-  local sealed = sealed_in(tmp)
-  assert(#sealed == 2, table.concat(sealed, " "))
-  -- The same modules are the same file.
-  assert(cosmic(tmp, { "sandbox", "--modules", table.concat(names, ","), "--", program,
-    "exit 3" }).code == 3)
-  assert(#sealed_in(tmp) == 2)
+  assert(#left_over() == 0, "the sealed database goes with the run")
+  -- The core's own module needs no database; as the main it has none to run.
+  local core = cosmic(tmp, { "sandbox", "--modules", "cosmic.fs,cosmic.env,cosmic.sys", "--", program })
+  assert(core.code ~= 125 and core.err:find("not a function", 1, true), core.code .. core.err)
+  local own = cosmic(tmp, { "sandbox", "--modules", "cosmic.sys,cosmic.fs,cosmic.env", "--", program })
+  assert(own.code == 2 and own.err:find("cosmic.sys", 1, true), own.code .. own.err)
   local missing = cosmic(tmp, { "sandbox", "--modules", "nowhere.module", "--", program })
-  assert(missing.code == 125 and missing.err:find("nowhere.module", 1, true), missing.code .. missing.err)
+  assert(missing.code == 2 and missing.err:find("nowhere.module", 1, true), missing.code .. missing.err)
 end
