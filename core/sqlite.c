@@ -596,11 +596,7 @@ static int handle_gc (lua_State *L) {
 }
 
 /* A handle on a connection its owner -- the store -- opened and closes:
- * [`Store.databases()`] hands these out. A test worker's hold refuses that
- * call to a test whose module does not declare `store`
- * (build/test_worker.tl's `hold_store`), and one that declares it is keyed
- * by the whole projection, so what a query through one reads needs no
- * record of its own. */
+ * [`Store.databases()`] hands these out. */
 void cosmic_sqlite_push_borrowed (lua_State *L, sqlite3 *db) {
   struct handle *h = lua_newuserdatauv(L, sizeof *h, 0);
   h->db = db;

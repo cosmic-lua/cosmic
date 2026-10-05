@@ -741,10 +741,8 @@ local function test_cosmics_own_tree_reads_no_library(tmp: string)
 end
 
 --- A project whose links name only its own symbols builds with the
---- running binary's library in a test that may not read the store: a
---- link settled by the project's own modules reads nothing of the
---- library. One to the standard library cannot, and says what the test
---- must declare.
+--- running binary's library: a link settled by the project's own modules
+--- reads nothing of the library.
 local function test_a_projects_own_links_read_no_library(tmp: string)
   local root = assert(Fs.absolute(tmp)) .. "/project"
   write_project(root, "greet.hello", "bye")
@@ -773,12 +771,5 @@ local function test_a_projects_own_links_read_no_library(tmp: string)
         "wave.tl:2 greet bye",
       })
   assert(db:close())
-  assert(Fs.write(root .. "/README.md", source("See [`cosmic.fs.read`].")))
-  assert(work.stage(handle, false))
-  local linked = assert(importer.compile(handle, built, "link-index-test"))
-  local ok, trouble = writer.write_result(handle, out, linked)
-  assert(not ok, "a link to the standard library reads the store")
-  assert(trouble:find("standard library", 1, true) ~= nil and
-      trouble:find("store = true", 1, true) ~= nil, trouble)
   assert(work.close(handle))
 end

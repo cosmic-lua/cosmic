@@ -5,8 +5,8 @@
 --- needs at run time and nothing it does not. These need `tool`: an
 --- executable's database is joined from this program's own
 --- ([`embed.database`] reads [`Store.databases()`], every `cosmic.*`
---- module's rows), which the store a worker without it is held to
---- refuses. What writes no executable is in `embed_test.tl`.
+--- module's rows), which the store a worker without it is given does not
+--- hold. What writes no executable is in `embed_test.tl`.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")

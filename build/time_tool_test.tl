@@ -62,8 +62,8 @@ local function test_the_exit_status_is_the_verdict(tmp: string)
   assert(usage.code == 2 and usage.out == "" and usage.err:find("no such option: --bogus", 1, true), usage.err)
 end
 
---- Help reads the store's docs, which a test not declaring `store` is held
---- from, and one that does runs again on every edit to the tree; so it
+--- Help reads the store's docs, which a test not declaring `store` is not
+--- given, and one that does runs again on every edit to the tree; so it
 --- is here, with the tests that start the program, not in-process.
 local function test_help_names_the_verb_and_its_options(tmp: string)
   local ran = cosmic(tmp, { "time", "--help" })

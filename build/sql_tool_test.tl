@@ -49,8 +49,8 @@ local function test_a_refused_line_and_a_bad_file_keep_the_verdict_last(tmp: str
   assert(invalid.err:find("standard input: json: invalid JSON", 1, true), invalid.err)
 end
 
---- Help reads the store's docs, which a test not declaring `store` is held
---- from, so it is here, with the tests that start the program.
+--- Help reads the store's docs, which a test not declaring `store` is not
+--- given, so it is here, with the tests that start the program.
 local function test_help_points_between_sql_and_json(tmp: string)
   local sql = cosmic(tmp, { "help", "sql" })
   assert(sql.code == 0, sql.err)

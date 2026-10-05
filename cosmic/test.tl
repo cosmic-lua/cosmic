@@ -115,20 +115,22 @@ local record Test
     --- `-e` chunk, past its launcher or by [`Proc.relaunch`] -- and a
     --- file `--standalone` too, where the test module requires at its top
     --- level the module that runs one. Like `tool`, it lets them run the
-    --- program -- but not read it by its name -- and every process they
-    --- start, and each one those start, is held as their worker is,
-    --- whatever environment it is given: it loads nothing of the program
-    --- but the tests' import closure and what `cosmic -e` loads before the
-    --- chunk runs, and reads no rows but theirs. So their key holds those,
-    --- not every module the program carries, and an edit to another module
-    --- the program carries runs them no more than one to a module of the
-    --- tree outside their closure. A chunk that requires a module outside
-    --- them, or a verb run that way -- `--standalone` among them, unless
-    --- the test module requires the module that runs it -- fails, naming
-    --- this field: require the module at the top level of the test
-    --- module, or declare `tool` in its place. It is refused beside
+    --- program -- but not read it by its name -- and what a sandboxed
+    --- worker runs is not the program but an artifact of the tests' import
+    --- closure and what `cosmic -e` loads before the chunk runs, which
+    --- every process they start, and each one those start, runs too: it
+    --- carries no other module of the program, and no rows but theirs. So
+    --- their key holds those, not every module the program carries, and
+    --- an edit to another module the program carries runs them no more
+    --- than one to a module of the tree outside their closure. A chunk
+    --- that requires a module outside them, or a verb run that way --
+    --- `--standalone` among them, unless the test module requires the
+    --- module that runs it -- fails to find it: require the module at the
+    --- top level of the test module, or declare `tool` in its place.
+    --- Unsandboxed, nothing gives a worker that artifact, so what the
+    --- program carries is not held to the closure. It is refused beside
     --- `tool`, `store`, `system` or `caches`: a host program, or a cosmic
-    --- a cache holds, could start the program with no hold.
+    --- a cache holds, could start a program of its own.
     lua: boolean
     --- Whether the tests confine a process in a root of its own: a
     --- `sandbox` that unveils ([`cosmic.child`]), or a `cosmic test` they
@@ -153,24 +155,17 @@ local record Test
     --- of its module's import closure alone, which its key holds, and a
     --- `require` reaches only that closure; unsandboxed, the worker
     --- attaches that store in the projection's place, though what it
-    --- starts reads o/cosmic.db. Every other lookup in the
-    --- store is held to the closure too, from the module's load until
-    --- the worker ends: [`Store.bytecode`], [`Store.source`] or
-    --- [`Store.requires`] of a module outside it, or the store's searcher
-    --- called by hand, answers none, and [`Store.databases()`] raises,
-    --- sandboxed or not, since such a read would reach rows no key of
-    --- the test holds. A test that type-checks a snippet reads
-    --- `cosmic.*` sources and declarations this way: a module the
+    --- starts reads o/cosmic.db. A test that type-checks a snippet reads
+    --- `cosmic.*` sources and declarations from that store: a module the
     --- snippet requires goes in the test's closure
     --- (`local type _ = require(...)`), or the test declares `store`.
     --- `tool` lets a test start the program, but not read its database
     --- through the descriptor a portable start keeps on it: that read is
     --- refused, whatever the test declares.
     store: boolean
-    -- [`Store.meta`] is not held (the TODO on `hold_store` in
-    -- build/test_worker.tl). The descriptor is refused by core/check.h's
-    -- `cosmic_checkfd`, and a sandboxed worker that does not declare
-    -- `tool` has no name to open the program by.
+    -- The descriptor is refused by core/check.h's `cosmic_checkfd`, and a
+    -- sandboxed worker that does not declare `tool` has no name to open the
+    -- program by.
 
     --- Whether the tests, or the processes they start, read the system's
     --- own programs and files: /usr, /bin, /sbin, /lib and its kin, and
@@ -426,7 +421,7 @@ local LUA_FIX <const> = "; grant { path = \"o/bin\", letters = \"rx\" } beside t
   "run the program itself, whose key holds every module it carries"
 
 --- The profiles a policy joins in, and the flag each stands for: "system"
---- is `system`; "cosmic" is `lua`, the program held to the module's closure,
+--- is `system`; "cosmic" is `lua`, the program run from an artifact of the module's closure,
 --- and `tool`, the program itself, where the grant of o/bin is made beside.
 local PROFILE_FLAGS <const>: {string:string} = { system = "system", cosmic = "cosmic" }
 
@@ -580,7 +575,7 @@ end
 --- The `needs` a policy stands for, or nil and why. The test is sandboxed
 --- and keyed as that `needs` would have it: reads of the tree, host
 --- files, the variables, loopback addresses, the program (profile
---- "cosmic": `lua`, held to the closure; with the grant of o/bin,
+--- "cosmic": `lua`, run from an artifact of the closure; with the grant of o/bin,
 --- `tool`, itself), the system (profile "system") and nesting (promise
 --- "nest"). What it cannot say is refused, naming the field, rather than
 --- accepted as a declaration that moves no key: `isolate`, `set_env`,

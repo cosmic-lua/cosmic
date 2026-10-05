@@ -511,9 +511,7 @@ COSMIC_SYSCALL(execve, 3) {
 
   /* The program this process becomes starts with SIGPIPE at its
    * default, as a spawned child does; ignored again if the exec fails. */
-  char **carried = cosmic_store_environment(envp);
-  if (carried == NULL) return cosmic_fail_effect(L, ENOMEM);
-  char **given = cosmic_coverage_environment(carried);
+  char **given = cosmic_coverage_environment(envp);
   /* Lowered before the report, which credits what lowers it; a report
    * whose file finds no room under the lowered limit is left unwritten. */
   struct rlimit raised;
@@ -524,8 +522,7 @@ COSMIC_SYSCALL(execve, 3) {
   int number = errno;
   if (lowered) setrlimit(RLIMIT_NOFILE, &raised);
   if (sigpipe_ignored_here) signal(SIGPIPE, SIG_IGN);
-  if (given != carried) free(given);
-  if (carried != envp) free(carried);
+  if (given != envp) free(given);
   return cosmic_fail_effect(L, number);
 }
 
@@ -4126,24 +4123,19 @@ COSMIC_SYSCALL(spawn, 11) {
   if (unveiling) held |= COSMIC_HELD_PIDS;
 #endif
   (void)grant_count; /* only the Linux build holds a child to its grants */
-  char **carried = grant_error != 0 ? NULL : cosmic_store_environment(envp);
-  if (carried == NULL) {
+  if (grant_error != 0) {
     close(status_read);
     close(status_write);
     if (root_dir[0] != '\0') rmdir(root_dir);
     if (!lua_isnoneornil(L, 3)) free_environment(envp, envc);
     free(argv);
     free(resolved);
-    if (grant_error != 0) {
-      lua_pushnil(L);
-      lua_pushstring(L, grant_message);
-      lua_pushinteger(L, grant_error);
-      return 3;
-    }
-    if (granting) close(confine);
-    return cosmic_fail(L, ENOMEM);
+    lua_pushnil(L);
+    lua_pushstring(L, grant_message);
+    lua_pushinteger(L, grant_error);
+    return 3;
   }
-  char **given = cosmic_coverage_environment(carried);
+  char **given = cosmic_coverage_environment(envp);
   struct spawn_plan plan = {
     .path = path, .argv = argv, .envp = given, .cwd = cwd, .source = source, .top = top,
     .status_read = status_read, .status_write = status_write,
@@ -4201,8 +4193,7 @@ COSMIC_SYSCALL(spawn, 11) {
     prctl(PR_SET_DUMPABLE, dumpable, 0, 0, 0);
 #endif
   close(status_write);
-  if (given != carried) free(given);
-  if (carried != envp) free(carried);
+  if (given != envp) free(given);
   if (!lua_isnoneornil(L, 3)) free_environment(envp, envc);
   free(argv);
   if (idmap_failed >= 0 && idmap_failed < unveil_count)

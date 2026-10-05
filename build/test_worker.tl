@@ -26,9 +26,9 @@ local test_inputs = require("build.test_inputs")
 
 --- The store's raw table, which the searcher hands this module as its
 --- loader's extra value when it loads trusted (core/store.c's
---- `raw_modules`): [`cosmic.store`] offers no hold, so what a test loads
---- cannot put one up or take one down. Boot mode, which runs no
---- worker, has it by name alone.
+--- `raw_modules`): the worker attaches the store it is given through it, as
+--- a loader no test can replace on [`cosmic.store`]'s table. Boot mode,
+--- which runs no worker, has it by name alone.
 local extra: any = select(2, ...)
 local store: raw_store
 if type(extra) == "table" then
@@ -88,23 +88,17 @@ local record worker
     --- a tmpfs of its own (`--own-scratch`), where the runner made none.
     own_scratch: boolean
     needs: string
-    --- How its Landlock ruleset holds it (`hold_flag`), and whether the
-    --- store's hold is off (`--open`).
+    --- How its Landlock ruleset holds it (`hold_flag`).
     hold: worker.Hold
-    open: boolean
-    --- Whether its module declares `lua` (`--lua`), so it holds every
-    --- process its test starts to its closure ([`hold_children`]).
-    lua: boolean
     --- The store of its module's closure it attaches in place of the
     --- projection at `root`/o/cosmic.db (`--store`), for a worker no
-    --- sandbox gives it there; nil for none, and where `open` is set.
+    --- sandbox gives it there; nil for none, as for a module that
+    --- declares `store`.
     store: string
-    --- The names of the module's import closure, of every module of
-    --- the tree, and of what only a declaration of the tree answers
-    --- for (see `run`).
+    --- The names of the module's import closure and of every module of
+    --- the tree (see `run`).
     closure: {string}
     tree: {string}
-    declared: {string}
     --- The policy the worker is started under ([`build.test_policy`]),
     --- whose `set_env` is its whole environment but for what `env` and
     --- `start` add; nil where it runs unsandboxed.
@@ -114,6 +108,11 @@ local record worker
     --- since a worker the policy holds cannot list / to find them
     --- (`--runs`).
     runs: {string}
+    --- Whether the worker is given an artifact of its closure at its
+    --- program's name ([`build.closure_artifact`]), which it opens by path
+    --- (as a worker that builds roots of its own does), not the program
+    --- by a descriptor.
+    by_path: boolean
     --- The name the worker is to have its program by, in place of the
     --- artifact path `start` names (build.test_sandbox's
     --- [`Plan.program`]), or nil to keep that.
@@ -209,7 +208,7 @@ worker.loads = {
 
 -- Taken at load, ahead of any test that could replace them on the
 -- module's table, which a test whose closure holds it shares.
-local hex, reads_compiler = key_parts.hex, key_parts.reads_compiler
+local hex = key_parts.hex
 local unhex_either = key_parts.unhex
 
 --- The bytes `hex` spelled, or nil for text it would not have written.
@@ -394,7 +393,8 @@ local type Held = function(fn: function(any...): (any...), argument?: any): any
 --- has loaded already is out of `package.loaded`, so a `require` of it
 --- reaches the searcher too. It then puts both back, whether `fn`
 --- returned or raised, and returns or raises as `fn` did. A lookup that
---- is not a `require` is the store's hold's ([`hold_store`]).
+--- is not a `require` reads the store the worker is given, and the
+--- program's own.
 local function hold_requires(module_path: string, closure: {string:boolean},
                              tree: {string:boolean}): Held
   -- A refusal is a loader that raises, not a searcher that does: a
@@ -427,163 +427,6 @@ local function hold_requires(module_path: string, closure: {string:boolean},
     if not ok then error(produced, 0) end
     return produced
   end
-end
-
---- The `meta` rows a held worker's [`Store.meta`] reads of the databases
---- the store's hold covers ([`hold_store`]), whatever its closure: those
---- a closure store keeps of the projection ([`build.closure_store`]'s
---- `closure_meta`), which its bytes, and so the key, hold, and `boot_hash`. The
---- rows the running program answers itself, from its core and the
---- database it carries -- `runtime_context`, `host`, `host_image`,
---- `runtime`, `runtime_basis` and `artifact` -- are answered ahead of
---- any hold, since the runtime identity and the launcher's hold them
---- ([`build.declared_key`]'s `runtime` and `launcher`), but for
---- `artifact`, the program's own path, which [`Proc.executable()`] answers
---- a test as well. Every other row -- `projected` and `written_by`
---- among them -- is the running tool's or the whole projection's, which
---- no key of a test without `store` holds, but for `compiler_meta` and
---- `writer_meta`, each where the closure holds what it digests.
----
---- `runtime_basis` is here for a program started with no artifact
---- descriptor alone, whose [`Store.meta`] reads it from the databases in
---- search order rather than from the one it carries: with one, it is
---- answered ahead of the hold. Library code a held test reaches that
---- reads a row outside this set -- build.reboot's `unsettled`, which
---- reads `written_by` and `writer`, or its `replaced`, which reads the
---- tool's identity rows -- raises, loudly and naming `store = true`,
---- rather than deciding on a value no key of the test holds.
--- TODO: hold `boot_hash` too, once build.importer and build.writer tell
--- a built tool from a boot, and a tool fresh against a tree from one
--- that is not, by other means than its `boot_hash`: no key of a test
--- without `store` holds it, though it moves with every edit to the
--- tree, and it is let through only on build.declared_key's
--- `tree_wide_meta` account of why no read of it turns a verdict.
-local held_meta <const>: {string} = { "boot_hash", "image_hash", "main", "runtime_basis" }
-
---- The `meta` rows that name the compiler's identity, which a closure
---- store does not carry: a held worker reads them only where its closure
---- holds a module that reads them, whose key holds the tool's
---- ([`build.key_parts`]' `compiler_readers`).
-local compiler_meta <const>: {string} = { "compiled_by", "compiler" }
-
---- The `meta` row that names the writer's identity ([`build.work`]'s
---- `Identities`), a digest of the sources of [`build.writer`]'s import
---- closure and of the core image, as the running tool -- fresh against
---- the tree it tests, or refusing -- carries it: a held worker reads it
---- only where its closure holds [`build.writer`], whose key holds those
---- sources, and the image through its closure store's `image_hash`.
-local writer_meta <const> = "writer"
-
---- The set of the `meta` rows a held worker whose import closure is
---- the set `closure` reads (`held_meta`, `compiler_meta`, `writer_meta`),
---- `lua` saying whether its module declares `lua`: the compiler's
---- identity only where `closure` holds a reader beyond what `lua` adds
---- ([`test_inputs.compiler_sought`]), as its key holds it.
-local function meta_keys(closure: {string:boolean}, lua: boolean): {string:boolean}
-  local keys: {string:boolean} = {}
-  for _, key in ipairs(held_meta) do keys[key] = true end
-  if closure["build.writer"] then keys[writer_meta] = true end
-  local names: {string} = {}
-  for name in pairs(closure) do names[#names + 1] = name end
-  if reads_compiler(test_inputs.compiler_sought(names, lua)) then
-    for _, key in ipairs(compiler_meta) do keys[key] = true end
-  end
-  return keys
-end
-
---- Puts up the store's hold (core/store.c's `store_hold`) for the tests
---- of `module_path`, a module that does not declare `store`: its key
---- does not hold the whole projection. `tool` lifts no part of the
---- hold, since the program's modules, which its key holds, are not the
---- rest of the tree's. `closure` is the set of the names its import
---- closure holds, `tree` of the tree's modules, and `declared` of the
---- names only a declaration of the tree answers for ([`cosmic.sys`], the
---- core's raw modules).
----
---- While it is up, a lookup in the store of a module of the tree
---- outside the closure, or of such a declaration's source, that is not
---- a `require` -- [`Store.bytecode`] or [`Store.source`], the store's
---- searcher called by hand or taken out of `package.searchers`, those
---- of the raw table such a searcher hands a wrapper -- answers none,
---- and [`Store.databases()`] raises, since a handle reads every module's
---- rows. Without it such a read reaches, sandboxed, the program's own
---- database, since the store at o/cosmic.db holds the closure alone,
---- and unsandboxed the whole projection: rows no key of the test holds.
---- A declaration rides along for [`Store.source`] alone: `require` of a
---- name only one answers for loads the core's own C, which the
---- runtime's identity keys. Nothing takes it down: the worker puts it
---- up before the module loads and keeps it until the process has
---- ended, since what the test leaves behind -- a finalizer, which runs
---- whenever the worker allocates, and as the process closes after its
---- report -- runs past the test and can still exit or write the report
---- itself.
----
---- [`Store.meta`] is held too: the databases the hold covers answer only
---- the rows of `held_meta` and, where the closure holds what each
---- digests, of `compiler_meta` and `writer_meta`; a lookup of any other
---- row reaches only a database the test attached itself, keyed by what
---- it declares it reads, and raises when none answers it.
-local function hold_store(module_path: string, closure: {string:boolean},
-                          tree: {string:boolean}, declared: {string:boolean}, lua: boolean)
-  local names: {string:boolean} = {}
-  for _, set in ipairs({ tree, declared }) do
-    for name in pairs(set) do
-      if not closure[name] then names[name] = true end
-    end
-  end
-  store.hold(names, string.format("%s's verdict is keyed by what the " ..
-      "store holds of its import closure alone. Require a module at the top level of %s " ..
-      "to read that module, or grant o/cosmic.db (`{ path = \"o/cosmic.db\", letters = " ..
-      "\"r\" }`) in its Test.policy, or declare store = true in its Test.needs, to read the " ..
-      "whole projection, at the cost of running its tests again on every edit to the tree",
-    module_path, module_path), string.format("a handle reads every module's rows, and " ..
-        "%s's verdict is keyed by what the store holds of its import closure alone. " ..
-        "Grant o/cosmic.db (`{ path = \"o/cosmic.db\", letters = \"r\" }`) in its " ..
-        "Test.policy, or declare store = true in its Test.needs, to read them, at the cost of " ..
-        "running its tests again on every edit to the tree", module_path), meta_keys(closure, lua),
-    string.format("%s's verdict is keyed by what the store holds of its import closure " ..
-        "alone and by the runtime, and neither holds that row -- nor the compiler's " ..
-        "identity, unless the closure holds a module build/key_parts.tl's " ..
-        "`compiler_readers` names beyond what lua adds, nor the writer's, unless it holds " ..
-        "build.writer. " ..
-        "Grant o/cosmic.db (`{ path = \"o/cosmic.db\", letters = \"r\" }`) in its " ..
-        "Test.policy, or declare store = true in its Test.needs, to read it, at the cost of " ..
-        "running its tests again on every edit to the tree", module_path))
-end
-
---- Holds every process the tests of `module_path`, a module that declares
---- `lua` ([`cosmic.test`]), start from here on -- and every one those
---- start -- as [`hold_store`] holds this one, whatever environment each
---- is given (core/store.c's [`hold_children`]): on every module and
---- declaration the program carries but those of `closure`, the set of
---- the names its import closure holds, `lua_loads` among them
---- ([`build.test_inputs`]), what those load beside them (its
---- `loaded_beside`, which their closure store carries), the names a
---- program built of the closure carries one of its modules under (its
---- `carried_as`); with the `meta` rows
---- of [`meta_keys`]. So what such a process runs and reads of the program
---- is what the test's key holds of its closure -- its store's bytes --
---- and of the runtime, as it is for this worker; the program's other
---- modules, which a `tool` key holds by o/bin's contents, are none of
---- it. Put up before the module loads, so nothing the test starts
---- escapes it, and never taken down, as the store's hold is not.
-local function hold_children(module_path: string, closure: {string:boolean})
-  local names: {string} = {}
-  for name in pairs(closure) do
-    names[#names + 1] = name
-    for _, beside in ipairs(test_inputs.loaded_beside[name] or {}) do
-      if not closure[beside] then names[#names + 1] = beside end
-    end
-    for _, carried in ipairs(test_inputs.carried_as[name] or {}) do
-      if not closure[carried] then names[#names + 1] = carried end
-    end
-  end
-  table.sort(names)
-  local keys: {string} = {}
-  for key in pairs(meta_keys(closure, true)) do keys[#keys + 1] = key end
-  table.sort(keys)
-  store.hold_children(module_path .. " " .. table.concat(keys, ",") .. " " ..
-      table.concat(names, " "))
 end
 
 --- How a worker is started: this exact program again -- the same core,
@@ -619,8 +462,8 @@ end
 --- The command line and the start options of the worker `given`
 --- describes: `start`'s program (`program`), then `test --worker
 --- <root> <module> <test> <scratch>/tmp <scratch>/children <needs>
---- [--sandboxed [--runs <count> <path>...]] [--lua] [--open | --store <store>] <closure>... --tree <tree>...
---- --declared <declared>...` (`run`), with the report captured at `report_fd`,
+--- [--sandboxed [--runs <count> <path>...]] [--store <store>] <closure>... --tree <tree>...`
+--- (`run`), with the report captured at `report_fd`,
 --- and its environment `env` with `start`'s variables added and
 --- coverage collected from its first instruction (core/coverage.c,
 --- COSMIC_COVERAGE_STARTUP), so its first window holds the Lua that
@@ -652,28 +495,25 @@ function worker.invocation(given: worker.Invocation): worker.Command
     argv[#argv + 1] = tostring(#runs)
     for _, path in ipairs(runs) do argv[#argv + 1] = path end
   end
-  if given.lua then argv[#argv + 1] = "--lua" end
-  if given.open then
-    argv[#argv + 1] = "--open"
-  elseif given.store ~= nil then
+  if given.store ~= nil then
     argv[#argv + 1] = "--store"
     argv[#argv + 1] = given.store
   end
   for _, name in ipairs(given.closure) do argv[#argv + 1] = name end
   argv[#argv + 1] = "--tree"
   for _, name in ipairs(given.tree) do argv[#argv + 1] = name end
-  argv[#argv + 1] = "--declared"
-  for _, name in ipairs(given.declared) do argv[#argv + 1] = name end
   local env: {string:string} = {}
   for name, value in pairs(given.env) do env[name] = value end
   for name, value in pairs(given.start.env) do env[name] = value end
   env.COSMIC_COVERAGE_STARTUP = "1"
   local fds: {integer:integer | string} = { [worker.report_fd] = "capture" }
   for number, fd in pairs(given.start.fds) do fds[number] = fd end
-  if given.policy ~= nil and promises_nest(given.policy) then
+  if given.policy ~= nil and (promises_nest(given.policy) or given.by_path) then
     -- A worker that builds roots of its own is handed no descriptor of the
     -- program ([`Child.start`] refuses it any file open for reading alone:
-    -- its owner could reopen it for writing through /proc/self/fd). Its
+    -- its owner could reopen it for writing through /proc/self/fd). Nor is
+    -- one given an artifact of its closure, whose descriptor would be the
+    -- program's own, which every module of the tree is read from. Its
     -- startup, told of none, opens the artifact by its path and the core
     -- by itself, inside its own root (core/startup.c's `by_path`).
     for _, name in ipairs({ "COSMIC_PORTABLE_ARTIFACT_FD", "COSMIC_PORTABLE_CORE_FD" }) do
@@ -816,8 +656,7 @@ end
 --- else means there is no report to read.
 ---
 --- @param argv `cosmic test --worker <root> <module> <test> <tmp> <children>
---- <needs> [--sandboxed] [--lua] [--open | --store <store>] <closure>... --tree <tree>...
---- --declared <declared>...`:
+--- <needs> [--sandboxed] [--store <store>] <closure>... --tree <tree>...`:
 ---
 --- - `children` is a directory, not yet there, to collect the coverage
 ---   of the processes the test starts in.
@@ -826,8 +665,6 @@ end
 ---   module whose `needs` call was handed anything else fails to load.
 --- - `--sandboxed` says the worker runs in a sandbox, which every
 ---   process its test starts inherits ([`confine.call`]'s `sandboxed`).
---- - `--lua` says its module declares `lua` ([`cosmic.test`]): every
----   process its test starts is held to the closure ([`hold_children`]).
 --- - `closure` is the names of the module's import closure
 ---   ([`test_inputs.modules`]), one argument each. Its load and its test
 ---   may `require` these of the tree and nothing else of it
@@ -838,9 +675,6 @@ end
 ---   beyond its closure, and a key need not hold them: a name there
 ---   only turns a `require` of a module outside the closure into a
 ---   refusal, never into a load.
---- - `declared` is the names only a declaration of the tree answers
----   for, which the store's hold holds too ([`hold_store`]), unless
----   `--open` comes ahead of the closure: its module declares `store`.
 --- - `--store <store>` ahead of the closure names the store of the
 ---   module's closure ([`build.closure_store`]) to attach in place of
 ---   `<root>/o/cosmic.db`: an unsandboxed worker's, whose key holds the
@@ -919,13 +753,8 @@ function worker.run(argv: {integer:string}): integer
       return 2
     end
   end
-  local lua = argv[first] == "--lua"
-  if lua then first = first + 1 end
-  local open = argv[first] == "--open"
   local db_path = root .. "/o/cosmic.db"
-  if open then
-    first = first + 1
-  elseif argv[first] == "--store" then
+  if argv[first] == "--store" then
     if argv[first + 1] == nil then
       complain("test --worker: --store needs a path")
       return 2
@@ -941,32 +770,20 @@ function worker.run(argv: {integer:string}): integer
   local held: Held = function(fn: function(any...): (any...), argument?: any): any
     return fn(argument)
   end
-  -- Once the closure is read, what puts up the store's hold.
-  local hold: function() = nil
   if argv[first] ~= nil then
     local closure: {string:boolean} = {}
     local tree: {string:boolean} = {}
-    local declared: {string:boolean} = {}
     local into = closure
     local i = first
     while argv[i] ~= nil do
       if argv[i] == "--tree" and into == closure then
         into = tree
-      elseif argv[i] == "--declared" and into == tree then
-        into = declared
       else
         into[argv[i]] = true
       end
       i = i + 1
     end
     held = hold_requires(module_path, closure, tree)
-    if not open then
-      hold = function() hold_store(module_path, closure, tree, declared, lua) end
-    end
-    if lua then hold_children(module_path, closure) end
-  elseif lua then
-    complain("test --worker --lua needs the module's closure")
-    return 2
   end
   local report: worker.Report = {
     loaded = false, passed = false, message = "", elapsed_ns = 0, skipped = "",
@@ -1005,9 +822,7 @@ function worker.run(argv: {integer:string}): integer
   }
   install(Test, runner)
   -- The hold on `require` is up for the module's load and its test
-  -- alone, not for the worker's own work around them; the store's is
-  -- up from here until the process ends ([`hold_store`]).
-  if hold ~= nil then hold() end
+  -- alone, not for the worker's own work around them.
   -- Each under a stand-in for `spawn` ([`confine.call`]), which holds what
   -- the test starts.
   local loading = confine.call(function(): any

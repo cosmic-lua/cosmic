@@ -103,8 +103,8 @@ local function test_an_undeclared_file_does_not_move_it(tmp: string)
   assert(key_of(tmp, s) == before)
 end
 
---- A module that declares `lua` starts this program held to its closure
---- (build.test_worker's `hold_children`), so its key holds the program as
+--- A module that declares `lua` starts an artifact of its closure in the
+--- program's place (build.closure_artifact), so its key holds the program as
 --- a module that declares neither `lua` nor `tool` does: by the closure's
 --- store and the runtime, not by what the program carries -- an edit to a
 --- module the program carries outside its closure, which moves `program`
@@ -483,8 +483,8 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
         "offline worker's own loopback answers",
       variables = declaration,
       lua = declaration .. ", and what it adds to the closure (`lua_loads`) by `files` " ..
-        "and `closure_store`: every process it starts is held to that closure " ..
-        "(build.test_worker's `hold_children`)",
+        "and `closure_store`: every process it starts runs an artifact of that " ..
+        "closure (build.closure_artifact)",
       nests = declaration .. ", and, where the module does not declare `tool`, " ..
         "`runs_tool` (build.test's `tool_use`)",
       caches = "content-addressed, which never changes a result (build.caches)",
