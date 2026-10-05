@@ -7,34 +7,34 @@ local Process = require("cosmic_ci.process")
 local Test = require("cosmic.test")
 local String = require("cosmic.string")
 
--- What the runtime setup made (COSMIC_FIXTURE_RUNTIME,
+-- What the runtime setup made (o/fixtures/runtime,
 -- cosmic_ci/runtime_setup.tl), each file the tests read or run by name,
 -- which holds the database it was written from, and the prefix of the
--- product it was made from (COSMIC_FIXTURE_PRODUCT's `prefix`: its
+-- product it was made from (o/fixtures/product's `prefix`: its
 -- launcher, manifest and cores): each is in every verdict's key, so no
 -- verdict stands for a product part it was not reached on
 -- (cosmic_ci/orchestration.tl's `sandboxed_fixtures`).
 -- A core of another target's is not there, and is keyed as missing.
 -- `system`: runtime.* launch through /bin/sh, and the fixtures run
 -- uname, mkfifo, cat and tee through /usr/bin/env (cosmic_ci/process.tl).
-Test.needs{
-  host = {
-    "$COSMIC_FIXTURE_PRODUCT/prefix",
-    "$COSMIC_FIXTURE_RUNTIME/runtime.old",
-    "$COSMIC_FIXTURE_RUNTIME/runtime.old.prefix-sha256",
-    "$COSMIC_FIXTURE_RUNTIME/runtime.new",
-    "$COSMIC_FIXTURE_RUNTIME/runtime.new.prefix-sha256",
-    "$COSMIC_FIXTURE_RUNTIME/runtime.release",
-    "$COSMIC_FIXTURE_RUNTIME/runtime.release.prefix-sha256",
-    "$COSMIC_FIXTURE_RUNTIME/runtime.incompatible",
-    "$COSMIC_FIXTURE_RUNTIME/probe.tl",
-    "$COSMIC_FIXTURE_RUNTIME/tool.tar",
-    "$COSMIC_FIXTURE_RUNTIME/hooked-build/targets.tsv",
-    "$COSMIC_FIXTURE_RUNTIME/hooked-build/core/x86_64-linux-musl/cosmic-core",
-    "$COSMIC_FIXTURE_RUNTIME/hooked-build/core/aarch64-linux-musl/cosmic-core",
-    "$COSMIC_FIXTURE_RUNTIME/hooked-build/core/aarch64-macos/cosmic-core",
+Test.policy{
+  grants = {
+    { path = "o/fixtures/product/prefix", letters = "r" },
+    { path = "o/fixtures/runtime/runtime.old", letters = "r" },
+    { path = "o/fixtures/runtime/runtime.old.prefix-sha256", letters = "r" },
+    { path = "o/fixtures/runtime/runtime.new", letters = "r" },
+    { path = "o/fixtures/runtime/runtime.new.prefix-sha256", letters = "r" },
+    { path = "o/fixtures/runtime/runtime.release", letters = "r" },
+    { path = "o/fixtures/runtime/runtime.release.prefix-sha256", letters = "r" },
+    { path = "o/fixtures/runtime/runtime.incompatible", letters = "r" },
+    { path = "o/fixtures/runtime/probe.tl", letters = "r" },
+    { path = "o/fixtures/runtime/tool.tar", letters = "r" },
+    { path = "o/fixtures/runtime/hooked-build/targets.tsv", letters = "r" },
+    { path = "o/fixtures/runtime/hooked-build/core/x86_64-linux-musl/cosmic-core", letters = "r" },
+    { path = "o/fixtures/runtime/hooked-build/core/aarch64-linux-musl/cosmic-core", letters = "r" },
+    { path = "o/fixtures/runtime/hooked-build/core/aarch64-macos/cosmic-core", letters = "r" },
   },
-  system = true,
+  profiles = { "system" },
 }
 
 local type Running = Process.Running
@@ -172,7 +172,7 @@ end
 -- it. This checks the full captured stderr for exact equality rather than
 -- a substring.
 local function test_runtime_startup_phases(tmp: string)
-  local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
+  local fixture_dir = Fixture.placed("runtime")
   local work = tmp
   local diagnostics = work .. "/logs"
   Fixture.mkdir(diagnostics)
@@ -200,7 +200,7 @@ end
 --------------------------------------------------------------------------
 
 local function test_runtime_logical_paths(tmp: string)
-  local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
+  local fixture_dir = Fixture.placed("runtime")
   local work = tmp
   local diagnostics = work .. "/logs"
   Fixture.mkdir(diagnostics)
@@ -265,7 +265,7 @@ end
 -- positional argument and checks it against `COSMIC_PORTABLE_CACHE` in the
 -- real environment -- both are set to the same string here.
 local function test_runtime_environment_scrubbing(tmp: string)
-  local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
+  local fixture_dir = Fixture.placed("runtime")
   local work = tmp
   local diagnostics = work .. "/logs"
   Fixture.mkdir(diagnostics)
@@ -327,7 +327,7 @@ local function expect_contract_error(fixture_dir: string, work: string,
 end
 
 local function test_runtime_private_contract(tmp: string)
-  local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
+  local fixture_dir = Fixture.placed("runtime")
   local work = tmp
   local diagnostics = work .. "/logs"
   Fixture.mkdir(diagnostics)
@@ -392,7 +392,7 @@ end
 --------------------------------------------------------------------------
 
 local function test_runtime_corrupt_ranges(tmp: string)
-  local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
+  local fixture_dir = Fixture.placed("runtime")
   local work = tmp
   local diagnostics = work .. "/logs"
   Fixture.mkdir(diagnostics)
@@ -466,7 +466,7 @@ end
 -- on every host, including where the kernel would refuse a damaged signed
 -- core before startup could speak.
 local function test_runtime_warm_core_stamp_and_repair(tmp: string)
-  local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
+  local fixture_dir = Fixture.placed("runtime")
   local work = tmp
   local diagnostics = work .. "/logs"
   Fixture.mkdir(diagnostics)
@@ -514,7 +514,7 @@ end
 -- new pathname's database or prefix into the paused process. A subsequent
 -- launch selects all-new bytes.
 local function test_runtime_replace_while_paused(tmp: string)
-  local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
+  local fixture_dir = Fixture.placed("runtime")
   local work = tmp
   local diagnostics = work .. "/logs"
   Fixture.mkdir(diagnostics)
@@ -558,7 +558,7 @@ end
 -- Unlink after adoption also leaves database and private prefix reads on the
 -- retained descriptor.
 local function test_runtime_unlink_while_paused(tmp: string)
-  local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
+  local fixture_dir = Fixture.placed("runtime")
   local work = tmp
   local diagnostics = work .. "/logs"
   Fixture.mkdir(diagnostics)
@@ -593,7 +593,7 @@ end
 -- `COSMIC_PORTABLE_TEST_HOOK` mechanism, not `tool.tl
 -- retained-prefix-probe` from `tool`.
 local function test_runtime_mismatch_after_select(tmp: string)
-  local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
+  local fixture_dir = Fixture.placed("runtime")
   local work = tmp
   local diagnostics = work .. "/logs"
   Fixture.mkdir(diagnostics)
@@ -639,7 +639,7 @@ end
 -- payload timings. These observations are informational and set no
 -- threshold.
 local function test_runtime_timing(tmp: string)
-  local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
+  local fixture_dir = Fixture.placed("runtime")
   local work = tmp
   local diagnostics = work .. "/logs"
   Fixture.mkdir(diagnostics)

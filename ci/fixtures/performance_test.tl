@@ -10,19 +10,22 @@ local Test = require("cosmic.test")
 --- The selected candidate, including its carried modules, and the controller
 --- source are both inputs. The CI driver is only the outer test supervisor;
 --- each candidate runs the controller and private fixtures itself.
-Test.needs{ system = true, host = {
-  "$COSMIC_FIXTURE_PERFORMANCE/program",
-  "$COSMIC_FIXTURE_PERFORMANCE/perf.tl",
-} }
+Test.policy{
+  grants = {
+    { path = "o/fixtures/performance/program", letters = "r" },
+    { path = "o/fixtures/performance/perf.tl", letters = "r" },
+  },
+  profiles = { "system" },
+}
 
 local function controller(): string
-  return (assert(Fs.read(Fixture.required("COSMIC_FIXTURE_PERFORMANCE") .. "/perf.tl")))
+  return (assert(Fs.read(Fixture.placed("performance") .. "/perf.tl")))
 end
 
 local function run(tmp: string, source: string): Child.Result
   local script = tmp .. "/controller.tl"
   assert(Fs.write(script, source))
-  local binary = Fixture.required("COSMIC_FIXTURE_PERFORMANCE") .. "/program"
+  local binary = Fixture.placed("performance") .. "/program"
   -- The sandbox exposes the shared core cache read-only; this candidate may
   -- carry a core the CI driver has never extracted.
   local env = Fixture.environment({ COSMIC_PORTABLE_CACHE = tmp .. "/cores" })
