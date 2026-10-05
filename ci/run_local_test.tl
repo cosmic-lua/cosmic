@@ -11,7 +11,7 @@ local sys = require("cosmic.sys")
 -- TODO: declare this with Test.policy { profiles = { "system", "cosmic" },
 -- grants = { { path = "o/bin", letters = "rx" } } } once ci/cosmic-driver.pin
 -- names a release that takes that grant as `tool`: the pinned driver, which
--- runs this test, reads the grant as a read of o/bin, and this tree's tool
+-- runs this test, refuses the grant's letters, and this tree's tool
 -- reads the profile alone as `lua`, which `system` refuses.
 Test.needs{ system = true, tool = true }
 

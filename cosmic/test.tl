@@ -417,8 +417,8 @@ local NOEXEC_FORM <const> = ".path /noexec is the private scratch the harness gi
 local CACHE_FORM <const> = ".path /cache/<name> is a host cache, granted " ..
   "{ path = \"/cache/<name>\", letters = \"rwxc\" } with no from"
 
---- The grant that, beside the profile "cosmic", makes `tool` of the `lua` the
---- profile alone is: the directory o/bin the program is in, read and run.
+--- The grant that turns the profile "cosmic" from `lua` into `tool`: the
+--- directory o/bin the program is in, read and run.
 local BIN_PATH <const> = "o/bin"
 local BIN_FORM <const> = ".path o/bin is the directory the program is in, granted " ..
   "{ path = \"o/bin\", letters = \"rx\" } with no from, beside the profile \"cosmic\""
