@@ -235,6 +235,15 @@ promises lean on come first:
   (`SO_PEERCRED`, `getpeereid`), descriptors passed over it
   (`SCM_RIGHTS`), Linux's abstract names, and a socket file's mode.
 
+- [`cosmic.template`] slots in JavaScript and CSS: `<script>` and `<style>`
+  text, `on...` handlers and the `style` attribute are refused now, because
+  escaping for them is a different language's rule (old's #1654 and #1658 were
+  its bugs there). Each needs an escaper made in C with a type of its own, as
+  `cosmic.html`'s are, and the context tracker ([`cosmic/template/markup.tl`])
+  to say which one a slot is in. Likewise a slot after literal text in a URL
+  (`href="/a/{{.id}}"`), which wants an escaper for one component of a URL, a
+  path segment or a query value, beside [`cosmic.url`]'s.
+
 ## documentation and examples
 
 New documentation extends the one build-time index and runtime query path
@@ -330,11 +339,13 @@ four-producer provenance join.
 [`cosmic.net`]: ../cosmic/net.tl
 [`cosmic.sandbox`]: ../cosmic/sandbox.tl
 [`cosmic.shape`]: ../cosmic/shape.tl
+[`cosmic.template`]: ../cosmic/template/init.tl
 [`cosmic.test`]: ../cosmic/test.tl
 [`cosmic.url`]: ../cosmic/url.tl
 [`cosmic/errors.tl`]: ../cosmic/errors.tl
 [`cosmic/json_fuzz_test.tl`]: ../cosmic/json_fuzz_test.tl
 [`cosmic/shape_example.tl`]: ../cosmic/shape_example.tl
+[`cosmic/template/markup.tl`]: ../cosmic/template/markup.tl
 [`Errors.guidance`]: ../cosmic/errors.tl
 [`eval/summarize.tl`]: ../eval/summarize.tl
 [`Json.decode`]: ../cosmic/json.tl
