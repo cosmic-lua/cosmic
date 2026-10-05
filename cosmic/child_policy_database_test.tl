@@ -6,6 +6,9 @@
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
+local Fs = require("cosmic.fs")
+local Sandbox = require("cosmic.sandbox")
+local PolicyJson = require("cosmic.policy")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
@@ -13,16 +16,15 @@ local Test = require("cosmic.test")
 local confine = require("build.confine")
 local this_program = require("build.this_program")
 
---- `store`: [`Store.seal`] reads the rows of every module it carries
---- through [`Store.databases()`], which a worker without the store is not
---- given. The core is started past its launcher, and `/proc` is what a
---- probe reads of its own descriptors.
+--- [`Store.seal`] reads the rows of every module it carries through
+--- [`Store.databases()`], which a worker without the store is not given
+--- (the grant of o/cosmic.db). The core is started past its launcher
+--- (the grant of o/bin).
 Test.policy{
   profiles = { "cosmic" },
   grants = {
     { path = "o/bin", letters = "rx" },
     { path = "o/cosmic.db", letters = "r" },
-    { path = "/proc", letters = "r" },
   },
 }
 
@@ -184,7 +186,8 @@ end
 --- Only this program runs on a database: another one is refused before
 --- anything starts, as is a grant that reaches this program's own file,
 --- which holds modules the database leaves out.
-local function test_a_database_policy_refuses_another_program_and_a_grant_of_this_ones_file(tmp: string)
+local function test_a_database_policy_refuses_another_program_and_this_ones_own_file(tmp: string)
+  if not confine.sandbox_platform() or core_path() == nil then return end
   local path = tmp .. "/sealed.db"
   seal(tmp, path)
   local executable = assert(Proc.executable())
@@ -206,4 +209,20 @@ local function test_a_database_policy_refuses_another_program_and_a_grant_of_thi
   else
     assert(profiled.ok, tostring(profiled.stderr))
   end
+end
+
+--- A policy decoded from text names the database by its digest, and the
+--- start holds the file to it: one changed since the text was read is
+--- refused, not run.
+local function test_a_decoded_policy_refuses_a_database_that_changed_since(tmp: string)
+  if not confine.sandbox_platform() or core_path() == nil then return end
+  local path = tmp .. "/sealed.db"
+  seal(tmp, path)
+  local merged = assert(Sandbox.merge({ database = path }))
+  local policy = assert(PolicyJson.decode(PolicyJson.encode(merged)))
+  local executable = assert(Proc.executable())
+  local bytes = assert(Fs.read(path))
+  assert(Fs.write(path, bytes .. "x"))
+  local started, why = Child.start({ executable, executable }, { policy = policy })
+  assert(started == nil and why:find("has changed since", 1, true), tostring(why))
 end

@@ -2817,7 +2817,10 @@ end
 --- (the grant is at it or above it, where it is a directory), as the
 --- grant names it; "" for none. A relative grant is from `base`, this
 --- process's own directory where nil; one with `from` reaches what `from`
---- names.
+--- names. A guard against a policy that grants the file by accident: a
+--- hard link, a copy or a bind-mounted view of it elsewhere in a granted
+--- directory still reads the program, so it does not hold against a
+--- policy author who means to reach it.
 local function reaching(file: string, grants: {Rules.Grant}, base: string): string
   for _, grant in ipairs(grants) do
     local at = grant.from or grant.path
@@ -2926,24 +2929,24 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
   -- `database` it is the core and that file alone, so this program's own
   -- file, which holds every module of the tree, is none of the child's.
   local relaunch: Proc.Relaunch
-  local on_database = merged.database
+  local database: string = merged.database
   local program: string
-  if on_database ~= nil then
+  if database ~= nil then
     program = this_program(argv[1], opts.cwd)
     if program == nil then
-      return nil, "sandbox: database " .. on_database .. ": a program runs on a database only " ..
+      return nil, "sandbox: database " .. database .. ": a program runs on a database only " ..
         "where it is this program's core, and " .. argv[1] .. " is not this program"
     end
   end
-  if on_database ~= nil or runs_this_program(argv[1], opts.cwd, merged.grants) then
-    local database_name: string = merged.database or ""
-    local found, relaunch_trouble = relaunch_of(user, merged.database)
+  local on_database = database ~= nil
+  if on_database or runs_this_program(argv[1], opts.cwd, merged.grants) then
+    local found, relaunch_trouble = relaunch_of(user, database)
     if found == nil and relaunch_trouble ~= "" then return nil, "sandbox: " .. relaunch_trouble end
-    if found == nil and merged.database ~= nil then
-      return nil, "sandbox: database " .. database_name .. ": this program is a host program, " ..
+    if found == nil and on_database then
+      return nil, "sandbox: database " .. database .. ": this program is a host program, " ..
         "which has no core to start on a database"
     end
-    if found ~= nil and merged.database ~= nil then
+    if found ~= nil and on_database then
       -- The core a database program runs is the file it is started by only
       -- where this process is that core already, so there it is granted.
       local started, _ = Proc.relaunch()
@@ -2956,8 +2959,10 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
       local reached = own_core and "" or reaching(program, merged.grants, base)
       if reached ~= "" then
         return nil, "sandbox: grant \"" .. reached .. "\" reaches this program's own file, " ..
-          program .. ", which holds modules the database " .. database_name .. " leaves out: " ..
-          "a program on a database is given the core and the database alone"
+          program .. ", which holds modules the database " .. database .. " leaves out: " ..
+          "a program on a database is given the core and the database alone (a profile's " ..
+          "grant of a directory above it, as \"system\"'s /usr is for a program installed " ..
+          "there, is such a grant: leave the profile out)"
       end
     end
     if found ~= nil and nest then
@@ -3128,6 +3133,14 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
       end
       if not normal then env.TMPDIR = "/tmp" end
     end
+  end
+  if relaunch ~= nil and database ~= nil then
+    -- TODO: close the gap between this check and the core's open: the core
+    -- reopens the database by its path after the hash, so a file swapped
+    -- in that instant runs. Hand it the checked descriptor once core/main.c
+    -- opens SQLite on the descriptor it checked (the TODO in open_database).
+    local holds, held_why = Rules.database_is(merged, relaunch.argv[3])
+    if not holds then return nil, "sandbox: " .. held_why end
   end
   return { path = path, env = env, tmp = "", wants_tmp = merged.tmp and not file,
     sandbox = sandbox, cwd = file and base or nil, user = user, drop = drop, nests = nest,

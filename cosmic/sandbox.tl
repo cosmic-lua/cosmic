@@ -38,6 +38,7 @@
 --- the policy but not yet met by it: a start under one fails, saying so.
 
 local Codec = require("cosmic.codec")
+local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
@@ -190,7 +191,10 @@ local record Sandbox
     --- [`Sandbox.restrict`] refuses it: a running process cannot change
     --- its program. The "cosmic" profile adds nothing beside it, since its
     --- grant is of that program's file; two different databases do not
-    --- merge. [`PolicyJson.encode`] writes it with the SHA-256 of the
+    --- merge. The "system" profile cannot be joined with it where this
+    --- program is installed under a directory the profile grants (/usr):
+    --- the grant reaches the program's own file, and the start fails, naming
+    --- it. [`PolicyJson.encode`] writes it with the SHA-256 of the
     --- file, so the text holds what the database is and not only where.
     database: string
   end
@@ -535,6 +539,42 @@ function Sandbox.profile(name: string): Sandbox.Policy | nil, string
       table.concat(PROFILES, ", ") .. ")")
 end
 
+--- The SHA-256 of the database each policy was checked against
+--- ([`Sandbox.expect_digest`]), by the policy table; a merge carries it to
+--- its answer. Weak, so a policy that is dropped takes its entry along.
+local expected: {Sandbox.Policy:string} = setmetatable({}, { __mode = "k" })
+
+--- Records that `policy`, whose `database` was read from text naming
+--- `digest` (the SHA-256 of its bytes, in hex), is to run only on a file
+--- of that digest: [`Sandbox.database_is`] holds a start to it, and a merge
+--- of the policy keeps it. [`PolicyJson.decode`] calls it after
+--- checking the file.
+---
+---     local p: Sandbox.Policy = { database = "/srv/p.db" }
+---     Sandbox.expect_digest(p, string.rep("0", 64))
+function Sandbox.expect_digest(policy: Sandbox.Policy, digest: string)
+  expected[policy] = digest
+end
+
+--- Whether the file at `path` (the merged policy's database, by its real
+--- path) is the one `merged` was checked against: true where it hashes to
+--- the digest [`Sandbox.expect_digest`] recorded for it or for a policy
+--- merged into it, or where none was recorded; otherwise false and why.
+--- [`Child.start`] asks just before it starts the core on the file.
+---
+---     print(Sandbox.database_is({}, "/nowhere")) -- true
+function Sandbox.database_is(merged: Sandbox.Policy, path: string): boolean, string
+  local digest = expected[merged]
+  if digest == nil then return true, "" end
+  local bytes, why = Fs.read(path)
+  if bytes == nil then return false, "database " .. why end
+  if Hash.hex_sha256(bytes) ~= digest then
+    return false, "database " .. path .. " is not the one its policy was checked against: " ..
+      "its SHA-256 has changed since"
+  end
+  return true, ""
+end
+
 --- What the policies given hold together: each one's `profiles` resolved
 --- ([`Sandbox.profile`]) and joined in before the policy's own, then
 --- the grants joined by path (and `from`): the letters of one path are
@@ -595,7 +635,15 @@ function Sandbox.merge(...: Sandbox.Policy): Sandbox.Policy | nil, string
   local tmp = false
   local user, group: integer, integer
   local database: string
+  local vouched: string
   for _, p in ipairs(flat) do
+    local seen = expected[p]
+    if seen ~= nil then
+      if vouched ~= nil and vouched ~= seen then
+        return refuse("database is checked against two digests")
+      end
+      vouched = seen
+    end
     if p.database ~= nil then
       local at = clean_path(p.database)
       if database ~= nil and database ~= at then
@@ -678,12 +726,14 @@ function Sandbox.merge(...: Sandbox.Policy): Sandbox.Policy | nil, string
     end
     digests[name] = nil
   end
-  return {
+  local result: Sandbox.Policy = {
     grants = grants, isolate = isolate, promises = promises,
     connect = connect, loopback = loopback, env = env, set_env = set_env,
     set_env_digests = digests, tmp = tmp, limits = limits,
     user = user, group = group, database = database,
-  }, ""
+  }
+  if vouched ~= nil and database ~= nil then expected[result] = vouched end
+  return result, ""
 end
 
 --- How deep a chain of `#!` interpreters [`Sandbox.loaders`] follows,

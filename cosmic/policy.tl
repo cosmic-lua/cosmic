@@ -82,8 +82,11 @@ local POLICY_SPEC <const> = Shape.strict_record({
 --- A hand-built [`Sandbox.Policy`] is judged by [`Sandbox.merge`]
 --- instead, which takes any order of letters and writes them in this one.
 --- A `database` is `{"path": ..., "sha256": ...}`: the file must be there
---- and hash to that, or the policy is refused, so a decoded policy runs
---- on the database its text names and not one put in its place.
+--- and hash to that, or the policy is refused. The digest is kept with the
+--- policy ([`Sandbox.expect_digest`]), and [`Child.start`] hashes the file
+--- again just before it starts the core on it, refusing one that has
+--- changed; the core opens it by its path after that, so a file swapped in
+--- that instant is not caught.
 ---
 ---     local policy = assert(PolicyJson.decode('{"env":["HOME"],"tmp":true}'))
 ---     print(policy.env[1], policy.tmp) -- HOME  true
@@ -100,6 +103,7 @@ function PolicyJson.decode(json: string): Sandbox.Policy | nil, string
   local ok, bad = Sandbox.check(policy, true)
   if not ok then return nil, bad end
   if database ~= nil then
+    Sandbox.expect_digest(policy, database.sha256)
     local bytes, trouble = Fs.read(database.path)
     if bytes == nil then
       return nil, "sandbox: pointer \"/database/path\": " .. trouble
