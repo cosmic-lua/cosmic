@@ -1354,7 +1354,7 @@ static int place_proc (const char *target, int *own, int strict) {
  * this process's own and its working directory's, and every process's
  * in the namespace whose root was the old one. 0, or an errno.
  * With `strict`, a policy's root: no /tmp but the sized, noexec tmpfs
- * `tmp_bytes` asks for (none for 0), a tmpfs of its own to build on
+ * `tmp_bytes` asks for (none for 0, noexec unless `tmp_exec`), a tmpfs of its own to build on
  * ([`staged`]'s STAGE_ROOT where the user is not mapped), a procfs of
  * its own or the failure of the start, and each path `noexec` flags
  * mounted noexec. With `unix_guard`, where a unix socket is allowed below
@@ -1376,7 +1376,8 @@ static int place_proc (const char *target, int *own, int strict) {
 static int build_root (const char *root, char *const *paths, char *const *names,
                        const char *const *at, const int *writable, const int *noexec,
                        const int *idmapped, int count, int mapped, int noexec_scratch, int strict,
-                       unsigned long tmp_bytes, int unix_guard, const int *unix_ok, int *own) {
+                       unsigned long tmp_bytes, int tmp_exec, int unix_guard, const int *unix_ok,
+                       int *own) {
   int number = 0;
   *own = 0;
   /* A private writable tmpfs needs a mapped owner. Refuse before an
@@ -1409,10 +1410,12 @@ static int build_root (const char *root, char *const *paths, char *const *names,
      * and a sticky bit asked of mkdir is one a `nest` program's filter refuses. */
     if (mkdir(target, 0777) != 0) return errno;
     if (strict) {
-      /* Writable and so never executable, as a grant `rwc` is. */
+      /* Writable and so not executable, as a grant `rwc` is, unless the
+       * caller asked for one run from (`tmp_exec`, a grant `rwxc`). */
       char options[64];
       snprintf(options, sizeof options, "mode=1777,size=%lu", tmp_bytes);
-      if (mount("tmpfs", target, "tmpfs", MS_NOSUID | MS_NODEV | MS_NOEXEC, options) != 0)
+      if (mount("tmpfs", target, "tmpfs", MS_NOSUID | MS_NODEV | (tmp_exec ? 0 : MS_NOEXEC),
+                options) != 0)
         return errno;
     } else if (mapped ? mount("tmpfs", target, "tmpfs", MS_NOSUID | MS_NODEV, "mode=1777") != 0
                       : chmod(target, 01777) != 0 ||
@@ -1611,6 +1614,7 @@ struct spawn_plan {
   int proc_only;
   /* The size of the /tmp of a strict root's own, or 0 for none. */
   unsigned long tmp_bytes;
+  int tmp_exec;
   /* Whether a unix socket is allowed below Landlock ABI 9 on the strength
    * of the root alone ([`grants_ruleset`], a `u` grant): [`build_root`] then
    * fails the start for a path it binds that is a directory, or a socket
@@ -1718,7 +1722,8 @@ static uint64_t grant_rights (unsigned letters, long abi);
  * the ruleset was built from names -- built after it, in the child --
  * the ruleset is given, so it is not left refusing it: the procfs of its
  * own, to read (a program expects /proc/self), and the sized tmpfs at
- * /tmp, to read, write and create, as a grant `rwc` is. The ruleset is
+ * /tmp, to read, write and create, as a grant `rwc` is (and to execute,
+ * as `rwxc` is, with `tmp_exec`). The ruleset is
  * this child's alone, made for its start, so what is added widens no
  * other's. Raw calls only ([`run_program`]). 0, or an errno. */
 static int own_rules (const struct spawn_plan *plan, int ruleset, int own_proc) {
@@ -1726,7 +1731,8 @@ static int own_rules (const struct spawn_plan *plan, int ruleset, int own_proc) 
   if (abi < 1) return abi < 0 ? errno : ENOSYS;
   for (int tmp = 0; tmp < 2; tmp++) {
     if (tmp ? plan->tmp_bytes == 0 : !own_proc) continue;
-    uint64_t rights = tmp ? grant_rights(GRANT_READ | GRANT_WRITE | GRANT_CREATE, abi)
+    uint64_t rights = tmp ? grant_rights(GRANT_READ | GRANT_WRITE | GRANT_CREATE |
+                                         (plan->tmp_exec ? GRANT_EXECUTE : 0), abi)
                           : grant_rights(GRANT_READ, abi);
     int fd = open(tmp ? "/tmp" : "/proc", O_PATH | O_DIRECTORY | O_CLOEXEC);
     if (fd < 0) return errno;
@@ -1955,7 +1961,7 @@ static _Noreturn int start_program (void *argument) {
                                 plan->bound_at, plan->unveiled_writable, plan->unveiled_noexec,
                                 plan->idmap_fds,
                                 plan->unveil_count, start->mapped, plan->noexec_scratch,
-                                plan->strict, plan->tmp_bytes, plan->unix_guard, plan->unveiled_unix, &own_proc));
+                                plan->strict, plan->tmp_bytes, plan->tmp_exec, plan->unix_guard, plan->unveiled_unix, &own_proc));
   }
   if (!failure) failure = drop_capabilities();
   /* Then it gives root up for good, its groups first, while it may.
@@ -3021,8 +3027,8 @@ static int grants_ruleset (const char *const *paths, const unsigned *letters, in
    * beside one, which [`cosmic.child`] refuses).
    * TODO: let a root that binds a directory of the host make a unix socket
    * without a `u` grant below Landlock ABI 9, once the kernels the suite
-   * runs on give ABI 9 (build/test_policy.tl's TODO on the same): below it
-   * nothing tells one socket file of a bound directory from another, so a
+   * runs on give ABI 9: below it nothing tells one socket file of a
+   * bound directory from another, so a
    * program that connected to one a host service put there would reach it. */
   if (unix_bound && offline && (abi >= LANDLOCK_ABI_RESOLVE_UNIX || unix_tmp))
     *held |= COSMIC_HELD_UNIX;
@@ -3522,6 +3528,7 @@ COSMIC_SYSCALL(spawn, 11) {
   int strict = 0, proc_only = 0;
   unsigned sockets = 0;
   unsigned long tmp_bytes = 0;
+  int tmp_exec = 0;
   int dropping = 0;
   uid_t drop_uid = 0;
   gid_t drop_gid = 0;
@@ -3692,6 +3699,13 @@ COSMIC_SYSCALL(spawn, 11) {
         tmp_bytes = (unsigned long)lua_tointeger(L, -1);
       }
       lua_pop(L, 1);
+      lua_pushliteral(L, "tmp_exec");
+      lua_rawget(L, -2);
+      if (!lua_isnil(L, -1)) {
+        if (!lua_isboolean(L, -1)) return luaL_argerror(L, 10, "unveil's tmp_exec must be a boolean");
+        tmp_exec = lua_toboolean(L, -1);
+      }
+      lua_pop(L, 1);
       /* The name each path given is bound at instead of its own. */
       lua_pushliteral(L, "at");
       lua_rawget(L, -2);
@@ -3759,6 +3773,7 @@ COSMIC_SYSCALL(spawn, 11) {
     if (proc_only && unveiling) return luaL_argerror(L, 10, "proc and unveil exclude each other");
     if (tmp_bytes != 0 && !unveiling) return luaL_argerror(L, 10, "unveil's tmp requires unveil");
     if (tmp_bytes != 0 && !strict) return luaL_argerror(L, 10, "unveil's tmp requires strict");
+    if (tmp_exec && tmp_bytes == 0) return luaL_argerror(L, 10, "unveil's tmp_exec requires tmp");
     if (sockets != 0 && !offline)
       return luaL_argerror(L, 10, "sockets require offline: the network namespace is their hold");
     /* What `nest` leaves to the child's own root and pid namespace: its files, which Landlock
@@ -4105,7 +4120,7 @@ COSMIC_SYSCALL(spawn, 11) {
     .promising = promising, .promises = promise_bits, .held = held,
     .rlimit_count = rlimit_count, .rlimits = rlimits,
     .unveiling = unveiling, .offline = offline, .noexec_scratch = noexec_scratch,
-    .strict = strict, .proc_only = proc_only, .tmp_bytes = tmp_bytes, .unix_guard = unix_guard,
+    .strict = strict, .proc_only = proc_only, .tmp_bytes = tmp_bytes, .tmp_exec = tmp_exec, .unix_guard = unix_guard,
     .unveiled_unix = unveiled_unix,
     .sockets = sockets,
     .unveiled_noexec = unveiled_noexec, .root_dir = root_dir,

@@ -1,14 +1,19 @@
 --- Whether the running process may make a unix socket, for the tests of
 --- one: a worker started under the policy path makes one only where
 --- Landlock ABI 9 tells a socket it was granted from another, or its root
---- shows no directory of the host's (which a worker's does, the tree and its
---- scratch directory). Every process it starts inherits its filter, so
---- below ABI 9 none can make one either, whatever root it is started in:
---- a test of a socket file in its scratch directory is skipped there,
---- naming why.
+--- shows no directory of the host's. Below ABI 9 every process it starts
+--- inherits its filter, so none can make one either, whatever root it is
+--- started in. A worker whose module declares nothing that binds a host
+--- directory has such a root ([`build.test_sandbox`]'s `own_scratch`: its
+--- scratch directory is a directory of the sandbox's own tmpfs, the tree
+--- and the store files), and, with a `network` declared, a network
+--- namespace of its own; a module that does not has its tests of a socket
+--- file skipped there, naming the directories its root binds.
 
 local type _net = require("cosmic.net")
+local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
+local confine = require("build.confine")
 local sys = require("cosmic.sys")
 local type raw_socket = require("cosmic.internal.socket")
 
@@ -59,28 +64,78 @@ function unix_socket.available(dir: string): boolean
   return not listens(dir).refused
 end
 
+--- The host directories the running process's root binds, by mount point,
+--- from its mount table: what keeps a worker from a unix socket below
+--- Landlock ABI 9. The root, the sandbox's own /proc and its own /tmp are
+--- not host directories.
+local function bound_directories(): {string}
+  local table_text, _ = Fs.read("/proc/self/mountinfo")
+  local found: {string} = {}
+  for line in (table_text or ""):gmatch("[^\n]+") do
+    -- The fifth field is the mount point.
+    local point = line:match("^%S+ %S+ %S+ %S+ (%S+)")
+    local fstype = line:match(" %- (%S+)")
+    if point ~= nil and point ~= "/" and point ~= "/tmp" and point ~= "/proc" and
+        fstype ~= "proc" then
+      local there, _ = sys.stat(point)
+      if there ~= nil and there.kind == "dir" then found[#found + 1] = point end
+    end
+  end
+  table.sort(found)
+  return found
+end
+
+--- Whether a TCP listener on the loopback is refused, as a worker's filter
+--- refuses it where its module declares no `network`.
+local function listens_inet(): Probe
+  local listener, why, errno = raw_table().listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 1)
+  if listener == nil then
+    return { made = false, refused = errno == sys.EPERM, why = tostring(why) }
+  end
+  local _, _ = listener:close()
+  return { made = true, refused = false, why = "" }
+end
+
 --- Says the running test is skipped ([`Test.skip`]) where the process
 --- cannot make a unix socket in `dir`, and answers true then, for the test
 --- to return; false, having said nothing, where it can. It is skipped only
 --- where the listen is refused (EPERM, the filter's errno), as the seccomp filter of
 --- a policy without a `u` grant refuses `socket`: any other failure falls
---- through, for the test to fail on.
+--- through, for the test to fail on. The reason names the directories the
+--- worker's root binds, which its module's [`Test.needs`] put there:
+--- `system`, `tool`, a directory among its `reads` or `host`, a host cache,
+--- a private `noexec` scratch or `nests`.
 --- @param dir a directory the process may make a socket file in
 --- @return whether the test is skipped
--- TODO: delete this skip, and give each such test the `u` grant it
--- needs, once the kernels the suite runs on give Landlock ABI 9 (the
--- TODOs at core/syscalls.c's `grants_ruleset` and build/test_policy.tl's
--- `base_promises`): below it a worker that is granted a unix socket may
--- be granted no directory, so a socket file in its scratch directory
--- cannot be reached. Or once a worker's root is a tmpfs of its own and
--- files alone (a start's root then holds unix sockets by itself,
--- core/syscalls.c's `grants_ruleset`), whose filter then allows them.
+-- TODO: let a worker whose module declares `nests` make a unix socket
+-- too: core/syscalls.c sets COSMIC_HELD_UNIX only for a start held by a
+-- Landlock ruleset (`grants_ruleset`), and a start that promises `nest` has
+-- none; where its root shows no directory or socket of the host it could be
+-- held by the root alone, as it is below ABI 9. The tests of a nested root's
+-- own sockets (core/promises_held_child_test.tl,
+-- cosmic/child_policy_isolate_test.tl) are skipped under the policy path until then.
 function unix_socket.skipped(dir: string): boolean
   local tried = listens(dir)
   if not tried.refused then return false end
-  Test.skip("the worker cannot make a unix socket (" .. tried.why .. "): its root binds host " ..
-      "directories, which hold a unix socket by Landlock ABI 9 alone, and every process it starts " ..
-      "inherits its filter")
+  local reasons: {string} = {}
+  if sys.getenv(confine.held_variable) == nil then
+    reasons[#reasons + 1] = "its module declares `nests`, so no Landlock ruleset holds the worker " ..
+      "and its filter allows no unix socket"
+  end
+  local inet = listens_inet()
+  if inet.refused then
+    reasons[#reasons + 1] = "its module declares no `network`, so it has no network namespace of " ..
+      "its own, which a unix socket needs to be held"
+  end
+  local directories = bound_directories()
+  if #directories > 0 then
+    reasons[#reasons + 1] = "its root binds the host directories " .. table.concat(directories, ", ") ..
+      ", which only Landlock ABI 9 can hold a unix socket beside (a `system`, `tool`, host cache, " ..
+      "`noexec` or directory `reads`/`host` declaration puts one there)"
+  end
+  if #reasons == 0 then reasons[1] = "its root is not one a unix socket is held in" end
+  Test.skip("the worker cannot make a unix socket (" .. tried.why .. "): " ..
+      table.concat(reasons, "; "))
   return true
 end
 

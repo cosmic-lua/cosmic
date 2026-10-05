@@ -2030,6 +2030,8 @@ local function test_a_policys_sandbox_fields_are_checked_before_a_start()
   says(refused_sandbox({ promises = {}, sockets = "inet" }), "sockets must be a list")
   says(refused_sandbox({ unveil = { tmp = 0 } }), "unveil's tmp is a size in bytes")
   says(refused_sandbox({ unveil = { tmp = "big" } }), "unveil's tmp is a size in bytes")
+  says(refused_sandbox({ unveil = { tmp_exec = 1 } }), "unveil's tmp_exec must be a boolean")
+  says(refused_sandbox({ unveil = { tmp_exec = true } }), "unveil's tmp_exec requires tmp")
 end
 
 local function test_unveils_binds_are_checked_before_a_start()

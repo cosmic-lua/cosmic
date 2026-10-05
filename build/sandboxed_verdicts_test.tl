@@ -471,6 +471,10 @@ end
 local function test_a_verdict_whose_inputs_moved_as_it_ran_is_not_kept(tmp: string)
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/suite"))
+  -- A directory it reads, which keeps its worker's directory on the host,
+  -- where this test finds it: with none in its root a worker has its
+  -- directory in a tmpfs of its own (build/test_sandbox.tl's `own_scratch`).
+  assert(Fs.mkdirs(root .. "/keep"))
   assert(Fs.write(root .. "/suite/moving.txt", "one\n"))
   -- It says it started, and fails if what it reads moves before it is
   -- stopped (or 20 s pass, a bound no run here reaches).
@@ -479,7 +483,7 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "suite/moving.txt" } }
+Test.needs { reads = { "suite/moving.txt", "keep" } }
 
 local function test_moving(tmp: string)
   local was = Fs.read("suite/moving.txt")

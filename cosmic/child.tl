@@ -282,7 +282,9 @@ local record Options
   ---   run by its real path. Beside them the root has a /proc of its own
   ---   (see `proc`), the links /dev/fd and /dev/stdin, /dev/stdout and
   ---   /dev/stderr into it, and, with `tmp`, a /tmp that is a tmpfs of 256
-  ---   MiB, noexec, `TMPDIR` naming it, gone with the sandbox. Landlock
+  ---   MiB, noexec unless a grant of "/tmp" with no `from` has the letters
+  ---   `rwxc`, `TMPDIR` naming it (or a `set_env` TMPDIR beneath /tmp,
+  ---   which the program makes), gone with the sandbox. Landlock
   ---   holds the same grants from inside, with the root's own /proc and
   ---   /tmp added to it; it cannot list the root's directories above a
   ---   grant. A `u` grant is held by Landlock ABI 9 where there is one;
@@ -2352,7 +2354,8 @@ end
 --- own /proc; `idmap` says which are mounted idmapped ([`reached_by`]).
 --- With `nest`, which has no Landlock to refuse running a file, every grant
 --- without `x` is noexec. Nil and why where a grant cannot be placed.
-local function root_of(merged: Rules.Policy, base: string, idmap: {boolean}, nest: boolean): raw_process.Unveil | nil, string
+local function root_of(merged: Rules.Policy, base: string, idmap: {boolean}, nest: boolean,
+                       tmp_exec: boolean): raw_process.Unveil | nil, string
   local binds: {raw_process.Bind} = {}
   local reads: {string} = {}
   local proc = true
@@ -2364,7 +2367,8 @@ local function root_of(merged: Rules.Policy, base: string, idmap: {boolean}, nes
     end
     if merged.tmp and (name == "/tmp" or name == "/") then
       return nil, "grant \"" .. grant.path .. "\" is the name of the sandbox's own /tmp, " ..
-        "which tmp makes: grant what is beneath it, or leave tmp out"
+        "which tmp makes: grant what is beneath it, or leave tmp out, or grant \"/tmp\" " ..
+        "itself with no `from`, for its letters"
     end
     if name == "/proc" or name == "/" then proc = false end
     local writable = lettered(grant.letters, "w") or lettered(grant.letters, "c")
@@ -2375,7 +2379,7 @@ local function root_of(merged: Rules.Policy, base: string, idmap: {boolean}, nes
   if proc then reads[1] = "/proc" end
   local tmp: integer
   if merged.tmp then tmp = TMP_BYTES end
-  return { reads = reads, writes = {}, binds = binds, tmp = tmp }, ""
+  return { reads = reads, writes = {}, binds = binds, tmp = tmp, tmp_exec = tmp_exec or nil }, ""
 end
 
 --- Why a `u` grant cannot be held under `isolate` file, or "". Below
@@ -2825,6 +2829,27 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
   local file = isolates(merged, "file")
   local proc = isolates(merged, "proc")
   local nest = nests(merged)
+  -- Under `isolate` file, `tmp` makes the sandbox's own /tmp, which a grant
+  -- of "/tmp" with no `from` is the letters of: `rwc`, which is what it is,
+  -- or `rwxc`, a /tmp that may run what is made there. It is no bind of the
+  -- host's /tmp, so it is no grant of the root's.
+  local tmp_exec = false
+  if file and merged.tmp then
+    local others: {Rules.Grant} = {}
+    for _, grant in ipairs(merged.grants) do
+      if grant.from == nil and named(grant.path, "/") == "/tmp" then
+        if grant.letters ~= "rwc" and grant.letters ~= "rwxc" then
+          return nil, "sandbox: grant \"" .. grant.path .. "\" (" .. grant.letters .. ") is the " ..
+            "sandbox's own /tmp, which tmp makes: it is `rwc`, and `rwxc` where the program is to " ..
+            "run what it makes there"
+        end
+        tmp_exec = lettered(grant.letters, "x")
+      else
+        others[#others + 1] = grant
+      end
+    end
+    merged.grants = others
+  end
   -- The directory the root of `isolate` file is built around, and the one
   -- the program starts in there: the caller's (or `cwd`'s) real path, which
   -- is what the grants' names are relative to.
@@ -2892,7 +2917,7 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
     if unheld ~= "" then return nil, "sandbox: " .. unheld end
   end
   if file then
-    local made, root_trouble = root_of(merged, base, idmap, nest)
+    local made, root_trouble = root_of(merged, base, idmap, nest, tmp_exec)
     if made == nil then return nil, "sandbox: " .. root_trouble end
     root = made
   end
@@ -2993,7 +3018,20 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
     group = user ~= nil and drop == nil and user.gid or nil }
   if root ~= nil then
     sandbox.unveil = root
-    if merged.tmp then env.TMPDIR = "/tmp" end
+    if merged.tmp then
+      -- A normalized path beneath /tmp (no empty, `.` or `..` component)
+      -- that `set_env` names stays TMPDIR: the program makes it, in the /tmp
+      -- it has. Any other value is /tmp.
+      local chosen = merged.set_env.TMPDIR
+      local normal = chosen ~= nil and chosen:find("^/tmp/[^/]") ~= nil
+      if normal then
+        for part in chosen:gmatch("[^/]*") do
+          if part == "." or part == ".." then normal = false end
+        end
+        normal = normal and chosen:find("//", 1, true) == nil and chosen:sub(-1) ~= "/"
+      end
+      if not normal then env.TMPDIR = "/tmp" end
+    end
   end
   return { path = path, env = env, tmp = "", wants_tmp = merged.tmp and not file,
     sandbox = sandbox, cwd = file and base or nil, user = user, drop = drop, nests = nest,

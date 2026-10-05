@@ -577,8 +577,15 @@ local function test_an_interrupted_sandboxed_run_ends_its_workers(tmp: string)
   local root, temp = tmp .. "/root", assert(Fs.absolute(tmp)) .. "/temp"
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.mkdirs(temp))
+  -- A directory its tests read, which keeps their workers' directories on
+  -- the host, where this test finds them: with none in its root a worker
+  -- has its directory in a tmpfs of its own (build/test_sandbox.tl's
+  -- `own_scratch`).
+  assert(Fs.mkdirs(root .. "/keep"))
   assert(Fs.write(root .. "/suite/held_test.tl", [[
 local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
+Test.needs { reads = { "keep" } }
 local function hold(tmp: string)
   assert(Fs.write(tmp .. "/kept", "x"))
   while true do end

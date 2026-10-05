@@ -561,9 +561,12 @@ local function test_a_long_comment_in_small_chunks_reads_in_linear_time()
     end
   end
   -- Many short line comments in one chunk: each costs its own length, so
-  -- four times the comments take about four times as long, where a scan
-  -- of the rest of the chunk for each takes sixteen. A ratio holds on
-  -- every core, the checked one too, where a bound in seconds would not.
+  -- sixteen times the comments take about sixteen times as long, where a
+  -- scan of the rest of the chunk for each takes two hundred and fifty-six.
+  -- The bound is between them, a geometric mean, so a runner whose
+  -- per-comment cost grows some with the chunk (cache, allocator) and one
+  -- that is busy stay clear of it; a ratio holds on every core, the
+  -- checked one too, where a bound in seconds would not.
   for _, comment in ipairs({ "// c\n", "# c\n", "// c\u{2028}", "// \xe2\x80\n" }) do
     local function read(n: integer): integer
       local r = Json.reader(Stream.from_string("[" .. string.rep("1, " .. comment, n) .. "2]"), BOTH)
@@ -579,9 +582,10 @@ local function test_a_long_comment_in_small_chunks_reads_in_linear_time()
       assert(count == n + 3)
       return Clock.now_ns() - started
     end
-    -- The faster of two runs each, so a pause in one does not count.
-    local few, many = math.min(read(2500), read(2500)), math.min(read(10000), read(10000))
-    assert(many < 8 * few, ("%q: 10,000 comments took %d ns, 2,500 %d"):format(comment, many, few))
+    -- The fastest of three runs each, so a pause in one does not count.
+    local few = math.min(read(1000), read(1000), read(1000))
+    local many = math.min(read(16000), read(16000), read(16000))
+    assert(many < 64 * few, ("%q: 16,000 comments took %d ns, 1,000 %d"):format(comment, many, few))
   end
   local text = "[" .. string.rep("1, /* c */ ", 10000) .. "2]"
   local r = Json.reader(chunked("[" .. text .. "]", 1), JSON5)

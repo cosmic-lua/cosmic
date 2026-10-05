@@ -21,7 +21,13 @@
 ---   a name padded to `scratch_length`, writable: the test's own
 ---   directory (`tmp` there, a link to `real` beside it), where
 ---   the processes it starts write their coverage (`children` there), and
----   its TMPDIR;
+---   its TMPDIR. Under a policy ([`build.test_policy`]), where the module
+---   declares nothing that binds a directory of the host -- no `system`,
+---   `tool`, `nests`, host cache or `noexec`, and no directory among its
+---   `reads` and `host` -- that directory is not the host's: the worker
+---   makes it in the sandbox's own /tmp at the same name ([`Plan`]'s
+---   `own_scratch`), so its root shows files alone, which holds a unix
+---   socket it makes below Landlock ABI 9;
 --- - the host caches the module declares ([`build.caches`]), writable,
 ---   each at its own name, made first where missing, and the variables
 ---   that locate them -- but for the cores a portable cosmic extracts,
@@ -122,6 +128,14 @@ local record test_sandbox
     --- declares it reads of the tree or the host (o/bin for `tool`) that
     --- the mode of a file lets run. Empty otherwise.
     runs: {string:boolean}
+    --- Of a plan made for the policy path, whether the worker's scratch
+    --- directory is a directory of its own in the sandbox's tmpfs
+    --- (`own_scratch`) rather than a bind of the host's, and, where it is
+    --- not, what put a directory of the host in the worker's root, which
+    --- keeps it from a unix socket below Landlock ABI 9 ("" for
+    --- nothing).
+    own_scratch: boolean
+    why_shared: string
   end
 end
 
@@ -582,6 +596,44 @@ local function trimmed(path: string): string
   return out == "" and "/" or out
 end
 
+--- Why a worker of `effective` is not given a scratch directory of its own
+--- in the sandbox's tmpfs ([`Plan.own_scratch`]), or "": what its module
+--- declares that puts a directory of the host in its root, whose sockets a
+--- program that makes its own cannot be told from below Landlock ABI 9
+--- (core/syscalls.c's `root_shows_no_socket`). The declaration decides,
+--- with the kind of the paths it names on this host, which the module's key
+--- records already ([`build.declared_key`]): `system`, `tool` (o/bin),
+--- `nests`, a host `caches` or a private `noexec` scratch, and a `reads`
+--- or `host` path that is a directory (or a socket) here. The paths are
+--- those `reads` came to, the worker's.
+--- @param effective what the module declares
+--- @param reads the host paths the plan binds
+--- @return why, "" for none
+local function why_shared_scratch(effective: test_inputs.Effective, reads: {string}): string
+  if effective.system then
+    return "it declares `system`, which gives it the system's directories"
+  end
+  if effective.tool then return "it declares `tool`, which gives it the directory o/bin" end
+  if effective.nests then
+    return "it declares `nests`, which gives up the Landlock ruleset its unix sockets are held by"
+  end
+  if effective.noexec then
+    return "it declares `noexec`, whose private scratch is a bind of a host directory"
+  end
+  if #(effective.caches or {}) > 0 then
+    return "it declares the host cache " .. effective.caches[1] .. ", a directory it writes"
+  end
+  for _, path in ipairs(reads) do
+    local there, _ = sys.stat(path)
+    if there ~= nil and (there.kind == "dir" or there.kind == "socket") and
+        path ~= "/proc" then
+      return "it reads " .. path .. ", " .. (there.kind == "dir" and "a directory" or "a socket") ..
+        " (a `reads` or `host` path of its Test.needs): give the files it reads, not a directory"
+    end
+  end
+  return ""
+end
+
 --- The sandbox a worker of the tree at `root` runs a test of the module
 --- `effective` holds the inputs of in, its scratch directory `scratch`,
 --- with the runner's view of a worker's environment `environment`, and
@@ -818,6 +870,16 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
       if not owned and refused == "" then refused = path .. ": " .. why end
     end
   end
+  -- Where nothing of the host's but files is in its root, its scratch
+  -- directory is the sandbox's own tmpfs's, made by the worker at the same
+  -- name, not a bind of the host's.
+  local why_shared = "its worker is not started under a policy"
+  if policy then why_shared = why_shared_scratch(effective, reads) end
+  local own_scratch = policy == true and why_shared == ""
+  if own_scratch then
+    writes = {}
+    at[scratch] = nil
+  end
   local over = math.max(0, #reads + #writes - UNVEIL_MAX)
   -- Offline, always: a module declares only loopback addresses, which
   -- the worker's own loopback answers as the host's would. Keying it is
@@ -842,6 +904,8 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     program = program,
     start = user ~= nil and worker_copy.start or nil,
     runs = runs,
+    own_scratch = own_scratch,
+    why_shared = why_shared,
   }
 end
 

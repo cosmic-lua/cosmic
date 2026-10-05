@@ -11,6 +11,7 @@
 --- (Test.skip); off Linux, which has no sandbox to give, it returns
 --- at once.
 
+local type Sandbox = require("cosmic.sandbox")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
@@ -294,6 +295,61 @@ local function test_a_run_under_a_policy_passes_what_is_declared_and_fails_what_
       "COSMIC_TEST_POLICY=0 for the sandbox's own", 1, true), both)
 end
 
+--- A worker whose module declares nothing that puts a directory of the host
+--- in its root -- no `system`, `tool`, `nests`, host cache or `noexec`, no
+--- directory among its `reads` or `host` -- has its scratch directory in the
+--- sandbox's own /tmp, and so a root of files alone: its policy has `tmp`, "/tmp"
+--- granted `rwxc` and no grant of a host directory, and its plan binds none.
+--- Any of those declarations gives the plan the host's directory, and says which.
+local function test_a_plan_gives_a_scratch_of_its_own_only_where_no_host_directory_is_declared(tmp: string)
+  local root, scratch = tmp .. "/root", scratch_in(tmp)
+  assert(Fs.mkdirs(root .. "/o/bin"))
+  assert(Fs.mkdirs(root .. "/data"))
+  assert(Fs.write(root .. "/o/cosmic.db", "x"))
+  assert(Fs.write(root .. "/file.txt", "x"))
+  local function planned(inputs: test_inputs.Effective, policy: boolean): test_sandbox.Plan
+    local made = test_sandbox.plan(root, scratch, inputs, {}, nil, policy)
+    assert(made.trouble == "", made.trouble)
+    return made
+  end
+  local bare = effective({})
+  local own = planned(bare, true)
+  assert(own.own_scratch and own.why_shared == "", own.why_shared)
+  assert(#own.sandbox.unveil.writes == 0 and own.sandbox.unveil.at[scratch] == nil)
+  local policy = assert(test_policy.worker(own, bare))
+  assert(policy.tmp == true)
+  local tmp_grant: Sandbox.Grant = nil
+  for _, grant in ipairs(policy.grants) do
+    assert(grant.from == nil or grant.from ~= scratch, "a bind of the host's scratch directory")
+    if grant.path == "/tmp" then tmp_grant = grant end
+  end
+  assert(tmp_grant ~= nil and tmp_grant.letters == "rwxc")
+  -- A file read is no directory.
+  local file = effective({})
+  file.reads = { "file.txt" }
+  assert(planned(file, true).own_scratch)
+  -- The older sandbox's plan is the host's directory, always.
+  local old = planned(bare, false)
+  assert(not old.own_scratch and old.sandbox.unveil.writes[1] == scratch)
+  local policy_of_old = assert(test_policy.worker(old, bare))
+  assert(policy_of_old.tmp == nil)
+  -- Each declaration that puts a directory in the root keeps the host's.
+  local function shared(change: function(test_inputs.Effective), word: string)
+    local inputs = effective({})
+    change(inputs)
+    local made = planned(inputs, true)
+    assert(not made.own_scratch and made.why_shared:find(word, 1, true), word .. ": " .. made.why_shared)
+    assert(made.sandbox.unveil.writes[1] == scratch)
+    local held = assert(test_policy.worker(made, inputs))
+    assert(held.tmp == nil, word)
+  end
+  shared(function(inputs: test_inputs.Effective) inputs.system = true end, "`system`")
+  shared(function(inputs: test_inputs.Effective) inputs.tool = true end, "`tool`")
+  shared(function(inputs: test_inputs.Effective) inputs.nests = true end, "`nests`")
+  shared(function(inputs: test_inputs.Effective) inputs.reads = { "data" } end, root .. "/data")
+  shared(function(inputs: test_inputs.Effective) inputs.host = { "/dev" } end, "/dev")
+end
+
 --- A module that declares neither `tool` nor `nests` is kept from running the
 --- program its worker was started from, as the default sandbox keeps it, though
 --- the policy granted it to start the worker: it is refused.
@@ -319,6 +375,66 @@ end
   if unsandboxed(text) then return end
   assert(ok, text)
   assert(not text:find("COSMIC_TEST_POLICY=0: each worker", 1, true), text)
+end
+
+--- End to end: a worker that declares nothing that puts a directory of the
+--- host in its root has its directory at the padded name in a tmpfs of its own,
+--- `tmp` a link to `real` there, TMPDIR naming it, and a root of files and that
+--- tmpfs alone. The runner has no directory for it, so a failure says that, not
+--- a path that does not exist. (Its unix socket is build/test_own_scratch_test.tl's:
+--- a worker of this module declares `nests`, so it makes none, and neither does
+--- any it starts.)
+local function test_a_worker_with_no_host_directory_has_a_scratch_of_its_own(tmp: string)
+  if no_sandbox_here() or test_policy.unmet() ~= "" then return end
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.write(root .. "/suite/own_test.tl", [[
+local Fs = require("cosmic.fs")
+local sys = require("cosmic.sys")
+local Test = require("cosmic.test")
+
+Test.needs {}
+
+local function test_the_directory_is_its_own_at_the_padded_name(tmp: string)
+  local scratch = assert(sys.getenv("TMPDIR"))
+  assert(#scratch == 80 and scratch:find("/", 8, true) == nil and scratch:find("-", 1, true), scratch)
+  assert(tmp == scratch .. "/tmp", tmp)
+  local link = assert(sys.lstat(tmp))
+  assert(link.kind == "link" and assert(sys.readlink(tmp)) == "real")
+  assert(assert(sys.lstat(scratch .. "/real")).kind == "dir")
+  -- Its root holds files and its own /tmp: no mount of a directory but them.
+  local table_text = assert(Fs.read("/proc/self/mountinfo"))
+  local seen_tmp = false
+  for line in table_text:gmatch("[^\n]+") do
+    local point = line:match("^%S+ %S+ %S+ %S+ (%S+)")
+    if point == "/tmp" then
+      seen_tmp = true
+      assert(line:find(" - tmpfs ", 1, true), line)
+    elseif point ~= "/" and point ~= "/proc" and not line:find(" - proc ", 1, true) then
+      local there = assert(sys.stat(point))
+      assert(there.kind ~= "dir", "a directory of the host: " .. point)
+    end
+  end
+  assert(seen_tmp)
+end
+
+local function test_a_failure_says_where_its_directory_went()
+  assert(false, "failed on purpose")
+end
+]]))
+  local env = environment()
+  local text, ok = run(root, tmp .. "/own", env, { "--all", "suite/own_test.tl" })
+  if unsandboxed(text) then return end
+  assert(not ok, text)
+  assert(names_policy_path(text), text)
+  assert(text:find("1 of 2 failed", 1, true), text)
+  assert(text:find("failed on purpose", 1, true), text)
+  assert(text:find("its directory was a tmpfs of its worker's own, gone with it", 1, true), text)
+  assert(not text:find("its directory is kept:", 1, true), text)
+  -- Asked for the older sandbox, the host keeps it, as ever.
+  env.COSMIC_TEST_POLICY = "0"
+  local old, old_ok = run(root, tmp .. "/old", env, { "--all", "suite/own_test.tl" })
+  assert(not old_ok and old:find("its directory is kept: ", 1, true), old)
 end
 
 --- A module that declares `nests` starts and passes under the policy: its

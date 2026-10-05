@@ -224,6 +224,41 @@ local function test_tmp_under_isolate_file_is_a_tmpfs_of_the_sandboxs_own(tmp: s
   assert(gone.code == 1, gone.said)
 end
 
+local function test_a_grant_of_tmp_with_x_makes_the_sandboxs_own_tmp_executable(tmp: string)
+  local at = placed(tmp)
+  local script = "mkdirs /tmp/mine && copy " .. at.probe .. " /tmp/mine/p && chmod /tmp/mine/p 755 " ..
+    "&& env-of TMPDIR && run /tmp/mine/p print"
+  local plain: Sandbox.Policy = { isolate = { "file" }, tmp = true, set_env = { TMPDIR = "/tmp/mine" },
+    promises = { "fattr", "fork" }, grants = at.grants }
+  local refused = under(at.probe, plain, at.work, script)
+  if refused == nil then return end
+  -- No letters of its own: noexec, and a TMPDIR beneath /tmp that set_env names stays.
+  assert(refused.code ~= 0 and refused.said:find("TMPDIR=/tmp/mine\n", 1, true), refused.said)
+  local run_here: Sandbox.Policy = { isolate = { "file" }, tmp = true, set_env = { TMPDIR = "/tmp/mine" },
+    promises = { "fattr", "fork" }, grants = with(at.grants, { path = "/tmp", letters = "rwxc" }) }
+  local mounts = under(at.probe, run_here, at.work, "cat /proc/self/mountinfo")
+  local held = mount_at(mounts.said, "/tmp")
+  assert(held ~= nil and held[2] == "tmpfs" and not held[1]:find("noexec", 1, true), mounts.said)
+  local ran = under(at.probe, run_here, at.work, script)
+  assert(ran.code == 0 and ran.said:find("^TMPDIR=/tmp/mine\n"), ran.said)
+  -- A TMPDIR outside /tmp is /tmp, as it was.
+  local elsewhere: Sandbox.Policy = { isolate = { "file" }, tmp = true, set_env = { TMPDIR = "/var/x" },
+    grants = at.grants }
+  local named = under(at.probe, elsewhere, at.work, "env-of TMPDIR")
+  assert(named.said == "TMPDIR=/tmp\n", named.said)
+  for _, bad in ipairs({ "/tmp/../etc", "/tmp/./x", "/tmp/a/../b" }) do
+    local odd_dir: Sandbox.Policy = { isolate = { "file" }, tmp = true, set_env = { TMPDIR = bad },
+      grants = at.grants }
+    local reset = under(at.probe, odd_dir, at.work, "env-of TMPDIR")
+    assert(reset.said == "TMPDIR=/tmp\n", bad .. ": " .. reset.said)
+  end
+  -- /tmp has no other letters than the two.
+  local odd: Sandbox.Policy = { isolate = { "file" }, tmp = true,
+    grants = with(at.grants, { path = "/tmp", letters = "r" }) }
+  local why = select(2, Child.run({ at.probe, "print x" }, { policy = odd, cwd = at.work }))
+  assert(tostring(why):find("sandbox's own /tmp, which tmp makes", 1, true), tostring(why))
+end
+
 local function test_isolate_proc_alone_has_its_own_proc_and_the_hosts_files_by_grants(tmp: string)
   local at = placed(tmp)
   local policy: Sandbox.Policy = { isolate = { "proc" },
