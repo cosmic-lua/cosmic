@@ -244,6 +244,52 @@ of delayed cold-journal materialization for that working database remains a
 follow-up. It has no established cause or fix, and does not change the
 portable artifact's immutable database contract.
 
+## run a core against a database of its own
+
+A program is a core plus a database. The portable artifact and the host
+program carry the database in their own file; the split form keeps it apart.
+A bare native core started as `core --database <path> [program args]` opens
+the file at `<path>` as the program's database and runs the module its `main`
+meta row names, with the arguments that follow the path. The option is taken
+only as the first argument, and only by a bare core: a launcher's private
+environment is read first, and a host program's own first argument stays its
+own. A bare core has no program arguments of its own but `--boot`, so nothing
+else claims it.
+
+There is no manifest, launcher or artifact descriptor. [`core/main.c`](../../core/main.c)
+opens the path read-only with `immutable=1` through SQLite's default VFS, not
+[`core/vfs.c`](../../core/vfs.c)'s range, and installs it in the store's last
+slot, so reserved names and the `main` meta row resolve from it exactly as
+they do from an embedded database. `require` finds that database's modules
+alone, [`Store.databases()`] holds it alone, [`Store.requires`] reads it, and
+[`Store.attach`] still searches a new database ahead of it.
+
+The runtime's identity is the database's `meta` rows and the core hashing
+itself. The writer records the digest of the core the database is for in
+`core_sha256` (the core's sha256 in hex, as `Store.meta("host_image")` names
+it for a running core). Startup hashes the core it is, compares the two, and
+refuses a mismatch, so a database never runs on another core. `host_image` is
+that digest, `runtime` is made of it and the database's `runtime_basis` as
+for a portable artifact, `runtime_context` is `database-v1`, and `artifact` is
+the database's absolute path, links resolved.
+
+Every refusal exits 2 with `cosmic: --database <path>: <reason>` and falls
+back to nothing: a path that cannot be opened, that is not a regular file, a
+file SQLite does not read as a database, a database with no `main` row, one
+that records no `core_sha256` or a malformed one, and one written for another
+core.
+
+[`Proc.relaunch`] from such a process is the core, `--database` and the
+database's absolute path, with no environment and no descriptors to hand on,
+so a child started from it by [`Child.start`] runs on the same database. The
+retained descriptor of a split start is its core, which every binding that
+takes a descriptor refuses as it does a portable artifact's.
+
+Nothing in the process protects the database file: it is an ordinary file the
+program may read like any other, by design, since its modules are the
+program's own. What confines it is the sandbox's, which a policy names
+separately; the core only reads it.
+
 ## build a project with the same prefix
 
 `cosmic build` enters [`build.embed`](../../build/embed.tl). It stages and
@@ -420,11 +466,15 @@ manifest: names the running core
 
 [`artifact.program`]: ../../build/artifact.tl
 [`build.artifact.trusted_prefix`]: ../../build/artifact.tl
+[`Child.start`]: ../../cosmic/child.tl
 [`ci/cosmic_ci/orchestration.tl`]: ../../ci/cosmic_ci/orchestration.tl
 [`core/bridge.lua`]: ../../core/bridge.lua
 [`core/check.h`]: ../../core/check.h
 [`embed.tree`]: ../../build/embed.tl
 [`Proc.executable()`]: ../../cosmic/proc.tl
 [`Proc.relaunch`]: ../../cosmic/proc.tl
+[`Store.attach`]: ../../cosmic/store.tl
+[`Store.databases()`]: ../../cosmic/store.tl
+[`Store.requires`]: ../../cosmic/store.tl
 [`Test.needs`]: ../../cosmic/test.tl
 [`writer.carried`]: ../../build/writer.tl

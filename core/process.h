@@ -268,6 +268,7 @@ COSMIC_SYSCALL(exit_watch, 1);
  * ---@class Relaunch
  * ---@field path string the running core's own path, to execute
  * ---@field host boolean|nil true for a host program, which needs nothing but its path; the fields below are then absent
+ * ---@field database string|nil the absolute path of the database a core started with `--database` runs against, which with `path` is all that is needed; the fields below are then absent
  * ---@field artifact string|nil the artifact's logical path, the core's `--artifact` argument
  * ---@field artifact_fd integer|nil this process's retained artifact descriptor, for the child's artifact descriptor
  * ---@field core_fd integer|nil a new descriptor on the running core, closed on exec, for the child's core descriptor

@@ -31,4 +31,11 @@ int cosmic_vfs_register (const char *path, int fd, int64_t offset,
  * Returns false when the URI does not fit in `room`. */
 bool cosmic_vfs_uri (char *into, size_t room, const char *path);
 
+/* Writes the `file:` URI that opens `path` through the default VFS,
+ * read-only and immutable, for a database file of its own rather than a
+ * range of the artifact. Every byte of `path` but an unreserved one or a
+ * slash is percent-escaped, so nothing in it is read as URI syntax, a
+ * `vfs=` among it. Returns false when the URI does not fit in `room`. */
+bool cosmic_database_uri (char *into, size_t room, const char *path);
+
 #endif
