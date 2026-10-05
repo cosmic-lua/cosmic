@@ -26,7 +26,14 @@ local Clock = require("cosmic.clock")
 --- whose core a program it builds runs on.
 --- `store`: [`embed.database`] reads every `cosmic.*` module's rows, and
 --- `docs` searches them.
-Test.needs{ reads = { "vendor/cacert/", "vendor/tzdata/" }, tool = true, store = true }
+Test.policy{
+  profiles = { "cosmic" },
+  grants = {
+    { path = "vendor/cacert/", letters = "r" },
+    { path = "vendor/tzdata/", letters = "r" },
+    { path = "o/cosmic.db", letters = "r" },
+  },
+}
 
 local bundle <const> = "vendor/cacert/cacert.pem"
 local zones <const> = "vendor/tzdata/zoneinfo"

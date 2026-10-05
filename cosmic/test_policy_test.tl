@@ -55,6 +55,19 @@ local SAME: {{string}} = {
     'Test.policy { env = { "PATH", "HOME", "PATH" } }' },
   { 'Test.needs { network = { "127.0.0.1", "127.0.0.2" } }',
     'Test.policy { loopback = { "127.0.0.1", "127.0.0.2" } }' },
+  -- Three grants are the fields they stand for, not reads.
+  { "Test.needs { store = true }",
+    'Test.policy { grants = { { path = "o/cosmic.db", letters = "r" } } }' },
+  { "Test.needs { noexec = true }",
+    'Test.policy { grants = { { path = "/noexec", letters = "rwc" } } }' },
+  { 'Test.needs { caches = { "zig" } }',
+    'Test.policy { grants = { { path = "/cache/zig", letters = "rwxc" } } }' },
+  { 'Test.needs { caches = { "zig", "bootstrap" }, reads = { "a" }, store = true, ' ..
+      'noexec = true, host = { "/etc/hosts" } }',
+    'Test.policy { grants = { { path = "/cache/zig", letters = "rwxc" }, ' ..
+      '{ path = "a", letters = "r" }, { path = "/noexec", letters = "rwc" }, ' ..
+      '{ path = "/cache/bootstrap", letters = "rwxc" }, ' ..
+      '{ path = "o/cosmic.db", letters = "r" }, { path = "/etc/hosts", letters = "r" } } }' },
   -- A promise with no `needs` field changes no key before the filter runs.
   { "Test.needs { }", 'Test.policy { promises = { "fork", "jit", "fattr" }, tmp = true }' },
   { 'Test.needs { reads = { "testdata" }, system = true, tool = true, nests = true, ' ..
@@ -109,6 +122,22 @@ local function test_a_policy_with_no_needs_is_refused()
     { "Test.policy { user = 1000 }", "test.policy: user is refused: the harness chooses" },
     { "Test.policy { user = 1000, group = 1000 }", "is refused: the harness chooses" },
     { 'Test.policy { user = "me" }', "test.policy: user takes a whole number" },
+    { 'Test.policy { grants = { { path = "o/cosmic.db", letters = "rw" } } }',
+      'test.policy: grants[1].path o/cosmic.db is the store, granted { path = "o/cosmic.db"' },
+    { 'Test.policy { grants = { { path = "o/cosmic.db", letters = "r", from = "x" } } }',
+      "test.policy: grants[1].path o/cosmic.db is the store" },
+    { 'Test.policy { grants = { { path = "/noexec", letters = "rwxc" } } }',
+      'test.policy: grants[1].path /noexec is the private scratch the harness gives, granted ' ..
+        '{ path = "/noexec", letters = "rwc" }' },
+    { 'Test.policy { grants = { { path = "/noexec", letters = "rwc", from = "/t" } } }',
+      "test.policy: grants[1].path /noexec is the private scratch" },
+    { 'Test.policy { grants = { { path = "/cache/zig", letters = "rwc" } } }',
+      'test.policy: grants[1].path /cache/<name> is a host cache, granted { path = "/cache/<name>", ' ..
+        'letters = "rwxc" }' },
+    { 'Test.policy { grants = { { path = "/cache/zig", letters = "rwxc", from = "/t" } } }',
+      "test.policy: grants[1].path /cache/<name> is a host cache" },
+    { 'Test.policy { grants = { { path = "/cache/nope", letters = "rwxc" } } }',
+      "test.policy: grants[1].path /cache/nope: no cache nope; the caches are bootstrap, zig" },
     { 'Test.policy { grants = { { path = "d", letters = "rwc" } } }',
       'test.policy: grants[1].letters "rwc" is not yet taken' },
     { 'Test.policy { grants = { { path = "d", letters = "rx" } } }',
@@ -144,6 +173,7 @@ local function test_a_policy_with_no_needs_is_refused()
     -- too; one it refuses for an entry's own rule (a path, an address),
     -- as `needs` is, the worker takes as it takes `needs`.
     if not trouble:find("test.policy: [a-z]+: ") and
+        not trouble:find(": no cache ", 1, true) and
         not trouble:find("test.policy: network", 1, true) and
         not trouble:find("written out", 1, true) and not trouble:find("plainly", 1, true) and
         not trouble:find("declared twice", 1, true) and not trouble:find("hand it", 1, true) then

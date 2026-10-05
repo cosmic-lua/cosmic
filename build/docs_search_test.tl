@@ -10,7 +10,9 @@ local Test = require("cosmic.test")
 local docs = require("build.docs")
 local String = require("cosmic.string")
 
-Test.needs{ reads = { "core" }, store = true }
+Test.policy{
+  grants = { { path = "core", letters = "r" }, { path = "o/cosmic.db", letters = "r" } },
+}
 
 --- The queries, each with the symbols any one of which must be among the
 --- first three answers. A trailing `.` names every symbol under a

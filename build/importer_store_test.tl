@@ -20,7 +20,9 @@ local schema = require("build.schema")
 local _ = require("cosmic.removed")
 
 --- The projection, asked directly, and whether the tree is cosmic's own.
-Test.needs{ reads = { "core" }, store = true }
+Test.policy{
+  grants = { { path = "core", letters = "r" }, { path = "o/cosmic.db", letters = "r" } },
+}
 
 local built, load_trouble = teal.load()
 if built == nil then

@@ -533,19 +533,22 @@ local function hold_store(module_path: string, closure: {string:boolean},
   end
   store.hold(names, string.format("%s's verdict is keyed by what the " ..
       "store holds of its import closure alone. Require a module at the top level of %s " ..
-      "to read that module, or declare store = true in its Test.needs to read the whole " ..
-      "projection, at the cost of running its tests again on every edit to the tree",
+      "to read that module, or grant o/cosmic.db (`{ path = \"o/cosmic.db\", letters = " ..
+      "\"r\" }`) in its Test.policy, or declare store = true in its Test.needs, to read the " ..
+      "whole projection, at the cost of running its tests again on every edit to the tree",
     module_path, module_path), string.format("a handle reads every module's rows, and " ..
         "%s's verdict is keyed by what the store holds of its import closure alone. " ..
-        "Declare store = true in its Test.needs to read them, at the cost of running its " ..
-        "tests again on every edit to the tree", module_path), meta_keys(closure, lua),
+        "Grant o/cosmic.db (`{ path = \"o/cosmic.db\", letters = \"r\" }`) in its " ..
+        "Test.policy, or declare store = true in its Test.needs, to read them, at the cost of " ..
+        "running its tests again on every edit to the tree", module_path), meta_keys(closure, lua),
     string.format("%s's verdict is keyed by what the store holds of its import closure " ..
         "alone and by the runtime, and neither holds that row -- nor the compiler's " ..
         "identity, unless the closure holds a module build/key_parts.tl's " ..
         "`compiler_readers` names beyond what lua adds, nor the writer's, unless it holds " ..
         "build.writer. " ..
-        "Declare store = true in its Test.needs to read it, at the cost of running its " ..
-        "tests again on every edit to the tree", module_path))
+        "Grant o/cosmic.db (`{ path = \"o/cosmic.db\", letters = \"r\" }`) in its " ..
+        "Test.policy, or declare store = true in its Test.needs, to read it, at the cost of " ..
+        "running its tests again on every edit to the tree", module_path))
 end
 
 --- Holds every process the tests of `module_path`, a module that declares

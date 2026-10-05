@@ -22,7 +22,10 @@ local Time = require("cosmic.time")
 --- The programs these tests run are built `--host`, so no launcher --
 --- and no `sh` -- runs them.
 --- `store`: [`embed.database`] reads every `cosmic.*` module's rows.
-Test.needs{ tool = true, store = true }
+Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "o/cosmic.db", letters = "r" } },
+}
 
 local main_source = [[
 local Fs = require("cosmic.fs")
