@@ -9,7 +9,10 @@ local Test = require("cosmic.test")
 local invoke = require("build.invoke")
 
 -- `store`: the verbs, run in this process, read every module's docs.
-Test.needs{ env = { "COSMIC_TREE" }, store = true }
+Test.policy{
+  grants = { { path = "o/cosmic.db", letters = "r" } },
+  env = { "COSMIC_TREE" },
+}
 
 --- `cosmic <args>` in `dir`, built without the shared cache, which lives
 --- outside the test's own directory.

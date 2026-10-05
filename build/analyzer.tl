@@ -1683,13 +1683,42 @@ local function policy_declared(data: PolicyData, line: integer): analyzer.Declar
     if letters == nil or letters == "" or letters:find("^r?w?x?c?u?$") == nil then
       return nil, at .. ".letters takes letters of rwxcu, in that order"
     end
-    if grant.from ~= nil then return nil, at .. ".from" .. not_yet end
-    if letters ~= "r" then
-      return nil, at .. ".letters \"" .. letters .. "\"" .. not_yet ..
-        "; a test reads, with \"r\", what it declares"
+    local named = path:match("^/cache/(.*)$")
+    if path == "o/cosmic.db" then
+      if letters ~= "r" or grant.from ~= nil then
+        return nil, at .. ".path o/cosmic.db is the store, granted " ..
+          "{ path = \"o/cosmic.db\", letters = \"r\" } with no from"
+      end
+      out.store = true
+    elseif path == "/noexec" then
+      if letters ~= "rwc" or grant.from ~= nil then
+        return nil, at .. ".path /noexec is the private scratch the harness gives, " ..
+          "granted { path = \"/noexec\", letters = \"rwc\" }: writable, never executable, " ..
+          "with no from"
+      end
+      out.noexec = true
+    elseif named ~= nil then
+      if letters ~= "rwxc" or grant.from ~= nil then
+        return nil, at .. ".path /cache/<name> is a host cache, granted " ..
+          "{ path = \"/cache/<name>\", letters = \"rwxc\" } with no from"
+      end
+      if cache_names.names[named] == nil then
+        local known: {string} = {}
+        for name in pairs(cache_names.names) do known[#known + 1] = name end
+        table.sort(known)
+        return nil, at .. ".path /cache/" .. named .. ": no cache " .. named ..
+          "; the caches are " .. table.concat(known, ", ")
+      end
+      out.caches[#out.caches + 1] = named
+    else
+      if grant.from ~= nil then return nil, at .. ".from" .. not_yet end
+      if letters ~= "r" then
+        return nil, at .. ".letters \"" .. letters .. "\"" .. not_yet ..
+          "; a test reads, with \"r\", what it declares"
+      end
+      local list = path:sub(1, 1) == "/" and out.host or out.reads
+      list[#list + 1] = path
     end
-    local list = path:sub(1, 1) == "/" and out.host or out.reads
-    list[#list + 1] = path
   end
   for _, promise in ipairs(data.promises or {}) do
     if promise == "nest" then

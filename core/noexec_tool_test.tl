@@ -12,7 +12,11 @@ local type raw_process = require("cosmic.internal.process")
 
 --- The mount, native stand-in and nested remount helpers need the
 --- declared scratch, system programs and permission to create a root.
-Test.needs{ noexec = true, nests = true, system = true }
+Test.policy{
+  profiles = { "system" },
+  grants = { { path = "/noexec", letters = "rwc" } },
+  promises = { "nest" },
+}
 
 local function executable(tmp: string): string, string
   local ordinary = tmp .. "/ordinary"

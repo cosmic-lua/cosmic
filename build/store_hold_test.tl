@@ -63,7 +63,7 @@ local function test_the_databases_are_held()
   assert(not ok, "handed the store's databases past the hold")
   local text = tostring(why)
   assert(text:find("Store.databases() is held", 1, true), text)
-  assert(text:find("Declare store = true", 1, true), text)
+  assert(text:find("Test.policy, or declare store = true", 1, true), text)
   assert(not text:find("Require", 1, true), "requiring reads no row of another: " .. text)
 end
 

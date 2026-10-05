@@ -9,7 +9,7 @@ local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 
 --- `store`: the carried roots are read through [`Store.databases()`].
-Test.needs{ store = true }
+Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
 
 --- A TLS 1.2 server's first flight, as a script can send it: a
 --- ServerHello choosing ECDHE-RSA with AES-128-GCM, then its

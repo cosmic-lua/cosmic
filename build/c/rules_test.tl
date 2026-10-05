@@ -11,17 +11,31 @@ local rules = require("build.c.rules")
 --- tree, and what bin/zig reads to find or fetch zig, which the system's
 --- `sh` runs; the bootstrap cosmic and zig, and the caches zig builds
 --- in, which it writes.
-Test.needs{
-  reads = { "bin/cosmic-bootstrap", "bin/zig", "bin/zig.pin", "ci/cosmic-driver.pin", "core/",
-    "vendor/bzip2/", "vendor/cares/include/", "vendor/curl/include/", "vendor/lua/src/",
-    "vendor/mbedtls/include/", "vendor/mbedtls/tf-psa-crypto/", "vendor/miniz/", "vendor/sqlite/",
-    "vendor/xz/src/liblzma/api/", "vendor/yyjson/src/" },
+Test.policy{
+  profiles = { "system" },
+  grants = {
+    { path = "bin/cosmic-bootstrap", letters = "r" },
+    { path = "bin/zig", letters = "r" },
+    { path = "bin/zig.pin", letters = "r" },
+    { path = "ci/cosmic-driver.pin", letters = "r" },
+    { path = "core/", letters = "r" },
+    { path = "vendor/bzip2/", letters = "r" },
+    { path = "vendor/cares/include/", letters = "r" },
+    { path = "vendor/curl/include/", letters = "r" },
+    { path = "vendor/lua/src/", letters = "r" },
+    { path = "vendor/mbedtls/include/", letters = "r" },
+    { path = "vendor/mbedtls/tf-psa-crypto/", letters = "r" },
+    { path = "vendor/miniz/", letters = "r" },
+    { path = "vendor/sqlite/", letters = "r" },
+    { path = "vendor/xz/src/liblzma/api/", letters = "r" },
+    { path = "vendor/yyjson/src/", letters = "r" },
+    { path = "/cache/bootstrap", letters = "rwxc" },
+    { path = "/cache/zig", letters = "rwxc" },
+  },
   env = { "ALL_PROXY", "COSMIC_BOOTSTRAP", "COSMIC_BOOTSTRAP_ATTEMPTS", "COSMIC_BOOTSTRAP_VERIFY",
     "COSMIC_ZIG", "COSMIC_ZIG_CACHE", "COSMIC_ZIG_GLOBAL_CACHE", "CURL_CA_BUNDLE", "HTTPS_PROXY",
     "HTTP_PROXY", "NO_PROXY", "SSL_CERT_DIR", "SSL_CERT_FILE", "all_proxy", "http_proxy",
     "https_proxy", "no_proxy" },
-  system = true,
-  caches = { "bootstrap", "zig" },
 }
 
 local root = assert(Fs.absolute("."))

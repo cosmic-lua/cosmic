@@ -12,7 +12,10 @@ local Clock = require("cosmic.clock")
 
 --- The program itself, whose core the programs it builds run on.
 --- `store`: [`embed.tree`] joins every `cosmic.*` module's rows.
-Test.needs{ tool = true, store = true }
+Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "o/cosmic.db", letters = "r" } },
+}
 
 local function run_program(path: string): Child.Result
   return (assert(Child.run({ path }, {
