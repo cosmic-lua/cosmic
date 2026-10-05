@@ -763,6 +763,7 @@ end
 local record Reach
   cases: integer
   unclosed: integer
+  closers: integer
   validated: integer
   positions: integer
   accepted: {string: integer}
@@ -869,6 +870,9 @@ local function check_case(
     return
   end
   reach.validated = reach.validated + 1
+  if closer ~= "" then
+    reach.closers = reach.closers + 1
+  end
   for at = 0, #input do
     local next_byte = input:byte(at + 1)
     if next_byte == nil or next_byte < 0x80 or next_byte >= 0xC0 then
@@ -890,7 +894,7 @@ local function check_case(
 end
 
 local function test_a_slot_is_accepted_only_where_the_tokenizer_is_in_the_state_for_it()
-  local reach: Reach = { cases = 0, unclosed = 0, validated = 0, positions = 0, accepted = {}, failures = {} }
+  local reach: Reach = { cases = 0, unclosed = 0, closers = 0, validated = 0, positions = 0, accepted = {}, failures = {} }
   local files = assert(Fs.list(DIRECTORY))
   for _, file in ipairs(files) do
     if file:find("%.test$") then
@@ -934,6 +938,8 @@ local function test_a_slot_is_accepted_only_where_the_tokenizer_is_in_the_state_
   -- 2841 slots of text, 134 of rtext, 21 of rtext in the name of an end
   -- tag that cannot be the element's, and 209 in attributes.
   assert(reach.cases >= 2050 and reach.validated >= 2050, "only " .. reach.validated .. " cases were validated")
+  -- The template's ending is held to: many cases need a closer to compile.
+  assert(reach.closers >= 1000, "only " .. reach.closers .. " cases needed a closer")
   assert(reach.positions >= 20500, "only " .. reach.positions .. " positions were checked")
   local attrs = (reach.accepted["value_dq/attr"] or 0) + (reach.accepted["value_sq/attr"] or 0)
   assert((reach.accepted["data/text"] or 0) >= 2600 and (reach.accepted["rcdata/rtext"] or 0) >= 120 and

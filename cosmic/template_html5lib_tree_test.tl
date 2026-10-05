@@ -249,6 +249,7 @@ end
 local record Reach
   cases: integer
   unclosed: integer
+  closers: integer
   texts: integer
   values: integer
   hidden: integer
@@ -357,6 +358,8 @@ local function check_case(file: string, case: Case, reach: Reach)
       closer = closer_for(input, tree)
       if closer == nil then
         reach.unclosed = reach.unclosed + 1
+      elseif closer ~= "" then
+        reach.closers = reach.closers + 1
       end
     end
     return closer
@@ -436,7 +439,7 @@ local function check_case(file: string, case: Case, reach: Reach)
 end
 
 local function test_a_slot_is_accepted_only_where_the_tree_has_text_or_an_attribute_value_for_it()
-  local reach: Reach = { cases = 0, unclosed = 0, texts = 0, values = 0, hidden = 0, positions = 0,
+  local reach: Reach = { cases = 0, unclosed = 0, closers = 0, texts = 0, values = 0, hidden = 0, positions = 0,
     accepted = {}, failures = {} }
   for _, file in ipairs((assert(Fs.list(DIRECTORY)))) do
     -- The scripted files give the tree a script's changes to it make.
@@ -460,6 +463,8 @@ local function test_a_slot_is_accepted_only_where_the_tree_has_text_or_an_attrib
   -- positions, and accepts 1934 slots of HTML text, 97 of rtext, 56 of
   -- foreign text, 109 in attributes and 17 in URLs.
   local accepted = reach.accepted
+  -- The template's ending is held to: many cases need a closer to compile.
+  assert(reach.closers >= 100, "only " .. reach.closers .. " cases needed a closer")
   assert(reach.cases >= 1400 and reach.texts >= 600 and reach.hidden >= 25 and reach.values >= 65 and
       reach.positions >= 3500, "only " .. reach.texts .. " texts and " .. reach.values .. " values were reached")
   assert((accepted["html text"] or 0) >= 1700 and (accepted["html rtext"] or 0) >= 85 and
