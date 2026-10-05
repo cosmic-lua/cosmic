@@ -44,6 +44,11 @@
 --- like them (cosmic/template/markup.tl lists them). `{{mode text}}` returns a `string` and escapes nothing, for
 --- anything that is not HTML; a slot there takes a string or a number.
 ---
+--- `{{` always starts an action: it cannot be written as literal text
+--- (a stage that answers the string is the way). Attributes that
+--- frameworks read as code (`hx-*`, `x-on:`, `@click`, `ng-*`) are not
+--- recognised; and any attribute whose name begins with `on` is refused.
+---
 --- Line N of the template is line N of the source, so a type error reads
 --- as `page.tmpl:12: ...`.
 ---

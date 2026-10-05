@@ -61,8 +61,21 @@ local SLOTS <const>: {{string}} = {
   { "<button formaction=\"{{.x}}\">", "_url(" },
   { "<svg><a xlink:href=\"{{.x}}\">", "_url(" },
   { "<a data-x=\"a\" title=\"{{.x}}\">", "_attr(" },
-  { "<textarea>{{.x}}</textarea>", "_text(" },
-  { "<title>{{.x}}</TITLE>", "_text(" },
+  { "<textarea>{{.x}}</textarea>", "_rtext(" },
+  { "<title>{{.x}}</TITLE>", "_rtext(" },
+  { "<svg/><textarea><a href=\"{{.x}}\">", "_rtext(" },
+  { "<svg><svg></svg><textarea><a href=\"{{.x}}\">", "_url(" },
+  { "<svg><textarea>{{.x}}</textarea></svg>", "_text(" },
+  { "<svg></svg>{{.x}}<math></math><title>{{.x}}</title>", "_text(" },
+  { "<a href=\"x\" {{if .a}}class=\"b\"{{end}}>{{.x}}", "_text(" },
+  { "<p {{if .a}}class=\"c\"{{else}}id=\"d\"{{end}}>{{.x}}", "_text(" },
+  { "<a href=\"{{if .a}}{{.x}}{{end}}\">", "_url(" },
+  { "<a href=\"{{.x}}/a:b\">", "_url(" },
+  { "<a href=\"{{.x}}?q=a:b#c:d\">", "_url(" },
+  { "<meta name=\"d\" content=\"{{.x}}\">", "_attr(" },
+  { "<meta content=\"{{.x}}\" name=\"d\">", "_attr(" },
+  { "<iframe></iframe>{{.x}}<noscript></noscript>{{.x}}<xmp></xmp>{{.x}}", "_text(" },
+  { "<svg><textarea></svg>{{.x}}", "_text(" },
   { "<script>var a = 1 < 2;</script>{{.x}}", "_text(" },
   { "<style>a > b {}</STYLE >{{.x}}", "_text(" },
   { "<script><!-- </script>{{.x}}", "_text(" },
@@ -74,10 +87,7 @@ local SLOTS <const>: {{string}} = {
   { "<a href=\"a\" title=\"{{.x}}\">", "_attr(" },
   { "<a href=x title=\"{{.x}}\">", "_attr(" },
   { "<br/>{{.x}}", "_text(" },
-  { "<svg><title>{{.x}}</title></svg>", "_text(" },
-  { "<svg><title><a href=\"{{.x}}\"></a></title></svg>", "_url(" },
-  { "<svg></svg><textarea>{{.x}}</textarea>", "_text(" },
-  { "<svg><title><a title=\"{{.x}}\">", "_attr(" },
+  { "<svg><a href=\"{{.x}}\"></a></svg>", "_url(" },
   { "<a title=\"a>b\">{{.x}}", "_text(" },
 }
 
@@ -123,7 +133,29 @@ local REFUSALS <const>: {{string}} = {
   { "<script>{{.x}}</script>", "2", "9", "<script>" },
   { "<a =\"{{.x}}\">", "2", "6", "attribute" },
   { "<svg><script>{{.x}}</script>", "2", "14", "<script>" },
-  { "<svg><title><a title=x{{.x}}", "2", "23", "unquoted" },
+  { "<svg><g><a title=x{{.x}}", "2", "19", "unquoted" },
+  { "<svg><foreignObject>{{.x}}</foreignObject></svg>", "2", "21", "reads HTML" },
+  { "<svg><desc>{{.x}}</desc></svg>", "2", "12", "reads HTML" },
+  { "<svg><title>{{.x}}</title></svg>", "2", "13", "reads HTML" },
+  { "<svg><svg></svg><title>{{.x}}</title>", "2", "24", "reads HTML" },
+  { "<math><annotation-xml>{{.x}}</annotation-xml>", "2", "23", "reads HTML" },
+  { "<math><mi><a title=\"{{.x}}\">", "2", "21", "reads HTML" },
+  { "<svg><set attributeName=\"href\" to=\"{{.x}}\">", "2", "36", "animate" },
+  { "<svg><ANIMATE values=\"{{.x}}\">", "2", "23", "animate" },
+  { "<animateMotion path=\"{{.x}}\">", "2", "22", "animate" },
+  { "<xmp>{{.x}}</xmp>", "2", "6", "<xmp>" },
+  { "<iframe>{{.x}}</iframe>", "2", "9", "<iframe>" },
+  { "<noscript>{{.x}}</noscript>", "2", "11", "<noscript>" },
+  { "<noembed>{{.x}}", "2", "10", "<noembed>" },
+  { "<noframes>{{.x}}", "2", "11", "<noframes>" },
+  { "<plaintext>{{.x}}", "2", "12", "<plaintext>" },
+  { "<meta http-equiv=\"refresh\" content=\"{{.x}}\">", "2", "37", "http-equiv" },
+  { "<meta content=\"{{.x}}\" http-equiv=\"refresh\">", "2", "16", "http-equiv" },
+  { "<meta content=\"{{.x}}\" HTTP-EQUIV=refresh>", "2", "16", "http-equiv" },
+  { "<a href=\"{{.p}}:alert(1)\">", "2", "16", "complete a scheme" },
+  { "<a href=\"{{.p}}java\nscript:x\">", "2", "16", "complete a scheme" },
+  { "<a href=\"{{.p}}{{if .a}}:x{{end}}\">", "2", "25", "complete a scheme" },
+  { "<a href=\"{{.p}}\"><b>x</b></a>{{if .a}}<a href=\"{{.q}}:{{end}}", "2", "54", "complete a scheme" },
   { "<SCRIPT type=\"x\">a{{.x}}", "2", "19", "<script>" },
   { "<style>{{.x}}</style>", "2", "8", "<style>" },
   { "<script><!-- <script> </script> {{.x}} </script>", "2", "33", "<script>" },
@@ -167,8 +199,9 @@ end
 
 local function test_a_slot_that_begins_a_url_is_judged_by_where_its_branch_left_off()
   compiled(HEAD .. "<a href=\"{{if .a}}{{.x}}{{else}}{{.y}}{{end}}\">")
-  local why = refused(HEAD .. "<a href=\"{{if .a}}{{.x}}{{end}}\">")
-  assert(why:find("t.tmpl:2:10: the arms of this {{if}}", 1, true), why)
+  compiled(HEAD .. "<a href=\"{{if .a}}{{.x}}{{end}}\">")
+  local why = refused(HEAD .. "<a href=\"{{if .a}}{{.x}}{{end}}{{.y}}\">")
+  assert(why:find("t.tmpl:2:", 1, true) and why:find("must begin", 1, true), why)
 end
 
 local SYNTAX <const>: {{string}} = {
@@ -324,4 +357,21 @@ local function test_trim_markers_drop_whitespace_and_a_dash_without_space_is_no_
   assert(out:find('"a"', 1, true) and out:find('"b"', 1, true) and out:find('"c"', 1, true), out)
   assert(not out:find('"a ', 1, true) and not out:find('" b', 1, true), out)
   assert(refused("{{type T from m.t}}{{mode text}}{{-.x}}"):find("not a field path", 1, true))
+end
+
+local function test_a_module_is_never_named_like_a_global()
+  local names = { "string", "math", "os", "io", "utf8", "coroutine", "debug", "package", "table", "next", "pairs",
+    "ipairs", "select", "print", "type", "tostring", "tonumber", "error", "assert", "pcall", "require",
+    "setmetatable", "getmetatable", "rawget", "rawset", "rawequal", "rawlen", "load", "arg", "_G", "_ENV" }
+  for _, name in ipairs(names) do
+    local out = compiled(HEAD .. "{{.x | util." .. name .. ".f}}")
+    assert(not out:find("local " .. name .. " = ", 1, true), name .. ": " .. out)
+    assert(out:find('local ' .. name .. '_2 = require("util.' .. name .. '")', 1, true), name .. ": " .. out)
+  end
+end
+
+local function test_a_block_inside_and_after_svg_keeps_its_place()
+  compiled(HEAD .. "<svg>{{if .a}}<g></g>{{else}}<g/>{{end}}</svg>{{if .a}}<textarea>{{.x}}</textarea>{{end}}")
+  local why = refused(HEAD .. "<svg>{{if .a}}</svg>{{end}}<p>")
+  assert(why:find("t.tmpl:2:6: the arms of this {{if}}", 1, true), why)
 end

@@ -37,7 +37,9 @@ local function block(name: string, node: types.Node, from: markup.Place): markup
     ends[#ends + 1] = from
   end
   for _, place in ipairs(ends) do
-    if not markup.same(place, ends[1]) then
+    if markup.same(place, ends[1]) then
+      markup.join(ends[1], place)
+    else
       local what = node.kind == "range" and "the body of this {{range}} ends where it did not begin" or
         "the arms of this {{" .. node.kind .. "}} end in different places in the HTML"
       return nil, refuse(name, node.line, node.col, what ..
@@ -52,13 +54,19 @@ walk = function(name: string, body: {types.Node}, from: markup.Place): markup.Pl
   for _, node in ipairs(body) do
     if node.kind == "text" then
       markup.feed(at, node.text)
+      if at.colon then
+        return nil, refuse(name, node.line, node.col,
+          "text after a URL slot, before its first / ? or #, holds a ':' and could complete a scheme")
+      elseif at.late ~= "" then
+        return nil, refuse(name, at.meta_line, at.meta_col, at.late)
+      end
     elseif node.kind == "interp" then
       local slot, why = markup.slot(at)
       if slot == nil then
         return nil, refuse(name, node.line, node.col, why)
       end
       node.ctx = slot
-      markup.wrote(at)
+      markup.wrote(at, slot, node.line, node.col)
     else
       local after, why = block(name, node, at)
       if after == nil then

@@ -11,6 +11,7 @@
 ---     text  string | number | html.SafeHtml       escaped, or taken as it is
 ---     attr  string | number | html.SafeAttr       likewise, for an attribute
 ---     url   string | html.SafeUrl                 `html.href`, then attribute-escaped
+---     rtext string | number                       `<title>`, `<textarea>`: escaped, no markup
 ---     plain string | number                       a `text` template: as it is
 ---
 --- A number is written with `tostring`: no digit, sign, point, exponent
@@ -25,7 +26,9 @@
 --- is written on its line, with the newlines of a multi-line action and
 --- of trimmed whitespace kept as blank ones; the `return` is on the
 --- template's last line. So a checker or run-time error names the
---- template's line. A column is the module's, not the template's.
+--- template's line. A column is the module's, not the template's: the
+--- line is what the build maps back, and a column map is not worth its
+--- cost until something reads columns.
 ---
 --- The names the module declares are `render`, `parts`, `d` and `d1`, `d2`
 --- and so on (dot in each `range` and `with`), `v` (a slot's value, in a
@@ -39,16 +42,24 @@ local types = require("cosmic.template.types")
 
 --- The names generated code uses or that read as syntax, which a required
 --- module is never named.
-local RESERVED <const>: {string: boolean} = {
-  ["table"] = true, ["ipairs"] = true, ["tostring"] = true, ["require"] = true, ["parts"] = true,
-  ["render"] = true, ["d"] = true, ["v"] = true, ["_"] = true, ["_text"] = true, ["_attr"] = true,
-  ["_url"] = true, ["record"] = true, ["enum"] = true, ["type"] = true, ["global"] = true,
-  ["interface"] = true, ["is"] = true, ["as"] = true, ["where"] = true, ["self"] = true,
-  ["_ENV"] = true, ["_G"] = true,
-}
+local RESERVED <const>: {string: boolean} = {}
+for _, word in ipairs({
+    "parts", "render", "d", "v", "_", "_text", "_rtext", "_attr", "_url", "record", "enum", "type", "global",
+    "interface", "is", "as", "where", "self", "macroexp",
+    -- The standard library and its globals, which a required module must
+    -- not shadow (a module named `string` would break every `string.format`
+    -- the template's own stages call), and the types Teal reads by name.
+    "_G", "_ENV", "_VERSION", "arg", "assert", "bit32", "collectgarbage", "coroutine", "debug", "dofile",
+    "error", "getmetatable", "io", "ipairs", "load", "loadfile", "loadstring", "math", "module", "next", "os",
+    "package", "pairs", "pcall", "print", "rawequal", "rawget", "rawlen", "rawset", "require", "select",
+    "setmetatable", "string", "table", "tonumber", "tostring", "unpack", "utf8", "warn", "xpcall",
+    "any", "boolean", "function", "integer", "number", "thread", "userdata",
+}) do
+  RESERVED[word] = true
+end
 
 --- The helpers, in the order they are declared.
-local HELPER_ORDER <const>: {types.Slot} = { "plain", "text", "attr", "url" }
+local HELPER_ORDER <const>: {types.Slot} = { "plain", "text", "rtext", "attr", "url" }
 
 --- A name the template takes, and whether the loop or `with` that made
 --- it has read it.
@@ -132,8 +143,6 @@ local function value(g: Gen, pipe: types.Pipeline, dot: Dot): string
   return expr
 end
 
--- TODO: a reported column is the module's, not the template's: a map
--- from one to the other once something asks for columns.
 --- Moves to template line `line`, writing the newlines between.
 local function to_line(g: Gen, line: integer)
   while g.line < line do
@@ -173,7 +182,14 @@ end
 --- is met, where the field was declared, in another file.
 local function slot_statement(g: Gen, ctx: types.Slot, expr: string): string
   g.helpers[ctx] = true
-  local helper_name = ctx == "url" and "_url" or ctx == "attr" and "_attr" or "_text"
+  local helper_name = "_text"
+  if ctx == "url" then
+    helper_name = "_url"
+  elseif ctx == "attr" then
+    helper_name = "_attr"
+  elseif ctx == "rtext" then
+    helper_name = "_rtext"
+  end
   return "do local v: " .. accepts(g, ctx) .. " = " .. expr .. " " .. APPEND .. helper_name .. "(v) end"
 end
 
@@ -255,15 +271,18 @@ local function helper(g: Gen, ctx: types.Slot): string
     return "local function _text(v: string | number | " .. html .. ".SafeHtml): string " ..
       "if v is string then return " .. html .. ".raw(" .. html .. ".escape(v)) end " ..
       "if v is number then return tostring(v) end return " .. html .. ".raw(v) end"
+  elseif ctx == "rtext" then
+    return "local function _rtext(v: string | number): string " ..
+      "if v is number then return tostring(v) end return " .. html .. ".raw(" .. html .. ".escape(v)) end"
   elseif ctx == "attr" then
     return "local function _attr(v: string | number | " .. html .. ".SafeAttr): string " ..
-      "if v is string then return " .. html .. ".raw(" .. html .. ".escape_attr(v)) end " ..
-      "if v is number then return tostring(v) end return " .. html .. ".raw(v) end"
+      "if v is string then return " .. html .. ".raw_attr(" .. html .. ".escape_attr(v)) end " ..
+      "if v is number then return tostring(v) end return " .. html .. ".raw_attr(v) end"
   end
   return "local function _url(v: string | " .. html .. ".SafeUrl): string " ..
-    "if v is string then return " .. html .. ".raw(" .. html .. ".escape_attr(" .. html ..
-    ".raw(" .. html .. ".href(v)))) end return " .. html .. ".raw(" .. html .. ".escape_attr(" .. html ..
-    ".raw(v))) end"
+    "if v is string then return " .. html .. ".raw_attr(" .. html .. ".escape_attr(" .. html ..
+    ".raw_url(" .. html .. ".href(v)))) end return " .. html .. ".raw_attr(" .. html .. ".escape_attr(" ..
+    html .. ".raw_url(v))) end"
 end
 
 local record Codegen

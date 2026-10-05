@@ -5,11 +5,12 @@
 --- called. An error names the template's own line.
 ---
 --- `cosmic.html` is not on the tree's path yet, so the generated source's
---- `require("cosmic.html")` is pointed at `stubhtml`, a declaration of
---- the same names with userdata records as the real module's types, and a
---- Lua stand-in for it at run time.
---- TODO: once `cosmic.html` (with `href`) is in the tree, build the
---- generated source as it is and drop the stand-in.
+--- `require("cosmic.html")` is pointed at `stubhtml`, the core's own
+--- declaration of it (PR #2729) with the URL type and functions that
+--- follow it, and a Lua stand-in for it at run time that escapes as the
+--- core does.
+--- TODO: once `cosmic.html` with `href`, `trust_url` and [`raw_url`] is in the
+--- tree, build the generated source as it is and drop the stand-in.
 
 local Fs = require("cosmic.fs")
 local Template = require("cosmic.template")
@@ -22,19 +23,36 @@ if built == nil then
   error("could not load the compiler: " .. tostring(load_trouble))
 end
 
+-- cosmic/internal/html.d.tl as the core declares it (PR #2729), with the
+-- URL type and functions the next change adds: `SafeUrl`, `href`,
+-- `trust_url` and [`raw_url`]. Nothing is declared that the real module does
+-- not, and `raw` is not overloaded.
 local STUB <const> = [[
 local record html
-  record SafeHtml userdata end
-  record SafeAttr userdata end
-  record SafeUrl userdata end
-  escape: function(string): SafeHtml
-  escape_attr: function(string): SafeAttr
-  href: function(string): SafeUrl
-  trust: function(string): SafeHtml
-  raw: function(SafeHtml): string
-  raw: function(SafeAttr): string
-  raw: function(SafeUrl): string
+  record SafeHtml
+    userdata
+  end
+
+  record SafeAttr
+    userdata
+  end
+
+  record SafeUrl
+    userdata
+  end
+
+  escape: function(s: string): SafeHtml
+  escape_attr: function(s: string): SafeAttr
+  trust: function(s: string): SafeHtml
+  trust_attr: function(s: string): SafeAttr
+  raw: function(x: SafeHtml): string
+  raw_attr: function(x: SafeAttr): string
+  concat: function(parts: {SafeHtml}): SafeHtml
+  href: function(s: string): SafeUrl
+  trust_url: function(s: string): SafeUrl
+  raw_url: function(x: SafeUrl): string
 end
+
 return html
 ]]
 
@@ -99,12 +117,26 @@ fmt["end"] = fmt.bracket
 return fmt
 ]]
 
+local UTIL <const> = [[
+local record util
+  upper: function(s: string): string
+end
+function util.upper(s: string): string
+  return s:upper()
+end
+return util
+]]
+
 --- Builds the project of `files` (paths to text) in the directory `case`
 --- of `tmp`: the Lua of every module (by path), or nil and what refused.
 local function build(tmp: string, case: string, files: {string: string}): {string: string} | nil, string
   local root = tmp .. "/" .. case
   assert(Fs.mkdirs(root))
   for name, text in pairs(files) do
+    local dir = name:match("^(.*)/[^/]*$")
+    if dir ~= nil then
+      assert(Fs.mkdirs(root .. "/" .. dir))
+    end
     assert(Fs.write(root .. "/" .. name, text))
   end
   local handle, open_trouble = work.open(root)
@@ -135,13 +167,22 @@ local function project(tmp: string, case: string, template: string): {string: st
     return nil, why
   end
   local source = out:gsub('require%("cosmic%.html"%)', 'require("stubhtml")')
-  return build(tmp, case, { ["stubhtml.d.tl"] = STUB, ["data.tl"] = DATA, ["fmt.tl"] = FMT,
+  return build(tmp, case, { ["stubhtml.d.tl"] = STUB, ["data.tl"] = DATA, ["fmt.tl"] = FMT, ["util/string.tl"] = UTIL,
     ["page.tl"] = source })
 end
 
+--- `s` as the core's `escape` makes it: `& < > " '` as entities.
 local function esc(s: string): string
-  return (s:gsub("[&<>\"']", { ["&"] = "&amp;", ["<"] = "&lt;", [">"] = "&gt;", ['"'] = "&quot;",
+  return (s:gsub("[&<>\"']", { ["&"] = "&amp;", ["<"] = "&lt;", [">"] = "&gt;", ['"'] = "&#34;",
     ["'"] = "&#39;" }))
+end
+
+--- `s` as the core's [`escape_attr`] makes it: every ASCII byte but a letter
+--- or a digit a decimal character reference, bytes of 0x80 and over kept.
+local function esc_attr(s: string): string
+  return (s:gsub("[\0-\47\58-\64\91-\96\123-\127]", function(c: string): string
+    return "&#" .. c:byte() .. ";"
+  end))
 end
 
 --- The stand-in for `cosmic.html`: a safe value is a table holding its text.
@@ -151,16 +192,20 @@ local record Html
   href: function(string): {string: string}
   trust: function(string): {string: string}
   raw: function({string: string}): string
+  raw_attr: function({string: string}): string
+  raw_url: function({string: string}): string
 end
 
 local STAND_IN <const>: Html = {
   escape = function(s: string): {string: string} return { s = esc(s) } end,
-  escape_attr = function(s: string): {string: string} return { s = esc(s) } end,
+  escape_attr = function(s: string): {string: string} return { s = esc_attr(s) } end,
   href = function(s: string): {string: string}
     return { s = s:lower():find("^javascript:") and "about:invalid" or s }
   end,
   trust = function(s: string): {string: string} return { s = s } end,
   raw = function(v: {string: string}): string return v.s end,
+  raw_attr = function(v: {string: string}): string return v.s end,
+  raw_url = function(v: {string: string}): string return v.s end,
 }
 
 --- The module `path` of `lua`, loaded with the stand-in for `cosmic.html`.
@@ -342,10 +387,32 @@ local function test_html_mode_escapes_by_place(tmp: string)
 <a href="{{.url}}">{{.user.name}}</a> <a href='{{.u}}'></a>
 {{range .items}}<i title="{{.n}}">{{.name}}</i>{{end}}
 ]], page)
-  assert(out == '\n<h1 class="a&quot;b&#39;c" title=\'q&amp;r\'>&lt;i&gt;&amp; 7 <b>x</b></h1>\n' ..
-      '<a href="about:invalid">&lt;u&gt;</a> <a href=\'/x\'></a>\n' ..
+  assert(out == '\n<h1 class="a&#34;b&#39;c" title=\'q&#38;r\'>&lt;i&gt;&amp; 7 <b>x</b></h1>\n' ..
+      '<a href="about&#58;invalid">&lt;u&gt;</a> <a href=\'' .. esc_attr("/x") .. '\'></a>\n' ..
       '<i title="1">p</i><i title="2">&lt;q&gt;</i>\n', out)
   page.url = "/a?x=1&y=2"
   local second = render(tmp, "html-run2", HEAD .. '<a href="{{.url}}">', page)
-  assert(second == '\n<a href="/a?x=1&amp;y=2">', second)
+  assert(second == '\n<a href="' .. esc_attr("/a?x=1&y=2") .. '">', second)
+  local text = render(tmp, "html-run3", HEAD .. '<title>{{.title}}</title><textarea>{{.n}}</textarea>', page)
+  assert(text == "\n<title>&lt;i&gt;&amp;</title><textarea>7</textarea>", text)
+end
+
+local function test_a_module_named_like_a_global_is_not_the_global(tmp: string)
+  local page: {string: any} = { title = "abc" }
+  local out = render(tmp, "global", "{{type Page from data}}{{mode text}}{{.title | util.string.upper}}", page)
+  assert(out == "ABC", out)
+end
+
+local function test_a_block_inside_and_after_svg_builds(tmp: string)
+  local lua, trouble = project(tmp, "svg", HEAD ..
+      '<svg>{{if .flag}}<g class="{{.cls}}"></g>{{end}}</svg>{{if .flag}}<p title="{{.cls}}">{{.title}}</p>{{end}}' ..
+      '<title>{{.title}}</title>')
+  assert(lua ~= nil, trouble)
+end
+
+local function test_a_title_takes_no_markup(tmp: string)
+  local trouble = refused(tmp, "title", HEAD .. "<title>{{.h}}</title>")
+  assert(trouble:find("SafeHtml", 1, true) and trouble:find("page.tl:2:", 1, true), trouble)
+  local area = refused(tmp, "area", HEAD .. "<textarea>{{.h}}</textarea>")
+  assert(area:find("page.tl:2:", 1, true), area)
 end

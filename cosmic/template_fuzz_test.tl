@@ -39,37 +39,47 @@ local SAMPLES <const> = {
 
 --- Appends a well-formed run of nodes: markup, slots and blocks (to
 --- `depth` deep, the arms of each cut at random places in the markup).
-local function gen_nodes(src: Fuzz.Source, depth: integer, out: {string})
+local record Kit
+  markup: {string}
+  slots: {string}
+  loose: {string}
+end
+
+local SLOTS <const>: {string} = { "{{.a}}", "{{.}}", "{{.b.c | m.f}}", "{{.a | m.f | n.g}}" }
+
+local ANY <const>: Kit = { markup = MARKUP, slots = SLOTS, loose = ACTIONS }
+
+local function gen_nodes(src: Fuzz.Source, depth: integer, out: {string}, kit: Kit)
   while Fuzz.more(src, #out, 14) do
     local kind = src:int(0, 9)
     if kind <= 4 then
-      out[#out + 1] = Fuzz.pick(src, MARKUP)
+      out[#out + 1] = Fuzz.pick(src, kit.markup)
     elseif kind <= 6 then
-      out[#out + 1] = Fuzz.pick(src, { "{{.a}}", "{{.}}", "{{.b.c | m.f}}", "{{.a | m.f | n.g}}" })
+      out[#out + 1] = Fuzz.pick(src, kit.slots)
     elseif depth >= 3 then
-      out[#out + 1] = Fuzz.pick(src, ACTIONS)
+      out[#out + 1] = Fuzz.pick(src, kit.loose)
     elseif kind == 7 then
       out[#out + 1] = "{{if .a}}"
-      gen_nodes(src, depth + 1, out)
+      gen_nodes(src, depth + 1, out, kit)
       if src:int(0, 1) == 0 then
         out[#out + 1] = "{{else if .b}}"
-        gen_nodes(src, depth + 1, out)
+        gen_nodes(src, depth + 1, out, kit)
       end
       if src:int(0, 1) == 0 then
         out[#out + 1] = "{{else}}"
-        gen_nodes(src, depth + 1, out)
+        gen_nodes(src, depth + 1, out, kit)
       end
       out[#out + 1] = "{{end}}"
     elseif kind == 8 then
       out[#out + 1] = "{{range .l}}"
-      gen_nodes(src, depth + 1, out)
+      gen_nodes(src, depth + 1, out, kit)
       out[#out + 1] = "{{end}}"
     else
       out[#out + 1] = "{{with .w}}"
-      gen_nodes(src, depth + 1, out)
+      gen_nodes(src, depth + 1, out, kit)
       if src:int(0, 1) == 0 then
         out[#out + 1] = "{{else}}"
-        gen_nodes(src, depth + 1, out)
+        gen_nodes(src, depth + 1, out, kit)
       end
       out[#out + 1] = "{{end}}"
     end
@@ -89,7 +99,7 @@ local function gen_body(src: Fuzz.Source): string
         src:int(0, 1) == 0 and Fuzz.pick(src, MARKUP) or Fuzz.pick(src, ACTIONS)
     end
   else
-    gen_nodes(src, 0, out)
+    gen_nodes(src, 0, out, ANY)
   end
   return table.concat(out)
 end
@@ -271,6 +281,151 @@ local function test_modes_agree_on_syntax_and_text_takes_what_html_does(tmp: str
           return false, "no place: " .. html_why .. " / " .. text_why
         end
       end
+      return true, ""
+    end,
+  })
+end
+
+local SOUND_SLOTS <const>: {string} = { "{{.a}}", "{{.a}}", "{{.}}" }
+
+--- Well-formed fragments with a slot in them, in each place a slot may
+--- stand and several it may not, beside bare markup.
+local SOUND_MARKUP <const>: {string} = {
+  "<p>{{.a}}</p>", "<a href=\"{{.a}}\">x</a>", "<a href='{{.a}}'>", "<p title=\"{{.a}}\">", "<p title='{{.a}}'>",
+  "<textarea>{{.a}}</textarea>", "<title>{{.a}}</title>", "<img alt=\"{{.a}}\" src=\"{{.a}}\">",
+  "<a href=\"{{.a}}/x?y\">", "<a href={{.a}}>", "<p onclick=\"{{.a}}\">", "<script>{{.a}}</script>",
+  "<!-- {{.a}} -->", "<svg><a href=\"{{.a}}\">", "<svg><title>{{.a}}", "<form action=\"{{.a}}\" title=\"{{.a}}\">",
+  "<p ", "\"", "<svg>", "</svg>", "<!--", "\n", "x", "<p>", "</p>", "<p>", "x",
+}
+
+local SOUND <const>: Kit = { markup = SOUND_MARKUP, slots = SOUND_SLOTS, loose = SOUND_SLOTS }
+
+--- A template of markup and slots, all of which compile unless a slot
+--- has no escaping, and which payload to fill them with.
+local function gen_sound(src: Fuzz.Source): string
+  local out: {string} = {}
+  gen_nodes(src, 0, out, SOUND)
+  return Fuzz.pack({ Fuzz.pick(src, { "<\"'>& onload=x", "javascript:alert(1)", "\"'\n\t<script>" }),
+    table.concat(out) })
+end
+
+local function esc(s: any): string
+  if not s is string then
+    return ""
+  end
+  return (s:gsub("[&<>\"']", { ["&"] = "&amp;", ["<"] = "&lt;", [">"] = "&gt;", ['"'] = "&#34;", ["'"] = "&#39;" }))
+end
+
+local function esc_attr(s: any): string
+  if not s is string then
+    return ""
+  end
+  return (s:gsub("[\0-\47\58-\64\91-\96\123-\127]", function(c: string): string
+    return "&#" .. c:byte() .. ";"
+  end))
+end
+
+--- The core's escapers (cosmic.html), for what they do to bytes, each
+--- made value wrapped in marker bytes so a check can tell what came from
+--- which: \1 \2 around escaped text, \3 \4 around an attribute value,
+--- and \5 ahead of what `href` answered.
+local STAND_IN <const>: {string: function} = {
+  escape = function(s: any): {string: string} return { s = "\1" .. esc(s) .. "\2" } end,
+  escape_attr = function(s: any): {string: string} return { s = "\3" .. esc_attr(s) .. "\4" } end,
+  href = function(s: any): {string: string}
+    local text = s is string and s or ""
+    return { s = "\5" .. (text:lower():find("^%s*javascript:") and "about:invalid" or text) }
+  end,
+  trust = function(s: string): {string: string} return { s = s } end,
+  raw = function(v: {string: string}): string return v.s end,
+  raw_attr = function(v: {string: string}): string return v.s end,
+  raw_url = function(v: {string: string}): string return v.s end,
+}
+
+--- The generated source with Teal's types struck out, in the shapes the
+--- generator writes, to run as Lua.
+local function lua_of(source: string): string
+  local lua = source:gsub("%(([%a_][%w_]*): [^()]-%)", "(%1)")
+  lua = lua:gsub("%): [%w%.]+ ", ") ")
+  lua = lua:gsub("local v: [^=]+= ", "local v = ")
+  lua = lua:gsub("local parts: {string} = {}", "local parts = {}")
+  lua = lua:gsub("if v is (%a+) then", 'if type(v) == "%1" then')
+  return lua
+end
+
+-- Whatever a template of markup and slots is made of, and whatever a slot
+-- is given (markup characters, quotes, a script URL), the output holds no
+-- raw `<`, `>`, quote or space of the data in a place it was escaped for,
+-- and a slot that is a URL went through `href`.
+local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
+  Fuzz.run({
+    name = "template sound",
+    dir = tmp,
+    gen = gen_sound,
+    requires = { "refused", "text", "attr", "url", "block" },
+    shares = { refused = 0.05, text = 0.1, attr = 0.05, url = 0.03 },
+    check = function(input: string): boolean, string
+      local fields = Fuzz.unpack(input)
+      local payload = fields[1] or ""
+      local body = fields[2] or ""
+      local source, _ = Template.compile("{{type T from m.t}}" .. body, "t.tmpl")
+      if source == nil then
+        Fuzz.label("refused")
+        return true, ""
+      end
+      local env: {string: any} = {
+        require = function(name: string): any
+          if name == "cosmic.html" then
+            return STAND_IN
+          end
+          return {}
+        end,
+        table = table,
+        ipairs = ipairs,
+        tostring = tostring,
+        type = type,
+      }
+      local chunk, trouble = load(lua_of(source), "=module", "t", env)
+      if chunk == nil then
+        return false, "the module does not load: " .. tostring(trouble) .. "\n" .. lua_of(source)
+      end
+      local loaded = chunk()
+      if not loaded is { string: function({string: any}): {string: string} } then
+        return false, "the module exports no render"
+      end
+      local each: {string: any} = { s = "" }
+      setmetatable(each, { __index = function(_: any, key: string): any
+        if key == "w" then
+          return each
+        elseif key == "l" then
+          return { each }
+        end
+        return payload
+      end })
+      local ok, made = pcall(loaded.render, { a = payload, l = { each, each }, w = each })
+      if not ok then
+        return false, "render raised: " .. tostring(made) .. "\n" .. lua_of(source)
+      end
+      local out = made.s
+      for piece in out:gmatch("\1([^\2]*)\2") do
+        Fuzz.label("text")
+        if piece:find("[<>\"']") then
+          return false, "markup character in escaped text: " .. piece
+        end
+      end
+      for piece in out:gmatch("\3([^\4]*)\4") do
+        Fuzz.label("attr")
+        if piece:gsub("&#%d+;", ""):find("[^%w\128-\255]") then
+          return false, "a byte that can end a value in: " .. piece
+        end
+      end
+      if out:find("\3&#5;", 1, true) then
+        Fuzz.label("url")
+        if out:find("\3&#5;javascript", 1, true) then
+          return false, "a URL slot began with the script scheme"
+        end
+      end
+      if body:find("{{range", 1, true) or body:find("{{if", 1, true) then Fuzz.label("block") end
       return true, ""
     end,
   })

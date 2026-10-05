@@ -14,18 +14,36 @@
 --- - a comment, `<!...>` and `<?...>` (a value there could end it);
 --- - `<script>` and `<style>` text, until their end tag: no escaper for
 ---   their languages is held to a standard here yet;
---- - an attribute that is code or a URL list: `on*` handlers, `style`,
----   `srcdoc`, `srcset`, `ping`, and `content` of `<meta>`;
+--- - an attribute that is code or a URL list: any attribute whose name
+---   begins with `on` (handlers), `style`, `srcdoc`, `srcset`, `ping`,
+---   `content` of a `<meta>` that has `http-equiv` (anywhere in the
+---   tag), and every attribute of the SVG animation elements (`set`,
+---   `animate`, `animateMotion`, `animateTransform`: they can animate
+---   `href` to `javascript:`). Attributes that frameworks read as code
+---   (`hx-*`, `x-on:`, `v-on:`, `@click`, `ng-*`) are not recognised:
+---   they are plain attributes here, and a slot in one is the author's
+---   to keep out;
+--- - `<xmp>`, `<iframe>`, `<noembed>`, `<noframes>`, `<noscript>` and
+---   `<plaintext>` text, which browsers read as raw text (`noscript`
+---   when scripting is on);
+--- - anything inside `<foreignObject>`, `<desc>`, `<title>` of an SVG,
+---   `<annotation-xml>` or MathML's text elements: the browser reads
+---   HTML there, in rules this tracker does not follow;
 --- - a URL attribute (`href`, `src`, ...) of a tag that makes the page
 ---   run or load what the URL names (`script`, `link`, `object`,
 ---   `embed`, `base`, `use`), or one not at the start of the value.
 ---
---- What is left is a slot in text (also in `<textarea>` and `<title>`,
---- whose text is escaped the same, but not in `<svg>` or `<math>`, where
---- they hold markup and are tags like any other, as the standard has it:
---- `<script>` and `<style>` there are refused as ever), in a quoted attribute
---- value, and in a
---- quoted URL attribute value that the slot begins.
+--- What is left is a slot in text; in `<textarea>` and `<title>`, whose
+--- text ends at their end tag, which takes a string or a number and never
+--- markup (outside `<svg>` and `<math>`, where they hold markup and are
+--- tags like any other, as the standard has it); in a quoted attribute
+--- value; and in a quoted URL attribute value that the slot begins, when
+--- the literal text after it, up to the first `/`, `?` or `#`, has no `:`
+--- (which could complete a scheme: `href="{{.p}}:alert(1)"`).
+---
+--- `<svg>` and `<math>` are counted in and out, so nested ones, and a
+--- self-closed `<svg/>` that opens nothing, leave the tracker where the
+--- browser is.
 ---
 --- A URL attribute is `href`, `src`, `action`, `formaction`, `cite`,
 --- `data`, `poster`, `background`, `manifest`, `longdesc`, `codebase`,
@@ -79,9 +97,25 @@ local record Markup
     closing: boolean
     --- Whether a quoted value has had only whitespace in it so far.
     fresh: boolean
-    --- Whether the place is in `<svg>` or `<math>`, where `<title>` and
+    --- How many `<svg>` and `<math>` are open: where `<title>` and
     --- `<textarea>` hold markup, not text.
-    foreign: boolean
+    foreign: integer
+    --- How many elements in them that the browser reads HTML in are open.
+    opaque: integer
+    --- Whether the literal text since a URL slot, in the same value, has
+    --- not yet reached a `/`, `?` or `#`.
+    after_url: boolean
+    --- Set when that text held a `:`.
+    colon: boolean
+    --- Whether the tag has an `http-equiv` attribute.
+    equiv: boolean
+    --- Where a slot in the `content` of a `<meta>` stood (the line, then
+    --- the column; 0 for none), in case the tag turns out to hold `http-equiv`.
+    meta_line: integer
+    --- Its column.
+    meta_col: integer
+    --- A refusal found at the end of a tag, for the slot at `meta_line`.
+    late: string
   end
 
   --- A new place: the start of the template, in text.
@@ -99,9 +133,15 @@ local record Markup
   --- What a slot at a place is, or why there is none.
   slot: function(p: Place): types.Slot | nil, string
 
-  --- Marks that a slot was written at a place, which a URL value must
-  --- begin with.
-  wrote: function(p: Place)
+  --- Marks that a slot of kind `ctx` was written at a place, at a line and
+  --- column: a URL value must begin with its slot, and the literal text
+  --- after one is watched.
+  wrote: function(p: Place, ctx: types.Slot, line: integer, col: integer)
+
+  --- Folds the place `b`, which `same` found the same as `a`, into `a`: a
+  --- value is fresh only if it is in both, and a URL slot or a pending
+  --- `<meta>` slot in either is kept.
+  join: function(a: Place, b: Place)
 end
 
 local type Phase = Markup.Phase
@@ -126,33 +166,68 @@ local CODE_ATTRS <const>: {string: string} = {
   style = "CSS", srcdoc = "HTML", srcset = "a list of URLs", ping = "a list of URLs",
 }
 
---- The tags whose content is raw text, which ends at their end tag: the
---- two a slot cannot be in, and the two it can (escaped as text is).
+--- The tags whose content is raw text, which ends at their end tag (never,
+--- for `plaintext`): the ones a slot cannot be in, and the two it can,
+--- `textarea` and `title`, escaped as text.
 local RAW_TAGS <const>: {string: Phase} = {
-  script = "raw", style = "raw", textarea = "rcdata", title = "rcdata",
+  script = "raw", style = "raw", textarea = "rcdata", title = "rcdata", xmp = "raw", iframe = "raw",
+  noembed = "raw", noframes = "raw", noscript = "raw", plaintext = "raw",
+}
+
+--- The elements, inside `<svg>` or `<math>`, whose content the browser
+--- reads as HTML.
+local INTEGRATION <const>: {string: boolean} = {
+  foreignobject = true, desc = true, title = true, ["annotation-xml"] = true, mi = true, mo = true,
+  mn = true, ms = true, mtext = true,
+}
+
+--- The SVG elements that can animate an attribute to a value of the
+--- author's choosing, `href` to `javascript:` among them.
+local ANIMATION <const>: {string: boolean} = {
+  set = true, animate = true, animatemotion = true, animatetransform = true,
 }
 
 local function start(): Place
-  return { phase = "text", tag = "", attr = "", closing = false, fresh = false }
+  return { phase = "text", tag = "", attr = "", closing = false, fresh = false, foreign = 0, opaque = 0,
+    after_url = false, colon = false, equiv = false, meta_line = 0, meta_col = 0, late = "" }
 end
 
 local function copy(p: Place): Place
-  return { phase = p.phase, tag = p.tag, attr = p.attr, closing = p.closing, fresh = p.fresh }
+  return { phase = p.phase, tag = p.tag, attr = p.attr, closing = p.closing, fresh = p.fresh,
+    foreign = p.foreign, opaque = p.opaque, after_url = p.after_url, colon = p.colon, equiv = p.equiv,
+    meta_line = p.meta_line, meta_col = p.meta_col, late = p.late }
 end
 
---- The phases in which `tag`, `attr`, `closing` and `fresh` mean
---- something; elsewhere they are what an earlier tag left.
+--- The phases in which the tag and whether it is an end tag mean something;
+--- elsewhere they are what an earlier tag left.
 local TAGGED <const>: {Phase: boolean} = {
   rcdata = true, raw = true, tag_name = true, before_attr = true, attr_name = true,
   after_attr = true, before_value = true, value_dq = true, value_sq = true, value_unq = true,
 }
 
+--- The phases in which the attribute means something.
+local ATTRIBUTED <const>: {Phase: boolean} = {
+  attr_name = true, after_attr = true, before_value = true, value_dq = true, value_sq = true,
+}
+
 local function same(a: Place, b: Place): boolean
-  if a.phase ~= b.phase or a.foreign ~= b.foreign then
+  if a.phase ~= b.phase or a.foreign ~= b.foreign or a.opaque ~= b.opaque then
     return false
   end
-  return not TAGGED[a.phase] or (a.tag == b.tag and a.attr == b.attr and a.closing == b.closing and
-    a.fresh == b.fresh)
+  if TAGGED[a.phase] and (a.tag ~= b.tag or a.closing ~= b.closing or a.equiv ~= b.equiv or
+      (a.meta_line > 0) ~= (b.meta_line > 0)) then
+    return false
+  end
+  return not ATTRIBUTED[a.phase] or a.attr == b.attr
+end
+
+local function join(a: Place, b: Place)
+  a.fresh = a.fresh and b.fresh
+  a.after_url = a.after_url or b.after_url
+  if a.meta_line == 0 then
+    a.meta_line = b.meta_line
+    a.meta_col = b.meta_col
+  end
 end
 
 --- Whether byte `b` is an HTML space.
@@ -229,18 +304,60 @@ local function script_end(text: string, from: integer): integer | nil
   end
 end
 
---- Ends the tag just read: into the text of a raw text element if it
---- opens one, else into text. Answers where reading goes on.
-local function end_tag(p: Place, from: integer): integer
-  if p.tag == "svg" or p.tag == "math" then
-    p.foreign = not p.closing
+--- Counts a start or end tag of an element the HTML parser treats
+--- specially inside `<svg>` and `<math>`.
+local function count(p: Place, selfclosed: boolean)
+  local tag = p.tag
+  if tag == "svg" or tag == "math" then
+    if p.closing then
+      p.foreign = math.max(0, p.foreign - 1)
+    elseif not selfclosed then
+      p.foreign = p.foreign + 1
+    end
+  elseif INTEGRATION[tag] and (p.foreign > 0 or p.opaque > 0) then
+    if p.closing then
+      p.opaque = math.max(0, p.opaque - 1)
+    elseif not selfclosed then
+      p.opaque = p.opaque + 1
+    end
+  end
+end
+
+--- Ends the tag just read, at the `>` before `from` (after a value with no
+--- quotes, which a `/` ends nothing in): into the text of a raw text
+--- element if it opens one, else into text. Answers where reading goes on.
+local function end_tag(p: Place, text: string, from: integer, unquoted: boolean): integer
+  if p.attr == "http-equiv" and ATTRIBUTED[p.phase] then
+    p.equiv = true
+  end
+  count(p, not unquoted and text:byte(from - 2) == 47)
+  if p.tag == "meta" and not p.closing and p.equiv and p.meta_line > 0 then
+    p.late = "a slot in the content of a <meta> that has http-equiv could be a redirect"
   end
   local phase = RAW_TAGS[p.tag]
-  if p.foreign and phase == "rcdata" then
+  if p.foreign > 0 and phase == "rcdata" then
     phase = nil
   end
   p.phase = (p.closing or phase == nil) and "text" or phase
   return from
+end
+
+--- Notes that the attribute just named is `http-equiv`.
+local function named(p: Place)
+  if p.attr == "http-equiv" then
+    p.equiv = true
+  end
+end
+
+--- Starts a tag.
+local function open_tag(p: Place, closing: boolean)
+  p.phase = "tag_name"
+  p.tag = ""
+  p.closing = closing
+  p.equiv = false
+  p.meta_line = 0
+  p.meta_col = 0
+  p.late = ""
 end
 
 local function feed(p: Place, text: string)
@@ -258,9 +375,7 @@ local function feed(p: Place, text: string)
       i = lt + 1
     elseif phase == "lt" then
       if letter(b) then
-        p.phase = "tag_name"
-        p.tag = ""
-        p.closing = false
+        open_tag(p, false)
       elseif b == 47 then
         p.phase = "end_open"
         i = i + 1
@@ -284,9 +399,7 @@ local function feed(p: Place, text: string)
       end
     elseif phase == "end_open" then
       if letter(b) then
-        p.phase = "tag_name"
-        p.tag = ""
-        p.closing = true
+        open_tag(p, true)
       elseif b == 62 then
         p.phase = "text"
         i = i + 1
@@ -300,7 +413,7 @@ local function feed(p: Place, text: string)
         end
         i = i + 1
       elseif b == 62 then
-        i = end_tag(p, i + 1)
+        i = end_tag(p, text, i + 1, false)
       elseif b == 61 then
         -- After a name, `=` brings its value; before one it is the first
         -- byte of a name, as the standard has it.
@@ -317,11 +430,12 @@ local function feed(p: Place, text: string)
       i = stop
       if i <= n then
         local d = text:byte(i)
+        named(p)
         if d == 61 then
           p.phase = "before_value"
           i = i + 1
         elseif d == 62 then
-          i = end_tag(p, i + 1)
+          i = end_tag(p, text, i + 1, false)
         else
           p.phase = d == 47 and "before_attr" or "after_attr"
           i = i + 1
@@ -335,7 +449,7 @@ local function feed(p: Place, text: string)
         p.fresh = true
         i = i + 1
       elseif b == 62 then
-        i = end_tag(p, i + 1)
+        i = end_tag(p, text, i + 1, false)
       else
         p.phase = "value_unq"
       end
@@ -348,15 +462,26 @@ local function feed(p: Place, text: string)
           p.fresh = false
         end
       end
+      if p.after_url then
+        local seg = text:sub(i, last)
+        local cut = seg:find("[/?#]")
+        if (cut and seg:sub(1, cut - 1) or seg):find(":", 1, true) then
+          p.colon = true
+        end
+        if cut then
+          p.after_url = false
+        end
+      end
       if close == nil then
         return
       end
       p.phase = "before_attr"
       p.fresh = false
+      p.after_url = false
       i = close + 1
     elseif phase == "value_unq" then
       if b == 62 then
-        i = end_tag(p, i + 1)
+        i = end_tag(p, text, i + 1, true)
       else
         if space(b) then
           p.phase = "before_attr"
@@ -454,8 +579,12 @@ end
 
 local function slot(p: Place): types.Slot | nil, string
   local phase = p.phase
-  if phase == "text" or phase == "rcdata" then
+  if p.opaque > 0 then
+    return nil, "a slot inside <" .. p.tag .. "> in an <svg> or <math>, where the browser reads HTML by rules not followed here"
+  elseif phase == "text" then
     return "text", ""
+  elseif phase == "rcdata" then
+    return "rtext", ""
   elseif phase == "raw" then
     return nil, "a slot inside <" .. p.tag .. "> has no escaper"
   elseif phase == "value_dq" or phase == "value_sq" then
@@ -467,8 +596,11 @@ local function slot(p: Place): types.Slot | nil, string
     if code ~= nil then
       return nil, "a slot in the '" .. attr .. "' attribute would be " .. code
     end
-    if attr == "content" and p.tag == "meta" then
-      return nil, "a slot in the content of a <meta> could be a redirect"
+    if ANIMATION[p.tag] then
+      return nil, "a slot in an attribute of <" .. p.tag .. "> could animate one to a script URL"
+    end
+    if attr == "content" and p.tag == "meta" and p.equiv then
+      return nil, "a slot in the content of a <meta> that has http-equiv could be a redirect"
     end
     if URL_ATTRS[attr] then
       if ACTIVE_TAGS[p.tag] then
@@ -493,9 +625,14 @@ local function slot(p: Place): types.Slot | nil, string
   return nil, "a slot in a comment or markup declaration"
 end
 
-local function wrote(p: Place)
+local function wrote(p: Place, ctx: types.Slot, line: integer, col: integer)
   p.fresh = false
+  p.after_url = ctx == "url"
+  if p.tag == "meta" and p.attr == "content" and ctx == "attr" then
+    p.meta_line = line
+    p.meta_col = col
+  end
 end
 
-local M: Markup = { start = start, copy = copy, same = same, feed = feed, slot = slot, wrote = wrote }
+local M: Markup = { start = start, copy = copy, same = same, join = join, feed = feed, slot = slot, wrote = wrote }
 return M
