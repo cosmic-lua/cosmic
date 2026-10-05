@@ -183,6 +183,21 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
     "an empty environment did not make its cache leaf in TMPDIR")
 end
 
+--- Whether `path` took `mode`, which has a special bit. A worker under a
+--- policy is held by a seccomp filter whose `fattr` never lets one be set
+--- (EPERM): the running test is skipped then, and the caller leaves out
+--- what needs the bit.
+-- TODO: check a setgid parent again under the policy path, and delete
+-- this skip, once a promise lets a test that declares it set the special
+-- bits (core/promises.c's `fattr` refuses them for good).
+local function special_bits_set(path: string, mode: integer): boolean
+  local set, why, errno = sys.chmod(path, mode)
+  if set then return true end
+  assert(errno == sys.EPERM, tostring(why))
+  Test.skip("the worker's filter refuses a mode with a setgid bit: `fattr` never allows one")
+  return false
+end
+
 local function test_launcher_cache_policy_and_integrity(tmp: string)
   local ctx = setup(tmp)
   local target = ctx.work .. "/leaf-target"
@@ -200,19 +215,20 @@ local function test_launcher_cache_policy_and_integrity(tmp: string)
   -- carries it down (Linux does), and is still private.
   local setgid_parent = ctx.work .. "/setgid-parent"
   Fixture.mkdir(setgid_parent)
-  Process.chmod(setgid_parent, 0x5ed)
-  local inherited = setgid_parent .. "/cores"
-  outcome_ok(run(ctx, "setgid-leaf", inherited), "leaf made under a setgid parent")
-  local leaf_mode = assert(Fs.stat(inherited)).mode
-  assert(leaf_mode & 0x1ff == 0x1c0, "setgid leaf is not private")
-  if ctx.target:find("linux", 1, true) ~= nil then
-    assert(leaf_mode & 0x400 ~= 0, "the leaf did not inherit setgid; this case checks nothing")
+  if special_bits_set(setgid_parent, 0x5ed) then
+    local inherited = setgid_parent .. "/cores"
+    outcome_ok(run(ctx, "setgid-leaf", inherited), "leaf made under a setgid parent")
+    local leaf_mode = assert(Fs.stat(inherited)).mode
+    assert(leaf_mode & 0x1ff == 0x1c0, "setgid leaf is not private")
+    if ctx.target:find("linux", 1, true) ~= nil then
+      assert(leaf_mode & 0x400 ~= 0, "the leaf did not inherit setgid; this case checks nothing")
+    end
+    -- Setgid is set aside, and nothing else: a group that can read is refused.
+    local group_read = ctx.work .. "/setgid-group-read"
+    Fixture.mkdir(group_read)
+    Process.chmod(group_read, 0x5e8)
+    expect_failure(ctx, "setgid-group-read", "mode must be 0700 or 0500", group_read)
   end
-  -- Setgid is set aside, and nothing else: a group that can read is refused.
-  local group_read = ctx.work .. "/setgid-group-read"
-  Fixture.mkdir(group_read)
-  Process.chmod(group_read, 0x5e8)
-  expect_failure(ctx, "setgid-group-read", "mode must be 0700 or 0500", group_read)
   local read_only = ctx.work .. "/cold-read-only"
   Fixture.mkdir(read_only)
   Process.chmod(read_only, 0x140)
