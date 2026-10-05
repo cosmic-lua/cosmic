@@ -14,6 +14,11 @@
 --- it is never checked. A case that starts in RCDATA, RAWTEXT, script
 --- data or PLAINTEXT is wrapped in the element that puts a browser's
 --- tree builder there.
+---
+--- Input after a start tag that makes a tree builder switch the tokenizer
+--- (`<textarea>`, `<script>`, `<svg>` and the like) is not checked here,
+--- since the data's tokenizer does not switch: those slots are covered
+--- by the tree-construction test alone.
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Template = require("cosmic.template")
@@ -32,8 +37,9 @@ local record Run
   states: {string}
   --- The attribute being read in a quoted value, at the same cuts.
   attrs: {string}
-  --- Whether the input reached what the cases do not settle (see `tokenize`).
-  unclear: boolean
+  --- In RCDATA, the `<` and what follows it that might become an end tag,
+  --- at the same cuts.
+  tails: {string}
 end
 
 local function is_alpha(c: string): boolean
@@ -62,13 +68,17 @@ end
 --- The tokens, and the state at every cut, that the HTML standard's
 --- tokenizer states make of `input` starting in `initial`. Character
 --- references are not decoded (so are read as text, which they are
---- everywhere but in what a token holds), and a doctype is one state to
+--- everywhere but in what a token holds: a reference takes only letters,
+--- digits, `#` and `;` and returns to the state it began in, so it moves
+--- no state the tracker follows, and a slot inside one is escaped text
+--- there as anywhere), and a doctype is one state to
 --- its `>`, which every one of the standard's doctype states ends at.
 local function tokenize(input: string, initial: string, last_tag: string): Run
   local n = #input
   local tokens: {string} = {}
   local states: {string} = {}
   local attr_at: {string} = {}
+  local tails: {string} = {}
   local state = initial
   local chars = ""
   -- The tag being read.
@@ -79,7 +89,6 @@ local function tokenize(input: string, initial: string, last_tag: string): Run
   local comment = ""
   local temp = ""
   local target, pi_data = "", ""
-  local unclear = false
 
   local function flush()
     if chars ~= "" then
@@ -425,8 +434,6 @@ local function tokenize(input: string, initial: string, last_tag: string): Run
         tokens[#tokens + 1] = "P:" .. target .. ":"
         state = "data"
       else
-        -- The cases give no `?` in a target, nor say what ends it.
-        unclear = unclear or c == "?"
         target = target .. c
       end
     elseif s == "pi_data" then
@@ -559,8 +566,20 @@ local function tokenize(input: string, initial: string, last_tag: string): Run
     return false
   end
 
+  local function tail(): string
+    if state == "rcdata_lt" then
+      return "<"
+    elseif state == "rcdata_end_open" then
+      return "</"
+    elseif state == "rcdata_end_name" then
+      return "</" .. temp
+    end
+    return ""
+  end
+
   states[1] = state
   attr_at[1] = ""
+  tails[1] = ""
   local i = 1
   while i <= n do
     local c = input:sub(i, i)
@@ -581,12 +600,14 @@ local function tokenize(input: string, initial: string, last_tag: string): Run
       for k = 1, width - 1 do
         states[i + k] = "markup_declaration"
         attr_at[i + k] = ""
+        tails[i + k] = ""
       end
       if width > 0 then
         i = i + width
         state = next_state
         states[i] = state
         attr_at[i] = ""
+        tails[i] = ""
       else
         state = next_state
       end
@@ -596,6 +617,7 @@ local function tokenize(input: string, initial: string, last_tag: string): Run
       i = i + 1
       states[i] = state
       attr_at[i] = (state == "value_dq" or state == "value_sq") and attr_name or ""
+      tails[i] = tail()
     end
   end
 
@@ -621,7 +643,7 @@ local function tokenize(input: string, initial: string, last_tag: string): Run
     tokens[#tokens + 1] = "D"
   end
   flush()
-  return { tokens = tokens, states = states, attrs = attr_at, unclear = unclear }
+  return { tokens = tokens, states = states, attrs = attr_at, tails = tails }
 end
 
 local HEAD <const> = "{{type T from m.t}}\n"
@@ -653,7 +675,10 @@ local DEFAULT_WRAPPER <const>: {string: string} = {
   rcdata = "textarea", rawtext = "xmp", script = "script", plaintext = "plaintext",
 }
 
---- The attributes that take one URL, as the HTML standard lists them.
+--- The attributes that take one URL, as the HTML standard lists them: a
+--- slot in a value of one is a URL, and so is one in `archive`, which
+--- the list does not hold yet (once #2737 merges it does, and it joins
+--- this list).
 local URL_ATTRS <const>: {string: boolean} = {
   href = true, src = true, action = true, formaction = true, cite = true, data = true,
   poster = true, background = true, manifest = true, longdesc = true, codebase = true,
@@ -670,17 +695,34 @@ local function kind_of(out: string): string
   error("no slot in " .. out)
 end
 
+--- The attributes whose value a slot may never be in, by name: handlers,
+--- and the ones that hold code or a list of URLs.
+local function is_code(attr: string): boolean
+  return attr:sub(1, 2) == "on" or attr == "style" or attr == "srcdoc" or attr == "srcset" or
+    attr == "imagesrcset" or attr == "ping"
+end
+
 --- Whether a slot of `kind` may stand where the tokenizer is in `state`
 --- (reading the attribute `attr`, when in a quoted value): in text, one
 --- the escaper for text is right for; in RCDATA, the one for it; in a
---- quoted attribute value, an attribute's or a URL's; nowhere else.
-local function allowed(state: string, kind: string, attr: string): boolean
+--- quoted attribute value, a URL's where the attribute takes one and an
+--- attribute's elsewhere, and never in one that is code; nowhere else.
+local function allowed(state: string, kind: string, attr: string, tail: string, tag: string): boolean
   if state == "data" then
     return kind == "text"
   elseif state == "rcdata" then
     return kind == "rtext"
+  elseif state == "rcdata_lt" or state == "rcdata_end_open" or state == "rcdata_end_name" then
+    -- A slot there is escaped text, which can only add to the name of an
+    -- end tag: it is safe unless that name may become the element's.
+    return kind == "rtext" and ("</" .. tag):sub(1, #tail) ~= tail:lower()
   elseif state == "value_dq" or state == "value_sq" then
-    return kind == "attr" or (kind == "url" and URL_ATTRS[attr] == true)
+    if is_code(attr) then
+      return false
+    elseif URL_ATTRS[attr] then
+      return kind == "url"
+    end
+    return kind == "attr" or (kind == "url" and attr == "archive")
   end
   return false
 end
@@ -696,11 +738,32 @@ local function switches(input: string, from: integer): boolean
   return false
 end
 
+--- What closes the markup a case leaves open, tried in order: the end of
+--- a tag, a quoted value, a comment, and then the end tag of the wrapper.
+local MARKUP_CLOSERS <const>: {string} = { "", ">", "\">", "'>", "-->" }
+
+--- Text that, put after `input` in its wrapper, leaves the template in
+--- plain text (an `html` template must end there), or nil if none of the
+--- ones tried does. What follows a slot cannot change where the slot
+--- stands, so any that compiles will do, and one is found with no slot.
+local function closer_for(wrapper: string, input: string): string | nil
+  local tag = wrapper:match("^<(%a+)>$")
+  for _, base in ipairs(MARKUP_CLOSERS) do
+    for _, tail in ipairs({ "", tag and ("</" .. tag .. ">") or "" }) do
+      local closer = base .. tail
+      if Template.compile(HEAD .. wrapper .. input .. closer, "t.tmpl") ~= nil then
+        return closer
+      end
+    end
+  end
+  return nil
+end
+
 --- What the checks reached, so the test can hold a floor under them.
 local record Reach
   cases: integer
+  unclosed: integer
   validated: integer
-  unclear: integer
   positions: integer
   accepted: {string: integer}
   failures: {string}
@@ -763,20 +826,24 @@ local function check_case(
     return
   end
   local wrapper, last = "", last_tag
+  -- A case whose last start tag is not one the state goes with (RCDATA
+  -- after `<xmp>`) is read after the wrapper's own, which only changes
+  -- what its tokens are when its input holds that tag's end tag: so it
+  -- stands only if its tokens are the same.
+  local borrowed = false
   if state ~= "data" then
-    if last ~= nil and not WRAPPERS[state][last] then
-      return
+    if last == nil or not WRAPPERS[state][last] then
+      borrowed = last ~= nil
+      last = DEFAULT_WRAPPER[state]
     end
-    last = last or DEFAULT_WRAPPER[state]
     wrapper = "<" .. last .. ">"
   end
   reach.cases = reach.cases + 1
   local run = tokenize(input, state, last or "")
-  if run.unclear or (input:find("<?", 1, true) and not same_tokens(run.tokens, expected_tokens(output))) then
-    reach.unclear = reach.unclear + 1
-    return
-  end
   if not same_tokens(run.tokens, expected_tokens(output)) then
+    if borrowed then
+      return
+    end
     reach.failures[#reach.failures + 1] = ("reference tokenizer: %s (%s): %q"):format(description, initial, input)
     return
   end
@@ -795,11 +862,17 @@ local function check_case(
   if switches(input, from) then
     return
   end
+  local closer = closer_for(wrapper, input)
+  if closer == nil then
+    -- Nothing leaves the template in text (PLAINTEXT never ends).
+    reach.unclosed = reach.unclosed + 1
+    return
+  end
   reach.validated = reach.validated + 1
   for at = 0, #input do
     local next_byte = input:byte(at + 1)
     if next_byte == nil or next_byte < 0x80 or next_byte >= 0xC0 then
-      local template = HEAD .. wrapper .. input:sub(1, at) .. "{{.x}}" .. input:sub(at + 1)
+      local template = HEAD .. wrapper .. input:sub(1, at) .. "{{.x}}" .. input:sub(at + 1) .. closer
       local out = Template.compile(template, "t.tmpl")
       reach.positions = reach.positions + 1
       if out ~= nil then
@@ -807,7 +880,7 @@ local function check_case(
         local where = run.states[at + 1]
         local key = where .. "/" .. kind
         reach.accepted[key] = (reach.accepted[key] or 0) + 1
-        if not allowed(where, kind, run.attrs[at + 1]) then
+        if not allowed(where, kind, run.attrs[at + 1], run.tails[at + 1], last or "") then
           reach.failures[#reach.failures + 1] = ("%s (%s): slot %s at %d of %q: tokenizer is in %s"):format(
             description, initial, kind, at, input, where)
         end
@@ -817,7 +890,7 @@ local function check_case(
 end
 
 local function test_a_slot_is_accepted_only_where_the_tokenizer_is_in_the_state_for_it()
-  local reach: Reach = { cases = 0, validated = 0, unclear = 0, positions = 0, accepted = {}, failures = {} }
+  local reach: Reach = { cases = 0, unclosed = 0, validated = 0, positions = 0, accepted = {}, failures = {} }
   local files = assert(Fs.list(DIRECTORY))
   for _, file in ipairs(files) do
     if file:find("%.test$") then
@@ -848,19 +921,22 @@ local function test_a_slot_is_accepted_only_where_the_tokenizer_is_in_the_state_
       end
     end
   end
+  assert(#reach.failures == 0, #reach.failures .. " failures:\n" ..
+      table.concat(reach.failures, "\n", 1, math.min(#reach.failures, 30)))
   local summary: {string} = {}
   for key, count in pairs(reach.accepted) do
     summary[#summary + 1] = key .. "=" .. count
   end
   table.sort(summary)
-  print(("tokenizer: %d cases, %d validated, %d unclear, %d positions; accepted %s"):format(
-    reach.cases, reach.validated, reach.unclear, reach.positions, table.concat(summary, " ")))
-  -- It reaches 2124, 2123, 21823 and 2841, 108 and 209 accepted.
-  assert(reach.cases >= 2000 and reach.validated >= 2000, "only " .. reach.validated .. " cases were validated")
-  assert(reach.positions >= 20000, "only " .. reach.positions .. " positions were checked")
+  print(("tokenizer: %d cases, %d validated, %d unclosed, %d positions; accepted %s"):format(
+    reach.cases, reach.validated, reach.unclosed, reach.positions, table.concat(summary, " ")))
+  -- It reaches 2148 cases, 2086 validated, 21803 positions, and accepts
+  -- 2841 slots of text, 134 of rtext, 21 of rtext in the name of an end
+  -- tag that cannot be the element's, and 209 in attributes.
+  assert(reach.cases >= 2050 and reach.validated >= 2050, "only " .. reach.validated .. " cases were validated")
+  assert(reach.positions >= 20500, "only " .. reach.positions .. " positions were checked")
   local attrs = (reach.accepted["value_dq/attr"] or 0) + (reach.accepted["value_sq/attr"] or 0)
-  assert((reach.accepted["data/text"] or 0) >= 2500 and (reach.accepted["rcdata/rtext"] or 0) >= 100 and
-      attrs >= 200, "too few slots were accepted: " .. table.concat(summary, " "))
-  assert(#reach.failures == 0, #reach.failures .. " failures:\n" ..
-      table.concat(reach.failures, "\n", 1, math.min(#reach.failures, 30)))
+  assert((reach.accepted["data/text"] or 0) >= 2600 and (reach.accepted["rcdata/rtext"] or 0) >= 120 and
+      (reach.accepted["rcdata_end_name/rtext"] or 0) >= 15 and attrs >= 190,
+    "too few slots were accepted: " .. table.concat(summary, " "))
 end
