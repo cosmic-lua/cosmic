@@ -285,6 +285,13 @@ so a child started from it by [`Child.start`] runs on the same database. The
 retained descriptor of a split start is its core, which every binding that
 takes a descriptor refuses as it does a portable artifact's.
 
+The database must not change while the core runs: `immutable=1` tells SQLite
+never to look at the file again, so a rewrite in place gives stale or corrupt
+pages. Replace the file by renaming a new one over it instead. `core_sha256`
+is a compatibility check, not authentication: anyone who can write the
+database can write the digest too, and a database the user names is trusted
+as an artifact the user chooses to run is, raw bindings included.
+
 Nothing in the process protects the database file: it is an ordinary file the
 program may read like any other, by design, since its modules are the
 program's own. What confines it is the sandbox's, which a policy names

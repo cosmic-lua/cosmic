@@ -4,7 +4,8 @@
  * Teal from a source tree through `--boot`.
  */
 
-#define _XOPEN_SOURCE 700 /* realpath */
+#define _DEFAULT_SOURCE /* realpath, as glibc and musl hide it under -std=c11 */
+#define _DARWIN_C_SOURCE
 
 #include <ctype.h>
 #include <stdbool.h>
@@ -101,36 +102,52 @@ static bool open_database (const char *path, struct cosmic_artifact *artifact,
                            sqlite3 **out, const char **why) {
   static char message[256];
   char resolved[COSMIC_ARTIFACT_PATH_CAPACITY];
-  int file = open(path, O_RDONLY | O_CLOEXEC);
+  /* O_NONBLOCK: opening a FIFO for reading waits for a writer, which a
+   * database path must never do. */
+  int file = open(path, O_RDONLY | O_CLOEXEC | O_NONBLOCK);
   struct stat held;
   if (file < 0) {
     snprintf(message, sizeof message, "%s", strerror(errno));
     *why = message;
     return false;
   }
-  bool regular = fstat(file, &held) == 0 && S_ISREG(held.st_mode);
-  close(file);
-  if (!regular) {
+  if (fstat(file, &held) != 0 || !S_ISREG(held.st_mode)) {
+    close(file);
     *why = "it is not a regular file";
     return false;
   }
   if (realpath(path, resolved) == NULL) {
     snprintf(message, sizeof message, "%s", strerror(errno));
     *why = message;
+    close(file);
     return false;
   }
   char uri[8192];
   if (!cosmic_database_uri(uri, sizeof uri, resolved)) {
+    close(file);
     *why = "the path is too long";
     return false;
   }
   sqlite3 *db = NULL;
   int rc = sqlite3_open_v2(uri, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_URI,
                            NULL);
+  /* SQLite opens the path again, so the file it holds is the one checked
+   * above only if the path still names it: a path swapped in between is
+   * refused here, the descriptor kept open until now so its inode cannot
+   * be reused meanwhile. */
+  struct stat named_now;
+  bool same = rc == SQLITE_OK && stat(resolved, &named_now) == 0 &&
+              named_now.st_dev == held.st_dev && named_now.st_ino == held.st_ino;
+  close(file);
   if (rc != SQLITE_OK) {
     snprintf(message, sizeof message, "%s",
              db == NULL ? sqlite3_errstr(rc) : sqlite3_errmsg(db));
     *why = message;
+    sqlite3_close_v2(db);
+    return false;
+  }
+  if (!same) {
+    *why = "the file changed while it was being opened";
     sqlite3_close_v2(db);
     return false;
   }

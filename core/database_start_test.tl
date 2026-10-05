@@ -461,6 +461,29 @@ local function test_a_directory_is_refused(tmp: string)
   refused(core, tmp, "it is not a regular file")
 end
 
+--- A FIFO has no content to read and opening one for reading waits for a
+--- writer: it is refused like any file that is not regular, not waited on.
+local function test_a_fifo_is_refused(tmp: string)
+  local core = core_path()
+  if core == nil then return end
+  local path = tmp .. "/fifo"
+  assert(sys.mkfifo(path, 0x1a4))
+  refused(core, path, "it is not a regular file")
+end
+
+--- A path that is a link opens the file it names, which the relaunch and
+--- the artifact then name without the link.
+local function test_a_symlinked_database_path_opens_its_target(tmp: string)
+  local core = core_path()
+  if core == nil then return end
+  local path = info_database(tmp)
+  assert(Fs.symlink(path, tmp .. "/link.db"))
+  local r = run({ core, "--database", tmp .. "/link.db" })
+  assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
+  local out = fields(assert(r.stdout))
+  assert(out.artifact == assert(sys.realpath(path)), tostring(out.artifact))
+end
+
 local function test_a_file_that_is_not_sqlite_is_refused(tmp: string)
   local core = core_path()
   if core == nil then return end
