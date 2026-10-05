@@ -9,7 +9,7 @@ local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 
-Test.needs{ network = { "127.0.0.1" } }
+Test.policy{ loopback = { "127.0.0.1" } }
 
 --- A reply as a client read it.
 local record Got

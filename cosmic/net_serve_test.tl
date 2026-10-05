@@ -10,7 +10,7 @@ local Test = require("cosmic.test")
 
 --- The servers listen on the worker's own loopback, or at a socket file where
 --- a case is about one.
-Test.needs{ network = { "127.0.0.1" } }
+Test.policy{ loopback = { "127.0.0.1" } }
 
 --- Answers each line with itself until the peer ends what it sends.
 local function echo(conn: Net.Conn)

@@ -16,7 +16,11 @@ local Clock = require("cosmic.clock")
 --- /proc, where a confined child's coverage is found; the program
 --- itself, which its tests start; and `nests`, for the child it confines
 --- in a root of its own.
-Test.needs{ host = { "/proc" }, tool = true, nests = true }
+Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "/proc", letters = "r" } },
+  promises = { "nest" },
+}
 
 local function test_a_started_process_reports_its_c(tmp: string)
   if next(Coverage.native_lines()) == nil then return end

@@ -15,7 +15,7 @@ local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 
-Test.needs{ tool = true }
+Test.policy{ profiles = { "cosmic" } }
 
 --- The program's own path names a file, which a `tool` test, given the
 --- program at its own name, can stat.

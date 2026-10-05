@@ -13,7 +13,7 @@ local confine = require("build.confine")
 local searchable = require("build.searchable")
 
 --- A host program starts, so the system's own paths are given.
-Test.needs{ system = true }
+Test.policy{ profiles = { "system" } }
 
 local CAT <const> = "/bin/cat"
 

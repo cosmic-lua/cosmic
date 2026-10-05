@@ -13,7 +13,7 @@ local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 
 --- The program itself, which its tests start.
-Test.needs{ tool = true }
+Test.policy{ profiles = { "cosmic" } }
 
 --- Runs a script whose own line 4 runs only while it loads, then prints
 --- whether the name was visible and whether the first and second

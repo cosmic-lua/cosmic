@@ -14,7 +14,7 @@ local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 
 --- The program itself, which its tests start past its launcher.
-Test.needs{ tool = true }
+Test.policy{ profiles = { "cosmic" } }
 
 local function environment(): {string:string}
   local env = this_program.environment()

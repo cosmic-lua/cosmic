@@ -40,7 +40,7 @@ local Test = require("cosmic.test")
 local unix_socket = require("build.unix_socket")
 
 --- The socket cases listen on the worker's own loopback.
-Test.needs{ network = { "127.0.0.1" } }
+Test.policy{ loopback = { "127.0.0.1" } }
 
 local type Searcher = function(string): any, any
 

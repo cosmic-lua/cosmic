@@ -9,7 +9,7 @@ local Net = require("cosmic.net")
 local Test = require("cosmic.test")
 
 --- The listener answers nothing, on the worker's own loopback.
-Test.needs{ network = { "127.0.0.1" } }
+Test.policy{ loopback = { "127.0.0.1" } }
 
 --- Whether `why` is curl's message for an expired limit: its
 --- "Operation timed out after N", "Connection timeout after N ms" or

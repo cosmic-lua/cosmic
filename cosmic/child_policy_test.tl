@@ -16,7 +16,7 @@ local stand_in = require("build.stand_in")
 local Sandbox = require("cosmic.sandbox")
 
 --- The temporary directory and the environment the tests read.
-Test.needs{ env = { "TMPDIR" } }
+Test.policy{ env = { "TMPDIR" } }
 
 local DENIED <const> = "Permission denied"
 

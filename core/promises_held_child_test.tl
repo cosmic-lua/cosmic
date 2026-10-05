@@ -23,7 +23,10 @@ local type _ = require("cosmic.child")
 --- `network`, which gives the worker a network namespace of its own, one
 --- its filter lets it make a unix socket in (the children it starts inherit
 --- that filter).
-Test.needs{ nests = true, network = { "127.0.0.1" } }
+Test.policy{
+  promises = { "nest" },
+  loopback = { "127.0.0.1" },
+}
 
 local type Searcher = function(string): any, any
 

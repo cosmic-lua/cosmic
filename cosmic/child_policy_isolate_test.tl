@@ -24,7 +24,11 @@ local type raw_process = require("cosmic.internal.process")
 --- The temporary directory, and a loopback address for the host's own
 --- listener the child must not reach. `nests`: a policy's isolation makes
 --- a root of its own, which a worker held by a Landlock ruleset cannot.
-Test.needs{ env = { "TMPDIR" }, nests = true, network = { "127.0.0.1" } }
+Test.policy{
+  promises = { "nest" },
+  loopback = { "127.0.0.1" },
+  env = { "TMPDIR" },
+}
 
 --- Whether `why`, a start's failure, is the platform or the host giving no
 --- Landlock, seccomp or user namespace.
