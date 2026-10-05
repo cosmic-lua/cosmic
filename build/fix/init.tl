@@ -1269,6 +1269,24 @@ local function find_unbuilt(ctx: Fix)
   ctx.unbuilt = unbuilt
 end
 
+--- What the CI legs' promises say against the requirements the tree's
+--- test modules declare ([`tree_checks.promises`]), the declarations read
+--- from the working database the projection just wrote.
+local function promise_findings(root: string): {string}
+  local build, open_trouble = Sqlite.open(root .. "/o/build.db")
+  if build == nil then return { "tree checks: " .. open_trouble } end
+  local declared, declared_trouble = tree_checks.requirements(build)
+  local _, _ = build:close()
+  if declared == nil then return { "tree checks: " .. declared_trouble } end
+  local legs, legs_trouble = tree_checks.legs(root)
+  if legs == nil then return { "tree checks: " .. legs_trouble } end
+  local out: {string} = {}
+  for _, line in ipairs(tree_checks.promises(declared, legs)) do
+    out[#out + 1] = "promises: " .. line
+  end
+  return out
+end
+
 --- Over the whole of cosmic's own tree, what only the whole tree can
 --- answer ([`build.tree_checks`]), asked of its projection built afresh:
 --- a finding is the tree's, not a file's, so it is counted apart.
@@ -1312,6 +1330,9 @@ local function run_tree_checks(ctx: Fix)
         for _, line in ipairs(example_checks.run(db, root, shown)) do
           findings[#findings + 1] = "examples as shown: " .. line
         end
+      end
+      for _, line in ipairs(promise_findings(root)) do
+        findings[#findings + 1] = line
       end
       local closed, close_trouble = db:close()
       if not closed then findings[#findings + 1] = "tree checks: " .. close_trouble end

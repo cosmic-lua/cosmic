@@ -6,8 +6,8 @@
 --- verdict; one whose requirements are present runs under a key that holds
 --- what the host answered. Each run here is unsandboxed
 --- (COSMIC_TEST_SANDBOX=0), so it means the same on every host, and a
---- held run (COSMIC_SANDBOX=must, COSMIC_CI_REQUIRE_SANDBOX=1) fails for none
---- of the host's absences.
+--- held run (COSMIC_SANDBOX=must, COSMIC_CI_REQUIRE_SANDBOX=1) fails only
+--- for an absence its leg promised (COSMIC_TEST_PROMISES).
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -49,6 +49,7 @@ local function run(root: string, extra?: {string:string}): string, integer
   env.COSMIC_TEST_SANDBOX = "0"
   env.COSMIC_SANDBOX = nil
   env.COSMIC_CI_REQUIRE_SANDBOX = nil
+  env.COSMIC_TEST_PROMISES, env.COSMIC_TEST_LEG = nil, nil
   for name, value in pairs(extra or {}) do env[name] = value end
   local started = this_program.program({ "test" }, {
     cwd = root, env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(90),
@@ -145,19 +146,73 @@ local function test_a_probe_that_raises_fails_its_modules_alone(tmp: string)
   assert(not out:find("FAIL  plain_test", 1, true), out)
 end
 
---- A name the table does not have, or a Linux-class one, fails the build,
---- naming the rule, and nothing runs.
-local function test_an_unknown_or_linux_requirement_fails_the_build(tmp: string)
+--- A name the table does not have fails the build, naming the rule, and
+--- nothing runs; a Linux-class name does not.
+local function test_an_unknown_requirement_fails_the_build_and_a_linux_one_does_not(tmp: string)
   local root = project(tmp)
-  for _, case in ipairs({ { "sandbxo", "unknown requirement \"sandbxo\"" },
-      { "nest", "\"nest\" is a Linux-class requirement" } }) do
-    assert(Fs.write(root .. "/typo_test.tl", 'local Test = require("cosmic.test")\n' ..
-        'Test.policy { requires = { "' .. case[1] .. '" } }\nlocal function test_a() assert(true) end\n'))
-    local out, code = run(root)
+  assert(Fs.write(root .. "/typo_test.tl", 'local Test = require("cosmic.test")\n' ..
+      'Test.policy { requires = { "sandbxo" } }\nlocal function test_a() assert(true) end\n'))
+  local out, code = run(root)
+  assert(code ~= 0, out)
+  assert(out:find("unknown requirement \"sandbxo\"", 1, true), out)
+  assert(not out:find("test: PASS", 1, true), out)
+  assert(Fs.write(root .. "/typo_test.tl", 'local Test = require("cosmic.test")\n' ..
+      'Test.policy { requires = { "nest", "proc" } }\nlocal function test_a() assert(true) end\n'))
+  out, code = run(root, { COSMIC_TEST_PLATFORM = "other" })
+  assert(code == 0, out)
+  assert(out:find("test: N/A  typo_test test_a: requires nest: ", 1, true), out)
+end
+
+--- A held run (COSMIC_SANDBOX=must, COSMIC_CI_REQUIRE_SANDBOX=1,
+--- COSMIC_TEST_SANDBOX=1) fails a module for an absence of a requirement
+--- its leg promises (COSMIC_TEST_PROMISES), naming the requirement and the
+--- leg (COSMIC_TEST_LEG); one it does not promise it passes, and a run that
+--- is not held ignores the promises. COSMIC_TEST_PLATFORM=other makes the
+--- Linux-class requirement absent as n/a, on any host.
+local function test_a_held_run_fails_what_its_leg_promised_and_lacks(tmp: string)
+  local root = project(tmp)
+  assert(Fs.write(root .. "/linux_test.tl", [[
+local Test = require("cosmic.test")
+Test.policy { requires = { "nest", "proc" } }
+error("a module with an absent requirement must not load")
+local function test_a() assert(true) end
+local function test_b() assert(true) end
+]]))
+  assert(Fs.write(root .. "/plain_test.tl", "local function test_c() assert(true) end\n"))
+  local modes: {{string:string}} = { { COSMIC_SANDBOX = "must" }, { COSMIC_CI_REQUIRE_SANDBOX = "1" } }
+  for _, held in ipairs(modes) do
+    local extra: {string:string} = { COSMIC_TEST_PLATFORM = "other", COSMIC_TEST_LEG = "linux-test",
+      COSMIC_TEST_PROMISES = "sandbox,nest" }
+    for name, value in pairs(held) do extra[name] = value end
+    local out, code = run(root, extra)
     assert(code ~= 0, out)
-    assert(out:find(case[2], 1, true), out)
-    assert(not out:find("test: PASS", 1, true), out)
+    assert(out:find("FAIL  linux_test test_a: ", 1, true) and out:find("requires nest: nest: ", 1, true) and
+        out:find("the leg linux-test promises nest", 1, true), out)
+    assert(not out:find("FAIL  plain_test", 1, true) and not out:find("must not load", 1, true), out)
+    -- Without a leg's name, the run is named.
+    extra.COSMIC_TEST_LEG = nil
+    out, code = run(root, extra)
+    assert(code ~= 0 and out:find("this run promises nest", 1, true), out)
+    -- Not promised: the same absences fail nothing.
+    extra.COSMIC_TEST_PROMISES = "sandbox,userns"
+    out, code = run(root, extra)
+    assert(code == 0, out)
+    assert(out:find("test: N/A  linux_test test_a: requires nest: ", 1, true), out)
+    -- A run that is not held ignores what the leg promised.
+    extra.COSMIC_TEST_PROMISES = "nest,proc"
+    extra.COSMIC_SANDBOX, extra.COSMIC_CI_REQUIRE_SANDBOX = nil, nil
+    out, code = run(root, extra)
+    assert(code == 0 and out:find("N/A  linux_test test_a", 1, true), out)
   end
+end
+
+--- A promise a name of the table does not accept fails the run before any
+--- test, naming it.
+local function test_a_promise_the_table_refuses_fails_the_run(tmp: string)
+  local root = project(tmp)
+  assert(Fs.write(root .. "/plain_test.tl", "local function test_c() assert(true) end\n"))
+  local out, code = run(root, { COSMIC_TEST_PROMISES = "nest,sandbxo" })
+  assert(code ~= 0 and out:find("COSMIC_TEST_PROMISES: unknown requirement \"sandbxo\"", 1, true), out)
 end
 
 --- A `path:` the worker is given no host grant of fails the build too.

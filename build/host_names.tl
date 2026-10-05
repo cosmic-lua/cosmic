@@ -139,23 +139,62 @@ function host_names.class(name: string): host_names.Class | nil, string
   return spec.class
 end
 
+--- The requirements a run's leg promises, as the variable
+--- COSMIC_TEST_PROMISES writes them: names separated by commas, each one
+--- [`parse`] accepts (a `path:` with a comma in it cannot be promised).
+--- An empty text promises nothing.
+--- @param text the variable's value
+--- @return the names, or nil and the rule one breaks
+function host_names.read_promises(text: string): {string} | nil, string
+  local out: {string} = {}
+  if text == "" then return out end
+  local seen: {string:boolean} = {}
+  for name in (text .. ","):gmatch("([^,]*),") do
+    local spec, why = host_names.parse(name)
+    if spec == nil then return nil, why end
+    if seen[name] then return nil, string.format("%q is promised twice", name) end
+    seen[name] = true
+    out[#out + 1] = name
+  end
+  return out
+end
+
+--- The least Landlock ABI version a `landlock` or `landlock:N` asks for.
+local function landlock_version(argument: string): integer
+  return math.tointeger(tonumber(argument)) or 1
+end
+
+--- Whether a leg that promises `promises` promises `name`: the same name,
+--- or, of Landlock, a version at least as high as the one asked for.
+--- @param promises the names a leg promises ([`read_promises`])
+--- @param name a requirement as a module writes it
+--- @return whether the leg promises it
+function host_names.promised(promises: {string}, name: string): boolean
+  local asked, _ = host_names.parse(name)
+  for _, given in ipairs(promises) do
+    if given == name then return true end
+    local spec, _ = host_names.parse(given)
+    if asked ~= nil and spec ~= nil and asked.base == "landlock" and spec.base == "landlock" and
+        landlock_version(spec.argument) >= landlock_version(asked.argument) then
+      return true
+    end
+  end
+  return false
+end
+
 -- TODO: infer requirements from the rest of a policy -- the promise "nest"
 -- is `nest`, a `host` grant of /proc or beneath it is `proc`, `isolate` is
--- `sandbox` and `userns` -- once ci/capabilities.tl lists each leg's
--- promises, so a held run can fail a platform requirement its leg promised
--- (step 4 of the host requirements design), and each module that would
--- gain a requirement has been audited: inferred now, about 25 modules
--- (build/must_confine_test.tl among them) would stop running on a host
--- that lacks Linux's features, and no run would fail for it.
--- TODO: let a policy name the Linux-class requirements `LINUX_NAMES`
--- holds, which `check` refuses until that same step: declared now, a module
--- would be skipped or n/a silently on a CI leg that should have given it.
-
---- The Linux-class names, refused in a declaration until a leg's promises
---- are written down.
-local LINUX_NAMES <const>: {string:boolean} = {
-  sandbox = true, landlock = true, userns = true, nest = true, own_proc = true, proc = true,
-}
+-- `sandbox` and `userns` -- once a requirement can bind less than a whole
+-- module. The audit of step 4 of the host requirements design found
+-- inference would silence tests that run today: a module is the unit, so
+-- `nest` inferred of cosmic/child_tool_test.tl, core/syscalls_tool_test.tl,
+-- build/declared_key_test.tl and build/declared_unenforced_test.tl (all of
+-- ci/darwin-tests.txt, whose macOS branches that leg runs every time)
+-- would make every test of them n/a off Linux, as it would the tests of
+-- build/must_confine_test.tl and the other modules that promise "nest" yet
+-- hold tests that pass on a host with no user namespace (its refusal
+-- checks). Each such module is first split, so what needs the requirement
+-- is a module of its own.
 
 --- Whether `path` is /proc or beneath it, which a grant may name as a
 --- directory.
@@ -171,8 +210,7 @@ end
 
 --- Whether the requirements a policy asks of its host break a rule, and
 --- the rule it breaks: a name is one the table does not have (`parse`),
---- is a Linux-class name (refused for now, see the TODO above), is written
---- twice, a `path:` has no `host` grant of the same path (the worker sees
+--- is written twice, a `path:` has no `host` grant of the same path (the worker sees
 --- what its module grants, not what the runner found), or a `program:` has
 --- not the profile "system" and the variable PATH in `env` (the worker runs
 --- what its own search list finds).
@@ -184,11 +222,6 @@ function host_names.check(declared: {string}, inputs: host_names.Inputs): boolea
   for _, name in ipairs(declared) do
     local spec, why = host_names.parse(name)
     if spec == nil then return false, "requires: " .. why end
-    if LINUX_NAMES[spec.base] then
-      return false, string.format("requires: %q is a Linux-class requirement, which a policy may not " ..
-          "name yet: no leg's promises are written down, so a module that names one would be " ..
-          "skipped or n/a silently where CI should have given it (the TODO in build/host_names.tl)", name)
-    end
     if seen[name] then return false, string.format("requires: %q is written twice", name) end
     seen[name] = true
     if spec.base == "path" then

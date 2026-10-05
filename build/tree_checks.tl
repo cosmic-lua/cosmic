@@ -3,7 +3,8 @@
 --- reader of the compiler's identity named, every familiar command
 --- finding what stands in for it, every docs query a compile advertises
 --- answered, every quieted method one a module declares, every
---- declaration's requires declared, every verb's spec listed and
+--- declaration's requires declared, every requirement a test module
+--- declares promised by a CI leg, every verb's spec listed and
 --- readable, no public doc citing the build or carrying a TODO, and no
 --- literal plural after a number. Each asks the tree's projection,
 --- `o/cosmic.db`, which holds every module's docs, uses, imports,
@@ -23,6 +24,7 @@
 --- its own.
 
 local Fs = require("cosmic.fs")
+local Shape = require("cosmic.shape")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local closure_store = require("build.closure_store")
@@ -32,6 +34,7 @@ local ast = require("build.ast")
 local docs = require("build.docs")
 local docs_checks = require("build.docs_checks")
 local link_text = require("build.link_text")
+local host_names = require("build.host_names")
 local importer = require("build.importer")
 local shared_compiles = require("build.shared_compiles")
 local symbols = require("build.symbols")
@@ -610,6 +613,94 @@ function tree_checks.declarations(db: Sqlite.Handle): {string}
           "a closure store follows a declaration's requires among declarations alone " ..
           "(build/closure_store.tl's `declared`), so declare what it needs of " .. name ..
           " in a declaration, or teach the store to follow a module"
+      end
+    end
+  end
+  return out
+end
+
+--- The requirements each test module of the tree declares
+--- ([`Test.policy`]'s `requires`), by the module's path, as the working
+--- database `build` (`o/build.db`) holds them: the projection has no
+--- declarations.
+--- @param build the working database
+--- @return the names a module declares, for each that declares any
+function tree_checks.requirements(build: Sqlite.Handle): {string:{string}} | nil, string
+  local rows, trouble = Sqlite.text_rows(build,
+    "SELECT i.path, t.value FROM test_inputs t JOIN inputs i ON i.source_hash = t.source_hash " ..
+      "WHERE t.field = 'requires' ORDER BY i.path, t.ordinal")
+  if rows == nil then return nil, "reading the declared requirements: " .. trouble end
+  local out: {string:{string}} = {}
+  for _, row in ipairs(rows) do
+    local names = out[row[1]]
+    if names == nil then
+      names = {}
+      out[row[1]] = names
+    end
+    names[#names + 1] = row[2]
+  end
+  return out
+end
+
+--- What ci/cosmic_ci/capabilities.tl returns.
+local record Capabilities
+  legs: {string:{string}}
+end
+
+local CAPABILITIES_SPEC <const> = Shape.record({ legs = Shape.map(Shape.list(Shape.string)) })
+
+--- The requirements each CI leg promises, as ci/cosmic_ci/capabilities.tl
+--- under `root` lists them. ci is a tree of its own, whose modules the
+--- tree cannot require: the file is data in text Lua reads, loaded alone.
+--- @param root the tree's root
+--- @return the names a leg promises, by the leg's name
+function tree_checks.legs(root: string): {string:{string}} | nil, string
+  local path = root .. "/ci/cosmic_ci/capabilities.tl"
+  local text, read_trouble = Fs.read(path)
+  if text == nil then return nil, read_trouble end
+  local chunk, load_trouble = load(text, "=capabilities.tl", "t", {})
+  if chunk == nil then return nil, path .. ": " .. tostring(load_trouble) end
+  local ok, loaded = pcall(chunk)
+  if not ok then return nil, path .. ": " .. tostring(loaded) end
+  local capabilities, shape_trouble: Capabilities | nil, string = Shape.into(loaded, CAPABILITIES_SPEC)
+  if capabilities == nil then return nil, path .. ": " .. shape_trouble end
+  return capabilities.legs
+end
+
+--- What the CI legs' promises ([`legs`]) and the tree's declared
+--- requirements ([`requirements`]) say against each other, one line a
+--- finding: a name a leg promises that the table of
+--- [`build.host_names`] refuses, and a module requiring a name no leg
+--- promises, which would be n/a or skipped on every leg and run nowhere
+--- in CI, with no held run to fail for it.
+--- @param declared the requirements each test module declares
+--- @param legs the names each CI leg promises
+--- @return the findings, none when every declared name is promised
+function tree_checks.promises(declared: {string:{string}}, legs: {string:{string}}): {string}
+  local out: {string} = {}
+  local leg_names: {string} = {}
+  for leg in pairs(legs) do leg_names[#leg_names + 1] = leg end
+  table.sort(leg_names)
+  local all: {string} = {}
+  for _, leg in ipairs(leg_names) do
+    for _, name in ipairs(legs[leg]) do
+      local _, why = host_names.parse(name)
+      if why ~= nil then
+        out[#out + 1] = string.format("leg %s promises %q, which is refused: %s", leg, name, why)
+      else
+        all[#all + 1] = name
+      end
+    end
+  end
+  local modules: {string} = {}
+  for module in pairs(declared) do modules[#modules + 1] = module end
+  table.sort(modules)
+  for _, module in ipairs(modules) do
+    for _, name in ipairs(declared[module]) do
+      if not host_names.promised(all, name) then
+        out[#out + 1] = string.format("%s requires %s, which no CI leg promises " ..
+            "(ci/cosmic_ci/capabilities.tl): it would be n/a or skipped on every leg and run " ..
+            "nowhere, with no held run to fail for it", module, name)
       end
     end
   end

@@ -372,6 +372,61 @@ local function test_a_spec_is_read_in_any_layout_of_literals(dir: string)
   assert(#found == 0, table.concat(found, "\n"))
 end
 
+--- A requirement a test module declares that no CI leg promises is
+--- refused, naming the module and the name: it would be n/a or skipped on
+--- every leg and run nowhere. A name a leg promises, a Landlock version
+--- below one it promises, and a module that declares none are not; a leg
+--- promising a name the table refuses is.
+local function test_a_requirement_no_leg_promises_is_refused()
+  local legs: {string:{string}} = {
+    ["linux"] = { "sandbox", "landlock:3", "nest" },
+    ["mac"] = {},
+  }
+  local declared: {string:{string}} = {
+    ["a_test"] = { "nest", "landlock:2" },
+    ["b_test"] = { "proc", "root" },
+  }
+  local found = tree_checks.promises(declared, legs)
+  assert(#found == 2, table.concat(found, "\n"))
+  assert(found[1]:find("b_test requires proc, which no CI leg promises", 1, true), found[1])
+  assert(found[2]:find("b_test requires root, which no CI leg promises", 1, true), found[2])
+  assert(#tree_checks.promises({ ["a_test"] = { "nest" } }, legs) == 0)
+  assert(#tree_checks.promises({}, legs) == 0)
+  local refused = tree_checks.promises({}, { linux = { "nope" } })
+  assert(#refused == 1 and refused[1]:find("leg linux promises \"nope\", which is refused", 1, true), refused[1])
+end
+
+--- The legs are read out of ci/cosmic_ci/capabilities.tl as data, and a file
+--- that returns no `legs` of lists of names is refused.
+local function test_the_legs_are_read_from_the_capabilities_file(dir: string)
+  assert(Fs.mkdirs(dir .. "/ci/cosmic_ci"))
+  local path = dir .. "/ci/cosmic_ci/capabilities.tl"
+  assert(Fs.write(path, 'local linux = { "sandbox", "nest" }\nreturn { legs = { x = linux, y = {} } }\n'))
+  local legs = assert(tree_checks.legs(dir))
+  assert(#legs.x == 2 and legs.x[2] == "nest" and #legs.y == 0)
+  for _, bad in ipairs({ "return {}", "return { legs = { x = 1 } }", "error('no')", "return {" }) do
+    assert(Fs.write(path, bad))
+    local found, why = tree_checks.legs(dir)
+    assert(found == nil and why:find("capabilities.tl", 1, true) ~= nil, bad .. ": " .. tostring(why))
+  end
+end
+
+--- The requirements a module declares are read from the working
+--- database's `test_inputs` by the module that holds the source, in the
+--- order written, and a module declaring none is not listed.
+local function test_the_declared_requirements_are_read_by_module()
+  local db = assert(Sqlite.open(":memory:", { writable = true }))
+  assert(db:exec("CREATE TABLE inputs (path TEXT, source_hash TEXT)"))
+  assert(db:exec("CREATE TABLE test_inputs (source_hash TEXT, ordinal INTEGER, field TEXT, value TEXT)"))
+  assert(db:exec("INSERT INTO inputs VALUES ('m.a_test', 'h1'), ('m.b_test', 'h2')"))
+  assert(db:exec("INSERT INTO test_inputs VALUES ('h1', 1, 'line', '3'), ('h1', 2, 'requires', 'nest'), " ..
+      "('h1', 3, 'requires', 'proc'), ('h2', 1, 'host', '/proc')"))
+  local found = assert(tree_checks.requirements(db))
+  assert(#found["m.a_test"] == 2 and found["m.a_test"][1] == "nest" and found["m.a_test"][2] == "proc")
+  assert(found["m.b_test"] == nil)
+  local _, _ = db:close()
+end
+
 --- Every check runs, each line named by its check: a projection with
 --- none of the tree's own anchors, stand-ins, docs or quieted records
 --- fails each check that expects them, and a public member with no doc
