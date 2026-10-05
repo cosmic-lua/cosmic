@@ -1390,6 +1390,13 @@ local function test_the_compiler_modules_are_closed_under_require()
     assert(covered[name], name .. " is not in the compiler's identity: " ..
         table.concat(modules, ", "))
   end
+  --- A template's generated module is stored by derivation, so the
+  --- compiler of templates is part of the identity: a change to it
+  --- regenerates every template.
+  for _, name in ipairs({ "cosmic.template", "cosmic.template.codegen", "cosmic.template.parse" }) do
+    assert(covered[name], name .. " is not in the compiler's identity: " ..
+        table.concat(modules, ", "))
+  end
   assert(not covered["cosmic.removed"], "cosmic.removed is in the compiler's identity: " ..
       table.concat(modules, ", "))
   --- What build.importer requires that the compiler's identity leaves
