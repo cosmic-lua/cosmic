@@ -5,7 +5,8 @@
 --- The facts live beside the pin they describe. A vendored tree's
 --- `vendor/<name>/PIN` adds three keys to the ones [`bin/vendor`] reads:
 ---
----     kind data                        "library" when absent
+---     kind data                        "library" when absent; `test` for data
+---                                      only tests read, which no record lists
 ---     license MIT AND APSL-2.0         an SPDX expression, the rest of the line
 ---     notice LICENSE.md                a file under the tree, the whole of it
 ---     notice src/lua.h:524-543         or those lines of it, 1-based
@@ -90,7 +91,7 @@ local record bom
 end
 
 --- The kinds a component may be: CycloneDX's own words for them.
-local kinds: {string:boolean} = { library = true, data = true }
+local kinds: {string:boolean} = { library = true, data = true, test = true }
 
 --- A `notice` line's value: `path` or `path:first-last`.
 local function notice_of(value: string): bom.Notice | nil, string
@@ -145,7 +146,7 @@ function bom.parse(name: string, source: string): bom.Component | nil, string
       end
     elseif key == "kind" then
       if not kinds[value] then
-        return nil, name .. ": kind " .. value .. " is neither library nor data"
+        return nil, name .. ": kind " .. value .. " is none of library, data and test"
       end
       component.kind = value
     end
@@ -287,30 +288,33 @@ function bom.fill(db: Sqlite.Handle, root: string, qualifier: string): boolean, 
     if component == nil then
       return false, path .. ": " .. parse_trouble
     end
-    local patches, patch_trouble = patches_of(root, name)
-    if patches == nil then
-      return false, patch_trouble
-    end
-    local inserted, insert_trouble = Sqlite.run(db,
-      "INSERT INTO " .. qualifier .. "components (name, kind, version, license, url, " ..
-        "sha256, patches) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-      { text(name), text(component.kind), text(component.version),
-        text(component.license), text(component.url), text(component.sha256),
-        text(patches) })
-    if not inserted then
-      return false, insert_trouble
-    end
-    for ordinal, notice in ipairs(component.notices) do
-      local body, notice_trouble = notice_text(directory, notice)
-      if body == nil then
-        return false, path .. ": " .. notice_trouble
+    -- Test data is fetched like a vendored tree but no binary carries it.
+    if component.kind ~= "test" then
+      local patches, patch_trouble = patches_of(root, name)
+      if patches == nil then
+        return false, patch_trouble
       end
-      local put, put_trouble = Sqlite.run(db,
-        "INSERT INTO " .. qualifier .. "notices (component, ordinal, file, text) " ..
-          "VALUES (?1, ?2, ?3, ?4)",
-        { text(name), bind.integer(ordinal), text(notice.file), text(body) })
-      if not put then
-        return false, put_trouble
+      local inserted, insert_trouble = Sqlite.run(db,
+        "INSERT INTO " .. qualifier .. "components (name, kind, version, license, url, " ..
+          "sha256, patches) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        { text(name), text(component.kind), text(component.version),
+          text(component.license), text(component.url), text(component.sha256),
+          text(patches) })
+      if not inserted then
+        return false, insert_trouble
+      end
+      for ordinal, notice in ipairs(component.notices) do
+        local body, notice_trouble = notice_text(directory, notice)
+        if body == nil then
+          return false, path .. ": " .. notice_trouble
+        end
+        local put, put_trouble = Sqlite.run(db,
+          "INSERT INTO " .. qualifier .. "notices (component, ordinal, file, text) " ..
+            "VALUES (?1, ?2, ?3, ?4)",
+          { text(name), bind.integer(ordinal), text(notice.file), text(body) })
+        if not put then
+          return false, put_trouble
+        end
       end
     end
   end
