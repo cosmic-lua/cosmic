@@ -12,6 +12,8 @@ local Plural = require("cosmic_ci.plural")
 local default_child_timeout_ns <const> = Clock.seconds(30)
 
 local record Fixture
+  inherited: {string}
+
   record Target
     id: integer
     configuration: integer
@@ -120,9 +122,66 @@ function Fixture.hash(path: string): string
   return Hash.hex_sha256(Fixture.read(path))
 end
 
---- The fixture's own environment for a child it starts, with `extra` set
---- over it, made of `base` rather than of the fixture's own (`environment`
---- makes it of that): a copy, which `base` keeps nothing of. The child
+--- The variables a fixture's child inherits from the fixture's own
+--- environment, and no others: every one that a child the fixtures start
+--- reads, on every leg. A module that declares `env` for an unsandboxed
+--- fixture (ci/fixtures/*_test.tl) names each of these beside the
+--- COSMIC_FIXTURE_* it requires, and cosmic_ci/orchestration_test.tl
+--- holds it to that, so the declaration is the truth.
+---
+--- - PATH, HOME, XDG_CACHE_HOME and TMPDIR: the shell scripts bin/zig,
+---   bin/cosmic-bootstrap and the portable launcher, which find their
+---   tools and the cores', bootstrap and zig caches by them, and the
+---   core's own temporary directory.
+--- - COSMIC_PORTABLE_CACHE, COSMIC_VERDICT_CACHE, COSMIC_AUTO_BOOT,
+---   COSMIC_TEST_SANDBOX, COSMIC_SANDBOX and COSMIC_TEST_HELD: what a
+---   process of the program running the tests reads to run at all
+---   (build/this_program.tl's `runtime_environment`, and COSMIC_SANDBOX,
+---   which `confine` reads).
+--- - COSMIC_BOOTSTRAP: the cosmic bin/zig runs build/zig.tl on, where a
+---   run names one (AGENTS.md's Bootstrap).
+--- - COSMIC_ZIG, COSMIC_ZIG_CACHE and COSMIC_ZIG_GLOBAL_CACHE: the zig
+---   build/zig.tl runs and where it keeps its caches, which CI restores
+---   (the driver sets the project cache, cosmic-driver.sh the global).
+--- - ZIG_LIB_DIR, ZIG_GLOBAL_CACHE_DIR and ZIG_LOCAL_CACHE_DIR: zig's own,
+---   which build/zig.tl leaves as the caller names them.
+--- - SDKROOT, DEVELOPER_DIR and MACOSX_DEPLOYMENT_TARGET: where zig and
+---   the system's toolchain shims (xcrun) find macOS's SDK, and the
+---   target zig builds for there. Unset on the Linux legs.
+--- - COSMIC_TEST_TIMEOUT: the deadline the driver gives a fixture's
+---   tests (orchestration.tl's `fixture_test`), which the nested
+---   `cosmic test` runs in self_rebuild_test inherit, since a rebuild
+---   there exceeds the 30 s default.
+--- - FUZZ_ITERS: 0 on every operation (orchestration.tl's `environment`),
+---   so a nested run draws no fuzz inputs.
+--- - COSMIC_BOOTSTRAP_ATTEMPTS, COSMIC_BOOTSTRAP_VERIFY, SSL_CERT_FILE,
+---   SSL_CERT_DIR, CURL_CA_BUNDLE and the proxy variables (HTTPS_PROXY,
+---   HTTP_PROXY, NO_PROXY, ALL_PROXY, and their lower-case forms): how
+---   a cold cache fetches. bin/cosmic-bootstrap's curl or wget read
+---   them, core/http.c reads SSL_CERT_FILE, and build/c/init.tl's
+---   `passed` names the same set for the C compiles.
+-- TODO: list what a macOS leg's zig and system shims read beyond these
+-- (TOOLCHAINS for xcrun, say) once a macOS leg's run has been read for
+-- it: a variable missing here breaks that leg alone, naming nothing.
+Fixture.inherited = {
+  "PATH", "HOME", "XDG_CACHE_HOME", "TMPDIR",
+  "COSMIC_PORTABLE_CACHE", "COSMIC_VERDICT_CACHE", "COSMIC_AUTO_BOOT",
+  "COSMIC_TEST_SANDBOX", "COSMIC_SANDBOX", "COSMIC_TEST_HELD",
+  "COSMIC_BOOTSTRAP",
+  "COSMIC_ZIG", "COSMIC_ZIG_CACHE", "COSMIC_ZIG_GLOBAL_CACHE",
+  "ZIG_LIB_DIR", "ZIG_GLOBAL_CACHE_DIR", "ZIG_LOCAL_CACHE_DIR",
+  "SDKROOT", "DEVELOPER_DIR", "MACOSX_DEPLOYMENT_TARGET",
+  "COSMIC_TEST_TIMEOUT", "FUZZ_ITERS",
+  "COSMIC_BOOTSTRAP_ATTEMPTS", "COSMIC_BOOTSTRAP_VERIFY",
+  "SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_CA_BUNDLE",
+  "ALL_PROXY", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY",
+  "all_proxy", "https_proxy", "http_proxy", "no_proxy",
+}
+
+--- The environment for a child a fixture starts, with `extra` set over
+--- it: of `base`, the fixture's own (`environment` makes it of that),
+--- the variables of [`inherited`] it has, and nothing else. A copy,
+--- which `base` keeps nothing of. The child
 --- shares no compiles or parses (COSMIC_BUILD_CACHE=0) unless `extra`
 --- says otherwise. The fixture's own run shares one file with the leg's
 --- other fixtures (`Orchestration.fixture`), but a tree a child builds (a
@@ -141,7 +200,9 @@ end
 function Fixture.environment_of(base: {string:string},
                                 extra?: {string:string}): {string:string}
   local environment: {string:string} = {}
-  for name, value in pairs(base) do environment[name] = value end
+  for _, name in ipairs(Fixture.inherited) do
+    if base[name] ~= nil then environment[name] = base[name] end
+  end
   environment.COSMIC_BUILD_CACHE = "0"
   environment.COSMIC_TEST_SANDBOX = "0"
   if extra then
