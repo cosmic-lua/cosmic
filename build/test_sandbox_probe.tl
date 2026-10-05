@@ -3,6 +3,14 @@
 --- ([`build.test`]'s `sandbox_here`). This is not build/sandbox_probe.tl,
 --- CI's report of what spawn's sandbox can hold a child to on a host.
 ---
+--- A failure is one of two kinds, which `available` tells apart: a limit of
+--- the host (no sandbox on this platform, a root that cannot map a user, a
+--- kernel that refuses a user namespace or lacks Landlock), where the run
+--- goes on unsandboxed, and any other (a policy that cannot be made, a start
+--- that fails otherwise, an exit, a timeout), which is a defect in the
+--- probe or the harness and fails the run, never passing as an unsandboxed
+--- one.
+---
 --- It is no part of the test harness (build/harness_epoch.tl): it decides
 --- whether a run is sandboxed, not what a sandboxed worker is given
 --- ([`build.test_sandbox`]'s `plan`) nor how one is judged, and a wrong
@@ -33,6 +41,13 @@ local test_sandbox = require("build.test_sandbox")
 local Clock = require("cosmic.clock")
 
 local record test_sandbox_probe
+  --- What a probe found: whether it can, why not (`why`, "" for it can),
+  --- and whether the failure is a defect, no limit of the host (`broken`).
+  record Answer
+    ok: boolean
+    why: string
+    broken: boolean
+  end
 end
 
 --- A fresh directory to probe the sandbox in (`available`), removed by
@@ -74,11 +89,29 @@ local function least_policy(program: string, scratch: string,
   return policy, ""
 end
 
+--- The words by which a failure names what a host may lack of a sandbox: a
+--- user namespace (ENOSPC, EPERM, EACCES, EINVAL), a syscall (ENOSYS), or
+--- the parts of a policy's start that need them.
+local host_limits <const>: {string} = {
+  "No space left on device", "Operation not permitted", "Permission denied",
+  "Invalid argument", "Function not implemented", "not implemented", "Landlock",
+  "seccomp", "namespace", "own /proc", "root could not be built",
+}
+
+--- Whether `trouble` names a limit of the host rather than a defect.
+local function host_limit(trouble: string): boolean
+  for _, word in ipairs(host_limits) do
+    if trouble:find(word, 1, true) then return true end
+  end
+  return false
+end
+
 --- Runs `argv`, this program started again with `fds`, under `policy`,
 --- and waits for it. False and why where it cannot be started, ends
---- otherwise than by exiting 0, or takes longer than the bound.
+--- otherwise than by exiting 0, or takes longer than the bound, and
+--- whether that is a defect (`broken`) rather than a limit of the host.
 local function ran_under(argv: {string}, fds: {integer:integer | string},
-                         policy: Sandbox.Policy): boolean, string
+                         policy: Sandbox.Policy): test_sandbox_probe.Answer
   local given: {integer:integer | string} = {}
   for number, fd in pairs(fds) do given[number] = fd end
   -- Started and waited for, not [`Child.run`], which would take the one
@@ -87,22 +120,26 @@ local function ran_under(argv: {string}, fds: {integer:integer | string},
   -- it a pid namespace of its own, which ends when it does.
   local handle, trouble = Child.start(argv, { policy = policy, fds = given, cwd = "/",
     stdin = "null", stdout = "capture", stderr = "stdout", process_group = false })
-  if handle == nil then return false, test_sandbox.refusal(trouble) end
+  if handle == nil then
+    return { ok = false, why = test_sandbox.refusal(trouble), broken = not host_limit(trouble) }
+  end
   -- Past the bound, `wait` ends it, and its pid namespace with it;
   -- `close` makes sure of it if the wait failed.
   local result, wait_trouble = handle:wait(probe_timeout_ns)
   if result == nil then
     local _, _ = handle:close()
-    return false, wait_trouble
+    return { ok = false, why = wait_trouble, broken = true }
   end
-  if result.timed_out then return false, "a sandboxed start of this program took 30 s" end
+  if result.timed_out then
+    return { ok = false, why = "a sandboxed start of this program took 30 s", broken = true }
+  end
   if not result.ok then
     local said = (result.stdout or ""):gsub("%s+$", "")
-    return false, "a sandboxed start of this program " ..
-      (result.signal ~= nil and ("was killed by signal " .. tostring(result.signal)) or
-        ("exited " .. tostring(result.code))) .. (said ~= "" and (": " .. said) or "")
+    return { ok = false, broken = not host_limit(said), why = "a sandboxed start of this program " ..
+        (result.signal ~= nil and ("was killed by signal " .. tostring(result.signal)) or
+          ("exited " .. tostring(result.code))) .. (said ~= "" and (": " .. said) or "") }
   end
-  return true, ""
+  return { ok = true, why = "", broken = false }
 end
 
 --- Whether this host can run a worker sandboxed: `argv`, this program
@@ -111,13 +148,18 @@ end
 --- declare `tool` does ([`confine.forbid_running`]), under the policy of a
 --- worker that declares nothing, in `scratch`. False and why where it
 --- cannot: no worker then runs sandboxed, and no verdict is keyed by its
---- declared inputs.
+--- declared inputs. The third answer is whether the failure is a defect,
+--- not a limit of the host: the run then fails.
+--- @return what it found
 function test_sandbox_probe.available(argv: {string}, env: {string:string}, fds: {integer:integer},
-                                      scratch: string): boolean, string
+                                      scratch: string): test_sandbox_probe.Answer
+  if not confine.sandbox_platform() then
+    return { ok = false, why = "this platform has no sandbox to give a worker", broken = false }
+  end
   local unmet = test_policy.unmet()
-  if unmet ~= "" then return false, unmet end
+  if unmet ~= "" then return { ok = false, why = unmet, broken = false } end
   local policy, why = least_policy(argv[1], scratch, env)
-  if policy == nil then return false, why end
+  if policy == nil then return { ok = false, why = why, broken = true } end
   local command: {string} = {}
   for i, word in ipairs(argv) do command[i] = word end
   -- As a worker whose test does not declare `tool` holds itself
@@ -177,9 +219,9 @@ assert(Fs.read(path) == bytes)
 local ok, trouble, errno = sys.execve(path, { path, "-e", "os.exit(97)" }, {})
 assert(not ok and errno == sys.EACCES, trouble)
 ]]
-  local ok, ran_why = ran_under(command, start.fds, policy)
+  local answer = ran_under(command, start.fds, policy)
   local _, _ = Fs.remove_tree(directory)
-  if not ok then return false, ran_why end
+  if not answer.ok then return false, answer.why end
   return true, ""
 end
 

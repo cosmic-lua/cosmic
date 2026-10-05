@@ -2488,20 +2488,24 @@ local function limits_of(values: {string:string}): test.Limits | nil, string
 end
 
 --- Whether this host can run a worker sandboxed
---- ([`test_sandbox_probe.available`]), and why not where it cannot.
-local function sandbox_here(): boolean, string
+--- ([`test_sandbox_probe.available`]), and why not where it cannot, and
+--- whether that is a defect rather than a limit of the host.
+local function sandbox_here(): test_sandbox_probe.Answer
   local start, start_trouble = worker.program()
-  if start == nil then return false, "the test runner cannot find itself: " .. start_trouble end
+  if start == nil then
+    return { ok = false, why = "the test runner cannot find itself: " .. start_trouble, broken = true }
+  end
   local directory, trouble = test_sandbox_probe.directory()
-  if directory == nil then return false, "a directory to try it in: " .. trouble end
+  if directory == nil then
+    return { ok = false, why = "a directory to try it in: " .. trouble, broken = true }
+  end
   local env: {string:string} = {}
   for name, value in pairs(worker_view()) do env[name] = value end
   for name, value in pairs(start.env) do env[name] = value end
   env.TMPDIR = test_sandbox.scratch
-  local ok, why = test_sandbox_probe.available(start.argv, env, start.fds, directory)
+  local answer = test_sandbox_probe.available(start.argv, env, start.fds, directory)
   local _, _ = Fs.remove_tree(directory)
-  if not ok then return false, why end
-  return true, ""
+  return answer
 end
 
 --- Reporting receives copies, never the mutable state that judges a run.
@@ -2800,8 +2804,16 @@ local function choose_sandbox(ctx: Run): integer | nil
     return 1
   end
   if sandbox_mode ~= "off" then
-    local why: string
-    sandboxed, why = sandbox_here()
+    local answer = sandbox_here()
+    local why = answer.why
+    sandboxed = answer.ok
+    if answer.broken then
+      -- Neither a limit of the host nor a sandbox: a run that went on
+      -- unsandboxed would pass having confined nothing.
+      local _, _ = work.close(handle)
+      log:complain("test: the probe of whether workers can be sandboxed failed: " .. why)
+      return 1
+    end
     if sandboxed then
       -- And whether it is held to confining what it starts
       -- ([`confine.must_confine`]), which a test's verdict turns on. A

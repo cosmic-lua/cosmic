@@ -563,3 +563,20 @@ end
   assert(text:find("Permission denied", 1, true), text)
   assert(not text:find("FAIL  suite.tool_exec_test", 1, true), text)
 end
+
+--- A probe that fails for no limit of the host fails the run, naming it,
+--- rather than letting its workers run unsandboxed and pass having
+--- confined nothing: here the directory the probe tries the sandbox in
+--- cannot be made, since TMPDIR names none.
+local function test_a_broken_probe_fails_the_run_rather_than_going_unsandboxed(tmp: string)
+  if no_sandbox_here() then return end
+  local root = tmp .. "/root"
+  suite_tree(root)
+  local env = environment()
+  env.TMPDIR = tmp .. "/no/such/directory"
+  local text, ok = run(root, tmp .. "/broken", env, { "--all", "suite/plain_test.tl" })
+  assert(not ok, text)
+  assert(text:find("the probe of whether workers can be sandboxed failed: " ..
+      "a directory to try it in", 1, true), text)
+  assert(not text:find("unsandboxed", 1, true), text)
+end
