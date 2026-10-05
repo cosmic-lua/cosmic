@@ -18,6 +18,7 @@
 #include "coverage.h"
 #include "crypto.h"
 #include "hash.h"
+#include "html.h"
 #include "process.h"
 #include "socket.h"
 #include "http.h"
@@ -100,6 +101,7 @@ static const struct raw_module {
   {"build.coverage_hits", "cosmic.internal.debug", NULL},
   {"cosmic.sqlite", "cosmic.internal.sqlite", cosmic_open_sqlite},
   {"cosmic.hash", "cosmic.internal.hash", cosmic_open_hash},
+  {"cosmic.html", "cosmic.internal.html", cosmic_open_html},
   {"build.digest", "cosmic.internal.hash", NULL},
   {"cosmic.child", "cosmic.internal.process", cosmic_open_process},
   {"cosmic.proc", "cosmic.internal.process", NULL},
