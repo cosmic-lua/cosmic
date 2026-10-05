@@ -391,7 +391,7 @@ end
 local function test_a_crlf_template_counts_lines_by_the_line_feed()
   local out = compiled("{{type T from m.t}}\r\n<p>\r\n{{.x}}\r\n</p>\r\n")
   assert(newlines(out) == 5, out)
-  assert(out:find('"\\r\\n"', 1, true) or out:find('"<p>\\r\\n"', 1, true), out)
+  assert(out:find('"<p>\\r\\n"', 1, true) and out:find('"</p>\\r\\n"', 1, true), out)
 end
 
 local function test_trim_markers_drop_whitespace_and_a_dash_without_space_is_no_marker()

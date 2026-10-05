@@ -47,7 +47,11 @@
 --- `{{` always starts an action: it cannot be written as literal text
 --- (a stage that answers the string is the way). Attributes that
 --- frameworks read as code (`hx-*`, `x-on:`, `@click`, `ng-*`) are not
---- recognised; and any attribute whose name begins with `on` is refused.
+--- recognised; and a slot in any attribute whose name begins with `on`
+--- is refused (a literal `onclick="..."` compiles).
+---
+--- `{{range}}` has no `{{else}}`, and `{{with}}` takes `{{else}}` but no
+--- `{{else if}}`: nest an `{{if}}`.
 ---
 --- Line N of the template is line N of the source, so a type error reads
 --- as `page.tmpl:12: ...`.

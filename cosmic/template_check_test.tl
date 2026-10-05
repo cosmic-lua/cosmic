@@ -66,9 +66,13 @@ return data
 ]]
 
 local FMT <const> = [[
+local html = require("cosmic.html")
 local record fmt
   upper: function(s: string): string
   bracket: function(s: string): string
+  markup: function(s: string): html.SafeHtml
+  attr: function(s: string): html.SafeAttr
+  url: function(s: string): html.SafeUrl
   ["end"]: function(s: string): string
 end
 function fmt.upper(s: string): string
@@ -76,6 +80,15 @@ function fmt.upper(s: string): string
 end
 function fmt.bracket(s: string): string
   return "[" .. s .. "]"
+end
+function fmt.markup(s: string): html.SafeHtml
+  return html.trust(s)
+end
+function fmt.attr(s: string): html.SafeAttr
+  return html.trust_attr(s)
+end
+function fmt.url(s: string): html.SafeUrl
+  return html.href(s)
 end
 fmt["end"] = fmt.bracket
 return fmt
@@ -346,4 +359,43 @@ local function test_a_title_takes_no_markup(tmp: string)
   assert(trouble:find("SafeHtml", 1, true) and trouble:find("page.tl:2:", 1, true), trouble)
   local area = refused(tmp, "area", HEAD .. "<textarea>{{.h}}</textarea>")
   assert(area:find("page.tl:2:", 1, true), area)
+end
+
+local function test_a_range_over_strings_and_a_with_over_an_optional_field(tmp: string)
+  local page: {string: any} = { list = { "a", "<" }, user = { name = "u&" } }
+  local out = render(tmp, "range-strings", HEAD .. "{{range .list}}[{{.}}]{{end}}" ..
+      "{{with .user}}<b>{{.name}}</b>{{else}}none{{end}}", page)
+  assert(out == "\n[a][&lt;]<b>u&amp;</b>", out)
+  page.user = nil
+  local none = render(tmp, "with-nil", HEAD .. "{{with .user}}<b>{{.name}}</b>{{else}}none{{end}}", page)
+  assert(none == "\nnone", none)
+end
+
+local function test_a_stage_answering_a_safe_type_fits_the_slot_that_takes_it(tmp: string)
+  local page: {string: any} = { title = "/a<b" }
+  local out = render(tmp, "stages", HEAD ..
+      '<p>{{.title | fmt.markup}}</p><i title="{{.title | fmt.attr}}"></i><a href="{{.title | fmt.url}}">x</a>', page)
+  assert(out == "\n<p>/a<b</p><i title=\"/a<b\"></i><a href=\"" .. esc_attr("/a<b") .. "\">x</a>", out)
+  for index, wrong in ipairs({ "<p>{{.title | fmt.attr}}</p>", "<i title=\"{{.title | fmt.markup}}\">",
+      "<a href=\"{{.title | fmt.attr}}\">", "<a href=\"{{.title | fmt.markup}}\">",
+      "<i title=\"{{.title | fmt.url}}\">", "<p>{{.title | fmt.url}}</p>" }) do
+    local trouble = refused(tmp, "stage-wrong" .. index, HEAD .. wrong)
+    assert(trouble:find("page.tl:2:", 1, true) and trouble:find("Safe", 1, true), wrong .. ": " .. trouble)
+  end
+end
+
+local function test_a_crlf_template_goes_through_the_checker_and_keeps_its_line_ends(tmp: string)
+  local page: {string: any} = { title = "t" }
+  local out = render(tmp, "crlf", "{{type Page from data}}\r\n<p>\r\n{{.title}}\r\n</p>\r\n", page)
+  assert(out == "\r\n<p>\r\nt\r\n</p>\r\n", out)
+  local text = render(tmp, "crlf-text", "{{type Page from data}}{{mode text}}\r\na\r\n{{- .title}}\r\n", page)
+  assert(text == "\r\nat\r\n", text)
+  local trouble = refused(tmp, "crlf-error", "{{type Page from data}}{{mode text}}\r\na\r\n{{.items}}\r\n")
+  assert(trouble:find("page.tl:3:", 1, true), trouble)
+end
+
+local function test_a_repeated_attribute_is_judged_each_time(tmp: string)
+  local page: {string: any} = { url = "javascript:x" }
+  local out = render(tmp, "dup", HEAD .. '<a href="x" href="{{.url}}">', page)
+  assert(out == '\n<a href="x" href="' .. esc_attr("about:invalid") .. '">', out)
 end

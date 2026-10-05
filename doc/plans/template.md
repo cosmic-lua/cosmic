@@ -82,6 +82,36 @@ roadmap entry, not a promise.
 HTML is the default mode; `{{mode text}}` opts out, returning a plain
 `string` and escaping nothing.
 
+As built (`cosmic/template/`), where it differs from the above:
+
+- A URL slot must begin the attribute's value (`href="{{.u}}"`, not
+  `href="/a/{{.id}}"`: a piece of a URL needs an escaper for a piece,
+  [`doc/roadmap.md`]), and the literal text after it, up to the first `/`,
+  `?` or `#`, may not hold `:` or `&`, which could complete a scheme.
+  A `{{range}}` body is walked twice, so a URL it began is not fresh the
+  second time round; the arms of a block must end in the same place in the
+  markup.
+- A number is accepted in a text or attribute slot (written with
+  `tostring`, which has no markup byte); a URL slot takes a string or a
+  `SafeUrl`.
+- `<title>` and `<textarea>` slots take a string or a number, escaped,
+  never `SafeHtml`: trusted markup would end the element.
+- `{{with}}` runs its body when the value is truthy and takes
+  `{{else}}`; `{{range}}{{else}}` and `{{with}}{{else if}}` are refused.
+- Refused as well as the places above: `srcdoc`, `srcset` and `ping`
+  attributes; the `content` of a `<meta>` that has `http-equiv` (anywhere
+  in the tag) and the `charset` of a `<meta>`; every attribute of
+  `<script>`; a URL attribute of `script`, `link`, `object`, `embed`,
+  `base`, `use` and `applet`; every attribute of the SVG animation
+  elements; the text of `<xmp>`, `<iframe>`, `<noembed>`, `<noframes>`,
+  `<noscript>` and `<plaintext>`; any attribute named `on...`.
+- `<svg>` and `<math>` are followed only as far as their elements,
+  attributes and text. A comment, CDATA, `<!` or `<?`; a tag that takes the
+  parser out of foreign content, or one the browser reads HTML in; an end
+  tag that is not the innermost element's; an `<svg>` in a `<select>`; and
+  raw text in them that holds a `<`, make the place murky, and every later
+  slot in the template is refused.
+
 ### Templates are source files
 
 `pages/home.tmpl` is a module, `pages.home`, built by the build itself,
@@ -102,8 +132,9 @@ line N of its module. The prelude is joined onto line 1, each line of
 literal text is one generated line, and the closing `return` sits on
 the last. The build already attributes a derived module's errors to its
 origin file, so a type error or a traceback reads `pages/home.tmpl:12:
-... SafeHtml ...`. Columns are the generated code's; a column map is a
-`TODO:`.
+... SafeHtml ...`. Columns are the generated code's: the line is what
+the build maps back, and a column map is not worth its cost until
+something reads columns (a plain comment in `codegen.tl`).
 
 ### Tests type-check generated output in process
 
@@ -132,4 +163,5 @@ a refusal naming `page.tmpl:<line>` and the Safe type.
 [`cosmic.template`]: ../../cosmic/template/init.tl
 [`cosmic.url`]: ../../cosmic/url.tl
 [`cosmic/fs_kind_test.tl`]: ../../cosmic/fs_kind_test.tl
+[`doc/roadmap.md`]: ../roadmap.md
 [`test/visibility_test.tl`]: ../../test/visibility_test.tl

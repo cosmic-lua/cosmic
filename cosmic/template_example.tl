@@ -34,6 +34,7 @@ end
 function Example.refusal()
   local source, why = Template.compile("{{type Page from site.page}}\n<a href={{.url}}>x</a>\n", "link.tmpl")
   assert(source == nil)
+  assert(why:find("link.tmpl:2:9:", 1, true) and why:find("unquoted", 1, true), why)
   print(why) -- link.tmpl:2:9: a slot in an unquoted attribute value: quote the value
 end
 

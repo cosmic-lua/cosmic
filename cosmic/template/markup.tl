@@ -99,15 +99,17 @@ local record Markup
   --- whether it is an end tag, and whether a quoted value has had nothing
   --- but whitespace so far.
   record Place
-    --- Where the tokenizer is.
+    --- The tokenizer's state, which decides what a slot may be.
     phase: Phase
-    --- The tag, lower case.
+    --- The tag being read or last read, whose name decides the raw text it
+    --- opens and which of its attributes mean what.
     tag: string
-    --- The attribute, lower case.
+    --- The attribute being read or last read, lower case: `on...` and `href`
+    --- are judged by it.
     attr: string
-    --- Whether the tag is an end tag.
+    --- Whether the tag is an end tag, whose attributes the browser ignores.
     closing: boolean
-    --- Whether a quoted value has had only whitespace in it so far.
+    --- A URL slot must begin its value: true until text or a slot is in it.
     fresh: boolean
     --- The `<svg>` and `<math>` open, and the elements inside them that
     --- the browser reads HTML in, innermost last, each name after a space.
@@ -422,6 +424,9 @@ local function open_tag(p: Place, closing: boolean)
   p.meta_col = 0
 end
 
+--- Moves `p` over `text` one state at a time. A run of text ends where a
+--- slot or the template does, so the places a slot may not stand in
+--- (inside a tag) are never left half read.
 local function scan(p: Place, text: string)
   local i = 1
   local n = #text
