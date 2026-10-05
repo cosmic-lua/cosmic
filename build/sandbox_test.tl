@@ -7,6 +7,7 @@
 local Child = require("cosmic.child")
 local Cli = require("cosmic.cli")
 local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
 local Sandbox = require("cosmic.sandbox")
 local Shape = require("cosmic.shape")
 local sys = require("cosmic.sys")
@@ -295,6 +296,47 @@ local function test_childs_hint_about_a_path_search_is_left_out()
   assert(ran.err == "cosmic: sandbox: child: start: grant /nope: No such file or directory\n", ran.err)
 end
 
+--- `--database` names the file the policy runs the program on, resolved
+--- against `--cwd`; with no command it is this program that runs.
+local function test_database_sets_the_policys_database(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/work") and Fs.write(tmp .. "/work/p.db", "not a database\n"))
+  -- The policy holds the real path.
+  local real = assert(sys.realpath(tmp .. "/work/p.db"))
+  local ran = run({ "--database", tmp .. "/work/p.db", "--", "prog", "a" })
+  assert(ran.code == 0 and ran.err == "", ran.err)
+  assert(ran.opts.policy.database == real, tostring(ran.opts.policy.database))
+  same(ran.argv, { "prog", "a" })
+  ran = run({ "--cwd", tmp .. "/work", "--database=p.db" })
+  assert(ran.code == 0 and ran.err == "", ran.err)
+  assert(ran.opts.policy.database == real, tostring(ran.opts.policy.database))
+  same(ran.argv, { (assert(Proc.executable())) })
+  local missing = refused({ "--database", tmp .. "/absent.db", "prog" })
+  assert(missing.err:find("absent.db", 1, true), missing.err)
+end
+
+--- Each of the three options names the database the program runs on, so
+--- no two go together, and `--closure` takes this program and a script.
+local function test_the_database_options_are_refused_where_they_conflict()
+  local function refusing(words: {string}, needle: string)
+    local ran = refused(words)
+    assert(ran.err:find(needle, 1, true), table.concat(words, " ") .. ": " .. ran.err)
+  end
+  refusing({ "--closure", "--modules", "a", "--", "prog", "x.tl" }, "--closure and --modules are exclusive")
+  refusing({ "--closure", "--database", "d", "--", "prog", "x.tl" }, "--closure and --database are exclusive")
+  refusing({ "--modules", "a", "--database", "d", "prog" }, "--modules and --database are exclusive")
+  refusing({ "--closure", "--modules", "a", "--database", "d", "prog", "x.tl" },
+    "--closure and --modules and --database are exclusive")
+  refusing({ "--closure", "--cosmic", "--", "prog", "x.tl" }, "--closure and --cosmic are exclusive")
+  refusing({ "--closure" }, "--closure runs a script")
+  refusing({ "--closure", "--", "prog" }, "--closure runs a script")
+  refusing({ "--database", "a", "--database", "b", "prog" }, "--database is given more than once")
+  refusing({ "--modules", "a", "--modules", "b", "prog" }, "--modules is given more than once")
+  refusing({ "--modules", "a,,b", "prog" }, "--modules takes module names")
+  refusing({ "--modules", "", "prog" }, "--modules takes module names")
+  -- After the program it is the program's own.
+  same(run({ "prog", "--closure" }).argv, { "prog", "--closure" })
+end
+
 --- The fields of [`Sandbox.Policy`], from its declaration.
 local POLICY <const> = Shape.record_of("cosmic.sandbox.Policy")
 
@@ -315,8 +357,8 @@ local samples <const>: {string:{string}} = {
 local exempt <const>: {string:string} = {
   set_env_digests = "what encode writes in place of set_env's values; a policy that holds one " ..
     "and no value cannot start a program, so a command line has no use for it",
-  -- TODO: give the verb a --database flag, once the sealed-programs design's CLI step lands.
-  database = "the verb has no flag for it yet",
+  database = "--database, --modules and --closure each name the database, and set it only once " ..
+    "it is sealed or resolved (test_database_sets_the_policys_database)",
 }
 
 --- The options that set no field of the policy by themselves: the descriptors handed over and the
@@ -325,6 +367,7 @@ local exempt <const>: {string:string} = {
 local others <const>: {string:boolean} = {
   ["--fd"] = true, ["--timeout"] = true, ["--cwd"] = true,
   ["--run"] = true, ["--write"] = true, ["--path"] = true, ["--cosmic"] = true,
+  ["--database"] = true, ["--modules"] = true, ["--closure"] = true,
 }
 
 --- The policy the verb builds from `words` and a program.
