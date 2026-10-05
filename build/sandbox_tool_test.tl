@@ -11,6 +11,7 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local confine = require("build.confine")
@@ -178,4 +179,15 @@ local function test_cwd_starts_the_program_there_and_relative_paths_are_its(tmp:
   -- The grant is the directory --cwd names, not the caller's.
   local caller = cosmic(tmp, { "sandbox", "--system", "--cwd", "work", "--read", ".", "--", "ls", ".." })
   assert(caller.code ~= 0 and caller.out == "", caller.code .. caller.out)
+end
+
+local function test_cosmic_alone_runs_this_program_under_the_sandbox(tmp: string)
+  if no_sandbox_here() then return end
+  searchable.open(tmp)
+  assert(Fs.mkdirs(tmp .. "/work") and Fs.write(tmp .. "/work/run.tl", 'print("ran")\n'))
+  searchable.share(tmp .. "/work")
+  searchable.share(tmp .. "/work/run.tl")
+  local ran = cosmic(tmp .. "/work", { "sandbox", "--cosmic", "--write", ".", "--",
+    (assert(Proc.executable())), "run.tl" })
+  assert(ran.code == 0 and ran.out == "ran\n", ran.code .. ": " .. ran.out .. ran.err)
 end
