@@ -359,7 +359,7 @@ end
 --- This process stays as dumpable as it was, though the child shares
 --- its memory while its ids change. A caller that may not map them --
 --- one not root, as a sandboxed worker, which runs as a user of its own
---- where the runner is root (build.test_sandbox's `runs_as`), or root in
+--- where the runner is root (cosmic.sandbox's `user_id`), or root in
 --- a namespace that maps root alone -- is refused EPERM. Neither is 0,
 --- each needs the other, and neither is given without `unveil`.
 local function test_an_unveiled_child_runs_as_the_user_given(tmp: string)

@@ -147,8 +147,7 @@
    addresses `127.a.b.c`, whose worker runs offline on a loopback of
    its own and is keyed. A sandboxed worker whose module declares no
    `network` has no network at all: its filter refuses it an inet
-   socket (under the older sandbox, `COSMIC_TEST_POLICY=0`, it too runs
-   on a loopback of its own). `network = true`, any
+   socket. `network = true`, any
    other host, `::1` and `localhost` are refused, for this tree and
    every project, naming the rule. A test that needs a service starts
    its own on 127.0.0.1. A
@@ -177,18 +176,16 @@
    Each sandboxed worker starts under a [`cosmic.sandbox`] policy
    ([`build/test_policy.tl`]), held by a Landlock ruleset and a seccomp filter
    of the promises it declares, as step (c) and (d) of #2621's
-   doc/plans/sandbox.md have it. `COSMIC_TEST_POLICY=0` starts them by the
-   sandbox [`build/test_sandbox.tl`] plans instead, until step (e) deletes
-   that path; `--policy` (`COSMIC_TEST_POLICY=1`) fails a run whose workers
-   cannot be sandboxed rather than run them without a policy. The two paths'
-   verdicts stand apart. A root that lacks CAP_SETUID, CAP_SETGID or
+   doc/plans/sandbox.md have it. A root that lacks CAP_SETUID, CAP_SETGID or
    CAP_SETFCAP cannot map the user a policy runs as (a program of a policy
-   never runs as root), so its run starts workers by the older sandbox
-   instead, and the summary says `older sandbox (<why>)` beside `sandboxed`,
-   as it says `under a policy` for the default. A module whose workers the policy path cannot yet
-   hold -- one that nests and declares neither `store` nor `tool`, which
-   waits for a per-closure artifact -- has its tests skipped with that
-   reason; a module declaring what no policy says (`env = { "*" }`) fails.
+   never runs as root), nor can a host with no user namespaces or Landlock
+   start one: where no worker can be started under a policy, the run's
+   workers run unsandboxed, exactly as with `COSMIC_TEST_SANDBOX=0`, and the
+   summary says why (`unsandboxed, as no worker can be sandboxed here (<why>)`).
+   A run held to sandboxing -- `COSMIC_TEST_SANDBOX=1`, `COSMIC_SANDBOX=must`
+   or `COSMIC_CI_REQUIRE_SANDBOX=1` -- fails there instead. A module
+   declaring what no policy says (`env = { "*" }`) fails its tests, naming
+   the field.
    `--all` (`COSMIC_TEST_ALL=1`) runs everything. The worker still reads
    /proc, /dev/null, /dev/zero, /dev/full and /dev/urandom, keyed only
    through the host's identity, and the program, its core and its
@@ -231,13 +228,10 @@
    starts sets `COSMIC_TEST_SANDBOX=0`, so it means the same on every
    host. Root confines only two deep (core/syscalls.c's `map_ids`), so
    a runner that is root runs each sandboxed worker as a user of its
-   own, uid and gid 65532, mapped from outside (build/test_sandbox.tl's
-   `runs_as`, spawn's `user`), whose sandbox nests at any depth as on
-   CI's unprivileged runners, with no setup; its key holds that user.
-   A worker whose module declares a host cache, which it writes as
-   root, runs as root still, as every worker does where the host
-   refuses the drop. Where the kernel refuses a sandbox that deep,
-   those tests call [`Test.skip`] and
+   own, never root, which [`cosmic.sandbox`]'s `user_id` chooses from
+   outside, and whose sandbox nests at any depth as on CI's
+   unprivileged runners, with no setup. Where the kernel refuses a
+   sandbox that deep, those tests call [`Test.skip`] and
    return before asserting: the summary counts them skipped, beside ran
    and stood, and lists each with its reason (`test: SKIP`); no verdict
    is kept of one, so it runs again every run, in a held run too

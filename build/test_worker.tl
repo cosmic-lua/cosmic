@@ -105,11 +105,9 @@ local record worker
     closure: {string}
     tree: {string}
     declared: {string}
-    --- The worker's sandbox, or nil where it runs unsandboxed.
-    sandbox: Child.Sandbox
-    --- The policy the worker is started under instead of a `sandbox`
-    --- ([`build.test_policy`]), whose `set_env` is its whole environment
-    --- but for what `env` and `start` add; nil for none.
+    --- The policy the worker is started under ([`build.test_policy`]),
+    --- whose `set_env` is its whole environment but for what `env` and
+    --- `start` add; nil where it runs unsandboxed.
     policy: Sandbox.Policy
     --- The paths the policy lets the worker run, which a worker held to
     --- running nothing but what its test may (`hold` "forbid") is told,
@@ -644,7 +642,7 @@ function worker.invocation(given: worker.Invocation): worker.Command
       given.scratch .. "/children", given.needs }) do
     argv[#argv + 1] = value
   end
-  if given.sandbox ~= nil or given.policy ~= nil then argv[#argv + 1] = "--sandboxed" end
+  if given.policy ~= nil then argv[#argv + 1] = "--sandboxed" end
   if given.own_scratch then argv[#argv + 1] = "--own-scratch" end
   if given.policy ~= nil and given.hold == "forbid" then
     local runs = given.runs or {}
@@ -698,7 +696,7 @@ function worker.invocation(given: worker.Invocation): worker.Command
   end
   return { argv = argv, options = {
     env = env, cwd = given.cwd, stdin = "null", stdout = "capture", stderr = "stdout",
-    fds = fds, sandbox = given.sandbox, process_group = given.sandbox == nil,
+    fds = fds, process_group = true,
   } }
 end
 
@@ -898,7 +896,7 @@ function worker.run(argv: {integer:string}): integer
   if sandboxed then
     -- A worker started under a policy starts in the root of its sandbox,
     -- which has the tree at `root` but not as a directory to start in
-    -- ([`build.test_policy`]); one a sandbox starts in `root` already.
+    -- ([`build.test_policy`]).
     local entered, enter_trouble = sys.chdir(root)
     if not entered then
       complain("test --worker: " .. root .. ": " .. enter_trouble)

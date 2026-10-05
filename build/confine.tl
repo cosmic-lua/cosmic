@@ -28,8 +28,8 @@ else
 end
 
 --- The process table's questions of this host, as this module loads.
-local sandbox_platform, may_map_ids, maps_id, own_proc = process.sandbox_platform,
-  process.may_map_ids, process.maps_id, process.own_proc
+local sandbox_platform, may_map_ids, own_proc = process.sandbox_platform,
+  process.may_map_ids, process.own_proc
 
 --- The process table's own `spawn`, as this module loads -- before any
 --- stand-in for it (see `enter`) is put in its place.
@@ -384,13 +384,6 @@ function confine.may_map_ids(): boolean
   return ok
 end
 
---- Whether this process's user namespace maps `id`, as a user and as a
---- group (core/process.h's `maps_id`).
-function confine.maps_id(id: integer): boolean
-  local ok, _, _ = maps_id(id)
-  return ok
-end
-
 --- Whether this host gives a sandboxed process a procfs of its own pid
 --- namespace (core/process.h's `unveil`), as the kernel answers a
 --- child started to mount one (core/process.h's `own_proc`). A user
@@ -607,10 +600,8 @@ end
 --- worker: the line of `text` that says so, for [`Test.skip`] where a test
 --- whose assertion is about a sandbox (the workers of a `cosmic test` it
 --- starts, nested in its own sandbox, which the kernel lets root nest
---- only two deep -- core/syscalls.c's `map_ids` -- where a root runner
---- cannot run its workers as a user of their own
---- (build.test_sandbox's `runs_as`)) finds the host refused it. Such a
---- test skips only where the platform could give the sandbox
+--- only two deep -- core/syscalls.c's `map_ids`) finds the host refused
+--- it. Such a test skips only where the platform could give the sandbox
 --- ([`sandbox_platform`]) and returns unchecked.
 --- @param text what the run printed
 --- @return the reason, a single line
