@@ -14,14 +14,17 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
+local searchable = require("build.searchable")
 local this_program = require("build.this_program")
 
 --- [`Store.seal`] reads the rows of every module it carries through
 --- [`Store.databases()`], which a worker without the store is not given
 --- (the grant of o/cosmic.db). The core is started past its launcher
---- (the grant of o/bin).
+--- (the grant of o/bin). The sealed program under `nest` builds a root of its
+--- own, which a worker held by Landlock cannot ("nest").
 Test.policy{
   profiles = { "cosmic" },
+  promises = { "nest" },
   grants = {
     { path = "o/bin", letters = "rx" },
     { path = "o/cosmic.db", letters = "r" },
@@ -40,8 +43,44 @@ local MAIN <const> = [==[
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
+local Child = require("cosmic.child")
+local sys = require("cosmic.sys")
 local function say(name, value) print(name .. "\t" .. tostring(value)) end
+-- Whether `path` opens for writing.
+local function writes(path)
+  local fd = sys.open(path, sys.O_WRONLY)
+  if fd ~= nil then sys.close(fd) end
+  return fd ~= nil
+end
+-- With a mode (args[2]): what it can write of
+-- its core and database, by path and through its own descriptors, and, in
+-- mode "child", what a child of its own on that database says.
+local function probe(mode)
+  local core = assert(Proc.executable())
+  local db = assert(Proc.relaunch()).argv[3]
+  say("db_write", writes(db))
+  say("core_write", writes(core))
+  say("exe_write", writes("/proc/self/exe"))
+  local through = 0
+  for n = 0, 63 do
+    local target = sys.readlink("/proc/self/fd/" .. n)
+    if target == db or target == core then
+      through = through + 1
+      say("fd_write_" .. n, writes("/proc/self/fd/" .. n))
+    end
+  end
+  say("fds_into_them", through)
+  if mode == "child" then
+    local r, why = Child.run({ core, "x", "grand", db }, { policy = { database = db,
+      isolate = { "file" } }, stdout = "capture", stderr = "capture" })
+    if r == nil then say("grand_refused", why) return end
+    say("grand_code", r.code)
+    say("grand_stderr", r.stderr)
+    for line in r.stdout:gmatch("[^\n]+") do print("g_" .. line) end
+  end
+end
 return function(args)
+  if args[2] ~= nil then probe(args[2]) end
   say("main", Store.meta("main"))
   say("context", Store.meta("runtime_context"))
   say("databases", #Store.databases())
@@ -73,7 +112,7 @@ local function attach(tmp: string)
   local chunk = assert(load(MAIN, "=fixture.main"))
   assert(Sqlite.run(db, "INSERT INTO modules VALUES ('fixture.main', 'fixture.main.tl', 'main', " ..
       "X'00', X'', ?1, '', X'')", { { blob = string.dump(chunk, true) } }))
-  for _, name in ipairs({ "cosmic.fs", "cosmic.proc", "cosmic.store" }) do
+  for _, name in ipairs({ "cosmic.fs", "cosmic.proc", "cosmic.store", "cosmic.child" }) do
     assert(Sqlite.run(db, "INSERT INTO imports VALUES ('fixture.main', ?1)", { text(name) }))
   end
   assert(db:close())
@@ -225,4 +264,50 @@ local function test_a_decoded_policy_refuses_a_database_that_changed_since(tmp: 
   assert(Fs.write(path, bytes .. "x"))
   local started, why = Child.start({ executable, executable }, { policy = policy })
   assert(started == nil and why:find("has changed since", 1, true), tostring(why))
+end
+
+--- A sealed program under `nest` holds a core and a database that it can
+--- start children on and cannot write, by path or through /proc/self/fd:
+--- the child confines a grandchild on the same database, which runs the
+--- sealed main, and neither writes either file.
+local function test_a_sealed_program_under_nest_confines_children_of_its_own(tmp: string)
+  if not confine.sandbox_platform() or core_path() == nil then return end
+  local path = tmp .. "/sealed.db"
+  seal(tmp, path)
+  -- Where a start of the child's own builds the root it makes.
+  searchable.open(tmp)
+  local scratch = tmp .. "/scratch"
+  assert(Fs.mkdirs(scratch))
+  searchable.share(scratch)
+  local executable = assert(Proc.executable())
+  local result, why = Child.run({ executable, executable, "child" },
+    { policy = { database = path, isolate = { "file" }, promises = { "fork", "nest" },
+      set_env = { TMPDIR = scratch }, grants = { { path = scratch, letters = "rwc" } } },
+      cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
+  if result == nil then
+    assert(unsandboxable(why), "the start was refused: " .. why)
+    Test.skip(why)
+    return
+  end
+  assert(result.ok, "exit " .. tostring(result.code) .. ": " .. tostring(result.stderr))
+  local out = fields(assert(result.stdout))
+  assert(out.main == "fixture.main", tostring(out.main))
+  assert(out.own_file == "false", "the child read this program's own file")
+  assert(out.grand_refused == nil, tostring(out.grand_refused))
+  -- The grandchild is the sealed main again, on the same database.
+  assert(out.grand_code == "0", tostring(out.grand_code) .. ": " .. tostring(out.grand_stderr))
+  assert(out.g_main == "fixture.main", tostring(out.g_main))
+  assert(out.g_outside == "false", "a module outside the sealed set loaded in the grandchild")
+  assert(out.g_relaunch ~= nil and out.g_relaunch:find("|--database|", 1, true),
+    tostring(out.g_relaunch))
+  for _, prefix in ipairs({ "", "g_" }) do
+    assert(out[prefix .. "fds_into_them"] ~= nil, prefix .. "the probe did not run")
+    assert(out[prefix .. "db_write"] == "false", prefix .. "db opened for writing")
+    assert(out[prefix .. "core_write"] == "false", prefix .. "core opened for writing")
+    assert(out[prefix .. "exe_write"] == "false", prefix .. "/proc/self/exe opened for writing")
+  end
+  for name, value in pairs(out) do
+    assert(not name:find("fd_write_", 1, true) or value == "false",
+      name .. ": a descriptor of the core or database reopened for writing")
+  end
 end
