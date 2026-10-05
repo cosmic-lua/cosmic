@@ -155,13 +155,10 @@ local ALLOWED_SCHEMES <const>: {string: boolean} = { http = true, https = true, 
 --- start: a letter, then letters, digits, `+`, `-` or `.`, then `:`.
 local function scheme_of(text: string): string | nil
   local name = text:match("^(%a[%w+.%-]*):")
-  if name ~= nil and name:find("[^%w+.%-]") == nil then
-    return name:lower()
-  end
-  return nil
+  return name ~= nil and name:lower() or nil
 end
 
---- Whether `text` is a safe URL by the rules stated apart from the C: it
+--- Whether `text` is a safe URL by the browser's rules: it
 --- holds no control byte and no edge space, and either has an allowed
 --- scheme or is relative (no colon ahead of a `/`, `?` or `#`, or not
 --- starting two slashes).

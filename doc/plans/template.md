@@ -117,7 +117,7 @@ a refusal naming `page.tmpl:<line>` and the Safe type.
 
 1. [`cosmic.html`] in C: `SafeHtml`, `SafeAttr`, `escape`, `escape_attr`,
    `trust`, `trust_attr`, `raw`, `raw_attr`, `concat`; this plan.
-2. [`html.href`] and `SafeUrl`, the allowlist scanned in C (not
+2. `href`, `trust_url`, `raw_url` and `SafeUrl`, the allowlist scanned in C (not
    [`cosmic.url`]'s parse, which is not a browser's).
 3. `cosmic.template`: lexer, parser, HTML context tracker, line-keeping
    code generation, its fuzz test.
@@ -131,5 +131,4 @@ a refusal naming `page.tmpl:<line>` and the Safe type.
 [`cosmic.html`]: ../../cosmic/html.tl
 [`cosmic.url`]: ../../cosmic/url.tl
 [`cosmic/fs_kind_test.tl`]: ../../cosmic/fs_kind_test.tl
-[`html.href`]: ../../cosmic/internal/html.d.tl
 [`test/visibility_test.tl`]: ../../test/visibility_test.tl

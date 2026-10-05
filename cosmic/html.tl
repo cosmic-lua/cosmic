@@ -100,6 +100,12 @@ end
 ---   with two of `/` and `\`, which a browser takes for a host
 ---   (`//h`, `\\h`, `/\h`, `\/h`).
 ---
+--- An absolute http or https URL may point at any host (`http:evil.com`
+--- and `https:\\evil.com` pass): `href` keeps a URL from running script or
+--- borrowing the page's scheme, and does not pick hosts. A protocol-relative
+--- `//host` is refused because it takes the page's scheme without saying
+--- so, not because another host is.
+---
 --- Anything else, in either case, is `about:invalid`. A byte of 0x80 or
 --- more and a space inside the text pass.
 ---

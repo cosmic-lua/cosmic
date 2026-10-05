@@ -178,8 +178,8 @@ local function test_the_functions_refuse_what_is_not_theirs()
   assert(not attempt(Html.trust_url, {}))
 end
 
---- What `href` makes of `input`, as a table a WHATWG-derived file of
---- (input, allowed) pairs could also fill: `allowed` is whether the text
+--- What `href` makes of `input`, as a table of (input, allowed)
+--- pairs: `allowed` is whether the text
 --- must come back as it went in, and false that it must be `about:invalid`.
 local type UrlCase = {string, boolean}
 
@@ -231,6 +231,10 @@ local URL_CASES <const>: {UrlCase} = {
   { "MAILTO:a@b?subject=x y", true },
   { "http:relative", true },
   { "https:", true },
+  -- An absolute http(s) URL may name any host, with slashes either way.
+  { "http:\\\\h", true },
+  { "https:\\\\h", true },
+  { "http:evil.com", true },
   { "/path?q=1#f", true },
   { "/path:with:colons", true },
   { "a/b:c", true },
@@ -249,7 +253,13 @@ local URL_CASES <const>: {UrlCase} = {
   { "a\\b", true },
   { "a b", true },
   { "http://caf\xc3\xa9/\xff", true },
+  -- A no-break space is no space a browser strips; the text is refused
+  -- because its first byte is not a letter, with a colon ahead of any slash.
   { "\xc2\xa0javascript:x", false },
+  { "/\t", false },
+  { "/\x01/", false },
+  { "http://a\0b", false },
+  { "a\0b", false },
 }
 
 local function test_href_allows_what_a_browser_would_take_for_safe()
@@ -259,8 +269,6 @@ local function test_href_allows_what_a_browser_would_take_for_safe()
     if allowed then
       assert(out == input, ("%q was changed to %q"):format(input, out))
     else
-      -- U+00A0 is not a space a browser strips, but it is no scheme
-      -- either: the case above is refused by its colon.
       assert(out == "about:invalid", ("%q was let through as %q"):format(input, out))
     end
   end
