@@ -131,7 +131,8 @@ local function test_a_unix_socket_is_made_only_where_the_root_the_network_and_la
   -- and Landlock does from ABI 9 whatever the root shows.
   -- A worker whose own filter refuses unix sockets passes that on to every
   -- process it starts, so nothing here can be made: the refusals below stand.
-  if not unix_socket.skipped(tmp) then
+  local unmade = unix_socket.refusal(tmp)
+  if unmade == nil then
     assert(held.said:find("not permitted", 1, true) == nil, "made where held: " .. held.said)
   end
   -- Never without the network namespace, where a name it binds is the host's to find.
@@ -142,6 +143,7 @@ local function test_a_unix_socket_is_made_only_where_the_root_the_network_and_la
     grants = { { path = probe, access = "rx" } } }
   local unrooted = in_sandbox(tmp, probe, open, script)
   assert(unrooted.said:find("not permitted", 1, true), "refused without a root of its own: " .. unrooted.said)
+  if unmade ~= nil then Test.skip(unmade) end
 end
 
 --- `rooted`, whose root shows a /tmp of its own of a mebibyte, and each of

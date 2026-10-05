@@ -95,20 +95,18 @@ local function listens_inet(): Probe
   return { made = true, refused = false, why = "" }
 end
 
---- Says the running test is skipped ([`Test.skip`]) where the process
---- cannot make a unix socket in `dir`, and answers true then, for the test
---- to return; false, having said nothing, where it can. It is skipped only
---- where the listen is refused (EPERM, the filter's errno), as the seccomp filter of
---- a policy without a `u` grant refuses `socket`: any other failure falls
---- through, for the test to fail on. The reason names the directories the
---- worker's root binds, which its module's [`Test.needs`] put there:
---- `system`, `tool`, a directory among its `reads` or `host`, a host cache
---- or a private `noexec` scratch.
+--- Why the process cannot make a unix socket in `dir`, or nil where it
+--- can. It cannot only where the listen is refused (EPERM, the filter's
+--- errno), as the seccomp filter of a policy without a `u` grant refuses
+--- `socket`: any other failure is nil, for the test to fail on. The reason
+--- names the directories the worker's root binds, which its module's
+--- [`Test.needs`] put there: `system`, `tool`, a directory among its
+--- `reads` or `host`, a host cache or a private `noexec` scratch.
 --- @param dir a directory the process may make a socket file in
---- @return whether the test is skipped
-function unix_socket.skipped(dir: string): boolean
+--- @return the reason, or nil
+function unix_socket.refusal(dir: string): string
   local tried = listens(dir)
-  if not tried.refused then return false end
+  if not tried.refused then return nil end
   local reasons: {string} = {}
   local inet = listens_inet()
   if inet.refused then
@@ -122,8 +120,19 @@ function unix_socket.skipped(dir: string): boolean
       "`noexec` or directory `reads`/`host` declaration puts one there)"
   end
   if #reasons == 0 then reasons[1] = "its root is not one a unix socket is held in" end
-  Test.skip("the worker cannot make a unix socket (" .. tried.why .. "): " ..
-      table.concat(reasons, "; "))
+  return "the worker cannot make a unix socket (" .. tried.why .. "): " .. table.concat(reasons, "; ")
+end
+
+--- Ends the running test as skipped ([`Test.skip`]) where the process
+--- cannot make a unix socket in `dir` ([`unix_socket.refusal`]); false,
+--- having said nothing, where it can. Outside a runner [`Test.skip`]
+--- returns, and so does this, answering true: the test returns then.
+--- @param dir a directory the process may make a socket file in
+--- @return whether the test is skipped
+function unix_socket.skipped(dir: string): boolean
+  local why = unix_socket.refusal(dir)
+  if why == nil then return false end
+  Test.skip(why)
   return true
 end
 

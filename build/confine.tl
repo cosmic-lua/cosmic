@@ -602,7 +602,7 @@ end
 --- starts, nested in its own sandbox, which the kernel lets root nest
 --- only two deep -- core/syscalls.c's `map_ids`) finds the host refused
 --- it. Such a test skips only where the platform could give the sandbox
---- ([`sandbox_platform`]) and returns unchecked.
+--- ([`sandbox_platform`]), and what it skips does not run.
 --- @param text what the run printed
 --- @return the reason, a single line
 function confine.unsandboxed_reason(text: string): string

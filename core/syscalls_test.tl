@@ -54,14 +54,21 @@ end
 local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
 local hash = raw_behind("cosmic.hash") as raw_hash -- cast: the table cosmic/internal/hash.d.tl declares
 
---- Says a sandbox test is skipped ([`Test.skip`]) where this Linux host
---- refuses the sandbox it is about -- no Landlock, no pledge -- as it
---- returns early: the run counts it skipped rather than passed.
---- Another platform has no such sandbox to check, and returns silently.
+--- Why a sandbox test is skipped where this Linux host refuses the sandbox
+--- it is about -- no Landlock, no pledge --, or nil: another platform has
+--- no such sandbox to check.
+local function unsandboxed_reason(what: string, trouble: string): string
+  if not confine.sandbox_platform() then return nil end
+  return "the kernel gives no " .. what .. ": " .. tostring(trouble)
+end
+
+--- Ends the running test as skipped ([`Test.skip`]) where this Linux host
+--- refuses the sandbox it is about, so the run counts it skipped rather
+--- than passed. Another platform has no such sandbox to check, and
+--- returns, as the test does silently.
 local function unsandboxable(what: string, trouble: string)
-  if confine.sandbox_platform() then
-    Test.skip("the kernel gives no " .. what .. ": " .. tostring(trouble))
-  end
+  local reason = unsandboxed_reason(what, trouble)
+  if reason ~= nil then Test.skip(reason) end
 end
 
 --- A stand-in program built under `tmp` (build/stand_in.tl), which runs
@@ -597,8 +604,8 @@ local function test_a_landlock_ruleset_holds_a_child_to_what_it_names(tmp: strin
   if ruleset == nil then
     -- No Landlock: not built in, turned off, or refused by a filter (a
     -- container's seccomp profile).
-    unsandboxable("Landlock ruleset", trouble)
     assert(errno == sys.ENOSYS or errno == sys.EOPNOTSUPP or errno == sys.EPERM, trouble)
+    unsandboxable("Landlock ruleset", trouble)
     return
   end
   local output = create(tmp .. "/said")
@@ -716,8 +723,8 @@ local function test_a_process_held_to_running_some_paths_runs_nothing_else(tmp: 
   sys.close(create(given .. "/a/f"))
   local held, trouble, errno = process.landlock_restrict_execute({ tmp .. "/bin", given })
   if not held then
-    unsandboxable("Landlock", trouble)
     assert(errno == sys.ENOSYS or errno == sys.EOPNOTSUPP or errno == sys.EPERM, trouble)
+    unsandboxable("Landlock", trouble)
     return
   end
   assert(status_of(probe, { probe, "exit 3" }) == 3, "a program beneath them runs")
@@ -753,6 +760,9 @@ local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
   local refused = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil,
     false, nil, { pledge = { "fly" } })
   assert(not refused, "a promise no one keeps is refused")
+  -- Why a pledge was refused, which skips the test once what needs none
+  -- has been checked.
+  local unsupported: string = nil
   local function filtered(sandbox: raw_process.Sandbox | nil): string
     local output = create(tmp .. "/status")
     local pid, trouble, errno = process.spawn(probe, { probe,
@@ -760,8 +770,8 @@ local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
       nil, nil, nil, output, output, false, nil, sandbox)
     if pid == nil then
       sys.close(output)
-      if sandbox ~= nil then unsandboxable("pledge", trouble) end
       assert(errno == sys.ENOSYS, trouble)
+      if sandbox ~= nil then unsupported = unsupported or unsandboxed_reason("pledge", trouble) end
       return "unsupported"
     end
     assert(assert(process.waitpid(pid, false)).code == 0)
@@ -775,8 +785,8 @@ local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
     local ok, trouble, errno = process.spawn(probe, { probe }, nil, nil, nil,
       nil, nil, false, nil, { pledge = {} })
     if ok == nil then
-      unsandboxable("pledge", trouble)
       assert(errno == sys.ENOSYS)
+      unsandboxable("pledge", trouble)
     else
       process.waitpid(ok, false)
     end
@@ -791,6 +801,7 @@ local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
   end
   local plain = filtered(nil)
   assert(plain == "Seccomp: " .. own .. " Seccomp: " .. own .. " ", plain)
+  if unsupported ~= nil then Test.skip(unsupported) end
 end
 
 --- A socket of a family not promised is refused (EPERM), where one promised
