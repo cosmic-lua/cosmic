@@ -240,13 +240,16 @@
    own, never root, which [`cosmic.sandbox`]'s `user_id` chooses from
    outside, and whose sandbox nests at any depth as on CI's
    unprivileged runners, with no setup. Where the kernel refuses a
-   sandbox that deep, those tests call [`Test.skip`] and
-   return before asserting: the summary counts them skipped, beside ran
+   sandbox that deep, those tests call [`Test.skip`], which
+   ends the test where it is called. It raises what the runner takes for
+   a skip, so nothing after it runs. A `pcall` or coroutine around it
+   must raise what it caught again. A test with more to check first
+   defers the call to its end. The summary counts them skipped, beside ran
    and stood, and lists each with its reason (`test: SKIP`); no verdict
    is kept of one, so it runs again every run, in a held run too
    (`COSMIC_TEST_SANDBOX=1`, `COSMIC_SANDBOX=must` or
    `COSMIC_CI_REQUIRE_SANDBOX=1`), which counts a skip as any run does.
-   A test that returns early because this host cannot be given the
+   A test that ends early because this host cannot be given the
    sandbox it is about calls [`Test.skip`] too, never passing as though
    it had checked -- but only where the platform could give it
    ([`build.confine`]'s `sandbox_platform`): off Linux (no user

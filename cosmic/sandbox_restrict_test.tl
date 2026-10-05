@@ -79,12 +79,7 @@ end
 --- why, which it does where the host gives no sandbox.
 local function in_child(chunk: string): Said | nil
   -- Off Linux every restriction is refused, so no case has anything to say.
-  if not confine.sandbox_platform() then
-    if confine.sandbox_platform() then
-      Test.skip("Sandbox.restrict holds a process only on Linux")
-    end
-    return nil
-  end
+  if not confine.sandbox_platform() then return nil end
   local started = this_program.program({ "-e", PRELUDE .. chunk }, {
     env = this_program.environment(), stdout = "capture", stderr = "stdout",
     timeout_ns = Clock.seconds(60) })

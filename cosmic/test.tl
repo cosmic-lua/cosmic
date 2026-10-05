@@ -51,8 +51,8 @@
 --- test is sandboxed and keyed as that `needs` would have it.
 ---
 --- A test that this host cannot give the sandbox it is about says so
---- with `skip`, as it returns early: the run counts it skipped rather
---- than passed.
+--- with `skip`, which ends it: the run counts it skipped rather than
+--- passed.
 
 -- TODO: take `environment` and `program` from build.this_program, which
 -- a test calls to say what a process of this program it starts needs
@@ -278,7 +278,8 @@ local FIELDS <const>: {string:string} = {
 --- that module has loaded refused: a table whose `handed` is called with
 --- what `needs` was handed, whose `loaded` the runner sets once the
 --- module has loaded, and whose `skipped` is called with the reason
---- each `skip` is given. Nil when none is installed.
+--- each `skip` is given and answers the value `skip` raises to end the
+--- test (nothing, to let it go on). Nil when none is installed.
 local function runner_in(module: any): {string:any}
   if module is {string:any} then
     local installed = module.__runner
@@ -735,21 +736,25 @@ function Test.policy(policy: Test.Policy)
   declare("policy", needs)
 end
 
---- Says the running test is skipped: this host cannot check what it
+--- Ends the running test as skipped: this host cannot check what it
 --- exists to check -- a kernel that refuses the sandbox it is about,
---- say -- for `reason`, which the run prints beside its name. It does
---- not end the test: the test goes on, and returns where it would, as
---- in
+--- say -- for `reason`, which the run prints beside its name. It raises
+--- a value the runner takes for a skip rather than a failure, so
+--- nothing after the call runs, as in
 ---
 ---     if ruleset == nil then
 ---       Test.skip("no Landlock: " .. trouble)
----       return
 ---     end
+---     use(ruleset)
 ---
---- A test that called it and then passed is counted skipped, not
---- passed, in the run's summary (`N skipped`), and no verdict is kept
---- of it, so it runs again on the next run and stands on no host; one
---- that failed is a failure like any other. A test skips only where
+--- Code that catches errors around a call that may skip (`pcall`, a
+--- coroutine's `resume`) must raise what it caught again where it is
+--- not the test's own failure, or the test goes on past its skip: the
+--- reason is recorded as the call is made, so a test that went on and
+--- passed is still counted skipped, but one that went on and failed is
+--- a failure. A test that skipped is counted skipped, not passed, in the
+--- run's summary (`N skipped`), and no verdict is kept of it, so it runs
+--- again on the next run and stands on no host. A test skips only where
 --- its platform could give what this host refused (root nests a sandbox
 --- only two deep; a container refuses user namespaces), or where what it
 --- checks is not built yet, naming what it waits on in a comment beside the skip; where
@@ -758,8 +763,10 @@ end
 --- that stands, since the key's kernel part names the platform. Nor does
 --- a test skip for a host tool or artifact it lacks. Raises for a reason
 --- that is not a string or is empty and, under a runner, for a call as
---- the module loads rather than from a test. Outside a runner it does
---- nothing.
+--- the module loads rather than from a test. Outside a runner it
+--- returns and does nothing: no one there takes what it would raise for
+--- a skip, so a raise would be a failure of a test that only cannot be
+--- checked, and the caller that wants to stop returns itself.
 function Test.skip(reason: string)
   if not (reason is string) then error("test: skip's reason is not a string", 2) end
   if reason == "" then error("test: skip's reason is empty", 2) end
@@ -769,7 +776,10 @@ function Test.skip(reason: string)
     error("test: skip is called from a test as it runs, not as its module loads", 2)
   end
   local skipped = installed.skipped
-  if skipped is function(string) then skipped(reason) end
+  if skipped is function(string): any then
+    local ending = skipped(reason)
+    if ending ~= nil then error(ending, 0) end
+  end
 end
 
 return Test

@@ -3,6 +3,7 @@
 --- of this host answers.
 
 local Fs = require("cosmic.fs")
+local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local confine = require("build.confine")
 local host_requires = require("build.host_requires")
@@ -216,11 +217,11 @@ local function test_a_program_is_keyed_by_the_file_it_finds(tmp: string)
   local bin = tmp .. "/bin"
   assert(Fs.mkdirs(bin))
   local program = bin .. "/cosmic-tool"
-  assert(Fs.write(program, "#!/bin/sh\necho one\n", tonumber("755", 8)))
+  assert(Fs.write(program, "echo one\n", tonumber("755", 8)))
   local first = ask(host_with({ ok = true, why = "", broken = false }, bin), "program:cosmic-tool")
-  assert(first.kind == "present" and first.key:match("^sha256:%x+$"), first.why)
+  assert(first.kind == "present" and first.key:match("^sha256:%x+$"), first.key)
   assert(ask(host_with({ ok = true, why = "", broken = false }, bin), "program:cosmic-tool").key == first.key)
-  assert(Fs.write(program, "#!/bin/sh\necho two\n", tonumber("755", 8)))
+  assert(Fs.write(program, "echo two\n", tonumber("755", 8)))
   local second = ask(host_with({ ok = true, why = "", broken = false }, bin), "program:cosmic-tool")
   assert(second.kind == "present" and second.key ~= first.key)
   local missing = ask(host_with({ ok = true, why = "", broken = false }, bin), "program:cosmic-other")
@@ -228,4 +229,124 @@ local function test_a_program_is_keyed_by_the_file_it_finds(tmp: string)
   assert(Fs.write(bin .. "/plain", "data", tonumber("644", 8)))
   local plain = ask(host_with({ ok = true, why = "", broken = false }, bin), "program:plain")
   assert(plain.kind == "skipped", "a file that cannot run is no program")
+end
+
+--- A FIFO or a device is refused naming the rule, and the probe returns
+--- rather than waiting on a read that never ends; a directory is "dir"; a
+--- link into /proc is "present", not read.
+local function test_a_path_is_keyed_by_what_it_is(tmp: string)
+  local pipe = tmp .. "/pipe"
+  assert(sys.mkfifo(pipe, tonumber("600", 8)))
+  local fifo = ask(host_requires.new(), "path:" .. pipe)
+  assert(fifo.kind == "skipped" and fifo.why:find("fifo", 1, true) and fifo.why:find("no key can hold", 1, true),
+    fifo.why)
+  assert(assert(sys.symlink(pipe, tmp .. "/to-pipe")))
+  assert(ask(host_requires.new(), "path:" .. tmp .. "/to-pipe").kind == "skipped", "a link is followed")
+  if Fs.exists("/dev/zero") == true then
+    local zero = ask(host_requires.new(), "path:/dev/zero")
+    assert(zero.kind == "skipped" and zero.why:find("char", 1, true), zero.why)
+  end
+  if confine.sandbox_platform() and Fs.exists("/proc/self/status") == true then
+    assert(assert(sys.symlink("/proc/self/status", tmp .. "/to-proc")))
+    local linked = ask(host_requires.new(), "path:" .. tmp .. "/to-proc")
+    assert(linked.kind == "present" and linked.key == "present", linked.key)
+    assert(ask(host_requires.new(), "path:/proc/self/status").key == "present")
+  end
+  local dir = ask(host_requires.new(), "path:" .. tmp)
+  assert(dir.kind == "present" and dir.key == "dir")
+end
+
+--- A script is keyed by its interpreter beside it, so a changed one moves
+--- the key.
+local function test_a_script_is_keyed_with_its_interpreter(tmp: string)
+  local bin = tmp .. "/bin"
+  assert(Fs.mkdirs(bin))
+  local interpreter = bin .. "/interp"
+  assert(Fs.write(interpreter, "#!/bin/sh\n", tonumber("755", 8)))
+  assert(Fs.write(bin .. "/script", "#!" .. interpreter .. "\n", tonumber("755", 8)))
+  local host = host_with({ ok = true, why = "", broken = false }, bin)
+  local first = ask(host, "program:script")
+  assert(first.kind == "present" and first.key:find(";interpreter=sha256:", 1, true), first.key)
+  assert(Fs.write(interpreter, "#!/bin/sh\n# changed\n", tonumber("755", 8)))
+  local second = ask(host_with({ ok = true, why = "", broken = false }, bin), "program:script")
+  assert(second.key ~= first.key)
+  assert(Fs.write(bin .. "/env-script", "#!/usr/bin/env interp\n", tonumber("755", 8)))
+  local through_env = ask(host_with({ ok = true, why = "", broken = false }, bin), "program:env-script")
+  assert(through_env.key:find(";interpreter=sha256:", 1, true) or through_env.key:find("interpreter=absent", 1, true))
+end
+
+--- Each answer carries its class.
+local function test_an_answer_carries_its_class()
+  local answers = host_requires.answer(host_requires.new(), { "root", "proc", "bogus" })
+  assert(answers[1].class == "host" and answers[2].class == "platform" and answers[3].class == "host")
+end
+
+--- A portable artifact is `runtime_context` "portable-v1", and where this
+--- is not one `portable` is n/a; one that is present has an artifact to start
+--- again.
+local function test_portable_is_a_portable_artifact()
+  local answer = ask(host_requires.new(), "portable")
+  assert(answer.kind == "present" or answer.kind == "na", answer.kind)
+  assert((answer.kind == "present") == (Store.meta("runtime_context") == "portable-v1"))
+  if answer.kind == "present" then assert(answer.key == "artifact") end
+end
+
+--- The settings `userns` reads, standing in for the host's.
+local function settings(files: {string:string}): host_requires.Host
+  return host_requires.new({ read = function(path: string): string | nil, string
+    local text = files[path]
+    if text == nil then return nil, path .. ": No such file or directory" end
+    return text, ""
+  end })
+end
+
+local limit_file <const> = "/proc/sys/user/max_user_namespaces"
+local clone_file <const> = "/proc/sys/kernel/unprivileged_userns_clone"
+local apparmor_file <const> = "/proc/sys/kernel/apparmor_restrict_unprivileged_userns"
+local status_file <const> = "/proc/self/status"
+local with_admin <const> = "Name:\tx\nCapEff:\t000001ffffffffff\n"
+local without_admin <const> = "Name:\tx\nCapEff:\t0000000000000000\n"
+
+--- `userns` follows the limit, and the two switches for a process without
+--- CAP_SYS_ADMIN, whatever its user; the key is the same wherever the limit.
+local function test_userns_follows_the_settings()
+  if not confine.sandbox_platform() or Fs.exists("/proc/self") ~= true then return end
+  local function userns(files: {string:string}): host_requires.Answer
+    return ask(settings(files), "userns")
+  end
+  local ok = userns({ [limit_file] = "64300\n", [status_file] = without_admin })
+  assert(ok.kind == "present" and ok.key == "allowed", ok.why)
+  assert(userns({ [limit_file] = "7\n", [status_file] = without_admin }).key == "allowed")
+  local none = userns({ [limit_file] = "0\n", [status_file] = with_admin })
+  assert(none.kind == "skipped" and none.why:find("is 0", 1, true))
+  local clone = userns({ [limit_file] = "9", [clone_file] = "0\n", [status_file] = without_admin })
+  assert(clone.kind == "skipped" and clone.why:find("unprivileged_userns_clone", 1, true))
+  local apparmor = userns({ [limit_file] = "9", [apparmor_file] = "1\n", [status_file] = without_admin })
+  assert(apparmor.kind == "skipped" and apparmor.why:find("apparmor", 1, true))
+  -- A process holding CAP_SYS_ADMIN is bound by neither switch.
+  assert(userns({ [limit_file] = "9", [clone_file] = "0", [apparmor_file] = "1",
+    [status_file] = with_admin }).kind == "present")
+  assert(userns({ [limit_file] = "9", [clone_file] = "1", [apparmor_file] = "0",
+    [status_file] = without_admin }).kind == "present")
+  local missing = userns({ [status_file] = without_admin })
+  assert(missing.kind == "skipped" and missing.why:find("not built in", 1, true))
+end
+
+--- A setting that is there and says no number, or a status with no `CapEff`,
+--- raises, as neither is an absence.
+local function test_a_setting_that_cannot_be_read_raises()
+  if not confine.sandbox_platform() or Fs.exists("/proc/self") ~= true then return end
+  local garbled, why = pcall(ask, settings({ [limit_file] = "many\n", [status_file] = without_admin }), "userns")
+  assert(not garbled and tostring(why):find("holds no number", 1, true), tostring(why))
+  local no_caps, caps_why = pcall(ask, settings({ [limit_file] = "9", [status_file] = "Name:\tx\n" }), "userns")
+  assert(not no_caps and tostring(caps_why):find("CapEff", 1, true), tostring(caps_why))
+  -- A file that exists and cannot be read is a defect, not "no such setting".
+  local denied = host_requires.new({ read = function(path: string): string | nil, string
+    return nil, path .. ": Permission denied"
+  end })
+  -- Only where the setting is there to be unreadable: a worker's own /proc has no /proc/sys.
+  if Fs.exists(limit_file) == true then
+    local unreadable, trouble = pcall(ask, denied, "userns")
+    assert(not unreadable and tostring(trouble):find("cannot be read", 1, true), tostring(trouble))
+  end
 end

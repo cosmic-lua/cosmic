@@ -15,15 +15,25 @@
 ---   security module refuses beyond them shows in `sandbox` and `own_proc`;
 --- - `nest`: a sandboxed process may build a sandbox of its own: `userns`,
 ---   and, for a root, CAP_SETUID, CAP_SETGID and CAP_SETFCAP to map the
----   user its child runs as ([`confine.may_map_ids`]);
+---   user its child runs as ([`confine.may_map_ids`]). It needs no Landlock:
+---   the `nest` promise is for a program no ruleset holds, and a ruleset
+---   would refuse the mounts a root of its own is made of;
 --- - `own_proc`: a sandbox gets a procfs of its own ([`confine.own_proc_given`]);
 --- - `proc`: /proc is mounted;
---- - `portable`: this program was started from a portable artifact, so it
----   has one to start again ([`Proc.relaunch`]);
+--- - `portable`: this run is a portable artifact (`runtime_context`
+---   "portable-v1", as the runner's launcher key reads it), not a native
+---   start or a core with a database;
 --- - `root`: the run's user is root;
 --- - `path:<absolute path>`: a file or directory of the host;
 --- - `program:<name>`: a program the PATH finds ([`Proc.find`]).
 ---
+--- `unprivileged` is no name: it is `root`'s negation, which a test can
+--- state by skipping where `root` is present.
+---
+--- `path:` and `program:` are probed with the process that asks, its
+--- filesystem and its PATH, which a sandboxed worker may not see
+--- the same.
+
 --- Its class says what an absence means. A `platform` requirement is one
 --- only some platforms have (Landlock, /proc and a user namespace are
 --- Linux's; a portable artifact is no native start's): where the platform
@@ -34,25 +44,38 @@
 --- requirement at all is the platform's own answer
 --- ([`confine.sandbox_platform`], which is Linux's), never a probe's.
 ---
+-- TODO: step 3 must hold a run only to the requirements a leg promises
+-- (the design's per-leg promise list), not fail every host-class skip: a held
+-- run fails a skip, but a test that finds `jq` missing returns without one
+-- today, so failing each `program:` or `path:` absence would fail hosts
+-- that never promised the tool.
+-- TODO: add a `relaunch` name (a program that can start itself again, as
+-- `Proc.relaunch() == nil` tests ask) once Proc.relaunch tells a native
+-- start from a failure to reopen: both answer nil today, so a probe cannot
+-- make the one n/a and raise on the other.
 --- Each probe runs once per [`host_requires.Host`], in the process that
 --- asks (the runner's, never a test's), and a probe that cannot tell raises
 --- rather than answer present or absent, since a wrong "present" would run
 --- a test that fails for the host and a wrong "absent" would pass one that
 --- checked nothing.
 ---
---- A harness module (build/harness_epoch.tl): it reaches the host through
---- the raw bindings and the libraries `library` names, and takes what it
---- calls of them as locals when it loads.
+--- It becomes a harness module (build/harness_epoch.tl) once the runner
+--- reads it (step 3 of the design): it is written to the rules, reaching the
+--- host through the raw bindings and the libraries `library` names, and
+--- taking what it calls of them as locals when it loads, but `library` does
+--- not name cosmic.store, which `portable` reads, yet.
 
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
+local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local confine = require("build.confine")
 local digest = require("build.digest")
 local type test_sandbox_probe = require("build.test_sandbox_probe")
 
 local find_program, read_file, exists, is_dir = Proc.find, Fs.read, Fs.exists, Fs.is_dir
-local relaunch, getuid = Proc.relaunch, sys.getuid
+local relaunch, getuid, stat, realpath = Proc.relaunch, sys.getuid, Fs.stat, Fs.absolute
+local runtime_context = Store.meta
 local sandbox_platform, may_map_ids = confine.sandbox_platform, confine.may_map_ids
 local own_proc_given, landlock_abi = confine.own_proc_given, confine.landlock_abi
 local hex_sha256 = digest.hex_sha256
@@ -80,6 +103,8 @@ local record host_requires
   record Answer
     --- The requirement as written.
     name: string
+    --- Its class; "host" for a refused name, which no platform decides.
+    class: Class
     kind: Kind
     --- Where `present`, what a verdict key holds of it (the Landlock ABI
     --- the kernel gives, a program's digest, ...); "" otherwise.
@@ -98,6 +123,9 @@ local record host_requires
     --- The search list `program:` looks in; PATH by default
     --- ([`Proc.find`]).
     path: string
+    --- Reads a file as [`Fs.read`] does, for the settings `userns` and
+    --- `nest` read, which a test stands in for.
+    read: function(path: string): string | nil, string
   end
 
   --- The probes of one run: each requirement is asked of the host once.
@@ -161,10 +189,10 @@ local function directory(path: string): boolean
   return found
 end
 
---- Whether this program has an artifact to start again.
-local function has_artifact(): boolean
-  local found, _ = relaunch()
-  return found ~= nil
+--- Whether this run is a portable artifact: the context its launcher keys
+--- ([`build.test`]'s launcher identity) names.
+local function is_portable(): boolean
+  return runtime_context("runtime_context") == "portable-v1"
 end
 
 local function present(text: string): Found
@@ -177,18 +205,46 @@ end
 
 --- The digest of the file at `path`, as a verdict key holds it; raises
 --- where it cannot be read, since a key that could not hold the file
---- would stand on whatever it held.
+--- would stand on whatever it held. Only a regular file is read: a device
+--- or a FIFO would never end, and [`file_key`] keeps them out.
 local function contents_digest(path: string): string
   local data, trouble = read_file(path)
   if data == nil then error("host_requires: " .. path .. " cannot be read: " .. trouble, 0) end
   return "sha256:" .. hex_sha256(data)
 end
 
---- The sysctl at `path` as a number, or nil where the host has none.
-local function sysctl(path: string): integer | nil
-  local text, _ = read_file(path)
-  if text == nil then return nil end
-  return math.tointeger(tonumber((text:gsub("%s+$", ""))))
+--- The reading a probe of a setting does: the context's, else the file's.
+local function reader(host: host_requires.Host): function(string): string | nil, string
+  return host.context.read or read_file
+end
+
+--- The sysctl at `path` as a number, or nil where the host has none. A file
+--- that is there and cannot be read, or says no number, raises: neither is
+--- the setting's absence.
+local function sysctl(host: host_requires.Host, path: string): integer | nil
+  local text, trouble = reader(host)(path)
+  if text == nil then
+    if there(path) then error("host_requires: " .. path .. " cannot be read: " .. trouble, 0) end
+    return nil
+  end
+  local number = math.tointeger(tonumber((text:gsub("%s+$", ""))))
+  if number == nil then error("host_requires: " .. path .. " holds no number: " .. text, 0) end
+  return number
+end
+
+--- CAP_SYS_ADMIN, the capability bit a user namespace needs of no
+--- security module's restriction (`CapEff` in /proc/self/status).
+local CAP_SYS_ADMIN <const> = 21
+
+--- Whether this process holds CAP_SYS_ADMIN in effect; raises where
+--- /proc/self/status says no `CapEff`, since nothing else answers.
+local function admin(host: host_requires.Host): boolean
+  local text, trouble = reader(host)("/proc/self/status")
+  if text == nil then error("host_requires: /proc/self/status cannot be read: " .. trouble, 0) end
+  local effective = text:match("\nCapEff:%s*(%x+)")
+  if effective == nil then error("host_requires: /proc/self/status has no CapEff", 0) end
+  local bits = math.tointeger(tonumber(effective:sub(-8), 16)) or 0 -- the low 32 bits hold bit 21
+  return bits & (1 << CAP_SYS_ADMIN) ~= 0
 end
 
 -- TODO: probe `userns` by making one, once a spawn of a trivial child in a
@@ -197,11 +253,14 @@ end
 -- say what the kernel is told, not what a seccomp filter or a security
 -- module then refuses.
 --- Whether the kernel's settings allow this process a user namespace: a
---- limit above 0, and neither of the switches a distribution or a
---- container adds turned against it. A root is held to the limit alone,
---- which the switches do not bind.
-local function userns_allowed(): Found
-  local limit = sysctl("/proc/sys/user/max_user_namespaces")
+--- limit above 0 and, unless it holds CAP_SYS_ADMIN, neither of the
+--- switches a distribution or a container adds turned against it. Which
+--- switches bind is the capability's, not the user's: a root that has
+--- given the capability up (a container's) is bound by them as any user is.
+--- What a key holds is "allowed", not the limit, which differs by host
+--- and would split a verdict across hosts that all allow one.
+local function userns_allowed(host: host_requires.Host): Found
+  local limit = sysctl(host, "/proc/sys/user/max_user_namespaces")
   if limit == nil then
     -- A kernel with no such file has none built in, or a /proc that hides it.
     if not there("/proc/self") then
@@ -210,15 +269,55 @@ local function userns_allowed(): Found
     return absent("the kernel has no user.max_user_namespaces: user namespaces are not built in")
   end
   if limit <= 0 then return absent("user.max_user_namespaces is " .. limit) end
-  if getuid() ~= 0 then
-    if sysctl("/proc/sys/kernel/unprivileged_userns_clone") == 0 then
+  if not admin(host) then
+    if sysctl(host, "/proc/sys/kernel/unprivileged_userns_clone") == 0 then
       return absent("kernel.unprivileged_userns_clone is 0")
     end
-    if sysctl("/proc/sys/kernel/apparmor_restrict_unprivileged_userns") == 1 then
+    if sysctl(host, "/proc/sys/kernel/apparmor_restrict_unprivileged_userns") == 1 then
       return absent("kernel.apparmor_restrict_unprivileged_userns is 1")
     end
   end
-  return present("max=" .. limit)
+  return present("allowed")
+end
+
+--- What a regular file keys by, a plain statement of what it leaves out: the
+--- digest of its own bytes. A script's interpreter is keyed beside it
+--- (the first word of its `#!` line, or what `env` finds); the shared
+--- libraries and data files a binary loads are not, so a library changed
+--- under an unchanged program moves no key.
+local function program_key(path: string, search: string | nil): string
+  local text = contents_digest(path)
+  local data, _ = read_file(path)
+  local line = (data or ""):match("^#![ \t]*([^\n]*)")
+  if line == nil then return text end
+  local words: {string} = {}
+  for word in line:gmatch("%S+") do words[#words + 1] = word end
+  local interpreter = words[1]
+  if interpreter ~= nil and interpreter:match("/env$") and words[2] ~= nil then
+    local found, _ = find_program(words[2], search)
+    interpreter = found
+  end
+  if interpreter == nil or not there(interpreter) then return text .. ";interpreter=absent" end
+  return text .. ";interpreter=" .. contents_digest(interpreter)
+end
+
+--- What `path` is keyed by, following links: a regular file by its digest, a
+--- directory as "dir", the virtual filesystems (/proc and /sys, by the
+--- path with its links resolved) as "present", whose files change as they
+--- are read. Nil and the rule where it is a device, a FIFO or a socket: a
+--- read could never end, and a key could hold nothing of it.
+local function file_key(path: string): string | nil, string
+  local real, trouble = realpath(path)
+  if real == nil then error("host_requires: " .. trouble, 0) end
+  for _, virtual in ipairs({ "/proc", "/sys" }) do
+    if real == virtual or real:sub(1, #virtual + 1) == virtual .. "/" then return "present" end
+  end
+  local st, why = stat(real)
+  if st == nil then error("host_requires: " .. why, 0) end
+  if st.kind == "dir" then return "dir" end
+  if st.kind == "file" then return contents_digest(real) end
+  return nil, string.format("path: %s is a %s, which no key can hold: name a regular file or a directory",
+    path, st.kind)
 end
 
 local table_of: {string:Entry} = {
@@ -245,10 +344,10 @@ local table_of: {string:Entry} = {
       return present("abi=" .. abi)
     end },
   userns = { class = "platform", platform_has = linux, argument = false, optional = false,
-    probe = function(_: string, _: host_requires.Host): Found return userns_allowed() end },
+    probe = function(_: string, host: host_requires.Host): Found return userns_allowed(host) end },
   nest = { class = "platform", platform_has = linux, argument = false, optional = false,
-    probe = function(_: string, _: host_requires.Host): Found
-      local userns = userns_allowed()
+    probe = function(_: string, host: host_requires.Host): Found
+      local userns = userns_allowed(host)
       if not userns.present then return userns end
       if getuid() == 0 and not may_map_ids() then
         return absent("root without CAP_SETUID, CAP_SETGID and CAP_SETFCAP cannot map the user a sandbox runs as")
@@ -265,10 +364,15 @@ local table_of: {string:Entry} = {
       if there("/proc/self") and directory("/proc/self") then return present("mounted") end
       return absent("/proc/self is not there")
     end },
-  portable = { class = "platform", platform_has = has_artifact, argument = false, optional = false,
+  portable = { class = "platform", platform_has = is_portable, argument = false, optional = false,
     probe = function(_: string, _: host_requires.Host): Found
-      if has_artifact() then return present("artifact") end
-      return absent("this program was started natively, with no artifact to start again")
+      -- Only a portable artifact gets here ([`platform_has`]), so what it cannot
+      -- reopen to start again is a defect, never an absence.
+      local found, trouble = relaunch()
+      if found == nil then
+        error("host_requires: a portable artifact cannot start again: " .. trouble, 0)
+      end
+      return present("artifact")
     end },
   root = { class = "host", argument = false, optional = false,
     probe = function(_: string, _: host_requires.Host): Found
@@ -277,19 +381,29 @@ local table_of: {string:Entry} = {
     end },
   path = { class = "host", argument = true, optional = false,
     probe = function(argument: string, _: host_requires.Host): Found
+      -- TODO: tie this to what the sandboxed worker sees, in step 3: the
+      -- worker has the runner's filesystem only where its module grants it,
+      -- so `path:` must imply the matching `host` grant, or be probed from
+      -- the worker's own view; until then a present path may be one the
+      -- worker cannot read.
       if not there(argument) then return absent(argument .. " does not exist") end
-      if directory(argument) then return present("dir") end
-      -- A file of /proc has no contents a key could hold: they change as it is read.
-      if argument == "/proc" or argument:sub(1, 6) == "/proc/" then return present("present") end
-      return present(contents_digest(argument))
+      local key, rule = file_key(argument)
+      if key == nil then return absent(rule) end
+      return present(key)
     end },
   program = { class = "host", argument = true, optional = false,
     probe = function(argument: string, host: host_requires.Host): Found
+      -- TODO: tie this to what the sandboxed worker sees, in step 3: the
+      -- worker has the system's programs only with the `system` profile or
+      -- a `host` grant of the file, and its search list is its own, so
+      -- `program:` must imply one of them, or be probed on the worker's
+      -- search list; until then a present program may be one the worker
+      -- cannot run.
       local resolved, why = find_program(argument, host.context.path)
       if resolved == nil then return absent(why) end
-      -- The digest of the file it finds, as `host` keys a file: a test's
-      -- output may turn on the program's version.
-      return present(contents_digest(resolved))
+      -- Keyed by the file it finds, as `host` keys a file: a test's output
+      -- may turn on the program's version.
+      return present(program_key(resolved, host.context.path))
     end },
 }
 
@@ -369,17 +483,17 @@ function host_requires.answer(host: host_requires.Host, names: {string}): {host_
     if cached == nil then
       local spec, why = host_requires.parse(name)
       if spec == nil then
-        cached = { name = name, kind = "refused", key = "", why = why }
+        cached = { name = name, class = "host", kind = "refused", key = "", why = why }
       else
         local entry = table_of[spec.base]
         if entry.class == "platform" and not entry.platform_has() then
-          cached = { name = name, kind = "na", key = "", why = spec.base .. ": this platform has none" }
+          cached = { name = name, class = entry.class, kind = "na", key = "", why = spec.base .. ": this platform has none" }
         else
           local found = entry.probe(spec.argument, host)
           if found.present then
-            cached = { name = name, kind = "present", key = found.text, why = "" }
+            cached = { name = name, class = entry.class, kind = "present", key = found.text, why = "" }
           else
-            cached = { name = name, kind = "skipped", key = "", why = found.text }
+            cached = { name = name, class = entry.class, kind = "skipped", key = "", why = found.text }
           end
         end
       end

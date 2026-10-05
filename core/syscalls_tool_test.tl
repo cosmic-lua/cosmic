@@ -180,9 +180,9 @@ local function test_an_offline_child_s_loopback_is_up(tmp: string)
     { offline = true })
   if pid == nil then
     sys.close(report)
-    unsandboxable("network namespace", trouble)
     assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
         errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
+    unsandboxable("network namespace", trouble)
     return
   end
   local status = assert(process.waitpid(pid, false))
@@ -225,9 +225,9 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
     { unveil = { reads = reads, writes = { out } }, offline = true })
   if pid == nil then
     sys.close(report)
-    unsandboxable("unveiling", trouble)
     assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
         errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
+    unsandboxable("unveiling", trouble)
     return
   end
   assert(assert(process.waitpid(pid, false)).code == 0)
@@ -299,9 +299,9 @@ local function start_confined(probe: string, script: string, output: integer,
     output, output, false, nil,
     { unveil = { reads = probe_reads(probe) }, offline = not online })
   if pid ~= nil then return pid end
-  unsandboxable("unveiling", trouble)
   assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
       errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
+  unsandboxable("unveiling", trouble)
   return nil
 end
 
@@ -509,9 +509,9 @@ local function test_an_unveiled_path_is_bound_at_the_name_given(tmp: string)
       at = { [tree] = "/tree", [scratch] = "/tmp", [probe] = "/probe" } }, offline = true })
   if pid == nil then
     sys.close(report)
-    unsandboxable("unveiling", trouble)
     assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
         errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
+    unsandboxable("unveiling", trouble)
     return
   end
   assert(assert(process.waitpid(pid, false)).code == 0)
@@ -542,10 +542,10 @@ local function test_an_unveiled_path_is_bound_at_the_name_given(tmp: string)
     if escaped ~= nil then process.waitpid(escaped, false) end
     assert(escaped == nil, "placed through a link at " .. placed)
     if sys.errno_name(escaped_errno) ~= "ELOOP" then
-      unsandboxable("unveiling", sys.errno_name(escaped_errno))
       assert(escaped_errno == sys.ENOSYS or escaped_errno == sys.EPERM or
           escaped_errno == sys.EACCES or escaped_errno == sys.EINVAL or
           escaped_errno == sys.ENOSPC, tostring(escaped_errno))
+      unsandboxable("unveiling", sys.errno_name(escaped_errno))
     end
   end
   assert(sys.stat(victim .. "/new.txt") == nil, "a file was made through the link")
@@ -795,9 +795,9 @@ local function test_proc_given_to_write_changes_nothing_of_the_host_s(tmp: strin
     { unveil = { reads = without, writes = writes }, offline = true })
   if pid == nil then
     sys.close(report)
-    unsandboxable("unveiling", trouble)
     assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
         errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
+    unsandboxable("unveiling", trouble)
     return
   end
   assert(assert(process.waitpid(pid, false)).code == 0)

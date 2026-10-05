@@ -20,9 +20,9 @@ local function project(tmp: string): string
 local Test = require("cosmic.test")
 
 local function test_skips()
+  -- A skip a test swallowed is recorded, once however often it is given.
+  pcall(Test.skip, "this host cannot")
   Test.skip("this host cannot")
-  Test.skip("this host cannot")
-  return
 end
 
 local function test_passes()
@@ -61,6 +61,42 @@ local function test_a_skipped_test_is_counted_and_runs_every_time(tmp: string)
   out, code = run(root, {})
   assert(code == 0, out)
   assert(out:find("; 1 ran, 1 stood, 1 skipped ", 1, true), out)
+end
+
+--- A test ends where it skips: what follows the call does not run, so
+--- a test that would fail past its skip is counted skipped, not failed,
+--- and the rest of the module runs on.
+local function test_a_test_ends_where_it_skips_and_is_not_failed_for_what_follows(tmp: string)
+  local root = project(tmp)
+  assert(Fs.write(root .. "/ends_test.tl", [[
+local Test = require("cosmic.test")
+
+local function test_fails_past_its_skip()
+  Test.skip("this host cannot check it")
+  error("ran past its skip")
+end
+
+local function test_skips_in_a_helper()
+  local function helper(): boolean
+    Test.skip("a helper's reason")
+    return true
+  end
+  helper()
+  assert(false, "ran past its helper's skip")
+end
+
+local function test_fails_alone()
+  assert(false, "failed as it should")
+end
+]]))
+  local out, code = run(root, {})
+  assert(code ~= 0, out)
+  assert(out:find("FAIL  ends_test test_fails_alone", 1, true), out)
+  assert(not out:find("ran past", 1, true), out)
+  assert(out:find("test: SKIP  ends_test test_fails_past_its_skip: this host cannot check it\n", 1, true), out)
+  assert(out:find("test: SKIP  ends_test test_skips_in_a_helper: a helper's reason\n", 1, true), out)
+  -- Only the test that fails is a failure.
+  assert(out:find("1 of 5 failed", 1, true), out)
 end
 
 --- A run held to sandboxing counts a skipped test skipped as any other

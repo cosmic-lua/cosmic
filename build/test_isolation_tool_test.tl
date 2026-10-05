@@ -37,18 +37,6 @@ local function environment(): {string:string}
   return env
 end
 
---- Whether the run that said `text` sandboxed none of its workers; if
---- so, the running test is skipped ([`Test.skip`]), its sandboxed case
---- checking only what the unsandboxed one does. The workers nest in
---- this test's own sandbox, which a host may refuse: the kernel lets
---- root nest one only two deep (core/syscalls.c's `map_ids`). CI's
---- unprivileged runners nest them.
-local function unsandboxed(text: string): boolean
-  if text:find("; sandboxed", 1, true) ~= nil then return false end
-  if confine.sandbox_platform() then Test.skip(confine.unsandboxed_reason(text)) end
-  return true
-end
-
 local function invoke(root: string, output: string, args: {string},
                       env?: {string:string}): Child.Result
   local words: {string} = { "test" }
@@ -132,6 +120,12 @@ end
 --- ([`build.test_sandbox`]) -- while the rest of the run goes on.
 local function test_a_hung_or_exiting_test_fails_alone(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  -- Why the sandboxed case ran unsandboxed, which skips the test once
+  -- that case has checked what the unsandboxed one does. The workers
+  -- nest in this test's own sandbox, which a host may refuse: the
+  -- kernel lets root nest one only two deep (core/syscalls.c's
+  -- `map_ids`). CI's unprivileged runners nest them.
+  local unsandboxed: string = nil
   for _, mode in ipairs({ "0", "" }) do
     local marker = "cosmic-hang-" .. tostring(Clock.monotonic_ns())
     local here = tmp .. "/mode" .. mode
@@ -160,8 +154,8 @@ local function test_a_hung_or_exiting_test_fails_alone(tmp: string)
     local sandboxed = text:find("; sandboxed", 1, true) ~= nil
     if mode == "0" then
       assert(not sandboxed, text)
-    else
-      sandboxed = not unsandboxed(text)
+    elseif not sandboxed and confine.sandbox_platform() then
+      unsandboxed = confine.unsandboxed_reason(text)
     end
     assert(text:find(sandboxed and "its pid namespace was ended" or "its process group was ended",
       1, true), text)
@@ -172,6 +166,7 @@ local function test_a_hung_or_exiting_test_fails_alone(tmp: string)
       assert(#left == 0, mode .. ": left running: " .. table.concat(left, " "))
     end
   end
+  if unsandboxed ~= nil then Test.skip(unsandboxed) end
 end
 
 --- An unsandboxed worker still running keeps what it left running
