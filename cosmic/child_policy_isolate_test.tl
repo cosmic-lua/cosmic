@@ -19,6 +19,7 @@ local confine = require("build.confine")
 local searchable = require("build.searchable")
 local stand_in = require("build.stand_in")
 local unix_socket = require("build.unix_socket")
+local type raw_process = require("cosmic.internal.process")
 
 --- The temporary directory, and a loopback address for the host's own
 --- listener the child must not reach. `nests`: a policy's isolation makes
@@ -322,7 +323,7 @@ local function test_a_u_grant_beside_a_directory_of_sockets_is_refused_or_held(t
     { policy = policy, cwd = at.home, stdout = "capture", stderr = "stdout" })
   if result == nil then
     if why:find("ABI 9", 1, true) then
-      assert(why:find("directory or a socket", 1, true), why)
+      assert(why:find("beside a directory", 1, true), why)
     else
       assert(unsandboxable(why), why)
       assert(granted:close() and other:close())
@@ -348,6 +349,63 @@ local function test_a_u_grant_beside_files_alone_is_met(tmp: string)
   assert(server:close())
   if result == nil then return end
   assert(result.code == 0 and result.said == "connected\n", result.said)
+end
+
+local type Searcher = function(string): any, any
+
+--- The Landlock ABI of this kernel, nil where there is none: from the raw
+--- table the store's searcher hands [`cosmic.child`]'s loader.
+local function landlock_abi(): integer | nil, string, integer
+  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
+    local loader, extra = searcher("cosmic.child")
+    if type(loader) == "function" and type(extra) == "table" then
+      return (extra as raw_process).landlock_abi() -- cast: the table core/process.h declares
+    end
+  end
+  error("cosmic.child is handed no raw table")
+end
+
+--- A root of files and its own /tmp alone shows no socket of the host's, so
+--- the program makes one there with no `u` grant, at any ABI; a directory of
+--- the host beside it takes that below ABI 9, and its own network namespace
+--- (`loopback`) goes with it at any.
+local function test_a_root_of_files_and_its_own_tmp_makes_unix_sockets_without_u(tmp: string)
+  local at = placed(tmp)
+  if unix_socket.skipped(tmp) then return end
+  local script = "loopback-unix /tmp/own.sock"
+  local alone = under(at.probe, { isolate = { "file" }, tmp = true, loopback = { "127.0.0.1" },
+    grants = at.bare }, at.home, script)
+  if alone == nil then return end
+  assert(alone.code == 0 and alone.said == "connected\n", alone.said)
+  local isolated = under(at.probe, { isolate = { "file" }, tmp = true, grants = at.bare }, at.home, script)
+  assert(isolated ~= nil and isolated.said:find("not permitted", 1, true), "no network of its own: " ..
+      tostring(isolated and isolated.said))
+  local abi, _ = landlock_abi()
+  local shown = under(at.probe, { isolate = { "file" }, tmp = true, loopback = { "127.0.0.1" },
+    grants = at.grants }, at.work, script)
+  assert(shown ~= nil, "started")
+  if abi ~= nil and abi < 9 then
+    assert(shown.said:find("not permitted", 1, true), "a directory shown, below ABI 9: " .. shown.said)
+  else
+    assert(shown.said == "connected\n", shown.said)
+  end
+end
+
+--- The sandbox's own /tmp is no directory of the host's: a `u` grant stands
+--- beside it at any ABI, and the program makes a socket of its own there.
+local function test_a_u_grant_beside_the_sandboxs_own_tmp_is_met(tmp: string)
+  local at = placed(tmp)
+  local socket = tmp .. "/beside-tmp.sock"
+  if unix_socket.skipped(tmp) then return end
+  local server = assert(Net.listen(Net.unix(socket), { timeout_ns = 1000000000 }))
+  local policy: Sandbox.Policy = { isolate = { "file" }, tmp = true, grants = with(at.bare,
+    { path = socket, letters = "u" }) }
+  local granted = under(at.probe, policy, at.home, "connect " .. socket)
+  local own = under(at.probe, policy, at.home, "loopback-unix /tmp/own.sock")
+  assert(server:close())
+  if granted == nil or own == nil then return end
+  assert(granted.code == 0 and granted.said == "connected\n", granted.said)
+  assert(own.code == 0 and own.said == "connected\n", own.said)
 end
 
 --- Under `isolate` file /dev holds what is granted: the "system" profile's

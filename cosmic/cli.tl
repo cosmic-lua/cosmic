@@ -15,24 +15,37 @@ local Flags = require("cosmic.flags")
 
 --- One field per verb: the full text of `cosmic help <verb>`.
 local record Cli
-  --- `cosmic <file.tl>`: builds the tree the file sits in -- the
-  --- working directory when the file is under it, so a file of a
+  --- `cosmic <file.tl> [args...]`: builds the tree the file sits in --
+  --- the working directory when the file is under it, so a file of a
   --- project reaches the rest of it; the file's own directory
-  --- otherwise -- then runs it: requires the file, and if what it
-  --- returns is a function, calls it with one argument -- see argv --
-  --- and exits with what it returns, as `eval` does: nothing is 0, a
-  --- whole number from 0 to 255, or text naming one, is itself, and
-  --- anything else is complained about and exits 2
+  --- otherwise -- into its o/, then runs it: requires the file, and if
+  --- what it returns is a function, calls it with one argument, the
+  --- words after the file's path (`argv[1]` on, its own path at
+  --- `argv[0]`), and exits with what it returns, as `eval` does:
+  --- nothing is 0, a whole number from 0 to 255, or text naming one, is
+  --- itself, and anything else is complained about and exits 2. The
+  --- file's top level finds the same words in the global `arg`; its `...`
+  --- is what `require` hands a module, its own name.
+  ---
+  ---     return function(argv: {string}): integer
+  ---       print("from " .. argv[1] .. " to " .. argv[2])
+  ---       return 0
+  ---     end
+  ---
+  --- With COSMIC_STANDALONE=1 it runs the file as `--standalone` does,
+  --- building nothing and writing no o/; a program `cosmic sandbox
+  --- --cosmic` runs has it set unless `--set-env` says otherwise
   run: string
-  --- `cosmic --standalone <file.tl>`: runs one file against this
+  --- `cosmic --standalone <file.tl> [args...]`: runs one file against this
   --- binary's own standard library, with no tree around it -- nothing
   --- staged or built, nothing under o/ written, and no staleness
   --- check, so it runs the same whatever state the working directory
   --- is in. The file may require `cosmic.*` modules only; it is
   --- checked and compiled in memory (a clean compile is cached under
   --- $XDG_CACHE_HOME/cosmic/standalone), then called as `run` calls
-  --- one -- see argv -- with a record's `main` field standing for a
-  --- returned function
+  --- one -- its words in `arg` and the returned function's `argv` --
+  --- with a record's `main` field standing for a returned function.
+  --- COSMIC_STANDALONE=1 makes `cosmic <file.tl>` run so
   standalone: string
   --- `cosmic -e '<chunk>' [args...]`: runs the chunk as Lua, the way
   --- `lua -e` does, against this binary's own standard library, with no
@@ -514,7 +527,13 @@ local record Cli
   --- root, the program's user runs a copy of the core every user may run,
   --- made once in /run/cosmic-sandbox-cores:
   ---
-  ---     cosmic sandbox --cosmic --write . -- cosmic run.tl
+  ---     cosmic sandbox --cosmic --read . -- cosmic run.tl IN OUT
+  ---
+  --- A file it runs is run as `--standalone` (COSMIC_STANDALONE=1), so a
+  --- grant to read it is enough and no o/ is written beside it, which
+  --- another run's user would own; it may then require `cosmic.*` modules
+  --- only. `--set-env COSMIC_STANDALONE=0` builds the tree around it
+  --- instead, which finds its own modules and needs a grant to write there.
   ---
   --- `--read`, `--run` and `--write` grant a path as `r`, `rx` and `rwc`;
   --- `--path` names the letters itself, of `rwxcu` in that order (`rwxc:.`),
@@ -575,12 +594,12 @@ local module: Module = {
   },
   verbs = {
     run = {
-      about = "build the tree around a file and run it",
+      about = "build the tree around a file and run it (COSMIC_STANDALONE=1: as --standalone)",
       usage = "<file.tl> [args]",
     },
     standalone = {
       about = "run one file with no tree around it",
-      usage = "<file.tl>",
+      usage = "<file.tl> [args]",
     },
     eval = {
       about = "run a Lua chunk",
