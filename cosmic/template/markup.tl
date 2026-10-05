@@ -15,7 +15,7 @@
 --- - `<script>` and `<style>` text, until their end tag: no escaper for
 ---   their languages is held to a standard here yet;
 --- - an attribute that is code or a URL list: any attribute whose name
----   begins with `on` (handlers), `style`, `srcdoc`, `srcset`, `ping`,
+---   begins with `on` (handlers), `style`, `srcdoc`, `srcset`, `imagesrcset`, `ping`,
 ---   `content` of a `<meta>` that has `http-equiv` (anywhere in the
 ---   tag), and every attribute of the SVG animation elements (`set`,
 ---   `animate`, `animateMotion`, `animateTransform`: they can animate
@@ -30,6 +30,8 @@
 --- - a URL attribute (`href`, `src`, ...) of a tag that makes the page
 ---   run or load what the URL names (`script`, `link`, `object`,
 ---   `embed`, `base`, `use`), or one not at the start of the value.
+---
+--- A slot in a template's end must leave it in plain text: see `ending`.
 ---
 --- What is left is a slot in text; in `<textarea>` and `<title>`, whose
 --- text ends at their end tag, which takes a string or a number and never
@@ -54,12 +56,14 @@
 --- `/` across a block boundary (`<svg {{if .a}}/{{end}}>`) is a place of
 --- its own, so the arms of a block that differ in it are refused.
 --- A slot in RCDATA is escaped as text and takes no markup, which is safe
---- in either reading. `<svg>`, `<g>`, `<a href="{{.u}}">`, `<text>{{.x}}`
+--- in either reading, except after a `<` or a partial end tag (`</tex`) in
+--- it, where the slot could complete the end tag and the place after it is
+--- not RCDATA: that is refused. `<svg>`, `<g>`, `<a href="{{.u}}">`, `<text>{{.x}}`
 --- and a slot after a cleanly closed `</svg>` are not murky.
 ---
 --- A URL attribute is `href`, `src`, `action`, `formaction`, `cite`,
 --- `data`, `poster`, `background`, `manifest`, `longdesc`, `codebase`,
---- `profile`, `icon`, `lowsrc`, `dynsrc`, `classid` and `xlink:href`: each takes one URL. A slot is
+--- `profile`, `icon`, `lowsrc`, `dynsrc`, `classid`, `archive` and `xlink:href`: each takes one URL. A slot is
 --- taken as a whole URL (the escaper decides whether it may be a link),
 --- which is why it must begin the value: after `href="/a/` it would be a
 --- piece of one, which needs an escaper for a piece (doc/roadmap.md).
@@ -145,6 +149,10 @@ local record Markup
     late_line: integer
     --- Its column.
     late_col: integer
+    --- In the text of a `<textarea>` or `<title>`, the literal text since
+    --- the last `<` while it could still become the element's end tag (`<`,
+    --- `</`, `</tex`): a slot after it could complete the tag.
+    rc_tail: string
   end
 
   --- A new place: the start of the template, in text.
@@ -167,6 +175,11 @@ local record Markup
   --- after one is watched.
   wrote: function(p: Place, ctx: types.Slot, line: integer, col: integer)
 
+  --- Why a template that ends at this place may not be spliced into
+  --- markup (a `SafeHtml` goes into another template's text slot as it is),
+  --- or "" when it ends in plain text.
+  ending: function(p: Place): string
+
   --- Folds the place `b`, which `same` found the same as `a`, into `a`: a
   --- value is fresh only if it is in both, and a URL slot or a pending
   --- `<meta>` slot in either is kept.
@@ -180,8 +193,16 @@ local type Place = Markup.Place
 local URL_ATTRS <const>: {string: boolean} = {
   href = true, src = true, action = true, formaction = true, cite = true, data = true,
   poster = true, background = true, manifest = true, longdesc = true, codebase = true,
-  profile = true, icon = true, lowsrc = true, dynsrc = true, classid = true, ["xlink:href"] = true,
+  profile = true, icon = true, lowsrc = true, dynsrc = true, classid = true, archive = true,
+  ["xlink:href"] = true,
 }
+
+-- Attributes Go's html/template treats as URLs that are plain attributes
+-- here, on purpose: `usemap` (a fragment naming a map), `xmlns` and
+-- `xmlns:*` (namespaces, which an HTML parser ignores), and any `data-*` or
+-- custom attribute whose name merely contains `src`, `uri` or `url`.
+-- Browsers do not navigate or load on them; script that reads a `data-*`
+-- attribute owns what it does with the value, as it does for `hx-*`.
 
 --- The tags whose URL attributes make the page run or load what they
 --- name, which no URL allowlist makes safe to take from data.
@@ -193,6 +214,7 @@ local ACTIVE_TAGS <const>: {string: boolean} = {
 --- each with what a slot there would be.
 local CODE_ATTRS <const>: {string: string} = {
   style = "CSS", srcdoc = "HTML", srcset = "a list of URLs", ping = "a list of URLs",
+  imagesrcset = "a list of URLs",
 }
 
 --- The tags whose content is raw text, which ends at their end tag (never,
@@ -216,16 +238,22 @@ local ANIMATION <const>: {string: boolean} = {
   set = true, animate = true, animatemotion = true, animatetransform = true,
 }
 
+-- TODO: a conditional bare attribute as the first attribute
+-- (`<input{{if .a}} checked{{end}} name=n>`) is refused because the arms end
+-- in different places (`attr_name` against the tag's start): once `same`
+-- treats the places between attributes (before_attr, after_attr, a name
+-- ended by a space or `>`) as one, such a template compiles.
+
 local function start(): Place
   return { phase = "text", tag = "", attr = "", closing = false, fresh = false, stack = "", murky = false,
-    select = false, fontattr = false, slash = false, after_url = false, colon = false, equiv = false, meta_line = 0, meta_col = 0, late = "", late_line = 0, late_col = 0 }
+    select = false, fontattr = false, slash = false, after_url = false, colon = false, equiv = false, meta_line = 0, meta_col = 0, late = "", late_line = 0, late_col = 0, rc_tail = "" }
 end
 
 local function copy(p: Place): Place
   return { phase = p.phase, tag = p.tag, attr = p.attr, closing = p.closing, fresh = p.fresh, stack = p.stack,
     murky = p.murky, select = p.select, fontattr = p.fontattr, slash = p.slash, after_url = p.after_url, colon = p.colon, equiv = p.equiv,
     meta_line = p.meta_line, meta_col = p.meta_col, late = p.late, late_line = p.late_line,
-    late_col = p.late_col }
+    late_col = p.late_col, rc_tail = p.rc_tail }
 end
 
 --- The phases in which the tag and whether it is an end tag mean something;
@@ -246,6 +274,9 @@ local function same(a: Place, b: Place): boolean
   end
   if TAGGED[a.phase] and (a.tag ~= b.tag or a.closing ~= b.closing or a.equiv ~= b.equiv or a.fontattr ~= b.fontattr or
       (a.meta_line > 0) ~= (b.meta_line > 0)) then
+    return false
+  end
+  if a.phase == "rcdata" and a.rc_tail ~= b.rc_tail then
     return false
   end
   return not ATTRIBUTED[a.phase] or a.attr == b.attr
@@ -645,9 +676,16 @@ local function scan(p: Place, text: string)
         p.murky = true
       end
       if found == nil then
+        if p.phase == "rcdata" then
+          local last = region:match(".*()<")
+          local tail = last and region:sub(last) or (p.rc_tail .. region)
+          local close = "</" .. p.tag
+          p.rc_tail = (#tail <= #close and close:sub(1, #tail) == tail:lower()) and tail or ""
+        end
         return
       end
       p.phase = "text"
+      p.rc_tail = ""
       i = found
     end
   end
@@ -665,6 +703,9 @@ local function slot(p: Place): types.Slot | nil, string
   elseif phase == "text" then
     return "text", ""
   elseif phase == "rcdata" then
+    if p.rc_tail ~= "" then
+      return nil, "a slot after '" .. p.rc_tail .. "' in <" .. p.tag .. "> could complete its end tag"
+    end
     return "rtext", ""
   elseif phase == "raw" then
     return nil, "a slot inside <" .. p.tag .. "> has no escaper"
@@ -714,6 +755,7 @@ end
 
 local function wrote(p: Place, ctx: types.Slot, line: integer, col: integer)
   p.fresh = false
+  p.rc_tail = ""
   p.after_url = ctx == "url"
   if p.tag == "meta" and p.attr == "content" and ctx == "attr" then
     p.meta_line = line
@@ -721,5 +763,25 @@ local function wrote(p: Place, ctx: types.Slot, line: integer, col: integer)
   end
 end
 
-local M: Markup = { start = start, copy = copy, same = same, join = join, feed = feed, slot = slot, wrote = wrote }
+local function ending(p: Place): string
+  if p.murky then
+    return "in markup in <svg>, <math> or <noscript> that the tracker could not follow"
+  elseif p.stack ~= "" then
+    return "inside <" .. p.stack:match("%S+") .. ">"
+  end
+  local phase = p.phase
+  if phase == "text" then
+    return ""
+  elseif phase == "rcdata" or phase == "raw" then
+    return "inside the text of <" .. p.tag .. ">"
+  elseif phase == "value_dq" or phase == "value_sq" or phase == "value_unq" or phase == "before_value" then
+    return "inside the value of the attribute '" .. p.attr .. "'"
+  elseif phase == "lt" or phase == "end_open" or phase == "tag_name" or phase == "before_attr" or
+      phase == "attr_name" or phase == "after_attr" then
+    return "inside a tag"
+  end
+  return "inside a comment or markup declaration"
+end
+
+local M: Markup = { start = start, ending = ending, copy = copy, same = same, join = join, feed = feed, slot = slot, wrote = wrote }
 return M

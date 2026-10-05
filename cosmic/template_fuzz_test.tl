@@ -208,6 +208,13 @@ local function test_literal_text_is_rendered_byte_for_byte(tmp: string)
       local body = fields[2] or ""
       local head = mode == "text" and "{{type T from m.t}}{{mode text}}" or "{{type T from m.t}}"
       local out, why = Template.compile(head .. body, "t.tmpl")
+      if out == nil and mode == "html" and why:find(": the template ends ", 1, true) then
+        -- Markup left open is refused in html, and rendered as it stands in text.
+        Fuzz.label("html")
+        head = "{{type T from m.t}}{{mode text}}"
+        out, why = Template.compile(head .. body, "t.tmpl")
+        mode = "text"
+      end
       if out == nil then
         return false, "refused text with no action: " .. why
       end
@@ -273,7 +280,8 @@ local function test_modes_agree_on_syntax_and_text_takes_what_html_does(tmp: str
         Fuzz.label("html refuses")
         if not html_why:find(": a slot ", 1, true) and not html_why:find(" end in different places", 1, true) and
             not html_why:find(" ends where it did not", 1, true) and
-            not html_why:find("could complete a scheme", 1, true) then
+            not html_why:find("could complete a scheme", 1, true) and
+            not html_why:find(": the template ends ", 1, true) then
           return false, "html refused what text takes, and not for its markup: " .. html_why
         end
       else
@@ -349,6 +357,9 @@ local UNITS <const>: {{string}} = {
   { "<a href=\"{{.a}}:x\">", "x" },
   { "<a href=\"{{.a}}&#58;x\">", "x" },
   { "<svg><textarea><a href=\"{{.a}}\"></textarea></svg>", "x" },
+  { "<textarea></textarea{{.a}}><p>x</p>", "x" },
+  { "<title><{{.a}}title>", "x" },
+  { "<textarea>x < {{.a}}</textarea>", "r" },
 }
 
 --- A payload, the kinds its template's slots must be judged as, and a

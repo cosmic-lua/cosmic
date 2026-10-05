@@ -41,7 +41,8 @@
 --- be had the template is refused, with its line and column: after `<`, in
 --- a tag or attribute name, in an unquoted value, in a comment, in an
 --- `on...` or `style` attribute, in `<script>` or `<style>`, and a few
---- like them (cosmic/template/markup.tl lists them). `{{mode text}}` returns a `string` and escapes nothing, for
+--- like them (cosmic/template/markup.tl lists them). An `html` template must
+--- also end in plain text, since its `SafeHtml` can go into another's text slot. `{{mode text}}` returns a `string` and escapes nothing, for
 --- anything that is not HTML; a slot there takes a string or a number.
 ---
 --- `{{` always starts an action: it cannot be written as literal text
@@ -80,7 +81,9 @@ function Template.compile(src: string, name: string): string | nil, string
   if template == nil then
     return nil, why
   end
-  local placed, reason = context.annotate(template, name)
+  local _, newlines = src:gsub("\n", "")
+  local end_col = #src - (src:match(".*()\n") or 0) + 1
+  local placed, reason = context.annotate(template, name, newlines + 1, end_col)
   if not placed then
     return nil, reason
   end
