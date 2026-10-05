@@ -38,18 +38,13 @@ function Store.attach(path: string): boolean, string
 end
 
 --- One module's compiled bytes, for a caller that must load the chunk in
---- an environment of its own; nil and why for none, or for a module a
---- test may not read (a test reads only its import closure unless it
---- declares `store`).
+--- an environment of its own; nil and why for none.
 function Store.bytecode(name: string): string | nil, string
   return store.bytecode(name)
 end
 
 --- One entry of the meta table, which is where a build records what it
---- decided. Nil when no database holds that key. A test that does not
---- declare `store` raises, naming the declaration that would allow it,
---- for a row outside its own key, unless a database the test attached
---- itself holds the row.
+--- decided. Nil when no database holds that key.
 function Store.meta(key: string): string | nil
   return store.meta(key)
 end
@@ -57,15 +52,15 @@ end
 --- One module's Teal source, or a declaration's, from the binary's own
 --- database and no other: what a checker building another tree needs
 --- to type a `require` of this one's modules. Stored deflated, it is
---- inflated here; nil beside why when there is no such row, the test
---- may not read it, or it will not inflate.
+--- inflated here; nil beside why when there is no such row or it will
+--- not inflate.
 function Store.source(name: string): string | nil, string
   return store.source(name)
 end
 
 --- The names the binary's own `imports` table records the module
 --- `name` requiring, sorted: none for a name it holds no row of. Nil
---- and why when the test may not read `name`, or the query failed.
+--- and why when the query failed.
 --- This walks the binary's module graph without a handle on every
 --- module's rows (`databases`).
 function Store.requires(name: string): {string} | nil, string
@@ -76,7 +71,6 @@ end
 --- own ahead of the binary's, which is always last. Each is a handle
 --- [`cosmic.sqlite`] reads through and never closes -- what a verb that
 --- asks about the shipped tables (`docs`, `uses`, `catalog`) queries.
---- Raises in a test that does not declare `store`.
 function Store.databases(): {Sqlite.Handle}
   return store.databases()
 end

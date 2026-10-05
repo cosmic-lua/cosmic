@@ -844,9 +844,10 @@ end
 --- sandbox (`plan`): what it binds, unveils and holds, and the
 --- environment it gives. build.test_policy turns that plan into the
 --- policy a worker is started under.
---- build.closure_artifact makes the artifact a worker that nests opens in
---- place of the program's, from what a key holds (its head, its closure's
---- store) and the program's rows of what every worker loads.
+--- build.closure_artifact makes the artifact a worker that nests, or
+--- declares `lua`, opens in place of the program's, from what a key holds
+--- (its head, its closure's store) and the program's rows of what every
+--- worker loads.
 --- build.caches says where each declared host cache is bound from and
 --- makes it; build.zig_caches does so for zig's.
 ---
@@ -857,8 +858,8 @@ end
 --- holds by itself (the test's declaration, its closure's names, which
 --- the store's address holds, whether it may run this program
 --- ([`Spec.runs_tool`]), and its timeout) or what [`key_code`] holds (the
---- names of the tree's modules and declarations, which decide what a
---- worker's holds refuse).
+--- names of the tree's modules, which decide what a worker refuses a
+--- `require` of).
 ---
 --- None of it is keyed by its code: the epoch stands for it
 --- (build/harness_epoch.tl), and an edit to it fails
@@ -899,9 +900,8 @@ local harness_alone <const>: {string} = { "cosmic.child", "cosmic.sandbox" }
 --- build.test itself, whose closure is the build's, and the closure of
 --- the key's computation ([`build.declared_key`]) and of the shared
 --- verdicts' ([`build.shared_verdicts`]), as the `imports` table has it.
---- What build.test decides of a worker's holds is part of it: which
---- names of the tree and its declarations a `require` or a lookup in the
---- store refuses (`tree_names`, `declared_names`).
+--- What build.test decides of a worker's hold is part of it: which
+--- names of the tree a `require` refuses (`tree_names`).
 ---
 --- A key is looked up by its value, but that is not enough. A version
 --- of this code that maps some inputs to the key another version
@@ -1268,10 +1268,6 @@ local record Recording
   --- Every module of the tree, by path, sorted: what a worker refuses a
   --- `require` of outside its closure ([`build.test_worker`]).
   tree_names: {string}
-  --- Every name only a declaration of the tree answers for, sorted:
-  --- what a worker's store holds a lookup of outside its closure beside
-  --- `tree_names` ([`build.test_worker`]).
-  declared_names: {string}
   --- The address of the store of each module's import closure its
   --- workers are given at o/cosmic.db, or attach unsandboxed
   --- ([`build.closure_store`]'s `write`), by path, for every test and
@@ -1414,10 +1410,9 @@ end
 
 --- How a sandboxed worker of `m`'s tests stands to running this
 --- program: "declared" where its module declares `tool`; "lua" where it
---- declares `lua`, whose worker may run it as "allowed" says but holds
---- what it starts to what its key holds ([`build.test_worker`]'s
---- `hold_children`), so its key holds no more of the program than of its
---- closure; "forbidden"
+--- declares `lua`, whose worker may run it as "allowed" says but is given
+--- an artifact of its closure in its place ([`closure_artifact_for`]), so
+--- its key holds no more of the program than of its closure; "forbidden"
 --- where it is kept from running it ([`can_forbid`]), and "allowed" where
 --- it is not -- its module declares `nests`, whose worker no Landlock
 --- ruleset holds, or it cannot be -- which its key holds as if its
@@ -1922,22 +1917,40 @@ local function given_store(rec: Recording, m: importer.Module): string | nil, st
   return store_at(rec, address, rec.closures[m.path])
 end
 
---- The path of the artifact a worker of `m`'s tests that nests is given at
---- the program's own name ([`build.closure_artifact`]), made where it is
---- not there yet from the program's artifact, the store of `m`'s closure
---- and what every worker loads ([`worker.loads`]) or the tree lacks, which
---- its own start reads from the artifact it opens by path. Nil where `m` is given none
---- (a module that does not nest, or declares `store` or `tool`, or a program
---- that is no portable artifact), and nil and why where it could not be
---- made.
+--- The path of the artifact a worker of `m`'s tests that nests, or that
+--- declares `lua`, is given at the program's own name
+--- ([`build.closure_artifact`]), made where it is not there yet from the
+--- program's artifact, the store of `m`'s closure and what every worker
+--- loads ([`worker.loads`]) or the tree lacks, which its own start reads
+--- from the artifact it opens by path. What a `lua` module's tests start
+--- runs that artifact too, so reads only what its key holds of the program.
+--- Nil where `m` is given none (a module that neither nests nor
+--- declares `lua`, or declares `store` or `tool`, or a program that is no
+--- portable artifact, where a `nests` module's worker opens the program as
+--- it is), and nil and why where it could not be made, or where a `lua`
+--- module's worker could not be held to its closure without one.
+-- TODO: give every sandboxed worker that declares neither `store` nor `tool`
+-- its closure's artifact, not only one that nests or declares `lua`, once the
+-- artifacts of every closure share one head (the TODO in
+-- build/closure_artifact.tl): the program such a worker runs carries every
+-- module of the tree beyond its closure, which it reads through
+-- [`Store.bytecode`], [`Store.source`], [`Store.requires`], [`Store.databases()`],
+-- [`Store.meta`] or a searcher called by hand with no key to hold them, and an
+-- artifact for each of some three hundred closures costs the program's size
+-- in o/stores.
 local function closure_artifact_for(rec: Recording, m: importer.Module): string | nil, string
-  local declared = m.inputs
+  local effective = rec.effective[m.path]
   local address = rec.stores[m.path]
-  if not rec.sandbox or address == nil or declared == nil or not declared.nests or declared.tool then
+  if not rec.sandbox or address == nil or effective == nil or
+      not (effective.nests or effective.lua) or effective.tool then
     return nil, ""
   end
   local launched, _ = Proc.relaunch()
   if launched == nil or launched.argv[2] ~= "--artifact" or launched.argv[3] == nil then
+    if effective.lua then
+      return nil, "its module declares lua, so what its tests start runs an artifact of its " ..
+        "closure, made from the program's portable artifact, which this program is not"
+    end
     return nil, ""
   end
   if rec.artifact_read == nil and rec.artifact_trouble == nil then
@@ -2185,6 +2198,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   -- The store of its closure an unsandboxed worker attaches in place
   -- of the projection ([`worker.Invocation`]'s `store`): nil for none.
   local attached: string = nil
+  local by_path = false
   if rec.sandbox then
     local store, store_trouble = given_store(rec, job.m)
     if store == nil and store_trouble ~= "" then
@@ -2196,6 +2210,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
       finish(rec, job, nil, nested_trouble, limits)
       return false
     end
+    by_path = nested ~= nil
     local plan = test_sandbox.plan(rec.root, scratch, rec.effective[job.m.path], worker_view(),
       store, nested)
     if plan.over > 0 then
@@ -2245,8 +2260,9 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     -- leg's sandbox, which runs it offline, is what fails it.
     --
     -- It attaches the store of its closure, as a sandbox gives it at
-    -- o/cosmic.db ([`given_store`]), held as a sandboxed worker's is
-    -- (build.test_worker's `hold_store`).
+    -- o/cosmic.db ([`given_store`]); nothing keeps it from the program's
+    -- own database, which a sandboxed worker's closure artifact narrows
+    -- ([`closure_artifact_for`]).
     -- TODO: hand that store on to what the test starts, once a cosmic
     -- run can be told which store to read in place of its tree's
     -- o/cosmic.db (a variable build.tree_root reads): today a process
@@ -2269,10 +2285,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   -- is no input of its test's key; and one whose module does not
   -- declare `nests` may not make a root of its own ([`hold_of`]), which
   -- every process it starts learns from its environment
-  -- ([`confine.held_variable`]). Only a module whose key holds the whole
-  -- projection has no hold on the store ([`build.test_worker`]): one
-  -- that declares `tool` is keyed by the program's modules, not by
-  -- the rest of the tree's.
+  -- ([`confine.held_variable`]).
   local declared = job.m.inputs
   local hold = hold_of(rec, job.m)
   if rec.sandbox then
@@ -2309,9 +2322,9 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   local command = worker.invocation({
     start = start, env = env, root = root, cwd = cwd, module_path = job.m.path,
     name = job.name, scratch = inside, own_scratch = job.own_scratch, needs = test_inputs.canonical(declared), hold = hold,
-    lua = rec.effective[job.m.path].lua, open = declared ~= nil and declared.store, store = attached,
-    closure = rec.closures[job.m.path], tree = rec.tree_names, declared = rec.declared_names,
-    policy = policy, runs = runs, program = job.plan ~= nil and job.plan.program or nil,
+    store = attached, closure = rec.closures[job.m.path], tree = rec.tree_names,
+    policy = policy, runs = runs, by_path = by_path,
+    program = job.plan ~= nil and job.plan.program or nil,
   })
   local handle, trouble = Child.start(command.argv, command.options)
   if handle == nil then
@@ -3122,7 +3135,7 @@ local function gather_key_inputs(ctx: Run): integer | nil
   end
   local declarations: {string:string} = {}
   for _, row in ipairs(declaration_rows) do declarations[row[1]] = row[2] end
-  rec.closures, rec.tree_names, rec.declared_names = {}, {}, {}
+  rec.closures, rec.tree_names = {}, {}
   for path in pairs(by_path) do rec.tree_names[#rec.tree_names + 1] = path end
   table.sort(rec.tree_names)
   -- A module the binary carries that is no module of the tree -- in a
@@ -3132,10 +3145,6 @@ local function gather_key_inputs(ctx: Run): integer | nil
   for name in pairs(rec.carried) do
     if by_path[name] == nil then rec.carried[name] = nil end
   end
-  for name in pairs(declarations) do
-    if by_path[name] == nil then rec.declared_names[#rec.declared_names + 1] = name end
-  end
-  table.sort(rec.declared_names)
   local type_only, type_only_trouble = projection_type_only(ctx.database)
   if type_only == nil then
     local _, _ = work.rollback(handle)

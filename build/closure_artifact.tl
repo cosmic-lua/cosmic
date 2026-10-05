@@ -1,11 +1,11 @@
---- The artifact a sandboxed worker that builds roots of its own opens by
---- its path in place of the program's: the program's launcher, cores and
---- manifest, with a database of the worker's import closure
---- ([`build.closure_store`]) and of what every worker loads. A worker of
---- that kind is handed no descriptor of the program
---- ([`build.test_worker`]'s `invocation`), so what its starts read of the
---- artifact is what it is given at the artifact's name, and the real one
---- holds every module of the tree, beyond what the key of a test that
+--- The artifact a sandboxed worker that builds roots of its own, or whose
+--- module declares `lua`, opens by its path in place of the program's: the
+--- program's launcher, cores and manifest, with a database of the worker's
+--- import closure ([`build.closure_store`]) and of what every worker loads.
+--- A worker of that kind is handed no descriptor of the program
+--- ([`build.test_worker`]'s `invocation`), so what it and its starts read
+--- of the artifact is what it is given at the artifact's name, and the real
+--- one holds every module of the tree, beyond what the key of a test that
 --- declares neither `store` nor `tool` holds.
 ---
 --- Its bytes follow from what a key holds already, or what the harness's
@@ -13,7 +13,8 @@
 --- `keyed_head`, which every key holds where an artifact runs the
 --- program), the closure store's bytes ([`declared_key.store_digest`]), and
 --- the rows of the modules every worker loads that the program carries
---- ([`build.test_worker`]'s `loads`, held by the harness's digests).
+--- ([`build.test_worker`]'s `loads`, held by the harness's digests), and
+--- the zones and CA roots, which every key holds by their digest.
 --- The worker's own start reads those from the artifact; a closure store
 --- has them only where the tree is the program's own.
 
@@ -53,22 +54,6 @@ function closure_artifact.read(path: string): closure_artifact.Program | nil, st
   return { parts = parts, digest = hashing.hex_sha256(bytes) }, ""
 end
 
---- The file name, in the stores directory, of the artifact of the closure
---- store at `address` made from `program`, `loads` and `tree` (`write`): it
---- holds all of them, so a rebuilt program, an edited closure, or a tree
---- whose modules are others is another file.
---- @param address the closure store's address ([`build.closure_store`]'s `address`)
---- @param program the program's artifact
---- @param loads the modules every worker loads
---- @param tree the modules of the tree
---- @return the name
-function closure_artifact.name(address: string, program: closure_artifact.Program,
-                               loads: {string}, tree: {string}): string
-  local text = program.digest .. "\0" .. table.concat(loads, "\n") .. "\0" ..
-    table.concat(tree, "\n")
-  return address .. "-" .. hashing.hex_sha256(text):sub(1, 16) .. ".artifact"
-end
-
 --- The statements that add to a closure store the modules of the program's
 --- database `program`, attached, that every worker loads (`loads`) or
 --- that the tree does not have (`tree`) -- its standard library, where the
@@ -76,10 +61,13 @@ end
 --- `write` carries a module: its row, less the key (the compiler's
 --- identity, which no worker reads), the imports among them and the
 --- names it binds. The program's `meta` rows replace the store's, which
---- name its main module. No other table is carried (docs, uses, links,
---- the zoneinfo and payload rows): a worker's own start and the starts of
---- its test read modules alone, and what else a key does not hold the
---- program's rows of stays out of reach.
+--- name its main module. The zones and the CA roots are carried whole,
+--- since the core, [`cosmic.time`] and [`cosmic.http`] read them from the
+--- program's own database alone, and every key holds them by their
+--- digest ([`build.schema`]'s `tables_digest`). No other table is carried
+--- (docs, uses, links and the payload rows): a worker's own start and the
+--- starts of its test read modules alone, and what else a key does not
+--- hold the program's rows of stays out of reach.
 local adding: {string} = {
   "CREATE TEMP TABLE added (path TEXT PRIMARY KEY)",
   "INSERT INTO temp.added SELECT path FROM program.modules WHERE " ..
@@ -94,7 +82,26 @@ local adding: {string} = {
     "ORDER BY path, requires",
   "INSERT OR IGNORE INTO main.bound SELECT * FROM program.bound WHERE path IN temp.added " ..
     "ORDER BY path, name",
+  "INSERT INTO main.zoneinfo (name, data) SELECT name, data FROM program.zoneinfo ORDER BY name",
+  "INSERT INTO main.ca_roots SELECT * FROM program.ca_roots ORDER BY sha256",
 }
+
+--- The file name, in the stores directory, of the artifact of the closure
+--- store at `address` made from `program`, `loads` and `tree` (`write`): it
+--- holds all of them, and the statements that carry rows of the program
+--- (`adding`), so a rebuilt program, an edited closure, a tree whose
+--- modules are others, or another choice of rows is another file.
+--- @param address the closure store's address ([`build.closure_store`]'s `address`)
+--- @param program the program's artifact
+--- @param loads the modules every worker loads
+--- @param tree the modules of the tree
+--- @return the name
+function closure_artifact.name(address: string, program: closure_artifact.Program,
+                               loads: {string}, tree: {string}): string
+  local text = program.digest .. "\0" .. table.concat(loads, "\n") .. "\0" ..
+    table.concat(tree, "\n") .. "\0" .. table.concat(adding, "\n")
+  return address .. "-" .. hashing.hex_sha256(text):sub(1, 16) .. ".artifact"
+end
 
 --- Writes the artifact of the closure store at `store` to `out`: the
 --- launcher, cores and manifest of `program`, then a database holding the

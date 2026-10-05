@@ -134,14 +134,14 @@ allowed["build.harness_epoch.library"] = "the standard-library modules the harne
   "may reach, each with its reason, which only its test reads: a rule the test holds " ..
   "the harness's digests to, not code the harness runs"
 allowed["build.test_inputs.lua_loads"] = "what build/lua_children_test.tl holds " ..
-  "a child's `-e` to loading no more than, as the hold a `lua` module's children get " ..
-  "lets them load"
+  "a child's `-e` to loading no more than, as the artifact a `lua` module's children " ..
+  "run carries them"
 allowed["build.test_inputs.standalone_loads"] = "what build/lua_standalone_test.tl " ..
   "holds a child's `--standalone` to loading no more than, beside `lua_loads`, as the " ..
-  "hold a module that requires build.standalone gets lets them load"
+  "artifact a module that requires build.standalone's children run carries them"
 allowed["build.closure_store.loaded_beside"] = "what build/lua_standalone_test.tl " ..
-  "holds build.test_inputs' copy to, which a `lua` module's children may load beside " ..
-  "a module of their closure"
+  "holds a closure store to carrying beside a module of its closure, which a `lua` " ..
+  "module's children run from"
 allowed["build.test.value_imports"] = "tested directly: the harness's test reads, " ..
   "by it, what each module the harness runs requires by value, as `key_code` walks it"
 allowed["build.test.type_only_imports"] = "tested directly: the harness's test holds " ..

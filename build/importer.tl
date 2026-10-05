@@ -172,9 +172,7 @@ local analyzer_roots: {string} = {
 --- diagnostic presentation belong to the importer, outside this closure.
 function importer.analyzer_modules(code?: importer.Code): {string} | nil, string
   -- A name at a time ([`Store.requires`]), not a query of a handle on
-  -- the binary's database: under a test worker's hold on the store
-  -- each lookup is held as a lookup of that module is, where a handle
-  -- would read every module's rows.
+  -- the binary's database, which would read every module's rows.
   local requires = code ~= nil and code.requires or Store.requires
   local source_of = code ~= nil and code.source or Store.source
   local reached: {string:boolean} = {}
