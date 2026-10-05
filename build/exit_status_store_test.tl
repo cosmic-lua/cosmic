@@ -14,7 +14,7 @@ local Clock = require("cosmic.clock")
 --- `store`: [`embed.tree`] joins every `cosmic.*` module's rows.
 Test.policy{
   profiles = { "cosmic" },
-  grants = { { path = "o/cosmic.db", letters = "r" } },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "o/cosmic.db", letters = "r" } },
 }
 
 local function run_program(path: string): Child.Result

@@ -22,7 +22,7 @@ local Time = require("cosmic.time")
 --- launcher of the system's `sh` to run.
 Test.policy{
   profiles = { "cosmic" },
-  grants = { { path = "vendor/tzdata/zoneinfo/Etc/GMT", letters = "r" } },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "vendor/tzdata/zoneinfo/Etc/GMT", letters = "r" } },
 }
 
 local zones <const> = "vendor/tzdata/zoneinfo"

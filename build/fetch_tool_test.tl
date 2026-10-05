@@ -15,6 +15,7 @@ local this_program = require("build.this_program")
 --- or one a test serves.
 Test.policy{
   profiles = { "cosmic" },
+  grants = { { path = "o/bin", letters = "rx" } },
   loopback = { "127.0.0.1" },
 }
 

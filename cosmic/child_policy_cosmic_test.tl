@@ -18,6 +18,7 @@ local searchable = require("build.searchable")
 --- The temporary directory, and this program, which the child runs.
 Test.policy{
   profiles = { "cosmic" },
+  grants = { { path = "o/bin", letters = "rx" } },
   env = { "TMPDIR" },
 }
 

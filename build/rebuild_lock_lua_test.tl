@@ -20,7 +20,7 @@ local this_program = require("build.this_program")
 
 --- The program itself, which holds the lock against this process,
 --- started only to run a chunk (`lua`).
-Test.needs{ lua = true }
+Test.policy{ profiles = { "cosmic" } }
 
 --- Asks for the lock of the tree at the first `%q` as a tool from
 --- before the flock does, and prints "held" or "busy". A holder keeps

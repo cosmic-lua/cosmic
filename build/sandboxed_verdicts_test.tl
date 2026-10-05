@@ -30,7 +30,7 @@ local Test = require("cosmic.test")
 --- the variables `unsandboxed` reads, which hold a run to sandboxing.
 Test.policy{
   profiles = { "cosmic" },
-  grants = { { path = "/dev/urandom", letters = "r" }, { path = "/proc", letters = "r" } },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" }, { path = "/proc", letters = "r" } },
   promises = { "nest" },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
 }

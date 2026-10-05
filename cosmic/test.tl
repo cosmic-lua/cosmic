@@ -238,7 +238,7 @@ local record Test
   --- written out here, and a test holds it to the same fields.
   record Policy
     --- Named policies to join in: "system" (`system` of [`Needs`]) and
-    --- "cosmic" (`tool`).
+    --- "cosmic" (`lua`; `tool` with the grant of o/bin beside it).
     profiles: {string}
     --- The paths the tests read: a grant of "r" on a path of the tree is
     --- a read of it, on an absolute path a host file.
@@ -417,8 +417,24 @@ local NOEXEC_FORM <const> = ".path /noexec is the private scratch the harness gi
 local CACHE_FORM <const> = ".path /cache/<name> is a host cache, granted " ..
   "{ path = \"/cache/<name>\", letters = \"rwxc\" } with no from"
 
---- The profiles a policy joins in, and the `needs` flag each stands for.
-local PROFILE_FLAGS <const>: {string:string} = { system = "system", cosmic = "tool" }
+--- The grant that turns the profile "cosmic" from `lua` into `tool`: the
+--- directory o/bin the program is in, read and run.
+local BIN_PATH <const> = "o/bin"
+local BIN_FORM <const> = ".path o/bin is the directory the program is in, granted " ..
+  "{ path = \"o/bin\", letters = \"rx\" } with no from, beside the profile \"cosmic\""
+
+--- Why the profile "cosmic" alone, which is `lua`, is refused beside the
+--- store, the system or a cache: a host program, or a cosmic a cache holds,
+--- could start the program with no hold on what it loads.
+local LUA_BESIDE <const> = "profiles: \"cosmic\" without the grant of o/bin holds the program to " ..
+  "what the module requires, which is refused beside "
+local LUA_FIX <const> = "; grant { path = \"o/bin\", letters = \"rx\" } beside the profile to " ..
+  "run the program itself, whose key holds every module it carries"
+
+--- The profiles a policy joins in, and the flag each stands for: "system"
+--- is `system`; "cosmic" is `lua`, the program held to the module's closure,
+--- and `tool`, the program itself, where the grant of o/bin is made beside.
+local PROFILE_FLAGS <const>: {string:string} = { system = "system", cosmic = "cosmic" }
 
 --- The promises a policy makes, and whether one has a `needs` field.
 local PROMISE_FIELDS <const>: {string:string} = {
@@ -559,11 +575,10 @@ local function policy_of(given: any): Test.Policy | nil, string
   return out, ""
 end
 
--- TODO: let a policy say what `lua`, `standalone` and a `$NAME` host path
--- say, and env "*", once the policy path (step b of the sandbox plan)
--- gives each a field of cosmic.sandbox's [`Policy`]: a module that
--- declares one stays on `needs` until then, and converts mechanically
--- once it does.
+-- TODO: let a policy say what `standalone` and a `$NAME` host path say,
+-- and env "*", once the policy path (step b of the sandbox plan) gives
+-- each a field of cosmic.sandbox's [`Policy`]: a module that declares one
+-- stays on `needs` until then, and converts mechanically once it does.
 -- TODO: hand the promises to the runner, which keeps them in the key, once
 -- [`Test.policy`] replaces `needs` (step e of the sandbox plan): the filter
 -- runs on every worker, but until then a promise a test does not make
@@ -571,7 +586,8 @@ end
 --- The `needs` a policy stands for, or nil and why. The test is sandboxed
 --- and keyed as that `needs` would have it: reads of the tree, host
 --- files, the variables, loopback addresses, the program (profile
---- "cosmic", `tool`), the system (profile "system") and nesting (promise
+--- "cosmic": `lua`, held to the closure; with the grant of o/bin,
+--- `tool`, itself), the system (profile "system") and nesting (promise
 --- "nest"). What it cannot say is refused, naming the field, rather than
 --- accepted as a declaration that moves no key: `isolate`, `set_env`,
 --- `limits`, a grant of more than "r" or from another path, `tmp = false`.
@@ -595,6 +611,7 @@ function Test.needs_of(given: any): Test.Needs | nil, string
   local host: {string} = {}
   local caches: {string} = {}
   local flags: {string:boolean} = {}
+  local bin = false
   for _, profile in ipairs(policy.profiles or {}) do
     local flag = PROFILE_FLAGS[profile]
     if flag == nil then
@@ -613,6 +630,9 @@ function Test.needs_of(given: any): Test.Needs | nil, string
     if path == STORE_PATH then
       if letters ~= "r" or grant.from ~= nil then return nil, at .. STORE_FORM end
       out.store = true
+    elseif path == BIN_PATH then
+      if letters ~= "rx" or grant.from ~= nil then return nil, at .. BIN_FORM end
+      bin = true
     elseif path == NOEXEC_PATH then
       if letters ~= "rwc" or grant.from ~= nil then return nil, at .. NOEXEC_FORM end
       out.noexec = true
@@ -655,7 +675,18 @@ function Test.needs_of(given: any): Test.Needs | nil, string
     return nil, (policy.user ~= nil and "user" or "group") .. " is refused: the harness " ..
       "chooses the user a worker runs as"
   end
-  out.tool, out.system, out.nests = flags.tool, flags.system, flags.nests
+  if bin and not flags.cosmic then
+    return nil, "grants: .path o/bin is the program's directory, " ..
+      "granted only beside the profile \"cosmic\"; add the profile, or drop the grant"
+  end
+  out.tool = flags.cosmic and bin or nil
+  out.lua = flags.cosmic and not bin or nil
+  if out.lua then
+    local beside = out.store and "o/cosmic.db" or flags.system and "system" or
+      #caches > 0 and "/cache/" .. caches[1] or nil
+    if beside ~= nil then return nil, LUA_BESIDE .. beside .. LUA_FIX end
+  end
+  out.system, out.nests = flags.system, flags.nests
   if #reads > 0 then out.reads = reads end
   if #host > 0 then out.host = host end
   if #caches > 0 then out.caches = caches end
@@ -689,15 +720,19 @@ end
 --- `needs`'s: one table written out as a literal, once, at the top of the
 --- module. A grant with a path of the tree is a read of it, an absolute
 --- path a read of that host file; the profile "system" is `system`,
---- "cosmic" is `tool`; the promise "nest" is `nests`; `loopback` is
---- `network`. Three grants, written exactly so, are the fields they
+--- "cosmic" is `lua`; the promise "nest" is `nests`; `loopback` is
+--- `network`. Four grants, written exactly so, are the fields they
 --- stand for rather than reads: `{ path = "o/cosmic.db", letters = "r" }`
 --- is `store = true`, `{ path = "/noexec", letters = "rwc" }` is
---- `noexec = true`, and `{ path = "/cache/<name>", letters = "rwxc" }`
+--- `noexec = true`, `{ path = "/cache/<name>", letters = "rwxc" }`
 --- is `caches = { "<name>" }` for a cache [`Needs.caches`] names (the
---- variables that locate it are passed as they are for `caches`). Each
---- refuses other letters and a `from`. "/noexec" and "/cache/..." are
---- paths the test harness reserves: no other grant is made at them. What
+--- variables that locate it are passed as they are for `caches`), and
+--- `{ path = "o/bin", letters = "rx" }`, the directory the program is in,
+--- makes `tool` of the "cosmic" profile and is refused without it, which
+--- is `lua` without the grant: refused beside the store, the system or
+--- a cache, as `lua` is. Each refuses other letters and a `from`.
+--- "/noexec", "/cache/..." and "o/bin" are paths the test harness
+--- reserves: no other grant is made at them. What
 --- has no `needs` to stand for -- any other grant to write, run or
 --- connect to, `isolate`, `limits`, `set_env`, `connect` -- fails the
 --- build, naming the field. Raises as `needs` does, for a value no

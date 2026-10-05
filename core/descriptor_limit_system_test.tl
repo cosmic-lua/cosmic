@@ -17,7 +17,7 @@ local Clock = require("cosmic.clock")
 --- limit and says the limit a host program is given. `tool` for the
 --- program, which the shell starts: `lua`, which holds only what the
 --- tests start themselves, is refused beside `system`.
-Test.policy{ profiles = { "system", "cosmic" } }
+Test.policy{ profiles = { "system", "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- The soft limit the program is started at.
 local LOW <const> = 256

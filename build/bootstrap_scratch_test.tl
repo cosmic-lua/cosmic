@@ -9,7 +9,7 @@ local Patch = require("build.patch")
 local ZigFetch = require("build.zig_fetch")
 local this_program = require("build.this_program")
 
-Test.needs{ lua = true }
+Test.policy{ profiles = { "cosmic" } }
 
 local function holder(path: string): Child.Handle
   local script = [[

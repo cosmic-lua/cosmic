@@ -13,7 +13,7 @@ local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 
 --- The program itself, which the fixture runs.
-Test.policy{ profiles = { "cosmic" } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local checked = testing.configuration == "sanitized"
 

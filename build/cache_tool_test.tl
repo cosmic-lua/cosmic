@@ -11,7 +11,7 @@ local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 
-Test.policy{ profiles = { "cosmic" } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local function run(dir: string, words: {string}): Child.Result
   local env = this_program.environment()

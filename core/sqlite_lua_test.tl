@@ -7,7 +7,7 @@ local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 
-Test.needs{ lua = true }
+Test.policy{ profiles = { "cosmic" } }
 
 local function test_exec_result_reports_busy_then_acquires_after_the_holder_exits(tmp: string)
   local path = tmp .. "/db"

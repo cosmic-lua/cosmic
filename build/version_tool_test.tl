@@ -11,7 +11,7 @@ local Test = require("cosmic.test")
 local invoke = require("build.invoke")
 
 --- The tool itself, whose digest the version is.
-Test.policy{ profiles = { "cosmic" } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local function test_version_is_the_digest_of_the_binarys_own_file(tmp: string)
   local path = assert(Proc.executable())

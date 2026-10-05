@@ -29,6 +29,7 @@ local Clock = require("cosmic.clock")
 Test.policy{
   profiles = { "cosmic" },
   grants = {
+    { path = "o/bin", letters = "rx" },
     { path = "vendor/cacert/", letters = "r" },
     { path = "vendor/tzdata/", letters = "r" },
     { path = "o/cosmic.db", letters = "r" },

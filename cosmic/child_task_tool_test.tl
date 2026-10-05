@@ -15,7 +15,10 @@ local this_program = require("build.this_program")
 --- What the tests read: the program itself, which every child is,
 --- started only to run a chunk (`lua`), and /proc, for the signal
 --- dispositions a run restores.
-Test.needs{ lua = true, host = { "/proc" } }
+Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "/proc", letters = "r" } },
+}
 
 local type Searcher = function(string): any, any
 local type ChildModule = require("cosmic.child")

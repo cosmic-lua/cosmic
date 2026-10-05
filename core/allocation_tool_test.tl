@@ -15,7 +15,7 @@ local Test = require("cosmic.test")
 --- The program itself, which the checked core starts again in
 --- [`test_waitpid_never_loses_a_status_to_a_failed_allocation`] (the
 --- spawn refusal names it, and never starts it).
-Test.needs{ lua = true }
+Test.policy{ profiles = { "cosmic" } }
 
 local type Searcher = function(string): any, any
 

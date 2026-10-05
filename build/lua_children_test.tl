@@ -16,7 +16,7 @@ local test_inputs = require("build.test_inputs")
 local this_program = require("build.this_program")
 local Clock = require("cosmic.clock")
 
-Test.needs{ lua = true }
+Test.policy{ profiles = { "cosmic" } }
 
 --- Runs `words` after this program, past its launcher, and answers
 --- whether it exited 0, and what it wrote to stdout and stderr.

@@ -22,7 +22,7 @@ local type raw_process = require("cosmic.internal.process")
 --- given the program (the TODO above build.confine's `forbid_running`).
 Test.policy{
   profiles = { "cosmic" },
-  grants = { { path = "/proc", letters = "r" } },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "/proc", letters = "r" } },
   promises = { "nest" },
 }
 

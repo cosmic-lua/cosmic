@@ -20,6 +20,7 @@ local String = require("cosmic.string")
 Test.policy{
   profiles = { "cosmic" },
   grants = {
+    { path = "o/bin", letters = "rx" },
     { path = "vendor/cacert/cacert.pem", letters = "r" },
     { path = "o/cosmic.db", letters = "r" },
   },

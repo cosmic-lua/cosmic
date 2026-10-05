@@ -18,7 +18,7 @@ local _ = require("build.key_parts")
 local Clock = require("cosmic.clock")
 
 --- The program itself, which it starts as a worker.
-Test.policy{ profiles = { "cosmic" } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- What a worker loads that is no module of the tree: Lua's own
 --- libraries, beside the core's [`cosmic.sys`] and `cosmic.internal.*`,
