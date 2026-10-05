@@ -535,7 +535,7 @@ end
 --- sandboxed and required to be) and on macOS's (keyed by declaration,
 --- no sandbox): one of `sandboxed_fixtures` runs as the leg's suites do
 --- and keeps its verdicts in fixtures.db; any other runs unsandboxed and
---- shares none; and a sandboxed one given no product is refused.
+--- shares none.
 local function test_fixture_run_shares_only_a_sandboxed_fixtures_verdicts(tmp: string)
   local Orchestration = require("cosmic_ci.orchestration")
   local legs: {string:{string:string}} = {
@@ -545,7 +545,7 @@ local function test_fixture_run_shares_only_a_sandboxed_fixtures_verdicts(tmp: s
   for leg, values in pairs(legs) do
     local function env(): {string:string}
       local out: {string:string} = { COSMIC_CI_EVENT = "push",
-        COSMIC_VERDICT_CACHE = tmp .. "/v/verdicts.db", COSMIC_FIXTURE_PRODUCT = tmp .. "/product" }
+        COSMIC_VERDICT_CACHE = tmp .. "/v/verdicts.db" }
       for name, value in pairs(values) do out[name] = value end
       return out
     end
@@ -559,12 +559,6 @@ local function test_fixture_run_shares_only_a_sandboxed_fixtures_verdicts(tmp: s
     assert(plain.COSMIC_VERDICT_CACHE == "0" and plain.COSMIC_TEST_NO_SHARED == "1" and
         plain.COSMIC_TEST_SANDBOX == "0",
       leg .. ": an unsandboxed fixture shares verdicts")
-    local bare = env()
-    bare.COSMIC_FIXTURE_PRODUCT = nil
-    local refused, why = pcall(Orchestration.fixture_run, "identity", bare, tmp .. "/tmp",
-      tmp .. "/c.db")
-    assert(not refused and tostring(why):find("product", 1, true),
-      leg .. ": a sandboxed fixture ran with no product to key it by")
   end
 end
 
@@ -575,21 +569,28 @@ local function code_of(source: string): string
   return (text:gsub("%-%-[^\n]*", ""))
 end
 
---- The `host` paths the [`Test.needs`] call of the fixture module `source`
---- declares.
-local function declared_host(source: string): {string:boolean}
-  local needs = assert(code_of(source):match("\nTest%.needs%s*%(?%s*(%b{})"),
-    source .. ": no Test.needs")
-  local host = assert(needs:match("host%s*=%s*(%b{})"), source .. ": no host")
+--- The tree paths the declaration of the fixture module `source` reads: the
+--- grants of its [`Test.policy`], or the `reads` of its [`Test.needs`].
+local function declared_reads(source: string): {string:boolean}
+  local code = code_of(source)
   local out: {string:boolean} = {}
-  for path in host:gmatch('"([^"]*)"') do out[path] = true end
+  local policy = code:match("\nTest%.policy%s*%(?%s*(%b{})")
+  if policy then
+    local grants = assert(policy:match("grants%s*=%s*(%b{})"), source .. ": no grants")
+    for path in grants:gmatch('path%s*=%s*"([^"]*)"') do out[path] = true end
+    return out
+  end
+  local needs = assert(code:match("\nTest%.needs%s*%(?%s*(%b{})"),
+    source .. ": no Test.policy or Test.needs")
+  local reads = assert(needs:match("reads%s*=%s*(%b{})"), source .. ": no reads")
+  for path in reads:gmatch('"([^"]*)"') do out[path] = true end
   return out
 end
 
 --- A sandboxed fixture's verdict is shared across runs and commits, so
 --- its key must hold the parts of the product it exercises: each
 --- normally declares the product's `prefix` -- its launcher, manifest and cores --
---- by the variable the driver gives it, which keys the verdict by those
+--- at the path the driver placed it, which keys the verdict by those
 --- bytes, and no other launcher's or core's verdict stands for it; and
 --- `product`, which checks the whole product, declares each of its
 --- files, while no other declares the product's `cosmic` or `cosmic.db`,
@@ -613,18 +614,18 @@ local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
   for _, name in ipairs(names) do
     if Orchestration.sandboxed_fixtures[name] then
       sandboxed = sandboxed + 1
-      local host = declared_host(name)
+      local host = declared_reads(name)
       if name == "performance" then
-        assert(host["$COSMIC_FIXTURE_PERFORMANCE/program"] and
-            host["$COSMIC_FIXTURE_PERFORMANCE/perf.tl"],
+        assert(host["o/fixtures/performance/program"] and
+            host["o/fixtures/performance/perf.tl"],
           "performance fixture must key the full candidate and controller source")
       else
-        assert(host["$COSMIC_FIXTURE_PRODUCT/prefix"],
+        assert(host["o/fixtures/product/prefix"],
           name .. ": a sandboxed fixture's key does not hold the product's prefix")
       end
       if name ~= "product" then
         for _, whole in ipairs({ "cosmic", "cosmic.db" }) do
-          assert(not host["$COSMIC_FIXTURE_PRODUCT/" .. whole],
+          assert(not host["o/fixtures/product/" .. whole],
             name .. ": a sandboxed fixture that does not check the whole product declares its " ..
               whole .. ", which moves with every edit to the tool's code")
         end
@@ -636,10 +637,10 @@ local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
           tostring(needs))
     end
   end
-  local whole = declared_host("product")
+  local whole = declared_reads("product")
   for _, part in ipairs({ "cosmic", "hashes.sha256", "prefix", "manifest", "apps/hello",
       "apps/second", "cosmic.db", "targets.tsv" }) do
-    assert(whole["$COSMIC_FIXTURE_PRODUCT/" .. part],
+    assert(whole["o/fixtures/product/" .. part],
       "product: the fixture that checks the whole product does not declare " .. part)
   end
   local listed = 0
@@ -1477,7 +1478,7 @@ local function test_noexec_launcher_declares_its_grant_and_keeps_keyed_verdicts(
     local env = Orchestration.fixture_run("launcher_noexec", {
       COSMIC_CI_EVENT = "push", COSMIC_CI_REQUIRE_SANDBOX = "1",
       COSMIC_TEST_SANDBOX = "1", COSMIC_SANDBOX = "must",
-      COSMIC_FIXTURE_TARGET = target, COSMIC_FIXTURE_PRODUCT = tmp .. "/product",
+      COSMIC_FIXTURE_TARGET = target,
       COSMIC_VERDICT_CACHE = tmp .. "/verdicts.db",
     }, tmp .. "/tmp", tmp .. "/compiles.db")
     assert(env.COSMIC_TEST_SANDBOX == "1" and env.COSMIC_SANDBOX == "must")

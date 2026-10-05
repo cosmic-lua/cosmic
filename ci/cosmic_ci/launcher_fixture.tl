@@ -48,7 +48,7 @@ function LauncherFixture.environment(cache?: string,
 end
 
 --- A case's context beneath `tmp`: the contract's launcher
---- (COSMIC_FIXTURE_LAUNCHER, cosmic_ci/launcher_setup.tl) copied into a
+--- (o/fixtures/launcher, cosmic_ci/launcher_setup.tl) copied into a
 --- directory whose name holds a space, a run directory and a link to it,
 --- and the target's socket payload, where the contract has it.
 function LauncherFixture.setup(tmp: string): Context
@@ -62,7 +62,7 @@ function LauncherFixture.setup(tmp: string): Context
   Fixture.mkdir(diagnostics)
   assert(Fs.symlink(run, alias))
   local artifact = program .. "/launcher.test"
-  local contract = Fixture.required("COSMIC_FIXTURE_LAUNCHER")
+  local contract = Fixture.placed("launcher")
   local target = Fixture.required("COSMIC_FIXTURE_TARGET")
   Fixture.copy(contract .. "/launcher.test", artifact, 0x1ed)
   return { artifact = artifact,

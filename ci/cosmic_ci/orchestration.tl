@@ -531,12 +531,11 @@ end
 --- The fixtures (ci/fixtures/<name>_test.tl) whose workers run
 --- sandboxed, where the leg sandboxes its suites, and whose verdicts are
 --- shared (`fixture`). Each declares with [`Test.needs`] every path it
---- reads by the variable that says where it is -- the product
---- (COSMIC_FIXTURE_PRODUCT), the runtime setup's directory
---- (COSMIC_FIXTURE_RUNTIME), the launcher contract's
---- (COSMIC_FIXTURE_LAUNCHER) or the format decoders'
---- (COSMIC_FIXTURE_FORMAT) -- so its key holds what each holds, not
---- where it is. Each is tied to the parts of the product the leg attests
+--- reads of what [`place`] put at o/fixtures/<product|runtime|launcher|
+--- format|performance> of its project -- the product, the runtime
+--- setup's directory, the launcher contract's, the format decoders' or
+--- the performance inputs -- so its key holds what each holds, not
+--- where the leg keeps it. Each is tied to the parts of the product the leg attests
 --- ([`phase_attest`]) that it exercises: the product's `prefix`, its
 --- launcher, manifest and cores, which [`fixture_test`] gives it, and
 --- the content-keyed artifacts it runs, each by its bytes, so no fixture
@@ -637,22 +636,58 @@ end
 --- among it), by `fixture`: one of `sandboxed_fixtures` keeps its
 --- verdicts in `fixtures.db` beside the file COSMIC_VERDICT_CACHE of
 --- `env` names ([`suite_verdicts`]), and must be given the product its
---- verdicts are keyed by (COSMIC_FIXTURE_PRODUCT); any other shares none.
+--- verdicts are keyed by what it declares of what [`fixture_test`] placed; any other shares none.
 function Orchestration.fixture_run(source: string, env: {string:string}, tmpdir: string,
                                    compiles: string): {string:string}
   local sandboxed = Orchestration.sandboxed_fixtures[source] == true
-  assert(not sandboxed or (env.COSMIC_FIXTURE_PRODUCT or "") ~= "",
-    "a sandboxed fixture is given the product its verdict is keyed by: " .. source)
   local verdicts: string | nil = nil
   if sandboxed then verdicts = Orchestration.suite_verdicts(env, "fixtures") end
   return Orchestration.fixture(env, tmpdir, compiles, verdicts)
 end
 
+--- What a sandboxed fixture reads of a setup's output, `from` (the
+--- product, the runtime setup's directory, the launcher contract's, the
+--- format decoders', the performance inputs), placed at `kind` under
+--- o/fixtures of the project it runs in: the fixture declares each path
+--- it reads there with [`Test.policy`] or [`Test.needs`], `reads`, so its
+--- key holds what each holds, not where the leg keeps it. Only `only`, the
+--- names beneath `from` it reads, are copied where it is given: a fixture
+--- that reads the product's `prefix` alone is not given the product's
+--- `cosmic` and `cosmic.db` to copy.
+local record Placement
+  kind: string
+  from: string
+  only: {string}
+end
+
+--- Places each of `placements` beneath `project`'s o/fixtures
+--- ([`Placement`]). A copy, so a fixture is free to run what it is
+--- placed without touching the product the leg attests.
+local function place(project: string, placements: {Placement})
+  for _, placement in ipairs(placements) do
+    assert(placement.kind:match("^[%w_]+$"), "invalid fixture placement")
+    local where = project .. "/o/fixtures/" .. placement.kind
+    assert(Fs.mkdirs(Fs.dirname(where)))
+    if placement.only == nil then
+      assert(Fs.copy_tree(placement.from, where))
+    else
+      for _, name in ipairs(placement.only) do
+        local target = where .. "/" .. name
+        assert(Fs.mkdirs(Fs.dirname(target)))
+        local st = assert(Fs.stat(placement.from .. "/" .. name))
+        assert(Fs.write(target, read(placement.from .. "/" .. name), st.mode & 0x1ff))
+      end
+    end
+  end
+end
+
 local function fixture_test(c: Context, work: string, name: string,
-                            source: string, timeout_ns: integer, extra: {string:string}): integer
+                            source: string, timeout_ns: integer, extra: {string:string},
+                            placements?: {Placement}): integer
   assert(name:match("^[%w-]+$"), "invalid fixture test name")
   assert(source:match("^[%w_]+$"), "invalid fixture test source")
   local project = fixture_project(c, work)
+  place(project, placements or {})
   local diagnostics = work .. "/fixture-test-diagnostics/" .. name
   mkdir(diagnostics)
   mkdir(diagnostics .. "/tmp")
@@ -678,10 +713,8 @@ local function performance_fixture(c: Context, work: string, kind: string, progr
   write(inputs .. "/perf.tl", read(c.root .. "/build/perf.tl"))
   return fixture_test(c, work, "performance-" .. kind .. "-regression", "performance",
     performance_test_timeout_ns, {
-      COSMIC_FIXTURE_PRODUCT = inputs,
-      COSMIC_FIXTURE_PERFORMANCE = inputs,
       COSMIC_TEST_TIMEOUT = performance_per_test_timeout_s,
-    })
+    }, { { kind = "performance", from = inputs } })
 end
 
 --- The checked core, verified on every leg -- its manifest entry in the
@@ -1270,11 +1303,10 @@ local function phase_assemble(p: PlatformContext): integer
     "runtime setup returned the wrong output")
   s = fixture_test(c, work, "product-verification", "product",
     product_test_timeout_ns, {
-      COSMIC_FIXTURE_PRODUCT = product,
       COSMIC_FIXTURE_TARGET = target,
-      COSMIC_FIXTURE_FORMAT = contract .. "/format",
       COSMIC_FIXTURE_CODESIGN = target == "aarch64-macos" and "true" or "false",
-    })
+    }, { { kind = "product", from = product },
+      { kind = "format", from = contract .. "/format" } })
   if s ~= 0 then return s end
   s = checked(c, "selected format mutation", { contract .. "/format/format-test-" .. target, contract .. "/format/program" })
   if s ~= 0 then return s end
@@ -1506,33 +1538,29 @@ local function phase_fixtures(p: PlatformContext): integer
     })
   if s ~= 0 then return s end
   s = fixture_test(c, work, "runtime-regression", "runtime",
-    runtime_test_timeout_ns, {
-      COSMIC_FIXTURE_PRODUCT = product,
-      COSMIC_FIXTURE_RUNTIME = runtime,
-    })
+    runtime_test_timeout_ns, {},
+    { { kind = "product", from = product, only = { "prefix" } },
+      { kind = "runtime", from = runtime } })
   if s ~= 0 then return s end
   s = fixture_test(c, work, "launcher-regression", "launcher",
     launcher_test_timeout_ns, {
-      COSMIC_FIXTURE_PRODUCT = product,
-      COSMIC_FIXTURE_LAUNCHER = contract .. "/launcher",
       COSMIC_FIXTURE_TARGET = target,
-    })
+    }, { { kind = "product", from = product, only = { "prefix" } },
+      { kind = "launcher", from = contract .. "/launcher" } })
   if s ~= 0 then return s end
   if Orchestration.noexec_fixture(target) then
     s = fixture_test(c, work, "launcher-noexec-regression", "launcher_noexec",
       launcher_noexec_test_timeout_ns, {
-        COSMIC_FIXTURE_PRODUCT = product,
-        COSMIC_FIXTURE_LAUNCHER = contract .. "/launcher",
         COSMIC_FIXTURE_TARGET = target,
-      })
+      }, { { kind = "product", from = product, only = { "prefix" } },
+        { kind = "launcher", from = contract .. "/launcher" } })
     if s ~= 0 then return s end
   end
   s = fixture_test(c, work, "identity-regression", "identity",
     identity_test_timeout_ns, {
-      COSMIC_FIXTURE_PRODUCT = product,
-      COSMIC_FIXTURE_RUNTIME = runtime,
       COSMIC_TEST_TIMEOUT = identity_per_test_timeout_s,
-    })
+    }, { { kind = "product", from = product, only = { "prefix" } },
+      { kind = "runtime", from = runtime } })
   if s ~= 0 then return s end
   s = performance_fixture(c, work, "release", product .. "/cosmic")
   if s ~= 0 then return s end

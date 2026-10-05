@@ -53,6 +53,16 @@ function Fixture.required(name: string): string
   return (assert(Env.get(name), "fixture environment is missing " .. name))
 end
 
+--- Where the driver placed what a setup made for this fixture to read:
+--- the absolute path of o/fixtures/`kind` in the project the fixture runs
+--- in (cosmic_ci/orchestration.tl's `place`), which its declaration
+--- names as the tree-relative `reads` of the same path, so its key holds
+--- what is there. A child of the fixture, in a directory of its own,
+--- is given this path.
+function Fixture.placed(kind: string): string
+  return (assert(Fs.absolute("o/fixtures/" .. kind)))
+end
+
 function Fixture.mkdir(path: string)
   assert(Fs.mkdirs(path))
 end
