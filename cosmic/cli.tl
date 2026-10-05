@@ -32,6 +32,10 @@ local record Cli
   ---       return 0
   ---     end
   ---
+  --- A tree whose o/ this user cannot write (another user's checkout,
+  --- say) is built into a directory of this user's own under
+  --- $XDG_CACHE_HOME/cosmic/runs instead, named by the tree's path.
+  ---
   --- With COSMIC_STANDALONE=1 it runs the file as `--standalone` does,
   --- building nothing and writing no o/; a program `cosmic sandbox
   --- --cosmic` runs has it set unless `--set-env` says otherwise

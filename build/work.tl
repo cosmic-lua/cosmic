@@ -37,6 +37,9 @@ local record work
   record Handle
     db: Sqlite.Handle
     root: string
+    --- The directory the build writes into: `root`'s o/, or another
+    --- [`open`] was given.
+    dir: string
     --- This run's number: one more than the last run over this file.
     run: integer
     --- Whether the run's transaction is open.
@@ -434,15 +437,17 @@ local function begin_waiting(db: Sqlite.Handle, path: string): boolean, string
   return true, ""
 end
 
---- Opens `<root>/o/build.db`, creating it and its tables when new, and
---- counts this run. A file whose schema is not this module's is
---- removed and made again: it holds nothing the tree cannot produce.
-function work.open(root: string): work.Handle | nil, string
-  local made, mkdir_trouble = Fs.mkdirs(root .. "/o")
+--- Opens `build.db` in `dir` (`<root>/o` where nil), creating it and its
+--- tables when new, and counts this run. A file whose schema is not this
+--- module's is removed and made again: it holds nothing the tree cannot
+--- produce.
+function work.open(root: string, dir?: string): work.Handle | nil, string
+  local out = dir or root .. "/o"
+  local made, mkdir_trouble = Fs.mkdirs(out)
   if not made then
     return nil, mkdir_trouble
   end
-  local path = root .. "/o/build.db"
+  local path = out .. "/build.db"
   local db, open_trouble = Sqlite.open(path, { writable = true })
   if db == nil then
     return nil, path .. ": " .. open_trouble
@@ -473,7 +478,7 @@ function work.open(root: string): work.Handle | nil, string
     if not removed then
       return nil, remove_trouble
     end
-    return work.open(root)
+    return work.open(root, dir)
   end
 
   -- IMMEDIATE takes the write lock before reading, so a second build of
@@ -504,7 +509,7 @@ function work.open(root: string): work.Handle | nil, string
     local _, _ = db:close()
     return nil, path .. ": " .. run_trouble
   end
-  return { db = db, root = root, run = integer_of(runs), inside = true }
+  return { db = db, root = root, dir = out, run = integer_of(runs), inside = true }
 end
 
 --- Ends the run's transaction, keeping everything it did. Nothing to
@@ -548,7 +553,7 @@ end
 function work.begin(handle: work.Handle): boolean, string
   local begun = handle.db:exec_result("BEGIN IMMEDIATE")
   if begun.cancelled then
-    return false, "interrupted while waiting for " .. handle.root .. "/o/build.db"
+    return false, "interrupted while waiting for " .. handle.dir .. "/build.db"
   end
   if begun.code ~= Sqlite.OK then return false, begun.reason end
   handle.inside = true

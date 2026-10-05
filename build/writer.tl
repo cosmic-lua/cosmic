@@ -14,6 +14,7 @@
 --- leaves every store's bytes alone moves no store's address.
 
 local Fs = require("cosmic.fs")
+local sys = require("cosmic.sys")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local identity = require("build.identity")
@@ -446,12 +447,25 @@ function writer.write_result(handle: work.Handle, out: string,
   -- only now, with the working database's transaction ended above, so
   -- a holder waiting for that database is not waited on in turn.
   local took = false
+  local held_fd: integer = nil
   if out == handle.root .. "/o/cosmic.db" then
     local taken, lock_trouble = rebuild_lock.hold(handle.root, "write", "o/cosmic.db")
     if taken == nil then
       return false, lock_trouble
     end
     took = taken
+  elseif out == handle.dir .. "/cosmic.db" then
+    -- A build in a directory of its own (build/dispatch.tl's private one)
+    -- has no checkout's lock; one in the directory keeps two runs from
+    -- writing its one `.building` at once.
+    local fd, open_trouble = sys.open(handle.dir .. "/.write.lock", sys.O_RDWR | sys.O_CREAT, 0x180)
+    if fd == nil then return false, handle.dir .. "/.write.lock: " .. open_trouble end
+    local locked, lock_trouble = sys.flock(fd, "exclusive", -1)
+    if not locked then
+      local _, _ = sys.close(fd)
+      return false, handle.dir .. "/.write.lock: " .. lock_trouble
+    end
+    held_fd = fd
   end
   local function written(): boolean, string
     local attached, attach_trouble = db:exec("ATTACH ':memory:' AS out")
@@ -468,6 +482,9 @@ function writer.write_result(handle: work.Handle, out: string,
   local ok, trouble = written()
   if took then
     rebuild_lock.release()
+  end
+  if held_fd ~= nil then
+    local _, _ = sys.close(held_fd)
   end
   if not ok then
     return false, trouble
