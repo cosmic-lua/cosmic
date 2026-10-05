@@ -18,6 +18,19 @@
 --- Pointer. There are no policy files: they wait on the design's
 --- narrow-only form, since a file is input from elsewhere.
 ---
+--- A SEALED RUN: `--database`, `--modules` and `--closure` each name the
+--- database the program runs on ([`Sandbox.Policy`]'s `database`), the
+--- program being this program's core and the words after it the main's
+--- arguments. `--database` takes a file as it is. `--modules` and
+--- `--closure` seal one first, through [`Store.seal`], into the sandbox
+--- cache: the named modules (the first the main), or the closure of the
+--- literal requires of a script, compiled here, in this unsealed process,
+--- by [`standalone.code`] (what a file run as `--standalone` is) and
+--- sealed as the main. A seal that fails, a script that does not compile
+--- or is not there, is a start that failed (125), and a command line
+--- that names two of the three, or `--closure` with `--cosmic`, is refused
+--- (2) before anything is read.
+---
 --- Like `cosmic json` it ends in no verdict line, and prints nothing of
 --- its own when the program starts: its exit status is the program's.
 --- That is the program's code; 128 and the signal's number when a signal
@@ -32,13 +45,18 @@ local Child = require("cosmic.child")
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
 local Sandbox = require("cosmic.sandbox")
 local PolicyJson = require("cosmic.policy")
+local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
+local ast = require("build.ast")
 local bare = require("build.bare")
 local plural = require("build.plural")
+local standalone = require("build.standalone")
+local teal = require("build.teal")
 local verb_spec = require("build.verb_spec")
 
 --- The `cosmic sandbox` verb: `run` is what [`build/dispatch.tl`] calls.
@@ -119,8 +137,15 @@ local limits <const>: {{string}} = {
 
 --- What the line holds besides the policy.
 local record Request
-  --- The policy the flags give, as the JSON a policy holds.
-  json: string
+  --- The policy the flags give, as the table a policy's JSON holds.
+  policy: {string:any}
+  --- `--database`'s path as given, or nil.
+  database: string | nil
+  --- `--modules`' names, the first the main, or nil.
+  modules: {string} | nil
+  --- Whether `--closure` was given: the program's first argument is the
+  --- script to seal and run.
+  closure: boolean
   --- The descriptors to hand the program.
   fds: {integer:integer}
   --- The wall-clock limit, in nanoseconds, or nil for none.
@@ -224,14 +249,54 @@ local function request_of(argv: {integer:string}): Request | nil, string
   for slot = 2, last do words[slot - 1] = argv[slot] end
   local parsed, trouble = Flags.parse(words, 1, spec)
   if parsed == nil then return nil, trouble end
-  if at == nil then return nil, "give a program to run, after the options and a --" end
   local policy, why = table_of(parsed)
   if policy == nil then return nil, why end
-  local json, json_why = Json.encode(policy)
-  if json == nil then return nil, json_why end
   local request: Request = {
-    json = json, fds = {}, argv = {},
+    policy = policy, fds = {}, argv = {}, closure = parsed.set["--closure"] == true,
   }
+  local databases = parsed.all["--database"] or {}
+  if #databases > 1 then return nil, "--database is given more than once" end
+  request.database = databases[1]
+  local listed = parsed.all["--modules"] or {}
+  if #listed > 1 then return nil, "--modules is given more than once" end
+  if listed[1] ~= nil then
+    local names: {string} = {}
+    for name in (listed[1] .. ","):gmatch("([^,]*),") do
+      if name == "" then
+        return nil, "--modules takes module names separated by commas, as cosmic.json,cosmic.fs, " ..
+          "not " .. listed[1]
+      end
+      names[#names + 1] = name
+    end
+    request.modules = names
+  end
+  local given: {string} = {}
+  if request.closure then given[#given + 1] = "--closure" end
+  if request.modules ~= nil then given[#given + 1] = "--modules" end
+  if request.database ~= nil then given[#given + 1] = "--database" end
+  if #given > 1 then
+    return nil, table.concat(given, " and ") .. " are exclusive: each names the database the " ..
+      "program runs on, which only one can"
+  end
+  if request.closure and parsed.set["--cosmic"] then
+    return nil, "--closure and --cosmic are exclusive: --closure runs the script on a database of " ..
+      "its own, which holds the modules it requires and not this program's file"
+  end
+  if at == nil then
+    if #given == 1 and not request.closure then
+      -- No command is this program's core on the database, with no arguments.
+      local own, own_trouble = Proc.executable()
+      if own == nil then return nil, "this program has no file to run: " .. own_trouble end
+      request.argv[1] = own
+    elseif request.closure then
+      return nil, "--closure runs a script: give this program and then the script after the " ..
+        "options, as -- cosmic run.tl"
+    else
+      return nil, "give a program to run, after the options and a --"
+    end
+  elseif request.closure and argv[at + 1] == nil then
+    return nil, "--closure runs a script: give it after the program, as -- cosmic run.tl"
+  end
   for _, text in ipairs(parsed.all["--fd"] or {}) do
     local number = whole(text, 3, 255)
     if number == nil then
@@ -252,13 +317,97 @@ local function request_of(argv: {integer:string}): Request | nil, string
   local cwd = parsed.all["--cwd"] or {}
   if #cwd > 1 then return nil, "--cwd is given more than once" end
   request.cwd = cwd[1]
-  for slot = at, last_slot(argv) do request.argv[#request.argv + 1] = argv[slot] end
+  if at ~= nil then
+    for slot = at, last_slot(argv) do request.argv[#request.argv + 1] = argv[slot] end
+  end
   return request, ""
 end
 
---- The policy `request` holds, or nil and why it is refused.
-local function policy_of(request: Request): Sandbox.Policy | nil, string
-  return PolicyJson.decode(request.json)
+--- The policy `request` holds, on `database` where it runs on one, or nil
+--- and why it is refused.
+local function policy_of(request: Request, database: string | nil): Sandbox.Policy | nil, string
+  local fields = request.policy
+  if database ~= nil then
+    -- The text holds the file's digest as well as its path.
+    local bytes, read_trouble = Fs.read(database)
+    if bytes == nil then return nil, "sandbox: database " .. read_trouble end
+    fields.database = { path = database, sha256 = Hash.hex_sha256(bytes) }
+  end
+  local json, json_why = Json.encode(fields)
+  if json == nil then return nil, json_why end
+  return PolicyJson.decode(json)
+end
+
+--- `path` as the policy holds a database: absolute, with no "..", from
+--- `cwd` (this process's own directory where nil).
+local function absolute(path: string, cwd: string | nil): string | nil, string
+  if cwd ~= nil and path:sub(1, 1) ~= "/" then path = cwd .. "/" .. path end
+  local real, why = sys.realpath(path)
+  if real == nil then return nil, path .. ": " .. why end
+  return real, ""
+end
+
+--- Where [`Store.seal`] with no path put the database of digest `digest`.
+-- TODO: a root caller's program runs as a user of its own, which cannot
+-- search the 0700 cache directory [`Fs.cache_dir`] makes, so a sealed run
+-- fails to start there, naming the directory: seal into one that user
+-- can search, once Fs.cache_dir takes a mode for a directory it makes.
+local function cached(digest: string): string | nil, string
+  local dir, why = Fs.cache_dir("sandbox")
+  if dir == nil then return nil, why end
+  return dir .. "/" .. digest .. ".db", ""
+end
+
+--- The module a sealed script is, named `main`: Lua that runs `code`, the
+--- Lua of `file`, as `cosmic --standalone` does -- its `arg` the
+--- program's, its entry (a function, or a record's `main`) called with
+--- them -- and answers its status. The script's own text is on the
+--- first line, so an error's line is the file's.
+local function script_chunk(file: string, code: string): string
+  return string.format("local file = %q return function(args) args[0] = file rawset(_G, 'arg', " ..
+      "args) local produced = (function(...) %s\nend)() local main = produced " ..
+      "if type(produced) == 'table' then main = produced.main end " ..
+      "if type(main) ~= 'function' then return 0 end return main(args) end", file, code)
+end
+
+--- Seals `names` (the main among them, or `opts.extra`) into the sandbox
+--- cache, and answers the database's path there; nil and why where a name
+--- is none the store holds or the cache cannot be written.
+local function sealed(names: {string}, opts: Store.SealOptions): string | nil, string
+  local ok, digest, why = pcall(Store.seal, names, nil, opts)
+  if not ok then
+    -- Store.seal raises, with its position, for a name no store holds.
+    return nil, ((tostring(digest):gsub("^.-:%d+: store: ", ""):gsub("^store: ", "")))
+  end
+  if digest == nil then return nil, why end
+  return cached(digest)
+end
+
+--- Seals the program of `file`, run as `--closure` asks: the closure of
+--- the modules its source requires by a literal name, and the file
+--- compiled as the standalone compiler does, as the main. The database's
+--- path, or nil and why.
+local function seal_script(file: string, cwd: string | nil): string | nil, string
+  local at = file
+  if cwd ~= nil and file:sub(1, 1) ~= "/" then at = cwd .. "/" .. file end
+  local source, read_trouble = Fs.read(at)
+  if source == nil then return nil, read_trouble end
+  local code, trouble = standalone.code(file, source)
+  if code == nil then return nil, trouble end
+  local built, load_trouble = teal.load()
+  if built == nil then return nil, load_trouble end
+  local parsed, parse_trouble = ast.parse(built, source, file)
+  if parsed == nil then return nil, parse_trouble end
+  local roots, roots_trouble = ast.all_requires(built, parsed)
+  if roots == nil then return nil, roots_trouble end
+  local ok, names = pcall(Store.closure, roots)
+  if not ok then
+    return nil, file .. ": " .. (tostring(names):gsub("^.-:%d+: store: ", ""))
+  end
+  local chunk, chunk_trouble = load(script_chunk(file, code), "@" .. file, "t")
+  if chunk == nil then return nil, file .. ": " .. tostring(chunk_trouble) end
+  return sealed(names, { extra = {
+    name = "main", bytecode = string.dump(chunk), source = source, requires = roots } })
 end
 
 --- What Child adds to a name it could not find, which the verb, that
@@ -317,7 +466,26 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     complain(trouble .. "; see `cosmic help sandbox`")
     return bare.refused
   end
-  local policy, why = policy_of(request)
+  local database: string | nil
+  local sealing_why: string
+  local line_refused = false
+  if request.database ~= nil then
+    line_refused = true
+    database, sealing_why = absolute(request.database, request.cwd)
+  elseif request.modules ~= nil then
+    -- The first is the main, which the core runs; the rest are what it
+    -- requires, as the program's whole set.
+    database, sealing_why = sealed(request.modules, { main = request.modules[1] })
+  elseif request.closure then
+    database, sealing_why = seal_script(request.argv[2], request.cwd)
+    -- The script is the program's main, whose arguments are the rest.
+    if database ~= nil then table.remove(request.argv, 2) end
+  end
+  if database == nil and sealing_why ~= nil then
+    complain(line_refused and sealing_why .. "; see `cosmic help sandbox`" or sealing_why)
+    return line_refused and bare.refused or START_FAILED
+  end
+  local policy, why = policy_of(request, database)
   if policy == nil then
     -- The module's own name, which the verb's repeats.
     complain((why:gsub("^sandbox: ", "")))
@@ -346,7 +514,7 @@ end
 verb.spec = {
   name = "sandbox",
   guide = "a program held to what you grant it",
-  tests = { "build.sandbox_test", "build.sandbox_tool_test" },
+  tests = { "build.sandbox_test", "build.sandbox_tool_test", "build.sandbox_seal_tool_test" },
   run = function(argv: {integer:string}): integer return verb.run(argv) end,
   bare = true,
   program_slot = verb.program_slot,

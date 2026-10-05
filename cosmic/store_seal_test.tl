@@ -228,6 +228,36 @@ local function test_seal_writes_whole_or_leaves_the_old_file(tmp: string)
   assert(#assert(Fs.list(dir)) == 2)
 end
 
+--- A module the store does not hold goes in as the main, after the
+--- others, with its edges to the sealed names; the same script seals the
+--- same bytes, and a name already sealed or a main beside it is refused.
+local function test_seal_carries_an_extra_module_as_the_main(tmp: string)
+  attach(tmp)
+  local extra: Store.Extra = { name = "main", bytecode = string.dump((assert(load("return 1")))),
+    source = "return 1\n", requires = { "fixture.leaf", "fixture.nowhere" } }
+  local path = tmp .. "/extra.db"
+  local digest = assert(Store.seal({ "fixture.leaf" }, path, { extra = extra }))
+  assert(modules_of(path) == "fixture.leaf main")
+  assert(count_of(path, "imports") == 1, "its edge to a name left out is no row")
+  local db = assert(Sqlite.open(path))
+  local rows = assert(Sqlite.text_rows(db,
+    "SELECT kind, bytecode = ?1, source FROM modules WHERE path = 'main' " ..
+      "UNION ALL SELECT value, '', '' FROM meta WHERE key = 'main'", { { blob = extra.bytecode } }))
+  assert(db:close())
+  assert(rows[1][1] == "main" and rows[1][2] == "1" and rows[1][3] == "return 1\n")
+  assert(rows[2][1] == "main", "the extra module is the database's main")
+  assert(digest == (assert(Store.seal({ "fixture.leaf" }, tmp .. "/again.db", { extra = extra }))))
+  -- A script that requires nothing is a program of no sealed names.
+  assert(Store.seal({}, tmp .. "/alone.db", { extra = extra }))
+  assert(modules_of(tmp .. "/alone.db") == "main")
+  raises(function(): any
+    return (Store.seal({ "fixture.leaf", "main" }, tmp .. "/x.db", { extra = extra }))
+  end, "also one of the names")
+  raises(function(): any
+    return (Store.seal({ "fixture.leaf" }, tmp .. "/y.db", { extra = extra, main = "fixture.leaf" }))
+  end, "both given")
+end
+
 --- The tests that name a module are not carried, so adding one moves no
 --- digest; and an edge to a module left out of the set is not a row.
 local function test_seal_digest_ignores_tests_and_drops_dangling_edges(tmp: string)

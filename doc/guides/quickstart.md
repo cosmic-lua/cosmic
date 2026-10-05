@@ -227,6 +227,15 @@ the output it makes. Standalone, it finds `cosmic.*` modules only: a script
 with modules of its own beside it takes `--set-env COSMIC_STANDALONE=0
 --write .`, which builds the tree around it into `o/`.
 
+`--closure` holds a script to the modules it needs and nothing of this
+program's own file: `cosmic sandbox --closure -- cosmic convert.tl in.csv
+out.json` compiles `convert.tl` here, seals it with the `cosmic.*` modules
+it requires by name, and runs it on that, so a `require` of anything else
+fails. `--database PATH` runs a file [`Store.seal`] wrote, and `--modules
+a,b` seals those modules (the first its main) from this program's store;
+the three are exclusive. A sealed database goes to cosmic's cache, named by
+its digest, and the same one is reused.
+
 ## below cosmic.fs
 
 [`cosmic.fs`] is built on [`cosmic.sys`], the syscall table: one C function
@@ -397,3 +406,4 @@ for a variable that holds floats. A function declared `: number` may still
 [`Json.select`]: ../../cosmic/json.tl
 [`Poll.TIMEOUT`]: ../../cosmic/poll.tl
 [`Proc.exit`]: ../../cosmic/proc.tl
+[`Store.seal`]: ../../cosmic/store.tl

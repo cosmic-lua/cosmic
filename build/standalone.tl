@@ -125,12 +125,13 @@ local function generate(file: string, source: string): string | nil, string
   return code, ""
 end
 
---- `file`'s Teal, checked and compiled to a loaded chunk -- from the
---- cache when this binary compiled these exact bytes cleanly before.
---- The cache is found through `variables` when given (as
---- [`Fs.cache_dir`] finds it), and this process's own otherwise.
-function standalone.compile(file: string, source: string,
-                            variables?: {string:string}): standalone.Main | nil, string
+--- `file`'s Teal, checked and compiled to Lua -- from the cache when this
+--- binary compiled these exact bytes cleanly before, and kept there when
+--- not. The cache is found through `variables` when given (as
+--- [`Fs.cache_dir`] finds it), and this process's own otherwise. nil and
+--- every complaint of the checker when the file is not clean.
+function standalone.code(file: string, source: string,
+                         variables?: {string:string}): string | nil, string
   local cached = cached_path(source, variables)
   local code: string
   if cached ~= nil then
@@ -147,6 +148,17 @@ function standalone.compile(file: string, source: string,
     if cached ~= nil then
       local _, _ = Fs.write(cached, code, 0x180)
     end
+  end
+  return code, ""
+end
+
+--- `file`'s Teal, checked and compiled to a loaded chunk ([`standalone.code`],
+--- loaded as `file`'s).
+function standalone.compile(file: string, source: string,
+                            variables?: {string:string}): standalone.Main | nil, string
+  local code, trouble = standalone.code(file, source, variables)
+  if code == nil then
+    return nil, trouble
   end
   return loaded(file, code)
 end
