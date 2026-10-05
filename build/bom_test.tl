@@ -66,7 +66,7 @@ local function test_a_notice_range_must_hold_a_line()
   local _, half = bom.parse("a", "version 1\nurl u\nlicense MIT\nnotice f:9\n")
   assert(half:find("file:first-last", 1, true), half)
   local _, kind = bom.parse("a", "version 1\nurl u\nlicense MIT\nkind tool\n")
-  assert(kind:find("neither library nor data", 1, true), kind)
+  assert(kind:find("none of library, data and test", 1, true), kind)
 end
 
 local function test_fill_reads_every_record_and_its_notices(tmp: string)
@@ -83,13 +83,16 @@ local function test_fill_reads_every_record_and_its_notices(tmp: string)
   assert(Fs.mkdirs(tmp .. "/vendor/roots"))
   assert(Fs.write(tmp .. "/vendor/roots/PIN", "version 7\nurl https://roots.example/r.pem\n" ..
       "kind data\nlicense MPL-2.0\n"))
+  assert(Fs.mkdirs(tmp .. "/vendor/wpt"))
+  assert(Fs.write(tmp .. "/vendor/wpt/PIN", "version 1\nurl https://wpt.example/d.json\n" ..
+      "kind test\nlicense BSD-3-Clause\n"))
   assert(Fs.write(tmp .. "/build/bom/libc.pin", "version 2\nurl https://libc.example/\n" ..
       "license MIT\nnotice libc.COPYRIGHT\n"))
   assert(Fs.write(tmp .. "/build/bom/libc.COPYRIGHT", "(C) libc\r\nMIT"))
   local db = database()
   assert(bom.fill(db, tmp, "main."))
   local rows = assert(bom.rows(db))
-  assert(#rows == 3, "a directory with no PIN is no component")
+  assert(#rows == 3, "a directory with no PIN, or a PIN of kind test, is no component")
   assert(rows[1].name == "libc" and rows[1].sha256 == "" and rows[1].patches == "")
   assert(rows[2].name == "roots" and rows[2].kind == "data")
   assert(rows[3].name == "zlib" and rows[3].sha256 == "00ff")
