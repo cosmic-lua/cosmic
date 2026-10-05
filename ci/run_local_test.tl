@@ -8,7 +8,7 @@ local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 
-Test.needs{ system = true, tool = true }
+Test.policy{ profiles = { "system", "cosmic" } }
 
 local function git(root: string, args: {string}): string
   local argv = { assert(Proc.find("git")), "-C", root }

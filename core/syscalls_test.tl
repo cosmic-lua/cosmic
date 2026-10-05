@@ -34,9 +34,9 @@ local Clock = require("cosmic.clock")
 --- cannot (see core/syscalls_tool_test.tl) -- are
 --- core/syscalls_tool_test.tl's, and the one that reads the program's
 --- own path core/artifact_fd_tool_test.tl's.
-Test.needs{
-  host = { "/proc" },
-  network = { "127.0.0.1" },
+Test.policy{
+  grants = { { path = "/proc", letters = "r" } },
+  loopback = { "127.0.0.1" },
 }
 
 local type Searcher = function(string): any, any

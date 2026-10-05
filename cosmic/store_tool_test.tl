@@ -10,7 +10,7 @@ local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 
 --- The program itself, which the test starts.
-Test.needs{ tool = true }
+Test.policy{ profiles = { "cosmic" } }
 
 --- Run standalone, where the binary's own database is the only one
 --- searched: every module there the searcher hands a raw value is a

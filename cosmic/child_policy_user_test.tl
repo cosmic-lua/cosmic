@@ -33,7 +33,10 @@ local stand_in = require("build.stand_in")
 
 --- The temporary directory. `nests`: a policy's isolation makes a root of
 --- its own, which a worker held by a Landlock ruleset cannot.
-Test.needs{ env = { "TMPDIR" }, nests = true }
+Test.policy{
+  promises = { "nest" },
+  env = { "TMPDIR" },
+}
 
 --- Whether `why`, a start's failure, is the platform or the host giving no
 --- Landlock, seccomp, user namespace or idmapped mount (a container's

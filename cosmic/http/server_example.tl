@@ -9,7 +9,7 @@ local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 
 --- The server example listens on the worker's own loopback.
-Test.needs{ network = { "127.0.0.1" } }
+Test.policy{ loopback = { "127.0.0.1" } }
 
 local Example = {}
 

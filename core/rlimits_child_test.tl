@@ -14,7 +14,7 @@ local type raw_process = require("cosmic.internal.process")
 -- test's import closure, and the store has it to hand it from.
 local type _ = require("cosmic.child")
 
-Test.needs{}
+Test.policy{}
 
 local type Searcher = function(string): any, any
 

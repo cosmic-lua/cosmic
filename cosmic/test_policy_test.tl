@@ -10,7 +10,7 @@ local analyzer = require("build.analyzer")
 local test_inputs = require("build.test_inputs")
 
 -- The source of cosmic.sandbox, whose `Policy` fields [`Test.Policy`] repeats.
-Test.needs{ reads = { "cosmic/sandbox.tl" } }
+Test.policy{ grants = { { path = "cosmic/sandbox.tl", letters = "r" } } }
 
 local built, load_trouble = teal.load()
 if built == nil then

@@ -14,7 +14,7 @@ local Clock = require("cosmic.clock")
 
 --- The bridge a stand-in tree boots through, and the program itself,
 --- which its tests start.
-Test.needs{ reads = { "core/bridge.lua" } }
+Test.policy{ grants = { { path = "core/bridge.lua", letters = "r" } } }
 
 --- A compiler with the three members the bridge reaches for; `gen`
 --- hands back its source, so each stand-in below is plain Lua -- the

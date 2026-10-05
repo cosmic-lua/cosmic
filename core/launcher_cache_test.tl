@@ -22,7 +22,7 @@ local Test = require("cosmic.test")
 -- paths, once a declaration can name a program (`processes` by name,
 -- which the sandbox resolves, with what its loader reads), as
 -- build/todos_git_test.tl's git waits to be named.
-Test.needs{ tool = true, system = true }
+Test.policy{ profiles = { "system", "cosmic" } }
 
 local function environment(): {string:string}
   local env = this_program.environment()

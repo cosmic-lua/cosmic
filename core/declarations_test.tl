@@ -47,8 +47,15 @@ local type _store = require("cosmic.store")
 --- Every declaration of the core's raw modules, the headers the process
 --- and socket tables' are derived from, and core/store.c, whose `raw_modules` names
 --- the wrapper each raw module is handed to.
-Test.needs{ reads = { "cosmic/internal/", "core/process.h", "core/socket.h", "core/store.c" },
-  network = { "127.0.0.1" } }
+Test.policy{
+  grants = {
+    { path = "cosmic/internal/", letters = "r" },
+    { path = "core/process.h", letters = "r" },
+    { path = "core/socket.h", letters = "r" },
+    { path = "core/store.c", letters = "r" },
+  },
+  loopback = { "127.0.0.1" },
+}
 
 local built = assert(teal.load())
 
