@@ -36,6 +36,7 @@ local type _child = require("cosmic.child")
 local type _compress = require("cosmic.compress")
 local type _coverage = require("cosmic.coverage")
 local type _hash = require("cosmic.hash")
+local type _html = require("cosmic.html")
 local type _http = require("cosmic.http")
 local type _json = require("cosmic.json")
 local type _net = require("cosmic.net")
@@ -146,8 +147,14 @@ end
 --- The metamethods a declaration has no way to say, or no reason to:
 --- the lookup, the type's name and the collector's.
 local undeclared_metamethods <const>: {string: boolean} = {
-  __index = true, __name = true, __gc = true,
+  __index = true, __name = true, __gc = true, __metatable = true,
 }
+
+--- What `getmetatable` answers for `value`: `false` for a type that
+--- hides its metatable.
+local function metatable_of(value: any): any
+  return getmetatable(value)
+end
 
 --- Where the raw module `raw`, and `instances`, one value of each
 --- userdata record by the record's name, disagree with the declaration
@@ -168,6 +175,14 @@ local function disagreements(module: string, source: string, raw: any,
     local instance = instances[name]
     if instance == nil then
       problems[#problems + 1] = where .. " is userdata this test makes none of"
+    elseif metatable_of(instance) == false then
+      -- A type that hides its metatable (`__metatable = false`) has no
+      -- members to list, so a declaration that names one is refused.
+      -- TODO: read a hidden metatable once cosmic has a debug.getmetatable
+      -- replacement, to hold its own fields to the declaration too.
+      if next(nested.fields) ~= nil or next(nested.metamethods) ~= nil then
+        problems[#problems + 1] = where .. " is declared with members but hides its metatable"
+      end
     else
       local mt = members(getmetatable(instance))
       local index = mt.__index
@@ -240,6 +255,11 @@ local makers: {string: function(raw: {string: any}): Made} = {
     local hasher = assert(call(raw.hasher, "sha256"))
     return { instances = { Hasher = hasher }, release = nothing }
   end,
+  html = function(raw: {string: any}): Made
+    return { instances = { SafeHtml = call(raw.escape, "<"), SafeAttr = call(raw.escape_attr, "<"),
+      SafeUrl = call(raw.href, "/") },
+      release = nothing }
+  end,
   http = function(raw: {string: any}): Made
     local handle = assert(call(raw.open, "http://declarations.invalid/",
       { script = { reply() } }))
@@ -279,6 +299,7 @@ local wrappers <const>: {string: string} = {
   ["cosmic.compress"] = "compress",
   ["cosmic.coverage"] = "debug",
   ["cosmic.hash"] = "hash",
+  ["cosmic.html"] = "html",
   ["cosmic.http"] = "http",
   ["cosmic.json"] = "json",
   ["cosmic.net"] = "socket",

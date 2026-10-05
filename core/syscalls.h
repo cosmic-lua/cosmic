@@ -126,9 +126,10 @@ bool cosmic_mountinfo_local_flock (const char *text, size_t used, const char *de
  */
 
 /*
- * --- Opens a path and returns a descriptor. The program's own file named
- * --- through a descriptor of it (/proc/self/fd/<n>, /dev/fd/<n>, a link to
- * --- one) is refused, EACCES, before anything is opened.
+ * --- Opens a path and returns a descriptor, always close-on-exec whatever
+ * --- `flags` says: a program it execs inherits only a copy `dup2` makes. The
+ * --- program's own file named through a descriptor of it (/proc/self/fd/<n>,
+ * --- /dev/fd/<n>, a link to one) is refused, EACCES, before anything is opened.
  * ---@param path string the path to open
  * ---@param flags integer the O_* flags, such as `O_RDONLY` or `O_WRONLY | O_CREAT`
  * ---@param mode? integer the mode for a newly created file, default 0o644

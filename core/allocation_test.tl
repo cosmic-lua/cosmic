@@ -26,6 +26,7 @@ local _ = require("cosmic.child") -- in the closure: [`process_table`] searches 
 local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Hash = require("cosmic.hash")
+local Html = require("cosmic.html")
 local Http = require("cosmic.http")
 local Json = require("cosmic.json")
 local Net = require("cosmic.net")
@@ -518,6 +519,26 @@ local function test_hash_leaves_nothing_whenever_an_allocation_fails()
   end)
   assert(ended > 0, "an HMAC hasher is an allocation")
   assert_c_heap(bytes, blocks, "HMAC hashing under refusal")
+end
+
+--- A safe value is a userdata and a string of Lua's own, and no C memory:
+--- a refusal while one is made, escaped, joined or read leaves none.
+local function test_html_leaves_nothing_whenever_an_allocation_fails()
+  if not checked then return end
+  collectgarbage("collect")
+  local bytes, blocks = testing.c_heap()
+  local ended = under_every_failure(function()
+    local text = Html.escape("a < b & \"c\" 'd'")
+    local attr = Html.escape_attr("a b\0\xc3\xa9")
+    local joined = Html.concat({ Html.trust("<p>"), text, Html.trust("</p>") })
+    assert(Html.raw(joined) == "<p>a &lt; b &amp; &quot;c&quot; &#39;d&#39;</p>")
+    assert(Html.raw_attr(attr) == "a&#32;b&#0;\xc3\xa9")
+    assert(Html.raw_url(Html.href("https://a/b")) == "https://a/b")
+    assert(Html.raw_url(Html.href("javascript:x")) == "about:invalid")
+    assert(Html.raw_url(Html.trust_url("x")) == "x")
+  end)
+  assert(ended > 0, "a safe value is an allocation")
+  assert_c_heap(bytes, blocks, "escaping under refusal")
 end
 
 --- `decode` holds a yyjson document and `encode` its output on the C

@@ -70,11 +70,23 @@ for _, name in ipairs({ "sleep_ns", "ceil" }) do
   allowed["cosmic.time." .. name] = "the old name of cosmic.clock's " .. name .. ", kept " ..
     "for programs outside the tree that call it; in the tree only its own tests do"
 end
+-- TODO: drop these entries once [`Test.policy`]'s `requires` reads the table
+-- (the runner's use of build.host_requires, the next step of the host
+-- requirements design).
+for _, name in ipairs({ "names", "parse", "class", "new", "answer" }) do
+  allowed["build.host_requires." .. name] = "the table of what a test may require of its " ..
+    "host, which no runner path reads yet; its test does"
+end
 allowed["build.flow.bare"] = "the subset build/workflows_test.tl holds " ..
   "workflows to takes a bare key by the same rule the layout writes one by"
 allowed["build.flow.problems"] = "the subset build/workflows_test.tl holds " ..
   "the workflows to, which the layout is also held to"
 allowed["build.flow.comments"] = "what the fuzz test holds a layout to keep"
+-- TODO: drop these once cosmic.template (step 3 of doc/plans/template.md) uses them.
+for _, name in ipairs({ "href", "trust_url", "raw_url" }) do
+  allowed["cosmic.html." .. name] = "the URL door of cosmic.html, used by the template compiler of " ..
+    "doc/plans/template.md once it lands"
+end
 allowed["build.analyzer.analyze"] = "a convenience the tests call, a parse and " ..
   "analysis_of; every caller outside them calls analysis_of on a parse it has"
 for _, name in ipairs({ "parse", "render", "scalar", "from", "write", "value", "get", "set", "update" }) do
