@@ -108,11 +108,6 @@ local record worker
     --- since a worker the policy holds cannot list / to find them
     --- (`--runs`).
     runs: {string}
-    --- Whether the worker is given an artifact of its closure at its
-    --- program's name ([`build.closure_artifact`]), which it opens by path
-    --- (as a worker that builds roots of its own does), not the program
-    --- by a descriptor.
-    by_path: boolean
     --- The name the worker is to have its program by, in place of the
     --- artifact path `start` names (build.test_sandbox's
     --- [`Plan.program`]), or nil to keep that.
@@ -514,12 +509,10 @@ function worker.invocation(given: worker.Invocation): worker.Command
   env.COSMIC_COVERAGE_STARTUP = "1"
   local fds: {integer:integer | string} = { [worker.report_fd] = "capture" }
   for number, fd in pairs(given.start.fds) do fds[number] = fd end
-  if given.policy ~= nil and (promises_nest(given.policy) or given.by_path) then
+  if given.policy ~= nil and promises_nest(given.policy) then
     -- A worker that builds roots of its own is handed no descriptor of the
     -- program ([`Child.start`] refuses it any file open for reading alone:
-    -- its owner could reopen it for writing through /proc/self/fd). Nor is
-    -- one given an artifact of its closure, whose descriptor would be the
-    -- program's own, which every module of the tree is read from. Its
+    -- its owner could reopen it for writing through /proc/self/fd). Its
     -- startup, told of none, opens the artifact by its path and the core
     -- by itself, inside its own root (core/startup.c's `by_path`).
     for _, name in ipairs({ "COSMIC_PORTABLE_ARTIFACT_FD", "COSMIC_PORTABLE_CORE_FD" }) do

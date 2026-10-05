@@ -601,7 +601,7 @@ end
 --- The `needs` a policy stands for, or nil and why. The test is sandboxed
 --- and keyed as that `needs` would have it: reads of the tree, host
 --- files, the variables, loopback addresses, the program (profile
---- "cosmic": `lua`, run from an artifact of the closure; with the grant of o/bin,
+--- "cosmic": `lua`, run on a sealed database of the closure; with the grant of o/bin,
 --- `tool`, itself), the system (profile "system") and nesting (promise
 --- "nest"). What it cannot say is refused, naming the field, rather than
 --- accepted as a declaration that moves no key: `isolate`, `set_env`,

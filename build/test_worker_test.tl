@@ -121,22 +121,20 @@ local function test_a_worker_is_started_as_its_command_line_says()
   end
 end
 
---- A worker started under a policy that promises `nest`, or given an
---- artifact of its closure, is handed no descriptor of the program and
---- told of none: [`Child.start`] refuses a nest child one open for reading
---- alone, a closure's artifact is opened by its path in place of the
---- program's, and the startup opens the artifact and core itself where it
---- is told of none. Any other worker, or one under a policy without `nest`,
---- has both as the relaunch hands them.
+--- A worker started under a policy that promises `nest` is handed no
+--- descriptor of the program and told of none: [`Child.start`] refuses a
+--- nest child one open for reading alone, and the startup opens the
+--- artifact and core itself where it is told of none. Any other worker, or
+--- one under a policy without `nest`, has both as the relaunch hands them.
 local function test_a_nesting_worker_is_handed_no_descriptor_of_the_program()
-  local function started(promises: {string}, by_path?: boolean): worker.Command
+  local function started(promises: {string}): worker.Command
     return worker.invocation({
       start = { argv = { "/core", "--artifact", "/a" },
         env = { COSMIC_PORTABLE_ARTIFACT_FD = "254", COSMIC_PORTABLE_CORE_FD = "255",
           COSMIC_PORTABLE_CORE_LENGTH = "9" },
         fds = { [254] = 7, [255] = 8 } },
       env = {}, root = "/tree", module_path = "suite.a_test", name = "test_x", scratch = "/tmp",
-      needs = "", hold = "none", closure = {}, tree = {}, by_path = by_path,
+      needs = "", hold = "none", closure = {}, tree = {},
       policy = { isolate = { "file" }, promises = promises as {Sandbox.Promise} },
     })
   end
@@ -149,9 +147,6 @@ local function test_a_nesting_worker_is_handed_no_descriptor_of_the_program()
   local plain = started({ "fork" })
   assert(plain.options.policy.set_env.COSMIC_PORTABLE_ARTIFACT_FD == "254")
   assert(plain.options.fds[254] == 7 and plain.options.fds[255] == 8)
-  local by_path = started({ "fork" }, true)
-  assert(by_path.options.policy.set_env.COSMIC_PORTABLE_ARTIFACT_FD == nil)
-  assert(by_path.options.fds[254] == nil and by_path.options.fds[255] == nil)
 end
 
 --- A test that said it could not check what it exists to check

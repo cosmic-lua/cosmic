@@ -348,13 +348,8 @@ end
 --- the system's (its profile "system"), a /proc of the sandbox's own -- and
 --- the user it runs as, which a policy chooses. Its `sandbox` holds the
 --- paths alone (`unveil`), and `runs` says which reads are run.
---- With `closure_artifact`, a module that nests or declares `lua`, and
---- declares neither `store` nor `tool`, is given that artifact
---- ([`build.closure_artifact`]) at the program's name, to open by path, in
---- place of the program's own.
 function test_sandbox.plan(root: string, scratch: string, effective: test_inputs.Effective,
-                           environment: {string:string}, closure_store?: string,
-                           closure_artifact?: string): test_sandbox.Plan
+                           environment: {string:string}, closure_store?: string): test_sandbox.Plan
   -- The program is given at its own name only where the worker does
   -- not have it as the tree's own, at /tree/o/bin/cosmic. A worker
   -- whose module does not declare `tool` has no name to read it by, so
@@ -443,24 +438,18 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   if effective.tool then of_tree("o/bin", true) end
   -- A worker that builds roots of its own has no descriptor of the artifact
   -- handed it ([`build.test_worker`]'s `invocation`) and opens it by its
-  -- path, which holds every module of the tree, beyond what the key of a
-  -- test that declares neither `store` nor `tool` holds. So does one that
-  -- declares `lua`, whose children would read what it holds. One that
-  -- declares `store` is given the real one; any other is given
-  -- `closure_artifact` at its name ([`build.closure_artifact`]), the
-  -- program's head with its closure's store, which its key holds.
-  if (effective.nests or effective.lua) and not effective.tool then
+  -- path, which holds every module of the tree. So does one that declares
+  -- `lua`, whose children would read what it holds. One that declares
+  -- `store` is given the real one; any other runs on a sealed database
+  -- ([`build.test`]'s `sealed_for`) and is given none.
+  if (effective.nests or effective.lua) and effective.store and not effective.tool then
     local launched, _ = Proc.relaunch()
     if launched ~= nil and launched.argv[2] == "--artifact" and launched.argv[3] ~= nil then
       -- Given by a name a grant may name, which the worker is told it by
       -- too (`program`) where that differs from the runner's.
       local artifact = confine.grantable(launched.argv[3])
       if artifact ~= launched.argv[3] then program = artifact end
-      if effective.store then
-        give(artifact)
-      elseif closure_artifact ~= nil then
-        give(closure_artifact, artifact)
-      end
+      give(artifact)
     end
   end
   -- Why a `host` path cannot be given: where a variable names it, one
