@@ -152,27 +152,33 @@
    every project, naming the rule. A test that needs a service starts
    its own on 127.0.0.1. A
    worker, and every process it starts, is given at o/cosmic.db the
-   store of its module's import closure alone, keyed by its bytes.
-   Sandboxed or not, a worker whose module does not declare `store`
-   (`tool` does not lift it) holds every other lookup in the store to
-   that closure too
-   ([`build/test_worker.tl`]'s `hold_store`): [`Store.bytecode`] or
-   [`Store.source`] of a module of the tree outside it, or a searcher
-   called by hand, answers none, [`Store.meta`] of a row its key does not
-   hold (the compiler's identity outside `compiler_readers`'s closures,
-   `projected`, `written_by`) raises unless a database the test attached
-   itself answers it, and [`Store.databases()`], whose handles read every
-   module's rows, raises, each naming the fix. So require a
-   module the test reads at its top level (`local type _ = require(...)`
-   for a declaration a type-checked snippet needs), or declare
-   `store = true` where a test reads rows of modules outside its closure
-   (their docs, catalog or bytecode, that way, through a verb run
-   in-process, or by opening o/cosmic.db itself), and only there -- in a
-   module of its own, if the rest of its tests need not -- since that
-   test runs again on every edit to the tree. A module left declaring
-   `store` says why above its declaration. Only a test of one module
-   may read the store so: a check over the whole tree is no test, and
-   goes in [`build/tree_checks.tl`].
+   store of its module's import closure alone, keyed by its bytes (an
+   unsandboxed worker attaches that store in the projection's place, though
+   what it starts reads o/cosmic.db). What a test reads is what the
+   sandbox gives it: the worker holds only `require` to the closure, which
+   refuses a module of the tree outside it
+   ([`build/test_worker.tl`]'s `hold_requires`), and no lookup in the store.
+   A worker whose module declares `lua` or `nests`, and neither `store` nor
+   `tool`, runs an artifact of that closure
+   ([`build/closure_artifact.tl`]) in the program's place, so what it and
+   every process it starts read of the program is what its key holds.
+   Any other sandboxed worker runs the program, whose own database holds
+   every module of the tree outside the closure: [`Store.bytecode`],
+   [`Store.source`], [`Store.requires`], [`Store.databases()`],
+   [`Store.meta`] or a searcher called by hand reads them, with no key to
+   hold them (the TODO on `closure_artifact_for` in [`build/test.tl`]); and
+   `hold_requires` is up only around the module's load and its test, so a
+   finalizer that runs after it can `require` outside the closure.
+   So require a module the test reads at its top level (`local type _ =
+   require(...)` for a declaration a type-checked snippet needs), and read
+   no other that way; declare `store = true` where a test reads rows of
+   modules outside its closure (their docs, catalog or bytecode, that way,
+   through a verb run in-process, or by opening o/cosmic.db itself), and
+   only there -- in a module of its own, if the rest of its tests need
+   not -- since that test runs again on every edit to the tree. A module
+   left declaring `store` says why above its declaration. Only a test of
+   one module may read the store so: a check over the whole tree is no
+   test, and goes in [`build/tree_checks.tl`].
    Each sandboxed worker starts under a [`cosmic.sandbox`] policy
    ([`build/test_policy.tl`]), held by a Landlock ruleset and a seccomp filter
    of the promises it declares, as step (c) and (d) of #2621's
@@ -190,9 +196,9 @@
    /proc, /dev/null, /dev/zero, /dev/full and /dev/urandom, keyed only
    through the host's identity, and the program, its core and its
    database, keyed through the runtime's identity but for the database's
-   modules, which the hold above keeps a test from reading through the
-   store unless it declares `store`, nor through the descriptor a portable
-   start keeps on the program, which every binding refuses
+   modules, which only a `lua` or `nests` worker's artifact narrows to its
+   closure (above), and which no test reads through the descriptor a
+   portable start keeps on the program, which every binding refuses
    (core/check.h's `cosmic_checkfd`), nor, sandboxed, by the program's
    own name, which only a `tool`'s worker is given. A test that starts this
    program declares `tool = true`: sandboxed, one that does not is
@@ -211,8 +217,11 @@
    assumed, and one that starts a process or reads outside the tree
    stands on its declaration like any other. Its worker gets only the
    environment it declares and the store of its closure, but nothing
-   else holds it to its declaration, which a sandboxed run (a Linux leg
-   of CI) must enforce: a read it does not declare moves no key there.
+   else holds it to its declaration or its closure: it runs the whole
+   program, so what it and every process it starts read of the program --
+   a `lua` module's children included -- is not held to the closure either.
+   A sandboxed run (a Linux leg of CI) must enforce what it does not: a
+   read it does not declare moves no key there.
    Its verdicts are kept apart from sandboxed ones, and shared only
    through a file `COSMIC_VERDICT_CACHE` names (as CI's macOS leg
    does), and so only with a checkout at the same path; without one it
@@ -453,6 +462,7 @@ unblocks: `o/bin/cosmic todos '"cosmic-driver.pin"'` lists them.
 [`build/c/layout.tl`]: build/c/layout.tl
 [`build/c/rules.tl`]: build/c/rules.tl
 [`build/c_functions.tl`]: build/c_functions.tl
+[`build/closure_artifact.tl`]: build/closure_artifact.tl
 [`build/contracts.tl`]: build/contracts.tl
 [`build/declared_key.tl`]: build/declared_key.tl
 [`build/flow.tl`]: build/flow.tl
@@ -463,6 +473,7 @@ unblocks: `o/bin/cosmic todos '"cosmic-driver.pin"'` lists them.
 [`build/rebuild_lock.tl`]: build/rebuild_lock.tl
 [`build/sandboxed_verdicts_test.tl`]: build/sandboxed_verdicts_test.tl
 [`build/shared_compiles.tl`]: build/shared_compiles.tl
+[`build/test.tl`]: build/test.tl
 [`build/test_policy.tl`]: build/test_policy.tl
 [`build/test_sandbox.tl`]: build/test_sandbox.tl
 [`build/test_sandbox_probe.tl`]: build/test_sandbox_probe.tl
@@ -485,6 +496,7 @@ unblocks: `o/bin/cosmic todos '"cosmic-driver.pin"'` lists them.
 [`Store.bytecode`]: cosmic/store.tl
 [`Store.databases()`]: cosmic/store.tl
 [`Store.meta`]: cosmic/store.tl
+[`Store.requires`]: cosmic/store.tl
 [`Store.source`]: cosmic/store.tl
 [`Test.needs`]: cosmic/test.tl
 [`Test.policy`]: cosmic/test.tl

@@ -3,10 +3,8 @@
 --- `modules`): the build follows a `require` of a literal name alone,
 --- so a module reached another way is one a change to would not run
 --- the test again. The core's own modules, which no file of the tree
---- is, load as ever. These cases are held in this worker, which
---- declares neither `tool` nor `store`, so the store's hold is up here
---- too; those that run `cosmic test` on a project of their own are in
---- build/test_closure_tool_test.tl.
+--- is, load as ever. Those cases that run `cosmic test` on a project of
+--- their own are in build/test_closure_tool_test.tl.
 
 local test_inputs = require("build.test_inputs")
 

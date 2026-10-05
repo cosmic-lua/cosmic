@@ -184,9 +184,7 @@ local probe_module <const> = "build.stand_in_probe"
 --- The name the stand-in carries `probe_module`'s bytecode under, as
 --- its main module: under neither `build.*` nor `cosmic.*`, so, as a
 --- program `cosmic build --host` makes, its main loads untrusted
---- (core/store.c's `names_trusted_kind`). A process a `lua` test starts
---- may load it under this name ([`build.test_inputs`]' `carried_as`,
---- which names it too).
+--- (core/store.c's `names_trusted_kind`).
 local main_module <const> = "stand_in.main"
 
 --- What the stand-in carries of what the core requires of any program

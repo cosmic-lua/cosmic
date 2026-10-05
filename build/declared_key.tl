@@ -543,11 +543,11 @@ end
 ---   it only when an older writer wrote its database.
 ---
 --- And every sandboxed worker runs this same binary, whether its test
---- declares `tool` or not; one that does not declare `store` reads
---- through [`Store.meta`] only the rows its key holds, and `boot_hash`
---- ([`build.test_worker`]'s `held_meta`), while one that declares it has
---- these same rows in reach, which its key holds by the projection's
---- contents, but for these.
+--- declares `tool` or not. One that does not declare `store` reads
+--- these rows through [`Store.meta`] from the program's database with no
+--- key to hold them (the TODO on `closure_artifact_for` in build.test),
+--- while one that declares it has them in reach, which its key holds by
+--- the projection's contents, but for these.
 -- The names "program-v2" and "launcher-v2" version the formulas below:
 -- a change to either takes a new name, so what the old one remembered
 -- is not read.

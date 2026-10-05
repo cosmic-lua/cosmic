@@ -1,6 +1,6 @@
 --- How the runner starts a worker and reads what it reports into a
---- verdict ([`worker.invocation`], [`worker.judge`]), and the hold of what a
---- worker ran to what its test's key holds.
+--- verdict ([`worker.invocation`], [`worker.judge`]), and the check of what a
+--- worker ran against what its test's key holds.
 
 local type Child = require("cosmic.child")
 local type Sandbox = require("cosmic.sandbox")
@@ -83,13 +83,13 @@ local function test_a_worker_is_started_as_its_command_line_says()
     start = { argv = { "/bin/cosmic", "--relaunched" }, env = { COVERAGE = "1" },
       fds = { [254] = 7 } },
     env = { PATH = "/bin", COVERAGE = "0" }, root = "/tree", module_path = "suite.a_test",
-    name = "test_x", scratch = "/tmp", needs = "", hold = "forbid", open = true,
-    closure = { "suite.a_test" }, tree = { "suite.a_test", "suite.b" }, declared = { "d" },
+    name = "test_x", scratch = "/tmp", needs = "", hold = "forbid",
+    closure = { "suite.a_test" }, tree = { "suite.a_test", "suite.b" },
   })
   local argv, options = command.argv, command.options
   local expected = { "/bin/cosmic", "--relaunched", "test", "--worker-no-tool", "/tree",
-    "suite.a_test", "test_x", "/tmp/tmp", "/tmp/children", "", "--open", "suite.a_test",
-    "--tree", "suite.a_test", "suite.b", "--declared", "d" }
+    "suite.a_test", "test_x", "/tmp/tmp", "/tmp/children", "", "suite.a_test",
+    "--tree", "suite.a_test", "suite.b" }
   assert(#argv == #expected, table.concat(argv, " "))
   for i, value in ipairs(expected) do assert(argv[i] == value, i .. ": " .. argv[i]) end
   assert(options.env.PATH == "/bin" and options.env.COVERAGE == "1")
@@ -101,40 +101,42 @@ local function test_a_worker_is_started_as_its_command_line_says()
     local held = worker.invocation({
       start = { argv = { "/bin/cosmic" }, env = {}, fds = {} }, env = {}, root = "/tree",
       module_path = "suite.a_test", name = "test_x", scratch = "/tmp", needs = "",
-      hold = hold as worker.Hold, open = false, closure = {}, tree = {}, declared = {},
+      hold = hold as worker.Hold, closure = {}, tree = {},
     })
     assert(held.argv[3] == flag, hold .. ": " .. table.concat(held.argv, " "))
   end
   -- Given the store of its closure, it names it ahead of the closure;
-  -- `open`, which gives it the whole projection, names none.
-  for _, open in ipairs({ false, true }) do
+  -- one given none, which has the projection at o/cosmic.db, names none.
+  for _, store in ipairs({ "/stores/a.db", "" }) do
     local given = worker.invocation({
       start = { argv = { "/bin/cosmic" }, env = {}, fds = {} }, env = {}, root = "/tree",
       module_path = "suite.a_test", name = "test_x", scratch = "/tmp", needs = "",
-      hold = "none", open = open, store = "/stores/a.db", closure = { "suite.a_test" },
-      tree = {}, declared = {},
+      hold = "none", store = store ~= "" and store or nil, closure = { "suite.a_test" },
+      tree = {},
     })
     local said = table.concat(given.argv, " ", 10)
-    local wanted = open and "--open suite.a_test --tree --declared" or
-      "--store /stores/a.db suite.a_test --tree --declared"
+    local wanted = store ~= "" and "--store /stores/a.db suite.a_test --tree" or
+      "suite.a_test --tree"
     assert(said == wanted, said)
   end
 end
 
---- A worker started under a policy that promises `nest` is handed no
---- descriptor of the program and told of none: [`Child.start`] refuses a
---- nest child one open for reading alone, and its startup opens the
---- artifact and core itself where it is told of none. Any other worker, or
---- one under a policy without `nest`, has both as the relaunch hands them.
+--- A worker started under a policy that promises `nest`, or given an
+--- artifact of its closure, is handed no descriptor of the program and
+--- told of none: [`Child.start`] refuses a nest child one open for reading
+--- alone, a closure's artifact is opened by its path in place of the
+--- program's, and the startup opens the artifact and core itself where it
+--- is told of none. Any other worker, or one under a policy without `nest`,
+--- has both as the relaunch hands them.
 local function test_a_nesting_worker_is_handed_no_descriptor_of_the_program()
-  local function started(promises: {string}): worker.Command
+  local function started(promises: {string}, by_path?: boolean): worker.Command
     return worker.invocation({
       start = { argv = { "/core", "--artifact", "/a" },
         env = { COSMIC_PORTABLE_ARTIFACT_FD = "254", COSMIC_PORTABLE_CORE_FD = "255",
           COSMIC_PORTABLE_CORE_LENGTH = "9" },
         fds = { [254] = 7, [255] = 8 } },
       env = {}, root = "/tree", module_path = "suite.a_test", name = "test_x", scratch = "/tmp",
-      needs = "", hold = "none", open = true, closure = {}, tree = {}, declared = {},
+      needs = "", hold = "none", closure = {}, tree = {}, by_path = by_path,
       policy = { isolate = { "file" }, promises = promises as {Sandbox.Promise} },
     })
   end
@@ -147,6 +149,9 @@ local function test_a_nesting_worker_is_handed_no_descriptor_of_the_program()
   local plain = started({ "fork" })
   assert(plain.options.policy.set_env.COSMIC_PORTABLE_ARTIFACT_FD == "254")
   assert(plain.options.fds[254] == 7 and plain.options.fds[255] == 8)
+  local by_path = started({ "fork" }, true)
+  assert(by_path.options.policy.set_env.COSMIC_PORTABLE_ARTIFACT_FD == nil)
+  assert(by_path.options.fds[254] == nil and by_path.options.fds[255] == nil)
 end
 
 --- A test that said it could not check what it exists to check

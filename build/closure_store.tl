@@ -99,11 +99,10 @@ local closure_meta <const> = "('image_hash', 'main', 'runtime_basis')"
 --- written so in a comment is among them, which only makes a store
 --- carry, and its address hold, one declaration more. A declaration
 --- cannot require a computed name, since the checker types only a
---- literal one. A spelling it misses fails closed: the store's hold
---- ([`build.test_worker`]'s `hold_store`) refuses a held test any
---- declaration outside its closure's names, so one this leaves out of a
---- store is one no held test can read, and a test that types it fails
---- rather than standing. Scanned here rather than taken from the
+--- literal one. A spelling it misses fails closed: a store, given a
+--- worker in the projection's place, holds only the declarations it
+--- carries, so one this leaves out is one no test can read, and a test
+--- that types it fails rather than standing. Scanned here rather than taken from the
 --- importer's parse, which the projection does not keep of a
 --- declaration: a require of build.analyzer would salt every store's
 --- address with it ([`build.test`]'s `store_writer`). [`build.tree_checks`]
@@ -262,22 +261,14 @@ end
 --- require them, and an edit to one moves only those stores.
 ---
 --- What it carries beyond the closure's names over-approximates the
---- address: the store's hold ([`build.test_worker`]'s `hold_store`)
---- refuses a held test every declaration outside its closure's names,
---- so a checker under it cannot read a declaration carried only this
---- way, and an edit to one moves an address no held test's verdict
---- turns on. The hold, not this walk, is what keeps a verdict sound; the
---- walk keeps a store whole for a worker the hold does not cover.
+--- address: an edit to a declaration carried only this way moves an
+--- address no test's verdict need turn on, since what a test reads of a
+--- store is what its key holds of it, so this walk keeps a store whole
+--- for the checker.
 --- It follows declarations alone: a module of the tree one required
 --- would be neither carried nor in the address, so [`build.tree_checks`]
 --- (`declarations`) refuses a declaration that requires anything but
 --- a declaration.
--- TODO: have [`test_inputs.modules`] follow a declaration's requires
--- too, as this does, so the store's hold lets a held test read the
--- declarations carried here beyond its closure's names
--- ([`cosmic.internal.sqlite`] beside cosmic.internal.store, which requires
--- it): today it refuses them, which fails a test that types one rather
--- than standing on it.
 local function declared(basis: closure_store.Basis, names: {string}): {string}
   local seen: {string:boolean} = {}
   local out: {string} = {}

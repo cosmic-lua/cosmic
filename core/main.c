@@ -121,13 +121,6 @@ static bool source_position (lua_State *L, const char *message) {
   }
   memcpy(name, message, name_len);
   name[name_len] = '\0';
-  /* A module a hold holds prints nothing, as if no database held it: a
-   * process a `lua` test started reads no row its key does not hold, a
-   * message that names one (`error("cosmic.zip:1: ...")`) included. */
-  if (!cosmic_store_lets(L, name)) {
-    return false;
-  }
-
   int count = cosmic_store_count(L);
   for (int index = 1; index <= count; index++) {
     sqlite3 *db = cosmic_store_database(L, index);
@@ -257,7 +250,6 @@ static int run_main (lua_State *L, int argc, char **argv) {
 int cosmic_runtime_entry (const struct cosmic_startup *startup, int argc,
                           char **argv) {
   cosmic_coverage_prepare();
-  cosmic_store_prepare();
   cosmic_process_entered();
   const char *startup_trouble = cosmic_startup_validate(startup);
   if (startup_trouble != NULL) {
@@ -341,14 +333,6 @@ int cosmic_runtime_entry (const struct cosmic_startup *startup, int argc,
     return complain("no database attached, and no tree to boot from", self);
   }
 
-  /* A process a `lua` test started is held before any of its Lua runs,
-   * or runs none (core/store.c's `cosmic_store_hold_inherited`). */
-  if (!cosmic_store_hold_inherited(L)) {
-    cosmic_surface_close(L);
-    sqlite3_close_v2(db);
-    cosmic_artifact_close(&artifact);
-    return 2;
-  }
   cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_MAIN_ENTERING);
   int status = run_main(L, argc, argv);
   cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_MAIN_RETURNED);

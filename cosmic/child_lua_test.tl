@@ -2,8 +2,8 @@
 --- each child is this program again, past its launcher, running a chunk
 --- (`lua`), where a shell would need the system's. They declare `lua`,
 --- not `tool`, so an edit to a module the program carries outside their
---- closure does not run them again, and every child is held to that
---- closure ([`cosmic.test`]'s `lua`). The cases whose child runs a file
+--- closure does not run them again, and every child runs an artifact of
+--- that closure ([`cosmic.test`]'s `lua`). The cases whose child runs a file
 --- of its own, or is sandboxed, are in cosmic/child_tool_test.tl; the
 --- cases that start nothing -- a refused option, a refused stream, a
 --- guard -- are in cosmic/child_test.tl.
