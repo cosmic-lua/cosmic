@@ -601,8 +601,8 @@ cache trimming; restore/save policy stays with each job in ci.yml.
 `vendor` hashes what compiles the vendored libraries (the pin,
 `build.zig`, `build/zig.tl`, `vendor/`, `patch/`, the configuration
 headers they read from `core/`) but not the trees zig never compiles
-(tl, tzdata, cacert, wpt-url), nor the applier, `build/patch.tl`: it names each
-patched tree by the bytes it writes, so an edit to it that writes the
+(tl, tzdata, cacert, wpt-url, html5lib-tokenizer, wpt-html-parsing),
+nor the applier, `build/patch.tl`: it names each patched tree by the bytes it writes, so an edit to it that writes the
 same trees leaves every vendored object's path, and so zig's cache,
 as it was. `core` hashes the core's own C.
 `scope` is `full`, where assemble passed; a `light` entry, saved before

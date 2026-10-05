@@ -1,0 +1,9 @@
+version 2a5ac6d83892b21a681ccbddcb47171b431d6c65
+url https://github.com/web-platform-tests/wpt/archive/2a5ac6d83892b21a681ccbddcb47171b431d6c65.tar.gz
+sha256 edeaa48eab7a441fb6c99c27f8b4f57e39ce8cb5e31658269457d71edd3737ba
+strip wpt-2a5ac6d83892b21a681ccbddcb47171b431d6c65/
+keep LICENSE.md
+keep html/syntax/parsing/resources/*.dat
+kind test
+license BSD-3-Clause
+notice LICENSE.md
