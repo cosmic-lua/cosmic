@@ -10,7 +10,7 @@ local sql = require("build.sql")
 
 --- The program's own database is read through a handle
 --- ([`Store.databases()`]), which reads every module's rows too.
-Test.needs{ store = true }
+Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
 
 --- A temporary root whose o/cosmic.db holds one small table.
 local function project(): string

@@ -403,6 +403,20 @@ local NOT_YET <const> = "is not yet taken: a policy runs a worker as a `needs` d
   "(migration step a of the sandbox plan), and this takes effect where the policy's own " ..
   "path runs it (step b)"
 
+--- The three grants a policy writes for what `needs` says as a field: the
+--- store the worker is given, the private noexec scratch, and a host
+--- cache written at its own name. [`Test.needs_of`] and the build's read
+--- of a policy both take them as the field, and refuse other letters or
+--- a `from` on their paths.
+local STORE_PATH <const> = "o/cosmic.db"
+local NOEXEC_PATH <const> = "/noexec"
+local STORE_FORM <const> = ".path o/cosmic.db is the store, granted " ..
+  "{ path = \"o/cosmic.db\", letters = \"r\" } with no from"
+local NOEXEC_FORM <const> = ".path /noexec is the private scratch the harness gives, " ..
+  "granted { path = \"/noexec\", letters = \"rwc\" }: writable, never executable, with no from"
+local CACHE_FORM <const> = ".path /cache/<name> is a host cache, granted " ..
+  "{ path = \"/cache/<name>\", letters = \"rwxc\" } with no from"
+
 --- The profiles a policy joins in, and the `needs` flag each stands for.
 local PROFILE_FLAGS <const>: {string:string} = { system = "system", cosmic = "tool" }
 
@@ -545,11 +559,10 @@ local function policy_of(given: any): Test.Policy | nil, string
   return out, ""
 end
 
--- TODO: let a policy say what `store`, `caches`, `lua`, `standalone`,
--- `noexec` and a `$NAME` host path say (a grant on the store, a per-user
--- host cache, a writable grant without x, a variable-named grant), once
--- the policy path (step b of the sandbox plan) gives each a field of
--- cosmic.sandbox's [`Policy`]: a module that declares one stays on `needs`.
+-- TODO: let a policy say what `lua`, `standalone` and a `$NAME` host path
+-- say, and env "*", once the policy path (step b of the sandbox plan)
+-- gives each a field of cosmic.sandbox's [`Policy`]: a module that
+-- declares one stays on `needs`.
 -- TODO: hand the promises to the runner, which keeps them in the key, once
 -- [`Test.policy`] replaces `needs` (step e of the sandbox plan): the filter
 -- runs on every worker, but until then a promise a test does not make
@@ -579,6 +592,7 @@ function Test.needs_of(given: any): Test.Needs | nil, string
   local out: Test.Needs = {}
   local reads: {string} = {}
   local host: {string} = {}
+  local caches: {string} = {}
   local flags: {string:boolean} = {}
   for _, profile in ipairs(policy.profiles or {}) do
     local flag = PROFILE_FLAGS[profile]
@@ -594,13 +608,26 @@ function Test.needs_of(given: any): Test.Needs | nil, string
     if letters == nil or letters == "" or letters:find("^r?w?x?c?u?$") == nil then
       return nil, at .. ".letters takes letters of rwxcu, in that order"
     end
-    if grant.from ~= nil then return nil, at .. ".from " .. NOT_YET end
-    if letters ~= "r" then
-      return nil, at .. ".letters \"" .. letters .. "\" " .. NOT_YET ..
-        "; a test reads, with \"r\", what it declares"
+    local named = path:match("^/cache/(.*)$")
+    if path == STORE_PATH then
+      if letters ~= "r" or grant.from ~= nil then return nil, at .. STORE_FORM end
+      out.store = true
+    elseif path == NOEXEC_PATH then
+      if letters ~= "rwc" or grant.from ~= nil then return nil, at .. NOEXEC_FORM end
+      out.noexec = true
+    elseif named ~= nil then
+      if letters ~= "rwxc" or grant.from ~= nil then return nil, at .. CACHE_FORM end
+      if named == "" then return nil, at .. ".path /cache/ names no cache" end
+      caches[#caches + 1] = named
+    else
+      if grant.from ~= nil then return nil, at .. ".from " .. NOT_YET end
+      if letters ~= "r" then
+        return nil, at .. ".letters \"" .. letters .. "\" " .. NOT_YET ..
+          "; a test reads, with \"r\", what it declares"
+      end
+      local list = path:sub(1, 1) == "/" and host or reads
+      list[#list + 1] = path
     end
-    local list = path:sub(1, 1) == "/" and host or reads
-    list[#list + 1] = path
   end
   for _, promise in ipairs(policy.promises or {}) do
     local field = PROMISE_FIELDS[promise]
@@ -630,6 +657,7 @@ function Test.needs_of(given: any): Test.Needs | nil, string
   out.tool, out.system, out.nests = flags.tool, flags.system, flags.nests
   if #reads > 0 then out.reads = reads end
   if #host > 0 then out.host = host end
+  if #caches > 0 then out.caches = caches end
   for _, name in ipairs(policy.env or {}) do
     if name == "*" then
       return nil, 'env: a policy names each variable it passes through; no wildcard "*" in a policy'
@@ -661,8 +689,16 @@ end
 --- module. A grant with a path of the tree is a read of it, an absolute
 --- path a read of that host file; the profile "system" is `system`,
 --- "cosmic" is `tool`; the promise "nest" is `nests`; `loopback` is
---- `network`. What has no `needs` to stand for -- a grant to write, run
---- or connect to, `isolate`, `limits`, `set_env`, `connect` -- fails the
+--- `network`. Three grants, written exactly so, are the fields they
+--- stand for rather than reads: `{ path = "o/cosmic.db", letters = "r" }`
+--- is `store = true`, `{ path = "/noexec", letters = "rwc" }` is
+--- `noexec = true`, and `{ path = "/cache/<name>", letters = "rwxc" }`
+--- is `caches = { "<name>" }` for a cache [`Needs.caches`] names (the
+--- variables that locate it are passed as they are for `caches`). Each
+--- refuses other letters and a `from`. "/noexec" and "/cache/..." are
+--- paths the test harness reserves: no other grant is made at them. What
+--- has no `needs` to stand for -- any other grant to write, run or
+--- connect to, `isolate`, `limits`, `set_env`, `connect` -- fails the
 --- build, naming the field. Raises as `needs` does, for a value no
 --- [`Policy`] could be and for a call made twice or after the module has
 --- loaded.

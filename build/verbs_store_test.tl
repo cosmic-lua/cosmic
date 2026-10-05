@@ -17,14 +17,16 @@ local String = require("cosmic.string")
 --- bundle `refresh` reads, and what bin/zig reads to find or fetch zig.
 --- `store`: the verbs it runs in this process ([`build.invoke`]) read
 --- every module's rows.
-Test.needs{
-  reads = { "vendor/cacert/cacert.pem" },
+Test.policy{
+  profiles = { "cosmic" },
+  grants = {
+    { path = "vendor/cacert/cacert.pem", letters = "r" },
+    { path = "o/cosmic.db", letters = "r" },
+  },
   env = { "ALL_PROXY", "COSMIC_BOOTSTRAP", "COSMIC_BOOTSTRAP_ATTEMPTS", "COSMIC_BOOTSTRAP_VERIFY",
     "COSMIC_ZIG", "COSMIC_ZIG_CACHE", "COSMIC_ZIG_GLOBAL_CACHE", "CURL_CA_BUNDLE", "HTTPS_PROXY",
     "HTTP_PROXY", "NO_PROXY", "SSL_CERT_DIR", "SSL_CERT_FILE", "all_proxy", "http_proxy",
     "https_proxy", "no_proxy" },
-  tool = true,
-  store = true,
 }
 
 --- The vendored bundle, which `refresh` reads with no network; the

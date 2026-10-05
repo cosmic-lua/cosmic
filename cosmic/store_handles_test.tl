@@ -8,7 +8,7 @@ local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 
 --- `store`: [`Store.databases()`] hands handles to every module's rows.
-Test.needs{ store = true }
+Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
 
 --- A path is a filename, never a URI: one whose `vfs=` would pick a
 --- VFS of its own names no file, and nothing is attached.

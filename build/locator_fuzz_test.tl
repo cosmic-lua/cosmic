@@ -16,7 +16,10 @@ local Clock = require("cosmic.clock")
 
 --- The program itself, which its tests start.
 --- `store`: [`embed.tree`] joins every `cosmic.*` module's rows.
-Test.needs{ tool = true, store = true }
+Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "o/cosmic.db", letters = "r" } },
+}
 
 local TRAILER <const> = 48
 local MANIFEST <const> = 4096

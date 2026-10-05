@@ -23,7 +23,7 @@ local test = require("build.test")
 --- edit to the tree runs this again, an edit to the harness among
 --- them, and so does a compiler that makes other bytecode of it; it
 --- is this module alone that pays that.
-Test.needs{ store = true }
+Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
 
 --- The line of build/harness_epoch.tl's `acknowledged` that holds
 --- `name` at `digest`, as the file lays it out: each such line between

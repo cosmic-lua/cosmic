@@ -8,7 +8,7 @@ local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 
 --- Its key holds the projection, which holds these rows.
-Test.needs{ store = true }
+Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
 
 local function test_every_row_is_read_without_a_hold()
   for _, key in ipairs({ "boot_hash", "projected", "compiler", "compiled_by" }) do

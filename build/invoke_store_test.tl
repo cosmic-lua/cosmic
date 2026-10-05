@@ -8,7 +8,7 @@ local Test = require("cosmic.test")
 
 --- `help` reads every module's docs through [`Store.databases()`], and a
 --- test here counts the databases it returns. Without `store`, it raises.
-Test.needs{ store = true }
+Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
 
 --- A verb's output and exit come back as a started binary's would.
 local function test_a_run_captures_a_verbs_output(tmp: string)

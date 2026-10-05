@@ -3,7 +3,7 @@ local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 
 -- The test asks for borrowed handles over the store's own databases.
-Test.needs{ store = true }
+Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
 
 local function test_a_borrowed_handle_cannot_install_a_busy_callback()
   local databases = Store.databases()
