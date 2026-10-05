@@ -13,6 +13,11 @@ local record html
     userdata
   end
 
+  -- A whole URL for an href or src, which `href` makes.
+  record SafeUrl
+    userdata
+  end
+
   -- The string, with `& < > " '` made entities.
   escape: function(s: string): SafeHtml
   -- The string with every ASCII byte but a letter or digit made a numeric
@@ -23,6 +28,13 @@ local record html
   trust: function(s: string): SafeHtml
   -- The string as an attribute value, unchecked.
   trust_attr: function(s: string): SafeAttr
+  -- The string as a URL if its scheme is http, https or mailto or it is a
+  -- relative reference, else "about:invalid"; see cosmic.html.
+  href: function(s: string): SafeUrl
+  -- The string as a URL, unchecked.
+  trust_url: function(s: string): SafeUrl
+  -- The string a SafeUrl holds. Raises on anything else.
+  raw_url: function(x: SafeUrl): string
   -- The string a SafeHtml holds. Raises on anything else.
   raw: function(x: SafeHtml): string
   -- The string a SafeAttr holds. Raises on anything else.

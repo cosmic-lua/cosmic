@@ -40,9 +40,12 @@ only by:
   0x80 or more pass, since a reference per byte would not keep a UTF-8
   character whole (the document is UTF-8);
 - `href(s): SafeUrl`: a whole URL from data, through an allowlist
-  (http, https, mailto, or a reference with neither scheme nor host;
-  control bytes refused, since browsers strip tab and newline before
-  reading a scheme), else `about:invalid`;
+  (http, https, mailto, or a relative reference that is not
+  protocol-relative; any control byte, DEL or edge space refused, since
+  browsers strip them before reading a scheme; a colon before the first
+  `/`, `?` or `#` must end an allowed scheme), else `about:invalid`. The
+  result is the URL, not attribute-escaped; the template escapes it where
+  it splices it. `trust_url(s)` and `raw_url(x)` are its other two;
 - `trust(s)` and `trust_attr(s)`: the unchecked doors, named so they can
   be found;
 - `concat({SafeHtml}): SafeHtml`.
@@ -114,7 +117,8 @@ a refusal naming `page.tmpl:<line>` and the Safe type.
 
 1. [`cosmic.html`] in C: `SafeHtml`, `SafeAttr`, `escape`, `escape_attr`,
    `trust`, `trust_attr`, `raw`, `raw_attr`, `concat`; this plan.
-2. `html.href` and `SafeUrl`, the allowlist over [`cosmic.url`]'s parse.
+2. `href`, `trust_url`, `raw_url` and `SafeUrl`, the allowlist scanned in C (not
+   [`cosmic.url`]'s parse, which is not a browser's).
 3. `cosmic.template`: lexer, parser, HTML context tracker, line-keeping
    code generation, its fuzz test.
 4. `.tmpl` in the build: the derivation, its keying, `fix`, the layout

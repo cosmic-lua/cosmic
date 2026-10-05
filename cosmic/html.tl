@@ -6,13 +6,18 @@
 ---   for), and joined by [`Html.concat`].
 --- - [`Html.SafeAttr`] is a value for an attribute, made by
 ---   [`Html.escape_attr`] or [`Html.trust_attr`].
---- - [`Html.raw`] and [`Html.raw_attr`] are the way back to the string.
+--- - [`Html.SafeUrl`] is a URL for an attribute such as `href`, made by
+---   [`Html.href`] (from data, through an allowlist) or [`Html.trust_url`].
+---   It is not escaped for an attribute: the page does that where it
+---   puts the URL in one.
+--- - [`Html.raw`], [`Html.raw_attr`] and [`Html.raw_url`] are the way back
+---   to the string.
 ---
 ---     local item = Html.escape("Fish & Chips")
 ---     local row = Html.concat({ Html.trust("<li>"), item, Html.trust("</li>") })
 ---     local markup = Html.raw(row) -- "<li>Fish &amp; Chips</li>"
 ---
---- Both types are opaque: a table literal, a string, or one in the other's
+--- All three types are opaque: a table literal, a string, or one in the other's
 --- place is a type error, and a value is made only in this module, by the
 --- escaping or by the `trust` functions, which a review can search for.
 --- There is no `__concat` and no `__tostring`: a safe value cannot reach a
@@ -43,6 +48,11 @@ local record Html
   --- A value that can go inside a quoted attribute value. Opaque: a
   --- value is made by [`Html.escape_attr`] or [`Html.trust_attr`].
   type SafeAttr = raw_html.SafeAttr
+
+  --- A URL that can go in an `href` or `src`. Opaque: a value is made
+  --- by [`Html.href`] or [`Html.trust_url`]. Its text is a URL, not
+  --- attribute-escaped.
+  type SafeUrl = raw_html.SafeUrl
 end
 
 --- `s` as text in element content, or in a quoted attribute value: `&`,
@@ -67,6 +77,53 @@ end
 ---     Html.raw(Html.escape_attr("a b")) -- "a&#32;b"
 function Html.escape_attr(s: string): Html.SafeAttr
   return raw.escape_attr(s)
+end
+
+--- `s` as a whole URL from untrusted data, for an `href`, `src` or the
+--- like: `s` itself if a browser would take it for an http, https or
+--- mailto URL or for a relative reference, else `about:invalid`. The
+--- text is not escaped for an attribute: escape it with
+--- [`Html.escape_attr`] where it goes into one.
+---
+--- What passes is read as a browser reads a URL, with refusals where the
+--- browser would silently repair the text:
+---
+--- - a C0 control byte (`\0` to `\31`, so a tab or a newline too), a DEL,
+---   or a space at either end is refused: browsers remove or trim them
+---   before reading a scheme, so `java\tscript:` is `javascript:` to them;
+--- - a colon before the first `/`, `?` or `#` ends a scheme, which must be
+---   a letter then letters, digits, `+`, `-` or `.`, and be `http`, `https`
+---   or `mailto` in any case. Another scheme, or text that is no scheme
+---   (`%6Aavascript:`, `1a:`), is refused;
+--- - with no such colon, the text is a relative reference (`/a?b:c`,
+---   `a/b:c`, `?x:y`, `#x:y`, the empty string) and passes, unless it begins
+---   with two of `/` and `\`, which a browser takes for a host
+---   (`//h`, `\\h`, `/\h`, `\/h`).
+---
+--- An absolute http or https URL may point at any host (`http:evil.com`
+--- and `https:\\evil.com` pass): `href` keeps a URL from running script or
+--- borrowing the page's scheme, and does not pick hosts. A protocol-relative
+--- `//host` is refused because it takes the page's scheme without saying
+--- so, not because another host is.
+---
+--- Anything else, in either case, is `about:invalid`. A byte of 0x80 or
+--- more and a space inside the text pass.
+---
+---     Html.raw_url(Html.href("https://example.com/a")) -- "https://example.com/a"
+---     Html.raw_url(Html.href("javascript:alert(1)")) -- "about:invalid"
+function Html.href(s: string): Html.SafeUrl
+  return raw.href(s)
+end
+
+--- `s` as a URL that is already safe, unchecked: the one way to put a
+--- URL you wrote into a page without the allowlist.
+function Html.trust_url(s: string): Html.SafeUrl
+  return raw.trust_url(s)
+end
+
+--- The string a [`Html.SafeUrl`] holds.
+function Html.raw_url(x: Html.SafeUrl): string
+  return raw.raw_url(x)
 end
 
 --- `s` as markup that is already safe, unchecked: the one way to put
