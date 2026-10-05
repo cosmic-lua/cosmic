@@ -70,12 +70,9 @@ for _, name in ipairs({ "sleep_ns", "ceil" }) do
   allowed["cosmic.time." .. name] = "the old name of cosmic.clock's " .. name .. ", kept " ..
     "for programs outside the tree that call it; in the tree only its own tests do"
 end
--- TODO: drop these entries once [`Test.policy`]'s `requires` reads the table
--- (the runner's use of build.host_requires, the next step of the host
--- requirements design).
-for _, name in ipairs({ "names", "parse", "class", "new", "answer" }) do
-  allowed["build.host_requires." .. name] = "the table of what a test may require of its " ..
-    "host, which no runner path reads yet; its test does"
+for _, name in ipairs({ "names", "class" }) do
+  allowed["build.host_names." .. name] = "tested directly: the table's own reading, which " ..
+    "`parse` and `check`, the only calls outside the module, are made of"
 end
 allowed["build.flow.bare"] = "the subset build/workflows_test.tl holds " ..
   "workflows to takes a bare key by the same rule the layout writes one by"

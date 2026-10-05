@@ -3,10 +3,9 @@
 --- core/promises_child_test.tl, a static core, does not. The loader's
 --- calls -- on aarch64 an mprotect that adds PROT_EXEC with PROT_BTI --
 --- must pass the basics, or a program that needs them does not start.
---- Where the host has no /bin/sh, or the kernel gives no seccomp filter,
---- the test returns without asserting.
+--- Where the host has no /bin/sh the tests are skipped, as they require it
+--- of the host; where the kernel gives no seccomp filter, each skips itself.
 
-local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
 local type raw_process = require("cosmic.internal.process")
@@ -14,8 +13,13 @@ local type raw_process = require("cosmic.internal.process")
 -- test's import closure, and the store has it to hand it from.
 local type _ = require("cosmic.child")
 
---- The system's own programs, which the shell and its libraries are.
-Test.policy{ profiles = { "system" } }
+--- The system's own programs, which the shell and its libraries are, and
+--- the shell itself, which the host must have.
+Test.policy{
+  profiles = { "system" },
+  grants = { { path = "/bin/sh", letters = "r" } },
+  requires = { "path:/bin/sh" },
+}
 
 local type Searcher = function(string): any, any
 
@@ -47,7 +51,6 @@ local function shell(promises: {string}, script: string): integer | nil
 end
 
 local function test_a_dynamic_program_starts_under_the_basics()
-  if not Fs.exists(SHELL) then return end
   local code = shell({}, "exit 0")
   if code == nil then return end
   assert(code == 0, "the shell ends with " .. code)
@@ -55,7 +58,6 @@ local function test_a_dynamic_program_starts_under_the_basics()
 end
 
 local function test_a_dynamic_program_forks_with_fork()
-  if not Fs.exists(SHELL) then return end
   -- A subshell is a fork, which the shell reports by its status.
   local code = shell({ "fork" }, "(exit 3); exit $?")
   if code == nil then return end

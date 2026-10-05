@@ -67,7 +67,7 @@ local function test_inputs_by_hash(db: Sqlite.Handle): {string:analyzer.Declared
     if one == nil then
       one = { line = 0, reads = {}, host = {}, env = {}, network = {},
         tool = false, lua = false, nests = false, store = false,
-        system = false, caches = {} }
+        system = false, caches = {}, requires = {} }
       declared[hash] = one
     end
     if field == "line" then
@@ -94,6 +94,8 @@ local function test_inputs_by_hash(db: Sqlite.Handle): {string:analyzer.Declared
       one.system = true
     elseif field == "caches" then
       one.caches[#one.caches + 1] = value
+    elseif field == "requires" then
+      one.requires[#one.requires + 1] = value
     end
   end
   return declared, ""

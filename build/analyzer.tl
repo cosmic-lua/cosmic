@@ -9,6 +9,7 @@ local type compiler = require("build.compiler")
 local ast = require("build.ast")
 local String = require("cosmic.string")
 local cache_names = require("build.cache_names")
+local host_names = require("build.host_names")
 local scopes = require("build.scopes")
 
 local record analyzer
@@ -102,6 +103,9 @@ local record analyzer
     store: boolean
     system: boolean
     caches: {string}
+    --- The host requirements a policy declares ([`Test.policy`]'s
+    --- `requires`), as written; empty for [`Test.needs`], which has none.
+    requires: {string}
   end
 
   --- What a single parse of a module's source tells the importer: its
@@ -1481,6 +1485,7 @@ local record PolicyData
   user: integer
   group: integer
   database: string
+  requires: {string}
 end
 
 --- What each field of a `policy` declaration takes: a list of string
@@ -1496,7 +1501,7 @@ local policy_fields <const>: {string:string} = {
   profiles = "list", grants = "grants", isolate = "list", promises = "list",
   connect = "list", loopback = "list", env = "list", set_env = "map",
   set_env_digests = "map", tmp = "flag", limits = "limits", user = "id", group = "id",
-  database = "string",
+  database = "string", requires = "list",
 }
 
 local policy_field_order: {string} = {}
@@ -1592,6 +1597,8 @@ local function policy_data(node: ast.Node): PolicyData | nil, string
         out.connect, why = string_list(given, field)
       elseif field == "loopback" then
         out.loopback, why = string_list(given, field)
+      elseif field == "requires" then
+        out.requires, why = string_list(given, field)
       else
         out.env, why = string_list(given, field)
       end
@@ -1660,7 +1667,7 @@ local function policy_declared(data: PolicyData, line: integer): analyzer.Declar
   local out: analyzer.Declared = {
     line = line, reads = {}, host = {}, env = {}, network = {},
     tool = false, lua = false, nests = false, noexec = false, store = false,
-    system = false, caches = {},
+    system = false, caches = {}, requires = {},
   }
   local not_yet = " is not yet taken: a policy runs a worker as a `needs` does " ..
     "(migration step a of the sandbox plan), and this takes effect where the policy's own " ..
@@ -1777,6 +1784,10 @@ local function policy_declared(data: PolicyData, line: integer): analyzer.Declar
   end
   out.env = data.env or {}
   out.network = data.loopback or {}
+  local fine, trouble = host_names.check(data.requires or {},
+    { system = out.system, host = out.host, env = out.env })
+  if not fine then return nil, trouble end
+  out.requires = data.requires or {}
   return out, ""
 end
 
@@ -1847,7 +1858,7 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
   local out: analyzer.Declared = {
     line = found.y, reads = {}, host = {}, env = {}, network = {},
     tool = false, lua = false, nests = false, noexec = false, store = false,
-    system = false, caches = {},
+    system = false, caches = {}, requires = {},
   }
   if which == "policy" then
     -- The `needs` the policy stands for, held to the rules its own fields

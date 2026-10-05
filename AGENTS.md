@@ -249,16 +249,60 @@
    is kept of one, so it runs again every run, in a held run too
    (`COSMIC_TEST_SANDBOX=1`, `COSMIC_SANDBOX=must` or
    `COSMIC_CI_REQUIRE_SANDBOX=1`), which counts a skip as any run does.
+   A test whose host lacks what it is about, and which a fact of the
+   host alone says, does not probe it by hand and return: its module
+   declares it in its policy, `requires = { "program:jq", ... }`, from
+   [`build.host_names`]'s closed table (`root`, `portable`,
+   `path:<abs>`, `program:<name>` and the Linux-class `sandbox`,
+   `landlock[:N]`, `userns`, `nest`, `own_proc`, `proc`;
+   `o/bin/cosmic docs cosmic.test`). Only what the module writes is
+   required: nothing is inferred from its promises or grants. Until each
+   CI leg's promises are written down (step 4 of the host requirements
+   design, the TODOs in build/host_names.tl), the build refuses the
+   Linux-class names, since a module naming one would be skipped or n/a
+   on a leg that should have given it, with no run failing. The runner
+   asks the host once, before any worker starts, and decides each such
+   module before it starts one: with every requirement present it runs,
+   and its key holds each answer (the `requires` part: the digest of
+   the file or program found); with one absent none of its tests
+   starts, the module is never loaded, and no verdict is made. Which
+   outcome an absence is turns on its class. A *platform* requirement
+   that the platform never has ([`build.confine`]'s `sandbox_platform`
+   is Linux's; a native start has no `portable`) is **n/a**: the
+   summary counts the tests `N n/a` beside ran, stood and skipped, one
+   `test: N/A  <test>: requires <name>: <why>` line each, and none
+   fails. A requirement this host lacks is skipped, naming it
+   (`test: SKIP  <test>: requires path:/x: <why>`), as is every *host*
+   requirement (a path, a program, root), which any platform may lack.
+   A probe that cannot tell (a file the run may not read) or a refused
+   name fails the module's tests, naming why, and the run goes on.
+   The build checks names when it reads the policy: an unknown one, a
+   Linux-class one or one written twice fails it, naming the rule.
+   What the worker sees is what its module grants, not what the runner
+   found, so a `path:` needs a `host` grant of the same path (or a
+   /proc grant above it), and a `program:` the profile "system" and
+   `env = { "PATH" }`; it is probed only under the system's paths
+   ([`build.confine`]'s `system_paths`) a worker with that profile is
+   given, so one found only elsewhere is skipped. The requirements of a
+   module are all or nothing: a test that needs one only some of the
+   time goes in a module of its own, as one that reads the store does.
+   They apply to [`Test.policy`], never [`Test.needs`]. A held run
+   (`COSMIC_TEST_SANDBOX=1`, `COSMIC_SANDBOX=must`,
+   `COSMIC_CI_REQUIRE_SANDBOX=1`) holds the sandbox and nothing more
+   of these: it fails for no n/a and no skip. `COSMIC_TEST_PLATFORM=other`
+   is for the runner's own tests: it makes the platform one without
+   Linux's requirements or a portable artifact, so modules turn n/a
+   and the run exits 0; never set it to run a suite, as with
+   `COSMIC_TEST_HARNESS_EPOCH`.
    A test that ends early because this host cannot be given the
-   sandbox it is about calls [`Test.skip`] too, never passing as though
-   it had checked -- but only where the platform could give it
-   ([`build.confine`]'s `sandbox_platform`): off Linux (no user
-   namespaces, Landlock or subreaper) it returns silently, a pass the
-   key's kernel part pins to that platform. So does a test for what the
-   policy path cannot yet give it (a unix socket by path, a mode with a
-   setuid bit): it skips naming the reason, beside a `TODO:` that says
-   what it waits on. A test that returns early for a host tool or
-   artifact it lacks (jq, a portable artifact) does not skip.
+   sandbox it is about, for what only the test can learn (a spawn the
+   kernel refused with EPERM), calls [`Test.skip`] too, never passing as
+   though it had checked. A test for what the policy path cannot yet give
+   it (a unix socket by path, a mode with a setuid bit) skips naming the
+   reason, beside a `TODO:` that says what it waits on. A test that
+   returns early for a host tool or artifact it lacks (jq, a portable
+   artifact) or for the platform's having none (/proc, Landlock) hides an
+   unchecked pass: it declares `requires` instead.
    A test module declares what it reads beyond its import closure, its
    fuzz corpora and a pinned environment with a top-level
    `Test.needs { ... }` (`local Test = require("cosmic.test")`; see
@@ -461,6 +505,7 @@ unblocks: `o/bin/cosmic todos '"cosmic-driver.pin"'` lists them.
 [`bin/zig`]: bin/zig
 [`build.confine`]: build/confine.tl
 [`build.fuzz`]: build/fuzz/init.tl
+[`build.host_names`]: build/host_names.tl
 [`build/artifact.tl`]: build/artifact.tl
 [`build/c/layout.tl`]: build/c/layout.tl
 [`build/c/rules.tl`]: build/c/rules.tl
