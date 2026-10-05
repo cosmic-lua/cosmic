@@ -28,8 +28,8 @@ else
 end
 
 --- The process table's questions of this host, as this module loads.
-local sandbox_platform, may_map_ids, own_proc = process.sandbox_platform,
-  process.may_map_ids, process.own_proc
+local sandbox_platform, may_map_ids, own_proc, landlock_abi = process.sandbox_platform,
+  process.may_map_ids, process.own_proc, process.landlock_abi
 
 --- The process table's own `spawn`, as this module loads -- before any
 --- stand-in for it (see `enter`) is put in its place.
@@ -415,6 +415,15 @@ end
 function confine.own_proc_given(): boolean
   local ok, _, _ = own_proc()
   return ok
+end
+
+--- The Landlock ABI version this kernel gives (core/process.h's
+--- `landlock_abi`), 1 and up, or nil and why where there is no Landlock to
+--- be had: not built in, turned off, or refused by a filter.
+function confine.landlock_abi(): integer | nil, string
+  local abi, why, _ = landlock_abi()
+  if abi == nil then return nil, why end
+  return abi, ""
 end
 
 --- What a sandboxed worker of this very program -- `cosmic test`'s,
