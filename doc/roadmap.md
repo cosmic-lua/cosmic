@@ -239,7 +239,7 @@ promises lean on come first:
   text, `on...` handlers and the `style` attribute are refused now, because
   escaping for them is a different language's rule (old's #1654 and #1658 were
   its bugs there). Each needs an escaper made in C with a type of its own, as
-  `cosmic.html`'s are, and the context tracker ([`cosmic/template/markup.tl`])
+  [`cosmic.html`]'s are, and the context tracker ([`cosmic/template/markup.tl`])
   to say which one a slot is in. Likewise a slot after literal text in a URL
   (`href="/a/{{.id}}"`), which wants an escaper for one component of a URL, a
   path segment or a query value, beside [`cosmic.url`]'s.
@@ -335,6 +335,7 @@ four-producer provenance join.
 [`ci/cosmic_ci/prerelease.tl`]: ../ci/cosmic_ci/prerelease.tl
 [`core/coverage.c`]: ../core/coverage.c
 [`core/json.c`]: ../core/json.c
+[`cosmic.html`]: ../cosmic/html.tl
 [`cosmic.http`]: ../cosmic/http/init.tl
 [`cosmic.net`]: ../cosmic/net.tl
 [`cosmic.sandbox`]: ../cosmic/sandbox.tl

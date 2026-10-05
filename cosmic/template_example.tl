@@ -18,7 +18,7 @@ function Example.compile()
   assert(source:find("render(d: page.Page): string", 1, true))
 end
 
---- Without `{{mode text}}` a template is HTML: it returns a `cosmic.html`
+--- Without `{{mode text}}` a template is HTML: it returns a [`cosmic.html`]
 --- `SafeHtml`, and each slot is escaped for where the markup around it
 --- puts it (here text, an attribute value and a URL).
 function Example.html()

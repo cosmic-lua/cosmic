@@ -28,14 +28,14 @@
 --- `{{-` drops the whitespace before an action (newlines too) and `-}}`
 --- the whitespace after it; each needs a space inside it.
 ---
---- In `html` mode, which returns a `cosmic.html` `SafeHtml`, a value is
+--- In `html` mode, which returns a [`cosmic.html`] `SafeHtml`, a value is
 --- escaped by where it lands in the markup around it, which the compiler
 --- follows with the tokenizer a browser uses: as text, a slot takes a
 --- string, a number or a `SafeHtml` (strings are escaped, a `SafeHtml` is
 --- taken as it is); in a quoted attribute value, a string, a number or a
 --- `SafeAttr`; in a quoted URL attribute value (`href`, `src`, `action`
 --- and the like, at the start of the value), a string (checked by
---- `html.href`, which allows a web or mail link or a relative reference
+--- [`html.href`], which allows a web or mail link or a relative reference
 --- and else answers `about:invalid`) or a `SafeUrl`. Another type there is
 --- a type error naming the template's line. Where there is no escaping to
 --- be had the template is refused, with its line and column: after `<`, in
@@ -65,7 +65,7 @@ local record Template
 end
 
 --- Compiles a template to the source of a Teal module that exports
---- `render`, requiring `cosmic.html` in an `html` template, the record's
+--- `render`, requiring [`cosmic.html`] in an `html` template, the record's
 --- module, and each stage's.
 --- @param src string The template source
 --- @param name string The template's name (its file), which heads each reason

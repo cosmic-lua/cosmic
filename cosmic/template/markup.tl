@@ -689,7 +689,7 @@ local function slot(p: Place): types.Slot | nil, string
         return nil, "a slot in the '" .. attr .. "' of <" .. p.tag .. "> would make the page load or run it"
       end
       if not p.fresh then
-        -- TODO: once `cosmic.html` carries an escaper for one component of
+        -- TODO: once [`cosmic.html`] carries an escaper for one component of
         -- a URL (a path segment, a query value), let a slot stand after
         -- literal text in a URL attribute, escaped by that.
         return nil, "a slot in a URL must begin the value of '" .. attr .. "': after other text it is a piece of one"

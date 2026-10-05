@@ -1,6 +1,6 @@
 # Typed templates
 
-A port of the `old` branch's `cosmic.template` (#1599, #1648, #1653,
+A port of the `old` branch's [`cosmic.template`] (#1599, #1648, #1653,
 #1654, #1658), redesigned for the current tree.
 
 ## What carries over
@@ -90,7 +90,7 @@ for a project and for cosmic's own tree alike: `require("pages.home")
 `pages`. A `.tmpl` and a `.tl` at one import path are refused as any two
 files are. A `derive_templates` step in [`build/derivation.tl`] (beside
 `derive_doc_guides`) writes a `derived` row per template, keyed by the
-template's hash; `cosmic.template` joins the analyzer's identity, so a
+template's hash; [`cosmic.template`] joins the analyzer's identity, so a
 change to the compiler, or a new cosmic, regenerates every template.
 `cosmic fix` accepts a `.tmpl` as check-only (it parses it); there is
 no formatter.
@@ -129,6 +129,7 @@ a refusal naming `page.tmpl:<line>` and the Safe type.
 [`build.work`]: ../../build/work.tl
 [`build/derivation.tl`]: ../../build/derivation.tl
 [`cosmic.html`]: ../../cosmic/html.tl
+[`cosmic.template`]: ../../cosmic/template/init.tl
 [`cosmic.url`]: ../../cosmic/url.tl
 [`cosmic/fs_kind_test.tl`]: ../../cosmic/fs_kind_test.tl
 [`test/visibility_test.tl`]: ../../test/visibility_test.tl
