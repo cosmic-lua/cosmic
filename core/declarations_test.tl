@@ -36,6 +36,7 @@ local type _child = require("cosmic.child")
 local type _compress = require("cosmic.compress")
 local type _coverage = require("cosmic.coverage")
 local type _hash = require("cosmic.hash")
+local type _html = require("cosmic.html")
 local type _http = require("cosmic.http")
 local type _json = require("cosmic.json")
 local type _net = require("cosmic.net")
@@ -240,6 +241,10 @@ local makers: {string: function(raw: {string: any}): Made} = {
     local hasher = assert(call(raw.hasher, "sha256"))
     return { instances = { Hasher = hasher }, release = nothing }
   end,
+  html = function(raw: {string: any}): Made
+    return { instances = { SafeHtml = call(raw.escape, "<"), SafeAttr = call(raw.escape_attr, "<") },
+      release = nothing }
+  end,
   http = function(raw: {string: any}): Made
     local handle = assert(call(raw.open, "http://declarations.invalid/",
       { script = { reply() } }))
@@ -279,6 +284,7 @@ local wrappers <const>: {string: string} = {
   ["cosmic.compress"] = "compress",
   ["cosmic.coverage"] = "debug",
   ["cosmic.hash"] = "hash",
+  ["cosmic.html"] = "html",
   ["cosmic.http"] = "http",
   ["cosmic.json"] = "json",
   ["cosmic.net"] = "socket",
