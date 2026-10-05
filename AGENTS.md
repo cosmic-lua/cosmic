@@ -256,11 +256,10 @@
    `path:<abs>`, `program:<name>` and the Linux-class `sandbox`,
    `landlock[:N]`, `userns`, `nest`, `own_proc`, `proc`;
    `o/bin/cosmic docs cosmic.test`). Only what the module writes is
-   required: nothing is inferred from its promises or grants. Until each
-   CI leg's promises are written down (step 4 of the host requirements
-   design, the TODOs in build/host_names.tl), the build refuses the
-   Linux-class names, since a module naming one would be skipped or n/a
-   on a leg that should have given it, with no run failing. The runner
+   required: nothing is inferred from its promises or grants (the TODO
+   in build/host_names.tl says what inferring `nest` would silence). The
+   Linux-class names are allowed: each CI leg's promises are written
+   down in [`ci/cosmic_ci/capabilities.tl`] (below). The runner
    asks the host once, before any worker starts, and decides each such
    module before it starts one: with every requirement present it runs,
    and its key holds each answer (the `requires` part: the digest of
@@ -276,8 +275,8 @@
    requirement (a path, a program, root), which any platform may lack.
    A probe that cannot tell (a file the run may not read) or a refused
    name fails the module's tests, naming why, and the run goes on.
-   The build checks names when it reads the policy: an unknown one, a
-   Linux-class one or one written twice fails it, naming the rule.
+   The build checks names when it reads the policy: an unknown one or
+   one written twice fails it, naming the rule.
    What the worker sees is what its module grants, not what the runner
    found, so a `path:` needs a `host` grant of the same path (or a
    /proc grant above it), and a `program:` the profile "system" and
@@ -286,10 +285,27 @@
    given, so one found only elsewhere is skipped. The requirements of a
    module are all or nothing: a test that needs one only some of the
    time goes in a module of its own, as one that reads the store does.
-   They apply to [`Test.policy`], never [`Test.needs`]. A held run
+   They apply to [`Test.policy`], never [`Test.needs`].
+   Each CI leg lists the requirements it promises in
+   [`ci/cosmic_ci/capabilities.tl`] (linux-x86_64, its shard, its checked
+   job, linux-aarch64 and alpine-x86_64 promise the Linux-class names and `path:/bin/sh`;
+   macos-aarch64 promises `path:/bin/sh` alone; none promises `portable` or `root`), and the driver gives
+   every suite of a leg the list as `COSMIC_TEST_PROMISES` (names
+   separated by commas, read only by a held run, which a name the table
+   refuses fails) and the
+   leg's name as `COSMIC_TEST_LEG` ([`build/host_names.tl`]'s `promised`
+   matches a `landlock:N` by version). A held run
    (`COSMIC_TEST_SANDBOX=1`, `COSMIC_SANDBOX=must`,
-   `COSMIC_CI_REQUIRE_SANDBOX=1`) holds the sandbox and nothing more
-   of these: it fails for no n/a and no skip. `COSMIC_TEST_PLATFORM=other`
+   `COSMIC_CI_REQUIRE_SANDBOX=1`) fails a module for an n/a or a skip of a
+   requirement its leg promises, naming the requirement and the leg, and
+   fails for any other absence no more than it did: a requirement no leg
+   promises (`path:`, `program:` of a tool a leg lacks) is skipped even
+   there, and a run that is not held ignores the promises. Add a name to
+   a leg's list in the same change that a module first requires it:
+   `o/bin/cosmic fix --check .` fails a requirement no leg promises,
+   since a module n/a or skipped on every leg would run nowhere
+   ([`build/tree_checks.tl`]'s `promises`). The promised list moves no
+   key. `COSMIC_TEST_PLATFORM=other`
    is for the runner's own tests: it makes the platform one without
    Linux's requirements or a portable artifact, so modules turn n/a
    and the run exits 0; never set it to run a suite, as with
@@ -516,6 +532,7 @@ unblocks: `o/bin/cosmic todos '"cosmic-driver.pin"'` lists them.
 [`build/flow.tl`]: build/flow.tl
 [`build/harness_epoch.tl`]: build/harness_epoch.tl
 [`build/harness_epoch_test.tl`]: build/harness_epoch_test.tl
+[`build/host_names.tl`]: build/host_names.tl
 [`build/launcher.tl`]: build/launcher.tl
 [`build/reboot.tl`]: build/reboot.tl
 [`build/rebuild_lock.tl`]: build/rebuild_lock.tl
@@ -530,6 +547,7 @@ unblocks: `o/bin/cosmic todos '"cosmic-driver.pin"'` lists them.
 [`build/workflows_test.tl`]: build/workflows_test.tl
 [`build/zig.tl`]: build/zig.tl
 [`ci/cosmic-driver.pin`]: ci/cosmic-driver.pin
+[`ci/cosmic_ci/capabilities.tl`]: ci/cosmic_ci/capabilities.tl
 [`ci/run-local`]: ci/run-local
 [`core/allocation_test.tl`]: core/allocation_test.tl
 [`core/check.h`]: core/check.h

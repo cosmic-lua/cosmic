@@ -1,0 +1,4 @@
+{{type Profile from test.profile_page_data}}
+<h1>{{.name}}</h1>
+<p><a href="{{.site}}">site</a></p>
+<ul>{{range .links}}<li><a href="{{.url}}">{{.name}}</a></li>{{end}}</ul>

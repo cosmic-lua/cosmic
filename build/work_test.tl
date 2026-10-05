@@ -238,7 +238,8 @@ end
 --- `boot_hash` follows every module the tool carries, wherever it
 --- sits: an edit to one under eval/ or test/portable, trees none of
 --- the tool's C is in, moves it, and an edit to a test or testdata
---- beside them, which the tool never carries, does not.
+--- beside them, which the tool never carries, does not. A template's
+--- module is carried as a module is, so its edit moves it too.
 local function test_a_carried_module_outside_the_tool_trees_moves_boot_hash(tmp: string)
   local root = tmp .. "/root"
   local files: {string:string} = {
@@ -247,6 +248,8 @@ local function test_a_carried_module_outside_the_tool_trees_moves_boot_hash(tmp:
     ["test/portable/init.tl"] = "return {}\n",
     ["test/portable/tool_test.tl"] = "local function test_x() end\n",
     ["eval/testdata/case.tl"] = "return {}\n",
+    ["eval/page.tmpl"] = "{{type Page from eval.summarize}}{{mode text}}one",
+    ["eval/testdata/page.tmpl"] = "{{broken",
   }
   for path, data in pairs(files) do
     assert(Fs.mkdirs(root .. "/" .. path:match("^(.*)/")))
@@ -254,11 +257,12 @@ local function test_a_carried_module_outside_the_tool_trees_moves_boot_hash(tmp:
   end
   local before = boot_of(root)
   assert(boot_of(root) == before, "an unchanged tree keeps its boot_hash")
-  for _, path in ipairs({ "test/portable/tool_test.tl", "eval/testdata/case.tl" }) do
+  for _, path in ipairs({ "test/portable/tool_test.tl", "eval/testdata/case.tl",
+      "eval/testdata/page.tmpl" }) do
     assert(Fs.write(root .. "/" .. path, "return { edited = true }\n"))
     assert(boot_of(root) == before, path .. " is not carried, and moves nothing")
   end
-  for _, path in ipairs({ "eval/summarize.tl", "test/portable/init.tl" }) do
+  for _, path in ipairs({ "eval/summarize.tl", "test/portable/init.tl", "eval/page.tmpl" }) do
     assert(Fs.write(root .. "/" .. path, "return { edited = true }\n"))
     local after = boot_of(root)
     assert(after ~= before, path .. " is carried, and moves boot_hash")

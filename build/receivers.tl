@@ -51,6 +51,10 @@ local record receivers
     callees: {integer: Type}
     owners: {integer: Owner}
     walked: {string: boolean}
+    --- The file name the module being checked is checked under, which
+    --- tells it from every module the checker loads on the way: `""`,
+    --- what `gen` checks under, until a caller names the file.
+    checking: string
   end
 
   --- The part of a tl type object read here. Every other field tl
@@ -161,7 +165,7 @@ local function declaring(t: receivers.Type, name: string,
 end
 
 --- A reporter for tl's checker that keeps, for the module being
---- checked (the one `gen` names `""`), each record-typed node's type by
+--- checked (the one [`State.checking`] names), each record-typed node's type by
 --- position. Every other call tl makes on a reporter or a collector is
 --- answered and ignored.
 local function reporter_for(state: receivers.State): any
@@ -210,7 +214,7 @@ local function reporter_for(state: receivers.State): any
   }
   return {
     get_collector = function(_self: any, filename: string): any
-      if filename == "" then
+      if filename == state.checking then
         state.types = {}
         state.every = {}
         state.callees = {}
@@ -241,7 +245,7 @@ end
 --- Turns the checker's type reporting on for `env`, answering into a
 --- fresh state that `references` then reads.
 function receivers.install(env: compiler.Env): receivers.State
-  local state: receivers.State = { types = {}, every = {}, callees = {}, owners = {}, walked = {} }
+  local state: receivers.State = { types = {}, every = {}, callees = {}, owners = {}, walked = {}, checking = "" }
   env.report_types = true
   env.reporter = reporter_for(state)
   return state

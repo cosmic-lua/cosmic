@@ -87,6 +87,7 @@ local render_mod = require("build.fix.render")
 local rule = require("build.fix.rule")
 local spill = require("build.fix.spill")
 local teal = require("build.teal")
+local template = require("cosmic.template")
 local tree = require("build.tree")
 local example_checks = require("build.example_checks")
 local tree_checks = require("build.tree_checks")
@@ -147,6 +148,9 @@ local record fix
     --- are never rewritten.
     checked: {string}
     refused: {string}
+    --- The templates (`.tmpl`), which are parsed and never rewritten:
+    --- a template has no layout.
+    templates: {string}
     --- Whether `files` are every Teal source of cosmic's own tree, as
     --- `cosmic fix --check .` covers it: only then does the run hold
     --- the tree to [`build.tree_checks`]. A run of `--changed` is whole
@@ -198,6 +202,24 @@ local function sources(root: string): {string} | nil, string
   local out: {string} = {}
   for _, file in ipairs(files) do
     if String.ends_with(file, ".tl") then
+      out[#out + 1] = file
+    end
+  end
+  return out
+end
+
+--- Every template under `root`, as paths relative to it, but those under
+--- a `testdata/` directory, which the build never makes a module of
+--- ([`build.derivation`]) and a test may keep broken on purpose.
+local function template_sources(root: string): {string} | nil, string
+  local files, trouble = Fs.walk(root, skip)
+  if files == nil then
+    return nil, trouble
+  end
+  local out: {string} = {}
+  for _, file in ipairs(files) do
+    if String.ends_with(file, ".tmpl") and file:sub(1, 9) ~= "testdata/" and
+        file:find("/testdata/", 1, true) == nil then
       out[#out + 1] = file
     end
   end
@@ -432,6 +454,10 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
     if checked == nil then
       return nil, checked_trouble
     end
+    local templates, templates_trouble = template_sources(root)
+    if templates == nil then
+      return nil, templates_trouble
+    end
     local c_files: {string} = {}
     local flow_files: {string} = {}
     if own then
@@ -447,12 +473,13 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
       flow_files = workflows
     end
     return { files = all, c_files = c_files, flow_files = flow_files, checked = checked,
-      refused = {}, whole = own }
+      templates = templates, refused = {}, whole = own }
   end
   local out: {string} = {}
   local c_out: {string} = {}
   local flow_out: {string} = {}
   local checked_out: {string} = {}
+  local templates_out: {string} = {}
   local refused: {string} = {}
   for _, path in ipairs(paths) do
     local what, missing = Fs.stat(path)
@@ -472,6 +499,13 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
       end
       for _, file in ipairs(checked) do
         checked_out[#checked_out + 1] = path .. "/" .. file
+      end
+      local templates, templates_trouble = template_sources(path)
+      if templates == nil then
+        return nil, templates_trouble
+      end
+      for _, file in ipairs(templates) do
+        templates_out[#templates_out + 1] = path .. "/" .. file
       end
       if own then
         local c_under, c_trouble = c_check.sources(path)
@@ -500,14 +534,16 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
       flow_out[#flow_out + 1] = path
     elseif check_only(path) then
       checked_out[#checked_out + 1] = path
+    elseif String.ends_with(path, ".tmpl") then
+      templates_out[#templates_out + 1] = path
     elseif not String.ends_with(path, ".tl") then
-      refused[#refused + 1] = path .. ": not a Teal or C source, YAML, Markdown or Zig"
+      refused[#refused + 1] = path .. ": not a Teal, C or template source, YAML, Markdown or Zig"
     else
       out[#out + 1] = path
     end
   end
   return { files = out, c_files = c_out, flow_files = flow_out, checked = checked_out,
-    refused = refused, whole = own and covers(root, out) }
+    templates = templates_out, refused = refused, whole = own and covers(root, out) }
 end
 
 --- The modules whose code checks each file alone, with every module
@@ -526,7 +562,7 @@ end
 local file_checks: {string} = { "build.fix.rule", "build.fix.render", "build.fix.breaks",
   "build.fix.equiv", "build.ast", "build.teal", "build.flow", "build.c",
   "build.fix.near", "build.analyzer", "build.verdict",
-  "build.tree", "cosmic.flags", "cosmic.cli" }
+  "build.tree", "cosmic.flags", "cosmic.cli", "cosmic.template" }
 
 --- What else a run of `--changed` lays out the whole tree for, by a
 --- path's first directory, and why: what the program, its Teal compiler
@@ -629,7 +665,8 @@ function fix.narrowed(root: string, every: fix.Chosen, changed: {string},
                       databases: {Sqlite.Handle}): fix.Chosen
   local function widened(why: string): fix.Chosen
     return { files = every.files, c_files = every.c_files, flow_files = every.flow_files,
-      checked = every.checked, refused = every.refused, whole = every.whole,
+      checked = every.checked, templates = every.templates, refused = every.refused,
+      whole = every.whole,
       every = every, widened = why }
   end
   local named: {string} = {}
@@ -680,7 +717,8 @@ function fix.narrowed(root: string, every: fix.Chosen, changed: {string},
     if not tree_checks.standard(under(root, file) or file) then noted[#noted + 1] = file end
   end
   return { files = files, c_files = c_files, flow_files = picked(every.flow_files),
-    checked = {}, refused = {}, whole = every.whole, every = every, noted = noted }
+    checked = {}, templates = picked(every.templates), refused = {},
+    whole = every.whole, every = every, noted = noted }
 end
 
 --- Lays out each YAML file of `files` ([`build.flow`]), writing it back
@@ -1073,11 +1111,26 @@ local function start_tally(ctx: Fix)
   -- covers, so the verdict says how many of everything asked for was
   -- refused rather than only how many of what survived the naming.
   ctx.counted = #ctx.files + #picked.c_files + #picked.flow_files + #picked.checked +
-    #picked.refused
+    #picked.templates + #picked.refused
   ctx.changed = {}
   ctx.failures = {}
   for _, why in ipairs(picked.refused) do
     ctx.failures[#ctx.failures + 1] = why
+  end
+end
+
+--- Parses each template, which has no layout to write back: one the
+--- template compiler refuses fails the run with its own reason
+--- (`file:line:col: ...`).
+local function check_templates(ctx: Fix)
+  for _, file in ipairs(ctx.picked.templates) do
+    local source, read_trouble = Fs.read(file)
+    if source == nil then
+      ctx.failures[#ctx.failures + 1] = read_trouble
+    else
+      local made, why = template.compile(source, file)
+      if made == nil then ctx.failures[#ctx.failures + 1] = why end
+    end
   end
 end
 
@@ -1269,6 +1322,24 @@ local function find_unbuilt(ctx: Fix)
   ctx.unbuilt = unbuilt
 end
 
+--- What the CI legs' promises say against the requirements the tree's
+--- test modules declare ([`tree_checks.promises`]), the declarations read
+--- from the working database the projection just wrote.
+local function promise_findings(root: string): {string}
+  local build, open_trouble = Sqlite.open(root .. "/o/build.db")
+  if build == nil then return { "tree checks: " .. open_trouble } end
+  local declared, declared_trouble = tree_checks.requirements(build)
+  local _, _ = build:close()
+  if declared == nil then return { "tree checks: " .. declared_trouble } end
+  local legs, legs_trouble = tree_checks.legs(root)
+  if legs == nil then return { "tree checks: " .. legs_trouble } end
+  local out: {string} = {}
+  for _, line in ipairs(tree_checks.promises(declared, legs)) do
+    out[#out + 1] = "promises: " .. line
+  end
+  return out
+end
+
 --- Over the whole of cosmic's own tree, what only the whole tree can
 --- answer ([`build.tree_checks`]), asked of its projection built afresh:
 --- a finding is the tree's, not a file's, so it is counted apart.
@@ -1312,6 +1383,9 @@ local function run_tree_checks(ctx: Fix)
         for _, line in ipairs(example_checks.run(db, root, shown)) do
           findings[#findings + 1] = "examples as shown: " .. line
         end
+      end
+      for _, line in ipairs(promise_findings(root)) do
+        findings[#findings + 1] = line
       end
       local closed, close_trouble = db:close()
       if not closed then findings[#findings + 1] = "tree checks: " .. close_trouble end
@@ -1519,6 +1593,7 @@ local function fix_verb(argv: {integer:string}): integer
   if code ~= nil then return code end
   start_tally(ctx)
   lay_out_c(ctx)
+  check_templates(ctx)
   lay_out_teal(ctx)
   wrap_asserts(ctx)
   find_unbuilt(ctx)

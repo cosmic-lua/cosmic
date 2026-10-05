@@ -77,7 +77,7 @@ local record harness_epoch
   library: {string:string}
 end
 
-harness_epoch.epoch = "24-312f48e5" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
+harness_epoch.epoch = "25-74e91a61" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
 harness_epoch.acknowledged = {
 
   ["build.artifact"] = "4405196f6511a21a7493aa3d1ee196c6318d3ceec2e0202800494c46b9502745",
@@ -100,9 +100,9 @@ harness_epoch.acknowledged = {
 
   ["build.digest"] = "dccca5b63f2992d4d23213450142bdd05eee403ebaf3a4e0acf7437da72558f0",
 
-  ["build.host_names"] = "a1346c6313299f6b3f449010cbbcdb0b3f5c2731166888caf1fb6755a2c4511c",
+  ["build.host_names"] = "3620652156ed54427c3778581d66fd2c7a44a7df522b65161db427c85fb8d9e3",
 
-  ["build.host_requires"] = "50d6dec2685f328595acf9f097a70c4057a6b1b30edfaded7f87473a604bdae3",
+  ["build.host_requires"] = "3b2f9b914654ffb0c7c2c39fe947d6984550f6602cb1a2452912a6e84d70bf6d",
 
   ["build.key_parts"] = "5d7e7852a5938ed34cdd452d5536608fea8c259faee423ea01bda47efb8adadf",
 
@@ -114,7 +114,7 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "516c08e34d1fc392de5363af92b6d669344fc3c8b504c469ae3771a424d0db6b",
 
-  ["build.test"] = "f9740d7155655ed3755f8028c57f7531fa391b138d9e3e04af3b51e24144f8a7",
+  ["build.test"] = "a32ad37f1c125c044b7e3f7f709e00a90d9e83f38eed9b5661eb186e7134ee8d",
 
   ["build.test_inputs"] = "b8a37fe318449f8295ba950e76ebbcdb9e14fc56c446e1b48cf9b29ec520c3ef",
 
@@ -130,7 +130,7 @@ harness_epoch.acknowledged = {
 
   ["cmd.cosmic.main"] = "d00f469acf42d89c76c2e9ebabd40e73e20d00cb3a5ad6d9189716265fcdf9bf",
 
-  ["cosmic.child"] = "74618a3f8952c7d7deb4cf9a9c88acf6dc26be788ce9a56982d81be8c83d5ed4",
+  ["cosmic.child"] = "f7368cd952c9cf31d39a3c5e2169d2adefb99380abdce212e1048ee10012267a",
 
   ["cosmic.coverage"] = "079fe202231c4ae3ee642e27f6703a37850132c28c2a6d1daf50c7eb1669ac9a",
 
@@ -146,7 +146,7 @@ harness_epoch.acknowledged = {
 
   ["cosmic.string"] = "bf0e5e828de84f23aa818887e0280a3ebc844c9ca5e384c33227cb42715b8655",
 
-  ["cosmic.test"] = "833b9f366d91fa2669bd581954c49f8157a72c1467dfa6c182e76dc138b74159",
+  ["cosmic.test"] = "ee9381ecaaa3f7f00e709bb713e1c6940eecadf1d7032b8945c56a6da080923e",
 
 }
 
@@ -206,6 +206,7 @@ harness_epoch.retired = {
   "b6ac3eca",
   "3da8eb88",
   "d2c79229",
+  "312f48e5",
 }
 
 return harness_epoch

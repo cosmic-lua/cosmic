@@ -43,14 +43,13 @@
 --- Linux's), never a probe's.
 ---
 --- A held run (`COSMIC_TEST_SANDBOX=1`, `COSMIC_SANDBOX=must`,
---- `COSMIC_CI_REQUIRE_SANDBOX=1`) never fails for an absence of this table's:
---- a test that finds `jq` missing returned without a skip before, so failing
---- each `program:` or `path:` absence would fail hosts that never promised the
---- tool. What a held run does hold is the sandbox, as it always did.
--- TODO: fail a held run for a `platform` requirement it was promised and the
--- host lacks, once ci/capabilities.tl lists each leg's promises and
--- a variable of the run names them (step 4 of the host requirements design):
--- until then a skip of any requirement, held or not, is only counted.
+--- `COSMIC_CI_REQUIRE_SANDBOX=1`) fails a module for an absence only of a
+--- requirement its leg promises (COSMIC_TEST_PROMISES, which ci/cosmic_ci/capabilities.tl
+--- lists per leg and [`build.host_names`]'s `promised` reads): a test that
+--- finds `jq` missing returned without a skip before, so failing each
+--- `program:` or `path:` absence would fail hosts that never promised the
+--- tool. What a held run holds beyond the promises is the sandbox, as it
+--- always did.
 -- TODO: add a `relaunch` name (a program that can start itself again, as
 -- `Proc.relaunch() == nil` tests ask) once Proc.relaunch tells a native
 -- start from a failure to reopen: both answer nil today, so a probe cannot

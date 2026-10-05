@@ -362,15 +362,17 @@ local function test_a_setting_that_cannot_be_read_raises()
   assert(not unreadable and tostring(trouble):find("cannot be read", 1, true), tostring(trouble))
 end
 
---- `check` refuses Linux-class names, repeats, and a `path:` or `program:` the
---- worker could not use; a /proc grant covers the files beneath it only.
+--- `check` accepts the Linux-class names, a leg's promises having made them
+--- safe, and refuses repeats and a `path:` or `program:` the worker could
+--- not use; a /proc grant covers the files beneath it only.
 local function test_check_refuses_what_the_worker_could_not_use()
   local inputs: host_names.Inputs = { host = { "/proc/self/status", "/etc/hosts" },
     system = true, env = { "PATH" } }
   assert(host_names.check({ "root", "program:jq", "path:/etc/hosts", "portable" }, inputs))
+  for _, name in ipairs({ "sandbox", "landlock", "landlock:3", "userns", "nest", "own_proc", "proc" }) do
+    assert(host_names.check({ name }, inputs), name)
+  end
   local cases: {{any}} = {
-    { { "nest" }, "Linux-class" },
-    { { "landlock:2" }, "Linux-class" },
     { { "root", "root" }, "written twice" },
     { { "nope" }, "unknown requirement" },
     { { "path:/etc/passwd" }, "needs a host grant of the path" },
@@ -384,6 +386,27 @@ local function test_check_refuses_what_the_worker_could_not_use()
   assert(not host_names.check({ "program:jq" }, { system = true }))
   assert(not host_names.check({ "program:jq" }, { env = { "PATH" } }))
   assert(host_names.check({ "program:jq" }, { system = true, env = { "PATH" } }))
+end
+
+--- A run's promises are names the table accepts, written with commas; a
+--- leg that promises Landlock of a version promises every version below it,
+--- and no other name stands in for one.
+local function test_promises_are_read_and_matched_by_name()
+  local read = assert(host_names.read_promises("sandbox,landlock:3,nest"))
+  assert(#read == 3 and read[2] == "landlock:3")
+  assert(#assert(host_names.read_promises("")) == 0)
+  for _, bad in ipairs({ "nope", "sandbox,sandbox", "sandbox,", "path:rel", "landlock:0" }) do
+    local found, why = host_names.read_promises(bad)
+    assert(found == nil and why ~= nil, bad)
+  end
+  assert(host_names.promised(read, "nest") and host_names.promised(read, "sandbox"))
+  assert(host_names.promised(read, "landlock") and host_names.promised(read, "landlock:2") and
+      host_names.promised(read, "landlock:3"))
+  assert(not host_names.promised(read, "landlock:4"))
+  assert(not host_names.promised(read, "proc") and not host_names.promised(read, "userns"))
+  assert(not host_names.promised({ "landlock" }, "landlock:2"))
+  assert(host_names.promised({ "path:/etc/hosts" }, "path:/etc/hosts"))
+  assert(not host_names.promised({ "path:/etc/hosts" }, "path:/etc/passwd"))
 end
 
 --- A program found only outside the system's paths is one a worker with

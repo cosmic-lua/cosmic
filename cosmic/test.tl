@@ -267,9 +267,8 @@ local record Test
     database: string
     --- What the tests need of the host that no other field says, by name
     --- from a closed table: `portable`, `root`, `path:<absolute path>` and
-    --- `program:<name>` (the Linux-class `sandbox`, `landlock:N`, `userns`,
-    --- `nest`, `own_proc` and `proc` are refused until each CI leg's promises
-    --- are written down). The runner asks the host
+    --- `program:<name>`, and the Linux-class `sandbox`, `landlock:N`, `userns`,
+    --- `nest`, `own_proc` and `proc`. The runner asks the host
     --- once, before any worker starts, and a module whose requirement is
     --- absent is not run: its tests are counted n/a where the platform never
     --- has it and skipped where this host lacks it. Nothing is inferred from
@@ -762,7 +761,7 @@ end
 --- connect to, `isolate`, `limits`, `set_env`, `connect` -- fails the
 --- build, naming the field. `requires` names what the host must have, which
 --- the runner asks once before any worker starts; the build refuses a name
---- the table does not have, a Linux-class one (for now) and one written twice,
+--- the table does not have and one written twice,
 --- and a `path:` with no host grant of its path or a `program:`
 --- without the profile "system" and `env = { "PATH" }`. Raises as `needs`
 --- does, for a value no

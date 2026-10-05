@@ -59,18 +59,18 @@ local SLOTS <const>: {{string}} = {
   { "<img alt=\"x\" src=\"{{.x}}\">", "_url(" },
   { "<form action=\"{{.x}}\">", "_url(" },
   { "<button formaction=\"{{.x}}\">", "_url(" },
-  { "<svg><a xlink:href=\"{{.x}}\">", "_url(" },
+  { "<svg><a xlink:href=\"{{.x}}\"></a></svg>", "_url(" },
   { "<a data-x=\"a\" title=\"{{.x}}\">", "_attr(" },
   { "<textarea>{{.x}}</textarea>", "_rtext(" },
   { "<title>{{.x}}</TITLE>", "_rtext(" },
-  { "<svg/><textarea><a href=\"{{.x}}\">", "_rtext(" },
+  { "<svg/><textarea><a href=\"{{.x}}\"></textarea>", "_rtext(" },
   { "<svg><textarea>{{.x}}</textarea></svg>", "_rtext(" },
   { "<svg><text>{{.x}}</text></svg>", "_text(" },
   { "<svg><g><a href=\"{{.x}}\"><path d=\"M0\"/></a></g></svg>", "_url(" },
   { "<svg viewBox=\"0 0 1 1\"><circle r=\"1\"/></svg><p>{{.x}}</p>", "_text(" },
   { "<svg {{if .a}}class=\"b\"{{end}}><g/></svg>{{.x}}", "_text(" },
   { "<select><option>a</option></select><svg></svg>{{.x}}", "_text(" },
-  { "<svg/{{if .a}}{{end}}><textarea>{{.x}}", "_rtext(" },
+  { "<svg/{{if .a}}{{end}}><textarea>{{.x}}</textarea>", "_rtext(" },
   { "<svg><style>.a { fill: red }</style></svg>{{.x}}", "_text(" },
   { "<a title=\"{{range .l}}{{.x}}{{end}}\">", "_attr(" },
   { "<img lowsrc=\"{{.x}}\" dynsrc=\"{{.x}}\">", "_url(" },
@@ -209,6 +209,28 @@ local REFUSALS <const>: {{string}} = {
   { "<link href=\"{{.x}}\">", "2", "13", "<link>" },
   { "<object data=\"{{.x}}\">", "2", "15", "<object>" },
   { "<a title=\"x\">\n<a\n  b={{.y}}>", "4", "5", "unquoted" },
+  { "<textarea></textarea{{.x}}><script>{{.y}}</script>", "2", "21", "complete its end tag" },
+  { "<textarea></{{.x}}><script>{{.y}}</script>", "2", "13", "complete its end tag" },
+  { "<textarea><{{.x}}textarea><script>{{.y}}</script>", "2", "12", "complete its end tag" },
+  { "<textarea></tex{{.x}}>", "2", "16", "complete its end tag" },
+  { "<textarea></TEXTAREA{{.x}}><a onclick='{{.y}}'>", "2", "21", "complete its end tag" },
+  { "<textarea>{{.x}}<{{.y}}", "2", "18", "complete its end tag" },
+  { "<title></title{{.x}}><script>{{.y}}</script>", "2", "15", "complete its end tag" },
+  { "<title><{{.x}}title><a href={{.y}}>", "2", "9", "complete its end tag" },
+  { "<textarea></textarea {{.x}}>", "2", "22", "attribute" },
+  { "<svg><textarea></textarea{{.x}}></textarea></svg>", "2", "26", "differently" },
+  { "<a href=\"x\">{{.x}}<a href=\"", "2", "28", "the template ends inside the value of the attribute 'href'" },
+  { "<a href=\"x\">\n<a title='", "3", "11", "the template ends inside the value of the attribute 'title'" },
+  { "<a ", "2", "4", "the template ends inside a tag" },
+  { "<", "2", "2", "the template ends inside a tag" },
+  { "a <!-- {", "2", "9", "the template ends inside a comment" },
+  { "<script>{{if .a}}x{{end}}", "2", "26", "the template ends inside the text of <script>" },
+  { "<textarea>x", "2", "12", "the template ends inside the text of <textarea>" },
+  { "<svg><g>", "2", "9", "the template ends inside <svg>" },
+  { "<svg><p>", "2", "9", "could not follow" },
+  { "<select>", "2", "9", "the template ends inside <select>" },
+  { "<p>x</p><select><option>a", "2", "26", "the template ends inside <select>" },
+  { "<a title=x", "2", "11", "the template ends inside the value of the attribute 'title'" },
 }
 
 local function test_a_slot_with_no_escaping_is_refused_at_its_line_and_column()
@@ -416,4 +438,18 @@ local function test_a_block_inside_and_after_svg_keeps_its_place()
   compiled(HEAD .. "<svg>{{if .a}}<g></g>{{else}}<g/>{{end}}</svg>{{if .a}}<textarea>{{.x}}</textarea>{{end}}")
   local why = refused(HEAD .. "<svg>{{if .a}}</svg>{{end}}<p>")
   assert(why:find("t.tmpl:2:6: the arms of this {{if}}", 1, true), why)
+end
+
+local function test_an_html_template_must_end_in_plain_text_since_another_splices_it_into_text()
+  -- A SafeHtml goes verbatim into another template's text slot: an inner
+  -- template left in a URL would make the outer one's next slot a URL
+  -- the outer tracker takes for text.
+  local why = refused(HEAD .. "<a href=\"")
+  assert(why:find("^t.tmpl:2:10: the template ends inside the value of the attribute 'href'"), why)
+  assert(why:find("in another template", 1, true), why)
+  assert(refused(HEAD .. "<p>x</p>\n<b"):find("^t.tmpl:3:3: the template ends inside a tag"))
+  compiled(HEAD .. "<a href=\"{{.x}}\">x</a>\n")
+  compiled(HEAD .. "<svg><g/></svg>")
+  compiled(HEAD .. "<select><option>a</option></select>")
+  compiled("{{type T from m.t}}{{mode text}}\n<a href=\"")
 end

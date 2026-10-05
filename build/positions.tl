@@ -36,7 +36,7 @@ end
 --- `a/b/init.tl` is the module `a.b`, a member of `a/`.
 local function home_of(file: string): string
   local dir = dirname(file)
-  if file == dir .. "/init.tl" then
+  if file == dir .. "/init.tl" or file == dir .. "/init.tmpl" then
     return dirname(dir)
   end
   return dir
@@ -72,11 +72,11 @@ end
 --- @param own_tree whether the tree is cosmic's own
 function positions.check(modules: {positions.Module}, own_tree: boolean): boolean, string
   local by_path: {string:positions.Module} = {}
-  local entries: {string:boolean} = {}
+  local entries: {string:string} = {}
   for _, m in ipairs(modules) do
     by_path[m.path] = m
-    if basename(m.file) == "init.tl" then
-      entries[dirname(m.file)] = true
+    if basename(m.file) == "init.tl" or basename(m.file) == "init.tmpl" then
+      entries[dirname(m.file)] = m.file
     end
   end
   for _, m in ipairs(modules) do
@@ -84,9 +84,9 @@ function positions.check(modules: {positions.Module}, own_tree: boolean): boolea
       local other = by_path[name]
       if other ~= nil then
         local home = home_of(other.file)
-        local open = home == "" or (not home:find("/", 1, true) and not entries[home])
+        local open = home == "" or (not home:find("/", 1, true) and entries[home] == nil)
         if not open and not Fs.within(m.file, home) then
-          local entry = entries[home] and ("its entry is " .. home .. "/init.tl") or
+          local entry = entries[home] ~= nil and ("its entry is " .. entries[home]) or
             (home .. "/ has no init.tl entry")
           return false, m.file .. ": " .. name .. " is private to " .. home ..
             "/; only a file inside it may import it (" .. entry .. ")"

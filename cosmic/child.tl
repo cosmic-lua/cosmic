@@ -382,7 +382,8 @@ local record Options
   --- it. Where this process is root, the child's user runs a copy of the
   --- core that every user may run, made once in /run/cosmic-sandbox-cores,
   --- root's alone. The relaunch's descriptors are two more `fds` the child
-  --- gets; one `fds` names is refused, as is the `nest` promise.
+  --- gets; one `fds` names is refused, as is the `nest` promise (a core on a
+  --- `database` below has no descriptor, and takes it).
   ---
   --- With a `database` (see [`Sandbox.Policy`]) the program is this
   --- program's core run on that file (`core --database <path>`) whatever
@@ -394,7 +395,13 @@ local record Options
   --- among them, left out of a merge with a `database`) fails the start,
   --- since that file holds the modules the database leaves out. The
   --- child's [`Proc.relaunch`] is that same core and database, and so are
-  --- its own children's. The `nest` promise is refused with it.
+  --- its own children's. With `nest` the core and the database are read-only
+  --- binds of the child's root, which the kernel locks once the child makes
+  --- a user namespace of its own, and it has no descriptor of either: it
+  --- starts children of its own on that database and cannot write either
+  --- file. A process started on a core with `--database` and no policy
+  --- `database` takes `nest` the same way, its database bound from its own
+  --- start.
   ---
   --- A child never runs as root. Where this process is not root, it runs
   --- as this process's user, mapped as itself in its user namespace.
@@ -2965,16 +2972,20 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
           "there, is such a grant: leave the profile out)"
       end
     end
-    if found ~= nil and nest then
-      -- TODO: run this program under `nest` once nest_descriptors can
-      -- hand it the descriptors of its artifact and core, read-only
-      -- regular files, which it refuses lest the child reopen them for
-      -- writing through /proc/self/fd where its user may. A core on a
-      -- database hands none: run it under `nest` once a test shows the
-      -- binds of its core and database hold it.
-      return nil, "sandbox: this program runs from " .. (next(found.fds) ~= nil and
-        "descriptors of its artifact and core" or "a core on a database") ..
-        ", which the \"nest\" promise refuses a child"
+    -- A core on a database is started by path with no descriptor, so
+    -- `nest` may run it: the root binds the core and the database read-only
+    -- (no `w`, no `c`), and once the child makes a user namespace of its own
+    -- the kernel locks those binds (MNT_LOCK_READONLY, MNT_LOCKED).
+    -- A portable artifact hands its artifact and core as descriptors, which
+    -- [`nest_descriptors`] must refuse.
+    -- TODO: run a portable artifact under `nest` too, once its
+    -- relaunch runs on a database (a core and a file, no descriptor), or
+    -- nest_descriptors can hand its descriptors of read-only regular
+    -- files, which a child may reopen for writing through /proc/self/fd
+    -- where its user may.
+    if found ~= nil and nest and next(found.fds) ~= nil then
+      return nil, "sandbox: this program runs from descriptors of its artifact and core, " ..
+        "which the \"nest\" promise refuses a child"
     end
     if found ~= nil then
       relaunch = found
