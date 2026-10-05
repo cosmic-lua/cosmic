@@ -314,10 +314,13 @@ end
 local function test_is_refused_the_tool()
   -- The program is not given it at all, and its core is refused it,
   -- the artifact's descriptor with it.
+  local relaunch = assert(Proc.relaunch())
   local result, trouble = Child.run({ assert(Proc.executable()), "-e", "" })
   assert(result == nil, "the program ran undeclared")
-  assert(trouble:find("o such file", 1, true) or trouble:find("ermission denied", 1, true), trouble)
-  local relaunch = assert(Proc.relaunch())
+  -- Not there at all, or, for a worker on a sealed database, whose
+  -- program's name is its core's, not run.
+  local wanted = relaunch.argv[2] == "--database" and "ermission denied" or "o such file"
+  assert(trouble:find(wanted, 1, true), trouble)
   if relaunch.argv[2] == "--database" then
     -- A worker on a sealed database has no descriptor of the program to
     -- be refused, and its core, which it is not granted to run, is.
@@ -743,6 +746,28 @@ local function test_a_store_is_keyed_by_its_bytes_not_its_address(tmp: string)
       not second:find("closure store", 1, true), second)
   local stores, _ = Fs.list(tmp .. "/second/o/stores")
   assert(stores == nil or #stores == 0, "a checkout that stood wrote a store")
+end
+
+--- An unsandboxed worker of a module that is neither `store`, `tool` nor
+--- `nests` runs the core on the sealed database of its closure too, where
+--- the program is a portable artifact.
+local function test_an_unsandboxed_worker_runs_on_a_sealed_database(tmp: string)
+  local launched = Proc.relaunch()
+  if launched == nil or launched.argv[2] ~= "--artifact" then return end
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.write(root .. "/suite/database_test.tl", [[
+local Proc = require("cosmic.proc")
+
+local function test_the_core_runs_on_a_database()
+  local relaunch = assert(Proc.relaunch())
+  assert(relaunch.argv[2] == "--database", tostring(relaunch.argv[2]))
+end
+]]))
+  local env = environment(tmp .. "/cache/verdicts.db")
+  env.COSMIC_TEST_SANDBOX = "0"
+  local text = run(root, tmp .. "/first.out", env)
+  assert(text:find("test: PASS", 1, true) and text:find("1 ran, 0 stood", 1, true), text)
 end
 
 --- A digest kept of a store's address that its bytes, here or written

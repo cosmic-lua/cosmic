@@ -169,8 +169,13 @@
    what the worker and every process it starts read of the program --
    [`Store.bytecode`], [`Store.source`], [`Store.requires`],
    [`Store.databases()`], [`Store.meta`], a searcher called by hand, a
-   `require` from a finalizer -- is what its key holds, which holds the
-   core in place of the launcher. `hold_requires` stays as the second guard
+   `require` from a finalizer -- is what its key holds: the closure store's
+   bytes, a digest of the program's modules the tree lacks, the core in
+   place of the launcher, and the harness's epoch for the rows of what every
+   worker loads. The one row left out is the `image_hash` meta row, which
+   names the program's build and moves with every rebuild. A run whose
+   program is no portable artifact runs these workers on the whole program
+   instead, and its summary says how many. `hold_requires` stays as the second guard
    that names the rule. A worker that declares `nests` and neither `store`
    nor `tool` runs an artifact of its closure
    ([`build/closure_artifact.tl`]), since a policy refuses `nest` beside a

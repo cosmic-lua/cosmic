@@ -5,9 +5,11 @@
 --- searcher called by hand and no `require`, whether the module's own test
 --- makes it or a finalizer does after the hold on `require` is
 --- lifted. build/sealed_worker_store_test.tl holds that a module that
---- declares `store` still reads the whole program. An unsealed run (one
---- whose program is no portable artifact) is none of this test's; a
---- sandboxed worker not given a sealed database fails it.
+--- declares `store` still reads the whole program. A worker that the
+--- runner marks as held (build.confine's `held_variable`: a sandboxed one)
+--- and that runs on no database fails the test, as does one in a run whose
+--- program is no portable artifact, which the run's summary says; an
+--- unmarked worker on none is skipped.
 local Env = require("cosmic.env")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")

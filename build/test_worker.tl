@@ -361,15 +361,18 @@ end
 --- the core's own modules, and whatever another database a test
 --- attaches holds -- is no input of the tree and loads as ever.
 -- TODO: hold a module the running program carries that is no module
--- of the tree -- in a project's tree, the standard library's -- once
--- a key holds the program's own modules (a digest of its `modules`
--- and `decls` beside the runtime identity, which names only the core
--- and the pins): today a release that changes only the standard
--- library's Teal leaves standing a verdict that read one of them
--- outside its closure. In this tree every module the program carries
--- is a module of the tree, and `vendor.tl`, which is not, is carried
--- by its bytecode in the store of a closure that holds build.teal, the
--- one module that loads it ([`build.closure_store`]'s `loaded_beside`).
+-- of the tree -- in a project's tree, the standard library's -- for the
+-- workers that run the program whole (`store`, `tool`, and a program
+-- that is no portable artifact), once their keys hold the program's own
+-- modules (a digest of its `modules` and `decls` beside the runtime
+-- identity, which names only the core and the pins): the key of a worker
+-- on a sealed database holds them already (build.test's `extras_digest`),
+-- but today a release that changes only the standard library's Teal leaves
+-- standing a verdict of one of the others that read one of them outside its
+-- closure. In this tree every module the program carries is a module of
+-- the tree, and `vendor.tl`, which is not, is carried by its bytecode in
+-- the store of a closure that holds build.teal, the one module that loads it
+-- ([`build.closure_store`]'s `loaded_beside`).
 local function refusal(name: string, module_path: string, closure: {string:boolean},
                        tree: {string:boolean}): string | nil
   if closure[name] or not tree[name] then return nil end
