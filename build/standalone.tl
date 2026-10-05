@@ -168,8 +168,11 @@ end
 
 --- Runs `argv[2]` standalone: `argv` is the whole command line, `cosmic`
 --- at slot 0 and `--standalone` at slot 1, so the file sees what follows
---- its own path, and its path at `argv[0]`.
-function standalone.run(argv: {integer:string}): integer
+--- its own path, and its path at `argv[0]`. `why`, where given, says what
+--- made this run standalone, which a file that does not compile is told
+--- beside its refusal: a require of a module that is not `cosmic.*` is
+--- refused here and not in the run the caller may have meant.
+function standalone.run(argv: {integer:string}, why?: string): integer
   local file = argv[2]
   if file == nil then
     log:complain("usage: cosmic --standalone <file.tl> [args...]")
@@ -183,6 +186,9 @@ function standalone.run(argv: {integer:string}): integer
   local chunk, trouble = standalone.compile(file, source)
   if chunk == nil then
     local _, _ = Fs.put(Fs.stderr, trouble .. "\n")
+    if why ~= nil then
+      local _, _ = Fs.put(Fs.stderr, "cosmic: " .. why .. "\n")
+    end
     return 1
   end
   local arguments: {integer:string} = { [0] = file }

@@ -36,7 +36,7 @@ local record Cli
   --- building nothing and writing no o/; a program `cosmic sandbox
   --- --cosmic` runs has it set unless `--set-env` says otherwise
   run: string
-  --- `cosmic --standalone <file.tl>`: runs one file against this
+  --- `cosmic --standalone <file.tl> [args...]`: runs one file against this
   --- binary's own standard library, with no tree around it -- nothing
   --- staged or built, nothing under o/ written, and no staleness
   --- check, so it runs the same whatever state the working directory
@@ -531,8 +531,9 @@ local record Cli
   ---
   --- A file it runs is run as `--standalone` (COSMIC_STANDALONE=1), so a
   --- grant to read it is enough and no o/ is written beside it, which
-  --- another run's user would own; `--set-env COSMIC_STANDALONE=0` builds
-  --- the tree around it instead, which needs a grant to write there.
+  --- another run's user would own; it may then require `cosmic.*` modules
+  --- only. `--set-env COSMIC_STANDALONE=0` builds the tree around it
+  --- instead, which finds its own modules and needs a grant to write there.
   ---
   --- `--read`, `--run` and `--write` grant a path as `r`, `rx` and `rwc`;
   --- `--path` names the letters itself, of `rwxcu` in that order (`rwxc:.`),

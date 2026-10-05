@@ -223,7 +223,9 @@ cosmic.sandbox` the policy these options write.
 way: `cosmic sandbox --cosmic --read . -- cosmic convert.tl in.csv out.json`
 reads its words from the function it returns (`argv[1]`, `argv[2]`), runs
 as `--standalone` does and writes nothing beside it; add a `--write` for
-the output it makes.
+the output it makes. Standalone, it finds `cosmic.*` modules only: a script
+with modules of its own beside it takes `--set-env COSMIC_STANDALONE=0
+--write .`, which builds the tree around it into `o/`.
 
 ## below cosmic.fs
 

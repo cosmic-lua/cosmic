@@ -334,8 +334,8 @@ local function module_of(root: string, file: string): string | nil, string
 end
 
 --- Runs a file. The file is a module: it is required once its tree is
---- built, with its arguments (below) in the global `arg` while its top
---- level runs, and if what it returns is a function, that function is
+--- built, with its arguments (below) set in the global `arg` before its
+--- top level runs, and if what it returns is a function, that function is
 --- called with one argument: an array of the arguments after the
 --- file's own path on the command line, indexed from 1 like any
 --- ordinary Lua array, so `#argv` and `ipairs(argv)` see exactly
@@ -721,7 +721,9 @@ function dispatch.main(argv: {integer:string}): integer
       shifted[slot + 1] = argv[slot]
       slot = slot + 1
     end
-    return require("build.standalone").run(shifted)
+    return require("build.standalone").run(shifted, "this file ran as --standalone, which " ..
+        "finds only cosmic.* modules, because COSMIC_STANDALONE=1 (as under `cosmic sandbox " ..
+        "--cosmic`); COSMIC_STANDALONE=0 builds the tree around it, which finds its own")
   end
   local Cli = require("cosmic.cli")
   local Env = require("cosmic.env")
