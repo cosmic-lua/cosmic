@@ -273,15 +273,26 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
   assert(not holds(tooled.sandbox.unveil.reads, root .. "/o/bin"))
 end
 
---- Whether the run that printed `text` sandboxed none of its workers; if
---- so, the running test is skipped ([`Test.skip`]), since a case of a
---- sandboxed run then has nothing to check. The workers nest in this
---- test's own sandbox, which a host may refuse: the kernel lets root nest
---- one only two deep (core/syscalls.c's `map_ids`). CI's unprivileged
---- runners nest them.
-local function unsandboxed(text: string): boolean
-  if not text:find("no worker can be sandboxed here", 1, true) then return false end
+--- Whether the run that printed `text` sandboxed none of its workers.
+local function none_sandboxed(text: string): boolean
+  return text:find("no worker can be sandboxed here", 1, true) ~= nil
+end
+
+--- Ends the running test as skipped ([`Test.skip`]) where this platform
+--- could have sandboxed the workers of the run that printed `text`, which
+--- sandboxed none: a case of a sandboxed run then has nothing to check.
+--- The workers nest in this test's own sandbox, which a host may refuse:
+--- the kernel lets root nest one only two deep (core/syscalls.c's
+--- `map_ids`). CI's unprivileged runners nest them.
+local function skip_unsandboxed(text: string)
   if confine.sandbox_platform() then Test.skip(confine.unsandboxed_reason(text)) end
+end
+
+--- Whether the run that printed `text` sandboxed none of its workers, the
+--- running test being skipped first where this platform could have.
+local function unsandboxed(text: string): boolean
+  if not none_sandboxed(text) then return false end
+  skip_unsandboxed(text)
   return true
 end
 
@@ -375,15 +386,17 @@ end
   env.COSMIC_TEST_SANDBOX = nil
   text, ok = run(root, tmp .. "/sandboxed", env)
   assert(not ok, text)
-  if unsandboxed(text) then
+  if none_sandboxed(text) then
     -- And why, in the summary.
     assert(text:find("; unsandboxed, as no worker can be sandboxed here (", 1, true) and
         text:find("), keyed by declared inputs, sharing no verdicts)", 1, true), text)
     -- Required, the run fails instead.
     env.COSMIC_TEST_SANDBOX = "1"
-    text, ok = run(root, tmp .. "/required", env)
-    assert(not ok and text:find("COSMIC_TEST_SANDBOX=1, but no worker can be sandboxed here",
-      1, true), text)
+    local required: string = nil
+    required, ok = run(root, tmp .. "/required", env)
+    assert(not ok and required:find("COSMIC_TEST_SANDBOX=1, but no worker can be sandboxed here",
+      1, true), required)
+    skip_unsandboxed(text)
     return
   end
   assert(text:find("; sandboxed", 1, true), text)
@@ -619,10 +632,11 @@ local function test_second(tmp: string) hold(tmp) end
     assert(done == nil, "the runner ended before its tests started\n" .. assert(Fs.read(output)))
   end
   local text = assert(Fs.read(output))
-  if unsandboxed(text) then
+  if none_sandboxed(text) then
     -- Unsandboxed here: build/test_isolation_tool_test.tl's case.
     assert(handle:stop(sys.SIGKILL))
     local _, _ = handle:wait(Clock.seconds(30))
+    skip_unsandboxed(text)
     return
   end
   assert(text:find("test: sandbox: each worker is held", 1, true), text)

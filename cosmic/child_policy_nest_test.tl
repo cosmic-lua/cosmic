@@ -35,13 +35,12 @@ local function unsandboxable(why: string): boolean
   return false
 end
 
---- Whether this platform cannot sandbox at all, which skips a test whose
---- start would be refused for that before what it checks: off Linux a
---- policy's start never runs, whatever its grants or descriptors.
+--- Whether this platform cannot sandbox at all, which leaves a test whose
+--- start would be refused for that before what it checks nothing to check:
+--- off Linux a policy's start never runs, whatever its grants or
+--- descriptors, and the test returns silently.
 local function no_sandbox_here(): boolean
-  if confine.sandbox_platform() then return false end
-  if confine.sandbox_platform() then Test.skip("a policy holds a program only on Linux") end
-  return true
+  return not confine.sandbox_platform()
 end
 
 --- What a program left and how it ended.

@@ -45,12 +45,11 @@ local function cosmic(dir: string, words: {string}, fds?: {integer:integer}): Ra
   return ran
 end
 
---- Whether this platform cannot sandbox at all, which skips a test that
---- needs a start to run: off Linux every policy's start is refused.
+--- Whether this platform cannot sandbox at all, which leaves a test that
+--- needs a start to run nothing to check: off Linux every policy's start
+--- is refused, and the test returns silently.
 local function no_sandbox_here(): boolean
-  if confine.sandbox_platform() then return false end
-  if confine.sandbox_platform() then Test.skip("a policy holds a program only on Linux") end
-  return true
+  return not confine.sandbox_platform()
 end
 
 local function test_a_granted_file_is_read_and_an_ungranted_one_is_not(tmp: string)
