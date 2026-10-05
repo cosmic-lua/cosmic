@@ -7,6 +7,7 @@
 local Fs = require("cosmic.fs")
 local test_inputs = require("build.test_inputs")
 local test_sandbox = require("build.test_sandbox")
+local test_sandbox_probe = require("build.test_sandbox_probe")
 
 --- An `Effective` holding `files` of the tree and nothing else declared.
 local function effective(files: {string}): test_inputs.Effective
@@ -101,10 +102,10 @@ end
 local function test_noexec_does_not_probe_an_ordinary_or_unsandboxed_worker()
   local inputs = effective({})
   local known: {string:string} = {}
-  test_sandbox.resolve_noexec(inputs, true, known)
+  test_sandbox_probe.resolve_noexec(inputs, true, known)
   assert(not inputs.noexec_ready and next(known) == nil)
   inputs.noexec = true
-  test_sandbox.resolve_noexec(inputs, false, known)
+  test_sandbox_probe.resolve_noexec(inputs, false, known)
   assert(not inputs.noexec_ready and next(known) == nil)
   assert(inputs.noexec_trouble:find("requires a Linux filesystem sandbox", 1, true))
 end

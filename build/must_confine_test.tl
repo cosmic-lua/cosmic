@@ -60,9 +60,8 @@ end
 --- that run gave, since a case of a confined process then has only the
 --- refusal to check. The workers, and what they confine, nest in this
 --- test's own sandbox, which a host may refuse: the kernel lets root
---- nest one only two deep (core/syscalls.c's `map_ids`) where a root
---- runner cannot run its workers as a user of their own
---- (build.test_sandbox's `runs_as`). CI's unprivileged runners nest them.
+--- nest one only two deep (core/syscalls.c's `map_ids`). CI's
+--- unprivileged runners nest them.
 local function unsandboxed(text: string): boolean
   if text:find("; sandboxed", 1, true) then return false end
   if confine.sandbox_platform() then Test.skip(confine.unsandboxed_reason(text)) end
@@ -80,14 +79,6 @@ local function environment(mode: string | nil): {string:string}
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_TEST_SANDBOX = nil
   env.COSMIC_SANDBOX = mode
-  -- The suites' modules nest and declare neither `store` nor `tool`, whose
-  -- tests the policy path skips; what they check is the older sandbox's
-  -- `confine`.
-  -- TODO: run these suites on the policy path, and drop the switch, once a
-  -- worker that nests may be given a per-closure artifact (build/test_policy.tl's
-  -- `deferred`), or step (e) of doc/plans/sandbox.md moves `confine` onto
-  -- policies.
-  env.COSMIC_TEST_POLICY = "0"
   return env
 end
 
@@ -338,6 +329,12 @@ end
   text, ok = run(root, tmp .. "/stood", environment(nil))
   assert(ok and text:find("0 ran, 1 stood", 1, true), text)
   text, ok = run(root, tmp .. "/must", environment("must"))
+  -- A run held to sandboxing fails where none of its workers can be, as
+  -- this one's sandbox may leave them (a root worker that cannot map a user).
+  if text:find("no worker can be sandboxed here", 1, true) then
+    if confine.sandbox_platform() then Test.skip(confine.unsandboxed_reason(text)) end
+    return
+  end
   assert(not ok, text)
   assert(text:find("FAIL  suite%.fallback_test test_falls_back: confine %(COSMIC_SANDBOX=must%): " ..
       "%S*bin/probe could not start confined: unveil could not be applied: "), text)

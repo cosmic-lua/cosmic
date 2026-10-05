@@ -1,8 +1,6 @@
---- The policy path of `cosmic test`'s workers, the default wherever they
---- are sandboxed: each starts under a [`cosmic.sandbox`] policy by
---- [`Child.start`] instead of the sandbox [`build.test_sandbox`] plans for
---- it (`COSMIC_TEST_POLICY=0` selects that one), as the design's test phase
---- has it: a policy of its own
+--- The policy of each of `cosmic test`'s workers wherever they are
+--- sandboxed: each starts under a [`cosmic.sandbox`] policy by
+--- [`Child.start`], as the design's test phase has it: a policy of its own
 --- that names the tree at /tree, the scratch directory with `rwxc`, the
 --- store at o/cosmic.db, the core, and what the module declares, with
 --- `isolate` "file" and a /proc of the sandbox's own. Where nothing the
@@ -13,8 +11,7 @@
 --- alone and a tmpfs of its own, which holds a unix socket the worker makes
 --- below Landlock ABI 9, and, for a worker that declares `nests` and so has
 --- no ruleset, at any ABI (core/syscalls.c's `root_shows_no_socket`). The paths are
---- [`test_sandbox.plan`]'s, taken as it plans them for the policy
---- (`policy`); this module turns them into grants and the rest of the
+--- [`test_sandbox.plan`]'s; this module turns them into grants and the rest of the
 --- declaration into the policy's other fields, or refuses the module,
 --- naming the field, where the policy has nothing to say it with. A module
 --- never runs less confined than it declares: what is refused fails its
@@ -53,11 +50,7 @@ local test_inputs = require("build.test_inputs")
 local test_sandbox = require("build.test_sandbox")
 
 local record test_policy
-  --- The variable that turns the policy path on.
-  switch: string
 end
-
-test_policy.switch = "COSMIC_TEST_POLICY"
 
 --- The promises every worker is started with: all that a test may make
 --- but `nest` ([`worker_promises`]).
@@ -75,29 +68,12 @@ local devices <const>: {string:string} = {
   ["/dev/null"] = "rw", ["/dev/zero"] = "rw", ["/dev/full"] = "rw", ["/dev/urandom"] = "r",
 }
 
---- What `COSMIC_TEST_POLICY` asks for: "on" for "1", "off" for "0", and
---- "default" for unset or empty, which is the policy path wherever workers
---- are sandboxed. Any other value is an error, so a misspelt one never
---- passes for any of them.
---- @param value the variable's value, nil where it is unset
---- @return "on", "off" or "default", nil on an error
---- @return why, on an error
-function test_policy.requested(value: string | nil): string | nil, string
-  if value == nil or value == "" then return "default", "" end
-  if value == "0" then return "off", "" end
-  if value == "1" then return "on", "" end
-  return nil, string.format("%s is %q: set it to 0 to start workers by the sandbox " ..
-      "build.test_sandbox plans, 1 or leave it unset to start them under a policy",
-    test_policy.switch, value)
-end
-
 --- Why this process cannot start a worker under a policy, or "": a program
 --- of a policy never runs as root, so a process that is root -- the
 --- host's, or a sandbox's own, which maps root alone -- must map a user of
 --- its own for it, which takes CAP_SETUID, CAP_SETGID and CAP_SETFCAP in
 --- effect ([`confine.may_map_ids`]). Where it lacks them every start would
---- fail, so a run that is not asked for the policy path runs its workers by
---- the sandbox [`build.test_sandbox`] plans, which runs them as root still.
+--- fail, so a run there runs its workers unsandboxed ([`build.test_sandbox_probe`]).
 --- @return why, "" for nothing
 function test_policy.unmet(): string
   if sys.getuid() ~= 0 or confine.may_map_ids() then return "" end
@@ -182,7 +158,7 @@ local function letters_of(path: string, inside: string, runs: {string:boolean}):
 end
 
 --- The policy a worker of `effective` is started under, from the paths of
---- `plan` (made for the policy, [`test_sandbox.plan`]'s `policy`). Nil and why where the module declares what a policy cannot say
+--- `plan` ([`test_sandbox.plan`]). Nil and why where the module declares what a policy cannot say
 --- (`refusal`). It has no `set_env`: the worker's environment is whole
 --- only once what starts it is added ([`worker.invocation`]).
 --- @param plan the worker's paths

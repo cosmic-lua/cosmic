@@ -15,6 +15,7 @@ local confine = require("build.confine")
 local stand_in = require("build.stand_in")
 local this_program = require("build.this_program")
 local test_inputs = require("build.test_inputs")
+local test_policy = require("build.test_policy")
 local test_sandbox = require("build.test_sandbox")
 local Test = require("cosmic.test")
 
@@ -42,11 +43,10 @@ local function holds(list: {string}, value: string): boolean
 end
 
 --- A worker whose module declares `system` is given the system's own
---- paths at their own names.
-local function test_a_plan_for_a_module_that_declares_system_gives_the_system_s_paths(tmp: string)
+--- paths by its policy's profile "system", which is no path of its plan.
+local function test_a_module_that_declares_system_is_given_the_system_profile(tmp: string)
   local root, scratch = tmp .. "/root", tmp .. "/scratch"
-  -- Laid out as build.test's `scratch` lays one out, which a plan run
-  -- as root hands to the worker's user.
+  -- Laid out as build.test's `scratch` lays one out.
   for _, dir in ipairs({ root .. "/o", scratch .. "/real" }) do assert(Fs.mkdirs(dir)) end
   assert(Fs.symlink("real", scratch .. "/tmp"))
   assert(Fs.write(root .. "/o/cosmic.db", "x"))
@@ -54,8 +54,9 @@ local function test_a_plan_for_a_module_that_declares_system_gives_the_system_s_
     network = {}, tool = false, store = false, system = true }
   local plan = test_sandbox.plan(root, scratch, inputs, {})
   assert(plan.trouble == "", plan.trouble)
-  assert(holds(plan.sandbox.unveil.reads, "/usr"))
-  assert(plan.sandbox.unveil.at["/usr"] == nil)
+  assert(not holds(plan.sandbox.unveil.reads, "/usr"))
+  local policy = assert(test_policy.worker(plan, inputs))
+  assert(holds(policy.profiles or {}, "system"))
 end
 
 --- A process a test confines is given the system's own paths beside

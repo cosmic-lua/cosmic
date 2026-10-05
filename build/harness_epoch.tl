@@ -77,7 +77,7 @@ local record harness_epoch
   library: {string:string}
 end
 
-harness_epoch.epoch = "20-c81fe20a" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
+harness_epoch.epoch = "21-b6ac3eca" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
 harness_epoch.acknowledged = {
 
   ["build.artifact"] = "4405196f6511a21a7493aa3d1ee196c6318d3ceec2e0202800494c46b9502745",
@@ -92,11 +92,11 @@ harness_epoch.acknowledged = {
 
   ["build.closure_artifact"] = "f7673f288e7a65466e34db350127ca1bcfd6649de808e30504f14f1774a95cdd",
 
-  ["build.confine"] = "b9a6db294014190ad107bc3ac2482f2d3cbb20279f6b301e4667f71debe3f566",
+  ["build.confine"] = "1372f5af14db42d52a51908898207e1981ca175b4ab5f8e1d05d8993559a65ca",
 
   ["build.core_image"] = "dfc18e0e6316237ab9fb11a957df68d6217e42cffc6f2f3a767018c5313700ac",
 
-  ["build.declared_key"] = "a6b3d5f47fd554dd183aba6cb2d8c2f06cb9ee1610564df1f93f4bb4504c846b",
+  ["build.declared_key"] = "51e94d792ab05cfcd71f4cec38bf2f28afc87da3ddbae1735739e156bd85f08f",
 
   ["build.digest"] = "dccca5b63f2992d4d23213450142bdd05eee403ebaf3a4e0acf7437da72558f0",
 
@@ -110,15 +110,15 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "516c08e34d1fc392de5363af92b6d669344fc3c8b504c469ae3771a424d0db6b",
 
-  ["build.test"] = "cadc0c252dbed75695fd1948e41d3edbb6c2c33cbe5c4498646a145075a6ecc3",
+  ["build.test"] = "b23944962de040acab3e228ed2bb49531e89d90941c6577104685265b8a8a5b2",
 
   ["build.test_inputs"] = "5da3827a258c10dd0399f75b97fbbb4bde0251eef950f66783191421227519c7",
 
-  ["build.test_policy"] = "9a7de5ee095cc7c83d0f6280d3d4e2db9477088beedbbc979fdad3ae141a2b32",
+  ["build.test_policy"] = "44ba4848ef58bb6ae0d4525a407b51e47da27c2b992961224c901957b3a716e6",
 
-  ["build.test_sandbox"] = "f6609b3a483985e01f567ab4949903dc09b6941209f48ed27eb60e14a20ac8a9",
+  ["build.test_sandbox"] = "f9a5651e2e333c2aae63556fca4de800a1e067966cd81032f84c17f3ab31fbda",
 
-  ["build.test_worker"] = "9bd9d97af17e1db1032939ad05e83bb7dc44fba72bfb9518f74c1240dfbc8022",
+  ["build.test_worker"] = "0272cfdf61049c24e4ce88b2038655a74d09285924bc650150f01b9f78b95e80",
 
   ["build.this_program"] = "975740a93eb1e88680fe402a0bf6e5e52d1acad579dbdfedd0be27d10ae02980",
 
@@ -195,6 +195,7 @@ harness_epoch.retired = {
   "3c746d0f",
   "97867c56",
   "31549737",
+  "c81fe20a",
 }
 
 return harness_epoch

@@ -107,8 +107,6 @@ allowed["build.confine.confine"] = "a test's own declaration: " ..
   "what the processes a test starts need, which only a test makes"
 allowed["build.confine.must_confine"] = "a test's own declaration: " ..
   "what the processes a test starts need, with no fallback, which only a test makes"
-allowed["build.confine.sandbox_platform"] = "a test's own condition: it skips " ..
-  "(Test.skip) a sandbox the host refused only where the platform could have given it"
 allowed["build.confine.unsandboxed_reason"] = "a test's own skip reason: the line " ..
   "of a nested run's output that says no worker was sandboxed"
 allowed["build.fix.spill.message"] = "tested directly: the test writes a refusal " ..

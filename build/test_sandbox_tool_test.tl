@@ -174,18 +174,11 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
   assert(holds(unveil.reads, host) and unveil.at[host] == nil)
   assert(#unveil.writes == 1 and unveil.writes[1] == scratch and
       unveil.at[scratch] == test_sandbox.scratch)
-  -- The plan hands a worker it runs as a user of its own (a root
-  -- runner's) the scratch directory and its `real`.
   assert(plan.trouble == "", plan.trouble)
-  local user = plan.sandbox.user
-  for _, path in ipairs({ scratch, scratch .. "/real" }) do
-    assert(user == nil or assert(sys.stat(path)).uid == user, path)
-  end
-  -- The runtime's own paths (/dev/null everywhere, /proc where the
-  -- host has one: a path that is not there is not given), but not the
-  -- system's own, which it is not given undeclared.
-  assert(holds(unveil.reads, "/dev/null") and (sys.stat("/proc") == nil or
-    holds(unveil.reads, "/proc")))
+  -- The runtime's own paths (/dev/null: a path that is not there is not
+  -- given), but not the system's own, which it is not given undeclared,
+  -- nor the host's /proc, which a policy's sandbox has one of its own for.
+  assert(holds(unveil.reads, "/dev/null") and not holds(unveil.reads, "/proc"))
   assert(not holds(unveil.reads, "/usr"))
   -- Declaring `system` gives the system's own paths too: see
   -- build/test_sandbox_system_test.tl, whose worker has them to give.
@@ -383,8 +376,9 @@ end
   text, ok = run(root, tmp .. "/sandboxed", env)
   assert(not ok, text)
   if unsandboxed(text) then
-    assert(text:find("; unsandboxed, as no worker can be sandboxed here, keyed by declared " ..
-        "inputs, sharing no verdicts)", 1, true), text)
+    -- And why, in the summary.
+    assert(text:find("; unsandboxed, as no worker can be sandboxed here (", 1, true) and
+        text:find("), keyed by declared inputs, sharing no verdicts)", 1, true), text)
     -- Required, the run fails instead.
     env.COSMIC_TEST_SANDBOX = "1"
     text, ok = run(root, tmp .. "/required", env)
