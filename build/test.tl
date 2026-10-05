@@ -1685,7 +1685,8 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
       message = message .. "\n  its directory is kept: " .. job.scratch .. "/real"
     elseif job.own_scratch then
       message = message .. "\n  its directory was a tmpfs of its worker's own, gone with it " ..
-        "(" .. test_policy.switch .. "=0 keeps one on the host)"
+        "(" .. test_policy.switch .. "=0 keeps one on the host; a fuzz failure's \"kept\" path " ..
+        "above is in it too: rerun with the FUZZ_CASE it names)"
     end
     local failure = id .. ": " .. message
     rec.failures[#rec.failures + 1] = failure

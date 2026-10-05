@@ -3016,10 +3016,18 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
   if root ~= nil then
     sandbox.unveil = root
     if merged.tmp then
-      -- A directory beneath /tmp that `set_env` names stays TMPDIR: the
-      -- program makes it, in the /tmp it has. Any other value is /tmp.
+      -- A normalized path beneath /tmp (no empty, `.` or `..` component)
+      -- that `set_env` names stays TMPDIR: the program makes it, in the /tmp
+      -- it has. Any other value is /tmp.
       local chosen = merged.set_env.TMPDIR
-      if chosen == nil or chosen:find("^/tmp/[^/]") == nil then env.TMPDIR = "/tmp" end
+      local normal = chosen ~= nil and chosen:find("^/tmp/[^/]") ~= nil
+      if normal then
+        for part in chosen:gmatch("[^/]*") do
+          if part == "." or part == ".." then normal = false end
+        end
+        normal = normal and chosen:find("//", 1, true) == nil and chosen:sub(-1) ~= "/"
+      end
+      if not normal then env.TMPDIR = "/tmp" end
     end
   end
   return { path = path, env = env, tmp = "", wants_tmp = merged.tmp and not file,

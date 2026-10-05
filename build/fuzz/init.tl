@@ -102,6 +102,10 @@ local record Fuzz
     --- True when the property holds for `input`, or false and what
     --- failed. A raise fails it the same way.
     check: function(input: string): boolean, string
+    -- TODO: say, for a worker whose directory is a tmpfs of its own
+    -- (build/test_sandbox.tl's `own_scratch`), that the kept input went with
+    -- it, and keep it in the report instead (FUZZ_CASE names the case): the
+    -- "kept at" paths below are gone once such a worker ends.
     --- The directory the input under test is kept in: a test's own
     --- temporary directory. Nothing is kept without one.
     dir: string

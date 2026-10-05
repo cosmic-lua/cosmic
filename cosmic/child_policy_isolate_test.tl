@@ -246,6 +246,12 @@ local function test_a_grant_of_tmp_with_x_makes_the_sandboxs_own_tmp_executable(
     grants = at.grants }
   local named = under(at.probe, elsewhere, at.work, "env-of TMPDIR")
   assert(named.said == "TMPDIR=/tmp\n", named.said)
+  for _, bad in ipairs({ "/tmp/../etc", "/tmp/./x", "/tmp/a/../b" }) do
+    local odd_dir: Sandbox.Policy = { isolate = { "file" }, tmp = true, set_env = { TMPDIR = bad },
+      grants = at.grants }
+    local reset = under(at.probe, odd_dir, at.work, "env-of TMPDIR")
+    assert(reset.said == "TMPDIR=/tmp\n", bad .. ": " .. reset.said)
+  end
   -- /tmp has no other letters than the two.
   local odd: Sandbox.Policy = { isolate = { "file" }, tmp = true,
     grants = with(at.grants, { path = "/tmp", letters = "r" }) }

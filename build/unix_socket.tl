@@ -13,6 +13,7 @@
 local type _net = require("cosmic.net")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
+local confine = require("build.confine")
 local sys = require("cosmic.sys")
 local type raw_socket = require("cosmic.internal.socket")
 
@@ -84,6 +85,17 @@ local function bound_directories(): {string}
   return found
 end
 
+--- Whether a TCP listener on the loopback is refused, as a worker's filter
+--- refuses it where its module declares no `network`.
+local function listens_inet(): Probe
+  local listener, why, errno = raw_table().listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 1)
+  if listener == nil then
+    return { made = false, refused = errno == sys.EPERM, why = tostring(why) }
+  end
+  local _, _ = listener:close()
+  return { made = true, refused = false, why = "" }
+end
+
 --- Says the running test is skipped ([`Test.skip`]) where the process
 --- cannot make a unix socket in `dir`, and answers true then, for the test
 --- to return; false, having said nothing, where it can. It is skipped only
@@ -105,14 +117,25 @@ end
 function unix_socket.skipped(dir: string): boolean
   local tried = listens(dir)
   if not tried.refused then return false end
+  local reasons: {string} = {}
+  if sys.getenv(confine.held_variable) == nil then
+    reasons[#reasons + 1] = "its module declares `nests`, so no Landlock ruleset holds the worker " ..
+      "and its filter allows no unix socket"
+  end
+  local inet = listens_inet()
+  if inet.refused then
+    reasons[#reasons + 1] = "its module declares no `network`, so it has no network namespace of " ..
+      "its own, which a unix socket needs to be held"
+  end
   local directories = bound_directories()
-  local named = #directories > 0 and ("the host directories " .. table.concat(directories, ", ")) or
-    "directories of the host"
-  Test.skip("the worker cannot make a unix socket (" .. tried.why .. "): its root binds " .. named ..
-      ", and below Landlock ABI 9 only a root that shows files and its own /tmp alone holds a " ..
-      "unix socket, since every process it starts inherits its filter; a module whose Test.needs " ..
-      "declares no `system`, `tool`, `nests`, host cache, `noexec` scratch or directory to read, " ..
-      "and a `network` (the namespace of its own that holds abstract sockets), has one")
+  if #directories > 0 then
+    reasons[#reasons + 1] = "its root binds the host directories " .. table.concat(directories, ", ") ..
+      ", which only Landlock ABI 9 can hold a unix socket beside (a `system`, `tool`, host cache, " ..
+      "`noexec` or directory `reads`/`host` declaration puts one there)"
+  end
+  if #reasons == 0 then reasons[1] = "its root is not one a unix socket is held in" end
+  Test.skip("the worker cannot make a unix socket (" .. tried.why .. "): " ..
+      table.concat(reasons, "; "))
   return true
 end
 

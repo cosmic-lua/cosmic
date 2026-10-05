@@ -600,11 +600,12 @@ end
 --- in the sandbox's tmpfs ([`Plan.own_scratch`]), or "": what its module
 --- declares that puts a directory of the host in its root, whose sockets a
 --- program that makes its own cannot be told from below Landlock ABI 9
---- (core/syscalls.c's `root_shows_no_socket`). It is the declaration that
---- decides, so a module is the same on every host: `system`, `tool`
---- (o/bin), `nests`, a host `caches` or a private `noexec` scratch, and
---- a `reads` or `host` path that is a directory (or a socket) on this
---- host. The paths are those `reads` came to, the worker's.
+--- (core/syscalls.c's `root_shows_no_socket`). The declaration decides,
+--- with the kind of the paths it names on this host, which the module's key
+--- records already ([`build.declared_key`]): `system`, `tool` (o/bin),
+--- `nests`, a host `caches` or a private `noexec` scratch, and a `reads`
+--- or `host` path that is a directory (or a socket) here. The paths are
+--- those `reads` came to, the worker's.
 --- @param effective what the module declares
 --- @param reads the host paths the plan binds
 --- @return why, "" for none
@@ -625,7 +626,7 @@ local function why_shared_scratch(effective: test_inputs.Effective, reads: {stri
   for _, path in ipairs(reads) do
     local there, _ = sys.stat(path)
     if there ~= nil and (there.kind == "dir" or there.kind == "socket") and
-        not (path == "/proc") then
+        path ~= "/proc" then
       return "it reads " .. path .. ", " .. (there.kind == "dir" and "a directory" or "a socket") ..
         " (a `reads` or `host` path of its Test.needs): give the files it reads, not a directory"
     end

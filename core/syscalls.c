@@ -1722,7 +1722,8 @@ static uint64_t grant_rights (unsigned letters, long abi);
  * the ruleset was built from names -- built after it, in the child --
  * the ruleset is given, so it is not left refusing it: the procfs of its
  * own, to read (a program expects /proc/self), and the sized tmpfs at
- * /tmp, to read, write and create, as a grant `rwc` is. The ruleset is
+ * /tmp, to read, write and create, as a grant `rwc` is (and to execute,
+ * as `rwxc` is, with `tmp_exec`). The ruleset is
  * this child's alone, made for its start, so what is added widens no
  * other's. Raw calls only ([`run_program`]). 0, or an errno. */
 static int own_rules (const struct spawn_plan *plan, int ruleset, int own_proc) {
