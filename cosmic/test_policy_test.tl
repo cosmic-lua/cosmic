@@ -109,6 +109,10 @@ local function test_a_policy_is_keyed_as_its_needs()
     from_needs.line, from_policy.line = 0, 0
     for field, value in pairs(from_needs as {string:any}) do
       local other = (from_policy as {string:any})[field]
+      -- A policy says what it implies of the host; a `needs` says none.
+      if field == "implied" then
+        other = value
+      end
       if value is {string} and other is {string} then
         assert(table.concat(value, " ") == table.concat(other, " "), pair[2] .. " " .. field)
       else
@@ -228,14 +232,76 @@ local function test_a_module_declares_needs_or_policy_not_both()
 end
 
 --- The fields [`Test.Policy`] repeats are the fields of cosmic.sandbox's
---- `Policy`, no more and no fewer.
+--- `Policy`, and `requires`, which only a test declares.
 local function test_the_policy_record_is_the_sandboxs()
   local text = assert(Fs.read("cosmic/sandbox.tl"))
   local record = assert(text:match("\n  record Policy\n(.-)\n  end\n"), "no Policy")
   local theirs: {string} = {}
   for name in ("\n" .. record):gmatch("\n    ([%a_]+): ") do theirs[#theirs + 1] = name end
+  theirs[#theirs + 1] = "requires"
   table.sort(theirs)
   local _, said = Test.needs_of({ nothing = true })
   local listed = assert(said:match("it has (.*)$"), said)
   assert(listed == table.concat(theirs, ", "), listed .. " is not " .. table.concat(theirs, ", "))
+end
+
+--- What a policy requires of the host is what it declares, which the build
+--- reads and the worker is handed alike, and the key holds. Nothing is
+--- inferred from its other fields, and a `needs` has none.
+local function test_a_policy_declares_requirements()
+  local function read(call: string): analyzer.Declared
+    local found, why = declared(call)
+    assert(found ~= nil, call .. ": " .. tostring(why))
+    return found
+  end
+  local function names(list: {string}): string return table.concat(list, " ") end
+  assert(names(read('Test.policy { requires = { "root", "portable" } }').requires) == "root portable")
+  assert(#read('Test.policy { promises = { "nest" }, grants = { { path = "/proc", letters = "r" } } }').requires == 0)
+  local call = 'Test.policy { requires = { "root" }, promises = { "nest" } }'
+  local handed = assert(runtime_needs(call))
+  assert(names(handed.requires) == "root")
+  local from_policy = read(call)
+  assert(test_inputs.canonical(test_inputs.as_declared(handed)) == test_inputs.canonical(from_policy))
+  assert(test_inputs.canonical(from_policy):find('requires "root"', 1, true))
+  assert(test_inputs.canonical(read("Test.policy { }")) == "")
+  local refused, why = declared('Test.needs { requires = { "root" } }')
+  assert(refused == nil and why:find("no field requires", 1, true), tostring(why))
+end
+
+--- A name the table does not have, a Linux-class name (refused until the
+--- legs' promises are written down), a name written twice, a `path:` the
+--- worker is given no host grant of and a `program:` it cannot find fail
+--- the build, naming the rule.
+local function test_a_requirement_that_breaks_a_rule_fails_the_build()
+  local cases: {{string}} = {
+    { 'Test.policy { requires = { "sandbxo" } }', "unknown requirement \"sandbxo\"" },
+    { 'Test.policy { requires = { "path:relative" } }', "absolute path" },
+    { 'Test.policy { requires = { "nest" } }', "\"nest\" is a Linux-class requirement" },
+    { 'Test.policy { requires = { "landlock:3" } }', "Linux-class requirement" },
+    { 'Test.policy { requires = { "proc" } }', "Linux-class requirement" },
+    { 'Test.policy { requires = { "root", "root" } }', "\"root\" is written twice" },
+    { 'Test.policy { requires = { "path:/etc/hosts" } }', "needs a host grant of the path" },
+    { 'Test.policy { requires = { "path:/etc/hosts" }, grants = { { path = "/etc/passwd", letters = "r" } } }',
+      "needs a host grant of the path" },
+    { 'Test.policy { requires = { "program:jq" } }', "needs the profile \"system\" and env = { \"PATH\" }" },
+    { 'Test.policy { requires = { "program:jq" }, profiles = { "system" } }',
+      "needs the profile \"system\" and env = { \"PATH\" }" },
+    { 'Test.policy { requires = { "program:jq" }, env = { "PATH" } }',
+      "needs the profile \"system\" and env = { \"PATH\" }" },
+    { 'Test.policy { requires = "root" }', "requires takes a list of string literals" },
+  }
+  for _, case in ipairs(cases) do
+    local found, why = declared(case[1])
+    assert(found == nil and why:find("fixture_test.tl:2: test.policy: ", 1, true) ~= nil and
+        why:find(case[2], 1, true) ~= nil, case[1] .. ": " .. tostring(why))
+  end
+  for _, call in ipairs({
+      'Test.policy { requires = { "path:/etc/hosts" }, grants = { { path = "/etc/hosts", letters = "r" } } }',
+      'Test.policy { requires = { "path:/proc/self/status" }, grants = { { path = "/proc", letters = "r" } } }',
+      'Test.policy { requires = { "program:jq" }, profiles = { "system" }, env = { "PATH" } }',
+      'Test.policy { requires = { "root", "portable" } }',
+  }) do
+    local found, why = declared(call)
+    assert(found ~= nil, call .. ": " .. tostring(why))
+  end
 end

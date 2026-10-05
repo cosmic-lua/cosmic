@@ -500,6 +500,7 @@ function test_inputs.canonical(maybe: analyzer.Declared | nil): string
   if declared.store then lines[#lines + 1] = "store true" end
   if declared.system then lines[#lines + 1] = "system true" end
   list("caches", declared.caches or {})
+  list("requires", declared.requires or {})
   return table.concat(lines, "\n")
 end
 
@@ -513,7 +514,7 @@ function test_inputs.as_declared(needs: inputs.Needs | nil): analyzer.Declared |
     nests = needs.nests == true,
     noexec = needs.noexec == true,
     store = needs.store == true, system = needs.system == true,
-    caches = needs.caches or {} }
+    caches = needs.caches or {}, requires = needs.requires or {} }
 end
 
 return test_inputs
