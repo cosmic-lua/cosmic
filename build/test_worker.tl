@@ -84,6 +84,9 @@ local record worker
     module_path: string
     name: string
     scratch: string
+    --- Whether the worker makes the directory `scratch` names itself, in
+    --- a tmpfs of its own (`--own-scratch`), where the runner made none.
+    own_scratch: boolean
     needs: string
     --- How its Landlock ruleset holds it (`hold_flag`), and whether the
     --- store's hold is off (`--open`).
@@ -642,6 +645,7 @@ function worker.invocation(given: worker.Invocation): worker.Command
     argv[#argv + 1] = value
   end
   if given.sandbox ~= nil or given.policy ~= nil then argv[#argv + 1] = "--sandboxed" end
+  if given.own_scratch then argv[#argv + 1] = "--own-scratch" end
   if given.policy ~= nil and given.hold == "forbid" then
     local runs = given.runs or {}
     argv[#argv + 1] = "--runs"
@@ -865,8 +869,12 @@ function worker.run(argv: {integer:string}): integer
   local first = 9
   local sandboxed = argv[first] == "--sandboxed"
   local runs: {string} = nil
+  local own_scratch = false
   if sandboxed then
     first = first + 1
+    if argv[first] == "--own-scratch" then
+      own_scratch, first = true, first + 1
+    end
     if argv[first] == "--runs" then
       local count = math.tointeger(tonumber(argv[first + 1] or "")) or -1
       if count < 0 then
@@ -894,6 +902,20 @@ function worker.run(argv: {integer:string}): integer
     local entered, enter_trouble = sys.chdir(root)
     if not entered then
       complain("test --worker: " .. root .. ": " .. enter_trouble)
+      return 2
+    end
+  end
+  if own_scratch then
+    -- The runner made no directory for it: the worker's scratch directory is
+    -- one of the tmpfs it has, as the runner would have made it ([`build.test`]'s
+    -- `scratch`), `tmp` a link to `real`.
+    local scratch = Fs.dirname(tmp)
+    local made_scratch, scratch_trouble = Fs.mkdirs(scratch .. "/real")
+    -- 0700, as the runner's own is.
+    if made_scratch then made_scratch, scratch_trouble = sys.chmod(scratch, 0x1c0) end
+    if made_scratch then made_scratch, scratch_trouble = Fs.symlink("real", tmp) end
+    if not made_scratch then
+      complain("test --worker: its directory " .. scratch .. ": " .. scratch_trouble)
       return 2
     end
   end

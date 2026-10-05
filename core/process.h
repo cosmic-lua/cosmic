@@ -144,7 +144,8 @@ COSMIC_SYSCALL(user, 1);
  * ---@field writes {string} the ones it has to change too
  * ---@field at {string:string} for a path of `reads` or `writes`, by that path as given, the absolute name it is bound at in the child's root instead of its own -- not /, and no link to it is made there -- so a tree given at /tree is there alone, wherever the host has it; nil for none
  * ---@field binds {Bind} paths with more said of each than `reads` and `writes` say, bound as those are, each one entry of the `UNVEIL_MAX`; nil for none
- * ---@field tmp integer the size in bytes of a /tmp of the root's own: a tmpfs, noexec, which `grants` are given read, write and create beneath; needs `strict`, or it raises. Nil for the default /tmp, of no set size and not noexec, and with `strict` for no /tmp at all
+ * ---@field tmp integer the size in bytes of a /tmp of the root's own: a tmpfs, noexec unless `tmp_exec`, which `grants` are given read, write and create beneath; needs `strict`, or it raises. Nil for the default /tmp, of no set size and not noexec, and with `strict` for no /tmp at all
+ * ---@field tmp_exec boolean with `tmp`, whether what is made in that /tmp may execute: the tmpfs is not mounted noexec and `grants` are given execute beneath it too, as a grant `rwxc` is; nil or false for a /tmp that cannot run what it holds. Needs `tmp`, or it raises
  */
 
 /*

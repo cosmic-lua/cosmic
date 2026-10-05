@@ -5,7 +5,13 @@
 --- has it: a policy of its own
 --- that names the tree at /tree, the scratch directory with `rwxc`, the
 --- store at o/cosmic.db, the core, and what the module declares, with
---- `isolate` "file" and a /proc of the sandbox's own. The paths are
+--- `isolate` "file" and a /proc of the sandbox's own. Where nothing the
+--- module declares puts a directory of the host in the root
+--- ([`test_sandbox.Plan`]'s `own_scratch`), the scratch directory is not a
+--- bind of the host's either but a directory the worker makes in the
+--- sandbox's own /tmp (`tmp`, with "/tmp" granted `rwxc`): a root of files
+--- alone and a tmpfs of its own, which holds a unix socket the worker makes
+--- below Landlock ABI 9 (core/syscalls.c's `root_shows_no_socket`). The paths are
 --- [`test_sandbox.plan`]'s, taken as it plans them for the policy
 --- (`policy`); this module turns them into grants and the rest of the
 --- declaration into the policy's other fields, or refuses the module,
@@ -20,7 +26,8 @@
 ---   grant by `from`, and a `host` path a grant at its own name;
 --- - `system` is the profile "system", whose paths are the policy's, not
 ---   `/etc` whole;
---- - a host cache and the scratch directory are `rwxc` grants, and the
+--- - a host cache and the scratch directory (where that is the host's) are
+---   `rwxc` grants, and the
 ---   private noexec scratch `noexec` asks for is a writable grant without
 ---   `x`, at /noexec;
 --- - `nests` is the promise "nest", `network` is `loopback`, and the
@@ -58,14 +65,6 @@ test_policy.switch = "COSMIC_TEST_POLICY"
 -- tests declare them (step (e) of the plan, which replaces [`Test.needs`]
 -- with [`Test.policy`]): until then no test can say what it makes, and the
 -- filter refuses only what no test is meant to.
--- TODO: let a worker make a unix socket below Landlock ABI 9, once the kernels
--- the suite runs on give ABI 9 (core/syscalls.c's TODO on the same), or a
--- worker's root is a tmpfs of its own and files alone: a start holds a unix
--- socket by its root alone only then, and a worker's root binds the tree and
--- its scratch directory, whose sockets it cannot tell from its own. Its filter
--- refuses `socket(AF_UNIX)` EPERM, which every process the worker starts
--- inherits, so a test of a unix socket is skipped under the policy path
--- (build/unix_socket.tl).
 local base_promises <const>: {Sandbox.Promise} = { "fattr", "fork", "jit" }
 
 --- The devices a worker is given, as the policy's letters have them: the
@@ -213,6 +212,13 @@ function test_policy.worker(plan: test_sandbox.Plan,
   -- the directory it is bound from).
   if effective.noexec_ready and scratch ~= nil then
     grants[#grants + 1] = { path = "/noexec", from = scratch .. "/noexec", letters = "rwc" }
+  end
+  -- A worker whose root shows no directory of the host has its scratch
+  -- directory in the sandbox's own /tmp, which `tmp` makes, granted
+  -- `rwxc` as the host's directory is: its test may run what it writes.
+  if plan.own_scratch then
+    policy.tmp = true
+    grants[#grants + 1] = { path = "/tmp", letters = "rwxc" }
   end
   policy.grants = grants
   return policy, ""

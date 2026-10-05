@@ -46,16 +46,7 @@ local maps_ids <const> =
   "runs only in a sandboxed child that made a user namespace: where unshare is refused it is never entered, though on a " ..
   "host that lets unshare(CLONE_NEWUSER) through and refuses the uid_map write (AppArmor's restriction) it is"
 
-local skipped_unix <const> =
-  "entered only by tests of a unix socket in a worker's scratch directory, which the policy path skips (a worker's " ..
-  "root has host directories, so its filter keeps socket(AF_UNIX) refused below Landlock ABI 9: " ..
-  "build/unix_socket.tl); an unsandboxed run, macOS's, or one with COSMIC_TEST_POLICY=0 enters it"
-
 --- The C functions no test can enter, by [`key_of`], and why.
--- TODO: delete the exemption that uses `skipped_unix`, once Landlock ABI 9
--- lets the unix socket tests run under the policy path (the TODO in
--- build/unix_socket.tl): or once step (e) of doc/plans/sandbox.md deletes
--- the old path, which is the only one that enters it.
 local exempt: {string: string} = {
   ["core/vfs.c:file_write"] = read_only,
   ["core/vfs.c:file_truncate"] = read_only,
@@ -83,7 +74,6 @@ local exempt: {string: string} = {
   ["core/syscalls.c:make_mirrored"] = sandbox_only,
   ["core/syscalls.c:cosmic_mountinfo_local_flock"] = "a release core calls it only for a file on NFS, which no " ..
     "test's host has; the checked core's testing table reaches it (`mountinfo_local_flock`), and its run enters it",
-  ["core/socket.c:reach_from"] = skipped_unix,
   ["core/store.c:die_unreadable"] = "the store's own database cannot be read, and the process ends",
   ["core/crypto.c:mbedtls_psa_external_get_random"] = "mbedtls asks for randomness only to make keys, which the core never does",
   ["core/vfs.c:vfs_delete"] = forwarded,

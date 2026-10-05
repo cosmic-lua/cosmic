@@ -144,7 +144,11 @@ local record Sandbox
     --- for the name, cannot start a program.
     set_env_digests: {string:string}
     --- Whether the program has a fresh temporary directory of its own,
-    --- named by `TMPDIR`, that it may write.
+    --- named by `TMPDIR`, that it may write. Under `isolate` file it is
+    --- the root's own /tmp, which a grant of "/tmp" with no `from` and the
+    --- letters `rwxc` lets the program run files from (`rwc`, the default,
+    --- does not), and a `set_env` TMPDIR beneath /tmp is kept, for a
+    --- directory the program makes there.
     tmp: boolean
     --- The resources it may spend.
     limits: Limits

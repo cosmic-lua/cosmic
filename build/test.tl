@@ -46,7 +46,9 @@
 --- platform, as it would under macOS's `/var`, a link to `/private/var`.
 --- The runner removes the scratch directory once the test passes, and
 --- leaves a failing test's behind, so its own files stay around to look
---- at. A test that ignores the argument -- the ordinary shape, a bare
+--- at -- but for a worker that has it in a tmpfs of its own, which makes the
+--- directory itself ([`test_sandbox.Plan`]'s `own_scratch`) and leaves none
+--- on the host: `COSMIC_TEST_POLICY=0` keeps one. A test that ignores the argument -- the ordinary shape, a bare
 --- `assert()` -- is called with it anyway, and Lua drops an argument
 --- nobody asked for.
 ---
@@ -776,6 +778,9 @@ local record Job
   --- `tmp`, a link to it; removed once the test passes.
   scratch: string
   tmp: string
+  --- Whether the test's directory is one its worker makes in a tmpfs of its
+  --- own ([`test_sandbox.Plan`]'s `own_scratch`), so the runner has none.
+  own_scratch: boolean
   --- How its worker is sandboxed, when it is ([`build.test_sandbox`]).
   plan: test_sandbox.Plan
   --- Sandboxed, the key its verdict is reached under, over its
@@ -1678,6 +1683,9 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
   if not passed then
     if job.scratch ~= nil then
       message = message .. "\n  its directory is kept: " .. job.scratch .. "/real"
+    elseif job.own_scratch then
+      message = message .. "\n  its directory was a tmpfs of its worker's own, gone with it " ..
+        "(" .. test_policy.switch .. "=0 keeps one on the host)"
     end
     local failure = id .. ": " .. message
     rec.failures[#rec.failures + 1] = failure
@@ -2208,6 +2216,18 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
       return false
     end
     job.plan = plan
+    if plan.own_scratch then
+      -- Its worker makes its directory in a tmpfs of its own, where no
+      -- host directory is in its root: the runner keeps none, and nothing
+      -- is left of it once the worker ends.
+      local gone, gone_trouble = Fs.remove_tree(scratch)
+      if not gone then
+        finish(rec, job, nil, "could not remove its unused directory " .. scratch .. ": " ..
+            gone_trouble, limits)
+        return false
+      end
+      job.scratch, job.tmp, job.own_scratch = nil, nil, true
+    end
     env, sandbox = plan.env, plan.sandbox
     root, inside, cwd = test_sandbox.tree, test_sandbox.scratch, test_sandbox.tree
     if rec.policy then
@@ -2300,7 +2320,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   end
   local command = worker.invocation({
     start = job.plan ~= nil and job.plan.start or start, env = env, root = root, cwd = cwd, module_path = job.m.path,
-    name = job.name, scratch = inside, needs = test_inputs.canonical(declared), hold = hold,
+    name = job.name, scratch = inside, own_scratch = job.own_scratch, needs = test_inputs.canonical(declared), hold = hold,
     lua = rec.effective[job.m.path].lua, open = declared ~= nil and declared.store, store = attached,
     closure = rec.closures[job.m.path], tree = rec.tree_names, declared = rec.declared_names,
     sandbox = sandbox, policy = policy, runs = runs, program = job.plan ~= nil and job.plan.program or nil,

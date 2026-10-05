@@ -162,10 +162,10 @@ local function refused(said: string): boolean
 end
 
 -- TODO: run the tests below under the policy path on a kernel below
--- Landlock ABI 9, once a worker may make a unix socket there (a worker's
--- own filter, which every process it starts inherits, refuses socket(AF_UNIX)
--- there: a start's own cannot lift it), so they discriminate on CI's kernels;
--- they skip there, and run under COSMIC_TEST_POLICY=0 or from ABI 9.
+-- Landlock ABI 9, once a worker that declares `nests` may make a unix socket
+-- (build/unix_socket.tl's TODO): its filter, which every process it starts
+-- inherits, refuses socket(AF_UNIX), so they skip there and run under
+-- COSMIC_TEST_POLICY=0 or from ABI 9.
 
 local function test_a_root_of_its_own_tmpfs_alone_makes_a_unix_socket_there(tmp: string)
   local abi, trouble = process.landlock_abi()
