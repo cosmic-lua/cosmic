@@ -9,6 +9,10 @@
 ---
 --- Data alone, in text Lua reads as well as Teal: build/tree_checks.tl
 --- loads it.
+-- TODO: promise `program:jq` on the Linux legs once ci/images/alpine and
+-- ci/images/ubuntu install jq: only macos-aarch64's runner has it, so
+-- build/queue_seed_jq_test.tl and build/commit_verdicts_jq_test.tl are
+-- skipped on the Linux legs.
 -- TODO: promise `portable` once the driver gives its portable suite a
 -- list of its own: it runs `cosmic test` on a portable artifact, which
 -- the native suite on the same leg is not, so a leg's one list cannot
@@ -18,7 +22,16 @@
 -- only the bare `landlock` (version 1 or later) is known to hold.
 -- Every leg's image or runner has the shell at /bin/sh.
 local shell = "path:/bin/sh"
-local linux = { "sandbox", "landlock", "userns", "nest", "own_proc", "proc", shell }
+-- Every leg's image (ci/images) or runner has git on its PATH.
+local git = "program:git"
+-- Files every leg's system has, which tests that read or start the
+-- system's own paths require: /usr/bin/env stands for /usr, a directory
+-- being no file a policy grants.
+local env, passwd = "path:/usr/bin/env", "path:/etc/passwd"
+-- Every Linux leg's kernel (an Ubuntu 24.04 runner's) lists a process's
+-- children in /proc, CONFIG_PROC_CHILDREN.
+local children = "path:/proc/thread-self/children"
+local linux = { "sandbox", "landlock", "userns", "nest", "own_proc", "proc", shell, git, children, env, passwd }
 
 return {
   legs = {
@@ -27,6 +40,7 @@ return {
     ["linux-x86_64-checked"] = linux,
     ["linux-aarch64"] = linux,
     ["alpine-x86_64"] = linux,
-    ["macos-aarch64"] = { shell },
+    -- GitHub's macOS runner image carries jq; the Linux legs' images do not.
+    ["macos-aarch64"] = { shell, git, "program:jq", env, passwd },
   },
 }

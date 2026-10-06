@@ -23,8 +23,10 @@ local function run(root: string, cache: string, file: string, word: string): Chi
 end
 
 local function test_a_tree_whose_o_cannot_be_written_builds_in_the_cache(tmp: string)
-  -- Root writes whatever the mode says, so a mode holds no root back.
-  if sys.getuid() == 0 then return end
+  if sys.getuid() == 0 then
+    Test.skip("this process is root, which writes whatever the mode says, so a mode holds no root back")
+    return
+  end
   local root = tmp .. "/project"
   local cache = tmp .. "/cache"
   assert(Fs.mkdirs(root .. "/o") and Fs.mkdirs(cache))
