@@ -6,6 +6,12 @@
 --- wherever the program does; the runs under a policy are in
 --- `test_policy_tool_test.tl`.
 
+-- TODO: move the dots test and the nesting-artifact test below, which return
+-- silently where the run is not a portable artifact, to a module that
+-- declares `requires = { "portable" }` (build/host_names.tl names it), so such
+-- a run counts them not applicable. It waits on a fixture module that shares
+-- `effective`, [`scratch_in`] and `holds` with this one, which both modules need.
+
 local type Sandbox = require("cosmic.sandbox")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -152,11 +158,6 @@ for _, case in ipairs({
   print("ok")
 end
 ]]
-  -- TODO: move this test and the next to a module that declares
-  -- `requires = { "portable" }`, which [`build/host_names.tl`] names, so that a
-  -- run that is not a portable artifact counts them not applicable rather
-  -- than passing them having checked nothing (the helpers above go with them).
-  -- TODO: see the test above: `requires = { "portable" }` once it is moved.
   local launched = Proc.relaunch()
   if launched == nil or launched.argv[2] ~= "--artifact" then return end
   assert(Fs.mkdirs(tmp .. "/beside/ci"))

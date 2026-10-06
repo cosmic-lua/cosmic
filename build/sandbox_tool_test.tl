@@ -31,7 +31,7 @@ local function cosmic(dir: string, words: {string}, fds?: {integer:integer}): fi
   searchable.open(dir)
   local ran = fixture.cosmic(dir, words, fds)
   if ran.code == 125 and (ran.err:find("Landlock", 1, true) or ran.err:find("seccomp", 1, true) or
-      ran.err:find("not implemented", 1, true) or ran.err:find("only Linux gives", 1, true)) then
+      ran.err:find("not implemented", 1, true)) then
     Test.skip(ran.err)
   end
   return ran

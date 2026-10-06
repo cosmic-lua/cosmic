@@ -14,7 +14,6 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
-local stand_in = require("build.stand_in")
 local test_sandbox = require("build.test_sandbox")
 local confine = require("build.confine")
 local fixture = require("build.test_sandbox_fixture")
@@ -22,7 +21,7 @@ local Test = require("cosmic.test")
 
 --- What a worker's plan gives it of the host, the program it runs,
 --- roots of their own for the sandboxed workers it starts (`nests`), and
---- the variables `unsandboxed` reads, which hold a run to sandboxing.
+--- the variables the runs set, which choose how their workers are held.
 Test.policy{
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" }, { path = "/proc", letters = "r" } },
@@ -38,17 +37,7 @@ local function run(root: string, output: string, env: {string:string}): string, 
   return ran.text, ran.ok
 end
 
---- Makes `root`, a tree for a suite, with a stand-in program
---- (build/stand_in.tl) at bin/probe for its tests to start, which
---- declare it -- not this program, which would take `tool` -- in the
---- tree, since a sandboxed worker has a /tmp of its own over this
---- test's.
-local function suite_tree(tmp: string, root: string)
-  assert(Fs.mkdirs(root .. "/suite"))
-  assert(Fs.mkdirs(root .. "/bin"))
-  assert(stand_in.place(assert(stand_in.build(tmp .. "/stand-in")), root .. "/bin/probe"))
-end
-
+local suite_tree = fixture.suite_tree
 --- Whether the run that printed `text` sandboxed none of its workers.
 local function none_sandboxed(text: string): boolean
   return text:find("no worker can be sandboxed here", 1, true) ~= nil
@@ -92,85 +81,28 @@ end
 --- and reads only the variables it declares -- and so does a process it
 --- starts; and the run says it was sandboxed. The same suite with the
 --- switch off reads all of the tree and the host, but still only the
---- variables it declares, and says it is keyed by what it declares and
---- shares no verdict. Where this host cannot sandbox the run's workers
---- the run says so, and runs them unsandboxed, sharing none -- but with
---- the switch on, where it fails. A switch that is neither "1", "0" nor
---- unset is refused.
+--- variables it declares. Required where it can be, the same; a switch that
+--- is neither "1", "0" nor unset is refused. The run with the switch off,
+--- and a host that gives no sandbox, are `test_sandbox_tool_test.tl`'s.
 local function test_a_sandboxed_run_holds_each_worker_to_its_inputs(tmp: string)
   local root, hidden = tmp .. "/root", tmp .. "/hidden"
   suite_tree(tmp, root)
-  assert(Fs.mkdirs(hidden))
-  assert(Fs.write(root .. "/suite/data.txt", "declared"))
-  assert(Fs.write(root .. "/suite/secret.txt", "undeclared"))
-  assert(Fs.write(root .. "/suite/view_test.tl", string.format([[
-local Child = require("cosmic.child")
-local Fs = require("cosmic.fs")
-local sys = require("cosmic.sys")
-local Test = require("cosmic.test")
-
-Test.policy {
-  grants = {
-    { path = "suite/data.txt", letters = "r" },
-    { path = "bin/probe", letters = "r" },
-  },
-  env = { "DECLARED_VAR" },
-}
-
-local function test_view(tmp: string)
-  local here = assert(sys.getcwd())
-  -- What a process it starts sees, with the worker's environment.
-  local child = assert(Child.run({ "bin/probe",
-    "cat-quiet suite/data.txt; cat-quiet suite/secret.txt; print /$DECLARED_VAR/$UNDECLARED_VAR" },
-    { stdout = "capture" }))
-  error(table.concat({ "seen", here, tmp,
-    tostring((Fs.read(here .. "/suite/data.txt"))),
-    tostring((Fs.read(here .. "/suite/secret.txt"))),
-    tostring(sys.stat(%q) ~= nil), tostring(sys.getenv("DECLARED_VAR")),
-    tostring(sys.getenv("UNDECLARED_VAR")), (tostring(child.stdout):gsub("\n", "")), "end" }, "|"))
-end
-]], hidden)))
+  fixture.view_suite(tmp, root, hidden)
   local env = this_program.environment()
   env.COSMIC_VERDICT_CACHE = "0"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil
   env.DECLARED_VAR = "d"
   env.UNDECLARED_VAR = "u"
-  local real_root = assert(Fs.absolute(root))
-  env.COSMIC_TEST_SANDBOX = "0"
-  local text, ok = run(root, tmp .. "/plain", env)
-  assert(not ok, text)
-  assert(text:find("; unsandboxed (COSMIC_TEST_SANDBOX=0), keyed by declared inputs, " ..
-      "sharing no verdicts)", 1, true), text)
-  assert(text:find("rerun: COSMIC_TEST_SANDBOX=0 cosmic test suite/view_test.tl:test_view", 1,
-    true), text)
-  local seen = text:match("seen|([^\n]*)|end")
-  assert(seen ~= nil, text)
-  local fields: {string} = {}
-  for field in (seen .. "|"):gmatch("([^|]*)|") do fields[#fields + 1] = field end
-  assert(fields[1] == real_root and fields[3] == "declared" and fields[4] == "undeclared" and
-      fields[5] == "true" and fields[6] == "d" and fields[7] == "nil" and
-      fields[8] == "declaredundeclared/d/", seen)
+  local text, ok: string, boolean
   env.COSMIC_TEST_SANDBOX = nil
   text, ok = run(root, tmp .. "/sandboxed", env)
   assert(not ok, text)
-  if none_sandboxed(text) then
-    -- And why, in the summary.
-    assert(text:find("; unsandboxed, as no worker can be sandboxed here (", 1, true) and
-        text:find("), keyed by declared inputs, sharing no verdicts)", 1, true), text)
-    -- Required, the run fails instead.
-    env.COSMIC_TEST_SANDBOX = "1"
-    local required: string = nil
-    required, ok = run(root, tmp .. "/required", env)
-    assert(not ok and required:find("COSMIC_TEST_SANDBOX=1, but no worker can be sandboxed here",
-      1, true), required)
-    skip_unsandboxed(text)
-    return
-  end
+  if unsandboxed(text) then return end
   assert(text:find("; sandboxed", 1, true), text)
-  seen = text:match("seen|([^\n]*)|end")
+  local seen = text:match("seen|([^\n]*)|end")
   assert(seen ~= nil, text)
-  fields = {}
+  local fields: {string} = {}
   for field in (seen .. "|"):gmatch("([^|]*)|") do fields[#fields + 1] = field end
   assert(fields[1] == "/tree" and fields[2] == test_sandbox.scratch .. "/tmp" and fields[3] == "declared" and
       fields[4] == "nil" and fields[5] == "false" and fields[6] == "d" and fields[7] == "nil" and

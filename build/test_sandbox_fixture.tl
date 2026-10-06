@@ -5,6 +5,7 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
+local stand_in = require("build.stand_in")
 local this_program = require("build.this_program")
 
 local record test_sandbox_fixture
@@ -50,6 +51,60 @@ local function test_read()
     tostring((Fs.read("]] .. product .. [[/sibling.txt"))) .. "|end")
 end
 ]]))
+end
+
+--- Makes `root`, a tree for a suite, with a stand-in program
+--- (build/stand_in.tl) at bin/probe for its tests to start, which
+--- declare it -- not this program, which would take `tool` -- in the
+--- tree, since a sandboxed worker has a /tmp of its own over this
+--- test's.
+--- @param tmp the test's directory, where the stand-in is built
+--- @param root the suite's tree
+function test_sandbox_fixture.suite_tree(tmp: string, root: string)
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.mkdirs(root .. "/bin"))
+  assert(stand_in.place(assert(stand_in.build(tmp .. "/stand-in")), root .. "/bin/probe"))
+end
+
+--- Makes `root` as [`suite_tree`] does, with `hidden`, a directory outside it,
+--- and a suite of one test that declares a file of the tree and the stand-in
+--- and fails with what it and a process it starts see, `seen|<cwd>|<tmp>|
+--- <data>|<secret>|<hidden exists>|<declared var>|<undeclared var>|<child>|end`.
+--- @param tmp the test's directory
+--- @param root the suite's tree
+--- @param hidden a directory outside the tree
+function test_sandbox_fixture.view_suite(tmp: string, root: string, hidden: string)
+  test_sandbox_fixture.suite_tree(tmp, root)
+  assert(Fs.mkdirs(hidden))
+  assert(Fs.write(root .. "/suite/data.txt", "declared"))
+  assert(Fs.write(root .. "/suite/secret.txt", "undeclared"))
+  assert(Fs.write(root .. "/suite/view_test.tl", string.format([[
+local Child = require("cosmic.child")
+local Fs = require("cosmic.fs")
+local sys = require("cosmic.sys")
+local Test = require("cosmic.test")
+
+Test.policy {
+  grants = {
+    { path = "suite/data.txt", letters = "r" },
+    { path = "bin/probe", letters = "r" },
+  },
+  env = { "DECLARED_VAR" },
+}
+
+local function test_view(tmp: string)
+  local here = assert(sys.getcwd())
+  -- What a process it starts sees, with the worker's environment.
+  local child = assert(Child.run({ "bin/probe",
+    "cat-quiet suite/data.txt; cat-quiet suite/secret.txt; print /$DECLARED_VAR/$UNDECLARED_VAR" },
+    { stdout = "capture" }))
+  error(table.concat({ "seen", here, tmp,
+    tostring((Fs.read(here .. "/suite/data.txt"))),
+    tostring((Fs.read(here .. "/suite/secret.txt"))),
+    tostring(sys.stat(%q) ~= nil), tostring(sys.getenv("DECLARED_VAR")),
+    tostring(sys.getenv("UNDECLARED_VAR")), (tostring(child.stdout):gsub("\n", "")), "end" }, "|"))
+end
+]], hidden)))
 end
 
 return test_sandbox_fixture

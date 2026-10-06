@@ -6,15 +6,14 @@
 --- not applicable where the host gives no nest (`requires`). The refusals
 --- the same on every host are in `must_confine_test.tl`.
 
-local Fs = require("cosmic.fs")
 local confine = require("build.confine")
 local fixture = require("build.must_confine_fixture")
 local Test = require("cosmic.test")
 
 --- What these tests start is this very program, which runs the
 --- tool's own modules besides the closure's, in a root of its own
---- (`nests`); and the variables `unsandboxed` reads, which hold a run
---- to sandboxing.
+--- (`nests`); and the variables the runs set, which choose how their
+--- workers are held.
 Test.policy{
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" } },
@@ -25,7 +24,7 @@ Test.policy{
 -- What these tests start is this very program.
 confine.confine({ reads = confine.itself() })
 
-local suite_tree, environment, failure_of = fixture.suite_tree, fixture.environment, fixture.failure_of
+local environment, failure_of = fixture.environment, fixture.failure_of
 
 --- Runs `cosmic test` on `root` with `words` after it, answering what
 --- it printed and whether it passed.
@@ -55,40 +54,8 @@ end
 --- COSMIC_SANDBOX=must, which says this host confines, this test fails
 --- with it. It never runs unconfined.
 local function test_a_must_confined_process_is_confined_or_refused(tmp: string)
-  local root, hidden = tmp .. "/root", tmp .. "/hidden"
-  suite_tree(tmp, root)
-  assert(Fs.mkdirs(hidden))
-  assert(Fs.write(hidden .. "/f", "secret"))
-  assert(Fs.write(root .. "/suite/data.txt", "in"))
-  local real = assert(Fs.absolute(root .. "/suite/data.txt"))
-  assert(Fs.write(root .. "/suite/real_test.tl", string.format([[
-local Child = require("cosmic.child")
-local Fs = require("cosmic.fs")
-local Test = require("cosmic.test")
-
-Test.policy { grants = { { path = "bin/probe", letters = "r" } }, promises = { "nest" } }
-
-local record Confine
-  confine: function(declared: {string:{string}} | nil)
-  must_confine: function(declared: {string:{string}} | nil)
-end
--- The worker's own, which a suite outside the tree cannot require.
-local confine = package.loaded["build.confine"] as Confine
-
-local function test_confined(tmp: string)
-  local probe = assert(Fs.absolute("bin/probe"))
-  confine.must_confine({ reads = { %q, probe } })
-  local r, _ = Child.run({ probe,
-    "exists %s/f 3; copy %s out; " ..
-    "present /proc/self/net/dev && grep-count /proc/self/net/dev : || exit 0" },
-    { cwd = tmp, stdout = "capture" })
-  confine.confine(nil)
-  if r == nil then return end -- refused: the run says why
-  assert(r.code == 0, "the confined process exited " .. tostring(r.code))
-  local out = assert(Fs.read(tmp .. "/out"))
-  assert(out == "in" and (r.stdout == "" or r.stdout == "1\n"), out .. tostring(r.stdout))
-end
-]], real, hidden, real)))
+  local root = tmp .. "/root"
+  fixture.confined_suite(tmp, root)
   local text, ok = run(root, tmp .. "/out", environment(nil), { "--all" })
   if ok then
     assert(text:find("1 ran", 1, true), text)
@@ -107,31 +74,7 @@ end
 --- fails with it. Any other value fails the test that confines.
 local function test_the_sandbox_mode_holds_confine_to_must_confine(tmp: string)
   local root = tmp .. "/root"
-  suite_tree(tmp, root)
-  assert(Fs.write(root .. "/suite/fallback_test.tl", [[
-local Child = require("cosmic.child")
-local Fs = require("cosmic.fs")
-local Test = require("cosmic.test")
-
-Test.policy { grants = { { path = "bin/probe", letters = "r" } }, promises = { "nest" } }
-
-local record Confine
-  confine: function(declared: {string:{string}} | nil)
-  must_confine: function(declared: {string:{string}} | nil)
-end
--- The worker's own, which a suite outside the tree cannot require.
-local confine = package.loaded["build.confine"] as Confine
-
-local function test_falls_back(tmp: string)
-  local probe = assert(Fs.absolute("bin/probe"))
-  local many: {string} = { probe }
-  for i = 1, 300 do many[#many + 1] = tmp .. "/many" .. tostring(i) end
-  confine.confine({ reads = many })
-  local r = assert(Child.run({ probe, "exit 0" }))
-  confine.confine(nil)
-  assert(r.ok, "the process it fell back to did not run")
-end
-]]))
+  fixture.fallback_suite(tmp, root)
   local text, ok = run(root, tmp .. "/first", environment(nil))
   assert(ok and text:find("1 ran", 1, true), text)
   -- It stands on its declared key, which holds the mode below.

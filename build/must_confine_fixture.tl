@@ -125,4 +125,81 @@ end
 ]]))
 end
 
+--- Makes `root` as [`suite_tree`] does, with a suite of one test that starts
+--- the stand-in under `must_confine` on a file of the tree, the way a
+--- confined process sees it and not a file of a directory beside it
+--- (`tmp`/hidden).
+--- @param tmp the test's directory
+--- @param root the suite's tree
+function must_confine_fixture.confined_suite(tmp: string, root: string)
+  local hidden = tmp .. "/hidden"
+  must_confine_fixture.suite_tree(tmp, root)
+  assert(Fs.mkdirs(hidden))
+  assert(Fs.write(hidden .. "/f", "secret"))
+  assert(Fs.write(root .. "/suite/data.txt", "in"))
+  local real = assert(Fs.absolute(root .. "/suite/data.txt"))
+  assert(Fs.write(root .. "/suite/real_test.tl", string.format([[
+local Child = require("cosmic.child")
+local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
+
+Test.policy { grants = { { path = "bin/probe", letters = "r" } }, promises = { "nest" } }
+
+local record Confine
+  confine: function(declared: {string:{string}} | nil)
+  must_confine: function(declared: {string:{string}} | nil)
+end
+-- The worker's own, which a suite outside the tree cannot require.
+local confine = package.loaded["build.confine"] as Confine
+
+local function test_confined(tmp: string)
+  local probe = assert(Fs.absolute("bin/probe"))
+  confine.must_confine({ reads = { %q, probe } })
+  local r, _ = Child.run({ probe,
+    "exists %s/f 3; copy %s out; " ..
+    "present /proc/self/net/dev && grep-count /proc/self/net/dev : || exit 0" },
+    { cwd = tmp, stdout = "capture" })
+  confine.confine(nil)
+  if r == nil then return end -- refused: the run says why
+  assert(r.code == 0, "the confined process exited " .. tostring(r.code))
+  local out = assert(Fs.read(tmp .. "/out"))
+  assert(out == "in" and (r.stdout == "" or r.stdout == "1\n"), out .. tostring(r.stdout))
+end
+]], real, hidden, real)))
+end
+
+--- Makes `root` as [`suite_tree`] does, with a suite of one test that confines
+--- a process with more paths than a sandbox unveils, so that it falls back to
+--- an unconfined one unless COSMIC_SANDBOX=must holds `confine` to
+--- `must_confine`.
+--- @param tmp the test's directory
+--- @param root the suite's tree
+function must_confine_fixture.fallback_suite(tmp: string, root: string)
+  must_confine_fixture.suite_tree(tmp, root)
+  assert(Fs.write(root .. "/suite/fallback_test.tl", [[
+local Child = require("cosmic.child")
+local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
+
+Test.policy { grants = { { path = "bin/probe", letters = "r" } }, promises = { "nest" } }
+
+local record Confine
+  confine: function(declared: {string:{string}} | nil)
+  must_confine: function(declared: {string:{string}} | nil)
+end
+-- The worker's own, which a suite outside the tree cannot require.
+local confine = package.loaded["build.confine"] as Confine
+
+local function test_falls_back(tmp: string)
+  local probe = assert(Fs.absolute("bin/probe"))
+  local many: {string} = { probe }
+  for i = 1, 300 do many[#many + 1] = tmp .. "/many" .. tostring(i) end
+  confine.confine({ reads = many })
+  local r = assert(Child.run({ probe, "exit 0" }))
+  confine.confine(nil)
+  assert(r.ok, "the process it fell back to did not run")
+end
+]]))
+end
+
 return must_confine_fixture

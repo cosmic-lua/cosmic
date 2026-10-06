@@ -13,6 +13,7 @@ local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 local test_inputs = require("build.test_inputs")
 local test_sandbox = require("build.test_sandbox")
+local confine = require("build.confine")
 local fixture = require("build.test_sandbox_fixture")
 local Test = require("cosmic.test")
 
@@ -286,4 +287,53 @@ local function test_a_host_path_that_is_the_trees_is_refused_in_either_mode(tmp:
         not inside:find("read|", 1, true), inside)
     assert(not inside:find("could not be supervised", 1, true), inside)
   end
+end
+
+--- End to end, the half of a sandboxed run's checks that needs no sandbox:
+--- with the switch off (`COSMIC_TEST_SANDBOX=0`) a worker reads all of the
+--- tree and the host but only the variables it declares, and the run says
+--- it is keyed by what it declares and shares no verdict. Then, where this
+--- platform gives no sandbox at all, the run says so and runs its workers
+--- unsandboxed, and with the switch on it fails. A platform that gives one
+--- returns here: its runs are `test_sandbox_run_tool_test.tl`'s
+--- (`requires`), which a host with none does not run.
+local function test_an_unsandboxed_run_reads_the_tree_and_a_platform_with_no_sandbox_says_so(tmp: string)
+  local root, hidden = tmp .. "/root", tmp .. "/hidden"
+  fixture.view_suite(tmp, root, hidden)
+  local env = this_program.environment()
+  env.COSMIC_VERDICT_CACHE = "0"
+  env.COSMIC_TEST_ALL = nil
+  env.COSMIC_SANDBOX = nil
+  env.DECLARED_VAR = "d"
+  env.UNDECLARED_VAR = "u"
+  local real_root = assert(Fs.absolute(root))
+  env.COSMIC_TEST_SANDBOX = "0"
+  local text, ok = run(root, tmp .. "/plain", env)
+  assert(not ok, text)
+  assert(text:find("; unsandboxed (COSMIC_TEST_SANDBOX=0), keyed by declared inputs, " ..
+      "sharing no verdicts)", 1, true), text)
+  assert(text:find("rerun: COSMIC_TEST_SANDBOX=0 cosmic test suite/view_test.tl:test_view", 1,
+    true), text)
+  local seen = text:match("seen|([^\n]*)|end")
+  assert(seen ~= nil, text)
+  local fields: {string} = {}
+  for field in (seen .. "|"):gmatch("([^|]*)|") do fields[#fields + 1] = field end
+  assert(fields[1] == real_root and fields[3] == "declared" and fields[4] == "undeclared" and
+      fields[5] == "true" and fields[6] == "d" and fields[7] == "nil" and
+      fields[8] == "declaredundeclared/d/", seen)
+  -- Branches on the platform: where it can sandbox, the run does, and that
+  -- is checked by the module that requires a nest.
+  if confine.sandbox_platform() then return end
+  env.COSMIC_TEST_SANDBOX = nil
+  text, ok = run(root, tmp .. "/sandboxed", env)
+  assert(not ok, text)
+  -- And why, in the summary.
+  assert(text:find("; unsandboxed, as no worker can be sandboxed here (", 1, true) and
+      text:find("), keyed by declared inputs, sharing no verdicts)", 1, true), text)
+  -- Required, the run fails instead.
+  env.COSMIC_TEST_SANDBOX = "1"
+  local required: string = nil
+  required, ok = run(root, tmp .. "/required", env)
+  assert(not ok and required:find("COSMIC_TEST_SANDBOX=1, but no worker can be sandboxed here",
+    1, true), required)
 end

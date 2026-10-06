@@ -216,3 +216,34 @@ local function test_a_worker_held_by_landlock_is_refused_a_root_of_its_own(tmp: 
       "which a Landlock ruleset holds", 1, true) and
       text:find("declare the promise \"nest\" in its Test.policy", 1, true), text)
 end
+
+--- Where the platform has no sandbox to confine with, a process under
+--- `must_confine` is refused, not run unconfined: its test fails naming
+--- the part of the sandbox that could not be applied. This branches on the
+--- platform because where it can confine, the process runs held to what was
+--- declared, which `must_confine_sandboxed_test.tl` checks (`requires`).
+local function test_a_must_confined_process_is_refused_where_no_sandbox_is_given(tmp: string)
+  if confine.sandbox_platform() then return end
+  local root = tmp .. "/root"
+  fixture.confined_suite(tmp, root)
+  local text, ok = run(root, tmp .. "/out", environment(nil), { "--all" })
+  assert(not ok, text)
+  local why = text:match("FAIL  suite%.real_test test_confined: ([^\n]*)")
+  assert(why ~= nil and why:find("^must_confine: %S*bin/probe could not start confined: .+ could " ..
+      "not be applied: .+ %(E[A-Z0-9]+%)$"), text)
+end
+
+--- Where the platform has no sandbox, a `confine` that cannot confine falls
+--- back to an unconfined process and its test passes, and stands on a
+--- second run. This branches on the platform because where it can
+--- confine, COSMIC_SANDBOX=must is checked too, by
+--- `must_confine_sandboxed_test.tl` (`requires`).
+local function test_a_confine_falls_back_and_stands_where_no_sandbox_is_given(tmp: string)
+  if confine.sandbox_platform() then return end
+  local root = tmp .. "/root"
+  fixture.fallback_suite(tmp, root)
+  local text, ok = run(root, tmp .. "/first", environment(nil))
+  assert(ok and text:find("1 ran", 1, true), text)
+  text, ok = run(root, tmp .. "/stood", environment(nil))
+  assert(ok and text:find("0 ran, 1 stood", 1, true), text)
+end
