@@ -209,7 +209,7 @@ promises lean on come first:
 - `format`, `check`: small modules a program
   otherwise hand-rolls.
 - `ast`, `teal`, `doc` and `embed` exist only as build internals under
-  `build/`, and of `test` only [`cosmic.test`]'s `needs` is public, the
+  `build/`, and of `test` only [`cosmic.test`]'s `policy` and `skip` are public, the
   runner staying in `build/`. decide which become public `cosmic.*`
   modules and what a program gets from each.
 - `shape` specs a caller may come to need, each added once one does: a

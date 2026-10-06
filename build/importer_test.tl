@@ -1701,7 +1701,7 @@ local function test_only_a_test_module_declares_its_inputs()
   }))
   local requires, trouble = requires_of_fixture(root, "lib.helper_test")
   assert(requires == nil, "a module no test's declared its inputs")
-  assert(trouble:find("lib/helper.tl:2: test.needs: only a test or example module", 1, true),
+  assert(trouble:find("lib/helper.tl:2: test.policy: only a test or example module", 1, true),
     trouble)
   assert(Fs.write(root .. "/lib/helper.tl", "return {}\n"))
   local again = assert(requires_of_fixture(root, "lib.helper_test"))

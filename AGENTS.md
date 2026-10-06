@@ -223,7 +223,7 @@
    (`nests`):
    sandboxed, every other worker is held by a Landlock ruleset, under
    which the kernel refuses the mounts a root is made of, so such a
-   start is refused outright, naming `nests`, and fails the test rather
+   start is refused outright, naming the promise "nest", and fails the test rather
    than falling back to running unconfined; a `cosmic test` started
    there refuses to sandbox its workers.
    Unsandboxed (`COSMIC_TEST_SANDBOX=0`, or where the kernel cannot, as

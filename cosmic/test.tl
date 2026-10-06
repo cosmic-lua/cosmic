@@ -361,8 +361,8 @@ local BIN_FORM <const> = ".path o/bin is the directory the program is in, grante
 --- Why the profile "cosmic" alone, which is `lua`, is refused beside the
 --- store, the system or a cache: a host program, or a cosmic a cache holds,
 --- could start the program with no hold on what it loads.
-local LUA_BESIDE <const> = "profiles: \"cosmic\" without the grant of o/bin holds the program to " ..
-  "what the module requires, which is refused beside "
+local LUA_BESIDE <const> = "profiles: \"cosmic\" without the grant of o/bin holds the " ..
+  "program to what the module requires, which is refused beside "
 local LUA_FIX <const> = "; grant { path = \"o/bin\", letters = \"rx\" } beside the profile to " ..
   "run the program itself, whose key holds every module it carries"
 
@@ -661,7 +661,8 @@ end
 ---
 --- is the `needs` `{ system = true, reads = { "testdata" }, env = { "PATH" },
 --- network = { "127.0.0.1" } }`. The build reads the call as data: one
---- table written out as a literal, once, at the top of the module. A grant with a path of the tree is a read of it, an absolute
+--- table written out as a literal, once, at the top of the module. A
+--- grant with a path of the tree is a read of it, an absolute
 --- path a read of that host file; the profile "system" is `system`,
 --- "cosmic" is `lua`; the promise "nest" is `nests`; `loopback` is
 --- `network`. Four grants, written exactly so, are the fields they

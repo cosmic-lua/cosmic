@@ -306,7 +306,7 @@ function compilation.collect(db: Sqlite.Handle): {Module} | nil, string
       -- A declaration holds for the tests of its own module, and a
       -- module that is no test's has none: what a module it requires
       -- reads, the test declares.
-      return nil, file .. ":" .. inputs.line .. ": test.needs: only a test or example " ..
+      return nil, file .. ":" .. inputs.line .. ": test.policy: only a test or example " ..
         "module declares what its tests read; call it in each test module that " ..
         "requires this one"
     end
