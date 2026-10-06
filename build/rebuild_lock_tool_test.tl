@@ -177,7 +177,10 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
         return (Fs.read(output) or ""):find("waiting for it", 1, true) ~= nil
       end))
       local staged = assert(work.open(root))
-      local first = assert(importer.compile(staged, built, Store.meta("compiler") or ""))
+      local first: importer.Result = {
+        main = nil, tool = "", modules = {}, refused = {},
+        compiled = 0, cached = 0, shared = 0, parses = { parsed = 0, shared = 0 },
+      }
       local first_signature = assert(writer.signature(staged, first, Store.meta("writer") or ""))
       assert(work.close(staged))
       if succeeds then
