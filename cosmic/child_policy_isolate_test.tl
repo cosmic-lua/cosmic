@@ -4,9 +4,11 @@
 --- grants, which give it a network namespace of its own. The kernel's own
 --- verdict on live children: the child is a stand-in (build/stand_in.tl),
 --- a static program that does what its script says, so a refusal shows as a
---- command that fails. A host that gives no user namespace, Landlock or
---- seccomp, and every platform but Linux, skips the tests that start a child
---- (Test.skip); the refusals that come before a child do not.
+--- command that fails. They need a user namespace (`requires`): where the
+--- platform has none they are not applicable, and where this host gives no
+--- user namespace, Landlock or seccomp each skips itself (Test.skip). The
+--- refusals that come before a child, which hold on every platform, are in
+--- cosmic/child_policy_anywhere_test.tl.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -15,7 +17,6 @@ local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
-local confine = require("build.confine")
 local searchable = require("build.searchable")
 local stand_in = require("build.stand_in")
 local unix_socket = require("build.unix_socket")
@@ -28,6 +29,7 @@ Test.policy{
   promises = { "nest" },
   loopback = { "127.0.0.1" },
   env = { "TMPDIR" },
+  requires = { "userns" },
 }
 
 --- Whether `why`, a start's failure, is the platform or the host giving no
@@ -55,7 +57,7 @@ local function under(program: string, policy: Sandbox.Policy, cwd: string, scrip
     { policy = policy, cwd = cwd, stdout = "capture", stderr = "stdout" })
   if result == nil then
     assert(unsandboxable(why), "the start was refused: " .. why)
-    if confine.sandbox_platform() then Test.skip(why) end
+    Test.skip(why)
     return nil
   end
   return { code = result.code or -1, said = result.stdout or "" }
@@ -366,7 +368,7 @@ local function test_a_u_grant_beside_a_directory_of_sockets_is_refused_or_held(t
     else
       assert(unsandboxable(why), why)
       assert(granted:close() and other:close())
-      if confine.sandbox_platform() then Test.skip(why) end
+      Test.skip(why)
       return
     end
   else
@@ -474,34 +476,11 @@ local function test_a_root_that_cannot_be_built_says_which_step_failed(tmp: stri
   assert(result == nil)
   if not why:find("root could not be built", 1, true) then
     assert(unsandboxable(why), why)
-    if confine.sandbox_platform() then Test.skip(why) end
+    Test.skip(why)
     return
   end
   assert(why:find("Symbolic link loop", 1, true) and why:find("step of making", 1, true), why)
   assert(not why:find("user namespace", 1, true), why)
-end
-
-local function test_from_needs_isolate_file_and_what_is_not_met_stays_refused(tmp: string)
-  local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
-  local function refused(policy: Sandbox.Policy): string
-    local handle, why = Child.start({ probe, "print hi" }, { policy = policy })
-    assert(handle == nil)
-    return why
-  end
-  local from = refused({ grants = { { path = probe, letters = "rx" },
-    { path = "/data", letters = "r", from = tmp } } })
-  assert(from:find("from", 1, true) and from:find("isolate", 1, true) and from:find("file", 1, true), from)
-  assert(refused({ connect = { "example.com:443" } }):find("connect", 1, true))
-  assert(refused({ promises = { "nest" } }):find("nest", 1, true))
-  local counted = refused({ limits = { processes = 4 } })
-  assert(counted:find("limits.processes", 1, true) and counted:find("isolate", 1, true), counted)
-  -- /tmp is the sandbox's own where tmp asks for it.
-  local clash = refused({ isolate = { "file" }, tmp = true, grants = {
-    { path = probe, letters = "rx" }, { path = "/tmp", letters = "r" } } })
-  assert(clash:find("/tmp", 1, true) and clash:find("tmp", 1, true), clash)
-  local proc = refused({ isolate = { "file" }, grants = {
-    { path = probe, letters = "rx" }, { path = "/proc", letters = "r", from = tmp } } })
-  assert(proc:find("/proc", 1, true) and proc:find("from", 1, true), proc)
 end
 
 local function test_a_directory_nothing_grants_cannot_be_started_in_under_isolate_file(tmp: string)
@@ -510,7 +489,7 @@ local function test_a_directory_nothing_grants_cannot_be_started_in_under_isolat
     policy = { isolate = { "file" }, grants = at.grants } })
   assert(result == nil)
   if unsandboxable(why) then
-    if confine.sandbox_platform() then Test.skip(why) end
+    Test.skip(why)
     return
   end
   assert(why:find("must be at, beneath or above a grant", 1, true), why)

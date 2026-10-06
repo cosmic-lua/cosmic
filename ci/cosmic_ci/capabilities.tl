@@ -16,9 +16,12 @@
 -- TODO: promise `landlock:N` for the N the runners' kernels give (ubuntu-24.04's
 -- and its arm image's), once a run's summary says the ABI they hold:
 -- only the bare `landlock` (version 1 or later) is known to hold.
--- Every leg's image or runner has the shell at /bin/sh.
+-- Every leg's image or runner has the shell at /bin/sh. The Linux legs'
+-- images, busybox's on alpine's, have cat at /bin/cat, which the macOS leg
+-- has too but never asks for: its tests that run it need a sandbox.
 local shell = "path:/bin/sh"
-local linux = { "sandbox", "landlock", "userns", "nest", "own_proc", "proc", shell }
+local cat = "path:/bin/cat"
+local linux = { "sandbox", "landlock", "userns", "nest", "own_proc", "proc", shell, cat }
 
 return {
   legs = {
