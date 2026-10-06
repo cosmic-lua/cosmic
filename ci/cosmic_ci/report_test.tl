@@ -7,6 +7,11 @@ local Report = require("cosmic_ci.report")
 local State = require("cosmic_ci.state")
 local Stream = require("cosmic.stream")
 local Zip = require("cosmic.zip")
+local Test = require("cosmic.test")
+
+-- These tests start this program (the pinned driver's own cosmic, or a copy of it
+-- as the bootstrap), which a worker on a sealed database does not have whole.
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local repository <const> = "owner/repo"
 

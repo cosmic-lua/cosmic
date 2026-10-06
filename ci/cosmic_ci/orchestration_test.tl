@@ -14,7 +14,10 @@ local Test = require("cosmic.test")
 -- The fixture modules, whose sources [`code_of`] reads (their declarations
 -- are what [`test_every_sandboxed_fixture_is_keyed_by_the_product`]
 -- checks), so an edit to one moves this module's key.
-Test.policy{ grants = { { path = "fixtures/", letters = "r" } } }
+Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "fixtures/", letters = "r" }, { path = "o/bin", letters = "rx" } },
+}
 
 -- TODO: declare what these tests read of the checkout around ci/
 -- (.github/workflows/ci.yml above all, and the git history a clone
