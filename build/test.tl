@@ -4030,6 +4030,38 @@ local removal_mt: metatable<Removal> = {
   __close = function(removal: Removal) drop_sealing(removal.rec) end,
 }
 
+--- An incomplete run contributes no passes or coverage, but its completed
+--- failures disprove old passes. Keep only those tombstones after rolling
+--- back the run, and remove only their keys from the shared cache.
+local function cancel_records(ctx: Run)
+  local rec, handle = ctx.rec, ctx.handle
+  local ok, trouble = work.rollback(handle)
+  if ok and #rec.owed.failed > 0 then
+    ok, trouble = work.begin(handle)
+    if ok then
+      for _, key in ipairs(rec.owed.failed) do
+        ok, trouble = record_verdict(rec.records, key, false, rec.run_at_ns, rec.run, 0)
+        if not ok then break end
+      end
+    end
+  end
+  if ok then
+    ok, trouble = work.close(handle)
+  else
+    local _, _ = work.abort(handle)
+  end
+  if not ok then rec.errors[#rec.errors + 1] = "cancelled verdicts: " .. trouble end
+  if rec.shared ~= nil then
+    local invalidations: shared_verdicts.Owed = { kept = {}, used = {}, failed = rec.owed.failed }
+    local settled, settle_trouble = shared_verdicts.settle(rec.shared, rec.origin,
+      invalidations, Clock.now_ns())
+    shared_verdicts.close(rec.shared)
+    if not settled then
+      rec.errors[#rec.errors + 1] = "cancelled shared verdicts: " .. rec.shared.path .. ": " .. settle_trouble
+    end
+  end
+end
+
 --- The jobs run. The exit code to stop with, or nil to go on: 130 once
 --- a signal has cancelled the run.
 local function execute(ctx: Run): integer | nil
@@ -4050,8 +4082,7 @@ local function execute(ctx: Run): integer | nil
       -- `run` called in-process), it is left to that one.
       local guard <close> = opened
       if run_jobs(rec, jobs, ctx.limits, guard) ~= 0 then
-        local _, _ = work.abort(ctx.handle)
-        if rec.shared ~= nil then shared_verdicts.close(rec.shared) end
+        cancel_records(ctx)
         -- A test that failed before the signal keeps its directory,
         -- named as a finished run's report names it: the failures on
         -- stdout, as there, and the errors and the cancellation on stderr.
