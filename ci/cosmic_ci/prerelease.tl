@@ -3,15 +3,13 @@
 -- each leg executed, and stages the release from them; `publish` makes
 -- that release the immutable next-<commit> prerelease, or verifies the
 -- one already there. Neither executes a byte it reads: the candidate
--- product is data here. `publish` drives the GitHub API through the `gh`
--- CLI, found on PATH, which reads GH_TOKEN from the environment it
--- inherits.
-local Child = require("cosmic.child")
+-- product is data here. `publish` drives the GitHub API through
+-- [`GithubApi`], whose token comes from GH_TOKEN or GITHUB_TOKEN.
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local GithubApi = require("cosmic_ci.github_api")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
-local Proc = require("cosmic.proc")
 local Shape = require("cosmic.shape")
 local Plural = require("cosmic_ci.plural")
 local String = require("cosmic.string")
@@ -32,11 +30,10 @@ local record Prerelease
     run_url: string
   end
   --- What `publish` reads from its environment: REPOSITORY, RELEASE,
-  --- SOURCE_COMMIT, SOURCE_RUN_PREFIX and RUNNER_TEMP, with `gh` found
-  --- on its PATH and run in all of it, GH_TOKEN included.
+  --- SOURCE_COMMIT, SOURCE_RUN_PREFIX and RUNNER_TEMP, with the client
+  --- its GH_TOKEN (else GITHUB_TOKEN) and GITHUB_API_URL make.
   record Publish
-    gh: string
-    env: {string:string}
+    client: GithubApi.Client
     repository: string
     release: string
     commit: string
@@ -58,11 +55,6 @@ Prerelease.lanes = { "alpine-x86_64", "linux-aarch64", "linux-x86_64", "macos-aa
 --- The lane whose bytes every other lane's must equal.
 local baseline_lane <const> = "linux-x86_64"
 Prerelease.assets = { "cosmic", "SHA256SUMS", "source.json" }
-
--- A command's output holds the whole list of releases, which grows by
--- one each commit to main: well past Child's 16 MiB default before
--- anything else would give out.
-local capture_limit <const> = 1 << 30
 
 local function read(path: string): string return (assert(Fs.read(path))) end
 
@@ -135,20 +127,6 @@ function Prerelease.source_valid(text: string, commit: string, digest: string,
   return true, ""
 end
 
---- The HTTP status `gh api --include` printed: the second field of the
---- last line that begins `HTTP/<version> <digits>`, as
---- `awk '/^HTTP\/[0-9.]+ [0-9]+/ { code=$2 }'` finds it. nil when no
---- line does, as when the request never reached the API.
-function Prerelease.http_status(output: string): string | nil
-  local code: string | nil = nil
-  for line in output:gmatch("[^\n]+") do
-    if line:match("^HTTP/[0-9.]+ [0-9]") then
-      code = line:match("^[^ \t]+[ \t]+([^ \t]+)")
-    end
-  end
-  return code
-end
-
 --- Whether `names`, a release's asset names, are exactly the three a
 --- published prerelease holds.
 function Prerelease.complete_assets(names: {string}): boolean, string
@@ -171,11 +149,9 @@ function Prerelease.known_asset(name: string): boolean
   return false
 end
 
---- The ids of the releases tagged `tag`, from the pages
---- `gh api --paginate --slurp` gathers of the releases list.
-function Prerelease.release_ids(text: string, tag: string): {integer}
-  local pages, why = Json.decode_array(text)
-  assert(pages ~= nil, "the releases list is no JSON array: " .. why)
+--- The ids of the releases tagged `tag`, from the decoded pages
+--- [`GithubApi.pages`] gathers of the releases list.
+function Prerelease.release_ids(pages: {any}, tag: string): {integer}
   local ids: {integer} = {}
   for _, page in ipairs(pages) do
     assert(page is {any} and Json.is_array(page), "a page of the releases list is no array")
@@ -260,55 +236,28 @@ function Prerelease.stage(s: Prerelease.Stage)
 end
 
 function Prerelease.publish_context(env: {string:string}): Prerelease.Publish
-  local gh, why = Proc.find("gh", required(env, "PATH"))
-  assert(gh ~= nil, "no gh on PATH: " .. why)
-  required(env, "GH_TOKEN")
-  return { gh = gh, env = env, repository = required(env, "REPOSITORY"),
+  local client, why = GithubApi.live(env)
+  assert(client ~= nil, why)
+  return { client = client, repository = required(env, "REPOSITORY"),
     release = required(env, "RELEASE"), commit = required(env, "SOURCE_COMMIT"),
     run_prefix = required(env, "SOURCE_RUN_PREFIX"), temp = required(env, "RUNNER_TEMP") }
 end
 
---- Runs gh with `args`, stdin empty, its stderr this process's. Its
---- stdout is captured when `capture`, else this process's. The result,
---- whatever gh answered.
-local function gh_run(p: Prerelease.Publish, args: {string}, capture: boolean): Child.Result
-  local argv: {string} = { p.gh }
-  for _, word in ipairs(args) do argv[#argv + 1] = word end
-  local options: Child.Options = { env = p.env, stdin = "null", capture_limit = capture_limit }
-  -- A branch for each mode, which a literal in the field's own type
-  -- names, rather than a mode chosen in a `string`: the release this
-  -- tree's tests run on takes `stdout` as a string, and the tree's own
-  -- as an enum.
-  if capture then options.stdout = "capture" else options.stdout = "inherit" end
-  local result, trouble = Child.run(argv, options)
-  assert(result ~= nil, "gh " .. args[1] .. ": " .. trouble)
-  assert(not result.truncated, "gh " .. args[1] .. ": output past the capture limit")
-  return result
+--- A GET of `path`, a JSON object; raises where there is none.
+local function api_object(p: Prerelease.Publish, path: string): {string:any}
+  local object, why = GithubApi.object(p.client, "GET", path)
+  assert(object ~= nil, why)
+  return object
 end
 
---- Runs gh with `args`, which must succeed; its stdout, when captured.
-local function gh(p: Prerelease.Publish, args: {string}, capture?: boolean): string
-  local result = gh_run(p, args, capture or false)
-  assert(result.ok, "gh " .. table.concat(args, " ") .. " failed")
-  return result.stdout or ""
-end
-
-local function gh_object(p: Prerelease.Publish, args: {string}): {string:any}
-  local text = gh(p, args, true)
-  local value, why = Json.decode_object(text)
-  assert(value ~= nil, "gh " .. table.concat(args, " ") .. ": no JSON object: " .. why)
-  return value
-end
-
---- Whether the API holds `endpoint`: true when gh fetches it, false for
---- an HTTP 404 and nothing else. Every other failure, a transport error
+--- Whether the API holds `path`: true when it answers 2xx, false for an
+--- HTTP 404 and nothing else. Every other failure, a transport error
 --- or another status, raises, so it can never lead to creating anything.
-local function api_probe(p: Prerelease.Publish, endpoint: string): boolean
-  local result = gh_run(p, { "api", "--include", endpoint }, true)
-  if result.ok then return true end
-  local status = Prerelease.http_status(result.stdout or "")
-  assert(status == "404", "gh api " .. endpoint .. " failed (HTTP status " ..
-      tostring(status) .. ")")
+local function api_probe(p: Prerelease.Publish, path: string): boolean
+  local reply, why = GithubApi.request(p.client, "GET", path)
+  assert(reply ~= nil, why)
+  if reply.status >= 200 and reply.status <= 299 then return true end
+  assert(reply.status == 404, "GET " .. path .. " failed (HTTP status " .. reply.status .. ")")
   return false
 end
 
@@ -330,13 +279,13 @@ end
 --- it tags.
 local function verify_tag(p: Prerelease.Publish)
   local tag = tag_of(p)
-  local ref = gh_object(p, { "api", "repos/" .. p.repository .. "/git/ref/tags/" .. tag })
+  local ref = api_object(p, "repos/" .. p.repository .. "/git/ref/tags/" .. tag)
   assert(ref.ref == "refs/tags/" .. tag, tag .. ": the API answered another ref")
   local sha, kind = target(ref.object, tag)
   -- A tag may tag a tag; a chain longer than this is no release tag.
   for _ = 1, 8 do
     if kind ~= "tag" then break end
-    local annotated = gh_object(p, { "api", "repos/" .. p.repository .. "/git/tags/" .. sha })
+    local annotated = api_object(p, "repos/" .. p.repository .. "/git/tags/" .. sha)
     sha, kind = target(annotated.object, tag)
   end
   assert(kind == "commit", tag .. " names no commit")
@@ -347,11 +296,11 @@ end
 --- `p.commit`'s: the files the compare from the commit to the branch
 --- changes include one under .github/workflows/.
 local function workflows_moved(p: Prerelease.Publish): boolean
-  local repo = gh_object(p, { "api", "repos/" .. p.repository })
+  local repo = api_object(p, "repos/" .. p.repository)
   local branch = repo.default_branch
   assert(branch is string, p.repository .. " names no default branch")
-  local compare = gh_object(p, { "api", "repos/" .. p.repository .. "/compare/" ..
-      p.commit .. "..." .. branch })
+  local compare = api_object(p, "repos/" .. p.repository .. "/compare/" ..
+      p.commit .. "..." .. branch)
   local files = compare.files
   assert(files is {any}, "the compare to " .. branch .. " lists no files")
   for _, file in ipairs(files) do
@@ -377,41 +326,53 @@ end
 local function ensure_tag(p: Prerelease.Publish): boolean
   local tag = tag_of(p)
   if not api_probe(p, "repos/" .. p.repository .. "/git/ref/tags/" .. tag) then
-    local made = gh_run(p, { "api", "--include", "--method", "POST",
-      "repos/" .. p.repository .. "/git/refs", "-f", "ref=refs/tags/" .. tag,
-      "-f", "sha=" .. p.commit }, true)
-    if not made.ok then
-      local status = Prerelease.http_status(made.stdout or "")
-      local body = made.stdout or ""
-      if status == "403" and body:find("Resource not accessible by integration", 1, true) and
+    local path = "repos/" .. p.repository .. "/git/refs"
+    local made, why = GithubApi.request(p.client, "POST", path,
+      { ref = "refs/tags/" .. tag, sha = p.commit })
+    assert(made ~= nil, why)
+    if made.status < 200 or made.status > 299 then
+      if made.status == 403 and
+          made.body:find("Resource not accessible by integration", 1, true) and
           workflows_moved(p) then
         return false
       end
-      error("gh api --method POST repos/" .. p.repository .. "/git/refs -f ref=refs/tags/" ..
-          tag .. " failed (HTTP status " .. tostring(status) .. ")", 0)
+      error("POST " .. path .. " ref=refs/tags/" .. tag .. " failed (HTTP status " ..
+          made.status .. ")", 0)
     end
   end
   verify_tag(p)
   return true
 end
 
-local function view(p: Prerelease.Publish, fields: string): {string:any}
-  return gh_object(p, { "release", "view", tag_of(p), "--repo", p.repository,
-    "--json", fields })
+--- The release `id`, as GET releases/ID answers: by id, not by tag, as
+--- the by-tag endpoint finds no draft.
+local function view(p: Prerelease.Publish, id: integer): {string:any}
+  return api_object(p, "repos/" .. p.repository .. "/releases/" .. id)
 end
 
-local function asset_names(p: Prerelease.Publish): {string}
-  local assets = view(p, "assets").assets
+--- The names of a release's assets, sorted, and each one's id.
+local function assets_of(release: {string:any}): {string}, {string:integer}
+  local assets = release.assets
   assert(assets is {any} and Json.is_array(assets), "the release's assets are no array")
   local names: {string} = {}
+  local ids: {string:integer} = {}
   for _, asset in ipairs(assets) do
     assert(asset is {string:any}, "an asset is no object")
-    local name = asset.name
+    local name, id = asset.name, asset.id
     assert(name is string, "an asset has no name")
+    assert(id is integer, "asset " .. name .. " has no id")
     names[#names + 1] = name
+    ids[name] = id
   end
   table.sort(names)
-  return names
+  return names, ids
+end
+
+--- Downloads the asset `name`, whose id is `id`, into `destination`.
+local function download(p: Prerelease.Publish, id: integer, name: string, destination: string)
+  local ok, why = GithubApi.download(p.client, "repos/" .. p.repository ..
+      "/releases/assets/" .. id, destination .. "/" .. name, "application/octet-stream")
+  assert(ok, why)
 end
 
 --- A directory under the job's temporary directory, made now.
@@ -434,11 +395,12 @@ end
 
 --- The release holds exactly the staged assets: the three names, the
 --- staged cosmic and SHA256SUMS byte for byte, and a valid source.json.
-local function verify_assets(p: Prerelease.Publish, digest: string, name: string)
-  local complete, why = Prerelease.complete_assets(asset_names(p))
+local function verify_assets(p: Prerelease.Publish, release: integer, digest: string, name: string)
+  local names, ids = assets_of(view(p, release))
+  local complete, why = Prerelease.complete_assets(names)
   assert(complete, tag_of(p) .. ": " .. why)
   local destination = fresh(p, name)
-  gh(p, { "release", "download", tag_of(p), "--repo", p.repository, "--dir", destination })
+  for _, asset in ipairs(Prerelease.assets) do download(p, ids[asset], asset, destination) end
   same_bytes(p.release .. "/cosmic", destination .. "/cosmic")
   same_bytes(p.release .. "/SHA256SUMS", destination .. "/SHA256SUMS")
   source_checked(p, digest, destination .. "/source.json")
@@ -460,15 +422,18 @@ function Prerelease.publish(p: Prerelease.Publish): string
   local digest = Hash.hex_sha256(read(p.release .. "/cosmic"))
   -- The get-by-tag endpoint only promises published releases. Listing
   -- releases with authentication also finds an interrupted draft.
-  local ids = Prerelease.release_ids(gh(p, { "api", "--paginate", "--slurp", "--method", "GET",
-    "repos/" .. p.repository .. "/releases?per_page=100" }, true), tag)
+  local pages, why = GithubApi.pages(p.client, "repos/" .. p.repository .. "/releases?per_page=100")
+  assert(pages ~= nil, why)
+  local ids = Prerelease.release_ids(pages, tag)
   assert(#ids <= 1, Plural.count(#ids, "release") .. (#ids == 1 and " is" or " are") .. " tagged " .. tag)
+  local release: integer
   if #ids == 1 then
+    release = ids[1]
     verify_tag(p)
-    local state = view(p, "isDraft,isPrerelease")
-    assert(flag(state, "isPrerelease"), tag .. " is no prerelease")
-    if not flag(state, "isDraft") then
-      verify_assets(p, digest, "published")
+    local state = view(p, release)
+    assert(flag(state, "prerelease"), tag .. " is no prerelease")
+    if not flag(state, "draft") then
+      verify_assets(p, release, digest, "published")
       return "prerelease already published and verified: " .. tag
     end
   else
@@ -476,19 +441,27 @@ function Prerelease.publish(p: Prerelease.Publish): string
       return "::warning::prerelease skipped: " .. tag .. ": GitHub refused the tag, " ..
         "the default branch's workflows having moved past it"
     end
-    gh(p, { "release", "create", tag, "--repo", p.repository, "--verify-tag",
-      "--title", tag, "--notes-file", p.release .. "/notes.md", "--prerelease", "--draft" })
+    local created, trouble = GithubApi.object(p.client, "POST",
+      "repos/" .. p.repository .. "/releases", { tag_name = tag, name = tag,
+        body = read(p.release .. "/notes.md"), draft = true, prerelease = true })
+    assert(created ~= nil, trouble)
+    local created_id = created.id
+    assert(created_id is integer, "the created release has no id")
+    release = created_id
     verify_tag(p)
   end
+  local state = view(p, release)
+  local upload_url = state.upload_url
+  assert(upload_url is string, tag .. " names no upload URL")
   -- Resume an interrupted draft by accepting only identical existing
   -- assets. source.json may name an earlier successful run for this SHA.
   local existing: {string:boolean} = {}
-  for _, name in ipairs(asset_names(p)) do
+  local names, asset_ids = assets_of(state)
+  for _, name in ipairs(names) do
     assert(Prerelease.known_asset(name), tag .. " holds an unexpected asset: " .. name)
     existing[name] = true
     local destination = fresh(p, "existing-" .. name)
-    gh(p, { "release", "download", tag, "--repo", p.repository, "--pattern", name,
-      "--dir", destination })
+    download(p, asset_ids[name], name, destination)
     if name == "source.json" then
       source_checked(p, digest, destination .. "/" .. name)
     else
@@ -497,14 +470,18 @@ function Prerelease.publish(p: Prerelease.Publish): string
   end
   for _, name in ipairs(Prerelease.assets) do
     if not existing[name] then
-      gh(p, { "release", "upload", tag, p.release .. "/" .. name, "--repo", p.repository })
+      local uploaded, trouble = GithubApi.upload(p.client, upload_url, name,
+        read(p.release .. "/" .. name))
+      assert(uploaded, tag .. ": " .. trouble)
     end
   end
-  verify_assets(p, digest, "completed")
-  gh(p, { "release", "edit", tag, "--repo", p.repository, "--draft=false", "--prerelease" })
+  verify_assets(p, release, digest, "completed")
+  local edited, trouble = GithubApi.object(p.client, "PATCH",
+    "repos/" .. p.repository .. "/releases/" .. release, { draft = false, prerelease = true })
+  assert(edited ~= nil, trouble)
   verify_tag(p)
-  verify_assets(p, digest, "published")
-  assert(not flag(view(p, "isDraft"), "isDraft"), tag .. " is still a draft")
+  verify_assets(p, release, digest, "published")
+  assert(not flag(view(p, release), "draft"), tag .. " is still a draft")
   return "prerelease published and verified: " .. tag
 end
 
