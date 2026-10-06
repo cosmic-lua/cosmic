@@ -2,8 +2,9 @@
 --- (core/promises.h's COSMIC_HELD_ bits), on a live child: the kernel's own
 --- verdict on the calls the filter lets through only where a namespace or
 --- a ruleset holds what they reach. The child is a stand-in
---- (build/stand_in.tl). A host that gives no user namespace or seccomp
---- skips them (Test.skip). The filter's own rules, on both
+--- (build/stand_in.tl). Where the platform has no sandbox they are not
+--- applicable, and where this host gives no user namespace, seccomp or
+--- Landlock they are skipped (`requires`). The filter's own rules, on both
 --- architectures, are core/promises_test.tl's.
 
 local Fs = require("cosmic.fs")
@@ -11,7 +12,6 @@ local Net = require("cosmic.net")
 local Test = require("cosmic.test")
 local unix_socket = require("build.unix_socket")
 local sys = require("cosmic.sys")
-local confine = require("build.confine")
 local stand_in = require("build.stand_in")
 local type raw_process = require("cosmic.internal.process")
 -- Required, so the module whose loader is handed the raw table is of this
@@ -23,9 +23,13 @@ local type _ = require("cosmic.child")
 --- `network`, which gives the worker a network namespace of its own, one
 --- its filter lets it make a unix socket in (the children it starts inherit
 --- that filter).
+--- Most starts are held by Landlock beside their root, so the module
+--- requires it beside `nest`: the two that use the namespaces alone ask
+--- for a little more than they use, as a requirement binds a whole module.
 Test.policy{
   promises = { "nest" },
   loopback = { "127.0.0.1" },
+  requires = { "landlock", "nest" },
 }
 
 local type Searcher = function(string): any, any
@@ -62,7 +66,8 @@ end
 
 --- Runs `script` in a stand-in started with `sandbox` (its `promises`
 --- among them): its output and how it ended. Skips the test where the
---- start is refused, as the host gives no sandbox of that kind.
+--- start is refused, as the kernel gives no sandbox of that kind, which
+--- only the start can tell.
 local function in_sandbox(tmp: string, probe: string, sandbox: raw_process.Sandbox, script: string,
                           fds?: {integer:integer}): Outcome
   local path = tmp .. "/said"
@@ -71,10 +76,7 @@ local function in_sandbox(tmp: string, probe: string, sandbox: raw_process.Sandb
     fds, sandbox)
   if pid == nil then
     sys.close(output)
-    if confine.sandbox_platform() then
-      Test.skip("this host gives no such sandbox: " .. tostring(trouble))
-    end
-    return { code = -1, signal = -1, said = "" }
+    Test.skip("this host gives no such sandbox: " .. tostring(trouble))
   end
   local status = assert(process.waitpid(pid, false))
   sys.close(output)
@@ -85,7 +87,6 @@ local function test_a_child_in_a_user_namespace_of_its_own_sets_its_own_limits(t
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local lowers = in_sandbox(tmp, probe, { promises = {}, offline = true },
     "setrlimit nofile 64; rlimit nofile")
-  if lowers.code == -1 then return end
   -- Whoever started it, whatever capability that has: the namespace's are the
   -- initial one's no more.
   assert(lowers.code == 0 and lowers.said == "set\nnofile 64 64\n", "it lowers them: " .. lowers.said)
@@ -99,7 +100,6 @@ local function test_a_child_asks_after_any_pid_only_in_a_pid_namespace_of_its_ow
   -- The first process of the namespace is pid 1, which this one is not.
   local own = in_sandbox(tmp, probe, { promises = {}, unveil = { reads = { probe, "/proc", "/dev/null" } } },
     "getpgid 1")
-  if own.code == -1 then return end
   assert(own.code == 0 and own.said:find("pgid ", 1, true) == 1, "pid 1 is its own: " .. own.said)
   local host = under(tmp, probe, "getpgid 1")
   assert(host.code == 1 and host.said:find("not permitted", 1, true),
@@ -119,14 +119,10 @@ end
 
 local function test_a_unix_socket_is_made_only_where_the_root_the_network_and_landlock_hold_it(tmp: string)
   local abi, trouble = process.landlock_abi()
-  if abi == nil then
-    if confine.sandbox_platform() then Test.skip("no Landlock here: " .. tostring(trouble)) end
-    return
-  end
+  if abi == nil then Test.skip("no Landlock here: " .. tostring(trouble)) end
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local script = "connect /none.sock"
   local held = in_sandbox(tmp, probe, rooted(probe, true), script)
-  if held.code == -1 then return end
   -- A root that shows no directory and no socket file holds it on every ABI,
   -- and Landlock does from ABI 9 whatever the root shows.
   -- A worker whose own filter refuses unix sockets passes that on to every
@@ -171,15 +167,11 @@ end
 
 local function test_a_root_of_its_own_tmpfs_alone_makes_a_unix_socket_there(tmp: string)
   local abi, trouble = process.landlock_abi()
-  if abi == nil then
-    if confine.sandbox_platform() then Test.skip("no Landlock here: " .. tostring(trouble)) end
-    return
-  end
+  if abi == nil then Test.skip("no Landlock here: " .. tostring(trouble)) end
   if unix_socket.skipped(tmp) then return end
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   -- What it makes in its own /tmp it also reaches there, whatever Landlock's ABI.
   local made = in_sandbox(tmp, probe, rooted_with(probe, {}), "loopback-unix /tmp/pair.sock")
-  if made.code == -1 then return end
   assert(made.code == 0 and made.said == "connected\n", "made in its own tmpfs: " .. made.said)
   -- A file that is no socket beside it changes nothing.
   local beside = in_sandbox(tmp, probe, rooted_with(probe, { "/dev/zero" }), "loopback-unix /tmp/pair.sock")
@@ -204,7 +196,6 @@ local function test_a_nest_start_with_a_root_of_files_alone_makes_a_unix_socket(
   if unix_socket.skipped(tmp) then return end
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local made = in_sandbox(tmp, probe, nesting(probe, {}), "loopback-unix /tmp/pair.sock")
-  if made.code == -1 then return end
   assert(made.code == 0 and made.said == "connected\n", "made in its own tmpfs: " .. made.said)
   -- A file that is no socket beside it changes nothing.
   local beside = in_sandbox(tmp, probe, nesting(probe, { "/dev/zero" }), "loopback-unix /tmp/pair.sock")
@@ -221,10 +212,6 @@ local function test_a_nest_start_whose_root_shows_a_host_directory_or_socket_is_
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local socket, listener = host_socket(tmp)
   local control = in_sandbox(tmp, probe, nesting(probe, {}), "connect /none.sock")
-  if control.code == -1 then
-    assert(listener:close())
-    return
-  end
   assert(not refused(control.said), "held, with nothing shown: " .. control.said)
   -- No Landlock ABI tells the host's socket from the program's own, whatever
   -- the kernel gives: the root is all that holds a nest start.
@@ -236,15 +223,12 @@ local function test_a_nest_start_whose_root_shows_a_host_directory_or_socket_is_
 end
 
 local function test_a_root_that_shows_a_directory_of_the_host_is_held_by_landlock_alone(tmp: string)
-  local abi = process.landlock_abi()
-  if abi == nil or unix_socket.skipped(tmp) then return end
+  local abi, trouble = process.landlock_abi()
+  if abi == nil then Test.skip("no Landlock here: " .. tostring(trouble)) end
+  if unix_socket.skipped(tmp) then return end
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local socket, listener = host_socket(tmp)
   local control = in_sandbox(tmp, probe, rooted_with(probe, {}), "connect /none.sock")
-  if control.code == -1 then
-    assert(listener:close())
-    return
-  end
   assert(not refused(control.said), "held, with nothing shown: " .. control.said)
   -- The directory holds a socket a host service made: below ABI 9 nothing
   -- else tells it from the program's own, so socket() is refused; from
@@ -256,15 +240,12 @@ local function test_a_root_that_shows_a_directory_of_the_host_is_held_by_landloc
 end
 
 local function test_a_socket_file_in_the_root_is_not_held_below_abi_9(tmp: string)
-  local abi = process.landlock_abi()
-  if abi == nil or unix_socket.skipped(tmp) then return end
+  local abi, trouble = process.landlock_abi()
+  if abi == nil then Test.skip("no Landlock here: " .. tostring(trouble)) end
+  if unix_socket.skipped(tmp) then return end
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local socket, listener = host_socket(tmp)
   local control = in_sandbox(tmp, probe, rooted_with(probe, {}), "connect /none.sock")
-  if control.code == -1 then
-    assert(listener:close())
-    return
-  end
   assert(not refused(control.said), "held, with nothing shown: " .. control.said)
   local shown = in_sandbox(tmp, probe, rooted_with(probe, { socket }), "connect " .. socket)
   assert(shown.said ~= "connected\n", "not reached: " .. shown.said)
@@ -276,8 +257,9 @@ end
 local O_PATH <const> = 2097152
 
 local function test_a_descriptor_that_opens_a_directory_or_a_socket_is_not_held_below_abi_9(tmp: string)
-  local abi = process.landlock_abi()
-  if abi == nil or unix_socket.skipped(tmp) then return end
+  local abi, trouble = process.landlock_abi()
+  if abi == nil then Test.skip("no Landlock here: " .. tostring(trouble)) end
+  if unix_socket.skipped(tmp) then return end
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local socket, listener = host_socket(tmp)
   local sandbox = rooted_with(probe, {})
@@ -285,10 +267,6 @@ local function test_a_descriptor_that_opens_a_directory_or_a_socket_is_not_held_
   local file = assert(sys.open(tmp .. "/file", sys.O_CREAT | sys.O_RDWR, 420))
   local plain = in_sandbox(tmp, probe, sandbox, "connect /none.sock", { [3] = file })
   sys.close(file)
-  if plain.code == -1 then
-    assert(listener:close())
-    return
-  end
   assert(not refused(plain.said), "held with a file handed: " .. plain.said)
   -- A directory is a way to its sockets (/proc/self/fd/N/host.sock), and
   -- an O_PATH descriptor of a socket file is a way to connect to it.
@@ -322,10 +300,7 @@ end
 
 local function test_a_unix_socket_below_abi_9_fails_a_start_that_binds_a_directory(tmp: string)
   local abi, trouble = process.landlock_abi()
-  if abi == nil then
-    if confine.sandbox_platform() then Test.skip("no Landlock here: " .. tostring(trouble)) end
-    return
-  end
+  if abi == nil then Test.skip("no Landlock here: " .. tostring(trouble)) end
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   assert(Fs.mkdirs(tmp .. "/socks") and Fs.write(tmp .. "/u.file", "x"))
   -- A `u` grant allows unix sockets (the start's `sockets`), so the root alone must
@@ -339,10 +314,7 @@ local function test_a_unix_socket_below_abi_9_fails_a_start_that_binds_a_directo
     return sandbox
   end
   local pid, why = start(probe, with_u({}))
-  if pid == nil and confine.sandbox_platform() then
-    Test.skip("no such sandbox: " .. tostring(why))
-  end
-  if pid == nil then return end
+  if pid == nil then Test.skip("no such sandbox: " .. tostring(why)) end
   local shown, refusal = start(probe, with_u({ tmp .. "/socks" }))
   if abi < 9 then
     assert(shown == nil and tostring(refusal):find("changed kind", 1, true), "refused: " .. tostring(refusal))
@@ -353,10 +325,7 @@ end
 
 local function test_a_path_swapped_for_a_directory_after_the_check_fails_the_start(tmp: string)
   local abi, trouble = process.landlock_abi()
-  if abi == nil then
-    if confine.sandbox_platform() then Test.skip("no Landlock here: " .. tostring(trouble)) end
-    return
-  end
+  if abi == nil then Test.skip("no Landlock here: " .. tostring(trouble)) end
   if abi >= 9 then return end
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   assert(Fs.write(tmp .. "/swap-a", "x") and Fs.mkdirs(tmp .. "/swap-b"))
@@ -385,7 +354,7 @@ local function test_a_path_swapped_for_a_directory_after_the_check_fails_the_sta
   end
   sys.kill(racer, 9)
   assert(process.waitpid(racer, false))
-  if not caught and confine.sandbox_platform() then
+  if not caught then
     Test.skip("the racer won no start in 1500: this host runs it too seldom to meet the " ..
         "window between the start's check and its bind")
   end

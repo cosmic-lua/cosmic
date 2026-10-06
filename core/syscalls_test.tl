@@ -21,7 +21,6 @@ local type raw_hash = require("cosmic.internal.hash")
 local type raw_process = require("cosmic.internal.process")
 local stand_in = require("build.stand_in")
 local confine = require("build.confine")
-local Clock = require("cosmic.clock")
 
 -- TODO: declare /proc for Linux alone once a declaration can name a
 -- host path per platform (a `host` entry for Linux and one for macOS):
@@ -53,23 +52,6 @@ end
 
 local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
 local hash = raw_behind("cosmic.hash") as raw_hash -- cast: the table cosmic/internal/hash.d.tl declares
-
---- Why a sandbox test is skipped where this Linux host refuses the sandbox
---- it is about -- no Landlock, no pledge --, or nil: another platform has
---- no such sandbox to check.
-local function unsandboxed_reason(what: string, trouble: string): string
-  if not confine.sandbox_platform() then return nil end
-  return "the kernel gives no " .. what .. ": " .. tostring(trouble)
-end
-
---- Ends the running test as skipped ([`Test.skip`]) where this Linux host
---- refuses the sandbox it is about, so the run counts it skipped rather
---- than passed. Another platform has no such sandbox to check, so there
---- it does nothing and the test goes on to return silently.
-local function unsandboxable(what: string, trouble: string)
-  local reason = unsandboxed_reason(what, trouble)
-  if reason ~= nil then Test.skip(reason) end
-end
 
 --- A stand-in program built under `tmp` (build/stand_in.tl), which runs
 --- the script its first argument holds: a static executable that reads
@@ -584,252 +566,6 @@ local function test_dup_and_dup2_redirect_a_descriptor(tmp: string)
   assert(sys.read(ends.reader, 64) == "kept")
   sys.close(ends.reader)
   sys.close(ends.writer)
-end
-
---- A child held to a ruleset reads and runs only what it names, and what
---- it starts is held too; the process that made the ruleset is not. Where
---- there is no Landlock, making one says so.
-local function test_a_landlock_ruleset_holds_a_child_to_what_it_names(tmp: string)
-  local inside, outside = tmp .. "/in", tmp .. "/out"
-  assert(sys.mkdir(inside, 0x1c0) and sys.mkdir(outside, 0x1c0))
-  local written = create(inside .. "/f")
-  assert(sys.write(written, "in") == 2)
-  sys.close(written)
-  written = create(outside .. "/f")
-  assert(sys.write(written, "out") == 3)
-  sys.close(written)
-  local probe = probe_in(tmp)
-  local reads: {string} = { inside, probe }
-  local ruleset, trouble, errno = process.landlock_ruleset(reads, {})
-  if ruleset == nil then
-    -- No Landlock: not built in, turned off, or refused by a filter (a
-    -- container's seccomp profile).
-    assert(errno == sys.ENOSYS or errno == sys.EOPNOTSUPP or errno == sys.EPERM, trouble)
-    unsandboxable("Landlock ruleset", trouble)
-    return
-  end
-  local output = create(tmp .. "/said")
-  local pid = assert(process.spawn(probe, { probe,
-    "cat in/f; print; run " .. probe .. " cat out/f || print refused; " ..
-      "append in/g x || print unwritten" },
-    nil, tmp, nil, output, output, false, nil, { ruleset = ruleset }))
-  sys.close(ruleset)
-  local status = assert(process.waitpid(pid, false))
-  assert(status.code == 0, tostring(status.code))
-  local said = assert(sys.pread(output, 4096, 0))
-  sys.close(output)
-  assert(said:find("^in\n") and said:find("refused\n", 1, true) and
-      said:find("unwritten\n", 1, true), said)
-  assert(not said:find("\nout\n", 1, true), said)
-  local mine = assert(sys.open(outside .. "/f", sys.O_RDONLY))
-  assert(sys.read(mine, 16) == "out")
-  sys.close(mine)
-  -- A directory given to write is written; a ruleset whose descriptor is
-  -- the one just above the child's own -- where the exec status goes --
-  -- still holds it.
-  assert(sys.mkdir(tmp .. "/w", 0x1c0))
-  local writing = assert(process.landlock_ruleset(reads, { tmp .. "/w" }))
-  local report = create(tmp .. "/report")
-  -- A free descriptor from 4 to 10, the child's own ending below it.
-  local free = 10
-  while free > 4 and sys.fstat(free) ~= nil do free = free - 1 end
-  assert(sys.fstat(free) == nil, "no descriptor from 4 to 10 is free")
-  assert(sys.dup2(writing, free))
-  sys.close(writing)
-  local own = tostring(free - 1)
-  local wrote = assert(process.spawn(probe, { probe,
-    "append w/f w && write-fd " .. own .. " w-written; append in/h x || write-fd " .. own .. " held" },
-    nil, tmp, nil, nil, nil, false, { [free - 1] = report }, { ruleset = free }))
-  sys.close(free)
-  assert(assert(process.waitpid(wrote, false)).code == 0)
-  local reported = assert(sys.pread(report, 4096, 0))
-  sys.close(report)
-  assert(reported == "w-written\nheld\n", reported)
-  local fd = assert(sys.open(tmp .. "/w/f", sys.O_RDONLY))
-  assert(sys.read(fd, 16) == "w\n")
-  sys.close(fd)
-  local bad, bad_trouble = process.landlock_ruleset({ tmp .. "/nowhere" }, {})
-  assert(bad == nil and bad_trouble ~= "", "a path that is not there refuses the ruleset")
-end
-
---- Runs a child held to a ruleset of its own program alone, whose `script`
---- connects to the listener `listen` makes at `tmp`/s, and checks it did.
-local function connects_through_a_ruleset(tmp: string, listen: function(string): Net.Listener,
-                                          script: function(Net.Listener, string): string)
-  local probe = probe_in(tmp)
-  local socket = tmp .. "/s"
-  local listener = listen(socket)
-  local ruleset, trouble = process.landlock_ruleset({ probe }, {})
-  if ruleset == nil then
-    assert(listener:close())
-    unsandboxable("Landlock ruleset", trouble)
-    return
-  end
-  local output = create(tmp .. "/said")
-  local pid = assert(process.spawn(probe, { probe, script(listener, socket) },
-    nil, tmp, nil, output, output, false, nil, { ruleset = ruleset }))
-  sys.close(ruleset)
-  local status = assert(process.waitpid(pid, false))
-  local said = assert(sys.pread(output, 4096, 0))
-  sys.close(output)
-  assert(status.code == 0 and said == "connected\n", said)
-  assert(assert(listener:accept()):close())
-  assert(listener:close())
-end
-
---- A ruleset holds files and not the network, on every kernel: a child
---- held to one reaches a listener of this process's over TCP on
---- loopback, as one held to none does.
-local function test_a_landlock_ruleset_leaves_a_child_its_loopback(tmp: string)
-  connects_through_a_ruleset(tmp, function(_socket: string): Net.Listener
-    return (assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) })))
-  end, function(listener: Net.Listener, _socket: string): string
-    return "connect-tcp 127.0.0.1 " .. tostring(listener.address.port)
-  end)
-end
-
---- The same over a unix socket file.
-local function test_a_landlock_ruleset_leaves_a_child_its_unix_socket(tmp: string)
-  if unix_socket.skipped(tmp) then return end
-  connects_through_a_ruleset(tmp, function(socket: string): Net.Listener
-    return (assert(Net.listen(Net.unix(socket), { timeout_ns = Clock.seconds(5) })))
-  end, function(_listener: Net.Listener, socket: string): string
-    return "connect " .. socket
-  end)
-end
-
---- A process held to running what is beneath some paths runs a program
---- beneath them and no other -- one written after the hold included --
---- and what it starts is held too; it still reads and writes as before.
---- The hold is for good, so it is taken last: this test's worker ends
---- with the test. Where there is no Landlock, taking one says so.
-local function test_a_process_held_to_running_some_paths_runs_nothing_else(tmp: string)
-  -- The program beneath a path given, and a copy of it beneath none.
-  local built = probe_in(tmp)
-  local probe, elsewhere = tmp .. "/bin/probe", tmp .. "/elsewhere/run"
-  assert(sys.mkdir(tmp .. "/bin", 0x1c0) and sys.mkdir(tmp .. "/elsewhere", 0x1c0))
-  assert(stand_in.place(built, probe))
-  assert(stand_in.place(built, elsewhere))
-  local function status_of(path: string, argv: {string}): integer | string
-    local pid, trouble = process.spawn(path, argv, nil, tmp, nil, nil, nil, false)
-    if pid == nil then return trouble end
-    return assert(process.waitpid(pid, false)).code
-  end
-  assert(status_of(elsewhere, { elsewhere, "exit 0" }) == 0, "the copy runs before the hold")
-  -- Beneath a path given, a file may still move to another directory.
-  local given = tmp .. "/given"
-  assert(sys.mkdir(given, 0x1c0) and sys.mkdir(given .. "/a", 0x1c0) and
-      sys.mkdir(given .. "/b", 0x1c0))
-  sys.close(create(given .. "/a/f"))
-  local held, trouble, errno = process.landlock_restrict_execute({ tmp .. "/bin", given })
-  if not held then
-    assert(errno == sys.ENOSYS or errno == sys.EOPNOTSUPP or errno == sys.EPERM, trouble)
-    unsandboxable("Landlock", trouble)
-    return
-  end
-  assert(status_of(probe, { probe, "exit 3" }) == 3, "a program beneath them runs")
-  assert(status_of(elsewhere, { elsewhere, "exit 0" }) ~= 0, "a program elsewhere ran")
-  -- What it starts is held too: the program may not run the copy.
-  assert(status_of(probe, { probe, "run " .. elsewhere .. " || exit 7" }) == 7)
-  assert(sys.rename(given .. "/a/f", given .. "/b/f"))
-  -- So may one in a directory made after the hold, beneath none -- but
-  -- not into one where it could be run, which it could not before.
-  local later = tmp .. "/later"
-  assert(sys.mkdir(later, 0x1c0) and sys.mkdir(later .. "/a", 0x1c0))
-  sys.close(create(later .. "/f"))
-  assert(sys.rename(later .. "/f", later .. "/a/f"))
-  local moved, _, moved_errno = sys.rename(later .. "/a/f", given .. "/a/f")
-  assert(not moved and moved_errno == sys.EXDEV, "a file moved to where it could be run")
-  -- Reading and writing are as they were.
-  local written = create(tmp .. "/after")
-  assert(sys.write(written, "w") == 1)
-  sys.close(written)
-  local reading = assert(sys.open(elsewhere, sys.O_RDONLY))
-  assert(sys.read(reading, 4) == "\x7fELF")
-  sys.close(reading)
-  local bad, _ = pcall(process.landlock_restrict_execute, { 1 } as {string})
-  assert(not bad, "a path that is no string is refused")
-end
-
---- A pledged child runs under a seccomp filter, and so does what it
---- starts; an unpledged one runs as this process does (under a filter
---- of its own when a container gives it one), and a promise no one keeps
---- is refused before anything starts.
-local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
-  local probe = probe_in(tmp)
-  local refused = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil,
-    false, nil, { pledge = { "fly" } })
-  assert(not refused, "a promise no one keeps is refused")
-  -- Why a pledge was refused, which skips the test once what needs none
-  -- has been checked.
-  local unsupported: string = nil
-  local function filtered(sandbox: raw_process.Sandbox | nil): string
-    local output = create(tmp .. "/status")
-    local pid, trouble, errno = process.spawn(probe, { probe,
-      "status-field Seccomp; run " .. probe .. " status-field Seccomp" },
-      nil, nil, nil, output, output, false, nil, sandbox)
-    if pid == nil then
-      sys.close(output)
-      assert(errno == sys.ENOSYS, trouble)
-      if sandbox ~= nil then unsupported = unsupported or unsandboxed_reason("pledge", trouble) end
-      return "unsupported"
-    end
-    assert(assert(process.waitpid(pid, false)).code == 0)
-    local said = assert(sys.pread(output, 4096, 0))
-    sys.close(output)
-    return (said:gsub("%s+", " "))
-  end
-  local status_file = sys.open("/proc/self/status", sys.O_RDONLY)
-  if status_file == nil then
-    -- No /proc to ask: a pledge is at most refused as unsupported.
-    local ok, trouble, errno = process.spawn(probe, { probe }, nil, nil, nil,
-      nil, nil, false, nil, { pledge = {} })
-    if ok == nil then
-      assert(errno == sys.ENOSYS)
-      unsandboxable("pledge", trouble)
-    else
-      process.waitpid(ok, false)
-    end
-    return
-  end
-  local own = assert(sys.read(status_file, 65536)):match("Seccomp:%s*(%d)")
-  sys.close(status_file)
-  local pledged = filtered({ pledge = {} })
-  if pledged ~= "unsupported" then
-    assert(pledged == "Seccomp: 2 Seccomp: 2 ", pledged)
-    assert(filtered({ pledge = { "unix", "inet" } }) == "Seccomp: 2 Seccomp: 2 ")
-  end
-  local plain = filtered(nil)
-  assert(plain == "Seccomp: " .. own .. " Seccomp: " .. own .. " ", plain)
-  if unsupported ~= nil then Test.skip(unsupported) end
-end
-
---- A socket of a family not promised is refused (EPERM), where one promised
---- is made and then refused its connection: a unix connect to a path that is
---- not there says so only with "unix" promised.
-local function test_a_pledge_without_unix_refuses_a_unix_connect(tmp: string)
-  if unix_socket.skipped(tmp) then return end
-  local probe = probe_in(tmp)
-  local function connected(promises: {string}): string
-    local output = create(tmp .. "/connect")
-    local pid, trouble = process.spawn(probe, { probe, "connect " .. tmp .. "/none.sock" },
-      nil, nil, nil, output, output, false, nil, { pledge = promises })
-    if pid == nil then
-      sys.close(output)
-      unsandboxable("pledge", trouble)
-      return "unsupported"
-    end
-    assert(assert(process.waitpid(pid, false)).code == 0)
-    local said = assert(sys.pread(output, 4096, 0))
-    sys.close(output)
-    return said
-  end
-  local socket = tmp .. "/none.sock: "
-  local unpromised = connected({})
-  if unpromised == "unsupported" then return end
-  assert(unpromised == socket .. "Operation not permitted\n", unpromised)
-  local promised = connected({ "unix" })
-  assert(promised == socket .. "No such file or directory\n", promised)
 end
 
 --- A child has a descriptor table of its own, though it starts on this
@@ -1415,6 +1151,37 @@ local function test_sandbox_platform_answers_true_on_linux_alone()
   end
 end
 
+--- Where the platform has no sandbox, a Landlock ruleset, a hold on what
+--- may run and a pledge are each refused, with the errno the platform
+--- answers. On Linux, whatever this host refuses of the sandbox, they are
+--- the tests of core/syscalls_landlock_test.tl and core/syscalls_pledge_test.tl,
+--- which require it: so this returns there, and only the platforms without
+--- one answer.
+local function test_a_sandbox_the_platform_lacks_is_refused(tmp: string)
+  if confine.sandbox_platform() then return end
+  local probe = probe_in(tmp)
+  local ruleset, trouble, errno = process.landlock_ruleset({ probe }, {})
+  assert(ruleset == nil and (errno == sys.ENOSYS or errno == sys.EOPNOTSUPP or errno == sys.EPERM),
+    tostring(trouble))
+  local held, hold_trouble, hold_errno = process.landlock_restrict_execute({ tmp })
+  assert(not held and (hold_errno == sys.ENOSYS or hold_errno == sys.EOPNOTSUPP or
+    hold_errno == sys.EPERM), tostring(hold_trouble))
+  for _, promises in ipairs({ {}, { "unix", "inet" } }) do
+    local pid, why, pledge_errno = process.spawn(probe, { probe }, nil, nil, nil, nil, nil,
+      false, nil, { pledge = promises })
+    assert(pid == nil and pledge_errno == sys.ENOSYS, tostring(why))
+  end
+end
+
+--- A promise no one keeps is refused before anything starts, on every
+--- platform.
+local function test_a_pledge_no_one_keeps_is_refused_before_a_start(tmp: string)
+  local probe = probe_in(tmp)
+  local refused = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil,
+    false, nil, { pledge = { "fly" } })
+  assert(not refused, "a promise no one keeps is refused")
+end
+
 --- The calls that start and reap a child, and hold this process's
 --- signals while it does, are the raw process table's, and not the
 --- public [`cosmic.sys`]'s: a public `waitpid(-1)` would take the status
@@ -1627,11 +1394,12 @@ end
 
 --- /dev/full answers every read with zeros and every write with ENOSPC,
 --- so a tree holding it is not special. Every Linux worker is given it
---- (build.confine's `runtime_paths`): one without it is skipped, and
---- elsewhere there is nothing to check.
+--- (build.confine's `runtime_paths`): one without it is skipped, which
+--- only the running worker can tell; macOS has no /dev/full, so there is
+--- nothing to check and no requirement names Linux alone.
 local function test_a_tree_digest_of_dev_full_is_not_special()
   if sys.stat("/dev/full") == nil then
-    if confine.sandbox_platform() then Test.skip("this worker has no /dev/full") end
+    if assert(sys.uname()).sysname == "Linux" then Test.skip("this worker has no /dev/full") end
     return
   end
   local walked = assert(sys.tree_digest("/dev/full", false))

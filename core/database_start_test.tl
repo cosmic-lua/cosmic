@@ -8,13 +8,9 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
-local Sqlite = require("cosmic.sqlite")
-local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local confine = require("build.confine")
-local schema = require("build.schema")
-local this_program = require("build.this_program")
+local database_start_fixture = require("build.database_start_fixture")
 
 --- The core is started past its launcher, and `/proc` is what a probe
 --- reads of its own descriptors.
@@ -23,193 +19,14 @@ Test.policy{
   grants = { { path = "o/bin", letters = "rx" }, { path = "/proc", letters = "r" } },
 }
 
---- A module of a fixture database: Lua source, compiled to the
---- bytecode the store loads, and the names it requires.
-local record Module
-  name: string
-  kind: string
-  source: string
-  requires: {string}
-end
-
-local function text(value: string): Sqlite.Value
-  return { text = value }
-end
-
-local function blob(value: string): Sqlite.Value
-  return { blob = value }
-end
-
---- The modules `roots` need and the names each requires, from the rows
---- the running binary carries, for a program that loads the same
---- libraries this test does: [`Store.requires`] and [`Store.bytecode`]
---- answer for a module this test's closure holds.
-local function closure(roots: {string}): {Module}, {string:string}
-  local found: {Module} = {}
-  local bytecode: {string:string} = {}
-  local seen: {string:boolean} = {}
-  local function visit(name: string)
-    if seen[name] then return end
-    seen[name] = true
-    local code = Store.bytecode(name)
-    if code == nil then return end
-    local requires = assert(Store.requires(name))
-    bytecode[name] = code
-    found[#found + 1] = { name = name, kind = "module", source = "", requires = requires }
-    for _, required in ipairs(requires) do visit(required) end
-  end
-  for _, root in ipairs(roots) do visit(root) end
-  return found, bytecode
-end
-
---- What a fixture database records of itself.
-local record Made
-  --- The program the database names as `main`; nil for none.
-  main: string
-  --- The digest of the core it was written for; nil for none.
-  core: string
-  --- Whether it carries the standard library modules its programs load.
-  library: boolean
-end
-
-local LIBRARY <const> = { "cosmic.store", "cosmic.proc", "cosmic.child", "cosmic.sys", "cosmic.fs" }
-
---- Writes the database at `path` holding `modules`, the library they
---- load when `made.library`, and the meta rows `made` says.
-local function write_database(path: string, modules: {Module}, made: Made)
-  local _, _ = Fs.remove(path)
-  local db = assert(Sqlite.open(path, { writable = true }))
-  for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
-  local rows: {Module} = {}
-  local bytecode: {string:string} = {}
-  if made.library then
-    local library, codes = closure(LIBRARY)
-    for _, module in ipairs(library) do rows[#rows + 1] = module end
-    for name, code in pairs(codes) do bytecode[name] = code end
-  end
-  for _, module in ipairs(modules) do
-    rows[#rows + 1] = module
-    local chunk = assert(load(module.source, "=" .. module.name))
-    bytecode[module.name] = string.dump(chunk, true)
-  end
-  for _, module in ipairs(rows) do
-    assert(Sqlite.run(db, "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, " ..
-        "tests, source) VALUES (?1, ?2, ?3, X'', X'', ?4, '', X'')",
-      { text(module.name), text(module.name), text(module.kind), blob(bytecode[module.name]) }))
-    for _, required in ipairs(module.requires) do
-      assert(Sqlite.run(db, "INSERT OR IGNORE INTO imports (path, requires) VALUES (?1, ?2)",
-        { text(module.name), text(required) }))
-    end
-  end
-  local meta: {{string}} = { { "runtime_basis", "fixture-basis" } }
-  if made.main ~= nil then meta[#meta + 1] = { "main", made.main } end
-  if made.core ~= nil then meta[#meta + 1] = { "core_sha256", made.core } end
-  for _, pair in ipairs(meta) do
-    assert(Sqlite.run(db, "INSERT INTO meta (key, value) VALUES (?1, ?2)",
-      { text(pair[1]), text(pair[2]) }))
-  end
-  assert(db:close())
-end
-
---- The digest of the core the tests start, which a database it can run
---- against records.
-local function core_digest(): string
-  return (assert(Store.meta("host_image"), "this process has no core digest to record"))
-end
-
---- The core to start bare, or nil where this process has none to relaunch
---- (a host program, which a bare core is not).
-local function core_path(): string | nil
-  local relaunch, _ = Proc.relaunch()
-  if relaunch == nil then return nil end
-  return relaunch.argv[1]
-end
-
-local function environment(): {string:string}
-  local env = this_program.environment()
-  env.COSMIC_PORTABLE_STARTUP_TEST_READY = nil
-  env.COSMIC_PORTABLE_STARTUP_TEST_GO = nil
-  return env
-end
-
-local function run(argv: {string}): Child.Result
-  return (assert(Child.run(argv, { env = environment(), stdout = "capture", stderr = "capture",
-    timeout_ns = Clock.seconds(30) })))
-end
-
---- The program's output as the lines `name<TAB>value` it prints.
-local function fields(output: string): {string:string}
-  local out: {string:string} = {}
-  for line in output:gmatch("([^\n]*)\n") do
-    local name, value = line:match("^([^\t]+)\t(.*)$")
-    if name ~= nil then out[name] = value end
-  end
-  return out
-end
-
---- A program that reports what it runs against.
-local INFO <const> = [==[
-local Store = require("cosmic.store")
-local Proc = require("cosmic.proc")
-local Child = require("cosmic.child")
-local function say(name, value) print(name .. "\t" .. tostring(value)) end
-return function(args)
-  if args[1] == "child" then
-    say("child_databases", #Store.databases())
-    say("child_main", Store.meta("main"))
-    say("child_args", table.concat(args, "|"))
-    return 0
-  end
-  local relaunch = assert(Proc.relaunch())
-  say("arg0", args[0])
-  say("args", table.concat(args, "|"))
-  say("databases", #Store.databases())
-  say("main", Store.meta("main"))
-  say("context", Store.meta("runtime_context"))
-  say("host_image", Store.meta("host_image"))
-  say("runtime", Store.meta("runtime") ~= nil)
-  say("artifact", Store.meta("artifact"))
-  say("executable", Proc.executable())
-  say("relaunch", table.concat(relaunch.argv, "|"))
-  say("relaunch_env", next(relaunch.env) == nil)
-  say("relaunch_fds", next(relaunch.fds) == nil)
-  if args[1] == "sandboxed" then
-    -- This program's own file is the core, which the profile grants.
-    local result, why = Child.run({ Proc.executable(), "child", "z" },
-      { policy = { profiles = { "cosmic" } }, stdout = "capture", stderr = "capture" })
-    if result == nil then
-      say("sandbox_refused", why)
-    else
-      say("child_code", result.code)
-      say("child_stderr", result.stderr)
-      print(result.stdout)
-    end
-  end
-  if args[1] == "spawn" then
-    local argv = {}
-    for _, word in ipairs(relaunch.argv) do argv[#argv + 1] = word end
-    argv[#argv + 1] = "child"
-    argv[#argv + 1] = "x y"
-    local result = assert(Child.run(argv, { env = relaunch.env, fds = relaunch.fds,
-      cwd = relaunch.cwd, stdout = "capture", stderr = "capture" }))
-    say("child_code", result.code)
-    say("child_stderr", result.stderr)
-    print(result.stdout)
-  end
-  return 0
-end
-]==]
-
-local function info_module(): Module
-  return { name = "probe.main", kind = "main", source = INFO, requires = LIBRARY }
-end
-
---- The path of a database the test makes, running `INFO`.
-local function info_database(tmp: string, name?: string): string
-  local path = tmp .. "/" .. (name or "program.db")
-  write_database(path, { info_module() }, { main = "probe.main", core = core_digest(), library = true })
-  return path
-end
+local write_database = database_start_fixture.write_database
+local core_digest = database_start_fixture.core_digest
+local core_path = database_start_fixture.core_path
+local environment = database_start_fixture.environment
+local run = database_start_fixture.run
+local fields = database_start_fixture.fields
+local info_module = database_start_fixture.info_module
+local info_database = database_start_fixture.info_database
 
 --- With no option, a bare core is what it has been: no database, no tree
 --- to boot from.
@@ -339,32 +156,6 @@ local function test_a_relaunch_and_its_child_stay_on_the_database(tmp: string)
   assert(out.child_args == "child|x y", tostring(out.child_args))
 end
 
---- A child a policy confines is this same program, which its profile
---- grants the core of: it runs on the same database, which the start
---- grants it to read.
-local function test_a_sandboxed_child_stays_on_the_database(tmp: string)
-  local core = core_path()
-  if core == nil or not confine.sandbox_platform() then return end
-  local path = info_database(tmp)
-  local r = run({ core, "--database", path, "sandboxed" })
-  assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
-  local out = fields(assert(r.stdout))
-  if out.sandbox_refused ~= nil then
-    -- A host that gives no sandbox here has nothing to check.
-    for _, word in ipairs({ "Landlock", "seccomp", "not implemented", "namespace", "own /proc" }) do
-      if out.sandbox_refused:find(word, 1, true) then
-        Test.skip(out.sandbox_refused)
-        return
-      end
-    end
-    error("the sandboxed start was refused: " .. out.sandbox_refused)
-  end
-  assert(out.child_code == "0", tostring(out.child_code) .. ": " .. tostring(out.child_stderr))
-  assert(out.child_databases == "1", tostring(out.child_databases))
-  assert(out.child_main == "probe.main", tostring(out.child_main))
-  assert(out.child_args == "child|z", tostring(out.child_args))
-end
-
 --- A core run from a cache entry -- a name that holds its target, its
 --- configuration, its length and its digest -- is hashed once: the stamp
 --- the first start leaves beside it (core/startup.c's `stamp_write`) says
@@ -374,7 +165,10 @@ end
 --- and finds the database was not written for these bytes.
 local function test_a_core_a_stamp_vouches_for_is_not_hashed_again_until_it_is_written(tmp: string)
   local core = core_path()
-  if core == nil or not confine.sandbox_platform() then return end
+  -- TODO: say why this runs on Linux alone, or run it elsewhere: the guard
+  -- came with no reason, and a copy of the core with a byte flipped may
+  -- break a macOS core's code signature.
+  if core == nil or assert(sys.uname()).sysname ~= "Linux" then return end
   local prefix = Fs.basename(core):match("^(core%-%d+%-%d+%-)%d+%-%x+$")
   if prefix == nil then return end
   local bytes = assert(Fs.read(core))
