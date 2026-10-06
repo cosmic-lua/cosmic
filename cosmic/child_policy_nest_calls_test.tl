@@ -1,10 +1,9 @@
 --- [`Child.start`]'s `policy` with the `nest` promise (cosmic/child.tl): the
 --- kernel's verdict on a program inside such a sandbox that makes the
 --- namespaces and mounts the filter lets it make, and tries the ones it must
---- not. The program is this one, making them through the checked core's raw
---- calls (cosmic.internal.testing), which no other core has, so this module
---- requires `checked`; the rest of the `nest` cases are in
---- cosmic/child_policy_nest_test.tl. Where the platform cannot nest a sandbox
+--- not. The program is this one, making them through the raw calls every
+--- core carries (cosmic.internal.testing); the rest of the `nest` cases are
+--- in cosmic/child_policy_nest_test.tl. Where the platform cannot nest a sandbox
 --- it is not applicable, and where this host gives no seccomp it skips itself
 --- (Test.skip).
 
@@ -23,7 +22,7 @@ Test.policy{
   env = { "TMPDIR" },
   profiles = { "cosmic" },
   promises = { "nest" },
-  requires = { "checked", "nest" },
+  requires = { "nest" },
 }
 
 --- Whether `why`, a start's failure, is the host giving no seccomp or user

@@ -445,6 +445,7 @@ const core_sources = [_][]const u8{
     "html.c",
     "http.c",
     "json.c",
+    "namespace_calls.c",
     "socket.c",
     "sqlite.c",
     "store.c",
@@ -1495,7 +1496,8 @@ fn vendorIncludes(
 /// fixture's in a core built with `portable_startup_test_hooks` -- and
 /// the test instruments, which the checked core alone carries (a failing
 /// allocator, a count of the store's open statements), so no core that
-/// ships has an allocator a program can make fail.
+/// ships has an allocator a program can make fail. (The raw namespace
+/// calls those files add are in core_sources, every core's.)
 fn ownCoreFiles(b: *std.Build, configuration: Configuration, portable_startup_test_hooks: bool) []const []const u8 {
     var paths: std.ArrayList([]const u8) = .empty;
     for (core_sources) |name| paths.append(b.allocator, b.fmt("core/{s}", .{name})) catch @panic("OOM");

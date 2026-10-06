@@ -24,6 +24,7 @@ local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
 local Child = require("cosmic.child")
 local sys = require("cosmic.sys")
+local testing = require("cosmic.internal.testing")
 local function say(name, value) print(name .. "\t" .. tostring(value)) end
 -- "ok" where `path` opens for writing, else the errno.
 local function writes(path)
@@ -34,9 +35,9 @@ end
 -- With a mode (args[2]): what it can write of its core and database, by
 -- path and through its own descriptors, and then by mode: "child" starts a
 -- child on that database, "relay" one with no database of its policy's
--- (so on the core and database this process runs on), "remount" runs the
--- host's unshare to remount the database writable in a user namespace of
--- its own. args[3] is a directory the root of a child is built in.
+-- (so on the core and database this process runs on), "remount" makes a
+-- user and mount namespace of its own and tries to remount the database
+-- writable in it. args[3] is a directory the root of a child is built in.
 local function probe(mode, scratch)
   local core = assert(Proc.executable())
   local db = assert(Proc.relaunch()).argv[3]
@@ -66,10 +67,33 @@ local function probe(mode, scratch)
     below({ isolate = { "file" }, promises = { "fork", "nest" }, set_env = { TMPDIR = scratch },
       grants = { { path = scratch, letters = "rwc" }, { path = core, letters = "rx" } } }, "plain")
   elseif mode == "remount" then
-    local r, why = Child.run({ "/bin/sh", "-c",
-      "unshare -Urm sh -c 'echo ns; mount -o remount,rw,bind " .. db ..
-      " 2>&1; echo rc=$?' 2>&1" }, { stdout = "capture", stderr = "stdout" })
-    say("remount", r == nil and ("unstarted: " .. tostring(why)) or (r.stdout:gsub("\n", " ")))
+    -- CLONE_NEWUSER 0x10000000, CLONE_NEWNS 0x20000; MS_BIND 4096,
+    -- MS_REMOUNT 32, and MS_RDONLY (1) left out, which is what makes the
+    -- bind writable. This process makes the namespace, and goes on to say
+    -- what `main` does below, which needs nothing of the old one.
+    local uid, gid = sys.getuid(), sys.getgid()
+    -- "unshare" and "mapped" say "ok", or the errno of the first refusal.
+    local made, _, refused = testing.unshare(0x10000000 | 0x20000)
+    say("unshare", made and "ok" or refused)
+    local mapped = "ok"
+    if made then
+      -- A /proc file takes one write through one descriptor.
+      for _, f in ipairs({ { "setgroups", "deny" },
+          { "uid_map", "0 " .. uid .. " 1\n" },
+          { "gid_map", "0 " .. gid .. " 1\n" } }) do
+        local fd, _, open_errno = sys.open("/proc/self/" .. f[1], sys.O_WRONLY)
+        if fd == nil then mapped = tostring(open_errno) break end
+        local n, _, write_errno = sys.write(fd, f[2])
+        sys.close(fd)
+        if n ~= #f[2] then mapped = tostring(write_errno or 0) break end
+      end
+      say("mapped", mapped)
+    end
+    if made and mapped == "ok" then
+      local ok, message, errno = testing.mount(nil, db, nil, 32 | 4096)
+      say("remount", ok and "ok" or tostring(errno))
+      say("remount_why", message)
+    end
   end
 end
 return function(args)
