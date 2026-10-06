@@ -1697,7 +1697,7 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
   assert(table.concat(ran, " ") == "boot format checked-build checked performance-checked", "the checked job runs " .. table.concat(ran, " "))
   local at = verdict_steps(steps)
   local _, suite = step_running(steps, "platform checked")
-  local _, back = step_running(steps, "place-tree.sh --restore")
+  local _, back = step_running(steps, "driver.tl place-tree --restore")
   for _, pair in ipairs({ { at["host-id"], at["merge-base"] }, { at["merge-base"], at["verdicts-restore"] },
       { at["verdicts-restore"], suite },
       { suite, at.trim }, { at.trim, at.save },
@@ -1781,7 +1781,7 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
   for i, step in ipairs(steps) do
     if step == lookup then looked = i end
   end
-  local _, moved = step_running(steps, "place-tree.sh")
+  local _, moved = step_running(steps, "driver.tl place-tree")
   assert(named < looked and looked < moved and looked < check,
     "a light run looks up linux-x86_64's marker after its check, or with the tree moved")
   assert(mine["if"] == LIGHT .. " && steps.driver-check-restore.outputs.cache-hit != 'true'",
@@ -1821,7 +1821,7 @@ local function test_a_light_format_check_lays_out_only_what_the_branch_changed()
   assert(env.BASE == "${{ steps.merge-base.outputs.sha }}" and
       env.OUT:find("${{ runner.temp }}/", 1, true) == 1,
     "the paths changed are named from another base, or kept outside the runner's temporary directory")
-  local _, moved = step_running(steps, "sh .github/scripts/place-tree.sh")
+  local _, moved = step_running(steps, "driver.tl place-tree")
   assert(found < listed and listed < moved,
     "the checked job names what changed before it finds the base, or with its tree moved")
   local checkout: {string: any} = nil
@@ -1846,9 +1846,11 @@ local function test_a_light_format_check_lays_out_only_what_the_branch_changed()
   end
 end
 
---- A job that moves its tree (.github/scripts/place-tree.sh) moves it
---- once and puts it back once, after its last step that runs the CI
---- driver and before checkout's post step: place-tree.sh keeps the tree
+--- A job that moves its tree (`driver.tl place-tree`, ci/cosmic_ci/place_tree.tl)
+--- moves it once, after the driver's bootstrap, and puts it back once,
+--- after its last other step that runs the CI driver, only where the
+--- bootstrap succeeded (the move came after it) and before checkout's
+--- post step: place-tree keeps the tree
 --- one directory deep, as deep as the workspace, so actions/cache's
 --- paths relative to the workspace resolve with it moved and nothing
 --- puts it back for a save. What a cache step names while it is moved
@@ -1865,9 +1867,12 @@ local function test_a_job_moves_its_tree_once_and_puts_it_back_once()
       for i, step in ipairs(steps) do
         local run = step.run
         if run is string then
-          if run:match("place%-tree%.sh%s*$") ~= nil then moves[#moves + 1] = i end
-          if run:find("place-tree.sh --restore", 1, true) ~= nil then backs[#backs + 1] = i end
-          if run:find("cosmic-driver ", 1, true) ~= nil then last_driver = i end
+          if run:match("driver%.tl place%-tree%s*$") ~= nil then moves[#moves + 1] = i end
+          if run:find("driver.tl place-tree --restore", 1, true) ~= nil then
+            backs[#backs + 1] = i
+          elseif run:find("cosmic-driver ", 1, true) ~= nil then
+            last_driver = i
+          end
         end
         if step.uses == DRIVER then last_driver = i end
       end
@@ -1878,8 +1883,16 @@ local function test_a_job_moves_its_tree_once_and_puts_it_back_once()
         local move, back = moves[1], backs[1]
         assert(move < back, where .. " puts its tree back before it moves it")
         assert(last_driver < back, where .. " runs the CI driver after it puts its tree back")
-        assert((steps[back]["if"] as string or ""):find("always()", 1, true) ~= nil,
-          where .. " puts its tree back only where the job has not failed")
+        assert(steps[back]["if"] == "always() && steps.driver.outcome == 'success'",
+          where .. " puts its tree back only where the job has not failed, or without a driver: " ..
+            tostring(steps[back]["if"]))
+        -- The bootstrap is the step with id "driver", and comes first.
+        local bootstrap = 0
+        for i, step in ipairs(steps) do
+          if step.id == "driver" and step.uses == DRIVER then bootstrap = i end
+        end
+        assert(bootstrap > 0 and bootstrap < move, where .. " moves its tree before it bootstraps the driver")
+        assert(steps[move]["working-directory"] ~= ".", where .. " runs the driver outside ci/")
         for i = move + 1, back - 1 do
           local uses = steps[i].uses as string or ""
           if uses:find("^actions/cache") ~= nil then
