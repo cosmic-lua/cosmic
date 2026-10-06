@@ -163,8 +163,8 @@ end
 --- already holds, and with an unveiling that shows all of /.
 local function test_noexec_scratch_refuses_conflicting_mount_targets(tmp: string)
   -- Only Linux has a noexec scratch to conflict with: elsewhere the start
-  -- is refused ENOSYS before its arguments are read, and no requirement
-  -- names Linux alone.
+  -- is refused ENOSYS before the mounts are checked for conflicts, and no
+  -- requirement names Linux alone.
   if assert(sys.uname()).sysname ~= "Linux" then return end
   for _, target in ipairs({ "/noexec", "/noexec/inside" }) do
     local pid, trouble, errno = process.spawn("/missing", { "/missing" }, nil, "/",

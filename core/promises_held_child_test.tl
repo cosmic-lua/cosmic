@@ -24,8 +24,10 @@ local type _ = require("cosmic.child")
 --- its filter lets it make a unix socket in (the children it starts inherit
 --- that filter).
 --- Most starts are held by Landlock beside their root, so the module
---- requires it beside `nest`: the two that use the namespaces alone ask
---- for a little more than they use, as a requirement binds a whole module.
+--- requires it beside `nest`.
+-- TODO: move the tests that use the namespaces alone to a module that
+-- requires `nest` alone, once their helpers can be shared through a fixture
+-- the tree rules allow: today they ask for Landlock they do not use.
 Test.policy{
   promises = { "nest" },
   loopback = { "127.0.0.1" },

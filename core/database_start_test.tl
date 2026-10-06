@@ -165,9 +165,9 @@ end
 --- and finds the database was not written for these bytes.
 local function test_a_core_a_stamp_vouches_for_is_not_hashed_again_until_it_is_written(tmp: string)
   local core = core_path()
-  -- TODO: say why this runs on Linux alone, or run it elsewhere: the guard
-  -- came with no reason, and a copy of the core with a byte flipped may
-  -- break a macOS core's code signature.
+  -- TODO: run this off Linux too, or say why it cannot, once someone
+  -- decides whether a stamp means anything for a macOS core: the guard came
+  -- with no reason.
   if core == nil or assert(sys.uname()).sysname ~= "Linux" then return end
   local prefix = Fs.basename(core):match("^(core%-%d+%-%d+%-)%d+%-%x+$")
   if prefix == nil then return end
