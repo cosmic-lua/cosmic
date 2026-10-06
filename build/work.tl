@@ -11,7 +11,7 @@
 --- Staging comes first: every input the build consumes is read off
 --- disk into the `files` table before anything transforms it, so the
 --- rest of the build reads rows, never paths. An unchanged file is a
---- stat: when its size, modification time and inode all match the row,
+--- stat: when its size, modification and change times, inode and device all match the row,
 --- the bytes and the hash on the row are still right and the file is
 --- not read again.
 
@@ -253,6 +253,7 @@ work.schema = {
   [[CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY,
                                       size INTEGER NOT NULL,
                                       mtime_ns INTEGER,
+                                      ctime_ns INTEGER,
                                       ino INTEGER NOT NULL,
                                       dev INTEGER NOT NULL,
                                       sha256 TEXT NOT NULL,
@@ -260,18 +261,21 @@ work.schema = {
   [[CREATE TABLE IF NOT EXISTS tool (path TEXT PRIMARY KEY,
                                      size INTEGER NOT NULL,
                                      mtime_ns INTEGER,
+                                      ctime_ns INTEGER,
                                      ino INTEGER NOT NULL,
                                      dev INTEGER NOT NULL,
                                      sha256 TEXT NOT NULL) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS scanned (path TEXT PRIMARY KEY,
                                         size INTEGER NOT NULL,
                                         mtime_ns INTEGER,
+                                      ctime_ns INTEGER,
                                         ino INTEGER NOT NULL,
                                         dev INTEGER NOT NULL,
                                         sha256 TEXT NOT NULL) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS linked (path TEXT PRIMARY KEY,
                                        size INTEGER NOT NULL,
                                        mtime_ns INTEGER,
+                                      ctime_ns INTEGER,
                                        ino INTEGER NOT NULL,
                                        dev INTEGER NOT NULL,
                                        sha256 TEXT NOT NULL,
@@ -489,6 +493,26 @@ function work.open(root: string, dir?: string): work.Handle | nil, string
     local _, _ = db:close()
     return nil, path .. ": " .. begin_trouble
   end
+  -- Old rows have no change time: retain their content caches, but read
+  -- their files once before trusting metadata again.
+  for _, table_name in ipairs({ "files", "tool", "scanned", "linked" }) do
+    local columns, trouble = Sqlite.text_rows(db, "PRAGMA table_info(" .. table_name .. ")")
+    if columns == nil then
+      local _, _ = db:close()
+      return nil, trouble
+    end
+    local has_ctime = false
+    for _, column in ipairs(columns) do
+      if column[2] == "ctime_ns" then has_ctime = true end
+    end
+    if not has_ctime then
+      local added, why = db:exec("ALTER TABLE " .. table_name .. " ADD COLUMN ctime_ns INTEGER")
+      if not added then
+        local _, _ = db:close()
+        return nil, why
+      end
+    end
+  end
   local stamped, stamp_trouble = Sqlite.run(db,
     "INSERT INTO meta (key, value) VALUES ('schema', ?1) " ..
       "ON CONFLICT (key) DO NOTHING", { text(version) })
@@ -582,6 +606,7 @@ local record Known
   size: integer
   --- nil for a row staged before its file settled, which no stat matches.
   mtime_ns: integer | nil
+  ctime_ns: integer | nil
   ino: integer
   dev: integer
 end
@@ -589,7 +614,7 @@ end
 local function known_in(db: Sqlite.Handle,
                         table_name: string): {string:Known} | nil, string
   local statement, trouble = db:prepare(
-    "SELECT path, size, mtime_ns, ino, dev, mtime_ns IS NULL FROM " .. table_name)
+    "SELECT path, size, mtime_ns, ino, dev, mtime_ns IS NULL, ctime_ns, ctime_ns IS NULL FROM " .. table_name)
   if statement == nil then
     return nil, trouble
   end
@@ -606,6 +631,7 @@ local function known_in(db: Sqlite.Handle,
     out[statement:bytes(0)] = {
       size = statement:integer(1),
       mtime_ns = statement:integer(5) == 0 and statement:integer(2) or nil,
+      ctime_ns = statement:integer(7) == 0 and statement:integer(6) or nil,
       ino = statement:integer(3),
       dev = statement:integer(4),
     }
@@ -620,13 +646,13 @@ end
 --- `todo` is one TODO's row.
 local puts: {string:string} = {
   files = "INSERT OR REPLACE INTO files (path, size, mtime_ns, ino, dev, " ..
-    "sha256, data) VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?6)",
+    "sha256, data, ctime_ns) VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?6, ?9)",
   tool = "INSERT OR REPLACE INTO tool (path, size, mtime_ns, ino, dev, " ..
-    "sha256) VALUES (?1, ?2, ?3, ?4, ?5, ?7)",
+    "sha256, ctime_ns) VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?9)",
   scanned = "INSERT OR REPLACE INTO scanned (path, size, mtime_ns, ino, dev, " ..
-    "sha256) VALUES (?1, ?2, ?3, ?4, ?5, ?7)",
+    "sha256, ctime_ns) VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?9)",
   linked = "INSERT OR REPLACE INTO linked (path, size, mtime_ns, ino, dev, " ..
-    "sha256, kind) VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?8)",
+    "sha256, kind, ctime_ns) VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?8, ?9)",
   todo = "INSERT OR IGNORE INTO todos (sha256, line, last, text) " ..
     "VALUES (?1, ?2, ?3, ?4)",
 }
@@ -636,7 +662,7 @@ local scanned_limit = 1024 * 1024
 
 local once = bind.once
 
---- How long a file's modification time has to be in the past before
+--- How long a file's modification and change times must be in the past before
 --- a stat is trusted to stand for its bytes.
 local settle_ns = Clock.seconds(2)
 
@@ -648,7 +674,8 @@ local function moved(known: {string:Known}, file: string, st: sys.Stat,
   local was = known[file]
   known[file] = nil
   return was == nil or was.size ~= st.size or was.mtime_ns == nil or
-    was.mtime_ns ~= mtime_ns or
+    was.mtime_ns ~= mtime_ns or was.ctime_ns == nil or
+    st.ctime_ns == nil or was.ctime_ns ~= Clock.seconds(st.ctime) + st.ctime_ns or
     was.ino ~= st.ino or was.dev ~= st.dev
 end
 
@@ -698,6 +725,13 @@ local function put_row(put: Sqlite.Statement, file: string, st: sys.Stat,
   if bound then bound, trouble = put:bind_integer(5, st.dev) end
   if bound then bound, trouble = put:bind_blob(6, data) end
   if bound then bound, trouble = put:bind_text(7, sha256) end
+  if bound then
+    if settled and st.ctime_ns ~= nil then
+      bound, trouble = put:bind_integer(9, Clock.seconds(st.ctime) + st.ctime_ns)
+    else
+      bound, trouble = put:bind_null(9)
+    end
+  end
   if not bound then
     return false, file .. ": " .. trouble
   end
@@ -892,7 +926,8 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
     end
     if input or tool or scan or link_kind ~= nil then
       local mtime_ns = Clock.seconds(st.mtime) + st.mtime_ns
-      local settled = mtime_ns < now - settle_ns
+      local settled = st.ctime_ns ~= nil and
+        math.max(mtime_ns, Clock.seconds(st.ctime) + st.ctime_ns) < now - settle_ns
       if input or tool then
         staged.files = staged.files + 1
       end

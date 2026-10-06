@@ -438,3 +438,60 @@ local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: st
   assert(statuses[4] == 1 and attempts[4] == 1 and closures[4] == 1)
   assert(closures[1] == 1 and closures[2] == 1 and closures[3] == 1)
 end
+
+local function test_snapshot_names_a_same_size_rewrite_with_preserved_mtime(tmp: string)
+  local root = sources(tmp)
+  local path = root .. "/core/a.c"
+  assert(Fs.set_mtime(path, 0, 0))
+  local stat = sys.stat
+  local tick = 1
+  sys.stat = function(name: string): sys.Stat | nil, string, integer
+    local st, trouble, errno = stat(name)
+    if st ~= nil and name == path then
+      st.ctime = 100
+      st.ctime_ns = tick
+    end
+    return st, trouble, errno
+  end
+  local ok, trouble = pcall(function()
+    local was = assert(Fs.stat(path))
+    local before = assert(Zig.snapshot(root))
+    local fd = assert(Fs.open_write(path))
+    assert(Fs.put(fd, "next"))
+    assert(Fs.close(fd))
+    assert(Fs.set_mtime(path, 0, 0))
+    local after = assert(Fs.stat(path))
+    assert(was.ino == after.ino and was.size == after.size and
+        was.mtime == after.mtime and was.mtime_ns == after.mtime_ns)
+    -- A nanosecond-only change is distinct even on a coarse filesystem.
+    tick = 2
+    assert(table.concat(Zig.changed(before, (assert(Zig.snapshot(root)))), " ") == "core/a.c")
+  end)
+  sys.stat = stat
+  assert(ok, tostring(trouble))
+end
+
+--- The standalone wrapper still catches rewrites on the pinned bootstrap
+--- whose Stat declaration predates nanosecond change times.
+local function test_snapshot_hashes_when_change_time_is_unavailable(tmp: string)
+  local root = sources(tmp)
+  local path = root .. "/core/a.c"
+  assert(Fs.set_mtime(path, 0, 0))
+  local stat = sys.stat
+  sys.stat = function(name: string): sys.Stat | nil, string, integer
+    local st, trouble, errno = stat(name)
+    if st ~= nil then
+      local fields = st as {string:integer}
+      fields["ctime_ns"] = nil
+    end
+    return st, trouble, errno
+  end
+  local ok, trouble = pcall(function()
+    local before = assert(Zig.snapshot(root))
+    assert(Fs.write(path, "next"))
+    assert(Fs.set_mtime(path, 0, 0))
+    assert(table.concat(Zig.changed(before, (assert(Zig.snapshot(root)))), " ") == "core/a.c")
+  end)
+  sys.stat = stat
+  assert(ok, tostring(trouble))
+end

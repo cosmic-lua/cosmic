@@ -1,3 +1,4 @@
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
@@ -414,7 +415,13 @@ local function test_a_files_links_and_headings_sign_the_projection(tmp: string)
   settle(root, 1, { "greet.tl", "wave.tl", "README.md", "notes.md" })
   local handle = assert(work.open(root))
   local function staged(): work.Staged
-    local stage = assert(work.stage(handle, false))
+    -- Modification and change times must both be past their timestamp tick.
+    local now = Clock.now_ns
+    Clock.now_ns = function(): integer return now() + Clock.seconds(3) end
+    local ok, stage, trouble = pcall(work.stage, handle, false)
+    Clock.now_ns = now
+    assert(ok, tostring(stage))
+    assert(stage, trouble)
     assert(work.commit(handle))
     return stage
   end

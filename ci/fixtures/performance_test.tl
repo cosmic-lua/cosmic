@@ -22,6 +22,17 @@ local function controller(): string
   return (assert(Fs.read(Fixture.placed("performance") .. "/perf.tl")))
 end
 
+-- Four real timestamp-settlement waits add eight seconds of setup. The
+-- checked core also executes 132 sampled commands; keep its child deadline
+-- below the driver's 60-second per-test bound so diagnostics can be checked.
+local controller_timeout_ns <const> = Clock.seconds(45)
+
+local function diagnostic(result: Child.Result): string
+  return string.format("performance controller: code=%s signal=%s timed_out=%s\n%s%s",
+    tostring(result.code), tostring(result.signal), tostring(result.timed_out),
+    result.stderr or "", result.stdout or "")
+end
+
 local function run(tmp: string, source: string): Child.Result
   local script = tmp .. "/controller.tl"
   assert(Fs.write(script, source))
@@ -30,12 +41,12 @@ local function run(tmp: string, source: string): Child.Result
   -- carry a core the CI driver has never extracted.
   local env = Fixture.environment({ COSMIC_PORTABLE_CACHE = tmp .. "/cores" })
   return (assert(Child.run({ binary, "--standalone", script, binary, binary, tmp .. "/results", "30", "uses" },
-    { cwd = tmp, env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })))
+    { cwd = tmp, env = env, stdout = "capture", stderr = "capture", timeout_ns = controller_timeout_ns })))
 end
 
 local function test_independent_fixture_histories_match_through_warmups_and_samples(tmp: string)
   local result = run(tmp, controller())
-  assert(result.code == 2, (result.stderr or "") .. (result.stdout or ""))
+  assert(result.code == 2, diagnostic(result))
   local metadata = assert(Json.decode_object((assert(Fs.read(tmp .. "/results/metadata.json")))))
   assert(metadata.protocol == "fixed-sample-v3" and metadata.exploratory == true)
   local root = assert(Fs.absolute(tmp .. "/results"))
@@ -66,5 +77,5 @@ local function test_old_shared_parent_alias_is_rejected(tmp: string)
   assert(count == 1)
   local result = run(tmp, changed)
   assert(not result.ok and (result.stderr or ""):find("unbalanced fixture build history", 1, true),
-    (result.stderr or "") .. (result.stdout or ""))
+    diagnostic(result))
 end
