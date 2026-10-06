@@ -289,7 +289,13 @@ local release_assets <const> = "http://uploads.test/repos/o/r/releases/5/assets"
 
 local function test_an_upload_sends_the_bytes_to_the_upload_origin_with_the_token()
   local client, sent = live({ { reply("201 Created", "", '{"id":1,"name":"a b","state":"uploaded"}') } })
-  local bytes = "\0\1binary\255" .. string.rep("x", 70000)
+  -- Small enough to fit one write to the script's socket on every leg:
+  -- the script answers at once, and curl ends the request once the
+  -- answer is whole, so macOS's small socket buffer would leave the
+  -- rest of a larger body unsent and unrecorded.
+  -- TODO: send a body the size of a real asset once core/http.c's
+  -- script holds its reply until the request it answers is whole.
+  local bytes = "\0\1binary\255" .. string.rep("x", 2000)
   local ok, why = GithubApi.upload(client, release_assets .. "{?name,label}", "a b", bytes)
   assert(ok, why)
   assert(#sent == 1)
