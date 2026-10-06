@@ -5,6 +5,7 @@ local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
+local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 
@@ -133,4 +134,37 @@ print(cmdline ~= nil and cmdline:match("^[^%z]*") or "")
   if relaunch == nil or not Fs.exists("/proc/self/cmdline") then return end
   assert(r.stdout == relaunch.argv[1] .. "\n", tostring(r.stdout) .. " is no relaunch of " ..
       relaunch.argv[1])
+end
+
+--- Under a policy `program` is the command line a policy start takes,
+--- which relaunches the program itself: the path it is started by and
+--- the arguments, the policy and the caller's descriptors alone, no
+--- environment, and no word or descriptor of the relaunch.
+local function test_program_under_a_policy_leaves_the_relaunch_to_the_start()
+  local relaunch: Proc.Relaunch = { argv = { "/cache/core-x", "--database", "/db" },
+    env = { COSMIC_PORTABLE_ARTIFACT = "/a" }, fds = { [254] = 7 } }
+  relaunching(relaunch, function()
+    local policy: Sandbox.Policy = { profiles = { "cosmic" } }
+    local started = this_program.program({ "-e", "x" }, { policy = policy, cwd = "/w",
+      fds = { [3] = 1 } })
+    local argv = started.argv
+    assert(#argv == 3 and argv[1] == assert(Proc.executable()) and argv[2] == "-e" and
+        argv[3] == "x", table.concat(argv, " "))
+    local opts = started.options
+    assert(opts.policy == policy and opts.cwd == "/w")
+    assert(opts.env == nil, "the policy's env and set_env are the whole environment")
+    assert(opts.fds[3] == 1 and opts.fds[254] == nil)
+    -- The relaunch's descriptors are not this start's to refuse.
+    assert(this_program.program({}, { policy = policy, fds = { [254] = "capture" } }).options.fds[254] ==
+        "capture")
+    -- Child.start refuses an env beside a policy; so does this, rather than drop it.
+    local ok, why = pcall(this_program.program, {}, { policy = policy, env = { A = "1" } })
+    assert(not ok and tostring(why):find("env beside a policy", 1, true), tostring(why))
+  end)
+  -- Without a policy the relaunch is still there.
+  relaunching(relaunch, function()
+    local started = this_program.program({ "-e", "x" })
+    assert(started.argv[1] == "/cache/core-x" and started.argv[2] == "--database")
+    assert(started.options.env ~= nil and started.options.fds[254] == 7)
+  end)
 end

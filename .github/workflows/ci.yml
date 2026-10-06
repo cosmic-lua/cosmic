@@ -1063,16 +1063,15 @@
         # What a branch changed since that base, whose tree main's run
         # held to the whole format check: a light run's lays out only
         # these, and makes the checks spanning files over the whole tree.
-        # Where the script names none, the check covers the whole tree.
+        # Where it names none, the check covers the whole tree.
         {
           name: "name the paths the branch changed",
           id: "changed",
           if: "env.COSMIC_CI_SCOPE == 'light'",
-          "working-directory": ".",
           shell: "sh",
           "continue-on-error": true,
           env: {BASE: "${{ steps.merge-base.outputs.sha }}", OUT: "${{ runner.temp }}/changed-paths"},
-          run: "sh .github/scripts/changed-paths.sh",
+          run: "cosmic-driver cosmic_ci/driver.tl changed-paths",
         },
         {
           name: "restore test verdicts",
