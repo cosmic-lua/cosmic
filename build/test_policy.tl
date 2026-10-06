@@ -125,8 +125,9 @@ end
 --- @param effective what the module declares, as the runner resolved it
 --- @return why, "" for nothing
 -- TODO: delete this refusal, and the `"*"` that [`Test.needs`] still takes,
--- once the two tests that declare one on purpose are reworked
--- (build/test_policy_tool_test.tl's
+-- once the four unsandboxed fixtures under ci/fixtures name the variables
+-- they read (each carries the TODO saying why it cannot yet), and the two
+-- tests that declare one on purpose are reworked (build/test_policy_tool_test.tl's
 -- wildcard_test.tl and build/test_isolation_tool_test.tl's hooks_test.tl,
 -- snippets of the wildcard itself): a policy has no wildcard. It waits on
 -- step (e) of the sandbox plan, which deletes [`Test.needs`].
