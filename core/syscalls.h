@@ -827,6 +827,8 @@ COSMIC_SYSCALL(poll, 3);
  * ---@field ENOENT integer there is no such file
  * ---@field EEXIST integer the name is already taken
  * ---@field EACCES integer permission was refused
+ * ---@field EAFNOSUPPORT integer the socket address family is not supported
+ * ---@field EPROTONOSUPPORT integer the socket protocol is not supported
  * ---@field EINTR integer a signal arrived first
  * ---@field EISDIR integer it is a directory
  * ---@field ENOTDIR integer it is not a directory
@@ -883,6 +885,8 @@ COSMIC_CONSTANT(CLOCK_MONOTONIC)
 COSMIC_CONSTANT(ENOENT)
 COSMIC_CONSTANT(EEXIST)
 COSMIC_CONSTANT(EACCES)
+COSMIC_CONSTANT(EAFNOSUPPORT)
+COSMIC_CONSTANT(EPROTONOSUPPORT)
 COSMIC_CONSTANT(EINTR)
 COSMIC_CONSTANT(EISDIR)
 COSMIC_CONSTANT(ENOTDIR)

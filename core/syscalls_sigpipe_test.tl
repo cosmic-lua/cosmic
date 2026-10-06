@@ -37,18 +37,14 @@ local function writing_to_a_closed_pipe(probe: string): integer
   return 0
 end
 
---- A program spawned once this process ignores SIGPIPE starts with it at
---- its default, as it would started from a shell, and is ended by a
---- write to a closed pipe -- unless this process was started with it
---- ignored, which a program it starts inherits, and which leaves nothing
---- here to check.
-local function test_a_child_starts_with_sigpipe_at_its_default(tmp: string)
+--- Ignoring SIGPIPE for this process leaves a spawned program's inherited
+--- disposition intact: default when this process installed the ignore,
+--- ignored when it was already ignored at this process's start.
+local function test_a_child_keeps_the_inherited_sigpipe_disposition(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  -- Started with SIGPIPE ignored, as a CI runner may start this
-  -- process: a condition of the host, not a sandbox it refuses, so no
-  -- skip ([`Test.skip`]), and a run where it holds checks nothing here.
-  if writing_to_a_closed_pipe(probe) == 0 then return end
+  local inherited = writing_to_a_closed_pipe(probe)
+  assert(inherited == 0 or inherited == sys.SIGPIPE, "ended by " .. tostring(inherited))
   assert(process.ignore_sigpipe())
   local ended = writing_to_a_closed_pipe(probe)
-  assert(ended == sys.SIGPIPE, "ended by " .. tostring(ended))
+  assert(ended == inherited, "ended by " .. tostring(ended) .. ", inherited " .. tostring(inherited))
 end

@@ -24,6 +24,30 @@ local function ask(host: host_requires.Host, name: string): host_requires.Answer
   return answers[1]
 end
 
+local function test_unix_socket_creation_is_a_keyed_host_capability_on_every_platform()
+  local calls = 0
+  local host = host_requires.new({ linux = false, unix_socket = function(): boolean, string
+    calls = calls + 1
+    return true, ""
+  end })
+  local answer = ask(host, "unix_socket")
+  assert(answer.kind == "present" and answer.class == "host" and answer.key == "stream")
+  assert(ask(host, "unix_socket").key == answer.key and calls == 1)
+  local refused = ask(host_requires.new({ unix_socket = function(): boolean, string
+    return false, "Operation not permitted"
+  end }), "unix_socket")
+  assert(refused.kind == "skipped" and refused.key == "")
+  assert(refused.why == "Unix stream socket creation is refused: Operation not permitted")
+end
+
+local function test_a_broken_unix_socket_probe_cannot_become_a_skip()
+  local host = host_requires.new({ unix_socket = function(): boolean, string
+    error("probe failed")
+  end })
+  local ok, why = pcall(ask, host, "unix_socket")
+  assert(not ok and tostring(why):find("probe failed", 1, true), tostring(why))
+end
+
 --- Every name of the table, and each form that takes an argument, is read.
 local function test_every_name_parses()
   for _, name in ipairs(host_names.names) do

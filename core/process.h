@@ -375,12 +375,20 @@ COSMIC_SYSCALL(own_proc, 0);
 COSMIC_SYSCALL(sandbox_platform, 0);
 
 /*
- * --- Ignores SIGPIPE, so a write to a closed pipe fails with EPIPE instead of ending the process. A child started afterward gets the default back.
+ * --- Ignores SIGPIPE, so a write to a closed pipe fails with EPIPE instead of ending the process. A child started afterward gets the default back unless SIGPIPE was already ignored at this process's start.
  * ---@return boolean ok false on failure
  * ---@return string error what went wrong, when ok is false
  * ---@return integer errno the error number, when ok is false
  */
 COSMIC_SYSCALL(ignore_sigpipe, 0);
+
+/*
+ * --- Creates a Unix stream socket, closed on exec, for a host capability probe. This says nothing about permission to bind a path or connect to a peer. The caller closes its descriptor.
+ * ---@return integer|nil fd the socket descriptor, or nil on failure
+ * ---@return string error what went wrong, when fd is nil
+ * ---@return integer errno the error number, when fd is nil
+ */
+COSMIC_SYSCALL(unix_socket, 0);
 
 /*
  * --- Opens a guard over SIGINT and SIGTERM for bounded child supervision, the innermost of those open. The first open catches each signal this process does not ignore, and opens the wake pipe (`child_signal_fd`); an ignored signal stays ignored. Each caught signal moves the stamp, `SIGNAL_STAMP_UNIT` times the count of signals caught plus the last one's number, which is never reset. Every open must be closed by `unguard_child_signals`.

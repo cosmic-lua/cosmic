@@ -407,6 +407,29 @@ local function test_a_long_path_is_reached_from_its_directory(tmp: string)
   assert(Fs.stat(deep .. "/r.sock") == nil, "the socket file was left")
 end
 
+--- Even a host refusing a socket bind must return from the directory
+--- used to reach a long path, without leaving a socket file behind.
+local function test_a_long_socket_bind_restores_the_working_directory_on_refusal(tmp: string)
+  local deep = tmp .. "/" .. string.rep("d", 100) .. "/" .. string.rep("e", 100)
+  assert(Fs.mkdirs(deep))
+  local was = assert(sys.getcwd())
+  local path = deep .. "/s.sock"
+  local server, why = Net.listen(Net.unix(path))
+  assert(sys.getcwd() == was, "a socket bind changed the working directory")
+  if server ~= nil then
+    assert(server:close())
+  end
+  assert(Fs.stat(path) == nil, "the socket file was left")
+  if server == nil and why ~= path .. ": " .. sys.errno_message(sys.EPERM) then
+    local unsupported = false
+    for _, errno in ipairs({ sys.EACCES, sys.EAFNOSUPPORT, sys.EPROTONOSUPPORT, sys.ENOSYS }) do
+      if why == path .. ": " .. sys.errno_message(errno) then unsupported = true end
+    end
+    assert(unsupported, why)
+    Test.skip("the host refuses this Unix socket operation: " .. why)
+  end
+end
+
 local DEEP_PART <const> = string.rep("d", 200)
 local DEEP_LEVELS <const> = 24
 

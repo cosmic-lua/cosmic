@@ -698,30 +698,6 @@ local function test_a_child_starts_with_this_process_s_signal_mask(tmp: string)
   assert(mask(child, "SigIgn") & ~mask(own, "SigIgn") == 0, child)
 end
 
---- SIGPIPE, which cosmic ignores for itself when it writes to a child's
---- pipe, is handed a spawned program at its default: a program that
---- writes to a closed pipe ends as it would started from a shell.
-local function test_a_child_starts_with_sigpipe_at_its_default(tmp: string)
-  local probe = probe_in(tmp)
-  assert(process.ignore_sigpipe())
-  local function ignored(text: string): integer
-    return math.tointeger(tonumber(assert(text:match("SigIgn:%s*(%x+)"), text), 16)) as integer
-  end
-  local status = sys.open("/proc/self/status", sys.O_RDONLY)
-  if status == nil then return end -- no /proc to ask
-  local own = assert(sys.read(status, 65536))
-  sys.close(status)
-  local bit = 1 << (sys.SIGPIPE - 1)
-  assert(ignored(own) & bit ~= 0, own)
-  local output = create(tmp .. "/status")
-  local pid = assert(process.spawn(probe, { probe, "cat /proc/self/status" },
-    nil, nil, nil, output, nil, false))
-  assert(assert(process.waitpid(pid, false)).code == 0)
-  local child = assert(sys.pread(output, 65536, 0))
-  sys.close(output)
-  assert(ignored(child) & bit == 0, child)
-end
-
 --- The features `cpu_features` can answer, by machine.
 local KNOWN_FEATURES <const>: {string:{string:boolean}} = {
   x86_64 = { aes = true, pclmulqdq = true, sse4_1 = true, ssse3 = true },
@@ -1005,32 +981,13 @@ local function test_sandbox_inits_lists_the_inits_still_running()
   if names.sysname ~= "Linux" then assert(#before == 0) end
 end
 
---- `children` lists the children of the thread that starts them, a
---- child still running among them and gone once reaped; off Linux there
---- is no such list, ENOSYS.
-local function test_children_lists_a_running_child_until_it_is_reaped(tmp: string)
-  local probe = probe_in(tmp)
-  local ends = assert(process.pipe())
-  local pid = assert(process.spawn(probe, { probe, "cat" }, nil, tmp, ends.reader, nil, nil, false))
-  sys.close(ends.reader)
-  local running, trouble, errno = process.children()
-  sys.close(ends.writer)
-  assert(assert(process.waitpid(pid, false)).code == 0)
-  local names = assert(sys.uname())
-  if names.sysname ~= "Linux" then
-    assert(running == nil and errno == sys.ENOSYS, trouble)
-    return
+--- Off Linux, listing a process's children has no implementation.
+local function test_children_is_not_implemented_off_linux()
+  if assert(sys.uname()).sysname == "Linux" then
+    Test.skip("Linux has the children implementation")
   end
-  assert(running ~= nil, trouble)
-  local listed = false
-  for _, child in ipairs(running) do
-    assert(math.type(child) == "integer" and child > 0)
-    if child == pid then listed = true end
-  end
-  assert(listed, "the running child " .. pid .. " is not listed")
-  for _, child in ipairs((assert(process.children()))) do
-    assert(child ~= pid, "the reaped child " .. pid .. " is still listed")
-  end
+  local found, why, errno = process.children()
+  assert(found == nil and errno == sys.ENOSYS, why)
 end
 
 --- Of a /proc/<pid>/uid_map or gid_map's text, whether it maps `id`

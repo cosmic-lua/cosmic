@@ -269,7 +269,8 @@
    host alone says, does not probe it by hand and return: its module
    declares it in its policy, `requires = { "program:jq", ... }`, from
    [`build.host_names`]'s closed table (`root`, `portable`,
-   `path:<abs>`, `program:<name>` and the Linux-class `sandbox`,
+   `path:<abs>`, `program:<name>`, `unix_socket` (Unix stream socket creation,
+   independently of permission to bind or connect) and the Linux-class `sandbox`,
    `landlock[:N]`, `userns`, `nest`, `own_proc`, `proc`;
    `o/bin/cosmic docs cosmic.test`). Only what the module writes is
    required: nothing is inferred from its promises or grants (the TODO
