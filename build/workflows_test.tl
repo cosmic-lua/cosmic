@@ -833,7 +833,7 @@ end
 
 --- The key a restore of the verdicts under `prefix` (an expression)
 --- takes: the entry main saved under the tree's base on main, where
---- .github/scripts/merge-base.sh found one, else `prefix` alone, whose
+--- `driver.tl merge-base` found one, else `prefix` alone, whose
 --- restore-keys then take the newest.
 local function at_the_base(prefix: string): string
   local inner = assert(prefix:match("^%${{ (.-) }}$"), prefix)
@@ -1110,6 +1110,15 @@ local function step_running(steps: {{string: any}}, text: string): {string: any}
   error("no step runs " .. text)
 end
 
+--- The index of the step of `steps` that bootstraps the pinned CI driver,
+--- the first to use the local action.
+local function driver_at(steps: {{string: any}}): integer
+  for i, step in ipairs(steps) do
+    if step.uses == DRIVER then return i end
+  end
+  error("no step bootstraps the driver")
+end
+
 local CACHE_NAMES <const> = "./.github/actions/cache-names"
 
 local function cache_names(): {string: any}
@@ -1227,16 +1236,24 @@ local function test_a_main_push_reuses_the_queue_run()
   for _, step in ipairs(reuse.steps as {{string: any}}) do
     assert(step["if"] == nil, "reuse skips a step of its own: " .. tostring(step["if"]))
   end
-  local find = step_running(reuse.steps as {{string: any}}, "queue-seed.sh find")
-  assert(find.id == "find" and find.run == "sh .github/scripts/queue-seed.sh find", tostring(find.run))
+  local find, found_at = step_running(reuse.steps as {{string: any}}, "driver.tl queue-find")
+  assert(find.id == "find" and find.run == "cosmic-driver cosmic_ci/driver.tl queue-find" and
+      find["working-directory"] == "ci", tostring(find.run))
+  -- The driver is bootstrapped before the lookup, and a driver that cannot be had is no
+  -- lookup, which the legs meet as one that found nothing.
+  local bootstrap = (reuse.steps as {{string: any}})[driver_at(reuse.steps as {{string: any}})]
+  assert(driver_at(reuse.steps as {{string: any}}) < found_at and bootstrap["continue-on-error"] == true,
+    "reuse looks up before it has the driver, or fails for want of it")
   assert((find.env as {string: string}).SHA == "${{ github.sha }}", "reuse looks up another commit")
   -- A lookup that fails is none: the legs run, and the join reads theirs.
   assert(find["continue-on-error"] == true, "a failed lookup fails reuse")
-  -- Its budget, from the script's defaults, is under the job's timeout
+  -- Its budget, from the driver's defaults, is under the job's timeout
   -- with a minute to spare for the checkout.
-  local script = assert(Fs.read(".github/scripts/queue-seed.sh"))
-  local tries, wait, call = script:match("\ntries=%${TRIES:%-(%d+)} wait=%${WAIT_SECONDS:%-(%d+)} call=%${CALL_SECONDS:%-(%d+)}\n")
-  assert(tries ~= nil, "queue-seed.sh's budget moved")
+  local script = assert(Fs.read("ci/cosmic_ci/queue_seed.tl"))
+  local tries = script:match('whole%(env, "TRIES", (%d+)%)')
+  local wait = script:match('whole%(env, "WAIT_SECONDS", (%d+)%)')
+  local call = script:match('whole%(env, "CALL_SECONDS", (%d+)%)')
+  assert(tries ~= nil and wait ~= nil and call ~= nil, "queue_seed.tl's budget moved")
   local budget = math.tointeger(tonumber(tries) * (tonumber(wait) + 2 * tonumber(call)))
   assert(budget + 60 <= (reuse["timeout-minutes"] as integer) * 60, "reuse times out within its lookup's budget, " ..
       budget .. " s: " .. tostring(reuse["timeout-minutes"]))
@@ -1761,8 +1778,9 @@ local function test_a_light_format_check_lays_out_only_what_the_branch_changed()
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
   local jobs = ci.jobs as {string: {string: any}}
   local steps = jobs.checked.steps as {{string: any}}
-  local base, found = step_running(steps, "sh .github/scripts/merge-base.sh")
+  local base, found = step_running(steps, "driver.tl merge-base")
   assert(base["if"] == nil, "the checked job finds its base only on some runs: " .. tostring(base["if"]))
+  assert(driver_at(steps) < found, "the checked job finds its base before it has the driver")
   local named, listed = step_running(steps, "sh .github/scripts/changed-paths.sh")
   assert(named.id == "changed" and named["if"] == LIGHT and named.shell == "sh" and
       named["working-directory"] == "." and named["continue-on-error"] == true,
@@ -1849,7 +1867,7 @@ end
 --- have: main saves each job's verdicts twice, under their content and
 --- under its commit, even where the content is an entry's already, and
 --- `seed` does as the queue's leg named; each restore asks for the
---- base's entry, which .github/scripts/merge-base.sh finds (the merge
+--- base's entry, which driver.tl merge-base finds (the merge
 --- queue's base, or a branch's merge base with main through the API,
 --- with the job's token, and never failing the job), and falls back to
 --- the newest. `prune` deletes the copies under a commit on a push to
@@ -1870,9 +1888,11 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
     local at = verdict_steps(steps)
     local find = steps[at["merge-base"]]
     assert(find ~= nil and at["merge-base"] < at["verdicts-restore"], name .. " restores before it finds the base")
-    assert(find.run == "sh .github/scripts/merge-base.sh" and find.shell == "sh" and
-        find["working-directory"] == "." and find["continue-on-error"] == true,
+    -- On the host, where gh is, once the driver is bootstrapped.
+    assert(find.run == "cosmic-driver cosmic_ci/driver.tl merge-base" and find.shell == "sh" and
+        find["working-directory"] == nil and find["continue-on-error"] == true,
       name .. " finds the base elsewhere than on the host, or fails for it: " .. tostring(find.run))
+    assert(driver_at(steps) < at["merge-base"], name .. " finds its base before it has the driver")
     local env = find.env as {string: string}
     assert(env.GH_TOKEN == "${{ github.token }}" and env.REPOSITORY == "${{ github.repository }}" and
         env.SHA == "${{ github.sha }}" and env.EVENT == "${{ github.event_name }}" and
@@ -1896,7 +1916,8 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
   -- The prune: a job of its own, the one whose token may write the
   -- cache, after every job that saves, whatever their result; on every
   -- push (a branch's shows it run), its steps on main's alone, running
-  -- no tree code but the script, from a checkout that keeps no token.
+  -- the pinned driver on ci/'s sources alone, from a main-only checkout
+  -- that keeps no token.
   -- The join, the check a ruleset requires, waits on none of it.
   local prune = jobs.prune
   assert(prune ~= nil, "no job prunes the verdicts under a commit")
@@ -1915,17 +1936,21 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
     assert(need ~= "prune", "the join waits on prune")
   end
   local psteps = prune.steps as {{string: any}}
-  assert(#psteps == 2, "prune runs more than its checkout and its script")
+  assert(#psteps == 3, "prune runs more than its checkout, its driver and its command")
   for _, step in ipairs(psteps) do
     assert(step["if"] == "github.ref == 'refs/heads/main'", "prune runs a step off main: " .. tostring(step["if"]))
   end
   local checkout = psteps[1].with as {string: any}
   assert((psteps[1].uses as string):find("actions/checkout@", 1, true) == 1 and
       checkout["persist-credentials"] == false and
-      checkout["sparse-checkout"] == "/.github/scripts/prune-commit-verdicts.sh\n",
-    "prune checks out more than its script, or keeps the token")
-  local step = psteps[2]
-  assert(step.run == "sh .github/scripts/prune-commit-verdicts.sh" and step["continue-on-error"] == true,
+      checkout["sparse-checkout"] == "/ci/\n/bin/cosmic-bootstrap\n/.github/scripts/cosmic-driver.sh\n" ..
+      "/.github/actions/cosmic-driver/\n",
+    "prune checks out more than its driver, or keeps the token")
+  assert(psteps[2].uses == DRIVER and psteps[2]["continue-on-error"] == true,
+    "prune bootstraps something else, or fails the run for it")
+  local step = psteps[3]
+  assert(step.run == "cosmic-driver cosmic_ci/driver.tl prune-commit-verdicts" and
+      step["working-directory"] == "ci" and step["continue-on-error"] == true,
     "the prune runs something else, or fails the run: " .. tostring(step.run))
   assert((step.env as {string: string}).GH_TOKEN == "${{ github.token }}", "the prune has no token")
 end
@@ -2108,7 +2133,7 @@ end
 --- leg and the checked job keeps its suite's verdicts, on a queue run,
 --- the moment the suite passes, as `verdicts-<job>`, a name no other
 --- job's shares, replacing a retried attempt's; and each, between its
---- boot and its suite, finds that run by its base (queue-seed.sh ahead),
+--- boot and its suite, finds that run by its base (driver.tl queue-ahead),
 --- with the job's own name and artifact, unless the restore took the
 --- base's own entry, downloads what it kept from that run, and merges
 --- it into what it restored (driver.tl verdicts-merge). None of it
@@ -2123,9 +2148,9 @@ end
 local function test_a_queue_run_takes_the_verdicts_of_the_run_ahead()
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
   local jobs = ci.jobs as {string: {string: any}}
-  local script = assert(Fs.read(".github/scripts/queue-seed.sh"))
-  local call = math.tointeger(tonumber(script:match("call=%${CALL_SECONDS:%-(%d+)}\n")))
-  assert(call ~= nil, "queue-seed.sh's call budget moved")
+  local script = assert(Fs.read("ci/cosmic_ci/queue_seed.tl"))
+  local call = math.tointeger(tonumber(script:match('whole%(env, "CALL_SECONDS", (%d+)%)')))
+  assert(call ~= nil, "queue_seed.tl's call budget moved")
   local QUEUE <const> = "github.event_name == 'merge_group'"
   local names: {string: string} = {}
   for _, case in ipairs({
@@ -2172,8 +2197,9 @@ local function test_a_queue_run_takes_the_verdicts_of_the_run_ahead()
 
     local find = steps[at.ahead]
     local env = find.env as {string: string}
-    assert(find.run == "sh .github/scripts/queue-seed.sh ahead" and find.shell == "sh" and
-        find["working-directory"] == "." and find["continue-on-error"] == true and
+    -- On the host, where gh is, in ci/, where the driver is run from.
+    assert(find.run == "cosmic-driver cosmic_ci/driver.tl queue-ahead" and find.shell == "sh" and
+        find["working-directory"] == nil and find["continue-on-error"] == true and
         (find["if"] as string):find(QUEUE .. " && steps.verdicts-restore.outputs.cache-matched-key != " ..
             "format('{0}sha-{1}', steps.host-id.outputs.verdicts, github.event.merge_group.base_sha)", 1, true),
       where .. " looks for the run ahead elsewhere, where the base's verdicts were restored, or fails for it")

@@ -6,7 +6,7 @@
 #
 #     BASE=<commit> OUT=<file> sh .github/scripts/changed-paths.sh
 #
-# BASE is the tree's base on main (merge-base.sh), whose tree main's own
+# BASE is the tree's base on main (`driver.tl merge-base`), whose tree main's own
 # run held to the whole tree's check. The script fetches that one
 # commit into the checkout (from origin, with the credentials
 # actions/checkout keeps), writes every path HEAD adds, changes or
