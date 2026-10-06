@@ -296,7 +296,10 @@ end
 --- The hits of every line a report held, by the text that spelled it: every
 --- worker of a module reports the same lines for what its load ran, so
 --- one run reads each once, and the runner can tell a line it has folded
---- by its table ([`build.test`]'s `take_hits`).
+--- by its table ([`build.test`]'s `take_hits`). The memo outlives a run,
+--- which is safe since a table is a function of the text that keys it and
+--- is never changed; the runner's own memos of what it did with one are
+--- a run's.
 local record DecodedHit
   path: string
   lines: {integer:boolean}

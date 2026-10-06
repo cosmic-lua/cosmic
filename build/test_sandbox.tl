@@ -595,7 +595,10 @@ end
 --- plan but the scratch directory depends on the worker. It is the
 --- plan of a module made once a run, for the cost of looking at each path of
 --- a module's closure again is most of what a plan costs; the paths it
---- looked at are taken to stay as they were for the run. Only a plan
+--- looked at are taken to stay as they were for the run: one that vanishes
+--- meanwhile is not dropped from the copy, and its worker's start fails
+--- with the mount's error, where a plan made afresh would have left it
+--- out. The key has moved by then, so no verdict is kept either way. Only a plan
 --- with no `trouble` is rebound; the copy shares nothing with `plan`.
 function test_sandbox.rebind(plan: test_sandbox.Plan, from: string, scratch: string,
                              effective: test_inputs.Effective): test_sandbox.Plan

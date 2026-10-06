@@ -112,15 +112,15 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "516c08e34d1fc392de5363af92b6d669344fc3c8b504c469ae3771a424d0db6b",
 
-  ["build.test"] = "4e2353e8e1a68f5b84981799b718d5b234edd9329621e96809492b5f17b9725e",
+  ["build.test"] = "93b77b36fe7fb85ffffcae687f20767aab9fe59bdc6ba4cb3ab70999dd36c5ad",
 
   ["build.test_inputs"] = "3731a597a211163a973e34acc776ac7080f7072afd27e9b6641d7a6e2bf9640d",
 
   ["build.test_policy"] = "44ba4848ef58bb6ae0d4525a407b51e47da27c2b992961224c901957b3a716e6",
 
-  ["build.test_sandbox"] = "2f5fa2d180a8181694584d2cbb55b00d1b7c333b1a71dfaca18981e775a94131",
+  ["build.test_sandbox"] = "66e37f3d9aad8ec76e50aae486bb5edf718b40c8c174c83cf8021ae8496510db",
 
-  ["build.test_worker"] = "3d05d99209ebbe91f97393018fa877efa56d17a5ad3abf5689ead3ba4cd0726b",
+  ["build.test_worker"] = "f11edcdf642d9735611a94ac00f0222e5aec9c54cf86c92c240a81f03ce38001",
 
   ["build.this_program"] = "975740a93eb1e88680fe402a0bf6e5e52d1acad579dbdfedd0be27d10ae02980",
 
