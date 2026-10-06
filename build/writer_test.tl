@@ -512,3 +512,26 @@ local function test_paired_declaration_projects_each_source_in_its_role(tmp: str
   assert(rows("SELECT count(*) FROM docs WHERE module = 'only'")[1][1] ~= "0")
   assert(db:close())
 end
+
+--- A projection failure rolls back the working transaction and discards
+--- the attached snapshot, so the same handle can stage and publish again.
+local function test_a_failed_projection_can_be_retried(tmp: string)
+  write_project(tmp, "retry")
+  local handle = assert(work.open(tmp))
+  assert(work.stage(handle, false))
+  local result = assert(importer.compile(handle, built, "writer-test"))
+  assert(handle.db:exec("DROP TABLE compiled"))
+  local out = tmp .. "/out.db"
+  local written, trouble = writer.write_result(handle, out, result)
+  assert(not written and trouble:find("compiled", 1, true), trouble)
+  assert(not handle.inside, "the failed projection left its transaction open")
+  assert(Fs.stat(out) == nil, "the failed projection published a file")
+  assert(handle.db:exec("ATTACH ':memory:' AS out"), "the failed snapshot stayed attached")
+  assert(handle.db:exec("DETACH out"))
+  assert(work.begin(handle))
+  assert(work.stage(handle, false))
+  local retried = assert(importer.compile(handle, built, "writer-test"))
+  assert(writer.write_result(handle, out, retried))
+  assert(work.close(handle))
+  assert(projected(out) ~= "", "the retry did not publish a signed projection")
+end

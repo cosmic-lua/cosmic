@@ -8,6 +8,12 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
+local Sqlite = require("cosmic.sqlite")
+local Store = require("cosmic.store")
+local importer = require("build.importer")
+local teal = require("build.teal")
+local work = require("build.work")
+local writer = require("build.writer")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local rebuild_lock = require("build.rebuild_lock")
@@ -146,4 +152,77 @@ local function test_a_write_of_the_projection_waits_for_the_lock(tmp: string)
   assert(text:find("o/cosmic.db: another cosmic run (pid " .. tostring(sys.getpid()) ..
       ") in this checkout is running its tests; waiting for it", 1, true), text)
   assert(text:find("hello\n", 1, true), text)
+end
+
+--- A result waiting to publish keeps the rows and signature it compiled,
+--- even when another run commits a failed or a different successful plan.
+local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string)
+  local built = assert(teal.load())
+  for _, succeeds in ipairs({ false, true }) do
+    local root = tmp .. (succeeds and "/valid" or "/failed")
+    assert(Fs.mkdirs(root .. "/o"))
+    local original = 'print("original")\n'
+    assert(Fs.write(root .. "/main.tl", original))
+    assert(rebuild_lock.take(root, 0, "test") == "held")
+    local output = root .. "/a.out"
+    local fd = assert(Fs.open_write(output))
+    local started = this_program.program({ "main.tl" }, {
+      cwd = root, env = this_program.environment(), stdout = fd, stderr = fd,
+      process_group = true,
+    })
+    local a = assert(Child.start(started.argv, started.options))
+    assert(Fs.close(fd))
+    local ok, failure = pcall(function()
+      assert(await("the compiled result to wait for publication", function(): boolean
+        return (Fs.read(output) or ""):find("waiting for it", 1, true) ~= nil
+      end))
+      local staged = assert(work.open(root))
+      local first: importer.Result = {
+        main = nil, tool = "", modules = {}, refused = {},
+        compiled = 0, cached = 0, shared = 0, parses = { parsed = 0, shared = 0 },
+      }
+      local first_signature = assert(writer.signature(staged, first, Store.meta("writer") or ""))
+      assert(work.close(staged))
+      if succeeds then
+        assert(Fs.write(root .. "/main.tl", 'print("replacement")\n'))
+        local b = assert(work.open(root))
+        assert(work.stage(b, false))
+        local result = assert(importer.compile(b, built, "snapshot-test"))
+        local alternate = root .. "/b.db"
+        assert(writer.write_result(b, alternate, result))
+        assert(work.close(b))
+        local db = assert(Sqlite.open(alternate))
+        local rows = assert(Sqlite.text_rows(db,
+          "SELECT inflate(source) FROM modules WHERE path = 'main'"))
+        assert(rows[1][1] == 'print("replacement")\n')
+        assert(db:close())
+      else
+        assert(Fs.write(root .. "/main.tl", 'local broken: string = 42\nprint(broken)\n'))
+        local command = this_program.program({ "main.tl" }, {
+          cwd = root, env = this_program.environment(), stdout = "capture", stderr = "capture",
+        })
+        local failed = assert(Child.run(command.argv, command.options))
+        assert(not failed.ok, failed.stdout .. failed.stderr)
+      end
+      rebuild_lock.release()
+      local result = assert(a:wait(Clock.seconds(20)))
+      local text = assert(Fs.read(output))
+      assert(result.ok, text)
+      assert(text:find("original\n", 1, true), text)
+      local db = assert(Sqlite.open(root .. "/o/cosmic.db"))
+      local rows = assert(Sqlite.text_rows(db,
+        "SELECT inflate(source) FROM modules WHERE path = 'main'"))
+      assert(rows[1][1] == original, "published another run's source")
+      local signed = assert(Sqlite.text_rows(db,
+        "SELECT value FROM meta WHERE key = 'projected'"))
+      assert(signed[1][1] == first_signature, "published another run's signature")
+      assert(db:close())
+    end)
+    rebuild_lock.release()
+    if not ok then
+      local _ = a:stop(sys.SIGKILL)
+      local _ = a:wait(Clock.seconds(20))
+      error(failure)
+    end
+  end
 end
