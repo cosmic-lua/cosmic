@@ -16,10 +16,12 @@ local function test_print_carries_a_line_past_the_inline_buffer()
     __tostring = function(): string return "(a value that prints itself)" end,
   })
   print("surface_test: a long print ->", 42, shown, long, true, nil)
+  assert(true, "a line past the inline buffer prints without raising")
 end
 
 local function test_print_with_nothing_writes_an_empty_line()
   print()
+  assert(true, "print with no value writes its empty line without raising")
 end
 
 local function test_trace_names_the_message_and_the_stack()
