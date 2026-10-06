@@ -12,6 +12,7 @@ local Orchestration = require("cosmic_ci.orchestration")
 local PlaceTree = require("cosmic_ci.place_tree")
 local Prerelease = require("cosmic_ci.prerelease")
 local QueueSeed = require("cosmic_ci.queue_seed")
+local QueueStage = require("cosmic_ci.queue_stage")
 local Runner = require("cosmic_ci.runner")
 local Report = require("cosmic_ci.report")
 local State = require("cosmic_ci.state")
@@ -120,6 +121,8 @@ local commands: {string:Command} = {
     usage = "", handler = QueueSeed.find_command },
   ["queue-ahead"] = { about = "find the run ahead in the merge queue, and whether it holds the verdicts this run takes",
     usage = "", handler = QueueSeed.ahead_command },
+  ["queue-stage"] = { about = "keep in $RUNNER_TEMP/seed what main would save of this merge queue leg, and name its keys",
+    usage = "", handler = QueueStage.stage_command },
   ["merge-base"] = { about = "name the main commit this run's tree grew from, whose verdicts the restore takes",
     usage = "", handler = CommitVerdicts.merge_base_command },
   ["changed-paths"] = { about = "name the paths this branch changed since its base on main, for a light run's format check",

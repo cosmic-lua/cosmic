@@ -1431,19 +1431,21 @@ end
 --- saved, under the key main would have saved it under: its restore's
 --- prefix and its trim's digest, where that is not the entry it
 --- restored, and the driver check's marker, which holds its key. It
---- does so after both trims and with the tree back where the scripts
---- are, and uploads it as `seed-<leg>`, which `seed` downloads where
---- it lays it out again.
+--- does so after both trims and its container's removal, with its tree
+--- still moved (the driver runs before the tree is put back), and
+--- uploads it as `seed-<leg>`, which `seed` downloads where it lays it
+--- out again.
 local function test_the_queue_keeps_what_main_would_save()
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
   local jobs = ci.jobs as {string: {string: any}}
   local steps = jobs.platform.steps as {{string: any}}
-  local stage, at = step_running(steps, "queue-seed.sh stage")
+  local stage, at = step_running(steps, "driver.tl queue-stage")
   local QUEUE <const> = "success() && github.event_name == 'merge_group'"
   assert(stage["if"] == QUEUE, "the queue's legs keep their seed on other runs: " .. tostring(stage["if"]))
-  -- On the host, from the checkout's root, where the script is.
-  assert(stage.shell == "sh" and stage["working-directory"] == ".",
-    "the seed is kept elsewhere than on the host from the root")
+  -- On the host, from ci/ like every driver command, so the driver runs
+  -- where the runner's $RUNNER_TEMP is.
+  assert(stage.shell == "sh" and stage["working-directory"] == nil,
+    "the seed is kept elsewhere than on the host from ci/")
   local env = stage.env as {string: string}
   for cache, path in pairs({ VERDICTS = "${{ runner.temp }}/verdicts", COMPILES = "${{ runner.temp }}/build-cache" }) do
     local save = save_of(steps, path)
@@ -1487,7 +1489,12 @@ local function test_the_queue_keeps_what_main_would_save()
   for i, step in ipairs(steps) do
     if step.name == "move the tree back to where it was checked out" then back = i end
   end
-  assert(trimmed < at and compiled < at and back < at, "the seed is kept before a trim, or with the tree moved")
+  local gone: integer
+  for i, step in ipairs(steps) do
+    if step.name == "remove the leg's container" then gone = i end
+  end
+  assert(trimmed < at and compiled < at and gone < at and at < back,
+    "the seed is kept before a trim, beside the leg's container, or after the tree is put back")
   local upload = steps[at + 1]
   local with = upload.with as {string: string}
   assert(upload["if"] == QUEUE and with.name == "seed-${{ matrix.name }}" and with.path == "${{ runner.temp }}/seed" and
@@ -1510,8 +1517,8 @@ local function test_the_queue_keeps_what_main_would_save()
   -- after its trim and with its container gone, under its own name.
   local cjob = jobs.checked
   local csteps = cjob.steps as {{string: any}}
-  local cstage, cat = step_running(csteps, "queue-seed.sh stage")
-  assert(cstage["if"] == QUEUE and cstage.shell == "sh" and cstage["working-directory"] == ".",
+  local cstage, cat = step_running(csteps, "driver.tl queue-stage")
+  assert(cstage["if"] == QUEUE and cstage.shell == "sh" and cstage["working-directory"] == nil,
     "the checked job keeps its seed on other runs, or elsewhere: " .. tostring(cstage["if"]))
   local cenv = cstage.env as {string: string}
   local vsave, vtwin = save_of(csteps, "${{ runner.temp }}/verdicts")
@@ -1535,8 +1542,8 @@ local function test_the_queue_keeps_what_main_would_save()
   for i, step in ipairs(csteps) do
     if step.name == "move the tree back to where it was checked out" then cback = i end
   end
-  assert(ctrim < cat and removed < cat and cback ~= nil and cback < cat,
-    "the checked job's seed is kept before its trim, beside its container, or with its tree moved")
+  assert(ctrim < cat and removed < cat and cback ~= nil and cat < cback,
+    "the checked job's seed is kept before its trim, beside its container, or after its tree is put back")
   local cupload = csteps[cat + 1]
   local cwith = cupload.with as {string: string}
   assert(cupload["if"] == QUEUE and cwith.path == "${{ runner.temp }}/seed" and
@@ -2055,7 +2062,7 @@ local function test_a_leg_prunes_its_zig_outputs_before_it_saves_them()
   local steps = jobs.platform.steps as {{string: any}}
   local prune, at = step_running(steps, "driver.tl zig-prune")
   local _, assembled = step_running(steps, "driver.tl platform assemble")
-  local stage, staged = step_running(steps, "queue-seed.sh stage")
+  local stage, staged = step_running(steps, "driver.tl queue-stage")
   local saved: integer
   local upload: {string: any}
   for i, step in ipairs(steps) do
