@@ -53,6 +53,10 @@ local function whole(env: {string:string}, name: string, default: integer): inte
   return value, ""
 end
 
+-- No test runs this, since no test runs the system's git: the tests hold
+-- the argv through a recorded git, and finding git, the time limit and a
+-- failed run read as false are met only in CI, where any of them going
+-- wrong reads as the whole tree rather than a wrong list.
 function ChangedPaths.live_git(env: {string:string}): ChangedPaths.Git
   local git = Proc.find("git", env.PATH or "")
   return function(argv: {string}, seconds: integer): boolean, string
@@ -72,6 +76,8 @@ function ChangedPaths.changed_paths(env: {string:string}, host: Github.Host, git
     local _, _ = Fs.put(Fs.stderr, "changed-paths: OUT names the file to write the paths to\n")
     return 2
   end
+  -- A stale list must not outlive a refusal: a later step reads OUT.
+  local _, _ = Fs.remove(out)
   local limit, why = whole(env, "LIMIT", 400)
   local wait: integer | nil
   if limit ~= nil then wait, why = whole(env, "FETCH_SECONDS", 60) end
@@ -80,7 +86,6 @@ function ChangedPaths.changed_paths(env: {string:string}, host: Github.Host, git
     return 2
   end
   local base = env.BASE or ""
-  local _, _ = Fs.remove(out)
   local function whole_tree(reason: string): integer
     host.print("the format check covers the whole tree: " .. reason)
     return 0
