@@ -1916,7 +1916,8 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
   -- The prune: a job of its own, the one whose token may write the
   -- cache, after every job that saves, whatever their result; on every
   -- push (a branch's shows it run), its steps on main's alone, running
-  -- no tree code but the driver, from a checkout that keeps no token.
+  -- the pinned driver on ci/'s sources alone, from a main-only checkout
+  -- that keeps no token.
   -- The join, the check a ruleset requires, waits on none of it.
   local prune = jobs.prune
   assert(prune ~= nil, "no job prunes the verdicts under a commit")
@@ -1941,7 +1942,6 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
   end
   local checkout = psteps[1].with as {string: any}
   assert((psteps[1].uses as string):find("actions/checkout@", 1, true) == 1 and
-      checkout["persist-credentials"] == false and
       checkout["persist-credentials"] == false and
       checkout["sparse-checkout"] == "/ci/\n/bin/cosmic-bootstrap\n/.github/scripts/cosmic-driver.sh\n" ..
       "/.github/actions/cosmic-driver/\n",

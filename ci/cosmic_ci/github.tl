@@ -49,6 +49,9 @@ local record Github
   is_commit: function(text: string): boolean
   --- `host`'s `print` and `summary` of `line`.
   say: function(host: Host, line: string)
+  --- `host.fetch`, with the reason a failed lookup gives printed, so a
+  --- step's log says why it asked again.
+  ask: function(host: Host, path: string, paginate: boolean, seconds: integer): {any} | nil
   --- Whether `base`'s build/harness_epoch.tl differs from the checkout's
   --- HEAD's, asked of git through `git`, which runs a git command line and
   --- answers its exit status (nil where it could not run). Only a
@@ -59,6 +62,12 @@ end
 
 function Github.is_commit(text: string): boolean
   return #text == 40 and text:match("^[0-9a-f]+$") ~= nil
+end
+
+function Github.ask(host: Github.Host, path: string, paginate: boolean, seconds: integer): {any} | nil
+  local pages, why = host.fetch(path, paginate, seconds)
+  if pages == nil then host.print("lookup failed: " .. why) end
+  return pages
 end
 
 function Github.say(host: Github.Host, line: string)
@@ -98,6 +107,13 @@ function Github.over(run: Github.Runner): Github.Fetch, Github.Delete
   return fetch, delete
 end
 
+-- A limit decided for good: no test runs the system's git, so `run_git`
+-- and `moved` below are checked only against recordings of git's answers
+-- (github_test.tl), never against git. A pathspec git refuses, or a
+-- failure of its own (a repository it finds unsafe, "dubious
+-- ownership", say), answers a status other than 1 and reads as "the
+-- harness did not move": every test then stands on the verdicts it
+-- would, which costs a stale verdict at worst, never a failed run.
 function Github.live(env: {string:string}): Github.Host
   local gh = Proc.find("gh", env.PATH or "")
   local git = Proc.find("git", env.PATH or "")

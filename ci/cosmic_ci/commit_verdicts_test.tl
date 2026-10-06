@@ -66,6 +66,7 @@ local function test_a_failed_lookup_names_nothing()
   local output, said, code, calls = merge_base(TOPIC, nil)
   assert(code == 0 and output == "" and #calls == 1, output .. table.concat(calls, "\n"))
   assert(said:find("main's newest", 1, true), said)
+  assert(said:find("lookup failed: failed", 1, true), said)
 end
 
 --- An entry as the API lists the cache's: `hours` old.
@@ -159,7 +160,8 @@ local function test_a_failed_prune_fails_nothing()
   local fake, said, code = prune({}, nil)
   assert(code == 0 and deleted(fake) == "" and said:find("none pruned", 1, true), table.concat(fake.calls, "\n") .. said)
   -- Both listings are asked, and both said.
-  assert(#fake.calls == 2 and #fake.printed == 2, table.concat(fake.printed, "\n"))
+  assert(#fake.calls == 2 and #fake.printed == 4, table.concat(fake.printed, "\n"))
+  assert(said:find("lookup failed: failed", 1, true), said)
   -- An answer that is no list of entries, or one whose entry holds no
   -- time to read, deletes none: the listing could not be read.
   for _, answer in ipairs({ '{"message":"Bad credentials"}', pages("{}"),

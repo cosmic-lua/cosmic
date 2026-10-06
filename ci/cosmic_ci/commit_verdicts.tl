@@ -71,7 +71,7 @@ function CommitVerdicts.merge_base(env: {string:string}, host: Github.Host): int
   if event == "merge_group" then
     base = env.QUEUE_BASE or ""
   elseif event == "push" and ref ~= "refs/heads/main" then
-    local pages = host.fetch("repos/" .. (env.REPOSITORY or "") .. "/compare/main..." .. (env.SHA or "") ..
+    local pages = Github.ask(host, "repos/" .. (env.REPOSITORY or "") .. "/compare/main..." .. (env.SHA or "") ..
         "?per_page=1", false, call)
     local commit = pages and pages[1] and type(pages[1]) == "table" and
       (pages[1] as {string:any}).merge_base_commit or nil
@@ -93,7 +93,7 @@ end
 --- it cannot tell.
 local function prune(host: Github.Host, repository: string, call: integer, hours: integer,
                      prefix: string, entry: string, entries: string, wanted: function(entry: {string:any}): boolean | nil)
-  local pages = host.fetch("repos/" .. repository .. "/actions/caches?key=" .. prefix .. "&per_page=100", true, call)
+  local pages = Github.ask(host, "repos/" .. repository .. "/actions/caches?key=" .. prefix .. "&per_page=100", true, call)
   local ids: {string} = {}
   local listed = pages ~= nil
   for _, page in ipairs(pages or {}) do

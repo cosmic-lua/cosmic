@@ -1564,7 +1564,8 @@
     # (driver.tl prune-commit-verdicts): a branch based on an older commit
     # restores main's newest verdicts, and a branch pushed again a day
     # later main's compiles. The one job whose token may write the
-    # cache, and it runs no tree code but the script. After every job
+    # cache, and it runs the pinned driver on ci/'s sources, from a main-only
+    # checkout that keeps no credentials. After every job
     # that saves, whatever their result, so a red push to main prunes
     # too; beside the join, so the check a ruleset requires waits on
     # none of it. Every push runs it, a branch's with its steps skipped,

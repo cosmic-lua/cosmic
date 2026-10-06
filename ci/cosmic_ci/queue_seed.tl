@@ -235,7 +235,7 @@ function QueueSeed.find(env: {string:string}, host: Github.Host): integer
     found, url = "", ""
     local pending = false
     local candidate, candidate_url = "", ""
-    local pages = host.fetch(runs_path(s, sha), false, s.call)
+    local pages = Github.ask(host, runs_path(s, sha), false, s.call)
     local runs = pages and runs_of(pages) or nil
     if runs ~= nil then
       for _, run in ipairs(runs) do
@@ -252,7 +252,7 @@ function QueueSeed.find(env: {string:string}, host: Github.Host): integer
     end
     -- The newest passing run, where it holds every leg's seed.
     if candidate ~= "" then
-      local listed = host.fetch(run_path(s, candidate, "artifacts"), false, s.call)
+      local listed = Github.ask(host, run_path(s, candidate, "artifacts"), false, s.call)
       local names = listed and artifact_names(listed) or nil
       if names ~= nil then
         local missing = ""
@@ -313,7 +313,7 @@ function QueueSeed.ahead(env: {string:string}, host: Github.Host): integer
     -- At most three calls a round, each cut off at CALL_SECONDS.
     local pending = false
     local run, status = "", ""
-    local pages = host.fetch(runs_path(s, base), false, s.call)
+    local pages = Github.ask(host, runs_path(s, base), false, s.call)
     local runs = pages and runs_of(pages) or nil
     if runs ~= nil then
       -- The newest, where a run was retried.
@@ -330,7 +330,7 @@ function QueueSeed.ahead(env: {string:string}, host: Github.Host): integer
       pending = true
     end
     if run ~= "" then
-      local listed = host.fetch(run_path(s, run, "artifacts"), false, s.call)
+      local listed = Github.ask(host, run_path(s, run, "artifacts"), false, s.call)
       local names = listed and artifact_names(listed) or nil
       if names == nil then
         pending = true
@@ -339,7 +339,7 @@ function QueueSeed.ahead(env: {string:string}, host: Github.Host): integer
       elseif status == "completed" then
         said = "the run ahead, " .. run .. ", completed without " .. artifact .. ": the restore's verdicts alone."
       else
-        local answered = host.fetch(run_path(s, run, "jobs"), false, s.call)
+        local answered = Github.ask(host, run_path(s, run, "jobs"), false, s.call)
         local jobs = answered and jobs_of(answered, suite) or nil
         if jobs == nil then
           pending = true
