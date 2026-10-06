@@ -203,8 +203,8 @@ end
 
 --- `run` starts a program and goes on past one that succeeds, ending
 --- with the status of one that fails, 128 past a signal, or 127 for one
---- that cannot start; `fd-closed` holds for a closed descriptor alone;
---- and `status-field` reads its own line of /proc/self/status.
+--- that cannot start; and `fd-closed` holds for a closed descriptor alone.
+--- (`status-field` is in build/stand_in_proc_test.tl.)
 local function test_the_process_verbs(tmp: string)
   local probe = built(tmp)
   local ran = run({ probe, "run " .. probe .. " print from the child; print back" })
@@ -229,12 +229,6 @@ local function test_the_process_verbs(tmp: string)
     local unnamed = run({ probe, "fd-closed " .. word .. "; print never" })
     assert(unnamed.code == 2 and unnamed.stdout == "", word .. ": " .. tostring(unnamed.code))
     assert(assert(unnamed.stderr):find("no descriptor", 1, true), unnamed.stderr)
-  end
-
-  if Fs.exists("/proc/self/status") then
-    local field = run({ probe, "status-field SigIgn; status-field NoSuchField" })
-    assert(field.code == 1, tostring(field.code))
-    assert(assert(field.stdout):match("^SigIgn:%s*%x+\n$"), field.stdout)
   end
 end
 

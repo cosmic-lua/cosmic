@@ -131,7 +131,10 @@ end
 --- A probe that cannot tell (a file the run may not read) fails the modules
 --- that name it, saying why, and the rest of the run goes on.
 local function test_a_probe_that_raises_fails_its_modules_alone(tmp: string)
-  if sys.getuid() == 0 then return end -- root reads any file: nothing to refuse
+  if sys.getuid() == 0 then
+    Test.skip("this process is root, which reads any file: nothing to refuse")
+    return
+  end
   local root = project(tmp)
   local file = outside(tmp) .. "/closed"
   assert(Fs.write(file, "x\n"))
