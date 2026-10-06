@@ -16,6 +16,7 @@ local Sqlite = require("cosmic.sqlite")
 local this_program = require("build.this_program")
 local shared_verdicts = require("build.shared_verdicts")
 local confine = require("build.confine")
+local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
 --- The program itself, which its tests start, roots of their own for
@@ -54,7 +55,7 @@ end
 --- runners nest them.
 local function shares(text: string): boolean
   if text:find("; sandboxed", 1, true) ~= nil then return true end
-  if confine.sandbox_platform() then Test.skip(confine.unsandboxed_reason(text)) end
+  if assert(sys.uname()).sysname == "Linux" then Test.skip(confine.unsandboxed_reason(text)) end
   return false
 end
 

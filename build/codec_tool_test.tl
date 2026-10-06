@@ -5,8 +5,8 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local confine = require("build.confine")
 local this_program = require("build.this_program")
 local Clock = require("cosmic.clock")
 
@@ -56,7 +56,7 @@ local function test_a_failed_standard_output_write_exits_2(tmp: string)
   -- worker there is given it (build.confine's `runtime_paths`): one
   -- without it is skipped, and elsewhere there is nothing to check.
   if Fs.stat("/dev/full") == nil then
-    if confine.sandbox_platform() then Test.skip("this worker has no /dev/full") end
+    if assert(sys.uname()).sysname == "Linux" then Test.skip("this worker has no /dev/full") end
     return
   end
   local full = assert(Fs.open_write("/dev/full"))

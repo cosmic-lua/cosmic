@@ -2,7 +2,7 @@
 --- checked the way `cosmic fix` checks the core: through clang's dump.
 
 local Fs = require("cosmic.fs")
-local confine = require("build.confine")
+local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local c = require("build.c")
 local rules = require("build.c.rules")
@@ -666,7 +666,7 @@ local function test_a_compiler_reads_no_path_it_was_not_given(tmp: string)
   if not sandboxed and not not_found then
     -- The kernel could confine none: the compiler read what it found,
     -- which, not being C, it answers with errors rather than findings.
-    if confine.sandbox_platform() then
+    if assert(sys.uname()).sysname == "Linux" then
       Test.skip("a compiler ran unconfined, and read " .. root .. "/AGENTS.md")
     end
     return

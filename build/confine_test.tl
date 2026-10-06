@@ -131,7 +131,7 @@ local function sandboxed_worker(tmp: string): {string} | nil
     { unveil = unveil, offline = true })
   if pid == nil then
     sys.close(output)
-    if confine.sandbox_platform() then
+    if assert(sys.uname()).sysname == "Linux" then
       Test.skip("no sandbox for the worker: " .. tostring(trouble))
     end
     -- Only as a kernel that cannot confine refuses, never for a path

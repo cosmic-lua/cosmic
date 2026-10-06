@@ -9,6 +9,7 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local confine = require("build.confine")
 local this_program = require("build.this_program")
+local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
 --- The system's own paths, which a run of `cosmic test` this module starts
@@ -98,7 +99,7 @@ end
   local text = assert(Fs.read(output))
   assert(result ~= nil and not result.ok, tostring(trouble) .. text)
   if text:find("no worker can be sandboxed here", 1, true) then
-    if confine.sandbox_platform() then Test.skip(confine.unsandboxed_reason(text)) end
+    if assert(sys.uname()).sysname == "Linux" then Test.skip(confine.unsandboxed_reason(text)) end
     return
   end
   --- What the run said of `test`'s failure, up to where it says to rerun it.

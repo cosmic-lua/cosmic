@@ -82,7 +82,7 @@ end
 --- here (CI's unprivileged runner nests them).
 local function unsandboxed(text: string): boolean
   if text:find("; sandboxed", 1, true) then return false end
-  if confine.sandbox_platform() then Test.skip(confine.unsandboxed_reason(text)) end
+  if assert(sys.uname()).sysname == "Linux" then Test.skip(confine.unsandboxed_reason(text)) end
   return true
 end
 
@@ -410,8 +410,8 @@ local function tool_project(tmp: string): function(string), function(string): st
   -- /tmp: what it declares is all its key turns on.
   assert(Fs.write(root .. "/suite/tool_test.tl",
     "local Test = require(\"cosmic.test\")\n\nTest.policy { profiles = { \"cosmic\" }, grants = { { path = \"o/bin\", letters = \"rx\" } } }\n\n" ..
-      "local function test_tool()\nend\n"))
-  assert(Fs.write(root .. "/suite/plain_test.tl", "local function test_plain()\nend\n"))
+      "local function test_tool()\n  assert(true)\nend\n"))
+  assert(Fs.write(root .. "/suite/plain_test.tl", "local function test_plain()\n  assert(true)\nend\n"))
   local tool = root .. "/o/bin/cosmic"
   local function rebuild(statements: string)
     rebuilt(tmp, tool, statements)
@@ -759,7 +759,10 @@ end
 --- the program is a portable artifact.
 local function test_an_unsandboxed_worker_runs_on_a_sealed_database(tmp: string)
   local launched = Proc.relaunch()
-  if launched == nil or launched.argv[2] ~= "--artifact" then return end
+  if launched == nil or launched.argv[2] ~= "--artifact" then
+    Test.skip("this program is no portable artifact")
+    return
+  end
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.write(root .. "/suite/database_test.tl", [[

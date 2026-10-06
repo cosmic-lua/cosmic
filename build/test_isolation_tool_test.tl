@@ -154,7 +154,7 @@ local function test_a_hung_or_exiting_test_fails_alone(tmp: string)
     local sandboxed = text:find("; sandboxed", 1, true) ~= nil
     if mode == "0" then
       assert(not sandboxed, text)
-    elseif not sandboxed and confine.sandbox_platform() then
+    elseif not sandboxed and assert(sys.uname()).sysname == "Linux" then
       unsandboxed = confine.unsandboxed_reason(text)
     end
     assert(text:find(sandboxed and "its pid namespace was ended" or "its process group was ended",

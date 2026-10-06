@@ -11,6 +11,7 @@
 local Fs = require("cosmic.fs")
 local confine = require("build.confine")
 local fixture = require("build.must_confine_fixture")
+local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local String = require("cosmic.string")
 
@@ -223,7 +224,9 @@ end
 --- platform because where it can confine, the process runs held to what was
 --- declared, which `must_confine_sandboxed_test.tl` checks (`requires`).
 local function test_a_must_confined_process_is_refused_where_no_sandbox_is_given(tmp: string)
-  if confine.sandbox_platform() then return end
+  if assert(sys.uname()).sysname == "Linux" then
+    Test.skip("a platform with a sandbox answers this where a test requires one")
+  end
   local root = tmp .. "/root"
   fixture.confined_suite(tmp, root)
   local text, ok = run(root, tmp .. "/out", environment(nil), { "--all" })
@@ -239,7 +242,9 @@ end
 --- confine, COSMIC_SANDBOX=must is checked too, by
 --- `must_confine_sandboxed_test.tl` (`requires`).
 local function test_a_confine_falls_back_and_stands_where_no_sandbox_is_given(tmp: string)
-  if confine.sandbox_platform() then return end
+  if assert(sys.uname()).sysname == "Linux" then
+    Test.skip("a platform with a sandbox answers this where a test requires one")
+  end
   local root = tmp .. "/root"
   fixture.fallback_suite(tmp, root)
   local text, ok = run(root, tmp .. "/first", environment(nil))
