@@ -151,8 +151,8 @@ end
 --- started by a name with ".." in it: [`Proc.executable`] keeps it as given,
 --- and so does the artifact path of the relaunch. A grant may not name
 --- "..", so the plan names the program, and the artifact a worker that
---- nests or declares `lua` reads, where it resolves, and tells the worker
---- that name.
+--- nests or declares `lua` with `store` reads, where it resolves, and tells
+--- the worker that name.
 local function test_a_program_started_by_a_name_with_dots_is_granted_where_it_is(tmp: string)
   local script = [[
 local Sandbox = require("cosmic.sandbox")
@@ -160,7 +160,7 @@ local sys = require("cosmic.sys")
 local test_policy = require("build.test_policy")
 local test_sandbox = require("build.test_sandbox")
 local root, scratch = sys.getenv("ROOT"), sys.getenv("SCRATCH")
-local artifact, closure = sys.getenv("ARTIFACT"), sys.getenv("CLOSURE")
+local artifact = sys.getenv("ARTIFACT")
 local function declared(more)
   local inputs = { files = {}, reads = {}, host = {}, env = {}, network = {},
     tool = false, store = false, system = true }
@@ -173,21 +173,18 @@ local function holds(list, value)
 end
 for _, case in ipairs({
   { name = "tool", inputs = declared({ tool = true }) },
-  { name = "nests", inputs = declared({ nests = true }), closure = closure },
   { name = "nests store", inputs = declared({ nests = true, store = true }) },
-  { name = "lua", inputs = declared({ lua = true }), closure = closure },
+  { name = "lua store", inputs = declared({ lua = true, store = true }) },
 }) do
-  local plan = test_sandbox.plan(root, scratch, case.inputs, {}, nil, case.closure)
+  local plan = test_sandbox.plan(root, scratch, case.inputs, {}, nil)
   local policy, why = test_policy.worker(plan, case.inputs)
   assert(policy ~= nil, why)
   local ok, trouble = Sandbox.check(policy)
   assert(ok, case.name .. ": " .. tostring(trouble))
   if case.name ~= "tool" then
     local unveil = plan.sandbox.unveil
-    local named = case.closure ~= nil and unveil.at[case.closure] or artifact
-    assert(named == artifact, case.name .. " is given at " .. tostring(named))
     assert(plan.program == artifact, case.name .. " is told " .. tostring(plan.program))
-    assert(case.closure ~= nil or holds(unveil.reads, artifact), case.name)
+    assert(holds(unveil.reads, artifact), case.name)
   end
   print("ok")
 end
@@ -199,9 +196,8 @@ end
   local started = this_program.program({ "-e", script })
   local root, scratch = tmp .. "/beside/ci", scratch_in(tmp)
   local env = started.options.env or {}
-  assert(Fs.write(tmp .. "/closure.artifact", "y"))
   env.ROOT, env.SCRATCH, env.PATH = root, scratch, "/usr/bin:/bin"
-  env.ARTIFACT, env.CLOSURE = launched.argv[3], tmp .. "/closure.artifact"
+  env.ARTIFACT = launched.argv[3]
   started.options.env, started.options.stdout, started.options.stderr = env, "capture", "capture"
   started.options.timeout_ns = Time.seconds(60)
   -- The launcher names the artifact by where it was started from: $PWD/$0.
@@ -211,45 +207,33 @@ end
   local result, trouble = Child.run(started.argv, started.options)
   assert(result ~= nil, tostring(trouble))
   assert(result.code == 0, tostring(result.stderr) .. tostring(result.stdout))
-  assert(tostring(result.stdout):find("^ok\nok\nok\nok\n$"), tostring(result.stdout) .. tostring(result.stderr))
+  assert(tostring(result.stdout):find("^ok\nok\nok\n$"), tostring(result.stdout) .. tostring(result.stderr))
 end
 
 --- A worker whose module declares `nests` has no descriptor of the program
---- handed it and so reads the artifact by its path, which holds every module
---- of the tree: a plan for the policy grants the real one only where the
---- module declares `store` (keyed on the whole projection), `tool` has o/bin
---- anyway, and any other is given the artifact of its closure at the real
---- one's name ([`build.closure_artifact`]), and never the real one.
-local function test_a_plan_for_a_nesting_worker_grants_the_artifact_of_its_closure(tmp: string)
+--- handed it and so would read the artifact by its path, which holds every
+--- module of the tree: a plan for the policy grants the real one only where
+--- the module declares `store` (keyed on the whole projection), `tool` has
+--- o/bin anyway, and any other runs on a sealed database
+--- ([`build.test`]'s `sealed_for`) and is given no artifact at all.
+local function test_a_plan_for_a_nesting_worker_grants_the_artifact_only_with_store(tmp: string)
   local launched = Proc.relaunch()
   if launched == nil or launched.argv[2] ~= "--artifact" then return end
   local artifact = launched.argv[3]
   local root, scratch = tmp .. "/root", scratch_in(tmp)
   assert(Fs.mkdirs(root .. "/o/bin"))
   assert(Fs.write(root .. "/o/cosmic.db", "x"))
-  assert(Fs.write(tmp .. "/closure.artifact", "y"))
   local bare = effective({})
   bare.nests = true
   local storing = effective({})
   storing.nests, storing.store = true, true
-  local plain = test_sandbox.plan(root, scratch, bare, {}, nil, tmp .. "/closure.artifact")
-  local none = test_sandbox.plan(root, scratch, bare, {})
-  local with = test_sandbox.plan(root, scratch, storing, {}, nil, tmp .. "/closure.artifact")
+  local plain = test_sandbox.plan(root, scratch, bare, {})
+  local with = test_sandbox.plan(root, scratch, storing, {})
   assert(with.trouble == "", with.trouble)
   assert(holds(with.sandbox.unveil.reads, artifact), table.concat(with.sandbox.unveil.reads, " "))
   assert(not with.runs[artifact], "the artifact is read, not run")
-  assert(not holds(with.sandbox.unveil.reads, tmp .. "/closure.artifact"),
-    "a module that declares store is given the real artifact")
-  -- The artifact of the closure, at the real one's name, and not the real one.
-  assert(holds(plain.sandbox.unveil.reads, tmp .. "/closure.artifact"),
-    table.concat(plain.sandbox.unveil.reads, " "))
-  assert(plain.sandbox.unveil.at[tmp .. "/closure.artifact"] == artifact)
   assert(not holds(plain.sandbox.unveil.reads, artifact),
     table.concat(plain.sandbox.unveil.reads, " "))
-  assert(not plain.runs[tmp .. "/closure.artifact"], "the artifact is read, not run")
-  -- Given none, a worker that nests is given no artifact at all.
-  assert(#none.sandbox.unveil.reads < #plain.sandbox.unveil.reads)
-  assert(not holds(none.sandbox.unveil.reads, artifact))
   assert(test_policy.worker(plain, bare) ~= nil)
   assert(test_policy.worker(with, storing) ~= nil)
 end
@@ -496,61 +480,6 @@ end
   assert(ok, text)
   assert(not text:find("SKIP", 1, true), text)
   assert(not text:find("retains of its own", 1, true), text)
-end
-
---- A module that declares `nests` but neither `store` nor `tool` starts
---- under the policy, and what it reads at the real artifact's name is the
---- artifact of its closure: it opens by the path, as every start of such
---- a worker does (so it is checked against its manifest, and the worker
---- runs), and its database holds the closure and what every worker
---- loads, and the program's own modules where the tree has none of the
---- name, but not the modules of the tree outside them. It reads no other
---- artifact of the program.
-local function test_a_nesting_module_without_store_or_tool_reads_the_artifact_of_its_closure(
-    tmp: string)
-  if no_sandbox_here() then return end
-  local root = tmp .. "/root"
-  assert(Fs.mkdirs(root .. "/suite"))
-  assert(Fs.write(root .. "/suite/other.tl", "return {}\n"))
-  assert(Fs.mkdirs(root .. "/build"))
-  assert(Fs.write(root .. "/build/analyzer.tl", "return {}\n"))
-  assert(Fs.write(root .. "/suite/bare_test.tl", [[
-local Fs = require("cosmic.fs")
-local Proc = require("cosmic.proc")
-local Sqlite = require("cosmic.sqlite")
-local Test = require("cosmic.test")
-
-Test.needs { nests = true }
-
-local function test_reads_the_artifact_of_its_closure(tmp: string)
-  local launched, _ = Proc.relaunch()
-  assert(launched ~= nil and launched.argv[2] == "--artifact" and launched.argv[3] ~= nil)
-  local data = assert(Fs.read(launched.argv[3]))
-  -- The trailer: magic, version, length, manifest offset and length, where the
-  -- database begins and its length.
-  assert(data:sub(-48, -41) == "CosmicT1", "not an artifact")
-  local _, _, _, _, database_at, database_length = string.unpack(">I4I4I8I8I8I8", data, #data - 39)
-  assert(database_at + database_length + 48 == #data)
-  assert(Fs.write(tmp .. "/program.db", data:sub(database_at + 1, database_at + database_length)))
-  local db = assert(Sqlite.open(tmp .. "/program.db"))
-  local paths = {}
-  local rows = assert(Sqlite.text_rows(db, "SELECT path FROM modules"))
-  for _, row in ipairs(rows) do paths[row[1] ] = true end
-  assert(db:close())
-  assert(paths["suite.bare_test"] and paths["cmd.cosmic.main"] and paths["cosmic.sqlite"],
-    "holds the closure, what the worker loads and the program's own")
-  assert(not paths["suite.other"], "holds a module of the tree outside its closure")
-  -- A module the tree names is the tree's, not the program's, to give: the
-  -- program's own of that name stays out.
-  assert(not paths["build.analyzer"], "holds the program's module of a name the tree has")
-end
-]]))
-  local env = environment()
-  local text, ok = run(root, tmp .. "/bare", env, { "--all", "suite/bare_test.tl" })
-  if unsandboxed(text) then return end
-  assert(ok, text)
-  assert(text:find("under a policy", 1, true), text)
-  assert(not text:find("SKIP", 1, true), text)
 end
 
 --- A pass under the policy does not stand for a run with no sandbox, nor

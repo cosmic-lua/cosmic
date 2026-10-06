@@ -1,13 +1,13 @@
 --- What a module that declares `lua` ([`cosmic.test`]) and requires
 --- [`build.standalone`] starts: this program running a file `--standalone`,
---- from an artifact of the module's import closure
---- ([`build.closure_artifact`]), which carries what `cosmic -e` loads and
+--- on a sealed database of the module's import closure
+--- ([`build.test`]'s `sealed_for`), which carries what `cosmic -e` loads and
 --- what `cosmic --standalone` loads beyond it (build/test_inputs.tl's
 --- `lua_loads` and `standalone_loads`) -- so a file that reaches for any
 --- other module of the program fails rather than running what no key of
 --- its test holds. build/lua_children_test.tl holds what one that
 --- declares `lua` alone starts, and how a worker is known to be sandboxed,
---- where only the artifact narrows what a child reads.
+--- where only the sealed database narrows what a child reads.
 
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")

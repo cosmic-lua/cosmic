@@ -744,15 +744,14 @@ what the declared key leaves out, each with a `TODO:` where its fix goes:
   key holds), and `require` refuses it a module of the tree outside the
   closure ([`build/test_worker.tl`]'s `hold_requires`); nothing else in the
   worker holds a lookup in the store to the closure. A worker whose module
-  declares `lua` or `nests`, and neither `store` nor `tool`, also runs an
-  artifact of that closure ([`build/closure_artifact.tl`]) in the program's
-  place, so what it and every process it starts read of the program is what
-  its key holds. That leaves ways past it. Any other worker runs the
+  declares neither `store` nor `tool`, a `nests` one among them, also runs on
+  a sealed database of that closure ([`build/test.tl`]'s `sealed_for`) in the
+  program's place, so what it and every process it starts read of the program
+  is what its key holds. That leaves ways past it. Any other worker runs the
   program, whose own database holds every module of the tree, which
   [`Store.bytecode`], [`Store.source`], [`Store.requires`],
   [`Store.databases()`], [`Store.meta`] and a searcher called by hand read
-  with no key to hold them ([`build/test.tl`], the TODO on
-  `closure_artifact_for`). A module the program carries that is no module
+  with no key to hold them ([`build/test.tl`], `seals`). A module the program carries that is no module
   of the tree -- in a project's tree, the standard library's -- is held by
   neither, and the runtime's identity names the core and the pins, not
   those modules ([`build/test_worker.tl`], the TODO on `refusal`). An
@@ -1101,7 +1100,6 @@ in [roadmap.md](roadmap.md).
 [`build.work`]: ../build/work.tl
 [`build.writer`]: ../build/writer.tl
 [`build/bom.tl`]: ../build/bom.tl
-[`build/closure_artifact.tl`]: ../build/closure_artifact.tl
 [`build/closure_store.tl`]: ../build/closure_store.tl
 [`build/compiler_test.tl`]: ../build/compiler_test.tl
 [`build/declared_key.tl`]: ../build/declared_key.tl

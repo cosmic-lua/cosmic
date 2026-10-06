@@ -114,8 +114,8 @@ for _, name in ipairs(this_program.runtime_environment) do pinned_env[#pinned_en
 --- if it required each at its top level, though not what each requires
 --- only inside a function it does not call on that way -- dispatch
 --- requires every verb's modules so -- so its key holds each by what it
---- is, and every process its tests start runs an artifact of that closure
---- ([`build.closure_artifact`]), which carries no other module of the
+--- is, and every process its tests start runs a sealed database of that closure
+--- ([`build.test`]'s `sealed_for`), which carries no other module of the
 --- program. A module added to that way is not found by such a process
 --- until it is added here; build/lua_children_test.tl holds a `-e` child
 --- to loading no more.

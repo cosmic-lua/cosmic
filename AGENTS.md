@@ -158,7 +158,7 @@
    sandbox gives it: the worker holds only `require` to the closure, which
    refuses a module of the tree outside it
    ([`build/test_worker.tl`]'s `hold_requires`), and no lookup in the store.
-   A worker whose module declares none of `store`, `tool` and `nests` runs
+   A worker whose module declares neither `store` nor `tool` runs
    on a sealed database of that closure ([`build/test.tl`]'s `sealed_for`,
    one per closure store, in a directory of the run's own): this program's
    core started on it (`core --database`, the policy's `database`) and
@@ -175,13 +175,15 @@
    worker loads. The one row left out is the `image_hash` meta row, which
    names the program's build and moves with every rebuild. A run whose
    program is no portable artifact runs these workers on the whole program
-   instead, and its summary says how many. `hold_requires` stays as the second guard
-   that names the rule. A worker that declares `nests` and neither `store`
-   nor `tool` runs an artifact of its closure
-   ([`build/closure_artifact.tl`]), since a policy refuses `nest` beside a
-   database; one that declares `store` or `tool`, or a run whose program is
-   no portable artifact, runs the whole program, whose database holds every
-   module of the tree: a `store` test reads them, keyed by the projection.
+   instead, and its summary says how many. A worker that declares `nests`
+   is sealed too: its policy carries `nest` beside the `database`, and its
+   core and database are read-only binds of its own root, so the roots it
+   confines children in start on the same database. `hold_requires` stays as
+   the second guard that names the rule, and the only one for the workers
+   that run the whole program: one that declares `store` or `tool`, or a run
+   whose program is no portable artifact, runs the whole program, whose
+   database holds every module of the tree: a `store` test reads them, keyed
+   by the projection.
    So require a module the test reads at its top level (`local type _ =
    require(...)` for a declaration a type-checked snippet needs), and read
    no other that way; declare `store = true` where a test reads rows of
@@ -209,7 +211,7 @@
    /proc, /dev/null, /dev/zero, /dev/full and /dev/urandom, keyed only
    through the host's identity, and the program, its core and its
    database, keyed through the runtime's identity but for the database's
-   modules, which only a sealed database or a `nests` worker's artifact narrows
+   modules, which only a sealed database narrows
    to its closure (above), and which no test reads through the descriptor a
    portable start keeps on the program, which every binding refuses
    (core/check.h's `cosmic_checkfd`), nor, sandboxed, by the program's
@@ -540,7 +542,6 @@ unblocks: `o/bin/cosmic todos '"cosmic-driver.pin"'` lists them.
 [`build/c/layout.tl`]: build/c/layout.tl
 [`build/c/rules.tl`]: build/c/rules.tl
 [`build/c_functions.tl`]: build/c_functions.tl
-[`build/closure_artifact.tl`]: build/closure_artifact.tl
 [`build/contracts.tl`]: build/contracts.tl
 [`build/declared_key.tl`]: build/declared_key.tl
 [`build/flow.tl`]: build/flow.tl

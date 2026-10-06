@@ -118,7 +118,6 @@ local teal = require("build.teal")
 local tree = require("build.tree")
 local work = require("build.work")
 local writer = require("build.writer")
-local closure_artifact = require("build.closure_artifact")
 local closure_store = require("build.closure_store")
 local confine = require("build.confine")
 local shared_compiles = require("build.shared_compiles")
@@ -129,6 +128,7 @@ local test_policy = require("build.test_policy")
 local test_sandbox = require("build.test_sandbox")
 local test_sandbox_probe = require("build.test_sandbox_probe")
 local declared_key = require("build.declared_key")
+local artifact = require("build.artifact")
 local hashing = require("build.digest")
 local harness_epoch = require("build.harness_epoch")
 local host_names = require("build.host_names")
@@ -850,15 +850,11 @@ end
 
 --- The modules of the harness beside what every worker loads
 --- ([`build.test_worker`]'s [`worker.loads`]): build.test_sandbox and the
---- tree modules it requires, build.test_policy, build.closure_artifact,
---- build.caches and build.zig_caches. build.test_sandbox makes the plan of a worker's
+--- tree modules it requires, build.test_policy, build.caches and
+--- build.zig_caches. build.test_sandbox makes the plan of a worker's
 --- sandbox (`plan`): what it binds, unveils and holds, and the
 --- environment it gives. build.test_policy turns that plan into the
 --- policy a worker is started under.
---- build.closure_artifact makes the artifact a worker that nests, or
---- declares `lua`, opens in place of the program's, from what a key holds
---- (its head, its closure's store) and the program's rows of what every
---- worker loads.
 --- build.caches says where each declared host cache is bound from and
 --- makes it; build.zig_caches does so for zig's.
 ---
@@ -885,7 +881,7 @@ end
 -- itself, where today it moves none unless someone bumps the epoch by
 -- hand.
 local harness_own <const>: {string} = { "build.test_sandbox", "build.test_policy",
-  "build.closure_artifact", "build.caches", "build.zig_caches" }
+  "build.caches", "build.zig_caches" }
 
 --- The modules of the harness held alone, by their own source and
 --- bytecode, their requires not walked: cosmic.child, whose `start`
@@ -1321,11 +1317,6 @@ local record Recording
   --- store by its bytes ([`declared_key.store_digest`]), the address
   --- only where it is and whether it must be written.
   stores: {string:string}
-  --- The program's artifact cut at its database, read once for the artifacts
-  --- of closures that nest ([`closure_artifact_for`]); the reason it has none,
-  --- or nil before it is read.
-  artifact_read: closure_artifact.Program | nil
-  artifact_trouble: string | nil
   --- What sealing the databases of the workers that run on one needs,
   --- made the first time one is: the directory they are written in, the
   --- program's own database written there ([`sealing_for`]); the reason
@@ -1472,20 +1463,41 @@ local function can_forbid(rec: Recording, m: importer.Module): boolean
   return found
 end
 
+--- Whether a worker of `m`'s tests runs on a sealed database of its
+--- closure ([`sealed_for`]): the program's core on that database
+--- (`core --database`) with nothing of the program's file, so what the
+--- worker and every process it starts reads of the program is what its
+--- key holds -- its closure's store and the modules every worker loads. It
+--- is so wherever the worker is given a closure's store and runs
+--- not this program (`tool`), and this program is a portable artifact
+--- whose database and core there are to take; a worker that confines
+--- processes in roots of its own (`nests`) is sealed too, its policy
+--- carrying `nest` beside the `database`. Its key holds the
+--- core in place of the launcher ([`declared_of`]), which no such worker
+--- runs. Every other worker runs the program.
+local function seals(rec: Recording, m: importer.Module): boolean
+  local effective = rec.effective[m.path]
+  if rec.launcher == nil or rec.stores == nil or rec.stores[m.path] == nil or
+      effective == nil or effective.store or effective.tool then
+    return false
+  end
+  local launched, _ = Proc.relaunch()
+  return launched ~= nil and launched.argv[2] == "--artifact" and launched.argv[3] ~= nil
+end
+
 --- How a sandboxed worker of `m`'s tests stands to running this
---- program: "declared" where its module declares `tool`; "lua" where it
---- declares `lua`, whose worker may run it as "allowed" says but runs on a
---- sealed database of its closure ([`sealed_for`]), or is given an artifact
---- of it ([`closure_artifact_for`]) where it cannot be sealed, so its key
---- holds no more of the program than of its closure; "forbidden"
---- where it is kept from running it ([`can_forbid`]), and "allowed" where
---- it is not -- its module declares `nests`, whose worker no Landlock
---- ruleset holds, or it cannot be -- which its key holds as if its
---- module declared `tool` ([`Spec.runs_tool`]). Its key and its command
+--- program: "declared" where its module declares `tool`; "sealed" where
+--- it declares `lua` or `nests` and runs on a sealed database of its
+--- closure ([`sealed_for`]), which it may run the core on but which holds no
+--- more of the program than its closure, so its key holds no more;
+--- "forbidden" where it is kept from running it ([`can_forbid`]), and
+--- "allowed" where it is not -- its module declares `nests` or `lua` and
+--- runs the program whole, or it cannot be -- which its key holds as if
+--- its module declared `tool` ([`Spec.runs_tool`]). Its key and its command
 --- line ([`hold_of`]) both take it from here.
 local enum ToolUse
   "declared"
-  "lua"
+  "sealed"
   "forbidden"
   "allowed"
 end
@@ -1493,8 +1505,7 @@ end
 local function tool_use(rec: Recording, m: importer.Module): ToolUse
   local effective = rec.effective[m.path]
   if effective.tool then return "declared" end
-  if effective.lua then return "lua" end
-  if effective.nests then return "allowed" end
+  if effective.lua or effective.nests then return seals(rec, m) and "sealed" or "allowed" end
   return can_forbid(rec, m) and "forbidden" or "allowed"
 end
 
@@ -1519,28 +1530,6 @@ local function reads_compiler(rec: Recording, m: importer.Module): boolean
   if rec.stores[m.path] == nil then return false end
   return declared_key.reads_compiler(test_inputs.compiler_sought(rec.closures[m.path] or {},
     rec.effective[m.path].lua))
-end
-
---- Whether a worker of `m`'s tests runs on a sealed database of its
---- closure ([`sealed_for`]): the program's core on that database
---- (`core --database`) with nothing of the program's file, so what the
---- worker and every process it starts reads of the program is what its
---- key holds -- its closure's store and the modules every worker loads. It
---- is so wherever the worker is given a closure's store and runs
---- neither this program (`tool`) nor roots of its own (`nests`, whose
---- policy cannot carry a database yet), and this program is a portable
---- artifact whose database and core there are to take. Its key holds the
---- core in place of the launcher ([`declared_of`]), which no such worker
---- runs. Every other worker runs the program, or an artifact of its closure
---- ([`closure_artifact_for`]).
-local function seals(rec: Recording, m: importer.Module): boolean
-  local effective = rec.effective[m.path]
-  if rec.launcher == nil or rec.stores == nil or rec.stores[m.path] == nil or
-      effective == nil or effective.store or effective.tool or effective.nests then
-    return false
-  end
-  local launched, _ = Proc.relaunch()
-  return launched ~= nil and launched.argv[2] == "--artifact" and launched.argv[3] ~= nil
 end
 
 --- The digest of the modules of the program's own database that the tree
@@ -1979,12 +1968,7 @@ local function sweep_stores(rec: Recording)
   local listed, _ = Fs.list(directory)
   for _, entry in ipairs(listed or {}) do
     -- One kept aside for a report ([`mismatch_path`]) stays until removed.
-    -- The artifact of a closure that nests stays with the closure's store
-    -- ([`closure_artifact_for`], which takes out those of a program since
-    -- rebuilt).
-    local artifact_of = entry:match("^(%x+)%-%x+%.artifact$")
-    local kept_artifact = artifact_of ~= nil and named[artifact_of .. ".db"]
-    if not named[entry] and not kept_artifact and not entry:match("%.mismatch%.db$") then
+    if not named[entry] and not entry:match("%.mismatch%.db$") then
       local gone, trouble = Fs.remove(directory .. "/" .. entry)
       if not gone then
         log:complain("test: " .. directory .. "/" .. entry .. ": " .. trouble)
@@ -2109,12 +2093,14 @@ local function sealing_for(rec: Recording): Sealing | nil, string
   if launched == nil or launched.argv[2] ~= "--artifact" or launched.argv[3] == nil then
     return refuse("this program is no portable artifact to take its database from")
   end
-  if rec.artifact_read == nil and rec.artifact_trouble == nil then
-    rec.artifact_read, rec.artifact_trouble = closure_artifact.read(launched.argv[3])
+  local bytes, read_trouble = Fs.read(launched.argv[3])
+  if bytes == nil then return refuse(launched.argv[3] .. ": " .. read_trouble) end
+  local parts, split_trouble = artifact.split(bytes)
+  if parts == nil then return refuse(launched.argv[3] .. ": " .. split_trouble) end
+  if parts.host then
+    return refuse(launched.argv[3] .. ": a host program has no database to seal from")
   end
-  local program = rec.artifact_read
-  if program == nil then return refuse(rec.artifact_trouble or "no artifact") end
-  local database = program.parts.database
+  local database = parts.database
   -- A root runner's workers run as a user of their own, which must be
   -- able to search every directory above the database: the temporary
   -- directory's, or /tmp's where that is shut to it (a test's own
@@ -2304,66 +2290,6 @@ local function sealed_for(rec: Recording, m: importer.Module): string | nil, str
   rec.sealed_bytes = rec.sealed_bytes + wrote.size
   rec.sealed_ns = rec.sealed_ns + (Clock.monotonic_ns() - started)
   rec.sealed[name] = path
-  return path, ""
-end
-
---- The path of the artifact a worker of `m`'s tests that nests, or that
---- declares `lua` where it cannot be sealed ([`seals`]), is given at the
---- program's own name ([`build.closure_artifact`]), made where it is not
---- there yet from the program's artifact, the store of `m`'s closure and what
---- every worker loads ([`worker.loads`]) or the tree lacks, which its own
---- start reads from the artifact it opens by path. What a `lua` module's
---- tests start runs that artifact too, so reads only what its key holds of
---- the program. Nil where `m` is given none (a module that neither nests
---- nor declares `lua`, or declares `store` or `tool`, or a program that is no
---- portable artifact, where a `nests` module's worker opens the program as it
---- is), and nil and why where it could not be made, or where a `lua` module's
---- worker could not be held to its closure without one.
--- TODO: close a gap for a module that declares `nests` and neither `store`
--- nor `tool`: its worker runs this artifact of its closure, whose head is
--- the program's own, and the policy it is started under refuses the
--- database a sealed one runs on while it carries `nest` (the TODO in
--- cosmic/child.tl's `start`). Once it does not, give such a worker the
--- sealed database of its closure ([`sealed_for`]) too, and delete
--- build/closure_artifact.tl, this function and the worker's `by_path`
--- start. It waits on cosmic/child.tl's `start` accepting the `nest`
--- promise beside a `database` (its own TODO about `nest`).
-local function closure_artifact_for(rec: Recording, m: importer.Module): string | nil, string
-  local effective = rec.effective[m.path]
-  local address = rec.stores[m.path]
-  if not rec.sandbox or address == nil or effective == nil or
-      not (effective.nests or effective.lua) or effective.tool then
-    return nil, ""
-  end
-  local launched, _ = Proc.relaunch()
-  if launched == nil or launched.argv[2] ~= "--artifact" or launched.argv[3] == nil then
-    if effective.lua then
-      return nil, "its module declares lua, so what its tests start runs an artifact of its " ..
-        "closure, made from the program's portable artifact, which this program is not"
-    end
-    return nil, ""
-  end
-  if rec.artifact_read == nil and rec.artifact_trouble == nil then
-    rec.artifact_read, rec.artifact_trouble = closure_artifact.read(launched.argv[3])
-  end
-  local program = rec.artifact_read
-  if program == nil then return nil, rec.artifact_trouble end
-  local directory = stores_directory(rec.root)
-  local path = directory .. "/" .. closure_artifact.name(address, program, worker.loads, rec.tree_names)
-  local there, _ = sys.stat(path)
-  if there == nil then
-    local store, store_trouble = given_store(rec, m)
-    if store == nil then return nil, store_trouble end
-    -- Another program's artifact of the same store is of no use again.
-    local listed, _ = Fs.list(directory)
-    for _, entry in ipairs(listed or {}) do
-      if entry:sub(1, #address + 1) == address .. "-" and entry:match("%.artifact$") then
-        local _, _ = Fs.remove(directory .. "/" .. entry)
-      end
-    end
-    local written, trouble = closure_artifact.write(program, store, worker.loads, rec.tree_names, path)
-    if not written then return nil, "the artifact of its closure: " .. trouble end
-  end
   return path, ""
 end
 
@@ -2588,7 +2514,6 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   -- The store of its closure an unsandboxed worker attaches in place
   -- of the projection ([`worker.Invocation`]'s `store`): nil for none.
   local attached: string = nil
-  local by_path = false
   -- The sealed database of its closure its worker runs on ([`sealed_for`]):
   -- nil for none.
   local sealed: string = nil
@@ -2606,15 +2531,17 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
       finish(rec, job, nil, sealed_trouble, limits)
       return false
     end
-    local nested, nested_trouble: string, string = nil, ""
-    if sealed == nil then nested, nested_trouble = closure_artifact_for(rec, job.m) end
-    if nested == nil and nested_trouble ~= "" then
-      finish(rec, job, nil, nested_trouble, limits)
+    if sealed == nil and rec.effective[job.m.path].lua and not rec.effective[job.m.path].store and
+        not rec.effective[job.m.path].tool then
+      local launched, _ = Proc.relaunch()
+      local why = (launched == nil or launched.argv[2] ~= "--artifact" or launched.argv[3] == nil) and
+        "this program is no portable artifact to take its database from" or
+        "it is given no closure store to seal"
+      finish(rec, job, nil, "its module declares lua, so what its tests start runs a sealed " ..
+          "database of its closure, which cannot be made: " .. why, limits)
       return false
     end
-    by_path = nested ~= nil
-    local plan = test_sandbox.plan(rec.root, scratch, rec.effective[job.m.path], worker_view(),
-      store, nested)
+    local plan = test_sandbox.plan(rec.root, scratch, rec.effective[job.m.path], worker_view(), store)
     if plan.over > 0 then
       finish(rec, job, nil, "its sandbox would give it " .. plural.count(plan.over, "path") ..
           " more than the most one holds", limits)
@@ -2751,7 +2678,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     start = started, env = env, root = root, cwd = cwd, module_path = job.m.path,
     name = job.name, scratch = inside, own_scratch = job.own_scratch, needs = test_inputs.canonical(declared), hold = hold,
     store = attached, closure = rec.closures[job.m.path], tree = rec.tree_names,
-    policy = policy, runs = runs, by_path = by_path,
+    policy = policy, runs = runs,
     program = job.plan ~= nil and job.plan.program or nil,
   })
   local handle, trouble = Child.start(command.argv, command.options)
@@ -3295,8 +3222,7 @@ local function choose_sandbox(ctx: Run): integer | nil
       local made = ctx.harness.modules
       ctx.runtime = ctx.runtime .. " sandboxed" .. (must and " must" or "") .. " policy " ..
         hashing.hex_sha256(test_policy.common() .. "\0" ..
-            (made["build.test_policy"] or "") .. "\0" .. (made["build.test_sandbox"] or "") .. "\0" ..
-            (made["build.closure_artifact"] or ""))
+            (made["build.test_policy"] or "") .. "\0" .. (made["build.test_sandbox"] or ""))
       sandbox_summary = "; sandboxed, under a policy"
       log:say("test: sandbox: each worker is held to its inputs, the tree at " ..
           test_sandbox.tree)
@@ -3928,7 +3854,7 @@ local function look_up_verdicts(ctx: Run)
   for _, m in ipairs(selected_modules) do
     local effective = rec.effective[m.path]
     if rec.unmet[m.path] == nil and rec.stores[m.path] ~= nil and effective ~= nil and
-        not (effective.store or effective.tool or effective.nests) and not seals(rec, m) then
+        not (effective.store or effective.tool) and not seals(rec, m) then
       unsealed = unsealed + #selected_tests[m.path]
     end
   end
