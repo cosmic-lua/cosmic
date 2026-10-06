@@ -1,4 +1,5 @@
 local Compiles = require("cosmic_ci.compiles")
+local CommitVerdicts = require("cosmic_ci.commit_verdicts")
 local Context = require("cosmic_ci.context")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
@@ -8,6 +9,7 @@ local Predicate = require("cosmic_ci.fs_predicate")
 local Sqlite = require("cosmic.sqlite")
 local Orchestration = require("cosmic_ci.orchestration")
 local Prerelease = require("cosmic_ci.prerelease")
+local QueueSeed = require("cosmic_ci.queue_seed")
 local Runner = require("cosmic_ci.runner")
 local Report = require("cosmic_ci.report")
 local State = require("cosmic_ci.state")
@@ -112,6 +114,14 @@ local commands: {string:Command} = {
     usage = "", handler = ZigRestat.restat_command },
   ["verdicts-merge"] = { about = "add the verdicts of the merge queue's run ahead, in DIR, to this run's",
     usage = "DIR", handler = Verdicts.merge_command },
+  ["queue-find"] = { about = "find the merge queue's passing run of this commit, for ci.yml's reuse job",
+    usage = "", handler = QueueSeed.find_command },
+  ["queue-ahead"] = { about = "find the run ahead in the merge queue, and whether it holds the verdicts this run takes",
+    usage = "", handler = QueueSeed.ahead_command },
+  ["merge-base"] = { about = "name the main commit this run's tree grew from, whose verdicts the restore takes",
+    usage = "", handler = CommitVerdicts.merge_base_command },
+  ["prune-commit-verdicts"] = { about = "delete main's commit-keyed verdicts and the branches' compiles a day old",
+    usage = "", handler = CommitVerdicts.prune_command },
   platform = { about = "run one phase of this worker's platform job",
     usage = "PHASE [ARG]", handler = Orchestration.platform },
   provenance = { about = "check that every worker tested the same bytes",

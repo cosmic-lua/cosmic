@@ -343,7 +343,7 @@ saves and still carries the products, both taken from the queue's run:
   (below) keeps its verdicts the same way, as
   `seed-linux-x86_64-checked`; its zig build outputs are
   linux-x86_64's, whose leg keeps them.
-- A push to main first runs `reuse` (`queue-seed.sh find`), which asks
+- A push to main first runs `reuse` (`driver.tl queue-find`), which asks
   the API for a `merge_group` run of ci.yml on a
   `gh-readonly-queue/main/` branch whose `head_sha` is the push's, that
   completed with success and holds an unexpired `seed-<leg>` for every
@@ -401,7 +401,7 @@ artifact does: each leg of a queue run uploads its native suite's
 verdicts as `verdicts-<leg>` the moment the suite passes, kept a day,
 and the checked job its checked suite's as
 `verdicts-linux-x86_64-checked`. Before its suite, a queue run's leg
-asks the API for the run ahead (`queue-seed.sh ahead`): the
+asks the API for the run ahead (`driver.tl queue-ahead`): the
 `merge_group` run on a `gh-readonly-queue/main/` branch whose
 `head_sha` is its base. Where that run holds the leg's artifact, the
 leg downloads it and merges it into what it restored (`verdicts-merge`,
@@ -576,13 +576,13 @@ that were trimmed away. So main also saves each job's
 verdicts under its commit, `<prefix>sha-<commit>`, even where their
 content is an entry's already (`seed` too, from the key
 `queue-seed.sh stage` names), and each restore asks first for the
-entry of the tree's base on main (`.github/scripts/merge-base.sh`: a
+entry of the tree's base on main (`driver.tl merge-base`: a
 branch's merge base with main, through the API; the merge queue's
 base), then the newest. Those copies, one a leg and the checked job
 each main push (some 11 MB each), would fill the repository's 10 GB
 within days and evict the zig outputs (below), so ci.yml's `prune`
 job deletes those more than a day old on each push to main
-(`.github/scripts/prune-commit-verdicts.sh`, with the one token in
+(`driver.tl prune-commit-verdicts`, with the one token in
 ci.yml that may write the cache, `actions: write`); a branch based on
 an older commit restores main's newest. A run that failed keeps what it
 restored with what it reached (`whole`). The compiles are saved only
