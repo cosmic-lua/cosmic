@@ -100,6 +100,11 @@ local cases: {string: function(at: integer, fd: integer): {any}} = {
   set_nonblocking = function(_: integer, fd: integer): {any} return { fd, false } end,
   accept = function(_: integer, fd: integer): {any} return { fd } end,
   send = function(_: integer, fd: integer): {any} return { fd, "" } end,
+  sendfds = function(at: integer, fd: integer): {any}
+    if at == 1 then return { fd, { 0 } } end
+    return { 0, { fd } }
+  end,
+  recvfds = function(_: integer, fd: integer): {any} return { fd, 1 } end,
   sendto = function(_: integer, fd: integer): {any}
     return { fd, "", { kind = "udp", host = "127.0.0.1", port = 1 } }
   end,
@@ -162,6 +167,12 @@ local function test_every_descriptor_argument_refuses_the_artifact_descriptor()
   assert(#missing == 0, "bindings that take a descriptor with no case here: " ..
       table.concat(missing, ", "))
   assert(tried >= 18, "only " .. tried .. " descriptor arguments were tried")
+end
+
+local function test_a_descriptor_batch_refuses_the_retained_artifact_as_payload()
+  local fd = artifact_fd()
+  if fd == nil then Test.skip("this start retains no portable artifact descriptor") end
+  refused("a descriptor batch payload", socket.sendfds, 0, { fd })
 end
 
 --- A sandbox's ruleset is a descriptor too, and refused.

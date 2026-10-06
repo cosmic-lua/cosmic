@@ -30,6 +30,10 @@
 #include "check.h"
 #include "errnos.h"
 #include "fail.h"
+#include "guard.h"
+#include "memory.h"
+#include "portable.h"
+#include "store.h"
 #include "lauxlib.h"
 #include "process.h"
 #include "socket.h"
@@ -811,6 +815,234 @@ COSMIC_SYSCALL(send, 3) {
   } while (sent < 0 && errno == EINTR);
   if (sent < 0) return cosmic_fail(L, errno);
   lua_pushinteger(L, (lua_Integer)sent);
+  return 1;
+}
+
+/* Descriptor batches use one marker byte, not a stream framing protocol:
+ * callers keep this channel solely for descriptor passing. The bound
+ * limits both native ancillary storage and the owners prepared before
+ * recvmsg can hand descriptors to the process. */
+#define RIGHTS_MAX 16
+#if defined(__APPLE__)
+/* XNU installs every right before copyout_control truncates the control
+ * buffer, so a short receive buffer leaks unseen descriptors. Receive
+ * the complete kernel bound, not the caller's expected count. XNU's
+ * sockargs limits MT_CONTROL to MCLBYTES (2048); unp_internalize requires
+ * exactly one SCM_RIGHTS header spanning that mbuf. Its UIPC_MAX_CMSG_FD
+ * is 512 (also statically checked against MCLBYTES / sizeof(int)).
+ * sbappendcontrol_internal keeps each send in its own record and
+ * soreceive_ctl externalizes only the first record. Neither RLIMIT nor
+ * a stream of control-only sends can raise the per-receive bound.
+ * See apple-oss-distributions/xnu bsd/kern/uipc_{syscalls,usrreq,socket,
+ * socket2}.c and bsd/arm/param.h: xnu-11417.101.15 (macOS 15),
+ * xnu-7195.50.7.100.1 (macOS 11), and current XNU. */
+#define RIGHTS_RECEIVE_MAX 512
+#else
+/* Linux closes omitted rights itself; keep truncation exercised there. */
+#define RIGHTS_RECEIVE_MAX RIGHTS_MAX
+#endif
+
+/* Refuses the runtime's retained artifact even under another descriptor
+ * number: SCM_RIGHTS duplicates a descriptor, so checking only the
+ * retained number would hand every carried module past a sealed store.
+ * Runtime failures, an already closed descriptor included, keep errno's
+ * value shape rather than raising. */
+static int rights_checked (lua_State *L, int arg, int fd) {
+  cosmic_argfd(L, arg, fd);
+  struct stat sent;
+  if (fstat(fd, &sent) != 0) return errno;
+  const struct cosmic_artifact *artifact = cosmic_store_artifact(L);
+  if (artifact != NULL) {
+    struct stat retained;
+    if (fstat(artifact->fd, &retained) != 0) return errno;
+    luaL_argcheck(L, sent.st_dev != retained.st_dev || sent.st_ino != retained.st_ino,
+                  arg, "is an alias of this program's retained artifact descriptor");
+  }
+  return 0;
+}
+
+/* An ancillary channel must be a Unix stream socket. Passing rights
+ * on other transports is never silently answered as an ordinary send. */
+static int rights_channel (int fd) {
+  struct sockaddr_storage address = {0};
+  socklen_t length = sizeof address;
+  if (getsockname(fd, (struct sockaddr *)&address, &length) != 0) return errno;
+  if (address.ss_family != AF_UNIX) return EAFNOSUPPORT;
+  int kind = 0;
+  length = sizeof kind;
+  if (getsockopt(fd, SOL_SOCKET, SO_TYPE, &kind, &length) != 0) return errno;
+  return kind == SOCK_STREAM ? 0 : EPROTOTYPE;
+}
+
+COSMIC_SYSCALL(sendfds, 2) {
+  int fd = cosmic_checkfd(L, 1);
+  luaL_checktype(L, 2, LUA_TTABLE);
+  size_t count = lua_rawlen(L, 2);
+  luaL_argcheck(L, count >= 1 && count <= RIGHTS_MAX, 2, "expected 1 to 16 descriptors");
+  int descriptors[RIGHTS_MAX];
+  for (size_t i = 0; i < count; i++) {
+    lua_rawgeti(L, 2, (lua_Integer)i + 1);
+    descriptors[i] = cosmic_checkfd(L, -1);
+    int failure = rights_checked(L, 2, descriptors[i]);
+    lua_pop(L, 1);
+    if (failure != 0) return cosmic_fail_effect(L, failure);
+  }
+  int failure = rights_channel(fd);
+  if (failure != 0) return cosmic_fail_effect(L, failure);
+  union {
+    struct cmsghdr alignment;
+    unsigned char bytes[CMSG_SPACE(RIGHTS_MAX * sizeof(int))];
+  } control;
+  memset(&control, 0, sizeof control);
+  char marker = '\0';
+  struct iovec payload = { &marker, 1 };
+  struct msghdr message;
+  memset(&message, 0, sizeof message);
+  message.msg_iov = &payload;
+  message.msg_iovlen = 1;
+  message.msg_control = control.bytes;
+  message.msg_controllen = (socklen_t)CMSG_SPACE(count * sizeof(int));
+  struct cmsghdr *rights = CMSG_FIRSTHDR(&message);
+  rights->cmsg_level = SOL_SOCKET;
+  rights->cmsg_type = SCM_RIGHTS;
+  rights->cmsg_len = (socklen_t)CMSG_LEN(count * sizeof(int));
+  memcpy(CMSG_DATA(rights), descriptors, count * sizeof(int));
+#if defined(MSG_NOSIGNAL)
+  const int flags = MSG_NOSIGNAL;
+#else
+  /* Received or inherited channels need not have been made here, so
+   * macOS cannot rely on stream_socket having suppressed SIGPIPE. */
+  int on = 1;
+  if (setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, sizeof on) != 0)
+    return cosmic_fail_effect(L, errno);
+  const int flags = 0;
+#endif
+  ssize_t sent;
+  do {
+    sent = sendmsg(fd, &message, flags);
+  } while (sent < 0 && errno == EINTR);
+  if (sent < 0) return cosmic_fail_effect(L, errno);
+  if (sent != 1) return cosmic_fail_effect(L, EPROTO);
+  return cosmic_ok(L);
+}
+
+/* The guard owns every descriptor recvmsg installs, including extras a
+ * rejected frame delivered, until each has been handed to its owner.
+ * The block is native heap rather than a C local: a close refused for
+ * lack of memory may leave its release to the collector. */
+struct received_rights {
+  size_t count;
+  int descriptors[RIGHTS_RECEIVE_MAX];
+};
+
+static void rights_release (void *resource) {
+  struct received_rights *received = resource;
+  for (size_t i = 0; i < received->count; i++) {
+    if (received->descriptors[i] >= 0) close(received->descriptors[i]);
+  }
+  cosmic_free(received);
+}
+
+COSMIC_SYSCALL(recvfds, 2) {
+  int fd = cosmic_checkfd(L, 1);
+  int count = cosmic_checkint(L, 2);
+  luaL_argcheck(L, count >= 1 && count <= RIGHTS_MAX, 2, "expected 1 to 16 descriptors");
+  int failure = rights_channel(fd);
+  if (failure != 0) return cosmic_fail(L, failure);
+  lua_createtable(L, count, 0);
+  int answer = lua_gettop(L);
+  struct owned *owners[RIGHTS_MAX];
+  for (int i = 0; i < count; i++) {
+    owners[i] = owner_push(L, 0);
+    lua_rawseti(L, answer, i + 1);
+  }
+  struct cosmic_guard *guard = cosmic_guard_push(L, rights_release);
+  struct received_rights *received = cosmic_calloc(1, sizeof *received);
+  if (received == NULL) return cosmic_fail(L, ENOMEM);
+  guard->resource = received;
+  union {
+    struct cmsghdr alignment;
+    unsigned char bytes[CMSG_SPACE(RIGHTS_RECEIVE_MAX * sizeof(int))];
+  } control;
+  memset(&control, 0, sizeof control);
+  char marker = '\1';
+  struct iovec payload = { &marker, 1 };
+  struct msghdr message;
+  memset(&message, 0, sizeof message);
+  message.msg_iov = &payload;
+  message.msg_iovlen = 1;
+  message.msg_control = control.bytes;
+#if defined(__APPLE__)
+  const socklen_t capacity = sizeof control.bytes;
+#else
+  const socklen_t capacity = (socklen_t)CMSG_SPACE((size_t)count * sizeof(int));
+#endif
+  message.msg_controllen = capacity;
+#if defined(MSG_CMSG_CLOEXEC)
+  const int flags = MSG_CMSG_CLOEXEC;
+#else
+  const int flags = 0;
+#endif
+  ssize_t got;
+  do {
+    got = recvmsg(fd, &message, flags);
+  } while (got < 0 && errno == EINTR);
+  if (got < 0) return cosmic_fail(L, errno);
+  bool malformed = message.msg_controllen > capacity;
+  if (malformed) message.msg_controllen = capacity;
+  size_t offset = 0;
+  while ((size_t)message.msg_controllen - offset >= sizeof(struct cmsghdr)) {
+    struct cmsghdr *rights = (struct cmsghdr *)(control.bytes + offset);
+    size_t remaining = (size_t)message.msg_controllen - offset;
+    if (rights->cmsg_len < CMSG_LEN(0) || remaining < CMSG_LEN(0)) {
+      malformed = true;
+      break;
+    }
+    size_t bytes = rights->cmsg_len - CMSG_LEN(0);
+    if (bytes > remaining - CMSG_LEN(0)) {
+      /* Darwin can keep the full cmsg_len when truncating the payload.
+       * The delivered prefix still owns descriptors: guard those before
+       * rejecting the frame rather than abandon them with the header. */
+      bytes = remaining - CMSG_LEN(0);
+      malformed = true;
+    }
+    size_t next = CMSG_SPACE(bytes);
+    if (rights->cmsg_level != SOL_SOCKET || rights->cmsg_type != SCM_RIGHTS) {
+      malformed = true;
+      if (next > remaining) break;
+      offset += next;
+      continue;
+    }
+    if (bytes % sizeof(int) != 0) malformed = true;
+    for (size_t i = 0; i < bytes / sizeof(int); i++) {
+      int descriptor;
+      memcpy(&descriptor, CMSG_DATA(rights) + i * sizeof(int), sizeof descriptor);
+      if (received->count < RIGHTS_RECEIVE_MAX) {
+        received->descriptors[received->count++] = descriptor;
+      } else {
+        close(descriptor);
+        malformed = true;
+      }
+    }
+    if (next > remaining) break;
+    offset += next;
+  }
+  if (got != 1 || marker != '\0' || malformed ||
+      (message.msg_flags & (MSG_CTRUNC | MSG_TRUNC)) != 0 ||
+      received->count != (size_t)count) return cosmic_fail(L, EPROTO);
+  for (int i = 0; i < count; i++) {
+    int descriptor = received->descriptors[i];
+    failure = rights_checked(L, 1, descriptor);
+    if (failure != 0) return cosmic_fail(L, failure);
+    int old = fcntl(descriptor, F_GETFD);
+    if (old < 0 || fcntl(descriptor, F_SETFD, old | FD_CLOEXEC) != 0)
+      return cosmic_fail(L, errno);
+  }
+  for (int i = 0; i < count; i++) {
+    owners[i]->fd = received->descriptors[i];
+    received->descriptors[i] = -1;
+  }
+  lua_pushvalue(L, answer);
   return 1;
 }
 

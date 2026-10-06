@@ -14,8 +14,26 @@ local searchable = require("build.searchable")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
+local _net = require("cosmic.net")
+local unix_socket = require("build.unix_socket")
+local type raw_socket = require("cosmic.internal.socket")
 
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" },
+  grants = { { path = "o/bin", letters = "rx" } } }
+
+local type SocketSearcher = function(string): any, any
+
+local function socket_table(): raw_socket
+  for _, searcher in ipairs(package.searchers as {SocketSearcher}) do -- cast: searchers' loaders take an extra
+    local loader, extra = searcher("cosmic.net")
+    if type(loader) == "function" and type(extra) == "table" then
+      return extra as raw_socket -- cast: the table core/socket.h declares
+    end
+  end
+  error("cosmic.net is handed no raw table")
+end
+
+local socket = socket_table()
 
 --- The program's own path names a file, which a `tool` test, given the
 --- program at its own name, can stat.
@@ -314,4 +332,67 @@ local function test_a_link_swapped_after_the_check_changes_nothing_under_promise
   searchable.share(searchable.open(tmp))
   swapped_link_changes_nothing(tmp, { promises = { "fattr" }, grants = {
     { path = relaunch.argv[1], letters = "rx" }, { path = tmp, letters = "rwc" } } })
+end
+
+--- The source number alone does not protect rights: another open of
+--- this same file, and the receiver's duplicate, have different numbers.
+local function test_descriptor_passing_refuses_an_open_alias_of_the_artifact()
+  local artifact = assert(Proc.executable())
+  local fd = assert(sys.open(artifact, sys.O_RDONLY))
+  local ok, why = pcall(socket.sendfds, 0, { fd })
+  assert(sys.close(fd))
+  assert(not ok and tostring(why):find("retained artifact descriptor", 1, true) ~= nil,
+    "an artifact alias was not refused: " .. tostring(why))
+end
+
+local function test_descriptor_receive_refuses_and_closes_an_artifact_alias(tmp: string)
+  if unix_socket.skipped(tmp) then return end
+  local address: raw_socket.Address = { kind = "unix", path = tmp .. "/artifact-rights.sock" }
+  local listener <close> = assert(socket.listen(address, 1))
+  local sender <close> = assert(socket.connect(address, 5000))
+  local receiver <close> = assert(socket.accept(listener:fd()))
+  local file = assert(sys.open((assert(Proc.executable())), sys.O_RDONLY))
+  local relaunch = assert(Proc.relaunch())
+  local copy = tmp .. "/sender-artifact"
+  assert(Fs.write(copy, (assert(Fs.read((assert(Proc.executable())))))))
+  assert(sys.chmod(copy, 493))
+  local copy_fd = assert(sys.open(copy, sys.O_RDONLY))
+  local env: {string: string} = {}
+  for name, value in pairs(relaunch.env) do env[name] = value end
+  local fds: {integer: integer} = {}
+  for target, source in pairs(relaunch.fds) do fds[target] = source end
+  local slot = math.tointeger(tonumber(env.COSMIC_PORTABLE_ARTIFACT_FD)) as integer
+  fds[slot] = copy_fd
+  local file_slot = 3
+  while fds[file_slot] ~= nil do file_slot = file_slot + 1 end
+  local channel_slot = file_slot + 1
+  while fds[channel_slot] ~= nil do channel_slot = channel_slot + 1 end
+  assert(channel_slot <= 255, "the relaunch contract leaves no two fixture slots")
+  fds[file_slot], fds[channel_slot] = file, sender:fd()
+  -- A start on a copied artifact retains a different inode. It can
+  -- send this ordinary file; the original receiver must judge it again.
+  local chunk = string.format([==[
+local raw
+for _, searcher in ipairs(package.searchers) do
+  local loader, extra = searcher("cosmic.net")
+  if type(loader) == "function" and type(extra) == "table" then raw = extra break end
+end
+assert(raw.sendfds(%d, { %d }))
+]==], channel_slot, file_slot)
+  local child = assert(Child.start({ relaunch.argv[1], "--artifact", copy, "-e", chunk },
+    { env = env, fds = fds, stdout = "capture", stderr = "capture" }))
+  assert(sys.close(file))
+  assert(sys.close(copy_fd))
+  local result = assert(child:wait(Clock.seconds(5)))
+  assert(result.ok, tostring(result.stderr))
+  assert(socket.wait(receiver:fd(), false, 5000))
+  local before_fd = assert(sys.open(tmp .. "/probe", sys.O_CREAT | sys.O_RDWR, 420))
+  assert(sys.close(before_fd))
+  local ok, why = pcall(socket.recvfds, receiver:fd(), 1)
+  assert(not ok and tostring(why):find("retained artifact descriptor", 1, true) ~= nil,
+    "a received artifact alias was not refused: " .. tostring(why))
+  collectgarbage("collect")
+  local after = assert(sys.open(tmp .. "/probe", sys.O_RDWR))
+  assert(sys.close(after))
+  assert(after == before_fd, "refusing a received artifact alias leaked its descriptor")
 end
