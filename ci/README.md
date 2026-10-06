@@ -336,7 +336,7 @@ prerelease.yml publishes a main run's products, so the push still
 saves and still carries the products, both taken from the queue's run:
 
 - Each leg of a queue run that passed keeps what main would save
-  (`queue-seed.sh stage`): its trimmed verdicts and compiles, where
+  (`driver.tl queue-stage`): its trimmed verdicts and compiles, where
   they differ from the entry it restored, the driver check's marker,
   where the check ran, with `seed.keys` naming the key each is saved
   under, the key main's own save would compute. It uploads them as
@@ -579,7 +579,7 @@ newest commit's keys, so a branch based on an older main may need verdicts
 that were trimmed away. So main also saves each job's
 verdicts under its commit, `<prefix>sha-<commit>`, even where their
 content is an entry's already (`seed` too, from the key
-`queue-seed.sh stage` names), and each restore asks first for the
+`driver.tl queue-stage` names), and each restore asks first for the
 entry of the tree's base on main (`driver.tl merge-base`: a
 branch's merge base with main, through the API; the merge queue's
 base), then the newest. Those copies, one a leg and the checked job
