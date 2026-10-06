@@ -73,6 +73,16 @@ local function test_a_next_link_to_another_origin_fails_the_listing()
   assert(#sent == 1, "the token was sent on")
 end
 
+--- A next link that names a page already fetched fails the listing at once.
+local function test_a_next_link_that_repeats_a_page_fails_the_listing()
+  local loop = 'Link: <http://api.test/repos/o/r/actions/caches?page=2>; rel="next"\r\n'
+  local host, sent = host_with({ { reply("200 OK", loop, "{}") }, { reply("200 OK", loop, "{}") },
+    { reply("200 OK", loop, "{}") } })
+  local pages, why = host.fetch("repos/o/r/actions/caches", true, 30)
+  assert(pages == nil and why:find("repeats", 1, true), tostring(why))
+  assert(#sent == 2, "the loop was followed")
+end
+
 --- A lookup that the API refuses, answers no JSON, or never answers fails
 --- naming the status, the request and why.
 local function test_a_lookup_that_fails_answers_nil()

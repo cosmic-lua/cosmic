@@ -104,6 +104,8 @@ function GithubApi.live(env: {string:string}, test?: GithubApi.Live): GithubApi.
   base = (base:gsub("/+$", ""))
   local api_origin, why = origin_of(base)
   if api_origin == nil then return nil, "GITHUB_API_URL: " .. why end
+  -- [`cosmic.http`] reads no HTTPS_PROXY, which gh honoured. CI's runners
+  -- are GitHub-hosted and reach the API directly, so none is needed.
   local calls = 0
   local function script(): {string} | nil
     calls = calls + 1
@@ -123,6 +125,8 @@ function GithubApi.live(env: {string:string}, test?: GithubApi.Live): GithubApi.
     headers["X-GitHub-Api-Version"] = api_version
     headers["User-Agent"] = user_agent
     if request.body ~= nil then headers.Expect = "" end
+    -- A redirect (a renamed repository's 301, say) fails the call rather
+    -- than being followed: the token must not follow one.
     local response, trouble = Http.open(request.url, { method = request.method,
       headers = headers, body = request.body, follow = false,
       timeout_ns = request.timeout_ns or request_ns,
@@ -199,6 +203,7 @@ local max_pages <const> = 1000
 function GithubApi.pages(client: GithubApi.Client, path: string, seconds?: integer): {any} | nil, string
   local pages: {any} = {}
   local request = request_for(client, "GET", path, seconds)
+  local seen: {string:boolean} = { [request.url] = true }
   for number = 1, max_pages do
     local label = number == 1 and path or (path .. " (page " .. number .. ")")
     local reply, why = client.send(request)
@@ -211,6 +216,8 @@ function GithubApi.pages(client: GithubApi.Client, path: string, seconds?: integ
     pages[#pages + 1] = page
     local target = next_link(reply.headers.link)
     if target == nil then return pages, "" end
+    if seen[target] then return nil, "GET " .. label .. ": the next page repeats " .. target end
+    seen[target] = true
     request = { method = "GET", url = target, headers = {}, timeout_ns = request.timeout_ns }
   end
   return nil, "GET " .. path .. ": more than " .. max_pages .. " pages"
