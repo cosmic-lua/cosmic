@@ -9,7 +9,10 @@ local record Seatbelt
   --- A grant's resolved host path. The caller obtains both fields from
   --- the filesystem, never from an untrusted program's classification.
   record Path
+    --- An absolute, canonical path obtained from the host filesystem.
     path: string
+    --- Whether the resolved object is a directory: only one receives a
+    --- recursive subpath rule; every other kind receives a literal rule.
     directory: boolean
   end
 
@@ -17,6 +20,7 @@ local record Seatbelt
   --- policy's grant paths, before normalization. Missing system-profile
   --- paths do not exist on this host; every explicit grant needs an entry.
   record Options
+    --- Each requested path's resolved host path and directory kind.
     paths: {string:Path}
     --- The name of this program for the "cosmic" profile, with its
     --- resolved path and kind in `paths` like an explicit grant.
@@ -26,8 +30,11 @@ local record Seatbelt
   --- Text to pass to sandbox_init_with_parameters, values kept outside
   --- the text, and limits the caller must apply separately.
   record Profile
+    --- SBPL containing generated parameter names and no path values.
     text: string
+    --- Opaque path values, passed separately to the Seatbelt API.
     parameters: {string:string}
+    --- rlimit names and values to apply before exec or restriction.
     rlimits: {string:integer}
   end
 end
