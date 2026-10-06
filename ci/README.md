@@ -212,8 +212,10 @@ job, which runs after each green ci run on main, checks out only `ci/`,
 `bin/cosmic-bootstrap`, `.github/scripts/cosmic-driver.sh` and the
 `.github/actions/cosmic-driver` action that runs it, and holds a
 `contents: write` token.
-The token reaches only the driver's `prerelease-publish` step, which hands
-it to the `gh` CLI; beyond the actions, the job otherwise runs only the
+The token reaches only the driver's `prerelease-publish` step, whose client
+([`cosmic_ci/github_api.tl`]) sends it to the API and to the one origin that
+takes release uploads (uploads.github.com, derived from `GITHUB_API_URL`),
+and to no other host; beyond the actions, the job otherwise runs only the
 scripts that fetch the pinned driver and verify it against the pin. The
 candidate product it downloads is data only, never executed.
 `prerelease-stage` reads `PRODUCTS` (the downloaded
@@ -221,8 +223,8 @@ candidate product it downloads is data only, never executed.
 `SOURCE_COMMIT` and `SOURCE_RUN_URL`, checks that every lane executed the
 same bytes, and writes the release under `RELEASE`: `cosmic`,
 `SHA256SUMS`, `source.json` and `notes.md`. `prerelease-publish` reads
-`GH_TOKEN`, `REPOSITORY`, `RELEASE`, `SOURCE_COMMIT`, `SOURCE_RUN_PREFIX`
-and `RUNNER_TEMP`, finds `gh` on `PATH`, and makes the staged release the
+`GH_TOKEN` (else `GITHUB_TOKEN`), `REPOSITORY`, `RELEASE`, `SOURCE_COMMIT`,
+`SOURCE_RUN_PREFIX` and `RUNNER_TEMP` (and `GITHUB_API_URL`, if set), and makes the staged release the
 immutable `next-<commit>` prerelease, or verifies the one already there
 (or, where GitHub refuses the job's token the tag with an HTTP 403
 "Resource not accessible by integration" and the default branch's
@@ -230,8 +232,10 @@ workflows differ from the commit's, makes nothing and prints a warning:
 that commit has no prerelease, and a pin moves to a later one);
 it resumes an interrupted draft only by accepting assets identical to the
 staged ones, and writes its downloads under `$RUNNER_TEMP/prerelease/`.
-[`cosmic_ci/prerelease_test.tl`] drives it against a fake `gh`
-([`testdata/prerelease/gh.tl`]) and never reaches the network.
+[`cosmic_ci/prerelease_test.tl`] drives it against a fake transport, and
+[`cosmic_ci/github_api_test.tl`] drives the client's uploads and asset
+downloads over `cosmic.http`'s scripted replies; neither reaches the
+network.
 
 `fuzz` and `fuzz-cancelled` are fuzz.yml's, and record no operation.
 `fuzz` runs `o/sanitized/bin/cosmic test --all` from `GITHUB_WORKSPACE`
@@ -711,6 +715,5 @@ alone.
 [`cosmic_ci/report_test.tl`]: cosmic_ci/report_test.tl
 [`cosmic_ci/suite_output.tl`]: cosmic_ci/suite_output.tl
 [`cosmic_ci/zig_prune.tl`]: cosmic_ci/zig_prune.tl
-[`testdata/prerelease/gh.tl`]: testdata/prerelease/gh.tl
 
 [`Runner.phase`]: cosmic_ci/runner.tl

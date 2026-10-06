@@ -45,8 +45,8 @@
         # checkout. Beyond the actions, the job runs only the scripts that
         # fetch the driver and verify it against ci/cosmic-driver.pin's
         # digest, and the driver itself. The write token reaches only the
-        # driver's publish step, where cosmic_ci/prerelease.tl hands it to
-        # the gh CLI. The candidate bytes the job downloads are data only:
+        # driver's publish step, where cosmic_ci/github_api.tl sends it to
+        # the GitHub API and the release upload host and no other. The candidate bytes the job downloads are data only:
         # none of them is ever executed.
         {
           uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6

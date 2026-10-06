@@ -214,3 +214,195 @@ local function test_a_client_whose_base_is_another_origin_sends_nothing(tmp: str
   assert(not ok and trouble:find("refusing to send the token", 1, true), tostring(trouble))
   assert(#sent == 0)
 end
+
+local function test_a_json_body_is_sent_whole_by_any_method()
+  local client, sent = live({ { reply("201 Created", "", '{"id":9}') }, { reply("200 OK", "", '{"id":9}') } })
+  local made, why = GithubApi.request(client, "POST", "repos/o/r/releases",
+    { tag_name = "t", draft = true })
+  assert(made ~= nil and made.status == 201, why)
+  local patched = GithubApi.request(client, "PATCH", "repos/o/r/releases/9", { draft = false })
+  assert(patched ~= nil and patched.status == 200)
+  has(sent[1], "POST /repos/o/r/releases HTTP/1.1\r\n")
+  has(sent[1], "\r\nContent-Type: application/json\r\n")
+  has(sent[1], "\r\nAuthorization: Bearer " .. token .. "\r\n")
+  has(sent[1], '\r\n\r\n{"draft":true,"tag_name":"t"}')
+  has(sent[2], "PATCH /repos/o/r/releases/9 HTTP/1.1\r\n")
+  has(sent[2], '\r\n\r\n{"draft":false}')
+  assert(not sent[1]:find("Expect:", 1, true) and not sent[2]:find("Expect:", 1, true))
+end
+
+local function test_a_request_answers_a_refusal_and_reports_no_answer()
+  local client = live({ { reply("403 Forbidden", "", '{"message":"Resource not accessible by integration"}') } })
+  local refused = GithubApi.request(client, "POST", "repos/o/r/git/refs", { ref = "r" })
+  assert(refused ~= nil and refused.status == 403 and refused.body:find("not accessible", 1, true))
+  local none, why = GithubApi.request(client, "POST", "repos/o/r/git/refs", { ref = "r" })
+  assert(none == nil and why:find("POST repos/o/r/git/refs: ", 1, true) == 1, tostring(why))
+end
+
+local function test_an_object_is_the_decoded_answer_or_why_not()
+  local client = live({ { reply("201 Created", "", '{"id":9}') },
+    { reply("422 Unprocessable Entity", "", '{"message":"Validation Failed"}') },
+    { reply("200 OK", "", "[1]") } })
+  local object, why = GithubApi.object(client, "POST", "repos/o/r/releases", { tag_name = "t" })
+  assert(object ~= nil and object.id == 9, why)
+  object, why = GithubApi.object(client, "POST", "repos/o/r/releases", { tag_name = "t" })
+  assert(object == nil and why == "POST repos/o/r/releases: HTTP 422: Validation Failed", why)
+  object, why = GithubApi.object(client, "GET", "repos/o/r/releases/1")
+  assert(object == nil and why:find("GET repos/o/r/releases/1: no JSON object", 1, true) == 1, why)
+end
+
+local function test_a_download_asks_for_the_bytes_where_told_to(tmp: string)
+  local client, sent = live({ { reply("302 Found", "Location: https://blob.test/signed\r\n") }, {} })
+  local real = Http.download_result
+  Http.download_result = function(_url: string, path: string): Http.DownloadResult
+    assert(Fs.write(path, "asset bytes"))
+    return { kind = "downloaded", reason = "" }
+  end
+  local called, ok, why = pcall(GithubApi.download, client, "repos/o/r/releases/assets/5",
+    tmp .. "/a", "application/octet-stream")
+  Http.download_result = real
+  assert(called, tostring(ok))
+  assert(ok, why)
+  has(sent[1], "GET /repos/o/r/releases/assets/5 HTTP/1.1\r\n")
+  has(sent[1], "\r\nAccept: application/octet-stream\r\n")
+  assert(not sent[1]:find("vnd.github", 1, true), sent[1])
+  assert(Fs.read(tmp .. "/a") == "asset bytes")
+end
+
+local function test_the_upload_origin_follows_the_api()
+  local function uploads(url: string): string, string
+    local client = assert(GithubApi.live({ GH_TOKEN = token, GITHUB_API_URL = url }))
+    return client.upload_origin, client.upload_path
+  end
+  local origin, path = uploads("https://api.github.com")
+  assert(origin == "https://uploads.github.com:443" and path == "", origin .. path)
+  origin, path = uploads("https://api.octo.ghe.com/")
+  assert(origin == "https://uploads.octo.ghe.com:443" and path == "", origin .. path)
+  -- An Enterprise Server serves its uploads itself.
+  origin, path = uploads("https://ghe.test/api/v3")
+  assert(origin == "https://ghe.test:443" and path == "/api/uploads", origin .. path)
+  origin, path = uploads("http://api.test:8080")
+  assert(origin == "http://uploads.test:8080" and path == "", origin .. path)
+end
+
+local release_assets <const> = "http://uploads.test/repos/o/r/releases/5/assets"
+
+local function test_an_upload_sends_the_bytes_to_the_upload_origin_with_the_token()
+  local client, sent = live({ { reply("201 Created", "", '{"id":1,"name":"a b","state":"uploaded"}') } })
+  -- Small enough to fit one write to the script's socket on every leg:
+  -- the script answers at once, and curl ends the request once the
+  -- answer is whole, so macOS's small socket buffer would leave the
+  -- rest of a larger body unsent and unrecorded.
+  -- TODO: send a body the size of a real asset once core/http.c's
+  -- script holds its reply until the request it answers is whole.
+  local bytes = "\0\1binary\255" .. string.rep("x", 2000)
+  local ok, why = GithubApi.upload(client, release_assets .. "{?name,label}", "a b", bytes)
+  assert(ok, why)
+  assert(#sent == 1)
+  has(sent[1], "POST /repos/o/r/releases/5/assets?name=a%20b HTTP/1.1\r\n")
+  has(sent[1], "\r\nHost: uploads.test\r\n")
+  has(sent[1], "\r\nAuthorization: Bearer " .. token .. "\r\n")
+  has(sent[1], "\r\nContent-Type: application/octet-stream\r\n")
+  has(sent[1], "\r\nContent-Length: " .. #bytes .. "\r\n")
+  has(sent[1], "\r\n\r\n" .. bytes)
+  assert(not sent[1]:find("Expect:", 1, true), "an Expect header was sent")
+end
+
+local function test_an_upload_goes_to_no_other_origin_or_path()
+  local client, sent = live({})
+  for _, url in ipairs({ "http://api.test/repos/o/r/releases/5/assets",
+      "http://other.test/repos/o/r/releases/5/assets",
+      "https://uploads.test/repos/o/r/releases/5/assets",
+      "http://uploads.test:8080/repos/o/r/releases/5/assets",
+      "http://uploads.test.evil.test/repos/o/r/releases/5/assets",
+      "http://u:p@uploads.test/repos/o/r/releases/5/assets",
+      "http://uploads.test@evil.test/repos/o/r/releases/5/assets",
+      release_assets .. "?name=x", release_assets .. "#x",
+      "http://uploads.test/repos/o/r/releases/x/assets",
+      "http://uploads.test/api/uploads/repos/o/r/releases/5/assets",
+      "http://uploads.test/repos/o/r/releases/5/assets/6",
+      "http://uploads.test/repos/../r/releases/5/assets",
+      "http://uploads.test/repos/o/%2E%2e/releases/5/assets",
+      "http://uploads.test/repos/./r/releases/5/assets",
+      "http://uploads.test/x/repos/o/r/releases/5/assets", "not a url", "" }) do
+    local ok, why = GithubApi.upload(client, url, "cosmic", "bytes")
+    assert(not ok and why:find("upload", 1, true), url .. ": " .. tostring(why))
+  end
+  local ok, why = GithubApi.upload(client, release_assets, "", "bytes")
+  assert(not ok and why:find("no asset name", 1, true), tostring(why))
+  assert(#sent == 0, "something was sent")
+end
+
+--- An Enterprise Server's uploads are under /api/uploads on its own host.
+local function test_an_enterprise_servers_upload_path_is_its_own()
+  local client, sent = live({ { reply("201 Created", "", "{}") } },
+    { GITHUB_API_URL = "http://ghe.test/api/v3" })
+  local ok, why = GithubApi.upload(client, "http://ghe.test/api/uploads/repos/o/r/releases/5/assets{?name}",
+    "cosmic", "b")
+  assert(ok, why)
+  has(sent[1], "POST /api/uploads/repos/o/r/releases/5/assets?name=cosmic HTTP/1.1\r\n")
+  ok = GithubApi.upload(client, "http://ghe.test/repos/o/r/releases/5/assets", "cosmic", "b")
+  assert(not ok)
+  assert(#sent == 1)
+end
+
+local function test_an_upload_fails_naming_githubs_refusal()
+  local client = live({
+    { reply("422 Unprocessable Entity", "", '{"message":"Validation Failed","errors":[{"code":"already_exists"}]}') },
+    { reply("500 Internal Server Error", "", "oops") },
+    { reply("302 Found", "Location: http://elsewhere.test/\r\n") } })
+  local ok, why = GithubApi.upload(client, release_assets, "cosmic", "b")
+  assert(not ok and why == "POST /repos/o/r/releases/5/assets (cosmic): HTTP 422: Validation Failed " ..
+      "(the release holds an asset of that name)", why)
+  ok, why = GithubApi.upload(client, release_assets, "cosmic", "b")
+  assert(not ok and why == "POST /repos/o/r/releases/5/assets (cosmic): HTTP 500", why)
+  ok, why = GithubApi.upload(client, release_assets, "cosmic", "b")
+  assert(not ok and why:find("HTTP 302", 1, true), why)
+  ok, why = GithubApi.upload(client, release_assets, "cosmic", "b")
+  assert(not ok and why:find("POST /repos/o/r/releases/5/assets (cosmic): ", 1, true) == 1, why)
+end
+
+--- The upload origin takes the token only for an upload: a request to it
+--- that is not one, and a page's next link to it, never do.
+local function test_the_upload_origin_takes_the_token_for_uploads_alone()
+  local client, sent = live({})
+  local answered, why = client.send({ method = "GET", url = release_assets, headers = {} })
+  assert(answered == nil and why:find("refusing to send the token", 1, true), tostring(why))
+  answered, why = client.send({ method = "POST", url = "http://other.test/x", headers = {},
+    upload = true })
+  assert(answered == nil and why:find("refusing to send the token", 1, true), tostring(why))
+  assert(#sent == 0)
+end
+
+local function test_the_upload_origin_takes_the_token_only_for_a_release_s_assets()
+  local client, sent = live({})
+  for _, path in ipairs({ "/", "/repos/o/r/releases", "/repos/o/r/contents/x",
+      "/repos/o/../releases/5/assets" }) do
+    local answered, why = client.send({ method = "POST", url = "http://uploads.test" .. path,
+      headers = {}, body = "b", upload = true })
+    assert(answered == nil and why:find("refusing to send the token", 1, true), path .. ": " .. tostring(why))
+  end
+  assert(#sent == 0)
+end
+
+local function test_an_upload_sets_the_type_it_is_given()
+  local client, sent = live({ { reply("201 Created", "", "{}") } })
+  assert(GithubApi.upload(client, release_assets, "source.json", "{}", "application/json"))
+  has(sent[1], "\r\nContent-Type: application/json\r\n")
+  assert(not sent[1]:find("octet-stream", 1, true), sent[1])
+end
+
+--- Asked for as bytes, the API may answer with them, not a redirect.
+local function test_a_download_takes_the_bytes_when_the_api_answers_with_them(tmp: string)
+  local client, sent = live({ { reply("200 OK", "Content-Type: application/octet-stream\r\n", "\0asset\255") } })
+  local ok, why = GithubApi.download(client, "repos/o/r/releases/assets/5", tmp .. "/a",
+    "application/octet-stream")
+  assert(ok, why)
+  has(sent[1], "\r\nAccept: application/octet-stream\r\n")
+  assert(Fs.read(tmp .. "/a") == "\0asset\255")
+  -- Without that ask a 200 is no file.
+  client = live({ { reply("200 OK", "", "x") } })
+  ok, why = GithubApi.download(client, "repos/o/r/z", tmp .. "/b")
+  assert(not ok and why:find("no redirect to a file", 1, true), tostring(why))
+  assert(not Fs.exists(tmp .. "/b"))
+end
