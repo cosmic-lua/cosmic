@@ -352,8 +352,8 @@
    result. An example (`*_example.tl`) shows use and is not held to this;
    a doc test's output is compared with `assert`; a fuzz property counts
    each input it checks, and with `FUZZ_ITERS=0` and no corpus it calls
-   `Test.skip`.
-   `confine.sandbox_platform` is for the probe of the host alone
+   [`Test.skip`].
+   [`confine.sandbox_platform`] is for the probe of the host alone
    ([`build/host_requires.tl`], [`build/test_sandbox_probe.tl`]):
    `cosmic fix --check .` fails a use anywhere else
    ([`build/tree_checks.tl`]'s `restricted`).
@@ -590,6 +590,7 @@ unblocks: `o/bin/cosmic todos '"cosmic-driver.pin"'` lists them.
 [`ci/cosmic-driver.pin`]: ci/cosmic-driver.pin
 [`ci/cosmic_ci/capabilities.tl`]: ci/cosmic_ci/capabilities.tl
 [`ci/run-local`]: ci/run-local
+[`confine.sandbox_platform`]: build/confine.tl
 [`core/allocation_test.tl`]: core/allocation_test.tl
 [`core/check.h`]: core/check.h
 [`core/fail.h`]: core/fail.h
