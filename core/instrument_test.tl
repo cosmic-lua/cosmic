@@ -1,5 +1,6 @@
 --- What the core says of itself and what its instruments answer where the
---- core is not the checked build: they raise, so no core that ships has an
+--- core is not the checked build: they raise (the five raw namespace
+--- calls are no instruments, and are real in every core), so no core that ships has an
 --- allocator or a fault a program can make fail. The tests that use the
 --- instruments on the checked core, which require `checked`, are
 --- core/allocation_test.tl's and its neighbours'.
