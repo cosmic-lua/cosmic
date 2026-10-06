@@ -129,9 +129,16 @@ end
 local function test_a_cached_digest_is_compared_to_each_manifest(tmp: string)
   local project, _, tree = layout(tmp)
   local file = tree .. "/input.c"
-  assert(Fs.write(file, "int a;"))
-  local first = record(file, 4, "input.c") .. "\0"
+  -- Both manifests record the one mtime, and the first the inode of a
+  -- file that stays: Fs.write replaces a file, so the inode it frees
+  -- would otherwise come back as the restore's and the first record
+  -- read as unchanged, on a filesystem that reuses inodes.
+  local old = tree .. "/old.c"
+  assert(Fs.write(old, "int a;"))
+  assert(sys.utimensat(old, nil, nil, 1000, 0))
+  local first = record(old, 4, "input.c") .. "\0"
   assert(Fs.write(file, "int b;"))
+  assert(sys.utimensat(file, nil, nil, 1000, 0))
   local second = record(file, 4, "input.c") .. "\0"
   assert(Fs.write(project .. "/h/" .. name, first))
   local other = string.rep("b", 32)
