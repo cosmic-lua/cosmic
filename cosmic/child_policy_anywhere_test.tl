@@ -247,7 +247,7 @@ local function test_a_root_caller_that_cannot_map_a_user_fails_naming_why()
     Test.skip("this process can map the user a sandbox runs as, so none of its starts is refused for it")
     return
   end
-  local handle, why = Child.start({ "/bin/true" }, { policy = { isolate = { "proc" } }, cwd = "/" })
+  local handle, why = Child.start({ "/bin/true" }, { policy = { isolate = { "proc" }, profiles = { "system" } }, cwd = "/" })
   assert(handle == nil, "the start was not refused")
   assert(why:find("never runs as root", 1, true) and why:find("CAP_SETFCAP", 1, true), why)
 end

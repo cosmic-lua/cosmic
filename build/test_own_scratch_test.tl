@@ -11,7 +11,7 @@
 local Net = require("cosmic.net")
 local Test = require("cosmic.test")
 
-Test.policy{ loopback = { "127.0.0.1" } }
+Test.policy{ loopback = { "127.0.0.1" }, requires = { "sandbox" } }
 
 local function test_a_unix_socket_is_made_and_reached_in_the_workers_own_directory(tmp: string)
   local path = tmp .. "/own.sock"

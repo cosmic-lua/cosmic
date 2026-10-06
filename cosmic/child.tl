@@ -2930,7 +2930,6 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
   -- of its own, which a container masking /proc refuses. One that makes a
   -- namespace maps the user into it from outside.
   local user, user_trouble = mapped_user(merged)
-  if user == nil and user_trouble ~= "" then return nil, "sandbox: " .. user_trouble end
   -- This program, granted, runs by a relaunch of its core, which is granted
   -- with it: what runs is the file the grant names, through its core. On a
   -- `database` it is the core and that file alone, so this program's own
@@ -3109,6 +3108,9 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
   rlimits.cpu = merged.limits.cpu_seconds
   local counted, count_trouble = process_limit(merged, file or isolates(merged, "proc"))
   if counted == nil and count_trouble ~= "" then return nil, "sandbox: " .. count_trouble end
+  -- A malformed policy is refused for its own rule even where this root
+  -- cannot map a child: the static checks above need no mapped user.
+  if user == nil and user_trouble ~= "" then return nil, "sandbox: " .. user_trouble end
   rlimits.nproc = counted
   local promises: {string} = {}
   for _, promise in ipairs(merged.promises) do promises[#promises + 1] = promise end

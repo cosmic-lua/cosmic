@@ -545,48 +545,89 @@ local function test_a_trailing_comma_needs_json5_and_a_close()
   end
 end
 
---- A long comment, or a `*` or a lead byte at every chunk's end, in
---- one-byte chunks, costs time in proportion to its length.
-local function test_a_long_comment_in_small_chunks_reads_in_linear_time()
-  local long = string.rep("*", 30000)
-  for _, text in ipairs({
-      "[1, /*" .. long .. "*/ 2]", "[1, //" .. long .. "\n 2]", "[1, #" .. long .. "\n 2]",
-      "[1, //" .. string.rep("\xe2\x80", 12000) .. "\n 2]", "[1, /* " .. string.rep("/* ", 12000) .. "*/ 2]",
-      "[1," .. string.rep(" \u{a0}", 12000) .. "2]", "{" .. string.rep("\u{e9}", 12000) .. ": 1}",
-  }) do
-    for _, size in ipairs({ 1, 2 }) do
-      local got, err = tokens(text, size, BOTH)
-      assert(err == "", err)
-      assert(#got >= 4)
-    end
+--- Reads the long payload in both small chunk sizes, including a `*`
+--- or a lead byte at every chunk's end.
+local function assert_small_chunks(text: string)
+  for _, size in ipairs({ 1, 2 }) do
+    local got, err = tokens(text, size, BOTH)
+    assert(err == "", err)
+    assert(#got >= 4)
   end
-  -- Many short line comments in one chunk: each costs its own length, so
-  -- sixteen times the comments take about sixteen times as long, where a
-  -- scan of the rest of the chunk for each takes two hundred and fifty-six.
-  -- The bound is between them, a geometric mean, so a runner whose
-  -- per-comment cost grows some with the chunk (cache, allocator) and one
-  -- that is busy stay clear of it; a ratio holds on every core, the
-  -- checked one too, where a bound in seconds would not.
-  for _, comment in ipairs({ "// c\n", "# c\n", "// c\u{2028}", "// \xe2\x80\n" }) do
-    local function read(n: integer): integer
-      local r = Json.reader(Stream.from_string("[" .. string.rep("1, " .. comment, n) .. "2]"), BOTH)
-      local started, count = Clock.now_ns(), 0
-      while true do
-        local t, err = r:next()
-        if t == nil then
-          assert(err == "", err)
-          break
-        end
-        count = count + 1
+end
+
+local function test_a_long_block_comment_reads_in_small_chunks()
+  assert_small_chunks("[1, /*" .. string.rep("*", 30000) .. "*/ 2]")
+end
+
+local function test_a_long_slash_comment_reads_in_small_chunks()
+  assert_small_chunks("[1, //" .. string.rep("*", 30000) .. "\n 2]")
+end
+
+local function test_a_long_hash_comment_reads_in_small_chunks()
+  assert_small_chunks("[1, #" .. string.rep("*", 30000) .. "\n 2]")
+end
+
+local function test_a_long_comment_with_split_lead_bytes_reads_in_small_chunks()
+  assert_small_chunks("[1, //" .. string.rep("\xe2\x80", 12000) .. "\n 2]")
+end
+
+local function test_a_long_comment_with_block_starts_reads_in_small_chunks()
+  assert_small_chunks("[1, /* " .. string.rep("/* ", 12000) .. "*/ 2]")
+end
+
+local function test_long_extended_whitespace_reads_in_small_chunks()
+  assert_small_chunks("[1," .. string.rep(" \u{a0}", 12000) .. "2]")
+end
+
+local function test_a_long_extended_identifier_reads_in_small_chunks()
+  assert_small_chunks("{" .. string.rep("\u{e9}", 12000) .. ": 1}")
+end
+
+--- Many short line comments in one chunk: each costs its own length, so
+--- sixteen times the comments take about sixteen times as long, where a
+--- scan of the rest of the chunk for each takes two hundred and fifty-six.
+--- The bound is between them, a geometric mean, so a runner whose
+--- per-comment cost grows some with the chunk (cache, allocator) and one
+--- that is busy stay clear of it; a ratio holds on every core, the
+--- checked one too, where a bound in seconds would not.
+local function assert_comments_read_in_linear_time(comment: string)
+  local function read(n: integer): integer
+    local r = Json.reader(Stream.from_string("[" .. string.rep("1, " .. comment, n) .. "2]"), BOTH)
+    local started, count = Clock.now_ns(), 0
+    while true do
+      local t, err = r:next()
+      if t == nil then
+        assert(err == "", err)
+        break
       end
-      assert(count == n + 3)
-      return Clock.now_ns() - started
+      count = count + 1
     end
-    -- The fastest of three runs each, so a pause in one does not count.
-    local few = math.min(read(1000), read(1000), read(1000))
-    local many = math.min(read(16000), read(16000), read(16000))
-    assert(many < 64 * few, ("%q: 16,000 comments took %d ns, 1,000 %d"):format(comment, many, few))
+    assert(count == n + 3)
+    return Clock.now_ns() - started
   end
+  -- The fastest of three runs each, so a pause in one does not count.
+  local few = math.min(read(1000), read(1000), read(1000))
+  local many = math.min(read(16000), read(16000), read(16000))
+  assert(many < 64 * few, ("%q: 16,000 comments took %d ns, 1,000 %d"):format(comment, many, few))
+end
+
+local function test_many_slash_comments_read_in_linear_time()
+  assert_comments_read_in_linear_time("// c\n")
+end
+
+local function test_many_hash_comments_read_in_linear_time()
+  assert_comments_read_in_linear_time("# c\n")
+end
+
+local function test_many_comments_with_unicode_line_separators_read_in_linear_time()
+  assert_comments_read_in_linear_time("// c\u{2028}")
+end
+
+local function test_many_comments_with_incomplete_utf8_read_in_linear_time()
+  assert_comments_read_in_linear_time("// \xe2\x80\n")
+end
+
+local function test_a_nested_value_with_many_comments_reads_in_one_byte_chunks()
   local text = "[" .. string.rep("1, /* c */ ", 10000) .. "2]"
   local r = Json.reader(chunked("[" .. text .. "]", 1), JSON5)
   assert(assert(r:next()).kind == "array" and #(assert(r:value()) as {integer}) == 10001)

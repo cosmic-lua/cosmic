@@ -30,6 +30,8 @@
 ---   reads from [`cosmic.internal.testing`]'s `configuration`): another
 ---   core has none of the instruments such a test uses, so it is n/a there;
 --- - `root`: the run's user is root;
+--- - `unix_socket`: this host permits creation of a Unix stream socket,
+---   without asserting permission to bind a path or connect to a peer;
 --- - `path:<absolute path>`: a file or directory of the host;
 --- - `program:<name>`: a program the PATH finds ([`Proc.find`]).
 ---
@@ -79,6 +81,7 @@ local find_program, exists, is_dir = Proc.find, Fs.exists, Fs.is_dir
 local relaunch, getuid, realpath = Proc.relaunch, sys.getuid, Fs.absolute
 local sandbox_platform, may_map_ids = confine.sandbox_platform, confine.may_map_ids
 local own_proc_given, landlock_abi = confine.own_proc_given, confine.landlock_abi
+local unix_socket_available = confine.unix_socket_available
 local hex_sha256 = digest.hex_sha256
 local system_paths = confine.system_paths
 
@@ -130,6 +133,8 @@ local record host_requires
 
   --- What the caller hands in that the table cannot probe itself.
   record Context
+    --- A stand-in for the Unix stream socket creation probe; nil asks the host.
+    unix_socket: function(): boolean, string
     --- Whether a worker can run sandboxed here: the runner's own
     --- [`build.test_sandbox_probe`]'s `available` answer. Without it `sandbox` is
     --- refused, since no cheaper probe answers the same.
@@ -437,6 +442,12 @@ local function given(path: string, host: host_requires.Host): boolean
 end
 
 local table_of: {string:Entry} = {
+  unix_socket = { platform_has = function(_: host_requires.Host): boolean return true end,
+    probe = function(_: string, host: host_requires.Host): Found
+      local ok, why = (host.context.unix_socket or unix_socket_available)()
+      if ok then return present("stream") end
+      return absent("Unix stream socket creation is refused: " .. why)
+    end },
   sandbox = { platform_has = linux,
     probe = function(_: string, host: host_requires.Host): Found
       local ask = host.context.sandbox

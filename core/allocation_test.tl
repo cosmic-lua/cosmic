@@ -23,6 +23,8 @@
 --- walks that start the program again, or count the store's
 --- databases, are core/allocation_tool_test.tl's and
 --- core/allocation_store_test.tl's, so these stand while the tree moves.
+--- The children-list walk is core/allocation_children_test.tl's: it
+--- also requires the children file in this process's mounted /proc.
 
 local _ = require("cosmic.child") -- in the closure: [`process_table`] searches for it by hand
 local Codec = require("cosmic.codec")
@@ -276,22 +278,6 @@ local function assert_c_heap(before_bytes: integer, before_blocks: integer, what
   assert(bytes == before_bytes and blocks == before_blocks,
     what .. " left " .. (blocks - before_blocks) .. " blocks (" ..
       (bytes - before_bytes) .. " bytes) on the C heap")
-end
-
---- `children` reads its list into a block of the core's C heap, and
---- closes the list's descriptor, whichever allocation is refused. Off
---- Linux it allocates nothing, and there is nothing to walk.
-local function test_children_releases_its_block_whenever_an_allocation_fails(tmp: string)
-  if assert(sys.uname()).sysname ~= "Linux" then Test.skip("this test walks a Linux-only path") end
-  local before = next_descriptor(tmp)
-  local bytes, blocks = testing.c_heap()
-  local ended = under_every_failure(function()
-    assert(process.children())
-  end)
-  assert(ended > 0, "listing the children allocates")
-  collectgarbage("collect")
-  assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. before .. " open")
-  assert_c_heap(bytes, blocks, "children under refusal")
 end
 
 --- `maps_id` reads each map into a block of the core's C heap, and

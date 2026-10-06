@@ -2,6 +2,7 @@
 --- rules hold whatever C the core has today.
 
 local type Coverage = require("cosmic.coverage")
+local type host_requires = require("build.host_requires")
 local c_functions = require("build.c_functions")
 
 local function fn(path: string, line: integer, name: string): Coverage.Function
@@ -124,4 +125,52 @@ local function test_one_copy_entered_enters_the_function()
     fn("core/a.c", 30, "copied"),
   }, { ["core/a.c"] = { [30] = true } })
   assert(tally.total == 1 and tally.entered == 1 and #tally.unentered == 0)
+end
+
+local function test_only_a_functions_own_absent_prerequisite_removes_its_obligation()
+  local functions = {
+    fn("core/syscalls.c", 1, "first_child"),
+    fn("core/a.c", 1, "ordinary"),
+  }
+  local tally = c_functions.tally(functions, {}, nil, nil,
+    { ["path:/proc/thread-self/children"] = "requires children: absent" })
+  assert(tally.exempted == 0 and #tally.unavailable == 1)
+  assert(tally.unavailable[1] == "core/syscalls.c:first_child: requires children: absent")
+  assert(#tally.unentered == 1 and tally.unentered[1] == "core/a.c:ordinary")
+  local unrelated = c_functions.tally(functions, {}, nil, nil, { sandbox = "absent" })
+  assert(#unrelated.unavailable == 0 and #unrelated.unentered == 2)
+  local unknown = c_functions.tally(functions, {})
+  assert(#unknown.unavailable == 0 and #unknown.unentered == 2)
+  local present = c_functions.tally(functions, {}, nil, nil, {})
+  assert(#present.unavailable == 0 and #present.unentered == 2)
+end
+
+local function test_an_entered_function_stays_entered_despite_a_missing_prerequisite()
+  local tally = c_functions.tally({ fn("core/syscalls.c", 1, "first_child") },
+    { ["core/syscalls.c"] = { [1] = true } }, nil, nil,
+    { ["path:/proc/thread-self/children"] = "absent" })
+  assert(tally.entered == 1 and #tally.unavailable == 0 and #tally.unentered == 0)
+end
+
+local function test_a_caller_cannot_change_the_prerequisites()
+  local needs = c_functions.prerequisites()
+  assert(needs["core/socket.c:reach_from"] == "unix_socket")
+  needs["core/socket.c:reach_from"] = "root"
+  assert(c_functions.prerequisites()["core/socket.c:reach_from"] == "unix_socket")
+end
+
+local function test_a_promised_absence_or_a_refused_probe_retains_the_obligation()
+  local answers: {host_requires.Answer} = {
+    { name = "unix_socket", class = "host", kind = "skipped", key = "", why = "absent" },
+    { name = "landlock", class = "platform", kind = "present", key = "available", why = "" },
+    { name = "path:/proc/thread-self/children", class = "host", kind = "refused", key = "",
+      why = "could not inspect" },
+  }
+  local unheld = c_functions.unavailable(answers)
+  assert(unheld.unix_socket == "requires unix_socket: absent")
+  assert(unheld.landlock == nil and unheld["path:/proc/thread-self/children"] == nil)
+  local held = c_functions.unavailable(answers, { "unix_socket" })
+  assert(next(held) == nil)
+  local tally = c_functions.tally({ fn("core/socket.c", 1, "reach_from") }, {}, nil, nil, held)
+  assert(#tally.unavailable == 0 and #tally.unentered == 1)
 end
