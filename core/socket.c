@@ -47,6 +47,43 @@ struct target {
   char directory[PATH_MAX];
 };
 
+/* libc's numeric parsers differ on leading zeroes and scoped IPv6.
+ * Require four decimal octets without leading zeroes, including the IPv4
+ * tail of a mapped IPv6 address; IPv6 otherwise uses only hex and colons. */
+static bool numeric_host (const char *host, size_t size) {
+  bool ipv6 = false;
+  const char *v4 = host;
+  const char *end = host + size;
+  for (const char *at = host; at < end; at++) {
+    char c = *at;
+    if (c == ':') {
+      ipv6 = true;
+      v4 = at + 1;
+    } else if (c != '.' && !(c >= '0' && c <= '9') &&
+               !(c >= 'a' && c <= 'f') && !(c >= 'A' && c <= 'F')) {
+      return false;
+    }
+  }
+  if (ipv6 && memchr(v4, '.', (size_t)(end - v4)) == NULL) {
+    return memchr(host, '.', size) == NULL;
+  }
+  unsigned octets = 0;
+  const char *at = v4;
+  while (at < end) {
+    const char *start = at;
+    unsigned value = 0;
+    while (at < end && *at >= '0' && *at <= '9') {
+      if (at - start >= 3) return false;
+      value = value * 10 + (unsigned)(*at++ - '0');
+    }
+    if (at == start || value > 255 || (at - start > 1 && *start == '0')) return false;
+    octets++;
+    if (at == end) return octets == 4;
+    if (*at++ != '.' || at == end) return false;
+  }
+  return false;
+}
+
 /* The "tcp" address of the table at `index` in `*out`: 0, or EINVAL for
  * a host that is no numeric IPv4 or IPv6 address -- a name, a NUL in
  * it, an IPv6 scope -- which a caller may meet at runtime. A host that
@@ -65,9 +102,9 @@ static int tcp_address_of (lua_State *L, int index, struct target *out) {
   struct sockaddr_in *v4 = (struct sockaddr_in *)&out->address;
   struct sockaddr_in6 *v6 = (struct sockaddr_in6 *)&out->address;
   int failure = 0;
-  if (strlen(host) != size) {
+  if (!numeric_host(host, size)) {
     failure = EINVAL;
-  } else if (inet_pton(AF_INET, host, &v4->sin_addr) == 1) {
+  } else if (strchr(host, ':') == NULL && inet_pton(AF_INET, host, &v4->sin_addr) == 1) {
     v4->sin_family = AF_INET;
     v4->sin_port = htons((uint16_t)port);
     out->length = (socklen_t)sizeof *v4;

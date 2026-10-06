@@ -100,6 +100,10 @@ local cases: {string: function(at: integer, fd: integer): {any}} = {
   set_nonblocking = function(_: integer, fd: integer): {any} return { fd, false } end,
   accept = function(_: integer, fd: integer): {any} return { fd } end,
   send = function(_: integer, fd: integer): {any} return { fd, "" } end,
+  sendto = function(_: integer, fd: integer): {any}
+    return { fd, "", { kind = "udp", host = "127.0.0.1", port = 1 } }
+  end,
+  recvfrom = function(_: integer, fd: integer): {any} return { fd, 1 } end,
   bound = function(_: integer, fd: integer): {any} return { fd } end,
   connected = function(_: integer, fd: integer): {any} return { fd } end,
   shutdown = function(_: integer, fd: integer): {any} return { fd, "both" } end,

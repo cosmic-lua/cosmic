@@ -1,15 +1,15 @@
---- Stream and datagram sockets: listen at an address, accept a connection there, or
---- connect to one, and read and write it as a [`cosmic.stream`] Reader
---- and Writer.
+--- Stream sockets listen, accept and connect, then read and write as a
+--- [`cosmic.stream`] Reader and Writer. UDP sockets send and receive
+--- complete datagrams with a numeric destination and sender address.
 ---
 ---     local server <close> = assert(Net.listen(Net.unix(dir .. "/app.sock")))
 ---     local conn <close> = assert(server:accept())
 ---     local lines = Stream.lines(conn) -- holds what it read past a line: see `rest`
 ---     local line = lines:read()
 ---
---- An address is a record whose `kind` says how the rest of it is read,
---- read by the stream or datagram calls: "unix", a socket file named by a
---- path, or "tcp" or "udp", a port of a host's numeric address.
+--- An address's `kind` selects its fields: "unix" takes a socket file's
+--- path; "tcp" and "udp" take a numeric host and port. Stream calls take
+--- "unix" and "tcp", while [`Net.datagram`] takes "udp".
 ---
 ---     local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
 ---     local port = server.address.port -- the one the kernel chose
@@ -254,7 +254,9 @@ function Net.tcp(host: string, port: integer): Net.Address
   return { kind = "tcp", host = host, port = port }
 end
 
---- The address of UDP `port` at `host`, a numeric IPv4 or IPv6 address.
+--- A numeric destination or binding for a datagram socket. UDP never
+--- resolves `host`: pass an IPv4 or IPv6 literal and a `port` from 0 to
+--- 65535; 0 binds a port chosen by the kernel.
 function Net.udp(host: string, port: integer): Net.Address
   return { kind = "udp", host = host, port = port }
 end

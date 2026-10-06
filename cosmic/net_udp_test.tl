@@ -82,9 +82,11 @@ local function test_close_ends_a_wait_and_is_idempotent()
 end
 
 local function test_numeric_hosts_only_and_no_shared_ports()
-  for _, host in ipairs({ "localhost", "127.1", "127.0.0.1\0evil", "::1%lo" }) do
+  for _, host in ipairs({ "localhost", "127.1", "2130706433", "0177.0.0.1", "127.00.0.1",
+      "0x7f.0.0.1", "127.0.0.1\0evil", "::1%lo", "::ffff:127.1", "::ffff:127.00.0.1" }) do
     local bound, why = Net.datagram(Net.udp(host, 0))
-    assert(bound == nil and why:find("not a numeric", 1, true) ~= nil, why)
+    assert(bound == nil and why:find("not a numeric", 1, true) ~= nil,
+      "host " .. string.format("%q", host) .. ": " .. why)
   end
   local server <close> = socket()
   local other, why = Net.datagram(server.address)
