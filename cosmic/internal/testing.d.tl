@@ -57,6 +57,28 @@ local record testing
   --- with local_lock "flock" or "all" among the filesystem's own
   --- options: what [`sys.flock_kind`] asks of an NFS file's mount.
   mountinfo_local_flock: function(text: string, device: string): boolean
+
+  --- The calls a sandbox's own setup makes, made raw, so a test can ask
+  --- whether a program inside one is refused them: each answers true, or
+  --- false, a message and the errno, and ENOSYS off Linux.
+
+  --- mount(2): `source`, `fstype` and `data` may be nil, for none, and
+  --- `flags` is Linux's MS_* bits.
+  mount: function(source: string | nil, target: string, fstype: string | nil, flags: integer,
+    data?: string): boolean, string, integer
+
+  --- umount2(2), with Linux's MNT_* and UMOUNT_* `flags`.
+  umount2: function(target: string, flags: integer): boolean, string, integer
+
+  --- unshare(2), with Linux's CLONE_* `flags`.
+  unshare: function(flags: integer): boolean, string, integer
+
+  --- setns(2): joins the namespace descriptor `fd` refers to, of the
+  --- CLONE_NEW* kind `nstype` names, or of any kind for 0.
+  setns: function(fd: integer, nstype: integer): boolean, string, integer
+
+  --- chroot(2), then chdir("/") where it succeeds.
+  chroot: function(path: string): boolean, string, integer
 end
 
 return testing

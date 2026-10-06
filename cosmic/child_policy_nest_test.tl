@@ -2,13 +2,13 @@
 --- program that builds a sandbox of its own, in a root of its own, held
 --- by that root instead of Landlock, which the kernel would have refuse
 --- every mount. The kernel's own verdict on live children: a stand-in
---- (build/stand_in.tl) that starts a sandboxed child of its own, and
---- perl, where the host has it, that makes the namespaces and mounts
---- the filter lets a program make and tries the ones it must not. They need
+--- (build/stand_in.tl) that starts a sandboxed child of its own. They need
 --- a host that lets a sandbox nest (`requires`): where the platform has none
 --- they are not applicable, and where this host gives no seccomp each skips
 --- itself (Test.skip). The refusals that come before a child, which hold on
---- every platform, are in cosmic/child_policy_anywhere_test.tl.
+--- every platform, are in cosmic/child_policy_anywhere_test.tl; what a
+--- program inside makes of the namespace and mount calls themselves, in
+--- cosmic/child_policy_nest_checked_test.tl.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -19,14 +19,12 @@ local sys = require("cosmic.sys")
 local searchable = require("build.searchable")
 local stand_in = require("build.stand_in")
 
---- The temporary directory, which a start's root is built in; the host's
---- perl and shell, which the "system" profile gives a policy to run; and
---- `nests`, since the sandboxes this test makes are roots a worker held by
---- a Landlock ruleset cannot build.
+--- The temporary directory, which a start's root is built in, and `nests`,
+--- since the sandboxes this test makes are roots a worker held by a
+--- Landlock ruleset cannot build.
 Test.policy{
   env = { "TMPDIR" },
   promises = { "nest" },
-  profiles = { "system" },
   requires = { "nest" },
 }
 
@@ -251,93 +249,4 @@ local function test_a_nested_sandbox_needs_nest(tmp: string)
   if ran == nil then return end
   assert(ran.code == 0, ran.said)
   assert(ran.said:find("namespace was refused", 1, true), ran.said)
-end
-
---- perl's script: what it makes of the calls a program may make, one
---- `name=result` line each, results being "ok" or the errno's name. The
---- numbers are Linux's, by architecture.
-local PERL <const> = [==[
-use POSIX;
-my $arch = (POSIX::uname())[4];
-my %n = $arch =~ /aarch64|arm64/
-  ? (unshare => 97, mount => 40, umount2 => 39, setns => 268, chroot => 51)
-  : (unshare => 272, mount => 165, umount2 => 166, setns => 308, chroot => 161);
-my %name = (1 => "EPERM", 22 => "EINVAL", 13 => "EACCES", 2 => "ENOENT", 38 => "ENOSYS");
-sub sc {
-  my ($label, $call, @args) = @_;
-  my $r = syscall($n{$call}, @args);
-  printf("%s=%s\n", $label, $r == 0 ? "ok" : ($name{$!+0} // ($!+0)));
-}
-my ($ro, $rw, $tmpfs) = ("/ro", "/rw", "tmpfs");
-my $uid = $<;
-my $gid = $(;
-$gid =~ s/ .*//;
-open(my $fd, "<", "/proc/self/ns/user") or die "ns: $!";
-# Before a namespace of its own it holds nothing: the kernel's refusal.
-sc("mount_before", "mount", $tmpfs, $rw, $tmpfs, 0, 0);
-sc("unshare_mount_before", "unshare", 0x20000);
-# Never, whatever it promised: the filter's.
-sc("setns", "setns", fileno($fd), 0);
-sc("unshare_uts", "unshare", 0x10000000 | 0x04000000);
-sc("unshare_cgroup", "unshare", 0x10000000 | 0x02000000);
-sc("unshare_time", "unshare", 0x80);
-sc("chroot", "chroot", "/");
-sc("unshare", "unshare", 0x10000000 | 0x20000 | 0x08000000 | 0x40000000);
-for my $f (["setgroups", "deny"], ["uid_map", "0 $uid 1\n"], ["gid_map", "0 $gid 1\n"]) {
-  open(my $m, ">", "/proc/self/$f->[0]") or die "$f->[0]: $!";
-  print $m $f->[1];
-  close($m) or die "$f->[0]: $!";
-}
-# Inside, what it makes is its own: a tmpfs it may write.
-sc("mount_tmpfs", "mount", $tmpfs, $rw, $tmpfs, 0, 0);
-my $wrote = "no";
-if (open(my $w, ">", "$rw/made")) { print $w "x"; $wrote = "ok" if close($w); }
-print "wrote=$wrote\n";
-# What it was given read-only stays so, locked: it cannot be remounted, nor
-# bound again and remounted, nor unmounted to show what is beneath.
-sc("remount_ro", "mount", 0, $ro, 0, 32 | 4096, 0);
-sc("remount_ro_plain", "mount", 0, $ro, 0, 32, 0);
-sc("bind_ro", "mount", $ro, "/tmp", 0, 4096, 0);
-sc("remount_bind", "mount", 0, "/tmp", 0, 32 | 4096, 0);
-sc("umount_ro", "umount2", $ro, 0);
-sc("umount_ro_detach", "umount2", $ro, 2);
-sc("umount_root", "umount2", "/", 2);
-my $wrote_ro = open(my $x, ">", "$ro/b") ? "ok" : "no";
-print "wrote_ro=$wrote_ro\n";
-]==]
-
-local function test_a_nested_program_cannot_widen_what_it_was_given(tmp: string)
-  local perl = Proc.find("perl")
-  if perl == nil then
-    Test.skip("this host has no perl to make the calls under test")
-    return
-  end
-  local at = placed(tmp)
-  -- The directories at the names the script uses; the working directory is
-  -- the program's own, which the root must hold.
-  local policy: Sandbox.Policy = { profiles = { "system" }, isolate = { "file" },
-    promises = { "fork", "nest" }, tmp = true, grants = {
-      { path = "/ro", letters = "r", from = at.work .. "/ro" },
-      { path = "/rw", letters = "rwc", from = at.work .. "/rw" },
-      { path = at.work, letters = "r" } } }
-  local ran = under({ perl, "-e", PERL }, policy, at.work)
-  if ran == nil then return end
-  assert(ran.code == 0, ran.code .. ": " .. ran.said)
-  local got: {string:string} = {}
-  for name, result in ran.said:gmatch("([%w_]+)=(%w+)") do got[name] = result end
-  -- The kernel and the filter refuse before a namespace of its own.
-  assert(got.mount_before == "EPERM" and got.unshare_mount_before == "EPERM", ran.said)
-  -- setns, chroot and the namespaces it never makes, whatever it promised.
-  for _, name in ipairs({ "setns", "unshare_uts", "unshare_cgroup", "unshare_time", "chroot" }) do
-    assert(got[name] == "EPERM", name .. ": " .. ran.said)
-  end
-  -- Its own it makes and mounts in.
-  assert(got.unshare == "ok" and got.mount_tmpfs == "ok" and got.wrote == "ok", ran.said)
-  -- And what it was given it cannot widen or reveal.
-  assert(got.remount_ro == "EPERM" and got.remount_ro_plain == "EPERM", ran.said)
-  assert(got.remount_bind == "EPERM", ran.said)
-  for _, name in ipairs({ "umount_ro", "umount_ro_detach", "umount_root" }) do
-    assert(got[name] == "EINVAL", name .. ": " .. ran.said)
-  end
-  assert(got.wrote_ro == "no", ran.said)
 end
