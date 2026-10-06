@@ -365,6 +365,49 @@ local function test_a_sandboxed_child_stays_on_the_database(tmp: string)
   assert(out.child_args == "child|z", tostring(out.child_args))
 end
 
+--- A core run from a cache entry -- a name that holds its target, its
+--- configuration, its length and its digest -- is hashed once: the stamp
+--- the first start leaves beside it (core/startup.c's `stamp_write`) says
+--- it was, and a start that finds the stamp holding does not hash it
+--- again. A write to the entry in place, which keeps its inode and size
+--- and moves its times, makes the stamp stale, so the next start hashes it
+--- and finds the database was not written for these bytes.
+local function test_a_core_a_stamp_vouches_for_is_not_hashed_again_until_it_is_written(tmp: string)
+  local core = core_path()
+  if core == nil or not confine.sandbox_platform() then return end
+  local prefix = Fs.basename(core):match("^(core%-%d+%-%d+%-)%d+%-%x+$")
+  if prefix == nil then return end
+  local bytes = assert(Fs.read(core))
+  local digest = core_digest()
+  local directory = tmp .. "/cores"
+  assert(Fs.mkdirs(directory))
+  local copy = directory .. "/" .. prefix .. #bytes .. "-" .. digest
+  assert(Fs.write(copy, bytes))
+  assert(Fs.chmod(copy, tonumber("755", 8)))
+  local path = info_database(tmp)
+  local stamp = directory .. "/.verified-" .. Fs.basename(copy)
+  -- A stamp is written only once a second has passed since the entry changed.
+  local _, _ = Clock.sleep_ns(Clock.ms(1100))
+  assert(not Fs.exists(stamp), "a stamp before any start")
+  local first = run({ copy, "--database", path })
+  assert(first.ok, "exit " .. tostring(first.code) .. ": " .. tostring(first.stderr))
+  assert(Fs.exists(stamp), "the first start left no stamp")
+  local second = run({ copy, "--database", path })
+  assert(second.ok, "exit " .. tostring(second.code) .. ": " .. tostring(second.stderr))
+  -- Written in place, a second or more after the stamp: the same inode and
+  -- size, other times. The last byte is no part of what the core runs.
+  local _, _ = Clock.sleep_ns(Clock.ms(1100))
+  local fd = assert(sys.open(copy, sys.O_RDWR))
+  local last = assert(sys.lseek(fd, -1, sys.SEEK_END))
+  local old = assert(sys.read(fd, 1))
+  assert(sys.lseek(fd, last, sys.SEEK_SET))
+  assert(sys.write(fd, string.char(old:byte() ~ 1)))
+  assert(sys.close(fd))
+  local third = run({ copy, "--database", path })
+  assert(third.code == 2 and (assert(third.stderr)):find("another core", 1, true),
+    "exit " .. tostring(third.code) .. ": " .. tostring(third.stderr))
+end
+
 --- A relative path is named absolutely (and with its links followed), so
 --- a child started elsewhere reaches the same file.
 local function test_a_relaunch_names_the_database_absolutely(tmp: string)

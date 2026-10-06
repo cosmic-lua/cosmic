@@ -48,6 +48,15 @@ local function says(z: Time.Zone, text: string, want: string, offset: integer, a
     ("%s in %s: %d %s %s"):format(text, z.name, c.offset, c.abbreviation, tostring(c.dst)))
 end
 
+--- The binary carries the tz database, one TZif file per zone.
+local function test_the_binary_carries_the_zones()
+  local data, why = Store.zoneinfo("America/New_York")
+  assert(data ~= nil, why)
+  assert(data:sub(1, 4) == "TZif", "a TZif file")
+  local none, trouble = Store.zoneinfo("Nowhere/Nothing")
+  assert(none == nil and trouble:find("Nowhere/Nothing", 1, true), trouble)
+end
+
 local function test_new_york_springs_forward_and_falls_back()
   local ny = zone("America/New_York")
   says(ny, "2026-03-08T06:59:59Z", "2026-03-08T01:59:59-05:00", -18000, "EST", false)

@@ -2284,17 +2284,18 @@ local function sealed_for(rec: Recording, m: importer.Module): string | nil, str
   local name = rec.stores[m.path] .. (with_compiler and "-compiler" or "")
   local kept = rec.sealed[name]
   if kept ~= nil then return kept, "" end
+  local started = Clock.monotonic_ns()
   local sealing, sealing_trouble = sealing_for(rec)
   if sealing == nil then return nil, "its sealed database: " .. sealing_trouble end
   local store, store_trouble = given_store(rec, m)
   if store == nil then return nil, store_trouble end
   local path = sealing.directory .. "/" .. name .. ".db"
-  local started = Clock.monotonic_ns()
   local written, trouble = write_sealed(sealing, store, rec.projection, path, with_compiler)
   if not written then return nil, "its sealed database: " .. trouble end
-  local wrote, _ = sys.stat(path)
+  local wrote, stat_trouble = sys.stat(path)
+  if wrote == nil then return nil, "its sealed database: " .. path .. ": " .. stat_trouble end
   rec.sealed_written = rec.sealed_written + 1
-  rec.sealed_bytes = rec.sealed_bytes + (wrote ~= nil and wrote.size or 0)
+  rec.sealed_bytes = rec.sealed_bytes + wrote.size
   rec.sealed_ns = rec.sealed_ns + (Clock.monotonic_ns() - started)
   rec.sealed[name] = path
   return path, ""
