@@ -32,8 +32,8 @@ local log = require("build.verdict").log
 local record work
   --- An open working database, for one run. A run is one transaction
   --- from `open` to `commit`: staging, deriving and compiling all land
-  --- together, and what happens after -- the projection, which SQLite
-  --- refuses inside a transaction, and the records -- is its own.
+  --- together with the in-memory projection. Its vacuum and publication
+  --- follow the commit; the test runner's records are their own phase.
   record Handle
     db: Sqlite.Handle
     root: string

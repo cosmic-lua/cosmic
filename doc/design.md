@@ -560,7 +560,11 @@ developer runs `o/bin/cosmic build` the other hundred times a day.
 coordinates parses, compiles and cache lookups. its `compile_tree` owns the
 shared caches through derivation, identity selection and compilation; the caller
 controls the transaction and publication. [`build.writer`] publishes deterministic
-projections. reporting and cache placement stay outside the compiler's semantic
+projections: it fills an attached in-memory schema, including its signature,
+inside the transaction that staged and compiled the inputs. after committing,
+it takes the publication lock and vacuums only those frozen rows into the file;
+another build may commit while it waits without changing what it publishes.
+reporting and cache placement stay outside the compiler's semantic
 closure so changes to them do not invalidate every compile.
 
 cosmic builds itself, so the tool is also an artifact of the tree,
