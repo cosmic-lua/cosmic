@@ -54,8 +54,8 @@ local function projected_signature(path: string): string
 end
 
 --- The shipped modules: this run's plan joined to the inputs it named
---- and the compiles it found or made, with a test or example module's
---- own names alongside.
+--- of non-declaration kind and the compiles it found or made, with
+--- a test or example module's own names alongside.
 local insert_modules =
   "INSERT INTO out.modules (path, file, kind, source_hash, key, source, " ..
   "bytecode, tests) " ..
@@ -67,7 +67,7 @@ local insert_modules =
   "WHEN i.kind = 'example' THEN coalesce((SELECT group_concat(name, " ..
   "char(10) ORDER BY ordinal) FROM examples e " ..
   "WHERE e.source_hash = i.source_hash), '') ELSE '' END " ..
-  "FROM plan p JOIN inputs i ON i.path = p.path " ..
+  "FROM plan p JOIN inputs i ON i.path = p.path AND i.kind <> 'decl' " ..
   "JOIN compiled c ON c.key = p.key ORDER BY p.path"
 
 --- The import edges among shipped modules: what each planned module
@@ -75,10 +75,14 @@ local insert_modules =
 local insert_imports =
   "INSERT OR IGNORE INTO out.imports (path, requires) " ..
   "SELECT p.path, r.name FROM plan p " ..
-  "JOIN inputs i ON i.path = p.path " ..
+  "JOIN inputs i ON i.path = p.path AND i.kind <> 'decl' " ..
   "JOIN requires r ON r.source_hash = i.source_hash " ..
   "WHERE r.name IN (SELECT path FROM plan) ORDER BY p.path, r.ordinal"
 
+--- A paired declaration supplies the documented interface and its aliases,
+--- just as it supplies the types a caller checks against. The implementation
+--- alone supplies executable rows, import edges, uses and errors.
+---
 --- The names each planned module and each declaration binds to a
 --- module ([`build.analyzer.Bound`]), kept whatever the module they
 --- name: a project's binds the standard library's.
@@ -88,6 +92,8 @@ local insert_bound =
   "FROM (SELECT path FROM plan UNION SELECT path FROM inputs " ..
   "WHERE kind = 'decl') m " ..
   "JOIN inputs i ON i.path = m.path " ..
+  "AND (i.kind = 'decl' OR NOT EXISTS (SELECT 1 FROM inputs d " ..
+  "WHERE d.path = i.path AND d.kind = 'decl')) " ..
   "JOIN bound b ON b.source_hash = i.source_hash ORDER BY m.path, b.name"
 
 --- The documented symbols ([`build.analyzer.DocEntry`]) found while parsing
@@ -95,6 +101,7 @@ local insert_bound =
 --- is the C header it is generated from), in module order and then
 --- source order. Which of them a reader sees is [`build.docs`]'s to
 --- decide: it answers a project only for the public standard library.
+--- A declaration wins over a paired implementation, as the checker does.
 --- `id` is left for SQLite to assign in that order, so it is the same on
 --- every build of the same tree.
 local insert_docs =
@@ -105,6 +112,8 @@ local insert_docs =
   "FROM (SELECT path FROM plan UNION SELECT path FROM inputs " ..
   "WHERE kind = 'decl') m " ..
   "JOIN inputs i ON i.path = m.path " ..
+  "AND (i.kind = 'decl' OR NOT EXISTS (SELECT 1 FROM inputs d " ..
+  "WHERE d.path = i.path AND d.kind = 'decl')) " ..
   "JOIN docs d ON d.source_hash = i.source_hash ORDER BY m.path, d.ordinal"
 
 --- The uses ([`build.analyzer.Reference`]) found: each
@@ -115,7 +124,7 @@ local insert_uses =
   "INSERT OR IGNORE INTO out.uses (module, symbol, from_module, " ..
   "from_file, line) " ..
   "SELECT r.module, r.member, p.path, i.file, r.line " ..
-  "FROM plan p JOIN inputs i ON i.path = p.path " ..
+  "FROM plan p JOIN inputs i ON i.path = p.path AND i.kind <> 'decl' " ..
   "JOIN refs r ON r.source_hash = i.source_hash " ..
   "ORDER BY r.module, r.member, p.path, r.line"
 
@@ -181,7 +190,7 @@ local insert_examples =
 local insert_catalog_extracted =
   "INSERT INTO out.catalog (kind, module, symbol, message, text, file, " ..
   "line) SELECT 'error', p.path, c.symbol, c.message, NULL, " ..
-  "i.file, c.line FROM plan p JOIN inputs i ON i.path = p.path " ..
+  "i.file, c.line FROM plan p JOIN inputs i ON i.path = p.path AND i.kind <> 'decl' " ..
   "JOIN catalog c ON c.source_hash = i.source_hash " ..
   "ORDER BY p.path, c.ordinal"
 

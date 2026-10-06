@@ -12,6 +12,7 @@ local schema = require("build.schema")
 local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
+local fixture = require("build.docs_fixture")
 
 local built, load_trouble = teal.load()
 if built == nil then
@@ -468,4 +469,46 @@ local function test_a_project_is_reproducible(tmp: string)
   assert(work.close((build_and_write(tmp .. "/two", "world", tmp .. "/two.db"))))
   assert(Fs.read(tmp .. "/one.db") == Fs.read(tmp .. "/two.db"),
     "equivalent projects produced different projections")
+end
+
+--- A paired declaration describes the interface; only its implementation
+--- contributes executable rows and runtime dependencies.
+local function test_paired_declaration_projects_each_source_in_its_role(tmp: string)
+  local db = fixture.database(tmp, {
+    ["decl_dep.tl"] = "local record Dep\n  declared: integer\nend\nreturn Dep\n",
+    ["impl_dep.tl"] = "local record Dep\n  executed: integer\nend\nreturn Dep\n",
+    ["foo.d.tl"] = 'local Dep = require("decl_dep")\n' ..
+      "--- Public interface.\n--- See [`Dep.declared`].\nlocal record Foo\n  answer: integer\nend\n" ..
+      'local x = Dep.declared\nfunction Foo.fail(): nil, string\n' ..
+      '  return nil, "declaration error"\nend\nreturn Foo\n',
+    ["foo.tl"] = 'local Dep = require("impl_dep")\n' ..
+      "--- Private implementation.\n--- See [`Dep.executed`].\nlocal record Foo\n  answer: integer\nend\n" ..
+      'local x = Dep.executed\nfunction Foo.fail(): nil, string\n' ..
+      '  return nil, "implementation error"\nend\nreturn {answer = 42} as Foo\n',
+    ["only.d.tl"] = "--- Declaration alone.\nlocal record Only\nend\nreturn Only\n",
+  })
+  local function rows(sql: string): {{string}}
+    return (assert(Sqlite.text_rows(db, sql)))
+  end
+  local module = rows("SELECT file, kind, inflate(source) FROM modules WHERE path = 'foo'")
+  assert(#module == 1 and module[1][1] == "foo.tl" and module[1][2] ~= "decl")
+  assert(module[1][3]:find("answer = 42", 1, true), module[1][3])
+  assert(rows("SELECT count(*) FROM decls WHERE path IN ('foo', 'only')")[1][1] == "2")
+  assert(rows("SELECT count(*) FROM modules WHERE path = 'only'")[1][1] == "0")
+  local imports = rows("SELECT requires FROM imports WHERE path = 'foo'")
+  assert(#imports == 1 and imports[1][1] == "impl_dep")
+  local bound = rows("SELECT requires FROM bound WHERE path = 'foo' AND name = 'Dep'")
+  assert(#bound == 1 and bound[1][1] == "decl_dep")
+  local docs = rows("SELECT file, text FROM docs WHERE module = 'foo' AND symbol = 'Foo'")
+  assert(#docs == 1 and docs[1][1] == "foo.d.tl" and docs[1][2]:find("Public interface.", 1, true))
+  local uses = rows("SELECT module, symbol, from_file FROM uses WHERE from_module = 'foo'")
+  assert(#uses == 1 and uses[1][1] == "impl_dep" and uses[1][2] == "executed" and
+      uses[1][3] == "foo.tl")
+  local catalog = rows("SELECT message, file FROM catalog WHERE module = 'foo'")
+  assert(#catalog == 1 and catalog[1][1] == "implementation error" and catalog[1][2] == "foo.tl")
+  local links = rows("SELECT module, symbol, from_file FROM links WHERE from_module = 'foo'")
+  assert(#links == 1 and links[1][1] == "decl_dep" and links[1][2] == "declared" and
+      links[1][3] == "foo.d.tl")
+  assert(rows("SELECT count(*) FROM docs WHERE module = 'only'")[1][1] ~= "0")
+  assert(db:close())
 end
