@@ -17,6 +17,8 @@ Test.policy{
   grants = { { path = "o/bin", letters = "rx" }, { path = "o/cosmic.db", letters = "r" } },
 }
 
+-- TODO: share Ran, cosmic and left_over with build/sandbox_seal_tool_test.tl
+-- once the tree has a helper module tests of a verb can require.
 local record Ran
   code: integer
   out: string

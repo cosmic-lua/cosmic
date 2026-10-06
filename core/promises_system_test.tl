@@ -16,6 +16,8 @@ local type _ = require("cosmic.child")
 
 --- The system's own programs, which the shell and its libraries are, and
 --- the shell itself, which the host must have.
+-- TODO: require a seccomp filter alone once build/host_names.tl names one:
+-- these tests need no more of the sandbox, which `sandbox` asks for whole.
 Test.policy{
   profiles = { "system" },
   grants = { { path = "/bin/sh", letters = "r" } },
