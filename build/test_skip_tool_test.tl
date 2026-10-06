@@ -114,7 +114,7 @@ local function test_unavailable_noexec_skips_without_loading_and_keeps_no_verdic
   local root = project(tmp)
   assert(Fs.write(root .. "/noexec_test.tl", [[
 local Test = require("cosmic.test")
-Test.needs { noexec = true }
+Test.policy { grants = { { path = "/noexec", letters = "rwc" } } }
 error("an unavailable capability must not load its test module")
 local function test_requires_noexec() error("must not execute") end
 ]]))

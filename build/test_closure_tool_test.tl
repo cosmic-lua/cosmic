@@ -102,12 +102,12 @@ local function test_a_project_test_reading_the_store_outside_its_closure_needs_s
   assert(Fs.write(root .. "/suite/held_test.tl", reads))
   assert(Fs.write(root .. "/suite/whole_test.tl", table.concat({
     'local Test = require("cosmic.test")',
-    "Test.needs{ store = true }",
+    'Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }',
   }, "\n") .. "\n" .. reads))
   -- `tool` gives the program, not the rest of the store.
   assert(Fs.write(root .. "/suite/tool_test.tl", table.concat({
     'local Test = require("cosmic.test")',
-    "Test.needs{ tool = true }",
+    'Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }',
   }, "\n") .. "\n" .. reads))
   local ok, text = run(root, tmp .. "/run.out")
   assert(not ok, text)

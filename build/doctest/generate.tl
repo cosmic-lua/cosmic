@@ -86,7 +86,7 @@ local function to_items(blocks: {Block}): {Item} | nil, string
   local current: Example | nil = nil
 
   for _, b in ipairs(blocks) do
-    if b.lang == "needs" then
+    if b.lang == "policy" then
       -- The doc's declaration, which [`from_blocks`] writes at the top.
     elseif b.lang == "text" then
       current = nil
@@ -239,7 +239,7 @@ local function emit_example(out: {string}, file: string, example: Example)
   out[#out + 1] = ""
 end
 
---- Why `fields`, a doc's `needs` line, cannot stand between the braces
+--- Why `fields`, a doc's `policy` line, cannot stand between the braces
 --- of a table literal as it is, or "" when it can: a brace closing one
 --- it did not open, one left open, or a comment or long bracket that
 --- would swallow the close. Strings are skipped; the build reads what
@@ -275,7 +275,7 @@ local function unspliceable(fields: string): string
 end
 
 --- A doc's prose as a module's own documentation: its markdown less the
---- title line (the module's name says it), the `needs` line, which
+--- title line (the module's name says it), the `policy` line, which
 --- renders as nothing, and blank lines around them. `cosmic docs` shows
 --- it, its first paragraph in the list of modules. "" for a doc with no
 --- prose.
@@ -295,7 +295,7 @@ function generate.prose(source: string): string
     end
     if fence ~= nil or marker ~= nil then
       kept[#kept + 1] = line
-    elseif line:match("^<!%-%- needs:.*%-%->%s*$") then
+    elseif line:match("^<!%-%- policy:.*%-%->%s*$") then
       -- Renders as nothing.
     elseif not titled and line:match("^#%s") then
       titled = true
@@ -312,8 +312,8 @@ end
 --- example needs one, then one function per example (or one comment for
 --- a skip), in document order.
 ---
---- A doc's `needs` block ([`build.doctest.markdown`]) becomes the module's
---- top-level `needs` call ([`cosmic.test`]), which the build reads as it
+--- A doc's `policy` block ([`build.doctest.markdown`]) becomes the module's
+--- top-level `policy` call ([`cosmic.test`]), which the build reads as it
 --- does a test module's. A second is refused.
 --- @param file string the doc's own path, named in a generated
 ---   assertion's failure message and in the header comment; never
@@ -328,13 +328,13 @@ function generate.from_blocks(blocks: {Block}, file: string, prose?: string): st
   end
   local declared: Block = nil
   for _, b in ipairs(blocks) do
-    if b.lang == "needs" and declared ~= nil then
-      return nil, "line " .. b.line .. ": a doc declares its needs once; line " ..
+    if b.lang == "policy" and declared ~= nil then
+      return nil, "line " .. b.line .. ": a doc declares its policy once; line " ..
         declared.line .. " did already"
-    elseif b.lang == "needs" then
+    elseif b.lang == "policy" then
       local why = unspliceable(b.content)
       if why ~= "" then
-        return nil, "line " .. b.line .. ": the needs line " .. why
+        return nil, "line " .. b.line .. ": the policy line " .. why
       end
       declared = b
     end
@@ -366,7 +366,7 @@ function generate.from_blocks(blocks: {Block}, file: string, prose?: string): st
   out[#out + 1] = ""
   if declared ~= nil then
     out[#out + 1] = 'local __doctest_test = require("cosmic.test")'
-    out[#out + 1] = "__doctest_test.needs { " .. declared.content .. " }"
+    out[#out + 1] = "__doctest_test.policy { " .. declared.content .. " }"
     out[#out + 1] = ""
   end
 

@@ -7,10 +7,11 @@
 ---
 --- Prose outside a fence is not read at all: a line only matters here
 --- once it opens or closes a fence, or is a whole line
---- `<!-- needs: <fields> -->`, what the doc's examples read beyond
---- their default inputs ([`cosmic.test`]'s `needs`), which renders as
---- nothing and comes back as a block of its own, `needs`, holding
---- `<fields>`. A `<!-- inputs: ... -->` line is refused.
+--- `<!-- policy: <fields> -->`, what the doc's examples are held to and
+--- read beyond their default inputs ([`cosmic.test`]'s `policy`), which
+--- renders as nothing and comes back as a block of its own, `policy`,
+--- holding `<fields>`. A `<!-- needs: ... -->` or `<!-- inputs: ... -->`
+--- line is refused.
 ---
 --- A fence opens with a backtick or tilde run of at least three. It
 --- closes with the same marker in a run at least as long as the opener.
@@ -24,7 +25,7 @@ local record Modifiers
 end
 
 local record Block
-  --- `"text"`, `"output"`, `"teal"`, `"lua"`, or `"needs"`.
+  --- `"text"`, `"output"`, `"teal"`, `"lua"`, or `"policy"`.
   lang: string
   modifiers: Modifiers
   --- The block's body, its lines joined by `"\n"`, with neither fence
@@ -153,13 +154,14 @@ function markdown.parse_blocks(source: string): {Block} | nil, string
   while i <= #lines do
     local fence = open_fence(lines[i])
     local declared = fence == nil and
-      lines[i]:match("^<!%-%-%s*needs:%s*(.-)%s*%-%->%s*$") or nil
-    if fence == nil and lines[i]:match("^<!%-%-%s*inputs:") ~= nil then
+      lines[i]:match("^<!%-%-%s*policy:%s*(.-)%s*%-%->%s*$") or nil
+    if fence == nil and (lines[i]:match("^<!%-%-%s*inputs:") ~= nil or
+        lines[i]:match("^<!%-%-%s*needs:") ~= nil) then
       return nil, "line " .. i .. ": a doc declares what its examples read with " ..
-        "<!-- needs: ... --> now"
+        "<!-- policy: ... --> now"
     elseif declared ~= nil then
       blocks[#blocks + 1] = {
-        lang = "needs",
+        lang = "policy",
         modifiers = { continue = false, file = nil, skip = nil },
         content = declared,
         line = i,

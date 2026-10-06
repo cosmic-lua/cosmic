@@ -200,7 +200,8 @@ local function origin_lines(source: string): {string: integer} | nil
 end
 
 --- The rows `test_inputs` keeps of one parse (see [`build.work`]): its
---- `needs` declaration ([`cosmic.test`]), field by field.
+--- `policy` declaration ([`cosmic.test`]), as the `needs` it stands for,
+--- field by field.
 local function insert_test_inputs(db: Sqlite.Handle, source_hash: string,
                                   found: analyzer.Analysis): boolean, string
   local rows: {{string}} = {}

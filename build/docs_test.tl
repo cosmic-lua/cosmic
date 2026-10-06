@@ -1972,7 +1972,7 @@ local function test_examples_rank_by_name_and_are_capped(dir: string)
 end
 
 --- A top-level call in an example file, as cosmic/test_example.tl's
---- [`Test.needs`] is, sits outside every example, so the file's first
+--- [`Test.policy`] is, sits outside every example, so the file's first
 --- example carries it: the function called has an example, and it
 --- shows the call.
 local function test_a_top_level_call_is_carried_by_the_first_example(dir: string)

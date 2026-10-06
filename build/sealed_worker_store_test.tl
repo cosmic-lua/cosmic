@@ -6,7 +6,7 @@ local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 
 -- Declared on purpose: this test asserts what `store` gives.
-Test.needs{ store = true }
+Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
 
 local function test_the_whole_program_is_read()
   assert(Store.source("cosmic.zip") ~= nil)

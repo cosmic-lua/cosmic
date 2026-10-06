@@ -2,7 +2,7 @@
 --- run a chunk -- a confined child's end with the program that started
 --- it, an offline child's loopback, an exit watch -- and those that
 --- confine a child in a root of its own (unveiling), which only a worker
---- that declares `nests` can (see [`Test.needs`] below). The
+--- that declares the promise "nest" can (see [`Test.policy`] below). The
 --- executable's own path, which only a `tool` test can read, is
 --- core/artifact_fd_tool_test.tl's.
 

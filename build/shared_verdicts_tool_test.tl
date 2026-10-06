@@ -87,7 +87,7 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "suite/" }, env = { "FLAVOUR" } }
+Test.policy { grants = { { path = "suite/", letters = "r" } }, env = { "FLAVOUR" } }
 
 local function test_reads_data()
   assert(Fs.read("suite/data.txt") ~= nil)
@@ -112,8 +112,8 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
-Test.needs { host = { "]] .. Fs.dirname(root) ..
-      [[/outside/f" }, env = { "OUTSIDE" } }
+Test.policy { grants = { { path = "]] .. Fs.dirname(root) ..
+      [[/outside/f", letters = "r" } }, env = { "OUTSIDE" } }
 
 local function test_reads_outside()
   local f = assert(Env.get("OUTSIDE")) .. "/f"
@@ -286,7 +286,7 @@ local function test_a_database_sqlite_reads_is_keyed_by_its_contents(tmp: string
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "suite/data.db" } }
+Test.policy { grants = { { path = "suite/data.db", letters = "r" } } }
 
 local function test_reads_a_database()
   local db = assert(Sqlite.open("suite/data.db"))
@@ -321,7 +321,7 @@ local function link_checkout(root: string, target: string | nil)
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "suite/" } }
+Test.policy { grants = { { path = "suite/", letters = "r" } } }
 
 local function test_reads_the_links_target()
   local target = sys.readlink("suite/link")
@@ -396,7 +396,7 @@ local function test_a_database_attached_through_the_store_is_keyed_by_its_conten
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "suite/data.db" } }
+Test.policy { grants = { { path = "suite/data.db", letters = "r" } } }
 
 local function test_reads_an_attached_database()
   assert(Store.attach("suite/data.db"))
@@ -410,7 +410,7 @@ end
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "o/build.db" } }
+Test.policy { grants = { { path = "o/build.db", letters = "r" } } }
 
 -- Through the store's own lookup, which searches a database the test
 -- attached ahead of the rest.
@@ -484,7 +484,7 @@ local function test_a_read_of_the_builds_output_is_keyed_by_its_bytes(tmp: strin
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "o/bin/tool" } }
+Test.policy { grants = { { path = "o/bin/tool", letters = "r" } } }
 
 local function test_reads_the_tool()
   assert(Fs.read("o/bin/tool") ~= nil)
@@ -495,7 +495,7 @@ end
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "o/build.db" } }
+Test.policy { grants = { { path = "o/build.db", letters = "r" } } }
 
 local function test_reads_the_working_database()
   assert(Fs.read("o/build.db") ~= nil)
@@ -718,7 +718,10 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "suite/c.txt" }, host = { "]] .. tmp .. [[/outside/f" }, env = { "OUTSIDE" } }
+Test.policy {
+  grants = { { path = "suite/c.txt", letters = "r" }, { path = "]] .. tmp .. [[/outside/f", letters = "r" } },
+  env = { "OUTSIDE" },
+}
 
 local function test_stops_early()
   assert(assert(Fs.stat(assert(Env.get("OUTSIDE")) .. "/f")).mtime ~= ]] .. unready .. [[)

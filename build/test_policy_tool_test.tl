@@ -218,8 +218,7 @@ for _, case in ipairs({
   { name = "lua store", inputs = declared({ lua = true, store = true }) },
 }) do
   local plan = test_sandbox.plan(root, scratch, case.inputs, {}, nil)
-  local policy, why = test_policy.worker(plan, case.inputs)
-  assert(policy ~= nil, why)
+  local policy = test_policy.worker(plan, case.inputs)
   local ok, trouble = Sandbox.check(policy)
   assert(ok, case.name .. ": " .. tostring(trouble))
   if case.name ~= "tool" then
@@ -293,7 +292,10 @@ local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "suite/data.txt" }, env = { "BASELINE_FILTERS" } }
+Test.policy {
+  grants = { { path = "suite/data.txt", letters = "r" } },
+  env = { "BASELINE_FILTERS" },
+}
 
 local function test_a_declared_read_is_held_as_a_policy_holds_it()
   assert(Fs.read("suite/data.txt") == "declared")
@@ -425,7 +427,7 @@ local Child = require("cosmic.child")
 local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
 
-Test.needs {}
+Test.policy {}
 
 local function test_the_program_is_refused()
   local launched = assert(Proc.relaunch())
@@ -455,7 +457,7 @@ local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
-Test.needs {}
+Test.policy {}
 
 local function test_the_directory_is_its_own_at_the_padded_name(tmp: string)
   local scratch = assert(sys.getenv("TMPDIR"))
@@ -509,7 +511,7 @@ local function test_a_nesting_module_starts_under_a_policy(tmp: string)
   assert(Fs.write(root .. "/suite/nest_test.tl", [[
 local Test = require("cosmic.test")
 
-Test.needs { nests = true, store = true }
+Test.policy { grants = { { path = "o/cosmic.db", letters = "r" } }, promises = { "nest" } }
 
 local function test_a_worker_that_nests_runs()
   assert(1 + 1 == 2)
@@ -547,28 +549,6 @@ local function test_the_verdicts_of_a_sandboxed_and_an_unsandboxed_run_stand_apa
   said(true, "0 ran, 1 stood")
 end
 
---- What a policy has no word for fails its tests, naming the field,
---- rather than run them held less than the module declares.
-local function test_what_the_policy_cannot_say_fails_loudly(tmp: string)
-  if no_sandbox_here() then return end
-  local root = tmp .. "/root"
-  suite_tree(root)
-  assert(Fs.write(root .. "/suite/wildcard_test.tl", [[
-local Test = require("cosmic.test")
-
-Test.needs { env = { "*" } }
-
-local function test_reads_the_whole_environment()
-  assert(true)
-end
-]]))
-  local env = environment()
-  local text, ok = run(root, tmp .. "/wildcard", env, { "--all", "suite/wildcard_test.tl" })
-  if unsandboxed(text) then return end
-  assert(not ok and text:find('env "*"', 1, true) and text:find("wildcard", 1, true), text)
-  assert(not text:find("the test process", 1, true), text)
-end
-
 --- A worker whose module does not declare `tool` may not run this program
 --- again, though the core is granted `x` for the worker to start from: its test's start of the core is refused;
 --- a module that declares `tool` starts it.
@@ -591,7 +571,7 @@ end
 ]]
   assert(Fs.write(root .. "/suite/plain_exec_test.tl", string.format(body, "")))
   assert(Fs.write(root .. "/suite/tool_exec_test.tl", string.format(body,
-    'local Test = require("cosmic.test")\n\nTest.needs { tool = true }\n')))
+    'local Test = require("cosmic.test")\n\nTest.policy { profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }\n')))
   local env = environment()
   local text, ok = run(root, tmp .. "/exec", env, { "--all" })
   if unsandboxed(text) then return end

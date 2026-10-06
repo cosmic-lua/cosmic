@@ -9,7 +9,7 @@ local Test = require("cosmic.test")
 --- The whole projection: the guidance shown is a catalog row of
 --- cosmic.coverage, outside this module's closure, which only the
 --- whole projection holds by a key.
-Test.needs{ store = true }
+Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
 
 local Example = {}
 

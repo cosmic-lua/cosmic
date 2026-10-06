@@ -1,6 +1,6 @@
 # your first project
 
-<!-- needs: tool = true -->
+<!-- policy: profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->
 
 A cosmic project is a directory of modules, tests, examples and
 programs. They are Teal files: typed Lua, documented at

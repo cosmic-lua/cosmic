@@ -90,11 +90,11 @@ harness_epoch.acknowledged = {
 
   ["build.caches"] = "57bac59a121d7520f3d30b9052a6f6c5d67a51e8785c5a75d021760317fb9312",
 
-  ["build.confine"] = "84e36f9e62fa3e39b0b447952b856b2144f34f7199d163180ccdc3c6e00d7c65",
+  ["build.confine"] = "6eda6ad771c61b2add3414ef0a330755c81411fbe77b0ec79e91fd45c462cc63",
 
   ["build.core_image"] = "dfc18e0e6316237ab9fb11a957df68d6217e42cffc6f2f3a767018c5313700ac",
 
-  ["build.declared_key"] = "91148f441dbb14ceddf8240b5d15a4d7bbbd2b8b8a7afbfcafb36e238ce32737",
+  ["build.declared_key"] = "3d36d336f028a6b8839fcd09957c122dd1ba7608d7c0283d84e2080e6f4d079d",
 
   ["build.digest"] = "dccca5b63f2992d4d23213450142bdd05eee403ebaf3a4e0acf7437da72558f0",
 
@@ -112,15 +112,15 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "516c08e34d1fc392de5363af92b6d669344fc3c8b504c469ae3771a424d0db6b",
 
-  ["build.test"] = "93b77b36fe7fb85ffffcae687f20767aab9fe59bdc6ba4cb3ab70999dd36c5ad",
+  ["build.test"] = "a1dd22300392a3cc88e5d63e0422c2b031c766335f707288bee3163d96ad3298",
 
-  ["build.test_inputs"] = "3731a597a211163a973e34acc776ac7080f7072afd27e9b6641d7a6e2bf9640d",
+  ["build.test_inputs"] = "ec023eee681364d5fb8e1ac9937d039c8320125cf60cb14ef55bc3c51a017b51",
 
-  ["build.test_policy"] = "44ba4848ef58bb6ae0d4525a407b51e47da27c2b992961224c901957b3a716e6",
+  ["build.test_policy"] = "f4d98a90f54c4ba29b6ce6d50c0cf08a5efc02e225dbd2382af84dee78da8557",
 
-  ["build.test_sandbox"] = "66e37f3d9aad8ec76e50aae486bb5edf718b40c8c174c83cf8021ae8496510db",
+  ["build.test_sandbox"] = "8b6770324a64caa08e574d7c72ce4a6e4af9f9ed803e947de07acc61f68484bd",
 
-  ["build.test_worker"] = "f11edcdf642d9735611a94ac00f0222e5aec9c54cf86c92c240a81f03ce38001",
+  ["build.test_worker"] = "17ff861c10e59db2dbe7edf01ac94e6a3997fa0c46712ced1068fb5cf21d4f5c",
 
   ["build.this_program"] = "975740a93eb1e88680fe402a0bf6e5e52d1acad579dbdfedd0be27d10ae02980",
 
@@ -144,7 +144,7 @@ harness_epoch.acknowledged = {
 
   ["cosmic.string"] = "bf0e5e828de84f23aa818887e0280a3ebc844c9ca5e384c33227cb42715b8655",
 
-  ["cosmic.test"] = "a6be797eed625f4ae577875f47a0629e0a9b427ed01a7859d7b235faf5e3b521",
+  ["cosmic.test"] = "43e38b390c151f73ed8ff4e773056cdedb32425558f2cd2b3909d2be7187ec02",
 
 }
 
@@ -176,7 +176,7 @@ harness_epoch.library = {
     "(`build.test`), sandbox paths (`build.test_sandbox`), the artifact's SQLite " ..
     "header (`build.artifact`) and " ..
     "plurals (`build.plural`)",
-  ["cosmic.test"] = "a test's declaration (`Test.needs`), which the worker judges, and " ..
+  ["cosmic.test"] = "a test's declaration (`Test.policy`), which the worker judges, and " ..
     "the runner's hook into it",
 }
 

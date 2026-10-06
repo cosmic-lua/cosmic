@@ -1,6 +1,6 @@
 # portable runtime implementation
 
-<!-- needs: env = { "COSMIC_PORTABLE_ARTIFACT_FD", "COSMIC_PORTABLE_CORE_FD", "COSMIC_PORTABLE_CORE_SHA256" }, tool = true -->
+<!-- policy: env = { "COSMIC_PORTABLE_ARTIFACT_FD", "COSMIC_PORTABLE_CORE_FD", "COSMIC_PORTABLE_CORE_SHA256" }, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->
 
 Cosmic ships one file that starts on every supported host. An ordinary release
 artifact contains a POSIX shell launcher, three release cores, a manifest, a
@@ -348,7 +348,7 @@ rebuild finish after the starting artifact is renamed or unlinked.
 
 [`build.test`](../../build/test.tl) keys a verdict by what the test declares,
 before it runs ([`build/declared_key.tl`](../../build/declared_key.tl)): its
-import closure, the inputs its [`Test.needs`] names and their contents and
+import closure, the inputs its [`Test.policy`] names and their contents and
 values, the core and runtime identity, and the host. Sandboxed, where the
 kernel allows it, a worker sees only those inputs, so a test that reads what it
 does not declare fails rather than standing on a verdict; a test that reaches
@@ -483,5 +483,5 @@ manifest: names the running core
 [`Store.attach`]: ../../cosmic/store.tl
 [`Store.databases()`]: ../../cosmic/store.tl
 [`Store.requires`]: ../../cosmic/store.tl
-[`Test.needs`]: ../../cosmic/test.tl
+[`Test.policy`]: ../../cosmic/test.tl
 [`writer.carried`]: ../../build/writer.tl

@@ -649,8 +649,8 @@ key alone through a database under the cosmic cache directory, so a fresh
 worktree runs only what no checkout has already run. a test reaches no network
 but loopback addresses of 127/8, which it declares and its worker answers
 offline, on a loopback of its own, keyed like any input: the build's analysis of
-[`Test.needs`] refuses any other host, `::1` and `localhost` among them
-(`needs` checks the declaration's shape; the build checks its
+[`Test.policy`] refuses any other host, `::1` and `localhost` among them
+(`policy` checks the declaration's shape; the build checks its
 values). one that reads a link out of the tree, which no key holds, runs every time. an unsandboxed run (macOS,
 `COSMIC_TEST_SANDBOX=0`) is keyed by declared inputs as a sandboxed run is, and
 by where the tree is, which its workers see, trusting the declarations a
@@ -1154,4 +1154,4 @@ in [roadmap.md](roadmap.md).
 [`Store.meta`]: ../cosmic/store.tl
 [`Store.requires`]: ../cosmic/store.tl
 [`Store.source`]: ../cosmic/store.tl
-[`Test.needs`]: ../cosmic/test.tl
+[`Test.policy`]: ../cosmic/test.tl

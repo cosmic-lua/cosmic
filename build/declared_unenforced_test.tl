@@ -49,7 +49,7 @@ local function checkout(root: string)
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "suite/data/" } }
+Test.policy { grants = { { path = "suite/data/", letters = "r" } } }
 
 local function test_data()
   assert(Fs.read("suite/data/f") ~= nil)
@@ -60,7 +60,7 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
-Test.needs { env = { "FLAVOUR", "OUTER_TMPDIR" } }
+Test.policy { env = { "FLAVOUR", "OUTER_TMPDIR" } }
 
 local function test_env()
   assert(Env.get("FLAVOUR") == "sweet", tostring(Env.get("FLAVOUR")))

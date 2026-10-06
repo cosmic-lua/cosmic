@@ -254,7 +254,7 @@ local function test_every_library_build_zig_compiles_is_walked()
   for library in source:gmatch('patched%(b, trees, "([%w_]+)"%)') do
     count = count + 1
     assert(walked[library] or NOT_C[library], "build.zig compiles vendor/" .. library ..
-        ", which this test does not walk: add it to LIBRARIES and to Test.needs")
+        ", which this test does not walk: add it to LIBRARIES and to Test.policy")
   end
   assert(count >= #LIBRARIES, "build.zig names " .. count .. " patched trees")
 end

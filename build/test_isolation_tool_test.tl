@@ -68,7 +68,7 @@ local Child = require("cosmic.child")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "bin/probe" } }
+Test.policy { grants = { { path = "bin/probe", letters = "r" } } }
 
 local held: {Child.Handle} = {}
 local function test_hangs()
@@ -309,7 +309,7 @@ local function test_a_cancelled_run_removes_its_ended_workers_directories(tmp: s
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-Test.needs { env = { "MARKS" } }
+Test.policy { env = { "MARKS" } }
 local function hold(tmp: string, name: string)
   assert(Fs.write(tmp .. "/kept", "x"))
   assert(Fs.write(assert(Env.get("MARKS")) .. "/" .. name, "x"))
@@ -365,7 +365,7 @@ local function test_a_cancelled_run_names_a_failed_tests_directory(tmp: string)
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-Test.needs { env = { "MARKS" } }
+Test.policy { env = { "MARKS" } }
 local function test_a_fails(tmp: string)
   assert(Fs.write(tmp .. "/kept", "x"))
   error("fails")
@@ -410,16 +410,16 @@ end
 --- (build.this_program's `program` drops them, and the core clears any
 --- other of their prefix as it starts), so the filter's case for them
 --- is the second half's. The first holds the rest of the filter end to
---- end: its suite declares the whole environment, so the run's own
---- filter ([`test.worker_environment`]), not a declaration, is what drops
---- how the run was started (OLDPWD, SHLVL).
+--- end: its suite declares the variables, so the run's own filter
+--- ([`test.worker_environment`]), not the declaration, is what drops how
+--- the run was started (OLDPWD, SHLVL).
 local function test_workers_start_without_the_startup_hooks(tmp: string)
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.write(root .. "/suite/hooks_test.tl", [[
 local Env = require("cosmic.env")
 local Test = require("cosmic.test")
-Test.needs { env = { "*" } }
+Test.policy { env = { "OLDPWD", "SHLVL", "KEPT_BY_THE_WORKER" } }
 local function test_no_hooks()
   assert(Env.get("OLDPWD") == nil and Env.get("SHLVL") == nil)
   assert(Env.get("KEPT_BY_THE_WORKER") == "yes")

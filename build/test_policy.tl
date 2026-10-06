@@ -12,12 +12,11 @@
 --- below Landlock ABI 9, and, for a worker that declares `nests` and so has
 --- no ruleset, at any ABI (core/syscalls.c's `root_shows_no_socket`). The paths are
 --- [`test_sandbox.plan`]'s; this module turns them into grants and the rest of the
---- declaration into the policy's other fields, or refuses the module,
---- naming the field, where the policy has nothing to say it with. A module
---- never runs less confined than it declares: what is refused fails its
---- tests.
+--- declaration into the policy's other fields. A module never runs less
+--- confined than it declares: what a policy has no word for (`isolate`,
+--- `limits`, ...) fails the build ([`Test.policy`]) rather than reaching here.
 ---
---- What the declaration becomes:
+--- What the declaration a policy stands for becomes:
 ---
 --- - `reads` and the closure's files are `r` grants at /tree, the core and
 ---   the program `rx`, o/bin `rx` for `tool`, the store at o/cosmic.db a
@@ -34,8 +33,7 @@
 --- - `lua` and `standalone` say what the worker holds the processes of
 ---   its test to (a hold of the store, not of the sandbox) and need no
 ---   field.
----
---- Refused: `env = { "*" }`, which no policy holds (it names each variable).
+
 -- TODO: let a worker hold itself with [`Sandbox.restrict`] to what its
 -- module declares, with the runner's own reads (the store, the core, the
 -- report) granted only to the start, as a step after the policy path
@@ -56,9 +54,9 @@ end
 --- but `nest` ([`worker_promises`]).
 -- TODO: hold a worker by the promises its module declares
 -- ([`Test.policy`]'s `promises`) rather than all but `nest`, once the
--- tests declare them (step (e) of the plan, which replaces [`Test.needs`]
--- with [`Test.policy`]): until then no test can say what it makes, and the
--- filter refuses only what no test is meant to.
+-- tests declare them (see the TODO on [`Test.needs_of`]): until then no
+-- test says what it makes, and the filter refuses only what no test is
+-- meant to.
 local base_promises <const>: {Sandbox.Promise} = { "fattr", "fork", "jit" }
 
 --- The devices a worker is given, as the policy's letters have them: the
@@ -119,26 +117,6 @@ local function shape(effective: test_inputs.Effective): Sandbox.Policy
   }
 end
 
---- Why a worker of `effective` cannot be started under a policy, or "":
---- what its module declares that no policy says, naming the field. A
---- refusal fails its tests.
---- @param effective what the module declares, as the runner resolved it
---- @return why, "" for nothing
--- TODO: delete this refusal, and the `"*"` that [`Test.needs`] still takes,
--- once the four unsandboxed fixtures under ci/fixtures name the variables
--- they read (each carries the TODO saying why it cannot yet), and the two
--- tests that declare one on purpose are reworked (build/test_policy_tool_test.tl's
--- wildcard_test.tl and build/test_isolation_tool_test.tl's hooks_test.tl,
--- snippets of the wildcard itself): a policy has no wildcard. It waits on
--- step (e) of the sandbox plan, which deletes [`Test.needs`].
-local function refusal(effective: test_inputs.Effective): string
-  if effective.env["*"] then
-    return 'env "*": the policy path names each variable a worker is given, and a policy ' ..
-      'has no wildcard; name the variables the module reads'
-  end
-  return ""
-end
-
 --- The part of every worker's policy that is the same for all of them and
 --- that a verdict's key holds: the isolation, the promises every worker
 --- has, as text, whatever its module declares. A change to either is a
@@ -158,17 +136,13 @@ local function letters_of(path: string, inside: string, runs: {string:boolean}):
 end
 
 --- The policy a worker of `effective` is started under, from the paths of
---- `plan` ([`test_sandbox.plan`]). Nil and why where the module declares what a policy cannot say
---- (`refusal`). It has no `set_env`: the worker's environment is whole
---- only once what starts it is added ([`worker.invocation`]).
+--- `plan` ([`test_sandbox.plan`]). It has no `set_env`: the worker's
+--- environment is whole only once what starts it is added
+--- ([`worker.invocation`]).
 --- @param plan the worker's paths
 --- @param effective what its module declares
---- @return the policy, nil where it is refused
---- @return why it is refused
-function test_policy.worker(plan: test_sandbox.Plan,
-                            effective: test_inputs.Effective): Sandbox.Policy | nil, string
-  local refused = refusal(effective)
-  if refused ~= "" then return nil, refused end
+--- @return the policy
+function test_policy.worker(plan: test_sandbox.Plan, effective: test_inputs.Effective): Sandbox.Policy
   local policy = shape(effective)
   local unveil = plan.sandbox.unveil
   local at = unveil.at or {}
@@ -198,7 +172,7 @@ function test_policy.worker(plan: test_sandbox.Plan,
     grants[#grants + 1] = { path = "/tmp", letters = "rwxc" }
   end
   policy.grants = grants
-  return policy, ""
+  return policy
 end
 
 --- The paths `policy` lets a worker run, as its profiles resolve: those of

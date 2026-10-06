@@ -23,7 +23,7 @@
 --- - a directory of the check's own for caches and dependency files.
 ---
 --- In a test's sandboxed worker, the sandbox every process it starts
---- inherits holds the compiler, as the test's [`Test.needs`] declares. In
+--- inherits holds the compiler, as the test's [`Test.policy`] declares. In
 --- an unsandboxed worker the compiler gets a root of its own holding
 --- those paths alone, where the kernel gives one. Where the kernel gives
 --- none, it runs unconfined. Either way its test's verdict stands on

@@ -52,8 +52,8 @@ local bytecode_header =
   "\8\136\169\255\255\255\255\255\255" ..
   "\8\0\0\0\0\0\40\119\192"
 
---- What `test_inputs` holds, by source hash: each [`Test.needs`]
---- declaration.
+--- What `test_inputs` holds, by source hash: each [`Test.policy`]
+--- declaration, as the [`Test.Needs`] it stands for.
 local function test_inputs_by_hash(db: Sqlite.Handle): {string:analyzer.Declared} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT source_hash, field, value FROM test_inputs ORDER BY source_hash, ordinal")
@@ -306,7 +306,7 @@ function compilation.collect(db: Sqlite.Handle): {Module} | nil, string
       -- A declaration holds for the tests of its own module, and a
       -- module that is no test's has none: what a module it requires
       -- reads, the test declares.
-      return nil, file .. ":" .. inputs.line .. ": test.needs: only a test or example " ..
+      return nil, file .. ":" .. inputs.line .. ": test.policy: only a test or example " ..
         "module declares what its tests read; call it in each test module that " ..
         "requires this one"
     end

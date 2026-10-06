@@ -222,8 +222,8 @@ end
 --- naming the declaration that lets it.
 local function nests_refusal(program: string, module: string): string
   return string.format("%s cannot start in a root of its own: %s's worker is held by a " ..
-      "Landlock ruleset, under which the kernel refuses every mount; declare nests = true " ..
-      "in its Test.needs", program, module)
+      "Landlock ruleset, under which the kernel refuses every mount; declare the promise " ..
+      "\"nest\" in its Test.policy", program, module)
 end
 
 --- `wanted`, each relative path taken from the directory this process
@@ -254,7 +254,7 @@ end
 --- Declares what every process the calling test starts from here on
 --- needs. Only a test of the sandbox itself, which nests one sandbox in
 --- another, calls it: any other test declares what its processes read
---- in its module's [`Test.needs`], whose sandboxed worker holds them to it.
+--- in its module's [`Test.policy`], whose sandboxed worker holds them to it.
 ---
 --- `declared.reads` is read-only and `declared.writes` may be changed,
 --- beside `system` -- each of it the worker has: a sandboxed worker
@@ -307,7 +307,7 @@ end
 --- confines, has the sandboxed worker's own sandbox, or, where the
 --- worker runs unsandboxed, runs unconfined. Only the sandbox's own tests
 --- confine: every other test's processes are the worker's to hold,
---- which its module's [`Test.needs`] declares for them.
+--- which its module's [`Test.policy`] declares for them.
 function confine.must_confine(declared: confine.Confinement | nil)
   must_everywhere() -- a misspelt mode raises here too
   declare(declared, "must_confine")
@@ -849,14 +849,15 @@ end
 --- `use`s, for what [`confine.unseen`] says.
 local function remedy(top: string, use: confine.Use): string
   if system_path(top) and use == "starts" then
-    return "a test that starts a host program declares Test.needs { system = true } " ..
+    return "a test that starts a host program declares Test.policy { profiles = { \"system\" } } " ..
       "(see cosmic docs cosmic.test)"
   elseif system_path(top) then
-    return "a test that reads the system's own files declares Test.needs " ..
-      "{ system = true }, or names the few it reads in `host` (see cosmic docs cosmic.test)"
+    return "a test that reads the system's own files declares Test.policy " ..
+      "{ profiles = { \"system\" } }, or grants the few it reads by their absolute paths " ..
+      "(see cosmic docs cosmic.test)"
   end
-  return "a test names each host file it starts or reads in Test.needs " ..
-    "{ host = { ... } } (see cosmic docs cosmic.test)"
+  return "a test grants each host file it starts or reads, by its absolute path, in Test.policy " ..
+    "{ grants = { ... } } (see cosmic docs cosmic.test)"
 end
 
 --- Why a process in a sandboxed worker's sandbox (build/test_sandbox.tl)
