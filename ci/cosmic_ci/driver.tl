@@ -1,4 +1,5 @@
 local Compiles = require("cosmic_ci.compiles")
+local ChangedPaths = require("cosmic_ci.changed_paths")
 local CommitVerdicts = require("cosmic_ci.commit_verdicts")
 local Context = require("cosmic_ci.context")
 local Flags = require("cosmic.flags")
@@ -120,6 +121,8 @@ local commands: {string:Command} = {
     usage = "", handler = QueueSeed.ahead_command },
   ["merge-base"] = { about = "name the main commit this run's tree grew from, whose verdicts the restore takes",
     usage = "", handler = CommitVerdicts.merge_base_command },
+  ["changed-paths"] = { about = "name the paths this branch changed since its base on main, for a light run's format check",
+    usage = "", handler = ChangedPaths.command },
   ["prune-commit-verdicts"] = { about = "delete main's commit-keyed verdicts and the branches' compiles a day old",
     usage = "", handler = CommitVerdicts.prune_command },
   platform = { about = "run one phase of this worker's platform job",

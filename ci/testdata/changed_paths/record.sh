@@ -1,11 +1,11 @@
 #!/bin/sh
-# Records what the system's git answers .github/scripts/changed-paths.sh,
-# for build/changed_paths_test.tl to replay (run from anywhere):
+# Records what the system's git answers ci/cosmic_ci/changed_paths.tl,
+# for ci/cosmic_ci/changed_paths_test.tl to replay (run from anywhere):
 #
-#     sh testdata/changed_paths/record.sh
+#     sh ci/testdata/changed_paths/record.sh
 #
 # A branch off main's base commit, with fixed names and dates (so the base
-# is the same hash each time), is diffed against that base as the script
+# is the same hash each time), is diffed against that base as the driver
 # does, `git diff --no-renames --name-only -z <base> HEAD --`, once for each
 # change the test makes: edited.z (an edit, a removal and an added path
 # holding a space), none.z (an empty commit) and linebreak.z (those with a

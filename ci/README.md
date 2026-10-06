@@ -456,7 +456,7 @@ format`), which ran after linux-aarch64's suite and runs on a full run
 in that leg's assemble. There it is `fix --check .` (36 to 55 s on this
 job, 2026-09-30, which then often outlasted the legs); on a light run it
 lays out only what the branch changed since its base on main
-(.github/scripts/changed-paths.sh, `fix --check --changed`), whose
+(driver.tl changed-paths, `fix --check --changed`), whose
 tree the queue held to the whole check, and still makes every check
 spanning files -- the tree checks, the links, the asserts -- over the
 whole tree (some 20 s). Where a path changed is part of what
