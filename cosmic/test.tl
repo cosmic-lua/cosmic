@@ -591,9 +591,9 @@ local function policy_of(given: any): Test.Policy | nil, string
 end
 
 -- TODO: delete the `$NAME` host path and env "*" from `needs`, which no
--- policy says, once the last declarations of them in ci/fixtures are gone:
--- they wait on ci/cosmic-driver.pin naming a release that takes the fixed
--- o/fixtures paths and the fixtures' named env lists.
+-- policy says, once build/test_inputs_test.tl's `$PRODUCT` cases and the
+-- two wildcard snippets (build/test_policy.tl's TODO names them) are
+-- reworked: no fixture under ci/fixtures declares either now.
 -- TODO: hand the promises to the runner, which keeps them in the key, once
 -- [`Test.policy`] replaces `needs` (step e of the sandbox plan): the filter
 -- runs on every worker, but until then a promise a test does not make
