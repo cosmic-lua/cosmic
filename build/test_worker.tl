@@ -10,7 +10,8 @@
 --- it passed. Its standard streams are the test's,
 --- captured by the runner. A report that is missing or cut short --
 --- the test exited the process, crashed it, or ran past its deadline --
---- is itself the runner's answer that the test failed.
+--- is itself the runner's answer that the test failed. A whole report
+--- passes only if the process then exits successfully.
 
 local type Child = require("cosmic.child")
 local type Sandbox = require("cosmic.sandbox")
@@ -590,7 +591,7 @@ end
 --- Reads a finished worker (`judging`) into its test's verdict: what it
 --- reported, unless it could not be supervised, ran past its deadline,
 --- or ended before it reported; a pass fails where what it started
---- outlived it, or where it ran a module no key of its test holds
+--- outlived it, its process ended unsuccessfully, or it ran a module no key of its test holds
 --- (`unkeyed`), which would let an edit to that module leave the pass
 --- standing.
 function worker.judge(judging: worker.Judging): worker.Judgement
@@ -613,6 +614,11 @@ function worker.judge(judging: worker.Judging): worker.Judgement
   end
   local judgement: worker.Judgement = { report = report, passed = report.passed,
     message = report.message }
+  if not result.ok or result.code ~= 0 or result.signal ~= nil then
+    local message = "the test process " .. ending(result) .. " after it reported"
+    judgement.passed = false
+    judgement.message = report.message ~= "" and report.message .. "\n  " .. message or message
+  end
   if judgement.passed and judging.carried ~= nil and judging.closure ~= nil then
     local names = unkeyed(report.modules, judging.carried, judging.closure)
     if #names > 0 then
@@ -673,7 +679,8 @@ end
 
 --- Runs the one test the command line names and writes its report.
 --- Exits 0 once the report is written, whatever the verdict; anything
---- else means there is no report to read.
+--- else fails even if a finalizer ends the process after the report was
+--- written.
 ---
 --- @param argv `cosmic test --worker <root> <module> <test> <tmp> <children>
 --- <needs> [--sandboxed] [--store <store>] <closure>... --tree <tree>...`:
