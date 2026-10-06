@@ -613,10 +613,10 @@ end
 
 --- A start timeout that outlasts the child's own startup, for a test whose
 --- child must write before its deadline: 200 ms past twice what a child
---- that does nothing takes to run (about 15 ms on the release core, about
---- 300 ms on the checked one, where a flat 200 ms ended the child before
---- it ran its chunk). What the test measures is the deadline it passes, so
---- it bounds the elapsed time against what this returns.
+--- that does nothing takes to run, which on a slow core (the checked one)
+--- can pass a flat 200 ms before the child runs its chunk. What the test
+--- measures is the deadline it passes, so it bounds the elapsed time
+--- against what this returns.
 local function startup_timeout(): integer
   local began = Clock.monotonic_ns()
   assert(Child.run(lua("")))
