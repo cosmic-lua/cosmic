@@ -121,7 +121,8 @@
         {
           name: "move the tree to a path of this commit's own",
           env: {COSMIC_WORKER: "fuzz"},
-          run: "sh .github/scripts/place-tree.sh",
+          "working-directory": "ci",
+          run: "cosmic-driver cosmic_ci/driver.tl place-tree",
         },
 
         # TODO: this compiles vendor/ and core/ cold each night; restoring
@@ -161,11 +162,11 @@
         # back before the checkout's post step reads it.
         {
           name: "move the tree back to where it was checked out",
-          if: "always()",
-          "working-directory": ".",
+          if: "always() && steps.driver.outcome == 'success'",
+          "working-directory": "ci",
           shell: "sh",
           env: {COSMIC_WORKER: "fuzz"},
-          run: "[ ! -f .github/scripts/place-tree.sh ] || sh .github/scripts/place-tree.sh --restore",
+          run: "cosmic-driver cosmic_ci/driver.tl place-tree --restore",
         },
       ],
     },

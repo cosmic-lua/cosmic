@@ -367,7 +367,7 @@ local function operation(c: Context, phase: string, command: {string},
   -- COSMIC_ZIG_CACHE_SEED where CI restored it, else keeps its own under
   -- o/, which the build phase seeds. zig keys what it compiles by its
   -- own cache's path too, and CI puts the checkout at a path of the commit's
-  -- own (.github/scripts/place-tree.sh), so a cache under o/ would never
+  -- own (ci/cosmic_ci/place_tree.tl), so a cache under o/ would never
   -- be reused there: CI saves the seed's as it stands.
   if (child_environment.COSMIC_ZIG_CACHE or "") == "" then
     local seed = named("COSMIC_ZIG_CACHE_SEED")
@@ -797,7 +797,7 @@ local function checked_suite(c: Context, target: string, work: string,
   -- the run that built it (build.zig's `debug_dir` and the generated
   -- map's `-g0`). The checked suite's verdicts are keyed by the core's
   -- image, its debug sections left out (build/core_image.tl). A core
-  -- that names the tree root (per commit in CI, place-tree.sh) or the
+  -- that names the tree root (per commit in CI, place_tree.tl) or the
   -- map's zig-cache directory (new on every relink) in what it loads,
   -- such as an assert's __FILE__, would move every key each run and
   -- stand on none. These are plain finds over the core already read
