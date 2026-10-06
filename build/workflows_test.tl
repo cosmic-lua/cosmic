@@ -1431,19 +1431,19 @@ end
 --- saved, under the key main would have saved it under: its restore's
 --- prefix and its trim's digest, where that is not the entry it
 --- restored, and the driver check's marker, which holds its key. It
---- does so after both trims and with the tree back where the scripts
---- are, and uploads it as `seed-<leg>`, which `seed` downloads where
---- it lays it out again.
+--- does so after both trims and with the tree back, as a driver command, and uploads
+--- it as `seed-<leg>`, which `seed` downloads where it lays it out again.
 local function test_the_queue_keeps_what_main_would_save()
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
   local jobs = ci.jobs as {string: {string: any}}
   local steps = jobs.platform.steps as {{string: any}}
-  local stage, at = step_running(steps, "queue-seed.sh stage")
+  local stage, at = step_running(steps, "driver.tl queue-stage")
   local QUEUE <const> = "success() && github.event_name == 'merge_group'"
   assert(stage["if"] == QUEUE, "the queue's legs keep their seed on other runs: " .. tostring(stage["if"]))
-  -- On the host, from the checkout's root, where the script is.
-  assert(stage.shell == "sh" and stage["working-directory"] == ".",
-    "the seed is kept elsewhere than on the host from the root")
+  -- On the host, from ci/ like every driver command, so the driver runs
+  -- where the runner's $RUNNER_TEMP is.
+  assert(stage.shell == "sh" and stage["working-directory"] == nil,
+    "the seed is kept elsewhere than on the host from ci/")
   local env = stage.env as {string: string}
   for cache, path in pairs({ VERDICTS = "${{ runner.temp }}/verdicts", COMPILES = "${{ runner.temp }}/build-cache" }) do
     local save = save_of(steps, path)
@@ -1510,8 +1510,8 @@ local function test_the_queue_keeps_what_main_would_save()
   -- after its trim and with its container gone, under its own name.
   local cjob = jobs.checked
   local csteps = cjob.steps as {{string: any}}
-  local cstage, cat = step_running(csteps, "queue-seed.sh stage")
-  assert(cstage["if"] == QUEUE and cstage.shell == "sh" and cstage["working-directory"] == ".",
+  local cstage, cat = step_running(csteps, "driver.tl queue-stage")
+  assert(cstage["if"] == QUEUE and cstage.shell == "sh" and cstage["working-directory"] == nil,
     "the checked job keeps its seed on other runs, or elsewhere: " .. tostring(cstage["if"]))
   local cenv = cstage.env as {string: string}
   local vsave, vtwin = save_of(csteps, "${{ runner.temp }}/verdicts")
@@ -1835,7 +1835,11 @@ local function test_a_job_moves_its_tree_once_and_puts_it_back_once()
         if run is string then
           if run:match("place%-tree%.sh%s*$") ~= nil then moves[#moves + 1] = i end
           if run:find("place-tree.sh --restore", 1, true) ~= nil then backs[#backs + 1] = i end
-          if run:find("cosmic-driver ", 1, true) ~= nil then last_driver = i end
+          -- `queue-stage` reads and writes the runner's temporary directory
+          -- alone, so it runs after the tree is back.
+          if run:find("cosmic-driver ", 1, true) ~= nil and run:find("driver.tl queue-stage", 1, true) == nil then
+            last_driver = i
+          end
         end
         if step.uses == DRIVER then last_driver = i end
       end
@@ -2042,7 +2046,7 @@ local function test_a_leg_prunes_its_zig_outputs_before_it_saves_them()
   local steps = jobs.platform.steps as {{string: any}}
   local prune, at = step_running(steps, "driver.tl zig-prune")
   local _, assembled = step_running(steps, "driver.tl platform assemble")
-  local stage, staged = step_running(steps, "queue-seed.sh stage")
+  local stage, staged = step_running(steps, "driver.tl queue-stage")
   local saved: integer
   local upload: {string: any}
   for i, step in ipairs(steps) do

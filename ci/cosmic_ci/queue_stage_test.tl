@@ -1,36 +1,44 @@
---- .github/scripts/queue-seed.sh, which keeps in a merge queue run's leg
---- what main would have saved, under the keys it would have saved it
---- under (`stage`). The queue's lookups it once held (`find`, `ahead`)
---- are the driver's, tested in ci/cosmic_ci/queue_seed_test.tl.
+--- `driver.tl queue-stage`, which keeps in a merge queue run's leg what
+--- main would have saved, under the keys it would have saved it under:
+--- the copies and keys, the zig build outputs' tar and the `seed` job's
+--- read of the keys, which ci.yml holds and this reads as it stands.
+local Archive = require("cosmic.archive")
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
-local Test = require("cosmic.test")
+local QueueStage = require("cosmic_ci.queue_stage")
+local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
 
---- The script, and the system's `sh` and tools, which run it; and
---- ci.yml, whose keys `stage` is run with and whose `seed` job reads.
-Test.policy{
-  profiles = { "system" },
-  grants = {
-    { path = ".github/scripts/queue-seed.sh", letters = "r" },
-    { path = ".github/workflows/ci.yml", letters = "r" },
-  },
-}
-
---- The script, by its whole path: a process the test starts elsewhere
---- finds it.
-local SCRIPT <const> = assert(Fs.absolute(".github/scripts/queue-seed.sh"))
 local SHA <const> = "0123456789abcdef0123456789abcdef01234567"
 
 local runs = 0
+
+--- A [`QueueStage.Host`] that keeps what it is told, and archives with
+--- `archive`, the real one unless the test gives another.
+local record Fake
+  host: QueueStage.Host
+  printed: {string}
+  warned: {string}
+end
+
+local function fake(archive?: function(parent: string, name: string, to: string): boolean, string): Fake
+  local f: Fake = { printed = {}, warned = {} }
+  f.host = {
+    print = function(text: string) f.printed[#f.printed + 1] = text end,
+    warn = function(line: string) f.warned[#f.warned + 1] = line end,
+    archive = archive or QueueStage.archive_tree,
+  }
+  return f
+end
 
 --- What `stage` keeps under $RUNNER_TEMP/seed, run with `env` and, where
 --- `marker`, a passing driver check's marker (holding `marker_key`, or
 --- a key of no shape), and its seed.keys. The zig build outputs hold a
 --- program, whose mode their seed keeps.
-local function stage(tmp: string, env: {string: string}, marker: boolean, marker_key?: string): string, string
+local function stage(tmp: string, env: {string: string}, marker: boolean, marker_key?: string,
+                     archive?: function(parent: string, name: string, to: string): boolean, string): string, string, Fake
   runs = runs + 1
   local temp = tmp .. "/stage-" .. runs
   assert(Fs.mkdirs(temp .. "/zig-build/zig-project/o/abc"))
@@ -44,12 +52,14 @@ local function stage(tmp: string, env: {string: string}, marker: boolean, marker
     assert(Fs.mkdirs(temp .. "/driver-checked"))
     assert(Fs.write(temp .. "/driver-checked/key", (marker_key or "driver-checked-v2-leg-x") .. "\n"))
   end
-  local full: {string: string} = { PATH = Env.get("PATH") or "/usr/bin:/bin", RUNNER_TEMP = temp }
+  local full: {string: string} = { RUNNER_TEMP = temp }
   for name, value in pairs(env) do full[name] = value end
-  local result = assert(Child.run({ "/bin/sh", SCRIPT, "stage" }, { env = full, cwd = temp,
-    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
-  assert(result.code == 0, (result.stdout or "") .. (result.stderr or ""))
-  return temp .. "/seed", Fs.read(temp .. "/seed/seed.keys") or ""
+  local f = fake(archive)
+  local code = QueueStage.stage(full, f.host)
+  assert(code == 0, table.concat(f.warned, "\n"))
+  local keys = assert(Fs.read(temp .. "/seed/seed.keys"))
+  assert(table.concat(f.printed) == keys, "the keys printed are the keys written")
+  return temp .. "/seed", keys, f
 end
 
 --- Each cache is kept, under its prefix and digest, where the run moved
@@ -115,14 +125,38 @@ local function zig_tar(seed: string): string
   return seed .. "-zig/zig-build.tar"
 end
 
---- The program the tar `stage` kept the zig build outputs in lays out,
---- under `dir`.
-local function unpacked(seed: string, dir: string): string
+--- The tree of `root`, a line for each path below it: what it is, its
+--- permission bits, and its bytes, link target or modification time.
+local function tree(root: string): {string: string}
+  local lines: {string: string} = {}
+  local function visit(path: string, rel: string)
+    local st = assert(sys.lstat(path))
+    -- A directory's mode is read from the archive instead: the extractor
+    -- makes every directory 0755.
+    -- TODO: compare a directory's mode here once cosmic.archive's
+    -- `extract` applies the mode a directory entry names.
+    local what = st.kind .. (st.kind == "dir" and "" or string.format(" %o", st.mode & 0xfff))
+    if st.kind == "file" then
+      what = what .. " " .. assert(Fs.read(path)) .. string.format(" %d", st.mtime)
+    elseif st.kind == "link" then
+      what = what .. " -> " .. assert(Fs.readlink(path))
+    elseif st.kind == "dir" then
+      what = what .. string.format(" %d", st.mtime)
+      for _, name in ipairs((assert(Fs.list(path)))) do
+        visit(path .. "/" .. name, rel .. "/" .. name)
+      end
+    end
+    lines[rel] = what
+  end
+  visit(root, "")
+  return lines
+end
+
+--- `tar` laid out under `dir` by cosmic's own reader.
+local function unpacked(tar: string, dir: string): string
   assert(Fs.mkdirs(dir))
-  local result = assert(Child.run({ "/bin/sh", "-c", 'tar -xf "$1" -C "$2"', "sh", zig_tar(seed), dir },
-    { stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
-  assert(result.code == 0, (result.stdout or "") .. (result.stderr or ""))
-  return dir .. "/zig-build/zig-project/o/abc/build"
+  assert(Archive.extract(tar, dir, { links = "create" }))
+  return dir .. "/zig-build"
 end
 
 --- The zig build outputs are kept, with their modes, under the key the
@@ -135,7 +169,7 @@ local function test_stage_keeps_the_zig_build_outputs_of_a_new_core(tmp: string)
       ZIG_BUILD_RESTORED = restored }, false)
     assert(keys == "zig-build=" .. CORE .. "9-1\nzig-build-exact=" .. CORE .. "\n", restored .. ": " .. keys)
     assert(not Fs.exists(seed .. "/zig-build.tar"), "the zig build outputs are kept in the seed itself")
-    local program = unpacked(seed, tmp .. "/unpacked-" .. i)
+    local program = unpacked(zig_tar(seed), tmp .. "/unpacked-" .. i) .. "/zig-project/o/abc/build"
     assert(Fs.read(program) == "z" and assert(Fs.stat(program)).mode & 0x1ff == 493,
       restored .. ": the zig build outputs lost a file or its mode")
   end
@@ -153,25 +187,80 @@ local function test_stage_keeps_no_zig_build_outputs_an_entry_holds(tmp: string)
 end
 
 --- A tar that fails keeps none of zig's and names no key for it, and
---- the stage goes on to keep the rest: the outputs save only time.
+--- the stage goes on to keep the rest: the outputs save only time. A
+--- partial file the archiver left is removed, and the step says so.
 local function test_a_failing_zig_tar_keeps_the_rest(tmp: string)
-  local bin = tmp .. "/failing-tar"
-  assert(Fs.mkdirs(bin))
-  assert(Fs.write(bin .. "/tar", "#!/bin/sh\necho partial > \"$2\"\nexit 1\n"))
-  assert(Fs.chmod(bin .. "/tar", 493))
-  local seed, keys = stage(tmp, {
-    PATH = bin .. ":" .. (Env.get("PATH") or "/usr/bin:/bin"),
+  local seed, keys, f = stage(tmp, {
     VERDICTS_PREFIX = "verdicts-leg-h-f-", VERDICTS_DIGEST = "d1", VERDICTS_RESTORED = "",
     ZIG_BUILD_KEY = CORE .. "9-1", ZIG_BUILD_EXACT = CORE, ZIG_BUILD_RESTORED = "",
-  }, true)
+  }, true, nil, function(_parent: string, _name: string, to: string): boolean, string
+    assert(Fs.write(to, "partial"))
+    return false, "refused"
+  end)
   assert(keys == "verdicts=verdicts-leg-h-f-d1\ndriver-checked=driver-checked-v2-leg-x\n", keys)
   assert(not Fs.exists(zig_tar(seed)), "a failed tar is kept")
   assert(Fs.read(seed .. "/verdicts/verdicts.db") == "v")
+  assert(f.warned[#f.warned] == "warning: the zig build outputs could not be kept: none seeded",
+    table.concat(f.warned, "\n"))
+  assert(f.warned[1] == "queue-stage: refused", f.warned[1])
+end
+
+--- A tree holding what a zig cache holds, and more: a program, a
+--- read-only file, an empty file and directory, a path and a link
+--- target past a ustar name's 100 bytes, a link, and a mode on a
+--- directory. Its tar, laid out again, is the tree it was, mode,
+--- bytes, target and modification time for each path.
+local function test_the_zig_tar_lays_out_the_tree_it_archived(tmp: string)
+  local parent = tmp .. "/round"
+  local root = parent .. "/zig-build"
+  local deep = root .. "/" .. string.rep("d", 60) .. "/" .. string.rep("e", 60)
+  assert(Fs.mkdirs(deep))
+  assert(Fs.mkdirs(root .. "/empty"))
+  assert(Fs.write(root .. "/program", "#!/bin/sh\n", 493))
+  assert(Fs.chmod(root .. "/program", 493))
+  assert(Fs.write(root .. "/readonly", "r"))
+  assert(Fs.chmod(root .. "/readonly", 292))
+  assert(Fs.write(root .. "/blank", ""))
+  assert(Fs.write(deep .. "/" .. string.rep("f", 80), "far"))
+  assert(Fs.write(root .. "/big", string.rep("0123456789abcdef", 100000)))
+  assert(Fs.symlink("program", root .. "/link"))
+  assert(Fs.symlink(string.rep("d", 60) .. "/" .. string.rep("e", 60) .. "/" .. string.rep("f", 80),
+    root .. "/long-link"))
+  assert(Fs.chmod(root .. "/empty", 0x1e8))
+  for _, path in ipairs({ "program", "readonly", "blank", "big" }) do
+    assert(Fs.set_mtime(root .. "/" .. path, 1700000000))
+  end
+  assert(QueueStage.archive_tree(parent, "zig-build", parent .. "/zig-build.tar"))
+  local back = unpacked(parent .. "/zig-build.tar", tmp .. "/round-back")
+  local was, now = tree(root), tree(back)
+  for path, what in pairs(was) do
+    assert(now[path] == what, path .. ": " .. what .. " / " .. tostring(now[path]))
+  end
+  for path in pairs(now) do assert(was[path] ~= nil, "extra " .. path) end
+  local modes: {string: integer} = {}
+  for _, member in ipairs((assert(Archive.list(parent .. "/zig-build.tar")))) do
+    modes[member.path] = member.mode
+  end
+  assert(modes["zig-build/empty/"] == 0x1e8 and modes["zig-build/program"] == 493 and
+      modes["zig-build/readonly"] == 292, "the archive holds another mode than the tree's")
+end
+
+--- A tree holding a device, a socket or a named pipe is refused, whole,
+--- with its path, and leaves no file at the archive's path.
+local function test_the_zig_tar_refuses_what_it_cannot_keep(tmp: string)
+  local parent = tmp .. "/refuse"
+  assert(Fs.mkdirs(parent .. "/zig-build"))
+  assert(Fs.write(parent .. "/zig-build/file", "x"))
+  local fifo = parent .. "/zig-build/pipe"
+  assert(sys.mkfifo(fifo, 0x1a4))
+  local ok, why = QueueStage.archive_tree(parent, "zig-build", parent .. "/zig-build.tar")
+  assert(not ok and why:find("pipe", 1, true) ~= nil, why)
+  assert(not Fs.exists(parent .. "/zig-build.tar"))
 end
 
 --- ci.yml, decoded.
 local function workflow(): {string: {string: any}}
-  local text = assert(Fs.read(".github/workflows/ci.yml"))
+  local text = assert(Fs.read("../.github/workflows/ci.yml"))
   return (assert(Json.decode_object(text, { json5 = true, hash_comments = true }))) as {string: {string: any}}
 end
 
@@ -288,7 +377,7 @@ local function test_seed_reads_every_key_each_leg_stages(tmp: string)
     local name = leg.name as string
     local steps = leg.checked and checked_steps or platform_steps
     local env: {string: string} = {}
-    for key, template in pairs(step_of(steps, nil, "queue-seed.sh stage").env as {string: string}) do
+    for key, template in pairs(step_of(steps, nil, "queue-stage").env as {string: string}) do
       env[key] = expand(template, name, steps)
     end
     local marker: string
