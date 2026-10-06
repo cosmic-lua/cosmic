@@ -22,7 +22,8 @@
 # (core/syscalls.c's `spawn_program`).
 core/syscalls_test.tl
 core/syscalls_sigpipe_test.tl
-core/syscalls_tool_test.tl
+core/syscalls_tool_unsandboxed_test.tl
+core/grants_refused_test.tl
 core/descriptor_limit_system_test.tl
 cosmic/child_test.tl
 cosmic/child_lua_test.tl
