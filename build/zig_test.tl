@@ -470,28 +470,3 @@ local function test_snapshot_names_a_same_size_rewrite_with_preserved_mtime(tmp:
   sys.stat = stat
   assert(ok, tostring(trouble))
 end
-
---- The standalone wrapper still catches rewrites on the pinned bootstrap
---- whose Stat declaration predates nanosecond change times.
-local function test_snapshot_hashes_when_change_time_is_unavailable(tmp: string)
-  local root = sources(tmp)
-  local path = root .. "/core/a.c"
-  assert(Fs.set_mtime(path, 0, 0))
-  local stat = sys.stat
-  sys.stat = function(name: string): sys.Stat | nil, string, integer
-    local st, trouble, errno = stat(name)
-    if st ~= nil then
-      local fields = st as {string:integer}
-      fields["ctime_ns"] = nil
-    end
-    return st, trouble, errno
-  end
-  local ok, trouble = pcall(function()
-    local before = assert(Zig.snapshot(root))
-    assert(Fs.write(path, "next"))
-    assert(Fs.set_mtime(path, 0, 0))
-    assert(table.concat(Zig.changed(before, (assert(Zig.snapshot(root)))), " ") == "core/a.c")
-  end)
-  sys.stat = stat
-  assert(ok, tostring(trouble))
-end

@@ -448,10 +448,7 @@ end
 
 local function test_an_escaped_writer_bounds_final_drain_without_replacing_child_status(tmp: string)
   local setsid = Proc.find("setsid")
-  -- TODO: skip, rather than return, where the host has no setsid, as the
-  -- tests of the main tree do, once ci/cosmic-driver.pin names a release
-  -- whose cosmic.test has a skip.
-  if setsid == nil then return end
+  if setsid == nil then Test.skip("this host has no setsid") end
   local pid_file = tmp .. "/escaped-pid"
   local handle <close>, temp = start_fuzz(tmp, {
     "#!/bin/sh",
