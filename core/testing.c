@@ -15,7 +15,9 @@
 static const char *const instruments[] = {
   "fail_allocations", "allow_allocations", "open_statements",
   "c_heap",           "fail_at",           "live_transfers",
-  "executable_path",  "mountinfo_local_flock", NULL,
+  "executable_path",  "mountinfo_local_flock", "mount",
+  "umount2",          "unshare",           "setns",
+  "chroot",           NULL,
 };
 
 /* Stands in for the instrument its upvalue names, which only the
@@ -26,7 +28,7 @@ static int checked_only (lua_State *L) {
 }
 
 int cosmic_open_testing (lua_State *L) {
-  lua_createtable(L, 0, 8);
+  lua_createtable(L, 0, 14);
   for (const char *const *name = instruments; *name != NULL; name++) {
     lua_pushstring(L, *name);
     lua_pushcclosure(L, checked_only, 1);
