@@ -81,6 +81,10 @@ local version <const> = "28"
 --- and the tree itself is not walked. Its hash is the boot hash, and
 --- a self-tree command refuses a mismatch.
 ---
+--- `tool_discovery` holds the input walk's directories and links, including
+--- the root. Their metadata witnesses membership changes for read-only
+--- freshness checks; it contributes nothing to a build or verdict identity.
+---
 --- `scanned` is every other file the walk finds -- a script, a README,
 --- in cosmic's own tree everything under `ci/` -- fingerprinted like
 --- `tool`, without the bytes, and read only to find the TODOs it holds
@@ -294,6 +298,9 @@ work.schema = {
                                              own INTEGER NOT NULL,
                                              PRIMARY KEY (sha256, kind, ordinal)) WITHOUT ROWID]],
 }
+work.schema[#work.schema + 1] = [[CREATE TABLE IF NOT EXISTS tool_discovery (
+  path TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime_ns INTEGER,
+  ctime_ns INTEGER, ino INTEGER NOT NULL, dev INTEGER NOT NULL) WITHOUT ROWID]]
 for _, statement in ipairs(analysis_schema.statements) do
   work.schema[#work.schema + 1] = statement
 end
@@ -679,29 +686,19 @@ local function moved(known: {string:Known}, file: string, st: sys.Stat,
     was.ino ~= st.ino or was.dev ~= st.dev
 end
 
---- Whether any row [`work.stage`] last recorded under `tool` no longer
---- matches a stat of its own file, without walking the tree: only the
---- paths a previous stage knows about are stat'd. A file new to the tree
---- does not register until something already known requires it, which
---- edits that known file's bytes and so its stat. A row whose file is
---- gone fails its stat, which counts as moved. This lets a caller that
---- never edits the tree itself ([`build.reboot.stale_exit`], for a
---- read-only verb) ask whether the tool's inputs changed since the last
---- stage for a handful of stats instead of [`work.stage`]'s directory walk
---- over everything.
+--- Whether the tool's recorded files or discovery directories moved. The
+--- same walk that stages inputs records its directories, so a new input
+--- invalidates the fast path without listing an unchanged tree again.
 function work.tool_moved(handle: work.Handle): boolean | nil, string
-  local known, trouble = known_in(handle.db, "tool")
-  if known == nil then
-    return nil, trouble
-  end
-  for path in pairs(known) do
-    local st, _ = Fs.stat(handle.root .. "/" .. path)
-    if st == nil then
-      return true, ""
-    end
-    local mtime_ns = Clock.seconds(st.mtime) + st.mtime_ns
-    if moved(known, path, st, mtime_ns) then
-      return true, ""
+  for _, table_name in ipairs({ "tool", "tool_discovery" }) do
+    local known, trouble = known_in(handle.db, table_name)
+    if known == nil then return nil, trouble end
+    if table_name == "tool_discovery" and known[""] == nil then return true, "" end
+    for path in pairs(known) do
+      local st, _ = Fs.stat(handle.root .. "/" .. path)
+      if st == nil then return true, "" end
+      local mtime_ns = Clock.seconds(st.mtime) + st.mtime_ns
+      if moved(known, path, st, mtime_ns) then return true, "" end
     end
   end
   return false, ""
@@ -828,6 +825,14 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
   -- link to a tree beside the root, or to an unrelated one
   -- (`sys -> /usr`), is staged whole, by design. Only a link is
   -- stat'd, so a tree with none costs nothing more.
+  -- Capture before listing: a concurrent addition after the list must not
+  -- be hidden by a newer directory stat recorded after the walk.
+  local discovery: {string:sys.Stat} = {}
+  if own_tree then
+    local st, trouble = Fs.stat(root)
+    if st == nil then return nil, trouble end
+    discovery[""] = st
+  end
   local skip_path = own_tree and identity.skip_in_own_tree or identity.skip_input
   -- Each entry only the walk for links reaches.
   local links_only: {string:boolean} = {}
@@ -844,6 +849,16 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
         return true
       end
       links_only[entry] = true
+    end
+    if own_tree and not links_only[entry] and
+        not identity.is_foreign_tree(identity.first_of(entry)) and
+        (kind == "dir" or kind == "link") then
+      local st, _ = Fs.stat(root .. "/" .. entry)
+      if st == nil then
+        local link, _ = sys.lstat(root .. "/" .. entry)
+        st = link
+      end
+      if st ~= nil then discovery[entry] = st end
     end
     if kind ~= "link" then
       return false
@@ -976,6 +991,50 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
         end
       end
     end
+  end
+  if own_tree then
+    local cleared, trouble = db:exec("DELETE FROM tool_discovery")
+    if not cleared then
+      finish(put)
+      return nil, trouble
+    end
+    local discovery_put, prepare_trouble = db:prepare(
+      "INSERT INTO tool_discovery (path, size, mtime_ns, ctime_ns, ino, dev) " ..
+        "VALUES (?1, ?2, ?3, ?4, ?5, ?6)")
+    if discovery_put == nil then
+      finish(put)
+      return nil, prepare_trouble
+    end
+    for path, st in pairs(discovery) do
+      local mtime_ns = Clock.seconds(st.mtime) + st.mtime_ns
+      local ctime_ns = st.ctime_ns ~= nil and Clock.seconds(st.ctime) + st.ctime_ns or nil
+      local settled = ctime_ns ~= nil and math.max(mtime_ns, ctime_ns) < now - settle_ns
+      local saved, why = discovery_put:bind_text(1, path)
+      if saved then saved, why = discovery_put:bind_integer(2, st.size) end
+      if saved then
+        if settled then
+          saved, why = discovery_put:bind_integer(3, mtime_ns)
+        else
+          saved, why = discovery_put:bind_null(3)
+        end
+      end
+      if saved then
+        if settled then
+          saved, why = discovery_put:bind_integer(4, ctime_ns or 0)
+        else
+          saved, why = discovery_put:bind_null(4)
+        end
+      end
+      if saved then saved, why = discovery_put:bind_integer(5, st.ino) end
+      if saved then saved, why = discovery_put:bind_integer(6, st.dev) end
+      if saved then saved, why = once(discovery_put) end
+      if not saved then
+        discovery_put:finalize()
+        finish(put)
+        return nil, why
+      end
+    end
+    discovery_put:finalize()
   end
   finish(put)
   for _, table_name in ipairs({ "files", "tool", "scanned", "linked" }) do
