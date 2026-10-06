@@ -1769,10 +1769,10 @@ end
 --- A light run's format check lays out only what the branch changed
 --- since its base on main, whose tree main's run held to the whole
 --- check: the checked job finds that base on a light run too, names the
---- paths (.github/scripts/changed-paths.sh, on the host, which fetches
+--- paths (`changed-paths`, on the host, which fetches
 --- the base with the credentials the checkout keeps) before its tree
 --- moves, and hands the list to the format check, which checks the
---- whole tree where the script named none. A full run's check, the
+--- whole tree where it named none. A full run's check, the
 --- merge queue's, is the whole tree's.
 local function test_a_light_format_check_lays_out_only_what_the_branch_changed()
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
@@ -1781,9 +1781,9 @@ local function test_a_light_format_check_lays_out_only_what_the_branch_changed()
   local base, found = step_running(steps, "driver.tl merge-base")
   assert(base["if"] == nil, "the checked job finds its base only on some runs: " .. tostring(base["if"]))
   assert(driver_at(steps) < found, "the checked job finds its base before it has the driver")
-  local named, listed = step_running(steps, "sh .github/scripts/changed-paths.sh")
+  local named, listed = step_running(steps, "driver.tl changed-paths")
   assert(named.id == "changed" and named["if"] == LIGHT and named.shell == "sh" and
-      named["working-directory"] == "." and named["continue-on-error"] == true,
+      named["working-directory"] == nil and named["continue-on-error"] == true,
     "the checked job names what changed otherwise, or fails for it: " .. tostring(named["if"]))
   local env = named.env as {string: string}
   assert(env.BASE == "${{ steps.merge-base.outputs.sha }}" and
