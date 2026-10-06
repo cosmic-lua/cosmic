@@ -36,6 +36,8 @@ local function test_a_worker_that_nests_runs_on_a_sealed_database()
 end
 
 local function test_a_worker_that_nests_confines_a_child_on_the_same_database()
+  -- Off Linux no process can be confined in a root of its own.
+  if not confine.sandbox_platform() then return end
   local relaunch = sealed()
   if relaunch == nil then return end
   local argv: {string} = {}
