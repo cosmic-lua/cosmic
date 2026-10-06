@@ -46,6 +46,7 @@ local plural = require("build.plural")
 local shrink = require("build.fuzz.shrink")
 local type Budget = require("cosmic.internal.budget")
 local String = require("cosmic.string")
+local Test = require("cosmic.test")
 
 --- The instruction budget, handed to this module only when it loads from
 --- the binary's own tree (core/store.c's `raw_modules`). It shares the
@@ -250,6 +251,15 @@ local function shown(input: string): string
   return hex
 end
 
+--- Raises the report of a corpus input that failed its property, which the
+--- check of the input hands to `assert`, so a failure is the one raised and
+--- an input that held is a call to it made.
+local function corpus_failed(p: Fuzz.Property, path: string, why: string, input: string): boolean
+  error(("fuzz %s: corpus input %s: %s\n  input (hex, %s): %s"):
+      format(p.name, path, why, plural.count(#input, "byte"), shown(input)), 0)
+  return false
+end
+
 --- Checks every `.input` file in the property's corpus, in name order,
 --- raising a report on the first that fails; each is written to `kept`
 --- first, as a drawn input is. Returns how many were checked.
@@ -272,10 +282,7 @@ local function check_corpus(p: Fuzz.Property, budget: integer, kept: string): in
     end
     if kept ~= nil then local _, _ = Fs.write(kept, input) end
     local held, why = attempt(p.check, input, budget)
-    if not held then
-      error(("fuzz %s: corpus input %s: %s\n  input (hex, %s): %s"):
-          format(p.name, path, why, plural.count(#input, "byte"), shown(input)), 0)
-    end
+    assert(held or corpus_failed(p, path, why, input))
     checked = checked + 1
     ::continue::
   end
@@ -352,7 +359,8 @@ local function run(p: Fuzz.Property): integer
     print(("fuzz %s: seed=%d iters=%d; the input under test is kept at %s"):
         format(p.name, seed, iters, kept))
   end
-  if case_name == nil then check_corpus(p, budget, kept) end
+  local replayed = 0
+  if case_name == nil then replayed = check_corpus(p, budget, kept) end
   local counts: {string: integer} = {}
   local seeds = Rand.new(seed)
   for i = 1, iters do
@@ -375,7 +383,10 @@ local function run(p: Fuzz.Property): integer
     local held, why = attempt(p.check, input, budget)
     reached = nil
     for name in pairs(mine) do counts[name] = (counts[name] or 0) + 1 end
-    if not held then
+    -- Raises the report of an input that failed, after shrinking it; the
+    -- check of the input hands it to `assert` below, so an input that held
+    -- is a call to `assert` made, and a failure is the report raised.
+    local function failure(): boolean
       -- A check that fails an input once and holds for it the next time
       -- depends on something beside the input: shrinking would chase
       -- noise, so the report says so and stops.
@@ -418,7 +429,14 @@ local function run(p: Fuzz.Property): integer
             reproduce,
             kept ~= nil and ("mkdir -p %s && cp %s %s"):format(corpus_of(p), kept, keep) or
               ("write the input above to " .. keep)), 0)
+      return false
     end
+    assert(held or failure())
+  end
+  -- An input checked is a call to `assert` made; a run that drew none and
+  -- replayed none (FUZZ_ITERS=0, as CI's gating runs set) says so.
+  if iters == 0 and replayed == 0 then
+    Test.passed_unchecked("fuzz properties drew no input (FUZZ_ITERS=0, no corpus)")
   end
   local named: {string} = {}
   local is_named: {string: boolean} = {}

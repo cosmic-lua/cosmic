@@ -2,7 +2,8 @@
 --- make: every export earned, no two doc anchors sharing a name, every
 --- reader of the compiler's identity named, every familiar command
 --- finding what stands in for it, every docs query a compile advertises
---- answered, every quieted method one a module declares, every
+--- answered, every quieted method one a module declares, every member
+--- kept to a few files used by those alone, every
 --- declaration's requires declared, every requirement a test module
 --- declares promised by a CI leg, every verb's spec listed and
 --- readable, no public doc citing the build or carrying a TODO, and no
@@ -579,6 +580,65 @@ function tree_checks.quieted(db: Sqlite.Handle, names?: {string}): {string}
     if #rows == 0 then
       out[#out + 1] = name .. " is quieted in build/contracts.tl, but no module " ..
         "declares it -- remove it"
+    end
+  end
+  return out
+end
+
+--- A member only some files may refer to.
+local record Restriction
+  --- The files, by path, that may use it.
+  files: {string}
+  --- What a file outside them does instead.
+  why: string
+end
+
+--- The members the tree keeps to a few files, by `<module> <member>`: a
+--- test that asks whether this platform has a sandbox, in place of
+--- declaring `requires` or ending itself with [`Test.skip`], would branch
+--- on what it was written to hold the platform to, and pass having checked
+--- nothing where the branch goes the other way.
+local restricted: {string: Restriction} = {
+  ["cosmic.test passed_unchecked"] = {
+    files = { "build/fuzz/init.tl" },
+    why = "only the fuzz runner may say a pass did not check on purpose: a test that " ..
+      "cannot check what it is about skips or declares `requires`, and one that checks " ..
+      "asserts",
+  },
+  ["build.confine sandbox_platform"] = {
+    files = { "build/confine.tl", "build/host_requires.tl",
+      "build/test_sandbox_probe.tl" },
+    why = "only the probe of what the host has asks it: a test declares `requires` " ..
+      "(build/host_names.tl) or, where no name stands for what it needs, ends itself " ..
+      "with `Test.skip(reason)`",
+  },
+}
+
+--- Each use in `db` of a member of `rules` (by default [`restricted`])
+--- from a file its rule does not name, as `<file>:<line>: <module> <member>
+--- ...`.
+function tree_checks.restricted(db: Sqlite.Handle, rules?: {string: Restriction}): {string}
+  local out: {string} = {}
+  local names: {string} = {}
+  for name in pairs(rules or restricted) do names[#names + 1] = name end
+  table.sort(names)
+  for _, name in ipairs(names) do
+    local rule = (rules or restricted)[name]
+    local module, symbol = name:match("^(%S+) (%S+)$")
+    local rows, trouble = Sqlite.text_rows(db,
+      "SELECT from_file, line FROM uses WHERE module = ?1 AND symbol = ?2 " ..
+        "ORDER BY from_file, line",
+      { { text = module or "" }, { text = symbol or "" } })
+    if rows == nil then
+      return { "reading the uses: " .. trouble }
+    end
+    local allowed_here: {string: boolean} = {}
+    for _, file in ipairs(rule.files) do allowed_here[file] = true end
+    for _, row in ipairs(rows) do
+      if not allowed_here[row[1]] then
+        out[#out + 1] = row[1] .. ":" .. row[2] .. ": " .. name .. " is used outside " ..
+          table.concat(rule.files, ", ") .. ": " .. rule.why
+      end
     end
   end
   return out
@@ -1472,6 +1532,7 @@ function tree_checks.run(db: Sqlite.Handle, quickstart: string | nil, built?: co
       { name = "stand-ins", lines = tree_checks.stand_ins(db) },
       { name = "docs queries", lines = tree_checks.queries(db) },
       { name = "quieted", lines = tree_checks.quieted(db) },
+      { name = "restricted", lines = tree_checks.restricted(db) },
       { name = "declarations", lines = tree_checks.declarations(db) },
       { name = "verbs", lines = tree_checks.verbs(db, quickstart) },
       { name = "guides", lines = tree_checks.guides(db) },

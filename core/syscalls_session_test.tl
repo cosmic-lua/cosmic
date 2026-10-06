@@ -120,7 +120,8 @@ end
 --- /dev/null. Where the kernel has no autogroup, or the host no setsid
 --- program, there is nothing to check.
 local function test_a_confined_child_s_autogroup_is_not_its_parent_s(tmp: string)
-  if sys.stat("/proc/self/autogroup") == nil or setsid_program() == nil then return end
+  if sys.stat("/proc/self/autogroup") == nil then Test.skip("this kernel has no autogroup") end
+  if setsid_program() == nil then Test.skip("this host has no setsid program") end
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local reads: {string} = { probe }
   for _, path in ipairs({ "/proc", "/dev/null" }) do

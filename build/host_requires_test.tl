@@ -5,6 +5,7 @@
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
+local Test = require("cosmic.test")
 local confine = require("build.confine")
 local host_names = require("build.host_names")
 local host_requires = require("build.host_requires")
@@ -87,7 +88,7 @@ end
 --- host may lack.
 local function test_classes()
   for _, name in ipairs({ "sandbox", "landlock", "landlock:2", "userns", "nest", "own_proc", "proc",
-      "portable" }) do
+      "portable", "checked" }) do
     assert(host_names.class(name) == "platform", name)
   end
   for _, name in ipairs({ "root", "path:/etc", "program:sh" }) do
@@ -104,7 +105,7 @@ local function test_a_platform_absence_is_n_a_and_a_host_absence_skipped()
     return { ok = false, why = "refused here", broken = false }
   end })
   local sandbox = ask(host, "sandbox")
-  if confine.sandbox_platform() then
+  if assert(sys.uname()).sysname == "Linux" then
     assert(sandbox.kind == "skipped" and sandbox.why == "refused here" and asked == 1)
     assert(ask(host, "landlock:9999").kind == "skipped", "an ABI no kernel has is skipped, not n/a")
     assert(ask(host, "proc").kind ~= "na")
@@ -122,7 +123,7 @@ end
 --- absent carries a reason and no key.
 local function test_present_has_a_key_and_absent_a_reason()
   local host = host_with({ ok = true, why = "", broken = false })
-  for _, name in ipairs({ "sandbox", "landlock", "userns", "nest", "own_proc", "proc", "portable", "root",
+  for _, name in ipairs({ "sandbox", "landlock", "userns", "nest", "own_proc", "proc", "portable", "checked", "root",
       "path:/proc/self" }) do
     local answer = ask(host, name)
     if answer.kind == "present" then
@@ -136,7 +137,7 @@ end
 --- The sandbox probe answers `sandbox` on Linux: an ok is present, a
 --- refusal skipped, and a defect or a missing probe raises, never passes.
 local function test_sandbox_follows_the_runners_probe()
-  if not confine.sandbox_platform() then return end
+  if not (assert(sys.uname()).sysname == "Linux") then Test.skip("only Linux has this probe") end
   assert(ask(host_with({ ok = true, why = "", broken = false }), "sandbox").kind == "present")
   local refused = ask(host_with({ ok = false, why = "no userns", broken = false }), "sandbox")
   assert(refused.kind == "skipped" and refused.why == "no userns")
@@ -148,7 +149,7 @@ end
 
 --- A probe runs once a host, however many times the name is asked.
 local function test_each_probe_runs_once_per_host()
-  if not confine.sandbox_platform() then return end
+  if not (assert(sys.uname()).sysname == "Linux") then Test.skip("only Linux has this probe") end
   local asked = 0
   local host = host_requires.new({ sandbox = function(): host_requires.Sandbox
     asked = asked + 1
@@ -162,7 +163,7 @@ end
 --- Landlock follows the kernel's ABI: `landlock:N` is present up to it,
 --- and what a key holds is that number.
 local function test_landlock_is_held_to_the_kernels_abi()
-  if not confine.sandbox_platform() then return end
+  if not (assert(sys.uname()).sysname == "Linux") then Test.skip("only Linux has this probe") end
   local host = host_requires.new()
   local abi, _ = confine.landlock_abi()
   if abi == nil then
@@ -180,14 +181,14 @@ end
 local function test_root_and_proc_follow_the_host()
   local host = host_requires.new()
   assert((ask(host, "root").kind == "present") == (sys.getuid() == 0))
-  if confine.sandbox_platform() then
+  if assert(sys.uname()).sysname == "Linux" then
     assert((ask(host, "proc").kind == "present") == (Fs.is_dir("/proc/self") == true))
   end
 end
 
 --- `nest` needs what `userns` does, and where it is present so is that.
 local function test_nest_implies_userns()
-  if not confine.sandbox_platform() then return end
+  if not (assert(sys.uname()).sysname == "Linux") then Test.skip("only Linux has this probe") end
   local host = host_requires.new()
   if ask(host, "nest").kind == "present" then
     assert(ask(host, "userns").kind == "present")
@@ -247,7 +248,7 @@ local function test_a_path_is_keyed_by_what_it_is(tmp: string)
     local zero = ask(host_requires.new(), "path:/dev/zero")
     assert(zero.kind == "skipped" and zero.why:find("char", 1, true), zero.why)
   end
-  if confine.sandbox_platform() and Fs.exists("/proc/self/status") == true then
+  if assert(sys.uname()).sysname == "Linux" and Fs.exists("/proc/self/status") == true then
     assert(assert(sys.symlink("/proc/self/status", tmp .. "/to-proc")))
     local linked = ask(host_requires.new(), "path:" .. tmp .. "/to-proc")
     assert(linked.kind == "present" and linked.key == "present", linked.key)
@@ -324,7 +325,8 @@ local without_admin <const> = "Name:\tx\nCapEff:\t0000000000000000\n"
 --- `userns` follows the limit, and the two switches for a process without
 --- CAP_SYS_ADMIN, whatever its user; the key is the same wherever the limit.
 local function test_userns_follows_the_settings()
-  if not confine.sandbox_platform() or Fs.exists("/proc/self") ~= true then return end
+  if not (assert(sys.uname()).sysname == "Linux") then Test.skip("only Linux has this probe") end
+  if Fs.exists("/proc/self") ~= true then Test.skip("this host has no /proc/self") end
   local function userns(files: {string:string}): host_requires.Answer
     return ask(settings(files), "userns")
   end
@@ -349,7 +351,8 @@ end
 --- A setting that is there and says no number, or a status with no `CapEff`,
 --- raises, as neither is an absence.
 local function test_a_setting_that_cannot_be_read_raises()
-  if not confine.sandbox_platform() or Fs.exists("/proc/self") ~= true then return end
+  if not (assert(sys.uname()).sysname == "Linux") then Test.skip("only Linux has this probe") end
+  if Fs.exists("/proc/self") ~= true then Test.skip("this host has no /proc/self") end
   local garbled, why = pcall(ask, settings({ [limit_file] = "many\n", [status_file] = without_admin }), "userns")
   assert(not garbled and tostring(why):find("holds no number", 1, true), tostring(why))
   local no_caps, caps_why = pcall(ask, settings({ [limit_file] = "9", [status_file] = "Name:\tx\n" }), "userns")
@@ -433,4 +436,13 @@ local function test_a_platform_that_is_not_linux_is_not_applicable()
     assert(answers[i].kind == "na" and answers[i].class == "platform", answers[i].name)
   end
   assert(answers[4].class == "host" and answers[4].kind ~= "na")
+end
+
+--- `checked` is present on the checked core the runner says it is, and not
+--- applicable on any other, as is a portable artifact on a native start.
+local function test_checked_follows_the_cores_configuration()
+  local on = ask(host_requires.new({ checked = true }), "checked")
+  assert(on.kind == "present" and on.key == "checked", on.why)
+  assert(ask(host_requires.new({ checked = false }), "checked").kind == "na")
+  assert(ask(host_requires.new(), "checked").kind == "na")
 end

@@ -391,7 +391,9 @@ end
 
 --- Whether this platform has a sandbox at all (core/process.h's
 --- `sandbox_platform`): Linux has, whatever this host then refuses of
---- it; another platform has none to give or to check.
+--- it; another platform has none to give or to check. Only the probe of
+--- the host asks ([`build.tree_checks`]' `restricted`): a test declares
+--- `requires`, or ends itself with [`Test.skip`].
 function confine.sandbox_platform(): boolean
   local ok, _, _ = sandbox_platform()
   return ok

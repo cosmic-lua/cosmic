@@ -179,7 +179,10 @@ end
 --- in a relaunched process, since one that already ignores SIGPIPE (a
 --- test runner that fed some child `input`) has no case to show.
 local function test_writing_to_a_gone_stdin_stream_fails_instead_of_ending(tmp: string)
-  if Proc.relaunch() == nil then return end -- a native start has nothing to relaunch
+  if Proc.relaunch() == nil then
+    Test.skip("a native start has nothing to relaunch")
+    return
+  end
   local script = tmp .. "/writes.tl"
   assert(Fs.write(script, [[
 local Child = require("cosmic.child")
@@ -230,7 +233,9 @@ end
 --- sandbox refuses. A platform that has one runs the child, in
 --- cosmic/child_sandbox_tool_test.tl.
 local function test_a_sandboxed_child_is_refused_where_the_platform_has_no_sandbox(tmp: string)
-  if confine.sandbox_platform() then return end
+  if assert(sys.uname()).sysname == "Linux" then
+    Test.skip("a platform with a sandbox answers this where a test requires one")
+  end
   local reads = confine.itself()
   reads[#reads + 1] = tmp
   local r, trouble = Child.run(lua("local _ = 1", nil,

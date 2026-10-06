@@ -13,7 +13,6 @@ local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 local test_inputs = require("build.test_inputs")
 local test_sandbox = require("build.test_sandbox")
-local confine = require("build.confine")
 local fixture = require("build.test_sandbox_fixture")
 local Test = require("cosmic.test")
 
@@ -323,7 +322,7 @@ local function test_an_unsandboxed_run_reads_the_tree_and_a_platform_with_no_san
       fields[8] == "declaredundeclared/d/", seen)
   -- Branches on the platform: where it can sandbox, the run does, and that
   -- is checked by the module that requires a nest.
-  if confine.sandbox_platform() then return end
+  if assert(sys.uname()).sysname == "Linux" then return end
   env.COSMIC_TEST_SANDBOX = nil
   text, ok = run(root, tmp .. "/sandboxed", env)
   assert(not ok, text)

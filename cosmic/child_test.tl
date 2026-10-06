@@ -7,6 +7,7 @@
 --- option is refused before a start, and a sandboxed worker has no sh
 --- to find, so a refusal that regressed fails the case either way.
 
+local Test = require("cosmic.test")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -60,7 +61,10 @@ end
 --- the limit, rather than a bare EINVAL.
 local function test_a_start_past_the_descriptor_limit_names_it(tmp: string)
   local limits = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
-  if limits.hard < 256 then return end -- nothing to hand as 255
+  if limits.hard < 256 then
+    Test.skip("the descriptor limit leaves no 255 to hand on")
+    return
+  end
   local null = assert(sys.open("/dev/null", sys.O_RDONLY))
   assert(sys.setrlimit(sys.RLIMIT_NOFILE, 256, limits.hard))
   local ok, child, trouble = pcall(Child.start, { tmp .. "/never-started" }, { fds = { [255] = null } })

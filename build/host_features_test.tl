@@ -192,6 +192,8 @@ end
 --- /proc/cpuinfo to read, and checks nothing.
 local function test_the_script_and_the_key_name_this_host_alike()
   local names = assert(sys.uname())
-  if names.sysname == "Linux" and Fs.read("/proc/cpuinfo") == nil then return end
+  if names.sysname == "Linux" and Fs.read("/proc/cpuinfo") == nil then
+    Test.skip("this worker's /proc has no cpuinfo to read")
+  end
   assert(script({}) == declared_key.host_features(), "this host")
 end

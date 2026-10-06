@@ -8,20 +8,16 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local testing = require("cosmic.internal.testing")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 
 --- The program itself, which the fixture runs.
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
-
-local checked = testing.configuration == "sanitized"
+Test.policy{ requires = { "checked" }, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- The multi handle is made by the first request of a process, so its
 --- failure is walked in a fresh one: a failed curl_multi_init answers
 --- that request, and the next request makes it again and succeeds.
 local function test_a_failed_multi_init_does_not_poison_the_next_request(tmp: string)
-  if not checked then return end
   local fixture = tmp .. "/multi_init.tl"
   assert(Fs.write(fixture, [[
 local Http = require("cosmic.http")

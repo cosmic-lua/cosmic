@@ -15,7 +15,7 @@ local Test = require("cosmic.test")
 --- The program itself, which the checked core starts again in
 --- [`test_waitpid_never_loses_a_status_to_a_failed_allocation`] (the
 --- spawn refusal names it, and never starts it).
-Test.policy{ profiles = { "cosmic" } }
+Test.policy{ requires = { "checked" }, profiles = { "cosmic" } }
 
 local type Searcher = function(string): any, any
 
@@ -32,8 +32,6 @@ local function process_table(): raw_process
 end
 
 local process = process_table()
-
-local checked = testing.configuration == "sanitized"
 
 --- Runs `work` once per allocation it makes, refusing that allocation,
 --- and a last time with none refused; answers how many runs a refusal
@@ -76,7 +74,6 @@ end
 --- A child is reaped only once its answer can be made: a refusal before
 --- it leaves the child to wait for again, never its status lost.
 local function test_waitpid_never_loses_a_status_to_a_failed_allocation()
-  if not checked then return end
   -- A chunk that exits 7: a real status to reap.
   local pid = spawn_again("return 7")
   local received: raw_process.ChildStatus
@@ -97,7 +94,6 @@ end
 --- refusal anywhere, its failure's message among them, leaves none to
 --- the process.
 local function test_an_exit_watch_leaves_no_descriptor_whenever_an_allocation_fails(tmp: string)
-  if not checked then return end
   -- A child still running, as one a watch is opened for is.
   local pid = spawn_again('require("cosmic.clock").sleep_ns(60 * 1000000000)')
   local probe = tmp .. "/probe"

@@ -30,7 +30,10 @@ Test.policy{
 --- found, though this tree has it.
 local function test_a_sealed_database_started_on_the_core_runs_its_main(tmp: string)
   local core = fixture.core_path()
-  if core == nil then return end
+  if core == nil then
+    Test.skip("there is no core of this program to give a database")
+    return
+  end
   local path = tmp .. "/sealed.db"
   local names = fixture.seal(tmp, path)
   for _, name in ipairs(names) do
@@ -53,7 +56,10 @@ end
 --- digest: what `seal` records is the core's own.
 local function test_a_database_sealed_for_another_core_does_not_start(tmp: string)
   local core = fixture.core_path()
-  if core == nil then return end
+  if core == nil then
+    Test.skip("there is no core of this program to give a database")
+    return
+  end
   local path = tmp .. "/sealed.db"
   fixture.seal(tmp, path)
   local db = assert(Sqlite.open(path, { writable = true }))

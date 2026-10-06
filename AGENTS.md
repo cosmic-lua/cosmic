@@ -331,9 +331,39 @@
    though it had checked. A test for what the policy path cannot yet give
    it (a unix socket by path, a mode with a setuid bit) skips naming the
    reason, beside a `TODO:` that says what it waits on. A test that
-   returns early for a host tool or artifact it lacks (jq, a portable
-   artifact) or for the platform's having none (/proc, Landlock) hides an
-   unchecked pass: it declares `requires` instead.
+   cannot check what it is about for a host tool or artifact it lacks
+   (jq, a portable artifact) or for the platform's having none (/proc,
+   Landlock) declares `requires`; where no name stands for it (a native
+   start with nothing to relaunch, the checked core's instruments, a
+   test of what only another platform does) it calls `Test.skip(reason)`,
+   never `return`s: a plain skip is listed and keeps no verdict, and a
+   held run fails only a skip of a name its leg promises.
+   A test that passes having made no call to `assert` -- through any
+   helper or fixture it called -- shows only that it did not raise. The
+   worker counts the calls to `assert` a test makes ([`build/test_worker.tl`]'s
+   `count_assertions`, which holds for a module that took `assert` as a
+   local as it loaded), and `cosmic test` lists each such pass as
+   `test: NO ASSERT <id>`, counts it in the summary (`N made no call to
+   assert`) and keeps no verdict of it, so it is met again every run. A
+   held run fails it. A test that checks through `error` or `pcall`, or
+   a helper that does, calls `assert` for what it checks; one that cannot
+   check on this host declares `requires` or calls `Test.skip(reason)`;
+   and one that shows that something does not raise asserts on a result
+   that shows it. An example (`*_example.tl`) shows use and is not held
+   to this, and a doc test's output is compared with `assert`. A fuzz
+   property counts each input it checks; where `FUZZ_ITERS=0` draws none
+   and no corpus holds one, the fuzz runner says so with
+   `Test.passed_unchecked(reason)`, which keeps the verdict and is
+   counted apart (`test: NOTHING TO CHECK`); nothing else may call it
+   (`cosmic fix --check .` holds it to that).
+   A test of what only the checked core's instruments reach (a refused
+   allocation, a fault point) goes in a module that declares
+   `requires = { "checked" }`, which every other core finds not
+   applicable and the checked leg promises.
+   [`confine.sandbox_platform`] is for the probe of the host alone
+   ([`build/host_requires.tl`], [`build/test_sandbox_probe.tl`]):
+   `cosmic fix --check .` fails a use anywhere else
+   ([`build/tree_checks.tl`]'s `restricted`).
    A test module declares what it is held to, and reads beyond its import
    closure, its fuzz corpora and a pinned environment, with a top-level
    `Test.policy { ... }` (`local Test = require("cosmic.test")`; see
@@ -550,6 +580,7 @@ unblocks: `o/bin/cosmic todos '"cosmic-driver.pin"'` lists them.
 [`build/harness_epoch.tl`]: build/harness_epoch.tl
 [`build/harness_epoch_test.tl`]: build/harness_epoch_test.tl
 [`build/host_names.tl`]: build/host_names.tl
+[`build/host_requires.tl`]: build/host_requires.tl
 [`build/launcher.tl`]: build/launcher.tl
 [`build/reboot.tl`]: build/reboot.tl
 [`build/rebuild_lock.tl`]: build/rebuild_lock.tl
@@ -566,6 +597,7 @@ unblocks: `o/bin/cosmic todos '"cosmic-driver.pin"'` lists them.
 [`ci/cosmic-driver.pin`]: ci/cosmic-driver.pin
 [`ci/cosmic_ci/capabilities.tl`]: ci/cosmic_ci/capabilities.tl
 [`ci/run-local`]: ci/run-local
+[`confine.sandbox_platform`]: build/confine.tl
 [`core/allocation_test.tl`]: core/allocation_test.tl
 [`core/check.h`]: core/check.h
 [`core/fail.h`]: core/fail.h

@@ -51,7 +51,10 @@ end
 --- read this program's own file, and starts again as the same core on the
 --- same database.
 local function test_a_policy_runs_a_sealed_database_under_a_sandbox(tmp: string)
-  if fixture.core_path() == nil then return end
+  if fixture.core_path() == nil then
+    Test.skip("there is no core of this program to give a database")
+    return
+  end
   local path = tmp .. "/sealed.db"
   fixture.seal(tmp, path)
   local executable = assert(Proc.executable())
@@ -75,7 +78,10 @@ end
 --- anything starts, as is a grant that reaches this program's own file,
 --- which holds modules the database leaves out.
 local function test_a_database_policy_refuses_another_program_and_this_ones_own_file(tmp: string)
-  if fixture.core_path() == nil then return end
+  if fixture.core_path() == nil then
+    Test.skip("there is no core of this program to give a database")
+    return
+  end
   local path = tmp .. "/sealed.db"
   fixture.seal(tmp, path)
   local executable = assert(Proc.executable())
@@ -103,7 +109,10 @@ end
 --- start holds the file to it: one changed since the text was read is
 --- refused, not run.
 local function test_a_decoded_policy_refuses_a_database_that_changed_since(tmp: string)
-  if fixture.core_path() == nil then return end
+  if fixture.core_path() == nil then
+    Test.skip("there is no core of this program to give a database")
+    return
+  end
   local path = tmp .. "/sealed.db"
   fixture.seal(tmp, path)
   local merged = assert(Sandbox.merge({ database = path }))
@@ -171,7 +180,10 @@ end
 --- the child confines a grandchild on the same database, which runs the
 --- sealed main, and neither writes either file.
 local function test_a_sealed_program_under_nest_confines_children_of_its_own(tmp: string)
-  if fixture.core_path() == nil then return end
+  if fixture.core_path() == nil then
+    Test.skip("there is no core of this program to give a database")
+    return
+  end
   local out = under_nest(tmp, "child", {})
   if out == nil then return end
   assert(out.main == "fixture.main", tostring(out.main))
@@ -191,7 +203,10 @@ end
 --- `nest` promise for a child of its own that names no `database`: the child
 --- is on this process's core and database, bound read-only all the same.
 local function test_a_sealed_program_under_nest_starts_a_nest_child_with_no_database(tmp: string)
-  if fixture.core_path() == nil then return end
+  if fixture.core_path() == nil then
+    Test.skip("there is no core of this program to give a database")
+    return
+  end
   local out = under_nest(tmp, "relay", {})
   if out == nil then return end
   assert(out.grand_refused == nil, tostring(out.grand_refused))
@@ -205,7 +220,10 @@ end
 --- binds like the program's: the read-only bind of the database the program
 --- is given, which comes after, is the one the child sees.
 local function test_a_policy_grant_of_the_database_does_not_make_it_writable(tmp: string)
-  if fixture.core_path() == nil then return end
+  if fixture.core_path() == nil then
+    Test.skip("there is no core of this program to give a database")
+    return
+  end
   local path = tmp .. "/sealed.db"
   local out = under_nest(tmp, "child", { grants = { { path = path, letters = "rwc" } } })
   if out == nil then return end
@@ -218,7 +236,10 @@ end
 --- seen from a namespace below its owner's. Skipped where the host has no
 --- unshare to try it with.
 local function test_a_nest_child_cannot_remount_the_database_writable(tmp: string)
-  if fixture.core_path() == nil then return end
+  if fixture.core_path() == nil then
+    Test.skip("there is no core of this program to give a database")
+    return
+  end
   local out = under_nest(tmp, "remount", { profiles = { "system" } })
   if out == nil then return end
   local said = tostring(out.remount)

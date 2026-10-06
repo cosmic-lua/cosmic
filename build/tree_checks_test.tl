@@ -202,6 +202,38 @@ local function test_a_quieted_method_no_record_declares_is_refused(dir: string)
   assert(found[2]:find("^cosmic%.gone Gone is quieted") ~= nil, found[2])
 end
 
+--- A member kept to a few files passes in them and is refused anywhere
+--- else, a test included.
+local function test_a_restricted_member_used_outside_its_files_is_refused(dir: string)
+  local db = fixture.database(dir, {
+    ["build/probe.tl"] = source(
+      "local record probe",
+      "end",
+      "--- Whether the host has it.",
+      "function probe.has(): boolean return true end",
+      "return probe"),
+    ["build/asker.tl"] = source(
+      'local probe = require("build.probe")',
+      "local record asker",
+      "end",
+      "function asker.ask(): boolean return probe.has() end",
+      "return asker"),
+    ["build/other_test.tl"] = source(
+      'local probe = require("build.probe")',
+      "local function test_asks()",
+      "  assert(probe.has())",
+      "end"),
+  })
+  local rules = { ["build.probe has"] = { files = { "build/asker.tl" }, why = "ask the host" } }
+  local found = tree_checks.restricted(db, rules)
+  assert(#found == 1, table.concat(found, "\n"))
+  assert(found[1]:find("^build/other_test%.tl:%d+: build%.probe has is used outside build/asker%.tl: ask the host") ~=
+      nil, found[1])
+  rules["build.probe has"].files = { "build/asker.tl", "build/other_test.tl" }
+  found = tree_checks.restricted(db, rules)
+  assert(#found == 0, table.concat(found, "\n"))
+end
+
 --- A declaration that requires only declarations, in any spelling a
 --- closure store follows, passes; one that requires a module is refused.
 local function test_a_declaration_that_requires_a_module_is_refused(dir: string)

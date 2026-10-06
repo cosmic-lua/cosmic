@@ -14,6 +14,7 @@
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local stand_in = require("build.stand_in")
 local test_inputs = require("build.test_inputs")
@@ -40,7 +41,7 @@ end
 --- give, and it returns unchecked.
 local function sandboxed(): boolean
   if Env.get(confine.held_variable) ~= nil then return true end
-  if confine.sandbox_platform() then
+  if assert(sys.uname()).sysname == "Linux" then
     Test.skip("this worker is not sandboxed, so no sealed database of its closure narrows what " ..
         "its children run")
   end

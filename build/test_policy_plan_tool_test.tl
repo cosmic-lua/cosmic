@@ -159,7 +159,10 @@ for _, case in ipairs({
 end
 ]]
   local launched = Proc.relaunch()
-  if launched == nil or launched.argv[2] ~= "--artifact" then return end
+  if launched == nil or launched.argv[2] ~= "--artifact" then
+    Test.skip("this program is no portable artifact")
+    return
+  end
   assert(Fs.mkdirs(tmp .. "/beside/ci"))
   assert(Fs.symlink(launched.argv[3], tmp .. "/beside/cosmic"))
   local started = this_program.program({ "-e", script })
@@ -187,7 +190,10 @@ end
 --- ([`build.test`]'s `sealed_for`) and is given no artifact at all.
 local function test_a_plan_for_a_nesting_worker_grants_the_artifact_only_with_store(tmp: string)
   local launched = Proc.relaunch()
-  if launched == nil or launched.argv[2] ~= "--artifact" then return end
+  if launched == nil or launched.argv[2] ~= "--artifact" then
+    Test.skip("this program is no portable artifact")
+    return
+  end
   local artifact = launched.argv[3]
   local root, scratch = tmp .. "/root", scratch_in(tmp)
   assert(Fs.mkdirs(root .. "/o/bin"))

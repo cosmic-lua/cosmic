@@ -27,6 +27,7 @@ local record Orchestration
   harness_moved: function(root: string, base: string): boolean, string
   test_words: function(env: {string:string}): {string}
   shares: function(env: {string:string})
+  pinned_promises: function(env: {string:string})
   sandboxed_fixtures: {string:boolean}
   noexec_fixture: function(target: string): boolean
   fixture: function(env: {string:string}, tmpdir: string, compiles: string,
@@ -226,6 +227,21 @@ function Orchestration.promise(env: {string:string})
   if promised == nil or env.COSMIC_TEST_PROMISES ~= nil then return end
   env.COSMIC_TEST_PROMISES = table.concat(promised, ",")
   env.COSMIC_TEST_LEG = env.COSMIC_WORKER
+end
+
+--- Takes from `env`'s COSMIC_TEST_PROMISES the requirements the pinned
+--- driver does not know. A fixture's `cosmic test` is the pinned release's,
+--- which refuses a requirement it lacks, and `checked` is one the tree's
+--- build/host_names.tl added; a fixture requires no host name.
+-- TODO: leave the promises be once ci/cosmic-driver.pin names a release
+-- that knows `checked`.
+function Orchestration.pinned_promises(env: {string:string})
+  if env.COSMIC_TEST_PROMISES == nil then return end
+  local kept: {string} = {}
+  for word in env.COSMIC_TEST_PROMISES:gmatch("[^,]+") do
+    if word ~= "checked" then kept[#kept + 1] = word end
+  end
+  env.COSMIC_TEST_PROMISES = table.concat(kept, ",")
 end
 
 --- The environment every operation runs in: the driver's own, with
@@ -709,10 +725,12 @@ local function fixture_test(c: Context, work: string, name: string,
   local out, err = diagnostics .. "/test.out", diagnostics .. "/test.err"
   -- No --census: a fixture's run holds too few tests for its key parts
   -- to say much, and an unsandboxed one's are keyed by nothing.
+  local env = environment(extra)
+  Orchestration.pinned_promises(env)
   local status = logged(c, "fixture: " .. name,
     { assert(Proc.executable()), "test",
       "fixtures/" .. source .. "_test.tl" }, out, err, timeout_ns, project,
-    Orchestration.fixture_run(source, environment(extra), diagnostics .. "/tmp",
+    Orchestration.fixture_run(source, env, diagnostics .. "/tmp",
       work .. "/fixture-compiles.db"))
   record_suite(c, "fixture " .. name, status, out)
   return status

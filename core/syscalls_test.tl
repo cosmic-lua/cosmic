@@ -14,13 +14,11 @@ local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
-local testing = require("cosmic.internal.testing")
 local Test = require("cosmic.test")
 local unix_socket = require("build.unix_socket")
 local type raw_hash = require("cosmic.internal.hash")
 local type raw_process = require("cosmic.internal.process")
 local stand_in = require("build.stand_in")
-local confine = require("build.confine")
 
 -- TODO: declare /proc for Linux alone once a declaration can name a
 -- host path per platform (a `host` entry for Linux and one for macOS):
@@ -373,9 +371,6 @@ local function linked_directory(tmp: string, socket: boolean): string
   return d
 end
 
---- The entries of [`linked_directory`] with a socket file.
-local LINKED_ENTRIES <const> = 7
-
 --- Checks readdir's answer for [`linked_directory`].
 local function names_links_as_links(entries: {string:sys.Kind}, what: string, socket: boolean)
   assert(entries["file"] == "file" and entries["sub"] == "dir", what)
@@ -397,21 +392,6 @@ local function test_readdir_names_a_socket_file_a_socket(tmp: string)
   if unix_socket.skipped(tmp) then return end
   local d = linked_directory(tmp, true)
   names_links_as_links(assert(sys.readdir(d)), "readdir", true)
-end
-
---- An entry whose type the filesystem leaves unknown is asked with an
---- lstat, which answers a link as one too: the checked core's fault
---- point makes each entry in turn unknown.
-local function test_readdir_names_an_entry_of_unknown_type_as_lstat_does(tmp: string)
-  if testing.configuration ~= "sanitized" then return end
-  local socket = unix_socket.available(tmp)
-  local d = linked_directory(tmp, socket)
-  for skip = 0, LINKED_ENTRIES - (socket and 1 or 2) do
-    testing.fail_at("readdir_d_type", skip)
-    local entries = assert(sys.readdir(d))
-    assert(not testing.fail_at(), "entry " .. skip .. " never reached readdir_d_type")
-    names_links_as_links(entries, "entry " .. skip .. " of unknown type", socket)
-  end
 end
 
 local function test_readdir_refuses_a_missing_path_and_a_file(tmp: string)
@@ -842,20 +822,6 @@ local function test_every_path_call_refuses_an_embedded_nul(tmp: string)
   assert(sys.stat(tmp .. "/moved") == nil and sys.lstat(tmp .. "/link") == nil)
 end
 
---- The core's own lookup of its path refuses a buffer the path does not
---- fit in, NUL included, rather than answering it cut short. Only the
---- checked core can hand it a buffer that small.
-local function test_executable_path_refuses_a_room_it_does_not_fit()
-  if testing.configuration ~= "sanitized" then return end
-  local path = assert(testing.executable_path(4096))
-  assert(path:sub(1, 1) == "/", "the executable's path is absolute")
-  assert(testing.executable_path(#path + 1) == path)
-  local short = testing.executable_path(#path)
-  assert(short == nil, "a path with no room for its NUL came back as " ..
-      tostring(short))
-  assert(testing.executable_path(1) == nil)
-end
-
 local function test_environ_agrees_with_getenv()
   local all = sys.environ()
   local seen = 0
@@ -1158,7 +1124,9 @@ end
 --- which require it: so this returns there, and only the platforms without
 --- one answer.
 local function test_a_sandbox_the_platform_lacks_is_refused(tmp: string)
-  if confine.sandbox_platform() then return end
+  if assert(sys.uname()).sysname == "Linux" then
+    Test.skip("a platform with a sandbox answers this where a test requires one")
+  end
   local probe = probe_in(tmp)
   local ruleset, trouble, errno = process.landlock_ruleset({ probe }, {})
   assert(ruleset == nil and (errno == sys.ENOSYS or errno == sys.EOPNOTSUPP or errno == sys.EPERM),
@@ -1526,34 +1494,6 @@ local function test_flock_kind_says_whether_a_flock_excludes_an_fcntl_lock(tmp: 
   local none, said, errno = sys.flock_kind(fd)
   failed(none, said, errno)
   assert(errno == sys.EBADF, said)
-end
-
---- `flock_kind`'s reading of an NFS file's mount (checked core only,
---- whose instrument reaches it): the lines of its device, the third
---- field, say whether local_lock "flock" or "all" is among the
---- filesystem's own options, after the lone "-"; a mount's own options
---- before it, another device's line, a word that only begins so, and a
---- line that does not parse say nothing.
-local function test_flock_kind_reads_an_nfs_mounts_local_lock()
-  if testing.configuration ~= "sanitized" then return end
-  local sample = table.concat({
-    "22 1 8:1 / / rw,relatime shared:1 - ext4 /dev/sda1 rw",
-    "30 22 0:40 / /home rw,relatime shared:5 - nfs4 server:/home " ..
-      "rw,vers=4.2,rsize=1048576,local_lock=none,addr=10.0.0.1",
-    "31 22 0:41 / /mnt/my\\040share rw master:3 shared:7 - nfs server:/a local_lock=flock,rw",
-    "32 22 0:42 / /srv rw - nfs server:/srv rw,vers=3,local_lock=all",
-    "33 22 0:43 / /opt rw,local_lock=flock - nfs server:/opt rw,local_lock=flocks",
-    "a line that does not parse",
-    "34 22 0:44 / /mnt/nosep rw shared:9 local_lock=flock",
-  }, "\n") .. "\n"
-  local want: {string:boolean} = { ["8:1"] = false, ["0:40"] = false, ["0:41"] = true,
-    ["0:42"] = true, ["0:43"] = false, ["0:44"] = false, ["0:4"] = false, ["0:420"] = false }
-  for device, local_flock in pairs(want) do
-    assert(testing.mountinfo_local_flock(sample, device) == local_flock, device)
-  end
-  assert(not testing.mountinfo_local_flock("", "0:41"))
-  assert(testing.mountinfo_local_flock("32 22 0:42 / /srv rw - nfs s:/srv local_lock=all", "0:42"),
-    "a last line with no newline")
 end
 
 --- Whether the wake pipe of the open guards has a byte to read.

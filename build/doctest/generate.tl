@@ -222,11 +222,10 @@ local function emit_example(out: {string}, file: string, example: Example)
     out[#out + 1] = "  local __doctest_got = __doctest_get()"
     out[#out + 1] = "  local __doctest_want = " .. quote(example.output_text)
     out[#out + 1] =
-      '  if (__doctest_got):gsub("%s+$", "") ~= (__doctest_want):gsub("%s+$", "") then'
-    out[#out + 1] = '    error("doctest: " .. ' .. quote(file) ..
+      '  assert((__doctest_got):gsub("%s+$", "") == (__doctest_want):gsub("%s+$", ""),'
+    out[#out + 1] = '    "doctest: " .. ' .. quote(file) ..
       ' .. ": output did not match\\nwant:\\n" .. __doctest_want ..'
     out[#out + 1] = '      "\\ngot:\\n" .. __doctest_got)'
-    out[#out + 1] = "  end"
   end
   out[#out + 1] = "end"
   if not example.has_output then

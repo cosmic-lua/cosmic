@@ -26,6 +26,9 @@
 --- - `portable`: this run is a portable artifact (`runtime_context`
 ---   "portable-v1", which the runner hands in as `portable`), not a native
 ---   start or a core with a database;
+--- - `checked`: this core is the checked build (`checked`, which the runner
+---   reads from [`cosmic.internal.testing`]'s `configuration`): another
+---   core has none of the instruments such a test uses, so it is n/a there;
 --- - `root`: the run's user is root;
 --- - `path:<absolute path>`: a file or directory of the host;
 --- - `program:<name>`: a program the PATH finds ([`Proc.find`]).
@@ -136,6 +139,9 @@ local record host_requires
     --- does): this module cannot read the store, which the harness would
     --- carry with it. Nil is a native start.
     portable: boolean
+    --- Whether this core is the checked build, which the runner reads from
+    --- `configuration` ("sanitized"); nil is no.
+    checked: boolean
     --- Whether the platform is Linux, which is the platform's own answer
     --- ([`confine.sandbox_platform`]) where nil. A test of the runner
     --- sets it false to make every Linux requirement not applicable on a
@@ -485,6 +491,12 @@ local table_of: {string:Entry} = {
         error("host_requires: a portable artifact cannot start again: " .. trouble, 0)
       end
       return present("artifact")
+    end },
+  checked = { platform_has = function(host: host_requires.Host): boolean
+    return host.context.checked == true
+  end,
+    probe = function(_: string, _: host_requires.Host): Found
+      return present("checked")
     end },
   root = {
     probe = function(_: string, _: host_requires.Host): Found

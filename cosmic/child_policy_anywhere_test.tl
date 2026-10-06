@@ -70,7 +70,9 @@ end
 --- namespace, and no child runs, whatever the policy holds it to. A platform
 --- that has one runs the child, in the modules that `require` it.
 local function test_a_start_under_a_policy_is_refused_where_the_platform_has_no_sandbox(tmp: string)
-  if confine.sandbox_platform() then return end
+  if assert(sys.uname()).sysname == "Linux" then
+    Test.skip("a platform with a sandbox answers this where a test requires one")
+  end
   local probe = stand_in_of(tmp)
   local policies: {Sandbox.Policy} = {
     { grants = itself(probe) },

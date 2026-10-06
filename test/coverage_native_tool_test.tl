@@ -19,7 +19,10 @@ Test.policy{ profiles = { "cosmic" } }
 --- startup -- and every later one starts empty. Run in a fresh process,
 --- since this test's own worker opened its first window long ago.
 local function test_first_window_keeps_startup(tmp: string)
-  if next(Coverage.native_lines()) == nil then return end
+  if next(Coverage.native_lines()) == nil then
+    Test.skip("this core reports no native coverage")
+    return
+  end
   local script = tmp .. "/windows.tl"
   assert(Fs.write(script, [[
 local Coverage = require("cosmic.coverage")

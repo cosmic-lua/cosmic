@@ -4,6 +4,7 @@
 --- process never sees it. Run a level down, in a process of its own, so
 --- the directory is this test's rather than its worker's.
 
+local sys = require("cosmic.sys")
 local Child = require("cosmic.child")
 local Coverage = require("cosmic.coverage")
 local Fs = require("cosmic.fs")
@@ -23,7 +24,10 @@ Test.policy{
 }
 
 local function test_a_started_process_reports_its_c(tmp: string)
-  if next(Coverage.native_lines()) == nil then return end
+  if next(Coverage.native_lines()) == nil then
+    Test.skip("this core reports no native coverage")
+    return
+  end
   local reports = tmp .. "/reports"
   assert(Fs.mkdirs(reports))
   assert(Fs.mkdirs(tmp .. "/parent"))
@@ -87,8 +91,14 @@ end
 --- first no /proc of its own (a container masking parts of its /proc),
 --- it cannot confine the second, and there is nothing to check.
 local function test_processes_confined_apart_report_apart(tmp: string)
-  if next(Coverage.native_lines()) == nil then return end
-  if Proc.relaunch() == nil then return end -- no portable artifact to start again
+  if next(Coverage.native_lines()) == nil then
+    Test.skip("this core reports no native coverage")
+    return
+  end
+  if Proc.relaunch() == nil then
+    Test.skip("a native start has nothing to relaunch")
+    return
+  end
   local reports = tmp .. "/reports"
   assert(Fs.mkdirs(reports))
   assert(Fs.mkdirs(tmp .. "/parent"))
@@ -153,7 +163,7 @@ end
   -- ENOSYS), as the sandbox's other tests take it: skipped where the
   -- platform could confine (Test.skip).
   if said:find("^host%-proc ") or said:find("^unconfinable ") then
-    if confine.sandbox_platform() then
+    if assert(sys.uname()).sysname == "Linux" then
       Test.skip("the parent could not confine its child: " .. said)
     end
     return
@@ -176,7 +186,10 @@ end
 --- core's lines are another build's C (bin/zig's pinned release, started
 --- by a test, is such a core).
 local function test_a_process_of_another_build_does_not_report(tmp: string)
-  if next(Coverage.native_lines()) == nil then return end
+  if next(Coverage.native_lines()) == nil then
+    Test.skip("this core reports no native coverage")
+    return
+  end
   for index, value in ipairs({ "0000000000000000:" .. tmp .. "/foreign",
       tmp .. "/unsigned" }) do
     local dir = value:match("[^:]*$")

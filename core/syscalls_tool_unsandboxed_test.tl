@@ -7,7 +7,6 @@
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local type raw_process = require("cosmic.internal.process")
-local confine = require("build.confine")
 local this_program = require("build.this_program")
 local stand_in = require("build.stand_in")
 
@@ -111,7 +110,9 @@ end
 --- sandbox, these starts are core/syscalls_tool_test.tl's, which requires
 --- one: so this returns there, and only the platforms without one answer.
 local function test_a_sandbox_the_platform_lacks_is_refused(tmp: string)
-  if confine.sandbox_platform() then return end
+  if assert(sys.uname()).sysname == "Linux" then
+    Test.skip("a platform with a sandbox answers this where a test requires one")
+  end
   local probe = probe_in(tmp)
   local user = sys.getuid() == 65533 and 65531 or 65533
   local sandboxes: {raw_process.Sandbox} = {

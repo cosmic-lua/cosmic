@@ -91,7 +91,7 @@ local function test_a_project_test_reading_the_store_outside_its_closure_needs_s
     "    if loader is function(string, any): any then",
     "      -- The worker's own gate on `require` raises; a searcher called by hand does not.",
     '      local loaded, helper = pcall(loader, "suite.helper", extra)',
-    "      if loaded and helper is {string:integer} and helper.answer == 42 then return end",
+    "      if loaded and helper is {string:integer} and helper.answer == 42 then assert(true, 'a searcher called by hand found the helper'); return end",
     "    elseif loader is string then",
     "      said = said .. loader",
     "    end",

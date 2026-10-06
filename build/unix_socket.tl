@@ -54,15 +54,6 @@ local function listens(dir: string): Probe
   return { made = true, refused = false, why = "" }
 end
 
---- Whether the process is not refused a unix socket in `dir` (a listener
---- made there, or failed for another reason): for a case that adds a socket
---- file to what it checks where it may, and skips nothing.
---- @param dir a directory the process may make a socket file in
---- @return whether a socket file may be made
-function unix_socket.available(dir: string): boolean
-  return not listens(dir).refused
-end
-
 --- The host directories the running process's root binds, by mount point,
 --- from its mount table: what keeps a worker from a unix socket below
 --- Landlock ABI 9. The root, the sandbox's own /proc and its own /tmp are
