@@ -8,7 +8,7 @@
 --- itself (Test.skip). The refusals that come before a child, which hold on
 --- every platform, are in cosmic/child_policy_anywhere_test.tl; what a
 --- program inside makes of the namespace and mount calls themselves, in
---- cosmic/child_policy_nest_checked_test.tl.
+--- cosmic/child_policy_nest_calls_test.tl.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")

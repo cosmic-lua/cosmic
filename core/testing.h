@@ -9,7 +9,8 @@
  * with its configuration's name and registers the same instruments as
  * stand-ins that raise, so the table cosmic/internal/testing.d.tl
  * declares is every core's and no shipped core has an allocator a
- * program can make fail.
+ * program can make fail. The raw calls a sandbox's setup makes
+ * (core/namespace_calls.h) are the one part every core carries for real.
  */
 
 #ifndef COSMIC_TESTING_H

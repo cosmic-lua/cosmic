@@ -323,7 +323,13 @@ caller that asks `package.searchers` for a wrapper by hand is handed
 its raw table too, which is no escalation, since that table reaches
 nothing its wrapper does not. what keeps a raw call off the public
 surface is that nothing names it -- no type, no doc row -- and nothing
-the checker accepts reaches it by accident.
+the checker accepts reaches it by accident. [`cosmic.internal.testing`]
+is the one exception: its five namespace calls (`mount`, `umount2`,
+`unshare`, `setns`, `chroot`) are real in every core and have no
+[`cosmic.sys`] wrapper, because the sandbox tests need them on every
+core. They grant nothing a program could not do by starting `mount` or
+`unshare`: the kernel, and the filter of any sandbox the caller is in,
+are what refuse them.
 
 ### the database
 
@@ -1149,6 +1155,7 @@ in [roadmap.md](roadmap.md).
 [`cosmic.internal.process`]: ../core/process.h
 [`cosmic.internal.sqlite`]: ../cosmic/internal/sqlite.d.tl
 [`cosmic.internal.store`]: ../cosmic/internal/store.d.tl
+[`cosmic.internal.testing`]: ../cosmic/internal/testing.d.tl
 [`cosmic.proc`]: ../cosmic/proc.tl
 [`cosmic.sqlite`]: ../cosmic/sqlite.tl
 [`cosmic.store`]: ../cosmic/store.tl

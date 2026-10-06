@@ -15,6 +15,7 @@ local Sandbox = require("cosmic.sandbox")
 local PolicyJson = require("cosmic.policy")
 local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
+local sys = require("cosmic.sys")
 local fixture = require("build.child_policy_database_fixture")
 local searchable = require("build.searchable")
 
@@ -22,14 +23,13 @@ local searchable = require("build.searchable")
 --- [`Store.databases()`], which a worker without the store is not given
 --- (the grant of o/cosmic.db). The core is started past its launcher
 --- (the grant of o/bin). The sealed program under `nest` builds a root of its
---- own, which a worker held by Landlock cannot ("nest"), and one test runs the
---- host's unshare and mount, which "system" gives it.
+--- own, which a worker held by Landlock cannot ("nest").
 -- TODO: declare `relaunch` and drop the `core_path() == nil` returns of
 -- these tests once build/host_requires.tl has the name (its own TODO): a
 -- host program, which has no core to start bare, is not told apart from a
 -- failure to reopen the program until Proc.relaunch can say which.
 Test.policy{
-  profiles = { "cosmic", "system" },
+  profiles = { "cosmic" },
   promises = { "nest" },
   grants = {
     { path = "o/bin", letters = "rx" },
@@ -44,6 +44,17 @@ local function unsandboxable(why: string): boolean
     if why:find(word, 1, true) then return true end
   end
   return false
+end
+
+--- Ends the test where a host that gives the sandbox refuses a namespace of
+--- its own, or the write of its ids (AppArmor's restriction): `errno` is
+--- "ok" or what the step answered. Any other failure fails the test.
+local function refuse_or_skip(what: string, errno: string)
+  if errno == "ok" then return end
+  if errno == tostring(sys.EPERM) or errno == tostring(sys.EACCES) then
+    Test.skip(what .. " was refused here (errno " .. errno .. ")")
+  end
+  assert(false, what .. " failed: " .. errno)
 end
 
 --- Under a policy the program is the core and the file the policy names:
@@ -233,20 +244,16 @@ end
 
 --- Remounting the database writable fails in a user namespace the child makes
 --- of its own: the bind is read-only, and the kernel locks that for a mount
---- seen from a namespace below its owner's. Skipped where the host has no
---- unshare to try it with.
+--- seen from a namespace below its owner's.
 local function test_a_nest_child_cannot_remount_the_database_writable(tmp: string)
   if fixture.core_path() == nil then
     Test.skip("there is no core of this program to give a database")
     return
   end
-  local out = under_nest(tmp, "remount", { profiles = { "system" } })
+  local out = under_nest(tmp, "remount", {})
   if out == nil then return end
-  local said = tostring(out.remount)
-  if not said:find("ns", 1, true) then
-    Test.skip("unshare -Urm made no namespace: " .. said)
-    return
-  end
-  assert(said:find("rc=", 1, true) and not said:find("rc=0", 1, true),
-    "the database was remounted writable: " .. said)
+  refuse_or_skip("unshare of a user and mount namespace", out.unshare)
+  refuse_or_skip("the write of its ids", out.mapped)
+  assert(out.remount == tostring(sys.EPERM), "the database was remounted writable: " ..
+      tostring(out.remount) .. " " .. tostring(out.remount_why))
 end
