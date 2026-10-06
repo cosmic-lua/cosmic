@@ -14,13 +14,12 @@
 ---
 --- `restat` takes, into each manifest, the stat of each file it lists
 --- that is still what the manifest says: one whose size and mtime are
---- as recorded (a restore keeps both) has its new inode taken; one
---- whose mtime moved (a fresh checkout's) and whose bytes still hash to
---- the recorded digest has its size, inode and mtime taken, as a zig
---- that compared the right digest would; any other is left, for zig to
---- miss on as it should. A file a restore kept the size and mtime of is
---- trusted as unchanged without reading it, as zig trusts a restored
---- output it never reads at all.
+--- as recorded (a restore keeps both) and whose bytes still hash to the
+--- recorded digest has its new inode taken; one whose mtime moved (a
+--- fresh checkout's) and whose digest still matches has its size, inode
+--- and mtime taken, as a zig that compared the right digest would; any
+--- other is left, for zig to miss on as it should. Equal size and mtime
+--- alone do not prove that a file restored or replaced kept its bytes.
 
 -- TODO: remove this module, and its call in cosmic_ci/orchestration.tl's
 -- boot, once the pinned zig's compiler compares a re-hashed direct input
@@ -40,7 +39,8 @@ local sys = require("cosmic.sys")
 
 local record ZigRestat
   --- What `restat` did: how many files the manifests list, how many it
-  --- took a new inode for, how many it re-hashed and took the stat of,
+  --- verified by digest and took a new inode for, how many it verified
+  --- by digest and took a changed mtime for,
   --- how many it left, and how many manifests it rewrote.
   record Result
     records: integer
@@ -114,9 +114,6 @@ function ZigRestat.restat(caches: {ZigPrune.Cache}, roots: {integer:string}): Zi
               local mtime = stat.mtime * 1000000000 + stat.mtime_ns
               if mtime == record.mtime and stat.ino == record.inode then
                 unchanged = true
-              elseif mtime == record.mtime then
-                result.adopted = result.adopted + 1
-                taken = true
               else
                 local digest = digests[file]
                 if digest == nil then
@@ -125,7 +122,11 @@ function ZigRestat.restat(caches: {ZigPrune.Cache}, roots: {integer:string}): Zi
                   digests[file] = digest
                 end
                 if digest == record.digest then
-                  result.rehashed = result.rehashed + 1
+                  if mtime == record.mtime then
+                    result.adopted = result.adopted + 1
+                  else
+                    result.rehashed = result.rehashed + 1
+                  end
                   taken = true
                 end
               end

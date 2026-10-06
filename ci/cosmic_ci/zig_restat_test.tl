@@ -19,9 +19,9 @@ end
 --- `path` given a new inode, keeping its bytes and its mtime: what a
 --- restore from a tarball does to every file. The copy is made while
 --- the old file still holds its inode, so the two cannot share one.
-local function restored(path: string)
+local function restored(path: string, bytes?: string)
   local stat = assert(sys.stat(path))
-  assert(Fs.write(path .. ".new", (assert(Fs.read(path)))))
+  assert(Fs.write(path .. ".new", bytes or (assert(Fs.read(path)))))
   assert(sys.utimensat(path .. ".new", nil, nil, stat.mtime, stat.mtime_ns))
   assert(Fs.rename(path .. ".new", path))
   assert((assert(sys.stat(path))).ino ~= stat.ino)
@@ -87,6 +87,61 @@ local function test_a_restored_file_takes_its_new_inode(tmp: string)
   local again = assert(ZigRestat.restat({ { path = project, prefix = 2 },
     { path = shared, prefix = 3 } }, { [0] = tree, [3] = shared, [4] = tree }))
   assert(again.adopted == 0 and again.rehashed == 0 and again.manifests == 0)
+end
+
+--- Equal size and mtime cannot vouch for the bytes under any prefix or
+--- an absolute path. Only the unchanged replacement may adopt its inode.
+local function test_changed_bytes_with_preserved_mtime_are_left(tmp: string)
+  local project, shared, tree = layout(tmp)
+  local roots: {integer:string} = { [0] = tree, [1] = tree, [3] = shared, [4] = tree }
+  local files: {string} = {}
+  local pieces: {string} = {}
+  for prefix = 0, 4 do
+    local root = prefix == 2 and project or roots[prefix]
+    local path = "input" .. prefix .. ".c"
+    local file = root .. "/" .. path
+    assert(Fs.write(file, "int a;"))
+    files[#files + 1] = file
+    pieces[#pieces + 1] = record(file, prefix, path)
+  end
+  local absolute = tree .. "/absolute.c"
+  assert(Fs.write(absolute, "int a;"))
+  files[#files + 1] = absolute
+  pieces[#pieces + 1] = record(absolute, 0, absolute)
+  local unchanged = tree .. "/unchanged.c"
+  assert(Fs.write(unchanged, "int a;"))
+  pieces[#pieces + 1] = record(unchanged, 4, "unchanged.c")
+  local text = table.concat(pieces) .. "\0"
+  assert(Fs.write(project .. "/h/" .. name, text))
+  for _, file in ipairs(files) do restored(file, "int b;") end
+  restored(unchanged)
+  local result = assert(ZigRestat.restat({ { path = project, prefix = 2 } }, roots))
+  assert(result.records == 7 and result.adopted == 1 and result.rehashed == 0 and
+      result.left == 6 and result.manifests == 1)
+  local after = assert(Fs.read(project .. "/h/" .. name))
+  assert(after:sub(1, #text - #pieces[7] - 1) == text:sub(1, #text - #pieces[7] - 1))
+  local records = assert(ZigPrune.records(after))
+  assert(records[7].inode == (assert(sys.stat(unchanged))).ino)
+end
+
+--- A path's cached digest is compared to each record: manifests from
+--- different builds may name the same path with different old contents.
+local function test_a_cached_digest_is_compared_to_each_manifest(tmp: string)
+  local project, _, tree = layout(tmp)
+  local file = tree .. "/input.c"
+  assert(Fs.write(file, "int a;"))
+  local first = record(file, 4, "input.c") .. "\0"
+  assert(Fs.write(file, "int b;"))
+  local second = record(file, 4, "input.c") .. "\0"
+  assert(Fs.write(project .. "/h/" .. name, first))
+  local other = string.rep("b", 32)
+  assert(Fs.write(project .. "/h/" .. other, second))
+  restored(file)
+  local result = assert(ZigRestat.restat({ { path = project, prefix = 2 } }, { [4] = tree }))
+  assert(result.records == 2 and result.adopted == 1 and result.left == 1 and result.manifests == 1)
+  assert(Fs.read(project .. "/h/" .. name) == first)
+  local records = assert(ZigPrune.records((assert(Fs.read(project .. "/h/" .. other)))))
+  assert(records[1].inode == (assert(sys.stat(file))).ino)
 end
 
 --- A file under a prefix no root is named for, zig's lib directory here,
