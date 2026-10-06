@@ -14,7 +14,10 @@ local Test = require("cosmic.test")
 local confine = require("build.confine")
 
 -- The profile "cosmic" (`lua`) for what `cosmic -e` loads, which the child runs.
-Test.policy{ profiles = { "cosmic" }, promises = { "nest" } }
+-- A worker that nests is held by a root of its own, which only Linux builds
+-- and a host may refuse: the module is not applicable off Linux and skipped
+-- where the host gives no nest.
+Test.policy{ profiles = { "cosmic" }, promises = { "nest" }, requires = { "nest" } }
 
 --- Whether this worker runs on a sealed database ([`sealed`] of
 --- build/sealed_worker_test.tl, for a worker that nests).
@@ -36,8 +39,6 @@ local function test_a_worker_that_nests_runs_on_a_sealed_database()
 end
 
 local function test_a_worker_that_nests_confines_a_child_on_the_same_database()
-  -- Off Linux no process can be confined in a root of its own.
-  if not confine.sandbox_platform() then return end
   local relaunch = sealed()
   if relaunch == nil then return end
   local argv: {string} = {}
