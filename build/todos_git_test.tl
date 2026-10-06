@@ -28,6 +28,8 @@ local record Replay
   scenario: string
   step: string
   ignored: boolean
+  -- The line ranges blame is asked for, as `first,last` words.
+  ranges: string
 end
 
 --- A recorded file of the replay's step.
@@ -62,8 +64,13 @@ local function answer(replay: Replay, root: string, args: {string}): string | ni
       assert(args[3] == "--ignore-revs-file" and args[4] == root .. "/.git-blame-ignore-revs", said)
       at = 5
     end
-    assert(#args == at + 3 and args[at] == "-L" and args[at + 1] == "1,1" and args[at + 2] == "--", said)
-    return (assert(recorded(replay, args[at + 3]:gsub("/", "_") .. ".blame"), "no blame recorded: " .. said))
+    local asked: {string} = {}
+    while args[at] == "-L" do
+      asked[#asked + 1] = args[at + 1]
+      at = at + 2
+    end
+    assert(table.concat(asked, " ") == replay.ranges and #args == at + 1 and args[at] == "--", said)
+    return (assert(recorded(replay, args[at + 1]:gsub("/", "_") .. ".blame"), "no blame recorded: " .. said))
   end
   error("unexpected git call: " .. said)
 end
@@ -72,7 +79,7 @@ end
 --- before it asks git, and a replay of `scenario` to ask.
 local function replaying(root: string, scenario: string): Replay, function(string, {string}): string | nil
   assert(Fs.mkdirs(root .. "/.git"))
-  local replay: Replay = { scenario = scenario, step = "1", ignored = false }
+  local replay: Replay = { scenario = scenario, step = "1", ignored = false, ranges = "1,1" }
   return replay, function(at: string, args: {string}): string | nil
     return answer(replay, at, args)
   end
@@ -98,7 +105,7 @@ local function test_blame_carries_across_commits_that_leave_a_file_alone()
   assert(Fs.write(root .. "/c.tl", text({ "local c = 3" })))
   all, blamed = listed("2")
   assert(blamed == 0, "blamed " .. blamed)
-  assert(all[2].summary == "one", all[2].summary)
+  assert(all[2].summary == "one" and all[2].commit ~= "", all[2].summary)
 
   -- One that touches a file blames that file alone.
   assert(Fs.write(root .. "/b.tl", text({ "-- TODO: second, reworded" })))
@@ -133,9 +140,9 @@ local function test_blame_passes_over_the_commits_the_tree_ignores()
   replay.step = "2"
   replay.ignored = true
   assert(Fs.write(root .. "/.git-blame-ignore-revs", assert(recorded({ scenario = "ignores", step = "1",
-    ignored = false }, "head"))))
+    ignored = false, ranges = "1,1" }, "head"))))
   all = listed()
-  assert(all[1].summary == "one", all[1].summary)
+  assert(all[1].summary == "one" and all[1].commit ~= "", all[1].summary)
   assert(work.close(handle))
   assert(Fs.remove_tree(root))
 end
@@ -171,4 +178,20 @@ local function test_a_tree_in_a_repository_below_its_root_or_in_a_worktree_is_bl
   local listing = list_once(checkout, run_git)
   assert(listing.blamed == 1, "blamed " .. listing.blamed)
   assert(#listing.todos == 1 and listing.todos[1].summary == "one", listing.todos[1].summary)
+end
+
+--- A file's several TODOs are blamed in one call, a range to each, and
+--- each is listed on the commit that wrote its line.
+local function test_a_files_todos_are_blamed_in_one_call_by_line()
+  local root = assert(Fs.mkdtemp("cosmic-todos-test-"))
+  local replay, run_git = replaying(root, "pair")
+  replay.ranges = "1,1 3,3"
+  assert(Fs.write(root .. "/a.tl", text({ "-- TODO: first", "local x = 1", "-- TODO: third" })))
+  local listing = list_once(root, run_git)
+  assert(listing.blamed == 1, "blamed " .. listing.blamed)
+  assert(#listing.todos == 2, #listing.todos)
+  assert(listing.todos[1].summary == "one" and listing.todos[2].summary == "two",
+    listing.todos[1].summary .. listing.todos[2].summary)
+  assert(listing.todos[1].commit ~= listing.todos[2].commit)
+  assert(Fs.remove_tree(root))
 end

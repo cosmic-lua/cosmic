@@ -10,7 +10,7 @@
 #   head            `git rev-parse --verify -q HEAD`
 #   ancestors       `git rev-list HEAD`, which `merge-base --is-ancestor` answers from
 #   diff-<old>      `git diff --name-only --no-renames --relative <old> HEAD --`
-#   <file>.blame     `git blame --line-porcelain -L 1,1 [--ignore-revs-file F] -- <file>`
+#   <file>.blame     `git blame --line-porcelain -L <n>,<n>... [--ignore-revs-file F] -- <file>`
 #                   (a "/" in the file's name is "_")
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
@@ -20,6 +20,8 @@ export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com
 export GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
 tick=1767225600
+# The line ranges `blame` is asked for, as the verb asks one per TODO.
+ranges="-L 1,1"
 
 g() { git -C "$repo" -c commit.gpgsign=false -c init.defaultBranch=main "$@"; }
 
@@ -46,9 +48,9 @@ record() {
   for file in "$@"; do
     name=$(printf %s "$file" | tr / _)
     if [ -n "$ignore" ]; then
-      git -C "$root" blame --line-porcelain --ignore-revs-file "$ignore" -L 1,1 -- "$file" > "$dir/$name.blame"
+      git -C "$root" blame --line-porcelain --ignore-revs-file "$ignore" $ranges -- "$file" > "$dir/$name.blame"
     else
-      git -C "$root" blame --line-porcelain -L 1,1 -- "$file" > "$dir/$name.blame"
+      git -C "$root" blame --line-porcelain $ranges -- "$file" > "$dir/$name.blame"
     fi
   done
 }
@@ -94,3 +96,13 @@ g add . && commit -m one
 record "$here/placed/below" "$repo/sub" "" -- a.tl
 g worktree add -q "$work/worktree"
 record "$here/placed/worktree" "$work/worktree" "" -- sub/a.tl
+
+# pair: one file's two TODOs, from two commits, blamed in one call.
+repo=$work/pair
+mkdir -p "$repo" && g init -q
+echo '-- TODO: first' > "$repo/a.tl"
+g add . && commit -m one
+printf '%s\n' '-- TODO: first' 'local x = 1' '-- TODO: third' > "$repo/a.tl"
+commit -a -m two
+ranges="-L 1,1 -L 3,3"
+record "$here/pair/1" "$repo" "" -- a.tl

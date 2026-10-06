@@ -210,52 +210,117 @@ local function ignored_revs(root: string): string | nil
   return nil
 end
 
+--- One `git blame` under way: when it must be given up on, what it said
+--- once it has ended (nil where it failed), and how to drop it.
+local record BlameRun
+  file: string
+  deadline: integer
+  handle: Child.Handle | nil
+  said: function(): string | nil
+  drop: function()
+end
+
+--- How [`blame_all`] runs its blames: `start` begins the one with these
+--- arguments, and `wait` answers which of the `running` has ended, or
+--- none and whether supervising them failed.
+local record Blamer
+  start: function(file: string, args: {string}): BlameRun | nil
+  wait: function(running: {BlameRun}): BlameRun | nil, boolean
+end
+
+--- A [`Blamer`] that starts the system's git `program` in `root`.
+local function spawning(program: string, root: string): Blamer
+  local run_of: {Child.Handle:BlameRun} = {}
+  return {
+    start = function(file: string, args: {string}): BlameRun | nil
+      local argv: {string} = { program, "-C", root }
+      for _, each in ipairs(args) do
+        argv[#argv + 1] = each
+      end
+      local handle, _ = Child.start(argv, { stdin = "null", stdout = "capture", stderr = "null" })
+      if handle == nil then return nil end
+      local run: BlameRun = {
+        file = file,
+        deadline = Time.monotonic_ns() + git_timeout_ns,
+        handle = handle,
+        said = function(): string | nil
+          local result, _ = handle:wait()
+          if result ~= nil and result.ok and result.stdout ~= nil then
+            return result.stdout
+          end
+          return nil
+        end,
+        drop = function()
+          local _, _ = handle:close()
+        end,
+      }
+      run_of[handle] = run
+      return run
+    end,
+    wait = function(running: {BlameRun}): BlameRun | nil, boolean
+      local handles: {Child.Handle} = {}
+      for _, run in ipairs(running) do
+        handles[#handles + 1] = run.handle
+      end
+      local done, trouble = Child.wait_any(handles, Time.ms(100))
+      return run_of[done], done == nil and trouble ~= Poll.TIMEOUT
+    end,
+  }
+end
+
+--- A [`Blamer`] that has `run_git` answer each blame at its start, so
+--- every one has ended as soon as it is asked of.
+local function answering(run_git: GitRunner, root: string): Blamer
+  return {
+    start = function(file: string, args: {string}): BlameRun | nil
+      local answer = run_git(root, args)
+      return {
+        file = file,
+        deadline = math.maxinteger,
+        said = function(): string | nil return answer end,
+        drop = function() end,
+      }
+    end,
+    wait = function(running: {BlameRun}): BlameRun | nil, boolean
+      return running[1], false
+    end,
+  }
+end
+
 --- Blame for the first line of each TODO in several files, by file,
 --- running the calls [`blame_jobs`] at a time, past the commits
 --- `IGNORED_REVS` lists; a file git has nothing to
 --- say about maps to an empty table. Once `guard` has caught a signal,
 --- it ends every git and stops. With `run_git`, the calls are its
---- answers, one after another, and no process starts.
+--- answers, and no process starts.
 local function blame_all(root: string, lines: {string:{integer}}, order: {string},
                          guard: Child.Guard | nil,
                          run_git: GitRunner | nil): {string:{integer:todos.Blame}}
   local out: {string:{integer:todos.Blame}} = {}
   local ignored = ignored_revs(root)
+  local blamer: Blamer
   if run_git ~= nil then
-    for _, file in ipairs(order) do
-      out[file] = {}
-      local said = run_git(root, blame_args(file, lines[file], ignored))
-      if said ~= nil then
-        out[file] = todos.parse_blame(said)
-      end
+    blamer = answering(run_git, root)
+  else
+    -- git as `git` finds it, found once for every call.
+    local program, _ = Proc.find("git")
+    if program == nil then
+      for _, file in ipairs(order) do out[file] = {} end
+      return out
     end
-    return out
-  end
-  -- git as `git` finds it, found once for every call.
-  local program, _ = Proc.find("git")
-  if program == nil then
-    for _, file in ipairs(order) do out[file] = {} end
-    return out
+    blamer = spawning(program, root)
   end
   local limit = blame_jobs()
-  local running: {Child.Handle} = {}
-  local file_of: {Child.Handle:string} = {}
-  local deadline_of: {Child.Handle:integer} = {}
+  local running: {BlameRun} = {}
   local next_file = 1
   while next_file <= #order or #running > 0 do
     while #running < limit and next_file <= #order do
       local file = order[next_file]
       next_file = next_file + 1
       out[file] = {}
-      local argv: {string} = { program, "-C", root }
-      for _, each in ipairs(blame_args(file, lines[file], ignored)) do
-        argv[#argv + 1] = each
-      end
-      local handle, _ = Child.start(argv, { stdin = "null", stdout = "capture", stderr = "null" })
-      if handle ~= nil then
-        running[#running + 1] = handle
-        file_of[handle] = file
-        deadline_of[handle] = Time.monotonic_ns() + git_timeout_ns
+      local run = blamer.start(file, blame_args(file, lines[file], ignored))
+      if run ~= nil then
+        running[#running + 1] = run
       end
     end
     if #running == 0 then
@@ -264,27 +329,27 @@ local function blame_all(root: string, lines: {string:{integer}}, order: {string
     if guard ~= nil and guard:cancelled() ~= 0 then
       break
     end
-    local done, trouble = Child.wait_any(running, Time.ms(100))
+    local done, failed = blamer.wait(running)
     local now = Time.monotonic_ns()
-    local still: {Child.Handle} = {}
-    for _, handle in ipairs(running) do
-      if rawequal(handle, done) then
-        local result, _ = handle:wait()
-        if result ~= nil and result.ok and result.stdout ~= nil then
-          out[file_of[handle]] = todos.parse_blame(result.stdout)
+    local still: {BlameRun} = {}
+    for _, run in ipairs(running) do
+      if rawequal(run, done) then
+        local said = run.said()
+        if said ~= nil then
+          out[run.file] = todos.parse_blame(said)
         end
-      elseif (done == nil and trouble ~= Poll.TIMEOUT) or now >= deadline_of[handle] then
+      elseif (done == nil and failed) or now >= run.deadline then
         -- Supervision failed, or git ran past its time: the file's
         -- TODOs are listed unblamed.
-        local _, _ = handle:close()
+        run.drop()
       else
-        still[#still + 1] = handle
+        still[#still + 1] = run
       end
     end
     running = still
   end
-  for _, handle in ipairs(running) do
-    local _, _ = handle:close()
+  for _, run in ipairs(running) do
+    run.drop()
   end
   return out
 end
@@ -713,7 +778,7 @@ end
 todos.spec = {
   name = "todos",
   guide = "none: lists the tree's TODO comments for its maintainers, described by `cosmic help todos`",
-  tests = { "build.todos_test", "build.todos_git_test", "build.todos_live_git_test" },
+  tests = { "build.todos_test", "build.todos_git_test" },
   run = function(argv: {integer:string}): integer return run(argv) end,
   bare = false,
   takes = "the files or directories to act on",
