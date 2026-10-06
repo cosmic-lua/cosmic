@@ -666,7 +666,10 @@ function worker.judge(judging: worker.Judging): worker.Judgement
   -- Only a pass is skipped instead: a failure is one, skip or not.
   judgement.skipped = judgement.passed and report.skipped or ""
   judgement.deliberate = ""
-  if judgement.passed and judgement.skipped == "" then judgement.deliberate = report.deliberate end
+  -- A test that also asserted checked something: it is no deliberate non-check.
+  if judgement.passed and judgement.skipped == "" and report.asserted == 0 then
+    judgement.deliberate = report.deliberate
+  end
   judgement.unchecked = judgement.passed and judgement.skipped == "" and report.loaded and
     report.asserted == 0 and judgement.deliberate == ""
   return judgement

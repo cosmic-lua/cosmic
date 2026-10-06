@@ -21,6 +21,7 @@ local function test_a_failed_multi_init_does_not_poison_the_next_request(tmp: st
   local fixture = tmp .. "/multi_init.tl"
   assert(Fs.write(fixture, [[
 local Http = require("cosmic.http")
+local testing = require("cosmic.internal.testing")
 local reply = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello"
 return function(): integer
   testing.fail_at("curl_multi_init")

@@ -7,11 +7,6 @@ local Removed = require("cosmic.removed")
 local sys = require("cosmic.sys")
 local errors = require("cosmic.internal.errors")
 
---- One line longer than a `luaL_Buffer` holds inline (1 KB on a 64-bit
---- build), from arguments whose text only exists once `print` converts
---- them: the path that once freed the buffer out from under itself. A
---- core built with Lua's API checks or AddressSanitizer fails here; the
---- line itself is only ever read by a person.
 --- What `fn` printed to descriptor 1, which it was pointed at a file of
 --- `tmp` for, and restored after.
 local function printed(tmp: string, fn: function()): string
@@ -27,6 +22,10 @@ local function printed(tmp: string, fn: function()): string
   return (assert(Fs.read(path)))
 end
 
+--- One line longer than a `luaL_Buffer` holds inline (1 KB on a 64-bit
+--- build), from arguments whose text only exists once `print` converts
+--- them: the path that once freed the buffer out from under itself. A
+--- core built with Lua's API checks or AddressSanitizer fails here.
 local function test_print_carries_a_line_past_the_inline_buffer(tmp: string)
   local long = string.rep(".", 1100)
   local shown = setmetatable({}, {
