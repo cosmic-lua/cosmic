@@ -689,16 +689,13 @@ end
 --- edit to Teal rebuilds on its own.
 ---
 --- The fresh case -- overwhelmingly the common one for a read-only
---- verb run again and again while nothing changed -- never walks the
---- tree: [`work.tool_moved`] stats only the paths the last stage
---- already recorded under `tool`, and a file new to the tree does not
---- register there until something already known requires it, which
---- edits that known file and so moves its own stat; a row whose file
---- is gone fails its stat, counted as moved rather than told apart
---- from an edit. When nothing moved, the `boot_hash` that same last
---- stage recorded into `meta` ([`identity.recorded_boot_hash`]) still
---- describes `tool` exactly, so it is read back rather than
---- recomputed. Only when something did move, or the database has no
+--- verb run again and again while nothing changed -- stats the tool's
+--- recorded files and discovery directories ([`work.tool_moved`]). A
+--- membership change takes the same full stage as an edit to a known file.
+--- When neither moved, the `boot_hash` that same last stage recorded into
+--- `meta` ([`identity.recorded_boot_hash`]) still describes `tool` exactly,
+--- so it is read back rather than recomputed. Only when something moved,
+--- or the database has no
 --- recorded `boot_hash` yet (a fresh `o/`, or one nothing has staged
 --- for), does this fall back to [`work.stage`]'s directory walk and
 --- [`reboot.guard`] -- the same path `cosmic test` always takes.
