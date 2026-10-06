@@ -20,7 +20,6 @@ local unix_socket = require("build.unix_socket")
 local type raw_hash = require("cosmic.internal.hash")
 local type raw_process = require("cosmic.internal.process")
 local stand_in = require("build.stand_in")
-local confine = require("build.confine")
 
 -- TODO: declare /proc for Linux alone once a declaration can name a
 -- host path per platform (a `host` entry for Linux and one for macOS):
@@ -403,7 +402,9 @@ end
 --- lstat, which answers a link as one too: the checked core's fault
 --- point makes each entry in turn unknown.
 local function test_readdir_names_an_entry_of_unknown_type_as_lstat_does(tmp: string)
-  if testing.configuration ~= "sanitized" then return end
+  if testing.configuration ~= "sanitized" then
+    Test.skip("only the checked core carries the instrument it uses")
+  end
   local socket = unix_socket.available(tmp)
   local d = linked_directory(tmp, socket)
   for skip = 0, LINKED_ENTRIES - (socket and 1 or 2) do
@@ -846,7 +847,9 @@ end
 --- fit in, NUL included, rather than answering it cut short. Only the
 --- checked core can hand it a buffer that small.
 local function test_executable_path_refuses_a_room_it_does_not_fit()
-  if testing.configuration ~= "sanitized" then return end
+  if testing.configuration ~= "sanitized" then
+    Test.skip("only the checked core carries the instrument it uses")
+  end
   local path = assert(testing.executable_path(4096))
   assert(path:sub(1, 1) == "/", "the executable's path is absolute")
   assert(testing.executable_path(#path + 1) == path)
@@ -1158,7 +1161,9 @@ end
 --- which require it: so this returns there, and only the platforms without
 --- one answer.
 local function test_a_sandbox_the_platform_lacks_is_refused(tmp: string)
-  if confine.sandbox_platform() then return end
+  if assert(sys.uname()).sysname == "Linux" then
+    Test.skip("a platform with a sandbox answers this where a test requires one")
+  end
   local probe = probe_in(tmp)
   local ruleset, trouble, errno = process.landlock_ruleset({ probe }, {})
   assert(ruleset == nil and (errno == sys.ENOSYS or errno == sys.EOPNOTSUPP or errno == sys.EPERM),
@@ -1535,7 +1540,9 @@ end
 --- before it, another device's line, a word that only begins so, and a
 --- line that does not parse say nothing.
 local function test_flock_kind_reads_an_nfs_mounts_local_lock()
-  if testing.configuration ~= "sanitized" then return end
+  if testing.configuration ~= "sanitized" then
+    Test.skip("only the checked core carries the instrument it uses")
+  end
   local sample = table.concat({
     "22 1 8:1 / / rw,relatime shared:1 - ext4 /dev/sda1 rw",
     "30 22 0:40 / /home rw,relatime shared:5 - nfs4 server:/home " ..

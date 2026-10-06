@@ -1800,7 +1800,9 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
   -- held run fails it, and no run keeps a verdict of it, so it is met again
   -- every run -- a standing verdict would hide it from the summary and from
   -- a held run that did not run it.
-  local unchecked = passed and judged.unchecked == true
+  -- An example (`*_example.tl`) shows how code is used and is not held to it:
+  -- it passes by running.
+  local unchecked = passed and judged.unchecked == true and job.m.kind == "test"
   if unchecked then
     rec.tally.unchecked = rec.tally.unchecked + 1
     rec.unchecked[#rec.unchecked + 1] = id

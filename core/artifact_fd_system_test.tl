@@ -43,7 +43,10 @@ end
 --- it starts still reads its own /proc/self, and the worker its own.
 local function test_a_host_program_cannot_reach_the_artifact_through_the_worker_s_proc()
   local fd = held_artifact_fd()
-  if fd == nil then return end
+  if fd == nil then
+    Test.skip("this program holds no descriptor on a portable artifact")
+    return
+  end
   local pid, own = tostring(Proc.pid()), tostring(fd)
   local control = shell('cat /proc/self/stat >/dev/null && cat "/proc/$1/stat" >/dev/null', pid)
   assert(control.code == 0, "the shell could not read /proc: " .. tostring(control.stderr))

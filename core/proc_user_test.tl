@@ -8,7 +8,7 @@ Test.policy{ profiles = { "system" } }
 local checked = testing.configuration == "sanitized"
 
 local function test_user_library_failure_is_not_a_missing_account()
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   testing.fail_at("getpwnam_r")
   local user, reason = Proc.user("root")
   local armed = testing.fail_at()
@@ -17,7 +17,7 @@ local function test_user_library_failure_is_not_a_missing_account()
 end
 
 local function test_user_missing_is_nil_with_an_empty_reason()
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   testing.fail_at("getpwnam_r(missing)")
   local result = table.pack(Proc.user("root"))
   local armed = testing.fail_at()
@@ -25,7 +25,7 @@ local function test_user_missing_is_nil_with_an_empty_reason()
 end
 
 local function test_user_refuses_an_entry_larger_than_the_buffer_limit()
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
   testing.fail_at("getpwnam_r(oversize)")
@@ -38,7 +38,7 @@ local function test_user_refuses_an_entry_larger_than_the_buffer_limit()
 end
 
 local function test_user_grows_after_a_short_buffer_and_releases_it()
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
   testing.fail_at("getpwnam_r(ERANGE)")
@@ -54,7 +54,7 @@ end
 --- Refusals cover the guard, initial buffer, growth, result table and
 --- its fields. Collection also exercises the guard's last-resort owner.
 local function test_user_releases_buffers_under_every_allocation_refusal()
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   local cases = {
     { name = "root", point = "", found = true },
     { name = "root", point = "getpwnam_r(ERANGE)", found = true },

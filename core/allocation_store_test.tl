@@ -54,7 +54,7 @@ end
 --- An attached database is held by the store or closed: a refusal
 --- leaves no connection -- and no descriptor under it -- behind.
 local function test_attach_leaves_no_connection_whenever_an_allocation_fails(tmp: string)
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   local path = tmp .. "/project.db"
   local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("CREATE TABLE modules (path TEXT, bytecode BLOB, kind TEXT, " ..

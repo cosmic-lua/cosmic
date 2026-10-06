@@ -176,7 +176,10 @@ end
 --- is, naming it, where stat-ing it raised.
 local function test_nest_refuses_the_runtimes_own_descriptors_rather_than_raising(tmp: string)
   local launched, _ = Proc.relaunch()
-  if launched == nil or next(launched.fds) == nil then return end
+  if launched == nil or next(launched.fds) == nil then
+    Test.skip("this start retains no descriptor of the runtime's own to refuse")
+    return
+  end
   local at = placed(tmp)
   local policy: Sandbox.Policy = { isolate = { "file" }, promises = { "nest" }, grants = at.grants }
   local handle, why = Child.start({ at.probe, "print hi" },

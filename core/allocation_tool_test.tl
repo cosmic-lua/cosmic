@@ -76,7 +76,7 @@ end
 --- A child is reaped only once its answer can be made: a refusal before
 --- it leaves the child to wait for again, never its status lost.
 local function test_waitpid_never_loses_a_status_to_a_failed_allocation()
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   -- A chunk that exits 7: a real status to reap.
   local pid = spawn_again("return 7")
   local received: raw_process.ChildStatus
@@ -97,7 +97,7 @@ end
 --- refusal anywhere, its failure's message among them, leaves none to
 --- the process.
 local function test_an_exit_watch_leaves_no_descriptor_whenever_an_allocation_fails(tmp: string)
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   -- A child still running, as one a watch is opened for is.
   local pid = spawn_again('require("cosmic.clock").sleep_ns(60 * 1000000000)')
   local probe = tmp .. "/probe"

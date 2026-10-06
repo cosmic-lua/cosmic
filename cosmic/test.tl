@@ -724,7 +724,8 @@ end
 --- (`N n/a`) where the platform never has it, skipped where this host
 --- lacks it, and run, under a key that holds the answer, where it is
 --- present. A test that returns silently for a missing host tool or
---- platform feature passes having checked nothing. Raises for a reason
+--- platform feature passes having made no call to `assert`, which
+--- `cosmic test` lists as having checked nothing and a held run fails. Raises for a reason
 --- that is not a string or is empty and, under a runner, for a call as
 --- the module loads rather than from a test. Outside a runner it
 --- returns and does nothing: no one there takes what it would raise for

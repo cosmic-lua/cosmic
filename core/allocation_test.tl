@@ -59,6 +59,11 @@ end
 
 local process = process_table()
 
+-- TODO: require a name for the checked core (host_names' table, promised by
+-- the linux-x86_64-checked leg) in place of the [`Test.skip`] each test here
+-- and in core/fault_test.tl, core/proc_user_test.tl and the like makes
+-- without one, once such a name exists: a held run of the checked leg
+-- then fails a core that is not checked, where a plain skip only lists it.
 local checked = testing.configuration == "sanitized"
 
 --- Runs `work` once per allocation it makes, refusing that allocation,
@@ -125,7 +130,7 @@ local function test_only_the_checked_core_instruments()
 end
 
 local function test_a_refused_allocation_raises_and_is_counted()
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   -- Made before refusal starts: the closure is itself an allocation,
   -- and nothing after a refusal outside pcall could even report.
   local allocate = function(): {string} return { string.rep("x", 100) } end
@@ -138,7 +143,7 @@ local function test_a_refused_allocation_raises_and_is_counted()
 end
 
 local function test_readdir_releases_its_directory_whenever_an_allocation_fails(tmp: string)
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   assert(sys.mkdir(tmp .. "/d"))
   for i = 1, 40 do
     sys.close((assert(sys.open(tmp .. "/d/entry-" .. i, sys.O_CREAT | sys.O_WRONLY, 420))))
@@ -154,7 +159,7 @@ local function test_readdir_releases_its_directory_whenever_an_allocation_fails(
 end
 
 local function test_the_store_finalizes_its_statement_whenever_an_allocation_fails()
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   local before = testing.open_statements()
   local ended = under_every_failure(function()
     assert(Store.bytecode("cosmic.fs"))
@@ -173,7 +178,7 @@ end
 --- a refusal at any point of that must raise, never free the buffer out
 --- from under itself.
 local function test_print_survives_every_refused_allocation()
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   local long = string.rep(".", 1100)
   local ended = under_every_failure(function()
     print("allocation_test: a long print under refusal ->", long, 42)
@@ -184,7 +189,7 @@ end
 --- open_temporary builds its answer with the descriptor already open; a
 --- refusal while it does must close it, not leave it to the process.
 local function test_open_temporary_closes_its_descriptor_whenever_an_allocation_fails(tmp: string)
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   local path = tmp .. "/t"
   local before = next_descriptor(tmp)
   -- Taken on the line that makes the call, so no hook runs between the
@@ -211,7 +216,7 @@ end
 --- the tables; a refusal at any point of that, and a failed execve after
 --- it, must come back through the guards that free them.
 local function test_execve_survives_every_refused_allocation(tmp: string)
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   local missing = tmp .. "/no-such-program"
   local ended = under_every_failure(function()
     local ok, trouble = sys.execve(missing, { missing, "an argument" }, { NAME = "value" })
@@ -223,7 +228,7 @@ end
 
 --- A pipe is made after its answer is: a refusal leaves neither end open.
 local function test_pipe_leaves_no_end_open_whenever_an_allocation_fails(tmp: string)
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   local before = next_descriptor(tmp)
   -- Taken on the line that makes the call, and released in `settle`, so
   -- a refused coverage hook cannot fall between the two.
@@ -250,7 +255,7 @@ end
 --- builds the wrap -- leaves none to the process. Over the loopback, which
 --- needs no socket file.
 local function test_net_leaves_no_descriptor_whenever_an_allocation_fails(tmp: string)
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   local before = next_descriptor(tmp)
   local ended = under_every_failure(function()
     local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
@@ -269,7 +274,8 @@ end
 --- listener takes the same path.
 local function test_net_leaves_no_descriptor_or_socket_file_whenever_an_allocation_fails(
     tmp: string)
-  if not checked or unix_socket.skipped(tmp) then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
+  if unix_socket.skipped(tmp) then return end
   local path = tmp .. "/s.sock"
   local before = next_descriptor(tmp)
   local ended = under_every_failure(function()
@@ -289,7 +295,7 @@ end
 --- anywhere, a run torn down by one included, leaves no descriptor to
 --- the process.
 local function test_net_in_a_run_leaves_no_descriptor_whenever_an_allocation_fails(tmp: string)
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   local before = next_descriptor(tmp)
   local ended = under_every_failure(function()
     local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
@@ -320,7 +326,8 @@ end
 --- closes the list's descriptor, whichever allocation is refused. Off
 --- Linux it allocates nothing, and there is nothing to walk.
 local function test_children_releases_its_block_whenever_an_allocation_fails(tmp: string)
-  if not checked or assert(sys.uname()).sysname ~= "Linux" then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
+  if assert(sys.uname()).sysname ~= "Linux" then Test.skip("this test walks a Linux-only path") end
   local before = next_descriptor(tmp)
   local bytes, blocks = testing.c_heap()
   local ended = under_every_failure(function()
@@ -340,7 +347,8 @@ end
 --- the ENOMEM no caller here can see. Off Linux it allocates nothing,
 --- and there is nothing to walk.
 local function test_maps_id_releases_its_block_whenever_an_allocation_fails(tmp: string)
-  if not checked or assert(sys.uname()).sysname ~= "Linux" then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
+  if assert(sys.uname()).sysname ~= "Linux" then Test.skip("this test walks a Linux-only path") end
   local before = next_descriptor(tmp)
   local bytes, blocks = testing.c_heap()
   local ended = under_every_failure(function()
@@ -356,7 +364,7 @@ end
 --- `getgroups` lists the groups into a block Lua owns, not the C heap's,
 --- so a refusal of the list's table after it leaves nothing behind.
 local function test_getgroups_leaves_nothing_whenever_an_allocation_fails()
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   local bytes, blocks = testing.c_heap()
   local ended = under_every_failure(function()
     assert(sys.getgroups())
@@ -368,7 +376,7 @@ end
 --- The C heap counts what the core's C allocates and frees, and a
 --- refused C allocation is counted with Lua's.
 local function test_the_c_heap_counts_its_blocks_and_refusals()
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
   do
@@ -428,7 +436,7 @@ end
 --- deflater, whenever an allocation fails: a refusal raises or answers
 --- nil and a message, and leaves no block behind.
 local function test_compress_leaves_nothing_whenever_an_allocation_fails()
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   local packed: {string: string} = {}
   for _, format in ipairs({ "raw", "zlib", "gzip" } as {Compress.Format}) do
     local encoder = assert(Compress.deflater(format))
@@ -469,7 +477,7 @@ end
 --- that inflates a row, leave no block on the C heap whenever an
 --- allocation fails, and give the whole text back when none does.
 local function test_deflate_and_inflate_leave_nothing_whenever_an_allocation_fails()
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   local db = assert(Sqlite.memory())
   local text = string.rep("deflated source, inflated again\n", 64)
   collectgarbage("collect")
@@ -496,7 +504,7 @@ end
 --- in the userdata's allocation or the values a constructor, `update`
 --- or `digest` pushes, and the collection or close of an unfinished one.
 local function test_hash_leaves_nothing_whenever_an_allocation_fails()
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
   local ended = under_every_failure(function()
@@ -524,7 +532,7 @@ end
 --- A safe value is a userdata and a string of Lua's own, and no C memory:
 --- a refusal while one is made, escaped, joined or read leaves none.
 local function test_html_leaves_nothing_whenever_an_allocation_fails()
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
   local ended = under_every_failure(function()
@@ -545,7 +553,7 @@ end
 --- heap; a refusal anywhere, Lua's or theirs, raises or answers nil and
 --- a message, and leaves neither behind.
 local function test_json_leaves_nothing_whenever_an_allocation_fails()
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   local text = '{"b": [1, 2.5, "x\\u00e9", true, null], "a": {"c": {}, "d": []}}'
   local wide: {string: any} = {}
   for i = 1, 80 do wide["key" .. i] = Json.array({ i, "value " .. i }) end
@@ -576,7 +584,7 @@ end
 --- refusing every allocation after, cannot arrange -- answers "out of
 --- memory", and a JSON Lines record's names its line.
 local function test_json_names_a_record_yyjson_could_not_allocate()
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   testing.fail_at("json_malloc")
   local _, whole = Json.decode("[1]")
   assert(not testing.fail_at(), "decode never reached json_malloc")
@@ -661,7 +669,7 @@ end
 --- no descriptor, no transfer, no block, and the run with nothing
 --- refused reads the whole body.
 local function test_http_leaves_nothing_whenever_an_allocation_fails(tmp: string)
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   -- The first request makes the process-wide state -- curl's global
   -- init, the trust store, the multi handle and its wakeup pair -- which
   -- is made once and kept, so it is made before anything is counted.
@@ -686,7 +694,7 @@ end
 --- The outcome's error copy is owned before Lua builds its string or
 --- returns its table. A refusal at either point must release that copy.
 local function test_sqlite_exec_result_releases_its_snapshot_under_allocation_failure()
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   local db = assert(Sqlite.memory())
   db:busy_timeout(Clock.ms(10))
   collectgarbage("collect")
@@ -706,7 +714,7 @@ local function test_sqlite_exec_result_releases_its_snapshot_under_allocation_fa
 end
 
 local function test_prepared_statements_keep_the_busy_handlers_owner_under_allocation_failure()
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   local db = assert(Sqlite.memory())
   db:busy_timeout(Clock.ms(10))
   collectgarbage("collect")
@@ -725,7 +733,7 @@ end
 --- Existing-only open shares the normal handle guard, on success and
 --- on refusal: an allocation failure must leave neither handle nor fd.
 local function test_sqlite_existing_only_open_releases_every_refused_allocation(tmp: string)
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   local path = tmp .. "/existing.db"
   local made = assert(Sqlite.open(path, { writable = true }))
   assert(made:exec("CREATE TABLE t (a)"))
@@ -757,7 +765,7 @@ end
 --- Building a full-flush failure answer under allocation refusal must
 --- not consume the caller's descriptor or leak another one.
 local function test_full_fsync_preserves_its_descriptor_under_allocation_failure(tmp: string)
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   local fd = assert(sys.open(tmp .. "/full-flush", sys.O_CREAT | sys.O_RDWR, 420))
   assert(sys.write(fd, "data"))
   local darwin = assert(sys.uname()).sysname == "Darwin"
@@ -777,7 +785,7 @@ end
 --- Credential failure still releases spawn's native argument copies and
 --- status pipe when allocating the refusal itself fails.
 local function test_spawn_credentials_refusal_leaks_no_resources(tmp: string)
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   local before = next_descriptor(tmp)
   collectgarbage("collect")
   local heap = testing.c_heap()
@@ -793,7 +801,7 @@ local function test_spawn_credentials_refusal_leaks_no_resources(tmp: string)
 end
 
 local function test_sqlite_captured_operations_release_every_refused_allocation(tmp: string)
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   local db = assert(Sqlite.memory())
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()

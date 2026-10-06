@@ -6,6 +6,7 @@ local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Sqlite = require("cosmic.sqlite")
 local testing = require("cosmic.internal.testing")
+local Test = require("cosmic.test")
 
 -- Feeds `data` through `stream` in pieces of `size` bytes (the whole of
 -- it in one piece when `size` is nil), draining each piece's held
@@ -235,7 +236,9 @@ end
 --- codes, gives out a full window per call for nothing, and the stream
 --- fails once that passes deflate's largest ratio rather than spinning.
 local function test_a_decoder_that_stops_consuming_fails_the_ratio_check()
-  if testing.configuration ~= "sanitized" then return end
+  if testing.configuration ~= "sanitized" then
+    Test.skip("only the checked core carries the instrument it uses")
+  end
   local packed = assert(Compress.deflate("raw", "hello, cosmic!"))
   testing.fail_at("tinfl_decompress")
   local dec = assert(Compress.inflater("raw"))
@@ -564,7 +567,9 @@ end
 local function test_a_raise_inside_update_leaves_the_stream_finished()
   -- Only the checked core can refuse an allocation, which is what makes
   -- a luaL_Buffer raise in the middle of a decode.
-  if testing.configuration ~= "sanitized" then return end
+  if testing.configuration ~= "sanitized" then
+    Test.skip("only the checked core carries the instrument it uses")
+  end
   local input = string.rep("the quick brown fox ", 5000)
   local enc = assert(Compress.deflater("gzip"))
   local packed = assert(enc:update(input)) .. assert(enc:finish())

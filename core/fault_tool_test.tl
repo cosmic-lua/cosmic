@@ -21,7 +21,7 @@ local checked = testing.configuration == "sanitized"
 --- failure is walked in a fresh one: a failed curl_multi_init answers
 --- that request, and the next request makes it again and succeeds.
 local function test_a_failed_multi_init_does_not_poison_the_next_request(tmp: string)
-  if not checked then return end
+  if not checked then Test.skip("only the checked core carries the instrument it uses") end
   local fixture = tmp .. "/multi_init.tl"
   assert(Fs.write(fixture, [[
 local Http = require("cosmic.http")
