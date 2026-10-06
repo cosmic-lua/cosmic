@@ -5,6 +5,11 @@ local Fs = require("cosmic.fs")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
+local Test = require("cosmic.test")
+
+-- These tests start this program (the pinned driver's own cosmic, or a copy of it
+-- as the bootstrap), which a worker on a sealed database does not have whole.
+Test.needs{ tool = true }
 
 --- The environment a test's child runs with: this one's, less what
 --- would change which cosmic bin/cosmic-bootstrap answers (a

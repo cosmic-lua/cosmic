@@ -4,6 +4,11 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
+local Test = require("cosmic.test")
+
+-- These tests start this program, which a worker on a sealed database does
+-- not have whole.
+Test.needs{ tool = true }
 
 --- Exercise redelivery in a separate driver: its default SIGTERM action
 --- must happen after the owned snapshot and sidecars have been removed.

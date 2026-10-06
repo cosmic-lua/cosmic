@@ -4,6 +4,11 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Prerelease = require("cosmic_ci.prerelease")
 local Proc = require("cosmic.proc")
+local Test = require("cosmic.test")
+
+-- These tests start this program (the pinned driver's own cosmic, or a copy of it
+-- as the bootstrap), which a worker on a sealed database does not have whole.
+Test.needs{ tool = true }
 
 local commit <const> = string.rep("c", 40)
 local repository <const> = "owner/repo"
