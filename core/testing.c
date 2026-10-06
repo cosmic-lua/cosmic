@@ -1,10 +1,11 @@
 /*
  * The test instruments of every core but the checked one: the same
  * names, so the table cosmic/internal/testing.d.tl declares is the one
- * every core registers, but each raises rather than instrument. No
- * shipped core has an allocator a program can make fail. The raw
- * namespace calls (core/namespace_calls.c) are no instruments and are
- * real here as in the checked core.
+ * every core registers, but each instrument raises rather than
+ * instrument. No shipped core has an allocator a program can make
+ * fail. The five raw namespace calls (core/namespace_calls.c) are no
+ * instruments: they are real here, as in the checked core, and not
+ * stand-ins.
  */
 
 #include "testing.h"

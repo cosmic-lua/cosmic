@@ -46,6 +46,17 @@ local function unsandboxable(why: string): boolean
   return false
 end
 
+--- Ends the test where a host that gives the sandbox refuses a namespace of
+--- its own, or the write of its ids (AppArmor's restriction): `errno` is
+--- "ok" or what the step answered. Any other failure fails the test.
+local function refuse_or_skip(what: string, errno: string)
+  if errno == "ok" then return end
+  if errno == tostring(sys.EPERM) or errno == tostring(sys.EACCES) then
+    Test.skip(what .. " was refused here (errno " .. errno .. ")")
+  end
+  assert(false, what .. " failed: " .. errno)
+end
+
 --- Under a policy the program is the core and the file the policy names:
 --- the child runs the sealed main, finds no module outside the set, cannot
 --- read this program's own file, and starts again as the same core on the
@@ -241,8 +252,8 @@ local function test_a_nest_child_cannot_remount_the_database_writable(tmp: strin
   end
   local out = under_nest(tmp, "remount", {})
   if out == nil then return end
-  assert(out.unshare == "ok", "no namespace of its own: " .. tostring(out.unshare))
-  assert(out.mapped == "true", "its ids were not mapped")
+  refuse_or_skip("unshare of a user and mount namespace", out.unshare)
+  refuse_or_skip("the write of its ids", out.mapped)
   assert(out.remount == tostring(sys.EPERM), "the database was remounted writable: " ..
       tostring(out.remount) .. " " .. tostring(out.remount_why))
 end

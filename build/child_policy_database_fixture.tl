@@ -72,20 +72,24 @@ local function probe(mode, scratch)
     -- bind writable. This process makes the namespace, and goes on to say
     -- what `main` does below, which needs nothing of the old one.
     local uid, gid = sys.getuid(), sys.getgid()
-    local made, why = testing.unshare(0x10000000 | 0x20000)
-    say("unshare", made and "ok" or why)
+    -- "unshare" and "mapped" say "ok", or the errno of the first refusal.
+    local made, _, refused = testing.unshare(0x10000000 | 0x20000)
+    say("unshare", made and "ok" or refused)
+    local mapped = "ok"
     if made then
       -- A /proc file takes one write through one descriptor.
-      local mapped = true
       for _, f in ipairs({ { "setgroups", "deny" },
           { "uid_map", "0 " .. uid .. " 1\n" },
           { "gid_map", "0 " .. gid .. " 1\n" } }) do
-        local fd = sys.open("/proc/self/" .. f[1], sys.O_WRONLY)
-        local wrote = fd ~= nil and sys.write(fd, f[2]) == #f[2]
-        if fd ~= nil then wrote = sys.close(fd) and wrote end
-        mapped = mapped and wrote
+        local fd, _, open_errno = sys.open("/proc/self/" .. f[1], sys.O_WRONLY)
+        if fd == nil then mapped = tostring(open_errno) break end
+        local n, _, write_errno = sys.write(fd, f[2])
+        sys.close(fd)
+        if n ~= #f[2] then mapped = tostring(write_errno or 0) break end
       end
       say("mapped", mapped)
+    end
+    if made and mapped == "ok" then
       local ok, message, errno = testing.mount(nil, db, nil, 32 | 4096)
       say("remount", ok and "ok" or tostring(errno))
       say("remount_why", message)
