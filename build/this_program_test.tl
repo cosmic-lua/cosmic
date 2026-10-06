@@ -157,6 +157,9 @@ local function test_program_under_a_policy_leaves_the_relaunch_to_the_start()
     -- The relaunch's descriptors are not this start's to refuse.
     assert(this_program.program({}, { policy = policy, fds = { [254] = "capture" } }).options.fds[254] ==
         "capture")
+    -- Child.start refuses an env beside a policy; so does this, rather than drop it.
+    local ok, why = pcall(this_program.program, {}, { policy = policy, env = { A = "1" } })
+    assert(not ok and tostring(why):find("env beside a policy", 1, true), tostring(why))
   end)
   -- Without a policy the relaunch is still there.
   relaunching(relaunch, function()

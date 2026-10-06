@@ -75,8 +75,8 @@ local handshake: {string} = {
 --- Under `opts.policy` the command line is the one a policy start
 --- takes: [`Child.start`] relaunches the program itself, so `argv` is
 --- [`Proc.executable`] and `args`, `env` is left unset (the policy's own
---- `env` and `set_env` are the child's whole environment), and `fds` is
---- the caller's alone.
+--- `env` and `set_env` are the child's whole environment, so `opts.env`
+--- beside a policy raises), and `fds` is the caller's alone.
 ---
 --- What the launcher does, a program started this way never sees: it
 --- makes no core cache under XDG_CACHE_HOME or HOME, nor checks the one
@@ -88,8 +88,15 @@ local handshake: {string} = {
 -- way: today it lives in build/, which they cannot reach.
 function this_program.program(args: {string}, opts?: Child.Options): this_program.Program
   local given: Child.Options = opts or {}
-  local relaunch, _ = Proc.relaunch()
-  if given.policy ~= nil then relaunch = nil end
+  if given.policy ~= nil and given.env ~= nil then
+    error("this_program.program: env beside a policy: the policy's env and set_env are the " ..
+        "child's whole environment", 2)
+  end
+  local relaunch: Proc.Relaunch
+  if given.policy == nil then
+    local found, _ = Proc.relaunch()
+    relaunch = found
+  end
   local argv: {string} = {}
   if relaunch ~= nil then
     for _, word in ipairs(relaunch.argv) do argv[#argv + 1] = word end
