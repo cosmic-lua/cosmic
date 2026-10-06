@@ -9,6 +9,9 @@ local type compiler = require("build.compiler")
 local Clock = require("cosmic.clock")
 local teal = require("build.teal")
 
+-- These cases assert checker positions and generated code, never the
+-- vendor compiler's own Lua traceback lines, which no tree coverage uses.
+
 --- A field written through the capsule reaches the loaded compiler:
 --- the capsule itself never holds it, and reading it back through the
 --- capsule finds the written value, not the compiler's own.
@@ -50,7 +53,7 @@ local integer_msg = "in assignment: got number, expected integer"
 --- integer" the checker reports for `source`, and where: nil when it
 --- reports none, or the hint is nil.
 local function hint_for(source: string): string | nil, string
-  local built = assert(teal.load())
+  local built = assert(teal.load(true))
   local _, result = built.gen(source, nil, nil, "tl")
   for _, e in ipairs(result ~= nil and result.type_errors or {}) do
     if e.msg == integer_msg then
@@ -158,7 +161,7 @@ end
 --- The type errors the checker reports for `source`, failing the test
 --- where it raises instead.
 local function type_errors(source: string): {compiler.Error}
-  local built = assert(teal.load())
+  local built = assert(teal.load(true))
   local ok, code, result = pcall(built.gen, source, nil, nil, "tl")
   assert(ok, tostring(code))
   return assert(result).type_errors
@@ -181,7 +184,7 @@ end
 
 --- What the parser refuses in `source`, each as "line:column message".
 local function syntax_errors(source: string): {string}
-  local built = assert(teal.load())
+  local built = assert(teal.load(true))
   local _, result = built.gen(source, nil, nil, "tl")
   local out: {string} = {}
   for _, e in ipairs(assert(result).syntax_errors) do
@@ -214,7 +217,7 @@ end
 --- statement, the `;` tl inserts there right after the string's last
 --- byte (patch/tl's 29-call-after-a-token-spanning-lines.txt).
 local function test_a_call_after_a_string_spanning_lines()
-  local built = assert(teal.load())
+  local built = assert(teal.load(true))
   for _, source in ipairs({ "f [[a\nb]](1)\n", "f 'a\\z\n  b'(1)\n", "f [==[\n]==]{}(1)\n" }) do
     local found = syntax_errors(source)
     assert(#found == 0, source .. table.concat(found, "; "))
@@ -249,7 +252,7 @@ local function test_return_types_end_before_the_next_parameter()
     local found = syntax_errors(source)
     assert(#found == 0, source .. table.concat(found, "; "))
   end
-  local built = assert(teal.load())
+  local built = assert(teal.load(true))
   local _, result = built.gen("local type F = function(cb: function(): integer, string)\n" ..
       "local f: F = function(_cb: function(): (integer, string)) end\nprint(f)\n", nil, nil, "tl")
   assert(#assert(result).syntax_errors == 0 and #result.type_errors == 0,
@@ -263,7 +266,7 @@ end
 --- `record` can be assigned, and the old declaration still says what
 --- to write instead.
 local function test_a_keyword_named_variable_is_no_old_type_declaration()
-  local built = assert(teal.load())
+  local built = assert(teal.load(true))
   local code, result = built.gen("local rows = { 1 }\n" ..
       "for _, record in ipairs(rows) do\n" ..
       "  local category = record\n" ..
@@ -357,7 +360,7 @@ local keyword_head = "local record, recd, enum, enmd, n, a = 1, 1, 1, 1, 2, 1\n"
 -- reports them, and bound that count rather than compile times, which
 -- a slow or loaded host still moves.
 local function costs_what_it_reads(source: string)
-  local built = assert(teal.load())
+  local built = assert(teal.load(true))
   local function took(text: string): integer
     local started = Clock.monotonic_ns()
     local _, result = built.gen(keyword_head .. text, nil, nil, "tl")
@@ -443,7 +446,7 @@ end
 --- reports for `source` (an error or a warning) whose message is
 --- `msg`: "no such diagnostic" when it reports none.
 local function replacement_for(source: string, msg: string): string | nil
-  local built = assert(teal.load())
+  local built = assert(teal.load(true))
   local _, result = built.gen(source, nil, nil, "tl")
   local found = result ~= nil
   for _, group in ipairs(found and { result.type_errors, result.warnings } or {}) do
@@ -525,7 +528,7 @@ local function test_a_value_named_string_shadows_the_library()
       "print(f('a'))\n", shadows) == hides)
   assert(replacement_for("local string = string\nprint(string.upper('a'))\n", shadows) ==
       "no such diagnostic")
-  local built = assert(teal.load())
+  local built = assert(teal.load(true))
   local _, result = built.gen("local any = 1\nlocal thread = 2\nprint(any, thread)\n", nil, nil, "tl")
   local warnings = assert(result).warnings
   assert(#warnings == 0, warnings[1] ~= nil and warnings[1].msg or "")
