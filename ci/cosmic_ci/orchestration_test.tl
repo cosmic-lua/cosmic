@@ -1521,7 +1521,12 @@ local function test_a_leg_is_given_the_requirements_it_promises()
   assert(("," .. linux.COSMIC_TEST_PROMISES .. ","):find(",nest,", 1, true), linux.COSMIC_TEST_PROMISES)
   local mac: {string:string} = { COSMIC_WORKER = "macos-aarch64" }
   Orchestration.promise(mac)
-  assert(mac.COSMIC_TEST_PROMISES == "path:/bin/sh" and mac.COSMIC_TEST_LEG == "macos-aarch64")
+  assert(mac.COSMIC_TEST_LEG == "macos-aarch64")
+  local given = "," .. mac.COSMIC_TEST_PROMISES .. ","
+  assert(given:find(",path:/bin/sh,", 1, true) and given:find(",program:jq,", 1, true),
+    mac.COSMIC_TEST_PROMISES)
+  assert(not given:find(",sandbox,", 1, true) and not given:find(",nest,", 1, true),
+    mac.COSMIC_TEST_PROMISES)
   for _, worker in ipairs({ "provenance", "fuzz", "" }) do
     local other: {string:string} = { COSMIC_WORKER = worker }
     Orchestration.promise(other)
