@@ -1,9 +1,9 @@
 --- Declared noexec scratch stays so through a namespace of a child's own: a
 --- bind of it is noexec too, and remounting the bind to clear that is
---- refused. The child is this program, making the calls through the checked
---- core's raw ones (cosmic.internal.testing), which no other core has, so
---- this module requires `checked`; the rest of the noexec cases are in
---- core/noexec_tool_test.tl.
+--- refused. The child is this program, making the calls through the raw ones
+--- every core carries (cosmic.internal.testing), in a user namespace of its
+--- own, so this module requires `userns`; the rest of the noexec cases are
+--- in core/noexec_tool_test.tl.
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
@@ -19,7 +19,7 @@ Test.policy{
   profiles = { "cosmic" },
   grants = { { path = "/noexec", letters = "rwc" } },
   promises = { "nest" },
-  requires = { "checked" },
+  requires = { "userns" },
 }
 
 --- The chunk the child runs on the noexec scratch and the directory to bind
