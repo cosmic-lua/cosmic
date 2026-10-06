@@ -151,6 +151,26 @@ COSMIC_SYSCALL(connected, 1);
 COSMIC_SYSCALL(send, 3);
 
 /*
+ * --- Sends a batch of descriptor copies over a Unix stream socket. The caller retains ownership of its descriptors. The channel carries only batches sent with this call: one NUL marker byte and SCM_RIGHTS ancillary data per batch. A retained artifact descriptor or an alias of it raises. A closed descriptor fails EBADF; a non-Unix channel fails EAFNOSUPPORT, and another socket kind fails EPROTOTYPE. A peer gone fails EPIPE without SIGPIPE.
+ * ---@param fd integer the connected Unix stream descriptor
+ * ---@param fds {integer} the descriptors to duplicate for the receiver, from 1 to 16
+ * ---@return boolean ok false on failure: EAGAIN when the socket takes none now
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(sendfds, 2);
+
+/*
+ * --- Receives exactly one descriptor batch from a Unix stream socket. Every received descriptor is closed on exec, with its shared file status flags preserved, and held by a Socket owner even when it is a file rather than a socket. The caller must use only fd/close on such a holder; socket operations still require a socket descriptor. Missing, extra, truncated or malformed ancillary data fails EPROTO and closes every descriptor received. A retained artifact alias raises and is closed too. Nothing received is left open if an allocation fails. The sender retains its originals.
+ * ---@param fd integer the connected Unix stream descriptor, reserved for descriptor batches
+ * ---@param count integer exactly how many descriptors the batch must hold, from 1 to 16
+ * ---@return {Socket}|nil descriptors the owned descriptors, or nil on failure: EAGAIN when nothing is waiting
+ * ---@return string error what went wrong, when descriptors is nil
+ * ---@return integer errno the error number, when descriptors is nil
+ */
+COSMIC_SYSCALL(recvfds, 2);
+
+/*
  * --- Where a socket is bound: a TCP one's host and port, the port the kernel chose for one listening at port 0, or a unix one's path as it was bound -- its file's own name alone, for a path too long to bind whole -- "" for one bound nowhere.
  * ---@param fd integer the descriptor
  * ---@return Address|nil address its address, or nil on failure
@@ -188,6 +208,8 @@ COSMIC_SYSCALL(wait, 3);
  * ---@field ETIMEDOUT integer `wait`'s time ran out
  * ---@field EADDRINUSE integer an address taken: a socket file or port another has
  * ---@field ECONNREFUSED integer nothing listens at an address
+ * ---@field EPROTO integer a descriptor batch was malformed, truncated, or held a different count
+ * ---@field EPROTOTYPE integer a descriptor channel was not a stream socket
  * ---@field EINVAL integer a "tcp" host is no numeric address
  * ---@field ENAMETOOLONG integer a unix path's file name is past `SOCKET_NAME_MAX`, or its directory past the platform's bound on a path
  * ---@field SOCKET_NAME_MAX integer the most bytes a socket file's own name may take: 107 on Linux, 103 on macOS
@@ -197,6 +219,8 @@ COSMIC_CONSTANT(EINTR)
 COSMIC_CONSTANT(ETIMEDOUT)
 COSMIC_CONSTANT(EADDRINUSE)
 COSMIC_CONSTANT(ECONNREFUSED)
+COSMIC_CONSTANT(EPROTO)
+COSMIC_CONSTANT(EPROTOTYPE)
 COSMIC_CONSTANT(EINVAL)
 COSMIC_CONSTANT(ENAMETOOLONG)
 COSMIC_CONSTANT(SOCKET_NAME_MAX)

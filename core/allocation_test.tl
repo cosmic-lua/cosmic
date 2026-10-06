@@ -39,6 +39,7 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
+local type raw_socket = require("cosmic.internal.socket")
 local type raw_process = require("cosmic.internal.process")
 local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
@@ -62,6 +63,18 @@ local function process_table(): raw_process
 end
 
 local process = process_table()
+
+local function socket_table(): raw_socket
+  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
+    local loader, extra = searcher("cosmic.net")
+    if type(loader) == "function" and type(extra) == "table" then
+      return extra as raw_socket -- cast: the table core/socket.h declares
+    end
+  end
+  error("cosmic.net is handed no raw table")
+end
+
+local socket = socket_table()
 
 --- Runs `work` once per allocation it makes, refusing that allocation,
 --- and a last time with none refused; answers how many runs a refusal
@@ -793,4 +806,50 @@ local function test_sqlite_captured_operations_release_every_refused_allocation(
   assert(testing.open_statements() == statements)
   assert_c_heap(bytes, blocks, "captured SQLite step")
   assert(db:close())
+end
+
+--- A receive prepares its owners and guard before recvmsg installs any
+--- descriptors. Failures after the receive must close both the guarded
+--- rights and every owner a batch has already acquired.
+local function test_rights_release_every_descriptor_when_allocation_fails(tmp: string)
+  if unix_socket.skipped(tmp) then return end
+  collectgarbage("collect")
+  local before = testing.open_descriptors()
+  local bytes, blocks = testing.c_heap()
+  local ended = under_every_failure(function()
+    local address: raw_socket.Address = { kind = "unix", path = tmp .. "/rights.sock" }
+    local listener <close> = assert(socket.listen(address, 1))
+    local sender <close> = assert(socket.connect(address, 5000))
+    local receiver <close> = assert(socket.accept(listener:fd()))
+    assert(socket.sendfds(sender:fd(), { listener:fd(), sender:fd() }))
+    local passed = assert(socket.recvfds(receiver:fd(), 2))
+    local one <close> = passed[1]
+    local two <close> = passed[2]
+    assert(one:fd() ~= listener:fd() and two:fd() ~= sender:fd())
+  end)
+  assert(ended > 0, "the descriptor receive allocates")
+  assert(testing.open_descriptors() == before, "a refused allocation leaked a descriptor")
+  assert(sys.lstat(tmp .. "/rights.sock") == nil, "a refused allocation leaked the channel")
+  assert_c_heap(bytes, blocks, "descriptor passing under refusal")
+end
+
+--- A lowest-free probe cannot see a descriptor leaked above that slot.
+--- The census must see one without assuming an ambient descriptor count.
+local function test_descriptor_census_sees_a_descriptor_above_the_lowest_free(tmp: string)
+  collectgarbage("collect")
+  local count = testing.open_descriptors()
+  local original = assert(sys.open(tmp .. "/census", sys.O_CREAT | sys.O_RDWR, 420))
+  local lowest = original
+  local high = original + 32
+  while true do
+    local ok, flags = pcall(sys.fd_flags, high)
+    if ok and flags == nil then break end
+    high = high + 1
+  end
+  assert(sys.dup2(original, high))
+  assert(sys.close(original))
+  assert(next_descriptor(tmp) == lowest, "the low slot must still be free")
+  assert(testing.open_descriptors() == count + 1, "the census missed a high descriptor")
+  assert(sys.close(high))
+  assert(testing.open_descriptors() == count, "closing the high descriptor restores the count")
 end

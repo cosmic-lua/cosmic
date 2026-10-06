@@ -36,6 +36,17 @@ local function next_descriptor(tmp: string): integer
   return fd
 end
 
+--- Each sample includes the same temporary directory descriptor used
+--- to list it. Compare counts in this worker, never a host-wide baseline.
+local function descriptor_count(): integer
+  local path = assert(sys.uname()).sysname == "Darwin" and "/dev/fd" or "/proc/self/fd"
+  local count = 0
+  for name in pairs((assert(sys.readdir(path)))) do
+    if name:match("^%d+$") ~= nil then count = count + 1 end
+  end
+  return count
+end
+
 local function unix(path: string): raw_socket.Address
   return { kind = "unix", path = path }
 end
@@ -276,6 +287,122 @@ local function test_a_full_unix_backlog_refuses_a_connection_at_once(tmp: string
   local started, start_why, start_errno = raw.start(unix(path))
   assert(started == nil and start_errno == want, start_why)
   for _, conn in ipairs(held) do assert(conn:close()) end
+end
+
+--- Rights travel over a channel reserved for batches, independent of the
+--- listening socket the relay receives.
+local function rights_pair(path: string): raw_socket.Socket, raw_socket.Socket
+  local listener <close> = assert(raw.listen(unix(path), 1))
+  local sender = assert(raw.connect(unix(path), 5000))
+  assert(raw.wait(listener:fd(), false, 5000))
+  return sender, (assert(raw.accept(listener:fd())))
+end
+
+local function test_descriptor_passing_preserves_files_and_listener_ownership(tmp: string)
+  if unix_socket.skipped(tmp) then return end
+  local raw_sender, raw_receiver = rights_pair(tmp .. "/rights.sock")
+  local sender <close> = raw_sender
+  local receiver <close> = raw_receiver
+  local original <close> = tcp_listener()
+  assert(Fs.write(tmp .. "/passed", "passed file"))
+  local file = assert(sys.open(tmp .. "/passed", sys.O_RDONLY))
+  assert(raw.sendfds(sender:fd(), { original:fd(), file }))
+  assert(raw.wait(receiver:fd(), false, 5000))
+  local passed = assert(raw.recvfds(receiver:fd(), 2))
+  local listening <close> = passed[1]
+  local reading <close> = passed[2]
+  assert(listening:fd() ~= original:fd() and reading:fd() ~= file)
+  assert(assert(sys.fd_flags(reading:fd())) & sys.FD_CLOEXEC ~= 0)
+  assert(assert(sys.fd_flags(listening:fd())) & sys.FD_CLOEXEC ~= 0)
+  assert(sys.close(file))
+  assert(original:close())
+  assert(sys.read(reading:fd(), 32) == "passed file")
+  local bound = assert(raw.bound(listening:fd()))
+  local client <close> = assert(raw.connect(bound, 5000))
+  assert(raw.wait(listening:fd(), false, 5000))
+  local accepted <close> = assert(raw.accept(listening:fd()))
+  assert(raw.send(client:fd(), "listener") == 8)
+  assert(raw.wait(accepted:fd(), false, 5000))
+  assert(sys.read(accepted:fd(), 16) == "listener")
+end
+
+local function test_descriptor_passing_closes_extras_truncation_and_bad_frames(tmp: string)
+  if unix_socket.skipped(tmp) then return end
+  local original <close> = tcp_listener()
+  local raw_sender, raw_receiver = rights_pair(tmp .. "/rights.sock")
+  local sender <close> = raw_sender
+  local receiver <close> = raw_receiver
+  collectgarbage("collect")
+  local before = descriptor_count()
+  for _, count in ipairs({ 2, 16 }) do
+    local descriptors: {integer} = {}
+    for _ = 1, count do descriptors[#descriptors + 1] = original:fd() end
+    assert(raw.sendfds(sender:fd(), descriptors))
+    assert(raw.wait(receiver:fd(), false, 5000))
+    local got, why, errno = raw.recvfds(receiver:fd(), 1)
+    assert(got == nil and why ~= "" and errno == raw.EPROTO)
+    assert(descriptor_count() == before, "a refused batch leaked a descriptor")
+  end
+  for _, bad in ipairs({ "x", "\0" }) do
+    assert(raw.send(sender:fd(), bad) == 1)
+    assert(raw.wait(receiver:fd(), false, 5000))
+    local got, _, errno = raw.recvfds(receiver:fd(), 1)
+    assert(got == nil and errno == raw.EPROTO)
+    assert(descriptor_count() == before, "a bad frame leaked a descriptor")
+  end
+  assert(raw.sendfds(sender:fd(), { original:fd() }))
+  assert(raw.wait(receiver:fd(), false, 5000))
+  local passed = assert(raw.recvfds(receiver:fd(), 1))
+  assert(passed[1]:close())
+  assert(descriptor_count() == before)
+end
+
+local function test_descriptor_passing_runtime_failures_and_argument_checks(tmp: string)
+  if unix_socket.skipped(tmp) then return end
+  local raw_sender, raw_receiver = rights_pair(tmp .. "/rights.sock")
+  local sender <close> = raw_sender
+  local receiver <close> = raw_receiver
+  local original <close> = tcp_listener()
+  local got, _, errno = raw.recvfds(receiver:fd(), 1)
+  assert(got == nil and errno == raw.EAGAIN)
+  local sent, _, send_errno = raw.sendfds(sender:fd(), { -1 })
+  assert(sent == false and send_errno == sys.EBADF)
+  local file = assert(sys.open(tmp .. "/closed", sys.O_CREAT | sys.O_RDWR, 420))
+  assert(sys.close(file))
+  local closed, _, closed_errno = raw.sendfds(sender:fd(), { file })
+  assert(closed == false and closed_errno == sys.EBADF)
+  local wrong, _, wrong_errno = raw.sendfds(original:fd(), { sender:fd() })
+  assert(wrong == false and wrong_errno == sys.EAFNOSUPPORT)
+  local wrong_read, _, wrong_read_errno = raw.recvfds(original:fd(), 1)
+  assert(wrong_read == nil and wrong_read_errno == sys.EAFNOSUPPORT)
+  for _, count in ipairs({ 0, 17, math.maxinteger }) do
+    local ok, why = pcall(raw.recvfds, receiver:fd(), count)
+    assert(not ok and tostring(why) ~= "")
+  end
+  local no_descriptors: {integer} = {}
+  assert(not pcall(raw.sendfds, sender:fd(), no_descriptors))
+  assert(not pcall(raw.sendfds, sender:fd(), { math.maxinteger }))
+  assert(receiver:close())
+  local ended, _, ended_errno = raw.sendfds(sender:fd(), { original:fd() })
+  assert(ended == false and ended_errno == sys.EPIPE)
+end
+
+local function test_received_descriptor_is_closed_by_collection(tmp: string)
+  if unix_socket.skipped(tmp) then return end
+  local raw_sender, raw_receiver = rights_pair(tmp .. "/rights.sock")
+  local sender <close> = raw_sender
+  local receiver <close> = raw_receiver
+  local original <close> = tcp_listener()
+  local before = next_descriptor(tmp)
+  assert(raw.sendfds(sender:fd(), { original:fd() }))
+  do
+    local passed = assert(raw.recvfds(receiver:fd(), 1))
+    assert(passed[1]:fd() ~= original:fd())
+  end
+  collectgarbage("collect")
+  collectgarbage("collect")
+  assert(next_descriptor(tmp) == before, "a collected receiver leaked a descriptor")
+  assert(raw.bound(original:fd()) ~= nil, "collection closed the sender's original")
 end
 
 local function test_udp_raw_calls_keep_packet_boundaries_and_refuse_stream_descriptors()
