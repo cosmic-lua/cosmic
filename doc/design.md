@@ -418,6 +418,12 @@ input to the build, never to the runtime. one database holds:
   came from, so the line a Lua error names is a line of the module's
   own source, read straight out of `modules`.
 
+A module may pair `foo.d.tl` with `foo.tl`: the declaration supplies
+its checked interface, documentation, bound aliases and documentation
+links; the implementation supplies its executable source and bytecode,
+import edges, uses and error catalog entries. The declaration remains
+in `decls`, including when it has no implementation.
+
 `ca_roots` and `zoneinfo` go stale on upstream's schedule, not the
 code's, so `cosmic refresh` ([`build/refresh.tl`]) writes a copy of a
 binary -- the tool, or any executable `cosmic build` wrote -- with
