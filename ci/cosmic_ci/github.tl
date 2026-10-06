@@ -1,11 +1,11 @@
 --- What the driver's lookups of GitHub (queue_seed.tl, commit_verdicts.tl)
 --- ask of the world, as one record a test replaces: the API's answers,
 --- the clock, a wait, and the places a step's words go. The live one asks
---- the API through the `gh` CLI, found on PATH, which reads GH_TOKEN from
---- the environment it inherits, as prerelease.tl and report.tl do, so
---- the token, the proxy settings and the pagination are gh's own.
+--- the API through [`GithubApi`], whose token comes from GH_TOKEN or
+--- GITHUB_TOKEN in the environment and goes to the API's origin alone.
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local GithubApi = require("cosmic_ci.github_api")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
@@ -34,17 +34,16 @@ local record Github
     --- commit `base`'s: false where it cannot say.
     moved: function(base: string): boolean
   end
-  --- What runs `gh` with `args`, ended after `seconds`: its standard
-  --- output, or nil and why it failed.
-  type Runner = function(args: {string}, seconds: integer): string | nil, string
   type Fetch = function(path: string, paginate: boolean, seconds: integer): {any} | nil, string
   type Delete = function(path: string, seconds: integer): boolean, string
-  --- [`Host`]'s `fetch` and `delete`, over `run`: `gh api [--paginate
-  --- --slurp] PATH`, whose answer is decoded (`--slurp` gathers the pages
-  --- into one array), and `gh api -X DELETE PATH`.
-  over: function(run: Runner): Fetch, Delete
-  --- The host that asks the API in `env`, the process's environment.
-  live: function(env: {string:string}): Host
+  --- [`Host`]'s `fetch` and `delete`, over `client`: a GET whose JSON is
+  --- decoded, a listing's pages following the `Link` header's next URL,
+  --- and a DELETE.
+  over: function(client: GithubApi.Client): Fetch, Delete
+  --- The host that asks the API in `env`, the process's environment. A
+  --- lookup fails, saying why, where `env` holds no token. `test` is
+  --- [`GithubApi.live`]'s.
+  live: function(env: {string:string}, test?: GithubApi.Live): Host
   --- Whether `text` is a whole commit id.
   is_commit: function(text: string): boolean
   --- `host`'s `print` and `summary` of `line`.
@@ -81,28 +80,17 @@ function Github.harness_moved(git: function(argv: {string}): integer | nil, base
   return git({ "diff", "--quiet", base, "HEAD", "--", ":/build/harness_epoch.tl" }) == 1
 end
 
-function Github.over(run: Github.Runner): Github.Fetch, Github.Delete
+function Github.over(client: GithubApi.Client): Github.Fetch, Github.Delete
   local function fetch(path: string, paginate: boolean, seconds: integer): {any} | nil, string
-    local args: {string} = { "api" }
-    if paginate then
-      args[#args + 1] = "--paginate"
-      args[#args + 1] = "--slurp"
-    end
-    args[#args + 1] = path
-    local text, why = run(args, seconds)
+    if paginate then return GithubApi.pages(client, path, seconds) end
+    local text, why = GithubApi.get(client, path, seconds)
     if text == nil then return nil, why end
-    if paginate then
-      local pages, trouble = Json.decode_array(text)
-      if pages == nil then return nil, "gh api " .. path .. ": " .. trouble end
-      return pages, ""
-    end
     local page, trouble = Json.decode_object(text)
-    if page == nil then return nil, "gh api " .. path .. ": " .. trouble end
+    if page == nil then return nil, "GET " .. path .. ": " .. trouble end
     return { page }, ""
   end
   local function delete(path: string, seconds: integer): boolean, string
-    local text, why = run({ "api", "-X", "DELETE", path }, seconds)
-    return text ~= nil, why
+    return GithubApi.delete(client, path, seconds)
   end
   return fetch, delete
 end
@@ -114,8 +102,7 @@ end
 -- ownership", say), answers a status other than 1 and reads as "the
 -- harness did not move": every test then stands on the verdicts it
 -- would, which costs a stale verdict at worst, never a failed run.
-function Github.live(env: {string:string}): Github.Host
-  local gh = Proc.find("gh", env.PATH or "")
+function Github.live(env: {string:string}, test?: GithubApi.Live): Github.Host
   local git = Proc.find("git", env.PATH or "")
   local function run_git(argv: {string}): integer | nil
     if git == nil then return nil end
@@ -124,19 +111,18 @@ function Github.live(env: {string:string}): Github.Host
     local result = Child.run(words, { env = env, stdin = "null", stdout = "null", stderr = "null" })
     return result ~= nil and result.code or nil
   end
-  local function run(args: {string}, seconds: integer): string | nil, string
-    if gh == nil then return nil, "no gh on PATH" end
-    local argv: {string} = { gh }
-    for _, word in ipairs(args) do argv[#argv + 1] = word end
-    local result, trouble = Child.run(argv, { env = env, stdin = "null", stdout = "capture",
-      stderr = "inherit", timeout_ns = Time.seconds(seconds) })
-    if result == nil then return nil, "gh " .. args[1] .. ": " .. trouble end
-    if not result.ok then
-      return nil, "gh " .. table.concat(args, " ") .. (result.timed_out and " timed out" or " failed")
+  local client, absent = GithubApi.live(env, test)
+  local fetch, delete: Github.Fetch, Github.Delete
+  if client ~= nil then
+    fetch, delete = Github.over(client)
+  else
+    fetch = function(_path: string, _paginate: boolean, _seconds: integer): {any} | nil, string
+      return nil, absent
     end
-    return result.stdout or "", ""
+    delete = function(_path: string, _seconds: integer): boolean, string
+      return false, absent
+    end
   end
-  local fetch, delete = Github.over(run)
   local function line(fd: integer, text: string)
     local _, _ = Fs.put(fd, text .. "\n")
   end

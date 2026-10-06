@@ -23,6 +23,8 @@ local record GithubApi
     url: string
     headers: {string:string}
     body: string | nil
+    --- How long the request may take, in nanoseconds; a minute where nil.
+    timeout_ns: integer | nil
   end
   --- An answer, whatever its status; `headers` are keyed by lowercased name.
   record Reply
@@ -122,7 +124,8 @@ function GithubApi.live(env: {string:string}, test?: GithubApi.Live): GithubApi.
     headers["User-Agent"] = user_agent
     if request.body ~= nil then headers.Expect = "" end
     local response, trouble = Http.open(request.url, { method = request.method,
-      headers = headers, body = request.body, follow = false, timeout_ns = request_ns,
+      headers = headers, body = request.body, follow = false,
+      timeout_ns = request.timeout_ns or request_ns,
       script = script() })
     if response == nil then return nil, trouble end
     local body, read_trouble = Stream.read_all(response)
@@ -146,25 +149,81 @@ function GithubApi.live(env: {string:string}, test?: GithubApi.Live): GithubApi.
   return { send = send, fetch = fetch, base = base }, ""
 end
 
-local function request_for(client: GithubApi.Client, path: string): GithubApi.Request
-  return { method = "GET", url = client.base .. "/" .. path, headers = {} }
+local function request_for(client: GithubApi.Client, method: string, path: string,
+                           seconds?: integer): GithubApi.Request
+  return { method = method, url = client.base .. "/" .. path, headers = {},
+    timeout_ns = seconds and Clock.seconds(seconds) or nil }
 end
 
 --- What `reply` to a request for `path` says of a refusal, as an error.
-local function refused(path: string, reply: GithubApi.Reply): string
+local function refused(method: string, path: string, reply: GithubApi.Reply): string
   local said = message_of(reply.body)
-  return "GET " .. path .. ": HTTP " .. reply.status .. (said ~= "" and (": " .. said) or "")
+  return method .. " " .. path .. ": HTTP " .. reply.status .. (said ~= "" and (": " .. said) or "")
+end
+
+local function succeeded(reply: GithubApi.Reply): boolean
+  return reply.status >= 200 and reply.status <= 299
 end
 
 --- The body of GitHub's answer to a GET of `path` (relative to the API,
 --- as "repos/o/r/actions/runs"), JSON text. Nil and why where there is
 --- none or its status is not 2xx, the why naming the request, the
---- status and GitHub's message.
-function GithubApi.get(client: GithubApi.Client, path: string): string | nil, string
-  local reply, why = client.send(request_for(client, path))
+--- status and GitHub's message. A request that takes longer than
+--- `seconds` (a minute where nil) fails.
+function GithubApi.get(client: GithubApi.Client, path: string, seconds?: integer): string | nil, string
+  local reply, why = client.send(request_for(client, "GET", path, seconds))
   if reply == nil then return nil, "GET " .. path .. ": " .. why end
-  if reply.status < 200 or reply.status > 299 then return nil, refused(path, reply) end
+  if not succeeded(reply) then return nil, refused("GET", path, reply) end
   return reply.body, ""
+end
+
+--- The URL the `Link` header's `rel="next"` names, nil where it has none.
+local function next_link(link: string | nil): string | nil
+  for target, params in (link or ""):gmatch("<([^>]*)>([^<]*)") do
+    for param in params:gmatch("[^;,]+") do
+      if param:match('^%s*rel%s*=%s*"?next"?%s*$') then return target end
+    end
+  end
+  return nil
+end
+
+--- A GET that cannot loop for ever on a `Link` that points to itself.
+local max_pages <const> = 1000
+
+--- Every page of the list at `path`, as `get` asks the first and the
+--- `Link` header's `rel="next"` URLs name the rest, each page decoded
+--- (an object or an array). Nil and why where a request fails, a page is
+--- not JSON, or the list runs past 1000 pages. A next URL on another
+--- origin than the API's is refused by `send`, so it fails the listing
+--- and never receives the token. `seconds` bounds each request.
+function GithubApi.pages(client: GithubApi.Client, path: string, seconds?: integer): {any} | nil, string
+  local pages: {any} = {}
+  local request = request_for(client, "GET", path, seconds)
+  for number = 1, max_pages do
+    local label = number == 1 and path or (path .. " (page " .. number .. ")")
+    local reply, why = client.send(request)
+    if reply == nil then return nil, "GET " .. label .. ": " .. why end
+    if not succeeded(reply) then return nil, refused("GET", label, reply) end
+    local page, trouble = Json.decode(reply.body)
+    if not (page is table) then
+      return nil, "GET " .. label .. ": " .. (trouble ~= "" and trouble or "not an object or an array")
+    end
+    pages[#pages + 1] = page
+    local target = next_link(reply.headers.link)
+    if target == nil then return pages, "" end
+    request = { method = "GET", url = target, headers = {}, timeout_ns = request.timeout_ns }
+  end
+  return nil, "GET " .. path .. ": more than " .. max_pages .. " pages"
+end
+
+--- Deletes `path` (relative to the API): true, or false and why, naming
+--- the request, the status and GitHub's message where it is not 2xx. A
+--- request that takes longer than `seconds` (a minute where nil) fails.
+function GithubApi.delete(client: GithubApi.Client, path: string, seconds?: integer): boolean, string
+  local reply, why = client.send(request_for(client, "DELETE", path, seconds))
+  if reply == nil then return false, "DELETE " .. path .. ": " .. why end
+  if not succeeded(reply) then return false, refused("DELETE", path, reply) end
+  return true, ""
 end
 
 --- Downloads what the API serves at `path` (a redirect to a file, as an
@@ -172,13 +231,13 @@ end
 --- must answer with a redirect to an https URL, which is fetched
 --- without the token.
 function GithubApi.download(client: GithubApi.Client, path: string, to: string): boolean, string
-  local reply, why = client.send(request_for(client, path))
+  local reply, why = client.send(request_for(client, "GET", path))
   if reply == nil then return false, "GET " .. path .. ": " .. why end
   if not redirect_statuses[reply.status] then
     if reply.status >= 200 and reply.status <= 299 then
       return false, "GET " .. path .. ": HTTP " .. reply.status .. " with no redirect to a file"
     end
-    return false, refused(path, reply)
+    return false, refused("GET", path, reply)
   end
   local location = reply.headers.location
   local parts = location and Url.parse(location)

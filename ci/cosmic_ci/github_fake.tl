@@ -1,14 +1,17 @@
---- A [`Github.Host`] for tests, with no network, `gh` or clock: the API's
---- answers are canned, written as the JSON `gh api` would print, and
---- decoded by the live host's own `fetch`; the clock stands still but for
+--- A [`Github.Host`] for tests, with no network or clock: the API's
+--- answers are canned JSON, served through a fake [`GithubApi.Send`] to the
+--- live host's own `fetch` and `delete`; the clock stands still but for
 --- a wait, and every call, output and line is kept to read back. Test
 --- support.
 local Github = require("cosmic_ci.github")
+local GithubApi = require("cosmic_ci.github_api")
+local Json = require("cosmic.json")
 
 local record GithubFake
   record Fake
     host: Github.Host
-    --- Each call to `gh`, its arguments blank-separated, in order.
+    --- Each request, as its method and the path below the API's address
+    --- (`GET repos/o/r/actions/runs`), in order.
     calls: {string}
     --- Each line of the step's outputs, summary and standard output.
     outputs: {string}
@@ -23,8 +26,9 @@ local record GithubFake
     --- The bases asked after.
     asked: {string}
   end
-  --- The text `gh` prints for `path`'s `nth` ask (the first is 1), nil to
-  --- fail it.
+  --- The JSON the API answers `path`'s `nth` ask (the first is 1), nil to
+  --- fail it with a 500. An array answers a listing: each element is one
+  --- page, linked to the next as GitHub's `Link` header does.
   type Answer = function(path: string, nth: integer): string | nil
   --- The time a fake starts at, in seconds since the epoch.
   START: integer
@@ -59,18 +63,33 @@ function GithubFake.new(answer: GithubFake.Answer, refuse?: {string}): GithubFak
   local asks: {string:integer} = {}
   local fake: GithubFake.Fake = { calls = {}, outputs = {}, summaries = {}, printed = {}, sleeps = {},
     clock = GithubFake.START, moved = false, asked = {}, host = nil as Github.Host }
-  local fetch, delete = Github.over(function(args: {string}, _seconds: integer): string | nil, string
-    fake.calls[#fake.calls + 1] = table.concat(args, " ")
-    local path = args[#args]
-    if args[2] == "-X" then
-      if refused[path:match("[^/]*$")] then return nil, "refused" end
-      return "", ""
+  local origin <const> = "https://api.test"
+  local function reply(status: integer, body: string, headers?: {string:string}): GithubApi.Reply
+    return { status = status, body = body, headers = headers or {} }
+  end
+  local function send(request: GithubApi.Request): GithubApi.Reply | nil, string
+    local path = request.url:sub(#origin + 2)
+    fake.calls[#fake.calls + 1] = request.method .. " " .. path
+    if request.method == "DELETE" then
+      if refused[path:match("[^/]*$")] then return reply(403, '{"message":"refused"}') end
+      return reply(204, "")
     end
-    asks[path] = (asks[path] or 0) + 1
-    local text = answer(path, asks[path])
-    if text == nil then return nil, "failed" end
-    return text, ""
-  end)
+    local at, number = path:match("^(.-)#page=(%d+)$")
+    local asked = at or path
+    asks[asked] = (asks[asked] or 0) + (at and 0 or 1)
+    local text = answer(asked, asks[asked])
+    if text == nil then return reply(500, "") end
+    local pages = Json.decode_array(text)
+    if pages == nil then return reply(200, text) end
+    local index = math.tointeger(tonumber(number) or 1) as integer
+    local more = index < #pages
+    -- The fake's own marker, not GitHub's `page` parameter, keeps the
+    -- path the answer is keyed by.
+    return reply(200, assert(Json.encode(pages[index])),
+      more and { link = '<' .. origin .. "/" .. asked .. "#page=" .. (index + 1) .. '>; rel="next"' } or nil)
+  end
+  local fetch, delete = Github.over({ send = send, base = origin,
+    fetch = function(_url: string, _path: string): boolean, string return false, "no download" end })
   fake.host = {
     fetch = fetch,
     delete = delete,

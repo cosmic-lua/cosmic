@@ -1,7 +1,7 @@
 --- `find`, which finds the merge queue's run a push to main reuses, and
 --- `ahead`, which finds the run ahead of a queue run whose verdicts it
---- takes, against the API's JSON as `gh api` prints it, through
---- cosmic_ci/github_fake.tl: no network, no `gh`, and a clock that only
+--- takes, against the API's JSON, through
+--- cosmic_ci/github_fake.tl: no network and a clock that only
 --- a wait moves.
 local Fs = require("cosmic.fs")
 local Github = require("cosmic_ci.github")
@@ -136,9 +136,9 @@ local function test_a_passing_queue_run_is_found()
     artifacts = { ["42"] = SEEDED } })
   assert(code == 0, said(fake))
   assert(outputs(fake) == found("42"), outputs(fake))
-  assert(fake.calls[1] == "api repos/o/r/actions/workflows/ci.yml/runs?event=merge_group&head_sha=" .. SHA ..
+  assert(fake.calls[1] == "GET repos/o/r/actions/workflows/ci.yml/runs?event=merge_group&head_sha=" .. SHA ..
       "&per_page=20", fake.calls[1])
-  assert(fake.calls[2] == "api repos/o/r/actions/runs/42/artifacts?per_page=100", fake.calls[2])
+  assert(fake.calls[2] == "GET repos/o/r/actions/runs/42/artifacts?per_page=100", fake.calls[2])
   assert(#fake.calls == 2, table.concat(fake.calls, "\n"))
   assert(said(fake):find("passed the merge queue in https://github.com/o/r/actions/runs/42", 1, true), said(fake))
   assert(GithubFake.text(fake.summaries):find("runs/42", 1, true))
@@ -263,9 +263,9 @@ local function test_the_run_ahead_is_found_with_its_verdicts()
     local fake, code = ahead(SHA, { runs = { listed(run("42", status, nil, SHA, QUEUE),
       run("41", "completed", "cancelled", SHA, QUEUE)) }, artifacts = { ["42"] = KEPT } })
     assert(code == 0 and outputs(fake) == "run=42\n", outputs(fake) .. said(fake))
-    assert(fake.calls[1] == "api repos/o/r/actions/workflows/ci.yml/runs?event=merge_group&head_sha=" .. SHA ..
+    assert(fake.calls[1] == "GET repos/o/r/actions/workflows/ci.yml/runs?event=merge_group&head_sha=" .. SHA ..
         "&per_page=20", fake.calls[1])
-    assert(fake.calls[2] == "api repos/o/r/actions/runs/42/artifacts?per_page=100", fake.calls[2])
+    assert(fake.calls[2] == "GET repos/o/r/actions/runs/42/artifacts?per_page=100", fake.calls[2])
     assert(lookups(fake) == 1 and GithubFake.count(fake, "/jobs") == 0, table.concat(fake.calls, "\n"))
     assert(said(fake):find("this run takes its verdicts", 1, true), said(fake))
   end
@@ -282,7 +282,7 @@ local function test_the_run_ahead_is_waited_for()
   assert(code == 0 and outputs(fake) == "run=42\n", outputs(fake) .. said(fake))
   assert(lookups(fake) == 3, table.concat(fake.calls, "\n"))
   assert(#fake.sleeps == 2 and fake.sleeps[1] == 1 and fake.clock == START + 2, "the rounds did not wait between them")
-  assert(GithubFake.count(fake, "api repos/o/r/actions/runs/42/jobs?per_page=100") >= 1, table.concat(fake.calls, "\n"))
+  assert(GithubFake.count(fake, "GET repos/o/r/actions/runs/42/jobs?per_page=100") >= 1, table.concat(fake.calls, "\n"))
   -- One that never keeps them, or an API that keeps failing, is asked
   -- after again, then given up on when the time given has passed, and
   -- fails nothing: three rounds in the two seconds given, the last at
