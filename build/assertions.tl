@@ -20,8 +20,9 @@ local lua_assert = assert
 
 local record assertions
   --- Lua's own `assert`, as it was when this module loaded: what the
-  --- counting one must answer exactly as. A value, not a function of this
-  --- module's: it answers every argument it is given, as `assert` does.
+  --- counting one must answer exactly as. Typed `any` because it answers
+  --- every argument it is given, which no exported function here may;
+  --- callers cast it.
   lua_assert: any
 
   --- Replaces the global `assert` with the counting one, for the life of

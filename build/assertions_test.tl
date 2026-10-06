@@ -116,6 +116,8 @@ local function test_it_answers_as_luas_own_assert_does()
     ["a nil message and more"] = table.pack(false, nil, "x") as Packed,
   }
   local lua_assert = Assertions.lua_assert as function(...: any): any...
+  -- Taken after install, it would be the counting one, held to itself.
+  assert(not rawequal(lua_assert, assert), "build.assertions took the counting assert as Lua's")
   for case, args in pairs(cases) do
     local n = args.n
     same(outcome(assert, table.unpack(args, 1, n)), outcome(lua_assert,
