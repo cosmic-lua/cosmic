@@ -8,7 +8,8 @@
 --- process group of its own, with its standard streams captured and a
 --- deadline -- `--timeout SECONDS`, or `COSMIC_TEST_TIMEOUT`, 30 by
 --- default -- past which the whole group is ended and the test fails.
---- Up to `--jobs N` workers run at once, one per processor by default.
+--- Up to `--jobs N` workers run at once, a half as many again as there
+--- are processors by default ([`test.default_jobs`]).
 --- A worker reports over a pipe what it hit and whether the test
 --- passed; this process alone opens the build database and writes
 --- the verdict. A test that exits, crashes, or hangs its process fails
@@ -204,6 +205,15 @@ local record test
     --- How many workers run at once.
     jobs: integer
   end
+end
+
+--- How many workers run at once where `--jobs` names no number, on a host
+--- of `processors`: a half as many again. A worker spends part of its
+--- time waiting (on a child it started, a timer, a pipe), so a worker for
+--- each processor leaves some idle, which the extra ones use: the whole
+--- suite takes about a tenth less wall time than with one for each.
+function test.default_jobs(processors: integer): integer
+  return processors + processors // 2
 end
 
 --- The variable a test deadline's default is read from, in seconds.
@@ -417,7 +427,9 @@ local worker_view: function(): {string:string}
 
 --- One test's hits as `coverage_by_test` holds them: a line per module,
 --- in path order, the path, a tab, then the lines it hit, ascending and
---- comma-separated. Module paths hold neither tabs nor newlines.
+--- comma-separated. Module paths hold neither tabs nor newlines. A row
+--- [`take_hits`] writes may name a module twice, its load's hits and its
+--- test's, which [`decode_hits`] folds together.
 local function encode_hits(test_hits: Coverage.Hits): string
   local paths: {string} = {}
   for path in pairs(test_hits) do
@@ -1192,6 +1204,11 @@ local record Sealing
 end
 
 --- Everything a finished job's verdict is recorded into.
+local record PlanMade
+  plan: test_sandbox.Plan
+  scratch: string
+end
+
 local record Recording
   records: Sqlite.Handle
   root: string
@@ -1305,6 +1322,10 @@ local record Recording
   --- The same, each a set of names, made as a verdict needs one
   --- ([`closure_set`]).
   closure_sets: {string:{string:boolean}}
+  --- The sandbox plan of the first worker started of each module, by path,
+  --- and the scratch directory it was made for: a later worker of the
+  --- module takes it rebound to its own ([`test_sandbox.rebind`]).
+  plans: {string:PlanMade}
   --- Every module of the tree, by path, sorted: what a worker refuses a
   --- `require` of outside its closure ([`build.test_worker`]).
   tree_names: {string}
@@ -1684,6 +1705,60 @@ local function closure_set(rec: Recording, m: importer.Module): {string:boolean}
   return set
 end
 
+--- A module's hit lines as a row of `coverage_by_test` holds them
+--- ([`encode_hits`]'s line), by the table [`worker.decode`] shares among the
+--- reports that held them.
+local spelled: {{integer:boolean}:string} = {}
+
+local function spell(path: string, per_line: {integer:boolean}): string
+  local row = spelled[per_line]
+  if row == nil then
+    local lines: {integer} = {}
+    for line in pairs(per_line) do lines[#lines + 1] = line end
+    table.sort(lines)
+    row = path .. "\t" .. table.concat(lines, ",") .. "\n"
+    spelled[per_line] = row
+  end
+  return row
+end
+
+--- The lines of a module [`take_hits`] has folded into the run's.
+local folded: {{integer:boolean}:boolean} = {}
+
+--- Folds the hits of a finished worker, those its load made and those its
+--- test did (the tables [`worker.decode`] shares, never changed here), into
+--- the run's, but for modules the core owns ([`Recording.unowned`]); the
+--- test's own `coverage_by_test` row, in [`encode_hits`]'s form, but with
+--- a module the load and the test both hit on a line of each. A worker's
+--- load hits are the same lines in every worker of a module, so each is
+--- folded into the run's once and spelled once, whatever the number of
+--- tests: the work of one test is its own few lines.
+local function take_hits(rec: Recording, load_hits: Coverage.Hits,
+                         test_hits: Coverage.Hits): string
+  local out: {string} = {}
+  for _, hits in ipairs({ load_hits, test_hits }) do
+    local paths: {string} = {}
+    for path in pairs(hits) do
+      if rec.unowned[path] == nil then paths[#paths + 1] = path end
+    end
+    table.sort(paths)
+    for _, path in ipairs(paths) do
+      local per_line = hits[path]
+      if not folded[per_line] then
+        folded[per_line] = true
+        local into = rec.hits[path]
+        if into == nil then
+          into = {}
+          rec.hits[path] = into
+        end
+        for line in pairs(per_line) do into[line] = true end
+      end
+      out[#out + 1] = spell(path, per_line)
+    end
+  end
+  return table.concat(out)
+end
+
 --- Records one finished job: the verdict its worker reported, or a
 --- failure that says why there is no report to go by
 --- ([`build.test_worker`]'s `judge`). A key holds what a worker
@@ -1723,14 +1798,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
   local elapsed = wall_ns
   if reported ~= nil then
     elapsed = reported.elapsed_ns
-    local hit: Coverage.Hits = {}
-    merge_hits(hit, reported.load_hits)
-    merge_hits(hit, reported.test_hits)
-    for path in pairs(rec.unowned) do
-      hit[path] = nil
-    end
-    merge_hits(rec.hits, hit)
-    rec.by_test[id] = encode_hits(hit)
+    rec.by_test[id] = take_hits(rec, reported.load_hits, reported.test_hits)
   end
   -- Keyed by what it was given: its declared inputs, as they were
   -- before it started -- and still are, or the verdict describes no
@@ -2541,7 +2609,14 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
           "database of its closure, which cannot be made: " .. why, limits)
       return false
     end
-    local plan = test_sandbox.plan(rec.root, scratch, rec.effective[job.m.path], worker_view(), store)
+    local kept = rec.plans[job.m.path]
+    local plan: test_sandbox.Plan
+    if kept ~= nil then
+      plan = test_sandbox.rebind(kept.plan, kept.scratch, scratch, effective)
+    else
+      plan = test_sandbox.plan(rec.root, scratch, effective, worker_view(), store)
+      if plan.trouble == "" then rec.plans[job.m.path] = { plan = plan, scratch = scratch } end
+    end
     if plan.over > 0 then
       finish(rec, job, nil, "its sandbox would give it " .. plural.count(plan.over, "path") ..
           " more than the most one holds", limits)
@@ -2816,7 +2891,7 @@ end
 local function limits_of(values: {string:string}): test.Limits | nil, string
   local limits: test.Limits = {
     timeout_ns = Clock.seconds(default_timeout_s),
-    jobs = Proc.cpu_count(),
+    jobs = test.default_jobs(Proc.cpu_count()),
   }
   local function positive(value: string, what: string): integer | nil, string
     local number = math.tointeger(tonumber(value))
@@ -3468,7 +3543,7 @@ local function make_recording(ctx: Run)
     forbiddable = {},
     epoch = ctx.epoch, timeout_ns = ctx.limits.timeout_ns,
     store_salt = ctx.harness.store_salt, carried = ctx.harness.carried,
-    closure_sets = {}, type_only = {},
+    closure_sets = {}, plans = {}, type_only = {},
     rerun_prefix = (sandbox_mode == "on" and (test_sandbox.switch .. "=1 ") or
       sandbox_mode == "off" and (test_sandbox.switch .. "=0 ") or ""),
   }

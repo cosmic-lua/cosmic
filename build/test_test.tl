@@ -22,6 +22,15 @@ local function test_selection_is_exact_or_at_a_directory_boundary()
   assert(not test.matches("build", "builder.other_test", "builder/other_test.tl"))
 end
 
+--- A host runs a half as many workers again as it has processors, never
+--- fewer than one.
+local function test_a_host_runs_a_half_as_many_workers_again_as_it_has_processors()
+  assert(test.default_jobs(1) == 1)
+  assert(test.default_jobs(2) == 3)
+  assert(test.default_jobs(4) == 6)
+  assert(test.default_jobs(7) == 10)
+end
+
 --- `--shard I/N` names one of N shares, from 1; nothing else does.
 local function test_a_shard_is_one_of_n_shares_from_one()
   local shard = assert(test.shard("2/3"))
