@@ -172,8 +172,6 @@ promises lean on come first:
   tree.
 - measure `into`'s copy on a large payload (a big NDJSON file) against
   [`Json.decode`] on the same text once the benchmark harness exists.
-- [`cosmic.http`] honouring `HTTPS_PROXY` (and `NO_PROXY`), once a caller runs
-  behind a proxy: the CI driver's GitHub client reads neither.
 - [`cosmic.http`] with a request body written a chunk at a time, once a
   caller needs one (`cosmic refresh` posting a large artifact, say): the
   `Http.upload` that was removed with its C `start`, `write` and `finish`

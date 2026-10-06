@@ -104,8 +104,6 @@ function GithubApi.live(env: {string:string}, test?: GithubApi.Live): GithubApi.
   base = (base:gsub("/+$", ""))
   local api_origin, why = origin_of(base)
   if api_origin == nil then return nil, "GITHUB_API_URL: " .. why end
-  -- [`cosmic.http`] reads no HTTPS_PROXY, which gh honoured. CI's runners
-  -- are GitHub-hosted and reach the API directly, so none is needed.
   local calls = 0
   local function script(): {string} | nil
     calls = calls + 1
