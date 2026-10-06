@@ -72,6 +72,12 @@ local handshake: {string} = {
 --- naming a number the relaunch hands the child its artifact or core as
 --- raises.
 ---
+--- Under `opts.policy` the command line is the one a policy start
+--- takes: [`Child.start`] relaunches the program itself, so `argv` is
+--- [`Proc.executable`] and `args`, `env` is left unset (the policy's own
+--- `env` and `set_env` are the child's whole environment, so `opts.env`
+--- beside a policy raises), and `fds` is the caller's alone.
+---
 --- What the launcher does, a program started this way never sees: it
 --- makes no core cache under XDG_CACHE_HOME or HOME, nor checks the one
 --- COSMIC_PORTABLE_CACHE names, stamps no core `.verified-`, and needs
@@ -81,7 +87,16 @@ local handshake: {string} = {
 -- cosmic/test.tl), so another project's tests start their program this
 -- way: today it lives in build/, which they cannot reach.
 function this_program.program(args: {string}, opts?: Child.Options): this_program.Program
-  local relaunch, _ = Proc.relaunch()
+  local given: Child.Options = opts or {}
+  if given.policy ~= nil and given.env ~= nil then
+    error("this_program.program: env beside a policy: the policy's env and set_env are the " ..
+        "child's whole environment", 2)
+  end
+  local relaunch: Proc.Relaunch
+  if given.policy == nil then
+    local found, _ = Proc.relaunch()
+    relaunch = found
+  end
   local argv: {string} = {}
   if relaunch ~= nil then
     for _, word in ipairs(relaunch.argv) do argv[#argv + 1] = word end
@@ -89,12 +104,14 @@ function this_program.program(args: {string}, opts?: Child.Options): this_progra
     argv[1] = assert(Proc.executable())
   end
   for _, word in ipairs(args) do argv[#argv + 1] = word end
-  local given: Child.Options = opts or {}
-  local env: {string:string} = {}
-  for name, value in pairs(given.env or Env.all()) do env[name] = value end
+  local env: {string:string} | nil
+  if given.policy == nil then
+    env = {}
+    for name, value in pairs(given.env or Env.all()) do env[name] = value end
+  end
   local fds: {integer:integer | string} = {}
   for number, fd in pairs(given.fds or {}) do fds[number] = fd end
-  if relaunch ~= nil then
+  if relaunch ~= nil and env ~= nil then
     for name, value in pairs(relaunch.env) do env[name] = value end
     for number, fd in pairs(relaunch.fds) do
       if fds[number] ~= nil then
@@ -104,14 +121,16 @@ function this_program.program(args: {string}, opts?: Child.Options): this_progra
       fds[number] = fd
     end
   end
-  for _, name in ipairs(handshake) do env[name] = nil end
+  if env ~= nil then
+    for _, name in ipairs(handshake) do env[name] = nil end
+  end
   -- Field by field: a record has no copy that keeps its type. A field
   -- [`Child.Options`] gains is copied here too.
   return { argv = argv, options = {
     env = env, fds = fds, cwd = given.cwd, stdin = given.stdin, input = given.input,
     stdout = given.stdout, stderr = given.stderr, capture_limit = given.capture_limit,
     process_group = given.process_group, timeout_ns = given.timeout_ns, sandbox = given.sandbox,
-    credentials = given.credentials,
+    credentials = given.credentials, policy = given.policy,
   } }
 end
 

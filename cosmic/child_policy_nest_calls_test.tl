@@ -12,8 +12,8 @@ local Fs = require("cosmic.fs")
 local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local Proc = require("cosmic.proc")
 local searchable = require("build.searchable")
+local this_program = require("build.this_program")
 
 --- The temporary directory, which a start's root is built in; this
 --- program, which the child runs; and `nests`, since the sandbox the test
@@ -103,11 +103,9 @@ local function test_a_nested_program_cannot_widen_what_it_was_given(tmp: string)
       { path = "/ro", letters = "r", from = work .. "/ro" },
       { path = "/rw", letters = "rwc", from = work .. "/rw" },
       { path = work, letters = "r" } } }
-  -- This program by the path it is started by: a start under a policy runs
-  -- it by a relaunch of its own core, which build.this_program's command
-  -- line already is.
-  local result, why = Child.run({ assert(Proc.executable()), "-e", CHUNK },
+  local started = this_program.program({ "-e", CHUNK },
     { policy = policy, cwd = work, stdout = "capture", stderr = "stdout" })
+  local result, why = Child.run(started.argv, started.options)
   if result == nil then
     assert(unsandboxable(why), "the start was refused: " .. why)
     Test.skip(why)
