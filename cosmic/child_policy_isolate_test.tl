@@ -4,7 +4,7 @@
 --- grants, which give it a network namespace of its own. The kernel's own
 --- verdict on live children: the child is a stand-in (build/stand_in.tl),
 --- a static program that does what its script says, so a refusal shows as a
---- command that fails. They need a user namespace (`requires`): where the
+--- command that fails. They need a sandbox that nests (`requires`): where the
 --- platform has none they are not applicable, and where this host gives no
 --- user namespace, Landlock or seccomp each skips itself (Test.skip). The
 --- refusals that come before a child, which hold on every platform, are in
@@ -29,7 +29,7 @@ Test.policy{
   promises = { "nest" },
   loopback = { "127.0.0.1" },
   env = { "TMPDIR" },
-  requires = { "userns" },
+  requires = { "nest" },
 }
 
 --- Whether `why`, a start's failure, is the platform or the host giving no

@@ -86,6 +86,18 @@ local function test_a_relative_grant_is_relative_to_the_childs_directory(tmp: st
   assert(shut.code == 1 and shut.said:find(DENIED, 1, true), shut.said)
 end
 
+local function test_a_grant_of_a_path_that_is_not_there_fails_naming_it(tmp: string)
+  local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
+  local policy: Sandbox.Policy = { grants = itself(probe, { { path = tmp .. "/absent", letters = "r" } }) }
+  local result, why = Child.run({ probe, "print hi" }, { policy = policy })
+  assert(result == nil)
+  if unsandboxable(why) then
+    Test.skip(why)
+    return
+  end
+  assert(why:find("absent", 1, true), why)
+end
+
 local function test_a_grant_on_the_directory_above_a_program_gives_it_both_r_and_x(tmp: string)
   local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
   local above = under(probe, { grants = { { path = tmp, letters = "rx" } } }, "print hi")

@@ -15,10 +15,8 @@ local this_program = require("build.this_program")
 --- [`Store.databases()`], which a worker without the store is not given
 --- (the grant of o/cosmic.db). The core is started past its launcher
 --- (the grant of o/bin).
--- TODO: declare `relaunch` and drop the `core_path() == nil` returns of
--- these tests once build/host_requires.tl has the name (its own TODO): a
--- host program, which has no core to start bare, is not told apart from a
--- failure to reopen the program until Proc.relaunch can say which.
+-- The `core_path() == nil` returns wait on a `relaunch` name: see the TODO in
+-- cosmic/child_policy_database_sandboxed_test.tl.
 Test.policy{
   profiles = { "cosmic" },
   grants = {

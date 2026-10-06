@@ -3,7 +3,7 @@
 --- one user, itself, and `limits.processes` is the count of the sandbox's
 --- user namespace. The kernel's own verdict on live children: the child is a
 --- stand-in (build/stand_in.tl), a static program that does what its script
---- says. They need a user namespace (`requires`): where the platform has
+--- says. They need a sandbox that nests (`requires`): where the platform has
 --- none they are not applicable, and where this host gives no user
 --- namespace, Landlock or seccomp each skips itself (Test.skip). The tests
 --- of a root caller are in cosmic/child_policy_root_user_test.tl; the
@@ -23,7 +23,7 @@ local stand_in = require("build.stand_in")
 Test.policy{
   promises = { "nest" },
   env = { "TMPDIR" },
-  requires = { "userns" },
+  requires = { "nest" },
 }
 
 --- Whether `why`, a start's failure, is the platform or the host giving no

@@ -78,6 +78,9 @@ local function test_a_start_under_a_policy_is_refused_where_the_platform_has_no_
     { isolate = { "file" }, grants = itself(probe) },
     { isolate = { "file" }, promises = { "nest" }, grants = itself(probe) },
     { user = sys.getuid(), grants = itself(probe) },
+    { isolate = { "proc" }, limits = { processes = 4 }, grants = itself(probe) },
+    { tmp = true, grants = itself(probe) },
+    { profiles = { "system" }, grants = itself(probe) },
   }
   for i, policy in ipairs(policies) do
     local result, why = Child.run({ probe, "print hi" }, { policy = policy })
@@ -230,11 +233,7 @@ end
 --- is skipped (Test.skip) where the worker is not root, as in every
 --- sandboxed run, and where root can map, which is the host that runs the
 --- tests of a root caller in cosmic/child_policy_root_user_test.tl.
--- TODO: require `root`, and that the worker is, once a CI leg promises
--- `root` (ci/cosmic_ci/capabilities.tl; build/tree_checks.tl refuses a
--- name no leg promises) and a requirement names the worker's user: `root`
--- is the runner's, and a root run that sandboxes its workers starts each as
--- a user of its own, so it would pass `root` and still skip here.
+-- The TODO in cosmic/child_policy_root_user_test.tl, on requiring `root`, holds here too.
 local function test_a_root_caller_that_cannot_map_a_user_fails_naming_why()
   if sys.getuid() ~= 0 then
     Test.skip("this worker is not root: a root run sandboxes its workers as users of their own")
