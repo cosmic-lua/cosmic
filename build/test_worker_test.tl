@@ -191,3 +191,39 @@ local function test_a_skip_is_reported_and_judged_only_of_a_pass()
     timeout_ns = Clock.seconds(1), sandboxed = false })
   assert(not outlived.passed and outlived.skipped == "")
 end
+
+--- A complete report precedes shutdown: a finalizer can still end the
+--- process unsuccessfully. Its report remains useful coverage, never a pass.
+local function test_a_report_passes_only_after_successful_process_shutdown()
+  local report = passing({})
+  report.test_hits = { ["suite.tl"] = { [12] = true } }
+  report.skipped = "unchecked"
+  local outcomes: {Child.Result} = { ended(report), ended(report), ended(report) }
+  outcomes[1].ok, outcomes[1].code = false, 7
+  outcomes[2].ok, outcomes[2].code, outcomes[2].signal = false, nil, 9
+  outcomes[3].ok = false
+  for i, result in ipairs(outcomes) do
+    local judged = worker.judge({ result = result, trouble = "", timeout_ns = Clock.seconds(1),
+      sandboxed = false })
+    assert(not judged.passed and judged.skipped == "")
+    assert(judged.report ~= nil and judged.report.test_hits["suite.tl"][12])
+    local ending = i == 2 and "was killed by signal 9" or
+      "exited with status " .. (i == 1 and "7" or "0")
+    assert(judged.message:find(ending .. " after it reported", 1, true), judged.message)
+  end
+  report.passed, report.message = false, "assertion failed"
+  local result = ended(report)
+  local ordinary = worker.judge({ result = result, trouble = "", timeout_ns = Clock.seconds(1),
+    sandboxed = false })
+  assert(not ordinary.passed and ordinary.message == "assertion failed")
+  result.ok, result.code = false, 7
+  local shutdown = worker.judge({ result = result, trouble = "", timeout_ns = Clock.seconds(1),
+    sandboxed = false })
+  assert(not shutdown.passed and shutdown.message:find("assertion failed", 1, true))
+  assert(shutdown.message:find("exited with status 7", 1, true), shutdown.message)
+  result = ended(passing({}))
+  result.ok, result.timed_out = false, true
+  local late = worker.judge({ result = result, trouble = "", timeout_ns = Clock.seconds(30),
+    sandboxed = false })
+  assert(not late.passed and late.message:find("timed out after 30 s", 1, true))
+end
