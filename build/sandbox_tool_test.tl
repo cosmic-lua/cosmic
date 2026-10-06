@@ -3,57 +3,41 @@
 --- one is not, and the exit status, the start that fails and the program
 --- that is not there are what `cosmic help sandbox` says. These start
 --- this program and, under it, host programs, so they declare `tool` and
---- `system`; the command line's own reading is in `sandbox_test.tl`. A
---- host that gives no sandbox (anything but Linux, a kernel without
---- Landlock or seccomp, a container that refuses one) skips them where it
---- could have given one (Test.skip).
+--- `system`; the command line's own reading is in `sandbox_test.tl` and
+--- the refusals that come before a sandbox in `sandbox_refusal_tool_test.tl`.
+--- Each starts a sandbox, so off Linux, which gives none, they are not
+--- applicable (`requires`), and a host that refuses one skips them
+--- (Test.skip).
 
-local Child = require("cosmic.child")
-local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local confine = require("build.confine")
 local searchable = require("build.searchable")
-local this_program = require("build.this_program")
+local fixture = require("build.sandbox_tool_fixture")
 
 --- The program itself, and the host programs it starts under a policy.
-Test.policy{ profiles = { "system", "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
-
-local record Ran
-  code: integer
-  out: string
-  err: string
-end
+Test.policy{
+  profiles = { "system", "cosmic" },
+  grants = { { path = "o/bin", letters = "rx" } },
+  requires = { "sandbox" },
+}
 
 --- Runs `cosmic <words>` in `dir`, and skips the test, where the host
 --- refused the sandbox a start asked for.
-local function cosmic(dir: string, words: {string}, fds?: {integer:integer}): Ran
+local function cosmic(dir: string, words: {string}, fds?: {integer:integer}): fixture.Ran
   -- A root caller's program runs as a user of its own, who must be able to
   -- search the directory it starts in.
   searchable.open(dir)
-  local started = this_program.program(words, {
-    cwd = dir, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60), fds = fds,
-  })
-  local result = assert(Child.run(started.argv, started.options))
-  local ran: Ran = { code = result.code or -1, out = result.stdout or "", err = result.stderr or "" }
+  local ran = fixture.cosmic(dir, words, fds)
   if ran.code == 125 and (ran.err:find("Landlock", 1, true) or ran.err:find("seccomp", 1, true) or
       ran.err:find("not implemented", 1, true) or ran.err:find("only Linux gives", 1, true)) then
-    if confine.sandbox_platform() then Test.skip(ran.err) end
+    Test.skip(ran.err)
   end
   return ran
 end
 
---- Whether this platform cannot sandbox at all, which leaves a test that
---- needs a start to run nothing to check: off Linux every policy's start
---- is refused, and the test returns silently.
-local function no_sandbox_here(): boolean
-  return not confine.sandbox_platform()
-end
-
 local function test_a_granted_file_is_read_and_an_ungranted_one_is_not(tmp: string)
-  if no_sandbox_here() then return end
   searchable.open(tmp)
   assert(Fs.mkdirs(tmp .. "/ro") and Fs.mkdirs(tmp .. "/other"))
   assert(Fs.write(tmp .. "/ro/a", "alpha\n") and Fs.write(tmp .. "/other/b", "beta\n"))
@@ -68,7 +52,6 @@ local function test_a_granted_file_is_read_and_an_ungranted_one_is_not(tmp: stri
 end
 
 local function test_the_programs_status_is_the_exit_status(tmp: string)
-  if no_sandbox_here() then return end
   assert(cosmic(tmp, { "sandbox", "--system", "--", "true" }).code == 0)
   assert(cosmic(tmp, { "sandbox", "--system", "--", "false" }).code == 1)
   local seven = cosmic(tmp, { "sandbox", "--system", "--", "sh", "-c", "exit 7" })
@@ -78,28 +61,17 @@ local function test_the_programs_status_is_the_exit_status(tmp: string)
 end
 
 local function test_everything_after_the_program_is_its_own(tmp: string)
-  if no_sandbox_here() then return end
   local ran = cosmic(tmp, { "sandbox", "--system", "sh", "-c", "printf '%s ' \"$@\"", "sh",
     "--read", "--help", "-h", "--" })
   assert(ran.code == 0 and ran.out == "--read --help -h -- ", ran.code .. ran.out .. ran.err)
 end
 
 local function test_a_program_that_runs_past_the_timeout_exits_124(tmp: string)
-  if no_sandbox_here() then return end
   local ran = cosmic(tmp, { "sandbox", "--system", "--timeout", "1", "--", "sleep", "30" })
   assert(ran.code == 124 and ran.err:find("timed out after 1 second", 1, true), ran.code .. ran.err)
 end
 
-local function test_a_program_that_is_not_there_exits_127(tmp: string)
-  local ran = cosmic(tmp, { "sandbox", "--system", "--", "zzqqx-no-such-program" })
-  assert(ran.code == 127 and ran.out == "", ran.code .. ran.err)
-  assert(ran.err:find("^cosmic: sandbox: ") and ran.err:find("zzqqx-no-such-program", 1, true), ran.err)
-  local path = cosmic(tmp, { "sandbox", "--system", "--", tmp .. "/absent" })
-  assert(path.code == 127, path.code .. path.err)
-end
-
 local function test_a_start_that_fails_exits_125_with_the_reason(tmp: string)
-  if no_sandbox_here() then return end
   local ran = cosmic(tmp, { "sandbox", "--system", "--connect", "example.com:443", "--", "true" })
   assert(ran.code == 125 and ran.out == "", ran.code .. ran.err)
   assert(ran.err:find("^cosmic: sandbox: ") and ran.err:find("relay", 1, true), ran.err)
@@ -108,18 +80,7 @@ local function test_a_start_that_fails_exits_125_with_the_reason(tmp: string)
   assert(missing.code == 125 and missing.err:find("absent", 1, true), missing.code .. missing.err)
 end
 
-local function test_a_command_line_it_refuses_exits_2(tmp: string)
-  for _, words in ipairs({ { "sandbox" }, { "sandbox", "--system" }, { "sandbox", "--nope", "true" },
-      { "sandbox", "--path", "xr:.", "true" } }) do
-    local ran = cosmic(tmp, words)
-    assert(ran.code == 2 and ran.out == "", table.concat(words, " ") .. ": " .. ran.code .. ran.err)
-    assert(ran.err:find("^cosmic: sandbox: "), ran.err)
-    assert(not ran.err:find("FAIL", 1, true), ran.err)
-  end
-end
-
 local function test_help_is_the_verbs_before_the_program_and_the_programs_after(tmp: string)
-  if no_sandbox_here() then return end
   local ran = cosmic(tmp, { "sandbox", "--help" })
   assert(ran.code == 0 and ran.out:find("cosmic sandbox", 1, true) and ran.out:find("--read", 1, true),
     ran.out)
@@ -132,27 +93,7 @@ local function test_help_is_the_verbs_before_the_program_and_the_programs_after(
   assert(program.code == 0 and program.out == "--help\n", program.code .. program.out .. program.err)
 end
 
-local function test_a_program_not_granted_exits_125_not_127(tmp: string)
-  -- It is found on the PATH; the policy lacks the grants to run it.
-  local ran = cosmic(tmp, { "sandbox", "--", "true" })
-  assert(ran.code == 125 and ran.out == "", ran.code .. ran.err)
-  assert(ran.err:find("not granted", 1, true) and ran.err:find("system", 1, true), ran.err)
-  assert(not ran.err:find("no PATH search", 1, true), ran.err)
-  -- A missing grant is the start's, not the program's, whatever the program.
-  local grant = cosmic(tmp, { "sandbox", "--system", "--read", tmp .. "/absent", "--", "ls" })
-  assert(grant.code == 125 and not grant.err:find("no PATH search", 1, true), grant.code .. grant.err)
-end
-
-local function test_a_program_that_cannot_be_run_exits_126(tmp: string)
-  assert(Fs.write(tmp .. "/plain", "#!/bin/sh\n"))
-  assert(sys.chmod(tmp .. "/plain", 420))
-  searchable.open(tmp)
-  local ran = cosmic(tmp, { "sandbox", "--system", "--run", tmp .. "/plain", "--", tmp .. "/plain" })
-  assert(ran.code == 126 and ran.out == "", ran.code .. ran.err)
-end
-
 local function test_fd_hands_the_callers_descriptor_to_the_program(tmp: string)
-  if no_sandbox_here() then return end
   assert(Fs.write(tmp .. "/data", "carried\n"))
   local fd = assert(sys.open(tmp .. "/data", sys.O_RDONLY))
   local ran = cosmic(tmp, { "sandbox", "--system", "--fd", "5", "--promise", "fork", "--", "sh", "-c", "cat <&5" }, { [5] = fd })
@@ -169,7 +110,6 @@ local function test_fd_hands_the_callers_descriptor_to_the_program(tmp: string)
 end
 
 local function test_cwd_starts_the_program_there_and_relative_paths_are_its(tmp: string)
-  if no_sandbox_here() then return end
   searchable.open(tmp)
   assert(Fs.mkdirs(tmp .. "/work") and Fs.write(tmp .. "/work/a", "alpha\n"))
   searchable.open(tmp .. "/work/.")
@@ -181,7 +121,6 @@ local function test_cwd_starts_the_program_there_and_relative_paths_are_its(tmp:
 end
 
 local function test_cosmic_alone_runs_this_program_under_the_sandbox(tmp: string)
-  if no_sandbox_here() then return end
   searchable.open(tmp)
   assert(Fs.mkdirs(tmp .. "/work") and Fs.write(tmp .. "/work/run.tl", 'print("ran")\n'))
   searchable.share(tmp .. "/work")
