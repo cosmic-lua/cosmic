@@ -47,6 +47,43 @@ struct target {
   char directory[PATH_MAX];
 };
 
+/* libc's numeric parsers differ on leading zeroes and scoped IPv6.
+ * Require four decimal octets without leading zeroes, including the IPv4
+ * tail of a mapped IPv6 address; IPv6 otherwise uses only hex and colons. */
+static bool numeric_host (const char *host, size_t size) {
+  bool ipv6 = false;
+  const char *v4 = host;
+  const char *end = host + size;
+  for (const char *at = host; at < end; at++) {
+    char c = *at;
+    if (c == ':') {
+      ipv6 = true;
+      v4 = at + 1;
+    } else if (c != '.' && !(c >= '0' && c <= '9') &&
+               !(c >= 'a' && c <= 'f') && !(c >= 'A' && c <= 'F')) {
+      return false;
+    }
+  }
+  if (ipv6 && memchr(v4, '.', (size_t)(end - v4)) == NULL) {
+    return memchr(host, '.', size) == NULL;
+  }
+  unsigned octets = 0;
+  const char *at = v4;
+  while (at < end) {
+    const char *start = at;
+    unsigned value = 0;
+    while (at < end && *at >= '0' && *at <= '9') {
+      if (at - start >= 3) return false;
+      value = value * 10 + (unsigned)(*at++ - '0');
+    }
+    if (at == start || value > 255 || (at - start > 1 && *start == '0')) return false;
+    octets++;
+    if (at == end) return octets == 4;
+    if (*at++ != '.' || at == end) return false;
+  }
+  return false;
+}
+
 /* The "tcp" address of the table at `index` in `*out`: 0, or EINVAL for
  * a host that is no numeric IPv4 or IPv6 address -- a name, a NUL in
  * it, an IPv6 scope -- which a caller may meet at runtime. A host that
@@ -65,9 +102,9 @@ static int tcp_address_of (lua_State *L, int index, struct target *out) {
   struct sockaddr_in *v4 = (struct sockaddr_in *)&out->address;
   struct sockaddr_in6 *v6 = (struct sockaddr_in6 *)&out->address;
   int failure = 0;
-  if (strlen(host) != size) {
+  if (!numeric_host(host, size)) {
     failure = EINVAL;
-  } else if (inet_pton(AF_INET, host, &v4->sin_addr) == 1) {
+  } else if (strchr(host, ':') == NULL && inet_pton(AF_INET, host, &v4->sin_addr) == 1) {
     v4->sin_family = AF_INET;
     v4->sin_port = htons((uint16_t)port);
     out->length = (socklen_t)sizeof *v4;
@@ -143,6 +180,20 @@ static int address_of (lua_State *L, int index, struct target *out) {
   }
   lua_pop(L, 1);
   return failure;
+}
+
+/* A numeric UDP address, sharing TCP's numeric-only parser but never
+ * accepting a stream or a Unix path. */
+static int datagram_address_of (lua_State *L, int index, struct target *out) {
+  memset(out, 0, sizeof *out);
+  luaL_checktype(L, index, LUA_TTABLE);
+  lua_getfield(L, index, "kind");
+  size_t size = 0;
+  const char *kind = lua_tolstring(L, -1, &size);
+  luaL_argcheck(L, kind != NULL && size == 3 && memcmp(kind, "udp", 3) == 0,
+    index, "kind must be \"udp\"");
+  lua_pop(L, 1);
+  return tcp_address_of(L, index, out);
 }
 
 /* A directory opened only to be searched: as a bind or an unlink in it
@@ -227,13 +278,13 @@ static int made (int fd) {
   return 0;
 }
 
-/* A new stream socket of `family`, made as `made` says, or -1 with
+/* A new socket of `family` and `type`, made as `made` says, or -1 with
  * errno set. */
-static int stream_socket (int family) {
+static int new_socket (int family, int type) {
 #if defined(SOCK_CLOEXEC)
-  int fd = socket(family, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+  int fd = socket(family, type | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
 #else
-  int fd = socket(family, SOCK_STREAM, 0);
+  int fd = socket(family, type, 0);
 #endif
   if (fd < 0) return -1;
   int failure = made(fd);
@@ -431,7 +482,7 @@ COSMIC_SYSCALL(listen, 2) {
     failure = unix_owner_push(L, &target, &owned);
     if (failure != 0) return cosmic_fail(L, failure);
   }
-  owned->fd = stream_socket(target.address.ss_family);
+  owned->fd = new_socket(target.address.ss_family, SOCK_STREAM);
   if (owned->fd < 0) {
     failure = errno;
     released(owned);
@@ -552,7 +603,7 @@ COSMIC_SYSCALL(connect, 2) {
   int64_t deadline = deadline_of(L, 2);
   if (failure != 0) return cosmic_fail(L, failure);
   struct owned *owned = owner_push(L, 0);
-  owned->fd = stream_socket(target.address.ss_family);
+  owned->fd = new_socket(target.address.ss_family, SOCK_STREAM);
   if (owned->fd < 0) return cosmic_fail(L, errno);
   /* A unix socket connects or fails at once -- where its listener's
    * backlog is full, EAGAIN on Linux and ECONNREFUSED on macOS; a TCP
@@ -577,7 +628,7 @@ COSMIC_SYSCALL(start, 1) {
   int failure = address_of(L, 1, &target);
   if (failure != 0) return cosmic_fail(L, failure);
   struct owned *owned = owner_push(L, 0);
-  owned->fd = stream_socket(target.address.ss_family);
+  owned->fd = new_socket(target.address.ss_family, SOCK_STREAM);
   if (owned->fd < 0) return cosmic_fail(L, errno);
   int stranded = 0;
   failure = reach(owned->fd, &target, false, &stranded);
@@ -600,7 +651,8 @@ COSMIC_SYSCALL(connected, 1) {
 
 /* Pushes the "tcp" address `address` holds: 1, or what `cosmic_fail`
  * pushes for one of another family, EAFNOSUPPORT. */
-static int tcp_pushed (lua_State *L, const struct sockaddr_storage *address) {
+static int tcp_pushed (lua_State *L, const struct sockaddr_storage *address,
+                       const char *kind) {
   char host[INET6_ADDRSTRLEN];
   int port = 0;
   const char *named = NULL;
@@ -617,7 +669,7 @@ static int tcp_pushed (lua_State *L, const struct sockaddr_storage *address) {
   }
   if (named == NULL) return cosmic_fail(L, errno);
   lua_createtable(L, 0, 3);
-  lua_pushliteral(L, "tcp");
+  lua_pushstring(L, kind);
   lua_setfield(L, -2, "kind");
   lua_pushstring(L, host);
   lua_setfield(L, -2, "host");
@@ -633,7 +685,7 @@ static int tcp_pushed (lua_State *L, const struct sockaddr_storage *address) {
 static int address_pushed (lua_State *L, const struct sockaddr_storage *address,
                            socklen_t length) {
   if (address->ss_family == AF_INET || address->ss_family == AF_INET6) {
-    return tcp_pushed(L, address);
+    return tcp_pushed(L, address, "tcp");
   }
   const struct sockaddr_un *unix_address = (const struct sockaddr_un *)address;
   size_t offset = offsetof(struct sockaddr_un, sun_path);
@@ -657,7 +709,87 @@ COSMIC_SYSCALL(bound, 1) {
   socklen_t length = sizeof address;
   memset(&address, 0, sizeof address);
   if (getsockname(fd, (struct sockaddr *)&address, &length) != 0) return cosmic_fail(L, errno);
+  if (address.ss_family == AF_INET || address.ss_family == AF_INET6) {
+    int type = 0;
+    socklen_t size = sizeof type;
+    if (getsockopt(fd, SOL_SOCKET, SO_TYPE, &type, &size) != 0) return cosmic_fail(L, errno);
+    return tcp_pushed(L, &address, type == SOCK_DGRAM ? "udp" : "tcp");
+  }
   return address_pushed(L, &address, length);
+}
+
+COSMIC_SYSCALL(datagram, 1) {
+  struct target target;
+  int failure = datagram_address_of(L, 1, &target);
+  if (failure != 0) return cosmic_fail(L, failure);
+  struct owned *owned = owner_push(L, 0);
+  owned->fd = new_socket(target.address.ss_family, SOCK_DGRAM);
+  if (owned->fd < 0) return cosmic_fail(L, errno);
+  if (bind(owned->fd, (const struct sockaddr *)&target.address, target.length) != 0) {
+    failure = errno;
+    released(owned);
+    return cosmic_fail(L, failure);
+  }
+  return 1;
+}
+
+/* Refuses a stream descriptor: its byte stream must never be read or
+ * written as if it carried datagram boundaries. */
+static int datagram_type (int fd) {
+  int type = 0;
+  socklen_t size = sizeof type;
+  if (getsockopt(fd, SOL_SOCKET, SO_TYPE, &type, &size) != 0) return errno;
+  return type == SOCK_DGRAM ? 0 : EPROTOTYPE;
+}
+
+COSMIC_SYSCALL(sendto, 3) {
+  int fd = cosmic_checkfd(L, 1);
+  size_t size = 0;
+  const char *data = luaL_checklstring(L, 2, &size);
+  luaL_argcheck(L, size <= 65535, 2, "datagram must be at most 65535 bytes");
+  struct target target;
+  int failure = datagram_address_of(L, 3, &target);
+  if (failure == 0) failure = datagram_type(fd);
+  if (failure != 0) return cosmic_fail_effect(L, failure);
+  ssize_t sent;
+  do {
+    sent = sendto(fd, data, size, 0, (const struct sockaddr *)&target.address, target.length);
+  } while (sent < 0 && errno == EINTR);
+  if (sent < 0) return cosmic_fail_effect(L, errno);
+  if ((size_t)sent != size) return cosmic_fail_effect(L, EIO);
+  return cosmic_ok(L);
+}
+
+COSMIC_SYSCALL(recvfrom, 2) {
+  int fd = cosmic_checkfd(L, 1);
+  int maximum = cosmic_checkint(L, 2);
+  luaL_argcheck(L, maximum >= 1 && maximum <= 65535, 2, "max_bytes must be from 1 to 65535");
+  int failure = datagram_type(fd);
+  if (failure != 0) return cosmic_fail(L, failure);
+  /* A fixed bounded stack buffer holds no heap resource across the Lua
+   * allocations that build the answer. MSG_TRUNC refuses cut packets. */
+  char data[65535];
+  struct sockaddr_storage address;
+  memset(&address, 0, sizeof address);
+  struct iovec part = { data, (size_t)maximum };
+  struct msghdr message;
+  memset(&message, 0, sizeof message);
+  message.msg_name = &address;
+  message.msg_namelen = sizeof address;
+  message.msg_iov = &part;
+  message.msg_iovlen = 1;
+  ssize_t received;
+  do {
+    received = recvmsg(fd, &message, 0);
+  } while (received < 0 && errno == EINTR);
+  if (received < 0) return cosmic_fail(L, errno);
+  if ((message.msg_flags & MSG_TRUNC) != 0 || received > maximum) return cosmic_fail(L, EMSGSIZE);
+  lua_createtable(L, 0, 2);
+  lua_pushlstring(L, data, (size_t)received);
+  lua_setfield(L, -2, "data");
+  if (tcp_pushed(L, &address, "udp") != 1) return 3;
+  lua_setfield(L, -2, "address");
+  return 1;
 }
 
 COSMIC_SYSCALL(send, 3) {

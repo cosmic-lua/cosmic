@@ -229,6 +229,23 @@ local function test_net_leaves_no_descriptor_whenever_an_allocation_fails(tmp: s
   assert(after == before, "a refused allocation left descriptor " .. before .. " open")
 end
 
+--- Every allocation in making sockets and receiving packets is walked;
+--- ownership is in place before the wrapper or sender table is built.
+local function test_udp_leaves_no_descriptor_whenever_an_allocation_fails(tmp: string)
+  local before = next_descriptor(tmp)
+  local ended = under_every_failure(function()
+    local server <close> = assert(Net.datagram(Net.udp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
+    local client <close> = assert(Net.datagram(Net.udp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
+    assert(client:send("hello", server.address))
+    local packet = assert(server:receive())
+    assert(packet.data == "hello" and packet.address.port == client.address.port)
+    assert(server:send("", packet.address))
+    assert(assert(client:receive()).data == "")
+  end)
+  assert(ended > 0, "binding and receiving allocate")
+  assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. before .. " open")
+end
+
 --- A unix listener owns its socket file too: a refusal anywhere leaves
 --- neither the descriptor nor the file to the process, and the next
 --- listener takes the same path.

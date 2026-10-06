@@ -277,3 +277,31 @@ local function test_a_full_unix_backlog_refuses_a_connection_at_once(tmp: string
   assert(started == nil and start_errno == want, start_why)
   for _, conn in ipairs(held) do assert(conn:close()) end
 end
+
+local function test_udp_raw_calls_keep_packet_boundaries_and_refuse_stream_descriptors()
+  local sender <close> = assert(raw.datagram({ kind = "udp", host = "127.0.0.1", port = 0 }))
+  local receiver <close> = assert(raw.datagram({ kind = "udp", host = "127.0.0.1", port = 0 }))
+  local destination = assert(raw.bound(receiver:fd()))
+  local empty, _, nothing = raw.recvfrom(receiver:fd(), 16)
+  assert(empty == nil and nothing == raw.EAGAIN)
+  assert(raw.sendto(sender:fd(), "raw", destination))
+  assert(raw.wait(receiver:fd(), false, 5000))
+  local packet = assert(raw.recvfrom(receiver:fd(), 16))
+  assert(packet.data == "raw" and packet.address.port == assert(raw.bound(sender:fd())).port)
+  local listener <close> = tcp_listener()
+  local sent, send_why = raw.sendto(listener:fd(), "x", destination)
+  assert(not sent and send_why == "Protocol wrong type for socket", send_why)
+  local received, receive_why = raw.recvfrom(listener:fd(), 16)
+  assert(received == nil and receive_why == "Protocol wrong type for socket", receive_why)
+end
+
+local function test_udp_dropped_unclosed_is_closed_by_the_collector(tmp: string)
+  local before = next_descriptor(tmp)
+  do
+    local bound = assert(raw.datagram({ kind = "udp", host = "127.0.0.1", port = 0 }))
+    assert(bound:fd() >= before)
+  end
+  collectgarbage("collect")
+  collectgarbage("collect")
+  assert(next_descriptor(tmp) == before, "a dropped UDP socket left a descriptor open")
+end

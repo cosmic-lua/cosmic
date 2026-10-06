@@ -41,10 +41,10 @@ int cosmic_open_socket (lua_State *L);
 /*
  * --- Where a socket is, read by its `kind`.
  * ---@class Address
- * ---@field kind string "unix", a socket file named by `path`, or "tcp", a TCP `port` of a `host`
+ * ---@field kind string "unix", a socket file named by `path`, or "tcp", a TCP `port` of a `host`, or "udp", a datagram `port` of a `host`
  * ---@field path string the socket file's path, for "unix", never empty: of any length a path may have, but the file's own name, past its last "/", at most `SOCKET_NAME_MAX` bytes (107 on Linux, 103 on macOS), which a longer one fails with ENAMETOOLONG rather than being cut short. A path past that bound whole is reached from its directory
- * ---@field host string the host's numeric IPv4 or IPv6 address, for "tcp": a name is not looked up, nor an IPv6 scope read, and either fails with EINVAL, as a NUL in it does
- * ---@field port integer the port, for "tcp", from 0 to 65535: 0 to listen at a port the kernel chooses, which the listener's `address` then names
+ * ---@field host string the host's numeric IPv4 or IPv6 address, for "tcp" and "udp": IPv4 is four decimal octets without leading zeroes, including an IPv6 dotted tail; a name is not looked up, nor an IPv6 scope read, and either fails with EINVAL, as a NUL in it does
+ * ---@field port integer the port, for "tcp" and "udp", from 0 to 65535: 0 to listen at a port the kernel chooses, which the listener's `address` then names
  */
 
 /*
@@ -54,6 +54,43 @@ int cosmic_open_socket (lua_State *L);
  * ---@field close fun(self:Socket):boolean,string,integer closes it: true, or false, what went wrong and the error number, the descriptor closed even so; true again once closed
  * ---@field __close fun(self:Socket) closes it as `close` does, its failure ignored
  */
+
+/*
+ * --- A complete datagram and the numeric address it came from.
+ * ---@class Packet
+ * ---@field data string the complete datagram, possibly empty
+ * ---@field address Address the sender's "udp" host and port
+ */
+
+/*
+ * --- Binds a UDP socket, nonblocking and closed on exec, to a numeric address. Port 0 takes one the kernel chooses. The returned Socket owns the descriptor before any further allocation.
+ * ---@param address Address a "udp" address, with numeric IPv4 or IPv6 host
+ * ---@return Socket|nil socket the bound socket, or nil on failure
+ * ---@return string error what went wrong, when socket is nil
+ * ---@return integer errno the error number, when socket is nil
+ */
+COSMIC_SYSCALL(datagram, 1);
+
+/*
+ * --- Sends one complete UDP datagram, possibly empty, to a numeric address. No partial datagram is sent. Nothing is looked up.
+ * ---@param fd integer the datagram descriptor
+ * ---@param data string the datagram, at most 65535 bytes
+ * ---@param address Address the destination's "udp" address
+ * ---@return boolean ok false on failure: EAGAIN when nothing may be sent now
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(sendto, 3);
+
+/*
+ * --- Takes one complete UDP datagram, with its sender's numeric address. A datagram larger than max_bytes is consumed and refused with EMSGSIZE, never returned cut short. An allocation failure after receipt consumes it too.
+ * ---@param fd integer the datagram descriptor
+ * ---@param max_bytes integer the largest datagram to take, from 1 to 65535
+ * ---@return Packet|nil packet the complete datagram, or nil on failure: EAGAIN when none is waiting
+ * ---@return string error what went wrong, when packet is nil
+ * ---@return integer errno the error number, when packet is nil
+ */
+COSMIC_SYSCALL(recvfrom, 2);
 
 /*
  * --- Makes a stream socket listening at an address. A unix one is a new socket file, the socket's to remove: a path already there, a stale socket file included, fails with EADDRINUSE and is left alone, and one whose name another file has taken before it could be read back fails with EEXIST and is left to that file. A TCP one fails with EADDRINUSE on a port a listener holds; on Linux it takes one left in TIME_WAIT (SO_REUSEADDR), where macOS refuses it until TIME_WAIT ends. A unix path too long to bind whole is bound from its directory, and raises where the process cannot return to its working directory after.
