@@ -465,7 +465,7 @@
         },
 
         # To a path of this commit's and leg's own, so a test that turns
-        # on the tree's path fails some run (place-tree.sh); on the macOS
+        # on the tree's path fails some run (driver.tl place-tree); on the macOS
         # leg's gating runs, whose keys hold the path, of the leg's alone.
         # TODO: move it on the macOS leg alone once "check the pinned CI
         # driver" runs cosmic_ci's tests sandboxed:
@@ -482,8 +482,7 @@
         # `Test.policy`.
         {
           name: "move the tree to a path of its own",
-          "working-directory": ".",
-          run: "sh .github/scripts/place-tree.sh",
+          run: "cosmic-driver cosmic_ci/driver.tl place-tree",
         },
 
         # --all, unsandboxed: it shares no verdicts, and cosmic_ci's tests
@@ -657,7 +656,7 @@
         },
 
         # The last build of zig's caches is above, so they are saved here,
-        # with the tree moved: place-tree.sh keeps it one directory deep,
+        # with the tree moved: place-tree keeps it one directory deep,
         # where actions/cache's paths relative to the workspace resolve.
         # Only where assemble passed and nothing `full` for this vendor
         # part was restored, or on the scheduled run: once per vendor
@@ -794,13 +793,12 @@
 
         # Whatever failed, before checkout's post step: at another path
         # git refuses the repository and leaves the checkout's
-        # credentials behind (place-tree.sh). On the host.
+        # credentials behind (driver.tl place-tree). On the host.
         {
           name: "move the tree back to where it was checked out",
-          if: "always()",
-          "working-directory": ".",
+          if: "always() && steps.driver.outcome == 'success'",
           shell: "sh",
-          run: "[ ! -f .github/scripts/place-tree.sh ] || sh .github/scripts/place-tree.sh --restore",
+          run: "cosmic-driver cosmic_ci/driver.tl place-tree --restore",
         },
 
         # The queue's leg keeps what main would save, under the keys it
@@ -887,7 +885,7 @@
         # rows are an entry's already, and warns that the key exists.
         # Neither save runs for the macOS leg's scheduled run: its keys
         # hold the tree's path, which that run chooses by the commit
-        # (place-tree.sh), so its rows would answer no gating run, whose
+        # (driver.tl place-tree), so its rows would answer no gating run, whose
         # path the leg alone chooses, and one that restored them would
         # run every test.
         {
@@ -1131,8 +1129,7 @@
         # After every hashFiles, which reads the checkout.
         {
           name: "move the tree to a path of its own",
-          "working-directory": ".",
-          run: "sh .github/scripts/place-tree.sh",
+          run: "cosmic-driver cosmic_ci/driver.tl place-tree",
         },
         # A light run's check of the pinned CI driver, which a full run
         # makes on every leg (theirs says how), skipped where main left
@@ -1279,14 +1276,13 @@
           run: "docker rm -f cosmic-leg || :",
         },
         # Before checkout's post step, whose git refuses the repository
-        # at another path (place-tree.sh); the seed and the save come
+        # at another path (driver.tl place-tree); the seed and the save come
         # after it too.
         {
           name: "move the tree back to where it was checked out",
-          if: "always()",
-          "working-directory": ".",
+          if: "always() && steps.driver.outcome == 'success'",
           shell: "sh",
-          run: "[ ! -f .github/scripts/place-tree.sh ] || sh .github/scripts/place-tree.sh --restore",
+          run: "cosmic-driver cosmic_ci/driver.tl place-tree --restore",
         },
         # As a leg's: what main would save, for main's push of this
         # commit (`seed`); verdicts alone, it saves no compiles and no

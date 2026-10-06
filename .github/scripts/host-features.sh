@@ -27,8 +27,7 @@
 set -eu
 
 # The sha256 of standard input, as hex: sha256sum where there is one
-# (coreutils, busybox), shasum on a macOS without it, as place-tree.sh
-# does.
+# (coreutils, busybox), shasum on a macOS without it.
 digest() {
   if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi
 }
