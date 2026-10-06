@@ -147,6 +147,47 @@ local function test_a_plan_for_the_policy_leaves_the_system_and_proc_to_the_poli
   assert(policy.runs[root .. "/o/bin"] == true)
 end
 
+--- The plan of one module made once a run is rebound to the scratch
+--- directory of each later worker ([`test_sandbox.rebind`]): the plan made
+--- afresh for that directory, whatever the scratch directory is the
+--- plan's path of, and a copy that shares nothing with the first.
+local function test_a_plan_rebound_to_another_scratch_is_the_plan_made_for_it(tmp: string)
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/o/bin"))
+  assert(Fs.write(root .. "/o/cosmic.db", "x"))
+  assert(Fs.write(root .. "/a.tl", "x"))
+  for _, own in ipairs({ true, false }) do
+    local inputs = effective({ "a.tl" })
+    -- A cache the module declares makes its scratch directory a bind of the host's.
+    if not own then inputs.tool = true end
+    local suffix = tostring(own)
+    local first, second = scratch_in(tmp .. "/one" .. suffix), scratch_in(tmp .. "/two" .. suffix)
+    local made = test_sandbox.plan(root, first, inputs, {})
+    assert(made.trouble == "", made.trouble)
+    local rebound = test_sandbox.rebind(made, first, second, inputs)
+    local fresh = test_sandbox.plan(root, second, inputs, {})
+    assert(rebound.trouble == "" and rebound.own_scratch == fresh.own_scratch)
+    local function same(a: {string}, b: {string}, what: string)
+      assert(table.concat(a, " ") == table.concat(b, " "), what .. ": " .. table.concat(a, " ") ..
+          " is not " .. table.concat(b, " "))
+    end
+    same(rebound.sandbox.unveil.reads, fresh.sandbox.unveil.reads, "reads")
+    same(rebound.sandbox.unveil.writes, fresh.sandbox.unveil.writes, "writes")
+    for path, inside in pairs(fresh.sandbox.unveil.at) do
+      assert(rebound.sandbox.unveil.at[path] == inside, path)
+    end
+    for path in pairs(rebound.sandbox.unveil.at) do
+      assert(fresh.sandbox.unveil.at[path] ~= nil, path)
+    end
+    for path in pairs(fresh.runs) do assert(rebound.runs[path], path) end
+    assert(not holds(rebound.sandbox.unveil.writes, first))
+    -- Changing the copy leaves the plan it came from alone.
+    table.insert(rebound.sandbox.unveil.reads, "/changed")
+    rebound.env.CHANGED = "yes"
+    assert(not holds(made.sandbox.unveil.reads, "/changed") and made.env.CHANGED == nil)
+  end
+end
+
 --- A tree tested by a tool of another tree (ci/, run by ../o/bin/cosmic) is
 --- started by a name with ".." in it: [`Proc.executable`] keeps it as given,
 --- and so does the artifact path of the relaunch. A grant may not name

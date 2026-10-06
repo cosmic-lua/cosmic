@@ -22,6 +22,26 @@ local function test_selection_is_exact_or_at_a_directory_boundary()
   assert(not test.matches("build", "builder.other_test", "builder/other_test.tl"))
 end
 
+--- A worker's load hits and test hits of one module are two lines of its
+--- row, the run's hits hold their union, and a table taken before is
+--- not folded or spelled again.
+local function test_a_modules_load_and_test_hits_are_two_lines_of_its_row()
+  local hits: {string:{integer:boolean}} = {}
+  local folded: {{integer:boolean}:boolean} = {}
+  local spelled: {{integer:boolean}:string} = {}
+  local loaded: {integer:boolean} = { [3] = true, [1] = true }
+  local row = test.take_hits(hits, { ["core"] = {} }, folded, spelled,
+    { ["build.a"] = loaded, ["core"] = { [9] = true } }, { ["build.a"] = { [7] = true } })
+  assert(row == "build.a\t1,3\nbuild.a\t7\n", row)
+  assert(hits["build.a"][1] and hits["build.a"][3] and hits["build.a"][7])
+  assert(hits["core"] == nil)
+  hits["build.a"][1] = nil
+  row = test.take_hits(hits, {}, folded, spelled, { ["build.a"] = loaded }, {})
+  assert(row == "build.a\t1,3\n" and hits["build.a"][1] == nil, "a taken table is folded once")
+  local again = test.take_hits({}, {}, {}, {}, { ["build.a"] = loaded }, {})
+  assert(again == row)
+end
+
 --- `--shard I/N` names one of N shares, from 1; nothing else does.
 local function test_a_shard_is_one_of_n_shares_from_one()
   local shard = assert(test.shard("2/3"))

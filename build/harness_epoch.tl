@@ -112,15 +112,15 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "516c08e34d1fc392de5363af92b6d669344fc3c8b504c469ae3771a424d0db6b",
 
-  ["build.test"] = "79c474149a0a86fe9973fd17cf0ef6c8a192d04368a2ae7e4ed91e8b32c42494",
+  ["build.test"] = "a1dd22300392a3cc88e5d63e0422c2b031c766335f707288bee3163d96ad3298",
 
   ["build.test_inputs"] = "ec023eee681364d5fb8e1ac9937d039c8320125cf60cb14ef55bc3c51a017b51",
 
   ["build.test_policy"] = "f4d98a90f54c4ba29b6ce6d50c0cf08a5efc02e225dbd2382af84dee78da8557",
 
-  ["build.test_sandbox"] = "c6b7eba5313bee2e1ee3cafeea2033affa62fa4a354316d66a6f49d5b46c50eb",
+  ["build.test_sandbox"] = "8b6770324a64caa08e574d7c72ce4a6e4af9f9ed803e947de07acc61f68484bd",
 
-  ["build.test_worker"] = "8d7b86a929798ef072aa68c521b141d81a1b96292dfcd07ee2f5fabc04de7c58",
+  ["build.test_worker"] = "17ff861c10e59db2dbe7edf01ac94e6a3997fa0c46712ced1068fb5cf21d4f5c",
 
   ["build.this_program"] = "975740a93eb1e88680fe402a0bf6e5e52d1acad579dbdfedd0be27d10ae02980",
 

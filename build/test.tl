@@ -417,7 +417,9 @@ local worker_view: function(): {string:string}
 
 --- One test's hits as `coverage_by_test` holds them: a line per module,
 --- in path order, the path, a tab, then the lines it hit, ascending and
---- comma-separated. Module paths hold neither tabs nor newlines.
+--- comma-separated. Module paths hold neither tabs nor newlines. A row
+--- [`take_hits`] writes may name a module twice, its load's hits and its
+--- test's, which [`decode_hits`] folds together.
 local function encode_hits(test_hits: Coverage.Hits): string
   local paths: {string} = {}
   for path in pairs(test_hits) do
@@ -1192,6 +1194,11 @@ local record Sealing
 end
 
 --- Everything a finished job's verdict is recorded into.
+local record PlanMade
+  plan: test_sandbox.Plan
+  scratch: string
+end
+
 local record Recording
   records: Sqlite.Handle
   root: string
@@ -1305,6 +1312,16 @@ local record Recording
   --- The same, each a set of names, made as a verdict needs one
   --- ([`closure_set`]).
   closure_sets: {string:{string:boolean}}
+  --- The sandbox plan of the first worker started of each module, by path,
+  --- and the scratch directory it was made for: a later worker of the
+  --- module takes it rebound to its own ([`test_sandbox.rebind`]).
+  plans: {string:PlanMade}
+  --- A module's hit lines as a `coverage_by_test` row holds them, and the
+  --- lines [`take_hits`] has folded into `hits`, each by the table
+  --- [`worker.decode`] shares among the reports that held them. Per run:
+  --- a table folded into another run's `hits` is not in this one's.
+  spelled: {{integer:boolean}:string}
+  folded: {{integer:boolean}:boolean}
   --- Every module of the tree, by path, sorted: what a worker refuses a
   --- `require` of outside its closure ([`build.test_worker`]).
   tree_names: {string}
@@ -1683,6 +1700,60 @@ local function closure_set(rec: Recording, m: importer.Module): {string:boolean}
   return set
 end
 
+--- A module's hit lines as a row of `coverage_by_test` holds them
+--- ([`encode_hits`]'s line), kept in `spelled` by the table
+--- [`worker.decode`] shares among the reports that held them.
+local function spell(spelled: {{integer:boolean}:string}, path: string,
+                     per_line: {integer:boolean}): string
+  local row = spelled[per_line]
+  if row == nil then
+    local lines: {integer} = {}
+    for line in pairs(per_line) do lines[#lines + 1] = line end
+    table.sort(lines)
+    row = path .. "\t" .. table.concat(lines, ",") .. "\n"
+    spelled[per_line] = row
+  end
+  return row
+end
+
+--- Folds the hits of a finished worker, those its load made and those its
+--- test did (the tables [`worker.decode`] shares, never changed here), into
+--- `hits` but for the modules `unowned` names (the core's), and answers the
+--- test's own `coverage_by_test` row, in [`encode_hits`]'s form but with
+--- a module the load and the test both hit on a line of each. A worker's
+--- load hits are the same lines in every worker of a module, so each is
+--- folded once and spelled once, whatever the number of tests: the work
+--- of one test is its own few lines. `folded` and `spelled` remember
+--- which tables have been, and are one run's, since a table folded into
+--- another run's `hits` is not in this one's.
+function test.take_hits(hits: Coverage.Hits, unowned: Coverage.Hits,
+                        folded: {{integer:boolean}:boolean},
+                        spelled: {{integer:boolean}:string},
+                        load_hits: Coverage.Hits, test_hits: Coverage.Hits): string
+  local out: {string} = {}
+  for _, taken in ipairs({ load_hits, test_hits }) do
+    local paths: {string} = {}
+    for path in pairs(taken) do
+      if unowned[path] == nil then paths[#paths + 1] = path end
+    end
+    table.sort(paths)
+    for _, path in ipairs(paths) do
+      local per_line = taken[path]
+      if not folded[per_line] then
+        folded[per_line] = true
+        local into = hits[path]
+        if into == nil then
+          into = {}
+          hits[path] = into
+        end
+        for line in pairs(per_line) do into[line] = true end
+      end
+      out[#out + 1] = spell(spelled, path, per_line)
+    end
+  end
+  return table.concat(out)
+end
+
 --- Records one finished job: the verdict its worker reported, or a
 --- failure that says why there is no report to go by
 --- ([`build.test_worker`]'s `judge`). A key holds what a worker
@@ -1722,14 +1793,8 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
   local elapsed = wall_ns
   if reported ~= nil then
     elapsed = reported.elapsed_ns
-    local hit: Coverage.Hits = {}
-    merge_hits(hit, reported.load_hits)
-    merge_hits(hit, reported.test_hits)
-    for path in pairs(rec.unowned) do
-      hit[path] = nil
-    end
-    merge_hits(rec.hits, hit)
-    rec.by_test[id] = encode_hits(hit)
+    rec.by_test[id] = test.take_hits(rec.hits, rec.unowned, rec.folded, rec.spelled,
+      reported.load_hits, reported.test_hits)
   end
   -- Keyed by what it was given: its declared inputs, as they were
   -- before it started -- and still are, or the verdict describes no
@@ -2537,7 +2602,14 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
           "database of its closure, which cannot be made: " .. why, limits)
       return false
     end
-    local plan = test_sandbox.plan(rec.root, scratch, rec.effective[job.m.path], worker_view(), store)
+    local kept = rec.plans[job.m.path]
+    local plan: test_sandbox.Plan
+    if kept ~= nil then
+      plan = test_sandbox.rebind(kept.plan, kept.scratch, scratch, effective)
+    else
+      plan = test_sandbox.plan(rec.root, scratch, effective, worker_view(), store)
+      if plan.trouble == "" then rec.plans[job.m.path] = { plan = plan, scratch = scratch } end
+    end
     if plan.over > 0 then
       finish(rec, job, nil, "its sandbox would give it " .. plural.count(plan.over, "path") ..
           " more than the most one holds", limits)
@@ -3464,7 +3536,7 @@ local function make_recording(ctx: Run)
     forbiddable = {},
     epoch = ctx.epoch, timeout_ns = ctx.limits.timeout_ns,
     store_salt = ctx.harness.store_salt, carried = ctx.harness.carried,
-    closure_sets = {}, type_only = {},
+    closure_sets = {}, plans = {}, spelled = {}, folded = {}, type_only = {},
     rerun_prefix = (sandbox_mode == "on" and (test_sandbox.switch .. "=1 ") or
       sandbox_mode == "off" and (test_sandbox.switch .. "=0 ") or ""),
   }

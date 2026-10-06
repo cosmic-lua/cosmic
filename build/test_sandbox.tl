@@ -328,6 +328,23 @@ local function why_shared_scratch(effective: test_inputs.Effective, reads: {stri
   return ""
 end
 
+--- Makes the cores directory a module that declares the cache "bootstrap"
+--- has in `scratch` ([`own_cores`]), if it is not there yet: true, or false
+--- and why.
+local function make_own_cores(effective: test_inputs.Effective, scratch: string): boolean, string
+  for _, name in ipairs(effective.caches or {}) do
+    if name == "bootstrap" then
+      local cores = scratch .. own_cores:sub(#test_sandbox.scratch + 1)
+      local there, _ = sys.stat(cores)
+      if there == nil then
+        local ok, why = sys.mkdir(cores, 0x1c0) -- 0700, as the launcher makes a cache
+        if not ok then return false, cores .. ": " .. why end
+      end
+    end
+  end
+  return true, ""
+end
+
 --- The paths of a worker of the tree at `root` that runs a test of the module
 --- `effective` holds the inputs of in, its scratch directory `scratch`,
 --- with the runner's view of a worker's environment `environment`, and
@@ -485,16 +502,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- keeps it from running this program walks the directories above the
   -- program as they are then, and where the program is beneath /tmp's
   -- name on the host, a directory made there after would run nothing.
-  for _, name in ipairs(effective.caches or {}) do
-    if name == "bootstrap" and made then
-      local cores = scratch .. own_cores:sub(#test_sandbox.scratch + 1)
-      local there, _ = sys.stat(cores)
-      if there == nil then
-        local ok, why = sys.mkdir(cores, 0x1c0) -- 0700, as the launcher makes a cache
-        if not ok then made, trouble = false, cores .. ": " .. why end
-      end
-    end
-  end
+  if made then made, trouble = make_own_cores(effective, scratch) end
   for _, path in ipairs(cache_writes) do writes[#writes + 1] = path end
   -- A path given to read at its own name that a cache given to write
   -- holds already is not given again on top of it. Bound there, its
@@ -571,6 +579,43 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     runs = runs,
     own_scratch = own_scratch,
     why_shared = why_shared,
+  }
+end
+
+--- The plan `plan`, made for a worker whose scratch directory was `from`
+--- ([`test_sandbox.plan`]), for the worker of the same module, `effective`,
+--- whose scratch directory is `scratch`: the same paths, as no part of a
+--- plan but the scratch directory depends on the worker. It is the
+--- plan of a module made once a run, for the cost of looking at each path of
+--- a module's closure again is most of what a plan costs; the paths it
+--- looked at are taken to stay as they were for the run: one that vanishes
+--- meanwhile is not dropped from the copy, and its worker's start fails
+--- with the mount's error, where a plan made afresh would have left it
+--- out. The key has moved by then, so no verdict is kept either way. Only a plan
+--- with no `trouble` is rebound; the copy shares nothing with `plan`.
+function test_sandbox.rebind(plan: test_sandbox.Plan, from: string, scratch: string,
+                             effective: test_inputs.Effective): test_sandbox.Plan
+  local unveil = plan.sandbox.unveil
+  local reads: {string} = {}
+  for i, path in ipairs(unveil.reads) do reads[i] = path end
+  local writes: {string} = {}
+  for i, path in ipairs(unveil.writes) do writes[i] = path == from and scratch or path end
+  local at: {string:string} = {}
+  for path, inside in pairs(unveil.at) do at[path == from and scratch or path] = inside end
+  local env: {string:string} = {}
+  for name, value in pairs(plan.env) do env[name] = value end
+  local runs: {string:boolean} = {}
+  for path in pairs(plan.runs) do runs[path] = true end
+  local made, trouble = make_own_cores(effective, scratch)
+  return {
+    sandbox = { unveil = { reads = reads, writes = writes, at = at }, offline = plan.sandbox.offline },
+    env = env,
+    over = plan.over,
+    trouble = made and "" or "a cache it declares: " .. trouble,
+    program = plan.program,
+    runs = runs,
+    own_scratch = plan.own_scratch,
+    why_shared = plan.why_shared,
   }
 end
 
