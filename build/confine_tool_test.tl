@@ -224,7 +224,9 @@ end
 --- COSMIC_SANDBOX=must there is no fallback to see
 --- (build/must_confine_test.tl holds that mode to refusing it).
 local function test_an_unconfinable_process_starts_unconfined(tmp: string)
-  if sys.getenv("COSMIC_SANDBOX") == "must" then return end
+  if sys.getenv("COSMIC_SANDBOX") == "must" then
+    Test.skip("COSMIC_SANDBOX=must leaves no fallback to see (build/must_confine_test.tl holds that mode)")
+  end
   local probe = probe_in(tmp)
   local own = tmp .. "/own"
   assert(Fs.mkdirs(own))
