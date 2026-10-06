@@ -777,3 +777,22 @@ local function test_sqlite_captured_operations_release_every_refused_allocation(
   assert_c_heap(bytes, blocks, "captured SQLite step")
   assert(db:close())
 end
+
+--- The pty pair builds its answer before opening either descriptor.
+--- Sandboxed workers refuse those devices; unsandboxed checked runs walk
+--- successful acquisition too, and both must leave no descriptor behind.
+local function test_openpty_closes_both_descriptors_whenever_an_allocation_fails(tmp: string)
+  local before = next_descriptor(tmp)
+  local received: sys.Pty
+  local ended = under_every_failure(function()
+    received = sys.openpty()
+  end, function()
+    if received ~= nil then
+      sys.close(received.master)
+      sys.close(received.slave)
+      received = nil
+    end
+  end)
+  assert(ended > 0, "building a pty answer allocates")
+  assert(next_descriptor(tmp) == before, "a refused allocation leaked a pty descriptor")
+end

@@ -162,9 +162,16 @@ local exempt: {string: string} = {
     "trouble, which a caller reports beside the handle's result",
 }
 
-local parsing: {string: string} = {}
+local parsing: {string: string} = {
+  ["test/terminal/pty.tl:assert_terminal_refusal"] =
+    "the CI terminal fixture checks the public rejection diagnostic, not a recovery decision",
+}
 
 local casts: {string: string} = {
+  ["test/terminal/pty.tl:process_table"] =
+    "the CI fixture reaches cosmic.child's raw process loader argument to test " ..
+    "the controlling-terminal spawn step; core/process.h declares its shape",
+
   ["build/sandbox_probe.tl:raw_process_table"] =
     "the store's searcher hands cosmic.child's loader the raw process " ..
     "table as its extra value, untyped as package.searchers returns it; " ..

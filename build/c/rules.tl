@@ -142,6 +142,9 @@ local exempt: {string: string} = {
   ["core/syscalls.c cosmic_sys_spawn held-across-raise"] =
     "every value it reads once argv is taken was checked to be a string first, " ..
     "so lua_tolstring converts nothing and cannot raise",
+  ["core/syscalls.c cosmic_sys_openpty held-across-raise"] =
+    "the answer table and interned keys are made before either descriptor: " ..
+    "the remaining integer pushes and rawsets into its two reserved slots allocate nothing",
   ["core/syscalls_fs.c cosmic_sys_open_temporary held-across-raise"] =
     "its answer, and the answer's \"fd\" key, exist before the file is opened, " ..
     "so setting the descriptor into it allocates nothing",

@@ -643,6 +643,103 @@ COSMIC_SYSCALL(errno_message, 1);
 COSMIC_SYSCALL(isatty, 1);
 
 /*
+ * --- A newly opened pseudo-terminal; both descriptors are close-on-exec,
+ * --- blocking, and owned by the caller. Close both when finished.
+ * ---@class Pty
+ * ---@field master integer the relay's descriptor
+ * ---@field slave integer the program's terminal descriptor
+ */
+
+/*
+ * --- Opens and unlocks a fresh pseudo-terminal without acquiring it as a
+ * --- controlling terminal. It requires access to the host's pty devices.
+ * ---@return Pty|nil pty the pair, or nil on failure
+ * ---@return string error what went wrong, when pty is nil
+ * ---@return integer errno the error number, when pty is nil
+ */
+COSMIC_SYSCALL(openpty, 0);
+
+/*
+ * --- Saves this terminal's state as opaque bytes for tcsetattr. The state
+ * --- is local to this host and core; do not persist it or edit its bytes.
+ * ---@param fd integer the terminal descriptor
+ * ---@return string|nil state the saved state, or nil on failure
+ * ---@return string error what went wrong, when state is nil
+ * ---@return integer errno the error number, when state is nil
+ */
+COSMIC_SYSCALL(tcgetattr, 1);
+
+/*
+ * --- Restores a state from tcgetattr immediately, without flushing queues.
+ * ---@param fd integer the terminal descriptor
+ * ---@param state string the opaque state from tcgetattr on this host
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(tcsetattr, 2);
+
+/*
+ * --- Sets raw mode immediately: bytes pass without echo, canonical line
+ * --- processing, signal characters or output translation. Save first with
+ * --- tcgetattr and restore with tcsetattr when finished.
+ * ---@param fd integer the terminal descriptor
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(tcraw, 1);
+
+/*
+ * --- Discards pending terminal input and output.
+ * ---@param fd integer the terminal descriptor
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(tcflush, 1);
+
+/*
+ * --- A terminal's dimensions, measured in character cells.
+ * ---@class WindowSize
+ * ---@field rows integer the number of rows
+ * ---@field columns integer the number of columns
+ */
+
+/*
+ * --- Reads the terminal's window size.
+ * ---@param fd integer the terminal descriptor
+ * ---@return WindowSize|nil size the dimensions, or nil on failure
+ * ---@return string error what went wrong, when size is nil
+ * ---@return integer errno the error number, when size is nil
+ */
+COSMIC_SYSCALL(winsize, 1);
+
+/*
+ * --- Sets the terminal's size, notifying its foreground process group
+ * --- with SIGWINCH. Dimensions outside 0..65535 raise.
+ * ---@param fd integer the terminal descriptor
+ * ---@param rows integer the number of rows
+ * ---@param columns integer the number of columns
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(setwinsize, 3);
+
+/*
+ * --- Starts a session and makes fd its controlling terminal. A refused
+ * --- ioctl can leave the new session in place; call only in a pre-exec
+ * --- trampoline, whose failure ends that child. A session leader fails.
+ * ---@param fd integer the terminal descriptor
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(controlling_terminal, 1);
+
+
+/*
  * --- Creates a symbolic link at `path` pointing at `target`. `target`
  * --- is stored verbatim and is never resolved.
  * ---@param target string the link's contents

@@ -204,11 +204,12 @@ COSMIC_SYSCALL(user, 1);
  * ---@param fds? {integer:integer} more descriptors the child gets, each child descriptor from 3 to 255 by the descriptor it copies; every other one above 2 is closed. The artifact descriptor a portable start retains raises here, as in every descriptor argument, but as `relaunch` hands it on: at the child descriptor the child's environment names its artifact's, from a process that may still run its own core
  * ---@param sandbox? Sandbox what the child, and every process it starts, is held to from its exec on
  * ---@param credentials? Credentials clear supplementary groups and effective, permitted, inheritable and ambient capabilities, set all IDs, and set no_new_privs before cwd and exec. Excludes sandbox unveil, offline, user and group. Inherited cwd and descriptors remain grants. The capability bounding set is unchanged. ENOSYS off Linux. Child setup failure prevents exec; parent dumpability restoration failure can follow exec and ends the owned child before returning failure
+ * ---@param terminal? boolean make fd 0 the controlling terminal of a new session before confinement and exec. It must be a terminal slave; failure prevents exec. Internal relay starts only; cosmic.child continues to refuse terminal stdio with a policy
  * ---@return integer|nil pid the child process id, or nil when setup or exec failed
  * ---@return string error what went wrong, when pid is nil
  * ---@return integer errno the error number, when pid is nil
  */
-COSMIC_SYSCALL(spawn, 11);
+COSMIC_SYSCALL(spawn, 12);
 
 /*
  * --- A Landlock ruleset a child can be held to (`spawn`'s `sandbox`): opening and running what is beneath each path of `reads`, and changing what is beneath each of `writes` too, and no other file or directory -- nor, where the kernel can hold it to these, an abstract unix socket or a signal to a process outside it. It does not hold stat and the like of any path, a unix socket named by a path, or a descriptor the child is handed already open, which Landlock cannot, nor the network, TCP or UDP, which `spawn`'s `offline` holds alike on every kernel. Closed on exec. ENOSYS, EOPNOTSUPP or EPERM where there is no Landlock to be had: not built in, turned off, or refused by a filter.

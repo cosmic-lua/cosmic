@@ -23,6 +23,8 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <sys/ioctl.h>
+#include <termios.h>
 #if defined(__linux__)
 #include <linux/audit.h>
 #include <linux/capability.h>
@@ -288,6 +290,118 @@ COSMIC_SYSCALL(isatty, 1) {
   int fd = cosmic_checkfd(L, 1);
   lua_pushboolean(L, isatty(fd) == 1);
   return 1;
+}
+
+/* Allocate every Lua value before either descriptor: filling this sized
+ * table and returning integer descriptors cannot raise after acquisition. */
+COSMIC_SYSCALL(openpty, 0) {
+  lua_createtable(L, 0, 2);
+  lua_pushliteral(L, "slave");
+  lua_pushliteral(L, "master");
+  int master = posix_openpt(O_RDWR | O_NOCTTY);
+  if (master < 0) return cosmic_fail(L, errno);
+  int failure = 0;
+  int slave = -1;
+  if (grantpt(master) != 0 || unlockpt(master) != 0) failure = errno;
+  if (!failure) {
+    /* cosmic is single-threaded, so the name stays valid until open. */
+    char *name = ptsname(master);
+    if (name == NULL) failure = errno;
+    else {
+      slave = open(name, O_RDWR | O_NOCTTY);
+      if (slave < 0) failure = errno;
+    }
+  }
+  /* One thread and no exec between these calls: portable CLOEXEC setup
+   * cannot hand either descriptor to another process. */
+  if (!failure && (fcntl(master, F_SETFD, FD_CLOEXEC) != 0 ||
+                   fcntl(slave, F_SETFD, FD_CLOEXEC) != 0)) failure = errno;
+  if (failure) {
+    close(master);
+    if (slave >= 0) close(slave);
+    return cosmic_fail(L, failure);
+  }
+  lua_pushinteger(L, master);
+  lua_rawset(L, -4);
+  lua_pushinteger(L, slave);
+  lua_rawset(L, -3);
+  return 1;
+}
+
+COSMIC_SYSCALL(tcgetattr, 1) {
+  int fd = cosmic_checkfd(L, 1);
+  struct termios state;
+  memset(&state, 0, sizeof state);
+  if (tcgetattr(fd, &state) != 0) return cosmic_fail(L, errno);
+  lua_pushlstring(L, (const char *)&state, sizeof state);
+  return 1;
+}
+
+COSMIC_SYSCALL(tcsetattr, 2) {
+  int fd = cosmic_checkfd(L, 1);
+  size_t size;
+  const char *bytes = luaL_checklstring(L, 2, &size);
+  luaL_argcheck(L, size == sizeof(struct termios), 2, "not a terminal state from tcgetattr");
+  struct termios state;
+  memcpy(&state, bytes, sizeof state);
+  if (tcsetattr(fd, TCSANOW, &state) != 0) return cosmic_fail_effect(L, errno);
+  return cosmic_ok(L);
+}
+
+COSMIC_SYSCALL(tcraw, 1) {
+  int fd = cosmic_checkfd(L, 1);
+  struct termios state;
+  if (tcgetattr(fd, &state) != 0) return cosmic_fail_effect(L, errno);
+  /* POSIX does not specify cfmakeraw; spell the same flags on both hosts. */
+  state.c_iflag &= (tcflag_t)~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
+  state.c_oflag &= (tcflag_t)~OPOST;
+  state.c_lflag &= (tcflag_t)~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
+  state.c_cflag &= (tcflag_t)~(CSIZE | PARENB);
+  state.c_cflag |= CS8;
+  state.c_cc[VMIN] = 1;
+  state.c_cc[VTIME] = 0;
+  if (tcsetattr(fd, TCSANOW, &state) != 0) return cosmic_fail_effect(L, errno);
+  return cosmic_ok(L);
+}
+
+COSMIC_SYSCALL(tcflush, 1) {
+  int fd = cosmic_checkfd(L, 1);
+  if (tcflush(fd, TCIOFLUSH) != 0) return cosmic_fail_effect(L, errno);
+  return cosmic_ok(L);
+}
+
+COSMIC_SYSCALL(winsize, 1) {
+  int fd = cosmic_checkfd(L, 1);
+  struct winsize size;
+  memset(&size, 0, sizeof size);
+  if (ioctl(fd, TIOCGWINSZ, &size) != 0) return cosmic_fail(L, errno);
+  lua_createtable(L, 0, 2);
+  lua_pushinteger(L, size.ws_row);
+  lua_setfield(L, -2, "rows");
+  lua_pushinteger(L, size.ws_col);
+  lua_setfield(L, -2, "columns");
+  return 1;
+}
+
+COSMIC_SYSCALL(setwinsize, 3) {
+  int fd = cosmic_checkfd(L, 1);
+  int rows = cosmic_checkint(L, 2), columns = cosmic_checkint(L, 3);
+  luaL_argcheck(L, rows >= 0 && rows <= USHRT_MAX, 2, "rows are outside 0..65535");
+  luaL_argcheck(L, columns >= 0 && columns <= USHRT_MAX, 3, "columns are outside 0..65535");
+  struct winsize size = { .ws_row = (unsigned short)rows, .ws_col = (unsigned short)columns };
+  if (ioctl(fd, TIOCSWINSZ, &size) != 0) return cosmic_fail_effect(L, errno);
+  return cosmic_ok(L);
+}
+
+COSMIC_SYSCALL(controlling_terminal, 1) {
+  int fd = cosmic_checkfd(L, 1);
+  /* Refuse a non-terminal before changing the caller's session. A later
+   * refusal may leave the new session: callers use this only pre-exec. */
+  struct termios state;
+  if (tcgetattr(fd, &state) != 0) return cosmic_fail_effect(L, errno);
+  if (setsid() < 0) return cosmic_fail_effect(L, errno);
+  if (ioctl(fd, TIOCSCTTY, 0) != 0) return cosmic_fail_effect(L, errno);
+  return cosmic_ok(L);
 }
 
 COSMIC_SYSCALL(entropy, 1) {
@@ -1577,6 +1691,7 @@ struct spawn_plan {
   int status_write;
   long descriptor_limit;
   int process_group;
+  int terminal;
   int credentials;
   uid_t user;
   gid_t group;
@@ -1765,7 +1880,7 @@ static _Noreturn void run_program (const struct spawn_plan *plan, const int *pin
                                    int confined, int status_fd, int own_proc) {
   int top = plan->top;
   int failure = 0;
-  if (plan->unveiling) {
+  if (plan->unveiling || plan->terminal) {
     if (setsid() < 0) failure = errno;
   } else if (plan->process_group && setpgid(0, 0) != 0) {
     failure = errno;
@@ -1788,6 +1903,7 @@ static _Noreturn void run_program (const struct spawn_plan *plan, const int *pin
       close(t);
     }
   }
+  if (!failure && plan->terminal && ioctl(0, TIOCSCTTY, 0) != 0) failure = errno;
   /* Confined last, just before exec: what the child and every process
    * it starts may reach is the ruleset's, and nothing lets it off.
    * TODO: let a ruleset that names /proc reach an unveiled child's own
@@ -3467,7 +3583,7 @@ COSMIC_SYSCALL(restrict_self, 2) {
 #endif
 }
 
-COSMIC_SYSCALL(spawn, 11) {
+COSMIC_SYSCALL(spawn, 12) {
   const char *path = plain_string(L, 1, "path");
   luaL_checktype(L, 2, LUA_TTABLE);
   if (!lua_isnoneornil(L, 3)) luaL_checktype(L, 3, LUA_TTABLE);
@@ -3480,6 +3596,13 @@ COSMIC_SYSCALL(spawn, 11) {
   source[1] = stream_source(L, 6);
   source[2] = stream_source(L, 7);
   int process_group = lua_toboolean(L, 8);
+  if (!lua_isnoneornil(L, 12)) luaL_checktype(L, 12, LUA_TBOOLEAN);
+  int terminal = lua_toboolean(L, 12);
+#if defined(__APPLE__)
+  /* TODO: set up a controlling terminal in the shared pre-exec trampoline
+   * once Seatbelt adds that step to the Darwin child start. */
+  if (terminal) return cosmic_fail(L, ENOSYS);
+#endif
   int top = 2;
   if (!lua_isnoneornil(L, 9)) {
     luaL_checktype(L, 9, LUA_TTABLE);
@@ -4139,7 +4262,7 @@ COSMIC_SYSCALL(spawn, 11) {
   struct spawn_plan plan = {
     .path = path, .argv = argv, .envp = given, .cwd = cwd, .source = source, .top = top,
     .status_read = status_read, .status_write = status_write,
-    .descriptor_limit = descriptor_limit, .process_group = process_group,
+    .descriptor_limit = descriptor_limit, .process_group = process_group, .terminal = terminal,
     .credentials = credentials, .user = credential_user, .group = credential_group,
     .confine = confine, .pledged = pledged,
 #if defined(PLEDGE_ARCH)
