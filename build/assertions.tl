@@ -15,7 +15,16 @@ else
   raw = require("cosmic.internal.assertions")
 end
 
+-- Lua's own `assert`, taken before [`install`] replaces it.
+local lua_assert = assert
+
 local record assertions
+  --- Lua's own `assert`, as it was when this module loaded: what the
+  --- counting one must answer exactly as. Typed `any` because it answers
+  --- every argument it is given, which no exported function here may;
+  --- callers cast it.
+  lua_assert: any
+
   --- Replaces the global `assert` with the counting one, for the life of
   --- the process. Install it before a test's module loads, so a module that
   --- captures `local assert = assert` as it loads holds it.
@@ -36,6 +45,7 @@ function assertions.install()
   rawset(_G, "assert", raw.assert)
 end
 
+assertions.lua_assert = lua_assert
 assertions.count = raw.count
 assertions.reset = raw.reset
 

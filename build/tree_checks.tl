@@ -67,6 +67,9 @@ allowed["cosmic.sandbox.restrict"] = "tested directly: it holds the process that
 allowed["cosmic.test.needs_of"] = "tested directly: the worker's translation of a policy, " ..
   "which the build's own reading of one (build.analyzer, which cannot require this " ..
   "module) is held to by cosmic/test_policy_test.tl"
+allowed["build.assertions.lua_assert"] = "tested directly: Lua's own `assert`, kept " ..
+  "for build/assertions_test.tl to hold the counting one to, case by case, so a Lua " ..
+  "upgrade that changes luaB_assert fails there rather than drifting"
 allowed["build.c.layout.same"] = "tested directly: whether two layouts are one " ..
   "token stream is the rule `cosmic fix` holds a C rewrite to, and the test " ..
   "states it on sources too small to be a file"
