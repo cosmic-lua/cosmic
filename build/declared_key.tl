@@ -249,10 +249,11 @@ local record declared_key
     system: string
     --- Where an artifact runs the tests (Store.meta's
     --- `runtime_context` "portable-v1": o/bin/cosmic, or a portable
-    --- cosmic), what runs its core ([`launcher_identity`]); nil where a
-    --- host program ("host-v1") or a core run against a database of its own
-    --- ("database-v1") does, whose core is all there is ahead of its
-    --- database.
+    --- cosmic), what runs its core ([`launcher_identity`]); for a worker
+    --- run on a sealed database, which no launcher starts, the identity of
+    --- the core it runs; nil where a host program ("host-v1") or a core run
+    --- against a database of its own ("database-v1") does, whose core is
+    --- all there is ahead of its database.
     launcher: string
     --- The module's declaration, as [`test_inputs.canonical`] spells it.
     declaration: string
@@ -554,12 +555,12 @@ end
 ---   skip writing the same one again, never from a binary, which carries
 ---   it only when an older writer wrote its database.
 ---
---- And every sandboxed worker runs this same binary, whether its test
---- declares `tool` or not. One that does not declare `store` reads
---- these rows through [`Store.meta`] from the program's database with no
---- key to hold them (the TODO on `closure_artifact_for` in build.test),
---- while one that declares it has them in reach, which its key holds by
---- the projection's contents, but for these.
+--- And every sandboxed worker runs this same core. One whose module
+--- declares neither `store` nor `tool` runs it on a sealed database of its
+--- closure (build.test's `sealed_for`), which holds none of these rows,
+--- while one that declares `store` or `tool` has the program's database in
+--- reach, which its key holds by the projection's contents or by this
+--- identity, but for these.
 -- The names "program-v2" and "launcher-v2" version the formulas below:
 -- a change to either takes a new name, so what the old one remembered
 -- is not read.

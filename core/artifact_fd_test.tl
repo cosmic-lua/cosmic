@@ -23,12 +23,12 @@ local type raw_socket = require("cosmic.internal.socket")
 
 --- The binding headers, read for which of their bindings take a
 --- descriptor.
-Test.policy{
-  grants = {
-    { path = "core/syscalls.h", letters = "r" },
-    { path = "core/process.h", letters = "r" },
-    { path = "core/socket.h", letters = "r" },
-  },
+-- Declared for the program's descriptor, which only a worker that runs the
+-- whole program holds: one on a sealed database has none, so each test here
+-- would return unchecked, and no test would enter the bindings it tries.
+Test.needs{
+  reads = { "core/syscalls.h", "core/process.h", "core/socket.h" },
+  store = true,
 }
 
 local type Searcher = function(string): any, any
@@ -52,7 +52,13 @@ local function artifact_fd(): integer | nil
   local relaunch, _ = Proc.relaunch()
   if relaunch == nil then return nil end
   local slot = math.tointeger(tonumber(relaunch.env.COSMIC_PORTABLE_ARTIFACT_FD))
-  return slot ~= nil and relaunch.fds[slot] or nil
+  local fd = slot ~= nil and relaunch.fds[slot] or nil
+  -- A held (sandboxed) worker of a portable run has the descriptor; one
+  -- on a sealed database does not, and would check nothing.
+  if fd == nil and relaunch.argv[2] == "--database" then
+    error("this worker runs on a sealed database, which has no artifact descriptor to try")
+  end
+  return fd
 end
 
 --- Asserts calling `fn` with `...` raises, naming the artifact's

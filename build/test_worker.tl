@@ -361,15 +361,18 @@ end
 --- the core's own modules, and whatever another database a test
 --- attaches holds -- is no input of the tree and loads as ever.
 -- TODO: hold a module the running program carries that is no module
--- of the tree -- in a project's tree, the standard library's -- once
--- a key holds the program's own modules (a digest of its `modules`
--- and `decls` beside the runtime identity, which names only the core
--- and the pins): today a release that changes only the standard
--- library's Teal leaves standing a verdict that read one of them
--- outside its closure. In this tree every module the program carries
--- is a module of the tree, and `vendor.tl`, which is not, is carried
--- by its bytecode in the store of a closure that holds build.teal, the
--- one module that loads it ([`build.closure_store`]'s `loaded_beside`).
+-- of the tree -- in a project's tree, the standard library's -- for the
+-- workers that run the program whole (`store`, `tool`, and a program
+-- that is no portable artifact), once their keys hold the program's own
+-- modules (a digest of its `modules` and `decls` beside the runtime
+-- identity, which names only the core and the pins): the key of a worker
+-- on a sealed database holds them already (build.test's `extras_digest`),
+-- but today a release that changes only the standard library's Teal leaves
+-- standing a verdict of one of the others that read one of them outside its
+-- closure. In this tree every module the program carries is a module of
+-- the tree, and `vendor.tl`, which is not, is carried by its bytecode in
+-- the store of a closure that holds build.teal, the one module that loads it
+-- ([`build.closure_store`]'s `loaded_beside`).
 local function refusal(name: string, module_path: string, closure: {string:boolean},
                        tree: {string:boolean}): string | nil
   if closure[name] or not tree[name] then return nil end
@@ -394,7 +397,10 @@ local type Held = function(fn: function(any...): (any...), argument?: any): any
 --- reaches the searcher too. It then puts both back, whether `fn`
 --- returned or raised, and returns or raises as `fn` did. A lookup that
 --- is not a `require` reads the store the worker is given, and the
---- program's own.
+--- program's own, which a sealed database narrows to the closure
+--- (build.test's `sealed_for`): this hold is its second guard there, which
+--- says why, and the only one for a worker that declares `store`, `tool` or
+--- `nests`.
 local function hold_requires(module_path: string, closure: {string:boolean},
                              tree: {string:boolean}): Held
   -- A refusal is a loader that raises, not a searcher that does: a
@@ -529,7 +535,8 @@ function worker.invocation(given: worker.Invocation): worker.Command
     local held = given.policy
     local policy: Sandbox.Policy = { profiles = held.profiles, grants = held.grants,
       isolate = held.isolate, promises = held.promises, connect = held.connect,
-      loopback = held.loopback, env = held.env, tmp = held.tmp, limits = held.limits }
+      loopback = held.loopback, env = held.env, tmp = held.tmp, limits = held.limits,
+      database = held.database }
     policy.set_env = env
     return { argv = argv, options = {
       policy = policy, cwd = given.cwd, stdin = "null", stdout = "capture", stderr = "stdout",

@@ -1186,6 +1186,15 @@ local record Unmet
   why: string
 end
 
+--- What the sealed databases of a run are made from ([`sealing_for`]).
+local record Sealing
+  --- The run's own directory, open to the user a sandboxed worker runs as,
+  --- where each sealed database and the program's own are written.
+  directory: string
+  --- The program's own database, written in `directory`.
+  program: string
+end
+
 --- Everything a finished job's verdict is recorded into.
 local record Recording
   records: Sqlite.Handle
@@ -1317,6 +1326,20 @@ local record Recording
   --- or nil before it is read.
   artifact_read: closure_artifact.Program | nil
   artifact_trouble: string | nil
+  --- What sealing the databases of the workers that run on one needs,
+  --- made the first time one is: the directory they are written in, the
+  --- program's own database written there ([`sealing_for`]); the reason
+  --- there is none, or nil before it is made.
+  sealing: Sealing | nil
+  sealing_trouble: string | nil
+  --- The path of the sealed database of each closure store, by its
+  --- address ([`sealed_for`]).
+  sealed: {string:string}
+  --- How many sealed databases this run wrote, their bytes, and the time
+  --- taken ([`sealed_for`]).
+  sealed_written: integer
+  sealed_bytes: integer
+  sealed_ns: integer
   projection: string
   basis: closure_store.Basis
   built: {string:string}
@@ -1333,6 +1356,12 @@ local record Recording
   store_digests: {string:string}
   consult_shared: boolean
   store_runtime: string
+  --- The identity of the core the run's workers run ([`declared_key.runtime_identity`]),
+  --- which the key of a worker on a sealed database holds in place of the
+  --- launcher ([`seals`]).
+  core: string
+  --- The digest of the program's modules the tree lacks ([`extras_digest`]).
+  extras: string | nil
   --- What the shared verdicts keep of each address this run looked up
   --- ("" for none), the closure and kind each address was keyed for, and
   --- the addresses whose bytes it found to differ, said once each.
@@ -1445,9 +1474,10 @@ end
 
 --- How a sandboxed worker of `m`'s tests stands to running this
 --- program: "declared" where its module declares `tool`; "lua" where it
---- declares `lua`, whose worker may run it as "allowed" says but is given
---- an artifact of its closure in its place ([`closure_artifact_for`]), so
---- its key holds no more of the program than of its closure; "forbidden"
+--- declares `lua`, whose worker may run it as "allowed" says but runs on a
+--- sealed database of its closure ([`sealed_for`]), or is given an artifact
+--- of it ([`closure_artifact_for`]) where it cannot be sealed, so its key
+--- holds no more of the program than of its closure; "forbidden"
 --- where it is kept from running it ([`can_forbid`]), and "allowed" where
 --- it is not -- its module declares `nests`, whose worker no Landlock
 --- ruleset holds, or it cannot be -- which its key holds as if its
@@ -1489,6 +1519,53 @@ local function reads_compiler(rec: Recording, m: importer.Module): boolean
   if rec.stores[m.path] == nil then return false end
   return declared_key.reads_compiler(test_inputs.compiler_sought(rec.closures[m.path] or {},
     rec.effective[m.path].lua))
+end
+
+--- Whether a worker of `m`'s tests runs on a sealed database of its
+--- closure ([`sealed_for`]): the program's core on that database
+--- (`core --database`) with nothing of the program's file, so what the
+--- worker and every process it starts reads of the program is what its
+--- key holds -- its closure's store and the modules every worker loads. It
+--- is so wherever the worker is given a closure's store and runs
+--- neither this program (`tool`) nor roots of its own (`nests`, whose
+--- policy cannot carry a database yet), and this program is a portable
+--- artifact whose database and core there are to take. Its key holds the
+--- core in place of the launcher ([`declared_of`]), which no such worker
+--- runs. Every other worker runs the program, or an artifact of its closure
+--- ([`closure_artifact_for`]).
+local function seals(rec: Recording, m: importer.Module): boolean
+  local effective = rec.effective[m.path]
+  if rec.launcher == nil or rec.stores == nil or rec.stores[m.path] == nil or
+      effective == nil or effective.store or effective.tool or effective.nests then
+    return false
+  end
+  local launched, _ = Proc.relaunch()
+  return launched ~= nil and launched.argv[2] == "--artifact" and launched.argv[3] ~= nil
+end
+
+--- The digest of the modules of the program's own database that the tree
+--- lacks -- the standard library, in a project's tree -- by path, source
+--- hash and bytecode, which a sealed database carries whole
+--- ([`sealed_fill`]) and so a key of a worker on one holds
+--- ([`declared_of`]). Worked out once a run needs it, from the program's
+--- own database, which sealing nothing reads; "unread" where it cannot be.
+local function extras_digest(rec: Recording): string
+  if rec.extras ~= nil then return rec.extras end
+  local databases = Store.databases()
+  local rows, _ = Sqlite.text_rows(databases[#databases],
+    "SELECT path, lower(hex(source_hash)), lower(hex(sha256(bytecode))) FROM modules ORDER BY path")
+  local digest = "unread"
+  if rows ~= nil then
+    local in_tree: {string:boolean} = {}
+    for _, name in ipairs(rec.tree_names) do in_tree[name] = true end
+    local lines: {string} = {}
+    for _, row in ipairs(rows) do
+      if not in_tree[row[1]] then lines[#lines + 1] = table.concat(row, "\0") end
+    end
+    digest = hex_sha256(table.concat(lines, "\n"))
+  end
+  rec.extras = digest
+  return digest
 end
 
 --- The digest of the store `m`'s workers are given, which its key holds
@@ -1541,7 +1618,7 @@ local function declared_of(rec: Recording, m: importer.Module, id: string): stri
     epoch = rec.epoch, timeout_ns = rec.timeout_ns,
     -- Held only where the key holds the program ([`declared_key.compute`]).
     program = (effective.tool or runs_tool) and program_of(rec) or nil,
-    launcher = rec.launcher,
+    launcher = seals(rec, m) and (rec.core .. "\0" .. extras_digest(rec)) or rec.launcher,
     declaration = test_inputs.canonical(m.inputs), effective = effective,
     requires = rec.answered[m.path],
     environment = view_of(rec, m), runs_tool = runs_tool,
@@ -1866,6 +1943,8 @@ local function address_stores(rec: Recording, modules: {importer.Module},
   local basis, trouble = closure_store.basis(rec.projection)
   if basis == nil then return false, trouble end
   rec.basis, rec.stores, rec.built, rec.store_digests = basis, {}, {}, {}
+  rec.sealed = {}
+  rec.sealed_written, rec.sealed_bytes, rec.sealed_ns = 0, 0, 0
   rec.store_kept, rec.store_names, rec.store_bases, rec.store_mismatched = {}, {}, {}, {}
   -- The code that writes a store, and the core that runs it -- SQLite
   -- and its bindings -- whose bytes it follows from too: so one address
@@ -1953,28 +2032,302 @@ local function given_store(rec: Recording, m: importer.Module): string | nil, st
   return store_at(rec, address, rec.closures[m.path])
 end
 
+--- The tables of a sealed database as the core reads them
+--- (core/store.c), the columns of build/schema.tl's: [`Store.seal`]'s,
+--- which writes the same from the store's search order, restated here
+--- since a closure's modules are rows of its store, which the runner's own
+--- search order does not carry (the tree's tests are in none of the
+--- program's databases).
+local sealed_schema <const>: {string} = {
+  "PRAGMA page_size = 4096",
+  "PRAGMA auto_vacuum = 0",
+  "PRAGMA encoding = 'UTF-8'",
+  "CREATE TABLE meta (key TEXT PRIMARY KEY, value BLOB) WITHOUT ROWID",
+  "CREATE TABLE modules (path TEXT PRIMARY KEY NOT NULL, file TEXT NOT NULL, " ..
+    "kind TEXT NOT NULL, source_hash BLOB NOT NULL, key BLOB NOT NULL, " ..
+    "bytecode BLOB NOT NULL, tests TEXT NOT NULL, source BLOB NOT NULL)",
+  "CREATE TABLE imports (path TEXT NOT NULL, requires TEXT NOT NULL, " ..
+    "PRIMARY KEY (path, requires)) WITHOUT ROWID",
+  "CREATE TABLE decls (path TEXT PRIMARY KEY, source BLOB NOT NULL) WITHOUT ROWID",
+  "CREATE TABLE zoneinfo (name TEXT PRIMARY KEY, data BLOB NOT NULL)",
+  "CREATE TABLE ca_roots (sha256 BLOB NOT NULL, label TEXT NOT NULL, der BLOB NOT NULL)",
+}
+
+--- The statements [`write_sealed`] runs to fill a sealed database from
+--- `closure` (a worker's closure store), `program` (the program's own
+--- database) and `whole` (the projection the store was written from), with
+--- `temp.extra` the program's modules that go along: what every worker loads
+--- and every module the tree lacks (the standard library, in a project's
+--- tree), which a worker's key holds by their digest ([`extras_digest`]).
+--- The key and the tests of a module are left empty (the compile's, and the
+--- tree's own). The time zones and CA roots go only where the set holds the
+--- module that reads them, as [`Store.seal`] does: they are most of a small
+--- database's bytes.
+-- TODO: carry only the standard library a closure requires, in a project's
+-- tree, once the projection's `imports` rows record the requires of its
+-- modules that name no module of the tree (today they are edges within the
+-- tree alone, so what a closure requires of the library is not known without
+-- parsing every module's source): every worker of a project's tree reads
+-- the whole of the program's library through [`Store.bytecode`] and the
+-- rest, as the artifact of a closure it replaced carried it.
+local sealed_fill <const>: {string} = {
+  "INSERT OR IGNORE INTO temp.extra SELECT path FROM program.modules WHERE path NOT IN " ..
+    "(SELECT path FROM whole.modules)",
+  "INSERT INTO main.modules SELECT path, file, kind, source_hash, X'', bytecode, '', source " ..
+    "FROM closure.modules ORDER BY path",
+  "INSERT OR IGNORE INTO main.modules SELECT path, file, kind, source_hash, X'', bytecode, '', " ..
+    "source FROM program.modules WHERE path IN temp.extra ORDER BY path",
+  "INSERT INTO main.decls SELECT path, source FROM closure.decls ORDER BY path",
+  "INSERT OR IGNORE INTO main.imports SELECT path, requires FROM closure.imports " ..
+    "WHERE path IN (SELECT path FROM main.modules) AND requires IN " ..
+    "(SELECT path FROM main.modules) ORDER BY path, requires",
+  "INSERT OR IGNORE INTO main.imports SELECT path, requires FROM program.imports " ..
+    "WHERE path IN temp.extra AND requires IN (SELECT path FROM main.modules) " ..
+    "ORDER BY path, requires",
+  "INSERT INTO main.zoneinfo SELECT name, data FROM program.zoneinfo WHERE EXISTS " ..
+    "(SELECT 1 FROM main.modules WHERE path = 'cosmic.time') ORDER BY name",
+  "INSERT INTO main.ca_roots SELECT sha256, label, der FROM program.ca_roots WHERE EXISTS " ..
+    "(SELECT 1 FROM main.modules WHERE path = 'cosmic.http') ORDER BY sha256",
+}
+
+--- What sealing the databases of this run's workers is made from
+--- ([`Sealing`]), made the first time one is wanted: this program's own
+--- database, taken from its artifact and written in a directory of the
+--- run's own that the user a worker runs as can read (a root runner's
+--- workers run as a user of their own, which the 0700 directory
+--- [`Fs.mkdtemp`] makes is shut to; its parents are the temporary
+--- directory's, which must be open to that user too: the start says if
+--- not). Nil and why where there is none, said once.
+local function sealing_for(rec: Recording): Sealing | nil, string
+  if rec.sealing ~= nil then return rec.sealing, "" end
+  if rec.sealing_trouble ~= nil then return nil, rec.sealing_trouble end
+  local function refuse(why: string): nil, string
+    rec.sealing_trouble = why
+    return nil, why
+  end
+  local launched, _ = Proc.relaunch()
+  if launched == nil or launched.argv[2] ~= "--artifact" or launched.argv[3] == nil then
+    return refuse("this program is no portable artifact to take its database from")
+  end
+  if rec.artifact_read == nil and rec.artifact_trouble == nil then
+    rec.artifact_read, rec.artifact_trouble = closure_artifact.read(launched.argv[3])
+  end
+  local program = rec.artifact_read
+  if program == nil then return refuse(rec.artifact_trouble or "no artifact") end
+  local database = program.parts.database
+  -- A root runner's workers run as a user of their own, which must be
+  -- able to search every directory above the database: the temporary
+  -- directory's, or /tmp's where that is shut to it (a test's own
+  -- directory, 0700, is where a nested run's temporary directory is); said
+  -- once if neither is, not as an opaque refusal of every worker's start.
+  local must_reach = rec.sandbox and sys.getuid() == 0
+  --- The first directory above `path` that other users cannot search, as
+  --- a sentence, or "".
+  local function shut_above(path: string): string
+    if not must_reach then return "" end
+    local above = Fs.dirname(path)
+    while above ~= "/" and above ~= "." do
+      local there, _ = sys.stat(above)
+      if there ~= nil and there.mode & 1 == 0 then
+        return above .. " is not searchable by other users (mode " ..
+          string.format("%o", there.mode & 0x1ff) .. "), so the user a worker runs as " ..
+          "cannot reach its sealed database below it: open it, or set TMPDIR to a " ..
+          "directory that is open"
+      end
+      above = Fs.dirname(above)
+    end
+    return ""
+  end
+  local made, made_trouble = Fs.mkdtemp("sealed-")
+  if made == nil then return refuse("a directory for the sealed databases: " .. made_trouble) end
+  local directory, real_trouble = sys.realpath(made)
+  if directory == nil then
+    local _, _ = Fs.remove_tree(made)
+    return refuse(made .. ": " .. real_trouble)
+  end
+  local shut = shut_above(directory)
+  if shut ~= "" then
+    local _, _ = Fs.remove_tree(directory)
+    -- /tmp's own, under a name no other run has.
+    local elsewhere = string.format("/tmp/cosmic-sealed-%d-%d", sys.getpid(), Clock.monotonic_ns())
+    local ok, mkdir_trouble = sys.mkdir(elsewhere, tonumber("755", 8))
+    if not ok then return refuse(shut .. " (nor /tmp: " .. tostring(mkdir_trouble) .. ")") end
+    directory = elsewhere
+    shut = shut_above(directory)
+    if shut ~= "" then
+      local _, _ = Fs.remove_tree(directory)
+      return refuse(shut)
+    end
+  end
+  local function fail(why: string): nil, string
+    local _, _ = Fs.remove_tree(directory)
+    return refuse(why)
+  end
+  local opened, open_trouble = sys.chmod(directory, tonumber("755", 8))
+  if not opened then return fail(directory .. ": " .. tostring(open_trouble)) end
+  local path = directory .. "/program.db"
+  local written, write_trouble = Fs.write(path, database)
+  if not written then return fail(write_trouble) end
+  rec.sealing = { directory = directory, program = path }
+  return rec.sealing, ""
+end
+
+--- Takes out the directory of this run's sealed databases, once no worker
+--- runs on one.
+local function drop_sealing(rec: Recording)
+  local sealing = rec.sealing
+  if sealing == nil then return end
+  rec.sealing, rec.sealed = nil, {}
+  local gone, trouble = Fs.remove_tree(sealing.directory)
+  if not gone then log:complain("test: " .. sealing.directory .. ": " .. trouble) end
+end
+
+--- Writes the sealed database of the closure store at `store`, which was
+--- written from the projection `whole`, to `out`: [`sealed_fill`]'s
+--- statements over them and the program's own database (`sealing`), the
+--- modules every worker loads ([`worker.loads`]) going along, and the meta
+--- rows the core on a database reads: the digest of this core, which it
+--- checks, the runtime's basis and image, the compiler's identity where
+--- the worker's key holds it (`with_compiler`), and the module that
+--- runs. Written aside and moved into place, so one at `out` is whole.
+local function write_sealed(sealing: Sealing, store: string, whole: string, out: string,
+                            with_compiler: boolean): boolean, string
+  local core = Store.meta("host_image")
+  local basis = Store.meta("runtime_basis")
+  if core == nil or core == "" or basis == nil or basis == "" then
+    return false, "this process has no core digest or runtime basis to record"
+  end
+  local meta: {{string}} = { { "core_sha256", core }, { "main", "cmd.cosmic.main" },
+    { "runtime_basis", basis } }
+  for _, key in ipairs(with_compiler and { "image_hash", "compiler", "compiled_by" } or
+        { "image_hash" }) do
+    local value = Store.meta(key)
+    if value ~= nil then meta[#meta + 1] = { key, value } end
+  end
+  local aside = out .. ".building"
+  local _, _ = Fs.remove(aside)
+  local opened, open_trouble = Sqlite.open(aside, { writable = true })
+  if opened == nil then return false, aside .. ": " .. open_trouble end
+  local db: Sqlite.Handle = opened
+  local function fill(): boolean, string
+    -- Written aside and moved into place whole, or not at all: a journal
+    -- and a sync per commit would only cost time.
+    for _, pragma in ipairs({ "PRAGMA journal_mode = OFF", "PRAGMA synchronous = OFF" }) do
+      local ok, why = db:exec(pragma)
+      if not ok then return false, why end
+    end
+    for _, statement in ipairs(sealed_schema) do
+      local ok, why = db:exec(statement)
+      if not ok then return false, why end
+    end
+    for _, attached in ipairs({ { "closure", store }, { "program", sealing.program },
+        { "whole", whole } }) do
+      local ok, why = Sqlite.run(db, "ATTACH DATABASE ?1 AS " .. attached[1],
+        { { text = attached[2] } })
+      if not ok then return false, why end
+    end
+    local filled, fill_trouble = Sqlite.transact(db, function(): boolean, string
+      local ok, why = db:exec("CREATE TEMP TABLE extra (path TEXT PRIMARY KEY)")
+      if not ok then return false, why end
+      for _, name in ipairs(worker.loads) do
+        local inserted, insert_trouble = Sqlite.run(db,
+          "INSERT OR IGNORE INTO temp.extra (path) VALUES (?1)", { { text = name } })
+        if not inserted then return false, insert_trouble end
+      end
+      for _, statement in ipairs(sealed_fill) do
+        local done, done_trouble = db:exec(statement)
+        if not done then return false, done_trouble end
+      end
+      for _, pair in ipairs(meta) do
+        local inserted, insert_trouble = Sqlite.run(db,
+          "INSERT INTO main.meta (key, value) VALUES (?1, ?2)",
+          { { text = pair[1] }, { text = pair[2] } })
+        if not inserted then return false, insert_trouble end
+      end
+      return true, ""
+    end)
+    local _, _ = db:exec("DETACH closure")
+    local _, _ = db:exec("DETACH program")
+    local _, _ = db:exec("DETACH whole")
+    if not filled then return false, fill_trouble end
+    return true, ""
+  end
+  local filled, fill_trouble = fill()
+  local _, _ = db:close()
+  if not filled then
+    local _, _ = Fs.remove(aside)
+    return false, fill_trouble
+  end
+  local readable, chmod_trouble = sys.chmod(aside, tonumber("644", 8))
+  if not readable then
+    local _, _ = Fs.remove(aside)
+    return false, aside .. ": " .. tostring(chmod_trouble)
+  end
+  local moved, move_trouble = Fs.rename(aside, out)
+  if not moved then
+    local _, _ = Fs.remove(aside)
+    return false, move_trouble
+  end
+  return true, ""
+end
+
+--- The path of the sealed database a worker of `m`'s tests runs on, made
+--- where it is not there yet in the run's directory ([`sealing_for`]), once
+--- per closure store however many modules share it: the modules of its
+--- closure store, as its key holds it by its bytes, and the program's own
+--- rows of what every worker loads and of what the tree lacks (the
+--- standard library's, in a project's tree), which its key holds by the
+--- harness's epoch and the runtime's identity. Nothing else of the
+--- program goes along, so no `Store` read, searcher or `require` of a
+--- worker or of a process it starts reaches a module its key does not hold.
+--- Nil where `m`'s worker is not sealed ([`seals`]), and nil and why where
+--- its database could not be made.
+local function sealed_for(rec: Recording, m: importer.Module): string | nil, string
+  if not seals(rec, m) then return nil, "" end
+  local with_compiler = reads_compiler(rec, m)
+  -- A worker whose key holds the compiler's identity reads it, so its
+  -- database holds it: another file than a closure's that does not.
+  local name = rec.stores[m.path] .. (with_compiler and "-compiler" or "")
+  local kept = rec.sealed[name]
+  if kept ~= nil then return kept, "" end
+  local started = Clock.monotonic_ns()
+  local sealing, sealing_trouble = sealing_for(rec)
+  if sealing == nil then return nil, "its sealed database: " .. sealing_trouble end
+  local store, store_trouble = given_store(rec, m)
+  if store == nil then return nil, store_trouble end
+  local path = sealing.directory .. "/" .. name .. ".db"
+  local written, trouble = write_sealed(sealing, store, rec.projection, path, with_compiler)
+  if not written then return nil, "its sealed database: " .. trouble end
+  local wrote, stat_trouble = sys.stat(path)
+  if wrote == nil then return nil, "its sealed database: " .. path .. ": " .. stat_trouble end
+  rec.sealed_written = rec.sealed_written + 1
+  rec.sealed_bytes = rec.sealed_bytes + wrote.size
+  rec.sealed_ns = rec.sealed_ns + (Clock.monotonic_ns() - started)
+  rec.sealed[name] = path
+  return path, ""
+end
+
 --- The path of the artifact a worker of `m`'s tests that nests, or that
---- declares `lua`, is given at the program's own name
---- ([`build.closure_artifact`]), made where it is not there yet from the
---- program's artifact, the store of `m`'s closure and what every worker
---- loads ([`worker.loads`]) or the tree lacks, which its own start reads
---- from the artifact it opens by path. What a `lua` module's tests start
---- runs that artifact too, so reads only what its key holds of the program.
---- Nil where `m` is given none (a module that neither nests nor
---- declares `lua`, or declares `store` or `tool`, or a program that is no
---- portable artifact, where a `nests` module's worker opens the program as
---- it is), and nil and why where it could not be made, or where a `lua`
---- module's worker could not be held to its closure without one.
--- TODO: close a gap: the program a sandboxed worker runs that declares none of
--- `lua`, `nests`, `store` or `tool` carries every module of the tree beyond
--- its closure, which it reads through [`Store.bytecode`], [`Store.source`],
--- [`Store.requires`], [`Store.databases()`], [`Store.meta`] or a searcher called
--- by hand with no key to hold them; and `hold_requires` is up only around the
--- module's load and its test, so a finalizer that runs after the test can
--- `require` a module outside the closure too. One fix is to give each such
--- worker its closure's artifact, which costs the program's size in o/stores
--- one per closure, unless the artifacts share one head (the TODO in
--- build/closure_artifact.tl); that is not chosen.
+--- declares `lua` where it cannot be sealed ([`seals`]), is given at the
+--- program's own name ([`build.closure_artifact`]), made where it is not
+--- there yet from the program's artifact, the store of `m`'s closure and what
+--- every worker loads ([`worker.loads`]) or the tree lacks, which its own
+--- start reads from the artifact it opens by path. What a `lua` module's
+--- tests start runs that artifact too, so reads only what its key holds of
+--- the program. Nil where `m` is given none (a module that neither nests
+--- nor declares `lua`, or declares `store` or `tool`, or a program that is no
+--- portable artifact, where a `nests` module's worker opens the program as it
+--- is), and nil and why where it could not be made, or where a `lua` module's
+--- worker could not be held to its closure without one.
+-- TODO: close a gap for a module that declares `nests` and neither `store`
+-- nor `tool`: its worker runs this artifact of its closure, whose head is
+-- the program's own, and the policy it is started under refuses the
+-- database a sealed one runs on while it carries `nest` (the TODO in
+-- cosmic/child.tl's `start`). Once it does not, give such a worker the
+-- sealed database of its closure ([`sealed_for`]) too, and delete
+-- build/closure_artifact.tl, this function and the worker's `by_path`
+-- start. It waits on cosmic/child.tl's `start` accepting the `nest`
+-- promise beside a `database` (its own TODO about `nest`).
 local function closure_artifact_for(rec: Recording, m: importer.Module): string | nil, string
   local effective = rec.effective[m.path]
   local address = rec.stores[m.path]
@@ -2236,13 +2589,25 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   -- of the projection ([`worker.Invocation`]'s `store`): nil for none.
   local attached: string = nil
   local by_path = false
+  -- The sealed database of its closure its worker runs on ([`sealed_for`]):
+  -- nil for none.
+  local sealed: string = nil
+  local sealed_trouble = ""
   if rec.sandbox then
     local store, store_trouble = given_store(rec, job.m)
     if store == nil and store_trouble ~= "" then
       finish(rec, job, nil, store_trouble, limits)
       return false
     end
-    local nested, nested_trouble = closure_artifact_for(rec, job.m)
+    -- A worker that runs on a sealed database is given no artifact: it
+    -- starts the core on that database, which grants the file itself.
+    sealed, sealed_trouble = sealed_for(rec, job.m)
+    if sealed == nil and sealed_trouble ~= "" then
+      finish(rec, job, nil, sealed_trouble, limits)
+      return false
+    end
+    local nested, nested_trouble: string, string = nil, ""
+    if sealed == nil then nested, nested_trouble = closure_artifact_for(rec, job.m) end
     if nested == nil and nested_trouble ~= "" then
       finish(rec, job, nil, nested_trouble, limits)
       return false
@@ -2297,9 +2662,9 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     -- leg's sandbox, which runs it offline, is what fails it.
     --
     -- It attaches the store of its closure, as a sandbox gives it at
-    -- o/cosmic.db ([`given_store`]); nothing keeps it from the program's
-    -- own database, which a sandboxed worker's closure artifact narrows
-    -- ([`closure_artifact_for`]).
+    -- o/cosmic.db ([`given_store`]), and runs the core on the sealed
+    -- database of its closure ([`sealed_for`]); nothing keeps it from the
+    -- program's own file, which only a sandbox hides.
     -- TODO: hand that store on to what the test starts, once a cosmic
     -- run can be told which store to read in place of its tree's
     -- o/cosmic.db (a variable build.tree_root reads): today a process
@@ -2313,6 +2678,14 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
       return false
     end
     attached = store
+    -- Unsandboxed too it starts the core on the sealed database of its
+    -- closure, so what it and its starts read of the program is what its
+    -- key holds; only a sandbox keeps it from the program's own file.
+    sealed, sealed_trouble = sealed_for(rec, job.m)
+    if sealed == nil and sealed_trouble ~= "" then
+      finish(rec, job, nil, sealed_trouble, limits)
+      return false
+    end
     env = test_sandbox.unenforced_environment(worker_view(), rec.effective[job.m.path], scratch)
   end
   job.started_ns = Clock.monotonic_ns()
@@ -2347,6 +2720,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
       return false
     end
     policy = made
+    policy.database = sealed
     if hold == "forbid" then
       local ran, ran_trouble = test_policy.runs(policy)
       if ran == nil then
@@ -2356,8 +2730,25 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
       runs = ran
     end
   end
+  -- A worker on a sealed database starts as the core on it, with no
+  -- launcher, artifact or descriptor of the program's: a sandboxed one by
+  -- this program's name, which its policy's `database` makes the core
+  -- ([`Child.start`]); an unsandboxed one by the core itself.
+  local started = start
+  if sealed ~= nil then
+    if rec.sandbox then
+      local executable, executable_trouble = Proc.executable()
+      if executable == nil then
+        finish(rec, job, nil, "this program's name: " .. executable_trouble, limits)
+        return false
+      end
+      started = { argv = { executable }, env = {}, fds = {} }
+    else
+      started = { argv = { start.argv[1], "--database", sealed }, env = {}, fds = {} }
+    end
+  end
   local command = worker.invocation({
-    start = start, env = env, root = root, cwd = cwd, module_path = job.m.path,
+    start = started, env = env, root = root, cwd = cwd, module_path = job.m.path,
     name = job.name, scratch = inside, own_scratch = job.own_scratch, needs = test_inputs.canonical(declared), hold = hold,
     store = attached, closure = rec.closures[job.m.path], tree = rec.tree_names,
     policy = policy, runs = runs, by_path = by_path,
@@ -3253,6 +3644,7 @@ local function gather_key_inputs(ctx: Run): integer | nil
       Store.meta("runtime_basis") or "")
     rec.runtime = rec.store_runtime .. rec.runtime:sub(#identity + 1)
   end
+  rec.core = rec.store_runtime
   -- A core that writes stores otherwise a test stands in for, in a tree
   -- not cosmic's own, so it can see the core move every store's address
   -- (build/sandboxed_verdicts_test.tl): mixed into the stores' salt
@@ -3530,6 +3922,20 @@ local function look_up_verdicts(ctx: Run)
   for _, m in ipairs(selected_modules) do
     if rec.unmet[m.path] == nil then tests = tests + #selected_tests[m.path] end
   end
+  -- Workers that would run on a sealed database but run the whole
+  -- program, as this one is no portable artifact to take its database from.
+  local unsealed = 0
+  for _, m in ipairs(selected_modules) do
+    local effective = rec.effective[m.path]
+    if rec.unmet[m.path] == nil and rec.stores[m.path] ~= nil and effective ~= nil and
+        not (effective.store or effective.tool or effective.nests) and not seals(rec, m) then
+      unsealed = unsealed + #selected_tests[m.path]
+    end
+  end
+  if unsealed > 0 then
+    log:say(keying .. plural.count(unsealed, "test") .. " run the whole program, not a sealed " ..
+        "database of their closure: this program is no portable artifact")
+  end
   log:say(string.format(keying .. "%s keyed by their declared inputs in %.1f ms (%s read)",
     plural.count(tests, "test"), rec.digests.spent_ns / 1e6,
     plural.count(rec.digests.read, "file")))
@@ -3542,6 +3948,17 @@ local function look_up_verdicts(ctx: Run)
   end
 end
 
+--- What takes out the directory of a run's sealed databases when the scope
+--- it is closed in ends, an error escaping it included ([`execute`]).
+local record Removal
+  rec: Recording
+  metamethod __close: function(Removal)
+end
+
+local removal_mt: metatable<Removal> = {
+  __close = function(removal: Removal) drop_sealing(removal.rec) end,
+}
+
 --- The jobs run. The exit code to stop with, or nil to go on: 130 once
 --- a signal has cancelled the run.
 local function execute(ctx: Run): integer | nil
@@ -3550,6 +3967,9 @@ local function execute(ctx: Run): integer | nil
     -- Nil only where the guard cannot be had (no descriptor left for
     -- its pipe): the run then goes unguarded, a signal acting as it
     -- would.
+    -- Whatever ends the run, an error escaping it included, takes out
+    -- the directory of its sealed databases.
+    local _removing <close>: Removal = setmetatable({ rec = rec }, removal_mt)
     local opened, _ = Child.guard()
     if opened == nil then
       run_jobs(rec, jobs, ctx.limits, nil)
@@ -3585,6 +4005,11 @@ local function settle(ctx: Run)
     log:say(string.format("%s%s written (%s) in %.1f ms", ctx.keying,
       plural.count(rec.written, "closure store"), plural.count(rec.written_bytes, "byte"),
       rec.writing_ns / 1e6))
+  end
+  if rec.sealed_written > 0 then
+    log:say(string.format("%s%s written (%s) in %.1f ms", ctx.keying,
+      plural.count(rec.sealed_written, "sealed database"), plural.count(rec.sealed_bytes, "byte"),
+      rec.sealed_ns / 1e6))
   end
   ctx.total = tally.ran + tally.cached + tally.na
 

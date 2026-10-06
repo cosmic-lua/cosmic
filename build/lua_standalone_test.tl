@@ -32,7 +32,7 @@ Test.policy{ profiles = { "cosmic" } }
 local function sandboxed(): boolean
   if Env.get(confine.held_variable) ~= nil then return true end
   if confine.sandbox_platform() then
-    Test.skip("this worker is not sandboxed, so no artifact of its closure narrows what " ..
+    Test.skip("this worker is not sandboxed, so no sealed database of its closure narrows what " ..
         "its children run")
   end
   return false

@@ -158,17 +158,30 @@
    sandbox gives it: the worker holds only `require` to the closure, which
    refuses a module of the tree outside it
    ([`build/test_worker.tl`]'s `hold_requires`), and no lookup in the store.
-   A worker whose module declares `lua` or `nests`, and neither `store` nor
-   `tool`, runs an artifact of that closure
-   ([`build/closure_artifact.tl`]) in the program's place, so what it and
-   every process it starts read of the program is what its key holds.
-   Any other sandboxed worker runs the program, whose own database holds
-   every module of the tree outside the closure: [`Store.bytecode`],
-   [`Store.source`], [`Store.requires`], [`Store.databases()`],
-   [`Store.meta`] or a searcher called by hand reads them, with no key to
-   hold them (the TODO on `closure_artifact_for` in [`build/test.tl`]); and
-   `hold_requires` is up only around the module's load and its test, so a
-   finalizer that runs after it can `require` outside the closure.
+   A worker whose module declares none of `store`, `tool` and `nests` runs
+   on a sealed database of that closure ([`build/test.tl`]'s `sealed_for`,
+   one per closure store, in a directory of the run's own): this program's
+   core started on it (`core --database`, the policy's `database`) and
+   nothing of the program's own file. It holds the closure store's
+   modules, the program's rows of what every worker loads (and, in a
+   project's tree, of the program's library the tree lacks), its closure's
+   declarations, and the zones and CA roots, so
+   what the worker and every process it starts read of the program --
+   [`Store.bytecode`], [`Store.source`], [`Store.requires`],
+   [`Store.databases()`], [`Store.meta`], a searcher called by hand, a
+   `require` from a finalizer -- is what its key holds: the closure store's
+   bytes, a digest of the program's modules the tree lacks, the core in
+   place of the launcher, and the harness's epoch for the rows of what every
+   worker loads. The one row left out is the `image_hash` meta row, which
+   names the program's build and moves with every rebuild. A run whose
+   program is no portable artifact runs these workers on the whole program
+   instead, and its summary says how many. `hold_requires` stays as the second guard
+   that names the rule. A worker that declares `nests` and neither `store`
+   nor `tool` runs an artifact of its closure
+   ([`build/closure_artifact.tl`]), since a policy refuses `nest` beside a
+   database; one that declares `store` or `tool`, or a run whose program is
+   no portable artifact, runs the whole program, whose database holds every
+   module of the tree: a `store` test reads them, keyed by the projection.
    So require a module the test reads at its top level (`local type _ =
    require(...)` for a declaration a type-checked snippet needs), and read
    no other that way; declare `store = true` where a test reads rows of
@@ -196,8 +209,8 @@
    /proc, /dev/null, /dev/zero, /dev/full and /dev/urandom, keyed only
    through the host's identity, and the program, its core and its
    database, keyed through the runtime's identity but for the database's
-   modules, which only a `lua` or `nests` worker's artifact narrows to its
-   closure (above), and which no test reads through the descriptor a
+   modules, which only a sealed database or a `nests` worker's artifact narrows
+   to its closure (above), and which no test reads through the descriptor a
    portable start keeps on the program, which every binding refuses
    (core/check.h's `cosmic_checkfd`), nor, sandboxed, by the program's
    own name, which only a `tool`'s worker is given. A test that starts this
@@ -217,9 +230,10 @@
    assumed, and one that starts a process or reads outside the tree
    stands on its declaration like any other. Its worker gets only the
    environment it declares and the store of its closure, but nothing
-   else holds it to its declaration or its closure: it runs the whole
-   program, so what it and every process it starts read of the program --
-   a `lua` module's children included -- is not held to the closure either.
+   else holds it to its declaration or its closure, but a worker that would
+   be sealed runs the core on the sealed database of its closure too, so what
+   it and every process it starts read of the program is held to the closure
+   unless it opens the program's own file by its path.
    A sandboxed run (a Linux leg of CI) must enforce what it does not: a
    read it does not declare moves no key there.
    Its verdicts are kept apart from sandboxed ones, and shared only

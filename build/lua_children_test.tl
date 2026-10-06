@@ -1,8 +1,8 @@
 --- What a module that declares `lua` ([`cosmic.test`]) alone starts:
 --- this program running a chunk, which a sandboxed worker runs from an
---- artifact of the module's import closure and what `cosmic -e` loads
---- (build/test_inputs.tl's `lua_loads`) in the program's place
---- ([`build.closure_artifact`]), and each process it starts in turn
+--- sealed database of the module's import closure and what `cosmic -e`
+--- loads (build/test_inputs.tl's `lua_loads`) in the program's place
+--- (build/test.tl's `sealed_for`), and each process it starts in turn
 --- inherits that -- so a child that reaches for any other module of the
 --- program, runs a verb, or runs a file `--standalone`, finds none rather
 --- than running what no key of its test holds. build/lua_standalone_test.tl
@@ -41,7 +41,7 @@ end
 local function sandboxed(): boolean
   if Env.get(confine.held_variable) ~= nil then return true end
   if confine.sandbox_platform() then
-    Test.skip("this worker is not sandboxed, so no artifact of its closure narrows what " ..
+    Test.skip("this worker is not sandboxed, so no sealed database of its closure narrows what " ..
         "its children run")
   end
   return false
