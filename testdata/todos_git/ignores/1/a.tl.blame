@@ -1,0 +1,13 @@
+f9d994edf67d0538f8fb14508b8abb157b54bf14 1 1 1
+author t
+author-mail <t@example.com>
+author-time 1767225960
+author-tz +0000
+committer t
+committer-mail <t@example.com>
+committer-time 1767225960
+committer-tz +0000
+summary sweep
+previous 6e64b9fa31731f86167dcf9eb6c6acca89abc488 a.tl
+filename a.tl
+	-- TODO: see [`x`]

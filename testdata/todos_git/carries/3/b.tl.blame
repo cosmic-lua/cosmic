@@ -1,0 +1,13 @@
+dd9ff53ee7b28be6cbc3e63b5228c0b529ba030c 1 1 1
+author t
+author-mail <t@example.com>
+author-time 1767225780
+author-tz +0000
+committer t
+committer-mail <t@example.com>
+committer-time 1767225780
+committer-tz +0000
+summary three
+previous 7cbaa846e2839614d74f7a37a2708f7a78421a32 b.tl
+filename b.tl
+	-- TODO: second, reworded
