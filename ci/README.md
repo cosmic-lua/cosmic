@@ -659,7 +659,7 @@ restore of another vendor part.
 
 actions/cache archives with `tar -C $GITHUB_WORKSPACE` and a path
 relative to it (`../../_temp/...`), which names nothing through the
-link `place-tree.sh` leaves were the tree more than one directory deep.
+link `place-tree` leaves were the tree more than one directory deep.
 So the tree moves only to a directory beside the workspace, whose name
 the commit and the leg choose, and the saves run with it moved; it
 moves back at the end for checkout's post step, whose git refuses a

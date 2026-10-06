@@ -9,6 +9,7 @@ local Images = require("cosmic_ci.images")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Sqlite = require("cosmic.sqlite")
 local Orchestration = require("cosmic_ci.orchestration")
+local PlaceTree = require("cosmic_ci.place_tree")
 local Prerelease = require("cosmic_ci.prerelease")
 local QueueSeed = require("cosmic_ci.queue_seed")
 local Runner = require("cosmic_ci.runner")
@@ -125,6 +126,8 @@ local commands: {string:Command} = {
     usage = "", handler = ChangedPaths.command },
   ["prune-commit-verdicts"] = { about = "delete main's commit-keyed verdicts and the branches' compiles a day old",
     usage = "", handler = CommitVerdicts.prune_command },
+  ["place-tree"] = { about = "move the checkout to the path this commit and leg choose, or back",
+    usage = "[--name | --restore]", spec = PlaceTree.spec, options = PlaceTree.command },
   platform = { about = "run one phase of this worker's platform job",
     usage = "PHASE [ARG]", handler = Orchestration.platform },
   provenance = { about = "check that every worker tested the same bytes",

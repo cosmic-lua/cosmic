@@ -797,7 +797,7 @@ its own error. what a declared key rests on beside the list above:
   `COSMIC_TEST_SANDBOX=0`) sees the tree where it is rather than at /tree, so
   its key holds the tree's path whole ([`build/declared_key.tl`]'s
   [`Spec.tree`]). CI moves its checkout, and the tool with it, to a path a hash
-  of the commit and the leg chooses ([`.github/scripts/place-tree.sh`]), so a
+  of the commit and the leg chooses ([`ci/cosmic_ci/place_tree.tl`]), so a
   test that breaks the rule fails a run that meets a path it breaks on.
 - *a stat's times and inode*, by rule ([`build/test.tl`], above `declared_of`):
   a key holds a file of the tree by its contents, so a test must not depend
@@ -1100,7 +1100,6 @@ what comes next, and the open questions that stand in the way, are
 in [roadmap.md](roadmap.md).
 
 [`.github/scripts/host-features.sh`]: ../.github/scripts/host-features.sh
-[`.github/scripts/place-tree.sh`]: ../.github/scripts/place-tree.sh
 [`artifact.split`]: ../build/artifact.tl
 [`bin/cosmic-bootstrap`]: ../bin/cosmic-bootstrap
 [`bin/vendor`]: ../bin/vendor
@@ -1135,6 +1134,7 @@ in [roadmap.md](roadmap.md).
 [`build/zig_fetch.tl`]: ../build/zig_fetch.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
 [`ci/cosmic_ci/orchestration.tl`]: ../ci/cosmic_ci/orchestration.tl
+[`ci/cosmic_ci/place_tree.tl`]: ../ci/cosmic_ci/place_tree.tl
 [`core/bridge.lua`]: ../core/bridge.lua
 [`core/http.c`]: ../core/http.c
 [`core/mbedtls_cosmic_config.h`]: ../core/mbedtls_cosmic_config.h

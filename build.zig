@@ -465,7 +465,7 @@ const core_sources = [_][]const u8{
 /// source's absolute path and its flags' bytes, an include directory's
 /// among them, so a file compiled where the tree is would be compiled
 /// again for every path a checkout sits at -- CI's is a new one each commit
-/// (.github/scripts/place-tree.sh). A copy sits in a directory named by
+/// (ci/cosmic_ci/place_tree.tl). A copy sits in a directory named by
 /// its contents, so its path is the same from every checkout.
 ///
 /// Each source file is copied on its own, beside a copy of every header

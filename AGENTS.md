@@ -95,7 +95,7 @@
    merge queue) places the tree by the leg alone, at one path from commit
    to commit, and stands on what it ran before; the scheduled run places
    it by the commit, and every test runs to meet the new path
-   ([`.github/scripts/place-tree.sh`]).
+   ([`ci/cosmic_ci/place_tree.tl`]).
    `COSMIC_VERDICT_CACHE` names another file, `0` none; `--no-shared`
    (`COSMIC_TEST_NO_SHARED=1`) stands on none but still shares; a test's own
    `cosmic test` has none unless it names one.
@@ -563,7 +563,6 @@ A change that moves ci/cosmic-driver.pin also takes up every `TODO:` the new rel
 unblocks: `o/bin/cosmic todos '"cosmic-driver.pin"'` lists them.
 
 [`.claude/skills/comments/SKILL.md`]: .claude/skills/comments/SKILL.md
-[`.github/scripts/place-tree.sh`]: .github/scripts/place-tree.sh
 [`bin/cosmic-bootstrap`]: bin/cosmic-bootstrap
 [`bin/vendor`]: bin/vendor
 [`bin/verify-codesign`]: bin/verify-codesign
@@ -597,6 +596,7 @@ unblocks: `o/bin/cosmic todos '"cosmic-driver.pin"'` lists them.
 [`build/zig.tl`]: build/zig.tl
 [`ci/cosmic-driver.pin`]: ci/cosmic-driver.pin
 [`ci/cosmic_ci/capabilities.tl`]: ci/cosmic_ci/capabilities.tl
+[`ci/cosmic_ci/place_tree.tl`]: ci/cosmic_ci/place_tree.tl
 [`ci/run-local`]: ci/run-local
 [`confine.sandbox_platform`]: build/confine.tl
 [`core/allocation_test.tl`]: core/allocation_test.tl
