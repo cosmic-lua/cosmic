@@ -360,6 +360,15 @@ local function read_keys(tmp: string, ci: {string: {string: any}}, leg: string, 
   return Fs.read(dir .. "/output") or ""
 end
 
+-- TODO: declare what this test reads of the checkout around ci/
+-- (.github/workflows/ci.yml) and the system's `sh` and `grep` it runs in
+-- a [`Test.policy`], once cosmic.test can name a path outside the
+-- project's root relative to it: a grant refuses a path naming `..`, and
+-- a host grant takes only an absolute path written in the source, which
+-- moves with the checkout. Until then it fails sandboxed, and CI's driver
+-- check runs it unsandboxed (orchestration_test.tl's TODO names the same
+-- gap).
+
 --- Every key a leg's `stage` names, run as ci.yml runs it on that leg
 --- (its env, and the driver check's marker under the key ci.yml builds
 --- for it), `seed` reads back on that leg's own runner, and no other

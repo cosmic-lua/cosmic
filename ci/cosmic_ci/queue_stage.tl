@@ -34,8 +34,13 @@
 --- driver, so a tar that tool reads as the tree it archived is what the
 --- seed needs. An owner is not kept (the runner extracts as itself), nor
 --- is a hard link: its file is archived once for each name, which costs
---- size alone. Anything but a file, a directory and a link is refused,
---- which keeps no archive.
+--- size alone. Anything but a file, a directory and a link, a socket or
+--- a fifo too (GNU tar skips a socket), fails the archive, which keeps none.
+---
+--- Whether GNU tar reads the archive as the tree it holds is checked
+--- only by the `seed` job in CI, whose `tar -xf` extracts it; no test
+--- starts that program. queue_stage_test.tl's round trip checks the
+--- archive through cosmic's own reader instead.
 local Archive = require("cosmic.archive")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
@@ -56,7 +61,6 @@ local record QueueStage
   end
   stage: function(env: {string:string}, host: Host): integer
   archive_tree: function(parent: string, name: string, to: string): boolean, string
-  live: function(): Host
   stage_command: function(argv: {string}): integer
 end
 
@@ -65,8 +69,6 @@ local function sorted(names: {string}): {string}
   return names
 end
 
--- A hard link is stored as a separate file for each name (tar's writer has
--- no link entry), which costs size only; zig's caches hold none.
 --- Adds the tree at `path` to `writer` as `member`.
 local function add(writer: Archive.Writer, path: string, member: string): boolean, string
   local st, why = sys.lstat(path)
@@ -77,6 +79,8 @@ local function add(writer: Archive.Writer, path: string, member: string): boolea
     if target == nil then return false, trouble end
     return writer:add_symlink(member, target, entry)
   elseif st.kind == "file" then
+    -- A hard link is stored as a separate file for each name (the writer
+    -- has no link entry), which costs size only; zig's caches hold none.
     local reader, trouble = Stream.open(path)
     if reader == nil then return false, trouble end
     entry.size = st.size
@@ -108,7 +112,7 @@ function QueueStage.archive_tree(parent: string, name: string, to: string): bool
   return writer:close()
 end
 
-function QueueStage.live(): QueueStage.Host
+local function live(): QueueStage.Host
   return {
     print = function(text: string) local _, _ = Fs.put(Fs.stdout, text) end,
     warn = function(line: string) local _, _ = Fs.put(Fs.stderr, line .. "\n") end,
@@ -202,7 +206,7 @@ function QueueStage.stage(env: {string:string}, host: QueueStage.Host): integer
 end
 
 function QueueStage.stage_command(_argv: {string}): integer
-  return QueueStage.stage(Env.all(), QueueStage.live())
+  return QueueStage.stage(Env.all(), live())
 end
 
 return QueueStage

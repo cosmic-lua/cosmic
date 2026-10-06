@@ -1431,8 +1431,10 @@ end
 --- saved, under the key main would have saved it under: its restore's
 --- prefix and its trim's digest, where that is not the entry it
 --- restored, and the driver check's marker, which holds its key. It
---- does so after both trims and with the tree back, as a driver command, and uploads
---- it as `seed-<leg>`, which `seed` downloads where it lays it out again.
+--- does so after both trims and its container's removal, with its tree
+--- still moved (the driver runs before the tree is put back), and
+--- uploads it as `seed-<leg>`, which `seed` downloads where it lays it
+--- out again.
 local function test_the_queue_keeps_what_main_would_save()
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
   local jobs = ci.jobs as {string: {string: any}}
@@ -1487,7 +1489,12 @@ local function test_the_queue_keeps_what_main_would_save()
   for i, step in ipairs(steps) do
     if step.name == "move the tree back to where it was checked out" then back = i end
   end
-  assert(trimmed < at and compiled < at and back < at, "the seed is kept before a trim, or with the tree moved")
+  local gone: integer
+  for i, step in ipairs(steps) do
+    if step.name == "remove the leg's container" then gone = i end
+  end
+  assert(trimmed < at and compiled < at and gone < at and at < back,
+    "the seed is kept before a trim, beside the leg's container, or after the tree is put back")
   local upload = steps[at + 1]
   local with = upload.with as {string: string}
   assert(upload["if"] == QUEUE and with.name == "seed-${{ matrix.name }}" and with.path == "${{ runner.temp }}/seed" and
@@ -1535,8 +1542,8 @@ local function test_the_queue_keeps_what_main_would_save()
   for i, step in ipairs(csteps) do
     if step.name == "move the tree back to where it was checked out" then cback = i end
   end
-  assert(ctrim < cat and removed < cat and cback ~= nil and cback < cat,
-    "the checked job's seed is kept before its trim, beside its container, or with its tree moved")
+  assert(ctrim < cat and removed < cat and cback ~= nil and cat < cback,
+    "the checked job's seed is kept before its trim, beside its container, or after its tree is put back")
   local cupload = csteps[cat + 1]
   local cwith = cupload.with as {string: string}
   assert(cupload["if"] == QUEUE and cwith.path == "${{ runner.temp }}/seed" and
@@ -1835,11 +1842,7 @@ local function test_a_job_moves_its_tree_once_and_puts_it_back_once()
         if run is string then
           if run:match("place%-tree%.sh%s*$") ~= nil then moves[#moves + 1] = i end
           if run:find("place-tree.sh --restore", 1, true) ~= nil then backs[#backs + 1] = i end
-          -- `queue-stage` reads and writes the runner's temporary directory
-          -- alone, so it runs after the tree is back.
-          if run:find("cosmic-driver ", 1, true) ~= nil and run:find("driver.tl queue-stage", 1, true) == nil then
-            last_driver = i
-          end
+          if run:find("cosmic-driver ", 1, true) ~= nil then last_driver = i end
         end
         if step.uses == DRIVER then last_driver = i end
       end

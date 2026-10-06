@@ -792,17 +792,6 @@
           run: "docker rm -f cosmic-leg || :",
         },
 
-        # Whatever failed, before checkout's post step: at another path
-        # git refuses the repository and leaves the checkout's
-        # credentials behind (place-tree.sh). On the host.
-        {
-          name: "move the tree back to where it was checked out",
-          if: "always()",
-          "working-directory": ".",
-          shell: "sh",
-          run: "[ ! -f .github/scripts/place-tree.sh ] || sh .github/scripts/place-tree.sh --restore",
-        },
-
         # The queue's leg keeps what main would save, under the keys it
         # would save it under, for main's push of this commit to save
         # (the `seed` job): only a queue run that passed is reused. Its
@@ -871,6 +860,16 @@
             "retention-days": 1,
             "compression-level": 1,
           },
+        },
+        # Whatever failed, before checkout's post step: at another path
+        # git refuses the repository and leaves the checkout's
+        # credentials behind (place-tree.sh). On the host.
+        {
+          name: "move the tree back to where it was checked out",
+          if: "always()",
+          "working-directory": ".",
+          shell: "sh",
+          run: "[ ! -f .github/scripts/place-tree.sh ] || sh .github/scripts/place-tree.sh --restore",
         },
 
         # The same rows under this commit, for a branch based on it
@@ -1277,16 +1276,6 @@
           shell: "sh",
           run: "docker rm -f cosmic-leg || :",
         },
-        # Before checkout's post step, whose git refuses the repository
-        # at another path (place-tree.sh); the seed and the save come
-        # after it too.
-        {
-          name: "move the tree back to where it was checked out",
-          if: "always()",
-          "working-directory": ".",
-          shell: "sh",
-          run: "[ ! -f .github/scripts/place-tree.sh ] || sh .github/scripts/place-tree.sh --restore",
-        },
         # As a leg's: what main would save, for main's push of this
         # commit (`seed`); verdicts alone, it saves no compiles and no
         # zig build outputs: its restore's key is linux-x86_64's in the
@@ -1314,6 +1303,16 @@
             "if-no-files-found": "error",
             "retention-days": 1,
           },
+        },
+        # Before checkout's post step, whose git refuses the repository
+        # at another path (place-tree.sh); the seed and the save come
+        # after it too.
+        {
+          name: "move the tree back to where it was checked out",
+          if: "always()",
+          "working-directory": ".",
+          shell: "sh",
+          run: "[ ! -f .github/scripts/place-tree.sh ] || sh .github/scripts/place-tree.sh --restore",
         },
         {
           name: "save test verdicts under this commit",
