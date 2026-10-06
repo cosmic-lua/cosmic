@@ -16,11 +16,11 @@ met fails, naming what is missing and how to provide it -- the sysctl
 or AppArmor profile Ubuntu 24.04 needs, the container option a procfs
 needs, the kernel a Landlock right needs.
 
-The public surface is one policy, `cosmic.sandbox`: plain typed
+The public surface is one policy, [`cosmic.sandbox`]: plain typed
 records and pure functions. `Child.start(argv, { policy = p })` runs a
 child under it, `Sandbox.restrict(p)` holds the running process,
 `cosmic sandbox` is its command line, and a test declares one with
-`Test.policy`. Namespaces, Landlock and the seccomp filter are its
+[`Test.policy`]. Namespaces, Landlock and the seccomp filter are its
 internals. The test harness runs on it.
 
 Prior art: OpenBSD's pledge(2) and unveil(2); Cosmopolitan libc's port
@@ -167,7 +167,7 @@ userfaultfd, setns, open_by_handle_at, pidfd_getfd, process_madvise;
 ioctls and prctl options outside their allow lists; fcntl's F_NOTIFY
 and F_SETLEASE; vmsplice.
 
-The tables are `core/promises.c`, ported by hand from Cosmopolitan's
+The tables are [`core/promises.c`], ported by hand from Cosmopolitan's
 pledge-linux.c with its ISC notice and a `cosmic bom` record, for
 x86_64 and aarch64; a cBPF interpreter in Teal tests every promise on
 both from any host.
@@ -233,13 +233,13 @@ test-only is left:
 The harness merges that with the worker's own grants (the tree at
 /tree, the padded scratch with `rwxcu`, the store by `from`), starts
 the worker with `Child.start({ policy })`, and the worker holds itself
-with `Sandbox.restrict` before any of the test's code runs. A test's
+with [`Sandbox.restrict`] before any of the test's code runs. A test's
 key holds the encoded policy, less host paths, in the harness's own
 canonical form. A verdict reached unsandboxed is never shared. Where
 the platform or container cannot meet a policy, the harness runs
 workers without one and reports it.
 
-Migration: (a) `Test.policy` beside [`Test.needs`], keys identical; (b) a
+Migration: (a) [`Test.policy`] beside [`Test.needs`], keys identical; (b) a
 second path behind a flag, a non-gating CI job until green; (c) the
 policy path the default, Landlock only -- an epoch bump; (d) the
 filter on every worker -- a second bump; (e) [`Test.needs`] and the old
@@ -298,13 +298,13 @@ fails there and the harness runs workers without one.
 
 Each names its caller.
 
-1. The filter, `core/promises.c` and its interpreter test; Landlock
-   rulesets built in the child from descriptors; `Sandbox.restrict`
+1. The filter, [`core/promises.c`] and its interpreter test; Landlock
+   rulesets built in the child from descriptors; [`Sandbox.restrict`]
    replacing the worker's `forbid_running`. Caller: the harness.
 2. Isolation reshaped: `proc` alone, `file` implying it, grants by
    descriptor and at other names, noexec, the mapped user and idmapped
    mounts, `processes`, `nest`. Caller: the harness.
-3. `cosmic.sandbox` and `Child.start({ policy })`, the profiles, the
+3. [`cosmic.sandbox`] and `Child.start({ policy })`, the profiles, the
    preflight. Caller: the harness.
 4. The harness on the policy, migration steps (a) to (e).
 5. The `cosmic sandbox` verb.
@@ -336,10 +336,14 @@ nested sandboxes through a broker.
    the text, `nests` regressed.
 6. Those fixed; grilled: `nest` as a promise, the harness changed so
    test-only fields go, never root without exceptions, a refused procfs
-   failing, each test declaring its promises, `Test.policy`.
+   failing, each test declaring its promises, [`Test.policy`].
 7. Implementation (#2677) found `isolate file` does not hold a `u`
    grant below ABI 9 beside a granted directory or socket.
 
 [`Child.Options`]: ../../cosmic/child.tl
 [`Child.start`]: ../../cosmic/child.tl
+[`core/promises.c`]: ../../core/promises.c
+[`cosmic.sandbox`]: ../../cosmic/sandbox.tl
+[`Sandbox.restrict`]: ../../cosmic/sandbox.tl
 [`Test.needs`]: ../../cosmic/test.tl
+[`Test.policy`]: ../../cosmic/test.tl
