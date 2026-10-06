@@ -66,6 +66,7 @@ local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local identity = require("build.identity")
 local c_check = require("build.c")
+local c_functions = require("build.c_functions")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local Clock = require("cosmic.clock")
@@ -1331,6 +1332,9 @@ local function promise_findings(root: string): {string}
   local declared, declared_trouble = tree_checks.requirements(build)
   local _, _ = build:close()
   if declared == nil then return { "tree checks: " .. declared_trouble } end
+  for key, name in pairs(c_functions.prerequisites()) do
+    declared["C function " .. key] = { name }
+  end
   local legs, legs_trouble = tree_checks.legs(root)
   if legs == nil then return { "tree checks: " .. legs_trouble } end
   local out: {string} = {}

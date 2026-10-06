@@ -3093,6 +3093,9 @@ local record Run
 
   -- What the run says last ([`settle`]).
   total: integer
+  --- The C functions' prerequisites this host lacks, probed before any
+  --- worker starts. Unknown answers and missing promises retain coverage.
+  c_unavailable: {string: string}
   function_lines: {string}
   cov_line: string
 end
@@ -3821,6 +3824,31 @@ local function require_of_host(ctx: Run): integer | nil
       end
     end
   end
+  ctx.c_unavailable = {}
+  if ctx.own_tree and ctx.whole and host ~= nil then
+    local needs: {string: boolean} = {}
+    for _, name in pairs(c_functions.prerequisites()) do needs[name] = true end
+    local names: {string} = {}
+    for name in pairs(needs) do names[#names + 1] = name end
+    table.sort(names)
+    local asked, trouble = pcall(function()
+      local answers = host_requires.answer(host, names)
+      ctx.c_unavailable = c_functions.unavailable(answers, ctx.held and ctx.promises or nil)
+      for _, answer in ipairs(answers) do
+        if answer.kind == "refused" then
+          rec.errors[#rec.errors + 1] = "C coverage requires " .. answer.name .. ": " .. answer.why
+        elseif answer.kind ~= "present" then
+          local why = "requires " .. answer.name .. ": " .. answer.why
+          if ctx.held and host_names.promised(ctx.promises, answer.name) then
+            rec.failures[#rec.failures + 1] = "C coverage " .. why .. ": this held run promises it"
+          end
+        end
+      end
+    end)
+    if not asked then
+      rec.errors[#rec.errors + 1] = "C coverage prerequisite probe: " .. tostring(trouble)
+    end
+  end
   return nil
 end
 
@@ -4075,16 +4103,20 @@ local function settle(ctx: Run)
     local names, uname_trouble = sys.uname()
     if names == nil then errors[#errors + 1] = "uname: " .. uname_trouble end
     local entered = c_functions.tally(functions, hits, c_functions.sources(ctx.root, functions),
-      names ~= nil and names.sysname or nil)
+      names ~= nil and names.sysname or nil, ctx.c_unavailable)
     for _, key in ipairs(entered.unentered) do
       failures[#failures + 1] = key .. ": a C function no test enters"
     end
-    function_lines[1] = string.format("test: C functions %d/%d entered by a test (%d exempt)",
-      entered.entered, entered.total - entered.exempted, entered.exempted)
+    function_lines[1] = string.format("test: C functions %d/%d entered by a test (%d exempt, %d unavailable)",
+      entered.entered, entered.total - entered.exempted - #entered.unavailable,
+      entered.exempted, #entered.unavailable)
+    for _, why in ipairs(entered.unavailable) do
+      function_lines[#function_lines + 1] = "test: C function SKIP " .. why
+    end
     -- An exemption a test entered is one this core no longer needs. The
     -- other core may still need it, so it is named here, never failed.
     if #entered.stale > 0 then
-      function_lines[2] = "test: C exemptions a test entered on this core: " ..
+      function_lines[#function_lines + 1] = "test: C exemptions a test entered on this core: " ..
         table.concat(entered.stale, ", ")
     end
   elseif ctx.own_tree and #ctx.selectors == 0 and #functions > 0 then

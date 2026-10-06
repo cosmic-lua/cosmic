@@ -1537,12 +1537,34 @@ local function test_a_leg_is_given_the_requirements_it_promises()
   assert(chosen.COSMIC_TEST_PROMISES == "proc" and chosen.COSMIC_TEST_LEG == nil)
 end
 
---- A fixture is given its leg's promises whole: the pinned driver knows
---- `checked`, so the checked leg's fixtures are held to it too.
-local function test_a_fixture_is_given_the_promises_of_its_leg()
+--- Candidate suites keep every promise, while the older fixture runner
+--- receives every name but the Unix socket name its table cannot read.
+local function test_a_fixture_is_given_the_promises_its_carrier_knows(tmp: string)
   local Orchestration = require("cosmic_ci.orchestration")
-  local env: {string:string} = { COSMIC_WORKER = "linux-x86_64-checked" }
-  Orchestration.promise(env)
-  local given = "," .. env.COSMIC_TEST_PROMISES .. ","
-  assert(given:find(",checked,", 1, true) and given:find(",nest,", 1, true), given)
+  for _, source in ipairs({ "format", "runtime" }) do
+    local env: {string:string} = {
+      COSMIC_WORKER = "linux-x86_64-checked", COSMIC_CI_EVENT = "push",
+      COSMIC_TEST_SANDBOX = "1", COSMIC_SANDBOX = "must",
+      COSMIC_VERDICT_CACHE = tmp .. "/verdicts.db",
+    }
+    Orchestration.promise(env)
+    local candidate = "," .. env.COSMIC_TEST_PROMISES .. ","
+    assert(candidate:find(",unix_socket,", 1, true), candidate)
+    local fixture = Orchestration.fixture_run(source, env, tmp .. "/tmp", tmp .. "/c.db")
+    local given = "," .. fixture.COSMIC_TEST_PROMISES .. ","
+    assert(given:find(",checked,", 1, true) and given:find(",nest,", 1, true), given)
+    assert(not given:find(",unix_socket,", 1, true), given)
+    assert(fixture.COSMIC_TEST_LEG == "linux-x86_64-checked")
+    assert(fixture.COSMIC_SANDBOX == "must", "fixture confinement is no longer held")
+    assert(fixture.COSMIC_TEST_SANDBOX == (source == "runtime" and "1" or "0"))
+  end
+  local words, candidate = Orchestration.suite_run({ COSMIC_WORKER = "linux-x86_64-checked" })
+  assert(words[1] == "test")
+  assert(("," .. candidate.COSMIC_TEST_PROMISES .. ","):find(",unix_socket,", 1, true),
+    candidate.COSMIC_TEST_PROMISES)
+  local unknown = Orchestration.fixture_run("format", {
+    COSMIC_TEST_PROMISES = "proc, unix_socket ,future_requirement,checked",
+  }, tmp .. "/tmp", tmp .. "/c.db")
+  assert(unknown.COSMIC_TEST_PROMISES == "proc,future_requirement,checked",
+    "the fixture discarded a promise its carrier must reject")
 end

@@ -34,6 +34,7 @@ local sandbox_platform, may_map_ids, own_proc, landlock_abi = process.sandbox_pl
 --- The process table's own `spawn`, as this module loads -- before any
 --- stand-in for it (see `enter`) is put in its place.
 local own_spawn = process.spawn
+local unix_socket, close_socket = process.unix_socket, sys.close
 
 local record confine
   --- What a test declares the processes it starts need, beyond the
@@ -426,6 +427,22 @@ function confine.landlock_abi(): integer | nil, string
   local abi, why, _ = landlock_abi()
   if abi == nil then return nil, why end
   return abi, ""
+end
+
+--- Whether this host permits creation of a Unix stream socket. Binding a
+--- path or connecting to a peer may still be refused separately.
+function confine.unix_socket_available(): boolean, string
+  local fd, why, errno = unix_socket()
+  if fd ~= nil then
+    local closed, close_trouble = close_socket(fd)
+    if not closed then error("closing the Unix socket probe: " .. close_trouble, 0) end
+    return true, ""
+  end
+  if errno ~= sys.EPERM and errno ~= sys.EACCES and errno ~= sys.EAFNOSUPPORT and
+      errno ~= sys.EPROTONOSUPPORT and errno ~= sys.ENOSYS then
+    error("the Unix socket creation probe failed: " .. why, 0)
+  end
+  return false, why
 end
 
 --- What a sandboxed worker of this very program -- `cosmic test`'s,

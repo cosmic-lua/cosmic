@@ -20,6 +20,7 @@
 #include <stdatomic.h>
 #include <sys/mman.h>
 #include <sys/resource.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #if defined(__linux__)
@@ -33,7 +34,6 @@
 #include <linux/sockios.h>
 #include <sys/ioctl.h>
 #include <sys/mount.h>
-#include <sys/socket.h>
 #include <stddef.h>
 #include <sys/auxv.h>
 #include <sys/prctl.h>
@@ -4868,6 +4868,24 @@ COSMIC_SYSCALL(ignore_sigpipe, 0) {
     return cosmic_fail_effect(L, errno);
   sigpipe_ignored_here = 1;
   return cosmic_ok(L);
+}
+
+COSMIC_SYSCALL(unix_socket, 0) {
+#if defined(SOCK_CLOEXEC)
+  int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+#else
+  int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+#endif
+  if (fd < 0) return cosmic_fail(L, errno);
+#if !defined(SOCK_CLOEXEC)
+  if (fcntl(fd, F_SETFD, FD_CLOEXEC) != 0) {
+    int failure = errno;
+    close(fd);
+    return cosmic_fail(L, failure);
+  }
+#endif
+  lua_pushinteger(L, fd);
+  return 1;
 }
 
 COSMIC_SYSCALL(cpu_count, 0) {

@@ -256,7 +256,8 @@ local record Test
     --- on one yet.
     database: string
     --- What the tests need of the host that no other field says, by name
-    --- from a closed table: `portable`, `root`, `path:<absolute path>` and
+    --- from a closed table: `portable`, `root`, `unix_socket` (Unix stream
+    --- socket creation), `path:<absolute path>` and
     --- `program:<name>`, and the Linux-class `sandbox`, `landlock:N`, `userns`,
     --- `nest`, `own_proc` and `proc`. The runner asks the host
     --- once, before any worker starts, and a module whose requirement is

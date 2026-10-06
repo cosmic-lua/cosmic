@@ -17,6 +17,7 @@
 --- - `checked`: this core is the checked (sanitized) build, whose instruments
 ---   refuse an allocation or fire a fault on demand (core/testing.h);
 --- - `root`: the run's user is root;
+--- - `unix_socket`: this host permits creation of a Unix stream socket;
 --- - `path:<absolute path>`: a file or directory of the host;
 --- - `program:<name>`: a program the PATH finds.
 ---
@@ -73,6 +74,7 @@ local record Shape
 end
 
 local shapes: {string:Shape} = {
+  unix_socket = { class = "host", argument = false, optional = false },
   sandbox = { class = "platform", argument = false, optional = false },
   landlock = { class = "platform", argument = true, optional = true },
   userns = { class = "platform", argument = false, optional = false },

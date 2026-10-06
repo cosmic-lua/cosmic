@@ -28,7 +28,7 @@ local env, passwd = "path:/usr/bin/env", "path:/etc/passwd"
 -- children in /proc, CONFIG_PROC_CHILDREN.
 local children = "path:/proc/thread-self/children"
 local cat = "path:/bin/cat"
-local linux = { "sandbox", "landlock", "userns", "nest", "own_proc", "proc", shell, cat, children,
+local linux = { "sandbox", "landlock", "userns", "nest", "own_proc", "proc", "unix_socket", shell, cat, children,
   env, passwd }
 
 local checked_leg = {}
@@ -46,6 +46,6 @@ return {
     ["alpine-x86_64"] = linux,
     -- No macOS run is held (it has no sandbox), so a name it lacks is
     -- skipped there rather than failed: these say what it gives.
-    ["macos-aarch64"] = { shell, env, passwd },
+    ["macos-aarch64"] = { shell, "unix_socket", env, passwd },
   },
 }
