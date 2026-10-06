@@ -580,7 +580,8 @@ end
 verb.spec = {
   name = "sandbox",
   guide = "a program held to what you grant it",
-  tests = { "build.sandbox_test", "build.sandbox_tool_test", "build.sandbox_seal_tool_test" },
+  tests = { "build.sandbox_test", "build.sandbox_tool_test", "build.sandbox_seal_tool_test",
+    "build.sandbox_closure_tool_test" },
   run = function(argv: {integer:string}): integer return verb.run(argv) end,
   bare = true,
   program_slot = verb.program_slot,

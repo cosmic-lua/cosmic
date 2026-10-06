@@ -1,5 +1,6 @@
 -- The tests of [`build.work`] that start the program, a build or a
--- `cosmic test` beside this process, are build/work_tool_test.tl's.
+-- `cosmic test` beside this process, are build/work_tool_test.tl's and
+-- build/work_nested_tool_test.tl's.
 
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")

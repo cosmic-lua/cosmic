@@ -3,11 +3,12 @@
 --- core/promises_child_test.tl, a static core, does not. The loader's
 --- calls -- on aarch64 an mprotect that adds PROT_EXEC with PROT_BTI --
 --- must pass the basics, or a program that needs them does not start.
---- Where the host has no /bin/sh the tests are skipped, as they require it
---- of the host; where the kernel gives no seccomp filter, each skips itself.
+--- Where the host has no /bin/sh or no sandbox the tests are skipped, as
+--- they require both of the host (off Linux, no sandbox, they are not
+--- applicable); where the kernel still gives no seccomp filter, each skips
+--- itself.
 
 local Test = require("cosmic.test")
-local confine = require("build.confine")
 local type raw_process = require("cosmic.internal.process")
 -- Required, so the module whose loader is handed the raw table is of this
 -- test's import closure, and the store has it to hand it from.
@@ -18,7 +19,7 @@ local type _ = require("cosmic.child")
 Test.policy{
   profiles = { "system" },
   grants = { { path = "/bin/sh", letters = "r" } },
-  requires = { "path:/bin/sh" },
+  requires = { "sandbox", "path:/bin/sh" },
 }
 
 local type Searcher = function(string): any, any
@@ -36,23 +37,17 @@ local process = raw_behind("cosmic.child") as raw_process -- cast: the table cor
 
 local SHELL <const> = "/bin/sh"
 
---- How the shell ended running `script` under `promises`, or nil where the
---- kernel gives no filter (skipped).
-local function shell(promises: {string}, script: string): integer | nil
+--- How the shell ended running `script` under `promises`; skips the test
+--- where the kernel gives no filter.
+local function shell(promises: {string}, script: string): integer
   local pid, trouble = process.spawn(SHELL, { SHELL, "-c", script }, {}, nil, nil, nil, nil,
     false, nil, { promises = promises })
-  if pid == nil then
-    if confine.sandbox_platform() then
-      Test.skip("the kernel gives no seccomp filter: " .. tostring(trouble))
-    end
-    return nil
-  end
+  if pid == nil then Test.skip("the kernel gives no seccomp filter: " .. tostring(trouble)) end
   return assert(process.waitpid(pid, false)).code
 end
 
 local function test_a_dynamic_program_starts_under_the_basics()
   local code = shell({}, "exit 0")
-  if code == nil then return end
   assert(code == 0, "the shell ends with " .. code)
   assert(shell({}, "exit 7") == 7)
 end
@@ -60,7 +55,6 @@ end
 local function test_a_dynamic_program_forks_with_fork()
   -- A subshell is a fork, which the shell reports by its status.
   local code = shell({ "fork" }, "(exit 3); exit $?")
-  if code == nil then return end
   assert(code == 3, "a subshell under fork ends with " .. code)
   assert(shell({ "fork", "jit", "fattr" }, "(exit 0)") == 0)
 end

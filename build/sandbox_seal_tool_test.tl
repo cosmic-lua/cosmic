@@ -2,10 +2,11 @@
 --- program: each runs the program on a sealed database, so what it may
 --- `require` is the sealed modules and nothing else of this program, and a
 --- database the run seals is removed with it. The command
---- line's own reading is in `sandbox_test.tl`, and the rest of the verb's
---- in `sandbox_tool_test.tl`. They start a sandboxed child, so a host that
---- gives no sandbox skips them where it could have given one (Test.skip),
---- and off Linux they return.
+--- line's own reading is in `sandbox_test.tl`, the rest of the verb's in
+--- `sandbox_tool_test.tl` and the refusals that come before a child in
+--- `sandbox_closure_tool_test.tl`. They start a sandboxed child, so a host
+--- that gives no sandbox skips them where it could have given one, and
+--- off Linux they are not applicable (`requires`).
 ---
 --- They seal through [`Store.seal`], and [`Store.closure`] for the closure
 --- of a main of the tree's: both read the store's modules, which the grant
@@ -18,13 +19,13 @@ local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local confine = require("build.confine")
 local searchable = require("build.searchable")
 local this_program = require("build.this_program")
 
 Test.policy{
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" }, { path = "o/cosmic.db", letters = "r" } },
+  requires = { "sandbox" },
 }
 
 local record Ran
@@ -45,8 +46,8 @@ local function cosmic(dir: string, words: {string}): Ran
   local result = assert(Child.run(started.argv, started.options))
   local ran: Ran = { code = result.code or -1, out = result.stdout or "", err = result.stderr or "" }
   if ran.code == 125 and (ran.err:find("Landlock", 1, true) or ran.err:find("seccomp", 1, true) or
-      ran.err:find("not implemented", 1, true) or ran.err:find("only Linux gives", 1, true)) then
-    if confine.sandbox_platform() then Test.skip(ran.err) end
+      ran.err:find("not implemented", 1, true)) then
+    Test.skip(ran.err)
   end
   return ran
 end
@@ -74,7 +75,6 @@ end
 ]]
 
 local function test_closure_runs_a_script_on_the_modules_it_requires(tmp: string)
-  if not confine.sandbox_platform() then return end
   assert(Fs.write(tmp .. "/run.tl", SCRIPT))
   searchable.share(tmp .. "/run.tl")
   local program = (assert(Proc.executable()))
@@ -90,7 +90,6 @@ end
 --- The core's own modules ([`cosmic.sys`]) are no database's, and a require
 --- only of a type is not carried.
 local function test_closure_takes_the_cores_modules_and_leaves_type_requires_out(tmp: string)
-  if not confine.sandbox_platform() then return end
   assert(Fs.write(tmp .. "/sys.tl", [[
 local sys = require("cosmic.sys")
 local type Archive = require("cosmic.archive")
@@ -103,24 +102,9 @@ print("sys", type(sys.getpid), type(Fs.read), (pcall(require, "cosmic." .. "arch
   assert(ran.code == 0 and ran.out == "sys\tfunction\tfunction\tfalse\n", ran.code .. ran.out .. ran.err)
 end
 
-local function test_closure_refuses_a_script_that_does_not_compile_or_is_not_there(tmp: string)
-  assert(Fs.write(tmp .. "/bad.tl", 'local x: integer = "no"\n'))
-  assert(Fs.write(tmp .. "/mine.tl", 'local Mine = require("mine_module")\nprint(Mine)\n'))
-  local program = (assert(Proc.executable()))
-  local bad = cosmic(tmp, { "sandbox", "--closure", "--", program, "bad.tl" })
-  assert(bad.code == 125 and bad.out == "" and bad.err:find("^cosmic: sandbox: bad.tl:1"), bad.code .. bad.err)
-  local gone = cosmic(tmp, { "sandbox", "--closure", "--", program, "absent.tl" })
-  assert(gone.code == 125 and gone.err:find("absent.tl", 1, true), gone.code .. gone.err)
-  -- A module outside the store is refused before the child starts.
-  local mine = cosmic(tmp, { "sandbox", "--closure", "--", program, "mine.tl" })
-  assert(mine.code == 125 and mine.out == "" and mine.err:find("mine_module", 1, true), mine.code .. mine.err)
-  assert(#left_over() == 0, "a refused script leaves nothing")
-end
-
 --- A database that [`Store.seal`] wrote runs as it names, with no command
 --- (this program) or with it, and a relative path is the one `--cwd` names.
 local function test_database_runs_a_sealed_file(tmp: string)
-  if not confine.sandbox_platform() then return end
   local chunk = assert(load("return function(args) print('db', args[1], pcall(require, 'cosmic.fs')) " ..
       "return 4 end", "=main"))
   assert(Store.seal({}, tmp .. "/p.db", { extra = { name = "main", bytecode = string.dump(chunk),
@@ -147,7 +131,6 @@ end
 --- `--modules` seals exactly the modules it names, the first the main:
 --- without the modules the main requires it cannot load, and with them it runs.
 local function test_modules_seals_exactly_the_named_modules(tmp: string)
-  if not confine.sandbox_platform() then return end
   local program = (assert(Proc.executable()))
   local main = "build.stand_in_probe"
   local alone = cosmic(tmp, { "sandbox", "--modules", main, "--", program, "exit 3" })
