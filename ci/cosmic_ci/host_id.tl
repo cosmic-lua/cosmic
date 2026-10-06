@@ -34,7 +34,7 @@
 ---
 --- Both digests must stay what they were: they name every verdict
 --- cache, so a byte that moves renames them all. host_id_test.tl holds
---- them to what the shell scripts this replaced printed, and
+--- them to vectors recorded from the original shell implementation, and
 --- build/host_features_test.tl holds `declared_key.host_features` to the
 --- same vectors (testdata/host_features).
 local Child = require("cosmic.child")
@@ -181,7 +181,8 @@ function HostId.live(env: {string:string}): HostId.Facts
     docker_version = function(): string | nil, string
       if docker == nil then return nil, "docker: not found" end
       local result = Child.run({ docker, "version", "--format", "{{.Server.Version}}" },
-        { env = env, stdin = "null", stdout = "capture", timeout_ns = Time.seconds(120) })
+        { env = env, stdin = "null", stdout = "capture", stderr = Fs.stderr,
+          timeout_ns = Time.seconds(120) })
       if result == nil or not result.ok then return nil, "docker version failed" end
       return result.stdout or "", ""
     end,

@@ -3,10 +3,9 @@
 --- `verdicts-<leg>-<16 hex of COSMIC_HOST_ID's sha256>-` and the host's
 --- features, as ci.yml's restore, lookup and save key it. A Linux leg is
 --- named by its container, the macOS leg, which has none, by its runner.
---- It runs against recorded hosts, whose features and names are those
---- the shell scripts this command replaced (.github/scripts/leg-host-id.sh
---- and host-features.sh) printed for them, so no cache is renamed: the
---- literals below are those scripts' answers, not this command's.
+--- It runs against recorded hosts, whose digests and names are vectors
+--- recorded from the original shell implementation: a byte that moves
+--- renames every verdict cache.
 local Fs = require("cosmic.fs")
 local HostId = require("cosmic_ci.host_id")
 local Json = require("cosmic.json")
@@ -70,7 +69,7 @@ local function vector_named(name: string): Vector
   error("no recorded host " .. name)
 end
 
---- Every recorded host is named as host-features.sh named it: x86_64,
+--- Every recorded host is named as its vector says: x86_64,
 --- aarch64 and a machine no audit has read; spaces, tabs, CRLF, no final
 --- line break, bytes beyond ASCII; a host with no cpuinfo or no kernel
 --- files; and macOS, which asks sysctl.

@@ -4,9 +4,10 @@
 --- what `host_identity` keys of it: a cache named by it holds verdicts
 --- whose keys the host reaches. The two trees cannot require each other,
 --- so each reads the recorded hosts in ci/testdata/host_features, whose
---- digests the shell script they replaced printed.
+--- digests recorded from the original shell implementation.
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
+local sys = require("cosmic.sys")
 local declared_key = require("build.declared_key")
 local Test = require("cosmic.test")
 
@@ -21,12 +22,13 @@ Test.policy{
 }
 
 --- The features `text`, a /proc/cpuinfo, lists ("flags" on x86,
---- "Features" on arm), as [`sys.cpu_features`] would answer them.
+--- "Features" on arm), split at spaces and tabs alone as CI's
+--- cosmic_ci/host_id.tl does, so a trailing carriage return is seen alike.
 local function listed(text: string): {string}
   local found: {string} = {}
   for line in text:gmatch("[^\n]+") do
     local flags = line:match("^flags%s*:%s*(.*)$") or line:match("^Features%s*:%s*(.*)$")
-    for flag in (flags or ""):gmatch("%S+") do found[#found + 1] = flag end
+    for flag in (flags or ""):gmatch("[^ \t]+") do found[#found + 1] = flag end
   end
   return found
 end
@@ -171,8 +173,7 @@ local darwin_features: {string:string} = {
 --- Each recorded host, as ci/testdata/host_features holds it -- x86_64,
 --- aarch64 and a machine no audit has read, every feature a core
 --- chooses code by missing in turn, odd spacing, a missing file, and
---- macOS's sysctl -- is named by the key as the shell script that
---- named CI's verdict caches named it, and as ci/cosmic_ci/host_id.tl
+--- macOS's sysctl -- is named by the key as its vector says, and as ci/cosmic_ci/host_id.tl
 --- does: a verdict cache is renamed by a byte of it.
 local function test_every_recorded_host_is_named_as_the_ci_names_it(tmp: string)
   local text = assert(Fs.read("ci/testdata/host_features/vectors.json"))
@@ -199,4 +200,22 @@ local function test_every_recorded_host_is_named_as_the_ci_names_it(tmp: string)
     assert(named == vector.digest, vector.name .. ": the key names " .. named .. ", CI " ..
         vector.digest)
   end
+end
+
+--- On this host, with nothing given, the key's features -- the processor
+--- itself asked, on this host's machine -- name it as the /proc/cpuinfo
+--- the key's `listed` reading gives, which the vectors hold CI's reading
+--- to. (The tree cannot require ci/'s module, so CI's own reading of
+--- this host is not run here.) A worker whose /proc is a sandbox's own
+--- has no /proc/cpuinfo, and checks nothing.
+local function test_the_key_names_this_host_as_its_cpuinfo_does(tmp: string)
+  local names = assert(sys.uname())
+  if names.sysname ~= "Linux" then Test.skip("only Linux lists its features in /proc/cpuinfo") end
+  local text = Fs.read("/proc/cpuinfo")
+  if text == nil then Test.skip("this worker's /proc has no cpuinfo to read") end
+  local release, version = tmp .. "/osrelease", tmp .. "/version"
+  assert(Fs.write(release, Fs.read("/proc/sys/kernel/osrelease") or ""))
+  assert(Fs.write(version, Fs.read("/proc/sys/kernel/version") or ""))
+  local read = declared_key.host_features({ cpu_features = listed(text), system = { "", release, version } })
+  assert(read == declared_key.host_features(), "this host")
 end
