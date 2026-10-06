@@ -181,6 +181,10 @@ local record test
     --- [`Test.skip`], that this host could not check them: no verdict is
     --- kept of one, so each runs every time.
     skipped: integer
+    --- Of those that ran, how many passed having made no call to `assert`
+    --- ([`worker.Judgement.unchecked`]): no verdict is kept of one
+    --- either, and a held run fails it.
+    unchecked: integer
     --- Of the tests chosen, how many are not applicable: their module
     --- requires what this platform never has ([`host_requires`]), so none
     --- ran or stood, and no verdict is kept of one. Neither in `ran` nor
@@ -1211,6 +1215,10 @@ local record Recording
   --- Each skipped test's id and why ([`Test.skip`], or a requirement of
   --- its module the host lacks), as "<id>: <reason>".
   skips: {string}
+  --- Each test that passed checking nothing, by id.
+  unchecked: {string}
+  --- Whether the run is held ([`Run.held`]).
+  held: boolean
   --- Each not applicable test's id and why, in the same shape.
   nas: {string}
   --- The modules whose requirements ([`host_requires`]) are not all
@@ -1788,8 +1796,27 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
     rec.skips[#rec.skips + 1] = id .. ": " .. skipped
     message = "skipped: " .. skipped
   end
-  -- What the records keep: a skip is no pass.
-  local kept_pass = passed and skipped == ""
+  -- A pass that made no call to `assert` checked nothing: it is listed, a
+  -- held run fails it, and no run keeps a verdict of it, so it is met again
+  -- every run -- a standing verdict would hide it from the summary and from
+  -- a held run that did not run it.
+  local unchecked = passed and judged.unchecked == true
+  if unchecked then
+    rec.tally.unchecked = rec.tally.unchecked + 1
+    rec.unchecked[#rec.unchecked + 1] = id
+    if rec.held then
+      passed = false
+      message = "passed checking nothing: it made no call to assert, so its pass shows " ..
+        "only that it did not raise. A held run (COSMIC_TEST_SANDBOX=1, COSMIC_SANDBOX=must " ..
+        "or COSMIC_CI_REQUIRE_SANDBOX=1) fails that. Check what it exists to show with " ..
+        "assert (a helper that checks through error or pcall calls assert, too); a test " ..
+        "that can check nothing on this host declares `requires` or calls Test.skip(reason); " ..
+        "one that shows only that something does not raise says so with " ..
+        "assert(true, \"<what it shows>\"), or better asserts on the result"
+    end
+  end
+  -- What the records keep: a skip is no pass, nor is a pass that checked nothing.
+  local kept_pass = passed and skipped == "" and not unchecked
   local elapsed = wall_ns
   if reported ~= nil then
     elapsed = reported.elapsed_ns
@@ -1812,7 +1839,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
   if not saved then
     rec.errors[#rec.errors + 1] = id .. ": record: " .. save_trouble
   end
-  if held and skipped == "" then
+  if held and skipped == "" and not unchecked then
     saved, save_trouble = record_verdict(rec.records, key, passed, rec.run_at_ns, rec.run,
       elapsed)
     if not saved then
@@ -2949,6 +2976,9 @@ local function say_skips(rec: Recording)
   local skips: {string} = {}
   for i, skip in ipairs(rec.skips) do skips[i] = skip end
   for _, line in ipairs(test_report.skips(skips)) do log:say(line) end
+  local unchecked: {string} = {}
+  for i, id in ipairs(rec.unchecked) do unchecked[i] = id end
+  for _, line in ipairs(test_report.unchecked(unchecked)) do log:say(line) end
   local nas: {string} = {}
   for i, na in ipairs(rec.nas) do nas[i] = na end
   for _, line in ipairs(test_report.nas(nas)) do log:say(line) end
@@ -3012,6 +3042,10 @@ local record Run
   --- run fails a module for lacking ([`require_of_host`]).
   promises: {string}
   leg: string
+  --- Whether the run is held to the sandbox (COSMIC_TEST_SANDBOX=1,
+  --- COSMIC_SANDBOX=must or COSMIC_CI_REQUIRE_SANDBOX=1): it fails what a
+  --- leg promises and a test that checked nothing.
+  held: boolean
   sandboxed: boolean
   sandbox_summary: string
   shares: boolean
@@ -3230,8 +3264,9 @@ local function choose_sandbox(ctx: Run): integer | nil
   -- project that sets COSMIC_TEST_PROMISES for another reason is no concern of a run
   -- that is not held.
   local promises: {string} = {}
-  if sandbox_mode == "on" or Env.get("COSMIC_SANDBOX") == "must" or
-      Env.get("COSMIC_CI_REQUIRE_SANDBOX") == "1" then
+  ctx.held = sandbox_mode == "on" or Env.get("COSMIC_SANDBOX") == "must" or
+    Env.get("COSMIC_CI_REQUIRE_SANDBOX") == "1"
+  if ctx.held then
     local read, promises_trouble = host_names.read_promises(Env.get("COSMIC_TEST_PROMISES") or "")
     if read == nil then
       local _, _ = work.close(handle)
@@ -3501,7 +3536,7 @@ end
 local function make_recording(ctx: Run)
   local handle, records = ctx.handle, ctx.records
   ctx.tally = { ran = 0, cached = 0, shared = 0, every = 0,
-    skipped = 0, na = 0 }
+    skipped = 0, unchecked = 0, na = 0 }
   local tally = ctx.tally
   local failures: {string} = {}
   local errors: {string} = {}
@@ -3527,7 +3562,7 @@ local function make_recording(ctx: Run)
     records = records, root = ctx.root, runtime = ctx.runtime,
     run_at_ns = ctx.run_at_ns, run = handle.run,
     failures = failures, errors = errors, outputs = {}, reruns = {},
-    failed = {}, skips = {}, nas = {}, unmet = {}, answered = {},
+    failed = {}, skips = {}, unchecked = {}, held = ctx.held, nas = {}, unmet = {}, answered = {},
     hits = hits, by_test = by_test, unowned = unowned, tally = tally,
     owed = { kept = {}, used = {}, failed = {}, stores = {} }, shared_keys = {},
     consult_shared = ctx.consult,
@@ -3713,8 +3748,7 @@ end
 local function require_of_host(ctx: Run): integer | nil
   local rec = ctx.rec
   local host: host_requires.Host = nil
-  local held = ctx.sandbox_mode == "on" or Env.get("COSMIC_SANDBOX") == "must" or
-    Env.get("COSMIC_CI_REQUIRE_SANDBOX") == "1"
+  local held = ctx.held
   for _, m in ipairs(ctx.selected_modules) do
     local names = requirements_of(m)
     if #names > 0 then
@@ -4120,7 +4154,7 @@ local function report(ctx: Run): integer
     for _, function_line in ipairs(ctx.function_lines) do log:say(function_line) end
     log:verdict("test", true, test_report.passed({ total = total,
       modules = #ctx.selected_modules,
-      ran = tally.ran, cached = tally.cached, skipped = tally.skipped, na = tally.na,
+      ran = tally.ran, cached = tally.cached, skipped = tally.skipped, unchecked = tally.unchecked, na = tally.na,
       every = tally.every, shared = tally.shared },
       clock.took(started) .. ctx.sandbox_summary .. ctx.share_summary))
     return 0
