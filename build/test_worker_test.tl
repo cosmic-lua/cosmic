@@ -27,6 +27,26 @@ local function test_a_report_carries_what_its_worker_loaded()
   assert(worker.decode(older) == nil)
 end
 
+--- A line of hits another report held is not read again: the tables a
+--- report holds for it are the ones the first did, which is how the runner
+--- tells a module's load hits it has folded already.
+local function test_a_line_of_hits_read_twice_is_one_table()
+  local function reported(loaded: {integer}, tested: {integer}): worker.Report
+    local report = passing({})
+    report.load_hits = { ["build.a"] = { [loaded[1]] = true, [loaded[2]] = true } }
+    report.test_hits = { ["build.a"] = { [tested[1]] = true } }
+    return report
+  end
+  local first = assert(worker.decode(worker.encode(reported({ 3, 5 }, { 7, 7 }))))
+  local second = assert(worker.decode(worker.encode(reported({ 3, 5 }, { 9, 9 }))))
+  assert(first.load_hits["build.a"] == second.load_hits["build.a"])
+  assert(first.test_hits["build.a"] ~= second.test_hits["build.a"])
+  assert(first.load_hits["build.a"][3] and first.load_hits["build.a"][5])
+  assert(first.test_hits["build.a"][7] and second.test_hits["build.a"][9])
+  local malformed = worker.encode(passing({})):gsub("\nend\n$", "\ntest-hit zz 1\nend\n")
+  assert(worker.decode(malformed) == nil)
+end
+
 --- A pass whose worker ran a module of the tree the tool carries that
 --- is neither of its closure nor of what every worker loads fails,
 --- naming it: no key of its test holds it. What the tool does not

@@ -293,7 +293,22 @@ function worker.encode(report: worker.Report): string
   return table.concat(lines, "\n") .. "\n"
 end
 
---- Reads a report back; nil and why when it is not a whole one.
+--- The hits of every line a report held, by the text that spelled it: every
+--- worker of a module reports the same lines for what its load ran, so
+--- one run reads each once, and the runner can tell a line it has folded
+--- by its table ([`build.test`]'s `take_hits`). The memo outlives a run,
+--- which is safe since a table is a function of the text that keys it and
+--- is never changed; the runner's own memos of what it did with one are
+--- a run's.
+local record DecodedHit
+  path: string
+  lines: {integer:boolean}
+end
+local decoded_hits: {string:DecodedHit} = {}
+
+--- Reads a report back; nil and why when it is not a whole one. The
+--- tables of its `load_hits` and `test_hits` are shared with every other
+--- report read, so a caller does not change them.
 function worker.decode(text: string): worker.Report | nil, string
   if text == nil or text == "" then return nil, "no report" end
   local report: worker.Report = {
@@ -320,15 +335,20 @@ function worker.decode(text: string): worker.Report | nil, string
       elseif tag == "message" then
         report.message = unhex(rest) or ""
       elseif tag == "load-hit" or tag == "test-hit" then
-        local path, numbers = rest:match("^([0-9a-f]*) ([0-9,]*)$")
-        local decoded = path ~= nil and unhex(path) or nil
-        if decoded == nil then return nil, "a malformed hit: " .. line end
         local into = tag == "load-hit" and report.load_hits or report.test_hits
-        local per_line: {integer:boolean} = {}
-        for number in numbers:gmatch("%d+") do
-          per_line[math.tointeger(tonumber(number)) or 0] = true
+        local known = decoded_hits[rest]
+        if known == nil then
+          local path, numbers = rest:match("^([0-9a-f]*) ([0-9,]*)$")
+          local decoded = path ~= nil and unhex(path) or nil
+          if decoded == nil then return nil, "a malformed hit: " .. line end
+          local per_line: {integer:boolean} = {}
+          for number in numbers:gmatch("%d+") do
+            per_line[math.tointeger(tonumber(number)) or 0] = true
+          end
+          known = { path = decoded, lines = per_line }
+          decoded_hits[rest] = known
         end
-        into[decoded] = per_line
+        into[known.path] = known.lines
       elseif tag == "module" then
         local decoded = unhex(rest)
         if decoded == nil or decoded == "" then return nil, "a malformed module: " .. line end
