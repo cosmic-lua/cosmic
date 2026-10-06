@@ -2210,6 +2210,12 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
   if opened == nil then return false, aside .. ": " .. open_trouble end
   local db: Sqlite.Handle = opened
   local function fill(): boolean, string
+    -- Written aside and moved into place whole, or not at all: a journal
+    -- and a sync per commit would only cost time.
+    for _, pragma in ipairs({ "PRAGMA journal_mode = OFF", "PRAGMA synchronous = OFF" }) do
+      local ok, why = db:exec(pragma)
+      if not ok then return false, why end
+    end
     for _, statement in ipairs(sealed_schema) do
       local ok, why = db:exec(statement)
       if not ok then return false, why end
