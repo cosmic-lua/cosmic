@@ -59,8 +59,8 @@
 --- that stopped halfway.
 ---
 --- The driver runs from the tree it moves: the rename leaves its open
---- files and working directory where they were, and this command writes
---- nothing under the tree.
+--- files and working directory where they were, and nothing it writes
+--- (ci/o's databases and lock) is keyed by the tree's path.
 local Flags = require("cosmic.flags")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")

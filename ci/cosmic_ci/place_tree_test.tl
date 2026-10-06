@@ -4,14 +4,15 @@
 --- a gating run of a leg keyed by declarations, whose keys hold the
 --- path, the leg alone chooses it. The path is always one directory
 --- beside the workspace, so actions/cache's paths relative to the
---- workspace resolve through it. The names are checked against what
---- the shell script this replaced printed for the same inputs.
+--- workspace resolve through it. The names are checked against vectors
+--- recorded from the original shell implementation.
 local Fs = require("cosmic.fs")
 local PlaceTree = require("cosmic_ci.place_tree")
 
 local SHA <const> = "2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d"
 
---- What `--name` printed, from the script's own `sh` run, for each
+--- What `--name` printed, as recorded from the original shell
+--- implementation's own `sh` run, for each
 --- commit, leg, event and declared-keys setting, a line each:
 --- `sha leg event declared name`.
 local GOLDEN <const> = [[
@@ -134,7 +135,7 @@ local function name(sha: string, leg: string, event?: string, declared?: string)
   return out[1]
 end
 
-local function test_the_names_are_the_scripts_names()
+local function test_names_match_the_recorded_vectors()
   local count = 0
   for sha, leg, event, declared, expected in GOLDEN:gmatch("(%x+) (%S+) (%S+) (%d) (%x+)\n") do
     assert(name(sha, leg, event, declared) == expected,
@@ -358,4 +359,21 @@ local function test_a_move_that_ran_already_moves_nothing()
   assert(layout(root) == placed, layout(root))
   place(workspace, "--restore")
   assert(Fs.remove_tree(root))
+end
+
+local function test_a_move_onto_an_existing_directory_is_refused()
+  local root, workspace = checkout()
+  assert(Fs.mkdirs(root .. "/" .. name(SHA, "linux-x86_64")))
+  local before = layout(root)
+  local given, out, err = host(environment(SHA, "linux-x86_64", "push", "0", workspace))
+  assert(PlaceTree.run(given, "") == 1)
+  assert(#out == 0 and err[1]:find("exists already", 1, true), tostring(err[1]))
+  assert(layout(root) == before, layout(root))
+  assert(Fs.remove_tree(root))
+end
+
+local function test_the_command_refuses_both_options_and_an_extra_word()
+  local both: {string:boolean} = { ["--name"] = true, ["--restore"] = true }
+  assert(PlaceTree.command({ set = both, values = {}, all = {}, given = {}, words = {} }) == 2)
+  assert(PlaceTree.command({ set = {}, values = {}, all = {}, given = {}, words = { "extra" } }) == 2)
 end
