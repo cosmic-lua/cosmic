@@ -4,10 +4,11 @@
 --- every mount. The kernel's own verdict on live children: a stand-in
 --- (build/stand_in.tl) that starts a sandboxed child of its own, and
 --- perl, where the host has it, that makes the namespaces and mounts
---- the filter lets a program make and tries the ones it must not. A host
---- that gives no user namespace or seccomp, and every platform but Linux,
---- skips the tests that start a child (Test.skip); the refusals
---- that come before a child do not.
+--- the filter lets a program make and tries the ones it must not. They need
+--- a host that lets a sandbox nest (`requires`): where the platform has none
+--- they are not applicable, and where this host gives no seccomp each skips
+--- itself (Test.skip). The refusals that come before a child, which hold on
+--- every platform, are in cosmic/child_policy_anywhere_test.tl.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -15,7 +16,6 @@ local Proc = require("cosmic.proc")
 local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local confine = require("build.confine")
 local searchable = require("build.searchable")
 local stand_in = require("build.stand_in")
 
@@ -23,24 +23,21 @@ local stand_in = require("build.stand_in")
 --- perl and shell, which the "system" profile gives a policy to run; and
 --- `nests`, since the sandboxes this test makes are roots a worker held by
 --- a Landlock ruleset cannot build.
-Test.policy{ env = { "TMPDIR" }, promises = { "nest" }, profiles = { "system" } }
+Test.policy{
+  env = { "TMPDIR" },
+  promises = { "nest" },
+  profiles = { "system" },
+  requires = { "nest" },
+}
 
---- Whether `why`, a start's failure, is the platform or the host giving no
---- seccomp or user namespace.
+--- Whether `why`, a start's failure, is the host giving no seccomp or user
+--- namespace.
 local function unsandboxable(why: string): boolean
   for _, word in ipairs({ "Landlock", "seccomp", "not implemented", "namespace", "own /proc",
       "root could not be built" }) do
     if why:find(word, 1, true) then return true end
   end
   return false
-end
-
---- Whether this platform cannot sandbox at all, which leaves a test whose
---- start would be refused for that before what it checks nothing to check:
---- off Linux a policy's start never runs, whatever its grants or
---- descriptors, and the test returns silently.
-local function no_sandbox_here(): boolean
-  return not confine.sandbox_platform()
 end
 
 --- What a program left and how it ended.
@@ -58,17 +55,10 @@ local function under(argv: {string}, policy: Sandbox.Policy, cwd: string,
     { policy = policy, cwd = cwd, stdout = "capture", stderr = "stdout", fds = fds })
   if result == nil then
     assert(unsandboxable(why), "the start was refused: " .. why)
-    if confine.sandbox_platform() then Test.skip(why) end
+    Test.skip(why)
     return nil
   end
   return { code = result.code or -1, said = result.stdout or "" }
-end
-
---- Why a start under `policy` is refused before any child exists.
-local function refused(argv: {string}, policy: Sandbox.Policy): string
-  local handle, why = Child.start(argv, { policy = policy })
-  assert(handle == nil, "the start was not refused")
-  return why
 end
 
 --- A stand-in, a working directory holding `ro/a`, a directory `rw` beside
@@ -120,30 +110,6 @@ local function options_at(text: string, point: string): string | nil
   return nil
 end
 
-local function test_nest_needs_isolate_file_and_says_so(tmp: string)
-  local at = placed(tmp)
-  for _, isolate in ipairs({ {}, { "proc" } }) do
-    local why = refused({ at.probe }, { isolate = isolate, promises = { "nest" }, grants = at.grants })
-    assert(why:find("nest", 1, true) and why:find("isolate \"file\"", 1, true), why)
-  end
-end
-
-local function test_nest_refuses_what_a_root_cannot_hold(tmp: string)
-  local at = placed(tmp)
-  local function without(letters: string, path: string): string
-    return refused({ at.probe }, { isolate = { "file" }, promises = { "nest" },
-      grants = with(at.grants, { path = path, letters = letters }) })
-  end
-  -- Landlock told writing a file from making one in a directory, and running
-  -- from reading; a bind does not.
-  local made = without("w", at.extra)
-  assert(made:find("add `c`", 1, true) and made:find("nest", 1, true), made)
-  local run = without("x", at.extra)
-  assert(run:find("add `r`", 1, true), run)
-  local created = without("c", at.extra)
-  assert(created:find("add `w`", 1, true), created)
-end
-
 local function test_nest_holds_files_by_the_root_alone(tmp: string)
   local at = placed(tmp)
   local policy: Sandbox.Policy = { isolate = { "file" }, promises = { "nest" }, grants = at.grants }
@@ -174,7 +140,6 @@ local function test_nest_holds_files_by_the_root_alone(tmp: string)
 end
 
 local function test_nest_hands_no_directory_nor_half_open_file(tmp: string)
-  if no_sandbox_here() then return end
   local at = placed(tmp)
   local policy: Sandbox.Policy = { isolate = { "file" }, promises = { "nest" }, grants = at.grants }
   local plain: Sandbox.Policy = { isolate = { "file" }, grants = at.grants }
@@ -210,7 +175,6 @@ end
 --- a relaunch hands on -- is refused to a `nest` child as a half-open file
 --- is, naming it, where stat-ing it raised.
 local function test_nest_refuses_the_runtimes_own_descriptors_rather_than_raising(tmp: string)
-  if no_sandbox_here() then return end
   local launched, _ = Proc.relaunch()
   if launched == nil or next(launched.fds) == nil then return end
   local at = placed(tmp)
@@ -340,7 +304,6 @@ print "wrote_ro=$wrote_ro\n";
 ]==]
 
 local function test_a_nested_program_cannot_widen_what_it_was_given(tmp: string)
-  if no_sandbox_here() then return end
   local perl = Proc.find("perl")
   if perl == nil then return end
   local at = placed(tmp)
