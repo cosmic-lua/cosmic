@@ -9,7 +9,7 @@ local Test = require("cosmic.test")
 
 -- These tests start this program (the pinned driver's own cosmic, or a copy of it
 -- as the bootstrap), which a worker on a sealed database does not have whole.
-Test.needs{ tool = true }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- The environment a test's child runs with: this one's, less what
 --- would change which cosmic bin/cosmic-bootstrap answers (a

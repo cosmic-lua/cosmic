@@ -11,7 +11,7 @@ local Test = require("cosmic.test")
 
 -- These tests start this program (the pinned driver's own cosmic, or a copy of it
 -- as the bootstrap), which a worker on a sealed database does not have whole.
-Test.needs{ tool = true }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local function write(path: string, data: string, mode?: integer)
   assert(Fs.mkdirs(Fs.dirname(path)))

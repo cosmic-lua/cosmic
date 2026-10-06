@@ -8,7 +8,7 @@ local Test = require("cosmic.test")
 
 -- These tests start this program, which a worker on a sealed database does
 -- not have whole.
-Test.needs{ tool = true }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- Exercise redelivery in a separate driver: its default SIGTERM action
 --- must happen after the owned snapshot and sidecars have been removed.
