@@ -2,7 +2,8 @@
 -- ran, the figures doc/plan-fast-correct-builds.md's milestones are
 -- decided on. For the last N completed runs of ci.yml of one event
 -- (merge_group by default; a push's on main), newest first, it reads
--- through `gh` (found on PATH, as prerelease.tl finds it) each run's jobs
+-- through GitHub's REST API (github_api.tl, with `GH_TOKEN` or
+-- `GITHUB_TOKEN`) each run's jobs
 -- and their steps' times and each leg's `ci-driver-<leg>` artifact, the
 -- operations database whose `suite_runs` rows orchestration.tl wrote,
 -- and prints per run:
@@ -23,11 +24,10 @@
 -- then the medians over the qualifying runs that succeeded. A run
 -- older than `suite_runs`, or whose artifacts have expired, is reported
 -- from its step times alone and qualifies for nothing.
-local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
-local Proc = require("cosmic.proc")
+local GithubApi = require("cosmic_ci.github_api")
 local Shape = require("cosmic.shape")
 local Sqlite = require("cosmic.sqlite")
 local Stream = require("cosmic.stream")
@@ -71,9 +71,7 @@ local record Report
     branch: string | nil
     repo: string
     workflow: string
-    gh: string
-    --- The environment gh runs in.
-    env: {string:string}
+    client: GithubApi.Client
   end
   spec: {string:Flags.Option}
 end
@@ -86,7 +84,6 @@ local join_job <const> = "ci"
 --- checked suite's and each leg's native one (orchestration.tl's
 --- `record_suite` names them).
 local deciding: {string:boolean} = { checked = true, ["local"] = true }
-local capture_limit <const> = 1 << 30
 --- How many runs older than the N shown `report` lists, to find one to
 --- compare the oldest shown with.
 local lookback <const> = 10
@@ -135,7 +132,7 @@ function Report.duration(seconds: integer | nil): string
   return string.format("%dm %02ds", seconds // 60, seconds % 60)
 end
 
---- What [`Report.runs`] reads of a `gh api .../runs` answer; GitHub's
+--- What [`Report.runs`] reads of a `.../runs` answer; GitHub's
 --- null is nil.
 local record RunItem
   id: integer
@@ -150,7 +147,7 @@ local record RunsAnswer
 end
 local RUNS <const> = Shape.record_of("RunsAnswer")
 
---- What [`Report.jobs`] reads of a `gh api .../runs/<id>/jobs` answer. A
+--- What [`Report.jobs`] reads of a `.../runs/<id>/jobs` answer. A
 --- skipped job has no `steps`, and a skipped step no times.
 local record StepItem
   name: string
@@ -169,7 +166,7 @@ end
 local JOBS <const> = Shape.record_of("JobsAnswer")
 
 --- What [`Report.driver_artifacts`] reads of a
---- `gh api .../runs/<id>/artifacts` answer.
+--- `.../runs/<id>/artifacts` answer.
 local record ArtifactItem
   name: string
   id: integer
@@ -181,7 +178,7 @@ local record ArtifactsAnswer
 end
 local ARTIFACTS <const> = Shape.record_of("ArtifactsAnswer")
 
---- The runs a `gh api .../runs` answer lists, in its order (newest
+--- The runs a `.../runs` answer lists, in its order (newest
 --- first), without their jobs or suites.
 function Report.runs(text: string): {Report.Run}
   local answer, why = RUNS:decode_into(text)
@@ -196,7 +193,7 @@ function Report.runs(text: string): {Report.Run}
   return out
 end
 
---- The jobs a `gh api .../runs/<id>/jobs` answer lists, each with its
+--- The jobs a `.../runs/<id>/jobs` answer lists, each with its
 --- steps, slowest first.
 function Report.jobs(text: string): {Report.Job}
   local answer, why = JOBS:decode_into(text)
@@ -217,7 +214,7 @@ function Report.jobs(text: string): {Report.Job}
   return out
 end
 
---- The `ci-driver-<leg>` artifacts a `gh api .../runs/<id>/artifacts`
+--- The `ci-driver-<leg>` artifacts a `.../runs/<id>/artifacts`
 --- answer lists that have not expired, sorted by name: of each name,
 --- the newest (by `created_at`), which a run's latest attempt uploaded.
 function Report.driver_artifacts(text: string): {Report.Artifact}
@@ -518,23 +515,8 @@ function Report.render(runs: {Report.Run}, o: Report.Options): string
   return table.concat(out)
 end
 
---- Runs gh with `args`; its stdout, or nil and why it failed.
-local function gh(o: Report.Options, args: {string}): string | nil, string
-  local argv: {string} = { o.gh }
-  for _, word in ipairs(args) do argv[#argv + 1] = word end
-  local result, trouble = Child.run(argv, { env = o.env, stdin = "null", stdout = "capture",
-    stderr = "capture", capture_limit = capture_limit })
-  if result == nil then return nil, "gh " .. args[1] .. ": " .. trouble end
-  if not result.ok then
-    local said = (result.stderr or ""):gsub("%s+$", "")
-    return nil, "gh " .. table.concat(args, " ") .. " failed" ..
-      (said ~= "" and (": " .. said) or "")
-  end
-  return result.stdout or "", ""
-end
-
 local function api(o: Report.Options, endpoint: string): string
-  local text, why = gh(o, { "api", endpoint })
+  local text, why = GithubApi.get(o.client, endpoint)
   if text == nil then error(why, 0) end
   return text
 end
@@ -587,8 +569,11 @@ end
 local function read_suites(o: Report.Options, run: Report.Run, scratch: string)
   local listed = api(o, "repos/" .. o.repo .. "/actions/runs/" .. run.id .. "/artifacts?per_page=100")
   for _, artifact in ipairs(Report.driver_artifacts(listed)) do
-    local zip, why = gh(o, { "api", "repos/" .. o.repo .. "/actions/artifacts/" ..
-        artifact.id .. "/zip" })
+    local file = scratch .. "/" .. run.id .. "-" .. artifact.id .. ".zip"
+    local downloaded, why = GithubApi.download(o.client, "repos/" .. o.repo ..
+        "/actions/artifacts/" .. artifact.id .. "/zip", file)
+    local zip: string | nil = nil
+    if downloaded then zip, why = Fs.read(file) end
     local rows: {State.SuiteRun} | nil = nil
     if zip ~= nil then
       local database: string | nil
@@ -605,7 +590,7 @@ local function read_suites(o: Report.Options, run: Report.Run, scratch: string)
   end
 end
 
---- The report for `o`: each run fetched through gh, qualified and
+--- The report for `o`: each run fetched through the API, qualified and
 --- rendered.
 function Report.report(o: Report.Options): string
   -- Runs past the N shown are listed too, up to `lookback` of them, so
@@ -655,9 +640,10 @@ end
 
 --- What `driver.tl report` answers for `got`, its line, in `env`, its
 --- environment: the status, 0 with the report, 2 for a line it cannot
---- read, 1 where gh or GitHub failed; and what it says on stdout and on
---- stderr.
-function Report.answer(got: Flags.Parsed, env: {string:string}): integer, string, string
+--- read, 1 where there is no token or GitHub failed; and what it says on
+--- stdout and on stderr. `client` stands in for the live one `env` makes.
+function Report.answer(got: Flags.Parsed, env: {string:string},
+                       client?: GithubApi.Client): integer, string, string
   local function refuse(why: string): integer, string, string
     return 2, "", "driver.tl report: " .. why .. "\n"
   end
@@ -681,10 +667,13 @@ function Report.answer(got: Flags.Parsed, env: {string:string}): integer, string
   if not repository:match("^[%w_.-]+/[%w_.-]+$") then
     return refuse("--repo must be owner/name: " .. repository)
   end
-  local found, why = Proc.find("gh", env.PATH or "")
-  if found == nil then return 1, "", "driver.tl report: no gh on PATH: " .. why .. "\n" end
+  if client == nil then
+    local live, why = GithubApi.live(env)
+    if live == nil then return 1, "", "driver.tl report: " .. why .. "\n" end
+    client = live
+  end
   local called, answer = pcall(Report.report, { runs = runs, event = event,
-    branch = branch, repo = repository, workflow = workflow, gh = found, env = env })
+    branch = branch, repo = repository, workflow = workflow, client = client })
   if not called then return 1, "", "driver.tl report: " .. tostring(answer) .. "\n" end
   return 0, answer as string, ""
 end

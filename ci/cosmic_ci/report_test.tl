@@ -2,20 +2,13 @@ local Env = require("cosmic.env")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
-local Proc = require("cosmic.proc")
+local GithubApi = require("cosmic_ci.github_api")
 local Report = require("cosmic_ci.report")
 local State = require("cosmic_ci.state")
 local Stream = require("cosmic.stream")
 local Zip = require("cosmic.zip")
-local Test = require("cosmic.test")
-
--- These tests start this program (the pinned driver's own cosmic, or a copy of it
--- as the bootstrap), which a worker on a sealed database does not have whole.
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local repository <const> = "owner/repo"
-
-local function write(path: string, data: string) assert(Fs.write(path, data)) end
 
 local function test_seconds_of_reads_githubs_times()
   assert(Report.seconds_of("1970-01-01T00:00:00Z") == 0)
@@ -28,7 +21,7 @@ local function test_seconds_of_reads_githubs_times()
   assert(Report.duration(nil) == "-")
 end
 
---- The lists `gh api` answers are checked against the records `Report`
+--- The lists the API answers are checked against the records `Report`
 --- reads: a value of another shape is refused naming where it is, where
 --- the entries once read as empty, were skipped, or were taken as text.
 local function test_an_answer_of_another_shape_is_refused_by_path()
@@ -136,28 +129,49 @@ local function test_a_run_qualifies_by_what_its_restored_cache_held()
       "no parts, harness moved", 1, true), runs[3].why)
 end
 
---- A fake GitHub: a gh on PATH answering from `state` (testdata/report/gh.tl).
+--- A fake GitHub: a `Send` answering from `answers`, by the path it was
+--- asked for, and logging each path in `calls`. An artifact's zip is
+--- served as GitHub does, a redirect to a link `fetch` writes from `zips`.
 local record Fake
-  state: string
+  answers: {string:string}
+  zips: {string:string}
+  calls: {string}
+  client: GithubApi.Client
   env: {string:string}
+  dir: string
 end
 
+local api <const> = "https://api.test/"
+
 local function fake(tmp: string): Fake
-  local state, bin = tmp .. "/state", tmp .. "/bin"
-  assert(Fs.mkdirs(state .. "/api") and Fs.mkdirs(bin))
-  local script = assert(Fs.absolute(".")) .. "/testdata/report/gh.tl"
-  write(bin .. "/gh", "#!/bin/sh\nexec '" .. assert(Proc.executable()) ..
-      "' --standalone '" .. script .. "' \"$@\"\n")
-  assert(Fs.chmod(bin .. "/gh", 0x1ed))
-  local env = Env.all()
-  env.PATH = bin .. ":/usr/bin:/bin"
-  env.FAKE_GH_STATE = state
-  env.GITHUB_REPOSITORY = nil
-  return { state = state, env = env }
+  local f: Fake = { answers = {}, zips = {}, calls = {}, dir = tmp, env = Env.all() } as Fake
+  f.client = {
+    base = "https://api.test",
+    send = function(request: GithubApi.Request): GithubApi.Reply | nil, string
+      assert(request.method == "GET" and request.url:sub(1, #api) == api, request.url)
+      local path = request.url:sub(#api + 1)
+      f.calls[#f.calls + 1] = path
+      if f.zips[path] then
+        return { status = 302, headers = { location = "https://blob.test/" .. path }, body = "" }, ""
+      end
+      local text = f.answers[path]
+      if text == nil then
+        return { status = 404, headers = {}, body = '{"message":"Not Found"}' }, ""
+      end
+      return { status = 200, headers = {}, body = text }, ""
+    end,
+    fetch = function(url: string, to: string): boolean, string
+      local zip = f.zips[url:sub(#"https://blob.test/" + 1)]
+      if zip == nil then return false, "HTTP 404" end
+      return Fs.write(to, zip)
+    end,
+  }
+  f.env.GITHUB_REPOSITORY = nil
+  return f
 end
 
 local function answer(f: Fake, endpoint: string, value: any)
-  write(f.state .. "/api/" .. (endpoint:gsub("[^%w]", "_")), (assert(Json.encode(value))))
+  f.answers[endpoint] = assert(Json.encode(value))
 end
 
 local function at(minutes: integer, seconds?: integer): string
@@ -184,7 +198,7 @@ end
 --- `harness`, `stood` of 100 tests standing.
 local function artifact_zip(f: Fake, id: string, run: string, runtime: string,
                             harness: string, stood: integer)
-  local database = f.state .. "/db-" .. id
+  local database = f.dir .. "/db-" .. id
   for _, suite in ipairs({ "local", "checked", "fixture runtime-regression" }) do
     local keyed = not suite:match("^fixture")
     State.suite(database, { worker = "linux-x86_64", run = run, attempt = "1",
@@ -192,12 +206,12 @@ local function artifact_zip(f: Fake, id: string, run: string, runtime: string,
       exit_code = 0, tests = 100, ran = 100 - stood, stood = stood, elapsed_ms = 1000 * stood,
       parts = keyed and { runtime = runtime, harness = harness } or {} })
   end
-  local path = f.state .. "/api/" ..
-    (("repos/" .. repository .. "/actions/artifacts/" .. id .. "/zip"):gsub("[^%w]", "_"))
+  local path = f.dir .. "/zip-" .. id
   local stream = assert(Stream.create(path))
   local zip = Zip.writer(stream, { deterministic = true })
   assert(zip:add_file("operations.db", (assert(Fs.read(database)))))
   assert(zip:close())
+  f.zips["repos/" .. repository .. "/actions/artifacts/" .. id .. "/zip"] = assert(Fs.read(path))
 end
 
 --- Run `run`'s artifacts list: `listed`, each {name, id, created, expired}.
@@ -239,7 +253,7 @@ local function report(f: Fake, args: {string}): Answer, string
   for i, word in ipairs(args) do argv[i] = word end
   local got, why = Flags.parse(argv, 1, Report.spec)
   if got == nil then return { code = 2, ok = false, stdout = "" }, why end
-  local code, out, err = Report.answer(got, f.env)
+  local code, out, err = Report.answer(got, f.env, f.client)
   return { code = code, ok = code == 0, stdout = out }, out .. err
 end
 
@@ -304,9 +318,9 @@ local function test_report_reads_runs_jobs_and_suite_rows(tmp: string)
   has("- Runner time: 78m 00s")
   has("| linux-x86_64 | local | 0 | 100.0 | 100000 |")
   has("| linux-x86_64 | fixture runtime-regression | 0 | 100.0 | 100000 |")
-  local calls = assert(Fs.read(f.state .. "/calls"))
-  assert(calls:find("api repos/owner/repo/actions/artifacts/301/zip", 1, true), calls)
-  assert(calls:find("api repos/owner/repo/actions/artifacts/202/zip", 1, true), calls)
+  local calls = table.concat(f.calls, "\n")
+  assert(calls:find("repos/owner/repo/actions/artifacts/301/zip", 1, true), calls)
+  assert(calls:find("repos/owner/repo/actions/artifacts/202/zip", 1, true), calls)
   for _, absent in ipairs({ "artifacts/201/", "artifacts/7/", "artifacts/8/",
       "runs/10/", "runs/20/jobs" }) do
     assert(not calls:find(absent, 1, true), absent .. " was fetched:\n" .. calls)
@@ -327,13 +341,13 @@ local function test_report_of_pushes_names_main_and_survives_a_lost_artifact(tmp
   local result, said = report(f, { "--runs=1", "--event", "push" })
   assert(result.ok, said)
   local text = result.stdout or ""
-  assert(text:find("- Not read: ci-driver-linux-x86_64: gh api " ..
-      "repos/cosmic-lua/cosmic/actions/artifacts/9/zip failed", 1, true), text)
+  assert(text:find("- Not read: ci-driver-linux-x86_64: GET " ..
+      "repos/cosmic-lua/cosmic/actions/artifacts/9/zip: HTTP 404: Not Found", 1, true), text)
   assert(text:find("- Wall: -", 1, true), text)
   assert(text:find("None qualifies.", 1, true), text)
 end
 
-local function test_report_refuses_a_bad_line_and_a_missing_gh(tmp: string)
+local function test_report_refuses_a_bad_line_and_a_missing_token(tmp: string)
   local f = fake(tmp)
   for _, args in ipairs({ { "--runs", "0" }, { "--runs", "101" }, { "--runs", "x" },
       { "--repo", "nobody" }, { "--event", "a&b=c" }, { "--event", "a/b" },
@@ -342,13 +356,16 @@ local function test_report_refuses_a_bad_line_and_a_missing_gh(tmp: string)
     local result, said = report(f, args)
     assert(result.code == 2, table.concat(args, " ") .. ": " .. said)
   end
-  -- GitHub's refusal is gh's failure, and the report's.
+  -- GitHub's refusal is the report's failure, and names its status.
   local failed, why = report(f, { "--runs", "3" })
   assert(failed.code == 1 and why:find("HTTP 404", 1, true), why)
   -- A branch may hold "/", as a merge queue's and feature/x do.
   local branched, asked = report(f, { "--branch", "gh-readonly-queue/main/pr-1" })
   assert(branched.code == 1 and asked:find("&branch=gh-readonly-queue/main/pr-1", 1, true), asked)
-  f.env.PATH = tmp .. "/nowhere"
-  local lost, told = report(f, {})
-  assert(lost.code == 1 and told:find("no gh on PATH", 1, true), told)
+  -- Without a client of its own, the report makes the live one from its
+  -- environment, which needs a token.
+  local got = assert(Flags.parse({ [0] = "report" }, 1, Report.spec))
+  f.env.GH_TOKEN, f.env.GITHUB_TOKEN = nil, nil
+  local code, _, told = Report.answer(got, f.env)
+  assert(code == 1 and told:find("no GitHub token", 1, true), told)
 end
