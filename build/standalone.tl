@@ -90,13 +90,11 @@ end
 
 --- `file`'s Teal, checked and compiled to Lua: nil and every complaint
 --- the checker has when it is not clean.
-local function generate(file: string, source: string): string | nil, string
-  -- TODO: a test pays the coverage hook on every line of a compiler
-  -- loaded with its lines, so build/standalone_test.tl's tests that type
-  -- cosmic.json take about 15 s on the checked core, loading it again for
-  -- each compile: let a caller pass one compiler, loaded stripped
-  -- (`teal.load(true)`), as build/shape_specs_test.tl loads its own.
-  local built, load_trouble = teal.load()
+local function generate(file: string, source: string, built?: compiler): string | nil, string
+  local load_trouble = ""
+  if built == nil then
+    built, load_trouble = teal.load()
+  end
   if built == nil then
     return nil, load_trouble
   end
@@ -130,8 +128,11 @@ end
 --- not. The cache is found through `variables` when given (as
 --- [`Fs.cache_dir`] finds it), and this process's own otherwise. nil and
 --- every complaint of the checker when the file is not clean.
+--- `built`, when given, must be loaded by this binary's [`teal.load`],
+--- optionally stripped: the cache assumes this binary's compiler. Every
+--- check creates its own environment; previous declarations are not shared.
 function standalone.code(file: string, source: string,
-                         variables?: {string:string}): string | nil, string
+                         variables?: {string:string}, built?: compiler): string | nil, string
   local cached = cached_path(source, variables)
   local code: string
   if cached ~= nil then
@@ -140,7 +141,7 @@ function standalone.code(file: string, source: string,
     code = read
   end
   if code == nil then
-    local generated, trouble = generate(file, source)
+    local generated, trouble = generate(file, source, built)
     if generated == nil then
       return nil, trouble
     end
@@ -155,8 +156,8 @@ end
 --- `file`'s Teal, checked and compiled to a loaded chunk ([`standalone.code`],
 --- loaded as `file`'s).
 function standalone.compile(file: string, source: string,
-                            variables?: {string:string}): standalone.Main | nil, string
-  local code, trouble = standalone.code(file, source, variables)
+                            variables?: {string:string}, built?: compiler): standalone.Main | nil, string
+  local code, trouble = standalone.code(file, source, variables, built)
   if code == nil then
     return nil, trouble
   end
