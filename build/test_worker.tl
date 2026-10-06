@@ -77,7 +77,7 @@ local record worker
     env: {string:string}
     --- The tree and the test's scratch directory as the worker sees
     --- them, and where it runs (nil for here); the test's module and
-    --- its name; and what the build read of the module's `needs`
+    --- its name; and what the build read of the module's `policy`
     --- ([`test_inputs.canonical`]).
     root: string
     cwd: string
@@ -614,7 +614,7 @@ function worker.judge(judging: worker.Judging): worker.Judgement
 end
 
 --- Installs `runner` as `__runner` on `module`, [`cosmic.test`]'s table,
---- where `needs` looks for a runner: no member of its type.
+--- where `policy` looks for a runner: no member of its type.
 local function install(module: any, runner: any)
   if module is {string:any} then module.__runner = runner end
 end
@@ -662,7 +662,7 @@ end
 ---   of the processes the test starts in.
 --- - `needs` is what the build read of the module's [`cosmic.test`]
 ---   declaration ([`test_inputs.canonical`]), "" or absent for none. A
----   module whose `needs` call was handed anything else fails to load.
+---   module whose `policy` call stands for anything else fails to load.
 --- - `--sandboxed` says the worker runs in a sandbox, which every
 ---   process its test starts inherits ([`confine.call`]'s `sandboxed`).
 --- - `closure` is the names of the module's import closure
@@ -804,7 +804,7 @@ function worker.run(argv: {integer:string}): integer
   local resolved_tmp, _ = Fs.absolute(tmp)
   if resolved_tmp ~= nil then own[#own + 1] = resolved_tmp end
   if children ~= nil then own[#own + 1] = children end
-  -- What the module's `needs` call is handed as it loads, through the
+  -- What the module's `policy` call stands for as it loads, through the
   -- hook [`cosmic.test`] leaves for a runner; once it has loaded, a call
   -- is refused.
   local handed: Test.Needs = nil
@@ -845,8 +845,8 @@ function worker.run(argv: {integer:string}): integer
   local needs = loaded and test_inputs.canonical(test_inputs.as_declared(handed)) or ""
   if loaded and needs ~= expected_needs then
     loaded = false
-    produced = "its cosmic.test needs call was handed what the build did not read " ..
-      "from its source -- the build reads only a top-level Test.needs { ... } " ..
+    produced = "its cosmic.test policy call stands for what the build did not read " ..
+      "from its source -- the build reads only a top-level Test.policy { ... } " ..
       "on a local bound to require(\"cosmic.test\") (see cosmic.test):\n" ..
       "  handed:\n    " .. (needs == "" and "nothing" or needs:gsub("\n", "\n    ")) ..
       "\n  read:\n    " .. (expected_needs == "" and "nothing" or

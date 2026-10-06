@@ -18,9 +18,9 @@ Test.policy{ grants = { { path = "fixtures/", letters = "r" } } }
 
 -- TODO: declare what these tests read of the checkout around ci/
 -- (.github/workflows/ci.yml above all, and the git history a clone
--- reads) in a [`Test.needs`], once cosmic.test can name a path outside
--- the project's root relative to it: `reads` refuses a path naming
--- `..`, and `host` takes only an absolute path written in the source,
+-- reads) in a [`Test.policy`], once cosmic.test can name a path outside
+-- the project's root relative to it: a grant refuses a path naming
+-- `..`, and a host grant takes only an absolute path written in the source,
 -- which moves with the checkout. Until then a keyed run stands on a
 -- verdict these reached before an edit to ci.yml (a probe edit left
 -- all 32 standing); run them with --all after one. CI's driver check
@@ -570,20 +570,13 @@ local function code_of(source: string): string
 end
 
 --- The tree paths the declaration of the fixture module `source` reads: the
---- grants of its [`Test.policy`], or the `reads` of its [`Test.needs`].
+--- grants of its [`Test.policy`].
 local function declared_reads(source: string): {string:boolean}
   local code = code_of(source)
   local out: {string:boolean} = {}
-  local policy = code:match("\nTest%.policy%s*%(?%s*(%b{})")
-  if policy then
-    local grants = assert(policy:match("grants%s*=%s*(%b{})"), source .. ": no grants")
-    for path in grants:gmatch('path%s*=%s*"([^"]*)"') do out[path] = true end
-    return out
-  end
-  local needs = assert(code:match("\nTest%.needs%s*%(?%s*(%b{})"),
-    source .. ": no Test.policy or Test.needs")
-  local reads = assert(needs:match("reads%s*=%s*(%b{})"), source .. ": no reads")
-  for path in reads:gmatch('"([^"]*)"') do out[path] = true end
+  local policy = assert(code:match("\nTest%.policy%s*%(?%s*(%b{})"), source .. ": no Test.policy")
+  local grants = assert(policy:match("grants%s*=%s*(%b{})"), source .. ": no grants")
+  for path in grants:gmatch('path%s*=%s*"([^"]*)"') do out[path] = true end
   return out
 end
 
@@ -1128,9 +1121,8 @@ end
 --- A gating suite's workers are given none of what names the run --
 --- GitHub's GITHUB_*, RUNNER_* and ACTIONS_*, CI, systemd's per-unit
 --- variables, the container's HOSTNAME, the driver's own COSMIC_CI_*
---- switches -- so a test that reads the whole environment (`env =
---- {"*"}`) is keyed the same from run to run and can stand on an
---- earlier run's verdict. The rest reaches them: PATH, HOME, the proxy
+--- switches -- so a test that declares a variable among them is keyed the
+--- same from run to run and can stand on an earlier run's verdict. The rest reaches them: PATH, HOME, the proxy
 --- and certificate variables, COSMIC_CI_REQUIRE_SANDBOX, which a test
 --- reads, and what the driver sets. What the suite does is still decided
 --- from the driver's own environment: a Linux push's run stands on

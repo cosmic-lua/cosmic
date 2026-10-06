@@ -402,14 +402,18 @@ local module: Module = {
       "a test reads the open window through build.coverage_hits",
     ["cosmic.coverage.native_entries"] = "read each C function's first line from " ..
       "Coverage.native_functions(); a test reads them through build.coverage_hits",
-    ["cosmic.test.fields"] = "the build checks a `needs` declaration's fields; declare " ..
-      "needs with Test.needs { ... } and let `cosmic test` refuse a bad one",
-    ["cosmic.test.any_host_refusal"] = "the build refuses `network = true`; declare " ..
-      "loopback addresses 127.a.b.c in Test.needs and let `cosmic test` refuse a bad one",
-    ["cosmic.test.network_trouble"] = "the build refuses a `network` that is no loopback " ..
-      "address 127.a.b.c; declare it in Test.needs and let `cosmic test` check it",
-    ["cosmic.test.lua_trouble"] = "the build refuses a `lua` beside tool, store, system or " ..
-      "caches; declare Test.needs and let `cosmic test` refuse a bad one",
+    ["cosmic.test.needs"] = "a test module declares what it is held to and reads with " ..
+      "Test.policy { grants = { ... }, ... } (`cosmic docs cosmic.test`)",
+    ["cosmic.test.fields"] = "the build checks a policy declaration's fields; declare " ..
+      "them with Test.policy { ... } and let `cosmic test` refuse a bad one",
+    ["cosmic.test.any_host_refusal"] = "the build refuses any host but loopback; declare " ..
+      "loopback addresses 127.a.b.c in Test.policy's `loopback` and let `cosmic test` " ..
+      "refuse a bad one",
+    ["cosmic.test.network_trouble"] = "the build refuses a `loopback` that is no loopback " ..
+      "address 127.a.b.c; declare it in Test.policy and let `cosmic test` check it",
+    ["cosmic.test.lua_trouble"] = "the build refuses the profile \"cosmic\" beside the store, " ..
+      "the system or a cache without the grant of o/bin; declare Test.policy and let " ..
+      "`cosmic test` refuse a bad one",
     ["cosmic.http.upload"] = upload,
     ["cosmic.http.Upload"] = upload,
     ["cosmic.http.serve"] = moved_to_server("serve"),

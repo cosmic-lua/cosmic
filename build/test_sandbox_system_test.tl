@@ -98,7 +98,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "suite/run.sh" } }
+Test.policy { grants = { { path = "suite/run.sh", letters = "r" } } }
 
 local function test_bare()
   local r = Child.run({ "/bin/sh", "-c", "exit 0" })
@@ -131,7 +131,7 @@ end
 local Child = require("cosmic.child")
 local Test = require("cosmic.test")
 
-Test.needs { system = true }
+Test.policy { profiles = { "system" } }
 
 local function test_declared()
   local r = assert(Child.run({ "/bin/sh", "-c", "exit 3" }))
@@ -164,7 +164,7 @@ end
     return said
   end
   local start_hint = "/bin/sh is not in this test's sandbox, which has nothing of /bin: " ..
-    "a test that starts a host program declares Test.needs { system = true } " ..
+    "a test that starts a host program declares Test.policy { profiles = { \"system\" } } " ..
     "(see cosmic docs cosmic.test)"
   local bare = failure("suite.undeclared_test test_bare")
   assert(bare:find("assertion failed!\n  " .. start_hint, 1, true), bare)
@@ -177,8 +177,8 @@ end
     true), script)
   local read = failure("suite.undeclared_test test_read")
   assert(read:find("/etc/passwd is not in this test's sandbox, which has " ..
-      "nothing of /etc: a test that reads the system's own files declares Test.needs " ..
-      "{ system = true }", 1, true), read)
+      "nothing of /etc: a test that reads the system's own files declares Test.policy " ..
+      "{ profiles = { \"system\" } }", 1, true), read)
   -- Neither the tail of a relative path nor a URL's is a path the
   -- sandbox left out.
   for _, test in ipairs({ "test_relative", "test_url" }) do

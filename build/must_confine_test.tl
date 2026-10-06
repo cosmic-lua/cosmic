@@ -92,7 +92,7 @@ local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "bin/probe" }, nests = true }
+Test.policy { grants = { { path = "bin/probe", letters = "r" } }, promises = { "nest" } }
 
 local record Confine
   confine: function(declared: {string:{string}} | nil)
@@ -256,7 +256,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "bin/probe" }, nests = true }
+Test.policy { grants = { { path = "bin/probe", letters = "r" } }, promises = { "nest" } }
 
 local record Confine
   confine: function(declared: {string:{string}} | nil)
@@ -305,7 +305,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "bin/probe" }, nests = true }
+Test.policy { grants = { { path = "bin/probe", letters = "r" } }, promises = { "nest" } }
 
 local record Confine
   confine: function(declared: {string:{string}} | nil)
@@ -364,7 +364,7 @@ local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local type raw_process = require("cosmic.internal.process")
 
-Test.needs { reads = { "bin/probe" } }
+Test.policy { grants = { { path = "bin/probe", letters = "r" } } }
 
 local record Confine
   confine: function(declared: {string:{string}} | nil)
@@ -409,7 +409,7 @@ end
   local function refusal(module: string): string
     return "bin/probe cannot start in a root of its own: " .. module .. "'s worker is held " ..
       "by a Landlock ruleset, under which the kernel refuses every mount; declare " ..
-      "nests = true in its Test.needs"
+      "the promise \"nest\" in its Test.policy"
   end
   local refused = refusal("suite.outer_test")
   assert(failure_of(text, "held_test", "test_confined") == refused, text)
@@ -419,7 +419,7 @@ end
   text, ok = run(root, tmp .. "/nested", env)
   assert(not ok and text:find("test: this run was started in suite.outer_test's worker, " ..
       "which a Landlock ruleset holds", 1, true) and
-      text:find("declare nests = true in its Test.needs", 1, true), text)
+      text:find("declare the promise \"nest\" in its Test.policy", 1, true), text)
   -- Sandboxed, its own worker is held so.
   env[confine.held_variable] = nil
   text, ok = run(root, tmp .. "/sandboxed", env, { "--all" })

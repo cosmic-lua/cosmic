@@ -45,9 +45,7 @@ end
 
 --- The policy of a worker, or fails the test saying why not.
 local function worker_of(plan: test_sandbox.Plan, inputs: test_inputs.Effective): Sandbox.Policy
-  local policy, why = test_policy.worker(plan, inputs)
-  assert(policy ~= nil, tostring(why))
-  return policy
+  return test_policy.worker(plan, inputs)
 end
 
 --- A process that is root and may not map a user for a program (a container
@@ -123,19 +121,6 @@ local function test_the_declaration_beside_the_paths_is_the_policys_other_fields
   -- Whole, as a start takes it: merging it refuses nothing.
   local merged, why = Sandbox.merge(policy)
   assert(merged ~= nil, tostring(why))
-end
-
---- What a policy has no word for is refused, naming the field, rather than
---- run with less than the module declares: the whole environment, which
---- a policy spells name by name.
-local function test_a_wildcard_environment_is_refused_naming_the_field()
-  local inputs = effective()
-  inputs.env = { ["*"] = true }
-  local policy, why = test_policy.worker(plan_of({}, {}, {}, {}), inputs)
-  assert(policy == nil and why:find('env "*"', 1, true) and why:find("wildcard", 1, true),
-    tostring(why))
-  inputs.env = { PATH = true }
-  assert(test_policy.worker(plan_of({}, {}, {}, {}), inputs) ~= nil)
 end
 
 --- What every worker's policy has alike is text a key's runtime can hold:

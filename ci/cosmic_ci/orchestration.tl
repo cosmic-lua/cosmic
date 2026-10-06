@@ -282,11 +282,10 @@ local function names_the_run(name: string): boolean
 end
 
 --- Removes from `env`, a gating suite's, every variable that names the
---- run ([`names_the_run`]). A test that reads the whole environment
---- (`env = {"*"}`) is keyed by every variable its worker is given, so
---- one that moves each run (GITHUB_RUN_ID, GITHUB_SHA, RUNNER_NAME,
---- COSMIC_CI_SCOPE, ...) would keep such a test from standing on any
---- earlier run's verdict. No tree test reads one, so none is given one,
+--- run ([`names_the_run`]). A test is keyed by every variable its worker
+--- is given, so one that moves each run (GITHUB_RUN_ID, GITHUB_SHA,
+--- RUNNER_NAME, COSMIC_CI_SCOPE, ...) would keep a test that declared it
+--- from standing on any earlier run's verdict. No tree test reads one, so none is given one,
 --- and what a key holds is still what the worker gets. The driver
 --- decides what the suite does (`stands`, [`test_words`], `shares`) before
 --- this, from the environment it was given.
@@ -545,7 +544,7 @@ end
 
 --- The fixtures (ci/fixtures/<name>_test.tl) whose workers run
 --- sandboxed, where the leg sandboxes its suites, and whose verdicts are
---- shared (`fixture`). Each declares with [`Test.needs`] every path it
+--- shared (`fixture`). Each declares with [`Test.policy`] every path it
 --- reads of what [`place`] put at o/fixtures/<product|runtime|launcher|
 --- format|performance> of its project -- the product, the runtime
 --- setup's directory, the launcher contract's, the format decoders' or
@@ -664,7 +663,7 @@ end
 --- product, the runtime setup's directory, the launcher contract's, the
 --- format decoders', the performance inputs), placed at `kind` under
 --- o/fixtures of the project it runs in: the fixture declares each path
---- it reads there with [`Test.policy`] or [`Test.needs`], `reads`, so its
+--- it reads there with [`Test.policy`], a grant, so its
 --- key holds what each holds, not where the leg keeps it. Only `only`, the
 --- names beneath `from` it reads, are copied where it is given: a fixture
 --- that reads the product's `prefix` alone is not given the product's

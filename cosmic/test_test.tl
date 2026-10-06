@@ -1,4 +1,4 @@
---- [`cosmic.test`]'s `skip`, in this process. What its `needs` takes, as it
+--- [`cosmic.test`]'s `skip`, in this process. What its `policy` takes, as it
 --- runs, is in cosmic/test_tool_test.tl, which a script run by this
 --- program shows; what the build holds a declaration to, in
 --- build/analyzer_test.tl.

@@ -18,9 +18,8 @@ local function effective(files: {string}): test_inputs.Effective
 end
 
 --- A worker's environment is the pinned variables and the ones its
---- module declares, as the runner's view has them, or all of them for
---- "*"; and TMPDIR is its scratch directory, [`test_sandbox.scratch`],
---- whatever the host's.
+--- module declares, as the runner's view has them; and TMPDIR is its
+--- scratch directory, [`test_sandbox.scratch`], whatever the host's.
 local function test_a_worker_is_given_only_the_variables_it_may_read()
   local view = { PATH = "/bin", DECLARED = "d", UNDECLARED = "u", TMPDIR = "/elsewhere",
     COSMIC_SANDBOX = "must" }
@@ -30,9 +29,6 @@ local function test_a_worker_is_given_only_the_variables_it_may_read()
   assert(env.PATH == "/bin" and env.DECLARED == "d" and env.UNDECLARED == nil)
   assert(env.TMPDIR == test_sandbox.scratch)
   assert(env.COSMIC_SANDBOX == nil, "only what is pinned or declared is given")
-  inputs.env = { ["*"] = true }
-  local all = test_sandbox.environment(view, inputs)
-  assert(all.UNDECLARED == "u" and all.TMPDIR == test_sandbox.scratch)
 end
 
 --- Run unsandboxed, a worker that declares the `bootstrap` cache has
@@ -62,8 +58,8 @@ local function test_a_refused_user_namespace_is_said_plainly()
     assert(refused:find("refuses this user a user namespace", 1, true), refused)
     -- A Landlock domain, which a test worker's process may be held by,
     -- refuses a mount EPERM alone.
-    assert((refused:find("held by a Landlock ruleset: declare `nests = true` in the " ..
-        "starting test's Test.needs", 1, true) ~= nil) == (errno == "Operation not permitted"),
+    assert((refused:find("held by a Landlock ruleset: declare the promise \"nest\" in the " ..
+        "starting test's Test.policy", 1, true) ~= nil) == (errno == "Operation not permitted"),
       refused)
   end
   assert(test_sandbox.refusal("start: Bad address") == "start: Bad address")
@@ -86,7 +82,7 @@ end
 
 local function test_only_a_granted_noexec_capability_supplies_its_environment()
   local inputs = effective({})
-  inputs.env = { ["*"] = true }
+  inputs.env = { COSMIC_TEST_NOEXEC = true, TMPDIR = true }
   local host = { COSMIC_TEST_NOEXEC = "/forged", TMPDIR = "/host" }
   assert(test_sandbox.environment(host, inputs).COSMIC_TEST_NOEXEC == nil)
   inputs.noexec = true

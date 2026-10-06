@@ -100,10 +100,10 @@
    (`COSMIC_TEST_NO_SHARED=1`) stands on none but still shares; a test's own
    `cosmic test` has none unless it names one.
    Run sandboxed (the default where the kernel can), a test is keyed by
-   what it declares -- its closure, its [`Test.needs`], their contents and
+   what it declares -- its closure, its [`Test.policy`], their contents and
    values, the core -- and by the host (its kernel, processor, user and
    capabilities; its packages and system only for a module that declares
-   `system`), before it runs
+   the profile "system"), before it runs
    ([`build/declared_key.tl`]): it stands while none of that changes, and
    nothing is assumed. The test harness -- what every worker loads, the
    sandbox's plan, the code that computes a key -- is keyed by
@@ -143,13 +143,12 @@
    ([`build/test_sandbox_probe.tl`]) -- must fail
    loudly, never pass; and what a harness module calls through a
    library table a test can replace, it takes as a local at load. A test reaches no network but loopback,
-   and loopback is 127/8: [`Test.needs`] takes `network` as a list of
+   and loopback is 127/8: [`Test.policy`] takes `loopback` as a list of
    addresses `127.a.b.c`, whose worker runs offline on a loopback of
    its own and is keyed. A sandboxed worker whose module declares no
-   `network` has no network at all: its filter refuses it an inet
-   socket. `network = true`, any
-   other host, `::1` and `localhost` are refused, for this tree and
-   every project, naming the rule. A test that needs a service starts
+   `loopback` has no network at all: its filter refuses it an inet
+   socket. Any other host, `::1` and `localhost` are refused, for this
+   tree and every project, naming the rule. A test that needs a service starts
    its own on 127.0.0.1. A
    worker, and every process it starts, is given at o/cosmic.db the
    store of its module's import closure alone, keyed by its bytes (an
@@ -205,8 +204,8 @@
    summary says why (`unsandboxed, as no worker can be sandboxed here (<why>)`).
    A run held to sandboxing -- `COSMIC_TEST_SANDBOX=1`, `COSMIC_SANDBOX=must`
    or `COSMIC_CI_REQUIRE_SANDBOX=1` -- fails there instead. A module
-   declaring what no policy says (`env = { "*" }`) fails its tests, naming
-   the field.
+   declaring what no policy says (a grant to write, `isolate`, `limits`,
+   `set_env`) fails the build, naming the field.
    `--all` (`COSMIC_TEST_ALL=1`) runs everything. The worker still reads
    /proc, /dev/null, /dev/zero, /dev/full and /dev/urandom, keyed only
    through the host's identity, and the program, its core and its
@@ -216,11 +215,12 @@
    portable start keeps on the program, which every binding refuses
    (core/check.h's `cosmic_checkfd`), nor, sandboxed, by the program's
    own name, which only a `tool`'s worker is given. A test that starts this
-   program declares `tool = true`: sandboxed, one that does not is
-   refused it. `tool` gives the program and
-   nothing else. A test that confines a process in a root of its own --
+   program declares `tool` (the profile "cosmic" with the grant of o/bin
+   beside it): sandboxed, one that does not is refused it. `tool` gives
+   the program and nothing else. A test that confines a process in a root of its own --
    a sandbox that unveils, build.confine's `confine`, or a `cosmic test`
-   it starts whose workers are sandboxed -- declares `nests = true`:
+   it starts whose workers are sandboxed -- declares the promise "nest"
+   (`nests`):
    sandboxed, every other worker is held by a Landlock ruleset, under
    which the kernel refuses the mounts a root is made of, so such a
    start is refused outright, naming `nests`, and fails the test rather
@@ -301,7 +301,6 @@
    given, so one found only elsewhere is skipped. The requirements of a
    module are all or nothing: a test that needs one only some of the
    time goes in a module of its own, as one that reads the store does.
-   They apply to [`Test.policy`], never [`Test.needs`].
    Each CI leg lists the requirements it promises in
    [`ci/cosmic_ci/capabilities.tl`] (linux-x86_64, its shard, its checked
    job, linux-aarch64 and alpine-x86_64 promise the Linux-class names and `path:/bin/sh`;
@@ -335,18 +334,20 @@
    returns early for a host tool or artifact it lacks (jq, a portable
    artifact) or for the platform's having none (/proc, Landlock) hides an
    unchecked pass: it declares `requires` instead.
-   A test module declares what it reads beyond its import closure, its
-   fuzz corpora and a pinned environment with a top-level
-   `Test.needs { ... }` (`local Test = require("cosmic.test")`; see
-   `o/bin/cosmic docs cosmic.test`). [`Test.policy`] is [`Test.needs`]'
-   successor, being phased in: a module declares one or the other, in
-   the fields of cosmic.sandbox's `Policy`, which the harness translates
-   into the `needs` it stands for, so the key is the same (a grant "r" of
-   a path is a read, the profile "system" is `system`, "cosmic" is `lua`,
-   and `tool` with the grant `{ path = "o/bin", letters = "rx" }` beside it,
-   the promise "nest" is `nests`, `loopback` is `network`); what has no
-   `needs` yet (a grant to write, `isolate`, `limits`, `set_env`) is
-   refused. Nothing lists what a test reads
+   A test module declares what it is held to, and reads beyond its import
+   closure, its fuzz corpora and a pinned environment, with a top-level
+   `Test.policy { ... }` (`local Test = require("cosmic.test")`; see
+   `o/bin/cosmic docs cosmic.test`), in the fields of cosmic.sandbox's
+   `Policy`. The harness translates it into the `needs` it stands for,
+   whose fields these paragraphs name (`reads`, `host`, `env`, `network`,
+   `system`, `tool`, `lua`, `nests`, `store`, `noexec`, `caches`): a grant
+   "r" of a path of the tree is a read and of an absolute path a host
+   file, the profile "system" is `system`, "cosmic" is `lua`, and `tool`
+   with the grant `{ path = "o/bin", letters = "rx" }` beside it, the
+   promise "nest" is `nests`, `loopback` is `network`, the grant
+   `{ path = "o/cosmic.db", letters = "r" }` is `store`; what has no
+   `needs` (a grant to write, `isolate`, `limits`, `set_env`) is refused.
+   Nothing lists what a test reads
    undeclared: sandboxed, such a read finds nothing, and the test fails
    with its own error (a file not found, a program that could not
    start), which is the signal to declare it. Narrow a test before
@@ -373,13 +374,14 @@
    beneath /tmp, and nothing else of either, with every process it starts, so
    a test that reads what it does not declare fails. Nor has it the
    system's own paths (/usr, /bin, /lib, /etc and the like) unless its
-   module declares `system = true`, as one that starts a host program --
+   module declares the profile "system" (`system`), as one that starts a
+   host program --
    a shell, `sleep`, a compiler, o/bin/cosmic's `#!/bin/sh` launcher --
    must; a test that starts cosmic's core past the launcher
    (build.this_program's `program`) needs none, and one that reads a file or two
-   of the system names them in `host`. A `host` path names a file, or
-   /proc: a directory is refused -- by the build where it is written as
-   one (a "/" after it, a variable's whole path), and at the test's
+   of the system grants them by their absolute paths. A grant of an
+   absolute path names a file, or /proc: a directory is refused -- by the
+   build where it is written as one (a "/" after it), and at the test's
    start where the host has one there -- so declare the files a test
    reads, which its key holds by their contents. Where none can be (macOS, a host refusing user
    namespaces), or with `COSMIC_TEST_SANDBOX=0`, workers run unsandboxed
@@ -579,6 +581,5 @@ unblocks: `o/bin/cosmic todos '"cosmic-driver.pin"'` lists them.
 [`Store.meta`]: cosmic/store.tl
 [`Store.requires`]: cosmic/store.tl
 [`Store.source`]: cosmic/store.tl
-[`Test.needs`]: cosmic/test.tl
 [`Test.policy`]: cosmic/test.tl
 [`Test.skip`]: cosmic/test.tl

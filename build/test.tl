@@ -55,7 +55,7 @@
 --- A test's inputs are its default ones -- its module's import closure,
 --- as source files, the corpora of the fuzz properties it names, and a
 --- pinned environment -- and what its module declares in a top-level
---- `Test.needs { ... }` ([`cosmic.test`]): paths of the tree and the host,
+--- `Test.policy { ... }` ([`cosmic.test`]): paths of the tree and the host,
 --- variables, the network, the tool, the projection. A sandboxed test
 --- that reads what its module does not declare finds nothing there, and
 --- fails with its own error.
@@ -1389,15 +1389,14 @@ local function tree_roots(rec: Recording): {string}
   return { rec.root, confine.resolution(rec.root) }
 end
 
---- Why `m`'s `host` paths cannot all be given to its workers, from
---- where a variable one names says, as a worker's environment has it
+--- Why `m`'s `host` paths cannot all be given to its workers
 --- ([`test_inputs.resolved`]): "" where they can. Every test of such a
 --- module fails before its worker starts, sandboxed or not.
 local function unresolved(rec: Recording, m: importer.Module): string
   local effective = rec.effective ~= nil and rec.effective[m.path] or nil
   if effective ~= nil then return effective.unresolved or "" end
   for _, declared in ipairs(m.inputs ~= nil and m.inputs.host or {}) do
-    local path, trouble = test_inputs.resolved(declared, worker_view(), tree_roots(rec))
+    local path, trouble = test_inputs.resolved(declared, tree_roots(rec))
     if path == nil then return trouble end
   end
   return ""
@@ -1797,11 +1796,10 @@ end
 --- directory the invoking shell was in before its last `cd`, and the
 --- command it last ran (`_`, which a shell sets to the program it
 --- starts: /usr/bin/timeout for `timeout 30 cosmic test`). Kept, each
---- would enter the key of every test that reads the whole environment,
---- and such a test would run again after a rebuild, a `cd`, or a run
---- started another way. So too the shell's depth (`SHLVL`): a module
---- that declares `env = {"*"}` would be keyed by it, and a run from a
---- script, rather than a terminal, would run its tests again.
+--- would enter the key of a test that declares it, and such a test would
+--- run again after a rebuild, a `cd`, or a run started another way. So too
+--- the shell's depth (`SHLVL`): a run from a script, rather than a
+--- terminal, would run such a test again.
 local launch_only: {string:boolean} = { COSMIC_REBOOTED = true, OLDPWD = true, SHLVL = true, _ = true }
 
 --- The environment a worker starts with: this process's, less
@@ -2470,12 +2468,10 @@ end
 --- The policy `job`'s worker is started under ([`build.test_policy`]), from
 --- the plan of its paths (`job.plan`). Its environment is added by
 --- [`worker.invocation`], which gives a policy's `set_env` the whole of the
---- worker's. Nil and why where its module declares what a policy cannot
---- say, or its directory cannot be made.
+--- worker's. Nil and why where its directory cannot be made.
 local function policy_of(rec: Recording, job: Job): Sandbox.Policy | nil, string
   local effective = rec.effective[job.m.path]
-  local policy, why = test_policy.worker(job.plan, effective)
-  if policy == nil then return nil, why end
+  local policy = test_policy.worker(job.plan, effective)
   if effective.noexec_ready then
     local made, made_trouble = Fs.mkdirs(job.scratch .. "/noexec")
     if not made then return nil, "its private noexec scratch: " .. made_trouble end
@@ -3194,7 +3190,7 @@ local function choose_sandbox(ctx: Run): integer | nil
     local _, _ = work.close(handle)
     log:complain("test: this run was started in " .. holder .. "'s worker, which a " ..
         "Landlock ruleset holds, under which the kernel refuses every mount, and so every " ..
-        "worker's sandbox: declare nests = true in its Test.needs, or start the run with " ..
+        "worker's sandbox: declare the promise \"nest\" in its Test.policy, or start the run with " ..
         test_sandbox.switch .. "=0")
     return 1
   end
@@ -3543,7 +3539,7 @@ local function gather_key_inputs(ctx: Run): integer | nil
   for _, m in ipairs(selected_modules) do
     local effective = test_inputs.effective(m, by_path, declarations, type_only)
     effective.cache_paths = caches_of(rec, m)
-    test_inputs.resolve(effective, worker_view(), tree_roots(rec))
+    test_inputs.resolve(effective, tree_roots(rec))
     test_sandbox_probe.resolve_noexec(effective, rec.sandbox, noexec_probes)
     rec.effective[m.path] = effective
   end

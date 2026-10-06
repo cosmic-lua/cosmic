@@ -43,9 +43,8 @@
 ---   ([`confine.worker_unveil`]), the system's own paths (/usr, /bin,
 ---   /lib, /etc and the like) only where the module declares `system`,
 ---   and the `host` paths the module declares, each at its own name --
----   one a variable names (`$NAME/path`) where the variable says, as
----   [`test_inputs.resolve`] put it, refused where that is the tree's,
----   the scratch directory's, or above either;
+---   refused where that is the tree's, the scratch directory's, or above
+---   either ([`test_inputs.resolve`]);
 --- - no network but a loopback of its own, which answers the loopback
 ---   addresses a module may declare ([`cosmic.test`]'s `network`), as the
 ---   host's would;
@@ -167,16 +166,12 @@ local own_cores <const> = test_sandbox.scratch .. "/cores"
 
 --- A sandboxed worker's environment: of `environment`, the runner's
 --- view of a worker's ([`build.test`]'s `worker_environment`), the pinned
---- variables and those `effective` declares (all of them for `"*"`),
---- and TMPDIR, set to its scratch directory, the one it can write to.
+--- variables and those `effective` declares, and TMPDIR, set to its
+--- scratch directory, the one it can write to.
 function test_sandbox.environment(environment: {string:string},
                                   effective: test_inputs.Effective): {string:string}
   local out: {string:string} = {}
-  if effective.env["*"] then
-    for name, value in pairs(environment) do out[name] = value end
-  else
-    for name in pairs(effective.env) do out[name] = environment[name] end
-  end
+  for name in pairs(effective.env) do out[name] = environment[name] end
   out.COSMIC_TEST_NOEXEC = effective.noexec_ready and "/noexec" or nil
   out.TMPDIR = test_sandbox.scratch
   -- The cores of its own a worker that declares the `bootstrap` cache
@@ -327,7 +322,7 @@ local function why_shared_scratch(effective: test_inputs.Effective, reads: {stri
     if there ~= nil and (there.kind == "dir" or there.kind == "socket") and
         path ~= "/proc" then
       return "it reads " .. path .. ", " .. (there.kind == "dir" and "a directory" or "a socket") ..
-        " (a `reads` or `host` path of its Test.needs): give the files it reads, not a directory"
+        " (a grant of its Test.policy): grant the files it reads, not a directory"
     end
   end
   return ""
@@ -427,8 +422,8 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- What a module declares it reads of the tree it may run too, as it may
   -- unsandboxed, whose files are all runnable.
   -- TODO: run only the paths a test declares it runs, once [`Test.policy`]
-  -- grants `x` (step (c) of the sandbox plan): today [`Test.needs`]' `reads`
-  -- have no letters, and a path a test starts must be run.
+  -- grants `x` (step (c) of the sandbox plan): today a policy's grant of a
+  -- path takes only "r", and a path a test starts must be run.
   for _, relative in ipairs(effective.reads) do of_tree(relative, true) end
   -- The tool is o/bin/cosmic, given as the directory it is in: where
   -- it is the program, the worker has it there alone ([`program_name`]),
@@ -452,17 +447,15 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
       give(artifact)
     end
   end
-  -- Why a `host` path cannot be given: where a variable names it, one
-  -- [`test_inputs.resolve`] could not put anywhere, or one that is where
-  -- the sandbox has its own -- its scratch directory, which it gives
-  -- at [`test_sandbox.scratch`], or /tree or that, over which a bind at its
-  -- own name would go -- or above it: a variable's value, such as the
-  -- host's temporary directory, above every test's scratch directory.
+  -- Why a `host` path cannot be given: one [`test_inputs.resolve`] could
+  -- not give, or one that is where the sandbox has its own -- its scratch
+  -- directory, which it gives at [`test_sandbox.scratch`], or /tree or
+  -- that, over which a bind at its own name would go -- or above it, such
+  -- as the host's temporary directory, above every test's scratch directory.
   local refused = effective.unresolved or ""
   for _, path in ipairs(effective.host) do
     if path:sub(1, 1) == "/" then
       local plain = test_inputs.plain(path)
-      local declared = (effective.spelled or {})[plain]
       -- By its name and by where it resolves: a link to the host's
       -- temporary directory would bind all of it.
       local real = confine.resolution(plain)
@@ -472,8 +465,8 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
           local mine = own == scratch or own == own_real
           if refused == "" and where ~= "" and own ~= "" and
               ((mine and Fs.within(where, own)) or Fs.within(own, where)) then
-            refused = string.format("Test.needs host %q: %s is where its sandbox has %s",
-              declared or path, plain, mine and "its scratch directory" or own)
+            refused = string.format("Test.policy grant of the host path %q: %s is where its " ..
+                "sandbox has %s", path, plain, mine and "its scratch directory" or own)
           end
         end
       end
@@ -621,7 +614,7 @@ function test_sandbox.refusal(trouble: string): string
       "profile, or kernel.apparmor_restrict_unprivileged_userns)"
     if trouble:find("Operation not permitted", 1, true) then
       why = why .. ", or this process is held by a Landlock ruleset: declare " ..
-        "`nests = true` in the starting test's Test.needs"
+        "the promise \"nest\" in the starting test's Test.policy"
     end
   end
   if why == nil then return trouble end

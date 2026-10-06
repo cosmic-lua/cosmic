@@ -11,7 +11,7 @@ local Test = require("cosmic.test")
 --- `store`: it reads the runtime's `meta` rows and the program's own name
 --- (`artifact`), which only a worker that runs the whole program has; one on
 --- a sealed database carries only the rows its key holds.
-Test.needs{ env = { "COSMIC_FIXTURE_COUNTER" }, store = true }
+Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } }, env = { "COSMIC_FIXTURE_COUNTER" } }
 
 local function test_runtime_identity_change_runs_again()
   local counter = assert(Env.get("COSMIC_FIXTURE_COUNTER"))

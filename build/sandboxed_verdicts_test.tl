@@ -50,7 +50,7 @@ local function checkout(root: string)
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "suite/data/" } }
+Test.policy { grants = { { path = "suite/data/", letters = "r" } } }
 
 local function test_data()
   assert(Fs.read("suite/data/f") ~= nil)
@@ -60,7 +60,7 @@ end
 local Env = require("cosmic.env")
 local Test = require("cosmic.test")
 
-Test.needs { env = { "FLAVOUR" } }
+Test.policy { env = { "FLAVOUR" } }
 
 local function test_flavour()
   assert(Env.get("FLAVOUR") ~= "sour")
@@ -179,7 +179,8 @@ local function test_a_declared_variable_or_declaration_that_changes_runs_its_tes
   said("1 ran, 2 stood")
   local source = assert(Fs.read(root .. "/suite/data_test.tl"))
   assert(Fs.write(root .. "/suite/data_test.tl",
-    (source:gsub('reads = { "suite/data/" }', 'reads = { "suite/data/", "suite/lib.tl" }'))))
+    (source:gsub('{ path = "suite/data/", letters = "r" }',
+      '{ path = "suite/data/", letters = "r" }, { path = "suite/lib.tl", letters = "r" }'))))
   said("1 ran, 2 stood")
 end
 
@@ -204,7 +205,7 @@ local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local Test = require("cosmic.test")
 
-Test.needs { network = { HOSTS } }
+Test.policy { loopback = { HOSTS } }
 
 local function test_refused()
   local response, trouble = Http.open("http://127.0.0.1:1/", { connect_timeout_ns = Clock.seconds(2) })
@@ -220,7 +221,7 @@ end
   local env = environment(tmp .. "/cache/verdicts.db")
   suite(tmp .. "/beyond", "beyond", '"127.0.0.1", "example.com"', false)
   local refused = run(tmp .. "/beyond", tmp .. "/beyond.out", env, nil, true)
-  assert(refused:find('suite/beyond_test.tl:6: test.needs: network "example.com": network ' ..
+  assert(refused:find('suite/beyond_test.tl:6: test.policy: loopback "example.com": loopback ' ..
       "takes loopback addresses 127.a.b.c only", 1, true) and
       not refused:find("test: PASS", 1, true), refused)
   suite(tmp .. "/root", "loopback", '"127.0.0.1", "127.0.0.2"', false)
@@ -302,7 +303,7 @@ end
   assert(Fs.write(root .. "/suite/tool_test.tl", started .. [[
 local Test = require("cosmic.test")
 
-Test.needs { tool = true }
+Test.policy { profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local function test_runs_the_tool()
   local result = assert(started({ "-e", "" }))
@@ -344,7 +345,7 @@ end
   assert(Fs.write(root .. "/suite/bootstrap_test.tl", started .. [[
 local Test = require("cosmic.test")
 
-Test.needs { caches = { "bootstrap" } }
+Test.policy { grants = { { path = "/cache/bootstrap", letters = "rwxc" } } }
 ]] .. refused))
 end
 
@@ -408,7 +409,7 @@ local function tool_project(tmp: string): function(string), function(string): st
   -- test's confinement could not find at its name under this test's
   -- /tmp: what it declares is all its key turns on.
   assert(Fs.write(root .. "/suite/tool_test.tl",
-    "local Test = require(\"cosmic.test\")\n\nTest.needs { tool = true }\n\n" ..
+    "local Test = require(\"cosmic.test\")\n\nTest.policy { profiles = { \"cosmic\" }, grants = { { path = \"o/bin\", letters = \"rx\" } } }\n\n" ..
       "local function test_tool()\nend\n"))
   assert(Fs.write(root .. "/suite/plain_test.tl", "local function test_plain()\nend\n"))
   local tool = root .. "/o/bin/cosmic"
@@ -494,7 +495,12 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "suite/moving.txt", "keep" } }
+Test.policy {
+  grants = {
+    { path = "suite/moving.txt", letters = "r" },
+    { path = "keep", letters = "r" },
+  },
+}
 
 local function test_moving(tmp: string)
   local was = Fs.read("suite/moving.txt")
@@ -659,7 +665,7 @@ local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local lib = require("suite.lib")
 
-Test.needs { env = { "ADDED" } }
+Test.policy { env = { "ADDED" } }
 
 local function test_closed()
   assert(lib.value == 1)

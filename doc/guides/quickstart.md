@@ -1,6 +1,6 @@
 # quickstart
 
-<!-- needs: tool = true -->
+<!-- policy: profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->
 
 cosmic is one executable: the Lua runtime, the Teal compiler, and a
 standard library, `cosmic.*`, for the everyday things a script needs.

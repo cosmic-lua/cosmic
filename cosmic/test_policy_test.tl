@@ -1,7 +1,7 @@
 --- The cases of [`cosmic.test`]'s `policy`: the `needs` each policy
---- stands for, held to what a declaration of that `needs` gives -- the
---- same declaration, so the same sandbox and the same key -- and what a
---- policy refuses where it has no `needs` to stand for.
+--- stands for, as the build reads it and as the harness translates it --
+--- the same declaration, so the same sandbox and the same key -- and what
+--- a policy refuses where it has no `needs` to stand for.
 
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
@@ -33,54 +33,54 @@ local function runtime_needs(call: string): Test.Needs | nil, string
   return Test.needs_of(chunk())
 end
 
---- Pairs of declarations that mean the same: a `needs`, and the policy
---- that stands for it.
+--- Pairs of what a policy stands for and the policy: a table of the fields
+--- of [`Test.Needs`], and the [`Test.policy`] call that makes it.
 local SAME: {{string}} = {
-  { "Test.needs { }", "Test.policy { }" },
-  { 'Test.needs { reads = { "testdata/", "bin/zig.pin" } }',
+  { "{ }", "Test.policy { }" },
+  { '{ reads = { "testdata/", "bin/zig.pin" } }',
     'Test.policy { grants = { { path = "testdata/", letters = "r" }, ' ..
       '{ path = "bin/zig.pin", letters = "r" } } }' },
-  { 'Test.needs { host = { "/etc/localtime", "/proc/self/maps" } }',
+  { '{ host = { "/etc/localtime", "/proc/self/maps" } }',
     'Test.policy { grants = { { path = "/etc/localtime", letters = "r" }, ' ..
       '{ path = "/proc/self/maps", letters = "r" } } }' },
-  { 'Test.needs { reads = { "a", "b" }, host = { "/etc/hosts" } }',
+  { '{ reads = { "a", "b" }, host = { "/etc/hosts" } }',
     'Test.policy { grants = { { path = "a", letters = "r" }, ' ..
       '{ path = "/etc/hosts", letters = "r" }, { path = "b", letters = "r" } } }' },
-  { "Test.needs { system = true }", 'Test.policy { profiles = { "system" } }' },
+  { "{ system = true }", 'Test.policy { profiles = { "system" } }' },
   -- The profile alone is the program held to the module's closure; with the
   -- grant of o/bin, which the program is in, it is the program itself.
-  { "Test.needs { lua = true }", 'Test.policy { profiles = { "cosmic" } }' },
-  { 'Test.needs { lua = true, host = { "/proc" }, nests = true, network = { "127.0.0.1" } }',
+  { "{ lua = true }", 'Test.policy { profiles = { "cosmic" } }' },
+  { '{ lua = true, host = { "/proc" }, nests = true, network = { "127.0.0.1" } }',
     'Test.policy { profiles = { "cosmic" }, grants = { { path = "/proc", letters = "r" } }, ' ..
       'promises = { "nest" }, loopback = { "127.0.0.1" } }' },
-  { "Test.needs { tool = true }",
+  { "{ tool = true }",
     'Test.policy { profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }' },
-  { 'Test.needs { tool = true, store = true, reads = { "a" } }',
+  { '{ tool = true, store = true, reads = { "a" } }',
     'Test.policy { profiles = { "cosmic" }, grants = { { path = "a", letters = "r" }, ' ..
       '{ path = "o/bin", letters = "rx" }, { path = "o/cosmic.db", letters = "r" } } }' },
-  { "Test.needs { tool = true, system = true }",
+  { "{ tool = true, system = true }",
     'Test.policy { profiles = { "system", "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }' },
-  { "Test.needs { nests = true }", 'Test.policy { promises = { "nest" } }' },
-  { 'Test.needs { env = { "PATH", "HOME", "PATH" } }',
+  { "{ nests = true }", 'Test.policy { promises = { "nest" } }' },
+  { '{ env = { "PATH", "HOME", "PATH" } }',
     'Test.policy { env = { "PATH", "HOME", "PATH" } }' },
-  { 'Test.needs { network = { "127.0.0.1", "127.0.0.2" } }',
+  { '{ network = { "127.0.0.1", "127.0.0.2" } }',
     'Test.policy { loopback = { "127.0.0.1", "127.0.0.2" } }' },
   -- Three grants are the fields they stand for, not reads.
-  { "Test.needs { store = true }",
+  { "{ store = true }",
     'Test.policy { grants = { { path = "o/cosmic.db", letters = "r" } } }' },
-  { "Test.needs { noexec = true }",
+  { "{ noexec = true }",
     'Test.policy { grants = { { path = "/noexec", letters = "rwc" } } }' },
-  { 'Test.needs { caches = { "zig" } }',
+  { '{ caches = { "zig" } }',
     'Test.policy { grants = { { path = "/cache/zig", letters = "rwxc" } } }' },
-  { 'Test.needs { caches = { "zig", "bootstrap" }, reads = { "a" }, store = true, ' ..
+  { '{ caches = { "zig", "bootstrap" }, reads = { "a" }, store = true, ' ..
       'noexec = true, host = { "/etc/hosts" } }',
     'Test.policy { grants = { { path = "/cache/zig", letters = "rwxc" }, ' ..
       '{ path = "a", letters = "r" }, { path = "/noexec", letters = "rwc" }, ' ..
       '{ path = "/cache/bootstrap", letters = "rwxc" }, ' ..
       '{ path = "o/cosmic.db", letters = "r" }, { path = "/etc/hosts", letters = "r" } } }' },
   -- A promise with no `needs` field changes no key before the filter runs.
-  { "Test.needs { }", 'Test.policy { promises = { "fork", "jit", "fattr" }, tmp = true }' },
-  { 'Test.needs { reads = { "testdata" }, system = true, tool = true, nests = true, ' ..
+  { "{ }", 'Test.policy { promises = { "fork", "jit", "fattr" }, tmp = true }' },
+  { '{ reads = { "testdata" }, system = true, tool = true, nests = true, ' ..
       'env = { "PATH", "TMPDIR" }, network = { "127.0.0.1" } }',
     'Test.policy { profiles = { "cosmic", "system" }, promises = { "nest", "fork" }, ' ..
       'grants = { { path = "testdata", letters = "r" }, { path = "o/bin", letters = "rx" } }, ' ..
@@ -90,12 +90,13 @@ local SAME: {{string}} = {
 
 --- A policy is the declaration of the `needs` it stands for: the text a
 --- verdict's key holds of it (the declared key's `inputs` part), and
---- every field, are equal.
+--- every field, are equal to the `needs`'s, as the build reads the policy
+--- and as the harness translates it.
 local function test_a_policy_is_keyed_as_its_needs()
   for _, pair in ipairs(SAME) do
-    local from_needs, why_needs = declared(pair[1])
+    local chunk = assert(load("return " .. pair[1]))
+    local from_needs = assert(test_inputs.as_declared(chunk() as Test.Needs))
     local from_policy, why_policy = declared(pair[2])
-    assert(from_needs ~= nil, pair[1] .. ": " .. why_needs)
     assert(from_policy ~= nil, pair[2] .. ": " .. why_policy)
     assert(test_inputs.canonical(from_needs) == test_inputs.canonical(from_policy),
       pair[2] .. "\n" .. test_inputs.canonical(from_policy) .. "\nis not\n" ..
@@ -109,10 +110,6 @@ local function test_a_policy_is_keyed_as_its_needs()
     from_needs.line, from_policy.line = 0, 0
     for field, value in pairs(from_needs as {string:any}) do
       local other = (from_policy as {string:any})[field]
-      -- A policy says what it implies of the host; a `needs` says none.
-      if field == "implied" then
-        other = value
-      end
       if value is {string} and other is {string} then
         assert(table.concat(value, " ") == table.concat(other, " "), pair[2] .. " " .. field)
       else
@@ -186,11 +183,11 @@ local function test_a_policy_with_no_needs_is_refused()
     { 'Test.policy { env = "PATH" }', "test.policy: env takes a list of string literals, written out" },
     { "Test.policy { tmp = 1 }", "test.policy: tmp takes true or false" },
     { 'Test.policy { limits = { cpu = 1 } }', "test.policy: limits takes open_files" },
-    { 'Test.policy { loopback = { "localhost" } }', 'test.policy: network "localhost": network takes loopback' },
-    { 'Test.policy { loopback = { "10.0.0.1" } }', "test.policy: network" },
+    { 'Test.policy { loopback = { "localhost" } }', 'test.policy: loopback "localhost": loopback takes loopback' },
+    { 'Test.policy { loopback = { "10.0.0.1" } }', "test.policy: loopback" },
     { 'Test.policy { grants = { { path = "/d/", letters = "r" } } }',
-      "test.policy: host: \"/d/\" names a directory" },
-    { 'Test.policy { grants = { { path = "../x", letters = "r" } } }', "test.policy: reads:" },
+      "test.policy: grants: \"/d/\" names a directory" },
+    { 'Test.policy { grants = { { path = "../x", letters = "r" } } }', "test.policy: grants:" },
     { 'Test.policy { env = { "PATH", "*" } }', 'no wildcard "*" in a policy' },
     { 'Test.policy { env = { "" } }', "test.policy: env: an empty name" },
     { "Test.policy { env = { \"A\\n\" } }", "write declared paths plainly" },
@@ -204,10 +201,10 @@ local function test_a_policy_with_no_needs_is_refused()
       case[1] .. ": " .. tostring(trouble) .. " does not say " .. case[2])
     -- A policy the build refuses for what it says, the worker refuses
     -- too; one it refuses for an entry's own rule (a path, an address),
-    -- as `needs` is, the worker takes as it takes `needs`.
+    -- which only the build checks, the worker takes.
     if not trouble:find("test.policy: [a-z]+: ") and
         not trouble:find(": no cache ", 1, true) and
-        not trouble:find("test.policy: network", 1, true) and
+        not trouble:find("test.policy: loopback", 1, true) and
         not trouble:find("written out", 1, true) and not trouble:find("plainly", 1, true) and
         not trouble:find("declared twice", 1, true) and not trouble:find("hand it", 1, true) then
       local needs, why = runtime_needs(case[1])
@@ -217,15 +214,11 @@ local function test_a_policy_with_no_needs_is_refused()
   end
 end
 
---- A module declares its inputs once, with `needs` or `policy`.
-local function test_a_module_declares_needs_or_policy_not_both()
-  local both, trouble = declared('Test.needs { tool = true }\nTest.policy { }')
-  assert(both == nil and trouble:find("fixture_test.tl:3: test.policy: a module declares its " ..
-      "inputs once, with Test.needs or Test.policy and not both; line 2 did already", 1, true),
-    trouble)
-  local twice, again = declared('Test.policy { }\nTest.needs { }')
-  assert(twice == nil and again:find("fixture_test.tl:3: test.needs: a module declares", 1, true),
-    again)
+--- A module declares its policy once, at the top level.
+local function test_a_module_declares_its_policy_once()
+  local twice, again = declared('Test.policy { }\nTest.policy { }')
+  assert(twice == nil and again:find("fixture_test.tl:3: test.policy: a module declares its " ..
+      "policy once; line 2 did already", 1, true), again)
   local inside, within = declared('local function f() Test.policy { } end')
   assert(inside == nil and within:find("test.policy: call it as a statement at the module's " ..
       "top level", 1, true), within)
@@ -247,7 +240,7 @@ end
 
 --- What a policy requires of the host is what it declares, which the build
 --- reads and the worker is handed alike, and the key holds. Nothing is
---- inferred from its other fields, and a `needs` has none.
+--- inferred from its other fields.
 local function test_a_policy_declares_requirements()
   local function read(call: string): analyzer.Declared
     local found, why = declared(call)
@@ -264,8 +257,6 @@ local function test_a_policy_declares_requirements()
   assert(test_inputs.canonical(test_inputs.as_declared(handed)) == test_inputs.canonical(from_policy))
   assert(test_inputs.canonical(from_policy):find('requires "root"', 1, true))
   assert(test_inputs.canonical(read("Test.policy { }")) == "")
-  local refused, why = declared('Test.needs { requires = { "root" } }')
-  assert(refused == nil and why:find("no field requires", 1, true), tostring(why))
 end
 
 --- A name the table does not have, a name written twice, a `path:` the

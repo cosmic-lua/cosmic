@@ -52,8 +52,8 @@ local bytecode_header =
   "\8\136\169\255\255\255\255\255\255" ..
   "\8\0\0\0\0\0\40\119\192"
 
---- What `test_inputs` holds, by source hash: each [`Test.needs`]
---- declaration.
+--- What `test_inputs` holds, by source hash: each [`Test.policy`]
+--- declaration, as the [`Test.Needs`] it stands for.
 local function test_inputs_by_hash(db: Sqlite.Handle): {string:analyzer.Declared} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT source_hash, field, value FROM test_inputs ORDER BY source_hash, ordinal")

@@ -100,8 +100,8 @@ end
 --- errno), as the seccomp filter of a policy without a `u` grant refuses
 --- `socket`: any other failure is nil, for the test to fail on. The reason
 --- names the directories the worker's root binds, which its module's
---- [`Test.needs`] put there: `system`, `tool`, a directory among its
---- `reads` or `host`, a host cache or a private `noexec` scratch.
+--- [`Test.policy`] put there: the profile "system", the program, a directory
+--- among its grants, a host cache or a private `noexec` scratch.
 --- @param dir a directory the process may make a socket file in
 --- @return the reason, or nil
 function unix_socket.refusal(dir: string): string

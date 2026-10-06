@@ -290,7 +290,7 @@ end
 
 --- What the analyzer put above an example's function, cut into its
 --- top-level pieces: a `require`, a helper (any other `local`) or a
---- call (`Test.needs{...}`), each with the comment lines above it. The
+--- call (`Test.policy{...}`), each with the comment lines above it. The
 --- text is in the layout `cosmic fix` writes, so a piece begins at a
 --- line in column one that does not close the one before. `code` is a
 --- piece's first line that is not a comment.
@@ -321,7 +321,7 @@ end
 --- An example's source as its page for `symbol` shows it. The analyzer
 --- puts above the function the `require` lines it needs, the short
 --- helpers it uses (`local function`, `local record`, ...) and, for a
---- file's first example, the file's top-level calls (`Test.needs{...}`).
+--- file's first example, the file's top-level calls (`Test.policy{...}`).
 --- Those calls are shown only on the page of a symbol they call; any
 --- other page gets the function, the helpers and the `require` lines
 --- its body and helpers name.

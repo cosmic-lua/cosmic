@@ -467,12 +467,12 @@
         # its workers by default and knows `system`, but cosmic_ci's
         # tests read the checkout around ci/ (bin/cosmic-bootstrap,
         # build/, .github/), which a worker held to ci/ is not given and
-        # `Test.needs` names only as a host path written out in the
+        # `Test.policy` names only as a host grant written out in the
         # source; the macOS leg has no sandbox at all. Then too, the
         # cosmic_ci tests that start the system's own programs
         # (bootstrap_test, fixture_test and runner_test start /bin/sh,
-        # fuzz_test /bin/cp) declare `system = true` in their
-        # `Test.needs`.
+        # fuzz_test /bin/cp) declare the profile "system" in their
+        # `Test.policy`.
         {
           name: "move the tree to a path of its own",
           "working-directory": ".",

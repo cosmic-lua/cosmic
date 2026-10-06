@@ -14,7 +14,7 @@ local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
 
-Test.needs{ reads = { "core" }, store = true }
+Test.policy{ grants = { { path = "core", letters = "r" }, { path = "o/cosmic.db", letters = "r" } } }
 
 local built, load_trouble = teal.load()
 if built == nil then

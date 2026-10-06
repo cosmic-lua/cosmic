@@ -68,7 +68,7 @@ local probe_timeout_ns <const> = Clock.seconds(30)
 --- ([`test_policy.worker`]), whose program (`program`, the core a start
 --- names) is run.
 local function least_policy(program: string, scratch: string,
-                            environment: {string:string}): Sandbox.Policy | nil, string
+                            environment: {string:string}): Sandbox.Policy
   local reads: {string} = {}
   for _, path in ipairs(confine.worker_unveil(scratch, nil, scratch).reads) do
     -- A policy's sandbox has a /proc of its own.
@@ -83,10 +83,9 @@ local function least_policy(program: string, scratch: string,
     env = environment, over = 0, trouble = "", runs = { [program] = true },
     own_scratch = false, why_shared = "",
   }
-  local policy, why = test_policy.worker(plan, effective)
-  if policy == nil then return nil, why end
+  local policy = test_policy.worker(plan, effective)
   policy.set_env = environment
-  return policy, ""
+  return policy
 end
 
 --- The words by which a failure names what a host may lack of a sandbox: a
@@ -158,8 +157,7 @@ function test_sandbox_probe.available(argv: {string}, env: {string:string}, fds:
   end
   local unmet = test_policy.unmet()
   if unmet ~= "" then return { ok = false, why = unmet, broken = false } end
-  local policy, why = least_policy(argv[1], scratch, env)
-  if policy == nil then return { ok = false, why = why, broken = true } end
+  local policy = least_policy(argv[1], scratch, env)
   local command: {string} = {}
   for i, word in ipairs(argv) do command[i] = word end
   -- As a worker whose test does not declare `tool` holds itself
@@ -193,11 +191,7 @@ local function noexec_works(): boolean, string
   end
   local directory, directory_trouble = test_sandbox_probe.directory()
   if directory == nil then return false, directory_trouble end
-  local policy, why = least_policy(start.argv[1], directory, start.env)
-  if policy == nil then
-    local _, _ = Fs.remove_tree(directory)
-    return false, why
-  end
+  local policy = least_policy(start.argv[1], directory, start.env)
   local made, made_trouble = Fs.mkdirs(directory .. "/noexec")
   if not made then
     local _, _ = Fs.remove_tree(directory)

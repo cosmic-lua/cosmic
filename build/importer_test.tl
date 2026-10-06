@@ -1693,10 +1693,10 @@ end
 local function test_only_a_test_module_declares_its_inputs()
   local root = assert(write_fixture("inputs-kind", {
     ["lib/helper.tl"] = "local Test = require(\"cosmic.test\")\n" ..
-      "Test.needs { reads = { \"data/\" } }\nreturn {}\n",
+      "Test.policy { grants = { { path = \"data/\", letters = \"r\" } } }\nreturn {}\n",
     ["lib/helper_test.tl"] = "local helper = require(\"lib.helper\")\n" ..
       "local Test = require(\"cosmic.test\")\n" ..
-      "Test.needs { reads = { \"data/\" } }\n" ..
+      "Test.policy { grants = { { path = \"data/\", letters = \"r\" } } }\n" ..
       "local function test_x() assert(helper) end\n",
   }))
   local requires, trouble = requires_of_fixture(root, "lib.helper_test")

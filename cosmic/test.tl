@@ -1,10 +1,13 @@
 --- To write a test, put top-level `local function test_*` functions in a
 --- `<name>_test.tl` file ([`cosmic.layout`]). This module is what such a
 --- module tells `cosmic test` about itself: what its tests
---- read beyond their default inputs, with `needs`:
+--- are held to, and read beyond their default inputs, with `policy`:
 ---
 ---     local Test = require("cosmic.test")
----     Test.needs { reads = { "testdata/" }, env = { "PATH" } }
+---     Test.policy {
+---       grants = { { path = "testdata/", letters = "r" } },
+---       env = { "PATH" },
+---     }
 ---
 --- A test's default inputs are its module's import closure, as source
 --- files; every fuzz corpus (`testdata/fuzz/`), when that closure holds
@@ -35,20 +38,19 @@
 --- the module, so the call is held to one shape: a statement at the
 --- top of a test or example module, once, on the name a `local` binds
 --- `require("cosmic.test")` to, with one table written out as a literal
---- -- `Test.needs { ... }` or `Test.needs({ ... })`. Anything else -- a
---- value computed, a call inside a function, `needs` passed around
+--- -- `Test.policy { ... }` or `Test.policy({ ... })`. Anything else -- a
+--- value computed, a call inside a function, `policy` passed around
 --- under another name -- fails the build, naming its line. When the
 --- module runs under `cosmic test`, what the call was handed must be
 --- what the build read, or the module fails to load. The call is once a
 --- process, whichever module makes it: a test module never requires
---- another test module that calls `needs`. Every string is written
+--- another test module that calls `policy`. Every string is written
 --- plainly, without escapes or long brackets, as the build reads it.
 ---
---- `policy` is `needs`' successor, being phased in: a module declares
---- one or the other, never both, in the fields of [`cosmic.sandbox`]'s
---- [`Policy`] -- see [`Test.policy`]. Until the policy runs a worker of its
---- own, the harness translates it into the `needs` it stands for, so the
---- test is sandboxed and keyed as that `needs` would have it.
+--- A policy is written in the fields of [`cosmic.sandbox`]'s [`Policy`]
+--- -- see [`Test.policy`]. The harness translates it into the
+--- [`Needs`] it stands for, which is what sandboxes the test and keys its
+--- verdict.
 ---
 --- A test that this host cannot give the sandbox it is about says so
 --- with `skip`, which ends it: the run counts it skipped rather than
@@ -58,7 +60,7 @@
 -- TODO: take `environment` and `program` from build.this_program, which
 -- a test calls to say what a process of this program it starts needs
 -- and how to start one past its launcher, once each can be read from the
--- source as `needs` is: another project's tests cannot reach build/.
+-- source as `policy` is: another project's tests cannot reach build/.
 -- (`confine` stays in build.confine: only the sandbox's own tests nest
 -- one sandbox in another.)
 
@@ -68,8 +70,9 @@
 local errors = require("cosmic.internal.errors")
 
 local record Test
-  --- What the tests of one module read beyond their default inputs.
-  --- Every field is optional.
+  --- What the tests of one module read beyond their default inputs, as
+  --- the harness has it from the module's [`Test.policy`]: what
+  --- [`Test.needs_of`] makes of one. Every field is optional.
   record Needs
     --- Paths of the tree, relative to its root, each a file or a
     --- directory and everything beneath it.
@@ -77,39 +80,26 @@ local record Test
     --- Absolute paths outside the tree, each a file of the host's -- or
     --- /proc, or a path beneath it, which every worker is given and no
     --- key could hold by what it holds. A directory is refused: one
-    --- written with a "/" after it, or a variable's whole path, fails the
-    --- build, naming its line; one that is a directory on the host fails
-    --- each test of the module, naming it. Declare the files the tests
-    --- read -- a checkout's `$ROOT/o/bin/cosmic`, not `$ROOT`. A path
-    --- whose first name is `$NAME` is where the environment variable NAME
-    --- says, wherever that is -- `"$PRODUCT/bin/tool"` -- and declares
-    --- NAME too. The variable is looked up in the environment the tests
-    --- are given: where it is unset, empty or relative, each test of the
-    --- module fails, naming it, as it does where any `host` path is the
-    --- tree's, or above it. Such a path is keyed by the variable's name
-    --- and by what the file holds, not by where it is, so the same
-    --- contents elsewhere key the same, and a verdict reached there
-    --- stands here: a test must not depend on where the variable says,
-    --- as it must not on where the tree is.
+    --- written with a "/" after it fails the build, naming its line; one
+    --- that is a directory on the host fails each test of the module,
+    --- naming it, as does a path that is the tree's, or above it.
+    --- Declare the files the tests read.
     host: {string}
-    --- Environment variables beyond the pinned ones; `"*"` is the
-    --- whole environment, which a process started without an `env` of
-    --- its own inherits.
+    --- Environment variables beyond the pinned ones.
     env: {string}
     --- The loopback addresses the tests reach, each a dotted quad of
     --- 127/8, `127.a.b.c`, as a request names it: a sandboxed worker
     --- runs offline, with a loopback of its own that answers them, and
     --- is keyed like any other. No test reaches another host: what one
     --- answered, no key could hold, so a test that needs a service
-    --- starts its own on 127.0.0.1. `true`, any other name or address
-    --- -- `::1` and `localhost` among them, whose answer turns on how
-    --- the host sets up IPv6 -- and a spelling no request's host is
-    --- (a port, brackets, a leading zero) are refused, naming this
-    --- rule, as the build refuses them before the module runs.
+    --- starts its own on 127.0.0.1. Any other name or address -- `::1`
+    --- and `localhost` among them, whose answer turns on how the host
+    --- sets up IPv6 -- and a spelling no request's host is (a port,
+    --- brackets, a leading zero) are refused, naming this rule, as the
+    --- build refuses them before the module runs.
     network: {string}
     --- What the tests need of the host, as `requires` of [`Policy`]
-    --- says. Only a policy's translation sets it: `needs` itself has no such
-    --- field, and refuses one.
+    --- says.
     requires: {string}
     --- Whether the tests read the tool itself, `o/bin/cosmic`, or the
     --- program running them, or start either: it gives them the program
@@ -280,23 +270,11 @@ local record Test
   end
 end
 
---- What each field of [`Needs`] takes: a list of strings ("list") or a
---- boolean ("flag"). The build holds a declaration read from the source
---- to the same table (`input_fields` in build/analyzer.tl); what only the
---- build can say of one -- that `network` names loopback addresses alone,
---- which fields `lua` stands beside -- it says before the module runs, so
---- `needs` holds a value to its shape and no more.
-local FIELDS <const>: {string:string} = {
-  reads = "list", host = "list", env = "list", network = "list",
-  tool = "flag", lua = "flag", nests = "flag", noexec = "flag", store = "flag",
-  system = "flag", caches = "list",
-}
-
 --- What a test runner installed as `__runner` on this module's table
---- -- no part of its type -- to learn what `needs` is handed as the
+--- -- no part of its type -- to learn what `policy` stands for as the
 --- module it runs loads, and to have a call once
 --- that module has loaded refused: a table whose `handed` is called with
---- what `needs` was handed, whose `loaded` the runner sets once the
+--- the [`Needs`] the policy stands for, whose `loaded` the runner sets once the
 --- module has loaded, and whose `skipped` is called with the reason
 --- each `skip` is given and answers the value `skip` raises to end the
 --- test (nothing, to let it go on). Nil when none is installed.
@@ -308,46 +286,10 @@ local function runner_in(module: any): {string:any}
   return nil
 end
 
---- Where the one `needs` call came from, once it has come.
+--- Where the one `policy` call came from, once it has come.
 local called_at: string = nil
---- Which of `needs` and `policy` made it.
-local called_by: string = nil
 
---- Why `value`, handed to `needs`, is no [`Needs`], or "" when it is one.
---
--- TODO: write this as a cosmic.shape spec over [`Needs`] once cosmic.shape and
--- the cosmic.json it requires may be in the harness: each would join
--- build/harness_epoch.tl's `library`, and every edit to either would cost an
--- acknowledged digest line there and possibly an epoch bump. The messages
--- (`$.reads: expected list, got string`) would also differ from the ones
--- cosmic/test_tool_test.tl holds.
-local function trouble_of(value: any): string
-  if not value is {any:any} then
-    return "takes a table, got " .. type(value)
-  end
-  for key, field_value in pairs(value) do
-    local takes = key is string and FIELDS[key] or nil
-    if takes == nil then
-      return "has no field " .. tostring(key)
-    end
-    local wanted = takes == "list" and "a list of strings" or "true or false"
-    local is_flag = field_value is boolean
-    if (is_flag and takes == "list") or (not is_flag and takes == "flag") or
-        (not is_flag and not field_value is {any:any}) then
-      return tostring(key) .. " takes " .. wanted
-    end
-    if field_value is {any:any} then
-      for i, item in pairs(field_value) do
-        if not (math.type(i) == "integer" and item is string) then
-          return tostring(key) .. " takes " .. wanted
-        end
-      end
-    end
-  end
-  return ""
-end
-
---- Where `needs` or `policy` was called from, as the chunk and line a
+--- Where `policy` was called from, as the chunk and line a
 --- traceback names -- its frame four up: this, `declare`, the call, its
 --- caller -- or "an earlier call".
 local function caller(): string
@@ -355,38 +297,21 @@ local function caller(): string
   return trace:match("\n%s*([^\n]-:%d+):") or "an earlier call"
 end
 
---- Records that this module declared its inputs, by `which` (`needs` or
---- `policy`), and hands `needs` to the runner: the one place both calls
---- are held to being made once, as the module loads.
-local function declare(which: string, needs: Test.Needs)
+--- Records that this module declared its policy, and hands the `needs` it
+--- stands for to the runner: the place `policy` is held to being called once,
+--- as the module loads.
+local function declare(needs: Test.Needs)
   local installed = runner_in(Test)
   if installed ~= nil and installed.loaded == true then
-    error("test: " .. which .. " is called at the top of a test module, while it loads", 3)
+    error("test: policy is called at the top of a test module, while it loads", 3)
   end
   if called_at ~= nil then
-    local first = called_by or which
-    error("test: " .. which .. " is called once, and " .. called_at .. " called " ..
-        (first == which and "it" or first) .. " already; " ..
-        (first == which and "a test module never requires another that calls it" or
-          "a module declares needs or policy, not both"), 3)
+    error("test: policy is called once, and " .. called_at .. " called it already; " ..
+        "a test module never requires another that calls it", 3)
   end
-  called_at, called_by = caller(), which
+  called_at = caller()
   local handed = installed ~= nil and installed.handed or nil
   if handed is function(Test.Needs) then handed(needs) end
-end
-
---- Declares what this module's tests read beyond their default inputs
---- (see the module's own doc for the shape the call must have). Raises
---- for a value no [`Needs`] could be; for a second call in the process,
---- naming where the first was -- so a test module never requires
---- another that calls `needs`; and, under a runner, for a call once the
---- module has loaded, as from inside a test.
-function Test.needs(needs: Test.Needs)
-  local trouble = trouble_of(needs)
-  if trouble ~= "" then
-    error("test: needs " .. trouble, 2)
-  end
-  declare("needs", needs)
 end
 
 --- The fields of [`Policy`] and what each takes: a list of strings
@@ -408,13 +333,12 @@ local LIMIT_FIELDS <const>: {string:boolean} = {
   open_files = true, file_bytes = true, cpu_seconds = true, processes = true,
 }
 
---- The migration this module carries: what [`Test.policy`] refuses today
---- it takes once the policy has a worker of its own.
-local NOT_YET <const> = "is not yet taken: a policy runs a worker as a `needs` does " ..
-  "(migration step a of the sandbox plan), and this takes effect where the policy's own " ..
-  "path runs it (step b)"
+--- Why what [`Test.policy`] refuses today is refused: nothing holds a test to
+--- it, so a declaration of it would claim more than the test is held to.
+local NOT_YET <const> = "is not yet taken: a worker is held to, and a key made of, what a " ..
+  "policy's paths, profiles and variables say, and nothing holds a test to this"
 
---- The three grants a policy writes for what `needs` says as a field: the
+--- The three grants a policy writes for what [`Needs`] says as a field: the
 --- store the worker is given, the private noexec scratch, and a host
 --- cache written at its own name. [`Test.needs_of`] and the build's read
 --- of a policy both take them as the field, and refuse other letters or
@@ -590,14 +514,11 @@ local function policy_of(given: any): Test.Policy | nil, string
   return out, ""
 end
 
--- TODO: delete the `$NAME` host path and env "*" from `needs`, which no
--- policy says, once build/test_inputs_test.tl's `$PRODUCT` cases and the
--- two wildcard snippets (build/test_policy.tl's TODO names them) are
--- reworked: no fixture under ci/fixtures declares either now.
 -- TODO: hand the promises to the runner, which keeps them in the key, once
--- [`Test.policy`] replaces `needs` (step e of the sandbox plan): the filter
--- runs on every worker, but until then a promise a test does not make
--- cannot be told from one it does.
+-- every module that starts a process declares "fork" (and the others it
+-- makes): the filter runs on every worker, but until a test says what it
+-- makes, a promise it does not make cannot be told from one it does. Doing
+-- it now would add `promises = { "fork" }` to hundreds of modules.
 --- The `needs` a policy stands for, or nil and why. The test is sandboxed
 --- and keyed as that `needs` would have it: reads of the tree, host
 --- files, the variables, loopback addresses, the program (profile
@@ -724,10 +645,9 @@ function Test.needs_of(given: any): Test.Needs | nil, string
   return out, ""
 end
 
---- Declares what this module's tests are held to, in the fields of
---- [`cosmic.sandbox`]'s [`Policy`], where `needs` declares what they read
---- beyond their default inputs; a module declares one or the other, never
---- both. The harness translates the policy into the `needs` it stands for
+--- Declares what this module's tests are held to and read beyond their
+--- default inputs, in the fields of [`cosmic.sandbox`]'s [`Policy`]. The
+--- harness translates the policy into the [`Needs`] it stands for
 --- ([`Test.needs_of`]), and the test runs, and is keyed, as that `needs`
 --- would have it:
 ---
@@ -739,10 +659,9 @@ end
 ---       loopback = { "127.0.0.1" },
 ---     }
 ---
---- is `Test.needs { system = true, reads = { "testdata" }, env = { "PATH" },
---- network = { "127.0.0.1" } }`. The build reads the call as it does
---- `needs`'s: one table written out as a literal, once, at the top of the
---- module. A grant with a path of the tree is a read of it, an absolute
+--- is the `needs` `{ system = true, reads = { "testdata" }, env = { "PATH" },
+--- network = { "127.0.0.1" } }`. The build reads the call as data: one
+--- table written out as a literal, once, at the top of the module. A grant with a path of the tree is a read of it, an absolute
 --- path a read of that host file; the profile "system" is `system`,
 --- "cosmic" is `lua`; the promise "nest" is `nests`; `loopback` is
 --- `network`. Four grants, written exactly so, are the fields they
@@ -763,16 +682,17 @@ end
 --- the runner asks once before any worker starts; the build refuses a name
 --- the table does not have and one written twice,
 --- and a `path:` with no host grant of its path or a `program:`
---- without the profile "system" and `env = { "PATH" }`. Raises as `needs`
---- does, for a value no
---- [`Policy`] could be and for a call made twice or after the module has
---- loaded.
+--- without the profile "system" and `env = { "PATH" }`. Raises for a value no
+--- [`Policy`] could be, for a second call in the process, naming where the
+--- first was -- so a test module never requires another that calls `policy` --
+--- and, under a runner, for a call once the module has loaded, as from
+--- inside a test.
 function Test.policy(policy: Test.Policy)
   local needs, trouble = Test.needs_of(policy)
   if needs == nil then
     error("test: policy " .. trouble, 2)
   end
-  declare("policy", needs)
+  declare(needs)
 end
 
 --- Ends the running test as skipped: this host cannot check what it

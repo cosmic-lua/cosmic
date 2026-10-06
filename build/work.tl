@@ -115,9 +115,9 @@ local version <const> = "28"
 --- can never be wrong. A row whose source no longer hashes among the
 --- inputs is pruned, and every row goes when the analyzer changes.
 --- `test_inputs` is the same parse's reading of a test module's
---- `needs` declaration ([`cosmic.test`]), one row per value a field
---- lists (`true` for a flag, `*` for any network host, and the line
---- the declaration starts on under `line`).
+--- `policy` declaration ([`cosmic.test`]), as the `needs` it stands for:
+--- one row per value a field lists (`true` for a flag, and the line the
+--- declaration starts on under `line`).
 --- `links` is each link its comments hold ([`build.link_text`]), as
 --- written: what it names is resolved only once every module is
 --- known, as a projection is written ([`build.link_index`]).

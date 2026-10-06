@@ -67,13 +67,9 @@
 ---   but for those every edit of the tree moves (`program`); the
 ---   projection, o/cosmic.db, when it declares `store`, and else the
 ---   address of the store of its closure it is given there in the
----   projection's place; and each `host` path -- one a variable names
----   (`$NAME/path`) by that spelling and by all it holds, as a path of
----   the tree is, not by where the variable says it is;
+---   projection's place; and each `host` path;
 --- - the environment its worker is given ([`test_sandbox.environment`]):
----   the pinned variables and the declared ones, all of them for `"*"`
----   -- a value where a variable a `host` path names says, or beneath
----   it, by that variable's name;
+---   the pinned variables and the declared ones;
 --- - where the tree is, only for a worker no sandbox gives it at /tree
 ---   ([`Spec`]'s `tree`).
 ---
@@ -820,21 +816,12 @@ end
 
 --- A variable's value as a key holds it: each of its `:`-separated
 --- parts that is a path of the tree by its name there
---- (`tree_name`), as PATH's are, and each that is where a
---- variable a `host` path of `effective` names says, or beneath it, by
---- that variable's name ([`test_inputs.spelling`]): what is there is
---- keyed by its contents, and its place is no more an input than the
---- tree's.
-local function held_value(value: string, root: string,
-                          effective: test_inputs.Effective): string
+--- (`tree_name`), as PATH's are: what is there is keyed by its
+--- contents, and its place is no more an input than the tree's.
+local function held_value(value: string, root: string): string
   local parts: {string} = {}
   for part in (value .. ":"):gmatch("([^:]*):") do
-    local held = tree_name(part, root)
-    if held == part and part:sub(1, 1) == "/" then
-      held = test_inputs.spelling(effective, test_inputs.plain(part), true)
-      if held == test_inputs.plain(part) then held = part end
-    end
-    parts[#parts + 1] = held
+    parts[#parts + 1] = tree_name(part, root)
   end
   return table.concat(parts, ":")
 end
@@ -920,33 +907,14 @@ function declared_key.preimage(digests: declared_key.Digests,
   end
   local hosts: {string} = {}
   for _, path in ipairs(effective.host) do hosts[#hosts + 1] = test_inputs.plain(path) end
-  -- Each in order of its line's name: one a variable names by its
-  -- spelling, so where the variables say moves no line.
-  local function named(path: string): string
-    local declared = (effective.spelled or {})[path]
-    return declared ~= nil and ("v\0" .. declared) or ("h\0" .. path)
-  end
-  table.sort(hosts, function(a: string, b: string): boolean return named(a) < named(b) end)
+  table.sort(hosts)
   -- What the host has installed, for a module given the system's paths:
   -- the package database stands for what they hold.
   local installed = effective.system
-  local spelled = effective.spelled or {}
   for _, path in ipairs(hosts) do
     if not seen[path] then
       seen[path] = true
-      local declared = spelled[path]
-      if declared ~= nil then
-        -- One a variable names, by the name the module declares it by
-        -- and by what it holds, all of it, as a path of the tree is: not
-        -- by where the variable says it is, which another run may say
-        -- elsewhere.
-        local real, _ = sys.realpath(path)
-        local answer = tree(digests, path, false, { path, real or path })
-        if answer:sub(1, 8) == "refused " then return nil, answer:sub(9) end
-        lines[#lines + 1] = part("v", declared, answer)
-      else
-        lines[#lines + 1] = part("h", path, host(digests, path))
-      end
+      lines[#lines + 1] = part("h", path, host(digests, path))
     end
   end
   if installed then lines[#lines + 1] = part("system", spec.system or "", "") end
@@ -954,8 +922,7 @@ function declared_key.preimage(digests: declared_key.Digests,
   for name in pairs(spec.environment) do names[#names + 1] = name end
   table.sort(names)
   for _, name in ipairs(names) do
-    lines[#lines + 1] = part("e", name, held_value(spec.environment[name], digests.root,
-      effective))
+    lines[#lines + 1] = part("e", name, held_value(spec.environment[name], digests.root))
   end
   return table.concat(lines, "\n"), ""
 end
@@ -1328,7 +1295,7 @@ local function remembered_walk(digests: declared_key.Digests, paths: {string},
 end
 
 --- What the host has installed, as the key of a module given the
---- system's paths ([`Test.needs`]'s `system`) holds it: the database of
+--- system's paths (the profile "system" of [`Test.policy`]) holds it: the database of
 --- the packages it has installed (`package_databases`), by contents,
 --- where there is one, hashed only when its `lstat` moves; the system
 --- it says it is (/etc/os-release; on macOS, the system volume's

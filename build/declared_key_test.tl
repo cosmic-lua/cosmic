@@ -377,19 +377,17 @@ end
 --- A spec each field of which, and of its `effective`, holds something,
 --- of a test in a tree as `tree` writes it: its module runs the tool,
 --- declares `store` and the system, and names a host file in `hostdir`,
---- outside the tree, by a variable (`$H/host.txt`).
+--- outside the tree.
 local function full_spec(hostdir: string): declared_key.Spec
   assert(Fs.mkdirs(hostdir))
   assert(Fs.write(hostdir .. "/host.txt", "h\n"))
   local effective: test_inputs.Effective = {
     files = { ["suite/t_test.tl"] = true, ["suite/lib.tl"] = true },
     reads = { "suite/data/" }, host = { hostdir .. "/host.txt" },
-    env = { DECLARED = true, H = true }, network = { ["127.0.0.1"] = true },
+    env = { DECLARED = true }, network = { ["127.0.0.1"] = true },
     tool = true, lua = true, nests = true, noexec = true,
     noexec_ready = true, noexec_trouble = "no reason", store = true, system = true,
     caches = { "zig" }, cache_paths = { hostdir .. "/cache" },
-    variables = { "DECLARED", "H" }, named = { H = true },
-    spelled = { [hostdir .. "/host.txt"] = "$H/host.txt" }, located = { H = hostdir },
     unresolved = "no reason",
   }
   return {
@@ -398,7 +396,7 @@ local function full_spec(hostdir: string): declared_key.Spec
     program = "program", host = "host", system = "system", launcher = "launcher",
     declaration = 'reads "suite/data/"\nenv "DECLARED"', effective = effective,
     requires = { proc = "mounted", ["program:jq"] = "sha256:jq" },
-    environment = { DECLARED = "d", H = hostdir, TMPDIR = "/tmp" },
+    environment = { DECLARED = "d", TMPDIR = "/tmp" },
     runs_tool = true, closure_store = "address", tree = "/checkout",
   }
 end
@@ -470,11 +468,6 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
       change = function(s: declared_key.Spec) s.effective.tool = false end },
     store = { change = function(s: declared_key.Spec) s.effective.store = false end },
     system = { change = function(s: declared_key.Spec) s.effective.system = false end },
-    named = { change = function(s: declared_key.Spec) s.effective.named = {} end },
-    spelled = { change = function(s: declared_key.Spec)
-      s.effective.spelled[hostdir .. "/host.txt"] = "$G/host.txt"
-    end },
-    located = { change = function(s: declared_key.Spec) s.effective.located.H = tmp end },
   }
   local declaration = "what the module declares, which `declaration` keys as " ..
     "`test_inputs.canonical` spells it"
@@ -486,7 +479,6 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
       env = declaration .. ", and `environment` by what the worker is given",
       network = declaration .. ": loopback addresses alone (`cosmic.test`), which an " ..
         "offline worker's own loopback answers",
-      variables = declaration,
       lua = declaration .. ", and what it adds to the closure (`lua_loads`) by `files` " ..
         "and `closure_store`: every process it starts runs a sealed database of that " ..
         "closure (build.test's `sealed_for`)",
@@ -649,14 +641,11 @@ local function test_a_link_out_of_the_tree_has_no_key(tmp: string)
   assert(key_of(root) ~= nil)
 end
 
---- A `host` file a variable names is keyed by what it holds and by the
---- name it is declared by, not by where the variable says it is: the
---- same contents at another place key the same, and the variable's
---- value in the worker's environment is held by that name too; a
---- change to what it holds moves the key, as does one to what a link
---- declared leads to. A directory there is refused before any key is
---- made: no key walks what a host directory holds.
-local function test_a_host_path_a_variable_names_is_keyed_by_what_it_holds(tmp: string)
+--- A `host` file is keyed by what it holds: a change to its contents moves
+--- the key, as does one to what a link declared leads to. A directory there
+--- is refused before any key is made: no key walks what a host directory
+--- holds.
+local function test_a_host_path_is_keyed_by_what_it_holds(tmp: string)
   local root = tmp .. "/root"
   tree(root)
   local base = assert(Fs.absolute(tmp))
@@ -666,57 +655,39 @@ local function test_a_host_path_a_variable_names_is_keyed_by_what_it_holds(tmp: 
     assert(Fs.write(dir .. "/o/bin/cosmic", contents))
     return dir
   end
-  local function resolved(where: string, declared: string): declared_key.Spec
-    local s = spec({ DECLARED = "d", TMPDIR = "/tmp", PRODUCT = where })
+  local function resolved(declared: string): declared_key.Spec
+    local s = spec({ DECLARED = "d", TMPDIR = "/tmp" })
     s.effective.host = { declared }
-    s.effective.env.PRODUCT = true
-    s.effective.named = { PRODUCT = true }
-    s.effective.variables = { "DECLARED", "PRODUCT" }
     s.declaration = s.declaration .. "\nhost " .. string.format("%q", declared)
-    test_inputs.resolve(s.effective, s.environment, { root })
+    test_inputs.resolve(s.effective, { root })
     return s
   end
-  local function key_at(where: string, declared: string): string
-    local s = resolved(where, declared)
+  local function key_at(declared: string): string
+    local s = resolved(declared)
     assert(s.effective.unresolved == "", s.effective.unresolved)
     return key_of(root, s)
   end
   local one, two = product("one", "cosmic\n"), product("two", "cosmic\n")
-  local file = "$PRODUCT/o/bin/cosmic"
-  assert(key_at(one, file) == key_at(two, file), "the same contents elsewhere")
-  assert(Fs.write(two .. "/o/bin/cosmic", "another cosmic\n"))
-  assert(key_at(one, file) ~= key_at(two, file), "another file's contents")
-  -- Two variables' places swapped, what each holds the same: the same key.
-  local function key_of_two(a: string, b: string): string
-    local s = spec({ DECLARED = "d", TMPDIR = "/tmp", A = a, B = b })
-    s.effective.host = { "$A/o/bin/cosmic", "$B/o/bin/cosmic" }
-    s.effective.named = { A = true, B = true }
-    s.effective.variables = { "A", "B" }
-    test_inputs.resolve(s.effective, s.environment, { root })
-    return key_of(root, s)
-  end
-  local early, late = product("early", "a\n"), product("zlate", "b\n")
-  local swapped_early, swapped_late = product("early2", "b\n"), product("zlate2", "a\n")
-  assert(key_of_two(early, late) == key_of_two(swapped_late, swapped_early),
-    "the variables' places in another order")
-  assert(key_of_two(early, late) ~= key_of_two(swapped_early, swapped_late),
-    "what each holds, swapped")
+  local file = one .. "/o/bin/cosmic"
+  local before = key_at(file)
+  assert(key_at(file) == before)
+  assert(Fs.write(file, "another cosmic\n"))
+  assert(key_at(file) ~= before, "the file's contents")
   -- A link declared is held by what it leads to, wherever that is.
   assert(Fs.symlink("../../two/o/bin/cosmic", one .. "/o/linked"))
-  local before = key_at(one, "$PRODUCT/o/linked")
+  local linked = key_at(one .. "/o/linked")
   assert(Fs.write(two .. "/o/bin/cosmic", "a third cosmic\n"))
-  assert(key_at(one, "$PRODUCT/o/linked") ~= before, "what the link leads to")
-  -- A directory, the variable's whole path or beneath it, is refused;
-  -- /proc, which no key could hold by what it holds, and what is beneath
-  -- it, are given.
-  for _, declared in ipairs({ "$PRODUCT", "$PRODUCT/o" }) do
-    local refused = resolved(one, declared).effective.unresolved
-    assert(refused:find(string.format("Test.needs host %q: ", declared), 1, true) and
-        refused:find(" is a directory; host names files, or /proc", 1, true), refused)
+  assert(key_at(one .. "/o/linked") ~= linked, "what the link leads to")
+  -- A directory is refused; /proc, which no key could hold by what it
+  -- holds, and what is beneath it, are given.
+  for _, declared in ipairs({ one, one .. "/o" }) do
+    local refused = resolved(declared).effective.unresolved
+    assert(refused:find(string.format("Test.policy grant of the host path %q: ", declared), 1, true) and
+        refused:find(" is a directory; a grant of the host names files, or /proc", 1, true), refused)
   end
   local proc = spec()
   proc.effective.host = { "/proc", "/proc/self" }
-  test_inputs.resolve(proc.effective, proc.environment, { root })
+  test_inputs.resolve(proc.effective, { root })
   assert(proc.effective.unresolved == "", proc.effective.unresolved)
 end
 

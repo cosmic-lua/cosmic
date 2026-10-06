@@ -258,27 +258,30 @@ local function test_refuses_an_indented_tilde_fence()
     "got: " .. trouble)
 end
 
---- A line `<!-- needs: ... -->` outside a fence is the doc's needs
+--- A line `<!-- policy: ... -->` outside a fence is the doc's policy
 --- declaration, a block of its own; the same line inside a fence is the
---- fence's text, any other comment is prose, and an `inputs` line is
---- refused.
-local function test_reads_a_needs_line_outside_a_fence()
+--- fence's text, any other comment is prose, and a `needs` or `inputs`
+--- line is refused.
+local function test_reads_a_policy_line_outside_a_fence()
   local blocks, trouble = markdown.parse_blocks(doc({
     "# a guide",
     "",
-    "<!--   needs: tool = true   -->",
+    "<!--   policy: tmp = true   -->",
     "<!-- a comment -->",
     "```teal",
-    "<!-- needs: tool = true -->",
+    "<!-- policy: tmp = true -->",
     "```",
   }))
   assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
   assert(#blocks == 2, "expected 2 blocks, got " .. #blocks)
-  assert(blocks[1].lang == "needs" and blocks[1].content == "tool = true",
+  assert(blocks[1].lang == "policy" and blocks[1].content == "tmp = true",
     blocks[1].lang .. ": " .. blocks[1].content)
   assert(blocks[1].line == 3)
-  assert(blocks[2].lang == "teal" and blocks[2].content == "<!-- needs: tool = true -->")
+  assert(blocks[2].lang == "teal" and blocks[2].content == "<!-- policy: tmp = true -->")
   local old, old_trouble = markdown.parse_blocks(doc({ "# a guide", "<!-- inputs: tool = true -->" }))
   assert(old == nil and old_trouble ==
-      "line 2: a doc declares what its examples read with <!-- needs: ... --> now", old_trouble)
+      "line 2: a doc declares what its examples read with <!-- policy: ... --> now", old_trouble)
+  local needs, needs_trouble = markdown.parse_blocks(doc({ "# a guide", "<!-- needs: tool = true -->" }))
+  assert(needs == nil and needs_trouble ==
+      "line 2: a doc declares what its examples read with <!-- policy: ... --> now", needs_trouble)
 end
