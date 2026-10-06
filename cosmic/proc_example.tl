@@ -7,7 +7,7 @@ local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
 
 -- Account lookup can consult the host's directory service.
-Test.needs{ system = true }
+Test.policy{ profiles = { "system" } }
 
 local Example = {}
 

@@ -1,6 +1,6 @@
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
-local Json = require("cosmic.json")
+local Shape = require("cosmic.shape")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local bom = require("build.bom")
@@ -8,7 +8,14 @@ local schema = require("build.schema")
 
 --- What the bill of materials describes: every vendored tree, the patches
 --- to it and the pins it came by.
-Test.needs{ reads = { "bin/zig.pin", "build/bom/", "patch/", "vendor/" } }
+Test.policy{
+  grants = {
+    { path = "bin/zig.pin", letters = "r" },
+    { path = "build/bom/", letters = "r" },
+    { path = "patch/", letters = "r" },
+    { path = "vendor/", letters = "r" },
+  },
+}
 
 --- An empty database of the shipped shape.
 local function database(): Sqlite.Handle
@@ -36,14 +43,14 @@ local function test_a_record_names_its_license()
   assert(#component.notices == 2)
   assert(component.notices[1].file == "LICENSE" and component.notices[1].first == nil)
   assert(component.notices[2].file == "src/lua.h" and component.notices[2].first == 524 and
-    component.notices[2].last == 543)
+      component.notices[2].last == 543)
 end
 
 --- Every key but `notice` is read once, the first line winning, as
 --- [`bin/vendor`] reads a PIN: a second `url` names no other archive.
 local function test_the_first_line_naming_a_key_wins()
   local component = assert(bom.parse("a", "version 1\nurl first\nurl second\n" ..
-    "license MIT\nlicense GPL-3.0\nnotice A\nnotice B\n"))
+      "license MIT\nlicense GPL-3.0\nnotice A\nnotice B\n"))
   assert(component.url == "first" and component.license == "MIT")
   assert(#component.notices == 2)
 end
@@ -59,7 +66,7 @@ local function test_a_notice_range_must_hold_a_line()
   local _, half = bom.parse("a", "version 1\nurl u\nlicense MIT\nnotice f:9\n")
   assert(half:find("file:first-last", 1, true), half)
   local _, kind = bom.parse("a", "version 1\nurl u\nlicense MIT\nkind tool\n")
-  assert(kind:find("neither library nor data", 1, true), kind)
+  assert(kind:find("none of library, data and test", 1, true), kind)
 end
 
 local function test_fill_reads_every_record_and_its_notices(tmp: string)
@@ -68,21 +75,24 @@ local function test_fill_reads_every_record_and_its_notices(tmp: string)
   assert(Fs.mkdirs(tmp .. "/build/bom"))
   assert(Fs.mkdirs(tmp .. "/patch/zlib"))
   assert(Fs.write(tmp .. "/vendor/zlib/PIN", "version 1.3\nurl https://zlib.net/z.tar.gz\n" ..
-    "sha256 00ff\nlicense Zlib\nnotice zlib.h:2-3\n"))
+      "sha256 00ff\nlicense Zlib\nnotice zlib.h:2-3\n"))
   assert(Fs.write(tmp .. "/vendor/zlib/zlib.h", "/*\n (C) Jean-loup Gailly\n Mark Adler\n*/\n"))
   assert(Fs.write(tmp .. "/patch/zlib/01-fix.txt", "a patch"))
   assert(Fs.write(tmp .. "/patch/zlib/.01-fix.txt.swp", "an editor's"))
   assert(Fs.write(tmp .. "/patch/zlib/README", "not a patch"))
   assert(Fs.mkdirs(tmp .. "/vendor/roots"))
   assert(Fs.write(tmp .. "/vendor/roots/PIN", "version 7\nurl https://roots.example/r.pem\n" ..
-    "kind data\nlicense MPL-2.0\n"))
+      "kind data\nlicense MPL-2.0\n"))
+  assert(Fs.mkdirs(tmp .. "/vendor/wpt"))
+  assert(Fs.write(tmp .. "/vendor/wpt/PIN", "version 1\nurl https://wpt.example/d.json\n" ..
+      "kind test\nlicense BSD-3-Clause\n"))
   assert(Fs.write(tmp .. "/build/bom/libc.pin", "version 2\nurl https://libc.example/\n" ..
-    "license MIT\nnotice libc.COPYRIGHT\n"))
+      "license MIT\nnotice libc.COPYRIGHT\n"))
   assert(Fs.write(tmp .. "/build/bom/libc.COPYRIGHT", "(C) libc\r\nMIT"))
   local db = database()
   assert(bom.fill(db, tmp, "main."))
   local rows = assert(bom.rows(db))
-  assert(#rows == 3, "a directory with no PIN is no component")
+  assert(#rows == 3, "a directory with no PIN, or a PIN of kind test, is no component")
   assert(rows[1].name == "libc" and rows[1].sha256 == "" and rows[1].patches == "")
   assert(rows[2].name == "roots" and rows[2].kind == "data")
   assert(rows[3].name == "zlib" and rows[3].sha256 == "00ff")
@@ -120,6 +130,36 @@ local function test_two_records_may_not_name_one_component(tmp: string)
   assert(db:close())
 end
 
+--- The parts of a CycloneDX document that [`bom.cyclonedx`] writes and
+--- these tests read.
+local record Checksum
+  alg: string
+  content: string
+end
+local record Reference
+  hashes: {Checksum} | nil
+end
+local record License
+  expression: string
+end
+local record Pedigree
+  notes: string
+end
+local record Component
+  type: string
+  name: string
+  purl: string
+  licenses: {License}
+  externalReferences: {Reference}
+  pedigree: Pedigree | nil
+end
+local record Document
+  bomFormat: string
+  specVersion: string
+  components: {Component}
+end
+local DOCUMENT <const> = Shape.record_of("Document")
+
 local function test_the_json_is_a_cyclonedx_document()
   local document = assert(bom.cyclonedx({
     { name = "zlib", kind = "library", version = "1.3", license = "Zlib",
@@ -127,23 +167,21 @@ local function test_the_json_is_a_cyclonedx_document()
     { name = "roots", kind = "data", version = "1", license = "MPL-2.0",
       url = "https://example.com/r.pem", sha256 = "", patches = "" },
   }, "cosmic", "abc"))
-  local decoded = assert(Json.decode_object(document))
+  local decoded, why = DOCUMENT:decode_into(document)
+  assert(decoded ~= nil, tostring(why))
   assert(decoded.bomFormat == "CycloneDX" and decoded.specVersion == "1.6")
-  local components = decoded.components as {{string:any}}
+  local components = decoded.components
   local zlib = components[1]
   assert(zlib.purl == "pkg:generic/zlib@1.3?download_url=https%3A%2F%2Fzlib.net%2Fz%201.tar.gz",
-    tostring(zlib.purl))
-  local licenses = zlib.licenses as {{string:any}}
-  assert(licenses[1].expression == "Zlib")
-  local pedigree = zlib.pedigree as {string:any}
-  assert(pedigree.notes == "patched by cosmic:\npatch/zlib/a 01", tostring(pedigree.notes))
-  local references = zlib.externalReferences as {{string:any}}
-  local hashes = references[1].hashes as {{string:any}}
-  assert(hashes[1].alg == "SHA-256" and hashes[1].content == "00ff")
+    zlib.purl)
+  assert(zlib.licenses[1].expression == "Zlib")
+  local pedigree = zlib.pedigree
+  assert(pedigree ~= nil and pedigree.notes == "patched by cosmic:\npatch/zlib/a 01")
+  local hashes = zlib.externalReferences[1].hashes
+  assert(hashes ~= nil and hashes[1].alg == "SHA-256" and hashes[1].content == "00ff")
   local roots = components[2]
   assert(roots.type == "data" and roots.pedigree == nil)
-  local roots_references = roots.externalReferences as {{string:any}}
-  assert(roots_references[1].hashes == nil, "no digest is named when the record has none")
+  assert(roots.externalReferences[1].hashes == nil, "no digest is named when the record has none")
 end
 
 -- TODO: hold build/bom/musl.pin's version and both notices copied
@@ -203,7 +241,7 @@ local function test_every_license_a_vendored_file_is_tagged_with_is_named()
           for tag in data:gmatch("SPDX%-License%-Identifier:%s*([^\n*]+)") do
             for id in pairs(ids_of(tag)) do
               assert(named[id], "vendor/" .. name .. "/" .. file .. " is under " .. id ..
-                ", which vendor/" .. name .. "/PIN's license does not name")
+                  ", which vendor/" .. name .. "/PIN's license does not name")
             end
           end
         end

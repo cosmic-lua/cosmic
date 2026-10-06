@@ -172,13 +172,18 @@ end
 
 --- math.abs, math.floor, math.ceil, math.modf, math.fmod, math.min and math.max
 --- cover ordinary numeric operations. math.tointeger returns nil unless exact;
---- math.type distinguishes "integer", "float", and non-numbers.
+--- math.type distinguishes "integer", "float", and non-numbers. A number
+--- literal may separate its digits with `_`, each between two digits
+--- (`1_000_000`, `0xFF_FF`, `6.02e2_3`): the compiled Lua holds the digits
+--- alone, so `1_000` is the integer 1000. Stock Teal and Lua refuse such a
+--- literal, and `tonumber("1_000")` is still nil.
 function Example.math_numeric()
   local whole, fraction = math.modf(2.25)
   assert(math.abs(-3) == 3 and math.floor(1.9) == 1 and math.ceil(1.1) == 2)
   assert(whole == 2 and fraction == .25 and math.fmod(-7, 3) == -1)
   assert(math.min(3, 1, 2) == 1 and math.max(3, 1, 2) == 3)
   assert(math.type(1) == "integer" and math.tointeger(1.5) == nil)
+  assert(1_000_000 == 1000000 and math.type(1_000) == "integer" and tonumber("1_000") == nil)
 end
 
 --- math.sin, math.cos, math.tan, math.asin, math.acos and math.atan(y[, x]) use
@@ -319,7 +324,7 @@ function Example.unions_narrowing_casts()
   local definitely: string = maybe
   local left: Left = { name = "left" }
   assert(side(left) == "L:left" and definitely == "present" and render(nil) == "missing" and
-    render(1) == "2" and render("ok") == "OK")
+      render(1) == "2" and render("ok") == "OK")
 end
 
 --- A call must supply every required parameter with its declared type; a wrong
@@ -327,7 +332,12 @@ end
 --- marks an optional trailing position, and `...: T` accepts more T arguments.
 --- Generics preserve input/output relationships; `<T is Constraint>` restricts
 --- types. Multiple returns fill assignments left-to-right, and only a
---- final expression expands. Varargs use `...`.
+--- final expression expands. Varargs use `...`. A function literal passed
+--- or assigned where a function type is expected takes it: an untyped
+--- parameter is the type the expected one declares there (still `any` for
+--- a type variable no earlier argument binds), and a literal omitting its
+--- return types returns the expected ones, so it must return a value where
+--- one is expected (declare its returns to let it end without).
 function Example.generics_functions_returns()
   local interface HasName
     name: string
@@ -337,6 +347,9 @@ function Example.generics_functions_returns()
   local function quotient(a: integer, b: integer): integer, integer return a // b, a % b end
   local q, r = quotient(7, 3)
   assert(identity("x") == "x" and name_of({ name = "Ada" }) == "Ada" and q == 2 and r == 1)
+  local sizes = { 3, 1, 2 }
+  table.sort(sizes, function(a, b) return a > b end)
+  assert(sizes[1] == 3 and sizes[3] == 1)
 end
 
 --- Locals are lexical; `<const>` prevents reassignment and `<close>` invokes

@@ -47,7 +47,7 @@ end
 local function test_scalars_keep_their_sqlite_types()
   local db = loaded('[{"i": 7, "r": 1.5, "whole": 2.0, "s": "x", "n": null, "t": true, "f": false, "big": 12345678901234567890}]')
   local types = grid(db, "SELECT typeof(i), typeof(r), typeof(whole), typeof(s), typeof(n), typeof(t), " ..
-    "typeof(f), typeof(big) FROM t")
+      "typeof(f), typeof(big) FROM t")
   assert(types[1] == "integer|real|real|text|null|integer|integer|real", types[1])
   local booleans = grid(db, "SELECT t, f FROM t")
   assert(booleans[1] == "i1|i0", booleans[1])
@@ -57,7 +57,7 @@ end
 local function test_nested_values_are_json_text_that_json_extract_reaches()
   local db = loaded('[{"o": {"k": [1, {"z": "deep"}]}, "a": [1, 2, 3], "e": {}, "l": []}]')
   local rows = grid(db, "SELECT o, a, e, l, json_extract(o, '$.k[1].z'), typeof(o), " ..
-    "(SELECT sum(value) FROM json_each(a)) FROM t")
+      "(SELECT sum(value) FROM json_each(a)) FROM t")
   assert(rows[1] == '{"k":[1,{"z":"deep"}]}|[1,2,3]|{}|[]|deep|text|i6', rows[1])
 end
 
@@ -117,7 +117,9 @@ local function test_at_reads_the_rows_from_a_path()
     { at = { "a", "rows" } }))
   assert(#rows == 2 and rows[2].id == 2)
   local none, why = dataset.read("json", '{"a": 1}', { at = { "b" } })
-  assert(none == nil and why:find('no key "b"', 1, true), why)
+  assert(none == nil and why == 'json: no value at pointer "/b"', why)
+  local last = assert(dataset.read("json", '{"a": [{"id": 1}, {"id": 2}]}', { at = { "a", -1 } }))
+  assert(#last == 1 and last[1].id == 2)
   local bad, bad_why = dataset.read("json", "{", {})
   assert(bad == nil and bad_why:find("invalid JSON", 1, true), bad_why)
 end
@@ -194,7 +196,7 @@ local function test_too_many_columns_says_the_limit_and_the_count()
   row.extra = 1
   local made, why = dataset.load(db, "u", { row })
   assert(made == nil and why == "dataset: too many columns: 2000 distinct keys, and SQLite holds at most " ..
-    "2000 columns in a table (one is `_json`)", why)
+      "2000 columns in a table (one is `_json`)", why)
   assert(not Sqlite.rows(db, "SELECT * FROM u"), "a refused load leaves no table")
 end
 
@@ -213,7 +215,7 @@ end
 local function test_a_csv_cell_that_is_plainly_a_number_is_one()
   -- Columns are in byte order: a b c d e f g h.
   assert(csv_cells("a,b,c,d,e,f,g,h\n1,-2,0,3.5,-0.25,1e3,2E-2,12345678901234567890\n") ==
-    "integer:1|integer:-2|integer:0|real:3.5|real:-0.25|real:1000.0|real:0.02|real:1.2345678901234567e+19",
+      "integer:1|integer:-2|integer:0|real:3.5|real:-0.25|real:1000.0|real:0.02|real:1.2345678901234567e+19",
     csv_cells("a,b,c,d,e,f,g,h\n1,-2,0,3.5,-0.25,1e3,2E-2,12345678901234567890\n"))
 end
 

@@ -2,7 +2,7 @@
 --- checked the way `cosmic fix` checks the core: through clang's dump.
 
 local Fs = require("cosmic.fs")
-local sandbox_skip = require("build.sandbox_skip")
+local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local c = require("build.c")
 local rules = require("build.c.rules")
@@ -11,17 +11,31 @@ local rules = require("build.c.rules")
 --- tree, and what bin/zig reads to find or fetch zig, which the system's
 --- `sh` runs; the bootstrap cosmic and zig, and the caches zig builds
 --- in, which it writes.
-Test.needs{
-  reads = { "bin/cosmic-bootstrap", "bin/zig", "bin/zig.pin", "ci/cosmic-driver.pin", "core/",
-    "vendor/bzip2/", "vendor/cares/include/", "vendor/curl/include/", "vendor/lua/src/",
-    "vendor/mbedtls/include/", "vendor/mbedtls/tf-psa-crypto/", "vendor/miniz/", "vendor/sqlite/",
-    "vendor/xz/src/liblzma/api/", "vendor/yyjson/src/" },
+Test.policy{
+  profiles = { "system" },
+  grants = {
+    { path = "bin/cosmic-bootstrap", letters = "r" },
+    { path = "bin/zig", letters = "r" },
+    { path = "bin/zig.pin", letters = "r" },
+    { path = "ci/cosmic-driver.pin", letters = "r" },
+    { path = "core/", letters = "r" },
+    { path = "vendor/bzip2/", letters = "r" },
+    { path = "vendor/cares/include/", letters = "r" },
+    { path = "vendor/curl/include/", letters = "r" },
+    { path = "vendor/lua/src/", letters = "r" },
+    { path = "vendor/mbedtls/include/", letters = "r" },
+    { path = "vendor/mbedtls/tf-psa-crypto/", letters = "r" },
+    { path = "vendor/miniz/", letters = "r" },
+    { path = "vendor/sqlite/", letters = "r" },
+    { path = "vendor/xz/src/liblzma/api/", letters = "r" },
+    { path = "vendor/yyjson/src/", letters = "r" },
+    { path = "/cache/bootstrap", letters = "rwxc" },
+    { path = "/cache/zig", letters = "rwxc" },
+  },
   env = { "ALL_PROXY", "COSMIC_BOOTSTRAP", "COSMIC_BOOTSTRAP_ATTEMPTS", "COSMIC_BOOTSTRAP_VERIFY",
     "COSMIC_ZIG", "COSMIC_ZIG_CACHE", "COSMIC_ZIG_GLOBAL_CACHE", "CURL_CA_BUNDLE", "HTTPS_PROXY",
     "HTTP_PROXY", "NO_PROXY", "SSL_CERT_DIR", "SSL_CERT_FILE", "all_proxy", "http_proxy",
     "https_proxy", "no_proxy" },
-  system = true,
-  caches = { "bootstrap", "zig" },
 }
 
 local root = assert(Fs.absolute("."))
@@ -280,7 +294,7 @@ COSMIC_SYSCALL(open, 3) {
 }
 ]])
   assert(#found == 2 and found[1].rule == "returned-shape" and found[1].line == 11 and
-    found[2].rule == "returned-shape" and found[2].line == 18,
+      found[2].rule == "returned-shape" and found[2].line == 18,
     "expected two returned-shape findings, found " .. #found)
 end
 
@@ -311,7 +325,7 @@ COSMIC_SYSCALL(entropy, 1) {
   local said: {string} = {}
   for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.rule end
   assert(#found == 3 and found[1].rule == "failure-shape" and found[1].line == 9 and
-    found[2].line == 13 and found[3].line == 14,
+      found[2].line == 13 and found[3].line == 14,
     "expected three failure-shape findings, found: " .. table.concat(said, ", "))
 end
 
@@ -344,7 +358,7 @@ COSMIC_SYSCALL(execve, 3) {
   local said: {string} = {}
   for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.rule end
   assert(#found == 2 and found[1].rule == "failure-shape" and found[1].line == 12 and
-    found[2].line == 13, "found: " .. table.concat(said, ", "))
+      found[2].line == 13, "found: " .. table.concat(said, ", "))
 end
 
 local function test_a_failure_in_its_own_shape_is_not(tmp: string)
@@ -398,9 +412,9 @@ static int helper (lua_State *L) {
   local said: {string} = {}
   for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.within end
   assert(#found == 5 and found[1].line == 9 and found[1].within == "cosmic_sys_read" and
-    found[2].line == 10 and found[3].line == 15 and found[3].within == "cosmic_sys_dup2" and
-    found[4].line == 22 and found[4].within == "helper" and
-    found[5].line == 24 and found[5].within == "helper",
+      found[2].line == 10 and found[3].line == 15 and found[3].within == "cosmic_sys_dup2" and
+      found[4].line == 22 and found[4].within == "helper" and
+      found[5].line == 24 and found[5].within == "helper",
     "found: " .. table.concat(said, ", "))
 end
 
@@ -464,7 +478,7 @@ int held (int x) {
   local said: {string} = {}
   for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.within end
   assert(#found == 3 and found[1].line == 7 and found[2].line == 14 and
-    found[3].line == 19, "found: " .. table.concat(said, ", "))
+      found[3].line == 19, "found: " .. table.concat(said, ", "))
 end
 
 --- A status is not a truth, nor is a function no header declares, nor
@@ -652,7 +666,9 @@ local function test_a_compiler_reads_no_path_it_was_not_given(tmp: string)
   if not sandboxed and not not_found then
     -- The kernel could confine none: the compiler read what it found,
     -- which, not being C, it answers with errors rather than findings.
-    sandbox_skip.refused("a compiler ran unconfined, and read " .. root .. "/AGENTS.md")
+    if assert(sys.uname()).sysname == "Linux" then
+      Test.skip("a compiler ran unconfined, and read " .. root .. "/AGENTS.md")
+    end
     return
   end
   assert(outcome.findings == nil, "the header was read")

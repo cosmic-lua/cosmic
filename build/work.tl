@@ -11,15 +11,15 @@
 --- Staging comes first: every input the build consumes is read off
 --- disk into the `files` table before anything transforms it, so the
 --- rest of the build reads rows, never paths. An unchanged file is a
---- stat: when its size, modification time and inode all match the row,
+--- stat: when its size, modification and change times, inode and device all match the row,
 --- the bytes and the hash on the row are still right and the file is
 --- not read again.
 
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
-local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local identity = require("build.identity")
 local analysis_schema = require("build.analysis_schema")
@@ -32,11 +32,14 @@ local log = require("build.verdict").log
 local record work
   --- An open working database, for one run. A run is one transaction
   --- from `open` to `commit`: staging, deriving and compiling all land
-  --- together, and what happens after -- the projection, which SQLite
-  --- refuses inside a transaction, and the records -- is its own.
+  --- together with the in-memory projection. Its vacuum and publication
+  --- follow the commit; the test runner's records are their own phase.
   record Handle
     db: Sqlite.Handle
     root: string
+    --- The directory the build writes into: `root`'s o/, or another
+    --- [`open`] was given.
+    dir: string
     --- This run's number: one more than the last run over this file.
     run: integer
     --- Whether the run's transaction is open.
@@ -57,7 +60,7 @@ end
 
 --- The shape of the schema. A file of another shape holds nothing the
 --- tree cannot produce again, so it is thrown away.
-local version <const> = "27"
+local version <const> = "28"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
@@ -77,6 +80,10 @@ local version <const> = "27"
 --- never edited in place, so the pin and the records are its inputs
 --- and the tree itself is not walked. Its hash is the boot hash, and
 --- a self-tree command refuses a mismatch.
+---
+--- `tool_discovery` holds the input walk's directories and links, including
+--- the root. Their metadata witnesses membership changes for read-only
+--- freshness checks; it contributes nothing to a build or verdict identity.
 ---
 --- `scanned` is every other file the walk finds -- a script, a README,
 --- in cosmic's own tree everything under `ci/` -- fingerprinted like
@@ -112,9 +119,9 @@ local version <const> = "27"
 --- can never be wrong. A row whose source no longer hashes among the
 --- inputs is pruned, and every row goes when the analyzer changes.
 --- `test_inputs` is the same parse's reading of a test module's
---- `needs` declaration ([`cosmic.test`]), one row per value a field
---- lists (`true` for a flag, `*` for any network host, and the line
---- the declaration starts on under `line`).
+--- `policy` declaration ([`cosmic.test`]), as the `needs` it stands for:
+--- one row per value a field lists (`true` for a flag, and the line the
+--- declaration starts on under `line`).
 --- `links` is each link its comments hold ([`build.link_text`]), as
 --- written: what it names is resolved only once every module is
 --- known, as a projection is written ([`build.link_index`]).
@@ -133,7 +140,9 @@ local version <const> = "27"
 --- staged file, keyed by the file's content hash like `parsed`: staging
 --- scans a file in the same moment it reads it, so an unchanged file
 --- costs nothing, and a row is a function of the bytes and the scan's
---- rule alone -- a change to the rule bumps `version`. A row no
+--- rule alone -- a change to the rule bumps `version`, and so does one
+--- to what [`build.patch`]'s [`Patch.parse`] takes as a record, whose
+--- TODOs the rule reads apart. A row no
 --- staged file hashes to any more is dropped at the end of the stage.
 --- `todos_fts` indexes their text for `cosmic todos <words>`, in FTS5's
 --- external-content mode over `todos` -- which is why `todos` has a
@@ -248,6 +257,7 @@ work.schema = {
   [[CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY,
                                       size INTEGER NOT NULL,
                                       mtime_ns INTEGER,
+                                      ctime_ns INTEGER,
                                       ino INTEGER NOT NULL,
                                       dev INTEGER NOT NULL,
                                       sha256 TEXT NOT NULL,
@@ -255,18 +265,21 @@ work.schema = {
   [[CREATE TABLE IF NOT EXISTS tool (path TEXT PRIMARY KEY,
                                      size INTEGER NOT NULL,
                                      mtime_ns INTEGER,
+                                      ctime_ns INTEGER,
                                      ino INTEGER NOT NULL,
                                      dev INTEGER NOT NULL,
                                      sha256 TEXT NOT NULL) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS scanned (path TEXT PRIMARY KEY,
                                         size INTEGER NOT NULL,
                                         mtime_ns INTEGER,
+                                      ctime_ns INTEGER,
                                         ino INTEGER NOT NULL,
                                         dev INTEGER NOT NULL,
                                         sha256 TEXT NOT NULL) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS linked (path TEXT PRIMARY KEY,
                                        size INTEGER NOT NULL,
                                        mtime_ns INTEGER,
+                                      ctime_ns INTEGER,
                                        ino INTEGER NOT NULL,
                                        dev INTEGER NOT NULL,
                                        sha256 TEXT NOT NULL,
@@ -285,31 +298,34 @@ work.schema = {
                                              own INTEGER NOT NULL,
                                              PRIMARY KEY (sha256, kind, ordinal)) WITHOUT ROWID]],
 }
+work.schema[#work.schema + 1] = [[CREATE TABLE IF NOT EXISTS tool_discovery (
+  path TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime_ns INTEGER,
+  ctime_ns INTEGER, ino INTEGER NOT NULL, dev INTEGER NOT NULL) WITHOUT ROWID]]
 for _, statement in ipairs(analysis_schema.statements) do
   work.schema[#work.schema + 1] = statement
 end
 for _, statement in ipairs({
-  [[CREATE TABLE IF NOT EXISTS executable (source_hash TEXT PRIMARY KEY,
+    [[CREATE TABLE IF NOT EXISTS executable (source_hash TEXT PRIMARY KEY,
                                            lines TEXT NOT NULL) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS todos (id INTEGER PRIMARY KEY,
+    [[CREATE TABLE IF NOT EXISTS todos (id INTEGER PRIMARY KEY,
                                       sha256 TEXT NOT NULL,
                                       line INTEGER NOT NULL,
                                       last INTEGER NOT NULL,
                                       text TEXT NOT NULL,
                                       UNIQUE (sha256, line))]],
-  [[CREATE VIRTUAL TABLE IF NOT EXISTS todos_fts
+    [[CREATE VIRTUAL TABLE IF NOT EXISTS todos_fts
       USING fts5(text, content=todos, content_rowid=id)]],
-  [[CREATE TRIGGER IF NOT EXISTS todos_inserted AFTER INSERT ON todos BEGIN
+    [[CREATE TRIGGER IF NOT EXISTS todos_inserted AFTER INSERT ON todos BEGIN
       INSERT INTO todos_fts (rowid, text) VALUES (new.id, new.text);
     END]],
-  [[CREATE TRIGGER IF NOT EXISTS todos_deleted AFTER DELETE ON todos BEGIN
+    [[CREATE TRIGGER IF NOT EXISTS todos_deleted AFTER DELETE ON todos BEGIN
       INSERT INTO todos_fts (todos_fts, rowid, text) VALUES ('delete', old.id, old.text);
     END]],
-  [[CREATE TRIGGER IF NOT EXISTS todos_updated AFTER UPDATE ON todos BEGIN
+    [[CREATE TRIGGER IF NOT EXISTS todos_updated AFTER UPDATE ON todos BEGIN
       INSERT INTO todos_fts (todos_fts, rowid, text) VALUES ('delete', old.id, old.text);
       INSERT INTO todos_fts (rowid, text) VALUES (new.id, new.text);
     END]],
-  [[CREATE TABLE IF NOT EXISTS blames (path TEXT NOT NULL,
+    [[CREATE TABLE IF NOT EXISTS blames (path TEXT NOT NULL,
                                        line INTEGER NOT NULL,
                                        sha256 TEXT NOT NULL,
                                        head TEXT NOT NULL,
@@ -318,30 +334,30 @@ for _, statement in ipairs({
                                        summary TEXT NOT NULL,
                                        boundary INTEGER NOT NULL,
                                        PRIMARY KEY (path, line)) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS zoneinfo (name TEXT PRIMARY KEY,
+    [[CREATE TABLE IF NOT EXISTS zoneinfo (name TEXT PRIMARY KEY,
                                          data BLOB NOT NULL)]],
-  [[CREATE TABLE IF NOT EXISTS compiled (key TEXT PRIMARY KEY,
+    [[CREATE TABLE IF NOT EXISTS compiled (key TEXT PRIMARY KEY,
                                          tool TEXT NOT NULL,
                                          lua TEXT NOT NULL,
                                          bytecode BLOB NOT NULL,
                                          seen INTEGER NOT NULL) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS typed_refs (key TEXT NOT NULL,
+    [[CREATE TABLE IF NOT EXISTS typed_refs (key TEXT NOT NULL,
                                            ordinal INTEGER NOT NULL,
                                            module TEXT NOT NULL,
                                            member TEXT NOT NULL,
                                            line INTEGER NOT NULL,
                                            PRIMARY KEY (key, ordinal)) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS plan (path TEXT PRIMARY KEY,
+    [[CREATE TABLE IF NOT EXISTS plan (path TEXT PRIMARY KEY,
                                      key TEXT NOT NULL,
                                      ordinal INTEGER NOT NULL) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS builds (run INTEGER PRIMARY KEY,
+    [[CREATE TABLE IF NOT EXISTS builds (run INTEGER PRIMARY KEY,
                                        ms INTEGER NOT NULL,
                                        files INTEGER NOT NULL,
                                        read INTEGER NOT NULL,
                                        compiled INTEGER NOT NULL,
                                        cached INTEGER NOT NULL,
                                        verdict TEXT NOT NULL) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS runs (path TEXT NOT NULL,
+    [[CREATE TABLE IF NOT EXISTS runs (path TEXT NOT NULL,
                                      test TEXT NOT NULL,
                                      passed INTEGER NOT NULL,
                                      message TEXT NOT NULL,
@@ -350,23 +366,23 @@ for _, statement in ipairs({
                                      run_at_ns INTEGER NOT NULL,
                                      elapsed_ns INTEGER NOT NULL,
                                      PRIMARY KEY (path, test)) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS verdicts (key TEXT PRIMARY KEY,
+    [[CREATE TABLE IF NOT EXISTS verdicts (key TEXT PRIMARY KEY,
                                          passed INTEGER NOT NULL,
                                          run_at_ns INTEGER NOT NULL,
                                          seen INTEGER NOT NULL,
                                          elapsed_ns INTEGER NOT NULL) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS digests (path TEXT PRIMARY KEY,
+    [[CREATE TABLE IF NOT EXISTS digests (path TEXT PRIMARY KEY,
                                         signature TEXT NOT NULL,
                                         sha256 TEXT NOT NULL) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS test_runs (ran_at_ns INTEGER NOT NULL
+    [[CREATE TABLE IF NOT EXISTS test_runs (ran_at_ns INTEGER NOT NULL
                                           PRIMARY KEY)]],
-  [[CREATE TABLE IF NOT EXISTS coverage (ran_at_ns INTEGER NOT NULL,
+    [[CREATE TABLE IF NOT EXISTS coverage (ran_at_ns INTEGER NOT NULL,
                                          path TEXT NOT NULL,
                                          line INTEGER NOT NULL,
                                          hit INTEGER NOT NULL,
                                          PRIMARY KEY (ran_at_ns, path, line))
                                         WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS coverage_by_test (ran_at_ns INTEGER NOT NULL,
+    [[CREATE TABLE IF NOT EXISTS coverage_by_test (ran_at_ns INTEGER NOT NULL,
                                                  test TEXT NOT NULL,
                                                  hits TEXT NOT NULL,
                                                  PRIMARY KEY (ran_at_ns, test))]],
@@ -405,10 +421,10 @@ end
 --- (core/sqlite.c), which a waiting run would otherwise meet as
 --- "database is locked". It is as long as build.reboot waits for
 --- another run's rebuild lock.
-local wait_ns <const> = Time.minutes(30)
+local wait_ns <const> = Clock.minutes(30)
 
 --- How long a run waits for that transaction before it says so.
-local notice_ns <const> = Time.seconds(1)
+local notice_ns <const> = Clock.seconds(1)
 
 --- Begins the run's transaction on `db`, the working database at `path`,
 --- waiting up to `wait_ns` for another run that holds it and saying so
@@ -432,15 +448,17 @@ local function begin_waiting(db: Sqlite.Handle, path: string): boolean, string
   return true, ""
 end
 
---- Opens `<root>/o/build.db`, creating it and its tables when new, and
---- counts this run. A file whose schema is not this module's is
---- removed and made again: it holds nothing the tree cannot produce.
-function work.open(root: string): work.Handle | nil, string
-  local made, mkdir_trouble = Fs.mkdirs(root .. "/o")
+--- Opens `build.db` in `dir` (`<root>/o` where nil), creating it and its
+--- tables when new, and counts this run. A file whose schema is not this
+--- module's is removed and made again: it holds nothing the tree cannot
+--- produce.
+function work.open(root: string, dir?: string): work.Handle | nil, string
+  local out = dir or root .. "/o"
+  local made, mkdir_trouble = Fs.mkdirs(out)
   if not made then
     return nil, mkdir_trouble
   end
-  local path = root .. "/o/build.db"
+  local path = out .. "/build.db"
   local db, open_trouble = Sqlite.open(path, { writable = true })
   if db == nil then
     return nil, path .. ": " .. open_trouble
@@ -471,7 +489,7 @@ function work.open(root: string): work.Handle | nil, string
     if not removed then
       return nil, remove_trouble
     end
-    return work.open(root)
+    return work.open(root, dir)
   end
 
   -- IMMEDIATE takes the write lock before reading, so a second build of
@@ -482,16 +500,36 @@ function work.open(root: string): work.Handle | nil, string
     local _, _ = db:close()
     return nil, path .. ": " .. begin_trouble
   end
+  -- Old rows have no change time: retain their content caches, but read
+  -- their files once before trusting metadata again.
+  for _, table_name in ipairs({ "files", "tool", "scanned", "linked" }) do
+    local columns, trouble = Sqlite.text_rows(db, "PRAGMA table_info(" .. table_name .. ")")
+    if columns == nil then
+      local _, _ = db:close()
+      return nil, trouble
+    end
+    local has_ctime = false
+    for _, column in ipairs(columns) do
+      if column[2] == "ctime_ns" then has_ctime = true end
+    end
+    if not has_ctime then
+      local added, why = db:exec("ALTER TABLE " .. table_name .. " ADD COLUMN ctime_ns INTEGER")
+      if not added then
+        local _, _ = db:close()
+        return nil, why
+      end
+    end
+  end
   local stamped, stamp_trouble = Sqlite.run(db,
     "INSERT INTO meta (key, value) VALUES ('schema', ?1) " ..
-    "ON CONFLICT (key) DO NOTHING", { text(version) })
+      "ON CONFLICT (key) DO NOTHING", { text(version) })
   if not stamped then
     local _, _ = db:close()
     return nil, path .. ": " .. stamp_trouble
   end
   local counted, count_trouble = Sqlite.run(db,
     "INSERT INTO meta (key, value) VALUES ('run', 1) " ..
-    "ON CONFLICT (key) DO UPDATE SET value = value + 1")
+      "ON CONFLICT (key) DO UPDATE SET value = value + 1")
   if not counted then
     local _, _ = db:close()
     return nil, path .. ": " .. count_trouble
@@ -502,7 +540,7 @@ function work.open(root: string): work.Handle | nil, string
     local _, _ = db:close()
     return nil, path .. ": " .. run_trouble
   end
-  return { db = db, root = root, run = integer_of(runs), inside = true }
+  return { db = db, root = root, dir = out, run = integer_of(runs), inside = true }
 end
 
 --- Ends the run's transaction, keeping everything it did. Nothing to
@@ -546,7 +584,7 @@ end
 function work.begin(handle: work.Handle): boolean, string
   local begun = handle.db:exec_result("BEGIN IMMEDIATE")
   if begun.cancelled then
-    return false, "interrupted while waiting for " .. handle.root .. "/o/build.db"
+    return false, "interrupted while waiting for " .. handle.dir .. "/build.db"
   end
   if begun.code ~= Sqlite.OK then return false, begun.reason end
   handle.inside = true
@@ -575,6 +613,7 @@ local record Known
   size: integer
   --- nil for a row staged before its file settled, which no stat matches.
   mtime_ns: integer | nil
+  ctime_ns: integer | nil
   ino: integer
   dev: integer
 end
@@ -582,7 +621,7 @@ end
 local function known_in(db: Sqlite.Handle,
                         table_name: string): {string:Known} | nil, string
   local statement, trouble = db:prepare(
-    "SELECT path, size, mtime_ns, ino, dev, mtime_ns IS NULL FROM " .. table_name)
+    "SELECT path, size, mtime_ns, ino, dev, mtime_ns IS NULL, ctime_ns, ctime_ns IS NULL FROM " .. table_name)
   if statement == nil then
     return nil, trouble
   end
@@ -599,6 +638,7 @@ local function known_in(db: Sqlite.Handle,
     out[statement:bytes(0)] = {
       size = statement:integer(1),
       mtime_ns = statement:integer(5) == 0 and statement:integer(2) or nil,
+      ctime_ns = statement:integer(7) == 0 and statement:integer(6) or nil,
       ino = statement:integer(3),
       dev = statement:integer(4),
     }
@@ -613,13 +653,13 @@ end
 --- `todo` is one TODO's row.
 local puts: {string:string} = {
   files = "INSERT OR REPLACE INTO files (path, size, mtime_ns, ino, dev, " ..
-    "sha256, data) VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?6)",
+    "sha256, data, ctime_ns) VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?6, ?9)",
   tool = "INSERT OR REPLACE INTO tool (path, size, mtime_ns, ino, dev, " ..
-    "sha256) VALUES (?1, ?2, ?3, ?4, ?5, ?7)",
+    "sha256, ctime_ns) VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?9)",
   scanned = "INSERT OR REPLACE INTO scanned (path, size, mtime_ns, ino, dev, " ..
-    "sha256) VALUES (?1, ?2, ?3, ?4, ?5, ?7)",
+    "sha256, ctime_ns) VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?9)",
   linked = "INSERT OR REPLACE INTO linked (path, size, mtime_ns, ino, dev, " ..
-    "sha256, kind) VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?8)",
+    "sha256, kind, ctime_ns) VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?8, ?9)",
   todo = "INSERT OR IGNORE INTO todos (sha256, line, last, text) " ..
     "VALUES (?1, ?2, ?3, ?4)",
 }
@@ -629,9 +669,9 @@ local scanned_limit = 1024 * 1024
 
 local once = bind.once
 
---- How long a file's modification time has to be in the past before
+--- How long a file's modification and change times must be in the past before
 --- a stat is trusted to stand for its bytes.
-local settle_ns = Time.seconds(2)
+local settle_ns = Clock.seconds(2)
 
 --- Whether a file's row no longer stands for it, consuming the row
 --- from `known` either way, so what is left in `known` at the end is
@@ -641,33 +681,24 @@ local function moved(known: {string:Known}, file: string, st: sys.Stat,
   local was = known[file]
   known[file] = nil
   return was == nil or was.size ~= st.size or was.mtime_ns == nil or
-    was.mtime_ns ~= mtime_ns or
+    was.mtime_ns ~= mtime_ns or was.ctime_ns == nil or
+    st.ctime_ns == nil or was.ctime_ns ~= Clock.seconds(st.ctime) + st.ctime_ns or
     was.ino ~= st.ino or was.dev ~= st.dev
 end
 
---- Whether any row [`work.stage`] last recorded under `tool` no longer
---- matches a stat of its own file, without walking the tree: only the
---- paths a previous stage knows about are stat'd. A file new to the tree
---- does not register until something already known requires it, which
---- edits that known file's bytes and so its stat. A row whose file is
---- gone fails its stat, which counts as moved. This lets a caller that
---- never edits the tree itself ([`build.reboot.stale_exit`], for a
---- read-only verb) ask whether the tool's inputs changed since the last
---- stage for a handful of stats instead of [`work.stage`]'s directory walk
---- over everything.
+--- Whether the tool's recorded files or discovery directories moved. The
+--- same walk that stages inputs records its directories, so a new input
+--- invalidates the fast path without listing an unchanged tree again.
 function work.tool_moved(handle: work.Handle): boolean | nil, string
-  local known, trouble = known_in(handle.db, "tool")
-  if known == nil then
-    return nil, trouble
-  end
-  for path in pairs(known) do
-    local st, _ = Fs.stat(handle.root .. "/" .. path)
-    if st == nil then
-      return true, ""
-    end
-    local mtime_ns = Time.seconds(st.mtime) + st.mtime_ns
-    if moved(known, path, st, mtime_ns) then
-      return true, ""
+  for _, table_name in ipairs({ "tool", "tool_discovery" }) do
+    local known, trouble = known_in(handle.db, table_name)
+    if known == nil then return nil, trouble end
+    if table_name == "tool_discovery" and known[""] == nil then return true, "" end
+    for path in pairs(known) do
+      local st, _ = Fs.stat(handle.root .. "/" .. path)
+      if st == nil then return true, "" end
+      local mtime_ns = Clock.seconds(st.mtime) + st.mtime_ns
+      if moved(known, path, st, mtime_ns) then return true, "" end
     end
   end
   return false, ""
@@ -691,28 +722,45 @@ local function put_row(put: Sqlite.Statement, file: string, st: sys.Stat,
   if bound then bound, trouble = put:bind_integer(5, st.dev) end
   if bound then bound, trouble = put:bind_blob(6, data) end
   if bound then bound, trouble = put:bind_text(7, sha256) end
+  if bound then
+    if settled and st.ctime_ns ~= nil then
+      bound, trouble = put:bind_integer(9, Clock.seconds(st.ctime) + st.ctime_ns)
+    else
+      bound, trouble = put:bind_null(9)
+    end
+  end
   if not bound then
     return false, file .. ": " .. trouble
   end
   return once(put)
 end
 
---- Whether a file's TODOs are the tree's own: a patch record's context
---- lines and a vendored pin are upstream's.
+--- Whether a file is a patch record ([`build/patch.tl`]): a `.txt` in
+--- `patch/<name>/`.
+local function is_record(file: string): boolean
+  return file:match("^patch/[^/]+/[^/]+%.txt$") ~= nil
+end
+
+--- Whether a file holds TODOs of the tree's own: a vendored tree and
+--- its pin are upstream's, and so is everything under `patch/` but a
+--- record, whose find blocks are too ([`build.todo_scan.scan_record`]).
 local function holds_own_todos(file: string): boolean
   local first = identity.first_of(file)
-  return first ~= "patch" and first ~= "vendor"
+  return first ~= "vendor" and (first ~= "patch" or is_record(file))
 end
 
 --- Records the TODOs in one file's bytes under their hash, unless a
---- file with the same bytes already has. Text holding no `TODO:`, or
---- holding a NUL, is not scanned.
+--- file with the same bytes already has: text that parses as a patch
+--- record is scanned as one wherever it sits, since the rows are keyed
+--- by the bytes alone. Text holding no `TODO:`, or holding a NUL,
+--- is not scanned.
 local function put_todos(put: Sqlite.Statement, data: string,
                          sha256: string): boolean, string
   if data:find("TODO:", 1, true) == nil or data:find("\0", 1, true) ~= nil then
     return true, ""
   end
-  for _, found in ipairs(todo_scan.scan(data)) do
+  local scanned = todo_scan.scan_record(data) or todo_scan.scan(data)
+  for _, found in ipairs(scanned) do
     local ok, trouble = put:bind_text(1, sha256)
     if ok then ok, trouble = put:bind_integer(2, found.line) end
     if ok then ok, trouble = put:bind_integer(3, found.last) end
@@ -777,6 +825,14 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
   -- link to a tree beside the root, or to an unrelated one
   -- (`sys -> /usr`), is staged whole, by design. Only a link is
   -- stat'd, so a tree with none costs nothing more.
+  -- Capture before listing: a concurrent addition after the list must not
+  -- be hidden by a newer directory stat recorded after the walk.
+  local discovery: {string:sys.Stat} = {}
+  if own_tree then
+    local st, trouble = Fs.stat(root)
+    if st == nil then return nil, trouble end
+    discovery[""] = st
+  end
   local skip_path = own_tree and identity.skip_in_own_tree or identity.skip_input
   -- Each entry only the walk for links reaches.
   local links_only: {string:boolean} = {}
@@ -793,6 +849,16 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
         return true
       end
       links_only[entry] = true
+    end
+    if own_tree and not links_only[entry] and
+        not identity.is_foreign_tree(identity.first_of(entry)) and
+        (kind == "dir" or kind == "link") then
+      local st, _ = Fs.stat(root .. "/" .. entry)
+      if st == nil then
+        local link, _ = sys.lstat(root .. "/" .. entry)
+        st = link
+      end
+      if st ~= nil then discovery[entry] = st end
     end
     if kind ~= "link" then
       return false
@@ -854,7 +920,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
     end
     put[name] = statement
   end
-  local now = Time.now_ns()
+  local now = Clock.now_ns()
   local staged: work.Staged = { files = 0, read = 0 }
   -- The text of each file of `linked` read here, by path.
   local texts: {string:string} = {}
@@ -874,8 +940,9 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
       scan = false
     end
     if input or tool or scan or link_kind ~= nil then
-      local mtime_ns = Time.seconds(st.mtime) + st.mtime_ns
-      local settled = mtime_ns < now - settle_ns
+      local mtime_ns = Clock.seconds(st.mtime) + st.mtime_ns
+      local settled = st.ctime_ns ~= nil and
+        math.max(mtime_ns, Clock.seconds(st.ctime) + st.ctime_ns) < now - settle_ns
       if input or tool then
         staged.files = staged.files + 1
       end
@@ -925,6 +992,50 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
       end
     end
   end
+  if own_tree then
+    local cleared, trouble = db:exec("DELETE FROM tool_discovery")
+    if not cleared then
+      finish(put)
+      return nil, trouble
+    end
+    local discovery_put, prepare_trouble = db:prepare(
+      "INSERT INTO tool_discovery (path, size, mtime_ns, ctime_ns, ino, dev) " ..
+        "VALUES (?1, ?2, ?3, ?4, ?5, ?6)")
+    if discovery_put == nil then
+      finish(put)
+      return nil, prepare_trouble
+    end
+    for path, st in pairs(discovery) do
+      local mtime_ns = Clock.seconds(st.mtime) + st.mtime_ns
+      local ctime_ns = st.ctime_ns ~= nil and Clock.seconds(st.ctime) + st.ctime_ns or nil
+      local settled = ctime_ns ~= nil and math.max(mtime_ns, ctime_ns) < now - settle_ns
+      local saved, why = discovery_put:bind_text(1, path)
+      if saved then saved, why = discovery_put:bind_integer(2, st.size) end
+      if saved then
+        if settled then
+          saved, why = discovery_put:bind_integer(3, mtime_ns)
+        else
+          saved, why = discovery_put:bind_null(3)
+        end
+      end
+      if saved then
+        if settled then
+          saved, why = discovery_put:bind_integer(4, ctime_ns or 0)
+        else
+          saved, why = discovery_put:bind_null(4)
+        end
+      end
+      if saved then saved, why = discovery_put:bind_integer(5, st.ino) end
+      if saved then saved, why = discovery_put:bind_integer(6, st.dev) end
+      if saved then saved, why = once(discovery_put) end
+      if not saved then
+        discovery_put:finalize()
+        finish(put)
+        return nil, why
+      end
+    end
+    discovery_put:finalize()
+  end
   finish(put)
   for _, table_name in ipairs({ "files", "tool", "scanned", "linked" }) do
     local forgot, forget_trouble = forget(db, table_name, known[table_name])
@@ -938,8 +1049,8 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
   end
   local pruned, prune_trouble = db:exec(
     "DELETE FROM todos WHERE sha256 NOT IN " ..
-    "(SELECT sha256 FROM files UNION SELECT sha256 FROM tool " ..
-    "UNION SELECT sha256 FROM scanned)")
+      "(SELECT sha256 FROM files UNION SELECT sha256 FROM tool " ..
+      "UNION SELECT sha256 FROM scanned)")
   if not pruned then
     return nil, prune_trouble
   end
@@ -1042,7 +1153,7 @@ find_links = function(handle: work.Handle, texts: {string:string}): boolean, str
   end
   local unread, unread_trouble = Sqlite.text_rows(db,
     "SELECT path, kind, sha256 FROM linked l WHERE NOT EXISTS (SELECT 1 FROM linked_texts t " ..
-    "WHERE t.sha256 = l.sha256 AND t.kind = l.kind) ORDER BY path")
+      "WHERE t.sha256 = l.sha256 AND t.kind = l.kind) ORDER BY path")
   if unread == nil then
     return false, unread_trouble
   end
@@ -1077,7 +1188,7 @@ find_links = function(handle: work.Handle, texts: {string:string}): boolean, str
         local link = entry.link
         local ok, trouble = Sqlite.run(db,
           "INSERT INTO linked_found (sha256, kind, ordinal, line, column, form, text, " ..
-          "target, own) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "target, own) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
           { text(sha256), text(kind), { integer = ordinal }, { integer = link.line },
             { integer = link.column }, text(link.form), text(link.text), text(link.target),
             { integer = entry.own and 1 or 0 } })
@@ -1089,8 +1200,8 @@ find_links = function(handle: work.Handle, texts: {string:string}): boolean, str
   end
   for _, name in ipairs({ "linked_found", "linked_texts" }) do
     local ok, trouble = db:exec("DELETE FROM " .. name .. " WHERE NOT EXISTS " ..
-      "(SELECT 1 FROM linked l WHERE l.sha256 = " .. name .. ".sha256 AND l.kind = " ..
-      name .. ".kind)")
+        "(SELECT 1 FROM linked l WHERE l.sha256 = " .. name .. ".sha256 AND l.kind = " ..
+        name .. ".kind)")
     if not ok then
       return false, trouble
     end
@@ -1176,7 +1287,7 @@ function work.record(handle: work.Handle, ms: integer, staged: work.Staged,
                      verdict: string): boolean, string
   return Sqlite.run(handle.db,
     "INSERT OR REPLACE INTO builds (run, ms, files, read, compiled, cached, " ..
-    "verdict) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+      "verdict) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
     { integer(handle.run), integer(ms), integer(staged.files),
       integer(staged.read), integer(compiled), integer(cached), text(verdict) })
 end

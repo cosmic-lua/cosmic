@@ -41,7 +41,7 @@ local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Rand = require("cosmic.rand")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
 local plural = require("build.plural")
@@ -62,7 +62,7 @@ local record verb
     stdin: function(): string | nil, string
     --- The operating system's entropy: [`Rand.entropy`] when nil.
     entropy: function(count: integer): string | nil, string
-    --- The wall clock in nanoseconds: [`Time.now_ns`] when nil.
+    --- The wall clock in nanoseconds: [`Clock.now_ns`] when nil.
     now_ns: function(): integer
   end
 
@@ -220,7 +220,7 @@ local standard: verb.Io = {
   err = bare.err,
   stdin = read_stdin,
   entropy = Rand.entropy,
-  now_ns = Time.now_ns,
+  now_ns = Clock.now_ns,
 }
 
 --- The lines of `text`, split at "\n" with a "\r" before it dropped. A
@@ -258,7 +258,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
   local request: Request = found
   local draw_entropy = to.entropy or Rand.entropy
-  local now_ns = to.now_ns or Time.now_ns
+  local now_ns = to.now_ns or Clock.now_ns
 
   -- THE ONE READ OF THE OPERATING SYSTEM'S ENTROPY. Every value that
   -- may be a secret is made from bytes this returns; a seeded
@@ -341,7 +341,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
       local b6 = (bytes:byte(7) & 0x0f) | 0x40
       local b8 = (bytes:byte(9) & 0x3f) | 0x80
       return uuid_text(bytes:sub(1, 6) .. string.char(b6) .. bytes:sub(8, 8) ..
-        string.char(b8) .. bytes:sub(10))
+          string.char(b8) .. bytes:sub(10))
     end
     local ns = now_ns()
     local stamp = ((ns // 1000000) << 12) | ((ns % 1000000) * 4096 // 1000000)
@@ -352,7 +352,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     local head = string.pack(">I6", stamp >> 12)
     local counter = stamp & 0xfff
     return uuid_text(head .. string.char(0x70 | (counter >> 8), counter & 0xff) ..
-      string.char(b8) .. tail:sub(2))
+        string.char(b8) .. tail:sub(2))
   end
 
   local code = 0

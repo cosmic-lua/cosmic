@@ -1,5 +1,6 @@
 local teal = require("build.teal")
 local analyzer = require("build.analyzer")
+local ast = require("build.ast")
 local Test = require("cosmic.test")
 
 local built, load_trouble = teal.load()
@@ -431,7 +432,7 @@ local function test_documents_a_function()
   assert(entry.kind == "function", entry.kind)
   assert(entry.text == "Opens a thing.\n\nReturns nil when it is not there.", entry.text)
   assert(entry.signature ==
-    "local function open_thing(path: string, mode: string): boolean, string",
+      "local function open_thing(path: string, mode: string): boolean, string",
     entry.signature)
   assert(entry.line == 4, tostring(entry.line))
 end
@@ -459,10 +460,10 @@ local function test_a_body_comment_is_not_part_of_the_signature()
     "end",
   }))
   assert(by_symbol["tail"].signature ==
-    "local function tail(path: string, mode?: string): string | nil, string",
+      "local function tail(path: string, mode?: string): string | nil, string",
     by_symbol["tail"].signature)
   assert(by_symbol["wrapped"].signature ==
-    "local function wrapped(_opts: Options, _mode: Mode): Inner",
+      "local function wrapped(_opts: Options, _mode: Mode): Inner",
     by_symbol["wrapped"].signature)
   assert(by_symbol["bare"].signature == "local function bare(): string",
     by_symbol["bare"].signature)
@@ -746,7 +747,7 @@ local function test_documents_a_records_metamethods()
   assert(call.text == "Calls the thing.", call.text)
   assert(by_symbol["__close"].text == "", by_symbol["__close"].text)
   assert(by_symbol["__index"].signature ==
-    "metamethod __index: function(Thing, string): any", by_symbol["__index"].signature)
+      "metamethod __index: function(Thing, string): any", by_symbol["__index"].signature)
   assert(by_symbol["__index"].text == "Looks a member up.")
   local order: {string} = {}
   for _, entry in ipairs(all) do
@@ -785,7 +786,7 @@ local function test_a_multi_line_field_keeps_its_whole_signature()
     "return Calls",
   }))
   assert(by_symbol["gen"].signature ==
-    "gen: function(input: string, env: string, options: any): string | nil, string",
+      "gen: function(input: string, env: string, options: any): string | nil, string",
     by_symbol["gen"].signature)
   assert(by_symbol["exists"].signature == "exists: function(path: string): boolean")
   assert(by_symbol["name"].signature == "name: string")
@@ -806,7 +807,7 @@ local function test_a_generic_field_keeps_its_own_signature()
     "return Calls",
   }))
   assert(by_symbol["map"].signature ==
-    "map: function<T, U>(items: {T}, each: function(item: T): U): {U}",
+      "map: function<T, U>(items: {T}, each: function(item: T): U): {U}",
     by_symbol["map"].signature)
   assert(by_symbol["map"].line == 2, by_symbol["map"].line)
   assert(by_symbol["wide"].signature == "wide: function< T>(item: T): T",
@@ -884,7 +885,7 @@ local function test_documents_a_record_and_its_fields()
   end
   -- The opening comment sits on the record, so it is the module's row too.
   assert(table.concat(order, " ") ==
-    " Thing path Options Options.create Kind Kind.dir Kind.file read",
+      " Thing path Options Options.create Kind Kind.dir Kind.file read",
     table.concat(order, " "))
 end
 
@@ -929,7 +930,7 @@ local function test_finds_the_export_and_the_references()
     seen[#seen + 1] = r.module .. " " .. r.member .. " " .. r.line
   end
   assert(table.concat(seen, ", ") ==
-    "cosmic.fs read 6, cosmic.fs read 7, cosmic.hash hex 7, cosmic.hash sha256 7",
+      "cosmic.fs read 6, cosmic.fs read 7, cosmic.hash hex 7, cosmic.hash sha256 7",
     table.concat(seen, ", "))
 end
 
@@ -989,7 +990,7 @@ local function test_a_member_of_an_inline_require_is_a_reference()
   assert(#found.references == 1, tostring(#found.references))
   local reference = found.references[1]
   assert(reference.module == "build.test" and reference.member == "run" and
-    reference.line == 2, reference.module .. " " .. reference.member)
+      reference.line == 2, reference.module .. " " .. reference.member)
 end
 
 --- Local import spellings are not target identity: two aliases of the same
@@ -1138,7 +1139,7 @@ local function test_final_unknown_member_write_removes_stale_callable_export()
       assert(entry.kind == "field", entry.kind)
       assert(entry.line == 2, tostring(entry.line))
     elseif not entry.exported and entry.source_symbol == "Public.run" and
-           entry.kind == "function" then
+        entry.kind == "function" then
       private_callable = private_callable + 1
     end
   end
@@ -1290,7 +1291,7 @@ local function test_an_example_is_not_also_an_ordinary_doc_entry()
   end
 end
 
---- `analyze` on `source`, answering its `needs` declaration and what it
+--- `analyze` on `source`, answering its `policy` declaration and what it
 --- refused, as `analysis_of` does.
 local function declared(source: string): analyzer.Declared | nil, string
   local found, trouble = analyzer.analyze(built, source, "fixture_test.tl")
@@ -1298,19 +1299,21 @@ local function declared(source: string): analyzer.Declared | nil, string
   return found.inputs, ""
 end
 
---- A top-level `Test.needs { ... }` is read as data, field by field,
+--- A top-level `Test.policy { ... }` is read as data, field by field,
 --- with the line it starts on, whatever the local is named and in either
---- call form.
-local function test_a_needs_call_is_read_as_data()
+--- call form, as the `needs` it stands for.
+local function test_a_policy_call_is_read_as_data()
   local got, trouble = declared(lines({
     'local Test = require("cosmic.test")',
     "",
-    "Test.needs {",
-    '  reads = { "vendor/cacert/", "bin/zig.pin" },',
-    '  host = { "/etc/localtime" },',
+    "Test.policy {",
+    "  grants = {",
+    '    { path = "vendor/cacert/", letters = "r" }, { path = "bin/zig.pin", letters = "r" },',
+    '    { path = "/etc/localtime", letters = "r" }, { path = "o/cosmic.db", letters = "r" },',
+    "  },",
     '  env = { "PATH" },',
-    '  network = { "127.0.0.1", "127.0.0.2" },',
-    "  tool = false, nests = true, store = true,",
+    '  loopback = { "127.0.0.1", "127.0.0.2" },',
+    '  promises = { "nest" },',
     "}",
   }))
   assert(got ~= nil, trouble)
@@ -1320,17 +1323,15 @@ local function test_a_needs_call_is_read_as_data()
   assert(#got.env == 1 and got.env[1] == "PATH")
   assert(#got.network == 2 and got.network[1] == "127.0.0.1" and got.network[2] == "127.0.0.2")
   assert(not got.tool and got.nests and got.store)
-  -- A host file a variable names, and /proc or a directory beneath it,
-  -- the one place host takes a directory.
+  -- /proc, and a directory beneath it, the one place a host grant takes one.
   local named = assert(declared(lines({
     'local Test = require("cosmic.test")',
-    'Test.needs { host = { "$FIXTURE_ROOT/o/bin/cosmic", "$_P1/x", "/proc/", "/proc/self/" } }',
+    'Test.policy { grants = { { path = "/proc/", letters = "r" }, { path = "/proc/self/", letters = "r" } } }',
   })))
-  assert(#named.host == 4 and named.host[1] == "$FIXTURE_ROOT/o/bin/cosmic" and
-    named.host[2] == "$_P1/x" and named.host[3] == "/proc/" and named.host[4] == "/proc/self/")
+  assert(#named.host == 2 and named.host[1] == "/proc/" and named.host[2] == "/proc/self/")
   local hosts = assert(declared(lines({
     'local t = require("cosmic.test")',
-    't.needs({ network = { "127.0.0.1" } })',
+    't.policy({ loopback = { "127.0.0.1" } })',
   })))
   assert(hosts.network[1] == "127.0.0.1" and not hosts.tool and hosts.line == 2)
   local none, none_trouble = declared("local function test_x() end\n")
@@ -1338,10 +1339,10 @@ local function test_a_needs_call_is_read_as_data()
   -- A jump at the top of a module that declares nothing is its own.
   local jumps, jumps_trouble = declared("goto done\n::done::\n")
   assert(jumps == nil and jumps_trouble == "", jumps_trouble)
-  -- `needs` of another module is no declaration.
+  -- `policy` of another module is no declaration.
   local other, other_trouble = declared(lines({
     'local Other = require("cosmic.other")',
-    'Other.needs { tool = true }',
+    'Other.policy { env = { "A" } }',
   }))
   assert(other == nil and other_trouble == "", other_trouble)
 end
@@ -1351,89 +1352,87 @@ end
 local function test_a_cache_is_declared_by_a_known_name()
   local got, trouble = declared(lines({
     'local Test = require("cosmic.test")',
-    'Test.needs { caches = { "zig", "bootstrap" } }',
+    'Test.policy { grants = { { path = "/cache/zig", letters = "rwxc" }, ' ..
+      '{ path = "/cache/bootstrap", letters = "rwxc" } } }',
   }))
   assert(got ~= nil, trouble)
   assert(#got.caches == 2 and got.caches[1] == "zig" and got.caches[2] == "bootstrap")
   local none, refused = declared(lines({
     'local Test = require("cosmic.test")',
-    'Test.needs { caches = { "zig", "ccache" } }',
+    'Test.policy { grants = { { path = "/cache/zig", letters = "rwxc" }, ' ..
+      '{ path = "/cache/ccache", letters = "rwxc" } } }',
   }))
-  assert(none == nil and refused:find("fixture_test.tl:2: test.needs: caches: no cache " ..
-    "ccache; the caches are bootstrap, zig", 1, true), refused)
+  assert(none == nil and refused:find("fixture_test.tl:2: test.policy: grants[2].path " ..
+      "/cache/ccache: no cache ccache; the caches are bootstrap, zig", 1, true), refused)
   local flagged, flag_trouble = declared(lines({
     'local Test = require("cosmic.test")',
-    'Test.needs { caches = true }',
+    'Test.policy { grants = true }',
   }))
-  assert(flagged == nil and flag_trouble:find("caches takes a list of string literals", 1, true),
+  assert(flagged == nil and flag_trouble:find("grants takes a list of grants", 1, true),
     flag_trouble)
 end
 
 --- A declaration the build cannot read without running the module is
 --- refused, naming its line and what is wrong with it.
-local function test_a_malformed_needs_call_is_refused()
+local function test_a_malformed_policy_call_is_refused()
   local cases: {{string}} = {
-    { 'Test.needs { reeds = { "a" } }', "no field reeds; it has caches, env, host, lua, nests, network" },
+    { 'Test.policy { reeds = { "a" } }', "no field reeds; it has connect, database, env, grants" },
     -- No test reaches beyond loopback, which is 127/8.
-    { 'Test.needs { network = true }', "fixture_test.tl:3: test.needs: network = true: " ..
-      "network takes loopback addresses 127.a.b.c only: no test reaches another host" },
-    { 'Test.needs { network = { "127.0.0.1", "example.com" } }', 'test.needs: network ' ..
-      '"example.com": network takes loopback addresses 127.a.b.c only' },
-    { 'Test.needs { network = { "::1" } }', 'network "::1": network takes loopback addresses' },
-    { 'Test.needs { network = { "localhost" } }',
-      'network "localhost": network takes loopback addresses' },
-    { 'Test.needs { network = false }', "network takes a list of string literals, written out" },
+    { 'Test.policy { loopback = { "127.0.0.1", "example.com" } }', 'test.policy: loopback ' ..
+        '"example.com": loopback takes loopback addresses 127.a.b.c only' },
+    { 'Test.policy { loopback = { "::1" } }', 'loopback "::1": loopback takes loopback addresses' },
+    { 'Test.policy { loopback = { "localhost" } }',
+      'loopback "localhost": loopback takes loopback addresses' },
+    { 'Test.policy { loopback = false }', "loopback takes a list of string literals, written out" },
+    { 'Test.policy { connect = { "example.com:443" } }', "connect is refused: no test reaches a host" },
     -- `lua` holds what the tests start to its key, which a host program,
     -- a cached cosmic or `tool`'s wider key would slip past.
-    { 'Test.needs { lua = true, tool = true }', "fixture_test.tl:3: test.needs: lua is refused beside tool" },
-    { 'Test.needs { lua = true, system = true }', "lua is refused beside system: a host program" },
-    { 'Test.needs { lua = true, caches = { "zig" } }', "lua is refused beside caches" },
-    { 'Test.needs { standalone = true }', "standalone is refused without lua" },
-    -- A host path names a file, or /proc.
-    { 'Test.needs { host = { "/etc/" } }', 'host: "/etc/" names a directory; host names ' ..
-      "files, or /proc: declare the files the tests read" },
-    { 'Test.needs { host = { "$PRODUCT" } }', 'host: "$PRODUCT" names all PRODUCT holds, a ' ..
-      "directory; host names files, or /proc" },
-    { 'Test.needs { host = { "$PRODUCT/" } }', 'names all PRODUCT holds, a directory' },
-    { 'Test.needs { host = { "$PRODUCT/o/bin/" } }', '"$PRODUCT/o/bin/" names a directory' },
-    { 'Test.needs { reads = { "x\\ty" } }',
-      'reads: "x\\ty": write declared paths plainly, without escapes or long brackets' },
-    { 'Test.needs { env = { "A\\65" } }', "write declared paths plainly" },
-    { 'Test.needs { reads = { [[a]] } }', "reads: [[a]]: write declared paths plainly" },
-    { "goto skip\nTest.needs { tool = true }\n::skip::",
-      "fixture_test.tl:3: test.needs: a module that declares its inputs jumps nowhere" },
-    { 'Test.needs { reads = { "/etc" } }', "is absolute" },
-    { 'Test.needs { host = { "etc" } }', "is relative" },
-    { 'Test.needs { host = { "$1ROOT/a" } }', "names no variable" },
-    { 'Test.needs { host = { "$ROOT-X" } }', "names no variable" },
-    { 'Test.needs { host = { "/a/$ROOT" } }', "names a variable past its first name" },
-    { 'Test.needs { host = { "$ROOT/a/../b" } }', "names \"..\"" },
-    { 'Test.needs { reads = { "$ROOT/a" } }', "a path a variable names goes in host" },
-    { 'Test.needs { reads = { "a/$ROOT" } }', "names a variable; a path of the tree is written out" },
-    { 'Test.needs { reads = { "a/../b" } }', "names \"..\"" },
-    { 'Test.needs { reads = { "./a" } }', "names \".\"" },
-    { 'Test.needs { reads = { name } }', "reads lists string literals only" },
-    { 'Test.needs { reads = "a" }', "reads takes a list of string literals" },
-    { 'Test.needs { tool = "yes" }', "tool takes true or false" },
-    { 'Test.needs { tool = true, tool = false }', "tool is declared twice" },
-    { 'Test.needs { env = { "" } }', "env: an empty name" },
-    { 'Test.needs { ["reads"] = { "a" } }', "write the field as a name, reads = ..." },
-    { "Test.needs(setmetatable({}, {}))", "hand it one table written out as a literal" },
-    { "local t = { tool = true }\nTest.needs(t)",
-      "fixture_test.tl:4: test.needs: hand it one table written out as a literal" },
-    { "Test.needs({ tool = true }, 1)", "hand it one table written out as a literal" },
-    { "Test.needs { tool = true }\nTest.needs { store = true }",
-      "fixture_test.tl:4: test.needs: a module declares its inputs once; line 3 did already" },
-    { "local function test_x() Test.needs { tool = true } end",
+    { 'Test.policy { profiles = { "cosmic", "system" } }',
+      'fixture_test.tl:3: test.policy: profiles: "cosmic" without the grant of o/bin ' ..
+        "holds the program to what the module requires, which is refused beside system" },
+    { 'Test.policy { profiles = { "cosmic" }, grants = { { path = "/cache/zig", letters = "rwxc" } } }',
+      "which is refused beside /cache/zig" },
+    -- A host grant names a file, or /proc.
+    { 'Test.policy { grants = { { path = "/etc/", letters = "r" } } }',
+      'grants: "/etc/" names a directory; a grant of the host names files, or /proc: grant ' ..
+        "the files the tests read" },
+    { 'Test.policy { grants = { { path = "x\\ty", letters = "r" } } }',
+      'x\\ty": write declared paths plainly, without escapes or long brackets' },
+    { 'Test.policy { env = { "A\\65" } }', "write declared paths plainly" },
+    { 'Test.policy { grants = { { path = [[a]], letters = "r" } } }',
+      "[[a]]: write declared paths plainly" },
+    { "goto skip\nTest.policy { env = { \"A\" } }\n::skip::",
+      "fixture_test.tl:3: test.policy: a module that declares its policy jumps nowhere" },
+    { 'Test.policy { grants = { { path = "$ROOT/a", letters = "r" } } }',
+      'grants: "$ROOT/a" names a variable; no grant takes one' },
+    { 'Test.policy { grants = { { path = "a/$ROOT", letters = "r" } } }', "names a variable" },
+    { 'Test.policy { grants = { { path = "/a/$ROOT", letters = "r" } } }', "names a variable" },
+    { 'Test.policy { grants = { { path = "/$ROOT/a", letters = "r" } } }', "names a variable" },
+    { 'Test.policy { grants = { { path = "a/../b", letters = "r" } } }', "names \"..\"" },
+    { 'Test.policy { grants = { { path = "/a/../b", letters = "r" } } }', "names \"..\"" },
+    { 'Test.policy { grants = { { path = "./a", letters = "r" } } }', "names \".\"" },
+    { 'Test.policy { grants = { { path = name, letters = "r" } } }',
+      "takes a string written out as a literal" },
+    { 'Test.policy { grants = "a" }', "grants takes a list of grants" },
+    { 'Test.policy { tmp = "yes" }', "tmp takes true or false" },
+    { 'Test.policy { env = { "A" }, env = { "B" } }', "env is declared twice" },
+    { 'Test.policy { env = { "" } }', "env: an empty name" },
+    { "Test.policy(setmetatable({}, {}))", "hand it one table written out as a literal" },
+    { "local t = { tmp = true }\nTest.policy(t)",
+      "fixture_test.tl:4: test.policy: hand it one table written out as a literal" },
+    { "Test.policy({ tmp = true }, 1)", "hand it one table written out as a literal" },
+    { "Test.policy { tmp = true }\nTest.policy { tmp = true }",
+      "fixture_test.tl:4: test.policy: a module declares its policy once; line 3 did already" },
+    { "local function test_x() Test.policy { tmp = true } end",
       "call it as a statement at the module's top level" },
-    { "if name then Test.needs { tool = true } end",
+    { "if name then Test.policy { tmp = true } end",
       "call it as a statement at the module's top level" },
-    { "local needs = Test.needs\nneeds { tool = true }",
+    { "local policy = Test.policy\npolicy { tmp = true }",
       "call it as a statement at the module's top level" },
   }
   for _, case in ipairs(cases) do
     local got, trouble = declared('local name = "x"\nlocal Test = require("cosmic.test")\n' ..
-      case[1] .. "\n")
+        case[1] .. "\n")
     assert(got == nil, case[1] .. " was read")
     assert(trouble:find(case[2], 1, true) ~= nil, case[1] .. ": " .. trouble)
     local line = case[2]:match("^fixture_test.tl:%d+: ") or "fixture_test.tl:3: "
@@ -1699,42 +1698,37 @@ local function test_a_parameter_shadows_a_helper_and_a_multi_name_local_is_whole
     found[1].source)
 end
 
---- A `needs` declaration of one table, as the build reads it: the
+--- A `policy` declaration of one table, as the build reads it: the
 --- refusal, or "" when it reads.
 local function refusal_of(declaration: string): string
   local got, trouble = declared(lines({
     'local Test = require("cosmic.test")',
-    "Test.needs " .. declaration,
+    "Test.policy " .. declaration,
   }))
   if got == nil then return trouble end
   return ""
 end
 
---- Each field `Needs` has is one the build reads, taking what the type
---- does, and the build knows no field more, so a call `needs` takes and
---- a declaration the build reads are the same set. The build names the
---- fields it knows when it refuses another.
-local function test_every_field_of_needs_is_one_the_build_reads()
-  local every: Test.Needs = {
-    reads = {}, host = {}, env = {}, network = {}, tool = true, lua = true,
-    standalone = true, nests = true, noexec = true, store = true, system = true, caches = {},
+--- Each field `Policy` has is one the build reads, and the build knows no
+--- field more, so a call `policy` takes and a declaration the build reads
+--- are the same set. The build names the fields it knows when it refuses
+--- another.
+local function test_every_field_of_policy_is_one_the_build_reads()
+  local every: Test.Policy = {
+    profiles = {}, grants = {}, isolate = {}, promises = {}, connect = {}, loopback = {},
+    env = {}, set_env = {}, set_env_digests = {}, tmp = true, limits = {}, user = 1,
+    group = 1, database = "", requires = {},
   }
-  local flags: {string:boolean} = {}
   local named: {string} = {}
-  for name, value in pairs(every as {string:any}) do
-    named[#named + 1] = name
-    flags[name] = value is boolean
-  end
+  for name in pairs(every as {string:any}) do named[#named + 1] = name end
   table.sort(named)
   for _, name in ipairs(named) do
-    -- Spelled as the field takes it, beside what it may stand beside.
-    local given = flags[name] and "true" or "{}"
-    local beside = (name == "standalone") and "lua = true, " or ""
-    local why = refusal_of("{ " .. beside .. name .. " = " .. given .. " }")
-    assert(why == "", name .. ": " .. why)
-    local other = flags[name] and "{}" or "true"
-    assert(refusal_of("{ " .. name .. " = " .. other .. " }"):find(name .. " takes", 1, true),
-      name .. " takes the other shape")
+    -- Spelled as the field takes it; some are refused for another reason.
+    local given = (every as {string:any})[name]
+    local text = given is boolean and "true" or given is integer and "1" or
+      given is string and '""' or "{}"
+    local why = refusal_of("{ " .. name .. " = " .. text .. " }")
+    assert(why:find("no field " .. name, 1, true) == nil, name .. ": " .. why)
   end
   local unknown = refusal_of("{ reeds = {} }")
   assert(unknown:find("it has " .. table.concat(named, ", "), 1, true), unknown)
@@ -1744,41 +1738,57 @@ end
 --- as a request names it (R2): a strict dotted quad `127.a.b.c` may be
 --- declared; `::1`, `localhost`, any other name or address, and any
 --- other spelling of one of 127/8 are refused, naming the rule.
-local function test_network_takes_loopback_addresses_alone()
+local function test_loopback_takes_loopback_addresses_alone()
   for _, host in ipairs({ "127.0.0.1", "127.0.0.2", "127.255.255.255", "127.1.20.0" }) do
-    assert(refusal_of('{ network = { "' .. host .. '" } }') == "", host)
+    assert(refusal_of('{ loopback = { "' .. host .. '" } }') == "", host)
   end
   for _, host in ipairs({ "*", "0.0.0.0", "128.0.0.1", "10.0.0.1", "127.1", "127.0.1",
-    "1270.0.0.1", "127.0.0.256", "127.0.0.1000", "127.0.0.01", "127.00.0.1", "0127.0.0.1",
-    "127.0.0.1:8080", "127.0.0.0/8", "127.0.0.1.", " 127.0.0.1", "127.0.0.1 ", "::", "::1",
-    "::ffff:127.0.0.1", "[::1]", "[::1]:80", "0:0:0:0:0:0:0:1", "localhost", "LOCALHOST",
-    "localhost.", "localhost:80", "a.localhost", "example.com", "no-host-here", "" }) do
-    local refused = refusal_of('{ network = { "' .. host .. '" } }')
-    assert(refused:find(string.format("network %q: network takes loopback addresses " ..
-      "127.a.b.c only", host), 1, true) ~= nil, host .. ": " .. refused)
-  end
-  assert(refusal_of("{ network = true }"):find("network = true: network takes loopback " ..
-    "addresses", 1, true))
-end
-
---- `lua` stands alone or beside what cannot start the program past its
---- hold; beside `tool` or `store`, which key the whole program already,
---- or `system` or a cache, whose host program or cached cosmic could
---- start it unheld, it is refused, naming the field it meets.
-local function test_lua_is_refused_beside_what_starts_the_program_unheld()
-  assert(refusal_of("{ lua = true }") == "")
-  assert(refusal_of("{ lua = true, standalone = true }") == "")
-  assert(refusal_of('{ tool = true, store = true, system = true, caches = { "zig" } }') == "")
-  for name, field in pairs({ tool = "tool = true", store = "store = true",
-    system = "system = true", caches = 'caches = { "zig" }' }) do
-    local why = refusal_of("{ lua = true, " .. field .. " }")
-    assert(why:find("lua is refused beside " .. name, 1, true), why)
+      "1270.0.0.1", "127.0.0.256", "127.0.0.1000", "127.0.0.01", "127.00.0.1", "0127.0.0.1",
+      "127.0.0.1:8080", "127.0.0.0/8", "127.0.0.1.", " 127.0.0.1", "127.0.0.1 ", "::", "::1",
+      "::ffff:127.0.0.1", "[::1]", "[::1]:80", "0:0:0:0:0:0:0:1", "localhost", "LOCALHOST",
+      "localhost.", "localhost:80", "a.localhost", "example.com", "no-host-here", "" }) do
+    local refused = refusal_of('{ loopback = { "' .. host .. '" } }')
+    assert(refused:find(string.format("loopback %q: loopback takes loopback addresses " ..
+        "127.a.b.c only", host), 1, true) ~= nil, host .. ": " .. refused)
   end
 end
 
---- `standalone` widens what `lua` holds, so alone it is refused, naming
---- `lua`.
-local function test_standalone_is_refused_without_lua()
-  local why = refusal_of("{ standalone = true }")
-  assert(why:find("standalone is refused without lua", 1, true), why)
+--- The profile "cosmic" alone is `lua`, which stands alone or beside what
+--- cannot start the program past its hold; beside the store, the system or
+--- a cache, whose host program or cached cosmic could start it unheld,
+--- it is refused, naming what it meets, and the grant of o/bin beside it
+--- is the program itself, which is not.
+local function test_cosmic_alone_is_refused_beside_what_starts_the_program_unheld()
+  local bin = '{ path = "o/bin", letters = "rx" }'
+  assert(refusal_of('{ profiles = { "cosmic" } }') == "")
+  assert(refusal_of('{ profiles = { "cosmic", "system" }, grants = { ' .. bin ..
+      ', { path = "o/cosmic.db", letters = "r" }, { path = "/cache/zig", letters = "rwxc" } } }') == "")
+  for beside, field in pairs({ ["o/cosmic.db"] = '{ path = "o/cosmic.db", letters = "r" }',
+      ["/cache/zig"] = '{ path = "/cache/zig", letters = "rwxc" }' }) do
+    local why = refusal_of('{ profiles = { "cosmic" }, grants = { ' .. field .. " } }")
+    assert(why:find("which is refused beside " .. beside, 1, true), why)
+  end
+  local why = refusal_of('{ profiles = { "cosmic", "system" } }')
+  assert(why:find("which is refused beside system", 1, true), why)
+end
+
+--- `standalone` is no field: a module that runs a file `--standalone`
+--- requires build.standalone instead.
+local function test_standalone_is_no_field_of_policy()
+  local why = refusal_of('{ profiles = { "cosmic" }, standalone = true }')
+  assert(why:find("no field standalone", 1, true) and why:find("it has ", 1, true), why)
+end
+
+--- A chunk's docs alone are the docs its whole analysis gives.
+local function test_docs_alone_are_the_analysis_docs()
+  local source = "local M = {}\n--- Adds one.\nfunction M.inc(n: integer): integer\n  return n + 1\nend\nreturn M\n"
+  local parsed = assert(ast.parse(built, source, "fixture.tl"))
+  local whole = assert(analyzer.analysis_of(built, parsed, source))
+  local alone = analyzer.docs(parsed, source)
+  assert(#alone == #whole.docs and #alone > 0, "docs alone differ in count")
+  for i, entry in ipairs(alone) do
+    local other = whole.docs[i]
+    assert(entry.source_symbol == other.source_symbol and entry.text == other.text and
+        entry.exported == other.exported and entry.line == other.line, "doc " .. i .. " differs")
+  end
 end

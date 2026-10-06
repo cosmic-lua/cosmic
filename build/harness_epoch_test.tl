@@ -23,7 +23,7 @@ local test = require("build.test")
 --- edit to the tree runs this again, an edit to the harness among
 --- them, and so does a compiler that makes other bytecode of it; it
 --- is this module alone that pays that.
-Test.needs{ store = true }
+Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
 
 --- The line of build/harness_epoch.tl's `acknowledged` that holds
 --- `name` at `digest`, as the file lays it out: each such line between
@@ -107,7 +107,7 @@ local function epoch_trouble(epoch: string, retired: {string}): string | nil
   end
   if count ~= #retired + 1 then
     return string.format("`epoch`'s count is %d, not %d, one past the %d tokens `retired` " ..
-      "holds: a bump appends the old token there and draws a new one", count,
+        "holds: a bump appends the old token there and draws a new one", count,
       #retired + 1, #retired)
   end
   return nil
@@ -133,12 +133,12 @@ local function unacknowledged(found: {string:string}, acknowledged: {string:stri
   table.sort(stale)
   local out: {string} = {
     "the test harness moved (build/harness_epoch.tl): what every worker loads, " ..
-    "the sandbox's maker or the code that makes and reads a key. Bump `epoch` if " ..
-    "the change can alter a pass or a fail -- what a worker is given, how it is " ..
-    "judged, how a key is computed; a sandbox's hold or bind tightened, too, which " ..
-    "moves no other part of a key, so a pass earned through the hole does not " ..
-    "stand -- which runs every test again; otherwise keep it. " .. how_to_bump(epoch, retired) ..
-    "\nEither way, in `acknowledged`:",
+      "the sandbox's maker or the code that makes and reads a key. Bump `epoch` if " ..
+      "the change can alter a pass or a fail -- what a worker is given, how it is " ..
+      "judged, how a key is computed; a sandbox's hold or bind tightened, too, which " ..
+      "moves no other part of a key, so a pass earned through the hole does not " ..
+      "stand -- which runs every test again; otherwise keep it. " .. how_to_bump(epoch, retired) ..
+      "\nEither way, in `acknowledged`:",
   }
   for _, name in ipairs(moved) do
     out[#out + 1] = acknowledged[name] == nil and
@@ -200,7 +200,7 @@ local function test_unacknowledged_names_each_module()
   local added = assert(unacknowledged({ ["build.a"] = "1", ["build.b"] = "2", ["build.c"] = "4" },
     acknowledged, epoch, retired))
   assert(added:find("no entry for build.c; add this line, in its place by name, between " ..
-    "blank lines\n" .. entry("build.c", "4"), 1, true), added)
+      "blank lines\n" .. entry("build.c", "4"), 1, true), added)
   local gone = assert(unacknowledged({ ["build.a"] = "1" }, acknowledged, epoch, retired))
   assert(gone:find("stale entry: build.b", 1, true), gone)
   assert(not gone:find("build.a", 1, true), gone)
@@ -213,7 +213,7 @@ end
 local function test_the_epoch_is_a_count_and_an_unused_token()
   local trouble = epoch_trouble(harness_epoch.epoch, harness_epoch.retired)
   assert(trouble == nil, "build/harness_epoch.tl: " .. tostring(trouble) .. ". " ..
-    how_to_bump(harness_epoch.epoch, harness_epoch.retired))
+      how_to_bump(harness_epoch.epoch, harness_epoch.retired))
 end
 
 --- What a bump's two edits, as `bump` prints them, leave `epoch` and
@@ -233,7 +233,7 @@ local function test_the_guard_holds_the_epoch_to_its_retired_tokens()
   local retired = counted(7)
   assert(epoch_trouble("8-072f7458", retired) == nil)
   for _, malformed in ipairs({ "8", "", "8-", "-072f7458", "8-072f745", "8-072f74581",
-    "8-072F7458", "8-072g7458", "x-072f7458", "8_072f7458", " 8-072f7458" }) do
+      "8-072F7458", "8-072g7458", "x-072f7458", "8_072f7458", " 8-072f7458" }) do
     local trouble = epoch_trouble(malformed, retired)
     assert(trouble ~= nil and trouble:find("not a count, a dash", 1, true),
       string.format("%q was taken as an epoch: %s", malformed, tostring(trouble)))
@@ -288,7 +288,7 @@ local function test_the_file_holds_its_entries_as_the_guard_prints_them()
     local at = text:find("\n\n" .. entry(name, harness_epoch.acknowledged[name]) .. "\n\n", 1,
       true)
     assert(at ~= nil, name .. "'s entry is not one line as the guard prints it, between " ..
-      "blank lines")
+        "blank lines")
     assert(at > last, name .. "'s entry is out of order: keep them sorted by name")
     last = at
   end
@@ -329,8 +329,8 @@ local function test_the_harness_holds_what_it_runs_requires()
   end
   db:close()
   assert(#missing == 0, "the harness runs what its digest does not hold -- name each " ..
-    "in build/test.tl's `harness_own`, or build/test_worker.tl's `worker.loads` where " ..
-    "a worker loads it: " .. table.concat(missing, ", "))
+      "in build/test.tl's `harness_own`, or build/test_worker.tl's `worker.loads` where " ..
+      "a worker loads it: " .. table.concat(missing, ", "))
 end
 
 --- The harness's `cosmic.*` modules are exactly those
@@ -359,13 +359,13 @@ local function test_the_harness_names_its_library()
   table.sort(unnamed)
   table.sort(unheld)
   assert(#unnamed == 0, "the harness reaches " .. table.concat(unnamed, ", ") ..
-    ", which build/harness_epoch.tl's `library` does not name: a module of the harness " ..
-    "reaches the host through raw bindings and the library `library` names, each " ..
-    "with its reason; take what it needs from a raw binding, or name the module there " ..
-    "with why the harness must reach it")
+      ", which build/harness_epoch.tl's `library` does not name: a module of the harness " ..
+      "reaches the host through raw bindings and the library `library` names, each " ..
+      "with its reason; take what it needs from a raw binding, or name the module there " ..
+      "with why the harness must reach it")
   assert(#unheld == 0, "build/harness_epoch.tl's `library` names " ..
-    table.concat(unheld, ", ") .. ", which no module of the harness reaches: " ..
-    "delete its entry")
+      table.concat(unheld, ", ") .. ", which no module of the harness reaches: " ..
+      "delete its entry")
 end
 
 --- An edge of `imports` is followed unless the importer's bytecode
@@ -375,7 +375,7 @@ end
 local function test_value_imports_follows_every_spelling_of_a_require()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE modules (path TEXT, kind TEXT, bytecode BLOB); " ..
-    "CREATE TABLE imports (path TEXT, requires TEXT)"))
+      "CREATE TABLE imports (path TEXT, requires TEXT)"))
   local compiled = string.dump(assert(load(table.concat({
     'local a = require"cosmic.fs"',
     'local b = require(',
@@ -396,4 +396,28 @@ local function test_value_imports_follows_every_spelling_of_a_require()
   assert(kept["cosmic.fs"] and kept["cosmic.env"], "a require's spelling dropped its edge")
   assert(not kept["cosmic.child"], "an edge the bytecode does not name was followed")
   assert((by_value["build.y"] or {})[1] == "cosmic.time")
+end
+
+--- The edges `type_only_imports` names are the ones `value_imports`
+--- leaves out, of the importers whose bytecode the table holds.
+local function test_type_only_imports_is_what_value_imports_drops()
+  local db = assert(Sqlite.memory())
+  assert(db:exec("CREATE TABLE modules (path TEXT, kind TEXT, bytecode BLOB); " ..
+      "CREATE TABLE imports (path TEXT, requires TEXT)"))
+  local compiled = string.dump(assert(load('local a = require"cosmic.fs" return a')), true)
+  assert(Sqlite.run(db, "INSERT INTO modules VALUES ('build.x', 'module', ?1)",
+    { { blob = compiled } }))
+  assert(Sqlite.run(db, "INSERT INTO modules VALUES ('build.t_test', 'test', ?1)",
+    { { blob = compiled } }))
+  for _, row in ipairs({ { "build.x", "cosmic.fs" }, { "build.x", "cosmic.child" },
+      { "build.y", "cosmic.time" }, { "build.t_test", "cosmic.child" } }) do
+    assert(Sqlite.run(db, "INSERT INTO imports VALUES (?1, ?2)",
+      { { text = row[1] }, { text = row[2] } }))
+  end
+  local erased = assert(test.type_only_imports(db))
+  db:close()
+  assert(erased["build.x"] ~= nil and erased["build.x"]["cosmic.child"], "a type-only edge was kept")
+  assert(not erased["build.x"]["cosmic.fs"], "a value edge was dropped")
+  assert(erased["build.y"] == nil, "an importer with no bytecode lost an edge")
+  assert(erased["build.t_test"] == nil, "a test's own edge was dropped")
 end

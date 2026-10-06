@@ -15,16 +15,14 @@ local type raw_process = require("cosmic.internal.process")
 -- host path per platform (a `host` entry for Linux and one for macOS):
 -- macOS has no /proc, so there this declares a path that is not there,
 -- which gives and keys nothing but says what the tests need wrongly.
---- What the stand-in is tested holding: the environment, which a
---- process it confines inherits, and /proc, where the stand-in program
+--- What the stand-in is tested holding: /proc, where the stand-in program
 --- a test starts finds itself; `nests`, since the processes it confines
 --- have roots of their own; and `tool`, since a process confined is
 --- given the program (the TODO above build.confine's `forbid_running`).
-Test.needs{
-  host = { "/proc" },
-  env = { "*" },
-  tool = true,
-  nests = true,
+Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "/proc", letters = "r" } },
+  promises = { "nest" },
 }
 
 --- A stand-in program built under `tmp` (build/stand_in.tl), which runs
@@ -181,7 +179,7 @@ local function test_a_confined_process_has_its_portable_cache_by_where_it_leads(
     for _, cache in ipairs({ tmp .. "/linked/cache", resolved, tmp .. "/linked/fresh/cache" }) do
       local r = assert(Child.run({ probe,
         "mkdirs $COSMIC_PORTABLE_CACHE && ls $COSMIC_PORTABLE_CACHE; " ..
-        "print $COSMIC_PORTABLE_CACHE" },
+          "print $COSMIC_PORTABLE_CACHE" },
         { env = { COSMIC_PORTABLE_CACHE = cache }, stdout = "capture" }))
       said[#said + 1] = assert(r.stdout)
     end
@@ -203,11 +201,11 @@ local function refusing_sandboxes(fn: function()): integer
   local spawn = process.spawn
   local refused = 0
   process.spawn = function(path: string, argv: {string}, environment: {string:string} | nil,
-                       cwd: string | nil, stdin: integer | nil, stdout: integer | nil,
-                       stderr: integer | nil, process_group: boolean,
-                       fds?: {integer:integer}, sandbox?: raw_process.Sandbox,
-                       credentials?: raw_process.Credentials):
-                       integer | nil, string, integer
+                           cwd: string | nil, stdin: integer | nil, stdout: integer | nil,
+                           stderr: integer | nil, process_group: boolean,
+                           fds?: {integer:integer}, sandbox?: raw_process.Sandbox,
+                           credentials?: raw_process.Credentials):
+      integer | nil, string, integer
     if sandbox ~= nil then
       refused = refused + 1
       return nil, "Operation not permitted", sys.EPERM
@@ -226,7 +224,9 @@ end
 --- COSMIC_SANDBOX=must there is no fallback to see
 --- (build/must_confine_test.tl holds that mode to refusing it).
 local function test_an_unconfinable_process_starts_unconfined(tmp: string)
-  if sys.getenv("COSMIC_SANDBOX") == "must" then return end
+  if sys.getenv("COSMIC_SANDBOX") == "must" then
+    Test.skip("COSMIC_SANDBOX=must leaves no fallback to see (build/must_confine_test.tl holds that mode)")
+  end
   local probe = probe_in(tmp)
   local own = tmp .. "/own"
   assert(Fs.mkdirs(own))

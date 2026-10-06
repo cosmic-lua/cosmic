@@ -3,7 +3,12 @@
 --- is `any`, and reading a field from it costs a cast that nothing checks.
 --- `into` walks the value against a [`Spec`] built from the functions
 --- below, once, and answers a new value holding what the spec names and
---- nothing else, so every read after it is an ordinary typed read.
+--- nothing else, so every read after it is an ordinary typed read. Its
+--- answer is a generic `T`: name the type where it lands --
+--- `local server, err: Server | nil, string = Shape.into(value, SERVER)`,
+--- as below -- or build the spec with [`record_of`], whose `into`
+--- answers the record's own type. Without either, `server` is a `T
+--- (unresolved generic)`, and every read of it fails to compile.
 ---
 ---     local record Server
 ---       host: string
@@ -54,11 +59,11 @@
 --- - Nothing is converted, with one exception: `integer` takes a float
 ---   with no fraction, like the `8080.0` another language's encoder
 ---   writes, and answers the integer. `number` refuses `"1"`.
---- - A failure names the first value that does not fit, by its path
----   from the root as `cosmic.json` names one, `$.rows[2].id`, with list
----   indices counted from 1: `$.rows[2].id: expected string, got
----   integer`. A record's fields and a map's keys are checked in byte
----   order, and a list's elements in index order, so the same value
+--- - A failure names the first value that does not fit by its JSON
+---   Pointer, as `cosmic.json` names one, list indices counted from 0:
+---   `pointer "/rows/1/id": expected string, got integer`. A record's
+---   fields and a map's keys are checked in byte order, and a list's
+---   elements in index order, so the same value
 ---   always reports the same failure. Only the first is answered: a
 ---   config file whose author wants every mistake sees them one at a
 ---   time, re-running after each fix.
@@ -161,8 +166,8 @@ end
 --- is a positive integer, the empty table included. An index missing
 --- below the highest is a missing element, which only an optional `of`
 --- admits, so `[1, null, 3]` fits `list(optional(integer))` and comes
---- back with a hole, and fails `list(integer)` at `$[2]`. The answer is
---- marked a JSON array, so an empty one still encodes as `[]`.
+--- back with a hole, and fails `list(integer)` at `pointer "/1"`. The
+--- answer is marked a JSON array, so an empty one still encodes as `[]`.
 --- @param of Spec Each element's shape
 --- @return Spec The list's shape
 function Shape.list(of: Spec): Spec
@@ -204,14 +209,14 @@ end
 --- A record that refuses every key it does not name, for a config file
 --- where a misspelled key should fail rather than vanish:
 --- `{"prot": 8080}` against `strict_record({ port = Shape.integer })`
---- fails with `$.prot: unknown key`. The keys are checked before the
---- fields, so the misspelling is named rather than the field it was
---- meant to be, and the first unknown one in byte order is the one
---- reported. A key is unknown whatever its value, [`Json.null`] included:
+--- fails with `pointer "/prot": unknown key`. The keys are checked
+--- before the fields, so the misspelling is named rather than the field
+--- it was meant to be, and the first unknown one in byte order is the
+--- one reported. A key is unknown whatever its value, [`Json.null`] included:
 --- `"prot": null` is still a misspelling. A key that is not a string is
---- refused as a map refuses one, `$: expected record, got the integer
---- key 1`. Otherwise it is `record`: a named field that is `optional`
---- may be missing or [`Json.null`], and the answer is a copy.
+--- refused as a map refuses one, `pointer "": expected record, got the
+--- integer key 1`. Otherwise it is `record`: a named field that is
+--- `optional` may be missing or [`Json.null`], and the answer is a copy.
 --- @param fields {string: Spec} Each field's shape, by its name
 --- @return Spec The record's shape
 function Shape.strict_record(fields: {string: Spec}): Spec
@@ -245,13 +250,21 @@ end
 
 local quoted = Json.quote
 
---- `path` extended by the field `name`, as a message spells where a miss
---- is: `$.user` for a word, `$["a key"]` for any other key.
+--- The JSON Pointer `path` extended by the member `name`, `~` written
+--- `~0` and `/` written `~1`.
 local function field_path(path: string, name: string): string
-  if name:match("^[%a_][%w_]*$") then
-    return path .. "." .. name
-  end
-  return path .. "[" .. quoted(name) .. "]"
+  return path .. "/" .. name:gsub("~", "~0"):gsub("/", "~1")
+end
+
+--- The JSON Pointer `path` extended by the list element at `index`,
+--- counted from 1 as Lua counts it and from 0 as the pointer does.
+local function index_path(path: string, index: integer): string
+  return path .. "/" .. (index - 1)
+end
+
+--- Where `path` is, for a message: `pointer "/rows/1/id"`.
+local function where(path: string): string
+  return "pointer " .. quoted(path)
 end
 
 --- What a value is, for a message: the Lua type, with integer and float
@@ -285,7 +298,7 @@ end
 
 --- `path`'s message for a value of the wrong kind.
 local function mismatch(path: string, spec: Spec, v: any): string
-  return ("%s: expected %s, got %s"):format(path, wanted(spec), kind_of(v))
+  return ("%s: expected %s, got %s"):format(where(path), wanted(spec), kind_of(v))
 end
 
 --- A key a list or a map refuses, for a message: a scalar by its value,
@@ -336,13 +349,13 @@ end
 
 --- The message for a container of `kind` that holds a key it refuses.
 local function refusal(path: string, kind: string, key: any): string
-  return ("%s: expected %s, got %s"):format(path, kind, key_named(key))
+  return ("%s: expected %s, got %s"):format(where(path), kind, key_named(key))
 end
 
 --- What a strict record `spec` refuses in `t`, before any field is
 --- looked at: a key that is not a string, named where the record
 --- stands, or else the first string key it does not name, in byte
---- order, named where that key is (`$.prot: unknown key`). A key that
+--- order, named where that key is (`pointer "/prot": unknown key`). A key that
 --- is not a string takes precedence, so a strict record fails where it
 --- stands or at its keys, never at a field as well. Answers the message,
 --- or "".
@@ -355,7 +368,7 @@ local function unknown_key(t: {any: any}, spec: Spec, path: string): string
   end
   for _, k in ipairs(members.keys) do
     if k is string and spec.fields[k] == nil then
-      return field_path(path, k) .. ": unknown key"
+      return where(field_path(path, k)) .. ": unknown key"
     end
   end
   return ""
@@ -401,10 +414,10 @@ local function walk_list(t: {any: any}, spec: Spec, path: string): any, string
     -- not optional, as a missing field fails a record, and each run of
     -- holes is one miss, at its first index.
     if not spec.of.optional and k > after + 1 then
-      return nil, mismatch(("%s[%d]"):format(path, after + 1), spec.of, nil)
+      return nil, mismatch(index_path(path, after + 1), spec.of, nil)
     end
     after = k
-    local got, failed = walk(rawget(t, k), spec.of, ("%s[%d]"):format(path, k))
+    local got, failed = walk(rawget(t, k), spec.of, index_path(path, k))
     if failed ~= "" then return nil, failed end
     out[k] = got
   end
@@ -445,7 +458,7 @@ walk = function(v: any, spec: Spec, path: string): any, string
     if v is number then
       local i = math.tointeger(v)
       if i ~= nil then return i, "" end
-      return nil, ("%s: expected integer, got %s"):format(path, shown(v))
+      return nil, ("%s: expected integer, got %s"):format(where(path), shown(v))
     end
   elseif kind == "boolean" then
     if v is boolean then return v, "" end
@@ -456,7 +469,7 @@ walk = function(v: any, spec: Spec, path: string): any, string
       if v == want then return v, "" end
     end
     if v is string or v is number or v is boolean then
-      return nil, ("%s: expected %s, got %s"):format(path, wanted(spec), shown(v))
+      return nil, ("%s: expected %s, got %s"):format(where(path), wanted(spec), shown(v))
     end
   elseif kind == "list" or kind == "map" or kind == "record" then
     if v is {any: any} then
@@ -482,7 +495,7 @@ end
 --- @return string "" or what did not fit
 function Shape.into<T>(value: any, spec: Spec): T | nil, string
   need_spec(spec, "into's shape")
-  local out, failed = walk(value, spec, "$")
+  local out, failed = walk(value, spec, "")
   if failed ~= "" then return nil, failed end
   -- cast: the one from `any`, which walk has just built to `spec`
   return out as T, ""
@@ -491,18 +504,18 @@ end
 --- The JSON `text` holds, checked against `spec` as `into` does, and
 --- "". nil and a message when it does not: [`Json.decode`]'s own, naming
 --- the line and column, when the text is not JSON, or `into`'s, naming
---- the `$.path` of the first value that does not fit, when it is JSON of
+--- the pointer to the first value that does not fit, when it is JSON of
 --- another shape. `opts` are [`Json.decode`]'s, forwarded as they are
 --- (`json5`, `null_value`, `max_depth`). The answer's type is the
 --- caller's annotation, as `into`'s is. Text that is `null` decodes to
 --- nothing (unless `opts.null_value` says otherwise), so a required
---- spec answers `$: expected record, got nothing` and an optional one
+--- spec answers `pointer "": expected record, got nothing` and an optional one
 --- answers nil and "". Raises only when `spec` is not a Spec.
 ---
 ---     local text = '{"host": "localhost", "port": 8080}'
 ---     local server, err: Server | nil, string = Shape.decode_into(text, SERVER)
 ---     -- server.port == 8080; with "port": "x", err is
----     -- "$.port: expected integer, got string"
+---     -- 'pointer "/port": expected integer, got string'
 --- @param text string The JSON text
 --- @param spec Spec The shape it must have
 --- @param opts Json.DecodeOptions What [`Json.decode`] takes

@@ -79,10 +79,10 @@ end
 local function test_the_runtime_setup_packs_a_closure_the_same_each_time(tmp: string)
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/test/portable") and Fs.mkdirs(root .. "/build") and
-    Fs.mkdirs(root .. "/cosmic"))
+      Fs.mkdirs(root .. "/cosmic"))
   assert(Fs.write(root .. "/test/portable/tool.tl",
     'local Fs = require("cosmic.fs")\nlocal fixture = require("test.portable")\n' ..
-    'local a = require( "build.a" )\nlocal gone = require("build.gone")\n'))
+      'local a = require( "build.a" )\nlocal gone = require("build.gone")\n'))
   assert(Fs.write(root .. "/test/portable/init.tl", 'local a = require("build.a")\n'))
   assert(Fs.write(root .. "/build/a.tl", 'local b = require("build.b")\n', 0x1ed))
   assert(Fs.write(root .. "/build/b.tl", "return {}\n"))
@@ -91,7 +91,7 @@ local function test_the_runtime_setup_packs_a_closure_the_same_each_time(tmp: st
   assert(Fs.write(root .. "/cosmic/fs.tl", "return {}\n"))
   local closure = RuntimeSetup.closure(root, "test/portable/tool.tl")
   assert(table.concat(closure, " ") ==
-    "build/a.tl build/b.tl test/portable/init.tl test/portable/tool.tl",
+      "build/a.tl build/b.tl test/portable/init.tl test/portable/tool.tl",
     table.concat(closure, " "))
   local files = RuntimeSetup.files_but_tests(root, "build", "build/c_test.tl")
   assert(table.concat(files, " ") == "build/a.tl build/b.tl build/c_test.tl",

@@ -7,7 +7,7 @@ local Test = require("cosmic.test")
 
 --- The host program the example runs, `/bin/sh`, which the sandboxed
 --- worker sees only when the module declares `system`.
-Test.needs{ system = true }
+Test.policy{ profiles = { "system" } }
 
 local Example = {}
 

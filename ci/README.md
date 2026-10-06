@@ -40,17 +40,29 @@ worktree's state stays until deleted).
 
 The `sandbox` phase writes what spawn's sandbox can hold on this machine
 (`build/sandbox_probe.tl`) to its log and the summary, and fails only when
-`COSMIC_CI_REQUIRE_SANDBOX=1` and a part a confined test needs did not hold.
+`COSMIC_CI_REQUIRE_SANDBOX=1` and a part a confined test needs did not hold:
+that probe alone is fatal, and a test skipped for a part the host lacks
+fails no `cosmic test` run, held or not.
 ci.yml sets it on the Linux legs, whose container is given what the sandbox
 needs; run-local leaves it unset, since many a development host refuses an
 unprivileged user namespace (Ubuntu 24.04's
 `kernel.apparmor_restrict_unprivileged_userns=1`, most containers), so the
 phases after it still run there. Set it to hold a local run to the same.
 
+Each leg also promises the host requirements cosmic_ci/capabilities.tl
+lists for it (a `requires` name of a test module's policy): the driver
+gives every suite's `cosmic test` the list as `COSMIC_TEST_PROMISES` and
+the leg's name (`COSMIC_WORKER`) as `COSMIC_TEST_LEG`, and a held run
+fails a module whose promised requirement is absent. A worker that is no
+leg's (provenance, fuzz) promises none, and `run-local` sets neither
+variable, so a local run only reports. `o/bin/cosmic fix --check .` fails a
+requirement no leg promises.
+
 Where `COSMIC_CI_REQUIRE_SANDBOX=1`, every phase's `cosmic test` runs each
-worker sandboxed to its declared inputs (`COSMIC_TEST_SANDBOX=1`,
-`build/test_sandbox.tl`), as it does by default wherever it can, and fails
-where none can be rather than run them unsandboxed.
+worker sandboxed to its declared inputs (`COSMIC_TEST_SANDBOX=1`), under
+a `cosmic.sandbox` policy (`build/test_policy.tl`), as it does by default
+wherever it can, and fails where none can be rather than run them
+unsandboxed.
 
 CI runs the driver unprivileged, and as root a permission a fixture expects
 to be refused may be granted. So invoked as root, run-local runs the driver
@@ -168,11 +180,14 @@ and never fails the step.
 (1 to 100, default 10) completed runs of ci.yml of event E (default
 `merge_group`; a `push`'s default to branch `main`; a branch may hold
 `/`) of the repository
-(`$GITHUB_REPOSITORY`, else cosmic-lua/cosmic) through `gh`, found on
-`PATH` and authenticated as it is: each run's jobs and step times
-(`gh api .../runs/<id>/jobs`) and the `suite_runs` rows of its unexpired
-`ci-driver-<leg>` artifacts, the newest of each name -- a re-run's
-latest attempt's -- fetched by id (`gh api .../artifacts/<id>/zip`). It prints, per run
+(`$GITHUB_REPOSITORY`, else cosmic-lua/cosmic) through GitHub's REST API
+([`cosmic_ci/github_api.tl`], at `$GITHUB_API_URL`, api.github.com by
+default), authenticated by `$GH_TOKEN`, else `$GITHUB_TOKEN` (with gh,
+`export GH_TOKEN=$(gh auth token)`): each run's
+jobs and step times (`.../runs/<id>/jobs`) and the `suite_runs` rows of its
+unexpired `ci-driver-<leg>` artifacts, the newest of each name -- a re-run's
+latest attempt's -- fetched by id (`.../artifacts/<id>/zip`, whose redirect
+the client follows itself, sending the token to the API alone). It prints, per run
 newest first, the wall time of its slowest platform job
 (`started_at`..`completed_at`, which leaves out queueing), the sum of
 its jobs' times, each leg's time and slowest steps, each suite's row
@@ -188,16 +203,19 @@ cache. Up to ten runs older than the N shown are listed for that, and
 fetched only until one has rows, so each of the N can qualify. Then the medians over the qualifying
 runs that succeeded. A run from before `suite_runs`, or whose artifacts
 have expired, is reported from its step times alone and qualifies for
-nothing. [`cosmic_ci/report_test.tl`] drives it against a fake `gh`
-([`testdata/report/gh.tl`]) and never reaches the network.
+nothing. [`cosmic_ci/report_test.tl`] drives it against a fake
+transport, and [`cosmic_ci/github_api_test.tl`] drives the client over
+`cosmic.http`'s scripted replies; neither reaches the network.
 
 `prerelease-stage` and `prerelease-publish` are prerelease.yml's publish
 job, which runs after each green ci run on main, checks out only `ci/`,
 `bin/cosmic-bootstrap`, `.github/scripts/cosmic-driver.sh` and the
 `.github/actions/cosmic-driver` action that runs it, and holds a
 `contents: write` token.
-The token reaches only the driver's `prerelease-publish` step, which hands
-it to the `gh` CLI; beyond the actions, the job otherwise runs only the
+The token reaches only the driver's `prerelease-publish` step, whose client
+([`cosmic_ci/github_api.tl`]) sends it to the API and to the one origin that
+takes release uploads (uploads.github.com, derived from `GITHUB_API_URL`),
+and to no other host; beyond the actions, the job otherwise runs only the
 scripts that fetch the pinned driver and verify it against the pin. The
 candidate product it downloads is data only, never executed.
 `prerelease-stage` reads `PRODUCTS` (the downloaded
@@ -205,8 +223,8 @@ candidate product it downloads is data only, never executed.
 `SOURCE_COMMIT` and `SOURCE_RUN_URL`, checks that every lane executed the
 same bytes, and writes the release under `RELEASE`: `cosmic`,
 `SHA256SUMS`, `source.json` and `notes.md`. `prerelease-publish` reads
-`GH_TOKEN`, `REPOSITORY`, `RELEASE`, `SOURCE_COMMIT`, `SOURCE_RUN_PREFIX`
-and `RUNNER_TEMP`, finds `gh` on `PATH`, and makes the staged release the
+`GH_TOKEN` (else `GITHUB_TOKEN`), `REPOSITORY`, `RELEASE`, `SOURCE_COMMIT`,
+`SOURCE_RUN_PREFIX` and `RUNNER_TEMP` (and `GITHUB_API_URL`, if set), and makes the staged release the
 immutable `next-<commit>` prerelease, or verifies the one already there
 (or, where GitHub refuses the job's token the tag with an HTTP 403
 "Resource not accessible by integration" and the default branch's
@@ -214,8 +232,10 @@ workflows differ from the commit's, makes nothing and prints a warning:
 that commit has no prerelease, and a pin moves to a later one);
 it resumes an interrupted draft only by accepting assets identical to the
 staged ones, and writes its downloads under `$RUNNER_TEMP/prerelease/`.
-[`cosmic_ci/prerelease_test.tl`] drives it against a fake `gh`
-([`testdata/prerelease/gh.tl`]) and never reaches the network.
+[`cosmic_ci/prerelease_test.tl`] drives it against a fake transport, and
+[`cosmic_ci/github_api_test.tl`] drives the client's uploads and asset
+downloads over `cosmic.http`'s scripted replies; neither reaches the
+network.
 
 `fuzz` and `fuzz-cancelled` are fuzz.yml's, and record no operation.
 `fuzz` runs `o/sanitized/bin/cosmic test --all` from `GITHUB_WORKSPACE`
@@ -316,7 +336,7 @@ prerelease.yml publishes a main run's products, so the push still
 saves and still carries the products, both taken from the queue's run:
 
 - Each leg of a queue run that passed keeps what main would save
-  (`queue-seed.sh stage`): its trimmed verdicts and compiles, where
+  (`driver.tl queue-stage`): its trimmed verdicts and compiles, where
   they differ from the entry it restored, the driver check's marker,
   where the check ran, with `seed.keys` naming the key each is saved
   under, the key main's own save would compute. It uploads them as
@@ -327,7 +347,7 @@ saves and still carries the products, both taken from the queue's run:
   (below) keeps its verdicts the same way, as
   `seed-linux-x86_64-checked`; its zig build outputs are
   linux-x86_64's, whose leg keeps them.
-- A push to main first runs `reuse` (`queue-seed.sh find`), which asks
+- A push to main first runs `reuse` (`driver.tl queue-find`), which asks
   the API for a `merge_group` run of ci.yml on a
   `gh-readonly-queue/main/` branch whose `head_sha` is the push's, that
   completed with success and holds an unexpired `seed-<leg>` for every
@@ -385,7 +405,7 @@ artifact does: each leg of a queue run uploads its native suite's
 verdicts as `verdicts-<leg>` the moment the suite passes, kept a day,
 and the checked job its checked suite's as
 `verdicts-linux-x86_64-checked`. Before its suite, a queue run's leg
-asks the API for the run ahead (`queue-seed.sh ahead`): the
+asks the API for the run ahead (`driver.tl queue-ahead`): the
 `merge_group` run on a `gh-readonly-queue/main/` branch whose
 `head_sha` is its base. Where that run holds the leg's artifact, the
 leg downloads it and merges it into what it restored (`verdicts-merge`,
@@ -436,7 +456,7 @@ format`), which ran after linux-aarch64's suite and runs on a full run
 in that leg's assemble. There it is `fix --check .` (36 to 55 s on this
 job, 2026-09-30, which then often outlasted the legs); on a light run it
 lays out only what the branch changed since its base on main
-(.github/scripts/changed-paths.sh, `fix --check --changed`), whose
+(driver.tl changed-paths, `fix --check --changed`), whose
 tree the queue held to the whole check, and still makes every check
 spanning files -- the tree checks, the links, the asserts -- over the
 whole tree (some 20 s). Where a path changed is part of what
@@ -498,7 +518,7 @@ a Linux leg its image and how it is started (all of it
 the engine's version; on macOS the runner's image label. Not ci.yml,
 whose every edit would move it. The verdict cache is also named by the
 processor features a core chooses code by and the kernel's release and
-version (`host-features.sh`), which differ between runners of one leg:
+version ([`cosmic_ci/host_id.tl`]), which differ between runners of one leg:
 named by the container alone, a run restored another runner's cache and
 none of its verdicts stood. The step was "name the leg's container", as
 `leg-container.sh` still calls it: an edit to that file moves every
@@ -559,14 +579,14 @@ newest commit's keys, so a branch based on an older main may need verdicts
 that were trimmed away. So main also saves each job's
 verdicts under its commit, `<prefix>sha-<commit>`, even where their
 content is an entry's already (`seed` too, from the key
-`queue-seed.sh stage` names), and each restore asks first for the
-entry of the tree's base on main (`.github/scripts/merge-base.sh`: a
+`driver.tl queue-stage` names), and each restore asks first for the
+entry of the tree's base on main (`driver.tl merge-base`: a
 branch's merge base with main, through the API; the merge queue's
 base), then the newest. Those copies, one a leg and the checked job
 each main push (some 11 MB each), would fill the repository's 10 GB
 within days and evict the zig outputs (below), so ci.yml's `prune`
 job deletes those more than a day old on each push to main
-(`.github/scripts/prune-commit-verdicts.sh`, with the one token in
+(`driver.tl prune-commit-verdicts`, with the one token in
 ci.yml that may write the cache, `actions: write`); a branch based on
 an older commit restores main's newest. A run that failed keeps what it
 restored with what it reached (`whole`). The compiles are saved only
@@ -589,8 +609,8 @@ cache trimming; restore/save policy stays with each job in ci.yml.
 `vendor` hashes what compiles the vendored libraries (the pin,
 `build.zig`, `build/zig.tl`, `vendor/`, `patch/`, the configuration
 headers they read from `core/`) but not the trees zig never compiles
-(tl, tzdata, cacert), nor the applier, `build/patch.tl`: it names each
-patched tree by the bytes it writes, so an edit to it that writes the
+(tl, tzdata, cacert, wpt-url, html5lib-tokenizer, wpt-html-parsing),
+nor the applier, `build/patch.tl`: it names each patched tree by the bytes it writes, so an edit to it that writes the
 same trees leaves every vendored object's path, and so zig's cache,
 as it was. `core` hashes the core's own C.
 `scope` is `full`, where assemble passed; a `light` entry, saved before
@@ -639,7 +659,7 @@ restore of another vendor part.
 
 actions/cache archives with `tar -C $GITHUB_WORKSPACE` and a path
 relative to it (`../../_temp/...`), which names nothing through the
-link `place-tree.sh` leaves were the tree more than one directory deep.
+link `place-tree` leaves were the tree more than one directory deep.
 So the tree moves only to a directory beside the workspace, whose name
 the commit and the leg choose, and the saves run with it moved; it
 moves back at the end for checkout's post step, whose git refuses a
@@ -690,10 +710,11 @@ alone.
 
 [`cosmic_ci/cache_trim.tl`]: cosmic_ci/cache_trim.tl
 [`cosmic_ci/prerelease_test.tl`]: cosmic_ci/prerelease_test.tl
+[`cosmic_ci/github_api.tl`]: cosmic_ci/github_api.tl
+[`cosmic_ci/github_api_test.tl`]: cosmic_ci/github_api_test.tl
 [`cosmic_ci/report_test.tl`]: cosmic_ci/report_test.tl
 [`cosmic_ci/suite_output.tl`]: cosmic_ci/suite_output.tl
 [`cosmic_ci/zig_prune.tl`]: cosmic_ci/zig_prune.tl
-[`testdata/prerelease/gh.tl`]: testdata/prerelease/gh.tl
-[`testdata/report/gh.tl`]: testdata/report/gh.tl
 
+[`cosmic_ci/host_id.tl`]: cosmic_ci/host_id.tl
 [`Runner.phase`]: cosmic_ci/runner.tl

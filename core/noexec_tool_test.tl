@@ -1,19 +1,20 @@
 --- Native mount guarantees for declared noexec scratch. The harness
---- skips this module where it cannot grant the capability; held runs
---- fail that skip. Copying bytes to ordinary scratch is allowed.
+--- skips this module where it cannot grant the capability. Copying bytes to ordinary scratch is allowed.
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
-local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local stand_in = require("build.stand_in")
 local type raw_process = require("cosmic.internal.process")
 
---- The mount, native stand-in and nested remount helpers need the
---- declared scratch, system programs and permission to create a root.
-Test.needs{ noexec = true, nests = true, system = true }
+--- The declared scratch, and permission to create the root the unveiled
+--- child's sandbox is.
+Test.policy{
+  grants = { { path = "/noexec", letters = "rwc" } },
+  promises = { "nest" },
+}
 
 local function executable(tmp: string): string, string
   local ordinary = tmp .. "/ordinary"
@@ -42,42 +43,12 @@ local function test_noexec_files_and_symlink_aliases_refuse_native_exec(tmp: str
   local fd = assert(sys.open(path, sys.O_RDONLY))
   refused("/proc/self/fd/" .. tostring(fd))
   assert(sys.close(fd))
-  local result = assert(Child.run({ ordinary, "exit 0" }, { timeout_ns = Time.seconds(10) }))
+  local result = assert(Child.run({ ordinary, "exit 0" }, { timeout_ns = Clock.seconds(10) }))
   assert(result.ok)
   local copied = tmp .. "/copied"
   assert(Fs.write(copied, assert(Fs.read(path)), 0x1c0))
-  result = assert(Child.run({ copied, "exit 0" }, { timeout_ns = Time.seconds(10) }))
+  result = assert(Child.run({ copied, "exit 0" }, { timeout_ns = Clock.seconds(10) }))
   assert(result.ok)
-end
-
-local function test_nested_bind_preserves_noexec_and_cannot_clear_it(tmp: string)
-  local _, path = executable(tmp)
-  local mount = assert(Proc.find("mount"))
-  local unshare = assert(Proc.find("unshare"))
-  local shell = assert(Proc.find("sh"))
-  local alias = tmp .. "/bound"
-  assert(Fs.mkdirs(alias))
-  local script = [[
-set -eu
-mount_program=$1
-noexec=$2
-alias=$3
-"$mount_program" -o bind "$noexec" "$alias"
-if "$mount_program" -o remount,bind,exec "$alias"; then
-  echo 'nested bind cleared noexec' >&2
-  exit 91
-fi
-if "$alias/program" 'exit 0'; then
-  echo 'nested alias executed' >&2
-  exit 92
-fi
-]]
-  local result, trouble = Child.run({ unshare, "-U", "-r", "-m", "--",
-    shell, "-c", script, "noexec-bind", mount, "/noexec", alias },
-    { stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(10) })
-  assert(result ~= nil, trouble)
-  assert(result.ok, result.stderr or "nested bind failed")
-  refused(path)
 end
 
 local function test_noexec_is_inherited_through_an_explicit_child_sandbox(tmp: string)
@@ -86,7 +57,7 @@ local function test_noexec_is_inherited_through_an_explicit_child_sandbox(tmp: s
     cwd = "/",
     sandbox = { unveil = { reads = { ordinary, "/noexec", "/proc", "/dev/null" },
       writes = { tmp } }, offline = true },
-    stdout = "null", stderr = "capture", timeout_ns = Time.seconds(10),
+    stdout = "null", stderr = "capture", timeout_ns = Clock.seconds(10),
   })
   assert(result ~= nil, trouble)
   assert(result.ok, result.stderr)

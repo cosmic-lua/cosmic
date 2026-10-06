@@ -11,16 +11,17 @@ local Net = require("cosmic.net")
 local this_program = require("build.this_program")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
+local _ = require("build.standalone")
 --- What the scripts its tests run standalone require, which a child
 --- is typed and run against only where the closure holds it (`lua`).
 local type _ = require("cosmic.http")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- Requests to a local port, closed or one a test serves, which a
 --- loopback alone answers: the worker runs offline, and is keyed. And
 --- the program itself, which its tests start only to run a script
---- standalone (`lua`, `standalone`).
-Test.needs{ network = { "127.0.0.1" }, lua = true, standalone = true }
+--- standalone (`lua`, [`build.standalone`]).
+Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" } }
 
 --- What a fresh process, $SSL_CERT_FILE naming `cert_file`, is told
 --- when it opens a closed local port: the roots, that file's included,
@@ -28,15 +29,15 @@ Test.needs{ network = { "127.0.0.1" }, lua = true, standalone = true }
 local function refused_with_cert_file(tmp: string, cert_file: string): string
   local script = tmp .. "/open.tl"
   assert(Fs.write(script, [[
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
-local Time = require("cosmic.time")
-local _, trouble = Http.open("http://127.0.0.1:1/", { connect_timeout_ns = Time.seconds(2) })
+local _, trouble = Http.open("http://127.0.0.1:1/", { connect_timeout_ns = Clock.seconds(2) })
 Fs.put(Fs.stdout, trouble or "")
 ]]))
   local started = this_program.program({ "--standalone", script },
     { env = { SSL_CERT_FILE = cert_file, XDG_CACHE_HOME = tmp .. "/cache" },
-      stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })
+      stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.code == 0, tostring(result.stderr))
   return result.stdout or ""
@@ -87,7 +88,7 @@ return function(argv: {string}): integer
   return 0
 end
 ]]))
-  local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Time.seconds(20) }))
+  local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(20) }))
   local url = "http://127.0.0.1:" .. server.address.port .. "/"
   local marker = tmp .. "/marker"
   local started = this_program.program({ "--standalone", script, url, marker },
@@ -99,11 +100,11 @@ end
   serve(conn, head)
   for _ = 1, 2000 do
     if Fs.stat(marker) ~= nil then break end
-    assert(sys.nanosleep(Time.ms(10)))
+    assert(sys.nanosleep(Clock.ms(10)))
   end
   assert(Fs.stat(marker) ~= nil, "the client never reached its wait")
   assert(child:stop(sys.SIGINT))
-  local result = assert(child:wait(Time.seconds(20)))
+  local result = assert(child:wait(Clock.seconds(20)))
   assert(result.code == 0, tostring(result.code) .. " " .. tostring(result.stderr))
   return result.stdout or ""
 end
@@ -164,7 +165,7 @@ return function(argv: {string}): integer
   return 0
 end
 ]]))
-  local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Time.seconds(20) }))
+  local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(20) }))
   local url = "http://127.0.0.1:" .. server.address.port .. "/items/1"
   local args = { "--standalone", script, method, url }
   if body ~= nil then args[#args + 1] = body end
@@ -172,7 +173,7 @@ end
   local child <close> = assert(Child.start(started.argv, started.options))
   local accepted, refused = server:accept()
   if accepted == nil then
-    local died = child:wait(Time.seconds(5))
+    local died = child:wait(Clock.seconds(5))
     error(refused .. ": " .. tostring(died ~= nil and died.stderr))
   end
   local conn <close> = accepted
@@ -183,7 +184,7 @@ end
   while #request < head_end + length do request = request .. assert(conn:read()) end
   assert(conn:write("HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\ndone"))
   conn:close()
-  local result = assert(child:wait(Time.seconds(20)))
+  local result = assert(child:wait(Clock.seconds(20)))
   assert(result.code == 0, tostring(result.code) .. " " .. tostring(result.stderr))
   return request, result.stdout or ""
 end

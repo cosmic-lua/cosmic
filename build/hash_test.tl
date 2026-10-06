@@ -10,7 +10,7 @@
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
-local Json = require("cosmic.json")
+local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
 local hash = require("build.hash")
 
@@ -20,10 +20,25 @@ local record Ran
   err: string
 end
 
+--- One member of `--json`'s array.
+local record Row
+  path: string
+  algorithm: string
+  digest: string
+end
+local ROW <const> = Shape.record_of("Row")
+
+--- `--json`'s array, checked against [`Row`].
+local function rows_of(text: string): {Row}
+  local rows, why: {Row} | nil, string = Shape.decode_into(text, Shape.list(ROW.spec))
+  assert(rows ~= nil, tostring(why) .. ": " .. text)
+  return rows
+end
+
 --- One run: `words` after `cosmic hash`, and `stdin` standing in for
 --- standard input; `out` replaces the write to standard output.
 local function run(words: {string}, stdin?: string | Stream.Reader,
-    out?: function(text: string): boolean, string): Ran
+                   out?: function(text: string): boolean, string): Ran
   local argv: {integer:string} = { [0] = "cosmic", [1] = "hash" }
   for index, word in ipairs(words) do argv[index + 1] = word end
   local ran: Ran = { code = -1, out = "", err = "" }
@@ -89,7 +104,7 @@ local function test_several_files_print_in_order_and_stdin_may_be_among_them(tmp
   local ran = run({ "--md5", a, "-", b }, "abc")
   assert(ran.code == 0, ran.err)
   assert(ran.out == ABC["md5"] .. "  " .. a .. "\n" .. ABC["md5"] .. "  -\n" ..
-    "d41d8cd98f00b204e9800998ecf8427e  " .. b .. "\n", ran.out)
+      "d41d8cd98f00b204e9800998ecf8427e  " .. b .. "\n", ran.out)
 end
 
 local function test_an_unreadable_file_is_named_and_the_rest_still_print(tmp: string)
@@ -110,8 +125,8 @@ local function test_names_with_a_backslash_or_newline_are_escaped_as_gnu_does(tm
   assert(ran.code == 0, ran.err)
   local prefix = tmp:gsub("\\", "\\\\")
   assert(ran.out == "\\" .. ABC["sha256"] .. "  " .. prefix .. "/a\\nb\n" ..
-    "\\" .. ABC["sha256"] .. "  " .. prefix .. "/c\\\\d\n" ..
-    ABC["sha256"] .. "  " .. plain .. "\n", ran.out)
+      "\\" .. ABC["sha256"] .. "  " .. prefix .. "/c\\\\d\n" ..
+      ABC["sha256"] .. "  " .. plain .. "\n", ran.out)
   -- What it printed, it checks.
   local sums = file(tmp, "sums", ran.out)
   local checked = run({ "--check", sums })
@@ -127,7 +142,7 @@ local function test_a_carriage_return_is_escaped_and_gnus_own_bytes_are_read(tmp
   assert(ran.out == "\\" .. ABC["md5"] .. "  " .. prefix .. "/a\\rb\n", ran.out)
   -- The bytes coreutils 9.4 writes for `a\rb`, `c\d`, and a newline in a name.
   local gnu = file(tmp, "gnu", "\\" .. ABC["md5"] .. "  a\\rb\n" .. "\\" .. ABC["md5"] .. "  c\\\\d\n" ..
-    "\\" .. ABC["md5"] .. "  n\\nl\n")
+      "\\" .. ABC["md5"] .. "  n\\nl\n")
   assert(Fs.write(tmp .. "/a\rb", "abc") and Fs.write(tmp .. "/c\\d", "abc") and Fs.write(tmp .. "/n\nl", "abc"))
   local checked = run({ "--md5", "--check", gnu }, nil)
   -- The names are relative to `tmp`, which this run is not in: each
@@ -155,7 +170,7 @@ local function test_json_refuses_a_path_it_cannot_write_and_exits_2(tmp: string)
   local ran = run({ "--json", odd, good })
   assert(ran.code == 2, ran.code)
   assert(ran.err:find("--json cannot write this path", 1, true), ran.err)
-  local rows = assert(Json.decode(ran.out)) as {{string:string}}
+  local rows = rows_of(ran.out)
   assert(#rows == 1 and rows[1].path == good)
 end
 
@@ -184,12 +199,12 @@ local function test_json_is_an_array_of_path_algorithm_digest(tmp: string)
   local a = file(tmp, "a", "abc")
   local ran = run({ "--json", "--sha1", a, "-" }, "abc")
   assert(ran.code == 0, ran.err)
-  local rows = assert(Json.decode(ran.out)) as {{string:string}}
+  local rows = rows_of(ran.out)
   assert(#rows == 2)
   assert(rows[1].path == a and rows[1].algorithm == "sha1" and rows[1].digest == ABC["sha1"])
   assert(rows[2].path == "-" and rows[2].digest == ABC["sha1"])
   local hmac = run({ "--json", "--hmac", "k", a })
-  local row = (assert(Json.decode(hmac.out)) as {{string:string}})[1]
+  local row = rows_of(hmac.out)[1]
   assert(row.algorithm == "hmac-sha256", row.algorithm)
   assert(run({ "--json" }, "").out:find('"digest"', 1, true))
 end
@@ -199,7 +214,7 @@ local function mixed(tmp: string): string
   local a = file(tmp, "a", "abc")
   local b = file(tmp, "b", "not abc")
   return file(tmp, "sums", ABC["sha256"] .. "  " .. a .. "\n" .. ABC["sha256"] .. "  " .. b .. "\n" ..
-    ABC["sha256"] .. "  " .. tmp .. "/gone\n")
+      ABC["sha256"] .. "  " .. tmp .. "/gone\n")
 end
 
 local function test_check_says_ok_failed_and_missing_and_exits_1(tmp: string)
@@ -230,7 +245,7 @@ end
 local function test_check_reads_markers_uppercase_comments_and_the_algorithm(tmp: string)
   local a = file(tmp, "a", "abc")
   local sums = file(tmp, "sums", "# a comment\n\n" .. ABC["sha1"]:upper() .. " *" .. a .. "\n" ..
-    ABC["sha1"] .. "  " .. a)
+      ABC["sha1"] .. "  " .. a)
   local ran = run({ "--sha1", "--check", sums })
   assert(ran.code == 0, ran.err)
   assert(ran.out == a .. ": OK\n" .. a .. ": OK\n", ran.out)
@@ -242,7 +257,7 @@ end
 local function test_a_malformed_line_is_reported_and_exits_2(tmp: string)
   local a = file(tmp, "a", "abc")
   local sums = file(tmp, "sums", ABC["sha256"] .. "  " .. a .. "\nthis is not a sum\n" ..
-    ABC["sha256"] .. " " .. a .. "\n")
+      ABC["sha256"] .. " " .. a .. "\n")
   local ran = run({ "--check", sums })
   assert(ran.code == 2, ran.code)
   assert(ran.out == a .. ": OK\n", ran.out)
@@ -316,9 +331,9 @@ local function test_a_bad_command_line_exits_2_and_prints_nothing(tmp: string)
   local a = file(tmp, "a", "abc")
   local sums = file(tmp, "sums", ABC["sha256"] .. "  " .. a .. "\n")
   for _, words in ipairs({
-    { "--sha1", "--sha256", a }, { "--quiet", a }, { "--json", "--check", sums },
-    { "--check", sums, a }, { "--hmac", "a", "--hmac-file", a, a }, { "--bogus", a },
-    { "--check", "" }, { "" },
+      { "--sha1", "--sha256", a }, { "--quiet", a }, { "--json", "--check", sums },
+      { "--check", sums, a }, { "--hmac", "a", "--hmac-file", a, a }, { "--bogus", a },
+      { "--check", "" }, { "" },
   } as {{string}}) do
     local ran = run(words, "")
     assert(ran.code == 2 and ran.out == "", table.concat(words, " ") .. ": " .. ran.out)

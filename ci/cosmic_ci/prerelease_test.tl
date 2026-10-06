@@ -1,9 +1,19 @@
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local GithubApi = require("cosmic_ci.github_api")
 local Hash = require("cosmic.hash")
+local Json = require("cosmic.json")
 local Prerelease = require("cosmic_ci.prerelease")
 local Proc = require("cosmic.proc")
+local Test = require("cosmic.test")
+
+-- These tests start this program (the pinned driver's own cosmic, or a copy of it
+-- as the bootstrap), which a worker on a sealed database does not have whole;
+-- that is a script /bin/sh runs, hence "system", and the driver is copied
+-- from cosmic_ci.
+Test.policy{ profiles = { "cosmic", "system" }, grants = { { path = "o/bin", letters = "rx" },
+  { path = "cosmic_ci", letters = "r" } } }
 
 local commit <const> = string.rep("c", 40)
 local repository <const> = "owner/repo"
@@ -40,7 +50,7 @@ end
 
 local function test_expects_four()
   assert(Prerelease.expects_four("4\n") and Prerelease.expects_four("4") and
-    Prerelease.expects_four("4\n\n"))
+      Prerelease.expects_four("4\n\n"))
   for _, bad in ipairs({ "3\n", " 4\n", "4 \n", "04\n", "", "\n4\n" }) do
     assert(not Prerelease.expects_four(bad), bad)
   end
@@ -53,14 +63,14 @@ local function test_release_text_is_the_shell_scripts()
   local run_url = run_prefix .. "123"
   assert(Prerelease.sums(digest) == digest .. "  cosmic\n")
   assert(Prerelease.source_json(commit, digest, run_url) ==
-    '{\n  "commit": "' .. commit .. '",\n  "digest": "' .. digest ..
-    '",\n  "run_url": "' .. run_url .. '"\n}\n')
+      '{\n  "commit": "' .. commit .. '",\n  "digest": "' .. digest ..
+      '",\n  "run_url": "' .. run_url .. '"\n}\n')
   assert(Prerelease.notes(commit, digest, run_url) ==
-    "Prerelease of commit `" .. commit .. "` from [CI run](" .. run_url .. ").\n\n" ..
-    "The identical Cosmic bytes (SHA-256 `" .. digest .. "`) were tested by all four native " ..
-    "workers: Linux x86_64, Linux aarch64, macOS aarch64, and Alpine x86_64. Each worker " ..
-    "uploaded its executed-byte attestation, and the provenance join verified all four " ..
-    "hashes before publication.\n")
+      "Prerelease of commit `" .. commit .. "` from [CI run](" .. run_url .. ").\n\n" ..
+      "The identical Cosmic bytes (SHA-256 `" .. digest .. "`) were tested by all four native " ..
+      "workers: Linux x86_64, Linux aarch64, macOS aarch64, and Alpine x86_64. Each worker " ..
+      "uploaded its executed-byte attestation, and the provenance join verified all four " ..
+      "hashes before publication.\n")
 end
 
 local function test_source_valid()
@@ -70,7 +80,7 @@ local function test_source_valid()
   end
   assert(valid(Prerelease.source_json(commit, digest, run_prefix .. "123")))
   assert(valid('{"run_url":"' .. run_prefix .. '9","digest":"' .. digest ..
-    '","commit":"' .. commit .. '","extra":1}'))
+      '","commit":"' .. commit .. '","extra":1}'))
   for _, bad in ipairs({
       Prerelease.source_json(string.rep("d", 40), digest, run_prefix .. "1"),
       Prerelease.source_json(commit, string.rep("cd", 32), run_prefix .. "1"),
@@ -85,16 +95,19 @@ local function test_source_valid()
       '["' .. commit .. '"]', "", "not json" }) do
     assert(not valid(bad), bad)
   end
-end
-
-local function test_http_status()
-  assert(Prerelease.http_status("HTTP/2.0 404 Not Found\nX: y\n\n{}") == "404")
-  assert(Prerelease.http_status("HTTP/1.1 302 Found\n\nHTTP/2.0 500 Error\n\n{}") == "500")
-  assert(Prerelease.http_status("HTTP/2.0 404\n\n") == "404")
-  assert(Prerelease.http_status("") == nil)
-  assert(Prerelease.http_status("error connecting to api.github.com\n") == nil)
-  assert(Prerelease.http_status(" HTTP/2.0 404 Not Found\n") == nil)
-  assert(Prerelease.http_status("HTTP/2.0 Not Found\n") == nil)
+  -- A source.json of another shape is refused naming its first wrong
+  -- value, where a missing or mistyped field was once reported as
+  -- another commit, or as a run_url that is no string.
+  local function unshaped(text: string, at: string, expected: string)
+    local accepted, trouble = Prerelease.source_valid(text, commit, digest, run_prefix)
+    assert(not accepted, text)
+    assert(trouble:find("source.json is no source record: ", 1, true) and
+        trouble:find('pointer "' .. at .. '": expected ' .. expected, 1, true), trouble)
+  end
+  unshaped('{"commit":"' .. commit .. '","digest":"' .. digest .. '","run_url":1}',
+    "/run_url", "string, got integer")
+  unshaped('{"commit":"' .. commit .. '"}', "/digest", "string, got nothing")
+  unshaped('["' .. commit .. '"]', "", "record, got array")
 end
 
 local function test_asset_set()
@@ -106,20 +119,25 @@ local function test_asset_set()
     assert(not Prerelease.complete_assets(bad), table.concat(bad, ","))
   end
   assert(Prerelease.known_asset("cosmic") and Prerelease.known_asset("SHA256SUMS") and
-    Prerelease.known_asset("source.json"))
+      Prerelease.known_asset("source.json"))
   assert(not Prerelease.known_asset("notes.md") and not Prerelease.known_asset("cosmic.exe"))
 end
 
+local function release(id: integer, name: string): {string:any}
+  return { id = id, tag_name = name }
+end
+
 local function test_release_ids_gathers_every_page()
-  local text = '[[{"id":1,"tag_name":"next-a"}],[{"id":2,"tag_name":"' .. tag ..
-    '"},{"id":3,"tag_name":"next-b"}],[],[{"id":4,"tag_name":"' .. tag .. '"}]]'
-  local ids = Prerelease.release_ids(text, tag)
+  local pages: {any} = { Json.array({ release(1, "next-a") }),
+    Json.array({ release(2, tag), release(3, "next-b") }), Json.array(),
+    Json.array({ release(4, tag) }) }
+  local ids = Prerelease.release_ids(pages, tag)
   assert(#ids == 2 and ids[1] == 2 and ids[2] == 4)
-  assert(#Prerelease.release_ids("[[]]", tag) == 0)
-  refused("no JSON array", function() Prerelease.release_ids('{"id":1}', tag) end)
-  refused("no array", function() Prerelease.release_ids('[{"id":1}]', tag) end)
+  assert(#Prerelease.release_ids({ Json.array() }, tag) == 0)
+  refused("no array", function() Prerelease.release_ids({ { id = 1 } }, tag) end)
+  refused("is no object", function() Prerelease.release_ids({ Json.array({ 7 }) }, tag) end)
   refused("has no id", function()
-    Prerelease.release_ids('[[{"tag_name":"' .. tag .. '"}]]', tag)
+    Prerelease.release_ids({ Json.array({ { tag_name = tag } }) }, tag)
   end)
 end
 
@@ -196,57 +214,275 @@ local function test_stage_refuses_what_the_lanes_disagree_on(tmp: string)
   end
 end
 
---- A repository standing in for GitHub's, behind a fake `gh` on PATH,
---- and a release staged for it.
+--- A release of the fake repository.
+local record Asset
+  name: string
+  id: integer
+  data: string
+end
+local record Release
+  id: integer
+  tag: string
+  draft: boolean
+  prerelease: boolean
+  assets: {Asset}
+  title: string
+  notes: string
+  --- The commit publishing the release makes its tag at, where the tag
+  --- is missing.
+  target: string | nil
+end
+
+--- A repository standing in for GitHub's, answering a client's `send`
+--- and `fetch` from tables, and a release staged for it. `fail` holds
+--- the faults to inject: ref (the tag probe answers 500), ref-transport
+--- (it gets no answer), transport (nothing is answered), create-ref (the
+--- POST of a tag is refused 403 with this message, or GitHub's to a
+--- GITHUB_TOKEN when empty) and edit-draft (the PATCH leaves the draft
+--- flag).
 local record Repo
-  state: string
-  env: {string:string}
+  client: GithubApi.Client
   release: string
   temp: string
+  tags: {string:string}
+  annotated: {string:string}
+  tag_objects: {string:string}
+  branches: {string:string}
+  releases: {Release}
+  assets: integer
+  compare: {string}
+  fail: {string:string}
+  --- Each request as "METHOD path" ("UPLOAD name" for an upload).
+  log: {string}
+  --- The content type each uploaded asset came with.
+  uploaded: {string:string}
 end
 
-local function gh_script(): string
-  local here = assert(Fs.absolute("."))
-  return here .. "/testdata/prerelease/gh.tl"
+local api <const> = "https://api.test/"
+local uploads <const> = "https://uploads.test/"
+local blob <const> = "https://blob.test/"
+
+local function reply(status: integer, value: any, headers?: {string:string}): GithubApi.Reply
+  local body = value is string and value or assert(Json.encode(value))
+  return { status = status, headers = headers or {}, body = body }
 end
 
+local function not_found(): GithubApi.Reply
+  return reply(404, { message = "Not Found" })
+end
+
+local function release_json(rel: Release): {string:any}
+  local assets: {any} = {}
+  for _, asset in ipairs(rel.assets) do
+    assets[#assets + 1] = { name = asset.name, id = asset.id, size = #asset.data,
+      state = "uploaded" }
+  end
+  return { id = rel.id, tag_name = rel.tag, draft = rel.draft, prerelease = rel.prerelease,
+    assets = Json.array(assets),
+    upload_url = uploads .. "repos/" .. repository .. "/releases/" .. rel.id ..
+      "/assets{?name,label}" }
+end
+
+local function release_by(r: Repo, id: string): Release | nil
+  for _, rel in ipairs(r.releases) do
+    if tostring(rel.id) == id then return rel end
+  end
+  return nil
+end
+
+local function asset_by(r: Repo, id: string): Asset | nil
+  for _, rel in ipairs(r.releases) do
+    for _, asset in ipairs(rel.assets) do
+      if tostring(asset.id) == id then return asset end
+    end
+  end
+  return nil
+end
+
+local function serve_upload(r: Repo, request: GithubApi.Request): GithubApi.Reply
+  assert(request.method == "POST" and request.upload == true, "an upload is not flagged")
+  local id, name = request.url:match("^" .. uploads:gsub("%p", "%%%0") ..
+      "repos/owner/repo/releases/(%d+)/assets%?name=([^&]+)$")
+  local rel = id and release_by(r, id)
+  if rel == nil or name == nil then return not_found() end
+  r.log[#r.log + 1] = "UPLOAD " .. name
+  for _, asset in ipairs(rel.assets) do
+    if asset.name == name then
+      return reply(422, { message = "Validation Failed",
+        errors = { { code = "already_exists", field = "name" } } })
+    end
+  end
+  r.assets = r.assets + 1
+  local expected: {string:string} = { ["source.json"] = "application/json",
+    SHA256SUMS = "text/plain", cosmic = "application/octet-stream" }
+  assert(request.headers["Content-Type"] == expected[name],
+    name .. " is uploaded as " .. tostring(request.headers["Content-Type"]))
+  r.uploaded[name] = request.headers["Content-Type"]
+  rel.assets[#rel.assets + 1] = { name = name, id = r.assets, data = assert(request.body) }
+  return reply(201, { id = r.assets, name = name, state = "uploaded" })
+end
+
+local function serve_page(r: Repo, rest: string): GithubApi.Reply
+  -- One release to a page, so a caller must gather every page.
+  local page = math.tointeger(tonumber(rest:match("&page=(%d+)$") or "1")) as integer
+  local rel = r.releases[page]
+  local list: {any} = {}
+  if rel then list[1] = { id = rel.id, tag_name = rel.tag } end
+  local headers: {string:string} = {}
+  if r.releases[page + 1] then
+    headers.link = '<' .. api .. "repos/" .. repository .. "/releases?per_page=100&page=" ..
+      (page + 1) .. '>; rel="next"'
+  end
+  return reply(200, Json.array(list), headers)
+end
+
+local function serve(r: Repo, request: GithubApi.Request): GithubApi.Reply | nil, string
+  if r.fail.transport then return nil, "connection refused" end
+  assert(request.headers.Authorization == nil, "the fake adds the token itself")
+  if request.url:sub(1, #uploads) == uploads then return serve_upload(r, request) end
+  assert(request.url:sub(1, #api) == api, "a request to " .. request.url)
+  local path = request.url:sub(#api + 1)
+  local method = request.method
+  r.log[#r.log + 1] = method .. " " .. path
+  local body: {string:any} = {}
+  if request.body then
+    assert(request.headers["Content-Type"] == "application/json", "a JSON body is not typed")
+    body = assert(Json.decode_object(request.body))
+  end
+  if path == "repos/" .. repository then
+    return reply(200, { full_name = repository, default_branch = "main" })
+  end
+  local prefix = "repos/" .. repository .. "/"
+  assert(path:sub(1, #prefix) == prefix, "an unexpected path " .. path)
+  local rest = path:sub(#prefix + 1)
+  if rest:match("^releases%?per_page=100") and method == "GET" then return serve_page(r, rest) end
+  local probed = rest:match("^git/ref/tags/(.+)$")
+  if probed and method == "GET" then
+    if r.fail["ref-transport"] then return nil, "connection reset" end
+    if r.fail.ref then return reply(500, { message = "Server Error" }) end
+    local sha = r.tags[probed]
+    if sha == nil then return not_found() end
+    local object = { sha = sha, type = "commit" }
+    if r.annotated[probed] then object = { sha = r.annotated[probed], type = "tag" } end
+    return reply(200, { ref = "refs/tags/" .. probed, object = object })
+  end
+  local tag_object = rest:match("^git/tags/(.+)$")
+  if tag_object and method == "GET" then
+    local tagged = r.tag_objects[tag_object]
+    if tagged == nil then return not_found() end
+    return reply(200, { sha = tag_object, object = { sha = tagged, type = "commit" } })
+  end
+  if rest:match("^compare/%x+%.%.%.main$") and method == "GET" then
+    local files: {any} = {}
+    for _, name in ipairs(r.compare) do files[#files + 1] = { filename = name } end
+    return reply(200, { status = "ahead", files = Json.array(files) })
+  end
+  if rest == "git/refs" and method == "POST" then
+    local ref, sha = body.ref, body.sha
+    assert(ref is string and sha is string, "no ref or sha")
+    local made = assert(ref:match("^refs/tags/(.+)$"))
+    local message = r.fail["create-ref"]
+    if message then
+      return reply(403, { message = message ~= "" and message or
+          "Resource not accessible by integration" })
+    end
+    if r.tags[made] then return reply(422, { message = "Reference already exists" }) end
+    r.tags[made] = sha
+    return reply(201, { ref = ref, object = { sha = sha } })
+  end
+  if rest == "releases" and method == "POST" then
+    local name = body.tag_name
+    assert(name is string and body.name == name, "a release is named for its tag")
+    assert(body.draft == true and body.prerelease == true, "a release is a draft prerelease")
+    -- A tag the draft names is made already, as the flow verifies it.
+    if r.tags[name] == nil then return reply(422, { message = "Validation Failed" }) end
+    local rel: Release = { id = #r.releases + 1, tag = name, draft = true, prerelease = true,
+      assets = {}, title = name, notes = tostring(body.body) }
+    r.releases[#r.releases + 1] = rel
+    return reply(201, release_json(rel))
+  end
+  local id = rest:match("^releases/(%d+)$")
+  local rel = id and release_by(r, id)
+  if id and method == "GET" then
+    if rel == nil then return not_found() end
+    return reply(200, release_json(rel))
+  end
+  if id and method == "PATCH" then
+    if rel == nil then return not_found() end
+    local keys = 0
+    for _ in pairs(body) do keys = keys + 1 end
+    assert(keys == 2 and body.draft == false and body.prerelease == true,
+      "the edit is not exactly draft=false, prerelease=true")
+    if not r.fail["edit-draft"] then
+      rel.draft = false
+      -- Publishing a draft whose tag is missing makes the tag, at the
+      -- draft's target.
+      if r.tags[rel.tag] == nil and rel.target then r.tags[rel.tag] = rel.target end
+    end
+    rel.prerelease = true
+    return reply(200, release_json(rel))
+  end
+  local asset_id = rest:match("^releases/assets/(%d+)$")
+  if asset_id and method == "GET" then
+    assert(request.headers.Accept == "application/octet-stream", "an asset is asked for as bytes")
+    if asset_by(r, asset_id) == nil then return not_found() end
+    return reply(302, "", { location = blob .. asset_id })
+  end
+  error("an unexpected request " .. method .. " " .. path)
+end
+
+--- A staged release and a fake repository for it. The client is the live
+--- one with its transport replaced, so its upload origin is the real
+--- derivation's.
 local function repo(tmp: string, bytes?: string): Repo
-  local state, bin = tmp .. "/state", tmp .. "/bin"
-  assert(Fs.mkdirs(state) and Fs.mkdirs(bin))
-  write(state .. "/repo", repository)
-  write(bin .. "/gh", "#!/bin/sh\nexec '" .. assert(Proc.executable()) ..
-    "' --standalone '" .. gh_script() .. "' \"$@\"\n")
-  assert(Fs.chmod(bin .. "/gh", 0x1ed))
   local s = stage_context(tmp)
   s.products = products(tmp .. "/staged-products", bytes or "product bytes")
   Prerelease.stage(s)
-  local env = Env.all()
-  env.PATH = bin .. ":/usr/bin:/bin"
-  env.GH_TOKEN = "fake-token"
-  env.FAKE_GH_STATE = state
-  env.REPOSITORY = repository
-  env.RELEASE = s.release
-  env.SOURCE_COMMIT = commit
-  env.SOURCE_RUN_PREFIX = run_prefix
-  env.RUNNER_TEMP = tmp .. "/runner"
-  assert(Fs.mkdirs(env.RUNNER_TEMP))
-  return { state = state, env = env, release = s.release, temp = env.RUNNER_TEMP }
+  local client = assert(GithubApi.live({ GH_TOKEN = "fake-token", GITHUB_API_URL = "https://api.test" }))
+  local r: Repo = { client = client, release = s.release, temp = tmp .. "/runner",
+    tags = {}, annotated = {}, tag_objects = {}, branches = {}, releases = {}, assets = 100,
+    compare = {}, fail = {}, log = {}, uploaded = {} }
+  client.send = function(request: GithubApi.Request): GithubApi.Reply | nil, string
+    return serve(r, request)
+  end
+  client.fetch = function(url: string, to: string): boolean, string
+    assert(url:sub(1, #blob) == blob, "a download from " .. url)
+    local asset = asset_by(r, url:sub(#blob + 1))
+    if asset == nil then return false, "HTTP 404" end
+    return Fs.write(to, asset.data)
+  end
+  assert(Fs.mkdirs(r.temp))
+  return r
+end
+
+local function publisher(r: Repo): Prerelease.Publish
+  return { client = r.client, repository = repository, release = r.release, commit = commit,
+    run_prefix = run_prefix, temp = r.temp }
 end
 
 local function publish(r: Repo): string
-  return Prerelease.publish(Prerelease.publish_context(r.env))
+  return Prerelease.publish(publisher(r))
 end
 
 --- A release of the tag in the fake repository, with these assets.
-local function seed(r: Repo, id: string, draft: boolean, assets: {string:string})
-  assert(Fs.mkdirs(r.state .. "/tags"))
-  write(r.state .. "/tags/" .. tag, commit)
-  local dir = r.state .. "/releases/" .. id
-  assert(Fs.mkdirs(dir .. "/assets"))
-  write(dir .. "/tag", tag)
-  write(dir .. "/draft", tostring(draft))
-  write(dir .. "/prerelease", "true")
-  for name, data in pairs(assets) do write(dir .. "/assets/" .. name, data) end
+local function seed(r: Repo, draft: boolean, assets: {string:string}): Release
+  r.tags[tag] = commit
+  local rel: Release = { id = #r.releases + 1, tag = tag, draft = draft, prerelease = true,
+    assets = {}, title = tag, notes = "" }
+  for _, name in ipairs(Prerelease.assets) do
+    if assets[name] then
+      r.assets = r.assets + 1
+      rel.assets[#rel.assets + 1] = { name = name, id = r.assets, data = assets[name] }
+    end
+  end
+  for name, data in pairs(assets) do
+    if not Prerelease.known_asset(name) then
+      r.assets = r.assets + 1
+      rel.assets[#rel.assets + 1] = { name = name, id = r.assets, data = data }
+    end
+  end
+  r.releases[#r.releases + 1] = rel
+  return rel
 end
 
 local function staged(r: Repo): {string:string}
@@ -255,117 +491,114 @@ local function staged(r: Repo): {string:string}
   return assets
 end
 
-local function calls(r: Repo): string
-  return exists(r.state .. "/calls") and read(r.state .. "/calls") or ""
-end
-
-local function count(text: string, pattern: string): integer
+--- How many requests of the log begin with `prefix`.
+local function count(r: Repo, prefix: string): integer
   local n = 0
-  for _ in text:gmatch(pattern) do n = n + 1 end
+  for _, line in ipairs(r.log) do
+    if line:sub(1, #prefix) == prefix then n = n + 1 end
+  end
   return n
 end
 
---- The one release the fake repository holds is published and holds
---- exactly the staged assets.
-local function published(r: Repo, id: string)
-  local dir = r.state .. "/releases/" .. id
-  assert(#assert(Fs.list(r.state .. "/releases")) == 1)
-  assert(read(dir .. "/draft") == "false" and read(dir .. "/prerelease") == "true")
-  local names = assert(Fs.list(dir .. "/assets"))
-  assert(#names == 3)
-  for name, data in pairs(staged(r)) do assert(read(dir .. "/assets/" .. name) == data, name) end
-end
+local function logged(r: Repo): string return table.concat(r.log, "\n") end
 
 local function test_publish_creates_tag_and_release(tmp: string)
   local r = repo(tmp)
+  -- Other commits' releases, so the list takes two pages.
+  for id, letter in ipairs({ "a", "b" }) do
+    r.releases[id] = { id = id, tag = "next-" .. string.rep(letter, 40), draft = false,
+      prerelease = true, assets = {}, title = "", notes = "" }
+  end
   assert(publish(r) == "prerelease published and verified: " .. tag)
-  assert(read(r.state .. "/tags/" .. tag) == commit)
-  published(r, "1")
-  assert(read(r.state .. "/releases/1/notes") == read(r.release .. "/notes.md"))
-  assert(read(r.state .. "/releases/1/title") == tag)
-  local log = calls(r)
-  assert(count(log, "release create ") == 1 and count(log, "release upload ") == 3)
-  assert(count(log, "api %-%-include %-%-method POST repos/owner/repo/git/refs ") == 1)
+  assert(r.tags[tag] == commit)
+  assert(#r.releases == 3)
+  local rel = r.releases[3]
+  assert(not rel.draft and rel.prerelease and #rel.assets == 3)
+  local data = staged(r)
+  for _, asset in ipairs(rel.assets) do assert(asset.data == data[asset.name], asset.name) end
+  assert(rel.notes == read(r.release .. "/notes.md"))
+  assert(rel.title == tag)
+  local log = logged(r)
+  assert(count(r, "POST repos/owner/repo/releases") == 1 and count(r, "UPLOAD ") == 3, log)
+  assert(count(r, "POST repos/owner/repo/git/refs") == 1, log)
+  assert(r.uploaded["source.json"] == "application/json" and
+      r.uploaded.SHA256SUMS == "text/plain" and
+      r.uploaded.cosmic == "application/octet-stream")
+  assert(count(r, "GET repos/owner/repo/releases?per_page=100&page=2") == 1, log)
 end
 
 local function test_publish_resumes_a_draft_uploading_only_what_is_missing(tmp: string)
   local r = repo(tmp)
   local digest = Hash.hex_sha256("product bytes")
   -- The draft's source.json names the earlier run that uploaded it.
-  seed(r, "5", true, { cosmic = "product bytes",
-    ["source.json"] = Prerelease.source_json(commit, digest, run_prefix .. "3") })
+  local earlier = Prerelease.source_json(commit, digest, run_prefix .. "3")
+  local rel = seed(r, true, { cosmic = "product bytes", ["source.json"] = earlier })
   assert(publish(r) == "prerelease published and verified: " .. tag)
-  local log = calls(r)
-  assert(count(log, "release upload ") == 1, log)
-  assert(log:find("release upload " .. tag .. " " .. r.release .. "/SHA256SUMS", 1, true))
-  assert(count(log, "release create ") == 0 and count(log, "POST") == 0)
-  local dir = r.state .. "/releases/5"
-  assert(read(dir .. "/draft") == "false")
-  assert(read(dir .. "/assets/source.json") ==
-    Prerelease.source_json(commit, digest, run_prefix .. "3"))
-  assert(read(dir .. "/assets/cosmic") == "product bytes")
-  assert(read(dir .. "/assets/SHA256SUMS") == read(r.release .. "/SHA256SUMS"))
+  assert(count(r, "UPLOAD ") == 1, logged(r))
+  assert(logged(r):find("UPLOAD SHA256SUMS", 1, true))
+  assert(count(r, "POST") == 0)
+  assert(not rel.draft)
+  local data: {string:string} = {}
+  for _, asset in ipairs(rel.assets) do data[asset.name] = asset.data end
+  assert(data["source.json"] == earlier)
+  assert(data.cosmic == "product bytes")
+  assert(data.SHA256SUMS == read(r.release .. "/SHA256SUMS"))
 end
 
 local function test_publish_refuses_a_draft_holding_other_bytes(tmp: string)
   local r = repo(tmp)
-  seed(r, "1", true, { cosmic = "other bytes" })
+  local rel = seed(r, true, { cosmic = "other bytes" })
   refused("differs from", function() publish(r) end)
-  local log = calls(r)
-  assert(count(log, "release upload ") == 0 and count(log, "release edit ") == 0, log)
-  assert(read(r.state .. "/releases/1/draft") == "true")
+  assert(count(r, "UPLOAD ") == 0 and count(r, "PATCH ") == 0, logged(r))
+  assert(rel.draft)
 end
 
 local function test_publish_refuses_a_draft_holding_an_unknown_asset(tmp: string)
   local r = repo(tmp)
-  seed(r, "1", true, { cosmic = "product bytes", ["notes.md"] = "notes" })
+  seed(r, true, { cosmic = "product bytes", ["notes.md"] = "notes" })
   refused("unexpected asset: notes.md", function() publish(r) end)
-  assert(count(calls(r), "release upload ") == 0)
+  assert(count(r, "UPLOAD ") == 0)
 end
 
 local function test_publish_verifies_an_identical_published_release(tmp: string)
   local r = repo(tmp)
-  seed(r, "1", false, staged(r))
+  seed(r, false, staged(r))
   assert(publish(r) == "prerelease already published and verified: " .. tag)
-  local log = calls(r)
-  assert(count(log, "release create ") == 0 and count(log, "release upload ") == 0 and
-    count(log, "release edit ") == 0 and count(log, "POST") == 0, log)
-  assert(count(log, "release download ") == 1)
+  assert(count(r, "POST") == 0 and count(r, "UPLOAD ") == 0 and count(r, "PATCH ") == 0, logged(r))
+  assert(count(r, "GET repos/owner/repo/releases/assets/") == 3, logged(r))
 end
 
 local function test_publish_refuses_a_published_release_that_differs(tmp: string)
   local r = repo(tmp)
   local assets = staged(r)
   assets.SHA256SUMS = string.rep("0", 64) .. "  cosmic\n"
-  seed(r, "1", false, assets)
+  seed(r, false, assets)
   refused("differs from", function() publish(r) end)
   local r2 = repo(tmp .. "/second")
   local short = staged(r2)
   short["source.json"] = nil
-  seed(r2, "1", false, short)
+  seed(r2, false, short)
   refused("holds 2 assets", function() publish(r2) end)
 end
 
 local function test_publish_refuses_a_tag_naming_another_commit(tmp: string)
   local r = repo(tmp)
-  seed(r, "1", false, staged(r))
-  write(r.state .. "/tags/" .. tag, string.rep("d", 40))
+  seed(r, false, staged(r))
+  r.tags[tag] = string.rep("d", 40)
   refused("names another commit", function() publish(r) end)
 end
 
 local function test_publish_refuses_api_failures_other_than_404(tmp: string)
-  -- ref-transport fails only the tag probe, and with no status line at
-  -- all: the listing before it succeeds, so the probe itself refuses.
+  -- ref-transport fails only the tag probe, with no answer at all: the
+  -- listing before it succeeds, so the probe itself refuses.
   local expected: {string:string} = { ref = "HTTP status 500",
-    ["ref-transport"] = "HTTP status nil", transport = "failed" }
+    ["ref-transport"] = "connection reset", transport = "connection refused" }
   for _, failure in ipairs({ "ref", "ref-transport", "transport" }) do
     local r = repo(tmp .. "/" .. failure)
-    assert(Fs.mkdirs(r.state .. "/fail"))
-    write(r.state .. "/fail/" .. failure, "")
+    r.fail[failure] = ""
     refused(expected[failure], function() publish(r) end)
-    assert(not exists(r.state .. "/tags") and not exists(r.state .. "/releases"), failure)
-    local log = calls(r)
-    assert(count(log, "POST") == 0 and count(log, "release create") == 0, log)
+    assert(next(r.tags) == nil and #r.releases == 0, failure)
+    assert(count(r, "POST") == 0, logged(r))
   end
 end
 
@@ -374,128 +607,168 @@ end
 --- a warning, making nothing, rather than failing main's run.
 local function test_publish_skips_a_commit_the_default_branchs_workflows_moved_past(tmp: string)
   local r = repo(tmp)
-  assert(Fs.mkdirs(r.state .. "/fail"))
-  write(r.state .. "/fail/create-ref", "")
-  write(r.state .. "/compare", "build/x.tl\n.github/workflows/ci.yml\n")
+  r.fail["create-ref"] = ""
+  r.compare = { "build/x.tl", ".github/workflows/ci.yml" }
   local line = publish(r)
   assert(line == "::warning::prerelease skipped: " .. tag .. ": GitHub refused the tag, " ..
-    "the default branch's workflows having moved past it", line)
-  assert(not exists(r.state .. "/tags") and not exists(r.state .. "/releases"))
-  local log = calls(r)
-  assert(count(log, "compare/" .. commit .. "%.%.%.main") == 1, log)
-  assert(count(log, "release create") == 0, log)
+      "the default branch's workflows having moved past it", line)
+  assert(next(r.tags) == nil and #r.releases == 0)
+  assert(count(r, "GET repos/owner/repo/compare/" .. commit .. "...main") == 1, logged(r))
+  assert(count(r, "POST repos/owner/repo/releases") == 0, logged(r))
 end
 
 --- A refusal the default branch's workflows do not explain -- the
 --- token's permissions, a ruleset -- still fails the publish.
 local function test_publish_refuses_a_forbidden_tag_the_workflows_do_not_explain(tmp: string)
   local r = repo(tmp)
-  assert(Fs.mkdirs(r.state .. "/fail"))
-  write(r.state .. "/fail/create-ref", "")
-  write(r.state .. "/compare", "build/x.tl\n.github/scripts/y.sh\n")
-  refused("git/refs -f ref=refs/tags/" .. tag .. " failed (HTTP status 403)", function()
-    publish(r)
-  end)
-  assert(not exists(r.state .. "/releases"))
+  r.fail["create-ref"] = ""
+  r.compare = { "build/x.tl", ".github/scripts/y.sh" }
+  refused("POST repos/owner/repo/git/refs ref=refs/tags/" .. tag .. " failed (HTTP status 403)",
+    function() publish(r) end)
+  assert(#r.releases == 0)
 end
 
 --- A 403 of another kind -- a secondary rate limit -- fails the publish
 --- whatever the workflows, without asking the compare.
 local function test_publish_refuses_another_forbidden_answer(tmp: string)
   local r = repo(tmp)
-  assert(Fs.mkdirs(r.state .. "/fail"))
-  write(r.state .. "/fail/create-ref", "You have exceeded a secondary rate limit")
-  write(r.state .. "/compare", ".github/workflows/ci.yml\n")
+  r.fail["create-ref"] = "You have exceeded a secondary rate limit"
+  r.compare = { ".github/workflows/ci.yml" }
   refused("failed (HTTP status 403)", function() publish(r) end)
-  assert(count(calls(r), "compare/") == 0, calls(r))
+  assert(count(r, "GET repos/owner/repo/compare/") == 0, logged(r))
 end
 
 local function test_publish_refuses_a_release_that_is_no_prerelease(tmp: string)
   local r = repo(tmp)
-  seed(r, "1", false, staged(r))
-  write(r.state .. "/releases/1/prerelease", "false")
+  seed(r, false, staged(r)).prerelease = false
   refused("is no prerelease", function() publish(r) end)
-  assert(count(calls(r), "release download ") == 0)
+  assert(count(r, "GET repos/owner/repo/releases/assets/") == 0)
 end
 
 local function test_publish_refuses_a_draft_whose_source_names_another_digest(tmp: string)
   local r = repo(tmp)
-  seed(r, "1", true, { ["source.json"] =
-    Prerelease.source_json(commit, string.rep("cd", 32), run_prefix .. "3") })
+  seed(r, true, { ["source.json"] =
+      Prerelease.source_json(commit, string.rep("cd", 32), run_prefix .. "3") })
   refused("source.json names another digest", function() publish(r) end)
-  local log = calls(r)
-  assert(count(log, "release upload ") == 0 and count(log, "release edit ") == 0, log)
+  assert(count(r, "UPLOAD ") == 0 and count(r, "PATCH ") == 0, logged(r))
 end
 
 local function test_publish_refuses_a_release_still_a_draft_after_edit(tmp: string)
   local r = repo(tmp)
-  assert(Fs.mkdirs(r.state .. "/fail"))
-  write(r.state .. "/fail/edit-draft", "")
+  r.fail["edit-draft"] = ""
   refused("is still a draft", function() publish(r) end)
-  assert(count(calls(r), "release edit ") == 1)
+  assert(count(r, "PATCH ") == 1)
 end
 
 --- A branch named for the tag is no tag: a draft whose tag is missing is
 --- refused before publishing it would make the tag at its own target.
 local function test_publish_refuses_a_branch_named_for_the_tag(tmp: string)
   local r = repo(tmp)
-  seed(r, "1", true, staged(r))
-  assert(Fs.remove(r.state .. "/tags/" .. tag))
-  assert(Fs.mkdirs(r.state .. "/branches"))
-  write(r.state .. "/branches/" .. tag, commit)
-  write(r.state .. "/releases/1/target", commit)
-  refused("gh api repos/owner/repo/git/ref/tags/" .. tag .. " failed", function() publish(r) end)
-  assert(count(calls(r), "release edit ") == 0)
-  assert(not exists(r.state .. "/tags/" .. tag))
-  assert(read(r.state .. "/releases/1/draft") == "true")
+  local rel = seed(r, true, staged(r))
+  r.tags[tag] = nil
+  r.branches[tag] = commit
+  rel.target = commit
+  refused("git/ref/tags/" .. tag .. ": HTTP 404", function() publish(r) end)
+  assert(count(r, "PATCH ") == 0)
+  assert(r.tags[tag] == nil)
+  assert(rel.draft)
 end
 
 --- An annotated tag is peeled to the commit it tags.
 local function test_publish_peels_an_annotated_tag(tmp: string)
   local r = repo(tmp)
-  seed(r, "1", false, staged(r))
+  seed(r, false, staged(r))
   local object = string.rep("e", 40)
-  assert(Fs.mkdirs(r.state .. "/annotated") and Fs.mkdirs(r.state .. "/tag-objects"))
-  write(r.state .. "/annotated/" .. tag, object)
-  write(r.state .. "/tag-objects/" .. object, commit)
+  r.annotated[tag] = object
+  r.tag_objects[object] = commit
   assert(publish(r) == "prerelease already published and verified: " .. tag)
-  assert(count(calls(r), "api repos/owner/repo/git/tags/" .. object) == 1)
-  write(r.state .. "/tag-objects/" .. object, string.rep("d", 40))
+  assert(count(r, "GET repos/owner/repo/git/tags/" .. object) == 1)
+  r.tag_objects[object] = string.rep("d", 40)
   refused("names another commit", function() publish(r) end)
 end
 
 local function test_publish_refuses_two_releases_for_the_tag(tmp: string)
   local r = repo(tmp)
-  seed(r, "1", false, staged(r))
-  seed(r, "2", true, {})
+  seed(r, false, staged(r))
+  seed(r, true, {})
   refused("2 releases are tagged " .. tag, function() publish(r) end)
-  local log = calls(r)
-  assert(count(log, "\n") == 1, log)
+  -- Both pages of the list were read, and nothing else was asked.
+  assert(#r.log == 2, logged(r))
 end
 
-local function test_publish_needs_gh_and_its_token(tmp: string)
+--- A name the draft holds already is no upload: GitHub's 422 fails the
+--- publish, naming it.
+local function test_publish_fails_an_upload_the_release_refuses(tmp: string)
   local r = repo(tmp)
-  r.env.GH_TOKEN = nil
-  refused("GH_TOKEN", function() publish(r) end)
-  r.env.GH_TOKEN = "fake-token"
-  r.env.PATH = tmp .. "/nowhere"
-  refused("gh: ", function() publish(r) end)
-  assert(calls(r) == "")
+  local rel = seed(r, true, {})
+  local send = r.client.send
+  r.client.send = function(request: GithubApi.Request): GithubApi.Reply | nil, string
+    -- Another run uploads SHA256SUMS just before this one does.
+    if request.upload and request.url:find("name=SHA256SUMS", 1, true) and
+        #rel.assets == 1 then
+      rel.assets[#rel.assets + 1] = { name = "SHA256SUMS", id = 999, data = "x" }
+    end
+    return send(request)
+  end
+  refused("HTTP 422: Validation Failed (the release holds an asset of that name)", function()
+    publish(r)
+  end)
+  assert(rel.draft)
+end
+
+--- The command prerelease.yml runs exits 0 on a publish and again on
+--- the verification of it, and a third run says the release is already
+--- published.
+local function test_the_publish_command_succeeds_through_a_fake_api(tmp: string)
+  local r = repo(tmp)
+  -- Each run has a temporary directory of its own, as a job does.
+  local function run(n: integer, argv: {string}): integer
+    local p = publisher(r)
+    p.temp = tmp .. "/run-" .. n
+    assert(Fs.mkdirs(p.temp))
+    return Prerelease.publish_command(argv, p)
+  end
+  assert(run(1, {}) == 0)
+  assert(#r.releases == 1 and not r.releases[1].draft)
+  assert(run(2, {}) == 0)
+  assert(count(r, "POST repos/owner/repo/releases") == 1 and count(r, "UPLOAD ") == 3, logged(r))
+  r.temp = tmp .. "/run-3"
+  assert(publish(r) == "prerelease already published and verified: " .. tag)
+  assert(run(4, { "word" }) == 1)
+end
+
+local function test_publish_needs_a_token(tmp: string)
+  local env: {string:string} = { REPOSITORY = repository, RELEASE = tmp, SOURCE_COMMIT = commit,
+    SOURCE_RUN_PREFIX = run_prefix, RUNNER_TEMP = tmp }
+  refused("GH_TOKEN", function() Prerelease.publish_context(env) end)
+  env.GITHUB_TOKEN = "fake-token"
+  local p = Prerelease.publish_context(env)
+  assert(p.repository == repository and p.commit == commit and p.temp == tmp)
+  assert(p.client.base == "https://api.github.com")
+  env.REPOSITORY = nil
+  refused("REPOSITORY", function() Prerelease.publish_context(env) end)
 end
 
 --- The two commands as prerelease.yml runs them, through driver.tl, from
 --- a copy of the namespace in a project of its own (see
---- orchestration_test.tl): stage, publish, then publish again.
-local function test_driver_stages_and_publishes(tmp: string)
+--- orchestration_test.tl): stage, then publish, which fails without a
+--- token before it asks the API anything.
+local function test_driver_stages_and_refuses_to_publish_without_a_token(tmp: string)
   local r = repo(tmp)
   local project = tmp .. "/driver-project"
   assert(Fs.mkdirs(project))
-  assert(assert(Child.run({ "/bin/cp", "-R", assert(Fs.absolute("cosmic_ci")), project })).ok)
+  assert(Fs.copy_tree(assert(Fs.absolute("cosmic_ci")), project .. "/cosmic_ci"))
   local host = assert(Proc.executable())
-  local env = r.env
+  local env = Env.all()
+  env.GH_TOKEN = nil
+  env.GITHUB_TOKEN = nil
   env.PRODUCTS = tmp .. "/staged-products"
   env.RELEASE = tmp .. "/driver-release"
+  env.SOURCE_COMMIT = commit
   env.SOURCE_RUN_URL = run_prefix .. "7"
+  env.SOURCE_RUN_PREFIX = run_prefix
+  env.REPOSITORY = repository
+  env.RUNNER_TEMP = tmp .. "/driver-runner"
   local function driver(command: string): Child.Result
     return (assert(Child.run({ host, "cosmic_ci/driver.tl", command }, { cwd = project,
       env = env, stdout = "capture", stderr = "capture" })))
@@ -503,23 +776,11 @@ local function test_driver_stages_and_publishes(tmp: string)
   local staged_run = driver("prerelease-stage")
   assert(staged_run.ok, staged_run.stderr)
   assert(read(env.RELEASE .. "/source.json") == read(r.release .. "/source.json"))
-  local first = driver("prerelease-publish")
-  assert(first.ok, first.stderr)
-  assert(output(first.stdout):find("prerelease published and verified: " .. tag, 1, true), first.stdout)
-  published(r, "1")
-  env.RUNNER_TEMP = tmp .. "/second-runner"
-  assert(Fs.mkdirs(env.RUNNER_TEMP))
-  local again = driver("prerelease-publish")
-  assert(again.ok, again.stderr)
-  assert(output(again.stdout):find("prerelease already published and verified", 1, true), again.stdout)
-  write(env.RELEASE .. "/cosmic", "other bytes")
-  env.RUNNER_TEMP = tmp .. "/third-runner"
-  assert(Fs.mkdirs(env.RUNNER_TEMP))
   local refusal = driver("prerelease-publish")
   assert(not refusal.ok and refusal.code == 1, refusal.stdout)
-  assert(output(refusal.stderr):find("prerelease-publish: ", 1, true), refusal.stderr)
-  local extra = driver("prerelease-stage")
-  assert(extra.ok, extra.stderr)
+  assert(output(refusal.stderr):find("prerelease-publish: ", 1, true) and
+      output(refusal.stderr):find("GH_TOKEN", 1, true), refusal.stderr)
+  assert(not exists(env.RUNNER_TEMP .. "/prerelease"))
   local usage = assert(Child.run({ host, "cosmic_ci/driver.tl", "prerelease-stage", "word" },
     { cwd = project, env = env, stdout = "capture", stderr = "capture" }))
   assert(usage.code == 1 and output(usage.stderr):find("usage: driver.tl prerelease-stage", 1, true),

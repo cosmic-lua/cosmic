@@ -81,7 +81,7 @@ local function standard(dir: string): {near.Known}
       "",
       "return syscalls"),
   }, { "Proc.find", "Fs.mkdirs", "Fs.close", "Json.decode", "Stream.close",
-       "syscalls.mkdir" }))
+    "syscalls.mkdir" }))
 end
 
 --- A function named for what another module's function stands in for
@@ -235,4 +235,29 @@ local function test_a_database_without_docs_offers_nothing()
   local bare = assert(Sqlite.memory())
   local found, trouble = near.known({ bare })
   assert(found ~= nil and #found == 0, trouble)
+end
+
+--- One index of the library, made once and handed to the notes of each
+--- module, notes what an index made for each module alone notes: a name
+--- the module itself declares is no other module's, so `which` is taken
+--- for every module but the one declaring `A.which`.
+local function test_an_index_made_once_notes_as_one_made_each_time()
+  local library: {near.Known} = {
+    { module = "cosmic.a", symbol = "A.which", source_symbol = "A.which",
+      signature = "function A.which()", text = "Looks a name up.", kind = "function" },
+    { module = "cosmic.proc", symbol = "Proc.find", source_symbol = "Proc.find",
+      signature = "function Proc.find()", kind = "function",
+      text = "Where a program would run from, as `which` finds it." },
+  }
+  local prepared = near.index(library)
+  local candidates: {near.Candidate} = {
+    { source_symbol = "X.which", text = "Finds a program.", line = 1 },
+  }
+  local counts: {string: integer} = { ["cosmic.a"] = 1, ["tools.x"] = 0 }
+  for module, count in pairs(counts) do
+    local alone = near.notes(module, candidates, library)
+    local shared = near.notes(module, candidates, library, prepared)
+    assert(#shared == count, module .. ": " .. table.concat(shared, "\n"))
+    assert(table.concat(alone, "\n") == table.concat(shared, "\n"), module)
+  end
 end

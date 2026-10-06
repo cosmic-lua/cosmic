@@ -5,7 +5,8 @@
 --- The facts live beside the pin they describe. A vendored tree's
 --- `vendor/<name>/PIN` adds three keys to the ones [`bin/vendor`] reads:
 ---
----     kind data                        "library" when absent
+---     kind data                        "library" when absent; `test` for data
+---                                      only tests read, which no record lists
 ---     license MIT AND APSL-2.0         an SPDX expression, the rest of the line
 ---     notice LICENSE.md                a file under the tree, the whole of it
 ---     notice src/lua.h:524-543         or those lines of it, 1-based
@@ -15,11 +16,12 @@
 --- of what the core is built from ([`build.identity.record_fingerprint`]'s image
 --- hash), so correcting one of these lines reboots the core as a
 --- version bump does. What cosmic's build links in without vendoring it
---- -- zig's own runtime, and the musl libc the Linux cores are static
---- against -- has a record of the same grammar at `build/bom/<name>.pin`,
---- its notices beside it. A tree's patches under `patch/<name>/` are
---- listed with it, so a reader knows the code is not upstream's as
---- published.
+--- -- zig's own runtime, the musl libc the Linux cores are static
+--- against, and the system call tables Cosmopolitan libc's
+--- pledge-linux.c is ported into core/promises.c from -- has a record of
+--- the same grammar at `build/bom/<name>.pin`, its notices beside it. A
+--- tree's patches under `patch/<name>/` are listed with it, so a reader
+--- knows the code is not upstream's as published.
 ---
 --- The tool's database carries two tables built from these (see
 --- [`build.schema`]): `components`, a row each, and `notices`, each
@@ -34,6 +36,7 @@
 --- `SPDX-License-Identifier` tags its tree's own files carry.
 
 local Cli = require("cosmic.cli")
+local Clock = require("cosmic.clock")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -41,7 +44,6 @@ local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
-local Time = require("cosmic.time")
 local bind = require("build.bind")
 local clock = require("build.clock")
 local log = require("build.verdict").log
@@ -89,7 +91,7 @@ local record bom
 end
 
 --- The kinds a component may be: CycloneDX's own words for them.
-local kinds: {string:boolean} = { library = true, data = true }
+local kinds: {string:boolean} = { library = true, data = true, test = true }
 
 --- A `notice` line's value: `path` or `path:first-last`.
 local function notice_of(value: string): bom.Notice | nil, string
@@ -144,7 +146,7 @@ function bom.parse(name: string, source: string): bom.Component | nil, string
       end
     elseif key == "kind" then
       if not kinds[value] then
-        return nil, name .. ": kind " .. value .. " is neither library nor data"
+        return nil, name .. ": kind " .. value .. " is none of library, data and test"
       end
       component.kind = value
     end
@@ -286,30 +288,33 @@ function bom.fill(db: Sqlite.Handle, root: string, qualifier: string): boolean, 
     if component == nil then
       return false, path .. ": " .. parse_trouble
     end
-    local patches, patch_trouble = patches_of(root, name)
-    if patches == nil then
-      return false, patch_trouble
-    end
-    local inserted, insert_trouble = Sqlite.run(db,
-      "INSERT INTO " .. qualifier .. "components (name, kind, version, license, url, " ..
-      "sha256, patches) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-      { text(name), text(component.kind), text(component.version),
-        text(component.license), text(component.url), text(component.sha256),
-        text(patches) })
-    if not inserted then
-      return false, insert_trouble
-    end
-    for ordinal, notice in ipairs(component.notices) do
-      local body, notice_trouble = notice_text(directory, notice)
-      if body == nil then
-        return false, path .. ": " .. notice_trouble
+    -- Test data is fetched like a vendored tree but no binary carries it.
+    if component.kind ~= "test" then
+      local patches, patch_trouble = patches_of(root, name)
+      if patches == nil then
+        return false, patch_trouble
       end
-      local put, put_trouble = Sqlite.run(db,
-        "INSERT INTO " .. qualifier .. "notices (component, ordinal, file, text) " ..
-        "VALUES (?1, ?2, ?3, ?4)",
-        { text(name), bind.integer(ordinal), text(notice.file), text(body) })
-      if not put then
-        return false, put_trouble
+      local inserted, insert_trouble = Sqlite.run(db,
+        "INSERT INTO " .. qualifier .. "components (name, kind, version, license, url, " ..
+          "sha256, patches) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        { text(name), text(component.kind), text(component.version),
+          text(component.license), text(component.url), text(component.sha256),
+          text(patches) })
+      if not inserted then
+        return false, insert_trouble
+      end
+      for ordinal, notice in ipairs(component.notices) do
+        local body, notice_trouble = notice_text(directory, notice)
+        if body == nil then
+          return false, path .. ": " .. notice_trouble
+        end
+        local put, put_trouble = Sqlite.run(db,
+          "INSERT INTO " .. qualifier .. "notices (component, ordinal, file, text) " ..
+            "VALUES (?1, ?2, ?3, ?4)",
+          { text(name), bind.integer(ordinal), text(notice.file), text(body) })
+        if not put then
+          return false, put_trouble
+        end
       end
     end
   end
@@ -320,7 +325,7 @@ end
 function bom.rows(db: Sqlite.Handle): {bom.Row} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT name, kind, version, license, url, sha256, patches " ..
-    "FROM components ORDER BY name")
+      "FROM components ORDER BY name")
   if rows == nil then
     return nil, trouble
   end
@@ -359,8 +364,8 @@ end
 function bom.notices(db: Sqlite.Handle): string | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT c.name, c.version, c.license, c.url, n.file IS NULL, " ..
-    "coalesce(n.file, ''), coalesce(n.text, '') FROM components c " ..
-    "LEFT JOIN notices n ON n.component = c.name ORDER BY c.name, n.ordinal")
+      "coalesce(n.file, ''), coalesce(n.text, '') FROM components c " ..
+      "LEFT JOIN notices n ON n.component = c.name ORDER BY c.name, n.ordinal")
   if rows == nil then
     return nil, trouble
   end
@@ -426,7 +431,7 @@ end
 --- itself first, since [`build.reboot`] requires this module through
 --- [`build.writer`].
 local function run(argv: {integer:string}): integer
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local function finish(code: integer, detail: string): integer
     log:verdict("bom", code == 0, detail .. ", " .. clock.took(started))
     return code

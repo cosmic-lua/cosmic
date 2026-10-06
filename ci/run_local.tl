@@ -2,11 +2,11 @@
 --- [`./run-local`] loads this file standalone on the pinned library;
 --- the phase driver remains the checkout's built `o/bin/cosmic`.
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Stream = require("cosmic.stream")
-local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 
 local record Local
@@ -62,7 +62,7 @@ end
 
 local function successful(result: Child.Result, program: string)
   assert(result.ok, program .. ": " .. (result.stderr or "") ..
-    (result.signal and "signal " .. tostring(result.signal) or "exit " .. tostring(result.code)))
+      (result.signal and "signal " .. tostring(result.signal) or "exit " .. tostring(result.code)))
 end
 
 local function present(path: string): boolean
@@ -207,8 +207,8 @@ local function execute(argv: {integer:string}): integer
   if credentials then
     chown = assert(Proc.find("chown"))
     successful(probe("local s=require('cosmic.sys'); assert(s.getuid()==" ..
-      tostring(credentials.user) .. " and s.getgid()==" .. tostring(credentials.group) ..
-      " and #assert(s.getgroups())==0)"), "credential preflight")
+        tostring(credentials.user) .. " and s.getgid()==" .. tostring(credentials.group) ..
+        " and #assert(s.getgroups())==0)"), "credential preflight")
     say("running as root; the driver runs as " .. user .. " (uid " .. tostring(credentials.user) .. ")")
   end
   local function reown(path: string, recursive: boolean)
@@ -258,10 +258,10 @@ local function execute(argv: {integer:string}): integer
     env["GIT_CONFIG_KEY_" .. tostring(n)] = "safe.directory"
     env["GIT_CONFIG_VALUE_" .. tostring(n)] = candidate
     successful(probe("local s=require('cosmic.sys'); assert(s.access(" .. string.format("%q", state) ..
-      ",s.W_OK)); assert(s.access(" .. string.format("%q", cosmic) .. ",s.X_OK)); assert(s.access(" ..
-      string.format("%q", root .. "/ci/cosmic_ci/driver.tl") .. ",s.R_OK))", env), "driver access")
+        ",s.W_OK)); assert(s.access(" .. string.format("%q", cosmic) .. ",s.X_OK)); assert(s.access(" ..
+        string.format("%q", root .. "/ci/cosmic_ci/driver.tl") .. ",s.R_OK))", env), "driver access")
     if present(seed) and not probe("local s=require('cosmic.sys'); assert(s.access(" ..
-      string.format("%q", seed) .. ",s.R_OK|s.X_OK))", env).ok then
+          string.format("%q", seed) .. ",s.R_OK|s.X_OK))", env).ok then
       say(user .. " cannot read " .. seed .. "; the candidate builds without it")
       seed = ""
     end
@@ -278,9 +278,9 @@ local function execute(argv: {integer:string}): integer
   assert(Fs.mkdirs(project))
   reown(project, false)
   successful(probe("local F=require('cosmic.fs'); local p=" .. string.format("%q", project) ..
-    "; for _,n in ipairs(assert(F.list(p))) do if n~='o' then assert(F.remove_tree(p..'/'..n)) end end; " ..
-    "local s=" .. string.format("%q", root .. "/ci") ..
-    "; for _,n in ipairs(assert(F.list(s))) do if n~='o' then assert(F.copy_tree(s..'/'..n,p..'/'..n)) end end", env), "CI copy")
+      "; for _,n in ipairs(assert(F.list(p))) do if n~='o' then assert(F.remove_tree(p..'/'..n)) end end; " ..
+      "local s=" .. string.format("%q", root .. "/ci") ..
+      "; for _,n in ipairs(assert(F.list(s))) do if n~='o' then assert(F.copy_tree(s..'/'..n,p..'/'..n)) end end", env), "CI copy")
   local phases: {string} = {}
   local at = 1
   while argv[at] ~= nil do
@@ -335,8 +335,8 @@ local function execute(argv: {integer:string}): integer
     owned_root(state .. "/runner")
     owned_root(state .. "/logs")
     successful(probe("local F=require('cosmic.fs'); assert(F.mkdirs(" ..
-      string.format("%q", state .. "/runner") .. ")); assert(F.mkdirs(" ..
-      string.format("%q", state .. "/logs") .. "))", env), "phase directories")
+        string.format("%q", state .. "/runner") .. ")); assert(F.mkdirs(" ..
+        string.format("%q", state .. "/logs") .. "))", env), "phase directories")
     local path = state .. "/logs/" .. phase .. ".log"
     local file <close>: Descriptor = setmetatable({ fd = -1 }, descriptor_mt)
     local fd, open_why = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC | sys.O_NOFOLLOW, 0x1a4)
@@ -346,7 +346,7 @@ local function execute(argv: {integer:string}): integer
     values.GITHUB_RUN_ID, values.GITHUB_RUN_ATTEMPT, values.COSMIC_WORKER = "local", "1", "local"
     values.TARGET, values.XDG_CACHE_HOME = target, state .. "/cache"
     values.COSMIC_ZIG_CACHE_FROM, values.COSMIC_ZIG_GLOBAL_CACHE = seed, zig_global
-    local start = Time.monotonic_ns()
+    local start = Clock.monotonic_ns()
     local result, why = Child.run({ cosmic, "cosmic_ci/driver.tl", "platform", phase, "success" },
       { cwd = project, env = values, credentials = credentials, stdout = file.fd, stderr = file.fd })
     local log = file.fd
@@ -354,9 +354,9 @@ local function execute(argv: {integer:string}): integer
     local closed, close_why = Fs.close(log)
     assert(result, why)
     assert(closed, close_why)
-    local status = result.signal and 128 + result.signal or result.code or 1
+    local status = Child.shell_status(result)
     say(phase .. ": status " .. tostring(status) .. ", " ..
-      tostring((Time.monotonic_ns() - start) // Time.seconds(1)) .. " s, log " .. path)
+        tostring((Clock.monotonic_ns() - start) // Clock.seconds(1)) .. " s, log " .. path)
     if status ~= 0 then
       -- Diagnostics must not replace the phase status, or retain an entire
       -- build/fuzzer log in memory. Stop at an overlong line as well.
@@ -373,7 +373,7 @@ local function execute(argv: {integer:string}): integer
             break
           end
           if line:match("^FAIL") or line:find(" FAIL", 1, true) or
-            line:find("timed out", 1, true) or line:find("error", 1, true) then
+              line:find("timed out", 1, true) or line:find("error", 1, true) then
             Fs.put(Fs.stderr, line .. "\n")
             lines = lines + 1
           end

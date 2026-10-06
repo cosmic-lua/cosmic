@@ -16,16 +16,24 @@ local teal = require("build.teal")
 local test_inputs = require("build.test_inputs")
 local Test = require("cosmic.test")
 local type positions = require("build.positions")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- What the host's identity reads ([`declared_key.host_identity`]), on
 --- whichever system this is, what the host says of itself, and a file a
 --- link leads out of the tree to. The package databases are a copy of
 --- build/declared_key.tl's `package_databases`.
-Test.needs{
-  host = { "/etc/os-release", "/etc/passwd", "/lib/apk/db/installed", "/proc",
-    "/usr/lib/os-release", "/usr/lib/sysimage/rpm/rpmdb.sqlite", "/var/lib/dpkg/status",
-    "/var/lib/rpm/Packages", "/var/lib/rpm/rpmdb.sqlite" },
+Test.policy{
+  grants = {
+    { path = "/etc/os-release", letters = "r" },
+    { path = "/etc/passwd", letters = "r" },
+    { path = "/lib/apk/db/installed", letters = "r" },
+    { path = "/proc", letters = "r" },
+    { path = "/usr/lib/os-release", letters = "r" },
+    { path = "/usr/lib/sysimage/rpm/rpmdb.sqlite", letters = "r" },
+    { path = "/var/lib/dpkg/status", letters = "r" },
+    { path = "/var/lib/rpm/Packages", letters = "r" },
+    { path = "/var/lib/rpm/rpmdb.sqlite", letters = "r" },
+  },
   env = { "COSMIC_HOST_ID", "COSMIC_SYSTEM_ID" },
 }
 
@@ -51,7 +59,7 @@ local function spec(env?: {string:string}): declared_key.Spec
   return {
     id = "suite.t_test test_t", group = "suite.t_test", module_key = "module",
     runtime = "runtime sandboxed", compiler = "compiler", host = "host",
-    epoch = "1-00000000", timeout_ns = Time.seconds(30),
+    epoch = "1-00000000", timeout_ns = Clock.seconds(30),
     declaration = 'reads "suite/data/"\nenv "DECLARED"', effective = effective,
     environment = env or { DECLARED = "d", TMPDIR = "/tmp" },
   }
@@ -74,11 +82,11 @@ local function test_a_key_is_the_same_while_nothing_declared_changes(tmp: string
   assert(key_of(one) == key_of(one))
   assert(key_of(one) == key_of(two))
   assert(key_of(one, spec({ DECLARED = one .. "/suite", TMPDIR = "/tmp" })) ==
-    key_of(two, spec({ DECLARED = two .. "/suite", TMPDIR = "/tmp" })))
+      key_of(two, spec({ DECLARED = two .. "/suite", TMPDIR = "/tmp" })))
   -- Every part of a PATH-like value, not only its first.
   assert(key_of(one, spec({ DECLARED = "/usr/bin:" .. one .. "/o/bin:" .. one .. "/bin",
     TMPDIR = "/tmp" })) == key_of(two, spec({ DECLARED = "/usr/bin:" .. two .. "/o/bin:" ..
-    two .. "/bin", TMPDIR = "/tmp" })))
+        two .. "/bin", TMPDIR = "/tmp" })))
 end
 
 --- A file of the tree nothing declares, and the host's caches, are no
@@ -95,8 +103,8 @@ local function test_an_undeclared_file_does_not_move_it(tmp: string)
   assert(key_of(tmp, s) == before)
 end
 
---- A module that declares `lua` starts this program held to its closure
---- (build.test_worker's `hold_children`), so its key holds the program as
+--- A module that declares `lua` starts a sealed database of its closure in the
+--- program's place (build.test's `sealed_for`), so its key holds the program as
 --- a module that declares neither `lua` nor `tool` does: by the closure's
 --- store and the runtime, not by what the program carries -- an edit to a
 --- module the program carries outside its closure, which moves `program`
@@ -129,8 +137,8 @@ end
 --- A module that declares `lua` alone is keyed without what `cosmic
 --- --standalone` loads beyond `-e` (build.test_inputs' `standalone_loads`):
 --- an edit to the checker, build/teal.tl, leaves its key, while it moves
---- the key of one that declares `standalone` beside it, and an edit to
---- what `-e` loads moves both.
+--- the key of one that requires build.standalone, whose closure holds
+--- them, and an edit to what `-e` loads moves both.
 local function test_a_chunk_module_is_keyed_without_what_standalone_loads(tmp: string)
   tree(tmp)
   local by_path: {string:positions.Module} = {}
@@ -142,12 +150,18 @@ local function test_a_chunk_module_is_keyed_without_what_standalone_loads(tmp: s
       by_path[name] = { path = name, file = file, kind = "lib", requires = {}, tests = {} }
     end
   end
+  local needed: {string} = {}
+  for _, name in ipairs(test_inputs.standalone_loads) do
+    if name ~= "build.standalone" then needed[#needed + 1] = name end
+  end
+  by_path["build.standalone"].requires = needed
   local function key_declaring(standalone: boolean): string
     local declared: analyzer.Declared = { line = 1, reads = {}, host = {}, env = {},
-      network = {}, tool = false, lua = true, standalone = standalone, nests = false,
+      network = {}, tool = false, lua = true, nests = false,
       store = false, system = false, caches = {} }
     local m: positions.Module = { path = "suite.t_test", file = "suite/t_test.tl",
-      kind = "test", requires = { "suite.lib" }, tests = { "test_t" }, inputs = declared }
+      kind = "test", requires = standalone and { "suite.lib", "build.standalone" } or
+        { "suite.lib" }, tests = { "test_t" }, inputs = declared }
     by_path[m.path] = m
     by_path["suite.lib"] = { path = "suite.lib", file = "suite/lib.tl", kind = "lib",
       requires = {}, tests = {} }
@@ -164,6 +178,44 @@ local function test_a_chunk_module_is_keyed_without_what_standalone_loads(tmp: s
   assert(both_after ~= both, "a checker edit left a standalone module's key")
   assert(Fs.write(tmp .. "/build/dispatch.tl", "return {} -- dispatch, edited\n"))
   assert(key_declaring(false) ~= chunk and key_declaring(true) ~= both_after)
+end
+
+--- A module the closure reaches only through a `local type` require
+--- loads nothing when its importer runs, so an edit to it leaves the
+--- key; one reached by a value require moves it, and so does one the
+--- test itself requires by type, which a snippet it type-checks may need.
+local function test_a_type_only_module_is_no_part_of_the_key(tmp: string)
+  tree(tmp)
+  for _, name in ipairs({ "typed", "valued", "named" }) do
+    assert(Fs.write(tmp .. "/suite/" .. name .. ".tl", "return {} -- " .. name .. "\n"))
+  end
+  local function key_with(type_only: {string:{string:boolean}}): string
+    local lib: positions.Module = { path = "suite.lib", file = "suite/lib.tl", kind = "module",
+      requires = { "suite.typed", "suite.valued" }, tests = {} }
+    local by_path: {string:positions.Module} = { ["suite.lib"] = lib }
+    for _, name in ipairs({ "typed", "valued", "named" }) do
+      local path = "suite." .. name
+      by_path[path] = { path = path, file = "suite/" .. name .. ".tl", kind = "module",
+        requires = {}, tests = {} }
+    end
+    local m: positions.Module = { path = "suite.t_test", file = "suite/t_test.tl",
+      kind = "test", requires = { "suite.lib", "suite.named" }, tests = { "test_t" } }
+    by_path[m.path] = m
+    local s = spec()
+    s.effective = test_inputs.effective(m, by_path, {}, type_only)
+    return key_of(tmp, s)
+  end
+  local by_type = { ["suite.lib"] = { ["suite.typed"] = true } }
+  local before, whole = key_with(by_type), key_with({})
+  assert(before ~= whole, "a type-only edge was followed")
+  assert(Fs.write(tmp .. "/suite/typed.tl", "return {} -- typed, edited\n"))
+  assert(key_with(by_type) == before, "an edit to a type-only module moved the key")
+  assert(key_with({}) ~= whole, "the same edit left the key of a closure that follows it")
+  assert(Fs.write(tmp .. "/suite/valued.tl", "return {} -- valued, edited\n"))
+  assert(key_with(by_type) ~= before, "an edit to a value-required module left the key")
+  local edited = key_with(by_type)
+  assert(Fs.write(tmp .. "/suite/named.tl", "return {} -- named, edited\n"))
+  assert(key_with(by_type) ~= edited, "an edit to a module the test requires itself left the key")
 end
 
 --- Each thing it is a digest of moves it: a declared file's contents,
@@ -214,7 +266,7 @@ local function test_each_input_moves_it(tmp: string)
   s.epoch = "1-3f9c2a1b"
   differs("another bump's token", s)
   s = spec()
-  s.timeout_ns = Time.seconds(60)
+  s.timeout_ns = Clock.seconds(60)
   differs("the timeout its worker runs under", s)
   -- A worker that may run the program undeclared keys it as declared.
   s = spec()
@@ -297,12 +349,12 @@ local function each_field_moves<T>(what: string, fields: {string}, make: functio
     declared[name] = true
     local full = holder(make()) as {string:any}
     assert(populated(full[name]), what .. "." .. name .. " is not populated: set it in " ..
-      "the populated value, to a value other than its default")
+        "the populated value, to a value other than its default")
     local change = changes[name]
     if change == nil then
       assert(unkeyed[name] ~= nil, what .. "." .. name .. " is neither changed nor named " ..
-        "unkeyed: add a change of it that must move the key, or, where a key need not " ..
-        "hold it, say why in `unkeyed`")
+          "unkeyed: add a change of it that must move the key, or, where a key need not " ..
+          "hold it, say why in `unkeyed`")
     else
       assert(unkeyed[name] == nil, what .. "." .. name .. " is both changed and unkeyed")
       local value = make()
@@ -311,7 +363,7 @@ local function each_field_moves<T>(what: string, fields: {string}, make: functio
       assert(key(value) == before, what .. "'s key is not the same twice")
       change.change(value)
       assert(key(value) ~= before, "a change to " .. what .. "." .. name ..
-        " left the key: a field of the record that the key leaves out")
+          " left the key: a field of the record that the key leaves out")
     end
   end
   for name in pairs(changes) do
@@ -325,27 +377,26 @@ end
 --- A spec each field of which, and of its `effective`, holds something,
 --- of a test in a tree as `tree` writes it: its module runs the tool,
 --- declares `store` and the system, and names a host file in `hostdir`,
---- outside the tree, by a variable (`$H/host.txt`).
+--- outside the tree.
 local function full_spec(hostdir: string): declared_key.Spec
   assert(Fs.mkdirs(hostdir))
   assert(Fs.write(hostdir .. "/host.txt", "h\n"))
   local effective: test_inputs.Effective = {
     files = { ["suite/t_test.tl"] = true, ["suite/lib.tl"] = true },
     reads = { "suite/data/" }, host = { hostdir .. "/host.txt" },
-    env = { DECLARED = true, H = true }, network = { ["127.0.0.1"] = true },
-    tool = true, lua = true, standalone = true, nests = true, noexec = true,
+    env = { DECLARED = true }, network = { ["127.0.0.1"] = true },
+    tool = true, lua = true, nests = true, noexec = true,
     noexec_ready = true, noexec_trouble = "no reason", store = true, system = true,
     caches = { "zig" }, cache_paths = { hostdir .. "/cache" },
-    variables = { "DECLARED", "H" }, named = { H = true },
-    spelled = { [hostdir .. "/host.txt"] = "$H/host.txt" }, located = { H = hostdir },
     unresolved = "no reason",
   }
   return {
     id = "suite.t_test test_t", group = "suite.t_test", module_key = "module",
-    runtime = "runtime sandboxed", compiler = "compiler", epoch = "1-00000000", timeout_ns = Time.seconds(30),
+    runtime = "runtime sandboxed", compiler = "compiler", epoch = "1-00000000", timeout_ns = Clock.seconds(30),
     program = "program", host = "host", system = "system", launcher = "launcher",
     declaration = 'reads "suite/data/"\nenv "DECLARED"', effective = effective,
-    environment = { DECLARED = "d", H = hostdir, TMPDIR = "/tmp" },
+    requires = { proc = "mounted", ["program:jq"] = "sha256:jq" },
+    environment = { DECLARED = "d", TMPDIR = "/tmp" },
     runs_tool = true, closure_store = "address", tree = "/checkout",
   }
 end
@@ -370,9 +421,13 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
     compiler = append("compiler"), host = append("host"),
     epoch = { change = function(s: declared_key.Spec) s.epoch = s.epoch .. "0" end },
     timeout_ns = { change = function(s: declared_key.Spec)
-      s.timeout_ns = s.timeout_ns + Time.seconds(1)
+      s.timeout_ns = s.timeout_ns + Clock.seconds(1)
     end },
     launcher = append("launcher"), declaration = append("declaration"),
+    -- Each present answer, by name and by what it holds.
+    requires = { change = function(s: declared_key.Spec)
+      s.requires["program:jq"] = "sha256:other"
+    end },
     -- Keyed only for an unsandboxed worker, which sees the tree there.
     tree = append("tree"),
     -- Keyed only for a module given the system's paths.
@@ -413,11 +468,6 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
       change = function(s: declared_key.Spec) s.effective.tool = false end },
     store = { change = function(s: declared_key.Spec) s.effective.store = false end },
     system = { change = function(s: declared_key.Spec) s.effective.system = false end },
-    named = { change = function(s: declared_key.Spec) s.effective.named = {} end },
-    spelled = { change = function(s: declared_key.Spec)
-      s.effective.spelled[hostdir .. "/host.txt"] = "$G/host.txt"
-    end },
-    located = { change = function(s: declared_key.Spec) s.effective.located.H = tmp end },
   }
   local declaration = "what the module declares, which `declaration` keys as " ..
     "`test_inputs.canonical` spells it"
@@ -429,14 +479,11 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
       env = declaration .. ", and `environment` by what the worker is given",
       network = declaration .. ": loopback addresses alone (`cosmic.test`), which an " ..
         "offline worker's own loopback answers",
-      variables = declaration,
       lua = declaration .. ", and what it adds to the closure (`lua_loads`) by `files` " ..
-        "and `closure_store`: every process it starts is held to that closure " ..
-        "(build.test_worker's `hold_children`)",
-      standalone = declaration .. ", and what it adds to the closure beside `lua` " ..
-        "(`standalone_loads`) by `files` and `closure_store`",
-      nests = declaration .. ", and, where the module does not declare `tool`, " ..
-        "`runs_tool` (build.test's `tool_use`)",
+        "and `closure_store`: every process it starts runs a sealed database of that " ..
+        "closure (build.test's `sealed_for`)",
+      nests = declaration .. ", and, where the module neither declares `tool` nor runs " ..
+        "on a sealed database, `runs_tool` (build.test's `tool_use`)",
       caches = "content-addressed, which never changes a result (build.caches)",
       cache_paths = "where the host keeps its caches: content-addressed, which never " ..
         "changes a result (build.caches)",
@@ -465,18 +512,12 @@ local function test_every_field_of_the_host_sources_moves_the_host(tmp: string)
       cpu_features = { "aes", "pclmulqdq", "asimd" }, machine = "x86_64",
       status = write("status", "Name: x\nCapEff: 0\nUid: 1 1 1 1\nGid: 1 1 1 1\n"),
       own_proc = true, host_id = "h1", uid = 1, gid = 1, groups = { 1, 20 },
-      walked = { write("walked", "w1") }, worker_uid = 65532, worker_gid = 65532,
+      walked = { write("walked", "w1") },
     }
-  end
-  -- The runner's own user and status, which a worker run as a user of
-  -- its own is not keyed by, but for what it keeps of the runner's.
-  local function as_runner(s: declared_key.HostSources)
-    s.worker_uid, s.worker_gid = nil, nil
   end
   -- A host with no /proc/self/status, as macOS is, whose groups the
   -- bindings answer.
   local function without_status(s: declared_key.HostSources)
-    as_runner(s)
     s.status = tmp .. "/no-status"
   end
   local function key(sources: declared_key.HostSources): string
@@ -497,79 +538,36 @@ local function test_every_field_of_the_host_sources_moves_the_host(tmp: string)
       change = function(s: declared_key.HostSources) s.sysname = "Darwin" end },
     system_id = set("system_id", "s2"), cpu_features = set("cpu_features", { "aes" }),
     machine = set("machine", "aarch64"),
-    status = { from = as_runner, change = set("status", tmp .. "/status2").change },
+    status = set("status", tmp .. "/status2"),
     own_proc = set("own_proc", false), host_id = set("host_id", "h2"),
-    uid = { from = as_runner, change = set("uid", 2).change },
+    uid = set("uid", 2),
     gid = { from = without_status, change = set("gid", 2).change },
     groups = { from = without_status, change = set("groups", { 1 }).change },
-    worker_uid = set("worker_uid", 65533), worker_gid = set("worker_gid", 65533),
     walked = set("walked", { write("walked2", "w22") }),
   }
   each_field_moves("HostSources", fields_of("build.declared_key", "HostSources"), make,
     function(s: declared_key.HostSources): any return s end, key, changes, {})
 end
 
---- A worker a root runner runs as a user of its own is keyed as that
---- user, with no group and no capability but the bounding set it keeps,
---- whatever groups and capabilities root had. It keys apart from a
---- worker run as root or as another user, and from the worker of a
---- runner that is that user: a root runner's sandbox can give its
---- worker what only root may read.
-local function test_a_worker_run_as_a_user_of_its_own_is_keyed_as_that_user(tmp: string)
-  local function status(name: string, text: string): string
-    assert(Fs.write(tmp .. "/" .. name, text))
-    return tmp .. "/" .. name
-  end
-  local tail = "CapBnd:\t000001ffffffffff\nCapAmb:\t0000000000000000\n" ..
-    "NoNewPrivs:\t0\nSeccomp:\t0\n"
-  local root = status("root", "Name:\tx\nUid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\n" ..
-    "Groups:\t0 \nCapInh:\t0000000000000000\nCapPrm:\t000001ffffffffff\n" ..
-    "CapEff:\t000001ffffffffff\n" .. tail)
-  local user = status("user", "Name:\tx\nUid:\t65532\t65532\t65532\t65532\n" ..
-    "Gid:\t65532\t65532\t65532\t65532\nGroups:\t \nCapInh:\t0000000000000000\n" ..
-    "CapPrm:\t0000000000000000\nCapEff:\t0000000000000000\n" .. tail)
-  local function host(sources: declared_key.HostSources): string
-    sources.system = { "", "", "" }
-    sources.cpu_features, sources.machine, sources.own_proc, sources.host_id =
-      { "aes" }, "x86_64", true, "h"
-    return declared_key.host_identity(declared_key.digests(tmp), sources)
-  end
-  local dropped = host({ status = root, uid = 0, worker_uid = 65532, worker_gid = 65532 })
-  assert(dropped ~= host({ status = user, uid = 65532 }),
-    "keyed as that user's own runner's worker, which reads what root's could not give it")
-  assert(dropped ~= host({ status = root, uid = 0 }), "keyed as root")
-  assert(dropped ~= host({ status = root, uid = 0, worker_uid = 65533, worker_gid = 65533 }))
-  local other_root = status("other-root", "Name:\tx\nUid:\t0\t0\t0\t0\n" ..
-    "Gid:\t0\t0\t0\t0\nGroups:\t0 10 \nCapInh:\t0000000000000000\n" ..
-    "CapPrm:\t00000000a80425fb\nCapEff:\t00000000a80425fb\n" .. tail)
-  assert(dropped == host({ status = other_root, uid = 0, worker_uid = 65532,
-    worker_gid = 65532 }), "keyed by the groups and capabilities of the root it left")
-end
-
 --- Where there is no /proc/self/status (macOS), the key holds the group
 --- and the supplementary groups the bindings answer, each group once,
---- in any order the system lists them; a worker run as a user of its
---- own is keyed by its group alone. Where there is one, its lines are
+--- in any order the system lists them. Where there is one, its lines are
 --- the key's and these move nothing, so a Linux key holds its status
 --- file's lines alone.
 local function test_the_groups_key_a_host_with_no_status(tmp: string)
   assert(Fs.write(tmp .. "/status", "Name:\tx\nUid:\t1\t1\t1\t1\nGid:\t1\t1\t1\t1\n" ..
-    "Groups:\t1 20 \n"))
-  local function host(status: string, gid: integer, groups: {integer},
-                      worker?: integer): string
+      "Groups:\t1 20 \n"))
+  local function host(status: string, gid: integer, groups: {integer}): string
     return declared_key.host_identity(declared_key.digests(tmp), {
       system = { "", "", "" }, cpu_features = { "aes" }, machine = "arm64",
       own_proc = false, host_id = "h", uid = 501, status = tmp .. "/" .. status,
-      gid = gid, groups = groups, worker_uid = worker, worker_gid = worker,
+      gid = gid, groups = groups,
     })
   end
   local base = host("none", 20, { 20, 12, 61 })
   assert(base == host("none", 20, { 61, 12, 20, 12 }), "the order or a repeat moved it")
   assert(base ~= host("none", 20, { 12, 61 }), "a group left out")
   assert(base ~= host("none", 12, { 20, 12, 61 }), "another group")
-  assert(host("none", 20, {}, 65532) == host("none", 20, { 20, 12, 61 }, 65532),
-    "a worker of its own is keyed by groups it does not have")
-  assert(host("none", 20, {}, 65532) ~= host("none", 20, {}, 65533), "the worker's group")
   assert(host("status", 20, { 20 }) == host("status", 12, { 61 }),
     "a host with a status read the bindings")
   -- This host's own, read where none are given.
@@ -585,7 +583,7 @@ local function test_a_file_hashed_once_is_not_read_again(tmp: string)
   -- rewrite of a newer one could fall within its timestamp's tick and
   -- go unseen.
   for _, file in ipairs({ "suite/t_test.tl", "suite/lib.tl", "suite/data/a.txt",
-                          "suite/data/deeper/b.txt" }) do
+      "suite/data/deeper/b.txt" }) do
     assert(sys.utimensat(tmp .. "/" .. file, 1000000000, 0, 1000000000, 0))
   end
   local digests = declared_key.digests(tmp)
@@ -643,14 +641,11 @@ local function test_a_link_out_of_the_tree_has_no_key(tmp: string)
   assert(key_of(root) ~= nil)
 end
 
---- A `host` file a variable names is keyed by what it holds and by the
---- name it is declared by, not by where the variable says it is: the
---- same contents at another place key the same, and the variable's
---- value in the worker's environment is held by that name too; a
---- change to what it holds moves the key, as does one to what a link
---- declared leads to. A directory there is refused before any key is
---- made: no key walks what a host directory holds.
-local function test_a_host_path_a_variable_names_is_keyed_by_what_it_holds(tmp: string)
+--- A `host` file is keyed by what it holds: a change to its contents moves
+--- the key, as does one to what a link declared leads to. A directory there
+--- is refused before any key is made: no key walks what a host directory
+--- holds.
+local function test_a_host_path_is_keyed_by_what_it_holds(tmp: string)
   local root = tmp .. "/root"
   tree(root)
   local base = assert(Fs.absolute(tmp))
@@ -660,57 +655,39 @@ local function test_a_host_path_a_variable_names_is_keyed_by_what_it_holds(tmp: 
     assert(Fs.write(dir .. "/o/bin/cosmic", contents))
     return dir
   end
-  local function resolved(where: string, declared: string): declared_key.Spec
-    local s = spec({ DECLARED = "d", TMPDIR = "/tmp", PRODUCT = where })
+  local function resolved(declared: string): declared_key.Spec
+    local s = spec({ DECLARED = "d", TMPDIR = "/tmp" })
     s.effective.host = { declared }
-    s.effective.env.PRODUCT = true
-    s.effective.named = { PRODUCT = true }
-    s.effective.variables = { "DECLARED", "PRODUCT" }
     s.declaration = s.declaration .. "\nhost " .. string.format("%q", declared)
-    test_inputs.resolve(s.effective, s.environment, { root })
+    test_inputs.resolve(s.effective, { root })
     return s
   end
-  local function key_at(where: string, declared: string): string
-    local s = resolved(where, declared)
+  local function key_at(declared: string): string
+    local s = resolved(declared)
     assert(s.effective.unresolved == "", s.effective.unresolved)
     return key_of(root, s)
   end
   local one, two = product("one", "cosmic\n"), product("two", "cosmic\n")
-  local file = "$PRODUCT/o/bin/cosmic"
-  assert(key_at(one, file) == key_at(two, file), "the same contents elsewhere")
-  assert(Fs.write(two .. "/o/bin/cosmic", "another cosmic\n"))
-  assert(key_at(one, file) ~= key_at(two, file), "another file's contents")
-  -- Two variables' places swapped, what each holds the same: the same key.
-  local function key_of_two(a: string, b: string): string
-    local s = spec({ DECLARED = "d", TMPDIR = "/tmp", A = a, B = b })
-    s.effective.host = { "$A/o/bin/cosmic", "$B/o/bin/cosmic" }
-    s.effective.named = { A = true, B = true }
-    s.effective.variables = { "A", "B" }
-    test_inputs.resolve(s.effective, s.environment, { root })
-    return key_of(root, s)
-  end
-  local early, late = product("early", "a\n"), product("zlate", "b\n")
-  local swapped_early, swapped_late = product("early2", "b\n"), product("zlate2", "a\n")
-  assert(key_of_two(early, late) == key_of_two(swapped_late, swapped_early),
-    "the variables' places in another order")
-  assert(key_of_two(early, late) ~= key_of_two(swapped_early, swapped_late),
-    "what each holds, swapped")
+  local file = one .. "/o/bin/cosmic"
+  local before = key_at(file)
+  assert(key_at(file) == before)
+  assert(Fs.write(file, "another cosmic\n"))
+  assert(key_at(file) ~= before, "the file's contents")
   -- A link declared is held by what it leads to, wherever that is.
   assert(Fs.symlink("../../two/o/bin/cosmic", one .. "/o/linked"))
-  local before = key_at(one, "$PRODUCT/o/linked")
+  local linked = key_at(one .. "/o/linked")
   assert(Fs.write(two .. "/o/bin/cosmic", "a third cosmic\n"))
-  assert(key_at(one, "$PRODUCT/o/linked") ~= before, "what the link leads to")
-  -- A directory, the variable's whole path or beneath it, is refused;
-  -- /proc, which no key could hold by what it holds, and what is beneath
-  -- it, are given.
-  for _, declared in ipairs({ "$PRODUCT", "$PRODUCT/o" }) do
-    local refused = resolved(one, declared).effective.unresolved
-    assert(refused:find(string.format("Test.needs host %q: ", declared), 1, true) and
-      refused:find(" is a directory; host names files, or /proc", 1, true), refused)
+  assert(key_at(one .. "/o/linked") ~= linked, "what the link leads to")
+  -- A directory is refused; /proc, which no key could hold by what it
+  -- holds, and what is beneath it, are given.
+  for _, declared in ipairs({ one, one .. "/o" }) do
+    local refused = resolved(declared).effective.unresolved
+    assert(refused:find(string.format("Test.policy grant of the host path %q: ", declared), 1, true) and
+        refused:find(" is a directory; a grant of the host names files, or /proc", 1, true), refused)
   end
   local proc = spec()
   proc.effective.host = { "/proc", "/proc/self" }
-  test_inputs.resolve(proc.effective, proc.environment, { root })
+  test_inputs.resolve(proc.effective, { root })
   assert(proc.effective.unresolved == "", proc.effective.unresolved)
 end
 
@@ -1051,7 +1028,7 @@ local function test_the_program_is_keyed_by_its_contents(tmp: string)
   assert(now ~= before)
   assert(Fs.write(tmp .. "/.verified-core", "stamp"))
   assert(declared_key.program_identity(digests, { tmp .. "/program", tmp .. "/.verified-core" }) ==
-    now, "the stamp moved it")
+      now, "the stamp moved it")
 end
 
 --- A program as an artifact lays it out ([`artifact.host_program`]),
@@ -1062,7 +1039,7 @@ local function program_at(path: string, core: string, meta: {string:string}, byt
   local _, _ = Fs.remove(db_path)
   local db = assert(Sqlite.open(db_path, { writable = true }))
   assert(db:exec("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL); " ..
-    "CREATE TABLE modules (path TEXT PRIMARY KEY, bytecode BLOB NOT NULL)"))
+      "CREATE TABLE modules (path TEXT PRIMARY KEY, bytecode BLOB NOT NULL)"))
   local keys: {string} = {}
   for key in pairs(meta) do keys[#keys + 1] = key end
   table.sort(keys)
@@ -1176,7 +1153,7 @@ local function test_an_artifacts_launcher_moves_every_key(tmp: string)
   local second = key_of(root, s)
   assert(first ~= native and second ~= first, "the launcher left a key without `tool`")
   assert(declared_key.launcher_identity(declared_key.digests(root), root .. "/nowhere") ==
-    "missing")
+      "missing")
 end
 
 --- A core that carries DWARF, as the checked core does, is keyed by its
@@ -1217,7 +1194,7 @@ local function test_the_runtime_identity_is_remembered_by_the_core(tmp: string)
   local core = ("cd"):rep(32)
   digests.hashed["runtime-image\0" .. core] = "image 1 2\0" .. image
   assert(declared_key.runtime_identity(digests, "raw", core, "basis") ==
-    core_image.runtime(image, 1, 2, "basis"))
+      core_image.runtime(image, 1, 2, "basis"))
   assert(digests.used["runtime-image\0" .. core])
   digests.hashed["runtime-image\0" .. core] = "whole\0" .. core
   assert(declared_key.runtime_identity(digests, "raw", core, "basis") == "raw")

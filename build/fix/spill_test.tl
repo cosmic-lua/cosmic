@@ -7,7 +7,7 @@ local spill = require("build.fix.spill")
 local teal = require("build.teal")
 
 --- Where the checker looks for modules, which a test runs it without.
-Test.needs{ env = { "TL_PATH" } }
+Test.policy{ env = { "TL_PATH" } }
 
 --- Only the call the checker names is wrapped, whatever its arguments,
 --- and nothing else on the line moves.
@@ -18,8 +18,8 @@ local function test_wraps_only_the_named_assert()
     'local n = math.tointeger(assert(tonumber("1")))\nreturn { f, n }\n'
   local out, trouble = spill.wrap(built, src, "x.tl", { ["2:16"] = true })
   assert(out == 'local function f(cwd: string): string\n' ..
-    '  return (assert(cwd:match("^(.*)/[^/]+$"), cwd .. ": no parent"))\nend\n' ..
-    'local n = math.tointeger(assert(tonumber("1")))\nreturn { f, n }\n',
+      '  return (assert(cwd:match("^(.*)/[^/]+$"), cwd .. ": no parent"))\nend\n' ..
+      'local n = math.tointeger(assert(tonumber("1")))\nreturn { f, n }\n',
     tostring(out) .. trouble)
 end
 

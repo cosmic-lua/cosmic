@@ -15,10 +15,10 @@ local this_program = require("build.this_program")
 local worker = require("build.test_worker")
 -- The module the worker below runs, which its store must hold.
 local _ = require("build.key_parts")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- The program itself, which it starts as a worker.
-Test.needs{ tool = true }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- What a worker loads that is no module of the tree: Lua's own
 --- libraries, beside the core's [`cosmic.sys`] and `cosmic.internal.*`,
@@ -33,9 +33,9 @@ local function test_a_worker_loads_what_worker_loads_names(tmp: string)
   assert(Fs.mkdirs(tmp .. "/tmp"))
   local started = this_program.program({ "test", "--worker", root, "build.key_parts",
     "test_none", tmp .. "/tmp", tmp .. "/children" }, {
-    cwd = root, stdin = "null", stdout = "capture", stderr = "stdout",
-    fds = { [worker.report_fd] = "capture" }, timeout_ns = Time.seconds(30),
-  })
+      cwd = root, stdin = "null", stdout = "capture", stderr = "stdout",
+      fds = { [worker.report_fd] = "capture" }, timeout_ns = Clock.seconds(30),
+    })
   local result = assert(Child.run(started.argv, started.options))
   local report = worker.decode(result.captured[worker.report_fd])
   assert(report ~= nil, tostring(result.stdout))
@@ -53,8 +53,8 @@ local function test_a_worker_loads_what_worker_loads_names(tmp: string)
     end
   end
   for _, name in ipairs({ "build.declared_key", "build.artifact", "build.core_image",
-                          "build.launcher", "build.verdict", "cosmic.time", "cosmic.log",
-                          "cosmic.string", "cosmic.hash", "cosmic.codec" }) do
+      "build.launcher", "build.verdict", "cosmic.time", "cosmic.log",
+      "cosmic.string", "cosmic.hash", "cosmic.codec" }) do
     assert(not ran[name], "a worker loaded " .. name)
   end
 end
@@ -69,20 +69,20 @@ local function test_a_worker_attaches_the_store_it_is_given(tmp: string)
   local missing = tmp .. "/missing/closure.db"
   local started = this_program.program({ "test", "--worker", root, "build.key_parts",
     "test_none", tmp .. "/tmp", tmp .. "/children", "", "--store", missing,
-    "build.key_parts", "--tree", "build.key_parts", "--declared" }, {
-    cwd = root, stdin = "null", stdout = "capture", stderr = "stdout",
-    fds = { [worker.report_fd] = "capture" }, timeout_ns = Time.seconds(30),
-  })
+    "build.key_parts", "--tree", "build.key_parts" }, {
+      cwd = root, stdin = "null", stdout = "capture", stderr = "stdout",
+      fds = { [worker.report_fd] = "capture" }, timeout_ns = Clock.seconds(30),
+    })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.code == 2, tostring(result.code) .. ": " .. tostring(result.stdout))
   assert(tostring(result.stdout):find(missing, 1, true), tostring(result.stdout))
   -- Without it, the same worker attaches the tree's own and runs.
   started = this_program.program({ "test", "--worker", root, "build.key_parts",
     "test_none", tmp .. "/tmp", tmp .. "/children-again", "",
-    "build.key_parts", "--tree", "build.key_parts", "--declared" }, {
-    cwd = root, stdin = "null", stdout = "capture", stderr = "stdout",
-    fds = { [worker.report_fd] = "capture" }, timeout_ns = Time.seconds(30),
-  })
+    "build.key_parts", "--tree", "build.key_parts" }, {
+      cwd = root, stdin = "null", stdout = "capture", stderr = "stdout",
+      fds = { [worker.report_fd] = "capture" }, timeout_ns = Clock.seconds(30),
+    })
   result = assert(Child.run(started.argv, started.options))
   local report = worker.decode(result.captured[worker.report_fd])
   assert(report ~= nil, tostring(result.stdout))

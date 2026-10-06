@@ -1,13 +1,19 @@
 local Compiles = require("cosmic_ci.compiles")
+local ChangedPaths = require("cosmic_ci.changed_paths")
+local CommitVerdicts = require("cosmic_ci.commit_verdicts")
 local Context = require("cosmic_ci.context")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Fuzz = require("cosmic_ci.fuzz")
+local HostId = require("cosmic_ci.host_id")
 local Images = require("cosmic_ci.images")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Sqlite = require("cosmic.sqlite")
 local Orchestration = require("cosmic_ci.orchestration")
+local PlaceTree = require("cosmic_ci.place_tree")
 local Prerelease = require("cosmic_ci.prerelease")
+local QueueSeed = require("cosmic_ci.queue_seed")
+local QueueStage = require("cosmic_ci.queue_stage")
 local Runner = require("cosmic_ci.runner")
 local Report = require("cosmic_ci.report")
 local State = require("cosmic_ci.state")
@@ -112,6 +118,22 @@ local commands: {string:Command} = {
     usage = "", handler = ZigRestat.restat_command },
   ["verdicts-merge"] = { about = "add the verdicts of the merge queue's run ahead, in DIR, to this run's",
     usage = "DIR", handler = Verdicts.merge_command },
+  ["queue-find"] = { about = "find the merge queue's passing run of this commit, for ci.yml's reuse job",
+    usage = "", handler = QueueSeed.find_command },
+  ["queue-ahead"] = { about = "find the run ahead in the merge queue, and whether it holds the verdicts this run takes",
+    usage = "", handler = QueueSeed.ahead_command },
+  ["queue-stage"] = { about = "keep in $RUNNER_TEMP/seed what main would save of this merge queue leg, and name its keys",
+    usage = "", handler = QueueStage.stage_command },
+  ["merge-base"] = { about = "name the main commit this run's tree grew from, whose verdicts the restore takes",
+    usage = "", handler = CommitVerdicts.merge_base_command },
+  ["leg-host-id"] = { about = "name the leg's host, and its verdict cache, from its container or runner and its processor features",
+    usage = "NAME IMAGE RUNNER STARTED", handler = HostId.command },
+  ["changed-paths"] = { about = "name the paths this branch changed since its base on main, for a light run's format check",
+    usage = "", handler = ChangedPaths.command },
+  ["prune-commit-verdicts"] = { about = "delete main's commit-keyed verdicts and the branches' compiles a day old",
+    usage = "", handler = CommitVerdicts.prune_command },
+  ["place-tree"] = { about = "move the checkout to the path this commit and leg choose, or back",
+    usage = "[--name | --restore]", spec = PlaceTree.spec, options = PlaceTree.command },
   platform = { about = "run one phase of this worker's platform job",
     usage = "PHASE [ARG]", handler = Orchestration.platform },
   provenance = { about = "check that every worker tested the same bytes",
@@ -128,7 +150,7 @@ local commands: {string:Command} = {
     usage = "", handler = Images.build_command },
   ["image-publish"] = { about = "join one image's architectures under one tag",
     usage = "", handler = Images.publish_command },
-  report = { about = "print CI's recent runs' times and suites, from GitHub through gh",
+  report = { about = "print CI's recent runs' times and suites, from GitHub's API",
     usage = "[options]", spec = Report.spec, options = Report.command },
 }
 

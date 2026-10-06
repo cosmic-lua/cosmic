@@ -97,7 +97,7 @@ local function delimiter_of(opts: Csv.Options | nil): string
   local delimiter: any = opts ~= nil and opts.delimiter or ","
   if not (delimiter is string) or #delimiter ~= 1 then
     error("csv: the delimiter is one byte, not " ..
-      (delimiter is string and "a string of length " .. #delimiter or "a " .. type(delimiter)), 3)
+        (delimiter is string and "a string of length " .. #delimiter or "a " .. type(delimiter)), 3)
   end
   if delimiter == '"' or delimiter == "\r" or delimiter == "\n" then
     error("csv: the delimiter cannot be a quote or a line break", 3)
@@ -176,7 +176,7 @@ local function read(text: string, delimiter: string): Scan | nil, string
             ended, broke = true, true
           else
             return refuse("after a closing quote, expected the delimiter or the end of the line at " ..
-              at(line, pos - line_start + 1))
+                at(line, pos - line_start + 1))
           end
         else
           local stop = text:find(class, pos)
@@ -302,7 +302,7 @@ function Csv.table(text: string, opts?: Csv.Options): Csv.Table | nil, string
       end
     elseif #record ~= #names then
       return refuse(at(lines[number], 1) .. ": the record has " .. #record ..
-        (#record == 1 and " field" or " fields") .. ", the header " .. #names)
+          (#record == 1 and " field" or " fields") .. ", the header " .. #names)
     end
     if #record > 0 then
       local row: {string:string} = {}

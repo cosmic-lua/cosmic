@@ -36,11 +36,11 @@
 --- failure closes that connection alone.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
-local Time = require("cosmic.time")
 local errors = require("cosmic.internal.errors")
 
 --- The raw module behind this one lives under the reserved
@@ -214,7 +214,6 @@ end
 
 local DEFAULT_READ <const> = 64 * 1024
 local DEFAULT_BACKLOG <const> = 64
-local MS <const> = Time.ms(1)
 
 --- The address of the socket file at `path`.
 function Net.unix(path: string): Net.Address
@@ -224,14 +223,6 @@ end
 --- The address of TCP `port` at `host`, a numeric IPv4 or IPv6 address.
 function Net.tcp(host: string, port: integer): Net.Address
   return { kind = "tcp", host = host, port = port }
-end
-
---- `timeout_ns`, which [`Poll.checked_ns`] has held to what a wait can
---- last, as the raw calls take it: in milliseconds, rounded up so a
---- timeout of any length is never none, or -1 for no limit.
-local function milliseconds(timeout_ns: integer | nil): integer
-  if timeout_ns == nil then return -1 end
-  return Time.ceil(timeout_ns, MS)
 end
 
 --- What a failed call says: its own words for a deadline or a signal,
@@ -269,7 +260,7 @@ local function waited(fd: integer, writable: boolean, timeout_ns: integer | nil)
   if Poll.in_task() then
     return Poll.wait(fd, writable and sys.POLLOUT or sys.POLLIN, timeout_ns)
   end
-  local ok, trouble, errno = raw.wait(fd, writable, milliseconds(timeout_ns))
+  local ok, trouble, errno = raw.wait(fd, writable, Poll.milliseconds(timeout_ns))
   if ok then return true, "" end
   return false, said(trouble, errno)
 end
@@ -466,7 +457,7 @@ end
 
 --- The listener over `socket`, at `address`.
 local function new_listener(socket: raw_socket.Socket, address: Net.Address,
-    timeout_ns: integer | nil): Opened
+                            timeout_ns: integer | nil): Opened
   local fd = socket:fd()
   local listener: SocketListener = setmetatable({
     address = address, socket = socket, fd = fd, open = true, limit = timeout_ns },
@@ -522,7 +513,7 @@ local function connection(address: Net.Address, timeout_ns: integer | nil): Atte
   -- replaces.
   Poll.checked_ns(timeout_ns, "net", "timeout_ns", 3)
   if not Poll.in_task() then
-    local socket, trouble, errno = raw.connect(address, milliseconds(timeout_ns))
+    local socket, trouble, errno = raw.connect(address, Poll.milliseconds(timeout_ns))
     return { socket = socket, trouble = trouble, errno = errno }
   end
   local socket, trouble, errno = raw.start(address)
@@ -546,10 +537,10 @@ end
 --- What [`Net.listen`] opens, with its descriptor; it raises at `level`
 --- above its caller.
 local function listening(address: Net.Address, opts: Net.ListenOptions,
-    level: integer): Opened | nil, string
+                         level: integer): Opened | nil, string
   if sets_reclaim(opts) then
     error("net: ListenOptions.reclaim is gone: remove the socket file a listener left " ..
-      "behind (Fs.remove) once connecting to it is refused, then listen", level + 1)
+        "behind (Fs.remove) once connecting to it is refused, then listen", level + 1)
   end
   local unusable = address_trouble(address)
   if unusable ~= "" then error("net: address must be " .. unusable, level + 1) end
@@ -632,7 +623,7 @@ local function checked_spec(spec: any)
     if not (key is string and SPEC_FIELDS[key]) then
       local gone = key is string and REMOVED_FIELDS[key] or nil
       error("net: spec has no field " .. tostring(key) ..
-        (gone ~= nil and ": " .. gone or ""), 3)
+          (gone ~= nil and ": " .. gone or ""), 3)
     end
   end
   local listeners = spec.listeners
@@ -729,7 +720,7 @@ local serving_mt: metatable<Serving> = {
 --- How long a listener waits after an accept failed -- out of
 --- descriptors, say -- before it tries again, so a failure that lasts is
 --- not retried, and reported, without pause.
-local ACCEPT_PAUSE_NS <const> = Time.ms(100)
+local ACCEPT_PAUSE_NS <const> = Clock.ms(100)
 
 --- Gives `trouble` to the spec's [`Net.ServeSpec.on_error`], or stderr.
 local function report(s: Serving, trouble: string)
@@ -805,14 +796,14 @@ local function drain(s: Serving)
   if s.stopper ~= nil then local _, _ = s.stopper:join() end
   if not s.hurried then
     local grace = s.spec.grace_ns
-    local deadline = grace ~= nil and Time.monotonic_ns() + grace or nil
+    local deadline = grace ~= nil and Clock.monotonic_ns() + grace or nil
     -- A task of its own, so a signal can end the grace by cancelling it.
     s.grace = Poll.spawn(function()
       while true do
         local task = next(s.conns)
         if task == nil then return end
         local left: integer = nil
-        if deadline ~= nil then left = math.max(deadline - Time.monotonic_ns(), 0) end
+        if deadline ~= nil then left = math.max(deadline - Clock.monotonic_ns(), 0) end
         local ended, _ = task:join(left)
         if not ended then return end
       end

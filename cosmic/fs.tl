@@ -6,6 +6,12 @@
 --- an error. A predicate uses the same contract, with false as a valid
 --- answer. A call that only has an effect returns `boolean, string`.
 ---
+--- A descriptor from [`Fs.open_read`] or [`Fs.open_write`] is a plain
+--- integer, closed with [`Fs.close`], so a `<close>` variable cannot hold
+--- it. One holds a value whose type has a `__close` metamethod, written
+--- `local h <close> = assert(Child.start(argv))`: `assert` narrows the
+--- `T | nil` an opener answers, which `<close>` refuses, to `T`.
+---
 --- `basename`, `dirname`, `within` and `relative` work on a path's
 --- text alone and read nothing. The first three cannot fail, so each
 --- answers a plain value; `relative` answers nil and why when the path
@@ -21,6 +27,14 @@ local sys = require("cosmic.sys")
 local record Fs
   --- What a path is and what it holds.
   Stat: sys.Stat
+
+  --- What a path is, as a [`Stat`]'s `kind` and [`Fs.walk`]'s `skip`
+  --- name it: [`sys.Kind`]'s members. Comparing a `Stat`'s `kind`, or a
+  --- `skip`'s third parameter, with a name outside them (`"directory"`)
+  --- is a compile error, the parameter left untyped or declared
+  --- [`Fs.Kind`], since a function literal's untyped parameter is the
+  --- type its callee declares.
+  type Kind = sys.Kind
 
   --- A file at a path being written through a temporary neighbor and a
   --- rename, as [`Fs.create`] returns it: a [`cosmic.stream`] Writer
@@ -50,6 +64,19 @@ local record Fs
     --- Whether to make and check the directory; true when nil. False
     --- answers the name alone.
     make: boolean
+  end
+
+  --- A private directory made by [`Fs.scratch`], removed with everything
+  --- in it when a `<close>` variable holding it ends its scope.
+  record Scratch
+    --- The directory, a child of the one [`Fs.scratch`] was given.
+    path: string
+    --- A descriptor of the `owner` file inside `path`, which is on the
+    --- directory's own filesystem and locked for as long as the
+    --- scratch directory is open. Leave the file alone, and neither
+    --- read nor close the descriptor.
+    owner: integer
+    metamethod __close: function(Scratch)
   end
 
   --- The descriptor of standard input, 0: what [`Fs.take`] reads from.
@@ -472,39 +499,22 @@ function Fs.remove(path: string): boolean, string
 end
 
 --- Removes a path and, when it is a directory, everything under it:
---- the `rm -rf` a scratch directory wants. A link is removed, never
---- followed, so nothing outside `path` is touched. A path that is
---- already gone is not a failure.
+--- the `rm -rf` a scratch directory wants ([`Fs.scratch`] makes one).
+--- A link is removed, never followed, so nothing outside `path` is
+--- touched -- not even by a process that swaps an entry for a link
+--- while this walks, which is
+--- removed with the rest: the walk is by descriptor, from each directory
+--- to its entries. A path that is already gone is not a failure. A
+--- directory that cannot be opened, or that something keeps filling,
+--- fails the call, with what was removed gone.
 function Fs.remove_tree(path: string): boolean, string
-  local st, trouble, number = sys.lstat(path)
-  if st == nil then
-    if number == sys.ENOENT or number == sys.ENOTDIR then
-      return true, ""
-    end
-    return false, path .. ": " .. trouble
-  end
-  if st.kind ~= "dir" then
-    return Fs.remove(path)
-  end
-  local entries, list_trouble = sys.readdir(path)
-  if entries == nil then
-    return false, path .. ": " .. list_trouble
-  end
-  for name in pairs(entries) do
-    local gone, why = Fs.remove_tree(path .. "/" .. name)
-    if not gone then
-      return false, why
-    end
-  end
-  local removed, rmdir_trouble, rmdir_number = sys.rmdir(path)
-  if not removed and rmdir_number ~= sys.ENOENT then
-    return false, path .. ": " .. rmdir_trouble
-  end
+  local removed, trouble = sys.remove_tree(path)
+  if not removed then return false, path .. ": " .. trouble end
   return true, ""
 end
 
 --- The names in a directory, sorted, without `.` and `..`.
-local function sorted_names(entries: {string:string}): {string}
+local function sorted_names(entries: {string:Fs.Kind}): {string}
   local names: {string} = {}
   for name in pairs(entries) do
     names[#names + 1] = name
@@ -538,7 +548,7 @@ local record Pending
 end
 
 --- Both walks: [`Fs.walk`], and with `follow`, [`Fs.walk_following`].
-local function walk(root: string, skip: function(string, string, string): boolean,
+local function walk(root: string, skip: function(string, string, Fs.Kind): boolean,
                     follow: boolean): {string} | nil, string
   local found: {string} = {}
   local pending: {Pending} = { { relative = "", above = nil } }
@@ -561,7 +571,7 @@ local function walk(root: string, skip: function(string, string, string): boolea
       end
       above = { key = key, up = above }
     end
-    local entries: {string:string} = {}
+    local entries: {string:Fs.Kind} = {}
     if inside then
       local listed, trouble = sys.readdir(directory)
       if listed == nil then
@@ -595,12 +605,12 @@ end
 --- listed (`-type f`): a link is neither listed nor walked into,
 --- whatever it leads to. The paths are sorted bytewise, whole.
 --- `skip` is asked about each entry's relative path, its bare name
---- second, and what the listing says it is third, as [`Fs.stat`]'s
---- `kind` names it (`"file"`, `"dir"`, `"link"`, `"socket"` and so
---- on), and may refuse a whole directory. The
+--- second, and what the listing says it is third, a [`Fs.Kind`] as
+--- [`Fs.stat`]'s `kind` names it (`"file"`, `"dir"`, `"link"`,
+--- `"socket"` and so on), and may refuse a whole directory. The
 --- listing says what each entry is, so nothing here is stat'd.
 function Fs.walk(root: string,
-                 skip?: function(string, string, string): boolean): {string} | nil, string
+                 skip?: function(string, string, Fs.Kind): boolean): {string} | nil, string
   return walk(root, skip, false)
 end
 
@@ -619,8 +629,88 @@ end
 --- before a link is followed, so it is told `"link"` and may refuse
 --- one. Each directory, and each link, is stat'd.
 function Fs.walk_following(root: string,
-                           skip?: function(string, string, string): boolean): {string} | nil, string
+                           skip?: function(string, string, Fs.Kind): boolean): {string} | nil, string
   return walk(root, skip, true)
+end
+
+local record Descriptor
+  fd: integer
+  metamethod __close: function(Descriptor)
+end
+local descriptor_mt: metatable<Descriptor> = {
+  __close = function(self: Descriptor) local _, _ = sys.close(self.fd) end,
+}
+
+local scratch_mt: metatable<Fs.Scratch> = {
+  __close = function(self: Fs.Scratch)
+    -- A second close would close whatever descriptor reused `owner`.
+    if self.owner < 0 then return end
+    local _, _ = Fs.remove_tree(self.path)
+    local _, _ = sys.close(self.owner)
+    self.owner = -1
+  end,
+}
+
+--- A fresh, empty, private directory under `parent`, which must exist,
+--- and a `.scratch-gate` file there. The directory is removed, with its
+--- contents, when the result's `<close>` variable ends its scope. A
+--- process that dies first leaves it, and the next call under the same
+--- `parent` removes it: a directory is swept only when its owner file
+--- can be locked, which no live holder allows, so the directories of
+--- other live processes, even in other namespaces or containers sharing
+--- `parent`, are never touched. A name the sweep does not recognize, or
+--- a directory with no owner file, is left alone. The directory holds
+--- one file, `owner`, so work goes in a subdirectory of it. A relative
+--- `parent` gives a relative path, which a change of directory before
+--- the close would point elsewhere.
+---
+--- The gate is locked by every call from before its sweep until the new
+--- directory's owner is locked, so no sweep sees a directory whose owner
+--- is not yet held. It is released before this returns, and the work in
+--- the directory runs outside it. Use one `parent` for one kind of
+--- scratch directory: calls under it sweep each other's.
+function Fs.scratch(parent: string): Fs.Scratch | nil, string
+  local fd, trouble = sys.open(parent .. "/.scratch-gate", sys.O_RDWR | sys.O_CREAT | sys.O_NOFOLLOW, 0x180)
+  if fd == nil then return nil, parent .. ": " .. trouble end
+  local opened: Descriptor = { fd = fd }
+  local gate <close> = setmetatable(opened, descriptor_mt)
+  local locked, lock_trouble = sys.flock(gate.fd, "exclusive", -1)
+  if not locked then return nil, parent .. ": " .. lock_trouble end
+  local names, list_trouble = Fs.list(parent)
+  if names == nil then return nil, list_trouble end
+  for _, name in ipairs(names) do
+    -- A name not of this form is not this function's to sweep, and one
+    -- with no owner file has nothing to prove its holder dead.
+    -- TODO: a removal that fails after deleting `owner` leaves a directory
+    -- no later sweep proves dead, so it stays; remove `owner` last (or
+    -- sweep an ownerless directory older than the gate's last hold) to
+    -- reclaim it.
+    if name:match("^%.scratch%.[%w]+$") then
+      local path = parent .. "/" .. name
+      local owner, _ = sys.open(path .. "/owner", sys.O_RDWR | sys.O_NOFOLLOW)
+      if owner ~= nil then
+        local descriptor: Descriptor = { fd = owner }
+        local probe <close> = setmetatable(descriptor, descriptor_mt)
+        local dead, _ = sys.flock(probe.fd, "exclusive", 0)
+        if dead then local _, _ = Fs.remove_tree(path) end
+      end
+    end
+  end
+  local path, create_trouble = sys.mkdtemp(parent .. "/.scratch.XXXXXX")
+  if path == nil then return nil, parent .. ": " .. create_trouble end
+  local owner, owner_trouble = sys.open(path .. "/owner", sys.O_RDWR | sys.O_CREAT | sys.O_EXCL, 0x180)
+  if owner == nil then
+    local _, _ = Fs.remove_tree(path)
+    return nil, path .. "/owner: " .. owner_trouble
+  end
+  local owned: Fs.Scratch = { path = path, owner = owner }
+  local holding = setmetatable(owned, scratch_mt)
+  local held, hold_trouble = sys.flock(owner, "exclusive", 0)
+  if not held then
+    local _cleanup <close> = holding
+    return nil, path .. "/owner: " .. hold_trouble
+  end
+  return holding, ""
 end
 
 --- A path with no link and no `..` left in it: `realpath`.
@@ -664,6 +754,11 @@ end
 --- for reading and returns an integer descriptor instead. Most callers want
 --- [`Fs.read`]; use Fs.take and Fs.close when a file must be read in pieces.
 function Fs.open_read(path: string): integer | nil, string
+  -- TODO: a descriptor a `<close>` variable can hold (a record with
+  -- `__close` over the fd), here and in open_write, so a file read or
+  -- written in pieces is closed on every way out of its block: callers
+  -- write `local f <close> = assert(Fs.open_read(path))` and meet an
+  -- integer, which `<close>` refuses.
   local fd, trouble = sys.open(path, sys.O_RDONLY)
   if fd == nil then
     return nil, path .. ": " .. trouble

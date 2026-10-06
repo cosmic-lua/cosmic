@@ -1,0 +1,7 @@
+version eff32a626a7b4586fbf9b1b2941a92de60452205
+url https://raw.githubusercontent.com/web-platform-tests/wpt/eff32a626a7b4586fbf9b1b2941a92de60452205/url/resources/urltestdata.json
+sha256 81e85fd3c199c08ef9c34cf651b3580eeedd080316493bfaf277a6b5ff8cf652
+file urltestdata.json
+keep urltestdata.json
+kind test
+license BSD-3-Clause

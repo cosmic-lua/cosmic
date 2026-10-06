@@ -15,24 +15,41 @@ local Flags = require("cosmic.flags")
 
 --- One field per verb: the full text of `cosmic help <verb>`.
 local record Cli
-  --- `cosmic <file.tl>`: builds the tree the file sits in -- the
-  --- working directory when the file is under it, so a file of a
+  --- `cosmic <file.tl> [args...]`: builds the tree the file sits in --
+  --- the working directory when the file is under it, so a file of a
   --- project reaches the rest of it; the file's own directory
-  --- otherwise -- then runs it: requires the file, and if what it
-  --- returns is a function, calls it with one argument -- see argv --
-  --- and exits with what it returns, as `eval` does: nothing is 0, a
-  --- whole number from 0 to 255, or text naming one, is itself, and
-  --- anything else is complained about and exits 2
+  --- otherwise -- into its o/, then runs it: requires the file, and if
+  --- what it returns is a function, calls it with one argument, the
+  --- words after the file's path (`argv[1]` on, its own path at
+  --- `argv[0]`), and exits with what it returns, as `eval` does:
+  --- nothing is 0, a whole number from 0 to 255, or text naming one, is
+  --- itself, and anything else is complained about and exits 2. The
+  --- file's top level finds the same words in the global `arg`; its `...`
+  --- is what `require` hands a module, its own name.
+  ---
+  ---     return function(argv: {string}): integer
+  ---       print("from " .. argv[1] .. " to " .. argv[2])
+  ---       return 0
+  ---     end
+  ---
+  --- A tree whose o/ this user cannot write (another user's checkout,
+  --- say) is built into a directory of this user's own under
+  --- $XDG_CACHE_HOME/cosmic/runs instead, named by the tree's path.
+  ---
+  --- With COSMIC_STANDALONE=1 it runs the file as `--standalone` does,
+  --- building nothing and writing no o/; a program `cosmic sandbox
+  --- --cosmic` runs has it set unless `--set-env` says otherwise
   run: string
-  --- `cosmic --standalone <file.tl>`: runs one file against this
+  --- `cosmic --standalone <file.tl> [args...]`: runs one file against this
   --- binary's own standard library, with no tree around it -- nothing
   --- staged or built, nothing under o/ written, and no staleness
   --- check, so it runs the same whatever state the working directory
   --- is in. The file may require `cosmic.*` modules only; it is
   --- checked and compiled in memory (a clean compile is cached under
   --- $XDG_CACHE_HOME/cosmic/standalone), then called as `run` calls
-  --- one -- see argv -- with a record's `main` field standing for a
-  --- returned function
+  --- one -- its words in `arg` and the returned function's `argv` --
+  --- with a record's `main` field standing for a returned function.
+  --- COSMIC_STANDALONE=1 makes `cosmic <file.tl>` run so
   standalone: string
   --- `cosmic -e '<chunk>' [args...]`: runs the chunk as Lua, the way
   --- `lua -e` does, against this binary's own standard library, with no
@@ -78,9 +95,9 @@ local record Cli
   ---
   --- Where the kernel can (Linux), each test runs sandboxed, given its
   --- module's import closure and what the module declares with
-  --- [`Test.needs`] (`cosmic docs cosmic.test`), and nothing else of the
+  --- [`Test.policy`] (`cosmic docs cosmic.test`), and nothing else of the
   --- tree or the host: a test that starts a host program, /bin/sh or
-  --- `sleep`, declares `system = true`. A failure that met what its
+  --- `sleep`, declares the profile "system". A failure that met what its
   --- sandbox left out at an absolute path -- a program it started, a
   --- file it read -- says so beneath it, naming what to declare.
   ---
@@ -167,8 +184,9 @@ local record Cli
   --- `.jsonl` and `.ndjson`, as CSV for `.csv` and as TSV for `.tsv` and
   --- `.tab`; `--as json|ndjson|csv|tsv` overrides the extension, and
   --- standard input needs it. `--as`, `--at '<path>'` and `--raw` apply
-  --- to the `--from` before them, and `--at` reads the rows from
-  --- the array at a path, as `cosmic json` reads one (a CSV or TSV has
+  --- to the `--from` before them, and `--at` reads the rows from the
+  --- array at a path, a JSONPath query naming one value as `cosmic json`
+  --- reads it (`--at '$.data.rows'`, indices from 0; a CSV or TSV has
   --- no path). A CSV or TSV (RFC 4180, quotes and all) has a header
   --- line naming the columns, in that order, and a row per record; a record with more
   --- or fewer fields than the header is refused, naming its line, and a
@@ -199,51 +217,53 @@ local record Cli
   sql: string
   --- `cosmic json [options] [path] [file|-]`: the answer to a quick
   --- question about a JSON file -- is there a key `x` in this export,
-  --- what is under `users[1]` -- with no script to write. It reads the
+  --- what is under `users[0]` -- with no script to write. It reads the
   --- file, or standard input when the file is `-` or absent, and prints
   --- the value at the path as JSON, indented, or on one line with
-  --- `--compact`; a string prints as its text with `-r`. A path reads
-  --- as the paths the JSON messages print: `$` is the document, then
-  --- `.key` or `["a key"]` and `[1]`, counted from 1
-  --- (`$.users[1].name`); with a file after it, a first key
-  --- needs no dot (`a.b`), and whitespace in a path is part of a key.
-  --- `*` (`.*` or `[*]`) is every member of an object or element of an
-  --- array, and `..key` or `..[n]` that key or index at any depth, the
-  --- current level included (`$..id`, `$.users[*].name`): such a path
-  --- prints each match as a `path = value` line, the value as compact
-  --- JSON (`$.users[1].name = "ann"`), in document order (arrays by
-  --- index, keys sorted); with `-r`, the raw values alone, one to a line
-  --- (a string prints as its text, so one with a newline in it spans
-  --- lines; without `-r`, or with `--flat`, every line is one JSON value);
-  --- with `--exists`, nothing, and 0 when at least one matches. A key
-  --- named `*` is `["*"]`. JSONPath's filters, slices and unions are
-  --- left out on purpose: this is a lookup, not a query language.
-  --- `--flat` prints every leaf under the path (the whole document with
-  --- none) as such lines, in the same order, an empty object or array
-  --- as `{}` or `[]`; the path of each line is exactly one this command
-  --- takes, so `cosmic json --flat export.json | grep -i email` finds a
-  --- leaf and its path pastes back into `cosmic json '$.users[2].email'
-  --- export.json`. Quote a path in single quotes in a shell
-  --- (`'$.users[1]'`), which would expand `$` and `[1]`. With one word,
-  --- it is the path when it begins `$`, `.` or `[` (and not `./` or
-  --- `../`), else the file; a file named `.data.json` is `./.data.json`,
-  --- and after `--` the words are `[path] file` whatever they begin
-  --- with. The value is printed as [`Json.encode`] writes it, not echoed
-  --- byte for byte: `1e2` prints as `100.0` and a big integer loses
-  --- precision. `--exists` prints
-  --- nothing and only answers by its exit status; `--keys` lists an
-  --- object's keys, sorted, one per line, or an array's length;
-  --- `--shape` prints a summary of the value's shape (`{ids: [2 x number],
-  --- ok: boolean}`), and neither takes a pattern, which can match many
-  --- values. Only a lookup: no
-  --- filter, no transform; to count or sum, use `cosmic sql --from`.
-  --- Exits 0 when the path is found (a pattern:
-  --- when something matches), 1 when it is not, with a message on
-  --- standard error naming the path reached (a pattern that matches nothing:
-  --- `<pattern>: no match`; a `null` value is found), 2 for a command line
-  --- it cannot read, a pattern too deep to walk, or a
-  --- file that is missing or not JSON. It prints no verdict line, which
-  --- would be in the data a pipe reads
+  --- `--compact`; a string prints as its text with `-r`. A path is a
+  --- JSONPath query (RFC 9535), in the subset [`Json.query`] reads, and
+  --- goes in single quotes, as a shell would expand its `$` and `[0]`:
+  --- `cosmic json '$.users[0].name' export.json`. `$` is the document and
+  --- comes first, then `.key` (a key that is a word), `["a key"]` (any
+  --- key, in a JSON string) or `['a key']`, and `[0]`, counted from 0, or
+  --- `[-1]` from the end. A key holding `'` is written `["it's"]`, whose
+  --- `'` inside a shell's single quotes is `'\''`:
+  --- `cosmic json '$["it'\''s"]'`. `*` (`.*` or `[*]`) is every member of
+  --- an object or element of an array, and `..key`, `..[n]` or `..*`
+  --- that selector at any depth, the current level included (`$..id`,
+  --- `$.users[*].name`): such a query prints each match as a
+  --- `path = value` line, the value as compact JSON
+  --- (`$.users[0].name = "ann"`), in the order RFC 9535 gives (arrays by
+  --- index, keys in byte order), a value reached twice once; with `-r`,
+  --- the raw values alone, one to a line (a string prints as its text,
+  --- so one with a newline in it spans lines; without `-r`, or with
+  --- `--flat`, every line is one JSON value); with `--exists`, nothing,
+  --- and 0 when at least one matches. Filters, slices and unions are
+  --- refused by name: this is a lookup, not a query language. `--flat`
+  --- prints every leaf under the path (the whole document with none) as
+  --- such lines, an empty object or array as `{}` or `[]`; the path of
+  --- each line is one this command reads back, in that shorthand form
+  --- (`$.users[1].email`, `$["a key"][0]`), so `cosmic json --flat
+  --- export.json | grep -i email` finds a leaf and its path pastes back
+  --- into `cosmic json '$.users[1].email' export.json`. With one word, it
+  --- is the path when it begins with `$`, else the file; a file named
+  --- `$x.json` is `./$x.json`, and after `--` the words are `[path] file`
+  --- whatever
+  --- they begin with. The value is printed as [`Json.encode`] writes it,
+  --- not echoed byte for byte: `1e2` prints as `100.0` and a big integer
+  --- loses precision. `--exists` prints nothing and only answers by its
+  --- exit status; `--keys` lists an object's keys, sorted, one per line,
+  --- or an array's length; `--shape` prints a summary of the value's
+  --- shape (`{ids: [2 x number], ok: boolean}`), and neither takes a
+  --- query of `*` or `..`, which can match many values. Only a lookup:
+  --- no filter, no transform; to count or sum, use `cosmic sql --from`.
+  --- Exits 0 when the path is found (a query of many: when something
+  --- matches), 1 when it is not, with a message on standard error naming
+  --- by its JSON Pointer the first place not there (`no value at pointer
+  --- "/users/4"`; a query of many that matches nothing: `<query>: no
+  --- match`; a `null` value is found), 2 for a command line or a path it
+  --- cannot read, or a file that is missing or not JSON. It prints no
+  --- verdict line, which would be in the data a pipe reads
   json: string
   --- `cosmic hash [options] [file|-]...`: the digest of each file, or of
   --- standard input for `-` or no file, printed as `sha256sum` prints
@@ -310,9 +330,11 @@ local record Cli
   --- or a symlink out of the target is refused ([`Archive.extract`]), and
   --- so is replacing an existing path unless `--force` is given. Only
   --- that refusal and a member not in the archive write nothing: an
-  --- unsafe entry stops the extraction after the entries before it,
-  --- which stay written. `create <out> <path>...` packs the paths and what is under
-  --- them, sorted by name, as a zip, a gzip tar or a plain tar, by the
+  --- unsafe entry, or a file past the default size limits of
+  --- [`Archive.extract`] (1 GiB a file, 8 GiB in all), stops the
+  --- extraction after the entries before it, which stay written; the
+  --- refused file itself is not left. `create <out> <path>...` packs the
+  --- paths and what is under them, sorted by name, as a zip, a gzip tar or a plain tar, by the
   --- extension of out (`.zip`, `.tar.gz`, `.tgz`, `.tar`) ([`Archive.create`]); `--reproducible` fixes every
   --- modification time (tar 0, zip 1980) so the same tree packs to the
   --- same bytes; file modes are kept, not normalised. `.tar.xz` and `.tar.bz2` are refused: there is no
@@ -404,7 +426,7 @@ local record Cli
   codec: string
   --- `cosmic fetch <url[#sha256=hex]> [-o file] [--sha256 hex] [--sha512 hex] [--allow-downgrade] [--head [--json]]`: one
   --- GET, a small curl. With no `-o` the body goes to standard output, so
-  --- `cosmic fetch <url> | cosmic json '.items'` reads it; with `-o` it is
+  --- `cosmic fetch <url> | cosmic json '$.items'` reads it; with `-o` it is
   --- written to a temporary file beside the target and renamed into place
   --- only once it is all in and matches `--sha256`, `--sha512` or the digest
   --- the URL's fragment carries (`<url>#sha256=<hex>`, or `#sha256sum=`,
@@ -486,6 +508,86 @@ local record Cli
   --- bill of materials records the release each came from, and the
   --- binary it reads is never written
   refresh: string
+  --- `cosmic sandbox [options] [--] program [args...]`: runs a program held
+  --- to nothing at all but what the options grant, and everything it
+  --- starts with it: the paths it reads, runs, writes and creates, the
+  --- system calls it makes, the environment it sees, the resources it
+  --- spends. What is not granted does not work; and a policy that this
+  --- host cannot meet is not run in part: the start fails, naming what is
+  --- missing. The program is the first word that is no option, or the
+  --- word after `--`; everything after it is its own arguments, an
+  --- option-looking word among them. It is found on the PATH, and its
+  --- own file and loader must be granted to run: `--system` grants what a
+  --- host's programs need to start, `--cosmic` this program's own file.
+  ---
+  ---     cosmic sandbox --system --read . -- ls -l
+  ---     cosmic sandbox --system --read . --promise fork -- sh -c 'ls | wc -l'
+  ---     cosmic sandbox --system --path rwxc:. --tmp --promise fork \
+  ---       --isolate file -- make
+  ---
+  --- `--cosmic` grants this program's file, which then runs as its core
+  --- directly, past its launcher: it needs no shell, cache or promise to
+  --- start, nor `--system` unless what it runs does. Where this process is
+  --- root, the program's user runs a copy of the core every user may run,
+  --- made once in /run/cosmic-sandbox-cores:
+  ---
+  ---     cosmic sandbox --cosmic --read . -- cosmic run.tl IN OUT
+  ---
+  --- A file it runs is run as `--standalone` (COSMIC_STANDALONE=1), so a
+  --- grant to read it is enough and no o/ is written beside it, which
+  --- another run's user would own; it may then require `cosmic.*` modules
+  --- only. `--set-env COSMIC_STANDALONE=0` builds the tree around it
+  --- instead, which finds its own modules and needs a grant to write there.
+  ---
+  --- `--database`, `--modules` and `--closure` run this program on a
+  --- database that holds the modules it may load and no more: a `require`
+  --- of any other fails, and none of this program's own file is read or
+  --- granted. `--cosmic` adds nothing beside `--database` or `--modules`
+  --- and is refused beside `--closure`; `--system` fails the start where
+  --- this program is installed under a directory it grants. The program is
+  --- this program (`cosmic`), or nothing, which is the same; what follows
+  --- it is the main's arguments.
+  ---
+  --- `--database PATH` runs a file [`Store.seal`] wrote, its main what runs.
+  --- `--modules a,b,...` seals exactly the names given, from this
+  --- program's own store, and follows no requires: the first is the main
+  --- (a module returning a function that gets the arguments and returns
+  --- the status) and the rest are what it may load. `--closure` runs a
+  --- script, given as the program's first argument: it is compiled here,
+  --- as a file run is, and sealed as the main with the `cosmic.*` modules
+  --- it requires by a literal name, and theirs in turn:
+  ---
+  ---     cosmic sandbox --closure -- cosmic run.tl IN OUT
+  ---
+  --- A `pcall(require, ...)` or a computed name is not followed, and fails
+  --- when it runs; a `require` of a module outside this program's store
+  --- (a project module beside the script) is refused before anything
+  --- starts. The database is written in a directory of the run's own, that
+  --- the program's user can search, and removed when the run ends. The
+  --- three options are exclusive, since each names the database. A
+  --- command line these refuse, a module no store holds or a `--database`
+  --- that is not there exits 2; a script that cannot be read or compiled
+  --- exits 125, as a seal that cannot be written does.
+  ---
+  --- `--read`, `--run` and `--write` grant a path as `r`, `rx` and `rwc`;
+  --- `--path` names the letters itself, of `rwxcu` in that order (`rwxc:.`),
+  --- each once. A path is relative to the working directory, which
+  --- `--cwd` names (as though `cd` there first; it is this process's own
+  --- without one), and must exist, and paths and `--set-env` values must be UTF-8, as they are
+  --- written as JSON. `cosmic docs cosmic.sandbox` names the policy's
+  --- fields. `--connect` is refused until the relay it needs exists.
+  --- `--user` names the user and group the program runs as, by number
+  --- (the group is the user's number unless given): only a caller that is
+  --- root chooses one, the same every run, in place of a fresh one of its
+  --- own each run; any other caller may name only itself.
+  --- Each option is one field of the policy, and a number is a whole one. The
+  --- program's standard streams are this program's own, and it gets no
+  --- other descriptor but those `--fd` names. Nothing is printed when it
+  --- starts. Exits with the program's status (128 and the signal's number when a
+  --- signal ended it, 124 when `--timeout` did), 2 for a command line it
+  --- refuses, 125 when the start failed, and 126 or 127 for a program that
+  --- cannot be run or is not there
+  sandbox: string
   --- `cosmic help [verb | exit]`: with no word, the guides to start
   --- from, an index of every verb, one line each, and where to read
   --- more. `cosmic help <verb>`
@@ -522,16 +624,16 @@ local module: Module = {
   fields = {
     run = "run", standalone = "standalone", eval = "eval", version = "version", test = "test", fix = "fix", build = "build",
     db = "db", sql = "sql", cache = "cache", json = "json", hash = "hash", codec = "codec", archive = "archive", fetch = "fetch", time = "time", rand = "rand", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
-    refresh = "refresh", help = "help",
+    refresh = "refresh", sandbox = "sandbox", help = "help",
   },
   verbs = {
     run = {
-      about = "build the tree around a file and run it",
+      about = "build the tree around a file and run it (COSMIC_STANDALONE=1: as --standalone)",
       usage = "<file.tl> [args]",
     },
     standalone = {
       about = "run one file with no tree around it",
-      usage = "<file.tl>",
+      usage = "<file.tl> [args]",
     },
     eval = {
       about = "run a Lua chunk",
@@ -546,15 +648,15 @@ local module: Module = {
       usage = "[selector...]",
       spec = {
         ["--all"] = { about = "run every test, whatever verdict stands for it, in this " ..
-          "checkout or another (COSMIC_TEST_ALL=1)" },
+            "checkout or another (COSMIC_TEST_ALL=1)" },
         ["--no-shared"] = { about = "stand on no verdict another checkout reached; what " ..
-          "this run reaches is still shared (COSMIC_TEST_NO_SHARED=1)" },
+            "this run reaches is still shared (COSMIC_TEST_NO_SHARED=1)" },
         ["--census"] = { about = "say the digests every key of the run holds, and where none " ..
-          "stood on the shared cache, how many rows it holds, even in a checkout " ..
-          "that ran before" },
+            "stood on the shared cache, how many rows it holds, even in a checkout " ..
+            "that ran before" },
         ["--jobs"] = { value = "n", about = "run n tests at once; one per processor by default" },
         ["--shard"] = { value = "i/n", about = "run only the i-th of n shares of the chosen " ..
-          "tests, dealt in turn in sorted order, so n runs, i = 1 to n, run each test once" },
+            "tests, dealt in turn in sorted order, so n runs, i = 1 to n, run each test once" },
         ["--timeout"] = { value = "seconds",
           about = "fail a test that runs longer (COSMIC_TEST_TIMEOUT, else 30)" },
       },
@@ -565,7 +667,7 @@ local module: Module = {
       spec = {
         ["--check"] = { about = "write nothing; name what a fix would change, and fail if any" },
         ["--changed"] = { about = "in cosmic's own tree, lay out only the paths named, which " ..
-          "changed since the whole tree passed; what spans files still covers it all" },
+            "changed since the whole tree passed; what spans files still covers it all" },
       },
     },
     build = {
@@ -587,13 +689,13 @@ local module: Module = {
         ["--build"] = { about = "run against o/build.db" },
         ["--store"] = { about = "run against the binary's own; only PRAGMA data_version" },
         ["--from"] = { value = "file", about = "load a data file (`-` for standard input) as a table " ..
-          "named for its stem, or `name=file`; repeat for a join" },
+            "named for its stem, or `name=file`; repeat for a join" },
         ["--as"] = { value = "format", about = "read the --from before it as json, ndjson, csv " ..
-          "or tsv, rather than by its extension" },
+            "or tsv, rather than by its extension" },
         ["--raw"] = { about = "keep every cell of the csv or tsv --from before it as text: " ..
-          "no number is read, an empty cell is '' not NULL" },
+            "no number is read, an empty cell is '' not NULL" },
         ["--at"] = { value = "path", about = "read the --from before it from the array at this " ..
-          "path ($.rows), not the document" },
+            "JSONPath ($.data.rows), not the document" },
       },
     },
     cache = {
@@ -611,8 +713,8 @@ local module: Module = {
       usage = "<path> [file]",
       spec = {
         ["--compact"] = { about = "print the value on one line" },
-        ["-r"] = { about = "print a string as its text, without quotes; a pattern's matches as bare values" },
-        ["--raw"] = { about = "print a string as its text, without quotes; a pattern's matches as bare values" },
+        ["-r"] = { about = "print a string as its text, without quotes; a query's matches as bare values" },
+        ["--raw"] = { about = "print a string as its text, without quotes; a query's matches as bare values" },
         ["--flat"] = { about = "print every leaf under the path as a `path = value` line" },
         ["--exists"] = { about = "print nothing; exit 0 when the path exists, 1 when not" },
         ["--keys"] = { about = "list an object's keys, sorted, or an array's length" },
@@ -685,7 +787,7 @@ local module: Module = {
         ["--seconds"] = { about = "between: whole seconds" },
         ["--clamp"] = { about = "add: a day the month lacks takes its last day, not an error" },
         ["--disambiguate"] = { value = "how", about = "a local time in a gap or overlap: " ..
-          "compatible (default), earlier, later or reject" },
+            "compatible (default), earlier, later or reject" },
         ["--json"] = { about = "print a record: epoch, rfc3339, zone, offset and the civil fields" },
       },
     },
@@ -735,20 +837,50 @@ local module: Module = {
         ["--tzdata"] = { value = "file", about = "read the time zones from this tzdata sdist" },
       },
     },
+    sandbox = {
+      about = "run a program held to what you grant it",
+      usage = "[options] [--] <program> [args...]",
+      spec = {
+        ["--read"] = { value = "path", about = "grant a path to read (r)" },
+        ["--run"] = { value = "path", about = "grant a path to read and run (rx)" },
+        ["--write"] = { value = "path", about = "grant a path to read, write and create in (rwc)" },
+        ["--path"] = { value = "letters:path", about = "grant a path the letters of rwxcu, in that order" },
+        ["--system"] = { about = "what a host's programs need to start" },
+        ["--database"] = { value = "path", about = "run this program on a sealed database: only its modules load" },
+        ["--modules"] = { value = "a,b,...", about = "seal these modules (the first the main) and run on that" },
+        ["--closure"] = { about = "seal a script and the modules it requires, and run it on that" },
+        ["--cosmic"] = { about = "this program's own file, which then runs as its core" },
+        ["--isolate"] = { value = "file|proc", about = "a root of its own, or a process space of its own" },
+        ["--promise"] = { value = "name", about = "a system call it may make: fork, jit, fattr or nest" },
+        ["--connect"] = { value = "host:port", about = "a host it may reach (not yet available: needs the relay)" },
+        ["--loopback"] = { value = "addr", about = "an address of 127/8 it uses in its own network" },
+        ["--env"] = { value = "name", about = "pass this variable through from the environment" },
+        ["--set-env"] = { value = "name=value", about = "set this variable" },
+        ["--tmp"] = { about = "a fresh temporary directory of its own, named by TMPDIR" },
+        ["--open-files"] = { value = "n", about = "the most descriptors a process holds open" },
+        ["--file-bytes"] = { value = "n", about = "the most bytes a process writes to one file" },
+        ["--cpu-seconds"] = { value = "n", about = "the CPU seconds a process may spend" },
+        ["--processes"] = { value = "n", about = "the most processes and threads of the whole sandbox" },
+        ["--user"] = { value = "uid[:gid]", about = "run it as this user and group (a root caller's choice)" },
+        ["--fd"] = { value = "n", about = "hand it descriptor n (3 to 255), as the same number" },
+        ["--timeout"] = { value = "seconds", about = "end it after this many whole seconds" },
+        ["--cwd"] = { value = "dir", about = "start it in this directory, which relative paths are taken from" },
+      },
+    },
     help = {
       about = "this index, or a verb's full text",
       usage = "[verb]",
     },
   },
   groups = {
-    { "Running code", "run", "standalone", "eval", "version" },
+    { "Running code", "run", "standalone", "eval", "version", "sandbox" },
     { "Project", "test", "fix", "build", "db" },
     { "Quick tools", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand" },
     { "Lookup", "docs", "uses", "todos", "help" },
     { "This binary", "bom", "refresh" },
   },
   order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "docs", "uses", "todos",
-    "bom", "refresh", "help" },
+    "bom", "refresh", "sandbox", "help" },
 }
 
 return module

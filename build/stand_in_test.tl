@@ -3,12 +3,18 @@
 --- reads its script and words from.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local Test = require("cosmic.test")
+local unix_socket = require("build.unix_socket")
 local sys = require("cosmic.sys")
-local Time = require("cosmic.time")
 local stand_in = require("build.stand_in")
 local artifact = require("build.artifact")
+
+--- The loopback is for the stand-in's `connect-tcp`, whose connection to a
+--- port nothing listens on is refused.
+Test.policy{ loopback = { "127.0.0.1" } }
 
 --- A stand-in built under `tmp`.
 local function built(tmp: string): string
@@ -18,15 +24,15 @@ end
 --- Runs `argv` to its end with only `env`, its output captured.
 local function run(argv: {string}, env?: {string:string}, input?: string): Child.Result
   return (assert(Child.run(argv, { env = env or {}, input = input, stdout = "capture",
-    stderr = "capture", timeout_ns = Time.seconds(30) })))
+    stderr = "capture", timeout_ns = Clock.seconds(30) })))
 end
 
 --- Waits, a little at a time, until `path` exists.
 local function await(path: string)
-  local deadline = Time.monotonic_ns() + Time.seconds(30)
+  local deadline = Clock.monotonic_ns() + Clock.seconds(30)
   while Fs.exists(path) ~= true do
-    assert(Time.monotonic_ns() < deadline, "waited for " .. path)
-    local _, _ = sys.nanosleep(Time.ms(5))
+    assert(Clock.monotonic_ns() < deadline, "waited for " .. path)
+    local _, _ = sys.nanosleep(Clock.ms(5))
   end
 end
 
@@ -40,8 +46,8 @@ local function test_a_placed_copy_runs_its_script_with_its_words(tmp: string)
   assert(Fs.mkdirs(tmp .. "/bin"))
   assert(stand_in.place(probe, tool,
     "print args $@ in $DIR; eprint to  stderr $NAME$UNSET.\n" ..
-    "[build] print building; [build] exit 3\n" ..
-    "[other] print never\nprint done"))
+      "[build] print building; [build] exit 3\n" ..
+      "[other] print never\nprint done"))
   local st = assert(Fs.stat(tool))
   assert(st.mode & 0x1ff == 0x1ed, tostring(st.mode))
   local dir = assert(Fs.absolute(tmp .. "/bin"))
@@ -113,7 +119,7 @@ local function test_the_file_verbs(tmp: string)
   assert(r.code == 6, tostring(r.stderr))
   local here = assert(sys.getcwd())
   assert(r.stdout == "one two\nthree\nfirst\nf\ng\nlog\npipe\nsub\n2\n1\n" .. here ..
-    "\nstill here\n", r.stdout)
+      "\nstill here\n", r.stdout)
   assert(Fs.read(d .. "/where") == here .. "\n")
   assert(assert(Fs.stat(d .. "/pipe")).kind == "fifo", assert(Fs.stat(d .. "/pipe")).kind)
   assert(assert(Fs.stat(d .. "/sub")).kind == "dir")
@@ -152,29 +158,29 @@ local function test_the_signal_verbs(tmp: string)
   -- starts it in a process group of its own, which it leads.
   local group = tmp .. "/group"
   local grouped = assert(Child.start({ probe, "trap 0; wait-for " .. group ..
-    "; signal INT @" .. group .. "; exit 3" }, { env = {} }))
+      "; signal INT @" .. group .. "; exit 3" }, { env = {} }))
   assert(Fs.write(group .. ".writing", "-" .. tostring(grouped.pid) .. "\n"))
   assert(Fs.rename(group .. ".writing", group))
-  local grouped_ended = assert(grouped:wait(Time.seconds(30)))
+  local grouped_ended = assert(grouped:wait(Clock.seconds(30)))
   assert(grouped_ended.code == 0,
     tostring(grouped_ended.code) .. " " .. tostring(grouped_ended.signal))
 
   -- One sleeping, then waiting, under a trap that the signal ends.
   local ready = tmp .. "/ready"
   local sleeper = assert(Child.start({ probe, "trap 9; sleep 20; write " .. ready ..
-    " ready; wait-for " .. tmp .. "/never; sleep-forever" }, { env = {} }))
+      " ready; wait-for " .. tmp .. "/never; sleep-forever" }, { env = {} }))
   await(ready)
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local other = run({ probe, "signal TERM " .. tostring(sleeper.pid) .. "; print sent" })
   assert(other.ok and other.stdout == "sent\n", tostring(other.stdout))
-  local ended = assert(sleeper:wait(Time.seconds(30)))
+  local ended = assert(sleeper:wait(Clock.seconds(30)))
   assert(ended.code == 9, tostring(ended.code) .. " " .. tostring(ended.signal))
-  assert(Time.monotonic_ns() - started < Time.seconds(10))
+  assert(Clock.monotonic_ns() - started < Clock.seconds(10))
 
   -- `sleep-forever` untrapped ends of the signal itself.
   local forever = assert(Child.start({ probe, "sleep-forever" }, { env = {} }))
   assert(forever:stop(sys.SIGTERM))
-  local stopped = assert(forever:wait(Time.seconds(30)))
+  local stopped = assert(forever:wait(Clock.seconds(30)))
   assert(stopped.signal == sys.SIGTERM, tostring(stopped.code))
 end
 
@@ -182,23 +188,23 @@ end
 --- there.
 local function test_it_sleeps_and_waits(tmp: string)
   local probe = built(tmp)
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local slept = run({ probe, "sleep 60; print woke" })
   assert(slept.ok and slept.stdout == "woke\n", tostring(slept.stdout))
-  assert(Time.monotonic_ns() - started >= Time.ms(60))
+  assert(Clock.monotonic_ns() - started >= Clock.ms(60))
   local flag = tmp .. "/flag"
   local waiting = assert(Child.start({ probe, "write " .. tmp .. "/waiting w; wait-for " ..
-    flag .. "; print seen" }, { env = {}, stdout = "capture" }))
+      flag .. "; print seen" }, { env = {}, stdout = "capture" }))
   await(tmp .. "/waiting")
   assert(Fs.write(flag, ""))
-  local seen = assert(waiting:wait(Time.seconds(30)))
+  local seen = assert(waiting:wait(Clock.seconds(30)))
   assert(seen.ok and seen.stdout == "seen\n", tostring(seen.stdout))
 end
 
 --- `run` starts a program and goes on past one that succeeds, ending
 --- with the status of one that fails, 128 past a signal, or 127 for one
---- that cannot start; `fd-closed` holds for a closed descriptor alone;
---- and `status-field` reads its own line of /proc/self/status.
+--- that cannot start; and `fd-closed` holds for a closed descriptor alone.
+--- (`status-field` is in build/stand_in_proc_test.tl.)
 local function test_the_process_verbs(tmp: string)
   local probe = built(tmp)
   local ran = run({ probe, "run " .. probe .. " print from the child; print back" })
@@ -212,18 +218,17 @@ local function test_the_process_verbs(tmp: string)
   local absent = run({ probe, "run " .. tmp .. "/absent" })
   assert(absent.code == 127, tostring(absent.code))
 
+  -- `write-pid` names the process that runs it, which `signal S @F` then reaches.
+  local named = run({ probe, "write-pid " .. tmp .. "/pid; cat " .. tmp .. "/pid" })
+  local named_pid = math.tointeger(assert(named.stdout):match("^(%d+)\n$"))
+  assert(named.ok and named_pid ~= nil and named_pid > 1, tostring(named.stdout))
+
   local closed = run({ probe, "fd-closed 9; print closed; fd-closed 1; print never" })
   assert(closed.code == 1 and closed.stdout == "closed\n", tostring(closed.stdout))
   for _, word in ipairs({ "abc", "-1", "" }) do
     local unnamed = run({ probe, "fd-closed " .. word .. "; print never" })
     assert(unnamed.code == 2 and unnamed.stdout == "", word .. ": " .. tostring(unnamed.code))
     assert(assert(unnamed.stderr):find("no descriptor", 1, true), unnamed.stderr)
-  end
-
-  if Fs.exists("/proc/self/status") then
-    local field = run({ probe, "status-field SigIgn; status-field NoSuchField" })
-    assert(field.code == 1, tostring(field.code))
-    assert(assert(field.stdout):match("^SigIgn:%s*%x+\n$"), field.stdout)
   end
 end
 
@@ -284,7 +289,7 @@ local function test_the_verbs_that_ask_of_a_path(tmp: string)
   }, "\n") })
   assert(r.ok, tostring(r.stderr))
   assert(r.stdout == "there\nabsent\nopens\na-directory-does-not\nnor-a-missing-file\n750\n" ..
-    d .. "/sub/deeper/f\n", r.stdout)
+      d .. "/sub/deeper/f\n", r.stdout)
   assert(not Fs.exists(d .. "/missing"), "writable made the file")
   assert(Fs.read(d .. "/sub/deeper/f") == "x", "writable wrote to the file")
   local absent = run({ probe, "present " .. d .. "/missing" })
@@ -301,11 +306,11 @@ local function test_what_start_and_run_leave_running_runs_on(tmp: string)
   local late = tmp .. "/bin/late"
   assert(stand_in.place(probe, late, "wait-for $DIR/go-$@\nwrite $DIR/done-$@ done"))
   for _, how in ipairs({ "start " .. late .. " started", "run " .. probe .. " start " .. late ..
-      " ran" }) do
+        " ran" }) do
     local word = how:match("(%S+)$")
     -- In no group of its own, which a wait would end with it.
     local r = assert(Child.run({ probe, how .. "; print gone on" },
-      { env = {}, process_group = false, stdout = "capture", timeout_ns = Time.seconds(30) }))
+      { env = {}, process_group = false, stdout = "capture", timeout_ns = Clock.seconds(30) }))
     assert(r.ok and r.stdout == "gone on\n", tostring(r.stdout))
     assert(not Fs.exists(tmp .. "/bin/done-" .. word), "it did not wait")
     assert(Fs.write(tmp .. "/bin/go-" .. word, ""))
@@ -318,12 +323,12 @@ end
 --- and a line saying so, rather than leave it waiting.
 local function test_a_signal_to_itself_that_does_not_land_ends_it_soon(tmp: string)
   local probe = built(tmp)
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local r = run({ probe, "trap -; signal TERM; print never" })
-  local took = Time.monotonic_ns() - started
+  local took = Clock.monotonic_ns() - started
   assert(r.code == 4 and r.stdout == "", tostring(r.code) .. " " .. tostring(r.stdout))
   assert(assert(r.stderr):find("SIGTERM sent to itself did not end it", 1, true), r.stderr)
-  assert(took >= Time.seconds(2) and took < Time.seconds(20), tostring(took))
+  assert(took >= Clock.seconds(2) and took < Clock.seconds(20), tostring(took))
   -- A trap that ends it still does.
   local trapped = run({ probe, "trap -; trap 6; signal INT" })
   assert(trapped.code == 6, tostring(trapped.code))
@@ -339,13 +344,9 @@ local function test_it_writes_to_a_descriptor_and_names_a_variable(tmp: string)
   assert(r.stdout == "SET=x\nEMPTY=\nUNSET unset\n", r.stdout)
   -- Handed one at 3, it writes there.
   local handed = assert(Child.run({ probe, "write-fd 3 to three" },
-    { env = {}, fds = { [3] = fd }, stderr = "capture", timeout_ns = Time.seconds(30) }))
+    { env = {}, fds = { [3] = fd }, stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(handed.ok, tostring(handed.stderr))
   assert(assert(sys.pread(fd, 64, 0)) == "to three\n")
-  -- `connect` says why a unix socket file cannot be connected to.
-  local missing = run({ probe, "connect " .. tmp .. "/none.sock" }, {})
-  assert(missing.ok and missing.stdout == tmp .. "/none.sock: No such file or directory\n",
-    missing.stdout)
   -- `connect-tcp` says why a port cannot be connected to, and refuses
   -- a port that is none.
   local refused = run({ probe, "connect-tcp 127.0.0.1 1" }, {})
@@ -357,6 +358,15 @@ local function test_it_writes_to_a_descriptor_and_names_a_variable(tmp: string)
   local unnamed = run({ probe, "write-fd x y" })
   assert(unnamed.code == 1 and assert(unnamed.stderr):find("no descriptor x", 1, true),
     tostring(unnamed.stderr))
+end
+
+--- `connect` says why a unix socket file cannot be connected to.
+local function test_connect_says_why_a_unix_socket_file_cannot_be_connected_to(tmp: string)
+  if unix_socket.skipped(tmp) then return end
+  local probe = built(tmp)
+  local missing = run({ probe, "connect " .. tmp .. "/none.sock" }, {})
+  assert(missing.ok and missing.stdout == tmp .. "/none.sock: No such file or directory\n",
+    missing.stdout)
 end
 
 --- A file whose first line is `#!<stand-in>`, and nothing more, runs its
@@ -401,7 +411,7 @@ local function test_the_stand_in_s_main_loads_as_a_built_program_s(tmp: string)
   assert(one("SELECT kind FROM modules WHERE path = 'stand_in.main'") == "main")
   assert(one("SELECT count(*) FROM modules WHERE path LIKE 'build.%'") == "0")
   assert(one("SELECT count(*) FROM modules WHERE path IN " ..
-    "('cosmic.errors', 'cosmic.child')") == "2")
+      "('cosmic.errors', 'cosmic.child')") == "2")
   assert(one("SELECT count(*) FROM modules WHERE path = 'cosmic.removed'") == "0")
   assert(one("SELECT value FROM meta WHERE key = 'runtime_basis'") ~= "")
   assert(db:close())

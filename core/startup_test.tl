@@ -11,10 +11,10 @@ local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- The program itself, which its tests start past its launcher.
-Test.needs{ tool = true }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local function environment(): {string:string}
   local env = this_program.environment()
@@ -28,7 +28,7 @@ local function run_relaunched(relaunch: Proc.Relaunch, argv: {string}): Child.Re
   local env = environment()
   for name, value in pairs(relaunch.env) do env[name] = value end
   return (assert(Child.run(argv, { env = env, fds = relaunch.fds,
-    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })))
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })))
 end
 
 --- The core refuses an artifact it cannot name absolutely, before it
@@ -124,4 +124,60 @@ end
   local r = run_relaunched(relaunch, { script, "a", "b c" })
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   assert(r.stdout == tmp .. "/a\ta|b c\n", tostring(r.stdout))
+end
+
+--- Runs `argv` with `relaunch`'s contract but for the two descriptors, which
+--- it names to nobody and hands on to no one: a start into a root of its
+--- own, which is refused any file open for reading alone.
+local function run_by_path(relaunch: Proc.Relaunch, argv: {string}, keep?: string): Child.Result
+  local env = environment()
+  for name, value in pairs(relaunch.env) do env[name] = value end
+  for _, name in ipairs({ "COSMIC_PORTABLE_ARTIFACT_FD", "COSMIC_PORTABLE_CORE_FD" }) do
+    if name ~= keep then env[name] = nil end
+  end
+  return (assert(Child.run(argv, { env = env, stdout = "capture", stderr = "capture",
+    timeout_ns = Clock.seconds(30) })))
+end
+
+--- Told of no descriptor, the core opens the artifact by the path it is
+--- given and its own executable, adopts them as it does the descriptors a
+--- launcher hands it, and runs as the artifact's program. A start into a
+--- root of its own is such a start: no read-only descriptor may be handed to
+--- it.
+local function test_a_start_told_of_no_descriptor_opens_its_artifact_by_path()
+  local relaunch = Proc.relaunch()
+  if relaunch == nil or #relaunch.argv < 3 then return end
+  local r = run_by_path(relaunch, { relaunch.argv[1], "--artifact", relaunch.argv[3], "-e",
+    SHOW_EXECUTABLE, "a" })
+  assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
+  assert(r.stdout == relaunch.argv[3] .. "\ta\n", tostring(r.stdout))
+end
+
+--- By path, the artifact must be there to open, and it is still checked
+--- against what the contract says of its core: the core's own digest.
+local function test_a_start_by_path_names_an_artifact_it_can_open(tmp: string)
+  local relaunch = Proc.relaunch()
+  if relaunch == nil or #relaunch.argv < 3 then return end
+  local missing = run_by_path(relaunch, { relaunch.argv[1], "--artifact", tmp .. "/none", "-e",
+    "print(1)" })
+  assert(missing.code == 2 and missing.stdout == "", tostring(missing.code))
+  assert((assert(missing.stderr)):find("cosmic: portable artifact path cannot be opened", 1, true),
+    tostring(missing.stderr))
+  assert(Fs.write(tmp .. "/other", "not the artifact\n"))
+  local other = run_by_path(relaunch, { relaunch.argv[1], "--artifact", tmp .. "/other", "-e",
+    "print(1)" })
+  assert(other.code == 2 and other.stdout == "", tostring(other.code))
+end
+
+--- One of the two descriptors named and not the other is no contract:
+--- only neither, which says nothing was handed, is by path.
+local function test_a_start_naming_one_descriptor_alone_is_refused()
+  local relaunch = Proc.relaunch()
+  if relaunch == nil or #relaunch.argv < 3 then return end
+  for _, keep in ipairs({ "COSMIC_PORTABLE_ARTIFACT_FD", "COSMIC_PORTABLE_CORE_FD" }) do
+    local r = run_by_path(relaunch, { relaunch.argv[1], "--artifact", relaunch.argv[3], "-e",
+      "print(1)" }, keep)
+    assert(r.code == 2 and r.stdout == "", keep .. ": exit " .. tostring(r.code))
+    assert((assert(r.stderr)):find("descriptor field is invalid", 1, true), tostring(r.stderr))
+  end
 end

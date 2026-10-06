@@ -22,7 +22,7 @@
         "working-directory": ".",
         env: {
           LEG: "${{ inputs.leg }}",
-          VENDOR: "${{ hashFiles('bin/zig.pin', 'build.zig', 'build.zig.zon', 'build/zig.tl', 'vendor/**', '!vendor/tl/**', '!vendor/tzdata/**', '!vendor/cacert/**', 'patch/**', '!patch/tl/**', 'core/ares_config.h', 'core/curl_config.h', 'core/mbedtls_cosmic_config.h', 'core/xz_config/**', 'core/darwin-compat/**') }}",
+          VENDOR: "${{ hashFiles('bin/zig.pin', 'build.zig', 'build.zig.zon', 'build/zig.tl', 'vendor/**', '!vendor/tl/**', '!vendor/tzdata/**', '!vendor/cacert/**', '!vendor/wpt-url/**', '!vendor/html5lib-tokenizer/**', '!vendor/wpt-html-parsing/**', 'patch/**', '!patch/tl/**', 'core/ares_config.h', 'core/curl_config.h', 'core/mbedtls_cosmic_config.h', 'core/xz_config/**', 'core/darwin-compat/**') }}",
           CORE: "${{ hashFiles('core/*.c', 'core/*.h', 'core/*.zig', 'test/portable/*.c') }}",
           COMPILER: "${{ hashFiles('build/**/*.tl', '!build/**/*_test.tl', 'vendor/tl/PIN', 'vendor/lua/PIN', 'patch/tl/**', 'patch/lua/**') }}",
         },

@@ -8,9 +8,10 @@
 
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
-local Json = require("cosmic.json")
+local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
 local Tar = require("cosmic.tar")
+local Test = require("cosmic.test")
 local Zip = require("cosmic.zip")
 local sys = require("cosmic.sys")
 local archive = require("build.archive")
@@ -19,6 +20,25 @@ local record Ran
   code: integer
   out: string
   err: string
+end
+
+--- One member of `list --json`'s array. `mtime` is a `number`, which
+--- keeps an integer and a float apart where `integer` would read 5.0 as 5.
+local record Row
+  path: string
+  type: string
+  size: integer
+  mode: string
+  mtime: number
+  linkpath: string | nil
+end
+local ROW <const> = Shape.record_of("Row")
+
+--- `list --json`'s array, checked against [`Row`].
+local function rows_of(text: string): {Row}
+  local rows, why: {Row} | nil, string = Shape.decode_into(text, Shape.list(ROW.spec))
+  assert(rows ~= nil, tostring(why) .. ": " .. text)
+  return rows
 end
 
 --- One run: `words` after `cosmic archive`, `stdin` standing in for
@@ -141,7 +161,7 @@ local function test_list_json_is_an_array_of_objects_for_each_format(tmp: string
   for format, path in pairs(each_format(tmp)) do
     local ran = run({ "list", "--json", path })
     assert(ran.code == 0 and ran.err == "", format .. ": " .. ran.err)
-    local rows = assert(Json.decode(ran.out)) as {{string:any}}
+    local rows = rows_of(ran.out)
     assert(#rows == 4, format .. ": " .. ran.out)
     assert(rows[2].path == "proj/a.txt" and rows[2].size == 5 and rows[2].type == "file", format)
     assert(rows[2].mode == "0644" and math.type(rows[2].mtime) == "integer", format)
@@ -164,7 +184,7 @@ local function test_list_shows_a_symlink_and_escapes_a_name(tmp: string)
   assert(ran.code == 0, ran.err)
   assert(ran.out:find("ln -> t.txt\t0\t", 1, true), ran.out)
   assert(ran.out:find("odd\\tname\\n\t1\t", 1, true), ran.out)
-  local json = assert(Json.decode(run({ "list", "--json", path }).out)) as {{string:any}}
+  local json = rows_of(run({ "list", "--json", path }).out)
   assert(json[2].linkpath == "t.txt" and json[2].type == "symlink")
   assert(json[3].path == "odd\tname\n")
 end
@@ -550,7 +570,7 @@ local function test_create_closes_every_file_it_opens(tmp: string)
     local ran, opens, closes = create_counting(src, tmp .. "/" .. name, "")
     assert(ran.code == 0, ran.err)
     assert(opens > 0 and opens == closes, name .. ": " .. tostring(opens) .. " opened, " ..
-      tostring(closes) .. " closed")
+        tostring(closes) .. " closed")
   end
 end
 
@@ -666,10 +686,10 @@ end
 local function test_a_command_line_that_is_not_one_is_refused(tmp: string)
   local path = make_tar(tmp .. "/c.tar", SAMPLE)
   for _, words in ipairs({
-    {}, { "bogus" }, { "list" }, { "list", path, "extra" }, { "extract" }, { "create" },
-    { "create", tmp .. "/o.zip" }, { "list", "--no-such", path }, { "list", "-C", tmp, path },
-    { "extract", "--json", path }, { "list", "--force", path }, { "extract", "--reproducible", path },
-    { "list", "" }, { "extract", path, "" },
+      {}, { "bogus" }, { "list" }, { "list", path, "extra" }, { "extract" }, { "create" },
+      { "create", tmp .. "/o.zip" }, { "list", "--no-such", path }, { "list", "-C", tmp, path },
+      { "extract", "--json", path }, { "list", "--force", path }, { "extract", "--reproducible", path },
+      { "list", "" }, { "extract", path, "" },
   } as {{string}}) do
     local ran = run(words)
     assert(ran.code == 2 and ran.out == "", table.concat(words, " ") .. " exited " .. ran.code)
@@ -830,7 +850,7 @@ end
 --- with `words` after, each into a destination `prepare` readies: the
 --- two runs, then what each run's directory holds after.
 local function both_ways(tmp: string, name: string, bytes: string, words: {string},
-    prepare: function(string)): Ran, Ran, {string}, {string}
+                         prepare: function(string)): Ran, Ran, {string}, {string}
   assert(Fs.mkdirs(tmp))
   assert(Fs.write(tmp .. "/" .. name, bytes))
   local results: {Ran} = {}
@@ -905,7 +925,7 @@ local function test_a_stream_and_a_file_are_refused_alike(tmp: string)
       function(_dest: string) end)
     assert(file.code == stdin.code and file.out == stdin.out, name)
     assert(anonymous(file.err, tmp .. "/" .. name .. ".d", name .. ".tar") ==
-      anonymous(stdin.err, tmp .. "/" .. name .. ".d", name .. ".tar"), file.err .. stdin.err)
+        anonymous(stdin.err, tmp .. "/" .. name .. ".d", name .. ".tar"), file.err .. stdin.err)
   end
 end
 
@@ -922,7 +942,7 @@ local function test_a_stream_overwrite_refusal_writes_nothing(tmp: string)
   assert(ran.code == 1 and ran.out == "", ran.out)
   assert(ran.err:find("would overwrite 1 existing path under", 1, true) and ran.err:find("(mine.txt)", 1, true), ran.err)
   assert(table.concat(tree_of(tmp), ",") ==
-    "c.tgz,dest,dest/mine.txt", table.concat(tree_of(tmp), ","))
+      "c.tgz,dest,dest/mine.txt", table.concat(tree_of(tmp), ","))
   assert(Fs.read(dest .. "/mine.txt") == "mine")
   local direct = run({ "extract", tmp .. "/c.tgz", "-C", dest })
   assert(direct.code == 1 and direct.err:gsub("[^\n]*: would", "would") == ran.err:gsub("[^\n]*: would", "would"),
@@ -932,7 +952,7 @@ local function test_a_stream_overwrite_refusal_writes_nothing(tmp: string)
   assert(forced.code == 0, forced.err)
   assert(Fs.read(dest .. "/mine.txt") == "theirs" and Fs.read(dest .. "/sub/new2.txt") == "2")
   assert(table.concat(tree_of(tmp), ",") ==
-    "c.tgz,dest,dest/mine.txt,dest/new1.txt,dest/sub,dest/sub/new2.txt", table.concat(tree_of(tmp), ","))
+      "c.tgz,dest,dest/mine.txt,dest/new1.txt,dest/sub,dest/sub/new2.txt", table.concat(tree_of(tmp), ","))
 end
 
 local function test_a_stream_is_moved_into_a_destination_that_holds_files(tmp: string)
@@ -947,7 +967,7 @@ local function test_a_stream_is_moved_into_a_destination_that_holds_files(tmp: s
   assert(Fs.read(dest .. "/proj/a.txt") == "alpha" and Fs.read(dest .. "/proj/sub/b.txt") == "bravo!")
   assert(Fs.read(dest .. "/top.txt") == "top")
   assert(table.concat(tree_of(tmp), ",") == "dest,dest/other.txt,dest/proj,dest/proj/a.txt," ..
-    "dest/proj/keep.txt,dest/proj/sub,dest/proj/sub/b.txt,dest/top.txt,m.tar", table.concat(tree_of(tmp), ","))
+      "dest/proj/keep.txt,dest/proj/sub,dest/proj/sub/b.txt,dest/top.txt,m.tar", table.concat(tree_of(tmp), ","))
   -- A link may lead through a directory only the destination holds.
   local via = assert(Fs.read(make_tar(tmp .. "/v.tar", { link_member("via", "proj/keep.txt") })))
   assert(run({ "extract", "-", "-C", dest }, via).code == 0)
@@ -1005,7 +1025,10 @@ end
 --- cannot be written to), not one injected: what it replaced comes back
 --- and the complaint names the destination, not the staging directory.
 local function test_a_real_failure_in_the_move_restores_and_names_the_destination(tmp: string)
-  if sys.getuid() == 0 then return end -- root writes anywhere
+  if sys.getuid() == 0 then
+    Test.skip("this process is root, which writes anywhere")
+    return
+  end
   local bytes = assert(Fs.read(make_tar(tmp .. "/r.tar", { file_member("a.txt", "new a"),
     dir_member("sub"), file_member("sub/x.txt", "new x"), file_member("z.txt", "new z") })))
   local dest = tmp .. "/dest"

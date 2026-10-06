@@ -121,7 +121,7 @@ end
 --- @return integer a
 --- @return integer b
 local function byte_span(node: Node, tokens: {compiler.Token},
-    starts: {integer}): integer, integer
+                         starts: {integer}): integer, integer
   local s, e = ast_walk.span_start(node), ast_walk.span_end(node, tokens)
   local sy, sx, ey, ex = s.y, s.x, e.y, e.x
   return offset_of(starts, sy, sx), offset_of(starts, ey, ex)
@@ -140,7 +140,7 @@ end
 --- @return integer|nil a
 --- @return integer|nil b
 local function find_name(text: string, name: string,
-    init: integer): integer | nil, integer | nil
+                         init: integer): integer | nil, integer | nil
   local pos = init
   while pos <= #text + 1 do
     local a, b = text:find(name, pos, true)
@@ -189,7 +189,7 @@ end
 --- @param starts {integer} [`line_starts`]'s own result, for the same source
 --- @return {{integer, integer}} Kept ranges, unordered
 local function kept_ranges(caps: {string: Node}, replacement: string,
-    tokens: {compiler.Token}, starts: {integer}): {{integer, integer}}
+                           tokens: {compiler.Token}, starts: {integer}): {{integer, integer}}
   local kept: {{integer, integer}} = {}
   for name, cap in pairs(caps) do
     if find_name(replacement, name, 1) and not empty_rest(cap) then
@@ -212,7 +212,7 @@ end
 --- @param kept {{integer, integer}} Ranges the replacement carries forward verbatim
 --- @return {string} The dropped comments' own text, in token order
 local function dropped_comments(tokens: {compiler.Token}, starts: {integer},
-    a: integer, b: integer, kept: {{integer, integer}}): {string}
+                                a: integer, b: integer, kept: {{integer, integer}}): {string}
   local dropped: {string} = {}
   for _, t in ipairs(tokens) do
     local comments = t.comments
@@ -279,7 +279,7 @@ end
 --- @return integer a
 --- @return integer b
 local function line_range(node: Node, tokens: {compiler.Token}, starts: {integer},
-    source_len: integer): integer, integer
+                          source_len: integer): integer, integer
   local sy = ast_walk.span_start(node).y
   local ey = ast_walk.span_end(node, tokens).y
   local a = starts[sy]
@@ -304,7 +304,7 @@ end
 --- @return RewriteResult|nil The spliced result plus any refused hits, or nil on failure
 --- @return string Error message on failure, "" on success
 local function rewrite(built: compiler, source: string, name: string, pattern: Node,
-    replacement: string, keep?: function(Node): boolean): RewriteResult | nil, string
+                       replacement: string, keep?: function(Node): boolean): RewriteResult | nil, string
   local parsed, perr = node_mod.parse(built, source, name)
   if not parsed then
     return nil, perr

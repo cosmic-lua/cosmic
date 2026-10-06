@@ -36,17 +36,27 @@ local type _child = require("cosmic.child")
 local type _compress = require("cosmic.compress")
 local type _coverage = require("cosmic.coverage")
 local type _hash = require("cosmic.hash")
+local type _html = require("cosmic.html")
 local type _http = require("cosmic.http")
 local type _json = require("cosmic.json")
 local type _net = require("cosmic.net")
 local type _proc = require("cosmic.proc")
+local type _sandbox = require("cosmic.sandbox")
 local type _sqlite = require("cosmic.sqlite")
 local type _store = require("cosmic.store")
 
 --- Every declaration of the core's raw modules, the headers the process
 --- and socket tables' are derived from, and core/store.c, whose `raw_modules` names
 --- the wrapper each raw module is handed to.
-Test.needs{ reads = { "cosmic/internal/", "core/process.h", "core/socket.h", "core/store.c" } }
+Test.policy{
+  grants = {
+    { path = "cosmic/internal/", letters = "r" },
+    { path = "core/process.h", letters = "r" },
+    { path = "core/socket.h", letters = "r" },
+    { path = "core/store.c", letters = "r" },
+  },
+  loopback = { "127.0.0.1" },
+}
 
 local built = assert(teal.load())
 
@@ -137,8 +147,14 @@ end
 --- The metamethods a declaration has no way to say, or no reason to:
 --- the lookup, the type's name and the collector's.
 local undeclared_metamethods <const>: {string: boolean} = {
-  __index = true, __name = true, __gc = true,
+  __index = true, __name = true, __gc = true, __metatable = true,
 }
+
+--- What `getmetatable` answers for `value`: `false` for a type that
+--- hides its metatable.
+local function metatable_of(value: any): any
+  return getmetatable(value)
+end
 
 --- Where the raw module `raw`, and `instances`, one value of each
 --- userdata record by the record's name, disagree with the declaration
@@ -159,6 +175,14 @@ local function disagreements(module: string, source: string, raw: any,
     local instance = instances[name]
     if instance == nil then
       problems[#problems + 1] = where .. " is userdata this test makes none of"
+    elseif metatable_of(instance) == false then
+      -- A type that hides its metatable (`__metatable = false`) has no
+      -- members to list, so a declaration that names one is refused.
+      -- TODO: read a hidden metatable once cosmic has a debug.getmetatable
+      -- replacement, to hold its own fields to the declaration too.
+      if next(nested.fields) ~= nil or next(nested.metamethods) ~= nil then
+        problems[#problems + 1] = where .. " is declared with members but hides its metatable"
+      end
     else
       local mt = members(getmetatable(instance))
       local index = mt.__index
@@ -216,13 +240,13 @@ local function reply(): string
 end
 
 --- One of each userdata a raw module makes, by record name, and what
---- releases them, made in `tmp` where a file is made.
+--- releases them.
 local record Made
   instances: {string: any}
   release: function()
 end
 
-local makers: {string: function(raw: {string: any}, tmp: string): Made} = {
+local makers: {string: function(raw: {string: any}): Made} = {
   compress = function(raw: {string: any}): Made
     local stream = assert(call(raw.inflater, "raw"))
     return { instances = { Stream = stream }, release = nothing }
@@ -231,14 +255,21 @@ local makers: {string: function(raw: {string: any}, tmp: string): Made} = {
     local hasher = assert(call(raw.hasher, "sha256"))
     return { instances = { Hasher = hasher }, release = nothing }
   end,
+  html = function(raw: {string: any}): Made
+    return { instances = { SafeHtml = call(raw.escape, "<"), SafeAttr = call(raw.escape_attr, "<"),
+      SafeUrl = call(raw.href, "/") },
+      release = nothing }
+  end,
   http = function(raw: {string: any}): Made
     local handle = assert(call(raw.open, "http://declarations.invalid/",
       { script = { reply() } }))
     return { instances = { Handle = handle },
       release = function() call(members(handle).close, handle) end }
   end,
-  socket = function(raw: {string: any}, tmp: string): Made
-    local socket = assert(call(raw.listen, { kind = "unix", path = tmp .. "/s.sock" }, 1))
+  socket = function(raw: {string: any}): Made
+    -- A TCP listener on the worker's own loopback: a unix one needs a `u`
+    -- grant the policy path cannot give below Landlock ABI 9.
+    local socket = assert(call(raw.listen, { kind = "tcp", host = "127.0.0.1", port = 0 }, 1))
     return { instances = { Socket = socket },
       release = function() call(members(socket).close, socket) end }
   end,
@@ -262,16 +293,19 @@ local wrappers <const>: {string: string} = {
   ["build.digest"] = "hash",
   ["build.test_worker"] = "store",
   ["build.confine"] = "process",
+  ["build.assertions"] = "assertions",
   ["build.fuzz"] = "budget",
   ["build.coverage_hits"] = "debug",
   ["cosmic.child"] = "process",
   ["cosmic.compress"] = "compress",
   ["cosmic.coverage"] = "debug",
   ["cosmic.hash"] = "hash",
+  ["cosmic.html"] = "html",
   ["cosmic.http"] = "http",
   ["cosmic.json"] = "json",
   ["cosmic.net"] = "socket",
   ["cosmic.proc"] = "process",
+  ["cosmic.sandbox"] = "process",
   ["cosmic.sqlite"] = "sqlite",
   ["cosmic.store"] = "store",
 }
@@ -290,9 +324,9 @@ local function raw_module(name: string): any
     end
   end
   assert(wrapper ~= nil, "cosmic/internal/" .. name .. ".d.tl declares a module " ..
-    "this test does not know how to reach")
+      "this test does not know how to reach")
   return (assert(raw_behind(wrapper), wrapper .. " is handed no raw value " ..
-    "(require it with `local type` at the top so it is in the closure)"))
+      "(require it with `local type` at the top so it is in the closure)"))
 end
 
 --- The raw modules whose declaration the build derives from a header
@@ -316,7 +350,7 @@ end
 
 --- Every declaration under cosmic/internal, and each the build derives
 --- from a header, is what the running core registers.
-local function test_every_declaration_is_what_the_core_registers(tmp: string)
+local function test_every_declaration_is_what_the_core_registers()
   local problems: {string} = {}
   local names: {string} = {}
   for _, entry in ipairs((assert(Fs.list("cosmic/internal")))) do
@@ -329,7 +363,7 @@ local function test_every_declaration_is_what_the_core_registers(tmp: string)
   for _, name in ipairs(names) do
     local raw = raw_module(name)
     local maker = makers[name]
-    local made: Made = maker ~= nil and maker(members(raw), tmp) or
+    local made: Made = maker ~= nil and maker(members(raw)) or
       { instances = {}, release = nothing }
     local source = declaration_of(name)
     for _, problem in ipairs(disagreements(name, source, raw, made.instances)) do
@@ -338,7 +372,7 @@ local function test_every_declaration_is_what_the_core_registers(tmp: string)
     made.release()
   end
   assert(#problems == 0, "the core and its declarations disagree (" ..
-    testing.configuration .. " core):\n  " .. table.concat(problems, "\n  "))
+      testing.configuration .. " core):\n  " .. table.concat(problems, "\n  "))
 end
 
 --- The `raw_modules` table of core/store.c's `source`: the raw module
@@ -377,12 +411,12 @@ local function test_every_raw_module_has_a_declaration()
   local in_c = assert(raw_modules_in((assert(Fs.read("core/store.c")))))
   for wrapper, raw in pairs(in_c) do
     assert(wrappers[wrapper] == raw, wrapper .. " is handed cosmic.internal." .. raw ..
-      ", which `wrappers` here names as " .. tostring(wrappers[wrapper]))
+        ", which `wrappers` here names as " .. tostring(wrappers[wrapper]))
   end
   for wrapper in pairs(wrappers) do
     assert(in_c[wrapper] ~= nil, wrapper .. " is no wrapper of core/store.c's raw_modules")
     assert(raw_behind(wrapper) ~= nil, wrapper .. " is handed no raw value " ..
-      "(require it with `local type` at the top so it is in the closure)")
+        "(require it with `local type` at the top so it is in the closure)")
   end
 end
 
@@ -472,7 +506,7 @@ local function test_a_function_declared_as_a_value_is_named()
   local problems = check({ open = "no", version = "1" }, { poke = nothing },
     { __close = nothing })
   assert(#problems == 1 and
-    problems[1] == "m.open is declared as a function but registered as a string",
+      problems[1] == "m.open is declared as a function but registered as a string",
     table.concat(problems, "\n"))
 end
 
@@ -505,7 +539,7 @@ local function test_a_function_index_is_named_rather_than_listed()
   local problems = disagreements("m", declaration, { open = nothing, version = "1" },
     { Thing = setmetatable(stand_in, mt as metatable<any>) }) -- cast: a stand-in userdata
   assert(#problems == 1 and problems[1] ==
-    "m.Thing's __index is a function, whose methods this test cannot list",
+      "m.Thing's __index is a function, whose methods this test cannot list",
     table.concat(problems, "\n"))
 end
 

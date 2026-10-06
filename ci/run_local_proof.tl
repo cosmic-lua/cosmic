@@ -1,10 +1,10 @@
 --- A narrow root-only fixture for the real local-runner privilege boundary.
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
-local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 
 local record Proof
@@ -12,13 +12,13 @@ end
 
 local function command(argv: {string}, env: {string:string}): Child.Result
   local result, trouble = Child.run(argv, { env = env, stdout = "capture", stderr = "capture",
-    process_group = true, timeout_ns = Time.seconds(20) })
+    process_group = true, timeout_ns = Clock.seconds(20) })
   return (assert(result, trouble))
 end
 
 local function good(result: Child.Result)
   assert(result.ok, (result.stderr or "") .. (result.stdout or "") ..
-    "proof child status " .. tostring(result.code))
+      "proof child status " .. tostring(result.code))
 end
 
 function Proof.main(argv: {integer:string}): integer
@@ -173,7 +173,7 @@ printf 'error: fixture phase\n'
   assert(runtime_scratch() == initial_scratch, "runtime grant survived proof failure")
   local after = assert(Fs.stat(relaunch.argv[1]))
   assert(after.uid == cached.uid and after.mode == cached.mode and after.ino == cached.ino and
-    Hash.hex_sha256((assert(Fs.read(relaunch.argv[1])))) == cache_digest, "private runtime cache changed")
+      Hash.hex_sha256((assert(Fs.read(relaunch.argv[1])))) == cache_digest, "private runtime cache changed")
   if not ok then error(why) end
   assert(removed, trouble)
   print("run-local: PASS (real credentials, physical ownership, snapshot, rerun and refusal)")

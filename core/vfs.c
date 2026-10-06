@@ -173,8 +173,8 @@ static int vfs_open (sqlite3_vfs *vfs, sqlite3_filename name, sqlite3_file *file
   f->base.pMethods = &cosmic_io_methods;
   /* The door opens once. Left registered, any connection the process
    * opens later -- raw SQL's `ATTACH 'file:<path>?vfs=cosmic'` among
-   * them -- would read the program's whole database, past
-   * build/test_worker.tl's hold on the store. The descriptor itself
+   * them -- would read the program's whole database, past what a test's
+   * key holds. The descriptor itself
    * stays the artifact's: `f` borrows it until the database closes. */
   registered_path[0] = '\0';
   registered_fd = -1;
@@ -311,5 +311,23 @@ bool cosmic_vfs_uri (char *into, size_t room, const char *path) {
     return false;
   }
   memcpy(into + at, tail, written + 1);
+  return true;
+}
+
+bool cosmic_database_uri (char *into, size_t room, const char *path) {
+  static const char scheme[] = "file:";
+  static const char tail[] = "?mode=ro&immutable=1";
+  size_t at = sizeof scheme - 1;
+  if (at + 1 >= room) {
+    return false;
+  }
+  memcpy(into, scheme, at);
+  if (!append_escaped(into, room, &at, path)) {
+    return false;
+  }
+  if (at + sizeof tail > room) {
+    return false;
+  }
+  memcpy(into + at, tail, sizeof tail);
   return true;
 }

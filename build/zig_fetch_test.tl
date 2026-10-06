@@ -4,9 +4,9 @@
 --- network: every download is a stand-in or answered by a scripted
 --- server.
 
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
-local Time = require("cosmic.time")
 local ZigFetch = require("build.zig_fetch")
 
 local function test_a_failed_install_leaves_no_scratch_directory(tmp: string)
@@ -55,14 +55,14 @@ local downloaded: Http.DownloadResult = { kind = "downloaded", reason = "" }
 --- and records calls, options and pauses. Only pauses and `per_call_ns`
 --- advance the clock.
 local function scripted(replies: {string:{Http.DownloadResult}}, calls: {string},
-    sleeps: {integer}, per_call_ns?: integer, seen?: {Http.Options}): ZigFetch.Fetcher
+                        sleeps: {integer}, per_call_ns?: integer, seen?: {Http.Options}): ZigFetch.Fetcher
   local served: {string:integer} = {}
   local clock = 0
   return {
     download = function(url: string, path: string, opts: Http.Options): Http.DownloadResult
       assert(opts.sha256 == "abc")
       assert(opts.connect_timeout_ns > 0 and opts.low_speed_bytes >= 1024 and
-        opts.low_speed_ns > 0, "an attempt has no stall guard")
+          opts.low_speed_ns > 0, "an attempt has no stall guard")
       assert(Fs.exists(path) == false, "an attempt started over an earlier file")
       calls[#calls + 1] = url
       if seen ~= nil then
@@ -158,20 +158,20 @@ local function test_fetch_bounds_mirrors_by_the_budget_and_never_the_fallback(tm
     scripted({
       ["http://mirror"] = { failed("timed out") },
       ["http://fallback"] = { failed("stalled") },
-    }, calls, sleeps, Time.minutes(5), seen))
+    }, calls, sleeps, Clock.minutes(5), seen))
   assert(not ok)
   assert(table.concat(calls, " ") ==
-    "http://mirror http://fallback http://mirror http://fallback http://fallback",
+      "http://mirror http://fallback http://mirror http://fallback http://fallback",
     table.concat(calls, " "))
   -- The first mirror attempt gets the whole 3 minutes; the second, 10
   -- minutes and a 2 s pause in, the 118 s left.
-  assert(seen[1].timeout_ns == Time.minutes(3), tostring(seen[1].timeout_ns))
-  assert(seen[3].timeout_ns == Time.seconds(118), tostring(seen[3].timeout_ns))
+  assert(seen[1].timeout_ns == Clock.minutes(3), tostring(seen[1].timeout_ns))
+  assert(seen[3].timeout_ns == Clock.seconds(118), tostring(seen[3].timeout_ns))
   assert(seen[1].low_speed_bytes == 64 * 1024)
   for _, i in ipairs({ 2, 4, 5 }) do
     assert(seen[i].timeout_ns == nil,
       "the fallback has a ceiling")
-    assert(seen[i].low_speed_bytes == 1024 and seen[i].low_speed_ns == Time.seconds(60))
+    assert(seen[i].low_speed_bytes == 1024 and seen[i].low_speed_ns == Clock.seconds(60))
   end
   assert(trouble:find("mirrors out of time; every source failed after 5 attempts", 1, true) ~= nil,
     trouble)
@@ -197,7 +197,7 @@ local function test_fetch_sees_a_real_mismatch(tmp: string)
   assert(trouble:find("sha256 mismatch", 1, true) ~= nil, trouble)
   -- The mirror once; the fallback, never barred, each round.
   assert(table.concat(calls, " ") ==
-    "http://127.0.0.1/a http://127.0.0.1/b http://127.0.0.1/b http://127.0.0.1/b",
+      "http://127.0.0.1/a http://127.0.0.1/b http://127.0.0.1/b http://127.0.0.1/b",
     table.concat(calls, " "))
   assert(Fs.exists(tmp .. "/z") == false)
 end
@@ -218,9 +218,9 @@ local function test_sweep_removes_only_a_provably_dead_owner(tmp: string)
 end
 
 local function test_limits_preserve_native_nanoseconds()
-  local options = ZigFetch.limits(Time.ms(1500) + 1, 1024, Time.ms(1500), Time.ms(7) + 1)
-  assert(options.connect_timeout_ns == Time.ms(1500) + 1 and options.low_speed_ns == Time.ms(1500))
-  assert(options.timeout_ns == Time.ms(7) + 1)
+  local options = ZigFetch.limits(Clock.ms(1500) + 1, 1024, Clock.ms(1500), Clock.ms(7) + 1)
+  assert(options.connect_timeout_ns == Clock.ms(1500) + 1 and options.low_speed_ns == Clock.ms(1500))
+  assert(options.timeout_ns == Clock.ms(7) + 1)
   assert(options.low_speed_bytes == 1024)
   local brief = ZigFetch.limits(1, 1024, 1)
   assert(brief.connect_timeout_ns == 1 and brief.low_speed_ns == 1 and brief.timeout_ns == nil)

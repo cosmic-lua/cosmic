@@ -3,28 +3,30 @@
 --- another checkout of the same content, at another path with its own
 --- o/, through the cache `COSMIC_VERDICT_CACHE` names, by its declared
 --- key (build/declared_key.tl), while a changed file or variable its
---- module declares, or `--all`, runs it again. Only a run whose workers
---- are sandboxed shares its verdicts: each suite declares what its tests
---- read, and a case stops where the run it starts cannot sandbox one
---- (`shares`).
+--- module declares, or `--all`, runs it again. Sharing across checkout
+--- paths requires sandboxed workers: those cases stop where the host
+--- cannot sandbox one (`shares`). Failure cases run unsandboxed with an
+--- explicit cache: their assertions concern cache handling, not isolation.
 --- They declare `tool` because they start this program.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local Time = require("cosmic.time")
 local this_program = require("build.this_program")
 local shared_verdicts = require("build.shared_verdicts")
-local sandbox_skip = require("build.sandbox_skip")
+local confine = require("build.confine")
+local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
 --- The program itself, which its tests start, roots of their own for
 --- the sandboxed workers of the runs they start (`nests`), and the
 --- variables `shares` reads, which hold a run to sandboxing.
-Test.needs{
-  env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
-  tool = true,
-  nests = true,
+Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "o/bin", letters = "rx" } },
+  promises = { "nest" },
+  env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
 }
 
 --- Runs `cosmic test` on `root` with `words` after it, answering what
@@ -36,7 +38,7 @@ local function run(root: string, output: string, env: {string:string},
   for _, word in ipairs(words or {}) do args[#args + 1] = word end
   local started = this_program.program(args, {
     cwd = root, env = env, stdout = fd, stderr = fd,
-    process_group = true, timeout_ns = Time.seconds(60),
+    process_group = true, timeout_ns = Clock.seconds(60),
   })
   local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))
@@ -49,13 +51,11 @@ end
 --- whose workers are sandboxed shares any. The workers nest in this
 --- test's own sandbox, which a host may refuse (the kernel lets root nest
 --- one only two deep: core/syscalls.c's `map_ids`); the case then says
---- it is skipped ([`Test.skip`]) and returns, which a run held to
---- sandboxing fails (COSMIC_TEST_SANDBOX=1, as CI's suites set it,
---- COSMIC_SANDBOX=must or COSMIC_CI_REQUIRE_SANDBOX=1): CI's
---- unprivileged runners nest them.
+--- it is skipped ([`Test.skip`]) and returns: CI's unprivileged
+--- runners nest them.
 local function shares(text: string): boolean
-  if text:find("; sandboxed)", 1, true) ~= nil then return true end
-  sandbox_skip.nested(text)
+  if text:find("; sandboxed", 1, true) ~= nil then return true end
+  if assert(sys.uname()).sysname == "Linux" then Test.skip(confine.unsandboxed_reason(text)) end
   return false
 end
 
@@ -88,7 +88,7 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "suite/" }, env = { "FLAVOUR" } }
+Test.policy { grants = { { path = "suite/", letters = "r" } }, env = { "FLAVOUR" } }
 
 local function test_reads_data()
   assert(Fs.read("suite/data.txt") ~= nil)
@@ -113,8 +113,8 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
-Test.needs { host = { "]] .. Fs.dirname(root) ..
-    [[/outside/f" }, env = { "OUTSIDE" } }
+Test.policy { grants = { { path = "]] .. Fs.dirname(root) ..
+      [[/outside/f", letters = "r" } }, env = { "OUTSIDE" } }
 
 local function test_reads_outside()
   local f = assert(Env.get("OUTSIDE")) .. "/f"
@@ -211,18 +211,18 @@ local function test_a_checkout_runs_what_no_shared_verdict_answers_for(tmp: stri
   assert(Fs.write(tmp .. "/first/suite/data.txt", "five\n"))
   local asked = said("asked", tmp .. "/first", "4 ran, 1 stood", { "--census" })
   assert(asked:find("test: shared verdicts: none of 4 tests looked up stood", 1, true) and
-    asked:find("runtime %x+, compiler %x+, harness %x+") and
-    asked:find("launcher %x+") ~= nil and asked:find(", store " .. ("%x"):rep(12)) ~= nil,
+      asked:find("runtime %x+, compiler %x+, harness %x+") and
+      asked:find("launcher %x+") ~= nil and asked:find(", store " .. ("%x"):rep(12)) ~= nil,
     asked)
   -- With nothing looked up, it says the parts alone.
   local parts = said("parts", tmp .. "/first", "0 ran, 5 stood", { "--census" })
   assert(parts:find("test: key parts: host features %x+, host %x+, system %x+, runtime %x+") and
-    not parts:find("shared verdicts: none of", 1, true), parts)
+      not parts:find("shared verdicts: none of", 1, true), parts)
   -- And what the cache held: rows under the parts the runs keeping
   -- them said, these among them.
   local said_parts = parts:match("test: key parts: ([^\n]*)")
   assert(parts:find("test: census: %d+ rows? under ") and
-    parts:find("under " .. said_parts, 1, true) ~= nil, parts)
+      parts:find("under " .. said_parts, 1, true) ~= nil, parts)
 end
 
 --- A run that chooses only an edited module runs its tests and says
@@ -287,7 +287,7 @@ local function test_a_database_sqlite_reads_is_keyed_by_its_contents(tmp: string
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "suite/data.db" } }
+Test.policy { grants = { { path = "suite/data.db", letters = "r" } } }
 
 local function test_reads_a_database()
   local db = assert(Sqlite.open("suite/data.db"))
@@ -322,7 +322,7 @@ local function link_checkout(root: string, target: string | nil)
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "suite/" } }
+Test.policy { grants = { { path = "suite/", letters = "r" } } }
 
 local function test_reads_the_links_target()
   local target = sys.readlink("suite/link")
@@ -391,18 +391,18 @@ local function test_a_database_attached_through_the_store_is_keyed_by_its_conten
     assert(Fs.mkdirs(root .. "/suite"))
     local db = assert(Sqlite.open(root .. "/suite/data.db", { writable = true }))
     assert(db:exec("CREATE TABLE meta (key TEXT, value TEXT); " ..
-      "INSERT INTO meta VALUES ('v', '" .. value .. "')"))
+        "INSERT INTO meta VALUES ('v', '" .. value .. "')"))
     assert(db:close())
     assert(Fs.write(root .. "/suite/attached_test.tl", [[
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "suite/data.db" } }
+Test.policy { grants = { { path = "suite/data.db", letters = "r" } } }
 
 local function test_reads_an_attached_database()
   assert(Store.attach("suite/data.db"))
-  -- Through the store's own lookup: a hold on the store (this module
-  -- declares no `store`) hands no test its databases.
+  -- Through the store's own lookup, which searches a database the test
+  -- attached ahead of the rest.
   local value = Store.meta("v")
   assert(value == "one", tostring(value))
 end
@@ -411,11 +411,10 @@ end
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "o/build.db" } }
+Test.policy { grants = { { path = "o/build.db", letters = "r" } } }
 
--- Through the store's own lookup: a hold on the store (this module
--- declares no `store`) hands no test its databases, and answers a row
--- no key holds from a database the test attached alone.
+-- Through the store's own lookup, which searches a database the test
+-- attached ahead of the rest.
 local function test_reads_the_working_database()
   assert(Store.attach("o/build.db"))
   assert(Store.meta("schema") ~= nil, "the working database records its schema")
@@ -486,7 +485,7 @@ local function test_a_read_of_the_builds_output_is_keyed_by_its_bytes(tmp: strin
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "o/bin/tool" } }
+Test.policy { grants = { { path = "o/bin/tool", letters = "r" } } }
 
 local function test_reads_the_tool()
   assert(Fs.read("o/bin/tool") ~= nil)
@@ -497,7 +496,7 @@ end
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "o/build.db" } }
+Test.policy { grants = { { path = "o/build.db", letters = "r" } } }
 
 local function test_reads_the_working_database()
   assert(Fs.read("o/build.db") ~= nil)
@@ -538,7 +537,7 @@ local function test_a_row_whose_key_this_checkout_does_not_reach_does_not_stand(
   -- And says why: the cache held these very tests, under keys it no
   -- longer reaches.
   assert(second:find("none of 4 tests looked up stood, though " .. cache ..
-    " holds 4 rows, 4 of them of those tests: none under the keys this run reached", 1, true), second)
+      " holds 4 rows, 4 of them of those tests: none under the keys this run reached", 1, true), second)
   assert(second:find("host features %x+, host %x+, system %x+, runtime %x+") ~= nil, second)
 end
 
@@ -547,35 +546,43 @@ end
 --- the run runs what it must and passes.
 local function test_a_cache_that_cannot_answer_is_done_without(tmp: string)
   local env = environment()
+  env.COSMIC_TEST_SANDBOX = "0"
   env.FLAVOUR = "sweet"
   env.OUTSIDE = tmp
   local corrupt = tmp .. "/corrupt/verdicts.db"
   env.COSMIC_VERDICT_CACHE = corrupt
   checkout(tmp .. "/first", "one\n")
-  if not shares(run(tmp .. "/first", tmp .. "/first.out", env, { "suite/reads_test.tl" })) then
-    return
-  end
+  run(tmp .. "/first", tmp .. "/first.out", env, { "suite/reads_test.tl" })
   local bytes = assert(Fs.read(corrupt))
   assert(#bytes > 4096, "more than one page")
   assert(Fs.write(corrupt, bytes:sub(1, 4096) .. string.rep("\xff", #bytes - 4096)))
-  checkout(tmp .. "/second", "one\n")
-  local second = run(tmp .. "/second", tmp .. "/second.out", env, { "suite/reads_test.tl" })
-  assert(second:find("4 ran, 0 stood", 1, true), second)
-  assert(second:find("running without them", 1, true), second)
-  assert(second:find("moved aside", 1, true), second)
-  -- Set aside, it is not met again: the next run starts a fresh cache.
-  checkout(tmp .. "/fresh", "one\n")
-  local fresh = run(tmp .. "/fresh", tmp .. "/fresh.out", env, { "suite/reads_test.tl" })
-  assert(not fresh:find("running without them", 1, true), fresh)
+  local before = assert(Fs.stat(corrupt))
+  local damaged = assert(Fs.read(corrupt))
+  local sibling = corrupt .. ".corrupt-older"
+  assert(Fs.write(sibling, "earlier evidence"))
+  for _, name in ipairs({ "second", "third" }) do
+    checkout(tmp .. "/" .. name, "one\n")
+    local output = run(tmp .. "/" .. name, tmp .. "/" .. name .. ".out", env,
+      { "suite/reads_test.tl" })
+    assert(output:find("4 ran, 0 stood", 1, true), output)
+    local _, complaints = output:gsub("running without them", "")
+    assert(complaints == 1, output)
+    assert(not output:find("moved aside", 1, true), output)
+    local after = assert(Fs.stat(corrupt))
+    assert(after.ino == before.ino and after.dev == before.dev)
+    assert(Fs.read(corrupt) == damaged and Fs.read(sibling) == "earlier evidence")
+    assert(#assert(Fs.list(Fs.dirname(corrupt))) == 2, "a cache was renamed or replaced")
+  end
 end
 
 --- A cache holding this format's table in the shape of none is said so
 --- once and done without: the run runs what it must and passes.
 local function test_a_cache_of_another_shape_is_done_without(tmp: string)
   local env = environment()
+  env.COSMIC_TEST_SANDBOX = "0"
   env.FLAVOUR = "sweet"
   env.OUTSIDE = tmp
-  local other = tmp .. "/other/verdicts.db"
+  local other = tmp .. "/other/malformed.db"
   assert(Fs.mkdirs(tmp .. "/other"))
   local db = assert(Sqlite.open(other, { writable = true }))
   local probe = assert(shared_verdicts.open(tmp .. "/probe/verdicts.db"))
@@ -583,21 +590,27 @@ local function test_a_cache_of_another_shape_is_done_without(tmp: string)
     "SELECT name FROM sqlite_schema WHERE type = 'table' AND name LIKE 'declared%'"))
   shared_verdicts.close(probe)
   assert(db:exec("CREATE TABLE " .. named[1][1] .. " (x TEXT)"))
-  assert(db:close())
+  local before = assert(Fs.stat(other))
   env.COSMIC_VERDICT_CACHE = other
   checkout(tmp .. "/third", "one\n")
   local third = run(tmp .. "/third", tmp .. "/third.out", env, { "suite/reads_test.tl" })
   assert(third:find("4 ran, 0 stood", 1, true), third)
-  if not shares(third) then return end
   local _, complaints = third:gsub("running without them", "")
   assert(complaints == 1, third)
+  assert(assert(Fs.stat(other)).ino == before.ino)
+  assert(db:exec("CREATE TABLE healthy (value TEXT)"))
+  assert(db:exec("INSERT INTO healthy VALUES ('still usable')"))
+  local reader = assert(Sqlite.open(other))
+  assert(assert(Sqlite.text_rows(reader, "SELECT value FROM healthy"))[1][1] == "still usable")
+  assert(reader:close())
+  assert(db:close())
 end
 
 --- Rewrites `path` as it was, a moment later: its contents the same,
 --- its modification time not.
 local function touch(path: string)
   local data = assert(Fs.read(path))
-  assert(Time.sleep_ns(10000000))
+  assert(Clock.sleep_ns(10000000))
   assert(Fs.write(path, data))
 end
 
@@ -706,7 +719,10 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "suite/c.txt" }, host = { "]] .. tmp .. [[/outside/f" }, env = { "OUTSIDE" } }
+Test.policy {
+  grants = { { path = "suite/c.txt", letters = "r" }, { path = "]] .. tmp .. [[/outside/f", letters = "r" } },
+  env = { "OUTSIDE" },
+}
 
 local function test_stops_early()
   assert(assert(Fs.stat(assert(Env.get("OUTSIDE")) .. "/f")).mtime ~= ]] .. unready .. [[)

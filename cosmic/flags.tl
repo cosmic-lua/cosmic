@@ -1,6 +1,11 @@
 --- A command line's options and the words among them. A spec names each
 --- option and whether it takes a value; everything else that begins with
---- "-" is refused, so a mistyped option is never read as a path.
+--- "-" is refused, so a mistyped option is never read as a path. A
+--- program whose first word is a command (`ledger report <file>`) reads
+--- it with [`Flags.dispatch`], which hands each command the words after
+--- it: `Flags.parse(argv, 1, spec)` reads no command, and would take
+--- "report" for the file. `cosmic docs Flags.dispatch` shows such a
+--- program whole.
 ---
 ---     local got, why = Flags.parse(argv, 2, { ["--check"] = false, ["--jobs"] = true })
 ---     -- cosmic fix --check a.tl  => got.set["--check"], got.words = { "a.tl" }
@@ -111,7 +116,7 @@ end
 --- @return Parsed | nil What the line held
 --- @return string Why it was refused, or "" when it was not
 function Flags.parse(argv: {integer:string}, from: integer,
-    spec: {string:boolean | Flags.Option}): Flags.Parsed | nil, string
+                     spec: {string:boolean | Flags.Option}): Flags.Parsed | nil, string
   for name in pairs(spec) do
     if name:sub(1, 1) ~= "-" or name == "-" or name == "--" or name:find("=", 2, true) then
       error("flags: " .. name .. " is not an option a spec can name", 2)
@@ -346,7 +351,7 @@ end
 --- @param spec {string:boolean|Option} The options the command names
 --- @return boolean Whether help was asked for
 function Flags.asks_help(argv: {integer:string}, from: integer,
-    spec: {string:boolean | Flags.Option}): boolean
+                         spec: {string:boolean | Flags.Option}): boolean
   local slot = from
   while argv[slot] ~= nil and argv[slot] ~= "--" do
     local word = argv[slot]
@@ -389,7 +394,7 @@ end
 --- @return Dispatched | nil What the command answered, or the help
 --- @return string Why nothing ran, or "" when a command or help did
 function Flags.dispatch(argv: {integer:string}, from: integer,
-    commands: {string:Flags.Command}, program?: string): Flags.Dispatched | nil, string
+                        commands: {string:Flags.Command}, program?: string): Flags.Dispatched | nil, string
   if next(commands) == nil then
     error("flags: dispatch needs a command to choose among", 2)
   end

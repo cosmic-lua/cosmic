@@ -141,10 +141,10 @@ end
 ---   examples name is answered from it
 --- @param root the tree, whose example files are read for that
 local function examples(db: Sqlite.Handle, built: compiler,
-                                 env: compiler.Env, root: string): {string}
+                        env: compiler.Env, root: string): {string}
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT file, line, name, source FROM examples WHERE " ..
-    symbols.public_only("module", true) .. " ORDER BY file, line")
+      symbols.public_only("module", true) .. " ORDER BY file, line")
   if rows == nil then
     return { "reading the examples: " .. trouble }
   end
@@ -174,7 +174,7 @@ end
 --- with `tmp` a string in scope, and a name it needs beyond that is
 --- still refused.
 local function guide(text: string, file: string, built: compiler,
-                              env: compiler.Env): {string}
+                     env: compiler.Env): {string}
   local entries, trouble = doctest.entries(text)
   if entries == nil then
     return { file .. ": " .. trouble }

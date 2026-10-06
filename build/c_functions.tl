@@ -5,7 +5,8 @@
 --- sanitized one too -- fails for any function no test enters, in its own
 --- process or in one it starts (see [`Coverage.children`]), unless `exempt`
 --- names it with the reason no test can, or `exempt_on` does for the
---- host the run is on.
+--- host the run is on. A function whose named prerequisite the runner
+--- found absent is reported unavailable on that host alone.
 ---
 --- A header's `static inline` helper is left out: every file that uses it
 --- compiles its own copy and inlines it where it is small, so whether one
@@ -14,6 +15,8 @@
 local Coverage = require("cosmic.coverage")
 local Fs = require("cosmic.fs")
 local String = require("cosmic.string")
+local host_names = require("build.host_names")
+local type host_requires = require("build.host_requires")
 
 local record c_functions
   --- How a run's hits measure up against every C function.
@@ -29,6 +32,9 @@ local record c_functions
     --- The exempt functions a test entered after all, by [`key_of`], sorted:
     --- this core no longer needs their exemption, though another may.
     stale: {string}
+    --- The functions this host cannot enter, each with its missing
+    --- requirement and the probe's reason. An entered function stays entered.
+    unavailable: {string}
   end
 end
 
@@ -89,20 +95,56 @@ local exempt: {string: string} = {
 --- uname(2) sysname and then by [`key_of`], and why: another host's run
 --- still holds them to being entered.
 local exempt_on: {string: {string: string}} = {
-  Linux = {
-    ["core/syscalls_fs.c:reaches_descriptor_name"] = "the walk by hand stands in for openat2's, which every " ..
-      "Linux host CI and a sandboxed worker runs on answers: it runs only where openat2 is missing or refused " ..
-      "(a kernel older than 5.6, a filter), and on macOS, whose run enters it (core/artifact_fd_test.tl)",
-    ["core/syscalls_fs.c:descriptor_name"] = "called only from reaches_descriptor_name (see it)",
-  },
+  Linux = {},
   Darwin = {
     -- Every Linux core, the checked one too, is static musl, whose printf
     -- measures each `%s` with the core's strnlen, so a Linux run holds it.
     ["core/strnlen.c:strnlen"] = "libSystem's printf measures a `%s` with its own strnlen, never the core's, " ..
       "leaving the core's to c-ares's ares_strnlen, which no test need reach; bin/zig build boot's strnlen " ..
       "check covers it",
+    ["core/promises.c:cosmic_promises_apply"] = "Darwin has no seccomp: spawn_program refuses a start with " ..
+      "promises, ENOSYS, before any child could install a filter; a Linux run enters it " ..
+      "(core/promises_child_test.tl)",
+    ["core/store.c:cosmic_store_holds_descriptor"] = "only restrict_self asks it, after the checks Darwin's " ..
+      "refuses before, having neither Landlock nor seccomp; a Linux run enters it " ..
+      "(cosmic/sandbox_restrict_test.tl)",
   },
 }
+
+--- The host requirement without which a function's body cannot be
+--- reached. Unlike an exemption, this keeps its obligation on every
+--- host where the requirement is present or cannot be determined.
+local prerequisites: {string: string} = {
+  ["core/socket.c:reach_from"] = "unix_socket",
+  ["core/store.c:cosmic_store_holds_descriptor"] = "path:/proc/thread-self/children",
+  ["core/syscalls.c:first_child"] = "path:/proc/thread-self/children",
+  ["core/syscalls.c:plan_limit"] = "path:/proc/thread-self/children",
+  ["core/syscalls.c:thread_count"] = "path:/proc/thread-self/children",
+  ["core/syscalls.c:unaccounted_descriptor"] = "path:/proc/thread-self/children",
+}
+
+--- Each function's required host name, copied so a caller cannot change
+--- the obligations [`tally`] holds. The runner probes them before workers
+--- start, and the whole-tree check requires a CI leg to promise each.
+function c_functions.prerequisites(): {string: string}
+  local out: {string: string} = {}
+  for key, name in pairs(prerequisites) do out[key] = name end
+  return out
+end
+
+--- Known absent prerequisites, with their reasons. `promises` is the
+--- held run's list, nil for an unheld one: no promised absence, refused
+--- name or failed probe can remove a function's obligation.
+function c_functions.unavailable(answers: {host_requires.Answer}, promises?: {string}): {string: string}
+  local out: {string: string} = {}
+  for _, answer in ipairs(answers) do
+    if (answer.kind == "skipped" or answer.kind == "na") and
+        (promises == nil or not host_names.promised(promises, answer.name)) then
+      out[answer.name] = "requires " .. answer.name .. ": " .. answer.why
+    end
+  end
+  return out
+end
 
 --- How `function` is named in `exempt` and in a failure.
 local function key_of(fn: Coverage.Function): string
@@ -184,8 +226,11 @@ end
 ---
 --- `sysname`, the host's uname(2) sysname, adds that host's own
 --- exemptions (`exempt_on`) to those every host shares.
+--- `unavailable` holds only prerequisites actually found absent, with
+--- their reasons: never an unknown answer or one a held run promised.
 function c_functions.tally(functions: {Coverage.Function}, hits: Coverage.Hits,
-                           sources?: {string: {string}}, sysname?: string): c_functions.Tally
+                           sources?: {string: {string}}, sysname?: string,
+                           unavailable?: {string: string}): c_functions.Tally
   local here_exempt = sysname ~= nil and exempt_on[sysname] or {}
   local function exempts(key: string): boolean
     return exempt[key] ~= nil or here_exempt[key] ~= nil
@@ -229,7 +274,7 @@ function c_functions.tally(functions: {Coverage.Function}, hits: Coverage.Hits,
   end
   table.sort(keys)
   local tally: c_functions.Tally = { unentered = {}, entered = 0, exempted = 0,
-                                     total = #keys, stale = {} }
+    total = #keys, stale = {}, unavailable = {} }
   for _, key in ipairs(keys) do
     if entered[key] then
       tally.entered = tally.entered + 1
@@ -238,6 +283,8 @@ function c_functions.tally(functions: {Coverage.Function}, hits: Coverage.Hits,
       end
     elseif exempts(key) then
       tally.exempted = tally.exempted + 1
+    elseif prerequisites[key] ~= nil and unavailable ~= nil and unavailable[prerequisites[key]] ~= nil then
+      tally.unavailable[#tally.unavailable + 1] = key .. ": " .. unavailable[prerequisites[key]]
     else
       tally.unentered[#tally.unentered + 1] = key
     end

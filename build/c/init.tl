@@ -17,12 +17,13 @@
 --- - the scripts and pins that name the one zig [`bin/zig`] runs;
 --- - the bootstrap cosmic that runs build/zig.tl, and the cores its
 ---   launcher runs it on;
---- - that zig's own install;
+--- - that zig's own install, its library unpatched: a confined bin/zig
+---   is not given patch/zig-lib/, whose records touch only `zig build`;
 --- - the include directories and each file's own;
 --- - a directory of the check's own for caches and dependency files.
 ---
 --- In a test's sandboxed worker, the sandbox every process it starts
---- inherits holds the compiler, as the test's [`Test.needs`] declares. In
+--- inherits holds the compiler, as the test's [`Test.policy`] declares. In
 --- an unsandboxed worker the compiler gets a root of its own holding
 --- those paths alone, where the kernel gives one. Where the kernel gives
 --- none, it runs unconfined. Either way its test's verdict stands on
@@ -46,7 +47,7 @@ local rules = require("build.c.rules")
 local tree = require("build.c.tree")
 local Zig = require("build.zig")
 local plural = require("build.plural")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 local record c
   --- What checking one file came to: its findings, or why it could not
@@ -78,9 +79,9 @@ local function include_dirs(root: string, cwd: string): {string}
   local prefix = cwd == root and "" or root .. "/"
   local out: {string} = {}
   for _, dir in ipairs({
-    "core", "vendor/lua/src", "vendor/sqlite", "vendor/miniz", "vendor/mbedtls/include",
-    "vendor/bzip2", "vendor/xz/src/liblzma/api", "vendor/cares/include", "vendor/curl/include",
-    "vendor/yyjson/src",
+      "core", "vendor/lua/src", "vendor/sqlite", "vendor/miniz", "vendor/mbedtls/include",
+      "vendor/bzip2", "vendor/xz/src/liblzma/api", "vendor/cares/include", "vendor/curl/include",
+      "vendor/yyjson/src",
   }) do
     out[#out + 1] = prefix .. dir
   end
@@ -220,8 +221,8 @@ local function declared_in(root: string): {string: rules.Declared}
         end
       end
       out[call.name] = { count = #call.results, fallible = #call.results == 3,
-                         effect = #call.results > 0 and call.results[1].kind == "boolean",
-                         descriptors = descriptors }
+        effect = #call.results > 0 and call.results[1].kind == "boolean",
+        descriptors = descriptors }
     end
   end
   return out
@@ -240,7 +241,7 @@ local function outcome(root: string, file: string, result: Child.Result, trouble
   end
   if result.truncated then
     return { file = file, trouble = "its syntax tree is larger than " .. plural.count(limit, "byte") ..
-      ", the most that is read of one" }
+        ", the most that is read of one" }
   end
   local decls = tree.parse(tostring(result.stdout or ""), root)
   return { file = file, findings = rules.check(decls, file, declared) },
@@ -316,7 +317,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
         next_file = next_file + 1
       end
       if #running > 0 then
-        local done, trouble = Child.wait_any(running, Time.seconds(120))
+        local done, trouble = Child.wait_any(running, Clock.seconds(120))
         if done == nil then
           if trouble == Poll.TIMEOUT then trouble = "clang gave no answer in 120 seconds" end
           for _, handle in ipairs(running) do
@@ -354,7 +355,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
       end
     end
     for _, path in ipairs({ "bin/zig", "bin/cosmic-bootstrap", "bin/zig.pin", "build/zig.tl",
-                            "ci/cosmic-driver.pin" }) do
+        "ci/cosmic-driver.pin" }) do
       give(root .. "/" .. path)
     end
     for _, path in ipairs(runs_from) do give(path) end

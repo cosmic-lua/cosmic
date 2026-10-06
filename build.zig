@@ -433,6 +433,7 @@ const crypto_include_dirs = [_][]const u8{
 };
 
 const core_sources = [_][]const u8{
+    "assertions.c",
     "boot.c",
     "coverage.c",
     "compress.c",
@@ -441,8 +442,10 @@ const core_sources = [_][]const u8{
     "errnos.c",
     "executable.c",
     "hash.c",
+    "html.c",
     "http.c",
     "json.c",
+    "namespace_calls.c",
     "socket.c",
     "sqlite.c",
     "store.c",
@@ -453,6 +456,7 @@ const core_sources = [_][]const u8{
     "vfs.c",
     "main.c",
     "portable.c",
+    "promises.c",
     "startup.c",
 };
 
@@ -461,7 +465,7 @@ const core_sources = [_][]const u8{
 /// source's absolute path and its flags' bytes, an include directory's
 /// among them, so a file compiled where the tree is would be compiled
 /// again for every path a checkout sits at -- CI's is a new one each commit
-/// (.github/scripts/place-tree.sh). A copy sits in a directory named by
+/// (ci/cosmic_ci/place_tree.tl). A copy sits in a directory named by
 /// its contents, so its path is the same from every checkout.
 ///
 /// Each source file is copied on its own, beside a copy of every header
@@ -971,18 +975,24 @@ fn launcherHelper(
 }
 
 /// The patched vendor trees bin/zig wrote before it ran zig
-/// (build/patch.tl), as the manifest it names with `-Dpatched=` holds
-/// them: a name, a tab and a directory per line. Each directory is named
-/// by its contents, so its path is the same from every checkout.
+/// (build/patch.tl), as the manifest it names with `-Dpatched=`, a path
+/// under the build root, holds them: a name, a tab and a directory per
+/// line. Each directory is named by its contents, so its path is the
+/// same from every checkout.
 fn patchedTrees(b: *std.Build) []const u8 {
     const manifest = b.option([]const u8, "patched", "the patched vendor trees' manifest bin/zig writes") orelse {
         std.debug.print("build.zig: no -Dpatched=; run bin/zig build, which patches vendor/ first\n", .{});
         std.process.exit(1);
     };
+    if (std.fs.path.isAbsolute(manifest)) {
+        std.debug.print("build.zig: -Dpatched={s} is absolute; name it under the build root, as bin/zig does\n", .{manifest});
+        std.process.exit(1);
+    }
     // The manifest's path is the same from build to build while the trees
     // it names move with every patch, so its contents key the configuration.
-    b.dependOnFileContents(b.graph.cwdRelativePath(manifest));
-    return std.Io.Dir.cwd().readFileAlloc(b.graph.io, manifest, b.allocator, .limited(1 << 20)) catch |err| {
+    b.dependOnFileContents(b.path(manifest));
+    const at = b.root.joinString(b.allocator, manifest) catch @panic("OOM");
+    return std.Io.Dir.cwd().readFileAlloc(b.graph.io, at, b.allocator, .limited(1 << 20)) catch |err| {
         std.debug.print("build.zig: cannot read {s}: {s}\n", .{ manifest, @errorName(err) });
         std.process.exit(1);
     };
@@ -1486,7 +1496,8 @@ fn vendorIncludes(
 /// fixture's in a core built with `portable_startup_test_hooks` -- and
 /// the test instruments, which the checked core alone carries (a failing
 /// allocator, a count of the store's open statements), so no core that
-/// ships has an allocator a program can make fail.
+/// ships has an allocator a program can make fail. (The raw namespace
+/// calls those files add are in core_sources, every core's.)
 fn ownCoreFiles(b: *std.Build, configuration: Configuration, portable_startup_test_hooks: bool) []const []const u8 {
     var paths: std.ArrayList([]const u8) = .empty;
     for (core_sources) |name| paths.append(b.allocator, b.fmt("core/{s}", .{name})) catch @panic("OOM");

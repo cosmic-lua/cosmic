@@ -1,9 +1,14 @@
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
-local Time = require("cosmic.time")
+local Test = require("cosmic.test")
+
+-- These tests start this program, which a worker on a sealed database does
+-- not have whole.
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- Exercise redelivery in a separate driver: its default SIGTERM action
 --- must happen after the owned snapshot and sidecars have been removed.
@@ -29,11 +34,13 @@ error("the original signal was swallowed")
   assert(Fs.write(project .. "/cancel.tl", script))
   local handle <close> = assert(Child.start({ assert(Proc.executable()), project .. "/cancel.tl" },
     { cwd = project, env = Env.all(), stdout = "capture", stderr = "capture" }))
-  local deadline = Time.monotonic_ns() + Time.seconds(30)
-  while Fs.read(ready) == nil and Time.monotonic_ns() < deadline do Time.sleep_ns(Time.ms(10)) end
+  local deadline = Clock.monotonic_ns() + Clock.seconds(30)
+  while Fs.read(ready) == nil and Clock.monotonic_ns() < deadline do
+    Clock.sleep_ns(Clock.ms(10))
+  end
   assert(Fs.read(ready) ~= nil, "maintenance child did not enter its guarded wait")
   assert(handle:stop(sys.SIGTERM))
-  local result = assert(handle:wait(Time.seconds(10)))
+  local result = assert(handle:wait(Clock.seconds(10)))
   assert(result.signal == sys.SIGTERM, (result.stderr or "") .. tostring(result.code))
   for _, suffix in ipairs({ "", "-wal", "-shm" }) do
     assert(Fs.stat(restored .. suffix) == nil, "snapshot remained at signal redelivery")

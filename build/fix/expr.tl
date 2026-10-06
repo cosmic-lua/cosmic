@@ -49,16 +49,20 @@ local function in_brackets(c: Ctx, key: Node)
   local at = ctx_mod.start_of(c, key)
   local first = typescan.index_at(c.scan, at.y, at.x)
   emit.put(c.em, "[")
+  ctx_mod.opens(c, nil, true)
+  c.starting = true
   ctx_mod.lead(c, key, inside)
   expression(c, key)
   if first ~= nil and typescan.tk(c.scan, first - 1) == "[" then
     local t = c.scan.tokens[typescan.closing(c.scan, first - 1)]
     if t ~= nil then
+      c.closing = true
       ctx_mod.lead_at(c, t.y, t.x, inside)
       inside = ""
     end
   end
   emit.put(c.em, inside .. "]")
+  ctx_mod.closes(c)
 end
 
 --- The index of the first token of a cast's type, or nil when it has
@@ -116,13 +120,16 @@ end
 --- A comma-separated run of expressions, each moved to its own line
 --- wherever the source put it there. A table's entries (`table_like`)
 --- are separated by a `;` after one that [`ends_in_open_returns`].
-local function items(c: Ctx, list: Node, first_inline: string, table_like?: boolean)
+--- `inside` says the run is a bracket's, so each item starts an entry.
+local function items(c: Ctx, list: Node, first_inline: string, table_like?: boolean,
+                     inside?: boolean)
   for i, item in ipairs(list) do
     local inline = first_inline
     if i > 1 then
       emit.put(c.em, table_like and ends_in_open_returns(c, list[i - 1]) and ";" or ",")
       inline = " "
     end
+    c.starting = inside == true
     ctx_mod.lead(c, item, inline)
     expression(c, item)
   end
@@ -144,17 +151,22 @@ local function bracketed(c: Ctx, list: Node, open: string, close: string,
   local close_x = list.xend or list.x
   local gap = table_like and " " or ""
   emit.put(c.em, open)
+  ctx_mod.opens(c)
   if #list == 0 then
+    c.closing = true
     ctx_mod.lead_at(c, close_y, close_x, "")
     emit.put(c.em, close)
+    ctx_mod.closes(c)
     return
   end
-  items(c, list, gap, table_like)
+  items(c, list, gap, table_like, true)
   if table_like and close_y > c.em.line then
     emit.put(c.em, ends_in_open_returns(c, list[#list]) and ";" or ",")
   end
+  c.closing = true
   ctx_mod.lead_at(c, close_y, close_x, gap)
   emit.put(c.em, close)
+  ctx_mod.closes(c)
 end
 
 --- A call's arguments. `f{...}` and `f"..."` pass their one argument
@@ -195,16 +207,25 @@ local function literal_function(c: Ctx, n: Node)
     return
   end
   local base = c.em.indent
-  local outer = c.margin
+  local outer, header = c.margin, c.header
   emit.text(c.em, "function")
+  -- Its signature is a block's header, apart from the body.
+  c.header = 4
   sig.typeargs(c, typescan.index_at(c.scan, n.y, n.x))
   sig.arguments(c, args)
   sig.returns(c, rets, args, body.y, body.x)
+  c.header = header
   c.margin = base
   c.block(c, body)
   local closing = n.yend or body.y
   local inline = closing <= c.em.line
-  ctx_mod.lead_to(c, closing, n.xend or 1, base, " ")
+  local xend = n.xend
+  -- With an empty body, a comment before the `end` moves as the
+  -- literal's own line moved, not as the statement around it did. The
+  -- line's indentation is counted in spaces alone, as the buffer counts.
+  local read = (c.source:sub(c.starts[n.y] or 1):match("^ *") or "")
+  ctx_mod.lead_to_closer(c, closing, xend ~= nil and xend - #"end" + 1 or 1, base,
+    base - #read)
   emit.put(c.em, "end")
   ctx_mod.ended(c, n, inline)
   c.margin = outer
@@ -323,16 +344,20 @@ expression = function(c: Ctx, n: Node)
     end
     local open = typescan.index_at(c.scan, n.y, n.x)
     emit.put(c.em, "(")
+    ctx_mod.opens(c, nil, true)
+    c.starting = true
     ctx_mod.lead(c, inner, "")
     expression(c, inner)
     if open ~= nil then
       local close = typescan.closing(c.scan, open)
       local t = c.scan.tokens[close]
       if t ~= nil then
+        c.closing = true
         ctx_mod.lead_at(c, t.y, t.x, "")
       end
     end
     emit.put(c.em, ")")
+    ctx_mod.closes(c)
   elseif kind == "cast" then
     cast_type(c, n, nil)
   else

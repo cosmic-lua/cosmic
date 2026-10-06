@@ -95,15 +95,15 @@
    merge queue) places the tree by the leg alone, at one path from commit
    to commit, and stands on what it ran before; the scheduled run places
    it by the commit, and every test runs to meet the new path
-   ([`.github/scripts/place-tree.sh`]).
+   ([`ci/cosmic_ci/place_tree.tl`]).
    `COSMIC_VERDICT_CACHE` names another file, `0` none; `--no-shared`
    (`COSMIC_TEST_NO_SHARED=1`) stands on none but still shares; a test's own
    `cosmic test` has none unless it names one.
    Run sandboxed (the default where the kernel can), a test is keyed by
-   what it declares -- its closure, its [`Test.needs`], their contents and
+   what it declares -- its closure, its [`Test.policy`], their contents and
    values, the core -- and by the host (its kernel, processor, user and
    capabilities; its packages and system only for a module that declares
-   `system`), before it runs
+   the profile "system"), before it runs
    ([`build/declared_key.tl`]): it stands while none of that changes, and
    nothing is assumed. The test harness -- what every worker loads, the
    sandbox's plan, the code that computes a key -- is keyed by
@@ -143,51 +143,87 @@
    ([`build/test_sandbox_probe.tl`]) -- must fail
    loudly, never pass; and what a harness module calls through a
    library table a test can replace, it takes as a local at load. A test reaches no network but loopback,
-   and loopback is 127/8: [`Test.needs`] takes `network` as a list of
-   addresses `127.a.b.c`, whose worker, like every sandboxed one, runs
-   offline on a loopback of its own and is keyed; `network = true`, any
-   other host, `::1` and `localhost` are refused, for this tree and
-   every project, naming the rule. A test that needs a service starts
+   and loopback is 127/8: [`Test.policy`] takes `loopback` as a list of
+   addresses `127.a.b.c`, whose worker runs offline on a loopback of
+   its own and is keyed. A sandboxed worker whose module declares no
+   `loopback` has no network at all: its filter refuses it an inet
+   socket. Any other host, `::1` and `localhost` are refused, for this
+   tree and every project, naming the rule. A test that needs a service starts
    its own on 127.0.0.1. A
    worker, and every process it starts, is given at o/cosmic.db the
-   store of its module's import closure alone, keyed by its bytes.
-   Sandboxed or not, a worker whose module does not declare `store`
-   (`tool` does not lift it) holds every other lookup in the store to
-   that closure too
-   ([`build/test_worker.tl`]'s `hold_store`): [`Store.bytecode`] or
-   [`Store.source`] of a module of the tree outside it, or a searcher
-   called by hand, answers none, [`Store.meta`] of a row its key does not
-   hold (the compiler's identity outside `compiler_readers`'s closures,
-   `projected`, `written_by`) raises unless a database the test attached
-   itself answers it, and [`Store.databases()`], whose handles read every
-   module's rows, raises, each naming the fix. So require a
-   module the test reads at its top level (`local type _ = require(...)`
-   for a declaration a type-checked snippet needs), or declare
-   `store = true` where a test reads rows of modules outside its closure
-   (their docs, catalog or bytecode, that way, through a verb run
-   in-process, or by opening o/cosmic.db itself), and only there -- in a
-   module of its own, if the rest of its tests need not -- since that
-   test runs again on every edit to the tree. A module left declaring
-   `store` says why above its declaration. Only a test of one module
-   may read the store so: a check over the whole tree is no test, and
-   goes in [`build/tree_checks.tl`].
+   store of its module's import closure alone, keyed by its bytes (an
+   unsandboxed worker attaches that store in the projection's place, though
+   what it starts reads o/cosmic.db). What a test reads is what the
+   sandbox gives it: the worker holds only `require` to the closure, which
+   refuses a module of the tree outside it
+   ([`build/test_worker.tl`]'s `hold_requires`), and no lookup in the store.
+   A worker whose module declares neither `store` nor `tool` runs
+   on a sealed database of that closure ([`build/test.tl`]'s `sealed_for`,
+   one per closure store, in a directory of the run's own): this program's
+   core started on it (`core --database`, the policy's `database`) and
+   nothing of the program's own file. It holds the closure store's
+   modules, the program's rows of what every worker loads (and, in a
+   project's tree, of the program's library the tree lacks), its closure's
+   declarations, and the zones and CA roots, so
+   what the worker and every process it starts read of the program --
+   [`Store.bytecode`], [`Store.source`], [`Store.requires`],
+   [`Store.databases()`], [`Store.meta`], a searcher called by hand, a
+   `require` from a finalizer -- is what its key holds: the closure store's
+   bytes, a digest of the program's modules the tree lacks, the core in
+   place of the launcher, and the harness's epoch for the rows of what every
+   worker loads. The one row left out is the `image_hash` meta row, which
+   names the program's build and moves with every rebuild. A run whose
+   program is no portable artifact runs these workers on the whole program
+   instead, and its summary says how many. A worker that declares `nests`
+   is sealed too: its policy carries `nest` beside the `database`, and its
+   core and database are read-only binds of its own root, so the roots it
+   confines children in start on the same database. `hold_requires` stays as
+   the second guard that names the rule, and the only one for the workers
+   that run the whole program: one that declares `store` or `tool`, or a run
+   whose program is no portable artifact, runs the whole program, whose
+   database holds every module of the tree: a `store` test reads them, keyed
+   by the projection.
+   So require a module the test reads at its top level (`local type _ =
+   require(...)` for a declaration a type-checked snippet needs), and read
+   no other that way; declare `store = true` where a test reads rows of
+   modules outside its closure (their docs, catalog or bytecode, that way,
+   through a verb run in-process, or by opening o/cosmic.db itself), and
+   only there -- in a module of its own, if the rest of its tests need
+   not -- since that test runs again on every edit to the tree. A module
+   left declaring `store` says why above its declaration. Only a test of
+   one module may read the store so: a check over the whole tree is no
+   test, and goes in [`build/tree_checks.tl`].
+   Each sandboxed worker starts under a [`cosmic.sandbox`] policy
+   ([`build/test_policy.tl`]), held by a Landlock ruleset and a seccomp filter
+   of the promises it declares, as step (c) and (d) of #2621's
+   doc/plans/sandbox.md have it. A root that lacks CAP_SETUID, CAP_SETGID or
+   CAP_SETFCAP cannot map the user a policy runs as (a program of a policy
+   never runs as root), nor can a host with no user namespaces or Landlock
+   start one: where no worker can be started under a policy, the run's
+   workers run unsandboxed, exactly as with `COSMIC_TEST_SANDBOX=0`, and the
+   summary says why (`unsandboxed, as no worker can be sandboxed here (<why>)`).
+   A run held to sandboxing -- `COSMIC_TEST_SANDBOX=1`, `COSMIC_SANDBOX=must`
+   or `COSMIC_CI_REQUIRE_SANDBOX=1` -- fails there instead. A module
+   declaring what no policy says (a grant to write, `isolate`, `limits`,
+   `set_env`) fails the build, naming the field.
    `--all` (`COSMIC_TEST_ALL=1`) runs everything. The worker still reads
    /proc, /dev/null, /dev/zero, /dev/full and /dev/urandom, keyed only
    through the host's identity, and the program, its core and its
    database, keyed through the runtime's identity but for the database's
-   modules, which the hold above keeps a test from reading through the
-   store unless it declares `store`, nor through the descriptor a portable
-   start keeps on the program, which every binding refuses
+   modules, which only a sealed database narrows
+   to its closure (above), and which no test reads through the descriptor a
+   portable start keeps on the program, which every binding refuses
    (core/check.h's `cosmic_checkfd`), nor, sandboxed, by the program's
    own name, which only a `tool`'s worker is given. A test that starts this
-   program declares `tool = true`: sandboxed, one that does not is
-   refused it. `tool` gives the program and
-   nothing else. A test that confines a process in a root of its own --
+   program declares `tool` (the profile "cosmic" with the grant of o/bin
+   beside it): sandboxed, one that does not is refused it. `tool` gives
+   the program and nothing else. A test that confines a process in a root of its own --
    a sandbox that unveils, build.confine's `confine`, or a `cosmic test`
-   it starts whose workers are sandboxed -- declares `nests = true`:
+   it starts whose workers are sandboxed -- declares the promise "nest"
+   (`nests`):
    sandboxed, every other worker is held by a Landlock ruleset, under
    which the kernel refuses the mounts a root is made of, so such a
-   start is refused outright, naming `nests`, and fails the test rather
+   start is refused outright, naming the promise "nest", and fails the test rather
    than falling back to running unconfined; a `cosmic test` started
    there refuses to sandbox its workers.
    Unsandboxed (`COSMIC_TEST_SANDBOX=0`, or where the kernel cannot, as
@@ -196,8 +232,12 @@
    assumed, and one that starts a process or reads outside the tree
    stands on its declaration like any other. Its worker gets only the
    environment it declares and the store of its closure, but nothing
-   else holds it to its declaration, which a sandboxed run (a Linux leg
-   of CI) must enforce: a read it does not declare moves no key there.
+   else holds it to its declaration or its closure, but a worker that would
+   be sealed runs the core on the sealed database of its closure too, so what
+   it and every process it starts read of the program is held to the closure
+   unless it opens the program's own file by its path.
+   A sandboxed run (a Linux leg of CI) must enforce what it does not: a
+   read it does not declare moves no key there.
    Its verdicts are kept apart from sandboxed ones, and shared only
    through a file `COSMIC_VERDICT_CACHE` names (as CI's macOS leg
    does), and so only with a checkout at the same path; without one it
@@ -207,37 +247,138 @@
    `confine` starts it unconfined; `must_confine` fails
    the spawn, and the test, instead, naming the part of the sandbox
    refused and its errno. `COSMIC_SANDBOX=must` (off by default) makes
-   every `confine` one, and fails [`core/syscalls_test.tl`]'s sandbox
-   tests rather than counting them skipped. Likewise a test nests the workers of a
+   every `confine` one. Likewise a test nests the workers of a
    `cosmic test` it starts in its own sandbox only where its assertion
    is about their sandbox; every other run of `cosmic test` a test
    starts sets `COSMIC_TEST_SANDBOX=0`, so it means the same on every
    host. Root confines only two deep (core/syscalls.c's `map_ids`), so
    a runner that is root runs each sandboxed worker as a user of its
-   own, uid and gid 65532, mapped from outside (build/test_sandbox.tl's
-   `runs_as`, spawn's `user`), whose sandbox nests at any depth as on
-   CI's unprivileged runners, with no setup; its key holds that user.
-   A worker whose module declares a host cache, which it writes as
-   root, runs as root still, as every worker does where the host
-   refuses the drop. Where the kernel refuses a sandbox that deep,
-   those tests call [`Test.skip`] and
-   return before asserting: the summary counts them skipped, beside ran
+   own, never root, which [`cosmic.sandbox`]'s `user_id` chooses from
+   outside, and whose sandbox nests at any depth as on CI's
+   unprivileged runners, with no setup. Where the kernel refuses a
+   sandbox that deep, those tests call [`Test.skip`], which
+   ends the test where it is called. It raises what the runner takes for
+   a skip, so nothing after it runs. A `pcall` or coroutine around it
+   must raise what it caught again. A test with more to check first
+   defers the call to its end. The summary counts them skipped, beside ran
    and stood, and lists each with its reason (`test: SKIP`); no verdict
-   is kept of one, so it runs again every run. A run held to sandboxing
+   is kept of one, so it runs again every run, in a held run too
    (`COSMIC_TEST_SANDBOX=1`, `COSMIC_SANDBOX=must` or
-   `COSMIC_CI_REQUIRE_SANDBOX=1`: build.confine's `held_to_sandbox`)
-   fails any skipped test instead. A test that returns early because
-   this host cannot be given the sandbox it is about calls [`Test.skip`]
-   too ([`build.sandbox_skip`]'s `refused`), never passing as though it
-   had checked -- but only where the platform could give it: off Linux
-   (no user namespaces, Landlock or subreaper) it returns silently, a
-   pass the key's kernel part pins to that platform. A test that
-   returns early for a host tool or artifact it lacks (jq, a portable
-   artifact) does not skip: a held run would fail it.
-   A test module declares what it reads beyond its import closure, its
-   fuzz corpora and a pinned environment with a top-level
-   `Test.needs { ... }` (`local Test = require("cosmic.test")`; see
-   `o/bin/cosmic docs cosmic.test`). Nothing lists what a test reads
+   `COSMIC_CI_REQUIRE_SANDBOX=1`), which counts a skip as any run does.
+   A test whose host lacks what it is about, and which a fact of the
+   host alone says, does not probe it by hand and return: its module
+   declares it in its policy, `requires = { "program:jq", ... }`, from
+   [`build.host_names`]'s closed table (`root`, `portable`,
+   `path:<abs>`, `program:<name>`, `unix_socket` (Unix stream socket creation,
+   independently of permission to bind or connect) and the Linux-class `sandbox`,
+   `landlock[:N]`, `userns`, `nest`, `own_proc`, `proc`;
+   `o/bin/cosmic docs cosmic.test`). Only what the module writes is
+   required: nothing is inferred from its promises or grants (the TODO
+   in build/host_names.tl says what inferring `nest` would silence). The
+   Linux-class names are allowed: each CI leg's promises are written
+   down in [`ci/cosmic_ci/capabilities.tl`] (below). The runner
+   asks the host once, before any worker starts, and decides each such
+   module before it starts one: with every requirement present it runs,
+   and its key holds each answer (the `requires` part: the digest of
+   the file or program found); with one absent none of its tests
+   starts, the module is never loaded, and no verdict is made. Which
+   outcome an absence is turns on its class. A *platform* requirement
+   that the platform never has ([`build.confine`]'s `sandbox_platform`
+   is Linux's; a native start has no `portable`) is **n/a**: the
+   summary counts the tests `N n/a` beside ran, stood and skipped, one
+   `test: N/A  <test>: requires <name>: <why>` line each, and none
+   fails. A requirement this host lacks is skipped, naming it
+   (`test: SKIP  <test>: requires path:/x: <why>`), as is every *host*
+   requirement (a path, a program, root), which any platform may lack.
+   A probe that cannot tell (a file the run may not read) or a refused
+   name fails the module's tests, naming why, and the run goes on.
+   The build checks names when it reads the policy: an unknown one or
+   one written twice fails it, naming the rule.
+   What the worker sees is what its module grants, not what the runner
+   found, so a `path:` needs a `host` grant of the same path (or a
+   /proc grant above it), and a `program:` the profile "system" and
+   `env = { "PATH" }`; it is probed only under the system's paths
+   ([`build.confine`]'s `system_paths`) a worker with that profile is
+   given, so one found only elsewhere is skipped. The requirements of a
+   module are all or nothing: a test that needs one only some of the
+   time goes in a module of its own, as one that reads the store does.
+   Each CI leg lists the requirements it promises in
+   [`ci/cosmic_ci/capabilities.tl`] (linux-x86_64, its shard, its checked
+   job, linux-aarch64 and alpine-x86_64 promise the Linux-class names and `path:/bin/sh`;
+   macos-aarch64 promises `path:/bin/sh` alone; none promises `portable` or `root`), and the driver gives
+   every suite of a leg the list as `COSMIC_TEST_PROMISES` (names
+   separated by commas, read only by a held run, which a name the table
+   refuses fails) and the
+   leg's name as `COSMIC_TEST_LEG` ([`build/host_names.tl`]'s `promised`
+   matches a `landlock:N` by version). A held run
+   (`COSMIC_TEST_SANDBOX=1`, `COSMIC_SANDBOX=must`,
+   `COSMIC_CI_REQUIRE_SANDBOX=1`) fails a module for an n/a or a skip of a
+   requirement its leg promises, naming the requirement and the leg, and
+   fails for any other absence no more than it did: a requirement no leg
+   promises (`path:`, `program:` of a tool a leg lacks) is skipped even
+   there, and a run that is not held ignores the promises. Add a name to
+   a leg's list in the same change that a module first requires it:
+   `o/bin/cosmic fix --check .` fails a requirement no leg promises,
+   since a module n/a or skipped on every leg would run nowhere
+   ([`build/tree_checks.tl`]'s `promises`). The promised list moves no
+   key. `COSMIC_TEST_PLATFORM=other`
+   is for the runner's own tests: it makes the platform one without
+   Linux's requirements or a portable artifact, so modules turn n/a
+   and the run exits 0; never set it to run a suite, as with
+   `COSMIC_TEST_HARNESS_EPOCH`.
+   A test that ends early because this host cannot be given the
+   sandbox it is about, for what only the test can learn (a spawn the
+   kernel refused with EPERM), calls [`Test.skip`] too, never passing as
+   though it had checked. A test for what the policy path cannot yet give
+   it (a unix socket by path, a mode with a setuid bit) skips naming the
+   reason, beside a `TODO:` that says what it waits on. A test that
+   cannot check what it is about for a host tool or artifact it lacks
+   (jq, a portable artifact) or for the platform's having none (/proc,
+   Landlock) declares `requires`; where no name stands for it (a native
+   start with nothing to relaunch, the checked core's instruments, a
+   test of what only another platform does) it calls `Test.skip(reason)`,
+   never `return`s: a plain skip is listed and keeps no verdict, and a
+   held run fails only a skip of a name its leg promises.
+   A test that passes having made no call to `assert` -- through any
+   helper or fixture it called -- shows only that it did not raise. The
+   worker counts the calls to `assert` a test makes ([`build/test_worker.tl`]'s
+   `count_assertions`, which holds for a module that took `assert` as a
+   local as it loaded), and `cosmic test` lists each such pass as
+   `test: NO ASSERT <id>`, counts it in the summary (`N made no call to
+   assert`) and keeps no verdict of it, so it is met again every run. A
+   held run fails it. A test that checks through `error` or `pcall`, or
+   a helper that does, calls `assert` for what it checks; one that cannot
+   check on this host declares `requires` or calls `Test.skip(reason)`;
+   and one that shows that something does not raise asserts on a result
+   that shows it. An example (`*_example.tl`) shows use and is not held
+   to this, and a doc test's output is compared with `assert`. A fuzz
+   property counts each input it checks; where `FUZZ_ITERS=0` draws none
+   and no corpus holds one, the fuzz runner says so with
+   `Test.passed_unchecked(reason)`, which keeps the verdict and is
+   counted apart (`test: NOTHING TO CHECK`); nothing else may call it
+   (`cosmic fix --check .` holds it to that).
+   A test of what only the checked core's instruments reach (a refused
+   allocation, a fault point) goes in a module that declares
+   `requires = { "checked" }`, which every other core finds not
+   applicable and the checked leg promises.
+   [`confine.sandbox_platform`] is for the probe of the host alone
+   ([`build/host_requires.tl`], [`build/test_sandbox_probe.tl`]):
+   `cosmic fix --check .` fails a use anywhere else
+   ([`build/tree_checks.tl`]'s `restricted`).
+   A test module declares what it is held to, and reads beyond its import
+   closure, its fuzz corpora and a pinned environment, with a top-level
+   `Test.policy { ... }` (`local Test = require("cosmic.test")`; see
+   `o/bin/cosmic docs cosmic.test`), in the fields of cosmic.sandbox's
+   `Policy`. The harness translates it into the `needs` it stands for,
+   whose fields these paragraphs name (`reads`, `host`, `env`, `network`,
+   `system`, `tool`, `lua`, `nests`, `store`, `noexec`, `caches`): a grant
+   "r" of a path of the tree is a read and of an absolute path a host
+   file, the profile "system" is `system`, "cosmic" is `lua`, and `tool`
+   with the grant `{ path = "o/bin", letters = "rx" }` beside it, the
+   promise "nest" is `nests`, `loopback` is `network`, the grant
+   `{ path = "o/cosmic.db", letters = "r" }` is `store`; what has no
+   `needs` (a grant to write, `isolate`, `limits`, `set_env`) is refused.
+   Nothing lists what a test reads
    undeclared: sandboxed, such a read finds nothing, and the test fails
    with its own error (a file not found, a program that could not
    start), which is the signal to declare it. Narrow a test before
@@ -249,21 +390,29 @@
    starts too, which inherit its worker's sandbox and environment; build
    a process's environment from build.this_program's `environment()` only where
    the test means to choose it. The closure is what the build
-   finds `require`d by a literal name, and a test's `require` of any
-   other module of the tree (a computed name, `pcall(require, ...)`)
-   fails, naming it: require it statically, at the top level.
+   finds `require`d by a literal name. The `local type` requires of a
+   non-test module are not followed (Teal erases them, so they load
+   nothing, and an edit to what they name that the importer's bytecode
+   does not answer runs no test again); every require of a test module
+   itself is followed, `local type` ones too. A test's `require` of any
+   other module of the tree (a computed name, `pcall(require, ...)`, a
+   type-only one) fails, naming it: require it statically, at the top
+   level. A test that type-checks a snippet reading
+   a module's types brings the sources it needs in with `local type _ =
+   require(...)` of its own.
    Each worker runs sandboxed to those inputs ([`build/test_sandbox.tl`]),
    wherever the kernel can sandbox one: the tree at /tree, its directory
    beneath /tmp, and nothing else of either, with every process it starts, so
    a test that reads what it does not declare fails. Nor has it the
    system's own paths (/usr, /bin, /lib, /etc and the like) unless its
-   module declares `system = true`, as one that starts a host program --
+   module declares the profile "system" (`system`), as one that starts a
+   host program --
    a shell, `sleep`, a compiler, o/bin/cosmic's `#!/bin/sh` launcher --
    must; a test that starts cosmic's core past the launcher
    (build.this_program's `program`) needs none, and one that reads a file or two
-   of the system names them in `host`. A `host` path names a file, or
-   /proc: a directory is refused -- by the build where it is written as
-   one (a "/" after it, a variable's whole path), and at the test's
+   of the system grants them by their absolute paths. A grant of an
+   absolute path names a file, or /proc: a directory is refused -- by the
+   build where it is written as one (a "/" after it), and at the test's
    start where the host has one there -- so declare the files a test
    reads, which its key holds by their contents. Where none can be (macOS, a host refusing user
    namespaces), or with `COSMIC_TEST_SANDBOX=0`, workers run unsandboxed
@@ -414,13 +563,13 @@ A change that moves ci/cosmic-driver.pin also takes up every `TODO:` the new rel
 unblocks: `o/bin/cosmic todos '"cosmic-driver.pin"'` lists them.
 
 [`.claude/skills/comments/SKILL.md`]: .claude/skills/comments/SKILL.md
-[`.github/scripts/place-tree.sh`]: .github/scripts/place-tree.sh
 [`bin/cosmic-bootstrap`]: bin/cosmic-bootstrap
 [`bin/vendor`]: bin/vendor
 [`bin/verify-codesign`]: bin/verify-codesign
 [`bin/zig`]: bin/zig
+[`build.confine`]: build/confine.tl
 [`build.fuzz`]: build/fuzz/init.tl
-[`build.sandbox_skip`]: build/sandbox_skip.tl
+[`build.host_names`]: build/host_names.tl
 [`build/artifact.tl`]: build/artifact.tl
 [`build/c/layout.tl`]: build/c/layout.tl
 [`build/c/rules.tl`]: build/c/rules.tl
@@ -430,11 +579,15 @@ unblocks: `o/bin/cosmic todos '"cosmic-driver.pin"'` lists them.
 [`build/flow.tl`]: build/flow.tl
 [`build/harness_epoch.tl`]: build/harness_epoch.tl
 [`build/harness_epoch_test.tl`]: build/harness_epoch_test.tl
+[`build/host_names.tl`]: build/host_names.tl
+[`build/host_requires.tl`]: build/host_requires.tl
 [`build/launcher.tl`]: build/launcher.tl
 [`build/reboot.tl`]: build/reboot.tl
 [`build/rebuild_lock.tl`]: build/rebuild_lock.tl
 [`build/sandboxed_verdicts_test.tl`]: build/sandboxed_verdicts_test.tl
 [`build/shared_compiles.tl`]: build/shared_compiles.tl
+[`build/test.tl`]: build/test.tl
+[`build/test_policy.tl`]: build/test_policy.tl
 [`build/test_sandbox.tl`]: build/test_sandbox.tl
 [`build/test_sandbox_probe.tl`]: build/test_sandbox_probe.tl
 [`build/test_worker.tl`]: build/test_worker.tl
@@ -442,13 +595,16 @@ unblocks: `o/bin/cosmic todos '"cosmic-driver.pin"'` lists them.
 [`build/workflows_test.tl`]: build/workflows_test.tl
 [`build/zig.tl`]: build/zig.tl
 [`ci/cosmic-driver.pin`]: ci/cosmic-driver.pin
+[`ci/cosmic_ci/capabilities.tl`]: ci/cosmic_ci/capabilities.tl
+[`ci/cosmic_ci/place_tree.tl`]: ci/cosmic_ci/place_tree.tl
 [`ci/run-local`]: ci/run-local
+[`confine.sandbox_platform`]: build/confine.tl
 [`core/allocation_test.tl`]: core/allocation_test.tl
 [`core/check.h`]: core/check.h
 [`core/fail.h`]: core/fail.h
 [`core/guard.h`]: core/guard.h
 [`core/syscalls.h`]: core/syscalls.h
-[`core/syscalls_test.tl`]: core/syscalls_test.tl
+[`cosmic.sandbox`]: cosmic/sandbox.tl
 [`doc/roadmap.md`]: doc/roadmap.md
 [`Fuzz.label`]: build/fuzz/init.tl
 [`Fuzz.more`]: build/fuzz/init.tl
@@ -456,6 +612,7 @@ unblocks: `o/bin/cosmic todos '"cosmic-driver.pin"'` lists them.
 [`Store.bytecode`]: cosmic/store.tl
 [`Store.databases()`]: cosmic/store.tl
 [`Store.meta`]: cosmic/store.tl
+[`Store.requires`]: cosmic/store.tl
 [`Store.source`]: cosmic/store.tl
-[`Test.needs`]: cosmic/test.tl
+[`Test.policy`]: cosmic/test.tl
 [`Test.skip`]: cosmic/test.tl

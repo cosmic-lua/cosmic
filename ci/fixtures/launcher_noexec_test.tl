@@ -9,17 +9,17 @@ local Test = require("cosmic.test")
 
 -- The same launcher contract as launcher_test.tl, with private noexec
 -- scratch supplied only after the worker's execution-refusal probe.
-Test.needs{
-  host = {
-    "$COSMIC_FIXTURE_PRODUCT/prefix",
-    "$COSMIC_FIXTURE_LAUNCHER/launcher.test",
-    "$COSMIC_FIXTURE_LAUNCHER/payloads/socket-x86_64-linux-musl",
-    "$COSMIC_FIXTURE_LAUNCHER/payloads/socket-aarch64-linux-musl",
-    "$COSMIC_FIXTURE_LAUNCHER/payloads/socket-aarch64-macos",
+Test.policy{
+  grants = {
+    { path = "o/fixtures/product/prefix", letters = "r" },
+    { path = "o/fixtures/launcher/launcher.test", letters = "r" },
+    { path = "o/fixtures/launcher/payloads/socket-x86_64-linux-musl", letters = "r" },
+    { path = "o/fixtures/launcher/payloads/socket-aarch64-linux-musl", letters = "r" },
+    { path = "o/fixtures/launcher/payloads/socket-aarch64-macos", letters = "r" },
+    { path = "/noexec", letters = "rwc" },
   },
   env = { "COSMIC_FIXTURE_TARGET" },
-  system = true,
-  noexec = true,
+  profiles = { "system" },
 }
 
 local setup, run = LauncherFixture.setup, LauncherFixture.run
@@ -38,7 +38,7 @@ local function test_launcher_noexec(tmp: string)
     local cache = noexec .. "/cache"
     local answer = run(ctx, "noexec-launch", cache)
     assert(answer.result.code == 126 and not answer.result.timed_out and
-      assert(Fs.stat(cache .. "/" .. key)).kind == "file",
+        assert(Fs.stat(cache .. "/" .. key)).kind == "file",
       "noexec launch did not stop at 126 with the core intact")
     -- Shells differ in whether test -x notices the mount restriction;
     -- either the launcher or its failed exec diagnoses the refusal.
@@ -47,8 +47,8 @@ local function test_launcher_noexec(tmp: string)
       "\ncosmic portable: verified core was refused execution; " ..
       "Permission denied here usually means a noexec cache filesystem\n"
     assert(diagnostic ==
-      "cosmic portable: verified core cannot execute on the cache filesystem\n" or
-      String.ends_with(diagnostic, refused), diagnostic)
+        "cosmic portable: verified core cannot execute on the cache filesystem\n" or
+        String.ends_with(diagnostic, refused), diagnostic)
     return true
   end)
   local removed, remove_trouble = Fs.remove_tree(noexec)

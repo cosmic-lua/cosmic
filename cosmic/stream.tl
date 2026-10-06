@@ -16,12 +16,12 @@
 --- call more than once, so a caller never has to ask which kind it
 --- holds. [`Stream.lines`] reads a Reader a line at a time.
 
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Poll = require("cosmic.poll")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
-local Time = require("cosmic.time")
 
 -- The raw declaration holds the interface. A declaration may require only
 -- declarations, and Teal's interface conformance is nominal: the raw
@@ -409,7 +409,7 @@ local function fd_options(opts: Stream.FdOptions | nil, level: integer): Stream.
   Poll.checked_ns(opts.timeout_ns, "stream", "timeout_ns", level + 1)
   if (opts.timeout_ns ~= nil or opts.wait ~= nil) and not opts.nonblocking then
     error("stream: timeout_ns and wait need nonblocking = true: a blocking descriptor " ..
-      "cannot be waited on in pieces", level + 1)
+        "cannot be waited on in pieces", level + 1)
   end
   -- A copy, so a field set after this check cannot go past it.
   return { nonblocking = opts.nonblocking, timeout_ns = opts.timeout_ns, wait = opts.wait }
@@ -418,9 +418,9 @@ end
 --- Waits for `fd` to have `events` until `deadline` (nil for no limit),
 --- through the caller's `wait` or [`Poll.wait`].
 local function wait_for(fd: integer, events: integer, opts: Stream.FdOptions,
-    deadline: integer | nil): boolean, string
+                        deadline: integer | nil): boolean, string
   local left: integer = nil
-  if deadline ~= nil then left = math.max(deadline - Time.monotonic_ns(), 0) end
+  if deadline ~= nil then left = math.max(deadline - Clock.monotonic_ns(), 0) end
   if opts.wait ~= nil then return opts.wait(fd, events, left) end
   return Poll.wait(fd, events, left)
 end
@@ -466,7 +466,7 @@ function FdReader:read(max_bytes?: integer): string | nil, string
   if self.ended then return nil, "" end
   local fd, opts = self.fd, self.opts
   local deadline: integer = nil
-  if opts.timeout_ns ~= nil then deadline = Time.monotonic_ns() + opts.timeout_ns end
+  if opts.timeout_ns ~= nil then deadline = Clock.monotonic_ns() + opts.timeout_ns end
   while true do
     local data, trouble, errno = sys.read(fd, max_bytes or chunk_size)
     if data ~= nil then
@@ -546,7 +546,7 @@ end
 --- [`Poll.TIMEOUT`], and may be called again. A deadline or a cancelled
 --- task is the one failure that is not sticky.
 ---
----     local r = Stream.from_fd(fd, { nonblocking = true, timeout_ns = Time.ms(50) })
+---     local r = Stream.from_fd(fd, { nonblocking = true, timeout_ns = Clock.ms(50) })
 ---     local chunk, why = r:read()
 ---     if chunk == nil and why == Poll.TIMEOUT then print("nothing for 50 ms") end
 function Stream.from_fd(fd: integer, opts?: Stream.FdOptions): Stream.Reader
@@ -766,7 +766,7 @@ function Stream.read_exact(reader: Stream.Reader, n: integer): string | nil, str
   if data == nil then return nil, trouble end
   if #data < n then
     return refuse("truncated: wanted " .. String.counted(n, "byte") ..
-      ", got " .. tostring(#data))
+        ", got " .. tostring(#data))
   end
   return data, ""
 end
@@ -1096,7 +1096,7 @@ function ToFdWriter:write(data: string): boolean, string
   if self.failed then return false, self.failed end
   local fd, options = self.fd, self.options
   local deadline: integer = nil
-  if options.timeout_ns ~= nil then deadline = Time.monotonic_ns() + options.timeout_ns end
+  if options.timeout_ns ~= nil then deadline = Clock.monotonic_ns() + options.timeout_ns end
   local at = 0
   while at < #data do
     -- Handed in pieces, so a body of any size is not copied whole
@@ -1164,7 +1164,7 @@ ToFdWriter.abort = ToFdWriter.close
 --- counts, so the caller can write the rest, or give up knowing how
 --- much of it went.
 ---
----     local w = Stream.to_fd(fd, { nonblocking = true, timeout_ns = Time.seconds(5) })
+---     local w = Stream.to_fd(fd, { nonblocking = true, timeout_ns = Clock.seconds(5) })
 ---     local ok, why = w:write(body)
 ---     if not ok and why == Poll.TIMEOUT then print(w:written() .. " bytes went") end
 function Stream.to_fd(fd: integer, opts?: Stream.FdOptions): Stream.FdWriter
@@ -1471,7 +1471,7 @@ end
 ---     assert(w:write(first_chunk))   -- nothing reaches `out` yet
 ---     assert(w:close())              -- the decoded bytes, or `out` aborted
 function Stream.transform_writer(writer: Stream.Writer, codec: Stream.Transform,
-    opts?: Stream.TransformWriterOptions): Stream.Writer
+                                 opts?: Stream.TransformWriterOptions): Stream.Writer
   local hold = opts ~= nil and opts.hold or 0
   if math.type(hold) ~= "integer" or hold < 0 then
     error("stream: hold must be an integer of at least 0", 2)

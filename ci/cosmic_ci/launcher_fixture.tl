@@ -1,12 +1,12 @@
-local Time = require("cosmic.time")
 --- What launcher_test.tl and launcher_noexec_test.tl share: the
 --- launcher contract's artifact, copied where a case may run it, and
 --- how a case runs it.
+local Clock = require("cosmic.clock")
 local Fixture = require("cosmic_ci.fixture")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 
-local child_timeout_ns <const> = Time.seconds(30)
+local child_timeout_ns <const> = Clock.seconds(30)
 
 local record LauncherFixture
   record Context
@@ -34,7 +34,7 @@ local private_environment = {
 --- The environment the launcher runs in: the fixture's own, none of the
 --- launcher's private contract, the cache `cache`, and `extra` over it.
 function LauncherFixture.environment(cache?: string,
-    extra?: {string:string}): {string:string}
+                                     extra?: {string:string}): {string:string}
   local values = Fixture.environment({
     PORTABLE_ORDINARY_ENV = "preserved",
     PORTABLE_CALLER_LOCALE = "preserved",
@@ -48,7 +48,7 @@ function LauncherFixture.environment(cache?: string,
 end
 
 --- A case's context beneath `tmp`: the contract's launcher
---- (COSMIC_FIXTURE_LAUNCHER, cosmic_ci/launcher_setup.tl) copied into a
+--- (o/fixtures/launcher, cosmic_ci/launcher_setup.tl) copied into a
 --- directory whose name holds a space, a run directory and a link to it,
 --- and the target's socket payload, where the contract has it.
 function LauncherFixture.setup(tmp: string): Context
@@ -62,7 +62,7 @@ function LauncherFixture.setup(tmp: string): Context
   Fixture.mkdir(diagnostics)
   assert(Fs.symlink(run, alias))
   local artifact = program .. "/launcher.test"
-  local contract = Fixture.required("COSMIC_FIXTURE_LAUNCHER")
+  local contract = Fixture.placed("launcher")
   local target = Fixture.required("COSMIC_FIXTURE_TARGET")
   Fixture.copy(contract .. "/launcher.test", artifact, 0x1ed)
   return { artifact = artifact,
@@ -72,12 +72,12 @@ end
 
 function LauncherFixture.outcome_ok(outcome: Fixture.Outcome, label: string)
   assert(outcome.result.ok, label .. " failed; stdout=" .. outcome.out ..
-    "; stderr=" .. outcome.err)
+      "; stderr=" .. outcome.err)
 end
 
 --- Runs the launcher (or `program`) from the case's directory.
 function LauncherFixture.run(ctx: Context, label: string, cache?: string,
-    extra?: {string:string}, program?: string): Fixture.Outcome
+                             extra?: {string:string}, program?: string): Fixture.Outcome
   return Fixture.call_with_environment(label, { program or ctx.artifact }, ctx.work,
     ctx.diagnostics, LauncherFixture.environment(cache, extra), child_timeout_ns)
 end

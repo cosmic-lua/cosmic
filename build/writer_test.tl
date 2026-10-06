@@ -12,6 +12,7 @@ local schema = require("build.schema")
 local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
+local fixture = require("build.docs_fixture")
 
 local built, load_trouble = teal.load()
 if built == nil then
@@ -151,7 +152,7 @@ local function test_a_declaration_ships_its_docs(tmp: string)
   assert(out:close())
   assert(#rows == 1, tostring(#rows))
   assert(rows[1][1] == "Seconds since the epoch." and rows[1][2] == "clock.d.tl" and
-    rows[1][3] == "3", table.concat(rows[1], " "))
+      rows[1][3] == "3", table.concat(rows[1], " "))
 end
 
 --- What the tool carries is the projection without the tree's own
@@ -202,9 +203,9 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
   -- A bill of materials, as cosmic's own tree's projection holds one.
   local whole_db = assert(Sqlite.open(tmp .. "/whole.db", { writable = true }))
   assert(whole_db:exec("INSERT INTO components VALUES ('zlib', 'library', '1.3', 'Zlib', " ..
-    "'https://zlib.net/z.tar.gz', '', ''); INSERT INTO notices VALUES ('zlib', 1, " ..
-    "'LICENSE', '(C) 1995 Jean-loup Gailly and Mark Adler' || char(10)); " ..
-    "INSERT INTO ca_roots VALUES (sha256(x'0506'), 'A Root', x'0506')"))
+      "'https://zlib.net/z.tar.gz', '', ''); INSERT INTO notices VALUES ('zlib', 1, " ..
+      "'LICENSE', '(C) 1995 Jean-loup Gailly and Mark Adler' || char(10)); " ..
+      "INSERT INTO ca_roots VALUES (sha256(x'0506'), 'A Root', x'0506')"))
   assert(whole_db:close())
   assert(writer.carried(tmp .. "/whole.db", tmp .. "/carried.db"))
   assert(writer.carried(tmp .. "/whole.db", tmp .. "/again.db"))
@@ -220,17 +221,17 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
   local whole = rows(tmp .. "/whole.db",
     "SELECT group_concat(path, ' ') FROM (SELECT path FROM modules ORDER BY path)")
   assert(whole[1][1] ==
-    "cmd.hello.main fixture_test greet greet_example greet_test shared",
+      "cmd.hello.main fixture_test greet greet_example greet_test shared",
     whole[1][1])
   local carried = rows(tmp .. "/carried.db",
     "SELECT group_concat(path, ' ') FROM (SELECT path FROM modules ORDER BY path)")
   assert(carried[1][1] == "cmd.hello.main fixture_test greet shared", carried[1][1])
   local about_dropped = rows(tmp .. "/carried.db",
     "SELECT (SELECT count(*) FROM docs WHERE module IN ('greet_test', 'greet_example')) " ..
-    "+ (SELECT count(*) FROM uses WHERE from_module IN ('greet_test', 'greet_example')) " ..
-    "+ (SELECT count(*) FROM imports WHERE path IN ('greet_test', 'greet_example') " ..
-    "OR requires IN ('greet_test', 'greet_example')) " ..
-    "+ (SELECT count(*) FROM catalog WHERE module IN ('greet_test', 'greet_example'))")
+      "+ (SELECT count(*) FROM uses WHERE from_module IN ('greet_test', 'greet_example')) " ..
+      "+ (SELECT count(*) FROM imports WHERE path IN ('greet_test', 'greet_example') " ..
+      "OR requires IN ('greet_test', 'greet_example')) " ..
+      "+ (SELECT count(*) FROM catalog WHERE module IN ('greet_test', 'greet_example'))")
   local in_whole = rows(tmp .. "/whole.db",
     "SELECT count(*) FROM catalog WHERE module = 'greet_test'")
   assert(in_whole[1][1] == "1", "the projection holds the test's catalog row")
@@ -240,11 +241,11 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
   -- below covers which docs rows are carried.
   local kept = rows(tmp .. "/carried.db",
     "SELECT (SELECT count(*) FROM examples WHERE module = 'greet'), " ..
-    "(SELECT count(*) FROM docs WHERE module = 'greet'), " ..
-    "(SELECT value FROM meta WHERE key = 'main')")
+      "(SELECT count(*) FROM docs WHERE module = 'greet'), " ..
+      "(SELECT value FROM meta WHERE key = 'main')")
   local documented = rows(tmp .. "/whole.db",
     "SELECT (SELECT count(*) FROM examples WHERE module = 'greet'), " ..
-    "(SELECT count(*) FROM docs WHERE module = 'greet')")
+      "(SELECT count(*) FROM docs WHERE module = 'greet')")
   assert(documented[1][1] == "1" and tonumber(documented[1][2]) > 0,
     "the projection documents greet")
   assert(kept[1][1] == "0" and kept[1][2] == "0", "greet's docs stay in the projection")
@@ -252,7 +253,7 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
   local materials = rows(tmp .. "/carried.db",
     "SELECT c.name, c.license, n.text FROM components c JOIN notices n ON n.component = c.name")
   assert(#materials == 1 and materials[1][1] == "zlib" and materials[1][2] == "Zlib" and
-    materials[1][3] == "(C) 1995 Jean-loup Gailly and Mark Adler\n",
+      materials[1][3] == "(C) 1995 Jean-loup Gailly and Mark Adler\n",
     "the tool carries the projection's bill of materials")
   local trusted = rows(tmp .. "/carried.db", "SELECT label, hex(der) FROM ca_roots")
   assert(#trusted == 1 and trusted[1][1] == "A Root" and trusted[1][2] == "0506",
@@ -306,9 +307,9 @@ local function test_a_module_ships_its_bytecode_and_not_its_lua(tmp: string)
     "SELECT name FROM pragma_table_info('modules') WHERE name = 'lua'"))
   local rows = assert(Sqlite.text_rows(out,
     "SELECT length(bytecode) > 0, " ..
-    "instr(CAST(inflate(source) AS TEXT), 'hello, world') > 0, " ..
-    "instr(CAST(source AS TEXT), 'function greet.hello') = 0 " ..
-    "FROM modules WHERE path = 'greet'"))
+      "instr(CAST(inflate(source) AS TEXT), 'hello, world') > 0, " ..
+      "instr(CAST(source AS TEXT), 'function greet.hello') = 0 " ..
+      "FROM modules WHERE path = 'greet'"))
   assert(out:close())
   assert(#columns == 0, "the shipped modules table carries generated Lua")
   assert(#rows == 1 and rows[1][1] == "1" and rows[1][2] == "1",
@@ -329,7 +330,7 @@ local function test_the_zones_ship_and_sign_the_projection(tmp: string)
   local db = assert(Sqlite.open(out))
   local rows = assert(Sqlite.text_rows(db,
     "SELECT group_concat(name || ' ' || typeof(data) || ' ' || length(data), ',' ORDER BY rowid) " ..
-    "FROM zoneinfo"))
+      "FROM zoneinfo"))
   assert(db:close())
   assert(rows[1][1] == "A/Zone blob 6,Test/Zone blob 9", rows[1][1])
   -- And the tool built from the projection carries them too.
@@ -353,50 +354,50 @@ local function test_the_carried_docs_are_the_public_standard_library_s(tmp: stri
   for _, statement in ipairs(schema.settings("")) do assert(db:exec(statement)) end
   for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
   for _, statement in ipairs({
-    "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
-      "VALUES ('cosmic.fs', 'cosmic/fs.tl', 'module', '', '', '', '', ''), " ..
-      "('cosmic.fs_example', 'cosmic/fs_example.tl', 'example', '', '', '', '', ''), " ..
-      "('build.work', 'build/work.tl', 'module', '', '', '', '', ''), " ..
-      "('build.tree', 'build/tree.tl', 'module', '', '', '', '', '')",
-    "INSERT INTO docs (module, symbol, source_symbol, exported, kind, signature, " ..
-      "text, file, line) VALUES " ..
-      "('cosmic.fs', 'Fs.read', 'Fs.read', 1, 'function', '', 'Reads a file.', 'f', 1), " ..
-      "('cosmic.internal.fs', 'raw', 'raw', 1, 'function', '', 'Raw.', 'f', 1), " ..
-      "('cosmic.internal.fs', 'Stat', 'raw.Stat', 1, 'record', '', 'A stat.', 'f', 1), " ..
-      "('cosmic.internal.fs', 'Stat.size', 'raw.Stat.size', 1, 'field', '', 'Its size.', 'f', 1), " ..
-      "('cosmic.internal.fs', 'open', 'raw.open', 1, 'field', '', 'Opens.', 'f', 1), " ..
-      "('cosmic.internal.fs', 'Other', 'raw.Other', 1, 'record', '', 'Unreached.', 'f', 1), " ..
-      "('cosmic.internal.fs', 'Other.n', 'raw.Other.n', 1, 'field', '', 'Unreached.', 'f', 1), " ..
-      "('cosmic.fs', 'Fs.Stat', 'Fs.Stat', 1, 'field', 'type Stat = Native.Stat', 'A stat.', " ..
-      "'f', 1), " ..
-      "('cosmic.fs_example', 'Example.read', 'Example.read', 1, 'function', '', " ..
-      "'Shows it.', 'f', 1), " ..
-      "('build.work', 'work.open', 'work.open', 1, 'function', '', " ..
-      "'Opens the working database.', 'f', 1), " ..
-      "('build.tree', 'tree.is_own', 'tree.is_own', 1, 'function', '', " ..
-      "'Whether a tree is cosmic.', 'f', 1)",
-    -- The name cosmic.fs binds the internal module to is no spelling of
-    -- the module's own.
-    "INSERT INTO bound (path, name, requires) VALUES " ..
-      "('cosmic.fs', 'Native', 'cosmic.internal.fs'), " ..
-      "('cosmic.fs_example', 'Fs', 'cosmic.fs')",
-    "INSERT INTO catalog (kind, module, symbol, message, text, file, line) " ..
-      "VALUES ('error', 'build.work', 'work.open', 'cannot open', NULL, 'f', 1)",
-    "INSERT INTO uses (module, symbol, from_module, from_file, line) VALUES " ..
-      "('cosmic.fs', 'read', 'cosmic.fs', 'f', 1), " ..
-      "('cosmic.fs', 'read', 'build.work', 'f', 2), " ..
-      "('build.tree', 'is_own', 'build.work', 'f', 3), " ..
-      "('cosmic.fs', 'read', 'cosmic.fs_example', 'f', 4)",
-    "INSERT INTO examples (module, name, text, file, line, source) VALUES " ..
-      "('cosmic.fs', 'read', 'Reads.', 'f', 1, 'Fs.read(p)'), " ..
-      "('build.tree', 'own', 'Owns.', 'f', 1, 'tree.is_own(r)')",
-    "INSERT INTO links (module, symbol, path, anchor, from_file, line, column, from_module, " ..
-      "kind, form, source, text) VALUES " ..
-      "('cosmic.fs', 'read', '', '', 'f', 5, 1, 'cosmic.fs', 'symbol', 'shortcut', 'doc', 'r'), " ..
-      "('cosmic.fs', 'read', '', '', 'f', 6, 1, 'build.work', 'symbol', 'shortcut', 'doc', 'r'), " ..
-      "('', '', 'doc/a.md', '', 'f', 7, 1, 'cosmic.fs', 'file', 'inline', 'doc', 'a'), " ..
-      "('cosmic.fs', 'read', '', '', 'f', 8, 1, 'cosmic.fs_example', 'symbol', 'shortcut', " ..
-      "'doc', 'r')",
+      "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
+        "VALUES ('cosmic.fs', 'cosmic/fs.tl', 'module', '', '', '', '', ''), " ..
+        "('cosmic.fs_example', 'cosmic/fs_example.tl', 'example', '', '', '', '', ''), " ..
+        "('build.work', 'build/work.tl', 'module', '', '', '', '', ''), " ..
+        "('build.tree', 'build/tree.tl', 'module', '', '', '', '', '')",
+      "INSERT INTO docs (module, symbol, source_symbol, exported, kind, signature, " ..
+        "text, file, line) VALUES " ..
+        "('cosmic.fs', 'Fs.read', 'Fs.read', 1, 'function', '', 'Reads a file.', 'f', 1), " ..
+        "('cosmic.internal.fs', 'raw', 'raw', 1, 'function', '', 'Raw.', 'f', 1), " ..
+        "('cosmic.internal.fs', 'Stat', 'raw.Stat', 1, 'record', '', 'A stat.', 'f', 1), " ..
+        "('cosmic.internal.fs', 'Stat.size', 'raw.Stat.size', 1, 'field', '', 'Its size.', 'f', 1), " ..
+        "('cosmic.internal.fs', 'open', 'raw.open', 1, 'field', '', 'Opens.', 'f', 1), " ..
+        "('cosmic.internal.fs', 'Other', 'raw.Other', 1, 'record', '', 'Unreached.', 'f', 1), " ..
+        "('cosmic.internal.fs', 'Other.n', 'raw.Other.n', 1, 'field', '', 'Unreached.', 'f', 1), " ..
+        "('cosmic.fs', 'Fs.Stat', 'Fs.Stat', 1, 'field', 'type Stat = Native.Stat', 'A stat.', " ..
+        "'f', 1), " ..
+        "('cosmic.fs_example', 'Example.read', 'Example.read', 1, 'function', '', " ..
+        "'Shows it.', 'f', 1), " ..
+        "('build.work', 'work.open', 'work.open', 1, 'function', '', " ..
+        "'Opens the working database.', 'f', 1), " ..
+        "('build.tree', 'tree.is_own', 'tree.is_own', 1, 'function', '', " ..
+        "'Whether a tree is cosmic.', 'f', 1)",
+      -- The name cosmic.fs binds the internal module to is no spelling of
+      -- the module's own.
+      "INSERT INTO bound (path, name, requires) VALUES " ..
+        "('cosmic.fs', 'Native', 'cosmic.internal.fs'), " ..
+        "('cosmic.fs_example', 'Fs', 'cosmic.fs')",
+      "INSERT INTO catalog (kind, module, symbol, message, text, file, line) " ..
+        "VALUES ('error', 'build.work', 'work.open', 'cannot open', NULL, 'f', 1)",
+      "INSERT INTO uses (module, symbol, from_module, from_file, line) VALUES " ..
+        "('cosmic.fs', 'read', 'cosmic.fs', 'f', 1), " ..
+        "('cosmic.fs', 'read', 'build.work', 'f', 2), " ..
+        "('build.tree', 'is_own', 'build.work', 'f', 3), " ..
+        "('cosmic.fs', 'read', 'cosmic.fs_example', 'f', 4)",
+      "INSERT INTO examples (module, name, text, file, line, source) VALUES " ..
+        "('cosmic.fs', 'read', 'Reads.', 'f', 1, 'Fs.read(p)'), " ..
+        "('build.tree', 'own', 'Owns.', 'f', 1, 'tree.is_own(r)')",
+      "INSERT INTO links (module, symbol, path, anchor, from_file, line, column, from_module, " ..
+        "kind, form, source, text) VALUES " ..
+        "('cosmic.fs', 'read', '', '', 'f', 5, 1, 'cosmic.fs', 'symbol', 'shortcut', 'doc', 'r'), " ..
+        "('cosmic.fs', 'read', '', '', 'f', 6, 1, 'build.work', 'symbol', 'shortcut', 'doc', 'r'), " ..
+        "('', '', 'doc/a.md', '', 'f', 7, 1, 'cosmic.fs', 'file', 'inline', 'doc', 'a'), " ..
+        "('cosmic.fs', 'read', '', '', 'f', 8, 1, 'cosmic.fs_example', 'symbol', 'shortcut', " ..
+        "'doc', 'r')",
   }) do
     assert(db:exec(statement))
   end
@@ -410,13 +411,13 @@ local function test_the_carried_docs_are_the_public_standard_library_s(tmp: stri
   end
   local docs = column("SELECT module AS v FROM docs ORDER BY id")
   local uses = column("SELECT from_module || '>' || module AS v FROM uses " ..
-    "ORDER BY module, symbol, from_module, line")
+      "ORDER BY module, symbol, from_module, line")
   local examples = column("SELECT module AS v FROM examples ORDER BY id")
   local bound = column("SELECT path || ':' || name AS v FROM bound ORDER BY path")
   local linked = column("SELECT from_module || ':' || line || '>' || module || path AS v " ..
-    "FROM links ORDER BY from_file, line")
+      "FROM links ORDER BY from_file, line")
   local indexed = column("SELECT d.module AS v FROM docs_fts JOIN docs d " ..
-    "ON d.id = docs_fts.rowid WHERE docs_fts MATCH 'opens OR reads' ORDER BY d.id")
+      "ON d.id = docs_fts.rowid WHERE docs_fts MATCH 'opens OR reads' ORDER BY d.id")
   assert(out:close())
   -- The internal rows carried are the nested type and its member, which a
   -- public alias's page lists, not the module's own function or field.
@@ -440,15 +441,15 @@ local function test_the_carried_docs_hold_the_user_guides_prose(tmp: string)
   for _, statement in ipairs(schema.settings("")) do assert(db:exec(statement)) end
   for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
   for _, statement in ipairs({
-    "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
-      "VALUES ('doc.guides.quickstart', 'doc/guides/quickstart.md', 'test', '', '', '', '', ''), " ..
-      "('doc.guides.portable-runtime', 'doc/guides/portable-runtime.md', 'test', '', '', '', '', '')",
-    "INSERT INTO docs (module, symbol, source_symbol, exported, kind, signature, " ..
-      "text, file, line) VALUES " ..
-      "('doc.guides.quickstart', '', '', 1, 'module', '', 'A tour.', 'f', 1), " ..
-      "('doc.guides.quickstart', '__doctest_write', '__doctest_write', 0, 'function', '', " ..
-      "'A helper.', 'f', 1), " ..
-      "('doc.guides.portable-runtime', '', '', 1, 'module', '', 'How it is built.', 'f', 1)",
+      "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
+        "VALUES ('doc.guides.quickstart', 'doc/guides/quickstart.md', 'test', '', '', '', '', ''), " ..
+        "('doc.guides.portable-runtime', 'doc/guides/portable-runtime.md', 'test', '', '', '', '', '')",
+      "INSERT INTO docs (module, symbol, source_symbol, exported, kind, signature, " ..
+        "text, file, line) VALUES " ..
+        "('doc.guides.quickstart', '', '', 1, 'module', '', 'A tour.', 'f', 1), " ..
+        "('doc.guides.quickstart', '__doctest_write', '__doctest_write', 0, 'function', '', " ..
+        "'A helper.', 'f', 1), " ..
+        "('doc.guides.portable-runtime', '', '', 1, 'module', '', 'How it is built.', 'f', 1)",
   }) do
     assert(db:exec(statement))
   end
@@ -468,4 +469,69 @@ local function test_a_project_is_reproducible(tmp: string)
   assert(work.close((build_and_write(tmp .. "/two", "world", tmp .. "/two.db"))))
   assert(Fs.read(tmp .. "/one.db") == Fs.read(tmp .. "/two.db"),
     "equivalent projects produced different projections")
+end
+
+--- A paired declaration describes the interface; only its implementation
+--- contributes executable rows and runtime dependencies.
+local function test_paired_declaration_projects_each_source_in_its_role(tmp: string)
+  local db = fixture.database(tmp, {
+    ["decl_dep.tl"] = "local record Dep\n  declared: integer\nend\nreturn Dep\n",
+    ["impl_dep.tl"] = "local record Dep\n  executed: integer\nend\nreturn Dep\n",
+    ["foo.d.tl"] = 'local Dep = require("decl_dep")\n' ..
+      "--- Public interface.\n--- See [`Dep.declared`].\nlocal record Foo\n  answer: integer\nend\n" ..
+      'local x = Dep.declared\nfunction Foo.fail(): nil, string\n' ..
+      '  return nil, "declaration error"\nend\nreturn Foo\n',
+    ["foo.tl"] = 'local Dep = require("impl_dep")\n' ..
+      "--- Private implementation.\n--- See [`Dep.executed`].\nlocal record Foo\n  answer: integer\nend\n" ..
+      'local x = Dep.executed\nfunction Foo.fail(): nil, string\n' ..
+      '  return nil, "implementation error"\nend\nreturn {answer = 42} as Foo\n',
+    ["only.d.tl"] = "--- Declaration alone.\nlocal record Only\nend\nreturn Only\n",
+  })
+  local function rows(sql: string): {{string}}
+    return (assert(Sqlite.text_rows(db, sql)))
+  end
+  local module = rows("SELECT file, kind, inflate(source) FROM modules WHERE path = 'foo'")
+  assert(#module == 1 and module[1][1] == "foo.tl" and module[1][2] ~= "decl")
+  assert(module[1][3]:find("answer = 42", 1, true), module[1][3])
+  assert(rows("SELECT count(*) FROM decls WHERE path IN ('foo', 'only')")[1][1] == "2")
+  assert(rows("SELECT count(*) FROM modules WHERE path = 'only'")[1][1] == "0")
+  local imports = rows("SELECT requires FROM imports WHERE path = 'foo'")
+  assert(#imports == 1 and imports[1][1] == "impl_dep")
+  local bound = rows("SELECT requires FROM bound WHERE path = 'foo' AND name = 'Dep'")
+  assert(#bound == 1 and bound[1][1] == "decl_dep")
+  local docs = rows("SELECT file, text FROM docs WHERE module = 'foo' AND symbol = 'Foo'")
+  assert(#docs == 1 and docs[1][1] == "foo.d.tl" and docs[1][2]:find("Public interface.", 1, true))
+  local uses = rows("SELECT module, symbol, from_file FROM uses WHERE from_module = 'foo'")
+  assert(#uses == 1 and uses[1][1] == "impl_dep" and uses[1][2] == "executed" and
+      uses[1][3] == "foo.tl")
+  local catalog = rows("SELECT message, file FROM catalog WHERE module = 'foo'")
+  assert(#catalog == 1 and catalog[1][1] == "implementation error" and catalog[1][2] == "foo.tl")
+  local links = rows("SELECT module, symbol, from_file FROM links WHERE from_module = 'foo'")
+  assert(#links == 1 and links[1][1] == "decl_dep" and links[1][2] == "declared" and
+      links[1][3] == "foo.d.tl")
+  assert(rows("SELECT count(*) FROM docs WHERE module = 'only'")[1][1] ~= "0")
+  assert(db:close())
+end
+
+--- A projection failure rolls back the working transaction and discards
+--- the attached snapshot, so the same handle can stage and publish again.
+local function test_a_failed_projection_can_be_retried(tmp: string)
+  write_project(tmp, "retry")
+  local handle = assert(work.open(tmp))
+  assert(work.stage(handle, false))
+  local result = assert(importer.compile(handle, built, "writer-test"))
+  assert(handle.db:exec("DROP TABLE compiled"))
+  local out = tmp .. "/out.db"
+  local written, trouble = writer.write_result(handle, out, result)
+  assert(not written and trouble:find("compiled", 1, true), trouble)
+  assert(not handle.inside, "the failed projection left its transaction open")
+  assert(Fs.stat(out) == nil, "the failed projection published a file")
+  assert(handle.db:exec("ATTACH ':memory:' AS out"), "the failed snapshot stayed attached")
+  assert(handle.db:exec("DETACH out"))
+  assert(work.begin(handle))
+  assert(work.stage(handle, false))
+  local retried = assert(importer.compile(handle, built, "writer-test"))
+  assert(writer.write_result(handle, out, retried))
+  assert(work.close(handle))
+  assert(projected(out) ~= "", "the retry did not publish a signed projection")
 end

@@ -55,5 +55,5 @@ local function test_notes_name_what_the_library_already_has(tmp: string)
   }, { library })
   assert(#notes == 1, table.concat(notes, "\n"))
   assert(notes[1]:find(tmp .. "/tree/tools/paths/init.tl:5: Paths.which: Proc.find (cosmic.proc) " ..
-    "stands in for `which`", 1, true) == 1, notes[1])
+      "stands in for `which`", 1, true) == 1, notes[1])
 end

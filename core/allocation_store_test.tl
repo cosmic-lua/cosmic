@@ -13,9 +13,7 @@ local Test = require("cosmic.test")
 
 --- [`test_attach_leaves_no_connection_whenever_an_allocation_fails`] counts
 --- the store's databases, which a test sees only when it declares the store.
-Test.needs{ store = true }
-
-local checked = testing.configuration == "sanitized"
+Test.policy{ requires = { "checked" }, grants = { { path = "o/cosmic.db", letters = "r" } } }
 
 --- Runs `work` once per allocation it makes, refusing that allocation,
 --- and a last time with none refused; answers how many runs a refusal
@@ -54,11 +52,10 @@ end
 --- An attached database is held by the store or closed: a refusal
 --- leaves no connection -- and no descriptor under it -- behind.
 local function test_attach_leaves_no_connection_whenever_an_allocation_fails(tmp: string)
-  if not checked then return end
   local path = tmp .. "/project.db"
   local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("CREATE TABLE modules (path TEXT, bytecode BLOB, kind TEXT, " ..
-    "source TEXT, file TEXT); CREATE TABLE meta (key TEXT, value TEXT)"))
+      "source TEXT, file TEXT); CREATE TABLE meta (key TEXT, value TEXT)"))
   assert(db:close())
   local before = next_descriptor(tmp)
   local searched = #Store.databases()
@@ -73,5 +70,5 @@ local function test_attach_leaves_no_connection_whenever_an_allocation_fails(tmp
   assert(held >= 1, "the last run attached")
   local after = next_descriptor(tmp)
   assert(after == before + held, "descriptors from " .. before .. " to " .. after ..
-    " for " .. held .. " attached: a refused attach left a connection open")
+      " for " .. held .. " attached: a refused attach left a connection open")
 end

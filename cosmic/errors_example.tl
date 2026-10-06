@@ -9,7 +9,7 @@ local Test = require("cosmic.test")
 --- The whole projection: the guidance shown is a catalog row of
 --- cosmic.coverage, outside this module's closure, which only the
 --- whole projection holds by a key.
-Test.needs{ store = true }
+Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
 
 local Example = {}
 
@@ -33,6 +33,34 @@ function Example.guidance()
   assert(Errors.guidance("nothing whatever like any message") == nil)
 end
 
+--- What to do about an error Lua itself raised, read from its message:
+--- here a method called on a record's value made as a table literal,
+--- which never gets the record's methods without a metatable, and the
+--- same value made as the hint says. An error nothing caught prints
+--- this beneath it, and a failed test under its failure line.
+function Example.hint()
+  local record Counter
+    n: integer
+  end
+  function Counter:bump()
+    self.n = self.n + 1
+  end
+  local bare: Counter = { n = 0 }
+  local ok, err = pcall(function() bare:bump() end)
+  assert(not ok)
+  local text = Errors.hint(tostring(err))
+  print(text)
+  assert(text == "'bump' is nil on that value: either it was made as a table literal, " ..
+      "which gets none of R's methods (make it with `setmetatable({ ... }, { __index = R })`), " ..
+      "or R declares 'bump' and nothing defines `function R:bump`", tostring(text))
+  assert(Errors.guidance(tostring(err)) == "cosmic: hint: " .. text .. "\n")
+  local made: Counter = setmetatable({ n = 0 }, { __index = Counter })
+  made:bump()
+  assert(made.n == 1)
+  assert(Errors.hint("nothing whatever like any message") == nil)
+  assert(Errors.hint("wrapped: x.tl:3: attempt to call a nil value (method 'bump'): retried") == nil)
+end
+
 --- What one database's error catalog says of a message, asked of that
 --- database alone: here a project's own catalog, one row whose words a
 --- failure shares, indexed as a projection's is.
@@ -54,7 +82,7 @@ function Example.guidance_in()
   local text = Errors.guidance_in(db, "app: config file is missing: ./app.toml")
   print(text)
   assert(text == "cosmic: Config.load (app/config.tl:42): " ..
-    "Run `app init` to write a config file.\n", tostring(text))
+      "Run `app init` to write a config file.\n", tostring(text))
   assert(Errors.guidance_in(db, "the network is unreachable") == nil)
   assert(db:close())
 end

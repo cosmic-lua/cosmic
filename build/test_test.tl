@@ -2,9 +2,9 @@
 --- test, how a failing one is named to be run again, and what the
 --- harness's digest holds.
 
+local Clock = require("cosmic.clock")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
-local Time = require("cosmic.time")
 local test = require("build.test")
 local worker = require("build.test_worker")
 
@@ -20,6 +20,26 @@ local function test_selection_is_exact_or_at_a_directory_boundary()
   assert(not test.matches("test_test", "build.test_test", "build/test_test.tl"))
   assert(not test.matches("build/test", "build.test_test", "build/test_test.tl"))
   assert(not test.matches("build", "builder.other_test", "builder/other_test.tl"))
+end
+
+--- A worker's load hits and test hits of one module are two lines of its
+--- row, the run's hits hold their union, and a table taken before is
+--- not folded or spelled again.
+local function test_a_modules_load_and_test_hits_are_two_lines_of_its_row()
+  local hits: {string:{integer:boolean}} = {}
+  local folded: {{integer:boolean}:boolean} = {}
+  local spelled: {{integer:boolean}:string} = {}
+  local loaded: {integer:boolean} = { [3] = true, [1] = true }
+  local row = test.take_hits(hits, { ["core"] = {} }, folded, spelled,
+    { ["build.a"] = loaded, ["core"] = { [9] = true } }, { ["build.a"] = { [7] = true } })
+  assert(row == "build.a\t1,3\nbuild.a\t7\n", row)
+  assert(hits["build.a"][1] and hits["build.a"][3] and hits["build.a"][7])
+  assert(hits["core"] == nil)
+  hits["build.a"][1] = nil
+  row = test.take_hits(hits, {}, folded, spelled, { ["build.a"] = loaded }, {})
+  assert(row == "build.a\t1,3\n" and hits["build.a"][1] == nil, "a taken table is folded once")
+  local again = test.take_hits({}, {}, {}, {}, { ["build.a"] = loaded }, {})
+  assert(again == row)
 end
 
 --- `--shard I/N` names one of N shares, from 1; nothing else does.
@@ -79,11 +99,11 @@ end
 --- part, up to a space: two bumps of the epoch from one count say
 --- a moved harness, as another timeout does.
 local function test_the_census_says_each_bump_of_the_epoch_apart()
-  local word = test.harness_word("8-072f7458", Time.seconds(30))
-  assert(word == "e8-072f7458-t" .. Time.seconds(30), word)
+  local word = test.harness_word("8-072f7458", Clock.seconds(30))
+  assert(word == "e8-072f7458-t" .. Clock.seconds(30), word)
   assert(word:match("^%S+$") and not word:find("[,;]"), word)
-  assert(test.harness_word("8-3f9c2a1b", Time.seconds(30)) ~= word, "two bumps from one count")
-  assert(test.harness_word("8-072f7458", Time.seconds(60)) ~= word, "another timeout")
+  assert(test.harness_word("8-3f9c2a1b", Clock.seconds(30)) ~= word, "two bumps from one count")
+  assert(test.harness_word("8-072f7458", Clock.seconds(60)) ~= word, "another timeout")
 end
 
 local function test_a_selector_can_name_one_test_of_one_module()
@@ -112,7 +132,7 @@ local function test_only_a_name_after_the_last_colon_names_a_test()
   -- Anything else after the last `:` leaves the selector a path whole:
   -- each one selects the module it spells, and not another's.
   for _, whole in ipairs({ "C:\\dir\\x_test.tl", "a:b/c_test.tl", ":test_a",
-                           "x_test.tl:", "x_test.tl:Other.a", "x_test.tl:1a" }) do
+      "x_test.tl:", "x_test.tl:Other.a", "x_test.tl:1a" }) do
     assert(test.selects(whole, "x_test", whole, "test_a"), whole)
     assert(not test.matches(whole, "x_test", "x_test.tl"), whole)
   end
@@ -149,9 +169,10 @@ end
 local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE modules (path TEXT, kind TEXT, source_hash BLOB, " ..
-    "bytecode BLOB); CREATE TABLE imports (path TEXT, requires TEXT)"))
+      "bytecode BLOB); CREATE TABLE imports (path TEXT, requires TEXT)"))
   local key_code = { "build.test", "build.declared_key", "build.shared_verdicts",
-    "build.artifact", "build.bind", "build.harness_epoch" }
+    "build.artifact", "build.bind", "build.harness_epoch", "build.host_requires",
+    "build.host_names" }
   local imports: {{string}} = {
     { "build.declared_key", "build.artifact" }, { "build.declared_key", "cosmic.fs" },
     { "build.shared_verdicts", "build.bind" }, { "build.test", "build.importer" },
@@ -159,11 +180,14 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
     { "build.shared_verdicts", "build.harness_epoch" },
     { "build.closure_store", "build.schema" }, { "build.closure_store", "cosmic.sqlite" },
     { "build.shared_verdicts", "cosmic.sqlite" }, { "cosmic.sqlite", "cosmic.sys" },
+    { "build.host_requires", "build.host_names" },
   }
   for _, row in ipairs(imports) do
     assert(Sqlite.run(db, "INSERT INTO imports VALUES (?, ?)", { { text = row[1] }, { text = row[2] } }))
   end
-  local others = { "build.test_sandbox", "build.caches", "build.zig_caches", "cosmic.child",
+  local others = { "build.test_sandbox", "build.test_policy",
+    "build.caches", "build.zig_caches",
+    "cosmic.child", "cosmic.sandbox",
     "build.closure_store", "build.writer",
     "build.test_report", "build.schema", "build.importer", "build.analyzer", "cosmic.removed",
     "cosmic.sqlite", "cosmic.sys" }
@@ -211,18 +235,18 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   local commented = "-- a comment, and a blank line after it\n\nreturn 'a key'\n"
   local function edited(name: string): string return moves(name, commented, "bytecode") end
   for _, name in ipairs({ "build.test", "build.declared_key", "build.shared_verdicts",
-                          "build.artifact", "build.test_worker", "build.test_sandbox",
-                          "cmd.cosmic.main", "build.confine",
-                          "build.test_inputs", "cosmic.test",
-                          "build.caches", "build.zig_caches" }) do
+      "build.artifact", "build.test_worker", "build.test_sandbox", "build.test_policy",
+      "cmd.cosmic.main", "build.confine",
+      "build.test_inputs", "cosmic.test", "build.host_requires", "build.host_names",
+      "build.caches", "build.zig_caches" }) do
     assert(edited(name) == "harness", name .. " moved " .. edited(name))
   end
   for _, name in ipairs({ "build.importer", "build.analyzer", "build.writer",
-                          "build.harness_epoch", "build.test_report", "cosmic.removed" }) do
+      "build.harness_epoch", "build.test_report", "cosmic.removed" }) do
     assert(edited(name) == "", name .. " moved " .. edited(name))
   end
   for _, name in ipairs({ "build.dispatch", "build.clock", "build.exit_status", "cosmic.cli",
-                          "cosmic.flags" }) do
+      "cosmic.flags" }) do
     assert(edited(name) == "", name .. " moved " .. edited(name))
   end
   -- The writer's closure, what cosmic.sqlite requires among it: an
@@ -250,10 +274,11 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   local named: {string:boolean} = {}
   for _, name in ipairs(before.names) do named[name] = true end
   assert(named["build.caches"] and named["build.zig_caches"] and named["build.test"] and
-    not named["build.harness_epoch"] and not named["build.test_report"])
+      not named["build.harness_epoch"] and not named["build.test_report"])
   local runs: {string:boolean} = {}
   for _, name in ipairs(before.runs) do runs[name] = true end
-  assert(runs["build.test_sandbox"] and runs["build.test_worker"] and not runs["build.test"])
+  assert(runs["build.test_sandbox"] and runs["build.test_policy"] and runs["build.test_worker"] and
+      not runs["build.test"])
   -- A module that makes a key and that the binary does not carry fails
   -- the harness, naming it.
   assert(db:exec("DELETE FROM modules WHERE path = 'build.artifact'"))
@@ -270,12 +295,12 @@ end
 --- The key's code is walked over the requires each module makes by
 --- value, as its bytecode names them: a `local type` require, which
 --- Teal erases, leaves what it names out of the harness, and a require
---- inside a function keeps it in. cosmic.child is held alone, its own
---- requires not walked.
+--- inside a function keeps it in. cosmic.child and cosmic.sandbox are held
+--- alone, their own requires not walked.
 local function test_the_harness_walks_the_key_code_by_value()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE modules (path TEXT, kind TEXT, source_hash BLOB, " ..
-    "bytecode BLOB); CREATE TABLE imports (path TEXT, requires TEXT)"))
+      "bytecode BLOB); CREATE TABLE imports (path TEXT, requires TEXT)"))
   local sources: {string:string} = {
     ["build.declared_key"] = 'local function later() return require("build.artifact") end\n' ..
       'return later\n',
@@ -291,16 +316,16 @@ local function test_the_harness_walks_the_key_code_by_value()
   end
   for _, name in ipairs(worker.loads) do add(name) end
   for _, name in ipairs({ "build.test", "build.declared_key", "build.shared_verdicts",
-                          "build.artifact", "build.test_sandbox", "build.caches",
-                          "build.zig_caches", "build.closure_store", "build.schema",
-                          "cosmic.child", "cosmic.time", "cosmic.sqlite", "cosmic.stream" }) do
+      "build.host_requires", "build.artifact", "build.test_sandbox", "build.test_policy",
+      "build.caches", "build.zig_caches", "build.closure_store", "build.schema",
+      "cosmic.child", "cosmic.sandbox", "cosmic.time", "cosmic.sqlite", "cosmic.stream" }) do
     add(name)
   end
   -- build.declared_key's edge to cosmic.stream is a `local type` one.
   for _, row in ipairs({ { "build.declared_key", "cosmic.stream" },
-                         { "build.declared_key", "build.artifact" },
-                         { "build.shared_verdicts", "cosmic.sqlite" },
-                         { "cosmic.child", "cosmic.time" } }) do
+      { "build.declared_key", "build.artifact" },
+      { "build.shared_verdicts", "cosmic.sqlite" },
+      { "cosmic.child", "cosmic.time" } }) do
     assert(Sqlite.run(db, "INSERT INTO imports VALUES (?, ?)",
       { { text = row[1] }, { text = row[2] } }))
   end

@@ -14,6 +14,7 @@
 --- leaves every store's bytes alone moves no store's address.
 
 local Fs = require("cosmic.fs")
+local sys = require("cosmic.sys")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local identity = require("build.identity")
@@ -53,8 +54,8 @@ local function projected_signature(path: string): string
 end
 
 --- The shipped modules: this run's plan joined to the inputs it named
---- and the compiles it found or made, with a test or example module's
---- own names alongside.
+--- of non-declaration kind and the compiles it found or made, with
+--- a test or example module's own names alongside.
 local insert_modules =
   "INSERT INTO out.modules (path, file, kind, source_hash, key, source, " ..
   "bytecode, tests) " ..
@@ -66,7 +67,7 @@ local insert_modules =
   "WHEN i.kind = 'example' THEN coalesce((SELECT group_concat(name, " ..
   "char(10) ORDER BY ordinal) FROM examples e " ..
   "WHERE e.source_hash = i.source_hash), '') ELSE '' END " ..
-  "FROM plan p JOIN inputs i ON i.path = p.path " ..
+  "FROM plan p JOIN inputs i ON i.path = p.path AND i.kind <> 'decl' " ..
   "JOIN compiled c ON c.key = p.key ORDER BY p.path"
 
 --- The import edges among shipped modules: what each planned module
@@ -74,10 +75,14 @@ local insert_modules =
 local insert_imports =
   "INSERT OR IGNORE INTO out.imports (path, requires) " ..
   "SELECT p.path, r.name FROM plan p " ..
-  "JOIN inputs i ON i.path = p.path " ..
+  "JOIN inputs i ON i.path = p.path AND i.kind <> 'decl' " ..
   "JOIN requires r ON r.source_hash = i.source_hash " ..
   "WHERE r.name IN (SELECT path FROM plan) ORDER BY p.path, r.ordinal"
 
+--- A paired declaration supplies the documented interface and its aliases,
+--- just as it supplies the types a caller checks against. The implementation
+--- alone supplies executable rows, import edges, uses and errors.
+---
 --- The names each planned module and each declaration binds to a
 --- module ([`build.analyzer.Bound`]), kept whatever the module they
 --- name: a project's binds the standard library's.
@@ -87,6 +92,8 @@ local insert_bound =
   "FROM (SELECT path FROM plan UNION SELECT path FROM inputs " ..
   "WHERE kind = 'decl') m " ..
   "JOIN inputs i ON i.path = m.path " ..
+  "AND (i.kind = 'decl' OR NOT EXISTS (SELECT 1 FROM inputs d " ..
+  "WHERE d.path = i.path AND d.kind = 'decl')) " ..
   "JOIN bound b ON b.source_hash = i.source_hash ORDER BY m.path, b.name"
 
 --- The documented symbols ([`build.analyzer.DocEntry`]) found while parsing
@@ -94,6 +101,7 @@ local insert_bound =
 --- is the C header it is generated from), in module order and then
 --- source order. Which of them a reader sees is [`build.docs`]'s to
 --- decide: it answers a project only for the public standard library.
+--- A declaration wins over a paired implementation, as the checker does.
 --- `id` is left for SQLite to assign in that order, so it is the same on
 --- every build of the same tree.
 local insert_docs =
@@ -104,6 +112,8 @@ local insert_docs =
   "FROM (SELECT path FROM plan UNION SELECT path FROM inputs " ..
   "WHERE kind = 'decl') m " ..
   "JOIN inputs i ON i.path = m.path " ..
+  "AND (i.kind = 'decl' OR NOT EXISTS (SELECT 1 FROM inputs d " ..
+  "WHERE d.path = i.path AND d.kind = 'decl')) " ..
   "JOIN docs d ON d.source_hash = i.source_hash ORDER BY m.path, d.ordinal"
 
 --- The uses ([`build.analyzer.Reference`]) found: each
@@ -114,7 +124,7 @@ local insert_uses =
   "INSERT OR IGNORE INTO out.uses (module, symbol, from_module, " ..
   "from_file, line) " ..
   "SELECT r.module, r.member, p.path, i.file, r.line " ..
-  "FROM plan p JOIN inputs i ON i.path = p.path " ..
+  "FROM plan p JOIN inputs i ON i.path = p.path AND i.kind <> 'decl' " ..
   "JOIN refs r ON r.source_hash = i.source_hash " ..
   "ORDER BY r.module, r.member, p.path, r.line"
 
@@ -180,7 +190,7 @@ local insert_examples =
 local insert_catalog_extracted =
   "INSERT INTO out.catalog (kind, module, symbol, message, text, file, " ..
   "line) SELECT 'error', p.path, c.symbol, c.message, NULL, " ..
-  "i.file, c.line FROM plan p JOIN inputs i ON i.path = p.path " ..
+  "i.file, c.line FROM plan p JOIN inputs i ON i.path = p.path AND i.kind <> 'decl' " ..
   "JOIN catalog c ON c.source_hash = i.source_hash " ..
   "ORDER BY p.path, c.ordinal"
 
@@ -211,16 +221,16 @@ local insert_catalog_extracted =
 local function signature_sql(): string
   local metadata = "('boot_hash', 'image_hash', 'compiler', 'runtime_basis', 'receivers')"
   return "SELECT lower(hex(sha256(" ..
-  "coalesce((SELECT group_concat(p.path || ' ' || p.key || ' ' || i.file, " ..
-  "char(10) ORDER BY p.path) FROM plan p JOIN inputs i ON i.path = p.path " ..
-  "WHERE i.kind <> 'decl'), '') || char(10) || " ..
-  "coalesce((SELECT group_concat(path || ' ' || source_hash, char(10) " ..
-  "ORDER BY path) FROM inputs WHERE kind = 'decl'), '') || char(10) || " ..
-  "coalesce((SELECT group_concat(key || ' ' || value, char(10) ORDER BY key) " ..
-  "FROM meta WHERE key IN " .. metadata .. "), '') || char(10) || " ..
-  "coalesce((SELECT group_concat(name || ' ' || lower(hex(sha256(data))), " ..
-  "char(10) ORDER BY name) FROM zoneinfo), '') || char(10) || ?1 || " ..
-  "char(10) || ?2 || char(10) || ?3 || char(10) || ?4)))"
+    "coalesce((SELECT group_concat(p.path || ' ' || p.key || ' ' || i.file, " ..
+    "char(10) ORDER BY p.path) FROM plan p JOIN inputs i ON i.path = p.path " ..
+    "WHERE i.kind <> 'decl'), '') || char(10) || " ..
+    "coalesce((SELECT group_concat(path || ' ' || source_hash, char(10) " ..
+    "ORDER BY path) FROM inputs WHERE kind = 'decl'), '') || char(10) || " ..
+    "coalesce((SELECT group_concat(key || ' ' || value, char(10) ORDER BY key) " ..
+    "FROM meta WHERE key IN " .. metadata .. "), '') || char(10) || " ..
+    "coalesce((SELECT group_concat(name || ' ' || lower(hex(sha256(data))), " ..
+    "char(10) ORDER BY name) FROM zoneinfo), '') || char(10) || ?1 || " ..
+    "char(10) || ?2 || char(10) || ?3 || char(10) || ?4)))"
 end
 
 --- The signature of the projection of `result`, whose links are
@@ -240,7 +250,7 @@ end
 --- standard library itself; in a project, `given`, or the standard
 --- library of the binary running.
 local function library_for(root: string, given: link_index.Library | nil):
-                           link_index.Library | nil, string
+    link_index.Library | nil, string
   local own, trouble = tree.is_own(root)
   if own == nil then
     return nil, trouble
@@ -257,7 +267,7 @@ end
 --- The links of the tree `handle` holds, waiting for its symbols
 --- ([`link_index.pending`]), with what they may name beside its own.
 local function pending_links(handle: work.Handle, given: link_index.Library | nil):
-                             link_index.Pending | nil, string
+    link_index.Pending | nil, string
   local library, trouble = library_for(handle.root, given)
   if library == nil and trouble ~= "" then
     return nil, trouble
@@ -278,12 +288,12 @@ function writer.signature(handle: work.Handle, result: importer.Result,
   return signed(handle, result, pending, binary)
 end
 
---- Fills the attached `out` schema and vacuums it into `path`, signed
+--- Fills the attached `out` schema within the working transaction, signed
 --- `signature` by the writer whose identity is `by`, and naming the
 --- compiler whose identity keyed its modules (`result.tool`) as
 --- `compiled_by`. Its links are `pending`'s, resolved once its docs are
 --- in.
-local function project(handle: work.Handle, path: string,
+local function project(handle: work.Handle,
                        result: importer.Result, pending: link_index.Pending,
                        signature: string, by: string): boolean, string
   local db = handle.db
@@ -294,87 +304,79 @@ local function project(handle: work.Handle, path: string,
     end
   end
 
-  local made, refused = Sqlite.transact(db, function(): boolean, string
-    local statements: {string} = {}
-    for _, statement in ipairs(schema.create("out.")) do
-      statements[#statements + 1] = statement
-    end
-    statements[#statements + 1] = insert_modules
-    statements[#statements + 1] = insert_imports
-    statements[#statements + 1] = insert_bound
-    statements[#statements + 1] =
-      "INSERT INTO out.decls (path, source) SELECT path, deflate(source) FROM inputs " ..
-      "WHERE kind = 'decl' ORDER BY path"
-    statements[#statements + 1] =
-      "INSERT INTO out.zoneinfo (name, data) SELECT name, data FROM zoneinfo " ..
-      "ORDER BY name"
-    for _, statement in ipairs(statements) do
-      local ok, failure = db:exec(statement)
-      if not ok then
-        return false, failure
-      end
-    end
-    local metadata = "('boot_hash', 'image_hash', 'compiler', 'runtime_basis', 'writer')"
-    local carried, meta_trouble = db:exec(
-      "INSERT INTO out.meta (key, value) SELECT key, value FROM meta " ..
-      "WHERE key IN " .. metadata)
-    if not carried then
-      return false, meta_trouble
-    end
-    for _, statement in ipairs({ insert_catalog_extracted, insert_docs,
-                                 insert_uses, insert_typed_uses, insert_examples }) do
-      local ok, failure = db:exec(statement)
-      if not ok then
-        return false, failure
-      end
-    end
-    local linked, link_trouble = link_index.fill(db, pending, "out.")
-    if not linked then
-      return false, link_trouble
-    end
-    for _, statement in ipairs(schema.rebuild("out.")) do
-      local ok, failure = db:exec(statement)
-      if not ok then
-        return false, failure
-      end
-    end
-    -- cosmic's own tree describes the binary it builds: its bill of
-    -- materials ([`build.bom`]), read from the pins and records beside the
-    -- code, and the CA roots it trusts ([`build.roots`]). A change to
-    -- either comes with a pin's, a tool file, so `boot_hash`, which the
-    -- signature covers, moves when one does. A project's tables stay
-    -- empty.
-    local own, own_trouble = tree.is_own(handle.root)
-    if own == nil then
-      return false, own_trouble
-    end
-    if own then
-      local filled, fill_trouble = bom.fill(db, handle.root, "out.")
-      if not filled then
-        return false, fill_trouble
-      end
-      local trusted, trust_trouble = roots.fill(db, handle.root, "out.")
-      if not trusted then
-        return false, trust_trouble
-      end
-    end
-    local carried_main, main_trouble = Sqlite.run(db,
-      "INSERT INTO out.meta (key, value) VALUES ('main', ?1)",
-      { text(result.main or "") })
-    if not carried_main then
-      return false, main_trouble
-    end
-    return Sqlite.run(db,
-      "INSERT INTO out.meta (key, value) VALUES ('projected', ?1), " ..
-      "('written_by', ?2), ('compiled_by', ?3)",
-      { text(signature), text(by), text(result.tool) })
-  end)
-  if not made then
-    return false, refused
+  local statements: {string} = {}
+  for _, statement in ipairs(schema.create("out.")) do
+    statements[#statements + 1] = statement
   end
-
-  local _, _ = Fs.remove(path .. ".building")
-  return Sqlite.run(db, "VACUUM out INTO ?1", { text(path .. ".building") })
+  statements[#statements + 1] = insert_modules
+  statements[#statements + 1] = insert_imports
+  statements[#statements + 1] = insert_bound
+  statements[#statements + 1] =
+    "INSERT INTO out.decls (path, source) SELECT path, deflate(source) FROM inputs " ..
+    "WHERE kind = 'decl' ORDER BY path"
+  statements[#statements + 1] =
+    "INSERT INTO out.zoneinfo (name, data) SELECT name, data FROM zoneinfo " ..
+    "ORDER BY name"
+  for _, statement in ipairs(statements) do
+    local ok, failure = db:exec(statement)
+    if not ok then
+      return false, failure
+    end
+  end
+  local metadata = "('boot_hash', 'image_hash', 'compiler', 'runtime_basis', 'writer')"
+  local carried, meta_trouble = db:exec(
+    "INSERT INTO out.meta (key, value) SELECT key, value FROM meta " ..
+      "WHERE key IN " .. metadata)
+  if not carried then
+    return false, meta_trouble
+  end
+  for _, statement in ipairs({ insert_catalog_extracted, insert_docs,
+      insert_uses, insert_typed_uses, insert_examples }) do
+    local ok, failure = db:exec(statement)
+    if not ok then
+      return false, failure
+    end
+  end
+  local linked, link_trouble = link_index.fill(db, pending, "out.")
+  if not linked then
+    return false, link_trouble
+  end
+  for _, statement in ipairs(schema.rebuild("out.")) do
+    local ok, failure = db:exec(statement)
+    if not ok then
+      return false, failure
+    end
+  end
+  -- cosmic's own tree describes the binary it builds: its bill of
+  -- materials ([`build.bom`]), read from the pins and records beside the
+  -- code, and the CA roots it trusts ([`build.roots`]). A change to
+  -- either comes with a pin's, a tool file, so `boot_hash`, which the
+  -- signature covers, moves when one does. A project's tables stay
+  -- empty.
+  local own, own_trouble = tree.is_own(handle.root)
+  if own == nil then
+    return false, own_trouble
+  end
+  if own then
+    local filled, fill_trouble = bom.fill(db, handle.root, "out.")
+    if not filled then
+      return false, fill_trouble
+    end
+    local trusted, trust_trouble = roots.fill(db, handle.root, "out.")
+    if not trusted then
+      return false, trust_trouble
+    end
+  end
+  local carried_main, main_trouble = Sqlite.run(db,
+    "INSERT INTO out.meta (key, value) VALUES ('main', ?1)",
+    { text(result.main or "") })
+  if not carried_main then
+    return false, main_trouble
+  end
+  return Sqlite.run(db,
+    "INSERT INTO out.meta (key, value) VALUES ('projected', ?1), " ..
+      "('written_by', ?2), ('compiled_by', ?3)",
+    { text(signature), text(by), text(result.tool) })
 end
 
 --- The identity of the writer this process runs, which signs what it
@@ -405,8 +407,13 @@ end
 
 --- Writes an already-compiled result into a fresh host-independent database
 --- and leaves it at `out`, unless the file there already is that projection.
---- This ends the run's transaction first: SQLite attaches and vacuums outside
---- one only. `tree_code` says this process runs the tree's own code
+--- The attached in-memory projection is filled before the working transaction
+--- ends, so a later build cannot change the rows this result publishes. Only
+--- vacuuming and publication wait for the rebuild lock, with no transaction
+--- held that its holder may need. The caller keeps the compile transaction
+--- open until this call; a repeat write of an ended run is valid only while
+--- its result still matches the working rows. `tree_code` says this process
+--- runs the tree's own code
 --- though its fingerprint is not the tree's (`running`).
 --- @param library in a project, the standard library its links may
 --- name, in place of the running binary's ([`link_index.running`])
@@ -414,9 +421,9 @@ function writer.write_result(handle: work.Handle, out: string,
                              result: importer.Result, tree_code?: boolean,
                              library?: link_index.Library): boolean, string
   local db = handle.db
-  local committed, commit_trouble = work.commit(handle)
-  if not committed then
-    return false, commit_trouble
+  if not handle.inside then
+    local begun, begin_trouble = work.begin(handle)
+    if not begun then return false, begin_trouble end
   end
   local identities, identity_trouble = identity.record_identities(handle.db)
   if identities == nil then
@@ -435,7 +442,20 @@ function writer.write_result(handle: work.Handle, out: string,
     return false, sign_trouble
   end
   if projected_signature(out) == signature then
-    return true, ""
+    return work.commit(handle)
+  end
+  local attached, attach_trouble = db:exec("ATTACH ':memory:' AS out")
+  if not attached then return false, attach_trouble end
+  local projected, project_trouble = project(handle, result, pending, signature, by)
+  if not projected then
+    local _, _ = work.rollback(handle)
+    local _, _ = db:exec("DETACH out")
+    return false, project_trouble
+  end
+  local committed, commit_trouble = work.commit(handle)
+  if not committed then
+    local _, _ = db:exec("DETACH out")
+    return false, commit_trouble
   end
 
   -- Written aside under `out`'s one fixed `.building` name, which no
@@ -446,28 +466,42 @@ function writer.write_result(handle: work.Handle, out: string,
   -- only now, with the working database's transaction ended above, so
   -- a holder waiting for that database is not waited on in turn.
   local took = false
+  local held_fd: integer = nil
   if out == handle.root .. "/o/cosmic.db" then
     local taken, lock_trouble = rebuild_lock.hold(handle.root, "write", "o/cosmic.db")
     if taken == nil then
+      local _, _ = db:exec("DETACH out")
       return false, lock_trouble
     end
     took = taken
-  end
-  local function written(): boolean, string
-    local attached, attach_trouble = db:exec("ATTACH ':memory:' AS out")
-    if not attached then
-      return false, attach_trouble
+  elseif out == handle.dir .. "/cosmic.db" then
+    -- A build in a directory of its own (build/dispatch.tl's private one)
+    -- has no checkout's lock; one in the directory keeps two runs from
+    -- writing its one `.building` at once.
+    local fd, open_trouble = sys.open(handle.dir .. "/.write.lock", sys.O_RDWR | sys.O_CREAT, 0x180)
+    if fd == nil then
+      local _, _ = db:exec("DETACH out")
+      return false, handle.dir .. "/.write.lock: " .. open_trouble
     end
-    local projected, trouble = project(handle, out, result, pending, signature, by)
-    local _, _ = db:exec("DETACH out")
-    if not projected then
-      return false, trouble
+    local locked, lock_trouble = sys.flock(fd, "exclusive", -1)
+    if not locked then
+      local _, _ = sys.close(fd)
+      local _, _ = db:exec("DETACH out")
+      return false, handle.dir .. "/.write.lock: " .. lock_trouble
     end
-    return Fs.rename(out .. ".building", out)
+    held_fd = fd
   end
-  local ok, trouble = written()
+  local _, _ = Fs.remove(out .. ".building")
+  local ok, trouble = Sqlite.run(db, "VACUUM out INTO ?1", { text(out .. ".building") })
+  local _, _ = db:exec("DETACH out")
+  if ok then
+    ok, trouble = Fs.rename(out .. ".building", out)
+  end
   if took then
     rebuild_lock.release()
+  end
+  if held_fd ~= nil then
+    local _, _ = sys.close(held_fd)
   end
   if not ok then
     return false, trouble

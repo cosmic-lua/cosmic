@@ -5,12 +5,12 @@
 --- clock it can fix.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
-local Time = require("cosmic.time")
 
 --- The program itself, which its tests start.
-Test.needs{ tool = true }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local record Ran
   code: integer
@@ -22,7 +22,7 @@ local function cosmic(dir: string, words: {string}, tz?: string): Ran
   local env = this_program.environment()
   env.TZ = tz or "Asia/Tokyo"
   local started = this_program.program(words, {
-    cwd = dir, env = env, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30),
+    cwd = dir, env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
   })
   local result = assert(Child.run(started.argv, started.options))
   return { code = result.code, out = result.stdout or "", err = result.stderr or "" }
@@ -62,8 +62,8 @@ local function test_the_exit_status_is_the_verdict(tmp: string)
   assert(usage.code == 2 and usage.out == "" and usage.err:find("no such option: --bogus", 1, true), usage.err)
 end
 
---- Help reads the store's docs, which a test not declaring `store` is held
---- from, and one that does runs again on every edit to the tree; so it
+--- Help reads the store's docs, which a test not declaring `store` is not
+--- given, and one that does runs again on every edit to the tree; so it
 --- is here, with the tests that start the program, not in-process.
 local function test_help_names_the_verb_and_its_options(tmp: string)
   local ran = cosmic(tmp, { "time", "--help" })

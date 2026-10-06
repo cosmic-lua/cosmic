@@ -1,0 +1,9 @@
+version c777c408b61078ea2eb4acefc2535f54dbc8b28a
+url https://github.com/html5lib/html5lib-tests/archive/c777c408b61078ea2eb4acefc2535f54dbc8b28a.tar.gz
+sha256 9537d1800b5b4058110891bc559b41a39d7e7a6802caef88d973faade788b35d
+strip html5lib-tests-c777c408b61078ea2eb4acefc2535f54dbc8b28a/
+keep LICENSE
+keep tokenizer/*.test
+kind test
+license MIT
+notice LICENSE

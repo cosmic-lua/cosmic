@@ -8,15 +8,18 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local embed = require("build.embed")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- The program itself, whose core the programs it builds run on.
 --- `store`: [`embed.tree`] joins every `cosmic.*` module's rows.
-Test.needs{ tool = true, store = true }
+Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "o/cosmic.db", letters = "r" } },
+}
 
 local function run_program(path: string): Child.Result
   return (assert(Child.run({ path }, {
-    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })))
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })))
 end
 
 --- An exit keeps only the low byte, so 256 would read as success. It is
@@ -35,7 +38,7 @@ local function test_a_main_that_returns_no_exit_status_is_refused(tmp: string)
   for name, code in pairs({ fits = 7, whole = 3, none = 0, numeric = 5 } as {string:integer}) do
     local r = run_program(tmp .. "/o/bin/" .. name)
     assert(r.code == code, "an exit status that fits is the program's own: " ..
-      name .. " exited " .. tostring(r.code) .. ": " .. tostring(r.stderr))
+        name .. " exited " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   end
   for _, name in ipairs({ "big", "text", "float", "yes", "negative" }) do
     local r = run_program(tmp .. "/o/bin/" .. name)

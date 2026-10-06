@@ -27,88 +27,23 @@
 --- (2 for words it cannot read).
 
 local Archive = require("cosmic.archive")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local sys = require("cosmic.sys")
-local Time = require("cosmic.time")
 
-local SECOND <const> = Time.seconds(1)
+local SECOND <const> = Clock.seconds(1)
 
 local record ZigFetch
   --- What [`ZigFetch.fetch`] downloads with, pauses with (for
   --- nanoseconds) and reads the time from (in nanoseconds):
-  --- [`Http.download_result`], [`sys.nanosleep`] and [`Time.monotonic_ns`]
+  --- [`Http.download_result`], [`sys.nanosleep`] and [`Clock.monotonic_ns`]
   --- unless a test says otherwise.
   record Fetcher
     download: function(url: string, path: string, opts: Http.Options): Http.DownloadResult
     sleep: function(ns: integer)
     now: function(): integer
   end
-end
-
---- The gate is never unlinked: every creator and sweeper must lock the
---- same inode. It covers creation through ownership, so no sweep sees a
---- new wrapper before its owner is locked. Expensive work runs outside it.
---- Kept here because this standalone script can load only the pinned
---- release's cosmic.* modules, not another module from the checkout.
-local record Descriptor
-  fd: integer
-  metamethod __close: function(Descriptor)
-end
-local descriptor_mt: metatable<Descriptor> = {
-  __close = function(self: Descriptor) local _, _ = sys.close(self.fd) end,
-}
-
-local record Scratch
-  path: string
-  owner: integer
-  metamethod __close: function(Scratch)
-end
-local scratch_mt: metatable<Scratch> = {
-  __close = function(self: Scratch)
-    local _, _ = Fs.remove_tree(self.path)
-    local _, _ = sys.close(self.owner)
-  end,
-}
-
-local function scratch(cache: string): Scratch | nil, string
-  local fd, trouble = sys.open(cache .. "/.scratch-gate", sys.O_RDWR | sys.O_CREAT | sys.O_NOFOLLOW, 0x180)
-  if fd == nil then return nil, trouble end
-  local opened: Descriptor = { fd = fd }
-  local gate <close> = setmetatable(opened, descriptor_mt)
-  local locked, lock_trouble = sys.flock(gate.fd, "exclusive", -1)
-  if not locked then return nil, lock_trouble end
-  local names, list_trouble = Fs.list(cache)
-  if names == nil then return nil, list_trouble end
-  for _, name in ipairs(names) do
-    -- PID-only names belong to old tools and say nothing about ownership
-    -- across namespaces. Missing owner files are also left alone.
-    if name:match("^%.scratch%.[%w]+$") then
-      local path = cache .. "/" .. name
-      local owner, _ = sys.open(path .. "/owner", sys.O_RDWR | sys.O_NOFOLLOW)
-      if owner ~= nil then
-        local descriptor: Descriptor = { fd = owner }
-        local probe <close> = setmetatable(descriptor, descriptor_mt)
-        local dead, _ = sys.flock(probe.fd, "exclusive", 0)
-        if dead then local _, _ = Fs.remove_tree(path) end
-      end
-    end
-  end
-  local path, create_trouble = sys.mkdtemp(cache .. "/.scratch.XXXXXX")
-  if path == nil then return nil, create_trouble end
-  local owner, owner_trouble = sys.open(path .. "/owner", sys.O_RDWR | sys.O_CREAT | sys.O_EXCL, 0x180)
-  if owner == nil then
-    local _, _ = Fs.remove_tree(path)
-    return nil, owner_trouble
-  end
-  local owned: Scratch = { path = path, owner = owner }
-  local holding = setmetatable(owned, scratch_mt)
-  local held, hold_trouble = sys.flock(owner, "exclusive", 0)
-  if not held then
-    local _cleanup <close> = holding
-    return nil, hold_trouble
-  end
-  return holding, ""
 end
 
 --- zig's community mirrors of `https://ziglang.org/download/`, copied
@@ -186,7 +121,7 @@ local BUDGET_NS <const> = 12 * 60 * SECOND
 --- `?source=cosmic`, which zig asks for so mirror operators can tell who
 --- fetches.
 function ZigFetch.sources(version: string, name: string, mirrors: {string},
-    random?: function(integer): integer): {string}
+                          random?: function(integer): integer): {string}
   local pick = random or math.random
   local order: {string} = {}
   for i, mirror in ipairs(mirrors) do
@@ -210,7 +145,7 @@ end
 
 --- Native nanosecond download limits; no rounding changes the budget.
 function ZigFetch.limits(connect_ns: integer, low_speed_bytes: integer, low_speed_ns: integer,
-    timeout_ns?: integer): Http.Options
+                         timeout_ns?: integer): Http.Options
   return { connect_timeout_ns = connect_ns, low_speed_bytes = low_speed_bytes,
     low_speed_ns = low_speed_ns, timeout_ns = timeout_ns }
 end
@@ -232,10 +167,10 @@ end
 --- that would make it fatal. When every attempt fails, the message names
 --- each source, its last trouble and how long that attempt ran.
 function ZigFetch.fetch(urls: {string}, path: string, sha256: string,
-    via?: ZigFetch.Fetcher): boolean, string
+                        via?: ZigFetch.Fetcher): boolean, string
   local download = via ~= nil and via.download or Http.download_result
   local sleep = via ~= nil and via.sleep or real_sleep
-  local now = via ~= nil and via.now or Time.monotonic_ns
+  local now = via ~= nil and via.now or Clock.monotonic_ns
   local deadline = now() + BUDGET_NS
   local last: {string:string} = {}
   local wrong: {string:boolean} = {}
@@ -338,7 +273,7 @@ function ZigFetch.install(cache: string, install: string, version: string, host:
   if not made then
     return nil, mtrouble
   end
-  local owned, own_trouble = scratch(cache)
+  local owned, own_trouble = Fs.scratch(cache)
   if owned == nil then return nil, own_trouble end
   local holding <close> = owned
   local work = holding.path .. "/payload"

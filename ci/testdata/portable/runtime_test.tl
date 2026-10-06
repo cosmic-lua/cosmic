@@ -8,7 +8,10 @@ local Test = require("cosmic.test")
 --- Where identity_test.tl has each run append what it ran under: a run
 --- of the runtimes it starts is unsandboxed, and gives a worker only the
 --- variables its module declares.
-Test.needs{ env = { "COSMIC_FIXTURE_COUNTER" } }
+--- `store`: it reads the runtime's `meta` rows and the program's own name
+--- (`artifact`), which only a worker that runs the whole program has; one on
+--- a sealed database carries only the rows its key holds.
+Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } }, env = { "COSMIC_FIXTURE_COUNTER" } }
 
 local function test_runtime_identity_change_runs_again()
   local counter = assert(Env.get("COSMIC_FIXTURE_COUNTER"))
@@ -26,5 +29,5 @@ local function test_runtime_identity_change_runs_again()
   assert(sys.executable() == artifact)
   local before = Fs.read(counter) or ""
   assert(Fs.write(counter, before .. target .. " " .. core .. " " ..
-    basis .. " " .. runtime .. "\n"))
+      basis .. " " .. runtime .. "\n"))
 end

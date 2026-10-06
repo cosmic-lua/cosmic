@@ -1,7 +1,7 @@
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local State = require("cosmic_ci.state")
-local Time = require("cosmic.time")
 
 local record Runner
   record Context
@@ -66,9 +66,9 @@ function Runner.execute(request: Runner.Request): Runner.Outcome
     for number, fd in pairs(request.fds) do fds[number] = fd end
     options.fds = fds
   end
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local called, answer, trouble = pcall(Child.run, request.argv, options)
-  local elapsed = Time.monotonic_ns() - started
+  local elapsed = Clock.monotonic_ns() - started
   local close_ok, close_trouble = true, ""
   for _, fd in ipairs({ input_fd or -1, output_fd or -1, error_fd or -1 }) do
     if fd >= 0 then
@@ -92,7 +92,7 @@ function Runner.execute(request: Runner.Request): Runner.Outcome
   elseif result.ok then
     status, code = "success", 0
   elseif result.signal then
-    status, code = "signal", 128 + result.signal
+    status, code = "signal", Child.shell_status(result)
   end
   return { result = result, status = status, code = code, elapsed_ns = elapsed }
 end
@@ -107,14 +107,14 @@ end
 
 local function start(c: Runner.Context, phase: string, at?: integer): Recording
   local database = State.external_path(c.database, c.candidate)
-  local started = at or Time.monotonic_ns()
+  local started = at or Clock.monotonic_ns()
   return { context = c, database = database, phase = phase, started = started,
     id = State.start(database, c.worker, c.run, c.attempt, phase, started) }
 end
 
 local function complete(recording: Recording, finished: integer, elapsed: integer,
-    status: string, code: integer | nil, signal: integer | nil,
-    timed_out: integer, detail: string | nil)
+                        status: string, code: integer | nil, signal: integer | nil,
+                        timed_out: integer, detail: string | nil)
   local c = recording.context
   State.complete(recording.database, recording.id, c.worker, c.run, c.attempt,
     recording.phase, finished, elapsed, status, code, signal, timed_out, detail)
@@ -123,7 +123,7 @@ end
 -- Runs `attempt` as one operation named `phase`: a start event, then a
 -- complete event with its outcome, which a failure also names on stderr.
 local function recorded(c: Runner.Context, phase: string,
-    attempt: function(): Runner.Outcome): Runner.Outcome
+                        attempt: function(): Runner.Outcome): Runner.Outcome
   local recording = start(c, phase)
   local called, answer = pcall(attempt)
   local outcome: Runner.Outcome
@@ -132,7 +132,7 @@ local function recorded(c: Runner.Context, phase: string,
   else
     outcome = { status = "error", code = 1,
       trouble = limited(tostring(answer)),
-      elapsed_ns = Time.monotonic_ns() - recording.started }
+      elapsed_ns = Clock.monotonic_ns() - recording.started }
   end
   local result = outcome.result
   local exit_code: integer | nil = nil
@@ -150,13 +150,13 @@ local function recorded(c: Runner.Context, phase: string,
   if outcome.status ~= "success" then
     local why = outcome.trouble and (": " .. outcome.trouble) or ""
     Fs.put(Fs.stderr, phase .. ": " .. outcome.status .. " (status " ..
-      tostring(outcome.code) .. ")" .. why .. "\n")
+        tostring(outcome.code) .. ")" .. why .. "\n")
   end
   return outcome
 end
 
 function Runner.operation(c: Runner.Context, phase: string,
-    request: Runner.Request): Runner.Outcome
+                          request: Runner.Request): Runner.Outcome
   return recorded(c, phase, function(): Runner.Outcome
     return Runner.execute(request)
   end)
@@ -166,11 +166,11 @@ end
 --- as `operation` records a command: "success" when it returns true, and
 --- "error" with its message when it returns false or raises.
 function Runner.step(c: Runner.Context, phase: string,
-    work: function(): boolean, string): Runner.Outcome
+                     work: function(): boolean, string): Runner.Outcome
   return recorded(c, phase, function(): Runner.Outcome
-    local started = Time.monotonic_ns()
+    local started = Clock.monotonic_ns()
     local ok, trouble = work()
-    local elapsed = Time.monotonic_ns() - started
+    local elapsed = Clock.monotonic_ns() - started
     if ok then return { status = "success", code = 0, elapsed_ns = elapsed } end
     return { status = "error", code = 1, elapsed_ns = elapsed,
       trouble = limited((trouble or "") ~= "" and trouble or "failed") }
@@ -181,14 +181,14 @@ end
 --- A raised error records exit code 1 and its full text, also said on stderr;
 --- a returned nonzero status is kept as an exit without another diagnostic.
 function Runner.phase(c: Runner.Context, phase: string,
-    action: function(): integer): integer
-  local recording = start(c, phase, Time.monotonic_ns())
+                      action: function(): integer): integer
+  local recording = start(c, phase, Clock.monotonic_ns())
   local called, answer = pcall(action)
   local code = called and answer or 1
   local status = code == 0 and "success" or (called and "exit" or "error")
   local detail: string | nil = nil
   if not called then detail = tostring(answer) end
-  local finished = Time.monotonic_ns()
+  local finished = Clock.monotonic_ns()
   complete(recording, finished, finished - recording.started,
     status, code, nil, 0, detail)
   if detail then Fs.put(Fs.stderr, detail .. "\n") end

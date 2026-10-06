@@ -1,0 +1,6 @@
+#!/usr/bin/env cosmic
+ local a, a, a: integer,
+--[[ @1@ why ]]
+	integer, integer = function()
+  --[[ @2@ why ]]
+end 

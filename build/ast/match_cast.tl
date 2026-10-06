@@ -99,7 +99,7 @@ end
 --- @param capture_predicates {any: string} `:PATTERN` predicates, by pattern node id
 --- @return boolean
 local function match(pv: {any: any}, nv: {any: any}, caps: {string: Node},
-    capture_predicates: {any: string}): boolean
+                     capture_predicates: {any: string}): boolean
   local cap = capture_name(pv["casttype"])
   if not cap then
     return render(pv["casttype"]) == render(nv["casttype"])

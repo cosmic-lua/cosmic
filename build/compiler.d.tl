@@ -39,6 +39,7 @@ local record compiler
   end
 
   record Env
+    defaults: Defaults
     globals: {string:any}
     modules: {string:any}
     -- When set, the checker hands every node's type to `reporter`'s
@@ -83,6 +84,16 @@ local record compiler
   -- code is nil when the input did not parse.
   gen: function(input: string, env: Env, options: any,
                 language: string): string | nil, Result
+  -- Checks `input` as the module `filename`: every position the checker
+  -- records (a type's, an error's) carries that name, which is how it
+  -- tells one module's types from another's. [`gen`] checks under the
+  -- empty name, so a type a module declares looks to the checker of the
+  -- module that uses it as declared in the same file.
+  check_string: function(input: string, env: Env, filename: string,
+                         language: string): Result
+  -- The Lua source for the syntax tree a [`check_string`] answers, nil
+  -- and why when it cannot be written.
+  generate: function(ast: any, target: string, options: any): string | nil, string
   -- Lexes `source` into its token stream plus any lex errors. `lex`
   -- itself never fails outright: unlexable bytes still come back as
   -- (possibly partial) tokens, with the trouble recorded in the second

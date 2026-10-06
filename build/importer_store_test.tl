@@ -20,7 +20,9 @@ local schema = require("build.schema")
 local _ = require("cosmic.removed")
 
 --- The projection, asked directly, and whether the tree is cosmic's own.
-Test.needs{ reads = { "core" }, store = true }
+Test.policy{
+  grants = { { path = "core", letters = "r" }, { path = "o/cosmic.db", letters = "r" } },
+}
 
 local built, load_trouble = teal.load()
 if built == nil then
@@ -97,8 +99,8 @@ local function test_project_keeps_uses_of_bundled_symbols()
   assert(rows[1][3] == "main" and rows[1][4] == "6")
   local guidance = assert(Sqlite.text_rows(shipped,
     "SELECT coalesce(c.text, (SELECT d.text FROM docs d " ..
-    "WHERE d.module = c.module AND d.source_symbol = c.symbol)) " ..
-    "FROM catalog c WHERE c.module = 'main' AND c.symbol = 'Main.check'"))
+      "WHERE d.module = c.module AND d.source_symbol = c.symbol)) " ..
+      "FROM catalog c WHERE c.module = 'main' AND c.symbol = 'Main.check'"))
   assert(#guidance == 1 and guidance[1][1] == "Checks whether a path exists.")
   local databases: {Sqlite.Handle} = { shipped }
   for _, database in ipairs(Store.databases()) do
@@ -145,8 +147,8 @@ local function test_a_removed_field_names_its_replacement_at_compile_time()
   local result, compile_trouble = compile_fixture(root)
   assert(result == nil, "expected `os.getenv` to refuse the compile")
   assert(compile_trouble:find("thing.tl:2:10: unknown variable: os -- os.getenv is not " ..
-    'available: use Env.get(name) (local Env = require("cosmic.env"))' ..
-    " -- see also in docs: Removed.os", 1, true) ~= nil, compile_trouble)
+      'available: use Env.get(name) (local Env = require("cosmic.env"))' ..
+      " -- see also in docs: Removed.os", 1, true) ~= nil, compile_trouble)
 end
 
 --- The same hint, for a literal `require` of a removed name: tl
@@ -176,8 +178,8 @@ local function test_a_hint_names_what_the_tree_s_own_projection_documents()
   local projection = assert(Sqlite.open(root .. "/o/cosmic.db", { writable = true }))
   for _, statement in ipairs(schema.create("")) do assert(projection:exec(statement)) end
   assert(projection:exec("INSERT INTO docs (module, symbol, source_symbol, exported, " ..
-    "kind, signature, text, file, line) VALUES ('greeter', '', 'greeter', 1, " ..
-    "'module', '', 'Greets.', 'greeter.tl', 1)"))
+      "kind, signature, text, file, line) VALUES ('greeter', '', 'greeter', 1, " ..
+      "'module', '', 'Greets.', 'greeter.tl', 1)"))
   assert(projection:close())
   local result, compile_trouble = compile_fixture(root)
   assert(result == nil, "expected the undeclared name to refuse the compile")
@@ -201,7 +203,8 @@ local function test_an_unrelated_unknown_name_earns_no_hint()
   assert(compile_trouble:find("cosmic docs", 1, true) == nil, compile_trouble)
 end
 
---- Concrete checker families point at checked language examples. These are
+--- Concrete checker families that [`teal.replacement`] leaves unanswered
+--- point at checked language examples. These are
 --- real project compiles, so the original position and diagnostic remain in
 --- the output beside the hint. That every query advertised is answered by
 --- the tree's docs is held by `cosmic fix --check .` ([`build.tree_checks`]).
@@ -212,13 +215,9 @@ local function test_language_errors_name_relevant_checked_docs()
       "wrong number of arguments", "generics_functions_returns",
     },
     record_field = {
-      "local record R\n  x: integer\nend\nreturn function(): integer\n" ..
-        "  local r: R = { x = 1 }\n  return r.y\nend\n",
+      "local record R\nend\nreturn function(): integer\n" ..
+        "  local r: R = {}\n  return r.y\nend\n",
       "invalid key 'y' in record", "records_interfaces_methods",
-    },
-    union_operator = {
-      "return function(x: string | integer): integer\n  return x + 1\nend\n",
-      "cannot use operator '+'", "unions_narrowing_casts",
     },
     builtin_argument_type = {
       "return function(): string\n  return table.concat(123)\nend\n",
@@ -260,4 +259,21 @@ local function test_argument_hint_does_not_sniff_the_whole_source_line()
   assert(trouble:find("cosmic docs generics_functions_returns", 1, true) ~= nil,
     trouble)
   assert(trouble:find("cosmic docs table.concat", 1, true) == nil, trouble)
+end
+
+--- A message [`teal.replacement`] answers in place carries no pointer at
+--- the docs besides: a key a record lacks, told the record's fields, and
+--- a number where an integer was expected, told the conversions.
+local function test_an_answered_error_names_no_docs()
+  local root = assert(write_fixture("answered-no-docs", {
+    ["thing.tl"] = "local record R\n  x: integer\nend\nreturn function(n: number): integer\n" ..
+      "  local r: R = { x = 1 }\n  return r.y + math.abs(n) + string.byte(\"a\", n)\nend\n",
+  }))
+  local result, trouble = compile_fixture(root)
+  assert(result == nil)
+  assert(trouble:find("invalid key 'y' in record 'r' of type R -- R's fields: x\n", 1, true) ~= nil,
+    trouble)
+  assert(trouble:find("argument 2: got number, expected integer -- 'as integer' converts", 1, true) ~= nil,
+    trouble)
+  assert(trouble:find("cosmic docs", 1, true) == nil, trouble)
 end

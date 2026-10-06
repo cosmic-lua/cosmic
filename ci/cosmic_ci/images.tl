@@ -55,7 +55,7 @@ end
 --- architecture in the blank-separated `arches` under `name:sha`, and
 --- the inspection of the index that join made.
 function Images.publish_argvs(name: string, actor: string, sha: string,
-    arches: string): {string}, {string}, {string}
+                              arches: string): {string}, {string}, {string}
   local login: {string} = { "login", "ghcr.io", "-u", actor, "--password-stdin" }
   local create: {string} = { "buildx", "imagetools", "create", "--tag",
     name .. ":" .. sha }
@@ -94,7 +94,7 @@ end
 --- failing status and why; `input` goes to its stdin, and `capture`
 --- answers its stdout as well.
 local function docker(env: {string:string}, words: {string},
-    input?: string, capture?: boolean): integer, string, string
+                      input?: string, capture?: boolean): integer, string, string
   local found, missing = Proc.find("docker", env.PATH)
   if found == nil then return 127, "docker: " .. missing, "" end
   -- A relative PATH entry names docker from the driver's cwd, not the
@@ -117,9 +117,9 @@ local function docker(env: {string:string}, words: {string},
   if result == nil then return 1, label .. ": " .. trouble, "" end
   if result.ok then return 0, "", result.stdout or "" end
   if result.signal then
-    return 128 + result.signal, label .. ": signal " .. tostring(result.signal), ""
+    return Child.shell_status(result), label .. ": signal " .. tostring(result.signal), ""
   end
-  local code = result.code or 1
+  local code = Child.shell_status(result)
   return code, label .. ": exit " .. tostring(code), ""
 end
 
@@ -162,7 +162,7 @@ function Images.publish(env: {string:string}, out: integer): integer, string
 end
 
 local function command(name: string, argv: {string},
-    run: function({string:string}): integer, string): integer
+                       run: function({string:string}): integer, string): integer
   if #argv > 0 then
     local _, _ = Fs.put(Fs.stderr, "driver.tl " .. name .. ": takes no arguments\n")
     return 2

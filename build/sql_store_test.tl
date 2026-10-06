@@ -10,7 +10,7 @@ local sql = require("build.sql")
 
 --- The program's own database is read through a handle
 --- ([`Store.databases()`]), which reads every module's rows too.
-Test.needs{ store = true }
+Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
 
 --- A temporary root whose o/cosmic.db holds one small table.
 local function project(): string
@@ -18,8 +18,8 @@ local function project(): string
   assert(Fs.mkdirs(root .. "/o"))
   local db = assert(Sqlite.open(root .. "/o/cosmic.db", { writable = true }))
   assert(db:exec("CREATE TABLE t (a, b); INSERT INTO t VALUES " ..
-    "(1, 'one'), (NULL, x'00ff'), (1.5, 'tab' || char(9) || 'and\\'), (2.0, ''), " ..
-    "(3, char(27) || '[31m' || char(127) || '\\N')"))
+      "(1, 'one'), (NULL, x'00ff'), (1.5, 'tab' || char(9) || 'and\\'), (2.0, ''), " ..
+      "(3, char(27) || '[31m' || char(127) || '\\N')"))
   assert(db:close())
   return root
 end
@@ -105,10 +105,10 @@ local function test_the_default_is_the_project_database_else_the_binarys_own()
   assert(code == 0 and #said.out == 1 and said.out[1]:find("\t", 1, true) ~= nil,
     table.concat(said.out, "|"))
   for _, statement in ipairs({
-    "CREATE TEMP TABLE u (a)",
-    "ATTACH ':memory:' AS m",
-    "PRAGMA writable_schema = 1",
-    "VACUUM INTO '" .. root .. "/copy.db'",
+      "CREATE TEMP TABLE u (a)",
+      "ATTACH ':memory:' AS m",
+      "PRAGMA writable_schema = 1",
+      "VACUUM INTO '" .. root .. "/copy.db'",
   }) do
     local written = sql.query(opened.db, statement)
     assert(written == nil, statement .. " ran")

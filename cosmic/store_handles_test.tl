@@ -8,7 +8,7 @@ local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 
 --- `store`: [`Store.databases()`] hands handles to every module's rows.
-Test.needs{ store = true }
+Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
 
 --- A path is a filename, never a URI: one whose `vfs=` would pick a
 --- VFS of its own names no file, and nothing is attached.
@@ -96,7 +96,7 @@ local function test_alone_searches_only_the_binarys_own_database()
   assert(#Store.databases() == before)
   -- More results than a C function has free slots are dropped, not kept.
   local many = assert(load("local t = {} for i = 1, 100 do t[i] = i end " ..
-    "return table.unpack(t)"))
+      "return table.unpack(t)"))
   Store.alone(many)
   assert(#Store.databases() == before)
   assert(Store.meta("compiler") ~= nil)

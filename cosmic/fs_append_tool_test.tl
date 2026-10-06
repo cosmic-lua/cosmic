@@ -1,11 +1,11 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local type _ = require("cosmic.sys")
+local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
 local this_program = require("build.this_program")
 
-Test.needs{ lua = true }
+Test.policy{ profiles = { "cosmic" } }
 
 local function appender(tmp: string, name: string): Child.Handle
   local script = string.format("local name = %q\n", name) .. [[
@@ -33,8 +33,8 @@ local function test_append_concurrent_processes_preserve_both_ordered_streams(tm
   assert(assert(second.stdout_stream):read(5) == "ready")
   assert(assert(first.stdin_stream):write("g"))
   assert(assert(second.stdin_stream):write("g"))
-  local a = assert(first:wait(Time.seconds(10)))
-  local b = assert(second:wait(Time.seconds(10)))
+  local a = assert(first:wait(Clock.seconds(10)))
+  local b = assert(second:wait(Clock.seconds(10)))
   assert(a.ok, a.stderr)
   assert(b.ok, b.stderr)
   local next_index: {string:integer} = { a = 1, b = 1 }

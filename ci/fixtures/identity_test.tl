@@ -1,13 +1,13 @@
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Fixture = require("cosmic_ci.fixture")
 local Process = require("cosmic_ci.process")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
 
--- What the runtime setup made (COSMIC_FIXTURE_RUNTIME,
+-- What the runtime setup made (o/fixtures/runtime,
 -- cosmic_ci/runtime_setup.tl), each file the tests read or run by name,
 -- which holds the database it was written from, and the prefix of the
--- product it was made from (COSMIC_FIXTURE_PRODUCT's `prefix`: its
+-- product it was made from (o/fixtures/product's `prefix`: its
 -- launcher, manifest and cores): each is in every verdict's key, so no
 -- verdict stands for a product part it was not reached on
 -- (cosmic_ci/orchestration.tl's `sandboxed_fixtures`).
@@ -15,32 +15,32 @@ local Time = require("cosmic.time")
 -- `system`: runtime.* and the applications a build writes launch through
 -- /bin/sh, and the fixtures run uname, mkfifo, cat and tee through
 -- /usr/bin/env (cosmic_ci/process.tl).
-Test.needs{
-  host = {
-    "$COSMIC_FIXTURE_PRODUCT/prefix",
-    "$COSMIC_FIXTURE_RUNTIME/runtime.old",
-    "$COSMIC_FIXTURE_RUNTIME/runtime.old.prefix",
-    "$COSMIC_FIXTURE_RUNTIME/runtime.old.prefix-length",
-    "$COSMIC_FIXTURE_RUNTIME/runtime.new",
-    "$COSMIC_FIXTURE_RUNTIME/runtime.basis",
-    "$COSMIC_FIXTURE_RUNTIME/runtime.missing",
-    "$COSMIC_FIXTURE_RUNTIME/runtime.sanitized",
-    "$COSMIC_FIXTURE_RUNTIME/runtime.corrupt-x86_64-linux-musl",
-    "$COSMIC_FIXTURE_RUNTIME/runtime.corrupt-aarch64-linux-musl",
-    "$COSMIC_FIXTURE_RUNTIME/runtime.corrupt-aarch64-macos",
-    "$COSMIC_FIXTURE_RUNTIME/runtime_test.tl",
-    "$COSMIC_FIXTURE_RUNTIME/hello_main.tl",
-    "$COSMIC_FIXTURE_RUNTIME/second_main.tl",
-    "$COSMIC_FIXTURE_RUNTIME/targets.tsv",
-    "$COSMIC_FIXTURE_RUNTIME/sanitized-target-id",
-    "$COSMIC_FIXTURE_RUNTIME/sanitized-core-name",
-    "$COSMIC_FIXTURE_RUNTIME/sanitized-cores/sanitized-x86_64-linux-musl/cosmic-core",
-    "$COSMIC_FIXTURE_RUNTIME/sanitized-cores/sanitized-aarch64-linux-musl/cosmic-core",
-    "$COSMIC_FIXTURE_RUNTIME/sanitized-cores/sanitized-aarch64-macos/cosmic-core",
-    "$COSMIC_FIXTURE_RUNTIME/tool.tar",
-    "$COSMIC_FIXTURE_RUNTIME/focused-embed.tar",
+Test.policy{
+  grants = {
+    { path = "o/fixtures/product/prefix", letters = "r" },
+    { path = "o/fixtures/runtime/runtime.old", letters = "r" },
+    { path = "o/fixtures/runtime/runtime.old.prefix", letters = "r" },
+    { path = "o/fixtures/runtime/runtime.old.prefix-length", letters = "r" },
+    { path = "o/fixtures/runtime/runtime.new", letters = "r" },
+    { path = "o/fixtures/runtime/runtime.basis", letters = "r" },
+    { path = "o/fixtures/runtime/runtime.missing", letters = "r" },
+    { path = "o/fixtures/runtime/runtime.sanitized", letters = "r" },
+    { path = "o/fixtures/runtime/runtime.corrupt-x86_64-linux-musl", letters = "r" },
+    { path = "o/fixtures/runtime/runtime.corrupt-aarch64-linux-musl", letters = "r" },
+    { path = "o/fixtures/runtime/runtime.corrupt-aarch64-macos", letters = "r" },
+    { path = "o/fixtures/runtime/runtime_test.tl", letters = "r" },
+    { path = "o/fixtures/runtime/hello_main.tl", letters = "r" },
+    { path = "o/fixtures/runtime/second_main.tl", letters = "r" },
+    { path = "o/fixtures/runtime/targets.tsv", letters = "r" },
+    { path = "o/fixtures/runtime/sanitized-target-id", letters = "r" },
+    { path = "o/fixtures/runtime/sanitized-core-name", letters = "r" },
+    { path = "o/fixtures/runtime/sanitized-cores/sanitized-x86_64-linux-musl/cosmic-core", letters = "r" },
+    { path = "o/fixtures/runtime/sanitized-cores/sanitized-aarch64-linux-musl/cosmic-core", letters = "r" },
+    { path = "o/fixtures/runtime/sanitized-cores/sanitized-aarch64-macos/cosmic-core", letters = "r" },
+    { path = "o/fixtures/runtime/tool.tar", letters = "r" },
+    { path = "o/fixtures/runtime/focused-embed.tar", letters = "r" },
   },
-  system = true,
+  profiles = { "system" },
 }
 
 local type Running = Process.Running
@@ -51,13 +51,13 @@ local chmod, host_uname = Process.chmod, Process.host_uname
 -- Compares the first `length` bytes of two files, each of which must hold at
 -- least that many.
 local function compare_file_prefixes(left: string, right: string,
-    length: integer)
+                                     length: integer)
   assert(#left >= length,
     "left file is shorter than the compared prefix: " .. tostring(#left) ..
-    " < " .. tostring(length))
+      " < " .. tostring(length))
   assert(#right >= length,
     "right file is shorter than the compared prefix: " .. tostring(#right) ..
-    " < " .. tostring(length))
+      " < " .. tostring(length))
   assert(left:sub(1, length) == right:sub(1, length),
     "compared file prefixes differ")
 end
@@ -95,7 +95,7 @@ end
 -- Find the single generated target whose uname fields match this host.
 -- [`Fixture.targets`] discards those fields, so it cannot perform this lookup.
 local function host_target_field(fixture_dir: string, work: string,
-    diagnostics: string): string
+                                 diagnostics: string): string
   local sysname = host_uname(work, diagnostics, "-s", "sysname")
   local arch = host_uname(work, diagnostics, "-m", "arch")
   local found: string | nil = nil
@@ -110,7 +110,7 @@ local function host_target_field(fixture_dir: string, work: string,
     end
   end
   return (assert(found, "no generated target matches this host: " ..
-    sysname .. " " .. arch))
+      sysname .. " " .. arch))
 end
 
 -- The unlink-during-build and rename-during-build races: a throwaway copy of
@@ -119,8 +119,8 @@ end
 -- the build finish reading from the one retained descriptor. `action` is
 -- "unlink" or "rename".
 local function run_build_race(project: string, cache: string,
-    fixture_dir: string, runtime_prefix: string, prefix_length: integer,
-    work: string, diagnostics: string, action: string)
+                              fixture_dir: string, runtime_prefix: string, prefix_length: integer,
+                              work: string, diagnostics: string, action: string)
   local copy_path = work .. "/" .. action .. "-runtime"
   Fixture.copy(fixture_dir .. "/runtime.old", copy_path, 0x1ed)
   local ready = fifo(work, diagnostics, action .. "-ready")
@@ -153,23 +153,23 @@ end
 
 -- The PASS tally is emitted on stdout; diagnostics are captured separately.
 local function run_release(project: string, cache: string, counter: string,
-    diagnostics: string, artifact: string, label: string): Fixture.Capture
+                           diagnostics: string, artifact: string, label: string): Fixture.Capture
   return Fixture.run(label, { artifact, "test" }, project, diagnostics,
     { COSMIC_PORTABLE_CACHE = cache, COSMIC_FIXTURE_COUNTER = counter })
 end
 
 local function expect_tally(capture: Fixture.Capture, ran: integer,
-    stood: integer)
+                            stood: integer)
   Fixture.contains(capture.out, "test: PASS (1 test, 1 module; " ..
-    tostring(ran) .. " ran, " .. tostring(stood) .. " stood")
+      tostring(ran) .. " ran, " .. tostring(stood) .. " stood")
 end
 
 -- Run the raw sanitized core outside its runtime wrapper, with the full private
 -- COSMIC_PORTABLE_* contract supplied by hand and the artifact/core opened
 -- on descriptors 8/9.
 local function run_sanitized(fixture_dir: string, tool: string,
-    project: string, counter: string, work: string,
-    diagnostics: string): Fixture.Capture
+                             project: string, counter: string, work: string,
+                             diagnostics: string): Fixture.Capture
   local artifact = fixture_dir .. "/runtime.sanitized"
   local target_id = assert(Fixture.small(
     fixture_dir .. "/sanitized-target-id", 256):match("^(%S+)"),
@@ -196,15 +196,15 @@ local function run_sanitized(fixture_dir: string, tool: string,
   return Fixture.succeeded("sanitized", Fixture.call_with_descriptors("sanitized",
     { core, "--artifact", artifact, "test" }, project, diagnostics,
     Fixture.environment({
-    COSMIC_FIXTURE_COUNTER = counter,
-    COSMIC_PORTABLE_ARTIFACT_FD = "8",
-    COSMIC_PORTABLE_CORE_FD = "9",
-    COSMIC_PORTABLE_TARGET_ID = target_id,
-    COSMIC_PORTABLE_CONFIGURATION_ID = "2",
-    COSMIC_PORTABLE_CORE_OFFSET = offset,
-    COSMIC_PORTABLE_CORE_LENGTH = length,
-    COSMIC_PORTABLE_CORE_SHA256 = digest,
-  }), { [8] = artifact, [9] = core }))
+      COSMIC_FIXTURE_COUNTER = counter,
+      COSMIC_PORTABLE_ARTIFACT_FD = "8",
+      COSMIC_PORTABLE_CORE_FD = "9",
+      COSMIC_PORTABLE_TARGET_ID = target_id,
+      COSMIC_PORTABLE_CONFIGURATION_ID = "2",
+      COSMIC_PORTABLE_CORE_OFFSET = offset,
+      COSMIC_PORTABLE_CORE_LENGTH = length,
+      COSMIC_PORTABLE_CORE_SHA256 = digest,
+    }), { [8] = artifact, [9] = core }))
 end
 
 -- Restoring into a new project location invalidates the old verdict: the first
@@ -213,7 +213,7 @@ end
 -- It runs on the finished primary project, from inside the same test: each
 -- test runs in a process of its own, so no other test can hand it one.
 local function check_transported(fixture_dir: string, finished: string,
-    work: string, diagnostics: string)
+                                 work: string, diagnostics: string)
   -- The destination must not exist so this creates a fresh relocated project.
   local project = work .. "/transported-project"
   copy_tree("restore-transported-state", finished, project)
@@ -266,10 +266,10 @@ end
 -- 60 s the driver gives each identity test (cosmic_ci/orchestration.tl's
 -- `identity_per_test_timeout_s`), so a hang fails naming the run's
 -- output rather than by the runner ending the test.
-local focused_embed_timeout_ns <const> = Time.seconds(50)
+local focused_embed_timeout_ns <const> = Clock.seconds(50)
 
 local function test_identity_focused_embed(tmp: string)
-  local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
+  local fixture_dir = Fixture.placed("runtime")
   local work = tmp
   local diagnostics = work .. "/logs"
   Fixture.mkdir(diagnostics)
@@ -289,13 +289,13 @@ local function test_identity_focused_embed(tmp: string)
   end
   assert(cases > 0, "build/embed_test.tl holds no tests")
   Fixture.contains(focused_run.out, "test: PASS (" .. cases .. (cases == 1 and " test" or " tests") .. ", 1 module; " ..
-    cases .. " ran, 0 stood")
+      cases .. " ran, 0 stood")
 end
 
 -- Build the primary project, check every runtime context against it, then
 -- check it again transported to a new location.
 local function test_identity_primary(tmp: string)
-  local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
+  local fixture_dir = Fixture.placed("runtime")
   local work = tmp
   local diagnostics = work .. "/logs"
   Fixture.mkdir(diagnostics)
@@ -376,7 +376,7 @@ local function test_identity_primary(tmp: string)
   local cache_files = count_cache_files(cache)
   assert(cache_files == 1,
     "portable cache must contain exactly one file, found " ..
-    tostring(cache_files))
+      tostring(cache_files))
   Fixture.write(project .. "/portable-hello.sha256",
     Fixture.hash(project .. "/o/bin/hello") .. "\n")
   Fixture.write(project .. "/portable-second.sha256",
@@ -428,7 +428,7 @@ local function test_identity_primary(tmp: string)
       COSMIC_FIXTURE_COUNTER = missing_counter }))
   assert(missing_outcome.result.code == 1,
     "missing-runtime test exit status was " ..
-    tostring(missing_outcome.result.code) .. ", want 1")
+      tostring(missing_outcome.result.code) .. ", want 1")
   Fixture.contains(missing_outcome.err,
     "the running binary names no runtime identity")
   assert(Fs.exists(missing_counter) == false,

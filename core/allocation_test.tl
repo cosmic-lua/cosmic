@@ -17,15 +17,20 @@
 ---
 --- Only the checked core can refuse an allocation (core/testing.h), and
 --- CI runs this suite on it; any other core has no instrument to
---- refuse one with, which these tests say rather than pass unseen. The
+--- refuse one with: this module requires `checked`, so another core finds
+--- it not applicable, and core/instrument_test.tl holds what its
+--- instruments answer there. The
 --- walks that start the program again, or count the store's
 --- databases, are core/allocation_tool_test.tl's and
 --- core/allocation_store_test.tl's, so these stand while the tree moves.
+--- The children-list walk is core/allocation_children_test.tl's: it
+--- also requires the children file in this process's mounted /proc.
 
 local _ = require("cosmic.child") -- in the closure: [`process_table`] searches for it by hand
 local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Hash = require("cosmic.hash")
+local Html = require("cosmic.html")
 local Http = require("cosmic.http")
 local Json = require("cosmic.json")
 local Net = require("cosmic.net")
@@ -35,7 +40,12 @@ local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
 local type raw_process = require("cosmic.internal.process")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
+local Test = require("cosmic.test")
+local unix_socket = require("build.unix_socket")
+
+--- The socket cases listen on the worker's own loopback.
+Test.policy{ requires = { "checked" }, loopback = { "127.0.0.1" } }
 
 local type Searcher = function(string): any, any
 
@@ -52,8 +62,6 @@ local function process_table(): raw_process
 end
 
 local process = process_table()
-
-local checked = testing.configuration == "sanitized"
 
 --- Runs `work` once per allocation it makes, refusing that allocation,
 --- and a last time with none refused; answers how many runs a refusal
@@ -89,37 +97,7 @@ local function next_descriptor(tmp: string): integer
   return fd
 end
 
---- Every core says what it is and has every instrument, but only the
---- checked one's instrument: in any other each raises, so no core that
---- ships has an allocator a program can make fail.
-local function test_only_the_checked_core_instruments()
-  assert(type(testing.configuration) == "string" and testing.configuration ~= "")
-  local instruments: {string: function()} = {
-    fail_allocations = function()
-      testing.fail_allocations(1 << 40)
-      testing.allow_allocations()
-    end,
-    allow_allocations = function() testing.allow_allocations() end,
-    open_statements = function() testing.open_statements() end,
-    c_heap = function() testing.c_heap() end,
-    fail_at = function() testing.fail_at() end,
-    live_transfers = function() testing.live_transfers() end,
-    executable_path = function() testing.executable_path(4096) end,
-    mountinfo_local_flock = function() testing.mountinfo_local_flock("", "0:1") end,
-  }
-  for name, use in pairs(instruments) do
-    local ok, err: boolean, any = pcall(use)
-    if checked then
-      assert(ok, name .. ": " .. tostring(err))
-    else
-      assert(not ok and tostring(err):find(name .. ": only the checked core", 1, true),
-        name .. " must raise on the " .. testing.configuration .. " core: " .. tostring(err))
-    end
-  end
-end
-
 local function test_a_refused_allocation_raises_and_is_counted()
-  if not checked then return end
   -- Made before refusal starts: the closure is itself an allocation,
   -- and nothing after a refusal outside pcall could even report.
   local allocate = function(): {string} return { string.rep("x", 100) } end
@@ -132,7 +110,6 @@ local function test_a_refused_allocation_raises_and_is_counted()
 end
 
 local function test_readdir_releases_its_directory_whenever_an_allocation_fails(tmp: string)
-  if not checked then return end
   assert(sys.mkdir(tmp .. "/d"))
   for i = 1, 40 do
     sys.close((assert(sys.open(tmp .. "/d/entry-" .. i, sys.O_CREAT | sys.O_WRONLY, 420))))
@@ -148,7 +125,6 @@ local function test_readdir_releases_its_directory_whenever_an_allocation_fails(
 end
 
 local function test_the_store_finalizes_its_statement_whenever_an_allocation_fails()
-  if not checked then return end
   local before = testing.open_statements()
   local ended = under_every_failure(function()
     assert(Store.bytecode("cosmic.fs"))
@@ -160,14 +136,13 @@ local function test_the_store_finalizes_its_statement_whenever_an_allocation_fai
   collectgarbage("collect")
   assert(testing.open_statements() == before,
     "a refused allocation left " .. (testing.open_statements() - before) ..
-    " statements open")
+      " statements open")
 end
 
 --- print builds its line in a buffer that moves to the heap past 1 KB;
 --- a refusal at any point of that must raise, never free the buffer out
 --- from under itself.
 local function test_print_survives_every_refused_allocation()
-  if not checked then return end
   local long = string.rep(".", 1100)
   local ended = under_every_failure(function()
     print("allocation_test: a long print under refusal ->", long, 42)
@@ -178,7 +153,6 @@ end
 --- open_temporary builds its answer with the descriptor already open; a
 --- refusal while it does must close it, not leave it to the process.
 local function test_open_temporary_closes_its_descriptor_whenever_an_allocation_fails(tmp: string)
-  if not checked then return end
   local path = tmp .. "/t"
   local before = next_descriptor(tmp)
   -- Taken on the line that makes the call, so no hook runs between the
@@ -205,7 +179,6 @@ end
 --- the tables; a refusal at any point of that, and a failed execve after
 --- it, must come back through the guards that free them.
 local function test_execve_survives_every_refused_allocation(tmp: string)
-  if not checked then return end
   local missing = tmp .. "/no-such-program"
   local ended = under_every_failure(function()
     local ok, trouble = sys.execve(missing, { missing, "an argument" }, { NAME = "value" })
@@ -217,7 +190,6 @@ end
 
 --- A pipe is made after its answer is: a refusal leaves neither end open.
 local function test_pipe_leaves_no_end_open_whenever_an_allocation_fails(tmp: string)
-  if not checked then return end
   local before = next_descriptor(tmp)
   -- Taken on the line that makes the call, and released in `settle`, so
   -- a refused coverage hook cannot fall between the two.
@@ -239,18 +211,35 @@ local function test_pipe_leaves_no_end_open_whenever_an_allocation_fails(tmp: st
   assert(after == before, "a refused allocation left descriptor " .. before .. " open")
 end
 
---- A socket owns its descriptor, and a unix listener's socket file,
---- from the call that makes it: a refusal anywhere after -- before
---- [`cosmic.net`] has wrapped it, or while it builds the wrap -- leaves
---- neither to the process, and the next listener takes the same path.
+--- A socket owns its descriptor from the call that makes it: a refusal
+--- anywhere after -- before [`cosmic.net`] has wrapped it, or while it
+--- builds the wrap -- leaves none to the process. Over the loopback, which
+--- needs no socket file.
+local function test_net_leaves_no_descriptor_whenever_an_allocation_fails(tmp: string)
+  local before = next_descriptor(tmp)
+  local ended = under_every_failure(function()
+    local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
+    local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
+    local accepted <close> = assert(server:accept())
+    assert(client:write("hello"))
+    assert(accepted:read() == "hello")
+  end)
+  assert(ended > 0, "listening, connecting and accepting allocate")
+  local after = next_descriptor(tmp)
+  assert(after == before, "a refused allocation left descriptor " .. before .. " open")
+end
+
+--- A unix listener owns its socket file too: a refusal anywhere leaves
+--- neither the descriptor nor the file to the process, and the next
+--- listener takes the same path.
 local function test_net_leaves_no_descriptor_or_socket_file_whenever_an_allocation_fails(
     tmp: string)
-  if not checked then return end
+  if unix_socket.skipped(tmp) then return end
   local path = tmp .. "/s.sock"
   local before = next_descriptor(tmp)
   local ended = under_every_failure(function()
-    local server <close> = assert(Net.listen(Net.unix(path), { timeout_ns = Time.seconds(5) }))
-    local client <close> = assert(Net.connect(server.address, { timeout_ns = Time.seconds(5) }))
+    local server <close> = assert(Net.listen(Net.unix(path), { timeout_ns = Clock.seconds(5) }))
+    local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
     local accepted <close> = assert(server:accept())
     assert(client:write("hello"))
     assert(accepted:read() == "hello")
@@ -265,13 +254,11 @@ end
 --- anywhere, a run torn down by one included, leaves no descriptor to
 --- the process.
 local function test_net_in_a_run_leaves_no_descriptor_whenever_an_allocation_fails(tmp: string)
-  if not checked then return end
-  local path = tmp .. "/r.sock"
   local before = next_descriptor(tmp)
   local ended = under_every_failure(function()
-    local server <close> = assert(Net.listen(Net.unix(path), { timeout_ns = Time.seconds(5) }))
+    local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
     Poll.run(function()
-      local client <close> = assert(Net.connect(server.address, { timeout_ns = Time.seconds(5) }))
+      local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
       local accepted <close> = assert(server:accept())
       assert(client:write("x"))
       assert(accepted:read() == "x")
@@ -290,23 +277,7 @@ local function assert_c_heap(before_bytes: integer, before_blocks: integer, what
   local bytes, blocks = testing.c_heap()
   assert(bytes == before_bytes and blocks == before_blocks,
     what .. " left " .. (blocks - before_blocks) .. " blocks (" ..
-    (bytes - before_bytes) .. " bytes) on the C heap")
-end
-
---- `children` reads its list into a block of the core's C heap, and
---- closes the list's descriptor, whichever allocation is refused. Off
---- Linux it allocates nothing, and there is nothing to walk.
-local function test_children_releases_its_block_whenever_an_allocation_fails(tmp: string)
-  if not checked or assert(sys.uname()).sysname ~= "Linux" then return end
-  local before = next_descriptor(tmp)
-  local bytes, blocks = testing.c_heap()
-  local ended = under_every_failure(function()
-    assert(process.children())
-  end)
-  assert(ended > 0, "listing the children allocates")
-  collectgarbage("collect")
-  assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. before .. " open")
-  assert_c_heap(bytes, blocks, "children under refusal")
+      (bytes - before_bytes) .. " bytes) on the C heap")
 end
 
 --- `maps_id` reads each map into a block of the core's C heap, and
@@ -317,7 +288,7 @@ end
 --- the ENOMEM no caller here can see. Off Linux it allocates nothing,
 --- and there is nothing to walk.
 local function test_maps_id_releases_its_block_whenever_an_allocation_fails(tmp: string)
-  if not checked or assert(sys.uname()).sysname ~= "Linux" then return end
+  if assert(sys.uname()).sysname ~= "Linux" then Test.skip("this test walks a Linux-only path") end
   local before = next_descriptor(tmp)
   local bytes, blocks = testing.c_heap()
   local ended = under_every_failure(function()
@@ -333,7 +304,6 @@ end
 --- `getgroups` lists the groups into a block Lua owns, not the C heap's,
 --- so a refusal of the list's table after it leaves nothing behind.
 local function test_getgroups_leaves_nothing_whenever_an_allocation_fails()
-  if not checked then return end
   local bytes, blocks = testing.c_heap()
   local ended = under_every_failure(function()
     assert(sys.getgroups())
@@ -345,7 +315,6 @@ end
 --- The C heap counts what the core's C allocates and frees, and a
 --- refused C allocation is counted with Lua's.
 local function test_the_c_heap_counts_its_blocks_and_refusals()
-  if not checked then return end
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
   do
@@ -405,7 +374,6 @@ end
 --- deflater, whenever an allocation fails: a refusal raises or answers
 --- nil and a message, and leaves no block behind.
 local function test_compress_leaves_nothing_whenever_an_allocation_fails()
-  if not checked then return end
   local packed: {string: string} = {}
   for _, format in ipairs({ "raw", "zlib", "gzip" } as {Compress.Format}) do
     local encoder = assert(Compress.deflater(format))
@@ -446,7 +414,6 @@ end
 --- that inflates a row, leave no block on the C heap whenever an
 --- allocation fails, and give the whole text back when none does.
 local function test_deflate_and_inflate_leave_nothing_whenever_an_allocation_fails()
-  if not checked then return end
   local db = assert(Sqlite.memory())
   local text = string.rep("deflated source, inflated again\n", 64)
   collectgarbage("collect")
@@ -473,7 +440,6 @@ end
 --- in the userdata's allocation or the values a constructor, `update`
 --- or `digest` pushes, and the collection or close of an unfinished one.
 local function test_hash_leaves_nothing_whenever_an_allocation_fails()
-  if not checked then return end
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
   local ended = under_every_failure(function()
@@ -498,14 +464,35 @@ local function test_hash_leaves_nothing_whenever_an_allocation_fails()
   assert_c_heap(bytes, blocks, "HMAC hashing under refusal")
 end
 
+--- A safe value is a userdata and a string of Lua's own, and no C memory:
+--- a refusal while one is made, escaped, joined or read leaves none.
+local function test_html_leaves_nothing_whenever_an_allocation_fails()
+  collectgarbage("collect")
+  local bytes, blocks = testing.c_heap()
+  local ended = under_every_failure(function()
+    local text = Html.escape("a < b & \"c\" 'd'")
+    local attr = Html.escape_attr("a b\0\xc3\xa9")
+    local joined = Html.concat({ Html.trust("<p>"), text, Html.trust("</p>") })
+    assert(Html.raw(joined) == "<p>a &lt; b &amp; &quot;c&quot; &#39;d&#39;</p>")
+    assert(Html.raw_attr(attr) == "a&#32;b&#0;\xc3\xa9")
+    assert(Html.raw_url(Html.href("https://a/b")) == "https://a/b")
+    assert(Html.raw_url(Html.href("javascript:x")) == "about:invalid")
+    assert(Html.raw_url(Html.trust_url("x")) == "x")
+  end)
+  assert(ended > 0, "a safe value is an allocation")
+  assert_c_heap(bytes, blocks, "escaping under refusal")
+end
+
 --- `decode` holds a yyjson document and `encode` its output on the C
 --- heap; a refusal anywhere, Lua's or theirs, raises or answers nil and
 --- a message, and leaves neither behind.
 local function test_json_leaves_nothing_whenever_an_allocation_fails()
-  if not checked then return end
   local text = '{"b": [1, 2.5, "x\\u00e9", true, null], "a": {"c": {}, "d": []}}'
   local wide: {string: any} = {}
-  for i = 1, 40 do wide["key" .. i] = Json.array({ i, "value " .. i }) end
+  for i = 1, 80 do wide["key" .. i] = Json.array({ i, "value " .. i }) end
+  -- An object too large for a set of its keys on the C stack, whose
+  -- keys go through a Lua table, holding a key twice.
+  local wide_text = assert(Json.encode(wide)):gsub("}$", ',"key1":0}')
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
   local ended = under_every_failure(function()
@@ -515,6 +502,12 @@ local function test_json_leaves_nothing_whenever_an_allocation_fails()
     assert(assert(Json.encode(wide, { pretty = true })):sub(1, 1) == "{")
     local lone = assert(Json.decode('["\\ud83d"]', { lone_surrogates = true })) as {string}
     assert(lone[1] == "\u{FFFD}")
+    assert(Json.check(text))
+    assert(assert(Json.format(text, { pretty = true })):sub(1, 1) == "{")
+    assert(Json.format("{a: [0x1F, .5]}", { json5 = true }) == '{"a":[31,0.5]}')
+    assert(assert(Json.canonical((assert(Json.encode(wide))))):sub(1, 1) == "{")
+    local _, twice = Json.decode(wide_text)
+    assert(twice:match("^json: duplicate key "), twice)
   end)
   assert(ended > 0, "decoding and encoding allocate")
   assert_c_heap(bytes, blocks, "JSON under refusal")
@@ -524,7 +517,6 @@ end
 --- refusing every allocation after, cannot arrange -- answers "out of
 --- memory", and a JSON Lines record's names its line.
 local function test_json_names_a_record_yyjson_could_not_allocate()
-  if not checked then return end
   testing.fail_at("json_malloc")
   local _, whole = Json.decode("[1]")
   assert(not testing.fail_at(), "decode never reached json_malloc")
@@ -543,6 +535,20 @@ local function test_json_names_a_record_yyjson_could_not_allocate()
   end
   assert(named["json: line 1: out of memory"] and named["json: line 2: out of memory"],
     "each record's refusal names its line")
+  -- format reads a hexadecimal number again, as a document of its own,
+  -- after every read of the text: the last allocation it makes.
+  local last = -1
+  for skip = 0, 16 do
+    testing.fail_at("json_malloc", skip)
+    local formatted, why = Json.format("[0x1F]", { json5 = true })
+    if testing.fail_at() then
+      assert(formatted == '[31]', why)
+      break
+    end
+    assert(formatted == nil and why == "json: out of memory", tostring(why))
+    last = skip
+  end
+  assert(last >= 4, "format read the text twice and the number once: " .. last)
 end
 
 --- A whole reply: a status line, `head`'s header lines, and `body`.
@@ -563,7 +569,7 @@ local exchanges: {Exchange} = {
   { name = "a Content-Length body", options = { script = { reply("200 OK", "", hello) } } },
   { name = "a chunked body", options = { script = {
     "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n" ..
-    "7\r\nhello, \r\n7\r\ncosmic!\r\n0\r\n\r\n" } } },
+      "7\r\nhello, \r\n7\r\ncosmic!\r\n0\r\n\r\n" } } },
   { name = "a redirect", options = { script = {
     reply("302 Found", "Location: /next\r\n", "moved"), reply("200 OK", "", hello) } } },
   { name = "a 100 Continue", options = { script = {
@@ -595,7 +601,6 @@ end
 --- no descriptor, no transfer, no block, and the run with nothing
 --- refused reads the whole body.
 local function test_http_leaves_nothing_whenever_an_allocation_fails(tmp: string)
-  if not checked then return end
   -- The first request makes the process-wide state -- curl's global
   -- init, the trust store, the multi handle and its wakeup pair -- which
   -- is made once and kept, so it is made before anything is counted.
@@ -620,9 +625,8 @@ end
 --- The outcome's error copy is owned before Lua builds its string or
 --- returns its table. A refusal at either point must release that copy.
 local function test_sqlite_exec_result_releases_its_snapshot_under_allocation_failure()
-  if not checked then return end
   local db = assert(Sqlite.memory())
-  db:busy_timeout(Time.ms(10))
+  db:busy_timeout(Clock.ms(10))
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
   for _, sql in ipairs({ "SELECT 1", "SELECT * FROM missing" }) do
@@ -640,9 +644,8 @@ local function test_sqlite_exec_result_releases_its_snapshot_under_allocation_fa
 end
 
 local function test_prepared_statements_keep_the_busy_handlers_owner_under_allocation_failure()
-  if not checked then return end
   local db = assert(Sqlite.memory())
-  db:busy_timeout(Time.ms(10))
+  db:busy_timeout(Clock.ms(10))
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
   local ended = under_every_failure(function()
@@ -659,7 +662,6 @@ end
 --- Existing-only open shares the normal handle guard, on success and
 --- on refusal: an allocation failure must leave neither handle nor fd.
 local function test_sqlite_existing_only_open_releases_every_refused_allocation(tmp: string)
-  if not checked then return end
   local path = tmp .. "/existing.db"
   local made = assert(Sqlite.open(path, { writable = true }))
   assert(made:exec("CREATE TABLE t (a)"))
@@ -691,7 +693,6 @@ end
 --- Building a full-flush failure answer under allocation refusal must
 --- not consume the caller's descriptor or leak another one.
 local function test_full_fsync_preserves_its_descriptor_under_allocation_failure(tmp: string)
-  if not checked then return end
   local fd = assert(sys.open(tmp .. "/full-flush", sys.O_CREAT | sys.O_RDWR, 420))
   assert(sys.write(fd, "data"))
   local darwin = assert(sys.uname()).sysname == "Darwin"
@@ -711,7 +712,6 @@ end
 --- Credential failure still releases spawn's native argument copies and
 --- status pipe when allocating the refusal itself fails.
 local function test_spawn_credentials_refusal_leaks_no_resources(tmp: string)
-  if not checked then return end
   local before = next_descriptor(tmp)
   collectgarbage("collect")
   local heap = testing.c_heap()
@@ -724,4 +724,56 @@ local function test_spawn_credentials_refusal_leaks_no_resources(tmp: string)
   end)
   assert(next_descriptor(tmp) == before, "credential refusal leaked a descriptor")
   assert(testing.c_heap() == heap, "credential refusal leaked native allocations")
+end
+
+local function test_sqlite_captured_operations_release_every_refused_allocation(tmp: string)
+  local db = assert(Sqlite.memory())
+  collectgarbage("collect")
+  local bytes, blocks = testing.c_heap()
+  local statements = testing.open_statements()
+  local before = next_descriptor(tmp)
+  for _, present in ipairs({ true, false }) do
+    local ended = under_every_failure(function()
+      local opened = Sqlite.open_result(present and ":memory:" or tmp .. "/absent")
+      if present then
+        assert(opened.handle ~= nil and opened.code == Sqlite.OK)
+        assert(opened.handle:close())
+      else
+        assert(opened.handle == nil and opened.code ~= Sqlite.OK)
+      end
+    end)
+    assert(ended > 0)
+    assert(next_descriptor(tmp) == before)
+    assert_c_heap(bytes, blocks, "captured SQLite open")
+  end
+  for _, sql in ipairs({ "SELECT ?1", "SELECT 1; SELECT * FROM missing" }) do
+    local ended = under_every_failure(function()
+      local prepared = db:prepare_result(sql)
+      if prepared.statement ~= nil then
+        local statement = prepared.statement
+        assert(statement:bind_values_result({ { text = "hello" } }).code == Sqlite.OK)
+        assert(statement:step_result() == "row")
+        statement:finalize()
+      else
+        assert(prepared.code ~= Sqlite.OK)
+      end
+    end)
+    assert(ended > 0)
+    assert(testing.open_statements() == statements)
+    assert_c_heap(bytes, blocks, "captured SQLite preparation/binding")
+  end
+  local ended = under_every_failure(function()
+    local statement = assert(db:prepare("SELECT CASE WHEN ?1 THEN 1 ELSE json('bad') END"))
+    assert(statement:bind_integer(1, 1))
+    assert(statement:step_result() == "row")
+    assert(statement:reset())
+    assert(statement:bind_integer(1, 0))
+    local failed = statement:step_result()
+    assert(failed is Sqlite.ExecResult and failed.code == 1 and failed.reason ~= "")
+    statement:finalize()
+  end)
+  assert(ended > 0)
+  assert(testing.open_statements() == statements)
+  assert_c_heap(bytes, blocks, "captured SQLite step")
+  assert(db:close())
 end

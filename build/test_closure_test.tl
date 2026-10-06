@@ -3,10 +3,8 @@
 --- `modules`): the build follows a `require` of a literal name alone,
 --- so a module reached another way is one a change to would not run
 --- the test again. The core's own modules, which no file of the tree
---- is, load as ever. These cases are held in this worker, which
---- declares neither `tool` nor `store`, so the store's hold is up here
---- too; those that run `cosmic test` on a project of their own are in
---- build/test_closure_tool_test.tl.
+--- is, load as ever. Those cases that run `cosmic test` on a project of
+--- their own are in build/test_closure_tool_test.tl.
 
 local test_inputs = require("build.test_inputs")
 
@@ -24,10 +22,10 @@ local function test_a_module_of_the_tree_outside_the_closure_is_refused()
   assert(not ok, "build.flow_test loaded")
   local text = tostring(why)
   assert(text:find("module 'build.flow_test' is outside the import closure of " ..
-    "build.test_closure_test", 1, true), text)
+      "build.test_closure_test", 1, true), text)
   assert(text:find("nor pcall(require, ...) is followed", 1, true), text)
   assert(text:find('or of build.test_closure_test itself: ' ..
-    'local _ = require("build.flow_test")', 1, true), text)
+      'local _ = require("build.flow_test")', 1, true), text)
 end
 
 --- A module the worker loaded for itself is no way around it:

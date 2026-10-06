@@ -1,46 +1,29 @@
 --- `cosmic test`'s sandboxed worker (build/test_sandbox.tl): a worker's
---- whole plan, and, end to end, what a test run with the switch on
---- sees. These cases declare `tool`: a plan reads this program, since
---- it gives a worker the program's own paths and so stats them
---- (build.confine's `worker_unveil`), and the end-to-end cases start
---- this program, a `cosmic test` run on a suite of their own. They
---- declare `nests` because the workers of that run nest a sandbox in
---- this test's own, each in a root of its own, whose mounts the kernel
---- refuses under the Landlock ruleset that holds every other worker
---- (build/test_worker.tl's `Hold`).
+--- whole plan, made and read without starting a worker, and the one
+--- `host` path a run refuses before it starts any. These declare `tool`:
+--- a plan reads this program, since it gives a worker the program's own
+--- paths and so stats them (build.confine's `worker_unveil`), and the run
+--- that refuses a path starts it. They need no sandbox, so they run
+--- wherever the program does; what a run of workers under one sees is in
+--- `test_sandbox_run_tool_test.tl`.
 
-local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
-local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
-local stand_in = require("build.stand_in")
 local test_inputs = require("build.test_inputs")
 local test_sandbox = require("build.test_sandbox")
-local sandbox_skip = require("build.sandbox_skip")
+local fixture = require("build.test_sandbox_fixture")
 local Test = require("cosmic.test")
 
---- What a worker's plan gives it of the host, the program it runs,
---- roots of their own for the sandboxed workers it starts (`nests`), and
---- the variables `unsandboxed` reads, which hold a run to sandboxing.
-Test.needs{
-  host = { "/dev/urandom", "/proc" },
-  env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
-  tool = true,
-  nests = true,
+--- What a worker's plan gives it of the host, the program the run that
+--- refuses a path starts, and roots of their own for the workers of that
+--- run (`nests`), which a host that refuses them runs unsandboxed.
+Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "o/bin", letters = "rx" } },
+  promises = { "nest" },
 }
-
---- Makes `root`, a tree for a suite, with a stand-in program
---- (build/stand_in.tl) at bin/probe for its tests to start, which
---- declare it -- not this program, which would take `tool` -- in the
---- tree, since a sandboxed worker has a /tmp of its own over this
---- test's.
-local function suite_tree(tmp: string, root: string)
-  assert(Fs.mkdirs(root .. "/suite"))
-  assert(Fs.mkdirs(root .. "/bin"))
-  assert(stand_in.place(assert(stand_in.build(tmp .. "/stand-in")), root .. "/bin/probe"))
-end
 
 --- An `Effective` holding `files` of the tree and nothing else declared.
 local function effective(files: {string}): test_inputs.Effective
@@ -93,7 +76,7 @@ local function test_a_path_another_bind_shows_is_not_bound_again(tmp: string)
   assert(holds(unveil.reads, root .. "/data") and unveil.at[root .. "/data"] == "/tree/data")
   assert(not holds(unveil.reads, root .. "/data/x.tl") and unveil.at[root .. "/data/x.tl"] == nil)
   assert(holds(unveil.reads, root .. "/data/y.tl") and
-    unveil.at[root .. "/data/y.tl"] == "/tree/data/y.tl")
+      unveil.at[root .. "/data/y.tl"] == "/tree/data/y.tl")
   assert(holds(unveil.reads, dir) and not holds(unveil.reads, dir .. "/given"))
 end
 
@@ -164,7 +147,7 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
   local unveil = plan.sandbox.unveil
   assert(plan.over == 0 and plan.sandbox.offline == true)
   assert(holds(unveil.reads, root .. "/o/cosmic.db") and
-    unveil.at[root .. "/o/cosmic.db"] == "/tree/o/cosmic.db")
+      unveil.at[root .. "/o/cosmic.db"] == "/tree/o/cosmic.db")
   assert(holds(unveil.reads, root .. "/a/x.tl") and unveil.at[root .. "/a/x.tl"] == "/tree/a/x.tl")
   assert(holds(unveil.reads, root .. "/data") and unveil.at[root .. "/data"] == "/tree/data")
   assert(not holds(unveil.reads, root .. "/a/missing.tl"))
@@ -173,19 +156,12 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
   end
   assert(holds(unveil.reads, host) and unveil.at[host] == nil)
   assert(#unveil.writes == 1 and unveil.writes[1] == scratch and
-    unveil.at[scratch] == test_sandbox.scratch)
-  -- The plan hands a worker it runs as a user of its own (a root
-  -- runner's) the scratch directory and its `real`.
+      unveil.at[scratch] == test_sandbox.scratch)
   assert(plan.trouble == "", plan.trouble)
-  local user = plan.sandbox.user
-  for _, path in ipairs({ scratch, scratch .. "/real" }) do
-    assert(user == nil or assert(sys.stat(path)).uid == user, path)
-  end
-  -- The runtime's own paths (/dev/null everywhere, /proc where the
-  -- host has one: a path that is not there is not given), but not the
-  -- system's own, which it is not given undeclared.
-  assert(holds(unveil.reads, "/dev/null") and (sys.stat("/proc") == nil or
-    holds(unveil.reads, "/proc")))
+  -- The runtime's own paths (/dev/null: a path that is not there is not
+  -- given), but not the system's own, which it is not given undeclared,
+  -- nor the host's /proc, which a policy's sandbox has one of its own for.
+  assert(holds(unveil.reads, "/dev/null") and not holds(unveil.reads, "/proc"))
   assert(not holds(unveil.reads, "/usr"))
   -- Declaring `system` gives the system's own paths too: see
   -- build/test_sandbox_system_test.tl, whose worker has them to give.
@@ -197,11 +173,11 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
   assert(Fs.write(closure_store, "c"))
   local closed = test_sandbox.plan(root, scratch, inputs, {}, closure_store)
   assert(closed.sandbox.unveil.at[closure_store] == "/tree/o/cosmic.db" and
-    not holds(closed.sandbox.unveil.reads, root .. "/o/cosmic.db"))
+      not holds(closed.sandbox.unveil.reads, root .. "/o/cosmic.db"))
   inputs.store = true
   local whole = test_sandbox.plan(root, scratch, inputs, {}, closure_store)
   assert(whole.sandbox.unveil.at[root .. "/o/cosmic.db"] == "/tree/o/cosmic.db" and
-    not holds(whole.sandbox.unveil.reads, closure_store))
+      not holds(whole.sandbox.unveil.reads, closure_store))
   inputs.store = false
   -- A declared path not there yet is given nothing.
   inputs.reads = { "data/", "later/x" }
@@ -213,7 +189,7 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
   local cached = test_sandbox.plan(root, scratch, inputs, {})
   assert(cached.trouble == "", cached.trouble)
   assert(holds(cached.sandbox.unveil.writes, tmp .. "/caches/zig-global") and
-    cached.sandbox.unveil.at[tmp .. "/caches/zig-global"] == nil)
+      cached.sandbox.unveil.at[tmp .. "/caches/zig-global"] == nil)
   assert(Fs.exists(tmp .. "/caches/zig-global"))
   -- A file a declared cache holds is given through the cache alone, not
   -- bound again on top of it: there its mount point would be the host's
@@ -228,42 +204,42 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
   local nested = test_sandbox.plan(root, scratch, inputs, {})
   assert(nested.trouble == "", nested.trouble)
   assert(holds(nested.sandbox.unveil.writes, tmp .. "/caches/cores") and
-    not holds(nested.sandbox.unveil.reads, stamp))
+      not holds(nested.sandbox.unveil.reads, stamp))
   -- The `bootstrap` cache: cores of its own, made in its scratch
   -- directory before it starts -- a ruleset that holds it walks what is
   -- there then -- and named to it, not the host's, which the cores
   -- directory this program's core is in stays.
   inputs.caches, inputs.cache_paths = { "bootstrap" }, { tmp .. "/caches/cores" }
   local own_cores = test_sandbox.plan(root, scratch, inputs, { COSMIC_PORTABLE_CACHE =
-    tmp .. "/caches/cores" })
+      tmp .. "/caches/cores" })
   assert(own_cores.trouble == "", own_cores.trouble)
   assert(own_cores.env.COSMIC_PORTABLE_CACHE == test_sandbox.scratch .. "/cores",
     tostring(own_cores.env.COSMIC_PORTABLE_CACHE))
   local cores = assert(sys.stat(scratch .. "/cores"))
   assert(cores.kind == "dir" and cores.mode & 511 == 448, tostring(cores.mode))
   assert(not holds(own_cores.sandbox.unveil.writes, tmp .. "/caches/cores") and
-    holds(own_cores.sandbox.unveil.reads, stamp))
+      holds(own_cores.sandbox.unveil.reads, stamp))
   inputs.caches, inputs.cache_paths = {}, {}
   local alone = test_sandbox.plan(root, scratch, inputs, {})
   assert(holds(alone.sandbox.unveil.reads, stamp))
   inputs.host = { host }
   -- A host path where the sandbox has its own -- its scratch directory,
   -- or above it, or /tmp or /tree themselves -- cannot be given, and
-  -- one a variable names is named as declared.
+  -- is named as declared.
   for _, own in ipairs({ scratch .. "/x", tmp, "/tmp", "/tree", "/" }) do
     inputs.host = { own }
-    inputs.spelled = { [test_inputs.plain(own)] = "$OWN" }
     local refused = test_sandbox.plan(root, scratch, inputs, {})
-    assert(refused.trouble:find('Test.needs host "$OWN": ', 1, true) and
-      refused.trouble:find("is where its sandbox has", 1, true), own .. ": " .. refused.trouble)
+    assert(refused.trouble:find(string.format("Test.policy grant of the host path %q: ", own),
+      1, true) and
+        refused.trouble:find("is where its sandbox has", 1, true), own .. ": " .. refused.trouble)
   end
   -- And by where it resolves: a link to the scratch directory.
   assert(Fs.symlink(scratch, tmp .. "/to-scratch"))
-  inputs.host, inputs.spelled = { tmp .. "/to-scratch" }, {}
+  inputs.host = { tmp .. "/to-scratch" }
   local linked = test_sandbox.plan(root, scratch, inputs, {})
   assert(linked.trouble:find("is where its sandbox has its scratch directory", 1, true),
     linked.trouble)
-  inputs.host, inputs.spelled = { host }, {}
+  inputs.host = { host }
   assert(test_sandbox.plan(root, scratch, inputs, {}).trouble == "")
   -- Offline, whatever it declares: the loopback addresses it may
   -- declare, its own loopback answers.
@@ -280,84 +256,49 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
   assert(not holds(tooled.sandbox.unveil.reads, root .. "/o/bin"))
 end
 
---- Whether the run that printed `text` sandboxed none of its workers; if
---- so, the running test is skipped ([`Test.skip`]), since a case of a
---- sandboxed run then has nothing to check. The workers nest in this
---- test's own sandbox, which a host may refuse: the kernel lets root nest
---- one only two deep (core/syscalls.c's `map_ids`). A run held to
---- sandboxing fails the skip; CI's unprivileged runners nest them.
-local function unsandboxed(text: string): boolean
-  if not text:find("no worker can be sandboxed here", 1, true) then return false end
-  sandbox_skip.nested(text)
-  return true
-end
-
---- Runs `cosmic test` on `root` with `env`, answering what it printed
---- and whether it passed.
-local function run(root: string, output: string, env: {string:string}): string, boolean
-  local fd = assert(Fs.open_write(output))
-  local started = this_program.program({ "test", "--all" }, {
-    cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ns = Time.seconds(60),
-  })
-  local result, trouble = Child.run(started.argv, started.options)
-  assert(Fs.close(fd))
-  local text = assert(Fs.read(output))
-  assert(result ~= nil, tostring(trouble) .. text)
-  return text, result.ok
-end
-
---- Runs `cosmic test` on `root`, with no `--all`, answering what it
+--- Runs `cosmic test --all` on `root` with `env`, answering what it
 --- printed and whether it passed.
-local function run_again(root: string, output: string, env: {string:string}): string, boolean
-  local fd = assert(Fs.open_write(output))
-  local started = this_program.program({ "test" }, {
-    cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ns = Time.seconds(60),
-  })
-  local result, trouble = Child.run(started.argv, started.options)
-  assert(Fs.close(fd))
-  local text = assert(Fs.read(output))
-  assert(result ~= nil, tostring(trouble) .. text)
-  return text, result.ok
+local function run(root: string, output: string, env: {string:string}): string, boolean
+  local ran = fixture.run(root, output, env)
+  return ran.text, ran.ok
 end
 
---- End to end: by default, a test's worker runs in /tree, has its own
---- directory under /tmp, reads what its module declares of the tree
---- and nothing else of it, sees nothing of the host it was not given,
---- and reads only the variables it declares -- and so does a process it
---- starts; and the run says it was sandboxed. The same suite with the
---- switch off reads all of the tree and the host, but still only the
---- variables it declares, and says it is keyed by what it declares and
---- shares no verdict. Where this host cannot sandbox the run's workers
---- the run says so, and runs them unsandboxed, sharing none -- but with
---- the switch on, where it fails. A switch that is neither "1", "0" nor
---- unset is refused.
-local function test_a_sandboxed_run_holds_each_worker_to_its_inputs(tmp: string)
+--- End to end: a `host` path that is the tree's fails each of its tests
+--- before it starts, naming it, sandboxed or not.
+local function test_a_host_path_that_is_the_trees_is_refused_in_either_mode(tmp: string)
+  local base = assert(Fs.absolute(tmp))
+  local root, product = base .. "/root", base .. "/product"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.mkdirs(product))
+  assert(Fs.write(product .. "/given.txt", "given"))
+  assert(Fs.write(product .. "/sibling.txt", "sibling"))
+  local env = this_program.environment()
+  env.COSMIC_VERDICT_CACHE = "0"
+  env.COSMIC_TEST_ALL = nil
+  env.COSMIC_SANDBOX = nil
+  env.COSMIC_TEST_SANDBOX = nil
+  -- The tree's: refused before the test starts, in either mode.
+  fixture.host_test(root, product, root .. "/suite/given.txt")
+  for _, mode in ipairs({ "0", "" }) do
+    env.COSMIC_TEST_SANDBOX = mode ~= "" and mode or nil
+    local inside, inside_ok = run(root, tmp .. "/inside" .. mode, env)
+    assert(not inside_ok and inside:find(root .. "/suite/given.txt is the tree's", 1, true) and
+        not inside:find("read|", 1, true), inside)
+    assert(not inside:find("could not be supervised", 1, true), inside)
+  end
+end
+
+--- End to end, the half of a sandboxed run's checks that needs no sandbox:
+--- with the switch off (`COSMIC_TEST_SANDBOX=0`) a worker reads all of the
+--- tree and the host but only the variables it declares, and the run says
+--- it is keyed by what it declares and shares no verdict. Then, where this
+--- platform gives no sandbox at all, the run says so and runs its workers
+--- unsandboxed, and with the switch on it fails. A platform that gives one
+--- returns here: its runs are `test_sandbox_run_tool_test.tl`'s
+--- (`requires`), which a host with none does not run.
+local function test_an_unsandboxed_run_reads_the_tree_and_a_platform_with_no_sandbox_says_so(tmp: string)
   local root, hidden = tmp .. "/root", tmp .. "/hidden"
-  suite_tree(tmp, root)
-  assert(Fs.mkdirs(hidden))
-  assert(Fs.write(root .. "/suite/data.txt", "declared"))
-  assert(Fs.write(root .. "/suite/secret.txt", "undeclared"))
-  assert(Fs.write(root .. "/suite/view_test.tl", string.format([[
-local Child = require("cosmic.child")
-local Fs = require("cosmic.fs")
-local sys = require("cosmic.sys")
-local Test = require("cosmic.test")
-
-Test.needs { reads = { "suite/data.txt", "bin/probe" }, env = { "DECLARED_VAR" } }
-
-local function test_view(tmp: string)
-  local here = assert(sys.getcwd())
-  -- What a process it starts sees, with the worker's environment.
-  local child = assert(Child.run({ "bin/probe",
-    "cat-quiet suite/data.txt; cat-quiet suite/secret.txt; print /$DECLARED_VAR/$UNDECLARED_VAR" },
-    { stdout = "capture" }))
-  error(table.concat({ "seen", here, tmp,
-    tostring((Fs.read(here .. "/suite/data.txt"))),
-    tostring((Fs.read(here .. "/suite/secret.txt"))),
-    tostring(sys.stat(%q) ~= nil), tostring(sys.getenv("DECLARED_VAR")),
-    tostring(sys.getenv("UNDECLARED_VAR")), (tostring(child.stdout):gsub("\n", "")), "end" }, "|"))
-end
-]], hidden)))
+  fixture.view_suite(tmp, root, hidden)
   local env = this_program.environment()
   env.COSMIC_VERDICT_CACHE = "0"
   env.COSMIC_TEST_ALL = nil
@@ -369,7 +310,7 @@ end
   local text, ok = run(root, tmp .. "/plain", env)
   assert(not ok, text)
   assert(text:find("; unsandboxed (COSMIC_TEST_SANDBOX=0), keyed by declared inputs, " ..
-    "sharing no verdicts)", 1, true), text)
+      "sharing no verdicts)", 1, true), text)
   assert(text:find("rerun: COSMIC_TEST_SANDBOX=0 cosmic test suite/view_test.tl:test_view", 1,
     true), text)
   local seen = text:match("seen|([^\n]*)|end")
@@ -377,262 +318,21 @@ end
   local fields: {string} = {}
   for field in (seen .. "|"):gmatch("([^|]*)|") do fields[#fields + 1] = field end
   assert(fields[1] == real_root and fields[3] == "declared" and fields[4] == "undeclared" and
-    fields[5] == "true" and fields[6] == "d" and fields[7] == "nil" and
-    fields[8] == "declaredundeclared/d/", seen)
+      fields[5] == "true" and fields[6] == "d" and fields[7] == "nil" and
+      fields[8] == "declaredundeclared/d/", seen)
+  -- Branches on the platform: where it can sandbox, the run does, and that
+  -- is checked by the module that requires a nest.
+  if assert(sys.uname()).sysname == "Linux" then return end
   env.COSMIC_TEST_SANDBOX = nil
   text, ok = run(root, tmp .. "/sandboxed", env)
   assert(not ok, text)
-  if unsandboxed(text) then
-    assert(text:find("; unsandboxed, as no worker can be sandboxed here, keyed by declared " ..
-      "inputs, sharing no verdicts)", 1, true), text)
-    -- Required, the run fails instead.
-    env.COSMIC_TEST_SANDBOX = "1"
-    text, ok = run(root, tmp .. "/required", env)
-    assert(not ok and text:find("COSMIC_TEST_SANDBOX=1, but no worker can be sandboxed here",
-      1, true), text)
-    return
-  end
-  assert(text:find("; sandboxed)", 1, true), text)
-  seen = text:match("seen|([^\n]*)|end")
-  assert(seen ~= nil, text)
-  fields = {}
-  for field in (seen .. "|"):gmatch("([^|]*)|") do fields[#fields + 1] = field end
-  assert(fields[1] == "/tree" and fields[2] == test_sandbox.scratch .. "/tmp" and fields[3] == "declared" and
-    fields[4] == "nil" and fields[5] == "false" and fields[6] == "d" and fields[7] == "nil" and
-    fields[8] == "declared/d/", seen)
-  -- Its failure is its own, and says how to run it again as it ran.
-  assert(not text:find("does not declare", 1, true), text)
-  assert(text:find("rerun: cosmic test suite/view_test.tl:test_view", 1, true), text)
-  -- Required where it can be, the same.
+  -- And why, in the summary.
+  assert(text:find("; unsandboxed, as no worker can be sandboxed here (", 1, true) and
+      text:find("), keyed by declared inputs, sharing no verdicts)", 1, true), text)
+  -- Required, the run fails instead.
   env.COSMIC_TEST_SANDBOX = "1"
-  text, ok = run(root, tmp .. "/required", env)
-  assert(not ok and text:find("; sandboxed)", 1, true), text)
-  assert(text:find("rerun: COSMIC_TEST_SANDBOX=1 cosmic test suite/view_test.tl:test_view", 1,
-    true), text)
-  -- A misspelt switch is refused.
-  env.COSMIC_TEST_SANDBOX = "yes"
-  text, ok = run(root, tmp .. "/misspelt", env)
-  assert(not ok and text:find('COSMIC_TEST_SANDBOX is "yes"', 1, true), text)
-end
-
---- End to end: a sandboxed worker writes a host cache its module
---- declares, where the host has it, and cannot write one it does not
---- declare -- which the runner neither gives nor makes. Where no worker
---- can be sandboxed here, the run says so.
-local function test_a_sandboxed_worker_writes_only_the_caches_it_declares(tmp: string)
-  local root, xdg = tmp .. "/root", assert(Fs.absolute(tmp)) .. "/xdg"
-  assert(Fs.mkdirs(root .. "/suite"))
-  assert(Fs.write(root .. "/suite/cache_test.tl", [[
-local Fs = require("cosmic.fs")
-local sys = require("cosmic.sys")
-local Test = require("cosmic.test")
-
-Test.needs { caches = { "zig" } }
-
-local function test_write()
-  local base = assert(sys.getenv("XDG_CACHE_HOME"))
-  local declared, _ = Fs.write(base .. "/cosmic/zig-global/entry", "cached")
-  local undeclared, _ = Fs.write(base .. "/cosmic/bootstrap/entry", "cached")
-  error("wrote|" .. tostring(declared) .. "|" .. tostring(undeclared) .. "|end")
-end
-]]))
-  local env = this_program.environment()
-  env.COSMIC_VERDICT_CACHE = "0"
-  env.COSMIC_TEST_ALL = nil
-  env.COSMIC_SANDBOX = nil
-  -- The program's cores stay where they are; only the caches move.
-  env.COSMIC_PORTABLE_CACHE = env.COSMIC_PORTABLE_CACHE or Fs.cache_dir("cores", { make = false })
-  env.XDG_CACHE_HOME = xdg
-  env.COSMIC_ZIG_CACHE, env.COSMIC_ZIG_GLOBAL_CACHE = nil, nil
-  env.COSMIC_TEST_SANDBOX = nil
-  local text, ok = run(root, tmp .. "/out", env)
-  assert(not ok, text)
-  if unsandboxed(text) then return end
-  assert(text:find("wrote|true|false|end", 1, true), text)
-  assert(Fs.read(xdg .. "/cosmic/zig-global/entry") == "cached")
-  assert(not Fs.exists(xdg .. "/cosmic/bootstrap"))
-end
-
---- End to end: a module that declares a `host` path by the variable
---- that says where it is (`$PRODUCT_DIR/given.txt`) has its worker
---- given that path there, and nothing beside it. With the variable
---- unset, or naming the tree, each of its tests fails before it
---- starts, naming the variable, sandboxed or not.
-local function test_a_host_path_a_variable_names_is_given_where_it_says(tmp: string)
-  local base = assert(Fs.absolute(tmp))
-  local root, product = base .. "/root", base .. "/product"
-  assert(Fs.mkdirs(root .. "/suite"))
-  assert(Fs.mkdirs(product))
-  assert(Fs.write(product .. "/given.txt", "given"))
-  assert(Fs.write(product .. "/sibling.txt", "sibling"))
-  assert(Fs.write(root .. "/suite/variable_test.tl", [[
-local Fs = require("cosmic.fs")
-local sys = require("cosmic.sys")
-local Test = require("cosmic.test")
-
-Test.needs { host = { "$PRODUCT_DIR/given.txt" } }
-
-local function test_read()
-  local dir = assert(sys.getenv("PRODUCT_DIR"))
-  error("read|" .. tostring((Fs.read(dir .. "/given.txt"))) .. "|" ..
-    tostring((Fs.read(dir .. "/sibling.txt"))) .. "|end")
-end
-]]))
-  local env = this_program.environment()
-  env.COSMIC_VERDICT_CACHE = "0"
-  env.COSMIC_TEST_ALL = nil
-  env.COSMIC_SANDBOX = nil
-  env.COSMIC_TEST_SANDBOX = nil
-  -- Unset, or the tree's: refused before the test starts, in either mode.
-  for _, mode in ipairs({ "0", "" }) do
-    env.COSMIC_TEST_SANDBOX = mode ~= "" and mode or nil
-    env.PRODUCT_DIR = nil
-    local unset, unset_ok = run(root, tmp .. "/unset" .. mode, env)
-    assert(not unset_ok and unset:find('Test.needs host "$PRODUCT_DIR/given.txt": ' ..
-      "PRODUCT_DIR is unset", 1, true) and not unset:find("read|", 1, true), unset)
-    assert(not unset:find("could not be supervised", 1, true), unset)
-    env.PRODUCT_DIR = root .. "/suite"
-    local inside, inside_ok = run(root, tmp .. "/inside" .. mode, env)
-    assert(not inside_ok and inside:find(root .. "/suite/given.txt is the tree's", 1, true),
-      inside)
-  end
-  env.PRODUCT_DIR = product
-  env.COSMIC_TEST_SANDBOX = nil
-  local text, ok = run(root, tmp .. "/given", env)
-  assert(not ok, text)
-  if unsandboxed(text) then return end
-  assert(text:find("; sandboxed)", 1, true), text)
-  assert(text:find("read|given|nil|end", 1, true), text)
-end
-
---- End to end: a process a sandboxed test starts is keyed by what its
---- module declares. Run again, the test stands; a change to a file of
---- the tree it does not declare leaves it standing; a change to one it
---- declares runs it again, and so does making one it declares that was
---- not there when it last ran; none is assumed, and none runs every
---- time. One that does not declare `store` stands too: what it starts
---- can read only the store of its closure, which its key holds.
-local function test_a_process_a_sandboxed_test_starts_is_keyed_by_what_it_declares(tmp: string)
-  local root = tmp .. "/root"
-  suite_tree(tmp, root)
-  assert(Fs.write(root .. "/suite/data.txt", "one"))
-  assert(Fs.write(root .. "/suite/unrelated.txt", "one"))
-  assert(Fs.write(root .. "/suite/child_test.tl", [[
-local Child = require("cosmic.child")
-local Test = require("cosmic.test")
-
-Test.needs { reads = { "suite/data.txt", "suite/later.txt", "bin/probe" }, store = true }
-
-local function test_child_reads()
-  local r = assert(Child.run({ "bin/probe",
-    "cat suite/data.txt; cat suite/later.txt || print |absent" },
-    { stdout = "capture" }))
-  local out = r.stdout or ""
-  assert(r.ok and out:find("|absent", 1, true), out)
-end
-]]))
-  assert(Fs.write(root .. "/suite/unstored_test.tl", [[
-local Child = require("cosmic.child")
-local Test = require("cosmic.test")
-
-Test.needs { reads = { "bin/probe" } }
-
-local function test_child_reads_the_closure_store()
-  assert(assert(Child.run({ "bin/probe", "exit 0" })).ok)
-end
-]]))
-  local env = this_program.environment()
-  env.COSMIC_VERDICT_CACHE = "0"
-  env.COSMIC_TEST_ALL = nil
-  env.COSMIC_SANDBOX = nil
-  -- Sandboxed where it can be, whatever this run's own switch says.
-  env.COSMIC_TEST_SANDBOX = nil
-  local step = 0
-  local function said(wanted: string, passes?: boolean): string
-    step = step + 1
-    local text, ok = run_again(root, tmp .. "/run" .. step, env)
-    assert(ok == (passes ~= false), step .. ": " .. text)
-    assert(text:find(wanted, 1, true), step .. ": " .. text)
-    return text
-  end
-  local first = said("2 ran, 0 stood")
-  if unsandboxed(first) then return end
-  assert(first:find("; sandboxed)", 1, true), first)
-  local again = said("0 ran, 2 stood")
-  assert(not again:find("assumed", 1, true) and not again:find("every time", 1, true), again)
-  assert(Fs.write(root .. "/suite/unrelated.txt", "two"))
-  said("0 ran, 2 stood")
-  assert(Fs.write(root .. "/suite/data.txt", "two"))
-  said("1 ran, 1 stood")
-  said("0 ran, 2 stood")
-  -- Made since, what the child reads is there, and the test fails.
-  assert(Fs.write(root .. "/suite/later.txt", "made"))
-  said("FAIL  suite.child_test test_child_reads: ", false)
-end
-
---- A sandboxed run interrupted from the terminal -- SIGINT to its
---- process group -- ends every worker it had running, each in a
---- sandbox of its own, and removes their directories.
-local function test_an_interrupted_sandboxed_run_ends_its_workers(tmp: string)
-  local root, temp = tmp .. "/root", assert(Fs.absolute(tmp)) .. "/temp"
-  assert(Fs.mkdirs(root .. "/suite"))
-  assert(Fs.mkdirs(temp))
-  assert(Fs.write(root .. "/suite/held_test.tl", [[
-local Fs = require("cosmic.fs")
-local function hold(tmp: string)
-  assert(Fs.write(tmp .. "/kept", "x"))
-  while true do end
-end
-local function test_first(tmp: string) hold(tmp) end
-local function test_second(tmp: string) hold(tmp) end
-]]))
-  local env = this_program.environment()
-  env.COSMIC_VERDICT_CACHE = "0"
-  env.COSMIC_TEST_ALL = nil
-  env.COSMIC_SANDBOX = nil
-  -- Sandboxed where it can be, whatever this run's own switch says.
-  env.COSMIC_TEST_SANDBOX = nil
-  env.TMPDIR = temp
-  -- Each worker's directory holding the file its test wrote.
-  local function held(): integer
-    local count = 0
-    for _, name in ipairs(Fs.list(temp) or {}) do
-      if name:sub(1, 12) == "cosmic-test-" and Fs.exists(temp .. "/" .. name .. "/real/kept") then
-        count = count + 1
-      end
-    end
-    return count
-  end
-  local output = tmp .. "/interrupted.out"
-  local fd = assert(Fs.open_write(output))
-  local interrupted = this_program.program(
-    { "test", "--jobs", "2", "--timeout", "60", "suite/held_test.tl" },
-    { cwd = root, env = env, stdout = fd, stderr = fd, process_group = true })
-  local runner, trouble = Child.start(interrupted.argv, interrupted.options)
-  assert(Fs.close(fd))
-  local handle <close> = assert(runner, trouble)
-  local deadline = Time.monotonic_ns() + Time.seconds(30)
-  while held() < 2 do
-    assert(Time.monotonic_ns() < deadline, assert(Fs.read(output)))
-    local done, _ = Child.wait_any({ handle }, Time.ms(50))
-    assert(done == nil, "the runner ended before its tests started\n" .. assert(Fs.read(output)))
-  end
-  local text = assert(Fs.read(output))
-  if unsandboxed(text) then
-    -- Unsandboxed here: build/test_isolation_tool_test.tl's case.
-    assert(handle:stop(sys.SIGKILL))
-    local _, _ = handle:wait(Time.seconds(30))
-    return
-  end
-  assert(text:find("test: sandbox: each worker is held", 1, true), text)
-  assert(handle:stop(sys.SIGINT))
-  local result = assert(handle:wait(Time.seconds(30)))
-  text = assert(Fs.read(output))
-  assert(not result.timed_out and result.signal == sys.SIGINT, text)
-  assert(text:find("test: cancelled; every running test was ended", 1, true), text)
-  local left: {string} = {}
-  for _, name in ipairs((assert(Fs.list(temp)))) do
-    if name:sub(1, 12) == "cosmic-test-" then left[#left + 1] = name end
-  end
-  assert(#left == 0, table.concat(left, ", ") .. "\n" .. text)
+  local required: string = nil
+  required, ok = run(root, tmp .. "/required", env)
+  assert(not ok and required:find("COSMIC_TEST_SANDBOX=1, but no worker can be sandboxed here",
+    1, true), required)
 end

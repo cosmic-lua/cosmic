@@ -1,37 +1,20 @@
---- [`build.work`]'s tests that start the program beside this process: a
---- second build of a tree one holds, and `cosmic test` in a project
---- reached through links. Apart from build/work_test.tl's so those
---- stand while the tree moves.
+--- [`build.work`]'s test that starts the program beside this process: a
+--- second build of a tree one holds. Apart from build/work_test.tl's so those
+--- stand while the tree moves; `cosmic test` in a project reached through
+--- links is in build/work_nested_tool_test.tl.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-local Time = require("cosmic.time")
 local this_program = require("build.this_program")
 local work = require("build.work")
-local sandbox_skip = require("build.sandbox_skip")
 local Test = require("cosmic.test")
 
---- The program itself, which its tests start, roots of their own for the
---- sandboxed workers of a run they start (`nests`), and what holds a run
---- to sandboxing, which fails a skipped test ([`Test.skip`]).
-Test.needs{ env = { "COSMIC_CI_REQUIRE_SANDBOX" }, tool = true, nests = true }
-
---- A project whose module directory and one test are links into a
---- tree beside it, and a `loop -> .`: `tmp/project`.
-local function linked_project(tmp: string): string
-  local project = tmp .. "/project"
-  assert(Fs.mkdirs(tmp .. "/shared/lib"))
-  assert(Fs.mkdirs(project))
-  assert(Fs.write(tmp .. "/shared/lib/util.tl", "local util = {}\nutil.answer = 42\nreturn util\n"))
-  assert(Fs.write(tmp .. "/shared/linked_test.tl",
-    'local util = require("lib.util")\n\nlocal function test_linked()\n  assert(util.answer == 42)\nend\n'))
-  assert(Fs.write(project .. "/main_test.tl",
-    'local util = require("lib.util")\n\nlocal function test_main()\n  assert(util.answer == 42)\nend\n'))
-  assert(Fs.symlink("../shared/lib", project .. "/lib"))
-  assert(Fs.symlink("../shared/linked_test.tl", project .. "/linked_test.tl"))
-  assert(Fs.symlink(".", project .. "/loop"))
-  return project
-end
+--- The program itself, which its test starts.
+Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "o/bin", letters = "rx" } },
+}
 
 --- A second process building the same tree waits for the first's
 --- transaction instead of failing with "database is locked": two builds
@@ -47,32 +30,40 @@ local function test_a_second_build_of_a_tree_waits_for_the_first(tmp: string)
   local second, trouble = Child.start(build.argv, build.options)
   assert(Fs.close(fd))
   assert(second, trouble)
-  assert(Time.sleep_ns(300000000))
+  assert(Clock.sleep_ns(300000000))
   assert(work.abort(held))
-  local result = assert(second:wait(Time.seconds(60)))
+  local result = assert(second:wait(Clock.seconds(60)))
   assert(result.ok, "the second build failed: " .. (Fs.read(output) or ""))
 end
 
---- `cosmic test` in such a project compiles the linked modules and runs
---- the linked test beside its own -- sandboxed where it can be, whose
---- sandbox gives each file of a closure at the linked path it is staged
---- under (build/test_sandbox.tl). Its workers are nested in this test's
---- own sandbox, which the kernel lets root nest only two deep: where
---- they had none, it is skipped ([`Test.skip`]), which only a run held to
---- sandboxing fails.
-local function test_cosmic_test_runs_a_project_reached_through_links(tmp: string)
-  local project = linked_project(tmp)
-  local env = this_program.environment()
-  env.COSMIC_TEST_SANDBOX = nil
-  local started = this_program.program({ "test" }, {
-    cwd = project, env = env, stdout = "capture", stderr = "capture",
-    timeout_ns = Time.seconds(60),
-  })
-  local result = assert(Child.run(started.argv, started.options))
-  local out = (result.stdout or "") .. (result.stderr or "")
-  assert(result.code == 0, out)
-  assert(out:find("(2 tests, 2 modules", 1, true), out)
-  if not out:find("; sandboxed)", 1, true) then
-    sandbox_skip.nested(out)
+--- A warmed compiled source cannot hide a rewrite behind a normalized mtime.
+local function test_a_settled_source_rewrite_runs_new_bytecode(tmp: string)
+  local path = tmp .. "/main.tl"
+  assert(Fs.write(path, 'print("OLD")\n'))
+  assert(Fs.set_mtime(path, 0, 0))
+  local function run(): string
+    local started = this_program.program({ "main.tl" }, { cwd = tmp,
+      env = this_program.environment(), stdout = "capture", stderr = "capture",
+      timeout_ns = Clock.seconds(60) })
+    local result = assert(Child.run(started.argv, started.options))
+    assert(result.ok, result.stdout .. result.stderr)
+    return result.stdout
   end
+  assert(run() == "OLD\n")
+  local handle = assert(work.open(tmp))
+  local now = Clock.now_ns
+  Clock.now_ns = function(): integer return now() + Clock.seconds(3) end
+  local ok, staged, trouble = pcall(work.stage, handle, false)
+  Clock.now_ns = now
+  assert(ok and staged ~= nil, tostring(trouble))
+  assert(work.close(handle))
+  assert(run() == "OLD\n")
+  local before = assert(Fs.stat(path))
+  local fd = assert(Fs.open_write(path))
+  assert(Fs.put(fd, 'print("NEW")\n'))
+  assert(Fs.close(fd))
+  assert(Fs.set_mtime(path, 0, 0))
+  local after = assert(Fs.stat(path))
+  assert(after.size == before.size and after.ino == before.ino)
+  assert(run() == "NEW\n", "the preserved mtime must not reuse OLD bytecode")
 end

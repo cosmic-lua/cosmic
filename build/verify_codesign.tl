@@ -49,8 +49,8 @@ function VerifyCodesign.verify(sysname: string, binary: string, path?: string): 
     return 127
   end
   for _, args in ipairs({
-    { "--verify", "--strict", "--verbose=2" },
-    { "--display", "--verbose=4" },
+      { "--verify", "--strict", "--verbose=2" },
+      { "--display", "--verbose=4" },
   }) do
     local argv: {string} = { tool }
     for _, word in ipairs(args) do
@@ -64,7 +64,7 @@ function VerifyCodesign.verify(sysname: string, binary: string, path?: string): 
       return 127
     end
     if not result.ok then
-      return result.code or 128 + (result.signal or 0)
+      return Child.shell_status(result)
     end
   end
   log:verdict("verify-codesign", true, binary)

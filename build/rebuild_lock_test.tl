@@ -1,7 +1,7 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Poll = require("cosmic.poll")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
 local rebuild_lock = require("build.rebuild_lock")
 
@@ -24,7 +24,7 @@ local function test_a_held_flock_keeps_another_run_out(tmp: string)
   assert(sys.flock(other, "exclusive"))
   local taken, trouble = rebuild_lock.take(root, 0)
   assert(taken == "busy", tostring(taken) .. " " .. trouble)
-  taken, trouble = rebuild_lock.take(root, Time.ms(50))
+  taken, trouble = rebuild_lock.take(root, Clock.ms(50))
   assert(taken == "busy", tostring(taken) .. " " .. trouble)
   assert(sys.close(other))
   taken, trouble = rebuild_lock.take(root, 0)
@@ -87,7 +87,7 @@ local function test_a_holder_takes_its_own_lock_again(tmp: string)
   assert(rebuild_lock.hold(root, "write", "o/cosmic.db") == false,
     "a holder took its own lock as though it were new")
   assert(Fs.read(root .. "/o/rebuild.lock.pid") ==
-    tostring(sys.getpid()) .. "\ntest\n")
+      tostring(sys.getpid()) .. "\ntest\n")
   rebuild_lock.release()
   assert(not rebuild_lock.holds(root))
   assert(rebuild_lock.take(root, 0, "rebuild") == "held")
@@ -120,7 +120,7 @@ local function test_the_holder_is_named_by_its_role(tmp: string)
   assert(named:find("in this checkout is rebuilding the tool", 1, true), named)
   assert(Fs.write(root .. "/o/rebuild.lock.pid", tostring(sys.getpid()) .. "\nwrite\n"))
   assert(rebuild_lock.holder(root) ==
-    "another cosmic run in this checkout is writing o/cosmic.db")
+      "another cosmic run in this checkout is writing o/cosmic.db")
 end
 
 --- A handed lock names the file its holder holds, whatever the

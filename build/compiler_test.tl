@@ -10,7 +10,7 @@ local Test = require("cosmic.test")
 local teal = require("build.teal")
 
 --- The compiler's own source, as the boot vendored it.
-Test.needs{ reads = { "o/vendor/tl/tl.tl" } }
+Test.policy{ grants = { { path = "o/vendor/tl/tl.tl", letters = "r" } } }
 
 --- The patched source a boot compiled, or nil in a tree no boot has
 --- built: the portable suite tests a fresh `git archive` of the tree,
@@ -43,5 +43,5 @@ local function test_the_compiler_compiles_itself_to_itself()
   assert(code ~= nil and #result.syntax_errors == 0 and #result.type_errors == 0,
     "the compiler refused its own source")
   assert(code == carried, "the compiler compiled its own source to other Lua " ..
-    "than it is: " .. tostring(#code) .. " bytes against " .. tostring(#carried))
+      "than it is: " .. tostring(#code) .. " bytes against " .. tostring(#carried))
 end

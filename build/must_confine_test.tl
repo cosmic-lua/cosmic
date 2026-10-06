@@ -1,88 +1,41 @@
---- End to end: [`confine.must_confine`], and COSMIC_SANDBOX=must,
---- which makes every `confine` one, as `cosmic test` holds a suite to
---- them. Each suite runs in a `cosmic test` of its own: a spawn
---- `must_confine` refuses fails every stand-in running, the one that
---- runs the test included, so what a refusal does to a test is seen
---- from the run that reports it.
+--- End to end: [`confine.must_confine`] refuses a spawn it cannot hold to
+--- what was declared, and a worker a Landlock ruleset holds is refused a
+--- root of its own, as `cosmic test` holds a suite to them. Each suite runs
+--- in a `cosmic test` of its own: a spawn `must_confine` refuses fails every
+--- stand-in running, the one that runs the test included, so what a refusal
+--- does to a test is seen from the run that reports it. These refusals are
+--- the same on every host, so they run wherever the program does; the cases
+--- that need a sandbox to confine a process are in
+--- `must_confine_sandboxed_test.tl`.
 
-local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local confine = require("build.confine")
-local stand_in = require("build.stand_in")
-local this_program = require("build.this_program")
-local sandbox_skip = require("build.sandbox_skip")
+local fixture = require("build.must_confine_fixture")
+local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local String = require("cosmic.string")
-local Time = require("cosmic.time")
 
 --- What these tests start is this very program, which runs the
 --- tool's own modules besides the closure's, in a root of its own
---- (`nests`); and the variables `unsandboxed` reads, which hold a run
---- to sandboxing.
-Test.needs{
-  env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
-  tool = true,
-  nests = true,
+--- (`nests`);; the variables are the ones a run
+--- of it reads, which choose how its workers are held.
+Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "o/bin", letters = "rx" } },
+  promises = { "nest" },
+  env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
 }
-
 -- What these tests start is this very program.
 confine.confine({ reads = confine.itself() })
 
---- Makes `root`, a tree for a suite, with a stand-in program
---- (build/stand_in.tl) at bin/probe for its tests to start, which
---- declare it: in the tree, since a sandboxed worker has a /tmp of its
---- own over this test's.
-local function suite_tree(tmp: string, root: string)
-  assert(Fs.mkdirs(root .. "/suite"))
-  assert(Fs.mkdirs(root .. "/bin"))
-  assert(stand_in.place(assert(stand_in.build(tmp .. "/stand-in")), root .. "/bin/probe"))
-end
+local suite_tree, environment, failure_of = fixture.suite_tree, fixture.environment, fixture.failure_of
 
 --- Runs `cosmic test` on `root` with `words` after it, answering what
 --- it printed and whether it passed.
 local function run(root: string, output: string, env: {string:string},
                    words?: {string}): string, boolean
-  local fd = assert(Fs.open_write(output))
-  local args: {string} = { "test" }
-  for _, word in ipairs(words or {}) do args[#args + 1] = word end
-  local started = this_program.program(args, {
-    cwd = root, env = env, stdout = fd, stderr = fd,
-    process_group = true, timeout_ns = Time.seconds(60),
-  })
-  local result, trouble = Child.run(started.argv, started.options)
-  assert(Fs.close(fd))
-  local text = assert(Fs.read(output))
-  assert(result ~= nil, tostring(trouble) .. text)
-  return text, result.ok
-end
-
---- Whether the run that printed `text` sandboxed none of its workers;
---- if so, the running test is skipped ([`Test.skip`]) for the reason
---- that run gave, since a case of a confined process then has only the
---- refusal to check. The workers, and what they confine, nest in this
---- test's own sandbox, which a host may refuse: the kernel lets root
---- nest one only two deep (core/syscalls.c's `map_ids`) where a root
---- runner cannot run its workers as a user of their own
---- (build.test_sandbox's `runs_as`). A run held to sandboxing fails the
---- skip; CI's unprivileged runners nest them.
-local function unsandboxed(text: string): boolean
-  if text:find("; sandboxed)", 1, true) then return false end
-  sandbox_skip.nested(text)
-  return true
-end
-
---- The environment a suite runs in: the pinned one, with no verdict cache
---- shared, COSMIC_SANDBOX as `mode` has it, and its workers sandboxed
---- where they can be, whatever this run's switch: this one's own
---- sandbox may refuse theirs, which a run that requires one would fail
---- on.
-local function environment(mode: string | nil): {string:string}
-  local env = this_program.environment()
-  env.COSMIC_VERDICT_CACHE = "0"
-  env.COSMIC_TEST_ALL = nil
-  env.COSMIC_TEST_SANDBOX = nil
-  env.COSMIC_SANDBOX = mode
-  return env
+  local ran = fixture.run(root, output, env, words)
+  return ran.text, ran.ok
 end
 
 --- What the suites below share: the raw process table, and a way to
@@ -94,7 +47,7 @@ local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "bin/probe" }, nests = true }
+Test.policy { grants = { { path = "bin/probe", letters = "r" } }, promises = { "nest" } }
 
 local record Confine
   confine: function(declared: {string:{string}} | nil)
@@ -133,12 +86,6 @@ local function refusing(fn: function())
   if not ok then error(trouble, 0) end
 end
 ]]
-
---- The line a run printed for one failing test of `module`, from its
---- message on.
-local function failure_of(text: string, module: string, name: string): string | nil
-  return text:match("FAIL  suite%." .. module .. " " .. name .. ": ([^\n]*)")
-end
 
 --- The line a run printed for one failing test of the refused suite.
 local function failure(text: string, name: string): string | nil
@@ -201,6 +148,13 @@ local function test_pledged_alone()
   confine.confine(nil)
 end
 
+local function test_a_policys_grants_alone()
+  confine.must_confine({ reads = { "bin/probe" } })
+  local _, _ = raw().spawn("bin/probe", { "bin/probe", "exit 0" }, nil, nil, nil, nil, nil, false,
+    nil, { grants = {}, promises = {} })
+  confine.confine(nil)
+end
+
 local function test_stale(tmp: string)
   local taken: any = nil
   local _ = confine.call(function() taken = raw().spawn end, nil, { tmp })
@@ -217,113 +171,20 @@ end
   assert(failure(text, "test_passed_over") == refused, text)
   local raised = assert(failure(text, "test_raised_too"))
   assert(String.starts_with(raised, refused .. "; and then: ") and
-    raised:find("its own failure$"), text)
+      raised:find("its own failure$"), text)
   assert(assert(failure(text, "test_too_many")):find("^must_confine: bin/probe could not start " ..
-    "confined: unveil could not be applied: %d+ paths, more than the 256 a sandbox unveils " ..
-    "%(EINVAL%)$"), text)
+      "confined: unveil could not be applied: %d+ paths, more than the 256 a sandbox unveils " ..
+      "%(EINVAL%)$"), text)
   assert(assert(failure(text, "test_pledged_alone")):find("^must_confine: bin/probe could not " ..
-    "start confined: unveil and offline could not be applied: a sandbox of its own that does " ..
-    "not unveil and take the network, which must_confine does not add to %(EINVAL%)$"), text)
+      "start confined: unveil and offline could not be applied: a sandbox of its own that does " ..
+      "not unveil and take the network, which must_confine does not add to %(EINVAL%)$"), text)
+  assert(assert(failure(text, "test_a_policys_grants_alone")):find("^must_confine: bin/probe " ..
+      "could not start confined: unveil and offline could not be applied: a sandbox of its own " ..
+      "that does not unveil and take the network, which must_confine does not add to " ..
+      "%(EINVAL%)$"), text)
   assert(assert(failure(text, "test_stale")):find("^must_confine: bin/probe could not start " ..
-    "confined: unveil and offline could not be applied: started through a spawn taken " ..
-    "while an earlier stand%-in ran %(EINVAL%)$"), text)
-end
-
---- Where the kernel confines a process, one under `must_confine` runs
---- held to what was declared -- not seeing what it was not given, and
---- with no network but a loopback -- and its test passes; where it does
---- not, the test fails naming what could not be applied, and under
---- COSMIC_SANDBOX=must, which says this host confines, this test fails
---- with it. It never runs unconfined.
-local function test_a_must_confined_process_is_confined_or_refused(tmp: string)
-  local root, hidden = tmp .. "/root", tmp .. "/hidden"
-  suite_tree(tmp, root)
-  assert(Fs.mkdirs(hidden))
-  assert(Fs.write(hidden .. "/f", "secret"))
-  assert(Fs.write(root .. "/suite/data.txt", "in"))
-  local real = assert(Fs.absolute(root .. "/suite/data.txt"))
-  assert(Fs.write(root .. "/suite/real_test.tl", string.format([[
-local Child = require("cosmic.child")
-local Fs = require("cosmic.fs")
-local Test = require("cosmic.test")
-
-Test.needs { reads = { "bin/probe" }, nests = true }
-
-local record Confine
-  confine: function(declared: {string:{string}} | nil)
-  must_confine: function(declared: {string:{string}} | nil)
-end
--- The worker's own, which a suite outside the tree cannot require.
-local confine = package.loaded["build.confine"] as Confine
-
-local function test_confined(tmp: string)
-  local probe = assert(Fs.absolute("bin/probe"))
-  confine.must_confine({ reads = { %q, probe } })
-  local r, _ = Child.run({ probe,
-    "exists %s/f 3; copy %s out; " ..
-    "present /proc/self/net/dev && grep-count /proc/self/net/dev : || exit 0" },
-    { cwd = tmp, stdout = "capture" })
-  confine.confine(nil)
-  if r == nil then return end -- refused: the run says why
-  assert(r.code == 0, "the confined process exited " .. tostring(r.code))
-  local out = assert(Fs.read(tmp .. "/out"))
-  assert(out == "in" and (r.stdout == "" or r.stdout == "1\n"), out .. tostring(r.stdout))
-end
-]], real, hidden, real)))
-  local text, ok = run(root, tmp .. "/out", environment(nil), { "--all" })
-  if ok then
-    assert(text:find("1 ran", 1, true), text)
-    return
-  end
-  local why = text:match("FAIL  suite%.real_test test_confined: ([^\n]*)")
-  assert(why ~= nil and why:find("^must_confine: %S*bin/probe could not start confined: .+ could " ..
-    "not be applied: .+ %(E[A-Z0-9]+%)$"), text)
-  if unsandboxed(text) then return end
-  sandbox_skip.refused("a sandboxed worker could not confine what it started: " .. why)
-end
-
---- COSMIC_SANDBOX=must makes every `confine` a `must_confine`, and every
---- key holds it, sandboxed or not. A test that fell back to an
---- unconfined process and passed stands without it, and runs again and
---- fails with it. Any other value fails the test that confines.
-local function test_the_sandbox_mode_holds_confine_to_must_confine(tmp: string)
-  local root = tmp .. "/root"
-  suite_tree(tmp, root)
-  assert(Fs.write(root .. "/suite/fallback_test.tl", [[
-local Child = require("cosmic.child")
-local Fs = require("cosmic.fs")
-local Test = require("cosmic.test")
-
-Test.needs { reads = { "bin/probe" }, nests = true }
-
-local record Confine
-  confine: function(declared: {string:{string}} | nil)
-  must_confine: function(declared: {string:{string}} | nil)
-end
--- The worker's own, which a suite outside the tree cannot require.
-local confine = package.loaded["build.confine"] as Confine
-
-local function test_falls_back(tmp: string)
-  local probe = assert(Fs.absolute("bin/probe"))
-  local many: {string} = { probe }
-  for i = 1, 300 do many[#many + 1] = tmp .. "/many" .. tostring(i) end
-  confine.confine({ reads = many })
-  local r = assert(Child.run({ probe, "exit 0" }))
-  confine.confine(nil)
-  assert(r.ok, "the process it fell back to did not run")
-end
-]]))
-  local text, ok = run(root, tmp .. "/first", environment(nil))
-  assert(ok and text:find("1 ran", 1, true), text)
-  -- It stands on its declared key, which holds the mode below.
-  text, ok = run(root, tmp .. "/stood", environment(nil))
-  assert(ok and text:find("0 ran, 1 stood", 1, true), text)
-  text, ok = run(root, tmp .. "/must", environment("must"))
-  assert(not ok, text)
-  assert(text:find("FAIL  suite%.fallback_test test_falls_back: confine %(COSMIC_SANDBOX=must%): " ..
-    "%S*bin/probe could not start confined: unveil could not be applied: "), text)
-  text, ok = run(root, tmp .. "/misspelt", environment("Must"))
-  assert(not ok and text:find('COSMIC_SANDBOX is "Must"', 1, true), text)
+      "confined: unveil and offline could not be applied: started through a spawn taken " ..
+      "while an earlier stand%-in ran %(EINVAL%)$"), text)
 end
 
 --- A worker a Landlock ruleset holds -- one whose module does not
@@ -337,78 +198,57 @@ end
 --- the worker's learns of the hold from its environment
 --- ([`confine.held_variable`]), which an unsandboxed run is given here to
 --- stand for it, the same on every host; sandboxed, the worker is held
---- by a ruleset in fact.
+--- by a ruleset in fact (`must_confine_sandboxed_test.tl`).
 local function test_a_worker_held_by_landlock_is_refused_a_root_of_its_own(tmp: string)
   local root = tmp .. "/root"
-  suite_tree(tmp, root)
-  assert(Fs.write(root .. "/suite/held_test.tl", [[
-local Child = require("cosmic.child")
-local Fs = require("cosmic.fs")
-local Test = require("cosmic.test")
-local type raw_process = require("cosmic.internal.process")
-
-Test.needs { reads = { "bin/probe" } }
-
-local record Confine
-  confine: function(declared: {string:{string}} | nil)
-end
--- The worker's own, which a suite outside the tree cannot require.
-local confine = package.loaded["build.confine"] as Confine
-local type Searcher = function(string): any, any
-
-local function raw(): raw_process
-  for _, searcher in ipairs(package.searchers as {Searcher}) do
-    local loader, extra = searcher("build.confine")
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_process
-    end
-  end
-  error("no raw table")
-end
-
-local function test_confined(tmp: string)
-  confine.confine({ reads = { "bin/probe" } })
-  local ran, _ = Child.run({ "bin/probe", "write " .. tmp .. "/ran ran" })
-  confine.confine(nil)
-  assert(ran == nil, "an unconfined process ran in its place")
-  assert(Fs.stat(tmp .. "/ran") == nil, "nothing runs in its place")
-end
-
-local function test_own_sandbox()
-  local pid, _ = raw().spawn("bin/probe", { "bin/probe", "exit 0" }, nil, nil, nil, nil, nil,
-    false, nil, { unveil = { reads = { "bin/probe" } }, offline = true })
-  assert(pid == nil, "a process started in a root of its own")
-end
-
-local function test_plain()
-  assert(Child.run({ "bin/probe", "exit 0" }))
-end
-]]))
+  fixture.held_suite(tmp, root)
   local env = environment(nil)
   env.COSMIC_TEST_SANDBOX = "0"
   env[confine.held_variable] = "suite.outer_test"
   local text, ok = run(root, tmp .. "/held", env, { "--all" })
   assert(not ok and text:find("(2 of 3 failed", 1, true), text)
-  local function refusal(module: string): string
-    return "bin/probe cannot start in a root of its own: " .. module .. "'s worker is held " ..
-      "by a Landlock ruleset, under which the kernel refuses every mount; declare " ..
-      "nests = true in its Test.needs"
-  end
-  local refused = refusal("suite.outer_test")
+  local refused = fixture.refusal("suite.outer_test")
   assert(failure_of(text, "held_test", "test_confined") == refused, text)
   assert(failure_of(text, "held_test", "test_own_sandbox") == refused, text)
   -- Asked to sandbox its workers, a run started there refuses to.
   env.COSMIC_TEST_SANDBOX = nil
   text, ok = run(root, tmp .. "/nested", env)
   assert(not ok and text:find("test: this run was started in suite.outer_test's worker, " ..
-    "which a Landlock ruleset holds", 1, true) and
-    text:find("declare nests = true in its Test.needs", 1, true), text)
-  -- Sandboxed, its own worker is held so.
-  env[confine.held_variable] = nil
-  text, ok = run(root, tmp .. "/sandboxed", env, { "--all" })
-  if unsandboxed(text) then return end
-  assert(not ok and text:find("(2 of 3 failed", 1, true), text)
-  refused = refusal("suite.held_test")
-  assert(failure_of(text, "held_test", "test_confined") == refused, text)
-  assert(failure_of(text, "held_test", "test_own_sandbox") == refused, text)
+      "which a Landlock ruleset holds", 1, true) and
+      text:find("declare the promise \"nest\" in its Test.policy", 1, true), text)
+end
+
+--- Where the platform has no sandbox to confine with, a process under
+--- `must_confine` is refused, not run unconfined: its test fails naming
+--- the part of the sandbox that could not be applied. This branches on the
+--- platform because where it can confine, the process runs held to what was
+--- declared, which `must_confine_sandboxed_test.tl` checks (`requires`).
+local function test_a_must_confined_process_is_refused_where_no_sandbox_is_given(tmp: string)
+  if assert(sys.uname()).sysname == "Linux" then
+    Test.skip("a platform with a sandbox answers this where a test requires one")
+  end
+  local root = tmp .. "/root"
+  fixture.confined_suite(tmp, root)
+  local text, ok = run(root, tmp .. "/out", environment(nil), { "--all" })
+  assert(not ok, text)
+  local why = text:match("FAIL  suite%.real_test test_confined: ([^\n]*)")
+  assert(why ~= nil and why:find("^must_confine: %S*bin/probe could not start confined: .+ could " ..
+      "not be applied: .+ %(E[A-Z0-9]+%)$"), text)
+end
+
+--- Where the platform has no sandbox, a `confine` that cannot confine falls
+--- back to an unconfined process and its test passes, and stands on a
+--- second run. This branches on the platform because where it can
+--- confine, COSMIC_SANDBOX=must is checked too, by
+--- `must_confine_sandboxed_test.tl` (`requires`).
+local function test_a_confine_falls_back_and_stands_where_no_sandbox_is_given(tmp: string)
+  if assert(sys.uname()).sysname == "Linux" then
+    Test.skip("a platform with a sandbox answers this where a test requires one")
+  end
+  local root = tmp .. "/root"
+  fixture.fallback_suite(tmp, root)
+  local text, ok = run(root, tmp .. "/first", environment(nil))
+  assert(ok and text:find("1 ran", 1, true), text)
+  text, ok = run(root, tmp .. "/stood", environment(nil))
+  assert(ok and text:find("0 ran, 1 stood", 1, true), text)
 end

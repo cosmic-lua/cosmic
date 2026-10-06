@@ -2,8 +2,10 @@
 --- make: every export earned, no two doc anchors sharing a name, every
 --- reader of the compiler's identity named, every familiar command
 --- finding what stands in for it, every docs query a compile advertises
---- answered, every quieted method one a module declares, every
---- declaration's requires declared, every verb's spec listed and
+--- answered, every quieted method one a module declares, every member
+--- kept to a few files used by those alone, every
+--- declaration's requires declared, every requirement a test module
+--- declares promised by a CI leg, every verb's spec listed and
 --- readable, no public doc citing the build or carrying a TODO, and no
 --- literal plural after a number. Each asks the tree's projection,
 --- `o/cosmic.db`, which holds every module's docs, uses, imports,
@@ -23,6 +25,7 @@
 --- its own.
 
 local Fs = require("cosmic.fs")
+local Shape = require("cosmic.shape")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local closure_store = require("build.closure_store")
@@ -32,6 +35,7 @@ local ast = require("build.ast")
 local docs = require("build.docs")
 local docs_checks = require("build.docs_checks")
 local link_text = require("build.link_text")
+local host_names = require("build.host_names")
 local importer = require("build.importer")
 local shared_compiles = require("build.shared_compiles")
 local symbols = require("build.symbols")
@@ -43,20 +47,47 @@ local String = require("cosmic.string")
 local type Node = ast.Node
 
 local record tree_checks
+  --- What [`plurals`] finds in one text of a file, read off a parse made
+  --- before the checks ran ([`plurals_in`]).
+  record Plurals
+    --- The text the sites were found in.
+    source: string
+    sites: {{string}}
+  end
 end
 
 --- The exports kept although nothing outside their module but a test
 --- uses them, by `<module>.<member>`, and why each is kept.
 local allowed: {string: string} = {}
 
+allowed["cosmic.sandbox.restrict"] = "tested directly: it holds the process that calls it " ..
+  "for good, so a worked example would hold the run that shows it; the test restricts " ..
+  "a child of this program, and the harness holds its workers with it once the " ..
+  "design's test phase lands (the TODO at build.confine's forbid_running)"
+allowed["cosmic.test.needs_of"] = "tested directly: the worker's translation of a policy, " ..
+  "which the build's own reading of one (build.analyzer, which cannot require this " ..
+  "module) is held to by cosmic/test_policy_test.tl"
+allowed["build.assertions.lua_assert"] = "tested directly: Lua's own `assert`, kept " ..
+  "for build/assertions_test.tl to hold the counting one to, case by case, so a Lua " ..
+  "upgrade that changes luaB_assert fails there rather than drifting"
 allowed["build.c.layout.same"] = "tested directly: whether two layouts are one " ..
   "token stream is the rule `cosmic fix` holds a C rewrite to, and the test " ..
   "states it on sources too small to be a file"
+for _, name in ipairs({ "sleep_ns", "ceil" }) do
+  allowed["cosmic.time." .. name] = "the old name of cosmic.clock's " .. name .. ", kept " ..
+    "for programs outside the tree that call it; in the tree only its own tests do"
+end
+for _, name in ipairs({ "names", "class" }) do
+  allowed["build.host_names." .. name] = "tested directly: the table's own reading, which " ..
+    "`parse` and `check`, the only calls outside the module, are made of"
+end
 allowed["build.flow.bare"] = "the subset build/workflows_test.tl holds " ..
   "workflows to takes a bare key by the same rule the layout writes one by"
 allowed["build.flow.problems"] = "the subset build/workflows_test.tl holds " ..
   "the workflows to, which the layout is also held to"
 allowed["build.flow.comments"] = "what the fuzz test holds a layout to keep"
+allowed["build.analyzer.analyze"] = "a convenience the tests call, a parse and " ..
+  "analysis_of; every caller outside them calls analysis_of on a parse it has"
 for _, name in ipairs({ "parse", "render", "scalar", "from", "write", "value", "get", "set", "update" }) do
   allowed["build.flow." .. name] = "the API a program generates or edits a workflow " ..
     "through, which no program in the tree does yet; its test and the workflows' own do"
@@ -77,7 +108,7 @@ allowed["build.declared_key.preimage"] = "what build/declared_key_fuzz_test.tl "
 allowed["build.declared_key.dispatched"] = "what build/dispatched_features_test.tl " ..
   "holds the tree's CPU dispatch sites to: the features a key holds are the ones they read"
 allowed["build.declared_key.system_sources"] = "what build/host_features_test.tl " ..
-  "holds .github/scripts/host-features.sh to: it reads a macOS host's system where a key does"
+  "holds ci/testdata/host_features to: a key names each recorded host as ci/cosmic_ci/host_id.tl does"
 allowed["build.coverage.lines.executable"] = "tested directly: the test compares " ..
   "what executable_cached keeps against what this computes afresh"
 allowed["build.confine.confine"] = "a test's own declaration: " ..
@@ -89,7 +120,7 @@ allowed["build.fix.spill.message"] = "tested directly: the test writes a refusal
 allowed["build.fix.spill.sites"] = "tested directly: the test hands it refusal " ..
   "text without a compile"
 for _, name in ipairs({ "key", "open", "close", "look", "settle", "analyzers", "requires",
-                        "look_parse" }) do
+    "look_parse" }) do
   allowed["build.shared_compiles." .. name] = "tested directly: build/shared_compiles_test.tl, " ..
     "build/shared_parses_test.tl and build/importer_test.tl read and write the cache file " ..
     "itself, to see what a build shared and what a salt does to a key"
@@ -112,16 +143,18 @@ allowed["build.harness_epoch.library"] = "the standard-library modules the harne
   "may reach, each with its reason, which only its test reads: a rule the test holds " ..
   "the harness's digests to, not code the harness runs"
 allowed["build.test_inputs.lua_loads"] = "what build/lua_children_test.tl holds " ..
-  "a child's `-e` to loading no more than, as the hold a `lua` module's children get " ..
-  "lets them load"
+  "a child's `-e` to loading no more than, as the artifact a `lua` module's children " ..
+  "run carries them"
 allowed["build.test_inputs.standalone_loads"] = "what build/lua_standalone_test.tl " ..
   "holds a child's `--standalone` to loading no more than, beside `lua_loads`, as the " ..
-  "hold a `standalone` module's children get lets them load"
+  "artifact a module that requires build.standalone's children run carries them"
 allowed["build.closure_store.loaded_beside"] = "what build/lua_standalone_test.tl " ..
-  "holds build.test_inputs' copy to, which a `lua` module's children may load beside " ..
-  "a module of their closure"
+  "holds a closure store to carrying beside a module of its closure, which a `lua` " ..
+  "module's children run from"
 allowed["build.test.value_imports"] = "tested directly: the harness's test reads, " ..
   "by it, what each module the harness runs requires by value, as `key_code` walks it"
+allowed["build.test.type_only_imports"] = "tested directly: the harness's test holds " ..
+  "it to the edges `value_imports` leaves out; `run` reads it through the projection"
 allowed["build.importer.prune_references"] = "tested directly: the test asks " ..
   "SQLite for the statement's plan, which must read `compiled` once rather " ..
   "than probe it per row, and no behaviour tells the two apart"
@@ -129,6 +162,10 @@ allowed["build.reboot.auto_boot"] = "tested directly: the test hands it an " ..
   "environment rather than setting COSMIC_AUTO_BOOT on the whole run"
 allowed["build.reboot.boot_into"] = "tested directly: the test runs it on a tree " ..
   "whose bin/zig is a stand-in, which no stale tool can reach"
+allowed["build.reboot.compiler_moved"] = "tested directly: the test hands it " ..
+  "identities, where a stale tool's compiler can only be had by building one"
+allowed["build.reboot.rebuild_failed"] = "tested directly: the test runs it on a " ..
+  "tree whose bin/zig is a stand-in, which no stale tool can reach"
 allowed["build.reboot.own_tool"] = "tested directly: the test hands it the path " ..
   "a tool was started as, which the running one cannot change"
 allowed["build.writer.signature"] = "tested directly: the test signs a database " ..
@@ -193,30 +230,30 @@ allowed["build.writer.signature"] = "tested directly: the test signs a database 
 local function unearned(db: Sqlite.Handle): {string} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT d.file || ':' || d.line || ': ' || d.module || '.' || d.symbol " ..
-    "FROM docs d " ..
-    "WHERE d.exported = 1 AND d.symbol <> '' AND instr(d.symbol, '.') = 0 " ..
-    "AND d.kind IN ('function', 'method', 'field') " ..
-    "AND d.signature NOT GLOB 'type *' AND d.symbol NOT GLOB '[A-Z]*[a-z]*' " ..
-    "AND d.symbol <> 'main' " ..
-    "AND NOT (d.kind = 'function' AND d.symbol = d.source_symbol) " ..
-    "AND (d.file GLOB 'build/*' OR d.file GLOB 'cmd/*' OR d.file GLOB 'eval/*' " ..
-    "OR (d.file GLOB 'cosmic/*' AND d.file NOT GLOB 'cosmic/internal/*')) " ..
-    "AND d.file GLOB '*.tl' AND d.file NOT GLOB '*.d.tl' " ..
-    "AND NOT EXISTS (SELECT 1 FROM uses u " ..
-    "WHERE u.module = d.module AND u.symbol = d.symbol " ..
-    "AND u.from_module <> d.module " ..
-    "AND (u.from_file NOT GLOB '*_test.tl' " ..
-    "OR (u.from_module <> d.module || '_test' AND NOT EXISTS (SELECT 1 FROM imports i " ..
-    "WHERE i.requires = d.module AND i.path NOT GLOB '*_test')) " ..
-    "OR (d.file NOT GLOB 'cosmic/*' " ..
-    "AND (u.from_module GLOB d.module || '_*' OR u.from_module GLOB d.module || '.*') " ..
-    "AND (substr(u.from_module, 1, length(u.from_module) - 5) = d.module " ..
-    "OR NOT EXISTS (SELECT 1 FROM imports j " ..
-    "WHERE j.path = substr(u.from_module, 1, length(u.from_module) - 5) " ..
-    "OR j.requires = substr(u.from_module, 1, length(u.from_module) - 5))) " ..
-    "AND EXISTS (SELECT 1 FROM docs p WHERE p.module = d.module AND p.exported = 1 " ..
-    "AND p.symbol IN ('main', 'run', 'spec'))))) " ..
-    "ORDER BY d.file, d.line")
+      "FROM docs d " ..
+      "WHERE d.exported = 1 AND d.symbol <> '' AND instr(d.symbol, '.') = 0 " ..
+      "AND d.kind IN ('function', 'method', 'field') " ..
+      "AND d.signature NOT GLOB 'type *' AND d.symbol NOT GLOB '[A-Z]*[a-z]*' " ..
+      "AND d.symbol <> 'main' " ..
+      "AND NOT (d.kind = 'function' AND d.symbol = d.source_symbol) " ..
+      "AND (d.file GLOB 'build/*' OR d.file GLOB 'cmd/*' OR d.file GLOB 'eval/*' " ..
+      "OR (d.file GLOB 'cosmic/*' AND d.file NOT GLOB 'cosmic/internal/*')) " ..
+      "AND d.file GLOB '*.tl' AND d.file NOT GLOB '*.d.tl' " ..
+      "AND NOT EXISTS (SELECT 1 FROM uses u " ..
+      "WHERE u.module = d.module AND u.symbol = d.symbol " ..
+      "AND u.from_module <> d.module " ..
+      "AND (u.from_file NOT GLOB '*_test.tl' " ..
+      "OR (u.from_module <> d.module || '_test' AND NOT EXISTS (SELECT 1 FROM imports i " ..
+      "WHERE i.requires = d.module AND i.path NOT GLOB '*_test')) " ..
+      "OR (d.file NOT GLOB 'cosmic/*' " ..
+      "AND (u.from_module GLOB d.module || '_*' OR u.from_module GLOB d.module || '.*') " ..
+      "AND (substr(u.from_module, 1, length(u.from_module) - 5) = d.module " ..
+      "OR NOT EXISTS (SELECT 1 FROM imports j " ..
+      "WHERE j.path = substr(u.from_module, 1, length(u.from_module) - 5) " ..
+      "OR j.requires = substr(u.from_module, 1, length(u.from_module) - 5))) " ..
+      "AND EXISTS (SELECT 1 FROM docs p WHERE p.module = d.module AND p.exported = 1 " ..
+      "AND p.symbol IN ('main', 'run', 'spec'))))) " ..
+      "ORDER BY d.file, d.line")
   if rows == nil then
     return nil, trouble
   end
@@ -304,7 +341,7 @@ local anchors_expected: {string} = { "cosmic.cli Cli", "cosmic.layout Layout",
 function tree_checks.anchors(db: Sqlite.Handle, expected?: {string}): {string}
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT module, symbol, kind, signature, text, file, line FROM docs WHERE " ..
-    symbols.public_only("module", true) .. " ORDER BY module, id")
+      symbols.public_only("module", true) .. " ORDER BY module, id")
   if rows == nil then
     return { "reading the public catalog: " .. trouble }
   end
@@ -454,7 +491,7 @@ local stand_ins_expected: {{string}} = {
   { "tar -x", "Archive.extract" },
   { "unzip", "Archive.extract" },
   { "sha256sum", "Hash.hex_sha256" },
-  { "sleep", "Time.sleep_ns" },
+  { "sleep", "Clock.sleep_ns" },
   { "getentropy", "Rand.entropy" },
   { "getenv", "Env.get" },
   { "urandom", "Rand.entropy" },
@@ -549,6 +586,65 @@ function tree_checks.quieted(db: Sqlite.Handle, names?: {string}): {string}
   return out
 end
 
+--- A member only some files may refer to.
+local record Restriction
+  --- The files, by path, that may use it.
+  files: {string}
+  --- What a file outside them does instead.
+  why: string
+end
+
+--- The members the tree keeps to a few files, by `<module> <member>`: a
+--- test that asks whether this platform has a sandbox, in place of
+--- declaring `requires` or ending itself with [`Test.skip`], would branch
+--- on what it was written to hold the platform to, and pass having checked
+--- nothing where the branch goes the other way.
+local restricted: {string: Restriction} = {
+  ["cosmic.test passed_unchecked"] = {
+    files = { "build/fuzz/init.tl" },
+    why = "only the fuzz runner may say a pass did not check on purpose: a test that " ..
+      "cannot check what it is about skips or declares `requires`, and one that checks " ..
+      "asserts",
+  },
+  ["build.confine sandbox_platform"] = {
+    files = { "build/confine.tl", "build/host_requires.tl",
+      "build/test_sandbox_probe.tl" },
+    why = "only the probe of what the host has asks it: a test declares `requires` " ..
+      "(build/host_names.tl) or, where no name stands for what it needs, ends itself " ..
+      "with `Test.skip(reason)`",
+  },
+}
+
+--- Each use in `db` of a member of `rules` (by default [`restricted`])
+--- from a file its rule does not name, as `<file>:<line>: <module> <member>
+--- ...`.
+function tree_checks.restricted(db: Sqlite.Handle, rules?: {string: Restriction}): {string}
+  local out: {string} = {}
+  local names: {string} = {}
+  for name in pairs(rules or restricted) do names[#names + 1] = name end
+  table.sort(names)
+  for _, name in ipairs(names) do
+    local rule = (rules or restricted)[name]
+    local module, symbol = name:match("^(%S+) (%S+)$")
+    local rows, trouble = Sqlite.text_rows(db,
+      "SELECT from_file, line FROM uses WHERE module = ?1 AND symbol = ?2 " ..
+        "ORDER BY from_file, line",
+      { { text = module or "" }, { text = symbol or "" } })
+    if rows == nil then
+      return { "reading the uses: " .. trouble }
+    end
+    local allowed_here: {string: boolean} = {}
+    for _, file in ipairs(rule.files) do allowed_here[file] = true end
+    for _, row in ipairs(rows) do
+      if not allowed_here[row[1]] then
+        out[#out + 1] = row[1] .. ":" .. row[2] .. ": " .. name .. " is used outside " ..
+          table.concat(rule.files, ", ") .. ": " .. rule.why
+      end
+    end
+  end
+  return out
+end
+
 --- Each declaration of `db` that requires a name no declaration of `db`
 --- answers for, as `<declaration> requires <name>`: a closure store
 --- follows a declaration's requires among declarations alone
@@ -570,6 +666,97 @@ function tree_checks.declarations(db: Sqlite.Handle): {string}
           "a closure store follows a declaration's requires among declarations alone " ..
           "(build/closure_store.tl's `declared`), so declare what it needs of " .. name ..
           " in a declaration, or teach the store to follow a module"
+      end
+    end
+  end
+  return out
+end
+
+--- The requirements each test module of the tree declares
+--- ([`Test.policy`]'s `requires`), by the module's path, as the working
+--- database `build` (`o/build.db`) holds them: the projection has no
+--- declarations.
+--- @param build the working database
+--- @return the names a module declares, for each that declares any
+function tree_checks.requirements(build: Sqlite.Handle): {string:{string}} | nil, string
+  local rows, trouble = Sqlite.text_rows(build,
+    "SELECT i.path, t.value FROM test_inputs t JOIN inputs i ON i.source_hash = t.source_hash " ..
+      "WHERE t.field = 'requires' ORDER BY i.path, t.ordinal")
+  if rows == nil then return nil, "reading the declared requirements: " .. trouble end
+  local out: {string:{string}} = {}
+  for _, row in ipairs(rows) do
+    local names = out[row[1]]
+    if names == nil then
+      names = {}
+      out[row[1]] = names
+    end
+    names[#names + 1] = row[2]
+  end
+  return out
+end
+
+--- What ci/cosmic_ci/capabilities.tl returns.
+local record Capabilities
+  legs: {string:{string}}
+end
+
+local CAPABILITIES_SPEC <const> = Shape.record({ legs = Shape.map(Shape.list(Shape.string)) })
+
+--- The requirements each CI leg promises, as ci/cosmic_ci/capabilities.tl
+--- under `root` lists them. ci is a tree of its own, whose modules the
+--- tree cannot require: the file is data in text Lua reads, loaded alone.
+--- @param root the tree's root
+--- @return the names a leg promises, by the leg's name
+function tree_checks.legs(root: string): {string:{string}} | nil, string
+  local path = root .. "/ci/cosmic_ci/capabilities.tl"
+  local text, read_trouble = Fs.read(path)
+  if text == nil then return nil, read_trouble end
+  local chunk, load_trouble = load(text, "=capabilities.tl", "t", {})
+  if chunk == nil then return nil, path .. ": " .. tostring(load_trouble) end
+  local ok, loaded = pcall(chunk)
+  if not ok then return nil, path .. ": " .. tostring(loaded) end
+  local capabilities, shape_trouble: Capabilities | nil, string = Shape.into(loaded, CAPABILITIES_SPEC)
+  if capabilities == nil then return nil, path .. ": " .. shape_trouble end
+  return capabilities.legs
+end
+
+-- TODO: hold the requirements ci/'s own tests and fixtures declare to the
+-- same check: it reads the root tree's declarations alone, and ci/ is a
+-- tree of its own whose `fix --check` cannot read the leg list's tree.
+--- What the CI legs' promises ([`legs`]) and the tree's declared
+--- requirements ([`requirements`]) say against each other, one line a
+--- finding: a name a leg promises that the table of
+--- [`build.host_names`] refuses, and a module requiring a name no leg
+--- promises, which would be n/a or skipped on every leg and run nowhere
+--- in CI, with no held run to fail for it.
+--- @param declared the requirements each test module declares
+--- @param legs the names each CI leg promises
+--- @return the findings, none when every declared name is promised
+function tree_checks.promises(declared: {string:{string}}, legs: {string:{string}}): {string}
+  local out: {string} = {}
+  local leg_names: {string} = {}
+  for leg in pairs(legs) do leg_names[#leg_names + 1] = leg end
+  table.sort(leg_names)
+  local all: {string} = {}
+  for _, leg in ipairs(leg_names) do
+    for _, name in ipairs(legs[leg]) do
+      local _, why = host_names.parse(name)
+      if why ~= nil then
+        out[#out + 1] = string.format("leg %s promises %q, which is refused: %s", leg, name, why)
+      else
+        all[#all + 1] = name
+      end
+    end
+  end
+  local modules: {string} = {}
+  for module in pairs(declared) do modules[#modules + 1] = module end
+  table.sort(modules)
+  for _, module in ipairs(modules) do
+    for _, name in ipairs(declared[module]) do
+      if not host_names.promised(all, name) then
+        out[#out + 1] = string.format("%s requires %s, which no CI leg promises " ..
+            "(ci/cosmic_ci/capabilities.tl): it would be n/a or skipped on every leg and run " ..
+            "nowhere, with no held run to fail for it", module, name)
       end
     end
   end
@@ -720,8 +907,8 @@ local function spec_fields(text: string, start: integer): Fields
     elseif token.kind == "mark" and token.value == "}" then
       depth = depth - 1
     elseif depth == 1 and token.kind == "word" and tokens[i + 1] ~= nil and
-      tokens[i + 1].value == "=" and tokens[i + 1].kind == "mark" and
-      tokens[i + 2] ~= nil and tokens[i + 2].value ~= "=" then
+        tokens[i + 1].value == "=" and tokens[i + 1].kind == "mark" and
+        tokens[i + 2] ~= nil and tokens[i + 2].value ~= "=" then
       local name, value = token.value, tokens[i + 2]
       if value.kind == "str" then
         if fields.strings[name] == nil then fields.strings[name] = value.value end
@@ -1008,7 +1195,7 @@ function tree_checks.public_docs(db: Sqlite.Handle, excused?: {string: string}):
   excused = excused or doc_exempt
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT d.module, d.symbol, d.text, d.file, d.line FROM docs d WHERE " ..
-    symbols.shown_docs("d", true) .. " AND d.text <> '' ORDER BY d.file, d.line, d.id")
+      symbols.shown_docs("d", true) .. " AND d.text <> '' ORDER BY d.file, d.line, d.id")
   if rows == nil then
     return { "reading the public docs: " .. trouble }
   end
@@ -1192,10 +1379,7 @@ end
 --- string, by `..` (`#rows .. " tests"`, `tostring(n) .. " files"`,
 --- `(a - b) .. " rows"`, any name, field or call), or after a `%d` in a
 --- literal.
-local function plural_sites(built: compiler, source: string, file: string):
-    {{string}} | nil, string
-  local parsed, trouble = ast.parse(built, source, file)
-  if parsed == nil then return nil, trouble end
+local function sites_in(parsed: ast.Parsed): {{string}}
   local sites: {{string}} = {}
   ast.walk(parsed.node, function(node: Node)
     local left, right = node.e1, node.e2
@@ -1206,7 +1390,7 @@ local function plural_sites(built: compiler, source: string, file: string):
       if literal ~= nil and noun ~= nil then
         sites[#sites + 1] = { tostring(right.y), noun, "... .. \"" .. literal:sub(1, 24),
           "write `plural.count(n, singular)` (with the plural as a third argument when it is " ..
-          "not the singular and an `s`)" }
+            "not the singular and an `s`)" }
       end
     elseif node.kind == "string" and node.conststr ~= nil and node.conststr:find("%%d ") then
       for _, noun in ipairs(format_plurals(node.conststr)) do
@@ -1216,6 +1400,27 @@ local function plural_sites(built: compiler, source: string, file: string):
     end
   end)
   return sites
+end
+
+--- [`sites_in`] of `source`, parsed by `built`.
+local function plural_sites(built: compiler, source: string, file: string):
+    {{string}} | nil, string
+  local parsed, trouble = ast.parse(built, source, file)
+  if parsed == nil then return nil, trouble end
+  return sites_in(parsed)
+end
+
+--- What [`plurals`] finds in `source`, the text of `file` (its path from
+--- the tree's root), read off `parsed`, a parse of it already made, so
+--- the checks need not parse it again; nil for a file they do not read.
+function tree_checks.plurals_in(file: string, source: string, parsed: ast.Parsed):
+    tree_checks.Plurals | nil
+  if not file:match("%.tl$") or file:match("_test%.tl$") or file:match("%.d%.tl$") or
+      not (file:match("^build/") or file:match("^cmd/") or file:match("^cosmic/") or
+          file:match("^ci/cosmic_ci/")) then
+    return nil
+  end
+  return { source = source, sites = sites_in(parsed) }
 end
 
 --- Every place in the Teal sources under `build/`, `cmd/` and
@@ -1236,13 +1441,16 @@ end
 --- (`name .. " needs"`) is passed over, and a count spelled by a name
 --- in front of a plural that is right for it (a count that cannot be 1)
 --- goes in `plural_exempt` with the reason.
+--- @param read what [`plurals_in`] found before the checks, by file: a
+---   file whose text is the one read there is not parsed again
 function tree_checks.plurals(db: Sqlite.Handle, built: compiler, extra?: {{string}},
-    excused?: {string: string}): {string}
+                             excused?: {string: string}, read?: {string: tree_checks.Plurals}):
+    {string}
   excused = excused or plural_exempt
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT file, CAST(inflate(source) AS TEXT) FROM modules WHERE kind <> 'test' " ..
-    "AND file GLOB '*.tl' AND file NOT GLOB '*.d.tl' AND (file GLOB 'build/*' " ..
-    "OR file GLOB 'cmd/*' OR file GLOB 'cosmic/*') ORDER BY file")
+      "AND file GLOB '*.tl' AND file NOT GLOB '*.d.tl' AND (file GLOB 'build/*' " ..
+      "OR file GLOB 'cmd/*' OR file GLOB 'cosmic/*') ORDER BY file")
   if rows == nil then
     return { "reading the sources: " .. trouble }
   end
@@ -1252,7 +1460,13 @@ function tree_checks.plurals(db: Sqlite.Handle, built: compiler, extra?: {{strin
   local out: {string} = {}
   local found: {string: boolean} = {}
   for _, row in ipairs(sources) do
-    local sites, parse_trouble = plural_sites(built, row[2], row[1])
+    local known = read ~= nil and read[row[1]] or nil
+    local sites, parse_trouble: {{string}}, string
+    if known ~= nil and known.source == row[2] then
+      sites = known.sites
+    else
+      sites, parse_trouble = plural_sites(built, row[2], row[1])
+    end
     if sites == nil then
       out[#out + 1] = row[1] .. ": cannot read it to check its plurals: " .. parse_trouble
     else
@@ -1304,25 +1518,29 @@ end
 ---   docs` shows read; `db` itself when not given
 --- @param help what `cosmic help` prints ([`build.help_source`]' `texts`),
 ---   whose references are checked with the docs'; none when not given
+--- @param read the plurals already found in files' texts, as [`plurals`]
+---   takes them
 function tree_checks.run(db: Sqlite.Handle, quickstart: string | nil, built?: compiler,
-    extra?: {{string}}, carried?: Sqlite.Handle, help?: {string: string}): {string}
+                         extra?: {{string}}, carried?: Sqlite.Handle, help?: {string: string},
+                         read?: {string: tree_checks.Plurals}): {string}
   local out: {string} = {}
   local plurals: {string} = {}
-  if built ~= nil then plurals = tree_checks.plurals(db, built, extra) end
+  if built ~= nil then plurals = tree_checks.plurals(db, built, extra, nil, read) end
   for _, check in ipairs({
-    { name = "exports", lines = tree_checks.exports(db) },
-    { name = "doc anchors", lines = tree_checks.anchors(db) },
-    { name = "compiler readers", lines = tree_checks.compiler_readers(db) },
-    { name = "stand-ins", lines = tree_checks.stand_ins(db) },
-    { name = "docs queries", lines = tree_checks.queries(db) },
-    { name = "quieted", lines = tree_checks.quieted(db) },
-    { name = "declarations", lines = tree_checks.declarations(db) },
-    { name = "verbs", lines = tree_checks.verbs(db, quickstart) },
-    { name = "guides", lines = tree_checks.guides(db) },
-    { name = "rendered docs", lines = docs_checks.rendered(carried or db) },
-    { name = "doc references", lines = docs_checks.references(carried or db, help) },
-    { name = "public docs", lines = tree_checks.public_docs(db) },
-    { name = "plurals", lines = plurals },
+      { name = "exports", lines = tree_checks.exports(db) },
+      { name = "doc anchors", lines = tree_checks.anchors(db) },
+      { name = "compiler readers", lines = tree_checks.compiler_readers(db) },
+      { name = "stand-ins", lines = tree_checks.stand_ins(db) },
+      { name = "docs queries", lines = tree_checks.queries(db) },
+      { name = "quieted", lines = tree_checks.quieted(db) },
+      { name = "restricted", lines = tree_checks.restricted(db) },
+      { name = "declarations", lines = tree_checks.declarations(db) },
+      { name = "verbs", lines = tree_checks.verbs(db, quickstart) },
+      { name = "guides", lines = tree_checks.guides(db) },
+      { name = "rendered docs", lines = docs_checks.rendered(carried or db) },
+      { name = "doc references", lines = docs_checks.references(carried or db, help) },
+      { name = "public docs", lines = tree_checks.public_docs(db) },
+      { name = "plurals", lines = plurals },
   }) do
     for _, line in ipairs(check.lines) do
       out[#out + 1] = check.name .. ": " .. line

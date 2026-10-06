@@ -1,20 +1,20 @@
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Local = require("run_local")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 
-Test.needs{ system = true, tool = true }
+Test.policy{ profiles = { "system", "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local function git(root: string, args: {string}): string
   local argv = { assert(Proc.find("git")), "-C", root }
   for _, word in ipairs(args) do argv[#argv + 1] = word end
   local result = assert(Child.run(argv, { stdout = "capture", stderr = "capture",
-    timeout_ns = Time.seconds(10) }))
+    timeout_ns = Clock.seconds(10) }))
   assert(result.code == 0, result.stderr)
   return ((assert(result.stdout)):gsub("\n$", ""))
 end
@@ -92,7 +92,7 @@ local function test_snapshot_keeps_working_changes_and_the_real_index(tmp: strin
   assert(Fs.exists(root .. "/ci/o") == false, "source CI database was created")
   local environment = assert(Fs.read(env.TRACE .. ".env"))
   assert(environment:find(candidate, 1, true) and environment:find(env.COSMIC_ZIG_CACHE, 1, true) and
-    environment:find(env.COSMIC_ZIG_GLOBAL_CACHE, 1, true), "spaced paths or cache inputs changed")
+      environment:find(env.COSMIC_ZIG_GLOBAL_CACHE, 1, true), "spaced paths or cache inputs changed")
 end
 
 local function test_snapshot_keeps_tracked_and_force_added_ignored_files(tmp: string)
@@ -130,7 +130,7 @@ local function test_default_phases_keep_the_workflow_order(tmp: string)
   local root, env = checkout(tmp)
   assert(invoke(root, env, {}) == 0)
   assert(Fs.read(env.TRACE) ==
-    "build\nlocal-boundary\ndarwin-suite\nsandbox\nassemble\nportable\nportable-boundary\nfixtures\n")
+      "build\nlocal-boundary\ndarwin-suite\nsandbox\nassemble\nportable\nportable-boundary\nfixtures\n")
 end
 
 local function test_phase_failure_stops_and_preserves_its_status(tmp: string)
@@ -261,7 +261,7 @@ exit 31
 ]], 0x1ed))
   local code, diagnostic = invoke(root, env, { "build" })
   assert(code == 31 and diagnostic:find("error: line 20\n", 1, true) and
-    not diagnostic:find("error: line 21\n", 1, true))
+      not diagnostic:find("error: line 21\n", 1, true))
   assert(assert(Fs.read(env.COSMIC_CI_LOCAL .. "/logs/build.log")):find("error: line 30\n", 1, true),
     "bounded diagnostics truncated the retained log")
 end
@@ -306,7 +306,7 @@ local function test_root_probe_grants_a_copy_without_mutating_cached_relaunch(tm
     probe[#probe] = "assert(require('cosmic.proc').executable()==" ..
       string.format("%q", tostring((assert(Proc.executable())))) .. "); print('copied runtime identity')"
     local result = assert(run(probe, { env = options.env, fds = options.fds, cwd = "/",
-      stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(10) }))
+      stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(10) }))
     assert(result.ok and result.stdout == "copied runtime identity\n", result.stderr)
     return nil, "injected credential refusal after copied-runtime check"
   end
@@ -319,7 +319,7 @@ local function test_root_probe_grants_a_copy_without_mutating_cached_relaunch(tm
   assert(after_offset == 13 and table.concat(launched.argv, "\0") == argv_before and launched.fds[slot] == borrowed)
   local after = assert(Fs.stat(launched.argv[1]))
   assert(after.ino == original.ino and after.mode == original.mode and
-    Hash.hex_sha256((assert(Fs.read(launched.argv[1])))) == digest)
+      Hash.hex_sha256((assert(Fs.read(launched.argv[1])))) == digest)
   assert(scratch ~= "" and Fs.exists(scratch) == false and sys.fstat(handed) == nil,
     "refusal leaked the runtime scratch or descriptor")
   assert(Fs.exists(env.COSMIC_CI_LOCAL) == false and Fs.exists(env.TRACE) == false)

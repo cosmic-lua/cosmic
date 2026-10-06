@@ -10,7 +10,7 @@ local Fs = require("cosmic.fs")
 local invoke = require("build.invoke")
 local this_program = require("build.this_program")
 local String = require("cosmic.string")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 local record verbs_fixture
 end
@@ -63,7 +63,7 @@ function verbs_fixture.run(dir: string, args: {string}): invoke.Result
   env.COSMIC_TEST_SANDBOX = "0"
   local started = this_program.program(args, {
     cwd = dir, env = env, stdout = "capture", stderr = "capture",
-    timeout_ns = Time.seconds(60),
+    timeout_ns = Clock.seconds(60),
   })
   local result, trouble = Child.run(started.argv, started.options)
   local ran = assert(result, trouble)

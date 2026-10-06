@@ -4,15 +4,15 @@
 --- themselves are in `hash_test.tl`.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
-local Time = require("cosmic.time")
 
 --- The program itself, which its tests start.
-Test.needs{ tool = true }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local record Ran
   code: integer
@@ -23,7 +23,7 @@ end
 local function cosmic(dir: string, words: {string}, input?: string): Ran
   local started = this_program.program(words, {
     cwd = dir, stdout = "capture", stderr = "capture", input = input,
-    timeout_ns = Time.seconds(30),
+    timeout_ns = Clock.seconds(30),
   })
   local result = assert(Child.run(started.argv, started.options))
   return { code = result.code, out = result.stdout or "", err = result.stderr or "" }
@@ -66,8 +66,8 @@ local function test_a_large_file_streams(tmp: string)
   assert(ran.out == hex .. "  big\n", ran.out)
 end
 
---- Help reads the store's docs, which a test not declaring `store` is held
---- from, and one that does runs again on every edit to the tree; so it
+--- Help reads the store's docs, which a test not declaring `store` is not
+--- given, and one that does runs again on every edit to the tree; so it
 --- is here, with the tests that start the program, not in-process.
 local function test_help_names_the_verb_and_its_options(tmp: string)
   local ran = cosmic(tmp, { "hash", "--help" })

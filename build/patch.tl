@@ -2,6 +2,10 @@
 --- written whole to a directory of its own.
 ---
 ---     cosmic --standalone build/patch.tl <root> <cache>
+---     cosmic --standalone build/patch.tl --zig-lib <root> <lib> <out>
+---
+--- The second writes zig's library directory with `patch/zig-lib/`'s records
+--- applied ([`Patch.zig_lib`]).
 ---
 --- For every `vendor/<name>/PIN` under `root` it prints `<name>`, a tab,
 --- and the directory holding `vendor/<name>` with every record under
@@ -57,19 +61,19 @@ local sys = require("cosmic.sys")
 local String = require("cosmic.string")
 
 local record Patch
-  --- One record, parsed.
+  --- One record, parsed: `note` is its `note:` line's value, and
+  --- `find_at` and `replace_at` are where in the record's text the find
+  --- and replace blocks start (the byte after each fence's line).
   record Record
     file: string
     note: string
     find: string
     replace: string
+    find_at: integer
+    replace_at: integer
   end
 end
 
--- This comment moves the image fingerprint on purpose: the compiler's own
--- semantics moved with build/shape_specs.tl, and a tool older than this
--- line cannot compile the tree, so a stale tool is routed to `bin/zig
--- build boot` rather than to a rebuild it cannot finish.
 local log = Log.new("patch")
 
 --- A line found in a record: what it holds (a header's value), where it
@@ -113,7 +117,9 @@ local function fence_line(text: string, at: integer, fence: string,
   return nil
 end
 
---- Parses the record `text`, named `name` in what it says of it.
+--- Parses the record `text`, named `name` in what it says of it. What
+--- it takes as a record decides the TODOs build.todo_scan keeps of one,
+--- so a change to that bumps build/work.tl's `version`.
 function Patch.parse(text: string, name: string): Patch.Record | nil, string
   local at = 1
   local fence = "---"
@@ -157,8 +163,8 @@ function Patch.parse(text: string, name: string): Patch.Record | nil, string
     replaced = text:sub(replace.after, finish.start - 2)
   end
   return { file = file.value, note = note.value,
-           find = text:sub(find.after, replace.start - 2),
-           replace = replaced }, ""
+    find = text:sub(find.after, replace.start - 2),
+    replace = replaced, find_at = find.after, replace_at = replace.after }, ""
 end
 
 --- `source` with the record's one match replaced, or nil and why when it
@@ -425,71 +431,6 @@ local function key_of(tree: Tree): string
   return Hash.hex_sha256(table.concat(lines))
 end
 
---- The gate is never unlinked: every creator and sweeper must lock the
---- same inode. It covers creation through ownership, so no sweep sees a
---- new wrapper before its owner is locked. Expensive work runs outside it.
---- Kept here because this standalone script can load only the pinned
---- release's cosmic.* modules, not another module from the checkout.
-local record Descriptor
-  fd: integer
-  metamethod __close: function(Descriptor)
-end
-local descriptor_mt: metatable<Descriptor> = {
-  __close = function(self: Descriptor) local _, _ = sys.close(self.fd) end,
-}
-
-local record Scratch
-  path: string
-  owner: integer
-  metamethod __close: function(Scratch)
-end
-local scratch_mt: metatable<Scratch> = {
-  __close = function(self: Scratch)
-    local _, _ = Fs.remove_tree(self.path)
-    local _, _ = sys.close(self.owner)
-  end,
-}
-
-local function scratch(cache: string): Scratch | nil, string
-  local fd, trouble = sys.open(cache .. "/.scratch-gate", sys.O_RDWR | sys.O_CREAT | sys.O_NOFOLLOW, 0x180)
-  if fd == nil then return nil, trouble end
-  local opened: Descriptor = { fd = fd }
-  local gate <close> = setmetatable(opened, descriptor_mt)
-  local locked, lock_trouble = sys.flock(gate.fd, "exclusive", -1)
-  if not locked then return nil, lock_trouble end
-  local names, list_trouble = Fs.list(cache)
-  if names == nil then return nil, list_trouble end
-  for _, name in ipairs(names) do
-    -- PID-only names belong to old tools and say nothing about ownership
-    -- across namespaces. Missing owner files are also left alone.
-    if name:match("^%.scratch%.[%w]+$") then
-      local path = cache .. "/" .. name
-      local owner, _ = sys.open(path .. "/owner", sys.O_RDWR | sys.O_NOFOLLOW)
-      if owner ~= nil then
-        local descriptor: Descriptor = { fd = owner }
-        local probe <close> = setmetatable(descriptor, descriptor_mt)
-        local dead, _ = sys.flock(probe.fd, "exclusive", 0)
-        if dead then local _, _ = Fs.remove_tree(path) end
-      end
-    end
-  end
-  local path, create_trouble = sys.mkdtemp(cache .. "/.scratch.XXXXXX")
-  if path == nil then return nil, create_trouble end
-  local owner, owner_trouble = sys.open(path .. "/owner", sys.O_RDWR | sys.O_CREAT | sys.O_EXCL, 0x180)
-  if owner == nil then
-    local _, _ = Fs.remove_tree(path)
-    return nil, owner_trouble
-  end
-  local owned: Scratch = { path = path, owner = owner }
-  local holding = setmetatable(owned, scratch_mt)
-  local held, hold_trouble = sys.flock(owner, "exclusive", 0)
-  if not held then
-    local _cleanup <close> = holding
-    return nil, hold_trouble
-  end
-  return holding, ""
-end
-
 --- The directory under `cache` holding `name`'s patched tree, written
 --- there first when it is not yet. Every file and directory of the tree
 --- is fsynced before it takes its name. On Darwin, a full device-cache
@@ -521,7 +462,7 @@ function Patch.prepare(root: string, name: string, cache: string): string | nil,
   if not made then
     return nil, made_trouble
   end
-  local owned, own_trouble = scratch(cache)
+  local owned, own_trouble = Fs.scratch(cache)
   if owned == nil then return nil, own_trouble end
   local holding <close> = owned
   local payload = holding.path .. "/payload"
@@ -553,6 +494,75 @@ function Patch.prepare(root: string, name: string, cache: string): string | nil,
   return dir, ""
 end
 
+--- Writes zig's library directory `lib` into `out`, which must not
+--- exist, with every record under `root/patch/zig-lib/` applied in name
+--- order, each `file:` a path under `lib`: what bin/zig points zig at
+--- (build/zig.tl's `patched_lib`). The copy is `cp -Rp`'s
+--- ([`Fs.copy_tree`]), made under a scratch directory beside `out` and
+--- renamed into place whole, so a directory at that name is always a
+--- whole patched library. One another build put there first is kept.
+function Patch.zig_lib(root: string, lib: string, out: string): boolean, string
+  local dir = root .. "/patch/zig-lib"
+  local names, list_trouble = Fs.list(dir)
+  if names == nil then
+    return false, list_trouble
+  end
+  local cache = Fs.dirname(out)
+  local owned, own_trouble = Fs.scratch(cache)
+  if owned == nil then return false, own_trouble end
+  local holding <close> = owned
+  local payload = holding.path .. "/payload"
+  local copied, copy_trouble = Fs.copy_tree(lib, payload)
+  if not copied then
+    return false, copy_trouble
+  end
+  for _, entry in ipairs(names) do
+    if #entry > 4 and entry:sub(-4) == ".txt" then
+      local name = "patch/zig-lib/" .. entry
+      local text, text_trouble = Fs.read(dir .. "/" .. entry)
+      if text == nil then
+        return false, text_trouble
+      end
+      local parsed, parse_trouble = Patch.parse(text, name)
+      if parsed == nil then
+        return false, parse_trouble
+      end
+      local path = payload .. "/" .. parsed.file
+      local st, _ = sys.lstat(path)
+      if st == nil or st.kind ~= "file" then
+        return false, name .. ": no file " .. parsed.file .. " to patch"
+      end
+      local source, read_trouble = Fs.read(path)
+      if source == nil then
+        return false, read_trouble
+      end
+      local applied, apply_trouble = Patch.apply(source, parsed, name)
+      if applied == nil then
+        return false, apply_trouble
+      end
+      -- A fresh file, for one the copy keeps read-only.
+      local removed, remove_trouble = Fs.remove(path)
+      if not removed then
+        return false, remove_trouble
+      end
+      local written, write_trouble = write_synced(path, applied, st.mode & 0x1ff)
+      if not written then
+        return false, write_trouble
+      end
+    end
+  end
+  local moved, move_trouble = Fs.rename(payload, out)
+  if not moved then
+    -- Another build may have won the race; its library is the same bytes.
+    local raced, _ = Fs.exists(out)
+    if raced then
+      return true, ""
+    end
+    return false, move_trouble
+  end
+  return true, ""
+end
+
 --- Every vendored tree's name under `root`: each `vendor/<name>` with a
 --- PIN, in name order.
 function Patch.names(root: string): {string} | nil, string
@@ -573,6 +583,19 @@ end
 --- The whole entry point, over `argv` as the entry-point contract
 --- hands it: `argv[0]` is this script's own path.
 function Patch.main(argv: {integer:string}): integer
+  if argv[1] == "--zig-lib" then
+    local root, lib, out = argv[2], argv[3], argv[4]
+    if root == nil or lib == nil or out == nil or argv[5] ~= nil then
+      log:complain("usage: cosmic --standalone build/patch.tl --zig-lib <root> <lib> <out>")
+      return 2
+    end
+    local written, trouble = Patch.zig_lib(root, lib, out)
+    if not written then
+      log:complain(trouble)
+      return 1
+    end
+    return 0
+  end
   local root, cache = argv[1], argv[2]
   if root == nil or cache == nil or argv[3] ~= nil then
     log:complain("usage: cosmic --standalone build/patch.tl <root> <cache>")

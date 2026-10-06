@@ -99,11 +99,10 @@ local closure_meta <const> = "('image_hash', 'main', 'runtime_basis')"
 --- written so in a comment is among them, which only makes a store
 --- carry, and its address hold, one declaration more. A declaration
 --- cannot require a computed name, since the checker types only a
---- literal one. A spelling it misses fails closed: the store's hold
---- ([`build.test_worker`]'s `hold_store`) refuses a held test any
---- declaration outside its closure's names, so one this leaves out of a
---- store is one no held test can read, and a test that types it fails
---- rather than standing. Scanned here rather than taken from the
+--- literal one. A spelling it misses fails closed: a store, given a
+--- worker in the projection's place, holds only the declarations it
+--- carries, so one this leaves out is one no test can read, and a test
+--- that types it fails rather than standing. Scanned here rather than taken from the
 --- importer's parse, which the projection does not keep of a
 --- declaration: a require of build.analyzer would salt every store's
 --- address with it ([`build.test`]'s `store_writer`). [`build.tree_checks`]
@@ -112,7 +111,7 @@ local closure_meta <const> = "('image_hash', 'main', 'runtime_basis')"
 function closure_store.required_by(source: string): {string}
   local out: {string} = {}
   for _, pattern in ipairs({ "require%s*%(?%s*[\"']([%w_%.]+)[\"']",
-                             "require%s*%(?%s*%[(=*)%[([%w_%.]+)%]%1%]" }) do
+      "require%s*%(?%s*%[(=*)%[([%w_%.]+)%]%1%]" }) do
     for first, second in source:gmatch(pattern) do
       out[#out + 1] = second or first
     end
@@ -135,8 +134,8 @@ local function grouped(db: Sqlite.Handle, of: string, columns: {string}, from: s
   end
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. of .. ", lower(hex(sha256(group_concat(" ..
-    table.concat(quoted, " || ',' || ") .. ", char(10) ORDER BY " .. order .. ")))) " ..
-    "FROM " .. from .. " GROUP BY " .. of)
+      table.concat(quoted, " || ',' || ") .. ", char(10) ORDER BY " .. order .. ")))) " ..
+      "FROM " .. from .. " GROUP BY " .. of)
   if rows == nil then return nil, trouble end
   local out: {string:string} = {}
   for _, row in ipairs(rows) do out[row[1]] = row[2] end
@@ -151,9 +150,9 @@ function closure_store.basis(whole: string): closure_store.Basis | nil, string
   local function read(): closure_store.Basis | nil, string
     local rows, rows_trouble = Sqlite.text_rows(db,
       "SELECT path, path || char(9) || kind || char(9) || file || char(9) || " ..
-      "lower(hex(source_hash)) || char(9) || lower(hex(sha256(bytecode))) || char(9) || " ..
-      "lower(hex(sha256(tests))) || char(9) || lower(hex(sha256(source))), file " ..
-      "FROM modules ORDER BY path")
+        "lower(hex(source_hash)) || char(9) || lower(hex(sha256(bytecode))) || char(9) || " ..
+        "lower(hex(sha256(tests))) || char(9) || lower(hex(sha256(source))), file " ..
+        "FROM modules ORDER BY path")
     if rows == nil then return nil, rows_trouble end
     -- The rows `closed` carries of each module, as it carries them: by
     -- its path, or, for its examples, by its file.
@@ -164,14 +163,14 @@ function closure_store.basis(whole: string): closure_store.Basis | nil, string
     local linked: {string:string} = {}
     local bound: {string:string} = {}
     for _, group in ipairs({
-      { "path", "requires", "imports", "requires" },
-      { "path", "name requires", "bound", "name" },
-      { "module", "symbol source_symbol exported kind signature text file line", "docs", "id" },
-      { "from_module", "module symbol from_file line", "uses", "module, symbol, line" },
-      { "module", "kind symbol message text file line", "catalog", "id" },
-      { "file", "module name text line source", "examples", "id" },
-      { "from_module", "module symbol path anchor from_file line column kind form source text",
-        "links", "module, symbol, path, anchor, from_file, line, column" },
+        { "path", "requires", "imports", "requires" },
+        { "path", "name requires", "bound", "name" },
+        { "module", "symbol source_symbol exported kind signature text file line", "docs", "id" },
+        { "from_module", "module symbol from_file line", "uses", "module, symbol, line" },
+        { "module", "kind symbol message text file line", "catalog", "id" },
+        { "file", "module name text line source", "examples", "id" },
+        { "from_module", "module symbol path anchor from_file line column kind form source text",
+            "links", "module, symbol, path, anchor, from_file, line, column" },
     }) do
       local columns: {string} = {}
       for column in group[2]:gmatch("%S+") do columns[#columns + 1] = column end
@@ -184,11 +183,11 @@ function closure_store.basis(whole: string): closure_store.Basis | nil, string
     end
     local shared, shared_trouble = Sqlite.text_rows(db,
       "SELECT coalesce((SELECT group_concat(key || ' ' || lower(hex(value)), char(10) " ..
-      "ORDER BY key) FROM meta WHERE key IN " .. closure_meta .. "), '')")
+        "ORDER BY key) FROM meta WHERE key IN " .. closure_meta .. "), '')")
     if shared == nil then return nil, shared_trouble end
     local decl_rows, decl_trouble = Sqlite.text_rows(db,
       "SELECT path, lower(hex(sha256(source))), CAST(inflate(source) AS TEXT) FROM decls " ..
-      "ORDER BY path")
+        "ORDER BY path")
     if decl_rows == nil then return nil, decl_trouble end
     local declared, declared_trouble = grouped(db, "module",
       { "symbol", "source_symbol", "exported", "kind", "signature", "text", "file", "line" },
@@ -251,8 +250,10 @@ end
 
 --- The declarations of `basis` a closure store for `names` holds,
 --- sorted: each that `names` holds -- an import closure holds each
---- declaration a module of it requires, by `require` or by `local
---- type ... = require` ([`test_inputs.modules`]) -- and each that one of
+--- declaration a module of it requires by value, and each a test module
+--- of it requires by `require` or by `local type ... = require`; a
+--- non-test module's type-only edges are not followed
+--- ([`test_inputs.modules`]) -- and each that one of
 --- them requires, directly or not, so a declaration the checker reads
 --- to type another's is carried beside it and its edit moves the
 --- address too. The core's raw modules (`cosmic.internal.*`) and
@@ -260,22 +261,14 @@ end
 --- require them, and an edit to one moves only those stores.
 ---
 --- What it carries beyond the closure's names over-approximates the
---- address: the store's hold ([`build.test_worker`]'s `hold_store`)
---- refuses a held test every declaration outside its closure's names,
---- so a checker under it cannot read a declaration carried only this
---- way, and an edit to one moves an address no held test's verdict
---- turns on. The hold, not this walk, is what keeps a verdict sound; the
---- walk keeps a store whole for a worker the hold does not cover.
+--- address: an edit to a declaration carried only this way moves an
+--- address no test's verdict need turn on, since what a test reads of a
+--- store is what its key holds of it, so this walk keeps a store whole
+--- for the checker.
 --- It follows declarations alone: a module of the tree one required
 --- would be neither carried nor in the address, so [`build.tree_checks`]
 --- (`declarations`) refuses a declaration that requires anything but
 --- a declaration.
--- TODO: have [`test_inputs.modules`] follow a declaration's requires
--- too, as this does, so the store's hold lets a held test read the
--- declarations carried here beyond its closure's names
--- ([`cosmic.internal.sqlite`] beside cosmic.internal.store, which requires
--- it): today it refuses them, which fails a test that types one rather
--- than standing on it.
 local function declared(basis: closure_store.Basis, names: {string}): {string}
   local seen: {string:boolean} = {}
   local out: {string} = {}

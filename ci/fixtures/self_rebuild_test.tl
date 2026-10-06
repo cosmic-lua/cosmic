@@ -1,4 +1,4 @@
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local Sqlite = require("cosmic.sqlite")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
@@ -8,11 +8,53 @@ local Process = require("cosmic_ci.process")
 local Test = require("cosmic.test")
 
 --- Run unsandboxed and sharing nothing (cosmic_ci/orchestration.tl's
---- `fixture`), its workers are given the environment they declare:
---- all of it, which says where the candidate and its products are
---- (COSMIC_FIXTURE_*) and where the host's toolchain is. A release that
---- keys every unsandboxed run by declaration gives a worker only that.
-Test.needs{ env = { "*" } }
+--- `fixture`), its worker is given the variables it names: what the
+--- driver says where the candidate and its products are
+--- (COSMIC_FIXTURE_*) and what the children it starts read
+--- ([`Fixture.inherited`], which each of them hands on and no more, and
+--- which cosmic_ci/orchestration_test.tl holds this list to).
+Test.policy{
+  env = {
+    "COSMIC_FIXTURE_COMPILES",
+    "COSMIC_FIXTURE_RUNTIME",
+    "COSMIC_FIXTURE_SOURCE",
+    "PATH",
+    "HOME",
+    "XDG_CACHE_HOME",
+    "TMPDIR",
+    "COSMIC_PORTABLE_CACHE",
+    "COSMIC_VERDICT_CACHE",
+    "COSMIC_AUTO_BOOT",
+    "COSMIC_TEST_SANDBOX",
+    "COSMIC_SANDBOX",
+    "COSMIC_TEST_HELD",
+    "COSMIC_BOOTSTRAP",
+    "COSMIC_ZIG",
+    "COSMIC_ZIG_CACHE",
+    "COSMIC_ZIG_GLOBAL_CACHE",
+    "ZIG_LIB_DIR",
+    "ZIG_GLOBAL_CACHE_DIR",
+    "ZIG_LOCAL_CACHE_DIR",
+    "SDKROOT",
+    "DEVELOPER_DIR",
+    "COSMIC_TEST_TIMEOUT",
+    "FUZZ_ITERS",
+    "MACOSX_DEPLOYMENT_TARGET",
+    "COSMIC_BOOTSTRAP_ATTEMPTS",
+    "COSMIC_BOOTSTRAP_VERIFY",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "CURL_CA_BUNDLE",
+    "ALL_PROXY",
+    "HTTPS_PROXY",
+    "HTTP_PROXY",
+    "NO_PROXY",
+    "all_proxy",
+    "https_proxy",
+    "http_proxy",
+    "no_proxy",
+  },
+}
 
 local type Running = Process.Running
 local start, finish, supervised = Process.start, Process.finish, Process.supervised
@@ -29,7 +71,7 @@ local fifo, await_ready, release = Process.fifo, Process.await_ready, Process.re
 -- compiles at once on four cores would take 86 to 90 s each, past it.
 -- The driver bounds each test here at 120 s (orchestration.tl), which
 -- this leaves room inside.
-local rebuild_timeout_ns <const> = Time.seconds(90)
+local rebuild_timeout_ns <const> = Clock.seconds(90)
 
 --- A copy of the leg's compiles (COSMIC_FIXTURE_COMPILES, orchestration.tl's
 --- `seed_compiles`) for one case's rebuild to take back
@@ -54,7 +96,7 @@ local function compiles_in(path: string, since_ns: integer): integer, integer
       "SELECT name FROM sqlite_schema WHERE type = 'table' AND name GLOB 'compiled_v*'"))
     for _, row in ipairs(tables) do
       local counts = assert(Sqlite.text_rows(db, "SELECT count(*), " ..
-        "count(*) FILTER (WHERE used_ns >= ?1) FROM \"" .. row[1] .. "\"",
+          "count(*) FILTER (WHERE used_ns >= ?1) FROM \"" .. row[1] .. "\"",
         { { integer = since_ns } }))
       total = total + math.tointeger(tonumber(counts[1][1]))
       used = used + math.tointeger(tonumber(counts[1][2]))
@@ -90,7 +132,7 @@ local function took_compiles(label: string, seed: Seed, since_ns: integer, err: 
   local made = total - seed.rows
   local taken = used - made
   assert(taken > made, label .. ": the rebuild took back " .. tostring(taken) ..
-    " compiles and made " .. tostring(made))
+      " compiles and made " .. tostring(made))
 end
 
 -- Compares exactly the first `length` bytes of `program` against `expected`,
@@ -99,7 +141,7 @@ end
 -- message. A program longer than `length` still passes, since only its
 -- prefix matters.
 local function compare_prefix(expected: string, program: string,
-    length: integer): boolean, string
+                              length: integer): boolean, string
   if #expected ~= length then
     return false, "expected prefix has " .. tostring(#expected) ..
       " bytes, want " .. tostring(length)
@@ -137,7 +179,7 @@ end
 -- Fails loudly if `marker` is not found, rather than silently leaving the
 -- edit unapplied.
 local function insert_after(lines: {string}, marker: string,
-    extra: {string}): {string}
+                            extra: {string}): {string}
   local out: {string} = {}
   local found = false
   for _, line in ipairs(lines) do
@@ -171,7 +213,7 @@ end
 local function apply_step8_edit(tree: string)
   local path = tree .. "/build/test.tl"
   local lines = split_lines(Fixture.read(path))
-  lines = insert_after(lines, "local Time = require(\"cosmic.time\")",
+  lines = insert_after(lines, "local Clock = require(\"cosmic.clock\")",
     { "local step8_sys = require(\"cosmic.sys\")" })
   lines = insert_after(lines,
     "local function run(argv: {integer:string}): integer", {
@@ -238,7 +280,7 @@ end
 -- case, a core input edit is checked to be refused without touching the
 -- artifact.
 local function run_rebuild_case(fixture_dir: string,
-    tmp: string, action: string)
+                                tmp: string, action: string)
   local case_root = tmp .. "/case-" .. action
   local tree = case_root .. "/tree"
   local cache = case_root .. "/cache"
@@ -254,7 +296,7 @@ local function run_rebuild_case(fixture_dir: string,
   local go = fifo(case_root, diagnostics, "go-" .. action)
 
   local seed = seeded_compiles(case_root)
-  local since = Time.now_ns()
+  local since = Clock.now_ns()
   supervised(function(active: {Running})
     local values = Fixture.environment({
       COSMIC_BUILD_CACHE = seed.path,
@@ -272,7 +314,7 @@ local function run_rebuild_case(fixture_dir: string,
     local entries_before = cache_entries(cache)
     assert(entries_before == 1,
       action .. ": expected exactly one cache entry before rebuild, found " ..
-      tostring(entries_before))
+        tostring(entries_before))
 
     if action == "rename" then
       assert(Fs.rename(program, case_root .. "/adopted-artifact"))
@@ -288,7 +330,7 @@ local function run_rebuild_case(fixture_dir: string,
 
     local result = finish(child)
     assert(result.ok, action .. ": self-rebuild child did not exit " ..
-      "successfully")
+        "successfully")
 
     Fixture.assert_executable(program)
     assert(Fixture.read(child.out):match(
@@ -299,7 +341,7 @@ local function run_rebuild_case(fixture_dir: string,
     local stale_lines = count_occurrences(err,
       "the tool is stale; rebuilding it from the tree")
     assert(stale_lines == 1, action .. ": self-rebuild reported " ..
-      tostring(stale_lines) .. " stale-rebuild lines, want 1")
+        tostring(stale_lines) .. " stale-rebuild lines, want 1")
     assert(not err:find("the tool is still stale after a reboot", 1, true),
       action .. ": the tool is still stale after its own rebuild")
 
@@ -311,7 +353,7 @@ local function run_rebuild_case(fixture_dir: string,
     local entries_after = cache_entries(cache)
     assert(entries_after == entries_before,
       action .. ": self-rebuild changed the cache entry count from " ..
-      tostring(entries_before) .. " to " .. tostring(entries_after))
+        tostring(entries_before) .. " to " .. tostring(entries_after))
     assert(Fixture.hash(program) ~= original_hash,
       action .. ": self-rebuild did not change the artifact")
 
@@ -319,7 +361,7 @@ local function run_rebuild_case(fixture_dir: string,
     -- COSMIC_AUTO_BOOT=0 the tool refuses rather than running zig.
     local startup_h = tree .. "/core/startup.h"
     Fixture.write(startup_h, Fixture.read(startup_h) ..
-      "\n/* step-8 core-change fixture */\n")
+        "\n/* step-8 core-change fixture */\n")
     local before_refusal = Fixture.hash(program)
     local refusal_values = Fixture.environment({
       COSMIC_PORTABLE_CACHE = cache,
@@ -331,7 +373,7 @@ local function run_rebuild_case(fixture_dir: string,
       refusal_values)
     assert(refused.result.code == 3,
       action .. ": core-change refusal exit status was " ..
-      tostring(refused.result.code) .. ", want 3")
+        tostring(refused.result.code) .. ", want 3")
     Fixture.contains(refused.err, "the tool is stale; run bin/zig build boot")
     assert(Fixture.hash(program) == before_refusal,
       action .. ": core-change refusal touched the artifact")
@@ -344,14 +386,14 @@ local function run_rebuild_case(fixture_dir: string,
       refusal_values)
     assert(optioned.result.code == 3,
       action .. ": a stale tool refused an unknown option with exit status " ..
-      tostring(optioned.result.code) .. ", want 3")
+        tostring(optioned.result.code) .. ", want 3")
     Fixture.contains(optioned.err, "the tool is stale; run bin/zig build boot")
     -- Running a file builds the tree as `test` does, and meets the same guard.
     local ran = Fixture.call_with_environment("core-change-file-" .. action,
       { program, "build/embed_test.tl" }, tree, diagnostics, refusal_values)
     assert(ran.result.code == 3,
       action .. ": a stale tool ran a file with exit status " ..
-      tostring(ran.result.code) .. ", want 3")
+        tostring(ran.result.code) .. ", want 3")
     Fixture.contains(ran.err, "the tool is stale; run bin/zig build boot")
   end)
 end
@@ -361,7 +403,7 @@ end
 -- COSMIC_AUTO_BOOT=0 says not to boot, without ever reaching `test.run` or
 -- touching the artifact.
 local function run_refusal_case(fixture_dir: string,
-    tmp: string, name: string)
+                                tmp: string, name: string)
   local case_root = tmp .. "/refuse-" .. name
   local tree = case_root .. "/tree"
   local cache = case_root .. "/cache"
@@ -381,7 +423,7 @@ local function run_refusal_case(fixture_dir: string,
   elseif name == "launcher" then
     local launcher = tree .. "/build/launcher.tl"
     Fixture.write(launcher, Fixture.read(launcher) ..
-      "\n-- refusal fixture\n")
+        "\n-- refusal fixture\n")
   else
     error("unknown refusal fixture: " .. name)
   end
@@ -391,10 +433,10 @@ local function run_refusal_case(fixture_dir: string,
   local outcome = Fixture.call_with_environment(name .. "-refusal",
     { program, "test" }, tree, diagnostics, values)
   assert(outcome.result.code == 3, name .. ": refusal exit status was " ..
-    tostring(outcome.result.code) .. ", want 3")
+      tostring(outcome.result.code) .. ", want 3")
   Fixture.contains(outcome.err, "the tool is stale; run bin/zig build boot")
   assert(Fixture.hash(program) == before, name .. ": refusal touched the " ..
-    "artifact")
+      "artifact")
 end
 
 -- A pure unit test of [`compare_prefix`] itself, with three synthetic cases: an
@@ -454,19 +496,19 @@ local function test_self_rebuild_docs_verb(tmp: string)
     { program, "docs", "cosmic.child" }, tree, diagnostics, values,
     rebuild_timeout_ns)
   assert(outcome.result.code == 0, "docs: exit status was " ..
-    tostring(outcome.result.code) .. ", want 0")
+      tostring(outcome.result.code) .. ", want 0")
   Fixture.contains(outcome.out, "step8-docs-marker")
   local stale_lines = count_occurrences(Fixture.read(outcome.err),
     "the tool is stale; rebuilding it from the tree")
   assert(stale_lines == 1, "docs: reported " .. tostring(stale_lines) ..
-    " stale-rebuild lines, want 1")
+      " stale-rebuild lines, want 1")
   assert(Fixture.hash(program) ~= before_hash,
     "docs: self-rebuild did not change the artifact")
 
   local second = Fixture.call_with_environment("docs-fresh",
     { program, "docs", "cosmic.child" }, tree, diagnostics, values)
   assert(second.result.code == 0, "docs: second exit status was " ..
-    tostring(second.result.code) .. ", want 0")
+      tostring(second.result.code) .. ", want 0")
   Fixture.contains(second.out, "step8-docs-marker")
   assert(not Fixture.read(second.err):find("the tool is stale", 1, true),
     "docs: second invocation reported staleness though the tool is fresh")
@@ -492,7 +534,7 @@ local function test_self_rebuild_by_concurrent_runs(tmp: string)
   apply_docs_marker_edit(tree)
 
   local seed = seeded_compiles(case_root)
-  local since = Time.now_ns()
+  local since = Clock.now_ns()
   local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache,
     COSMIC_BUILD_CACHE = seed.path })
   local said: {string} = {}
@@ -506,7 +548,7 @@ local function test_self_rebuild_by_concurrent_runs(tmp: string)
       local result = finish(child, rebuild_timeout_ns)
       local err = Fixture.read(child.err)
       assert(result.ok, child.label .. ": exit status " ..
-        tostring(result.code) .. ", want 0; it said:\n" .. err)
+          tostring(result.code) .. ", want 0; it said:\n" .. err)
       said[#said + 1] = err
       Fixture.contains(child.out, "step8-docs-marker")
       -- Started together, before any rebuild could land, each run meets
@@ -514,10 +556,10 @@ local function test_self_rebuild_by_concurrent_runs(tmp: string)
       -- one writing o/cosmic.db, which holds the same lock), or finds
       -- that run's rebuild already landed and enters it.
       assert(err:find("the tool is stale; rebuilding it from the tree", 1, true) or
-        err:find("in this checkout is [^\n]*; waiting for it") or
-        err:find("rebuilt the tool; entering it", 1, true),
+          err:find("in this checkout is [^\n]*; waiting for it") or
+          err:find("rebuilt the tool; entering it", 1, true),
         child.label .. ": neither rebuilt the tool, waited nor entered " ..
-        "another's; it said:\n" .. err)
+          "another's; it said:\n" .. err)
       rebuilt = rebuilt + count_occurrences(err,
         "the tool is stale; rebuilding it from the tree")
     end
@@ -555,7 +597,7 @@ local function test_a_rebooted_run_refuses_without_waiting(tmp: string)
       local outcome = Fixture.call_with_environment("rebooted-" .. entered,
         { program, "docs", "cosmic.child" }, tree, diagnostics, values)
       assert(outcome.result.code == 3, "rebooted " .. entered ..
-        ": exit status was " .. tostring(outcome.result.code) .. ", want 3")
+          ": exit status was " .. tostring(outcome.result.code) .. ", want 3")
       Fixture.contains(outcome.err, "the tool is still stale after a reboot")
       assert(not Fixture.read(outcome.err):find("waiting for it", 1, true),
         "rebooted " .. entered .. ": waited for the rebuild lock")
@@ -594,27 +636,27 @@ local function test_self_rebuild_fix_verb(tmp: string)
   apply_fix_marker_edit(tree)
 
   local seed = seeded_compiles(case_root)
-  local since = Time.now_ns()
+  local since = Clock.now_ns()
   local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache,
     COSMIC_BUILD_CACHE = seed.path })
   local outcome = Fixture.call_with_environment("fix-rebuild",
     { program, "fix", "--check", "build/clock.tl" }, tree, diagnostics, values,
     rebuild_timeout_ns)
   assert(outcome.result.code == 0, "fix: exit status was " ..
-    tostring(outcome.result.code) .. ", want 0")
+      tostring(outcome.result.code) .. ", want 0")
   Fixture.contains(outcome.out, "step8-fix-marker")
   took_compiles("fix", seed, since, Fixture.read(outcome.err))
   local stale_lines = count_occurrences(Fixture.read(outcome.err),
     "the tool is stale; rebuilding it from the tree")
   assert(stale_lines == 1, "fix: reported " .. tostring(stale_lines) ..
-    " stale-rebuild lines, want 1")
+      " stale-rebuild lines, want 1")
   assert(Fixture.hash(program) ~= before_hash,
     "fix: self-rebuild did not change the artifact")
 
   local second = Fixture.call_with_environment("fix-fresh",
     { program, "fix", "--check", "build/clock.tl" }, tree, diagnostics, values)
   assert(second.result.code == 0, "fix: second exit status was " ..
-    tostring(second.result.code) .. ", want 0")
+      tostring(second.result.code) .. ", want 0")
   Fixture.contains(second.out, "step8-fix-marker")
   assert(not Fixture.read(second.err):find("the tool is stale", 1, true),
     "fix: second invocation reported staleness though the tool is fresh")
@@ -643,18 +685,18 @@ local function test_a_stale_tool_outside_the_tree_refuses(tmp: string)
 
   local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache })
   for _, verb in ipairs({
-    { "docs", "cosmic.child" },
-    { "test", "build/embed_test.tl" },
-    { "build/embed_test.tl" },
-    -- An option the tree may have added is not refused as a usage error.
-    { "db", "--an-option-this-tool-lacks" },
+      { "docs", "cosmic.child" },
+      { "test", "build/embed_test.tl" },
+      { "build/embed_test.tl" },
+      -- An option the tree may have added is not refused as a usage error.
+      { "db", "--an-option-this-tool-lacks" },
   }) do
     local argv = { program }
     for _, word in ipairs(verb) do argv[#argv + 1] = word end
     local outcome = Fixture.call_with_environment("foreign-" .. (verb[1]:gsub("/", "-")),
       argv, tree, diagnostics, values)
     assert(outcome.result.code == 3, verb[1] .. ": exit status was " ..
-      tostring(outcome.result.code) .. ", want 3")
+        tostring(outcome.result.code) .. ", want 3")
     Fixture.contains(outcome.err, "is not the tree's own tool")
     assert(not Fixture.read(outcome.err):find("rebuilding it from the tree", 1, true),
       verb[1] .. ": a tool outside the tree rebuilt itself")

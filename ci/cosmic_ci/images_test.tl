@@ -1,8 +1,13 @@
-local Time = require("cosmic.time")
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Images = require("cosmic_ci.images")
 local Proc = require("cosmic.proc")
+local Test = require("cosmic.test")
+
+-- These tests start this program (the pinned driver's own cosmic, or a copy of it
+-- as the bootstrap), which a worker on a sealed database does not have whole.
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local function words(list: {string}): string
   return table.concat(list, " ")
@@ -10,7 +15,7 @@ end
 
 local function test_name_is_lowercase()
   assert(Images.name("Cosmic-Lua/Cosmic", "Ubuntu") ==
-    "ghcr.io/cosmic-lua/cosmic-ci-ubuntu")
+      "ghcr.io/cosmic-lua/cosmic-ci-ubuntu")
 end
 
 local function build_env(publish: string): {string:string}
@@ -36,7 +41,7 @@ local function test_build_argv_pushes_only_when_publishing()
   assert(words(pushed) == build_words .. " --push ci/images/ubuntu", words(pushed))
   -- One word each, as the shell quoted them.
   assert(#pushed == 17 and pushed[7] ==
-    "org.opencontainers.image.source=https://github.com/Owner/Repo")
+      "org.opencontainers.image.source=https://github.com/Owner/Repo")
 end
 
 local function test_build_argv_refuses_missing_context()
@@ -51,7 +56,7 @@ local function test_publish_argvs_join_each_arch()
     "actor", "abc", " amd64  arm64 ")
   assert(words(login) == "login ghcr.io -u actor --password-stdin")
   assert(words(create) == "buildx imagetools create --tag ghcr.io/o/r-ci-ubuntu:abc " ..
-    "ghcr.io/o/r-ci-ubuntu:abc-amd64 ghcr.io/o/r-ci-ubuntu:abc-arm64", words(create))
+      "ghcr.io/o/r-ci-ubuntu:abc-amd64 ghcr.io/o/r-ci-ubuntu:abc-arm64", words(create))
   assert(words(inspect) == "buildx imagetools inspect ghcr.io/o/r-ci-ubuntu:abc")
 end
 
@@ -116,7 +121,7 @@ local function test_build_runs_docker_from_the_checkout(tmp: string)
   local bracketed = build_words:gsub("[^ ]+", "[%0]")
   local cwd = "cwd " .. assert(Fs.absolute(env.GITHUB_WORKSPACE)) .. "\n"
   assert(read(env.FAKE_LOG) == cwd ..
-    "argv " .. bracketed .. " [--push] [ci/images/ubuntu]\ntoken unset\n",
+      "argv " .. bracketed .. " [--push] [ci/images/ubuntu]\ntoken unset\n",
     read(env.FAKE_LOG))
 end
 
@@ -148,15 +153,15 @@ local function test_publish_joins_and_reports_the_digest(tmp: string)
   local name = "ghcr.io/owner/repo-ci-ubuntu"
   local cwd = "cwd " .. assert(Fs.absolute(env.GITHUB_WORKSPACE)) .. "\n"
   assert(read(env.FAKE_LOG) ==
-    cwd .. "argv [login] [ghcr.io] [-u] [actor] [--password-stdin]\n" ..
-    "token unset\nstdin s3cret-token\n" ..
-    cwd .. "argv [buildx] [imagetools] [create] [--tag] [" .. name .. ":abc123] [" ..
+      cwd .. "argv [login] [ghcr.io] [-u] [actor] [--password-stdin]\n" ..
+      "token unset\nstdin s3cret-token\n" ..
+      cwd .. "argv [buildx] [imagetools] [create] [--tag] [" .. name .. ":abc123] [" ..
       name .. ":abc123-amd64] [" .. name .. ":abc123-arm64]\ntoken unset\n" ..
-    cwd .. "argv [buildx] [imagetools] [inspect] [" .. name .. ":abc123]\n" ..
-    "token unset\n", read(env.FAKE_LOG))
+      cwd .. "argv [buildx] [imagetools] [inspect] [" .. name .. ":abc123]\n" ..
+      "token unset\n", read(env.FAKE_LOG))
   assert(read(tmp .. "/out") == name .. "@sha256:0123abcd\n")
   assert(read(env.GITHUB_STEP_SUMMARY) ==
-    "earlier\nUbuntu: `" .. name .. "@sha256:0123abcd`\n")
+      "earlier\nUbuntu: `" .. name .. "@sha256:0123abcd`\n")
 end
 
 local function test_publish_refuses_an_index_without_a_digest(tmp: string)
@@ -202,14 +207,14 @@ end
 --- the self-check holds `ci/o/build.db` while tests run (see
 --- orchestration_test.tl), so the driver never runs with `ci/` as root.
 local function driver(tmp: string, command: string,
-    env: {string:string}): Child.Result
+                      env: {string:string}): Child.Result
   local project = tmp .. "/driver-project"
   assert(Fs.mkdirs(project))
   assert(assert(Child.run({ "/bin/cp", "-R", assert(Fs.absolute("cosmic_ci")),
     project })).ok)
   return (assert(Child.run({ assert(Proc.executable()),
     project .. "/cosmic_ci/driver.tl", command }, { cwd = project, env = env,
-    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(60) })))
+      stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })))
 end
 
 local function test_driver_runs_both_commands(tmp: string)
@@ -229,7 +234,7 @@ local function test_driver_runs_both_commands(tmp: string)
   env.FAKE_FAIL, env.FAKE_STATUS = "login", "4"
   local refused = driver(tmp .. "/refused", "image-publish", env)
   assert(refused.code == 4 and refused.stderr ==
-    "image-publish: docker login ghcr.io: exit 4\n", refused.stderr)
+      "image-publish: docker login ghcr.io: exit 4\n", refused.stderr)
   assert(not (refused.stdout .. refused.stderr):find("s3cret", 1, true))
 end
 

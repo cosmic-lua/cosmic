@@ -46,25 +46,30 @@
 --- platform, as it would under macOS's `/var`, a link to `/private/var`.
 --- The runner removes the scratch directory once the test passes, and
 --- leaves a failing test's behind, so its own files stay around to look
---- at. A test that ignores the argument -- the ordinary shape, a bare
+--- at -- but for a worker that has it in a tmpfs of its own, which makes the
+--- directory itself ([`test_sandbox.Plan`]'s `own_scratch`) and leaves none
+--- on the host: `COSMIC_TEST_SANDBOX=0` keeps one. A test that ignores the argument -- the ordinary shape, a bare
 --- `assert()` -- is called with it anyway, and Lua drops an argument
 --- nobody asked for.
 ---
 --- A test's inputs are its default ones -- its module's import closure,
 --- as source files, the corpora of the fuzz properties it names, and a
 --- pinned environment -- and what its module declares in a top-level
---- `Test.needs { ... }` ([`cosmic.test`]): paths of the tree and the host,
+--- `Test.policy { ... }` ([`cosmic.test`]): paths of the tree and the host,
 --- variables, the network, the tool, the projection. A sandboxed test
 --- that reads what its module does not declare finds nothing there, and
 --- fails with its own error.
---- Each worker runs sandboxed to them ([`build.test_sandbox`]), with the
---- tree at /tree and its scratch directory beneath /tmp
+--- Each worker runs sandboxed to them, under a policy
+--- ([`build.test_policy`]) made of the paths [`build.test_sandbox`] plans,
+--- with the tree at /tree and its scratch directory beneath /tmp
 --- ([`test_sandbox.scratch`]), and so does every
 --- process it starts: a read of anything else finds nothing.
 ---
---- Where the kernel cannot sandbox a worker (macOS, a host refusing user
---- namespaces), or `COSMIC_TEST_SANDBOX=0` turns it off, the run says
---- so and runs each unsandboxed; with `COSMIC_TEST_SANDBOX=1` it fails
+--- Where no worker can be started under a policy (macOS, a host refusing
+--- user namespaces or Landlock, a root that cannot map the user a policy
+--- runs as), or `COSMIC_TEST_SANDBOX=0` turns it off, the run says
+--- so, and why, and runs each unsandboxed; with `COSMIC_TEST_SANDBOX=1`,
+--- `COSMIC_SANDBOX=must` or `COSMIC_CI_REQUIRE_SANDBOX=1` it fails
 --- there instead. Such a run keys and stands as a sandboxed one does, by
 --- declared inputs, and gives each worker the environment a sandbox
 --- would; its worker sees the tree where it is, so its key holds that
@@ -89,16 +94,18 @@
 
 local Child = require("cosmic.child")
 local Cli = require("cosmic.cli")
+local Clock = require("cosmic.clock")
 local Coverage = require("cosmic.coverage")
 local Env = require("cosmic.env")
+local testing = require("cosmic.internal.testing")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
+local type Sandbox = require("cosmic.sandbox")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
-local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local clock = require("build.clock")
 local coverage_report = require("build.coverage")
@@ -118,11 +125,15 @@ local shared_compiles = require("build.shared_compiles")
 local shared_verdicts = require("build.shared_verdicts")
 local test_inputs = require("build.test_inputs")
 local test_report = require("build.test_report")
+local test_policy = require("build.test_policy")
 local test_sandbox = require("build.test_sandbox")
 local test_sandbox_probe = require("build.test_sandbox_probe")
 local declared_key = require("build.declared_key")
+local artifact = require("build.artifact")
 local hashing = require("build.digest")
 local harness_epoch = require("build.harness_epoch")
+local host_names = require("build.host_names")
+local host_requires = require("build.host_requires")
 local host_caches = require("build.caches")
 local worker = require("build.test_worker")
 local type compiler = require("build.compiler")
@@ -171,6 +182,15 @@ local record test
     --- [`Test.skip`], that this host could not check them: no verdict is
     --- kept of one, so each runs every time.
     skipped: integer
+    --- Of those that ran, how many passed having made no call to `assert`
+    --- ([`worker.Judgement.unchecked`]): no verdict is kept of one
+    --- either, and a held run fails it.
+    unchecked: integer
+    --- Of the tests chosen, how many are not applicable: their module
+    --- requires what this platform never has ([`host_requires`]), so none
+    --- ran or stood, and no verdict is kept of one. Neither in `ran` nor
+    --- in `cached`, but in the run's total.
+    na: integer
   end
 
   --- One of the shares `--shard I/N` splits a run's chosen tests into
@@ -231,7 +251,7 @@ function test.nearest(name: string, names: {string}): {string}
   local function shared(other: string): integer
     local length = 0
     while length < #name and length < #other and
-      name:byte(length + 1) == other:byte(length + 1) do
+        name:byte(length + 1) == other:byte(length + 1) do
       length = length + 1
     end
     return length
@@ -313,7 +333,7 @@ local function record_run(handle: Sqlite.Handle, path: string, name: string,
                           key: string, run_at_ns: integer, elapsed: integer): boolean, string
   return Sqlite.run(handle,
     "INSERT OR REPLACE INTO runs (path, test, passed, message, ran_at_ns, " ..
-    "key, run_at_ns, elapsed_ns) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+      "key, run_at_ns, elapsed_ns) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
     { text(path), text(name), { integer = passed and 1 or 0 }, text(message),
       { integer = ran_at_ns }, text(key), { integer = run_at_ns }, { integer = elapsed } })
 end
@@ -354,7 +374,7 @@ local function record_verdict(handle: Sqlite.Handle, key: string, passed: boolea
                               elapsed: integer): boolean, string
   return Sqlite.run(handle,
     "INSERT OR REPLACE INTO verdicts (key, passed, run_at_ns, seen, elapsed_ns) " ..
-    "VALUES (?1, ?2, ?3, ?4, ?5)",
+      "VALUES (?1, ?2, ?3, ?4, ?5)",
     { text(key), { integer = passed and 1 or 0 }, { integer = run_at_ns },
       { integer = run }, { integer = elapsed } })
 end
@@ -379,20 +399,20 @@ local function prune_history(handle: Sqlite.Handle, run: integer): boolean, stri
   end
   local pruned_credits, credits_trouble = handle:exec(
     "DELETE FROM coverage_by_test WHERE ran_at_ns NOT IN " ..
-    "(SELECT run_at_ns FROM verdicts)")
+      "(SELECT run_at_ns FROM verdicts)")
   if not pruned_credits then
     return false, credits_trouble
   end
   local pruned_snapshots, snapshots_trouble = handle:exec(
     "DELETE FROM coverage WHERE ran_at_ns NOT IN " ..
-    "(SELECT ran_at_ns FROM test_runs ORDER BY ran_at_ns DESC LIMIT " ..
-    kept_snapshots .. ")")
+      "(SELECT ran_at_ns FROM test_runs ORDER BY ran_at_ns DESC LIMIT " ..
+      kept_snapshots .. ")")
   if not pruned_snapshots then
     return false, snapshots_trouble
   end
   return handle:exec(
     "DELETE FROM test_runs WHERE ran_at_ns NOT IN (SELECT ran_at_ns FROM coverage) " ..
-    "AND ran_at_ns NOT IN (SELECT ran_at_ns FROM coverage_by_test)")
+      "AND ran_at_ns NOT IN (SELECT ran_at_ns FROM coverage_by_test)")
 end
 
 --- The environment every worker this process starts has
@@ -402,7 +422,9 @@ local worker_view: function(): {string:string}
 
 --- One test's hits as `coverage_by_test` holds them: a line per module,
 --- in path order, the path, a tab, then the lines it hit, ascending and
---- comma-separated. Module paths hold neither tabs nor newlines.
+--- comma-separated. Module paths hold neither tabs nor newlines. A row
+--- [`take_hits`] writes may name a module twice, its load's hits and its
+--- test's, which [`decode_hits`] folds together.
 local function encode_hits(test_hits: Coverage.Hits): string
   local paths: {string} = {}
   for path in pairs(test_hits) do
@@ -453,7 +475,7 @@ local function credit_hits(handle: Sqlite.Handle, credited: test.Credited,
     end
     local rows, trouble = Sqlite.text_rows(handle,
       "SELECT hits FROM coverage_by_test WHERE ran_at_ns = ?1 " ..
-      "AND test IN (" .. table.concat(placeholders, ", ") .. ")", args)
+        "AND test IN (" .. table.concat(placeholders, ", ") .. ")", args)
     if rows == nil then
       return trouble
     end
@@ -467,8 +489,8 @@ end
 --- Reuses `coverage`'s statement for the many rows in a snapshot,
 --- checking every operation.
 local function insert_coverage(statement: Sqlite.Statement, run_at_ns: integer,
-                              path: string, line: integer,
-                              last: integer | string): boolean, string
+                               path: string, line: integer,
+                               last: integer | string): boolean, string
   local ok, trouble = statement:bind_integer(1, run_at_ns)
   if not ok then
     return false, trouble
@@ -528,13 +550,13 @@ local function batch_for(handle: Sqlite.Handle, single: Sqlite.Statement,
                          run_at_ns: integer, into: string,
                          last_column: string): Batch | nil, string
   local whole, trouble = handle:prepare("INSERT INTO " .. into ..
-    " (ran_at_ns, path, line, " .. last_column .. ") VALUES " ..
-    batch_values(run_at_ns, insert_batch))
+      " (ran_at_ns, path, line, " .. last_column .. ") VALUES " ..
+      batch_values(run_at_ns, insert_batch))
   if whole == nil then
     return nil, trouble
   end
   return { whole = whole, single = single, run_at_ns = run_at_ns,
-           paths = {}, lines = {}, lasts = {}, pending = 0 }
+    paths = {}, lines = {}, lasts = {}, pending = 0 }
 end
 
 --- Steps `whole` once over a full batch, then empties it.
@@ -767,12 +789,19 @@ end
 --- One test the run has to run: no verdict stands for it.
 local record Job
   m: importer.Module
+  --- Whether its worker was never started, since a requirement of its
+  --- module is absent: it has no key, which is no reason to say it runs
+  --- every time.
+  unrun: boolean
   name: string
   id: string
   --- The directory the runner made for the test, holding `real` and
   --- `tmp`, a link to it; removed once the test passes.
   scratch: string
   tmp: string
+  --- Whether the test's directory is one its worker makes in a tmpfs of its
+  --- own ([`test_sandbox.Plan`]'s `own_scratch`), so the runner has none.
+  own_scratch: boolean
   --- How its worker is sandboxed, when it is ([`build.test_sandbox`]).
   plan: test_sandbox.Plan
   --- Sandboxed, the key its verdict is reached under, over its
@@ -828,9 +857,11 @@ end
 
 --- The modules of the harness beside what every worker loads
 --- ([`build.test_worker`]'s [`worker.loads`]): build.test_sandbox and the
---- tree modules it requires, build.caches and build.zig_caches.
---- build.test_sandbox makes the plan of a worker's sandbox (`plan`):
---- what it binds, unveils and holds, and the environment it gives.
+--- tree modules it requires, build.test_policy, build.caches and
+--- build.zig_caches. build.test_sandbox makes the plan of a worker's
+--- sandbox (`plan`): what it binds, unveils and holds, and the
+--- environment it gives. build.test_policy turns that plan into the
+--- policy a worker is started under.
 --- build.caches says where each declared host cache is bound from and
 --- makes it; build.zig_caches does so for zig's.
 ---
@@ -841,8 +872,8 @@ end
 --- holds by itself (the test's declaration, its closure's names, which
 --- the store's address holds, whether it may run this program
 --- ([`Spec.runs_tool`]), and its timeout) or what [`key_code`] holds (the
---- names of the tree's modules and declarations, which decide what a
---- worker's holds refuse).
+--- names of the tree's modules, which decide what a worker refuses a
+--- `require` of).
 ---
 --- None of it is keyed by its code: the epoch stands for it
 --- (build/harness_epoch.tl), and an edit to it fails
@@ -856,31 +887,37 @@ end
 -- then a change to a hold or a bind moves every key it touches by
 -- itself, where today it moves none unless someone bumps the epoch by
 -- hand.
-local harness_own <const>: {string} = { "build.test_sandbox", "build.caches",
-  "build.zig_caches" }
+local harness_own <const>: {string} = { "build.test_sandbox", "build.test_policy",
+  "build.caches", "build.zig_caches" }
 
 --- The modules of the harness held alone, by their own source and
 --- bytecode, their requires not walked: cosmic.child, whose `start`
---- turns a worker's plan ([`test_sandbox.Plan`]'s `sandbox`) into what
---- spawn holds it to -- the unveils, the binds, offline -- so an edit
+--- turns a worker's policy into what spawn holds it to -- the
+--- unveils, the binds, offline -- so an edit
 --- that weakened it would pass a test that reads what it does not
 --- declare, and keep and share the pass. What it requires (cosmic.time,
---- cosmic.stream and the rest) applies no sandbox, and stays out.
--- TODO: move the translation of a plan's `sandbox` into spawn's
+--- cosmic.stream and the rest) applies no sandbox, and stays out. The
+--- exception is cosmic.sandbox, held alone too: among others its `merge`
+--- (and the profiles it joins), `loaders`, `reach` and `user_id` decide
+--- what a worker started under a policy may reach, and
+--- [`test_policy.runs`] merges a policy through it. Its own requires are
+--- not walked, and none of them decides a grant.
+-- TODO: move the translation of a worker's policy into spawn's
 -- options into build.confine, which the harness holds already, and
 -- drop cosmic.child from here and from build/harness_epoch.tl's
 -- `library`, once cosmic.child's `start` takes spawn's sandbox as it is
 -- (the TODO above its `raw.spawn` call, which would offer the rest of
 -- it): today only cosmic.child reaches spawn for the runner.
-local harness_alone <const>: {string} = { "cosmic.child" }
+local harness_alone <const>: {string} = { "cosmic.child", "cosmic.sandbox" }
 
 --- The code that makes a key and looks a verdict up under one:
 --- build.test itself, whose closure is the build's, and the closure of
 --- the key's computation ([`build.declared_key`]) and of the shared
---- verdicts' ([`build.shared_verdicts`]), as the `imports` table has it.
---- What build.test decides of a worker's holds is part of it: which
---- names of the tree and its declarations a `require` or a lookup in the
---- store refuses (`tree_names`, `declared_names`).
+--- verdicts' ([`build.shared_verdicts`]), and of what the host answers a
+--- module's requirements ([`build.host_requires`]), which a key holds,
+--- as the `imports` table has it.
+--- What build.test decides of a worker's hold is part of it: which
+--- names of the tree a `require` refuses (`tree_names`).
 ---
 --- A key is looked up by its value, but that is not enough. A version
 --- of this code that maps some inputs to the key another version
@@ -898,7 +935,8 @@ local harness_alone <const>: {string} = { "cosmic.child" }
 -- edit to its remaining census plumbing acknowledges the harness, and
 -- what it requires beyond [`key_code`] (cosmic.time, cosmic.cli and the
 -- like) is outside build/harness_epoch.tl's `library` rule.
-local key_roots <const>: {string} = { "build.declared_key", "build.shared_verdicts" }
+local key_roots <const>: {string} = { "build.declared_key", "build.shared_verdicts",
+  "build.host_requires" }
 local key_own <const>: {string} = { "build.test" }
 
 --- The module that holds the epoch and the acknowledged digests, which
@@ -936,7 +974,7 @@ local store_writer <const>: {string} = { "build.closure_store", "build.schema" }
 --- requires, directly or not, by `imports` (the names each module
 --- requires), and each of `own` alone.
 local function closure_of(roots: {string}, own: {string},
-    imports: {string:{string}}): {string}
+                          imports: {string:{string}}): {string}
   local seen: {string:boolean} = {}
   local names: {string} = {}
   local stack: {string} = {}
@@ -956,6 +994,15 @@ local function closure_of(roots: {string}, own: {string},
   return names
 end
 
+-- The `imports` rows whose importer is a module or main with no
+-- occurrence of the required name in its bytecode: Teal erased the
+-- require, so the edge is by type alone. [`test.value_imports`] keeps
+-- the rows this does not match and [`test.type_only_imports`] the rows
+-- it does, so the two cannot drift apart.
+local erased_require = "(SELECT 1 FROM modules m WHERE m.path = i.path " ..
+  "AND m.kind IN ('module', 'main') " ..
+  "AND instr(m.bytecode, CAST(i.requires AS BLOB)) = 0)"
+
 --- The `imports` rows of `db` a module makes by value, by importer: an
 --- edge is kept unless the importer's bytecode lacks the name it
 --- requires as a string constant. Teal erases a `local type` require,
@@ -967,9 +1014,7 @@ end
 --- is only a string there: the test errs toward following an edge.
 function test.value_imports(db: Sqlite.Handle): {string:{string}} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
-    "SELECT i.path, i.requires FROM imports i WHERE NOT EXISTS " ..
-    "(SELECT 1 FROM modules m WHERE m.path = i.path AND m.kind IN ('module', 'main') " ..
-    "AND instr(m.bytecode, CAST(i.requires AS BLOB)) = 0)")
+    "SELECT i.path, i.requires FROM imports i WHERE NOT EXISTS " .. erased_require)
   if rows == nil then return nil, trouble end
   local out: {string:{string}} = {}
   for _, row in ipairs(rows) do
@@ -978,6 +1023,37 @@ function test.value_imports(db: Sqlite.Handle): {string:{string}} | nil, string
     list[#list + 1] = row[2]
   end
   return out, ""
+end
+
+--- The `imports` rows of `db` a module makes by type alone, as sets by
+--- importer: the complement of [`test.value_imports`], and no other
+--- rows. A test's closure leaves these edges out
+--- ([`build.test_inputs`]'s `closure`): an importer that requires a
+--- module only to name its types runs without loading it, so an edit to
+--- it that leaves the importer's bytecode as it was moves no key, and a
+--- test importing the importer is not run again for it.
+function test.type_only_imports(db: Sqlite.Handle): {string:{string:boolean}} | nil, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT i.path, i.requires FROM imports i WHERE EXISTS " .. erased_require)
+  if rows == nil then return nil, trouble end
+  local out: {string:{string:boolean}} = {}
+  for _, row in ipairs(rows) do
+    local set = out[row[1]] or {}
+    out[row[1]] = set
+    set[row[2]] = true
+  end
+  return out, ""
+end
+
+--- [`test.type_only_imports`] of the projection at `path`.
+local function projection_type_only(path: string): {string:{string:boolean}} | nil, string
+  local opened, trouble = Sqlite.open(path)
+  if opened == nil then return nil, path .. ": " .. trouble end
+  local db: Sqlite.Handle = opened
+  local found, found_trouble = test.type_only_imports(db)
+  local _, _ = db:close()
+  if found == nil then return nil, found_trouble end
+  return found, ""
 end
 
 --- The names `key_roots` and `key_own` hold ([`closure_of`]), over the
@@ -1010,7 +1086,7 @@ end
 function test.harness(db: Sqlite.Handle): Harness | nil, string
   local modules, trouble = Sqlite.text_rows(db,
     "SELECT path, source_hash, lower(hex(sha256(bytecode))) FROM modules " ..
-    "WHERE kind IN ('module', 'main')")
+      "WHERE kind IN ('module', 'main')")
   if modules == nil then return nil, trouble end
   local imported, imports_trouble = Sqlite.text_rows(db, "SELECT path, requires FROM imports")
   if imported == nil then return nil, imports_trouble end
@@ -1090,7 +1166,7 @@ local function harness_epoch_of(): string | nil, string
   if named == "" then return harness_epoch.epoch, "" end
   if not named:match("^%d+%-%x+$") then
     return nil, string.format("COSMIC_TEST_HARNESS_EPOCH is %q, not a count, a dash and " ..
-      "hex digits, as build/harness_epoch.tl's `epoch` is", named)
+        "hex digits, as build/harness_epoch.tl's `epoch` is", named)
   end
   return named, ""
 end
@@ -1103,7 +1179,31 @@ function test.harness_word(epoch: string, timeout_ns: integer): string
   return string.format("e%s-t%d", epoch, timeout_ns)
 end
 
+--- Why a module's tests are not run on this host: a requirement of its
+--- module ([`host_requires`]) it lacks.
+local record Unmet
+  --- "na" where the platform never has it, "skipped" where this host lacks
+  --- it, "refused" where its name breaks the table's rules.
+  kind: host_requires.Kind
+  --- The requirement and why, as the report says it.
+  why: string
+end
+
+--- What the sealed databases of a run are made from ([`sealing_for`]).
+local record Sealing
+  --- The run's own directory, open to the user a sandboxed worker runs as,
+  --- where each sealed database and the program's own are written.
+  directory: string
+  --- The program's own database, written in `directory`.
+  program: string
+end
+
 --- Everything a finished job's verdict is recorded into.
+local record PlanMade
+  plan: test_sandbox.Plan
+  scratch: string
+end
+
 local record Recording
   records: Sqlite.Handle
   root: string
@@ -1113,11 +1213,26 @@ local record Recording
   run: integer
   failures: {string}
   errors: {string}
-  --- Each skipped test's id and why ([`Test.skip`]), as "<id>: <reason>".
+  --- Each skipped test's id and why ([`Test.skip`], or a requirement of
+  --- its module the host lacks), as "<id>: <reason>".
   skips: {string}
-  --- Whether the run is held to sandboxing ([`confine.held_to_sandbox`]),
-  --- which fails a skipped test.
+  --- Each test that passed having made no call to `assert`, by id.
+  unchecked: {string}
+  --- What each test that passed deliberately without checking
+  --- ([`Test.passed_unchecked`]) said, one entry per test.
+  deliberate: {string}
+  --- Whether the run is held ([`Run.held`]).
   held: boolean
+  --- Each not applicable test's id and why, in the same shape.
+  nas: {string}
+  --- The modules whose requirements ([`host_requires`]) are not all
+  --- present on this host, by path, and what each answered: their tests
+  --- are not started and have no key.
+  unmet: {string:Unmet}
+  --- What the host answered to each module's requirements, by path, as
+  --- its key holds them: each present answer's name and key text. Empty
+  --- for a module that requires nothing.
+  answered: {string:{string:string}}
   --- What each failing test printed, by its id.
   outputs: {string:string}
   --- Each failing test's `<file>:<name>` selector, by its id: what
@@ -1171,9 +1286,6 @@ local record Recording
   --- ([`declared_key.system_identity`]), and why each module whose tests
   --- have no key has none, but for the network, by module path.
   host: string
-  --- The host's identity with a worker run as a user of its own in
-  --- place of the runner's ([`test_sandbox.worker_user`]), else `host`.
-  worker_host: string
   system: string
   --- The harness's epoch (build/harness_epoch.tl), which every key
   --- holds in place of the harness's code, and the timeout each worker
@@ -1206,16 +1318,25 @@ local record Recording
   --- modules, which its worker holds its `require`s to
   --- ([`test_inputs.modules`], [`build.test_worker`]).
   closures: {string:{string}}
+  --- The requires a closure does not follow, which make no module a
+  --- worker loads ([`test.type_only_imports`]).
+  type_only: {string:{string:boolean}}
   --- The same, each a set of names, made as a verdict needs one
   --- ([`closure_set`]).
   closure_sets: {string:{string:boolean}}
+  --- The sandbox plan of the first worker started of each module, by path,
+  --- and the scratch directory it was made for: a later worker of the
+  --- module takes it rebound to its own ([`test_sandbox.rebind`]).
+  plans: {string:PlanMade}
+  --- A module's hit lines as a `coverage_by_test` row holds them, and the
+  --- lines [`take_hits`] has folded into `hits`, each by the table
+  --- [`worker.decode`] shares among the reports that held them. Per run:
+  --- a table folded into another run's `hits` is not in this one's.
+  spelled: {{integer:boolean}:string}
+  folded: {{integer:boolean}:boolean}
   --- Every module of the tree, by path, sorted: what a worker refuses a
   --- `require` of outside its closure ([`build.test_worker`]).
   tree_names: {string}
-  --- Every name only a declaration of the tree answers for, sorted:
-  --- what a worker's store holds a lookup of outside its closure beside
-  --- `tree_names` ([`build.test_worker`]).
-  declared_names: {string}
   --- The address of the store of each module's import closure its
   --- workers are given at o/cosmic.db, or attach unsandboxed
   --- ([`build.closure_store`]'s `write`), by path, for every test and
@@ -1225,6 +1346,20 @@ local record Recording
   --- store by its bytes ([`declared_key.store_digest`]), the address
   --- only where it is and whether it must be written.
   stores: {string:string}
+  --- What sealing the databases of the workers that run on one needs,
+  --- made the first time one is: the directory they are written in, the
+  --- program's own database written there ([`sealing_for`]); the reason
+  --- there is none, or nil before it is made.
+  sealing: Sealing | nil
+  sealing_trouble: string | nil
+  --- The path of the sealed database of each closure store, by its
+  --- address ([`sealed_for`]).
+  sealed: {string:string}
+  --- How many sealed databases this run wrote, their bytes, and the time
+  --- taken ([`sealed_for`]).
+  sealed_written: integer
+  sealed_bytes: integer
+  sealed_ns: integer
   projection: string
   basis: closure_store.Basis
   built: {string:string}
@@ -1241,6 +1376,12 @@ local record Recording
   store_digests: {string:string}
   consult_shared: boolean
   store_runtime: string
+  --- The identity of the core the run's workers run ([`declared_key.runtime_identity`]),
+  --- which the key of a worker on a sealed database holds in place of the
+  --- launcher ([`seals`]).
+  core: string
+  --- The digest of the program's modules the tree lacks ([`extras_digest`]).
+  extras: string | nil
   --- What the shared verdicts keep of each address this run looked up
   --- ("" for none), the closure and kind each address was keyed for, and
   --- the addresses whose bytes it found to differ, said once each.
@@ -1277,15 +1418,14 @@ local function tree_roots(rec: Recording): {string}
   return { rec.root, confine.resolution(rec.root) }
 end
 
---- Why `m`'s `host` paths cannot all be given to its workers, from
---- where a variable one names says, as a worker's environment has it
+--- Why `m`'s `host` paths cannot all be given to its workers
 --- ([`test_inputs.resolved`]): "" where they can. Every test of such a
 --- module fails before its worker starts, sandboxed or not.
 local function unresolved(rec: Recording, m: importer.Module): string
   local effective = rec.effective ~= nil and rec.effective[m.path] or nil
   if effective ~= nil then return effective.unresolved or "" end
   for _, declared in ipairs(m.inputs ~= nil and m.inputs.host or {}) do
-    local path, trouble = test_inputs.resolved(declared, worker_view(), tree_roots(rec))
+    local path, trouble = test_inputs.resolved(declared, tree_roots(rec))
     if path == nil then return trouble end
   end
   return ""
@@ -1312,7 +1452,7 @@ local function checkout_id(records: Sqlite.Handle, root: string, now_ns: integer
   local rows, _ = Sqlite.text_rows(records, "SELECT value FROM meta WHERE key = 'checkout'")
   if rows ~= nil and rows[1] ~= nil then return rows[1][1] end
   local made = hex_sha256(root .. "\0" .. tostring(now_ns) .. "\0" ..
-    tostring(Time.monotonic_ns()) .. "\0" .. tostring({}))
+      tostring(Clock.monotonic_ns()) .. "\0" .. tostring({}))
   local _, _ = Sqlite.run(records, "INSERT OR REPLACE INTO meta (key, value) VALUES ('checkout', ?1)",
     { text(made) })
   return made
@@ -1326,13 +1466,10 @@ local function drop_shared(rec: Recording, trouble: string)
   local path = rec.shared.path
   shared_verdicts.close(rec.shared)
   rec.shared = nil
-  local aside = ""
-  if shared_verdicts.corrupt(trouble) then
-    local moved, _ = shared_verdicts.set_aside(path, Time.now_ns())
-    if moved ~= nil then aside = "; moved aside to " .. moved end
-  end
+  -- TODO: retire broken caches automatically once cache-wide lifetime
+  -- ownership and identity checks can exclude concurrent users and replacements.
   log:complain("test: shared verdicts: " .. path .. ": " .. trouble ..
-    "; running without them" .. aside)
+      "; running without them")
 end
 
 --- Whether a sandboxed worker of `m`'s tests can be kept from running
@@ -1354,20 +1491,41 @@ local function can_forbid(rec: Recording, m: importer.Module): boolean
   return found
 end
 
+--- Whether a worker of `m`'s tests runs on a sealed database of its
+--- closure ([`sealed_for`]): the program's core on that database
+--- (`core --database`) with nothing of the program's file, so what the
+--- worker and every process it starts reads of the program is what its
+--- key holds -- its closure's store and the modules every worker loads. It
+--- is so wherever the worker is given a closure's store and runs
+--- not this program (`tool`), and this program is a portable artifact
+--- whose database and core there are to take; a worker that confines
+--- processes in roots of its own (`nests`) is sealed too, its policy
+--- carrying `nest` beside the `database`. Its key holds the
+--- core in place of the launcher ([`declared_of`]), which no such worker
+--- runs. Every other worker runs the program.
+local function seals(rec: Recording, m: importer.Module): boolean
+  local effective = rec.effective[m.path]
+  if rec.launcher == nil or rec.stores == nil or rec.stores[m.path] == nil or
+      effective == nil or effective.store or effective.tool then
+    return false
+  end
+  local launched, _ = Proc.relaunch()
+  return launched ~= nil and launched.argv[2] == "--artifact" and launched.argv[3] ~= nil
+end
+
 --- How a sandboxed worker of `m`'s tests stands to running this
---- program: "declared" where its module declares `tool`; "lua" where it
---- declares `lua`, whose worker may run it as "allowed" says but holds
---- what it starts to what its key holds ([`build.test_worker`]'s
---- `hold_children`), so its key holds no more of the program than of its
---- closure; "forbidden"
---- where it is kept from running it ([`can_forbid`]), and "allowed" where
---- it is not -- its module declares `nests`, whose worker no Landlock
---- ruleset holds, or it cannot be -- which its key holds as if its
---- module declared `tool` ([`Spec.runs_tool`]). Its key and its command
+--- program: "declared" where its module declares `tool`; "sealed" where
+--- it declares `lua` or `nests` and runs on a sealed database of its
+--- closure ([`sealed_for`]), which it may run the core on but which holds no
+--- more of the program than its closure, so its key holds no more;
+--- "forbidden" where it is kept from running it ([`can_forbid`]), and
+--- "allowed" where it is not -- its module declares `nests` or `lua` and
+--- runs the program whole, or it cannot be -- which its key holds as if
+--- its module declared `tool` ([`Spec.runs_tool`]). Its key and its command
 --- line ([`hold_of`]) both take it from here.
 local enum ToolUse
   "declared"
-  "lua"
+  "sealed"
   "forbidden"
   "allowed"
 end
@@ -1375,8 +1533,7 @@ end
 local function tool_use(rec: Recording, m: importer.Module): ToolUse
   local effective = rec.effective[m.path]
   if effective.tool then return "declared" end
-  if effective.lua then return "lua" end
-  if effective.nests then return "allowed" end
+  if effective.lua or effective.nests then return seals(rec, m) and "sealed" or "allowed" end
   return can_forbid(rec, m) and "forbidden" or "allowed"
 end
 
@@ -1401,6 +1558,31 @@ local function reads_compiler(rec: Recording, m: importer.Module): boolean
   if rec.stores[m.path] == nil then return false end
   return declared_key.reads_compiler(test_inputs.compiler_sought(rec.closures[m.path] or {},
     rec.effective[m.path].lua))
+end
+
+--- The digest of the modules of the program's own database that the tree
+--- lacks -- the standard library, in a project's tree -- by path, source
+--- hash and bytecode, which a sealed database carries whole
+--- ([`sealed_fill`]) and so a key of a worker on one holds
+--- ([`declared_of`]). Worked out once a run needs it, from the program's
+--- own database, which sealing nothing reads; "unread" where it cannot be.
+local function extras_digest(rec: Recording): string
+  if rec.extras ~= nil then return rec.extras end
+  local databases = Store.databases()
+  local rows, _ = Sqlite.text_rows(databases[#databases],
+    "SELECT path, lower(hex(source_hash)), lower(hex(sha256(bytecode))) FROM modules ORDER BY path")
+  local digest = "unread"
+  if rows ~= nil then
+    local in_tree: {string:boolean} = {}
+    for _, name in ipairs(rec.tree_names) do in_tree[name] = true end
+    local lines: {string} = {}
+    for _, row in ipairs(rows) do
+      if not in_tree[row[1]] then lines[#lines + 1] = table.concat(row, "\0") end
+    end
+    digest = hex_sha256(table.concat(lines, "\n"))
+  end
+  rec.extras = digest
+  return digest
 end
 
 --- The digest of the store `m`'s workers are given, which its key holds
@@ -1431,10 +1613,10 @@ end
 --- that needs them makes its own files in its temporary directory and
 --- sets them -- `utimensat` for the times, a fresh file for a new inode
 --- -- so they are the same in every checkout.
--- TODO: enforce the rule under a worker's hold, as the store's is held:
--- have `stat`, `lstat` and `fstat` of a path of the tree answer fixed
--- times and inode there, once core/syscalls_fs.c's stat takes a hold
--- from build.test_worker as core/store.c's lookups do (C, and a boot):
+-- TODO: enforce the rule in the worker, which holds only `require` to its
+-- closure today: have `stat`, `lstat` and `fstat` of a path of the tree
+-- answer fixed times and inode there, once core/syscalls_fs.c's stat takes a
+-- hold from build.test_worker (C, and a boot):
 -- today a test that leans on a file of the tree's times sees what its
 -- checkout gave it, and stands on a sibling's verdict where they differ.
 local function declared_of(rec: Recording, m: importer.Module, id: string): string | nil
@@ -1448,14 +1630,14 @@ local function declared_of(rec: Recording, m: importer.Module, id: string): stri
   local key, why = declared_key.compute(rec.digests, {
     id = id, group = m.path, module_key = m.graph_key, runtime = rec.runtime,
     compiler = reads_compiler(rec, m) and rec.compiler or "",
-    host = rec.sandbox and test_sandbox.worker_user(effective) ~= nil and rec.worker_host or
-      rec.host,
+    host = rec.host,
     system = rec.system,
     epoch = rec.epoch, timeout_ns = rec.timeout_ns,
     -- Held only where the key holds the program ([`declared_key.compute`]).
     program = (effective.tool or runs_tool) and program_of(rec) or nil,
-    launcher = rec.launcher,
+    launcher = seals(rec, m) and (rec.core .. "\0" .. extras_digest(rec)) or rec.launcher,
     declaration = test_inputs.canonical(m.inputs), effective = effective,
+    requires = rec.answered[m.path],
     environment = view_of(rec, m), runs_tool = runs_tool,
     closure_store = store,
     -- Unsandboxed, its worker sees the tree where it is (`launch`).
@@ -1476,7 +1658,7 @@ local function stand(rec: Recording, credited: test.Credited, m: importer.Module
   end
   owed[#owed + 1] = id
   local kept, keep_trouble = record_run(rec.records, m.path, name, true, "",
-    Time.now_ns(), run_key(key, rec.shared_keys[key]), stood.run_at_ns, stood.elapsed_ns)
+    Clock.now_ns(), run_key(key, rec.shared_keys[key]), stood.run_at_ns, stood.elapsed_ns)
   if not kept then
     rec.errors[#rec.errors + 1] = id .. ": record: " .. keep_trouble
   end
@@ -1506,7 +1688,7 @@ local function share(rec: Recording, m: importer.Module, name: string, id: strin
   rec.by_test[id] = encode_hits(hit)
   local elapsed = found.elapsed_ns
   local kept, keep_trouble = record_run(rec.records, m.path, name, true, "",
-    Time.now_ns(), run_key(key, key), rec.run_at_ns, elapsed)
+    Clock.now_ns(), run_key(key, key), rec.run_at_ns, elapsed)
   if not kept then
     rec.errors[#rec.errors + 1] = id .. ": record: " .. keep_trouble
   end
@@ -1530,6 +1712,60 @@ local function closure_set(rec: Recording, m: importer.Module): {string:boolean}
   return set
 end
 
+--- A module's hit lines as a row of `coverage_by_test` holds them
+--- ([`encode_hits`]'s line), kept in `spelled` by the table
+--- [`worker.decode`] shares among the reports that held them.
+local function spell(spelled: {{integer:boolean}:string}, path: string,
+                     per_line: {integer:boolean}): string
+  local row = spelled[per_line]
+  if row == nil then
+    local lines: {integer} = {}
+    for line in pairs(per_line) do lines[#lines + 1] = line end
+    table.sort(lines)
+    row = path .. "\t" .. table.concat(lines, ",") .. "\n"
+    spelled[per_line] = row
+  end
+  return row
+end
+
+--- Folds the hits of a finished worker, those its load made and those its
+--- test did (the tables [`worker.decode`] shares, never changed here), into
+--- `hits` but for the modules `unowned` names (the core's), and answers the
+--- test's own `coverage_by_test` row, in [`encode_hits`]'s form but with
+--- a module the load and the test both hit on a line of each. A worker's
+--- load hits are the same lines in every worker of a module, so each is
+--- folded once and spelled once, whatever the number of tests: the work
+--- of one test is its own few lines. `folded` and `spelled` remember
+--- which tables have been, and are one run's, since a table folded into
+--- another run's `hits` is not in this one's.
+function test.take_hits(hits: Coverage.Hits, unowned: Coverage.Hits,
+                        folded: {{integer:boolean}:boolean},
+                        spelled: {{integer:boolean}:string},
+                        load_hits: Coverage.Hits, test_hits: Coverage.Hits): string
+  local out: {string} = {}
+  for _, taken in ipairs({ load_hits, test_hits }) do
+    local paths: {string} = {}
+    for path in pairs(taken) do
+      if unowned[path] == nil then paths[#paths + 1] = path end
+    end
+    table.sort(paths)
+    for _, path in ipairs(paths) do
+      local per_line = taken[path]
+      if not folded[per_line] then
+        folded[per_line] = true
+        local into = hits[path]
+        if into == nil then
+          into = {}
+          hits[path] = into
+        end
+        for line in pairs(per_line) do into[line] = true end
+      end
+      out[#out + 1] = spell(spelled, path, per_line)
+    end
+  end
+  return table.concat(out)
+end
+
 --- Records one finished job: the verdict its worker reported, or a
 --- failure that says why there is no report to go by
 --- ([`build.test_worker`]'s `judge`). A key holds what a worker
@@ -1539,48 +1775,61 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
                       trouble: string, limits: test.Limits, refused?: boolean, unavailable?: string)
   rec.tally.ran = rec.tally.ran + 1
   local id = job.id
-  local wall_ns = Time.monotonic_ns() - job.started_ns
+  local wall_ns = Clock.monotonic_ns() - job.started_ns
   local judged: worker.Judgement
   if unavailable ~= nil then
     judged = { passed = true, skipped = unavailable, message = "" }
   else
     judged = worker.judge({
-    result = result, trouble = trouble, timeout_ns = limits.timeout_ns,
-    sandboxed = rec.sandbox, refused = refused == true,
-    carried = rec.carried,
-    closure = closure_set(rec, job.m),
+      result = result, trouble = trouble, timeout_ns = limits.timeout_ns,
+      sandboxed = rec.sandbox, refused = refused == true,
+      carried = rec.carried,
+      closure = closure_set(rec, job.m),
     })
   end
   local reported, passed, message = judged.report, judged.passed, judged.message
   -- A pass the test said it could not check ([`Test.skip`]) is kept as no
   -- verdict, pass or fail, so it runs again on the next run -- and on a
-  -- host that can check it, whose key differs, as its own; and a run
-  -- held to sandboxing, which exists to prove the host checked it all,
-  -- fails it.
+  -- host that can check it, whose key differs, as its own.
   local skipped = judged.passed and judged.skipped or ""
-  if skipped ~= "" and rec.held then
-    passed, skipped = false, ""
-    message = "skipped (" .. judged.skipped .. "), but the run is held to sandboxing " ..
-      "(COSMIC_TEST_SANDBOX=1, COSMIC_SANDBOX=must or COSMIC_CI_REQUIRE_SANDBOX=1), " ..
-      "which fails a test this host could not check"
-  elseif skipped ~= "" then
+  if skipped ~= "" then
+    -- A reason may carry what a failed start printed: the report lists
+    -- one line each.
+    skipped = skipped:match("^[^\n]+") or "the host refused what the test is about"
     rec.tally.skipped = rec.tally.skipped + 1
     rec.skips[#rec.skips + 1] = id .. ": " .. skipped
     message = "skipped: " .. skipped
   end
-  -- What the records keep: a skip is no pass.
-  local kept_pass = passed and skipped == ""
+  -- A pass that made no call to `assert` is listed, a
+  -- held run fails it, and no run keeps a verdict of it, so it is met again
+  -- every run -- a standing verdict would hide it from the summary and from
+  -- a held run that did not run it.
+  -- An example (`*_example.tl`) shows how code is used and is not held to it:
+  -- it passes by running.
+  local unchecked = passed and judged.unchecked == true and job.m.kind == "test"
+  if unchecked then
+    rec.tally.unchecked = rec.tally.unchecked + 1
+    rec.unchecked[#rec.unchecked + 1] = id
+    if rec.held then
+      passed = false
+      message = "made no call to assert, so its pass shows only that it did not raise" ..
+        " (a held run fails that)\n  to fix: assert what it exists to show, a helper that" ..
+        " checks through error or pcall calling assert; where this host cannot check it," ..
+        " declare `requires` or call Test.skip(reason)"
+    end
+  end
+  -- A test that said why it did not check keeps its verdict: its pass is a
+  -- function of its key, and it is counted apart.
+  if passed and judged.deliberate ~= nil and judged.deliberate ~= "" then
+    rec.deliberate[#rec.deliberate + 1] = judged.deliberate:match("^[^\n]+") or judged.deliberate
+  end
+  -- What the records keep: a skip is no pass, nor is a pass that made no call to `assert`.
+  local kept_pass = passed and skipped == "" and not unchecked
   local elapsed = wall_ns
   if reported ~= nil then
     elapsed = reported.elapsed_ns
-    local hit: Coverage.Hits = {}
-    merge_hits(hit, reported.load_hits)
-    merge_hits(hit, reported.test_hits)
-    for path in pairs(rec.unowned) do
-      hit[path] = nil
-    end
-    merge_hits(rec.hits, hit)
-    rec.by_test[id] = encode_hits(hit)
+    rec.by_test[id] = test.take_hits(rec.hits, rec.unowned, rec.folded, rec.spelled,
+      reported.load_hits, reported.test_hits)
   end
   -- Keyed by what it was given: its declared inputs, as they were
   -- before it started -- and still are, or the verdict describes no
@@ -1591,14 +1840,14 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
   -- reads, its sandbox holds to what its key holds
   -- ([`test_sandbox.Plan`]'s `held`); unsandboxed, nothing does, and the
   -- key trusts its declaration as it trusts the test's own.
-  if key == nil then rec.tally.every = rec.tally.every + 1 end
+  if key == nil and not job.unrun then rec.tally.every = rec.tally.every + 1 end
   local held = key ~= nil and declared_of(rec, job.m, id) == key
   local saved, save_trouble = record_run(rec.records, job.m.path, job.name, kept_pass,
-    message, Time.now_ns(), run_key(key or "", key), rec.run_at_ns, elapsed)
+    message, Clock.now_ns(), run_key(key or "", key), rec.run_at_ns, elapsed)
   if not saved then
     rec.errors[#rec.errors + 1] = id .. ": record: " .. save_trouble
   end
-  if held and skipped == "" then
+  if held and skipped == "" and not unchecked then
     saved, save_trouble = record_verdict(rec.records, key, passed, rec.run_at_ns, rec.run,
       elapsed)
     if not saved then
@@ -1625,6 +1874,10 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
   if not passed then
     if job.scratch ~= nil then
       message = message .. "\n  its directory is kept: " .. job.scratch .. "/real"
+    elseif job.own_scratch then
+      message = message .. "\n  its directory was a tmpfs of its worker's own, gone with it " ..
+        "(" .. test_sandbox.switch .. "=0 keeps one on the host; a fuzz failure's \"kept\" path " ..
+        "above is in it too: rerun with the FUZZ_CASE it names)"
     end
     local failure = id .. ": " .. message
     rec.failures[#rec.failures + 1] = failure
@@ -1643,11 +1896,10 @@ end
 --- directory the invoking shell was in before its last `cd`, and the
 --- command it last ran (`_`, which a shell sets to the program it
 --- starts: /usr/bin/timeout for `timeout 30 cosmic test`). Kept, each
---- would enter the key of every test that reads the whole environment,
---- and such a test would run again after a rebuild, a `cd`, or a run
---- started another way. So too the shell's depth (`SHLVL`): a module
---- that declares `env = {"*"}` would be keyed by it, and a run from a
---- script, rather than a terminal, would run its tests again.
+--- would enter the key of a test that declares it, and such a test would
+--- run again after a rebuild, a `cd`, or a run started another way. So too
+--- the shell's depth (`SHLVL`): a run from a script, rather than a
+--- terminal, would run such a test again.
 local launch_only: {string:boolean} = { COSMIC_REBOOTED = true, OLDPWD = true, SHLVL = true, _ = true }
 
 --- The environment a worker starts with: this process's, less
@@ -1778,6 +2030,8 @@ local function address_stores(rec: Recording, modules: {importer.Module},
   local basis, trouble = closure_store.basis(rec.projection)
   if basis == nil then return false, trouble end
   rec.basis, rec.stores, rec.built, rec.store_digests = basis, {}, {}, {}
+  rec.sealed = {}
+  rec.sealed_written, rec.sealed_bytes, rec.sealed_ns = 0, 0, 0
   rec.store_kept, rec.store_names, rec.store_bases, rec.store_mismatched = {}, {}, {}, {}
   -- The code that writes a store, and the core that runs it -- SQLite
   -- and its bindings -- whose bytes it follows from too: so one address
@@ -1790,7 +2044,8 @@ local function address_stores(rec: Recording, modules: {importer.Module},
     local declared = m.inputs
     if (m.kind == "test" or m.kind == "example") and
         not (declared ~= nil and declared.store) then
-      local names = rec.closures[m.path] or test_inputs.modules(m, by_path, declarations)
+      local names = rec.closures[m.path] or
+        test_inputs.modules(m, by_path, declarations, rec.type_only)
       rec.closures[m.path] = names
       rec.stores[m.path] = closure_store.address(basis, names, salt)
     end
@@ -1836,11 +2091,11 @@ local function store_at(rec: Recording, address: string, names: {string},
   if there == nil then
     local made, trouble = Fs.mkdirs(directory)
     if not made then return nil, directory .. ": " .. trouble end
-    local started = Time.monotonic_ns()
+    local started = Clock.monotonic_ns()
     local written, write_trouble = closure_store.write(rec.projection, path, names, rec.basis)
     if not written then return nil, "the store of its closure: " .. write_trouble end
     if not base then
-      rec.writing_ns = rec.writing_ns + (Time.monotonic_ns() - started)
+      rec.writing_ns = rec.writing_ns + (Clock.monotonic_ns() - started)
       local wrote, _ = sys.stat(path)
       rec.written = rec.written + 1
       rec.written_bytes = rec.written_bytes + (wrote ~= nil and wrote.size or 0)
@@ -1857,6 +2112,283 @@ local function given_store(rec: Recording, m: importer.Module): string | nil, st
   local address = rec.stores ~= nil and rec.stores[m.path] or nil
   if address == nil then return nil, "" end
   return store_at(rec, address, rec.closures[m.path])
+end
+
+--- The tables of a sealed database as the core reads them
+--- (core/store.c), the columns of build/schema.tl's: [`Store.seal`]'s,
+--- which writes the same from the store's search order, restated here
+--- since a closure's modules are rows of its store, which the runner's own
+--- search order does not carry (the tree's tests are in none of the
+--- program's databases).
+local sealed_schema <const>: {string} = {
+  "PRAGMA page_size = 4096",
+  "PRAGMA auto_vacuum = 0",
+  "PRAGMA encoding = 'UTF-8'",
+  "CREATE TABLE meta (key TEXT PRIMARY KEY, value BLOB) WITHOUT ROWID",
+  "CREATE TABLE modules (path TEXT PRIMARY KEY NOT NULL, file TEXT NOT NULL, " ..
+    "kind TEXT NOT NULL, source_hash BLOB NOT NULL, key BLOB NOT NULL, " ..
+    "bytecode BLOB NOT NULL, tests TEXT NOT NULL, source BLOB NOT NULL)",
+  "CREATE TABLE imports (path TEXT NOT NULL, requires TEXT NOT NULL, " ..
+    "PRIMARY KEY (path, requires)) WITHOUT ROWID",
+  "CREATE TABLE decls (path TEXT PRIMARY KEY, source BLOB NOT NULL) WITHOUT ROWID",
+  "CREATE TABLE zoneinfo (name TEXT PRIMARY KEY, data BLOB NOT NULL)",
+  "CREATE TABLE ca_roots (sha256 BLOB NOT NULL, label TEXT NOT NULL, der BLOB NOT NULL)",
+}
+
+--- The statements [`write_sealed`] runs to fill a sealed database from
+--- `closure` (a worker's closure store), `program` (the program's own
+--- database) and `whole` (the projection the store was written from), with
+--- `temp.extra` the program's modules that go along: what every worker loads
+--- and every module the tree lacks (the standard library, in a project's
+--- tree), which a worker's key holds by their digest ([`extras_digest`]).
+--- The key and the tests of a module are left empty (the compile's, and the
+--- tree's own). The time zones and CA roots go only where the set holds the
+--- module that reads them, as [`Store.seal`] does: they are most of a small
+--- database's bytes.
+-- TODO: carry only the standard library a closure requires, in a project's
+-- tree, once the projection's `imports` rows record the requires of its
+-- modules that name no module of the tree (today they are edges within the
+-- tree alone, so what a closure requires of the library is not known without
+-- parsing every module's source): every worker of a project's tree reads
+-- the whole of the program's library through [`Store.bytecode`] and the
+-- rest, as the artifact of a closure it replaced carried it.
+local sealed_fill <const>: {string} = {
+  "INSERT OR IGNORE INTO temp.extra SELECT path FROM program.modules WHERE path NOT IN " ..
+    "(SELECT path FROM whole.modules)",
+  "INSERT INTO main.modules SELECT path, file, kind, source_hash, X'', bytecode, '', source " ..
+    "FROM closure.modules ORDER BY path",
+  "INSERT OR IGNORE INTO main.modules SELECT path, file, kind, source_hash, X'', bytecode, '', " ..
+    "source FROM program.modules WHERE path IN temp.extra ORDER BY path",
+  "INSERT INTO main.decls SELECT path, source FROM closure.decls ORDER BY path",
+  "INSERT OR IGNORE INTO main.imports SELECT path, requires FROM closure.imports " ..
+    "WHERE path IN (SELECT path FROM main.modules) AND requires IN " ..
+    "(SELECT path FROM main.modules) ORDER BY path, requires",
+  "INSERT OR IGNORE INTO main.imports SELECT path, requires FROM program.imports " ..
+    "WHERE path IN temp.extra AND requires IN (SELECT path FROM main.modules) " ..
+    "ORDER BY path, requires",
+  "INSERT INTO main.zoneinfo SELECT name, data FROM program.zoneinfo WHERE EXISTS " ..
+    "(SELECT 1 FROM main.modules WHERE path = 'cosmic.time') ORDER BY name",
+  "INSERT INTO main.ca_roots SELECT sha256, label, der FROM program.ca_roots WHERE EXISTS " ..
+    "(SELECT 1 FROM main.modules WHERE path = 'cosmic.http') ORDER BY sha256",
+}
+
+--- What sealing the databases of this run's workers is made from
+--- ([`Sealing`]), made the first time one is wanted: this program's own
+--- database, taken from its artifact and written in a directory of the
+--- run's own that the user a worker runs as can read (a root runner's
+--- workers run as a user of their own, which the 0700 directory
+--- [`Fs.mkdtemp`] makes is shut to; its parents are the temporary
+--- directory's, which must be open to that user too: the start says if
+--- not). Nil and why where there is none, said once.
+local function sealing_for(rec: Recording): Sealing | nil, string
+  if rec.sealing ~= nil then return rec.sealing, "" end
+  if rec.sealing_trouble ~= nil then return nil, rec.sealing_trouble end
+  local function refuse(why: string): nil, string
+    rec.sealing_trouble = why
+    return nil, why
+  end
+  local launched, _ = Proc.relaunch()
+  if launched == nil or launched.argv[2] ~= "--artifact" or launched.argv[3] == nil then
+    return refuse("this program is no portable artifact to take its database from")
+  end
+  local bytes, read_trouble = Fs.read(launched.argv[3])
+  if bytes == nil then return refuse(launched.argv[3] .. ": " .. read_trouble) end
+  local parts, split_trouble = artifact.split(bytes)
+  if parts == nil then return refuse(launched.argv[3] .. ": " .. split_trouble) end
+  if parts.host then
+    return refuse(launched.argv[3] .. ": a host program has no database to seal from")
+  end
+  local database = parts.database
+  -- A root runner's workers run as a user of their own, which must be
+  -- able to search every directory above the database: the temporary
+  -- directory's, or /tmp's where that is shut to it (a test's own
+  -- directory, 0700, is where a nested run's temporary directory is); said
+  -- once if neither is, not as an opaque refusal of every worker's start.
+  local must_reach = rec.sandbox and sys.getuid() == 0
+  --- The first directory above `path` that other users cannot search, as
+  --- a sentence, or "".
+  local function shut_above(path: string): string
+    if not must_reach then return "" end
+    local above = Fs.dirname(path)
+    while above ~= "/" and above ~= "." do
+      local there, _ = sys.stat(above)
+      if there ~= nil and there.mode & 1 == 0 then
+        return above .. " is not searchable by other users (mode " ..
+          string.format("%o", there.mode & 0x1ff) .. "), so the user a worker runs as " ..
+          "cannot reach its sealed database below it: open it, or set TMPDIR to a " ..
+          "directory that is open"
+      end
+      above = Fs.dirname(above)
+    end
+    return ""
+  end
+  local made, made_trouble = Fs.mkdtemp("sealed-")
+  if made == nil then return refuse("a directory for the sealed databases: " .. made_trouble) end
+  local directory, real_trouble = sys.realpath(made)
+  if directory == nil then
+    local _, _ = Fs.remove_tree(made)
+    return refuse(made .. ": " .. real_trouble)
+  end
+  local shut = shut_above(directory)
+  if shut ~= "" then
+    local _, _ = Fs.remove_tree(directory)
+    -- /tmp's own, under a name no other run has.
+    local elsewhere = string.format("/tmp/cosmic-sealed-%d-%d", sys.getpid(), Clock.monotonic_ns())
+    local ok, mkdir_trouble = sys.mkdir(elsewhere, tonumber("755", 8))
+    if not ok then return refuse(shut .. " (nor /tmp: " .. tostring(mkdir_trouble) .. ")") end
+    directory = elsewhere
+    shut = shut_above(directory)
+    if shut ~= "" then
+      local _, _ = Fs.remove_tree(directory)
+      return refuse(shut)
+    end
+  end
+  local function fail(why: string): nil, string
+    local _, _ = Fs.remove_tree(directory)
+    return refuse(why)
+  end
+  local opened, open_trouble = sys.chmod(directory, tonumber("755", 8))
+  if not opened then return fail(directory .. ": " .. tostring(open_trouble)) end
+  local path = directory .. "/program.db"
+  local written, write_trouble = Fs.write(path, database)
+  if not written then return fail(write_trouble) end
+  rec.sealing = { directory = directory, program = path }
+  return rec.sealing, ""
+end
+
+--- Takes out the directory of this run's sealed databases, once no worker
+--- runs on one.
+local function drop_sealing(rec: Recording)
+  local sealing = rec.sealing
+  if sealing == nil then return end
+  rec.sealing, rec.sealed = nil, {}
+  local gone, trouble = Fs.remove_tree(sealing.directory)
+  if not gone then log:complain("test: " .. sealing.directory .. ": " .. trouble) end
+end
+
+--- Writes the sealed database of the closure store at `store`, which was
+--- written from the projection `whole`, to `out`: [`sealed_fill`]'s
+--- statements over them and the program's own database (`sealing`), the
+--- modules every worker loads ([`worker.loads`]) going along, and the meta
+--- rows the core on a database reads: the digest of this core, which it
+--- checks, the runtime's basis and image, the compiler's identity where
+--- the worker's key holds it (`with_compiler`), and the module that
+--- runs. Written aside and moved into place, so one at `out` is whole.
+local function write_sealed(sealing: Sealing, store: string, whole: string, out: string,
+                            with_compiler: boolean): boolean, string
+  local core = Store.meta("host_image")
+  local basis = Store.meta("runtime_basis")
+  if core == nil or core == "" or basis == nil or basis == "" then
+    return false, "this process has no core digest or runtime basis to record"
+  end
+  local meta: {{string}} = { { "core_sha256", core }, { "main", "cmd.cosmic.main" },
+    { "runtime_basis", basis } }
+  for _, key in ipairs(with_compiler and { "image_hash", "compiler", "compiled_by" } or
+        { "image_hash" }) do
+    local value = Store.meta(key)
+    if value ~= nil then meta[#meta + 1] = { key, value } end
+  end
+  local aside = out .. ".building"
+  local _, _ = Fs.remove(aside)
+  local opened, open_trouble = Sqlite.open(aside, { writable = true })
+  if opened == nil then return false, aside .. ": " .. open_trouble end
+  local db: Sqlite.Handle = opened
+  local function fill(): boolean, string
+    -- Written aside and moved into place whole, or not at all: a journal
+    -- and a sync per commit would only cost time.
+    for _, pragma in ipairs({ "PRAGMA journal_mode = OFF", "PRAGMA synchronous = OFF" }) do
+      local ok, why = db:exec(pragma)
+      if not ok then return false, why end
+    end
+    for _, statement in ipairs(sealed_schema) do
+      local ok, why = db:exec(statement)
+      if not ok then return false, why end
+    end
+    for _, attached in ipairs({ { "closure", store }, { "program", sealing.program },
+        { "whole", whole } }) do
+      local ok, why = Sqlite.run(db, "ATTACH DATABASE ?1 AS " .. attached[1],
+        { { text = attached[2] } })
+      if not ok then return false, why end
+    end
+    local filled, fill_trouble = Sqlite.transact(db, function(): boolean, string
+      local ok, why = db:exec("CREATE TEMP TABLE extra (path TEXT PRIMARY KEY)")
+      if not ok then return false, why end
+      for _, name in ipairs(worker.loads) do
+        local inserted, insert_trouble = Sqlite.run(db,
+          "INSERT OR IGNORE INTO temp.extra (path) VALUES (?1)", { { text = name } })
+        if not inserted then return false, insert_trouble end
+      end
+      for _, statement in ipairs(sealed_fill) do
+        local done, done_trouble = db:exec(statement)
+        if not done then return false, done_trouble end
+      end
+      for _, pair in ipairs(meta) do
+        local inserted, insert_trouble = Sqlite.run(db,
+          "INSERT INTO main.meta (key, value) VALUES (?1, ?2)",
+          { { text = pair[1] }, { text = pair[2] } })
+        if not inserted then return false, insert_trouble end
+      end
+      return true, ""
+    end)
+    local _, _ = db:exec("DETACH closure")
+    local _, _ = db:exec("DETACH program")
+    local _, _ = db:exec("DETACH whole")
+    if not filled then return false, fill_trouble end
+    return true, ""
+  end
+  local filled, fill_trouble = fill()
+  local _, _ = db:close()
+  if not filled then
+    local _, _ = Fs.remove(aside)
+    return false, fill_trouble
+  end
+  local readable, chmod_trouble = sys.chmod(aside, tonumber("644", 8))
+  if not readable then
+    local _, _ = Fs.remove(aside)
+    return false, aside .. ": " .. tostring(chmod_trouble)
+  end
+  local moved, move_trouble = Fs.rename(aside, out)
+  if not moved then
+    local _, _ = Fs.remove(aside)
+    return false, move_trouble
+  end
+  return true, ""
+end
+
+--- The path of the sealed database a worker of `m`'s tests runs on, made
+--- where it is not there yet in the run's directory ([`sealing_for`]), once
+--- per closure store however many modules share it: the modules of its
+--- closure store, as its key holds it by its bytes, and the program's own
+--- rows of what every worker loads and of what the tree lacks (the
+--- standard library's, in a project's tree), which its key holds by the
+--- harness's epoch and the runtime's identity. Nothing else of the
+--- program goes along, so no `Store` read, searcher or `require` of a
+--- worker or of a process it starts reaches a module its key does not hold.
+--- Nil where `m`'s worker is not sealed ([`seals`]), and nil and why where
+--- its database could not be made.
+local function sealed_for(rec: Recording, m: importer.Module): string | nil, string
+  if not seals(rec, m) then return nil, "" end
+  local with_compiler = reads_compiler(rec, m)
+  -- A worker whose key holds the compiler's identity reads it, so its
+  -- database holds it: another file than a closure's that does not.
+  local name = rec.stores[m.path] .. (with_compiler and "-compiler" or "")
+  local kept = rec.sealed[name]
+  if kept ~= nil then return kept, "" end
+  local started = Clock.monotonic_ns()
+  local sealing, sealing_trouble = sealing_for(rec)
+  if sealing == nil then return nil, "its sealed database: " .. sealing_trouble end
+  local store, store_trouble = given_store(rec, m)
+  if store == nil then return nil, store_trouble end
+  local path = sealing.directory .. "/" .. name .. ".db"
+  local written, trouble = write_sealed(sealing, store, rec.projection, path, with_compiler)
+  if not written then return nil, "its sealed database: " .. trouble end
+  local wrote, stat_trouble = sys.stat(path)
+  if wrote == nil then return nil, "its sealed database: " .. path .. ": " .. stat_trouble end
+  rec.sealed_written = rec.sealed_written + 1
+  rec.sealed_bytes = rec.sealed_bytes + wrote.size
+  rec.sealed_ns = rec.sealed_ns + (Clock.monotonic_ns() - started)
+  rec.sealed[name] = path
+  return path, ""
 end
 
 --- Where a store whose bytes did not match another write of its
@@ -1890,7 +2422,7 @@ local function mismatched(rec: Recording, address: string, path: string, digest:
     "with bytes whose digest is " .. digest .. ", but " .. where .. " has " .. kept ..
     ": a store's bytes must follow from its address alone (build.closure_store's " ..
     "`address`), and these do not. " .. (saved and ("This run's is kept at " .. aside) or
-    ("This run's could not be kept aside (" .. trouble .. ")")) .. "; report it with the " ..
+      ("This run's could not be kept aside (" .. trouble .. ")")) .. "; report it with the " ..
     "other, and both digests, and remove it once reported. The next run keeps " .. digest ..
     " for the address in the shared verdicts, in place of " .. kept .. "."
 end
@@ -1935,7 +2467,7 @@ end
 --- Nil and why where it could not be written.
 local function address_digest(rec: Recording, address: string, names: {string},
                               base: boolean): string | nil, string
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   rec.store_names[address] = names
   rec.store_bases[address] = base
   local path = stores_directory(rec.root) .. "/" .. (base and base_name(address) or
@@ -1947,10 +2479,10 @@ local function address_digest(rec: Recording, address: string, names: {string},
     if digest == nil and rec.consult_shared then digest = shared_digest(rec, address) end
   end
   if digest == nil then
-    rec.digests.spent_ns = rec.digests.spent_ns + (Time.monotonic_ns() - started)
+    rec.digests.spent_ns = rec.digests.spent_ns + (Clock.monotonic_ns() - started)
     local made, trouble = store_at(rec, address, names, base)
     if made == nil then return nil, trouble end
-    started = Time.monotonic_ns()
+    started = Clock.monotonic_ns()
     digest = declared_key.store_digest(rec.digests, made)
     -- Held to what this run took for it, else to what the shared
     -- verdicts keep, whether this run wrote it or found it here.
@@ -1967,7 +2499,7 @@ local function address_digest(rec: Recording, address: string, names: {string},
   end
   rec.store_digests[address] = digest
   rec.owed.stores[address] = digest
-  rec.digests.spent_ns = rec.digests.spent_ns + (Time.monotonic_ns() - started)
+  rec.digests.spent_ns = rec.digests.spent_ns + (Clock.monotonic_ns() - started)
   return digest, ""
 end
 
@@ -1984,7 +2516,7 @@ local function verify_sample(rec: Recording)
   for address in pairs(rec.store_digests) do addresses[#addresses + 1] = address end
   if #addresses == 0 then return end
   table.sort(addresses)
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local address = addresses[(rec.run or 0) % #addresses + 1]
   local path = stores_directory(rec.root) .. "/" .. address .. ".verify.db"
   local made, _ = Fs.mkdirs(stores_directory(rec.root))
@@ -2006,11 +2538,11 @@ local function verify_sample(rec: Recording)
         base_name(address) or (address .. ".db"))
       local there, _ = sys.stat(other)
       mismatched(rec, address, path, digest, kept, there ~= nil and other or
-        "the store this run keyed its tests by", true)
+          "the store this run keyed its tests by", true)
     end
   end
   local _, _ = Fs.remove(path)
-  rec.digests.spent_ns = rec.digests.spent_ns + (Time.monotonic_ns() - started)
+  rec.digests.spent_ns = rec.digests.spent_ns + (Clock.monotonic_ns() - started)
 end
 
 --- The digest of the bytes of the closure store a worker of `m`'s tests
@@ -2033,12 +2565,26 @@ local function base_store_digest(rec: Recording): string
   return digest or ""
 end
 
+--- The policy `job`'s worker is started under ([`build.test_policy`]), from
+--- the plan of its paths (`job.plan`). Its environment is added by
+--- [`worker.invocation`], which gives a policy's `set_env` the whole of the
+--- worker's. Nil and why where its directory cannot be made.
+local function policy_of(rec: Recording, job: Job): Sandbox.Policy | nil, string
+  local effective = rec.effective[job.m.path]
+  local policy = test_policy.worker(job.plan, effective)
+  if effective.noexec_ready then
+    local made, made_trouble = Fs.mkdirs(job.scratch .. "/noexec")
+    if not made then return nil, "its private noexec scratch: " .. made_trouble end
+  end
+  return policy, ""
+end
+
 --- Starts one job's worker. False when it could not start, which is
 --- recorded as that test's failure.
 local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
                       limits: test.Limits): boolean
   -- Set before anything can fail, since `finish` reckons the time from it.
-  job.started_ns = Time.monotonic_ns()
+  job.started_ns = Clock.monotonic_ns()
   local scratch, tmp_trouble = test.scratch()
   if scratch == nil then
     finish(rec, job, nil, "could not make a temporary directory: " .. tmp_trouble, limits)
@@ -2051,7 +2597,6 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   -- its scratch directory at [`test_sandbox.scratch`].
   local env: {string:string} = worker_view()
   local root, inside, cwd: string, string, string = rec.root, scratch, nil
-  local sandbox: Child.Sandbox = nil
   local declares_trouble = unresolved(rec, job.m)
   if declares_trouble ~= "" then
     finish(rec, job, nil, declares_trouble, limits, true)
@@ -2065,17 +2610,44 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   -- The store of its closure an unsandboxed worker attaches in place
   -- of the projection ([`worker.Invocation`]'s `store`): nil for none.
   local attached: string = nil
+  -- The sealed database of its closure its worker runs on ([`sealed_for`]):
+  -- nil for none.
+  local sealed: string = nil
+  local sealed_trouble = ""
   if rec.sandbox then
     local store, store_trouble = given_store(rec, job.m)
     if store == nil and store_trouble ~= "" then
       finish(rec, job, nil, store_trouble, limits)
       return false
     end
-    local plan = test_sandbox.plan(rec.root, scratch, rec.effective[job.m.path], worker_view(),
-      store)
+    -- A worker that runs on a sealed database is given no artifact: it
+    -- starts the core on that database, which grants the file itself.
+    sealed, sealed_trouble = sealed_for(rec, job.m)
+    if sealed == nil and sealed_trouble ~= "" then
+      finish(rec, job, nil, sealed_trouble, limits)
+      return false
+    end
+    if sealed == nil and rec.effective[job.m.path].lua and not rec.effective[job.m.path].store and
+        not rec.effective[job.m.path].tool then
+      local launched, _ = Proc.relaunch()
+      local why = (launched == nil or launched.argv[2] ~= "--artifact" or launched.argv[3] == nil) and
+        "this program is no portable artifact to take its database from" or
+        "it is given no closure store to seal"
+      finish(rec, job, nil, "its module declares lua, so what its tests start runs a sealed " ..
+          "database of its closure, which cannot be made: " .. why, limits)
+      return false
+    end
+    local kept = rec.plans[job.m.path]
+    local plan: test_sandbox.Plan
+    if kept ~= nil then
+      plan = test_sandbox.rebind(kept.plan, kept.scratch, scratch, effective)
+    else
+      plan = test_sandbox.plan(rec.root, scratch, effective, worker_view(), store)
+      if plan.trouble == "" then rec.plans[job.m.path] = { plan = plan, scratch = scratch } end
+    end
     if plan.over > 0 then
       finish(rec, job, nil, "its sandbox would give it " .. plural.count(plan.over, "path") ..
-        " more than the most one holds", limits)
+          " more than the most one holds", limits)
       return false
     end
     if plan.trouble ~= "" then
@@ -2083,8 +2655,22 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
       return false
     end
     job.plan = plan
-    env, sandbox = plan.env, plan.sandbox
-    root, inside, cwd = test_sandbox.tree, test_sandbox.scratch, test_sandbox.tree
+    if plan.own_scratch then
+      -- Its worker makes its directory in a tmpfs of its own, where no
+      -- host directory is in its root: the runner keeps none, and nothing
+      -- is left of it once the worker ends.
+      local gone, gone_trouble = Fs.remove_tree(scratch)
+      if not gone then
+        finish(rec, job, nil, "could not remove its unused directory " .. scratch .. ": " ..
+            gone_trouble, limits)
+        return false
+      end
+      job.scratch, job.tmp, job.own_scratch = nil, nil, true
+    end
+    env = plan.env
+    -- The worker starts in the root of its sandbox, which has no tree to
+    -- start in until the worker enters it ([`worker.run`]).
+    root, inside, cwd = test_sandbox.tree, test_sandbox.scratch, "/"
   else
     -- Unsandboxed, the worker is given the environment its key holds
     -- (the pinned variables, its declared ones and the host's cores
@@ -2106,8 +2692,9 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     -- leg's sandbox, which runs it offline, is what fails it.
     --
     -- It attaches the store of its closure, as a sandbox gives it at
-    -- o/cosmic.db ([`given_store`]), held as a sandboxed worker's is
-    -- (build.test_worker's `hold_store`).
+    -- o/cosmic.db ([`given_store`]), and runs the core on the sealed
+    -- database of its closure ([`sealed_for`]); nothing keeps it from the
+    -- program's own file, which only a sandbox hides.
     -- TODO: hand that store on to what the test starts, once a cosmic
     -- run can be told which store to read in place of its tree's
     -- o/cosmic.db (a variable build.tree_root reads): today a process
@@ -2121,19 +2708,24 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
       return false
     end
     attached = store
+    -- Unsandboxed too it starts the core on the sealed database of its
+    -- closure, so what it and its starts read of the program is what its
+    -- key holds; only a sandbox keeps it from the program's own file.
+    sealed, sealed_trouble = sealed_for(rec, job.m)
+    if sealed == nil and sealed_trouble ~= "" then
+      finish(rec, job, nil, sealed_trouble, limits)
+      return false
+    end
     env = test_sandbox.unenforced_environment(worker_view(), rec.effective[job.m.path], scratch)
   end
-  job.started_ns = Time.monotonic_ns()
+  job.started_ns = Clock.monotonic_ns()
   job.deadline_ns = job.started_ns + limits.timeout_ns
   -- Sandboxed, a worker whose module does not declare `tool` may not
   -- run this program ([`confine.forbid_running`]): what it would run
   -- is no input of its test's key; and one whose module does not
   -- declare `nests` may not make a root of its own ([`hold_of`]), which
   -- every process it starts learns from its environment
-  -- ([`confine.held_variable`]). Only a module whose key holds the whole
-  -- projection has no hold on the store ([`build.test_worker`]): one
-  -- that declares `tool` is keyed by the program's modules, not by
-  -- the rest of the tree's.
+  -- ([`confine.held_variable`]).
   local declared = job.m.inputs
   local hold = hold_of(rec, job.m)
   if rec.sandbox then
@@ -2142,12 +2734,55 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     given[confine.held_variable] = hold ~= "none" and job.m.path or nil
     env = given
   end
+  -- The grants hold the worker from its first instruction, but the core it
+  -- is started from must be run to start it, so a worker whose module does
+  -- not declare `tool` still puts up the ruleset that forbids it running
+  -- the program again ([`worker.run`]'s `forbid_running`).
+  local policy: Sandbox.Policy = nil
+  local runs: {string} = {}
+  if rec.sandbox then
+    -- A worker that may run the program has nothing to forbid: the ruleset
+    -- the policy puts up already refuses it every mount.
+    if hold == "mounts" then hold = "none" end
+    local made, made_trouble = policy_of(rec, job)
+    if made == nil then
+      finish(rec, job, nil, made_trouble, limits, true)
+      return false
+    end
+    policy = made
+    policy.database = sealed
+    if hold == "forbid" then
+      local ran, ran_trouble = test_policy.runs(policy)
+      if ran == nil then
+        finish(rec, job, nil, ran_trouble, limits, true)
+        return false
+      end
+      runs = ran
+    end
+  end
+  -- A worker on a sealed database starts as the core on it, with no
+  -- launcher, artifact or descriptor of the program's: a sandboxed one by
+  -- this program's name, which its policy's `database` makes the core
+  -- ([`Child.start`]); an unsandboxed one by the core itself.
+  local started = start
+  if sealed ~= nil then
+    if rec.sandbox then
+      local executable, executable_trouble = Proc.executable()
+      if executable == nil then
+        finish(rec, job, nil, "this program's name: " .. executable_trouble, limits)
+        return false
+      end
+      started = { argv = { executable }, env = {}, fds = {} }
+    else
+      started = { argv = { start.argv[1], "--database", sealed }, env = {}, fds = {} }
+    end
+  end
   local command = worker.invocation({
-    start = job.plan ~= nil and job.plan.start or start, env = env, root = root, cwd = cwd, module_path = job.m.path,
-    name = job.name, scratch = inside, needs = test_inputs.canonical(declared), hold = hold,
-    lua = rec.effective[job.m.path].lua, open = declared ~= nil and declared.store, store = attached,
-    closure = rec.closures[job.m.path], tree = rec.tree_names, declared = rec.declared_names,
-    sandbox = sandbox, program = job.plan ~= nil and job.plan.program or nil,
+    start = started, env = env, root = root, cwd = cwd, module_path = job.m.path,
+    name = job.name, scratch = inside, own_scratch = job.own_scratch, needs = test_inputs.canonical(declared), hold = hold,
+    store = attached, closure = rec.closures[job.m.path], tree = rec.tree_names,
+    policy = policy, runs = runs,
+    program = job.plan ~= nil and job.plan.program or nil,
   })
   local handle, trouble = Child.start(command.argv, command.options)
   if handle == nil then
@@ -2193,8 +2828,8 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
       handles[i] = job.handle
       if job.deadline_ns < earliest then earliest = job.deadline_ns end
     end
-    local left_ns = earliest - Time.monotonic_ns()
-    local done, trouble = Child.wait_any(handles, math.max(0, math.min(Time.ms(100), left_ns)))
+    local left_ns = earliest - Clock.monotonic_ns()
+    local done, trouble = Child.wait_any(handles, math.max(0, math.min(Clock.ms(100), left_ns)))
     local still: {Job} = {}
     for _, job in ipairs(running) do
       if job.handle == done then
@@ -2206,7 +2841,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
         -- Supervision itself failed; end this worker and say why.
         local _, _ = job.handle:close()
         finish(rec, job, nil, trouble, limits)
-      elseif Time.monotonic_ns() >= job.deadline_ns then
+      elseif Clock.monotonic_ns() >= job.deadline_ns then
         -- Past its deadline: `wait(0)` ends it, and says why when the
         -- guard's signal came first. `close` makes sure it is gone.
         local result, stop_trouble = job.handle:wait(0)
@@ -2283,7 +2918,7 @@ end
 --- positive whole number.
 local function limits_of(values: {string:string}): test.Limits | nil, string
   local limits: test.Limits = {
-    timeout_ns = Time.seconds(default_timeout_s),
+    timeout_ns = Clock.seconds(default_timeout_s),
     jobs = Proc.cpu_count(),
   }
   local function positive(value: string, what: string): integer | nil, string
@@ -2295,7 +2930,7 @@ local function limits_of(values: {string:string}): test.Limits | nil, string
   end
   -- A deadline is kept in nanoseconds and added to the clock's reading,
   -- so seconds past half what an integer holds would wrap.
-  local most_seconds = (math.maxinteger // 2) // Time.seconds(1)
+  local most_seconds = (math.maxinteger // 2) // Clock.seconds(1)
   local function seconds_of(value: string, what: string): integer | nil, string
     local seconds, trouble = positive(value, what)
     if seconds == nil then return nil, trouble end
@@ -2308,12 +2943,12 @@ local function limits_of(values: {string:string}): test.Limits | nil, string
   if from_env ~= nil and from_env ~= "" then
     local seconds, trouble = seconds_of(from_env, timeout_variable)
     if seconds == nil then return nil, trouble end
-    limits.timeout_ns = Time.seconds(seconds)
+    limits.timeout_ns = Clock.seconds(seconds)
   end
   if values["--timeout"] ~= nil then
     local seconds, trouble = seconds_of(values["--timeout"], "--timeout")
     if seconds == nil then return nil, trouble end
-    limits.timeout_ns = Time.seconds(seconds)
+    limits.timeout_ns = Clock.seconds(seconds)
   end
   if values["--jobs"] ~= nil then
     local jobs, trouble = positive(values["--jobs"], "--jobs")
@@ -2324,20 +2959,24 @@ local function limits_of(values: {string:string}): test.Limits | nil, string
 end
 
 --- Whether this host can run a worker sandboxed
---- ([`test_sandbox_probe.available`]), and why not where it cannot.
-local function sandbox_here(): boolean, string
+--- ([`test_sandbox_probe.available`]), and why not where it cannot, and
+--- whether that is a defect rather than a limit of the host.
+local function sandbox_here(): test_sandbox_probe.Answer
   local start, start_trouble = worker.program()
-  if start == nil then return false, "the test runner cannot find itself: " .. start_trouble end
+  if start == nil then
+    return { ok = false, why = "the test runner cannot find itself: " .. start_trouble, broken = true }
+  end
   local directory, trouble = test_sandbox_probe.directory()
-  if directory == nil then return false, "a directory to try it in: " .. trouble end
+  if directory == nil then
+    return { ok = false, why = "a directory to try it in: " .. trouble, broken = true }
+  end
   local env: {string:string} = {}
   for name, value in pairs(worker_view()) do env[name] = value end
   for name, value in pairs(start.env) do env[name] = value end
   env.TMPDIR = test_sandbox.scratch
-  local ok, why = test_sandbox_probe.available(start.argv, env, start.fds, directory)
+  local answer = test_sandbox_probe.available(start.argv, env, start.fds, directory)
   local _, _ = Fs.remove_tree(directory)
-  if not ok then return false, why end
-  return true, ""
+  return answer
 end
 
 --- Reporting receives copies, never the mutable state that judges a run.
@@ -2345,6 +2984,15 @@ local function say_skips(rec: Recording)
   local skips: {string} = {}
   for i, skip in ipairs(rec.skips) do skips[i] = skip end
   for _, line in ipairs(test_report.skips(skips)) do log:say(line) end
+  local unchecked: {string} = {}
+  for i, id in ipairs(rec.unchecked) do unchecked[i] = id end
+  for _, line in ipairs(test_report.unchecked(unchecked)) do log:say(line) end
+  local deliberate: {string} = {}
+  for i, reason in ipairs(rec.deliberate) do deliberate[i] = reason end
+  for _, line in ipairs(test_report.deliberate(deliberate)) do log:say(line) end
+  local nas: {string} = {}
+  for i, na in ipairs(rec.nas) do nas[i] = na end
+  for _, line in ipairs(test_report.nas(nas)) do log:say(line) end
 end
 
 local function say_failures(rec: Recording, failures: {string})
@@ -2362,24 +3010,107 @@ local function say_failures(rec: Recording, failures: {string})
   end
 end
 
---- Builds the tree in the working directory and runs every test it
---- discovered that its selectors choose ([`test.selects`]), printing a
---- verdict line and returning the exit code: 0
---- when every test passed.
---- @param argv the command line, which a stale tool re-enters after
----   rebuilding itself
-local function run(argv: {integer:string}): integer
-  -- Captured once, up front, and threaded through everything below as
-  -- this run's own identifier: see build/work.tl for why a nanosecond
-  -- timestamp, not an autoincrement id, identifies a run.
-  local run_at_ns = Time.now_ns()
+--- What one run of the verb carries from phase to phase: each of
+--- [`run`]'s phases fills the fields it owns, and reads only fields the
+--- driver or an earlier phase has set.
+local record Run
+  run_at_ns: integer
+  --- The command line, which a stale tool re-enters after rebuilding itself.
+  argv: {integer:string}
 
+  -- The command line ([`read_command`]).
+  root: string
+  limits: test.Limits
+  shard: test.Shard
+  sandbox_mode: string
+  selectors: {string}
+  forced: boolean
+  consult: boolean
+  census: boolean
+
+  -- The checkout ([`hold_checkout`]).
+  started: integer
+  own_tree: boolean
+  handle: work.Handle
+  staged: work.Staged
+  built: compiler
+
+  -- The binary's identities ([`read_identities`]).
+  tool: string
+  compiled_by: string
+  identity: string
+  runtime: string
+  harness: Harness
+  database: string
+
+  -- The sandbox ([`choose_sandbox`]).
+  --- What asking whether a worker can be sandboxed came to, or nil where
+  --- the run was told not to ask ([`require_of_host`] asks then, if a
+  --- module needs it).
+  sandbox_answer: test_sandbox_probe.Answer
+  --- The requirements this run's leg promises (COSMIC_TEST_PROMISES), and
+  --- the leg's name (COSMIC_TEST_LEG, "" where none is given), which a held
+  --- run fails a module for lacking ([`require_of_host`]).
+  promises: {string}
+  leg: string
+  --- Whether the run is held to the sandbox (COSMIC_TEST_SANDBOX=1,
+  --- COSMIC_SANDBOX=must or COSMIC_CI_REQUIRE_SANDBOX=1): it fails what a
+  --- leg promises and a test that made no call to `assert`.
+  held: boolean
+  sandboxed: boolean
+  sandbox_summary: string
+  shares: boolean
+  keying: string
+
+  -- The built tree ([`build_tree`]).
+  result: importer.Result
+
+  -- The tests chosen ([`select_tests`]).
+  selected_modules: {importer.Module}
+  selected_tests: {string:{string}}
+  whole: boolean
+  share_summary: string
+
+  -- The records the run reads and writes ([`open_records`]).
+  records_path: string
+  records: Sqlite.Handle
+  previous: {string:boolean}
+  verdicts: {string:test.Verdict}
+  epoch: string
+  credited: test.Credited
+
+  -- What the run tallies and reports ([`make_recording`]).
+  tally: test.Tally
+  failures: {string}
+  errors: {string}
+  hits: Coverage.Hits
+  by_test: {string:string}
+  native_lines: Coverage.Hits
+  rec: Recording
+
+  -- The tests that run ([`look_up_verdicts`]).
+  jobs: {Job}
+
+  -- What the run says last ([`settle`]).
+  total: integer
+  --- The C functions' prerequisites this host lacks, probed before any
+  --- worker starts. Unknown answers and missing promises retain coverage.
+  c_unavailable: {string: string}
+  function_lines: {string}
+  cov_line: string
+end
+
+--- The command line read: where the run is, what it is told to do and
+--- which tests it is told to choose. The exit code to stop with, or nil
+--- to go on.
+local function read_command(ctx: Run): integer | nil
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
     log:complain(root_trouble)
     return 1
   end
-  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.verbs.test.spec)
+  ctx.root = root
+  local parsed, parse_trouble = Flags.parse(ctx.argv, 2, Cli.verbs.test.spec)
   if parsed == nil then
     log:complain("test: " .. parse_trouble)
     return 2
@@ -2389,20 +3120,21 @@ local function run(argv: {integer:string}): integer
     log:complain("test: " .. limits_trouble)
     return 2
   end
-  local shard: test.Shard = nil
+  ctx.limits = limits
   if parsed.values["--shard"] ~= nil then
     local chosen, shard_trouble = test.shard(parsed.values["--shard"])
     if chosen == nil then
       log:complain("test: " .. shard_trouble)
       return 2
     end
-    shard = chosen
+    ctx.shard = chosen
   end
   local sandbox_mode, sandbox_trouble = test_sandbox.mode()
   if sandbox_mode == nil then
     log:complain("test: " .. sandbox_trouble)
     return 2
   end
+  ctx.sandbox_mode = sandbox_mode
   local selectors: {string} = {}
   for _, word in ipairs(parsed.words) do
     local module, name = split(word)
@@ -2420,12 +3152,22 @@ local function run(argv: {integer:string}): integer
     if name ~= nil then selector = selector .. ":" .. name end
     selectors[#selectors + 1] = selector
   end
-  local forced = parsed.set["--all"] == true or Env.get("COSMIC_TEST_ALL") == "1"
+  ctx.selectors = selectors
+  ctx.forced = parsed.set["--all"] == true or Env.get("COSMIC_TEST_ALL") == "1"
   -- A run that stands on nothing another checkout reached, though it
   -- still shares what it reaches: what answers for every test is this
   -- checkout's own evidence, or a run.
-  local consult = not (parsed.set["--no-shared"] == true or
+  ctx.consult = not (parsed.set["--no-shared"] == true or
     Env.get("COSMIC_TEST_NO_SHARED") == "1")
+  ctx.census = parsed.set["--census"] == true
+  return nil
+end
+
+--- The checkout taken: its rebuild lock held, its working database
+--- opened and staged, and a stale tool rebuilt. The exit code to stop
+--- with, or nil to go on.
+local function hold_checkout(ctx: Run): integer | nil
+  local root = ctx.root
   -- One run per checkout at a time: this one holds the rebuild lock to
   -- its end, and one that finds another holding it waits for it, so
   -- two never write or sweep one another's closure stores, verdicts or
@@ -2437,35 +3179,45 @@ local function run(argv: {integer:string}): integer
     log:complain("test: " .. lock_trouble)
     return 1
   end
-  local started = Time.monotonic_ns()
+  ctx.started = Clock.monotonic_ns()
   local own_tree, own_trouble = tree.is_own(root)
   if own_tree == nil then
     log:complain(own_trouble)
     return 1
   end
+  ctx.own_tree = own_tree
   local handle, open_trouble = work.open(root)
   if handle == nil then
     log:complain(open_trouble)
     return 1
   end
+  ctx.handle = handle
   local staged, stage_trouble = work.stage(handle, own_tree)
   if staged == nil then
     local _, _ = work.close(handle)
     log:complain(stage_trouble)
     return 1
   end
+  ctx.staged = staged
 
-  local built = teal.lazy()
+  ctx.built = teal.lazy()
 
   -- A stale tool refuses, or rebuilds itself or has zig boot the core
   -- and re-enters this command line ([`reboot.guard`]).
   if own_tree then
-    local code = reboot.guard(handle, root, argv)
+    local code = reboot.guard(handle, root, ctx.argv)
     if code ~= nil then
       return code
     end
   end
+  return nil
+end
 
+--- What the running binary is, which every verdict is keyed by: its
+--- compiler, runtime, data tables and harness. The exit code to stop
+--- with, or nil to go on.
+local function read_identities(ctx: Run): integer | nil
+  local handle = ctx.handle
   -- Both identities are read before the project's database is attached
   -- ahead of the binary's: they name this binary, and a project's own
   -- projection carries the ones of whichever binary wrote it.
@@ -2477,16 +3229,18 @@ local function run(argv: {integer:string}): integer
   -- binary of its own (build/sandboxed_verdicts_test.tl): the tree is
   -- compiled under it, and the run keys by it.
   local compiler_salt = Env.get("COSMIC_TEST_COMPILER_SALT")
-  if not own_tree and compiler_salt ~= nil and compiler_salt ~= "" then
+  if not ctx.own_tree and compiler_salt ~= nil and compiler_salt ~= "" then
     tool = hex_sha256(tool .. "\0" .. compiler_salt)
     compiled_by = tool
   end
+  ctx.tool, ctx.compiled_by = tool, compiled_by
   local identity = Store.meta("runtime")
   if identity == nil or identity == "" then
     local _, _ = work.close(handle)
     log:complain("the running binary names no runtime identity")
     return 1
   end
+  ctx.identity = identity
   -- Every verdict is keyed on the data tables the binary carries too
   -- ([`schema.tables_digest`]): `cosmic refresh` replaces its zones and
   -- roots without moving its runtime identity, and a test that read one
@@ -2503,14 +3257,39 @@ local function run(argv: {integer:string}): integer
     log:complain("the running binary's data tables: " .. tables_trouble)
     return 1
   end
-  local runtime = identity .. " tables " .. tables
+  ctx.runtime = identity .. " tables " .. tables
   local harness, harness_trouble = binary_harness()
   if harness == nil then
     local _, _ = work.close(handle)
     log:complain("the running binary's test harness: " .. harness_trouble)
     return 1
   end
-  local database = root .. "/o/cosmic.db"
+  ctx.harness = harness
+  ctx.database = ctx.root .. "/o/cosmic.db"
+  return nil
+end
+
+--- Whether the workers are sandboxed, which the runtime the keys hold
+--- says. The exit code to stop with, or nil to go on.
+local function choose_sandbox(ctx: Run): integer | nil
+  local handle = ctx.handle
+  local sandbox_mode = ctx.sandbox_mode
+  -- Only a held run reads the promises, which only it fails for: a
+  -- project that sets COSMIC_TEST_PROMISES for another reason is no concern of a run
+  -- that is not held.
+  local promises: {string} = {}
+  ctx.held = sandbox_mode == "on" or Env.get("COSMIC_SANDBOX") == "must" or
+    Env.get("COSMIC_CI_REQUIRE_SANDBOX") == "1"
+  if ctx.held then
+    local read, promises_trouble = host_names.read_promises(Env.get("COSMIC_TEST_PROMISES") or "")
+    if read == nil then
+      local _, _ = work.close(handle)
+      log:complain("test: COSMIC_TEST_PROMISES: " .. promises_trouble)
+      return 1
+    end
+    promises = read
+  end
+  ctx.promises, ctx.leg = promises, Env.get("COSMIC_TEST_LEG") or ""
   -- Each worker runs sandboxed where the kernel can sandbox one, unless
   -- the switch turns it off. Either way each test is keyed by what it
   -- declares; unsandboxed, the run trusts that where a sandboxed run
@@ -2531,50 +3310,80 @@ local function run(argv: {integer:string}): integer
   if sandbox_mode ~= "off" and holder ~= nil and holder ~= "" then
     local _, _ = work.close(handle)
     log:complain("test: this run was started in " .. holder .. "'s worker, which a " ..
-      "Landlock ruleset holds, under which the kernel refuses every mount, and so every " ..
-      "worker's sandbox: declare nests = true in its Test.needs, or start the run with " ..
-      test_sandbox.switch .. "=0")
+        "Landlock ruleset holds, under which the kernel refuses every mount, and so every " ..
+        "worker's sandbox: declare the promise \"nest\" in its Test.policy, or start the run with " ..
+        test_sandbox.switch .. "=0")
     return 1
   end
   if sandbox_mode ~= "off" then
-    local why: string
-    sandboxed, why = sandbox_here()
+    local answer = sandbox_here()
+    ctx.sandbox_answer = answer
+    local why = answer.why
+    sandboxed = answer.ok
+    if answer.broken then
+      -- Neither a limit of the host nor a sandbox: a run that went on
+      -- unsandboxed would pass having confined nothing.
+      local _, _ = work.close(handle)
+      log:complain("test: the probe of whether workers can be sandboxed failed: " .. why)
+      return 1
+    end
     if sandboxed then
       -- And whether it is held to confining what it starts
-      -- ([`confine.must_confine`]), which a test's verdict turns on.
-      runtime = runtime .. " sandboxed" .. (must and " must" or "")
-      sandbox_summary = "; sandboxed"
+      -- ([`confine.must_confine`]), which a test's verdict turns on. A
+      -- verdict so reached is kept apart from one reached without a
+      -- sandbox, by a runtime of its own, so neither stands for the other.
+      -- The runtime holds what every worker's policy has alike, the
+      -- isolation and the promises ([`test_policy.common`]), and the code
+      -- that makes a worker's policy, so an edit to a grant runs the
+      -- tests again without a bump of the epoch.
+      local made = ctx.harness.modules
+      ctx.runtime = ctx.runtime .. " sandboxed" .. (must and " must" or "") .. " policy " ..
+        hashing.hex_sha256(test_policy.common() .. "\0" ..
+            (made["build.test_policy"] or "") .. "\0" .. (made["build.test_sandbox"] or ""))
+      sandbox_summary = "; sandboxed, under a policy"
       log:say("test: sandbox: each worker is held to its inputs, the tree at " ..
-        test_sandbox.tree)
-    elseif sandbox_mode == "on" then
-      local _, _ = work.close(handle)
-      log:complain("test: " .. test_sandbox.switch .. "=1, but no worker can be sandboxed " ..
-        "here: " .. why)
-      return 1
+          test_sandbox.tree)
     else
-      sandbox_summary = "; unsandboxed, as no worker can be sandboxed here"
+      -- A run held to sandboxing fails where no worker can be, rather than
+      -- run them without and pass having confined nothing.
+      local held = sandbox_mode == "on" and test_sandbox.switch .. "=1" or
+        must and "COSMIC_SANDBOX=must" or
+        Env.get("COSMIC_CI_REQUIRE_SANDBOX") == "1" and "COSMIC_CI_REQUIRE_SANDBOX=1" or nil
+      if held ~= nil then
+        local _, _ = work.close(handle)
+        log:complain("test: " .. held .. ", but no worker can be sandboxed here: " .. why)
+        return 1
+      end
+      sandbox_summary = "; unsandboxed, as no worker can be sandboxed here (" .. why .. ")"
       log:say("test: no worker can be sandboxed here: " .. why .. "; " .. unenforced ..
-        "; " .. test_sandbox.switch .. "=0 runs them unsandboxed without asking")
+          "; " .. test_sandbox.switch .. "=0 runs them unsandboxed without asking")
     end
   else
     sandbox_summary = "; unsandboxed (" .. test_sandbox.switch .. "=0)"
     log:say("test: declared: workers run unsandboxed (" .. test_sandbox.switch .. "=0); " ..
-      unenforced)
+        unenforced)
   end
   local shares = sandboxed or shared_verdicts.chosen()
   if not sandboxed then
     -- The pinned COSMIC_TEST_SANDBOX and the " sandboxed" mark already
     -- tell these verdicts from a sandboxed run's; the tag says so in
     -- the key itself (build/declared_unenforced_test.tl).
-    runtime = runtime .. " declared" .. (must and " must" or "")
+    ctx.runtime = ctx.runtime .. " declared" .. (must and " must" or "")
     sandbox_summary = sandbox_summary .. ", keyed by declared inputs" ..
       (shares and "" or ", sharing no verdicts")
   end
+  ctx.sandboxed, ctx.sandbox_summary, ctx.shares = sandboxed, sandbox_summary, shares
   -- What names what a run says of its keys: the sandbox's, or, with no
   -- sandbox, the declarations'.
-  local keying = sandboxed and "test: sandbox: " or "test: declared: "
+  ctx.keying = sandboxed and "test: sandbox: " or "test: declared: "
+  return nil
+end
 
-  local result, compile_trouble = importer.compile(handle, built, tool, false,
+--- The tree compiled into the working database and its build said.
+--- The exit code to stop with, or nil to go on.
+local function build_tree(ctx: Run): integer | nil
+  local handle, staged, started = ctx.handle, ctx.staged, ctx.started
+  local result, compile_trouble = importer.compile(handle, ctx.built, ctx.tool, false,
     shared_compiles.for_build())
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
@@ -2583,7 +3392,7 @@ local function run(argv: {integer:string}): integer
     return 1
   end
   local written, write_trouble =
-    writer.write_result(handle, database, result)
+    writer.write_result(handle, ctx.database, result)
   local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled,
     result.cached, written and "PASS" or "FAIL")
   if not written then
@@ -2591,12 +3400,19 @@ local function run(argv: {integer:string}): integer
     log:complain(write_trouble)
     return 1
   end
+  ctx.result = result
   local parses = result.parses
   log:say(test_report.build({ modules = #result.modules, compiled = result.compiled,
     cached = result.cached, shared = result.shared, parsed = parses.parsed,
     shared_parses = parses.shared, files = staged.files, read = staged.read },
     clock.took(started)))
+  return nil
+end
 
+--- The tests the selectors and the shard choose, each selector held to
+--- matching one. The exit code to stop with, or nil to go on.
+local function select_tests(ctx: Run): integer | nil
+  local result, selectors, shard = ctx.result, ctx.selectors, ctx.shard
   -- Each selector must match a test module on its own: one mistyped
   -- among good ones would otherwise narrow the run without a word, and
   -- one naming a test must find it there.
@@ -2640,7 +3456,7 @@ local function run(argv: {integer:string}): integer
     end
   end
   if #unmatched > 0 or #unfound > 0 then
-    local _, _ = work.close(handle)
+    local _, _ = work.close(ctx.handle)
     if #unmatched > 0 then
       log:complain("no test module matches: " .. table.concat(unmatched, ", "))
     end
@@ -2649,7 +3465,7 @@ local function run(argv: {integer:string}): integer
       local _, name = split(selector)
       local near = test.nearest(name, m.tests)
       log:complain("no test in " .. m.path .. " is named " .. name .. "; it has " ..
-        table.concat(near, ", ") .. (#m.tests > #near and ", ..." or ""))
+          table.concat(near, ", ") .. (#m.tests > #near and ", ..." or ""))
     end
     return 1
   end
@@ -2676,13 +3492,20 @@ local function run(argv: {integer:string}): integer
     end
     selected_modules = kept
   end
+  ctx.selected_modules, ctx.selected_tests = selected_modules, selected_tests
   -- Whether this run chose every test of the tree: what only the whole
   -- suite answers for is checked on such a run alone.
-  local whole = #selectors == 0 and shard == nil
+  ctx.whole = #selectors == 0 and shard == nil
   -- Said after the sandbox, last on the summary line, whichever verdict.
-  local share_summary = shard ~= nil and
+  ctx.share_summary = shard ~= nil and
     string.format("; shard %d of %d", shard.index, shard.count) or ""
+  return nil
+end
 
+--- The verdict transaction begun and what earlier runs left in the
+--- records read. The exit code to stop with, or nil to go on.
+local function open_records(ctx: Run): integer | nil
+  local handle = ctx.handle
   -- Every verdict and every coverage row of this run lands together.
   local begun, begin_trouble = work.begin(handle)
   if not begun then
@@ -2690,8 +3513,9 @@ local function run(argv: {integer:string}): integer
     log:complain(begin_trouble)
     return 1
   end
-  local records_path = root .. "/o/build.db"
+  local records_path = ctx.root .. "/o/build.db"
   local records = handle.db
+  ctx.records_path, ctx.records = records_path, records
   local previous, previous_trouble = previous_runs(records)
   if previous == nil then
     local _, _ = work.rollback(handle)
@@ -2699,6 +3523,7 @@ local function run(argv: {integer:string}): integer
     log:complain(records_path .. ": " .. previous_trouble)
     return 1
   end
+  ctx.previous = previous
   local verdicts, verdicts_trouble = known_verdicts(records)
   if verdicts == nil then
     local _, _ = work.rollback(handle)
@@ -2706,6 +3531,7 @@ local function run(argv: {integer:string}): integer
     log:complain(records_path .. ": " .. verdicts_trouble)
     return 1
   end
+  ctx.verdicts = verdicts
   local epoch, epoch_trouble = harness_epoch_of()
   if epoch == nil then
     local _, _ = work.rollback(handle)
@@ -2713,71 +3539,89 @@ local function run(argv: {integer:string}): integer
     log:complain(epoch_trouble)
     return 1
   end
-  local credited: test.Credited = {}
+  ctx.epoch = epoch
+  ctx.credited = {}
+  return nil
+end
 
-  local tally: test.Tally = { ran = 0, cached = 0, shared = 0, every = 0,
-    skipped = 0 }
-  local modules_run = #selected_modules
+--- The recording every test's outcome is kept in, with the tallies and
+--- coverage it reports, and the verdicts shared with other checkouts
+--- opened where they are used.
+local function make_recording(ctx: Run)
+  local handle, records = ctx.handle, ctx.records
+  ctx.tally = { ran = 0, cached = 0, shared = 0, every = 0,
+    skipped = 0, unchecked = 0, na = 0 }
+  local tally = ctx.tally
   local failures: {string} = {}
   local errors: {string} = {}
+  ctx.failures, ctx.errors = failures, errors
   -- Every hit line of the run, and each test's own, which is what lets
   -- a later run credit a standing verdict's lines to it by name.
   local hits: Coverage.Hits = {}
   local by_test: {string: string} = {}
+  ctx.hits, ctx.by_test = hits, by_test
   -- The core's C is cosmic's own: another project's run neither owns
   -- nor tests it, and counting it would make its lines most of that
   -- project's figure.
   local native_lines: Coverage.Hits = {}
   local unowned: Coverage.Hits = {}
-  if own_tree then
+  if ctx.own_tree then
     native_lines = Coverage.native_lines()
   else
     unowned = Coverage.native_lines()
   end
+  ctx.native_lines = native_lines
+  local sandbox_mode = ctx.sandbox_mode
   local rec: Recording = {
-    records = records, root = root, runtime = runtime,
-    run_at_ns = run_at_ns, run = handle.run,
+    records = records, root = ctx.root, runtime = ctx.runtime,
+    run_at_ns = ctx.run_at_ns, run = handle.run,
     failures = failures, errors = errors, outputs = {}, reruns = {},
-    failed = {}, skips = {}, held = confine.held_to_sandbox(),
+    failed = {}, skips = {}, unchecked = {}, deliberate = {}, held = ctx.held, nas = {}, unmet = {}, answered = {},
     hits = hits, by_test = by_test, unowned = unowned, tally = tally,
     owed = { kept = {}, used = {}, failed = {}, stores = {} }, shared_keys = {},
-    consult_shared = consult,
-    origin = checkout_id(records, root, run_at_ns),
-    sandbox = sandboxed, views = {}, caches = {}, unkeyed = {},
+    consult_shared = ctx.consult,
+    origin = checkout_id(records, ctx.root, ctx.run_at_ns),
+    sandbox = ctx.sandboxed, views = {}, caches = {}, unkeyed = {},
     forbiddable = {},
-    epoch = epoch, timeout_ns = limits.timeout_ns,
-    store_salt = harness.store_salt, carried = harness.carried,
-    closure_sets = {},
+    epoch = ctx.epoch, timeout_ns = ctx.limits.timeout_ns,
+    store_salt = ctx.harness.store_salt, carried = ctx.harness.carried,
+    closure_sets = {}, plans = {}, spelled = {}, folded = {}, type_only = {},
     rerun_prefix = (sandbox_mode == "on" and (test_sandbox.switch .. "=1 ") or
       sandbox_mode == "off" and (test_sandbox.switch .. "=0 ") or ""),
   }
+  ctx.rec = rec
   -- An edit to the code that writes a closure store a test stands in
   -- for, in a tree not cosmic's own, so it can see one that writes the
   -- same bytes move no key without a binary of its own
   -- (build/sandboxed_verdicts_test.tl): mixed into the salt, never in
   -- its place, so one address still names one store's bytes.
   local store_salt = Env.get("COSMIC_TEST_STORE_SALT")
-  if not own_tree and store_salt ~= nil and store_salt ~= "" then
+  if not ctx.own_tree and store_salt ~= nil and store_salt ~= "" then
     rec.store_salt = hex_sha256(rec.store_salt .. "\0" .. store_salt)
   end
   -- The verdicts every checkout of the tree shares: one that stands
   -- here, run where another checkout reached it, is not run again.
   -- Without them the run goes on, and says so unless it was asked not
   -- to use them. An unsandboxed run reads and writes them only where
-  -- COSMIC_VERDICT_CACHE names them (see above).
+  -- COSMIC_VERDICT_CACHE names them (see [`choose_sandbox`]).
   local cache_path, cache_trouble: string, string = nil, ""
-  if shares then cache_path, cache_trouble = shared_verdicts.location() end
+  if ctx.shares then cache_path, cache_trouble = shared_verdicts.location() end
   if cache_path ~= nil then
     rec.shared, cache_trouble = shared_verdicts.open(cache_path)
   end
   if rec.shared == nil and cache_trouble ~= "" then
-    local aside = ""
-    if cache_path ~= nil and shared_verdicts.corrupt(cache_trouble) then
-      local moved, _ = shared_verdicts.set_aside(cache_path, Time.now_ns())
-      if moved ~= nil then aside = "; moved aside to " .. moved end
-    end
-    log:complain("test: shared verdicts: " .. cache_trouble .. "; running without them" .. aside)
+    log:complain("test: shared verdicts: " .. cache_trouble .. "; running without them")
   end
+end
+
+--- What every test's key is made of, read once before any test is
+--- keyed: each selected module's closure and declarations, the stores
+--- of the closures, and the host, system and launcher identities, then
+--- frozen. The exit code to stop with, or nil to go on.
+local function gather_key_inputs(ctx: Run): integer | nil
+  local handle, records, rec, result = ctx.handle, ctx.records, ctx.rec, ctx.result
+  local records_path, selected_modules = ctx.records_path, ctx.selected_modules
+  local identity = ctx.identity
   local by_path: {string:importer.Module} = {}
   for _, m in ipairs(result.modules) do by_path[m.path] = m end
   local declaration_rows, declaration_trouble = Sqlite.text_rows(records,
@@ -2790,7 +3634,7 @@ local function run(argv: {integer:string}): integer
   end
   local declarations: {string:string} = {}
   for _, row in ipairs(declaration_rows) do declarations[row[1]] = row[2] end
-  rec.closures, rec.tree_names, rec.declared_names = {}, {}, {}
+  rec.closures, rec.tree_names = {}, {}
   for path in pairs(by_path) do rec.tree_names[#rec.tree_names + 1] = path end
   table.sort(rec.tree_names)
   -- A module the binary carries that is no module of the tree -- in a
@@ -2800,20 +3644,24 @@ local function run(argv: {integer:string}): integer
   for name in pairs(rec.carried) do
     if by_path[name] == nil then rec.carried[name] = nil end
   end
-  for name in pairs(declarations) do
-    if by_path[name] == nil then rec.declared_names[#rec.declared_names + 1] = name end
+  local type_only, type_only_trouble = projection_type_only(ctx.database)
+  if type_only == nil then
+    local _, _ = work.rollback(handle)
+    local _, _ = work.close(handle)
+    log:complain(type_only_trouble)
+    return 1
   end
-  table.sort(rec.declared_names)
+  rec.type_only = type_only
   for _, m in ipairs(selected_modules) do
-    rec.closures[m.path] = test_inputs.modules(m, by_path, declarations)
+    rec.closures[m.path] = test_inputs.modules(m, by_path, declarations, type_only)
   end
   rec.effective = {}
   local noexec_probes: {string:string} = {}
   for _, m in ipairs(selected_modules) do
-    local effective = test_inputs.effective(m, by_path, declarations)
+    local effective = test_inputs.effective(m, by_path, declarations, type_only)
     effective.cache_paths = caches_of(rec, m)
-    test_inputs.resolve(effective, worker_view(), tree_roots(rec))
-    test_sandbox.resolve_noexec(effective, rec.sandbox, noexec_probes)
+    test_inputs.resolve(effective, tree_roots(rec))
+    test_sandbox_probe.resolve_noexec(effective, rec.sandbox, noexec_probes)
     rec.effective[m.path] = effective
   end
   -- What an earlier run hashed, so a key reads none of it again
@@ -2826,7 +3674,7 @@ local function run(argv: {integer:string}): integer
     log:complain(records_path .. ": " .. remembered_trouble)
     return 1
   end
-  rec.digests = declared_key.digests(root, remembered)
+  rec.digests = declared_key.digests(ctx.root, remembered)
   -- A core that carries debug information, as the checked core does,
   -- is keyed by its image (build.core_image): its DWARF names the
   -- directory musl was first built in, which moves between CI runs,
@@ -2839,17 +3687,18 @@ local function run(argv: {integer:string}): integer
       Store.meta("runtime_basis") or "")
     rec.runtime = rec.store_runtime .. rec.runtime:sub(#identity + 1)
   end
+  rec.core = rec.store_runtime
   -- A core that writes stores otherwise a test stands in for, in a tree
   -- not cosmic's own, so it can see the core move every store's address
   -- (build/sandboxed_verdicts_test.tl): mixed into the stores' salt
   -- alone, never in its place.
   local store_core = Env.get("COSMIC_TEST_STORE_RUNTIME")
-  if not own_tree and store_core ~= nil and store_core ~= "" then
+  if not ctx.own_tree and store_core ~= nil and store_core ~= "" then
     rec.store_runtime = hex_sha256(rec.store_runtime .. "\0" .. store_core)
   end
   -- The store of each test module's closure, by its address, salted with
   -- the core above, and none that no module names any longer.
-  rec.projection = database
+  rec.projection = ctx.database
   local addressed, address_trouble = address_stores(rec, result.modules, by_path, declarations)
   if not addressed then
     local _, _ = work.rollback(handle)
@@ -2858,16 +3707,8 @@ local function run(argv: {integer:string}): integer
     return 1
   end
   sweep_stores(rec)
-  rec.compiler = tool .. " " .. compiled_by
+  rec.compiler = ctx.tool .. " " .. ctx.compiled_by
   rec.host = declared_key.host_identity(rec.digests)
-  rec.worker_host = rec.host
-  if rec.sandbox then
-    local worker_user, _ = test_sandbox.runs_as()
-    if worker_user ~= nil then
-      rec.worker_host = declared_key.host_identity(rec.digests,
-        { worker_uid = worker_user.uid, worker_gid = worker_user.gid })
-    end
-  end
   -- What the system's paths hold is walked only for a run that holds
   -- a module given them, whose key alone holds it: half a second of
   -- /usr's entries otherwise spent for nothing.
@@ -2888,14 +3729,173 @@ local function run(argv: {integer:string}): integer
   -- Every test is keyed before any starts: one look at each input
   -- serves them all.
   declared_key.freeze(rec.digests)
+  return nil
+end
+
+--- Which absence a module reports when it has several, the worst first.
+local UNMET_RANK <const>: {string:integer} = { refused = 3, na = 2, skipped = 1 }
+
+--- The names a module requires of its host, as its policy declares them
+--- ([`host_names.check`]), sorted.
+local function requirements_of(m: importer.Module): {string}
+  local names: {string} = {}
+  local declared = m.inputs
+  if declared == nil then return names end
+  for _, name in ipairs(declared.requires or {}) do names[#names + 1] = name end
+  table.sort(names)
+  return names
+end
+
+--- Asks the host, once, for every requirement the selected modules declare
+--- ([`host_requires`]), before any worker starts,
+--- and decides each module: where all are present, it runs, and its key
+--- holds each answer (`rec.answered`); otherwise none of its tests is
+--- started (`rec.unmet`), as one whose name breaks the table's rules fails
+--- (`refused`), one a platform never has is not applicable (`na`), and one
+--- this host lacks is skipped. A held run (COSMIC_TEST_SANDBOX=1,
+--- COSMIC_SANDBOX=must, COSMIC_CI_REQUIRE_SANDBOX=1) holds the sandbox
+--- ([`choose_sandbox`]), and fails a module for an n/a or a skip of a
+--- requirement its leg promises (COSMIC_TEST_PROMISES, COSMIC_TEST_LEG),
+--- naming the requirement and the leg; an absence of one it does not
+--- promise fails nothing.
+--- The exit code to stop with, or nil to go on.
+local function require_of_host(ctx: Run): integer | nil
+  local rec = ctx.rec
+  local host: host_requires.Host = nil
+  local held = ctx.held
+  for _, m in ipairs(ctx.selected_modules) do
+    local names = requirements_of(m)
+    if #names > 0 then
+      if host == nil then
+        -- COSMIC_TEST_PLATFORM=other, for a test of this runner alone, stands in
+        -- for a platform without Linux's requirements or a portable artifact on
+        -- a host that has them: it makes modules not applicable, which keeps
+        -- no verdict and fails no run.
+        local linux: boolean = nil
+        local portable = Store.meta("runtime_context") == "portable-v1"
+        local checked = testing.configuration == "sanitized"
+        if Env.get("COSMIC_TEST_PLATFORM") == "other" then
+          linux, portable, checked = false, false, false
+        end
+        host = host_requires.new({
+          portable = portable,
+          checked = checked,
+          linux = linux,
+          sandbox = function(): host_requires.Sandbox
+            if ctx.sandbox_answer == nil then ctx.sandbox_answer = sandbox_here() end
+            local answer = ctx.sandbox_answer
+            return { ok = answer.ok, why = answer.why, broken = answer.broken }
+          end,
+        })
+      end
+      local found: {host_requires.Answer} = nil
+      local asked, trouble = pcall(function() found = host_requires.answer(host, names) end)
+      if not asked then
+        -- A probe that cannot tell (a file it may not read) is no answer: the
+        -- modules that name it fail, saying why, and the run goes on.
+        found = {}
+        rec.unmet[m.path] = { kind = "refused", why = "the probe of what it requires of the host " ..
+            "failed: " .. tostring(trouble) }
+      end
+      local present: {string:string} = {}
+      local unmet: Unmet = nil
+      for _, answer in ipairs(found) do
+        if answer.kind == "present" then
+          present[answer.name] = answer.key
+        else
+          local said = "requires " .. answer.name .. ": " .. answer.why
+          local kind = answer.kind
+          if held and kind ~= "refused" and host_names.promised(ctx.promises, answer.name) then
+            said = said .. " (" .. (ctx.leg == "" and "this run" or "the leg " .. ctx.leg) ..
+              " promises " .. answer.name .. ", and a held run fails what its leg promised)"
+            kind = "refused"
+          end
+          if unmet == nil or UNMET_RANK[kind] > UNMET_RANK[unmet.kind] then
+            unmet = { kind = kind, why = said }
+          end
+        end
+      end
+      if rec.unmet[m.path] ~= nil then
+        unmet = nil
+      elseif unmet ~= nil then
+        rec.unmet[m.path] = unmet
+      else
+        rec.answered[m.path] = present
+      end
+    end
+  end
+  ctx.c_unavailable = {}
+  if ctx.own_tree and ctx.whole and host ~= nil then
+    local needs: {string: boolean} = {}
+    for _, name in pairs(c_functions.prerequisites()) do needs[name] = true end
+    local names: {string} = {}
+    for name in pairs(needs) do names[#names + 1] = name end
+    table.sort(names)
+    local asked, trouble = pcall(function()
+      local answers = host_requires.answer(host, names)
+      ctx.c_unavailable = c_functions.unavailable(answers, ctx.held and ctx.promises or nil)
+      for _, answer in ipairs(answers) do
+        if answer.kind == "refused" then
+          rec.errors[#rec.errors + 1] = "C coverage requires " .. answer.name .. ": " .. answer.why
+        elseif answer.kind ~= "present" then
+          local why = "requires " .. answer.name .. ": " .. answer.why
+          if ctx.held and host_names.promised(ctx.promises, answer.name) then
+            rec.failures[#rec.failures + 1] = "C coverage " .. why .. ": this held run promises it"
+          end
+        end
+      end
+    end)
+    if not asked then
+      rec.errors[#rec.errors + 1] = "C coverage prerequisite probe: " .. tostring(trouble)
+    end
+  end
+  return nil
+end
+
+--- Settles the test `id` of a module whose requirements are not all
+--- present ([`require_of_host`]) without starting a worker or keying it,
+--- and keeps no verdict: a refused name fails it, an absence this host has
+--- skips it, and one the platform never lacks marks it not applicable.
+local function settle_unmet(rec: Recording, m: importer.Module, name: string, id: string,
+                            unmet: Unmet, limits: test.Limits)
+  if unmet.kind == "na" then
+    rec.tally.na = rec.tally.na + 1
+    rec.nas[#rec.nas + 1] = id .. ": " .. unmet.why
+    local saved, trouble = record_run(rec.records, m.path, name, false, "n/a: " .. unmet.why,
+      Clock.now_ns(), "", rec.run_at_ns, 0)
+    if not saved then rec.errors[#rec.errors + 1] = id .. ": record: " .. trouble end
+    return
+  end
+  local job: Job = { m = m, name = name, id = id, unrun = true, started_ns = Clock.monotonic_ns() }
+  if unmet.kind == "skipped" then
+    finish(rec, job, nil, "", limits, false, unmet.why)
+  else
+    finish(rec, job, nil, unmet.why, limits)
+  end
+end
+
+--- Each selected test keyed and looked up: a test whose verdict stands,
+--- here or in another checkout, is credited or shared, and the rest
+--- become the run's jobs. What the keys are made of and how many were
+--- looked up is said.
+local function look_up_verdicts(ctx: Run)
+  local rec, selected_modules, selected_tests = ctx.rec, ctx.selected_modules, ctx.selected_tests
+  local verdicts, forced, consult, keying = ctx.verdicts, ctx.forced, ctx.consult, ctx.keying
+  local previous, credited, sandboxed = ctx.previous, ctx.credited, ctx.sandboxed
   local jobs: {Job} = {}
+  ctx.jobs = jobs
   -- The tests looked up in the shared cache, and whether any was found:
   -- where none was, `unmatched` says why.
   local looked: {string:boolean} = {}
   local keyed_count, looked_count, found_count, ran_here = 0, 0, 0, 0
   for _, m in ipairs(selected_modules) do
+    local unmet = rec.unmet[m.path]
     for _, name in ipairs(selected_tests[m.path]) do
       local id = m.path .. " " .. name
+      if unmet ~= nil then
+        settle_unmet(rec, m, name, id, unmet, ctx.limits)
+        goto next_test
+      end
       -- A test is keyed by what it is given, and runs unless a verdict
       -- under that key passed, here or in another checkout -- or it is
       -- forced, by --all or COSMIC_TEST_ALL, or reaches a
@@ -2921,17 +3921,18 @@ local function run(argv: {integer:string}): integer
       else
         share(rec, m, name, id, key, elsewhere)
       end
+      ::next_test::
     end
   end
   -- The digests the run's keys hold, which each row it keeps in the
   -- shared cache is stamped with ([`shared_verdicts.settle`]): made only
   -- where there is a cache to stamp or a census to say, since
   -- `host_features` reads the processor's whole description.
-  local census_asked = parsed.set["--census"] == true
+  local census_asked = ctx.census
   local parts: {{string}} = {}
   if rec.shared ~= nil or census_asked then
     parts = {
-      -- As .github/scripts/host-features.sh names CI's verdict cache.
+      -- As ci/cosmic_ci/host_id.tl names CI's verdict cache.
       { "host features", declared_key.host_features() },
       { "host", rec.host:sub(1, 12) },
       { "system", (rec.system or ""):sub(1, 12) },
@@ -2948,7 +3949,7 @@ local function run(argv: {integer:string}): integer
     if rec.base_store ~= nil then
       parts[#parts + 1] = { "store", base_store_digest(rec):sub(1, 12) }
     end
-    if not sandboxed then parts[#parts + 1] = { "tree", hex_sha256(root):sub(1, 12) } end
+    if not sandboxed then parts[#parts + 1] = { "tree", hex_sha256(ctx.root):sub(1, 12) } end
     local runs_tool = false
     for _, m in ipairs(selected_modules) do
       if rec.effective[m.path] ~= nil and rec.effective[m.path].tool then runs_tool = true end
@@ -2989,7 +3990,23 @@ local function run(argv: {integer:string}): integer
   -- key its inputs still reach once its test has run.
   declared_key.thaw(rec.digests)
   local tests = 0
-  for _, m in ipairs(selected_modules) do tests = tests + #selected_tests[m.path] end
+  for _, m in ipairs(selected_modules) do
+    if rec.unmet[m.path] == nil then tests = tests + #selected_tests[m.path] end
+  end
+  -- Workers that would run on a sealed database but run the whole
+  -- program, as this one is no portable artifact to take its database from.
+  local unsealed = 0
+  for _, m in ipairs(selected_modules) do
+    local effective = rec.effective[m.path]
+    if rec.unmet[m.path] == nil and rec.stores[m.path] ~= nil and effective ~= nil and
+        not (effective.store or effective.tool) and not seals(rec, m) then
+      unsealed = unsealed + #selected_tests[m.path]
+    end
+  end
+  if unsealed > 0 then
+    log:say(keying .. plural.count(unsealed, "test") .. " run the whole program, not a sealed " ..
+        "database of their closure: this program is no portable artifact")
+  end
   log:say(string.format(keying .. "%s keyed by their declared inputs in %.1f ms (%s read)",
     plural.count(tests, "test"), rec.digests.spent_ns / 1e6,
     plural.count(rec.digests.read, "file")))
@@ -2998,41 +4015,107 @@ local function run(argv: {integer:string}): integer
   table.sort(unkeyed)
   for _, path in ipairs(unkeyed) do
     log:say(keying .. path .. " has no key, so its tests run every time: " ..
-      rec.unkeyed[path])
+        rec.unkeyed[path])
   end
+end
+
+--- What takes out the directory of a run's sealed databases when the scope
+--- it is closed in ends, an error escaping it included ([`execute`]).
+local record Removal
+  rec: Recording
+  metamethod __close: function(Removal)
+end
+
+local removal_mt: metatable<Removal> = {
+  __close = function(removal: Removal) drop_sealing(removal.rec) end,
+}
+
+--- An incomplete run contributes no passes or coverage, but its completed
+--- failures disprove old passes. Keep only those tombstones after rolling
+--- back the run, and remove only their keys from the shared cache.
+local function cancel_records(ctx: Run)
+  local rec, handle = ctx.rec, ctx.handle
+  local ok, trouble = work.rollback(handle)
+  if ok and #rec.owed.failed > 0 then
+    ok, trouble = work.begin(handle)
+    if ok then
+      for _, key in ipairs(rec.owed.failed) do
+        ok, trouble = record_verdict(rec.records, key, false, rec.run_at_ns, rec.run, 0)
+        if not ok then break end
+      end
+    end
+  end
+  if ok then
+    ok, trouble = work.close(handle)
+  else
+    local _, _ = work.abort(handle)
+  end
+  if not ok then rec.errors[#rec.errors + 1] = "cancelled verdicts: " .. trouble end
+  if rec.shared ~= nil then
+    local invalidations: shared_verdicts.Owed = { kept = {}, used = {}, failed = rec.owed.failed }
+    local settled, settle_trouble = shared_verdicts.settle(rec.shared, rec.origin,
+      invalidations, Clock.now_ns())
+    shared_verdicts.close(rec.shared)
+    if not settled then
+      rec.errors[#rec.errors + 1] = "cancelled shared verdicts: " .. rec.shared.path .. ": " .. settle_trouble
+    end
+  end
+end
+
+--- The jobs run. The exit code to stop with, or nil to go on: 130 once
+--- a signal has cancelled the run.
+local function execute(ctx: Run): integer | nil
+  local rec, jobs = ctx.rec, ctx.jobs
   if #jobs > 0 then
     -- Nil only where the guard cannot be had (no descriptor left for
     -- its pipe): the run then goes unguarded, a signal acting as it
     -- would.
+    -- Whatever ends the run, an error escaping it included, takes out
+    -- the directory of its sealed databases.
+    local _removing <close>: Removal = setmetatable({ rec = rec }, removal_mt)
     local opened, _ = Child.guard()
     if opened == nil then
-      run_jobs(rec, jobs, limits, nil)
+      run_jobs(rec, jobs, ctx.limits, nil)
     else
       -- A signal the guard caught ends this process when it closes,
       -- once the run is aborted; under a guard of its caller's (test's
       -- `run` called in-process), it is left to that one.
       local guard <close> = opened
-      if run_jobs(rec, jobs, limits, guard) ~= 0 then
-        local _, _ = work.abort(handle)
-        if rec.shared ~= nil then shared_verdicts.close(rec.shared) end
+      if run_jobs(rec, jobs, ctx.limits, guard) ~= 0 then
+        cancel_records(ctx)
         -- A test that failed before the signal keeps its directory,
         -- named as a finished run's report names it: the failures on
         -- stdout, as there, and the errors and the cancellation on stderr.
-        say_failures(rec, failures)
-        for _, line in ipairs(errors) do log:complain("test: ERROR  " .. line) end
+        say_failures(rec, ctx.failures)
+        for _, line in ipairs(ctx.errors) do log:complain("test: ERROR  " .. line) end
         log:complain("test: cancelled; every running test was ended")
         return 130
       end
     end
   end
+  return nil
+end
+
+--- What the finished tests leave: their coverage and the history and
+--- digests kept, the working database closed and the shared cache
+--- settled. Everything it meets goes in `errors`, never an exit.
+local function settle(ctx: Run)
+  local rec, records, tally = ctx.rec, ctx.records, ctx.tally
+  local failures, errors, hits, handle = ctx.failures, ctx.errors, ctx.hits, ctx.handle
+  local result = ctx.result
   if rec.written > 0 then
-    log:say(string.format("%s%s written (%s) in %.1f ms", keying,
+    log:say(string.format("%s%s written (%s) in %.1f ms", ctx.keying,
       plural.count(rec.written, "closure store"), plural.count(rec.written_bytes, "byte"),
       rec.writing_ns / 1e6))
   end
-  local total = tally.ran + tally.cached
+  if rec.sealed_written > 0 then
+    log:say(string.format("%s%s written (%s) in %.1f ms", ctx.keying,
+      plural.count(rec.sealed_written, "sealed database"), plural.count(rec.sealed_bytes, "byte"),
+      rec.sealed_ns / 1e6))
+  end
+  ctx.total = tally.ran + tally.cached + tally.na
 
-  local credit_trouble = credit_hits(records, credited, hits)
+  local credit_trouble = credit_hits(records, ctx.credited, hits)
   if credit_trouble ~= "" then
     errors[#errors + 1] = "coverage credit: " .. credit_trouble
   end
@@ -3044,33 +4127,40 @@ local function run(argv: {integer:string}): integer
   -- rest, and another project's tests owe nothing to the C underneath
   -- them. Every core cosmic tests with observes its own C.
   local function_lines: {string} = {}
+  ctx.function_lines = function_lines
   local functions = Coverage.native_functions()
-  if own_tree and whole and #functions > 0 then
+  if ctx.own_tree and ctx.whole and #functions > 0 then
     -- A host whose name cannot be had is held to every function.
     local names, uname_trouble = sys.uname()
     if names == nil then errors[#errors + 1] = "uname: " .. uname_trouble end
-    local entered = c_functions.tally(functions, hits, c_functions.sources(root, functions),
-      names ~= nil and names.sysname or nil)
+    local entered = c_functions.tally(functions, hits, c_functions.sources(ctx.root, functions),
+      names ~= nil and names.sysname or nil, ctx.c_unavailable)
     for _, key in ipairs(entered.unentered) do
       failures[#failures + 1] = key .. ": a C function no test enters"
     end
-    function_lines[1] = string.format("test: C functions %d/%d entered by a test (%d exempt)",
-      entered.entered, entered.total - entered.exempted, entered.exempted)
+    function_lines[1] = string.format("test: C functions %d/%d entered by a test (%d exempt, %d unavailable)",
+      entered.entered, entered.total - entered.exempted - #entered.unavailable,
+      entered.exempted, #entered.unavailable)
+    for _, why in ipairs(entered.unavailable) do
+      function_lines[#function_lines + 1] = "test: C function SKIP " .. why
+    end
     -- An exemption a test entered is one this core no longer needs. The
     -- other core may still need it, so it is named here, never failed.
     if #entered.stale > 0 then
-      function_lines[2] = "test: C exemptions a test entered on this core: " ..
+      function_lines[#function_lines + 1] = "test: C exemptions a test entered on this core: " ..
         table.concat(entered.stale, ", ")
     end
-  elseif own_tree and #selectors == 0 and #functions > 0 then
+  elseif ctx.own_tree and #ctx.selectors == 0 and #functions > 0 then
     -- A share's tests enter only some of them; a whole run, which CI's
     -- merge queue makes on every leg, holds the core to all of them.
     function_lines[1] = string.format("test: C functions not checked: shard %d of %d " ..
-      "runs part of the suite, and only a whole run enters every one", shard.index, shard.count)
+        "runs part of the suite, and only a whole run enters every one",
+      ctx.shard.index, ctx.shard.count)
   end
 
   local cov_hit, cov_total, cov_trouble =
-    write_coverage(records, built, result.modules, native_lines, hits, by_test, run_at_ns)
+    write_coverage(records, ctx.built, result.modules, ctx.native_lines, hits, ctx.by_test,
+      ctx.run_at_ns)
   if cov_trouble ~= "" then
     errors[#errors + 1] = "coverage: " .. cov_trouble
   end
@@ -3083,7 +4173,7 @@ local function run(argv: {integer:string}): integer
   -- some of it adds to what the rest looked at before.
   if rec.digests ~= nil and rec.digests.read > 0 then
     local kept, keep_trouble = true, ""
-    if whole then kept, keep_trouble = handle.db:exec("DELETE FROM digests") end
+    if ctx.whole then kept, keep_trouble = handle.db:exec("DELETE FROM digests") end
     for _, row in ipairs(kept and declared_key.kept(rec.digests) or {}) do
       if kept then
         kept, keep_trouble = Sqlite.run(records,
@@ -3108,7 +4198,7 @@ local function run(argv: {integer:string}): integer
   -- whatever went wrong with keeping it here.
   if rec.shared ~= nil then
     local settled, settle_trouble = shared_verdicts.settle(rec.shared, rec.origin, rec.owed,
-      Time.now_ns())
+      Clock.now_ns())
     shared_verdicts.close(rec.shared)
     if not settled then
       log:complain("test: shared verdicts: " .. rec.shared.path .. ": " .. settle_trouble)
@@ -3123,35 +4213,80 @@ local function run(argv: {integer:string}): integer
     failures[#failures + 1] = line
   end
 
-  local cov_line = test_report.coverage(cov_hit, cov_total)
+  ctx.cov_line = test_report.coverage(cov_hit, cov_total)
+end
 
+--- The run's verdict said, with the skips, failures and errors that
+--- bear on it, and its exit code: 0 when every test passed.
+local function report(ctx: Run): integer
+  local rec, tally, failures, errors = ctx.rec, ctx.tally, ctx.failures, ctx.errors
+  local total, started = ctx.total, ctx.started
   if #failures == 0 and #errors == 0 then
     if total == 0 then
       log:say("test: nothing to run: a test is a top-level `local function " ..
-        "test_*` of a *_test.tl file, or a function of the `Example` " ..
-        "record a *_example.tl file returns")
+          "test_*` of a *_test.tl file, or a function of the `Example` " ..
+          "record a *_example.tl file returns")
     end
     say_skips(rec)
-    log:say(cov_line)
-    for _, function_line in ipairs(function_lines) do log:say(function_line) end
-    log:verdict("test", true, test_report.passed({ total = total, modules = modules_run,
-      ran = tally.ran, cached = tally.cached, skipped = tally.skipped,
+    log:say(ctx.cov_line)
+    for _, function_line in ipairs(ctx.function_lines) do log:say(function_line) end
+    log:verdict("test", true, test_report.passed({ total = total,
+      modules = #ctx.selected_modules,
+      ran = tally.ran, cached = tally.cached, skipped = tally.skipped, unchecked = tally.unchecked, na = tally.na,
       every = tally.every, shared = tally.shared },
-      clock.took(started) .. sandbox_summary .. share_summary))
+      clock.took(started) .. ctx.sandbox_summary .. ctx.share_summary))
     return 0
   end
   say_skips(rec)
   say_failures(rec, failures)
   for _, line in ipairs(errors) do
-    log:say("test: ERROR  " .. records_path .. ": " .. line)
+    log:say("test: ERROR  " .. ctx.records_path .. ": " .. line)
   end
   if #errors == 0 then
-    log:say(cov_line)
-    for _, function_line in ipairs(function_lines) do log:say(function_line) end
+    log:say(ctx.cov_line)
+    for _, function_line in ipairs(ctx.function_lines) do log:say(function_line) end
   end
-  log:verdict("test", false, test_report.failed(#failures, total + #result.refused,
-    #errors, clock.took(started) .. sandbox_summary .. share_summary))
+  log:verdict("test", false, test_report.failed(#failures, total + #ctx.result.refused,
+    #errors, clock.took(started) .. ctx.sandbox_summary .. ctx.share_summary))
   return 1
+end
+
+--- Builds the tree in the working directory and runs every test it
+--- discovered that its selectors choose ([`test.selects`]), printing a
+--- verdict line and returning the exit code: 0
+--- when every test passed. Each phase above does one part, in order,
+--- and the first to answer an exit code ends the run.
+--- @param argv the command line, which a stale tool re-enters after
+---   rebuilding itself
+local function run(argv: {integer:string}): integer
+  -- Captured once, up front, and threaded through everything below as
+  -- this run's own identifier: see build/work.tl for why a nanosecond
+  -- timestamp, not an autoincrement id, identifies a run.
+  local ctx: Run = { run_at_ns = Clock.now_ns(), argv = argv }
+  local code = read_command(ctx)
+  if code ~= nil then return code end
+  code = hold_checkout(ctx)
+  if code ~= nil then return code end
+  code = read_identities(ctx)
+  if code ~= nil then return code end
+  code = choose_sandbox(ctx)
+  if code ~= nil then return code end
+  code = build_tree(ctx)
+  if code ~= nil then return code end
+  code = select_tests(ctx)
+  if code ~= nil then return code end
+  code = open_records(ctx)
+  if code ~= nil then return code end
+  make_recording(ctx)
+  code = require_of_host(ctx)
+  if code ~= nil then return code end
+  code = gather_key_inputs(ctx)
+  if code ~= nil then return code end
+  look_up_verdicts(ctx)
+  code = execute(ctx)
+  if code ~= nil then return code end
+  settle(ctx)
+  return report(ctx)
 end
 
 --- The `test` verb as [`build/verb_list.tl`] lists it.

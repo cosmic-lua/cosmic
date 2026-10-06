@@ -8,35 +8,35 @@ local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local Zig = require("build.zig")
 local this_program = require("build.this_program")
 
-Test.needs{ lua = true }
+Test.policy{ profiles = { "cosmic" } }
 
 --- An older tool takes only SQLite's transaction. A negative wait keeps
 --- its hold until stdin closes; zero is a nonblocking probe.
 local sql_tool = [[
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local Time = require("cosmic.time")
 local db = assert(Sqlite.open(%q .. "/o/rebuild.lock", { writable = true }))
 assert(db:exec("PRAGMA busy_timeout = 0"))
 if not db:exec("BEGIN IMMEDIATE") then print("busy"); return end
 print("held")
 local wait = %d
-if wait < 0 then Fs.take(Fs.stdin, 1) else Time.sleep_ns(wait) end
+if wait < 0 then Fs.take(Fs.stdin, 1) else Clock.sleep_ns(wait) end
 ]]
 
 local flock_tool = [[
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local fd = assert(sys.open(%q .. "/o/rebuild.lock", sys.O_RDWR | sys.O_CREAT, 0x1a4))
 if not sys.flock(fd, "exclusive", 0) then print("busy"); return end
 print("held")
 local wait = %d
-if wait < 0 then Fs.take(Fs.stdin, 1) else Time.sleep_ns(wait) end
+if wait < 0 then Fs.take(Fs.stdin, 1) else Clock.sleep_ns(wait) end
 ]]
 
 local function start(root: string, wait_ns: integer, flock?: boolean): Child.Handle, string
@@ -49,7 +49,7 @@ end
 
 local function finish(child: Child.Handle)
   assert(assert(child.stdin_stream):close())
-  local result = assert(child:wait(Time.seconds(20)))
+  local result = assert(child:wait(Clock.seconds(20)))
   assert(result.ok, result.stderr)
 end
 
@@ -226,11 +226,11 @@ Fs.take(Fs.stdin, 1)
   local boot <close> = assert(Child.start(command.argv, command.options))
   local waiting = Stream.lines(assert(boot.stderr_stream)):read()
   assert(waiting ~= nil and waiting:find("waiting for it", 1, true), waiting)
-  local began = Time.monotonic_ns()
+  local began = Clock.monotonic_ns()
   assert(boot:stop(sys.SIGTERM))
   local cancelled = Stream.lines(assert(boot.stdout_stream)):read()
   assert(cancelled == "cancelled", cancelled)
-  assert(Time.monotonic_ns() - began < Time.seconds(2), "lock wait ignored cancellation")
+  assert(Clock.monotonic_ns() - began < Clock.seconds(2), "lock wait ignored cancellation")
   assert(not assert(boot:try_wait()).finished, "cancelled waiter exited before cleanup was probed")
   assert(probe(root) == "busy", "cancellation released the older tool's SQL lock")
   local probe_child, said = start(root, 0, true)

@@ -4,13 +4,13 @@
 --- `tool`; the verb's own cases are in `sql_test.tl`.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
-local Time = require("cosmic.time")
 
 --- The program itself, which its tests start.
-Test.needs{ tool = true }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local record Ran
   code: integer
@@ -21,7 +21,7 @@ end
 local function cosmic(dir: string, words: {string}, input?: string): Ran
   local started = this_program.program(words, {
     cwd = dir, stdout = "capture", stderr = "capture", input = input,
-    timeout_ns = Time.seconds(30),
+    timeout_ns = Clock.seconds(30),
   })
   local result = assert(Child.run(started.argv, started.options))
   return { code = result.code, out = result.stdout or "", err = result.stderr or "" }
@@ -49,8 +49,8 @@ local function test_a_refused_line_and_a_bad_file_keep_the_verdict_last(tmp: str
   assert(invalid.err:find("standard input: json: invalid JSON", 1, true), invalid.err)
 end
 
---- Help reads the store's docs, which a test not declaring `store` is held
---- from, so it is here, with the tests that start the program.
+--- Help reads the store's docs, which a test not declaring `store` is not
+--- given, so it is here, with the tests that start the program.
 local function test_help_points_between_sql_and_json(tmp: string)
   local sql = cosmic(tmp, { "help", "sql" })
   assert(sql.code == 0, sql.err)

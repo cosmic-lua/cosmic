@@ -251,6 +251,48 @@ local record Parsed
   tokens: {compiler.Token}
 end
 
+--- What to write for a type declared under a dotted name, which the
+--- parser refuses: `local record Ledger.Month` (or `enum`, `interface`,
+--- `type`, or `global`) at the dot, `record Ledger.Month` as needing a
+--- `local`. A module's type is declared inside the module's record,
+--- and the dotted name is how it is read, there and in every module
+--- that requires it. nil for any other refusal, for a line `e` names
+--- that declares no dotted name, and for an outer name `source` binds
+--- to a `require`, whose record is another module's to declare in.
+local function dotted_declaration(source: string, e: compiler.Error): string | nil
+  local unscoped = e.msg == "record needs to be declared with 'local record' or 'global record'"
+  if not unscoped and e.msg:match("^syntax error") == nil then
+    return nil
+  end
+  local line: string | nil = nil
+  local y = 0
+  for text in (source .. "\n"):gmatch("([^\n]*)\n") do
+    y = y + 1
+    if y == e.y then
+      line = text
+      break
+    end
+  end
+  if line == nil or (not unscoped and line:sub(e.x, e.x) ~= ".") then
+    return nil
+  end
+  local kind, outer, inner = line:match("^%s*%a+%s+(%a+)%s+([%a_][%w_]*)%.([%a_][%w_]*)")
+  if unscoped then
+    kind, outer, inner = line:match("^%s*(%a+)%s+([%a_][%w_]*)%.([%a_][%w_]*)")
+  end
+  if kind ~= "record" and kind ~= "enum" and kind ~= "interface" and kind ~= "type" then
+    return nil
+  end
+  if source:find("local%s+" .. outer .. "%s*=%s*require") ~= nil or
+      source:find("local%s+type%s+" .. outer .. "%s*=%s*require") ~= nil then
+    return nil
+  end
+  local declared = kind == "type" and "type " .. inner .. " = ..." or kind .. " " .. inner .. " ... end"
+  return "declare `" .. declared .. "` inside `local record " .. outer ..
+    " ... end`: it is then " .. outer .. "." .. inner ..
+    ", here and in every module that requires this one"
+end
+
 --- Lex and parse `source` into a [`Node`] tree and its token stream.
 ---
 --- Casts `parse_program`'s erased `any` result to [`Node`].
@@ -265,11 +307,26 @@ local function parse(built: compiler, source: string, name: string): Parsed | ni
     local e = lex_errs[1]
     return nil, string.format("%s:%d:%d: %s", name, e.y, e.x, e.msg)
   end
+  -- tl's parser rewrites a `>>` closing two type argument lists
+  -- (`metatable<R<K>>`) to `>` in place, and reads that one token
+  -- twice: put the lexer's spelling back, which is the source's, so a
+  -- token still spans what the source wrote.
+  local shifts: {compiler.Token} = {}
+  for _, t in ipairs(tokens) do
+    if t.tk == ">>" then
+      shifts[#shifts + 1] = t
+    end
+  end
   local parse_errs: {compiler.Error} = {}
   local ast = built.parse_program(tokens, parse_errs, name)
+  for _, t in ipairs(shifts) do
+    t.tk = ">>"
+  end
   if #parse_errs > 0 then
     local e = parse_errs[1]
-    return nil, string.format("%s:%d:%d: %s", name, e.y, e.x, e.msg)
+    local hint = dotted_declaration(source, e)
+    return nil, string.format("%s:%d:%d: %s", name, e.y, e.x, e.msg) ..
+      (hint ~= nil and " -- " .. hint or "")
   end
   -- cast: parse_program erases its AST to `any`
   return { node = ast as Node, tokens = tokens }, ""

@@ -105,6 +105,13 @@ void cosmic_startup_host (struct cosmic_startup *startup, int fd,
   startup->artifact_fd = fd;
 }
 
+void cosmic_startup_database (struct cosmic_startup *startup,
+                              const char *path) {
+  cosmic_startup_native(startup);
+  startup->kind = COSMIC_STARTUP_DATABASE;
+  startup->database_path = path;
+}
+
 bool cosmic_artifact_core_matches (struct cosmic_artifact *artifact) {
   if (artifact == NULL || artifact->fd < 0) return false;
   if (artifact->core_checked == 0) {
@@ -126,12 +133,16 @@ void cosmic_startup_portable (struct cosmic_startup *startup,
   for (size_t i = 0; i < sizeof values / sizeof values[0]; i++)
     values[i] = getenv(portable_environment[i]);
 
-  uint64_t artifact_fd, core_fd, target, configuration, offset, length;
-  if (!decimal(values[0], INT_MAX, &artifact_fd) || artifact_fd < 3)
+  /* Neither descriptor named: nothing was handed, and adoption opens the
+   * artifact by its path and the core by itself. Naming one alone is no
+   * contract. */
+  bool by_path = values[0] == NULL && values[1] == NULL;
+  uint64_t artifact_fd = 0, core_fd = 0, target, configuration, offset, length;
+  if (!by_path && (!decimal(values[0], INT_MAX, &artifact_fd) || artifact_fd < 3))
     startup->contract_error = "portable artifact descriptor field is invalid";
-  else if (!decimal(values[1], INT_MAX, &core_fd) || core_fd < 3)
+  else if (!by_path && (!decimal(values[1], INT_MAX, &core_fd) || core_fd < 3))
     startup->contract_error = "portable core descriptor field is invalid";
-  else if (artifact_fd == core_fd)
+  else if (!by_path && artifact_fd == core_fd)
     startup->contract_error = "portable descriptor fields are equal";
   else if (!decimal(values[2], UINT32_MAX, &target) || target == 0)
     startup->contract_error = "portable launcher target field is invalid";
@@ -146,8 +157,9 @@ void cosmic_startup_portable (struct cosmic_startup *startup,
   else if (!hex_digest(values[6], startup->launcher_core_sha256))
     startup->contract_error = "portable launcher core digest is invalid";
   else {
-    startup->artifact_fd = (int)artifact_fd;
-    startup->core_fd = (int)core_fd;
+    startup->by_path = by_path;
+    startup->artifact_fd = by_path ? -1 : (int)artifact_fd;
+    startup->core_fd = by_path ? -1 : (int)core_fd;
     startup->launcher_target_id = (uint32_t)target;
     startup->launcher_configuration_id = (uint32_t)configuration;
     startup->launcher_core_offset = offset;
@@ -159,7 +171,10 @@ void cosmic_startup_portable (struct cosmic_startup *startup,
 }
 
 const char *cosmic_startup_validate (const struct cosmic_startup *startup) {
-  if (startup->kind != COSMIC_STARTUP_NATIVE &&
+  if (startup->kind == COSMIC_STARTUP_DATABASE) {
+    if (startup->database_path == NULL || startup->database_path[0] == '\0')
+      return "--database names no database";
+  } else if (startup->kind != COSMIC_STARTUP_NATIVE &&
       (startup->artifact_path == NULL || startup->artifact_path[0] == '\0'))
     return "portable startup names no artifact";
   if (startup->contract_error != NULL) return startup->contract_error;
@@ -261,6 +276,33 @@ bool cosmic_startup_adopt (const struct cosmic_startup *startup,
   cosmic_artifact_init(artifact);
   if (error != NULL) *error = NULL;
   if (startup->kind == COSMIC_STARTUP_NATIVE) return true;
+  if (startup->kind == COSMIC_STARTUP_DATABASE) {
+    /* The core is the whole of this program's file: the database is not
+     * inside it, so there is no manifest, launcher or artifact descriptor
+     * to check it against. What the database records of the core is
+     * checked once it is open ([`cosmic_database_bind`]). */
+    int core_fd = cosmic_executable_fd();
+    struct stat core_stat;
+    if (core_fd < 0)
+      return fail_adoption(artifact, -1, -1, error,
+                           "the running core cannot be opened");
+    if (fstat(core_fd, &core_stat) != 0 || !S_ISREG(core_stat.st_mode) ||
+        core_stat.st_size <= 0)
+      return fail_adoption(artifact, core_fd, -1, error,
+                           "the running core is not a regular file");
+    artifact->fd = core_fd;
+    artifact->host = 1;
+    artifact->split = 1;
+    artifact->device = (uint64_t)core_stat.st_dev;
+    artifact->inode = (uint64_t)core_stat.st_ino;
+    artifact->file_size = (uint64_t)core_stat.st_size;
+    artifact->portable.selected = (struct cosmic_portable_entry){
+      .target_id = COSMIC_TARGET_ID,
+      .configuration_id = COSMIC_CONFIGURATION_ID,
+      .length = (uint64_t)core_stat.st_size,
+    };
+    return true;
+  }
   if (startup->kind == COSMIC_STARTUP_HOST) {
     /* The kernel executed this very file: there is no launcher's choice to
      * check it against. Its structure is checked here, and its core's digest
@@ -289,20 +331,37 @@ bool cosmic_startup_adopt (const struct cosmic_startup *startup,
                                                 host_error);
     return true;
   }
+  int artifact_fd = startup->artifact_fd;
+  int core_fd = startup->core_fd;
   if (startup->artifact_path[0] != '/')
-    return fail_adoption(artifact, startup->core_fd, -1, error,
+    return fail_adoption(artifact, core_fd, -1, error,
                          "portable artifact path is not absolute");
   size_t path_length = strlen(startup->artifact_path);
   if (path_length >= sizeof artifact->logical_path)
-    return fail_adoption(artifact, startup->core_fd, -1, error,
+    return fail_adoption(artifact, core_fd, -1, error,
                          "portable artifact path is too long");
   memcpy(artifact->logical_path, startup->artifact_path, path_length + 1);
-  artifact->fd = startup->artifact_fd;
+  if (startup->by_path) {
+    /* Nothing was handed: this process opens what it runs itself, so each
+     * descriptor reaches only what its own root shows of the artifact and the
+     * core. */
+    artifact_fd = open(startup->artifact_path, O_RDONLY | O_CLOEXEC);
+    if (artifact_fd < 0)
+      return fail_adoption(artifact, -1, -1, error,
+                           "portable artifact path cannot be opened");
+    core_fd = cosmic_executable_fd();
+    if (core_fd < 0) {
+      close(artifact_fd);
+      return fail_adoption(artifact, -1, -1, error,
+                           "the running core cannot be opened");
+    }
+  }
+  artifact->fd = artifact_fd;
 
   struct stat artifact_stat;
   if (artifact->fd < 0 || fstat(artifact->fd, &artifact_stat) != 0 ||
       !S_ISREG(artifact_stat.st_mode) || artifact_stat.st_size < 0)
-    return fail_adoption(artifact, startup->core_fd, -1, error,
+    return fail_adoption(artifact, core_fd, -1, error,
                          "retained artifact descriptor is not a regular file");
   artifact->device = (uint64_t)artifact_stat.st_dev;
   artifact->inode = (uint64_t)artifact_stat.st_ino;
@@ -319,7 +378,7 @@ bool cosmic_startup_adopt (const struct cosmic_startup *startup,
       (stat(startup->artifact_path, &path_stat) != 0 ||
        path_stat.st_dev != artifact_stat.st_dev ||
        path_stat.st_ino != artifact_stat.st_ino))
-    return fail_adoption(artifact, startup->core_fd, -1, error,
+    return fail_adoption(artifact, core_fd, -1, error,
                          "portable artifact path does not name the retained "
                          "artifact (a #! line cut short?)");
 
@@ -327,39 +386,39 @@ bool cosmic_startup_adopt (const struct cosmic_startup *startup,
   if (!cosmic_portable_decode(artifact->fd, COSMIC_TARGET_ID,
                               COSMIC_CONFIGURATION_ID,
                               &artifact->portable, &decode_error))
-    return fail_adoption(artifact, startup->core_fd, -1, error,
+    return fail_adoption(artifact, core_fd, -1, error,
                          decode_error == NULL ? "portable artifact is invalid" :
                                                 decode_error);
 
   const struct cosmic_portable_entry *selected = &artifact->portable.selected;
   if (startup->launcher_target_id != COSMIC_TARGET_ID)
-    return fail_adoption(artifact, startup->core_fd, -1, error,
+    return fail_adoption(artifact, core_fd, -1, error,
                          "launcher target differs from compiled target");
   if (startup->launcher_configuration_id != COSMIC_CONFIGURATION_ID)
-    return fail_adoption(artifact, startup->core_fd, -1, error,
+    return fail_adoption(artifact, core_fd, -1, error,
                          "launcher configuration differs from compiled configuration");
   if (selected->target_id != startup->launcher_target_id ||
       selected->configuration_id != startup->launcher_configuration_id)
-    return fail_adoption(artifact, startup->core_fd, -1, error,
+    return fail_adoption(artifact, core_fd, -1, error,
                          "selected manifest identity differs from launcher");
   if (selected->offset != startup->launcher_core_offset)
-    return fail_adoption(artifact, startup->core_fd, -1, error,
+    return fail_adoption(artifact, core_fd, -1, error,
                          "selected core offset differs from launcher");
   if (selected->length != startup->launcher_core_length)
-    return fail_adoption(artifact, startup->core_fd, -1, error,
+    return fail_adoption(artifact, core_fd, -1, error,
                          "selected core length differs from launcher");
   if (memcmp(selected->sha256, startup->launcher_core_sha256,
              COSMIC_PORTABLE_SHA256_LENGTH) != 0)
-    return fail_adoption(artifact, startup->core_fd, -1, error,
+    return fail_adoption(artifact, core_fd, -1, error,
                          "selected core digest differs from launcher");
 
   struct stat core_stat;
-  if (startup->core_fd < 0 || fstat(startup->core_fd, &core_stat) != 0 ||
+  if (core_fd < 0 || fstat(core_fd, &core_stat) != 0 ||
       !S_ISREG(core_stat.st_mode) || core_stat.st_size < 0)
-    return fail_adoption(artifact, startup->core_fd, -1, error,
+    return fail_adoption(artifact, core_fd, -1, error,
                          "retained core descriptor is not a regular file");
   if ((uint64_t)core_stat.st_size != selected->length)
-    return fail_adoption(artifact, startup->core_fd, -1, error,
+    return fail_adoption(artifact, core_fd, -1, error,
                          "executing core length differs from manifest");
   char stamp[COSMIC_ARTIFACT_PATH_CAPACITY + 160];
   char stamp_directory[COSMIC_ARTIFACT_PATH_CAPACITY];
@@ -367,7 +426,7 @@ bool cosmic_startup_adopt (const struct cosmic_startup *startup,
                             stamp_directory, sizeof stamp_directory);
   /* A stamp that holds says the entry was hashed and not written since. */
   bool fresh = stamped && stamp_holds(stamp, &core_stat);
-  if (!fresh && !cosmic_sha256_range_matches(startup->core_fd, 0,
+  if (!fresh && !cosmic_sha256_range_matches(core_fd, 0,
                                              selected->length,
                                              selected->sha256)) {
     /* The launcher checks a cached core's kind, owner, mode and length but
@@ -384,7 +443,7 @@ bool cosmic_startup_adopt (const struct cosmic_startup *startup,
       snprintf(corrupt, sizeof corrupt,
                "executing core digest differs from manifest; remove the "
                "cached core to extract it again");
-    return fail_adoption(artifact, startup->core_fd, -1, error, corrupt);
+    return fail_adoption(artifact, core_fd, -1, error, corrupt);
   }
   if (stamped && !fresh)
     stamp_write(stamp, stamp_directory, &core_stat);
@@ -392,19 +451,60 @@ bool cosmic_startup_adopt (const struct cosmic_startup *startup,
   int physical_fd = cosmic_executable_fd();
   struct stat physical_stat;
   if (physical_fd < 0 || fstat(physical_fd, &physical_stat) != 0)
-    return fail_adoption(artifact, startup->core_fd, physical_fd, error,
+    return fail_adoption(artifact, core_fd, physical_fd, error,
                          "physical executable identity is unavailable");
   if (physical_stat.st_dev != core_stat.st_dev ||
       physical_stat.st_ino != core_stat.st_ino)
-    return fail_adoption(artifact, startup->core_fd, physical_fd, error,
+    return fail_adoption(artifact, core_fd, physical_fd, error,
                          "physical executable differs from retained core");
   close(physical_fd);
-  close(startup->core_fd);
+  close(core_fd);
 
   int flags = fcntl(artifact->fd, F_GETFD);
   if (flags < 0 || fcntl(artifact->fd, F_SETFD, flags | FD_CLOEXEC) != 0)
     return fail_adoption(artifact, -1, -1, error,
                          "cannot mark retained artifact close-on-exec");
   artifact->core_checked = 1;
+  return true;
+}
+
+bool cosmic_database_bind (struct cosmic_artifact *artifact, const char *path,
+                           const char *recorded, const char **error) {
+  size_t length = strlen(path);
+  if (length >= sizeof artifact->logical_path) {
+    *error = "the path is too long";
+    return false;
+  }
+  if (recorded == NULL) {
+    *error = "it records no core_sha256, so it is not a database written "
+             "for a core";
+    return false;
+  }
+  if (!hex_digest(recorded, artifact->portable.selected.sha256)) {
+    *error = "it records a core_sha256 that is not a sha256 in hex";
+    return false;
+  }
+  /* The stamp a portable start leaves beside a cache entry says the
+   * entry was hashed and not written since: a core run from that entry,
+   * whose name holds the digest the database records, is not hashed again
+   * (a checked core is tens of megabytes, and every child of a sealed
+   * worker starts so). Any other core is hashed, and stamped if it is an
+   * entry. */
+  struct stat core_stat;
+  char stamp[COSMIC_ARTIFACT_PATH_CAPACITY + 160];
+  char stamp_directory[COSMIC_ARTIFACT_PATH_CAPACITY];
+  bool stamped = fstat(artifact->fd, &core_stat) == 0 &&
+                 stamp_path(&artifact->portable.selected, &core_stat, stamp,
+                            sizeof stamp, stamp_directory,
+                            sizeof stamp_directory);
+  bool fresh = stamped && stamp_holds(stamp, &core_stat);
+  if (fresh) artifact->core_checked = 1;
+  if (!cosmic_artifact_core_matches(artifact)) {
+    *error = "it was written for another core than this one: its "
+             "core_sha256 differs from this core's digest";
+    return false;
+  }
+  if (stamped && !fresh) stamp_write(stamp, stamp_directory, &core_stat);
+  memcpy(artifact->logical_path, path, length + 1);
   return true;
 }

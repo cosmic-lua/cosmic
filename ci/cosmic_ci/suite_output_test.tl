@@ -9,11 +9,11 @@ local key_parts <const> = "test: key parts: host features 0123456789abcdef, host
 --- A sandboxed run's lines as build/test.tl says them, --census asked.
 local function test_a_passing_sandboxed_run()
   local figures = SuiteOutput.parse("boot: PASS (3 targets, 2344 ms)\n" ..
-    "test: sandbox: each worker is held to its inputs, the tree at /tree\n" ..
-    key_parts .. "\n" ..
-    "test: 1994 tests keyed by their declared inputs in 12.5 ms (40 files read)\n" ..
-    "test: coverage 71.2% (1/2 lines; informational, never a failure)\n" ..
-    "test: PASS (1994 tests, 193 modules; 0 ran, 1994 stood, 2385 ms; sandboxed)\n")
+      "test: sandbox: each worker is held to its inputs, the tree at /tree\n" ..
+      key_parts .. "\n" ..
+      "test: 1994 tests keyed by their declared inputs in 12.5 ms (40 files read)\n" ..
+      "test: coverage 71.2% (1/2 lines; informational, never a failure)\n" ..
+      "test: PASS (1994 tests, 193 modules; 0 ran, 1994 stood, 2385 ms; sandboxed)\n")
   assert(figures.verdict == "pass" and figures.tests == 1994 and figures.modules == 193)
   assert(figures.ran == 0 and figures.stood == 1994 and figures.shared == 0)
   assert(figures.every == 0 and figures.failed == 0)
@@ -30,9 +30,9 @@ end
 --- there -- `skipped`, which no row keeps -- leaves the rest read by place.
 local function test_a_pass_with_every_optional_count()
   local figures = SuiteOutput.parse("test: PASS (40 tests, 3 modules; 12 ran, 28 stood, " ..
-    "3 skipped (this host could not check them), 2 run every time (no key holds them), " ..
-    "20 of them on another checkout's verdict, 901 ms; unsandboxed (COSMIC_TEST_SANDBOX=0), " ..
-    "sharing no verdicts)\n")
+      "3 skipped (this host could not check them), 2 run every time (no key holds them), " ..
+      "20 of them on another checkout's verdict, 901 ms; unsandboxed (COSMIC_TEST_SANDBOX=0), " ..
+      "sharing no verdicts)\n")
   assert(figures.ran == 12 and figures.stood == 28 and figures.every == 2)
   assert(figures.shared == 20 and figures.elapsed_ms == 901)
   assert(figures.sandbox == "unsandboxed (COSMIC_TEST_SANDBOX=0), sharing no verdicts",
@@ -52,8 +52,8 @@ local function test_a_count_of_one_is_read_in_the_singular()
   assert(failed.verdict == "fail" and failed.tests == 1 and failed.errors == 1)
   local unmatched = SuiteOutput.parse(
     "test: shared verdicts: none of 1 test looked up stood, though x holds 1 row, " ..
-    "0 of them of those tests: no other run reached them (host features 0123456789abcdef, " ..
-    "host aaaaaaaaaaaa)\n")
+      "0 of them of those tests: no other run reached them (host features 0123456789abcdef, " ..
+      "host aaaaaaaaaaaa)\n")
   assert(unmatched.parts and unmatched.parts.host == "aaaaaaaaaaaa")
 end
 
@@ -61,8 +61,8 @@ end
 --- count; the failures' own lines are not its summary.
 local function test_a_failing_run()
   local figures = SuiteOutput.parse(key_parts .. "\n" ..
-    "test: FAIL  build/x_test.tl: test_y (assertion failed!)\n" ..
-    "test: FAIL (2 of 1994 failed, 1 infrastructure errors, 4100 ms; sandboxed)\n")
+      "test: FAIL  build/x_test.tl: test_y (assertion failed!)\n" ..
+      "test: FAIL (2 of 1994 failed, 1 infrastructure errors, 4100 ms; sandboxed)\n")
   assert(figures.verdict == "fail" and figures.failed == 2 and figures.tests == 1994)
   assert(figures.errors == 1 and figures.elapsed_ms == 4100 and figures.sandbox == "sandboxed")
   assert(figures.ran == nil and figures.stood == nil)
@@ -76,10 +76,10 @@ end
 --- `unmatched` line in place of the `key parts` one.
 local function test_the_unmatched_line_says_the_parts()
   local figures = SuiteOutput.parse("test: shared verdicts: none of 1994 tests looked up " ..
-    "stood, though /c/checked.db holds 2000 rows, 1994 of them of those tests: none under " ..
-    "the keys this run reached (host features 01, host 02, system 03, runtime 04, " ..
-    "compiler 05, harness 06, launcher 07)\n" ..
-    "test: PASS (1994 tests, 193 modules; 1994 ran, 0 stood, 250000 ms; sandboxed)\n")
+      "stood, though /c/checked.db holds 2000 rows, 1994 of them of those tests: none under " ..
+      "the keys this run reached (host features 01, host 02, system 03, runtime 04, " ..
+      "compiler 05, harness 06, launcher 07)\n" ..
+      "test: PASS (1994 tests, 193 modules; 1994 ran, 0 stood, 250000 ms; sandboxed)\n")
   local parts = assert(figures.parts)
   assert(parts.runtime == "04" and parts.harness == "06" and parts.launcher == "07")
   assert(figures.ran == 1994 and figures.stood == 0)
@@ -89,9 +89,9 @@ end
 --- cache held: each set of parts its rows name, and how many.
 local function test_the_census_line_says_what_the_cache_held(tmp: string)
   local figures, status = SuiteOutput.read(key_parts .. "\n" ..
-    "test: census: 1990 rows under host features 01, runtime bbbbbbbbbbbb, " ..
-    "harness e8-072f7458-t60000; 1 row under no parts named\n" ..
-    "test: PASS (1994 tests, 193 modules; 0 ran, 1994 stood, 2385 ms; sandboxed)\n", 0)
+      "test: census: 1990 rows under host features 01, runtime bbbbbbbbbbbb, " ..
+      "harness e8-072f7458-t60000; 1 row under no parts named\n" ..
+      "test: PASS (1994 tests, 193 modules; 0 ran, 1994 stood, 2385 ms; sandboxed)\n", 0)
   assert(status == "pass" and figures.stood == 1994)
   local held = SuiteOutput.held(assert(figures.held))
   assert(#held == 2 and held[1].rows == 1990 and held[2].rows == 1)
@@ -114,16 +114,16 @@ local function test_the_census_line_says_what_the_cache_held(tmp: string)
   local old = tmp .. "/old.db"
   local handle = assert(Sqlite.open(old, { writable = true }))
   assert(handle:exec("CREATE TABLE suite_runs (id INTEGER PRIMARY KEY, worker TEXT, " ..
-    "run TEXT, attempt TEXT, phase TEXT, suite TEXT, status TEXT, exit_code INTEGER, " ..
-    "tests INTEGER, modules INTEGER, ran INTEGER, stood INTEGER, every INTEGER, " ..
-    "assumed INTEGER, shared INTEGER, failed INTEGER, elapsed_ms INTEGER, sandbox TEXT, " ..
-    "host_features TEXT, host TEXT, system TEXT, runtime TEXT, compiler TEXT, " ..
-    "harness TEXT, launcher TEXT, program TEXT)"))
+      "run TEXT, attempt TEXT, phase TEXT, suite TEXT, status TEXT, exit_code INTEGER, " ..
+      "tests INTEGER, modules INTEGER, ran INTEGER, stood INTEGER, every INTEGER, " ..
+      "assumed INTEGER, shared INTEGER, failed INTEGER, elapsed_ms INTEGER, sandbox TEXT, " ..
+      "host_features TEXT, host TEXT, system TEXT, runtime TEXT, compiler TEXT, " ..
+      "harness TEXT, launcher TEXT, program TEXT)"))
   assert(handle:exec("INSERT INTO suite_runs (worker, run, attempt, phase, suite, status, " ..
-    "runtime) VALUES ('w', '1', '1', 'build', 'local', 'pass', 'r')"))
+      "runtime) VALUES ('w', '1', '1', 'build', 'local', 'pass', 'r')"))
   local rows = State.suite_rows(handle)
   assert(#rows == 1 and rows[1].held == nil and rows[1].parts.runtime == "r" and
-    rows[1].parts.store == nil)
+      rows[1].parts.store == nil)
   assert(handle:close())
   -- Written to again, it gains the columns it lacks.
   State.suite(old, { worker = "w", run = "2", attempt = "1", phase = "build",
@@ -150,7 +150,7 @@ end
 --- said after: a summary there is a test's own nested run's.
 local function test_a_timed_out_suite_keeps_only_its_key_parts()
   local figures, status = SuiteOutput.read(key_parts .. "\n" ..
-    "test: PASS (1 test, 1 module; 1 ran, 0 stood, 3 ms)\n", 124)
+      "test: PASS (1 test, 1 module; 1 ran, 0 stood, 3 ms)\n", 124)
   assert(status == "timeout")
   assert(figures.verdict == nil and figures.tests == nil and figures.ran == nil)
   assert(figures.stood == nil and figures.elapsed_ms == nil)
@@ -178,7 +178,7 @@ end
 local function test_the_last_summary_is_the_suites()
   local figures = SuiteOutput.parse(
     "test: PASS (1 test, 1 module; 1 ran, 0 stood, 3 ms)\r\n" ..
-    "test: PASS (10 tests, 2 modules; 4 ran, 6 stood, 30 ms; sandboxed)\r\n")
+      "test: PASS (10 tests, 2 modules; 4 ran, 6 stood, 30 ms; sandboxed)\r\n")
   assert(figures.tests == 10 and figures.stood == 6 and figures.sandbox == "sandboxed")
 end
 
@@ -186,7 +186,7 @@ end
 local function test_rows_round_trip_into_the_summary_table(tmp: string)
   local path = tmp .. "/operations.db"
   local figures = SuiteOutput.parse(key_parts .. "\n" ..
-    "test: PASS (200 tests, 20 modules; 1 ran, 199 stood, 2385 ms; sandboxed)\n")
+      "test: PASS (200 tests, 20 modules; 1 ran, 199 stood, 2385 ms; sandboxed)\n")
   State.suite(path, { worker = "linux-x86_64", run = "7", attempt = "1", phase = "build",
     suite = "local", status = SuiteOutput.status(figures, 0), exit_code = 0,
     tests = figures.tests, modules = figures.modules, ran = figures.ran,
@@ -201,19 +201,38 @@ local function test_rows_round_trip_into_the_summary_table(tmp: string)
   assert(#rows == 2)
   assert(rows[1].ran == 1 and rows[1].stood == 199 and rows[1].elapsed_ms == 2385)
   assert(rows[1].parts.runtime == "bbbbbbbbbbbb" and rows[1].parts.system == "" and
-    rows[1].parts.store == "eeeeeeeeeeee")
+      rows[1].parts.store == "eeeeeeeeeeee")
   assert(rows[2].tests == nil and rows[2].exit_code == 124 and rows[2].parts.runtime == nil)
   local text = SuiteOutput.markdown(rows)
   assert(text:find("| linux-x86_64 | build | local | pass | 0 | 200 | 1 | 199 | 99.5 | 0 | " ..
-    "2385 | bbbbbbbbbbbb | dddddddddddd | cccccccccccc | eeeeeeeeeeee | aaaaaaaaaaaa |  | " ..
-    "0123456789abcdef |",
+      "2385 | bbbbbbbbbbbb | dddddddddddd | cccccccccccc | eeeeeeeeeeee | aaaaaaaaaaaa |  | " ..
+      "0123456789abcdef |",
     1, true), text)
   assert(text:find("| linux-x86_64 | fixtures | fixture runtime\\|regression | timeout | 124 " ..
-    "|  |  |  |  |  |  |", 1, true), text)
+      "|  |  |  |  |  |  |", 1, true), text)
   -- An operations database from before the table has no rows.
   local old = tmp .. "/old.db"
   local handle = assert(Sqlite.open(old, { writable = true }))
   assert(handle:exec("CREATE TABLE operation_events (id INTEGER PRIMARY KEY)"))
   assert(#State.suite_rows(handle) == 0)
   assert(handle:close())
+end
+
+--- A suite's skips are grouped by reason, a scratch path made one, and
+--- reported as a table; a suite with none reports nothing.
+local function test_skips_are_grouped_by_reason_for_the_summary()
+  local text = table.concat({
+    "test: SKIP  a.b_test test_x: no socket (/tmp/cosmic-test-pad/x/probe.sock: denied)",
+    "test: SKIP  a.b_test test_y: no socket (/tmp/cosmic-test-pad/y/probe.sock: denied)",
+    "test: SKIP  c.d_test test_z: nests: a worker | pipe",
+    "test: PASS (5 tests, 2 modules; 2 ran, 0 stood, 3 skipped (this host could not check them), 9 ms; sandboxed)",
+  }, "\n") .. "\n"
+  local skips = SuiteOutput.skips(text)
+  assert(#skips == 2 and skips[1][2] == 2 and skips[1][1] == "no socket (<dir>: denied)")
+  local report = SuiteOutput.skip_report("local", text)
+  assert(report:find("### Skipped tests: local (3)", 1, true), report)
+  assert(report:find("| 2 | no socket (\\<dir\\>: denied) |", 1, true), report)
+  assert(report:find("| 1 | nests: a worker \\| pipe |", 1, true), report)
+  assert(SuiteOutput.skip_report("l", "test: SKIP  a b: a `x` *y*\n"):find("a \\`x\\` \\*y\\*", 1, true))
+  assert(SuiteOutput.skip_report("local", "test: PASS (1 test, 1 module)\n") == "")
 end

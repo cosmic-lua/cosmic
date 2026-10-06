@@ -9,10 +9,10 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- The program itself, which its tests start.
-Test.needs{ tool = true }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- Runs `cosmic test` on `root` with `words` after it -- `suite`, which
 --- names every test there, unless others are given.
@@ -23,7 +23,7 @@ local function run(root: string, output: string, env: {string:string}, fails?: b
   for _, word in ipairs(words or { "suite" }) do args[#args + 1] = word end
   local started = this_program.program(args, {
     cwd = root, env = env, stdout = fd, stderr = fd,
-    process_group = true, timeout_ns = Time.seconds(60),
+    process_group = true, timeout_ns = Clock.seconds(60),
   })
   local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))
@@ -45,17 +45,17 @@ local function test_an_unsandboxed_test_stands_on_what_it_declares(tmp: string)
   assert(Fs.mkdirs(tmp .. "/outside"))
   assert(Fs.write(tmp .. "/outside/f", "out\n"))
   assert(Fs.write(tmp .. "/outside/undeclared", "one\n"))
+  local outside = assert(Fs.absolute(tmp)) .. "/outside"
   local source = [[
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
-Test.needs { host = { "$OUTSIDE/f" }, env = { "FLAVOUR" } }
+Test.policy { grants = { { path = "]] .. outside .. [[/f", letters = "r" } }, env = { "FLAVOUR" } }
 
 local function test_reads_outside()
-  local outside = assert(Env.get("OUTSIDE"))
-  assert(Fs.read(outside .. "/f") == "out\n")
-  assert(Fs.read(outside .. "/undeclared") ~= nil)
+  assert(Fs.read("]] .. outside .. [[/f") == "out\n")
+  assert(Fs.read("]] .. outside .. [[/undeclared") ~= nil)
   assert(Env.get("FLAVOUR") ~= "sour")
 end
 
@@ -66,7 +66,6 @@ end
   assert(Fs.write(root .. "/suite/outside_test.tl", source))
   local env = this_program.environment()
   env.COSMIC_TEST_SANDBOX = "0"
-  env.OUTSIDE = tmp .. "/outside"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil
   env.FLAVOUR = "sweet"
@@ -80,7 +79,7 @@ end
   said("all", { "--all" }, "2 ran, 0 stood")
   said("named", { "suite/outside_test.tl:test_reads_outside" }, "0 ran, 1 stood")
   env.COSMIC_TEST_ALL = "1"
-  said("variable", {}, "2 ran, 0 stood")
+  said("everything", {}, "2 ran, 0 stood")
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = "must"
   said("must", {}, "2 ran, 0 stood")

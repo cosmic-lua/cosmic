@@ -4,10 +4,10 @@
 --- `cosmic test` or `cosmic fix` builds. It is the build `cosmic test`
 --- makes (stage, compile, write the projection), and no more.
 
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
-local Time = require("cosmic.time")
 local clock = require("build.clock")
 local importer = require("build.importer")
 local shared_compiles = require("build.shared_compiles")
@@ -54,13 +54,13 @@ local function project(root: string, verb: string, start: boolean): boolean, str
   if not found and not start then
     if looks_unbuilt(root) then
       log:complain(verb .. ": this directory has not been built; `cosmic build` or `cosmic test` " ..
-        "first to include its modules")
+          "first to include its modules")
     end
     return true, ""
   end
   local own_tree, own_trouble = tree.is_own(root)
   if own_tree == nil then return false, own_trouble end
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local handle, open_trouble = work.open(root)
   if handle == nil then return false, open_trouble end
   local staged, stage_trouble = work.stage(handle, own_tree)

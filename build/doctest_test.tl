@@ -157,7 +157,7 @@ local function test_a_tilde_fenced_example_actually_passes()
   assert(m ~= nil, "doc.guides.fixture was not among the compiled modules")
   assert(#m.tests == 1 and m.tests[1] == "test_1",
     "expected a long tilde-fenced example to be extracted as test_1, got " ..
-    table.concat(m.tests, ","))
+      table.concat(m.tests, ","))
   local mod = load_module(m)
   local fn = mod.test_1 as function(any...): (any...)
   local ok, err = pcall(fn, fresh_tmp())
@@ -200,7 +200,7 @@ local function test_a_no_output_example_compiles_but_is_never_run()
   local produced: any = chunk()
   assert(produced == nil,
     "a module with no runnable examples should return nothing, got: " ..
-    tostring(produced))
+      tostring(produced))
 end
 
 local function test_a_skip_block_compiles_and_defines_nothing()

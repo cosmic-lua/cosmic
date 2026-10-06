@@ -1,6 +1,6 @@
 # the command line
 
-<!-- needs: tool = true -->
+<!-- policy: profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->
 
 `cosmic` takes a verb, such as `test`, `fix`, `build` or `docs`, or a
 path to a file to run. Each example here starts the `cosmic` that runs
@@ -19,7 +19,7 @@ its `...`, and an integer it returns is the exit code.
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Proc = require("cosmic.proc")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 local relaunch = assert(Proc.relaunch())
 local env = Env.all()
@@ -30,10 +30,10 @@ local function cosmic(...: string): {string}
   return argv
 end
 local said = assert(Child.run(cosmic("-e", "print(select('#', ...), ...)", "a", "b"),
-  { env = env, fds = relaunch.fds, stdout = "capture", timeout_ns = Time.seconds(10) }))
+  { env = env, fds = relaunch.fds, stdout = "capture", timeout_ns = Clock.seconds(10) }))
 print(((said.stdout or ""):gsub("\n$", "")))
 local exited = assert(Child.run(cosmic("-e", "return 3"),
-  { env = env, fds = relaunch.fds, timeout_ns = Time.seconds(10) }))
+  { env = env, fds = relaunch.fds, timeout_ns = Clock.seconds(10) }))
 print("exit " .. tostring(exited.code))
 ```
 
@@ -57,7 +57,7 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 -- Run it outside any tree, so no build is involved.
 local dir = assert(Fs.mkdtemp("help-"))
@@ -68,7 +68,7 @@ local argv = { table.unpack(relaunch.argv) }
 argv[#argv + 1] = "help"
 argv[#argv + 1] = "db"
 local result = assert(Child.run(argv,
-  { env = env, fds = relaunch.fds, cwd = dir, stdout = "capture", timeout_ns = Time.seconds(10) }))
+  { env = env, fds = relaunch.fds, cwd = dir, stdout = "capture", timeout_ns = Clock.seconds(10) }))
 assert(Fs.remove_tree(dir))
 local out = result.stdout or ""
 print(out:match("^`cosmic db[^`]*`"))
@@ -111,7 +111,7 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 local relaunch = assert(Proc.relaunch())
 local env = Env.all()
@@ -119,12 +119,12 @@ for name, value in pairs(relaunch.env) do env[name] = value end
 local argv = { table.unpack(relaunch.argv) }
 for _, word in ipairs({ "build", "--host", "cmd/hi" }) do argv[#argv + 1] = word end
 local built = assert(Child.run(argv,
-  { env = env, fds = relaunch.fds, cwd = tmp, stdout = "capture", timeout_ns = Time.seconds(60) }))
+  { env = env, fds = relaunch.fds, cwd = tmp, stdout = "capture", timeout_ns = Clock.seconds(60) }))
 print("exit " .. tostring(built.code))
 local hi, _ = Fs.exists(tmp .. "/o/bin/hi")
 local bye, _ = Fs.exists(tmp .. "/o/bin/bye")
 print("hi: " .. tostring(hi) .. ", bye: " .. tostring(bye))
-local ran = assert(Child.run({ tmp .. "/o/bin/hi" }, { stdout = "capture", timeout_ns = Time.seconds(10) }))
+local ran = assert(Child.run({ tmp .. "/o/bin/hi" }, { stdout = "capture", timeout_ns = Clock.seconds(10) }))
 print(((ran.stdout or ""):gsub("\n$", "")))
 ```
 

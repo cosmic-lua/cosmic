@@ -132,7 +132,6 @@ end
 importer.diagnostic_queries = {
   arguments = "generics_functions_returns",
   record_key = "records_interfaces_methods",
-  union_operator = "unions_narrowing_casts",
 }
 
 -- `NOT IN (SELECT key FROM compiled)` leads SQLite to probe
@@ -173,9 +172,7 @@ local analyzer_roots: {string} = {
 --- diagnostic presentation belong to the importer, outside this closure.
 function importer.analyzer_modules(code?: importer.Code): {string} | nil, string
   -- A name at a time ([`Store.requires`]), not a query of a handle on
-  -- the binary's database: under a test worker's hold on the store
-  -- each lookup is held as a lookup of that module is, where a handle
-  -- would read every module's rows.
+  -- the binary's database, which would read every module's rows.
   local requires = code ~= nil and code.requires or Store.requires
   local source_of = code ~= nil and code.source or Store.source
   local reached: {string:boolean} = {}
@@ -231,10 +228,10 @@ function importer.tree_code(handle: work.Handle): importer.Code | nil, string
   local function requires(name: string): {string} | nil, string
     local rows, rows_trouble = Sqlite.text_rows(db,
       "SELECT DISTINCT r.name FROM inputs i " ..
-      "JOIN requires r ON r.source_hash = i.source_hash WHERE i.path = ?1 " ..
-      "AND ?1 IN (SELECT path FROM inputs WHERE kind <> 'decl') " ..
-      "AND r.name IN (SELECT path FROM inputs WHERE kind <> 'decl') " ..
-      "ORDER BY r.name", { text(name) })
+        "JOIN requires r ON r.source_hash = i.source_hash WHERE i.path = ?1 " ..
+        "AND ?1 IN (SELECT path FROM inputs WHERE kind <> 'decl') " ..
+        "AND r.name IN (SELECT path FROM inputs WHERE kind <> 'decl') " ..
+        "ORDER BY r.name", { text(name) })
     if rows == nil then
       return nil, rows_trouble
     end
@@ -247,7 +244,7 @@ function importer.tree_code(handle: work.Handle): importer.Code | nil, string
   local function source(name: string): string | nil, string
     local rows, rows_trouble = Sqlite.text_rows(db,
       "SELECT source FROM inputs WHERE path = ?1 " ..
-      "ORDER BY kind = 'decl' DESC LIMIT 1", { text(name) })
+        "ORDER BY kind = 'decl' DESC LIMIT 1", { text(name) })
     if rows == nil then
       return nil, rows_trouble
     end
@@ -484,7 +481,7 @@ local function shared_analyzer(handle: work.Handle, shared: importer.Shared,
   for _, name in ipairs(analyzer_roots) do roots[#roots + 1] = name end
   local found, trouble = Sqlite.text_rows(db,
     "SELECT DISTINCT source_hash FROM inputs WHERE kind <> 'decl' " ..
-    "AND path IN (SELECT value FROM json_each(?1)) ORDER BY source_hash",
+      "AND path IN (SELECT value FROM json_each(?1)) ORDER BY source_hash",
     { text('["' .. table.concat(roots, '","') .. '"]') })
   if found == nil then return nil, trouble end
   if #found == 0 then return "", "" end
@@ -596,8 +593,8 @@ local function derive_new(handle: work.Handle, built: compiler, tally: importer.
   local db = handle.db
   local swept, sweep_trouble = db:exec(
     "DELETE FROM derived WHERE origin <> 'vendor' AND NOT EXISTS " ..
-    "(SELECT 1 FROM files f WHERE f.path = derived.file " ..
-    "AND f.sha256 = derived.from_hash)")
+      "(SELECT 1 FROM files f WHERE f.path = derived.file " ..
+      "AND f.sha256 = derived.from_hash)")
   if not swept then
     return nil, sweep_trouble
   end
@@ -623,7 +620,7 @@ local function derive_new(handle: work.Handle, built: compiler, tally: importer.
   end
   for _, table_name in ipairs(analysis_tables) do
     local ok, trouble = db:exec("DELETE FROM " .. table_name ..
-      " WHERE source_hash NOT IN (SELECT source_hash FROM inputs)")
+        " WHERE source_hash NOT IN (SELECT source_hash FROM inputs)")
     if not ok then
       return nil, trouble
     end
@@ -797,15 +794,14 @@ end
 --- Checker forms that reliably identify a language topic. Argument failures
 --- point to the general checked function-contract guide; a diagnostic does
 --- not carry enough AST binding information here to claim a particular call.
+--- Only a message [`teal.replacement`] leaves unanswered is pointed here
+--- ([`with_hint`]).
 local function diagnostic_docs(msg: string): string | nil
   if msg:match("^wrong number of arguments %(") or
       msg:match("^argument %d+: got .+, expected ") then
     return importer.diagnostic_queries.arguments
   elseif msg:match("^invalid key '.-' in record ") then
     return importer.diagnostic_queries.record_key
-  elseif msg:match("^cannot use operator '.-' for types ") and
-      msg:find(" | ", 1, true) ~= nil then
-    return importer.diagnostic_queries.union_operator
   end
   return nil
 end
@@ -824,27 +820,52 @@ end
 
 --- Every hint a checker message earns, appended once, at the one place
 --- every message is rendered, rather than patched into the vendored
---- checker's own text or duplicated at each call site.
-local function with_hint(msg: string, hints: Hints): string
-  return with_diagnostic_docs(with_docs_hint(with_unused_hint(msg), hints), hints)
+--- checker's own text or duplicated at each call site. A message
+--- [`teal.replacement`] answers says what to write instead, which a
+--- reader acts on where a pointer at the docs goes unread, so it is
+--- given no such pointer.
+local function with_hint(msg: string, hints: Hints, answered: boolean): string
+  local said = with_docs_hint(with_unused_hint(msg), hints)
+  if answered then
+    return said
+  end
+  return with_diagnostic_docs(said, hints)
 end
 
 --- `file`'s own complaints, one line each. A removed name's replacement
 --- ([`teal.replacement`]) comes straight after the checker's own words,
 --- ahead of any pointer at the docs: it is the answer, they are more.
+--- A hint repeated word for word in one file (one variable's every
+--- field read, each unused name's) is printed on the first line that
+--- earns it, with how many more lines it holds for, and those lines
+--- carry the checker's words alone.
 local function complain(file: string, source: string, result: compiler.Result,
                         hints: Hints): string
   local lines: {string} = {}
+  local hinted: {string:integer} = {}
+  local repeats: {integer:integer} = {}
   for _, group in ipairs({ result.syntax_errors, result.type_errors, result.warnings }) do
     for _, e in ipairs(group or {}) do
       local where = e.filename ~= "" and e.filename or file
-      local said = with_hint(e.msg, hints)
       local instead = where == file and teal.replacement(e.msg, source, e.y, e.x, e.fields) or nil
+      local said = with_hint(e.msg, hints, instead ~= nil)
       if instead ~= nil then
         said = e.msg .. " -- " .. instead .. said:sub(#e.msg + 1)
       end
+      local hint = said:sub(#e.msg + 1)
+      local seen = where .. "\0" .. hint
+      local first = hint ~= "" and hinted[seen] or nil
+      if first ~= nil then
+        repeats[first] = (repeats[first] or 0) + 1
+        said = e.msg
+      elseif hint ~= "" then
+        hinted[seen] = #lines + 1
+      end
       lines[#lines + 1] = where .. ":" .. e.y .. ":" .. e.x .. ": " .. said
     end
+  end
+  for at, more in pairs(repeats) do
+    lines[at] = lines[at] .. " (same for " .. more .. " more)"
   end
   return table.concat(lines, "\n")
 end
@@ -872,7 +893,7 @@ local function prepare_cache(handle: work.Handle, tool: string): Cache | nil, st
   end
   local put, put_trouble = db:prepare(
     "INSERT OR REPLACE INTO compiled (key, tool, lua, bytecode, seen) " ..
-    "VALUES (?1, ?2, ?3, ?4, ?5)")
+      "VALUES (?1, ?2, ?3, ?4, ?5)")
   if put == nil then
     look:finalize()
     return nil, put_trouble
@@ -885,7 +906,7 @@ local function prepare_cache(handle: work.Handle, tool: string): Cache | nil, st
     return nil, plan_trouble
   end
   return { run = handle.run, tool = tool, look = look, put = put,
-           plan = plan }
+    plan = plan }
 end
 
 local function finish_cache(cache: Cache)
@@ -1041,7 +1062,7 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
     if hint_databases == nil then
       local databases: {Sqlite.Handle} = {}
       local public: {boolean} = {}
-      local projection, _ = Sqlite.open(handle.root .. "/o/cosmic.db")
+      local projection, _ = Sqlite.open(handle.dir .. "/cosmic.db")
       if projection ~= nil then
         hint_projection = projection
         databases[1] = projection

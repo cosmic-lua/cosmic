@@ -12,8 +12,8 @@
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local type raw_process = require("cosmic.internal.process")
--- In the closure, so the store's searcher answers it under a test
--- worker's hold on the store ([`raw_process_table`]).
+-- In the closure, so the store the worker is given carries it for the
+-- store's searcher ([`raw_process_table`]).
 local _ = require("cosmic.child")
 
 local type Searcher = function(string): any, any
@@ -111,7 +111,7 @@ end
 local function system(): {string}
   local found: {string} = {}
   for _, path in ipairs({ "/bin", "/sbin", "/usr", "/lib", "/lib64", "/etc", "/proc",
-                          "/dev/null" }) do
+      "/dev/null" }) do
     local there, _ = sys.stat(path)
     if there ~= nil then found[#found + 1] = path end
   end
@@ -179,7 +179,7 @@ local function tried_from_outside(tmp: string, script: string, filters: string |
     local words = ((text or ""):gsub("%s+", " "):gsub("^ ", ""):gsub(" $", ""))
     return false, (status.code >= 0 and "exited " .. tostring(status.code) or
       "killed by signal " .. tostring(status.signal)) .. (words ~= "" and ": " ..
-      words:sub(1, 200) or "")
+        words:sub(1, 200) or "")
   end
   if unfiltered then return false, "no seccomp filter of its own" end
   if networked then return false, "a network interface besides lo" end

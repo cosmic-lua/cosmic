@@ -124,3 +124,39 @@ local function test_parse_failure_reports_nil_and_message()
   assert(err ~= nil and err:find("unclosed.tl", 1, true) ~= nil,
     "error should name the file: " .. tostring(err))
 end
+
+--- A type declared under a dotted name, which the parser refuses, is
+--- told to nest it in the module's record; any other refusal is not.
+local function test_a_dotted_type_declaration_is_told_to_nest()
+  local nest = " -- declare `record Month ... end` inside `local record Ledger ... end`: " ..
+    "it is then Ledger.Month, here and in every module that requires this one"
+  local _, local_err = node_mod.parse(built,
+    "local record Ledger\nend\nlocal record Ledger.Month\n  total: integer\nend\nreturn Ledger\n",
+    "ledger.tl")
+  assert(local_err == "ledger.tl:3:20: syntax error, expected identifier" .. nest, local_err)
+  local _, bare_err = node_mod.parse(built,
+    "local record Ledger\nend\nrecord Ledger.Month\n  total: integer\nend\nreturn Ledger\n",
+    "ledger.tl")
+  assert(bare_err == "ledger.tl:3:1: record needs to be declared with 'local record' or " ..
+      "'global record'" .. nest, bare_err)
+  local _, global_err = node_mod.parse(built,
+    "local record Ledger\nend\nglobal record Ledger.Month\nend\nreturn Ledger\n", "ledger.tl")
+  assert(global_err == "ledger.tl:3:21: syntax error, expected identifier" .. nest, global_err)
+  local _, enum_err = node_mod.parse(built,
+    "local record Ledger\nend\nlocal enum Ledger.Month\n  \"may\"\nend\nreturn Ledger\n",
+    "ledger.tl")
+  assert(enum_err == "ledger.tl:3:18: syntax error, expected string -- declare " ..
+      "`enum Month ... end` inside `local record Ledger ... end`: it is then Ledger.Month, " ..
+      "here and in every module that requires this one", enum_err)
+  local _, type_err = node_mod.parse(built,
+    "local record Ledger\nend\nlocal type Ledger.Day = integer\nreturn Ledger\n", "ledger.tl")
+  assert(type_err == "ledger.tl:3:18: syntax error, expected '=' -- declare " ..
+      "`type Day = ...` inside `local record Ledger ... end`: it is then Ledger.Day, " ..
+      "here and in every module that requires this one", type_err)
+  -- Another module's record is not this file's to declare in.
+  local _, bound_err = node_mod.parse(built,
+    'local Http = require("cosmic.http")\nlocal record Http.Extra\nend\nreturn Http\n', "x.tl")
+  assert(bound_err == "x.tl:2:18: syntax error, expected identifier", bound_err)
+  local _, plain_err = node_mod.parse(built, "local record\nend\n", "plain.tl")
+  assert(plain_err ~= nil and plain_err:find(" -- ", 1, true) == nil, plain_err)
+end

@@ -1,9 +1,10 @@
+local Clock = require("cosmic.clock")
 local Time = require("cosmic.time")
 
 local NS <const> = 1000000000
 
 local function civil(year: integer, month: integer, day: integer, hour?: integer, minute?: integer,
-    second?: integer, ns?: integer): Time.Civil
+                     second?: integer, ns?: integer): Time.Civil
   return { year = year, month = month, day = day, hour = hour or 0, minute = minute or 0,
     second = second or 0, ns = ns or 0 }
 end
@@ -76,9 +77,9 @@ end
 
 local function test_from_civil_refuses_fields_out_of_range()
   for _, c in ipairs({
-    civil(2026, 13, 1), civil(2026, 0, 1), civil(2026, 2, 30), civil(2026, 4, 31),
-    civil(2026, 1, 0), civil(2026, 1, 1, 24), civil(2026, 1, 1, -1), civil(2026, 1, 1, 0, 60),
-    civil(2026, 1, 1, 0, 0, 60), civil(2026, 1, 1, 0, 0, 0, NS), civil(2026, 1, 1, 0, 0, 0, -1),
+      civil(2026, 13, 1), civil(2026, 0, 1), civil(2026, 2, 30), civil(2026, 4, 31),
+      civil(2026, 1, 0), civil(2026, 1, 1, 24), civil(2026, 1, 1, -1), civil(2026, 1, 1, 0, 60),
+      civil(2026, 1, 1, 0, 0, 60), civil(2026, 1, 1, 0, 0, 0, NS), civil(2026, 1, 1, 0, 0, 0, -1),
   }) do
     local v, why = Time.from_civil(c)
     assert(v == nil and why ~= "", tostring(v))
@@ -180,16 +181,16 @@ end
 
 local function test_parse_refuses_what_rfc3339_does_not_say()
   for _, text in ipairs({
-    "", "2026-09-25", "2026-09-25T04:09:21", "2026-09-25 04:09:21Z", "2026-09-25T04:09Z",
-    "26-09-25T04:09:21Z", "+2026-09-25T04:09:21Z", "2026-9-25T04:09:21Z", "2026-09-25T4:09:21Z",
-    "2026-13-25T04:09:21Z", "2026-02-29T04:09:21Z", "2026-09-31T04:09:21Z",
-    "2026-09-25T24:00:00Z", "2026-09-25T04:60:21Z", "2026-09-25T23:59:60Z",
-    "2026-09-25T04:09:21.Z", "2026-09-25T04:09:21.0000000001Z", "2026-09-25T04:09:21,5Z",
-    "2026-09-25T04:09:21+0530", "2026-09-25T04:09:21+05", "2026-09-25T04:09:21+24:00",
-    "2026-09-25T04:09:21+05:60", "2026-09-25T04:09:21Z ", "2026-09-25T04:09:21ZZ",
-    " 2026-09-25T04:09:21Z", "2026-09-25T04:09:21UTC", "2026-09-25T04:09:21+05:30x",
-    "0000-01-01T00:00:00Z", "9999-12-31T23:59:59Z", "2262-04-11T23:47:17Z",
-    "1677-09-21T00:12:43.145224191Z", "2026-09-25T04:09:21\0Z", "2026-09-25T04:09:2aZ",
+      "", "2026-09-25", "2026-09-25T04:09:21", "2026-09-25 04:09:21Z", "2026-09-25T04:09Z",
+      "26-09-25T04:09:21Z", "+2026-09-25T04:09:21Z", "2026-9-25T04:09:21Z", "2026-09-25T4:09:21Z",
+      "2026-13-25T04:09:21Z", "2026-02-29T04:09:21Z", "2026-09-31T04:09:21Z",
+      "2026-09-25T24:00:00Z", "2026-09-25T04:60:21Z", "2026-09-25T23:59:60Z",
+      "2026-09-25T04:09:21.Z", "2026-09-25T04:09:21.0000000001Z", "2026-09-25T04:09:21,5Z",
+      "2026-09-25T04:09:21+0530", "2026-09-25T04:09:21+05", "2026-09-25T04:09:21+24:00",
+      "2026-09-25T04:09:21+05:60", "2026-09-25T04:09:21Z ", "2026-09-25T04:09:21ZZ",
+      " 2026-09-25T04:09:21Z", "2026-09-25T04:09:21UTC", "2026-09-25T04:09:21+05:30x",
+      "0000-01-01T00:00:00Z", "9999-12-31T23:59:59Z", "2262-04-11T23:47:17Z",
+      "1677-09-21T00:12:43.145224191Z", "2026-09-25T04:09:21\0Z", "2026-09-25T04:09:2aZ",
   }) do
     local got, why = Time.parse_rfc3339(text)
     assert(got == nil and why ~= "", ("%q: got %s"):format(text, tostring(got)))
@@ -220,7 +221,7 @@ local function test_add_calendar_moves_years_months_then_days()
   end
   local leap_day = at("2024-02-29T00:00:00Z")
   assert(Time.format_rfc3339((assert(Time.add_calendar(leap_day, { years = 4 })))) ==
-    "2028-02-29T00:00:00Z")
+      "2028-02-29T00:00:00Z")
   local clamped = assert(Time.add_calendar(leap_day, { years = 1 }, nil, { overflow = "clamp" }))
   assert(Time.format_rfc3339(clamped) == "2025-02-28T00:00:00Z")
 end
@@ -322,11 +323,11 @@ end
 --- `between` does, gives the moment `between` was asked about.
 local function test_between_and_add_calendar_are_inverses()
   for _, pair in ipairs({
-    { "2024-01-31T09:00:00Z", "2026-03-15T10:30:00Z" },
-    { "2024-05-31T23:59:59.999999999Z", "2024-06-30T00:00:00Z" },
-    { "2026-03-15T10:30:00Z", "2024-01-31T09:00:00Z" },
-    { "1999-12-31T00:00:00Z", "2000-02-29T12:00:00Z" },
-    { "2020-02-29T00:00:00Z", "2021-02-28T00:00:00Z" },
+      { "2024-01-31T09:00:00Z", "2026-03-15T10:30:00Z" },
+      { "2024-05-31T23:59:59.999999999Z", "2024-06-30T00:00:00Z" },
+      { "2026-03-15T10:30:00Z", "2024-01-31T09:00:00Z" },
+      { "1999-12-31T00:00:00Z", "2000-02-29T12:00:00Z" },
+      { "2020-02-29T00:00:00Z", "2021-02-28T00:00:00Z" },
   } as {{string, string}}) do
     local from, to = at(pair[1]), at(pair[2])
     local span = assert(Time.between(from, to))
@@ -339,44 +340,6 @@ end
 local function test_between_spans_the_whole_range()
   local far = assert(Time.between(math.mininteger, math.maxinteger))
   assert(far.years == 584 and far.months == 6, ("%d %d"):format(far.years, far.months))
-end
-
-local function test_the_constructors_scale_a_count_to_nanoseconds()
-  assert(Time.ms(1) == 1000000 and Time.seconds(1) == NS and Time.minutes(1) == 60 * NS)
-  assert(Time.hours(1) == 3600 * NS and Time.ms(0) == 0 and Time.ms(-5) == -5000000)
-  -- A float is as good as an integer when the span is whole, and is answered as one.
-  assert(Time.ms(1.5) == 1500000 and math.type(Time.ms(1.5)) == "integer")
-  assert(Time.seconds(0.25) == 250000000 and Time.minutes(1.5) == 90 * NS)
-  assert(Time.hours(0.5) == 1800 * NS and Time.hours(2.0) == 7200 * NS)
-  assert(Time.hours(24) == Time.seconds(86400) and Time.minutes(60) == Time.hours(1))
-  -- Float rounding in the product is no refusal: a count whose span is whole to within it.
-  assert(Time.seconds(1.005) == 1005000000 and Time.seconds(1.1) == 1100000000)
-  assert(Time.seconds(0.1 + 0.2) == 300000000 and Time.ms(0.1 + 0.2) == 300000)
-  assert(Time.minutes(0.1) == 6 * NS and Time.hours(1 / 3) == 1200 * NS)
-  -- The largest count each takes.
-  assert(Time.seconds(math.maxinteger // NS) == math.maxinteger // NS * NS)
-  assert(Time.ms(-(math.maxinteger // 1000000)) == -(math.maxinteger // 1000000) * 1000000)
-end
-
-local function test_the_constructors_refuse_what_is_no_span_an_integer_holds()
-  local constructors: {string:function(number): integer} = {
-    ["Time.ms"] = Time.ms, ["Time.seconds"] = Time.seconds, ["Time.minutes"] = Time.minutes,
-    ["Time.hours"] = Time.hours,
-  }
-  for name, make in pairs(constructors) do
-    for _, bad in ipairs({ 1e-12, 0 / 0, math.huge, -math.huge,
-        math.maxinteger, math.mininteger + 1, 2 ^ 62 } as {number}) do
-      local ok, err = pcall(make, bad)
-      assert(not ok and tostring(err):find(name, 1, true), name .. " " .. tostring(bad))
-    end
-    local text: any = "5"
-    local ok, err = pcall(make, text as number)
-    assert(not ok and tostring(err):find("takes a number, not string", 1, true), tostring(err))
-  end
-  local ok, err = pcall(Time.ms, 0.0000001)
-  assert(not ok and tostring(err):find("not a whole number of nanoseconds", 1, true), tostring(err))
-  ok, err = pcall(Time.seconds, math.maxinteger // NS + 1)
-  assert(not ok and tostring(err):find("outside what an integer", 1, true), tostring(err))
 end
 
 --- What a malformed RFC 3339 or HTTP text is told, by where it goes wrong.
@@ -464,9 +427,9 @@ end
 
 local function test_parse_date_refuses_what_is_not_a_date()
   for _, text in ipairs({
-    "", "2026-09-25T00:00:00Z", "2026-09-25 ", " 2026-09-25", "2026-9-25", "26-09-25",
-    "2026/09/25", "2026-02-29", "1900-02-29", "2026-13-01", "2026-00-01", "2026-09-00",
-    "2026-09-31", "1677-09-21", "2262-04-12", "0000-01-01", "9999-12-31", "2026-09-2a",
+      "", "2026-09-25T00:00:00Z", "2026-09-25 ", " 2026-09-25", "2026-9-25", "26-09-25",
+      "2026/09/25", "2026-02-29", "1900-02-29", "2026-13-01", "2026-00-01", "2026-09-00",
+      "2026-09-31", "1677-09-21", "2262-04-12", "0000-01-01", "9999-12-31", "2026-09-2a",
   }) do
     local got, why = Time.parse_date(text)
     assert(got == nil and why ~= "", ("%q: got %s"):format(text, tostring(got)))
@@ -482,8 +445,8 @@ end
 
 local function test_parse_http_reads_rfc_9110s_three_forms()
   for _, text in ipairs({
-    "Sun, 06 Nov 1994 08:49:37 GMT", "Sunday, 06-Nov-94 08:49:37 GMT",
-    "Sun Nov  6 08:49:37 1994", "Sun Nov 06 08:49:37 1994",
+      "Sun, 06 Nov 1994 08:49:37 GMT", "Sunday, 06-Nov-94 08:49:37 GMT",
+      "Sun Nov  6 08:49:37 1994", "Sun Nov 06 08:49:37 1994",
   }) do
     local got, why = Time.parse_http(text)
     assert(got == 784111777 * NS, ("%s: got %s: %s"):format(text, tostring(got), why))
@@ -506,15 +469,15 @@ end
 
 local function test_parse_http_reads_the_date_whatever_its_weekday_name()
   for _, text in ipairs({
-    "Mon, 26 Jul 1997 05:00:00 GMT", "Monday, 26-Jul-97 05:00:00 GMT", "Mon Jul 26 05:00:00 1997",
+      "Mon, 26 Jul 1997 05:00:00 GMT", "Monday, 26-Jul-97 05:00:00 GMT", "Mon Jul 26 05:00:00 1997",
   }) do
     local got, why = Time.parse_http(text)
     assert(got == 869893200 * NS, ("%s: got %s: %s"):format(text, tostring(got), why))
   end
   for _, text in ipairs({
-    "Mox, 26 Jul 1997 05:00:00 GMT", "Mon., 26 Jul 1997 05:00:00 GMT",
-    "Monday, 26 Jul 1997 05:00:00 GMT", "Mon, 26-Jul-97 05:00:00 GMT",
-    "Mond, 26-Jul-97 05:00:00 GMT", "mon Jul 26 05:00:00 1997", "Monday Jul 26 05:00:00 1997",
+      "Mox, 26 Jul 1997 05:00:00 GMT", "Mon., 26 Jul 1997 05:00:00 GMT",
+      "Monday, 26 Jul 1997 05:00:00 GMT", "Mon, 26-Jul-97 05:00:00 GMT",
+      "Mond, 26-Jul-97 05:00:00 GMT", "mon Jul 26 05:00:00 1997", "Monday Jul 26 05:00:00 1997",
   }) do
     local got, why = Time.parse_http(text)
     assert(got == nil and why ~= "", ("%q: got %s"):format(text, tostring(got)))
@@ -523,20 +486,20 @@ end
 
 local function test_parse_http_refuses_what_rfc_9110_does_not_say()
   for _, text in ipairs({
-    "", "Sun", "Sun,", "Sun, 06 Nov 1994 08:49:37", "Sun, 06 Nov 1994 08:49:37 UTC",
-    "Sun, 06 Nov 1994 08:49:37 GMT ", " Sun, 06 Nov 1994 08:49:37 GMT",
-    "Sun, 6 Nov 1994 08:49:37 GMT", "Sun, 06 nov 1994 08:49:37 GMT", "sun, 06 Nov 1994 08:49:37 GMT",
-    "Sun, 06 Nov 94 08:49:37 GMT", "Sun, 06 Nov 1994 8:49:37 GMT", "Sun, 06-Nov-1994 08:49:37 GMT",
-    "Sun,  06 Nov 1994 08:49:37 GMT", "Sun, 06 Nov 1994 08:49:37 +0000",
-    "Sun, 06 Nov 1994 24:00:00 GMT", "Sun, 06 Nov 1994 08:60:37 GMT",
-    "Sun, 06 Nov 1994 08:49:60 GMT", "Sun, 31 Nov 1994 08:49:37 GMT",
-    "Sun, 2026-09-25T04:09:21Z", "2026-09-25T04:09:21Z", "Sunday, 06 Nov 1994 08:49:37 GMT",
-    "Sun, 06-Nov-94 08:49:37 GMT", "Sunday, 06-Nov-94 08:49:37", "Sunday, 6-Nov-94 08:49:37 GMT",
-    "Sundays, 06-Nov-94 08:49:37 GMT", "Sunday, 06-Nov-94 08:49:37 GMTx",
-    "Sun Nov 6 08:49:37 1994", "Sun Nov  6 08:49:37 94", "Sun Nov  6 08:49:37 1994 ",
-    "Sun Nov  6 08:49:37 1994 GMT", "Sun  Nov 6 08:49:37 1994", "Sun Nov  x 08:49:37 1994",
-    "Tue, 21 Sep 1677 00:12:43 GMT", "Sat, 12 Apr 2262 00:00:00 GMT",
-    "Sat, 01 Jan 0000 00:00:00 GMT",
+      "", "Sun", "Sun,", "Sun, 06 Nov 1994 08:49:37", "Sun, 06 Nov 1994 08:49:37 UTC",
+      "Sun, 06 Nov 1994 08:49:37 GMT ", " Sun, 06 Nov 1994 08:49:37 GMT",
+      "Sun, 6 Nov 1994 08:49:37 GMT", "Sun, 06 nov 1994 08:49:37 GMT", "sun, 06 Nov 1994 08:49:37 GMT",
+      "Sun, 06 Nov 94 08:49:37 GMT", "Sun, 06 Nov 1994 8:49:37 GMT", "Sun, 06-Nov-1994 08:49:37 GMT",
+      "Sun,  06 Nov 1994 08:49:37 GMT", "Sun, 06 Nov 1994 08:49:37 +0000",
+      "Sun, 06 Nov 1994 24:00:00 GMT", "Sun, 06 Nov 1994 08:60:37 GMT",
+      "Sun, 06 Nov 1994 08:49:60 GMT", "Sun, 31 Nov 1994 08:49:37 GMT",
+      "Sun, 2026-09-25T04:09:21Z", "2026-09-25T04:09:21Z", "Sunday, 06 Nov 1994 08:49:37 GMT",
+      "Sun, 06-Nov-94 08:49:37 GMT", "Sunday, 06-Nov-94 08:49:37", "Sunday, 6-Nov-94 08:49:37 GMT",
+      "Sundays, 06-Nov-94 08:49:37 GMT", "Sunday, 06-Nov-94 08:49:37 GMTx",
+      "Sun Nov 6 08:49:37 1994", "Sun Nov  6 08:49:37 94", "Sun Nov  6 08:49:37 1994 ",
+      "Sun Nov  6 08:49:37 1994 GMT", "Sun  Nov 6 08:49:37 1994", "Sun Nov  x 08:49:37 1994",
+      "Tue, 21 Sep 1677 00:12:43 GMT", "Sat, 12 Apr 2262 00:00:00 GMT",
+      "Sat, 01 Jan 0000 00:00:00 GMT",
   }) do
     local got, why = Time.parse_http(text)
     assert(got == nil and why ~= "", ("%q: got %s"):format(text, tostring(got)))
@@ -548,21 +511,10 @@ local function test_parse_http_reaches_the_ranges_edges()
   assert(Time.parse_http("Tue, 21 Sep 1677 00:12:44 GMT") == (math.mininteger // NS + 1) * NS)
 end
 
---- A span as the count of a unit that covers it: rounded up, so a span
---- that is not none is never counted as none, whatever its sign.
-local function test_ceil_rounds_a_span_up_to_a_count_of_the_unit()
-  local ms = Time.ms(1)
-  assert(Time.ceil(0, ms) == 0 and Time.ceil(1, ms) == 1 and Time.ceil(ms, ms) == 1)
-  assert(Time.ceil(ms + 1, ms) == 2 and Time.ceil(Time.ms(7), ms) == 7)
-  assert(Time.ceil(-1, ms) == 0 and Time.ceil(-ms, ms) == -1 and Time.ceil(-ms - 1, ms) == -1)
-  assert(Time.ceil(math.maxinteger, ms) == math.maxinteger // ms + 1)
-  assert(Time.ceil(math.mininteger, ms) == math.mininteger // ms + 1)
-  assert(Time.ceil(math.maxinteger, 1) == math.maxinteger and Time.ceil(math.mininteger, 1) == math.mininteger)
-  assert(Time.ceil(Time.ms(1500), Time.seconds(1)) == 2)
-  for _, bad in ipairs({ 0, -1 }) do
-    local ok, why = pcall(Time.ceil, 1, bad)
-    assert(not ok and tostring(why):find("unit must be", 1, true), tostring(why))
+--- The clock and span helpers moved to cosmic.clock stay under their old names here.
+local function test_the_clock_helpers_are_answered_under_their_old_names()
+  for _, name in ipairs({ "now_ns", "monotonic_ns", "sleep_ns", "ms", "seconds", "minutes", "hours",
+      "ceil" }) do
+    assert((Time as {string:any})[name] == (Clock as {string:any})[name], name)
   end
-  local ok, why = pcall(Time.ceil, 1.5 as integer, ms)
-  assert(not ok and tostring(why):find("ns must be an integer", 1, true), tostring(why))
 end

@@ -86,11 +86,6 @@ local function append(path: string, data: string): integer
   return nil
 end
 
-local function status_of(result: Child.Result): integer
-  if result.signal ~= nil then return 128 + result.signal end
-  return result.code or 1
-end
-
 --- `program`, with `argument` its one where there is one.
 local function argv_of(program: string, argument: string): {string}
   local argv: {string} = { program }
@@ -118,6 +113,11 @@ local verbs: {string:function(string, string): integer} = {
   end,
   write = function(path: string, text: string): integer
     local ok, trouble = Fs.write(path, text .. "\n")
+    if not ok then return failed(path, trouble) end
+    return nil
+  end,
+  ["write-pid"] = function(path: string): integer
+    local ok, trouble = Fs.write(path, tostring(sys.getpid()) .. "\n")
     if not ok then return failed(path, trouble) end
     return nil
   end,
@@ -169,7 +169,7 @@ local verbs: {string:function(string, string): integer} = {
     -- user may signal: a script names a group by its number.
     if pid == 0 or pid == -1 then
       return failed("signal", "refusing pid " .. tostring(pid) ..
-        ", which names no one process or group")
+          ", which names no one process or group")
     end
     local ok, trouble = sys.kill(pid, signal)
     if not ok then return failed("signal", trouble) end
@@ -183,7 +183,7 @@ local verbs: {string:function(string, string): integer} = {
     -- Past the bound it ends at once, running no more of the script
     -- and nothing its end would run.
     local _, _ = Fs.put(2, "probe: signal: SIG" .. name .. " sent to itself did not end it in " ..
-      Time.format_duration({ ns = SIGNAL_WAIT_NS }) .. "\n")
+        Time.format_duration({ ns = SIGNAL_WAIT_NS }) .. "\n")
     sys.exit(SIGNAL_MISSED)
     return SIGNAL_MISSED
   end,
@@ -259,7 +259,7 @@ local verbs: {string:function(string, string): integer} = {
   run = function(program: string, argument: string): integer
     local result, _ = Child.run(argv_of(program, argument), { process_group = false })
     if result == nil then return 127 end
-    if not result.ok then return status_of(result) end
+    if not result.ok then return Child.shell_status(result) end
     return nil
   end,
   start = function(program: string, argument: string): integer
@@ -267,6 +267,24 @@ local verbs: {string:function(string, string): integer} = {
     if handle == nil then return failed("start", trouble) end
     started[#started + 1] = handle
     return nil
+  end,
+  ["start-count"] = function(word: string, rest: string): integer
+    local program, argument = rest:match("^(%S+)%s*(.-)$")
+    if program == nil then return failed("start-count", "no program") end
+    local wanted = number(word)
+    if wanted == nil or wanted < 0 then return failed("start-count", "no count " .. word) end
+    local count = 0
+    local refusal = ""
+    for _ = 1, wanted do
+      local handle, trouble = Child.start(argv_of(program, argument), { process_group = false })
+      if handle == nil then
+        refusal = trouble
+        break
+      end
+      started[#started + 1] = handle
+      count = count + 1
+    end
+    return put_all(1, "started " .. count .. (refusal ~= "" and (" then " .. refusal) or "") .. "\n")
   end,
   ["fd-closed"] = function(word: string): integer
     local fd = number(word)
@@ -282,6 +300,38 @@ local verbs: {string:function(string, string): integer} = {
     local fd = number(word)
     if fd == nil or fd < 0 then return failed("write-fd", "no descriptor " .. word) end
     return put_all(fd, text .. "\n")
+  end,
+  rlimit = function(name: string): integer
+    local resources: {string:integer} = {
+      nofile = sys.RLIMIT_NOFILE, fsize = sys.RLIMIT_FSIZE, cpu = sys.RLIMIT_CPU,
+      core = sys.RLIMIT_CORE, nproc = sys.RLIMIT_NPROC,
+    }
+    local resource = resources[name]
+    if resource == nil then return failed("rlimit", "no resource " .. name) end
+    local limits, trouble = sys.getrlimit(resource)
+    if limits == nil then return failed("rlimit", trouble) end
+    return put_all(1, name .. " " .. limits.soft .. " " .. limits.hard .. "\n")
+  end,
+  setrlimit = function(name: string, word: string): integer
+    local resources: {string:integer} = {
+      nofile = sys.RLIMIT_NOFILE, fsize = sys.RLIMIT_FSIZE, cpu = sys.RLIMIT_CPU,
+      core = sys.RLIMIT_CORE, nproc = sys.RLIMIT_NPROC,
+    }
+    local resource = resources[name]
+    local limit = number(word)
+    if resource == nil or limit == nil then
+      return failed("setrlimit", "no resource or limit in " .. name .. " " .. word)
+    end
+    local ok, trouble = sys.setrlimit(resource, limit, limit)
+    if not ok then return failed("setrlimit", trouble) end
+    return put_all(1, "set\n")
+  end,
+  getpgid = function(word: string): integer
+    local pid = number(word)
+    if pid == nil or pid < 0 then return failed("getpgid", "no pid " .. word) end
+    local group, trouble = sys.getpgid(pid)
+    if group == nil then return failed("getpgid", trouble) end
+    return put_all(1, "pgid " .. group .. "\n")
   end,
   ["env-of"] = function(name: string): integer
     local value = sys.getenv(name)
@@ -303,6 +353,59 @@ local verbs: {string:function(string, string): integer} = {
     local _, _ = conn:close()
     return put_all(1, "connected\n")
   end,
+  ["loopback-tcp"] = function(host: string): integer
+    local server, trouble = Net.listen(Net.tcp(host, 0), { timeout_ns = Time.seconds(5) })
+    if server == nil then return put_all(1, trouble .. "\n") end
+    local conn, connect_trouble = Net.connect(Net.tcp(host, server.address.port),
+      { timeout_ns = Time.seconds(5) })
+    if conn == nil then
+      local _, _ = server:close()
+      return put_all(1, connect_trouble .. "\n")
+    end
+    local accepted, accept_trouble = server:accept()
+    local _, _ = conn:close()
+    local _, _ = server:close()
+    if accepted == nil then return put_all(1, accept_trouble .. "\n") end
+    local _, _ = accepted:close()
+    return put_all(1, "connected\n")
+  end,
+  ["loopback-unix"] = function(path: string): integer
+    local server, trouble = Net.listen(Net.unix(path), { timeout_ns = Time.seconds(5) })
+    if server == nil then return put_all(1, trouble .. "\n") end
+    local conn, connect_trouble = Net.connect(Net.unix(path), { timeout_ns = Time.seconds(5) })
+    if conn == nil then
+      local _, _ = server:close()
+      return put_all(1, connect_trouble .. "\n")
+    end
+    local accepted, accept_trouble = server:accept()
+    local _, _ = conn:close()
+    local _, _ = server:close()
+    if accepted == nil then return put_all(1, accept_trouble .. "\n") end
+    local _, _ = accepted:close()
+    return put_all(1, "connected\n")
+  end,
+  ["start-isolated"] = function(program: string): integer
+    local handle, trouble = Child.start({ program }, { policy = {
+      isolate = { "file" }, grants = { { path = program, letters = "rx" },
+        { path = ".", letters = "r" } } } })
+    if handle == nil then return put_all(1, trouble .. "\n") end
+    local _, _ = handle:close()
+    return put_all(1, "started\n")
+  end,
+  ["run-isolated"] = function(program: string, script: string): integer
+    local result, trouble = Child.run({ program, script }, { policy = {
+      isolate = { "file" }, grants = { { path = program, letters = "rx" },
+        { path = ".", letters = "r" } } }, stdout = "capture", stderr = "stdout" })
+    if result == nil then return put_all(1, trouble .. "\n") end
+    return put_all(1, "exit " .. tostring(result.code) .. "\n" .. (result.stdout or ""))
+  end,
+  ["run-looped"] = function(program: string, script: string): integer
+    local result, trouble = Child.run({ program, script }, { policy = {
+      isolate = { "file" }, loopback = { "127.0.0.1" }, grants = { { path = program, letters = "rx" },
+        { path = ".", letters = "r" } } }, stdout = "capture", stderr = "stdout" })
+    if result == nil then return put_all(1, trouble .. "\n") end
+    return put_all(1, "exit " .. tostring(result.code) .. "\n" .. (result.stdout or ""))
+  end,
   present = function(path: string): integer
     if exists(path) then return nil end
     return failed(path, "not there")
@@ -310,6 +413,50 @@ local verbs: {string:function(string, string): integer} = {
   writable = function(path: string): integer
     local opened, trouble = opens_to_write(path)
     if not opened then return failed(path, trouble) end
+    return nil
+  end,
+  create = function(path: string, text: string): integer
+    local fd, trouble = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_EXCL, 420)
+    if fd == nil then return failed(path, trouble) end
+    local written, write_trouble = sys.write(fd, text .. "\n")
+    local _, _ = sys.close(fd)
+    if written == nil then return failed(path, write_trouble) end
+    return nil
+  end,
+  truncate = function(path: string): integer
+    local fd, trouble = sys.open(path, sys.O_WRONLY | sys.O_TRUNC)
+    if fd == nil then return failed(path, trouble) end
+    local _, _ = sys.close(fd)
+    return nil
+  end,
+  rm = function(path: string): integer
+    local ok, trouble = sys.unlink(path)
+    if not ok then return failed(path, trouble) end
+    return nil
+  end,
+  rmdir = function(path: string): integer
+    local ok, trouble = sys.rmdir(path)
+    if not ok then return failed(path, trouble) end
+    return nil
+  end,
+  rename = function(from: string, to: string): integer
+    local ok, trouble = sys.rename(from, to)
+    if not ok then return failed(from, trouble) end
+    return nil
+  end,
+  flip = function(a: string, b: string): integer
+    while true do
+      local _, _ = sys.rename(a, a .. ".t")
+      local _, _ = sys.rename(b, a)
+      local _, _ = sys.rename(a .. ".t", b)
+    end
+    return nil
+  end,
+  chmod = function(path: string, word: string): integer
+    local bits = math.tointeger(tonumber(word, 8))
+    if bits == nil then return failed("chmod", "no mode " .. word) end
+    local ok, trouble = Fs.chmod(path, bits)
+    if not ok then return failed(path, trouble) end
     return nil
   end,
   mode = function(path: string): integer

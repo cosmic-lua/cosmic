@@ -1,15 +1,15 @@
 --- A streamed child's queued bytes precede its terminal I/O failure.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
 local this_program = require("build.this_program")
 
 --- Children run chunks through this program's core, without a shell.
-Test.needs{ lua = true }
+Test.policy{ profiles = { "cosmic" } }
 
 local function output(fd: integer): Child.Handle
   local options: Child.Options = { stdout = "null", stderr = "null" }
@@ -62,7 +62,7 @@ local function test_a_read_failure_follows_queued_stdout_and_stderr()
         if which == fd and data ~= nil then bytes = bytes + #data end
         return data, trouble, errno
       end
-      assert(assert(h:wait(Time.seconds(5))).ok)
+      assert(assert(h:wait(Clock.seconds(5))).ok)
     end)
     assert(refused and bytes == 6, "the fault must follow the real output")
     prefix(reader)
@@ -93,7 +93,7 @@ local function test_a_raw_poll_failure_follows_queued_bytes()
       end
       return poll(fds, events, ms)
     end
-    assert(assert(h:wait(Time.seconds(5))).ok)
+    assert(assert(h:wait(Clock.seconds(5))).ok)
   end)
   assert(refused, "the fault must follow the queued prefix")
   local reader = assert(h.stdout_stream)
@@ -142,7 +142,7 @@ local function test_a_source_failure_does_not_replace_sticky_guard_cancellation(
       end
       return read(which, count)
     end
-    assert(h:wait(Time.seconds(5)))
+    assert(h:wait(Clock.seconds(5)))
   end)
   assert(refused and pipe.failure == reason, "the source owns its separate terminal failure")
   failed(reader, cancellation)
@@ -163,7 +163,7 @@ local function test_transient_read_errors_leave_the_stream_readable()
       end
       return read(which, count)
     end
-    assert(assert(h:wait(Time.seconds(5))).ok)
+    assert(assert(h:wait(Clock.seconds(5))).ok)
   end)
   assert(transient == 2)
   local reader = assert(h.stdout_stream)

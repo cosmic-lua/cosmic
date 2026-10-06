@@ -10,7 +10,7 @@ local this_program = require("build.this_program")
 local rebuild_lock = require("build.rebuild_lock")
 local stand_in = require("build.stand_in")
 local sys = require("cosmic.sys")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
 -- The script bin/zig runs, which its tests copy and start: of the
 -- closure, so its source is there to read.
@@ -20,7 +20,14 @@ local Zig = require("build.zig")
 --- its tests start. bin/zig is started with an environment of the
 --- test's own, and the stand-in reads none of the one it inherits.
 --- build/zig_fetch.tl is the script a cache miss starts.
-Test.needs{ reads = { "build/patch.tl", "build/zig_fetch.tl" }, tool = true }
+Test.policy{
+  profiles = { "cosmic" },
+  grants = {
+    { path = "o/bin", letters = "rx" },
+    { path = "build/patch.tl", letters = "r" },
+    { path = "build/zig_fetch.tl", letters = "r" },
+  },
+}
 
 --- [`bin/zig`] exits as a shell would when the zig it is given cannot
 --- run: 127 when there is none on PATH, 126 when there is one that is
@@ -30,7 +37,7 @@ local function test_main_exits_127_for_no_zig_and_126_for_an_unrunnable_one(tmp:
   local function run(): Child.Result
     local started = this_program.program({ "--standalone", script, "version" }, {
       env = { COSMIC_ZIG = "zig-for-test", PATH = tmp, XDG_CACHE_HOME = tmp .. "/cache" },
-      stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30),
+      stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
     })
     return (assert(Child.run(started.argv, started.options)))
   end
@@ -69,7 +76,7 @@ end
 local function test_the_fetch_script_refuses_missing_words()
   local script = assert(Fs.absolute("build/zig_fetch.tl"))
   local started = this_program.program({ "--standalone", script, "/cache" }, {
-    env = {}, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30),
+    env = {}, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
   })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.code == 2, tostring(result.stderr))
@@ -107,7 +114,7 @@ local function build_with_stand_in(tmp: string, script: string, group: boolean):
   -- Written whole under another name, so the stand-in never reads half.
   assert(Fs.write(tmp .. "/zig-pid.writing", (group and "-" or "") .. tostring(h.pid)))
   assert(Fs.rename(tmp .. "/zig-pid.writing", tmp .. "/zig-pid"))
-  return (assert(h:wait(Time.seconds(30))))
+  return (assert(h:wait(Clock.seconds(30))))
 end
 
 --- A Ctrl-C that reached zig and [`bin/zig`] both, which zig caught and
@@ -156,16 +163,16 @@ local function test_a_boot_holds_the_lock_and_hands_it_on(tmp: string)
     stdout = "capture", stderr = "capture",
   })
   local h = assert(Child.start(started.argv, started.options))
-  local deadline = Time.monotonic_ns() + Time.seconds(20)
+  local deadline = Clock.monotonic_ns() + Clock.seconds(20)
   local handed: string | nil = nil
-  while handed == nil and Time.monotonic_ns() < deadline do
+  while handed == nil and Clock.monotonic_ns() < deadline do
     handed = Fs.read(tmp .. "/handed")
-    if handed == nil then assert(sys.nanosleep(Time.ms(20))) end
+    if handed == nil then assert(sys.nanosleep(Clock.ms(20))) end
   end
   local taken, trouble = rebuild_lock.take(root, 0, "test")
   if taken == "held" then rebuild_lock.release() end
   assert(Fs.write(tmp .. "/go", ""))
-  local result = assert(h:wait(Time.seconds(20)))
+  local result = assert(h:wait(Clock.seconds(20)))
   assert(result.ok, tostring(result.stderr))
   local named = tostring(handed):match("^%[(.*)%]\n$")
   local given, _ = sys.stat(named or "")

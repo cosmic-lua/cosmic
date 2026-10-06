@@ -1,20 +1,20 @@
 --- How a test starts this very program (build.this_program's `program`).
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
+local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
-local Time = require("cosmic.time")
 
---- What `program` copies is the whole of this process's environment,
---- and what it starts is this very program, which reads its own command
---- line in /proc.
-Test.needs{
-  host = { "/proc" },
-  env = { "*" },
-  lua = true,
+--- What `program` copies is this process's environment, which for a
+--- worker is the variables it declares and the pinned ones, and what it
+--- starts is this very program, which reads its own command line in /proc.
+Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "/proc", letters = "r" } },
 }
 
 --- Swaps [`Proc.relaunch`] for one answering `relaunch` while `fn` runs.
@@ -47,10 +47,10 @@ local function test_program_starts_the_relaunch_or_else_the_executable()
       fds = { [3] = 1 } })
     local argv = started.argv
     assert(#argv == 3 and argv[1] == assert(Proc.executable()) and argv[2] == "-e" and
-      argv[3] == "", table.concat(argv, " "))
+        argv[3] == "", table.concat(argv, " "))
     local env = started.options.env
     assert(env.HOME == "/home" and env.COSMIC_PORTABLE_STARTUP_TEST_READY == nil and
-      env.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
+        env.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
     assert(started.options.fds[3] == 1 and next(started.options.fds, 3) == nil)
   end)
   -- And this very program's: its relaunch where it has one.
@@ -79,39 +79,42 @@ local function test_program_adds_the_relaunch_to_a_copy_of_the_options()
     -- Every field of [`Child.Options`], so one the copy drops fails.
     local given: Child.Options = { env = env, cwd = "/somewhere", stdin = "stream", input = "bytes",
       stdout = "capture", stderr = "stdout", fds = fds, capture_limit = 9,
-      process_group = true, timeout_ns = Time.ms(5), sandbox = sandbox }
+      process_group = true, timeout_ns = Clock.ms(5), sandbox = sandbox }
     local opts = this_program.program({}, given).options
     assert(opts.env ~= env and opts.fds ~= fds, "the caller's tables are copied")
     assert(opts.env.HOME == "/home" and opts.env.COSMIC_PORTABLE_ARTIFACT == "/a" and
-      opts.env.SHARED == "relaunch")
+        opts.env.SHARED == "relaunch")
     assert(opts.env.COSMIC_PORTABLE_STARTUP_TEST_READY == nil and
-      opts.env.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
+        opts.env.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
     assert(opts.fds[3] == 1 and opts.fds[4] == "capture" and opts.fds[254] == 7 and
-      opts.fds[255] == 8)
+        opts.fds[255] == 8)
     assert(opts.cwd == "/somewhere" and opts.stdin == "stream" and opts.stdout == "capture" and
-      opts.input == "bytes" and opts.stderr == "stdout" and opts.capture_limit == 9 and opts.process_group == true and
-      opts.timeout_ns == Time.ms(5) and opts.sandbox == sandbox)
+        opts.input == "bytes" and opts.stderr == "stdout" and opts.capture_limit == 9 and opts.process_group == true and
+        opts.timeout_ns == Clock.ms(5) and opts.sandbox == sandbox)
     assert(given.env == env and given.fds == fds)
     assert(env.SHARED == "caller" and env.COSMIC_PORTABLE_ARTIFACT == nil and
-      env.COSMIC_PORTABLE_STARTUP_TEST_READY == "r" and env.COSMIC_PORTABLE_STARTUP_TEST_GO == "g")
+        env.COSMIC_PORTABLE_STARTUP_TEST_READY == "r" and env.COSMIC_PORTABLE_STARTUP_TEST_GO == "g")
     assert(fds[254] == nil and fds[255] == nil)
     -- A descriptor the relaunch hands the core its artifact as, named
     -- by the caller too, raises rather than being dropped.
     local ok, trouble = pcall(this_program.program, {}, { fds = { [254] = "capture" } })
     assert(not ok and tostring(trouble):find("descriptor 254", 1, true), tostring(trouble))
     -- No environment given: this process's whole, which a child given
-    -- none would have inherited, with the relaunch's added.
+    -- none would have inherited, with the relaunch's added. A worker's
+    -- is the variables it declares and the pinned ones; TMPDIR is
+    -- always among them.
     local whole = this_program.program({ "x" }).options
     local own = Env.all()
+    assert(own.TMPDIR ~= nil, "the worker's environment is empty")
     for name, value in pairs(own) do
       if name ~= "COSMIC_PORTABLE_STARTUP_TEST_READY" and name ~= "COSMIC_PORTABLE_STARTUP_TEST_GO" and
-        relaunch.env[name] == nil then
+          relaunch.env[name] == nil then
         assert(whole.env[name] == value, name)
       end
     end
     for name, value in pairs(relaunch.env) do assert(whole.env[name] == value, name) end
     assert(whole.env.COSMIC_PORTABLE_STARTUP_TEST_READY == nil and
-      whole.env.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
+        whole.env.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
     assert(whole.fds[254] == 7 and whole.fds[255] == 8)
   end)
 end
@@ -124,11 +127,44 @@ local function test_program_starts_this_program_with_no_environment(tmp: string)
 local Fs = require("cosmic.fs")
 local cmdline = Fs.read("/proc/self/cmdline")
 print(cmdline ~= nil and cmdline:match("^[^%z]*") or "")
-]] }, { env = {}, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })
+]] }, { env = {}, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))
   local relaunch = Proc.relaunch()
   if relaunch == nil or not Fs.exists("/proc/self/cmdline") then return end
   assert(r.stdout == relaunch.argv[1] .. "\n", tostring(r.stdout) .. " is no relaunch of " ..
-    relaunch.argv[1])
+      relaunch.argv[1])
+end
+
+--- Under a policy `program` is the command line a policy start takes,
+--- which relaunches the program itself: the path it is started by and
+--- the arguments, the policy and the caller's descriptors alone, no
+--- environment, and no word or descriptor of the relaunch.
+local function test_program_under_a_policy_leaves_the_relaunch_to_the_start()
+  local relaunch: Proc.Relaunch = { argv = { "/cache/core-x", "--database", "/db" },
+    env = { COSMIC_PORTABLE_ARTIFACT = "/a" }, fds = { [254] = 7 } }
+  relaunching(relaunch, function()
+    local policy: Sandbox.Policy = { profiles = { "cosmic" } }
+    local started = this_program.program({ "-e", "x" }, { policy = policy, cwd = "/w",
+      fds = { [3] = 1 } })
+    local argv = started.argv
+    assert(#argv == 3 and argv[1] == assert(Proc.executable()) and argv[2] == "-e" and
+        argv[3] == "x", table.concat(argv, " "))
+    local opts = started.options
+    assert(opts.policy == policy and opts.cwd == "/w")
+    assert(opts.env == nil, "the policy's env and set_env are the whole environment")
+    assert(opts.fds[3] == 1 and opts.fds[254] == nil)
+    -- The relaunch's descriptors are not this start's to refuse.
+    assert(this_program.program({}, { policy = policy, fds = { [254] = "capture" } }).options.fds[254] ==
+        "capture")
+    -- Child.start refuses an env beside a policy; so does this, rather than drop it.
+    local ok, why = pcall(this_program.program, {}, { policy = policy, env = { A = "1" } })
+    assert(not ok and tostring(why):find("env beside a policy", 1, true), tostring(why))
+  end)
+  -- Without a policy the relaunch is still there.
+  relaunching(relaunch, function()
+    local started = this_program.program({ "-e", "x" })
+    assert(started.argv[1] == "/cache/core-x" and started.argv[2] == "--database")
+    assert(started.options.env ~= nil and started.options.fds[254] == 7)
+  end)
 end

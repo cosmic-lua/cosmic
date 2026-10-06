@@ -7,7 +7,7 @@
 --- each of those features is keyed for its machine. A vendor refetch or
 --- a patch that brings a new site, or a new question to a named one,
 --- fails here, naming its file, until its features are keyed (in
---- `dispatched`, [`sys.cpu_features`] and .github/scripts/host-features.sh
+--- `dispatched`, [`sys.cpu_features`] and ci/cosmic_ci/host_id.tl
 --- alike) and it is named below.
 ---
 --- The walk does not reach zig's own lib (compiler_rt) or musl, which
@@ -22,9 +22,22 @@ local String = require("cosmic.string")
 --- Every tree build.zig compiles C from: the core's own, the vendored
 --- libraries' and the patches it applies to them, and build.zig itself,
 --- which names them and passes the compiler's definitions.
-Test.needs{ reads = { "build.zig", "core/", "patch/", "vendor/bzip2/", "vendor/cares/",
-  "vendor/curl/", "vendor/lua/", "vendor/mbedtls/", "vendor/miniz/", "vendor/sqlite/",
-  "vendor/xz/", "vendor/yyjson/" } }
+Test.policy{
+  grants = {
+    { path = "build.zig", letters = "r" },
+    { path = "core/", letters = "r" },
+    { path = "patch/", letters = "r" },
+    { path = "vendor/bzip2/", letters = "r" },
+    { path = "vendor/cares/", letters = "r" },
+    { path = "vendor/curl/", letters = "r" },
+    { path = "vendor/lua/", letters = "r" },
+    { path = "vendor/mbedtls/", letters = "r" },
+    { path = "vendor/miniz/", letters = "r" },
+    { path = "vendor/sqlite/", letters = "r" },
+    { path = "vendor/xz/", letters = "r" },
+    { path = "vendor/yyjson/", letters = "r" },
+  },
+}
 
 --- The vendored libraries build.zig compiles C from, each walked whole.
 local LIBRARIES <const> = { "bzip2", "cares", "curl", "lua", "mbedtls", "miniz", "sqlite",
@@ -99,8 +112,8 @@ local SITES <const>: {string:Site} = {
   -- kern.maxfilesperproc too, for the descriptor limit a start raises
   -- to: no feature.
   ["core/syscalls.c"] = { lines = "02e9eda4b1a84a30", reads = {} },
-  ["core/syscalls.h"] = { lines = "b61d799e030c5448", reads = {} },
-  ["core/syscalls_test.tl"] = { lines = "8d0bded5af38f8bd", reads = {} },
+  ["core/syscalls.h"] = { lines = "07f5fc6fd89b1e76", reads = {} },
+  ["core/syscalls_test.tl"] = { lines = "06265a36a78315f4", reads = {} },
   -- The processor count on Apple (sysctlbyname("hw.ncpu")): no feature.
   ["vendor/sqlite/sqlite3.c"] = { lines = "7b27815aae63deac", reads = {} },
 }
@@ -241,7 +254,7 @@ local function test_every_library_build_zig_compiles_is_walked()
   for library in source:gmatch('patched%(b, trees, "([%w_]+)"%)') do
     count = count + 1
     assert(walked[library] or NOT_C[library], "build.zig compiles vendor/" .. library ..
-      ", which this test does not walk: add it to LIBRARIES and to Test.needs")
+        ", which this test does not walk: add it to LIBRARIES and to Test.policy")
   end
   assert(count >= #LIBRARIES, "build.zig names " .. count .. " patched trees")
 end
@@ -255,7 +268,7 @@ local function test_every_site_that_asks_the_processor_is_named()
     if site == nil then
       problems[#problems + 1] = path .. " asks what the processor can do: key the features " ..
         "it reads in build/declared_key.tl's `dispatched`, core/syscalls.c's `cpu_features` " ..
-        "and .github/scripts/host-features.sh, and name it in SITES (lines = \"" .. digest ..
+        "and ci/cosmic_ci/host_id.tl, and name it in SITES (lines = \"" .. digest ..
         "\"), or name it with `reads = {}` if it reads none"
     elseif site.lines ~= digest then
       problems[#problems + 1] = path .. " asks the processor otherwise than SITES says " ..

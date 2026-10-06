@@ -1,29 +1,31 @@
---- The cases of cosmic.child whose child runs a file, or is sandboxed:
---- this program again, past its launcher, where a shell would need the
---- system's. They declare `tool`: a file run builds the tree the file
---- sits in, which loads far more of the program than a `lua`
---- declaration holds, and a sandboxed child is given the program by
---- name (build.confine's `itself`), which only `tool` puts in a
---- worker's sandbox; `nests` lets that child have a root of its own. The
---- cases whose child only runs a chunk are in cosmic/child_lua_test.tl;
+--- The cases of cosmic.child whose child runs a file: this program again,
+--- past its launcher, where a shell would need the system's. They declare
+--- `tool`: a file run builds the tree the file sits in, which loads far
+--- more of the program than a `lua` declaration holds. The cases whose
+--- child is sandboxed are in cosmic/child_sandbox_tool_test.tl, which needs
+--- a sandbox the host gives, and what a platform with none does is here.
+--- The cases whose child only runs a chunk are in cosmic/child_lua_test.tl;
 --- the cases that start nothing are in cosmic/child_test.tl.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Proc = require("cosmic.proc")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
-local sandbox_skip = require("build.sandbox_skip")
+local child_tool_fixture = require("build.child_tool_fixture")
 local this_program = require("build.this_program")
 
---- What the tests read: the environment, which a child inherits unless
---- given one; /proc, where a test finds a child's processes; the program
---- itself (`tool`), which every child is, started past its launcher so
---- that no host program is read; and `nests`, for a child sandboxed in a
---- root of its own.
-Test.needs{ host = { "/proc" }, env = { "*" }, tool = true, nests = true }
+--- What the tests read: /proc, where a test finds a child's processes;
+--- the program itself (`tool`), which every child is, started past its
+--- launcher so that no host program is read; and `nests`, for a child
+--- sandboxed in a root of its own.
+Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "/proc", letters = "r" } },
+  promises = { "nest" },
+}
 
 local function path_exists(path: string): boolean
   local answer, trouble = Fs.exists(path)
@@ -69,54 +71,15 @@ local function lua(chunk: string, args?: {string}, opts?: Child.Options): {strin
   return started.argv, started.options
 end
 
---- Chunk prefixes: cosmic.fs as `Fs`, cosmic.sys as `sys`.
-local FS <const> = 'local Fs = require("cosmic.fs") '
-local SYS <const> = 'local sys = require("cosmic.sys") '
-
---- A chunk's statement that sleeps `ms` milliseconds.
-local function sleep(ms: integer): string
-  return 'require("cosmic.time").sleep_ns(require("cosmic.time").ms(' .. tostring(ms) .. ')) '
-end
-
---- A prefix for a chunk that starts a descendant: `again(chunk, opts)`
---- starts this program once more, as `lua` does, running `chunk`.
---- A chunk that leaves one running ends by [`sys.exit`], past the
---- collector, whose end of the handle would end it, as a shell's `&`
---- leaves it.
-local AGAIN <const> = [[
-local Child = require("cosmic.child")
-local this_program = require("build.this_program")
-local function again(chunk, opts)
-  local started = this_program.program({ "-e", chunk }, opts)
-  return assert(Child.start(started.argv, started.options))
-end
-]]
+local sleeping, AGAIN = child_tool_fixture.sleeping, child_tool_fixture.AGAIN
 
 --- A child that catches nothing is ended by a timeout's SIGTERM, not
---- left for the SIGKILL after the grace period -- and so is one started
---- in a sandbox of its own, where it is its pid namespace's pid 2, not
---- the pid 1 that would pass over a signal it does not catch from
---- outside the namespace. Where the kernel will not sandbox a child, the
---- sandboxed case is the kernel's to refuse, which skips the test
---- (build.sandbox_skip).
-local function test_a_timeout_ends_a_child_that_catches_nothing(tmp: string)
-  local r = assert(Child.run(lua(sleep(100000), nil,
-    { timeout_ns = Time.ms(200), process_group = false })))
+--- left for the SIGKILL after the grace period. The same of a child in a
+--- sandbox of its own is in cosmic/child_sandbox_tool_test.tl.
+local function test_a_timeout_ends_a_child_that_catches_nothing()
+  local r = assert(Child.run(lua(sleeping(100000), nil,
+    { timeout_ns = Clock.ms(200), process_group = false })))
   assert(r.timed_out and r.signal == sys.SIGTERM, "ended by " .. tostring(r.signal))
-  local reads = confine.itself()
-  reads[#reads + 1] = "/proc"
-  reads[#reads + 1] = "/dev/null"
-  -- A directory it may start in: the worker's own, the tree's root, is
-  -- none of what it unveils.
-  reads[#reads + 1] = tmp
-  local sandboxed, trouble = Child.run(lua(sleep(100000), nil,
-    { cwd = tmp, timeout_ns = Time.ms(200), sandbox = { unveil = { reads = reads }, offline = true } }))
-  if sandboxed == nil then
-    sandbox_skip.refused("no sandbox for the child: " .. tostring(trouble))
-    return
-  end
-  assert(sandboxed.timed_out and sandboxed.signal == sys.SIGTERM,
-    "sandboxed, ended by " .. tostring(sandboxed.signal))
 end
 
 local function test_spawn_validates_fds_and_preserves_cloexec_stdio(tmp: string)
@@ -168,7 +131,7 @@ return function(argv: {string}): integer
   local relaunch = assert(Proc.relaunch())
   local words = { table.unpack(relaunch.argv) }
   words[#words + 1] = "-e"
-  words[#words + 1] = AGAIN .. "local h = again('" .. ]] .. string.format("%q", sleep(30000)) .. [[ ..
+  words[#words + 1] = AGAIN .. "local h = again('" .. ]] .. string.format("%q", sleeping(30000)) .. [[ ..
     "', { process_group = false }) local Fs = require('cosmic.fs') local pid, ready = ... " ..
     "assert(Fs.write(pid, tostring(h.pid))) assert(Fs.write(ready, 'ready')) h:wait()"
   words[#words + 1] = argv[1]
@@ -186,10 +149,10 @@ end
   -- The driver is a nested cosmic that compiles its fixture before it
   -- spawns anything; on the checked core, on a loaded runner, that has
   -- taken more than 3 s. The wait ends as soon as it is ready.
-  local deadline = Time.monotonic_ns() + Time.seconds(30)
+  local deadline = Clock.monotonic_ns() + Clock.seconds(30)
   while (not path_exists(ready) or Fs.read(ready) ~= "ready") and
-      Time.monotonic_ns() < deadline do
-    Time.sleep_ns(Time.ms(10))
+      Clock.monotonic_ns() < deadline do
+    Clock.sleep_ns(Clock.ms(10))
   end
   assert(path_exists(ready) and Fs.read(ready) == "ready",
     "driver did not report readiness; log=" .. (Fs.read(diagnostic) or "<none>"))
@@ -198,15 +161,15 @@ end
   assert(driver:stop(sys.SIGTERM))
   -- Generous, as the start was: a driver that ignored the signal is
   -- told apart by the signal its Result names, not by the time.
-  local stopped = assert(driver:wait(Time.seconds(8)))
+  local stopped = assert(driver:wait(Clock.seconds(8)))
   assert(Fs.close(fd))
   assert(stopped.signal == sys.SIGTERM,
     "driver cancellation result code=" .. tostring(stopped.code) ..
-    " signal=" .. tostring(stopped.signal) .. " log=" ..
-    (Fs.read(diagnostic) or "<none>"))
-  local gone_by = Time.monotonic_ns() + Time.seconds(1)
-  while sys.kill(descendant, 0) and Time.monotonic_ns() < gone_by do
-    Time.sleep_ns(Time.ms(10))
+      " signal=" .. tostring(stopped.signal) .. " log=" ..
+      (Fs.read(diagnostic) or "<none>"))
+  local gone_by = Clock.monotonic_ns() + Clock.seconds(1)
+  while sys.kill(descendant, 0) and Clock.monotonic_ns() < gone_by do
+    Clock.sleep_ns(Clock.ms(10))
   end
   assert(not sys.kill(descendant, 0))
 end
@@ -216,7 +179,10 @@ end
 --- in a relaunched process, since one that already ignores SIGPIPE (a
 --- test runner that fed some child `input`) has no case to show.
 local function test_writing_to_a_gone_stdin_stream_fails_instead_of_ending(tmp: string)
-  if Proc.relaunch() == nil then return end -- a native start has nothing to relaunch
+  if Proc.relaunch() == nil then
+    Test.skip("a native start has nothing to relaunch")
+    return
+  end
   local script = tmp .. "/writes.tl"
   assert(Fs.write(script, [[
 local Child = require("cosmic.child")
@@ -227,7 +193,7 @@ return function(): integer
   local relaunch = assert(Proc.relaunch())
   local argv = { table.unpack(relaunch.argv) }
   argv[#argv + 1] = "-e"
-  argv[#argv + 1] = "require('cosmic.sys').close(0) require('cosmic.time').sleep_ns(5000000000)"
+  argv[#argv + 1] = "require('cosmic.sys').close(0) require('cosmic.clock').sleep_ns(5000000000)"
   local h = assert(Child.start(argv, { stdin = "stream", env = relaunch.env, fds = relaunch.fds }))
   local stdin = assert(h.stdin_stream)
   local chunk = string.rep("x", 1 << 20)
@@ -242,10 +208,10 @@ return function(): integer
 end
 ]]))
   local started = this_program.program({ script }, { cwd = tmp,
-    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.signal == nil and r.ok, "ended by signal " .. tostring(r.signal) .. ": " ..
-    tostring(r.stderr))
+      tostring(r.stderr))
   assert(assert(r.stdout):find("^false "), r.stdout)
 end
 
@@ -262,42 +228,25 @@ local function test_stopping_a_reaped_child_names_the_module()
   assert(stopped == false and why == "child: process already reaped", tostring(why))
 end
 
---- A child started with a `sandbox` has only what it unveils, a path
---- at the name `at` gives it, and is held there with every process it
---- starts; a relative unveiled path is refused. Where the kernel will not
---- sandbox a child (not Linux, or no unprivileged user namespaces), the
---- start fails and says why, and the test is skipped where the platform
---- could have given one (build.sandbox_skip).
-local function test_a_sandboxed_child_has_only_what_it_unveils(tmp: string)
-  local given, hidden = tmp .. "/given", tmp .. "/hidden"
-  assert(Fs.mkdirs(given))
-  assert(Fs.mkdirs(hidden))
-  assert(Fs.write(given .. "/f", "in"))
-  local reads = confine.itself()
-  reads[#reads + 1] = given
-  reads[#reads + 1] = "/proc"
-  reads[#reads + 1] = "/dev/null"
-  local r, trouble = Child.run(lua(AGAIN .. FS .. SYS .. 'local hidden, given = ... ' ..
-    'Fs.put(1, assert(Fs.read("f")) .. "\\n" .. assert(sys.getcwd()) .. "\\n" .. ' ..
-    '(Fs.exists(hidden) == true and "hidden-seen" or "hidden-absent") .. "\\n") ' ..
-    'local own = assert(again("return require(\'cosmic.fs\').exists(" .. ' ..
-    'string.format("%q", given) .. ") == true and 0 or 1"):wait()) ' ..
-    'Fs.put(1, (own.code == 0 and "own-name" or "no-own-name") .. "\\n")', { hidden, given },
-    { cwd = "/given", stdout = "capture", stderr = "stdout",
-      sandbox = { unveil = { reads = reads, at = { [given] = "/given" } }, offline = true } }))
-  if r == nil then
-    sandbox_skip.refused("no sandbox for the child: " .. tostring(trouble))
-    -- Only as a kernel that cannot sandbox refuses.
-    local refused = false
-    for _, errno in ipairs({ sys.ENOSYS, sys.EPERM, sys.EACCES, sys.EINVAL, sys.ENOSPC }) do
-      if trouble == "child: start: " .. sys.errno_message(errno) then refused = true end
-    end
-    assert(refused, trouble)
-    return
+--- Where the platform has no sandbox for a child (anything but Linux), a
+--- start with a `sandbox` fails and says why, as a kernel that cannot
+--- sandbox refuses. A platform that has one runs the child, in
+--- cosmic/child_sandbox_tool_test.tl.
+local function test_a_sandboxed_child_is_refused_where_the_platform_has_no_sandbox(tmp: string)
+  if assert(sys.uname()).sysname == "Linux" then
+    Test.skip("a platform with a sandbox answers this where a test requires one")
   end
-  assert(r.ok and r.stdout == "in\n/given\nhidden-absent\nno-own-name\n", tostring(r.stdout))
-  assert(not pcall(Child.start, { "/bin/sh" },
-    { sandbox = { unveil = { reads = { "relative" } } } } as Child.Options))
+  local reads = confine.itself()
+  reads[#reads + 1] = tmp
+  local r, trouble = Child.run(lua("local _ = 1", nil,
+    { cwd = tmp, sandbox = { unveil = { reads = reads }, offline = true } }))
+  assert(r == nil, "a child started in a sandbox where the platform has none")
+  -- Only as a kernel that cannot sandbox refuses.
+  local refused = false
+  for _, errno in ipairs({ sys.ENOSYS, sys.EPERM, sys.EACCES, sys.EINVAL, sys.ENOSPC }) do
+    if trouble == "child: start: " .. sys.errno_message(errno) then refused = true end
+  end
+  assert(refused, trouble)
 end
 
 --- A caught signal ends a wait, timed or not, and the child with it:
@@ -313,7 +262,7 @@ local function test_guard_keeps_a_signal_and_delivers_it_on_close(tmp: string)
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
 local Proc = require("cosmic.proc")
 local relaunch = assert(Proc.relaunch())
@@ -326,8 +275,8 @@ end
 return function(argv: {string}): integer
   do
     local guard <close> = assert(Child.guard())
-    local timed = this("require('cosmic.time').sleep_ns(30000000000)")
-    local untimed = this("require('cosmic.time').sleep_ns(30000000000)")
+    local timed = this("require('cosmic.clock').sleep_ns(30000000000)")
+    local untimed = this("require('cosmic.clock').sleep_ns(30000000000)")
     local done = this("return 3")
     -- Until `done` has exited, its status unclaimed: on its exit watch,
     -- or, for a child with none (a Linux without pidfd_open, or Darwin's
@@ -337,15 +286,15 @@ return function(argv: {string}): integer
     -- can reap the child (core/syscalls.c's `exit_watch` TODO); once
     -- that is settled, this wait is exact there too.
     if done._exit_fd >= 0 then
-      assert(Poll.readable(done._exit_fd, Time.seconds(8)))
+      assert(Poll.readable(done._exit_fd, Clock.seconds(8)))
     else
       local stat_path = "/proc/" .. tostring(done.pid) .. "/stat"
-      local by = Time.monotonic_ns() + Time.seconds(8)
+      local by = Clock.monotonic_ns() + Clock.seconds(8)
       while true do
         local stat = Fs.read(stat_path)
         if stat == nil or stat:match("^%d+ %b() Z") ~= nil then break end
-        assert(Time.monotonic_ns() < by, "the child did not exit")
-        Time.sleep_ns(Time.ms(10))
+        assert(Clock.monotonic_ns() < by, "the child did not exit")
+        Clock.sleep_ns(Clock.ms(10))
       end
     end
     assert(sys.kill(sys.getpid(), sys.SIGTERM))
@@ -368,7 +317,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local started = this_program.program({ fixture, report },
-    { stderr = "capture", timeout_ns = Time.seconds(30) })
+    { stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   local cancelled = "true child: cancelled by signal " .. tostring(sys.SIGTERM)
   local expected = table.concat({ cancelled, cancelled, "true", "true", "true",
@@ -403,10 +352,10 @@ return function(argv: {string}): integer
 end
 ]]))
   local started = this_program.program({ fixture, report },
-    { stderr = "capture", timeout_ns = Time.seconds(30) })
+    { stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
-    " " .. tostring(r.stderr))
+      " " .. tostring(r.stderr))
   local term = tostring(sys.SIGTERM)
   local got = Fs.read(report)
   assert(got == table.concat({ term, term, term, "true" }, "|"), tostring(got))
@@ -438,10 +387,10 @@ return function(argv: {string}): integer
 end
 ]]))
   local started = this_program.program({ fixture, report },
-    { stderr = "capture", timeout_ns = Time.seconds(30) })
+    { stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
-    " " .. tostring(r.stderr))
+      " " .. tostring(r.stderr))
   local int, term = tostring(sys.SIGINT), tostring(sys.SIGTERM)
   local got = Fs.read(report)
   assert(got == table.concat({ int, term, term }, "|"), tostring(got))
@@ -473,10 +422,10 @@ return function(argv: {string}): integer
 end
 ]]))
   local started = this_program.program({ fixture, report },
-    { stderr = "capture", timeout_ns = Time.seconds(30) })
+    { stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
-    " " .. tostring(r.stderr))
+      " " .. tostring(r.stderr))
   local term = tostring(sys.SIGTERM)
   local got = Fs.read(report)
   assert(got == table.concat({ term, term, term, "0", term, term }, "|"), tostring(got))
@@ -507,7 +456,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local started = this_program.program({ fixture, report },
-    { stderr = "capture", timeout_ns = Time.seconds(30) })
+    { stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   local term = tostring(sys.SIGTERM)
   local got = Fs.read(report)
@@ -536,7 +485,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local started = this_program.program({ fixture, report },
-    { stderr = "capture", timeout_ns = Time.seconds(30) })
+    { stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   local got = Fs.read(report)
   assert(got == tostring(sys.SIGTERM) .. "|0", tostring(got) .. " " .. tostring(r.stderr))
@@ -553,10 +502,10 @@ local function test_a_run_inside_a_guard_is_cancelled_and_leaves_the_signal_to_i
   local fixture = tmp .. "/run_inside.tl"
   assert(Fs.write(fixture, [[
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
-local Time = require("cosmic.time")
 local relaunch = assert(Proc.relaunch())
 local function this(chunk: string): {string}
   local words = { table.unpack(relaunch.argv) }
@@ -567,10 +516,10 @@ end
 return function(argv: {string}): integer
   local answers: {string} = {}
   local guard = assert(Child.guard())
-  local options: Child.Options = { env = relaunch.env, fds = relaunch.fds, timeout_ns = Time.seconds(30) }
+  local options: Child.Options = { env = relaunch.env, fds = relaunch.fds, timeout_ns = Clock.seconds(30) }
   local r, why = Child.run(this("local sys = require('cosmic.sys') " ..
     "assert(sys.kill(" .. tostring(sys.getpid()) .. ", sys.SIGTERM)) " ..
-    "require('cosmic.time').sleep_ns(30000000000)"), options)
+    "require('cosmic.clock').sleep_ns(30000000000)"), options)
   answers[#answers + 1] = tostring(r == nil) .. " " .. why
   answers[#answers + 1] = tostring(guard:cancelled())
   local after = assert(Child.run(this("return 4"), options))
@@ -581,10 +530,10 @@ return function(argv: {string}): integer
 end
 ]]))
   local started = this_program.program({ fixture, report },
-    { stderr = "capture", timeout_ns = Time.seconds(60) })
+    { stderr = "capture", timeout_ns = Clock.seconds(60) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
-    " " .. tostring(r.stderr))
+      " " .. tostring(r.stderr))
   local term = tostring(sys.SIGTERM)
   local got = Fs.read(report)
   assert(got == table.concat({ "true child: cancelled by signal " .. term, term, "4", term }, "|"),

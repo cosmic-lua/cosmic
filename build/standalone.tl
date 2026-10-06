@@ -90,8 +90,11 @@ end
 
 --- `file`'s Teal, checked and compiled to Lua: nil and every complaint
 --- the checker has when it is not clean.
-local function generate(file: string, source: string): string | nil, string
-  local built, load_trouble = teal.load()
+local function generate(file: string, source: string, built?: compiler): string | nil, string
+  local load_trouble = ""
+  if built == nil then
+    built, load_trouble = teal.load()
+  end
   if built == nil then
     return nil, load_trouble
   end
@@ -120,12 +123,16 @@ local function generate(file: string, source: string): string | nil, string
   return code, ""
 end
 
---- `file`'s Teal, checked and compiled to a loaded chunk -- from the
---- cache when this binary compiled these exact bytes cleanly before.
---- The cache is found through `variables` when given (as
---- [`Fs.cache_dir`] finds it), and this process's own otherwise.
-function standalone.compile(file: string, source: string,
-                            variables?: {string:string}): standalone.Main | nil, string
+--- `file`'s Teal, checked and compiled to Lua -- from the cache when this
+--- binary compiled these exact bytes cleanly before, and kept there when
+--- not. The cache is found through `variables` when given (as
+--- [`Fs.cache_dir`] finds it), and this process's own otherwise. nil and
+--- every complaint of the checker when the file is not clean.
+--- `built`, when given, must be loaded by this binary's [`teal.load`],
+--- optionally stripped: the cache assumes this binary's compiler. Every
+--- check creates its own environment; previous declarations are not shared.
+function standalone.code(file: string, source: string,
+                         variables?: {string:string}, built?: compiler): string | nil, string
   local cached = cached_path(source, variables)
   local code: string
   if cached ~= nil then
@@ -134,7 +141,7 @@ function standalone.compile(file: string, source: string,
     code = read
   end
   if code == nil then
-    local generated, trouble = generate(file, source)
+    local generated, trouble = generate(file, source, built)
     if generated == nil then
       return nil, trouble
     end
@@ -142,6 +149,17 @@ function standalone.compile(file: string, source: string,
     if cached ~= nil then
       local _, _ = Fs.write(cached, code, 0x180)
     end
+  end
+  return code, ""
+end
+
+--- `file`'s Teal, checked and compiled to a loaded chunk ([`standalone.code`],
+--- loaded as `file`'s).
+function standalone.compile(file: string, source: string,
+                            variables?: {string:string}, built?: compiler): standalone.Main | nil, string
+  local code, trouble = standalone.code(file, source, variables, built)
+  if code == nil then
+    return nil, trouble
   end
   return loaded(file, code)
 end
@@ -163,8 +181,11 @@ end
 
 --- Runs `argv[2]` standalone: `argv` is the whole command line, `cosmic`
 --- at slot 0 and `--standalone` at slot 1, so the file sees what follows
---- its own path, and its path at `argv[0]`.
-function standalone.run(argv: {integer:string}): integer
+--- its own path, and its path at `argv[0]`. `why`, where given, says what
+--- made this run standalone, which a file that does not compile is told
+--- beside its refusal: a require of a module that is not `cosmic.*` is
+--- refused here and not in the run the caller may have meant.
+function standalone.run(argv: {integer:string}, why?: string): integer
   local file = argv[2]
   if file == nil then
     log:complain("usage: cosmic --standalone <file.tl> [args...]")
@@ -178,17 +199,22 @@ function standalone.run(argv: {integer:string}): integer
   local chunk, trouble = standalone.compile(file, source)
   if chunk == nil then
     local _, _ = Fs.put(Fs.stderr, trouble .. "\n")
+    if why ~= nil then
+      local _, _ = Fs.put(Fs.stderr, "cosmic: " .. why .. "\n")
+    end
     return 1
-  end
-  local main = standalone.entry(chunk())
-  if main == nil then
-    return 0
   end
   local arguments: {integer:string} = { [0] = file }
   local slot = 3
   while argv[slot] ~= nil do
     arguments[slot - 2] = argv[slot]
     slot = slot + 1
+  end
+  -- Its top level finds them in `arg`, as `lua file a b` gives them.
+  rawset(_G, "arg", arguments)
+  local main = standalone.entry(chunk())
+  if main == nil then
+    return 0
   end
   return exit_status.of(file, main(arguments))
 end

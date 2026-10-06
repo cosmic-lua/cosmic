@@ -1,10 +1,10 @@
 --- Proves the Reader/Writer constructors read and write exactly what
 --- they are given, in bounded chunks, and that failures propagate.
 
+local Clock = require("cosmic.clock")
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
-local Time = require("cosmic.time")
 
 --- A plain-table stand-in for a [`cosmic.compress`] codec.
 local record Fake is Stream.Transform
@@ -907,9 +907,9 @@ local function test_a_long_line_in_small_chunks_costs_linear_time()
   local shorts = string.rep(short .. "\n", 8)
   -- The time to read `text` a byte at a time, checking its lines.
   local function timed(text: string, want: {string}): integer
-    local started = Time.monotonic_ns()
+    local started = Clock.monotonic_ns()
     local got, trouble = all_lines(trickle(text))
-    local elapsed = Time.monotonic_ns() - started
+    local elapsed = Clock.monotonic_ns() - started
     assert(trouble == "" and #got == #want, trouble)
     for i, line in ipairs(want) do assert(got[i] == line) end
     return elapsed
@@ -1055,11 +1055,11 @@ local function test_rest_ends_the_lines_and_closes_the_reader()
   assert(lines:read() == "a")
   local rest = lines:rest()
   for _, call in ipairs({
-    function() lines:read() end,
-    function() lines:rest() end,
-    function()
-      for _ in lines:each() do end
-    end,
+      function() lines:read() end,
+      function() lines:rest() end,
+      function()
+        for _ in lines:each() do end
+      end,
   }) do
     local ok, trouble = pcall(call) as (boolean, any)
     assert(not ok and tostring(trouble):find("ended at `rest`", 1, true) ~= nil,

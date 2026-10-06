@@ -22,11 +22,15 @@
 # (core/syscalls.c's `spawn_program`).
 core/syscalls_test.tl
 core/syscalls_sigpipe_test.tl
-core/syscalls_tool_test.tl
+core/syscalls_tool_unsandboxed_test.tl
+core/grants_refused_test.tl
 core/descriptor_limit_system_test.tl
 cosmic/child_test.tl
 cosmic/child_lua_test.tl
 cosmic/child_tool_test.tl
+# What a policy refuses where the platform has no sandbox: the one test
+# there is nothing to check of on Linux.
+cosmic/child_policy_anywhere_test.tl
 # Signals a child starts with: a caught one at its default through
 # exec, an ignored one ignored but SIGPIPE (core/syscalls.c's
 # `spawn_program`).
@@ -52,8 +56,9 @@ cosmic/fs_test.tl
 build/declared_key_test.tl
 build/declared_unenforced_test.tl
 build/verify_codesign_test.tl
-# .github/scripts/host-features.sh's Darwin branch runs everywhere
-# (the test passes SYSNAME); listed for its default, `uname`'s answer.
+# ci/cosmic_ci/host_id.tl's Darwin branch runs everywhere (the recorded
+# macOS hosts in ci/testdata/host_features); listed for its default,
+# `uname`'s answer.
 build/host_features_test.tl
 # The launcher's Darwin shell: `stat -f` (portable_lstat), `ln -h`
 # (portable_link) and the $HOME/Library/Caches leaf (build/launcher.tl).

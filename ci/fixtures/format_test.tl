@@ -1,4 +1,4 @@
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
 local Fixture = require("cosmic_ci.fixture")
@@ -6,13 +6,55 @@ local Fixture = require("cosmic_ci.fixture")
 local Test = require("cosmic.test")
 
 --- Run unsandboxed and sharing nothing (cosmic_ci/orchestration.tl's
---- `fixture`), its workers are given the environment they declare:
---- all of it, which says where the candidate and its products are
---- (COSMIC_FIXTURE_*) and where the host's toolchain is. A release that
---- keys every unsandboxed run by declaration gives a worker only that.
-Test.needs{ env = { "*" } }
+--- `fixture`), its worker is given the variables it names: what the
+--- driver says where the candidate and its products are
+--- (COSMIC_FIXTURE_*) and what the children it starts read
+--- ([`Fixture.inherited`], which each of them hands on and no more, and
+--- which cosmic_ci/orchestration_test.tl holds this list to).
+Test.policy{
+  env = {
+    "COSMIC_FIXTURE_FORMAT",
+    "COSMIC_FIXTURE_ROOT",
+    "COSMIC_FIXTURE_TARGET",
+    "PATH",
+    "HOME",
+    "XDG_CACHE_HOME",
+    "TMPDIR",
+    "COSMIC_PORTABLE_CACHE",
+    "COSMIC_VERDICT_CACHE",
+    "COSMIC_AUTO_BOOT",
+    "COSMIC_TEST_SANDBOX",
+    "COSMIC_SANDBOX",
+    "COSMIC_TEST_HELD",
+    "COSMIC_BOOTSTRAP",
+    "COSMIC_ZIG",
+    "COSMIC_ZIG_CACHE",
+    "COSMIC_ZIG_GLOBAL_CACHE",
+    "ZIG_LIB_DIR",
+    "ZIG_GLOBAL_CACHE_DIR",
+    "ZIG_LOCAL_CACHE_DIR",
+    "SDKROOT",
+    "DEVELOPER_DIR",
+    "COSMIC_TEST_TIMEOUT",
+    "FUZZ_ITERS",
+    "MACOSX_DEPLOYMENT_TARGET",
+    "COSMIC_BOOTSTRAP_ATTEMPTS",
+    "COSMIC_BOOTSTRAP_VERIFY",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "CURL_CA_BUNDLE",
+    "ALL_PROXY",
+    "HTTPS_PROXY",
+    "HTTP_PROXY",
+    "NO_PROXY",
+    "all_proxy",
+    "https_proxy",
+    "http_proxy",
+    "no_proxy",
+  },
+}
 
-local native_build_timeout_ns <const> = Time.seconds(120)
+local native_build_timeout_ns <const> = Clock.seconds(120)
 
 local function test_decoder_inspection_records_are_exact(tmp: string)
   local digest = string.rep("a", 64)
@@ -27,7 +69,7 @@ local function test_decoder_inspection_records_are_exact(tmp: string)
       suffix = prefix .. entry:sub(1, -2) .. " trailing\n",
       duplicate = prefix .. entry .. entry,
       blank = prefix .. "\n" .. entry,
-    }) do
+  }) do
     local path = tmp .. "/" .. name
     Fixture.write(path, contents)
     assert(not pcall(Fixture.inspection, path),
@@ -72,8 +114,8 @@ local function test_portable_format_contract(tmp: string)
       "host inspection identity differs: " .. target.name)
     local host_bytes = Fixture.read(host_path)
     assert(host.entry_count == 1 and host_entry.offset == 0 and
-      host_entry.length == #core and host_bytes:sub(1, #core) == core and
-      host_entry.digest == Hash.hex_sha256(core),
+        host_entry.length == #core and host_bytes:sub(1, #core) == core and
+        host_entry.digest == Hash.hex_sha256(core),
       "host inspection does not describe the leading core: " .. target.name)
     local subset_path = program .. ".subset-" .. target.name
     local subset_inspection = Fixture.run("subset-inspection-" .. target.name,
@@ -83,8 +125,8 @@ local function test_portable_format_contract(tmp: string)
       "subset inspection identity differs: " .. target.name)
     local subset_bytes = Fixture.read(subset_path)
     assert(subset.entry_count == 1 and subset_entry.length == #core and
-      subset_bytes:sub(subset_entry.offset + 1, subset_entry.offset + #core) == core and
-      subset_entry.digest == Hash.hex_sha256(core),
+        subset_bytes:sub(subset_entry.offset + 1, subset_entry.offset + #core) == core and
+        subset_entry.digest == Hash.hex_sha256(core),
       "subset inspection does not describe its core: " .. target.name)
     assert(#core == entry.length, "format core length differs: " .. target.name)
     local extracted = artifact:sub(entry.offset + 1,
@@ -115,5 +157,5 @@ local function test_portable_format_contract(tmp: string)
     "portable-format-" .. publish_target }, root, diagnostics, nil,
     native_build_timeout_ns)
   Fixture.copy(root .. "/o/portable-fixture/format/format-test-" ..
-    publish_target, publish .. "/format-test-" .. publish_target, 0x1ed)
+      publish_target, publish .. "/format-test-" .. publish_target, 0x1ed)
 end

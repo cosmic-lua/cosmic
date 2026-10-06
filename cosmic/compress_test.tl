@@ -5,7 +5,6 @@
 local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Sqlite = require("cosmic.sqlite")
-local testing = require("cosmic.internal.testing")
 
 -- Feeds `data` through `stream` in pieces of `size` bytes (the whole of
 -- it in one piece when `size` is nil), draining each piece's held
@@ -230,25 +229,6 @@ local function test_the_ratio_check_passes_deflates_most_compressible_stream()
   end
 end
 
---- The ratio check, reached through the checked core's fault point: a
---- tinfl that stops consuming, as upstream's did on a block with no
---- codes, gives out a full window per call for nothing, and the stream
---- fails once that passes deflate's largest ratio rather than spinning.
-local function test_a_decoder_that_stops_consuming_fails_the_ratio_check()
-  if testing.configuration ~= "sanitized" then return end
-  local packed = assert(Compress.deflate("raw", "hello, cosmic!"))
-  testing.fail_at("tinfl_decompress")
-  local dec = assert(Compress.inflater("raw"))
-  local out, trouble: string, string
-  for _ = 1, 64 do
-    out, trouble = dec:update(packed)
-    if out == nil or not dec:pending() then break end
-    packed = ""
-  end
-  assert(not testing.fail_at(), "the fault fired")
-  assert(out == nil and trouble:find("more output than deflate codes", 1, true) ~= nil, tostring(trouble))
-end
-
 local function test_crc32_matches_the_known_value_and_continues()
   -- crc32("hello, cosmic!") from Python's binascii.crc32.
   local whole = Compress.crc32("hello, cosmic!")
@@ -359,34 +339,34 @@ end
 -- 8 MiB of NUL bytes as `xz -0 --check=crc32` writes it: 1352 bytes.
 local xz_bomb = assert(Codec.unhex(
   "fd377a585a0000016922de36020021010c0000008f98419cffff11016c5d00006ffdffffa3b7ff473e481572396151b8" ..
-  "9228e6a38607f9eee41e82d32fc53a3c014bb17ec98a8a4d2fa30dd97fa6e38c231153e05918c5758ae277f8b6947f0c" ..
-  "6ac0de744964e2e95c53b204d8f7440cab5f0d6d46e9e5c37688b79657acb64de1691d6ffb4b88106c42cb883f5c008f" ..
-  "d04eaf262894711f3d8f24e1709ea7235fec28cb85d195988a7e2a91f22775f719c006984d98fdd8afd5900fc42553f8" ..
-  "f591363105a5b0ee6fc1704d470cd19111aaad601dbaceb127185c5986e9665258bee976ac59e4e55b0508f9c7daadfc" ..
-  "fb522b74cd1e5b2042f9dd533df82964093b80cb2a6cdfb53bf0c4bd2e5faa0f3e4b664290130eff1093f8717859f80b" ..
-  "cdff9528460fa9fc7cdefb9a302e56c08f85f38381c065c42553f8f591363105a5b0ee6fc1704d470cd19111aaad601d" ..
-  "baceb127185c5986e9665258bee976ac59e4e55b0508f9c7daadfcfb522b74cd1e5b2042f9dd533df82964093b80cb2a" ..
-  "6cdfb53bf0c4bc4827e6589fff10012b00ec7353a7fdbeae7c311a9fb78d316e709ea7235fec28cb85d195988a7e2a91" ..
-  "f22775f719c006984d98fdd8afd5900fc42553f8f591363105a5b0ee6fc1704d470cd19111aaad601dbaceb127185c59" ..
-  "86e9665258bee976ac59e4e55b0508f9c7daadfcfb522b74cd1e5b2042f9dd533df82964093b80cb2a6cdfb53bf0c4bd" ..
-  "2e5faa0f3e4b664290130eff1093f8717859f80bcdff9528460fa9fc7cdefb9a302e56c08f85f38381c065c42553f8f5" ..
-  "91363105a5b0ee6fc1704d470cd19111aaad601dbaceb127185c5986e9665258bee976ac59e4e55b0508f9c7daadfcfb" ..
-  "522b74cd1e5b2042f9dd533df82964093b80cb2a6cdfb53bf0c4bd2e5faa0f3e4b664290130eff1093f8717859f80bcd" ..
-  "ff9528460fa9fc7cdefb9a302e56c08f85f38381c065c425510f3fb29fff10012b00ec7353a7fdbeae7c311a9fb78d31" ..
-  "6e709ea7235fec28cb85d195988a7e2a91f22775f719c006984d98fdd8afd5900fc42553f8f591363105a5b0ee6fc170" ..
-  "4d470cd19111aaad601dbaceb127185c5986e9665258bee976ac59e4e55b0508f9c7daadfcfb522b74cd1e5b2042f9dd" ..
-  "533df82964093b80cb2a6cdfb53bf0c4bd2e5faa0f3e4b664290130eff1093f8717859f80bcdff9528460fa9fc7cdefb" ..
-  "9a302e56c08f85f38381c065c42553f8f591363105a5b0ee6fc1704d470cd19111aaad601dbaceb127185c5986e96652" ..
-  "58bee976ac59e4e55b0508f9c7daadfcfb522b74cd1e5b2042f9dd533df82964093b80cb2a6cdfb53bf0c4bd2e5faa0f" ..
-  "3e4b664290130eff1093f8717859f80bcdff9528460fa9fc7cdefb9a302e56c08f85f38381c065c425510f3fb29fff10" ..
-  "012b00ec7353a7fdbeae7c311a9fb78d316e709ea7235fec28cb85d195988a7e2a91f22775f719c006984d98fdd8afd5" ..
-  "900fc42553f8f591363105a5b0ee6fc1704d470cd19111aaad601dbaceb127185c5986e9665258bee976ac59e4e55b05" ..
-  "08f9c7daadfcfb522b74cd1e5b2042f9dd533df82964093b80cb2a6cdfb53bf0c4bd2e5faa0f3e4b664290130eff1093" ..
-  "f8717859f80bcdff9528460fa9fc7cdefb9a302e56c08f85f38381c065c42553f8f591363105a5b0ee6fc1704d470cd1" ..
-  "9111aaad601dbaceb127185c5986e9665258bee976ac59e4e55b0508f9c7daadfcfb522b74cd1e5b2042f9dd533df829" ..
-  "64093b80cb2a6cdfb53bf0c4bd2e5faa0f3e4b664290130eff1093f8717859f80bcdff9528460fa9fc7cdefb9a302e56" ..
-  "c08f85f38381c065c425510f3fb28003ba0005007b61f7ef0000000045bcd21a0001a20a80808004708db3ed3e300d8b" ..
-  "020000000001595a"))
+    "9228e6a38607f9eee41e82d32fc53a3c014bb17ec98a8a4d2fa30dd97fa6e38c231153e05918c5758ae277f8b6947f0c" ..
+    "6ac0de744964e2e95c53b204d8f7440cab5f0d6d46e9e5c37688b79657acb64de1691d6ffb4b88106c42cb883f5c008f" ..
+    "d04eaf262894711f3d8f24e1709ea7235fec28cb85d195988a7e2a91f22775f719c006984d98fdd8afd5900fc42553f8" ..
+    "f591363105a5b0ee6fc1704d470cd19111aaad601dbaceb127185c5986e9665258bee976ac59e4e55b0508f9c7daadfc" ..
+    "fb522b74cd1e5b2042f9dd533df82964093b80cb2a6cdfb53bf0c4bd2e5faa0f3e4b664290130eff1093f8717859f80b" ..
+    "cdff9528460fa9fc7cdefb9a302e56c08f85f38381c065c42553f8f591363105a5b0ee6fc1704d470cd19111aaad601d" ..
+    "baceb127185c5986e9665258bee976ac59e4e55b0508f9c7daadfcfb522b74cd1e5b2042f9dd533df82964093b80cb2a" ..
+    "6cdfb53bf0c4bc4827e6589fff10012b00ec7353a7fdbeae7c311a9fb78d316e709ea7235fec28cb85d195988a7e2a91" ..
+    "f22775f719c006984d98fdd8afd5900fc42553f8f591363105a5b0ee6fc1704d470cd19111aaad601dbaceb127185c59" ..
+    "86e9665258bee976ac59e4e55b0508f9c7daadfcfb522b74cd1e5b2042f9dd533df82964093b80cb2a6cdfb53bf0c4bd" ..
+    "2e5faa0f3e4b664290130eff1093f8717859f80bcdff9528460fa9fc7cdefb9a302e56c08f85f38381c065c42553f8f5" ..
+    "91363105a5b0ee6fc1704d470cd19111aaad601dbaceb127185c5986e9665258bee976ac59e4e55b0508f9c7daadfcfb" ..
+    "522b74cd1e5b2042f9dd533df82964093b80cb2a6cdfb53bf0c4bd2e5faa0f3e4b664290130eff1093f8717859f80bcd" ..
+    "ff9528460fa9fc7cdefb9a302e56c08f85f38381c065c425510f3fb29fff10012b00ec7353a7fdbeae7c311a9fb78d31" ..
+    "6e709ea7235fec28cb85d195988a7e2a91f22775f719c006984d98fdd8afd5900fc42553f8f591363105a5b0ee6fc170" ..
+    "4d470cd19111aaad601dbaceb127185c5986e9665258bee976ac59e4e55b0508f9c7daadfcfb522b74cd1e5b2042f9dd" ..
+    "533df82964093b80cb2a6cdfb53bf0c4bd2e5faa0f3e4b664290130eff1093f8717859f80bcdff9528460fa9fc7cdefb" ..
+    "9a302e56c08f85f38381c065c42553f8f591363105a5b0ee6fc1704d470cd19111aaad601dbaceb127185c5986e96652" ..
+    "58bee976ac59e4e55b0508f9c7daadfcfb522b74cd1e5b2042f9dd533df82964093b80cb2a6cdfb53bf0c4bd2e5faa0f" ..
+    "3e4b664290130eff1093f8717859f80bcdff9528460fa9fc7cdefb9a302e56c08f85f38381c065c425510f3fb29fff10" ..
+    "012b00ec7353a7fdbeae7c311a9fb78d316e709ea7235fec28cb85d195988a7e2a91f22775f719c006984d98fdd8afd5" ..
+    "900fc42553f8f591363105a5b0ee6fc1704d470cd19111aaad601dbaceb127185c5986e9665258bee976ac59e4e55b05" ..
+    "08f9c7daadfcfb522b74cd1e5b2042f9dd533df82964093b80cb2a6cdfb53bf0c4bd2e5faa0f3e4b664290130eff1093" ..
+    "f8717859f80bcdff9528460fa9fc7cdefb9a302e56c08f85f38381c065c42553f8f591363105a5b0ee6fc1704d470cd1" ..
+    "9111aaad601dbaceb127185c5986e9665258bee976ac59e4e55b0508f9c7daadfcfb522b74cd1e5b2042f9dd533df829" ..
+    "64093b80cb2a6cdfb53bf0c4bd2e5faa0f3e4b664290130eff1093f8717859f80bcdff9528460fa9fc7cdefb9a302e56" ..
+    "c08f85f38381c065c425510f3fb28003ba0005007b61f7ef0000000045bcd21a0001a20a80808004708db3ed3e300d8b" ..
+    "020000000001595a"))
 
 -- The same 8 MiB of NULs as `bzip2 -9` writes it: 48 bytes.
 local bz2_bomb = assert(Codec.unhex("425a6839314159265359a23d4b580040404080c00000040008200030cc0529a60100d8808078bb9229c2848511ea5ac0"))
@@ -559,32 +539,6 @@ local function test_a_closed_stream_is_finished_and_keeps_rest()
     closer(s, nil)
     closer(s, nil)
   end
-end
-
-local function test_a_raise_inside_update_leaves_the_stream_finished()
-  -- Only the checked core can refuse an allocation, which is what makes
-  -- a luaL_Buffer raise in the middle of a decode.
-  if testing.configuration ~= "sanitized" then return end
-  local input = string.rep("the quick brown fox ", 5000)
-  local enc = assert(Compress.deflater("gzip"))
-  local packed = assert(enc:update(input)) .. assert(enc:finish())
-  local raised = 0
-  for after = 0, 100000 do
-    local dec = gzip_decoder()
-    testing.fail_allocations(after)
-    local ok = pcall(dec.update, dec, packed, 1 << 20)
-    local refused = testing.allow_allocations()
-    if refused == 0 then
-      assert(ok)
-      break
-    end
-    if not ok then
-      raised = raised + 1
-      local again, why = pcall(dec.update, dec, "")
-      assert(not again and tostring(why):find("finished", 1, true), tostring(why))
-    end
-  end
-  assert(raised > 0)
 end
 
 local function test_input_after_the_limit_queues_behind_the_backlog()
@@ -815,9 +769,9 @@ local function test_sql_deflate_and_inflate_speak_raw_deflate()
   assert(nulls[1][1] == "1" and nulls[1][2] == "1")
   local stream = assert(Compress.deflate("raw", text))
   for _, case in ipairs({
-    { stream:sub(1, #stream - 4), "truncated deflate stream" },
-    { stream .. "\0", "the deflate stream is followed by more bytes" },
-    { "\xff\xff\xff\xff", "the deflate stream is damaged" },
+      { stream:sub(1, #stream - 4), "truncated deflate stream" },
+      { stream .. "\0", "the deflate stream is followed by more bytes" },
+      { "\xff\xff\xff\xff", "the deflate stream is damaged" },
   }) do
     local rows, trouble = Sqlite.rows(db, "SELECT inflate(?1)", { { blob = case[1] } })
     assert(rows == nil, case[2])

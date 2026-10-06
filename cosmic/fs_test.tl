@@ -1,4 +1,5 @@
 local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 
 local function test_path_predicates_distinguish_answers_from_errors(tmp: string)
@@ -317,12 +318,33 @@ local function test_set_mtime_defaults_to_a_whole_second_and_checks_ns(tmp: stri
   assert(not pcall(Fs.set_mtime, path, 4000, -1))
 end
 
+--- Why a test skips where the worker's filter refuses a setuid mode.
+local SPECIAL_BITS = "the worker's filter refuses a mode with a setuid bit: `fattr` never allows one"
+
+--- Whether a chmod of `path` to `mode`, which has a setuid bit, is refused
+--- by the worker's seccomp filter, which `fattr` never lets set one: EPERM,
+--- where a process may set the bits of its own file. A test that meets it
+--- skips with `SPECIAL_BITS`, after what it can check without one.
+-- TODO: set a setuid mode again under the policy path, and delete this
+-- skip, once a promise lets a test that declares it set the special bits
+-- (core/promises.c's `fattr` refuses them for good): a process the test
+-- starts is held by the same filter, so no other process can set them.
+local function special_bits_refused(path: string, mode: integer): boolean
+  local set, _, errno = sys.chmod(path, mode)
+  return not set and errno == sys.EPERM
+end
+
 local function test_chmod_sets_the_bits_stat_reads_back(tmp: string)
   local path = tmp .. "/file"
   assert(Fs.write(path, "contents", 0x1a4))
-  local set, trouble = Fs.chmod(path, 0x9c0)
+  local bits = 0x9c0
+  -- What the rest of the case checks needs no special bit, so it runs
+  -- before the skip.
+  local refused = special_bits_refused(path, bits)
+  if refused then bits = 0x1c0 end
+  local set, trouble = Fs.chmod(path, bits)
   assert(set and trouble == "", trouble)
-  assert(assert(Fs.stat(path)).mode & 0xfff == 0x9c0)
+  assert(assert(Fs.stat(path)).mode & 0xfff == bits)
   assert(Fs.chmod(path, 0))
   assert(assert(Fs.stat(path)).mode & 0xfff == 0)
 
@@ -332,6 +354,7 @@ local function test_chmod_sets_the_bits_stat_reads_back(tmp: string)
 
   local missing, missing_trouble = Fs.chmod(tmp .. "/missing", 0x1a4)
   assert(not missing and missing_trouble:find(tmp .. "/missing", 1, true))
+  if refused then Test.skip(SPECIAL_BITS) end
 end
 
 local function test_fsync_reports_bad_descriptor(tmp: string)
@@ -343,6 +366,74 @@ local function test_fsync_reports_bad_descriptor(tmp: string)
 
   local failed, failed_trouble = Fs.fsync(fd)
   assert(not failed and failed_trouble ~= "")
+end
+
+local function test_scratch_is_private_and_removed_when_closed(tmp: string)
+  local path: string
+  do
+    local scratch <close> = assert(Fs.scratch(tmp))
+    path = scratch.path
+    assert(Fs.dirname(path) == tmp and Fs.basename(path):match("^%.scratch%.%w+$"), path)
+    assert(assert(Fs.stat(path)).mode & 0x1ff == 0x1c0, "private to its user")
+    assert(Fs.write(path .. "/payload", "x"))
+  end
+  assert(Fs.exists(path) == false)
+  -- The gate stays: every creator and sweeper must lock one inode.
+  assert(table.concat(assert(Fs.list(tmp)), " ") == ".scratch-gate")
+end
+
+local function test_scratch_holds_its_owner_lock_while_open(tmp: string)
+  local scratch <close> = assert(Fs.scratch(tmp))
+  local other = assert(sys.open(scratch.path .. "/owner", sys.O_RDWR))
+  local locked = sys.flock(other, "exclusive", 0)
+  assert(not locked, "another opener of the owner file must not get its lock")
+  local _, _ = sys.close(other)
+end
+
+local function test_a_second_close_of_a_scratch_leaves_a_reused_descriptor(tmp: string)
+  local scratch = assert(Fs.scratch(tmp))
+  local close = (getmetatable(scratch) as metatable<Fs.Scratch>).__close as function(Fs.Scratch)
+  local owner = scratch.owner
+  close(scratch)
+  local opened: {integer} = {}
+  local reused: integer
+  for i = 1, 64 do
+    local fd = assert(sys.open(tmp .. "/reused" .. i, sys.O_RDWR | sys.O_CREAT, 0x180))
+    opened[#opened + 1] = fd
+    if fd == owner then
+      reused = fd
+      break
+    end
+  end
+  assert(reused ~= nil, "open hands the freed descriptor out again")
+  close(scratch)
+  assert(sys.fstat(reused) ~= nil, "a second close must not close the descriptor open reused")
+  for _, fd in ipairs(opened) do local _, _ = sys.close(fd) end
+end
+
+local function test_scratch_sweeps_only_a_provably_dead_owner(tmp: string)
+  local dead = tmp .. "/.scratch.dead"
+  assert(Fs.mkdirs(dead))
+  assert(Fs.write(dead .. "/owner", ""))
+  assert(Fs.write(dead .. "/payload", "x"))
+  local missing = tmp .. "/.scratch.missing"
+  assert(Fs.mkdirs(missing))
+  local legacy = tmp .. "/.work.2147483646"
+  assert(Fs.mkdirs(legacy))
+  local first <close> = assert(Fs.scratch(tmp))
+  assert(Fs.exists(dead) == false, "an owner nobody holds is dead")
+  assert(Fs.exists(missing) == true, "no owner file says nothing")
+  assert(Fs.exists(legacy) == true, "a name that is not ours is left alone")
+  local second <close> = assert(Fs.scratch(tmp))
+  assert(second.path ~= first.path)
+  assert(Fs.exists(first.path) == true, "a live owner is never swept")
+end
+
+local function test_scratch_in_a_missing_directory_names_it(tmp: string)
+  local missing = tmp .. "/missing"
+  local scratch, why = Fs.scratch(missing)
+  assert(scratch == nil and why:find(missing, 1, true), why)
+  assert(Fs.exists(missing) == false)
 end
 
 local function test_remove_tree_removes_everything_but_follows_no_link(tmp: string)
@@ -363,8 +454,81 @@ local function test_remove_tree_removes_everything_but_follows_no_link(tmp: stri
   assert(Fs.exists(outside .. "/keep") == false)
 end
 
---- A regular file comes back in the one read its size asks for, and a
---- file that says nothing true of its size (/proc's) in chunks.
+local function test_remove_tree_of_a_link_removes_the_link_and_walks_a_deep_tree(tmp: string)
+  local outside = tmp .. "/outside"
+  assert(Fs.mkdirs(outside .. "/inner"))
+  assert(Fs.write(outside .. "/inner/keep", "kept"))
+  assert(Fs.symlink(outside, tmp .. "/link"))
+  assert(Fs.remove_tree(tmp .. "/link"))
+  assert(Fs.exists(tmp .. "/link") == false and Fs.read(outside .. "/inner/keep") == "kept")
+  -- A directory of links to directories, and one of wide and deep names.
+  local tree = tmp .. "/deep"
+  local path = tree
+  for i = 1, 40 do path = path .. "/d" .. i end
+  assert(Fs.mkdirs(path))
+  for i = 1, 300 do
+    assert(Fs.write(tree .. "/f" .. i, "x"))
+    assert(Fs.symlink(outside .. "/inner", tree .. "/l" .. i))
+  end
+  assert(Fs.remove_tree(tree))
+  assert(Fs.exists(tree) == false and Fs.read(outside .. "/inner/keep") == "kept")
+end
+
+local function test_remove_tree_under_a_file_is_gone_and_a_trailing_slash_does_not_follow_a_link(tmp: string)
+  assert(Fs.write(tmp .. "/file", "x"))
+  assert(Fs.remove_tree(tmp .. "/file/sub"), "beneath a file is nothing there")
+  assert(Fs.read(tmp .. "/file") == "x")
+  local outside = tmp .. "/outside"
+  assert(Fs.mkdirs(outside .. "/inner"))
+  assert(Fs.write(outside .. "/inner/keep", "kept"))
+  assert(Fs.symlink(outside, tmp .. "/link"))
+  assert(Fs.remove_tree(tmp .. "/link/"))
+  assert(Fs.exists(tmp .. "/link") == false, "the link is removed")
+  assert(Fs.read(outside .. "/inner/keep") == "kept", "a trailing slash followed the link")
+  assert(Fs.symlink(outside, tmp .. "/link"))
+  assert(Fs.remove_tree(tmp .. "/link///"))
+  assert(Fs.read(outside .. "/inner/keep") == "kept")
+  local refused, why = Fs.remove_tree("/")
+  assert(not refused and why:find("Invalid argument", 1, true), why)
+  local also = Fs.remove_tree("///")
+  assert(not also)
+end
+
+--- The tree is built and taken down a level at a time from inside it:
+--- its deepest path is past macOS's PATH_MAX of 1024, which no call
+--- taking a whole path accepts there.
+local function test_remove_tree_deeper_than_its_bound_fails_and_leaves_the_tree(tmp: string)
+  local levels = 1100
+  local deep = tmp .. "/deep"
+  local here = assert(sys.getcwd())
+  assert(sys.mkdir(deep, 448))
+  assert(sys.chdir(deep))
+  for _ = 1, levels do
+    assert(sys.mkdir("d", 448))
+    assert(sys.chdir("d"))
+  end
+  assert(sys.chdir(here))
+  local removed, why = Fs.remove_tree(deep)
+  assert(not removed and why ~= "", "a tree past the bound was removed")
+  assert(Fs.exists(deep) == true, "what failed to go is left")
+  -- What is left is taken from the bottom for the test's own directory
+  -- to be removable.
+  assert(sys.chdir(deep))
+  for _ = 1, levels do assert(sys.chdir("d")) end
+  for _ = 1, levels do
+    assert(sys.chdir(".."))
+    assert(sys.rmdir("d"))
+  end
+  assert(sys.chdir(here))
+  assert(Fs.remove_tree(deep))
+  assert(Fs.exists(deep) == false)
+  -- No descriptor was left open by the failed walk.
+  assert(Fs.mkdirs(tmp .. "/after/a/b") and Fs.remove_tree(tmp .. "/after"))
+end
+
+--- A regular file comes back in the one read its size asks for. (A file
+--- that says nothing true of its size, /proc's, is read in
+--- cosmic/fs_proc_test.tl.)
 local function test_read_takes_a_file_in_the_one_read_its_size_asks_for(tmp: string)
   local path = tmp .. "/big"
   local data = string.rep("0123456789abcdef", 20000)
@@ -377,13 +541,9 @@ local function test_read_takes_a_file_in_the_one_read_its_size_asks_for(tmp: str
   end
   local read, trouble = Fs.read(path)
   local file_reads = reads
-  local proc = Fs.exists("/proc/self/status") and Fs.read("/proc/self/status") or nil
   sys.read = real_read
   assert(read == data, trouble)
   assert(file_reads == 2, "one read for the bytes and one for the end, not " .. file_reads)
-  if proc ~= nil then
-    assert(proc:find("SigIgn:", 1, true) ~= nil, proc)
-  end
 end
 
 --- A write the kernel takes part of goes on from where it stopped.
@@ -479,11 +639,15 @@ local function test_copy_tree_names_why_a_target_cannot_be_made(tmp: string)
   assert(Fs.write(tmp .. "/file", "f"))
   local copied, trouble = Fs.copy_tree(tmp .. "/file", tmp .. "/file/x")
   assert(not copied and not trouble:find("already exists", 1, true) and
-    trouble:find(tmp .. "/file/x", 1, true), trouble)
+      trouble:find(tmp .. "/file/x", 1, true), trouble)
 end
 
 local function test_copy_tree_drops_setuid_and_setgid(tmp: string)
   assert(Fs.write(tmp .. "/run", "#!/bin/sh\n", 0x1ed))
+  if special_bits_refused(tmp .. "/run", 0x9ed) then
+    Test.skip(SPECIAL_BITS)
+    return
+  end
   assert(sys.chmod(tmp .. "/run", 0x9ed))
   assert(Fs.copy_tree(tmp .. "/run", tmp .. "/copy"))
   assert(assert(Fs.stat(tmp .. "/copy")).mode & 0xfff == 0x1ed)
@@ -591,7 +755,7 @@ local function test_walk_following_tells_skip_a_link_is_one(tmp: string)
   assert(Fs.write(root .. "/sub/f", "f"))
   assert(Fs.symlink("sub", root .. "/to_dir"))
   local kinds: {string} = {}
-  local found, trouble = Fs.walk_following(root, function(entry: string, _name: string, kind: string): boolean
+  local found, trouble = Fs.walk_following(root, function(entry: string, _name: string, kind: Fs.Kind): boolean
     kinds[#kinds + 1] = entry .. "=" .. kind
     return kind == "link"
   end)

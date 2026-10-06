@@ -179,15 +179,15 @@ function identity.skip_in_own_tree(entry: string, name: string): boolean
 end
 
 --- Whether a file the walk found is one the build consumes: Teal
---- source and declarations or a doc guide. Generated header inputs are
---- added by [`build.work`]. Never anything under the trees the tool alone
+--- source and declarations, a template or a doc guide. Generated header
+--- inputs are added by [`build.work`]. Never anything under the trees the tool alone
 --- is made of.
 function identity.is_input(file: string, own_tree: boolean): boolean
   local first = identity.first_of(file)
   if not_input[first] or (own_tree and foreign_trees[first]) then
     return false
   end
-  if String.ends_with(file, ".tl") then
+  if String.ends_with(file, ".tl") or String.ends_with(file, ".tmpl") then
     return true
   end
   if first == "doc" then
@@ -198,7 +198,8 @@ end
 
 --- Whether a Teal file is one the tool carries wherever it sits in the
 --- tree: every module the `inputs` view reads ([`build.analysis_schema`]:
---- Teal outside a `testdata/` directory) except a test, which [`is_tool`]
+--- Teal outside a `testdata/` directory, and a template, whose module
+--- the tool carries as it does Teal's) except a test, which [`is_tool`]
 --- has already left out. The tool carries every module of the tree but
 --- its tests and examples ([`build.writer`]'s `dropped_modules`), so
 --- eval/'s and test/portable's are carried as much as build/'s, and a
@@ -207,7 +208,8 @@ end
 --- as one inside them is: a carried module may require it, and one more
 --- reboot costs less than a stale tool.
 local function carried_teal(file: string, own_tree: boolean): boolean
-  if not String.ends_with(file, ".tl") or not identity.is_input(file, own_tree) then
+  if not (String.ends_with(file, ".tl") or String.ends_with(file, ".tmpl")) or
+      not identity.is_input(file, own_tree) then
     return false
   end
   return file:sub(1, 9) ~= "testdata/" and file:find("/testdata/", 1, true) == nil
@@ -241,7 +243,7 @@ end
 function identity.hash_over(db: Sqlite.Handle, where: string): string | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT lower(hex(sha256(group_concat(path || ' ' || sha256, char(10) " ..
-    "ORDER BY path)))) FROM tool WHERE " .. where)
+      "ORDER BY path)))) FROM tool WHERE " .. where)
   if rows == nil then
     return nil, trouble
   end
@@ -272,11 +274,11 @@ function identity.record_fingerprint(db: Sqlite.Handle): identity.Fingerprint | 
   end
   local image, image_trouble = identity.hash_over(db,
     "(path GLOB 'core/*' AND NOT path GLOB 'core/*.tl') OR " ..
-    "path IN ('build.zig', 'build.zig.zon', " ..
-    "'bin/zig', 'bin/zig.pin', 'build/artifact.tl', 'build/launcher.tl', " ..
-    "'build/patch.tl') OR " ..
-    "path GLOB 'vendor/*/PIN' OR " ..
-    "path GLOB 'patch/*'")
+      "path IN ('build.zig', 'build.zig.zon', " ..
+      "'bin/zig', 'bin/zig.pin', 'build/artifact.tl', 'build/launcher.tl', " ..
+      "'build/patch.tl') OR " ..
+      "path GLOB 'vendor/*/PIN' OR " ..
+      "path GLOB 'patch/*'")
   if image == nil then
     return nil, image_trouble
   end
@@ -324,8 +326,8 @@ local function requires_in(db: Sqlite.Handle): function(string): {string} | nil,
   return function(name: string): {string} | nil, string
     local rows, rows_trouble = Sqlite.text_rows(db,
       "SELECT DISTINCT r.name FROM inputs i " ..
-      "JOIN requires r ON r.source_hash = i.source_hash WHERE i.path = ?1 " ..
-      "ORDER BY r.name", { text(name) })
+        "JOIN requires r ON r.source_hash = i.source_hash WHERE i.path = ?1 " ..
+        "ORDER BY r.name", { text(name) })
     if rows == nil then return nil, rows_trouble end
     local required: {string} = {}
     for _, row in ipairs(rows) do required[#required + 1] = row[1] end
@@ -344,8 +346,8 @@ local function hash_of(db: Sqlite.Handle, names: {string}, extra: string): strin
   end
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT lower(hex(sha256(coalesce((SELECT group_concat(path || ' ' || " ..
-    "source_hash, char(10) ORDER BY path) FROM inputs WHERE path IN (" ..
-    table.concat(slots, ", ") .. ")), '') || char(10) || " .. extra .. ")))", values)
+      "source_hash, char(10) ORDER BY path) FROM inputs WHERE path IN (" ..
+      table.concat(slots, ", ") .. ")), '') || char(10) || " .. extra .. ")))", values)
   if rows == nil then
     return nil, trouble
   end
@@ -375,8 +377,10 @@ local compiler_roots: {string} = {
 --- The modules the compiler's identity holds, sorted, as `requires`
 --- answers what a module of the tree requires: every one `require`
 --- reaches from `compiler_roots` that is the build's own
---- (`build.*`). Every root is followed without exceptions; the importer
---- coordinates these operations from outside their closure.
+--- (`build.*`) or is the template compiler ([`cosmic.template`] and its
+--- submodules), whose output [`build.derivation`] stores. Every root is
+--- followed without exceptions; the importer coordinates these
+--- operations from outside their closure.
 function identity.compiler_modules(requires: function(string): {string} | nil, string): {string} | nil, string
   local reached: {string:boolean} = {}
   local stack: {string} = {}
@@ -392,7 +396,10 @@ function identity.compiler_modules(requires: function(string): {string} | nil, s
   end
   local names: {string} = {}
   for name in pairs(reached) do
-    if name:sub(1, 6) == "build." then names[#names + 1] = name end
+    if name:sub(1, 6) == "build." or name == "cosmic.template" or
+        name:sub(1, 16) == "cosmic.template." then
+      names[#names + 1] = name
+    end
   end
   table.sort(names)
   return names, ""
@@ -554,8 +561,8 @@ function identity.record_identities(db: Sqlite.Handle): identity.Identities | ni
     writer = writer,
   }
   for _, pair in ipairs({ { "compiler", identities.compiler },
-                          { "runtime_basis", identities.runtime_basis },
-                          { "writer", identities.writer } }) do
+      { "runtime_basis", identities.runtime_basis },
+      { "writer", identities.writer } }) do
     local ok, why = Sqlite.run(db,
       "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
       { text(pair[1]), text(pair[2]) })

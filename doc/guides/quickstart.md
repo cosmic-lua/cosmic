@@ -1,6 +1,6 @@
 # quickstart
 
-<!-- needs: tool = true -->
+<!-- policy: profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->
 
 cosmic is one executable: the Lua runtime, the Teal compiler, and a
 standard library, `cosmic.*`, for the everyday things a script needs.
@@ -50,34 +50,37 @@ hello from notes.txt
 ## a quick question about a JSON file
 
 For a ten-second question about a JSON file, skip the script: `cosmic
-json` looks one value up. `cosmic json --exists '.users[1].email'
+json` looks one value up. `cosmic json --exists '$.users[0].email'
 export.json` prints nothing and answers by its exit status (0 found, 1
 not there); `cosmic json --keys export.json` lists the top-level keys,
-sorted, or an array's length; `cosmic json --shape '.users' export.json`
-summarizes what is inside; `cosmic json -r '.users[1].name' export.json`
-prints a string without its quotes. The path is the `$.users[1].name`
-style the JSON messages print, with indices counted from 1; quote it in
-single quotes, as a shell expands `$` and `[1]`. The file is `-` or left
-out to read standard input, so `curl ... | cosmic json '.items[1]'`
-works. Numbers print as [`Json.encode`] writes them, so `1e2` reads
-`100.0`.
+sorted, or an array's length; `cosmic json --shape '$.users' export.json`
+summarizes what is inside; `cosmic json -r '$.users[0].name' export.json`
+prints a string without its quotes. The path is a JSONPath query: `$`
+first, then names and indices counted from 0 (`[-1]` is the last), as
+JSON Pointer counts them in the messages; quote it in single quotes, as
+a shell expands `$` and `[0]`. The file is `-` or left out to read
+standard input, so `curl ... | cosmic json '$.items[0]'` works. Numbers
+print as [`Json.encode`] writes them, so `1e2` reads `100.0`.
 
 When you do not know where a value lives, list them all: `cosmic json
 --flat export.json` prints every leaf as a `path = value` line, keys
 sorted, and `cosmic json --flat export.json | grep -i email` finds the
-one you want, say `$.users[2].contact.email = "bo@example.com"`. That
-path is exactly what `cosmic json` takes, so paste it back: `cosmic json
-'$.users[2].contact'` shows what is around it. A `*` stands for every
+one you want, say `$.users[1].contact.email = "bo@example.com"`. That
+path is one `cosmic json` reads, so paste it back in single quotes:
+`cosmic json '$.users[1].contact' export.json` shows what is around it.
+A key that is not a word prints as `$["a key"]`; one holding `'` needs
+`'\''` inside the shell's single quotes. A `*` stands for every
 member or element, and `..` for any depth: `cosmic json '$.users[*].name'
 export.json` prints each user's name as such a line, `cosmic json -r
 '$..email' export.json` every email in the file, bare (a string with a
 newline in it takes more than one line), and `cosmic json
 --exists '$..error' export.json` asks whether any `error` key is there.
-`--keys` and `--shape` take one path, not a pattern. There are no
-JSONPath filters or slices, on purpose: it is only a lookup, and `grep`
-over `--flat` covers the simple cases. To count or sum, use `cosmic sql
---from` (next section); for anything else write the script with
-`cosmic.json`: [`Json.decode`] the file and walk the value in Lua.
+`--keys` and `--shape` take one path, not a query of `*` or `..`.
+JSONPath filters, slices and unions are refused, on purpose: it is only
+a lookup, and `grep` over `--flat` covers the simple cases. To count or
+sum, use `cosmic sql --from` (next section); for anything else write
+the script with `cosmic.json`: [`Json.decode`] the file and walk the
+value in Lua, or look a path up with [`Json.get`] and [`Json.select`].
 `cosmic help json` has the rest.
 
 ## a random id, token or number
@@ -96,7 +99,7 @@ holds -- takes three steps, and none is a script. Stop at the first that
 answers:
 
 1. Look it up with `cosmic json`: `cosmic json --shape export.json` says
-   what is in the file, and `cosmic json '.users[1]' export.json` prints
+   what is in the file, and `cosmic json '$.users[0]' export.json` prints
    one value.
 2. Find where something is with `cosmic json --flat export.json | grep
    needle`, and paste the path it prints back into `cosmic json`.
@@ -131,7 +134,7 @@ exist is answered with the ones that do. `cosmic help sql` has the rest.
 
 `cosmic fetch <url>` is a small curl: it prints the body, fails on a
 non-2xx, and takes `-o file` and `--sha256 hex`, so `cosmic fetch <url> |
-cosmic json '.items'` works. A URL may carry its digest, as pip's do:
+cosmic json '$.items'` works. A URL may carry its digest, as pip's do:
 `cosmic fetch -o tool.tgz https://host/tool.tgz#sha256=<hex>` renames the file into place only if it matches. `cosmic help fetch` has the rest.
 
 ## the digest of a file
@@ -201,6 +204,39 @@ to see how others call it before you do:
 
 `cosmic help docs` and `cosmic help uses` have the rest.
 
+## a program held to what you grant it
+
+`cosmic sandbox --system --read . -- ls -l` runs `ls` held to nothing but
+what you name: it reads this directory and starts, and a path you did not
+grant, a program you did not run and a call it did not promise all fail. A
+policy that this host cannot meet is not run in part: the start fails
+(exit 125) and says what is missing. `--read`, `--run` and `--write` grant
+a path; `--path rwxc:work` names the letters; `--promise fork` lets it start
+processes; `--isolate file` gives it a root of its own; `--tmp`, `--env` and
+`--set-env` shape its environment; `--timeout` and the limits bound what it
+spends. Everything after the program is the program's own, so `cosmic
+sandbox --system -- sh --version` asks `sh`. It exits with the program's
+status. `cosmic help sandbox` has the rest, and `cosmic docs
+cosmic.sandbox` the policy these options write.
+
+`--cosmic` grants cosmic itself, so a script of yours runs held the same
+way: `cosmic sandbox --cosmic --read . -- cosmic convert.tl in.csv out.json`
+reads its words from the function it returns (`argv[1]`, `argv[2]`), runs
+as `--standalone` does and writes nothing beside it; add a `--write` for
+the output it makes. Standalone, it finds `cosmic.*` modules only: a script
+with modules of its own beside it takes `--set-env COSMIC_STANDALONE=0
+--write .`, which builds the tree around it into `o/`.
+
+`--closure` holds a script to the modules it needs and nothing of this
+program's own file: `cosmic sandbox --closure -- cosmic convert.tl in.csv
+out.json` compiles `convert.tl` here, seals it with the `cosmic.*` modules
+it requires by name, and runs it on that, so a `require` of anything else
+fails; a module of your own beside the script is refused before the child
+starts, and a `pcall(require, ...)` or computed name is not followed.
+`--database PATH` runs a file [`Store.seal`] wrote, and `--modules a,b`
+seals exactly those modules (the first its main) from this program's store;
+the three are exclusive. The database a run seals is removed when it ends.
+
 ## below cosmic.fs
 
 [`cosmic.fs`] is built on [`cosmic.sys`], the syscall table: one C function
@@ -235,7 +271,7 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 local dir = assert(Fs.mkdtemp("quickstart-"))
 assert(Fs.write(dir .. "/greeter.tl", [[
@@ -257,7 +293,7 @@ argv[#argv + 1] = "cosmic"
 local env = Env.all()
 for name, value in pairs(relaunch.env) do env[name] = value end
 local result, trouble = Child.run(argv,
-  { env = env, fds = relaunch.fds, stdout = fd, timeout_ns = Time.seconds(5) })
+  { env = env, fds = relaunch.fds, stdout = fd, timeout_ns = Clock.seconds(5) })
 assert(Fs.close(fd))
 if result == nil then error(trouble) end
 local finished = assert(result)
@@ -287,18 +323,18 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 -- This cosmic again, past its launcher, running a chunk that sleeps
 -- for half a second and exits 3.
 local relaunch = assert(Proc.relaunch())
 local argv = { table.unpack(relaunch.argv) }
 argv[#argv + 1] = "-e"
-argv[#argv + 1] = "require('cosmic.time').sleep_ns(500000000) return 3"
+argv[#argv + 1] = "require('cosmic.clock').sleep_ns(500000000) return 3"
 local env = Env.all()
 for name, value in pairs(relaunch.env) do env[name] = value end
 local sleeper <close> = assert(Child.start(argv, { env = env, fds = relaunch.fds }))
-local done, trouble = Child.wait_any({ sleeper }, Time.ms(10))
+local done, trouble = Child.wait_any({ sleeper }, Clock.ms(10))
 if done == nil and trouble ~= Poll.TIMEOUT then error(trouble) end
 print(done == nil and "still running" or "finished")
 local ended = assert(sleeper:wait())
@@ -309,6 +345,19 @@ print("exit " .. tostring(ended.code))
 still running
 exit 3
 ```
+
+## closing what a block opened
+
+`local sleeper <close> = assert(Child.start(...))`, above, closes the
+child when the block ends, however it ends -- by its last line, a
+`return` or an error: `<close>` calls its type's `__close`, which ends
+a child still running. An opener answers `Handle | nil` and a reason,
+and the compiler refuses `<close>` on a type that may be nil, so
+`assert` narrows it first, raising the reason when there is no handle.
+The same line holds a [`Child.guard`], a [`cosmic.net`] socket or an
+[`Http.open`] response. A descriptor from [`Fs.open_read`] is an
+integer, which `<close>` cannot hold: [`Fs.close`] closes it, and
+[`Fs.read`] reads a whole file without one.
 
 ## ending early
 
@@ -337,17 +386,25 @@ names the fix. Write `local peak = 0.0`, or annotate `local peak: number = 0`,
 for a variable that holds floats. A function declared `: number` may still
 `return 0`: an integer is a number.
 
+[`Child.guard`]: ../../cosmic/child.tl
 [`Child.start`]: ../../cosmic/child.tl
 [`Child.wait_any`]: ../../cosmic/child.tl
 [`cosmic.child`]: ../../cosmic/child.tl
 [`cosmic.fs`]: ../../cosmic/fs.tl
 [`cosmic.hash`]: ../../cosmic/hash.tl
+[`cosmic.net`]: ../../cosmic/net.tl
 [`cosmic.sys`]: ../../core/syscalls.h
+[`Fs.close`]: ../../cosmic/fs.tl
 [`Fs.mkdtemp`]: ../../cosmic/fs.tl
+[`Fs.open_read`]: ../../cosmic/fs.tl
 [`Fs.read`]: ../../cosmic/fs.tl
 [`Fs.write`]: ../../cosmic/fs.tl
 [`Hash.hex_sha256`]: ../../cosmic/hash.tl
+[`Http.open`]: ../../cosmic/http/init.tl
 [`Json.decode`]: ../../cosmic/json.tl
 [`Json.encode`]: ../../cosmic/json.tl
+[`Json.get`]: ../../cosmic/json.tl
+[`Json.select`]: ../../cosmic/json.tl
 [`Poll.TIMEOUT`]: ../../cosmic/poll.tl
 [`Proc.exit`]: ../../cosmic/proc.tl
+[`Store.seal`]: ../../cosmic/store.tl

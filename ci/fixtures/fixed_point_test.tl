@@ -1,19 +1,60 @@
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local Fixture = require("cosmic_ci.fixture")
 
 local Test = require("cosmic.test")
 
 --- Run unsandboxed and sharing nothing (cosmic_ci/orchestration.tl's
---- `fixture`), its workers are given the environment they declare:
---- all of it, which says where the candidate and its products are
---- (COSMIC_FIXTURE_*) and where the host's toolchain is. A release that
---- keys every unsandboxed run by declaration gives a worker only that.
-Test.needs{ env = { "*" } }
+--- `fixture`), its worker is given the variables it names: what the
+--- driver says where the candidate and its products are
+--- (COSMIC_FIXTURE_*) and what the children it starts read
+--- ([`Fixture.inherited`], which each of them hands on and no more, and
+--- which cosmic_ci/orchestration_test.tl holds this list to).
+Test.policy{
+  env = {
+    "COSMIC_FIXTURE_PRODUCT",
+    "COSMIC_FIXTURE_SOURCE",
+    "PATH",
+    "HOME",
+    "XDG_CACHE_HOME",
+    "TMPDIR",
+    "COSMIC_PORTABLE_CACHE",
+    "COSMIC_VERDICT_CACHE",
+    "COSMIC_AUTO_BOOT",
+    "COSMIC_TEST_SANDBOX",
+    "COSMIC_SANDBOX",
+    "COSMIC_TEST_HELD",
+    "COSMIC_BOOTSTRAP",
+    "COSMIC_ZIG",
+    "COSMIC_ZIG_CACHE",
+    "COSMIC_ZIG_GLOBAL_CACHE",
+    "ZIG_LIB_DIR",
+    "ZIG_GLOBAL_CACHE_DIR",
+    "ZIG_LOCAL_CACHE_DIR",
+    "SDKROOT",
+    "DEVELOPER_DIR",
+    "COSMIC_TEST_TIMEOUT",
+    "FUZZ_ITERS",
+    "MACOSX_DEPLOYMENT_TARGET",
+    "COSMIC_BOOTSTRAP_ATTEMPTS",
+    "COSMIC_BOOTSTRAP_VERIFY",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "CURL_CA_BUNDLE",
+    "ALL_PROXY",
+    "HTTPS_PROXY",
+    "HTTP_PROXY",
+    "NO_PROXY",
+    "all_proxy",
+    "https_proxy",
+    "http_proxy",
+    "no_proxy",
+  },
+}
 
 -- A rebuild from a fresh tree compiles all of it (about 20 s on a
 -- runner), and one whose compiler moved compiles it again on
 -- re-entry; the driver bounds each test here (orchestration.tl).
-local rebuild_timeout_ns <const> = Time.seconds(150)
+local rebuild_timeout_ns <const> = Clock.seconds(150)
 
 local function count_occurrences(text: string, needle: string): integer
   local count = 0
@@ -38,7 +79,7 @@ end
 -- rebuilt tool finds its database built by other code than its own and
 -- builds it again once (`build.reboot`). Outside both, neither does.
 local function run_fixed_point_case(tmp: string, name: string, file: string,
-    edit: function(string): string, settles: boolean)
+                                    edit: function(string): string, settles: boolean)
   local product = Fixture.required("COSMIC_FIXTURE_PRODUCT") .. "/cosmic"
   local case_root = tmp .. "/case-fixed-point-" .. name
   local tree = case_root .. "/tree"
@@ -64,24 +105,24 @@ local function run_fixed_point_case(tmp: string, name: string, file: string,
       Fixture.write(path, original)
     end
     local outcome = Fixture.call_with_environment("fixed-point-" .. name ..
-      "-" .. stage, { program, "docs", "cosmic.child" }, tree, diagnostics,
+        "-" .. stage, { program, "docs", "cosmic.child" }, tree, diagnostics,
       values, rebuild_timeout_ns)
     assert(outcome.result.code == 0, name .. ": " .. stage ..
-      ": exit status was " .. tostring(outcome.result.code) .. ", want 0")
+        ": exit status was " .. tostring(outcome.result.code) .. ", want 0")
     local err = Fixture.read(outcome.err)
     local stale_lines = count_occurrences(err,
       "the tool is stale; rebuilding it from the tree")
     assert(stale_lines == 1, name .. ": " .. stage .. ": reported " ..
-      tostring(stale_lines) .. " stale-rebuild lines, want 1")
+        tostring(stale_lines) .. " stale-rebuild lines, want 1")
     local settled_lines = count_occurrences(err,
       "the tool's database was built by other code than its own; building it again")
     local want = settles and 1 or 0
     assert(settled_lines == want, name .. ": " .. stage .. ": built its " ..
-      "database again " .. tostring(settled_lines) .. " times, want " ..
-      tostring(want))
+        "database again " .. tostring(settled_lines) .. " times, want " ..
+        tostring(want))
   end
   assert(Fixture.hash(program) == booted, name .. ": the tool two " ..
-    "self-rebuilds left is not the tool the boot wrote")
+      "self-rebuilds left is not the tool the boot wrote")
 end
 
 -- A comment appended to a module's source.

@@ -28,6 +28,8 @@
 ---     print T          T and a newline, to stdout
 ---     eprint T         T and a newline, to stderr
 ---     write F T        T and a newline, as the whole of file F
+---     write-pid F      its own pid and a newline, as the whole of file F
+---                      (`signal S @F` then names it)
 ---     append F T       T and a newline, at the end of file F
 ---     cat [F]          file F, or stdin to its end, to stdout
 ---     cat-quiet F      file F to stdout, or nothing where it cannot be read
@@ -61,6 +63,11 @@
 ---                      runs on, and none of it is adopted here; ends
 ---                      with P's status where it fails (128 past a
 ---                      signal), and 127 where P cannot start
+---     start-count N P [T]
+---                      starts P, with T its one argument, up to N times,
+---                      going on as `start` does, and says `started K`,
+---                      and ` then` why when one failed to, a line to
+---                      stdout
 ---     start P [T]      starts P, with T its one argument, and goes on
 ---                      without waiting for it, as a shell's `P &` does:
 ---                      it outlives the script, which then ends by
@@ -71,17 +78,54 @@
 ---     env-of NAME      `NAME=` and the variable's value, or `NAME unset`,
 ---                      and a newline, to stdout: unlike `$NAME`, it
 ---                      tells an empty variable from an unset one
+---     rlimit R         `R soft hard` and a newline, to stdout, for R one of
+---                      nofile, fsize, cpu, core, nproc: a limit of none is
+---                      math.maxinteger
+---     setrlimit R N    sets limit R (as `rlimit` names it) to N, soft and
+---                      hard, and says `set`, or fails with why
+---     getpgid P        says `pgid` and the process group of process P
+---                      (0 for itself), or fails with why
 ---     present P        fails unless P exists, as `test -e` does
 ---     connect P        connects to the unix socket file P, waiting five
 ---                      seconds at most, saying `connected` or why not,
 ---                      a line to stdout
 ---     connect-tcp H P  connects to port P of numeric host H, as
 ---                      `connect` does
+---     loopback-tcp H   listens on a port of numeric host H, connects to
+---                      it and accepts the connection, saying `connected`
+---                      or why not, a line to stdout
+---     loopback-unix P  listens on a unix socket file P, connects to it
+---                      and accepts the connection, saying `connected`
+---                      or why not, a line to stdout; the file is left
+---     start-isolated P starts program P under a policy of `isolate`
+---                      file, granting P alone, and says `started` or the
+---                      start's failure, a line to stdout
+---     run-isolated P T runs program P, with T its one argument, under a
+---                      policy of `isolate` file granting P alone and the
+---                      working directory read-only, waits for it, and
+---                      says `exit` and its status, then what it printed
+---                      to stdout and stderr, or the start's failure, to
+---                      stdout
+---     run-looped P T   as `run-isolated`, with a network namespace of its own
+---                      and a loopback in it (the policy's `loopback`)
 ---     writable P       fails unless file P opens to write, appending
 ---                      and writing nothing, as `: >> P` does, but never
 ---                      making it
 ---     mode P           P's permission bits in octal and a newline, to
 ---                      stdout, as `stat -c %a` prints them
+---     create F T       T and a newline, as the whole of the new file F,
+---                      made as `open` with O_EXCL makes one: where F is
+---                      there already, or F cannot be made, it fails
+---     truncate F       empties file F in place, as `: > F` does, but
+---                      never makes it
+---     rm F             removes file F
+---     rmdir D          removes the empty directory D
+---     rename A B       moves A to B, as `mv A B` does
+---     flip A B         swaps A and B, two paths, over and over until it is
+---                      ended, so each is at the other's name half the
+---                      time and absent for an instant between
+---     chmod P M        sets P's permission bits to M, in octal, as
+---                      `chmod M P` does
 ---     find-writable D  each regular file beneath D that opens to write,
 ---                      as `writable` opens one, a line each: a link is
 ---                      neither listed nor walked into, as `find D -type
@@ -140,9 +184,7 @@ local probe_module <const> = "build.stand_in_probe"
 --- The name the stand-in carries `probe_module`'s bytecode under, as
 --- its main module: under neither `build.*` nor `cosmic.*`, so, as a
 --- program `cosmic build --host` makes, its main loads untrusted
---- (core/store.c's `names_trusted_kind`). A process a `lua` test starts
---- may load it under this name ([`build.test_inputs`]' `carried_as`,
---- which names it too).
+--- (core/store.c's `names_trusted_kind`).
 local main_module <const> = "stand_in.main"
 
 --- What the stand-in carries of what the core requires of any program
@@ -219,7 +261,7 @@ local function database(path: string): string | nil, string
       -- bytecode: `cosmic.*` modules of kind "module" load trusted, as
       -- the binary's own, and the main, under no such name, does not.
       local ok, insert_trouble = Sqlite.run(db, "INSERT INTO modules (path, file, kind, " ..
-        "source_hash, key, bytecode, tests, source) VALUES (?1, '', ?2, x'', x'', ?3, '', x'')",
+          "source_hash, key, bytecode, tests, source) VALUES (?1, '', ?2, x'', x'', ?3, '', x'')",
         { text(name), text(name == main_module and "main" or "module"), bind.blob(bytecode) })
       if not ok then return false, name .. ": " .. insert_trouble end
       for _, required in ipairs(module.requires) do

@@ -16,6 +16,14 @@ local header = lines({
   " * --- What `stat` reports.",
   " * ---@class Stat",
   " * ---@field size integer the size in bytes",
+  " * ---@field kind Kind what it is",
+  " */",
+  "",
+  "/*",
+  " * --- What a path is.",
+  " * ---@alias Kind",
+  " * ---| \"file\" # a regular file",
+  " * ---| \"dir\" # a directory",
   " */",
   "",
   "/*",
@@ -75,7 +83,7 @@ local function test_classes_and_fields_carry_their_prose()
   assert(by_symbol["O_RDONLY"].text == "open for reading", by_symbol["O_RDONLY"].text)
   local module = by_symbol[""].text
   assert(module == "The syscall table: one C function per call, the same on Linux\n" ..
-    "and on macOS.", module)
+      "and on macOS.", module)
 end
 
 --- The table is documented under the name every caller gives it,
@@ -93,8 +101,8 @@ end
 --- own lines.
 local function test_each_declaration_names_its_header_line()
   local source = assert(gen_syscalls.declaration(header))
-  for _, want in ipairs({ "-- line Stat 3", "-- line Stat.size 4",
-                          "-- line open 17", "-- line O_RDONLY 21" }) do
+  for _, want in ipairs({ "-- line Stat 3", "-- line Stat.size 4", "-- line Kind 10",
+      "-- line open 25", "-- line O_RDONLY 29" }) do
     assert(source:find("\n" .. want .. "\n", 1, true), want .. " missing from:\n" .. source)
   end
 end
@@ -212,11 +220,11 @@ local function test_a_userdata_class_declares_methods_and_metamethods()
   end
   local source = assert(gen_syscalls.declaration(with("Owner: userdata")))
   for _, want in ipairs({
-    "  record Owner\n    userdata\n",
-    "    fd: function(self: Owner): integer\n",
-    "    close: function(self: Owner): boolean, string, integer\n",
-    "    metamethod __close: function(self: Owner)\n",
-    "  make: function(): Owner | nil, string, integer\n",
+      "  record Owner\n    userdata\n",
+      "    fd: function(self: Owner): integer\n",
+      "    close: function(self: Owner): boolean, string, integer\n",
+      "    metamethod __close: function(self: Owner)\n",
+      "  make: function(): Owner | nil, string, integer\n",
   }) do
     assert(source:find(want, 1, true), want .. " missing from:\n" .. source)
   end
@@ -225,5 +233,60 @@ local function test_a_userdata_class_declares_methods_and_metamethods()
   for _, class in ipairs({ "Owner: table", "Owner userdata" }) do
     local refused, why = gen_syscalls.read(with(class))
     assert(refused == nil and why:find("a parent other than userdata", 1, true), class .. ": " .. why)
+  end
+end
+
+--- An `@alias` is an enum, declared before the classes whose fields
+--- name it, so comparing a field of it with a string outside it is a
+--- compile error; its doc is its prose, then each member's meaning.
+local function test_an_alias_is_an_enum_its_members_documented()
+  local source = assert(gen_syscalls.declaration(header))
+  local enum_at = source:find('  enum Kind\n    "file"\n    "dir"\n  end\n', 1, true)
+  local record_at = source:find("  record Stat\n", 1, true)
+  assert(enum_at ~= nil and record_at ~= nil and enum_at < record_at, source)
+  assert(source:find("    kind: Kind\n", 1, true), source)
+  local kind = docs()["Kind"]
+  assert(kind ~= nil, "no docs row for Kind")
+  local want = 'What a path is.\n\n- `"file"`: a regular file\n- `"dir"`: a directory'
+  assert(kind.text == want, kind.text)
+end
+
+--- An alias whose block is malformed is refused, naming what is wrong.
+local function test_a_malformed_alias_is_refused()
+  local function with(body: {string}): string
+    local parts: {string} = { "/*" }
+    for _, line in ipairs(body) do
+      parts[#parts + 1] = " * ---" .. line
+    end
+    parts[#parts + 1] = " */"
+    return lines(parts) .. fallible("boolean")
+  end
+  local record Case
+    body: {string}
+    refusal: string
+  end
+  local cases: {Case} = {
+    { body = { " What it is.", "@alias Kind" }, refusal = "Kind: the alias has no members" },
+    { body = { "@alias Kind", '| "file" # a file' }, refusal = "Kind: the alias says nothing" },
+    { body = { " What it is.", "@alias Kind", '| "file"' },
+      refusal = 'the member "file" says nothing' },
+    { body = { " What it is.", "@alias Kind", "| file # a file" },
+      refusal = "a member line is not" },
+    { body = { " What it is.", "@alias Kind string" }, refusal = "names no alias" },
+    { body = { " What it is.", "@class Kind", "@field a integer a", "@alias Other",
+      '| "a" # a' }, refusal = "both a class and an alias" },
+    { body = { " What it is.", "@alias Kind", '| "file" # a file', '| "file" # again' },
+      refusal = 'the member "file" is listed twice' },
+    { body = { " What it is.", "@alias Kind", "@type string", '| "file" # a file' },
+      refusal = "Kind: an alias block takes no @type" },
+  }
+  assert(gen_syscalls.read(with({ " What it is.", "@alias Kind", '| "file" # a file' })))
+  local clash = with({ " What it is.", "@alias Stat", '| "file" # a file' }) ..
+    lines({ "/*", " * --- A class.", " * ---@class Stat", " * ---@field a integer a", " */" })
+  local refused, why = gen_syscalls.read(clash)
+  assert(refused == nil and why:find("Stat: names both a class and an alias", 1, true), tostring(why))
+  for _, case in ipairs(cases) do
+    local read, trouble = gen_syscalls.read(with(case.body))
+    assert(read == nil and trouble:find(case.refusal, 1, true), tostring(trouble))
   end
 end

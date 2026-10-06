@@ -3,8 +3,7 @@
 --- Lua program's: every binding that takes a descriptor refuses it
 --- (core/check.h's `cosmic_checkfd`), and so does an open that would
 --- reach it through /proc/<pid>/fd or /dev/fd. Without that a test
---- would read every module the program carries, past
---- build/test_worker.tl's hold on the store and past every key.
+--- would read every module the program carries, past every key.
 ---
 --- The worker that runs these is itself such a start (`cosmic test`
 --- relaunches this program), so each test here has the descriptor to
@@ -24,8 +23,16 @@ local type raw_socket = require("cosmic.internal.socket")
 
 --- The binding headers, read for which of their bindings take a
 --- descriptor.
-Test.needs{
-  reads = { "core/syscalls.h", "core/process.h", "core/socket.h" },
+-- Declared for the program's descriptor, which only a worker that runs the
+-- whole program holds: one on a sealed database has none, so each test here
+-- would return unchecked, and no test would enter the bindings it tries.
+Test.policy{
+  grants = {
+    { path = "core/syscalls.h", letters = "r" },
+    { path = "core/process.h", letters = "r" },
+    { path = "core/socket.h", letters = "r" },
+    { path = "o/cosmic.db", letters = "r" },
+  },
 }
 
 local type Searcher = function(string): any, any
@@ -49,7 +56,13 @@ local function artifact_fd(): integer | nil
   local relaunch, _ = Proc.relaunch()
   if relaunch == nil then return nil end
   local slot = math.tointeger(tonumber(relaunch.env.COSMIC_PORTABLE_ARTIFACT_FD))
-  return slot ~= nil and relaunch.fds[slot] or nil
+  local fd = slot ~= nil and relaunch.fds[slot] or nil
+  -- A held (sandboxed) worker of a portable run has the descriptor; one
+  -- on a sealed database does not, and would check nothing.
+  if fd == nil and relaunch.argv[2] == "--database" then
+    error("this worker runs on a sealed database, which has no artifact descriptor to try")
+  end
+  return fd
 end
 
 --- Asserts calling `fn` with `...` raises, naming the artifact's
@@ -92,6 +105,9 @@ local cases: {string: function(at: integer, fd: integer): {any}} = {
   shutdown = function(_: integer, fd: integer): {any} return { fd, "both" } end,
   wait = function(_: integer, fd: integer): {any} return { fd, false, 0 } end,
   poll = function(_: integer, fd: integer): {any} return { { fd }, { sys.POLLIN }, 0 } end,
+  restrict_self = function(_: integer, fd: integer): {any}
+    return { { grants = {}, promises = {}, rlimits = {} }, { fd } }
+  end,
   spawn = function(at: integer, fd: integer): {any}
     local args: {any} = { "/nonexistent/program", { "program" }, nil, nil, nil, nil, nil, false,
       nil, nil }
@@ -140,7 +156,7 @@ local function test_every_descriptor_argument_refuses_the_artifact_descriptor()
     end
   end
   assert(#missing == 0, "bindings that take a descriptor with no case here: " ..
-    table.concat(missing, ", "))
+      table.concat(missing, ", "))
   assert(tried >= 18, "only " .. tried .. " descriptor arguments were tried")
 end
 
@@ -204,7 +220,7 @@ local function test_an_open_through_the_artifact_descriptor_is_refused(tmp: stri
         local opened, trouble, errno = sys.open(name, sys.O_RDONLY)
         if opened ~= nil then sys.close(opened) end
         assert(opened == nil and errno == sys.EACCES, name .. " opened the artifact: " ..
-          tostring(opened) .. " " .. tostring(trouble))
+            tostring(opened) .. " " .. tostring(trouble))
       end
       -- Through a thread's own descriptors, by name and relative to its
       -- directory.
@@ -216,7 +232,7 @@ local function test_an_open_through_the_artifact_descriptor_is_refused(tmp: stri
             local opened, trouble, errno = sys.open(name, sys.O_RDONLY)
             if opened ~= nil then sys.close(opened) end
             assert(opened == nil and errno == sys.EACCES, name .. " opened the artifact: " ..
-              tostring(opened) .. " " .. tostring(trouble))
+                tostring(opened) .. " " .. tostring(trouble))
           end
         end
         local here, _ = sys.getcwd()

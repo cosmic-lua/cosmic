@@ -4,8 +4,8 @@
 --- build/shared_verdicts_tool_test.tl holds the runs of `cosmic test`
 --- that share their verdicts through it.
 
+local Clock = require("cosmic.clock")
 local Sqlite = require("cosmic.sqlite")
-local Time = require("cosmic.time")
 local shared_verdicts = require("build.shared_verdicts")
 
 --- A run none of whose lookups stood is told what the cache held: its
@@ -22,7 +22,7 @@ local function test_a_cache_that_answers_nothing_says_what_it_holds(tmp: string)
     kept[#kept + 1] = { key = "k" .. i, test = test, hits = "", elapsed_ns = 1 }
   end
   assert(shared_verdicts.settle(cache, "first", { kept = kept, used = {}, failed = {} },
-    Time.now_ns()))
+    Clock.now_ns()))
   local census = assert(shared_verdicts.census(cache, { ["a_test.tl test_a"] = true,
     ["a_test.tl test_b"] = true, ["c_test.tl test_d"] = true }))
   assert(census.rows == 3 and census.of_tests == 2, census.rows .. " " .. census.of_tests)
@@ -46,16 +46,16 @@ local function test_a_census_names_the_parts_the_rows_were_kept_under(tmp: strin
   local path = tmp .. "/cache/verdicts.db"
   local cache = assert(shared_verdicts.open(path))
   assert(shared_verdicts.census_line((assert(shared_verdicts.held(cache)))) ==
-    "test: census: no rows")
+      "test: census: no rows")
   shared_verdicts.close(cache)
   -- As a cache from before the column, holding one row.
   local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("DROP TABLE declared_v1"))
   assert(db:exec("CREATE TABLE declared_v1 (key TEXT PRIMARY KEY, test TEXT NOT NULL, " ..
-    "hits BLOB NOT NULL, elapsed_ns INTEGER NOT NULL, used_ns INTEGER NOT NULL, " ..
-    "origin TEXT NOT NULL)"))
+      "hits BLOB NOT NULL, elapsed_ns INTEGER NOT NULL, used_ns INTEGER NOT NULL, " ..
+      "origin TEXT NOT NULL)"))
   assert(db:exec("INSERT INTO declared_v1 VALUES ('old', 'a_test.tl test_a', " ..
-    "deflate(''), 1, " .. Time.now_ns() .. ", 'before')"))
+      "deflate(''), 1, " .. Clock.now_ns() .. ", 'before')"))
   assert(db:close())
   cache = assert(shared_verdicts.open(path))
   assert(shared_verdicts.declared(cache, "old") ~= nil, "the earlier row went")
@@ -66,12 +66,12 @@ local function test_a_census_names_the_parts_the_rows_were_kept_under(tmp: strin
     kept[i] = { key = "k" .. i, test = "b_test.tl test_" .. i, hits = "", elapsed_ns = 1 }
   end
   assert(shared_verdicts.settle(cache, "first", { parts = now, kept = kept, used = {},
-    failed = {} }, Time.now_ns()))
+    failed = {} }, Clock.now_ns()))
   assert(shared_verdicts.census_line((assert(shared_verdicts.held(cache)))) ==
-    "test: census: 2 rows under runtime r1, harness e1-00000000-t60000; 1 row under no parts named")
+      "test: census: 2 rows under runtime r1, harness e1-00000000-t60000; 1 row under no parts named")
   -- Stood on, the earlier row is stamped; a named one keeps its parts.
   assert(shared_verdicts.settle(cache, "second", { parts = "runtime r2, harness e2-00000000-t60000",
-    kept = {}, used = { "old", "k1" }, failed = {} }, Time.now_ns()))
+    kept = {}, used = { "old", "k1" }, failed = {} }, Clock.now_ns()))
   local held = assert(shared_verdicts.held(cache))
   assert(#held == 2 and held[1].rows == 2 and held[1].parts == now, held[1].parts)
   assert(held[2].rows == 1 and held[2].parts == "runtime r2, harness e2-00000000-t60000", held[2].parts)
@@ -96,15 +96,15 @@ local function test_a_verdict_is_kept_by_its_key_alone(tmp: string)
   local tables = assert(Sqlite.text_rows(cache.db,
     "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name"))
   assert(#tables == 3 and tables[1][1] == "declared_v1" and tables[2][1] == "stores_v1" and
-    tables[3][1] == "verdicts_v4", "an earlier format's table was dropped: " .. tostring(#tables))
+      tables[3][1] == "verdicts_v4", "an earlier format's table was dropped: " .. tostring(#tables))
   assert(shared_verdicts.declared(cache, "declared") == nil)
   assert(shared_verdicts.settle(cache, "first", { kept = { {
     key = "declared", test = "suite/t_test.tl test_t", hits = "suite/t_test.tl\t1,2,5\n",
-    elapsed_ns = 7 } }, used = {}, failed = {} }, Time.now_ns()))
+    elapsed_ns = 7 } }, used = {}, failed = {} }, Clock.now_ns()))
   local found = assert(shared_verdicts.declared(cache, "declared"))
   assert(found.elapsed_ns == 7 and found.hits == "suite/t_test.tl\t1,2,5\n", found.hits)
   -- Relied on long after it was written, it stays; unrelied, it goes.
-  local later = Time.now_ns() + 29 * 24 * 3600 * 1000000000
+  local later = Clock.now_ns() + 29 * 24 * 3600 * 1000000000
   assert(shared_verdicts.settle(cache, "second", { kept = {}, used = { "declared" },
     failed = {} }, later))
   assert(shared_verdicts.declared(cache, "declared") ~= nil, "a verdict relied on went")
@@ -113,9 +113,9 @@ local function test_a_verdict_is_kept_by_its_key_alone(tmp: string)
   assert(shared_verdicts.declared(cache, "declared") == nil, "an unrelied verdict stayed")
   assert(shared_verdicts.settle(cache, "first", { kept = { { key = "declared",
     test = "suite/t_test.tl test_t", hits = "", elapsed_ns = 1 } }, used = {}, failed = {} },
-    Time.now_ns()))
+    Clock.now_ns()))
   assert(shared_verdicts.settle(cache, "second", { kept = {}, used = {},
-    failed = { "declared" } }, Time.now_ns()))
+    failed = { "declared" } }, Clock.now_ns()))
   assert(shared_verdicts.declared(cache, "declared") == nil, "a failure kept it")
   shared_verdicts.close(cache)
 end
@@ -133,7 +133,7 @@ local function test_a_store_digest_is_kept_by_its_address(tmp: string)
   assert(db:close())
   cache = assert(shared_verdicts.open(path))
   assert(shared_verdicts.store_digest(cache, "address") == nil)
-  local now = Time.now_ns()
+  local now = Clock.now_ns()
   assert(shared_verdicts.settle(cache, "first", { kept = {}, used = {}, failed = {},
     stores = { address = "digest" } }, now))
   assert(shared_verdicts.store_digest(cache, "address") == "digest")

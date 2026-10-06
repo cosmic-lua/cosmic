@@ -3,14 +3,15 @@
 --- it starts this program only to run a script standalone.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
+local _ = require("build.standalone")
 local this_program = require("build.this_program")
-local Time = require("cosmic.time")
 
 --- The program itself, which its tests start to run a file `--standalone`
---- (`standalone`).
-Test.needs{ lua = true, standalone = true }
+--- ([`build.standalone`]).
+Test.policy{ profiles = { "cosmic" } }
 
 --- Runs `body` as a standalone script and answers what it wrote.
 local function run(tmp: string, body: string): string, string
@@ -18,7 +19,7 @@ local function run(tmp: string, body: string): string, string
   assert(Fs.write(script, 'local Log = require("cosmic.log")\n' .. body))
   local started = this_program.program({ "--standalone", script },
     { stdout = "capture", stderr = "capture",
-      timeout_ns = Time.seconds(30) })
+      timeout_ns = Clock.seconds(30) })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.ok, tostring(result.stderr))
   return result.stdout or "", result.stderr or ""
@@ -35,6 +36,6 @@ log:verdict("build", false)
 log:verdict("fix", true, "")
 ]])
   assert(out == "found 2\nrm: FAIL (no such note)\nls: PASS (2 notes, 3 ms)\n" ..
-    "build: FAIL\nfix: PASS\n", out)
+      "build: FAIL\nfix: PASS\n", out)
   assert(err == "notes: no such note: 9\n", err)
 end

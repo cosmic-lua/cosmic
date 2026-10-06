@@ -4,11 +4,11 @@ local type _ = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 
-Test.needs{ lua = true }
+Test.policy{ profiles = { "cosmic" } }
 
 local function start(script: string): Child.Handle
   local command = this_program.program({ "-e", script },
@@ -19,15 +19,15 @@ end
 --- Waits for stdin to close, then releases after `hold_ns`.
 local function holder(path: string, hold_ns?: integer): Child.Handle
   local child = start(([[
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local Time = require("cosmic.time")
 local db = assert(Sqlite.open(%q, { writable = true }))
 assert(db:exec("CREATE TABLE IF NOT EXISTS t (x)"))
 assert(db:exec("BEGIN IMMEDIATE"))
 print("held")
 Fs.take(Fs.stdin, 1)
-Time.sleep_ns(%d)
+Clock.sleep_ns(%d)
 assert(db:close())
 ]]):format(path, hold_ns or 0))
   assert(Stream.lines(assert(child.stdout_stream)):read() == "held")
@@ -35,7 +35,7 @@ assert(db:close())
 end
 
 local function finish(child: Child.Handle)
-  assert(assert(child:wait(Time.seconds(5))).ok)
+  assert(assert(child:wait(Clock.seconds(5))).ok)
 end
 
 --- A process that sends this one SIGTERM 100 ms after a line on its
@@ -43,14 +43,14 @@ end
 --- that line: its start, however slow, comes before the clock.
 local function interrupter(): Child.Handle
   local child = start(([[
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 print("ready")
 Fs.take(Fs.stdin, 1)
-Time.sleep_ns(%d)
+Clock.sleep_ns(%d)
 assert(sys.kill(%d, sys.SIGTERM))
-]]):format(Time.ms(100), sys.getpid()))
+]]):format(Clock.ms(100), sys.getpid()))
   assert(Stream.lines(assert(child.stdout_stream)):read() == "ready")
   return child
 end
@@ -66,13 +66,13 @@ local function test_busy_wait_keeps_the_signal_and_clears_only_the_operations_fl
   -- Long past the signal, which the ready handshake leaves only its
   -- 100 ms and a wake-up from, and within CI's 10 s per-test deadline:
   -- a wait the signal did not end answers BUSY, not cancelled.
-  db:busy_timeout(Time.seconds(6))
+  db:busy_timeout(Clock.seconds(6))
   local guard <close> = assert(Child.guard())
   local sender <close> = interrupter()
   interrupt(sender)
   local cancelled = db:exec_result("BEGIN IMMEDIATE")
   local signal = guard:take()
-  db:busy_timeout(Time.ms(30))
+  db:busy_timeout(Clock.ms(30))
   local ordinary = db:exec_result("BEGIN IMMEDIATE")
   local historical = guard:cancelled()
   guard:release()
@@ -92,7 +92,7 @@ end
 local function test_busy_wait_uses_the_innermost_unread_guard_notification(tmp: string)
   local held <close> = holder(tmp .. "/db")
   local db = assert(Sqlite.open(tmp .. "/db", { writable = true }))
-  db:busy_timeout(Time.ms(20))
+  db:busy_timeout(Clock.ms(20))
   local outer <close> = assert(Child.guard())
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
   local inner <close> = assert(Child.guard())
@@ -113,13 +113,13 @@ end
 local function test_pragma_replaces_the_custom_handler_and_the_method_reinstalls_it(tmp: string)
   local held <close> = holder(tmp .. "/db")
   local db = assert(Sqlite.open(tmp .. "/db", { writable = true }))
-  db:busy_timeout(Time.seconds(5))
+  db:busy_timeout(Clock.seconds(5))
   assert(assert(Sqlite.text_rows(db, "PRAGMA busy_timeout"))[1][1] == "0")
   assert(db:exec("PRAGMA busy_timeout = 20"))
   local guard <close> = assert(Child.guard())
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
   local replaced = db:exec_result("BEGIN IMMEDIATE")
-  db:busy_timeout(Time.seconds(5))
+  db:busy_timeout(Clock.seconds(5))
   local reinstalled = db:exec_result("BEGIN IMMEDIATE")
   local signal = guard:take()
   guard:release()
@@ -131,16 +131,16 @@ local function test_pragma_replaces_the_custom_handler_and_the_method_reinstalls
 end
 
 local function test_zero_short_and_prepared_waits_have_separate_budgets(tmp: string)
-  local held <close> = holder(tmp .. "/db", Time.ms(50))
+  local held <close> = holder(tmp .. "/db", Clock.ms(50))
   local db = assert(Sqlite.open(tmp .. "/db", { writable = true }))
-  for _, ns in ipairs({ 0, 1, Time.ms(30) }) do
+  for _, ns in ipairs({ 0, 1, Clock.ms(30) }) do
     db:busy_timeout(ns)
-    local begun = Time.monotonic_ns()
+    local begun = Clock.monotonic_ns()
     local busy = db:exec_result("BEGIN IMMEDIATE")
-    local elapsed = Time.monotonic_ns() - begun
+    local elapsed = Clock.monotonic_ns() - begun
     assert(busy.code == Sqlite.BUSY and busy.cancelled == false)
-    assert(elapsed < Time.seconds(2))
-    if ns >= Time.ms(30) then assert(elapsed >= Time.ms(10)) end
+    assert(elapsed < Clock.seconds(2))
+    if ns >= Clock.ms(30) then assert(elapsed >= Clock.ms(10)) end
   end
   local statement = assert(db:prepare("INSERT INTO t VALUES (1)"))
   local guard <close> = assert(Child.guard())
@@ -152,7 +152,7 @@ local function test_zero_short_and_prepared_waits_have_separate_budgets(tmp: str
   -- reset reports the previous step's BUSY; it still rewinds the statement.
   local reset, reset_reason = statement:reset()
   assert(not reset and reset_reason ~= "")
-  db:busy_timeout(Time.seconds(2))
+  db:busy_timeout(Clock.seconds(2))
   assert(assert(held.stdin_stream):close())
   assert(statement:step() == "done")
   statement:finalize()
@@ -169,11 +169,11 @@ end
 --- less than 1 s late. A restarted budget is caught only while the
 --- second holder lets go less than 0.5 s later than the first does.
 local function test_one_exec_shares_a_budget_across_separate_database_locks(tmp: string)
-  local first <close> = holder(tmp .. "/first", Time.ms(1500))
-  local second <close> = holder(tmp .. "/second", Time.ms(3500))
+  local first <close> = holder(tmp .. "/first", Clock.ms(1500))
+  local second <close> = holder(tmp .. "/second", Clock.ms(3500))
   local db = assert(Sqlite.open(tmp .. "/first", { writable = true }))
   assert(db:exec("ATTACH DATABASE '" .. tmp .. "/second' AS other"))
-  db:busy_timeout(Time.ms(2500))
+  db:busy_timeout(Clock.ms(2500))
   assert(assert(first.stdin_stream):close())
   assert(assert(second.stdin_stream):close())
   local result = db:exec_result("INSERT INTO main.t VALUES (1); INSERT INTO other.t VALUES (2)")
@@ -184,4 +184,23 @@ local function test_one_exec_shares_a_budget_across_separate_database_locks(tmp:
   assert(assert(Sqlite.text_rows(db, "SELECT count(*) FROM main.t"))[1][1] == "1")
   assert(assert(Sqlite.text_rows(db, "SELECT count(*) FROM other.t"))[1][1] == "0")
   assert(db:close())
+end
+
+local function test_typed_step_captures_cancellation_before_finalize(tmp: string)
+  local held <close> = holder(tmp .. "/db")
+  local db = assert(Sqlite.open(tmp .. "/db", { writable = true }))
+  db:busy_timeout(Clock.seconds(5))
+  local guard <close> = assert(Child.guard())
+  assert(sys.kill(sys.getpid(), sys.SIGTERM))
+  local cancelled = Sqlite.run_result(db, "INSERT INTO t VALUES (1)")
+  local signal = guard:take()
+  guard:release()
+  assert(cancelled.code == Sqlite.BUSY and cancelled.cancelled and signal == sys.SIGTERM)
+  db:busy_timeout(0)
+  local busy = Sqlite.run_result(db, "INSERT INTO t VALUES (2)")
+  assert(busy.code == Sqlite.BUSY and not busy.cancelled)
+  assert(cancelled.cancelled and cancelled.reason ~= "")
+  assert(db:close())
+  assert(assert(held.stdin_stream):close())
+  finish(held)
 end

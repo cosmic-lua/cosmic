@@ -1,8 +1,10 @@
 --- Test instruments, as the core provides them (core/testing.h). Every
---- core has every member, but only the checked core's functions
+--- core has every member, but only the checked core's instruments
 --- instrument: in any other, each raises "only the checked core has
---- test instruments". `configuration` says which core is running,
---- "sanitized" for the checked one.
+--- test instruments". The exception is the raw calls a sandbox's own
+--- setup makes (`mount`, `umount2`, `unshare`, `setns`, `chroot`),
+--- which are real in every core. `configuration` says which core is
+--- running, "sanitized" for the checked one.
 
 local record testing
   --- The running core's configuration: "sanitized" for the checked one.
@@ -57,6 +59,29 @@ local record testing
   --- with local_lock "flock" or "all" among the filesystem's own
   --- options: what [`sys.flock_kind`] asks of an NFS file's mount.
   mountinfo_local_flock: function(text: string, device: string): boolean
+
+  --- The calls a sandbox's own setup makes, made raw in every core (not
+  --- instruments), so a test can ask whether a program inside one is
+  --- refused them: each answers true, or false, a message and the
+  --- errno, and ENOSYS off Linux.
+
+  --- mount(2): `source`, `fstype` and `data` may be nil, for none, and
+  --- `flags` is Linux's MS_* bits.
+  mount: function(source: string | nil, target: string, fstype: string | nil, flags: integer,
+    data?: string): boolean, string, integer
+
+  --- umount2(2), with Linux's MNT_* and UMOUNT_* `flags`.
+  umount2: function(target: string, flags: integer): boolean, string, integer
+
+  --- unshare(2), with Linux's CLONE_* `flags`.
+  unshare: function(flags: integer): boolean, string, integer
+
+  --- setns(2): joins the namespace descriptor `fd` refers to, of the
+  --- CLONE_NEW* kind `nstype` names, or of any kind for 0.
+  setns: function(fd: integer, nstype: integer): boolean, string, integer
+
+  --- chroot(2), then chdir("/") where it succeeds.
+  chroot: function(path: string): boolean, string, integer
 end
 
 return testing

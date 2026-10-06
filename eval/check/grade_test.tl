@@ -3,6 +3,7 @@
 --- that vouches for no executable.
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 local Grader = require("eval.check.grade")
 local stand_in = require("build.stand_in")
@@ -68,21 +69,17 @@ local function test_a_failure_in_cosmic_is_one_a_line_of_stderr_opens_with()
   assert(not Grader.failed_in_cosmic("notes: no note 9 (cosmic)\n"))
 end
 
-local function test_a_signal_is_a_status_as_a_shell_reports_it()
-  assert(Grader.status({ code = 3, ok = false, timed_out = false, captured = {}, truncated = false }) == 3)
-  assert(Grader.status({ signal = 11, ok = false, timed_out = false, captured = {}, truncated = false }) == 139)
-end
-
 --- Grades the arena at `dir` for the task `name` with its lines --
 --- written to stdout -- taken into a file there, and answers its
---- status and those lines.
+--- status and those lines. The hidden API tests are under
+--- `dir`/testdata.
 local function graded(name: string, dir: string): integer, string
   local lines = dir .. "/graded.out"
   local out = assert(sys.open(lines, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 420))
   local saved = assert(sys.dup(1))
   assert(sys.dup2(out, 1))
   assert(sys.close(out))
-  local ok, status = pcall(Grader.grade, name, dir)
+  local ok, status = pcall(Grader.grade, name, dir, dir .. "/testdata")
   assert(sys.dup2(saved, 1))
   assert(sys.close(saved))
   if not ok then error(status, 0) end
@@ -133,7 +130,7 @@ local function test_built_reads_the_build_line()
 end
 
 local function test_an_arena_without_a_project_fails_every_task(dir: string)
-  for _, name in ipairs({ "notes", "pack", "ledger", "kv", "jobs", "mirror" }) do
+  for _, name in ipairs({ "notes", "pack", "ledger", "kv", "jobs", "mirror", "relay" }) do
     local status, said = graded(name, dir)
     assert(status == 1, said)
     assert(said:find("check: FAIL no project at " .. dir .. "/project", 1, true), said)
@@ -147,11 +144,15 @@ local function test_a_failed_build_runs_no_binary_for_any_task(dir: string)
   local probe = assert(stand_in.build(dir .. "/stand-in"))
   assert(stand_in.place(probe, dir .. "/bin/cosmic",
     "[build] eprint build: FAIL\n[build] exit 1\nexit 0"))
-  for _, name in ipairs({ "pack", "ledger", "kv", "jobs", "mirror" }) do
+  for _, name in ipairs({ "pack", "ledger", "kv", "jobs", "mirror", "relay" }) do
     assert(stand_in.place(probe, dir .. "/project/o/bin/" .. name, "print 1"))
     local status, said = graded(name, dir)
     assert(status == 1, said)
     assert(said:find("skip o/bin/" .. name .. ": cosmic build failed", 1, true), said)
+    -- A copy of the checked core is 39.5 MB and a worker's directory is in
+    -- a 256 MiB tmpfs: one task's stand-in at a time stays inside it.
+    assert(Fs.remove(dir .. "/project/o/bin/" .. name))
+    assert(Fs.remove(dir .. "/project/o/bin/" .. name .. ".do"))
   end
   assert(not Fs.exists(dir .. "/empty"), "a binary was run")
 end
@@ -205,7 +206,7 @@ local function test_a_project_without_a_journal_fails(dir: string)
   local status, said = graded_with_journal(dir, nil)
   assert(status == 1, said)
   assert(said:find("check: FAIL JOURNAL.md kept, as TASK.md's journal contract asks: no " ..
-    dir .. "/project/JOURNAL.md\n", 1, true), said)
+      dir .. "/project/JOURNAL.md\n", 1, true), said)
   assert(said:sub(-12) == "check: FAIL\n", said)
 end
 
@@ -213,7 +214,7 @@ local function test_a_project_with_an_empty_journal_fails(dir: string)
   local status, said = graded_with_journal(dir, "\n  \n")
   assert(status == 1, said)
   assert(said:find("check: FAIL JOURNAL.md kept, as TASK.md's journal contract asks: " ..
-    dir .. "/project/JOURNAL.md is empty\n", 1, true), said)
+      dir .. "/project/JOURNAL.md is empty\n", 1, true), said)
   assert(Fs.read(dir .. "/project/JOURNAL.md") == "\n  \n")
 end
 
@@ -251,4 +252,91 @@ local function test_a_journal_beside_an_earlier_aside_is_the_one_checked(dir: st
   assert(said:find("check: FAIL " .. dir .. "/bin/cosmic fix --check\n", 1, true), said)
   assert(Fs.read(dir .. "/JOURNAL.md.aside") == "kept\n")
   assert(Fs.read(dir .. "/project/JOURNAL.md") == " \n")
+end
+
+local function test_api_failures_names_each_failing_test_and_refused_line()
+  local failures = Grader.api_failures(table.concat({
+    "build: 3 modules",
+    "test: FAIL  kv_api_test test_lru: kv_api_test:10: evicted b",
+    "  its directory is kept: /tmp/x/real",
+    "test: FAIL  kv_api_test test_keys: kv_api_test:20: boom",
+    "second line",
+    "test: FAIL (2 of 3 failed, 0 infrastructure errors, 336 ms; sandboxed)",
+  }, "\n"))
+  assert(#failures == 2, table.concat(failures, "; "))
+  assert(failures[1] == "test_lru: kv_api_test:10: evicted b", failures[1])
+  assert(failures[2] == "test_keys: kv_api_test:20: boom", failures[2])
+  failures = Grader.api_failures("cosmic: kv_api_test.tl: the compiler refused it\n" ..
+      "kv_api_test.tl:1:12: module not found: 'kv'\ntest: FAIL\n")
+  assert(#failures == 1, table.concat(failures, "; "))
+  assert(failures[1] == "does not compile: kv_api_test.tl:1:12: module not found: 'kv'",
+    failures[1])
+  local refusals: {string} = { "cosmic: kv_api_test.tl: the compiler refused it" }
+  for i = 1, 7 do
+    refusals[#refusals + 1] = "kv_api_test.tl:" .. i .. ":1: unknown type kv.Lru"
+  end
+  failures = Grader.api_failures(table.concat(refusals, "\n"))
+  assert(#failures == 6, table.concat(failures, "; "))
+  assert(failures[5] == "does not compile: kv_api_test.tl:5:1: unknown type kv.Lru", failures[5])
+  assert(failures[6] == "does not compile: 2 more lines", failures[6])
+  failures = Grader.api_failures("cosmic: killed\n")
+  assert(#failures == 1 and failures[1] == "cosmic test failed: cosmic: killed", failures[1])
+  assert(#Grader.api_failures("test: PASS (3 tests, 1 module; 3 ran)\n") == 0)
+end
+
+--- Grades a kv arena whose stand-in cosmic, run in a directory holding
+--- kv_api_test.tl, lists that directory, writes a file and the
+--- directory's path, and answers `lines` and `code`: as a hidden API
+--- test that ran on a copy of the project. Answers the status and the
+--- grader's lines.
+local function graded_api(dir: string, lines: {string}, code: integer): integer, string
+  assert(Fs.mkdirs(dir .. "/bin") and Fs.mkdirs(dir .. "/project/o") and
+      Fs.mkdirs(dir .. "/testdata"))
+  assert(Fs.write(dir .. "/project/kv.tl", "return {}\n"))
+  assert(Fs.write(dir .. "/project/o/marker", "built\n"))
+  assert(Fs.write(dir .. "/testdata/kv_api_test.tl", "-- hidden\n"))
+  local script = { "[test] present kv_api_test.tl || exit 0", "[test] ls .",
+    "[test] write leftover.txt written by the hidden test", "[test] cwd " .. dir .. "/copy.txt" }
+  for _, line in ipairs(lines) do
+    script[#script + 1] = "[test] print " .. line
+  end
+  script[#script + 1] = "[test] exit " .. code
+  script[#script + 1] = "exit 0"
+  local probe = assert(stand_in.build(dir .. "/stand-in"))
+  assert(stand_in.place(probe, dir .. "/bin/cosmic", table.concat(script, "\n")))
+  return graded("kv", dir)
+end
+
+--- The hidden test runs on a copy of the project without its o/, and
+--- neither it nor what it writes reaches the project; each failing
+--- test is a check that fails.
+local function test_a_hidden_test_runs_on_a_copy_and_reports_each_failure(dir: string)
+  local status, said = graded_api(dir, {
+    "test: FAIL  kv_api_test test_lru: kv_api_test:3: evicted the wrong key",
+    "test: FAIL (1 of 1 failed)" }, 1)
+  assert(status == 1, said)
+  assert(said:find("check: FAIL hidden api: test_lru: kv_api_test:3: evicted the wrong key\n",
+    1, true), said)
+  local listed = assert(Fs.read(dir .. "/check-5.out"))
+  assert(listed:find("kv_api_test.tl\n", 1, true) and listed:find("kv.tl\n", 1, true), listed)
+  assert(not listed:find("\no\n", 1, true) and not listed:match("^o\n"), listed)
+  assert(not Fs.exists(dir .. "/project/kv_api_test.tl"), "the hidden test reached the project")
+  assert(not Fs.exists(dir .. "/project/leftover.txt"), "the copy's writes reached the project")
+  assert(Fs.read(dir .. "/project/o/marker") == "built\n")
+  local copy = String.trim((assert(Fs.read(dir .. "/copy.txt"))))
+  assert(copy ~= dir .. "/project" and not Fs.exists(copy), "the copy is left at " .. copy)
+end
+
+local function test_a_hidden_test_that_passes_is_one_check_that_passes(dir: string)
+  local _, said = graded_api(dir, { "test: PASS (3 tests, 1 module, 3 ran)" }, 0)
+  assert(said:find("check: ok   hidden api: kv_api_test.tl passes\n", 1, true), said)
+  assert(not said:find("FAIL hidden api", 1, true), said)
+end
+
+--- A missing hidden test fails the grade rather than passing it unchecked.
+local function test_a_missing_hidden_test_fails(dir: string)
+  local status, said = graded_with_journal(dir, "**Log**\n")
+  assert(status == 1, said)
+  assert(said:find("check: FAIL hidden api: ", 1, true), said)
+  assert(not said:find("check: ok   hidden api", 1, true), said)
 end

@@ -11,15 +11,12 @@ local stand_in = require("build.stand_in")
 -- TODO: start the session with cosmic once cosmic.sys carries setsid,
 -- rather than the host's setsid program, and fold this module back into
 -- core/syscalls_test.tl, which then needs no `system`.
---- What the session is tested on: /proc, the whole environment, which
---- this program started again inherits, the program itself, which it
+--- What the session is tested on: /proc, the program itself, which it
 --- starts again, and the host's setsid program, beneath the system's
 --- own paths.
-Test.needs{
-  host = { "/proc" },
-  env = { "*" },
-  tool = true,
-  system = true,
+Test.policy{
+  profiles = { "system", "cosmic" },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "/proc", letters = "r" } },
 }
 
 local type raw_process = require("cosmic.internal.process")
@@ -123,7 +120,8 @@ end
 --- /dev/null. Where the kernel has no autogroup, or the host no setsid
 --- program, there is nothing to check.
 local function test_a_confined_child_s_autogroup_is_not_its_parent_s(tmp: string)
-  if sys.stat("/proc/self/autogroup") == nil or setsid_program() == nil then return end
+  if sys.stat("/proc/self/autogroup") == nil then Test.skip("this kernel has no autogroup") end
+  if setsid_program() == nil then Test.skip("this host has no setsid program") end
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local reads: {string} = { probe }
   for _, path in ipairs({ "/proc", "/dev/null" }) do

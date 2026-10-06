@@ -13,10 +13,10 @@ local function cache(path: string, used: {integer})
   local db = assert(Sqlite.open(path, { writable = true }))
   assert(Sqlite.text_rows(db, "PRAGMA journal_mode = WAL"))
   assert(db:exec("CREATE TABLE declared_v1 (key TEXT PRIMARY KEY, test TEXT NOT NULL, " ..
-    "hits BLOB NOT NULL, elapsed_ns INTEGER NOT NULL, used_ns INTEGER NOT NULL, " ..
-    "origin TEXT NOT NULL); CREATE INDEX declared_v1_by_use ON declared_v1 (used_ns); " ..
-    "CREATE TABLE verdicts_v3 (key TEXT PRIMARY KEY, hits BLOB NOT NULL, " ..
-    "used_ns INTEGER NOT NULL); CREATE TABLE declared_v9 (key TEXT PRIMARY KEY)"))
+      "hits BLOB NOT NULL, elapsed_ns INTEGER NOT NULL, used_ns INTEGER NOT NULL, " ..
+      "origin TEXT NOT NULL); CREATE INDEX declared_v1_by_use ON declared_v1 (used_ns); " ..
+      "CREATE TABLE verdicts_v3 (key TEXT PRIMARY KEY, hits BLOB NOT NULL, " ..
+      "used_ns INTEGER NOT NULL); CREATE TABLE declared_v9 (key TEXT PRIMARY KEY)"))
   for i, at in ipairs(used) do
     assert(Sqlite.run(db, "INSERT INTO declared_v1 VALUES (?1, ?2, zeroblob(16384), 1, ?3, 'o')",
       { { text = "k" .. i }, { text = "t.tl test_" .. i }, { integer = at * s } }))
@@ -167,18 +167,18 @@ local function test_a_merge_makes_what_is_missing_and_leaves_another_shape(tmp: 
   assert(not Fs.exists(ours .. "/verdicts.db"), "the merge made a cache the run ahead had none of")
   local db = assert(Sqlite.open(ours .. "/checked.db"))
   local indexes = assert(Sqlite.text_rows(db, "SELECT name FROM sqlite_schema WHERE type = 'index' AND " ..
-    "name = 'declared_v1_by_use'"))
+      "name = 'declared_v1_by_use'"))
   assert(#indexes == 1, "the index was not made")
   assert(db:close())
 
   db = assert(Sqlite.open(ahead .. "/checked.db", { writable = true }))
   assert(db:exec("CREATE TABLE declared_v7 (key TEXT, x INTEGER); INSERT INTO declared_v7 VALUES ('a', 1); " ..
-    "ALTER TABLE declared_v1 ADD COLUMN extra TEXT; INSERT INTO declared_v1 (key, test, hits, elapsed_ns, " ..
-    "used_ns, origin) VALUES ('k9', 't', x'00', 1, 1, 'o')"))
+      "ALTER TABLE declared_v1 ADD COLUMN extra TEXT; INSERT INTO declared_v1 (key, test, hits, elapsed_ns, " ..
+      "used_ns, origin) VALUES ('k9', 't', x'00', 1, 1, 'o')"))
   assert(db:close())
   code, out, err = Verdicts.merge({ ahead }, { COSMIC_VERDICT_CACHE = ours .. "/verdicts.db" })
   assert(code == 0 and err == "verdicts-merge: " .. ahead .. "/checked.db: left as they are: " ..
-    "declared_v1 (another shape), declared_v7 (no primary key)\n", err)
+      "declared_v1 (another shape), declared_v7 (no primary key)\n", err)
   assert(rows(ours .. "/checked.db") == "k1 t.tl test_1 0", rows(ours .. "/checked.db"))
 end
 
@@ -210,7 +210,7 @@ end
 local function stores(path: string, used: {integer})
   local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("CREATE TABLE stores_v1 (address TEXT PRIMARY KEY, digest TEXT NOT NULL, " ..
-    "used_ns INTEGER NOT NULL); CREATE INDEX stores_v1_by_use ON stores_v1 (used_ns)"))
+      "used_ns INTEGER NOT NULL); CREATE INDEX stores_v1_by_use ON stores_v1 (used_ns)"))
   for i, at in ipairs(used) do
     assert(Sqlite.run(db, "INSERT INTO stores_v1 VALUES (?1, 'd', ?2)",
       { { text = "a" .. i }, { integer = at * s } }))
@@ -245,7 +245,7 @@ local function test_store_digests_are_trimmed_and_merged_as_verdicts_are(tmp: st
   stores(ahead .. "/verdicts.db", { 700, 800, 900 })
   code, out, err = Verdicts.merge({ ahead }, env)
   assert(code == 0 and err == "" and
-    out:find("added 2 rows to stores_v1", 1, true) ~= nil, out .. err)
+      out:find("added 2 rows to stores_v1", 1, true) ~= nil, out .. err)
   assert(addresses(ours .. "/verdicts.db") == "a1 0\na2 1000\na3 0",
     addresses(ours .. "/verdicts.db"))
   -- A digest the run ahead kept for an address ours holds otherwise is
@@ -255,7 +255,7 @@ local function test_store_digests_are_trimmed_and_merged_as_verdicts_are(tmp: st
   assert(db:close())
   code, out, err = Verdicts.merge({ ahead }, env)
   assert(code == 0 and err:find("warning: the run ahead kept another digest of a closure " ..
-    "store for 1 address of stores_v1", 1, true) ~= nil, out .. err)
+      "store for 1 address of stores_v1", 1, true) ~= nil, out .. err)
   db = assert(Sqlite.open(ours .. "/verdicts.db"))
   local digest = assert(Sqlite.text_rows(db, "SELECT digest FROM stores_v1 WHERE address = 'a2'"))
   assert(db:close())

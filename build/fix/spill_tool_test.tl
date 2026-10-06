@@ -7,16 +7,16 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- The program itself, which its test starts.
-Test.needs{ tool = true }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local function fix(root: string, check: boolean): Child.Result
   local args: {string} = { "fix" }
   if check then args[#args + 1] = "--check" end
   local started = this_program.program(args, { cwd = root,
-    stdout = "capture", stderr = "stdout", timeout_ns = Time.seconds(60) })
+    stdout = "capture", stderr = "stdout", timeout_ns = Clock.seconds(60) })
   return (assert(Child.run(started.argv, started.options)))
 end
 
@@ -36,7 +36,7 @@ local function test_fix_wraps_what_the_checker_names(tmp: string)
   local fixed = fix(root, false)
   assert(fixed.ok and assert(fixed.stdout):find("fixed  spill.tl", 1, true), fixed.stdout)
   assert(Fs.read(root .. "/spill.tl") == 'local function read(): string | nil, string ' ..
-    'return "7", "" end\nreturn tonumber((assert(read())))\n')
+      'return "7", "" end\nreturn tonumber((assert(read())))\n')
   local again = fix(root, false)
   assert(again.ok and assert(again.stdout):find("0 fixed", 1, true), again.stdout)
 end
@@ -67,11 +67,46 @@ local function test_a_check_fails_on_a_spill_outside_it(tmp: string)
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/a.tl", "local x: integer = 1\n\nreturn x\n"))
   assert(Fs.write(root .. "/b.tl", 'local function read(): string | nil, string return "7", "" end\n' ..
-    "return tonumber(assert(read()))\n"))
+      "return tonumber(assert(read()))\n"))
   local started = this_program.program({ "fix", "--check", "a.tl" }, { cwd = root,
-    stdout = "capture", stderr = "stdout", timeout_ns = Time.seconds(60) })
+    stdout = "capture", stderr = "stdout", timeout_ns = Clock.seconds(60) })
   local result = assert(Child.run(started.argv, started.options))
   local out = assert(result.stdout)
   assert(not result.ok, out)
   assert(out:find("fix: FAIL  b.tl: the compiler refused it", 1, true) ~= nil, out)
+end
+
+--- A file that does not parse is refused by its own check and by the
+--- build in the same words, which the run says once.
+local function test_a_file_that_does_not_parse_is_refused_once(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/a.tl", "local record A\nend\nlocal record A.B\nend\nreturn A\n"))
+  local said = "a.tl:3:15: syntax error, expected identifier -- declare " ..
+    "`record B ... end` inside `local record A ... end`: it is then A.B, here and in every " ..
+    "module that requires this one\n"
+  -- Named as the tree names it, and as `fix .` names it (`./a.tl`).
+  for _, args in ipairs({ { "fix", "--check" }, { "fix", "--check", "." } }) do
+    local started = this_program.program(args, { cwd = root,
+      stdout = "capture", stderr = "stdout", timeout_ns = Clock.seconds(60) })
+    local out = assert(assert(Child.run(started.argv, started.options)).stdout)
+    local _, count = out:gsub("fix: FAIL  [^\n]*" .. said:gsub("%p", "%%%0"), "")
+    assert(count == 1, out)
+  end
+end
+
+--- A template the compiler refuses fails the run with its own
+--- `file:line:col`, wherever the build meets it; one under `testdata/`,
+--- which the build never makes a module of, is not looked at.
+local function test_a_refused_template_fails_unless_it_is_testdata(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root .. "/testdata"))
+  assert(Fs.write(root .. "/testdata/broken.tmpl", "{{broken"))
+  assert(Fs.write(root .. "/a.tl", "return 1\n"))
+  local passed = fix(root, true)
+  assert(passed.ok, passed.stdout)
+  assert(Fs.write(root .. "/page.tmpl", "{{type Page from a}}\n<a href={{.x}}>\n"))
+  local failed = fix(root, true)
+  assert(not failed.ok and assert(failed.stdout):find("page.tmpl:2:9: ", 1, true) ~= nil,
+    failed.stdout)
 end

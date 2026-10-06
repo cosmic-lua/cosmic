@@ -3,15 +3,15 @@
 --- which only a shell's `trap '' INT` sets up here.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
 
 --- The system's sh, which ignores SIGINT for the program it execs, and
 --- the program itself, through its launcher.
-Test.needs{ env = { "*" }, tool = true, system = true }
+Test.policy{ profiles = { "system", "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local function nested_cosmic_environment(): {string:string}
   local environment = Env.all()
@@ -46,9 +46,9 @@ end
   -- disposition, and move this case back to cosmic/child_test.tl.
   local r = assert(Child.run({ "/bin/sh", "-c", "trap '' INT; exec \"$0\" \"$@\"",
     assert(Proc.executable()), fixture, report },
-    { env = nested_cosmic_environment(), stderr = "capture", timeout_ns = Time.seconds(30) }))
+    { env = nested_cosmic_environment(), stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
-    " " .. tostring(r.stderr))
+      " " .. tostring(r.stderr))
   local got = Fs.read(report)
   assert(got == "0", tostring(got))
 end

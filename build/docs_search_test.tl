@@ -10,7 +10,9 @@ local Test = require("cosmic.test")
 local docs = require("build.docs")
 local String = require("cosmic.string")
 
-Test.needs{ reads = { "core" }, store = true }
+Test.policy{
+  grants = { { path = "core", letters = "r" }, { path = "o/cosmic.db", letters = "r" } },
+}
 
 --- The queries, each with the symbols any one of which must be among the
 --- first three answers. A trailing `.` names every symbol under a
@@ -21,7 +23,7 @@ local QUERIES: {{string}} = {
   { "run a program", "Child.run" },
   { "parse json", "Json.decode" },
   { "write a test", "Layout", "cosmic.layout", "cosmic.test" },
-  { "sleep", "Time.sleep_ns" },
+  { "sleep", "Clock.sleep_ns" },
   { "http get", "Http.get" },
   { "sha256", "Hash." },
   { "temporary directory", "Fs.mkdtemp" },
@@ -63,6 +65,6 @@ local function test_a_search_in_words_finds_the_symbol_meant()
       end
     end
     assert(found, "'" .. row[1] .. "' should reach " .. table.concat(row, " or ", 2) ..
-      " in its first three answers, not " .. table.concat(top, ", "))
+        " in its first three answers, not " .. table.concat(top, ", "))
   end
 end

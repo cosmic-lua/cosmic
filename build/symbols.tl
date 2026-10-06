@@ -8,6 +8,7 @@
 --- requires neither.
 
 local Sqlite = require("cosmic.sqlite")
+local schema = require("build.schema")
 
 local record symbols
   guides: {string}
@@ -102,7 +103,12 @@ end
 --- with `_`. A metamethod (`__call`) is part of a record's surface, so it
 --- stays. Every other source shows them, since it is a reader's own
 --- tree or cosmic's.
-function symbols.shown_docs(alias: string, public: boolean): string
+--- `indexed` says the database has the index of `local` declarations
+--- ([`schema.create`], [`symbols.shown_in`]): each row is then checked
+--- against the module's declarations by a lookup in it. Without it the
+--- declarations are gathered once, since a lookup for every row would scan
+--- them all each time.
+function symbols.shown_docs(alias: string, public: boolean, indexed?: boolean): string
   if not public then
     return "1"
   end
@@ -111,16 +117,38 @@ function symbols.shown_docs(alias: string, public: boolean): string
   local dotted = "replace(" .. symbol .. ", ':', '.')"
   -- The declaration is found by where it is written, `source_symbol`: a
   -- module's [`Fs.walk`] and its private `local function walk` share the
-  -- symbol `walk`. `docs` has no index to look it up by, so the local
-  -- declarations are gathered once (an uncorrelated `IN`) rather than
-  -- scanned for again at every row.
+  -- symbol `walk`.
   local source = "replace(" .. alias .. ".source_symbol, ':', '.')"
+  local written = "substr(" .. source .. ", 1, instr(" .. source .. " || '.', '.') - 1)"
+  local hidden: string
+  if indexed then
+    hidden = "NOT EXISTS (SELECT 1 FROM docs lr WHERE lr.module = " .. alias ..
+      ".module AND lr.source_symbol = " .. written .. " AND " ..
+      symbols.local_declaration("lr") .. ")"
+  else
+    hidden = "(" .. alias .. ".module, " .. written .. ") NOT IN (SELECT lr.module, " ..
+      "lr.source_symbol FROM docs lr WHERE " .. symbols.local_declaration("lr") .. ")"
+  end
   return module .. " AND (" .. symbol .. " = '' OR (" ..
     "NOT " .. symbols.local_declaration(alias) .. " AND NOT (" .. alias ..
     ".kind IN ('field', 'function', 'method') AND (" .. dotted .. " GLOB '*._*' OR " ..
-    dotted .. " GLOB '_*')) AND (" .. alias .. ".module, substr(" .. source .. ", 1, instr(" ..
-    source .. " || '.', '.') - 1)) NOT IN (SELECT lr.module, lr.source_symbol FROM docs lr " ..
-    "WHERE " .. symbols.local_declaration("lr") .. ")))"
+    dotted .. " GLOB '_*')) AND " .. hidden .. "))"
+end
+
+--- [`shown_docs`] as the database `db` can answer it quickest: with the
+--- lookup of `local` declarations when it has the index for it, which a
+--- database written before [`schema.create`] made one does not. The rows
+--- are the same either way.
+function symbols.shown_in(db: Sqlite.Handle, alias: string, public: boolean): string
+  if not public then
+    return "1"
+  end
+  -- A probe that fails takes the form that needs no index, which
+  -- answers the same rows.
+  local rows, _ = Sqlite.text_rows(db,
+    "SELECT 1 FROM sqlite_schema WHERE type = 'index' AND name = ?1",
+    { { text = schema.local_index } })
+  return symbols.shown_docs(alias, public, rows ~= nil and #rows > 0)
 end
 
 --- The condition under which the SQL `name` ends in `.` or `:` and then
@@ -140,11 +168,19 @@ local DOTTED <const> = "replace(?1, ':', '.')"
 --- or its last few names, called or not (`Box:grow`, `Box.grow`), or a
 --- module's own row ([`cosmic.fs`]).
 function symbols.named_where(alias: string): string
-  return "(" .. alias .. ".symbol = ?1 OR " .. alias .. ".source_symbol = ?1 OR " ..
+  -- Every row the conditions below match also matches this one: they all
+  -- need the symbol to end in `?1`'s last name, or the source spelling
+  -- or the module to be `?1`. It is redundant, but each of its three
+  -- terms is an index lookup, which the rest are not, so the planner
+  -- reads those rows alone instead of scanning every one.
+  local candidates = "(" .. schema.last_name(alias .. ".symbol") .. " = " ..
+    schema.last_name(DOTTED) .. " OR " .. alias .. ".source_symbol = ?1 OR " ..
+    alias .. ".module = ?1)"
+  return "((" .. alias .. ".symbol = ?1 OR " .. alias .. ".source_symbol = ?1 OR " ..
     ends_in(alias .. ".symbol", "?1") .. " OR " ..
     alias .. ".symbol = " .. DOTTED .. " OR " ..
     ends_in(alias .. ".symbol", DOTTED) .. " OR " ..
-    "(" .. alias .. ".symbol = '' AND " .. alias .. ".module = ?1))"
+    "(" .. alias .. ".symbol = '' AND " .. alias .. ".module = ?1)) AND " .. candidates .. ")"
 end
 
 --- The condition under which `alias` (a row of `docs`) is the own row
@@ -214,9 +250,9 @@ function symbols.named(databases: {Sqlite.Handle}, public: {boolean},
     -- A query that fails is no match: a hint never fails the compile.
     local rows, _ = Sqlite.text_rows(db,
       "SELECT DISTINCT module, symbol FROM docs d WHERE " ..
-      symbols.named_where("d") .. " AND " ..
-      public_docs("d.module", public[index] == true) ..
-      " ORDER BY module, symbol",
+        symbols.named_where("d") .. " AND " ..
+        public_docs("d.module", public[index] == true) ..
+        " ORDER BY module, symbol",
       { { text = query } })
     if rows ~= nil then
       for _, row in ipairs(rows) do
@@ -253,15 +289,15 @@ function symbols.has_example_query(databases: {Sqlite.Handle}, public: {boolean}
   local phrase = '"' .. table.concat(words, " ") .. '"'
   for index, db in ipairs(databases) do
     for _, lookup in ipairs({
-      { "SELECT e.module FROM examples e WHERE e.name = ?1 AND " ..
-          symbols.public_only("e.module", public[index] == true), name },
-      -- The phrase matches stemmed words, so `Fs.reads` finds [`Fs.read`];
-      -- the GLOB says the name is there whole, as `docs` checks it.
-      { "SELECT e.module FROM examples_fts JOIN examples e " ..
-          "ON e.id = examples_fts.rowid WHERE examples_fts MATCH ?1 AND " ..
-          "(e.text || ' ' || e.source || ' ') GLOB ?2 AND " ..
-          symbols.public_only("e.module", public[index] == true), phrase,
-        "*" .. name .. "[^A-Za-z0-9_]*" },
+        { "SELECT e.module FROM examples e WHERE e.name = ?1 AND " ..
+              symbols.public_only("e.module", public[index] == true), name },
+        -- The phrase matches stemmed words, so `Fs.reads` finds [`Fs.read`];
+        -- the GLOB says the name is there whole, as `docs` checks it.
+        { "SELECT e.module FROM examples_fts JOIN examples e " ..
+              "ON e.id = examples_fts.rowid WHERE examples_fts MATCH ?1 AND " ..
+              "(e.text || ' ' || e.source || ' ') GLOB ?2 AND " ..
+              symbols.public_only("e.module", public[index] == true), phrase,
+            "*" .. name .. "[^A-Za-z0-9_]*" },
     }) do
       -- A query that fails is no match.
       local binds: {Sqlite.Value} = { { text = lookup[2] } }

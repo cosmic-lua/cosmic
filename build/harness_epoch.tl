@@ -49,8 +49,9 @@
 --- * what every worker loads ([`worker.loads`], which [`worker.judge`] holds
 ---   each worker to);
 --- * the sandbox's maker (`harness_own`);
---- * build.test itself and cosmic.child, which applies a worker's
----   sandbox (`harness_alone`), each held alone;
+--- * build.test itself, cosmic.child, which applies a worker's
+---   sandbox, and cosmic.sandbox, which decides a policy worker's grants
+---   (`harness_alone`), each held alone;
 --- * the closure of the key's roots (`key_roots`) over the requires each
 ---   makes by value, as its bytecode names them ([`test.value_imports`]).
 ---   A `local type` require is not followed, since Teal erases it and
@@ -76,10 +77,12 @@ local record harness_epoch
   library: {string:string}
 end
 
-harness_epoch.epoch = "16-a2b093aa" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
+harness_epoch.epoch = "33-a2e20ebb" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
 harness_epoch.acknowledged = {
 
-  ["build.artifact"] = "a3575ae4a0758ab35189b3deeb182da3a2989502e0813403e75b45f0eb1e4543",
+  ["build.artifact"] = "4405196f6511a21a7493aa3d1ee196c6318d3ceec2e0202800494c46b9502745",
+
+  ["build.assertions"] = "9a37be1602aa1540dd0248a267964b00c667843089d44bfb3f1828f324a739ce",
 
   ["build.bind"] = "9fee5bf681f9fcb8a2e2e88ba7982b1d3546b5c438ddd598e5de1c27e12c80ec",
 
@@ -89,53 +92,61 @@ harness_epoch.acknowledged = {
 
   ["build.caches"] = "57bac59a121d7520f3d30b9052a6f6c5d67a51e8785c5a75d021760317fb9312",
 
-  ["build.confine"] = "a634df4c601ff80358fed52acb14590c95e5ad6b1dee2bb5da7cf08ce5103df6",
+  ["build.confine"] = "d832c729d13f4f4adf0d3cf983541826f6aa18340b924ed74213cef22fd7adfb",
 
-  ["build.core_image"] = "4942e488c251af85703efc977c9e33260b199134d39316c3b9a5579dcaff7830",
+  ["build.core_image"] = "dfc18e0e6316237ab9fb11a957df68d6217e42cffc6f2f3a767018c5313700ac",
 
-  ["build.declared_key"] = "829457ae670ab1fe4309c1f14cfd36938c9463fc4774216e643ddc69557da53f",
+  ["build.declared_key"] = "b870bb92d830c56274e85c5ef1add9ddf658adf456f63e8691540527ea25fca2",
 
   ["build.digest"] = "dccca5b63f2992d4d23213450142bdd05eee403ebaf3a4e0acf7437da72558f0",
 
-  ["build.key_parts"] = "b1e6657cd10ce608808b81bb3d77b919e96e8ca93303999a7a556466d1ec44d0",
+  ["build.host_names"] = "aad7658fe3e84c19552b4f69151271d49d94e1fc924a016b450536ce2a2da1a6",
+
+  ["build.host_requires"] = "8c17d5873cecb2318f579a3b0bf9ce3f18a3901f8f674956ac9321e823fdbae9",
+
+  ["build.key_parts"] = "943e73eeff585ef486ed03cc22ba7143a92a715b58675d990a0051d8ed165b90",
 
   ["build.launcher"] = "1bddaa2b691f6aa90da3256d045fc69f38d12c935e981a231841d94c2157b224",
 
   ["build.plural"] = "08b0e817376c03fe90737c8bb26d6ae1400dadd9d61b23d00c1b0f1051ad8771",
 
-  ["build.shared_sqlite"] = "59af0c02d7e7d5360b32af0dd1c188ba9dbf91d949561fc8c2df59106fecef73",
+  ["build.shared_sqlite"] = "788981d831e67bb29bdf3e91e685e06904288d211d44fb671b8ece4c0ae00f77",
 
-  ["build.shared_verdicts"] = "487a85fad390fba8d80b891feb9f3f74976b9b8d9fde404c0495f66be30e6373",
+  ["build.shared_verdicts"] = "516c08e34d1fc392de5363af92b6d669344fc3c8b504c469ae3771a424d0db6b",
 
-  ["build.test"] = "8b12f1d0ec500c32c3fda5d8c482c00b1776601a0b54217d6ee915d7ddddf0bc",
+  ["build.test"] = "9cae197443a101ae06514d8e4f3af4b1065aca8c6cf41be417d77d3c58b3e8d3",
 
-  ["build.test_inputs"] = "7ba0aca1f094189995ea5600f91b46e6c1314e825fab2f913da1fd31f03c91ee",
+  ["build.test_inputs"] = "ec023eee681364d5fb8e1ac9937d039c8320125cf60cb14ef55bc3c51a017b51",
 
-  ["build.test_sandbox"] = "00d8f731f96efa78a45f62b51b578656385155d57a9278d1be28372772436c49",
+  ["build.test_policy"] = "f4d98a90f54c4ba29b6ce6d50c0cf08a5efc02e225dbd2382af84dee78da8557",
 
-  ["build.test_worker"] = "1a5c4b9d2f30cbd204f52bd8ee52c7d8b32c649ea26001690ce01c9628273a13",
+  ["build.test_sandbox"] = "8b6770324a64caa08e574d7c72ce4a6e4af9f9ed803e947de07acc61f68484bd",
 
-  ["build.this_program"] = "42ee47b80aa182ed6e83c20f86e3900d15de35dcccd5189b69332ae7b73dac4e",
+  ["build.test_worker"] = "ef7f9270be6e9c66b8f4dd933db78d7555e643a8fe86c8f27c02410e68837163",
+
+  ["build.this_program"] = "7c92f68645762de7b5d774d8f0e0ae3494a9eb74b9a040e8a9c17b7ef2628a97",
 
   ["build.zig_caches"] = "472c399b1bbbc6f9b58a2edd4fa6fabcddbea9140cac683b58acec608ff3c78c",
 
   ["cmd.cosmic.main"] = "d00f469acf42d89c76c2e9ebabd40e73e20d00cb3a5ad6d9189716265fcdf9bf",
 
-  ["cosmic.child"] = "06f449e19e830c4fdb61f35c5aef6d2168c0321b044d415eb2c5476c9d60f644",
+  ["cosmic.child"] = "25cd8dc14864f9593438ea75e60bce536fdb4c073d75165d1f015e7cf7992a90",
 
   ["cosmic.coverage"] = "079fe202231c4ae3ee642e27f6703a37850132c28c2a6d1daf50c7eb1669ac9a",
 
   ["cosmic.env"] = "9ae16736e69ff2305de1aff7db0f15db90993e1e61ef786d7bf6f33528ef0057",
 
-  ["cosmic.fs"] = "86ca970b6bba1653b9f04806fced5b01ca17e8240d9eb41665d4ef508309c75d",
+  ["cosmic.fs"] = "befc25dee33fd54963b4a28dfe6a825724c37ed9f0f26a29b8908b1a72f628ed",
 
-  ["cosmic.proc"] = "bbafb94bfa1671115f839c6fe57c921893d31d0e5baa1c4b1692e802b9c06212",
+  ["cosmic.proc"] = "1f2f124e7478daaf5955a2043d03a379d8dbc657ffe938ac71d221376f677bcf",
 
-  ["cosmic.sqlite"] = "bfad72d1737420ba29cdd042649b4a8d47bd8d74449583c389078573bd21ee4a",
+  ["cosmic.sandbox"] = "9c14bd784c87f42c9a4476b7533a27d330d211623d909366983754838da9923d",
+
+  ["cosmic.sqlite"] = "ac3fd16dd89251feaee572e4e4b1d29257037afeca3b5c9b141557f2ce732390",
 
   ["cosmic.string"] = "bf0e5e828de84f23aa818887e0280a3ebc844c9ca5e384c33227cb42715b8655",
 
-  ["cosmic.test"] = "48579ef23bbd318d0a44ff5d4e82ca1eb699909a99f82d84f70c7d0c3a9eb8db",
+  ["cosmic.test"] = "ef32574fdad8aa2854757326d596f98901c439f1ec87b777360f3940fb69c940",
 
 }
 
@@ -146,10 +157,15 @@ harness_epoch.library = {
     "counted by, whose session a test that imports it shares",
   ["cosmic.env"] = "the worker's environment, which its key holds, is read and built " ..
     "through it",
-  ["cosmic.fs"] = "places each read, bind and unveil (`within`, `relative`) and writes " ..
-    "the worker's report",
+  ["cosmic.fs"] = "places each read, bind and unveil (`within`, `relative`), writes " ..
+    "the worker's report, and probes the paths a module requires of the host " ..
+    "(`build.host_requires`: `exists`, `is_dir`, `absolute`)",
   ["cosmic.proc"] = "names this program (`executable`), which a worker whose test does " ..
-    "not declare `tool` is held from running",
+    "not declare `tool` is held from running; and finds a program a module requires " ..
+    "of the host (`find`) and whether a portable artifact can start again " ..
+    "(`relaunch`) for `build.host_requires`",
+  ["cosmic.sandbox"] = "`merge` resolves a policy's profiles into the grants a worker " ..
+    "is held to (`build.test_policy`'s `runs`); held alone, what it requires is not walked",
   -- TODO: take cosmic.sqlite out of the harness, and this entry out of
   -- `library`, once build.shared_sqlite gives build.declared_key's
   -- `program`, build.shared_verdicts and build.bind what they read and
@@ -160,9 +176,9 @@ harness_epoch.library = {
   ["cosmic.string"] = "text a key or verdict holds is split, tested or counted through " ..
     "it: the launcher's template (`build.launcher`), the runtime identity " ..
     "(`build.test`), sandbox paths (`build.test_sandbox`), the artifact's SQLite " ..
-    "header (`build.artifact`), cache set-aside names (`build.shared_sqlite`) and " ..
+    "header (`build.artifact`) and " ..
     "plurals (`build.plural`)",
-  ["cosmic.test"] = "a test's declaration (`Test.needs`), which the worker judges, and " ..
+  ["cosmic.test"] = "a test's declaration (`Test.policy`), which the worker judges, and " ..
     "the runner's hook into it",
 }
 
@@ -182,6 +198,23 @@ harness_epoch.retired = {
   "8cd21a8a",
   "09244ac2",
   "e83f51b3",
+  "a2b093aa",
+  "3c746d0f",
+  "97867c56",
+  "31549737",
+  "c81fe20a",
+  "b6ac3eca",
+  "3da8eb88",
+  "d2c79229",
+  "312f48e5",
+  "74e91a61",
+  "5f20bcaf",
+  "8a7a1acd",
+  "6d092906",
+  "edbfc9d7",
+  "72d5649f",
+  "3074f3dd",
+  "385455a5",
 }
 
 return harness_epoch

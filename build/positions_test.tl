@@ -111,7 +111,7 @@ end
 --- program may, since its binary is built from its tree whole.
 local function test_position_keeps_tests_to_tests_in_cosmics_own_tree()
   for _, importer in ipairs({ "cosmic/time.tl", "cosmic/time_example.tl",
-                              "build/clock.tl", "cmd/cosmic/main.tl" }) do
+      "build/clock.tl", "cmd/cosmic/main.tl" }) do
     local ok, trouble = positioned({
       { "cosmic/fixture_test.tl" }, { importer, "cosmic.fixture_test" },
     }, true)

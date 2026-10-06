@@ -17,14 +17,17 @@ local String = require("cosmic.string")
 --- bundle `refresh` reads, and what bin/zig reads to find or fetch zig.
 --- `store`: the verbs it runs in this process ([`build.invoke`]) read
 --- every module's rows.
-Test.needs{
-  reads = { "vendor/cacert/cacert.pem" },
+Test.policy{
+  profiles = { "cosmic" },
+  grants = {
+    { path = "o/bin", letters = "rx" },
+    { path = "vendor/cacert/cacert.pem", letters = "r" },
+    { path = "o/cosmic.db", letters = "r" },
+  },
   env = { "ALL_PROXY", "COSMIC_BOOTSTRAP", "COSMIC_BOOTSTRAP_ATTEMPTS", "COSMIC_BOOTSTRAP_VERIFY",
     "COSMIC_ZIG", "COSMIC_ZIG_CACHE", "COSMIC_ZIG_GLOBAL_CACHE", "CURL_CA_BUNDLE", "HTTPS_PROXY",
     "HTTP_PROXY", "NO_PROXY", "SSL_CERT_DIR", "SSL_CERT_FILE", "all_proxy", "http_proxy",
     "https_proxy", "no_proxy" },
-  tool = true,
-  store = true,
 }
 
 --- The vendored bundle, which `refresh` reads with no network; the
@@ -89,7 +92,7 @@ local function test_help_lists_each_option_a_verb_parses(tmp: string)
   -- It shows the options under the verb's field too.
   local docs = verbs_fixture.expect(tmp, "docs", { "docs", "Cli.test" }, 0).stdout or ""
   assert(docs:find("\n  options:\n", 1, true) and docs:find("\n    --jobs <n> ", 1, true) and
-    docs:find("\n    --all ", 1, true), docs)
+      docs:find("\n    --all ", 1, true), docs)
   -- And a search finds a verb by what one of its options does, though
   -- no doc comment says it: "launcher" is only in `build --host`'s.
   local found = verbs_fixture.expect(tmp, "docs", { "docs", "native", "launcher" }, 0).stdout or ""
@@ -139,7 +142,7 @@ local function test_help_is_a_short_index_of_every_verb(tmp: string)
   -- A usage follows the word that names its verb, or what is typed
   -- where a verb has no word of its own.
   for _, line in ipairs({ "\n  cosmic test [selector...]  ", "\n  cosmic <file.tl> [args]  ",
-      "\n  cosmic --standalone <file.tl>  ", "\n  cosmic -e '<chunk>' [args]  ",
+      "\n  cosmic --standalone <file.tl> [args]  ", "\n  cosmic -e '<chunk>' [args]  ",
       "\n  cosmic --version  ", "\n  cosmic bom  " }) do
     assert(all:find(line, 1, true), line .. ":\n" .. all)
   end

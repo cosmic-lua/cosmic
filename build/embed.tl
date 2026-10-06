@@ -17,11 +17,11 @@
 --- builds the tool.
 
 local Cli = require("cosmic.cli")
+local Clock = require("cosmic.clock")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
-local Time = require("cosmic.time")
 local clock = require("build.clock")
 local artifact = require("build.artifact")
 local type raw_store = require("cosmic.internal.store")
@@ -104,10 +104,10 @@ local function copy_rows(from: Sqlite.Handle, into: Sqlite.Handle,
 end
 
 local module_columns = { "path", "file", "kind", "source_hash", "key",
-                         "bytecode", "tests", "source" }
+  "bytecode", "tests", "source" }
 local module_column_list = table.concat(module_columns, ", ")
 local catalog_columns = { "kind", "module", "symbol", "message", "text",
-                          "file", "line" }
+  "file", "line" }
 
 --- A catalog row's guidance, as an uncaught error prints it ([`Errors.guidance`]):
 --- its own text, or else its symbol's doc comment.
@@ -165,14 +165,14 @@ function embed.database(project: string, main: string): string | nil, string
     local copied, copy_trouble = copy_rows(binary, out, "modules",
       module_columns,
       "SELECT " .. module_column_list .. " FROM modules WHERE kind = " ..
-      "'module' AND path LIKE 'cosmic.%' ORDER BY path")
+        "'module' AND path LIKE 'cosmic.%' ORDER BY path")
     if not copied then
       return false, copy_trouble
     end
     copied, copy_trouble = copy_rows(binary, out, "imports",
       { "path", "requires" },
       "SELECT path, requires FROM imports WHERE path LIKE 'cosmic.%' " ..
-      "ORDER BY path, requires")
+        "ORDER BY path, requires")
     if not copied then
       return false, copy_trouble
     end
@@ -195,7 +195,7 @@ function embed.database(project: string, main: string): string | nil, string
     -- up here: the docs themselves are not carried.
     copied, copy_trouble = copy_rows(binary, out, "catalog", catalog_columns,
       "SELECT kind, module, symbol, message, " .. guidance_text .. ", file, " ..
-      "line FROM catalog WHERE module LIKE 'cosmic.%' ORDER BY id")
+        "line FROM catalog WHERE module LIKE 'cosmic.%' ORDER BY id")
     if not copied then
       return false, copy_trouble
     end
@@ -211,14 +211,14 @@ function embed.database(project: string, main: string): string | nil, string
     copied, copy_trouble = copy_rows(binary, out, "components",
       { "name", "kind", "version", "license", "url", "sha256", "patches" },
       "SELECT name, kind, version, license, url, sha256, patches " ..
-      "FROM components ORDER BY name")
+        "FROM components ORDER BY name")
     if not copied then
       return false, copy_trouble
     end
     copied, copy_trouble = copy_rows(binary, out, "notices",
       { "component", "ordinal", "file", "text" },
       "SELECT component, ordinal, file, text FROM notices " ..
-      "ORDER BY component, ordinal")
+        "ORDER BY component, ordinal")
     if not copied then
       return false, copy_trouble
     end
@@ -320,7 +320,7 @@ function embed.tree(root: string, host?: boolean, under?: {string}): {string} | 
   if own_tree then
     return nil, "this is cosmic's own tree, which bin/zig build boot builds"
   end
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local handle, open_trouble = work.open(root)
   if handle == nil then
     return nil, open_trouble
@@ -423,7 +423,7 @@ end
 --- under one of the paths, when there are any. Ends in a verdict line
 --- that names what was written, or says why nothing was.
 local function run(argv: {integer:string}): integer
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local parsed, parse_trouble = Flags.parse(argv, 2, Cli.verbs.build.spec)
   if parsed == nil then
     log:complain("build: " .. parse_trouble)

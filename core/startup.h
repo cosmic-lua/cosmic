@@ -37,6 +37,9 @@ enum cosmic_startup_kind {
   COSMIC_STARTUP_PORTABLE = 2,
   /* A host program: the executable carries its own database. */
   COSMIC_STARTUP_HOST = 3,
+  /* A bare core run against a database file of its own: `core --database
+   * <path> [program args]`. */
+  COSMIC_STARTUP_DATABASE = 4,
 };
 
 enum cosmic_startup_test_phase {
@@ -54,10 +57,16 @@ enum cosmic_startup_test_phase {
 struct cosmic_startup {
   enum cosmic_startup_kind kind;
   const char *artifact_path;
+  /* The database a COSMIC_STARTUP_DATABASE start runs against, as named. */
+  const char *database_path;
   /* Whether artifact_path must name the file artifact_fd holds: set for
    * the joined `--artifact=<path>`, which a `#!` line carries and the
    * kernel may have cut short. */
   bool artifact_path_names_descriptor;
+  /* Whether no descriptor was handed on: the artifact is opened by
+   * artifact_path and the core is the running executable, so a start into
+   * a root of its own holds only what that root shows of them. */
+  bool by_path;
   int artifact_fd;
   int core_fd;
   uint32_t launcher_target_id;
@@ -73,6 +82,17 @@ void cosmic_startup_native (struct cosmic_startup *startup);
  * a host program trailer. */
 void cosmic_startup_host (struct cosmic_startup *startup, int fd,
                           const char *path);
+/* A native start told to run against the database file at `path`, which
+ * may be NULL when the command line named none. */
+void cosmic_startup_database (struct cosmic_startup *startup,
+                              const char *path);
+/* Binds a database start's adopted core to the database it was started
+ * with: `path` is the database's absolute path, `recorded` the hex digest
+ * its meta records for the core it was written for (NULL when it records
+ * none). False, with *error naming why, unless the running core hashes to
+ * that digest. */
+bool cosmic_database_bind (struct cosmic_artifact *artifact, const char *path,
+                           const char *recorded, const char **error);
 /* Whether the artifact's selected core range hashes to its manifest digest,
  * checked once and remembered. */
 bool cosmic_artifact_core_matches (struct cosmic_artifact *artifact);

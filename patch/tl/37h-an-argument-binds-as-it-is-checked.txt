@@ -1,0 +1,26 @@
+file: tl.tl
+note: an argument 37g marks binds its call's type variables the moment it is checked, before the arguments after it are
+--- find
+   visit_node.after = function(_self: TypeChecker, node: Node, _children: {Type}, t: Type): Type
+      if node.expanded then
+         apply_macroexp(node)
+      end
+
+      return t
+   end
+--- replace
+   visit_node.after = function(self: TypeChecker, node: Node, _children: {Type}, t: Type): Type
+      if node.expanded then
+         apply_macroexp(node)
+      end
+
+      if node.binds_context and node.expected and t then
+         local given = resolve_tuple(t)
+         if not given is InvalidType then
+            bind_typevars_from(self, given, node.expected)
+         end
+      end
+
+      return t
+   end
+--- end

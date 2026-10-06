@@ -18,10 +18,10 @@ end
 --- general-purpose list.
 local stopwords: {string:boolean} = {}
 for _, word in ipairs({
-  "a", "an", "the", "is", "are", "was", "were", "be",
-  "to", "of", "in", "on", "at", "for", "and", "or",
-  "not", "no", "this", "that", "it", "its", "as", "by",
-  "with", "from", "own",
+    "a", "an", "the", "is", "are", "was", "were", "be",
+    "to", "of", "in", "on", "at", "for", "and", "or",
+    "not", "no", "this", "that", "it", "its", "as", "by",
+    "with", "from", "own",
 }) do
   stopwords[word] = true
 end
@@ -130,12 +130,12 @@ function Errors.guidance_in(handle: Sqlite.Handle, message: string): string | ni
   end
   local rows, _ = Sqlite.text_rows(handle,
     "SELECT coalesce(catalog.text, (SELECT d.text FROM main.docs d " ..
-    "WHERE d.module = catalog.module AND " ..
-    "d.source_symbol = catalog.symbol)), " ..
-    "catalog.message, catalog.symbol, catalog.file, catalog.line " ..
-    "FROM main.catalog_fts JOIN main.catalog " ..
-    "ON catalog.id = catalog_fts.rowid " ..
-    "WHERE catalog_fts MATCH ?1 ORDER BY bm25(catalog_fts) LIMIT 1",
+      "WHERE d.module = catalog.module AND " ..
+      "d.source_symbol = catalog.symbol)), " ..
+      "catalog.message, catalog.symbol, catalog.file, catalog.line " ..
+      "FROM main.catalog_fts JOIN main.catalog " ..
+      "ON catalog.id = catalog_fts.rowid " ..
+      "WHERE catalog_fts MATCH ?1 ORDER BY bm25(catalog_fts) LIMIT 1",
     { { text = query } })
   if rows == nil or #rows == 0 then
     return nil
@@ -155,13 +155,42 @@ function Errors.guidance_in(handle: Sqlite.Handle, message: string): string | ni
   return guidance_lines(head, text)
 end
 
+--- What to do about a runtime error whose `message` Lua itself wrote,
+--- read from the message alone, as one line: nil for any other. The
+--- message's first line must end with Lua's words, so one that only
+--- quotes them (`wrapped: x.tl:3: attempt ...: more`) earns nothing.
+---
+--- `attempt to call a nil value (method 'set')`, in a Teal program the
+--- checker passed, calls a method the value's type declares and the
+--- value lacks. Either the value was made as a table literal, which
+--- reaches the record's own table, where `function R:set` puts the
+--- method, only as its metatable's `__index`; or R declares `set`
+--- (an interface's method, a function-typed field) and nothing defines
+--- it. The message tells the two apart by nothing, so both are named.
+function Errors.hint(message: string): string | nil
+  local method = message:match("^[^\n]*attempt to call a nil value %(method '([%a_][%w_]*)'%)\n") or
+    message:match("^[^\n]*attempt to call a nil value %(method '([%a_][%w_]*)'%)$")
+  if method == nil then
+    return nil
+  end
+  return "'" .. method .. "' is nil on that value: either it was made as a table literal, " ..
+    "which gets none of R's methods (make it with `setmetatable({ ... }, { __index = R })`), " ..
+    "or R declares '" .. method .. "' and nothing defines `function R:" .. method .. "`"
+end
+
 --- What cosmic says beneath an uncaught error's `message`, one
---- `cosmic: ` line per line: the guidance the first database in search
---- order (a project's own ahead of the binary's) holds for the error it
---- matches, the doc comment of the function the message came from, or
---- nil when none matches it. The core prints it for an error nothing
---- caught.
+--- `cosmic: ` line per line: the [`hint`] a message Lua wrote earns,
+--- ahead of the catalog, whose rows share only common words ("call",
+--- "value") with such a message; else the guidance the first database
+--- in search order (a project's own ahead of the binary's) holds for
+--- the error it matches, the doc comment of the function the message
+--- came from; or nil when none matches it. The core prints it for an
+--- error nothing caught.
 function Errors.guidance(message: string): string | nil
+  local hint = Errors.hint(message)
+  if hint ~= nil then
+    return "cosmic: hint: " .. hint .. "\n"
+  end
   for _, handle in ipairs(Store.databases()) do
     local found = Errors.guidance_in(handle, message)
     if found ~= nil then

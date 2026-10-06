@@ -6,16 +6,22 @@
 --- `rebuild_lock_test.tl`.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
+local Sqlite = require("cosmic.sqlite")
+local Store = require("cosmic.store")
+local importer = require("build.importer")
+local teal = require("build.teal")
+local work = require("build.work")
+local writer = require("build.writer")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
 local rebuild_lock = require("build.rebuild_lock")
 local this_program = require("build.this_program")
 
 --- The program itself, whose runs of a verb or a file hold the lock
 --- against this process.
-Test.needs{ tool = true }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- A project whose one test passes, and sleeps `sleep_ns` first.
 local function project(root: string, sleep_ns: integer)
@@ -48,10 +54,10 @@ end
 --- Waits up to 20 s for `holds` to answer true, checking every 20 ms,
 --- and answers true once it has.
 local function await(what: string, holds: function(): boolean): boolean
-  local deadline = Time.monotonic_ns() + Time.seconds(20)
+  local deadline = Clock.monotonic_ns() + Clock.seconds(20)
   while not holds() do
-    assert(Time.monotonic_ns() < deadline, "gave up waiting for " .. what)
-    assert(sys.nanosleep(Time.ms(20)))
+    assert(Clock.monotonic_ns() < deadline, "gave up waiting for " .. what)
+    assert(sys.nanosleep(Clock.ms(20)))
   end
   return true
 end
@@ -71,13 +77,13 @@ local function test_a_second_run_waits_for_the_first_then_passes(tmp: string)
   end)
   local running, _ = h:try_wait()
   rebuild_lock.release()
-  local result = assert(h:wait(Time.seconds(20)))
+  local result = assert(h:wait(Clock.seconds(20)))
   local text = assert(Fs.read(output))
   assert(ok, tostring(failure) .. "\n" .. text)
   assert(running ~= nil and not running.finished, "the second run did not wait:\n" .. text)
   assert(result.ok, text)
   assert(text:find("test: another cosmic run (pid " .. tostring(sys.getpid()) ..
-    ") in this checkout is running its tests; waiting for it", 1, true), text)
+      ") in this checkout is running its tests; waiting for it", 1, true), text)
   assert(text:find("test: PASS", 1, true), text)
 end
 
@@ -86,14 +92,14 @@ end
 --- lock at once.
 local function test_a_run_lets_the_lock_go_on_failure_and_interrupt(tmp: string)
   local root = tmp .. "/project"
-  project(root, Time.seconds(60))
+  project(root, Clock.seconds(60))
   local h = start_test(root, tmp .. "/interrupted.out")
   local _ = await("the run to take the lock", function(): boolean
     return Fs.read(root .. "/o/rebuild.lock.pid") ~= nil and
       rebuild_lock.take(root, 0, "write") == "busy"
   end)
   assert(h:stop(sys.SIGINT))
-  local interrupted = assert(h:wait(Time.seconds(20)))
+  local interrupted = assert(h:wait(Clock.seconds(20)))
   assert(not interrupted.ok, "an interrupted run passed")
   -- Each half is let go with its descriptor, which the run opens
   -- close-on-exec: these fail should a process the run starts inherit
@@ -105,7 +111,7 @@ local function test_a_run_lets_the_lock_go_on_failure_and_interrupt(tmp: string)
 
   assert(Fs.write(root .. "/suite/slow_test.tl",
     "local function test_fails()\n  error(\"no\")\nend\n"))
-  local failed = assert(start_test(root, tmp .. "/failed.out"):wait(Time.seconds(20)))
+  local failed = assert(start_test(root, tmp .. "/failed.out"):wait(Clock.seconds(20)))
   assert(not failed.ok, tostring((Fs.read(tmp .. "/failed.out"))))
   assert(rebuild_lock.take(root, 0, "write") == "held", "a failed run left the lock held")
   rebuild_lock.release()
@@ -137,13 +143,86 @@ local function test_a_write_of_the_projection_waits_for_the_lock(tmp: string)
   local projection, _ = sys.stat(root .. "/o/cosmic.db")
   local unwritten = projection == nil
   rebuild_lock.release()
-  local result = assert(h:wait(Time.seconds(20)))
+  local result = assert(h:wait(Clock.seconds(20)))
   local text = assert(Fs.read(output))
   assert(ok, tostring(failure) .. "\n" .. text)
   assert(running ~= nil and not running.finished, "the write did not wait:\n" .. text)
   assert(unwritten, "the projection was written under the lock")
   assert(result.ok, text)
   assert(text:find("o/cosmic.db: another cosmic run (pid " .. tostring(sys.getpid()) ..
-    ") in this checkout is running its tests; waiting for it", 1, true), text)
+      ") in this checkout is running its tests; waiting for it", 1, true), text)
   assert(text:find("hello\n", 1, true), text)
+end
+
+--- A result waiting to publish keeps the rows and signature it compiled,
+--- even when another run commits a failed or a different successful plan.
+local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string)
+  local built = assert(teal.load())
+  for _, succeeds in ipairs({ false, true }) do
+    local root = tmp .. (succeeds and "/valid" or "/failed")
+    assert(Fs.mkdirs(root .. "/o"))
+    local original = 'print("original")\n'
+    assert(Fs.write(root .. "/main.tl", original))
+    assert(rebuild_lock.take(root, 0, "test") == "held")
+    local output = root .. "/a.out"
+    local fd = assert(Fs.open_write(output))
+    local started = this_program.program({ "main.tl" }, {
+      cwd = root, env = this_program.environment(), stdout = fd, stderr = fd,
+      process_group = true,
+    })
+    local a = assert(Child.start(started.argv, started.options))
+    assert(Fs.close(fd))
+    local ok, failure = pcall(function()
+      assert(await("the compiled result to wait for publication", function(): boolean
+        return (Fs.read(output) or ""):find("waiting for it", 1, true) ~= nil
+      end))
+      local staged = assert(work.open(root))
+      local first: importer.Result = {
+        main = nil, tool = "", modules = {}, refused = {},
+        compiled = 0, cached = 0, shared = 0, parses = { parsed = 0, shared = 0 },
+      }
+      local first_signature = assert(writer.signature(staged, first, Store.meta("writer") or ""))
+      assert(work.close(staged))
+      if succeeds then
+        assert(Fs.write(root .. "/main.tl", 'print("replacement")\n'))
+        local b = assert(work.open(root))
+        assert(work.stage(b, false))
+        local result = assert(importer.compile(b, built, "snapshot-test"))
+        local alternate = root .. "/b.db"
+        assert(writer.write_result(b, alternate, result))
+        assert(work.close(b))
+        local db = assert(Sqlite.open(alternate))
+        local rows = assert(Sqlite.text_rows(db,
+          "SELECT inflate(source) FROM modules WHERE path = 'main'"))
+        assert(rows[1][1] == 'print("replacement")\n')
+        assert(db:close())
+      else
+        assert(Fs.write(root .. "/main.tl", 'local broken: string = 42\nprint(broken)\n'))
+        local command = this_program.program({ "main.tl" }, {
+          cwd = root, env = this_program.environment(), stdout = "capture", stderr = "capture",
+        })
+        local failed = assert(Child.run(command.argv, command.options))
+        assert(not failed.ok, failed.stdout .. failed.stderr)
+      end
+      rebuild_lock.release()
+      local result = assert(a:wait(Clock.seconds(20)))
+      local text = assert(Fs.read(output))
+      assert(result.ok, text)
+      assert(text:find("original\n", 1, true), text)
+      local db = assert(Sqlite.open(root .. "/o/cosmic.db"))
+      local rows = assert(Sqlite.text_rows(db,
+        "SELECT inflate(source) FROM modules WHERE path = 'main'"))
+      assert(rows[1][1] == original, "published another run's source")
+      local signed = assert(Sqlite.text_rows(db,
+        "SELECT value FROM meta WHERE key = 'projected'"))
+      assert(signed[1][1] == first_signature, "published another run's signature")
+      assert(db:close())
+    end)
+    rebuild_lock.release()
+    if not ok then
+      local _ = a:stop(sys.SIGKILL)
+      local _ = a:wait(Clock.seconds(20))
+      error(failure)
+    end
+  end
 end

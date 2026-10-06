@@ -9,9 +9,18 @@ local String = require("cosmic.string")
 
 --- The tree's sources, the variables the driver keeps from a gating
 --- suite (ci/cosmic_ci/run_names.tl), and the darwin list.
-Test.needs{
-  reads = { "build/", "cosmic/", "core/", "test/", "eval/", "cmd/", "doc/",
-    "ci/cosmic_ci/run_names.tl", "ci/darwin-tests.txt" },
+Test.policy{
+  grants = {
+    { path = "build/", letters = "r" },
+    { path = "cosmic/", letters = "r" },
+    { path = "core/", letters = "r" },
+    { path = "test/", letters = "r" },
+    { path = "eval/", letters = "r" },
+    { path = "cmd/", letters = "r" },
+    { path = "doc/", letters = "r" },
+    { path = "ci/cosmic_ci/run_names.tl", letters = "r" },
+    { path = "ci/darwin-tests.txt", letters = "r" },
+  },
 }
 
 --- The names a gating suite's workers are not given, as
@@ -48,13 +57,6 @@ end
 --- child's environment, or names it only as ci.yml's text, which it
 --- reads. Any other such name in them is found as in any other file.
 local sets_what_it_reads: {string:{string:boolean}} = {
-  ["build/changed_paths_test.tl"] = { GITHUB_OUTPUT = true },
-  ["build/commit_verdicts_test.tl"] = { GITHUB_OUTPUT = true },
-  ["build/leg_host_id_test.tl"] = { GITHUB_ENV = true, GITHUB_OUTPUT = true },
-  ["build/place_tree_test.tl"] = { GITHUB_SHA = true, GITHUB_WORKSPACE = true,
-    GITHUB_EVENT_NAME = true, COSMIC_CI_DECLARED_KEYS = true },
-  ["build/queue_seed_test.tl"] = { GITHUB_OUTPUT = true, GITHUB_STEP_SUMMARY = true,
-    RUNNER_TEMP = true },
   -- As the platform and checked jobs' env set it, and the workflow's;
   -- RUNNER_TEMP, GITHUB_OUTPUT and GITHUB_ENV as a step's `run` names
   -- them.

@@ -10,7 +10,12 @@ local Vendor = require("build.vendor")
 local refresh = require("build.refresh")
 
 --- The vendored bundle, and the tzdata PIN whose rules a refresh keeps.
-Test.needs{ reads = { "vendor/cacert/", "vendor/tzdata/PIN" } }
+Test.policy{
+  grants = {
+    { path = "vendor/cacert/", letters = "r" },
+    { path = "vendor/tzdata/PIN", letters = "r" },
+  },
+}
 
 local bundle <const> = "vendor/cacert/cacert.pem"
 
@@ -56,12 +61,12 @@ end
 local function test_a_bundle_is_named_by_its_mozilla_date()
   assert(refresh.cacert_date((assert(Fs.read(bundle)))) == pinned("cacert"))
   assert(refresh.cacert_date("##\n## Certificate data from Mozilla as of: Tue Sep  1 00:00:00 2026 GMT\n") ==
-    "2026-09-01")
+      "2026-09-01")
   assert(refresh.cacert_date("no date here") == nil)
   -- A day no month has, or one too long for an integer, is no date.
   for _, day in ipairs({ "00", "32", "99999999999999999999" }) do
     assert(refresh.cacert_date("\n## Certificate data from Mozilla as of: Thu Aug " .. day ..
-      " 03:12:01 2026 GMT\n") == nil, day)
+        " 03:12:01 2026 GMT\n") == nil, day)
   end
   assert(refresh.cacert_date("\n## Certificate data from Mozilla as of: Tue Foo  1 00:00:00 2026 GMT\n") == nil)
 end

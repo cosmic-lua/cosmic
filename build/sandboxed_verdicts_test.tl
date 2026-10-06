@@ -17,23 +17,22 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
 local artifact = require("build.artifact")
 local confine = require("build.confine")
 local this_program = require("build.this_program")
 local harness_epoch = require("build.harness_epoch")
-local sandbox_skip = require("build.sandbox_skip")
 local Test = require("cosmic.test")
 
 --- What a sandboxed run of `cosmic test` needs of the host, the
 --- program it runs, roots of their own for its workers (`nests`), and
 --- the variables `unsandboxed` reads, which hold a run to sandboxing.
-Test.needs{
-  host = { "/dev/urandom", "/proc" },
-  env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
-  tool = true,
-  nests = true,
+Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" }, { path = "/proc", letters = "r" } },
+  promises = { "nest" },
+  env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
 }
 
 -- What these tests start is this very program.
@@ -51,7 +50,7 @@ local function checkout(root: string)
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "suite/data/" } }
+Test.policy { grants = { { path = "suite/data/", letters = "r" } } }
 
 local function test_data()
   assert(Fs.read("suite/data/f") ~= nil)
@@ -61,7 +60,7 @@ end
 local Env = require("cosmic.env")
 local Test = require("cosmic.test")
 
-Test.needs { env = { "FLAVOUR" } }
+Test.policy { env = { "FLAVOUR" } }
 
 local function test_flavour()
   assert(Env.get("FLAVOUR") ~= "sour")
@@ -80,12 +79,10 @@ end
 --- running test is skipped ([`Test.skip`]). A host that refuses a
 --- worker's workers a sandbox of their own -- one running the tests as
 --- root, this test's run confined in a sandbox already -- checks nothing
---- here. A run held to sandboxing fails the skip, so it proves the runs
---- it starts sandbox theirs, nested in its own as they are (CI's
---- unprivileged runner nests them).
+--- here (CI's unprivileged runner nests them).
 local function unsandboxed(text: string): boolean
-  if text:find("; sandboxed)", 1, true) then return false end
-  sandbox_skip.nested(text)
+  if text:find("; sandboxed", 1, true) then return false end
+  if assert(sys.uname()).sysname == "Linux" then Test.skip(confine.unsandboxed_reason(text)) end
   return true
 end
 
@@ -115,7 +112,7 @@ local function run(root: string, output: string, env: {string:string}, words?: {
   local args: {string} = { "test" }
   for _, word in ipairs(words or {}) do args[#args + 1] = word end
   local started = this_program.program(args, {
-    cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ns = Time.seconds(60),
+    cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ns = Clock.seconds(60),
   })
   local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))
@@ -182,7 +179,8 @@ local function test_a_declared_variable_or_declaration_that_changes_runs_its_tes
   said("1 ran, 2 stood")
   local source = assert(Fs.read(root .. "/suite/data_test.tl"))
   assert(Fs.write(root .. "/suite/data_test.tl",
-    (source:gsub('reads = { "suite/data/" }', 'reads = { "suite/data/", "suite/lib.tl" }'))))
+    (source:gsub('{ path = "suite/data/", letters = "r" }',
+      '{ path = "suite/data/", letters = "r" }, { path = "suite/lib.tl", letters = "r" }'))))
   said("1 ran, 2 stood")
 end
 
@@ -202,15 +200,15 @@ end
 --- and its verdict stands as any other's.
 local function test_a_test_that_declares_loopback_addresses_runs_offline_and_stands(tmp: string)
   local source = [[
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
 
-Test.needs { network = { HOSTS } }
+Test.policy { loopback = { HOSTS } }
 
 local function test_refused()
-  local response, trouble = Http.open("http://127.0.0.1:1/", { connect_timeout_ns = Time.seconds(2) })
+  local response, trouble = Http.open("http://127.0.0.1:1/", { connect_timeout_ns = Clock.seconds(2) })
   assert(response == nil and trouble ~= "")
   if PROBE then error("NAME in " .. tostring((Fs.readlink("/proc/self/ns/net"))) .. " |") end
 end
@@ -223,9 +221,9 @@ end
   local env = environment(tmp .. "/cache/verdicts.db")
   suite(tmp .. "/beyond", "beyond", '"127.0.0.1", "example.com"', false)
   local refused = run(tmp .. "/beyond", tmp .. "/beyond.out", env, nil, true)
-  assert(refused:find('suite/beyond_test.tl:6: test.needs: network "example.com": network ' ..
-    "takes loopback addresses 127.a.b.c only", 1, true) and
-    not refused:find("test: PASS", 1, true), refused)
+  assert(refused:find('suite/beyond_test.tl:6: test.policy: loopback "example.com": loopback ' ..
+      "takes loopback addresses 127.a.b.c only", 1, true) and
+      not refused:find("test: PASS", 1, true), refused)
   suite(tmp .. "/root", "loopback", '"127.0.0.1", "127.0.0.2"', false)
   local first = run(tmp .. "/root", tmp .. "/first.out", env)
   if unsandboxed(first) then return end
@@ -251,12 +249,12 @@ local function test_a_sandboxed_verdict_stands_in_another_checkout(tmp: string)
   checkout(tmp .. "/second")
   local second = run(tmp .. "/second", tmp .. "/second.out", env)
   assert(second:find("0 ran, 3 stood", 1, true) and
-    second:find("3 of them on another checkout's verdict", 1, true), second)
+      second:find("3 of them on another checkout's verdict", 1, true), second)
   checkout(tmp .. "/third")
   assert(Fs.write(tmp .. "/third/suite/data/f", "three\n"))
   local third = run(tmp .. "/third", tmp .. "/third.out", env)
   assert(third:find("1 ran, 2 stood", 1, true) and
-    third:find("2 of them on another checkout's verdict", 1, true), third)
+      third:find("2 of them on another checkout's verdict", 1, true), third)
 end
 
 --- Told to stand on no other checkout's verdicts, a checkout runs
@@ -305,7 +303,7 @@ end
   assert(Fs.write(root .. "/suite/tool_test.tl", started .. [[
 local Test = require("cosmic.test")
 
-Test.needs { tool = true }
+Test.policy { profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local function test_runs_the_tool()
   local result = assert(started({ "-e", "" }))
@@ -317,13 +315,24 @@ end
 local function test_is_refused_the_tool()
   -- The program is not given it at all, and its core is refused it,
   -- the artifact's descriptor with it.
+  local relaunch = assert(Proc.relaunch())
   local result, trouble = Child.run({ assert(Proc.executable()), "-e", "" })
   assert(result == nil, "the program ran undeclared")
-  assert(trouble:find("o such file", 1, true), trouble)
-  local ok, why = pcall(started, { "-e", "" })
-  assert(not ok, "the program's core ran undeclared")
-  assert(tostring(why):find("retained artifact descriptor", 1, true), tostring(why))
-  local relaunch = assert(Proc.relaunch())
+  -- Not there at all, or, for a worker on a sealed database, whose
+  -- program's name is its core's, not run.
+  local wanted = relaunch.argv[2] == "--database" and "ermission denied" or "o such file"
+  assert(trouble:find(wanted, 1, true), trouble)
+  if relaunch.argv[2] == "--database" then
+    -- A worker on a sealed database has no descriptor of the program to
+    -- be refused, and its core, which it is not granted to run, is.
+    local sealed, sealed_trouble = started({ "-e", "" })
+    assert(sealed == nil and tostring(sealed_trouble):find("ermission denied", 1, true),
+      tostring(sealed_trouble))
+  else
+    local ok, why = pcall(started, { "-e", "" })
+    assert(not ok, "the program's core ran undeclared")
+    assert(tostring(why):find("retained artifact descriptor", 1, true), tostring(why))
+  end
   local core, core_trouble = Child.run({ relaunch.argv[1], "-e", "" })
   assert(core == nil, "the program's core ran undeclared")
   assert(core_trouble:find("ermission denied", 1, true), core_trouble)
@@ -336,7 +345,7 @@ end
   assert(Fs.write(root .. "/suite/bootstrap_test.tl", started .. [[
 local Test = require("cosmic.test")
 
-Test.needs { caches = { "bootstrap" } }
+Test.policy { grants = { { path = "/cache/bootstrap", letters = "rwxc" } } }
 ]] .. refused))
 end
 
@@ -400,9 +409,9 @@ local function tool_project(tmp: string): function(string), function(string): st
   -- test's confinement could not find at its name under this test's
   -- /tmp: what it declares is all its key turns on.
   assert(Fs.write(root .. "/suite/tool_test.tl",
-    "local Test = require(\"cosmic.test\")\n\nTest.needs { tool = true }\n\n" ..
-    "local function test_tool()\nend\n"))
-  assert(Fs.write(root .. "/suite/plain_test.tl", "local function test_plain()\nend\n"))
+    "local Test = require(\"cosmic.test\")\n\nTest.policy { profiles = { \"cosmic\" }, grants = { { path = \"o/bin\", letters = \"rx\" } } }\n\n" ..
+      "local function test_tool()\n  assert(true)\nend\n"))
+  assert(Fs.write(root .. "/suite/plain_test.tl", "local function test_plain()\n  assert(true)\nend\n"))
   local tool = root .. "/o/bin/cosmic"
   local function rebuild(statements: string)
     rebuilt(tmp, tool, statements)
@@ -415,7 +424,7 @@ local function tool_project(tmp: string): function(string), function(string): st
     step = step + 1
     local fd = assert(Fs.open_write(tmp .. "/" .. step .. ".out"))
     local result, trouble = Child.run({ tool, "test" }, {
-      cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ns = Time.seconds(60),
+      cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ns = Clock.seconds(60),
     })
     assert(Fs.close(fd))
     local text = assert(Fs.read(tmp .. "/" .. step .. ".out"))
@@ -450,7 +459,7 @@ local function test_a_tool_test_runs_again_when_a_module_the_tool_carries_moves(
   local rebuild, ran = tool_project(tmp)
   if rebuild == nil then return end
   rebuild("UPDATE modules SET source = deflate(CAST(inflate(source) AS TEXT) || " ..
-    "char(10) || '-- edited' || char(10)) WHERE path = 'cosmic.json'")
+      "char(10) || '-- edited' || char(10)) WHERE path = 'cosmic.json'")
   ran("1 ran, 1 stood")
 end
 
@@ -474,23 +483,32 @@ end
 local function test_a_verdict_whose_inputs_moved_as_it_ran_is_not_kept(tmp: string)
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/suite"))
+  -- A directory it reads, which keeps its worker's directory on the host,
+  -- where this test finds it: with none in its root a worker has its
+  -- directory in a tmpfs of its own (build/test_sandbox.tl's `own_scratch`).
+  assert(Fs.mkdirs(root .. "/keep"))
   assert(Fs.write(root .. "/suite/moving.txt", "one\n"))
   -- It says it started, and fails if what it reads moves before it is
   -- stopped (or 20 s pass, a bound no run here reaches).
   assert(Fs.write(root .. "/suite/moving_test.tl", [[
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-local Time = require("cosmic.time")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "suite/moving.txt" } }
+Test.policy {
+  grants = {
+    { path = "suite/moving.txt", letters = "r" },
+    { path = "keep", letters = "r" },
+  },
+}
 
 local function test_moving(tmp: string)
   local was = Fs.read("suite/moving.txt")
   assert(Fs.write(tmp .. "/started", "yes"))
-  local deadline = Time.monotonic_ns() + 20000000000
-  while not Fs.exists(tmp .. "/stop") and Time.monotonic_ns() < deadline do
+  local deadline = Clock.monotonic_ns() + 20000000000
+  while not Fs.exists(tmp .. "/stop") and Clock.monotonic_ns() < deadline do
     assert(Fs.read("suite/moving.txt") == was, "it moved")
-    assert(Time.sleep_ns(20000000))
+    assert(Clock.sleep_ns(20000000))
   end
 end
 ]]))
@@ -513,10 +531,10 @@ end
       cwd = root, env = env, stdout = fd, stderr = fd, process_group = true,
     })
     local handle = assert(Child.start(started.argv, started.options))
-    local deadline = Time.monotonic_ns() + 30000000000
+    local deadline = Clock.monotonic_ns() + 30000000000
     local found = ""
     local ended = false
-    while found == "" and not ended and Time.monotonic_ns() < deadline do
+    while found == "" and not ended and Clock.monotonic_ns() < deadline do
       local now, _ = handle:try_wait()
       ended = now ~= nil and now.finished
       for _, entry in ipairs(Fs.list(tmp .. "/t") or {}) do
@@ -525,11 +543,11 @@ end
           if Fs.exists(dir .. "/started") and not Fs.exists(dir .. "/stop") then found = dir end
         end
       end
-      if found == "" then assert(Time.sleep_ns(20000000)) end
+      if found == "" then assert(Clock.sleep_ns(20000000)) end
     end
     assert(found ~= "" or ended, "the test never started")
     if found ~= "" then then_do(found) end
-    local result = assert(handle:wait(Time.seconds(60)))
+    local result = assert(handle:wait(Clock.seconds(60)))
     assert(Fs.close(fd))
     -- Its directory said it started: marked so the next run's is found.
     if found ~= "" then local _ = Fs.write(found .. "/stop", "") end
@@ -613,7 +631,7 @@ end
   local db = assert(Sqlite.open(root .. "/o/build.db"))
   local rows = assert(Sqlite.text_rows(db,
     "SELECT group_concat(path, ' ') FROM (SELECT path FROM runs " ..
-    "WHERE run_at_ns = (SELECT max(run_at_ns) FROM runs) ORDER BY path)"))
+      "WHERE run_at_ns = (SELECT max(run_at_ns) FROM runs) ORDER BY path)"))
   assert(db:close())
   assert(rows[1][1] == "core.allocation_test", "ran under another compiler: " .. rows[1][1])
 end
@@ -647,7 +665,7 @@ local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local lib = require("suite.lib")
 
-Test.needs { env = { "ADDED" } }
+Test.policy { env = { "ADDED" } }
 
 local function test_closed()
   assert(lib.value == 1)
@@ -717,13 +735,13 @@ local function test_a_store_is_keyed_by_its_bytes_not_its_address(tmp: string)
   env.COSMIC_TEST_STORE_SALT = "another writer"
   local rewritten = run(root, tmp .. "/rewritten.out", env)
   assert(rewritten:find("0 ran, 3 stood", 1, true) and
-    rewritten:find("3 closure stores written", 1, true), rewritten)
+      rewritten:find("3 closure stores written", 1, true), rewritten)
   -- So does the core that runs that code -- SQLite, and its bindings --
   -- stood in for by COSMIC_TEST_STORE_RUNTIME.
   env.COSMIC_TEST_STORE_RUNTIME = "another core"
   local recored = run(root, tmp .. "/recored.out", env)
   assert(recored:find("0 ran, 3 stood", 1, true) and
-    recored:find("3 closure stores written", 1, true), recored)
+      recored:find("3 closure stores written", 1, true), recored)
   assert(Fs.write(root .. "/suite/lib.tl", "-- edited\nreturn { value = 1 }\n"))
   local edited = run(root, tmp .. "/edited.out", env)
   assert(edited:find("1 ran, 2 stood", 1, true), edited)
@@ -731,9 +749,34 @@ local function test_a_store_is_keyed_by_its_bytes_not_its_address(tmp: string)
   assert(Fs.write(tmp .. "/second/suite/lib.tl", "-- edited\nreturn { value = 1 }\n"))
   local second = run(tmp .. "/second", tmp .. "/second.out", env)
   assert(second:find("0 ran, 3 stood", 1, true) and
-    not second:find("closure store", 1, true), second)
+      not second:find("closure store", 1, true), second)
   local stores, _ = Fs.list(tmp .. "/second/o/stores")
   assert(stores == nil or #stores == 0, "a checkout that stood wrote a store")
+end
+
+--- An unsandboxed worker of a module that is neither `store`, `tool` nor
+--- `nests` runs the core on the sealed database of its closure too, where
+--- the program is a portable artifact.
+local function test_an_unsandboxed_worker_runs_on_a_sealed_database(tmp: string)
+  local launched = Proc.relaunch()
+  if launched == nil or launched.argv[2] ~= "--artifact" then
+    Test.skip("this program is no portable artifact")
+    return
+  end
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.write(root .. "/suite/database_test.tl", [[
+local Proc = require("cosmic.proc")
+
+local function test_the_core_runs_on_a_database()
+  local relaunch = assert(Proc.relaunch())
+  assert(relaunch.argv[2] == "--database", tostring(relaunch.argv[2]))
+end
+]]))
+  local env = environment(tmp .. "/cache/verdicts.db")
+  env.COSMIC_TEST_SANDBOX = "0"
+  local text = run(root, tmp .. "/first.out", env)
+  assert(text:find("test: PASS", 1, true) and text:find("1 ran, 0 stood", 1, true), text)
 end
 
 --- A digest kept of a store's address that its bytes, here or written
@@ -757,15 +800,15 @@ local function test_a_store_whose_bytes_differ_from_its_kept_digest_fails_the_ru
   forge()
   local here = run(root, tmp .. "/here.out", env, nil, true)
   assert(here:find("must follow from its address alone", 1, true) and
-    here:find("the shared verdicts at", 1, true) and here:find("The next run keeps", 1, true) and
-    here:find("test: FAIL", 1, true), here)
+      here:find("the shared verdicts at", 1, true) and here:find("The next run keeps", 1, true) and
+      here:find("test: FAIL", 1, true), here)
   -- Where they are not: the checkout takes the digests kept, and its
   -- tests, given stores that are not those bytes, are keyed again.
   forge()
   checkout(tmp .. "/second")
   local second = run(tmp .. "/second", tmp .. "/second.out", env, { "--all" }, true)
   assert(second:find("must follow from its address alone", 1, true) and
-    second:find("test: FAIL", 1, true), second)
+      second:find("test: FAIL", 1, true), second)
   local kept_aside = false
   for _, entry in ipairs(Fs.list(tmp .. "/second/o/stores") or {}) do
     if entry:match("%.mismatch%.db$") then kept_aside = true end
@@ -800,5 +843,5 @@ local function test_a_run_that_writes_no_store_checks_one(tmp: string)
   assert(db:close())
   local checked = run(root, tmp .. "/checked.out", env, nil, true)
   assert(checked:find("must follow from its address alone", 1, true) and
-    checked:find("%.db has %x+") ~= nil and checked:find("test: FAIL", 1, true), checked)
+      checked:find("%.db has %x+") ~= nil and checked:find("test: FAIL", 1, true), checked)
 end

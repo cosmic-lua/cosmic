@@ -1,4 +1,4 @@
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Runner = require("cosmic_ci.runner")
@@ -10,7 +10,7 @@ local Sqlite = require("cosmic.sqlite")
 --- pinned CI driver" sets no COSMIC_TEST_TIMEOUT), so a hang in a test's
 --- first wait fails here, recorded, rather than by the runner ending the
 --- test.
-local hang_guard = Time.seconds(20)
+local hang_guard = Clock.seconds(20)
 
 local function test_runner_records_without_aliasing_subject(tmp: string)
   local candidate, state = tmp .. "/candidate", tmp .. "/state"
@@ -25,9 +25,9 @@ local function test_runner_records_without_aliasing_subject(tmp: string)
   assert(execute("exit", { "/bin/sh", "-c", "exit 23" }).code == 23)
   assert(execute("start", { "/missing/command" }).status == "start-error")
   assert(execute("delayed-success", { "/bin/sh", "-c", "sleep 0.05" }).code == 0)
-  local timed = execute("timeout", { "/bin/sh", "-c", "sleep 30" }, Time.ms(20))
-  assert(timed.code == 124 and timed.elapsed_ns >= Time.ms(10) and
-    timed.elapsed_ns < Time.seconds(5), "timeout did not preserve its nanosecond duration")
+  local timed = execute("timeout", { "/bin/sh", "-c", "sleep 30" }, Clock.ms(20))
+  assert(timed.code == 124 and timed.elapsed_ns >= Clock.ms(10) and
+      timed.elapsed_ns < Clock.seconds(5), "timeout did not preserve its nanosecond duration")
   assert(Fs.write(candidate .. "/o.db", "candidate state"))
   local database_exists = Predicate.exists(c.database)
   assert(database_exists and assert(Fs.read(candidate .. "/o.db")) == "candidate state")
@@ -91,13 +91,13 @@ local function test_step_records_work_done_in_process(tmp: string)
     return false, "no such thing"
   end)
   assert(refused.status == "error" and refused.code == 1 and
-    refused.trouble == "no such thing")
+      refused.trouble == "no such thing")
   local long_error = string.rep("step error; ", 100)
   local raised = Runner.step(context, "raised", function(): boolean, string
     error(long_error, 0)
   end)
   assert(raised.status == "error" and raised.code == 1 and
-    raised.trouble == long_error:sub(1, 1000))
+      raised.trouble == long_error:sub(1, 1000))
   local db = assert(Sqlite.open(database))
   local rows = assert(Sqlite.text_rows(db, [[
     SELECT s.phase, c.status, coalesce(c.detail, ''), c.exit_code IS NULL
@@ -106,8 +106,8 @@ local function test_step_records_work_done_in_process(tmp: string)
   ]]))
   assert(db:close())
   assert(#rows == 3 and rows[1][1] == "done" and rows[1][2] == "success" and
-    rows[2][2] == "error" and rows[2][3] == "no such thing" and
-    rows[3][1] == "raised" and rows[3][3] == long_error:sub(1, 1000),
+      rows[2][2] == "error" and rows[2][3] == "no such thing" and
+      rows[3][1] == "raised" and rows[3][3] == long_error:sub(1, 1000),
     "a step was not recorded with its outcome")
   for _, row in ipairs(rows) do assert(row[4] == "1", "a boolean step acquired an exit code") end
 end
@@ -140,12 +140,12 @@ local function test_phase_keeps_exit_codes_full_errors_and_callback_times(tmp: s
   local entered, leaving, returned = 0, 0, 0
   local called, failure = pcall(function(): boolean
     assert(Runner.phase(context, "done", function(): integer
-      entered = Time.monotonic_ns()
-      Time.sleep_ns(Time.ms(1))
-      leaving = Time.monotonic_ns()
+      entered = Clock.monotonic_ns()
+      Clock.sleep_ns(Clock.ms(1))
+      leaving = Clock.monotonic_ns()
       return 0
     end) == 0)
-    returned = Time.monotonic_ns()
+    returned = Clock.monotonic_ns()
     assert(Runner.phase(context, "refused", function(): integer return 23 end) == 23)
     assert(#messages == 0, "a returned status logged another diagnostic")
     assert(Runner.phase(context, "raised", function(): integer error(detail, 0) end) == 1)
@@ -165,11 +165,11 @@ local function test_phase_keeps_exit_codes_full_errors_and_callback_times(tmp: s
   assert(#rows == 3 and rows[1][1] == "done" and rows[1][2] == "success" and rows[1][3] == "0")
   assert(rows[2][1] == "refused" and rows[2][2] == "exit" and rows[2][3] == "23")
   assert(rows[3][1] == "raised" and rows[3][2] == "error" and rows[3][3] == "1" and
-    rows[3][4] == detail, "the phase's full error or durable exit code was lost")
+      rows[3][4] == detail, "the phase's full error or durable exit code was lost")
   local started = assert(tonumber(rows[1][5]))
   local finished = assert(tonumber(rows[1][6]))
   assert(started <= entered and finished >= leaving and finished <= returned and
-    tonumber(rows[1][7]) == finished - started, "phase timestamps do not enclose its callback")
+      tonumber(rows[1][7]) == finished - started, "phase timestamps do not enclose its callback")
   for _, row in ipairs(rows) do
     assert(row[8] == "1" and row[9] == "0", "a phase acquired a child's signal or timeout")
   end
@@ -182,7 +182,7 @@ local function test_phase_keeps_a_nested_child_timeout_separate(tmp: string)
     run = "run", attempt = "1", candidate = candidate }
   assert(Runner.phase(context, "outer", function(): integer
     return Runner.operation(context, "child", { argv = { "/bin/sh", "-c", "sleep 30" },
-      cwd = candidate, timeout_ns = Time.ms(20) }).code
+      cwd = candidate, timeout_ns = Clock.ms(20) }).code
   end) == 124)
   local db = assert(Sqlite.open(context.database))
   local rows = assert(Sqlite.text_rows(db, [[
@@ -192,11 +192,11 @@ local function test_phase_keeps_a_nested_child_timeout_separate(tmp: string)
   ]]))
   assert(db:close())
   assert(#rows == 2 and rows[1][1] == "outer" and rows[1][2] == "exit" and
-    rows[1][3] == "124" and rows[1][4] == "0", "parent phase lost its returned exit status")
+      rows[1][3] == "124" and rows[1][4] == "0", "parent phase lost its returned exit status")
   assert(rows[2][1] == "child" and rows[2][2] == "timeout" and rows[2][4] == "1",
     "the child timeout lost its own operation row")
   assert(tonumber(rows[1][5]) < tonumber(rows[2][5]) and
-    tonumber(rows[2][6]) < tonumber(rows[1][6]), "nested operation events are out of order")
+      tonumber(rows[2][6]) < tonumber(rows[1][6]), "nested operation events are out of order")
 end
 
 local function test_phase_rejects_a_candidate_database_before_its_action(tmp: string)

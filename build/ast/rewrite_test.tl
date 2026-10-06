@@ -129,7 +129,7 @@ local function test_rewrite_reports_only_accepted_original_hits_in_source_order(
   assert(y1 == 1 and x1 == 1 and y2 == 3 and x2 == 1,
     "accepted edit metadata must retain original positions")
   assert(result.code ==
-    "assert(os.execute(a))\nos.execute(b --[[ keep ]] )\nassert(os.execute(c))\n",
+      "assert(os.execute(a))\nos.execute(b --[[ keep ]] )\nassert(os.execute(c))\n",
     "code: " .. result.code)
 end
 

@@ -9,11 +9,13 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
+local Sandbox = require("cosmic.sandbox")
+local searchable = require("build.searchable")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
-Test.needs{ tool = true }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- The program's own path names a file, which a `tool` test, given the
 --- program at its own name, can stat.
@@ -101,20 +103,55 @@ local function test_a_change_through_the_artifact_descriptor_changes_nothing(tmp
   for name, value in pairs(relaunch.env) do env[name] = value end
   local result = assert(Child.run({ relaunch.argv[1], "--artifact", copy, "-e", probe }, {
     env = env, fds = { [slot] = opened, [core_slot] = relaunch.fds[core_slot] },
-    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(sys.close(opened))
   assert(result.ok, tostring(result.stderr))
   local after = assert(sys.stat(copy))
   assert(Hash.hex_sha256((assert(Fs.read(copy)))) == digest and after.size == before.size,
     "a change through the descriptor wrote the artifact:\n" .. tostring(result.stdout))
   assert(after.mode == before.mode and after.mtime == before.mtime and
-    after.mtime_ns == before.mtime_ns, "a change through the descriptor reached the " ..
-    "artifact's mode or times:\n" .. tostring(result.stdout))
+      after.mtime_ns == before.mtime_ns, "a change through the descriptor reached the " ..
+      "artifact's mode or times:\n" .. tostring(result.stdout))
   local out = tostring(result.stdout)
   for _, what in ipairs({ "write", "read-write", "create", "truncate", "chmod" }) do
     assert(out:find(what .. " " .. sys.EACCES .. "\n", 1, true) ~= nil,
       what .. " was not refused:\n" .. out)
   end
+end
+
+--- The artifact reached by names alone is let through, however they
+--- spell it: a relative link, a link to its directory, a "..", a "//".
+--- The walk (core/syscalls_fs.c's `walk_without_descriptor_links`)
+--- follows each.
+local function test_the_artifact_reached_by_names_is_not_refused(tmp: string)
+  local relaunch, _ = Proc.relaunch()
+  if relaunch == nil then return end
+  local slot = math.tointeger(tonumber(relaunch.env.COSMIC_PORTABLE_ARTIFACT_FD)) as integer
+  local core_slot = math.tointeger(tonumber(relaunch.env.COSMIC_PORTABLE_CORE_FD)) as integer
+  local copy = tmp .. "/artifact"
+  assert(Fs.write(copy, (assert(Fs.read((assert(Proc.executable())))))))
+  assert(sys.chmod(copy, 493))
+  assert(sys.mkdir(tmp .. "/sub"))
+  assert(sys.symlink("artifact", tmp .. "/alias"))
+  assert(sys.symlink("../alias", tmp .. "/sub/again"))
+  assert(sys.symlink(tmp, tmp .. "/sub/home"))
+  local names = { copy, tmp .. "/alias", tmp .. "/sub/again", tmp .. "/sub/../artifact",
+    tmp .. "//artifact", tmp .. "/sub/home/artifact", tmp .. "/sub/home/alias" }
+  local script = { 'local sys = require("cosmic.sys")' }
+  for _, name in ipairs(names) do
+    script[#script + 1] = string.format("do local fd, _, e = sys.open(%q, sys.O_RDONLY) " ..
+        "print(fd and 'open' or e) if fd then sys.close(fd) end end", name)
+  end
+  local env: {string: string} = {}
+  for name, value in pairs(relaunch.env) do env[name] = value end
+  local opened = assert(sys.open(copy, sys.O_RDONLY))
+  local result = assert(Child.run({ relaunch.argv[1], "--artifact", copy, "-e",
+    table.concat(script, "\n") }, { env = env, fds = { [slot] = opened,
+      [core_slot] = relaunch.fds[core_slot] }, stdout = "capture", stderr = "capture",
+      timeout_ns = Clock.seconds(30) }))
+  assert(sys.close(opened))
+  assert(result.ok, tostring(result.stderr))
+  assert(tostring(result.stdout) == string.rep("open\n", #names), tostring(result.stdout))
 end
 
 --- What the flipping child runs: a link at `LINK` swapped, again and
@@ -153,8 +190,8 @@ assert(sys.rename(spare, link))
 --- rename replaces it can end at the link's directory (Linux 6.18
 --- does, a few times in 100000), which it changes too.
 local caller <const> = [==[
+local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
-local Time = require("cosmic.time")
 local link, stop = LINK, STOP
 local counts = { chmod = { done = 0, refused = 0 }, truncate = { done = 0, refused = 0 } }
 local function said(what, ok, errno)
@@ -173,8 +210,8 @@ local function met()
   return true
 end
 local least <const>, bound_ns <const> = 20000, 5 * 1000000000
-local deadline, i = Time.monotonic_ns() + bound_ns, 0
-while i < least or (not met() and Time.monotonic_ns() < deadline) do
+local deadline, i = Clock.monotonic_ns() + bound_ns, 0
+while i < least or (not met() and Clock.monotonic_ns() < deadline) do
   i = i + 1
   local ok, _, errno = sys.chmod(link, 448)
   said("chmod", ok, errno)
@@ -204,7 +241,7 @@ end
 --- between a plain file and /proc/self/fd/<the artifact>, while the
 --- child calls through it; both ends are met, and the artifact -- a copy
 --- the test made -- keeps its bytes and mode.
-local function test_a_link_swapped_after_the_check_changes_nothing(tmp: string)
+local function swapped_link_changes_nothing(tmp: string, policy?: Sandbox.Policy)
   local relaunch, _ = Proc.relaunch()
   if relaunch == nil then return end
   local slot = math.tointeger(tonumber(relaunch.env.COSMIC_PORTABLE_ARTIFACT_FD)) as integer
@@ -222,20 +259,21 @@ local function test_a_link_swapped_after_the_check_changes_nothing(tmp: string)
   local values = { LINK = link, PLAIN = plain, THROUGH = through, STOP = stop }
   local env: {string: string} = {}
   for name, value in pairs(relaunch.env) do env[name] = value end
+  if policy ~= nil then policy.set_env = env end
   local opened = assert(sys.open(copy, sys.O_RDONLY))
   local fds = { [slot] = opened, [core_slot] = relaunch.fds[core_slot] }
   local flipping = assert(Child.start({ relaunch.argv[1], "--artifact", copy, "-e",
     filled(flipper, values) }, { env = env, fds = fds, stdin = "stream", stdout = "stream",
-    stderr = "capture" }))
+      stderr = "capture" }))
   local said = Stream.lines(assert(flipping.stdout_stream)):read()
   if said ~= "flipping" then
-    local ended, why = flipping:wait(Time.seconds(2))
+    local ended, why = flipping:wait(Clock.seconds(2))
     error("the flipper did not start: " .. tostring(said) .. "\n" ..
-      (ended ~= nil and tostring(ended.stderr) or why))
+        (ended ~= nil and tostring(ended.stderr) or why))
   end
   local result = assert(Child.run({ relaunch.argv[1], "--artifact", copy, "-e",
-    filled(caller, values) }, { env = env, fds = fds, stdout = "capture", stderr = "capture",
-    timeout_ns = Time.seconds(7) }))
+    filled(caller, values) }, { env = policy == nil and env or nil, fds = fds, stdout = "capture",
+      stderr = "capture", policy = policy, timeout_ns = Clock.seconds(7) }))
   if not Fs.exists(stop) then assert(Fs.write(stop, "")) end
   local flipped = assert(flipping:wait())
   assert(sys.close(opened))
@@ -251,4 +289,29 @@ local function test_a_link_swapped_after_the_check_changes_nothing(tmp: string)
     assert(done ~= nil and tonumber(done) > 0 and tonumber(refused) > 0,
       what .. " did not meet both ends of the link:\n" .. out)
   end
+end
+
+local function test_a_link_swapped_after_the_check_changes_nothing(tmp: string)
+  swapped_link_changes_nothing(tmp)
+end
+
+--- The same under a promises filter, which answers openat2 ENOSYS
+--- (core/promises.c): the check holds without it, judging the walk it
+--- makes part by part (`walk_without_descriptor_links`) rather than a
+--- name resolved again after the call. "fattr" lets the chmod through.
+local function test_a_link_swapped_after_the_check_changes_nothing_under_promises(tmp: string)
+  local relaunch, _ = Proc.relaunch()
+  if relaunch == nil then return end
+  -- A root runner's policy child is a user of its own, which owns none of
+  -- these: the test's directory is opened to it. The core, in a cache
+  -- of the host's, is not this test's to chmod.
+  local core = sys.stat(relaunch.argv[1])
+  if sys.getuid() == 0 and (core == nil or core.mode & 5 ~= 5) then
+    Test.skip("the core " .. relaunch.argv[1] .. " is not open to the user a root runner's policy " ..
+        "child runs as")
+    return
+  end
+  searchable.share(searchable.open(tmp))
+  swapped_link_changes_nothing(tmp, { promises = { "fattr" }, grants = {
+    { path = relaunch.argv[1], letters = "rx" }, { path = tmp, letters = "rwc" } } })
 end

@@ -10,10 +10,10 @@ local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 local stand_in = require("build.stand_in")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- The program itself, which its tests start to run a chunk (`lua`).
-Test.needs{ lua = true }
+Test.policy{ profiles = { "cosmic" } }
 
 --- The public wrapper and annotated syscall name the same directly executable
 --- logical program. Native mode preserves the physical executable answer;
@@ -30,12 +30,15 @@ end
 --- launcher, and its startup accepts the contract it is handed.
 local function test_relaunch_starts_this_same_program(tmp: string)
   local relaunch = Proc.relaunch()
-  if relaunch == nil then return end -- a native start has nothing to relaunch
+  if relaunch == nil then
+    Test.skip("a native start has nothing to relaunch")
+    return
+  end
   assert(Proc.relaunch() == relaunch, "the relaunch description is kept")
   local chunk = 'local Proc = require("cosmic.proc") local Store = require("cosmic.store") ' ..
     'print(Store.meta("host_image"), Store.meta("runtime"), (Proc.executable()))'
   local started = this_program.program({ "-e", chunk }, { env = this_program.environment(), cwd = tmp,
-    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stderr))
   local expected = table.concat({ assert(Store.meta("host_image")),
@@ -47,8 +50,14 @@ end
 --- child it spawns does, even when this one ignored it: exec hands on
 --- an ignored signal, and a pipeline downstream of it would never end.
 local function test_exec_hands_on_sigpipe_at_its_default(tmp: string)
-  if Proc.relaunch() == nil then return end -- a native start has nothing to relaunch
-  if not Fs.exists("/proc/self/status") then return end -- nothing to ask
+  if Proc.relaunch() == nil then
+    Test.skip("a native start has nothing to relaunch")
+    return
+  end
+  if not Fs.exists("/proc/self/status") then
+    Test.skip("this host has no /proc/self/status to ask")
+    return
+  end
   -- The case is a process that ignored SIGPIPE itself. One started with
   -- it already ignored hands that on, as its parent chose, and so does
   -- everything it starts: a runner that ignores SIGPIPE has no case here.
@@ -75,7 +84,7 @@ print(trouble)
 require("cosmic.sys").exit(1)
 ]]
   local started = this_program.program({ "-e", chunk, probe }, { env = this_program.environment(), cwd = tmp,
-    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))
   local ignored = assert(assert(r.stdout):match("SigIgn:%s*(%x+)"), r.stdout)
@@ -92,7 +101,7 @@ local function becomes(tmp: string, probe: string, exec: string): string
   local env = this_program.environment()
   env.FOO = "outer"
   local started = this_program.program({ "-e", chunk, probe }, { env = env, cwd = tmp,
-    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))
   return r.stdout or ""
@@ -102,7 +111,10 @@ end
 --- process replaced: argv[1] the program, `env` its whole environment
 --- and, left out, this process's own.
 local function test_exec_takes_argv_and_the_whole_environment(tmp: string)
-  if Proc.relaunch() == nil then return end -- a native start has nothing to relaunch
+  if Proc.relaunch() == nil then
+    Test.skip("a native start has nothing to relaunch")
+    return
+  end
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local given = becomes(tmp, probe, 'Proc.exec({ probe, "env-of FOO" }, { env = { FOO = "given" } })')
   assert(given == "FOO=given\n", given)
@@ -119,11 +131,14 @@ end
 --- A relaunched child's relaunch names the directory it was started in,
 --- though it moved since.
 local function test_the_relaunch_cwd_is_where_the_program_started(tmp: string)
-  if Proc.relaunch() == nil then return end -- a native start has nothing to relaunch
+  if Proc.relaunch() == nil then
+    Test.skip("a native start has nothing to relaunch")
+    return
+  end
   local chunk = "local Proc = require('cosmic.proc'); require('cosmic.sys').chdir('/'); " ..
     "print(assert(Proc.relaunch()).cwd)"
   local started = this_program.program({ "-e", chunk },
-    { cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })
+    { cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.code == 0, tostring(r.stderr))
   local real = assert(sys.realpath(tmp))

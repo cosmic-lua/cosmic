@@ -1,3 +1,5 @@
+local Capabilities = require("cosmic_ci.capabilities")
+local Clock = require("cosmic.clock")
 local ContextEnv = require("cosmic_ci.context")
 local Env = require("cosmic.env")
 local Fixture = require("cosmic_ci.fixture")
@@ -16,7 +18,6 @@ local RunNames = require("cosmic_ci.run_names")
 local RuntimeSetup = require("cosmic_ci.runtime_setup")
 local State = require("cosmic_ci.state")
 local SuiteOutput = require("cosmic_ci.suite_output")
-local Time = require("cosmic.time")
 local ZigRestat = require("cosmic_ci.zig_restat")
 local Plural = require("cosmic_ci.plural")
 local String = require("cosmic.string")
@@ -88,7 +89,7 @@ local standing_events: {string:boolean} = { push = true, merge_group = true }
 -- profile, which hold every option and host setting it starts with, and
 -- the engine's version). A change inside an image under the same
 -- reference, or on the runner beneath it, is not keyed. The macOS leg's
--- image names itself (COSMIC_SYSTEM_ID, .github/scripts/leg-host-id.sh),
+-- image names itself (COSMIC_SYSTEM_ID, host_id.tl),
 -- which every module given the system's paths is keyed by.
 ---
 --- A merge-queue run does not stand either where its change moves
@@ -117,7 +118,7 @@ local epoch_file <const> = "build/harness_epoch.tl"
 
 --- How long a git command [`harness_moved`] runs may take: a local
 --- lookup, or a fetch of one commit.
-local git_timeout_ns <const> = Time.seconds(60)
+local git_timeout_ns <const> = Clock.seconds(60)
 
 --- Runs git in the checkout at `root`, never asking for credentials
 --- (GIT_TERMINAL_PROMPT=0) and ended past `git_timeout_ns`: what it
@@ -131,7 +132,7 @@ local function git(root: string, words: {string}): string | nil, string
     stderr = "capture", timeout_ns = git_timeout_ns })
   if result == nil then return nil, "git " .. words[1] .. ": " .. trouble end
   if result.timed_out then
-    return nil, "git " .. words[1] .. ": timed out after " .. (git_timeout_ns // Time.seconds(1)) .. " s"
+    return nil, "git " .. words[1] .. ": timed out after " .. (git_timeout_ns // Clock.seconds(1)) .. " s"
   end
   if not result.ok then
     return nil, "git " .. words[1] .. ": exit " .. tostring(result.code) .. ": " ..
@@ -214,6 +215,19 @@ function Orchestration.test_words(env: {string:string}): {string}
   return { "test", "--all" }
 end
 
+--- Sets `env`, a suite's, to the requirements the leg it runs on
+--- promises (ci/cosmic_ci/capabilities.tl): COSMIC_TEST_PROMISES, their list, and
+--- COSMIC_TEST_LEG, the leg's name, which a held `cosmic test` fails a
+--- module for lacking. The leg is COSMIC_WORKER's; a worker that is no
+--- leg's (the provenance join, fuzz.yml) promises nothing, and a
+--- variable the environment already sets is the caller's.
+function Orchestration.promise(env: {string:string})
+  local promised = (Capabilities.legs as {string:{string}})[env.COSMIC_WORKER or ""]
+  if promised == nil or env.COSMIC_TEST_PROMISES ~= nil then return end
+  env.COSMIC_TEST_PROMISES = table.concat(promised, ",")
+  env.COSMIC_TEST_LEG = env.COSMIC_WORKER
+end
+
 --- The environment every operation runs in: the driver's own, with
 --- FUZZ_ITERS=0, so a suite checks each fuzz property's corpus of kept
 --- failures but draws no inputs of its own. Drawing is fuzz.yml's, each
@@ -248,6 +262,7 @@ local function environment(extra?: {string:string}): {string:string}
     all.COSMIC_TEST_SANDBOX = "1"
     all.COSMIC_SANDBOX = "must"
   end
+  Orchestration.promise(all)
   return all
 end
 
@@ -267,11 +282,10 @@ local function names_the_run(name: string): boolean
 end
 
 --- Removes from `env`, a gating suite's, every variable that names the
---- run ([`names_the_run`]). A test that reads the whole environment
---- (`env = {"*"}`) is keyed by every variable its worker is given, so
---- one that moves each run (GITHUB_RUN_ID, GITHUB_SHA, RUNNER_NAME,
---- COSMIC_CI_SCOPE, ...) would keep such a test from standing on any
---- earlier run's verdict. No tree test reads one, so none is given one,
+--- run ([`names_the_run`]). A test is keyed by every variable its worker
+--- is given, so one that moves each run (GITHUB_RUN_ID, GITHUB_SHA,
+--- RUNNER_NAME, COSMIC_CI_SCOPE, ...) would keep a test that declared it
+--- from standing on any earlier run's verdict. No tree test reads one, so none is given one,
 --- and what a key holds is still what the worker gets. The driver
 --- decides what the suite does (`stands`, [`test_words`], `shares`) before
 --- this, from the environment it was given.
@@ -342,8 +356,8 @@ local function named(name: string): string | nil
 end
 
 local function operation(c: Context, phase: string, command: {string},
-    timeout: integer, cwd?: string, env?: {string:string}, output?: string,
-    error_output?: string): integer
+                         timeout: integer, cwd?: string, env?: {string:string}, output?: string,
+                         error_output?: string): integer
   local runner: Runner.Context = { database = c.db, worker = c.worker,
     run = c.run, attempt = c.attempt, candidate = c.root }
   local child_environment: {string:string}
@@ -353,7 +367,7 @@ local function operation(c: Context, phase: string, command: {string},
   -- COSMIC_ZIG_CACHE_SEED where CI restored it, else keeps its own under
   -- o/, which the build phase seeds. zig keys what it compiles by its
   -- own cache's path too, and CI puts the checkout at a path of the commit's
-  -- own (.github/scripts/place-tree.sh), so a cache under o/ would never
+  -- own (ci/cosmic_ci/place_tree.tl), so a cache under o/ would never
   -- be reused there: CI saves the seed's as it stands.
   if (child_environment.COSMIC_ZIG_CACHE or "") == "" then
     local seed = named("COSMIC_ZIG_CACHE_SEED")
@@ -371,19 +385,19 @@ end
 
 -- Work done in this process, recorded as an operation as a command is.
 local function step(c: Context, phase: string,
-    work: function(): boolean, string): integer
+                    work: function(): boolean, string): integer
   local runner: Runner.Context = { database = c.db, worker = c.worker,
     run = c.run, attempt = c.attempt, candidate = c.root }
   return Runner.step(runner, phase, work).code
 end
 
 local function checked(c: Context, phase: string, command: {string},
-    timeout?: integer, cwd?: string, env?: {string:string}): integer
+                       timeout?: integer, cwd?: string, env?: {string:string}): integer
   return operation(c, phase, command, timeout or 0, cwd, env)
 end
 
 local function logged(c: Context, phase: string, command: {string}, out: string,
-    err: string, timeout: integer, cwd?: string, env?: {string:string}): integer
+                      err: string, timeout: integer, cwd?: string, env?: {string:string}): integer
   local status = operation(c, phase, command, timeout, cwd, env, out, err)
   local replay_ok = Env.get("COSMIC_CI_SELFTEST_REPLAY_FAILURE") ~= "true"
   if replay_ok then
@@ -412,6 +426,9 @@ local function record_suite(c: Context, name: string, code: integer, out: string
       shared = figures.shared, failed = figures.failed,
       elapsed_ms = figures.elapsed_ms, sandbox = figures.sandbox,
       parts = figures.parts, held = figures.held })
+    -- The skips go to the job's summary page, and fail nothing.
+    local skips = SuiteOutput.skip_report(name, said)
+    if skips ~= "" then ContextEnv.summarize(skips) end
     return true
   end)
   if not called then
@@ -420,21 +437,21 @@ local function record_suite(c: Context, name: string, code: integer, out: string
 end
 
 local function capture_small(c: Context, phase: string, command: {string},
-    path: string, timeout: integer, cwd?: string): integer
+                             path: string, timeout: integer, cwd?: string): integer
   return operation(c, phase, command, timeout, cwd, environment(), path)
 end
 
 -- Whole-project guards include compilation and test-runner overhead. The
 -- direct children inside them have the shorter bounds defined by fixture.tl.
-local product_test_timeout_ns <const> = Time.seconds(60)
-local format_test_timeout_ns <const> = Time.seconds(300)
+local product_test_timeout_ns <const> = Clock.seconds(60)
+local format_test_timeout_ns <const> = Clock.seconds(300)
 -- The sandboxed fixtures (`sandboxed_fixtures`) take 6 to 28 s where
 -- they run, under ci/run-local on a loaded four-core host (launcher 6 s,
 -- runtime 10 s, identity 28 s), and 4 to 6 s where their verdicts stand;
 -- each bound is several times that.
-local launcher_test_timeout_ns <const> = Time.seconds(60)
-local launcher_noexec_test_timeout_ns <const> = Time.seconds(60)
-local self_rebuild_test_timeout_ns <const> = Time.seconds(180)
+local launcher_test_timeout_ns <const> = Clock.seconds(60)
+local launcher_noexec_test_timeout_ns <const> = Clock.seconds(60)
+local self_rebuild_test_timeout_ns <const> = Clock.seconds(180)
 -- A self-rebuild test rebuilds the tool: the docs verb's from a cold
 -- compile of the whole tree, 50 to 60 s of one core on a runner, past the
 -- runner's default 30 s per test; the rest from the leg's compiles
@@ -446,29 +463,43 @@ local self_rebuild_per_test_timeout_s <const> = "120"
 -- about twice over (80 s alone on four cores; the combined case, the last of
 -- these, adds about 20 to 30 s to the fixture), so each runs apart from
 -- the self-rebuild file's.
-local fixed_point_test_timeout_ns <const> = Time.seconds(300)
+local fixed_point_test_timeout_ns <const> = Clock.seconds(300)
 --- The whole suite on the checked core: see [`checked_suite`]'s comment
 --- for what it takes.
-local checked_suite_timeout_ns <const> = Time.seconds(600)
+local checked_suite_timeout_ns <const> = Clock.seconds(1200)
+-- Each test's bound on the checked core: the release suites' (below)
+-- scaled by how much slower the checked core runs a test, about 2.9
+-- times over the suite and 5.5 times for a compile-heavy module
+-- (build/shape_specs_test.tl, about 3 s a test on the release core, past
+-- the runner's default 30 s on CI's checked job when no verdict stood),
+-- and doubled for a loaded runner.
+local checked_suite_test_timeout_s <const> = "120"
 local fixed_point_per_test_timeout_s <const> = "240"
 -- A boot the product drives from another path compiles no C again (it
 -- compiles from copies in zig's cache, build.zig's `Own`), only the tree:
 -- about 110 s for the whole fixture in a local run on four cores, loaded.
 -- TODO: lower these bounds once CI's own runs show the fixture's time
 -- without the core's C compile they were sized for (about 110 s of it).
-local self_driven_test_timeout_ns <const> = Time.seconds(600)
+local self_driven_test_timeout_ns <const> = Clock.seconds(600)
 local self_driven_per_test_timeout_s <const> = "480"
-local runtime_test_timeout_ns <const> = Time.seconds(90)
+local runtime_test_timeout_ns <const> = Clock.seconds(90)
 -- The sandbox probe starts six trivial children; its bound is the
 -- tree's own load, which a booted tree has already paid.
-local sandbox_probe_timeout_ns <const> = Time.seconds(60)
-local identity_test_timeout_ns <const> = Time.seconds(120)
+local sandbox_probe_timeout_ns <const> = Clock.seconds(60)
+local identity_test_timeout_ns <const> = Clock.seconds(120)
 -- The identity suite takes 21-30 s whole on macOS, and 35 s at worst, past
 -- the runner's default 30 s per test. Its focused-embed step takes 21 s of
 -- that alone and is a test of its own. The two run at once on a runner of
 -- two or more processors, so both near this bound still end inside the
 -- whole file's.
 local identity_per_test_timeout_s <const> = "60"
+-- Each performance lifecycle case starts four fixtures and 30 checked pairs
+-- per phase. CI's ordinary 10 s deadline cut these off on Linux and macOS.
+-- Their child is bounded at 45 s, including eight seconds of real source
+-- timestamp settlement; allow setup and result inspection
+-- around it, and two serial tests plus runner setup in the whole-file bound.
+local performance_per_test_timeout_s <const> = "60"
+local performance_test_timeout_ns <const> = Clock.seconds(150)
 -- The checked cosmic's first file in the tree after the checked build
 -- ([`checked_suite`]). A boot names the analyzer as the tool it writes
 -- does (build/importer.tl's `tree_code`), so that file builds nothing
@@ -476,7 +507,7 @@ local identity_per_test_timeout_s <const> = "60"
 -- the checked cosmic under ci/run-local on a 4-core host, once 41 s.
 -- TODO: lower this bound once CI's own runs show the step's time
 -- without that reparse; it is still sized for it.
-local checked_compile_timeout_ns <const> = Time.seconds(300)
+local checked_compile_timeout_ns <const> = Clock.seconds(300)
 
 -- A whole `cosmic test` run of every test, sandboxed, takes about 96 s of
 -- tests on a four-core runner (1872 tests), after a build of up to 25 s
@@ -485,14 +516,14 @@ local checked_compile_timeout_ns <const> = Time.seconds(300)
 -- bound is about twice that. Each test gets far less than the whole run,
 -- so a test that hangs is ended and named by the runner, not hidden under
 -- a cancelled run.
-local suite_timeout_ns <const> = Time.seconds(270)
+local suite_timeout_ns <const> = Clock.seconds(270)
 local suite_test_timeout_s <const> = "10"
 
 local function copy_flat_tl_dir(source: string, destination: string)
   local names: {string} = {}
   for _, name in ipairs((assert(Fs.list(source)))) do
     assert(name:match("%.tl$") and
-      assert(Fs.stat(source .. "/" .. name)).kind == "file",
+        assert(Fs.stat(source .. "/" .. name)).kind == "file",
       "invalid fixture source entry: " .. name)
     names[#names + 1] = name
   end
@@ -514,19 +545,20 @@ end
 
 --- The fixtures (ci/fixtures/<name>_test.tl) whose workers run
 --- sandboxed, where the leg sandboxes its suites, and whose verdicts are
---- shared (`fixture`). Each declares with [`Test.needs`] every path it
---- reads by the variable that says where it is -- the product
---- (COSMIC_FIXTURE_PRODUCT), the runtime setup's directory
---- (COSMIC_FIXTURE_RUNTIME), the launcher contract's
---- (COSMIC_FIXTURE_LAUNCHER) or the format decoders'
---- (COSMIC_FIXTURE_FORMAT) -- so its key holds what each holds, not
---- where it is. Each is tied to the parts of the product the leg attests
+--- shared (`fixture`). Each declares with [`Test.policy`] every path it
+--- reads of what [`place`] put at o/fixtures/<product|runtime|launcher|
+--- format|performance> of its project -- the product, the runtime
+--- setup's directory, the launcher contract's, the format decoders' or
+--- the performance inputs -- so its key holds what each holds, not
+--- where the leg keeps it. Each is tied to the parts of the product the leg attests
 --- ([`phase_attest`]) that it exercises: the product's `prefix`, its
 --- launcher, manifest and cores, which [`fixture_test`] gives it, and
 --- the content-keyed artifacts it runs, each by its bytes, so no fixture
 --- stands on a verdict another launcher, core or artifact reached
---- (orchestration_test.tl holds each to the prefix). `product` checks
---- the whole product, and declares every file of it; the rest run
+--- (orchestration_test.tl holds these to the prefix). `performance`
+--- instead keys the entire selected program and its controller source, since
+--- it exercises carried modules. `product` checks
+--- the whole product, and declares every file of it; the other fixtures run
 --- artifacts of their own setup, and do not declare the product's
 --- `cosmic`, whose database moves with every edit to the tool's code
 --- though none of theirs runs it.
@@ -543,7 +575,7 @@ end
 --- `launcher_noexec` declares private noexec scratch and runs on Linux
 --- only; the ordinary launcher fixture still runs on every platform.
 Orchestration.sandboxed_fixtures = {
-  product = true, runtime = true, launcher = true, launcher_noexec = true, identity = true,
+  product = true, runtime = true, launcher = true, launcher_noexec = true, identity = true, performance = true,
 }
 
 --- Only the Linux legs can supply the launcher's private noexec grant.
@@ -595,7 +627,18 @@ end
 --- self_rebuild_test's docs verb), it must compile and parse. The other
 --- self-rebuild cases take a copy of the leg's ([`seed_compiles`]).
 function Orchestration.fixture(env: {string:string}, tmpdir: string,
-    compiles: string, verdicts?: string): {string:string}
+                               compiles: string, verdicts?: string): {string:string}
+  -- The outer fixture runner is the pinned driver, whose requirement
+  -- table predates Unix socket creation. Candidate suites keep their list.
+  -- TODO: pass unix_socket to fixture runners once ci/cosmic-driver.pin names
+  -- a release whose build.host_names accepts unix_socket.
+  if env.COSMIC_TEST_PROMISES ~= nil then
+    local promised: {string} = {}
+    for _, name in ipairs(String.split(env.COSMIC_TEST_PROMISES, ",")) do
+      if name:match("^%s*(.-)%s*$") ~= "unix_socket" then promised[#promised + 1] = name end
+    end
+    env.COSMIC_TEST_PROMISES = table.concat(promised, ",")
+  end
   env.TMPDIR = tmpdir
   env.COSMIC_BUILD_CACHE = compiles
   if verdicts ~= nil then
@@ -610,7 +653,7 @@ function Orchestration.fixture(env: {string:string}, tmpdir: string,
   -- (COSMIC_CI_DECLARED_KEYS), by the pinned driver: it shares no verdict
   -- for a key to name. A release that keys every unsandboxed run by
   -- declaration keys it so anyway, and it shares nothing all the same
-  -- (COSMIC_VERDICT_CACHE=0); it declares the whole environment it reads.
+  -- (COSMIC_VERDICT_CACHE=0); it names each variable it reads.
   return env
 end
 
@@ -619,35 +662,86 @@ end
 --- among it), by `fixture`: one of `sandboxed_fixtures` keeps its
 --- verdicts in `fixtures.db` beside the file COSMIC_VERDICT_CACHE of
 --- `env` names ([`suite_verdicts`]), and must be given the product its
---- verdicts are keyed by (COSMIC_FIXTURE_PRODUCT); any other shares none.
+--- verdicts are keyed by what it declares of what [`fixture_test`] placed; any other shares none.
 function Orchestration.fixture_run(source: string, env: {string:string}, tmpdir: string,
-    compiles: string): {string:string}
+                                   compiles: string): {string:string}
   local sandboxed = Orchestration.sandboxed_fixtures[source] == true
-  assert(not sandboxed or (env.COSMIC_FIXTURE_PRODUCT or "") ~= "",
-    "a sandboxed fixture is given the product its verdict is keyed by: " .. source)
   local verdicts: string | nil = nil
   if sandboxed then verdicts = Orchestration.suite_verdicts(env, "fixtures") end
   return Orchestration.fixture(env, tmpdir, compiles, verdicts)
 end
 
+--- What a sandboxed fixture reads of a setup's output, `from` (the
+--- product, the runtime setup's directory, the launcher contract's, the
+--- format decoders', the performance inputs), placed at `kind` under
+--- o/fixtures of the project it runs in: the fixture declares each path
+--- it reads there with [`Test.policy`], a grant, so its
+--- key holds what each holds, not where the leg keeps it. Only `only`, the
+--- names beneath `from` it reads, are copied where it is given: a fixture
+--- that reads the product's `prefix` alone is not given the product's
+--- `cosmic` and `cosmic.db` to copy.
+local record Placement
+  kind: string
+  from: string
+  only: {string}
+end
+
+--- Places each of `placements` beneath `project`'s o/fixtures
+--- ([`Placement`]). A copy, so a fixture is free to run what it is
+--- placed without touching the product the leg attests.
+local function place(project: string, placements: {Placement})
+  for _, placement in ipairs(placements) do
+    assert(placement.kind:match("^[%w_]+$"), "invalid fixture placement")
+    local where = project .. "/o/fixtures/" .. placement.kind
+    assert(Fs.mkdirs(Fs.dirname(where)))
+    if placement.only == nil then
+      assert(Fs.copy_tree(placement.from, where))
+    else
+      for _, name in ipairs(placement.only) do
+        local target = where .. "/" .. name
+        assert(Fs.mkdirs(Fs.dirname(target)))
+        local st = assert(Fs.stat(placement.from .. "/" .. name))
+        assert(Fs.write(target, read(placement.from .. "/" .. name), st.mode & 0x1ff))
+      end
+    end
+  end
+end
+
 local function fixture_test(c: Context, work: string, name: string,
-    source: string, timeout_ns: integer, extra: {string:string}): integer
+                            source: string, timeout_ns: integer, extra: {string:string},
+                            placements?: {Placement}): integer
   assert(name:match("^[%w-]+$"), "invalid fixture test name")
   assert(source:match("^[%w_]+$"), "invalid fixture test source")
   local project = fixture_project(c, work)
+  place(project, placements or {})
   local diagnostics = work .. "/fixture-test-diagnostics/" .. name
   mkdir(diagnostics)
   mkdir(diagnostics .. "/tmp")
   local out, err = diagnostics .. "/test.out", diagnostics .. "/test.err"
   -- No --census: a fixture's run holds too few tests for its key parts
   -- to say much, and an unsandboxed one's are keyed by nothing.
+  local env = environment(extra)
   local status = logged(c, "fixture: " .. name,
     { assert(Proc.executable()), "test",
       "fixtures/" .. source .. "_test.tl" }, out, err, timeout_ns, project,
-    Orchestration.fixture_run(source, environment(extra), diagnostics .. "/tmp",
+    Orchestration.fixture_run(source, env, diagnostics .. "/tmp",
       work .. "/fixture-compiles.db"))
   record_suite(c, "fixture " .. name, status, out)
   return status
+end
+
+-- Copy the exact selected candidate and controller into declared external
+-- inputs. Full program bytes key this fixture: it exercises carried modules,
+-- not only the native prefix. Release and checked runs keep distinct inputs.
+local function performance_fixture(c: Context, work: string, kind: string, program: string): integer
+  local inputs = work .. "/performance-" .. kind .. "-inputs"
+  mkdir(inputs)
+  assert(Fs.write(inputs .. "/program", read(program), 0x1ed))
+  write(inputs .. "/perf.tl", read(c.root .. "/build/perf.tl"))
+  return fixture_test(c, work, "performance-" .. kind .. "-regression", "performance",
+    performance_test_timeout_ns, {
+      COSMIC_TEST_TIMEOUT = performance_per_test_timeout_s,
+    }, { { kind = "performance", from = inputs } })
 end
 
 --- The checked core, verified on every leg -- its manifest entry in the
@@ -655,7 +749,7 @@ end
 --- format-test-<target>), its range, and that the artifact runs it --
 --- and its whole suite run where COSMIC_CI_CHECKED_SUITE is not `skip`.
 local function checked_suite(c: Context, target: string, work: string,
-    decoder: string): integer
+                             decoder: string): integer
   local sanitized = c.root .. "/o/sanitized"
   local targets_path = sanitized .. "/targets.tsv"
   local target_id: string | nil = nil
@@ -684,7 +778,7 @@ local function checked_suite(c: Context, target: string, work: string,
   -- The checked artifact's manifest entry, as the contract's decoder
   -- reads it (as ci/fixtures/product_test.tl reads the product's).
   local s = capture_small(c, "checked manifest entry",
-    { decoder, "--inspect", cosmic }, entry, Time.seconds(30))
+    { decoder, "--inspect", cosmic }, entry, Clock.seconds(30))
   if s ~= 0 then return s end
   local found = Fixture.entry(Fixture.inspection(entry),
     assert(math.tointeger(tonumber(target_id))), 2)
@@ -697,13 +791,13 @@ local function checked_suite(c: Context, target: string, work: string,
   assert(length == #raw and #digest == 64, "checked core length/digest invalid")
   local extracted = artifact:sub(offset + 1, offset + length)
   assert(#extracted == length and Hash.hex_sha256(extracted) == digest and
-    extracted == raw, "checked core range differs")
+      extracted == raw, "checked core range differs")
   write(work .. "/checked.core", extracted)
   -- The checked core keeps its debug information but names no path of
   -- the run that built it (build.zig's `debug_dir` and the generated
   -- map's `-g0`). The checked suite's verdicts are keyed by the core's
   -- image, its debug sections left out (build/core_image.tl). A core
-  -- that names the tree root (per commit in CI, place-tree.sh) or the
+  -- that names the tree root (per commit in CI, place_tree.tl) or the
   -- map's zig-cache directory (new on every relink) in what it loads,
   -- such as an assert's __FILE__, would move every key each run and
   -- stand on none. These are plain finds over the core already read
@@ -725,12 +819,12 @@ local function checked_suite(c: Context, target: string, work: string,
     if not leak then break end
     assert(raw:sub(leak, leak + #cache - 1) == cache,
       "the checked core names a path under the tree root " .. c.root ..
-      ": a compile lacks build.zig's -fdebug-compilation-dir=.")
+        ": a compile lacks build.zig's -fdebug-compilation-dir=.")
     at = leak + #cache
   end
   assert(not raw:find("/coverage_map.c", 1, true),
     "the checked core names its generated coverage map's path: " ..
-    "the map compiles without build.zig's -g0")
+      "the map compiles without build.zig's -g0")
   local expected = offset .. "\t" .. length .. "\t" .. digest .. "\n"
   -- That the checked artifact runs the checked core: its runtime
   -- context as a chunk run with no tree around it (`cosmic -e`) sees it,
@@ -738,7 +832,7 @@ local function checked_suite(c: Context, target: string, work: string,
   local context = work .. "/checked-context.txt"
   s = capture_small(c, "checked runtime context", { cosmic, "-e",
     "local Store = require('cosmic.store'); print(Store.meta('runtime_context'), " ..
-    "Store.meta('host'), Store.meta('host_image'))" }, context, Time.seconds(30))
+      "Store.meta('host'), Store.meta('host_image'))" }, context, Clock.seconds(30))
   if s ~= 0 then return s end
   assert(read(context) == "portable-v1\t" .. target .. "\t" .. digest .. "\n",
     "checked artifact did not execute the checked raw core: " .. read(context))
@@ -759,7 +853,7 @@ local function checked_suite(c: Context, target: string, work: string,
   -- ci/darwin-tests.txt names them.
   if Env.get("COSMIC_CI_CHECKED_SUITE") == "skip" then
     Fs.put(Fs.stderr, "checked suite: skipped on this leg " ..
-      "(COSMIC_CI_CHECKED_SUITE=skip)\n")
+        "(COSMIC_CI_CHECKED_SUITE=skip)\n")
     -- Such a leg keeps none of the suite's verdicts either, which the job
     -- that runs it keeps in a cache entry of its own. A file left in the
     -- leg's cache, none of whose rows a run reaches, would ride along
@@ -768,7 +862,7 @@ local function checked_suite(c: Context, target: string, work: string,
     if stale ~= "0" and exists(stale) then
       local removed, trouble = Fs.remove(stale)
       Fs.put(Fs.stderr, removed and ("checked suite: removed this leg's " .. stale .. "\n") or
-        ("checked suite: could not remove " .. stale .. ": " .. tostring(trouble) .. "\n"))
+          ("checked suite: could not remove " .. stale .. ": " .. tostring(trouble) .. "\n"))
     end
     return 0
   end
@@ -786,10 +880,12 @@ local function checked_suite(c: Context, target: string, work: string,
   mkdir(diagnostics)
   -- c.root/o is not cleared: the sanitized binary's runtime identity
   -- differs from the release one's, so no release verdict can stand.
-  -- The bound is about twice what the suite takes: 271 s whole (248 to
-  -- 285 over six main runs of September 2026) for 1948 tests on a 4-core
-  -- host, each worker sandboxed, the checked core running each test about
-  -- 2.9 times slower than the release core does.
+  -- The bound is about twice what the suite takes when no verdict
+  -- stands: 271 s whole (248 to 285 over six main runs of September 2026)
+  -- for 1948 tests on a 4-core host, each worker sandboxed, the checked
+  -- core running each test about 2.9 times slower than the release core
+  -- does; 3709 tests took 395 s locally on four cores in October 2026,
+  -- and more than 600 s on CI's, in the merge queue.
   -- Where its key holds, it stands on the last run's verdicts as the
   -- local suite does: a commit that moves neither the core nor the
   -- runner keys the checked core by the same digest, since its image
@@ -802,7 +898,8 @@ local function checked_suite(c: Context, target: string, work: string,
   -- every test then, whatever o/ holds.
   local checked_argv: {string} = { cosmic }
   local checked_words, checked_environment = Orchestration.suite_run({
-    COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "checked") })
+    COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "checked"),
+    COSMIC_TEST_TIMEOUT = checked_suite_test_timeout_s })
   table.insert(checked_words, 2, "--census")
   for _, word in ipairs(checked_words) do
     checked_argv[#checked_argv + 1] = word
@@ -823,12 +920,12 @@ local function checked_suite(c: Context, target: string, work: string,
 end
 
 local function snapshot(c: Context, diagnostics: string, label: string,
-    cosmic: string): integer
+                        cosmic: string): integer
   assert(label:match("^[%w-]+$"), "invalid snapshot label")
   local candidate = assert(Fs.absolute(c.root))
   local destination = assert(Fs.absolute(diagnostics))
   assert(destination ~= candidate and
-    not String.starts_with(destination, candidate .. "/"),
+      not String.starts_with(destination, candidate .. "/"),
     "snapshot path must be outside candidate checkout")
   local out = destination .. "/" .. label
   assert(not exists(out), "snapshot already exists: " .. out)
@@ -854,12 +951,12 @@ local function snapshot(c: Context, diagnostics: string, label: string,
       read(c.root .. "/ci/testdata/portable/work_db_integrity.tl"))
     return logged(c, label .. " integrity",
       { cosmic, "work_db_integrity.tl", "--recover-copy", "build.db" },
-      out .. "/integrity.out", out .. "/integrity.err", Time.seconds(30), inspect)
+      out .. "/integrity.out", out .. "/integrity.err", Clock.seconds(30), inspect)
   end)
   local removed, remove_trouble = Fs.remove_tree(inspect)
   assert(removed and not exists(inspect),
     "could not remove disposable integrity directory: " ..
-    tostring(remove_trouble))
+      tostring(remove_trouble))
   if not called then error(answer) end
   return answer
 end
@@ -867,7 +964,7 @@ end
 --- One suite of `c`'s candidate, run by `executable`, `env` added to
 --- its environment.
 local function suite(c: Context, name: string, executable: string,
-    diagnostics: string, env?: {string:string}, shard?: string): integer
+                     diagnostics: string, env?: {string:string}, shard?: string): integer
   mkdir(diagnostics)
   local out = diagnostics .. "/" .. name .. "-test.out"
   local err = diagnostics .. "/" .. name .. "-test.err"
@@ -893,7 +990,7 @@ local function suite(c: Context, name: string, executable: string,
     Fs.put(Fs.stderr, name .. " suite: timed out (status 124)\n")
   elseif status ~= 0 then
     Fs.put(Fs.stderr,
-name .. " suite: failed (status " .. status .. ")\n")
+      name .. " suite: failed (status " .. status .. ")\n")
   end
   if status ~= 0 then return status end
   if snapshot_status ~= 0 then return snapshot_status end
@@ -917,7 +1014,7 @@ local function archive(c: Context, destination: string): integer
 end
 
 local targets: {string:boolean} = {
- ["x86_64-linux-musl"] = true, ["aarch64-linux-musl"] = true, ["aarch64-macos"] = true }
+  ["x86_64-linux-musl"] = true, ["aarch64-linux-musl"] = true, ["aarch64-macos"] = true }
 
 local record PlatformContext
   trailing: string | nil
@@ -952,7 +1049,7 @@ local function boot(p: PlatformContext): integer
   -- (minutes) and fails nothing, so say so where the log shows it.
   if cache and not is_dir(cache) then
     Fs.put(Fs.stderr, "build: no zig-cache at " .. cache ..
-      "; compiling from nothing\n")
+        "; compiling from nothing\n")
   end
   if not seed and from and is_dir(from) then
     mkdir(root .. "/o")
@@ -1029,7 +1126,7 @@ local function phase_darwin_suite(p: PlatformContext): integer
   local listed, trouble = Fs.read(c.root .. "/" .. darwin_list)
   if listed == nil then
     Fs.put(Fs.stderr, "darwin suite: cannot read " .. darwin_list .. ": " ..
-      tostring(trouble) .. "\n")
+        tostring(trouble) .. "\n")
     return 1
   end
   local suite_words, values = Orchestration.suite_run()
@@ -1041,7 +1138,7 @@ local function phase_darwin_suite(p: PlatformContext): integer
     local code = math.tointeger(tonumber((read(native .. ".status"):gsub("%s+$", ""))))
     if code ~= nil and Orchestration.native_ran_every(read(native .. ".out"), code) then
       Fs.put(Fs.stderr, "darwin suite: the native suite ran every test here, none " ..
-        "standing, so the listed modules ran on this leg already\n")
+          "standing, so the listed modules ran on this leg already\n")
       return 0
     end
   end
@@ -1140,7 +1237,7 @@ end
 --- The format check's command, below: `fix --check .`, or, where
 --- COSMIC_CI_FORMAT_CHANGED names a file, one path a line, of what
 --- changed since the tree's base on main, which passed the whole tree's
---- check (.github/scripts/changed-paths.sh, on a light run), `fix
+--- check (driver.tl changed-paths, on a light run), `fix
 --- --check --changed` of those paths, which lays out only them yet makes
 --- every check spanning files over the whole tree, and lays out all of
 --- it where a path named is part of what checks each file. A file that
@@ -1154,7 +1251,7 @@ local function format_command(root: string): {string}
     text = found
     if found == nil then
       Fs.put(Fs.stderr, "format check: the whole tree, since what changed is not known: " ..
-        trouble .. "\n")
+          trouble .. "\n")
     end
   end
   if text == nil then
@@ -1184,7 +1281,7 @@ local function format_check(p: PlatformContext): integer
   end
   if Env.get("COSMIC_CI_FORMAT") == "skip" then
     Fs.put(Fs.stderr, "format check: skipped on this leg " ..
-      "(COSMIC_CI_FORMAT=skip)\n")
+        "(COSMIC_CI_FORMAT=skip)\n")
     return 0
   end
   return checked(p.operation, "format check", format_command(p.root))
@@ -1212,10 +1309,10 @@ local function phase_assemble(p: PlatformContext): integer
   write(work .. "/product.before.sha256", read(product .. "/hashes.sha256"))
   s = fixture_test(c, work, "format-contract", "format",
     format_test_timeout_ns, {
-    COSMIC_FIXTURE_ROOT = root,
-    COSMIC_FIXTURE_FORMAT = contract .. "/format",
-    COSMIC_FIXTURE_TARGET = target,
-  })
+      COSMIC_FIXTURE_ROOT = root,
+      COSMIC_FIXTURE_FORMAT = contract .. "/format",
+      COSMIC_FIXTURE_TARGET = target,
+    })
   if s ~= 0 then return s end
   assert(LauncherSetup.build(root, contract .. "/launcher", target,
     work .. "/launcher-setup") == contract .. "/launcher",
@@ -1233,11 +1330,10 @@ local function phase_assemble(p: PlatformContext): integer
     "runtime setup returned the wrong output")
   s = fixture_test(c, work, "product-verification", "product",
     product_test_timeout_ns, {
-    COSMIC_FIXTURE_PRODUCT = product,
-    COSMIC_FIXTURE_TARGET = target,
-    COSMIC_FIXTURE_FORMAT = contract .. "/format",
-    COSMIC_FIXTURE_CODESIGN = target == "aarch64-macos" and "true" or "false",
-  })
+      COSMIC_FIXTURE_TARGET = target,
+      COSMIC_FIXTURE_CODESIGN = target == "aarch64-macos" and "true" or "false",
+    }, { { kind = "product", from = product },
+      { kind = "format", from = contract .. "/format" } })
   if s ~= 0 then return s end
   s = checked(c, "selected format mutation", { contract .. "/format/format-test-" .. target, contract .. "/format/program" })
   if s ~= 0 then return s end
@@ -1275,7 +1371,7 @@ local function phase_portable(p: PlatformContext): integer
   -- none of it (cosmic_ci/verdicts.tl).
   if Env.get("COSMIC_CI_PORTABLE_SUITE") == "skip" then
     Fs.put(Fs.stderr, "portable suite: skipped on this leg " ..
-      "(COSMIC_CI_PORTABLE_SUITE=skip)\n")
+        "(COSMIC_CI_PORTABLE_SUITE=skip)\n")
   else
     -- Where the other suites stand on verdicts (`stands`), it stands on
     -- its own ([`suite_verdicts`]), never on the local suite's;
@@ -1287,7 +1383,7 @@ local function phase_portable(p: PlatformContext): integer
   local hash_called, hash_error = pcall(function(): boolean
     write(portable_d .. "/portable-artifact.after.sha256", hash(executable) .. "\n")
     assert(read(portable_d .. "/portable-artifact.before.sha256") ==
-      read(portable_d .. "/portable-artifact.after.sha256"),
+        read(portable_d .. "/portable-artifact.after.sha256"),
       "portable artifact changed")
     return true
   end)
@@ -1307,7 +1403,7 @@ local function phase_portable_boundary(p: PlatformContext): integer
   -- to hold across the boundary.
   if Env.get("COSMIC_CI_PORTABLE_SUITE") == "skip" then
     Fs.put(Fs.stderr, "portable boundary: skipped on this leg " ..
-      "(COSMIC_CI_PORTABLE_SUITE=skip)\n")
+        "(COSMIC_CI_PORTABLE_SUITE=skip)\n")
     return 0
   end
   local s = snapshot(portable_context, portable_d, "portable-boundary",
@@ -1321,7 +1417,7 @@ local function phase_portable_boundary(p: PlatformContext): integer
       function(): boolean, string return Fs.chmod(cache, 0x140) end)
     if locked ~= 0 then return locked end
     local help = checked(portable_context, "read-only cache execution",
-      { executable, "help" }, Time.seconds(30), fresh, environment({ COSMIC_PORTABLE_CACHE = cache }))
+      { executable, "help" }, Clock.seconds(30), fresh, environment({ COSMIC_PORTABLE_CACHE = cache }))
     local restored = step(portable_context, "portable cache restore mode",
       function(): boolean, string return Fs.chmod(cache, 0x1c0) end)
     if help ~= 0 then return help end
@@ -1362,7 +1458,7 @@ end
 --- `0` keeps none, and is refused rather than left to compile every
 --- case cold.
 function Orchestration.seed_compiles(env: {string:string},
-    destination: string): boolean, string
+                                     destination: string): boolean, string
   local source = env.COSMIC_BUILD_CACHE or ""
   if source == "0" then
     return false, "COSMIC_BUILD_CACHE=0: the leg keeps no compiles to seed " ..
@@ -1376,8 +1472,9 @@ function Orchestration.seed_compiles(env: {string:string},
   if source:sub(1, 1) ~= "/" then
     return false, "COSMIC_BUILD_CACHE names no absolute path: " .. source
   end
-  for _, held in ipairs({ { Fs.dirname(source), "dir" }, { source, "file" } }) do
-    local path, kind = held[1], held[2]
+  local held: {{string, sys.Kind}} = { { Fs.dirname(source), "dir" }, { source, "file" } }
+  for _, pair in ipairs(held) do
+    local path, kind = pair[1], pair[2]
     -- A link to the directory is followed, as shared_compiles' `private`
     -- follows it; one to the file is not.
     local st, stat_trouble: sys.Stat, string = nil, ""
@@ -1424,7 +1521,7 @@ local function phase_fixtures(p: PlatformContext): integer
   -- it on every leg (ci.yml).
   if Env.get("COSMIC_CI_SELF_REBUILD") == "skip" then
     Fs.put(Fs.stderr, "fixture: self-rebuild-regression: skipped on this leg " ..
-      "(COSMIC_CI_SELF_REBUILD=skip)\n")
+        "(COSMIC_CI_SELF_REBUILD=skip)\n")
   else
     local compiles = work .. "/self-rebuild-compiles.db"
     s = step(c, "self-rebuild compiles seed", function(): boolean, string
@@ -1434,11 +1531,11 @@ local function phase_fixtures(p: PlatformContext): integer
     if s ~= 0 then return s end
     s = fixture_test(c, work, "self-rebuild-regression", "self_rebuild",
       self_rebuild_test_timeout_ns, {
-      COSMIC_FIXTURE_SOURCE = source,
-      COSMIC_FIXTURE_RUNTIME = runtime,
-      COSMIC_FIXTURE_COMPILES = compiles,
-      COSMIC_TEST_TIMEOUT = self_rebuild_per_test_timeout_s,
-    })
+        COSMIC_FIXTURE_SOURCE = source,
+        COSMIC_FIXTURE_RUNTIME = runtime,
+        COSMIC_FIXTURE_COMPILES = compiles,
+        COSMIC_TEST_TIMEOUT = self_rebuild_per_test_timeout_s,
+      })
     if s ~= 0 then return s end
   end
   -- The fixed-point regression is the slowest fixture on every leg
@@ -1450,51 +1547,49 @@ local function phase_fixtures(p: PlatformContext): integer
   -- every leg (ci.yml).
   if Env.get("COSMIC_CI_FIXED_POINT") == "skip" then
     Fs.put(Fs.stderr, "fixture: fixed-point-regression: skipped on this leg " ..
-      "(COSMIC_CI_FIXED_POINT=skip)\n")
+        "(COSMIC_CI_FIXED_POINT=skip)\n")
   else
     s = fixture_test(c, work, "fixed-point-regression", "fixed_point",
       fixed_point_test_timeout_ns, {
-      COSMIC_FIXTURE_SOURCE = source,
-      COSMIC_FIXTURE_PRODUCT = product,
-      COSMIC_TEST_TIMEOUT = fixed_point_per_test_timeout_s,
-    })
+        COSMIC_FIXTURE_SOURCE = source,
+        COSMIC_FIXTURE_PRODUCT = product,
+        COSMIC_TEST_TIMEOUT = fixed_point_per_test_timeout_s,
+      })
     if s ~= 0 then return s end
   end
   s = fixture_test(c, work, "self-driven-regression", "self_driven",
     self_driven_test_timeout_ns, {
-    COSMIC_FIXTURE_SOURCE = source,
-    COSMIC_FIXTURE_PRODUCT = product,
-    COSMIC_TEST_TIMEOUT = self_driven_per_test_timeout_s,
-  })
+      COSMIC_FIXTURE_SOURCE = source,
+      COSMIC_FIXTURE_PRODUCT = product,
+      COSMIC_TEST_TIMEOUT = self_driven_per_test_timeout_s,
+    })
   if s ~= 0 then return s end
   s = fixture_test(c, work, "runtime-regression", "runtime",
-    runtime_test_timeout_ns, {
-    COSMIC_FIXTURE_PRODUCT = product,
-    COSMIC_FIXTURE_RUNTIME = runtime,
-  })
+    runtime_test_timeout_ns, {},
+    { { kind = "product", from = product, only = { "prefix" } },
+      { kind = "runtime", from = runtime } })
   if s ~= 0 then return s end
   s = fixture_test(c, work, "launcher-regression", "launcher",
     launcher_test_timeout_ns, {
-    COSMIC_FIXTURE_PRODUCT = product,
-    COSMIC_FIXTURE_LAUNCHER = contract .. "/launcher",
-    COSMIC_FIXTURE_TARGET = target,
-  })
+      COSMIC_FIXTURE_TARGET = target,
+    }, { { kind = "product", from = product, only = { "prefix" } },
+      { kind = "launcher", from = contract .. "/launcher" } })
   if s ~= 0 then return s end
   if Orchestration.noexec_fixture(target) then
     s = fixture_test(c, work, "launcher-noexec-regression", "launcher_noexec",
       launcher_noexec_test_timeout_ns, {
-      COSMIC_FIXTURE_PRODUCT = product,
-      COSMIC_FIXTURE_LAUNCHER = contract .. "/launcher",
-      COSMIC_FIXTURE_TARGET = target,
-    })
+        COSMIC_FIXTURE_TARGET = target,
+      }, { { kind = "product", from = product, only = { "prefix" } },
+        { kind = "launcher", from = contract .. "/launcher" } })
     if s ~= 0 then return s end
   end
   s = fixture_test(c, work, "identity-regression", "identity",
     identity_test_timeout_ns, {
-    COSMIC_FIXTURE_PRODUCT = product,
-    COSMIC_FIXTURE_RUNTIME = runtime,
-    COSMIC_TEST_TIMEOUT = identity_per_test_timeout_s,
-  })
+      COSMIC_TEST_TIMEOUT = identity_per_test_timeout_s,
+    }, { { kind = "product", from = product, only = { "prefix" } },
+      { kind = "runtime", from = runtime } })
+  if s ~= 0 then return s end
+  s = performance_fixture(c, work, "release", product .. "/cosmic")
   if s ~= 0 then return s end
   -- The product fixture ran on these bytes in assemble
   -- (product-verification); run again on the same bytes and inputs, it
@@ -1541,6 +1636,8 @@ local function platform_impl(phase: string, p: PlatformContext): integer
   elseif phase == "checked" then
     return checked_suite(p.operation, p.target, p.work,
       p.contract .. "/format/format-test-" .. p.target)
+  elseif phase == "performance-checked" then
+    return performance_fixture(p.operation, p.work, "checked", p.root .. "/o/sanitized/bin/cosmic")
   elseif phase == "sandbox" then
     return phase_sandbox(p)
   elseif phase == "assemble" then

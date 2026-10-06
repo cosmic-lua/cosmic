@@ -49,12 +49,12 @@ local function projection(rows: {Row}): Sqlite.Handle
       seen[item.module] = true
       assert(Sqlite.run(db,
         "INSERT INTO modules (path, file, kind, source_hash, key, source, bytecode, tests) " ..
-        "VALUES (?1, ?2, 'module', '', '', '', '', '')",
+          "VALUES (?1, ?2, 'module', '', '', '', '', '')",
         { { text = item.module }, { text = item.module:gsub("%.", "/") .. ".tl" } }))
     end
     assert(Sqlite.run(db,
       "INSERT INTO docs (module, symbol, source_symbol, exported, kind, signature, text, file, line) " ..
-      "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1)",
+        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1)",
       { { text = item.module }, { text = item.symbol }, { text = item.source_symbol },
         { integer = item.exported and 1 or 0 }, { text = item.kind },
         { text = item.signature }, { text = item.text },
@@ -192,7 +192,10 @@ local function test_a_comment_in_a_signature_and_an_internal_path_are_refused()
     rows = clean()
     rows[3].text = "Adds one to `a`; " .. path .. " says how."
     found = docs_checks.rendered(projection(rows), none)
-    assert(#found == 1 and found[1]:find("names " .. path, 1, true) ~= nil,
+    -- The call's own page, and its module's, whose listing shows its
+    -- first sentence.
+    assert(#found == 2 and found[1]:find("names " .. path, 1, true) ~= nil and
+        found[2]:find("names " .. path, 1, true) ~= nil,
       path .. ": " .. table.concat(found, "\n"))
   end
 
@@ -208,7 +211,7 @@ local function test_a_module_the_index_lists_must_resolve()
   local db = projection(clean())
   assert(Sqlite.run(db,
     "INSERT INTO modules (path, file, kind, source_hash, key, source, bytecode, tests) " ..
-    "VALUES ('cosmic.ghost', 'cosmic/ghost.tl', 'module', '', '', '', '', '')"))
+      "VALUES ('cosmic.ghost', 'cosmic/ghost.tl', 'module', '', '', '', '', '')"))
   local found = docs_checks.rendered(db, none)
   assert(#found >= 1 and #mentioning(found, "cosmic.ghost") >= 1, table.concat(found, "\n"))
 end
@@ -259,7 +262,7 @@ local function test_a_page_naming_a_removed_symbol_is_stale()
   local found = docs_checks.references(db, {}, { "test" }, {})
   assert(#found == 2, table.concat(found, "\n"))
   assert(#mentioning(found, "`Net.pair` names a removed symbol: Net.pair was removed: " ..
-    "listen at a socket file") == 1, table.concat(found, "\n"))
+      "listen at a socket file") == 1, table.concat(found, "\n"))
   assert(#mentioning(found, "`cosmic docs Net.pair` names a removed symbol: Net.pair was removed") == 1,
     table.concat(found, "\n"))
 end

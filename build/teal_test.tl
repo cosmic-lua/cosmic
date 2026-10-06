@@ -6,8 +6,11 @@
 --- the write for itself would leave the checker searching the
 --- filesystem.
 local type compiler = require("build.compiler")
+local Clock = require("cosmic.clock")
 local teal = require("build.teal")
-local Time = require("cosmic.time")
+
+-- These cases assert checker positions and generated code, never the
+-- vendor compiler's own Lua traceback lines, which no tree coverage uses.
 
 --- A field written through the capsule reaches the loaded compiler:
 --- the capsule itself never holds it, and reading it back through the
@@ -50,7 +53,7 @@ local integer_msg = "in assignment: got number, expected integer"
 --- integer" the checker reports for `source`, and where: nil when it
 --- reports none, or the hint is nil.
 local function hint_for(source: string): string | nil, string
-  local built = assert(teal.load())
+  local built = assert(teal.load(true))
   local _, result = built.gen(source, nil, nil, "tl")
   for _, e in ipairs(result ~= nil and result.type_errors or {}) do
     if e.msg == integer_msg then
@@ -80,13 +83,18 @@ local function test_an_integer_inferred_accumulator_names_the_fix()
   assert(hint_for("local x = 0\nx = 1.5\nprint(x)\n") == said("x", 1, "0"))
 end
 
+--- A literal with digit separators (patch/tl/38a) is quoted as written.
+local function test_an_integer_hint_quotes_a_separated_literal()
+  assert(hint_for("local x = 1_000\nx = x / 2\nprint(x)\n") == said("x", 1, "1_000"))
+end
+
 --- A trailing comment or semicolon on the declaration, an inner
 --- function reading the outer local, and an `if` branch all resolve.
 local function test_an_integer_hint_reads_the_declaration_through_the_parse()
   assert(hint_for("local x = 0 -- start\nx = x / 2\nprint(x)\n") == said("x", 1, "0"))
   assert(hint_for("local x = 0;\nx = x / 2\nprint(x)\n") == said("x", 1, "0"))
   assert(hint_for("local x = 0\nlocal function f()\n  if x then x = x / 2 end\nend\nf()\n") ==
-    said("x", 1, "0"))
+      said("x", 1, "0"))
 end
 
 --- The name is resolved, not searched for: a same-named local of a
@@ -121,9 +129,9 @@ local function test_an_integer_hint_never_misleads()
   assert(hint_for("local t = {n = 0}\nt.n = t.n + 0.5\nprint(t)\n") == converted)
   assert(hint_for("local a, b = 0, 0\na, b = 1.5, 2\nprint(a, b)\n") == converted)
   assert(hint_for("local a = 0\nlocal b = 0\nprint(a)\nlocal a2 = 1.5; b = b + 0.5\nprint(b, a2)\n") ==
-    said("b", 2, "0"))
+      said("b", 2, "0"))
   assert(hint_for("local n = 0\nlocal t = {\n  n = 1,\n}\nn = n / 2\nprint(t, n)\n") ==
-    said("n", 1, "0"))
+      said("n", 1, "0"))
   assert(teal.replacement("in assignment: got string, expected integer",
     "local x = 0\nx = 'a'\n", 2, 5) == nil)
 end
@@ -133,7 +141,7 @@ end
 --- read through a record is no different.
 local function test_an_integer_hint_reads_a_non_binary_right_hand_side()
   assert(hint_for("local x = 0\nlocal function f(): number\n  return 1.5\nend\nx = f()\nprint(x)\n") ==
-    said("x", 1, "0"))
+      said("x", 1, "0"))
   assert(hint_for("local x = 0\nlocal t = {n = 1.5}\nx = t.n\nprint(x)\n") == said("x", 1, "0"))
   assert(hint_for("local x = 0\nx = (1.5)\nprint(x)\n") == said("x", 1, "0"))
 end
@@ -143,7 +151,7 @@ end
 local function test_an_integer_hint_reads_repeat_and_method_scopes()
   assert(hint_for("local x = 0\nrepeat\n  x = x / 2\nuntil x < 1\nprint(x)\n") == said("x", 1, "0"))
   assert(hint_for("repeat\n  local x: integer = 0\n  x = x / 2\nuntil x < 1\nlocal x = 0\nprint(x)\n") ==
-    converted)
+      converted)
   -- The checker refuses a method's `self` for another reason, so ask
   -- [`teal.replacement`] for the integer message at the literal's position.
   assert(teal.replacement(integer_msg,
@@ -153,7 +161,7 @@ end
 --- The type errors the checker reports for `source`, failing the test
 --- where it raises instead.
 local function type_errors(source: string): {compiler.Error}
-  local built = assert(teal.load())
+  local built = assert(teal.load(true))
   local ok, code, result = pcall(built.gen, source, nil, nil, "tl")
   assert(ok, tostring(code))
   return assert(result).type_errors
@@ -169,14 +177,14 @@ local function test_g_is_checked_where_it_is_read()
   assert(errors[1].y == 1 and errors[1].x == 20, errors[1].y .. ":" .. errors[1].x)
   assert(errors[1].msg:find("expected integer$") ~= nil, errors[1].msg)
   for _, found in ipairs(type_errors("local value: any = _G\nfor _ = 1, 2 do\n" ..
-      "  if value is {any: any} then value = value[1] end\nend\n")) do
+        "  if value is {any: any} then value = value[1] end\nend\n")) do
     assert(found.filename ~= nil and found.y ~= nil and found.x ~= nil, found.msg)
   end
 end
 
 --- What the parser refuses in `source`, each as "line:column message".
 local function syntax_errors(source: string): {string}
-  local built = assert(teal.load())
+  local built = assert(teal.load(true))
   local _, result = built.gen(source, nil, nil, "tl")
   local out: {string} = {}
   for _, e in ipairs(assert(result).syntax_errors) do
@@ -190,11 +198,11 @@ end
 --- after one is still refused.
 local function test_a_return_closed_by_a_semicolon_ends_its_block()
   for _, source in ipairs({
-    "local function f() return 1; end\n",
-    "local function f() return; end\n",
-    "if a then return 1; elseif b then return; else return 2; end\n",
-    "repeat return; until a\n",
-    "return 1;\n",
+      "local function f() return 1; end\n",
+      "local function f() return; end\n",
+      "if a then return 1; elseif b then return; else return 2; end\n",
+      "repeat return; until a\n",
+      "return 1;\n",
   }) do
     local found = syntax_errors(source)
     assert(#found == 0, source .. table.concat(found, "; "))
@@ -209,7 +217,7 @@ end
 --- statement, the `;` tl inserts there right after the string's last
 --- byte (patch/tl's 29-call-after-a-token-spanning-lines.txt).
 local function test_a_call_after_a_string_spanning_lines()
-  local built = assert(teal.load())
+  local built = assert(teal.load(true))
   for _, source in ipairs({ "f [[a\nb]](1)\n", "f 'a\\z\n  b'(1)\n", "f [==[\n]==]{}(1)\n" }) do
     local found = syntax_errors(source)
     assert(#found == 0, source .. table.concat(found, "; "))
@@ -234,19 +242,19 @@ end
 --- return type.
 local function test_return_types_end_before_the_next_parameter()
   for _, source in ipairs({
-    "local function f(cb: function(): integer, n?: string) return cb, n end\n",
-    "local function f(cb: function(): integer, ...: any) return cb end\n",
-    "local function f(cb: function(): integer, ...) return cb end\n",
-    "local type F = function(cb: function(): integer, n?: string)\n",
-    "local type G = function(function(): integer, ?string)\n",
-    "local type H = function(): integer...\n",
+      "local function f(cb: function(): integer, n?: string) return cb, n end\n",
+      "local function f(cb: function(): integer, ...: any) return cb end\n",
+      "local function f(cb: function(): integer, ...) return cb end\n",
+      "local type F = function(cb: function(): integer, n?: string)\n",
+      "local type G = function(function(): integer, ?string)\n",
+      "local type H = function(): integer...\n",
   }) do
     local found = syntax_errors(source)
     assert(#found == 0, source .. table.concat(found, "; "))
   end
-  local built = assert(teal.load())
+  local built = assert(teal.load(true))
   local _, result = built.gen("local type F = function(cb: function(): integer, string)\n" ..
-    "local f: F = function(_cb: function(): (integer, string)) end\nprint(f)\n", nil, nil, "tl")
+      "local f: F = function(_cb: function(): (integer, string)) end\nprint(f)\n", nil, nil, "tl")
   assert(#assert(result).syntax_errors == 0 and #result.type_errors == 0,
     tostring((result.type_errors[1] or result.syntax_errors[1] or {}).msg))
 end
@@ -258,13 +266,13 @@ end
 --- `record` can be assigned, and the old declaration still says what
 --- to write instead.
 local function test_a_keyword_named_variable_is_no_old_type_declaration()
-  local built = assert(teal.load())
+  local built = assert(teal.load(true))
   local code, result = built.gen("local rows = { 1 }\n" ..
-    "for _, record in ipairs(rows) do\n" ..
-    "  local category = record\n" ..
-    "  local t = { v = record }\n" ..
-    "  print(category, t.v)\n" ..
-    "end\n", nil, nil, "tl")
+      "for _, record in ipairs(rows) do\n" ..
+      "  local category = record\n" ..
+      "  local t = { v = record }\n" ..
+      "  print(category, t.v)\n" ..
+      "end\n", nil, nil, "tl")
   assert(#assert(result).syntax_errors == 0 and #result.type_errors == 0,
     tostring((result.syntax_errors[1] or result.type_errors[1] or {}).msg))
   local printed: {string} = {}
@@ -277,11 +285,11 @@ local function test_a_keyword_named_variable_is_no_old_type_declaration()
   -- for the expression: it rewrites a type argument list's `>>` to `>`,
   -- and inserts a `>` it misses at a line break.
   for _, case in ipairs({
-    { "local record: A<A<integer>> | integer = 1\nlocal b = record is A<A<integer>>\n", "false" },
-    { "local record = 1\nlocal b = record < n >> 1\n", "true" },
-    { "local record = 1\nlocal b = record < n\nprint(b)\n", "true" },
-    { "local function record(t: {boolean}): integer return #t end\n" ..
-      "local b = record {\n  1 < n,\n  true\n}\n", "2" },
+      { "local record: A<A<integer>> | integer = 1\nlocal b = record is A<A<integer>>\n", "false" },
+      { "local record = 1\nlocal b = record < n >> 1\n", "true" },
+      { "local record = 1\nlocal b = record < n\nprint(b)\n", "true" },
+      { "local function record(t: {boolean}): integer return #t end\n" ..
+            "local b = record {\n  1 < n,\n  true\n}\n", "2" },
   }) do
     local case_code, checked = built.gen("local type A<T> = {T}\nlocal n = 4\n" .. case[1] .. "return tostring(b)\n",
       nil, nil, "tl")
@@ -292,42 +300,42 @@ local function test_a_keyword_named_variable_is_no_old_type_declaration()
   end
   for _, word in ipairs({ "record", "interface", "enum" }) do
     for _, source in ipairs({
-      "local x = WORD\nprint(x)\n",
-      "local x = WORD.field\nprint(x)\n",
-      "local x = WORD:method()\nprint(x)\n",
-      "local x = WORD\nx:m()\n",
-      "local x = WORD < 3, WORD > 2\nprint(x)\n",
-      "local x = WORD is string\nprint(x)\n",
-      "if WORD then local x = WORD end\n",
-      "if WORD then local x = WORD is string end\n",
-      "print(WORD)\n",
-      "local t = { WORD }\nprint(t)\n",
-      "local t = { v = WORD, w = 1 }\nprint(t)\n",
-      "local t = { v = WORD \"a\" }\nprint(t)\n",
-      "local b = WORD == nil\nprint(b)\n",
-      "global g = WORD\n",
+        "local x = WORD\nprint(x)\n",
+        "local x = WORD.field\nprint(x)\n",
+        "local x = WORD:method()\nprint(x)\n",
+        "local x = WORD\nx:m()\n",
+        "local x = WORD < 3, WORD > 2\nprint(x)\n",
+        "local x = WORD is string\nprint(x)\n",
+        "if WORD then local x = WORD end\n",
+        "if WORD then local x = WORD is string end\n",
+        "print(WORD)\n",
+        "local t = { WORD }\nprint(t)\n",
+        "local t = { v = WORD, w = 1 }\nprint(t)\n",
+        "local t = { v = WORD \"a\" }\nprint(t)\n",
+        "local b = WORD == nil\nprint(b)\n",
+        "global g = WORD\n",
     }) do
       local found = syntax_errors((source:gsub("WORD", word)))
       assert(#found == 0, source:gsub("WORD", word) .. table.concat(found, "; "))
     end
   end
   for _, case in ipairs({
-    { "local Point = record\n  x: number\nend\n", "use 'local record Point'" },
-    { "global Point = record\n  x: number\nend\n", "use 'global record Point'" },
-    { "local P = record <T>\n  x: T\nend\n", "use 'local record P'" },
-    { "local I = interface\n  metamethod __call: function(I)\nend\n", "use 'local interface I'" },
-    { "local E = enum\n  \"a\"\n  \"b\"\nend\n", "use 'local enum E'" },
-    { "local t = { P = record\n  x: number\nend }\n", "declare nested record inside a record" },
-    { "local t = { E = enum \"a\" end }\n", "declare nested enum inside a record" },
-    { "local F = functiontype(number): string\n", "use 'local type F = function('" },
+      { "local Point = record\n  x: number\nend\n", "use 'local record Point'" },
+      { "global Point = record\n  x: number\nend\n", "use 'global record Point'" },
+      { "local P = record <T>\n  x: T\nend\n", "use 'local record P'" },
+      { "local I = interface\n  metamethod __call: function(I)\nend\n", "use 'local interface I'" },
+      { "local E = enum\n  \"a\"\n  \"b\"\nend\n", "use 'local enum E'" },
+      { "local t = { P = record\n  x: number\nend }\n", "declare nested record inside a record" },
+      { "local t = { E = enum \"a\" end }\n", "declare nested enum inside a record" },
+      { "local F = functiontype(number): string\n", "use 'local type F = function('" },
   }) do
     local found = syntax_errors(case[1])
     assert(found[1] ~= nil and found[1]:find(case[2], 1, true) ~= nil,
       case[1] .. table.concat(found, "; "))
   end
   for _, source in ipairs({
-    "local functiontype = 1\nlocal f = functiontype\nprint(f)\n",
-    "local functiontype = function(n: integer): integer return n end\nlocal f = functiontype(1)\nprint(f)\n",
+      "local functiontype = 1\nlocal f = functiontype\nprint(f)\n",
+      "local functiontype = function(n: integer): integer return n end\nlocal f = functiontype(1)\nprint(f)\n",
   }) do
     local found = syntax_errors(source)
     assert(#found == 0, source .. table.concat(found, "; "))
@@ -352,13 +360,13 @@ local keyword_head = "local record, recd, enum, enmd, n, a = 1, 1, 1, 1, 2, 1\n"
 -- reports them, and bound that count rather than compile times, which
 -- a slow or loaded host still moves.
 local function costs_what_it_reads(source: string)
-  local built = assert(teal.load())
+  local built = assert(teal.load(true))
   local function took(text: string): integer
-    local started = Time.monotonic_ns()
+    local started = Clock.monotonic_ns()
     local _, result = built.gen(keyword_head .. text, nil, nil, "tl")
     assert(#assert(result).syntax_errors == 0, text:sub(1, 200) ..
-      tostring((result.syntax_errors[1] or {}).msg))
-    return Time.monotonic_ns() - started
+        tostring((result.syntax_errors[1] or {}).msg))
+    return Clock.monotonic_ns() - started
   end
   local plain = (source:gsub("record", "recd"):gsub("enum", "enmd"))
   -- The least of up to three of each, taken in turn, so neither a first
@@ -438,7 +446,7 @@ end
 --- reports for `source` (an error or a warning) whose message is
 --- `msg`: "no such diagnostic" when it reports none.
 local function replacement_for(source: string, msg: string): string | nil
-  local built = assert(teal.load())
+  local built = assert(teal.load(true))
   local _, result = built.gen(source, nil, nil, "tl")
   local found = result ~= nil
   for _, group in ipairs(found and { result.type_errors, result.warnings } or {}) do
@@ -481,26 +489,26 @@ local function test_a_standard_global_shadowed_is_named_where_declared()
   local shadows = "variable shadows previous declaration of 'table'"
   assert(replacement_for("local table = {1}\nprint(#table)\n", shadows) == hides_table)
   assert(replacement_for("local function f(table: {integer}): integer\n  return #table\nend\n" ..
-    "print(f({}))\n", shadows) == hides_table)
+      "print(f({}))\n", shadows) == hides_table)
   assert(replacement_for("for _, table in ipairs({{1}}) do\n  print(#table)\nend\n", shadows) ==
-    hides_table)
+      hides_table)
   assert(replacement_for("local function print(s: string)\n  io.stderr:write(s)\nend\nprint('x')\n",
     "function shadows previous declaration of 'print'") ==
-    "this hides the standard library's print for the rest of its scope: rename it")
+      "this hides the standard library's print for the rest of its scope: rename it")
   assert(replacement_for("local tonumber = 1\nprint(tonumber)\n",
     "variable shadows previous declaration of 'tonumber'") ==
-    "this hides the standard library's tonumber for the rest of its scope: rename it")
+      "this hides the standard library's tonumber for the rest of its scope: rename it")
   assert(teal.replacement("variable shadows previous declaration of 'total' " ..
-    "(originally declared at 1:7)", "", 2, 7) == nil)
+      "(originally declared at 1:7)", "", 2, 7) == nil)
   assert(replacement_for("local table = {1}\ntable.insert(table, 2)\n",
     "cannot index key 'insert' in variable 'table' of type {integer}") ==
-    "'table' here is a local that hides the standard library's table: rename it")
+      "'table' here is a local that hides the standard library's table: rename it")
   local record_named_table = "local record Rows\n  n: integer\nend\n" ..
     "local table: Rows = {n = 1}\ntable.insert(table, 2)\n"
   assert(replacement_for(record_named_table, "invalid key 'insert' in record 'table' of type Rows") ==
-    "'table' here is a local that hides the standard library's table: rename it")
+      "'table' here is a local that hides the standard library's table: rename it")
   assert(replacement_for("table.nope({})\n", "invalid key 'nope' in record 'table' of type table") ==
-    "table's fields: concat, insert, move, pack, remove, sort, unpack")
+      "table's fields: concat, insert, move, pack, remove, sort, unpack")
   -- cosmic withholds `io` from the checker ([`teal.withheld`]): a local
   -- of that name hides nothing.
   assert(teal.replacement("invalid key 'write' in record 'io' of type R", "", 3, 9) == nil)
@@ -517,10 +525,10 @@ local function test_a_value_named_string_shadows_the_library()
   local hides = "this hides the standard library's string for the rest of its scope: rename it"
   assert(replacement_for("local string = 5\nprint(string)\n", shadows) == hides)
   assert(replacement_for("local function f(string: string): string\n  return string\nend\n" ..
-    "print(f('a'))\n", shadows) == hides)
+      "print(f('a'))\n", shadows) == hides)
   assert(replacement_for("local string = string\nprint(string.upper('a'))\n", shadows) ==
-    "no such diagnostic")
-  local built = assert(teal.load())
+      "no such diagnostic")
+  local built = assert(teal.load(true))
   local _, result = built.gen("local any = 1\nlocal thread = 2\nprint(any, thread)\n", nil, nil, "tl")
   local warnings = assert(result).warnings
   assert(#warnings == 0, warnings[1] ~= nil and warnings[1].msg or "")
@@ -534,8 +542,8 @@ local function test_two_types_of_one_name_are_told_apart()
     "local function put(s: Kv.Store): Kv.Store\n  return s\nend\n" ..
     "local s: Store = {n = 1}\nprint(put(s))\n"
   assert(replacement_for(nested, "argument 1: Store is not a Kv.Store") ==
-    "two distinct types are both named Store: use Kv.Store rather than declaring Store " ..
-    "again, as 'local type Store = Kv.Store'")
+      "two distinct types are both named Store: use Kv.Store rather than declaring Store " ..
+      "again, as 'local type Store = Kv.Store'")
   local scoped = "local record Store\n  n: integer\nend\n" ..
     "local function put(s: Store): Store\n  return s\nend\n" ..
     "do\n  local record Store\n    n: integer\n  end\n  local s: Store = {n = 1}\n  print(put(s))\nend\n"
@@ -544,10 +552,10 @@ local function test_two_types_of_one_name_are_told_apart()
   assert(replacement_for(scoped,
     "argument 1: Store (defined in :8) is not a Store (defined in :1)") == twice)
   assert(teal.replacement("argument 1: Store (defined in :7) is not a Store " ..
-    "(defined in /abs/path/kv.tl:3)", "", 8, 8) == twice)
+      "(defined in /abs/path/kv.tl:3)", "", 8, 8) == twice)
   assert(teal.replacement("argument 1: Kv.Store is not a Store", "", 1, 1) ==
-    "two distinct types are both named Store: use Kv.Store rather than declaring Store " ..
-    "again, as 'local type Store = Kv.Store'")
+      "two distinct types are both named Store: use Kv.Store rather than declaring Store " ..
+      "again, as 'local type Store = Kv.Store'")
   assert(teal.replacement("argument 1: Store is not a Kv.Entry", "", 1, 1) == nil)
   assert(teal.replacement("argument 1: A.Node is not a B.Node", "", 1, 1) == nil)
 end
@@ -557,9 +565,13 @@ end
 local function test_a_module_type_named_twice_is_told_its_name()
   local source = 'local Kv = require("kv")\nlocal k: Kv.Kv = Kv\nreturn k\n'
   assert(teal.replacement("unknown type Kv.Kv", source, 2, 10) ==
-    "Kv is itself the type of the record its module returns: write Kv, not Kv.Kv")
+      "Kv is itself the type of the record its module returns: write Kv, not Kv.Kv")
   assert(teal.replacement("unknown type Kv.Kv", "local Kv = {}\nlocal k: Kv.Kv\n", 2, 10) == nil)
-  assert(teal.replacement("unknown type Kv.Store", source, 2, 10) == nil)
+  -- Another type of the module is told what the module must declare.
+  assert(teal.replacement("unknown type Kv.Store", source, 2, 10) ==
+      "Kv has no type Store: check its spelling, or declare `record Store ... end` " ..
+      "inside the record kv returns (a `local record Store` beside that record is its " ..
+      "file's alone)")
 end
 
 local rec = "local record R\n  alpha: integer\n  beta: string\n  record Inner\n    n: integer\n  end\nend\n" ..
@@ -571,34 +583,34 @@ local rec = "local record R\n  alpha: integer\n  beta: string\n  record Inner\n 
 local function test_a_missing_field_names_the_nearest()
   local fields = "R's fields: alpha, beta"
   assert(replacement_for(rec .. "print(r.alpah)\n", "invalid key 'alpah' in record 'r' of type R") ==
-    "did you mean 'alpha'? " .. fields)
+      "did you mean 'alpha'? " .. fields)
   assert(replacement_for(rec .. "r.betta = 'x'\n", "invalid key 'betta' in record 'r' of type R") ==
-    "did you mean 'beta'? " .. fields)
+      "did you mean 'beta'? " .. fields)
   assert(replacement_for(rec .. "r:alpah()\n", "invalid key 'alpah' in record 'r' of type R") ==
-    "did you mean 'alpha'? " .. fields)
+      "did you mean 'alpha'? " .. fields)
   assert(replacement_for(rec .. "r.gamma = 2\n", "invalid key 'gamma' in record 'r' of type R") ==
-    fields)
+      fields)
   local made = rec .. "local function make(): R\n  return r\nend\nprint(make().ALPHA)\n"
   assert(replacement_for(made, "invalid key 'ALPHA' in type R") == "did you mean 'alpha'? " .. fields)
   assert(replacement_for("local interface Named\n  name: string\nend\n" ..
-    "local n: Named = {name = 'x'}\nprint(n.nmae)\n",
+      "local n: Named = {name = 'x'}\nprint(n.nmae)\n",
     "invalid key 'nmae' in 'n' of interface type Named") == "did you mean 'name'? Named's fields: name")
   assert(replacement_for("local s = 'x'\nprint(s.lenn)\n", "invalid key 'lenn' in record 's' of type string") ==
-    "did you mean 'len'? string's fields: byte, char, dump, find, format, gmatch, gsub, len, " ..
+      "did you mean 'len'? string's fields: byte, char, dump, find, format, gmatch, gsub, len, " ..
       "lower, match and 7 more")
   -- A field one edit past the limit is not offered: none for a key of
   -- one letter, one for four.
   assert(replacement_for("local t = {x = 1, y = 2}\nprint(t.z)\n",
     "invalid key 'z' in record 't' of type record (x: integer; y: integer)") ==
-    "t's fields: x, y")
+      "t's fields: x, y")
   assert(teal.replacement("invalid key 'nope' in record 'r' of type R", "", 1, 1, { "move" }) ==
-    "R's fields: move")
+      "R's fields: move")
   -- An inferred type is named without where it was inferred, and a
   -- record no variable names as "the record".
   assert(teal.replacement("invalid key 'lenn' in record 's' of type string \"x\" (inferred at :2:9)",
     "", 1, 1, { "len" }) == "did you mean 'len'? string \"x\"'s fields: len")
   assert(replacement_for("print(({a = 1}).b)\n", "invalid key 'b' in type record (a: integer)") ==
-    "the record's fields: a")
+      "the record's fields: a")
   -- Without the fields the checker gives, nothing is guessed.
   assert(teal.replacement("invalid key 'alpah' in record 'r' of type R", "", 1, 1) == nil)
 end
@@ -611,11 +623,11 @@ local function test_a_missing_type_is_told_kind()
   local stat = "local record Stat\n  kind: string\n  size: integer\nend\n" ..
     "local st: Stat = {kind = 'file', size = 0}\n"
   assert(replacement_for(stat .. "print(st.type)\n", "invalid key 'type' in record 'st' of type Stat") ==
-    "did you mean 'kind'? Stat's fields: kind, size")
+      "did you mean 'kind'? Stat's fields: kind, size")
   assert(replacement_for(rec .. "print(r.type)\n", "invalid key 'type' in record 'r' of type R") ==
-    "R's fields: alpha, beta")
+      "R's fields: alpha, beta")
   assert(teal.replacement("invalid key 'ab' in record 'r' of type R", "", 1, 1, { "ac", "ad", "aa" }) ==
-    "did you mean 'aa', 'ac' or 'ad'? R's fields: aa, ac, ad")
+      "did you mean 'aa', 'ac' or 'ad'? R's fields: aa, ac, ad")
   assert(teal.replacement("invalid key 'ab' in record 'r' of type R", "", 1, 1,
     { "ac", "ad", "aa", "ae" }) == "R's fields: aa, ac, ad, ae")
   assert(teal.replacement("invalid key 'stats' in record 'fs' of type fs", "", 1, 1,
@@ -631,7 +643,7 @@ local function test_a_missing_field_lists_a_bounded_few()
     names[#names + 1] = string.format("f%02d", i)
   end
   assert(teal.replacement("invalid key 'zzzzzz' in record 'big' of type Big", "", 1, 1, names) ==
-    "Big's fields: f01, f02, f03, f04, f05, f06, f07, f08, f09, f10 and 2 more")
+      "Big's fields: f01, f02, f03, f04, f05, f06, f07, f08, f09, f10 and 2 more")
   assert(teal.replacement("invalid key 'parsee' in record 'Cli' of type record Module", "", 1, 1,
     { "parse" }) == "did you mean 'parse'? Cli's fields: parse")
 end
@@ -645,33 +657,33 @@ end
 local function test_a_loop_control_variable_is_read_only()
   local refused = "cannot assign to for-loop variable 'item': it is read-only; copy it to a local first"
   for _, source in ipairs({
-    "local xs = {'a'}\nfor item in ipairs(xs) do\n  print(item)\n  item = 2\nend\n",
-    "for item = 1, 2 do\n  print(item)\n\n  item = 2\nend\n",
-    "local function each(): function(): integer | string return nil end\n" ..
-      "for item in each() do\n  if item is string then\n  item = 'x' end\nend\n",
-    "local function each(): function(): integer | string return nil end\n" ..
-      "for item in each() do\n  assert(item is string)\n  item = 'x'\nend\n",
-    "for item = 1, 2 do\n  local function f() print(item)\n  end\n  item = f() end\n",
-    "local xs: {integer|string} = {}\nfor item, v in ipairs(xs) do\n  print(v)\n" ..
-      "  if v is integer then item = v end\nend\n",
+      "local xs = {'a'}\nfor item in ipairs(xs) do\n  print(item)\n  item = 2\nend\n",
+      "for item = 1, 2 do\n  print(item)\n\n  item = 2\nend\n",
+      "local function each(): function(): integer | string return nil end\n" ..
+        "for item in each() do\n  if item is string then\n  item = 'x' end\nend\n",
+      "local function each(): function(): integer | string return nil end\n" ..
+        "for item in each() do\n  assert(item is string)\n  item = 'x'\nend\n",
+      "for item = 1, 2 do\n  local function f() print(item)\n  end\n  item = f() end\n",
+      "local xs: {integer|string} = {}\nfor item, v in ipairs(xs) do\n  print(v)\n" ..
+        "  if v is integer then item = v end\nend\n",
   }) do
     local errors = type_errors(source)
     assert(#errors == 1 and errors[1].y == 4 and errors[1].msg == refused,
       source .. (errors[1] and errors[1].y .. ": " .. errors[1].msg or "no error"))
   end
   for _, source in ipairs({
-    "local xs: {integer} = {}\nfor _, item in ipairs(xs) do item = item + 1; print(item) end\n",
-    "for item = 1, 2 do local item = item; item = item + 1; print(item) end\n",
-    "for item = 1, 2 do\n  print(item)\n  do local item = item; item = item + 1; print(item) end\nend\n",
-    "local function each(): function(): integer | string return nil end\n" ..
-      "for item in each() do\n  assert(item is string)\n  local item = item\n  item = item .. 'x'\n" ..
-      "  print(item)\nend\n",
-    "local function each(): function(): integer | string return nil end\n" ..
-      "for item in each() do\n  if item is string then\n    local item = item\n" ..
-      "    item = item .. 'x'\n    print(item)\n  end\nend\n",
-    "for item = 1, 2 do\n  local function f(item: integer) item = item + 1; print(item) end\n" ..
-      "  f(item)\nend\n",
-    "local item = 0\nfor item = 1, 2 do print(item) end\nitem = 1\nprint(item)\n",
+      "local xs: {integer} = {}\nfor _, item in ipairs(xs) do item = item + 1; print(item) end\n",
+      "for item = 1, 2 do local item = item; item = item + 1; print(item) end\n",
+      "for item = 1, 2 do\n  print(item)\n  do local item = item; item = item + 1; print(item) end\nend\n",
+      "local function each(): function(): integer | string return nil end\n" ..
+        "for item in each() do\n  assert(item is string)\n  local item = item\n  item = item .. 'x'\n" ..
+        "  print(item)\nend\n",
+      "local function each(): function(): integer | string return nil end\n" ..
+        "for item in each() do\n  if item is string then\n    local item = item\n" ..
+        "    item = item .. 'x'\n    print(item)\n  end\nend\n",
+      "for item = 1, 2 do\n  local function f(item: integer) item = item + 1; print(item) end\n" ..
+        "  f(item)\nend\n",
+      "local item = 0\nfor item = 1, 2 do print(item) end\nitem = 1\nprint(item)\n",
   }) do
     local errors = type_errors(source)
     assert(#errors == 0, source .. (errors[1] and errors[1].msg or ""))
@@ -687,25 +699,25 @@ local short = "wrong number of arguments (given 1, expects 2)"
 --- since the call is what is short.
 local function test_a_short_call_names_the_optional_parameter()
   assert(replacement_for("local function f(a: string, b: string | nil) print(a, b) end\nf('x')\n", short) ==
-    "a parameter a caller may leave out is written 'b?: string'")
+      "a parameter a caller may leave out is written 'b?: string'")
   assert(replacement_for("local M = {}\n" ..
-    "function M.g(a: string, b: string | nil,\n  c: {string: integer} | nil) print(a, b, c) end\nM.g('x')\n",
+      "function M.g(a: string, b: string | nil,\n  c: {string: integer} | nil) print(a, b, c) end\nM.g('x')\n",
     "wrong number of arguments (given 1, expects 3)") ==
-    "parameters a caller may leave out are written 'b?: string, c?: {string: integer}'")
+      "parameters a caller may leave out are written 'b?: string, c?: {string: integer}'")
   assert(replacement_for("local record R\n  n: integer\nend\n" ..
-    "function R:m(b: nil | function(string, integer): string) print(self, b) end\n" ..
-    "local r: R = {n = 1}\nr:m()\n", "wrong number of arguments (given 1, expects 2)") ==
-    "a parameter a caller may leave out is written 'b?: function(string, integer): string'")
+      "function R:m(b: nil | function(string, integer): string) print(self, b) end\n" ..
+      "local r: R = {n = 1}\nr:m()\n", "wrong number of arguments (given 1, expects 2)") ==
+      "a parameter a caller may leave out is written 'b?: function(string, integer): string'")
   assert(replacement_for("local h = function(a: string, b: string | nil) print(a, b) end\nh('x')\n", short) ==
-    "a parameter a caller may leave out is written 'b?: string'")
+      "a parameter a caller may leave out is written 'b?: string'")
   assert(replacement_for("local M = {}\nM.h = function(a: string, b: string | nil) print(a, b) end\nM.h('x')\n",
     short) == "a parameter a caller may leave out is written 'b?: string'")
   assert(replacement_for("local function f(a: string, -- what\n  b: string | nil -- why, if any\n) " ..
-    "print(a, b) end\nf('x')\n", short) == "a parameter a caller may leave out is written 'b?: string'")
+      "print(a, b) end\nf('x')\n", short) == "a parameter a caller may leave out is written 'b?: string'")
   assert(replacement_for("local function f(a: string, b: nil) print(a, b) end\nf('x')\n", short) == nil)
   assert(replacement_for("local function f(a: string, b: nil | string --[[x]], c: string | nil)\n" ..
-    "  print(a, b, c)\nend\nf('x', 'y')\n", "wrong number of arguments (given 2, expects 3)") ==
-    "a parameter a caller may leave out is written 'c?: string'")
+      "  print(a, b, c)\nend\nf('x', 'y')\n", "wrong number of arguments (given 2, expects 3)") ==
+      "a parameter a caller may leave out is written 'c?: string'")
   assert(replacement_for("local function f(a: string, b: string) print(a, b) end\nf('x')\n", short) == nil)
   assert(replacement_for("local function f(a: string, b: string | nil) print(a, b) end\nf()\n",
     "wrong number of arguments (given 0, expects 2)") == nil)
@@ -717,21 +729,21 @@ end
 --- given too many or one whose declarations disagree.
 local function test_a_short_call_to_an_unseen_callee()
   assert(replacement_for("local record C\n  run: function(a: string, b: string)\nend\n" ..
-    "local c: C = {run = function(a: string, b: string) print(a, b) end}\nc.run('x')\n", short) == nil)
+      "local c: C = {run = function(a: string, b: string) print(a, b) end}\nc.run('x')\n", short) == nil)
   assert(replacement_for("print(setmetatable({}))\n", short) == nil)
   assert(teal.replacement(short, 'local Fs = require("cosmic.fs")\nFs.put("x")\n', 2, 7) == nil)
   assert(replacement_for("local record File\n  open: function(path: string, mode: string)\nend\n" ..
-    "local function open(a: string, b: string | nil) print(a, b) end\nprint(open)\n" ..
-    "local f: File = {open = function(p: string, m: string) print(p, m) end}\nf.open('x')\n", short) == nil)
+      "local function open(a: string, b: string | nil) print(a, b) end\nprint(open)\n" ..
+      "local f: File = {open = function(p: string, m: string) print(p, m) end}\nf.open('x')\n", short) == nil)
   assert(replacement_for("local M = {}\nfunction M.put(path: string, data: string | nil) print(path, data) end\n" ..
-    "local N = {}\nN.put = function(path: string, data: string) print(path, data) end\nN.put('x')\n", short) ==
-    nil)
+      "local N = {}\nN.put = function(path: string, data: string) print(path, data) end\nN.put('x')\n", short) ==
+      nil)
   assert(replacement_for("local function cb(a: string, b: string | nil) print(a, b) end\nprint(cb)\n" ..
-    "local function apply(cb: function(string, string)) cb('x') end\nprint(apply)\n", short) == nil)
+      "local function apply(cb: function(string, string)) cb('x') end\nprint(apply)\n", short) == nil)
   assert(replacement_for("local function f(a: string) print(a) end\nf('x', 'y')\n",
     "wrong number of arguments (given 2, expects 1)") == nil)
   assert(replacement_for("global function g(a: string, b: string | nil) print(a, b) end\n" ..
-    "global function g(a: string, b: integer | nil) print(a, b) end\ng('x')\n", short) == nil)
+      "global function g(a: string, b: integer | nil) print(a, b) end\ng('x')\n", short) == nil)
 end
 
 --- The callee is the function in scope at the call: a local of a
@@ -739,19 +751,19 @@ end
 --- receiver was declared of, a local's, a parameter's or `self`'s.
 local function test_a_short_call_reads_the_callee_in_scope()
   assert(replacement_for("do\n  local function f(a: string, b: string | nil) print(a, b) end\n" ..
-    "  print(f)\nend\nlocal function f(a: string, b: integer | nil) print(a, b) end\nf('x')\n", short) ==
-    "a parameter a caller may leave out is written 'b?: integer'")
+      "  print(f)\nend\nlocal function f(a: string, b: integer | nil) print(a, b) end\nf('x')\n", short) ==
+      "a parameter a caller may leave out is written 'b?: integer'")
   assert(replacement_for("local record R\n  n: integer\nend\n" ..
-    "function R:m(b: string | nil) print(self, b) end\nlocal r: R = {n = 1}\nr:m()\n",
+      "function R:m(b: string | nil) print(self, b) end\nlocal r: R = {n = 1}\nr:m()\n",
     "wrong number of arguments (given 1, expects 2)") ==
-    "a parameter a caller may leave out is written 'b?: string'")
+      "a parameter a caller may leave out is written 'b?: string'")
   local record_r = "local record R\n  n: integer\nend\nfunction R:b(x: string | nil) print(self, x) end\n"
   assert(replacement_for(record_r .. "function R:a() self:b() end\n",
     "wrong number of arguments (given 1, expects 2)") ==
-    "a parameter a caller may leave out is written 'x?: string'")
+      "a parameter a caller may leave out is written 'x?: string'")
   assert(replacement_for(record_r .. "local function g(r: R) r:b() end\nprint(g)\n",
     "wrong number of arguments (given 1, expects 2)") ==
-    "a parameter a caller may leave out is written 'x?: string'")
+      "a parameter a caller may leave out is written 'x?: string'")
 end
 
 --- A key no field is near by spelling is told the fields that hold it
@@ -762,13 +774,139 @@ local function test_a_missing_field_names_one_that_holds_it()
   local fields = { "collect", "copy", "from_fd", "from_string", "lines", "open" }
   local listed = "Stream's fields: collect, copy, from_fd, from_string, lines, open"
   assert(teal.replacement("invalid key 'string' in record 'Stream' of type Stream", "", 1, 1, fields) ==
-    "did you mean 'from_string'? " .. listed)
+      "did you mean 'from_string'? " .. listed)
   assert(teal.replacement("invalid key 'from' in record 'Stream' of type Stream", "", 1, 1, fields) ==
-    "did you mean 'from_fd' or 'from_string'? " .. listed)
+      "did you mean 'from_fd' or 'from_string'? " .. listed)
   assert(teal.replacement("invalid key 'read_lines' in record 'Stream' of type Stream", "", 1, 1, fields) ==
-    "did you mean 'lines'? " .. listed)
+      "did you mean 'lines'? " .. listed)
   assert(teal.replacement("invalid key 'pe' in record 'Stream' of type Stream", "", 1, 1, fields) ==
-    listed)
+      listed)
   assert(teal.replacement("invalid key 'get' in record 'T' of type T", "", 1, 1, { "target", "set_get" }) ==
-    "did you mean 'set_get'? T's fields: set_get, target")
+      "did you mean 'set_get'? T's fields: set_get, target")
+end
+
+--- Holds the checker to reporting `msg` for `source`, and
+--- [`teal.replacement`] to answering it `want`.
+local function answers(source: string, msg: string, want: string | nil)
+  local got = replacement_for(source, msg)
+  if got == "no such diagnostic" then
+    local seen: {string} = {}
+    for _, e in ipairs(type_errors(source)) do seen[#seen + 1] = e.msg end
+    error("no '" .. msg .. "' among: " .. table.concat(seen, "; "))
+  end
+  assert(got == want, tostring(got))
+end
+
+--- What every refusal of an untyped value is told for a variable named
+--- `name`: the check and the cast, written out.
+local function untyped(name: string): string
+  return "'" .. name .. "' is any (untyped, as Json.decode answers): check it against a " ..
+    "record with `local spec, err = Shape.record_of(\"Spec\"):into(" .. name .. ")` " ..
+    "(local Shape = require(\"cosmic.shape\")), or cast it unchecked: `" .. name .. " as Spec`"
+end
+
+--- A field read of `any`, what [`Json.decode`] answers, is told the line
+--- that checks it into a record and the cast that does not, whether the
+--- value may also be nil or not; a value with no variable is called
+--- `value`, and one handed where a type is expected names that type.
+local function test_an_untyped_value_is_told_the_check_and_the_cast()
+  local decoded = "local function decode(_: string): any | nil, string return nil, '' end\n"
+  answers(decoded .. "local cfg = decode('')\nprint(cfg.cmd)\n",
+    "cannot index key 'cmd' in variable 'cfg' of type <any type> | nil", untyped("cfg"))
+  answers("local function f(cfg: any) print(cfg.cmd) end\nprint(f)\n",
+    "cannot index key 'cmd' in variable 'cfg' of type <any type>", untyped("cfg"))
+  local record_spec = "local record Spec\n  cmd: string\nend\n" ..
+    "local function run(s: Spec) print(s) end\n"
+  answers(decoded .. record_spec .. "local cfg = decode('')\nrun(cfg)\n",
+    "argument 1: got <any type> | nil, expected Spec",
+    "the value is any (untyped): cast it unchecked: `value as Spec`; if Spec is a record, " ..
+      "`Shape.record_of(\"Spec\"):into(value)` checks it (local Shape = require(\"cosmic.shape\"))")
+  -- A qualified record is named for `record_of` by its module's path,
+  -- which the alias is bound to; an unbound alias is only cast.
+  assert(teal.replacement("argument 1: got <any type>, expected L.Month",
+    'local L = require("app.ledger")\n', 1, 1) ==
+      "the value is any (untyped): cast it unchecked: `value as L.Month`; if L.Month is a record, " ..
+      "`Shape.record_of(\"app.ledger.Month\"):into(value)` checks it " ..
+      "(local Shape = require(\"cosmic.shape\"))")
+  assert(teal.replacement("argument 1: got <any type>, expected L.Month", "", 1, 1) ==
+      "the value is any (untyped): cast it unchecked: `value as L.Month`")
+  answers(decoded .. "local n: integer = decode('')\nprint(n)\n",
+    "in local declaration: n: got <any type> | nil, expected integer",
+    "the value is any (untyped): narrow it with `if value is integer then ... end`, " ..
+      "or cast it unchecked: `value as integer`")
+  answers(decoded .. "local n: {string} = decode('')\nprint(n)\n",
+    "in local declaration: n: got <any type> | nil, expected {string}",
+    "the value is any (untyped): cast it unchecked: `value as {string}`")
+end
+
+--- A value that may be nil, read, closed or iterated, is told the
+--- check and the `assert` that drop it.
+local function test_a_value_that_may_be_nil_is_told_the_check()
+  local record_r = "local record R\n  n: integer\nend\n" ..
+    "local function find(): R | nil, string return nil, 'none' end\n" ..
+    "local function list(): {string} | nil, string return nil, 'none' end\n"
+  answers(record_r .. "local r = find()\nprint(r.n)\n",
+    "cannot index key 'n' in variable 'r' of type R | nil",
+    "'r' may be nil: check it first (`if r == nil then return nil, err end`), " ..
+      "or, where a call answers it, take it with `local r = assert(<the call>)`")
+  answers(record_r .. "print(find().n)\n",
+    "cannot index key 'n' in type R | nil",
+    "the value may be nil: check it first (`if value == nil then return nil, err end`), " ..
+      "or, where a call answers it, take it with `local value = assert(<the call>)`")
+  answers(record_r .. "for _, s in ipairs(list()) do print(s) end\n",
+    "attempting ipairs on something that's not an array: {string} | nil",
+    "the table may be nil: check it first (`if t == nil then return nil, err end`) " ..
+      "or loop over `ipairs(t or {})`")
+  -- Checking for nil leaves `string | R` unusable still: no nil hint.
+  local both = record_r .. "local function both(): string | R | nil return nil end\n"
+  answers(both .. "local b = both()\nprint(b.n)\n",
+    "cannot index key 'n' in variable 'b' of type string | R | nil", nil)
+  -- The checker's target here is 5.3, which has no `<close>`: the
+  -- message is the one a cosmic compile reports.
+  assert(teal.replacement("to-be-closed variable g has a non-closable type R | nil", "", 1, 1) ==
+      "the call may answer nil: `local g <close> = assert(<the call>)` closes what it " ..
+      "answers, and raises its error in place of the nil")
+end
+
+--- An operator refused an operand of a union is told to narrow it.
+local function test_a_union_operand_is_told_to_narrow_it()
+  answers("local function f(x: string | integer): integer\n  return x + 1\nend\nprint(f)\n",
+    "cannot use operator '+' for types string | integer and integer",
+    "an operand is a union: narrow it first, as `if v is string then ... end` " ..
+      "or `type(v) == \"string\"` does")
+  answers("local function f(g: function(string | nil): integer): integer\n  return g + 1\nend\nprint(f)\n",
+    "cannot use operator '+' for types function(string | nil): integer and integer", nil)
+end
+
+--- A module's type named but declared beside its record, not inside, is
+--- told to move it there; one named through a `require` of a module of
+--- the program's own is told what that module must declare. A
+--- `cosmic.*` module's is left to the catalog.
+local function test_a_module_type_is_told_to_nest_inside_the_record()
+  answers("local record Transaction\n  amount: integer\nend\nlocal record Ledger\nend\n" ..
+      "function Ledger.total(t: Ledger.Transaction): integer\n  return t.amount\nend\n" ..
+      "print(Transaction)\nreturn Ledger\n",
+    "unknown type Ledger.Transaction",
+    "Transaction is declared beside Ledger, not inside it: move `record Transaction ... end` " ..
+      "into `local record Ledger ... end` to name it Ledger.Transaction")
+  -- The checker here has no module `ledger`: the message is the one a
+  -- project's compile reports (build/importer_test.tl).
+  assert(teal.replacement("unknown type Ledger.Transaction",
+    'local Ledger = require("ledger")\n', 1, 1) ==
+      "Ledger has no type Transaction: check its spelling, or declare `record Transaction ... end` " ..
+      "inside the record ledger returns (a `local record Transaction` beside that record is its " ..
+      "file's alone)")
+  -- Bound by a type-only `require` alike.
+  assert(teal.replacement("unknown type Ledger.Month", 'local type Ledger = require("ledger")\n',
+    1, 1) == "Ledger has no type Month: check its spelling, or declare `record Month ... end` " ..
+      "inside the record ledger returns (a `local record Month` beside that record is its " ..
+      "file's alone)")
+  -- An enum beside the record is told to move as itself.
+  answers("local enum Month\n  \"may\"\nend\nlocal record Ledger\nend\n" ..
+      "local m: Ledger.Month = \"may\"\nprint(m)\nlocal x: Month = \"may\"\nprint(x)\nreturn Ledger\n",
+    "unknown type Ledger.Month",
+    "Month is declared beside Ledger, not inside it: move `enum Month ... end` " ..
+      "into `local record Ledger ... end` to name it Ledger.Month")
+  assert(teal.replacement("unknown type Http.Address", 'local Http = require("cosmic.http")\n',
+    1, 1) == nil)
 end

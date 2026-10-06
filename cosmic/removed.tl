@@ -56,9 +56,8 @@ local record Module
   -- (put Json.null where the hole is, as decode's `null_value` does);
   -- and for the fields cosmic.archive's ExtractOptions lost:
   -- `unsupported` (an entry that cannot be extracted always fails the
-  -- extraction; `filter` leaves its path out), `mtimes` (every file,
-  -- directory and symlink gets its archived time) and `max_bytes` (no
-  -- replacement; `max_entries` bounds the entries).
+  -- extraction; `filter` leaves its path out) and `mtimes` (every file,
+  -- directory and symlink gets its archived time).
   -- Likewise for what cosmic.time's records lost: `Civil.nanosecond` and
   -- `Duration.nanoseconds` (both `ns` now), and the `zone` field of
   -- FormatOptions and AddOptions (the zone is an argument, right after the
@@ -86,7 +85,7 @@ local record Module
   -- Net.ServeSpec and Http.Options), `grace_ms` (Net.ServeSpec),
   -- `connect_timeout_ms` and `low_speed_seconds` (Http.Options) are
   -- `timeout_ns`, `grace_ns`, `connect_timeout_ns` and `low_speed_ns`,
-  -- each a count of nanoseconds written `Time.ms(n)` or `Time.seconds(n)`.
+  -- each a count of nanoseconds written `Clock.ms(n)` or `Clock.seconds(n)`.
   -- A positional span whose name stays (Poll.delay, Poll.readable,
   -- Poll.writable, Poll.ready, `:join`, `:wait`, `:accept`,
   -- Child.wait_any, g:wait) changed its unit too, which no compile error
@@ -132,6 +131,7 @@ local env <const> = 'local Env = require("cosmic.env")'
 local proc <const> = 'local Proc = require("cosmic.proc")'
 local net <const> = 'local Net = require("cosmic.net")'
 local time <const> = 'local Time = require("cosmic.time")'
+local clock <const> = 'local Clock = require("cosmic.clock")'
 local child <const> = 'local Child = require("cosmic.child")'
 local errors <const> = 'local Errors = require("cosmic.errors")'
 local codec <const> = 'local Codec = require("cosmic.codec")'
@@ -155,6 +155,18 @@ local cli <const> = 'local Cli = require("cosmic.cli")'
 local http <const> = 'local Http = require("cosmic.http")'
 local upload <const> = "no caller in the tree sent a streamed request body; send one whole with " ..
   "Http.request(\"PUT\", url, { body = body }) (" .. http .. ")"
+local server <const> = 'local Server = require("cosmic.http.server")'
+--- The replacement text for a member of cosmic.http.server.
+local function moved_to_server(member: string): string
+  return "moved to cosmic.http.server, apart from the client: use Server." .. member ..
+    " (" .. server .. ")"
+end
+local policy_json <const> = 'local PolicyJson = require("cosmic.policy")'
+--- The replacement text for a member of cosmic.policy.
+local function moved_to_policy_json(member: string): string
+  return "moved to cosmic.policy, apart from the policy's data: use PolicyJson." .. member ..
+    " (" .. policy_json .. ")"
+end
 local module: Module = {
   fields = {
     io = "io", os = "os", debug = "debug",
@@ -186,19 +198,19 @@ local module: Module = {
       "list, run without a shell or a PATH search (" .. child .. ")",
     ["os.getenv"] = "use Env.get(name) (" .. env .. ")",
     ["os.exit"] = "use Proc.exit(status) (" .. proc .. ")",
-    ["os.time"] = "use Time.now_ns(), the wall clock in nanoseconds since " ..
+    ["os.time"] = "use Clock.now_ns(), the wall clock in nanoseconds since " ..
       "the epoch (// 1000000000 for seconds), or Time.from_civil(fields, zone) " ..
       "for a calendar date, which reads it as UTC unless given a zone " ..
       "(Time.local_zone() for local time, Time.zone(\"Europe/Paris\") for " ..
       "another) and refuses a field out of range (day 32) rather than " ..
-      "normalizing it (" .. time .. ")",
-    ["os.clock"] = "use Time.monotonic_ns() to measure elapsed time; there " ..
-      "is no process CPU clock (" .. time .. ")",
-    ["os.difftime"] = "subtract two Time.now_ns() readings (" .. time .. ")",
-    ["os.date"] = "use Time.civil(Time.now_ns(), zone) for the calendar's " ..
+      "normalizing it (" .. clock .. "; " .. time .. ")",
+    ["os.clock"] = "use Clock.monotonic_ns() to measure elapsed time; there " ..
+      "is no process CPU clock (" .. clock .. ")",
+    ["os.difftime"] = "subtract two Clock.now_ns() readings (" .. clock .. ")",
+    ["os.date"] = "use Time.civil(Clock.now_ns(), zone) for the calendar's " ..
       "fields -- UTC's without a zone, local time with Time.local_zone(), " ..
       "or Time.zone(\"Europe/Paris\")'s -- or Time.format_rfc3339(ns, zone) " ..
-      "for text; there is no strftime (" .. time .. ")",
+      "for text; there is no strftime (" .. clock .. "; " .. time .. ")",
     ["os.remove"] = "use Fs.remove(path) (" .. fs .. ")",
     ["os.rename"] = "use Fs.rename(from, to) (" .. fs .. ")",
     ["os.tmpname"] = "use Fs.mkdtemp(prefix), which makes a private " ..
@@ -234,46 +246,39 @@ local module: Module = {
       "Stream.Writer (" .. json .. ")",
     ["cosmic.json.encode_lines"] = "use Json.encode(value) for each value, joined by " ..
       "\"\\n\" and ended by one (" .. json .. ")",
-    ["cosmic.json.parse_path"] = "moved to build.json_query, which only `cosmic json` " ..
-      "and `cosmic sql --at` call; a script indexes the value Json.decode answers " ..
-      "directly, `doc.users[1].name` for `$.users[1].name` (" .. json .. ")",
-    ["cosmic.json.parse_pattern"] = "moved to build.json_query, which only `cosmic json` " ..
-      "calls; `cosmic json '$..id' file` lists the values a pattern matches",
-    ["cosmic.json.spell_pattern"] = "moved to build.json_query, which only `cosmic json` calls",
-    ["cosmic.json.select"] = "moved to build.json_query, which only `cosmic json` calls; " ..
-      "`cosmic json '$..id' file` lists the values a pattern matches, and a script " ..
-      "walks the value Json.decode answers (" .. json .. ")",
+    ["cosmic.json.parse_path"] = "use Json.from_path, which reads a singular JSONPath " ..
+      "query (`$.users[0]['a key']`, indices from 0) as Json.Steps, and Json.get to " ..
+      "follow them (" .. json .. ")",
+    ["cosmic.json.parse_pattern"] = "use Json.query, which reads a JSONPath query with " ..
+      "`*` and `..` (`$..id`), and Json.select for the values it matches (" .. json .. ")",
+    ["cosmic.json.spell_pattern"] = "keep the query's text, which Json.Query holds as " ..
+      "written; Json.path writes one match's steps as a normalized path (" .. json .. ")",
     ["cosmic.json.flatten"] = "moved to build.json_query, which only `cosmic json` calls; " ..
-      "`cosmic json --flat file` prints every leaf as a `path = value` line",
+      "`cosmic json --flat file` prints every leaf as a `path = value` line, its path " ..
+      "as Json.path writes it",
     ["cosmic.json.flat_line"] = "moved to build.json_query, which only `cosmic json` calls; " ..
-      "`cosmic json --flat file` prints every leaf as a `path = value` line",
+      "`cosmic json --flat file` prints every leaf as a `path = value` line, its path " ..
+      "as Json.path writes it",
     ["cosmic.json.describe"] = "moved to build.json_query, which only `cosmic json` calls; " ..
       "`cosmic json --shape file` prints a document's shape",
-    ["cosmic.json.child_path"] = "moved to build.json_query, which only `cosmic json` " ..
-      "calls; spell a path by concatenating its steps, Json.quote(key) for a key that is no word (" ..
+    ["cosmic.json.child_path"] = "use Json.path or Json.pointer, which write " ..
+      "Json.Steps as a JSONPath or a JSON Pointer: a step's position counts from 1, " ..
+      "as Lua does, and the text written counts from 0, so { \"rows\", 1 } is " ..
+      "`$['rows'][0]` and `/rows/0` (" .. json .. ")",
+    ["cosmic.json.entries"] = "use Json.get(value, steps) to reach the value, and " ..
+      "Json.layout(value) == \"object\" to tell an object; Json.decode_object answers " ..
+      "the outermost object as a map to loop over with pairs (" .. json .. ")",
+    ["cosmic.json.items"] = "use Json.get(value, steps) to reach the value, and " ..
+      "Json.layout(value) == \"array\" to tell an array; Json.decode_array answers " ..
+      "the outermost array as a list to loop over with ipairs (" .. json .. ")",
+    ["cosmic.json.Step"] = "use Json.Segment, one segment of the JSONPath query " ..
+      "Json.query reads (" .. json .. ")",
+    ["cosmic.json.StepKind"] = "use Json.SelectorKind, what a Json.Segment selects (" ..
       json .. ")",
-    ["cosmic.json.get"] = "moved to build.json_query, which only `cosmic json` and " ..
-      "`cosmic sql --at` call; a script indexes the table Json.decode_object or " ..
-      "Json.decode_array answers directly, `doc.users[1].name`, and finds a missing " ..
-      "key as nil (" .. json .. ")",
-    ["cosmic.json.entries"] = "moved to build.json_query, which only `cosmic json` and " ..
-      "`cosmic sql --at` call; Json.decode_object answers the outermost object as a " ..
-      "map to loop over with pairs; `value is {string: any}` narrows a field to a " ..
-      "table, and Json.is_array(value) tells an array from an object (" ..
-      json .. ")",
-    ["cosmic.json.items"] = "moved to build.json_query, which only `cosmic json` and " ..
-      "`cosmic sql --at` call; Json.decode_array answers the outermost array as a " ..
-      "list to loop over with ipairs; `value is {any}` narrows a field to a table, " ..
-      "and Json.is_array(value) tells an array from an object (" ..
-      json .. ")",
-    ["cosmic.json.Step"] = "moved to build.json_query, with parse_pattern, which only " ..
-      "`cosmic json` calls",
-    ["cosmic.json.StepKind"] = "moved to build.json_query, with parse_pattern, which only " ..
-      "`cosmic json` calls",
-    ["cosmic.json.Located"] = "moved to build.json_query, with select and flatten, which " ..
-      "only `cosmic json` calls",
-    ["cosmic.json.WalkOptions"] = "moved to build.json_query, with select and flatten, " ..
-      "which only `cosmic json` calls",
+    ["cosmic.json.Located"] = "use Json.Match, what Json.select answers: the steps " ..
+      "to a value and the value (" .. json .. ")",
+    ["cosmic.json.WalkOptions"] = "use Json.SelectOptions, what Json.select may be " ..
+      "told (" .. json .. ")",
     ["cosmic.json.DescribeOptions"] = "moved to build.json_query, with describe, which " ..
       "only `cosmic json` calls",
     ["cosmic.csv.rows"] = "use Csv.table(text, opts) and its rows field, the table per record " ..
@@ -287,7 +292,8 @@ local module: Module = {
       "failure; a config whose author wants every mistake runs again after fixing each (" ..
       shape .. ")",
     ["cosmic.shape.Failure"] = "Shape.into(value, spec) answers the first failure as one " ..
-      "message, its path first (`$.rows[2].id: expected string, got integer`) (" .. shape .. ")",
+      "message, its place first (`pointer \"/rows/1/id\": expected string, got integer`) (" ..
+      shape .. ")",
     ["cosmic.shape.either"] = "use Shape.one_of(...) for literal alternatives, or call " ..
       "Shape.into once for each form the value may take and keep the first that answers " ..
       "a value (" .. shape .. ")",
@@ -360,7 +366,8 @@ local module: Module = {
     ["cosmic.time.days_between"] = "use Time.between(from, to, zone), whose Duration " ..
       "holds the whole years, months and days between two moments; the days between " ..
       "two dates alone are (Time.parse_date(Time.format_date(to, zone)) - " ..
-      "Time.parse_date(Time.format_date(from, zone))) // Time.hours(24) (" .. time .. ")",
+      "Time.parse_date(Time.format_date(from, zone))) // Clock.hours(24) (" ..
+      clock .. "; " .. time .. ")",
     ["cosmic.time.months_between"] = "use Time.between(from, to, zone): its years * 12 " ..
       "+ months are the whole months (" .. time .. ")",
     ["cosmic.time.parse_input"] = "moved to build.time, which only `cosmic time` calls; " ..
@@ -395,16 +402,30 @@ local module: Module = {
       "a test reads the open window through build.coverage_hits",
     ["cosmic.coverage.native_entries"] = "read each C function's first line from " ..
       "Coverage.native_functions(); a test reads them through build.coverage_hits",
-    ["cosmic.test.fields"] = "the build checks a `needs` declaration's fields; declare " ..
-      "needs with Test.needs { ... } and let `cosmic test` refuse a bad one",
-    ["cosmic.test.any_host_refusal"] = "the build refuses `network = true`; declare " ..
-      "loopback addresses 127.a.b.c in Test.needs and let `cosmic test` refuse a bad one",
-    ["cosmic.test.network_trouble"] = "the build refuses a `network` that is no loopback " ..
-      "address 127.a.b.c; declare it in Test.needs and let `cosmic test` check it",
-    ["cosmic.test.lua_trouble"] = "the build refuses a `lua` beside tool, store, system or " ..
-      "caches; declare Test.needs and let `cosmic test` refuse a bad one",
+    ["cosmic.test.needs"] = "a test module declares what it is held to and reads with " ..
+      "Test.policy { grants = { ... }, ... } (`cosmic docs cosmic.test`)",
+    ["cosmic.test.fields"] = "the build checks a policy declaration's fields; declare " ..
+      "them with Test.policy { ... } and let `cosmic test` refuse a bad one",
+    ["cosmic.test.any_host_refusal"] = "the build refuses any host but loopback; declare " ..
+      "loopback addresses 127.a.b.c in Test.policy's `loopback` and let `cosmic test` " ..
+      "refuse a bad one",
+    ["cosmic.test.network_trouble"] = "the build refuses a `loopback` that is no loopback " ..
+      "address 127.a.b.c; declare it in Test.policy and let `cosmic test` check it",
+    ["cosmic.test.lua_trouble"] = "the build refuses the profile \"cosmic\" beside the store, " ..
+      "the system or a cache without the grant of o/bin; declare Test.policy and let " ..
+      "`cosmic test` refuse a bad one",
     ["cosmic.http.upload"] = upload,
     ["cosmic.http.Upload"] = upload,
+    ["cosmic.http.serve"] = moved_to_server("serve"),
+    ["cosmic.http.range"] = moved_to_server("range"),
+    ["cosmic.http.none_match"] = moved_to_server("none_match"),
+    ["cosmic.http.Request"] = moved_to_server("Request"),
+    ["cosmic.http.Reply"] = moved_to_server("Reply"),
+    ["cosmic.http.ServeSpec"] = moved_to_server("ServeSpec"),
+    ["cosmic.http.Range"] = moved_to_server("Range"),
+    ["cosmic.http.RangeKind"] = moved_to_server("RangeKind"),
+    ["cosmic.sandbox.decode"] = moved_to_policy_json("decode"),
+    ["cosmic.sandbox.encode"] = moved_to_policy_json("encode"),
     ["cosmic.fs.truncate"] = "use sys.ftruncate(fd, length), which Fs.truncate wrapped (" .. sys .. ")",
     ["cosmic.fs.cache_path"] = "use Fs.cache_dir(tool, { environment = environment, make = false }), " ..
       "which answers the name alone, made, looked at and checked nowhere (" .. fs .. ")",

@@ -28,12 +28,13 @@ else
 end
 
 --- The process table's questions of this host, as this module loads.
-local sandbox_platform, may_map_ids, maps_id, own_proc = process.sandbox_platform,
-  process.may_map_ids, process.maps_id, process.own_proc
+local sandbox_platform, may_map_ids, own_proc, landlock_abi = process.sandbox_platform,
+  process.may_map_ids, process.own_proc, process.landlock_abi
 
 --- The process table's own `spawn`, as this module loads -- before any
 --- stand-in for it (see `enter`) is put in its place.
 local own_spawn = process.spawn
+local unix_socket, close_socket = process.unix_socket, sys.close
 
 local record confine
   --- What a test declares the processes it starts need, beyond the
@@ -82,7 +83,7 @@ local record Calls
   realpath: function(path: string): string | nil, string, integer
   lstat: function(path: string): sys.Stat | nil, string, integer
   stat: function(path: string): sys.Stat | nil, string, integer
-  readdir: function(path: string): {string:string} | nil, string, integer
+  readdir: function(path: string): {string:sys.Kind} | nil, string, integer
   getenv: function(name: string): string | nil
   environ: function(): {string:string}
   access: function(path: string, mode: integer): boolean, string, integer
@@ -200,8 +201,7 @@ end
 -- this variable (C, and a boot): today such a spawn fails EPERM as the
 -- kernel refuses its mounts, which a test that passes over a kernel
 -- that cannot confine (test/coverage_children_test.tl's parent, say)
--- takes for one, and counts skipped (build.sandbox_skip) where the run
--- is not held to sandboxing. So too a `cosmic test` a held worker's process starts
+-- takes for one, and counts skipped. So too a `cosmic test` a held worker's process starts
 -- with an environment that drops this variable: its probe of the
 -- sandbox fails EPERM, and it runs its workers unsandboxed, saying only
 -- that the host may be refusing a user namespace or holding it by a
@@ -223,8 +223,8 @@ end
 --- naming the declaration that lets it.
 local function nests_refusal(program: string, module: string): string
   return string.format("%s cannot start in a root of its own: %s's worker is held by a " ..
-    "Landlock ruleset, under which the kernel refuses every mount; declare nests = true " ..
-    "in its Test.needs", program, module)
+      "Landlock ruleset, under which the kernel refuses every mount; declare the promise " ..
+      "\"nest\" in its Test.policy", program, module)
 end
 
 --- `wanted`, each relative path taken from the directory this process
@@ -255,7 +255,7 @@ end
 --- Declares what every process the calling test starts from here on
 --- needs. Only a test of the sandbox itself, which nests one sandbox in
 --- another, calls it: any other test declares what its processes read
---- in its module's [`Test.needs`], whose sandboxed worker holds them to it.
+--- in its module's [`Test.policy`], whose sandboxed worker holds them to it.
 ---
 --- `declared.reads` is read-only and `declared.writes` may be changed,
 --- beside `system` -- each of it the worker has: a sandboxed worker
@@ -308,7 +308,7 @@ end
 --- confines, has the sandboxed worker's own sandbox, or, where the
 --- worker runs unsandboxed, runs unconfined. Only the sandbox's own tests
 --- confine: every other test's processes are the worker's to hold,
---- which its module's [`Test.needs`] declares for them.
+--- which its module's [`Test.policy`] declares for them.
 function confine.must_confine(declared: confine.Confinement | nil)
   must_everywhere() -- a misspelt mode raises here too
   declare(declared, "must_confine")
@@ -344,6 +344,28 @@ function confine.declaring(declared: confine.Confinement, fn: function())
   if not ok then error(trouble, 0) end
 end
 
+--- `path` as a grant can name it: as given where it has no `.` or `..`
+--- segment, else where it resolves, since a grant may not contain "..".
+--- A program started by a relative name from beside its tree
+--- (`../o/bin/cosmic`, run in ci/) has its launcher's `$PWD/$0` and the
+--- artifact path of its relaunch named so.
+function confine.grantable(path: string): string
+  if not (path:find("/%.%./", 1) or path:find("/%.%.$") or path:find("/%./", 1) or
+      path:find("/%.$")) then
+    return path
+  end
+  local real, _ = asked.realpath(path)
+  -- Where it does not resolve, the dotted name stays, and is refused as before.
+  return real or path
+end
+
+--- Where this program is, as a sandbox can name it ([`confine.grantable`]).
+function confine.executable(): string | nil
+  local executable, _ = Proc.executable()
+  if executable == nil then return nil end
+  return confine.grantable(executable)
+end
+
 --- What a confined process of this very program needs to start, for a
 --- test's `confine`: the program, and the core its launcher runs it on
 --- where it is a portable artifact, with the stamp beside it in the
@@ -352,7 +374,7 @@ end
 --- (core/startup.c's `stamp_path`).
 function confine.itself(): {string}
   local program: {string} = {}
-  local executable, _ = Proc.executable()
+  local executable = confine.executable()
   if executable ~= nil then program[#program + 1] = executable end
   local launched, _ = Proc.relaunch()
   if launched ~= nil then
@@ -370,7 +392,9 @@ end
 
 --- Whether this platform has a sandbox at all (core/process.h's
 --- `sandbox_platform`): Linux has, whatever this host then refuses of
---- it; another platform has none to give or to check.
+--- it; another platform has none to give or to check. Only the probe of
+--- the host asks ([`build.tree_checks`]' `restricted`): a test declares
+--- `requires`, or ends itself with [`Test.skip`].
 function confine.sandbox_platform(): boolean
   local ok, _, _ = sandbox_platform()
   return ok
@@ -385,13 +409,6 @@ function confine.may_map_ids(): boolean
   return ok
 end
 
---- Whether this process's user namespace maps `id`, as a user and as a
---- group (core/process.h's `maps_id`).
-function confine.maps_id(id: integer): boolean
-  local ok, _, _ = maps_id(id)
-  return ok
-end
-
 --- Whether this host gives a sandboxed process a procfs of its own pid
 --- namespace (core/process.h's `unveil`), as the kernel answers a
 --- child started to mount one (core/process.h's `own_proc`). A user
@@ -401,6 +418,31 @@ end
 function confine.own_proc_given(): boolean
   local ok, _, _ = own_proc()
   return ok
+end
+
+--- The Landlock ABI version this kernel gives (core/process.h's
+--- `landlock_abi`), 1 and up, or nil and why where there is no Landlock to
+--- be had: not built in, turned off, or refused by a filter.
+function confine.landlock_abi(): integer | nil, string
+  local abi, why, _ = landlock_abi()
+  if abi == nil then return nil, why end
+  return abi, ""
+end
+
+--- Whether this host permits creation of a Unix stream socket. Binding a
+--- path or connecting to a peer may still be refused separately.
+function confine.unix_socket_available(): boolean, string
+  local fd, why, errno = unix_socket()
+  if fd ~= nil then
+    local closed, close_trouble = close_socket(fd)
+    if not closed then error("closing the Unix socket probe: " .. close_trouble, 0) end
+    return true, ""
+  end
+  if errno ~= sys.EPERM and errno ~= sys.EACCES and errno ~= sys.EAFNOSUPPORT and
+      errno ~= sys.EPROTONOSUPPORT and errno ~= sys.ENOSYS then
+    error("the Unix socket creation probe failed: " .. why, 0)
+  end
+  return false, why
 end
 
 --- What a sandboxed worker of this very program -- `cosmic test`'s,
@@ -451,7 +493,7 @@ function confine.worker_unveil(tree: string, cwd: string | nil, scratch: string,
   -- opening /proc/self/exe again (core/executable.c's
   -- `cosmic_executable_fd`). Today such a worker, as in
   -- build/sandboxed_verdicts_test.tl's tool project, reads the program.
-  local program, _ = Proc.executable()
+  local program = confine.executable()
   local withheld = ""
   if not with_program and program ~= nil then
     local launched, _ = Proc.relaunch()
@@ -474,7 +516,8 @@ end
 --- Landlock ruleset that handles running a file alone
 --- (core/process.h's `landlock_restrict_execute`): every entry of
 --- every directory above one of them, down from /, may be run beneath
---- it but for the ones on the way to them, and those are walked the same
+--- it -- or, with `within`, each of those paths, where this process may
+--- not list / -- but for the ones on the way to them, and those are walked the same
 --- way, so each program alone is left out -- by where it resolves, so a
 --- link to it, /proc/self/exe among them, runs nothing either. A link
 --- on the way that leads above one of them is left out too. For good:
@@ -484,6 +527,11 @@ end
 --- `programs`, it forbids running nothing, and holds the process only
 --- to that: a sandboxed worker whose module declares `tool` but not
 --- `nests` ([`cosmic.test`]). False and why where there is no Landlock.
+-- TODO: replace this with [`Sandbox.restrict`] ([`cosmic.sandbox`]), which
+-- holds the running process to a policy's grants, promises and limits for
+-- good, and hold the worker by the policy the test declares, once the
+-- harness moves to [`Test.policy`] (the design's test phase): this holds
+-- a worker by a ruleset of its own making, which only the harness uses.
 -- TODO: let build/confine_tool_test.tl declare `nests` alone,
 -- dropping the `tool` it declares only to start what it confines,
 -- once a confined process is given only what its worker has, `confine`
@@ -495,7 +543,7 @@ end
 -- by exec -- once a ruleset can name a file by its contents: today a
 -- test that copies the program into its own directory runs it
 -- undeclared.
-function confine.forbid_running(programs: {string}): boolean, string
+function confine.forbid_running(programs: {string}, within?: {string}): boolean, string
   local now = asked
   local held: {string:boolean} = {}
   local above: {string:boolean} = {}
@@ -511,7 +559,20 @@ function confine.forbid_running(programs: {string}): boolean, string
     end
   end
   local allowed: {string} = {}
-  local function walk(dir: string)
+  local walk: function(dir: string)
+  local function visit(path: string)
+    local real, _ = now.realpath(path)
+    if held[path] or (real ~= nil and held[real]) then
+      -- The program, or a link to it.
+    elseif above[path] then
+      walk(path)
+    elseif real ~= nil and above[real] then
+      -- A link to a directory above it.
+    else
+      allowed[#allowed + 1] = path
+    end
+  end
+  walk = function(dir: string)
     -- A directory above a program that cannot be listed is run nothing
     -- beneath: the safe way to be wrong.
     local listed, _ = now.readdir(dir == "" and "/" or dir)
@@ -519,21 +580,15 @@ function confine.forbid_running(programs: {string}): boolean, string
     local names: {string} = {}
     for name in pairs(listed) do names[#names + 1] = name end
     table.sort(names)
-    for _, name in ipairs(names) do
-      local path = dir .. "/" .. name
-      local real, _ = now.realpath(path)
-      if held[path] or (real ~= nil and held[real]) then
-        -- The program, or a link to it.
-      elseif above[path] then
-        walk(path)
-      elseif real ~= nil and above[real] then
-        -- A link to a directory above it.
-      else
-        allowed[#allowed + 1] = path
-      end
-    end
+    for _, name in ipairs(names) do visit(dir .. "/" .. name) end
   end
-  walk("")
+  if within ~= nil then
+    -- A process a policy holds to its grants cannot list /: it is told the
+    -- paths it may run, and what the grants leave beneath them is theirs.
+    for _, path in ipairs(within) do visit(path) end
+  else
+    walk("")
+  end
   local held_now, trouble = process.landlock_restrict_execute(allowed)
   if not held_now then return false, trouble end
   return true, ""
@@ -591,21 +646,19 @@ function confine.resolution(path: string): string
   return (real == "/" and "" or real) .. "/" .. table.concat(names, "/")
 end
 
---- Whether this run is held to sandboxing: `COSMIC_TEST_SANDBOX=1`, as
---- CI's suites set it, `COSMIC_SANDBOX=must`, or CI's
---- `COSMIC_CI_REQUIRE_SANDBOX=1`. A test whose assertion is about a
---- sandbox the host refuses it -- the sandboxed workers of a `cosmic
---- test` it starts, nested in its own sandbox, which the kernel lets root
---- nest only two deep (core/syscalls.c's `map_ids`), where a root
---- runner cannot run its workers as a user of their own
---- (build.test_sandbox's `runs_as`) -- says it is
---- skipped ([`Test.skip`]) and returns unchecked, and `cosmic test` fails
---- a skipped test where this answers true, so a run held to sandboxing
---- proves the host checked it. A sandboxed test that reads it declares
---- `COSMIC_CI_REQUIRE_SANDBOX` (the other two are pinned).
-function confine.held_to_sandbox(): boolean
-  return sys.getenv("COSMIC_TEST_SANDBOX") == "1" or sys.getenv(SANDBOX_MODE) == "must" or
-    sys.getenv("COSMIC_CI_REQUIRE_SANDBOX") == "1"
+--- Why a run of `cosmic test` that `text` is the output of sandboxed no
+--- worker: the line of `text` that says so, for [`Test.skip`] where a test
+--- whose assertion is about a sandbox (the workers of a `cosmic test` it
+--- starts, nested in its own sandbox, which the kernel lets root nest
+--- only two deep -- core/syscalls.c's `map_ids`) finds the host refused
+--- it. Such a test skips only where the platform could give the sandbox
+--- ([`sandbox_platform`]); the skip ends the test.
+--- @param text what the run printed
+--- @return the reason, a single line
+function confine.unsandboxed_reason(text: string): string
+  local why = text:match("no worker can be sandboxed here[^\n(]*[^\n( ]") or
+    text:match("[^\n]*unsandboxed[^\n]*") or text
+  return "the run it started sandboxed no worker: " .. why
 end
 
 --- The errnos a confined spawn fails with where the kernel cannot
@@ -650,11 +703,50 @@ local function raw_strings(list: any): {string} | nil
   end
 end
 
+--- The fields of a sandbox and of its `unveil` that [`plain_sandbox`]
+--- carries: one with any other (a policy's: grants, promises, strict) is
+--- the core's to read as it stands, and no copy of it is made.
+local plain_fields <const>: {string:boolean} = {
+  ruleset = true, unveil = true, noexec_scratch = true, offline = true, user = true,
+  group = true, pledge = true,
+}
+local plain_unveil_fields <const>: {string:boolean} = { reads = true, writes = true, at = true }
+
+--- What a policy's sandbox ([`plain_sandbox`] copies none) is, read raw as
+--- the core reads it: "rooted" where it builds a root of its own, "isolating"
+--- where it makes a procfs or a network namespace, "held" where it only holds
+--- the child to grants, promises or limits, and "" for a sandbox that is not
+--- a policy's.
+local function policy_kind(sandbox: raw_process.Sandbox): string
+  local raw = sandbox as {string:any}
+  local policy = false
+  for _, key in ipairs({ "grants", "promises", "rlimits", "sockets", "strict", "proc" }) do
+    if rawget(raw, key) ~= nil then policy = true end
+  end
+  if not policy then return "" end
+  -- A policy's start sets `strict`; a sandbox that does not is no policy's,
+  -- whatever else it names, and the core judges what it is.
+  if rawget(raw, "strict") ~= true then return "held" end
+  if rawget(raw, "unveil") ~= nil then return "rooted" end
+  if rawget(raw, "proc") == true or rawget(raw, "offline") == true then return "isolating" end
+  return "held"
+end
+
 --- `sandbox` as the core reads it -- raw, with no metamethod answering
 --- for a field -- in a plain table of its own; nil when a field holds
---- what the core would refuse, for the core to refuse.
+--- what the core would refuse, for the core to refuse, or one this does
+--- not copy, which the core is given as it is.
 local function plain_sandbox(sandbox: raw_process.Sandbox): raw_process.Sandbox | nil
   local raw = sandbox as {string:any}
+  for key, _ in next, raw do
+    if not key is string or not plain_fields[key] then return nil end
+  end
+  local listed = rawget(raw, "unveil")
+  if listed is {any:any} then
+    for key, _ in next, listed do
+      if not key is string or not plain_unveil_fields[key] then return nil end
+    end
+  end
   local plain: raw_process.Sandbox = {}
   local ruleset = rawget(raw, "ruleset")
   if ruleset is integer then plain.ruleset = ruleset elseif ruleset ~= nil then return nil end
@@ -776,14 +868,15 @@ end
 --- `use`s, for what [`confine.unseen`] says.
 local function remedy(top: string, use: confine.Use): string
   if system_path(top) and use == "starts" then
-    return "a test that starts a host program declares Test.needs { system = true } " ..
+    return "a test that starts a host program declares Test.policy { profiles = { \"system\" } } " ..
       "(see cosmic docs cosmic.test)"
   elseif system_path(top) then
-    return "a test that reads the system's own files declares Test.needs " ..
-      "{ system = true }, or names the few it reads in `host` (see cosmic docs cosmic.test)"
+    return "a test that reads the system's own files declares Test.policy " ..
+      "{ profiles = { \"system\" } }, or grants the few it reads by their absolute paths " ..
+      "(see cosmic docs cosmic.test)"
   end
-  return "a test names each host file it starts or reads in Test.needs " ..
-    "{ host = { ... } } (see cosmic docs cosmic.test)"
+  return "a test grants each host file it starts or reads, by its absolute path, in Test.policy " ..
+    "{ grants = { ... } } (see cosmic docs cosmic.test)"
 end
 
 --- Why a process in a sandboxed worker's sandbox (build/test_sandbox.tl)
@@ -902,7 +995,7 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
                            stderr: integer | nil, process_group: boolean,
                            fds?: {integer:integer}, sandbox?: raw_process.Sandbox,
                            credentials?: raw_process.Credentials):
-                           integer | nil, string, integer
+      integer | nil, string, integer
     if ended then
       -- A reference to a stand-in that no longer stands in starts a
       -- process no confinement holds: under [`must_confine`], none.
@@ -921,7 +1014,11 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
     -- A root of its own, which a worker held by a Landlock ruleset
     -- cannot make: refused outright, naming `nests`.
     local holder = held_by()
+    -- A policy's sandbox that makes a root, a procfs or a network namespace
+    -- is refused so as well: it is not copied ([`plain_sandbox`]).
+    local kind = sandbox ~= nil and plain == nil and policy_kind(sandbox) or ""
     if holder ~= nil and ((plain ~= nil and plain.unveil ~= nil) or
+        kind == "rooted" or kind == "isolating" or
         (sandbox == nil and confinement ~= nil)) then
       return nil, refuse_nesting(path, holder), sys.EPERM
     end
@@ -940,10 +1037,13 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
     -- reading what its test did not declare: under [`must_confine`] it
     -- does not start, rather than be held to a sandbox it was not given.
     -- One the core would refuse raises there.
-    if plain ~= nil and must ~= nil then
+    -- A policy's that builds no root of its own is no more the sandbox the
+    -- test was given, so it does not start either; one that does is a
+    -- confinement of its own, as an unveil and offline is.
+    if (plain ~= nil or kind == "held" or kind == "isolating") and must ~= nil then
       return nil, refuse(must, path, "unveil and offline",
         "a sandbox of its own that does not unveil and take the network, which " ..
-        "must_confine does not add to", sys.EINVAL), sys.EINVAL
+          "must_confine does not add to", sys.EINVAL), sys.EINVAL
     end
     -- One a library's work starts (`declaring`), where no confinement
     -- of the test's holds it: where this process runs in a sandbox, by

@@ -2,13 +2,13 @@
 -- files under `diagnostics`, and every one still running when a case
 -- fails is ended. A paused child hands off over a named pipe.
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Fixture = require("cosmic_ci.fixture")
 
-local Time = require("cosmic.time")
 -- Bound subprocess waits and the shorter paused-build handshakes separately.
-local child_wait_timeout_ns <const> = Time.seconds(30)
+local child_wait_timeout_ns <const> = Clock.seconds(30)
 -- A paused child reaches its hook after a cold start: a real core
 -- extracts and hashes itself first, which a sanitized core or a loaded
 -- runner makes several times slower. The bound only guards a hang, and
@@ -16,7 +16,7 @@ local child_wait_timeout_ns <const> = Time.seconds(30)
 -- and launcher fixtures get (cosmic_ci/orchestration.tl sets them no
 -- COSMIC_TEST_TIMEOUT), so a hang in a test's first handshake fails
 -- here, naming it.
-local handshake_timeout_ns <const> = Time.seconds(20)
+local handshake_timeout_ns <const> = Clock.seconds(20)
 
 local record Process
   record Running
@@ -37,7 +37,7 @@ end
 
 -- One field of this host's `uname`.
 function Process.host_uname(work: string, diagnostics: string, flag: string,
-    label: string): string
+                            label: string): string
   local answer = Fixture.run("uname-" .. label,
     { "/usr/bin/env", "uname", flag }, work, diagnostics)
   return (assert(Fixture.small(answer.out, 256):match("^(%S+)"),
@@ -47,8 +47,8 @@ end
 -- Starts `argv`, its streams in files under `diagnostics` named for
 -- `label`, and its stdin read from the file `input` when one is given.
 function Process.start(label: string, argv: {string}, cwd: string,
-    values: {string:string}, diagnostics: string,
-    input?: string): Process.Running
+                       values: {string:string}, diagnostics: string,
+                       input?: string): Process.Running
   local out = diagnostics .. "/" .. label .. ".out"
   local err = diagnostics .. "/" .. label .. ".err"
   local out_fd = assert(Fs.open_write(out))
@@ -137,9 +137,9 @@ end
 -- A child that exits first fails the wait then, rather than when the
 -- bound passes.
 function Process.await_ready(work: string, diagnostics: string, label: string,
-    path: string, child: Process.Running, timeout_ns?: integer)
+                             path: string, child: Process.Running, timeout_ns?: integer)
   local bound = timeout_ns or handshake_timeout_ns
-  local deadline = Time.monotonic_ns() + bound
+  local deadline = Clock.monotonic_ns() + bound
   local reader = Process.start("ready-" .. label,
     { "/usr/bin/env", "cat", path }, work, Fixture.environment(), diagnostics)
   local exited = false
@@ -156,13 +156,13 @@ function Process.await_ready(work: string, diagnostics: string, label: string,
     -- to an end of file; it fails (ENXIO) while no reader has the pipe
     -- open, so it is tried until the reader ends.
     local done = not exited
-    while not done and Time.monotonic_ns() < deadline do
+    while not done and Clock.monotonic_ns() < deadline do
       local fd = sys.open(path, sys.O_WRONLY | sys.O_NONBLOCK)
       if fd then assert(Fs.close(fd)) end
-      done = Child.wait_any({ reader.handle }, Time.ms(10)) ~= nil
+      done = Child.wait_any({ reader.handle }, Clock.ms(10)) ~= nil
     end
     -- Settled by now, unless the deadline passed: then this ends it.
-    local read = Process.finish(reader, Time.ms(1))
+    local read = Process.finish(reader, Clock.ms(1))
     assert(read.ok, label .. ": reading readiness failed; stderr=" .. reader.err)
     return true
   end)
@@ -172,15 +172,15 @@ function Process.await_ready(work: string, diagnostics: string, label: string,
   if answer == "" and exited then
     local ended = assert(child.handle:wait())
     error(label .. ": " .. child.label .. " exited before it was ready (code=" ..
-      tostring(ended.code) .. "; signal=" .. tostring(ended.signal) ..
-      "); stdout=" .. child.out .. "; stderr=" .. child.err, 0)
+        tostring(ended.code) .. "; signal=" .. tostring(ended.signal) ..
+        "); stdout=" .. child.out .. "; stderr=" .. child.err, 0)
   end
   assert(answer == "ready\n", label .. ": startup hook readiness differs")
 end
 
 -- Lets a paused child go on.
 function Process.release(work: string, diagnostics: string, label: string,
-    path: string)
+                         path: string)
   local input = work .. "/release-" .. label
   Fixture.write(input, "go\n")
   Fixture.run("release-" .. label, { "/usr/bin/env", "tee", path }, work,

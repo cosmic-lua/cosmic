@@ -3,12 +3,12 @@
 --- is paid by each of them.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
-local Time = require("cosmic.time")
 
 --- The program itself, started with `-e`.
-Test.needs{ lua = true }
+Test.policy{ profiles = { "cosmic" } }
 
 --- The `build.*` modules `-e` may have loaded as its chunk runs: dispatch,
 --- the exit status its answer is read as, the verdict logger that reads
@@ -37,7 +37,7 @@ for name in pairs(package.loaded) do
 end
 table.sort(names)
 print(table.concat(names, " "))
-]] }, { env = {}, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })
+]] }, { env = {}, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))
   local names: {string} = {}
@@ -49,7 +49,7 @@ print(table.concat(names, " "))
     end
   end
   assert(#names > 0 and #names <= allowed, #names .. " build modules, more than " .. allowed ..
-    ": " .. tostring(r.stdout))
+      ": " .. tostring(r.stdout))
   local loaded = " " .. table.concat(names, " ") .. " "
   for _, name in ipairs({ "build.dispatch", "build.exit_status" }) do
     assert(loaded:find(" " .. name .. " ", 1, true), name .. " is not among " .. loaded)

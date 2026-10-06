@@ -11,6 +11,7 @@ local ast = require("build.ast")
 local doctest = require("build.doctest")
 local gen_syscalls = require("build.gen_syscalls")
 local link_text = require("build.link_text")
+local Template = require("cosmic.template")
 local bind = require("build.bind")
 local type compiler = require("build.compiler")
 
@@ -47,8 +48,8 @@ function derivation.put_compiler(db: Sqlite.Handle, source: string): boolean, st
   end
   return Sqlite.run(db,
     "INSERT OR REPLACE INTO derived (file, path, kind, origin, from_hash, " ..
-    "source, source_hash) VALUES ('o/vendor/tl/tl.tl', 'vendor.tl', " ..
-    "'vendor', 'vendor', lower(hex(sha256(?1))), ?1, lower(hex(sha256(?1))))",
+      "source, source_hash) VALUES ('o/vendor/tl/tl.tl', 'vendor.tl', " ..
+      "'vendor', 'vendor', lower(hex(sha256(?1))), ?1, lower(hex(sha256(?1))))",
     { text(source) })
 end
 
@@ -68,8 +69,8 @@ local insert_derived =
 local function derive_doc_guides(db: Sqlite.Handle): boolean, string
   local guides, trouble = Sqlite.text_rows(db,
     "SELECT path, data, sha256 FROM files " ..
-    "WHERE path GLOB 'doc/guides/*.md' AND path NOT GLOB 'doc/guides/*/*' " ..
-    "AND path NOT IN (SELECT file FROM derived) ORDER BY path")
+      "WHERE path GLOB 'doc/guides/*.md' AND path NOT GLOB 'doc/guides/*/*' " ..
+      "AND path NOT IN (SELECT file FROM derived) ORDER BY path")
   if guides == nil then
     return false, trouble
   end
@@ -89,6 +90,47 @@ local function derive_doc_guides(db: Sqlite.Handle): boolean, string
   return true, ""
 end
 
+--- A template's import path, the convention a `.tl` file gets with its
+--- extension swapped: `pages/home.tmpl` is `pages.home`, and a
+--- directory's own `init.tmpl` is the directory, `pages`.
+local function import_path_of_template(file: string): string
+  local stem = file:gsub("%.tmpl$", "")
+  if stem:sub(-5) == "/init" then
+    stem = stem:sub(1, -6)
+  end
+  return (stem:gsub("/", "."))
+end
+
+--- The templates with no current `derived` row, each compiled to the
+--- module it is ([`cosmic.template`]). One it refuses fails the build
+--- with its own `file:line:col` reason. What the compiler last did to a
+--- template stands while the analyzer does ([`build.importer`]'s
+--- `forget_stale_analysis`): [`cosmic.template`] is in its closure.
+local function derive_templates(db: Sqlite.Handle): boolean, string
+  local templates, trouble = Sqlite.text_rows(db,
+    "SELECT path, CAST(data AS TEXT), sha256 FROM files " ..
+      "WHERE path GLOB '*.tmpl' AND path NOT GLOB 'testdata/*' " ..
+      "AND path NOT GLOB '*/testdata/*' " ..
+      "AND path NOT IN (SELECT file FROM derived) ORDER BY path")
+  if templates == nil then
+    return false, trouble
+  end
+  for _, row in ipairs(templates) do
+    local file, template_source, from_hash = row[1], row[2], row[3]
+    local source, compile_trouble = Template.compile(template_source, file)
+    if source == nil then
+      return false, compile_trouble
+    end
+    local ok, insert_trouble = Sqlite.run(db, insert_derived,
+      { text(file), text(import_path_of_template(file)), text("module"),
+        text("template"), text(from_hash), text(source) })
+    if not ok then
+      return false, file .. ": " .. insert_trouble
+    end
+  end
+  return true, ""
+end
+
 --- The syscall table's declaration and the raw process table's, each
 --- generated from its header when the header has no current `derived`
 --- row. Only cosmic's own tree has the headers; a project gets the
@@ -98,7 +140,7 @@ local function derive_syscalls(db: Sqlite.Handle): boolean, string
     local file = target.target.header
     local headers, trouble = Sqlite.text_rows(db,
       "SELECT data, sha256 FROM files WHERE path = ? " ..
-      "AND path NOT IN (SELECT file FROM derived)", { text(file) })
+        "AND path NOT IN (SELECT file FROM derived)", { text(file) })
     if headers == nil then
       return false, trouble
     end
@@ -124,7 +166,7 @@ end
 local function duplicate_import_paths(db: Sqlite.Handle): boolean, string
   local doubled, trouble = Sqlite.text_rows(db,
     "SELECT path, group_concat(file, ' and ') FROM inputs " ..
-    "WHERE kind <> 'decl' GROUP BY path HAVING count(*) > 1 ORDER BY path")
+      "WHERE kind <> 'decl' GROUP BY path HAVING count(*) > 1 ORDER BY path")
   if doubled == nil then
     return false, trouble
   end
@@ -158,7 +200,8 @@ local function origin_lines(source: string): {string: integer} | nil
 end
 
 --- The rows `test_inputs` keeps of one parse (see [`build.work`]): its
---- `needs` declaration ([`cosmic.test`]), field by field.
+--- `policy` declaration ([`cosmic.test`]), as the `needs` it stands for,
+--- field by field.
 local function insert_test_inputs(db: Sqlite.Handle, source_hash: string,
                                   found: analyzer.Analysis): boolean, string
   local rows: {{string}} = {}
@@ -174,12 +217,12 @@ local function insert_test_inputs(db: Sqlite.Handle, source_hash: string,
     each("network", declared.network)
     if declared.tool then rows[#rows + 1] = { "tool", "true" } end
     if declared.lua then rows[#rows + 1] = { "lua", "true" } end
-    if declared.standalone then rows[#rows + 1] = { "standalone", "true" } end
     if declared.nests then rows[#rows + 1] = { "nests", "true" } end
     if declared.noexec then rows[#rows + 1] = { "noexec", "true" } end
     if declared.store then rows[#rows + 1] = { "store", "true" } end
     if declared.system then rows[#rows + 1] = { "system", "true" } end
     each("caches", declared.caches)
+    each("requires", declared.requires or {})
   end
   for ordinal, row in ipairs(rows) do
     local ok, why = Sqlite.run(db,
@@ -198,12 +241,12 @@ end
 --- an import. Type-only requires and conditional reassignments are real
 --- dependencies the build order must see.
 function derivation.parse_new(db: Sqlite.Handle, built: compiler, tally: derivation.Parses,
-                         made: {Source}): boolean, string
+                              made: {Source}): boolean, string
   local fresh, trouble = Sqlite.text_rows(db,
     "SELECT source_hash, min(file), source, max(origin <> 'tree') FROM inputs " ..
-    "WHERE kind <> 'vendor' " ..
-    "AND source_hash NOT IN (SELECT source_hash FROM parsed) " ..
-    "GROUP BY source_hash ORDER BY source_hash")
+      "WHERE kind <> 'vendor' " ..
+      "AND source_hash NOT IN (SELECT source_hash FROM parsed) " ..
+      "GROUP BY source_hash ORDER BY source_hash")
   if fresh == nil then
     return false, trouble
   end
@@ -254,7 +297,7 @@ function derivation.parse_new(db: Sqlite.Handle, built: compiler, tally: derivat
     for ordinal, entry in ipairs(found.catalog) do
       ok, why = Sqlite.run(db,
         "INSERT INTO catalog (source_hash, ordinal, symbol, message, line) " ..
-        "VALUES (?1, ?2, ?3, ?4, ?5)",
+          "VALUES (?1, ?2, ?3, ?4, ?5)",
         { text(source_hash), { integer = ordinal }, text(entry.symbol),
           text(entry.message), { integer = entry.line } })
       if not ok then
@@ -268,8 +311,8 @@ function derivation.parse_new(db: Sqlite.Handle, built: compiler, tally: derivat
       end
       ok, why = Sqlite.run(db,
         "INSERT INTO docs (source_hash, ordinal, symbol, source_symbol, " ..
-        "exported, kind, signature, text, line) " ..
-        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+          "exported, kind, signature, text, line) " ..
+          "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         { text(source_hash), { integer = ordinal }, text(entry.symbol),
           text(entry.source_symbol), { integer = entry.exported and 1 or 0 },
           text(entry.kind), text(entry.signature), text(entry.text),
@@ -281,7 +324,7 @@ function derivation.parse_new(db: Sqlite.Handle, built: compiler, tally: derivat
     for ordinal, entry in ipairs(found.references) do
       ok, why = Sqlite.run(db,
         "INSERT INTO refs (source_hash, ordinal, module, member, line) " ..
-        "VALUES (?1, ?2, ?3, ?4, ?5)",
+          "VALUES (?1, ?2, ?3, ?4, ?5)",
         { text(source_hash), { integer = ordinal }, text(entry.module),
           text(entry.member), { integer = entry.line } })
       if not ok then
@@ -309,7 +352,7 @@ function derivation.parse_new(db: Sqlite.Handle, built: compiler, tally: derivat
       local link = entry.link
       ok, why = Sqlite.run(db,
         "INSERT INTO links (source_hash, ordinal, line, column, form, doc, text, " ..
-        "target, own, alias) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+          "target, own, alias) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         { text(source_hash), { integer = ordinal }, { integer = link.line },
           { integer = link.column }, text(link.form), { integer = entry.doc and 1 or 0 },
           text(link.text), text(link.target), { integer = entry.own and 1 or 0 },
@@ -321,7 +364,7 @@ function derivation.parse_new(db: Sqlite.Handle, built: compiler, tally: derivat
     for ordinal, entry in ipairs(found.examples) do
       ok, why = Sqlite.run(db,
         "INSERT INTO examples (source_hash, ordinal, name, text, source, " ..
-        "line) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+          "line) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         { text(source_hash), { integer = ordinal }, text(entry.name),
           text(entry.text), text(entry.source), { integer = entry.line } })
       if not ok then
@@ -365,7 +408,7 @@ end
 --- `;`, `t` and a text's length, `:` and the text, or `n` for null. A
 --- source with no `parsed` row, or a cell of another kind, has none.
 function derivation.packed_parses(db: Sqlite.Handle,
-                             sources: {Source}): {string:derivation.Parse} | nil, string
+                                  sources: {Source}): {string:derivation.Parse} | nil, string
   local widths, widths_trouble = derivation.table_widths(db)
   if widths == nil then return nil, widths_trouble end
   local hashes: {string} = {}
@@ -433,7 +476,7 @@ end
 --- source hash, for tables `widths` cells wide: nil for what it never
 --- writes, or for rows of another width than the tables here have.
 function derivation.unpacked_parse(rows: string,
-                              widths: {string:integer}): {string:{{Sqlite.Value}}} | nil
+                                   widths: {string:integer}): {string:{{Sqlite.Value}}} | nil
   local out: {string:{{Sqlite.Value}}} = {}
   local at = 1
   for _, name in ipairs(packed_tables) do
@@ -478,7 +521,7 @@ end
 --- Writes one shared parse of the source `hash` into the tables, as the
 --- parse would have: false where it cannot, having written none of it.
 function derivation.put_parse(db: Sqlite.Handle, hash: string, requires: {string},
-                         rows: {string:{{Sqlite.Value}}}): boolean, string
+                              rows: {string:{{Sqlite.Value}}}): boolean, string
   local begun, begin_trouble = db:exec("SAVEPOINT shared_parse")
   if not begun then return false, begin_trouble end
   local function steps(): boolean, string
@@ -497,7 +540,7 @@ function derivation.put_parse(db: Sqlite.Handle, hash: string, requires: {string
           values[#values + 1] = cell
         end
         local ok, why = Sqlite.run(db, "INSERT INTO " .. name .. " VALUES (" ..
-          table.concat(marks, ", ") .. ")", values)
+            table.concat(marks, ", ") .. ")", values)
         if not ok then return false, why end
       end
     end
@@ -516,8 +559,8 @@ end
 function derivation.unparsed(db: Sqlite.Handle): {Source} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT source_hash, max(origin <> 'tree') FROM inputs WHERE kind <> 'vendor' " ..
-    "AND source_hash NOT IN (SELECT source_hash FROM parsed) " ..
-    "GROUP BY source_hash ORDER BY source_hash")
+      "AND source_hash NOT IN (SELECT source_hash FROM parsed) " ..
+      "GROUP BY source_hash ORDER BY source_hash")
   if rows == nil then return nil, trouble end
   local out: {Source} = {}
   for _, row in ipairs(rows) do
@@ -529,7 +572,7 @@ end
 --- Produces generated inputs and rejects ambiguous import paths before
 --- any cached parse or compile can stand for them.
 function derivation.inputs(db: Sqlite.Handle): boolean, string
-  for _, step in ipairs({ derive_doc_guides, derive_syscalls, duplicate_import_paths }) do
+  for _, step in ipairs({ derive_doc_guides, derive_syscalls, derive_templates, duplicate_import_paths }) do
     local ok, trouble = step(db)
     if not ok then return false, trouble end
   end

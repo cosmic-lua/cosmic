@@ -21,13 +21,13 @@ local verbs_fixture = require("build.verbs_fixture")
 
 --- The tool itself, the CA bundle a file run reads, and what bin/zig reads
 --- to find or fetch zig.
-Test.needs{
-  reads = { "vendor/cacert/cacert.pem" },
+Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "vendor/cacert/cacert.pem", letters = "r" } },
   env = { "ALL_PROXY", "COSMIC_BOOTSTRAP", "COSMIC_BOOTSTRAP_ATTEMPTS", "COSMIC_BOOTSTRAP_VERIFY",
     "COSMIC_ZIG", "COSMIC_ZIG_CACHE", "COSMIC_ZIG_GLOBAL_CACHE", "CURL_CA_BUNDLE", "HTTPS_PROXY",
     "HTTP_PROXY", "NO_PROXY", "SSL_CERT_DIR", "SSL_CERT_FILE", "all_proxy", "http_proxy",
     "https_proxy", "no_proxy" },
-  tool = true,
 }
 
 local passthrough = verb_cases.passthrough

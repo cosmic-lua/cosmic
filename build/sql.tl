@@ -36,16 +36,15 @@
 --- is built from the data alone, so nothing under o/ is read.
 
 local Cli = require("cosmic.cli")
+local Clock = require("cosmic.clock")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
-local Time = require("cosmic.time")
 local bare = require("build.bare")
 local clock = require("build.clock")
 local dataset = require("build.dataset")
-local json_query = require("build.json_query")
 local verdicts = require("build.verdict")
 local verb_spec = require("build.verb_spec")
 
@@ -88,7 +87,7 @@ local record sql
     --- The format's name, as [`dataset.read`] takes it.
     format: string
     --- Where in the document the rows are; nil for all of it.
-    at: {string | integer}
+    at: Json.Steps
     --- Keep every cell of a CSV or TSV as text.
     raw: boolean
   end
@@ -475,9 +474,13 @@ local function read_inputs(parsed: Flags.Parsed): {sql.Input} | nil, string
         end
         input.format = value
       else
-        local steps, why = json_query.parse_path(value)
+        local steps, why = Json.from_path(value)
         if steps == nil then
-          return nil, "--at " .. value .. ": " .. why
+          local query, _ = Json.query(value)
+          if query ~= nil then
+            why = "--at names one value, and `*` and `..` can match many"
+          end
+          return nil, "--at " .. value .. ": " .. (why:gsub("^json: ", ""))
         end
         input.at = steps
       end
@@ -550,7 +553,7 @@ local function describe(db: Sqlite.Handle, tables: {dataset.Table}): {string} | 
     local from = ' FROM "' .. each.name:gsub('"', '""') .. '"'
     for _, column in ipairs(each.columns) do
       local rows, trouble = Sqlite.text_rows(db, 'SELECT DISTINCT typeof("' ..
-        column:gsub('"', '""') .. '")' .. from .. " ORDER BY 1")
+          column:gsub('"', '""') .. '")' .. from .. " ORDER BY 1")
       if rows == nil then
         return nil, trouble
       end
@@ -702,7 +705,7 @@ end
 ---   why; the process's own when nil
 function sql.run(argv: {integer:string}, root?: string, output?: sql.Output,
                  stdin?: function(): string | nil, string): integer
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local to = output or standard
   local function complain(line: string)
     to.err("cosmic: sql: " .. line)

@@ -4,20 +4,24 @@
 --- themselves are in `fetch_test.tl`.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
-local Time = require("cosmic.time")
 
 --- The program itself, which its tests start, and a local port: closed,
 --- or one a test serves.
-Test.needs{ tool = true, network = { "127.0.0.1" } }
+Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "o/bin", letters = "rx" } },
+  loopback = { "127.0.0.1" },
+}
 
 local function cosmic(dir: string, words: {string}): integer, string, string
   local started = this_program.program(words, {
-    cwd = dir, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30),
+    cwd = dir, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
   })
   local result = assert(Child.run(started.argv, started.options))
   return result.code, result.stdout or "", result.stderr or ""
@@ -71,11 +75,11 @@ return function(argv: {string}): integer
 end
 ]]))
   local started = this_program.program({ "--standalone", fixture, tmp },
-    { stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })
+    { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.signal == sys.SIGINT,
     "code=" .. tostring(result.code) .. " signal=" .. tostring(result.signal) ..
-    " " .. tostring(result.stderr))
+      " " .. tostring(result.stderr))
   assert(Fs.stat(tmp .. "/target") == nil, "the target was created")
   for _, name in ipairs((assert(Fs.list(tmp)))) do
     assert(name == "interrupted.tl", "left behind: " .. name)
@@ -86,7 +90,7 @@ end
 --- body and then waits: SIGINT, sent once the part is on disk, ends it
 --- of the signal, leaving no file behind.
 local function test_a_fetch_interrupted_mid_body_leaves_no_file(tmp: string)
-  local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Time.seconds(20) }))
+  local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(20) }))
   local url = "http://127.0.0.1:" .. server.address.port .. "/big"
   local started = this_program.program({ "fetch", "-o", tmp .. "/target", url },
     { cwd = tmp, stdout = "null", stderr = "capture" })
@@ -107,13 +111,13 @@ local function test_a_fetch_interrupted_mid_body_leaves_no_file(tmp: string)
       if st ~= nil and st.size >= #part then written = true end
     end
     if written then break end
-    assert(sys.nanosleep(Time.ms(10)))
+    assert(sys.nanosleep(Clock.ms(10)))
   end
   assert(written, "the part never reached the disk")
   assert(child:stop(sys.SIGINT))
-  local result = assert(child:wait(Time.seconds(20)))
+  local result = assert(child:wait(Clock.seconds(20)))
   assert(result.signal == sys.SIGINT,
     "code=" .. tostring(result.code) .. " signal=" .. tostring(result.signal) ..
-    " " .. tostring(result.stderr))
+      " " .. tostring(result.stderr))
   assert(#(assert(Fs.list(tmp))) == 0, "left behind: " .. table.concat(assert(Fs.list(tmp)), ","))
 end

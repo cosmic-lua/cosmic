@@ -5,8 +5,8 @@
 --- needs at run time and nothing it does not. These need `tool`: an
 --- executable's database is joined from this program's own
 --- ([`embed.database`] reads [`Store.databases()`], every `cosmic.*`
---- module's rows), which the store a worker without it is held to
---- refuses. What writes no executable is in `embed_test.tl`.
+--- module's rows), which the store a worker without it is given does not
+--- hold. What writes no executable is in `embed_test.tl`.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -22,7 +22,10 @@ local Time = require("cosmic.time")
 --- The programs these tests run are built `--host`, so no launcher --
 --- and no `sh` -- runs them.
 --- `store`: [`embed.database`] reads every `cosmic.*` module's rows.
-Test.needs{ tool = true, store = true }
+Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "o/cosmic.db", letters = "r" } },
+}
 
 local main_source = [[
 local Fs = require("cosmic.fs")
@@ -127,7 +130,7 @@ local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
     "every zone the binary carries is in")
   local materials = rows_of(path,
     "SELECT (SELECT count(*) FROM components WHERE name = 'lua'), " ..
-    "(SELECT count(*) FROM notices WHERE component = 'lua' AND text LIKE '%Lua.org%')")
+      "(SELECT count(*) FROM notices WHERE component = 'lua' AND text LIKE '%Lua.org%')")
   assert(materials[1][1] == "1" and materials[1][2] == "1",
     "the program carries the bill of materials its cores ship under")
   local trusted = rows_of(path, "SELECT count(*) FROM ca_roots")
@@ -218,12 +221,12 @@ local function test_a_test_or_example_the_program_requires_is_carried(tmp: strin
 
   local modules = rows_of(path,
     "SELECT path FROM modules WHERE path IN ('shared_example', 'fixture_test') " ..
-    "ORDER BY path")
+      "ORDER BY path")
   assert(#modules == 2, "a required example and test are carried, and " ..
-    "only " .. #modules .. " were")
+      "only " .. #modules .. " were")
   local imports = rows_of(path,
     "SELECT count(*) FROM imports WHERE path = 'shared_example' " ..
-    "AND requires = 'fixture_test'")
+      "AND requires = 'fixture_test'")
   assert(imports[1][1] == "1", "the edge between them is carried")
 end
 
@@ -394,4 +397,29 @@ local function test_the_embedded_database_is_reproducible(tmp: string)
   local one = assert(embed.database(tmp .. "/o/cosmic.db", "cmd.hello.main"))
   local two = assert(embed.database(tmp .. "/o/cosmic.db", "cmd.hello.main"))
   assert(one == two, "repeating the embed changed its database")
+end
+
+--- A host program is no core: a policy that runs a program on a database
+--- is refused one, saying so, before anything starts.
+local function test_a_host_program_runs_no_program_on_a_database(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/refuse"))
+  assert(Fs.write(tmp .. "/cmd/refuse/main.tl", [[
+local Child = require("cosmic.child")
+local Proc = require("cosmic.proc")
+
+return function(argv: {string}): integer
+  local started, why = Child.start({ assert(Proc.executable()), "x" },
+    { policy = { database = argv[1] } })
+  print(started == nil, why)
+  return 0
+end
+]]))
+  local names, trouble = embed.tree(tmp, true)
+  assert(names ~= nil and names[1] == "refuse", trouble)
+  assert(Fs.write(tmp .. "/some.db", "a file, which is all the policy's check asks"))
+  local r = assert(Child.run({ tmp .. "/o/bin/refuse", tmp .. "/some.db" }, {
+    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
+  assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
+  local printed = assert(r.stdout)
+  assert(String.starts_with(printed, "true\t") and printed:find("host program", 1, true), printed)
 end

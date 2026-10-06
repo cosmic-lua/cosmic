@@ -2,7 +2,7 @@ local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
 
 -- Account lookup can consult more than /etc/passwd, notably on Darwin.
-Test.needs{ system = true }
+Test.policy{ profiles = { "system" } }
 
 local function test_user_resolves_root_and_copies_numeric_ids()
   local first, trouble = Proc.user("root")

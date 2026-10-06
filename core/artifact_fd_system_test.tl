@@ -17,9 +17,9 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
 --- A shell, and `cat`, to read the worker's descriptors with.
-Test.needs{
-  system = true,
-}
+-- Declared for the program's descriptor, which only a worker that runs the
+-- whole program holds (one on a sealed database has none).
+Test.policy{ profiles = { "system" }, grants = { { path = "o/cosmic.db", letters = "r" } } }
 
 --- The descriptor this process retains on its artifact, or nil for a
 --- start from none, or where this worker is not held from running its
@@ -43,7 +43,10 @@ end
 --- it starts still reads its own /proc/self, and the worker its own.
 local function test_a_host_program_cannot_reach_the_artifact_through_the_worker_s_proc()
   local fd = held_artifact_fd()
-  if fd == nil then return end
+  if fd == nil then
+    Test.skip("this program holds no descriptor on a portable artifact")
+    return
+  end
   local pid, own = tostring(Proc.pid()), tostring(fd)
   local control = shell('cat /proc/self/stat >/dev/null && cat "/proc/$1/stat" >/dev/null', pid)
   assert(control.code == 0, "the shell could not read /proc: " .. tostring(control.stderr))
@@ -53,7 +56,7 @@ local function test_a_host_program_cannot_reach_the_artifact_through_the_worker_
       'exec cat "/proc/$PPID/fd/$2"',
       'exec readlink "/proc/$1/fd/$2"',
       'exec cat "/proc/$1/map_files/"*',
-    }) do
+  }) do
     local result = shell(script, pid, own)
     assert(result.code ~= 0 and result.stdout == "",
       script .. " reached the artifact: " .. result.code .. " " .. #result.stdout .. " bytes")

@@ -52,8 +52,8 @@ local bytecode_header =
   "\8\136\169\255\255\255\255\255\255" ..
   "\8\0\0\0\0\0\40\119\192"
 
---- What `test_inputs` holds, by source hash: each [`Test.needs`]
---- declaration.
+--- What `test_inputs` holds, by source hash: each [`Test.policy`]
+--- declaration, as the [`Test.Needs`] it stands for.
 local function test_inputs_by_hash(db: Sqlite.Handle): {string:analyzer.Declared} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT source_hash, field, value FROM test_inputs ORDER BY source_hash, ordinal")
@@ -66,8 +66,8 @@ local function test_inputs_by_hash(db: Sqlite.Handle): {string:analyzer.Declared
     local one = declared[hash]
     if one == nil then
       one = { line = 0, reads = {}, host = {}, env = {}, network = {},
-        tool = false, lua = false, standalone = false, nests = false, store = false,
-        system = false, caches = {} }
+        tool = false, lua = false, nests = false, store = false,
+        system = false, caches = {}, requires = {} }
       declared[hash] = one
     end
     if field == "line" then
@@ -84,8 +84,6 @@ local function test_inputs_by_hash(db: Sqlite.Handle): {string:analyzer.Declared
       one.tool = true
     elseif field == "lua" then
       one.lua = true
-    elseif field == "standalone" then
-      one.standalone = true
     elseif field == "nests" then
       one.nests = true
     elseif field == "noexec" then
@@ -96,6 +94,8 @@ local function test_inputs_by_hash(db: Sqlite.Handle): {string:analyzer.Declared
       one.system = true
     elseif field == "caches" then
       one.caches[#one.caches + 1] = value
+    elseif field == "requires" then
+      one.requires[#one.requires + 1] = value
     end
   end
   return declared, ""
@@ -106,7 +106,7 @@ local function names_by_hash(db: Sqlite.Handle,
                              table_name: string): {string:{string}} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT source_hash, name FROM " .. table_name ..
-    " ORDER BY source_hash, ordinal")
+      " ORDER BY source_hash, ordinal")
   if rows == nil then
     return nil, trouble
   end
@@ -134,8 +134,8 @@ end
 --- are content-addressed when a project imports them. Each module's
 --- [`Keys`], by path.
 function compilation.dependency_keys(db: Sqlite.Handle, modules: {Module},
-                               built: compiler,
-                               tool: string): {string:Keys} | nil, string
+                                     built: compiler,
+                                     tool: string): {string:Keys} | nil, string
   local requires, requires_trouble = names_by_hash(db, "requires")
   if requires == nil then
     return nil, requires_trouble
@@ -143,7 +143,7 @@ function compilation.dependency_keys(db: Sqlite.Handle, modules: {Module},
   local dependencies: {string:Dependency} = {}
   local rows, rows_trouble = Sqlite.text_rows(db,
     "SELECT path, kind, source_hash FROM inputs WHERE kind <> 'vendor' " ..
-    "ORDER BY path, kind = 'decl' DESC")
+      "ORDER BY path, kind = 'decl' DESC")
   if rows == nil then
     return nil, rows_trouble
   end
@@ -174,6 +174,13 @@ function compilation.dependency_keys(db: Sqlite.Handle, modules: {Module},
       if source == nil then
         return nil, source_trouble
       end
+      -- TODO: every compile parses each standard-library module its
+      -- project reaches, again in every fixture a test compiles: about
+      -- half the time of a compile that reaches cosmic.json, on the
+      -- checked core. Read the binary's own edges ([`Store.requires`])
+      -- instead, once its `imports` also keeps a module's edge to a
+      -- declaration, which build/writer.tl's `insert_imports` drops
+      -- (cosmic.json's to cosmic.internal.json).
       local parsed, parse_trouble = ast.parse(built, source, name)
       if parsed == nil then
         return nil, parse_trouble
@@ -269,8 +276,8 @@ end
 function compilation.collect(db: Sqlite.Handle): {Module} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT i.path, i.file, i.kind, i.origin, i.source, i.source_hash, " ..
-    "p.has_return FROM inputs i JOIN parsed p ON p.source_hash = i.source_hash " ..
-    "WHERE i.kind NOT IN ('decl', 'vendor') ORDER BY i.path")
+      "p.has_return FROM inputs i JOIN parsed p ON p.source_hash = i.source_hash " ..
+      "WHERE i.kind NOT IN ('decl', 'vendor') ORDER BY i.path")
   if rows == nil then
     return nil, trouble
   end
@@ -299,7 +306,7 @@ function compilation.collect(db: Sqlite.Handle): {Module} | nil, string
       -- A declaration holds for the tests of its own module, and a
       -- module that is no test's has none: what a module it requires
       -- reads, the test declares.
-      return nil, file .. ":" .. inputs.line .. ": test.needs: only a test or example " ..
+      return nil, file .. ":" .. inputs.line .. ": test.policy: only a test or example " ..
         "module declares what its tests read; call it in each test module that " ..
         "requires this one"
     end
@@ -315,7 +322,7 @@ function compilation.collect(db: Sqlite.Handle): {Module} | nil, string
         {},
       inputs = inputs,
       has_top_level_return = has_return == "1",
-      generated = origin == "doctest",
+      generated = origin == "doctest" or origin == "template",
       key = "",
       graph_key = "",
       lua = "",
@@ -484,13 +491,37 @@ end
 --- [`Shape.record_of`] call resolved first, [`build.shape_specs`]), the test
 --- tail when it is a test, and the bytecode.
 function compilation.generate(m: Module, built: compiler, env: compiler.Env,
-                        typed: receivers.State, own_tree: boolean, judged: boolean,
-                        render: function(string, string, compiler.Result): string): compilation.Generated | nil, string
+                              typed: receivers.State, own_tree: boolean, judged: boolean,
+                              render: function(string, string, compiler.Result): string): compilation.Generated | nil, string
   local source, spec_trouble = shape_specs.resolve(built, env, m.file, m.path, m.source)
   if source == nil then
     return nil, spec_trouble
   end
-  local code, result = built.gen(source, env, nil, "tl")
+  -- Checked under the module's own file name, not `gen`'s empty
+  -- one: a mismatch between a value's type and the type a slot
+  -- expects is reported at the value's declaration when the checker
+  -- takes both for one file's and the declaration lies after the use,
+  -- which on a cold build put a template's error at the field in its
+  -- data module, under the template's name.
+  typed.checking = m.file
+  local result: compiler.Result
+  local checked_ok, raised = pcall(function()
+    result = built.check_string(source, env, m.file, "tl")
+  end)
+  -- Put back before a raise goes on, so the run's state names no file
+  -- the checker has left.
+  typed.checking = ""
+  if not checked_ok then
+    error(raised, 0)
+  end
+  local code: string | nil = nil
+  if result.ast ~= nil and #result.syntax_errors == 0 then
+    local written, write_trouble = built.generate(result.ast, env.defaults.gen_target, nil)
+    if written == nil then
+      return nil, m.file .. ": " .. write_trouble
+    end
+    code = written
+  end
   if m.kind == "test" and result ~= nil then
     result = discount_test_warnings(result, m.tests)
   end
@@ -538,7 +569,7 @@ end
 --- the compile itself, replacing whatever an earlier compile under the
 --- same key left.
 function compilation.keep_references(db: Sqlite.Handle, key: string,
-                               references: {receivers.Reference}): boolean, string
+                                     references: {receivers.Reference}): boolean, string
   local ok, why = Sqlite.run(db, "DELETE FROM typed_refs WHERE key = ?1", { text(key) })
   if not ok then
     return false, why
@@ -546,7 +577,7 @@ function compilation.keep_references(db: Sqlite.Handle, key: string,
   for ordinal, entry in ipairs(references) do
     ok, why = Sqlite.run(db,
       "INSERT INTO typed_refs (key, ordinal, module, member, line) " ..
-      "VALUES (?1, ?2, ?3, ?4, ?5)",
+        "VALUES (?1, ?2, ?3, ?4, ?5)",
       { text(key), { integer = ordinal }, text(entry.module), text(entry.member),
         { integer = entry.line } })
     if not ok then

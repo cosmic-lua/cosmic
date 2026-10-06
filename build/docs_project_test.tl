@@ -9,7 +9,10 @@ local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local invoke = require("build.invoke")
 
-Test.needs{ reads = { "core" }, env = { "COSMIC_TREE" }, store = true }
+Test.policy{
+  grants = { { path = "core", letters = "r" }, { path = "o/cosmic.db", letters = "r" } },
+  env = { "COSMIC_TREE" },
+}
 
 --- `cosmic <args>` in `dir`, built without the shared cache, which lives
 --- outside the test's own directory.
@@ -73,7 +76,7 @@ local function test_a_listed_function_module_answers_its_name(tmp: string)
   assert(Fs.mkdirs(project .. "/cmd/greet"))
   assert(Fs.write(project .. "/cmd/greet/main.tl",
     "--- Says hello.\nlocal function main(_argv: {integer:string}): integer\n" ..
-    "  return 0\nend\nreturn main\n"))
+      "  return 0\nend\nreturn main\n"))
   local built = cosmic(project, { "build" })
   assert(built.code == 0, built.stdout .. built.stderr)
   local index = docs_in(project)
@@ -90,9 +93,9 @@ local function test_uses_lists_a_projects_links_to_the_standard_library(tmp: str
   assert(Fs.mkdirs(project))
   assert(Fs.write(project .. "/greet.tl",
     "local Fs = require(\"cosmic.fs\")\n\n" ..
-    "--- Reads its greeting with [`Fs.read`].\nlocal record greet\nend\n\n" ..
-    "--- Says hello.\nfunction greet.hello(): string\n" ..
-    "  return (Fs.read(\"hello\")) or \"hello\"\nend\n\nreturn greet\n"))
+      "--- Reads its greeting with [`Fs.read`].\nlocal record greet\nend\n\n" ..
+      "--- Says hello.\nfunction greet.hello(): string\n" ..
+      "  return (Fs.read(\"hello\")) or \"hello\"\nend\n\nreturn greet\n"))
   assert(Fs.write(project .. "/README.md", "# Greet\n\nIt reads with [`cosmic.fs.read`].\n"))
   local built = cosmic(project, { "build" })
   assert(built.code == 0, built.stdout .. built.stderr)
@@ -104,7 +107,7 @@ local function test_uses_lists_a_projects_links_to_the_standard_library(tmp: str
   end
   local listed = table.concat(mine, "\n")
   assert(listed == "README.md:3: link cosmic.fs read\ngreet.tl:3: link cosmic.fs read\n" ..
-    "greet.tl:9: cosmic.fs read", result.stdout)
+      "greet.tl:9: cosmic.fs read", result.stdout)
   local linked = 0
   for _ in result.stdout:gmatch(": link cosmic%.fs read\n") do linked = linked + 1 end
   local page = docs_in(project, "cosmic.fs.read")

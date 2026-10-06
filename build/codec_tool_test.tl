@@ -5,13 +5,13 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local sandbox_skip = require("build.sandbox_skip")
 local this_program = require("build.this_program")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- The program itself, which its tests start.
-Test.needs{ tool = true }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local record Ran
   code: integer
@@ -22,7 +22,7 @@ end
 local function cosmic(dir: string, words: {string}, input?: string): Ran
   local started = this_program.program(words, {
     cwd = dir, stdout = "capture", stderr = "capture", input = input,
-    timeout_ns = Time.seconds(30),
+    timeout_ns = Clock.seconds(30),
   })
   local result = assert(Child.run(started.argv, started.options))
   return { code = result.code, out = result.stdout or "", err = result.stderr or "" }
@@ -54,15 +54,14 @@ end
 local function test_a_failed_standard_output_write_exits_2(tmp: string)
   -- /dev/full, where a write fails with ENOSPC, is Linux's, and every
   -- worker there is given it (build.confine's `runtime_paths`): one
-  -- without it is skipped, which a run held to sandboxing fails, and
-  -- elsewhere there is nothing to check.
+  -- without it is skipped, and elsewhere there is nothing to check.
   if Fs.stat("/dev/full") == nil then
-    sandbox_skip.refused("this worker has no /dev/full")
+    if assert(sys.uname()).sysname == "Linux" then Test.skip("this worker has no /dev/full") end
     return
   end
   local full = assert(Fs.open_write("/dev/full"))
   local started = this_program.program({ "codec", "hex" }, {
-    cwd = tmp, stdout = full, stderr = "capture", input = "abc", timeout_ns = Time.seconds(30),
+    cwd = tmp, stdout = full, stderr = "capture", input = "abc", timeout_ns = Clock.seconds(30),
   })
   local result = assert(Child.run(started.argv, started.options))
   assert(Fs.close(full))

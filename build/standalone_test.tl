@@ -4,6 +4,7 @@
 --- `standalone_tool_test.tl`.
 
 local standalone = require("build.standalone")
+local teal = require("build.teal")
 -- A fixture below requires [`cosmic.zip`], [`cosmic.tar`] or
 -- [`cosmic.archive`], which a standalone compile types from the store:
 -- required here, each is in this test's closure, so the store the
@@ -22,7 +23,29 @@ local _ = require("cosmic.removed")
 --- [`standalone.compile`] with its cache in the test's own directory, not
 --- this user's: a read of that one is no input a verdict can hold.
 local function compile(tmp: string, file: string, source: string): standalone.Main | nil, string
-  return standalone.compile(file, source, { XDG_CACHE_HOME = tmp .. "/cache" })
+  -- Vendor Lua lines contribute no tree coverage; checker diagnostics
+  -- carry the source's own positions independently of those lines.
+  return standalone.compile(file, source, { XDG_CACHE_HOME = tmp .. "/cache" },
+    (assert(teal.load(true))))
+end
+
+--- Stripping vendor Lua lines changes neither emitted code nor checker
+--- diagnostics, and using one compiler leaves each checking environment fresh.
+local function test_stripped_compiles_match_and_keep_environments_separate()
+  local stripped = assert(teal.load(true))
+  local complete = assert(teal.load())
+  for _, source in ipairs({
+      "local x: integer = 4\nreturn x\n",
+      "local x: integer = \"bad\"\nreturn x\n",
+      'io.stderr:write("x")\n',
+  }) do
+    local first, first_trouble = standalone.code("x.tl", source, {}, complete)
+    local second, second_trouble = standalone.code("x.tl", source, {}, stripped)
+    assert(first == second and first_trouble == second_trouble, second_trouble)
+  end
+  assert(standalone.code("first.tl", "global leaked: integer = 1\nreturn leaked\n", {}, stripped))
+  local code, trouble = standalone.code("second.tl", "return leaked\n", {}, stripped)
+  assert(code == nil and trouble:find("unknown variable: leaked", 1, true) ~= nil, trouble)
 end
 
 local function test_a_file_compiles_against_the_standard_library(tmp: string)
@@ -56,7 +79,7 @@ local function test_a_removed_field_names_its_replacement(tmp: string)
     'return function(): integer\n  io.stderr:write("x")\n  return 0\nend\n')
   assert(chunk == nil)
   assert(trouble:find("old.tl:2:3: unknown variable: io -- io.stderr is not available: " ..
-    "use Fs.stderr, a descriptor: Fs.put(Fs.stderr, text)", 1, true) ~= nil, trouble)
+      "use Fs.stderr, a descriptor: Fs.put(Fs.stderr, text)", 1, true) ~= nil, trouble)
 end
 
 --- A float assigned to a variable inferred an integer from `= 0` is
@@ -67,7 +90,7 @@ local function test_an_integer_accumulator_names_the_fix(tmp: string)
   assert(chunk == nil)
   assert(trouble:find("acc.tl:2:", 1, true) ~= nil, trouble)
   assert(trouble:find("peak is an integer, inferred from 'local peak = 0' at line 1; " ..
-    "write 'local peak = 0.0' or 'local peak: number = 0' to hold a number", 1, true) ~= nil, trouble)
+      "write 'local peak = 0.0' or 'local peak: number = 0' to hold a number", 1, true) ~= nil, trouble)
 end
 
 --- A member a `cosmic.*` module no longer has is told, under the alias
@@ -77,7 +100,7 @@ local function test_a_removed_member_names_its_replacement(tmp: string)
     'local Digest = require("cosmic.hash")\nreturn Digest.hex("x")\n')
   assert(chunk == nil)
   assert(trouble:find("old.tl:2:15: invalid key 'hex' in record 'Digest' of type Digest " ..
-    "-- Digest.hex was removed: use Codec.hex(digest)", 1, true) ~= nil, trouble)
+      "-- Digest.hex was removed: use Codec.hex(digest)", 1, true) ~= nil, trouble)
 end
 
 --- A program that read one of [`cosmic.cli`]'s per-verb maps is told which
@@ -98,8 +121,8 @@ local function test_a_boolean_for_a_record_argument_names_the_record(tmp: string
     'local Sqlite = require("cosmic.sqlite")\nreturn Sqlite.open("x.db", true)\n')
   assert(chunk == nil)
   assert(trouble:find("old.tl:2:28: argument 2: got boolean, expected Sqlite.OpenOptions " ..
-    "-- Sqlite.OpenOptions replaced a boolean argument: Sqlite.open(path, opts) takes a table: " ..
-    "{ writable = true } for the old `true`", 1, true) ~= nil, trouble)
+      "-- Sqlite.OpenOptions replaced a boolean argument: Sqlite.open(path, opts) takes a table: " ..
+      "{ writable = true } for the old `true`", 1, true) ~= nil, trouble)
   chunk, trouble = compile(tmp, "other.tl",
     'local Sqlite = require("cosmic.sqlite")\nreturn Sqlite.run(true, "x")\n')
   assert(chunk == nil)
@@ -110,64 +133,54 @@ end
 --- went or what to write instead: a function, a type, and a function
 --- with a replacement in the library.
 local function test_a_moved_json_member_names_its_new_home(tmp: string)
-  local chunk, trouble = compile(tmp, "old.tl",
-    'local Json = require("cosmic.json")\nreturn Json.describe({})\n')
+  local chunk, trouble = compile(tmp, "old.tl", [[local Json = require("cosmic.json")
+local described = Json.describe({})
+local function step(x: Json.Step): integer return x and 1 or 0 end
+local encoded = Json.encode_lines({})
+return { described, step, encoded }
+]])
   assert(chunk == nil)
-  assert(trouble:find("old.tl:2:13: invalid key 'describe' in record 'Json' of type Json " ..
-    "-- Json.describe was removed: moved to build.json_query, which only `cosmic json` calls; " ..
-    "`cosmic json --shape file` prints a document's shape", 1, true) ~= nil, trouble)
-  chunk, trouble = compile(tmp, "step.tl",
-    'local Json = require("cosmic.json")\n' ..
-    'local function f(step: Json.Step): integer\n  return step and 1 or 0\nend\nreturn f\n')
-  assert(chunk == nil)
-  assert(trouble:find("step.tl:2:24: unknown type Json.Step -- Json.Step was removed: " ..
-    "moved to build.json_query", 1, true) ~= nil, trouble)
-  chunk, trouble = compile(tmp, "lines.tl",
-    'local Json = require("cosmic.json")\nreturn Json.encode_lines({})\n')
-  assert(chunk == nil)
-  assert(trouble:find("Json.encode_lines was removed: use Json.encode(value) for each value", 1, true) ~= nil,
-    trouble)
+  assert(trouble:find("old.tl:2:24: invalid key 'describe' in record 'Json' of type Json " ..
+      "-- Json.describe was removed: moved to build.json_query, which only `cosmic json` calls; " ..
+      "`cosmic json --shape file` prints a document's shape", 1, true) ~= nil, trouble)
+  assert(trouble:find("old.tl:3:24: unknown type Json.Step -- Json.Step was removed: " ..
+      "use Json.Segment", 1, true) ~= nil, trouble)
+  assert(trouble:find("old.tl:4:22: invalid key 'encode_lines' in record 'Json' of type Json " ..
+      "-- Json.encode_lines was removed: use Json.encode(value) for each value", 1, true) ~= nil, trouble)
 end
 
 --- A `<const>` binding, and a second alias of it, are the module still.
 local function test_a_removed_member_is_named_through_const_and_alias(tmp: string)
   local chunk, trouble = compile(tmp, "old.tl",
     'local Zip <const> = require("cosmic.zip")\nlocal Z = Zip\n' ..
-    'return Z.list("a.zip")\n')
+      'return Z.list("a.zip")\n')
   assert(chunk == nil)
   assert(trouble:find("old.tl:3:10: invalid key 'list' in record 'Z' of type Zip " ..
-    "-- Z.list was removed: use Archive.list(path)", 1, true) ~= nil, trouble)
+      "-- Z.list was removed: use Archive.list(path)", 1, true) ~= nil, trouble)
 end
 
 --- A type a `cosmic.*` module no longer declares is told its new name,
 --- under the alias the file gave the module; a type the module never
 --- declared is told nothing more.
 local function test_a_renamed_type_names_its_replacement(tmp: string)
-  local chunk, trouble = compile(tmp, "old.tl",
-    'local Z <const> = require("cosmic.zip")\n' ..
-    'local function f(r: Z.ZipReader): integer\n  return r and 1 or 0\nend\n' ..
-    'return f\n')
+  local chunk, trouble = compile(tmp, "old.tl", [[local Z <const> = require("cosmic.zip")
+local function renamed(r: Z.ZipReader): integer return r and 1 or 0 end
+local function unknown(r: Z.Nothing): integer return r and 1 or 0 end
+local function removed(r: Z.list): integer return r and 1 or 0 end
+return { renamed, unknown, removed }
+]])
   assert(chunk == nil)
   assert(trouble:find("module not found", 1, true) == nil, trouble)
-  assert(trouble:find("old.tl:2:21: unknown type Z.ZipReader " ..
-    "-- Z.ZipReader was removed: use Zip.Reader", 1, true) ~= nil, trouble)
-  chunk, trouble = compile(tmp, "new.tl",
-    'local Zip = require("cosmic.zip")\n' ..
-    'local function f(r: Zip.Nothing): integer\n  return r and 1 or 0\nend\n' ..
-    'return f\n')
-  assert(chunk == nil)
-  assert(trouble:find("module not found", 1, true) == nil, trouble)
-  assert(trouble:find("unknown type Zip.Nothing", 1, true) ~= nil, trouble)
-  assert(trouble:find("was removed", 1, true) == nil, trouble)
+  assert(trouble:find("old.tl:2:27: unknown type Z.ZipReader " ..
+      "-- Z.ZipReader was removed: use Zip.Reader", 1, true) ~= nil, trouble)
+  local lines: {string:string} = {}
+  for line in trouble:gmatch("[^\n]+") do
+    local where = line:match("^(old%.tl:%d+:%d+):")
+    if where ~= nil then lines[where] = line end
+  end
+  assert(lines["old.tl:3:27"] == "old.tl:3:27: unknown type Z.Nothing", trouble)
   -- `list` is a removed function, never a type: nothing is offered.
-  chunk, trouble = compile(tmp, "fn.tl",
-    'local Zip = require("cosmic.zip")\n' ..
-    'local function f(r: Zip.list): integer\n  return r and 1 or 0\nend\n' ..
-    'return f\n')
-  assert(chunk == nil)
-  assert(trouble:find("module not found", 1, true) == nil, trouble)
-  assert(trouble:find("unknown type Zip.list", 1, true) ~= nil, trouble)
-  assert(trouble:find("was removed", 1, true) == nil, trouble)
+  assert(lines["old.tl:4:27"] == "old.tl:4:27: unknown type Z.list", trouble)
 end
 
 --- A type an archive module no longer declares is told where its
@@ -203,8 +216,8 @@ end
 local function test_a_shadowing_record_is_not_told_a_replacement(tmp: string)
   local chunk, trouble = compile(tmp, "old.tl",
     'local Zip = require("cosmic.zip")\nlocal record R\n  x: integer\nend\n' ..
-    'local function f(Zip: R): integer\n  return Zip.list\nend\n' ..
-    'return { f = f, zip = Zip }\n')
+      'local function f(Zip: R): integer\n  return Zip.list\nend\n' ..
+      'return { f = f, zip = Zip }\n')
   assert(chunk == nil)
   assert(trouble:find("module not found", 1, true) == nil, trouble)
   assert(trouble:find("invalid key 'list' in record 'Zip' of type R", 1, true) ~= nil, trouble)
@@ -219,7 +232,7 @@ local function test_a_missing_field_names_the_field_meant(tmp: string)
     'local Fs = require("cosmic.fs")\nlocal st = assert(Fs.stat("."))\nreturn st.type\n')
   assert(chunk == nil)
   assert(trouble:find("stat.tl:3:11: invalid key 'type' in record 'st' of type sys.Stat -- " ..
-    "did you mean 'kind'? sys.Stat's fields: atime, ", 1, true) ~= nil, trouble)
+      "did you mean 'kind'? sys.Stat's fields: atime, ", 1, true) ~= nil, trouble)
 end
 
 local function test_a_record_with_main_is_an_entry_point()

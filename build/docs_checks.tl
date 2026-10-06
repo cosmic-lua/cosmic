@@ -169,8 +169,8 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
   local modules: {docs.Summary} = index
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT d.module, d.symbol, d.source_symbol, d.kind, d.signature, d.text, d.file, d.line " ..
-    "FROM docs d WHERE d.module GLOB 'cosmic.*' AND d.module NOT LIKE '%\\_example' ESCAPE '\\' " ..
-    "AND " .. symbols.shown_docs("d", true) .. " ORDER BY d.module, d.id")
+      "FROM docs d WHERE d.module GLOB 'cosmic.*' AND d.module NOT LIKE '%\\_example' ESCAPE '\\' " ..
+      "AND " .. symbols.shown_docs("d", true) .. " ORDER BY d.module, d.id")
   if rows == nil then
     return { "reading the docs: " .. trouble }
   end
@@ -418,8 +418,8 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
   end
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT d.module, d.symbol, d.text, d.file, d.line FROM docs d WHERE " ..
-    "d.module NOT LIKE '%\\_example' ESCAPE '\\' AND d.text <> '' AND " ..
-    symbols.shown_docs("d", true) .. " ORDER BY d.module, d.id")
+      "d.module NOT LIKE '%\\_example' ESCAPE '\\' AND d.text <> '' AND " ..
+      symbols.shown_docs("d", true) .. " ORDER BY d.module, d.id")
   if rows == nil then
     return { "reading the docs: " .. trouble }
   end
@@ -431,6 +431,11 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
   -- gone: `cosmic docs` answers such a name, but a page that names it is
   -- stale.
   local gone: {string: string} = {}
+  -- TODO: take a query that names a worked example by its own name
+  -- (`cosmic docs records_interfaces_methods`, which the compiler's
+  -- see-also hints print), so a guide can point a reader at the one
+  -- place an interface is shown; only an exact symbol or a query of
+  -- several words passes here.
   local function resolves(query: string): boolean
     local words: {string} = {}
     for word in query:gmatch("%S+") do words[#words + 1] = word end
@@ -493,7 +498,7 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
   end
   for _, row in ipairs(texts) do
     check(row[4] .. ":" .. row[5] .. ": " .. row[1] ..
-      (row[2] ~= "" and " " .. row[2] or ""), row[3])
+        (row[2] ~= "" and " " .. row[2] or ""), row[3])
   end
   for name, text in pairs(help) do
     check("`cosmic help" .. (name ~= "" and " " .. name or "") .. "`", text)

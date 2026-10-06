@@ -1,7 +1,7 @@
 --- `cosmic fetch`: one GET, a small curl over [`cosmic.http`], for the
 --- ten-second question ("what does this URL send?") and for a download
 --- checked against a digest. With no `-o` the body goes to standard
---- output, so `cosmic fetch <url> | cosmic json '.items'` reads it; with
+--- output, so `cosmic fetch <url> | cosmic json '$.items'` reads it; with
 --- `-o` it goes to a file that is renamed into place only once the
 --- whole body is in and matches every digest asked for. The digests are
 --- computed while the file is written, and a mismatch leaves no target
@@ -163,7 +163,7 @@ end
 local function looks_like_a_checksum(parameter: string): boolean
   local name = (parameter:match("^[^=:]*"):lower():gsub("[-_ ]", ""))
   local patterns: {string} = { "^sha%d", "^sha$", "^md%d", "^blake", "^crc%d", "^ripemd", "^whirlpool",
-      "^hash$", "^hash%d", "^checksum", "^digest$", "^integrity$" }
+    "^hash$", "^hash%d", "^checksum", "^digest$", "^integrity$" }
   for _, pattern in ipairs(patterns) do
     if name:find(pattern) then return true end
   end
@@ -273,8 +273,8 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     local key, value = parameter:match("^([^=]+)=(.*)$")
     if looks_like_a_checksum(parameter) and not recognized(key) then
       return refuse("#" .. parameter:match("^[^=]*"):sub(1, 40) ..
-        " looks like a checksum but is not one this verb checks (it reads #sha256=, " ..
-        "#sha256sum=, #sha512= and #sha512sum=, in lowercase), and the body would go unverified")
+          " looks like a checksum but is not one this verb checks (it reads #sha256=, " ..
+          "#sha256sum=, #sha512= and #sha512sum=, in lowercase), and the body would go unverified")
     end
     for _, algorithm in ipairs(algorithms) do
       for _, name in ipairs(algorithm.keys) do

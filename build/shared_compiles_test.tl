@@ -3,6 +3,7 @@
 --- what it lets go. What a build makes of it, end to end, is in
 --- build/shared_compiles_tool_test.tl.
 
+local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local shared_compiles = require("build.shared_compiles")
 
@@ -46,7 +47,7 @@ local function test_a_kept_compile_comes_back_whole(tmp: string)
   local found = assert(shared_compiles.look(cache, "new"))
   assert(found.lua == lua and found.bytecode == bytecode)
   assert(#found.references == 2 and found.references[2].module == "cosmic.fs" and
-    found.references[2].member == "Stat.size" and found.references[2].line == 12)
+      found.references[2].member == "Stat.size" and found.references[2].line == 12)
   local gone, trouble = shared_compiles.look(cache, "old")
   assert(gone == nil and trouble == "", "a row unused for thirty days was kept")
   shared_compiles.close(cache)
@@ -71,4 +72,36 @@ local function test_past_its_bound_the_least_lately_used_go(tmp: string)
   shared_compiles.close(cache)
   assert(#left == 2 and left[1][1] == "k1" and left[2][1] == "k4",
     tostring(left[1] and left[1][1]) .. " " .. tostring(left[2] and left[2][1]))
+end
+
+--- A real query failure mentioning malformed is not evidence that a
+--- database may be renamed while another connection holds its WAL.
+local function test_a_query_failure_leaves_other_connections_and_files_alone(tmp: string)
+  local path = tmp .. "/cache/cache.db"
+  local build = assert(shared_compiles.for_build({ COSMIC_BUILD_CACHE = path }))
+  local holder = assert(Sqlite.open(path, { writable = true }))
+  assert(holder:exec("DROP TABLE parsed_v1"))
+  assert(holder:exec("CREATE VIEW parsed_v1 AS SELECT * FROM missing_malformed_table"))
+  local sibling = path .. ".corrupt-older"
+  assert(Fs.write(sibling, "earlier evidence"))
+  local files = { path, path .. "-wal", path .. "-shm", sibling }
+  local inodes: {integer} = {}
+  for index, file in ipairs(files) do inodes[index] = assert(Fs.stat(file)).ino end
+  local bytes = assert(Fs.read(path))
+  local wal = assert(Fs.read(path .. "-wal"))
+  assert(#build.analyzers({ "hash" }) == 0)
+  assert(#build.analyzers({ "hash" }) == 0)
+  build.finish()
+  build.finish()
+  for index, file in ipairs(files) do assert(assert(Fs.stat(file)).ino == inodes[index], file) end
+  assert(Fs.read(path) == bytes and Fs.read(path .. "-wal") == wal)
+  assert(Fs.read(sibling) == "earlier evidence")
+  assert(#assert(Fs.list(Fs.dirname(path))) == 4, "a cache was renamed or replaced")
+  assert(holder:exec("CREATE TABLE healthy (value TEXT)"))
+  assert(holder:exec("INSERT INTO healthy VALUES ('still usable')"))
+  local reader = assert(Sqlite.open(path))
+  assert(assert(Sqlite.text_rows(reader, "SELECT value FROM healthy"))[1][1] == "still usable")
+  assert(reader:close())
+  assert(holder:close())
+  assert(Fs.stat(path .. "-wal") == nil, "the failed build kept a connection open")
 end

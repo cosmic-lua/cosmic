@@ -92,11 +92,26 @@ bool cosmic_mountinfo_local_flock (const char *text, size_t used, const char *de
 #endif
 
 /*
+ * --- What a path is, as `stat`, `lstat` and `fstat` name it in a `Stat`'s
+ * --- `kind` and `readdir` names each entry. A name outside these is a
+ * --- compile error, not a comparison that is never true.
+ * ---@alias Kind
+ * ---| "file" # a regular file
+ * ---| "dir" # a directory
+ * ---| "link" # a symbolic link
+ * ---| "socket" # a socket
+ * ---| "fifo" # a named pipe
+ * ---| "char" # a character device
+ * ---| "block" # a block device
+ * ---| "other" # any other type a system has
+ */
+
+/*
  * --- What `stat`, `lstat` and `fstat` report about a path.
  * ---@class Stat
  * ---@field size integer the size in bytes
  * ---@field mode integer the type and permission bits
- * ---@field kind string one of "file", "dir", "link" (a symbolic link), "socket", "fifo" (a named pipe), "char" (a character device), "block" (a block device), or "other" for any other type a system has
+ * ---@field kind Kind what the path is
  * ---@field mtime integer the modification time, whole seconds
  * ---@field mtime_ns integer the nanoseconds part of the modification time
  * ---@field atime integer the access time, whole seconds
@@ -111,9 +126,10 @@ bool cosmic_mountinfo_local_flock (const char *text, size_t used, const char *de
  */
 
 /*
- * --- Opens a path and returns a descriptor. The program's own file named
- * --- through a descriptor of it (/proc/self/fd/<n>, /dev/fd/<n>, a link to
- * --- one) is refused, EACCES, before anything is opened.
+ * --- Opens a path and returns a descriptor, always close-on-exec whatever
+ * --- `flags` says: a program it execs inherits only a copy `dup2` makes. The
+ * --- program's own file named through a descriptor of it (/proc/self/fd/<n>,
+ * --- /dev/fd/<n>, a link to one) is refused, EACCES, before anything is opened.
  * ---@param path string the path to open
  * ---@param flags integer the O_* flags, such as `O_RDONLY` or `O_WRONLY | O_CREAT`
  * ---@param mode? integer the mode for a newly created file, default 0o644
@@ -252,6 +268,15 @@ COSMIC_SYSCALL(rmdir, 1);
 COSMIC_SYSCALL(unlink, 1);
 
 /*
+ * --- Removes a path and, for a directory, everything beneath it: `rm -rf`. The walk is relative to descriptors and never follows a link -- a link is removed as itself, and an entry swapped for a link by a process still running while this walks is removed too, not followed -- so nothing outside the path is touched. A path already gone, or one beneath something that is no directory, is not a failure; a path ending in "/" names what it names without them, so a link is removed, not followed; "/" is refused, EINVAL. A directory it cannot open or that will not empty (something keeps making entries in it) fails, ENOTEMPTY or the open's errno; what was removed stays removed. The path's own directories above it are resolved as any path's are.
+ * ---@param path string the path to remove
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(remove_tree, 1);
+
+/*
  * --- Moves a name, replacing the destination if it exists.
  * ---@param from string the name to move
  * ---@param to string where to move it
@@ -286,7 +311,7 @@ COSMIC_SYSCALL(chown, 3);
 /*
  * --- Lists a directory's entries, without `.` and `..`, each with what it is, as `lstat` names it (its `kind`): "link" for a symbolic link, which is never followed.
  * ---@param path string the directory to list
- * ---@return {string:string}|nil entries each entry's kind by its name, or nil on failure
+ * ---@return {string:Kind}|nil entries each entry's kind by its name, or nil on failure
  * ---@return string error what went wrong, when entries is nil
  * ---@return integer errno the error number, when entries is nil
  */
@@ -561,11 +586,12 @@ COSMIC_SYSCALL(cpu_features, 0);
  * ---@class Uname
  * ---@field sysname string the kernel name: "Linux", "Darwin"
  * ---@field machine string the machine: "x86_64", "aarch64", "arm64"
+ * ---@field release string the kernel's release, as /proc/sys/kernel/osrelease reads: "6.18.44-fc-v64"
  */
 
 /*
- * --- The host's kernel name and machine, as `uname(2)` reports them.
- * ---@return Uname|nil uname the two names, or nil on failure
+ * --- The host's kernel name, release and machine, as `uname(2)` reports them.
+ * ---@return Uname|nil uname the three names, or nil on failure
  * ---@return string error what went wrong, when uname is nil
  * ---@return integer errno the error number, when uname is nil
  */
@@ -801,6 +827,8 @@ COSMIC_SYSCALL(poll, 3);
  * ---@field ENOENT integer there is no such file
  * ---@field EEXIST integer the name is already taken
  * ---@field EACCES integer permission was refused
+ * ---@field EAFNOSUPPORT integer the socket address family is not supported
+ * ---@field EPROTONOSUPPORT integer the socket protocol is not supported
  * ---@field EINTR integer a signal arrived first
  * ---@field EISDIR integer it is a directory
  * ---@field ENOTDIR integer it is not a directory
@@ -830,6 +858,10 @@ COSMIC_SYSCALL(poll, 3);
  * ---@field POLLHUP integer for `poll`: the other end hung up
  * ---@field POLLNVAL integer for `poll`: the descriptor is not open
  * ---@field RLIMIT_NOFILE integer for `getrlimit` and `setrlimit`: one more than the highest descriptor the process may open
+ * ---@field RLIMIT_FSIZE integer for `getrlimit` and `setrlimit`: the most bytes of a file the process may write
+ * ---@field RLIMIT_CPU integer for `getrlimit` and `setrlimit`: the CPU seconds the process may spend before SIGXCPU
+ * ---@field RLIMIT_CORE integer for `getrlimit` and `setrlimit`: the most bytes of a core dump the process may write, 0 for none
+ * ---@field RLIMIT_NPROC integer for `getrlimit` and `setrlimit`: the most processes and threads the process's user may have, counted per user namespace from Linux 5.17
  */
 COSMIC_CONSTANT(O_RDONLY)
 COSMIC_CONSTANT(O_WRONLY)
@@ -853,6 +885,8 @@ COSMIC_CONSTANT(CLOCK_MONOTONIC)
 COSMIC_CONSTANT(ENOENT)
 COSMIC_CONSTANT(EEXIST)
 COSMIC_CONSTANT(EACCES)
+COSMIC_CONSTANT(EAFNOSUPPORT)
+COSMIC_CONSTANT(EPROTONOSUPPORT)
 COSMIC_CONSTANT(EINTR)
 COSMIC_CONSTANT(EISDIR)
 COSMIC_CONSTANT(ENOTDIR)
@@ -882,3 +916,7 @@ COSMIC_CONSTANT(POLLERR)
 COSMIC_CONSTANT(POLLHUP)
 COSMIC_CONSTANT(POLLNVAL)
 COSMIC_CONSTANT(RLIMIT_NOFILE)
+COSMIC_CONSTANT(RLIMIT_FSIZE)
+COSMIC_CONSTANT(RLIMIT_CPU)
+COSMIC_CONSTANT(RLIMIT_CORE)
+COSMIC_CONSTANT(RLIMIT_NPROC)

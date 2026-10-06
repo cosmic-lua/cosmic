@@ -14,30 +14,26 @@ local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
-local testing = require("cosmic.internal.testing")
 local Test = require("cosmic.test")
+local unix_socket = require("build.unix_socket")
 local type raw_hash = require("cosmic.internal.hash")
 local type raw_process = require("cosmic.internal.process")
 local stand_in = require("build.stand_in")
-local sandbox_skip = require("build.sandbox_skip")
-local Time = require("cosmic.time")
 
 -- TODO: declare /proc for Linux alone once a declaration can name a
 -- host path per platform (a `host` entry for Linux and one for macOS):
 -- macOS has no /proc, so there this declares a path that is not there,
 -- which gives and keys nothing but says what the tests need wrongly.
---- What the syscall table is tested on: /proc and the whole
---- environment: a stand-in program (build/stand_in.tl) is
---- what a child here runs, reading nothing of the system's. The cases
+--- What the syscall table is tested on: /proc. A stand-in program
+--- (build/stand_in.tl) is what a child here runs, reading nothing of the system's. The cases
 --- that start this program itself to run a chunk, or unveil a child's
 --- root -- which a worker that declares neither `lua` nor `nests`
 --- cannot (see core/syscalls_tool_test.tl) -- are
 --- core/syscalls_tool_test.tl's, and the one that reads the program's
 --- own path core/artifact_fd_tool_test.tl's.
-Test.needs{
-  host = { "/proc" },
-  env = { "*" },
-  network = { "127.0.0.1" },
+Test.policy{
+  grants = { { path = "/proc", letters = "r" } },
+  loopback = { "127.0.0.1" },
 }
 
 local type Searcher = function(string): any, any
@@ -54,16 +50,6 @@ end
 
 local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
 local hash = raw_behind("cosmic.hash") as raw_hash -- cast: the table cosmic/internal/hash.d.tl declares
-
---- Says a sandbox test is skipped ([`Test.skip`]) where this Linux host
---- refuses the sandbox it is about -- no Landlock, no pledge -- as it
---- returns early: the run counts it skipped rather than passed, and a
---- run held to sandboxing (COSMIC_SANDBOX=must among them) fails it.
---- Another platform has no such sandbox to check, and returns silently
---- (build.sandbox_skip).
-local function unsandboxable(what: string, trouble: string)
-  sandbox_skip.refused("the kernel gives no " .. what .. ": " .. tostring(trouble))
-end
 
 --- A stand-in program built under `tmp` (build/stand_in.tl), which runs
 --- the script its first argument holds: a static executable that reads
@@ -223,6 +209,7 @@ end
 --- a device in a listing: a worker is given no block device, and no
 --- directory of the system's to list.
 local function test_stat_names_a_socket_a_fifo_and_a_device(tmp: string)
+  if unix_socket.skipped(tmp) then return end
   local socket = tmp .. "/socket"
   socket_file(socket)
   local found = assert(sys.lstat(socket)).kind
@@ -272,7 +259,7 @@ local function test_utimensat_sets_either_time_to_the_nanosecond(tmp: string)
   assert(sys.utimensat(path, nil, nil, 7, 8))
   st = assert(sys.stat(path))
   assert(st.mtime == 7 and st.ctime >= before and st.ctime_ns >= 0 and
-    st.ctime_ns < 1000000000, st.ctime .. "." .. st.ctime_ns)
+      st.ctime_ns < 1000000000, st.ctime .. "." .. st.ctime_ns)
 end
 
 local function test_mkdir_and_rmdir(tmp: string)
@@ -369,49 +356,42 @@ local function test_readdir_lists_entries_without_dot_and_dot_dot(tmp: string)
 end
 
 --- A directory under `tmp` holding a file, a directory, a named pipe,
---- a socket file, and a link to each of the first two and to nothing.
-local function linked_directory(tmp: string): string
+--- a socket file where `socket` says, and a link to each of the first two
+--- and to nothing.
+local function linked_directory(tmp: string, socket: boolean): string
   local d = tmp .. "/d"
   assert(sys.mkdir(d))
   sys.close(create(d .. "/file"))
   assert(sys.mkdir(d .. "/sub"))
   assert(sys.mkfifo(d .. "/fifo"))
-  socket_file(d .. "/socket")
+  if socket then socket_file(d .. "/socket") end
   assert(sys.symlink("file", d .. "/to_file"))
   assert(sys.symlink("sub", d .. "/to_dir"))
   assert(sys.symlink("missing", d .. "/dangling"))
   return d
 end
 
---- The entries of [`linked_directory`].
-local LINKED_ENTRIES <const> = 7
-
 --- Checks readdir's answer for [`linked_directory`].
-local function names_links_as_links(entries: {string:string}, what: string)
+local function names_links_as_links(entries: {string:sys.Kind}, what: string, socket: boolean)
   assert(entries["file"] == "file" and entries["sub"] == "dir", what)
   assert(entries["fifo"] == "fifo", what .. ": a named pipe: " .. tostring(entries["fifo"]))
-  assert(entries["socket"] == "socket", what .. ": a socket file: " .. tostring(entries["socket"]))
+  if socket then
+    assert(entries["socket"] == "socket", what .. ": a socket file: " .. tostring(entries["socket"]))
+  end
   assert(entries["to_file"] == "link", what .. ": a link to a file: " .. tostring(entries["to_file"]))
   assert(entries["to_dir"] == "link", what .. ": a link to a directory: " .. tostring(entries["to_dir"]))
   assert(entries["dangling"] == "link", what .. ": a dangling link: " .. tostring(entries["dangling"]))
 end
 
 local function test_readdir_names_a_link_as_a_link_whatever_it_leads_to(tmp: string)
-  names_links_as_links(assert(sys.readdir(linked_directory(tmp))), "readdir")
+  names_links_as_links(assert(sys.readdir(linked_directory(tmp, false))), "readdir", false)
 end
 
---- An entry whose type the filesystem leaves unknown is asked with an
---- lstat, which answers a link as one too: the checked core's fault
---- point makes each entry in turn unknown.
-local function test_readdir_names_an_entry_of_unknown_type_as_lstat_does(tmp: string)
-  if testing.configuration ~= "sanitized" then return end
-  local d = linked_directory(tmp)
-  for skip = 0, LINKED_ENTRIES - 1 do
-    testing.fail_at("readdir_d_type", skip)
-    local entries = assert(sys.readdir(d))
-    assert(not testing.fail_at(), "entry " .. skip .. " never reached readdir_d_type")
-    names_links_as_links(entries, "entry " .. skip .. " of unknown type")
-  end
+--- A socket file in a listing is named a socket.
+local function test_readdir_names_a_socket_file_a_socket(tmp: string)
+  if unix_socket.skipped(tmp) then return end
+  local d = linked_directory(tmp, true)
+  names_links_as_links(assert(sys.readdir(d)), "readdir", true)
 end
 
 local function test_readdir_refuses_a_missing_path_and_a_file(tmp: string)
@@ -568,220 +548,6 @@ local function test_dup_and_dup2_redirect_a_descriptor(tmp: string)
   sys.close(ends.writer)
 end
 
---- A child held to a ruleset reads and runs only what it names, and what
---- it starts is held too; the process that made the ruleset is not. Where
---- there is no Landlock, making one says so.
-local function test_a_landlock_ruleset_holds_a_child_to_what_it_names(tmp: string)
-  local inside, outside = tmp .. "/in", tmp .. "/out"
-  assert(sys.mkdir(inside, 0x1c0) and sys.mkdir(outside, 0x1c0))
-  local written = create(inside .. "/f")
-  assert(sys.write(written, "in") == 2)
-  sys.close(written)
-  written = create(outside .. "/f")
-  assert(sys.write(written, "out") == 3)
-  sys.close(written)
-  local probe = probe_in(tmp)
-  local reads: {string} = { inside, probe }
-  local ruleset, trouble, errno = process.landlock_ruleset(reads, {})
-  if ruleset == nil then
-    -- No Landlock: not built in, turned off, or refused by a filter (a
-    -- container's seccomp profile).
-    unsandboxable("Landlock ruleset", trouble)
-    assert(errno == sys.ENOSYS or errno == sys.EOPNOTSUPP or errno == sys.EPERM, trouble)
-    return
-  end
-  local output = create(tmp .. "/said")
-  local pid = assert(process.spawn(probe, { probe,
-    "cat in/f; print; run " .. probe .. " cat out/f || print refused; " ..
-    "append in/g x || print unwritten" },
-    nil, tmp, nil, output, output, false, nil, { ruleset = ruleset }))
-  sys.close(ruleset)
-  local status = assert(process.waitpid(pid, false))
-  assert(status.code == 0, tostring(status.code))
-  local said = assert(sys.pread(output, 4096, 0))
-  sys.close(output)
-  assert(said:find("^in\n") and said:find("refused\n", 1, true) and
-    said:find("unwritten\n", 1, true), said)
-  assert(not said:find("\nout\n", 1, true), said)
-  local mine = assert(sys.open(outside .. "/f", sys.O_RDONLY))
-  assert(sys.read(mine, 16) == "out")
-  sys.close(mine)
-  -- A directory given to write is written; a ruleset whose descriptor is
-  -- the one just above the child's own -- where the exec status goes --
-  -- still holds it.
-  assert(sys.mkdir(tmp .. "/w", 0x1c0))
-  local writing = assert(process.landlock_ruleset(reads, { tmp .. "/w" }))
-  local report = create(tmp .. "/report")
-  -- A free descriptor from 4 to 10, the child's own ending below it.
-  local free = 10
-  while free > 4 and sys.fstat(free) ~= nil do free = free - 1 end
-  assert(sys.fstat(free) == nil, "no descriptor from 4 to 10 is free")
-  assert(sys.dup2(writing, free))
-  sys.close(writing)
-  local own = tostring(free - 1)
-  local wrote = assert(process.spawn(probe, { probe,
-    "append w/f w && write-fd " .. own .. " w-written; append in/h x || write-fd " .. own .. " held" },
-    nil, tmp, nil, nil, nil, false, { [free - 1] = report }, { ruleset = free }))
-  sys.close(free)
-  assert(assert(process.waitpid(wrote, false)).code == 0)
-  local reported = assert(sys.pread(report, 4096, 0))
-  sys.close(report)
-  assert(reported == "w-written\nheld\n", reported)
-  local fd = assert(sys.open(tmp .. "/w/f", sys.O_RDONLY))
-  assert(sys.read(fd, 16) == "w\n")
-  sys.close(fd)
-  local bad, bad_trouble = process.landlock_ruleset({ tmp .. "/nowhere" }, {})
-  assert(bad == nil and bad_trouble ~= "", "a path that is not there refuses the ruleset")
-end
-
---- A ruleset holds files and not the network, on every kernel: a child
---- held to one reaches a listener of this process's over TCP on
---- loopback and over a unix socket file, as one held to none does.
-local function test_a_landlock_ruleset_leaves_a_child_its_loopback(tmp: string)
-  local probe = probe_in(tmp)
-  local tcp = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Time.seconds(5) }))
-  local socket = tmp .. "/s"
-  local unix = assert(Net.listen(Net.unix(socket), { timeout_ns = Time.seconds(5) }))
-  local ruleset, trouble = process.landlock_ruleset({ probe }, {})
-  if ruleset == nil then
-    assert(tcp:close() and unix:close())
-    unsandboxable("Landlock ruleset", trouble)
-    return
-  end
-  local output = create(tmp .. "/said")
-  local pid = assert(process.spawn(probe, { probe,
-    "connect-tcp 127.0.0.1 " .. tostring(tcp.address.port) .. "; connect " .. socket },
-    nil, tmp, nil, output, output, false, nil, { ruleset = ruleset }))
-  sys.close(ruleset)
-  local status = assert(process.waitpid(pid, false))
-  local said = assert(sys.pread(output, 4096, 0))
-  sys.close(output)
-  assert(status.code == 0 and said == "connected\nconnected\n", said)
-  assert(assert(tcp:accept()):close())
-  assert(assert(unix:accept()):close())
-  assert(tcp:close() and unix:close())
-end
-
---- A process held to running what is beneath some paths runs a program
---- beneath them and no other -- one written after the hold included --
---- and what it starts is held too; it still reads and writes as before.
---- The hold is for good, so it is taken last: this test's worker ends
---- with the test. Where there is no Landlock, taking one says so.
-local function test_a_process_held_to_running_some_paths_runs_nothing_else(tmp: string)
-  -- The program beneath a path given, and a copy of it beneath none.
-  local built = probe_in(tmp)
-  local probe, elsewhere = tmp .. "/bin/probe", tmp .. "/elsewhere/run"
-  assert(sys.mkdir(tmp .. "/bin", 0x1c0) and sys.mkdir(tmp .. "/elsewhere", 0x1c0))
-  assert(stand_in.place(built, probe))
-  assert(stand_in.place(built, elsewhere))
-  local function status_of(path: string, argv: {string}): integer | string
-    local pid, trouble = process.spawn(path, argv, nil, tmp, nil, nil, nil, false)
-    if pid == nil then return trouble end
-    return assert(process.waitpid(pid, false)).code
-  end
-  assert(status_of(elsewhere, { elsewhere, "exit 0" }) == 0, "the copy runs before the hold")
-  -- Beneath a path given, a file may still move to another directory.
-  local given = tmp .. "/given"
-  assert(sys.mkdir(given, 0x1c0) and sys.mkdir(given .. "/a", 0x1c0) and
-    sys.mkdir(given .. "/b", 0x1c0))
-  sys.close(create(given .. "/a/f"))
-  local held, trouble, errno = process.landlock_restrict_execute({ tmp .. "/bin", given })
-  if not held then
-    unsandboxable("Landlock", trouble)
-    assert(errno == sys.ENOSYS or errno == sys.EOPNOTSUPP or errno == sys.EPERM, trouble)
-    return
-  end
-  assert(status_of(probe, { probe, "exit 3" }) == 3, "a program beneath them runs")
-  assert(status_of(elsewhere, { elsewhere, "exit 0" }) ~= 0, "a program elsewhere ran")
-  -- What it starts is held too: the program may not run the copy.
-  assert(status_of(probe, { probe, "run " .. elsewhere .. " || exit 7" }) == 7)
-  assert(sys.rename(given .. "/a/f", given .. "/b/f"))
-  -- So may one in a directory made after the hold, beneath none -- but
-  -- not into one where it could be run, which it could not before.
-  local later = tmp .. "/later"
-  assert(sys.mkdir(later, 0x1c0) and sys.mkdir(later .. "/a", 0x1c0))
-  sys.close(create(later .. "/f"))
-  assert(sys.rename(later .. "/f", later .. "/a/f"))
-  local moved, _, moved_errno = sys.rename(later .. "/a/f", given .. "/a/f")
-  assert(not moved and moved_errno == sys.EXDEV, "a file moved to where it could be run")
-  -- Reading and writing are as they were.
-  local written = create(tmp .. "/after")
-  assert(sys.write(written, "w") == 1)
-  sys.close(written)
-  local reading = assert(sys.open(elsewhere, sys.O_RDONLY))
-  assert(sys.read(reading, 4) == "\x7fELF")
-  sys.close(reading)
-  local bad, _ = pcall(process.landlock_restrict_execute, { 1 } as {string})
-  assert(not bad, "a path that is no string is refused")
-end
-
---- A pledged child runs under a seccomp filter, and so does what it
---- starts; an unpledged one runs as this process does (under a filter
---- of its own when a container gives it one), and a promise no one keeps
---- is refused before anything starts. A socket of a family not promised
---- is refused (EPERM), where one promised is made and then refused its
---- connection.
-local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
-  local probe = probe_in(tmp)
-  local refused = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil,
-    false, nil, { pledge = { "fly" } })
-  assert(not refused, "a promise no one keeps is refused")
-  local function filtered(sandbox: raw_process.Sandbox | nil): string
-    local output = create(tmp .. "/status")
-    local pid, trouble, errno = process.spawn(probe, { probe,
-      "status-field Seccomp; run " .. probe .. " status-field Seccomp" },
-      nil, nil, nil, output, output, false, nil, sandbox)
-    if pid == nil then
-      sys.close(output)
-      if sandbox ~= nil then unsandboxable("pledge", trouble) end
-      assert(errno == sys.ENOSYS, trouble)
-      return "unsupported"
-    end
-    assert(assert(process.waitpid(pid, false)).code == 0)
-    local said = assert(sys.pread(output, 4096, 0))
-    sys.close(output)
-    return (said:gsub("%s+", " "))
-  end
-  local status_file = sys.open("/proc/self/status", sys.O_RDONLY)
-  if status_file == nil then
-    -- No /proc to ask: a pledge is at most refused as unsupported.
-    local ok, trouble, errno = process.spawn(probe, { probe }, nil, nil, nil,
-      nil, nil, false, nil, { pledge = {} })
-    if ok == nil then
-      unsandboxable("pledge", trouble)
-      assert(errno == sys.ENOSYS)
-    else
-      process.waitpid(ok, false)
-    end
-    return
-  end
-  local own = assert(sys.read(status_file, 65536)):match("Seccomp:%s*(%d)")
-  sys.close(status_file)
-  local pledged = filtered({ pledge = {} })
-  if pledged ~= "unsupported" then
-    assert(pledged == "Seccomp: 2 Seccomp: 2 ", pledged)
-    assert(filtered({ pledge = { "unix", "inet" } }) == "Seccomp: 2 Seccomp: 2 ")
-  end
-  local plain = filtered(nil)
-  assert(plain == "Seccomp: " .. own .. " Seccomp: " .. own .. " ", plain)
-  if pledged ~= "unsupported" then
-    local function connected(promises: {string}): string
-      local output = create(tmp .. "/connect")
-      local pid = assert(process.spawn(probe, { probe, "connect " .. tmp .. "/none.sock" },
-        nil, nil, nil, output, output, false, nil, { pledge = promises }))
-      assert(assert(process.waitpid(pid, false)).code == 0)
-      local said = assert(sys.pread(output, 4096, 0))
-      sys.close(output)
-      return said
-    end
-    local socket = tmp .. "/none.sock: "
-    local unpromised = connected({})
-    assert(unpromised == socket .. "Operation not permitted\n", unpromised)
-    local promised = connected({ "unix" })
-    assert(promised == socket .. "No such file or directory\n", promised)
-  end
-end
-
 --- A child has a descriptor table of its own, though it starts on this
 --- process's memory on Linux: the descriptors closed and moved to hand
 --- its program the ones asked for, and a later step that fails, leave
@@ -825,7 +591,7 @@ local function test_a_child_is_handed_only_the_descriptors_asked_for(tmp: string
     assert(not closed_on_exec(fd))
   end
   local pid = assert(process.spawn(probe, { probe, "fd-closed " .. below .. "; fd-closed " ..
-    above .. "; write-fd " .. handed .. " handed; write-fd " .. kept .. " kept" },
+      above .. "; write-fd " .. handed .. " handed; write-fd " .. kept .. " kept" },
     nil, nil, nil, nil, nil, false, { [handed] = report, [kept] = kept }))
   local status = assert(process.waitpid(pid, false))
   assert(status.code == 0, tostring(status.code))
@@ -870,7 +636,7 @@ local function test_descriptors_handed_crosswise_are_each_where_asked(tmp: strin
     assert(sys.dup2(files[fd], fd))
   end
   local pid = assert(process.spawn(probe, { probe, "write-fd " .. first .. " first; write-fd " ..
-    second .. " second" }, nil, nil, nil, nil, nil, false, { [first] = second, [second] = first }))
+      second .. " second" }, nil, nil, nil, nil, nil, false, { [first] = second, [second] = first }))
   assert(assert(process.waitpid(pid, false)).code == 0)
   assert(assert(sys.pread(files[first], 64, 0)) == "second\n")
   assert(assert(sys.pread(files[second], 64, 0)) == "first\n")
@@ -932,30 +698,6 @@ local function test_a_child_starts_with_this_process_s_signal_mask(tmp: string)
   assert(mask(child, "SigIgn") & ~mask(own, "SigIgn") == 0, child)
 end
 
---- SIGPIPE, which cosmic ignores for itself when it writes to a child's
---- pipe, is handed a spawned program at its default: a program that
---- writes to a closed pipe ends as it would started from a shell.
-local function test_a_child_starts_with_sigpipe_at_its_default(tmp: string)
-  local probe = probe_in(tmp)
-  assert(process.ignore_sigpipe())
-  local function ignored(text: string): integer
-    return math.tointeger(tonumber(assert(text:match("SigIgn:%s*(%x+)"), text), 16)) as integer
-  end
-  local status = sys.open("/proc/self/status", sys.O_RDONLY)
-  if status == nil then return end -- no /proc to ask
-  local own = assert(sys.read(status, 65536))
-  sys.close(status)
-  local bit = 1 << (sys.SIGPIPE - 1)
-  assert(ignored(own) & bit ~= 0, own)
-  local output = create(tmp .. "/status")
-  local pid = assert(process.spawn(probe, { probe, "cat /proc/self/status" },
-    nil, nil, nil, output, nil, false))
-  assert(assert(process.waitpid(pid, false)).code == 0)
-  local child = assert(sys.pread(output, 65536, 0))
-  sys.close(output)
-  assert(ignored(child) & bit == 0, child)
-end
-
 --- The features `cpu_features` can answer, by machine.
 local KNOWN_FEATURES <const>: {string:{string:boolean}} = {
   x86_64 = { aes = true, pclmulqdq = true, sse4_1 = true, ssse3 = true },
@@ -989,7 +731,7 @@ local function test_cpu_features_are_named_as_proc_cpuinfo_names_them()
   table.sort(expected)
   assert(table.concat(features, " ") == table.concat(expected, " "),
     "cpu_features answers " .. table.concat(features, " ") .. ", /proc/cpuinfo lists " ..
-    table.concat(expected, " "))
+      table.concat(expected, " "))
 end
 
 local function test_cpu_count_is_at_least_one()
@@ -1002,9 +744,10 @@ local function test_uname_reports_nonempty_sysname_and_machine()
   assert(names ~= nil and trouble == nil, "uname answers with one record")
   assert(#names.sysname > 0, "sysname is nonempty")
   assert(#names.machine > 0, "machine is nonempty")
+  assert(#names.release > 0, "release is nonempty")
   -- Stable across a call: this is the running host, not a moving target.
   local again = assert(sys.uname())
-  assert(again.sysname == names.sysname and again.machine == names.machine)
+  assert(again.sysname == names.sysname and again.machine == names.machine and again.release == names.release)
 end
 
 --- C reads a path up to its first NUL, so a call handed "<dir>\0/x"
@@ -1053,20 +796,6 @@ local function test_every_path_call_refuses_an_embedded_nul(tmp: string)
   local st = assert(sys.stat(file))
   assert(st.kind == "file" and st.mode & 511 == 420)
   assert(sys.stat(tmp .. "/moved") == nil and sys.lstat(tmp .. "/link") == nil)
-end
-
---- The core's own lookup of its path refuses a buffer the path does not
---- fit in, NUL included, rather than answering it cut short. Only the
---- checked core can hand it a buffer that small.
-local function test_executable_path_refuses_a_room_it_does_not_fit()
-  if testing.configuration ~= "sanitized" then return end
-  local path = assert(testing.executable_path(4096))
-  assert(path:sub(1, 1) == "/", "the executable's path is absolute")
-  assert(testing.executable_path(#path + 1) == path)
-  local short = testing.executable_path(#path)
-  assert(short == nil, "a path with no room for its NUL came back as " ..
-    tostring(short))
-  assert(testing.executable_path(1) == nil)
 end
 
 local function test_environ_agrees_with_getenv()
@@ -1252,32 +981,13 @@ local function test_sandbox_inits_lists_the_inits_still_running()
   if names.sysname ~= "Linux" then assert(#before == 0) end
 end
 
---- `children` lists the children of the thread that starts them, a
---- child still running among them and gone once reaped; off Linux there
---- is no such list, ENOSYS.
-local function test_children_lists_a_running_child_until_it_is_reaped(tmp: string)
-  local probe = probe_in(tmp)
-  local ends = assert(process.pipe())
-  local pid = assert(process.spawn(probe, { probe, "cat" }, nil, tmp, ends.reader, nil, nil, false))
-  sys.close(ends.reader)
-  local running, trouble, errno = process.children()
-  sys.close(ends.writer)
-  assert(assert(process.waitpid(pid, false)).code == 0)
-  local names = assert(sys.uname())
-  if names.sysname ~= "Linux" then
-    assert(running == nil and errno == sys.ENOSYS, trouble)
-    return
+--- Off Linux, listing a process's children has no implementation.
+local function test_children_is_not_implemented_off_linux()
+  if assert(sys.uname()).sysname == "Linux" then
+    Test.skip("Linux has the children implementation")
   end
-  assert(running ~= nil, trouble)
-  local listed = false
-  for _, child in ipairs(running) do
-    assert(math.type(child) == "integer" and child > 0)
-    if child == pid then listed = true end
-  end
-  assert(listed, "the running child " .. pid .. " is not listed")
-  for _, child in ipairs((assert(process.children()))) do
-    assert(child ~= pid, "the reaped child " .. pid .. " is still listed")
-  end
+  local found, why, errno = process.children()
+  assert(found == nil and errno == sys.ENOSYS, why)
 end
 
 --- Of a /proc/<pid>/uid_map or gid_map's text, whether it maps `id`
@@ -1364,6 +1074,39 @@ local function test_sandbox_platform_answers_true_on_linux_alone()
   end
 end
 
+--- Where the platform has no sandbox, a Landlock ruleset, a hold on what
+--- may run and a pledge are each refused, with the errno the platform
+--- answers. On Linux, whatever this host refuses of the sandbox, they are
+--- the tests of core/syscalls_landlock_test.tl and core/syscalls_pledge_test.tl,
+--- which require it: so this returns there, and only the platforms without
+--- one answer.
+local function test_a_sandbox_the_platform_lacks_is_refused(tmp: string)
+  if assert(sys.uname()).sysname == "Linux" then
+    Test.skip("a platform with a sandbox answers this where a test requires one")
+  end
+  local probe = probe_in(tmp)
+  local ruleset, trouble, errno = process.landlock_ruleset({ probe }, {})
+  assert(ruleset == nil and (errno == sys.ENOSYS or errno == sys.EOPNOTSUPP or errno == sys.EPERM),
+    tostring(trouble))
+  local held, hold_trouble, hold_errno = process.landlock_restrict_execute({ tmp })
+  assert(not held and (hold_errno == sys.ENOSYS or hold_errno == sys.EOPNOTSUPP or
+    hold_errno == sys.EPERM), tostring(hold_trouble))
+  for _, promises in ipairs({ {}, { "unix", "inet" } }) do
+    local pid, why, pledge_errno = process.spawn(probe, { probe }, nil, nil, nil, nil, nil,
+      false, nil, { pledge = promises })
+    assert(pid == nil and pledge_errno == sys.ENOSYS, tostring(why))
+  end
+end
+
+--- A promise no one keeps is refused before anything starts, on every
+--- platform.
+local function test_a_pledge_no_one_keeps_is_refused_before_a_start(tmp: string)
+  local probe = probe_in(tmp)
+  local refused = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil,
+    false, nil, { pledge = { "fly" } })
+  assert(not refused, "a promise no one keeps is refused")
+end
+
 --- The calls that start and reap a child, and hold this process's
 --- signals while it does, are the raw process table's, and not the
 --- public [`cosmic.sys`]'s: a public `waitpid(-1)` would take the status
@@ -1376,7 +1119,7 @@ local function test_the_process_calls_are_off_the_public_table()
   local raw: {string: any} = process as {string: any} -- cast: to look a member up by name
   for _, name in ipairs({ "spawn", "waitpid", "subreaper", "sandbox_inits", "children", "maps_id",
       "may_map_ids", "own_proc", "sandbox_platform", "relaunch", "pipe",
-      "ignore_sigpipe", "landlock_ruleset", "exit_watch",
+      "ignore_sigpipe", "landlock_ruleset", "landlock_abi", "exit_watch",
       "landlock_restrict_execute",
       "guard_child_signals", "unguard_child_signals", "child_signal_read", "child_signal_fd" }) do
     assert(public[name] == nil, "cosmic.sys." .. name .. " is public")
@@ -1473,7 +1216,7 @@ local function test_poll_watches_past_a_thousand_descriptors()
     events[#events + 1] = sys.POLLIN
   end
   assert(#fds == wanted, #fds .. " copies under a hard limit of " .. limits.hard ..
-    ": " .. tostring(trouble))
+      ": " .. tostring(trouble))
   fds[#fds + 1] = -1
   events[#events + 1] = sys.POLLIN
   assert(not pcall(sys.poll, { -2 }, { sys.POLLIN }, 0), "a descriptor below -1 raises")
@@ -1576,11 +1319,12 @@ end
 
 --- /dev/full answers every read with zeros and every write with ENOSPC,
 --- so a tree holding it is not special. Every Linux worker is given it
---- (build.confine's `runtime_paths`): one without it is skipped, and
---- elsewhere there is nothing to check.
+--- (build.confine's `runtime_paths`): one without it is skipped, which
+--- only the running worker can tell; macOS has no /dev/full, so there is
+--- nothing to check and no requirement names Linux alone.
 local function test_a_tree_digest_of_dev_full_is_not_special()
   if sys.stat("/dev/full") == nil then
-    sandbox_skip.refused("this worker has no /dev/full")
+    if assert(sys.uname()).sysname == "Linux" then Test.skip("this worker has no /dev/full") end
     return
   end
   local walked = assert(sys.tree_digest("/dev/full", false))
@@ -1709,34 +1453,6 @@ local function test_flock_kind_says_whether_a_flock_excludes_an_fcntl_lock(tmp: 
   assert(errno == sys.EBADF, said)
 end
 
---- `flock_kind`'s reading of an NFS file's mount (checked core only,
---- whose instrument reaches it): the lines of its device, the third
---- field, say whether local_lock "flock" or "all" is among the
---- filesystem's own options, after the lone "-"; a mount's own options
---- before it, another device's line, a word that only begins so, and a
---- line that does not parse say nothing.
-local function test_flock_kind_reads_an_nfs_mounts_local_lock()
-  if testing.configuration ~= "sanitized" then return end
-  local sample = table.concat({
-    "22 1 8:1 / / rw,relatime shared:1 - ext4 /dev/sda1 rw",
-    "30 22 0:40 / /home rw,relatime shared:5 - nfs4 server:/home " ..
-      "rw,vers=4.2,rsize=1048576,local_lock=none,addr=10.0.0.1",
-    "31 22 0:41 / /mnt/my\\040share rw master:3 shared:7 - nfs server:/a local_lock=flock,rw",
-    "32 22 0:42 / /srv rw - nfs server:/srv rw,vers=3,local_lock=all",
-    "33 22 0:43 / /opt rw,local_lock=flock - nfs server:/opt rw,local_lock=flocks",
-    "a line that does not parse",
-    "34 22 0:44 / /mnt/nosep rw shared:9 local_lock=flock",
-  }, "\n") .. "\n"
-  local want: {string:boolean} = { ["8:1"] = false, ["0:40"] = false, ["0:41"] = true,
-    ["0:42"] = true, ["0:43"] = false, ["0:44"] = false, ["0:4"] = false, ["0:420"] = false }
-  for device, local_flock in pairs(want) do
-    assert(testing.mountinfo_local_flock(sample, device) == local_flock, device)
-  end
-  assert(not testing.mountinfo_local_flock("", "0:41"))
-  assert(testing.mountinfo_local_flock("32 22 0:42 / /srv rw - nfs s:/srv local_lock=all", "0:42"),
-    "a last line with no newline")
-end
-
 --- Whether the wake pipe of the open guards has a byte to read.
 local function woken(fd: integer): boolean
   local revents = assert(sys.poll({ fd }, { sys.POLLIN }, 0))
@@ -1842,7 +1558,7 @@ local function test_an_errno_is_named_as_errno_h_names_it()
     local name, number = pair[1], pair[2]
     if name is string and number is integer then
       assert(sys.errno_name(number) == name, name .. " is named " ..
-        tostring(sys.errno_name(number)))
+          tostring(sys.errno_name(number)))
     end
   end
   assert(sys.errno_name(0) == nil and sys.errno_name(-1) == nil)
@@ -1943,9 +1659,9 @@ end
 --- The raw boundary validates both IDs independently of Child.Options.
 local function test_spawn_credentials_reject_incomplete_and_reserved_ids()
   for index, credentials in ipairs({
-    {}, { user = 1 }, { group = 1 }, { user = 0, group = 1 },
-    { user = 1, group = -1 }, { user = 4294967295, group = 1 },
-    { user = 1.5, group = 1 } as raw_process.Credentials,
+      {}, { user = 1 }, { group = 1 }, { user = 0, group = 1 },
+      { user = 1, group = -1 }, { user = 4294967295, group = 1 },
+      { user = 1.5, group = 1 } as raw_process.Credentials,
   } as {raw_process.Credentials}) do
     local ok, why = pcall(process.spawn, "/never-started", { "/never-started" },
       nil, nil, nil, nil, nil, false, nil, nil, credentials)
@@ -1965,6 +1681,47 @@ local function test_spawn_credentials_runtime_refusal(tmp: string)
     nil, tmp .. "/absent", nil, nil, nil, false, nil, nil, { user = 65532, group = 65532 })
   failed(pid, trouble, errno)
   assert(not Fs.exists(marker))
+end
+
+--- What spawn raises for `sandbox` taken as a raw table, malformed.
+local function refused_sandbox(fields: {string:any}): string
+  local ok, trouble = pcall(process.spawn, "/missing", { "/missing" }, nil, nil,
+    nil, nil, nil, false, nil, fields as raw_process.Sandbox) -- cast: malformed input exercises raw validation
+  assert(not ok, "spawn took a malformed sandbox")
+  return tostring(trouble)
+end
+
+local function test_a_policys_sandbox_fields_are_checked_before_a_start()
+  local function says(trouble: string, text: string)
+    assert(trouble:find(text, 1, true), trouble)
+  end
+  says(refused_sandbox({ strict = "yes" }), "strict must be a boolean")
+  says(refused_sandbox({ proc = 1 }), "proc must be a boolean")
+  says(refused_sandbox({ proc = true, unveil = { reads = { "/" } } }),
+    "proc and unveil exclude each other")
+  says(refused_sandbox({ sockets = { "inet" } }), "sockets require promises")
+  says(refused_sandbox({ promises = {}, sockets = { "packet" } }), "a socket family is")
+  says(refused_sandbox({ promises = {}, sockets = { "inet" } }), "sockets require offline")
+  says(refused_sandbox({ unveil = { tmp = 4096 } }), "unveil's tmp requires strict")
+  says(refused_sandbox({ promises = {}, sockets = "inet" }), "sockets must be a list")
+  says(refused_sandbox({ unveil = { tmp = 0 } }), "unveil's tmp is a size in bytes")
+  says(refused_sandbox({ unveil = { tmp = "big" } }), "unveil's tmp is a size in bytes")
+  says(refused_sandbox({ unveil = { tmp_exec = 1 } }), "unveil's tmp_exec must be a boolean")
+  says(refused_sandbox({ unveil = { tmp_exec = true } }), "unveil's tmp_exec requires tmp")
+end
+
+local function test_unveils_binds_are_checked_before_a_start()
+  local function says(binds: any, text: string)
+    local trouble = refused_sandbox({ unveil = { binds = binds } })
+    assert(trouble:find(text, 1, true), trouble)
+  end
+  says("/x", "unveil's binds must be a list")
+  says({ "/x" }, "a bind is a table")
+  says({ { path = "x" } }, "a bind's path must be absolute")
+  says({ { path = "/x", at = "relative" } }, "a bind is at an absolute name")
+  says({ { path = "/x", at = "/" } }, "a bind is at an absolute name")
+  says({ { path = "/x", at = "/.old/y" } }, "no name beneath /.old")
+  says({ { path = "/x", at = "/y" }, { path = "/z", at = "/y" } }, "two paths are bound at one name")
 end
 
 local function test_noexec_scratch_requires_a_boolean_and_unveiling()

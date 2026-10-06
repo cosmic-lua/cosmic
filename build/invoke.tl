@@ -87,7 +87,7 @@ end
 function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
   if runs_a_file(args[1]) then
     error("invoke: `" .. tostring(args[1]) .. "` runs a file, which loads its " ..
-      "modules into the process: start the binary instead", 2)
+        "modules into the process: start the binary instead", 2)
   end
   local argv: {integer:string} = { [0] = "cosmic" }
   for i, word in ipairs(args) do argv[i] = word end
@@ -148,7 +148,7 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
     end
     sys.exit = function(_?: integer) refuse("sys.exit") end
     sys.execve = function(_: string, _: {string}, _: {string:string}):
-                          boolean, string, integer
+        boolean, string, integer
       refuse("sys.execve")
       return false, "", 0
     end
@@ -171,7 +171,7 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
       local status = exit_status.status(answer)
       if status == nil then
         verdict.log:complain("the main function returned no exit status from 0 to 255: " ..
-          "cmd.cosmic.main")
+            "cmd.cosmic.main")
         code = 2
       else
         code = status

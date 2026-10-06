@@ -14,8 +14,9 @@
 local Http = require("cosmic.http")
 local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
+local Test = require("cosmic.test")
 
-local checked = testing.configuration == "sanitized"
+Test.policy{ requires = { "checked" } }
 
 local url = "http://cosmic.test/"
 
@@ -104,7 +105,6 @@ local faults: {Fault} = {
 }
 
 local function test_each_fault_point_in_open_fails_the_request_cleanly(tmp: string)
-  if not checked then return end
   succeeds("nothing")
   local before = held(tmp)
   for _, fault in ipairs(faults) do
@@ -116,7 +116,7 @@ local function test_each_fault_point_in_open_fails_the_request_cleanly(tmp: stri
     assert(response == nil, what .. " did not fail the request")
     local call = fault.point:match("^[%w_]+")
     assert(trouble:find(call, 1, true) ~= nil, what .. ": the message does not name " ..
-      call .. ": " .. trouble)
+        call .. ": " .. trouble)
     if fault.point:find("(", 1, true) ~= nil then
       local option = fault.point:match("%((.*)%)")
       assert(trouble:find(option, 1, true) ~= nil, what .. ": " .. trouble)
@@ -131,7 +131,6 @@ end
 --- report: the body is far larger than one drive moves, so `read` has
 --- to drive the transfer again once the buffered part is gone.
 local function test_a_fault_point_in_read_fails_the_read_cleanly(tmp: string)
-  if not checked then return end
   succeeds("nothing")
   local before = held(tmp)
   local body = string.rep("0123456789abcdef", 256 * 1024)
@@ -151,7 +150,6 @@ end
 --- A fault armed at a point no call passes stays armed, and disarming
 --- says so; arming a new one replaces it.
 local function test_fail_at_reports_a_fault_left_unfired()
-  if not checked then return end
   assert(not testing.fail_at(), "nothing armed")
   testing.fail_at("nowhere")
   assert(testing.fail_at("curl_easy_init", 3), "the unfired fault is reported")

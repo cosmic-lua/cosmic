@@ -41,7 +41,7 @@ local function test_commit_failure_rolls_back()
   assert(db:exec("PRAGMA foreign_keys = ON"))
   assert(db:exec("CREATE TABLE parent (id INTEGER PRIMARY KEY)"))
   assert(db:exec("CREATE TABLE child (parent_id INTEGER REFERENCES parent(id) " ..
-    "DEFERRABLE INITIALLY DEFERRED)"))
+      "DEFERRABLE INITIALLY DEFERRED)"))
   local ok, why = Sqlite.transact(db, function(): boolean, string
     return db:exec("INSERT INTO child VALUES (1)")
   end)

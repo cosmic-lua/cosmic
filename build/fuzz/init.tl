@@ -46,6 +46,7 @@ local plural = require("build.plural")
 local shrink = require("build.fuzz.shrink")
 local type Budget = require("cosmic.internal.budget")
 local String = require("cosmic.string")
+local Test = require("cosmic.test")
 
 --- The instruction budget, handed to this module only when it loads from
 --- the binary's own tree (core/store.c's `raw_modules`). It shares the
@@ -102,6 +103,10 @@ local record Fuzz
     --- True when the property holds for `input`, or false and what
     --- failed. A raise fails it the same way.
     check: function(input: string): boolean, string
+    -- TODO: say, for a worker whose directory is a tmpfs of its own
+    -- (build/test_sandbox.tl's `own_scratch`), that the kept input went with
+    -- it, and keep it in the report instead (FUZZ_CASE names the case): the
+    -- "kept at" paths below are gone once such a worker ends.
     --- The directory the input under test is kept in: a test's own
     --- temporary directory. Nothing is kept without one.
     dir: string
@@ -204,7 +209,7 @@ end
 
 --- Runs `check` on `input` once, under the budget.
 local function attempt(check: function(string): boolean, string, input: string,
-    budget: integer): boolean, string
+                       budget: integer): boolean, string
   if arm then arm(budget) end
   local ok, held, why = pcall(check, input)
   if arm then arm() end
@@ -246,6 +251,15 @@ local function shown(input: string): string
   return hex
 end
 
+--- Raises the report of a corpus input that failed its property, which the
+--- check of the input hands to `assert`, so a failure is the one raised and
+--- an input that held is a call to it made.
+local function corpus_failed(p: Fuzz.Property, path: string, why: string, input: string): boolean
+  error(("fuzz %s: corpus input %s: %s\n  input (hex, %s): %s"):
+      format(p.name, path, why, plural.count(#input, "byte"), shown(input)), 0)
+  return false
+end
+
 --- Checks every `.input` file in the property's corpus, in name order,
 --- raising a report on the first that fails; each is written to `kept`
 --- first, as a drawn input is. Returns how many were checked.
@@ -268,10 +282,7 @@ local function check_corpus(p: Fuzz.Property, budget: integer, kept: string): in
     end
     if kept ~= nil then local _, _ = Fs.write(kept, input) end
     local held, why = attempt(p.check, input, budget)
-    if not held then
-      error(("fuzz %s: corpus input %s: %s\n  input (hex, %s): %s"):
-        format(p.name, path, why, plural.count(#input, "byte"), shown(input)), 0)
-    end
+    assert(held or corpus_failed(p, path, why, input))
     checked = checked + 1
     ::continue::
   end
@@ -281,7 +292,7 @@ end
 --- The line `run` prints of how many inputs reached each label, in
 --- name order, or nil when no label was reached and none is required.
 local function label_counts(counts: {string: integer}, required: {string},
-    iters: integer): string | nil
+                            iters: integer): string | nil
   local names: {string} = {}
   for name in pairs(counts) do names[#names + 1] = name end
   for _, name in ipairs(required or {}) do
@@ -346,9 +357,10 @@ local function run(p: Fuzz.Property): integer
   if p.dir ~= nil then
     kept = p.dir .. "/" .. slug(p.name) .. ".input"
     print(("fuzz %s: seed=%d iters=%d; the input under test is kept at %s"):
-       format(p.name, seed, iters, kept))
+        format(p.name, seed, iters, kept))
   end
-  if case_name == nil then check_corpus(p, budget, kept) end
+  local replayed = 0
+  if case_name == nil then replayed = check_corpus(p, budget, kept) end
   local counts: {string: integer} = {}
   local seeds = Rand.new(seed)
   for i = 1, iters do
@@ -371,7 +383,10 @@ local function run(p: Fuzz.Property): integer
     local held, why = attempt(p.check, input, budget)
     reached = nil
     for name in pairs(mine) do counts[name] = (counts[name] or 0) + 1 end
-    if not held then
+    -- Raises the report of an input that failed, after shrinking it; the
+    -- check of the input hands it to `assert` below, so an input that held
+    -- is a call to `assert` made, and a failure is the report raised.
+    local function failure(): boolean
       -- A check that fails an input once and holds for it the next time
       -- depends on something beside the input: shrinking would chase
       -- noise, so the report says so and stops.
@@ -380,9 +395,9 @@ local function run(p: Fuzz.Property): integer
         error(("fuzz %s: %s: flaky: failed (%s), then held when the same input was " ..
           "checked again; it depends on something beside its input\n" ..
           "  input (%s, hex): %s\n  %s\n  reproduce: %s"):
-           format(p.name, where, why, plural.count(#input, "byte"), shown(input),
-            kept ~= nil and ("kept at " .. kept) or "not kept: the property names no dir",
-            reproduce), 0)
+            format(p.name, where, why, plural.count(#input, "byte"), shown(input),
+              kept ~= nil and ("kept at " .. kept) or "not kept: the property names no dir",
+              reproduce), 0)
       end
       local function fails(values: {integer}): boolean, {Draw}
         local candidate, used = build(p.gen, values)
@@ -408,13 +423,20 @@ local function run(p: Fuzz.Property): integer
         "  shrunk in %s from %s and %s to %s and %s; input (hex): %s%s\n" ..
         "  %s\n  reproduce: %s\n" ..
         "  once fixed, keep it as a regression case: %s"):
-         format(p.name, where, why, plural.count(tries, "try", "tries"), plural.count(#draws, "draw"),
-          plural.count(#input, "byte"), plural.count(#smallest, "draw"), plural.count(#small, "byte"), shown(small), flaky,
-          kept ~= nil and ("kept at " .. kept) or "not kept: the property names no dir",
-          reproduce,
-          kept ~= nil and ("mkdir -p %s && cp %s %s"):format(corpus_of(p), kept, keep) or
-            ("write the input above to " .. keep)), 0)
+          format(p.name, where, why, plural.count(tries, "try", "tries"), plural.count(#draws, "draw"),
+            plural.count(#input, "byte"), plural.count(#smallest, "draw"), plural.count(#small, "byte"), shown(small), flaky,
+            kept ~= nil and ("kept at " .. kept) or "not kept: the property names no dir",
+            reproduce,
+            kept ~= nil and ("mkdir -p %s && cp %s %s"):format(corpus_of(p), kept, keep) or
+              ("write the input above to " .. keep)), 0)
+      return false
     end
+    assert(held or failure())
+  end
+  -- An input checked is a call to `assert` made; a run that drew none and
+  -- replayed none (FUZZ_ITERS=0, as CI's gating runs set) says so.
+  if iters == 0 and replayed == 0 then
+    Test.passed_unchecked("fuzz properties drew no input (FUZZ_ITERS=0, no corpus)")
   end
   local named: {string} = {}
   local is_named: {string: boolean} = {}
@@ -442,7 +464,7 @@ local function run(p: Fuzz.Property): integer
         if kept ~= nil then local _, _ = Fs.remove(kept) end
         error(("fuzz %s: seed=%d: %s of %d reached %q, under the share of %g the property " ..
           "requires: its inputs exercise it too rarely"):format(p.name, seed, plural.count(reached_by, "input"), iters, name,
-          p.shares[name]), 0)
+            p.shares[name]), 0)
       end
     end
   end

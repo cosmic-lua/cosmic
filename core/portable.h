@@ -101,8 +101,13 @@ struct cosmic_artifact {
   uint64_t inode;
   uint64_t file_size;
   struct cosmic_portable portable;
-  /* A host program: the file is the running core itself. */
+  /* A host program: the file is the running core itself. A split start
+   * (`split`) is one too: `fd` is its core, with no database behind it. */
   int host;
+  /* A split start (`--database`): `fd` holds the bare core, `logical_path`
+   * names the database it runs against, and `portable.selected` is that
+   * core with the digest the database records for it. */
+  int split;
   /* Whether the selected core range's bytes have been hashed against the
    * manifest: 0 not yet, 1 they match, -1 they differ. A portable start
    * checks at startup; a host program only when its identity is asked for. */

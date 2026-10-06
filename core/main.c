@@ -4,12 +4,20 @@
  * Teal from a source tree through `--boot`.
  */
 
+#define _DEFAULT_SOURCE /* realpath, as glibc and musl hide it under -std=c11 */
+#define _DARWIN_C_SOURCE
+
 #include <ctype.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include "boot.h"
 #include "check.h"
@@ -53,6 +61,127 @@ static sqlite3 *open_artifact (const char *path, int retained_fd,
     return NULL;
   }
   return db;
+}
+
+/* Reads the meta row `key` of `db` into `out`: 1 when it holds a value,
+ * 0 when it has no row (or an empty one), -1 when the query fails,
+ * `*why` then SQLite's own words. */
+static int meta_row (sqlite3 *db, const char *key, char *out, size_t size,
+                     const char **why) {
+  sqlite3_stmt *stmt = NULL;
+  out[0] = '\0';
+  if (sqlite3_prepare_v2(db, "SELECT value FROM main.meta WHERE key = ?1", -1,
+                         &stmt, NULL) != SQLITE_OK) {
+    *why = sqlite3_errmsg(db);
+    return -1;
+  }
+  sqlite3_bind_text(stmt, 1, key, -1, SQLITE_STATIC);
+  int rc = sqlite3_step(stmt);
+  int found = 0;
+  if (rc == SQLITE_ROW) {
+    const char *value = (const char *)sqlite3_column_text(stmt, 0);
+    size_t length = (size_t)sqlite3_column_bytes(stmt, 0);
+    if (value != NULL && length > 0 && length < size) {
+      memcpy(out, value, length + 1);
+      found = 1;
+    }
+  } else if (rc != SQLITE_DONE) {
+    *why = sqlite3_errmsg(db);
+    found = -1;
+  }
+  sqlite3_finalize(stmt);
+  return found;
+}
+
+/* Opens the database file `path` of a `--database` start, read-only and
+ * immutable through the default VFS, and holds the running core to it:
+ * the file must be a SQLite database with a `main` meta row, and its
+ * `core_sha256` row must be the digest of the core running. Nothing falls
+ * back: false, with `*why` naming what is wrong with the file, closes it. */
+static bool open_database (const char *path, struct cosmic_artifact *artifact,
+                           sqlite3 **out, const char **why) {
+  static char message[256];
+  char resolved[COSMIC_ARTIFACT_PATH_CAPACITY];
+  /* O_NONBLOCK: opening a FIFO for reading waits for a writer, which a
+   * database path must never do. */
+  int file = open(path, O_RDONLY | O_CLOEXEC | O_NONBLOCK);
+  struct stat held;
+  if (file < 0) {
+    snprintf(message, sizeof message, "%s", strerror(errno));
+    *why = message;
+    return false;
+  }
+  if (fstat(file, &held) != 0 || !S_ISREG(held.st_mode)) {
+    close(file);
+    *why = "it is not a regular file";
+    return false;
+  }
+  if (realpath(path, resolved) == NULL) {
+    snprintf(message, sizeof message, "%s", strerror(errno));
+    *why = message;
+    close(file);
+    return false;
+  }
+  char uri[8192];
+  if (!cosmic_database_uri(uri, sizeof uri, resolved)) {
+    close(file);
+    *why = "the path is too long";
+    return false;
+  }
+  sqlite3 *db = NULL;
+  int rc = sqlite3_open_v2(uri, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_URI,
+                           NULL);
+  /* SQLite opens the path again, so the file it holds is the one checked
+   * above only if the path still names it: a path swapped in between is
+   * refused here, the descriptor kept open until now so its inode cannot
+   * be reused meanwhile.
+   * TODO: a path swapped between sqlite3_open_v2 and this stat, and back,
+   * still passes; open SQLite on the checked descriptor itself (a VFS
+   * whose xOpen takes it) to close that. */
+  struct stat named_now;
+  bool same = rc == SQLITE_OK && stat(resolved, &named_now) == 0 &&
+              named_now.st_dev == held.st_dev && named_now.st_ino == held.st_ino;
+  close(file);
+  if (rc != SQLITE_OK) {
+    snprintf(message, sizeof message, "%s",
+             db == NULL ? sqlite3_errstr(rc) : sqlite3_errmsg(db));
+    *why = message;
+    sqlite3_close_v2(db);
+    return false;
+  }
+  if (!same) {
+    *why = "the file changed while it was being opened";
+    sqlite3_close_v2(db);
+    return false;
+  }
+  char main_name[256], recorded[2 * COSMIC_PORTABLE_SHA256_LENGTH + 2];
+  const char *trouble = NULL;
+  int named = meta_row(db, "main", main_name, sizeof main_name, &trouble);
+  if (named < 0) {
+    snprintf(message, sizeof message, "not a cosmic database: %s", trouble);
+    *why = message;
+    sqlite3_close_v2(db);
+    return false;
+  }
+  if (named == 0) {
+    *why = "it has no main meta row, so it names no program to run";
+    sqlite3_close_v2(db);
+    return false;
+  }
+  int digest = meta_row(db, "core_sha256", recorded, sizeof recorded, &trouble);
+  if (digest < 0) {
+    snprintf(message, sizeof message, "not a cosmic database: %s", trouble);
+    *why = message;
+    sqlite3_close_v2(db);
+    return false;
+  }
+  if (!cosmic_database_bind(artifact, resolved, digest == 1 ? recorded : NULL,
+                            why)) {
+    sqlite3_close_v2(db);
+    return false;
+  }
+  *out = db;
+  return true;
 }
 
 /* Answers what [`cosmic.errors`]'s `guidance` says beneath the uncaught
@@ -121,13 +250,6 @@ static bool source_position (lua_State *L, const char *message) {
   }
   memcpy(name, message, name_len);
   name[name_len] = '\0';
-  /* A module a hold holds prints nothing, as if no database held it: a
-   * process a `lua` test started reads no row its key does not hold, a
-   * message that names one (`error("cosmic.zip:1: ...")`) included. */
-  if (!cosmic_store_lets(L, name)) {
-    return false;
-  }
-
   int count = cosmic_store_count(L);
   for (int index = 1; index <= count; index++) {
     sqlite3 *db = cosmic_store_database(L, index);
@@ -257,7 +379,6 @@ static int run_main (lua_State *L, int argc, char **argv) {
 int cosmic_runtime_entry (const struct cosmic_startup *startup, int argc,
                           char **argv) {
   cosmic_coverage_prepare();
-  cosmic_store_prepare();
   cosmic_process_entered();
   const char *startup_trouble = cosmic_startup_validate(startup);
   if (startup_trouble != NULL) {
@@ -283,8 +404,11 @@ int cosmic_runtime_entry (const struct cosmic_startup *startup, int argc,
   }
   cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_STARTUP_RELEASED);
 
+  /* A database start runs the bare core, whose own path is its name. */
+  bool carried = startup->kind == COSMIC_STARTUP_PORTABLE ||
+                 startup->kind == COSMIC_STARTUP_HOST;
   char self[4096];
-  if (startup->kind != COSMIC_STARTUP_NATIVE) {
+  if (carried) {
     if (snprintf(self, sizeof self, "%s", startup->artifact_path) >=
         (int)sizeof self) {
       cosmic_artifact_close(&artifact);
@@ -302,7 +426,16 @@ int cosmic_runtime_entry (const struct cosmic_startup *startup, int argc,
   }
 
   sqlite3 *db = NULL;
-  if (startup->kind != COSMIC_STARTUP_NATIVE) {
+  if (startup->kind == COSMIC_STARTUP_DATABASE) {
+    const char *trouble = NULL;
+    if (!open_database(startup->database_path, &artifact, &db, &trouble)) {
+      cosmic_surface_close(L);
+      cosmic_artifact_close(&artifact);
+      fprintf(stderr, "cosmic: --database %s: %s\n", startup->database_path,
+              trouble);
+      return 2;
+    }
+  } else if (startup->kind != COSMIC_STARTUP_NATIVE) {
     db = open_artifact(self, artifact.fd,
                        (int64_t)artifact.portable.database_offset,
                        (int64_t)artifact.portable.database_length);
@@ -313,8 +446,8 @@ int cosmic_runtime_entry (const struct cosmic_startup *startup, int argc,
     }
     cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_DATABASE_OPENED);
   }
-  cosmic_store_install(L, db,
-                       startup->kind != COSMIC_STARTUP_NATIVE ? &artifact : NULL);
+  cosmic_store_install(L, db, startup->kind != COSMIC_STARTUP_NATIVE
+                                  ? &artifact : NULL);
   cosmic_store_open_raw(L);
   cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_STORE_INSTALLED);
 
@@ -341,14 +474,6 @@ int cosmic_runtime_entry (const struct cosmic_startup *startup, int argc,
     return complain("no database attached, and no tree to boot from", self);
   }
 
-  /* A process a `lua` test started is held before any of its Lua runs,
-   * or runs none (core/store.c's `cosmic_store_hold_inherited`). */
-  if (!cosmic_store_hold_inherited(L)) {
-    cosmic_surface_close(L);
-    sqlite3_close_v2(db);
-    cosmic_artifact_close(&artifact);
-    return 2;
-  }
   cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_MAIN_ENTERING);
   int status = run_main(L, argc, argv);
   cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_MAIN_RETURNED);

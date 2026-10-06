@@ -3,13 +3,13 @@
 -- summary, which says what failed; and, for a run cancelled before it
 -- finished, how far it got. FUZZ_SEED and FUZZ_ITERS come from the job.
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Context = require("cosmic_ci.context")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local State = require("cosmic_ci.state")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
-local Time = require("cosmic.time")
 local String = require("cosmic.string")
 
 local record Fuzz
@@ -72,7 +72,7 @@ end
 --- bytes so that a line of any length takes no more than that. Stops
 --- when `next_chunk` answers "" or `each` answers true.
 local function each_line(next_chunk: function(): string,
-    each: function(string): boolean)
+                         each: function(string): boolean)
   local line: {string} = {}
   local length = 0
   local function add(piece: string)
@@ -206,7 +206,7 @@ end
 --- one deadline bounds inherited writers; an incomplete drain is a driver
 --- failure, while any known child status remains available to be saved.
 local function streamed(guard: Child.Guard, argv: {string}, cwd: string,
-    env: {string:string}, out: string, log: integer): integer | nil, string
+                        env: {string:string}, out: string, log: integer): integer | nil, string
   local out_fd = assert(Fs.open_write(out))
   local status: integer = nil
   local called, failure = pcall(function(): string
@@ -228,16 +228,16 @@ local function streamed(guard: Child.Guard, argv: {string}, cwd: string,
         local state, why = handle:try_wait()
         if state == nil then return why end
         if state.finished and status == nil then
-          status = state.result.code or (128 + (state.result.signal or 0))
-          deadline = Time.monotonic_ns() + final_output_ns
+          status = Child.shell_status(state.result)
+          deadline = Clock.monotonic_ns() + final_output_ns
         end
         if eof then
           if status ~= nil then return "" end
-          Time.sleep_ns(poll_ns)
+          Clock.sleep_ns(poll_ns)
         else
           local wait = poll_ns
           if deadline ~= nil then
-            wait = math.min(wait, math.max(0, deadline - Time.monotonic_ns()))
+            wait = math.min(wait, math.max(0, deadline - Clock.monotonic_ns()))
             if wait == 0 then return "fuzz output remained open after the child exited" end
           end
           local drained = handle:drain{ stdout = sink, timeout_ns = wait, max_bytes = drain_bytes }
@@ -255,7 +255,7 @@ local function streamed(guard: Child.Guard, argv: {string}, cwd: string,
     if status == nil then
       local observed, state = pcall(function(): Child.TryWait | nil return (handle:try_wait()) end)
       if observed and state ~= nil and state.finished then
-        status = state.result.code or (128 + (state.result.signal or 0))
+        status = Child.shell_status(state.result)
       end
     end
     return ran and why or tostring(why)

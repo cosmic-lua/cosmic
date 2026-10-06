@@ -4,7 +4,9 @@
 --- The index is built by the build itself: [`build.work.stage`] scans each
 --- file it stages ([`build.todo_scan`]) as it reads it, into `todos` in
 --- `o/build.db`. That covers what the build consumes (Teal and, in
---- cosmic's own tree, the C core, build.zig and bin/zig) and, through
+--- cosmic's own tree, the C core, build.zig, bin/zig and the patch
+--- records, whose notes and replace blocks alone are the tree's own:
+--- [`build.todo_scan.scan_record`]) and, through
 --- `scanned`, everything else the walk passes: scripts and, in cosmic's
 --- own tree, `bin/`, `eval/`, `ci/` and `.github/` (workflows, actions
 --- and scripts). `scanned` fingerprints those files, which are read only
@@ -112,8 +114,18 @@ end
 --- taken as none: a TODO is listed unblamed rather than not at all.
 local git_timeout_ns = Time.seconds(30)
 
---- Runs git in `root`, its output when it succeeds.
-local function git(root: string, args: {string}): string | nil
+--- A stand-in for git, which [`todos.list`] takes in its place: answers one
+--- call's arguments (past `-C root`) with its output where it succeeds
+--- and nil where git would fail. A caller that names none runs the
+--- system's git.
+local type GitRunner = function(root: string, args: {string}): string | nil
+
+--- Runs git in `root`, its output when it succeeds, through `run_git`
+--- where one is given.
+local function git(root: string, args: {string}, run_git: GitRunner | nil): string | nil
+  if run_git ~= nil then
+    return run_git(root, args)
+  end
   local found, _ = Proc.find("git")
   if found == nil then
     return nil
@@ -152,11 +164,11 @@ end
 --- a repository no git is looked for or started, and so none of the
 --- blame after it: a tree that is no checkout lists its TODOs unblamed
 --- and reads nothing of the system's.
-local function head_of(root: string): string
+local function head_of(root: string, run_git: GitRunner | nil): string
   if not in_repository(root) then
     return ""
   end
-  local out = git(root, { "rev-parse", "--verify", "-q", "HEAD" })
+  local out = git(root, { "rev-parse", "--verify", "-q", "HEAD" }, run_git)
   if out == nil then
     return ""
   end
@@ -174,49 +186,141 @@ end
 --- tree's comments) leaves each line on the commit that wrote it.
 local IGNORED_REVS <const> = ".git-blame-ignore-revs"
 
+--- The arguments of the `git blame` that says who wrote `lines` of `file`,
+--- past the commits `ignored` (a file of them) lists, where there is one.
+local function blame_args(file: string, lines: {integer}, ignored: string | nil): {string}
+  local args: {string} = { "blame", "--line-porcelain" }
+  if ignored ~= nil then
+    args[#args + 1] = "--ignore-revs-file"
+    args[#args + 1] = ignored
+  end
+  for _, line in ipairs(lines) do
+    args[#args + 1] = "-L"
+    args[#args + 1] = line .. "," .. line
+  end
+  args[#args + 1] = "--"
+  args[#args + 1] = file
+  return args
+end
+
+--- The file of commits to pass over, where `root` holds one.
+local function ignored_revs(root: string): string | nil
+  local listed, _ = Fs.exists(root .. "/" .. IGNORED_REVS)
+  if listed then return root .. "/" .. IGNORED_REVS end
+  return nil
+end
+
+--- One `git blame` under way: when it must be given up on, what it said
+--- once it has ended (nil where it failed), and how to drop it.
+local record BlameRun
+  file: string
+  deadline: integer
+  handle: Child.Handle | nil
+  said: function(): string | nil
+  drop: function()
+end
+
+--- How [`blame_all`] runs its blames: `start` begins the one with these
+--- arguments, and `wait` answers which of the `running` has ended, or
+--- none and whether supervising them failed.
+local record Blamer
+  start: function(file: string, args: {string}): BlameRun | nil
+  wait: function(running: {BlameRun}): BlameRun | nil, boolean
+end
+
+--- A [`Blamer`] that starts the system's git `program` in `root`.
+local function spawning(program: string, root: string): Blamer
+  local run_of: {Child.Handle:BlameRun} = {}
+  return {
+    start = function(file: string, args: {string}): BlameRun | nil
+      local argv: {string} = { program, "-C", root }
+      for _, each in ipairs(args) do
+        argv[#argv + 1] = each
+      end
+      local handle, _ = Child.start(argv, { stdin = "null", stdout = "capture", stderr = "null" })
+      if handle == nil then return nil end
+      local run: BlameRun = {
+        file = file,
+        deadline = Time.monotonic_ns() + git_timeout_ns,
+        handle = handle,
+        said = function(): string | nil
+          local result, _ = handle:wait()
+          if result ~= nil and result.ok and result.stdout ~= nil then
+            return result.stdout
+          end
+          return nil
+        end,
+        drop = function()
+          local _, _ = handle:close()
+        end,
+      }
+      run_of[handle] = run
+      return run
+    end,
+    wait = function(running: {BlameRun}): BlameRun | nil, boolean
+      local handles: {Child.Handle} = {}
+      for _, run in ipairs(running) do
+        handles[#handles + 1] = run.handle
+      end
+      local done, trouble = Child.wait_any(handles, Time.ms(100))
+      return run_of[done], done == nil and trouble ~= Poll.TIMEOUT
+    end,
+  }
+end
+
+--- A [`Blamer`] that has `run_git` answer each blame at its start, so
+--- every one has ended as soon as it is asked of.
+local function answering(run_git: GitRunner, root: string): Blamer
+  return {
+    start = function(file: string, args: {string}): BlameRun | nil
+      local answer = run_git(root, args)
+      return {
+        file = file,
+        deadline = math.maxinteger,
+        said = function(): string | nil return answer end,
+        drop = function() end,
+      }
+    end,
+    wait = function(running: {BlameRun}): BlameRun | nil, boolean
+      return running[1], false
+    end,
+  }
+end
+
 --- Blame for the first line of each TODO in several files, by file,
 --- running the calls [`blame_jobs`] at a time, past the commits
 --- `IGNORED_REVS` lists; a file git has nothing to
 --- say about maps to an empty table. Once `guard` has caught a signal,
---- it ends every git and stops.
+--- it ends every git and stops. With `run_git`, the calls are its
+--- answers, and no process starts.
 local function blame_all(root: string, lines: {string:{integer}}, order: {string},
-                         guard: Child.Guard | nil): {string:{integer:todos.Blame}}
+                         guard: Child.Guard | nil,
+                         run_git: GitRunner | nil): {string:{integer:todos.Blame}}
   local out: {string:{integer:todos.Blame}} = {}
-  -- git as `git` finds it, found once for every call.
-  local program, _ = Proc.find("git")
-  if program == nil then
-    for _, file in ipairs(order) do out[file] = {} end
-    return out
+  local ignored = ignored_revs(root)
+  local blamer: Blamer
+  if run_git ~= nil then
+    blamer = answering(run_git, root)
+  else
+    -- git as `git` finds it, found once for every call.
+    local program, _ = Proc.find("git")
+    if program == nil then
+      for _, file in ipairs(order) do out[file] = {} end
+      return out
+    end
+    blamer = spawning(program, root)
   end
-  local ignored: string | nil = nil
-  local listed, _ = Fs.exists(root .. "/" .. IGNORED_REVS)
-  if listed then ignored = root .. "/" .. IGNORED_REVS end
   local limit = blame_jobs()
-  local running: {Child.Handle} = {}
-  local file_of: {Child.Handle:string} = {}
-  local deadline_of: {Child.Handle:integer} = {}
+  local running: {BlameRun} = {}
   local next_file = 1
   while next_file <= #order or #running > 0 do
     while #running < limit and next_file <= #order do
       local file = order[next_file]
       next_file = next_file + 1
       out[file] = {}
-      local argv: {string} = { program, "-C", root, "blame", "--line-porcelain" }
-      if ignored ~= nil then
-        argv[#argv + 1] = "--ignore-revs-file"
-        argv[#argv + 1] = ignored
-      end
-      for _, line in ipairs(lines[file]) do
-        argv[#argv + 1] = "-L"
-        argv[#argv + 1] = line .. "," .. line
-      end
-      argv[#argv + 1] = "--"
-      argv[#argv + 1] = file
-      local handle, _ = Child.start(argv, { stdin = "null", stdout = "capture", stderr = "null" })
-      if handle ~= nil then
-        running[#running + 1] = handle
-        file_of[handle] = file
-        deadline_of[handle] = Time.monotonic_ns() + git_timeout_ns
+      local run = blamer.start(file, blame_args(file, lines[file], ignored))
+      if run ~= nil then
+        running[#running + 1] = run
       end
     end
     if #running == 0 then
@@ -225,27 +329,27 @@ local function blame_all(root: string, lines: {string:{integer}}, order: {string
     if guard ~= nil and guard:cancelled() ~= 0 then
       break
     end
-    local done, trouble = Child.wait_any(running, Time.ms(100))
+    local done, failed = blamer.wait(running)
     local now = Time.monotonic_ns()
-    local still: {Child.Handle} = {}
-    for _, handle in ipairs(running) do
-      if rawequal(handle, done) then
-        local result, _ = handle:wait()
-        if result ~= nil and result.ok and result.stdout ~= nil then
-          out[file_of[handle]] = todos.parse_blame(result.stdout)
+    local still: {BlameRun} = {}
+    for _, run in ipairs(running) do
+      if rawequal(run, done) then
+        local said = run.said()
+        if said ~= nil then
+          out[run.file] = todos.parse_blame(said)
         end
-      elseif (done == nil and trouble ~= Poll.TIMEOUT) or now >= deadline_of[handle] then
+      elseif (done == nil and failed) or now >= run.deadline then
         -- Supervision failed, or git ran past its time: the file's
         -- TODOs are listed unblamed.
-        local _, _ = handle:close()
+        run.drop()
       else
-        still[#still + 1] = handle
+        still[#still + 1] = run
       end
     end
     running = still
   end
-  for _, handle in ipairs(running) do
-    local _, _ = handle:close()
+  for _, run in ipairs(running) do
+    run.drop()
   end
   return out
 end
@@ -258,11 +362,13 @@ end
 --- as it would.
 local function blame_files(root: string,
                            lines: {string:{integer}},
-                           order: {string}): {string:{integer:todos.Blame}}
+                           order: {string},
+                           run_git: GitRunner | nil): {string:{integer:todos.Blame}}
+  if run_git ~= nil then return blame_all(root, lines, order, nil, run_git) end
   local opened, _ = Child.guard()
-  if opened == nil then return blame_all(root, lines, order, nil) end
+  if opened == nil then return blame_all(root, lines, order, nil, nil) end
   local guard <close> = opened
-  return blame_all(root, lines, order, guard)
+  return blame_all(root, lines, order, guard, nil)
 end
 
 --- Whether a commit hash is the one blame gives a line not committed.
@@ -284,13 +390,13 @@ end
 local function rows_of(db: Sqlite.Handle, head: string): {Row} | nil, string
   local rows, trouble = Sqlite.rows(db,
     "SELECT f.path, t.line, t.last, t.text, t.sha256, b.commit_id, " ..
-    "b.author_time, b.summary, b.boundary, t.id FROM " ..
-    "(SELECT path, sha256 FROM files UNION SELECT path, sha256 FROM tool " ..
-    "UNION SELECT path, sha256 FROM scanned) f " ..
-    "JOIN todos t ON t.sha256 = f.sha256 " ..
-    "LEFT JOIN blames b ON b.path = f.path AND b.line = t.line " ..
-    "AND b.sha256 = t.sha256 AND b.head = ?1 " ..
-    "ORDER BY f.path, t.line", { { text = head } })
+      "b.author_time, b.summary, b.boundary, t.id FROM " ..
+      "(SELECT path, sha256 FROM files UNION SELECT path, sha256 FROM tool " ..
+      "UNION SELECT path, sha256 FROM scanned) f " ..
+      "JOIN todos t ON t.sha256 = f.sha256 " ..
+      "LEFT JOIN blames b ON b.path = f.path AND b.line = t.line " ..
+      "AND b.sha256 = t.sha256 AND b.head = ?1 " ..
+      "ORDER BY f.path, t.line", { { text = head } })
   if rows == nil then
     return nil, trouble
   end
@@ -323,7 +429,8 @@ end
 --- touched, or every file when the earlier `HEAD` is not an ancestor of
 --- this one -- a rebase or a reset, which may have dropped the commits
 --- the rows name -- is left to be blamed again.
-local function carry_forward(db: Sqlite.Handle, root: string, head: string): boolean, string
+local function carry_forward(db: Sqlite.Handle, root: string, head: string,
+                             run_git: GitRunner | nil): boolean, string
   if head == "" then
     return true, ""
   end
@@ -335,11 +442,11 @@ local function carry_forward(db: Sqlite.Handle, root: string, head: string): boo
   end
   for _, row in ipairs(heads) do
     local old = row[1]
-    local ancestor = git(root, { "merge-base", "--is-ancestor", old, head })
+    local ancestor = git(root, { "merge-base", "--is-ancestor", old, head }, run_git)
     local changed: string = nil
     if ancestor ~= nil then
       changed = git(root, { "diff", "--name-only", "--no-renames", "--relative",
-        old, head, "--" })
+        old, head, "--" }, run_git)
     end
     if changed ~= nil then
       local touched: {string:boolean} = {}
@@ -375,13 +482,13 @@ end
 --- keeping what it says in `blames`, and drops the rows there no TODO
 --- stands on any more. Returns how many files it blamed.
 local function blame_rows(db: Sqlite.Handle, root: string, head: string,
-                          rows: {Row}): integer | nil, string
+                          rows: {Row}, run_git: GitRunner | nil): integer | nil, string
   local pruned, prune_trouble = Sqlite.run(db,
     "DELETE FROM blames WHERE head != ?1 OR NOT EXISTS (SELECT 1 FROM " ..
-    "(SELECT path, sha256 FROM files UNION SELECT path, sha256 FROM tool " ..
-    "UNION SELECT path, sha256 FROM scanned) f " ..
-    "JOIN todos t ON t.sha256 = f.sha256 WHERE f.path = blames.path " ..
-    "AND t.line = blames.line AND t.sha256 = blames.sha256)",
+      "(SELECT path, sha256 FROM files UNION SELECT path, sha256 FROM tool " ..
+      "UNION SELECT path, sha256 FROM scanned) f " ..
+      "JOIN todos t ON t.sha256 = f.sha256 WHERE f.path = blames.path " ..
+      "AND t.line = blames.line AND t.sha256 = blames.sha256)",
     { { text = head } })
   if not pruned then
     return nil, prune_trouble
@@ -408,7 +515,7 @@ local function blame_rows(db: Sqlite.Handle, root: string, head: string,
       table.insert(lines[file], row.todo.line)
     end
   end
-  local blamed = blame_files(root, lines, order)
+  local blamed = blame_files(root, lines, order, run_git)
   for _, file in ipairs(order) do
     local said = blamed[file]
     for _, row in ipairs(pending[file]) do
@@ -421,7 +528,7 @@ local function blame_rows(db: Sqlite.Handle, root: string, head: string,
       todo.boundary = known and line.boundary or false
       local ok, trouble = Sqlite.run(db,
         "INSERT OR REPLACE INTO blames (path, line, sha256, head, commit_id, " ..
-        "author_time, summary, boundary) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+          "author_time, summary, boundary) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         { { text = file }, { integer = todo.line }, { text = row.sha256 },
           { text = head }, { text = todo.commit }, { integer = todo.author_time },
           { text = todo.summary }, { integer = todo.boundary and 1 or 0 } })
@@ -434,10 +541,14 @@ local function blame_rows(db: Sqlite.Handle, root: string, head: string,
 end
 
 --- Every TODO in the tree staged into `db`, blamed where git can,
---- in file and line order, and how many files had to be blamed.
-function todos.list(db: Sqlite.Handle, root: string): todos.Listing | nil, string
-  local head = head_of(root)
-  local carried, carry_trouble = carry_forward(db, root, head)
+--- in file and line order, and how many files had to be blamed. `run_git`,
+--- where given, answers every git call in the system's place (a test's
+--- recorded answers); the tree must still lie in a repository.
+function todos.list(db: Sqlite.Handle, root: string,
+                    run_git?: function(root: string, args: {string}): string | nil
+): todos.Listing | nil, string
+  local head = head_of(root, run_git)
+  local carried, carry_trouble = carry_forward(db, root, head, run_git)
   if not carried then
     return nil, carry_trouble
   end
@@ -445,7 +556,7 @@ function todos.list(db: Sqlite.Handle, root: string): todos.Listing | nil, strin
   if rows == nil then
     return nil, trouble
   end
-  local blamed, blame_trouble = blame_rows(db, root, head, rows)
+  local blamed, blame_trouble = blame_rows(db, root, head, rows, run_git)
   if blamed == nil then
     return nil, blame_trouble
   end
@@ -630,7 +741,7 @@ local function run(argv: {integer:string}): integer
   end
   if ranks ~= nil and #listed == 0 then
     log:verdict("todos", false, "no TODO matches '" .. query .. "', " ..
-      clock.took(started))
+        clock.took(started))
     return 1
   end
   if oldest then
@@ -659,7 +770,7 @@ local function run(argv: {integer:string}): integer
     end
   end
   log:verdict("todos", true, plural.count(#listed, "todo") .. " in " .. plural.count(file_count, "file") ..
-    ", " .. plural.count(blamed, "file") .. " blamed, " .. clock.took(started))
+      ", " .. plural.count(blamed, "file") .. " blamed, " .. clock.took(started))
   return 0
 end
 

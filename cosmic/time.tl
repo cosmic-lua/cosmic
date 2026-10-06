@@ -1,16 +1,20 @@
---- Clocks, sleeping, and the calendar, in UTC and in time zones. Every
---- reading is in nanoseconds, so nothing above this module carries a unit
---- it has to remember. A moment is an integer of nanoseconds since
+--- The calendar, in UTC and in time zones, and the clocks and spans of
+--- [`cosmic.clock`], answered here under the same names. Every reading
+--- is in nanoseconds, so nothing above this module carries a unit it has
+--- to remember. A moment is an integer of nanoseconds since
 --- 1970-01-01T00:00:00Z without leap seconds, so the calendar spans
 --- what 64 bits hold: 1677-09-21T00:12:43.145224192Z through
 --- 2262-04-11T23:47:16.854775807Z, on the proleptic Gregorian calendar.
 ---
 --- A span of exact time is an integer of nanoseconds too, which [`ms`],
 --- [`seconds`], [`minutes`] and [`hours`] make from a count
---- (`Time.seconds(5)`). A span the calendar measures, whole years, months
---- and days and a remainder, is a [`Duration`]: [`add_calendar`] moves a
---- moment by one, [`between`] answers one, and [`parse_duration`] and
---- [`format_duration`] read and write one as text.
+--- (`Time.seconds(5)`). The clocks and these constructors live in
+--- [`cosmic.clock`], which a module that needs no calendar requires
+--- instead; this module keeps them as aliases. A span the calendar
+--- measures, whole years, months and days and a remainder, is a
+--- [`Duration`]. [`add_calendar`] moves a moment by one, [`between`]
+--- answers one, and [`parse_duration`] and [`format_duration`] read and
+--- write one as text.
 ---
 --- A zone says what offset from UTC, abbreviation and daylight saving
 --- time each moment has somewhere: IANA's, by name (`zone`), from the
@@ -27,6 +31,7 @@
 --- zone?)` and `format_rfc3339(ns, zone?, opts?)`. Each reads the UTC
 --- calendar without a zone.
 
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
@@ -163,6 +168,23 @@ local record Time
 
   --- Coordinated Universal Time, the zone every other is an offset from.
   UTC: Time.Zone
+
+  --- [`cosmic.clock`]'s [`Clock.now_ns`], kept here under its old name.
+  now_ns: function(): integer
+  --- [`cosmic.clock`]'s [`Clock.monotonic_ns`], kept here under its old name.
+  monotonic_ns: function(): integer
+  --- [`cosmic.clock`]'s [`Clock.sleep_ns`], kept here under its old name.
+  sleep_ns: function(integer): boolean, string
+  --- [`cosmic.clock`]'s [`Clock.ms`], kept here under its old name.
+  ms: function(number): integer
+  --- [`cosmic.clock`]'s [`Clock.seconds`], kept here under its old name.
+  seconds: function(number): integer
+  --- [`cosmic.clock`]'s [`Clock.minutes`], kept here under its old name.
+  minutes: function(number): integer
+  --- [`cosmic.clock`]'s [`Clock.hours`], kept here under its old name.
+  hours: function(number): integer
+  --- [`cosmic.clock`]'s [`Clock.ceil`], kept here under its old name.
+  ceil: function(integer, integer): integer
 end
 
 local NS <const> = 1000000000
@@ -395,7 +417,7 @@ local function read_digits(cur: Cursor, most: integer, what: string, least?: int
   end
   if at - first < (least or most) then
     fail(cur, ("%s: expected %s at byte %d"):format(what, least == nil and
-      String.counted(most, "digit") or "a number", first))
+        String.counted(most, "digit") or "a number", first))
     return nil
   end
   cur.at = at
@@ -597,7 +619,7 @@ local function posix_kind(p: Posix, s: integer): Kind
     local changes = p.years[y]
     if changes == nil then
       changes = { rule_day(p.start, y) * DAY + p.start.time - p.std.offset,
-                  rule_day(p.finish, y) * DAY + p.finish.time - p.dst.offset }
+        rule_day(p.finish, y) * DAY + p.finish.time - p.dst.offset }
       p.years[y] = changes
     end
     if changes[2] <= s and changes[2] > best then
@@ -1280,7 +1302,7 @@ local function disambiguation_of(how: Time.Disambiguation): Time.Disambiguation
   how = how or "reject"
   if not DISAMBIGUATIONS[how] then
     error("time: disambiguation is \"reject\", \"earlier\", \"later\" or \"compatible\", not " ..
-      tostring(how), 3)
+        tostring(how), 3)
   end
   return how
 end
@@ -1323,7 +1345,7 @@ local function resolve(c: Time.Civil, zone: Time.Zone, how: Time.Disambiguation)
       if how == "reject" then
         return nil, ("%s happens twice in %s: clocks moved from %s to %s; disambiguation " ..
           "\"earlier\" or \"later\" picks one"):format(civil_text(c, "minute"), rules.name,
-          offset_text(before), offset_text(after))
+            offset_text(before), offset_text(after))
       end
       chosen = how == "later" and found[#found] or found[1]
     end
@@ -1374,7 +1396,7 @@ end
 --- field that is no integer, an `overflow` or a `disambiguation` that is
 --- none of its type's, or a `zone` no function here made.
 function Time.add_calendar(ns: integer, duration: Time.Duration, zone?: Time.Zone,
-    opts?: Time.AddOptions): integer | nil, string
+                           opts?: Time.AddOptions): integer | nil, string
   local years, months, days = duration.years or 0, duration.months or 0, duration.days or 0
   local exact = duration.ns or 0
   integral("years", years)
@@ -1928,107 +1950,13 @@ function Time.format_duration(d: Time.Duration): string
   return (negative and "-" or "") .. table.concat(parts)
 end
 
---- The wall clock in nanoseconds, which can step backwards when the host
---- adjusts it. Unlike os.time, it is not calendar seconds: `civil` and
---- [`format_rfc3339`] name it on the UTC calendar. Raises when the clock
---- cannot be read, which a host that runs cosmic at all never refuses.
-function Time.now_ns(): integer
-  local reading, trouble = sys.clock_gettime(sys.CLOCK_REALTIME)
-  if reading == nil then
-    error("time: clock_gettime(CLOCK_REALTIME): " .. trouble, 2)
-  end
-  return reading
-end
-
---- A clock that only moves forward, for measuring elapsed duration in
---- nanoseconds. Use it for timing in place of os.clock; it measures wall
---- duration rather than process CPU time. Raises when the clock cannot
---- be read, which a host that runs cosmic at all never refuses.
-function Time.monotonic_ns(): integer
-  local reading, trouble = sys.clock_gettime(sys.CLOCK_MONOTONIC)
-  if reading == nil then
-    error("time: clock_gettime(CLOCK_MONOTONIC): " .. trouble, 2)
-  end
-  return reading
-end
-
---- Sleeps for `nanoseconds`, as `sleep` or `nanosleep` does, resuming
---- the wait when a signal interrupts it, so the whole time passes.
---- Answers `true` and "" once it has, or `false` and why when the
---- system refuses the sleep. Raises when `nanoseconds` is negative.
-function Time.sleep_ns(nanoseconds: integer): boolean, string
-  local ok, trouble = sys.nanosleep(nanoseconds)
-  if not ok then
-    return false, trouble
-  end
-  return true, ""
-end
-
---- `n` units of `unit_ns` nanoseconds each, for the constructors below;
---- raises, blaming their caller, for a count that is no number or a span
---- that is not a whole number of nanoseconds an integer holds.
-local function span(n: number, unit_ns: integer, name: string): integer
-  local kind = math.type(n)
-  if kind == "integer" then
-    local count = math.tointeger(n)
-    local most = math.maxinteger // unit_ns
-    if count > most or count < -most then
-      error(("time: %s(%d) is outside what an integer of nanoseconds holds"):format(name, count), 3)
-    end
-    return count * unit_ns
-  elseif kind == "float" then
-    -- A count like 1.005 has no exact binary form, so its product is
-    -- only near a whole number: within a few units in the last place.
-    local scaled = n * unit_ns
-    local whole = math.floor(scaled + 0.5)
-    if math.type(whole) ~= "integer" or math.abs(scaled - whole) > math.abs(scaled) * 2 ^ -50 then
-      error(("time: %s(%s) is not a whole number of nanoseconds an integer holds"):format(name,
-        tostring(n)), 3)
-    end
-    return whole
-  end
-  error(("time: %s takes a number, not %s"):format(name, type(n)), 3)
-end
-
---- `n` milliseconds as nanoseconds: `Time.ms(250)` is 250000000. A float
---- is as good as an integer when the span is a whole number of
---- nanoseconds, to within the rounding of the product (`Time.ms(0.5)` is
---- 500000, and `Time.seconds(1.005)` is 1005000000). Raises for anything
---- else: a value that is no number, a span with a fraction of a
---- nanosecond, or one outside what an integer holds.
-function Time.ms(n: number): integer
-  return span(n, 1000000, "Time.ms")
-end
-
---- A timeout or a deadline's length: `Time.seconds(5)` is 5000000000
---- nanoseconds. A count is held to what [`ms`] holds one to.
-function Time.seconds(n: number): integer
-  return span(n, NS, "Time.seconds")
-end
-
---- Ninety seconds as a count of minutes: `Time.minutes(1.5)` is
---- 90000000000 nanoseconds. A count is held to what [`ms`] holds one to.
-function Time.minutes(n: number): integer
-  return span(n, 60 * NS, "Time.minutes")
-end
-
---- Hours as nanoseconds: `Time.hours(1)` is 3600000000000. A count is
---- held to what [`ms`] holds one to.
-function Time.hours(n: number): integer
-  return span(n, 3600 * NS, "Time.hours")
-end
-
---- The count of `unit` nanoseconds that covers `ns`, rounded up, for a
---- raw call that takes its span as a count of one unit: `Time.ceil(ns,
---- Time.ms(1))` is the milliseconds a poll waits, and 1 for a single
---- nanosecond, where rounding down would answer 0, no wait at all.
---- Raises for a `unit` below 1 or an argument that is no integer.
-function Time.ceil(ns: integer, unit: integer): integer
-  if math.type(ns) ~= "integer" then error("time: ns must be an integer", 2) end
-  if math.type(unit) ~= "integer" or unit < 1 then
-    error("time: unit must be an integer above 0", 2)
-  end
-  return ns // unit + (ns % unit ~= 0 and 1 or 0)
-end
+Time.now_ns = Clock.now_ns
+Time.monotonic_ns = Clock.monotonic_ns
+Time.sleep_ns = Clock.sleep_ns
+Time.ms = Clock.ms
+Time.seconds = Clock.seconds
+Time.minutes = Clock.minutes
+Time.hours = Clock.hours
+Time.ceil = Clock.ceil
 
 return Time

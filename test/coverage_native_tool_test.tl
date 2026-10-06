@@ -8,17 +8,21 @@ local Coverage = require("cosmic.coverage")
 local Fs = require("cosmic.fs")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local _ = require("build.standalone")
+local Clock = require("cosmic.clock")
 
 --- The program itself, which its test starts to run a file `--standalone`
---- (`standalone`).
-Test.needs{ lua = true, standalone = true }
+--- ([`build.standalone`]).
+Test.policy{ profiles = { "cosmic" } }
 
 --- A process's first window keeps the C that ran before it opened --
 --- startup -- and every later one starts empty. Run in a fresh process,
 --- since this test's own worker opened its first window long ago.
 local function test_first_window_keeps_startup(tmp: string)
-  if next(Coverage.native_lines()) == nil then return end
+  if next(Coverage.native_lines()) == nil then
+    Test.skip("this core reports no native coverage")
+    return
+  end
   local script = tmp .. "/windows.tl"
   assert(Fs.write(script, [[
 local Coverage = require("cosmic.coverage")
@@ -36,7 +40,7 @@ end
 ]]))
   local started = this_program.program({ "--standalone", script },
     { env = this_program.environment(), cwd = tmp, stdout = "capture", stderr = "capture",
-      timeout_ns = Time.seconds(30) })
+      timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stderr))
   local out = assert(r.stdout)

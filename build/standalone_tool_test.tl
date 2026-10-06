@@ -8,11 +8,12 @@ local Fs = require("cosmic.fs")
 local this_program = require("build.this_program")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local _ = require("build.standalone")
+local Clock = require("cosmic.clock")
 
 --- The program itself, which its tests start to run a file `--standalone`
---- (`standalone`).
-Test.needs{ lua = true, standalone = true }
+--- ([`build.standalone`]).
+Test.policy{ profiles = { "cosmic" } }
 
 --- End to end, from a directory holding no tree: the file gets its own
 --- path at argv[0] and what follows it, its exit code is the process's,
@@ -32,7 +33,7 @@ return Script
 ]]))
   local started = this_program.program({ "--standalone", script, "one", "two" }, {
     cwd = tmp, stdout = "capture", stderr = "capture",
-    timeout_ns = Time.seconds(30),
+    timeout_ns = Clock.seconds(30),
   })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.code == 5, tostring(result.stderr))
@@ -49,7 +50,7 @@ local function test_the_compile_cache_is_kept_only_where_others_cannot_write(tmp
   assert(Fs.write(script, "return function(_argv: {string}): integer return 3 end\n"))
   local function run(env: {string:string}): integer
     local started = this_program.program({ "--standalone", script }, {
-      env = env, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30),
+      env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
     })
     local result = assert(Child.run(started.argv, started.options))
     return result.code
@@ -76,10 +77,10 @@ local function test_a_main_that_returns_no_exit_status_is_refused(tmp: string)
   local function run(returned: string): Child.Result
     local script = tmp .. "/script.tl"
     assert(Fs.write(script, "return function(_argv: {string}): any\n  return " ..
-      returned .. "\nend\n"))
+        returned .. "\nend\n"))
     local started = this_program.program({ "--standalone", script }, {
       env = { XDG_CACHE_HOME = tmp .. "/cache" },
-      stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30),
+      stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
     })
     return (assert(Child.run(started.argv, started.options)))
   end
@@ -87,7 +88,7 @@ local function test_a_main_that_returns_no_exit_status_is_refused(tmp: string)
       ["1.5"] = "1.5" } as {string:string}) do
     local result = run(returned)
     assert(result.code == 2, returned .. " exited " .. tostring(result.code) .. ": " ..
-      tostring(result.stderr))
+        tostring(result.stderr))
     local complaint = "cosmic: " .. tmp .. "/script.tl returned " .. shown ..
       ", not an exit status 0-255"
     assert(tostring(result.stderr):find(complaint, 1, true) ~= nil, tostring(result.stderr))
@@ -100,9 +101,43 @@ end
 
 local function test_a_run_without_a_file_is_a_usage_error()
   local started = this_program.program({ "--standalone" }, {
-    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30),
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
   })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.code == 2)
   assert(tostring(result.stderr):find("usage", 1, true) ~= nil)
+end
+
+--- A file's top level finds its words in `arg`, as `lua file a b` gives
+--- them, where `...` is what `require` handed it.
+local function test_a_file_finds_its_words_in_arg_at_its_top_level(tmp: string)
+  local script = tmp .. "/top.tl"
+  assert(Fs.write(script, 'print(arg[0] .. "|" .. table.concat(arg, ","))\n'))
+  local started = this_program.program({ "--standalone", script, "one", "two" }, { cwd = tmp,
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
+  local result = assert(Child.run(started.argv, started.options))
+  assert(result.code == 0 and result.stdout == script .. "|one,two\n",
+    tostring(result.stdout) .. tostring(result.stderr))
+end
+
+--- COSMIC_STANDALONE=1 runs a file as `--standalone` does: its words
+--- reach it, and nothing is written beside it.
+local function test_cosmic_standalone_runs_a_file_standalone(tmp: string)
+  local dir = tmp .. "/alone"
+  assert(Fs.mkdirs(dir))
+  local script = dir .. "/script.tl"
+  assert(Fs.write(script, [[
+return function(argv: {string}): integer
+  print(table.concat(argv, ","))
+  return 0
+end
+]]))
+  local env = this_program.environment()
+  env.COSMIC_STANDALONE = "1"
+  local started = this_program.program({ script, "one", "two" }, { cwd = dir, env = env,
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
+  local result = assert(Child.run(started.argv, started.options))
+  assert(result.code == 0 and result.stdout == "one,two\n", tostring(result.stderr))
+  local names = assert(Fs.list(dir))
+  assert(#names == 1 and names[1] == "script.tl", "a standalone run wrote beside the file")
 end

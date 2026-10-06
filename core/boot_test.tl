@@ -10,11 +10,11 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local artifact = require("build.artifact")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- The bridge a stand-in tree boots through, and the program itself,
 --- which its tests start.
-Test.needs{ reads = { "core/bridge.lua" } }
+Test.policy{ grants = { { path = "core/bridge.lua", letters = "r" } } }
 
 --- A compiler with the three members the bridge reaches for; `gen`
 --- hands back its source, so each stand-in below is plain Lua -- the
@@ -65,7 +65,7 @@ local function run_boot(tmp: string, mode: string, bridge?: boolean): Child.Resu
   assert(Fs.write(tmp .. "/tl/tl.tl", compiler))
   return (assert(Child.run({ path, "--boot", tmp .. "/tree", tmp .. "/tl", mode },
     { stdout = "capture", stderr = "capture",
-      timeout_ns = Time.seconds(30) })))
+      timeout_ns = Clock.seconds(30) })))
 end
 
 local function test_boot_exits_with_the_status_build_boot_returns(tmp: string)
@@ -87,5 +87,5 @@ local function test_boot_refuses_a_tree_without_a_bridge(tmp: string)
   assert(r.code == 1, "exit " .. tostring(r.code))
   local err = assert(r.stderr)
   assert(err:find("cosmic boot: the bridge would not load", 1, true) and
-    err:find("core/bridge.lua", 1, true), err)
+      err:find("core/bridge.lua", 1, true), err)
 end

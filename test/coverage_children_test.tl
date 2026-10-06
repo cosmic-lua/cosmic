@@ -4,23 +4,30 @@
 --- process never sees it. Run a level down, in a process of its own, so
 --- the directory is this test's rather than its worker's.
 
+local sys = require("cosmic.sys")
 local Child = require("cosmic.child")
 local Coverage = require("cosmic.coverage")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local confine = require("build.confine")
-local sandbox_skip = require("build.sandbox_skip")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 --- /proc, where a confined child's coverage is found; the program
 --- itself, which its tests start; and `nests`, for the child it confines
 --- in a root of its own.
-Test.needs{ host = { "/proc" }, tool = true, nests = true }
+Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "/proc", letters = "r" } },
+  promises = { "nest" },
+}
 
 local function test_a_started_process_reports_its_c(tmp: string)
-  if next(Coverage.native_lines()) == nil then return end
+  if next(Coverage.native_lines()) == nil then
+    Test.skip("this core reports no native coverage")
+    return
+  end
   local reports = tmp .. "/reports"
   assert(Fs.mkdirs(reports))
   assert(Fs.mkdirs(tmp .. "/parent"))
@@ -39,9 +46,9 @@ end
   -- so each relaunches by hand.
   assert(Fs.write(tmp .. "/parent/parent.tl", [[
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Coverage = require("cosmic.coverage")
 local Proc = require("cosmic.proc")
-local Time = require("cosmic.time")
 return function(argv: {string}): integer
   Coverage.children(argv[1])
   -- This program again, past its launcher, as `this_program.program`
@@ -56,7 +63,7 @@ return function(argv: {string}): integer
   words[#words + 1] = argv[2]
   local r = assert(Child.run(words, { env = relaunch ~= nil and relaunch.env or {},
     fds = relaunch ~= nil and relaunch.fds or {}, cwd = argv[3], stdout = "capture",
-    stderr = "capture", timeout_ns = Time.seconds(30) }))
+    stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(r.ok, tostring(r.stderr))
   print(assert(r.stdout):match("^(%a+)"))
   return 0
@@ -65,7 +72,7 @@ end
   local started = this_program.program({ "parent.tl", reports,
     tmp .. "/child/child.tl", tmp .. "/child" },
     { env = this_program.environment(), cwd = tmp .. "/parent", stdout = "capture",
-      stderr = "capture", timeout_ns = Time.seconds(60) })
+      stderr = "capture", timeout_ns = Clock.seconds(60) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stderr))
   assert(r.stdout == "unseen\n", "the child saw the directory: " .. tostring(r.stdout))
@@ -84,8 +91,14 @@ end
 --- first no /proc of its own (a container masking parts of its /proc),
 --- it cannot confine the second, and there is nothing to check.
 local function test_processes_confined_apart_report_apart(tmp: string)
-  if next(Coverage.native_lines()) == nil then return end
-  if Proc.relaunch() == nil then return end -- no portable artifact to start again
+  if next(Coverage.native_lines()) == nil then
+    Test.skip("this core reports no native coverage")
+    return
+  end
+  if Proc.relaunch() == nil then
+    Test.skip("a native start has nothing to relaunch")
+    return
+  end
   local reports = tmp .. "/reports"
   assert(Fs.mkdirs(reports))
   assert(Fs.mkdirs(tmp .. "/parent"))
@@ -141,16 +154,18 @@ end
 ]]))
   local started = this_program.program({ "parent.tl", reports, table.concat(reads, "\n") },
     { env = this_program.environment(), cwd = tmp .. "/parent", stdout = "capture",
-      stderr = "capture", timeout_ns = Time.seconds(60) })
+      stderr = "capture", timeout_ns = Clock.seconds(60) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stderr))
   local said = assert(r.stdout)
   -- A /proc the host's container keeps read-only, or a kernel that
   -- confines nothing (no user namespaces for this user, or no Linux:
   -- ENOSYS), as the sandbox's other tests take it: skipped where the
-  -- platform could confine (build.sandbox_skip).
+  -- platform could confine (Test.skip).
   if said:find("^host%-proc ") or said:find("^unconfinable ") then
-    sandbox_skip.refused("the parent could not confine its child: " .. said)
+    if assert(sys.uname()).sysname == "Linux" then
+      Test.skip("the parent could not confine its child: " .. said)
+    end
     return
   end
   assert(said == "exited 0\n", said)
@@ -171,7 +186,10 @@ end
 --- core's lines are another build's C (bin/zig's pinned release, started
 --- by a test, is such a core).
 local function test_a_process_of_another_build_does_not_report(tmp: string)
-  if next(Coverage.native_lines()) == nil then return end
+  if next(Coverage.native_lines()) == nil then
+    Test.skip("this core reports no native coverage")
+    return
+  end
   for index, value in ipairs({ "0000000000000000:" .. tmp .. "/foreign",
       tmp .. "/unsigned" }) do
     local dir = value:match("[^:]*$")
@@ -179,11 +197,11 @@ local function test_a_process_of_another_build_does_not_report(tmp: string)
     local env = this_program.environment()
     env.COSMIC_COVERAGE_CHILDREN = value
     local started = this_program.program({ "-e", "return 0" },
-      { env = env, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(60) })
+      { env = env, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
     local r = assert(Child.run(started.argv, started.options))
     assert(r.ok, tostring(r.stderr))
     local names = assert(Fs.list(dir))
     assert(#names == 0, tostring(index) .. ": a report of another build's core: " ..
-      table.concat(names, ", "))
+        table.concat(names, ", "))
   end
 end
