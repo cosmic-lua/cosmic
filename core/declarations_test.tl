@@ -293,6 +293,7 @@ local wrappers <const>: {string: string} = {
   ["build.digest"] = "hash",
   ["build.test_worker"] = "store",
   ["build.confine"] = "process",
+  ["build.assertions"] = "assertions",
   ["build.fuzz"] = "budget",
   ["build.coverage_hits"] = "debug",
   ["cosmic.child"] = "process",

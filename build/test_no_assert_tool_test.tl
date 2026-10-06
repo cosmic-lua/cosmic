@@ -128,3 +128,20 @@ end
   assert(code ~= 0, out)
   assert(out:find("where_test test_fails_where_it_is: where_test:3: boom", 1, true), out)
 end
+
+local function test_a_failing_assert_in_tail_position_reports_its_callers_position(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/tail_test.tl", [[
+local function check(x: integer): any...
+  return assert(x == 2, "boom")
+end
+
+local function test_fails_in_a_tail_call()
+  check(1)
+end
+]]))
+  local out, code = run(root, {})
+  assert(code ~= 0, out)
+  assert(out:find("tail_test test_fails_in_a_tail_call: tail_test:2: boom", 1, true), out)
+end
