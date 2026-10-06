@@ -611,22 +611,35 @@ local function about(began: integer, ns: integer): boolean
   return took >= ns - Clock.ms(10) and took < Clock.seconds(20)
 end
 
+--- A start timeout that outlasts the child's own startup, for a test whose
+--- child must write before its deadline: 200 ms past twice what a child
+--- that does nothing takes to run (about 15 ms on the release core, about
+--- 300 ms on the checked one, where a flat 200 ms ended the child before
+--- it ran its chunk). What the test measures is the deadline it passes, so
+--- it bounds the elapsed time against what this returns.
+local function startup_timeout(): integer
+  local began = Clock.monotonic_ns()
+  assert(Child.run(lua("")))
+  return Clock.ms(200) + 2 * (Clock.monotonic_ns() - began)
+end
+
 --- A started child's `timeout_ns` is a deadline from its start, which a
 --- wait with no timeout of its own ends it at, as an expired `wait`
 --- does: the plain wait that blocks on the child, and one that services
 --- its captured output or waits longer than the deadline.
 local function test_a_start_timeout_ends_the_child_a_wait_waits_on()
+  local timeout = startup_timeout()
   local began = Clock.monotonic_ns()
-  local plain <close> = assert(Child.start(lua(sleep(30000), nil, { timeout_ns = Clock.ms(200) })))
+  local plain <close> = assert(Child.start(lua(sleep(30000), nil, { timeout_ns = timeout })))
   local r = assert(plain:wait())
   assert(r.timed_out and not r.ok, "the child was not ended for its start's timeout")
-  assert(about(began, Clock.ms(200)), ms_since(began))
+  assert(about(began, timeout), ms_since(began))
   began = Clock.monotonic_ns()
   local captured <close> = assert(Child.start(lua(FS .. 'Fs.put(1, "early") ' .. sleep(30000), nil,
-    { stdout = "capture", timeout_ns = Clock.ms(200) })))
+    { stdout = "capture", timeout_ns = timeout })))
   r = assert(captured:wait(Clock.seconds(10)))
   assert(r.timed_out and r.stdout == "early", tostring(r.stdout))
-  assert(about(began, Clock.ms(200)), ms_since(began))
+  assert(about(began, timeout), ms_since(began))
   -- A child that exits first is not timed out.
   local quick <close> = assert(Child.start(lua("return 3", nil, { timeout_ns = Clock.seconds(10) })))
   r = assert(quick:wait())
@@ -694,12 +707,13 @@ end
 --- A read of a streamed output waits no longer than the child's start
 --- deadline: the child is ended there, and the read ends with its pipe.
 local function test_a_stream_read_ends_a_child_past_its_start_timeout()
+  local timeout = startup_timeout()
   local h <close> = assert(Child.start(lua(FS .. 'Fs.put(1, "early") ' .. sleep(30000), nil,
-    { stdout = "stream", timeout_ns = Clock.ms(200) })))
+    { stdout = "stream", timeout_ns = timeout })))
   local began = Clock.monotonic_ns()
   local out = assert(Stream.read_all(h.stdout_stream as Stream.Reader))
   assert(out == "early", out)
-  assert(about(began, Clock.ms(150)), ms_since(began))
+  assert(about(began, timeout - Clock.ms(50)), ms_since(began))
   local r = assert(h:wait())
   assert(r.timed_out)
 end
