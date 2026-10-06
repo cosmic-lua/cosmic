@@ -138,7 +138,7 @@ local commands: {string:Command} = {
     usage = "", handler = Images.build_command },
   ["image-publish"] = { about = "join one image's architectures under one tag",
     usage = "", handler = Images.publish_command },
-  report = { about = "print CI's recent runs' times and suites, from GitHub through gh",
+  report = { about = "print CI's recent runs' times and suites, from GitHub's API",
     usage = "[options]", spec = Report.spec, options = Report.command },
 }
 

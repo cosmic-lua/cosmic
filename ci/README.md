@@ -180,11 +180,14 @@ and never fails the step.
 (1 to 100, default 10) completed runs of ci.yml of event E (default
 `merge_group`; a `push`'s default to branch `main`; a branch may hold
 `/`) of the repository
-(`$GITHUB_REPOSITORY`, else cosmic-lua/cosmic) through `gh`, found on
-`PATH` and authenticated as it is: each run's jobs and step times
-(`gh api .../runs/<id>/jobs`) and the `suite_runs` rows of its unexpired
-`ci-driver-<leg>` artifacts, the newest of each name -- a re-run's
-latest attempt's -- fetched by id (`gh api .../artifacts/<id>/zip`). It prints, per run
+(`$GITHUB_REPOSITORY`, else cosmic-lua/cosmic) through GitHub's REST API
+([`cosmic_ci/github_api.tl`], at `$GITHUB_API_URL`, api.github.com by
+default), authenticated by `$GH_TOKEN`, else `$GITHUB_TOKEN` (with gh,
+`export GH_TOKEN=$(gh auth token)`): each run's
+jobs and step times (`.../runs/<id>/jobs`) and the `suite_runs` rows of its
+unexpired `ci-driver-<leg>` artifacts, the newest of each name -- a re-run's
+latest attempt's -- fetched by id (`.../artifacts/<id>/zip`, whose redirect
+the client follows itself, sending the token to the API alone). It prints, per run
 newest first, the wall time of its slowest platform job
 (`started_at`..`completed_at`, which leaves out queueing), the sum of
 its jobs' times, each leg's time and slowest steps, each suite's row
@@ -200,8 +203,9 @@ cache. Up to ten runs older than the N shown are listed for that, and
 fetched only until one has rows, so each of the N can qualify. Then the medians over the qualifying
 runs that succeeded. A run from before `suite_runs`, or whose artifacts
 have expired, is reported from its step times alone and qualifies for
-nothing. [`cosmic_ci/report_test.tl`] drives it against a fake `gh`
-([`testdata/report/gh.tl`]) and never reaches the network.
+nothing. [`cosmic_ci/report_test.tl`] drives it against a fake
+transport, and [`cosmic_ci/github_api_test.tl`] drives the client over
+`cosmic.http`'s scripted replies; neither reaches the network.
 
 `prerelease-stage` and `prerelease-publish` are prerelease.yml's publish
 job, which runs after each green ci run on main, checks out only `ci/`,
@@ -702,10 +706,11 @@ alone.
 
 [`cosmic_ci/cache_trim.tl`]: cosmic_ci/cache_trim.tl
 [`cosmic_ci/prerelease_test.tl`]: cosmic_ci/prerelease_test.tl
+[`cosmic_ci/github_api.tl`]: cosmic_ci/github_api.tl
+[`cosmic_ci/github_api_test.tl`]: cosmic_ci/github_api_test.tl
 [`cosmic_ci/report_test.tl`]: cosmic_ci/report_test.tl
 [`cosmic_ci/suite_output.tl`]: cosmic_ci/suite_output.tl
 [`cosmic_ci/zig_prune.tl`]: cosmic_ci/zig_prune.tl
 [`testdata/prerelease/gh.tl`]: testdata/prerelease/gh.tl
-[`testdata/report/gh.tl`]: testdata/report/gh.tl
 
 [`Runner.phase`]: cosmic_ci/runner.tl
