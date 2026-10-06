@@ -4,6 +4,8 @@
 
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
+local sys = require("cosmic.sys")
 local Sqlite = require("cosmic.sqlite")
 local identity = require("build.identity")
 local work = require("build.work")
@@ -83,6 +85,38 @@ local function staged_bytes(db: Sqlite.Handle, path: string): string
   return rows[1][1]
 end
 
+--- Stage after the timestamp tick has settled, without waiting on the host clock.
+local function stage_settled(handle: work.Handle, own_tree?: boolean): work.Staged
+  local now = Clock.now_ns
+  Clock.now_ns = function(): integer return now() + Clock.seconds(3) end
+  local ok, staged, trouble = pcall(work.stage, handle, own_tree or false)
+  Clock.now_ns = now
+  assert(ok, tostring(staged))
+  return (assert(staged, trouble))
+end
+
+--- Give the tested paths distinct change-time ticks even on a coarse filesystem.
+local function with_change_time(paths: {string}, check: function(function()))
+  local tracked: {string:boolean} = {}
+  for _, path in ipairs(paths) do tracked[path] = true end
+  local stat = Fs.stat
+  local tick = 1
+  Fs.stat = function(path: string): sys.Stat | nil, string
+    local st, trouble = stat(path)
+    if st ~= nil and tracked[path] then
+      st.ctime = 100
+      st.ctime_ns = tick
+    end
+    return st, trouble
+  end
+  local ok, trouble = pcall(function(): boolean
+    check(function() tick = tick + 1 end)
+    return true
+  end)
+  Fs.stat = stat
+  assert(ok, tostring(trouble))
+end
+
 --- A file staged within the settle window is read again next time even
 --- when a same-size rewrite in place then stamps it with the epoch, a
 --- time a tool normalizing times writes: an unsettled row's time must
@@ -120,7 +154,7 @@ local function test_a_settled_epoch_time_is_trusted(tmp: string)
   assert(Fs.write(path, "return 1\n"))
   assert(Fs.set_mtime(path, 0, 0))
   local handle = assert(work.open(tmp))
-  local first = assert(work.stage(handle, false))
+  local first = stage_settled(handle)
   assert(first.read == 1)
   local second = assert(work.stage(handle, false))
   assert(second.read == 0, "a settled epoch row must stand")
@@ -269,4 +303,231 @@ local function test_a_carried_module_outside_the_tool_trees_moves_boot_hash(tmp:
     assert(after ~= before, path .. " is carried, and moves boot_hash")
     before = after
   end
+end
+
+--- A normalized mtime does not hide an in-place rewrite from any staging
+--- table, nor from the tool's cheap stale check.
+local function test_settled_rewrites_with_preserved_mtime_are_read(tmp: string)
+  local paths = { "probe.tl", "core/probe.c", "notes.txt", "doc/probe.md" }
+  assert(Fs.mkdirs(tmp .. "/core"))
+  assert(Fs.mkdirs(tmp .. "/doc"))
+  for _, path in ipairs(paths) do
+    assert(Fs.write(tmp .. "/" .. path, "old text\n"))
+    assert(Fs.set_mtime(tmp .. "/" .. path, 0, 0))
+  end
+  local tracked: {string} = {}
+  for _, path in ipairs(paths) do tracked[#tracked + 1] = tmp .. "/" .. path end
+  with_change_time(tracked, function(changed: function())
+    local handle = assert(work.open(tmp))
+    assert(stage_settled(handle, true).read == #paths)
+    assert(work.tool_moved(handle) == false)
+    assert(stage_settled(handle, true).read == 0)
+    for _, path in ipairs(paths) do
+      local before = assert(Fs.stat(tmp .. "/" .. path))
+      local fd = assert(Fs.open_write(tmp .. "/" .. path))
+      assert(Fs.put(fd, "new text\n"))
+      assert(Fs.close(fd))
+      assert(Fs.set_mtime(tmp .. "/" .. path, 0, 0))
+      local after = assert(Fs.stat(tmp .. "/" .. path))
+      assert(before.ino == after.ino and before.size == after.size)
+    end
+    changed()
+    assert(work.tool_moved(handle), "core rewrite must invalidate the tool's stat fast path")
+    assert(stage_settled(handle, true).read == #paths)
+    assert(staged_bytes(handle.db, "probe.tl") == "new text\n")
+    for _, table_name in ipairs({ "files", "tool", "scanned", "linked" }) do
+      local rows = assert(Sqlite.text_rows(handle.db, "SELECT DISTINCT sha256 FROM " .. table_name))
+      assert(#rows > 0, table_name .. " must be exercised")
+      for _, row in ipairs(rows) do assert(row[1] == Hash.hex_sha256("new text\n")) end
+    end
+    assert(stage_settled(handle, true).read == 0)
+    assert(work.close(handle))
+  end)
+end
+
+--- A ctime-only change causes a read, but the bytes alone decide the
+--- build's identity. Rows migrated from a schema without ctime do too.
+local function test_metadata_changes_and_unknown_change_times_keep_content_identity(tmp: string)
+  local path = tmp .. "/probe.tl"
+  assert(Fs.mkdirs(tmp .. "/core"))
+  assert(Fs.mkdirs(tmp .. "/doc"))
+  for _, name in ipairs({ "probe.tl", "core/probe.c", "notes.txt", "doc/probe.md" }) do
+    assert(Fs.write(tmp .. "/" .. name, "return 1\n"))
+    assert(Fs.set_mtime(tmp .. "/" .. name, 0, 0))
+  end
+  with_change_time({ path }, function(changed: function())
+    local handle = assert(work.open(tmp))
+    assert(stage_settled(handle, true).read == 4)
+    local before = assert(identity.record_fingerprint(handle.db))
+    assert(sys.chmod(path, 384))
+    changed()
+    assert(stage_settled(handle, true).read == 1)
+    local after = assert(identity.record_fingerprint(handle.db))
+    assert(before.image == after.image and before.boot == after.boot)
+    assert(stage_settled(handle, true).read == 0)
+    assert(work.commit(handle))
+    for _, name in ipairs({ "files", "tool", "scanned", "linked" }) do
+      assert(handle.db:exec("ALTER TABLE " .. name .. " DROP COLUMN ctime_ns"))
+    end
+    assert(handle.db:close())
+    handle = assert(work.open(tmp))
+    assert(staged_bytes(handle.db, "probe.tl") == "return 1\n", "migration preserves content")
+    for _, name in ipairs({ "files", "tool", "scanned", "linked" }) do
+      local rows = assert(Sqlite.text_rows(handle.db, "SELECT sha256, ctime_ns IS NULL FROM " .. name))
+      assert(#rows > 0, name .. " migration fixture missing")
+      for _, row in ipairs(rows) do
+        assert(row[1] == Hash.hex_sha256("return 1\n") and row[2] == "1")
+      end
+    end
+    assert(stage_settled(handle, true).read == 4, "legacy rows must be read once")
+    assert(stage_settled(handle, true).read == 0)
+    assert(work.close(handle))
+  end)
+end
+
+local function test_an_unknown_change_time_never_trusts_cached_bytes(tmp: string)
+  assert(Fs.write(tmp .. "/probe.tl", "return 1\n"))
+  assert(Fs.set_mtime(tmp .. "/probe.tl", 0, 0))
+  local handle = assert(work.open(tmp))
+  local stat = Fs.stat
+  Fs.stat = function(path: string): sys.Stat | nil, string
+    local st, trouble = stat(path)
+    if st ~= nil then
+      local fields = st as {string:integer}
+      fields["ctime_ns"] = nil
+    end
+    return st, trouble
+  end
+  local ok, trouble = pcall(function()
+    assert(stage_settled(handle).read == 1)
+    assert(stage_settled(handle).read == 1)
+  end)
+  Fs.stat = stat
+  assert(work.close(handle))
+  assert(ok, tostring(trouble))
+end
+
+--- Additions change discovery membership even when every known file stands.
+local function test_new_tool_inputs_invalidate_read_only_freshness(tmp: string)
+  local paths = { "patch/curl/new.txt", "patch/newlib/new.txt", "core/new.h",
+    "eval/new.tl", "newmodules/new.tl" }
+  assert(Fs.mkdirs(tmp .. "/patch/curl"))
+  assert(Fs.mkdirs(tmp .. "/core"))
+  assert(Fs.mkdirs(tmp .. "/eval"))
+  assert(Fs.write(tmp .. "/core/old.h", "old\n"))
+  local handle = assert(work.open(tmp))
+  for _, path in ipairs(paths) do
+    assert(stage_settled(handle, true))
+    assert(work.tool_moved(handle) == false)
+    local before = assert(identity.record_fingerprint(handle.db)).boot
+    assert(Fs.mkdirs(tmp .. "/" .. path:match("^(.*)/")))
+    assert(Fs.write(tmp .. "/" .. path, "new\n"))
+    assert(work.tool_moved(handle), path .. " must be discovered before a read-only command")
+    assert(stage_settled(handle, true))
+    assert(assert(identity.record_fingerprint(handle.db)).boot ~= before)
+    assert(work.tool_moved(handle) == false)
+  end
+  assert(work.close(handle))
+end
+
+--- Directory replacement and linked membership follow the staging walk.
+local function test_tool_discovery_tracks_renames_and_link_targets(tmp: string)
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/core"))
+  assert(Fs.mkdirs(tmp .. "/shared"))
+  assert(sys.symlink(tmp .. "/shared", root .. "/modules"))
+  assert(sys.symlink(tmp .. "/later", root .. "/later"))
+  local handle = assert(work.open(root))
+  assert(stage_settled(handle, true))
+  assert(work.tool_moved(handle), "a dangling link cannot be trusted as unchanged")
+  assert(Fs.mkdirs(tmp .. "/later"))
+  assert(Fs.write(tmp .. "/later/new.tl", "return {}\n"))
+  assert(work.tool_moved(handle), "a new target is not invisible")
+  assert(stage_settled(handle, true))
+  assert(work.tool_moved(handle) == false)
+  assert(Fs.write(tmp .. "/shared/new.tl", "return {}\n"))
+  assert(work.tool_moved(handle), "a followed directory's membership is watched")
+  assert(stage_settled(handle, true))
+  assert(sys.rename(root .. "/modules", root .. "/renamed"))
+  assert(work.tool_moved(handle), "renamed directories invalidate discovery")
+  assert(stage_settled(handle, true))
+  assert(work.tool_moved(handle) == false)
+  assert(sys.rmdir(root .. "/core"))
+  assert(work.tool_moved(handle), "removed empty directories invalidate discovery")
+  assert(stage_settled(handle, true))
+  assert(work.tool_moved(handle) == false)
+  assert(work.close(handle))
+end
+
+--- Old databases and unknown metadata conservatively stage once; unchanged
+--- metadata costs stats alone, with no listings or content reads.
+local function test_tool_discovery_fast_path_and_unknown_metadata(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/core"))
+  assert(Fs.write(tmp .. "/core/probe.h", "old\n"))
+  local handle = assert(work.open(tmp))
+  assert(stage_settled(handle, true))
+  local walk, read = Fs.walk_following, Fs.read
+  Fs.walk_following = function(): {string} | nil, string error("listed an unchanged tree") end
+  Fs.read = function(): string | nil, string error("read unchanged content") end
+  local ok, answer = pcall(work.tool_moved, handle)
+  Fs.walk_following, Fs.read = walk, read
+  assert(ok and answer == false, tostring(answer))
+  assert(handle.db:exec("UPDATE tool_discovery SET ctime_ns = NULL WHERE path = 'core'"))
+  assert(work.tool_moved(handle), "unknown change time must rescan")
+  assert(stage_settled(handle, true))
+  assert(work.tool_moved(handle) == false)
+  assert(handle.db:exec("DELETE FROM tool_discovery"))
+  assert(work.tool_moved(handle), "a pre-discovery database must rescan")
+  assert(stage_settled(handle, true))
+  assert(work.tool_moved(handle) == false)
+  assert(work.close(handle))
+end
+
+--- Capturing a directory after its listing could bless a concurrent addition.
+local function test_tool_discovery_does_not_bless_an_addition_after_listing(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/core"))
+  local handle = assert(work.open(tmp))
+  local walk = Fs.walk_following
+  Fs.walk_following = function(root: string, skip?: function(string, string, Fs.Kind): boolean): {string} | nil, string
+    local files, trouble = walk(root, skip)
+    assert(Fs.write(root .. "/core/late.h", "new\n"))
+    return files, trouble
+  end
+  local ok, staged = pcall(stage_settled, handle, true)
+  Fs.walk_following = walk
+  assert(ok and staged ~= nil, tostring(staged))
+  assert(work.tool_moved(handle), "metadata must precede the directory listing")
+  assert(stage_settled(handle, true))
+  assert(work.tool_moved(handle) == false)
+  local before = assert(identity.record_fingerprint(handle.db)).boot
+  assert(Fs.write(tmp .. "/README.md", "prose\n"))
+  assert(work.tool_moved(handle), "membership conservatively rescans")
+  assert(stage_settled(handle, true))
+  assert(assert(identity.record_fingerprint(handle.db)).boot == before,
+    "irrelevant additions do not move the tool's content identity")
+  assert(work.tool_moved(handle) == false)
+  assert(work.close(handle))
+end
+
+local function test_tool_discovery_tracks_symlink_retarget_with_equal_bytes(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/root"))
+  assert(Fs.mkdirs(tmp .. "/target1"))
+  assert(Fs.mkdirs(tmp .. "/target2"))
+  assert(Fs.write(tmp .. "/target1/a.tl", "return {}\n"))
+  assert(Fs.write(tmp .. "/target2/a.tl", "return {}\n"))
+  assert(sys.symlink(tmp .. "/target1", tmp .. "/root/modules"))
+  local handle = assert(work.open(tmp .. "/root"))
+  assert(stage_settled(handle, true))
+  local before = assert(identity.record_fingerprint(handle.db)).boot
+  assert(Fs.remove(tmp .. "/root/modules"))
+  assert(sys.symlink(tmp .. "/target2", tmp .. "/root/modules"))
+  assert(work.tool_moved(handle), "retargeted link must rescan even with equal bytes")
+  assert(stage_settled(handle, true))
+  assert(assert(identity.record_fingerprint(handle.db)).boot == before)
+  assert(Fs.write(tmp .. "/root/README.md", "irrelevant\n"))
+  assert(work.tool_moved(handle))
+  assert(stage_settled(handle, true))
+  assert(assert(identity.record_fingerprint(handle.db)).boot == before)
+  assert(work.tool_moved(handle) == false)
+  assert(work.close(handle))
 end

@@ -35,3 +35,35 @@ local function test_a_second_build_of_a_tree_waits_for_the_first(tmp: string)
   local result = assert(second:wait(Clock.seconds(60)))
   assert(result.ok, "the second build failed: " .. (Fs.read(output) or ""))
 end
+
+--- A warmed compiled source cannot hide a rewrite behind a normalized mtime.
+local function test_a_settled_source_rewrite_runs_new_bytecode(tmp: string)
+  local path = tmp .. "/main.tl"
+  assert(Fs.write(path, 'print("OLD")\n'))
+  assert(Fs.set_mtime(path, 0, 0))
+  local function run(): string
+    local started = this_program.program({ "main.tl" }, { cwd = tmp,
+      env = this_program.environment(), stdout = "capture", stderr = "capture",
+      timeout_ns = Clock.seconds(60) })
+    local result = assert(Child.run(started.argv, started.options))
+    assert(result.ok, result.stdout .. result.stderr)
+    return result.stdout
+  end
+  assert(run() == "OLD\n")
+  local handle = assert(work.open(tmp))
+  local now = Clock.now_ns
+  Clock.now_ns = function(): integer return now() + Clock.seconds(3) end
+  local ok, staged, trouble = pcall(work.stage, handle, false)
+  Clock.now_ns = now
+  assert(ok and staged ~= nil, tostring(trouble))
+  assert(work.close(handle))
+  assert(run() == "OLD\n")
+  local before = assert(Fs.stat(path))
+  local fd = assert(Fs.open_write(path))
+  assert(Fs.put(fd, 'print("NEW")\n'))
+  assert(Fs.close(fd))
+  assert(Fs.set_mtime(path, 0, 0))
+  local after = assert(Fs.stat(path))
+  assert(after.size == before.size and after.ino == before.ino)
+  assert(run() == "NEW\n", "the preserved mtime must not reuse OLD bytecode")
+end

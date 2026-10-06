@@ -495,7 +495,8 @@ local identity_test_timeout_ns <const> = Clock.seconds(120)
 local identity_per_test_timeout_s <const> = "60"
 -- Each performance lifecycle case starts four fixtures and 30 checked pairs
 -- per phase. CI's ordinary 10 s deadline cut these off on Linux and macOS.
--- Their child remains bounded at 30 s; allow setup and result inspection
+-- Their child is bounded at 45 s, including eight seconds of real source
+-- timestamp settlement; allow setup and result inspection
 -- around it, and two serial tests plus runner setup in the whole-file bound.
 local performance_per_test_timeout_s <const> = "60"
 local performance_test_timeout_ns <const> = Clock.seconds(150)
