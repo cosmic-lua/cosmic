@@ -212,6 +212,10 @@ local function test_the_key_names_this_host_as_its_cpuinfo_does(tmp: string)
   local names = assert(sys.uname())
   if names.sysname ~= "Linux" then Test.skip("only Linux lists its features in /proc/cpuinfo") end
   local text = Fs.read("/proc/cpuinfo")
+  -- TODO: run this sandboxed too, once a policy can grant a host file
+  -- under /proc (cpuinfo, kernel/osrelease, kernel/version): a sandbox's
+  -- /proc is mounted subset=pid, and a grant of /proc/cpuinfo reaches
+  -- none of it, so every sandboxed leg skips here.
   if text == nil then Test.skip("this worker's /proc has no cpuinfo to read") end
   local release, version = tmp .. "/osrelease", tmp .. "/version"
   assert(Fs.write(release, Fs.read("/proc/sys/kernel/osrelease") or ""))
