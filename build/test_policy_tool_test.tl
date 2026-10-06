@@ -6,21 +6,17 @@
 --- declare `tool`, since they start this program, and `nests`, since the
 --- workers of that run build roots of their own in this test's, whose
 --- mounts the kernel refuses under the Landlock ruleset that holds every
---- other worker (build/test_worker.tl's `Hold`). Where this host cannot
---- sandbox the workers of that run, the case is skipped
---- (Test.skip); off Linux, which has no sandbox to give, it returns
---- at once.
+--- other worker (build/test_worker.tl's `Hold`). Off Linux, which has no
+--- sandbox to give, they are not applicable (`requires`); where this host
+--- cannot nest the workers of that run, the case is skipped (Test.skip).
+--- The plans a policy is made from, which no worker needs, are in
+--- `test_policy_plan_tool_test.tl`.
 
-local type Sandbox = require("cosmic.sandbox")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
-local test_inputs = require("build.test_inputs")
-local test_policy = require("build.test_policy")
-local test_sandbox = require("build.test_sandbox")
 local this_program = require("build.this_program")
 
 --- What a worker's plan gives it of the host, the program it runs, roots of
@@ -31,14 +27,8 @@ Test.policy{
   grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" }, { path = "/proc", letters = "r" } },
   promises = { "nest" },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
+  requires = { "nest" },
 }
-
---- Whether this platform has no sandbox to give, which leaves a case
---- nothing to check: off Linux a policy holds no worker, whatever the
---- run's words.
-local function no_sandbox_here(): boolean
-  return not confine.sandbox_platform()
-end
 
 --- Whether the run that printed `text` held none of its workers, or could
 --- not start them under a policy for what this host refuses of one -- a
@@ -50,7 +40,7 @@ end
 --- `map_ids`). CI's unprivileged runners nest them.
 local function unsandboxed(text: string): boolean
   if text:find("no worker can be sandboxed here", 1, true) then
-    if confine.sandbox_platform() then Test.skip(confine.unsandboxed_reason(text)) end
+    Test.skip(confine.unsandboxed_reason(text))
     return true
   end
   local why = text:match("could not be supervised: (child: start: [^\n]*)")
@@ -58,21 +48,11 @@ local function unsandboxed(text: string): boolean
   for _, word in ipairs({ "Landlock", "seccomp", "namespace", "own /proc", "root could not be built",
       "not implemented" }) do
     if why:find(word, 1, true) then
-      if confine.sandbox_platform() then
-        Test.skip("a policy's start in this test's own sandbox: " .. why)
-      end
+      Test.skip("a policy's start in this test's own sandbox: " .. why)
       return true
     end
   end
   return false
-end
-
---- An `Effective` holding `files` of the tree and nothing else declared.
-local function effective(files: {string}): test_inputs.Effective
-  local out: test_inputs.Effective = { files = {}, reads = {}, host = {}, env = {}, network = {},
-    tool = false, store = false }
-  for _, file in ipairs(files) do out.files[file] = true end
-  return out
 end
 
 --- Runs `cosmic test` with `words` on `root` with `env`, answering what it
@@ -106,176 +86,6 @@ local function environment(): {string:string}
   env.COSMIC_SANDBOX = nil
   env.COSMIC_TEST_SANDBOX = nil
   return env
-end
-
---- Whether `list` holds `value`.
-local function holds(list: {string}, value: string): boolean
-  for _, each in ipairs(list) do
-    if each == value then return true end
-  end
-  return false
-end
-
---- Makes `tmp`/scratch, a scratch directory laid out as build.test's
---- `scratch` lays one out -- `real`, and `tmp` a link to it -- and
---- answers it.
-local function scratch_in(tmp: string): string
-  local scratch = tmp .. "/scratch"
-  assert(Fs.mkdirs(scratch .. "/real"))
-  assert(Fs.symlink("real", scratch .. "/tmp"))
-  return scratch
-end
-
---- A plan leaves to the policy what a policy has of its own: no /proc of the
---- host's, which the sandbox replaces with its own, and no system paths,
---- which the profile "system" gives; the program and its core are the
---- reads that are run, and a worker that declares `tool` runs o/bin.
-local function test_a_plan_for_the_policy_leaves_the_system_and_proc_to_the_policy(tmp: string)
-  local root, scratch = tmp .. "/root", scratch_in(tmp)
-  assert(Fs.mkdirs(root .. "/o/bin"))
-  assert(Fs.write(root .. "/o/cosmic.db", "x"))
-  local inputs = effective({})
-  inputs.system, inputs.tool = true, true
-  inputs.host = { "/proc", "/dev/urandom" }
-  local policy = test_sandbox.plan(root, scratch, inputs, {})
-  assert(policy.trouble == "", policy.trouble)
-  local reads = policy.sandbox.unveil.reads
-  assert(not holds(reads, "/proc") and not holds(reads, "/usr") and not holds(reads, "/etc"),
-    table.concat(reads, " "))
-  assert(holds(reads, "/dev/urandom") and holds(reads, "/dev/null"))
-  assert(policy.sandbox.user == nil, "a policy chooses the user")
-  assert(policy.runs[root .. "/o/bin"] == true)
-end
-
---- The plan of one module made once a run is rebound to the scratch
---- directory of each later worker ([`test_sandbox.rebind`]): the plan made
---- afresh for that directory, whatever the scratch directory is the
---- plan's path of, and a copy that shares nothing with the first.
-local function test_a_plan_rebound_to_another_scratch_is_the_plan_made_for_it(tmp: string)
-  local root = tmp .. "/root"
-  assert(Fs.mkdirs(root .. "/o/bin"))
-  assert(Fs.write(root .. "/o/cosmic.db", "x"))
-  assert(Fs.write(root .. "/a.tl", "x"))
-  for _, own in ipairs({ true, false }) do
-    local inputs = effective({ "a.tl" })
-    -- A cache the module declares makes its scratch directory a bind of the host's.
-    if not own then inputs.tool = true end
-    local suffix = tostring(own)
-    local first, second = scratch_in(tmp .. "/one" .. suffix), scratch_in(tmp .. "/two" .. suffix)
-    local made = test_sandbox.plan(root, first, inputs, {})
-    assert(made.trouble == "", made.trouble)
-    local rebound = test_sandbox.rebind(made, first, second, inputs)
-    local fresh = test_sandbox.plan(root, second, inputs, {})
-    assert(rebound.trouble == "" and rebound.own_scratch == fresh.own_scratch)
-    local function same(a: {string}, b: {string}, what: string)
-      assert(table.concat(a, " ") == table.concat(b, " "), what .. ": " .. table.concat(a, " ") ..
-          " is not " .. table.concat(b, " "))
-    end
-    same(rebound.sandbox.unveil.reads, fresh.sandbox.unveil.reads, "reads")
-    same(rebound.sandbox.unveil.writes, fresh.sandbox.unveil.writes, "writes")
-    for path, inside in pairs(fresh.sandbox.unveil.at) do
-      assert(rebound.sandbox.unveil.at[path] == inside, path)
-    end
-    for path in pairs(rebound.sandbox.unveil.at) do
-      assert(fresh.sandbox.unveil.at[path] ~= nil, path)
-    end
-    for path in pairs(fresh.runs) do assert(rebound.runs[path], path) end
-    assert(not holds(rebound.sandbox.unveil.writes, first))
-    -- Changing the copy leaves the plan it came from alone.
-    table.insert(rebound.sandbox.unveil.reads, "/changed")
-    rebound.env.CHANGED = "yes"
-    assert(not holds(made.sandbox.unveil.reads, "/changed") and made.env.CHANGED == nil)
-  end
-end
-
---- A tree tested by a tool of another tree (ci/, run by ../o/bin/cosmic) is
---- started by a name with ".." in it: [`Proc.executable`] keeps it as given,
---- and so does the artifact path of the relaunch. A grant may not name
---- "..", so the plan names the program, and the artifact a worker that
---- nests or declares `lua` with `store` reads, where it resolves, and tells
---- the worker that name.
-local function test_a_program_started_by_a_name_with_dots_is_granted_where_it_is(tmp: string)
-  local script = [[
-local Sandbox = require("cosmic.sandbox")
-local sys = require("cosmic.sys")
-local test_policy = require("build.test_policy")
-local test_sandbox = require("build.test_sandbox")
-local root, scratch = sys.getenv("ROOT"), sys.getenv("SCRATCH")
-local artifact = sys.getenv("ARTIFACT")
-local function declared(more)
-  local inputs = { files = {}, reads = {}, host = {}, env = {}, network = {},
-    tool = false, store = false, system = true }
-  for name, value in pairs(more) do inputs[name] = value end
-  return inputs
-end
-local function holds(list, value)
-  for _, each in ipairs(list) do if each == value then return true end end
-  return false
-end
-for _, case in ipairs({
-  { name = "tool", inputs = declared({ tool = true }) },
-  { name = "nests store", inputs = declared({ nests = true, store = true }) },
-  { name = "lua store", inputs = declared({ lua = true, store = true }) },
-}) do
-  local plan = test_sandbox.plan(root, scratch, case.inputs, {}, nil)
-  local policy = test_policy.worker(plan, case.inputs)
-  local ok, trouble = Sandbox.check(policy)
-  assert(ok, case.name .. ": " .. tostring(trouble))
-  if case.name ~= "tool" then
-    local unveil = plan.sandbox.unveil
-    assert(plan.program == artifact, case.name .. " is told " .. tostring(plan.program))
-    assert(holds(unveil.reads, artifact), case.name)
-  end
-  print("ok")
-end
-]]
-  local launched = Proc.relaunch()
-  if launched == nil or launched.argv[2] ~= "--artifact" then return end
-  assert(Fs.mkdirs(tmp .. "/beside/ci"))
-  assert(Fs.symlink(launched.argv[3], tmp .. "/beside/cosmic"))
-  local started = this_program.program({ "-e", script })
-  local root, scratch = tmp .. "/beside/ci", scratch_in(tmp)
-  local env = started.options.env or {}
-  env.ROOT, env.SCRATCH, env.PATH = root, scratch, "/usr/bin:/bin"
-  env.ARTIFACT = launched.argv[3]
-  started.options.env, started.options.stdout, started.options.stderr = env, "capture", "capture"
-  started.options.timeout_ns = Time.seconds(60)
-  -- The launcher names the artifact by where it was started from: $PWD/$0.
-  started.argv = { "../cosmic", "-e", script }
-  started.options.cwd = tmp .. "/beside/ci"
-  started.options.fds = nil
-  local result, trouble = Child.run(started.argv, started.options)
-  assert(result ~= nil, tostring(trouble))
-  assert(result.code == 0, tostring(result.stderr) .. tostring(result.stdout))
-  assert(tostring(result.stdout):find("^ok\nok\nok\n$"), tostring(result.stdout) .. tostring(result.stderr))
-end
-
---- A worker whose module declares `nests` has no descriptor of the program
---- handed it and so would read the artifact by its path, which holds every
---- module of the tree: a plan for the policy grants the real one only where
---- the module declares `store` (keyed on the whole projection), `tool` has
---- o/bin anyway, and any other runs on a sealed database
---- ([`build.test`]'s `sealed_for`) and is given no artifact at all.
-local function test_a_plan_for_a_nesting_worker_grants_the_artifact_only_with_store(tmp: string)
-  local launched = Proc.relaunch()
-  if launched == nil or launched.argv[2] ~= "--artifact" then return end
-  local artifact = launched.argv[3]
-  local root, scratch = tmp .. "/root", scratch_in(tmp)
-  assert(Fs.mkdirs(root .. "/o/bin"))
-  assert(Fs.write(root .. "/o/cosmic.db", "x"))
-  local bare = effective({})
-  bare.nests = true
-  local storing = effective({})
-  storing.nests, storing.store = true, true
-  local plain = test_sandbox.plan(root, scratch, bare, {})
-  local with = test_sandbox.plan(root, scratch, storing, {})
-  assert(with.trouble == "", with.trouble)
-  assert(holds(with.sandbox.unveil.reads, artifact), table.concat(with.sandbox.unveil.reads, " "))
-  assert(not with.runs[artifact], "the artifact is read, not run")
-  assert(not holds(plain.sandbox.unveil.reads, artifact),
-    table.concat(plain.sandbox.unveil.reads, " "))
-  assert(test_policy.worker(plain, bare) ~= nil)
-  assert(test_policy.worker(with, storing) ~= nil)
 end
 
 --- A suite of two modules and a program-less tree: `held_test.tl`, whose
@@ -337,7 +147,6 @@ end
 --- (`COSMIC_TEST_SANDBOX=0`), the same module is held by no filter and no
 --- ruleset, and its rerun hints say so.
 local function test_a_run_under_a_policy_passes_what_is_declared_and_fails_what_is_not(tmp: string)
-  if no_sandbox_here() then return end
   local root = tmp .. "/root"
   suite_tree(root)
   local env = environment()
@@ -361,65 +170,10 @@ local function test_a_run_under_a_policy_passes_what_is_declared_and_fails_what_
   assert(plain:find("rerun: COSMIC_TEST_SANDBOX=0 cosmic test suite/held_test.tl:", 1, true), plain)
 end
 
---- A worker whose module declares nothing that puts a directory of the host
---- in its root -- no `system`, `tool`, host cache or `noexec`, no
---- directory among its `reads` or `host` -- has its scratch directory in the
---- sandbox's own /tmp, and so a root of files alone: its policy has `tmp`, "/tmp"
---- granted `rwxc` and no grant of a host directory, and its plan binds none.
---- Any of those declarations gives the plan the host's directory, and says which.
-local function test_a_plan_gives_a_scratch_of_its_own_only_where_no_host_directory_is_declared(tmp: string)
-  local root, scratch = tmp .. "/root", scratch_in(tmp)
-  assert(Fs.mkdirs(root .. "/o/bin"))
-  assert(Fs.mkdirs(root .. "/data"))
-  assert(Fs.write(root .. "/o/cosmic.db", "x"))
-  assert(Fs.write(root .. "/file.txt", "x"))
-  local function planned(inputs: test_inputs.Effective): test_sandbox.Plan
-    local made = test_sandbox.plan(root, scratch, inputs, {})
-    assert(made.trouble == "", made.trouble)
-    return made
-  end
-  local bare = effective({})
-  local own = planned(bare)
-  assert(own.own_scratch and own.why_shared == "", own.why_shared)
-  assert(#own.sandbox.unveil.writes == 0 and own.sandbox.unveil.at[scratch] == nil)
-  local policy = assert(test_policy.worker(own, bare))
-  assert(policy.tmp == true)
-  local tmp_grant: Sandbox.Grant = nil
-  for _, grant in ipairs(policy.grants) do
-    assert(grant.from == nil or grant.from ~= scratch, "a bind of the host's scratch directory")
-    if grant.path == "/tmp" then tmp_grant = grant end
-  end
-  assert(tmp_grant ~= nil and tmp_grant.letters == "rwxc")
-  -- A module that nests has no Landlock ruleset, and its root alone holds its
-  -- sockets: a scratch directory of its own too.
-  local nests = effective({})
-  nests.nests = true
-  assert(planned(nests).own_scratch)
-  -- A file read is no directory.
-  local file = effective({})
-  file.reads = { "file.txt" }
-  assert(planned(file).own_scratch)
-  -- Each declaration that puts a directory in the root keeps the host's.
-  local function shared(change: function(test_inputs.Effective), word: string)
-    local inputs = effective({})
-    change(inputs)
-    local made = planned(inputs)
-    assert(not made.own_scratch and made.why_shared:find(word, 1, true), word .. ": " .. made.why_shared)
-    assert(made.sandbox.unveil.writes[1] == scratch)
-    local held = assert(test_policy.worker(made, inputs))
-    assert(held.tmp == nil, word)
-  end
-  shared(function(inputs: test_inputs.Effective) inputs.system = true end, "`system`")
-  shared(function(inputs: test_inputs.Effective) inputs.tool = true end, "`tool`")
-  shared(function(inputs: test_inputs.Effective) inputs.reads = { "data" } end, root .. "/data")
-  shared(function(inputs: test_inputs.Effective) inputs.host = { "/dev" } end, "/dev")
-end
-
 --- A module that declares neither `tool` nor `nests` is kept from running the
 --- program its worker was started from, though the policy granted it to
 --- start the worker: it is refused.
 local function test_a_module_without_tool_is_refused_the_program_under_a_policy(tmp: string)
-  if no_sandbox_here() then return end
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.write(root .. "/suite/forbid_test.tl", [[
@@ -449,7 +203,6 @@ end
 --- a worker of this module declares `nests`, so it makes none, and neither does
 --- any it starts.)
 local function test_a_worker_with_no_host_directory_has_a_scratch_of_its_own(tmp: string)
-  if no_sandbox_here() or test_policy.unmet() ~= "" then return end
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.write(root .. "/suite/own_test.tl", [[
@@ -505,7 +258,6 @@ end
 --- worker is handed no read-only descriptor of the program, which a start
 --- that promises `nest` refuses, and opens the program itself.
 local function test_a_nesting_module_starts_under_a_policy(tmp: string)
-  if no_sandbox_here() then return end
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.write(root .. "/suite/nest_test.tl", [[
@@ -529,7 +281,6 @@ end
 --- its pass for a run under the policy: each keeps its own verdicts, in
 --- one tree's working database, while each stands for a rerun of itself.
 local function test_the_verdicts_of_a_sandboxed_and_an_unsandboxed_run_stand_apart(tmp: string)
-  if no_sandbox_here() then return end
   local root = tmp .. "/root"
   suite_tree(root)
   local env = environment()
@@ -553,7 +304,6 @@ end
 --- again, though the core is granted `x` for the worker to start from: its test's start of the core is refused;
 --- a module that declares `tool` starts it.
 local function test_a_worker_that_is_not_a_tool_cannot_run_the_core_again(tmp: string)
-  if no_sandbox_here() then return end
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/suite"))
   local body = [[
@@ -586,7 +336,6 @@ end
 --- confined nothing: here the directory the probe tries the sandbox in
 --- cannot be made, since TMPDIR names none.
 local function test_a_broken_probe_fails_the_run_rather_than_going_unsandboxed(tmp: string)
-  if no_sandbox_here() then return end
   local root = tmp .. "/root"
   suite_tree(root)
   local env = environment()
