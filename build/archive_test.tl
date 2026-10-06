@@ -11,6 +11,7 @@ local Fs = require("cosmic.fs")
 local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
 local Tar = require("cosmic.tar")
+local Test = require("cosmic.test")
 local Zip = require("cosmic.zip")
 local sys = require("cosmic.sys")
 local archive = require("build.archive")
@@ -1024,7 +1025,10 @@ end
 --- cannot be written to), not one injected: what it replaced comes back
 --- and the complaint names the destination, not the staging directory.
 local function test_a_real_failure_in_the_move_restores_and_names_the_destination(tmp: string)
-  if sys.getuid() == 0 then return end -- root writes anywhere
+  if sys.getuid() == 0 then
+    Test.skip("this process is root, which writes anywhere")
+    return
+  end
   local bytes = assert(Fs.read(make_tar(tmp .. "/r.tar", { file_member("a.txt", "new a"),
     dir_member("sub"), file_member("sub/x.txt", "new x"), file_member("z.txt", "new z") })))
   local dest = tmp .. "/dest"

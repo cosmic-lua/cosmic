@@ -58,10 +58,13 @@ end
 --- reads. Any other such name in them is found as in any other file.
 local sets_what_it_reads: {string:{string:boolean}} = {
   ["build/changed_paths_test.tl"] = { GITHUB_OUTPUT = true },
+  ["build/commit_verdicts_fixture.tl"] = { GITHUB_OUTPUT = true },
+  ["build/commit_verdicts_jq_test.tl"] = { GITHUB_OUTPUT = true },
   ["build/commit_verdicts_test.tl"] = { GITHUB_OUTPUT = true },
   ["build/leg_host_id_test.tl"] = { GITHUB_ENV = true, GITHUB_OUTPUT = true },
   ["build/place_tree_test.tl"] = { GITHUB_SHA = true, GITHUB_WORKSPACE = true,
     GITHUB_EVENT_NAME = true, COSMIC_CI_DECLARED_KEYS = true },
+  ["build/queue_seed_jq_test.tl"] = { GITHUB_OUTPUT = true, GITHUB_STEP_SUMMARY = true },
   ["build/queue_seed_test.tl"] = { GITHUB_OUTPUT = true, GITHUB_STEP_SUMMARY = true,
     RUNNER_TEMP = true },
   -- As the platform and checked jobs' env set it, and the workflow's;

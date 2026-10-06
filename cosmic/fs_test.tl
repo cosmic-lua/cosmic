@@ -526,8 +526,9 @@ local function test_remove_tree_deeper_than_its_bound_fails_and_leaves_the_tree(
   assert(Fs.mkdirs(tmp .. "/after/a/b") and Fs.remove_tree(tmp .. "/after"))
 end
 
---- A regular file comes back in the one read its size asks for, and a
---- file that says nothing true of its size (/proc's) in chunks.
+--- A regular file comes back in the one read its size asks for. (A file
+--- that says nothing true of its size, /proc's, is read in
+--- cosmic/fs_proc_test.tl.)
 local function test_read_takes_a_file_in_the_one_read_its_size_asks_for(tmp: string)
   local path = tmp .. "/big"
   local data = string.rep("0123456789abcdef", 20000)
@@ -540,13 +541,9 @@ local function test_read_takes_a_file_in_the_one_read_its_size_asks_for(tmp: str
   end
   local read, trouble = Fs.read(path)
   local file_reads = reads
-  local proc = Fs.exists("/proc/self/status") and Fs.read("/proc/self/status") or nil
   sys.read = real_read
   assert(read == data, trouble)
   assert(file_reads == 2, "one read for the bytes and one for the end, not " .. file_reads)
-  if proc ~= nil then
-    assert(proc:find("SigIgn:", 1, true) ~= nil, proc)
-  end
 end
 
 --- A write the kernel takes part of goes on from where it stopped.
