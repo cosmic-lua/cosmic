@@ -81,8 +81,8 @@ static bool out_of_memory (int rc) { return (rc & 0xff) == SQLITE_NOMEM; }
  * given, as a loader no test can replace. [`build.coverage_hits`] gets the
  * collector's, to read the open window in place, which [`cosmic.coverage`]
  * does not offer. [`build.assertions`] gets the counting `assert`.
- * [`build.fuzz`] gets the instruction budget alone, which shares the coverage collector's hook but none of
- * its collection. The process table is [`cosmic.child`]'s,
+ * [`build.fuzz`] gets the instruction budget alone, which shares the
+ * coverage collector's hook but none of its collection. The process table is [`cosmic.child`]'s,
  * [`cosmic.proc`]'s, [`cosmic.sandbox`]'s (to restrict this process and
  * to know its children) and [`build.confine`]'s, whose stand-in for its
  * `spawn` confines each child a test starts. [`build.digest`] shares

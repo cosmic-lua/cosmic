@@ -54,6 +54,11 @@ local function test_a_missing_message_is_assertion_failed()
   assert(tostring(nilled):find(": assertion failed!", 1, true), tostring(nilled))
 end
 
+local function test_arguments_after_the_message_are_dropped_from_a_failure()
+  local message = position_of(function() assert(nil, "m", "extra", 3) end)
+  assert(tostring(message):find(": m$"), tostring(message))
+end
+
 local function test_a_message_that_is_not_a_string_is_raised_as_it_is()
   local value = {}
   assert(position_of(function() assert(false, value) end) == value)
