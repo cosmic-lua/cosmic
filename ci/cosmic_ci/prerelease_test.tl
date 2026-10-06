@@ -9,8 +9,11 @@ local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
 
 -- These tests start this program (the pinned driver's own cosmic, or a copy of it
--- as the bootstrap), which a worker on a sealed database does not have whole.
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+-- as the bootstrap), which a worker on a sealed database does not have whole;
+-- that is a script /bin/sh runs, hence "system", and the driver is copied
+-- from cosmic_ci.
+Test.policy{ profiles = { "cosmic", "system" }, grants = { { path = "o/bin", letters = "rx" },
+  { path = "cosmic_ci", letters = "r" } } }
 
 local commit <const> = string.rep("c", 40)
 local repository <const> = "owner/repo"
@@ -251,6 +254,8 @@ local record Repo
   fail: {string:string}
   --- Each request as "METHOD path" ("UPLOAD name" for an upload).
   log: {string}
+  --- The content type each uploaded asset came with.
+  uploaded: {string:string}
 end
 
 local api <const> = "https://api.test/"
@@ -296,7 +301,6 @@ end
 
 local function serve_upload(r: Repo, request: GithubApi.Request): GithubApi.Reply
   assert(request.method == "POST" and request.upload == true, "an upload is not flagged")
-  assert(request.headers["Content-Type"] == "application/octet-stream")
   local id, name = request.url:match("^" .. uploads:gsub("%p", "%%%0") ..
       "repos/owner/repo/releases/(%d+)/assets%?name=([^&]+)$")
   local rel = id and release_by(r, id)
@@ -309,6 +313,11 @@ local function serve_upload(r: Repo, request: GithubApi.Request): GithubApi.Repl
     end
   end
   r.assets = r.assets + 1
+  local expected: {string:string} = { ["source.json"] = "application/json",
+    SHA256SUMS = "text/plain", cosmic = "application/octet-stream" }
+  assert(request.headers["Content-Type"] == expected[name],
+    name .. " is uploaded as " .. tostring(request.headers["Content-Type"]))
+  r.uploaded[name] = request.headers["Content-Type"]
   rel.assets[#rel.assets + 1] = { name = name, id = r.assets, data = assert(request.body) }
   return reply(201, { id = r.assets, name = name, state = "uploaded" })
 end
@@ -400,13 +409,17 @@ local function serve(r: Repo, request: GithubApi.Request): GithubApi.Reply | nil
   end
   if id and method == "PATCH" then
     if rel == nil then return not_found() end
-    if body.draft == false and not r.fail["edit-draft"] then
+    local keys = 0
+    for _ in pairs(body) do keys = keys + 1 end
+    assert(keys == 2 and body.draft == false and body.prerelease == true,
+      "the edit is not exactly draft=false, prerelease=true")
+    if not r.fail["edit-draft"] then
       rel.draft = false
       -- Publishing a draft whose tag is missing makes the tag, at the
       -- draft's target.
       if r.tags[rel.tag] == nil and rel.target then r.tags[rel.tag] = rel.target end
     end
-    if body.prerelease == true then rel.prerelease = true end
+    rel.prerelease = true
     return reply(200, release_json(rel))
   end
   local asset_id = rest:match("^releases/assets/(%d+)$")
@@ -428,7 +441,7 @@ local function repo(tmp: string, bytes?: string): Repo
   local client = assert(GithubApi.live({ GH_TOKEN = "fake-token", GITHUB_API_URL = "https://api.test" }))
   local r: Repo = { client = client, release = s.release, temp = tmp .. "/runner",
     tags = {}, annotated = {}, tag_objects = {}, branches = {}, releases = {}, assets = 100,
-    compare = {}, fail = {}, log = {} }
+    compare = {}, fail = {}, log = {}, uploaded = {} }
   client.send = function(request: GithubApi.Request): GithubApi.Reply | nil, string
     return serve(r, request)
   end
@@ -508,6 +521,9 @@ local function test_publish_creates_tag_and_release(tmp: string)
   local log = logged(r)
   assert(count(r, "POST repos/owner/repo/releases") == 1 and count(r, "UPLOAD ") == 3, log)
   assert(count(r, "POST repos/owner/repo/git/refs") == 1, log)
+  assert(r.uploaded["source.json"] == "application/json" and
+      r.uploaded.SHA256SUMS == "text/plain" and
+      r.uploaded.cosmic == "application/octet-stream")
   assert(count(r, "GET repos/owner/repo/releases?per_page=100&page=2") == 1, log)
 end
 
@@ -700,6 +716,27 @@ local function test_publish_fails_an_upload_the_release_refuses(tmp: string)
   assert(rel.draft)
 end
 
+--- The command prerelease.yml runs exits 0 on a publish and again on
+--- the verification of it, and a third run says the release is already
+--- published.
+local function test_the_publish_command_succeeds_through_a_fake_api(tmp: string)
+  local r = repo(tmp)
+  -- Each run has a temporary directory of its own, as a job does.
+  local function run(n: integer, argv: {string}): integer
+    local p = publisher(r)
+    p.temp = tmp .. "/run-" .. n
+    assert(Fs.mkdirs(p.temp))
+    return Prerelease.publish_command(argv, p)
+  end
+  assert(run(1, {}) == 0)
+  assert(#r.releases == 1 and not r.releases[1].draft)
+  assert(run(2, {}) == 0)
+  assert(count(r, "POST repos/owner/repo/releases") == 1 and count(r, "UPLOAD ") == 3, logged(r))
+  r.temp = tmp .. "/run-3"
+  assert(publish(r) == "prerelease already published and verified: " .. tag)
+  assert(run(4, { "word" }) == 1)
+end
+
 local function test_publish_needs_a_token(tmp: string)
   local env: {string:string} = { REPOSITORY = repository, RELEASE = tmp, SOURCE_COMMIT = commit,
     SOURCE_RUN_PREFIX = run_prefix, RUNNER_TEMP = tmp }
@@ -720,7 +757,7 @@ local function test_driver_stages_and_refuses_to_publish_without_a_token(tmp: st
   local r = repo(tmp)
   local project = tmp .. "/driver-project"
   assert(Fs.mkdirs(project))
-  assert(assert(Child.run({ "/bin/cp", "-R", assert(Fs.absolute("cosmic_ci")), project })).ok)
+  assert(Fs.copy_tree(assert(Fs.absolute("cosmic_ci")), project .. "/cosmic_ci"))
   local host = assert(Proc.executable())
   local env = Env.all()
   env.GH_TOKEN = nil

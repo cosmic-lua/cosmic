@@ -56,6 +56,10 @@ Prerelease.lanes = { "alpine-x86_64", "linux-aarch64", "linux-x86_64", "macos-aa
 local baseline_lane <const> = "linux-x86_64"
 Prerelease.assets = { "cosmic", "SHA256SUMS", "source.json" }
 
+--- The type each asset is uploaded as, as gh guessed it from the name.
+local asset_types: {string:string} = { ["source.json"] = "application/json",
+  SHA256SUMS = "text/plain" }
+
 local function read(path: string): string return (assert(Fs.read(path))) end
 
 local function is_file(path: string): boolean
@@ -356,6 +360,11 @@ local function assets_of(release: {string:any}): {string}, {string:integer}
   assert(assets is {any} and Json.is_array(assets), "the release's assets are no array")
   local names: {string} = {}
   local ids: {string:integer} = {}
+  -- TODO: an asset whose `state` is not "uploaded" is what a run that
+  -- died mid-upload leaves: delete it (`DELETE releases/assets/ID`) and
+  -- upload it again. Until then a re-run fails on it (it is listed as an
+  -- asset, so its download or comparison fails) until someone deletes it
+  -- by hand.
   for _, asset in ipairs(assets) do
     assert(asset is {string:any}, "an asset is no object")
     local name, id = asset.name, asset.id
@@ -367,6 +376,11 @@ local function assets_of(release: {string:any}): {string}, {string:integer}
   table.sort(names)
   return names, ids
 end
+
+-- Not verified against a live release: that GitHub answers an asset
+-- request made as bytes with a redirect to a signed URL on another host
+-- (or the bytes themselves, which `download` also takes), and that the
+-- uploads host takes a body of ~17 MB sent without `Expect`.
 
 --- Downloads the asset `name`, whose id is `id`, into `destination`.
 local function download(p: Prerelease.Publish, id: integer, name: string, destination: string)
@@ -471,7 +485,7 @@ function Prerelease.publish(p: Prerelease.Publish): string
   for _, name in ipairs(Prerelease.assets) do
     if not existing[name] then
       local uploaded, trouble = GithubApi.upload(p.client, upload_url, name,
-        read(p.release .. "/" .. name))
+        read(p.release .. "/" .. name), asset_types[name])
       assert(uploaded, tag .. ": " .. trouble)
     end
   end
@@ -506,9 +520,9 @@ function Prerelease.stage_command(argv: {string}): integer
   end)
 end
 
-function Prerelease.publish_command(argv: {string}): integer
+function Prerelease.publish_command(argv: {string}, context?: Prerelease.Publish): integer
   return command("prerelease-publish", argv, function(): string
-    return Prerelease.publish(Prerelease.publish_context(Env.all()))
+    return Prerelease.publish(context or Prerelease.publish_context(Env.all()))
   end)
 end
 

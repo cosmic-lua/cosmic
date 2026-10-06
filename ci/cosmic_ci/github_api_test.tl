@@ -315,6 +315,9 @@ local function test_an_upload_goes_to_no_other_origin_or_path()
       "http://uploads.test/repos/o/r/releases/x/assets",
       "http://uploads.test/api/uploads/repos/o/r/releases/5/assets",
       "http://uploads.test/repos/o/r/releases/5/assets/6",
+      "http://uploads.test/repos/../r/releases/5/assets",
+      "http://uploads.test/repos/o/%2E%2e/releases/5/assets",
+      "http://uploads.test/repos/./r/releases/5/assets",
       "http://uploads.test/x/repos/o/r/releases/5/assets", "not a url", "" }) do
     local ok, why = GithubApi.upload(client, url, "cosmic", "bytes")
     assert(not ok and why:find("upload", 1, true), url .. ": " .. tostring(why))
@@ -363,4 +366,37 @@ local function test_the_upload_origin_takes_the_token_for_uploads_alone()
     upload = true })
   assert(answered == nil and why:find("refusing to send the token", 1, true), tostring(why))
   assert(#sent == 0)
+end
+
+local function test_the_upload_origin_takes_the_token_only_for_a_release_s_assets()
+  local client, sent = live({})
+  for _, path in ipairs({ "/", "/repos/o/r/releases", "/repos/o/r/contents/x",
+      "/repos/o/../releases/5/assets" }) do
+    local answered, why = client.send({ method = "POST", url = "http://uploads.test" .. path,
+      headers = {}, body = "b", upload = true })
+    assert(answered == nil and why:find("refusing to send the token", 1, true), path .. ": " .. tostring(why))
+  end
+  assert(#sent == 0)
+end
+
+local function test_an_upload_sets_the_type_it_is_given()
+  local client, sent = live({ { reply("201 Created", "", "{}") } })
+  assert(GithubApi.upload(client, release_assets, "source.json", "{}", "application/json"))
+  has(sent[1], "\r\nContent-Type: application/json\r\n")
+  assert(not sent[1]:find("octet-stream", 1, true), sent[1])
+end
+
+--- Asked for as bytes, the API may answer with them, not a redirect.
+local function test_a_download_takes_the_bytes_when_the_api_answers_with_them(tmp: string)
+  local client, sent = live({ { reply("200 OK", "Content-Type: application/octet-stream\r\n", "\0asset\255") } })
+  local ok, why = GithubApi.download(client, "repos/o/r/releases/assets/5", tmp .. "/a",
+    "application/octet-stream")
+  assert(ok, why)
+  has(sent[1], "\r\nAccept: application/octet-stream\r\n")
+  assert(Fs.read(tmp .. "/a") == "\0asset\255")
+  -- Without that ask a 200 is no file.
+  client = live({ { reply("200 OK", "", "x") } })
+  ok, why = GithubApi.download(client, "repos/o/r/z", tmp .. "/b")
+  assert(not ok and why:find("no redirect to a file", 1, true), tostring(why))
+  assert(not Fs.exists(tmp .. "/b"))
 end

@@ -11,6 +11,7 @@
 --- a download takes the API's redirect by hand and fetches its `Location`
 --- without it, since that URL is a signed link to another host.
 local Clock = require("cosmic.clock")
+local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local Json = require("cosmic.json")
 local Stream = require("cosmic.stream")
@@ -105,6 +106,20 @@ local function uploads_of(base: string): string | nil, string
   return origin, prefix
 end
 
+--- Whether `path` is a release's assets under `prefix`:
+--- `<prefix>/repos/<owner>/<repo>/releases/<digits>/assets`, no segment
+--- of it a dot or two, written plain or percent-escaped.
+local function is_assets_path(path: string, prefix: string): boolean
+  if path:sub(1, #prefix) ~= prefix then return false end
+  local owner, repo = path:sub(#prefix + 1):match("^/repos/([^/]+)/([^/]+)/releases/%d+/assets$")
+  if owner == nil or repo == nil then return false end
+  for _, segment in ipairs({ owner, repo }) do
+    local plain = segment:lower():gsub("%%2e", ".")
+    if plain == "." or plain == ".." then return false end
+  end
+  return true
+end
+
 --- GitHub's explanation in an error answer's body: its `message`, or "".
 local function message_of(body: string): string
   local decoded = Json.decode_object(body)
@@ -144,6 +159,14 @@ function GithubApi.live(env: {string:string}, test?: GithubApi.Live): GithubApi.
     local target = origin_of(request.url)
     if target ~= api_origin and not (request.upload and target == upload_origin) then
       return nil, "refusing to send the token to " .. tostring(target or request.url)
+    end
+    if target ~= api_origin then
+      -- Only a release's assets take the token on the upload origin.
+      local parts = Url.parse(request.url)
+      if parts == nil or parts.userinfo ~= nil or parts.fragment ~= nil or
+          not is_assets_path(parts.path, upload_path) then
+        return nil, "refusing to send the token to " .. request.url
+      end
     end
     local headers: {string:string} = {}
     for name, value in pairs(request.headers) do headers[name] = value end
@@ -298,22 +321,21 @@ end
 --- token goes to this one origin besides the API's, so the URL must be
 --- the client's upload origin's, with no credentials, query or fragment,
 --- and the path of a release's assets; any other is refused with nothing
---- sent. A name the release holds already fails, as GitHub's 422.
+--- sent. The asset's type is `content_type`, application/octet-stream
+--- where nil. A name the release holds already fails, as GitHub's 422.
 function GithubApi.upload(client: GithubApi.Client, upload_url: string, name: string,
-                          bytes: string): boolean, string
+                          bytes: string, content_type?: string): boolean, string
   local url = (upload_url:gsub("{[^}]*}$", ""))
   local parts, why = Url.parse(url)
   if parts == nil then return false, "upload URL: " .. why end
   local path = parts.path
-  local prefix = client.upload_path
-  local tail = path:sub(1, #prefix) == prefix and path:sub(#prefix + 1) or ""
   if origin_of(url) ~= client.upload_origin or parts.userinfo ~= nil or parts.query ~= nil or
-      parts.fragment ~= nil or not tail:match("^/repos/[^/]+/[^/]+/releases/%d+/assets$") then
+      parts.fragment ~= nil or not is_assets_path(path, client.upload_path) then
     return false, "refusing to upload to " .. url .. ": not a release's assets on the upload origin"
   end
   if name == "" then return false, "upload: no asset name" end
   local reply, trouble = client.send({ method = "POST", url = url .. "?name=" .. Url.escape(name),
-    headers = { ["Content-Type"] = "application/octet-stream" }, body = bytes,
+    headers = { ["Content-Type"] = content_type or "application/octet-stream" }, body = bytes,
     timeout_ns = upload_ns, upload = true })
   if reply == nil then return false, "POST " .. path .. " (" .. name .. "): " .. trouble end
   if reply.status == 201 then return true, "" end
@@ -328,7 +350,8 @@ end
 --- artifact's `.../zip`, or a release asset's, asked for with `accept`
 --- "application/octet-stream") to the file `to`: true, or false and why.
 --- The API must answer with a redirect to an https URL, which is fetched
---- without the token.
+--- without the token; where `accept` is given the answer may instead be
+--- the bytes, written whole.
 function GithubApi.download(client: GithubApi.Client, path: string, to: string,
                             accept?: string): boolean, string
   local request = request_for(client, "GET", path)
@@ -337,6 +360,13 @@ function GithubApi.download(client: GithubApi.Client, path: string, to: string,
   if reply == nil then return false, "GET " .. path .. ": " .. why end
   if not redirect_statuses[reply.status] then
     if reply.status >= 200 and reply.status <= 299 then
+      -- Asked for as bytes, a file may come in the answer itself, as it
+      -- may as a redirect: GitHub's documentation allows both.
+      if accept then
+        local written, trouble = Fs.write(to, reply.body)
+        if not written then return false, "GET " .. path .. ": " .. trouble end
+        return true, ""
+      end
       return false, "GET " .. path .. ": HTTP " .. reply.status .. " with no redirect to a file"
     end
     return false, refused("GET", path, reply)
