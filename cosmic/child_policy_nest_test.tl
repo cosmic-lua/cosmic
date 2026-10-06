@@ -308,7 +308,10 @@ print "wrote_ro=$wrote_ro\n";
 
 local function test_a_nested_program_cannot_widen_what_it_was_given(tmp: string)
   local perl = Proc.find("perl")
-  if perl == nil then return end
+  if perl == nil then
+    Test.skip("this host has no perl to make the calls under test")
+    return
+  end
   local at = placed(tmp)
   -- The directories at the names the script uses; the working directory is
   -- the program's own, which the root must hold.

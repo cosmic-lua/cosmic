@@ -1536,3 +1536,18 @@ local function test_a_leg_is_given_the_requirements_it_promises()
   Orchestration.promise(chosen)
   assert(chosen.COSMIC_TEST_PROMISES == "proc" and chosen.COSMIC_TEST_LEG == nil)
 end
+
+--- A fixture runs on the pinned driver, which refuses a requirement it
+--- does not know: the checked leg's `checked` is left out of its promises.
+local function test_a_fixture_is_not_promised_what_the_pinned_driver_lacks()
+  local Orchestration = require("cosmic_ci.orchestration")
+  local env: {string:string} = { COSMIC_WORKER = "linux-x86_64-checked" }
+  Orchestration.promise(env)
+  assert(("," .. env.COSMIC_TEST_PROMISES .. ","):find(",checked,", 1, true))
+  Orchestration.pinned_promises(env)
+  local given = "," .. env.COSMIC_TEST_PROMISES .. ","
+  assert(not given:find(",checked,", 1, true) and given:find(",nest,", 1, true), given)
+  local bare: {string:string} = {}
+  Orchestration.pinned_promises(bare)
+  assert(bare.COSMIC_TEST_PROMISES == nil)
+end
