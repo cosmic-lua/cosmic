@@ -433,6 +433,7 @@ const crypto_include_dirs = [_][]const u8{
 };
 
 const core_sources = [_][]const u8{
+    "assertions.c",
     "boot.c",
     "coverage.c",
     "compress.c",
