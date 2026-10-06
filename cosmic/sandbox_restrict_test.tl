@@ -3,8 +3,9 @@
 --- it makes of a policy. Restricting is for good, so every case restricts a
 --- child of this program (`cosmic -e`, started past its launcher), which
 --- prints what it could and could not do and ends; the test reads that.
---- A host whose kernel gives no Landlock or seccomp, and every platform
---- but Linux, skips the cases that need the sandbox (Test.skip).
+--- Every case needs a sandbox (`requires`): where the platform gives none
+--- they are not applicable, and where this host's kernel refuses Landlock
+--- or seccomp a child that reports it skips its case (Test.skip).
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -15,14 +16,18 @@ local _store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local confine = require("build.confine")
 local stand_in = require("build.stand_in")
 local this_program = require("build.this_program")
 local type raw_process = require("cosmic.internal.process")
 
 --- The program is this one, which a test starts only with `tool`; its
 --- temporary directory is the test's own.
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } }, env = { "TMPDIR" } }
+Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "o/bin", letters = "rx" } },
+  env = { "TMPDIR" },
+  requires = { "sandbox" },
+}
 
 local DENIED <const> = "Permission denied"
 
@@ -76,10 +81,8 @@ end
 
 --- Runs `chunk`, after `PRELUDE`, in a child of this program, and answers
 --- what it printed. Skips the test where the child reports `skip=` and
---- why, which it does where the host gives no sandbox.
+--- why, which it does where this host's kernel gives no Landlock.
 local function in_child(chunk: string): Said | nil
-  -- Off Linux every restriction is refused, so no case has anything to say.
-  if not confine.sandbox_platform() then return nil end
   local started = this_program.program({ "-e", PRELUDE .. chunk }, {
     env = this_program.environment(), stdout = "capture", stderr = "stdout",
     timeout_ns = Clock.seconds(60) })
@@ -91,7 +94,7 @@ local function in_child(chunk: string): Said | nil
   end
   local skip = said.lines.skip
   if skip ~= nil then
-    if confine.sandbox_platform() then Test.skip(skip) end
+    Test.skip(skip)
     return nil
   end
   assert(result.code == 0, "the child ended " .. tostring(result.code) .. ": " .. said.raw)
@@ -103,8 +106,7 @@ end
 local function restricted(policy: string, rest: string): string
   return string.format([[
 local ok, why = Sandbox.restrict(%s)
-if not ok and (why:find("Landlock is not available here", 1, true) or
-    why:find("which only Linux gives", 1, true)) then
+if not ok and why:find("Landlock is not available here", 1, true) then
   say("skip", why)
   os.exit(0)
 end

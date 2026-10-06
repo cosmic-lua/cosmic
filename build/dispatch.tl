@@ -486,6 +486,9 @@ local function run(file: string, argv: {integer:string}): integer
     log:complain("warning: " .. line)
   end
 
+  -- TODO: attach this run's published projection before its writer releases
+  -- the publication lock, once writer exposes a stable-consumption callback:
+  -- another successful build can replace the path before this attach.
   local attached, attach_trouble = Store.attach(database)
   if not attached then
     log:complain(attach_trouble)

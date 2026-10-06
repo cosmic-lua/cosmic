@@ -1,29 +1,34 @@
 --- [`Child.start`]'s `policy` with the "system" profile (cosmic/sandbox.tl)
 --- on a host program, a dynamically linked one where the host has them:
 --- the profile is what lets one start, and nothing past it is reachable.
---- A host whose kernel gives no Landlock or seccomp, and every platform
---- but Linux, skips them (Test.skip).
+--- They need a sandbox and /bin/cat of the host (`requires`): where the
+--- platform has no sandbox they are not applicable, and where this host's
+--- kernel gives no Landlock or seccomp they skip (Test.skip).
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local confine = require("build.confine")
 local searchable = require("build.searchable")
 
---- A host program starts, so the system's own paths are given.
-Test.policy{ profiles = { "system" } }
+--- A host program starts, so the system's own paths are given, and the
+--- program itself, which the host must have.
+Test.policy{
+  profiles = { "system" },
+  grants = { { path = "/bin/cat", letters = "r" } },
+  requires = { "sandbox", "path:/bin/cat" },
+}
 
 local CAT <const> = "/bin/cat"
 
 --- Runs `/bin/cat file` under `policy`: its output and status, or nil,
---- having skipped the test, where the host gives no sandbox.
+--- having skipped the test, where this host gives no Landlock or seccomp.
 local function cat(policy: Sandbox.Policy, file: string): string, integer
   local result, why = Child.run({ CAT, file }, { policy = policy, stdout = "capture", stderr = "stdout" })
   if result == nil then
     if why:find("Landlock", 1, true) or why:find("seccomp", 1, true) or why:find("not implemented", 1, true) then
-      if confine.sandbox_platform() then Test.skip(why) end
+      Test.skip(why)
       return nil, -1
     end
     error("the start was refused: " .. why)
@@ -32,7 +37,6 @@ local function cat(policy: Sandbox.Policy, file: string): string, integer
 end
 
 local function test_the_system_profile_lets_a_host_program_read_what_is_granted(tmp: string)
-  if sys.stat(CAT) == nil then return end
   searchable.open(tmp)
   assert(Fs.mkdirs(tmp .. "/ro") and Fs.mkdirs(tmp .. "/other"))
   assert(Fs.write(tmp .. "/ro/a", "alpha\n") and Fs.write(tmp .. "/other/b", "beta\n"))
@@ -52,25 +56,15 @@ local function test_the_system_profile_lets_a_host_program_read_what_is_granted(
 end
 
 local function test_without_the_profile_the_loader_is_not_granted_and_the_start_says_so(tmp: string)
-  if sys.stat(CAT) == nil then return end
   local real = assert(sys.realpath(CAT))
   local none, why = Child.start({ CAT, tmp }, { policy = { grants = { { path = real, letters = "rx" } } } })
   -- A static program, as on some hosts, needs nothing more and starts.
   if none ~= nil then return end
-  -- Where the host gives no sandbox the start is refused for that, past the grants.
+  -- Where the host gives no Landlock or seccomp the start is refused for that, past the grants.
   if why:find("Landlock", 1, true) or why:find("seccomp", 1, true) or why:find("not implemented", 1, true) then
-    if confine.sandbox_platform() then Test.skip(why) end
+    Test.skip(why)
     return
   end
   assert(why:find("^child: start: sandbox: ") and why:find("interpreter", 1, true), why)
   assert(why:find("system", 1, true), why)
-end
-
-local function test_every_path_of_the_profile_exists_and_is_read_only_or_run()
-  local system = assert(Sandbox.profile("system"))
-  assert(#system.grants > 0 or sys.stat("/usr") == nil)
-  for _, grant in ipairs(system.grants) do
-    assert(sys.stat(grant.path) ~= nil, grant.path)
-    assert(not grant.letters:find("[wcu]") or grant.path == "/dev/null", grant.path .. " grants " .. grant.letters)
-  end
 end

@@ -1,11 +1,10 @@
---- The cases of cosmic.child whose child runs a file, or is sandboxed:
---- this program again, past its launcher, where a shell would need the
---- system's. They declare `tool`: a file run builds the tree the file
---- sits in, which loads far more of the program than a `lua`
---- declaration holds, and a sandboxed child is given the program by
---- name (build.confine's `itself`), which only `tool` puts in a
---- worker's sandbox; `nests` lets that child have a root of its own. The
---- cases whose child only runs a chunk are in cosmic/child_lua_test.tl;
+--- The cases of cosmic.child whose child runs a file: this program again,
+--- past its launcher, where a shell would need the system's. They declare
+--- `tool`: a file run builds the tree the file sits in, which loads far
+--- more of the program than a `lua` declaration holds. The cases whose
+--- child is sandboxed are in cosmic/child_sandbox_tool_test.tl, which needs
+--- a sandbox the host gives, and what a platform with none does is here.
+--- The cases whose child only runs a chunk are in cosmic/child_lua_test.tl;
 --- the cases that start nothing are in cosmic/child_test.tl.
 
 local Child = require("cosmic.child")
@@ -15,6 +14,7 @@ local Proc = require("cosmic.proc")
 local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
+local child_tool_fixture = require("build.child_tool_fixture")
 local this_program = require("build.this_program")
 
 --- What the tests read: /proc, where a test finds a child's processes;
@@ -71,56 +71,15 @@ local function lua(chunk: string, args?: {string}, opts?: Child.Options): {strin
   return started.argv, started.options
 end
 
---- Chunk prefixes: cosmic.fs as `Fs`, cosmic.sys as `sys`.
-local FS <const> = 'local Fs = require("cosmic.fs") '
-local SYS <const> = 'local sys = require("cosmic.sys") '
-
---- A chunk's statement that sleeps `ms` milliseconds.
-local function sleep(ms: integer): string
-  return 'require("cosmic.clock").sleep_ns(require("cosmic.clock").ms(' .. tostring(ms) .. ')) '
-end
-
---- A prefix for a chunk that starts a descendant: `again(chunk, opts)`
---- starts this program once more, as `lua` does, running `chunk`.
---- A chunk that leaves one running ends by [`sys.exit`], past the
---- collector, whose end of the handle would end it, as a shell's `&`
---- leaves it.
-local AGAIN <const> = [[
-local Child = require("cosmic.child")
-local this_program = require("build.this_program")
-local function again(chunk, opts)
-  local started = this_program.program({ "-e", chunk }, opts)
-  return assert(Child.start(started.argv, started.options))
-end
-]]
+local sleeping, AGAIN = child_tool_fixture.sleeping, child_tool_fixture.AGAIN
 
 --- A child that catches nothing is ended by a timeout's SIGTERM, not
---- left for the SIGKILL after the grace period -- and so is one started
---- in a sandbox of its own, where it is its pid namespace's pid 2, not
---- the pid 1 that would pass over a signal it does not catch from
---- outside the namespace. Where the kernel will not sandbox a child, the
---- sandboxed case is the kernel's to refuse, which skips the test
---- (Test.skip).
-local function test_a_timeout_ends_a_child_that_catches_nothing(tmp: string)
-  local r = assert(Child.run(lua(sleep(100000), nil,
+--- left for the SIGKILL after the grace period. The same of a child in a
+--- sandbox of its own is in cosmic/child_sandbox_tool_test.tl.
+local function test_a_timeout_ends_a_child_that_catches_nothing()
+  local r = assert(Child.run(lua(sleeping(100000), nil,
     { timeout_ns = Clock.ms(200), process_group = false })))
   assert(r.timed_out and r.signal == sys.SIGTERM, "ended by " .. tostring(r.signal))
-  local reads = confine.itself()
-  reads[#reads + 1] = "/proc"
-  reads[#reads + 1] = "/dev/null"
-  -- A directory it may start in: the worker's own, the tree's root, is
-  -- none of what it unveils.
-  reads[#reads + 1] = tmp
-  local sandboxed, trouble = Child.run(lua(sleep(100000), nil,
-    { cwd = tmp, timeout_ns = Clock.ms(200), sandbox = { unveil = { reads = reads }, offline = true } }))
-  if sandboxed == nil then
-    if confine.sandbox_platform() then
-      Test.skip("no sandbox for the child: " .. tostring(trouble))
-    end
-    return
-  end
-  assert(sandboxed.timed_out and sandboxed.signal == sys.SIGTERM,
-    "sandboxed, ended by " .. tostring(sandboxed.signal))
 end
 
 local function test_spawn_validates_fds_and_preserves_cloexec_stdio(tmp: string)
@@ -172,7 +131,7 @@ return function(argv: {string}): integer
   local relaunch = assert(Proc.relaunch())
   local words = { table.unpack(relaunch.argv) }
   words[#words + 1] = "-e"
-  words[#words + 1] = AGAIN .. "local h = again('" .. ]] .. string.format("%q", sleep(30000)) .. [[ ..
+  words[#words + 1] = AGAIN .. "local h = again('" .. ]] .. string.format("%q", sleeping(30000)) .. [[ ..
     "', { process_group = false }) local Fs = require('cosmic.fs') local pid, ready = ... " ..
     "assert(Fs.write(pid, tostring(h.pid))) assert(Fs.write(ready, 'ready')) h:wait()"
   words[#words + 1] = argv[1]
@@ -266,44 +225,23 @@ local function test_stopping_a_reaped_child_names_the_module()
   assert(stopped == false and why == "child: process already reaped", tostring(why))
 end
 
---- A child started with a `sandbox` has only what it unveils, a path
---- at the name `at` gives it, and is held there with every process it
---- starts; a relative unveiled path is refused. Where the kernel will not
---- sandbox a child (not Linux, or no unprivileged user namespaces), the
---- start fails and says why, and the test is skipped where the platform
---- could have given one (Test.skip).
-local function test_a_sandboxed_child_has_only_what_it_unveils(tmp: string)
-  local given, hidden = tmp .. "/given", tmp .. "/hidden"
-  assert(Fs.mkdirs(given))
-  assert(Fs.mkdirs(hidden))
-  assert(Fs.write(given .. "/f", "in"))
+--- Where the platform has no sandbox for a child (anything but Linux), a
+--- start with a `sandbox` fails and says why, as a kernel that cannot
+--- sandbox refuses. A platform that has one runs the child, in
+--- cosmic/child_sandbox_tool_test.tl.
+local function test_a_sandboxed_child_is_refused_where_the_platform_has_no_sandbox(tmp: string)
+  if confine.sandbox_platform() then return end
   local reads = confine.itself()
-  reads[#reads + 1] = given
-  reads[#reads + 1] = "/proc"
-  reads[#reads + 1] = "/dev/null"
-  local r, trouble = Child.run(lua(AGAIN .. FS .. SYS .. 'local hidden, given = ... ' ..
-      'Fs.put(1, assert(Fs.read("f")) .. "\\n" .. assert(sys.getcwd()) .. "\\n" .. ' ..
-      '(Fs.exists(hidden) == true and "hidden-seen" or "hidden-absent") .. "\\n") ' ..
-      'local own = assert(again("return require(\'cosmic.fs\').exists(" .. ' ..
-      'string.format("%q", given) .. ") == true and 0 or 1"):wait()) ' ..
-      'Fs.put(1, (own.code == 0 and "own-name" or "no-own-name") .. "\\n")', { hidden, given },
-    { cwd = "/given", stdout = "capture", stderr = "stdout",
-      sandbox = { unveil = { reads = reads, at = { [given] = "/given" } }, offline = true } }))
-  if r == nil then
-    if confine.sandbox_platform() then
-      Test.skip("no sandbox for the child: " .. tostring(trouble))
-    end
-    -- Only as a kernel that cannot sandbox refuses.
-    local refused = false
-    for _, errno in ipairs({ sys.ENOSYS, sys.EPERM, sys.EACCES, sys.EINVAL, sys.ENOSPC }) do
-      if trouble == "child: start: " .. sys.errno_message(errno) then refused = true end
-    end
-    assert(refused, trouble)
-    return
+  reads[#reads + 1] = tmp
+  local r, trouble = Child.run(lua("local _ = 1", nil,
+    { cwd = tmp, sandbox = { unveil = { reads = reads }, offline = true } }))
+  assert(r == nil, "a child started in a sandbox where the platform has none")
+  -- Only as a kernel that cannot sandbox refuses.
+  local refused = false
+  for _, errno in ipairs({ sys.ENOSYS, sys.EPERM, sys.EACCES, sys.EINVAL, sys.ENOSPC }) do
+    if trouble == "child: start: " .. sys.errno_message(errno) then refused = true end
   end
-  assert(r.ok and r.stdout == "in\n/given\nhidden-absent\nno-own-name\n", tostring(r.stdout))
-  assert(not pcall(Child.start, { "/bin/sh" },
-    { sandbox = { unveil = { reads = { "relative" } } } } as Child.Options))
+  assert(refused, trouble)
 end
 
 --- A caught signal ends a wait, timed or not, and the child with it:

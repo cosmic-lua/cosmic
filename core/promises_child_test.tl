@@ -4,13 +4,15 @@
 --- (build/stand_in.tl): this program's own static core, which starts under
 --- the basics and does what its script says, so a call the filter refuses
 --- shows as a command that fails, with the errno the filter answers.
---- A host whose kernel gives no seccomp, or a container that already
---- filters more than this allows, skips them (Test.skip).
+--- Where the platform has no sandbox they are not applicable and where
+--- this host has none they are skipped (`requires`); a container that
+--- already filters more than this allows skips each itself (Test.skip).
+--- The refusals of what no start could keep, which need no filter, are
+--- core/promises_refused_test.tl's.
 
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local confine = require("build.confine")
 local stand_in = require("build.stand_in")
 local type raw_process = require("cosmic.internal.process")
 -- Required, so the module whose loader is handed the raw table is of this
@@ -18,7 +20,12 @@ local type raw_process = require("cosmic.internal.process")
 local type _ = require("cosmic.child")
 
 --- /proc: the child reads its own status for its filter.
-Test.policy{ grants = { { path = "/proc", letters = "r" } } }
+-- These tests need a seccomp filter alone, which `sandbox` asks for with
+-- more (core/promises_system_test.tl's TODO names the narrower requirement).
+Test.policy{
+  grants = { { path = "/proc", letters = "r" } },
+  requires = { "sandbox" },
+}
 
 local type Searcher = function(string): any, any
 
@@ -41,8 +48,8 @@ local record Outcome
 end
 
 --- Runs `script` in a stand-in held to `promises`, in a directory of
---- `tmp`'s: its output and how it ended. Skips the test where the host
---- gives no seccomp filter.
+--- `tmp`'s: its output and how it ended. Skips the test where the kernel
+--- gives no seccomp filter, which only the start can tell.
 local function under(tmp: string, promises: {string}, script: string, probe?: string): Outcome
   local program = probe or assert(stand_in.build(tmp .. "/stand-in"))
   local path = tmp .. "/said"
@@ -51,19 +58,11 @@ local function under(tmp: string, promises: {string}, script: string, probe?: st
     false, nil, { promises = promises })
   if pid == nil then
     sys.close(output)
-    if confine.sandbox_platform() then
-      Test.skip("the kernel gives no seccomp filter: " .. tostring(trouble))
-    end
-    return { code = -1, signal = -1, said = "" }
+    Test.skip("the kernel gives no seccomp filter: " .. tostring(trouble))
   end
   local status = assert(process.waitpid(pid, false))
   sys.close(output)
   return { code = status.code, signal = status.signal, said = (Fs.read(path)) or "" }
-end
-
---- Whether `outcome` is the skip's stand-in, from a host that refused.
-local function skipped(outcome: Outcome): boolean
-  return outcome.code == -1 and outcome.signal == -1
 end
 
 local PROMISE_SETS: {{string}} = {
@@ -76,7 +75,6 @@ local function test_the_static_core_runs_under_the_basics(tmp: string)
         "append " .. tmp .. "/f again; cat " .. tmp .. "/f; mkdirs " .. tmp .. "/d/e; " ..
         "mkfifo " .. tmp .. "/fifo; mode " .. tmp .. "/f; ls " .. tmp .. "/d; " ..
         "status-field Seccomp; status-field NoNewPrivs")
-    if skipped(outcome) then return end
     assert(outcome.code == 0, "a core under the basics ends with " .. outcome.code .. ": " .. outcome.said)
     assert(outcome.said:find("hello\nworld\nagain\n", 1, true) == 1, outcome.said)
     assert(outcome.said:find("Seccomp:\t2\nNoNewPrivs:\t1\n", 1, true) ~= nil, outcome.said)
@@ -88,7 +86,6 @@ end
 local function test_a_signal_to_itself_ends_it_and_to_another_is_refused(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local own = under(tmp, {}, "signal TERM", probe)
-  if skipped(own) then return end
   assert(own.signal == sys.SIGTERM, "its own pid is a signal it may send: " .. own.said)
   -- Another process, one of this test's own: the filter answers EPERM, and it lives.
   local sleeper = assert(process.spawn(probe, { probe, "sleep-forever" }, nil, nil, nil, nil, nil,
@@ -104,7 +101,6 @@ end
 local function test_a_child_forks_only_with_fork(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local without = under(tmp, {}, "run " .. probe .. " print inner", probe)
-  if skipped(without) then return end
   assert(without.code == 127 and without.said == "", "a clone is refused: " .. without.code .. " " .. without.said)
   for _, promises in ipairs({ { "fork" }, { "fork", "jit" }, { "fork", "jit", "fattr" } }) do
     local with = under(tmp, promises, "run " .. probe .. " print inner", probe)
@@ -120,7 +116,6 @@ local function test_the_mode_of_a_file_changes_only_with_fattr(tmp: string)
   local file = tmp .. "/target"
   assert(Fs.write(file, "x", 420))
   local without = under(tmp, { "fork", "jit" }, "chmod " .. file .. " 600", probe)
-  if skipped(without) then return end
   assert(without.code == 1 and without.said:find("not permitted", 1, true) ~= nil,
     "chmod is refused: " .. without.code .. " " .. without.said)
   assert(assert(sys.stat(file)).mode & 0xfff == 420)
@@ -140,7 +135,6 @@ local function test_no_socket_is_made_but_a_socketpair(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   for _, promises in ipairs(PROMISE_SETS) do
     local inet = under(tmp, promises, "connect-tcp 127.0.0.1 9", probe)
-    if skipped(inet) then return end
     assert(inet.said:find("not permitted", 1, true) ~= nil, "an inet socket is refused: " .. inet.said)
     local unix = under(tmp, promises, "connect " .. tmp .. "/none.sock", probe)
     assert(unix.said:find("not permitted", 1, true) ~= nil, "a unix socket is refused too: " .. unix.said)
@@ -170,7 +164,6 @@ end
 local function test_a_child_that_cannot_raise_a_hard_limit_sets_its_own_limits(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local lowers = under(tmp, {}, "setrlimit nofile 64", probe)
-  if skipped(lowers) then return end
   local raises = under(tmp, {}, "setrlimit nofile 64; setrlimit nofile 128", probe)
   if holds_resource_capability() then
     -- A child that can raise a hard limit keeps the filter's refusal.
@@ -185,34 +178,6 @@ local function test_a_child_that_cannot_raise_a_hard_limit_sets_its_own_limits(t
   -- Never another's, which the filter holds to the process itself.
   local other = under(tmp, {}, "rlimit nofile", probe)
   assert(other.code == 0, other.said)
-end
-
-local function test_a_promise_no_one_keeps_is_refused_before_a_start(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  for _, bad in ipairs({ "inet", "" }) do
-    local started = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil,
-      { promises = { bad } })
-    assert(not started, bad .. " is no promise")
-  end
-  local numeric: any = { 1 }
-  assert(not pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil,
-    { promises = numeric as {string} }))
-  local scalar: any = "fork"
-  assert(not pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil,
-    { promises = scalar as {string} }))
-end
-
-local function test_nest_is_a_promise_of_a_root_and_pid_namespace_of_its_own(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  -- It lets signals reach any pid and files rest on mounts, which only a
-  -- policy's root and pid namespace hold: no start without them keeps it.
-  for _, sandbox in ipairs({ {}, { strict = true }, { unveil = { reads = { probe } } } }) do
-    local sandboxed = sandbox as raw_process.Sandbox -- cast: each shape is a partial sandbox
-    sandboxed.promises = { "nest" }
-    local started, why = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil,
-      sandboxed)
-    assert(not started and tostring(why):find("nest", 1, true), tostring(why))
-  end
 end
 
 --- How many seccomp filters `probe` reports when started with `sandbox`:
@@ -237,15 +202,18 @@ end
 --- container's runtime may have installed.
 local function test_the_filter_stacks_with_a_pledge(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  local outcome = under(tmp, {}, "status-field Seccomp", probe)
-  if skipped(outcome) then return end
+  under(tmp, {}, "status-field Seccomp", probe) -- skips where the kernel gives no filter
   local inherited = assert(filters(tmp, probe, nil))
   local both = filters(tmp, probe, { promises = {}, pledge = {} })
-  if both == nil then
-    if confine.sandbox_platform() then
-      Test.skip("the kernel gives no seccomp filter beside a pledge")
-    end
-    return
-  end
+  if both == nil then Test.skip("the kernel gives no seccomp filter beside a pledge") end
   assert(both == inherited + 2, "filters: " .. inherited .. " inherited, " .. both .. " under both")
+end
+
+--- No grants, no Landlock domain, so no scope: the filter keeps its signal
+--- calls to the starting pid, on every ABI.
+local function test_promises_without_grants_keep_the_filter_to_the_starting_pid(tmp: string)
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local outcome = under(tmp, { "fork" }, "run " .. probe .. " signal TERM", probe)
+  assert(outcome.code == 1 and outcome.said:find("not permitted", 1, true),
+    "its own pid only: " .. outcome.code .. " " .. outcome.said)
 end
