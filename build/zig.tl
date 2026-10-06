@@ -606,9 +606,10 @@ local function watches(path: string): boolean
 end
 
 --- What a build reads under `root`, by relative path, each as its
---- size, modification time and inode: enough to see an edit, an
---- editor's replace-by-rename, or a file added or removed, at the cost
---- of a walk and a stat per file and never a read.
+--- size, modification and change times, inode and device: enough to see
+--- an edit or replacement, or a file added or removed, at the cost of a
+--- walk and a stat per file. Older bootstrap cores lacking nanosecond
+--- change times require a content digest too.
 function Zig.snapshot(root: string): {string:string} | nil, string
   -- A link is taken for what it leads to, as work.stage takes it.
   local walked, trouble = Fs.walk_following(root, unwatched)
@@ -621,7 +622,20 @@ function Zig.snapshot(root: string): {string:string} | nil, string
       -- A file gone between the listing and the stat is simply absent.
       local st, _ = sys.stat(root .. "/" .. path)
       if st ~= nil then
-        seen[path] = string.format("%d %d.%09d %d", st.size, st.mtime, st.mtime_ns, st.ino)
+        local fields = st as {string:integer}
+        local changed = fields["ctime_ns"]
+        local stamp = string.format("%d %d.%09d %d %d", st.size, st.mtime, st.mtime_ns,
+          st.ino, st.dev)
+        if changed ~= nil then
+          stamp = stamp .. string.format(" %d.%09d", fields["ctime"], changed)
+        else
+          -- TODO: use change times alone once ci/cosmic-driver.pin names
+          -- a release whose Stat carries ctime_ns.
+          local data, why = Fs.read(root .. "/" .. path)
+          if data == nil then return nil, why end
+          stamp = stamp .. " " .. Hash.hex_sha256(data)
+        end
+        seen[path] = stamp
       end
     end
   end

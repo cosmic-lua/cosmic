@@ -4,6 +4,8 @@
 
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
+local sys = require("cosmic.sys")
 local Sqlite = require("cosmic.sqlite")
 local identity = require("build.identity")
 local work = require("build.work")
@@ -83,6 +85,38 @@ local function staged_bytes(db: Sqlite.Handle, path: string): string
   return rows[1][1]
 end
 
+--- Stage after the timestamp tick has settled, without waiting on the host clock.
+local function stage_settled(handle: work.Handle, own_tree?: boolean): work.Staged
+  local now = Clock.now_ns
+  Clock.now_ns = function(): integer return now() + Clock.seconds(3) end
+  local ok, staged, trouble = pcall(work.stage, handle, own_tree or false)
+  Clock.now_ns = now
+  assert(ok, tostring(staged))
+  return (assert(staged, trouble))
+end
+
+--- Give the tested paths distinct change-time ticks even on a coarse filesystem.
+local function with_change_time(paths: {string}, check: function(function()))
+  local tracked: {string:boolean} = {}
+  for _, path in ipairs(paths) do tracked[path] = true end
+  local stat = Fs.stat
+  local tick = 1
+  Fs.stat = function(path: string): sys.Stat | nil, string
+    local st, trouble = stat(path)
+    if st ~= nil and tracked[path] then
+      st.ctime = 100
+      st.ctime_ns = tick
+    end
+    return st, trouble
+  end
+  local ok, trouble = pcall(function(): boolean
+    check(function() tick = tick + 1 end)
+    return true
+  end)
+  Fs.stat = stat
+  assert(ok, tostring(trouble))
+end
+
 --- A file staged within the settle window is read again next time even
 --- when a same-size rewrite in place then stamps it with the epoch, a
 --- time a tool normalizing times writes: an unsettled row's time must
@@ -120,7 +154,7 @@ local function test_a_settled_epoch_time_is_trusted(tmp: string)
   assert(Fs.write(path, "return 1\n"))
   assert(Fs.set_mtime(path, 0, 0))
   local handle = assert(work.open(tmp))
-  local first = assert(work.stage(handle, false))
+  local first = stage_settled(handle)
   assert(first.read == 1)
   local second = assert(work.stage(handle, false))
   assert(second.read == 0, "a settled epoch row must stand")
@@ -269,4 +303,106 @@ local function test_a_carried_module_outside_the_tool_trees_moves_boot_hash(tmp:
     assert(after ~= before, path .. " is carried, and moves boot_hash")
     before = after
   end
+end
+
+--- A normalized mtime does not hide an in-place rewrite from any staging
+--- table, nor from the tool's cheap stale check.
+local function test_settled_rewrites_with_preserved_mtime_are_read(tmp: string)
+  local paths = { "probe.tl", "core/probe.c", "notes.txt", "doc/probe.md" }
+  assert(Fs.mkdirs(tmp .. "/core"))
+  assert(Fs.mkdirs(tmp .. "/doc"))
+  for _, path in ipairs(paths) do
+    assert(Fs.write(tmp .. "/" .. path, "old text\n"))
+    assert(Fs.set_mtime(tmp .. "/" .. path, 0, 0))
+  end
+  local tracked: {string} = {}
+  for _, path in ipairs(paths) do tracked[#tracked + 1] = tmp .. "/" .. path end
+  with_change_time(tracked, function(changed: function())
+    local handle = assert(work.open(tmp))
+    assert(stage_settled(handle, true).read == #paths)
+    assert(work.tool_moved(handle) == false)
+    assert(stage_settled(handle, true).read == 0)
+    for _, path in ipairs(paths) do
+      local before = assert(Fs.stat(tmp .. "/" .. path))
+      local fd = assert(Fs.open_write(tmp .. "/" .. path))
+      assert(Fs.put(fd, "new text\n"))
+      assert(Fs.close(fd))
+      assert(Fs.set_mtime(tmp .. "/" .. path, 0, 0))
+      local after = assert(Fs.stat(tmp .. "/" .. path))
+      assert(before.ino == after.ino and before.size == after.size)
+    end
+    changed()
+    assert(work.tool_moved(handle), "core rewrite must invalidate the tool's stat fast path")
+    assert(stage_settled(handle, true).read == #paths)
+    assert(staged_bytes(handle.db, "probe.tl") == "new text\n")
+    for _, table_name in ipairs({ "files", "tool", "scanned", "linked" }) do
+      local rows = assert(Sqlite.text_rows(handle.db, "SELECT DISTINCT sha256 FROM " .. table_name))
+      assert(#rows > 0, table_name .. " must be exercised")
+      for _, row in ipairs(rows) do assert(row[1] == Hash.hex_sha256("new text\n")) end
+    end
+    assert(stage_settled(handle, true).read == 0)
+    assert(work.close(handle))
+  end)
+end
+
+--- A ctime-only change causes a read, but the bytes alone decide the
+--- build's identity. Rows migrated from a schema without ctime do too.
+local function test_metadata_changes_and_unknown_change_times_keep_content_identity(tmp: string)
+  local path = tmp .. "/probe.tl"
+  assert(Fs.mkdirs(tmp .. "/core"))
+  assert(Fs.mkdirs(tmp .. "/doc"))
+  for _, name in ipairs({ "probe.tl", "core/probe.c", "notes.txt", "doc/probe.md" }) do
+    assert(Fs.write(tmp .. "/" .. name, "return 1\n"))
+    assert(Fs.set_mtime(tmp .. "/" .. name, 0, 0))
+  end
+  with_change_time({ path }, function(changed: function())
+    local handle = assert(work.open(tmp))
+    assert(stage_settled(handle, true).read == 4)
+    local before = assert(identity.record_fingerprint(handle.db))
+    assert(sys.chmod(path, 384))
+    changed()
+    assert(stage_settled(handle, true).read == 1)
+    local after = assert(identity.record_fingerprint(handle.db))
+    assert(before.image == after.image and before.boot == after.boot)
+    assert(stage_settled(handle, true).read == 0)
+    assert(work.commit(handle))
+    for _, name in ipairs({ "files", "tool", "scanned", "linked" }) do
+      assert(handle.db:exec("ALTER TABLE " .. name .. " DROP COLUMN ctime_ns"))
+    end
+    assert(handle.db:close())
+    handle = assert(work.open(tmp))
+    assert(staged_bytes(handle.db, "probe.tl") == "return 1\n", "migration preserves content")
+    for _, name in ipairs({ "files", "tool", "scanned", "linked" }) do
+      local rows = assert(Sqlite.text_rows(handle.db, "SELECT sha256, ctime_ns IS NULL FROM " .. name))
+      assert(#rows > 0, name .. " migration fixture missing")
+      for _, row in ipairs(rows) do
+        assert(row[1] == Hash.hex_sha256("return 1\n") and row[2] == "1")
+      end
+    end
+    assert(stage_settled(handle, true).read == 4, "legacy rows must be read once")
+    assert(stage_settled(handle, true).read == 0)
+    assert(work.close(handle))
+  end)
+end
+
+local function test_an_unknown_change_time_never_trusts_cached_bytes(tmp: string)
+  assert(Fs.write(tmp .. "/probe.tl", "return 1\n"))
+  assert(Fs.set_mtime(tmp .. "/probe.tl", 0, 0))
+  local handle = assert(work.open(tmp))
+  local stat = Fs.stat
+  Fs.stat = function(path: string): sys.Stat | nil, string
+    local st, trouble = stat(path)
+    if st ~= nil then
+      local fields = st as {string:integer}
+      fields["ctime_ns"] = nil
+    end
+    return st, trouble
+  end
+  local ok, trouble = pcall(function()
+    assert(stage_settled(handle).read == 1)
+    assert(stage_settled(handle).read == 1)
+  end)
+  Fs.stat = stat
+  assert(work.close(handle))
+  assert(ok, tostring(trouble))
 end

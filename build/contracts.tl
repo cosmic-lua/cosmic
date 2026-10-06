@@ -165,6 +165,9 @@ local exempt: {string: string} = {
 local parsing: {string: string} = {}
 
 local casts: {string: string} = {
+  ["build/zig.tl:Zig.snapshot"] =
+    "standalone bootstrap Stat may predate ctime_ns; read that optional raw field " ..
+    "without requiring it in the bootstrap declaration",
   ["build/sandbox_probe.tl:raw_process_table"] =
     "the store's searcher hands cosmic.child's loader the raw process " ..
     "table as its extra value, untyped as package.searchers returns it; " ..

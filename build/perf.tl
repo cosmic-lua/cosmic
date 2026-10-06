@@ -343,10 +343,19 @@ return function(_argv: {string}): integer
   return 0
 end
 ]]))
-  -- Stage can trust these old, explicitly different timestamps immediately;
-  -- no-op samples must not include its two-second freshly-written-file path.
+  -- Keep explicit modification times, but wait for the real change times
+  -- before building: no-op samples must not include unsettled source reads.
   for _, path in ipairs({ "branch.tl", "spare.tl", "branch_test.tl", "spare_test.tl", "cmd/noop/main.tl" }) do
     assert(Fs.set_mtime(root .. "/" .. path, 1000000000))
+  end
+  -- These writes and timestamp updates have all finished: their change
+  -- times are no later than this clock reading. Stage trusts metadata only
+  -- after both times are two seconds old; wait outside every timed command.
+  local deadline = Clock.now_ns() + Clock.seconds(2)
+  while true do
+    local remaining = deadline - Clock.now_ns() + 1
+    if remaining <= 0 then break end
+    assert(Clock.sleep_ns(remaining))
   end
   local setup: {Child.Result} = {}
   setup[#setup + 1] = command({ binary, "build", "--host" }, f)
