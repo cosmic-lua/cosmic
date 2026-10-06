@@ -182,7 +182,8 @@ and never fails the step.
 `/`) of the repository
 (`$GITHUB_REPOSITORY`, else cosmic-lua/cosmic) through GitHub's REST API
 ([`cosmic_ci/github_api.tl`], at `$GITHUB_API_URL`, api.github.com by
-default), authenticated by `$GH_TOKEN`, else `$GITHUB_TOKEN`: each run's
+default), authenticated by `$GH_TOKEN`, else `$GITHUB_TOKEN` (with gh,
+`export GH_TOKEN=$(gh auth token)`): each run's
 jobs and step times (`.../runs/<id>/jobs`) and the `suite_runs` rows of its
 unexpired `ci-driver-<leg>` artifacts, the newest of each name -- a re-run's
 latest attempt's -- fetched by id (`.../artifacts/<id>/zip`, whose redirect

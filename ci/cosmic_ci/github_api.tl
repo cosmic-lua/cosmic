@@ -61,11 +61,19 @@ local download_redirects <const> = 3
 local redirect_statuses: {integer:boolean} = { [301] = true, [302] = true, [303] = true,
   [307] = true, [308] = true }
 
---- The scheme, host and port of `url`, as one string, or nil and why.
+local default_ports: {string:integer} = { https = 443, http = 80 }
+
+--- The origin of `url`, as one string that equals another's only when
+--- scheme, host and port do: the port is the scheme's default where the
+--- URL names none, and an IPv6 host is bracketed. Nil and why for a URL
+--- that does not parse or has a scheme with no default port.
 local function origin_of(url: string): string | nil, string
   local parts, why = Url.parse(url)
   if parts == nil then return nil, why end
-  return parts.scheme .. "://" .. parts.host .. (parts.port and (":" .. parts.port) or ""), ""
+  local port = parts.port or default_ports[parts.scheme]
+  if port == nil then return nil, "the scheme " .. parts.scheme .. " has no default port" end
+  local host = parts.host:find(":", 1, true) and ("[" .. parts.host .. "]") or parts.host
+  return parts.scheme .. "://" .. host .. ":" .. port, ""
 end
 
 --- GitHub's explanation in an error answer's body: its `message`, or "".
@@ -83,8 +91,12 @@ function GithubApi.live(env: {string:string}, test?: GithubApi.Live): GithubApi.
   local token = env.GH_TOKEN
   if token == nil or token == "" then token = env.GITHUB_TOKEN end
   if token == nil or token == "" then
+    -- A `gh auth login` is not read: the driver does not run gh, so a
+    -- person with gh exports GH_TOKEN=$(gh auth token).
     return nil, "no GitHub token: set GH_TOKEN or GITHUB_TOKEN"
   end
+  -- GITHUB_API_URL is trusted as given, plain http included: the tests'
+  -- script transport cannot do TLS.
   local base = env.GITHUB_API_URL
   if base == nil or base == "" then base = default_base end
   base = (base:gsub("/+$", ""))

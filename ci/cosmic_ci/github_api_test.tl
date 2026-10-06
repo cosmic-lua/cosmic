@@ -109,7 +109,7 @@ local function test_a_body_is_sent_whole_with_its_content_type()
 end
 
 --- A download asks the API with the token, takes its redirect by hand and
---- fetches the redirect's URL, which [`Http.download`] is handed without
+--- fetches the redirect's URL, which [`Http.download_result`] is handed without
 --- one.
 local function test_a_download_fetches_the_redirect_without_the_token(tmp: string)
   local client, sent = live({ { reply("302 Found", "Location: https://blob.test/signed?sig=abc\r\n") }, {} })
@@ -125,7 +125,8 @@ local function test_a_download_fetches_the_redirect_without_the_token(tmp: strin
   local called, ok, why = pcall(GithubApi.download, client, "repos/o/r/actions/artifacts/7/zip",
     tmp .. "/a.zip")
   Http.download_result = real
-  assert(called and ok, tostring(ok) .. tostring(why))
+  assert(called, tostring(ok))
+  assert(ok, why)
   has(sent[1], "GET /repos/o/r/actions/artifacts/7/zip HTTP/1.1\r\n")
   has(sent[1], "Authorization: Bearer " .. token)
   assert(#urls == 1 and urls[1] == "https://blob.test/signed?sig=abc", table.concat(urls, " "))
@@ -174,8 +175,42 @@ local function test_a_download_reports_the_apis_refusal_and_the_fetchs_failure(t
   Http.download_result = function(): Http.DownloadResult
     return { kind = "http_status", reason = "", status = 403 }
   end
-  ok, why = GithubApi.download(failing, "repos/o/r/artifacts/3/zip", tmp .. "/z")
+  local called, got, trouble = pcall(GithubApi.download, failing, "repos/o/r/artifacts/3/zip",
+    tmp .. "/z")
   Http.download_result = real
+  assert(called, tostring(got))
+  ok, why = got as boolean, trouble
   -- The signed URL stays out of the message.
   assert(not ok and why == "GET repos/o/r/artifacts/3/zip: HTTP 403", why)
+end
+
+--- Origins compare by scheme, host and port, a default port being the
+--- scheme's: a look-alike never gets the token.
+local function test_origins_are_compared_by_scheme_host_and_port()
+  local client, sent = live({ { reply("200 OK", "", "{}") }, { reply("200 OK", "", "{}") } },
+    { GITHUB_API_URL = "http://api.test:80" })
+  -- The same origin written with and without its default port, in any case.
+  for _, url in ipairs({ "http://api.test/a", "http://API.test:80/a" }) do
+    local answered, why = client.send({ method = "GET", url = url, headers = {} })
+    assert(answered ~= nil, url .. ": " .. tostring(why))
+  end
+  assert(#sent == 2)
+  for _, url in ipairs({ "http://api.test:81/a", "https://api.test:80/a",
+      "http://api.test.evil.test/a", "http://api.test@evil.test/a", "http://[::1]/a" }) do
+    local answered, why = client.send({ method = "GET", url = url, headers = {} })
+    assert(answered == nil and why:find("refusing", 1, true), url .. ": " .. tostring(why))
+  end
+  assert(#sent == 2)
+end
+
+--- A request, a download's included, is refused where the client's base is
+--- not the origin its token belongs to.
+local function test_a_client_whose_base_is_another_origin_sends_nothing(tmp: string)
+  local client, sent = live({ { reply("200 OK", "", "{}") } })
+  client.base = "http://other.test"
+  local body, why = GithubApi.get(client, "repos/o/r")
+  assert(body == nil and why:find("refusing to send the token", 1, true), tostring(why))
+  local ok, trouble = GithubApi.download(client, "repos/o/r/zip", tmp .. "/z")
+  assert(not ok and trouble:find("refusing to send the token", 1, true), tostring(trouble))
+  assert(#sent == 0)
 end
