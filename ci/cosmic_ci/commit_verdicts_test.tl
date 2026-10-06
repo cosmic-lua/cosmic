@@ -1,7 +1,7 @@
 --- The verdicts main saves under each commit, for a branch based on it:
 --- [`merge_base`], which finds the main commit a run's tree grew from, and
 --- `prune`, which deletes those entries a day on, against the API's JSON
---- as `gh api` prints it (cosmic_ci/github_fake.tl).
+--- as the API answers it (cosmic_ci/github_fake.tl).
 local CommitVerdicts = require("cosmic_ci.commit_verdicts")
 local GithubFake = require("cosmic_ci.github_fake")
 local Time = require("cosmic.time")
@@ -25,7 +25,7 @@ local function test_a_branch_push_names_its_merge_base()
   local output, said, code, calls = merge_base(TOPIC,
     '{"merge_base_commit":{"sha":"' .. BASE .. '"},"commits":[]}')
   assert(code == 0 and output == "sha=" .. BASE .. "\n", output .. said)
-  assert(#calls == 1 and calls[1] == "api repos/o/r/compare/main..." .. SHA .. "?per_page=1", table.concat(calls, "\n"))
+  assert(#calls == 1 and calls[1] == "GET repos/o/r/compare/main..." .. SHA .. "?per_page=1", table.concat(calls, "\n"))
   assert(said:find(BASE, 1, true), said)
 end
 
@@ -66,7 +66,7 @@ local function test_a_failed_lookup_names_nothing()
   local output, said, code, calls = merge_base(TOPIC, nil)
   assert(code == 0 and output == "" and #calls == 1, output .. table.concat(calls, "\n"))
   assert(said:find("main's newest", 1, true), said)
-  assert(said:find("lookup failed: failed", 1, true), said)
+  assert(said:find("lookup failed: GET repos/o/r/", 1, true) and said:find(": HTTP 500", 1, true), said)
 end
 
 --- An entry as the API lists the cache's: `hours` old.
@@ -81,7 +81,7 @@ local function listing(...: string): string
   return '{"total_count":' .. select("#", ...) .. ',"actions_caches":[' .. table.concat({ ... }, ",") .. "]}"
 end
 
---- A whole `--paginate --slurp` answer: each of `pages` a page.
+--- A listing in `pages`: each is one page the fake serves linked to the next.
 local function pages(...: string): string
   return "[" .. table.concat({ ... }, ",") .. "]"
 end
@@ -90,14 +90,13 @@ end
 local function deleted(fake: GithubFake.Fake): string
   local ids: {string} = {}
   for _, call in ipairs(fake.calls) do
-    local id = call:match("^api %-X DELETE repos/o/r/actions/caches/(%d+)$")
+    local id = call:match("^DELETE repos/o/r/actions/caches/(%d+)$")
     if id then ids[#ids + 1] = id end
   end
   return table.concat(ids, " ")
 end
 
---- `prune` in `env` over `answer`, the listing as `gh --paginate --slurp`
---- prints it (nil fails it), refusing to delete the ids of `refuse`:
+--- `prune` in `env` over `answer`, the listing as the pages the API lists (nil fails it), refusing to delete the ids of `refuse`:
 --- the fake, what it said and its status.
 local function prune(env: {string: string}, answer: string | nil, refuse?: {string}): GithubFake.Fake, string, integer
   local fake = GithubFake.new(function(_path: string, _nth: integer): string | nil return answer end, refuse)
@@ -117,7 +116,7 @@ local function test_the_prune_deletes_only_old_verdicts_under_a_commit()
     entry(5, "verdicts-leg-0123456789abcdef-f-sha-abc", 50),
     entry(6, "verdicts-leg-0123456789abcdef-f-sha-0" .. SHA, 50))))
   assert(code == 0, said)
-  assert(fake.calls[1] == "api --paginate --slurp repos/o/r/actions/caches?key=verdicts-&per_page=100", fake.calls[1])
+  assert(fake.calls[1] == "GET repos/o/r/actions/caches?key=verdicts-&per_page=100", fake.calls[1])
   assert(deleted(fake) == "1 4", table.concat(fake.calls, "\n"))
   assert(said:find("pruned 2 commit-keyed verdict entries older than 24 h (0 failed)", 1, true), said)
   -- HOURS moves the cutoff.
@@ -134,7 +133,7 @@ local function test_the_prune_deletes_old_branch_compiles()
     entry(2, "compiles-branch-leg-0123abcd-d1d1d1", 2),
     entry(3, "compiles-leg-d0d0d0", 50),
     entry(4, "verdicts-leg-0123456789abcdef-f-d0d0d0", 50))))
-  assert(fake.calls[2] == "api --paginate --slurp repos/o/r/actions/caches?key=compiles-branch-&per_page=100",
+  assert(fake.calls[2] == "GET repos/o/r/actions/caches?key=compiles-branch-&per_page=100",
     table.concat(fake.calls, "\n"))
   assert(deleted(fake) == "1", table.concat(fake.calls, "\n"))
   assert(said:find("pruned 1 branch compiles entry older than 24 h", 1, true), said)
@@ -161,7 +160,7 @@ local function test_a_failed_prune_fails_nothing()
   assert(code == 0 and deleted(fake) == "" and said:find("none pruned", 1, true), table.concat(fake.calls, "\n") .. said)
   -- Both listings are asked, and both said.
   assert(#fake.calls == 2 and #fake.printed == 4, table.concat(fake.printed, "\n"))
-  assert(said:find("lookup failed: failed", 1, true), said)
+  assert(said:find("lookup failed: GET repos/o/r/", 1, true) and said:find(": HTTP 500", 1, true), said)
   -- An answer that is no list of entries, or one whose entry holds no
   -- time to read, deletes none: the listing could not be read.
   for _, answer in ipairs({ '{"message":"Bad credentials"}', pages("{}"),
