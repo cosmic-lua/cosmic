@@ -83,7 +83,9 @@ local function test_a_start_under_a_policy_is_refused_where_the_platform_has_no_
     { profiles = { "system" }, grants = itself(probe) },
   }
   for i, policy in ipairs(policies) do
-    local result, why = Child.run({ probe, "print hi" }, { policy = policy })
+    -- It starts in the directory that holds the probe: under isolate file the
+    -- start directory must be at, beneath or above a grant.
+    local result, why = Child.run({ probe, "print hi" }, { policy = policy, cwd = probe:match("^(.*)/") })
     assert(result == nil, "policy " .. i .. " started a child where there is no sandbox")
     assert(unsandboxable(why), "policy " .. i .. ": " .. why)
   end
