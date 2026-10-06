@@ -1,19 +1,13 @@
---- .github/scripts/queue-seed.sh, which finds the merge queue's run a
---- push to main reuses (`find`), keeps in a queue run's leg what main
---- would have saved, under the keys it would have saved it under
---- (`stage`), and finds the run ahead of a queue run whose verdicts it
---- takes (`ahead`). `find` and `ahead` run against a fake `gh` holding
---- the API's JSON, which it answers through the script's own `--jq`
---- filters with the system's jq (build/queue_seed_jq_test.tl, which a host
---- with no jq skips); the filters are held to their text here, where jq
---- is not needed.
+--- .github/scripts/queue-seed.sh, which keeps in a merge queue run's leg
+--- what main would have saved, under the keys it would have saved it
+--- under (`stage`). The queue's lookups it once held (`find`, `ahead`)
+--- are the driver's, tested in ci/cosmic_ci/queue_seed_test.tl.
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Test = require("cosmic.test")
 local Time = require("cosmic.time")
-local fixture = require("build.queue_seed_fixture")
 
 --- The script, and the system's `sh` and tools, which run it; and
 --- ci.yml, whose keys `stage` is run with and whose `seed` job reads.
@@ -25,23 +19,12 @@ Test.policy{
   },
 }
 
-local SCRIPT <const> = fixture.SCRIPT
-local SHA <const> = fixture.SHA
-local RUNS_FILTER <const> = fixture.RUNS_FILTER
-local ARTIFACTS_FILTER <const> = fixture.ARTIFACTS_FILTER
-local AHEAD_RUNS_FILTER <const> = fixture.AHEAD_RUNS_FILTER
-local JOBS_FILTER <const> = fixture.JOBS_FILTER
+--- The script, by its whole path: a process the test starts elsewhere
+--- finds it.
+local SCRIPT <const> = assert(Fs.absolute(".github/scripts/queue-seed.sh"))
+local SHA <const> = "0123456789abcdef0123456789abcdef01234567"
 
 local runs = 0
-
---- The script hands gh these filters, which the fake answers through.
-local function test_the_filters_are_the_scripts()
-  local text = assert(Fs.read(SCRIPT))
-  assert(text:find("--jq '" .. RUNS_FILTER .. "'", 1, true), "the runs' filter moved")
-  assert(text:find("--jq '" .. ARTIFACTS_FILTER .. "'", 1, true), "the artifacts' filter moved")
-  assert(text:find("--jq '" .. JOBS_FILTER .. "'", 1, true), "the jobs' filter moved")
-  assert(text:find("--jq '" .. AHEAD_RUNS_FILTER .. "'", 1, true), "the run ahead's filter moved")
-end
 
 --- What `stage` keeps under $RUNNER_TEMP/seed, run with `env` and, where
 --- `marker`, a passing driver check's marker (holding `marker_key`, or

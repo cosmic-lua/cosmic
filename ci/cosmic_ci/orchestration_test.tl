@@ -1523,7 +1523,7 @@ local function test_a_leg_is_given_the_requirements_it_promises()
   Orchestration.promise(mac)
   assert(mac.COSMIC_TEST_LEG == "macos-aarch64")
   local given = "," .. mac.COSMIC_TEST_PROMISES .. ","
-  assert(given:find(",path:/bin/sh,", 1, true) and given:find(",program:jq,", 1, true),
+  assert(given:find(",path:/bin/sh,", 1, true) and given:find(",path:/usr/bin/env,", 1, true),
     mac.COSMIC_TEST_PROMISES)
   assert(not given:find(",sandbox,", 1, true) and not given:find(",nest,", 1, true),
     mac.COSMIC_TEST_PROMISES)
