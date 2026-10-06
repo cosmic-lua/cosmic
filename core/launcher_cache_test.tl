@@ -21,7 +21,7 @@ local Test = require("cosmic.test")
 -- TODO: name those programs rather than the whole of the system's
 -- paths, once a declaration can name a program (`processes` by name,
 -- which the sandbox resolves, with what its loader reads), as
--- build/todos_git_test.tl's git waits to be named.
+-- build/todos_live_git_test.tl's git waits to be named.
 Test.policy{ profiles = { "system", "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local function environment(): {string:string}

@@ -57,6 +57,7 @@ end
 --- child's environment, or names it only as ci.yml's text, which it
 --- reads. Any other such name in them is found as in any other file.
 local sets_what_it_reads: {string:{string:boolean}} = {
+  ["build/changed_paths_git_test.tl"] = { GITHUB_OUTPUT = true },
   ["build/changed_paths_test.tl"] = { GITHUB_OUTPUT = true },
   ["build/commit_verdicts_fixture.tl"] = { GITHUB_OUTPUT = true },
   ["build/commit_verdicts_jq_test.tl"] = { GITHUB_OUTPUT = true },
