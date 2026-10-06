@@ -57,7 +57,6 @@ end
 --- child's environment, or names it only as ci.yml's text, which it
 --- reads. Any other such name in them is found as in any other file.
 local sets_what_it_reads: {string:{string:boolean}} = {
-  ["build/leg_host_id_test.tl"] = { GITHUB_ENV = true, GITHUB_OUTPUT = true },
   -- As the platform and checked jobs' env set it, and the workflow's;
   -- RUNNER_TEMP, GITHUB_OUTPUT and GITHUB_ENV as a step's `run` names
   -- them.

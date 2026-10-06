@@ -3932,7 +3932,7 @@ local function look_up_verdicts(ctx: Run)
   local parts: {{string}} = {}
   if rec.shared ~= nil or census_asked then
     parts = {
-      -- As .github/scripts/host-features.sh names CI's verdict cache.
+      -- As ci/cosmic_ci/host_id.tl names CI's verdict cache.
       { "host features", declared_key.host_features() },
       { "host", rec.host:sub(1, 12) },
       { "system", (rec.system or ""):sub(1, 12) },
