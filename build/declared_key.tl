@@ -1003,7 +1003,7 @@ local default_system: {string} = { "/etc/os-release", "/proc/sys/kernel/osreleas
 --- so it names everything there a worker can read.
 -- TODO: read the OS cryptex's SystemVersion.plist too
 -- (/System/Cryptexes/OS/System/Library/CoreServices/SystemVersion.plist),
--- beside this one, in .github/scripts/host-features.sh alike: a Rapid
+-- beside this one, in ci/cosmic_ci/host_id.tl alike: a Rapid
 -- Security Response updates the cryptex, not the sealed volume, and
 -- names itself only there (ProductVersionExtra), so today a host
 -- before one and after it key alike.
@@ -1082,8 +1082,8 @@ local system_variable <const> = "COSMIC_SYSTEM_ID"
 --- looks, for a test; a field it leaves nil is this host's own. Of
 --- these, what differs between runners of one CI leg -- the processor's
 --- features and the kernel -- names the leg's verdict cache too
---- ([`host_features`], .github/scripts/host-features.sh): a change to how
---- either is keyed changes both, and the script.
+--- ([`host_features`], ci/cosmic_ci/host_id.tl): a change to how
+--- either is keyed changes both, and the command.
 -- TODO: key the image apart from the seccomp profile and the engine, in
 -- [`system_identity`], once ci.yml names them in variables of their own
 -- (with the verdict caches' naming, which a later change reconsiders):
@@ -1129,7 +1129,7 @@ function declared_key.host_identity(digests: declared_key.Digests,
   -- hypervisor's bits, md_clear), and each split is a verdict not
   -- shared. A vendored library that comes to dispatch on another
   -- feature adds it to `dispatched`, to what [`sys.cpu_features`]
-  -- answers (core/syscalls.c) and to .github/scripts/host-features.sh
+  -- answers (core/syscalls.c) and to ci/cosmic_ci/host_id.tl
   -- alike.
   lines[#lines + 1] = "cpu " .. table.concat(features(from.cpu_features, from.machine), " ")
   lines[#lines + 1] = "uid " .. tostring(from.uid or sys.getuid())
@@ -1359,7 +1359,7 @@ end
 --- line each (`features`), then the kernel's release and version as
 --- their files hold them, a missing one as empty -- on macOS, the
 --- system volume's SystemVersion.plist, and nothing (`darwin_system`).
---- It is what .github/scripts/host-features.sh prints, which names a
+--- It is what ci/cosmic_ci/host_id.tl's `features` answers, which names a
 --- leg's verdict cache, so a run restores one whose keys its host
 --- reaches. `sources` stands in for what it reads of this host
 --- (`cpu_features`, `machine`, `sysname`, and `system`'s second and

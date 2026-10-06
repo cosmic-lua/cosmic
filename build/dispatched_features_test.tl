@@ -7,7 +7,7 @@
 --- each of those features is keyed for its machine. A vendor refetch or
 --- a patch that brings a new site, or a new question to a named one,
 --- fails here, naming its file, until its features are keyed (in
---- `dispatched`, [`sys.cpu_features`] and .github/scripts/host-features.sh
+--- `dispatched`, [`sys.cpu_features`] and ci/cosmic_ci/host_id.tl
 --- alike) and it is named below.
 ---
 --- The walk does not reach zig's own lib (compiler_rt) or musl, which
@@ -268,7 +268,7 @@ local function test_every_site_that_asks_the_processor_is_named()
     if site == nil then
       problems[#problems + 1] = path .. " asks what the processor can do: key the features " ..
         "it reads in build/declared_key.tl's `dispatched`, core/syscalls.c's `cpu_features` " ..
-        "and .github/scripts/host-features.sh, and name it in SITES (lines = \"" .. digest ..
+        "and ci/cosmic_ci/host_id.tl, and name it in SITES (lines = \"" .. digest ..
         "\"), or name it with `reads = {}` if it reads none"
     elseif site.lines ~= digest then
       problems[#problems + 1] = path .. " asks the processor otherwise than SITES says " ..

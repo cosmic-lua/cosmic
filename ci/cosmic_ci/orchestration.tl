@@ -89,7 +89,7 @@ local standing_events: {string:boolean} = { push = true, merge_group = true }
 -- profile, which hold every option and host setting it starts with, and
 -- the engine's version). A change inside an image under the same
 -- reference, or on the runner beneath it, is not keyed. The macOS leg's
--- image names itself (COSMIC_SYSTEM_ID, .github/scripts/leg-host-id.sh),
+-- image names itself (COSMIC_SYSTEM_ID, host_id.tl),
 -- which every module given the system's paths is keyed by.
 ---
 --- A merge-queue run does not stand either where its change moves

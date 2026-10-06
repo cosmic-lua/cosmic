@@ -775,7 +775,7 @@ what the declared key leaves out, each with a `TODO:` where its fix goes:
 
 the processor is keyed, for good, by the features a core chooses code by
 alone (`dispatched` in [`build/declared_key.tl`], which
-[`.github/scripts/host-features.sh`] mirrors): mbedtls's AES and xz's CRC
+[`ci/cosmic_ci/host_id.tl`] mirrors): mbedtls's AES and xz's CRC
 instructions. no Linux core links a libm that dispatches: every one,
 the checked core too, is static musl. the rest of
 /proc/cpuinfo's flags, its model and its microcode choose no code a test runs,
@@ -1099,7 +1099,6 @@ target:
 what comes next, and the open questions that stand in the way, are
 in [roadmap.md](roadmap.md).
 
-[`.github/scripts/host-features.sh`]: ../.github/scripts/host-features.sh
 [`.github/scripts/place-tree.sh`]: ../.github/scripts/place-tree.sh
 [`artifact.split`]: ../build/artifact.tl
 [`bin/cosmic-bootstrap`]: ../bin/cosmic-bootstrap
@@ -1134,6 +1133,7 @@ in [roadmap.md](roadmap.md).
 [`build/zig.tl`]: ../build/zig.tl
 [`build/zig_fetch.tl`]: ../build/zig_fetch.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
+[`ci/cosmic_ci/host_id.tl`]: ../ci/cosmic_ci/host_id.tl
 [`ci/cosmic_ci/orchestration.tl`]: ../ci/cosmic_ci/orchestration.tl
 [`core/bridge.lua`]: ../core/bridge.lua
 [`core/http.c`]: ../core/http.c

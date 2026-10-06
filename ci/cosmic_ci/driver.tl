@@ -5,6 +5,7 @@ local Context = require("cosmic_ci.context")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Fuzz = require("cosmic_ci.fuzz")
+local HostId = require("cosmic_ci.host_id")
 local Images = require("cosmic_ci.images")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Sqlite = require("cosmic.sqlite")
@@ -121,6 +122,8 @@ local commands: {string:Command} = {
     usage = "", handler = QueueSeed.ahead_command },
   ["merge-base"] = { about = "name the main commit this run's tree grew from, whose verdicts the restore takes",
     usage = "", handler = CommitVerdicts.merge_base_command },
+  ["leg-host-id"] = { about = "name the leg's host, and its verdict cache, from its container or runner and its processor features",
+    usage = "NAME IMAGE RUNNER STARTED", handler = HostId.command },
   ["changed-paths"] = { about = "name the paths this branch changed since its base on main, for a light run's format check",
     usage = "", handler = ChangedPaths.command },
   ["prune-commit-verdicts"] = { about = "delete main's commit-keyed verdicts and the branches' compiles a day old",

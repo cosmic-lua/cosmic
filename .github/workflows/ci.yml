@@ -366,9 +366,9 @@
         {
           name: "name the leg's host",
           id: "host-id",
-          "working-directory": ".",
           shell: "sh",
-          run: "sh .github/scripts/leg-host-id.sh \"${{ matrix.name }}\" \"${{ matrix.image }}\" \"${{ matrix.runner }}\" \"${{ hashFiles('.github/seccomp/**', '.github/scripts/leg-container.sh', '.github/scripts/seccomp-profile.sh') }}\" \"$(sh .github/scripts/host-features.sh)\"",
+          env: {STARTED: "${{ hashFiles('.github/seccomp/**', '.github/scripts/leg-container.sh', '.github/scripts/seccomp-profile.sh') }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl leg-host-id \"${{ matrix.name }}\" \"${{ matrix.image }}\" \"${{ matrix.runner }}\" \"$STARTED\"",
         },
 
         # The main commit a branch's tree grew from, or the merge queue's
@@ -1048,9 +1048,9 @@
           name: "name the leg's host",
           id: "host-id",
           if: "env.COSMIC_CI_SCOPE == 'full'",
-          "working-directory": ".",
           shell: "sh",
-          run: "sh .github/scripts/leg-host-id.sh \"linux-x86_64-checked\" \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\" \"ubuntu-24.04\" \"${{ hashFiles('.github/seccomp/**', '.github/scripts/leg-container.sh', '.github/scripts/seccomp-profile.sh') }}\" \"$(sh .github/scripts/host-features.sh)\"",
+          env: {STARTED: "${{ hashFiles('.github/seccomp/**', '.github/scripts/leg-container.sh', '.github/scripts/seccomp-profile.sh') }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl leg-host-id \"linux-x86_64-checked\" \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\" \"ubuntu-24.04\" \"$STARTED\"",
         },
         # The base on main a full run restores verdicts by, and from which
         # a light run's format check lays out only what changed.
@@ -1108,9 +1108,9 @@
           id: "driver-host",
           if: "env.COSMIC_CI_SCOPE == 'light'",
           "continue-on-error": true,
-          "working-directory": ".",
           shell: "sh",
-          run: "GITHUB_ENV=/dev/null sh .github/scripts/leg-host-id.sh \"linux-x86_64\" \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\" \"ubuntu-24.04\" \"${{ hashFiles('.github/seccomp/**', '.github/scripts/leg-container.sh', '.github/scripts/seccomp-profile.sh') }}\" \"$(sh .github/scripts/host-features.sh)\"",
+          env: {STARTED: "${{ hashFiles('.github/seccomp/**', '.github/scripts/leg-container.sh', '.github/scripts/seccomp-profile.sh') }}"},
+          run: "GITHUB_ENV=/dev/null cosmic-driver cosmic_ci/driver.tl leg-host-id \"linux-x86_64\" \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\" \"ubuntu-24.04\" \"$STARTED\"",
         },
         {
           name: "find a passing CI driver check",

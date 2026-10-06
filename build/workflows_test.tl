@@ -601,13 +601,34 @@ local function walk_steps(where: string, steps: {{string: any}}, holders: {{stri
         assert(present, where .. "'s sparse checkout does not hold " .. here .. ", where a step runs")
       end
     end
-    if run is string then
-      for named in run:gmatch("[%w_./%-]*%.github/scripts/[%w_./%-]+") do
-        local script = normal(directory(step, holders) .. "/" .. named)
+    -- What `text` names under SCRIPTS, from `base` (a `run` starts in its
+    -- step's working directory; the files a `hashFiles` hashes lie
+    -- under the checkout's root wherever the step starts).
+    local function scripts_in(text: string, base: string)
+      for named in text:gmatch("[%w_./%-]*%.github/scripts/[%w_./%-]+") do
+        local script = normal(base .. "/" .. named)
         assert(walk.checkout, where .. " runs " .. script .. " before any checkout")
         assert(holds(walk.sparse, script), where .. "'s sparse checkout does not hold " .. script)
         walk.scripts[#walk.scripts + 1] = script
       end
+    end
+    local texts: {string} = {}
+    if run is string then texts[1] = run end
+    local env = step.env
+    if env is {string: any} then
+      for _, value in pairs(env) do
+        if value is string then texts[#texts + 1] = value end
+      end
+    end
+    for _, text in ipairs(texts) do
+      local hashed: {string} = {}
+      local rest = text:gsub("hashFiles%b()", function(call: string): string
+        hashed[#hashed + 1] = call
+        return ""
+      end)
+      -- Only a `run` runs what it names; an `env` value names what it hashes.
+      if text == run then scripts_in(rest, directory(step, holders)) end
+      for _, call in ipairs(hashed) do scripts_in(call, ".") end
     end
   end
 end
@@ -800,9 +821,10 @@ local function test_each_image_has_one_digest_everywhere()
   assert(count > 0, "no workflow pins an image by digest")
 end
 
---- A leg's verdict cache is named by the host's features
---- (.github/scripts/host-features.sh) as well as its container, or on
---- macOS its runner (.github/scripts/leg-host-id.sh): every
+--- A leg's verdict cache is named by the host's features as well as its
+--- container, or on macOS its runner (the driver's `leg-host-id`, which
+--- takes the features itself, so it runs after the driver is
+--- bootstrapped, and in ci/ with the driver's other commands): every
 --- declared-key verdict's key holds them (build/declared_key.tl's
 --- `host_identity`), and a leg's runners do not share one set, so a
 --- cache named by the container alone could restore another host's
@@ -810,12 +832,21 @@ end
 local function test_the_verdict_cache_is_named_by_the_host_too()
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
   local jobs = ci.jobs as {string: {string: any}}
-  local named, cached = false, 0
+  local named, bootstrapped, cached = false, false, 0
   for _, step in ipairs(jobs.platform.steps as {{string: any}}) do
+    if step.id == "driver" then bootstrapped = true end
     if step.id == "host-id" then
       local run = step.run as string
-      assert(run:find("sh .github/scripts/leg-host-id.sh ", 1, true) == 1, run)
-      named = run:find(' "$(sh .github/scripts/host-features.sh)"', 1, true) ~= nil
+      assert(run:find("cosmic-driver cosmic_ci/driver.tl leg-host-id ", 1, true) == 1, run)
+      assert(run:find("host-features", 1, true) == nil, "the features are no argument: " .. run)
+      assert(step["working-directory"] == nil, "the driver runs in ci/, the job's own directory")
+      assert(bootstrapped, "the host is named before the driver is bootstrapped")
+      -- STARTED is what names the container's options inside every
+      -- verdict key: an input moved renames every verdict cache.
+      assert((step.env as {string: string}).STARTED == "${{ hashFiles('.github/seccomp/**', " ..
+          "'.github/scripts/leg-container.sh', '.github/scripts/seccomp-profile.sh') }}", run)
+      assert(run:find('"$STARTED"', 1, true) ~= nil, run)
+      named = true
     end
     local with = step.with as {string: string}
     if with ~= nil and with.path == "${{ runner.temp }}/verdicts" then
@@ -827,7 +858,7 @@ local function test_the_verdict_cache_is_named_by_the_host_too()
         "a verdict cache restored by its container alone: " .. tostring(restore))
     end
   end
-  assert(named, "the host-id step names no verdict cache by the host's features")
+  assert(named, "the host-id step is gone")
   assert(cached == 3, "the restore, and the saves by content and by commit: " .. cached)
 end
 
@@ -1735,6 +1766,7 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
   for _, key in ipairs({ "shell", "working-directory" }) do
     same("the host's " .. key, host[key], their_host[key])
   end
+  same_table("the host's environment", host.env as {string: any}, their_host.env as {string: any})
   assert(lookup.id == "driver-check-restore" and lookup.uses == their_lookup.uses,
     "a light run looks up the marker otherwise: " .. tostring(lookup.id))
   local by_image <const> = "${{ matrix.image && 'container' || steps.names.outputs.image }}"
@@ -1744,7 +1776,7 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
   local want = as_leg((in_container:gsub("steps%.host%-id%.outputs%.prefix", "steps.driver-host.outputs.prefix")))
   same_table("the marker's lookup", lookup.with,
     { path = (their_lookup.with as {string: any}).path, key = want, ["lookup-only"] = true })
-  local _, named = step_running(steps, "GITHUB_ENV=/dev/null sh .github/scripts/leg-host-id.sh")
+  local _, named = step_running(steps, "GITHUB_ENV=/dev/null cosmic-driver cosmic_ci/driver.tl leg-host-id")
   local looked: integer
   for i, step in ipairs(steps) do
     if step == lookup then looked = i end

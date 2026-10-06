@@ -518,7 +518,7 @@ a Linux leg its image and how it is started (all of it
 the engine's version; on macOS the runner's image label. Not ci.yml,
 whose every edit would move it. The verdict cache is also named by the
 processor features a core chooses code by and the kernel's release and
-version (`host-features.sh`), which differ between runners of one leg:
+version ([`cosmic_ci/host_id.tl`]), which differ between runners of one leg:
 named by the container alone, a run restored another runner's cache and
 none of its verdicts stood. The step was "name the leg's container", as
 `leg-container.sh` still calls it: an edit to that file moves every
@@ -716,4 +716,5 @@ alone.
 [`cosmic_ci/suite_output.tl`]: cosmic_ci/suite_output.tl
 [`cosmic_ci/zig_prune.tl`]: cosmic_ci/zig_prune.tl
 
+[`cosmic_ci/host_id.tl`]: cosmic_ci/host_id.tl
 [`Runner.phase`]: cosmic_ci/runner.tl
