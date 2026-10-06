@@ -14,6 +14,8 @@
 --- - `own_proc`: a sandbox gets a procfs of its own;
 --- - `proc`: /proc is mounted;
 --- - `portable`: this run is a portable artifact, not a native start;
+--- - `checked`: this core is the checked (sanitized) build, whose instruments
+---   refuse an allocation or fire a fault on demand (core/testing.h);
 --- - `root`: the run's user is root;
 --- - `path:<absolute path>`: a file or directory of the host;
 --- - `program:<name>`: a program the PATH finds.
@@ -78,6 +80,7 @@ local shapes: {string:Shape} = {
   own_proc = { class = "platform", argument = false, optional = false },
   proc = { class = "platform", argument = false, optional = false },
   portable = { class = "platform", argument = false, optional = false },
+  checked = { class = "platform", argument = false, optional = false },
   root = { class = "host", argument = false, optional = false },
   path = { class = "host", argument = true, optional = false },
   program = { class = "host", argument = true, optional = false },

@@ -599,6 +599,12 @@ end
 --- on what it was written to hold the platform to, and pass having checked
 --- nothing where the branch goes the other way.
 local restricted: {string: Restriction} = {
+  ["cosmic.test passed_unchecked"] = {
+    files = { "build/fuzz/init.tl" },
+    why = "only the fuzz runner may say a pass did not check on purpose: a test that " ..
+      "cannot check what it is about skips or declares `requires`, and one that checks " ..
+      "asserts",
+  },
   ["build.confine sandbox_platform"] = {
     files = { "build/confine.tl", "build/host_requires.tl",
       "build/test_sandbox_probe.tl" },

@@ -2,7 +2,9 @@
 --- table, a traceback where `debug` used to be, and a name the surface
 --- removed saying what took its place.
 
+local Fs = require("cosmic.fs")
 local Removed = require("cosmic.removed")
+local sys = require("cosmic.sys")
 local errors = require("cosmic.internal.errors")
 
 --- One line longer than a `luaL_Buffer` holds inline (1 KB on a 64-bit
@@ -10,18 +12,35 @@ local errors = require("cosmic.internal.errors")
 --- them: the path that once freed the buffer out from under itself. A
 --- core built with Lua's API checks or AddressSanitizer fails here; the
 --- line itself is only ever read by a person.
-local function test_print_carries_a_line_past_the_inline_buffer()
+--- What `fn` printed to descriptor 1, which it was pointed at a file of
+--- `tmp` for, and restored after.
+local function printed(tmp: string, fn: function()): string
+  local path = tmp .. "/printed"
+  local file = assert(sys.open(path, sys.O_CREAT | sys.O_WRONLY | sys.O_TRUNC, 420))
+  local saved = assert(sys.dup(1))
+  assert(sys.dup2(file, 1))
+  local ok = pcall(fn)
+  assert(sys.dup2(saved, 1))
+  sys.close(saved)
+  sys.close(file)
+  assert(ok, "the printing raised")
+  return (assert(Fs.read(path)))
+end
+
+local function test_print_carries_a_line_past_the_inline_buffer(tmp: string)
   local long = string.rep(".", 1100)
   local shown = setmetatable({}, {
     __tostring = function(): string return "(a value that prints itself)" end,
   })
-  print("surface_test: a long print ->", 42, shown, long, true, nil)
-  assert(true, "a line past the inline buffer prints without raising")
+  local text = printed(tmp, function()
+    print("surface_test: a long print ->", 42, shown, long, true, nil)
+  end)
+  assert(text == "surface_test: a long print ->\t42\t(a value that prints itself)\t" .. long ..
+      "\ttrue\tnil\n", text)
 end
 
-local function test_print_with_nothing_writes_an_empty_line()
-  print()
-  assert(true, "print with no value writes its empty line without raising")
+local function test_print_with_nothing_writes_an_empty_line(tmp: string)
+  assert(printed(tmp, function() print() end) == "\n")
 end
 
 local function test_trace_names_the_message_and_the_stack()

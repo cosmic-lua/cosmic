@@ -339,20 +339,27 @@
    never `return`s: a plain skip is listed and keeps no verdict, and a
    held run fails only a skip of a name its leg promises.
    A test that passes having made no call to `assert` -- through any
-   helper or fixture it called -- checked nothing. The worker counts the
-   calls to `assert` a test makes ([`build/test_worker.tl`]'s
+   helper or fixture it called -- shows only that it did not raise. The
+   worker counts the calls to `assert` a test makes ([`build/test_worker.tl`]'s
    `count_assertions`, which holds for a module that took `assert` as a
    local as it loaded), and `cosmic test` lists each such pass as
-   `test: CHECKED NOTHING <id>`, counts it in the summary (`N passed
-   checking nothing`) and keeps no verdict of it, so it is met again every
-   run. A held run fails it, with the rule in the failure. A test that
-   checks through `error` or `pcall` and a helper calls `assert` for what
-   it checks; one that shows only that something does not raise says so
-   with `assert(true, "<what it shows>")`, or better asserts on the
-   result. An example (`*_example.tl`) shows use and is not held to this;
-   a doc test's output is compared with `assert`; a fuzz property counts
-   each input it checks, and with `FUZZ_ITERS=0` and no corpus it calls
-   [`Test.skip`].
+   `test: NO ASSERT <id>`, counts it in the summary (`N made no call to
+   assert`) and keeps no verdict of it, so it is met again every run. A
+   held run fails it. A test that checks through `error` or `pcall`, or
+   a helper that does, calls `assert` for what it checks; one that cannot
+   check on this host declares `requires` or calls `Test.skip(reason)`;
+   and one that shows that something does not raise asserts on a result
+   that shows it. An example (`*_example.tl`) shows use and is not held
+   to this, and a doc test's output is compared with `assert`. A fuzz
+   property counts each input it checks; where `FUZZ_ITERS=0` draws none
+   and no corpus holds one, the fuzz runner says so with
+   `Test.passed_unchecked(reason)`, which keeps the verdict and is
+   counted apart (`test: NOTHING TO CHECK`); nothing else may call it
+   (`cosmic fix --check .` holds it to that).
+   A test of what only the checked core's instruments reach (a refused
+   allocation, a fault point) goes in a module that declares
+   `requires = { "checked" }`, which every other core finds not
+   applicable and the checked leg promises.
    [`confine.sandbox_platform`] is for the probe of the host alone
    ([`build/host_requires.tl`], [`build/test_sandbox_probe.tl`]):
    `cosmic fix --check .` fails a use anywhere else

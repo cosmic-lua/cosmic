@@ -88,7 +88,7 @@ end
 --- host may lack.
 local function test_classes()
   for _, name in ipairs({ "sandbox", "landlock", "landlock:2", "userns", "nest", "own_proc", "proc",
-      "portable" }) do
+      "portable", "checked" }) do
     assert(host_names.class(name) == "platform", name)
   end
   for _, name in ipairs({ "root", "path:/etc", "program:sh" }) do
@@ -123,7 +123,7 @@ end
 --- absent carries a reason and no key.
 local function test_present_has_a_key_and_absent_a_reason()
   local host = host_with({ ok = true, why = "", broken = false })
-  for _, name in ipairs({ "sandbox", "landlock", "userns", "nest", "own_proc", "proc", "portable", "root",
+  for _, name in ipairs({ "sandbox", "landlock", "userns", "nest", "own_proc", "proc", "portable", "checked", "root",
       "path:/proc/self" }) do
     local answer = ask(host, name)
     if answer.kind == "present" then
@@ -436,4 +436,13 @@ local function test_a_platform_that_is_not_linux_is_not_applicable()
     assert(answers[i].kind == "na" and answers[i].class == "platform", answers[i].name)
   end
   assert(answers[4].class == "host" and answers[4].kind ~= "na")
+end
+
+--- `checked` is present on the checked core the runner says it is, and not
+--- applicable on any other, as is a portable artifact on a native start.
+local function test_checked_follows_the_cores_configuration()
+  local on = ask(host_requires.new({ checked = true }), "checked")
+  assert(on.kind == "present" and on.key == "checked", on.why)
+  assert(ask(host_requires.new({ checked = false }), "checked").kind == "na")
+  assert(ask(host_requires.new(), "checked").kind == "na")
 end

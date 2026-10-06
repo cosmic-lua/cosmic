@@ -56,9 +56,13 @@ local record worker
     skipped: string
     --- How many calls to `assert` the test made while it ran, through
     --- every helper and fixture it called: 0 for one that did not run.
-    --- A test that passes with none checked nothing
+    --- A test that passes with none made no call to `assert`
     --- ([`Judgement.unchecked`]).
     asserted: integer
+    --- What [`Test.passed_unchecked`] said, "" where it was not called: the
+    --- test passed having deliberately not checked, which is no
+    --- [`Judgement.unchecked`].
+    deliberate: string
   end
 
   --- How a sandboxed worker is held by a Landlock ruleset
@@ -157,9 +161,12 @@ local record worker
     message: string
     skipped: string
     --- Whether it passed, and was not skipped, without one call to `assert`
-    --- ([`Report.asserted`]): it ran and checked nothing, which a held run
+    --- ([`Report.asserted`]): it ran and made no call to `assert`, which a held run
     --- fails and no run keeps a verdict of.
     unchecked: boolean
+    --- Of one that passed, what it said it deliberately did not check
+    --- for ([`Report.deliberate`]), "" for none.
+    deliberate: string
   end
 
   --- The descriptor the report is written to.
@@ -300,6 +307,9 @@ function worker.encode(report: worker.Report): string
     lines[#lines + 1] = "skipped " .. hex(report.skipped)
   end
   lines[#lines + 1] = "asserted " .. tostring(report.asserted or 0)
+  if report.deliberate ~= nil and report.deliberate ~= "" then
+    lines[#lines + 1] = "deliberate " .. hex(report.deliberate)
+  end
   lines[#lines + 1] = "end"
   return table.concat(lines, "\n") .. "\n"
 end
@@ -325,7 +335,7 @@ function worker.decode(text: string): worker.Report | nil, string
   local report: worker.Report = {
     loaded = false, passed = false, message = "", elapsed_ns = 0,
     load_hits = {}, test_hits = {}, modules = {}, skipped = "",
-    asserted = 0,
+    asserted = 0, deliberate = "",
   }
   local first = true
   local finished = false
@@ -369,6 +379,10 @@ function worker.decode(text: string): worker.Report | nil, string
         local decoded = unhex(rest)
         if decoded == nil or decoded == "" then return nil, "a malformed skip: " .. line end
         report.skipped = decoded
+      elseif tag == "deliberate" then
+        local decoded = unhex(rest)
+        if decoded == nil or decoded == "" then return nil, "a malformed deliberate: " .. line end
+        report.deliberate = decoded
       elseif tag == "asserted" then
         local count = math.tointeger(tonumber(rest))
         if count == nil or count < 0 then return nil, "a malformed count: " .. line end
@@ -651,8 +665,10 @@ function worker.judge(judging: worker.Judging): worker.Judgement
   end
   -- Only a pass is skipped instead: a failure is one, skip or not.
   judgement.skipped = judgement.passed and report.skipped or ""
+  judgement.deliberate = ""
+  if judgement.passed and judgement.skipped == "" then judgement.deliberate = report.deliberate end
   judgement.unchecked = judgement.passed and judgement.skipped == "" and report.loaded and
-    report.asserted == 0
+    report.asserted == 0 and judgement.deliberate == ""
   return judgement
 end
 
@@ -666,6 +682,15 @@ local counting = false
 --- as it loads holds the counting one, and the count is read around the
 --- test alone. Counted calls are the test's, through every helper and
 --- fixture, and whatever library code it calls that asserts.
+---
+--- A failing call raises at the position of its caller, as the real one
+--- does, except in tail position (`return assert(...)`): there it replaces
+--- its caller's frame, and the position reported is that of the caller's
+--- caller. The real `assert` is a C function, which keeps its caller's
+--- frame; no Lua function can.
+-- TODO: report the right position for `return assert(...)` once the core
+-- carries a counting `assert` of its own (a C function in core/), which
+-- keeps its caller's frame as the real one does.
 local function count_assertions()
   if counting then return end
   counting = true
@@ -856,7 +881,7 @@ function worker.run(argv: {integer:string}): integer
   end
   local report: worker.Report = {
     loaded = false, passed = false, message = "", elapsed_ns = 0, skipped = "",
-    asserted = 0,
+    asserted = 0, deliberate = "",
   }
   count_assertions()
   -- Processes the test starts report the core's C they ran here, so it
@@ -887,8 +912,10 @@ function worker.run(argv: {integer:string}): integer
   setmetatable(ended_by_skip, {
     __tostring = function(): string return "the test was skipped" end,
   })
+  local deliberate = ""
   local runner = {
     loaded = false,
+    deliberate = function(reason: string) deliberate = reason end,
     handed = function(needs: Test.Needs) handed = needs end,
     skipped = function(reason: string): {string:string}
       local seen = false
@@ -954,6 +981,7 @@ function worker.run(argv: {integer:string}): integer
       end
       report.skipped = table.concat(reasons, "; ")
       report.asserted = assertions
+      report.deliberate = deliberate
       report.elapsed_ns = finished - started
     end
   end

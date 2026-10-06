@@ -37,11 +37,17 @@ local cat = "path:/bin/cat"
 local linux = { "sandbox", "landlock", "userns", "nest", "own_proc", "proc", shell, cat, git, children,
   env, passwd }
 
+local checked_leg = {}
+for i = 1, #linux do checked_leg[i] = linux[i] end
+checked_leg[#checked_leg + 1] = "checked"
+
 return {
   legs = {
     ["linux-x86_64"] = linux,
     ["linux-x86_64-shard"] = linux,
-    ["linux-x86_64-checked"] = linux,
+    -- The checked leg's core is the checked build, whose instruments the
+    -- tests that require `checked` use: a held run fails them if they skip.
+    ["linux-x86_64-checked"] = checked_leg,
     ["linux-aarch64"] = linux,
     ["alpine-x86_64"] = linux,
     -- GitHub's macOS runner image carries jq; the Linux legs' images do not.

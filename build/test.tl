@@ -97,6 +97,7 @@ local Cli = require("cosmic.cli")
 local Clock = require("cosmic.clock")
 local Coverage = require("cosmic.coverage")
 local Env = require("cosmic.env")
+local testing = require("cosmic.internal.testing")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
@@ -1215,8 +1216,11 @@ local record Recording
   --- Each skipped test's id and why ([`Test.skip`], or a requirement of
   --- its module the host lacks), as "<id>: <reason>".
   skips: {string}
-  --- Each test that passed checking nothing, by id.
+  --- Each test that passed having made no call to `assert`, by id.
   unchecked: {string}
+  --- What each test that passed deliberately without checking
+  --- ([`Test.passed_unchecked`]) said, one entry per test.
+  deliberate: {string}
   --- Whether the run is held ([`Run.held`]).
   held: boolean
   --- Each not applicable test's id and why, in the same shape.
@@ -1796,7 +1800,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
     rec.skips[#rec.skips + 1] = id .. ": " .. skipped
     message = "skipped: " .. skipped
   end
-  -- A pass that made no call to `assert` checked nothing: it is listed, a
+  -- A pass that made no call to `assert` is listed, a
   -- held run fails it, and no run keeps a verdict of it, so it is met again
   -- every run -- a standing verdict would hide it from the summary and from
   -- a held run that did not run it.
@@ -1808,16 +1812,18 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
     rec.unchecked[#rec.unchecked + 1] = id
     if rec.held then
       passed = false
-      message = "passed checking nothing: it made no call to assert, so its pass shows " ..
-        "only that it did not raise. A held run (COSMIC_TEST_SANDBOX=1, COSMIC_SANDBOX=must " ..
-        "or COSMIC_CI_REQUIRE_SANDBOX=1) fails that. Check what it exists to show with " ..
-        "assert (a helper that checks through error or pcall calls assert, too); a test " ..
-        "that can check nothing on this host declares `requires` or calls Test.skip(reason); " ..
-        "one that shows only that something does not raise says so with " ..
-        "assert(true, \"<what it shows>\"), or better asserts on the result"
+      message = "made no call to assert, so its pass shows only that it did not raise" ..
+        " (a held run fails that)\n  to fix: assert what it exists to show, a helper that" ..
+        " checks through error or pcall calling assert; where this host cannot check it," ..
+        " declare `requires` or call Test.skip(reason)"
     end
   end
-  -- What the records keep: a skip is no pass, nor is a pass that checked nothing.
+  -- A test that said why it did not check keeps its verdict: its pass is a
+  -- function of its key, and it is counted apart.
+  if passed and judged.deliberate ~= nil and judged.deliberate ~= "" then
+    rec.deliberate[#rec.deliberate + 1] = judged.deliberate:match("^[^\n]+") or judged.deliberate
+  end
+  -- What the records keep: a skip is no pass, nor is a pass that made no call to `assert`.
   local kept_pass = passed and skipped == "" and not unchecked
   local elapsed = wall_ns
   if reported ~= nil then
@@ -2981,6 +2987,9 @@ local function say_skips(rec: Recording)
   local unchecked: {string} = {}
   for i, id in ipairs(rec.unchecked) do unchecked[i] = id end
   for _, line in ipairs(test_report.unchecked(unchecked)) do log:say(line) end
+  local deliberate: {string} = {}
+  for i, reason in ipairs(rec.deliberate) do deliberate[i] = reason end
+  for _, line in ipairs(test_report.deliberate(deliberate)) do log:say(line) end
   local nas: {string} = {}
   for i, na in ipairs(rec.nas) do nas[i] = na end
   for _, line in ipairs(test_report.nas(nas)) do log:say(line) end
@@ -3046,7 +3055,7 @@ local record Run
   leg: string
   --- Whether the run is held to the sandbox (COSMIC_TEST_SANDBOX=1,
   --- COSMIC_SANDBOX=must or COSMIC_CI_REQUIRE_SANDBOX=1): it fails what a
-  --- leg promises and a test that checked nothing.
+  --- leg promises and a test that made no call to `assert`.
   held: boolean
   sandboxed: boolean
   sandbox_summary: string
@@ -3564,7 +3573,7 @@ local function make_recording(ctx: Run)
     records = records, root = ctx.root, runtime = ctx.runtime,
     run_at_ns = ctx.run_at_ns, run = handle.run,
     failures = failures, errors = errors, outputs = {}, reruns = {},
-    failed = {}, skips = {}, unchecked = {}, held = ctx.held, nas = {}, unmet = {}, answered = {},
+    failed = {}, skips = {}, unchecked = {}, deliberate = {}, held = ctx.held, nas = {}, unmet = {}, answered = {},
     hits = hits, by_test = by_test, unowned = unowned, tally = tally,
     owed = { kept = {}, used = {}, failed = {}, stores = {} }, shared_keys = {},
     consult_shared = ctx.consult,
@@ -3761,9 +3770,13 @@ local function require_of_host(ctx: Run): integer | nil
         -- no verdict and fails no run.
         local linux: boolean = nil
         local portable = Store.meta("runtime_context") == "portable-v1"
-        if Env.get("COSMIC_TEST_PLATFORM") == "other" then linux, portable = false, false end
+        local checked = testing.configuration == "sanitized"
+        if Env.get("COSMIC_TEST_PLATFORM") == "other" then
+          linux, portable, checked = false, false, false
+        end
         host = host_requires.new({
           portable = portable,
+          checked = checked,
           linux = linux,
           sandbox = function(): host_requires.Sandbox
             if ctx.sandbox_answer == nil then ctx.sandbox_answer = sandbox_here() end

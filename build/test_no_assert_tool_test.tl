@@ -1,6 +1,8 @@
---- End to end: a test that passes having made no call to `assert`
---- checked nothing. The `cosmic test` that ran it lists it and counts it
---- in the summary and keeps no verdict of it; a held run fails it. Each
+--- End to end: a test that passes having made no call to `assert` is
+--- listed by the `cosmic test` that ran it and counted in its summary, and
+--- keeps no verdict; a held run fails it. One that says why it did not
+--- check ([`Test.passed_unchecked`]) is counted apart and keeps its verdict.
+--- A failing `assert` reports the position of its caller. Each
 --- run here is unsandboxed (COSMIC_TEST_SANDBOX=0), so it means the same on
 --- every host.
 
@@ -47,6 +49,10 @@ end
 local function test_skips()
   Test.skip("this host cannot")
 end
+
+local function test_passes_on_purpose()
+  Test.passed_unchecked("a drawn input was out of range")
+end
 ]]))
   return root
 end
@@ -72,23 +78,25 @@ local function test_a_pass_that_asserted_nothing_is_listed_not_failed_and_runs_e
   local out, code = run(root, {})
   assert(code == 0, out)
   -- Only that test: not the ones that asserted, nor the one that skipped.
-  assert(out:find("test: CHECKED NOTHING  checks_test test_asserts_nothing\n", 1, true), out)
-  local _, listed = out:gsub("CHECKED NOTHING", "")
+  assert(out:find("test: NO ASSERT  checks_test test_asserts_nothing\n", 1, true), out)
+  local _, listed = out:gsub("NO ASSERT", "")
   assert(listed == 1, out)
-  assert(out:find("1 skipped (this host could not check it), 1 passed checking nothing (no assert ran), ", 1, true), out)
+  assert(out:find("test: NOTHING TO CHECK  1 test passed deliberately without checking: " ..
+      "a drawn input was out of range\n", 1, true), out)
+  assert(out:find("1 skipped (this host could not check it), 1 made no call to assert, ", 1, true), out)
   -- No verdict is kept of it or of the skip: both run again, the others stand.
   out, code = run(root, {})
   assert(code == 0, out)
-  assert(out:find("; 2 ran, 3 stood, ", 1, true), out)
-  assert(out:find("test: CHECKED NOTHING  checks_test test_asserts_nothing\n", 1, true), out)
+  assert(out:find("; 2 ran, 4 stood, ", 1, true), out)
+  assert(out:find("test: NO ASSERT  checks_test test_asserts_nothing\n", 1, true), out)
 end
 
 local function test_a_held_run_fails_a_pass_that_asserted_nothing(tmp: string)
   for i, held in ipairs({ { COSMIC_SANDBOX = "must" }, { COSMIC_CI_REQUIRE_SANDBOX = "1" } }) do
     local out, code = run(project(tmp .. "/" .. tostring(i)), held)
     assert(code ~= 0, out)
-    assert(out:find("checks_test test_asserts_nothing: passed checking nothing: it made no call to assert", 1, true), out)
-    assert(out:find("1 of 5 failed", 1, true), out)
+    assert(out:find("checks_test test_asserts_nothing: made no call to assert", 1, true), out)
+    assert(out:find("1 of 6 failed", 1, true), out)
   end
 end
 
@@ -102,7 +110,21 @@ end
   local out, code = run(root, {})
   assert(code ~= 0, out)
   assert(out:find("raises_test test_raises: ", 1, true), out)
-  assert(not out:find("raises_test test_raises: passed checking nothing", 1, true), out)
-  local _, listed = out:gsub("CHECKED NOTHING", "")
+  assert(not out:find("raises_test test_raises: made no call", 1, true), out)
+  local _, listed = out:gsub("NO ASSERT", "")
   assert(listed == 1, out)
+end
+
+local function test_a_failing_assert_reports_its_callers_position(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/where_test.tl", [[
+local function test_fails_where_it_is()
+  local x = 1
+  assert(x == 2, "boom")
+end
+]]))
+  local out, code = run(root, {})
+  assert(code ~= 0, out)
+  assert(out:find("where_test test_fails_where_it_is: where_test:3: boom", 1, true), out)
 end

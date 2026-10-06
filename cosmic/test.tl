@@ -725,7 +725,7 @@ end
 --- lacks it, and run, under a key that holds the answer, where it is
 --- present. A test that returns silently for a missing host tool or
 --- platform feature passes having made no call to `assert`, which
---- `cosmic test` lists as having checked nothing and a held run fails. Raises for a reason
+--- `cosmic test` lists as having made no call to `assert` and a held run fails. Raises for a reason
 --- that is not a string or is empty and, under a runner, for a call as
 --- the module loads rather than from a test. Outside a runner it
 --- returns and does nothing: no one there takes what it would raise for
@@ -744,6 +744,25 @@ function Test.skip(reason: string)
     local ending = skipped(reason)
     if ending ~= nil then error(ending, 0) end
   end
+end
+
+--- Says that the running test passes having deliberately not checked,
+--- for a reason of the run it can name (a fuzz property whose
+--- `FUZZ_ITERS=0` draws no input): the test goes on, and `cosmic test`
+--- counts it apart from a test that merely made no call to `assert`, which a
+--- held run fails. Unlike a skip it keeps its verdict, since the pass is a
+--- function of what its key holds. Reserved for the fuzz runner, which
+--- `cosmic fix --check .` holds it to; a test that cannot check what it is
+--- about skips or declares `requires`. Raises for a reason that is not a
+--- string or is empty; outside a runner it does nothing.
+--- @param reason what the run drew or read that left nothing to check
+function Test.passed_unchecked(reason: string)
+  if not (reason is string) then error("test: passed_unchecked's reason is not a string", 2) end
+  if reason == "" then error("test: passed_unchecked's reason is empty", 2) end
+  local installed = runner_in(Test)
+  if installed == nil then return end
+  local deliberate = installed.deliberate
+  if deliberate is function(string) then deliberate(reason) end
 end
 
 return Test

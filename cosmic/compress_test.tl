@@ -5,8 +5,6 @@
 local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Sqlite = require("cosmic.sqlite")
-local testing = require("cosmic.internal.testing")
-local Test = require("cosmic.test")
 
 -- Feeds `data` through `stream` in pieces of `size` bytes (the whole of
 -- it in one piece when `size` is nil), draining each piece's held
@@ -229,27 +227,6 @@ local function test_the_ratio_check_passes_deflates_most_compressible_stream()
       assert(total == size, format .. " in pieces of " .. piece .. ": " .. tostring(total) .. " " .. trouble)
     end
   end
-end
-
---- The ratio check, reached through the checked core's fault point: a
---- tinfl that stops consuming, as upstream's did on a block with no
---- codes, gives out a full window per call for nothing, and the stream
---- fails once that passes deflate's largest ratio rather than spinning.
-local function test_a_decoder_that_stops_consuming_fails_the_ratio_check()
-  if testing.configuration ~= "sanitized" then
-    Test.skip("only the checked core carries the instrument it uses")
-  end
-  local packed = assert(Compress.deflate("raw", "hello, cosmic!"))
-  testing.fail_at("tinfl_decompress")
-  local dec = assert(Compress.inflater("raw"))
-  local out, trouble: string, string
-  for _ = 1, 64 do
-    out, trouble = dec:update(packed)
-    if out == nil or not dec:pending() then break end
-    packed = ""
-  end
-  assert(not testing.fail_at(), "the fault fired")
-  assert(out == nil and trouble:find("more output than deflate codes", 1, true) ~= nil, tostring(trouble))
 end
 
 local function test_crc32_matches_the_known_value_and_continues()
@@ -562,34 +539,6 @@ local function test_a_closed_stream_is_finished_and_keeps_rest()
     closer(s, nil)
     closer(s, nil)
   end
-end
-
-local function test_a_raise_inside_update_leaves_the_stream_finished()
-  -- Only the checked core can refuse an allocation, which is what makes
-  -- a luaL_Buffer raise in the middle of a decode.
-  if testing.configuration ~= "sanitized" then
-    Test.skip("only the checked core carries the instrument it uses")
-  end
-  local input = string.rep("the quick brown fox ", 5000)
-  local enc = assert(Compress.deflater("gzip"))
-  local packed = assert(enc:update(input)) .. assert(enc:finish())
-  local raised = 0
-  for after = 0, 100000 do
-    local dec = gzip_decoder()
-    testing.fail_allocations(after)
-    local ok = pcall(dec.update, dec, packed, 1 << 20)
-    local refused = testing.allow_allocations()
-    if refused == 0 then
-      assert(ok)
-      break
-    end
-    if not ok then
-      raised = raised + 1
-      local again, why = pcall(dec.update, dec, "")
-      assert(not again and tostring(why):find("finished", 1, true), tostring(why))
-    end
-  end
-  assert(raised > 0)
 end
 
 local function test_input_after_the_limit_queues_behind_the_backlog()

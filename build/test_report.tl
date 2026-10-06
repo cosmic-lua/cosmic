@@ -30,7 +30,7 @@ local record test_report
     ran: integer
     cached: integer
     skipped: integer
-    --- Of those that ran, how many passed checking nothing.
+    --- Of those that ran, how many passed having made no call to `assert`.
     unchecked: integer
     --- Of the tests chosen, how many are not applicable on this platform,
     --- none of which ran or stood.
@@ -58,12 +58,30 @@ function test_report.skips(skips: {string}): {string}
   return lines
 end
 
---- Each test that passed checking nothing, sorted as the skips are: it
---- made no call to `assert`.
+--- Each test that passed having made no call to `assert`, sorted as the
+--- skips are.
 function test_report.unchecked(ids: {string}): {string}
   table.sort(ids)
   local lines: {string} = {}
-  for _, id in ipairs(ids) do lines[#lines + 1] = "test: CHECKED NOTHING  " .. id end
+  for _, id in ipairs(ids) do lines[#lines + 1] = "test: NO ASSERT  " .. id end
+  return lines
+end
+
+--- One line for each reason some tests gave [`Test.passed_unchecked`], with
+--- how many gave it, sorted: they passed deliberately without checking.
+function test_report.deliberate(reasons: {string}): {string}
+  local counts: {string:integer} = {}
+  local order: {string} = {}
+  for _, reason in ipairs(reasons) do
+    if counts[reason] == nil then order[#order + 1] = reason end
+    counts[reason] = (counts[reason] or 0) + 1
+  end
+  table.sort(order)
+  local lines: {string} = {}
+  for _, reason in ipairs(order) do
+    lines[#lines + 1] = "test: NOTHING TO CHECK  " .. plural.count(counts[reason], "test") ..
+      " passed deliberately without checking: " .. reason
+  end
   return lines
 end
 
@@ -139,7 +157,7 @@ function test_report.passed(counts: test_report.Passed, elapsed: string): string
     counts.ran .. " ran, " .. counts.cached .. " stood, " ..
     (counts.skipped > 0 and (counts.skipped .. " skipped (this host could not check " ..
       (counts.skipped == 1 and "it" or "them") .. "), ") or "") ..
-    ((counts.unchecked or 0) > 0 and (counts.unchecked .. " passed checking nothing (no assert ran), ") or "") ..
+    ((counts.unchecked or 0) > 0 and (counts.unchecked .. " made no call to assert, ") or "") ..
     ((counts.na or 0) > 0 and (counts.na .. " n/a (this platform has none of what they check), ") or "") ..
     (counts.every > 0 and (counts.every .. " run every time (no key holds them), ") or "") ..
     (counts.shared > 0 and (counts.shared .. " of them on another checkout's verdict, ") or "") ..
