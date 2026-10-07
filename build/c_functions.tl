@@ -58,6 +58,12 @@ local connector_only <const> =
 --- The C functions no test can enter, by [`key_of`], and why.
 local exempt: {string: string} = {
   ["core/connector.c:connector_attack"] = connector_only,
+  ["core/connector.c:connector_attack_scratch"] = connector_only,
+  ["core/connector.c:connector_establish"] = connector_only,
+  ["core/connector.c:connector_public_allowed"] = connector_only,
+  ["core/connector.c:connector_public_connect"] = connector_only,
+  ["core/connector.c:connector_receive"] = connector_only,
+  ["core/connector.c:connector_within"] = connector_only,
   ["core/connector.c:connector_connect"] = connector_only,
   ["core/connector.c:connector_hold"] = connector_only,
   ["core/connector.c:connector_loop"] = connector_only,

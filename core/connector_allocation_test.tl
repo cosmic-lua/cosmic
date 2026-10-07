@@ -60,11 +60,24 @@ local function test_startup_faults_close_the_status_pipe_and_release_the_address
   for _, point in ipairs({ "connector_mmap", "connector_mprotect", "connector_pipe", "connector_fork",
       "connector_close_range", "connector_filter" }) do
     testing.fail_at(point)
-    local pid, why, number = process.connector_start({ { host = "127.0.0.1", port = 9 } }, pair[2], 100)
+    local pid, why, number = process.connector_start({ { host = "127.0.0.1", port = 9 } }, pair[2], 100, nil)
     assert(not testing.fail_at(), point .. " did not fire")
     assert(pid == nil and why ~= "" and number ~= 0, point .. " did not return a value failure")
     collectgarbage("collect")
     assert(next_descriptor(tmp) == before, point .. " leaked a descriptor")
+  end
+  -- A public connector also maps its scratch page, with an empty table or
+  -- one: each start that fails after it is mapped releases both pages.
+  for _, table_ in ipairs({ {}, { { host = "127.0.0.1", port = 9 } } } as {{raw_process.ConnectorEndpoint}}) do
+    for _, point in ipairs({ "connector_scratch", "connector_pipe", "connector_fork",
+        "connector_close_range", "connector_filter" }) do
+      testing.fail_at(point)
+      local pid, why, number = process.connector_start(table_, pair[2], 100, { deny = { "10.0.0.0/8" } })
+      assert(not testing.fail_at(), point .. " did not fire for a public connector")
+      assert(pid == nil and why ~= "" and number ~= 0, point .. " did not return a value failure")
+      collectgarbage("collect")
+      assert(next_descriptor(tmp) == before, point .. " leaked a descriptor of a public connector")
+    end
   end
   assert(sys.close(pair[1]))
   assert(sys.close(pair[2]))
