@@ -156,6 +156,8 @@ local function test_merge_refuses_values_a_type_does_not_stop()
     { { connect = { "[1:2:3:4:5:6:7:]:80" } }, "/connect/0" },
     { { connect = { "[::1.2.3]:80" } }, "/connect/0" },
     { { connect = { "[]:80" } }, "/connect/0" },
+    { { connect = { "[::1.2.3.04]:80" } }, "/connect/0" },
+    { { connect = { "[::1.2.3.256]:80" } }, "/connect/0" },
     { { loopback = { "8.8.8.8" } }, "/loopback/0" },
     { { env = { "A=1" } }, "/env/0" },
     { { limits = { open_files = 0 } }, "/limits/open_files" },

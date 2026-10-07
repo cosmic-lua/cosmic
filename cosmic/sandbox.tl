@@ -273,7 +273,9 @@ local function group_count(list: string, tail4: boolean): integer | nil
       local a, b, c, d = piece:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
       if not tail4 or i ~= #pieces or a == nil then return nil end
       for _, octet in ipairs({ a, b, c, d }) do
-        if #octet > 3 or tonumber(octet) > 255 then return nil end
+        if #octet > 3 or tonumber(octet) > 255 or (#octet > 1 and octet:sub(1, 1) == "0") then
+          return nil
+        end
       end
       count = count + 2
     elseif #piece < 1 or #piece > 4 or piece:find("%X") then

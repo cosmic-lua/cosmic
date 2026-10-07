@@ -1053,7 +1053,8 @@ local function test_an_upstream_is_read_from_the_environment()
   end
   -- The credentials are never in the reason, whichever way the value is wrong.
   for _, value in ipairs({ "http://user:secret@host:0", "https://user:secret@host:443", "socks5://user:secret@host:1080",
-      "user:secret@host:0", "http://user:secret@:80" }) do
+      "user:secret@host:0", "http://user:secret@:80", "http://u:p@secret@host:x", "http://u:pa/secret@host:x",
+      "socks5://u:p@secret@host", "socks5://u:pa/secret@host", "http://u:pa/secret@host:x/path", "u:p@secret@host:x" }) do
     local _, why = Relay.upstream({ https_proxy = value })
     assert(why ~= "" and not why:find("secret", 1, true), value .. ": " .. why)
   end

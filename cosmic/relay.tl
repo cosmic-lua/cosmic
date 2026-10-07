@@ -296,12 +296,6 @@ local function percent_decoded(text: string): string
   end))
 end
 
---- `value`, a proxy URL, with the credentials in it hidden, for a message.
-local function masked(value: string): string
-  local hidden = value:gsub("//[^@/]*@", "//***@")
-  return (hidden:gsub("^[^/@]*@", "***@"))
-end
-
 --- The upstream a caller's environment names, and nil when it names none:
 --- `https_proxy` (or `HTTPS_PROXY`) as `http://[user:password@]host[:port]`
 --- (the scheme and the port, 80, may be left out) and `no_proxy` (or
@@ -318,7 +312,9 @@ function Relay.upstream(env: {string:string}): Relay.Upstream | nil, string
   local scheme, rest = value:match("^(%a[%w+.-]*)://(.*)$")
   if scheme ~= nil then
     if lower(scheme) ~= "http" then
-      return nil, ("https_proxy \"%s\" is not an http:// proxy (the relay speaks plain HTTP to its upstream)"):format(masked(value))
+      -- No reason below repeats the value: it may hold a password, and no
+      -- pattern that hides one is right for every place an "@" or "/" may fall.
+      return nil, ("https_proxy has the scheme \"%s\", not http:// (the relay speaks plain HTTP to its upstream)"):format(scheme)
     end
   else
     rest = value
@@ -340,7 +336,7 @@ function Relay.upstream(env: {string:string}): Relay.Upstream | nil, string
     if at ~= "" then port = number_of(at) end
   end
   if host == nil or host == "" or port == nil then
-    return nil, ("https_proxy \"%s\" has no usable host:port"):format(masked(value))
+    return nil, "https_proxy has no usable host:port (http://[user:password@]host[:port])"
   end
   local upstream: Relay.Upstream = { host = lower(host), port = port, no_proxy = {} }
   if userinfo ~= nil and userinfo ~= "" then
@@ -597,7 +593,10 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
     -- The upstream's address is the one the caller's own https_proxy names: the
     -- relay may connect to it (a proxy on loopback or a private network is the
     -- usual one) without the program being granted it, which would let the
-    -- program ask the proxy for any host.
+    -- program ask the proxy for any host. Every answer of its name is trusted
+    -- so, but `select` still takes the first, and the decision line names the
+    -- one connected to; the metadata and unspecified classes are not excepted,
+    -- since the caller, not the sandbox, chose this name.
     grants = {}
     for i, grant in ipairs(run.spec.grants) do grants[i] = grant end
     for _, answer in ipairs(answers) do grants[#grants + 1] = target(answer.address, port) end
