@@ -26,6 +26,10 @@
 #include <netinet/in.h>
 #include <time.h>
 #include <unistd.h>
+#if defined(__APPLE__)
+#include <libproc.h>
+#include <sys/proc_info.h>
+#endif
 
 #include <ares.h>
 
@@ -603,30 +607,55 @@ COSMIC_SYSCALL(accept, 1) {
   return 1;
 }
 
-COSMIC_SYSCALL(adopt, 1) {
-  int fd = cosmic_checkfd(L, 1);
-  struct owned *owned = owner_push(L, 0);
+/* 0 where the stream socket `fd` is listening, EINVAL where it is not, or
+ * why that could not be told. Darwin's getsockopt answers ENOPROTOOPT for
+ * SO_ACCEPTCONN, so its socket's own option word is read through libproc. */
+static int listening_state (int fd) {
+#if defined(__APPLE__)
+  struct socket_fdinfo info;
+  int got = proc_pidfdinfo(getpid(), fd, PROC_PIDFDSOCKETINFO, &info, (int)sizeof info);
+  if (got < (int)sizeof info) return got < 0 ? errno : EIO;
+  return (info.psi.soi_options & SO_ACCEPTCONN) != 0 ? 0 : EINVAL;
+#else
+  int listening = 0;
+  socklen_t size = sizeof listening;
+  if (getsockopt(fd, SOL_SOCKET, SO_ACCEPTCONN, &listening, &size) != 0) return errno;
+  return listening ? 0 : EINVAL;
+#endif
+}
+
+/* 0 where `fd` is a listening TCP stream socket, or why it is not. */
+static int adoptable (int fd) {
   int type = 0;
   socklen_t size = sizeof type;
-  if (getsockopt(fd, SOL_SOCKET, SO_TYPE, &type, &size) != 0) return cosmic_fail(L, errno);
-  if (type != SOCK_STREAM) return cosmic_fail(L, EPROTOTYPE);
-  int listening = 0;
-  size = sizeof listening;
-  if (getsockopt(fd, SOL_SOCKET, SO_ACCEPTCONN, &listening, &size) != 0) return cosmic_fail(L, errno);
-  if (!listening) return cosmic_fail(L, EINVAL);
+  if (getsockopt(fd, SOL_SOCKET, SO_TYPE, &type, &size) != 0) return errno;
+  if (type != SOCK_STREAM) return EPROTOTYPE;
+  int state = listening_state(fd);
+  if (state != 0) return state;
   struct sockaddr_storage address;
   socklen_t length = sizeof address;
   memset(&address, 0, sizeof address);
-  if (getsockname(fd, (struct sockaddr *)&address, &length) != 0) return cosmic_fail(L, errno);
-  if (address.ss_family != AF_INET && address.ss_family != AF_INET6) return cosmic_fail(L, EAFNOSUPPORT);
+  if (getsockname(fd, (struct sockaddr *)&address, &length) != 0) return errno;
+  if (address.ss_family != AF_INET && address.ss_family != AF_INET6) return EAFNOSUPPORT;
+  return 0;
+}
+
+COSMIC_SYSCALL(adopt, 1) {
+  int fd = cosmic_checkfd(L, 1);
+  struct owned *owned = owner_push(L, 0);
+  /* The copy is what is checked, so a descriptor changed under the
+   * caller after the copy is made cannot be what is adopted. */
   owned->fd = fcntl(fd, F_DUPFD_CLOEXEC, 0);
   if (owned->fd < 0) return cosmic_fail(L, errno);
-  /* The copy shares the original's open file description, and `accept`
-   * must not block a task: the flag is the description's, so the original
-   * is nonblocking from here on. */
-  int flags = fcntl(owned->fd, F_GETFL);
-  if (flags < 0 || fcntl(owned->fd, F_SETFL, flags | O_NONBLOCK) != 0) {
-    int failure = errno;
+  int failure = adoptable(owned->fd);
+  if (failure == 0) {
+    /* The copy shares the original's open file description, and `accept`
+     * must not block a task: the flag is the description's, so the original
+     * is nonblocking from here on. */
+    int flags = fcntl(owned->fd, F_GETFL);
+    if (flags < 0 || fcntl(owned->fd, F_SETFL, flags | O_NONBLOCK) != 0) failure = errno;
+  }
+  if (failure != 0) {
     released(owned);
     return cosmic_fail(L, failure);
   }
@@ -752,6 +781,19 @@ COSMIC_SYSCALL(bound, 1) {
     return tcp_pushed(L, &address, type == SOCK_DGRAM ? "udp" : "tcp");
   }
   return address_pushed(L, &address, length);
+}
+
+COSMIC_SYSCALL(peer, 1) {
+  int fd = cosmic_checkfd(L, 1);
+  int type = 0;
+  socklen_t size = sizeof type;
+  if (getsockopt(fd, SOL_SOCKET, SO_TYPE, &type, &size) != 0) return cosmic_fail(L, errno);
+  if (type != SOCK_STREAM) return cosmic_fail(L, EPROTOTYPE);
+  struct sockaddr_storage address;
+  socklen_t length = sizeof address;
+  memset(&address, 0, sizeof address);
+  if (getpeername(fd, (struct sockaddr *)&address, &length) != 0) return cosmic_fail(L, errno);
+  return tcp_pushed(L, &address, "tcp");
 }
 
 COSMIC_SYSCALL(datagram, 1) {

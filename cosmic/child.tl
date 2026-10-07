@@ -1877,7 +1877,10 @@ local record ConnectorProcess
   --- it: true, and true again once closed. A connector dropped unclosed is
   --- ended and reaped when it is collected.
   close: function(ConnectorProcess): boolean
+  metamethod __close: function(ConnectorProcess)
 end
+
+local end_connector: function(ConnectorProcess, boolean)
 
 local connector_mt: metatable<ConnectorProcess> = {
   __index = ConnectorProcess,
@@ -1885,7 +1888,7 @@ local connector_mt: metatable<ConnectorProcess> = {
     local _ = self:close()
   end,
   __gc = function(self: ConnectorProcess)
-    local _ = self:close()
+    end_connector(self, true)
   end,
 }
 
@@ -1959,18 +1962,37 @@ function Child.guard(): Guard | nil, string
   return opened()
 end
 
---- Ends the connector and reaps it.
-function ConnectorProcess:close(): boolean
-  if not self.open then return true end
-  self.open = false
-  local _, _ = sys.close(self.fd)
+--- Ends `connector` and reaps it. A process this one adopted may already
+--- have been reaped (`collect` takes every child), and its pid may be
+--- another process's by now: it is signalled only while it is still this
+--- one's unreaped child.
+end_connector = function(connector: ConnectorProcess, collecting: boolean)
+  if not connector.open then return end
+  connector.open = false
+  -- A task parked on the stream is woken, and the descriptor number is
+  -- not read again once another file may hold it. A collector must not
+  -- touch the run's state.
+  if not collecting then Poll.closing(connector.fd) end
+  local _, _ = sys.close(connector.fd)
+  local seen, gone = raw.waitpid(connector.pid, true)
+  if seen == nil or gone ~= nil and gone ~= "" or seen.pid ~= 0 then return end
   -- Nothing the connector is doing is worth waiting for: it may be in a
   -- connect that would end only at its own timeout.
-  local _, _ = sys.kill(self.pid, sys.SIGKILL)
-  local _, _ = raw.waitpid(self.pid, false)
+  local _, _ = sys.kill(connector.pid, sys.SIGKILL)
+  local _, _ = raw.waitpid(connector.pid, false)
+end
+
+--- Ends the connector and reaps it, waking a task waiting on its stream.
+function ConnectorProcess:close(): boolean
+  end_connector(self, false)
   return true
 end
 
+--- Plumbing behind [`Net.connector`], which is the supported face: its
+--- wire protocol (the request and reply of the control stream, the
+--- passed descriptor) may change with the core, and nothing else
+--- should speak it.
+---
 --- Starts the sandbox's native TCP connector, confined to the numeric
 --- `endpoints` (at most 128, each a canonical IPv4 or IPv6 `host` and a
 --- `port`, 0 for any nonzero port at that address) and to nothing else:

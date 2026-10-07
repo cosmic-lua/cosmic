@@ -121,38 +121,42 @@ end
 
 local function test_listener_from_refuses_what_is_no_listening_tcp_socket(tmp: string)
   local before = descriptor_count()
-  local function refuses(fd: integer, what: string, fragment: string)
+  local function refuses(fd: integer, what: string, fragments: {string})
     local listener, why = Net.listener_from(fd)
     assert(listener == nil, what .. " was adopted")
     assert(why:find("descriptor " .. fd .. " is no listening TCP socket", 1, true) ~= nil, why)
-    assert(why:find(fragment, 1, true) ~= nil, what .. ": " .. why)
+    local found = false
+    for _, fragment in ipairs(fragments) do
+      found = found or why:find(fragment, 1, true) ~= nil
+    end
+    assert(found, what .. ": " .. why)
   end
   -- A regular file.
   local file = assert(sys.open(tmp .. "/regular", sys.O_CREAT | sys.O_RDWR, 420))
-  refuses(file, "a regular file", "ocket")
+  refuses(file, "a regular file", { "Not a socket", "non-socket" })
   assert(sys.close(file))
   -- A pipe.
   local ends = assert(process.pipe())
-  refuses(ends.reader, "a pipe's reader", "ocket")
-  refuses(ends.writer, "a pipe's writer", "ocket")
+  refuses(ends.reader, "a pipe's reader", { "Not a socket", "non-socket" })
+  refuses(ends.writer, "a pipe's writer", { "Not a socket", "non-socket" })
   assert(sys.close(ends.reader) and sys.close(ends.writer))
   -- A stream socket that is connected, not listening.
   local server = assert(socket.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 1))
   local bound = assert(socket.bound(server:fd()))
   local client = assert(socket.connect({ kind = "tcp", host = "127.0.0.1", port = bound.port }, 5000))
-  refuses(client:fd(), "a connected socket", "not listening")
+  refuses(client:fd(), "a connected socket", { "not listening" })
   -- A datagram socket.
   local datagram = assert(socket.datagram({ kind = "udp", host = "127.0.0.1", port = 0 }))
-  refuses(datagram:fd(), "a datagram socket", "wrong type")
+  refuses(datagram:fd(), "a datagram socket", { "wrong type" })
   -- A closed descriptor.
   local number = client:fd()
   assert(client:close())
-  refuses(number, "a closed descriptor", "Bad file descriptor")
+  refuses(number, "a closed descriptor", { "Bad file descriptor" })
   assert(datagram:close())
   assert(server:close())
   -- A listening unix socket: not TCP.
   local unix = assert(socket.listen({ kind = "unix", path = tmp .. "/listener.sock" }, 1))
-  refuses(unix:fd(), "a unix listener", "not supported")
+  refuses(unix:fd(), "a unix listener", { "not supported" })
   assert(unix:close())
   -- Not an fd at all.
   local ok, why = pcall(Net.listener_from, -1)
@@ -194,6 +198,13 @@ local function test_a_table_connector_connects_to_its_endpoints_and_refuses_the_
     -- A wildcard port at its own address is allowed, and the port nothing listens at is refused by the kernel.
     local conn, why = connector:connect("127.0.0.2", port, Clock.seconds(5))
     assert(conn == nil and why ~= "" and why:find("not in the connector", 1, true) == nil, tostring(why))
+    -- A wildcard port: any nonzero port at that address, here the echo server's own.
+    local wildcard = assert(Net.connector({ { host = "127.0.0.1", port = 0 } }))
+    local wild = assert(wildcard:connect(1, port, Clock.seconds(5)))
+    assert(wild:close())
+    local none, nothing = wildcard:connect("127.0.0.1", 0, Clock.seconds(5))
+    assert(none == nil and nothing:find("not in the connector's table", 1, true) ~= nil, tostring(nothing))
+    assert(wildcard:close())
     -- The process answered every one of those and still serves.
     local after = assert(connector:connect("127.0.0.1", port, Clock.seconds(5)))
     assert(after:close())
@@ -257,7 +268,8 @@ local function test_a_connector_without_a_table_starts_a_process_for_each_connec
     -- An index names nothing here, and a name is no address.
     local none, trouble = connector:connect(1, port, Clock.seconds(5))
     assert(none == nil and trouble:find("numeric address", 1, true) ~= nil, tostring(trouble))
-    assert(not pcall(connect, "localhost", port, Clock.seconds(5)))
+    local named, why_named = connect("localhost", port, Clock.seconds(5))
+    assert(named == nil and why_named:find("not a numeric address", 1, true) ~= nil, tostring(why_named))
     assert(connector:close())
     task:cancel()
     assert(listener:close())
@@ -268,16 +280,136 @@ end
 local function test_a_connector_dropped_unclosed_is_ended_when_collected()
   require_native_connector()
   local before = descriptor_count()
+  local pid: integer
   do
-    local connector = assert(Net.connector({ { host = "127.0.0.1", port = 9 } }))
-    assert(connector ~= nil)
+    local started = assert(Child.start_connector({ { host = "127.0.0.1", port = 9 } }, 1000))
+    pid = started.pid
+    assert(sys.kill(pid, 0), "the connector is running")
   end
   collectgarbage("collect")
   collectgarbage("collect")
   assert(descriptor_count() == before, "a dropped connector left its control stream open")
-  -- Its process was reaped with it: no child of this worker is left to wait for.
-  local ended = process.waitpid(-1, true)
-  assert(ended == nil or ended.pid == 0, "a dropped connector's process was not reaped")
+  -- Reaped, not a zombie: nothing answers a signal 0 to its pid.
+  assert(not sys.kill(pid, 0), "a dropped connector's process was not ended and reaped")
+  local dropped = assert(Net.connector({ { host = "127.0.0.1", port = 9 } }))
+  assert(dropped:close())
+end
+
+--- A listener whose queue is full, so that a connect to it hangs: its
+--- port, and what holds it full. Skips where this kernel answers anyway.
+local function hung_port(): integer, {raw_socket.Socket}
+  local listener = assert(socket.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 1))
+  local port = assert(socket.bound(listener:fd())).port
+  local held: {raw_socket.Socket} = { listener }
+  for n = 1, 6 do
+    held[#held + 1] = assert(socket.start({ kind = "tcp", host = "127.0.0.1", port = port }))
+    assert(n > 0)
+  end
+  local probe = assert(socket.start({ kind = "tcp", host = "127.0.0.1", port = port }))
+  held[#held + 1] = probe
+  local ready = socket.wait(probe:fd(), true, 200)
+  if ready then Test.skip("this kernel completes a connect to a listener whose queue is full") end
+  return port, held
+end
+
+local function test_a_hung_request_times_out_holds_a_second_caller_and_the_next_restarts()
+  require_native_connector()
+  Poll.run(function()
+    local port, held = hung_port()
+    local listener, task = echo_server()
+    local echo = listener.address.port
+    local connector = assert(Net.connector({
+      { host = "127.0.0.1", port = port }, { host = "127.0.0.1", port = echo },
+    }, { timeout_ns = Clock.seconds(30) }))
+    local first: string
+    local second: string
+    local started = Clock.monotonic_ns()
+    local one = Poll.spawn(function()
+      local _, why = connector:connect(1, port, Clock.ms(300))
+      first = why
+    end)
+    -- The second caller waits for the first, whose deadline passes after its own.
+    local two = Poll.spawn(function()
+      assert(Poll.delay(Clock.ms(50)))
+      local _, why = connector:connect(2, echo, Clock.ms(100))
+      second = why
+    end)
+    assert(one:join() and two:join())
+    local elapsed = Clock.monotonic_ns() - started
+    assert(first == Poll.TIMEOUT, tostring(first))
+    assert(second == Poll.TIMEOUT, tostring(second))
+    assert(elapsed < Clock.seconds(5), "the waits ended after " .. elapsed // Clock.ms(1) .. " ms")
+    -- The connector the hung request left out of step was ended: the next request starts another.
+    local conn = assert(connector:connect(2, echo, Clock.seconds(5)))
+    assert(conn:close())
+    assert(connector:close())
+    task:cancel()
+    assert(listener:close())
+    for _, each in ipairs(held) do assert(each:close()) end
+  end)
+end
+
+local function test_closing_a_connector_wakes_a_request_in_flight()
+  require_native_connector()
+  Poll.run(function()
+    local port, held = hung_port()
+    local connector = assert(Net.connector({ { host = "127.0.0.1", port = port } },
+      { timeout_ns = Clock.seconds(30) }))
+    local answer: string
+    local started = Clock.monotonic_ns()
+    local waiting = Poll.spawn(function()
+      local _, why = connector:connect(1, port, Clock.seconds(20))
+      answer = why
+    end)
+    assert(Poll.delay(Clock.ms(100)))
+    assert(connector:close())
+    assert(waiting:join(Clock.seconds(5)), "the request was left parked")
+    assert(answer:find("closed", 1, true) ~= nil, tostring(answer))
+    assert(Clock.monotonic_ns() - started < Clock.seconds(3))
+    for _, each in ipairs(held) do assert(each:close()) end
+  end)
+end
+
+local function test_a_killed_request_leaves_the_connector_free()
+  require_native_connector()
+  Poll.run(function()
+    local port, held = hung_port()
+    local listener, task = echo_server()
+    local echo = listener.address.port
+    local connector = assert(Net.connector({
+      { host = "127.0.0.1", port = port }, { host = "127.0.0.1", port = echo },
+    }, { timeout_ns = Clock.seconds(30) }))
+    local waiting = Poll.spawn(function()
+      local _, _ = connector:connect(1, port, Clock.seconds(20))
+    end)
+    assert(Poll.delay(Clock.ms(100)))
+    waiting:kill()
+    -- Not held by the dead task, nor given its unread reply.
+    local conn = assert(connector:connect(2, echo, Clock.seconds(5)))
+    assert(conn:close())
+    assert(connector:close())
+    task:cancel()
+    assert(listener:close())
+    for _, each in ipairs(held) do assert(each:close()) end
+  end)
+end
+
+local function test_a_connectors_table_is_a_copy()
+  require_native_connector()
+  Poll.run(function()
+    local listener, task = echo_server()
+    local port = listener.address.port
+    local given: {Net.Endpoint} = { { host = "127.0.0.1", port = port } }
+    local connector = assert(Net.connector(given))
+    given[1].host = "127.0.0.9"
+    local conn, why = connector:connect("127.0.0.9", port, Clock.seconds(5))
+    assert(conn == nil and why:find("not in the connector's table", 1, true) ~= nil, tostring(why))
+    local ok = assert(connector:connect("127.0.0.1", port, Clock.seconds(5)))
+    assert(ok:close())
+    assert(connector:close())
+    task:cancel()
+    assert(listener:close())
+  end)
 end
 
 local function test_a_connector_refuses_what_a_host_cannot_confine_or_a_table_that_is_no_table()

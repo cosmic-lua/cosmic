@@ -912,11 +912,13 @@ local socket_connector_mt: metatable<SocketConnector> = {
   end,
 }
 
---- Reads exactly `count` bytes of the control stream by `deadline`.
-local function control_read(fd: integer, count: integer, deadline: integer): string | nil, string
+--- Reads exactly `count` bytes of the control stream by `deadline`. A
+--- process closed meanwhile, by [`Connector.close`], ends the wait.
+local function control_read(process: Child.ConnectorProcess, count: integer, deadline: integer): string | nil, string
   local out = ""
   while #out < count do
-    local data, why, errno = sys.read(fd, count - #out)
+    if not process.open then return nil, "net: the connector is closed" end
+    local data, why, errno = sys.read(process.fd, count - #out)
     if data == "" then
       return nil, "net: the connector ended before it replied"
     elseif data ~= nil then
@@ -924,7 +926,7 @@ local function control_read(fd: integer, count: integer, deadline: integer): str
     elseif errno ~= raw.EAGAIN then
       return nil, why
     else
-      local ready, waiting = waited(fd, false, math.max(0, deadline - Clock.monotonic_ns()))
+      local ready, waiting = waited(process.fd, false, math.max(0, deadline - Clock.monotonic_ns()))
       if not ready then return nil, waiting end
     end
   end
@@ -940,24 +942,33 @@ local record Asked
   kept: boolean
 end
 
---- Asks `process` for a connection to its endpoint `index` at `port`, by
---- `deadline`.
-local function ask(process: Child.ConnectorProcess, index: integer, port: integer,
+--- Asks `process` for a connection to its endpoint `index`, which is
+--- `host` at `port`, by `deadline`. The socket it passes is taken only
+--- if it is a stream connected to that very host and port.
+local function ask(process: Child.ConnectorProcess, index: integer, host: string, port: integer,
                    deadline: integer, timeout_ns: integer): Asked
   local sent, wrote = sys.write(process.fd, string.pack(">I4I4", index, port))
   if sent ~= 8 then
     return { why = "net: could not ask the connector: " .. tostring(wrote), kept = false }
   end
-  local status, saying = control_read(process.fd, 4, deadline)
+  local status, saying = control_read(process, 4, deadline)
   if status == nil then return { why = saying, kept = false } end
   local errno = string.unpack(">I4", status)
   if errno ~= 0 then
     return { why = errno == raw.ETIMEDOUT and Poll.TIMEOUT or sys.errno_message(errno), kept = true }
   end
   while true do
+    if not process.open then return { why = "net: the connector is closed", kept = false } end
     local received, because, failure = raw.recvfds(process.fd, 1)
     if received ~= nil then
-      return { conn = new_conn(received[1], timeout_ns), why = "", kept = true }
+      local socket = received[1]
+      local peer, _ = raw.peer(socket:fd())
+      if peer == nil or peer.host ~= host or peer.port ~= port then
+        local _, _ = socket:close()
+        return { why = "net: the connector passed a socket not connected to " ..
+            named(Net.tcp(host, port)), kept = false }
+      end
+      return { conn = new_conn(socket, timeout_ns), why = "", kept = true }
     end
     if failure ~= raw.EAGAIN then return { why = because, kept = false } end
     local ready, waiting = waited(process.fd, false, math.max(0, deadline - Clock.monotonic_ns()))
@@ -967,8 +978,29 @@ end
 
 --- Whether `entry` allows `port` at its host.
 local function endpoint_allows(entry: Net.Endpoint, port: integer): boolean
-  return entry.port == port or (entry.port == 0 and port >= 1 and port <= 65535)
+  if entry.port ~= 0 then return entry.port == port end
+  return port >= 1 and port <= 65535
 end
+
+--- What a table request holds from its start to its end, closed on every
+--- way out, a task killed in the middle of one included: the next request
+--- finds the connector free, and no process with a reply unread.
+local record ConnectorRequest
+  owner: SocketConnector
+  process: Child.ConnectorProcess
+  keep: boolean
+  metamethod __close: function(ConnectorRequest)
+end
+
+local request_mt: metatable<ConnectorRequest> = {
+  __close = function(self: ConnectorRequest)
+    self.owner.busy = false
+    if not self.keep and self.process ~= nil then
+      local _ = self.process:close()
+      if self.owner.process == self.process then self.owner.process = nil end
+    end
+  end,
+}
 
 function SocketConnector:connect(target: integer | string, port: integer, timeout_ns: integer): Net.Conn | nil, string
   if math.type(timeout_ns) ~= "integer" or timeout_ns < 0 then
@@ -984,14 +1016,17 @@ function SocketConnector:connect(target: integer | string, port: integer, timeou
     end
     if port < 1 or port > 65535 then return nil, "net: port must be from 1 to 65535" end
     local ms = math.max(1, math.min(60000, (timeout_ns + 999999) // 1000000))
-    local started, why = Child.start_connector({ { host = target, port = port } }, ms)
+    -- The core raises for a host that is no numeric address: a refusal here.
+    local called, started, why = pcall(Child.start_connector, { { host = target, port = port } }, ms)
+    if not called then return nil, "net: " .. target .. " is not a numeric address" end
     if started == nil then return nil, why end
-    local got = ask(started, 1, port, deadline, timeout_ns)
-    local _ = started:close()
+    local alone <close> = started
+    local got = ask(alone, 1, target, port, deadline, timeout_ns)
     if got.conn == nil then return nil, got.why end
     return got.conn, ""
   end
   local index: integer
+  local host: string
   if type(target) == "number" then
     index = target
     local entry = math.type(index) == "integer" and self.endpoints[index] or nil
@@ -1001,10 +1036,12 @@ function SocketConnector:connect(target: integer | string, port: integer, timeou
     if not endpoint_allows(entry, port) then
       return nil, "net: port " .. port .. " is not endpoint " .. index .. "'s"
     end
+    host = entry.host
   else
     for i, entry in ipairs(self.endpoints) do
       if entry.host == target and endpoint_allows(entry, port) then
         index = i
+        host = entry.host
         break
       end
     end
@@ -1020,21 +1057,16 @@ function SocketConnector:connect(target: integer | string, port: integer, timeou
     if Clock.monotonic_ns() >= deadline then return nil, Poll.TIMEOUT end
   end
   self.busy = true
+  local request: ConnectorRequest = setmetatable({ owner = self, keep = false }, request_mt)
+  local _guard <close> = request
   if self.process == nil then
     local started, why = Child.start_connector(self.endpoints, self.timeout_ms)
-    if started == nil then
-      self.busy = false
-      return nil, why
-    end
+    if started == nil then return nil, why end
     self.process = started
   end
-  local process = self.process
-  local got = ask(process, index, port, deadline, timeout_ns)
-  if not got.kept and self.process == process then
-    local _ = process:close()
-    self.process = nil
-  end
-  self.busy = false
+  request.process = self.process
+  local got = ask(self.process, index, host, port, deadline, timeout_ns)
+  request.keep = got.kept
   if got.conn == nil then return nil, got.why end
   return got.conn, ""
 end
@@ -1095,7 +1127,7 @@ function Net.connector(endpoints?: {Net.Endpoint}, opts?: Net.ConnectorOptions):
   end
   local timeout_ms = (timeout_ns + 999999) // 1000000
   local made: SocketConnector = setmetatable({
-    endpoints = endpoints, timeout_ms = timeout_ms, busy = false, open = true,
+    timeout_ms = timeout_ms, busy = false, open = true,
   }, socket_connector_mt)
   if endpoints == nil then return made, "" end
   if type(endpoints) ~= "table" or #endpoints < 1 or #endpoints > CONNECTOR_MAX_ENDPOINTS then
@@ -1107,7 +1139,12 @@ function Net.connector(endpoints?: {Net.Endpoint}, opts?: Net.ConnectorOptions):
       error("net: endpoints[" .. i .. "] must be a host and a port from 0 to 65535", 2)
     end
   end
-  local started, why = Child.start_connector(endpoints, timeout_ms)
+  -- A copy, so the caller's later changes to its table reach neither the
+  -- checks here nor a process started again.
+  local kept: {Net.Endpoint} = {}
+  for i, entry in ipairs(endpoints) do kept[i] = { host = entry.host, port = entry.port } end
+  made.endpoints = kept
+  local started, why = Child.start_connector(kept, timeout_ms)
   if started == nil then return nil, why end
   made.process = started
   return made, ""

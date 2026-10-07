@@ -126,6 +126,7 @@ local cases: {string: function(at: integer, fd: integer): {any}} = {
   end,
   recvfrom = function(_: integer, fd: integer): {any} return { fd, 1 } end,
   bound = function(_: integer, fd: integer): {any} return { fd } end,
+  peer = function(_: integer, fd: integer): {any} return { fd } end,
   connected = function(_: integer, fd: integer): {any} return { fd } end,
   shutdown = function(_: integer, fd: integer): {any} return { fd, "both" } end,
   wait = function(_: integer, fd: integer): {any} return { fd, false, 0 } end,
