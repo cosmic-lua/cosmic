@@ -29,7 +29,7 @@ Test.policy{ env = { "TMPDIR" }, profiles = { "system" } }
 
 --- Whether a test ends by failing with everything it saw, so that one run's
 --- log shows it whether or not the assertions held.
-local DUMP <const> = true
+local DUMP <const> = false
 
 local type Searcher = function(string): any, any
 
@@ -331,10 +331,13 @@ local function test_a_port_rule_and_udp(tmp: string)
   local text = profile(BASE, forms(allowed_port)[1].lines)
   local bare = profile(BASE, {})
   local control = profile({ "(version 1)", "(allow default)" }, {})
-  report[#report + 1] = "udp 127.0.0.1:" .. allowed_port .. " (rule's port): " ..
-    udp_arrives(allowed, text, tmp, allowed_port, "127.0.0.1")
-  report[#report + 1] = "udp 127.0.0.1:" .. other_port .. " (other port): " ..
-    udp_arrives(other, text, tmp, other_port, "127.0.0.1")
+  local to_rule = udp_arrives(allowed, text, tmp, allowed_port, "127.0.0.1")
+  report[#report + 1] = "udp 127.0.0.1:" .. allowed_port .. " (rule's port): " .. to_rule
+  local to_other = udp_arrives(other, text, tmp, other_port, "127.0.0.1")
+  report[#report + 1] = "udp 127.0.0.1:" .. other_port .. " (other port): " .. to_other
+  assert(to_rule:find("^DELIVERED"), "udp to the rule's port was not sent\n" .. table.concat(report, "\n"))
+  assert(to_other:find("^not delivered") and to_other:find("DENIED"), "udp to another port was not denied\n" ..
+      table.concat(report, "\n"))
   report[#report + 1] = "udp, no rule: " .. udp_arrives(allowed, bare, tmp, allowed_port, "127.0.0.1")
   local v6 = Net.datagram(Net.udp("::1", allowed_port))
   if v6 ~= nil then
@@ -605,13 +608,16 @@ local function test_what_a_resolver_is_refused_with_network_and_resolver_files(t
   local report = new_report()
   local text = profile(strict(), { OUTBOUND })
   local no_files = profile(strict(), { OUTBOUND })
-  local _, _ = resolve_under(tmp, no_files, report, "network, no resolver files")
+  local bare, _ = resolve_under(tmp, no_files, report, "network, no resolver files")
   local with_files = profile(strict(), { OUTBOUND, table.concat(resolver_files(nil), "\n") })
   -- Only the second run's refusals matter: the log is read once, after both.
   local c_ares, worked = resolve_under(tmp, with_files, report, "network and resolver files")
   report[#report + 1] = denials()
   assert(compiles(tmp, text, {}), "the strict profile does not compile\n" .. table.concat(report, "\n"))
-  local _, _ = c_ares, worked
+  assert(not bare, "the c-ares way resolved with no resolver file\n" .. table.concat(report, "\n"))
+  assert(c_ares, "the c-ares way fails with outbound network and the resolver files\n" .. table.concat(report, "\n"))
+  -- Apple's dnsinfo (scutil --dns) needs a Mach service, which the next test names.
+  assert(not worked["scutil --dns"], "dnsinfo needs no Mach service\n" .. table.concat(report, "\n"))
   conclude(report)
 end
 
@@ -667,8 +673,13 @@ local function test_which_mach_services_a_resolver_needs(tmp: string)
     end
     report[#report + 1] = "without " .. prefix .. ": " ..
       (#needed == 0 and "nothing fails" or ("needed by " .. table.concat(needed, ", ")))
+    -- Only SystemConfiguration's lookup matters, and only to dnsinfo.
+    local expected = prefix == "com.apple.SystemConfiguration" and "scutil --dns" or ""
+    assert(table.concat(needed, ", ") == expected, "without " .. prefix .. ", " .. table.concat(needed, ", ") ..
+        " fails\n" .. table.concat(report, "\n"))
   end
   local _ = any_worked
+  assert(worked["scutil --dns"], "dnsinfo fails with the Mach list\n" .. table.concat(report, "\n"))
   assert(c_ares, "the c-ares way of resolving fails even with outbound, files and the Mach list\n" ..
       table.concat(report, "\n"))
   conclude(report)
@@ -681,7 +692,7 @@ local function test_which_resolver_files_and_network_a_resolver_needs(tmp: strin
   network_or_skip()
   local report = new_report()
   local function with(files: {string}, network: string): string
-    local lines: {string} = { network, "(allow mach-lookup (global-name-prefix \"com.apple.SystemConfiguration\"))" }
+    local lines: {string} = { network, "(allow mach-lookup (global-name \"com.apple.SystemConfiguration.DNSConfiguration\"))" }
     for _, line in ipairs(files) do lines[#lines + 1] = line end
     return profile(strict(), lines)
   end
@@ -698,12 +709,16 @@ local function test_which_resolver_files_and_network_a_resolver_needs(tmp: strin
     end
     report[#report + 1] = "without " .. path .. ": " ..
       (#needed == 0 and "nothing fails" or ("needed by " .. table.concat(needed, ", ")))
+    -- /etc/resolv.conf is a link to this one, the only file a resolver reads.
+    local expected = path == "/private/var/run/resolv.conf" and "udp-by-resolv.conf" or ""
+    assert(table.concat(needed, ", ") == expected, "without " .. path .. ", " .. table.concat(needed, ", ") ..
+        " fails\n" .. table.concat(report, "\n"))
   end
   for _, network in ipairs({ "(allow network-outbound (remote udp \"*:53\"))",
       "(allow network-outbound (remote ip \"*:53\"))", "(allow network-outbound (remote udp \"*:*\"))" }) do
-    local _, by = resolve_under(tmp, with(resolver_files(nil), network), report, network)
-    local _ = by
+    local ok, by = resolve_under(tmp, with(resolver_files(nil), network), report, network)
+    assert(ok and by["scutil --dns"], network .. " does not let a resolver work\n" .. table.concat(report, "\n"))
   end
-  assert(worked["udp-by-resolv.conf"], "the c-ares way fails with all the files\n" .. table.concat(report, "\n"))
+  assert(worked["udp-by-resolv.conf"] and worked["scutil --dns"], "a resolver fails with all the files\n" .. table.concat(report, "\n"))
   conclude(report)
 end
