@@ -94,3 +94,23 @@ local function test_the_product_prepares_and_restores_terminals(tmp: string)
   local out = Fixture.read(captured.out)
   assert(out:find("pty: PASS", 1, true), out)
 end
+
+--- `cosmic sandbox` on a terminal runs its program through the pty relay
+--- (build/term_relay.tl): the real candidate core, driven from this
+--- unsandboxed fixture as a user's terminal would, since no worker holds a
+--- pty and the sandbox's own start. test/terminal/relay.tl checks that an
+--- allowed sequence passes, OSC 52 does not, the window size and the keys
+--- reach the program, its status is the verb's, and the caller's termios
+--- is restored.
+local function test_the_product_relays_a_sandboxed_terminal(tmp: string)
+  local product = Fixture.required("COSMIC_FIXTURE_PRODUCT") .. "/cosmic"
+  local source = Fixture.required("COSMIC_FIXTURE_SOURCE")
+  local diagnostics = tmp .. "/logs"
+  Fixture.mkdir(diagnostics)
+  local outcome = Fixture.call_with_environment("pty-relay",
+    { product, source .. "/test/terminal/relay.tl" }, tmp, diagnostics,
+    Fixture.environment(), Clock.seconds(120))
+  local captured = Fixture.succeeded("pty-relay", outcome)
+  local out = Fixture.read(captured.out)
+  assert(out:find("relay: PASS", 1, true), out)
+end

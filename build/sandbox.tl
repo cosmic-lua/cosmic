@@ -33,6 +33,15 @@
 --- not compile, or a seal that cannot be written, is a start that failed
 --- (125).
 ---
+--- A TERMINAL: for each of this process's standard streams that is one,
+--- the program's runs on a pty of its own, relayed by [`TermRelay.run`]
+--- (build/term_relay.tl): what it writes passes the filter of
+--- [`build.term_filter`] (build/term_filter.tl) on its way to the caller's
+--- terminal, and where stdin is the terminal it is held raw for the run
+--- and put back as it was. A stream that is a pipe or a file is the
+--- program's own, unfiltered. Linux only: elsewhere the start fails, saying so, until the
+--- design's phase 8 gives a program held by Seatbelt a controlling terminal.
+---
 --- Like `cosmic json` it ends in no verdict line, and prints nothing of
 --- its own when the program starts: its exit status is the program's.
 --- That is the program's code; 128 and the signal's number when a signal
@@ -59,6 +68,7 @@ local bare = require("build.bare")
 local plural = require("build.plural")
 local standalone = require("build.standalone")
 local teal = require("build.teal")
+local TermRelay = require("build.term_relay")
 local verb_spec = require("build.verb_spec")
 
 --- The `cosmic sandbox` verb: `run` is what [`build/dispatch.tl`] calls.
@@ -489,7 +499,18 @@ local function failed_start(program: string, cwd: string | nil, why: string): in
   return START_FAILED, said
 end
 
-local standard: verb.Io = { err = bare.err, run = Child.run }
+--- [`Child.run`], through the pty relay ([`TermRelay.run`]) when one of
+--- this process's standard streams is a terminal, so that the program is
+--- given a terminal of its own for each rather than the caller's, whose
+--- control sequences it could otherwise write and whose input it could
+--- push into; a stream that is no terminal is the program's as it is.
+--- Both answer the program's [`Child.Result`].
+local function run_here(argv: {string}, opts: Child.Options): Child.Result | nil, string
+  if sys.isatty(0) or sys.isatty(1) or sys.isatty(2) then return TermRelay.run(argv, opts) end
+  return Child.run(argv, opts)
+end
+
+local standard: verb.Io = { err = bare.err, run = run_here }
 
 --- [`verb.run`], with the directories it makes for a sealed database put
 --- in `held`.

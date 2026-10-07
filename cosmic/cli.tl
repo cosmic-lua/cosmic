@@ -582,7 +582,15 @@ local record Cli
   --- own each run; any other caller may name only itself.
   --- Each option is one field of the policy, and a number is a whole one. The
   --- program's standard streams are this program's own, and it gets no
-  --- other descriptor but those `--fd` names. Nothing is printed when it
+  --- other descriptor but those `--fd` names -- but each of them that is a
+  --- terminal is given the program as a terminal of its own, a pty (a
+  --- pipe or a file is the program's as it is): what it writes reaches
+  --- the terminal as text and
+  --- the sequences a screen is drawn with (colors, cursor movement, erasing,
+  --- the alternate screen) and no title, clipboard or other control
+  --- sequence, its queries are answered here, the window's size and
+  --- SIGINT and SIGTERM are passed on, and this terminal is put back as it
+  --- was when the program ends. Linux only. Nothing is printed when it
   --- starts. Exits with the program's status (128 and the signal's number when a
   --- signal ended it, 124 when `--timeout` did), 2 for a command line it
   --- refuses, 125 when the start failed, and 126 or 127 for a program that
