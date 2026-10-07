@@ -53,7 +53,7 @@ Test.policy{
 local DISCOVERING <const> = true
 
 local function macos_only()
-  if false then
+  if assert(sys.uname()).sysname ~= "Darwin" then
     Test.skip("a Seatbelt hold is macOS's alone")
   end
 end
@@ -484,4 +484,19 @@ end
 local function test_restrict_with_a_fork_allowance(tmp: string)
   macos_only()
   restrict_probe(tmp, true)
+end
+
+local type Searcher = function(string): any, any
+
+--- Off macOS the diagnostic binding is ENOSYS; on it, it would restrict
+--- this worker, so only the child of the tests above calls it.
+local function test_the_diagnostic_binding_is_enosys_off_macos()
+  if assert(sys.uname()).sysname == "Darwin" then return end
+  local raw: any
+  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
+    local loader, extra = searcher("cosmic.child")
+    if type(loader) == "function" and type(extra) == "table" then raw = extra end
+  end
+  local report, _, code = (raw as {string:function}).diagnostic_seatbelt_restrict("", {})
+  assert(report == nil and code == 38, tostring(code))
 end
