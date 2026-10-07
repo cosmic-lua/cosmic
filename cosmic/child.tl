@@ -3123,10 +3123,11 @@ end
 --- a `database`: [`relaunch_of`]'s start, and for a `database`, with this
 --- program's own file out of the child's reach (it holds modules the
 --- database leaves out). Nil and "" for any other program, or nil and why.
---- `user` is [`relaunch_of`]'s, and `base` the directory grants are
---- relative to.
+--- `user` is [`relaunch_of`]'s, `base` the directory grants are relative
+--- to, and `reach` the grants that must not reach this program's own file:
+--- the host's own (Landlock's profiles are not Seatbelt's).
 local function core_of(argv: {string}, opts: Options, merged: Rules.Policy, user: MappedUser,
-                       base: string): Proc.Relaunch | nil, string
+                       base: string, reach: {Rules.Grant}): Proc.Relaunch | nil, string
   local database: string = merged.database
   local program: string
   if database ~= nil then
@@ -3154,7 +3155,7 @@ local function core_of(argv: {string}, opts: Options, merged: Rules.Policy, user
       started_real = real
     end
     local own_core = started_real == program
-    local reached = own_core and "" or reaching(program, merged.grants, base)
+    local reached = own_core and "" or reaching(program, reach, base)
     if reached ~= "" then
       return nil, "sandbox: grant \"" .. reached .. "\" reaches this program's own file, " ..
         program .. ", which holds modules the database " .. database .. " leaves out: " ..
@@ -3277,7 +3278,7 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
   -- file, which holds every module of the tree, is none of the child's.
   local relaunch: Proc.Relaunch
   local database: string = merged.database
-  local found, relaunch_trouble = core_of(argv, opts, merged, user, base)
+  local found, relaunch_trouble = core_of(argv, opts, merged, user, base, merged.grants)
   if found == nil and relaunch_trouble ~= "" then return nil, relaunch_trouble end
   -- A core on a database is started by path with no descriptor, so
   -- `nest` may run it: the root binds the core and the database read-only
@@ -3508,7 +3509,7 @@ local function held_by_seatbelt(argv: {string}, opts: Options): Held | nil, stri
   -- and unpack a core into a cache the profile does not grant. The profile
   -- grants that core `rx` and, where it runs on a database, the database
   -- `r` alone: the core opens it read-only and immutable.
-  local relaunch, core_trouble = core_of(argv, opts, merged, nil, opts.cwd)
+  local relaunch, core_trouble = core_of(argv, opts, merged, nil, opts.cwd, Seatbelt.grants(opts.policy))
   if relaunch == nil and core_trouble ~= "" then return nil, core_trouble end
   local core: string
   local sealed: string

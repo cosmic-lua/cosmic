@@ -38,10 +38,18 @@ end
 -- (so on the core and database this process runs on), "remount" makes a
 -- user and mount namespace of its own and tries to remount the database
 -- writable in it. args[3] is a directory the root of a child is built in.
-local function probe(mode, scratch)
+local function probe(mode, scratch, beside)
   local core = assert(Proc.executable())
   local db = assert(Proc.relaunch()).argv[3]
   say("db_write", writes(db))
+  -- args[4]: a file beside the database, which exists, and a name there
+  -- that does not, which a write and a create must both be refused.
+  if beside ~= nil then
+    say("beside_write", writes(beside))
+    local fd, _, errno = sys.open(beside .. ".new", sys.O_WRONLY | sys.O_CREAT | sys.O_EXCL)
+    if fd ~= nil then sys.close(fd) end
+    say("beside_create", fd ~= nil and "ok" or tostring(errno))
+  end
   say("core_write", writes(core))
   say("exe_write", writes("/proc/self/exe"))
   local through = 0
@@ -97,7 +105,7 @@ local function probe(mode, scratch)
   end
 end
 return function(args)
-  if args[2] ~= nil then probe(args[2], args[3]) end
+  if args[2] ~= nil then probe(args[2], args[3], args[4]) end
   say("main", Store.meta("main"))
   say("context", Store.meta("runtime_context"))
   say("databases", #Store.databases())

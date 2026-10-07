@@ -101,3 +101,21 @@ local function test_a_database_that_is_not_there_fails_the_start(tmp: string)
     database = tmp .. "/absent.db" }, stdout = "capture", stderr = "capture" })
   assert(result == nil and why:find("absent.db", 1, true), tostring(why))
 end
+
+--- The child may not write the database it runs on, by open or beside it:
+--- the grant is `r` alone, so a write of it, of a file beside it and a new
+--- file there are each refused, EPERM.
+local function test_the_child_cannot_write_the_database_or_a_file_beside_it(tmp: string)
+  macos_only()
+  local path = tmp .. "/sealed.db"
+  fixture.seal(tmp, path)
+  local beside = tmp .. "/beside"
+  assert(Fs.write(beside, "beside"))
+  local out = fixture.fields(assert(ran_sealed(path, { "plain", tmp, beside }).stdout))
+  local refused = tostring(sys.EPERM)
+  assert(out.db_write == refused, "the database opened for writing: " .. tostring(out.db_write))
+  assert(out.core_write == refused, "the core opened for writing: " .. tostring(out.core_write))
+  assert(out.beside_write == refused, "a file beside it opened for writing: " .. tostring(out.beside_write))
+  assert(out.beside_create == refused, "a file beside it was made: " .. tostring(out.beside_create))
+  assert(Fs.read(beside) == "beside" and sys.stat(beside .. ".new") == nil)
+end

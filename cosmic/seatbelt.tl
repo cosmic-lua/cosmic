@@ -274,6 +274,21 @@ function Seatbelt.compile(policy: Sandbox.Policy, options?: Seatbelt.Options): S
     tmp = tmp }, ""
 end
 
+--- The grants `policy` gives on macOS before the host is read: its own
+--- and, for the "system" profile, [`Seatbelt.compile`]'s list of macOS's
+--- paths (not Linux's, which [`Sandbox.merge`] gives), each whether or not
+--- this host has it. For a check of which paths a policy reaches.
+function Seatbelt.grants(policy: Sandbox.Policy): {Sandbox.Grant}
+  local out: {Sandbox.Grant} = {}
+  for _, name in ipairs(policy.profiles or {}) do
+    if name == "system" then
+      for _, entry in ipairs(SYSTEM) do out[#out + 1] = { path = entry[1], letters = entry[2] } end
+    end
+  end
+  for _, grant in ipairs(policy.grants or {}) do out[#out + 1] = grant end
+  return out
+end
+
 --- What [`Seatbelt.compile`] needs of the host for `policy`: each grant's
 --- real path and kind, keyed as the policy gives the path, and, for the
 --- "system" profile, each path of it this host has. A relative grant is

@@ -220,6 +220,15 @@ local function test_a_database_needs_the_core_and_the_file_the_core_runs_on(tmp:
   assert(Seatbelt.compile(policy, { paths = paths, core = "/core", database = "/by-link" }))
 end
 
+--- What a policy reaches on macOS is macOS's "system" list, not Linux's.
+local function test_the_grants_a_policy_reaches_are_macoss_own()
+  local held: {string:string} = {}
+  for _, grant in ipairs(Seatbelt.grants({ profiles = { "system" },
+      grants = { { path = "/srv", letters = "r" } } })) do held[grant.path] = grant.letters end
+  assert(held["/System/Library"] == "rx" and held["/sbin"] == "rx" and held["/srv"] == "r")
+  assert(#Seatbelt.grants({}) == 0)
+end
+
 local function test_missing_or_noncanonical_host_paths_fail_closed()
   local out, why = Seatbelt.compile({ grants = { { path = "a", letters = "r" } } }, { paths = {} })
   assert(out == nil and why:find("resolved host path", 1, true), why)
