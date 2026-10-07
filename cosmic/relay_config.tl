@@ -3,7 +3,7 @@
 --- ports the program reaches the relay at, the proxy environment it is
 --- given, the host's own addresses the relay refuses, the config the
 --- relay is handed on its standard input, and the descriptors its
---- connectors' control streams are handed at ([`cosmic.relay_start`]).
+--- connectors' control streams are handed at ([`cosmic.sandbox.relay`]).
 ---
 --- The program is told of the relay through the variables a proxy client
 --- reads (`HTTPS_PROXY`, `ALL_PROXY` and their lower-case spellings); a
@@ -84,7 +84,7 @@ local record relay_config
   end
 
   --- What the relay's starter makes for it before the relay starts
-  --- ([`cosmic.relay_start`]'s `prepare`).
+  --- ([`cosmic.sandbox.relay`]'s `prepare`).
   record Handover
     --- What the relay is told of what it is handed: `upstream_addresses`,
     --- `table`, `public`, `name_servers`, `name_server_wait_ns` and

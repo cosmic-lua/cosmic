@@ -9,7 +9,7 @@
 ---   out of it ([`Net.receive_listeners`] adopts them);
 --- - from descriptor 4, where the config says it is handed them, the
 ---   control streams of the connectors its starter started
----   ([`cosmic.relay_start`]), which it adopts ([`Net.connector_from`]):
+---   ([`cosmic.sandbox.relay`]), which it adopts ([`Net.connector_from`]):
 ---   at 4 the table's, of the addresses a grant names literally and the
 ---   upstream proxy's; at 5 the name servers'; and from 6, one after
 ---   another, the public ones, for what a granted name resolves to;
@@ -25,7 +25,7 @@
 --- as the program lives, and its death closes it.
 ---
 --- The process runs offline: its filter refuses every socket it would
---- make ([`cosmic.relay_start`]'s `policy`), so what it reaches is what
+--- make ([`cosmic.sandbox.relay`]'s `policy`), so what it reaches is what
 --- the connectors it is handed reach. Every connection is checked against
 --- the grants and the address classes by [`cosmic.relay`] and made by one
 --- of them ([`Relay.handed`]), and every name is resolved, once a grant

@@ -19,7 +19,7 @@ local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local RelayConfig = require("cosmic.relay_config")
-local RelayStart = require("cosmic.relay_start")
+local Sandbox = require("cosmic.sandbox")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
@@ -587,7 +587,7 @@ local function test_no_connect_means_no_relay_and_no_extra_descriptors(tmp: stri
 end
 
 --- The relay runs offline: a program under the very policy its process is
---- started under ([`cosmic.relay_start`]'s `policy`) cannot connect to a
+--- started under ([`cosmic.sandbox.relay`]'s `policy`) cannot connect to a
 --- server this process reaches, as its filter refuses the socket, so the
 --- relay reaches nothing but through the connectors it is handed.
 local function test_the_relays_policy_gives_it_no_network_of_its_own(tmp: string)
@@ -598,7 +598,7 @@ local function test_the_relays_policy_gives_it_no_network_of_its_own(tmp: string
     local reached = assert(Net.connect(Net.tcp("127.0.0.2", granted), { timeout_ns = Clock.seconds(5) }))
     assert(reached:close())
     local result, why = Child.run({ assert(Proc.executable()), "dial", "127.0.0.2", tostring(granted) },
-      { policy = RelayStart.policy(database, digest), stdout = "capture", stderr = "capture",
+      { policy = Sandbox.Relay.policy(database, digest), stdout = "capture", stderr = "capture",
         timeout_ns = Clock.seconds(60) })
     if result == nil then
       assert(unsandboxable(why), "the start was refused: " .. why)

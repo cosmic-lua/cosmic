@@ -68,13 +68,6 @@ allowed["cosmic.net.listener_from"] = "tested directly: it adopts one listening 
   "process holds, which Net.receive_listeners does for each socket a relay's channel carries; " ..
   "no caller outside the module needs it yet"
 
-allowed["cosmic.net.nameservers"] = "tested directly: the library's list of the system's name " ..
-  "servers, a connector's table for ResolveOptions.connector; the relay's starter, below cosmic.net, " ..
-  "reads them through cosmic.relay_start, which this is"
-
-allowed["cosmic.relay.name_servers"] = "tested directly: a relay's resolver options in one call, for " ..
-  "Relay.start in a process that may start a connector; the sandbox's relay is handed its connector instead"
-
 allowed["cosmic.relay_config.parse_addresses"] = "tested directly: the reading of Linux's " ..
   "interface tables over fixture text, which host_addresses makes of the host's own"
 -- TODO: drop this allowance once build.analyzer and build.receivers attribute a
@@ -85,6 +78,17 @@ allowed["cosmic.relay_config.parse_addresses"] = "tested directly: the reading o
 allowed["cosmic.sandbox.seatbelt.grants"] = "called through cosmic.sandbox's `Seatbelt`, " ..
   "the package's one path to it from outside, which cosmic.child takes; the check reads a " ..
   "call by the module's own name alone"
+-- The same gap as the allowance above (its TODO): cosmic.child and cosmic.net
+-- call these through cosmic.sandbox's `Relay`.
+for _, name in ipairs({ "policy", "nameservers", "name_servers", "plan", "upstream_addresses", "table",
+    "public" }) do
+  allowed["cosmic.sandbox.relay." .. name] = "called through cosmic.sandbox's `Relay`, the " ..
+    "package's one path to it from outside, which cosmic.child takes; the check reads a call by " ..
+    "the module's own name alone"
+end
+allowed["cosmic.net.connector"] = "tested directly: the library's face of the native connector, " ..
+  "which ResolveOptions.connector takes; its callers in the tree start the process with " ..
+  "Child.start_connector and adopt it with Net.connector_from instead"
 allowed["cosmic.sandbox.restrict"] = "tested directly: it holds the process that calls it " ..
   "for good, so a worked example would hold the run that shows it; the test restricts " ..
   "a child of this program, and the harness holds its workers with it once the " ..

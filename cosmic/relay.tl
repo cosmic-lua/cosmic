@@ -109,7 +109,6 @@ local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Address = require("cosmic.relay_address")
 local Config = require("cosmic.relay_config")
-local RelayStart = require("cosmic.relay_start")
 local Wire = require("cosmic.relay_wire")
 local String = require("cosmic.string")
 
@@ -194,7 +193,7 @@ local record Relay
     --- The resolver's options ([`Net.ResolveOptions`]): `servers`,
     --- `hosts_file` and `connector`, which are the trusted caller's own.
     --- The sandbox's relay resolves through a connector of the name
-    --- servers alone, over TCP ([`Relay.name_servers`]). Its `timeout_ns`
+    --- servers alone, over TCP ([`cosmic.sandbox.relay`]). Its `timeout_ns`
     --- is [`Timeouts.resolve`]'s.
     resolve: Net.ResolveOptions
     --- Why no name can be resolved, or nil: set, every name fails with it
@@ -221,18 +220,6 @@ local record Relay
     --- writes them in a printable form (hex, base64url): a guess is bounded
     --- by nothing but the token's entropy.
     token: string
-  end
-
-  --- What [`Relay.name_servers`] takes; a nil field takes its default.
-  record NameServersOptions
-    --- A resolv.conf to read in place of the system's, for tests.
-    resolv_conf: string
-    --- The lookup's whole time, [`Timeouts.resolve`]'s (5 seconds), which
-    --- the connector's wait for each server is a share of: a positive
-    --- integer of nanoseconds.
-    resolve: integer
-    --- The servers in place of the system's, for tests.
-    servers: {Net.Endpoint}
   end
 
   --- What a running relay has done.
@@ -369,36 +356,6 @@ function Relay.udp_servers(servers: {Net.Endpoint}): {Net.Address}
   return out
 end
 
---- The resolver options of a relay that resolves over TCP through a
---- native connector whose table holds the system's name servers
---- ([`Net.nameservers`]) at their port and nothing else, read once, now:
---- `connector` and `servers`, the same list, so a lookup asks exactly
---- the table even after the system's configuration changes. The
---- connector waits for each server's connection the lookup's time divided
---- by one more than the servers (at least half a second, at most a
---- minute), so that servers that do not answer leave the last one time
---- to. A `resolve` that is no positive integer raises. Nil and why where
---- the servers cannot be read, are more than a connector holds (128), or
---- the connector cannot start: a relay given that as [`Spec.unresolved`]
---- still reaches an address a grant names. The caller closes the
---- connector.
---- @param opts Relay.NameServersOptions|nil Where to read, and the lookup's time
---- @return Net.ResolveOptions|nil The options for [`Spec.resolve`]
---- @return string Why there are none, "" otherwise
-function Relay.name_servers(opts?: Relay.NameServersOptions): Net.ResolveOptions | nil, string
-  opts = opts or {}
-  local resolve = opts.resolve
-  if resolve ~= nil and (math.type(resolve) ~= "integer" or resolve <= 0) then
-    error("relay: name_servers' resolve must be a positive integer of nanoseconds", 2)
-  end
-  local plan, why = RelayStart.name_servers({ resolv_conf = opts.resolv_conf, resolve = resolve,
-    servers = opts.servers })
-  if plan == nil then return nil, why end
-  local connector, trouble = Net.connector(plan.servers, { timeout_ns = plan.wait_ns })
-  if connector == nil then return nil, trouble end
-  return { connector = connector, servers = Relay.udp_servers(plan.servers) }, ""
-end
-
 --- One connector of a pool and whether a request holds it.
 local record Pooled
   connector: Net.Connector
@@ -442,7 +399,7 @@ local function pooled(connectors: {Net.Connector}, wait_ns: integer):
 end
 
 --- The [`Connector`] of the connectors a relay's starter handed it
---- ([`cosmic.relay_start`]): an address and port the table holds is asked
+--- ([`cosmic.sandbox.relay`]): an address and port the table holds is asked
 --- of the table's connector, by its place in the table, and any other of
 --- a free public connector, which refuses what its deny list does; with
 --- neither, the connection fails, naming the address. Each connector

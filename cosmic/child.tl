@@ -71,7 +71,6 @@ local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local Address = require("cosmic.relay_address")
 local RelayConfig = require("cosmic.relay_config")
-local RelayStart = require("cosmic.relay_start")
 local Rules = require("cosmic.sandbox")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
@@ -81,6 +80,7 @@ local Clock = require("cosmic.clock")
 local isatty = sys.isatty
 -- What holds a child by a policy on macOS, taken as this module loads.
 local Seatbelt = Rules.Seatbelt
+local SandboxRelay = Rules.Relay
 
 -- The calls that start, feed and reap a child, and hold this process's
 -- signals while it does, live in the raw process table, under the
@@ -395,7 +395,7 @@ local record Options
   ---   program's core on a database sealed for it, held by a pid namespace
   ---   and the files its resolver reads, which makes no socket of its own.
   ---   It reaches the network only through the native connectors this
-  ---   process starts and hands it ([`cosmic.relay_start`]): one whose table
+  ---   process starts and hands it ([`cosmic.sandbox.relay`]): one whose table
   ---   holds the addresses a target names literally (at most 128, with the
   ---   upstream proxy's: a policy with more fails to start, saying so), and,
   ---   where a target names a host, one that connects to the public
@@ -422,7 +422,7 @@ local record Options
   ---   that dies first ends the child (SIGKILL, at its next wait). A relay that
   ---   will not start fails the start, naming why, and ends the child. The
   ---   relay's decision lines go where `relay_log` says. It needs this
-  ---   program to carry [`cosmic.relay_serve`] and [`cosmic.relay_start`]
+  ---   program to carry [`cosmic.relay_serve`] and [`cosmic.sandbox.relay`]
   ---   and to be a cosmic core, which
   ---   the start says where it is not. Linux only: macOS refuses `connect`.
   ---
@@ -3793,7 +3793,7 @@ local function relay_connector(endpoints: {raw_process.ConnectorEndpoint}, wait_
 end
 
 --- The connectors the relay of the `connect` targets `connect` is handed
---- ([`cosmic.relay_start`]), started in this process and network: the
+--- ([`cosmic.sandbox.relay`]), started in this process and network: the
 --- table's, of the addresses a target names literally and the upstream
 --- proxy's; for a target that names a host, a public one (refusing the
 --- relay's deny list and `own`, the host's own addresses) and the name
@@ -3808,9 +3808,9 @@ local function relay_handover(connect: {string}, own: {string}): RelayConfig.Han
   for _, name in ipairs({ "https_proxy", "HTTPS_PROXY", "no_proxy", "NO_PROXY" }) do
     env[name] = sys.getenv(name)
   end
-  local planned, plan_why = RelayStart.plan(connect, env)
+  local planned, plan_why = SandboxRelay.plan(connect, env)
   if planned == nil then return nil, plan_why end
-  local plan: RelayStart.Plan = planned
+  local plan: Rules.Relay.Plan = planned
   local processes: {ConnectorProcess} = {}
   local closed = false
   local function close()
@@ -3825,11 +3825,11 @@ local function relay_handover(connect: {string}, own: {string}): RelayConfig.Han
   local config: RelayConfig.Config = { grants = connect, own_addresses = own, log = "null", public = 0 }
   local fds: {integer: integer} = {}
   local up = plan.upstream
-  local through: RelayStart.Through
+  local through: Rules.Relay.Through
   local dns: ConnectorProcess
   local unresolved = ""
   if plan.names or (up ~= nil and Address.parse(up.host) == nil) then
-    local servers, servers_why = RelayStart.name_servers()
+    local servers, servers_why = SandboxRelay.name_servers()
     if servers == nil then
       unresolved = servers_why
     else
@@ -3842,12 +3842,12 @@ local function relay_handover(connect: {string}, own: {string}): RelayConfig.Han
   end
   local addresses: {string}
   if up ~= nil then
-    local found, found_why = RelayStart.upstream_addresses(up, through, unresolved)
+    local found, found_why = SandboxRelay.upstream_addresses(up, through, unresolved)
     if found == nil then return fail(found_why) end
     addresses = found
     config.upstream_addresses = found
   end
-  local rows, rows_why = RelayStart.table(plan, addresses)
+  local rows, rows_why = SandboxRelay.table(plan, addresses)
   if rows == nil then return fail(rows_why) end
   if #rows > 0 then
     local process, why = relay_connector(rows, RelayConfig.connect_ns)
@@ -3863,7 +3863,7 @@ local function relay_handover(connect: {string}, own: {string}): RelayConfig.Han
     -- RelayConfig.public_count connects that hang hold every other
     -- connection to a granted name.
     for i = 1, RelayConfig.public_count do
-      local process, why = relay_connector({}, RelayConfig.connect_ns, RelayStart.public(own))
+      local process, why = relay_connector({}, RelayConfig.connect_ns, SandboxRelay.public(own))
       if process == nil then return fail("public connector " .. i .. ": " .. why) end
       processes[#processes + 1] = process
       config.public, fds[RelayConfig.public_fd + i - 1] = i, process.fd
@@ -3916,7 +3916,7 @@ local function prepare_relay(connect: {string}, opts: Options): RelayPrep | nil,
   config.https_proxy = sys.getenv("https_proxy") or sys.getenv("HTTPS_PROXY")
   config.no_proxy = sys.getenv("no_proxy") or sys.getenv("NO_PROXY")
   config.log = log == "null" and "null" or "stderr"
-  return { dir = program.dir, policy = RelayStart.policy(program.path, program.digest),
+  return { dir = program.dir, policy = SandboxRelay.policy(program.path, program.digest),
     config = RelayConfig.encode(config), log = log, handover = handover }, ""
 end
 

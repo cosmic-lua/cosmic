@@ -338,6 +338,8 @@ end
 -- workers are held by Sandbox.restrict (the TODO at build/confine.tl's
 -- forbid_running): its reason holds only while no macOS worker is.
 local unheld_split: {string:string} = {
+  ["cosmic.sandbox.relay"] = "it serves the network relay of a policy's `connect`, which no " ..
+    "worker's policy has (a test reaches loopback alone), so it decides no worker's hold",
   ["cosmic.sandbox.seatbelt"] = "it compiles a Seatbelt profile, which holds a process " ..
     "only on macOS, where no worker is sandboxed",
 }

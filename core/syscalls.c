@@ -4585,7 +4585,7 @@ COSMIC_SYSCALL(spawn, 12) {
     /* TODO: remove host_network, and its checks and tests
      * (core/syscalls_relay_test.tl), in the relay hardening's next change:
      * nothing sets it since the relay runs offline on the connectors its
-     * starter hands it (cosmic/relay_start.tl). */
+     * starter hands it (cosmic/sandbox/relay.tl). */
     host_network = lua_toboolean(L, -1);
     lua_pop(L, 1);
     lua_pushliteral(L, "relay");

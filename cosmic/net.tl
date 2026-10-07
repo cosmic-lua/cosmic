@@ -45,7 +45,7 @@ local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local errors = require("cosmic.internal.errors")
 local relay_address = require("cosmic.relay_address")
-local relay_start = require("cosmic.relay_start")
+local Sandbox = require("cosmic.sandbox")
 
 --- The raw module behind this one lives under the reserved
 --- `cosmic.internal.` namespace and arrives as the second argument
@@ -247,19 +247,14 @@ local record Net
     --- Resolves over TCP alone, every socket of the lookup made by this
     --- connector, one [`Net.connector`] or [`Net.connector_from`] made with
     --- a table, and no datagram sent: the servers asked are `servers`, or
-    --- the system's ([`Net.nameservers`]), each of which the connector's
-    --- table must hold at its port. A connector built from
-    --- [`Net.nameservers`] alone reaches nothing else, so the lookup's
+    --- the system's ([`cosmic.sandbox.relay`]'s `nameservers`), each of which the
+    --- connector's table must hold at its port. A connector built from
+    --- those alone reaches nothing else, so the lookup's
     --- sockets reach nothing but the name servers. Linux only, as the
     --- connector is.
     connector: Connector
   end
 
-  --- What [`Net.nameservers`] takes.
-  record NameserversOptions
-    --- A resolv.conf to read in place of the system's, for tests.
-    resolv_conf: string
-  end
 
   --- What [`Net.serve`] serves, and how. A field of the wrong shape, or
   --- one not named here, raises, naming it.
@@ -802,24 +797,6 @@ function Net.resolve(name: string, opts?: Net.ResolveOptions): {Net.Resolved} | 
   return found, ""
 end
 
---- The name servers the system's configuration names, as [`Net.resolve`]
---- reads it (resolv.conf; on macOS, the system's DNS configuration
---- first), each a numeric [`Net.Endpoint`] at its TCP port, 53 for every
---- server resolv.conf names: the table of a connector for
---- [`ResolveOptions.connector`] that reaches nothing else. With none
---- configured, the resolver's default, 127.0.0.1 at 53. A link-local
---- server written with its interface is left out, as no connector
---- reaches one; where every server is, the answer is nil and why. Fails
---- with the system's words where the configuration cannot be read.
---- `opts.resolv_conf` is for tests; an option of the wrong shape raises.
-function Net.nameservers(opts?: Net.NameserversOptions): {Net.Endpoint} | nil, string
-  opts = opts or {}
-  if type(opts) ~= "table" then error("net: options must be a table", 2) end
-  local path = opts.resolv_conf
-  if path ~= nil and not (path is string) then error("net: resolv_conf must be a string", 2) end
-  return relay_start.nameservers(path)
-end
-
 --- A socket connected to `address`, waiting at most `timeout_ns`: in a
 --- task of [`Poll.run`], through the run; anywhere else, holding the
 --- thread.
@@ -1259,7 +1236,7 @@ resolved_through = function(name: string, opts: Net.ResolveOptions): {Net.Resolv
       listed[i] = { host = address.host, port = address.port }
     end
   else
-    local system, why = Net.nameservers()
+    local system, why = Sandbox.Relay.nameservers()
     if system == nil then return nil, why end
     listed = system
   end
