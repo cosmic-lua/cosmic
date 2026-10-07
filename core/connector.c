@@ -1,6 +1,13 @@
 /* The sandbox's native endpoint connector. The Teal relay never receives
  * an unconnected host socket: this child connects it, constrained by an
  * immutable sockaddr table and a filter that cannot remap or rewrite it.
+ * A connector started in public mode also connects to an address no table
+ * holds, which the filter cannot judge (it compares only the sockaddr's
+ * pointer and length): the child classifies the address against deny lists
+ * its caller passed as data, copies an allowed one into a scratch slot the
+ * filter does accept, and connects through that. The scratch page is
+ * writable only because the filter has no call that could change it, and
+ * the child is single-threaded and not dumpable, so nothing else writes it.
  * No Lua, allocation or loader operation occurs in the forked child.
  * Fork retains a copy of the launcher's memory and environment: this
  * helper confines network authority, not secrets already in that memory.
@@ -42,11 +49,33 @@
 #define CONNECTOR_ALLOW 0x7fff0000u
 #define CONNECTOR_KILL 0x80000000u
 #define CONNECTOR_REFUSE (0x00050000u | EPERM)
+#define CONNECTOR_DENY 128
+#define CONNECTOR_OWN 256
+#define CONNECTOR_SCRATCH 2
+/* The index of a public request: a table's indexes are small, and 0 is
+ * refused (EPERM) in eight bytes by every connector. */
+#define CONNECTOR_PUBLIC 0xffffffffu
+/* A public refusal's reply: past any errno, so a kernel's EACCES or EPERM
+ * from connect is never taken for the deny list. */
+#define CONNECTOR_DENIED 0x10000
 
 struct connector_insn { uint16_t code; uint8_t jt, jf; uint32_t k; };
 struct connector_range { uintptr_t base; uint32_t slots, length; };
 struct connector_endpoint { struct sockaddr_storage address; uint32_t slots, length; };
 struct connector_code { struct connector_insn insns[CONNECTOR_INSNS]; size_t used; };
+
+/* An address prefix of `length` bytes (4 or 16) of which `bits` are held. */
+struct connector_prefix { uint8_t bytes[16]; uint8_t length, bits; };
+/* What a public connector refuses: the caller's data, and no policy of
+ * this file's but the IPv6 allow root of connector_public_allowed. */
+struct connector_public {
+  struct connector_prefix deny[CONNECTOR_DENY], own[CONNECTOR_OWN];
+  size_t denies, owns;
+  bool enabled;
+};
+/* A public request: index CONNECTOR_PUBLIC, a port (0 asks only for the decision), the
+ * family (4 or 6) and the address, an IPv4 one followed by zeros. */
+struct connector_request { uint32_t index, port, family; uint8_t address[16]; };
 
 /* Explicit Linux numbers let the same builder be checked for both
  * architectures on every host, independently of its own libc headers. */
@@ -188,10 +217,10 @@ static size_t connector_program (struct connector_code *code,
 }
 
 static size_t connector_endpoints (lua_State *L, int argument,
-                                  struct connector_endpoint *endpoints, bool list) {
+                                  struct connector_endpoint *endpoints, bool list, bool empty) {
   luaL_checktype(L, argument, LUA_TTABLE);
   size_t count = list ? lua_rawlen(L, argument) : 1;
-  if (count == 0 || count > CONNECTOR_ENDPOINTS)
+  if ((count == 0 && !empty) || count > CONNECTOR_ENDPOINTS)
     luaL_argerror(L, argument, "endpoints must hold 1 through 128 numeric TCP endpoints");
   uint32_t slots = 0;
   for (size_t i = 0; i < count; i++) {
@@ -228,6 +257,84 @@ static size_t connector_endpoints (lua_State *L, int argument,
     lua_pop(L, 2);
   }
   return count;
+}
+
+/* The numeric address in `text` (NUL-terminated, `size` long) as a prefix of
+ * all its bits, an IPv4-mapped IPv6 address reduced to the IPv4 address it
+ * carries when `reduce`; false for anything else. */
+static bool connector_address (const char *text, size_t size, bool reduce, struct connector_prefix *out) {
+  memset(out, 0, sizeof *out);
+  if (!cosmic_numeric_host(text, size)) return false;
+  if (strchr(text, ':') == NULL) {
+    if (inet_pton(AF_INET, text, out->bytes) != 1) return false;
+    out->length = 4;
+  } else {
+    if (inet_pton(AF_INET6, text, out->bytes) != 1) return false;
+    out->length = 16;
+    static const uint8_t mapped[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff};
+    if (reduce && memcmp(out->bytes, mapped, sizeof mapped) == 0) {
+      memmove(out->bytes, out->bytes + 12, 4);
+      memset(out->bytes + 4, 0, 12);
+      out->length = 4;
+    }
+  }
+  out->bits = (uint8_t)(out->length * 8);
+  return true;
+}
+
+/* `text` as "address/bits" when `cidr`, else as an address alone. */
+static bool connector_prefix (char *text, size_t size, bool cidr, struct connector_prefix *out) {
+  unsigned bits = 0;
+  if (cidr) {
+    char *slash = strchr(text, '/');
+    if (slash == NULL || slash[1] == '\0' || strlen(slash + 1) > 3) return false;
+    if (slash[1] == '0' && slash[2] != '\0') return false;
+    for (const char *digit = slash + 1; *digit != '\0'; digit++) {
+      if (*digit < '0' || *digit > '9') return false;
+      bits = bits * 10 + (unsigned)(*digit - '0');
+    }
+    size = (size_t)(slash - text);
+    *slash = '\0';
+  }
+  if (!connector_address(text, size, !cidr, out)) return false;
+  if (!cidr) return true;
+  if (bits > (unsigned)out->length * 8) return false;
+  out->bits = (uint8_t)bits;
+  return true;
+}
+
+static size_t connector_prefixes (lua_State *L, int argument, int list, bool cidr,
+                                  struct connector_prefix *out, size_t limit) {
+  if (!lua_istable(L, list))
+    luaL_argerror(L, argument, cidr ? "public needs a deny list" : "public's own must be a list");
+  size_t count = lua_rawlen(L, list);
+  if (count > limit) luaL_argerror(L, argument, "a public list holds too many entries");
+  for (size_t i = 0; i < count; i++) {
+    lua_rawgeti(L, list, (lua_Integer)i + 1);
+    size_t size = 0;
+    const char *text = luaL_checklstring(L, -1, &size);
+    char copy[64];
+    if (size >= sizeof copy || strlen(text) != size) luaL_argerror(L, argument, "a public entry is not an address");
+    memcpy(copy, text, size + 1);
+    lua_pop(L, 1);
+    if (!connector_prefix(copy, size, cidr, &out[i]))
+      luaL_argerror(L, argument, cidr ? "a deny entry must be a numeric address and prefix length, as 10.0.0.0/8"
+                                      : "an own entry must be a numeric address");
+  }
+  return count;
+}
+
+/* Reads `{ deny = {cidr...}, own = {address...} }` from `argument`. */
+static void connector_public_read (lua_State *L, int argument, struct connector_public *pub) {
+  luaL_checktype(L, argument, LUA_TTABLE);
+  memset(pub, 0, sizeof *pub);
+  lua_getfield(L, argument, "deny");
+  pub->denies = connector_prefixes(L, argument, lua_gettop(L), true, pub->deny, CONNECTOR_DENY);
+  lua_getfield(L, argument, "own");
+  if (!lua_isnil(L, -1))
+    pub->owns = connector_prefixes(L, argument, lua_gettop(L), false, pub->own, CONNECTOR_OWN);
+  lua_pop(L, 2);
+  pub->enabled = true;
 }
 
 COSMIC_SYSCALL(connector_pair, 0) {
@@ -290,10 +397,13 @@ _Static_assert(sizeof(struct connector_insn) == sizeof(struct sock_filter), "BPF
 _Static_assert(sizeof(struct sockaddr_storage) == CONNECTOR_STRIDE, "address slot size");
 
 struct connector_plan {
-  struct connector_range ranges[CONNECTOR_ENDPOINTS];
+  struct connector_range ranges[CONNECTOR_ENDPOINTS + CONNECTOR_SCRATCH];
   struct connector_code code;
-  size_t count, bytes;
-  void *memory;
+  struct connector_public pub;
+  /* `count` table ranges, then the scratch slots of a public connector;
+   * `filtered` is how many of `ranges` the filter accepts. */
+  size_t count, filtered, bytes, scratch_bytes;
+  void *memory, *scratch;
   int control, status, timeout;
   bool close_refused, filter_refused;
 };
@@ -302,6 +412,8 @@ static int connector_table (const struct connector_endpoint *endpoints, size_t c
                             struct connector_plan *plan) {
   size_t slots = 0;
   for (size_t i = 0; i < count; i++) slots += endpoints[i].slots;
+  plan->count = plan->filtered = 0;
+  if (slots == 0) return 0;
   long page = sysconf(_SC_PAGESIZE);
   if (page <= 0) return EINVAL;
   size_t used = slots * CONNECTOR_STRIDE;
@@ -328,8 +440,55 @@ static int connector_table (const struct connector_endpoint *endpoints, size_t c
   }
   if (COSMIC_FAULT("connector_mprotect")) return EACCES;
   if (mprotect(plan->memory, plan->bytes, PROT_READ) != 0) return errno;
-  plan->count = count;
+  plan->count = plan->filtered = count;
   return 0;
+}
+
+/* The one writable page of a public connector: an IPv4 slot, then an IPv6
+ * slot. Only these slots, at these lengths, are connectable besides the
+ * table, and no allowed call remaps or reprotects the page. */
+static int connector_scratch (struct connector_plan *plan) {
+  long page = sysconf(_SC_PAGESIZE);
+  if (page < 2 * CONNECTOR_STRIDE) return EINVAL;
+  if (COSMIC_FAULT("connector_scratch")) return ENOMEM;
+  plan->scratch = mmap(NULL, (size_t)page, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (plan->scratch == MAP_FAILED) { plan->scratch = NULL; return errno; }
+  plan->scratch_bytes = (size_t)page;
+  uintptr_t base = (uintptr_t)plan->scratch;
+  plan->ranges[plan->count] = (struct connector_range){base, 1, sizeof(struct sockaddr_in)};
+  plan->ranges[plan->count + 1] = (struct connector_range){base + CONNECTOR_STRIDE, 1, sizeof(struct sockaddr_in6)};
+  plan->filtered = plan->count + CONNECTOR_SCRATCH;
+  return 0;
+}
+
+static void connector_release (struct connector_plan *plan) {
+  if (plan->memory != NULL) munmap(plan->memory, plan->bytes);
+  if (plan->scratch != NULL) munmap(plan->scratch, plan->scratch_bytes);
+  plan->memory = plan->scratch = NULL;
+}
+
+/* Whether `prefix` holds `address` of `length` bytes. */
+static bool connector_within (const struct connector_prefix *prefix, const uint8_t *address, size_t length) {
+  if (prefix->length != length) return false;
+  size_t whole = prefix->bits / 8u, rest = prefix->bits % 8u;
+  if (memcmp(prefix->bytes, address, whole) != 0) return false;
+  if (rest == 0) return true;
+  uint8_t mask = (uint8_t)(0xffu << (8u - rest));
+  return ((prefix->bytes[whole] ^ address[whole]) & mask) == 0;
+}
+
+/* Whether a public connector may connect to `address`, 4 or 16 bytes. An
+ * IPv6 address must be in 2000::/3 (global unicast), which leaves out the
+ * IPv4-mapped and NAT64 forms undecoded, and then in no deny prefix and no
+ * own address. A fixed number of table entries is walked: no allocation. */
+static bool connector_public_allowed (const struct connector_public *pub, const uint8_t *address,
+                                      size_t length) {
+  if (length == 16 && (address[0] & 0xe0u) != 0x20u) return false;
+  for (size_t i = 0; i < pub->denies; i++)
+    if (connector_within(&pub->deny[i], address, length)) return false;
+  for (size_t i = 0; i < pub->owns; i++)
+    if (connector_within(&pub->own[i], address, length)) return false;
+  return true;
 }
 
 static int connector_whole (int fd, void *buffer, size_t size, bool writing) {
@@ -349,20 +508,14 @@ static int64_t connector_now (void) {
   return (int64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
 }
 
-static int connector_connect (const struct connector_plan *plan, uint32_t index, uint32_t port,
-                              int *connected) {
-  *connected = -1;
-  if (index < 1 || index > plan->count || port < 1 || port > 65535) return EPERM;
-  const struct connector_range *range = &plan->ranges[index - 1];
-  const struct sockaddr *address = (const struct sockaddr *)(range->base +
-      (range->slots > 1 ? (uintptr_t)(port - 1) * CONNECTOR_STRIDE : 0));
-  uint16_t held = address->sa_family == AF_INET ?
-    ((const struct sockaddr_in *)address)->sin_port : ((const struct sockaddr_in6 *)address)->sin6_port;
-  if (ntohs(held) != port) return EPERM;
+/* Connects a new nonblocking socket to `address`, a table or scratch slot
+ * the filter accepts at `size`, within the plan's timeout. */
+static int connector_establish (const struct connector_plan *plan, const struct sockaddr *address,
+                                socklen_t size, int *connected) {
   int fd = socket(address->sa_family, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, IPPROTO_TCP);
   if (fd < 0) return errno;
   int failure = 0;
-  if (connect(fd, address, range->length) != 0) {
+  if (connect(fd, address, size) != 0) {
     failure = errno;
     if (failure == EINPROGRESS) {
       int64_t now = connector_now();
@@ -375,8 +528,8 @@ static int connector_connect (const struct connector_plan *plan, uint32_t index,
         if (ready < 0 && errno != EINTR) { failure = errno; break; }
         if (wait[1].revents & (POLLHUP | POLLERR | POLLNVAL)) { failure = EPIPE; break; }
         if (wait[0].revents != 0) {
-          socklen_t size = sizeof failure;
-          if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &failure, &size) != 0) failure = errno;
+          socklen_t length = sizeof failure;
+          if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &failure, &length) != 0) failure = errno;
           break;
         }
         now = connector_now();
@@ -389,10 +542,57 @@ static int connector_connect (const struct connector_plan *plan, uint32_t index,
   return failure;
 }
 
+static int connector_connect (const struct connector_plan *plan, uint32_t index, uint32_t port,
+                              int *connected) {
+  *connected = -1;
+  if (index < 1 || index > plan->count || port < 1 || port > 65535) return EPERM;
+  const struct connector_range *range = &plan->ranges[index - 1];
+  const struct sockaddr *address = (const struct sockaddr *)(range->base +
+      (range->slots > 1 ? (uintptr_t)(port - 1) * CONNECTOR_STRIDE : 0));
+  uint16_t held = address->sa_family == AF_INET ?
+    ((const struct sockaddr_in *)address)->sin_port : ((const struct sockaddr_in6 *)address)->sin6_port;
+  if (ntohs(held) != port) return EPERM;
+  return connector_establish(plan, address, range->length, connected);
+}
+
+/* A public request, answered EPERM where the connector is not public,
+ * EINVAL where it is malformed and CONNECTOR_DENIED where the address is refused.
+ * Port 0 asks only for the decision: 0 for an allowed address, with no
+ * socket made and no descriptor passed. */
+static int connector_public_connect (const struct connector_plan *plan,
+                                     const struct connector_request *request, int *connected) {
+  *connected = -1;
+  if (!plan->pub.enabled) return EPERM;
+  size_t length = request->family == 4 ? 4 : request->family == 6 ? 16 : 0;
+  if (length == 0 || request->port > 65535) return EINVAL;
+  for (size_t i = length; i < sizeof request->address; i++)
+    if (request->address[i] != 0) return EINVAL;
+  if (!connector_public_allowed(&plan->pub, request->address, length)) return CONNECTOR_DENIED;
+  if (request->port == 0) return 0;
+  unsigned char *slot = (unsigned char *)plan->scratch;
+  if (length == 16) slot += CONNECTOR_STRIDE;
+  memset(slot, 0, CONNECTOR_STRIDE);
+  socklen_t size;
+  if (length == 4) {
+    struct sockaddr_in *v4 = (struct sockaddr_in *)slot;
+    v4->sin_family = AF_INET;
+    v4->sin_port = htons((uint16_t)request->port);
+    memcpy(&v4->sin_addr, request->address, 4);
+    size = sizeof *v4;
+  } else {
+    struct sockaddr_in6 *v6 = (struct sockaddr_in6 *)slot;
+    v6->sin6_family = AF_INET6;
+    v6->sin6_port = htons((uint16_t)request->port);
+    memcpy(&v6->sin6_addr, request->address, 16);
+    size = sizeof *v6;
+  }
+  return connector_establish(plan, (const struct sockaddr *)slot, size, connected);
+}
+
 static int connector_reply (int control, int failure, int fd) {
   uint32_t number = htonl((uint32_t)failure);
   int trouble = connector_whole(control, &number, sizeof number, true);
-  if (trouble || failure) return trouble;
+  if (trouble || failure || fd < 0) return trouble;
   char marker = '\0';
   struct iovec payload = {&marker, 1};
   union { struct cmsghdr alignment; char bytes[CMSG_SPACE(sizeof(int))]; } ancillary;
@@ -409,12 +609,28 @@ static int connector_reply (int control, int failure, int fd) {
   return sent == 1 ? 0 : sent < 0 ? errno : EIO;
 }
 
+/* A public request carries its family and address after the eight
+ * bytes every request begins with. */
+static int connector_receive (int control, struct connector_request *request) {
+  uint32_t head[2];
+  int trouble = connector_whole(control, head, sizeof head, false);
+  if (trouble) return trouble;
+  *request = (struct connector_request){ntohl(head[0]), ntohl(head[1]), 0, {0}};
+  if (request->index != CONNECTOR_PUBLIC) return 0;
+  uint32_t family;
+  trouble = connector_whole(control, &family, sizeof family, false);
+  if (trouble) return trouble;
+  request->family = ntohl(family);
+  return connector_whole(control, request->address, sizeof request->address, false);
+}
+
 static _Noreturn void connector_loop (const struct connector_plan *plan) {
   for (;;) {
-    uint32_t request[2];
-    if (connector_whole(plan->control, request, sizeof request, false) != 0) _exit(0);
+    struct connector_request request;
+    if (connector_receive(plan->control, &request) != 0) _exit(0);
     int fd = -1;
-    int failure = connector_connect(plan, ntohl(request[0]), ntohl(request[1]), &fd);
+    int failure = request.index == CONNECTOR_PUBLIC ? connector_public_connect(plan, &request, &fd) :
+      connector_connect(plan, request.index, request.port, &fd);
     int sent = connector_reply(plan->control, failure, fd);
     if (fd >= 0) close(fd);
     if (sent || failure == EPIPE) _exit(0);
@@ -447,6 +663,9 @@ static int connector_hold (const struct connector_plan *plan) {
   sigset_t empty;
   sigemptyset(&empty);
   if (sigprocmask(SIG_SETMASK, &empty, NULL) != 0) return errno;
+  /* Not dumpable: a same-user process can neither ptrace this one nor
+   * write its memory (process_vm_writev, /proc/<pid>/mem), which would
+   * rewrite the scratch slot after its address was classified. */
   if (prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) != 0 || prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) return errno;
   struct rlimit files = {256, 256};
   struct rlimit core = {0, 0};
@@ -476,20 +695,59 @@ static int connector_control (int fd) {
 }
 
 static int connector_prepare (struct connector_plan *plan,
-    const struct connector_endpoint *endpoints, size_t count, int control, int timeout) {
+    const struct connector_endpoint *endpoints, size_t count, const struct connector_public *pub,
+    int control, int timeout) {
   memset(plan, 0, sizeof *plan);
   int trouble = connector_control(control);
   if (trouble) return trouble;
   plan->control = control;
   plan->timeout = timeout;
-  return connector_table(endpoints, count, plan);
+  plan->pub = *pub;
+  trouble = connector_table(endpoints, count, plan);
+  if (!trouble && pub->enabled) trouble = connector_scratch(plan);
+  return trouble;
 }
 
 static int connector_start_native (struct connector_plan *plan, const char *probe, pid_t *child);
 
-/* Fixed probes exercise the actual kernel filter, never a second
- * approximation. The policy compiler must have already approved these
- * addresses, as it does for a normal connector. */
+/* The scratch page's own probes, with a valid loopback address written to
+ * its IPv4 slot, so that only the filter can refuse what each attempts. */
+static int connector_attack_scratch (const struct connector_plan *plan, const char *operation) {
+  struct sockaddr_in *slot = (struct sockaddr_in *)plan->scratch;
+  memset(slot, 0, sizeof *slot);
+  slot->sin_family = AF_INET;
+  slot->sin_port = htons(9);
+  slot->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  int fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, IPPROTO_TCP);
+  if (fd < 0) return errno;
+  unsigned char *base = (unsigned char *)slot;
+  int result = 0;
+  if (strcmp(operation, "mprotect") == 0) {
+    if (mprotect(plan->scratch, plan->scratch_bytes, PROT_READ) != 0) result = errno;
+  } else if (strcmp(operation, "remap") == 0) {
+    if (mmap(plan->scratch, plan->scratch_bytes, PROT_READ | PROT_WRITE,
+             MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) == MAP_FAILED) result = errno;
+  } else if (strcmp(operation, "pointer") == 0) {
+    struct sockaddr_in copy = *slot;
+    if (connect(fd, (struct sockaddr *)&copy, sizeof copy) != 0) result = errno;
+  } else if (strcmp(operation, "length") == 0) {
+    if (connect(fd, (struct sockaddr *)slot, sizeof(struct sockaddr_in6)) != 0) result = errno;
+  } else if (strcmp(operation, "offset") == 0) {
+    if (connect(fd, (struct sockaddr *)(base + 1), sizeof *slot) != 0) result = errno;
+  } else if (strcmp(operation, "past") == 0) {
+    /* The slot after the IPv6 one, still inside the page. */
+    if (connect(fd, (struct sockaddr *)(base + 2 * CONNECTOR_STRIDE), sizeof *slot) != 0) result = errno;
+  } else if (strcmp(operation, "swapped") == 0) {
+    /* The IPv6 slot, asked for at the IPv4 length. */
+    if (connect(fd, (struct sockaddr *)(base + CONNECTOR_STRIDE), sizeof *slot) != 0) result = errno;
+  } else if (strcmp(operation, "unscratched") == 0) {
+    /* The IPv4 slot of a page a table-only filter does not list. */
+    if (connect(fd, (struct sockaddr *)slot, sizeof *slot) != 0) result = errno;
+  }
+  close(fd);
+  return result;
+}
+
 static int connector_attack (const struct connector_plan *plan, const char *operation) {
   const struct connector_range *range = &plan->ranges[0];
   const struct sockaddr *address = (const struct sockaddr *)range->base;
@@ -532,6 +790,10 @@ static int connector_attack (const struct connector_plan *plan, const char *oper
     return errno;
   } else if (strcmp(operation, "fork") == 0) {
     if (fork() < 0) return errno;
+  } else if (strncmp(operation, "scratch_", 8) == 0) {
+    return connector_attack_scratch(plan, operation + 8);
+  } else if (strcmp(operation, "unscratched") == 0) {
+    return connector_attack_scratch(plan, operation);
   }
   return 0;
 }
@@ -553,7 +815,7 @@ static int connector_start_native (struct connector_plan *plan, const char *prob
 #else
   const struct connector_numbers *numbers = &connector_arm;
 #endif
-  if (connector_program(&plan->code, numbers, plan->ranges, plan->count,
+  if (connector_program(&plan->code, numbers, plan->ranges, plan->filtered,
       plan->control, plan->status) == 0) { close(status[0]); close(status[1]); return E2BIG; }
   sigset_t every, before;
   sigfillset(&every);
@@ -597,47 +859,64 @@ static int connector_start_native (struct connector_plan *plan, const char *prob
 }
 #endif
 
-COSMIC_SYSCALL(connector_start, 3) {
+COSMIC_SYSCALL(connector_start, 4) {
   struct connector_endpoint endpoints[CONNECTOR_ENDPOINTS];
-  size_t count = connector_endpoints(L, 1, endpoints, true);
+  struct connector_public pub;
+  memset(&pub, 0, sizeof pub);
+  if (!lua_isnoneornil(L, 4)) connector_public_read(L, 4, &pub);
+  size_t count = connector_endpoints(L, 1, endpoints, true, pub.enabled);
   int control = cosmic_checkfd(L, 2), timeout = cosmic_checkint(L, 3);
   if (timeout < 1 || timeout > 60000) return luaL_argerror(L, 3, "timeout must be 1 through 60000 milliseconds");
 #if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__))
   struct connector_plan plan;
-  int failure = connector_prepare(&plan, endpoints, count, control, timeout);
+  int failure = connector_prepare(&plan, endpoints, count, &pub, control, timeout);
   pid_t child = -1;
   if (!failure) failure = connector_start_native(&plan, NULL, &child);
-  if (plan.memory != NULL) munmap(plan.memory, plan.bytes);
+  connector_release(&plan);
   if (failure) return cosmic_fail(L, failure);
   lua_pushinteger(L, child);
   return 1;
 #else
   /* TODO: use Seatbelt's exact numeric remote rules once the macOS
    * profile application and native connector confinement land. */
-  (void)count; (void)control;
+  (void)count; (void)control; (void)pub;
   return cosmic_fail(L, ENOSYS);
 #endif
 }
 
 COSMIC_SYSCALL(connector_probe, 2) {
   struct connector_endpoint endpoint;
-  connector_endpoints(L, 1, &endpoint, false);
+  connector_endpoints(L, 1, &endpoint, false, false);
   const char *operation = luaL_checkstring(L, 2);
   static const char *const operations[] = {"pointer", "length", "mutation", "mprotect", "remap", "dup",
     "recvmsg", "sendto", "sendmsg", "close_control", "udp", "open", "exec", "fork"};
+  static const char *const scratch[] = {"scratch_mprotect", "scratch_remap", "scratch_pointer",
+    "scratch_length", "scratch_offset", "scratch_past", "scratch_swapped"};
   bool known = false;
   for (size_t i = 0; i < sizeof operations / sizeof operations[0]; i++)
     if (strcmp(operation, operations[i]) == 0) known = true;
+  struct connector_public pub;
+  memset(&pub, 0, sizeof pub);
+  for (size_t i = 0; i < sizeof scratch / sizeof scratch[0]; i++)
+    if (strcmp(operation, scratch[i]) == 0) { known = true; pub.enabled = true; }
+  bool unscratched = strcmp(operation, "unscratched") == 0;
+  if (unscratched) known = true;
   if (!known) return luaL_argerror(L, 2, "unknown connector probe");
 #if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__))
   int pair[2];
   if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, pair) != 0) return cosmic_fail(L, errno);
   struct connector_plan plan;
-  int failure = connector_prepare(&plan, &endpoint, 1, pair[1], 100);
+  int failure = connector_prepare(&plan, &endpoint, 1, &pub, pair[1], 100);
   pid_t child = -1;
+  if (!failure && unscratched) {
+    /* A page the filter was not told of, as a table-only connector has none. */
+    plan.scratch_bytes = (size_t)sysconf(_SC_PAGESIZE);
+    plan.scratch = mmap(NULL, plan.scratch_bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (plan.scratch == MAP_FAILED) { plan.scratch = NULL; failure = errno; }
+  }
   if (!failure) failure = connector_start_native(&plan, operation, &child);
   close(pair[1]);
-  if (plan.memory != NULL) munmap(plan.memory, plan.bytes);
+  connector_release(&plan);
   int result = 0, ended = 0;
   if (!failure) {
     int read_error = connector_whole(pair[0], &result, sizeof result, false);
