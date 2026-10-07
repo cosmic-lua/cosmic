@@ -1,6 +1,7 @@
 --- `cosmic sandbox connect` (build/sandbox_connect.tl) in this process,
---- against a relay of this test's own that listens where the sandbox's
---- does, 127.0.0.1:1080 of the worker's network (the policy's `loopback`):
+--- against a relay of this test's own that listens on a port of its own at
+--- 127.0.0.1 (the policy's `loopback`), which `ALL_PROXY` names: a host that
+--- runs workers in its own network (macOS) has another process on 1080:
 --- what it asks the relay for, how it answers each reply, the bytes it
 --- carries each way with their half-closes, and what it refuses before
 --- it connects anywhere.
@@ -17,8 +18,14 @@ Test.policy{
   loopback = { "127.0.0.1" },
 }
 
---- The `ALL_PROXY` the sandbox sets.
+--- The `ALL_PROXY` the sandbox sets, which a client refuses unless it is a
+--- `socks5h` proxy at 127.0.0.1.
 local PROXY <const> = "socks5h://127.0.0.1:1080"
+
+--- The `ALL_PROXY` for a relay at `port`.
+local function proxy_at(port: integer): string
+  return "socks5h://127.0.0.1:" .. port
+end
 
 --- What a run of the client left.
 local record Ran
@@ -70,40 +77,55 @@ local function bytes(conn: Net.Conn, count: integer): string
 end
 
 --- Runs `body(relay, send, finish)` in a run beside a client for `args`
---- with the environment `env` (the sandbox's when nil): `relay` is the
+--- with the variable `variable` (`ALL_PROXY` when nil) set to the relay's
+--- listener: `relay` is the
 --- relay's end of the one connection the client makes, `send` writes to
 --- its standard input and `finish` ends it. Answers how the client ended.
 local function against(tmp: string, args: {string}, body: function(relay: Net.Conn, send: function(string), finish: function()),
-                       env?: {string:string}): Ran
+                       variable?: string, timeout_ns?: integer): Ran
   local ran: Ran = { code = -1, complaints = {}, out = "" }
   local in_reader, in_writer = pipe(tmp, "in")
   local out_reader, out_writer = pipe(tmp, "out")
-  local variables = env or { ALL_PROXY = PROXY }
   Poll.run(function()
-    local listener = assert(Net.listen(Net.tcp("127.0.0.1", 1080)))
+    local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
+    local variables = { [variable or "ALL_PROXY"] = proxy_at(listener.address.port) }
+    if variable == "all_proxy" then variables.all_proxy = variables.all_proxy .. "/" end
     local client = Poll.spawn(function()
       ran.code = connect.run(args, {
         getenv = function(name: string): string | nil return variables[name] end,
         err = function(line: string) ran.complaints[#ran.complaints + 1] = line end,
-        input = in_reader, output = out_writer,
+        input = in_reader, output = out_writer, answer_ns = timeout_ns,
       })
     end)
-    local relay = assert(listener:accept(Clock.seconds(20)))
-    relay:set_timeout(Clock.seconds(20))
+    local relay: Net.Conn | nil
     local ended = false
-    body(relay, function(data: string)
-      assert(sys.write(in_writer, data))
-    end, function()
+    -- However the body ends, the listener, the connection and the pipes are
+    -- closed, so that one failing test leaves nothing for the next.
+    local ok, trouble = pcall(function()
+      local accepted = assert(listener:accept(Clock.seconds(20)))
+      relay = accepted
+      accepted:set_timeout(Clock.seconds(20))
+      body(accepted, function(data: string)
+        assert(sys.write(in_writer, data))
+      end, function()
+        if not ended then
+          ended = true
+          assert(sys.close(in_writer))
+        end
+      end)
       if not ended then
         ended = true
         assert(sys.close(in_writer))
       end
+      local _, _ = accepted:close()
+      assert(client:join(Clock.seconds(20)))
+      ran.out = drained(out_reader)
     end)
-    if not ended then assert(sys.close(in_writer)) end
-    local _, _ = relay:close()
-    assert(client:join(Clock.seconds(20)))
-    ran.out = drained(out_reader)
-    assert(listener:close())
+    if not ended then local _, _ = sys.close(in_writer) end
+    if relay ~= nil then local _, _ = relay:close() end
+    client:cancel()
+    local _, _ = listener:close()
+    if not ok then error(trouble, 0) end
   end)
   assert(sys.close(in_reader))
   assert(sys.close(out_reader))
@@ -251,10 +273,13 @@ local function test_it_refuses_a_command_line_or_environment_that_is_not_a_sandb
   -- of these are refused before a connection is tried.
   refused({ "host", "22" }, {}, "ProxyCommand")
   refused({ "host", "22" }, { ALL_PROXY = "" }, "`cosmic sandbox --connect HOST:PORT`")
-  refused({ "host", "22" }, { ALL_PROXY = "socks5://127.0.0.1:1080" }, "not " .. PROXY)
+  refused({ "host", "22" }, { ALL_PROXY = "socks5://127.0.0.1:1080" }, "socks5h://127.0.0.1:PORT")
   refused({ "host", "22" }, { ALL_PROXY = "http://127.0.0.1:3128" }, "no other proxy is served")
   refused({ "host", "22" }, { ALL_PROXY = "socks5h://10.0.0.1:1080" }, "socks5h://10.0.0.1:1080")
-  refused({ "host", "22" }, { ALL_PROXY = "socks5h://127.0.0.1:1081" }, "no other proxy is served")
+  refused({ "host", "22" }, { ALL_PROXY = "socks5h://127.0.0.1:0" }, "no other proxy is served")
+  refused({ "host", "22" }, { ALL_PROXY = "socks5h://127.0.0.1:65536" }, "no other proxy is served")
+  refused({ "host", "22" }, { ALL_PROXY = "socks5h://127.0.0.1" }, "no other proxy is served")
+  refused({ "host", "22" }, { ALL_PROXY = "socks5h://localhost:1080" }, "no other proxy is served")
   refused({}, { ALL_PROXY = PROXY }, "takes a host and a port")
   refused({ "host" }, { ALL_PROXY = PROXY }, "takes a host and a port")
   refused({ "host", "22", "extra" }, { ALL_PROXY = PROXY }, "takes a host and a port")
@@ -267,19 +292,39 @@ local function test_it_refuses_a_command_line_or_environment_that_is_not_a_sandb
   local ran = against(tmp, { "host.example", "1" }, function(relay: Net.Conn)
     asked(relay)
     assert(relay:write(Wire.socks_reply("refused")))
-  end, { all_proxy = PROXY .. "/" })
+  end, "all_proxy")
   assert(ran.code == 1, table.concat(ran.complaints))
 end
 
 local function test_nothing_listening_is_a_failure_naming_the_relay(_: string)
+  -- A port that was just listened at and is shut: nothing is there.
+  local port: integer
+  Poll.run(function()
+    local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
+    port = listener.address.port
+    assert(listener:close())
+  end)
   local complaints: {string} = {}
   local code = connect.run({ "host", "22" }, {
     getenv = function(name: string): string | nil
-      if name == "ALL_PROXY" then return PROXY end
+      if name == "ALL_PROXY" then return proxy_at(port) end
       return nil
     end,
     err = function(line: string) complaints[#complaints + 1] = line end,
     input = 0, output = 1,
   })
-  assert(code == 1 and complaints[1]:find("the relay at " .. PROXY, 1, true), complaints[1])
+  assert(code == 1 and complaints[1]:find("the relay at " .. proxy_at(port), 1, true), tostring(complaints[1]))
+end
+
+local function test_a_relay_that_never_answers_is_a_failure_after_the_timeout_naming_the_relay(tmp: string)
+  local started = Clock.monotonic_ns()
+  local ran = against(tmp, { "host.example", "22" }, function(relay: Net.Conn)
+    asked(relay)
+    -- Holds the connection open and says nothing until the client has given up.
+    local _, _ = relay:read(1)
+  end, nil, Clock.seconds(1))
+  assert(ran.code == 1 and #ran.complaints == 1, ran.code .. table.concat(ran.complaints))
+  assert(ran.complaints[1]:find("host.example:22: the relay at socks5h://127.0.0.1:", 1, true) and
+      ran.complaints[1]:find("did not answer in time", 1, true), ran.complaints[1])
+  assert(Clock.monotonic_ns() - started < Clock.seconds(15), "it gave up in time")
 end

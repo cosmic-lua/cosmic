@@ -5,6 +5,7 @@
 --- by the relay's own reader as the host and port it was written for.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
+local Fixture = require("build.relay_wire_fixture")
 local Fuzz = require("build.fuzz")
 local Wire = require("cosmic.relay_wire")
 
@@ -187,6 +188,16 @@ local function test_a_request_the_client_writes_is_read_back_by_the_relay(tmp: s
       if seen.status == "done" then
         if seen.port ~= port or seen.consumed ~= #request then
           return false, ("%q:%d was read as %s:%d"):format(host, port, seen.host, seen.port)
+        end
+        -- The host read is the host written, as its form has it.
+        if seen.kind == "ipv4" then
+          if seen.host ~= host then return false, ("%q was read as %s"):format(host, seen.host) end
+        elseif seen.kind == "ipv6" then
+          if Fixture.ipv6_bytes(seen.host) ~= request:sub(5, 20) then
+            return false, ("%q was read as %s, other bytes"):format(host, seen.host)
+          end
+        elseif seen.host ~= (host:lower():gsub("%.$", "")) then
+          return false, ("%q was read as %s"):format(host, seen.host)
         end
         Fuzz.label(seen.kind)
         Fuzz.label("read")

@@ -3692,6 +3692,20 @@ end
 --- started: the host's own addresses, the sealed database and the config.
 --- Nil and why where it cannot have them.
 local function prepare_relay(connect: {string}, opts: Options): RelayPrep | nil, string
+  -- A descriptor given as the relay's log is the relay's standard error, on
+  -- which a terminal is refused as for any sandboxed process; say so naming
+  -- the option, not the relay's own start. The descriptors this program
+  -- retains for itself raise when asked (every binding refuses them).
+  local logged = opts.relay_log
+  if logged is integer then
+    local looked, terminal = pcall(isatty, logged)
+    if not looked then
+      return nil, "relay_log " .. logged .. " is a descriptor this program keeps for itself"
+    elseif terminal then
+      return nil, "relay_log " .. logged .. " is a terminal, which a sandboxed relay may not hold as its " ..
+        "standard error: give a pipe, or \"inherit\" where this process's standard error is not one"
+    end
+  end
   -- The host's own addresses are read once, here: an address the host gains
   -- while the program runs is not refused by this relay.
   local addresses, address_trouble = RelayConfig.host_addresses()

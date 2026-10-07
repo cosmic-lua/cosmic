@@ -219,14 +219,31 @@ do
   assert(child, why)
   local result = assert(child:wait())
   drain(caller)
-  assert(result.code == 1, "exit status " .. tostring(result.code) .. shown_of(caller))
-  local line = "relay: #1 socks5 example.invalid:443: refused: not granted: --connect example.invalid:443\r\n"
-  assert(caller.shown:find(line, 1, true), "the relay's decision line is not one of the terminal's: " ..
-      shown_of(caller))
-  assert(not caller.shown:find("\r\r\n", 1, true) and not caller.shown:find("[^\r]\n"),
-    "a line of the terminal's has no carriage return: " .. shown_of(caller))
-  assert(caller.shown:find("connection not allowed by ruleset", 1, true), shown_of(caller))
-  assert(assert(sys.tcgetattr(caller.slave)) == caller.before, "the caller's termios was not restored")
+  if result.code == 125 and caller.shown:find("relay", 1, true) then
+    -- A host that cannot give the program a network of its own (no user
+    -- namespaces) cannot start the relay: nothing here is about that.
+    print("relay: SKIP the relay's lines on the terminal: the relay cannot start here:" .. shown_of(caller))
+    finish(caller)
+  else
+    assert(result.code == 1, "exit status " .. tostring(result.code) .. shown_of(caller))
+    local line = "relay: #1 socks5 example.invalid:443: refused: not granted: --connect example.invalid:443\r\n"
+    assert(caller.shown:find(line, 1, true), "the relay's decision line is not one of the terminal's: " ..
+        shown_of(caller))
+    assert(not caller.shown:find("\r\r\n", 1, true) and not caller.shown:find("[^\r]\n"),
+      "a line of the terminal's has no carriage return: " .. shown_of(caller))
+    assert(caller.shown:find("connection not allowed by ruleset", 1, true), shown_of(caller))
+    assert(assert(sys.tcgetattr(caller.slave)) == caller.before, "the caller's termios was not restored")
+    finish(caller)
+  end
+end
+
+-- A terminal as a policy's `relay_log` is refused naming the option.
+do
+  local caller = new_caller()
+  local started, why = Child.start({ exe, "--help" }, { policy = { profiles = { "cosmic" },
+    connect = { "127.0.0.2:9" } }, relay_log = caller.slave })
+  assert(started == nil, "a terminal as the relay's log was taken")
+  print("relay: refused: " .. tostring(why))
   finish(caller)
 end
 

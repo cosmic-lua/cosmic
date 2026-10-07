@@ -486,6 +486,46 @@ local function relay_directories(): {string}
   return found
 end
 
+--- A terminal as the relay's log is refused naming the option, with nothing
+--- left running (test/terminal/relay.tl does this where no pty is given).
+local function test_a_terminal_or_a_kept_descriptor_is_no_place_for_the_relays_log(tmp: string)
+  local database = sealed_client(tmp)
+  local opened, pty_why = sys.openpty()
+  if opened == nil then Test.skip("no pty: " .. pty_why) end
+  local pty = assert(opened)
+  local options = granting(database, 9)
+  options.relay_log = pty.slave
+  local started, why = Child.start({ assert(Proc.executable()), "wait" }, options)
+  assert(sys.close(pty.slave))
+  assert(sys.close(pty.master))
+  if started ~= nil then
+    assert(started:stop())
+    assert(false, "a start with a terminal as the relay's log went on")
+  end
+  if unsandboxable(why) then Test.skip(why) end
+  assert(why:find("relay_log " .. pty.slave .. " is a terminal", 1, true), why)
+  assert(#relay_directories() == 0, "the relay's database was left")
+end
+
+--- A descriptor this program keeps for itself, where one is to be found,
+--- is refused as the relay's log, not raised on.
+local function test_a_descriptor_the_program_keeps_is_no_place_for_the_relays_log(tmp: string)
+  local database = sealed_client(tmp)
+  local tried = 0
+  for fd = 3, 255 do
+    local looked, _ = pcall(sys.isatty, fd)
+    if not looked then
+      local kept = granting(database, 9)
+      kept.relay_log = fd
+      local refused, refusal = Child.start({ assert(Proc.executable()), "wait" }, kept)
+      assert(refused == nil and refusal:find("relay_log " .. fd .. " is a descriptor this program keeps", 1, true),
+        tostring(refusal))
+      tried = tried + 1
+    end
+  end
+  if tried == 0 then Test.skip("this program keeps no descriptor for itself here") end
+end
+
 --- The relay's database is removed before the program exists, so a program
 --- that can write where it was made has nothing to swap; and nothing of it
 --- is left once the program is gone.

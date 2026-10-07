@@ -90,7 +90,8 @@ local record Terminal
   --- none): the sandbox relay's decision lines, whose process may not hold
   --- the caller's terminal as its standard error. Each line ends in CR and
   --- LF there, for the terminal is raw where its input is a terminal, and
-  --- is written whole, between the program's writes.
+  --- is written whole, between the program's writes, with the bytes a
+  --- terminal could act on shown as "?" ([`TermRelay.note_lines`]).
   notes: integer
 end
 
@@ -105,6 +106,39 @@ local record TermRelay
   --- or the platform cannot give a program a terminal: macOS). Raises as
   --- [`Child.start_on_pty`] does for `opts`.
   run: function(argv: {string}, opts: Child.Options, terminal?: Terminal): Child.Result | nil, string
+  --- The text to write to the caller's terminal for the bytes `data` of a
+  --- notes pipe that follow `held` (what an earlier call kept), and what to
+  --- keep: the whole lines among them, each ending in CR LF, and the rest.
+  --- Every byte but a newline that a terminal could act on, and every byte
+  --- from 0x7f up, is shown as "?": the pipe carries the relay's whole
+  --- standard error, which is not all lines it chose. A tail that grows
+  --- past a line a screen holds is written as a line of its own.
+  note_lines: function(held: string, data: string): TermRelay.Notes
+  --- What [`note_lines`] answers.
+  record Notes
+    --- The text to write, ending in CR LF where it is not empty.
+    text: string
+    --- What to keep for the next call: a line's beginning.
+    tail: string
+  end
+end
+
+--- The longest line kept waiting for its newline.
+local MOST_NOTE <const> = 8192
+
+function TermRelay.note_lines(held: string, data: string): TermRelay.Notes
+  local text = held .. data
+  local last = text:match(".*()\n")
+  local whole, tail: string, string
+  if last ~= nil then
+    whole, tail = text:sub(1, last - 1), text:sub(last + 1)
+  elseif #text > MOST_NOTE then
+    whole, tail = text, ""
+  else
+    return { text = "", tail = text }
+  end
+  local shown = whole:gsub("[%z\1-\9\11-\31\127-\255]", "?"):gsub("\n", "\r\n")
+  return { text = shown .. "\r\n", tail = tail }
 end
 
 --- What `run` puts back when it ends, however it does: held in a
@@ -293,6 +327,7 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
   --- it read, 0 where there were none yet, and -1 once there are none for
   --- good. A write to the caller that fails loses the line and ends nothing.
   local notes_open = notes ~= nil
+  local note_tail = ""
   local function relay_notes(): integer
     if notes == nil then return -1 end
     local data, _, errno = sys.read(notes, CHUNK)
@@ -305,7 +340,11 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
       notes_open = false
       return -1
     end
-    local _, _ = write_all(errors, (data:gsub("\r?\n", "\r\n")))
+    local lines = TermRelay.note_lines(note_tail, data)
+    note_tail = lines.tail
+    if lines.text ~= "" then
+      local _, _ = write_all(errors, lines.text)
+    end
     return #data
   end
 
@@ -388,6 +427,10 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
       if count <= 0 then break end
       budget = budget - count
     end
+  end
+  if note_tail ~= "" then
+    -- A last line the relay did not end.
+    local _, _ = write_all(errors, TermRelay.note_lines(note_tail, "\n").text)
   end
   if failure ~= nil then return nil, failure end
   return result, ""

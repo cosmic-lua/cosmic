@@ -47,17 +47,21 @@ local record sandbox_connect
     input: integer
     --- The descriptor of the standard output the connection is written to.
     output: integer
+    --- How long the relay has to answer the greeting and the request, each,
+    --- in nanoseconds: 30 seconds when nil.
+    answer_ns: integer
   end
 end
 
 --- The most bytes read from either side at a time.
 local CHUNK <const> = 4096
---- How long the relay has to answer the greeting and the request: its own
---- connect timeout is 10 seconds, and a resolve comes before it.
-local ANSWER_NS <const> = Clock.seconds(60)
+--- How long connecting to the relay may take: it listens in this network.
+local CONNECT_NS <const> = Clock.seconds(10)
+--- How long the relay has to answer the greeting and the request, each: its
+--- own connect timeout is 10 seconds, and a resolve comes before it.
+local ANSWER_NS <const> = Clock.seconds(30)
 
---- The relay's listener, which is the one `ALL_PROXY` the sandbox sets
---- names.
+--- The relay's listener as the sandbox sets `ALL_PROXY` to it.
 local PROXY <const> = "socks5h://127.0.0.1:" .. RelayConfig.socks_port
 
 --- The port of `text`, a whole number from 1 to 65535, or nil.
@@ -71,16 +75,19 @@ end
 --- Reads exactly what `reader` decides from `conn`, as the relay's answer to
 --- one step: the bytes fed until it is no longer `more`.
 --- @param conn the connection to the relay
+--- @param relay its name, for what is said of it
 --- @param feed feeds the next bytes to a reader, and answers its status, how
 --- many bytes it took and why it refused
 --- @return the bytes read beyond what the reader took, or nil
 --- @return why it refused or the connection failed, when nil
-local function answered(conn: Net.Conn, feed: function(string): string, integer, string): string | nil, string
+local function answered(conn: Net.Conn, relay: string, feed: function(string): string, integer, string): string | nil, string
   while true do
     local data, why = conn:read(CHUNK)
     if data == nil then
       if why == "" then return nil, "the relay closed the connection before it answered" end
-      if why == Poll.TIMEOUT then return nil, "the relay did not answer in time" end
+      if why == Poll.TIMEOUT then
+        return nil, "the relay at " .. relay .. " did not answer in time"
+      end
       return nil, "reading from the relay: " .. why
     end
     local status, consumed, reason = feed(data)
@@ -112,18 +119,22 @@ local function write_all(fd: integer, data: string): boolean, string
   return true, ""
 end
 
---- Whether the environment names the relay's listener, and why not.
-local function proxy_named(io: sandbox_connect.Io): boolean, string
-  local value = io.getenv("ALL_PROXY") or io.getenv("all_proxy")
-  if value == nil or value == "" then
-    return false, "ALL_PROXY is not set: this is ssh's ProxyCommand inside `cosmic sandbox --connect HOST:PORT`, " ..
+--- The port of the relay `ALL_PROXY` names, a `socks5h` proxy on 127.0.0.1
+--- (the sandbox's has the relay's port, and its network holds nothing else),
+--- or nil and why not.
+local function proxy_port(io: sandbox_connect.Io): integer | nil, string
+  local value: string = io.getenv("ALL_PROXY") or io.getenv("all_proxy") or ""
+  if value == "" then
+    return nil, "ALL_PROXY is not set: this is ssh's ProxyCommand inside `cosmic sandbox --connect HOST:PORT`, " ..
       "which sets it to the relay's SOCKS5 listener (" .. PROXY .. ")"
   end
-  if value ~= PROXY and value ~= PROXY .. "/" then
-    return false, "ALL_PROXY is " .. bare.escape(value) .. ", not " .. PROXY ..
+  local text = value:match("^socks5h://127%.0%.0%.1:(%d+)/?$") or ""
+  local port = port_of(text)
+  if port == nil then
+    return nil, "ALL_PROXY is " .. bare.escape(value) .. ", not a socks5h://127.0.0.1:PORT like " .. PROXY ..
       ", the sandbox relay's; no other proxy is served"
   end
-  return true, ""
+  return port, ""
 end
 
 --- Passes standard input to `conn` and `conn` to standard output, `first`
@@ -134,6 +145,7 @@ local function carry(conn: Net.Conn, first: string, io: sandbox_connect.Io): boo
   -- Whether the far side has ended what it sends, after which a write to it
   -- that fails is its closing and no fault of the connection.
   local far_ended = false
+  local write_failed = ""
   local function fail(why: string)
     if trouble == "" then trouble = why end
   end
@@ -154,8 +166,10 @@ local function carry(conn: Net.Conn, first: string, io: sandbox_connect.Io): boo
       else
         local sent, send_why = conn:write(data)
         if not sent then
-          if far_ended then return end
-          return fail("writing to the relay: " .. send_why)
+          -- Whether this is a fault or the far side's closing is known once
+          -- the other task has read to the end of what it sends.
+          write_failed = "writing to the relay: " .. send_why
+          return
         end
       end
     end
@@ -183,9 +197,11 @@ local function carry(conn: Net.Conn, first: string, io: sandbox_connect.Io): boo
   local writing = Poll.spawn(down)
   local _, _ = writing:join()
   -- A failure of the connection ends both; otherwise the side that sends
-  -- has until standard input ends.
+  -- has until standard input ends: a far side that has ended what it sends
+  -- may still be reading, so the client does not stop at its end.
   if trouble ~= "" then reading:cancel() end
   local _, _ = reading:join()
+  if write_failed ~= "" and not far_ended then fail(write_failed) end
   local _, _ = conn:close()
   if trouble ~= "" then return false, trouble end
   return true, ""
@@ -209,17 +225,19 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
     complain(bare.escape(host) .. ": " .. request_why)
     return bare.refused
   end
-  local named, proxy_why = proxy_named(io)
-  if not named then
+  local relay_port, proxy_why = proxy_port(io)
+  if relay_port == nil then
     complain(proxy_why)
     return bare.refused
   end
-  local made, connect_why = Net.connect(Net.tcp("127.0.0.1", RelayConfig.socks_port), { timeout_ns = ANSWER_NS })
+  local relay = "socks5h://127.0.0.1:" .. relay_port
+  local made, connect_why = Net.connect(Net.tcp("127.0.0.1", relay_port), { timeout_ns = CONNECT_NS })
   if made == nil then
-    complain("the relay at " .. PROXY .. ": " .. connect_why)
+    complain("the relay at " .. relay .. ": " .. connect_why)
     return bare.failed
   end
   local conn: Net.Conn = made
+  conn:set_timeout(io.answer_ns or ANSWER_NS)
   local where = bare.escape(host) .. ":" .. port
   local function fail(why: string): integer
     local _, _ = conn:close()
@@ -229,7 +247,7 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
   local sent, sent_why = conn:write(Wire.socks_client_greeting())
   if not sent then return fail("writing to the relay: " .. sent_why) end
   local method = Wire.socks_method_reader()
-  local after_method, method_why = answered(conn, function(chunk: string): string, integer, string
+  local after_method, method_why = answered(conn, relay, function(chunk: string): string, integer, string
     local seen = method:feed(chunk)
     return seen.status, seen.consumed, seen.reason
   end)
@@ -239,7 +257,7 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
   if not asked then return fail("writing to the relay: " .. asked_why) end
   local reader = Wire.socks_answer_reader()
   local code = 0
-  local rest, answer_why = answered(conn, function(chunk: string): string, integer, string
+  local rest, answer_why = answered(conn, relay, function(chunk: string): string, integer, string
     local seen = reader:feed(chunk)
     code = seen.code
     return seen.status, seen.consumed, seen.reason

@@ -595,9 +595,11 @@ local record Cli
   --- and output to the connection, and exits 1 saying what the relay's
   --- reply means when it refuses. ssh runs it as a program of its own, so
   --- the sandbox also needs `--system` (ssh, its libraries and a shell for
-  --- the ProxyCommand), `--promise fork` and `--cosmic` for this program:
+  --- the ProxyCommand), `--promise fork` and `--cosmic` for this program, and
+  --- `--env PATH` for the shell to find `cosmic` by (or the ProxyCommand
+  --- names it by its absolute path):
   ---
-  ---     cosmic sandbox --system --cosmic --promise fork --read ~/.ssh \
+  ---     cosmic sandbox --system --cosmic --env PATH --promise fork --read ~/.ssh \
   ---       --connect github.com:22 -- ssh -o ProxyCommand='cosmic sandbox connect %h %p' git@github.com
   ---
   --- A program that is itself named `connect` runs after `--`, as in
