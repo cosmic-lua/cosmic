@@ -252,13 +252,13 @@ local DENY <const>: {Deny} = {
   { cidr = "2001::/23", class = "special" },
 }
 
+-- TODO: pass this list to the connectors the relay starts, once the
+-- relay takes them as inherited descriptors (the next change of the
+-- relay's hardening): nothing outside the tests calls it yet.
 --- The refused prefixes as "address/bits" text, the list the native
 --- connector takes as its `deny` ([`cosmic.net`]'s [`Net.connector`]). An
 --- IPv6 address outside 2000::/3 is refused besides, by a rule of its own
 --- and not a prefix here.
--- TODO: pass this list to the connectors the relay starts, once the
--- relay takes them as inherited descriptors (the next change of the
--- relay's hardening): nothing outside the tests calls it yet.
 --- @return {string} The prefixes, in the order a refusal names them
 function relay_address.deny_cidrs(): {string}
   local out: {string} = {}

@@ -961,7 +961,7 @@ local record SocketConnector is Net.Connector
   -- Whether the process serves an inherited stream: a connector made by
   -- [`Net.connector_from`] is never started again.
   inherited: boolean
-  -- Whether its process takes index 0, a public request.
+  -- Whether its process takes public requests.
   accepts_public: boolean
   -- The process serving a table, nil before its first start and after a
   -- request left it with a reply unread.
@@ -1019,17 +1019,21 @@ local function same_host(a: string, b: string): boolean
   return x ~= nil and y ~= nil and table.concat(x, ",") == table.concat(y, ",")
 end
 
---- The request for a connection to the public address `bytes`: index 0
---- and the port, then the family and the address in 16 bytes.
+--- What the connector answers for an address its lists refuse: past any
+--- errno, so a kernel's EACCES or EPERM from connect is not taken for it.
+local CONNECTOR_DENIED <const> = 65536
+
+--- The request for a connection to the public address `bytes`: the public
+--- index (4294967295) and the port, then the family and the address in 16 bytes.
 local function public_request(bytes: {integer}, port: integer): string
-  return string.pack(">I4I4I4", 0, port, #bytes == 4 and 4 or 6) ..
+  return string.pack(">I4I4I4", 0xffffffff, port, #bytes == 4 and 4 or 6) ..
     string.char(table.unpack(bytes)) .. string.rep("\0", 16 - #bytes)
 end
 
 --- Asks `process` with `request` for a connection to `host` at `port`, by
 --- `deadline`. The socket it passes is taken only if it is a stream
---- connected to that very host and port. `refusal` is what a refused
---- (EACCES) public request says.
+--- connected to that very host and port. `refusal` is what a request the
+--- connector's lists refuse says.
 local function ask(process: Child.ConnectorProcess, request: string, host: string, port: integer,
                    deadline: integer, timeout_ns: integer, refusal: string): Asked
   -- send, not write: a connector that has ended is EPIPE, never SIGPIPE.
@@ -1042,7 +1046,7 @@ local function ask(process: Child.ConnectorProcess, request: string, host: strin
   local errno = string.unpack(">I4", status)
   if errno ~= 0 then
     local why = errno == raw.ETIMEDOUT and Poll.TIMEOUT or sys.errno_message(errno)
-    if errno == sys.EACCES and refusal ~= "" then why = refusal end
+    if errno == CONNECTOR_DENIED and refusal ~= "" then why = refusal end
     return { why = why, kept = true }
   end
   while true do

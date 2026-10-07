@@ -9,6 +9,7 @@ local type _net = require("cosmic.net")
 local Test = require("cosmic.test")
 local relay_address = require("cosmic.relay_address")
 local sys = require("cosmic.sys")
+local DENIED <const> = 65536 -- a refusal by the lists, past any errno
 Test.policy{ promises = { "fork" } }
 local type Searcher = function(string): any, any
 local function process_table(): raw_process
@@ -42,7 +43,7 @@ end
 
 local function decide(fd: integer, address: string): boolean
   local bytes = assert(relay_address.parse(address))
-  assert(sys.write(fd, string.pack(">I4I4I4", 0, 0, #bytes == 4 and 4 or 6) ..
+  assert(sys.write(fd, string.pack(">I4I4I4", 0xffffffff, 0, #bytes == 4 and 4 or 6) ..
       string.char(table.unpack(bytes)) .. string.rep("\0", 16 - #bytes)) == 28)
   local got = ""
   while #got < 4 do
@@ -51,7 +52,7 @@ local function decide(fd: integer, address: string): boolean
     got = got .. more
   end
   local errno = string.unpack(">I4", got)
-  assert(errno == 0 or errno == sys.EACCES, address .. ": errno " .. errno)
+  assert(errno == 0 or errno == DENIED, address .. ": errno " .. errno)
   return errno == 0
 end
 

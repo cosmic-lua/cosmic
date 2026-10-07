@@ -6,6 +6,7 @@ local type _net = require("cosmic.net")
 local Test = require("cosmic.test")
 local relay_address = require("cosmic.relay_address")
 local sys = require("cosmic.sys")
+local DENIED <const> = 65536 -- a refusal by the lists, past any errno
 Test.policy{ loopback = { "127.0.0.1" }, promises = { "fork" } }
 local type Searcher = function(string): any, any
 local function table_for(wrapper: string): any
@@ -53,7 +54,7 @@ local function test_repeated_connections_use_only_the_granted_address_and_port()
   assert(sys.close(pair[2]))
   assert(child, why)
   local ok, failure = pcall(function()
-    for _, request in ipairs({ { 2, bound.port }, { 1, 0 }, { 1, 65536 },
+    for _, request in ipairs({ { 0, bound.port }, { 2, bound.port }, { 1, 0 }, { 1, 65536 },
         { 1, bound.port == 65535 and 1 or bound.port + 1 } }) do
       assert(sys.write(pair[1], string.pack(">I4I4", request[1], request[2])) == 8)
       assert(string.unpack(">I4", read_whole(pair[1], 4)) == 1)
@@ -110,7 +111,7 @@ end
 local function public_ask(fd: integer, address: string, port: integer, family?: integer, tail?: string): integer
   local bytes = assert(relay_address.parse(address))
   local padded = tail or string.rep("\0", 16 - #bytes)
-  assert(sys.write(fd, string.pack(">I4I4I4", 0, port, family or (#bytes == 4 and 4 or 6)) ..
+  assert(sys.write(fd, string.pack(">I4I4I4", 0xffffffff, port, family or (#bytes == 4 and 4 or 6)) ..
       string.char(table.unpack(bytes)) .. padded) == 28)
   return (string.unpack(">I4", read_whole(fd, 4)))
 end
@@ -168,12 +169,12 @@ local function test_a_public_connector_refuses_what_its_lists_hold_without_conne
     { deny = {}, own = { "::ffff:127.0.0.1" } }, { deny = { "127.0.0.1/32" } }, { deny = { "126.0.0.0/7" } } }
   for _, public in ipairs(lists) do
     local pair, child = start_public(public, 500)
-    assert(public_ask(pair[1], "127.0.0.1", bound.port) == sys.EACCES)
+    assert(public_ask(pair[1], "127.0.0.1", bound.port) == DENIED)
     assert(not socket.wait(listener:fd(), false, 20), "a refused address was connected to")
     -- A neighbour of an address is refused only by a prefix that holds it,
     -- and the stream is in step.
     local wide = public.deny[1] == "126.0.0.0/7" or public.deny[1] == "127.0.0.0/8"
-    assert(public_ask(pair[1], "127.0.0.2", 0) == (wide and sys.EACCES or 0))
+    assert(public_ask(pair[1], "127.0.0.2", 0) == (wide and DENIED or 0))
     finish(pair, child)
   end
 end
@@ -187,11 +188,11 @@ local function test_public_requests_are_checked_for_their_form()
   for _, address in ipairs({ "10.0.0.1", "169.254.169.254", "::1", "fe80::1", "fd00:ec2::254", "2001:db8::1",
       "2002::1", "2001::1", "4000::1", "1fff::1", "::ffff:8.8.8.8", "::ffff:10.0.0.1",
       "64:ff9b::808:808", "64:ff9b::a00:1", "64:ff9b:1::808:808", "::8.8.8.8" }) do
-    assert(public_ask(pair[1], address, 0) == sys.EACCES, address)
+    assert(public_ask(pair[1], address, 0) == DENIED, address)
   end
   assert(public_ask(pair[1], "8.8.8.8", 0, 5) == sys.EINVAL)
   -- The same four bytes as an IPv6 address are 808:808::, outside 2000::/3.
-  assert(public_ask(pair[1], "8.8.8.8", 0, 6) == sys.EACCES)
+  assert(public_ask(pair[1], "8.8.8.8", 0, 6) == DENIED)
   assert(public_ask(pair[1], "8.8.8.8", 0, 4, "\0\0\0\0\0\0\0\0\0\0\0\1") == sys.EINVAL)
   assert(public_ask(pair[1], "8.8.8.8", 65536) == sys.EINVAL)
   assert(public_ask(pair[1], "8.8.8.8", 0) == 0)
@@ -233,4 +234,25 @@ local function test_public_lists_that_are_no_prefixes_cannot_start_a_connector()
   assert(not pcall(process.connector_start, {}, pair[2], 500, nil))
   assert(sys.close(pair[1]))
   assert(sys.close(pair[2]))
+end
+
+local function test_index_zero_is_refused_in_eight_bytes_by_every_connector()
+  require_native_connector()
+  for _, public in ipairs({ false, true }) do
+    local pair = assert(process.connector_pair())
+    local child = assert(process.connector_start(public and {} or { { host = "127.0.0.1", port = 9 } },
+      pair[2], 500, public and { deny = {} } or nil))
+    assert(sys.close(pair[2]))
+    for _ = 1, 2 do
+      assert(sys.write(pair[1], string.pack(">I4I4", 0, 80)) == 8)
+      assert(string.unpack(">I4", read_whole(pair[1], 4)) == sys.EPERM)
+    end
+    finish(pair, child)
+  end
+end
+
+local function test_a_table_only_connector_has_no_scratch_slot_to_connect_through()
+  require_native_connector()
+  local result, why = process.connector_probe({ host = "127.0.0.1", port = 9 }, "unscratched")
+  assert(result == sys.EPERM, tostring(result) .. " " .. tostring(why))
 end

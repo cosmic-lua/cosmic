@@ -1984,14 +1984,14 @@ local record ConnectorProcess
   --- close: a request is eight bytes written to it, a big-endian
   --- 1-based endpoint index and a port, and the reply is read from it:
   --- a big-endian errno, and, on success only, one marker byte with the
-  --- connected socket passed beside it. Index 0, of a public connector,
-  --- follows the eight bytes with a big-endian family (4 or 6) and 16
-  --- address bytes (see the core's `connector_start`). Valid until `close`.
+  --- connected socket passed beside it. The index 4294967295 (a public
+  --- request) follows the eight bytes with a big-endian family (4 or 6)
+  --- and 16 address bytes (see the core's `connector_start`). Valid until `close`.
   fd: integer
   --- The connector's process id, which `close` reaps: nil for a stream
   --- adopted with [`Child.adopt_connector`], whose process is its starter's
   --- to end.
-  pid: integer
+  pid: integer | nil
   --- Whether `close` has not been called.
   open: boolean
   --- Ends the connector, which holds no state worth finishing, and reaps

@@ -12,6 +12,7 @@ local type _net = require("cosmic.net")
 local Test = require("cosmic.test")
 local relay_address = require("cosmic.relay_address")
 local sys = require("cosmic.sys")
+local REFUSED <const> = 65536 -- a refusal by the lists, past any errno
 Test.policy{ promises = { "fork" } }
 local type Searcher = function(string): any, any
 local function process_table(): raw_process
@@ -123,7 +124,7 @@ end
 --- The connector's decision for `item`, 17 bytes as [`packed`] leaves them.
 local function decided(fd: integer, item: string): boolean
   local family = item:byte(1) == 4 and 4 or 6
-  assert(sys.write(fd, string.pack(">I4I4I4", 0, 0, family) .. item:sub(2)) == 28)
+  assert(sys.write(fd, string.pack(">I4I4I4", 0xffffffff, 0, family) .. item:sub(2)) == 28)
   local got = ""
   while #got < 4 do
     local more = assert(sys.read(fd, 4 - #got))
@@ -131,7 +132,7 @@ local function decided(fd: integer, item: string): boolean
     got = got .. more
   end
   local errno = string.unpack(">I4", got)
-  assert(errno == 0 or errno == sys.EACCES, "errno " .. errno)
+  assert(errno == 0 or errno == REFUSED, "errno " .. errno)
   return errno == 0
 end
 
