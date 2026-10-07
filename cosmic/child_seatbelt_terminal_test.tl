@@ -41,6 +41,7 @@ local REPORT <const> = [=[
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <termios.h>
@@ -53,14 +54,14 @@ int main (void) {
   if (name != NULL) {
     int again = open(name, O_RDWR | O_NOCTTY);
     if (again >= 0) printf("slave=ok\n");
-    else printf("slave=fail errno=%d\n", errno);
+    else printf("slave=fail errno=%d (%s)\n", errno, strerror(errno));
     errno = 0;
     if (chmod(name, 0666) == 0) printf("chmod=ok\n");
-    else printf("chmod=fail errno=%d\n", errno);
+    else printf("chmod=fail errno=%d (%s)\n", errno, strerror(errno));
   }
   int fd = open("/dev/tty", O_RDWR | O_NOCTTY);
   if (fd >= 0) printf("devtty=ok\n");
-  else printf("devtty=fail errno=%d\n", errno);
+  else printf("devtty=fail errno=%d (%s)\n", errno, strerror(errno));
   errno = 0;
   pid_t group = tcgetpgrp(0);
   if (group > 0) printf("tcgetpgrp=ok\n");
@@ -93,9 +94,10 @@ local function on_pty(binary: string, streams: {integer}, policy?: Sandbox.Polic
   local opts: Child.Options = { policy = policy, timeout_ns = Clock.seconds(5) }
   if not on[0] then opts.stdin = "null" end
   if not on[2] then opts.stderr = "null" end
-  local started = assert(Child.start_on_pty({ binary }, opts, { streams = streams }))
-  -- Read as the child writes: Darwin drops what a slave wrote and the master
-  -- had not read when the slave's last descriptor closes.
+  local started = assert(Child.start_on_pty({ binary }, opts, { streams = streams, keep_slave = true }))
+  -- Darwin drops what a slave wrote and the master had not read when the
+  -- slave's last descriptor closes, which a child that writes and exits at
+  -- once would cause: this holds the slave until all is read.
   local said = ""
   local function read_some(wait_ns: integer): boolean
     local ready, _ = Poll.readable(started.master, wait_ns)
@@ -115,6 +117,7 @@ local function on_pty(binary: string, streams: {integer}, policy?: Sandbox.Polic
     end
   end
   while read_some(Clock.ms(200)) do end
+  assert(sys.close(started.slave))
   assert(sys.close(started.master))
   return (said:gsub("\r", "")), result
 end
@@ -153,7 +156,7 @@ local function test_a_policy_child_with_stdin_off_the_pty_has_no_controlling_ter
   assert(result.code == 0, describe(result) .. string.format(" %q", said))
   -- EPERM, which the profile gives where it has no /dev/tty rule; with the
   -- rule and no terminal it would be ENXIO.
-  holds(said, "devtty=fail errno=1\n")
+  holds(said, "devtty=fail errno=1 ")
 end
 
 --- A start with no policy gets the pty as its controlling terminal on macOS
@@ -177,7 +180,7 @@ local function test_a_policy_child_cannot_chmod_its_slave_but_uses_it(tmp: strin
   local said, result = on_pty(binary, { 0, 1, 2 }, running(binary))
   assert(result.code == 0, describe(result) .. string.format(" %q", said))
   holds(said, "slave=ok")
-  holds(said, "chmod=fail errno=1\n")
+  holds(said, "chmod=fail errno=1 ")
   local plain = on_pty(binary, { 0, 1, 2 })
   holds(plain, "chmod=ok")
 end
