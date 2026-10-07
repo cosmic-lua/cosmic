@@ -241,6 +241,11 @@ local function test_which_remote_forms_the_profile_compiler_takes(tmp: string)
   assert(not broken, "a malformed profile started\n" .. table.concat(report, "\n"))
   assert(compiles(tmp, profile(BASE, {}), {}), "the base profile does not compile\n" .. table.concat(report, "\n"))
   assert(parsed["ip-localhost"], "(remote ip \"localhost:PORT\") does not compile\n" .. table.concat(report, "\n"))
+  assert(parsed["tcp-localhost"] and parsed["ip-param"] and parsed["ip-star"], "a form that compiled before does not\n" ..
+      table.concat(report, "\n"))
+  -- The profile compiler takes no numeric host but "*" and "localhost".
+  assert(not parsed["ip-127.0.0.1"] and not parsed["tcp-127.0.0.1"] and not parsed["ip-numeric-remote"],
+    "a numeric host compiles\n" .. table.concat(report, "\n"))
   conclude(report)
 end
 
@@ -401,41 +406,58 @@ local function test_a_port_rule_and_binding(tmp: string)
   assert(control:find("^connectable"), "nc does not listen even with no profile to hold it\n" ..
       table.concat(report, "\n"))
   assert(only:find("^not connectable"), "a port rule alone let a child listen\n" .. table.concat(report, "\n"))
+  assert(bound:find("^not connectable"), "network-bind alone let a child listen\n" .. table.concat(report, "\n"))
+  assert(inbound:find("^connectable"), "network-bind and network-inbound did not let a child listen\n" ..
+      table.concat(report, "\n"))
   conclude(report)
 end
 
---- What a connect to the unix socket at `path` ends in under `text`.
-local function unix_reach(tmp: string, text: string, path: string): string
-  return verdict(run_under(tmp, text, {}, { "/usr/bin/nc", "-U", "-w", "1", path }, 5))
+--- What a connect to the unix socket at `path` ends in under `text`, by perl,
+--- which says what the system answered.
+local function unix_reach(tmp: string, text: string, parameters: {string:string}, path: string): string
+  local ended = run_under(tmp, text, parameters, { "/usr/bin/perl", "-e",
+    "use Socket; socket(S, PF_UNIX, SOCK_STREAM, 0) or die \"socket: $!\\n\"; " ..
+      "print connect(S, sockaddr_un($ARGV[0])) ? \"connected\\n\" : \"connect: $!\\n\";", path }, 5)
+  if not ended.started then return "NOSTART(" .. brief(ended.why) .. ")" end
+  if ended.text:find("connected", 1, true) then return "CONNECTED" end
+  if ended.text:find("not permitted", 1, true) then return "DENIED" end
+  return "OTHER(" .. ended.code .. " " .. brief(ended.text) .. ")"
 end
 
 local function test_a_unix_socket_is_denied_under_default_deny(tmp: string)
   macos_only()
   local report = new_report()
   local mdns = "/var/run/mDNSResponder"
+  local real = "/private" .. mdns
+  local function rule(path: string): string
+    return "(allow network-outbound (remote unix-socket (path-literal \"" .. path .. "\")))"
+  end
   report[#report + 1] = mdns .. ": " .. (sys.stat(mdns) ~= nil and "exists" or "absent")
-  local control = unix_reach(tmp, profile({ "(version 1)", "(allow default)" }, {}), mdns)
+  local control = unix_reach(tmp, profile({ "(version 1)", "(allow default)" }, {}), {}, mdns)
   report[#report + 1] = "allow default: " .. control
-  local bare = unix_reach(tmp, profile(BASE, {}), mdns)
+  local bare = unix_reach(tmp, profile(BASE, {}), {}, mdns)
   report[#report + 1] = "default-deny: " .. bare
   report[#report + 1] = "with (remote ip \"*:*\"): " ..
-    unix_reach(tmp, profile(BASE, { "(allow network-outbound (remote ip \"*:*\"))" }), mdns)
-  report[#report + 1] = "with (remote unix-socket (path-literal ...)): " ..
-    unix_reach(tmp, profile(BASE, { "(allow network-outbound (remote unix-socket (path-literal \"" .. mdns .. "\")))" }), mdns)
-  report[#report + 1] = "with the real path: " ..
-    unix_reach(tmp, profile(BASE, { "(allow network-outbound (remote unix-socket (path-literal \"/private" .. mdns .. "\")))" }), mdns)
+    unix_reach(tmp, profile(BASE, { "(allow network-outbound (remote ip \"*:*\"))" }), {}, mdns)
+  report[#report + 1] = "with a rule on /var/run/mDNSResponder: " ..
+    unix_reach(tmp, profile(BASE, { rule(mdns) }), {}, mdns)
+  local granted = unix_reach(tmp, profile(BASE, { rule(real) }), {}, mdns)
+  report[#report + 1] = "with a rule on /private/var/run/mDNSResponder: " .. granted
   -- A socket of the test's own, where the path fits sun_path.
   local own = tmp .. "/s"
   local server = Net.listen(Net.unix(own))
   if server ~= nil then
-    report[#report + 1] = "own socket, default-deny: " .. unix_reach(tmp, profile(BASE, {}), own)
-    report[#report + 1] = "own socket, allowed by literal: " ..
-      unix_reach(tmp, profile(BASE, { "(allow network-outbound (literal (param \"SOCK\")))" }), own)
+    local resolved = sys.realpath(own) or own
+    report[#report + 1] = "own socket, default-deny: " .. unix_reach(tmp, profile(BASE, {}), {}, own)
+    report[#report + 1] = "own socket, rule by param: " .. unix_reach(tmp, profile(BASE,
+      { "(allow network-outbound (remote unix-socket (path-literal (param \"SOCK\"))))" }), { SOCK = resolved }, own)
     local _, _ = server:close()
   else
     report[#report + 1] = "own socket: none"
   end
+  assert(control == "CONNECTED", "the socket is not reached with no profile\n" .. table.concat(report, "\n"))
   assert(bare == "DENIED", mdns .. " was not denied under default-deny\n" .. table.concat(report, "\n"))
+  assert(granted == "CONNECTED", "a rule on its real path does not reach it\n" .. table.concat(report, "\n"))
   conclude(report)
 end
 
@@ -453,7 +475,8 @@ local function strict(): {string}
   local lines: {string} = {
     "(version 1)", "(deny default)", "(allow file-read-metadata)", "(allow sysctl-read)",
     "(allow process-fork)", "(allow signal (target self))", "(allow process-info-pidinfo (target self))",
-    "(allow file-write-data (literal \"/dev/null\"))",
+    "(allow file-write-data (literal \"/dev/null\") (literal \"/dev/dtracehelper\"))",
+    "(allow file-read-data (literal \"/\"))",
     "(allow file-read* (literal \"/dev/null\") (literal \"/dev/zero\") (literal \"/dev/random\") (literal \"/dev/urandom\") " ..
       "(literal \"/etc/passwd\") (literal \"/etc/group\") (literal \"/etc/localtime\") (subpath \"/private/var/db/timezone\"))",
   }
@@ -526,6 +549,7 @@ local function resolve_under(tmp: string, text: string, report: {string}, label:
     worked[resolver.name] = ok
     if index == 1 then first = ok end
     report[#report + 1] = label .. " / " .. resolver.name .. ": " .. (ok and "WORKS" or "fails") ..
+      (ended.started and (" [code " .. ended.code .. " signal " .. ended.signal .. "]") or "") ..
       (ended.started and (" " .. brief(ended.text)) or (" NOSTART " .. brief(ended.why)))
   end
   return first, worked
