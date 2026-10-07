@@ -31,9 +31,15 @@ end
 local record Ran
   code: integer
   complaints: {string}
+  --- The client's own step lines (COSMIC_CONNECT_TRACE), which a failure shows.
+  trace: {string}
   --- What it wrote to its standard output, to its end.
   out: string
 end
+
+--- How long any wait of a test may last: short of the worker's own 10 seconds, so
+--- that a hang fails with the client's steps and not by the worker's deadline.
+local WAIT <const> = Clock.seconds(4)
 
 --- How many pipes a test has made, which names each one.
 local made = 0
@@ -83,17 +89,23 @@ end
 --- its standard input and `finish` ends it. Answers how the client ended.
 local function against(tmp: string, args: {string}, body: function(relay: Net.Conn, send: function(string), finish: function()),
                        variable?: string, timeout_ns?: integer): Ran
-  local ran: Ran = { code = -1, complaints = {}, out = "" }
+  local ran: Ran = { code = -1, complaints = {}, trace = {}, out = "" }
   local in_reader, in_writer = pipe(tmp, "in")
   local out_reader, out_writer = pipe(tmp, "out")
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-    local variables = { [variable or "ALL_PROXY"] = proxy_at(listener.address.port) }
+    local variables = { [variable or "ALL_PROXY"] = proxy_at(listener.address.port), COSMIC_CONNECT_TRACE = "1" }
     if variable == "all_proxy" then variables.all_proxy = variables.all_proxy .. "/" end
     local client = Poll.spawn(function()
       ran.code = connect.run(args, {
         getenv = function(name: string): string | nil return variables[name] end,
-        err = function(line: string) ran.complaints[#ran.complaints + 1] = line end,
+        err = function(line: string)
+          if line:find("^connect trace ") then
+            ran.trace[#ran.trace + 1] = line
+          else
+            ran.complaints[#ran.complaints + 1] = line
+          end
+        end,
         input = in_reader, output = out_writer, answer_ns = timeout_ns,
       })
     end)
@@ -102,9 +114,9 @@ local function against(tmp: string, args: {string}, body: function(relay: Net.Co
     -- However the body ends, the listener, the connection and the pipes are
     -- closed, so that one failing test leaves nothing for the next.
     local ok, trouble = pcall(function()
-      local accepted = assert(listener:accept(Clock.seconds(20)))
+      local accepted = assert(listener:accept(WAIT))
       relay = accepted
-      accepted:set_timeout(Clock.seconds(20))
+      accepted:set_timeout(WAIT)
       body(accepted, function(data: string)
         assert(sys.write(in_writer, data))
       end, function()
@@ -118,14 +130,17 @@ local function against(tmp: string, args: {string}, body: function(relay: Net.Co
         assert(sys.close(in_writer))
       end
       local _, _ = accepted:close()
-      assert(client:join(Clock.seconds(20)))
+      assert(client:join(WAIT), "the client did not end")
       ran.out = drained(out_reader)
     end)
     if not ended then local _, _ = sys.close(in_writer) end
     if relay ~= nil then local _, _ = relay:close() end
     client:cancel()
     local _, _ = listener:close()
-    if not ok then error(trouble, 0) end
+    if not ok then
+      error(tostring(trouble) .. "\nthe client's steps:\n" .. table.concat(ran.trace, "\n") ..
+          "\nits complaints: " .. table.concat(ran.complaints, " | "), 0)
+    end
   end)
   assert(sys.close(in_reader))
   assert(sys.close(out_reader))

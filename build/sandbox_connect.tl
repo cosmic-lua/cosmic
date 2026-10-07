@@ -140,7 +140,7 @@ end
 --- Passes standard input to `conn` and `conn` to standard output, `first`
 --- the bytes that came after the relay's answer, until both sides have
 --- ended. False and why when either side failed.
-local function carry(conn: Net.Conn, first: string, io: sandbox_connect.Io): boolean, string
+local function carry(conn: Net.Conn, first: string, io: sandbox_connect.Io, trace: function(step: string)): boolean, string
   local trouble = ""
   -- Whether the far side has ended what it sends, after which a write to it
   -- that fails is its closing and no fault of the connection.
@@ -152,19 +152,23 @@ local function carry(conn: Net.Conn, first: string, io: sandbox_connect.Io): boo
   conn:set_timeout(nil)
   local function up()
     while true do
+      trace("up: waiting for standard input")
       local ready, ready_why = Poll.readable(io.input)
       if not ready then return fail("standard input: " .. ready_why) end
       local data, why, errno = sys.read(io.input, CHUNK)
+      trace("up: read " .. (data ~= nil and #data .. " bytes" or "failed: " .. tostring(why)))
       if data == nil then
         if errno ~= sys.EAGAIN and errno ~= sys.EINTR then
           return fail("standard input: " .. why)
         end
       elseif data == "" then
         -- What the program sends has ended: the far side hears it as one.
-        local _, _ = conn:shutdown("write")
+        local shut, shut_why = conn:shutdown("write")
+        trace("up: end of input, shutdown(write) " .. (shut and "ok" or "failed: " .. tostring(shut_why)))
         return
       else
         local sent, send_why = conn:write(data)
+        trace("up: wrote " .. #data .. " to the relay: " .. (sent and "ok" or tostring(send_why)))
         if not sent then
           -- Whether this is a fault or the far side's closing is known once
           -- the other task has read to the end of what it sends.
@@ -179,15 +183,19 @@ local function carry(conn: Net.Conn, first: string, io: sandbox_connect.Io): boo
     while true do
       if data ~= "" then
         local wrote, write_why = write_all(io.output, data)
+        trace("down: wrote " .. #data .. " to standard output: " .. (wrote and "ok" or tostring(write_why)))
         if not wrote then return fail("standard output: " .. write_why) end
       end
+      trace("down: waiting for the relay")
       local more, why = conn:read(CHUNK)
+      trace("down: read " .. (more ~= nil and #more .. " bytes" or "end or failure: " .. tostring(why)))
       if more == nil then
         if why ~= "" then return fail("reading from the relay: " .. why) end
         -- The far side has ended what it sends: ours hears it as the end of
         -- standard output.
         far_ended = true
-        local _, _ = sys.close(io.output)
+        local closed, closed_why = sys.close(io.output)
+        trace("down: standard output closed " .. (closed and "ok" or tostring(closed_why)))
         return
       end
       data = more
@@ -210,6 +218,15 @@ end
 --- Runs the client for `args`, the words after `connect`: the status.
 local function run_in(args: {string}, io: sandbox_connect.Io): integer
   local complain = bare.complainer("sandbox connect", io.err)
+  -- COSMIC_CONNECT_TRACE=1 says each step on standard error, with the time
+  -- since the start: for a hang that only a host's own behaviour explains.
+  local tracing = io.getenv("COSMIC_CONNECT_TRACE") == "1"
+  local began = Clock.monotonic_ns()
+  local function trace(step: string)
+    if tracing then
+      io.err(("connect trace +%dms: %s"):format((Clock.monotonic_ns() - began) // 1000000, step))
+    end
+  end
   local host, text = args[1], args[2]
   if host == nil or text == nil or args[3] ~= nil then
     complain("takes a host and a port, as ssh's ProxyCommand='cosmic sandbox connect %h %p'")
@@ -238,6 +255,7 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
   end
   local conn: Net.Conn = made
   conn:set_timeout(io.answer_ns or ANSWER_NS)
+  trace("connected to " .. relay)
   local where = bare.escape(host) .. ":" .. port
   local function fail(why: string): integer
     local _, _ = conn:close()
@@ -246,15 +264,18 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
   end
   local sent, sent_why = conn:write(Wire.socks_client_greeting())
   if not sent then return fail("writing to the relay: " .. sent_why) end
+  trace("greeting sent")
   local method = Wire.socks_method_reader()
   local after_method, method_why = answered(conn, relay, function(chunk: string): string, integer, string
     local seen = method:feed(chunk)
     return seen.status, seen.consumed, seen.reason
   end)
   if after_method == nil then return fail(method_why) end
+  trace("method read")
   if after_method ~= "" then return fail("the relay answered before it was asked") end
   local asked, asked_why = conn:write(request)
   if not asked then return fail("writing to the relay: " .. asked_why) end
+  trace("request sent")
   local reader = Wire.socks_answer_reader()
   local code = 0
   local rest, answer_why = answered(conn, relay, function(chunk: string): string, integer, string
@@ -263,10 +284,11 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
     return seen.status, seen.consumed, seen.reason
   end)
   if rest == nil then return fail(answer_why) end
+  trace("answer read, code " .. code .. ", " .. #rest .. " bytes after it")
   if code ~= 0 then
     return fail(Wire.socks_reply_meaning(code) .. " (SOCKS reply " .. code .. "); the relay's log line says why")
   end
-  local carried, carry_why = carry(conn, rest, io)
+  local carried, carry_why = carry(conn, rest, io, trace)
   if not carried then
     complain(where .. ": " .. carry_why)
     return bare.failed
