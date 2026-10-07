@@ -1,6 +1,6 @@
 local Clock = require("cosmic.clock")
 local Fixture = require("build.relay_wire_fixture")
-local Wire = require("cosmic.relay_wire")
+local Wire = require("cosmic.relay.wire")
 
 local function connect_head(input: string): Wire.Connect
   return Wire.connect_reader():feed(input)

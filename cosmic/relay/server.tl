@@ -11,18 +11,18 @@
 --- on the relay's log, naming the remedy of a refusal
 --- ("not granted: --connect api.github.com:443"):
 ---
---- 1. The request is read by [`cosmic.relay_wire`]'s readers. Within the
+--- 1. The request is read by [`cosmic.relay.wire`]'s readers. Within the
 ---    `head` timeout and `header_bytes`, or it is refused saying so.
 --- 2. A host that is a name must be named by a grant of `host:port`, or of
 ---    `*:port`, `host:*` or `*:*`; the host matches exactly, as the reader
 ---    wrote it (lower case, no trailing dot): a grant opens no subdomain,
 ---    for the policy's grammar has no wildcard but a whole host or port.
 ---    A host that is an IP address is refused unless a grant names that
----    address and port literally ([`cosmic.relay_address`]'s `granted`),
+---    address and port literally ([`cosmic.relay.address`]'s `granted`),
 ---    whatever the address is. Nothing is resolved before this passes.
 --- 3. A name is resolved once, right now, with no cache, within the
 ---    `resolve` timeout, and the first answer
----    [`cosmic.relay_address`]'s `select` allows is the one connected to:
+---    [`cosmic.relay.address`]'s `select` allows is the one connected to:
 ---    never another. A loopback, private or metadata answer is allowed
 ---    only by a literal grant of that address.
 --- 4. The `connector` connects it, within the `connect` timeout.
@@ -89,7 +89,7 @@
 --- the harm, and cannot tell that process from the program. The user name
 --- is any value: a SOCKS5 one must be 1 to 255 bytes (RFC 1929) and an empty
 --- one is refused; `cosmic sandbox connect` sends "cosmic" for an empty one.
--- TODO: have `cosmic sandbox` draw a token, hand it to cosmic.relay_serve's spec and
+-- TODO: have `cosmic sandbox` draw a token, hand it to cosmic.relay.main's spec and
 -- put it in the sandbox's ALL_PROXY and https_proxy userinfo, once Seatbelt applies
 -- a policy and the relay listens on the host's loopback on macOS; nothing sets
 -- `token` until then.
@@ -107,9 +107,9 @@ local Hash = require("cosmic.hash")
 local Log = require("cosmic.log")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
-local Address = require("cosmic.relay_address")
-local Config = require("cosmic.relay_config")
-local Wire = require("cosmic.relay_wire")
+local Address = require("cosmic.relay.address")
+local Config = require("cosmic.relay.config")
+local Wire = require("cosmic.relay.wire")
 local String = require("cosmic.string")
 
 local record Relay
@@ -142,7 +142,7 @@ local record Relay
   record Limits
     --- Connections open at once (64).
     connections: integer
-    --- Bytes of a request head (16384, the most [`cosmic.relay_wire`] reads).
+    --- Bytes of a request head (16384, the most [`cosmic.relay.wire`] reads).
     header_bytes: integer
     --- Connections served in all, the relay's life being the sandbox's
     --- (100000).
@@ -155,7 +155,7 @@ local record Relay
 
 
   --- The proxy a caller's `https_proxy` names, and the hosts `no_proxy`
-  --- says to reach directly ([`cosmic.relay_config`]'s [`Upstream`]).
+  --- says to reach directly ([`cosmic.relay.config`]'s [`Upstream`]).
   type Upstream = Config.Upstream
 
   --- The connectors a relay was handed by its starter, which
@@ -177,6 +177,11 @@ local record Relay
     --- would come after the request was given up on, and the connector,
     --- which cannot be started again, would be lost.
     wait_ns: integer
+    --- Told why, once, the first time a request finds that every connector
+    --- of a kind has ended: nothing that kind reaches can be reached again,
+    --- as no connector is started anew. The relay's process ends then
+    --- ([`cosmic.relay.main`]). Nil to fail each such request alone.
+    lost: function(why: string)
   end
 
   --- What a relay serves, and how.
@@ -202,7 +207,7 @@ local record Relay
     --- grant names literally is still connected.
     unresolved: string
     --- The host's own addresses, which the relay refuses to connect to
-    --- ([`cosmic.relay_address`]'s `own_addresses`).
+    --- ([`cosmic.relay.address`]'s `own_addresses`).
     own_addresses: {string}
     --- The proxy to connect through, or nil to connect directly.
     upstream: Upstream
@@ -384,16 +389,32 @@ local hold_mt: metatable<Hold> = {
 --- sent, so its connector answers it within that wait and stays in step.
 --- A connector makes one connection at a time: one whose connect hangs
 --- holds itself alone. A request whose connector ends under it is asked
---- of another; once every connector has ended, a request fails saying so.
-local function pooled(connectors: {Net.Connector}, wait_ns: integer, name: string):
+--- of another while its `timeout_ns` lasts: a connect once sent runs its
+--- connector's whole wait, so a request ends at most one such wait past
+--- its own. Once every connector has ended, a request fails saying so, and
+--- `lost`, where given, is told so the first time.
+local function pooled(connectors: {Net.Connector}, wait_ns: integer, name: string, lost: function(string) | nil):
     function(endpoint: integer | string, port: integer, timeout_ns: integer): Net.Conn | nil, string
   local pool: {Pooled} = {}
   for i, connector in ipairs(connectors) do pool[i] = { connector = connector, busy = false } end
   local waiting: {integer} = {}
   local tickets = 0
+  local told = false
+  --- Why a request fails once every connector has ended, which `lost` is
+  --- told the first time.
+  local function ended(): string
+    local why = "relay: every " .. name .. " connector has ended"
+    if lost ~= nil and not told then
+      told = true
+      lost(why)
+    end
+    return why
+  end
   --- A live connector no request holds, once every request before this
-  --- one has taken one, by `deadline`; or nil and why.
-  local function take(deadline: integer): Pooled | nil, string
+  --- one has taken one, by `deadline`; or nil and why. A request's first
+  --- take is handed a free connector even at its deadline, so that a
+  --- `timeout_ns` of 0 is asked once; a `retry` is not.
+  local function take(deadline: integer, retry: boolean): Pooled | nil, string
     tickets = tickets + 1
     local me = tickets
     waiting[#waiting + 1] = me
@@ -416,13 +437,14 @@ local function pooled(connectors: {Net.Connector}, wait_ns: integer, name: strin
       end
       if not live then
         leave()
-        return nil, "relay: every " .. name .. " connector has ended"
+        return nil, ended()
       end
-      if free ~= nil and waiting[1] == me then
+      local late = Clock.monotonic_ns() >= deadline
+      if free ~= nil and waiting[1] == me and not (retry and late) then
         leave()
         return free, ""
       end
-      if Clock.monotonic_ns() >= deadline then
+      if late then
         leave()
         return nil, Poll.TIMEOUT
       end
@@ -448,14 +470,16 @@ local function pooled(connectors: {Net.Connector}, wait_ns: integer, name: strin
   end
   return function(endpoint: integer | string, port: integer, timeout_ns: integer): Net.Conn | nil, string
     local deadline = Clock.monotonic_ns() + timeout_ns
+    local retry = false
     while true do
-      local entry, why = take(deadline)
+      local entry, why = take(deadline, retry)
       if entry == nil then return nil, why end
       local conn, trouble = attempt(entry, endpoint, port)
       if conn ~= nil then return conn, "" end
       -- A connector that ended during the request made no connection:
-      -- another live one is asked.
+      -- another live one is asked, within the request's time.
       if not entry.connector:ended() then return nil, trouble end
+      retry = true
     end
   end
 end
@@ -468,8 +492,11 @@ end
 --- serves one request at a time, given its `wait_ns` whatever wait the
 --- relay asks: a connection waits only while every live connector of its
 --- kind is held, at most the relay's own wait, and a connector whose
---- process has ended is passed over. A `handed` with no connector, a table connector without its table, or a
---- `wait_ns` that is no positive integer raises.
+--- process has ended is passed over. Once every one of a kind has ended,
+--- a connection of that kind fails saying so, and `handed.lost` is told.
+--- A `handed` with no connector, a table connector without its table, a
+--- `wait_ns` that is no positive integer, or a `lost` that is no function
+--- raises.
 --- @param handed Relay.Handed The connectors
 --- @return Relay.Connector What [`Relay.Spec.connector`] takes
 function Relay.handed(handed: Relay.Handed): Relay.Connector
@@ -482,6 +509,9 @@ function Relay.handed(handed: Relay.Handed): Relay.Connector
   if math.type(handed.wait_ns) ~= "integer" or handed.wait_ns < 1 then
     error("relay: handed.wait_ns must be a positive integer of nanoseconds", 2)
   end
+  if handed.lost ~= nil and type(handed.lost) ~= "function" then
+    error("relay: handed.lost must be a function", 2)
+  end
   local rows: {string} = {}
   local ports: {integer} = {}
   for i, entry in ipairs(handed.table or {}) do
@@ -490,9 +520,9 @@ function Relay.handed(handed: Relay.Handed): Relay.Connector
     rows[i], ports[i] = table.concat(bytes, "."), entry.port
   end
   local in_table = #(handed.table_connectors or {}) > 0 and pooled(handed.table_connectors, handed.wait_ns,
-    "table") or nil
+    "table", handed.lost) or nil
   local public = #(handed.public_connectors or {}) > 0 and pooled(handed.public_connectors, handed.wait_ns,
-    "public") or nil
+    "public", handed.lost) or nil
   return function(address: string, port: integer, timeout_ns: integer): Net.Conn | nil, string
     local bytes = Address.parse(address)
     if bytes == nil then return nil, "relay: " .. address .. " is not a numeric address" end
@@ -1319,7 +1349,7 @@ end
 
 --- Starts serving `spec`'s listeners in the calling task's run, and
 --- returns once they are taken. [`Child.start`] runs it for a policy's
---- `connect`, in a process of its own ([`cosmic.relay_serve`]) whose
+--- `connect`, in a process of its own ([`cosmic.relay.main`]) whose
 --- listeners the sandbox bound in the program's network. Raises where the spec is no spec: no
 --- listener or `connector`, a grant that is no string, a timeout or limit
 --- that is no positive integer, an own address that is no address.

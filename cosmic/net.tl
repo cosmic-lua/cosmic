@@ -44,8 +44,7 @@ local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local errors = require("cosmic.internal.errors")
-local relay_address = require("cosmic.relay_address")
-local Sandbox = require("cosmic.sandbox")
+local Relay = require("cosmic.relay")
 
 --- The raw module behind this one lives under the reserved
 --- `cosmic.internal.` namespace and arrives as the second argument
@@ -164,7 +163,7 @@ local record Net
   --- What a public connector refuses, as data its process holds: the
   --- native connector has no list of its own. `deny` is the refused
   --- prefixes as numeric "address/bits" text, at most 128
-  --- ([`cosmic.relay_address`]'s `deny_cidrs` lists the relay's), and `own`
+  --- ([`cosmic.relay`]'s `Address.deny_cidrs` lists the relay's), and `own`
   --- the host's own numeric addresses, at most 256, refused as their own.
   --- An IPv6 address outside 2000::/3 is refused besides, whatever is listed.
   type PublicOptions = Child.ConnectorPublic
@@ -251,7 +250,7 @@ local record Net
     --- Resolves over TCP alone, every socket of the lookup made by this
     --- connector, one [`Net.connector`] or [`Net.connector_from`] made with
     --- a table, and no datagram sent: the servers asked are `servers`, or
-    --- the system's ([`cosmic.sandbox.relay`]'s `nameservers`), each of which the
+    --- the system's ([`cosmic.relay`]'s `nameservers`), each of which the
     --- connector's table must hold at its port. A connector built from
     --- those alone reaches nothing else, so the lookup's
     --- sockets reach nothing but the name servers. Linux only, as the
@@ -1045,7 +1044,7 @@ end
 --- each is spelled.
 local function same_host(a: string, b: string): boolean
   if a == b then return true end
-  local x, y = relay_address.parse(a), relay_address.parse(b)
+  local x, y = Relay.Address.parse(a), Relay.Address.parse(b)
   return x ~= nil and y ~= nil and table.concat(x, ",") == table.concat(y, ",")
 end
 
@@ -1064,6 +1063,12 @@ end
 --- `deadline`. The socket it passes is taken only if it is a stream
 --- connected to that very host and port. `refusal` is what a request the
 --- connector's lists refuse says.
+---
+--- A reply that came whole keeps the stream in step when its socket is
+--- connected to nothing: the far side reset it as it was made, which fails
+--- this connection alone. A socket connected elsewhere, or a descriptor
+--- that is no stream socket, is no reply a connector that works gives, so
+--- the stream is given up as one that misbehaves.
 local function ask(process: Child.ConnectorProcess, request: string, host: string, port: integer,
                    deadline: integer, timeout_ns: integer, refusal: string): Asked
   -- send, not write: a connector that has ended is EPIPE, never SIGPIPE.
@@ -1084,19 +1089,20 @@ local function ask(process: Child.ConnectorProcess, request: string, host: strin
     local received, because, failure = raw.recvfds(process.fd, 1)
     if received ~= nil then
       local socket = received[1]
-      -- The reply came whole, so the stream is in step whatever the socket
-      -- is: one the far side reset as it was made (no peer) fails this
-      -- connection alone, and the connector serves the next.
-      local peer, _ = raw.peer(socket:fd())
+      local peer, peer_why, peer_errno = raw.peer(socket:fd())
       if peer == nil then
         local _, _ = socket:close()
-        return { why = "net: the connection to " .. named(Net.tcp(host, port)) .. " ended as it was made",
-          kept = true }
+        if peer_errno == raw.ENOTCONN then
+          return { why = "net: the connection to " .. named(Net.tcp(host, port)) .. " ended as it was made",
+            kept = true }
+        end
+        return { why = "net: the connector passed a descriptor that is no connected stream socket (" ..
+            peer_why .. ")", kept = false }
       end
       if peer.port ~= port or not same_host(peer.host, host) then
         local _, _ = socket:close()
-        return { why = "net: the connector passed a socket not connected to " ..
-            named(Net.tcp(host, port)), kept = true }
+        return { why = "net: the connector passed a socket connected to " .. named(peer) .. ", not " ..
+            named(Net.tcp(host, port)), kept = false }
       end
       return { conn = new_conn(socket, timeout_ns), why = "", kept = true }
     end
@@ -1181,7 +1187,7 @@ function SocketConnector:connect(target: integer | string, port: integer, timeou
       if not self.accepts_public then
         return nil, "net: " .. target .. ":" .. port .. " is not in the connector's table"
       end
-      local bytes = relay_address.parse(target)
+      local bytes = Relay.Address.parse(target)
       if bytes == nil then return nil, "net: " .. target .. " is not a numeric address" end
       if port < 1 or port > 65535 then return nil, "net: port must be from 1 to 65535" end
       index = 0
@@ -1254,7 +1260,7 @@ resolved_through = function(name: string, opts: Net.ResolveOptions): {Net.Resolv
       listed[i] = { host = address.host, port = address.port }
     end
   else
-    local system, why = Sandbox.Relay.nameservers()
+    local system, why = Relay.nameservers()
     if system == nil then return nil, why end
     listed = system
   end
@@ -1383,7 +1389,7 @@ end
 --- its table lacks, which [`Connector.connect`] asks it for by address
 --- and port. The process judges the address itself, with the lists
 --- `public` carries -- `deny`, the numeric "address/bits" prefixes it
---- refuses (at most 128; [`cosmic.relay_address`]'s `deny_cidrs` is the
+--- refuses (at most 128; [`cosmic.relay`]'s `Address.deny_cidrs` is the
 --- relay's list), and `own`, the host's own addresses (at most 256) --
 --- and refuses every IPv6 address outside 2000::/3 whatever the lists
 --- say, so IPv4-mapped and NAT64 forms are never decoded. It is the

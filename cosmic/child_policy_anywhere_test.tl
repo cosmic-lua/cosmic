@@ -216,7 +216,7 @@ local function test_a_program_without_the_relays_module_cannot_start_a_policy_wi
   skip_where_seatbelt_holds("the relay's program")
   local probe = stand_in_of(tmp)
   local why = refused({ probe, "print hi" }, { grants = itself(probe), connect = { "example.com:443" } })
-  assert(why:find("^child: start: sandbox: relay: this program does not carry cosmic.relay_serve"), why)
+  assert(why:find("^child: start: sandbox: relay: this program does not carry cosmic.relay.main"), why)
   assert(why:find("needs a program that has it", 1, true), why)
   assert(#sandbox_directories() == 0, "a start that failed left a directory behind")
   for _, name in ipairs((assert(Fs.list(sys.getenv("TMPDIR") or "/tmp")))) do

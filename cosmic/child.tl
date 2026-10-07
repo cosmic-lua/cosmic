@@ -69,8 +69,7 @@
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
-local Address = require("cosmic.relay_address")
-local RelayConfig = require("cosmic.relay_config")
+local Relay = require("cosmic.relay")
 local Rules = require("cosmic.sandbox")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
@@ -81,6 +80,8 @@ local isatty = sys.isatty
 -- What holds a child by a policy on macOS, taken as this module loads.
 local Seatbelt = Rules.Seatbelt
 local SandboxRelay = Rules.Relay
+local Address = Relay.Address
+local RelayConfig = Relay.Config
 
 -- The calls that start, feed and reap a child, and hold this process's
 -- signals while it does, live in the raw process table, under the
@@ -391,7 +392,7 @@ local record Options
   ---   always has.
   --- - `connect` gives the child a network namespace of its own, with
   ---   its loopback up and inet sockets, whose only way out is the network
-  ---   relay this start runs (cosmic/relay_serve.tl): a process of this
+  ---   relay this start runs (cosmic/relay/main.tl): a process of this
   ---   program's core on a database sealed for it, held by a pid namespace
   ---   and the files its resolver reads, which makes no socket of its own.
   ---   It reaches the network only through the native connectors this
@@ -414,15 +415,17 @@ local record Options
   ---   request only where a `connect` target names its host and port,
   ---   resolves a name itself only then, and refuses an address of the host
   ---   or a private, loopback or metadata one unless a target names that
-  ---   address literally ([`cosmic.relay`]). It reaches the network through
+  ---   address literally ([`cosmic.relay.server`]). It reaches the network through
   ---   this process's `https_proxy`, and its `no_proxy`, where they are set:
   ---   the proxy's host is resolved once, as the start runs, and a host that
   ---   does not resolve fails the start. It lives as long
   ---   as the child's handle does: it is ended with the child, and a relay
-  ---   that dies first ends the child (SIGKILL, at its next wait). A relay that
+  ---   that dies first ends the child (SIGKILL, at its next wait), as one
+  ---   does once every connector of a kind it was handed has ended, since
+  ---   none is started anew. A relay that
   ---   will not start fails the start, naming why, and ends the child. The
   ---   relay's decision lines go where `relay_log` says. It needs this
-  ---   program to carry [`cosmic.relay_serve`] and [`cosmic.sandbox.relay`]
+  ---   program to carry [`cosmic.relay.main`] and [`cosmic.sandbox.relay`]
   ---   and to be a cosmic core, which
   ---   the start says where it is not. Linux only: macOS refuses `connect`.
   ---
@@ -3720,9 +3723,9 @@ local function nest_descriptors(slots: {integer:integer}): string
 end
 
 --- The module the network relay's process runs: the main of a database
---- sealed for it ([`cosmic.relay_serve`]), which this module cannot require
+--- sealed for it ([`cosmic.relay.main`]), which this module cannot require
 --- (it and what it requires start children through this one).
-local RELAY_MAIN <const> = "cosmic.relay_serve"
+local RELAY_MAIN <const> = "cosmic.relay.main"
 
 --- How long a relay has to say it serves, from its start.
 local RELAY_READY_NS <const> = Clock.seconds(30)
@@ -3794,7 +3797,7 @@ end
 
 --- The connectors the relay of the `connect` targets `connect` is handed
 --- ([`cosmic.sandbox.relay`]), started in this process and network:
---- [`RelayConfig.pool_size`] of the table's, of the addresses a target
+--- [`relay_config.pool_size`] of the table's, of the addresses a target
 --- names literally and the upstream proxy's; and, for a target that names
 --- a host the relay reaches directly (no upstream, or one `no_proxy`
 --- bypasses for some), the name servers' and as many public ones (refusing

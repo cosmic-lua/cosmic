@@ -1479,16 +1479,19 @@ static bool through_same (const struct sockaddr_storage *a, const struct sockadd
   return false;
 }
 
-/* Whether `fd` is a stream socket connected to `server`. */
-static bool through_reaches (int fd, const struct resolve_server *server) {
+/* Whether `fd` is a stream socket connected to `server`: 0 when it is,
+ * ENOTCONN for one connected to nothing (the server reset it as it was
+ * made), and EPROTO for what a connector that works never passes: a
+ * descriptor that is no stream socket, or one connected elsewhere. */
+static int through_reaches (int fd, const struct resolve_server *server) {
   int kind = 0;
   socklen_t size = sizeof kind;
-  if (getsockopt(fd, SOL_SOCKET, SO_TYPE, &kind, &size) != 0 || kind != SOCK_STREAM) return false;
+  if (getsockopt(fd, SOL_SOCKET, SO_TYPE, &kind, &size) != 0 || kind != SOCK_STREAM) return EPROTO;
   struct sockaddr_storage peer;
   memset(&peer, 0, sizeof peer);
   size = sizeof peer;
-  if (getpeername(fd, (struct sockaddr *)&peer, &size) != 0) return false;
-  return through_same(&peer, &server->address);
+  if (getpeername(fd, (struct sockaddr *)&peer, &size) != 0) return errno == ENOTCONN ? ENOTCONN : EPROTO;
+  return through_same(&peer, &server->address) ? 0 : EPROTO;
 }
 
 /* Asks the connector for a connection to `server`: true with the socket
@@ -1496,10 +1499,11 @@ static bool through_reaches (int fd, const struct resolve_server *server) {
  * to the connector's own reply time, so that a server that does not
  * answer its connect costs that time and leaves the stream in step for
  * the next server. A refusal the connector replies, and a reply that
- * came whole with a socket not connected to `server` (one the server
- * reset as it was made), leave its stream in step; any other failure
- * leaves the stream lost and shuts it down, so that its owner sees it
- * end. */
+ * came whole with a socket connected to nothing (one the server reset as
+ * it was made), leave its stream in step; any other failure, a socket
+ * connected elsewhere or a descriptor that is no stream socket among
+ * them, leaves the stream lost and shuts it down, so that its owner sees
+ * it end. */
 static bool through_ask (struct resolution *resolution, const struct resolve_server *server, int *connected) {
   *connected = -1;
   uint16_t port = ntohs(server->address.ss_family == AF_INET ?
@@ -1516,15 +1520,19 @@ static bool through_ask (struct resolution *resolution, const struct resolve_ser
     return false;
   }
   if (failure == 0) failure = through_rights(resolution, deadline, connected);
-  if (failure == 0 && through_reaches(*connected, server)) return true;
   if (failure == 0) {
-    close(*connected);
-    *connected = -1;
-    return false;
+    int reached = through_reaches(*connected, server);
+    if (reached == 0) return true;
+    if (reached == ENOTCONN) {
+      close(*connected);
+      *connected = -1;
+      return false;
+    }
+    failure = reached;
   }
   if (*connected >= 0) close(*connected);
   *connected = -1;
-  resolution->lost = failure != 0 ? failure : EPROTO;
+  resolution->lost = failure;
   shutdown(resolution->connector, SHUT_RDWR);
   return false;
 }

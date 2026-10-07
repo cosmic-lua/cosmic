@@ -11,6 +11,7 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
+local Relay = require("cosmic.relay")
 local Sandbox = require("cosmic.sandbox")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
@@ -340,7 +341,7 @@ local function test_the_name_servers_connector_refuses_what_is_no_name_server(tm
   require_native_connector()
   local conf = tmp .. "/resolv.conf"
   assert(Fs.write(conf, "nameserver 127.0.0.1\n"))
-  local servers = assert(Sandbox.Relay.nameservers(conf))
+  local servers = assert(Relay.nameservers(conf))
   assert(#servers == 1 and servers[1].host == "127.0.0.1" and servers[1].port == 53)
   local dns <close> = assert(Net.connector(servers))
   local conn, why = dns:connect("127.0.0.1", 80, Clock.seconds(5))
@@ -409,6 +410,46 @@ local function test_a_name_server_reset_as_it_is_made_leaves_the_stream_in_step(
   assert(sys.close(pair[2]))
 end
 
+--- A reply that came whole with a socket connected to another address
+--- than the server asked, or with a descriptor that is no socket, is none a
+--- connector that works gives: the lookup gives the stream up, shutting it
+--- down so its owner sees it end, and asks it nothing more.
+local function test_a_connector_that_passes_the_wrong_descriptor_is_given_up(tmp: string)
+  if assert(sys.uname()).sysname ~= "Linux" then
+    Test.skip("a lookup through a connector is Linux only, as the connector is")
+  end
+  local hosts = tmp .. "/hosts"
+  assert(Fs.write(hosts, ""))
+  local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
+  local elsewhere = assert(socket.start({ kind = "tcp", host = "127.0.0.1", port = listener.address.port }))
+  assert(socket.wait(elsewhere:fd(), true, 5000))
+  local null = assert(sys.open("/dev/null", sys.O_RDONLY))
+  for _, passed in ipairs({ elsewhere:fd(), null }) do
+    local pair = assert(process.connector_pair())
+    assert(sys.set_nonblocking(pair[1], true))
+    assert(sys.set_nonblocking(pair[2], true))
+    -- A reply for every query the lookup could make: those it never asks
+    -- for are never read.
+    for _ = 1, 4 do
+      assert(sys.write(pair[2], string.pack(">I4", 0)) == 4)
+      assert(socket.sendfds(pair[2], { passed }))
+    end
+    local found, why = socket.resolve_through("wrong.example.test", 2000, pair[1], 1000,
+      { { host = "127.0.0.1", port = 53, index = 1 } }, hosts)
+    assert(found == nil and why ~= "", tostring(why))
+    local asked = assert(sys.read(pair[2], 4096))
+    assert(asked == string.pack(">I4I4", 1, 53), "the stream was asked again: " .. ("%q"):format(asked))
+    -- Shut down, the stream reads as ended.
+    local more, trouble = sys.read(pair[2], 1)
+    assert(more == "", "the lookup left the stream in step: " .. tostring(more) .. " " .. tostring(trouble))
+    assert(sys.close(pair[1]))
+    assert(sys.close(pair[2]))
+  end
+  assert(sys.close(null))
+  assert(elsewhere:close())
+  assert(listener:close())
+end
+
 --- A connector that never replies holds the lookup to its deadline, and
 --- the stream it leaves with a reply unread is ended, not asked again.
 local function test_a_connector_that_never_replies_ends_the_lookup_and_is_not_asked_again()
@@ -441,16 +482,16 @@ end
 local function test_nameservers_reads_the_servers_resolv_conf_names(tmp: string)
   local conf = tmp .. "/resolv.conf"
   assert(Fs.write(conf, "nameserver 192.0.2.53\nnameserver 2001:db8::53\nnameserver fe80::1%lo\n"))
-  local servers, why = Sandbox.Relay.nameservers(conf)
+  local servers, why = Relay.nameservers(conf)
   assert(servers ~= nil and #servers >= 1, why)
   for _, server in ipairs(servers) do
     assert(server.host:find("%", 1, true) == nil and server.port >= 1, server.host)
   end
   local scoped = tmp .. "/scoped.conf"
   assert(Fs.write(scoped, "nameserver fe80::1%lo\n"))
-  local none, trouble = Sandbox.Relay.nameservers(scoped)
-  local missing = Sandbox.Relay.nameservers(tmp .. "/missing.conf")
-  local bad, invalid = Sandbox.Relay.nameservers(tmp .. "/x\0y")
+  local none, trouble = Relay.nameservers(scoped)
+  local missing = Relay.nameservers(tmp .. "/missing.conf")
+  local bad, invalid = Relay.nameservers(tmp .. "/x\0y")
   assert(bad == nil and invalid == "Invalid argument", tostring(invalid))
   -- On macOS the system's DNS configuration comes before any resolv.conf.
   if assert(sys.uname()).sysname ~= "Linux" then
@@ -484,7 +525,7 @@ local function test_the_relays_name_servers_stand_when_the_system_names_others(t
   local opts = assert(name_server_options({ resolv_conf = conf }))
   local _dns <close> = opts.connector
   assert(#opts.servers == 1 and opts.servers[1].host == "192.0.2.53" and opts.servers[1].port == 53)
-  local system = Sandbox.Relay.nameservers()
+  local system = Relay.nameservers()
   assert(system == nil or system[1].host ~= "192.0.2.53", "the system names the test's server")
   local found, why = Net.resolve("kept.example.test",
     { connector = opts.connector, servers = opts.servers, hosts_file = hosts, timeout_ns = Clock.seconds(5) })

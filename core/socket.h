@@ -278,6 +278,7 @@ COSMIC_SYSCALL(nameservers, 1);
  * ---@field ECONNREFUSED integer nothing listens at an address
  * ---@field EPROTO integer a descriptor batch was malformed, truncated, or held a different count
  * ---@field EPROTOTYPE integer a descriptor channel was not a stream socket
+ * ---@field ENOTCONN integer `peer`: the socket is connected to nothing, as one its far side reset is
  * ---@field EINVAL integer a "tcp" host is no numeric address
  * ---@field ENAMETOOLONG integer a unix path's file name is past `SOCKET_NAME_MAX`, or its directory past the platform's bound on a path
  * ---@field SOCKET_NAME_MAX integer the most bytes a socket file's own name may take: 107 on Linux, 103 on macOS
@@ -292,6 +293,7 @@ COSMIC_CONSTANT(EADDRINUSE)
 COSMIC_CONSTANT(ECONNREFUSED)
 COSMIC_CONSTANT(EPROTO)
 COSMIC_CONSTANT(EPROTOTYPE)
+COSMIC_CONSTANT(ENOTCONN)
 COSMIC_CONSTANT(EINVAL)
 COSMIC_CONSTANT(ENAMETOOLONG)
 COSMIC_CONSTANT(SOCKET_NAME_MAX)

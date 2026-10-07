@@ -1,11 +1,14 @@
 --- What the sandbox relay's starter reads and decides before the relay
---- starts (the relay's own side is [`cosmic.relay_serve`]), a member of
---- cosmic.sandbox reached outside it as [`Sandbox.Relay`]: by cosmic.child,
---- which starts the relay, and cosmic.net, which lists the name servers
---- through it. It holds the relay's policy, the name servers and the
+--- starts (the relay's own side is [`cosmic.relay.main`]), a member of
+--- cosmic.sandbox reached outside it as [`Sandbox.Relay`] by cosmic.child,
+--- which starts the relay. It holds the relay's policy, the name servers and the
 --- connector's wait for each, what a policy's `connect` targets open, the
 --- table of the connector of the addresses they name literally and the
---- upstream proxy's, and the one lookup of the upstream's host.
+--- upstream proxy's, and the one lookup of the upstream's host. It sits
+--- here, not in cosmic.relay, because what it makes is the sandbox's: a
+--- [`rules.Policy`] for the relay and the connectors cosmic.child starts.
+--- cosmic.relay's entry holds what the relay and this starter share, and
+--- requires nothing of cosmic.sandbox.
 ---
 --- The relay runs offline: under [`relay.policy`] it makes no
 --- socket, and holds none but its listeners, the connections it accepts
@@ -34,8 +37,7 @@
 ---     print(plan.names) -- true
 
 local Clock = require("cosmic.clock")
-local Address = require("cosmic.relay_address")
-local Config = require("cosmic.relay_config")
+local Relay = require("cosmic.relay")
 local rules = require("cosmic.sandbox.policy")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
@@ -53,9 +55,12 @@ else
   raw = require("cosmic.internal.socket")
 end
 
+local Address = Relay.Address
+local Config = Relay.Config
+
 local record relay
   --- What a policy's `connect` targets open, as the relay reads them
-  --- ([`cosmic.relay`]), and the upstream proxy the caller names.
+  --- ([`cosmic.relay.server`]), and the upstream proxy the caller names.
   record Plan
     --- The endpoints of the addresses the targets name literally, each
     --- once, in the form a connector's table takes, a port of "*" as 0.
@@ -142,67 +147,6 @@ function relay.policy(database: string, digest: string): rules.Policy
   return policy
 end
 
---- One entry of c-ares's server list: the numeric host and the TCP port,
---- or nil for an entry of none of the list's forms or a link-local server
---- written with its interface (a "%" and its name), which a connector's
---- endpoint cannot carry.
-local function nameserver_of(entry: string): Config.Endpoint | nil
-  local host, port, rest: string, string, string
-  local uri = entry:match("^dns://(.*)$")
-  if uri ~= nil then
-    local tcp = uri:match("[?&]tcpport=(%d+)")
-    host, port, rest = uri:match("^%[([%x:%.]+)%]:(%d+)(.*)$")
-    if host == nil then host, port, rest = uri:match("^([%d%.]+):(%d+)(.*)$") end
-    if rest ~= nil and rest:sub(1, 1) == "?" then rest = "" end
-    port = tcp or port
-  else
-    host, port, rest = entry:match("^%[([%x:%.]+)%]:(%d+)(.*)$")
-    if host == nil then host, port, rest = entry:match("^([%d%.]+):(%d+)(.*)$") end
-  end
-  if host == nil or rest ~= "" then return nil end
-  local number = math.tointeger(tonumber(port))
-  if number == nil or number < 1 or number > 65535 or Address.parse(host) == nil then
-    return nil
-  end
-  return { host = host, port = number }
-end
-
---- The name servers the system's configuration names, as [`Net.resolve`]
---- reads it (resolv.conf; on macOS, the system's DNS configuration
---- first), each a numeric endpoint at its TCP port, 53 for every server
---- resolv.conf names: the table of a connector for
---- [`Net.ResolveOptions.connector`] that reaches nothing else. With none
---- configured, the resolver's default, 127.0.0.1 at 53. A link-local
---- server written with its interface is left out, as no connector reaches
---- one; where every server is, the answer is nil and why.
---- Nil and why where they cannot be listed: the system's words where the
---- configuration cannot be read.
---- @param resolv_conf string|nil A resolv.conf to read in place of the system's
---- @return {Config.Endpoint}|nil The servers
---- @return string Why there are none, "" otherwise
--- TODO: reach a link-local name server (fe80::1%eth0) through a connector
--- once a connector's endpoint carries an interface: it is left out today.
-function relay.nameservers(resolv_conf?: string): {Config.Endpoint} | nil, string
-  local listed, trouble = raw.nameservers(resolv_conf)
-  if listed == nil then return nil, trouble end
-  local servers: {Config.Endpoint} = {}
-  local skipped = ""
-  for entry in listed:gmatch("[^,]+") do
-    local server = nameserver_of(entry)
-    if server ~= nil then
-      servers[#servers + 1] = server
-    elseif entry:find("%", 1, true) ~= nil then
-      skipped = "net: the name server " .. entry .. " is scoped to an interface, which a connector cannot reach"
-    else
-      return nil, "net: the resolver lists a server as " .. entry
-    end
-  end
-  if #servers == 0 then
-    return nil, skipped ~= "" and skipped or "net: the resolver lists no name server"
-  end
-  return servers, ""
-end
-
 --- The name servers a lookup asks, read now, and the wait a connector of
 --- them gives each server's connection: the lookup's time divided by one
 --- more than the servers (at least half a second, at most a minute), so
@@ -220,7 +164,7 @@ function relay.name_servers(opts?: relay.NameServerOptions): relay.NameServers |
   end
   local listed = opts.servers
   if listed == nil then
-    local read, why = relay.nameservers(opts.resolv_conf)
+    local read, why = Relay.nameservers(opts.resolv_conf)
     if read == nil then return nil, why end
     listed = read
   end
@@ -231,7 +175,7 @@ function relay.name_servers(opts?: relay.NameServerOptions): relay.NameServers |
   return { servers = listed, wait_ns = wait }, ""
 end
 
---- `bytes`, an address [`Address.parse`] read, as the numeric text a
+--- `bytes`, an address [`relay_address.parse`] read, as the numeric text a
 --- connector's table takes: four decimal octets, or eight hex groups.
 local function numeric(bytes: {integer}): string
   if #bytes == 4 then return table.concat(bytes, ".") end
@@ -251,7 +195,7 @@ end
 
 --- What the `connect` targets `grants` open, as the relay reads them, and
 --- the upstream proxy `env` names (`https_proxy`, `no_proxy` and their
---- upper-case spellings; [`Relay.upstream`]). A target that opens nothing
+--- upper-case spellings; [`relay_config.upstream`]). A target that opens nothing
 --- is in neither. Nil and why where the upstream cannot be used, or the
 --- targets name more addresses literally than a connector holds (128).
 --- @param grants {string} The policy's `connect` targets
@@ -360,7 +304,7 @@ function relay.table(plan: relay.Plan, addresses: {string} | nil): {Config.Endpo
 end
 
 --- What the public connector refuses: the relay's deny list
---- ([`cosmic.relay_address`]'s `deny_cidrs`) and the host's own addresses
+--- ([`cosmic.relay.address`]'s `deny_cidrs`) and the host's own addresses
 --- `own`.
 --- @param own {string} The host's own addresses
 --- @return raw_process.ConnectorPublic The lists

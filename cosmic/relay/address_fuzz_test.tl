@@ -1,4 +1,4 @@
---- Fuzz properties for [`cosmic.relay_address`], which reads addresses out
+--- Fuzz properties for [`cosmic.relay.address`], which reads addresses out
 --- of DNS answers, untrusted bytes: no text raises it; an IPv6 address
 --- reads as the 16 bytes it was written from, however it is spelled; an
 --- address that carries an IPv4 one is refused undecoded;
@@ -7,7 +7,7 @@
 --- (build/fuzz/init.tl).
 
 local Fuzz = require("build.fuzz")
-local relay_address = require("cosmic.relay_address")
+local relay_address = require("cosmic.relay.address")
 
 local NONE: {string} = {}
 local NO_OWN: {{integer}} = {}

@@ -1,5 +1,5 @@
 --- What [`Child.start`] and the network relay's process agree on, for a
---- policy whose `connect` the relay serves ([`cosmic.relay_serve`]): the
+--- policy whose `connect` the relay serves ([`cosmic.relay.main`]): the
 --- ports the program reaches the relay at, the proxy environment it is
 --- given, the host's own addresses the relay refuses, the config the
 --- relay is handed on its standard input, and the descriptors its
@@ -41,7 +41,7 @@ local record relay_config
     --- (the sandbox's relay is told them by its starter, which put them in
     --- its connector's table): connected to in their order, as a name's
     --- answers are, and `host` is resolved never. Nil to resolve `host`
-    --- for each connection through it ([`cosmic.relay`]).
+    --- for each connection through it ([`cosmic.relay.server`]).
     addresses: {string}
   end
 
@@ -50,13 +50,13 @@ local record relay_config
     --- The policy's `connect` targets, `host:port`.
     grants: {string}
     --- The caller's `https_proxy` (or `HTTPS_PROXY`), which the relay
-    --- reaches the network through ([`cosmic.relay`]'s `upstream`); nil for
+    --- reaches the network through ([`cosmic.relay.server`]'s `upstream`); nil for
     --- none.
     https_proxy: string
     --- The caller's `no_proxy` (or `NO_PROXY`); nil for none.
     no_proxy: string
     --- The host's own addresses, which the relay never connects to
-    --- ([`cosmic.relay_address`]'s `own_addresses`).
+    --- ([`cosmic.relay.address`]'s `own_addresses`).
     own_addresses: {string}
     --- Where the relay's decision lines go: "stderr" or "null".
     log: string
@@ -329,11 +329,18 @@ function relay_config.encode(config: relay_config.Config): string
     return Json.array(out)
   end
   local encoded, why = Json.encode({
-    grants = Json.array(config.grants), https_proxy = config.https_proxy, no_proxy = config.no_proxy,
-    own_addresses = Json.array(config.own_addresses), log = config.log,
+    grants = Json.array(config.grants),
+    https_proxy = config.https_proxy,
+    no_proxy = config.no_proxy,
+    own_addresses = Json.array(config.own_addresses),
+    log = config.log,
     upstream_addresses = config.upstream_addresses ~= nil and Json.array(config.upstream_addresses) or nil,
-    table = endpoints(config.table), tables = config.tables, public = config.public, name_servers = endpoints(config.name_servers),
-    name_server_wait_ns = config.name_server_wait_ns, unresolved = config.unresolved,
+    table = endpoints(config.table),
+    tables = config.tables,
+    public = config.public,
+    name_servers = endpoints(config.name_servers),
+    name_server_wait_ns = config.name_server_wait_ns,
+    unresolved = config.unresolved,
   })
   if encoded == nil then error("relay_config: " .. tostring(why), 2) end
   return encoded

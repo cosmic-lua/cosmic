@@ -7,7 +7,7 @@ local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local relay_address = require("cosmic.relay_address")
+local Relay = require("cosmic.relay")
 local type raw_process = require("cosmic.internal.process")
 local type raw_socket = require("cosmic.internal.socket")
 
@@ -485,7 +485,7 @@ local function test_a_public_connector_refuses_what_its_lists_hold()
     local listener, task = echo_server()
     local port = listener.address.port
     for _, public in ipairs({ { deny = { "127.0.0.0/8" } }, { deny = {}, own = { "127.0.0.1" } },
-        { deny = relay_address.deny_cidrs() } } as {Net.PublicOptions}) do
+        { deny = Relay.Address.deny_cidrs() } } as {Net.PublicOptions}) do
       local connector = assert(Net.connector(nil, { public = public }))
       local conn, why = connector:connect("127.0.0.1", port, Clock.seconds(5))
       assert(conn == nil and why == "net: 127.0.0.1 is refused by the connector's deny list", tostring(why))
@@ -635,6 +635,42 @@ local function test_connector_from_serves_on_after_a_socket_reset_as_it_was_made
     assert(connector:close())
     assert(connector:ended())
     assert(sys.close(pair[2]))
+  end)
+end
+
+--- A reply that came whole with a socket connected elsewhere, or with a
+--- descriptor that is no socket, is none a connector that works gives:
+--- the request fails naming it, and the stream is given up, not asked
+--- again, as one that misbehaves. A stand-in on the stream's other end
+--- replies.
+local function test_connector_from_gives_up_a_stream_that_passes_the_wrong_descriptor()
+  Poll.run(function()
+    local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
+    local port = listener.address.port
+    local elsewhere = assert(socket.start({ kind = "tcp", host = "127.0.0.1", port = port }))
+    assert(Poll.writable(elsewhere:fd(), Clock.seconds(5)))
+    local null = assert(sys.open("/dev/null", sys.O_RDONLY))
+    local cases: {{integer | string}} = {
+      { elsewhere:fd(), "passed a socket connected to 127.0.0.1:" .. port .. ", not 127.0.0.1:9" },
+      { null, "passed a descriptor that is no connected stream socket" },
+    }
+    for _, case in ipairs(cases) do
+      local pair = stream_pair()
+      local connector = assert(Net.connector_from(pair[1], { { host = "127.0.0.1", port = 9 } }, false,
+        Clock.seconds(1)))
+      assert(sys.write(pair[2], string.pack(">I4", 0)) == 4)
+      assert(socket.sendfds(pair[2], { case[1] as integer }))
+      local conn, why = connector:connect(1, 9, Clock.seconds(1))
+      assert(conn == nil and why:find(case[2] as string, 1, true) ~= nil, tostring(why))
+      assert(connector:ended(), "the connector is given up after: " .. why)
+      local again, trouble = connector:connect(1, 9, Clock.seconds(1))
+      assert(again == nil and trouble == "net: the connector has ended", tostring(trouble))
+      assert(connector:close())
+      assert(sys.close(pair[2]))
+    end
+    assert(sys.close(null))
+    assert(elsewhere:close())
+    assert(listener:close())
   end)
 end
 

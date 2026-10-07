@@ -2,15 +2,16 @@
 --- classifier (core/connector.c's `connector_public_allowed`): drawn IPv4
 --- and IPv6 addresses, most of them at or beside the edge of a refused
 --- prefix, are judged by the real, confined connector (a request for the
---- decision alone, port 0) and by [`relay_address.check`], which is what the
---- relay holds in depth: the two must agree on every address. `FUZZ_SEED`
---- and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- decision alone, port 0) and by [`cosmic.relay.address`]'s `check`,
+--- which is what the relay holds in depth: the two must agree on every
+--- address. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
+--- (build/fuzz/init.tl).
 local Fuzz = require("build.fuzz")
 local type raw_process = require("cosmic.internal.process")
 local type _ = require("cosmic.child")
 local type _net = require("cosmic.net")
 local Test = require("cosmic.test")
-local relay_address = require("cosmic.relay_address")
+local Relay = require("cosmic.relay")
 local sys = require("cosmic.sys")
 local REFUSED <const> = 65536 -- a refusal by the lists, past any errno
 Test.policy{ promises = { "fork" } }
@@ -30,7 +31,7 @@ local NONE: {string} = {}
 --- The first and last address of `cidr`, and its length in bytes.
 local function span(cidr: string): {integer}, {integer}
   local address, bits = cidr:match("^(.-)/(%d+)$")
-  local first = assert(relay_address.parse(address))
+  local first = assert(Relay.Address.parse(address))
   local last: {integer} = { table.unpack(first) }
   local held = math.tointeger(tonumber(bits))
   for i = 1, #first do
@@ -60,7 +61,7 @@ local function moved(bytes: {integer}, delta: integer): {integer}
   return out
 end
 
-local DENIED <const>: {string} = relay_address.deny_cidrs()
+local DENIED <const>: {string} = Relay.Address.deny_cidrs()
 local GLOBAL <const>: {integer} = { 0x20, 0x21, 0x26, 0x2a, 0x2c, 0x30, 0x3f }
 
 --- One address as a 17-byte string: its length (4 or 16) and 16 bytes.
@@ -84,7 +85,7 @@ local function gen_address(src: Fuzz.Source): string
   if kind == 0 then return packed(random_bytes(src, 4)) end
   if kind == 1 then return packed(random_bytes(src, 16)) end
   if kind == 2 then
-    local own = assert(relay_address.parse(Fuzz.pick(src, OWN)))
+    local own = assert(Relay.Address.parse(Fuzz.pick(src, OWN)))
     return packed(moved(own, src:int(-1, 1)))
   end
   local first, last = span(Fuzz.pick(src, DENIED))
@@ -142,9 +143,9 @@ local function test_the_connector_and_the_relay_s_check_agree_on_every_address(t
   local child, why = process.connector_start({}, pair[2], 500, { deny = DENIED, own = OWN })
   assert(sys.close(pair[2]))
   assert(child, why)
-  local own = relay_address.own_addresses(OWN)
+  local own = Relay.Address.own_addresses(OWN)
   local seen = Fuzz.run({
-    name = "connector public classifier agrees with relay_address",
+    name = "connector public classifier agrees with Relay.Address",
     dir = tmp,
     gen = function(src: Fuzz.Source): string
       local list: {string} = {}
@@ -159,7 +160,7 @@ local function test_the_connector_and_the_relay_s_check_agree_on_every_address(t
         if (length ~= 4 and length ~= 16) or #item ~= 17 then return false, "a malformed item" end
         local bytes = { item:byte(2, 1 + length) }
         local text = spelled(bytes)
-        local want = relay_address.check(text, 443, NONE, own)
+        local want = Relay.Address.check(text, 443, NONE, own)
         local got = decided(pair[1], item)
         if got ~= want then
           return false, text .. ": the connector " .. (got and "allows" or "refuses") ..

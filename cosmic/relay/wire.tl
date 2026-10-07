@@ -11,7 +11,7 @@
 --- follows is the tunnel's, not the request's), or a refusal. The answer is
 --- final: a later feed answers it again. A prefix is refused only when every
 --- longer input is refused for the same reason, and an input answers the same
---- wherever its feeds split (cosmic/relay_wire_fuzz_test.tl). Total work is
+--- wherever its feeds split (cosmic/relay/wire_fuzz_test.tl). Total work is
 --- linear in the bytes fed: the HTTP and TLS readers keep an offset and
 --- the unfinished line or record, never reading a byte twice; a SOCKS message
 --- is at most 513 bytes, so its reader re-reads what it holds, which is
@@ -23,7 +23,7 @@
 --- would read as a number), a dotted IPv4 address (decimal octets, no leading
 --- zeros), or an IPv6 address in RFC 5952's form without brackets. The
 --- readers only parse and canonicalise: whether an address may be connected
---- to is the address classifier's (cosmic.relay_address), and the relay
+--- to is the address classifier's (cosmic.relay.address), and the relay
 --- passes it every address host, mapped (`::ffff:`), NAT64, `0.0.0.0` and
 --- `::` forms included. Nothing is resolved here.
 ---

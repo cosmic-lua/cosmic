@@ -68,7 +68,7 @@ allowed["cosmic.net.listener_from"] = "tested directly: it adopts one listening 
   "process holds, which Net.receive_listeners does for each socket a relay's channel carries; " ..
   "no caller outside the module needs it yet"
 
-allowed["cosmic.relay_config.parse_addresses"] = "tested directly: the reading of Linux's " ..
+allowed["cosmic.relay.config.parse_addresses"] = "tested directly: the reading of Linux's " ..
   "interface tables over fixture text, which host_addresses makes of the host's own"
 -- TODO: drop this allowance once build.analyzer and build.receivers attribute a
 -- call made through a value taken from a module's field (cosmic.child's
@@ -78,13 +78,28 @@ allowed["cosmic.relay_config.parse_addresses"] = "tested directly: the reading o
 allowed["cosmic.sandbox.seatbelt.grants"] = "called through cosmic.sandbox's `Seatbelt`, " ..
   "the package's one path to it from outside, which cosmic.child takes; the check reads a " ..
   "call by the module's own name alone"
--- The same gap as the allowance above (its TODO): cosmic.child and cosmic.net
--- call these through cosmic.sandbox's `Relay`.
-for _, name in ipairs({ "policy", "nameservers", "name_servers", "plan", "upstream_addresses", "table",
-    "public" }) do
+-- The same gap as the allowance above (its TODO): cosmic.child calls these
+-- through cosmic.sandbox's `Relay`.
+for _, name in ipairs({ "policy", "name_servers", "plan", "upstream_addresses", "table", "public" }) do
   allowed["cosmic.sandbox.relay." .. name] = "called through cosmic.sandbox's `Relay`, the " ..
     "package's one path to it from outside, which cosmic.child takes; the check reads a call by " ..
     "the module's own name alone"
+end
+-- The same gap as the allowance above (its TODO): cosmic.child, the relay's
+-- starter and `cosmic sandbox connect` call these through cosmic.relay's
+-- `Address`, `Config` and `Wire`.
+local through_relay: {string: {string}} = {
+  address = { "deny_cidrs" },
+  config = { "pool_size", "proxy_env", "reserved", "host_addresses", "encode" },
+  wire = { "socks_client_greeting", "socks_client_auth", "socks_client_request", "socks_method_reader",
+    "socks_auth_status_reader", "socks_answer_reader", "socks_reply_meaning" },
+}
+for member, names in pairs(through_relay) do
+  for _, name in ipairs(names) do
+    allowed["cosmic.relay." .. member .. "." .. name] = "called through cosmic.relay's entry, " ..
+      "the package's one path to it from outside; the check reads a call by the module's own " ..
+      "name alone"
+  end
 end
 allowed["cosmic.net.connector"] = "tested directly: the library's face of the native connector, " ..
   "which ResolveOptions.connector takes; its callers in the tree start the process with " ..

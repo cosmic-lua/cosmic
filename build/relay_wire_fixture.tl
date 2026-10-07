@@ -1,4 +1,4 @@
---- Builders for the tests of [`cosmic.relay_wire`]: the bytes a program
+--- Builders for the tests of [`cosmic.relay.wire`]: the bytes a program
 --- sends the relay, whole or damaged by a test.
 
 local record relay_wire_fixture
@@ -111,7 +111,7 @@ function relay_wire_fixture.connect(target: string, headers?: {string}, version?
 end
 
 --- The sixteen bytes of the IPv6 address `text`, which is in the form
---- [`cosmic.relay_wire`] writes (lower case, `::` at most once).
+--- [`cosmic.relay.wire`] writes (lower case, `::` at most once).
 function relay_wire_fixture.ipv6_bytes(text: string): string
   local function side(part: string): {integer}
     local out: {integer} = {}

@@ -1,6 +1,6 @@
 --- The network relay's process: what [`Child.start`] runs, as this program's
 --- core on a database sealed with this module as its main, for a policy
---- whose `connect` the relay serves ([`cosmic.relay`]).
+--- whose `connect` the relay serves ([`cosmic.relay.server`]).
 ---
 --- It is handed, by the process that starts it:
 ---
@@ -13,7 +13,7 @@
 ---   at 4 the name servers'; from 5, one after another, the table's, of the
 ---   addresses a grant names literally and the upstream proxy's; and from
 ---   9 the public ones, for what a granted name resolves to;
---- - standard input: one line of JSON, a [`cosmic.relay_config`] `Config`,
+--- - standard input: one line of JSON, a [`cosmic.relay.config`] `Config`,
 ---   and then nothing more until the process is to end. The grants, a
 ---   proxy's password and the rest are never in the arguments or the
 ---   environment, which other users' processes can read.
@@ -22,12 +22,16 @@
 --- `ready` once it serves, or `error: <why>` and
 --- ends with status 1, and it ends with status 0 when standard input
 --- reaches end of file: the starter holds the pipe's write end for as long
---- as the program lives, and its death closes it.
+--- as the program lives, and its death closes it. Once every connector
+--- of a kind it was handed has ended ([`Relay.Handed.lost`]), it logs why,
+--- stops serving and ends with status 1, as `error: <why>`: its starter
+--- then ends the program, which would otherwise be refused every
+--- connection of that kind for the rest of its life.
 ---
 --- The process runs offline: its filter refuses every socket it would
 --- make ([`cosmic.sandbox.relay`]'s `policy`), so what it reaches is what
 --- the connectors it is handed reach. Every connection is checked against
---- the grants and the address classes by [`cosmic.relay`] and made by one
+--- the grants and the address classes by [`cosmic.relay.server`] and made by one
 --- of them ([`Relay.handed`]), and every name is resolved, once a grant
 --- names it, over TCP through the name servers' connector, whose table
 --- the starter read once. Where it had none to hand -- the name servers
@@ -35,10 +39,11 @@
 --- refusing every name and saying why. It resolves the upstream proxy
 --- never: it is told the addresses its starter resolved.
 
-local Config = require("cosmic.relay_config")
+local Config = require("cosmic.relay.config")
+local Log = require("cosmic.log")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
-local Relay = require("cosmic.relay")
+local Relay = require("cosmic.relay.server")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 
@@ -143,6 +148,21 @@ local function serve(config: Config.Config): integer
   local adopting, dns, adopted_why = adopted(config)
   if adopting == nil then return failed(adopted_why) end
   local handed: Relay.Handed = adopting
+  local logger = Log.new("relay")
+  local log = function(line: string)
+    local _, _ = logger:complain(line)
+  end
+  if config.log == "null" then log = function(_: string) end end
+  local serving: Relay.Serving
+  local lost: string
+  -- No connector is started anew, so a kind whose every connector has
+  -- ended reaches nothing again: the relay ends rather than refuse each
+  -- connection of that kind, and its starter ends the program with it.
+  handed.lost = function(why: string)
+    lost = why
+    log(why .. ": the relay ends")
+    if serving ~= nil then serving:stop() end
+  end
   Poll.run(function()
     local listeners, listeners_why = Net.receive_listeners(CHANNEL_FD)
     if listeners == nil then
@@ -170,17 +190,16 @@ local function serve(config: Config.Config): integer
     if dns ~= nil then
       resolve = { connector = dns, servers = Relay.udp_servers(config.name_servers) }
     end
-    local log: function(line: string)
-    if config.log == "null" then log = function(_: string) end end
-    local serving, start_why = started({
+    local running, start_why = started({
       http = http, socks = socks, grants = config.grants, connector = connect,
       resolve = resolve, unresolved = config.unresolved,
       own_addresses = config.own_addresses, upstream = upstream, log = log,
     })
-    if serving == nil then
+    if running == nil then
       status = failed(start_why)
       return
     end
+    serving = running
     local ended = false
     local watch = Poll.spawn(function()
       until_end_of_input()
@@ -195,7 +214,7 @@ local function serve(config: Config.Config): integer
     end
     for _, public in ipairs(handed.public_connectors) do local _, _ = public:close() end
     if dns ~= nil then local _, _ = dns:close() end
-    status = ended and 0 or failed("the relay's listeners ended")
+    status = ended and 0 or failed(lost or "the relay's listeners ended")
   end)
   return status
 end
