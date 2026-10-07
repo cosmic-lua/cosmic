@@ -451,12 +451,13 @@ local format_test_timeout_ns <const> = Clock.seconds(300)
 -- each bound is several times that.
 local launcher_test_timeout_ns <const> = Clock.seconds(60)
 local launcher_noexec_test_timeout_ns <const> = Clock.seconds(60)
-local self_rebuild_test_timeout_ns <const> = Clock.seconds(180)
+local self_rebuild_test_timeout_ns <const> = Clock.seconds(450)
 -- A self-rebuild test rebuilds the tool: the docs verb's from a cold
--- compile of the whole tree, 50 to 60 s of one core on a runner, past the
+-- compile of the whole tree, 50 to 90 s of one core on a runner, past the
 -- runner's default 30 s per test; the rest from the leg's compiles
--- ([`seed_compiles`]), in seconds.
-local self_rebuild_per_test_timeout_s <const> = "120"
+-- ([`seed_compiles`]), in seconds. The bound is above the case's own
+-- (`rebuild_timeout_ns` in fixtures/self_rebuild_test.tl, 150 s).
+local self_rebuild_per_test_timeout_s <const> = "180"
 -- Each fixed-point test rebuilds the product twice from a fresh tree, and
 -- the compiler's cases -- the compiler's own, its identity redefined, and
 -- that redefined with the fingerprint -- each compile the whole tree
@@ -509,14 +510,19 @@ local performance_test_timeout_ns <const> = Clock.seconds(150)
 -- without that reparse; it is still sized for it.
 local checked_compile_timeout_ns <const> = Clock.seconds(300)
 
--- A whole `cosmic test` run of every test, sandboxed, takes about 96 s of
--- tests on a four-core runner (1872 tests), after a build of up to 25 s
--- where the tree is compiled cold (the portable suite, macOS) and up to
--- 10 s writing the closure stores: about 130 s whole. The run's own
--- bound is about twice that. Each test gets far less than the whole run,
--- so a test that hangs is ended and named by the runner, not hidden under
--- a cancelled run.
-local suite_timeout_ns <const> = Clock.seconds(270)
+-- A whole `cosmic test` run of every test, sandboxed (about 4500 tests
+-- since October 2026), is what a change to core/ runs, as no verdict
+-- stands for it. On alpine-x86_64 it took 158 to 272 s whole, by the
+-- runner (the build of up to 25 s where the tree is compiled cold, the
+-- closure stores, and the tests): 270 s was passed twice in a queue's runs
+-- (37630361708, 37632469834). The bound is about 1.6 times the slowest
+-- run seen. Each test gets far less than the whole run, so a test that
+-- hangs is ended and named by the runner, not hidden under a cancelled run.
+-- TODO: a whole run happens only when the core changes, so the suite's
+-- growth against this bound goes unseen until an unlucky PR meets it:
+-- warn from `suite` when a run uses over 75% of the bound, or run the
+-- whole suite on a schedule and report its elapsed time against it.
+local suite_timeout_ns <const> = Clock.seconds(450)
 local suite_test_timeout_s <const> = "10"
 
 local function copy_flat_tl_dir(source: string, destination: string)
