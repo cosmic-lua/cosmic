@@ -618,6 +618,12 @@ function relay_wire.connect_reader(): relay_wire.ConnectReader
             i = last + 1
           end
           if special ~= nil then
+            -- A control byte is a byte of the head too: past the cap it is the
+            -- cap's refusal whatever feed it arrives in, as the top of the
+            -- loop gives it when it starts a feed.
+            if seen + special > MAX_HEAD then
+              return head_refusal()
+            end
             local byte = chunk:byte(special)
             if byte == 13 then
               after_cr = true

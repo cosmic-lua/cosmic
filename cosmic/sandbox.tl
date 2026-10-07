@@ -260,16 +260,25 @@ local function loopback_ok(address: string): boolean
   return true
 end
 
--- TODO: refuse or normalise an unbracketed IPv6 host ("::1:80"), which this
--- accepts as host "::1" and port 80 but cosmic.relay_address's grant grammar
--- reads as no address (it wants "[::1]:80"), so a grant cannot silently open
--- nothing; likewise a bracketed IPv4 host ("[1.2.3.4]:80"), once the relay
--- calls cosmic.relay_address.
+--- Whether `host` can head a `connect` target: an IPv6 address in
+--- brackets (`[::1]`), or text with no colon, which is a name, "*", or an
+--- IPv4 address. An unbracketed IPv6 host ("::1:80" is host "::1", port 80
+--- to the split below) and a bracketed IPv4 one ("[1.2.3.4]:80") are
+--- refused, as [`cosmic.relay_address`]'s grants open neither.
+local function connect_host_ok(host: string): boolean
+  local inner = host:match("^%[(.*)%]$")
+  if inner ~= nil then
+    return inner:find(":", 1, true) ~= nil and not inner:find("[^%x:%.]")
+  end
+  return not host:find("[:%[%]]")
+end
+
 --- Whether `target` is "host:port": a host that is not empty and holds
---- no blank or NUL, then "*" or a port from 1 to 65535.
+--- no blank or NUL (see connect_host_ok), then "*" or a port from 1 to
+--- 65535.
 local function connect_ok(target: string): boolean
   local host, port = target:match("^(.+):([^:]+)$")
-  if host == nil or host:find("[%s%z]") then return false end
+  if host == nil or host:find("[%s%z]") or not connect_host_ok(host) then return false end
   if port == "*" then return true end
   if not port:match("^[1-9]%d*$") or #port > 5 then return false end
   local number = tonumber(port)
@@ -331,7 +340,7 @@ local function invalid(p: Sandbox.Policy, exact: boolean): string
   for i, target in ipairs(p.connect or {}) do
     if not connect_ok(target) then
       return at("/connect/" .. (i - 1), "\"" .. target .. "\" is not host:port, the host or " ..
-          "the port \"*\" for any")
+          "the port \"*\" for any (an IPv6 host is written in brackets)")
     end
   end
   for i, address in ipairs(p.loopback or {}) do

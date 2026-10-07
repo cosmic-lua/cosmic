@@ -21,6 +21,15 @@ local function test_check_holds_letters_to_the_canonical_order_only_when_exact()
   assert(not bad and trouble:find("/connect/0", 1, true), trouble)
 end
 
+local function test_check_takes_an_ipv6_connect_host_in_brackets_only()
+  for _, target in ipairs({ "[::1]:80", "[2001:db8::1]:*", "1.2.3.4:80", "example.com:443", "*:*", "*:443" }) do
+    local ok, why = Sandbox.check({ connect = { target } })
+    assert(ok, target .. ": " .. tostring(why))
+  end
+  local bad, why = Sandbox.check({ connect = { "::1:80" } })
+  assert(not bad and why:find("brackets", 1, true), why)
+end
+
 local function test_merge_joins_the_letters_of_a_path_in_order()
   local out = merged(
     { grants = { { path = "/a", letters = "x" }, { path = "/b", letters = "c" } } },
@@ -134,6 +143,11 @@ local function test_merge_refuses_values_a_type_does_not_stop()
     { { grants = { { path = "a", letters = "" } } }, "/grants/0/letters" },
     { { grants = { { path = "", letters = "r" } } }, "/grants/0/path" },
     { { connect = { "nope" } }, "/connect/0" },
+    { { connect = { "::1:80" } }, "/connect/0" },
+    { { connect = { "2001:db8::1:443" } }, "/connect/0" },
+    { { connect = { "[1.2.3.4]:80" } }, "/connect/0" },
+    { { connect = { "[::1:80" } }, "/connect/0" },
+    { { connect = { "[::g]:80" } }, "/connect/0" },
     { { loopback = { "8.8.8.8" } }, "/loopback/0" },
     { { env = { "A=1" } }, "/env/0" },
     { { limits = { open_files = 0 } }, "/limits/open_files" },

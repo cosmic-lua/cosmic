@@ -334,6 +334,29 @@ local function test_connect_caps_the_head_at_16384_bytes()
   connect_splits_agree(over)
 end
 
+local function test_connect_cap_refusal_does_not_depend_on_the_feeds()
+  -- 16384 bytes of head, none of them a line end, and a control byte as the
+  -- 16385th: it is past the cap whether it arrives with the run before it or
+  -- alone.
+  local first = "CONNECT example.com:80 HTTP/1.1\r\n"
+  local lines = first .. "A: " .. ("v"):rep(7000) .. "\r\nB: " .. ("v"):rep(7000) .. "\r\nC: "
+  local run = lines .. ("w"):rep(16384 - #lines)
+  assert(#run == 16384)
+  for _, byte in ipairs({ "\n", "\0", "\r", "\1", "\127" }) do
+    local whole = shown_connect(connect_head(run .. byte))
+    assert(connect_head(run .. byte).http_status == 431, whole)
+    for _, cut in ipairs({ 1, 2, 50, 7000, 16383, 16384 }) do
+      local reader = Wire.connect_reader()
+      reader:feed((run .. byte):sub(1, cut))
+      local split = shown_connect(reader:feed((run .. byte):sub(cut + 1)))
+      assert(split == whole, ("%q cut at %d: %s, whole: %s"):format(byte, cut, split, whole))
+    end
+    -- The byte in the last place the head has is still its own.
+    local inside = shown_connect(connect_head(run:sub(1, -2) .. byte))
+    assert(not inside:find("431"), inside)
+  end
+end
+
 local function test_connect_caps_headers_at_100()
   local function with(count: integer): string
     local lines: {string} = {}
@@ -755,19 +778,62 @@ local function dribbled<T>(feed: function(string): T, input: string): T
   return answer
 end
 
---- Seconds `work` takes.
-local function seconds(work: function()): number
-  local start = Clock.monotonic_ns()
-  work()
-  return (Clock.monotonic_ns() - start) / 1e9
+--- The bytes `work` hands to the string library and `table.concat`: each
+--- call counts the longer of its subject and its result, a scan counting from
+--- where it starts, so a reader that joins the whole head again at each byte or
+--- scans a literal from its start at each byte counts the square of the
+--- bytes, and one that reads each byte once counts a few times their number.
+--- (Time cannot tell the two apart on a small input without flaking on a
+--- loaded host.)
+local function string_work(work: function()): integer
+  local total = 0
+  local saved: {{{string: any}, string, any}} = {}
+  --- Replaces `host[name]` with a wrapper that adds `cost(result, args)`.
+  local function patch(host: {string: any}, name: string, cost: function({any}, {any}): integer)
+    local original = host[name] as function(...: any): any...
+    saved[#saved + 1] = { host, name, original }
+    host[name] = function(...: any): any...
+      local args = table.pack(...)
+      local results = table.pack(original(...))
+      total = total + cost(results, args)
+      return table.unpack(results, 1, results.n)
+    end
+  end
+  local function length(result: {any}): integer
+    return #tostring(result[1])
+  end
+  --- A scan reads its subject from where it starts.
+  local function scan(_: {any}, args: {any}): integer
+    local subject = args[1]
+    if type(subject) ~= "string" then
+      return 0
+    end
+    local from = math.tointeger(args[3]) or 1
+    return math.max(1, #subject - from + 1)
+  end
+  local lib = string as any as {string: any}
+  patch(lib, "sub", length)
+  patch(lib, "reverse", length)
+  patch(lib, "gsub", length)
+  patch(lib, "byte", function(): integer return 1 end)
+  patch(lib, "find", scan)
+  patch(lib, "match", scan)
+  patch(table as any as {string: any}, "concat", length)
+  local ok, trouble = pcall(function(): boolean
+    work()
+    return true
+  end)
+  for _, entry in ipairs(saved) do
+    entry[1][entry[2]] = entry[3]
+  end
+  assert(ok, trouble)
+  return total
 end
 
---- The longest a feed of a whole message may take, by byte, below which
---- a reader that reads a byte once passes by a wide margin (tens of
---- milliseconds) and one that reads the whole buffer again at each byte
---- does not (seconds for the head, a head of 16 KiB being 16384 reads of
---- up to 16 KiB).
-local DRIBBLE_SECONDS <const> = 1.0
+--- Feeding a whole message a byte at a time costs a few times its length
+--- in string work, where a re-joined buffer or a re-scan costs its square
+--- (134 million for 16384 bytes).
+local DRIBBLE_FACTOR <const> = 40
 
 local function test_a_head_fed_a_byte_at_a_time_costs_its_length()
   local function head(total: integer): string
@@ -779,23 +845,41 @@ local function test_a_head_fed_a_byte_at_a_time_costs_its_length()
   local input = head(16384)
   assert(#input == 16384)
   local answer: Wire.Connect
-  local took = seconds(function()
+  local work = string_work(function()
     local reader = Wire.connect_reader()
     answer = dribbled(function(chunk: string): Wire.Connect
       return reader:feed(chunk)
     end, input)
   end)
   assert(answer.status == "done" and answer.consumed == 16384, tostring(answer.reason))
-  assert(took < DRIBBLE_SECONDS, ("16384 single-byte feeds took %.2f s"):format(took))
-  -- A line of the most bytes, and the refusals at the caps, cost the same.
-  local line = "CONNECT example.com:80 HTTP/1.1\r\nX: " .. ("v"):rep(8192 - 3)
-  local reader = Wire.connect_reader()
-  local line_took = seconds(function()
+  assert(work > 0 and work < DRIBBLE_FACTOR * #input, ("16384 single-byte feeds did %d bytes of string work"):format(work))
+  -- A line of the most bytes costs the same.
+  local line = "CONNECT example.com:80 HTTP/1.1\r\nX: " .. ("v"):rep(8192 - 3) .. "\r\n\r\n"
+  local line_work = string_work(function()
+    local reader = Wire.connect_reader()
     answer = dribbled(function(chunk: string): Wire.Connect
       return reader:feed(chunk)
-    end, line .. "\r\n\r\n")
+    end, line)
   end)
-  assert(answer.status == "done" and line_took < DRIBBLE_SECONDS, line_took)
+  assert(answer.status == "done" and line_work < DRIBBLE_FACTOR * #line, line_work)
+end
+
+local function test_string_work_counts_a_reader_that_reads_its_buffer_again()
+  -- The counter must see what the dribble tests exist to catch.
+  local input = ("v"):rep(2000)
+  local once = string_work(function()
+    for at = 1, #input do
+      local _ = input:sub(at, at)
+    end
+  end)
+  local again = string_work(function()
+    local held = ""
+    for at = 1, #input do
+      held = table.concat({ held, input:sub(at, at) })
+    end
+  end)
+  assert(once < 3 * #input, once)
+  assert(again > #input * #input / 4, again)
 end
 
 local function test_a_hello_fed_a_byte_at_a_time_costs_its_length()
@@ -806,15 +890,22 @@ local function test_a_hello_fed_a_byte_at_a_time_costs_its_length()
   end
   for _, input in ipairs({ Fixture.records(hello, { 16000 }), Fixture.records(hello, sizes), Fixture.records(hello, { 300, 400 }) }) do
     local answer: Wire.Hello
-    local took = seconds(function()
+    local work = string_work(function()
       local reader = Wire.hello_reader()
       answer = dribbled(function(chunk: string): Wire.Hello
         return reader:feed(chunk)
       end, input)
     end)
     assert(answer.status == "name" and answer.name == "dribble.example" and answer.consumed == #input, answer.status)
-    assert(took < DRIBBLE_SECONDS, ("%d single-byte feeds took %.2f s"):format(#input, took))
+    assert(work > 0 and work < DRIBBLE_FACTOR * #input, ("%d single-byte feeds did %d bytes of string work"):format(#input, work))
   end
+end
+
+--- Seconds `work` takes.
+local function seconds(work: function()): number
+  local start = Clock.monotonic_ns()
+  work()
+  return (Clock.monotonic_ns() - start) / 1e9
 end
 
 local function test_blanks_around_a_header_value_cost_its_length()

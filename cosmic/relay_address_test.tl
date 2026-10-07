@@ -400,3 +400,16 @@ local function test_selection_refuses_when_no_answer_is_allowed_and_says_why_for
   picked, why = relay_address.select({}, 80, NONE, NO_OWN)
   assert(picked == nil and why:find("no addresses", 1, true), why)
 end
+
+local function test_granted_names_only_a_literal_grant_of_the_address_and_port()
+  local grants = { "10.0.0.1:80", "[::1]:*", "example.com:443", "*:443", "2001:db8::2:443", "[1.2.3.4]:80" }
+  assert(relay_address.granted("10.0.0.1", 80, grants))
+  assert(not relay_address.granted("10.0.0.1", 81, grants))
+  assert(relay_address.granted("::1", 1, grants) and relay_address.granted("::0:0:0:0:0:0:1", 65535, grants))
+  -- A name or "*" opens no address; neither does an unbracketed IPv6 host or a bracketed IPv4 one.
+  assert(not relay_address.granted("93.184.216.34", 443, grants))
+  assert(not relay_address.granted("2001:db8::2", 443, grants))
+  assert(not relay_address.granted("1.2.3.4", 80, grants))
+  assert(not relay_address.granted("example.com", 443, grants))
+  assert(not relay_address.granted("", 80, grants))
+end

@@ -66,9 +66,10 @@ for _, name in ipairs({ "udp", "datagram" }) do
     "prerequisite lands separately from the resolver that calls it"
 end
 
--- TODO: remove this allowance once the sandbox relay resolves granted names with it.
-allowed["cosmic.net.resolve"] = "tested directly: the sandbox relay's resolver, which lands " ..
-  "before the relay that calls it"
+-- TODO: remove this allowance once the verb reads the caller's https_proxy with
+-- cosmic.relay.upstream to start the relay.
+allowed["cosmic.relay.upstream"] = "tested directly: the sandbox relay's reading of the caller's " ..
+  "https_proxy and no_proxy, which lands before the verb that calls it"
 
 allowed["cosmic.sandbox.restrict"] = "tested directly: it holds the process that calls it " ..
   "for good, so a worked example would hold the run that shows it; the test restricts " ..
