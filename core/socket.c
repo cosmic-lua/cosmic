@@ -56,7 +56,7 @@ struct target {
 /* libc's numeric parsers differ on leading zeroes and scoped IPv6.
  * Require four decimal octets without leading zeroes, including the IPv4
  * tail of a mapped IPv6 address; IPv6 otherwise uses only hex and colons. */
-static bool numeric_host (const char *host, size_t size) {
+bool cosmic_numeric_host (const char *host, size_t size) {
   bool ipv6 = false;
   const char *v4 = host;
   const char *end = host + size;
@@ -108,7 +108,7 @@ static int tcp_address_of (lua_State *L, int index, struct target *out) {
   struct sockaddr_in *v4 = (struct sockaddr_in *)&out->address;
   struct sockaddr_in6 *v6 = (struct sockaddr_in6 *)&out->address;
   int failure = 0;
-  if (!numeric_host(host, size)) {
+  if (!cosmic_numeric_host(host, size)) {
     failure = EINVAL;
   } else if (strchr(host, ':') == NULL && inet_pton(AF_INET, host, &v4->sin_addr) == 1) {
     v4->sin_family = AF_INET;

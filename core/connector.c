@@ -1,0 +1,656 @@
+/* The sandbox's native endpoint connector. The Teal relay never receives
+ * an unconnected host socket: this child connects it, constrained by an
+ * immutable sockaddr table and a filter that cannot remap or rewrite it.
+ * No Lua, allocation or loader operation occurs in the forked child.
+ * Fork retains a copy of the launcher's memory and environment: this
+ * helper confines network authority, not secrets already in that memory.
+ * A boundary against those secrets requires a clean exec trampoline. */
+#define _GNU_SOURCE
+#include <arpa/inet.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <poll.h>
+#include <signal.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+#include <sys/mman.h>
+#include <sys/resource.h>
+#include <sys/socket.h>
+#include <sys/wait.h>
+#include <time.h>
+#include <unistd.h>
+#if defined(__linux__)
+#include <linux/audit.h>
+#include <linux/filter.h>
+#include <linux/seccomp.h>
+#include <sys/prctl.h>
+#include <sys/syscall.h>
+#endif
+#include "check.h"
+#include "fail.h"
+#include "fault.h"
+#include "lauxlib.h"
+#include "process.h"
+
+#define CONNECTOR_ENDPOINTS 128
+#define CONNECTOR_SLOTS 262144
+#define CONNECTOR_STRIDE 128
+#define CONNECTOR_INSNS 4096
+#define CONNECTOR_ALLOW 0x7fff0000u
+#define CONNECTOR_KILL 0x80000000u
+#define CONNECTOR_REFUSE (0x00050000u | EPERM)
+
+struct connector_insn { uint16_t code; uint8_t jt, jf; uint32_t k; };
+struct connector_range { uintptr_t base; uint32_t slots, length; };
+struct connector_endpoint { struct sockaddr_storage address; uint32_t slots, length; };
+struct connector_code { struct connector_insn insns[CONNECTOR_INSNS]; size_t used; };
+
+/* Explicit Linux numbers let the same builder be checked for both
+ * architectures on every host, independently of its own libc headers. */
+struct connector_numbers {
+  uint32_t audit, read, write, close, poll, ppoll, clock, exit, exit_group;
+  uint32_t socket, connect, getsockopt, sendmsg;
+};
+static const struct connector_numbers connector_x86 = {
+  0xc000003eu, 0, 1, 3, 7, 271, 228, 60, 231, 41, 42, 55, 46,
+};
+static const struct connector_numbers connector_arm = {
+  0xc00000b7u, 63, 64, 57, UINT32_MAX, 73, 113, 93, 94, 198, 203, 209, 211,
+};
+
+static void connector_emit (struct connector_code *code, uint16_t op,
+                            uint8_t jt, uint8_t jf, uint32_t k) {
+  if (code->used < CONNECTOR_INSNS)
+    code->insns[code->used] = (struct connector_insn){op, jt, jf, k};
+  code->used++;
+}
+
+static void connector_load (struct connector_code *code, unsigned argument, bool high) {
+  connector_emit(code, 0x20, 0, 0, 16 + 8 * argument + (high ? 4u : 0u));
+}
+
+static void connector_equal (struct connector_code *code, unsigned argument, uint32_t value) {
+  connector_load(code, argument, true);
+  connector_emit(code, 0x15, 1, 0, 0);
+  connector_emit(code, 0x06, 0, 0, CONNECTOR_REFUSE);
+  connector_load(code, argument, false);
+  connector_emit(code, 0x15, 1, 0, value);
+  connector_emit(code, 0x06, 0, 0, CONNECTOR_REFUSE);
+}
+
+static void connector_return (struct connector_code *code, uint32_t value) {
+  connector_emit(code, 0x06, 0, 0, value);
+}
+
+/* A three-instruction dispatch has a 32-bit forward jump rather than
+ * classic BPF's eight-bit conditional offset; 128 ranges still fit. */
+static size_t connector_dispatch (struct connector_code *code, uint32_t number) {
+  connector_emit(code, 0x15, 0, 1, number);
+  size_t jump = code->used;
+  connector_emit(code, 0x05, 0, 0, 0);
+  return jump;
+}
+
+static void connector_target (struct connector_code *code, size_t jump) {
+  if (jump < CONNECTOR_INSNS) code->insns[jump].k = (uint32_t)(code->used - jump - 1);
+}
+
+static void connector_fd (struct connector_code *code, int fd) {
+  connector_equal(code, 0, (uint32_t)fd);
+  connector_return(code, CONNECTOR_ALLOW);
+}
+
+/* sockaddr memory is private and read-only before this program is
+ * installed. The allow list has no VM mutation, filesystem, exec, fork,
+ * descriptor replacement or descriptor receive calls. In particular,
+ * the private sendmsg fd may never be closed and reused for MSG_FASTOPEN
+ * on a host socket. Closing it kills the process instead. */
+static size_t connector_program (struct connector_code *code,
+    const struct connector_numbers *numbers, const struct connector_range *ranges,
+    size_t count, int control, int status) {
+  code->used = 0;
+  connector_emit(code, 0x20, 0, 0, 4);
+  connector_emit(code, 0x15, 1, 0, numbers->audit);
+  connector_return(code, CONNECTOR_KILL);
+  connector_emit(code, 0x20, 0, 0, 0);
+  const uint32_t simple[] = {numbers->poll, numbers->ppoll, numbers->clock,
+    numbers->exit, numbers->exit_group};
+  for (size_t i = 0; i < sizeof simple / sizeof simple[0]; i++) {
+    if (simple[i] == UINT32_MAX) continue;
+    connector_emit(code, 0x15, 0, 1, simple[i]);
+    connector_return(code, CONNECTOR_ALLOW);
+  }
+  size_t reading = connector_dispatch(code, numbers->read);
+  size_t writing = connector_dispatch(code, numbers->write);
+  size_t closing = connector_dispatch(code, numbers->close);
+  size_t creating = connector_dispatch(code, numbers->socket);
+  size_t connecting = connector_dispatch(code, numbers->connect);
+  size_t checking = connector_dispatch(code, numbers->getsockopt);
+  size_t sending = connector_dispatch(code, numbers->sendmsg);
+  connector_return(code, CONNECTOR_REFUSE);
+  connector_target(code, reading);
+  connector_fd(code, control);
+  connector_target(code, writing);
+  connector_load(code, 0, true);
+  connector_emit(code, 0x15, 1, 0, 0);
+  connector_return(code, CONNECTOR_REFUSE);
+  connector_load(code, 0, false);
+  connector_emit(code, 0x15, 2, 0, (uint32_t)control);
+  connector_emit(code, 0x15, 1, 0, (uint32_t)status);
+  connector_return(code, CONNECTOR_REFUSE);
+  connector_return(code, CONNECTOR_ALLOW);
+  connector_target(code, closing);
+  connector_load(code, 0, false);
+  connector_emit(code, 0x15, 0, 1, (uint32_t)control);
+  connector_return(code, CONNECTOR_KILL);
+  connector_return(code, CONNECTOR_ALLOW);
+  connector_target(code, creating);
+  connector_load(code, 0, true);
+  connector_emit(code, 0x15, 1, 0, 0);
+  connector_return(code, CONNECTOR_REFUSE);
+  connector_load(code, 0, false);
+  connector_emit(code, 0x15, 2, 0, 2); /* Linux AF_INET */
+  connector_emit(code, 0x15, 1, 0, 10); /* Linux AF_INET6 */
+  connector_return(code, CONNECTOR_REFUSE);
+  connector_equal(code, 1, 1u | 0x800u | 0x80000u); /* STREAM, NONBLOCK, CLOEXEC */
+  connector_equal(code, 2, 6); /* IPPROTO_TCP */
+  connector_return(code, CONNECTOR_ALLOW);
+  connector_target(code, checking);
+  connector_equal(code, 1, 1); /* SOL_SOCKET */
+  connector_equal(code, 2, 4); /* SO_ERROR */
+  connector_return(code, CONNECTOR_ALLOW);
+  connector_target(code, sending);
+  connector_equal(code, 2, 0x4000); /* MSG_NOSIGNAL */
+  connector_fd(code, control);
+  connector_target(code, connecting);
+  for (size_t i = 0; i < count; i++) {
+    uintptr_t base = ranges[i].base;
+    uintptr_t end = base + (uintptr_t)ranges[i].slots * CONNECTOR_STRIDE;
+    connector_load(code, 1, true);
+    connector_emit(code, 0x15, 0, 10, (uint32_t)(base >> 32));
+    connector_load(code, 1, false);
+    connector_emit(code, 0x35, 0, 8, (uint32_t)base);
+    connector_emit(code, 0x35, 7, 0, (uint32_t)end);
+    connector_emit(code, 0x54, 0, 0, CONNECTOR_STRIDE - 1);
+    connector_emit(code, 0x15, 0, 5, 0);
+    connector_load(code, 2, true);
+    connector_emit(code, 0x15, 0, 3, 0);
+    connector_load(code, 2, false);
+    connector_emit(code, 0x15, 0, 1, ranges[i].length);
+    connector_return(code, CONNECTOR_ALLOW);
+    /* Every failed condition jumps to the next range. */
+  }
+  connector_return(code, CONNECTOR_REFUSE);
+  return code->used <= CONNECTOR_INSNS ? code->used : 0;
+}
+
+static size_t connector_endpoints (lua_State *L, int argument,
+                                  struct connector_endpoint *endpoints, bool list) {
+  luaL_checktype(L, argument, LUA_TTABLE);
+  size_t count = list ? lua_rawlen(L, argument) : 1;
+  if (count == 0 || count > CONNECTOR_ENDPOINTS)
+    luaL_argerror(L, argument, "endpoints must hold 1 through 128 numeric TCP endpoints");
+  uint32_t slots = 0;
+  for (size_t i = 0; i < count; i++) {
+    if (list) lua_rawgeti(L, argument, (lua_Integer)i + 1);
+    else lua_pushvalue(L, argument);
+    int item = lua_gettop(L);
+    luaL_checktype(L, item, LUA_TTABLE);
+    lua_getfield(L, item, "host");
+    size_t size = 0;
+    const char *host = luaL_checklstring(L, -1, &size);
+    struct connector_endpoint *endpoint = &endpoints[i];
+    memset(endpoint, 0, sizeof *endpoint);
+    struct sockaddr_in *v4 = (struct sockaddr_in *)&endpoint->address;
+    struct sockaddr_in6 *v6 = (struct sockaddr_in6 *)&endpoint->address;
+    if (strlen(host) != size) luaL_argerror(L, argument, "an endpoint host has a NUL");
+    if (!cosmic_numeric_host(host, size)) {
+      luaL_argerror(L, argument, "an endpoint host must be a numeric IPv4 or IPv6 address");
+    } else if (strchr(host, ':') == NULL && inet_pton(AF_INET, host, &v4->sin_addr) == 1) {
+      v4->sin_family = AF_INET;
+      endpoint->length = sizeof *v4;
+    } else if (inet_pton(AF_INET6, host, &v6->sin6_addr) == 1) {
+      v6->sin6_family = AF_INET6;
+      endpoint->length = sizeof *v6;
+    } else luaL_argerror(L, argument, "an endpoint host must be a numeric IPv4 or IPv6 address");
+    lua_pop(L, 1);
+    lua_getfield(L, item, "port");
+    int port = cosmic_checkint(L, -1);
+    if (port < 0 || port > 65535) luaL_argerror(L, argument, "an endpoint port must be 0 through 65535");
+    if (v4->sin_family == AF_INET) v4->sin_port = htons((uint16_t)port);
+    else v6->sin6_port = htons((uint16_t)port);
+    endpoint->slots = port == 0 ? 65535 : 1;
+    slots += endpoint->slots;
+    if (slots > CONNECTOR_SLOTS) luaL_argerror(L, argument, "endpoint port tables exceed 32 MiB");
+    lua_pop(L, 2);
+  }
+  return count;
+}
+
+COSMIC_SYSCALL(connector_pair, 0) {
+  lua_createtable(L, 2, 0);
+  int pair[2];
+#if defined(__linux__)
+  if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, pair) != 0) return cosmic_fail(L, errno);
+#else
+  if (socketpair(AF_UNIX, SOCK_STREAM, 0, pair) != 0) return cosmic_fail(L, errno);
+  if (fcntl(pair[0], F_SETFD, FD_CLOEXEC) != 0 || fcntl(pair[1], F_SETFD, FD_CLOEXEC) != 0) {
+    int failure = errno;
+    close(pair[0]); close(pair[1]);
+    return cosmic_fail(L, failure);
+  }
+#endif
+  lua_pushinteger(L, pair[0]); lua_rawseti(L, -2, 1);
+  lua_pushinteger(L, pair[1]); lua_rawseti(L, -2, 2);
+  return 1;
+}
+
+COSMIC_SYSCALL(connector_filter, 4) {
+  const char *architecture = luaL_checkstring(L, 1);
+  const struct connector_numbers *numbers;
+  if (strcmp(architecture, "x86_64") == 0) numbers = &connector_x86;
+  else if (strcmp(architecture, "aarch64") == 0) numbers = &connector_arm;
+  else return luaL_argerror(L, 1, "architecture must be x86_64 or aarch64");
+  luaL_checktype(L, 2, LUA_TTABLE);
+  size_t count = lua_rawlen(L, 2);
+  if (count == 0 || count > CONNECTOR_ENDPOINTS) return luaL_argerror(L, 2, "ranges must hold 1 through 128 entries");
+  struct connector_range ranges[CONNECTOR_ENDPOINTS];
+  uint32_t slots = 0;
+  for (size_t i = 0; i < count; i++) {
+    lua_rawgeti(L, 2, (lua_Integer)i + 1);
+    luaL_checktype(L, -1, LUA_TTABLE);
+    lua_getfield(L, -1, "base");
+    lua_Integer base = luaL_checkinteger(L, -1);
+    lua_getfield(L, -2, "slots");
+    int each = cosmic_checkint(L, -1);
+    lua_getfield(L, -3, "length");
+    int length = cosmic_checkint(L, -1);
+    if (base <= 0 || (base & (CONNECTOR_STRIDE - 1)) != 0 || each < 1 || each > 65535 ||
+        (length != 16 && length != 28)) return luaL_argerror(L, 2, "a range is invalid");
+    uint64_t end = (uint64_t)base + (uint64_t)each * CONNECTOR_STRIDE;
+    if (((uint64_t)base >> 32) != (end >> 32)) return luaL_argerror(L, 2, "a range crosses a 32-bit boundary");
+    ranges[i] = (struct connector_range){(uintptr_t)base, (uint32_t)each, (uint32_t)length};
+    slots += (uint32_t)each;
+    if (slots > CONNECTOR_SLOTS) return luaL_argerror(L, 2, "ranges exceed 32 MiB");
+    lua_pop(L, 4);
+  }
+  int control = cosmic_checkfd(L, 3), status = cosmic_checkfd(L, 4);
+  struct connector_code code;
+  size_t length = connector_program(&code, numbers, ranges, count, control, status);
+  if (length == 0) return luaL_error(L, "connector filter exceeds the kernel limit");
+  lua_pushlstring(L, (const char *)code.insns, length * sizeof code.insns[0]);
+  return 1;
+}
+
+#if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__))
+_Static_assert(sizeof(struct connector_insn) == sizeof(struct sock_filter), "BPF layout");
+_Static_assert(sizeof(struct sockaddr_storage) == CONNECTOR_STRIDE, "address slot size");
+
+struct connector_plan {
+  struct connector_range ranges[CONNECTOR_ENDPOINTS];
+  struct connector_code code;
+  size_t count, bytes;
+  void *memory;
+  int control, status, timeout;
+  bool close_refused, filter_refused;
+};
+
+static int connector_table (const struct connector_endpoint *endpoints, size_t count,
+                            struct connector_plan *plan) {
+  size_t slots = 0;
+  for (size_t i = 0; i < count; i++) slots += endpoints[i].slots;
+  long page = sysconf(_SC_PAGESIZE);
+  if (page <= 0) return EINVAL;
+  size_t used = slots * CONNECTOR_STRIDE;
+  plan->bytes = (used + (size_t)page - 1) / (size_t)page * (size_t)page;
+  if (COSMIC_FAULT("connector_mmap")) return ENOMEM;
+  plan->memory = mmap(NULL, plan->bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (plan->memory == MAP_FAILED) { plan->memory = NULL; return errno; }
+  size_t offset = 0;
+  for (size_t i = 0; i < count; i++) {
+    uintptr_t base = (uintptr_t)plan->memory + offset;
+    uintptr_t end = base + (uintptr_t)endpoints[i].slots * CONNECTOR_STRIDE;
+    if ((base >> 32) != (end >> 32)) return EOVERFLOW;
+    plan->ranges[i] = (struct connector_range){base, endpoints[i].slots, endpoints[i].length};
+    for (uint32_t j = 0; j < endpoints[i].slots; j++) {
+      struct sockaddr_storage *address = (struct sockaddr_storage *)(base + (uintptr_t)j * CONNECTOR_STRIDE);
+      *address = endpoints[i].address;
+      if (endpoints[i].slots > 1) {
+        uint16_t port = htons((uint16_t)(j + 1));
+        if (address->ss_family == AF_INET) ((struct sockaddr_in *)address)->sin_port = port;
+        else ((struct sockaddr_in6 *)address)->sin6_port = port;
+      }
+    }
+    offset += (size_t)endpoints[i].slots * CONNECTOR_STRIDE;
+  }
+  if (COSMIC_FAULT("connector_mprotect")) return EACCES;
+  if (mprotect(plan->memory, plan->bytes, PROT_READ) != 0) return errno;
+  plan->count = count;
+  return 0;
+}
+
+static int connector_whole (int fd, void *buffer, size_t size, bool writing) {
+  char *at = buffer;
+  while (size > 0) {
+    ssize_t got = writing ? write(fd, at, size) : read(fd, at, size);
+    if (got < 0 && errno == EINTR) continue;
+    if (got <= 0) return got == 0 ? EPIPE : errno;
+    at += (size_t)got; size -= (size_t)got;
+  }
+  return 0;
+}
+
+static int64_t connector_now (void) {
+  struct timespec now;
+  if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) return -1;
+  return (int64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
+}
+
+static int connector_connect (const struct connector_plan *plan, uint32_t index, uint32_t port,
+                              int *connected) {
+  *connected = -1;
+  if (index < 1 || index > plan->count || port < 1 || port > 65535) return EPERM;
+  const struct connector_range *range = &plan->ranges[index - 1];
+  const struct sockaddr *address = (const struct sockaddr *)(range->base +
+      (range->slots > 1 ? (uintptr_t)(port - 1) * CONNECTOR_STRIDE : 0));
+  uint16_t held = address->sa_family == AF_INET ?
+    ((const struct sockaddr_in *)address)->sin_port : ((const struct sockaddr_in6 *)address)->sin6_port;
+  if (ntohs(held) != port) return EPERM;
+  int fd = socket(address->sa_family, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, IPPROTO_TCP);
+  if (fd < 0) return errno;
+  int failure = 0;
+  if (connect(fd, address, range->length) != 0) {
+    failure = errno;
+    if (failure == EINPROGRESS) {
+      int64_t now = connector_now();
+      int64_t deadline = now + plan->timeout;
+      while (now >= 0 && now < deadline) {
+        struct pollfd wait[2] = {{fd, POLLOUT, 0}, {plan->control, POLLHUP, 0}};
+        struct timespec remaining = {(time_t)((deadline - now) / 1000),
+          (long)((deadline - now) % 1000) * 1000000L};
+        int ready = ppoll(wait, 2, &remaining, NULL);
+        if (ready < 0 && errno != EINTR) { failure = errno; break; }
+        if (wait[1].revents & (POLLHUP | POLLERR | POLLNVAL)) { failure = EPIPE; break; }
+        if (wait[0].revents != 0) {
+          socklen_t size = sizeof failure;
+          if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &failure, &size) != 0) failure = errno;
+          break;
+        }
+        now = connector_now();
+      }
+      if (failure == EINPROGRESS) failure = now < 0 ? EIO : ETIMEDOUT;
+    }
+  }
+  if (failure) close(fd);
+  else *connected = fd;
+  return failure;
+}
+
+static int connector_reply (int control, int failure, int fd) {
+  uint32_t number = htonl((uint32_t)failure);
+  int trouble = connector_whole(control, &number, sizeof number, true);
+  if (trouble || failure) return trouble;
+  char marker = '\0';
+  struct iovec payload = {&marker, 1};
+  union { struct cmsghdr alignment; char bytes[CMSG_SPACE(sizeof(int))]; } ancillary;
+  memset(&ancillary, 0, sizeof ancillary);
+  struct msghdr message = {0};
+  message.msg_iov = &payload; message.msg_iovlen = 1;
+  message.msg_control = ancillary.bytes; message.msg_controllen = sizeof ancillary.bytes;
+  struct cmsghdr *rights = CMSG_FIRSTHDR(&message);
+  rights->cmsg_level = SOL_SOCKET; rights->cmsg_type = SCM_RIGHTS;
+  rights->cmsg_len = CMSG_LEN(sizeof fd);
+  memcpy(CMSG_DATA(rights), &fd, sizeof fd);
+  ssize_t sent;
+  do { sent = sendmsg(control, &message, MSG_NOSIGNAL); } while (sent < 0 && errno == EINTR);
+  return sent == 1 ? 0 : sent < 0 ? errno : EIO;
+}
+
+static _Noreturn void connector_loop (const struct connector_plan *plan) {
+  for (;;) {
+    uint32_t request[2];
+    if (connector_whole(plan->control, request, sizeof request, false) != 0) _exit(0);
+    int fd = -1;
+    int failure = connector_connect(plan, ntohl(request[0]), ntohl(request[1]), &fd);
+    int sent = connector_reply(plan->control, failure, fd);
+    if (fd >= 0) close(fd);
+    if (sent || failure == EPIPE) _exit(0);
+  }
+}
+
+/* This child has no runtime startup: it does not exec, call Lua, open a
+ * database, allocate, or ask a loader to resolve another symbol. */
+static int connector_hold (const struct connector_plan *plan) {
+  if (plan->close_refused) return EPERM;
+  unsigned first = (unsigned)(plan->control < plan->status ? plan->control : plan->status);
+  unsigned second = (unsigned)(plan->control > plan->status ? plan->control : plan->status);
+  /* A descriptor opened before the hard limit was lowered can be above
+   * that limit. A loop bounded by RLIMIT_NOFILE would leave it behind:
+   * close_range must succeed, or this start is refused. */
+  if (first > 0 && syscall(SYS_close_range, 0u, first - 1, 0u) != 0) return errno;
+  if (second > first + 1 && syscall(SYS_close_range, first + 1, second - 1, 0u) != 0) return errno;
+  if (syscall(SYS_close_range, second + 1, UINT_MAX, 0u) != 0) return errno;
+  struct sigaction action;
+  memset(&action, 0, sizeof action);
+  sigemptyset(&action.sa_mask);
+  action.sa_handler = SIG_DFL;
+  for (int signal = 1; signal < NSIG; signal++) {
+    if (signal != SIGKILL && signal != SIGSTOP && sigaction(signal, &action, NULL) != 0) {
+      if (errno != EINVAL) return errno;
+    }
+  }
+  action.sa_handler = SIG_IGN;
+  if (sigaction(SIGPIPE, &action, NULL) != 0) return errno;
+  sigset_t empty;
+  sigemptyset(&empty);
+  if (sigprocmask(SIG_SETMASK, &empty, NULL) != 0) return errno;
+  if (prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) != 0 || prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) return errno;
+  struct rlimit files = {256, 256};
+  struct rlimit core = {0, 0};
+  struct rlimit held;
+  if (getrlimit(RLIMIT_NOFILE, &held) != 0) return errno;
+  if (held.rlim_max < files.rlim_max) files.rlim_cur = files.rlim_max = held.rlim_max;
+  if (setrlimit(RLIMIT_NOFILE, &files) != 0 || setrlimit(RLIMIT_CORE, &core) != 0) return errno;
+  if (plan->filter_refused) return EPERM;
+  struct sock_fprog filter = {(unsigned short)plan->code.used, (struct sock_filter *)plan->code.insns};
+  if (syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER, 0, &filter) != 0) return errno;
+  return 0;
+}
+
+static int connector_control (int fd) {
+  if (fd < 0) return EBADF;
+  struct sockaddr_storage peer = {0};
+  socklen_t size = sizeof peer;
+  if (getpeername(fd, (struct sockaddr *)&peer, &size) != 0) return errno;
+  if (peer.ss_family != AF_UNIX) return EINVAL;
+  int kind = 0;
+  size = sizeof kind;
+  if (getsockopt(fd, SOL_SOCKET, SO_TYPE, &kind, &size) != 0) return errno;
+  if (kind != SOCK_STREAM) return EINVAL;
+  int flags = fcntl(fd, F_GETFL);
+  if (flags < 0) return errno;
+  return flags & O_NONBLOCK ? EINVAL : 0;
+}
+
+static int connector_prepare (struct connector_plan *plan,
+    const struct connector_endpoint *endpoints, size_t count, int control, int timeout) {
+  memset(plan, 0, sizeof *plan);
+  int trouble = connector_control(control);
+  if (trouble) return trouble;
+  plan->control = control;
+  plan->timeout = timeout;
+  return connector_table(endpoints, count, plan);
+}
+
+static int connector_start_native (struct connector_plan *plan, const char *probe, pid_t *child);
+
+/* Fixed probes exercise the actual kernel filter, never a second
+ * approximation. The policy compiler must have already approved these
+ * addresses, as it does for a normal connector. */
+static int connector_attack (const struct connector_plan *plan, const char *operation) {
+  const struct connector_range *range = &plan->ranges[0];
+  const struct sockaddr *address = (const struct sockaddr *)range->base;
+  int fd = socket(address->sa_family, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, IPPROTO_TCP);
+  if (fd < 0) return errno;
+  if (strcmp(operation, "pointer") == 0) {
+    struct sockaddr_storage copy;
+    memcpy(&copy, address, sizeof copy);
+    if (connect(fd, (struct sockaddr *)&copy, range->length) != 0) return errno;
+  } else if (strcmp(operation, "length") == 0) {
+    if (connect(fd, address, range->length + 1) != 0) return errno;
+  } else if (strcmp(operation, "mutation") == 0) {
+    volatile unsigned char *bytes = (volatile unsigned char *)range->base;
+    bytes[0] = 0;
+  } else if (strcmp(operation, "mprotect") == 0) {
+    if (mprotect(plan->memory, plan->bytes, PROT_READ | PROT_WRITE) != 0) return errno;
+  } else if (strcmp(operation, "remap") == 0) {
+    if (mmap(plan->memory, plan->bytes, PROT_READ | PROT_WRITE,
+             MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) == MAP_FAILED) return errno;
+  } else if (strcmp(operation, "dup") == 0) {
+    if (dup2(fd, plan->control) < 0) return errno;
+  } else if (strcmp(operation, "recvmsg") == 0) {
+    struct msghdr message = {0};
+    if (recvmsg(plan->control, &message, MSG_DONTWAIT) < 0) return errno;
+  } else if (strcmp(operation, "sendto") == 0) {
+    if (sendto(fd, "x", 1, MSG_NOSIGNAL, address, range->length) < 0) return errno;
+  } else if (strcmp(operation, "sendmsg") == 0) {
+    struct msghdr message = {0};
+    message.msg_name = (void *)address; message.msg_namelen = range->length;
+    if (sendmsg(fd, &message, MSG_NOSIGNAL | MSG_FASTOPEN) < 0) return errno;
+  } else if (strcmp(operation, "close_control") == 0) {
+    if (close(plan->control) != 0) return errno;
+  } else if (strcmp(operation, "udp") == 0) {
+    if (socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, IPPROTO_UDP) < 0) return errno;
+  } else if (strcmp(operation, "open") == 0) {
+    if (open("/proc/self/mem", O_RDWR) < 0) return errno;
+  } else if (strcmp(operation, "exec") == 0) {
+    char *argv[] = {NULL};
+    execve("/proc/self/exe", argv, argv);
+    return errno;
+  } else if (strcmp(operation, "fork") == 0) {
+    if (fork() < 0) return errno;
+  }
+  return 0;
+}
+
+static int connector_start_native (struct connector_plan *plan, const char *probe, pid_t *child) {
+  int status[2] = {-1, -1};
+  if (COSMIC_FAULT("connector_pipe")) return EMFILE;
+  if (pipe2(status, O_CLOEXEC) != 0) return errno;
+  if (status[0] < 0 || status[1] < 0) {
+    if (status[0] >= 0) close(status[0]);
+    if (status[1] >= 0) close(status[1]);
+    return EIO;
+  }
+  plan->status = status[1];
+  plan->close_refused = COSMIC_FAULT("connector_close_range");
+  plan->filter_refused = COSMIC_FAULT("connector_filter");
+#if defined(__x86_64__)
+  const struct connector_numbers *numbers = &connector_x86;
+#else
+  const struct connector_numbers *numbers = &connector_arm;
+#endif
+  if (connector_program(&plan->code, numbers, plan->ranges, plan->count,
+      plan->control, plan->status) == 0) { close(status[0]); close(status[1]); return E2BIG; }
+  sigset_t every, before;
+  sigfillset(&every);
+  if (sigprocmask(SIG_SETMASK, &every, &before) != 0) {
+    int trouble = errno; close(status[0]); close(status[1]); return trouble;
+  }
+  bool refused = COSMIC_FAULT("connector_fork");
+  pid_t pid = refused ? -1 : fork();
+  int failure = refused ? EAGAIN : errno;
+  if (pid == 0) {
+    int held = connector_hold(plan);
+    if (connector_whole(plan->status, &held, sizeof held, true) != 0) _exit(1);
+    close(plan->status);
+    if (held) _exit(1);
+    if (probe != NULL) {
+      int result = connector_attack(plan, probe);
+      if (connector_whole(plan->control, &result, sizeof result, true) != 0) _exit(1);
+      _exit(0);
+    }
+    connector_loop(plan);
+  }
+  int restore_error = sigprocmask(SIG_SETMASK, &before, NULL) == 0 ? 0 : errno;
+  close(status[1]);
+  if (pid < 0) { close(status[0]); return failure; }
+  if (restore_error) {
+    close(status[0]);
+    kill(pid, SIGKILL);
+    int ignored; while (waitpid(pid, &ignored, 0) < 0 && errno == EINTR) {}
+    return restore_error;
+  }
+  int held = 0;
+  failure = connector_whole(status[0], &held, sizeof held, false);
+  close(status[0]);
+  if (failure || held) {
+    kill(pid, SIGKILL);
+    int ignored; while (waitpid(pid, &ignored, 0) < 0 && errno == EINTR) {}
+    return failure ? failure : held;
+  }
+  *child = pid;
+  return 0;
+}
+#endif
+
+COSMIC_SYSCALL(connector_start, 3) {
+  struct connector_endpoint endpoints[CONNECTOR_ENDPOINTS];
+  size_t count = connector_endpoints(L, 1, endpoints, true);
+  int control = cosmic_checkfd(L, 2), timeout = cosmic_checkint(L, 3);
+  if (timeout < 1 || timeout > 60000) return luaL_argerror(L, 3, "timeout must be 1 through 60000 milliseconds");
+#if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__))
+  struct connector_plan plan;
+  int failure = connector_prepare(&plan, endpoints, count, control, timeout);
+  pid_t child = -1;
+  if (!failure) failure = connector_start_native(&plan, NULL, &child);
+  if (plan.memory != NULL) munmap(plan.memory, plan.bytes);
+  if (failure) return cosmic_fail(L, failure);
+  lua_pushinteger(L, child);
+  return 1;
+#else
+  /* TODO: use Seatbelt's exact numeric remote rules once the macOS
+   * profile application and native connector confinement land. */
+  (void)count; (void)control;
+  return cosmic_fail(L, ENOSYS);
+#endif
+}
+
+COSMIC_SYSCALL(connector_probe, 2) {
+  struct connector_endpoint endpoint;
+  connector_endpoints(L, 1, &endpoint, false);
+  const char *operation = luaL_checkstring(L, 2);
+  static const char *const operations[] = {"pointer", "length", "mutation", "mprotect", "remap", "dup",
+    "recvmsg", "sendto", "sendmsg", "close_control", "udp", "open", "exec", "fork"};
+  bool known = false;
+  for (size_t i = 0; i < sizeof operations / sizeof operations[0]; i++)
+    if (strcmp(operation, operations[i]) == 0) known = true;
+  if (!known) return luaL_argerror(L, 2, "unknown connector probe");
+#if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__))
+  int pair[2];
+  if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, pair) != 0) return cosmic_fail(L, errno);
+  struct connector_plan plan;
+  int failure = connector_prepare(&plan, &endpoint, 1, pair[1], 100);
+  pid_t child = -1;
+  if (!failure) failure = connector_start_native(&plan, operation, &child);
+  close(pair[1]);
+  if (plan.memory != NULL) munmap(plan.memory, plan.bytes);
+  int result = 0, ended = 0;
+  if (!failure) {
+    int read_error = connector_whole(pair[0], &result, sizeof result, false);
+    pid_t reaped; do { reaped = waitpid(child, &ended, 0); } while (reaped < 0 && errno == EINTR);
+    if (reaped < 0) failure = errno;
+    else if (WIFSIGNALED(ended)) result = -WTERMSIG(ended);
+    else if (read_error) failure = read_error;
+  }
+  close(pair[0]);
+  if (failure) return cosmic_fail(L, failure);
+  lua_pushinteger(L, result);
+  return 1;
+#else
+  return cosmic_fail(L, ENOSYS);
+#endif
+}
