@@ -1,4 +1,4 @@
---- macOS policy enforcement's profile: a [`SandboxPolicy.Policy`] as
+--- macOS policy enforcement's profile: a [`rules.Policy`] as
 --- default-deny SBPL and a separate table of path parameters. Compiling
 --- does not restrict a process, nor read the host: [`Seatbelt.resolve`]
 --- reads the paths and their kinds, and the caller applies the profile and
@@ -6,7 +6,7 @@
 --- program that executes the child's program last, and
 --- [`Sandbox.restrict`] to the running process.
 
-local SandboxPolicy = require("cosmic.sandbox_policy")
+local rules = require("cosmic.sandbox.policy")
 local sys = require("cosmic.sys")
 
 local record Seatbelt
@@ -102,7 +102,7 @@ end
 --- Unsupported policy fields are refused, rather than being silently
 --- lost in a profile. Environment and credentials are a child's setup,
 --- not Seatbelt operations; their handling remains the caller's.
-local function unsupported(policy: SandboxPolicy.Policy): string
+local function unsupported(policy: rules.Policy): string
   if #(policy.isolate or {}) > 0 then return "isolate needs namespaces, which macOS has none of" end
   -- TODO: serve `connect` on macOS with a relay that listens on the host's
   -- loopback behind a per-sandbox token (the TODO at cosmic.relay's header, the
@@ -172,12 +172,12 @@ end
 --- only: on macOS [`Child.start`] applies the profile and the limits in a
 --- process of this program that executes the child's program last, and
 --- [`Sandbox.restrict`] in the process that calls it.
-function Seatbelt.compile(policy: SandboxPolicy.Policy, options?: Seatbelt.Options): Seatbelt.Profile | nil, string
-  local valid, why = SandboxPolicy.check(policy)
+function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Seatbelt.Profile | nil, string
+  local valid, why = rules.check(policy)
   if not valid then return nil, why end
   local trouble = unsupported(policy)
   if trouble ~= "" then return refuse(trouble) end
-  local grants: {SandboxPolicy.Grant} = {}
+  local grants: {rules.Grant} = {}
   local directories: {string:boolean} = {}
   local paths = options and options.paths or {}
   local function add(path: string, letters: string): string
@@ -237,7 +237,7 @@ function Seatbelt.compile(policy: SandboxPolicy.Policy, options?: Seatbelt.Optio
     trouble = add(grant.path, grant.letters)
     if trouble ~= "" then return refuse(trouble) end
   end
-  local merged, failure = SandboxPolicy.merge({ grants = grants, promises = policy.promises,
+  local merged, failure = rules.merge({ grants = grants, promises = policy.promises,
     limits = policy.limits, env = policy.env, set_env = policy.set_env,
     set_env_digests = policy.set_env_digests, user = policy.user, group = policy.group })
   if merged == nil then return nil, failure end
@@ -282,10 +282,10 @@ end
 
 --- The grants `policy` gives on macOS before the host is read: its own
 --- and, for the "system" profile, [`Seatbelt.compile`]'s list of macOS's
---- paths (not Linux's, which [`SandboxPolicy.merge`] gives), each whether or not
+--- paths (not Linux's, which [`rules.merge`] gives), each whether or not
 --- this host has it. For a check of which paths a policy reaches.
-function Seatbelt.grants(policy: SandboxPolicy.Policy): {SandboxPolicy.Grant}
-  local out: {SandboxPolicy.Grant} = {}
+function Seatbelt.grants(policy: rules.Policy): {rules.Grant}
+  local out: {rules.Grant} = {}
   for _, name in ipairs(policy.profiles or {}) do
     if name == "system" then
       for _, entry in ipairs(SYSTEM) do out[#out + 1] = { path = entry[1], letters = entry[2] } end
@@ -302,7 +302,7 @@ end
 --- the "cosmic" profile, resolved like a grant; `core` and `database` are
 --- the file a start of this program runs and the one it runs on, likewise.
 --- Nil and why where a grant's path is not there.
-function Seatbelt.resolve(policy: SandboxPolicy.Policy, base?: string, executable?: string,
+function Seatbelt.resolve(policy: rules.Policy, base?: string, executable?: string,
                           core?: string, database?: string): Seatbelt.Options | nil, string
   local paths: {string:Seatbelt.Path} = {}
   -- "" where `at` was resolved, or why not.

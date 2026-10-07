@@ -333,10 +333,18 @@ local function test_the_harness_holds_what_it_runs_requires()
       "a worker loads it: " .. table.concat(missing, ", "))
 end
 
+--- The modules split off one of the harness that it does not hold, and why.
+local unheld_split: {string:string} = {
+  ["cosmic.sandbox.seatbelt"] = "it compiles a Seatbelt profile, which holds a process " ..
+    "only on macOS, where no worker is sandboxed",
+}
+
 --- A standard-library module of the harness held alone, whose requires are
 --- not walked, holds what is split off it too: a module it requires by
---- value named after it (cosmic.sandbox_policy, which cosmic.sandbox's
---- `merge` is, deciding a policy worker's grants) is in the harness.
+--- value named after it, a submodule (cosmic.sandbox.policy, which
+--- cosmic.sandbox's `merge` is, deciding a policy worker's grants) or a
+--- sibling (`<name>_...`), is in the harness, unless `unheld_split`
+--- says why not.
 --- Otherwise an edit to the part split off would move no digest.
 local function test_what_is_split_off_a_module_of_the_harness_is_held()
   local db = assert(Sqlite.open("o/cosmic.db"))
@@ -346,12 +354,14 @@ local function test_what_is_split_off_a_module_of_the_harness_is_held()
   db:close()
   local named: {string:boolean} = {}
   for _, name in ipairs(found.names) do named[name] = true end
-  assert(named["cosmic.sandbox_policy"], "cosmic.sandbox_policy is not held")
+  assert(named["cosmic.sandbox.policy"], "cosmic.sandbox.policy is not held")
   local unheld: {string} = {}
   for _, name in ipairs(found.names) do
     if name:match("^cosmic%.") then
       for _, wanted in ipairs(by_value[name] or {}) do
-        if wanted:sub(1, #name + 1) == name .. "_" and not named[wanted] then
+        local prefix = wanted:sub(1, #name + 1)
+        if (prefix == name .. "." or prefix == name .. "_") and not named[wanted] and
+            unheld_split[wanted] == nil then
           unheld[#unheld + 1] = name .. " requires " .. wanted
         end
       end

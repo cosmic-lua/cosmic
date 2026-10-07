@@ -277,7 +277,7 @@ COSMIC_SYSCALL(connector_probe, 2);
  */
 
 /*
- * --- A compiled Seatbelt profile (cosmic.seatbelt's `Profile`), as `Sandbox`'s `seatbelt` holds it.
+ * --- A compiled Seatbelt profile (cosmic.sandbox.seatbelt's `Profile`), as `Sandbox`'s `seatbelt` holds it.
  * ---@class Seatbelt
  * ---@field profile string the profile's SBPL text, with no NUL
  * ---@field parameters {string:string} the profile's parameters, by name: values the text names with `(param "NAME")`, so none is part of the text. At most `SEATBELT_PARAMETER_MAX`

@@ -40,8 +40,8 @@
 --- process alike ([`Seatbelt.compile`]).
 
 local Proc = require("cosmic.proc")
-local SandboxPolicy = require("cosmic.sandbox_policy")
-local Seatbelt = require("cosmic.seatbelt")
+local rules = require("cosmic.sandbox.policy")
+local Seatbelt = require("cosmic.sandbox.seatbelt")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
@@ -61,23 +61,30 @@ end
 
 local record Sandbox
   --- How far a program is isolated from the host
-  --- ([`SandboxPolicy.Isolate`]).
-  type Isolate = SandboxPolicy.Isolate
+  --- ([`rules.Isolate`]).
+  type Isolate = rules.Isolate
 
   --- A part of what a program may do beyond its basics
-  --- ([`SandboxPolicy.Promise`]): `fork`, `jit`, `fattr`, `nest`.
-  type Promise = SandboxPolicy.Promise
+  --- ([`rules.Promise`]): `fork`, `jit`, `fattr`, `nest`.
+  type Promise = rules.Promise
 
-  --- One path a program may reach, and how ([`SandboxPolicy.Grant`]).
-  type Grant = SandboxPolicy.Grant
+  --- One path a program may reach, and how ([`rules.Grant`]).
+  type Grant = rules.Grant
 
   --- Resource limits on every process the program starts
-  --- ([`SandboxPolicy.Limits`]).
-  type Limits = SandboxPolicy.Limits
+  --- ([`rules.Limits`]).
+  type Limits = rules.Limits
 
   --- What a program is held to; every field is optional, and what a policy
-  --- leaves out it does not have ([`SandboxPolicy.Policy`]).
-  type Policy = SandboxPolicy.Policy
+  --- leaves out it does not have ([`rules.Policy`]).
+  type Policy = rules.Policy
+
+  --- What holds a program by a policy on macOS: the package's
+  --- [`cosmic.sandbox.seatbelt`], whose `compile` makes a policy's Seatbelt
+  --- profile, `resolve` reads the host paths it names and `grants` lists
+  --- what it reaches, each documented there. [`Child.start`] holds a child
+  --- by it, and [`Sandbox.restrict`] the running process.
+  Seatbelt: Seatbelt
 
   --- What [`Sandbox.reach`] finds.
   record Reach
@@ -98,6 +105,8 @@ local record Sandbox
   end
 end
 
+Sandbox.Seatbelt = Seatbelt
+
 --- What a failure of this module answers: nil and `why` under its name.
 local function refuse(why: string): nil, string
   return nil, "sandbox: " .. why
@@ -115,7 +124,7 @@ end
 ---     local ok, why = Sandbox.check({ grants = { { path = "x", letters = "xr" } } }, true)
 ---     print(ok, why) -- false  sandbox: pointer "/grants/0/letters": "xr" is not in the order of "rwxcu", each letter once: "rx"
 function Sandbox.check(p: Sandbox.Policy, exact?: boolean): boolean, string
-  return SandboxPolicy.check(p, exact)
+  return rules.check(p, exact)
 end
 
 --- What the profile `name` holds on this host, as a policy: "system"
@@ -131,7 +140,7 @@ end
 ---     local system = assert(Sandbox.profile("system"))
 ---     print(system.grants[1].path, system.grants[1].letters) -- /usr  rx
 function Sandbox.profile(name: string): Sandbox.Policy | nil, string
-  return SandboxPolicy.profile(name)
+  return rules.profile(name)
 end
 
 --- Records that `policy`, whose `database` was read from text naming
@@ -143,7 +152,7 @@ end
 ---     local p: Sandbox.Policy = { database = "/srv/p.db" }
 ---     Sandbox.expect_digest(p, string.rep("0", 64))
 function Sandbox.expect_digest(policy: Sandbox.Policy, digest: string)
-  SandboxPolicy.expect_digest(policy, digest)
+  rules.expect_digest(policy, digest)
 end
 
 --- Whether the file at `path` (the merged policy's database, by its real
@@ -154,7 +163,7 @@ end
 ---
 ---     print(Sandbox.database_is({}, "/nowhere")) -- true
 function Sandbox.database_is(merged: Sandbox.Policy, path: string): boolean, string
-  return SandboxPolicy.database_is(merged, path)
+  return rules.database_is(merged, path)
 end
 
 --- What the policies given hold together: each one's `profiles` resolved
@@ -183,7 +192,7 @@ end
 ---     local merged = assert(Sandbox.merge(a, b))
 ---     print(merged.grants[1].letters, table.concat(merged.promises, ",")) -- rx  fork,jit
 function Sandbox.merge(...: Sandbox.Policy): Sandbox.Policy | nil, string
-  return SandboxPolicy.merge(...)
+  return rules.merge(...)
 end
 
 --- How deep a chain of `#!` interpreters [`Sandbox.loaders`] follows,

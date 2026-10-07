@@ -1,6 +1,6 @@
 local Fs = require("cosmic.fs")
 local Sandbox = require("cosmic.sandbox")
-local Seatbelt = require("cosmic.seatbelt")
+local Seatbelt = require("cosmic.sandbox.seatbelt")
 
 local BASE <const> = [[(version 1)
 (deny default)

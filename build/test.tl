@@ -897,14 +897,15 @@ local harness_own <const>: {string} = { "build.test_sandbox", "build.test_policy
 --- that weakened it would pass a test that reads what it does not
 --- declare, and keep and share the pass. What it requires (cosmic.time,
 --- cosmic.stream and the rest) applies no sandbox, and stays out. The
---- exceptions are cosmic.sandbox and cosmic.sandbox_policy, held alone
+--- exceptions are cosmic.sandbox and cosmic.sandbox.policy, held alone
 --- too: the policy layer's `merge` (and the profiles it joins, "system"'s
 --- paths among them) and `check`, which cosmic.sandbox answers under its
 --- own name, and cosmic.sandbox's `loaders`, `reach` and `user_id`, decide
 --- what a worker started under a policy may reach, and
 --- [`test_policy.runs`] merges a policy through them. Their other requires
---- are not walked, and none of those decides a grant: cosmic.seatbelt
---- compiles a profile only on macOS, where no worker is sandboxed.
+--- are not walked, and none of those decides a grant: cosmic.sandbox.seatbelt
+--- compiles a profile only on macOS, where no worker is sandboxed, so it
+--- is not held (build/harness_epoch_test.tl's `unheld_split` says so too).
 -- TODO: move the translation of a worker's policy into spawn's
 -- options into build.confine, which the harness holds already, and
 -- drop cosmic.child from here and from build/harness_epoch.tl's
@@ -912,7 +913,7 @@ local harness_own <const>: {string} = { "build.test_sandbox", "build.test_policy
 -- (the TODO above its `raw.spawn` call, which would offer the rest of
 -- it): today only cosmic.child reaches spawn for the runner.
 local harness_alone <const>: {string} = { "cosmic.child", "cosmic.sandbox",
-  "cosmic.sandbox_policy" }
+  "cosmic.sandbox.policy" }
 
 --- The code that makes a key and looks a verdict up under one:
 --- build.test itself, whose closure is the build's, and the closure of

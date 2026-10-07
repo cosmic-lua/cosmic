@@ -72,6 +72,9 @@ allowed["cosmic.net.listener_from"] = "tested directly: it adopts one listening 
 
 allowed["cosmic.relay_config.parse_addresses"] = "tested directly: the reading of Linux's " ..
   "interface tables over fixture text, which host_addresses makes of the host's own"
+allowed["cosmic.sandbox.seatbelt.grants"] = "called through cosmic.sandbox's `Seatbelt`, " ..
+  "the package's one path to it from outside, which cosmic.child takes; the check reads a " ..
+  "call by the module's own name alone"
 allowed["cosmic.sandbox.restrict"] = "tested directly: it holds the process that calls it " ..
   "for good, so a worked example would hold the run that shows it; the test restricts " ..
   "a child of this program, and the harness holds its workers with it once the " ..

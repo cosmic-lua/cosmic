@@ -1,4 +1,4 @@
---- [`Sandbox.restrict`] (cosmic/sandbox.tl) on a live process: the kernel's
+--- [`Sandbox.restrict`] (cosmic/sandbox/init.tl) on a live process: the kernel's
 --- own verdict on the Landlock ruleset, the seccomp filter and the rlimits
 --- it makes of a policy. Restricting is for good, so every case restricts a
 --- child of this program (`cosmic -e`, started past its launcher), which

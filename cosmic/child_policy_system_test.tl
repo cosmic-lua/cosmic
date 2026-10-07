@@ -1,4 +1,4 @@
---- [`Child.start`]'s `policy` with the "system" profile (cosmic/sandbox_policy.tl)
+--- [`Child.start`]'s `policy` with the "system" profile (cosmic/sandbox/policy.tl)
 --- on a host program, a dynamically linked one where the host has them:
 --- the profile is what lets one start, and nothing past it is reachable.
 --- They need a sandbox and /bin/cat of the host (`requires`): where the

@@ -1,8 +1,8 @@
---- The policy layer cosmic.sandbox and cosmic.seatbelt share: the types
+--- The policy layer cosmic.sandbox and cosmic.sandbox.seatbelt share: the types
 --- of a policy, the check of its values, the profiles it names and the
 --- merge of policies into one. Use [`cosmic.sandbox`], which answers all of
 --- it under its own name and documents it there. Apart from cosmic.sandbox
---- only so that cosmic.seatbelt, which cosmic.sandbox requires, can require
+--- only so that cosmic.sandbox.seatbelt, which cosmic.sandbox requires, can require
 --- this.
 
 local Codec = require("cosmic.codec")
@@ -11,7 +11,7 @@ local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 
-local record SandboxPolicy
+local record rules
   --- How far a program is isolated from the host: `file` gives it a root
   --- of its own holding only what is granted, `proc` a process space and a
   --- /proc of its own.
@@ -283,7 +283,7 @@ end
 --- values a type does not hold. With `exact`, a grant's letters must be
 --- already in the order of "rwxcu", each once, as [`Sandbox.check`] with
 --- `exact` takes them.
-local function invalid(p: SandboxPolicy.Policy, exact: boolean): string
+local function invalid(p: rules.Policy, exact: boolean): string
   local function at(pointer: string, why: string): string
     return "pointer \"" .. pointer .. "\": " .. why
   end
@@ -395,7 +395,7 @@ end
 
 --- Whether the values of `p` are ones a policy may hold: [`Sandbox.check`],
 --- which says how.
-function SandboxPolicy.check(p: SandboxPolicy.Policy, exact?: boolean): boolean, string
+function rules.check(p: rules.Policy, exact?: boolean): boolean, string
   local bad = invalid(p, exact == true)
   if bad ~= "" then return false, "sandbox: " .. bad end
   return true, ""
@@ -476,8 +476,8 @@ local SYSTEM_PATHS <const>: {{string}} = {
 --- The "system" profile: what the host gives a dynamically linked program
 --- to run. A path of `SYSTEM_PATHS` is granted when it exists here, so the
 --- same profile fits a host with and without a /lib64.
-local function system_profile(): SandboxPolicy.Policy
-  local grants: {SandboxPolicy.Grant} = {}
+local function system_profile(): rules.Policy
+  local grants: {rules.Grant} = {}
   for _, entry in ipairs(SYSTEM_PATHS) do
     local found, _ = sys.stat(entry[1])
     if found ~= nil then
@@ -495,7 +495,7 @@ end
 --- needs neither the launcher's shell nor a cache to unpack a core into;
 --- a process that runs the path itself (a shell under the policy) runs
 --- the launcher, which needs both.
-local function cosmic_profile(): SandboxPolicy.Policy | nil, string
+local function cosmic_profile(): rules.Policy | nil, string
   local path, why = Proc.executable()
   if path == nil then
     return refuse("profile \"cosmic\": this process has no executable: " .. why)
@@ -505,7 +505,7 @@ end
 
 --- What the profile `name` holds on this host: [`Sandbox.profile`], which
 --- says how.
-function SandboxPolicy.profile(name: string): SandboxPolicy.Policy | nil, string
+function rules.profile(name: string): rules.Policy | nil, string
   if name == "system" then return system_profile(), "" end
   if name == "cosmic" then return cosmic_profile() end
   return refuse("unknown profile \"" .. tostring(name) .. "\" (known: " ..
@@ -513,19 +513,19 @@ function SandboxPolicy.profile(name: string): SandboxPolicy.Policy | nil, string
 end
 
 --- The SHA-256 of the database each policy was checked against
---- ([`SandboxPolicy.expect_digest`]), by the policy table; a merge carries it to
+--- ([`rules.expect_digest`]), by the policy table; a merge carries it to
 --- its answer. Weak, so a policy that is dropped takes its entry along.
-local expected: {SandboxPolicy.Policy:string} = setmetatable({}, { __mode = "k" })
+local expected: {rules.Policy:string} = setmetatable({}, { __mode = "k" })
 
 --- Records the digest `policy`'s database is to have:
 --- [`Sandbox.expect_digest`], which says how.
-function SandboxPolicy.expect_digest(policy: SandboxPolicy.Policy, digest: string)
+function rules.expect_digest(policy: rules.Policy, digest: string)
   expected[policy] = digest
 end
 
 --- Whether the file at `path` is the database `merged` was checked
 --- against: [`Sandbox.database_is`], which says how.
-function SandboxPolicy.database_is(merged: SandboxPolicy.Policy, path: string): boolean, string
+function rules.database_is(merged: rules.Policy, path: string): boolean, string
   local digest = expected[merged]
   if digest == nil then return true, "" end
   local bytes, why = Fs.read(path)
@@ -539,9 +539,9 @@ end
 
 --- What the policies given hold together: [`Sandbox.merge`], which says
 --- how.
-function SandboxPolicy.merge(...: SandboxPolicy.Policy): SandboxPolicy.Policy | nil, string
-  local flat: {SandboxPolicy.Policy} = {}
-  local given: {SandboxPolicy.Policy} = { ... }
+function rules.merge(...: rules.Policy): rules.Policy | nil, string
+  local flat: {rules.Policy} = {}
+  local given: {rules.Policy} = { ... }
   local on_database = false
   for _, p in ipairs(given) do
     if p.database ~= nil then on_database = true end
@@ -554,7 +554,7 @@ function SandboxPolicy.merge(...: SandboxPolicy.Policy): SandboxPolicy.Policy | 
       -- grants: the profile's grant of this program's own file is
       -- none of it, and one a start refuses.
       if not (on_database and name == "cosmic") then
-        local profile, why = SandboxPolicy.profile(name)
+        local profile, why = rules.profile(name)
         if profile == nil then return nil, why end
         flat[#flat + 1] = profile
       end
@@ -563,11 +563,11 @@ function SandboxPolicy.merge(...: SandboxPolicy.Policy): SandboxPolicy.Policy | 
   end
   local joined: {string:Joined} = {}
   local order: {Joined} = {}
-  local limits: SandboxPolicy.Limits = {}
+  local limits: rules.Limits = {}
   local set_env: {string:string} = {}
   local digests: {string:string} = {}
-  local isolate: {SandboxPolicy.Isolate} = {}
-  local promises: {SandboxPolicy.Promise} = {}
+  local isolate: {rules.Isolate} = {}
+  local promises: {rules.Promise} = {}
   local connect: {string} = {}
   local loopback: {string} = {}
   local env: {string} = {}
@@ -640,19 +640,19 @@ function SandboxPolicy.merge(...: SandboxPolicy.Policy): SandboxPolicy.Policy | 
     end
     if why ~= "" then return refuse(why) end
   end
-  local grants: {SandboxPolicy.Grant} = {}
+  local grants: {rules.Grant} = {}
   for _, held in ipairs(order) do
     local letters: {string} = {}
     for letter in pairs(held.letters) do letters[#letters + 1] = letter end
     grants[#grants + 1] = { path = held.path, from = held.from,
       letters = canonical_letters(table.concat(letters)) }
   end
-  table.sort(grants, function(a: SandboxPolicy.Grant, b: SandboxPolicy.Grant): boolean
+  table.sort(grants, function(a: rules.Grant, b: rules.Grant): boolean
     if a.path ~= b.path then return a.path < b.path end
     return (a.from or "") < (b.from or "")
   end)
   -- `file` implies `proc`: written out, so the two spellings are one policy.
-  local implied: SandboxPolicy.Isolate = "proc"
+  local implied: rules.Isolate = "proc"
   local has_file, has_proc = false, false
   for _, kind in ipairs(isolate) do
     if kind == "file" then has_file = true end
@@ -665,7 +665,7 @@ function SandboxPolicy.merge(...: SandboxPolicy.Policy): SandboxPolicy.Policy | 
     end
     digests[name] = nil
   end
-  local result: SandboxPolicy.Policy = {
+  local result: rules.Policy = {
     grants = grants, isolate = isolate, promises = promises,
     connect = connect, loopback = loopback, env = env, set_env = set_env,
     set_env_digests = digests, tmp = tmp, limits = limits,
@@ -675,4 +675,4 @@ function SandboxPolicy.merge(...: SandboxPolicy.Policy): SandboxPolicy.Policy | 
   return result, ""
 end
 
-return SandboxPolicy
+return rules

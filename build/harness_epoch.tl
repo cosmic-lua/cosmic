@@ -50,7 +50,7 @@
 ---   each worker to);
 --- * the sandbox's maker (`harness_own`);
 --- * build.test itself, cosmic.child, which applies a worker's
----   sandbox, and cosmic.sandbox and cosmic.sandbox_policy, which decide a
+---   sandbox, and cosmic.sandbox and cosmic.sandbox.policy, which decide a
 ---   policy worker's grants (`harness_alone`), each held alone;
 --- * the closure of the key's roots (`key_roots`) over the requires each
 ---   makes by value, as its bytecode names them ([`test.value_imports`]).
@@ -114,7 +114,7 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "516c08e34d1fc392de5363af92b6d669344fc3c8b504c469ae3771a424d0db6b",
 
-  ["build.test"] = "49ff6786152b7665aba2511c7ca2a1c70425e6188abf0770b60021d2c9206a49",
+  ["build.test"] = "a24c78d3e8b3fb1fa7f65c9ef66e25589afafa14d7793708affe8998e6de3eb9",
 
   ["build.test_inputs"] = "ec023eee681364d5fb8e1ac9937d039c8320125cf60cb14ef55bc3c51a017b51",
 
@@ -130,7 +130,7 @@ harness_epoch.acknowledged = {
 
   ["cmd.cosmic.main"] = "d00f469acf42d89c76c2e9ebabd40e73e20d00cb3a5ad6d9189716265fcdf9bf",
 
-  ["cosmic.child"] = "bf48a808b3b56819bad3ab8cc283668140010a00399c4130ecba860d701e0f61",
+  ["cosmic.child"] = "01991c23e8ce8922f0a9af8f3526b4b5292583bc9e4b8b93c8b692a4ca5370c8",
 
   ["cosmic.coverage"] = "079fe202231c4ae3ee642e27f6703a37850132c28c2a6d1daf50c7eb1669ac9a",
 
@@ -140,9 +140,9 @@ harness_epoch.acknowledged = {
 
   ["cosmic.proc"] = "1f2f124e7478daaf5955a2043d03a379d8dbc657ffe938ac71d221376f677bcf",
 
-  ["cosmic.sandbox"] = "c3cf1e5b9cfb211961fa2be142b32a3b35a3f1097fb4e7810d12a80c6da266c6",
+  ["cosmic.sandbox"] = "05fc7201390d171d40e4b67af2cb63b5fd41283b16b2a7ad281f1551a017f0e3",
 
-  ["cosmic.sandbox_policy"] = "8da27718cb32edbca2d30d7df36bf4dceb9e0c0b9b68cd2a48e6bf786613db0c",
+  ["cosmic.sandbox.policy"] = "324aa62776d9f04e527af6b9881a3317513729e9bf2efffa375b1ab1d629f653",
 
   ["cosmic.sqlite"] = "ac3fd16dd89251feaee572e4e4b1d29257037afeca3b5c9b141557f2ce732390",
 
@@ -168,7 +168,7 @@ harness_epoch.library = {
     "(`relaunch`) for `build.host_requires`",
   ["cosmic.sandbox"] = "`merge` resolves a policy's profiles into the grants a worker " ..
     "is held to (`build.test_policy`'s `runs`); held alone, what it requires is not walked",
-  ["cosmic.sandbox_policy"] = "the policy layer cosmic.sandbox answers under its own " ..
+  ["cosmic.sandbox.policy"] = "the policy layer cosmic.sandbox answers under its own " ..
     "name: its `merge` and the profiles it joins decide the grants a worker is held to " ..
     "(`build.test_policy`'s `runs`); held alone, what it requires is not walked",
   -- TODO: take cosmic.sqlite out of the harness, and this entry out of

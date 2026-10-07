@@ -1,6 +1,6 @@
 --- [`Child.start`]'s `policy` on macOS (cosmic/child.tl), which holds a
 --- child by Seatbelt: a process of this program applies the compiled
---- profile (cosmic/seatbelt.tl) to itself and executes the child's program
+--- profile (cosmic/sandbox/seatbelt.tl) to itself and executes the child's program
 --- last (core/syscalls.c's trampoline). macOS alone has Seatbelt, and no
 --- `requires` name stands for it, so every test here calls [`Test.skip`] on any
 --- other host, where Landlock and seccomp hold a child
