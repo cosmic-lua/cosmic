@@ -84,18 +84,38 @@ end
 
 --- Whether [`connect_head`] reads every prefix of `input` as more, or as the
 --- whole's refusal, and the prefix of the head's own length as the whole.
+--- Whether a reader's answer to each prefix of `input` agrees with its
+--- answer to the whole: undecided before the whole decides, then the same.
+local function prefix_agrees(whole: Wire.Connect, wanted: string, cut: integer, part: Wire.Connect): boolean
+  if whole.status == "done" and cut < whole.consumed then
+    return part.status == "more"
+  elseif whole.status == "done" and cut == whole.consumed then
+    return shown_connect(part) == wanted
+  elseif whole.status == "refused" then
+    return part.status == "more" or shown_connect(part) == wanted
+  end
+  return true
+end
+
 local function connect_splits_agree(input: string)
   local whole = connect_head(input)
   assert(whole.status ~= "more", "the whole is undecided: " .. shown_connect(whole))
+  local wanted = shown_connect(whole)
+  -- One reader fed a byte at a time answers every prefix in linear work; a
+  -- fresh reader per prefix is checked on a sample and near the end, since
+  -- one for every prefix of a 16 KiB head is quadratic and timed out. Each
+  -- message is built only on a failure, for the same reason.
+  local reader = Wire.connect_reader()
   for cut = 0, #input do
-    local part = connect_head(input:sub(1, cut))
-    if whole.status == "done" and cut < whole.consumed then
-      assert(part.status == "more", ("prefix %d of %q: %s"):format(cut, input, shown_connect(part)))
-    elseif whole.status == "done" and cut == whole.consumed then
-      assert(shown_connect(part) == shown_connect(whole), ("prefix %d of %q"):format(cut, input))
-    elseif whole.status == "refused" then
-      assert(part.status == "more" or shown_connect(part) == shown_connect(whole),
-        ("prefix %d of %q: %s"):format(cut, input, shown_connect(part)))
+    local part = cut == 0 and connect_head("") or reader:feed(input:sub(cut, cut))
+    if not prefix_agrees(whole, wanted, cut, part) then
+      assert(false, ("fed to %d of %q: %s"):format(cut, input, shown_connect(part)))
+    end
+    if cut % 97 == 0 or cut + 8 >= #input or math.abs(cut - whole.consumed) <= 8 then
+      local fresh = connect_head(input:sub(1, cut))
+      if not prefix_agrees(whole, wanted, cut, fresh) then
+        assert(false, ("prefix %d of %q: %s"):format(cut, input, shown_connect(fresh)))
+      end
     end
   end
 end
