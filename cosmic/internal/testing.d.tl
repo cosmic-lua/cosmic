@@ -25,6 +25,21 @@ local record testing
   --- every database the store searches.
   open_statements: function(): integer
 
+  --- Counts every open descriptor, excluding the census's own directory
+  --- descriptor. Uses /proc/self/fd on Linux and /dev/fd on macOS; raises
+  --- when the directory cannot be enumerated.
+  open_descriptors: function(): integer
+
+  --- Sets SO_NOSIGPIPE on a socket, to test a received or inherited
+  --- channel that did not come from this core. False, error and errno
+  --- on failure; false and ENOSYS where the platform has no option.
+  socket_sigpipe: function(fd: integer, enabled: boolean): boolean, string, integer
+
+  --- Sends repeated rights above the public batch limit, to test cleanup
+  --- against a hostile sender. Count is 1 through 253; false, error and
+  --- errno on a runtime failure. Only the checked core implements it.
+  socket_send_rights: function(fd: integer, descriptor: integer, count: integer): boolean, string, integer
+
   --- The bytes, then the blocks, live on the core's own C heap: what
   --- its C allocated through core/memory.h and has not yet freed. A
   --- library's own allocations (curl's, liblzma's, bzlib's) are not

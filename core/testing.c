@@ -17,7 +17,7 @@
  * two lists together. core/declarations_test.tl fails the run of
  * whichever core misses one cosmic/internal/testing.d.tl declares. */
 static const char *const instruments[] = {
-  "fail_allocations", "allow_allocations", "open_statements",
+  "fail_allocations", "allow_allocations", "open_statements", "open_descriptors", "socket_sigpipe", "socket_send_rights",
   "c_heap",           "fail_at",           "live_transfers",
   "executable_path",  "mountinfo_local_flock", NULL,
 };
@@ -30,7 +30,7 @@ static int checked_only (lua_State *L) {
 }
 
 int cosmic_open_testing (lua_State *L) {
-  lua_createtable(L, 0, 14); /* the stand-ins, the namespace calls, "configuration" */
+  lua_createtable(L, 0, 16); /* the stand-ins, the namespace calls, "configuration" */
   for (const char *const *name = instruments; *name != NULL; name++) {
     lua_pushstring(L, *name);
     lua_pushcclosure(L, checked_only, 1);
