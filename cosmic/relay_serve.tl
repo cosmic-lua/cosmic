@@ -12,7 +12,8 @@
 ---   proxy's password and the rest are never in the arguments or the
 ---   environment, which other users' processes can read.
 ---
---- It says `ready` on standard output once it serves, or `error: <why>` and
+--- It says `opened` on standard output once it runs (its database is open),
+--- `ready` once it serves, or `error: <why>` and
 --- ends with status 1, and it ends with status 0 when standard input
 --- reaches end of file: the starter holds the pipe's write end for as long
 --- as the program lives, and its death closes it.
@@ -146,6 +147,10 @@ end
 --- @param _args {integer:string} The command line, which carries nothing
 --- @return integer The exit status
 local function main(_args: {integer:string}): integer
+  -- The core has opened the database this runs on, which its starter now
+  -- removes, so that no program can swap it; this process never reads its
+  -- path again.
+  say("opened")
   local line, why = read_line()
   if line == nil then return failed(why) end
   local config, config_why = Config.decode(line)

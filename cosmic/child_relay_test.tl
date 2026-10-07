@@ -47,6 +47,7 @@ Test.policy{
 --- each; "wait" sleeps until it is ended.
 local CLIENT <const> = [==[
 local Clock = require("cosmic.clock")
+local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local sys = require("cosmic.sys")
 
@@ -118,6 +119,16 @@ return function(args)
     through_socks("socks_ungranted", ungranted)
     local conn, why = Net.connect(Net.tcp("127.0.0.2", granted), { timeout_ns = Clock.seconds(20) })
     say("direct", conn ~= nil and "connected" or why)
+  elseif args[1] == "env" then
+    for _, name in ipairs({ "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY",
+        "all_proxy", "NO_PROXY", "no_proxy", "NODE_USE_ENV_PROXY" }) do
+      say("env_" .. name, sys.getenv(name))
+    end
+  elseif args[1] == "fds" then
+    local names = assert(Fs.list("/proc/self/fd"))
+    for _, name in ipairs(names) do
+      say("fd_" .. name, sys.readlink("/proc/self/fd/" .. name))
+    end
   elseif args[1] == "wait" then
     sys.nanosleep(Clock.seconds(120))
   end
@@ -129,7 +140,7 @@ end
 --- Landlock, seccomp or user namespace.
 local function unsandboxable(why: string): boolean
   for _, word in ipairs({ "Landlock", "seccomp", "not implemented", "namespace", "own /proc",
-      "root could not be built", "Operation not permitted" }) do
+      "root could not be built" }) do
     if why:find(word, 1, true) then return true end
   end
   return false
@@ -138,7 +149,7 @@ end
 --- The program's database, sealed in `tmp`: this program's core runs it.
 local function sealed_client(tmp: string): string
   local chunk = assert(load(CLIENT, "=relay_client"))
-  local requires = { "cosmic.clock", "cosmic.net" }
+  local requires = { "cosmic.clock", "cosmic.fs", "cosmic.net" }
   local path = tmp .. "/client.db"
   assert(Store.seal(Store.closure(requires), path, { extra = { name = "relay_client",
     bytecode = string.dump(chunk), source = CLIENT, requires = requires } }))
@@ -281,20 +292,16 @@ local function test_the_program_is_given_the_proxy_environment(tmp: string)
     "the variables are the relay's")
 end
 
---- Once the program has been waited for, its relay is ended and reaped, and
---- the database it ran on is removed.
+--- Once the program has been waited for, its relay is ended and reaped.
 local function test_the_relay_is_gone_once_the_program_is_waited_for(tmp: string)
   while_waiting(tmp, function(handle: Child.Handle)
     local relay = assert(handle._relay, "the start runs a relay")
-    local dir = assert(handle._relay_dir)
     assert(not gone(relay.pid), "the relay runs while the program does")
-    assert(sys.stat(dir) ~= nil, "the relay's database is there")
     assert(handle:stop())
     local result = assert(handle:wait(Clock.seconds(20)))
     assert(result.signal == sys.SIGTERM, "the program was ended")
     assert(gone(relay.pid), "the relay is gone after the wait")
-    assert(handle._relay == nil and handle._relay_dir == nil, "the handle let go of it")
-    assert(sys.stat(dir) == nil, "the relay's database is removed")
+    assert(handle._relay == nil, "the handle let go of it")
   end)
 end
 
@@ -358,8 +365,12 @@ return function(argv: {string}): integer
     local state = (Fs.read("/proc/" .. child .. "/stat") or ""):match("%) (%a)")
     if state ~= "Z" then running[#running + 1] = child .. ":" .. tostring(state) end
   end
+  local left: {string} = {}
+  for _, name in ipairs((assert(Fs.list(sys.getenv("TMPDIR") or "/tmp")))) do
+    if name:find("^cosmic%-relay%-") then left[#left + 1] = name end
+  end
   Fs.put(Fs.stdout, (started == nil and "refused: " .. why or "started") .. "\nrunning: " ..
-    table.concat(running, ","))
+    table.concat(running, ",") .. "\ndirectories: " .. table.concat(left, ","))
   return 0
 end
 ]==]
@@ -380,7 +391,8 @@ local function test_a_relay_that_will_not_serve_fails_the_start_and_ends_the_pro
   local said = assert(result.stdout)
   if said:find("Landlock", 1, true) or said:find("namespace", 1, true) then Test.skip(said) end
   assert(said:find("^refused: child: start: sandbox: relay: https_proxy has the scheme \"https\""), said)
-  assert(said:find("running: $") or said:find("running: \n"), "a program was left running: " .. said)
+  assert(said:find("running: \n", 1, true), "a program was left running: " .. said)
+  assert(said:find("directories: $"), "the relay's database was left: " .. said)
 end
 
 --- Runs the flows of the program in a process of this program's own, which
@@ -430,4 +442,67 @@ local function test_the_relays_log_goes_where_the_start_says(tmp: string)
   end)
   if refusal ~= nil then Test.skip(refusal) end
   assert(not errors["null"]:find("not granted", 1, true), "the log was dropped: " .. errors["null"])
+end
+
+--- The directories of a start's making that are in the temporary directory.
+local function relay_directories(): {string}
+  local found: {string} = {}
+  for _, name in ipairs((assert(Fs.list(sys.getenv("TMPDIR") or "/tmp")))) do
+    if name:find("^cosmic%-relay%-") then found[#found + 1] = name end
+  end
+  return found
+end
+
+--- The relay's database is removed before the program exists, so a program
+--- that can write where it was made has nothing to swap; and nothing of it
+--- is left once the program is gone.
+local function test_the_relays_database_is_gone_while_the_program_runs(tmp: string)
+  while_waiting(tmp, function(handle: Child.Handle)
+    assert(#relay_directories() == 0, "the database is still on disk: " .. table.concat(relay_directories(), " "))
+    assert(handle:stop())
+    assert(handle:wait(Clock.seconds(20)))
+  end)
+  assert(#relay_directories() == 0)
+end
+
+--- A policy with no `connect` starts no relay and sets no proxy variable;
+--- neither the program nor the relay holds a descriptor of this process's
+--- that it did not give: an open file of the test is in neither's table, and
+--- the program holds no socket.
+local function test_no_connect_means_no_relay_and_no_extra_descriptors(tmp: string)
+  local database = sealed_client(tmp)
+  local plain, why = Child.run({ assert(Proc.executable()), "env" }, { policy = { database = database },
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
+  if plain == nil then
+    assert(unsandboxable(why), "the start was refused: " .. why)
+    Test.skip(why)
+  end
+  assert(plain ~= nil and plain.ok, tostring(plain ~= nil and plain.stderr))
+  for name, value in pairs(fields(assert(plain.stdout))) do
+    assert(value == "nil", name .. " is set without connect: " .. value)
+  end
+  local kept = tmp .. "/kept"
+  local fd = assert(sys.open(kept, sys.O_CREAT | sys.O_RDWR, 420))
+  local options = granting(database, 9)
+  options.policy.grants = { { path = "/proc", letters = "r" } }
+  local program = assert(Child.run({ assert(Proc.executable()), "fds" }, options))
+  assert(program.ok, tostring(program.stderr))
+  local held = fields(assert(program.stdout))
+  assert(held.fd_0 ~= nil and held.fd_1 ~= nil and held.fd_2 ~= nil, "the program lists its descriptors")
+  for name, target in pairs(held) do
+    assert(not target:find("socket:", 1, true), name .. " is a socket: " .. target)
+    assert(not target:find(kept, 1, true), name .. " is this process's file: " .. target)
+  end
+  options.stdout, options.stderr = "null", "null"
+  while_waiting(tmp, function(handle: Child.Handle)
+    local relay = assert(handle._relay)
+    local names = assert(Fs.list("/proc/" .. relay.pid .. "/fd"), "the relay's descriptors are readable")
+    for _, name in ipairs(names) do
+      local target = sys.readlink("/proc/" .. relay.pid .. "/fd/" .. name)
+      assert(target == nil or not target:find(kept, 1, true), "the relay holds this process's file")
+    end
+    assert(handle:stop())
+    assert(handle:wait(Clock.seconds(20)))
+  end)
+  assert(sys.close(fd))
 end

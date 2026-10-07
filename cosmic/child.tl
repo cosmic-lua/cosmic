@@ -396,7 +396,12 @@ local record Options
   ---   (HTTP CONNECT) and 1080 (SOCKS5), which the child's environment names:
   ---   `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY` (in both cases),
   ---   `NODE_USE_ENV_PROXY=1` and a `NO_PROXY` of `localhost`, 127.0.0.1, ::1
-  ---   and the policy's `loopback`. A policy with `connect` that names
+  ---   and the policy's `loopback`, which a proxy-aware client dials in its
+  ---   own network, never through the relay: a `connect` target that is one
+  ---   of those hosts (a service of the host's own loopback, granted
+  ---   literally) is reached only by a client that sends it to the relay
+  ---   itself (an HTTP CONNECT or SOCKS5 request to 127.0.0.1:3128 or :1080).
+  ---   A policy with `connect` that names
   ---   any of them in `env` or `set_env` is refused. The relay connects a
   ---   request only where a `connect` target names its host and port, resolves
   ---   a name itself and refuses an address of the host or a private, loopback
@@ -630,8 +635,6 @@ local record Handle
   --- own, which a settle ends (the relay's standard input closes, and it
   --- is ended should it outlive that); nil for none, and once it is ended.
   _relay: Handle
-  --- The directory holding the database the relay runs on, removed with it.
-  _relay_dir: string | nil
   --- Whether the relay was found dead while the child ran, which ended
   --- the child for want of its way out.
   _relay_gone: boolean
@@ -1204,12 +1207,14 @@ relay_lost = function(self: Handle)
   -- TODO: say why on the Result, once it carries a field beside the exit
   -- status for what a settle left behind (see the TODO at Child.wait_any):
   -- today a program whose relay died is a SIGKILL like any other.
+  -- TODO: end the program the moment its relay dies, not at the next wait
+  -- on it, once a handle has a task of its own to watch the relay's exit.
   local _, _ = sys.kill(target(self), sys.SIGKILL)
 end
 
 --- Ends the relay of `self` once its program is gone: its standard input
 --- closes, which it takes as the end, and it is ended in a second should it
---- outlive that. Removes the database it ran on.
+--- outlive that.
 local function end_relay(self: Handle)
   local relay = self._relay
   self._relay = nil
@@ -1218,11 +1223,6 @@ local function end_relay(self: Handle)
     if feed ~= nil then local _, _ = feed:close() end
     local _, _ = relay:wait(RELAY_STOP_NS)
     local _, _ = relay:close()
-  end
-  local dir = self._relay_dir
-  if dir ~= nil then
-    self._relay_dir = nil
-    local _, _ = Fs.remove_tree(dir)
   end
 end
 
@@ -3618,7 +3618,7 @@ local RELAY_READY_NS <const> = Clock.seconds(30)
 --- a start that cannot have one fails with nothing running.
 local record RelayPrep
   --- The directory holding the database the relay runs on, which the start
-  --- removes with the handle (or at once, where the start fails).
+  --- removes once the relay has opened it.
   dir: string
   --- The policy the relay's process is started under.
   policy: Rules.Policy
@@ -3639,7 +3639,8 @@ end
 --- Seals [`RELAY_MAIN`] and what it requires into a directory of its own,
 --- which the user a root caller's program runs as can search and read
 --- (the 0700 one [`Fs.mkdtemp`] makes is shut to it, and its parents are
---- TMPDIR's, which the start says if they are too). Nil and why where this
+--- TMPDIR's, which the start says if they are too). The start removes it once
+--- the relay has opened the database, before the program exists. Nil and why where this
 --- program does not carry the module or the database cannot be written.
 local function seal_relay(): RelayProgram | nil, string
   local found, names = pcall(Store.closure, { RELAY_MAIN })
@@ -3685,6 +3686,8 @@ end
 --- started: the host's own addresses, the sealed database and the config.
 --- Nil and why where it cannot have them.
 local function prepare_relay(connect: {string}, opts: Options): RelayPrep | nil, string
+  -- The host's own addresses are read once, here: an address the host gains
+  -- while the program runs is not refused by this relay.
   local addresses, address_trouble = RelayConfig.host_addresses()
   if addresses == nil then return nil, address_trouble end
   local program, seal_trouble = seal_relay()
@@ -3704,19 +3707,57 @@ local function abandon_relay(prep: RelayPrep | nil)
   end
 end
 
+--- A relay process started, and the lines it says on its standard output,
+--- which the start reads through two stages.
+local record RelayLaunch
+  handle: Handle
+  lines: Stream.Lines
+end
+
+--- Ends `relay` at once, for a start that goes no further.
+local function kill_relay(relay: Handle)
+  local _, _ = sys.kill(target(relay), sys.SIGKILL)
+  local _, _ = end_or_kill(relay)
+end
+
+--- What a relay that ended without the line a start waits for tells, as
+--- `how` ended it and `read_trouble` is why its output failed.
+local function relay_ended(relay: Handle, read_trouble: string, log: RelayLog): string
+  local ended, _ = end_or_kill(relay)
+  local how = ended ~= nil and ended.signal ~= nil and "signal " .. ended.signal or
+    "status " .. tostring(ended ~= nil and ended.code or "unknown")
+  return "the relay ended (" .. how .. ") before it served" ..
+    (read_trouble ~= "" and ": " .. read_trouble or "") ..
+    (log == "inherit" and "" or "; start with relay_log = \"inherit\" to see why")
+end
+
+--- Reads the relay's next line, which must be `wanted`: true; or false and
+--- why, the relay ended. A relay that said `error: why` fails with why.
+local function relay_says(launch: RelayLaunch, wanted: string, log: RelayLog): boolean, string
+  local line, read_trouble = launch.lines:read()
+  if line == wanted then return true, "" end
+  if line ~= nil then
+    kill_relay(launch.handle)
+    return false, (line:gsub("^error: ", ""))
+  end
+  return false, relay_ended(launch.handle, read_trouble, log)
+end
+
+--- Waits for the relay to say it serves, which it does once the program's
+--- listeners have reached it. Nil of the relay's deadline then: it lives as
+--- long as the program does.
+local function await_relay(launch: RelayLaunch, log: RelayLog): boolean, string
+  local said, why = relay_says(launch, "ready", log)
+  if not said then return false, why end
+  launch.handle._deadline = nil
+  return true, ""
+end
+
 --- [`Child.start`] on options already validated. With `pty`, one that
 --- [`Child.start_on_pty`] has just made, the standard streams it names are
 --- its slave, which is not refused as a terminal is; stream 0 among them
 --- also makes it the child's controlling terminal.
-local launch_relay: function(RelayPrep, integer): Handle | nil, string
-
---- Closes both ends of a relay's channel.
-local function close_channel(channel: {integer} | nil)
-  if channel ~= nil then
-    local _, _ = sys.close(channel[1])
-    local _, _ = sys.close(channel[2])
-  end
-end
+local begin_relay: function(RelayPrep, integer): RelayLaunch | nil, string
 
 local function start(argv: {string}, opts: Options, pty?: Pty, relay_process?: boolean): Handle | nil, string
   -- Refuse an explicit terminal before inspecting any platform policy:
@@ -3826,13 +3867,16 @@ local function start(argv: {string}, opts: Options, pty?: Pty, relay_process?: b
   local path, env, cwd = argv[1], opts.env, opts.cwd
   local prep: RelayPrep
   local channel: {integer}
+  local early: RelayLaunch
   if held ~= nil then
     path, env, sandbox = held.path, held.env, held.sandbox
     if held.drop ~= nil then credentials = { user = held.drop.uid, group = held.drop.gid } end
     if held.cwd ~= nil then cwd = held.cwd end
     if held.relay ~= nil then
-      -- The program's listeners are bound in its own network by the spawn,
-      -- and reach the relay's process down this channel.
+      -- The relay starts first and opens its database before the program
+      -- exists: the database is then removed, so no program can swap it
+      -- while the relay opens it. The relay waits for the program's
+      -- listeners on its end of this channel.
       local made, relay_trouble = prepare_relay(held.relay, opts)
       if made == nil then
         unwire(wiring, false)
@@ -3846,14 +3890,31 @@ local function start(argv: {string}, opts: Options, pty?: Pty, relay_process?: b
         return refuse("start: sandbox: relay: " .. pair_trouble)
       end
       channel = pair
+      local launched: RelayLaunch
+      local launch_trouble = ""
+      local ok, raised = pcall(function()
+        local began, why = begin_relay(prep, pair[2])
+        launched, launch_trouble = began, why
+      end)
+      if not ok then launched, launch_trouble = nil, tostring(raised) end
+      local _, _ = sys.close(pair[2])
+      abandon_relay(prep)
+      if launched == nil then
+        unwire(wiring, false)
+        local _, _ = sys.close(pair[1])
+        return refuse("start: sandbox: relay: " .. launch_trouble)
+      end
+      early = launched
       sandbox.relay = { fd = pair[1], ports = { RelayConfig.http_port, RelayConfig.socks_port } }
     end
     if held.wants_tmp then
       local why = make_tmp(held)
       if why ~= "" then
         unwire(wiring, false)
-        close_channel(channel)
-        abandon_relay(prep)
+        if channel ~= nil then
+          local _, _ = sys.close(channel[1])
+          kill_relay(early.handle)
+        end
         return refuse("start: sandbox: " .. why)
       end
     end
@@ -3866,8 +3927,10 @@ local function start(argv: {string}, opts: Options, pty?: Pty, relay_process?: b
     slots[0], slots[1], slots[2], grouped, extra, sandbox, credentials, pty ~= nil and pty.streams[0] == true)
   if not called then
     unwire(wiring, false)
-    close_channel(channel)
-    abandon_relay(prep)
+    if channel ~= nil then
+      local _, _ = sys.close(channel[1])
+      kill_relay(early.handle)
+    end
     if held ~= nil and held.tmp ~= "" then
       local _, _ = Fs.remove_tree(held.tmp)
     end
@@ -3875,13 +3938,11 @@ local function start(argv: {string}, opts: Options, pty?: Pty, relay_process?: b
   end
   unwire(wiring, pid ~= nil)
   if channel ~= nil then
-    -- The program's end of the channel is its own now; ours is the relay's
-    -- to read the listeners from, or closed.
+    -- The program's end of the channel is its own now.
     local _, _ = sys.close(channel[1])
   end
   if not pid then
-    if channel ~= nil then local _, _ = sys.close(channel[2]) end
-    abandon_relay(prep)
+    if channel ~= nil then kill_relay(early.handle) end
     if held ~= nil and held.tmp ~= "" then
       local _, _ = Fs.remove_tree(held.tmp)
     end
@@ -3934,27 +3995,32 @@ local function start(argv: {string}, opts: Options, pty?: Pty, relay_process?: b
   local watch, _ = raw.exit_watch(pid)
   if watch ~= nil then h._exit_fd = watch end
   if channel ~= nil then
-    h._relay_dir = prep.dir
-    local relay, relay_trouble = launch_relay(prep, channel[2])
-    local _, _ = sys.close(channel[2])
-    if relay == nil then
+    h._relay = early.handle
+    local served = false
+    local serve_trouble = ""
+    local ok, raised = pcall(function()
+      served, serve_trouble = await_relay(early, prep.log)
+    end)
+    if not ok then served, serve_trouble = false, tostring(raised) end
+    if not served then
       -- A program with no way out is no program the policy described.
+      kill_relay(early.handle)
       local _, _ = sys.kill(target(h), sys.SIGKILL)
       local _, _ = end_or_kill(h)
-      return refuse("start: sandbox: relay: " .. relay_trouble)
+      return refuse("start: sandbox: relay: " .. serve_trouble)
     end
-    h._relay = relay
   end
   return h, ""
 end
 
 --- Starts the relay's process of `prep` as a child of its own: this
 --- program's core on the sealed database, whose descriptor 3 is `channel`,
---- the end of the program's relay channel that has the listeners, and whose
---- standard input carries the config and, held open, keeps it alive. It
---- answers once the relay says it serves. Nil and why where it cannot start
---- or ends first.
-launch_relay = function(prep: RelayPrep, channel: integer): Handle | nil, string
+--- the end of the program's relay channel that will carry the listeners,
+--- and whose standard input carries the config and, held open, keeps it
+--- alive. It answers once the relay says it has opened its database, which
+--- it does before it waits for the listeners: the database is then no longer
+--- needed. Nil and why where it cannot start or ends first.
+begin_relay = function(prep: RelayPrep, channel: integer): RelayLaunch | nil, string
   local program, program_trouble = Proc.executable()
   if program == nil then return nil, "this program's own file is unknown: " .. program_trouble end
   local started, trouble = start({ program }, { policy = prep.policy, cwd = "/", stdin = "stream",
@@ -3962,29 +4028,20 @@ launch_relay = function(prep: RelayPrep, channel: integer): Handle | nil, string
     capture_limit = 4096, timeout_ns = RELAY_READY_NS }, nil, true)
   if started == nil then return nil, (trouble:gsub("^child: start: ", "")) end
   local relay: Handle = started
-  local function fail(why: string): nil, string
-    local _, _ = sys.kill(target(relay), sys.SIGKILL)
-    local _, _ = end_or_kill(relay)
-    return nil, why
-  end
   local feed, reader = relay.stdin_stream, relay.stdout_stream
-  if feed == nil or reader == nil then return fail("the relay has no standard streams") end
-  local written, write_trouble = feed:write(prep.config .. "\n")
-  if not written then return fail("the relay would not take its config: " .. write_trouble) end
-  local line, read_trouble = Stream.lines(reader):read()
-  if line == "ready" then
-    -- Past the deadline its start had; the relay now lives as long as the
-    -- program does.
-    relay._deadline = nil
-    return relay, ""
+  if feed == nil or reader == nil then
+    kill_relay(relay)
+    return nil, "the relay has no standard streams"
   end
-  if line ~= nil then return fail((line:gsub("^error: ", ""))) end
-  local ended, _ = end_or_kill(relay)
-  local how = ended ~= nil and ended.signal ~= nil and "signal " .. ended.signal or
-    "status " .. tostring(ended ~= nil and ended.code or "unknown")
-  return nil, "the relay ended (" .. how .. ") before it served" ..
-    (read_trouble ~= "" and ": " .. read_trouble or "") ..
-    (prep.log == "inherit" and "" or "; start with relay_log = \"inherit\" to see why")
+  local written, write_trouble = feed:write(prep.config .. "\n")
+  if not written then
+    kill_relay(relay)
+    return nil, "the relay would not take its config: " .. write_trouble
+  end
+  local launch: RelayLaunch = { handle = relay, lines = Stream.lines(reader) }
+  local began, why = relay_says(launch, "opened", prep.log)
+  if not began then return nil, why end
+  return launch, ""
 end
 
 --- Starts one executable and returns an owning handle. argv[1] is an exact
