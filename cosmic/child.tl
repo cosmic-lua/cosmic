@@ -487,7 +487,8 @@ local record Options
   --- `isolate`, `connect`, `loopback`, `nest`, a grant's `from`,
   --- `limits.processes` -- and for what is not yet held there: `tmp`, a
   --- `database`, and a program that is this program's own. The child leads
-  --- a session of its own, with no controlling terminal, so `process_group`
+  --- a session of its own, with no controlling terminal unless it is started
+  --- by [`Child.start_on_pty`] with stdin on the pty, so `process_group`
   --- false is refused there. A start from a
   --- process Seatbelt already holds fails closed, as its profile is refused
   --- there, and nothing runs.
@@ -2291,6 +2292,8 @@ end
 --- which of the child's standard streams (0 to 2) are the slave.
 local record Pty
   slave: integer
+  --- The slave's path.
+  name: string
   streams: {integer:boolean}
 end
 
@@ -3468,7 +3471,7 @@ end
 --- own refusals, for `isolate`, `connect`, `loopback`, `nest`, `from`,
 --- `limits.processes`, `tmp`, a `database` and a digest without its value.
 --- It acquires nothing.
-local function held_by_seatbelt(argv: {string}, opts: Options): Held | nil, string
+local function held_by_seatbelt(argv: {string}, opts: Options, pty?: Pty): Held | nil, string
   local merged, why = Rules.merge(opts.policy)
   if merged == nil then return nil, why end
   -- The child leads a session of its own, so that it has no controlling
@@ -3485,7 +3488,10 @@ local function held_by_seatbelt(argv: {string}, opts: Options): Held | nil, stri
     local real, _ = sys.realpath(executable)
     own = real
   end
-  local options, resolve_trouble = Seatbelt.resolve(opts.policy, opts.cwd, own)
+  -- The pty's slave, where stdin is on it, is the child's controlling
+  -- terminal, which the profile grants and /dev/tty with it.
+  local terminal = pty ~= nil and pty.streams[0] and pty.name or nil
+  local options, resolve_trouble = Seatbelt.resolve(opts.policy, opts.cwd, own, terminal)
   if options == nil then return nil, "sandbox: " .. resolve_trouble end
   local profile, compile_trouble = Seatbelt.compile(opts.policy, options)
   if profile == nil then return nil, "sandbox: " .. compile_trouble end
@@ -3795,7 +3801,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, relay_process?: b
     local made: Held | nil
     local why: string
     if holds_by_seatbelt() then
-      made, why = held_by_seatbelt(argv, opts)
+      made, why = held_by_seatbelt(argv, opts, pty)
     else
       made, why = held_to(argv, opts)
     end
@@ -3943,8 +3949,11 @@ local function start(argv: {string}, opts: Options, pty?: Pty, relay_process?: b
   -- owner, the handle: a spawn that raises (an argument it refuses) must
   -- not leave it, nor the descriptors wired, behind.
   local run_argv = held ~= nil and held.argv or argv
+  -- The pty's path is the terminal where stdin is on it.
+  local terminal: boolean | string = false
+  if pty ~= nil and pty.streams[0] then terminal = pty.name end
   local called, pid, trouble, errno = pcall(raw.spawn, path, run_argv, env, cwd,
-    slots[0], slots[1], slots[2], grouped, extra, sandbox, credentials, pty ~= nil and pty.streams[0] == true)
+    slots[0], slots[1], slots[2], grouped, extra, sandbox, credentials, terminal)
   if not called then
     unwire(wiring, false)
     if channel ~= nil then
@@ -4117,10 +4126,9 @@ local pty_holder_mt: metatable<PtyHolder> = {
 --- stdin is among the streams the child also starts a session of its own
 --- with the pty as its controlling terminal, made before the policy's
 --- confinement, so `process_group` has no say; without stdin it has none.
---- Nil and why where the pty cannot be opened or the start fails. On
---- macOS a start with stdin among the streams fails, as no child there
---- has a controlling terminal yet; a start under a `policy` fails there
---- whatever the streams, until Seatbelt holds a policy's child.
+--- Under a `policy` on macOS the profile grants the child that terminal
+--- and `/dev/tty`, which it is not otherwise given.
+--- Nil and why where the pty cannot be opened or the start fails.
 --- @param argv the program and its arguments, as [`Child.start`] takes them
 --- @param opts the start's options, naming none of the pty's streams
 --- @param pty the pty's streams and size
@@ -4149,7 +4157,11 @@ function Child.start_on_pty(argv: {string}, opts: Options, pty: PtyOptions): Pty
   -- return, the master unless the caller is to have it.
   local holding <close>: PtyHolder = setmetatable({ master = made.master, slave = made.slave,
     keep = false }, pty_holder_mt)
-  local started, trouble = start(argv, opts, { slave = made.slave, streams = streams })
+  -- Darwin's start opens the slave by name to make it the controlling
+  -- terminal, and its profile grants that path.
+  local slave_path, name_why = sys.ttyname(made.slave)
+  if slave_path == nil then return refuse("pty: " .. name_why) end
+  local started, trouble = start(argv, opts, { slave = made.slave, streams = streams, name = slave_path })
   if started == nil then return nil, trouble end
   holding.keep = true
   return { child = started, master = made.master }, ""

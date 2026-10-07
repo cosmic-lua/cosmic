@@ -102,8 +102,7 @@ local record TermRelay
   --- pty for each of `terminal`'s streams (this process's own when nil)
   --- that is a terminal, and answers its [`Child.Result`] once it has
   --- ended, as [`Child.run`] does; nil and why where the relay cannot be
-  --- set up (none of the streams a terminal, no pty, the start failed,
-  --- or the platform cannot give a program a terminal: macOS). Raises as
+  --- set up (none of the streams a terminal, no pty, or the start failed). Raises as
   --- [`Child.start_on_pty`] does for `opts`.
   run: function(argv: {string}, opts: Child.Options, terminal?: Terminal): Child.Result | nil, string
   --- The text to write to the caller's terminal for the bytes `data` of a
@@ -215,17 +214,6 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
   local shown = input
   if sys.isatty(errors) then shown = errors end
   if sys.isatty(output) then shown = output end
-  local system, _ = sys.uname()
-  if system == nil or system.sysname ~= "Linux" then
-    -- TODO: give the program a terminal on macOS, once the Seatbelt
-    -- trampoline that applies a policy before exec (the design's phase 8,
-    -- doc/plans/sandbox.md) also makes the pty slave its controlling
-    -- terminal; until then spawn's terminal argument is ENOSYS there, and
-    -- a program with a terminal is not run unhooked.
-    return nil, "terminal: giving a sandboxed program a terminal needs the Seatbelt trampoline, " ..
-      "which is not yet available on " .. (system ~= nil and system.sysname or "this system") ..
-      "; run it with its standard streams from files or pipes"
-  end
   local saved: string | nil
   if keys then
     local state, saved_why = sys.tcgetattr(input)

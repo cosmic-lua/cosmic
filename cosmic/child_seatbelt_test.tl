@@ -11,9 +11,9 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
+local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local Sandbox = require("cosmic.sandbox")
-local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local type raw_process = require("cosmic.internal.process")
@@ -284,60 +284,127 @@ local function test_a_policy_start_that_keeps_the_callers_group_is_refused(tmp: 
   assert(why:find("process_group = false is refused", 1, true), why)
 end
 
-local MARKER <const> = "a controlling terminal is not yet given to a child on macOS"
+--- The C program a terminal child runs, which reports what it can do with
+--- the terminal it was given, one `name=value` to a line: ttyname(0), whether
+--- /dev/tty opens (and the errno where it does not), tcgetpgrp(0) and
+--- tcgetsid(0) against its own session.
+local REPORT <const> = [=[
+#include <errno.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <unistd.h>
 
---- Says what a failing terminal start can show of the core it ran on: its
---- identity, whether its file holds the refusal's sentence, and whether the
---- twelfth argument reaches C.
-local function core_identity(process: raw_process): string
-  local parts: {string} = {
-    "host_image=" .. tostring(Store.meta("host_image")),
-    "image_hash=" .. tostring(Store.meta("image_hash")),
-    "runtime=" .. tostring(Store.meta("runtime")),
-  }
-  local path = Proc.executable()
-  if path == nil then
-    table.insert(parts, "executable=none")
-  else
-    local bytes = Fs.read(path)
-    table.insert(parts, "executable=" .. path .. " bytes=" ..
-        (bytes and tostring(#bytes) or "unreadable") .. " marker=" ..
-        tostring(bytes ~= nil and bytes:find(MARKER, 1, true) ~= nil))
-  end
-  -- A twelfth argument that is no boolean raises in any core that reads it.
-  local ok, raised = pcall(process.spawn, SH, { SH, "-c", "exit 0" }, nil, nil,
-    nil, nil, nil, true, nil, nil, nil, "x" as boolean) -- cast: a non-boolean is what is probed
-  table.insert(parts, "arg12=" .. (ok and "ignored" or tostring(raised)))
-  return table.concat(parts, " ")
+int main (void) {
+  errno = 0;
+  const char *name = ttyname(0);
+  printf("ttyname=%s\n", name != NULL ? name : "none");
+  int fd = open("/dev/tty", O_RDWR | O_NOCTTY);
+  if (fd >= 0) printf("devtty=ok\n");
+  else printf("devtty=fail errno=%d\n", errno);
+  errno = 0;
+  pid_t group = tcgetpgrp(0);
+  if (group > 0) printf("tcgetpgrp=ok\n");
+  else printf("tcgetpgrp=fail errno=%d\n", errno);
+  errno = 0;
+  pid_t session = tcgetsid(0);
+  printf("tcgetsid=%s\n", session == getsid(0) ? "own" : "other");
+  fflush(stdout);
+  return 0;
+}
+]=]
+
+--- The reporting program, compiled into `tmp`.
+local function report_program(tmp: string): string
+  local source, binary = tmp .. "/report.c", tmp .. "/report"
+  assert(Fs.write(source, REPORT))
+  local result = assert(Child.run({ "/usr/bin/cc", "-O0", "-o", binary, source }, {
+    stdout = "capture", stderr = "capture", stdin = "null", timeout_ns = Clock.seconds(120),
+    env = { PATH = "/usr/bin:/bin", TMPDIR = tmp } }))
+  assert(result.code == 0, "cc: " .. (result.stderr or "") .. (result.stdout or ""))
+  return (assert(sys.realpath(binary)))
 end
 
---- A controlling terminal is not yet given to a program on macOS.
-local function test_a_terminal_start_is_refused_where_none_survives_the_exec()
-  macos_only()
-  local process = process_table()
-  local function start(...: any): integer | nil, string, integer
-    return (process.spawn as function(...: any): integer | nil, string, integer)(...)
+--- What `binary` reports of its terminal when started on a pty of its own
+--- with the standard `streams` on it, under `policy` where given, and how it
+--- ended.
+local function on_pty(binary: string, streams: {integer}, policy?: Sandbox.Policy): string, Child.Result
+  local on: {integer:boolean} = {}
+  for _, number in ipairs(streams) do on[number] = true end
+  local opts: Child.Options = { policy = policy, timeout_ns = Clock.seconds(30) }
+  if not on[0] then opts.stdin = "null" end
+  if not on[2] then opts.stderr = "null" end
+  local started, why = Child.start_on_pty({ binary }, opts, { streams = streams })
+  assert(started, why)
+  local result = assert(started.child:wait())
+  local said = ""
+  while true do
+    local ready, _ = Poll.readable(started.master, Clock.ms(300))
+    if not ready then break end
+    local data, _ = sys.read(started.master, 4096)
+    if data == nil or data == "" then break end
+    said = said .. data
   end
-  local pid, why, errno = start(SH, { SH, "-c", "exit 0" }, nil, nil,
-    nil, nil, nil, true, nil, nil, nil, true)
-  if pid ~= nil then process.waitpid(pid, false) end
-  local said = tostring(pid) .. ", " .. tostring(why) .. ", " .. tostring(errno)
-  local failed = pid ~= nil or errno ~= sys.ENOSYS or not tostring(why):find(MARKER, 1, true)
-  if failed then said = said .. " (core " .. core_identity(process) .. ")" end
-  assert(pid == nil, "a terminal start ran: " .. said)
-  assert(errno == sys.ENOSYS, "the refusal was not ENOSYS: " .. said)
-  assert(tostring(why):find(MARKER, 1, true), "the refusal is not this core's: " .. said)
+  assert(sys.close(started.master))
+  return (said:gsub("\r", "")), result
+end
+
+--- A policy that runs `binary` and grants nothing else.
+local function running(binary: string): Sandbox.Policy
+  return { profiles = { "system" }, grants = { { path = binary, letters = "rx" } } }
+end
+
+--- Asserts that `said` holds the Lua pattern `pattern`, answering all of it
+--- otherwise.
+local function holds(said: string, pattern: string)
+  assert(said:find(pattern), "missing " .. pattern .. " in " .. string.format("%q", said))
+end
+
+--- A policy's child started on a pty has it as its controlling terminal:
+--- /dev/tty opens, ttyname names the slave, and the terminal answers
+--- tcgetpgrp and tcgetsid, as the profile grants them.
+local function test_a_policy_child_on_a_pty_has_it_as_its_controlling_terminal(tmp: string)
+  macos_only()
+  local binary = report_program(tmp)
+  local said, result = on_pty(binary, { 0, 1, 2 }, running(binary))
+  assert(result.code == 0, describe(result) .. string.format(" %q", said))
+  holds(said, "ttyname=/dev/ttys%d+")
+  holds(said, "devtty=ok")
+  holds(said, "tcgetpgrp=ok")
+  holds(said, "tcgetsid=own")
+end
+
+--- The terminal is the pty's alone: where stdin is not on it the child has
+--- none, so /dev/tty is refused it as for any policy's child.
+local function test_a_policy_child_with_stdin_off_the_pty_has_no_controlling_terminal(tmp: string)
+  macos_only()
+  local binary = report_program(tmp)
+  local said, result = on_pty(binary, { 1 }, running(binary))
+  assert(result.code == 0, describe(result) .. string.format(" %q", said))
+  holds(said, "devtty=fail")
+end
+
+--- A start with no policy gets the pty as its controlling terminal on macOS
+--- too, through the same steps of the trampoline.
+local function test_a_child_without_a_policy_on_a_pty_has_it_as_its_controlling_terminal(tmp: string)
+  macos_only()
+  local binary = report_program(tmp)
+  local said, result = on_pty(binary, { 0, 1, 2 })
+  assert(result.code == 0, describe(result) .. string.format(" %q", said))
+  holds(said, "ttyname=/dev/ttys%d+")
+  holds(said, "devtty=ok")
+  holds(said, "tcgetpgrp=ok")
+  holds(said, "tcgetsid=own")
 end
 
 --- The process table a test starts a child through hands its twelfth
---- argument on: a terminal asked of a descriptor that is none starts nothing.
+--- argument on: a terminal asked of a path that is none starts nothing.
 local function test_a_terminal_asked_of_no_terminal_starts_nothing()
   local process = process_table()
   local function start(...: any): integer | nil, string, integer
     return (process.spawn as function(...: any): integer | nil, string, integer)(...)
   end
   local pid, why = start(SH, { SH, "-c", "exit 0" }, nil, nil, nil, nil, nil, true,
-    nil, nil, nil, true)
+    nil, nil, nil, "/dev/null")
   if pid ~= nil then process.waitpid(pid, false) end
   assert(pid == nil, "a terminal start of a descriptor that is none ran: " .. tostring(why))
 end

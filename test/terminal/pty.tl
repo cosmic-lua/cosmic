@@ -98,13 +98,13 @@ else
     { process_group = false, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(10) }))
   assert(session.ok, session.stderr)
   assert((assert(session.stdout)):find("pty: PASS", 1, true))
-  if (assert(sys.uname())).sysname == "Linux" then
+  do
     pty = assert(sys.openpty())
     assert(sys.tcraw(pty.slave))
     local process = process_table()
     local pid = assert(process.spawn("/bin/sh", { "/bin/sh", "-c",
       "test -t 0 && test -t 1 && test -t 2 && printf controlling-terminal >/dev/tty" }, nil, nil,
-      pty.slave, pty.slave, pty.slave, true, nil, nil, nil, true))
+      pty.slave, pty.slave, pty.slave, true, nil, nil, nil, (assert(sys.ttyname(pty.slave)))))
     assert(sys.close(pty.slave))
     assert(Poll.readable(pty.master, Clock.seconds(5)))
     assert((assert(sys.read(pty.master, 100))) == "controlling-terminal")

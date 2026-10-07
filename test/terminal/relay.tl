@@ -18,8 +18,7 @@
 --- It needs a pty and the sandbox's own start, which the test workers
 --- have neither of, so the CI fixture runs it unsandboxed
 --- (ci/fixtures/self_driven_test.tl); `cosmic test/terminal/relay.tl` runs
---- it by hand. On a platform that cannot give a program a controlling
---- terminal (macOS) it checks the refusal instead: a clear failure, 125.
+--- it by hand.
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -97,18 +96,6 @@ local function read_file(path: string): string
 end
 
 local output <const> = "A\\033[1mB\\033[0m\\033]52;c;aGVsbG8=\\007\\033]0;title\\007C\\n"
-
-if (assert(sys.uname())).sysname ~= "Linux" then
-  local caller = new_caller()
-  local child = start("exit 0", { stdin = caller.slave, stdout = caller.slave, stderr = caller.slave })
-  local result = assert(child:wait())
-  drain(caller)
-  assert(result.code == 125, shown_of(caller))
-  assert(caller.shown:find("Seatbelt", 1, true), shown_of(caller))
-  finish(caller)
-  print("relay: PASS (refused: no controlling terminal on this platform)")
-  sys.exit(0)
-end
 
 -- All three are the caller's terminal.
 do

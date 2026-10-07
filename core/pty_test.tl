@@ -62,3 +62,20 @@ local function test_openpty_returns_owned_descriptors_or_a_runtime_refusal()
     assert(sys.close(pty.master))
   end
 end
+
+local function test_ttyname_names_a_slave_and_refuses_a_descriptor_that_is_none(tmp: string)
+  local fd = assert(sys.open(tmp .. "/ordinary", sys.O_CREAT | sys.O_RDWR, 384))
+  value_failure(sys.ttyname(fd))
+  assert(sys.close(fd))
+  assert(not pcall(sys.ttyname, 0x100000000))
+  local pty = sys.openpty()
+  if pty ~= nil then
+    local name = assert(sys.ttyname(pty.slave))
+    assert(name:sub(1, 5) == "/dev/", name)
+    local again = assert(sys.open(name, sys.O_RDWR | sys.O_NOCTTY))
+    assert(sys.isatty(again))
+    assert(sys.close(again))
+    assert(sys.close(pty.slave))
+    assert(sys.close(pty.master))
+  end
+end
