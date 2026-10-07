@@ -1,4 +1,5 @@
 local Clock = require("cosmic.clock")
+local Codec = require("cosmic.codec")
 local Fixture = require("build.relay_wire_fixture")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
@@ -127,6 +128,7 @@ local record Options
   --- Address of a name's answer, to the port of the server it stands for.
   redirect: {string: integer}
   own_addresses: {string}
+  token: string
 end
 
 --- A running relay and what a test needs of it.
@@ -156,7 +158,7 @@ local function start(tmp: string, opts: Options): Rig
   local spec: Relay.Spec = {
     http = http, socks = socks, grants = opts.grants, upstream = opts.upstream,
     timeouts = opts.timeouts, limits = opts.limits, tls_ports = opts.tls_ports,
-    resolve = opts.resolve or { hosts_file = hosts }, own_addresses = opts.own_addresses,
+    resolve = opts.resolve or { hosts_file = hosts }, own_addresses = opts.own_addresses, token = opts.token,
     log = function(line: string)
       rig.log[#rig.log + 1] = line
     end,
@@ -1174,6 +1176,11 @@ local function test_a_spec_that_is_no_spec_raises(tmp: string)
       { { http = listener, grants = {}, connector = connector, timeouts = { idle = 0 } }, "timeouts.idle must be an integer from 1" },
       { { http = listener, grants = {}, connector = connector, limits = { total = -1 } }, "limits.total must be an integer from 1" },
       { { http = listener, grants = {}, connector = connector, tls_ports = { 0 } }, "tls_ports" },
+      { { http = listener, grants = {}, connector = connector, token = "" }, "spec.token must be a string of 1 to 255 bytes" },
+      { { http = listener, grants = {}, connector = connector, token = ("t"):rep(256) }, "spec.token must be a string" },
+      { { http = listener, grants = {}, connector = connector, token = "a\nb" }, "spec.token must be a string" },
+      { { http = listener, grants = {}, connector = connector, token = 5 as any as string }, "spec.token must be a string" },
+      { { http = listener, grants = {}, connector = connector, limits = { pre_auth = 0 } }, "limits.pre_auth must be an integer from 1" },
       { { http = listener, grants = {}, connector = connector, own_addresses = { "nope" } }, "not numeric" },
       { { http = listener, grants = {}, connector = connector, timeouts = 5 as any as Relay.Timeouts }, "spec.timeouts must be a table" },
       { { http = listener, grants = {}, connector = connector, upstream = { host = "", port = 80, no_proxy = {} } }, "upstream.host" },
@@ -1189,5 +1196,263 @@ local function test_a_spec_that_is_no_spec_raises(tmp: string)
     end
     local _, _ = listener:close()
     assert(tmp ~= nil)
+  end)
+end
+
+-- The per-sandbox token: a CONNECT's Basic credential and a SOCKS5 client's
+-- RFC 1929 password, which a relay whose spec carries one requires.
+
+local TOKEN <const> = "tok-9f3a1c7e-sandbox"
+
+--- The `Proxy-Authorization` header line for `user` and `password`.
+local function basic(user: string, password: string): string
+  return "Proxy-Authorization: Basic " .. Codec.base64(user .. ":" .. password)
+end
+
+--- A SOCKS5 greeting offering `methods`, and the method answer.
+local function socks_greet(conn: Net.Conn, methods: string): string
+  assert(conn:write("\5" .. string.char(#methods) .. methods))
+  return read_exact(conn, 2)
+end
+
+--- The username and password message for `user` and `password`.
+local function auth_message(user: string, password: string): string
+  return "\1" .. string.char(#user) .. user .. string.char(#password) .. password
+end
+
+--- Whether `conn` has ended what it sends, within a moment.
+local function ended(conn: Net.Conn): boolean
+  conn:set_timeout(Clock.seconds(5))
+  local data, _ = conn:read(1)
+  return data == nil
+end
+
+local function test_a_token_lets_a_connect_with_its_basic_credential_through(tmp: string)
+  Poll.run(function()
+    local server = origin(echo)
+    local grants = { "127.0.0.1:" .. server.port }
+    local rig = start(tmp, { grants = grants, token = TOKEN })
+    -- Any user name does, and a password may hold a colon after the first.
+    for _, user in ipairs({ "cosmic", "", "someone else" }) do
+      local conn, head = connect_to(rig, "127.0.0.1:" .. server.port, { basic(user, TOKEN) })
+      assert(status_line(head) == "HTTP/1.1 200 Connection established", head)
+      assert(conn:write("ping"))
+      assert(read_exact(conn, 4) == "ping")
+      local _, _ = conn:close()
+    end
+    -- The scheme's name is no case.
+    local lower, lowered = connect_to(rig, "127.0.0.1:" .. server.port,
+      { "proxy-authorization: bAsIc " .. Codec.base64("u:" .. TOKEN) })
+    assert(status_line(lowered) == "HTTP/1.1 200 Connection established", lowered)
+    local _, _ = lower:close()
+    until_it(function(): boolean return rig.server:stats().open == 0 end)
+    assert(rig.server:stats().accepted == 4, "each is counted once it has authenticated")
+    assert(#lines_with(rig, "not authenticated") == 0, table.concat(rig.log, "\n"))
+    finish(rig, server)
+  end)
+end
+
+local function test_a_connect_without_the_token_gets_407_and_reaches_nothing(tmp: string)
+  Poll.run(function()
+    local server = origin(echo)
+    local grants = { "127.0.0.1:" .. server.port }
+    local rig = start(tmp, { grants = grants, token = TOKEN })
+    local wrong = "WRONG-secret-9"
+    local cases: {{string}} = {
+      {},
+      { basic("u", wrong) },
+      { basic("u", TOKEN:sub(1, -2)) },
+      { basic("u", TOKEN .. "x") },
+      { basic("u", "") },
+      { "Proxy-Authorization: Bearer " .. TOKEN },
+      { "Proxy-Authorization: Basic !!not-base64!!" },
+      { "Proxy-Authorization: Basic " .. Codec.base64(TOKEN) },
+      { "Proxy-Authorization: Basic" },
+      { "Authorization: Basic " .. Codec.base64("u:" .. TOKEN) },
+    }
+    local replies: {string} = {}
+    for _, headers in ipairs(cases) do
+      local conn, head = connect_to(rig, "127.0.0.1:" .. server.port, headers)
+      replies[#replies + 1] = head
+      assert(status_line(head) == "HTTP/1.1 407 Proxy Authentication Required", head)
+      assert(head:find('Proxy-Authenticate: Basic realm="cosmic sandbox"\r\n', 1, true), head)
+      assert(ended(conn), "the relay closes after the 407")
+      local _, _ = conn:close()
+    end
+    assert(server.connections == 0 and #rig.asked == 0, "nothing reached the upstream")
+    assert(#lines_with(rig, "allowed") == 0, "an unauthenticated attempt is no flow")
+    assert(#lines_with(rig, "refused: not authenticated") == #cases, table.concat(rig.log, "\n"))
+    -- No credential, right or wrong, is in a reply or a line.
+    local everything = table.concat(rig.log, "\n") .. table.concat(replies)
+    for _, secret in ipairs({ TOKEN, wrong, Codec.base64("u:" .. wrong), Codec.base64("u:" .. TOKEN),
+        Codec.base64(TOKEN) }) do
+      assert(not everything:find(secret, 1, true), "a credential was echoed: " .. secret:sub(1, 4) .. "...")
+    end
+    local stats = rig.server:stats()
+    assert(stats.accepted == 0 and stats.open == 0 and stats.refused == #cases, "none of them is counted as served")
+    finish(rig, server)
+  end)
+end
+
+local function test_a_socks5_client_with_the_password_goes_through(tmp: string)
+  Poll.run(function()
+    local server = origin(echo)
+    local rig = start(tmp, { grants = { "127.0.0.1:" .. server.port }, token = TOKEN })
+    -- Offering "no authentication" too, the relay still selects the password.
+    local conn = dial(rig.socks)
+    assert(socks_greet(conn, "\0\2") == "\5\2")
+    assert(conn:write(auth_message("whoever", TOKEN)))
+    assert(read_exact(conn, 2) == "\1\0")
+    assert(conn:write(Fixture.socks_request(1, 1, "\127\0\0\1", server.port)))
+    assert(read_exact(conn, 10):byte(2) == 0, "the request is served")
+    assert(conn:write("socks"))
+    assert(read_exact(conn, 5) == "socks")
+    -- The whole exchange in one write, and the request's first byte split off.
+    local pipelined = dial(rig.socks)
+    local request = Fixture.socks_request(1, 1, "\127\0\0\1", server.port)
+    assert(pipelined:write("\5\1\2"))
+    assert(read_exact(pipelined, 2) == "\5\2")
+    assert(pipelined:write(auth_message("u", TOKEN) .. request:sub(1, 1)))
+    assert(read_exact(pipelined, 2) == "\1\0")
+    assert(pipelined:write(request:sub(2) .. "tail"))
+    assert(read_exact(pipelined, 10):byte(2) == 0)
+    assert(read_exact(pipelined, 4) == "tail")
+    local _, _ = conn:close()
+    local _, _ = pipelined:close()
+    assert(#lines_with(rig, "not authenticated") == 0, table.concat(rig.log, "\n"))
+    finish(rig, server)
+  end)
+end
+
+local function test_a_socks5_greeting_without_the_password_method_gets_no_acceptable_method(tmp: string)
+  Poll.run(function()
+    local server = origin(echo)
+    local rig = start(tmp, { grants = { "127.0.0.1:" .. server.port }, token = TOKEN })
+    for _, methods in ipairs({ "\0", "\0\1\3" }) do
+      local conn = dial(rig.socks)
+      assert(socks_greet(conn, methods) == "\5\255")
+      assert(ended(conn))
+      local _, _ = conn:close()
+    end
+    assert(#lines_with(rig, "refused: the sandbox's token needs username/password") == 2, table.concat(rig.log, "\n"))
+    assert(server.connections == 0 and #rig.asked == 0)
+    assert(rig.server:stats().accepted == 0)
+    finish(rig, server)
+  end)
+end
+
+local function test_a_socks5_client_with_a_wrong_password_fails_authentication(tmp: string)
+  Poll.run(function()
+    local server = origin(echo)
+    local rig = start(tmp, { grants = { "127.0.0.1:" .. server.port }, token = TOKEN })
+    local wrong = "WRONG-secret-9"
+    local replies = ""
+    local messages = {
+      auth_message("u", wrong), auth_message("u", TOKEN:sub(1, -2)), auth_message("u", TOKEN .. "!"),
+      "\2\1u\1p", "\1\0\1p", "\1\1u\0",
+    }
+    for _, message in ipairs(messages) do
+      local conn = dial(rig.socks)
+      assert(socks_greet(conn, "\2") == "\5\2")
+      assert(conn:write(message))
+      local answer = read_exact(conn, 2)
+      replies = replies .. answer
+      assert(answer == "\1\1", "authentication fails")
+      assert(ended(conn), "and the relay closes")
+      local _, _ = conn:close()
+    end
+    -- A request sent in place of the credentials is no credential.
+    local early = dial(rig.socks)
+    assert(socks_greet(early, "\2") == "\5\2")
+    assert(early:write(Fixture.socks_request(1, 1, "\127\0\0\1", server.port)))
+    assert(read_exact(early, 2) == "\1\1" and ended(early))
+    local _, _ = early:close()
+    assert(server.connections == 0 and #rig.asked == 0, "nothing reached the upstream")
+    assert(#lines_with(rig, "allowed") == 0)
+    local everything = table.concat(rig.log, "\n") .. replies
+    assert(not everything:find(TOKEN, 1, true) and not everything:find(wrong, 1, true), "a credential was echoed")
+    assert(rig.server:stats().accepted == 0)
+    finish(rig, server)
+  end)
+end
+
+local function test_connections_not_yet_authenticated_do_not_spend_the_cap(tmp: string)
+  Poll.run(function()
+    local server = origin(echo)
+    local rig = start(tmp, { grants = { "127.0.0.1:" .. server.port }, token = TOKEN,
+      limits = { connections = 1, total = 2 } })
+    -- Connections that say nothing, and ones refused, on both listeners.
+    local idle: {Net.Conn} = {}
+    for _ = 1, 5 do
+      idle[#idle + 1] = dial(rig.http)
+      idle[#idle + 1] = dial(rig.socks)
+    end
+    for _ = 1, 3 do
+      local refused, head = connect_to(rig, "127.0.0.1:" .. server.port, { basic("u", "no") })
+      assert(status_line(head):find("^HTTP/1.1 407 "), head)
+      local _, _ = refused:close()
+    end
+    -- One authenticated connection is within `connections`, the next is not,
+    -- and `total` is not spent by any of the above.
+    local first, head = connect_to(rig, "127.0.0.1:" .. server.port, { basic("u", TOKEN) })
+    assert(status_line(head):find("^HTTP/1.1 200 "), head)
+    local second, over = connect_to(rig, "127.0.0.1:" .. server.port, { basic("u", TOKEN) })
+    assert(status_line(over):find("^HTTP/1.1 503 too many open connections: at most 1 at once", 1), over)
+    local _, _ = second:close()
+    until_it(function(): boolean return rig.server:stats().open == 1 end)
+    local stats = rig.server:stats()
+    assert(stats.accepted == 2, ("accepted %d"):format(stats.accepted))
+    local _, _ = first:close()
+    for _, conn in ipairs(idle) do local _, _ = conn:close() end
+    until_it(function(): boolean return rig.server:stats().open == 0 end)
+    finish(rig, server)
+  end)
+end
+
+local function test_connections_not_yet_authenticated_are_bounded_in_number_and_in_time(tmp: string)
+  Poll.run(function()
+    local server = origin(echo)
+    local rig = start(tmp, { grants = { "127.0.0.1:" .. server.port }, token = TOKEN,
+      limits = { pre_auth = 1 }, timeouts = { head = Clock.ms(300) } })
+    local silent = dial(rig.http)
+    -- A second connection is not served while the first holds the one slot.
+    local waiting = dial(rig.http)
+    assert(waiting:write(Fixture.connect("127.0.0.1:" .. server.port, { basic("u", TOKEN) })))
+    waiting:set_timeout(Clock.ms(100))
+    local early, why = waiting:read(1)
+    assert(early == nil and why == Poll.TIMEOUT, "it waits for a slot")
+    -- The head timeout ends the silent one, and the waiting one is served.
+    waiting:set_timeout(Clock.seconds(5))
+    local head = read_head(waiting)
+    assert(status_line(head):find("^HTTP/1.1 200 "), head)
+    assert(#lines_with(rig, "request not received within 300 milliseconds") == 1, table.concat(rig.log, "\n"))
+    assert(read_all(silent):find("408 request not received", 1, true), "the silent connection was refused and closed")
+    local _, _ = silent:close()
+    local _, _ = waiting:close()
+    finish(rig, server)
+  end)
+end
+
+local function test_without_a_token_no_credential_is_asked_or_read(tmp: string)
+  Poll.run(function()
+    local server = origin(echo)
+    local rig = start(tmp, { grants = { "127.0.0.1:" .. server.port } })
+    -- A credential that is sent is not looked at.
+    local conn, head = connect_to(rig, "127.0.0.1:" .. server.port, { basic("u", "anything") })
+    assert(status_line(head) == "HTTP/1.1 200 Connection established", head)
+    local _, _ = conn:close()
+    -- A SOCKS5 client offering both methods gets no authentication, and one
+    -- offering only a password gets none acceptable.
+    local socks = dial(rig.socks)
+    assert(socks_greet(socks, "\0\2") == "\5\0")
+    assert(socks:write(Fixture.socks_request(1, 1, "\127\0\0\1", server.port)))
+    assert(read_exact(socks, 10):byte(2) == 0)
+    local _, _ = socks:close()
+    local only = dial(rig.socks)
+    assert(socks_greet(only, "\2") == "\5\255")
+    local _, _ = only:close()
+    until_it(function(): boolean return rig.server:stats().open == 0 end)
+    assert(rig.server:stats().accepted == 3, "every connection is counted as it is accepted")
+    finish(rig, server)
   end)
 end

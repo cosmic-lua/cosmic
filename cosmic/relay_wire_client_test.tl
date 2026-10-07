@@ -31,6 +31,22 @@ local function method_fresh(): function(string): string
   end
 end
 
+local function method_password_fresh(): function(string): string
+  local reader = Wire.socks_method_reader(true)
+  return function(chunk: string): string
+    local seen = reader:feed(chunk)
+    return ("%s|%d|%s|%s"):format(seen.status, seen.consumed, tostring(seen.reason), tostring(seen.method))
+  end
+end
+
+local function auth_status_fresh(): function(string): string
+  local reader = Wire.socks_auth_status_reader()
+  return function(chunk: string): string
+    local seen = reader:feed(chunk)
+    return ("%s|%d|%s|%s"):format(seen.status, seen.consumed, tostring(seen.reason), tostring(seen.accepted))
+  end
+end
+
 local function answer_fresh(): function(string): string
   local reader = Wire.socks_answer_reader()
   return function(chunk: string): string
@@ -45,6 +61,33 @@ local function test_the_greeting_offers_no_authentication_and_the_relay_takes_it
   assert(greeting == "\5\1\0", "version 5, one method, none")
   local seen = Wire.socks_greeting_reader():feed(greeting)
   assert(seen.status == "done" and seen.method == 0 and seen.consumed == 3, tostring(seen.status))
+end
+
+local function test_the_greeting_with_a_password_offers_it_alone_and_a_relay_with_a_token_selects_it()
+  local greeting = Wire.socks_client_greeting(true)
+  assert(greeting == "\5\1\2", "version 5, one method, username and password")
+  local seen = Wire.socks_greeting_reader(true):feed(greeting)
+  assert(seen.status == "done" and seen.method == 2 and seen.consumed == 3, tostring(seen.reason))
+  local without = Wire.socks_greeting_reader():feed(greeting)
+  assert(without.status == "refused" and without.method == 255, "a relay with no token takes no password")
+  assert(Wire.socks_client_greeting(false) == "\5\1\0")
+end
+
+local function test_a_username_and_password_are_written_for_the_relay_to_read()
+  local message = assert(Wire.socks_client_auth("user", "pw"))
+  assert(message == "\1\4user\2pw", "version 1, each with its length first")
+  local seen = Wire.socks_auth_reader():feed(message)
+  assert(seen.status == "done" and seen.username == "user" and seen.password == "pw" and seen.consumed == #message,
+    tostring(seen.reason))
+  local widest = assert(Wire.socks_client_auth(("u"):rep(255), ("p"):rep(255)))
+  local read = Wire.socks_auth_reader():feed(widest)
+  assert(read.status == "done" and #read.username == 255 and #read.password == 255, "255 bytes each fit")
+  for _, case in ipairs({ { "", "pw", "username is empty" }, { "u", "", "password is empty" },
+      { ("u"):rep(256), "pw", "username is longer than 255" }, { "u", ("p"):rep(256), "password is longer than 255" } }) do
+    local refused, why = Wire.socks_client_auth(case[1], case[2])
+    assert(refused == nil and why:find(case[3], 1, true), tostring(why))
+    assert(not why:find("pp", 1, true), "the reason holds no password")
+  end
 end
 
 local function test_a_name_is_sent_as_a_domain_for_the_relay_to_resolve()
@@ -89,6 +132,27 @@ local function test_the_method_choice_is_read_whole_in_pieces_and_a_byte_at_a_ti
   assert(same_in_pieces(method_fresh, "\4\0"):find("^refused|0|SOCKS version 4"))
   assert(same_in_pieces(method_fresh, "\5") == "more|0|nil|nil")
   assert(same_in_pieces(method_fresh, "") == "more|0|nil|nil")
+end
+
+local function test_the_method_choice_of_a_password_is_read_whole_in_pieces_and_a_byte_at_a_time()
+  assert(same_in_pieces(method_password_fresh, "\5\2") == "done|2|nil|2")
+  assert(same_in_pieces(method_password_fresh, "\5\2tunnel") == "done|2|nil|2", "what follows is not read")
+  assert(same_in_pieces(method_password_fresh, "\5\0"):find("^refused|0|the method 0 chosen is not one offered %(only 2%)"),
+    "no authentication was not offered")
+  assert(same_in_pieces(method_password_fresh, "\5\255"):find("^refused|0|no authentication method offered is accepted|255"))
+  assert(same_in_pieces(method_password_fresh, "\4\2"):find("^refused|0|SOCKS version 4"))
+  assert(same_in_pieces(method_password_fresh, "\5") == "more|0|nil|nil")
+end
+
+local function test_the_verdict_on_a_password_is_read_whole_in_pieces_and_a_byte_at_a_time()
+  assert(same_in_pieces(auth_status_fresh, "\1\0") == "done|2|nil|true")
+  assert(same_in_pieces(auth_status_fresh, "\1\0tunnel") == "done|2|nil|true", "what follows is not read")
+  assert(same_in_pieces(auth_status_fresh, "\1\1") == "done|2|nil|false")
+  assert(same_in_pieces(auth_status_fresh, "\1\200") == "done|2|nil|false", "any status but 0 is a refusal")
+  assert(same_in_pieces(auth_status_fresh, "\5\0"):find("^refused|0|username/password version 5 in the answer"))
+  assert(same_in_pieces(auth_status_fresh, "\1") == "more|0|nil|nil")
+  assert(same_in_pieces(auth_status_fresh, "") == "more|0|nil|nil")
+  assert(Wire.socks_auth_reply(true) == "\1\0" and Wire.socks_auth_reply(false) == "\1\1", "the relay's own words")
 end
 
 local function test_an_answer_is_read_through_its_bound_address_in_every_cut()

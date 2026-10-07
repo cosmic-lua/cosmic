@@ -5,10 +5,16 @@
 ---
 --- It runs inside the sandbox, where the relay's variables are set: it
 --- reads `ALL_PROXY` (`all_proxy` where that is unset), which must be the
---- relay's own SOCKS5 listener, `socks5h://127.0.0.1:1080`, and refuses any
---- other, naming it; a command line or an environment that is not a
---- sandbox's, with no such variable, is refused saying what this is for.
---- It connects there, offers no authentication, and asks the relay to
+--- relay's own SOCKS5 listener, `socks5h://127.0.0.1:1080`, or with the
+--- sandbox's token `socks5h://user:token@127.0.0.1:1080` (the host is
+--- exactly 127.0.0.1, and the userinfo is percent-decoded), and refuses any
+--- other, naming it, and never one that carries credentials; a command line
+--- or an environment that is not a sandbox's, with no such variable, is
+--- refused saying what this is for.
+--- It connects there, offers no authentication, or with a userinfo only
+--- username and password, which it sends (RFC 1929; an empty user name is
+--- sent as "cosmic", as the relay takes any) and which the relay may refuse,
+--- exiting 1 with "the relay refused the sandbox's token", and asks the relay to
 --- connect to HOST and PORT with HOST as a name for the relay to resolve
 --- and judge, never resolved here (the sandbox has no DNS), or as an
 --- address where HOST is a literal. An answer other than success exits 1
@@ -149,22 +155,47 @@ local function standard_io(input: integer, output: integer): sandbox_connect.Io
   }
 end
 
---- The port of the relay `ALL_PROXY` names, a `socks5h` proxy on 127.0.0.1
---- (the sandbox's has the relay's port, and its network holds nothing else),
---- or nil and why not.
-local function proxy_port(io: sandbox_connect.Io): integer | nil, string
+--- The relay `ALL_PROXY` names.
+local record Proxy
+  port: integer
+  --- The percent-decoded userinfo's user and password, or nil for none.
+  user: string
+  password: string
+end
+
+--- `text` with each `%XX` replaced by its byte.
+local function percent_decoded(text: string): string
+  return (text:gsub("%%(%x%x)", function(hex: string): string
+    return string.char(tonumber(hex, 16))
+  end))
+end
+
+--- The relay `ALL_PROXY` names, a `socks5h` proxy on 127.0.0.1 (the
+--- sandbox's has the relay's port, and its network holds nothing else), with
+--- the userinfo that is the sandbox's token where it has one, or nil and why
+--- not. The reason never holds the value where it has a userinfo.
+local function proxy_of(io: sandbox_connect.Io): Proxy | nil, string
   local value: string = io.getenv("ALL_PROXY") or io.getenv("all_proxy") or ""
   if value == "" then
     return nil, "ALL_PROXY is not set: this is ssh's ProxyCommand inside `cosmic sandbox --connect HOST:PORT`, " ..
       "which sets it to the relay's SOCKS5 listener (" .. PROXY .. ")"
   end
-  local text = value:match("^socks5h://127%.0%.0%.1:(%d+)/?$") or ""
-  local port = port_of(text)
+  local userinfo, text = value:match("^socks5h://([^/@]*)@127%.0%.0%.1:(%d+)/?$")
+  if userinfo == nil then text = value:match("^socks5h://127%.0%.0%.1:(%d+)/?$") end
+  local port = port_of(text or "")
   if port == nil then
-    return nil, "ALL_PROXY is " .. bare.escape(value) .. ", not a socks5h://127.0.0.1:PORT like " .. PROXY ..
-      ", the sandbox relay's; no other proxy is served"
+    -- A value with an "@" may hold the token, wherever the pattern failed.
+    local shown = value:find("@", 1, true) and "not shown, as it holds a userinfo" or bare.escape(value)
+    return nil, "ALL_PROXY is " .. shown .. ", not a socks5h://127.0.0.1:PORT like " .. PROXY ..
+      " (or socks5h://user:token@127.0.0.1:PORT), the sandbox relay's; no other proxy is served"
   end
-  return port, ""
+  if userinfo == nil then return { port = port }, "" end
+  local user, password = userinfo:match("^([^:]*):(.*)$")
+  if user == nil or password == "" then
+    return nil, "the userinfo of ALL_PROXY is not user:token (the token is the password, percent-encoded)"
+  end
+  user = percent_decoded(user)
+  return { port = port, user = user ~= "" and user or "cosmic", password = percent_decoded(password) }, ""
 end
 
 --- Passes standard input to `conn` and `conn` to standard output, `first`
@@ -268,11 +299,21 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
     complain(bare.escape(host) .. ": " .. request_why)
     return bare.refused
   end
-  local relay_port, proxy_why = proxy_port(io)
-  if relay_port == nil then
+  local proxy, proxy_why = proxy_of(io)
+  if proxy == nil then
     complain(proxy_why)
     return bare.refused
   end
+  local login: string | nil
+  if proxy.password ~= nil then
+    local message, login_why = Wire.socks_client_auth(proxy.user, proxy.password)
+    if message == nil then
+      complain("the userinfo of ALL_PROXY: " .. login_why)
+      return bare.refused
+    end
+    login = message
+  end
+  local relay_port = proxy.port
   local relay = "socks5h://127.0.0.1:" .. relay_port
   local made, connect_why = Net.connect(Net.tcp("127.0.0.1", relay_port), { timeout_ns = CONNECT_NS })
   if made == nil then
@@ -288,10 +329,10 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
     complain(where .. ": " .. why)
     return bare.failed
   end
-  local sent, sent_why = conn:write(Wire.socks_client_greeting())
+  local sent, sent_why = conn:write(Wire.socks_client_greeting(login ~= nil))
   if not sent then return fail("writing to the relay: " .. sent_why) end
   trace("greeting sent")
-  local method = Wire.socks_method_reader()
+  local method = Wire.socks_method_reader(login ~= nil)
   local after_method, method_why = answered(conn, relay, function(chunk: string): string, integer, string
     local seen = method:feed(chunk)
     return seen.status, seen.consumed, seen.reason
@@ -299,6 +340,22 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
   if after_method == nil then return fail(method_why) end
   trace("method read")
   if after_method ~= "" then return fail("the relay answered before it was asked") end
+  if login ~= nil then
+    local logged, logged_why = conn:write(login)
+    if not logged then return fail("writing to the relay: " .. logged_why) end
+    trace("token sent")
+    local verdict = Wire.socks_auth_status_reader()
+    local accepted = false
+    local after_auth, auth_why = answered(conn, relay, function(chunk: string): string, integer, string
+      local seen = verdict:feed(chunk)
+      accepted = seen.accepted
+      return seen.status, seen.consumed, seen.reason
+    end)
+    if after_auth == nil then return fail(auth_why) end
+    if not accepted then return fail("the relay refused the sandbox's token") end
+    if after_auth ~= "" then return fail("the relay answered before it was asked") end
+    trace("token accepted")
+  end
   local asked, asked_why = conn:write(request)
   if not asked then return fail("writing to the relay: " .. asked_why) end
   trace("request sent")

@@ -26,6 +26,22 @@ local function method_fresh(): function(string): string, integer, string
   end
 end
 
+local function method_password_fresh(): function(string): string, integer, string
+  local reader = Wire.socks_method_reader(true)
+  return function(chunk: string): string, integer, string
+    local seen = reader:feed(chunk)
+    return seen.status, seen.consumed, ("%s|%s|%s"):format(seen.status, tostring(seen.reason), tostring(seen.method))
+  end
+end
+
+local function auth_status_fresh(): function(string): string, integer, string
+  local reader = Wire.socks_auth_status_reader()
+  return function(chunk: string): string, integer, string
+    local seen = reader:feed(chunk)
+    return seen.status, seen.consumed, ("%s|%s|%s"):format(seen.status, tostring(seen.reason), tostring(seen.accepted))
+  end
+end
+
 local function answer_fresh(): function(string): string, integer, string
   local reader = Wire.socks_answer_reader()
   return function(chunk: string): string, integer, string
@@ -39,6 +55,22 @@ local function gen_method(src: Fuzz.Source): string
   local version = src:int(0, 9) == 0 and src:int(0, 255) or 5
   local method = src:int(0, 3) == 0 and src:int(0, 255) or Fuzz.pick(src, { 0, 0, 255 })
   local text = string.char(version, method)
+  if src:int(0, 4) == 0 then text = text .. Fuzz.bytes(src, 4) end
+  return Fuzz.mutate(src, text, src:int(0, 3) == 0 and 1 or 0)
+end
+
+local function gen_method_password(src: Fuzz.Source): string
+  local version = src:int(0, 9) == 0 and src:int(0, 255) or 5
+  local method = src:int(0, 3) == 0 and src:int(0, 255) or Fuzz.pick(src, { 2, 2, 0, 255 })
+  local text = string.char(version, method)
+  if src:int(0, 4) == 0 then text = text .. Fuzz.bytes(src, 4) end
+  return Fuzz.mutate(src, text, src:int(0, 3) == 0 and 1 or 0)
+end
+
+local function gen_auth_status(src: Fuzz.Source): string
+  local version = src:int(0, 2) == 0 and src:int(0, 255) or 1
+  local status = src:int(0, 3) == 0 and src:int(0, 255) or Fuzz.pick(src, { 0, 0, 1 })
+  local text = string.char(version, status)
   if src:int(0, 4) == 0 then text = text .. Fuzz.bytes(src, 4) end
   return Fuzz.mutate(src, text, src:int(0, 3) == 0 and 1 or 0)
 end
@@ -65,6 +97,8 @@ end
 
 local READERS <const>: {Format} = {
   { name = "socks method choice", fresh = method_fresh, gen = gen_method },
+  { name = "socks method choice of a password", fresh = method_password_fresh, gen = gen_method_password },
+  { name = "socks auth verdict", fresh = auth_status_fresh, gen = gen_auth_status },
   { name = "socks answer", fresh = answer_fresh, gen = gen_answer },
 }
 
@@ -204,6 +238,53 @@ local function test_a_request_the_client_writes_is_read_back_by_the_relay(tmp: s
       elseif request:byte(4) ~= 3 then
         return false, ("an address of type %d was refused: %s"):format(request:byte(4), tostring(seen.reason))
       end
+      return true, ""
+    end,
+  })
+end
+
+local function test_a_username_and_password_the_client_writes_are_read_back_by_the_relay(tmp: string)
+  Fuzz.run({
+    name = "client auth round trip",
+    dir = tmp,
+    gen = function(src: Fuzz.Source): string
+      local function field(): string
+        -- Mostly sound lengths, with the edges (empty, 255, 256) drawn often.
+        local size = Fuzz.pick(src, { 0, 1, 255, 256, src:int(1, 40), src:int(1, 40) })
+        return (Fuzz.pick(src, { "a", "\0", "\255", ":", "@" })):rep(size) .. Fuzz.bytes(src, 3)
+      end
+      return Fuzz.pack({ field(), field() })
+    end,
+    requires = { "written", "refused" },
+    shares = { written = 0.1, refused = 0.05 },
+    check = function(input: string): boolean, string
+      local fields = Fuzz.unpack(input)
+      local user, password = fields[1], fields[2]
+      local message, why = Wire.socks_client_auth(user, password)
+      local fits = #user >= 1 and #user <= 255 and #password >= 1 and #password <= 255
+      if message == nil then
+        if fits then return false, "refused what fits: " .. why end
+        if why == "" then return false, "refused without saying why" end
+        if why:find(password, 1, true) and #password > 3 then
+          return false, "the reason holds the password"
+        end
+        Fuzz.label("refused")
+        return true, ""
+      end
+      if not fits then return false, ("wrote %d and %d bytes"):format(#user, #password) end
+      -- Fed whole and a byte at a time, the relay reads what was written.
+      local whole = Wire.socks_auth_reader():feed(message)
+      if whole.status ~= "done" or whole.username ~= user or whole.password ~= password or
+          whole.consumed ~= #message then
+        return false, ("read back as %s with %d bytes taken"):format(whole.status, whole.consumed)
+      end
+      local reader = Wire.socks_auth_reader()
+      local last: Wire.SocksAuth
+      for at = 1, #message do last = reader:feed(message:sub(at, at)) end
+      if last.status ~= "done" or last.password ~= password then
+        return false, "a byte at a time it reads another"
+      end
+      Fuzz.label("written")
       return true, ""
     end,
   })
