@@ -282,17 +282,51 @@ only. The proxy variables are set in both cases, with `NO_PROXY` for
 loopback and `NODE_USE_ENV_PROXY=1`. Programs that ignore them reach
 nothing; `cosmic sandbox connect` serves ssh's ProxyCommand.
 
-**The terminal**: only `cosmic sandbox` relays one, as a pty -- an
-allow list of control sequences, queries answered by the relay, window
-size and signals forwarded, the caller's terminal restored and flushed
-at exit. [`Child.start`] with a policy and a terminal on stdio fails.
+It is three parts, so that no part both parses what the sandbox sends
+and holds a host socket that is not yet connected:
+
+- **The resolver** is c-ares, the library the core already carries for
+  curl, given a binding of its own: it reads the host's resolv.conf and
+  hosts (and, on macOS, the dnsinfo service), resolves a granted name
+  once, and returns every address, so that one forbidden answer refuses
+  the name rather than being skipped.
+- **The connector** (#2815) is a native process with no file access,
+  exec or fork: it takes only numeric endpoints the relay has already
+  checked, connects, and passes the connected socket back over
+  descriptors (#2813). The relay never holds an unconnected host
+  socket.
+- **The relay** parses the sandbox's side: CONNECT, SOCKS5, SNI and the
+  DNS stub, the stub served over [`Net.datagram`] (#2811). It answers a
+  granted name from the resolver's checked addresses and refuses every
+  other name.
+
+**The terminal**: only `cosmic sandbox` relays one, as a pty (#2814
+gives the core `openpty`, terminal modes, window size, a controlling
+terminal for the child, and the refusal of a policy with a terminal on
+stdio). The relay loop applies an allow list of control sequences,
+answers queries itself, forwards the window size and signals, and
+restores and flushes the caller's terminal at exit.
+[`Child.start`] with a policy and a terminal on stdio fails.
 
 ## macOS
 
-The policy compiles to a Seatbelt profile applied by a trampoline,
-paths passed as parameters; `isolate` is refused; the relay listens on
-the host's loopback behind a per-sandbox token. Until then, a policy
-fails there and the harness runs workers without one.
+[`Seatbelt.compile`] (#2812) compiles a policy to a default-deny
+profile with paths passed as parameters, refusing what Seatbelt cannot
+hold (`isolate`, `nest`, `loopback`, `connect`, `processes`, `tmp`, the
+database). What remains:
+
+- one C function applying it through `sandbox_init_with_parameters`
+  before exec in the Darwin trampoline, `sandbox-exec` the fallback
+  where that is absent, a refusal never retried without it; the
+  trampoline also gives the child a controlling terminal;
+- [`Child.start`] and [`Sandbox.restrict`] applying it, and then `tmp`
+  and the database granted, as Linux grants them;
+- the connector confined by numeric remote rules, and the relay on the
+  host's loopback behind a per-sandbox token, with c-ares's dnsinfo
+  service the only Mach service the relay reaches.
+
+Until then, a policy fails there and the harness runs workers without
+one.
 
 ## Phases
 
@@ -308,10 +342,15 @@ Each names its caller.
    preflight. Caller: the harness.
 4. The harness on the policy, migration steps (a) to (e).
 5. The `cosmic sandbox` verb.
-6. The relay, after the core gains UDP, a resolver and descriptor
-   passing. Caller: the verb, and tests that fetch.
-7. The pty relay. Caller: the verb.
-8. Seatbelt.
+6. The relay. The core has UDP (#2811) and descriptor passing
+   (#2813); the connector is in #2815. Left: the c-ares binding, the
+   relay's listeners and DNS stub, the proxy variables, `connect` in
+   [`Child.start`], and `cosmic sandbox connect`. Caller: the verb, and
+   tests that fetch.
+7. The pty relay. The core's terminal calls are in #2814. Left: the
+   relay loop and the verb's use of it. Caller: the verb.
+8. Seatbelt. The compiler is done (#2812). Left: applying it, as
+   [macOS](#macos) lists. Caller: the harness's macOS leg.
 
 ## Roadmap
 
@@ -339,11 +378,16 @@ nested sandboxes through a broker.
    failing, each test declaring its promises, [`Test.policy`].
 7. Implementation (#2677) found `isolate file` does not hold a `u`
    grant below ABI 9 beside a granted directory or socket.
+8. Phases 1-5 done; the relay split into a c-ares resolver, a confined
+   connector and the parsing relay; the core's UDP, descriptor passing
+   and Seatbelt compiler landed, the pty and connector in review.
 
 [`Child.Options`]: ../../cosmic/child.tl
 [`Child.start`]: ../../cosmic/child.tl
 [`core/promises.c`]: ../../core/promises.c
 [`cosmic.sandbox`]: ../../cosmic/sandbox.tl
+[`Net.datagram`]: ../../cosmic/net.tl
 [`Sandbox.restrict`]: ../../cosmic/sandbox.tl
+[`Seatbelt.compile`]: ../../cosmic/seatbelt.tl
 [`Test.needs`]: ../../cosmic/test.tl
 [`Test.policy`]: ../../cosmic/test.tl
