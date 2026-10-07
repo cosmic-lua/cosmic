@@ -3463,6 +3463,27 @@ function Child.start(argv: {string}, opts?: Options): Handle | nil, string
   return start(argv, opts)
 end
 
+--- The two ends of a pty [`Child.start_on_pty`] has opened, closed when
+--- it returns or raises: the child holds its own slave once it is
+--- started, and ours would keep the master from ever reading the end of
+--- the child's output.
+local record PtyHolder
+  metamethod __close: function(PtyHolder)
+  master: integer
+  slave: integer
+  --- Whether the master is the caller's.
+  keep: boolean
+end
+
+local pty_holder_mt: metatable<PtyHolder> = {
+  __close = function(self: PtyHolder)
+    local _, _ = sys.close(self.slave)
+    if not self.keep then
+      local _, _ = sys.close(self.master)
+    end
+  end,
+}
+
 --- Starts a program as [`Child.start`] does, with a pty of its own as the
 --- standard streams `pty.streams` names, and answers the child with the
 --- pty's master. This is the one start that gives a child under a
@@ -3475,8 +3496,10 @@ end
 --- stdin is among the streams the child also starts a session of its own
 --- with the pty as its controlling terminal, made before the policy's
 --- confinement, so `process_group` has no say; without stdin it has none.
---- Nil and why where the pty cannot be opened, the start fails, or the
---- platform cannot give a child a controlling terminal (macOS).
+--- Nil and why where the pty cannot be opened or the start fails. On
+--- macOS a start with stdin among the streams fails, as no child there
+--- has a controlling terminal yet; a start under a `policy` fails there
+--- whatever the streams, until Seatbelt holds a policy's child.
 --- @param argv the program and its arguments, as [`Child.start`] takes them
 --- @param opts the start's options, naming none of the pty's streams
 --- @param pty the pty's streams and size
@@ -3501,14 +3524,13 @@ function Child.start_on_pty(argv: {string}, opts: Options, pty: PtyOptions): Pty
   if pty.rows ~= nil and pty.columns ~= nil then
     local _, _ = sys.setwinsize(made.master, pty.rows, pty.columns)
   end
+  -- Closes both ends where the start raises, or fails; the slave on any
+  -- return, the master unless the caller is to have it.
+  local holding <close>: PtyHolder = setmetatable({ master = made.master, slave = made.slave,
+    keep = false }, pty_holder_mt)
   local started, trouble = start(argv, opts, { slave = made.slave, streams = streams })
-  -- The child holds its own slave now; ours would keep the master from
-  -- ever reading the end of the child's output.
-  local _, _ = sys.close(made.slave)
-  if started == nil then
-    local _, _ = sys.close(made.master)
-    return nil, trouble
-  end
+  if started == nil then return nil, trouble end
+  holding.keep = true
   return { child = started, master = made.master }, ""
 end
 

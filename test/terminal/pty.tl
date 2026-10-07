@@ -74,6 +74,25 @@ if arg[1] == "session" then
   -- Closing the master sends SIGHUP to our session; exit owns its close.
   print("pty: PASS")
   sys.exit(0)
+elseif arg[1] == "inherited" then
+  -- Started by the test of start_on_pty, with a terminal of its own on one
+  -- of its standard streams, which the pty's streams do not replace.
+  local program = { "/bin/sh", "-c", "exit 0" }
+  local case = arg[2]
+  local streams: {integer} = { 1 }
+  local opts: Child.Options = { policy = { profiles = { "system" } } }
+  local slot = "stdio[0]"
+  if case == "stderr" then
+    streams, slot = { 0, 1 }, "stdio[2]"
+  elseif case == "alias" then
+    -- stderr is stdout's, which is the terminal this process holds.
+    streams, slot, opts.stderr = { 0 }, "stdio[1]", "stdout"
+  end
+  local child, refusal = Child.start_on_pty(program, opts, { streams = streams })
+  assert(child == nil, "a terminal this process holds reached a policy child")
+  assert_terminal_refusal(nil, refusal, slot)
+  print("inherited: PASS")
+  sys.exit(0)
 else
   local session = assert(Child.run({ assert(Proc.executable()), arg[0], "session" },
     { process_group = false, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(10) }))
@@ -131,8 +150,24 @@ else
     refused_on_pty({ stderr = real.slave }, { 0 }, "stdio[2]")
     refused_on_pty({ stdout = "null", stderr = "null", fds = { [3] = real.slave } },
       { 0 }, "fds[3]")
-    local also = pcall(Child.start_on_pty, program, { stdin = real.slave }, { streams = { 0 } })
-    assert(not also, "a stream on the pty takes no descriptor of the caller's")
+    local also, also_why = pcall(Child.start_on_pty, program, { stdin = real.slave }, { streams = { 0 } })
+    assert(not also and tostring(also_why):find("takes no stdin, input, stdout or stderr of its own", 1, true),
+      tostring(also_why))
+
+    -- A stream not on the pty that is this process's own terminal, which no
+    -- option names: the refusal looks at the descriptor the child would get.
+    local function inherited(case: string, opts: Child.Options)
+      opts.timeout_ns = Clock.seconds(20)
+      local ran = assert(Child.run({ assert(Proc.executable()), arg[0], "inherited", case }, opts))
+      local said = "code " .. tostring(ran.code) .. " signal " .. tostring(ran.signal) ..
+        " stderr " .. tostring(ran.stderr) .. " stdout " .. tostring(ran.stdout)
+      if not ran.ok or (ran.stdout ~= nil and not ran.stdout:find("inherited: PASS", 1, true)) then
+        error(said, 0)
+      end
+    end
+    inherited("stdin", { stdin = real.slave, stdout = "capture", stderr = "capture" })
+    inherited("stderr", { stdin = "null", stdout = "capture", stderr = real.slave })
+    inherited("alias", { stdin = "null", stdout = real.slave, stderr = "capture" })
     assert(sys.close(real.slave))
     assert(sys.close(real.master))
 
