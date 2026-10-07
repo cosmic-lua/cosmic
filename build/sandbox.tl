@@ -33,12 +33,13 @@
 --- not compile, or a seal that cannot be written, is a start that failed
 --- (125).
 ---
---- A TERMINAL: where this process's input is one, the program runs on a
---- pty of its own as its standard input, output and error, relayed by
---- [`TermRelay.run`] (build/term_relay.tl): what it writes passes the
---- filter of [`build.term_filter`] (build/term_filter.tl) on its way to the
---- caller's terminal, which is held raw for the run and put back as it
---- was. Linux only: elsewhere the start fails, saying so, until the
+--- A TERMINAL: for each of this process's standard streams that is one,
+--- the program's runs on a pty of its own, relayed by [`TermRelay.run`]
+--- (build/term_relay.tl): what it writes passes the filter of
+--- [`build.term_filter`] (build/term_filter.tl) on its way to the caller's
+--- terminal, and where stdin is the terminal it is held raw for the run
+--- and put back as it was. A stream that is a pipe or a file is the
+--- program's own, unfiltered. Linux only: elsewhere the start fails, saying so, until the
 --- design's phase 8 gives a program held by Seatbelt a controlling terminal.
 ---
 --- Like `cosmic json` it ends in no verdict line, and prints nothing of
@@ -498,13 +499,14 @@ local function failed_start(program: string, cwd: string | nil, why: string): in
   return START_FAILED, said
 end
 
---- [`Child.run`], through the pty relay ([`TermRelay.run`]) when this
---- process's input is a terminal, so that the program is given a terminal
---- of its own rather than the caller's, whose control sequences it could
---- otherwise write and whose input it could push into. Both answer the
---- program's [`Child.Result`].
+--- [`Child.run`], through the pty relay ([`TermRelay.run`]) when one of
+--- this process's standard streams is a terminal, so that the program is
+--- given a terminal of its own for each rather than the caller's, whose
+--- control sequences it could otherwise write and whose input it could
+--- push into; a stream that is no terminal is the program's as it is.
+--- Both answer the program's [`Child.Result`].
 local function run_here(argv: {string}, opts: Child.Options): Child.Result | nil, string
-  if sys.isatty(0) then return TermRelay.run(argv, opts) end
+  if sys.isatty(0) or sys.isatty(1) or sys.isatty(2) then return TermRelay.run(argv, opts) end
   return Child.run(argv, opts)
 end
 

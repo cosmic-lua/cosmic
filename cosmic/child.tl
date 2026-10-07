@@ -1836,6 +1836,31 @@ local function opened(): Guard | nil, string
   return g, ""
 end
 
+--- What [`Child.start_on_pty`] answers.
+local record PtyStart
+  --- The child, as [`Child.start`] answers it.
+  child: Handle
+  --- The pty's master, close-on-exec and blocking: the caller's to
+  --- read, write and close. Closing it hangs the child's terminal up.
+  master: integer
+end
+
+--- What [`Child.start_on_pty`] is asked for.
+local record PtyOptions
+  --- Which of the child's standard streams (0 for stdin, 1, 2) are the
+  --- pty's terminal, none twice, at least one. A stream named here takes
+  --- no `opts` field of its own (`stdin`, `stdout` or `stderr`, and
+  --- `input` beside stdin); any other stream is as `opts` says, and a
+  --- terminal among those is refused under a `policy` as it is by
+  --- [`Child.start`].
+  streams: {integer}
+  --- The terminal's size in character cells, set before the child starts,
+  --- or nil for the system's default.
+  rows: integer
+  --- Its width, set with `rows`.
+  columns: integer
+end
+
 local record Child
   type Result = Result
   type Options = Options
@@ -1848,6 +1873,8 @@ local record Child
   type DrainResult = DrainResult
   type Handle = Handle
   type Guard = Guard
+  type PtyStart = PtyStart
+  type PtyOptions = PtyOptions
 end
 
 --- Holds SIGINT and SIGTERM for this process while it supervises
@@ -2029,6 +2056,13 @@ local function validate(argv: {string}, opts: Options)
   end
 end
 
+--- The pty [`Child.start_on_pty`] made for one start: its slave, and
+--- which of the child's standard streams (0 to 2) are the slave.
+local record Pty
+  slave: integer
+  streams: {integer:boolean}
+end
+
 --- Descriptors this process opened for one start, closed together
 --- whatever happens: the child's ends always, ours only on failure.
 local record Wiring
@@ -2087,11 +2121,11 @@ end
 
 --- Resolves the options into the descriptor each child slot copies:
 --- nil to inherit, or a descriptor number.
-local function wire(opts: Options, wiring: Wiring, relay_slave?: integer): {integer:integer} | nil, string
+local function wire(opts: Options, wiring: Wiring, pty?: Pty): {integer:integer} | nil, string
   local slots: {integer:integer} = {}
   local stdin = descriptor(opts.stdin, "stdin", STDIN_WORDS)
-  if relay_slave ~= nil then
-    slots[0], slots[1], slots[2] = relay_slave, relay_slave, relay_slave
+  if pty ~= nil and pty.streams[0] then
+    slots[0] = pty.slave
   elseif opts.input ~= nil or stdin == "stream" then
     local ends, trouble = raw.pipe()
     if ends == nil then return nil, trouble end
@@ -2117,10 +2151,16 @@ local function wire(opts: Options, wiring: Wiring, relay_slave?: integer): {inte
   elseif stdin is integer then
     slots[0] = stdin
   end
-  if relay_slave == nil then
+  if pty ~= nil and pty.streams[1] then
+    slots[1] = pty.slave
+  else
     local out, out_trouble = wire_output(wiring, 1, descriptor(opts.stdout, "stdout", STDOUT_WORDS))
     if out_trouble ~= "" then return nil, out_trouble end
     slots[1] = out
+  end
+  if pty ~= nil and pty.streams[2] then
+    slots[2] = pty.slave
+  else
     local stderr = descriptor(opts.stderr, "stderr", STDERR_WORDS)
     if stderr == "stdout" then
       slots[2] = slots[1] or 1
@@ -3238,13 +3278,14 @@ local function nest_descriptors(slots: {integer:integer}): string
   return ""
 end
 
---- [`Child.start`] on options already validated. With `relay_slave`, the
---- slave of a pty the caller's relay owns, which opts.stdin, stdout and
---- stderr all name and which is not refused as a terminal is.
-local function start(argv: {string}, opts: Options, relay_slave?: integer): Handle | nil, string
+--- [`Child.start`] on options already validated. With `pty`, one that
+--- [`Child.start_on_pty`] has just made, the standard streams it names are
+--- its slave, which is not refused as a terminal is; stream 0 among them
+--- also makes it the child's controlling terminal.
+local function start(argv: {string}, opts: Options, pty?: Pty): Handle | nil, string
   -- Refuse an explicit terminal before inspecting any platform policy:
   -- it needs a relay even on a host that cannot apply that policy.
-  if opts.policy ~= nil and relay_slave == nil then
+  if opts.policy ~= nil then
     local streams: {integer: integer | string} = { [0] = opts.stdin, [1] = opts.stdout, [2] = opts.stderr }
     for number, stream in pairs(streams) do
       if stream is integer and isatty(stream) then
@@ -3265,7 +3306,7 @@ local function start(argv: {string}, opts: Options, relay_slave?: integer): Hand
     adopting = subreaper
   end
   local wiring: Wiring = { child_ends = {}, ours = {}, streams = {} }
-  local slots, wire_trouble = wire(opts, wiring, relay_slave)
+  local slots, wire_trouble = wire(opts, wiring, pty)
   if slots == nil then
     unwire(wiring, false)
     return refuse("start: " .. wire_trouble)
@@ -3277,7 +3318,7 @@ local function start(argv: {string}, opts: Options, relay_slave?: integer): Hand
     -- every binding refuses them by raising; any other raise is rethrown.
     for number = 0, 2 do
       local fd = slots[number] or number
-      if relay_slave == nil and isatty(fd) then
+      if not (pty ~= nil and pty.streams[number]) and isatty(fd) then
         unwire(wiring, false)
         return refuse("start: sandbox: terminal stdio[" .. number .. "] needs the verb's pty relay")
       end
@@ -3352,7 +3393,7 @@ local function start(argv: {string}, opts: Options, relay_slave?: integer): Hand
   -- not leave it, nor the descriptors wired, behind.
   local run_argv = held ~= nil and held.argv or argv
   local called, pid, trouble, errno = pcall(raw.spawn, path, run_argv, env, cwd,
-    slots[0], slots[1], slots[2], grouped, extra, sandbox, credentials, relay_slave ~= nil)
+    slots[0], slots[1], slots[2], grouped, extra, sandbox, credentials, pty ~= nil and pty.streams[0] == true)
   if not called then
     unwire(wiring, false)
     if held ~= nil and held.tmp ~= "" then
@@ -3422,26 +3463,53 @@ function Child.start(argv: {string}, opts?: Options): Handle | nil, string
   return start(argv, opts)
 end
 
---- Starts a program as [`Child.start`] does, with the pty slave `slave`
---- (from [`sys.openpty`]) as its stdin, stdout and stderr and as the
---- controlling terminal of a session of its own, made before the
---- policy's confinement. It is the one start that accepts a terminal
---- under a `policy`, which [`Child.start`] refuses: only the caller that
---- owns the pty's master and filters what comes from it (the relay of
---- `cosmic sandbox`) may use it, since a program given a terminal
---- it does not own can inject input into its session or write control
---- sequences to the user's. `opts` names no stdin, stdout, stderr or
---- input of its own, and any other descriptor that is a terminal is refused as
---- it is by [`Child.start`]. The caller keeps `slave` open, and closes
---- it once this returns. The child is the leader of a new session, so
---- `process_group` has no say. Where the platform cannot give a child a
---- controlling terminal (macOS) it fails with ENOSYS's message.
-function Child.start_on_terminal(argv: {string}, opts: Options, slave: integer): Handle | nil, string
+--- Starts a program as [`Child.start`] does, with a pty of its own as the
+--- standard streams `pty.streams` names, and answers the child with the
+--- pty's master. This is the one start that gives a child under a
+--- `policy` a terminal, and the only terminal it gives is the one it opens
+--- here, whose master the caller holds: a descriptor the caller names
+--- never becomes the child's terminal, since a program holding the
+--- caller's own terminal could push input into its session and write
+--- control sequences to it. A caller that owns the master reads what the
+--- child writes and filters it (the `cosmic sandbox` relay does). When
+--- stdin is among the streams the child also starts a session of its own
+--- with the pty as its controlling terminal, made before the policy's
+--- confinement, so `process_group` has no say; without stdin it has none.
+--- Nil and why where the pty cannot be opened, the start fails, or the
+--- platform cannot give a child a controlling terminal (macOS).
+--- @param argv the program and its arguments, as [`Child.start`] takes them
+--- @param opts the start's options, naming none of the pty's streams
+--- @param pty the pty's streams and size
+--- @return the child and the master, or nil
+--- @return why, when there is none
+function Child.start_on_pty(argv: {string}, opts: Options, pty: PtyOptions): PtyStart | nil, string
   validate(argv, opts)
-  if opts.stdin ~= nil or opts.stdout ~= nil or opts.stderr ~= nil or opts.input ~= nil then
-    error("child: start_on_terminal takes no stdin, stdout, stderr or input: the terminal is all three", 2)
+  local streams: {integer:boolean} = {}
+  for _, number in ipairs(pty.streams) do
+    if not (number is integer) or number < 0 or number > 2 or streams[number] then
+      error("child: pty streams are each of 0, 1 and 2 once", 2)
+    end
+    streams[number] = true
   end
-  return start(argv, opts, slave)
+  if next(streams) == nil then error("child: a pty needs at least one stream", 2) end
+  if (streams[0] and (opts.stdin ~= nil or opts.input ~= nil)) or
+      (streams[1] and opts.stdout ~= nil) or (streams[2] and opts.stderr ~= nil) then
+    error("child: a stream on the pty takes no stdin, input, stdout or stderr of its own", 2)
+  end
+  local made, why = sys.openpty()
+  if made == nil then return refuse("pty: " .. why) end
+  if pty.rows ~= nil and pty.columns ~= nil then
+    local _, _ = sys.setwinsize(made.master, pty.rows, pty.columns)
+  end
+  local started, trouble = start(argv, opts, { slave = made.slave, streams = streams })
+  -- The child holds its own slave now; ours would keep the master from
+  -- ever reading the end of the child's output.
+  local _, _ = sys.close(made.slave)
+  if started == nil then
+    local _, _ = sys.close(made.master)
+    return nil, trouble
+  end
+  return { child = started, master = made.master }, ""
 end
 
 --- Waits for the first of several handles to finish, servicing every

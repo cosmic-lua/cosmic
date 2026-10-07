@@ -1,41 +1,55 @@
---- The pty relay `cosmic sandbox` runs a program through when its own
---- input is a terminal: the program is given a pty of its own as its
---- terminal -- never the caller's, which a program holding it could write
---- control sequences to or push input into -- and this loop copies
---- between the two.
+--- The pty relay `cosmic sandbox` runs a program through when one of its
+--- own standard streams is a terminal: the program is given a pty of its
+--- own for each stream that is, never the caller's terminal, which a
+--- program holding it could write control sequences to or push input
+--- into, and this loop copies between the two. A stream that is no
+--- terminal -- a pipe or a file -- is the program's as it is, untouched
+--- and unfiltered, so `cosmic sandbox -- tar c . > x.tar`, `2> err` and
+--- `| grep` write the bytes the program wrote.
 ---
---- The caller's keys go to the pty's master as they are: they are the
---- user's own input. What the program writes goes through a
---- [`build.term_filter`] on its way to the caller's terminal, so it reaches the
---- terminal as text and the few sequences a screen is drawn with, and
---- no more; the filter answers the program's terminal queries itself,
---- and the answers are written to the master as the terminal's input.
+--- The caller's keys, where its stdin is a terminal, go to the pty's
+--- master as they are: they are the user's own input, and the pty is then
+--- the program's stdin and its controlling terminal. What the program
+--- writes to a terminal stream goes through a [`build.term_filter`] on its
+--- way to the caller's terminal -- its stdout's, else its stderr's, else,
+--- where only stdin is a terminal and the pty carries nothing but the
+--- echo of what is typed, its stdin's -- so it reaches the terminal as
+--- text and the few sequences a screen is drawn with, and no more. Both
+--- output streams being terminals, they share the pty and so the filter
+--- and the stdout's terminal. The filter answers the program's terminal
+--- queries itself, and the answers are written to the master as the
+--- terminal's input.
 ---
---- THE CALLER'S TERMINAL is saved, put in raw mode for the run and
---- restored on every way out: the program's exit, a failure, a raise and
---- a signal this process catches. First the sequences that undo what the
---- filter let the program set (its attributes, scroll region, hidden
---- cursor, alternate screen and the rest of the private modes) are
---- written, then the saved termios is put back; nothing is flushed with
---- `tcflush` -- see the TODO in `restore`. A process ended by SIGKILL
---- restores nothing, as with any program that sets a terminal raw.
+--- THE CALLER'S TERMINAL is, where stdin is one, saved, put in raw mode
+--- for the run and restored on every way out: the program's exit, a
+--- failure, a raise and a signal this process catches. First the
+--- sequences that undo what the filter let the program set (attributes,
+--- scroll region, hidden cursor, alternate screen and the rest of the
+--- private modes) are written, then the saved termios is put back;
+--- nothing is flushed with `tcflush` -- see the TODO in `restore`. A
+--- process ended by SIGKILL restores nothing, as with any program that
+--- sets a terminal raw.
 ---
---- THE WINDOW SIZE is the caller's, set on the master before the program
+--- THE WINDOW SIZE is the terminal's, set on the pty before the program
 --- starts and again whenever it is seen to change.
 ---
 --- SIGNALS: SIGINT and SIGTERM sent to this process are caught by a
---- [`Child.guard`] and passed to the program's process group; the
---- terminal's own keys are not signals here, since raw mode hands ^C to
---- the program as a byte and the pty's line discipline raises its SIGINT
---- in the program's session. SIGHUP is not caught: when the caller's
---- terminal hangs up, this process dies of it by default, its pty master
---- closes with it, and the kernel hangs up the program's session.
---- The run's end is the program's: this returns what [`Child.run`] does,
---- its [`Child.Result`], and the verb exits with the program's status.
+--- [`Child.guard`] and passed to the program's process group, and
+--- delivered to this process again once the program has ended and the
+--- terminal is restored, as [`Child.run`] does; the terminal's own keys
+--- are not signals here, since raw mode hands ^C to the program as a byte
+--- and the pty's line discipline raises its SIGINT in the program's
+--- session. SIGHUP is not caught: when the caller's terminal hangs up,
+--- this process dies of it by default, its pty master closes with it, and
+--- the kernel hangs up the program's session. The run's end is the
+--- program's: this returns what [`Child.run`] does, its [`Child.Result`],
+--- and the verb exits with the program's status.
 ---
 --- The loop waits in [`sys.poll`] at most `TICK_MS` at a time, which is
 --- what every check that no descriptor announces is made at: the
 --- program's exit, a signal the guard caught and the caller's window.
+--- Writes to the caller's terminal wait for it, so a terminal that stops
+--- taking output (flow control) stops the loop; see the TODO in `run`.
 
 local Child = require("cosmic.child")
 local sys = require("cosmic.sys")
@@ -56,33 +70,37 @@ local MOST_PENDING <const> = 65536
 --- goes on writing.
 local MOST_AFTER_EXIT <const> = 1024 * 1024
 
---- The caller's own terminal, as descriptors.
+--- The caller's own standard streams, as descriptors.
 local record Terminal
-  --- Where the caller's keys are read; a terminal. 0 by default.
+  --- The caller's stdin, 0 by default.
   input: integer
-  --- Where the filtered output is written. 1 by default.
+  --- The caller's stdout, 1 by default.
   output: integer
+  --- The caller's stderr, 2 by default.
+  error: integer
 end
 
 local record TermRelay
-  --- The caller's terminal.
+  --- The caller's standard streams.
   type Terminal = Terminal
-  --- Runs `argv` as [`Child.start_on_terminal`] starts it, with `opts`,
-  --- on a pty relayed to `terminal` (this process's stdin and stdout
-  --- when nil), and answers its [`Child.Result`] once it has ended, as
-  --- [`Child.run`] does; nil and why where the relay cannot be set up
-  --- (no pty, `terminal.input` no terminal, the start failed, or the
-  --- platform cannot give a program a controlling terminal: macOS).
-  --- Raises as [`Child.start_on_terminal`] does for `opts`.
+  --- Runs `argv` as [`Child.start_on_pty`] starts it, with `opts`, on a
+  --- pty for each of `terminal`'s streams (this process's own when nil)
+  --- that is a terminal, and answers its [`Child.Result`] once it has
+  --- ended, as [`Child.run`] does; nil and why where the relay cannot be
+  --- set up (none of the streams a terminal, no pty, the start failed,
+  --- or the platform cannot give a program a terminal: macOS). Raises as
+  --- [`Child.start_on_pty`] does for `opts`.
   run: function(argv: {string}, opts: Child.Options, terminal?: Terminal): Child.Result | nil, string
 end
 
 --- What `run` puts back when it ends, however it does: held in a
---- `<close>` variable.
+--- `<close>` variable, from the pty's start on.
 local record Restoring
   metamethod __close: function(Restoring)
   input: integer
   output: integer
+  --- The pty's master, closed last.
+  master: integer
   --- The caller's termios as it was, or nil until `run` has put the
   --- terminal in raw mode.
   saved: string | nil
@@ -116,6 +134,7 @@ local restoring_mt: metatable<Restoring> = {
       local _, _ = sys.tcsetattr(self.input, self.saved)
       self.saved = nil
     end
+    local _, _ = sys.close(self.master)
     -- TODO: discard the caller's typed-ahead input here, once
     -- cosmic.sys.tcflush can name the input queue alone: the call it has
     -- discards the output queue too, which can still hold the program's
@@ -123,85 +142,94 @@ local restoring_mt: metatable<Restoring> = {
   end,
 }
 
---- The size of `fd`'s window as "rows,columns", or "".
-local function window(fd: integer): string
+--- The size of `fd`'s window, or -1 and -1.
+local function window(fd: integer): integer, integer
   local size, _ = sys.winsize(fd)
-  if size == nil then return "" end
-  return size.rows .. "," .. size.columns
+  if size == nil then return -1, -1 end
+  return size.rows, size.columns
 end
 
 function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal): Child.Result | nil, string
   local input = terminal ~= nil and terminal.input or 0
   local output = terminal ~= nil and terminal.output or 1
+  local errors = terminal ~= nil and terminal.error or 2
+  local streams: {integer} = {}
+  for number, fd in ipairs({ input, output, errors }) do
+    if sys.isatty(fd) then streams[#streams + 1] = number - 1 end
+  end
+  if #streams == 0 then
+    return nil, "terminal: none of this process's standard streams is a terminal"
+  end
+  local keys = sys.isatty(input)
+  -- Where the program's output goes: the terminal it was written for, and
+  -- where only stdin is one, whose echo the pty carries.
+  local shown = input
+  if sys.isatty(errors) then shown = errors end
+  if sys.isatty(output) then shown = output end
   local system, _ = sys.uname()
   if system == nil or system.sysname ~= "Linux" then
-    -- TODO: give the program a controlling terminal on macOS, once the
-    -- Seatbelt trampoline that applies a policy before exec (the design's
-    -- phase 8, doc/plans/sandbox.md) also makes the pty slave its
-    -- controlling terminal; until then spawn's terminal argument is
-    -- ENOSYS there, and a program with a terminal is not run unhooked.
+    -- TODO: give the program a terminal on macOS, once the Seatbelt
+    -- trampoline that applies a policy before exec (the design's phase 8,
+    -- doc/plans/sandbox.md) also makes the pty slave its controlling
+    -- terminal; until then spawn's terminal argument is ENOSYS there, and
+    -- a program with a terminal is not run unhooked.
     return nil, "terminal: giving a sandboxed program a terminal needs the Seatbelt trampoline, " ..
       "which is not yet available on " .. (system ~= nil and system.sysname or "this system") ..
-      "; run it with its input from a file or a pipe"
+      "; run it with its standard streams from files or pipes"
   end
-  local saved, saved_why = sys.tcgetattr(input)
-  if saved == nil then
-    return nil, "terminal: this process's input is no terminal: " .. saved_why
+  local saved: string | nil
+  if keys then
+    local state, saved_why = sys.tcgetattr(input)
+    if state == nil then return nil, "terminal: " .. saved_why end
+    saved = state
   end
-  local pty, pty_why = sys.openpty()
-  if pty == nil then return nil, "terminal: no pty to give the program: " .. pty_why end
-  local master, slave = pty.master, pty.slave
-  local nonblocking, nonblocking_why = sys.set_nonblocking(master, true)
-  if not nonblocking then
-    local _, _ = sys.close(master)
-    local _, _ = sys.close(slave)
-    return nil, "terminal: " .. nonblocking_why
-  end
-  local size, _ = sys.winsize(input)
-  if size ~= nil then
-    local _, _ = sys.setwinsize(master, size.rows, size.columns)
-  end
+  local rows, columns = window(shown)
+  local pty: Child.PtyOptions = { streams = streams }
+  if rows >= 0 then pty.rows, pty.columns = rows, columns end
   -- Held before the program starts, and closed after it has ended, so a
   -- signal that comes between never finds it unguarded.
   local opened, guard_why = Child.guard()
-  if opened == nil then
-    local _, _ = sys.close(master)
-    local _, _ = sys.close(slave)
-    return nil, "terminal: " .. guard_why
-  end
+  if opened == nil then return nil, "terminal: " .. guard_why end
   local guard <close> = opened
-  local started, start_why = Child.start_on_terminal(argv, opts, slave)
-  -- The program holds its own slave now; ours would keep the master from
-  -- ever reading the end of the program's output.
-  local _, _ = sys.close(slave)
-  if started == nil then
-    local _, _ = sys.close(master)
-    return nil, start_why
-  end
-  local running <close> = started
+  local started, start_why = Child.start_on_pty(argv, opts, pty)
+  if started == nil then return nil, start_why end
+  local master = started.master
   local filter = TermFilter.new()
   local restoring <close>: Restoring = setmetatable({
-    input = input, output = output, saved = nil, filter = filter,
+    input = input, output = shown, master = master, saved = nil, filter = filter,
   }, restoring_mt)
-  local raw, raw_why = sys.tcraw(input)
-  if not raw then
-    local _, _ = sys.close(master)
-    return nil, "terminal: " .. raw_why
+  local running <close> = started.child
+  local nonblocking, nonblocking_why = sys.set_nonblocking(master, true)
+  if not nonblocking then return nil, "terminal: " .. nonblocking_why end
+  if keys then
+    local raw, raw_why = sys.tcraw(input)
+    if not raw then return nil, "terminal: " .. raw_why end
+    restoring.saved = saved
   end
-  restoring.saved = saved
 
+  -- TODO: make the caller's output non-blocking for the run, and restore
+  -- it, once cosmic.sys can read a descriptor's O_NONBLOCK (fd_flags
+  -- answers the descriptor's flags alone): the terminal's open file
+  -- description is shared with the caller's shell and every process
+  -- beside it, so setting the flag with no way to put back what it was
+  -- risks leaving the shell's terminal non-blocking. Until then a write
+  -- to a terminal that has stopped taking output (flow control) stops
+  -- this loop, signals included, until it takes it again.
   -- TODO: wake on SIGWINCH and catch SIGHUP, once Child.guard (or a
   -- cosmic.sys binding) can hold signals beyond SIGINT and SIGTERM: the
   -- caller's window is looked at every TICK_MS instead of when it changes,
   -- and a SIGHUP sent to this process (a hangup of its terminal needs no
   -- handler) ends it with the terminal still raw.
   local pending = ""
-  local keys_open = true
+  local keys_open = keys
   local master_open = true
   local signals = 0
-  local seen = window(input)
+  local seen_rows, seen_columns = window(shown)
   local result: Child.Result
   local failure: string
+  -- Where only stdin is a terminal, a write that fails (a terminal open
+  -- for reading alone) loses an echo, and ends nothing.
+  local echo_only = shown == input and not sys.isatty(output) and not sys.isatty(errors)
 
   --- Writes what the master will take of `pending`.
   local function flush_pending(): boolean
@@ -237,8 +265,8 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
       pending = pending .. answers
     end
     if passed ~= "" then
-      local written, why = write_all(output, passed)
-      if not written then
+      local written, why = write_all(shown, passed)
+      if not written and not echo_only then
         failure = "terminal: writing the program's output: " .. why
         return -1
       end
@@ -258,12 +286,11 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
         local _, _ = running:close()
       end
     end
-    local now = window(input)
-    if now ~= seen then
-      seen = now
-      local resized, _ = sys.winsize(input)
-      if resized ~= nil then
-        local _, _ = sys.setwinsize(master, resized.rows, resized.columns)
+    local now_rows, now_columns = window(shown)
+    if now_rows ~= seen_rows or now_columns ~= seen_columns then
+      seen_rows, seen_columns = now_rows, now_columns
+      if now_rows >= 0 then
+        local _, _ = sys.setwinsize(master, now_rows, now_columns)
       end
     end
     local status, why = running:try_wait()
@@ -291,11 +318,11 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
       end
     end
     if ready[1] ~= 0 then
-      local keys, _, errno = sys.read(input, CHUNK)
-      if keys ~= nil and keys ~= "" then
-        pending = pending .. keys
+      local typed, _, errno = sys.read(input, CHUNK)
+      if typed ~= nil and typed ~= "" then
+        pending = pending .. typed
         local _ = flush_pending()
-      elseif keys == "" or (errno ~= sys.EAGAIN and errno ~= sys.EINTR) then
+      elseif typed == "" or (errno ~= sys.EAGAIN and errno ~= sys.EINTR) then
         -- The caller's terminal has gone: hang the program up as its own
         -- terminal's hangup would, and wait for it to go.
         keys_open = false
@@ -312,7 +339,6 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
       budget = budget - count
     end
   end
-  local _, _ = sys.close(master)
   if failure ~= nil then return nil, failure end
   return result, ""
 end

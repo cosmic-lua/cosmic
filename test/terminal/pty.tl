@@ -113,26 +113,45 @@ else
     assert(sys.close(pty.slave))
     assert(sys.close(pty.master))
 
-    -- The relay's own start accepts the terminal under a policy, as the
-    -- program's stdio and its controlling terminal, and still refuses one
-    -- on another descriptor.
-    pty = assert(sys.openpty())
-    local other = assert(sys.openpty())
-    assert(sys.tcraw(pty.slave))
+    -- The one start that gives a policy's child a terminal opens the pty
+    -- itself, so a terminal the caller holds reaches the child by no
+    -- entry point: not as stdio or on another descriptor through
+    -- Child.start (refused above), and not through this either.
+    local real = assert(sys.openpty())
     local program = { "/bin/sh", "-c", "test -t 0 && test -t 1 && test -t 2 && printf held-terminal" }
-    child, trouble = Child.start_on_terminal(program,
-      { policy = { profiles = { "system" } }, fds = { [3] = other.slave } }, pty.slave)
-    assert_terminal_refusal(child, trouble, "fds[3]")
-    local own_stdin = pcall(Child.start_on_terminal, program, { stdin = "null" }, pty.slave)
-    assert(not own_stdin)
-    local held = assert(Child.start_on_terminal(program, { policy = { profiles = { "system" } } }, pty.slave))
-    assert(sys.close(pty.slave))
-    assert(Poll.readable(pty.master, Clock.seconds(5)))
-    assert((assert(sys.read(pty.master, 100))) == "held-terminal")
-    assert((assert(held:wait())).code == 0)
-    assert(sys.close(pty.master))
-    assert(sys.close(other.slave))
-    assert(sys.close(other.master))
+    local held_policy: Child.Options = { policy = { profiles = { "system" } } }
+    local function refused_on_pty(opts: Child.Options, streams: {integer}, slot: string)
+      opts.policy = held_policy.policy
+      local started, refusal = Child.start_on_pty(program, opts, { streams = streams })
+      assert(started == nil)
+      assert_terminal_refusal(nil, refusal, slot)
+    end
+    refused_on_pty({ stdin = real.slave }, { 1 }, "stdio[0]")
+    refused_on_pty({ stdout = real.slave }, { 0 }, "stdio[1]")
+    refused_on_pty({ stderr = real.slave }, { 0 }, "stdio[2]")
+    refused_on_pty({ stdout = "null", stderr = "null", fds = { [3] = real.slave } },
+      { 0 }, "fds[3]")
+    local also = pcall(Child.start_on_pty, program, { stdin = real.slave }, { streams = { 0 } })
+    assert(not also, "a stream on the pty takes no descriptor of the caller's")
+    assert(sys.close(real.slave))
+    assert(sys.close(real.master))
+
+    local started = assert(Child.start_on_pty(program, held_policy, { streams = { 0, 1, 2 }, rows = 30, columns = 90 }))
+    assert(Poll.readable(started.master, Clock.seconds(5)))
+    assert((assert(sys.read(started.master, 100))) == "held-terminal")
+    assert((assert(started.child:wait())).code == 0)
+    assert(sys.close(started.master))
+
+    -- Only the streams named are the pty: stdout on it, stdin none (so no
+    -- controlling terminal), stderr a pipe of its own.
+    local mixed = assert(Child.start_on_pty({ "/bin/sh", "-c",
+      "test -t 1 && ! test -t 0 && ! test -t 2 && printf out && printf err >&2" },
+      { policy = { profiles = { "system" } }, stdin = "null", stderr = "capture" }, { streams = { 1 } }))
+    assert(Poll.readable(mixed.master, Clock.seconds(5)))
+    assert((assert(sys.read(mixed.master, 100))) == "out")
+    local done = assert(mixed.child:wait())
+    assert(done.code == 0 and done.stderr == "err", tostring(done.stderr))
+    assert(sys.close(mixed.master))
   end
 end
 print("pty: PASS")

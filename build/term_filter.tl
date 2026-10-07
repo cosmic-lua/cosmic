@@ -38,6 +38,11 @@
 --- no feature the filter does not pass. Every other query (`CSI 5n`, `CSI
 --- > c`, a mode report, a window report) is dropped without an answer.
 ---
+--- WHAT A PROGRAM CAN STILL DO with what passes: cursor addressing and
+--- erasing (CUP, ED, EL) let it overwrite text already on the screen
+--- with text of its own, which a terminal's output cannot be kept from
+--- while it draws a screen at all.
+---
 --- COST is linear in the bytes fed: each byte is read once, a run of
 --- ordinary bytes is skipped by one pattern match from where the last
 --- ended, and nothing a sequence holds grows past a fixed bound
@@ -111,7 +116,7 @@ local record TermFilter
   --- A filter at the start of the program's output. The CSI sequences that
   --- pass are, by final byte: `m` (SGR: numbers, at most 32, between `;`
   --- or `:`); `A B C D E F G d` (a number); `H f r` (two numbers); `J`
-  --- (0 to 3) and `K` (0 to 2); `L M P @ X` (a number); `s` and `u` (no
+  --- (0 to 2: never 3, which erases the scrollback for good) and `K` (0 to 2); `L M P @ X` (a number); `s` and `u` (no
   --- parameters); and `h` and `l` after `?` for the private modes
   --- application cursor keys (1), wrap (7), cursor visibility (25), the
   --- alternate screen (47, 1047, 1049) and bracketed paste (2004), at
@@ -185,7 +190,7 @@ function TermFilter.new(): Filter
         pass = find(p, "^%d*;?%d*$") ~= nil and not long_number(p)
         if pass and f == "r" then region_set = true end
       elseif f == "J" then
-        pass = find(p, "^[0-3]?$") ~= nil
+        pass = find(p, "^[0-2]?$") ~= nil
       elseif f == "K" then
         pass = find(p, "^[0-2]?$") ~= nil
       elseif f == "s" or f == "u" then
@@ -363,7 +368,8 @@ function TermFilter.new(): Filter
   local function restore(_self: Filter): string
     local resets: {string} = {}
     if attributes_set then resets[#resets + 1] = "\27[0m" end
-    if region_set then resets[#resets + 1] = "\27[r" end
+    -- DECSTBM homes the cursor, so the cursor is saved around it.
+    if region_set then resets[#resets + 1] = "\0277\27[r\0278" end
     local numbers: {integer} = {}
     for number in pairs(modes) do numbers[#numbers + 1] = number end
     table.sort(numbers)

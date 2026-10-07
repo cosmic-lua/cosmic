@@ -60,7 +60,7 @@ local function test_what_passes()
     sgr = "\27[1;31m\27[0m\27[m\27[38;2;10;20;30m\27[48;5;200m\27[4:3m\27[;m",
     up = "\27[A\27[5B\27[12C\27[3D\27[2E\27[F\27[7G\27[4d",
     position = "\27[H\27[2;3H\27[;5H\27[2;f\27[10;10f",
-    erase = "\27[J\27[0J\27[1J\27[2J\27[3J\27[K\27[1K\27[2K",
+    erase = "\27[J\27[0J\27[1J\27[2J\27[K\27[1K\27[2K",
     region = "\27[r\27[1;24r",
     edit = "\27[L\27[3M\27[2P\27[4@\27[5X",
     save = "\27[s\27[u\27" .. "7\27" .. "8",
@@ -111,7 +111,7 @@ local function test_other_csi_is_dropped()
   check("prefix after a parameter", "a\27[1?hb", "ab")
   check("three coordinates", "a\27[1;2;3Hb", "ab")
   check("two movement parameters", "a\27[1;2Ab", "ab")
-  check("erase out of range", "a\27[9J\27[3K\27[?2Jb", "ab")
+  check("erase out of range", "a\27[9J\27[3J\27[3K\27[?2Jb", "ab")
   check("save with parameters", "a\27[1s\27[2ub", "ab")
   check("colon in a movement", "a\27[1:2Hb", "ab")
   check("device status", "a\27[5nb", "ab")
@@ -193,7 +193,7 @@ local function test_restore_returns_the_terminal_to_where_it_started()
   assert(filter:restore() == "")
   filter:feed("\27[?25l\27[?1049h\27[?2004h\27[?7l\27[1m\27[1;5r\27[?1h\27[?1l")
   local restored = filter:restore()
-  assert(restored == "\27[0m\27[r\27[?7h\27[?25h\27[?1049l\27[?2004l", string.format("%q", restored))
+  assert(restored == "\27[0m\0277\27[r\0278\27[?7h\27[?25h\27[?1049l\27[?2004l", string.format("%q", restored))
   assert(filter:restore() == "")
   filter:feed("\27[0m\27[?25h\27[?25l\27[?25h")
   assert(filter:restore() == "")

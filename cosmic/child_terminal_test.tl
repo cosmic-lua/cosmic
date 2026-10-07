@@ -1,20 +1,17 @@
 local Child = require("cosmic.child")
 
---- The start that gives a program a terminal takes it as all three of
---- the program's streams, and no stream or input of its own beside it.
-local function test_start_on_terminal_takes_no_streams_of_its_own()
-  for _, field in ipairs({ "stdin", "stdout", "stderr" }) do
-    local opts: Child.Options = {}
-    if field == "stdin" then
-      opts.stdin = "null"
-    elseif field == "stdout" then
-      opts.stdout = "null"
-    else
-      opts.stderr = "null"
-    end
-    local ok, why = pcall(Child.start_on_terminal, { "/bin/true" }, opts, 9)
-    assert(not ok and tostring(why):find("takes no stdin, stdout, stderr or input", 1, true), tostring(why))
+--- A pty's streams are named by number, each once and at least one, and
+--- one the pty takes names no descriptor of the caller's.
+local function test_start_on_pty_refuses_what_could_name_a_terminal_of_the_callers()
+  local function raises(opts: Child.Options, streams: {integer}, why: string)
+    local ok, trouble = pcall(Child.start_on_pty, { "/bin/true" }, opts, { streams = streams })
+    assert(not ok and tostring(trouble):find(why, 1, true), tostring(trouble))
   end
-  local ok, why = pcall(Child.start_on_terminal, { "/bin/true" }, { input = "x" }, 9)
-  assert(not ok and tostring(why):find("takes no stdin", 1, true), tostring(why))
+  raises({ stdin = "null" }, { 0 }, "takes no stdin")
+  raises({ input = "x" }, { 0 }, "takes no stdin")
+  raises({ stdout = "null" }, { 1 }, "takes no stdin")
+  raises({ stderr = "null" }, { 2 }, "takes no stdin")
+  raises({}, {}, "at least one stream")
+  raises({}, { 0, 0 }, "each of 0, 1 and 2 once")
+  raises({}, { 3 }, "each of 0, 1 and 2 once")
 end

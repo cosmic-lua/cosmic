@@ -116,7 +116,7 @@ local function unsafe(out: string): string
       length = #seq:match("^\27%[%d*[ABCDEFGdLMP@X]")
     elseif seq:find("^\27%[%d?%d?%d?%d?%d?;?%d?%d?%d?%d?%d?[Hfr]") then
       length = #seq:match("^\27%[[%d;]*[Hfr]")
-    elseif seq:find("^\27%[[0-3]?J") then
+    elseif seq:find("^\27%[[0-2]?J") then
       length = #seq:match("^\27%[%d*J")
     elseif seq:find("^\27%[[0-2]?K") then
       length = #seq:match("^\27%[%d*K")
