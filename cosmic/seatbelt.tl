@@ -1,9 +1,12 @@
---- The pure part of macOS policy enforcement: a [`Sandbox.Policy`] as
+--- macOS policy enforcement's profile: a [`Sandbox.Policy`] as
 --- default-deny SBPL and a separate table of path parameters. Compiling
---- does not restrict a process. The caller resolves paths and their kinds
---- before compiling, then applies the profile and its rlimits before exec.
+--- does not restrict a process, nor read the host: [`Seatbelt.resolve`]
+--- reads the paths and their kinds, and the caller applies the profile and
+--- its rlimits before exec -- [`Child.start`] does, through a process of
+--- this program that executes the child's program last.
 
 local Sandbox = require("cosmic.sandbox")
+local sys = require("cosmic.sys")
 
 local record Seatbelt
   --- A grant's resolved host path. The caller obtains both fields from
@@ -50,7 +53,13 @@ local SYSTEM <const>: {{string}} = {
   { "/System/Volumes/Preboot/Cryptexes/OS", "rx" },
   { "/etc/passwd", "r" }, { "/etc/group", "r" }, { "/etc/localtime", "r" },
   { "/private/var/db/timezone", "r" },
-  { "/dev/null", "rw" }, { "/dev/zero", "r" },
+  -- dyld's own state: it reads its closures and shared cache map from here.
+  { "/private/var/db/dyld", "r" },
+  -- /bin/sh reads its own selection from here.
+  { "/private/var/select", "r" },
+  -- No /dev/tty: as on Linux, a child opens no terminal by name, and the
+  -- start gives it a session with none besides.
+  { "/dev/null", "rw" }, { "/dev/dtracehelper", "rw" }, { "/dev/zero", "r" },
   { "/dev/random", "r" }, { "/dev/urandom", "r" },
 }
 
@@ -86,7 +95,9 @@ local function unsupported(policy: Sandbox.Policy): string
     return "limits.processes needs a user namespace of its own"
   end
   -- TODO: take the prepared temporary directory and sealed database
-  -- grants once Child.start applies Seatbelt before exec.
+  -- grants, which Child.start makes for Landlock's start, once it makes
+  -- them for a Seatbelt start too: it applies the profile before exec
+  -- now, but grants neither.
   if policy.tmp then return "tmp needs a prepared temporary directory" end
   if policy.database ~= nil then return "database needs a prepared core and database" end
   for name in pairs(policy.set_env_digests or {}) do
@@ -106,11 +117,8 @@ end
 --- Nil and why for an invalid policy, missing path or unsupported field.
 ---
 --- The returned rlimits must be applied separately. This is preparation
---- only: Child.start and Sandbox.restrict still refuse macOS enforcement.
--- TODO: apply through one C function wrapping sandbox_init_with_parameters
--- once the macOS enforcement binding lands. Keep sandbox-exec fallback
--- there: the private API supports both restrict and spawn, without another
--- executable or profile text in argv; never retry a policy refusal.
+--- only: [`Child.start`] applies the profile and the limits on macOS, in
+--- a process of this program that executes the child's program last.
 function Seatbelt.compile(policy: Sandbox.Policy, options?: Seatbelt.Options): Seatbelt.Profile | nil, string
   -- Sandbox.check verifies a database by reading it; this pure compiler
   -- refuses one before that call, until the child hands it prepared grants.
@@ -164,14 +172,27 @@ function Seatbelt.compile(policy: Sandbox.Policy, options?: Seatbelt.Options): S
     set_env_digests = policy.set_env_digests, user = policy.user, group = policy.group })
   if merged == nil then return nil, failure end
   local fattr = false
+  -- What every program needs to start, whatever it is granted. Contents
+  -- and writes stay denied; only these answers are given:
+  --   file-read-metadata: stat of any path. dyld and libc stat each
+  --     component of every path they open, from the root down, so a
+  --     grant's own path is not enough to reach it. It shows that a path
+  --     exists and its size, mode and times, never what it holds.
+  --   file-read-data of the root alone: dyld reads "/" itself as a
+  --     directory as it starts, and an abort follows a refusal. It lists
+  --     the root's entries, and nothing below it.
+  --   sysctl-read: the kernel's facts (hw.*, kern.osversion, ...) libSystem
+  --     reads as it starts, which hold nothing of the user's.
   local text: {string} = { "(version 1)", "(deny default)",
+    "(allow file-read-metadata)", '(allow file-read-data (literal (param "ROOT")))',
+    "(allow sysctl-read)",
     "(allow signal (target self))", "(allow process-info-pidinfo (target self))" }
   for _, promise in ipairs(merged.promises) do
     if promise == "fork" then text[#text + 1] = "(allow process-fork)" end
     if promise == "jit" then text[#text + 1] = "(allow dynamic-code-generation)" end
     if promise == "fattr" then fattr = true end
   end
-  local parameters: {string:string} = {}
+  local parameters: {string:string} = { ROOT = "/" }
   for i, grant in ipairs(merged.grants) do
     local name = "PATH_" .. i
     parameters[name] = grant.path
@@ -197,6 +218,48 @@ function Seatbelt.compile(policy: Sandbox.Policy, options?: Seatbelt.Options): S
   local rlimits: {string:integer} = { nofile = merged.limits.open_files or 1024, core = 0 }
   rlimits.fsize, rlimits.cpu = merged.limits.file_bytes, merged.limits.cpu_seconds
   return { text = table.concat(text, "\n") .. "\n", parameters = parameters, rlimits = rlimits }, ""
+end
+
+--- What [`Seatbelt.compile`] needs of the host for `policy`: each grant's
+--- real path and kind, keyed as the policy gives the path, and, for the
+--- "system" profile, each path of it this host has. A relative grant is
+--- from `base`, where given. `executable` is this program's own path, for
+--- the "cosmic" profile, resolved like a grant. Nil and why where a grant's
+--- path is not there.
+function Seatbelt.resolve(policy: Sandbox.Policy, base?: string, executable?: string): Seatbelt.Options | nil, string
+  local paths: {string:Seatbelt.Path} = {}
+  -- "" where `at` was resolved, or why not.
+  local function look(name: string, at: string): string
+    local real, trouble = sys.realpath(at)
+    if real == nil then return trouble end
+    local found, why = sys.stat(real)
+    if found == nil then return why end
+    paths[name] = { path = real, directory = found.kind == "dir" }
+    return ""
+  end
+  for _, name in ipairs(policy.profiles or {}) do
+    if name == "system" then
+      -- A path this host lacks is one its system has none of.
+      for _, entry in ipairs(SYSTEM) do
+        local _ = look(entry[1], entry[1])
+      end
+    end
+  end
+  for _, grant in ipairs(policy.grants or {}) do
+    local at = grant.path
+    if base ~= nil and at:sub(1, 1) ~= "/" then at = base .. "/" .. at end
+    local trouble = look(grant.path, at)
+    if trouble ~= "" then
+      return refuse("grant " .. string.format("%q", grant.path) .. ": " .. trouble)
+    end
+  end
+  if executable ~= nil then
+    local trouble = look(executable, executable)
+    if trouble ~= "" then
+      return refuse("executable " .. string.format("%q", executable) .. ": " .. trouble)
+    end
+  end
+  return { paths = paths, executable = executable }, ""
 end
 
 return Seatbelt

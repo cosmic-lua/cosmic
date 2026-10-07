@@ -70,6 +70,7 @@ local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local Rules = require("cosmic.sandbox")
+local Seatbelt = require("cosmic.seatbelt")
 local sys = require("cosmic.sys")
 local Stream = require("cosmic.stream")
 local Clock = require("cosmic.clock")
@@ -438,9 +439,25 @@ local record Options
   --- directory is not read. A policy whose `stdio` is a terminal is not
   --- refused.
   ---
+  --- On macOS the child is held by Seatbelt instead ([`Seatbelt.compile`]),
+  --- by a process of this program that applies the profile to itself and
+  --- then executes the child's program, so a profile the system refuses
+  --- fails the start, with its text, and nothing runs unconfined. It holds
+  --- `grants` (a relative one from `cwd`, which must exist, and the child's
+  --- program needs `rx` -- the "system" profile gives the host's own),
+  --- `promises` `fork`, `jit` and `fattr`, `env`, `set_env` and `limits`
+  --- but `processes`. It fails, saying so, for what Seatbelt cannot hold --
+  --- `isolate`, `connect`, `loopback`, `nest`, a grant's `from`,
+  --- `limits.processes` -- and for what is not yet held there: `tmp`, a
+  --- `database`, and a program that is this program's own. The child leads
+  --- a session of its own, with no controlling terminal, so `process_group`
+  --- false is refused there. A start from a
+  --- process Seatbelt already holds fails closed, as its profile is refused
+  --- there, and nothing runs.
+  ---
   --- Not with `sandbox`, whose root of its own it does not build. Where
-  --- the platform has no Landlock or seccomp (anything but Linux) the
-  --- start fails. Nothing is printed about grants.
+  --- the platform has neither Landlock and seccomp nor Seatbelt the start
+  --- fails. Nothing is printed about grants.
   policy: Rules.Policy
   --- The IDs and privilege limits for this launch. Excludes `policy` and
   --- sandbox unveil, offline, user and group. Child setup errors precede exec;
@@ -2385,6 +2402,9 @@ local record Held
   argv: {string}
   --- The descriptors the relaunch hands the child, by its number.
   fds: {integer:integer}
+  --- Whether `sandbox` holds the child by Seatbelt, as on macOS, and not
+  --- by Landlock and seccomp.
+  seatbelt: boolean
 end
 
 --- The most grants spawn takes (`GRANT_MAX` in core/syscalls.c), the
@@ -3312,6 +3332,84 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
     argv = run_argv, fds = relaunch ~= nil and relaunch.fds or nil }, ""
 end
 
+--- Whether this host holds a policy's child by Seatbelt, which is how
+--- macOS holds one, and Linux's Landlock and seccomp are not there.
+local function holds_by_seatbelt(): boolean
+  local names, _ = sys.uname()
+  return names ~= nil and names.sysname == "Darwin"
+end
+
+--- A policy's start on macOS: the profile [`Seatbelt.compile`] makes of
+--- it, with the paths it names resolved on this host, for spawn to apply
+--- before it runs the program, and the environment and limits the policy
+--- gives. Nil and why for a policy Seatbelt cannot hold or not yet: its
+--- own refusals, for `isolate`, `connect`, `loopback`, `nest`, `from`,
+--- `limits.processes`, `tmp`, a `database` and a digest without its value.
+--- It acquires nothing.
+local function held_by_seatbelt(argv: {string}, opts: Options): Held | nil, string
+  local merged, why = Rules.merge(opts.policy)
+  if merged == nil then return nil, why end
+  -- The child leads a session of its own, so that it has no controlling
+  -- terminal (the caller's would let it push input into the caller's
+  -- session): a session is a group of its own too, so a start that wants
+  -- the caller's group is refused rather than given another.
+  if opts.process_group == false then
+    return nil, "sandbox: a policy's child on macOS leads a session, and so a process group, of " ..
+      "its own, so process_group = false is refused"
+  end
+  local own: string
+  local executable, _ = Proc.executable()
+  if executable ~= nil then
+    local real, _ = sys.realpath(executable)
+    own = real
+  end
+  local options, resolve_trouble = Seatbelt.resolve(opts.policy, opts.cwd, own)
+  if options == nil then return nil, "sandbox: " .. resolve_trouble end
+  local profile, compile_trouble = Seatbelt.compile(opts.policy, options)
+  if profile == nil then return nil, "sandbox: " .. compile_trouble end
+  -- TODO: run this program under a policy on macOS, by a relaunch of its
+  -- core as Linux's start does ([`relaunch_of`]): the launcher would fork
+  -- and unpack a core into a cache the profile does not grant. It waits on
+  -- the core's descriptors and Seatbelt's grant of them.
+  if this_program(argv[1], opts.cwd) ~= nil then
+    return nil, "sandbox: this program cannot yet be run under a policy on macOS: its launcher " ..
+      "unpacks a core into a cache the profile does not grant"
+  end
+  local path = argv[1]
+  if not path:find("/", 1, true) then
+    local found, absent = Proc.find(path)
+    if found == nil then return nil, absent end
+    local real, real_trouble = sys.realpath(found)
+    if real == nil then return nil, found .. ": " .. real_trouble end
+    path = real
+  end
+  -- The program, and an interpreter its `#!` line names, are the first to
+  -- fail a profile that does not grant them, as an EPERM of the exec,
+  -- which this says in words.
+  local files, loader_trouble = Rules.loaders(path, opts.cwd)
+  if files == nil then return nil, loader_trouble end
+  local missing = ungranted(files, merged.grants, opts.cwd)
+  if missing ~= "" then return nil, "sandbox: " .. missing end
+  local parameters = 0
+  for _, _ in pairs(profile.parameters) do parameters = parameters + 1 end
+  if parameters > raw.SEATBELT_PARAMETER_MAX then
+    return nil, "sandbox: grants: the paths the profile holds, " .. parameters .. ", are past the " ..
+      "most a start takes, " .. raw.SEATBELT_PARAMETER_MAX .. "; grant a directory above them instead"
+  end
+  local env: {string:string} = {}
+  for _, name in ipairs(merged.env) do
+    local value = sys.getenv(name)
+    if value ~= nil then env[name] = value end
+  end
+  for name, value in pairs(merged.set_env) do env[name] = value end
+  local sandbox: raw_process.Sandbox = {
+    seatbelt = { profile = profile.text, parameters = profile.parameters },
+    rlimits = profile.rlimits,
+  }
+  return { path = path, env = env, tmp = "", wants_tmp = false, sandbox = sandbox, nests = false,
+    seatbelt = true }, ""
+end
+
 --- Makes the temporary directory a policy's `tmp` asks for, as an absolute
 --- path whatever TMPDIR is (the child may start in another directory),
 --- grants it `rwc` and names it in TMPDIR; it is the child's user's,
@@ -3403,7 +3501,13 @@ local function start(argv: {string}, opts: Options, pty?: Pty): Handle | nil, st
   end
   local held: Held
   if opts.policy ~= nil then
-    local made, why = held_to(argv, opts)
+    local made: Held | nil
+    local why: string
+    if holds_by_seatbelt() then
+      made, why = held_by_seatbelt(argv, opts)
+    else
+      made, why = held_to(argv, opts)
+    end
     if made == nil then return refuse("start: " .. why) end
     held = made
   end
@@ -3514,9 +3618,16 @@ local function start(argv: {string}, opts: Options, pty?: Pty): Handle | nil, st
     if held ~= nil and held.tmp ~= "" then
       local _, _ = Fs.remove_tree(held.tmp)
     end
-    -- TODO: hold a policy's child by Seatbelt on macOS, where this start
-    -- fails ENOSYS, once the design's phase 8 lands.
-    if held ~= nil and errno == sys.ENOSYS then
+    if held ~= nil and held.seatbelt and errno == sys.ENOSYS then
+      trouble = trouble .. ": this system has no sandbox_init_with_parameters, which holds a " ..
+        "policy's child by Seatbelt"
+    elseif held ~= nil and held.seatbelt and errno == sys.EPERM and
+        trouble:find("execve", 1, true) then
+      -- The profile held the start itself: what it runs is the one thing it
+      -- must grant.
+      trouble = trouble .. ": a child held by Seatbelt needs an `rx` grant for its program, " ..
+        "and the \"system\" profile for the host's own files it loads"
+    elseif held ~= nil and errno == sys.ENOSYS then
       trouble = trouble .. ": a policy is held by Landlock and seccomp, which only Linux gives"
     elseif (errno == sys.ENOENT or errno == sys.ENOTDIR) and missing_cwd(opts) then
       trouble = trouble .. ": cwd " .. string.format("%q", opts.cwd) .. " does not exist"

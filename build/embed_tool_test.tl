@@ -421,5 +421,8 @@ end
     stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   local printed = assert(r.stdout)
-  assert(String.starts_with(printed, "true\t") and printed:find("host program", 1, true), printed)
+  -- Linux refuses a host program; macOS's policy refuses a database it has no
+  -- prepared core for. Either way no program starts on the database.
+  assert(String.starts_with(printed, "true\t") and (printed:find("host program", 1, true) or
+    printed:find("database needs a prepared core", 1, true)), printed)
 end

@@ -111,7 +111,7 @@ local SITES <const>: {string:Site} = {
   -- none chooses code by it. syscalls.c asks Apple's
   -- kern.maxfilesperproc too, for the descriptor limit a start raises
   -- to: no feature.
-  ["core/syscalls.c"] = { lines = "02e9eda4b1a84a30", reads = {} },
+  ["core/syscalls.c"] = { lines = "d4945a6faa1d47ab", reads = {} },
   ["core/syscalls.h"] = { lines = "07f5fc6fd89b1e76", reads = {} },
   ["core/syscalls_test.tl"] = { lines = "06265a36a78315f4", reads = {} },
   -- The processor count on Apple (sysctlbyname("hw.ncpu")): no feature.

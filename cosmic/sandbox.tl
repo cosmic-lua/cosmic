@@ -1019,10 +1019,13 @@ end
 --- filter's rules for signals take this process's pid, so a process
 --- started afterwards, which has another, cannot signal itself, and its
 --- abort() ends by SIGSEGV.
---- Linux only; elsewhere it fails, saying so (Seatbelt waits for the
---- design's phase 8).
--- TODO: hold a process by Seatbelt on macOS, once the design's phase 8
--- lands.
+--- Linux only; elsewhere it fails, saying so: macOS holds a child by
+--- Seatbelt ([`Child.start`]), but not the running process yet.
+-- TODO: hold a process by Seatbelt on macOS: compile the policy as
+-- [`Seatbelt.compile`] does and apply it in-process through the call
+-- spawn's trampoline makes (sandbox_init_with_parameters, core/syscalls.c),
+-- once restrict_self has the thread, child and descriptor checks that
+-- hold there; it needs a binding of its own, which spawn's does not give.
 function Sandbox.restrict(policy: Sandbox.Policy, options?: Sandbox.RestrictOptions): boolean, string
   local merged, why = Sandbox.merge(policy)
   if merged == nil then return false, why end
