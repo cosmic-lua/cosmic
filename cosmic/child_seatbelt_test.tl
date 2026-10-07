@@ -13,6 +13,7 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Sandbox = require("cosmic.sandbox")
+local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local type raw_process = require("cosmic.internal.process")
@@ -247,6 +248,25 @@ local function test_a_profile_the_system_accepts_holds_the_program_by_its_parame
   local ran = assert(process.spawn(SH, { SH, "-c", "echo ran > \"$1\"", "sh", other }, nil, nil,
     nil, nil, nil, false, nil, { seatbelt = { profile = profile, parameters = { MARKER = denied } } }))
   assert(assert(process.waitpid(ran, false)).code == 0 and sys.stat(other) ~= nil)
+end
+
+--- The core a failing test ran on, as the program's own store names it.
+local function core_identity(): string
+  return "host_image=" .. tostring(Store.meta("host_image")) .. " image_hash="
+    .. tostring(Store.meta("image_hash")) .. " runtime=" .. tostring(Store.meta("runtime"))
+end
+
+--- A controlling terminal is not yet given to a program on macOS.
+local function test_a_terminal_start_is_refused_where_none_survives_the_exec()
+  macos_only()
+  local process = process_table()
+  local pid, why, errno = process.spawn(SH, { SH, "-c", "exit 0" }, nil, nil,
+    nil, nil, nil, true, nil, nil, nil, true)
+  local said = tostring(pid) .. ", " .. tostring(why) .. ", " .. tostring(errno)
+    .. " (core " .. core_identity() .. ")"
+  if pid ~= nil then process.waitpid(pid, false) end
+  assert(pid == nil, "a terminal start ran: " .. said)
+  assert(errno == sys.ENOSYS, "the refusal was not ENOSYS: " .. said)
 end
 
 --- A profile is macOS's: where Landlock and seccomp hold a child there is
