@@ -3265,11 +3265,24 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
     return refuse("start: " .. wire_trouble)
   end
   if held ~= nil then
+    -- A terminal on any descriptor the child holds, not only stdio, lets it
+    -- inject input (TIOCSTI) into the caller's session. The descriptors the
+    -- runtime retains of its own (its artifact and core) are files, and
+    -- every binding refuses them by raising; any other raise is rethrown.
     for number = 0, 2 do
       local fd = slots[number] or number
       if isatty(fd) then
         unwire(wiring, false)
         return refuse("start: sandbox: terminal stdio[" .. number .. "] needs the verb's pty relay")
+      end
+    end
+    for number, fd in pairs(slots) do
+      local looked, terminal = true, false
+      if number > 2 then looked, terminal = pcall(isatty, fd) end
+      if not looked and not tostring(terminal):find("retained", 1, true) then error(terminal, 0) end
+      if looked and terminal then
+        unwire(wiring, false)
+        return refuse("start: sandbox: terminal fds[" .. number .. "] needs the verb's pty relay")
       end
     end
   end

@@ -16,9 +16,9 @@ local function process_table(): raw_process
   error("cosmic.child has no process table")
 end
 
-local function assert_terminal_refusal(child: Child.Handle | nil, trouble: string, number: integer)
+local function assert_terminal_refusal(child: Child.Handle | nil, trouble: string, slot: string)
   assert(child == nil)
-  assert(trouble:find("terminal stdio[" .. number .. "]", 1, true), trouble)
+  assert(trouble:find("terminal " .. slot, 1, true), trouble)
 end
 
 local pty = assert(sys.openpty())
@@ -96,8 +96,12 @@ else
         options.stderr = pty.slave
       end
       local child, trouble = Child.start({ "/bin/sh", "-c", "exit 0" }, options)
-      assert_terminal_refusal(child, trouble, number)
+      assert_terminal_refusal(child, trouble, "stdio[" .. number .. "]")
     end
+    local child, trouble = Child.start({ "/bin/sh", "-c", "exit 0" }, {
+      policy = { profiles = { "system" } },
+      stdin = "null", stdout = "null", stderr = "null", fds = { [3] = pty.slave } })
+    assert_terminal_refusal(child, trouble, "fds[3]")
     assert(sys.close(pty.slave))
     assert(sys.close(pty.master))
   end
