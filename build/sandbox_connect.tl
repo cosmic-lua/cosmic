@@ -36,8 +36,7 @@
 local Clock = require("cosmic.clock")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
-local RelayConfig = require("cosmic.relay_config")
-local Wire = require("cosmic.relay_wire")
+local Relay = require("cosmic.relay")
 local sys = require("cosmic.sys")
 local bare = require("build.bare")
 local plural = require("build.plural")
@@ -73,7 +72,7 @@ local CONNECT_NS <const> = Clock.seconds(10)
 local ANSWER_NS <const> = Clock.seconds(30)
 
 --- The relay's listener as the sandbox sets `ALL_PROXY` to it.
-local PROXY <const> = "socks5h://127.0.0.1:" .. RelayConfig.socks_port
+local PROXY <const> = "socks5h://127.0.0.1:" .. Relay.Config.socks_port
 
 --- The port of `text`, a whole number from 1 to 65535, or nil.
 local function port_of(text: string): integer | nil
@@ -294,7 +293,7 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
     complain("the port is a number from 1 to 65535, not " .. bare.escape(text))
     return bare.refused
   end
-  local request, request_why = Wire.socks_client_request(host, port)
+  local request, request_why = Relay.Wire.socks_client_request(host, port)
   if request == nil then
     complain(bare.escape(host) .. ": " .. request_why)
     return bare.refused
@@ -306,7 +305,7 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
   end
   local login: string | nil
   if proxy.password ~= nil then
-    local message, login_why = Wire.socks_client_auth(proxy.user, proxy.password)
+    local message, login_why = Relay.Wire.socks_client_auth(proxy.user, proxy.password)
     if message == nil then
       complain("the userinfo of ALL_PROXY: " .. login_why)
       return bare.refused
@@ -329,10 +328,10 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
     complain(where .. ": " .. why)
     return bare.failed
   end
-  local sent, sent_why = conn:write(Wire.socks_client_greeting(login ~= nil))
+  local sent, sent_why = conn:write(Relay.Wire.socks_client_greeting(login ~= nil))
   if not sent then return fail("writing to the relay: " .. sent_why) end
   trace("greeting sent")
-  local method = Wire.socks_method_reader(login ~= nil)
+  local method = Relay.Wire.socks_method_reader(login ~= nil)
   local after_method, method_why = answered(conn, relay, function(chunk: string): string, integer, string
     local seen = method:feed(chunk)
     return seen.status, seen.consumed, seen.reason
@@ -344,7 +343,7 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
     local logged, logged_why = conn:write(login)
     if not logged then return fail("writing to the relay: " .. logged_why) end
     trace("token sent")
-    local verdict = Wire.socks_auth_status_reader()
+    local verdict = Relay.Wire.socks_auth_status_reader()
     local accepted = false
     local after_auth, auth_why = answered(conn, relay, function(chunk: string): string, integer, string
       local seen = verdict:feed(chunk)
@@ -359,7 +358,7 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
   local asked, asked_why = conn:write(request)
   if not asked then return fail("writing to the relay: " .. asked_why) end
   trace("request sent")
-  local reader = Wire.socks_answer_reader()
+  local reader = Relay.Wire.socks_answer_reader()
   local code = 0
   local rest, answer_why = answered(conn, relay, function(chunk: string): string, integer, string
     local seen = reader:feed(chunk)
@@ -369,7 +368,7 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
   if rest == nil then return fail(answer_why) end
   trace("answer read, code " .. code .. ", " .. plural.count(#rest, "byte") .. " after it")
   if code ~= 0 then
-    return fail(Wire.socks_reply_meaning(code) .. " (SOCKS reply " .. code .. "); the relay's log line says why")
+    return fail(Relay.Wire.socks_reply_meaning(code) .. " (SOCKS reply " .. code .. "); the relay's log line says why")
   end
   local carried, carry_why = carry(conn, rest, io, trace)
   if not carried then

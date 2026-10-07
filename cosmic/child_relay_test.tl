@@ -1,5 +1,5 @@
 --- [`Child.start`]'s `policy` with `connect` (cosmic/child.tl), on live
---- children: the network relay it starts for the grants (cosmic/relay_serve.tl,
+--- children: the network relay it starts for the grants (cosmic/relay/main.tl,
 --- this program's core on a database sealed for it), the proxy environment
 --- the program is given, and what the relay does to a flow it is asked for.
 --- The program is this program's core on a database sealed for it, which sends
@@ -18,7 +18,7 @@ local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
-local RelayConfig = require("cosmic.relay_config")
+local Relay = require("cosmic.relay")
 local Sandbox = require("cosmic.sandbox")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
@@ -135,6 +135,15 @@ return function(args)
     local conn, why = Net.connect(Net.tcp(args[2], math.tointeger(tonumber(args[3]))), { timeout_ns = Clock.seconds(5) })
     say("dial", conn ~= nil and "connected" or why)
   elseif args[1] == "wait" then
+    sys.nanosleep(Clock.seconds(120))
+  elseif args[1] == "later" then
+    -- Asks only once standard input ends, which the test closes when it
+    -- is ready for the request.
+    while true do
+      local data = sys.read(0, 4096)
+      if data == nil or data == "" then break end
+    end
+    through_connect("later", "127.0.0.2:" .. args[2])
     sys.nanosleep(Clock.seconds(120))
   end
   return 0
@@ -290,7 +299,7 @@ end
 --- reads, and its own network (the policy's loopback) is left direct.
 local function test_the_program_is_given_the_proxy_environment(tmp: string)
   local said = flows(tmp)
-  for name, value in pairs(RelayConfig.proxy_env({ "127.0.0.2" })) do
+  for name, value in pairs(Relay.Config.proxy_env({ "127.0.0.2" })) do
     assert(said["env_" .. name] == value, name .. " is " .. tostring(said["env_" .. name]))
   end
   assert(said.env_HTTPS_PROXY == "http://127.0.0.1:3128" and said.env_ALL_PROXY == "socks5h://127.0.0.1:1080" and
@@ -347,7 +356,7 @@ end
 
 --- The host's own addresses the relay is told include the worker's loopback.
 local function test_the_hosts_own_addresses_are_read_from_proc(_tmp: string)
-  local found = assert(RelayConfig.host_addresses())
+  local found = assert(Relay.Config.host_addresses())
   local seen = false
   for _, address in ipairs(found) do
     if address == "127.0.0.1" then seen = true end
@@ -500,6 +509,42 @@ local function test_the_relays_log_goes_to_a_descriptor_the_caller_gives(tmp: st
   assert(sys.close(writer))
   if refusal ~= nil then Test.skip(refusal) end
   assert(not program_stderr:find("not granted", 1, true), "the program's own standard error holds no line")
+end
+
+--- A relay whose every connector of a kind has ended can reach nothing
+--- of that kind again: at the next connection of that kind it logs why
+--- and ends, and so its program is ended, rather than refused each such
+--- connection for the rest of its life.
+local function test_a_relay_whose_connectors_have_all_ended_ends_with_its_program(tmp: string)
+  local database = sealed_client(tmp)
+  assert(sys.mkfifo(tmp .. "/log", 384))
+  local reader = assert(sys.open(tmp .. "/log", sys.O_RDONLY | sys.O_NONBLOCK, 0))
+  local writer = assert(sys.open(tmp .. "/log", sys.O_WRONLY, 0))
+  local refusal: string
+  serving(function(granted: integer, _: integer)
+    local options = granting(database, granted)
+    options.stdin, options.stdout, options.stderr, options.relay_log = "stream", "null", "null", writer
+    local handle, why = Child.start({ assert(Proc.executable()), "later", tostring(granted) }, options)
+    if handle == nil then
+      assert(unsandboxable(why), "the start was refused: " .. why)
+      refusal = why
+      return
+    end
+    local relay = assert(handle._relay)
+    -- Every connector the relay was handed ends, and only then does the
+    -- program ask for its target.
+    assert(relay._handover).close()
+    assert(assert(handle.stdin_stream):close())
+    local result = assert(handle:wait(Clock.seconds(20)))
+    assert(result.signal == sys.SIGKILL and not result.timed_out,
+      "the program was ended: " .. tostring(result.signal) .. " " .. tostring(result.timed_out))
+    assert(gone(relay.pid), "the relay ended")
+    local lines = assert(sys.read(reader, 65536))
+    assert(lines:find("relay: every table connector has ended: the relay ends", 1, true), "it says why: " .. lines)
+  end)
+  assert(sys.close(reader))
+  assert(sys.close(writer))
+  if refusal ~= nil then Test.skip(refusal) end
 end
 
 --- The directories of a start's making that are in the temporary directory.

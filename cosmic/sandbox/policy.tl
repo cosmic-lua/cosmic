@@ -242,7 +242,7 @@ end
 --- IPv4 address. An unbracketed IPv6 host ("::1:80" is host "::1", port 80
 --- to the split below), a bracketed IPv4 one ("[1.2.3.4]:80") and a
 --- bracketed text that is no IPv6 address ("[:]:80") are refused, as
---- [`cosmic.relay_address`]'s grants open none of them.
+--- [`cosmic.relay.address`]'s grants open none of them.
 local function connect_host_ok(host: string): boolean
   local inner = host:match("^%[(.*)%]$")
   if inner ~= nil then

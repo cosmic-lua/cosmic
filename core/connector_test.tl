@@ -4,7 +4,7 @@ local type raw_socket = require("cosmic.internal.socket")
 local type _ = require("cosmic.child")
 local type _net = require("cosmic.net")
 local Test = require("cosmic.test")
-local relay_address = require("cosmic.relay_address")
+local Relay = require("cosmic.relay")
 local sys = require("cosmic.sys")
 local DENIED <const> = 65536 -- a refusal by the lists, past any errno
 Test.policy{ loopback = { "127.0.0.1" }, promises = { "fork" } }
@@ -109,7 +109,7 @@ end
 --- The reply to a public request for `address` at `port`: the errno, and
 --- (for a connection made) nothing past it, which the caller reads.
 local function public_ask(fd: integer, address: string, port: integer, family?: integer, tail?: string): integer
-  local bytes = assert(relay_address.parse(address))
+  local bytes = assert(Relay.Address.parse(address))
   local padded = tail or string.rep("\0", 16 - #bytes)
   assert(sys.write(fd, string.pack(">I4I4I4", 0xffffffff, port, family or (#bytes == 4 and 4 or 6)) ..
       string.char(table.unpack(bytes)) .. padded) == 28)
@@ -181,7 +181,7 @@ end
 
 local function test_public_requests_are_checked_for_their_form()
   require_native_connector()
-  local pair, child = start_public({ deny = relay_address.deny_cidrs() }, 500)
+  local pair, child = start_public({ deny = Relay.Address.deny_cidrs() }, 500)
   -- Port 0 asks only for the decision: no socket, no descriptor.
   assert(public_ask(pair[1], "8.8.8.8", 0) == 0)
   assert(public_ask(pair[1], "2606:4700::1111", 0) == 0)

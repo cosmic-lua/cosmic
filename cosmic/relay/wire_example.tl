@@ -1,7 +1,7 @@
---- Worked examples for [`cosmic.relay_wire`], shown by `cosmic docs` and run by
+--- Worked examples for [`cosmic.relay.wire`], shown by `cosmic docs` and run by
 --- `cosmic test`.
 
-local relay_wire = require("cosmic.relay_wire")
+local relay_wire = require("cosmic.relay.wire")
 
 local Example = {}
 

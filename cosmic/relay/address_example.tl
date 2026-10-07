@@ -1,4 +1,4 @@
-local relay_address = require("cosmic.relay_address")
+local relay_address = require("cosmic.relay.address")
 
 local Example = {}
 

@@ -1,10 +1,10 @@
---- The client's side of [`cosmic.relay_wire`]'s SOCKS5: the greeting and
+--- The client's side of [`cosmic.relay.wire`]'s SOCKS5: the greeting and
 --- the request a client writes, and the readers of the server's method
 --- choice and of its answer. The request is checked against the relay's
 --- own reader of it, and each reader at every cut of its input.
 
 local Fixture = require("build.relay_wire_fixture")
-local Wire = require("cosmic.relay_wire")
+local Wire = require("cosmic.relay.wire")
 
 --- What `feed`, a fresh reader's, answers to `input` fed whole, in every
 --- cut into two pieces and a byte at a time, which must all be the same.

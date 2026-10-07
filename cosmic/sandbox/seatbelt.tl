@@ -110,10 +110,11 @@ end
 local function unsupported(policy: rules.Policy): string
   if #(policy.isolate or {}) > 0 then return "isolate needs namespaces, which macOS has none of" end
   -- TODO: serve `connect` on macOS with a relay that listens on the host's
-  -- loopback behind a per-sandbox token (the TODO at cosmic.relay's header, the
-  -- relay's CONNECT and SOCKS5 readers parse the credentials), whose port the
-  -- profile allows the program to reach: Seatbelt has no network namespace to
-  -- hold its listeners in, as Linux's start does ([`Child.start`]'s `connect`).
+  -- loopback behind a per-sandbox token (the TODO at cosmic.relay.server's
+  -- header, the relay's CONNECT and SOCKS5 readers parse the credentials),
+  -- whose port the profile allows the program to reach: Seatbelt has no
+  -- network namespace to hold its listeners in, as Linux's start does
+  -- ([`Child.start`]'s `connect`).
   if #(policy.connect or {}) > 0 then
     return "connect needs the network relay, which a start on macOS does not run yet"
   end

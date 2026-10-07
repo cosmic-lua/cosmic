@@ -358,7 +358,7 @@ end
 --- caller's, never untrusted.
 -- TODO: list the host's own addresses with getifaddrs once cosmic.sys carries
 -- it: the relay's starter reads them from /proc/self/net today
--- ([`cosmic.relay_config`]'s `host_addresses`), which is Linux's.
+-- ([`cosmic.relay.config`]'s `host_addresses`), which is Linux's.
 --- @param own {string} The addresses, as text
 --- @return {{integer}} Each one's bytes
 function relay_address.own_addresses(own: {string}): {{integer}}

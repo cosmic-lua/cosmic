@@ -90,9 +90,10 @@ static bool out_of_memory (int rc) { return (rc & 0xff) == SQLITE_NOMEM; }
  * through no raw function a test can replace: it takes them as it
  * loads, and only a hasher's `update` and `digest`, in the runner alone,
  * are still looked up on its metatable. [`cosmic.sandbox.relay`] shares
- * [`cosmic.net`]'s socket table, to list the name servers and resolve the
- * relay's upstream for [`cosmic.child`], which cosmic.net requires and so
- * cannot require. */
+ * [`cosmic.net`]'s socket table, to resolve the relay's upstream for
+ * [`cosmic.child`], which cosmic.net requires and so cannot require, and
+ * [`cosmic.relay.resolv`] shares it to list the name servers, which
+ * cosmic.net and the relay's starter both read. */
 static const struct raw_module {
   const char *wrapper;
   const char *raw;
@@ -115,6 +116,7 @@ static const struct raw_module {
   {"cosmic.http", "cosmic.internal.http", cosmic_open_http},
   {"cosmic.net", "cosmic.internal.socket", cosmic_open_socket},
   {"cosmic.sandbox.relay", "cosmic.internal.socket", NULL},
+  {"cosmic.relay.resolv", "cosmic.internal.socket", NULL},
   {"cosmic.json", "cosmic.internal.json", cosmic_open_json},
   {"build.fuzz", "cosmic.internal.budget", cosmic_open_budget},
   {"build.assertions", "cosmic.internal.assertions", cosmic_open_assertions},
