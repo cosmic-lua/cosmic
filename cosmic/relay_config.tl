@@ -1,8 +1,9 @@
 --- What [`Child.start`] and the network relay's process agree on, for a
 --- policy whose `connect` the relay serves ([`cosmic.relay_serve`]): the
 --- ports the program reaches the relay at, the proxy environment it is
---- given, the host's own addresses the relay refuses, and the config the
---- relay is handed on its standard input.
+--- given, the host's own addresses the relay refuses, the config the
+--- relay is handed on its standard input, and the descriptors its
+--- connectors' control streams are handed at ([`cosmic.relay_start`]).
 ---
 --- The program is told of the relay through the variables a proxy client
 --- reads (`HTTPS_PROXY`, `ALL_PROXY` and their lower-case spellings); a
@@ -15,8 +16,13 @@
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local sys = require("cosmic.sys")
+local type raw_process = require("cosmic.internal.process")
 
 local record relay_config
+  --- One numeric endpoint of a connector's table: a numeric `host` and a
+  --- `port`, 0 for any ([`Net.Endpoint`]).
+  type Endpoint = raw_process.ConnectorEndpoint
+
   --- What the relay process is told, as JSON on its standard input.
   record Config
     --- The policy's `connect` targets, `host:port`.
@@ -32,6 +38,41 @@ local record relay_config
     own_addresses: {string}
     --- Where the relay's decision lines go: "stderr" or "null".
     log: string
+    --- The numeric addresses of `https_proxy`'s host, which the starter
+    --- resolved once: the relay connects to these and resolves it never.
+    --- Nil without an upstream.
+    upstream_addresses: {string}
+    --- The table of the connector whose control stream is at
+    --- [`relay_config.table_fd`], which holds the addresses `grants` names
+    --- literally and the upstream's. Nil where none is handed.
+    table: {Endpoint}
+    --- Whether a public connector's stream is at [`relay_config.public_fd`], one that
+    --- reaches any address its deny list allows, for the names `grants`
+    --- opens.
+    public: boolean
+    --- The name servers of the connector whose stream is at
+    --- [`relay_config.name_server_fd`], its whole table; nil where none is handed.
+    name_servers: {Endpoint}
+    --- That connector's wait for each server's connection, in nanoseconds.
+    name_server_wait_ns: integer
+    --- Why no name is resolved, or nil: the relay then reaches only what
+    --- a grant names literally, and the upstream.
+    unresolved: string
+  end
+
+  --- What the relay's starter makes for it before the relay starts
+  --- ([`cosmic.relay_start`]'s `prepare`).
+  record Handover
+    --- What the relay is told of what it is handed: `upstream_addresses`,
+    --- `table`, `public`, `name_servers`, `name_server_wait_ns` and
+    --- `unresolved` are set; the starter sets the rest.
+    config: Config
+    --- The starter's ends of the connectors' control streams, by the
+    --- descriptor of the relay's each is handed at.
+    fds: {integer: integer}
+    --- Ends the connectors and reaps them, once the relay has ended or
+    --- will not start. Safe to call more than once.
+    close: function()
   end
 
   --- The port the program reaches the relay's HTTP CONNECT listener at,
@@ -39,10 +80,26 @@ local record relay_config
   http_port: integer
   --- The port of the relay's SOCKS5 listener.
   socks_port: integer
+  --- The relay's descriptor of the control stream of its table's
+  --- connector ([`Config.table`]).
+  table_fd: integer
+  --- Of the public connector's ([`Config.public`]).
+  public_fd: integer
+  --- Of the name servers' connector's ([`Config.name_servers`]).
+  name_server_fd: integer
+  --- The wait for each connection the table's and the public connector
+  --- make, in nanoseconds (10 seconds): the starter starts them with it,
+  --- and the relay asks them with no less, so that every request is
+  --- answered before the relay gives up on it and the stream stays in step.
+  connect_ns: integer
 end
 
 relay_config.http_port = 3128
 relay_config.socks_port = 1080
+relay_config.table_fd = 4
+relay_config.public_fd = 5
+relay_config.name_server_fd = 6
+relay_config.connect_ns = 10000000000
 
 --- The variables the relay sets for the program, which a policy with
 --- `connect` may not set itself.
@@ -132,7 +189,7 @@ end
 
 -- TODO: read the host's own addresses with getifaddrs once cosmic.sys carries
 -- it: /proc/self/net is Linux's, and shows the network of the process that
--- reads it, which is the relay's too (it keeps the host's).
+-- reads it, the starter's, which its connectors reach from.
 --- The addresses of this host's interfaces ([`parse_addresses`]), read from
 --- /proc/self/net. Nil and why where /proc/self/net/fib_trie cannot be read: the relay
 --- must not run without knowing them, since it would then connect to the
@@ -158,9 +215,18 @@ end
 --- @param config Config What the relay is told
 --- @return string The line, with no newline
 function relay_config.encode(config: relay_config.Config): string
+  local function endpoints(list: {relay_config.Endpoint}): any
+    if list == nil then return nil end
+    local out: {any} = {}
+    for i, entry in ipairs(list) do out[i] = { host = entry.host, port = entry.port } end
+    return Json.array(out)
+  end
   local encoded, why = Json.encode({
     grants = Json.array(config.grants), https_proxy = config.https_proxy, no_proxy = config.no_proxy,
     own_addresses = Json.array(config.own_addresses), log = config.log,
+    upstream_addresses = config.upstream_addresses ~= nil and Json.array(config.upstream_addresses) or nil,
+    table = endpoints(config.table), public = config.public, name_servers = endpoints(config.name_servers),
+    name_server_wait_ns = config.name_server_wait_ns, unresolved = config.unresolved,
   })
   if encoded == nil then error("relay_config: " .. tostring(why), 2) end
   return encoded
@@ -173,6 +239,22 @@ local function strings(value: any, name: string): {string} | nil, string
   for i, entry in ipairs(value) do
     if not entry is string then return nil, name .. "[" .. i .. "] is not a string" end
     out[i] = entry
+  end
+  return out, ""
+end
+
+--- The endpoints of `value`, a list of at most 128, or nil and why.
+local function endpoints_of(value: any, name: string): {relay_config.Endpoint} | nil, string
+  if not value is {any} then return nil, name .. " is not a list" end
+  if #value > 128 then return nil, name .. " holds more than 128 endpoints" end
+  local out: {relay_config.Endpoint} = {}
+  for i, entry in ipairs(value) do
+    if not entry is {string: any} then return nil, name .. "[" .. i .. "] is not an endpoint" end
+    local host, port = entry.host, entry.port
+    if not host is string or not port is integer or port < 0 or port > 65535 then
+      return nil, name .. "[" .. i .. "] is not a host and a port from 0 to 65535"
+    end
+    out[i] = { host = host, port = port }
   end
   return out, ""
 end
@@ -200,6 +282,33 @@ function relay_config.decode(text: string): relay_config.Config | nil, string
   local config: relay_config.Config = { grants = grants, own_addresses = own, log = log }
   if https_proxy is string then config.https_proxy = https_proxy end
   if no_proxy is string then config.no_proxy = no_proxy end
+  if value.upstream_addresses ~= nil then
+    local addresses, why_addresses = strings(value.upstream_addresses, "upstream_addresses")
+    if addresses == nil then return nil, why_addresses end
+    config.upstream_addresses = addresses
+  end
+  if value.table ~= nil then
+    local listed, why_table = endpoints_of(value.table, "table")
+    if listed == nil then return nil, why_table end
+    config.table = listed
+  end
+  local public = value.public
+  if public ~= nil and not public is boolean then return nil, "public is not a boolean" end
+  config.public = public == true
+  if value.name_servers ~= nil then
+    local servers, why_servers = endpoints_of(value.name_servers, "name_servers")
+    if servers == nil then return nil, why_servers end
+    local wait = value.name_server_wait_ns
+    if not wait is integer or wait < 1 then
+      return nil, "name_server_wait_ns is not a positive integer"
+    end
+    config.name_servers, config.name_server_wait_ns = servers, wait
+  end
+  local unresolved = value.unresolved
+  if unresolved ~= nil and not unresolved is string then
+    return nil, "unresolved is not a string"
+  end
+  if unresolved is string then config.unresolved = unresolved end
   return config, ""
 end
 

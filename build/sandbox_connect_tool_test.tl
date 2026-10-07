@@ -1,8 +1,8 @@
 --- `cosmic sandbox --connect` and `cosmic sandbox connect`, run as this
 --- program: the relay's client as the program of a sandbox, as ssh runs it
 --- for a ProxyCommand, reaching a server of this test's own at 127.0.0.2
---- (which the sandbox's network does not hold, and the relay, that keeps
---- the worker's, reaches), the bytes it carries each way with their
+--- (which the sandbox's network does not hold, and the relay's connectors,
+--- started in the worker's, reach), the bytes it carries each way with their
 --- half-closes, the refusal of a port nothing grants with the relay's own
 --- decision line on the verb's standard error, and a caller's `https_proxy`
 --- as the relay's upstream. The verb starts a relay, which makes namespaces

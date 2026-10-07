@@ -1422,11 +1422,9 @@ end
 --- With none, every [`Connector.connect`] starts a process of its own,
 --- confined to the one address and port it is asked for, and ends it
 --- with the connection made: the way for a connector whose addresses are
---- known only when it connects, as a relay's are once it has resolved
---- the name a client asked for. Its cost is a process for each
+--- known only when it connects. Its cost is a process for each
 --- connection, and what it confines is the process alone: the caller
---- chooses the endpoint, as the relay does after its grants and its
---- address checks.
+--- chooses the endpoint.
 ---
 --- With `opts.public`, one process is started now (with an empty table if
 --- there are no `endpoints`) that also connects to any numeric address
@@ -1460,9 +1458,6 @@ function Net.connector(endpoints?: {Net.Endpoint}, opts?: Net.ConnectorOptions):
   return made, ""
 end
 
--- TODO: take the relay's connectors from the descriptors its starter
--- hands it with this, once the relay drops `host_network` (the next
--- changes of the relay's hardening): nothing outside the tests calls it yet.
 --- Answers a connector served by a process this one did not start: the
 --- control stream `fd` it was handed (a socket pair's end, inherited
 --- across a spawn), which the connector then owns and `close` closes,
