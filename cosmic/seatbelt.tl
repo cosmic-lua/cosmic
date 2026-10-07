@@ -28,6 +28,17 @@ local record Seatbelt
     --- The name of this program for the "cosmic" profile, with its
     --- resolved path and kind in `paths` like an explicit grant.
     executable: string
+    --- The name of the core a start of this program runs (past the
+    --- launcher, which unpacks a core into a cache no profile grants), in
+    --- `paths` like an explicit grant: granted `rx`. Required with the
+    --- policy's `database`.
+    core: string
+    --- The name of the database that core runs on (`core --database <path>`),
+    --- in `paths` like an explicit grant: granted `r`, and no more, since
+    --- the core opens it read-only and immutable, which takes no lock, no
+    --- `-wal` and no `-shm`. Required with the policy's `database`, which it
+    --- names (resolved).
+    database: string
     --- The resolved path of the pty slave that is the child's controlling
     --- terminal, or nil for none. With it the profile grants the slave and
     --- `/dev/tty`, and `/dev` to list, which no other profile does.
@@ -43,8 +54,17 @@ local record Seatbelt
     parameters: {string:string}
     --- rlimit names and values to apply before exec or restriction.
     rlimits: {string:integer}
+    --- The name of the parameter of the policy's `tmp` directory, `rwc`,
+    --- which the caller sets, to the directory's real path, once it has made
+    --- it and before it applies the profile; nil without `tmp`. Not in
+    --- `parameters`.
+    tmp: string
   end
 end
+
+--- The parameter a policy's `tmp` directory is granted through: the start
+--- makes the directory, so its path is known only after the profile.
+local TMP_PARAMETER <const> = "TMP"
 
 --- Paths a macOS "system" program needs. Unlike the Linux profile this
 --- includes the system frameworks and dyld's cryptexes; no Mach service
@@ -106,12 +126,6 @@ local function unsupported(policy: Sandbox.Policy): string
   if policy.limits ~= nil and policy.limits.processes ~= nil then
     return "limits.processes needs a user namespace of its own"
   end
-  -- TODO: take the prepared temporary directory and sealed database
-  -- grants, which Child.start makes for Landlock's start, once it makes
-  -- them for a Seatbelt start too: it applies the profile before exec
-  -- now, but grants neither.
-  if policy.tmp then return "tmp needs a prepared temporary directory" end
-  if policy.database ~= nil then return "database needs a prepared core and database" end
   for name in pairs(policy.set_env_digests or {}) do
     if policy.set_env == nil or policy.set_env[name] == nil then
       return "set_env_digests holds a digest, not a value to set"
@@ -120,21 +134,44 @@ local function unsupported(policy: Sandbox.Policy): string
   return ""
 end
 
+--- Appends to `text` the rules `letters` give at `at`, an SBPL path filter;
+--- `fattr` adds the attribute writes a `w` or `c` then allows.
+local function allow(text: {string}, fattr: boolean, letters: string, at: string)
+  if letters:find("r", 1, true) then text[#text + 1] = "(allow file-read* " .. at .. ")" end
+  if letters:find("w", 1, true) then
+    text[#text + 1] = "(allow file-write-data " .. at .. ")"
+  end
+  if letters:find("x", 1, true) then
+    text[#text + 1] = "(allow process-exec file-map-executable " .. at .. ")"
+  end
+  if letters:find("c", 1, true) then
+    text[#text + 1] = "(allow file-write-create file-write-unlink " .. at .. ")"
+  end
+  if letters:find("u", 1, true) then
+    text[#text + 1] = "(allow network-outbound " .. at .. ")"
+  end
+  if fattr and (letters:find("w", 1, true) or letters:find("c", 1, true)) then
+    text[#text + 1] = "(allow file-write-mode file-write-owner file-write-times " ..
+      "file-write-flags file-write-xattr " .. at .. ")"
+  end
+end
+
 --- Produces a default-deny profile without reading the host. `options`
 --- carries canonical host paths and directory kinds obtained by the
 --- enforcement caller. A file uses `literal`, a directory `subpath`.
 --- Every path value is a parameter, including profile and socket paths;
 --- none is interpolated into SBPL. The "system" profile is macOS's even
---- when compiling on another host; "cosmic" names `options.executable`.
+--- when compiling on another host; "cosmic" names `options.executable`,
+--- unless the policy has a `database`: the program is then that core and
+--- file alone, `options.core` (`rx`) and `options.database` (`r`), which the
+--- policy's own `database` must be. A policy's `tmp` is granted `rwc` through
+--- the parameter [`Seatbelt.Profile`]'s `tmp` names, which the caller sets.
 --- Nil and why for an invalid policy, missing path or unsupported field.
 ---
 --- The returned rlimits must be applied separately. This is preparation
 --- only: [`Child.start`] applies the profile and the limits on macOS, in
 --- a process of this program that executes the child's program last.
 function Seatbelt.compile(policy: Sandbox.Policy, options?: Seatbelt.Options): Seatbelt.Profile | nil, string
-  -- Sandbox.check verifies a database by reading it; this pure compiler
-  -- refuses one before that call, until the child hands it prepared grants.
-  if policy.database ~= nil then return refuse("database needs a prepared core and database") end
   local valid, why = Sandbox.check(policy)
   if not valid then return nil, why end
   local trouble = unsupported(policy)
@@ -166,7 +203,7 @@ function Seatbelt.compile(policy: Sandbox.Policy, options?: Seatbelt.Options): S
           if trouble ~= "" then return refuse(trouble) end
         end
       end
-    elseif name == "cosmic" then
+    elseif name == "cosmic" and policy.database == nil then
       local executable = options and options.executable
       if executable == nil then
         return refuse("profile cosmic needs this program's executable")
@@ -174,6 +211,26 @@ function Seatbelt.compile(policy: Sandbox.Policy, options?: Seatbelt.Options): S
       trouble = add(executable, "rx")
       if trouble ~= "" then return refuse(trouble) end
     end
+  end
+  -- A policy's own `database` is the file its core runs on, which a start
+  -- of this program names itself, so the two must be one file.
+  if policy.database ~= nil then
+    if options == nil or options.core == nil or options.database == nil then
+      return refuse("database needs the core to run and the database it runs on")
+    end
+    local named, held = options.paths[policy.database], options.paths[options.database]
+    if named == nil or held == nil or named.path ~= held.path then
+      return refuse("database " .. string.format("%q", policy.database) ..
+          " is not the database the core is run on, " .. string.format("%q", options.database))
+    end
+  end
+  if options ~= nil and options.core ~= nil then
+    trouble = add(options.core, "rx")
+    if trouble ~= "" then return refuse(trouble) end
+  end
+  if options ~= nil and options.database ~= nil then
+    trouble = add(options.database, "r")
+    if trouble ~= "" then return refuse(trouble) end
   end
   for _, grant in ipairs(policy.grants or {}) do
     trouble = add(grant.path, grant.letters)
@@ -208,24 +265,13 @@ function Seatbelt.compile(policy: Sandbox.Policy, options?: Seatbelt.Options): S
   for i, grant in ipairs(merged.grants) do
     local name = "PATH_" .. i
     parameters[name] = grant.path
-    local at = '(' .. (directories[grant.path] and "subpath" or "literal") .. ' (param "' .. name .. '"))'
-    if grant.letters:find("r", 1, true) then text[#text + 1] = "(allow file-read* " .. at .. ")" end
-    if grant.letters:find("w", 1, true) then
-      text[#text + 1] = "(allow file-write-data " .. at .. ")"
-    end
-    if grant.letters:find("x", 1, true) then
-      text[#text + 1] = "(allow process-exec file-map-executable " .. at .. ")"
-    end
-    if grant.letters:find("c", 1, true) then
-      text[#text + 1] = "(allow file-write-create file-write-unlink " .. at .. ")"
-    end
-    if grant.letters:find("u", 1, true) then
-      text[#text + 1] = "(allow network-outbound " .. at .. ")"
-    end
-    if fattr and (grant.letters:find("w", 1, true) or grant.letters:find("c", 1, true)) then
-      text[#text + 1] = "(allow file-write-mode file-write-owner file-write-times " ..
-        "file-write-flags file-write-xattr " .. at .. ")"
-    end
+    allow(text, fattr, grant.letters, '(' .. (directories[grant.path] and "subpath" or "literal") ..
+        ' (param "' .. name .. '"))')
+  end
+  local tmp: string
+  if policy.tmp then
+    tmp = TMP_PARAMETER
+    allow(text, fattr, "rwc", '(subpath (param "' .. tmp .. '"))')
   end
   local terminal = options and options.terminal
   if terminal ~= nil then
@@ -242,17 +288,35 @@ function Seatbelt.compile(policy: Sandbox.Policy, options?: Seatbelt.Options): S
   end
   local rlimits: {string:integer} = { nofile = merged.limits.open_files or 1024, core = 0 }
   rlimits.fsize, rlimits.cpu = merged.limits.file_bytes, merged.limits.cpu_seconds
-  return { text = table.concat(text, "\n") .. "\n", parameters = parameters, rlimits = rlimits }, ""
+  return { text = table.concat(text, "\n") .. "\n", parameters = parameters, rlimits = rlimits,
+    tmp = tmp }, ""
+end
+
+--- The grants `policy` gives on macOS before the host is read: its own
+--- and, for the "system" profile, [`Seatbelt.compile`]'s list of macOS's
+--- paths (not Linux's, which [`Sandbox.merge`] gives), each whether or not
+--- this host has it. For a check of which paths a policy reaches.
+function Seatbelt.grants(policy: Sandbox.Policy): {Sandbox.Grant}
+  local out: {Sandbox.Grant} = {}
+  for _, name in ipairs(policy.profiles or {}) do
+    if name == "system" then
+      for _, entry in ipairs(SYSTEM) do out[#out + 1] = { path = entry[1], letters = entry[2] } end
+    end
+  end
+  for _, grant in ipairs(policy.grants or {}) do out[#out + 1] = grant end
+  return out
 end
 
 --- What [`Seatbelt.compile`] needs of the host for `policy`: each grant's
 --- real path and kind, keyed as the policy gives the path, and, for the
 --- "system" profile, each path of it this host has. A relative grant is
 --- from `base`, where given. `executable` is this program's own path, for
---- the "cosmic" profile, resolved like a grant. `terminal` is the pty
---- slave's path, resolved through links for [`Seatbelt.Options.terminal`].
---- Nil and why where a grant's path is not there.
-function Seatbelt.resolve(policy: Sandbox.Policy, base?: string, executable?: string, terminal?: string): Seatbelt.Options | nil, string
+--- the "cosmic" profile, resolved like a grant; `core` and `database` are
+--- the file a start of this program runs and the one it runs on, likewise.
+--- `terminal` is the pty slave's path, resolved through links for
+--- [`Seatbelt.Options.terminal`]. Nil and why where a grant's path is not there.
+function Seatbelt.resolve(policy: Sandbox.Policy, base?: string, executable?: string,
+                          core?: string, database?: string, terminal?: string): Seatbelt.Options | nil, string
   local paths: {string:Seatbelt.Path} = {}
   -- "" where `at` was resolved, or why not.
   local function look(name: string, at: string): string
@@ -285,6 +349,12 @@ function Seatbelt.resolve(policy: Sandbox.Policy, base?: string, executable?: st
       return refuse("executable " .. string.format("%q", executable) .. ": " .. trouble)
     end
   end
+  for _, name in ipairs({ core or "", database or "", policy.database or "" }) do
+    if name ~= "" then
+      local trouble = look(name, name)
+      if trouble ~= "" then return refuse(string.format("%q", name) .. ": " .. trouble) end
+    end
+  end
   local real_terminal: string
   if terminal ~= nil then
     local real, trouble = sys.realpath(terminal)
@@ -293,7 +363,8 @@ function Seatbelt.resolve(policy: Sandbox.Policy, base?: string, executable?: st
     end
     real_terminal = real
   end
-  return { paths = paths, executable = executable, terminal = real_terminal }, ""
+  return { paths = paths, executable = executable, core = core, database = database,
+    terminal = real_terminal }, ""
 end
 
 return Seatbelt

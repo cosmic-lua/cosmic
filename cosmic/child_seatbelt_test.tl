@@ -11,7 +11,6 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-local Proc = require("cosmic.proc")
 local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
@@ -151,12 +150,17 @@ local function test_what_seatbelt_cannot_hold_fails_the_start_with_its_own_refus
   says({ loopback = { "127.0.0.1" } }, "loopback needs a network namespace")
   says({ promises = { "nest" } }, "nest cannot be held by Seatbelt")
   says({ limits = { processes = 8 } }, "limits.processes needs a user namespace")
-  says({ tmp = true }, "tmp needs a prepared temporary directory")
   says({ set_env_digests = { X = string.rep("0", 64) } }, "set_env_digests holds a digest")
-  -- A database is a regular file the policy names, which a merge reads.
+end
+
+--- A database is the program a core runs on, so a program that is not this one
+--- has none to run on it.
+local function test_a_database_is_refused_for_a_program_that_is_not_this_one(tmp: string)
+  macos_only()
   local sealed = tmp .. "/sealed.db"
   assert(Fs.write(sealed, "not a database, but a regular file"))
-  says({ database = sealed }, "database needs a prepared core and database")
+  local why = refusal({ profiles = { "system" }, database = sealed })
+  assert(why:find("^child: start: sandbox: database ") and why:find("is not this program", 1, true), why)
 end
 
 local function test_a_grant_from_another_path_is_refused(tmp: string)
@@ -177,13 +181,6 @@ local function test_more_paths_than_a_start_takes_are_refused(tmp: string)
   end
   local why = refusal({ profiles = { "system" }, grants = grants })
   assert(why:find("^child: start: sandbox: grants: ") and why:find("past the most", 1, true), why)
-end
-
-local function test_this_program_is_not_yet_run_under_a_policy()
-  macos_only()
-  local child, why = Child.start({ assert(Proc.executable()), "x" },
-    { policy = { profiles = { "system", "cosmic" } } })
-  assert(child == nil and why:find("this program cannot yet be run under a policy", 1, true), why)
 end
 
 local function test_a_grant_that_is_not_there_fails_the_start_naming_it(tmp: string)

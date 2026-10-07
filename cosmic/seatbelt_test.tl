@@ -1,3 +1,4 @@
+local Fs = require("cosmic.fs")
 local Sandbox = require("cosmic.sandbox")
 local Seatbelt = require("cosmic.seatbelt")
 
@@ -140,7 +141,6 @@ local function test_unmet_policy_fields_are_refused()
     { { promises = { "nest" } }, "nest" },
     { { grants = { { path = "a", from = "b", letters = "r" } } }, "from" },
     { { limits = { processes = 2 } }, "limits.processes" },
-    { { tmp = true }, "tmp" },
     { { database = "/does/not/exist" }, "database" },
     { { set_env_digests = { A = string.rep("0", 64) } }, "set_env_digests" },
     { { profiles = { "unrecognized" } }, "profiles" },
@@ -160,6 +160,73 @@ local function test_connect_is_refused_naming_the_relay_macos_does_not_run()
   local out, why = Seatbelt.compile({ connect = { "example.com:443" } }, { paths = {} })
   assert(out == nil and why:find("connect needs the network relay", 1, true), tostring(why))
   assert(why:find("macOS does not run yet", 1, true), why)
+end
+
+--- `tmp`'s directory is made after the profile, so the profile grants it
+--- `rwc` through a parameter its caller sets: none is in the text or the
+--- parameters until then.
+local function test_tmp_is_granted_through_a_parameter_the_caller_sets()
+  local out = compile({ tmp = true })
+  assert(out.text == BASE .. [[(allow file-read* (subpath (param "TMP")))
+(allow file-write-data (subpath (param "TMP")))
+(allow file-write-create file-write-unlink (subpath (param "TMP")))
+]], out.text)
+  assert(out.tmp == "TMP" and out.parameters.TMP == nil)
+  assert(compile({}).tmp == nil)
+  local held = compile({ tmp = true, promises = { "fattr" } })
+  assert(held.text:find('file-write-xattr (subpath (param "TMP"))', 1, true), held.text)
+end
+
+local function test_a_database_grants_its_core_and_itself_and_not_this_programs_file(tmp: string)
+  local database = tmp .. "/sealed.db"
+  assert(Fs.write(database, "a regular file"))
+  local paths: {string:Seatbelt.Path} = {
+    ["/core"] = { path = "/private/core", directory = false },
+    [database] = { path = database, directory = false },
+    ["/launcher"] = { path = "/private/launcher", directory = false },
+  }
+  local policy: Sandbox.Policy = { database = database, profiles = { "cosmic" } }
+  local out = assert(Seatbelt.compile(policy,
+    { paths = paths, core = "/core", database = database, executable = "/launcher" }))
+  assert(out.text == BASE .. '(allow file-read* (literal (param "PATH_1")))\n' ..
+      '(allow process-exec file-map-executable (literal (param "PATH_1")))\n' ..
+      '(allow file-read* (literal (param "PATH_2")))\n', out.text)
+  -- Sorted by path: the core's /private/core is before the database's path.
+  assert(out.parameters.PATH_1 == "/private/core" and out.parameters.PATH_2 == database, out.text)
+  assert(not out.text:find("write", 1, true) and not out.text:find("launcher", 1, true), out.text)
+  for _, value in pairs(out.parameters) do
+    assert(value ~= "/private/launcher", "the launcher is granted a program on a database")
+  end
+end
+
+local function test_a_database_needs_the_core_and_the_file_the_core_runs_on(tmp: string)
+  local database, other = tmp .. "/sealed.db", tmp .. "/other.db"
+  assert(Fs.write(database, "a regular file"))
+  assert(Fs.write(other, "another one"))
+  local paths: {string:Seatbelt.Path} = {
+    ["/core"] = { path = "/private/core", directory = false },
+    [database] = { path = database, directory = false },
+    [other] = { path = other, directory = false },
+  }
+  local policy: Sandbox.Policy = { database = database }
+  local out, why = Seatbelt.compile(policy, { paths = paths })
+  assert(out == nil and why:find("database needs the core", 1, true), tostring(why))
+  out, why = Seatbelt.compile(policy, { paths = paths, core = "/core" })
+  assert(out == nil and why:find("database needs the core", 1, true), tostring(why))
+  out, why = Seatbelt.compile(policy, { paths = paths, core = "/core", database = other })
+  assert(out == nil and why:find("is not the database the core is run on", 1, true), tostring(why))
+  -- The same file by another name is the one.
+  paths["/by-link"] = { path = database, directory = false }
+  assert(Seatbelt.compile(policy, { paths = paths, core = "/core", database = "/by-link" }))
+end
+
+--- What a policy reaches on macOS is macOS's "system" list, not Linux's.
+local function test_the_grants_a_policy_reaches_are_macoss_own()
+  local held: {string:string} = {}
+  for _, grant in ipairs(Seatbelt.grants({ profiles = { "system" },
+      grants = { { path = "/srv", letters = "r" } } })) do held[grant.path] = grant.letters end
+  assert(held["/System/Library"] == "rx" and held["/sbin"] == "rx" and held["/srv"] == "r")
+  assert(#Seatbelt.grants({}) == 0)
 end
 
 local function test_missing_or_noncanonical_host_paths_fail_closed()
