@@ -3979,8 +3979,9 @@ COSMIC_SYSCALL(spawn, 12) {
       lua_rawget(L, -2);
       if (!lua_isinteger(L, -1)) return luaL_argerror(L, 10, "relay's fd must be a descriptor");
       lua_Integer channel = lua_tointeger(L, -1);
-      if (channel < 0 || channel > INT_MAX)
-        return luaL_argerror(L, 10, "relay's fd is out of range");
+      /* Below 3 it would be a stdio descriptor the child may leave inherited. */
+      if (channel < 3 || channel > INT_MAX)
+        return luaL_argerror(L, 10, "relay's fd is out of range: 3 or more");
       cosmic_argfd(L, 10, channel);
       relay_channel = (int)channel;
       lua_pop(L, 1);
@@ -3998,6 +3999,8 @@ COSMIC_SYSCALL(spawn, 12) {
           relay_ports[i] = (int)port;
           lua_pop(L, 1);
         }
+        if (relay_ports[0] == relay_ports[1])
+          return luaL_argerror(L, 10, "a relay's two ports differ");
       }
       lua_pop(L, 1);
       if (!offline)
@@ -4034,6 +4037,11 @@ COSMIC_SYSCALL(spawn, 12) {
     if (host_network && !(sockets & COSMIC_SOCKETS_INET))
       return luaL_argerror(L, 10, "host_network needs sockets of \"inet\", which it frees of the "
                            "network namespace");
+    /* A unix socket in the host's network namespace shares its abstract names with
+     * every host process, which nothing scopes below Landlock ABI 6. */
+    if (host_network && (sockets & COSMIC_SOCKETS_UNIX))
+      return luaL_argerror(L, 10, "host_network allows \"inet\" sockets alone: a unix socket "
+                           "there reaches the host's abstract names");
     if (sockets != 0 && !offline && !host_network)
       return luaL_argerror(L, 10, "sockets require offline: the network namespace is their hold");
     /* What `nest` leaves to the child's own root and pid namespace: its files, which Landlock

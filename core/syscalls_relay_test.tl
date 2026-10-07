@@ -45,10 +45,13 @@ local process = raw_behind("cosmic.child") as raw_process -- cast: the table cor
 local socket = raw_behind("cosmic.net") as raw_socket -- cast: the table core/socket.h declares
 
 --- Whether `why`, a start's failure, is this host giving no sandbox of the
---- kind: a namespace, or the filter, refused.
+--- kind: a namespace, or the filter, refused. Never a failure of the relay's
+--- own listeners, an EPERM of its socket call among them, which the tests
+--- are about; a bare EPERM is the unshare of a plain `offline` start.
 local function unsandboxable(why: string): boolean
-  for _, word in ipairs({ "namespace", "seccomp", "not implemented", "Operation not permitted",
-      "root could not be built" }) do
+  if why:find("relay's listeners", 1, true) then return false end
+  if why == "Operation not permitted" then return true end
+  for _, word in ipairs({ "namespace", "seccomp", "not implemented", "root could not be built" }) do
     if why:find(word, 1, true) then return true end
   end
   return false
@@ -81,7 +84,11 @@ end
 local function relays(tmp: string, probe: string, sandbox: raw_process.Sandbox, ports: {integer})
   local pair = channel()
   sandbox.relay = { fd = pair[1], ports = ports }
-  local script = "connect-tcp 127.0.0.1 " .. ports[1] .. "; connect-tcp 127.0.0.1 " .. ports[2]
+  -- The program holds no socket of the relay's (the listeners and the channel
+  -- are close-on-exec or closed), so it binds a listener's port: in use, in the
+  -- network the parent's listeners are in.
+  local script = "sockets-open; bind-tcp 127.0.0.1 " .. ports[1] .. "; connect-tcp 127.0.0.1 " ..
+    ports[1] .. "; connect-tcp 127.0.0.1 " .. ports[2]
   local pid, why = start(tmp, probe, script, sandbox)
   if pid == nil then
     sys.close(pair[1])
@@ -92,7 +99,11 @@ local function relays(tmp: string, probe: string, sandbox: raw_process.Sandbox, 
   -- The start waited for the child's exec, so both descriptors are sent.
   local received = assert(socket.recvfds(pair[2], 2))
   local said, code = finished(tmp, pid)
-  assert(said == "connected\nconnected\n" and code == 0,
+  local held, bind, first, second = said:match("^(sockets %d+)\n([^\n]*)\n([^\n]*)\n([^\n]*)\n$")
+  assert(held == "sockets 0", "the program holds no listener or channel: " .. said)
+  assert(bind ~= nil and bind:find("in use", 1, true) ~= nil,
+    "the program cannot bind a relay port: " .. said)
+  assert(first == "connected" and second == "connected" and code == 0,
     "the program reaches both ports in its network: " .. said)
   Poll.run(function()
     for index = 1, 2 do
@@ -162,24 +173,12 @@ local function relay_refused(tmp: string, probe: string, sandbox: raw_process.Sa
   assert(not Fs.exists(marker), "the program ran")
 end
 
-local function test_a_port_taken_fails_the_start_naming_the_relay_before_exec(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  -- The two listeners are bound in one network: a port twice is in use.
-  local pair = channel()
-  relay_refused(tmp, probe, { offline = true, promises = {},
-    relay = { fd = pair[1], ports = { 4000, 4000 } } }, "Address in use")
-  assert(sys.close(pair[1]) and sys.close(pair[2]))
-  local strict = channel()
-  relay_refused(tmp, probe, { strict = true, offline = true, promises = {},
-    unveil = { reads = { probe, "/proc", "/dev/null" } },
-    relay = { fd = strict[1], ports = { 4000, 4000 } } }, "Address in use")
-  assert(sys.close(strict[1]) and sys.close(strict[2]))
-end
-
 local function test_a_channel_that_is_no_socket_fails_the_start_naming_the_relay(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local file = assert(sys.open(tmp .. "/not-a-socket", sys.O_CREAT | sys.O_RDWR, 420))
   relay_refused(tmp, probe, { offline = true, promises = {}, relay = { fd = file } }, "Not a socket")
+  relay_refused(tmp, probe, { strict = true, offline = true, promises = {},
+    unveil = { reads = { probe, "/proc", "/dev/null" } }, relay = { fd = file } }, "Not a socket")
   assert(sys.close(file))
 end
 
@@ -191,23 +190,37 @@ local function test_a_channel_not_open_is_refused_before_a_child(tmp: string)
   assert(pid == nil and errno == sys.EBADF, "a descriptor not open is EBADF")
 end
 
---- A script that makes an inet socket in its own network: it listens on
---- loopback, connects to itself and accepts, and says `connected`.
-local script = "loopback-tcp 127.0.0.1"
-
-local function test_host_network_lets_a_policy_child_make_an_inet_socket(tmp: string)
+--- With `host_network` a policy child's inet sockets are in the host's
+--- network: it connects to a listener this worker made.
+local function test_host_network_reaches_a_listener_of_the_hosts_own_loopback(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  local pid, why = start(tmp, probe, script,
+  local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
+  local target = "connect-tcp 127.0.0.1 " .. listener.address.port
+  local pid, why = start(tmp, probe, target,
     { promises = {}, sockets = { "inet" }, host_network = true })
   if pid == nil then
     assert(unsandboxable(why), "the start was refused: " .. why)
     Test.skip("this host gives no such sandbox: " .. why)
   end
   local said, code = finished(tmp, pid)
-  assert(said == "connected\n" and code == 0, "it makes an inet socket: " .. said)
-  -- The promises alone name no family: the filter refuses it.
-  local held, held_why = start(tmp, probe, script, { promises = {} })
-  assert(held ~= nil, tostring(held_why))
-  local refused = finished(tmp, held)
-  assert(refused:find("not permitted", 1, true), "refused without it: " .. refused)
+  assert(said == "connected\n" and code == 0, "it reaches the host's loopback: " .. said)
+  Poll.run(function()
+    local conn = assert(listener:accept(Clock.seconds(5)), "the host's listener took it")
+    assert(conn:close())
+  end)
+  assert(listener:close())
+  -- Without the flag a child with inet sockets is in a network of its own,
+  -- where that port is nothing; and one with no family named makes none.
+  local alone = Net.listen(Net.tcp("127.0.0.1", 0))
+  assert(alone ~= nil)
+  local private = start(tmp, probe, "connect-tcp 127.0.0.1 " .. alone.address.port,
+    { offline = true, promises = {}, sockets = { "inet" } })
+  assert(private ~= nil, "a policy start with inet sockets")
+  local refused = finished(tmp, private)
+  assert(refused:find("refused", 1, true), "its loopback is its own: " .. refused)
+  local held = start(tmp, probe, target, { promises = {} })
+  assert(held ~= nil)
+  local barred = finished(tmp, held)
+  assert(barred:find("not permitted", 1, true), "no family named: " .. barred)
+  assert(alone:close())
 end

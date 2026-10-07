@@ -11,6 +11,20 @@ local unix_socket = require("build.unix_socket")
 local sys = require("cosmic.sys")
 local stand_in = require("build.stand_in")
 local artifact = require("build.artifact")
+local type raw_socket = require("cosmic.internal.socket")
+
+local type Searcher = function(string): any, any
+
+--- The raw table the store's searcher hands cosmic.net's loader.
+local function raw_net(): raw_socket
+  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
+    local loader, extra = searcher("cosmic.net")
+    if type(loader) == "function" and type(extra) == "table" then
+      return extra as raw_socket -- cast: the table core/socket.h declares
+    end
+  end
+  error("cosmic.net is handed no raw table")
+end
 
 --- The loopback is for the stand-in's `connect-tcp`, whose connection to a
 --- port nothing listens on is refused.
@@ -225,6 +239,16 @@ local function test_the_process_verbs(tmp: string)
 
   local closed = run({ probe, "fd-closed 9; print closed; fd-closed 1; print never" })
   assert(closed.code == 1 and closed.stdout == "closed\n", tostring(closed.stdout))
+  -- `sockets-open` counts the sockets it holds from descriptor 3, as it has them.
+  local none = run({ probe, "sockets-open" })
+  assert(none.ok and none.stdout == "sockets 0\n", tostring(none.stdout))
+  local raw = raw_net()
+  local held = assert(raw.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 8))
+  local counted = assert(Child.run({ probe, "sockets-open" },
+    { env = {}, fds = { [3] = held:fd() }, stdout = "capture", stderr = "capture",
+      timeout_ns = Clock.seconds(30) }))
+  assert(counted.ok and counted.stdout == "sockets 1\n", tostring(counted.stdout) .. tostring(counted.stderr))
+  assert(held:close())
   for _, word in ipairs({ "abc", "-1", "" }) do
     local unnamed = run({ probe, "fd-closed " .. word .. "; print never" })
     assert(unnamed.code == 2 and unnamed.stdout == "", word .. ": " .. tostring(unnamed.code))
@@ -354,6 +378,12 @@ local function test_it_writes_to_a_descriptor_and_names_a_variable(tmp: string)
   local portless = run({ probe, "connect-tcp 127.0.0.1 70000" })
   assert(portless.code == 1 and assert(portless.stderr):find("no port 70000", 1, true),
     tostring(portless.stderr))
+  -- `bind-tcp` listens and says `bound`, and refuses a port that is none.
+  local bound = run({ probe, "bind-tcp 127.0.0.1 0" }, {})
+  assert(bound.ok and bound.stdout == "bound\n", tostring(bound.stdout))
+  local unbound = run({ probe, "bind-tcp 127.0.0.1 70000" })
+  assert(unbound.code == 1 and assert(unbound.stderr):find("no port 70000", 1, true),
+    tostring(unbound.stderr))
   assert(sys.close(fd))
   local unnamed = run({ probe, "write-fd x y" })
   assert(unnamed.code == 1 and assert(unnamed.stderr):find("no descriptor x", 1, true),

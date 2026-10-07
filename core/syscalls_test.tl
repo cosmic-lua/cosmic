@@ -1706,6 +1706,9 @@ local function test_a_policys_sandbox_fields_are_checked_before_a_start()
   says(refused_sandbox({ relay = 3 }), "relay must be a table")
   says(refused_sandbox({ relay = {}, offline = true }), "relay's fd must be a descriptor")
   says(refused_sandbox({ relay = { fd = -1 }, offline = true }), "relay's fd is out of range")
+  says(refused_sandbox({ relay = { fd = 2 }, offline = true }), "relay's fd is out of range")
+  says(refused_sandbox({ relay = { fd = 3, ports = { 4000, 4000 } }, offline = true }),
+    "a relay's two ports differ")
   says(refused_sandbox({ relay = { fd = 3, ports = { 1 } }, offline = true }),
     "relay's ports are two ports")
   says(refused_sandbox({ relay = { fd = 3, ports = { 1, "x" } }, offline = true }),
@@ -1720,6 +1723,8 @@ local function test_a_policys_sandbox_fields_are_checked_before_a_start()
   says(refused_sandbox({ host_network = true, promises = {}, sockets = { "unix" } }),
     "host_network needs sockets of \"inet\"")
   says(refused_sandbox({ host_network = true }), "host_network needs sockets of \"inet\"")
+  says(refused_sandbox({ host_network = true, promises = {}, sockets = { "inet", "unix" } }),
+    "host_network allows \"inet\" sockets alone")
   -- Without the flag the network namespace stays what holds a socket.
   says(refused_sandbox({ unveil = { tmp = 4096 } }), "unveil's tmp requires strict")
   says(refused_sandbox({ promises = {}, sockets = "inet" }), "sockets must be a list")
