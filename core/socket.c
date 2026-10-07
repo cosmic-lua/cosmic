@@ -1785,7 +1785,10 @@ COSMIC_SYSCALL(resolve_through, 6) {
   luaL_checktype(L, 5, LUA_TTABLE);
   size_t count = lua_rawlen(L, 5);
   luaL_argcheck(L, count >= 1 && count <= RESOLVE_SERVERS_MAX, 5, "servers must hold 1 through 128 servers");
-  const char *hosts = lua_isnoneornil(L, 6) ? NULL : cosmic_path(L, 6);
+  /* Read before anything is pushed: past the arguments, slot 6 is the
+   * guard's or the server list's when no hosts file is given. */
+  bool hosts_given = !lua_isnoneornil(L, 6);
+  const char *hosts = hosts_given ? cosmic_path(L, 6) : NULL;
 #if defined(__linux__)
   struct resolution *resolution = resolution_push(L, timeout);
   if (resolution == NULL) return cosmic_fail(L, ENOMEM);
@@ -1802,7 +1805,7 @@ COSMIC_SYSCALL(resolve_through, 6) {
     lua_pop(L, 1);
     resolution->servers++;
   }
-  if (resolve_refused(name, size) || (!lua_isnoneornil(L, 6) && hosts == NULL)) return cosmic_fail(L, EINVAL);
+  if (resolve_refused(name, size) || (hosts_given && hosts == NULL)) return cosmic_fail(L, EINVAL);
   if (resolve_literal(L, name, size)) return 1;
   return resolve_run(L, name, timeout, listed, hosts, resolution);
 #else
@@ -1814,7 +1817,7 @@ COSMIC_SYSCALL(resolve_through, 6) {
     (void)through_server_read(L, 5, i == 0, &server, NULL, 0);
     lua_pop(L, 1);
   }
-  if (resolve_refused(name, size) || (!lua_isnoneornil(L, 6) && hosts == NULL)) return cosmic_fail(L, EINVAL);
+  if (resolve_refused(name, size) || (hosts_given && hosts == NULL)) return cosmic_fail(L, EINVAL);
   return cosmic_fail(L, ENOSYS);
 #endif
 }

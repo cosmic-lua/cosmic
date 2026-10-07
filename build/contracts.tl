@@ -168,9 +168,6 @@ local parsing: {string: string} = {
 }
 
 local casts: {string: string} = {
-  ["cosmic/child.tl:relay_starter"] =
-    "cosmic.relay_start is loaded by its name, as it requires cosmic.child through " ..
-    "cosmic.net; RelayStarter declares the two functions cosmic.child calls of it",
   ["test/terminal/pty.tl:process_table"] =
     "the CI fixture reaches cosmic.child's raw process loader argument to test " ..
     "the controlling-terminal spawn step; core/process.h declares its shape",

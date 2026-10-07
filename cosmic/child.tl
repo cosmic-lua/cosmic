@@ -69,7 +69,9 @@
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
+local Address = require("cosmic.relay_address")
 local RelayConfig = require("cosmic.relay_config")
+local RelayStart = require("cosmic.relay_start")
 local Rules = require("cosmic.sandbox")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
@@ -3722,17 +3724,6 @@ end
 --- (it and what it requires start children through this one).
 local RELAY_MAIN <const> = "cosmic.relay_serve"
 
---- The module that starts what the relay is handed ([`cosmic.relay_start`]),
---- loaded by its name: it requires this one, through cosmic.net, so this
---- one cannot require it.
-local RELAY_START <const> = "cosmic.relay_start"
-
---- What this module calls of [`cosmic.relay_start`].
-local record RelayStarter
-  prepare: function(grants: {string}, own: {string}): RelayConfig.Handover | nil, string
-  policy: function(database: string, digest: string): Rules.Policy
-end
-
 --- How long a relay has to say it serves, from its start.
 local RELAY_READY_NS <const> = Clock.seconds(30)
 
@@ -3790,14 +3781,100 @@ local function seal_relay(): RelayProgram | nil, string
   return { dir = dir, path = path, digest = digest }, ""
 end
 
---- [`cosmic.relay_start`], or nil and why where this program does not carry it.
-local function relay_starter(): RelayStarter | nil, string
-  local loaded, module = pcall(require, RELAY_START)
-  if not loaded or type(module) ~= "table" then
-    return nil, "this program does not carry " .. RELAY_START .. ", which starts the relay's connectors (" ..
-      (tostring(module):gsub("^.-:%d+: ", "")) .. "): a policy with connect needs a program that has it"
+--- A connector of `endpoints` (and `public`'s lists, if given) waiting
+--- `wait_ns` for each connection, for the relay: the process, or nil and
+--- why. A table or list the core refuses is a why too.
+local function relay_connector(endpoints: {raw_process.ConnectorEndpoint}, wait_ns: integer,
+                               public?: raw_process.ConnectorPublic): ConnectorProcess | nil, string
+  local called, process, why = pcall(Child.start_connector, endpoints, (wait_ns + 999999) // 1000000, public)
+  if not called then return nil, (tostring(process):gsub("^.-:%d+: ", "")) end
+  if process == nil then return nil, why end
+  return process, ""
+end
+
+--- The connectors the relay of the `connect` targets `connect` is handed
+--- ([`cosmic.relay_start`]), started in this process and network: the
+--- table's, of the addresses a target names literally and the upstream
+--- proxy's; for a target that names a host, a public one (refusing the
+--- relay's deny list and `own`, the host's own addresses) and the name
+--- servers'. The upstream's host is resolved once, here, through the name
+--- servers' connector. Nil and why, with nothing left running, where the
+--- upstream cannot be used or resolved, the table would be past 128, or a
+--- connector cannot start. Name servers that cannot be read are no
+--- failure: the relay is told why, and reaches only what a target names
+--- literally, and the upstream.
+local function relay_handover(connect: {string}, own: {string}): RelayConfig.Handover | nil, string
+  local env: {string: string} = {}
+  for _, name in ipairs({ "https_proxy", "HTTPS_PROXY", "no_proxy", "NO_PROXY" }) do
+    env[name] = sys.getenv(name)
   end
-  return module as RelayStarter, ""
+  local planned, plan_why = RelayStart.plan(connect, env)
+  if planned == nil then return nil, plan_why end
+  local plan: RelayStart.Plan = planned
+  local processes: {ConnectorProcess} = {}
+  local closed = false
+  local function close()
+    if closed then return end
+    closed = true
+    for _, process in ipairs(processes) do local _ = process:close() end
+  end
+  local function fail(why: string): nil, string
+    close()
+    return nil, why
+  end
+  local config: RelayConfig.Config = { grants = connect, own_addresses = own, log = "null", public = false }
+  local fds: {integer: integer} = {}
+  local up = plan.upstream
+  local through: RelayStart.Through
+  local dns: ConnectorProcess
+  local unresolved = ""
+  if plan.names or (up ~= nil and Address.parse(up.host) == nil) then
+    local servers, servers_why = RelayStart.name_servers()
+    if servers == nil then
+      unresolved = servers_why
+    else
+      local started, dns_why = relay_connector(servers.servers, servers.wait_ns)
+      if started == nil then return fail("the name servers' connector: " .. dns_why) end
+      dns = started
+      processes[#processes + 1] = started
+      through = { fd = started.fd, name_servers = servers }
+    end
+  end
+  local addresses: {string}
+  if up ~= nil then
+    local found, found_why = RelayStart.upstream_addresses(up, through, unresolved)
+    if found == nil then return fail(found_why) end
+    addresses = found
+    config.upstream_addresses = found
+  end
+  local rows, rows_why = RelayStart.table(plan, addresses)
+  if rows == nil then return fail(rows_why) end
+  if #rows > 0 then
+    local process, why = relay_connector(rows, RelayConfig.connect_ns)
+    if process == nil then return fail("the connector of the addresses granted: " .. why) end
+    processes[#processes + 1] = process
+    config.table, fds[RelayConfig.table_fd] = rows, process.fd
+  end
+  if plan.names then
+    -- TODO: hand the relay several public connectors, and Relay.handed a
+    -- free one for each connection: one process makes one connection at a
+    -- time, so a connect that hangs holds every other connection to a
+    -- granted name for up to RelayConfig.connect_ns.
+    local process, why = relay_connector({}, RelayConfig.connect_ns, RelayStart.public(own))
+    if process == nil then return fail("the public connector: " .. why) end
+    processes[#processes + 1] = process
+    config.public, fds[RelayConfig.public_fd] = true, process.fd
+    if through == nil then
+      config.unresolved = unresolved
+    else
+      config.name_servers, config.name_server_wait_ns = through.name_servers.servers, through.name_servers.wait_ns
+      fds[RelayConfig.name_server_fd] = through.fd
+    end
+  elseif dns ~= nil then
+    -- Only the upstream's lookup needed it: the relay resolves no name.
+    local _ = dns:close()
+  end
+  return { config = config, fds = fds, close = close }, ""
 end
 
 --- What the relay of a policy with `connect` needs before a program is
@@ -3825,12 +3902,7 @@ local function prepare_relay(connect: {string}, opts: Options): RelayPrep | nil,
   if addresses == nil then return nil, address_trouble end
   local program, seal_trouble = seal_relay()
   if program == nil then return nil, seal_trouble end
-  local starter, starter_trouble = relay_starter()
-  if starter == nil then
-    local _, _ = Fs.remove_tree(program.dir)
-    return nil, starter_trouble
-  end
-  local handover, handover_trouble = starter.prepare(connect, addresses)
+  local handover, handover_trouble = relay_handover(connect, addresses)
   if handover == nil then
     local _, _ = Fs.remove_tree(program.dir)
     return nil, handover_trouble
@@ -3840,7 +3912,7 @@ local function prepare_relay(connect: {string}, opts: Options): RelayPrep | nil,
   config.https_proxy = sys.getenv("https_proxy") or sys.getenv("HTTPS_PROXY")
   config.no_proxy = sys.getenv("no_proxy") or sys.getenv("NO_PROXY")
   config.log = log == "null" and "null" or "stderr"
-  return { dir = program.dir, policy = starter.policy(program.path, program.digest),
+  return { dir = program.dir, policy = RelayStart.policy(program.path, program.digest),
     config = RelayConfig.encode(config), log = log, handover = handover }, ""
 end
 

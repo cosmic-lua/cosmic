@@ -45,6 +45,7 @@ local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local errors = require("cosmic.internal.errors")
 local relay_address = require("cosmic.relay_address")
+local relay_start = require("cosmic.relay_start")
 
 --- The raw module behind this one lives under the reserved
 --- `cosmic.internal.` namespace and arrives as the second argument
@@ -801,31 +802,6 @@ function Net.resolve(name: string, opts?: Net.ResolveOptions): {Net.Resolved} | 
   return found, ""
 end
 
---- One entry of c-ares's server list, as [`Net.nameservers`] reads it:
---- the numeric host and the TCP port, or nil for an entry of none of the
---- list's forms or a link-local server written with its interface (a "%"
---- and its name), which a connector's endpoint cannot carry.
-local function nameserver_of(entry: string): Net.Endpoint | nil
-  local host, port, rest: string, string, string
-  local uri = entry:match("^dns://(.*)$")
-  if uri ~= nil then
-    local tcp = uri:match("[?&]tcpport=(%d+)")
-    host, port, rest = uri:match("^%[([%x:%.]+)%]:(%d+)(.*)$")
-    if host == nil then host, port, rest = uri:match("^([%d%.]+):(%d+)(.*)$") end
-    if rest ~= nil and rest:sub(1, 1) == "?" then rest = "" end
-    port = tcp or port
-  else
-    host, port, rest = entry:match("^%[([%x:%.]+)%]:(%d+)(.*)$")
-    if host == nil then host, port, rest = entry:match("^([%d%.]+):(%d+)(.*)$") end
-  end
-  if host == nil or rest ~= "" then return nil end
-  local number = math.tointeger(tonumber(port))
-  if number == nil or number < 1 or number > 65535 or relay_address.parse(host) == nil then
-    return nil
-  end
-  return { host = host, port = number }
-end
-
 --- The name servers the system's configuration names, as [`Net.resolve`]
 --- reads it (resolv.conf; on macOS, the system's DNS configuration
 --- first), each a numeric [`Net.Endpoint`] at its TCP port, 53 for every
@@ -836,31 +812,12 @@ end
 --- reaches one; where every server is, the answer is nil and why. Fails
 --- with the system's words where the configuration cannot be read.
 --- `opts.resolv_conf` is for tests; an option of the wrong shape raises.
--- TODO: reach a link-local name server (fe80::1%eth0) through a connector
--- once a connector's endpoint carries an interface: it is left out today.
 function Net.nameservers(opts?: Net.NameserversOptions): {Net.Endpoint} | nil, string
   opts = opts or {}
   if type(opts) ~= "table" then error("net: options must be a table", 2) end
   local path = opts.resolv_conf
   if path ~= nil and not (path is string) then error("net: resolv_conf must be a string", 2) end
-  local listed, trouble, errno = raw.nameservers(path)
-  if listed == nil then return nil, said(trouble, errno) end
-  local servers: {Net.Endpoint} = {}
-  local skipped = ""
-  for entry in listed:gmatch("[^,]+") do
-    local server = nameserver_of(entry)
-    if server ~= nil then
-      servers[#servers + 1] = server
-    elseif entry:find("%", 1, true) ~= nil then
-      skipped = "net: the name server " .. entry .. " is scoped to an interface, which a connector cannot reach"
-    else
-      return nil, "net: the resolver lists a server as " .. entry
-    end
-  end
-  if #servers == 0 then
-    return nil, skipped ~= "" and skipped or "net: the resolver lists no name server"
-  end
-  return servers, ""
+  return relay_start.nameservers(path)
 end
 
 --- A socket connected to `address`, waiting at most `timeout_ns`: in a

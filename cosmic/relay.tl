@@ -108,6 +108,8 @@ local Log = require("cosmic.log")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Address = require("cosmic.relay_address")
+local Config = require("cosmic.relay_config")
+local RelayStart = require("cosmic.relay_start")
 local Wire = require("cosmic.relay_wire")
 local String = require("cosmic.string")
 
@@ -152,25 +154,10 @@ local record Relay
     pre_auth: integer
   end
 
+
   --- The proxy a caller's `https_proxy` names, and the hosts `no_proxy`
-  --- says to reach directly.
-  record Upstream
-    --- The proxy's host: a name or an address.
-    host: string
-    --- The proxy's port.
-    port: integer
-    --- The `Proxy-Authorization` header value to send it, or nil.
-    authorization: string
-    --- The `no_proxy` entries: hosts, domains (leading dot or not, which
-    --- match their subdomains too), `host:port`, addresses, or "*".
-    no_proxy: {string}
-    --- The numeric addresses `host` was resolved to, once, by the caller
-    --- (the sandbox's relay is told them by its starter, which put them in
-    --- its connector's table): connected to in their order, as a name's
-    --- answers are, and `host` is resolved never. Nil to resolve `host`
-    --- for each connection through it.
-    addresses: {string}
-  end
+  --- says to reach directly ([`cosmic.relay_config`]'s [`Upstream`]).
+  type Upstream = Config.Upstream
 
   --- The connectors a relay was handed by its starter, which
   --- [`Relay.handed`] makes one [`Connector`] of. A field left nil is a
@@ -245,17 +232,6 @@ local record Relay
     resolve: integer
     --- The servers in place of the system's, for tests.
     servers: {Net.Endpoint}
-  end
-
-  --- The name servers a lookup asks, and the connector's wait for each,
-  --- as [`Relay.name_servers`] chooses them: what a relay's starter
-  --- starts the connector with, to hand it to the relay
-  --- ([`cosmic.relay_start`]).
-  record NameServerPlan
-    --- The servers, each at its TCP port, at most 128.
-    servers: {Net.Endpoint}
-    --- The connector's wait for each server's connection, in nanoseconds.
-    wait_ns: integer
   end
 
   --- What a running relay has done.
@@ -381,49 +357,6 @@ local function target(host: string, port: integer): string
   return host .. ":" .. port
 end
 
-local function percent_decoded(text: string): string
-  return (text:gsub("%%(%x%x)", function(hex: string): string
-    return string.char(tonumber(hex, 16))
-  end))
-end
-
---- The least a lookup's connector waits for a server to take its
---- connection, however many servers share the lookup's time.
-local NAME_SERVER_WAIT_LEAST <const> = Clock.ms(500)
-
---- The plan of [`Relay.name_servers`]: the servers, read now, and the
---- wait for each. Raises as it does; nil and why where it answers nil
---- before it starts a connector.
-local function name_server_plan(opts: Relay.NameServersOptions, level: integer): Relay.NameServerPlan | nil, string
-  local resolve = opts.resolve or DEFAULT_TIMEOUTS.resolve
-  if math.type(resolve) ~= "integer" or resolve <= 0 then
-    error("relay: name_servers' resolve must be a positive integer of nanoseconds", level + 1)
-  end
-  local listed = opts.servers
-  if listed == nil then
-    local read, why = Net.nameservers({ resolv_conf = opts.resolv_conf })
-    if read == nil then return nil, why end
-    listed = read
-  end
-  if #listed > 128 then
-    return nil, "the system names " .. String.counted(#listed, "name server") .. ", more than a connector holds (128)"
-  end
-  local wait = math.min(Clock.seconds(60), math.max(NAME_SERVER_WAIT_LEAST, resolve // (#listed + 1)))
-  return { servers = listed, wait_ns = wait }, ""
-end
-
---- The name servers [`Relay.name_servers`] would start its connector with
---- and that connector's wait for each, for a caller that starts the
---- connector itself: `servers`, each a [`Net.Endpoint`] at its TCP port,
---- and `wait_ns`. Nil and why where they cannot be read or are more than
---- a connector holds; raises as [`Relay.name_servers`] does.
---- @param opts Relay.NameServersOptions|nil Where to read, and the lookup's time
---- @return Relay.NameServerPlan|nil The plan
---- @return string Why there is none, "" otherwise
-function Relay.name_server_plan(opts?: Relay.NameServersOptions): Relay.NameServerPlan | nil, string
-  return name_server_plan(opts or {}, 2)
-end
-
 --- The name servers `servers`, each at its port, as the "udp" addresses
 --- [`Net.ResolveOptions.servers`] takes: the list a lookup through a
 --- connector of exactly those servers asks.
@@ -452,7 +385,13 @@ end
 --- @return Net.ResolveOptions|nil The options for [`Spec.resolve`]
 --- @return string Why there are none, "" otherwise
 function Relay.name_servers(opts?: Relay.NameServersOptions): Net.ResolveOptions | nil, string
-  local plan, why = name_server_plan(opts or {}, 2)
+  opts = opts or {}
+  local resolve = opts.resolve
+  if resolve ~= nil and (math.type(resolve) ~= "integer" or resolve <= 0) then
+    error("relay: name_servers' resolve must be a positive integer of nanoseconds", 2)
+  end
+  local plan, why = RelayStart.name_servers({ resolv_conf = opts.resolv_conf, resolve = resolve,
+    servers = opts.servers })
   if plan == nil then return nil, why end
   local connector, trouble = Net.connector(plan.servers, { timeout_ns = plan.wait_ns })
   if connector == nil then return nil, trouble end
@@ -526,58 +465,15 @@ function Relay.handed(handed: Relay.Handed): Relay.Connector
   end
 end
 
---- The upstream a caller's environment names, and nil when it names none:
---- `https_proxy` (or `HTTPS_PROXY`) as `http://[user:password@]host[:port]`
---- (the scheme and the port, 80, may be left out) and `no_proxy` (or
---- `NO_PROXY`). `https://` proxies are refused, as the relay speaks plain
---- HTTP to its upstream.
+--- The upstream a caller's `https_proxy` and `no_proxy` name, or nil for
+--- none, as the relay's starter reads them ([`relay_config.upstream`]).
 ---
 ---     local upstream = assert(Relay.upstream({ https_proxy = "http://proxy.example:3128" }))
 --- @param env {string:string} The caller's environment
 --- @return Relay.Upstream|nil The upstream, nil for none
 --- @return string Why the variable cannot be used, "" otherwise
 function Relay.upstream(env: {string:string}): Relay.Upstream | nil, string
-  local value = env.https_proxy or env.HTTPS_PROXY
-  if value == nil or value == "" then return nil, "" end
-  local scheme, rest = value:match("^(%a[%w+.-]*)://(.*)$")
-  if scheme ~= nil then
-    if lower(scheme) ~= "http" then
-      -- No reason below repeats the value: it may hold a password, and no
-      -- pattern that hides one is right for every place an "@" or "/" may fall.
-      return nil, ("https_proxy has the scheme \"%s\", not http:// (the relay speaks plain HTTP to its upstream)"):format(scheme)
-    end
-  else
-    rest = value
-  end
-  rest = rest:gsub("/.*$", "")
-  local userinfo, hostport = rest:match("^(.*)@(.-)$")
-  if userinfo == nil then hostport = rest end
-  local host: string
-  local port: integer | nil = 80
-  local bracketed, after = hostport:match("^%[([^%]]*)%](.*)$")
-  if bracketed ~= nil then
-    host = bracketed
-    if after ~= "" then
-      port = after:sub(1, 1) == ":" and number_of(after:sub(2)) or nil
-    end
-  else
-    local name, at = hostport:match("^([^:]*):?(.*)$")
-    host = name
-    if at ~= "" then port = number_of(at) end
-  end
-  if host == nil or host == "" or port == nil then
-    return nil, "https_proxy has no usable host:port (http://[user:password@]host[:port])"
-  end
-  local upstream: Relay.Upstream = { host = lower(host), port = port, no_proxy = {} }
-  if userinfo ~= nil and userinfo ~= "" then
-    local user, password = userinfo:match("^([^:]*):?(.*)$")
-    upstream.authorization = "Basic " .. Codec.base64(percent_decoded(user) .. ":" .. percent_decoded(password))
-  end
-  for entry in ((env.no_proxy or env.NO_PROXY or "") .. ","):gmatch("([^,]*),") do
-    local trimmed = String.trim(entry)
-    if trimmed ~= "" then upstream.no_proxy[#upstream.no_proxy + 1] = lower(trimmed) end
-  end
-  return upstream, ""
+  return Config.upstream(env)
 end
 
 --- Whether `no_proxy` says to reach `host` on `port` directly.

@@ -13,8 +13,10 @@
 ---     local env = relay_config.proxy_env({ "127.0.0.2" })
 ---     print(env.HTTPS_PROXY) -- http://127.0.0.1:3128
 
+local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
+local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 local type raw_process = require("cosmic.internal.process")
 
@@ -22,6 +24,26 @@ local record relay_config
   --- One numeric endpoint of a connector's table: a numeric `host` and a
   --- `port`, 0 for any ([`Net.Endpoint`]).
   type Endpoint = raw_process.ConnectorEndpoint
+
+  --- The proxy a caller's `https_proxy` names, and the hosts `no_proxy`
+  --- says to reach directly.
+  record Upstream
+    --- The proxy's host: a name or an address.
+    host: string
+    --- The proxy's port.
+    port: integer
+    --- The `Proxy-Authorization` header value to send it, or nil.
+    authorization: string
+    --- The `no_proxy` entries: hosts, domains (leading dot or not, which
+    --- match their subdomains too), `host:port`, addresses, or "*".
+    no_proxy: {string}
+    --- The numeric addresses `host` was resolved to, once, by the caller
+    --- (the sandbox's relay is told them by its starter, which put them in
+    --- its connector's table): connected to in their order, as a name's
+    --- answers are, and `host` is resolved never. Nil to resolve `host`
+    --- for each connection through it ([`cosmic.relay`]).
+    addresses: {string}
+  end
 
   --- What the relay process is told, as JSON on its standard input.
   record Config
@@ -208,6 +230,79 @@ function relay_config.host_addresses(): {string} | nil, string
     inet6 = text
   end
   return relay_config.parse_addresses(trie, inet6), ""
+end
+
+--- `text` in lower case.
+local function lower(text: string): string
+  return (text:gsub("%u", string.lower))
+end
+
+--- A decimal port from 1 to 65535 with no leading zero, or nil.
+local function number_of(text: string): integer | nil
+  if not text:find("^[1-9]%d*$") or #text > 5 then return nil end
+  local port = math.tointeger(tonumber(text))
+  if port == nil or port < 1 or port > 65535 then return nil end
+  return port
+end
+
+local function percent_decoded(text: string): string
+  return (text:gsub("%%(%x%x)", function(hex: string): string
+    return string.char(tonumber(hex, 16))
+  end))
+end
+
+--- The upstream a caller's environment names, and nil when it names none:
+--- `https_proxy` (or `HTTPS_PROXY`) as `http://[user:password@]host[:port]`
+--- (the scheme and the port, 80, may be left out) and `no_proxy` (or
+--- `NO_PROXY`). `https://` proxies are refused, as the relay speaks plain
+--- HTTP to its upstream.
+---
+---     local upstream = assert(relay_config.upstream({ https_proxy = "http://proxy.example:3128" }))
+--- @param env {string:string} The caller's environment
+--- @return Upstream|nil The upstream, nil for none
+--- @return string Why the variable cannot be used, "" otherwise
+function relay_config.upstream(env: {string:string}): relay_config.Upstream | nil, string
+  local value = env.https_proxy or env.HTTPS_PROXY
+  if value == nil or value == "" then return nil, "" end
+  local scheme, rest = value:match("^(%a[%w+.-]*)://(.*)$")
+  if scheme ~= nil then
+    if lower(scheme) ~= "http" then
+      -- No reason below repeats the value: it may hold a password, and no
+      -- pattern that hides one is right for every place an "@" or "/" may fall.
+      return nil, ("https_proxy has the scheme \"%s\", not http:// (the relay speaks plain HTTP to its upstream)"):format(scheme)
+    end
+  else
+    rest = value
+  end
+  rest = rest:gsub("/.*$", "")
+  local userinfo, hostport = rest:match("^(.*)@(.-)$")
+  if userinfo == nil then hostport = rest end
+  local host: string
+  local port: integer | nil = 80
+  local bracketed, after = hostport:match("^%[([^%]]*)%](.*)$")
+  if bracketed ~= nil then
+    host = bracketed
+    if after ~= "" then
+      port = after:sub(1, 1) == ":" and number_of(after:sub(2)) or nil
+    end
+  else
+    local name, at = hostport:match("^([^:]*):?(.*)$")
+    host = name
+    if at ~= "" then port = number_of(at) end
+  end
+  if host == nil or host == "" or port == nil then
+    return nil, "https_proxy has no usable host:port (http://[user:password@]host[:port])"
+  end
+  local upstream: relay_config.Upstream = { host = lower(host), port = port, no_proxy = {} }
+  if userinfo ~= nil and userinfo ~= "" then
+    local user, password = userinfo:match("^([^:]*):?(.*)$")
+    upstream.authorization = "Basic " .. Codec.base64(percent_decoded(user) .. ":" .. percent_decoded(password))
+  end
+  for entry in ((env.no_proxy or env.NO_PROXY or "") .. ","):gmatch("([^,]*),") do
+    local trimmed = String.trim(entry)
+    if trimmed ~= "" then upstream.no_proxy[#upstream.no_proxy + 1] = lower(trimmed) end
+  end
+  return upstream, ""
 end
 
 --- `config` as one line of JSON, the text the relay reads from its

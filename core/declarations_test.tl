@@ -305,6 +305,7 @@ local wrappers <const>: {string: string} = {
   ["cosmic.json"] = "json",
   ["cosmic.net"] = "socket",
   ["cosmic.proc"] = "process",
+  ["cosmic.relay_start"] = "socket",
   ["cosmic.sandbox"] = "process",
   ["cosmic.sqlite"] = "sqlite",
   ["cosmic.store"] = "store",

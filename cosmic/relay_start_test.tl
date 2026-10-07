@@ -1,8 +1,8 @@
---- The relay's starter's side (cosmic/relay_start.tl): the connectors it
---- starts for a policy's `connect` targets and what it tells the relay of
---- them, the cap on the addresses a table holds, the upstream proxy
---- resolved once, and [`Relay.handed`], which routes the relay's
---- connections over what it was handed. A relay whose lookups a name server
+--- What the relay's starter reads and decides (cosmic/relay_start.tl):
+--- what a policy's `connect` targets open, the cap on the addresses a
+--- table holds, the name servers, the upstream proxy resolved once, and
+--- [`Relay.handed`], which routes the relay's connections over the
+--- connectors it was handed. A relay whose lookups a name server
 --- of this test's own answers holds its thread while it looks up, so it
 --- runs in a process of its own (this program, standalone) while this one
 --- is the name server, on a loopback port it listens at for TCP and binds
@@ -14,7 +14,6 @@ local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Relay = require("cosmic.relay")
-local RelayConfig = require("cosmic.relay_config")
 local RelayStart = require("cosmic.relay_start")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
@@ -34,74 +33,72 @@ local function require_native_connector()
   end
 end
 
---- A policy naming more addresses literally than a connector holds is
---- refused before anything is started, naming the count and the cap; so is
---- one whose upstream proxy's address takes the table past it.
+--- Literal targets are each address once, in the form a table takes, a
+--- port of "*" as 0; a target that is no literal of the forms a grant
+--- takes opens nothing; any name, or "*", opens names.
+local function test_a_plan_reads_the_targets_as_the_relay_does()
+  local plan = assert(RelayStart.plan({ "127.0.0.1:80", "[::1]:*", "127.0.0.1:80", "[::1:443",
+    "2001:db8::1:443", "[10.0.0.1]:80" }, {}))
+  local rows: {string} = {}
+  for _, entry in ipairs(plan.literals) do rows[#rows + 1] = entry.host .. " " .. entry.port end
+  assert(table.concat(rows, ",") == "127.0.0.1 80,0:0:0:0:0:0:0:1 0", table.concat(rows, ","))
+  assert(not plan.names and plan.upstream == nil)
+  for _, grant in ipairs({ "api.example.test:443", "*:443", "*:*" }) do
+    assert(assert(RelayStart.plan({ grant }, {})).names, grant)
+  end
+  assert(not assert(RelayStart.plan({ "a*.test:443", "a.test:0443" }, {})).names, "a pattern opens nothing")
+end
+
+--- More addresses named literally than a connector holds are refused,
+--- naming the count and the cap, before anything is started; so are those
+--- the upstream proxy's address takes past it. An upstream that cannot be
+--- used is refused naming why.
 local function test_more_addresses_than_a_table_holds_are_refused()
   local grants: {string} = {}
   for port = 1, 129 do grants[port] = "127.0.0.1:" .. port end
-  local none, why = RelayStart.prepare(grants, {}, { env = {} })
-  assert(none == nil and why == "connect names 129 addresses literally: 129 endpoints, more than the " ..
-      "relay's connector holds (128); grant fewer addresses, or names", why)
+  local none, why = RelayStart.plan(grants, {})
+  assert(none == nil and why == "connect names 129 addresses literally, more than the relay's connector " ..
+      "holds (128): grant fewer addresses, or names", why)
   grants[129] = nil
-  local upstream_too, upstream_why = RelayStart.prepare(grants, {}, { env = { https_proxy = "http://10.0.0.1:3128" } })
-  assert(upstream_too == nil and upstream_why:find("connect names 128 addresses literally, with the upstream " ..
-      "proxy's: 129 endpoints", 1, true), upstream_why)
+  local plan = assert(RelayStart.plan(grants, { https_proxy = "http://10.0.0.1:3128" }))
+  assert(plan.upstream.host == "10.0.0.1" and plan.upstream.port == 3128)
+  local over, over_why = RelayStart.table(plan, { "10.0.0.1" })
+  assert(over == nil and over_why:find("connect names 128 addresses literally, with the upstream " ..
+      "proxy's: 129 endpoints", 1, true), over_why)
+  local bad, bad_why = RelayStart.plan({ "a.test:1" }, { https_proxy = "https://proxy.test:3128" })
+  assert(bad == nil and bad_why:find("https_proxy has the scheme \"https\"", 1, true), bad_why)
 end
 
---- Literal targets fill the table, each address once in the form a table
---- takes, a port of "*" as 0; a policy that names no host by name gets no
---- public connector and no name servers' one.
-local function test_literal_targets_get_a_table_connector_alone()
-  require_native_connector()
-  local handover = assert(RelayStart.prepare({ "127.0.0.1:80", "[::1]:*", "127.0.0.1:80", "[::1:443",
-    "2001:db8::1:443" }, {}, { env = {} }))
-  local config = handover.config
+--- The table holds the literals and the upstream's addresses at its port,
+--- each once; a numeric upstream is its own address, with no lookup.
+local function test_the_table_holds_the_literals_and_the_upstream()
+  local plan = assert(RelayStart.plan({ "127.0.0.1:3128", "[2001:db8::1]:443" },
+    { HTTPS_PROXY = "http://127.0.0.1:3128" }))
+  local addresses = assert(RelayStart.upstream_addresses(plan.upstream, nil, "no name servers"))
+  assert(table.concat(addresses, ",") == "127.0.0.1", table.concat(addresses, ","))
   local rows: {string} = {}
-  for _, entry in ipairs(config.table) do rows[#rows + 1] = entry.host .. " " .. entry.port end
-  assert(table.concat(rows, ",") == "127.0.0.1 80,0:0:0:0:0:0:0:1 0", table.concat(rows, ","))
-  assert(not config.public and config.name_servers == nil and config.unresolved == nil)
-  assert(handover.fds[RelayConfig.table_fd] ~= nil and handover.fds[RelayConfig.public_fd] == nil and
-      handover.fds[RelayConfig.name_server_fd] == nil)
-  handover.close()
-  handover.close()
+  local table_rows = assert(RelayStart.table(plan, addresses))
+  for _, entry in ipairs(table_rows) do rows[#rows + 1] = entry.host .. " " .. entry.port end
+  assert(table.concat(rows, ",") == "127.0.0.1 3128,2001:db8:0:0:0:0:0:1 443", table.concat(rows, ","))
+  local named = assert(RelayStart.plan({}, { https_proxy = "http://proxy.test:3128" }))
+  local none, why = RelayStart.upstream_addresses(named.upstream, nil, "no name servers here")
+  assert(none == nil and why == "https_proxy's host proxy.test cannot be resolved: no name servers here", why)
 end
 
---- A target naming a host starts a public connector and one of the name
---- servers; where those cannot be read, the relay is told why instead.
-local function test_a_named_target_gets_a_public_connector_and_the_name_servers()
-  require_native_connector()
-  local handover = assert(RelayStart.prepare({ "api.example.test:443" }, { "127.0.0.1" },
-    { env = {}, servers = { { host = "127.0.0.1", port = 53 } } }))
-  local config = handover.config
-  assert(config.table == nil and config.public and config.unresolved == nil)
-  assert(#config.name_servers == 1 and config.name_servers[1].host == "127.0.0.1" and
-      config.name_server_wait_ns > 0)
-  assert(handover.fds[RelayConfig.public_fd] ~= nil and handover.fds[RelayConfig.name_server_fd] ~= nil)
-  handover.close()
-  -- More servers than a connector holds cannot be handed.
+--- The name servers' connector waits for each server a share of the
+--- lookup's time; more servers than a connector holds are refused; the
+--- public connector refuses the relay's deny list and the host's own
+--- addresses.
+local function test_name_servers_and_the_public_lists()
+  local one = assert(RelayStart.name_servers({ servers = { { host = "127.0.0.1", port = 53 } } }))
+  assert(#one.servers == 1 and one.wait_ns == Clock.seconds(5) // 2, tostring(one.wait_ns))
   local many: {Net.Endpoint} = {}
   for port = 1, 129 do many[port] = { host = "127.0.0.1", port = port } end
-  local unread = assert(RelayStart.prepare({ "*:443" }, {}, { env = {}, servers = many }))
-  assert(unread.config.public and unread.config.name_servers == nil, "no name server is handed: " ..
-      tostring(unread.config.name_servers ~= nil and unread.config.name_servers[1].host))
-  assert(unread.config.unresolved:find("more than a connector holds (128)", 1, true), unread.config.unresolved)
-  unread.close()
-end
-
---- An upstream the caller names by address is its own address, with no
---- lookup, and goes in the table at its port; one that cannot be used
---- fails the preparation, naming why.
-local function test_a_numeric_upstream_goes_in_the_table()
-  require_native_connector()
-  local handover = assert(RelayStart.prepare({ "api.example.test:443" }, {},
-    { env = { https_proxy = "http://127.0.0.1:3128" }, servers = { { host = "127.0.0.1", port = 53 } } }))
-  assert(table.concat(handover.config.upstream_addresses, ",") == "127.0.0.1")
-  assert(#handover.config.table == 1 and handover.config.table[1].host == "127.0.0.1" and
-      handover.config.table[1].port == 3128)
-  handover.close()
-  local none, why = RelayStart.prepare({ "a.test:1" }, {}, { env = { https_proxy = "https://proxy.test:3128" } })
-  assert(none == nil and why:find("https_proxy has the scheme \"https\"", 1, true), why)
+  local none, why = RelayStart.name_servers({ servers = many })
+  assert(none == nil and why:find("more than a connector holds (128)", 1, true), why)
+  local public = RelayStart.public({ "10.1.0.2" })
+  local own, deny = assert(public.own), public.deny
+  assert(own[1] == "10.1.0.2" and deny[1] == "169.254.169.254/32", deny[1])
 end
 
 --- [`Relay.handed`] asks the table's connector for what its table holds,
@@ -179,6 +176,7 @@ end
 --- before any lookup) and for direct.test (granted, reached directly, and so
 --- looked up). Prints each answer's status line, a line each.
 local SCRIPT <const> = [[
+local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
@@ -206,8 +204,15 @@ return function(argv: {string}): integer
         end)
       end
     end)
-    local up = assert(RelayStart.upstream({ env = { https_proxy = "http://proxy.test:" .. proxy.address.port,
-      no_proxy = "direct.test" }, servers = servers }))
+    -- As the starter does: the upstream's host resolved once, through a
+    -- connector of the name servers.
+    local plan = assert(RelayStart.plan({}, { https_proxy = "http://proxy.test:" .. proxy.address.port,
+      no_proxy = "direct.test" }))
+    local up = plan.upstream
+    local name_servers = assert(RelayStart.name_servers({ servers = servers }))
+    local dns = assert(Child.start_connector(name_servers.servers, name_servers.wait_ns // 1000000))
+    up.addresses = assert(RelayStart.upstream_addresses(up, { fd = dns.fd, name_servers = name_servers }, ""))
+    assert(dns:close())
     lines[#lines + 1] = "upstream " .. table.concat(up.addresses, ",")
     local resolve = assert(Relay.name_servers({ servers = servers }))
     local http = assert(Net.listen(Net.tcp("127.0.0.1", 0)))

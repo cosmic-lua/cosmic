@@ -68,11 +68,12 @@ allowed["cosmic.net.listener_from"] = "tested directly: it adopts one listening 
   "process holds, which Net.receive_listeners does for each socket a relay's channel carries; " ..
   "no caller outside the module needs it yet"
 
-allowed["cosmic.relay_start.prepare"] = "cosmic.child calls it, through cosmic.relay_start loaded by " ..
-  "its name (it requires cosmic.child through cosmic.net), which no static use shows"
+allowed["cosmic.net.nameservers"] = "tested directly: the library's list of the system's name " ..
+  "servers, a connector's table for ResolveOptions.connector; the relay's starter, below cosmic.net, " ..
+  "reads them through cosmic.relay_start, which this is"
 
-allowed["cosmic.relay_start.upstream"] = "tested directly: the starter's one lookup of the upstream " ..
-  "proxy, which prepare makes, run alone against a name server of the test's own"
+allowed["cosmic.relay.name_servers"] = "tested directly: a relay's resolver options in one call, for " ..
+  "Relay.start in a process that may start a connector; the sandbox's relay is handed its connector instead"
 
 allowed["cosmic.relay_config.parse_addresses"] = "tested directly: the reading of Linux's " ..
   "interface tables over fixture text, which host_addresses makes of the host's own"
