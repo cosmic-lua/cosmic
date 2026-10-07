@@ -294,6 +294,15 @@ COSMIC_SYSCALL(isatty, 1) {
   return 1;
 }
 
+COSMIC_SYSCALL(ttyname, 1) {
+  int fd = cosmic_checkfd(L, 1);
+  char name[PATH_MAX];
+  int failure = ttyname_r(fd, name, sizeof name);
+  if (failure != 0) return cosmic_fail(L, failure);
+  lua_pushstring(L, name);
+  return 1;
+}
+
 /* Allocate every Lua value before either descriptor: filling this sized
  * table and returning integer descriptors cannot raise after acquisition. */
 COSMIC_SYSCALL(openpty, 0) {
@@ -1800,6 +1809,9 @@ struct spawn_plan {
   const char *seatbelt_profile;
   const char *const *seatbelt_parameters;
   int seatbelt_parameter_count;
+  /* The path of the terminal slave the child is given as its controlling
+   * terminal, which its trampoline opens ([`cosmic_trampoline`]), or NULL. */
+  const char *terminal_path;
 #endif
   int unveiling;
   int offline;
@@ -2681,15 +2693,17 @@ _Noreturn void cosmic_sandbox_init (void) {
  *   0  COSMIC_TRAMPOLINE
  *   1  the status pipe's descriptor, which is the one above the program's
  *   2  "1" to lead a session of its own (setsid), which the program then
- *      has no controlling terminal in, else "0"
+ *      has no controlling terminal in unless 7 names one, else "0"
  *   3  the soft RLIMIT_NOFILE to give the program back, or "-" for none
  *   4  how many limits follow
  *   5  how many words of parameters follow, their names and values alternating
  *   6  the profile's text, or "" for none
+ *   7  the path of the terminal slave to acquire as the controlling
+ *      terminal after the session is made, or "" for none
  *   then each limit as its resource and its value, each parameter as its
  *   name and its value, the program's path and its own arguments. */
-#define TRAMPOLINE_LIMITS 7
-#define TRAMPOLINE_LEAST 9
+#define TRAMPOLINE_LIMITS 8
+#define TRAMPOLINE_LEAST 10
 
 /* Past every RLIMIT_ resource Darwin has (the most is 9): setrlimit's own EINVAL
  * answers one in between, and this keeps the cast to `int` honest. */
@@ -2830,6 +2844,30 @@ _Noreturn void cosmic_trampoline (int argc, char **argv) {
     step = "setsid";
     if (setsid() < 0) failure = errno;
   }
+  /* The terminal a program is given is acquired here, before the profile,
+   * which holds no one to open it: the session leader's open of a terminal
+   * without O_NOCTTY makes it the controlling one on BSD, TIOCSCTTY does
+   * where that open found it another session's already, and a bare setsid
+   * leaves the program with none (/dev/tty is ENXIO) however the profile
+   * grants it. The descriptors 0 to 2 hold the slave already. */
+  const char *terminal = argv[7];
+  if (!failure && terminal[0] != '\0') {
+    step = "terminal";
+    /* Nonblocking, so that a path that is no terminal (a FIFO) cannot hold
+     * the start; and it must be the terminal descriptor 0 holds, which the
+     * caller's contract names as the controlling one. */
+    int fd = open(terminal, O_RDWR | O_NONBLOCK);
+    struct stat opened, standard;
+    if (fd < 0) {
+      failure = errno;
+    } else {
+      if (!isatty(fd) || fstat(fd, &opened) != 0 || fstat(0, &standard) != 0 ||
+          opened.st_rdev != standard.st_rdev)
+        failure = ENOTTY;
+      else if (tcgetsid(fd) != getsid(0) && ioctl(fd, TIOCSCTTY, 0) != 0) failure = errno;
+      close(fd);
+    }
+  }
   /* As a Linux child does, in this order: the descriptor limit the program
    * started with, then the limits it is held to. */
   if (!failure && restoring) {
@@ -2896,10 +2934,10 @@ _Noreturn void cosmic_trampoline (int argc, char **argv) {
  * of this process's memory, and answers an exec's failure as
  * posix_spawn's own, so the status pipe is never written -- but for a
  * start that needs a step posix_spawn has none for: limits, a Seatbelt
- * profile. That one starts this program as
+ * profile, or a terminal to acquire. That one starts this program as
  * a trampoline instead ([`cosmic_trampoline`]), handed the status pipe,
  * which executes the program last and reports there what stopped it; a
- * profile's start leads a session, which replaces the process group. The child's
+ * profile's or a terminal's start leads a session, which replaces the process group. The child's
  * pid, or -1 and the errno in `error`. */
 static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
   /* Darwin has neither Landlock nor seccomp. */
@@ -2907,7 +2945,11 @@ static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
     *error = ENOSYS;
     return -1;
   }
-  bool trampolined = plan->rlimit_count > 0 || plan->seatbelt_profile != NULL;
+  bool terminal = plan->terminal_path != NULL;
+  /* A terminal is acquired by the session leader that opens it, so its
+   * start leads a session whatever the profile. */
+  bool leads_session = plan->seatbelt_profile != NULL || terminal;
+  bool trampolined = plan->rlimit_count > 0 || leads_session;
   /* A profile is applied by the system's own call, found before the child
    * starts so that a system without it fails the start here, ENOSYS. */
   if (plan->seatbelt_profile != NULL && seatbelt_init() == NULL) {
@@ -2986,11 +3028,12 @@ static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
       size_t at = 0;
       words[at++] = (char *)COSMIC_TRAMPOLINE;
       words[at++] = numbers[0];
-      words[at++] = (char *)(plan->seatbelt_profile != NULL ? "1" : "0");
+      words[at++] = (char *)(leads_session ? "1" : "0");
       words[at++] = restoring ? numbers[1] : (char *)"-";
       words[at++] = numbers[2];
       words[at++] = numbers[3];
       words[at++] = (char *)(plan->seatbelt_profile != NULL ? plan->seatbelt_profile : "");
+      words[at++] = (char *)(terminal ? plan->terminal_path : "");
       for (int i = 0; i < plan->rlimit_count; i++) {
         char *resource = numbers[4 + 2 * i], *value = numbers[5 + 2 * i];
         snprintf(resource, sizeof numbers[0], "%d", plan->rlimits[i].resource);
@@ -3014,7 +3057,7 @@ static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
     failure = posix_spawnattr_init(&attributes);
     if (!failure) {
       int flags = POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGMASK;
-      if (plan->process_group && plan->seatbelt_profile == NULL) flags |= POSIX_SPAWN_SETPGROUP;
+      if (plan->process_group && !leads_session) flags |= POSIX_SPAWN_SETPGROUP;
       if (sigpipe_ignored_here) flags |= POSIX_SPAWN_SETSIGDEF;
       sigset_t defaults;
       sigemptyset(&defaults);
@@ -4003,20 +4046,18 @@ COSMIC_SYSCALL(spawn, 12) {
   source[1] = stream_source(L, 6);
   source[2] = stream_source(L, 7);
   int process_group = lua_toboolean(L, 8);
-  if (!lua_isnoneornil(L, 12)) luaL_checktype(L, 12, LUA_TBOOLEAN);
+  if (!lua_isnoneornil(L, 12) && lua_type(L, 12) != LUA_TBOOLEAN && lua_type(L, 12) != LUA_TSTRING)
+    return luaL_argerror(L, 12, "terminal must be a boolean or the slave's path");
   int terminal = lua_toboolean(L, 12);
 #if defined(__APPLE__)
-  /* TODO: give a Darwin child a controlling terminal, and drop this refusal,
-   * once one survives the trampoline's exec: on the macOS leg the trampoline's
-   * setsid and TIOCSCTTY (and an open of the terminal, as BSD has a session
-   * leader acquire one) left /dev/tty usable in the trampoline, yet the
-   * program it executed had none (ps showed TTY "??" and an open of /dev/tty
-   * was ENXIO), though its descriptor 0 was the terminal. */
+  /* Darwin's trampoline opens the terminal by its path to acquire it as the
+   * controlling terminal ([`cosmic_trampoline`]): fd 0 does not name it. */
+  const char *terminal_path = NULL;
   if (terminal) {
-    lua_pushnil(L);
-    lua_pushliteral(L, "a controlling terminal is not yet given to a child on macOS");
-    lua_pushinteger(L, ENOSYS);
-    return 3;
+    if (lua_type(L, 12) != LUA_TSTRING)
+      return luaL_argerror(L, 12, "a terminal on macOS needs the slave's path");
+    terminal_path = plain_string(L, 12, "the terminal's path");
+    if (terminal_path[0] == '\0') return luaL_argerror(L, 12, "the terminal's path is empty");
   }
 #endif
   int top = 2;
@@ -4790,7 +4831,7 @@ COSMIC_SYSCALL(spawn, 12) {
     .rlimit_count = rlimit_count, .rlimits = rlimits,
 #if defined(__APPLE__)
     .seatbelt_profile = seatbelt_profile, .seatbelt_parameters = seatbelt_words,
-    .seatbelt_parameter_count = seatbelt_count,
+    .seatbelt_parameter_count = seatbelt_count, .terminal_path = terminal_path,
 #endif
     .unveiling = unveiling, .offline = offline, .noexec_scratch = noexec_scratch,
     .relay_channel = relay_channel, .relay_ports = { relay_ports[0], relay_ports[1] },

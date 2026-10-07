@@ -92,6 +92,7 @@ local cases: {string: function(at: integer, fd: integer): {any}} = {
   end,
   fd_flags = function(_: integer, fd: integer): {any} return { fd } end,
   isatty = function(_: integer, fd: integer): {any} return { fd } end,
+  ttyname = function(_: integer, fd: integer): {any} return { fd } end,
   tcgetattr = function(_: integer, fd: integer): {any} return { fd } end,
   -- The descriptor is checked before the opaque terminal state's length.
   tcsetattr = function(_: integer, fd: integer): {any} return { fd, "" } end,

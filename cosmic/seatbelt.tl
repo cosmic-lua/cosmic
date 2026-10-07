@@ -39,6 +39,10 @@ local record Seatbelt
     --- `-wal` and no `-shm`. Required with the policy's `database`, which it
     --- names (resolved).
     database: string
+    --- The resolved path of the pty slave that is the child's controlling
+    --- terminal, or nil for none. With it the profile grants the slave and
+    --- `/dev/tty`, and `/dev` to list, which no other profile does.
+    terminal: string
   end
 
   --- Text to pass to sandbox_init_with_parameters, values kept outside
@@ -78,7 +82,8 @@ local SYSTEM <const>: {{string}} = {
   -- /bin/sh reads its own selection from here.
   { "/private/var/select", "r" },
   -- No /dev/tty: as on Linux, a child opens no terminal by name, and the
-  -- start gives it a session with none besides.
+  -- start gives it a session with none besides. One started with a pty
+  -- is granted its slave and /dev/tty by [`Options.terminal`].
   { "/dev/null", "rw" }, { "/dev/dtracehelper", "rw" }, { "/dev/zero", "r" },
   { "/dev/random", "r" }, { "/dev/urandom", "r" },
 }
@@ -268,6 +273,19 @@ function Seatbelt.compile(policy: Sandbox.Policy, options?: Seatbelt.Options): S
     tmp = TMP_PARAMETER
     allow(text, fattr, "rwc", '(subpath (param "' .. tmp .. '"))')
   end
+  local terminal = options and options.terminal
+  if terminal ~= nil then
+    if not absolute(terminal) then return refuse("terminal needs an absolute canonical path") end
+    -- Data and ioctl alone: file-write* would let a child without `fattr`
+    -- chmod its slave for other users to read, or unlink /dev/tty as root.
+    -- The slave answers tcgetsid and tcgetpgrp only where granted by its
+    -- path, /dev/tty opens only where granted as that literal, and ttyname
+    -- and tty list /dev.
+    parameters.TTY = terminal
+    text[#text + 1] = '(allow file-read-data file-write-data file-ioctl (literal (param "TTY")))'
+    text[#text + 1] = '(allow file-read-data file-write-data file-ioctl (literal "/dev/tty"))'
+    text[#text + 1] = '(allow file-read-data (literal "/dev"))'
+  end
   local rlimits: {string:integer} = { nofile = merged.limits.open_files or 1024, core = 0 }
   rlimits.fsize, rlimits.cpu = merged.limits.file_bytes, merged.limits.cpu_seconds
   return { text = table.concat(text, "\n") .. "\n", parameters = parameters, rlimits = rlimits,
@@ -295,9 +313,10 @@ end
 --- from `base`, where given. `executable` is this program's own path, for
 --- the "cosmic" profile, resolved like a grant; `core` and `database` are
 --- the file a start of this program runs and the one it runs on, likewise.
---- Nil and why where a grant's path is not there.
+--- `terminal` is the pty slave's path, resolved through links for
+--- [`Seatbelt.Options.terminal`]. Nil and why where a grant's path is not there.
 function Seatbelt.resolve(policy: Sandbox.Policy, base?: string, executable?: string,
-                          core?: string, database?: string): Seatbelt.Options | nil, string
+                          core?: string, database?: string, terminal?: string): Seatbelt.Options | nil, string
   local paths: {string:Seatbelt.Path} = {}
   -- "" where `at` was resolved, or why not.
   local function look(name: string, at: string): string
@@ -336,7 +355,16 @@ function Seatbelt.resolve(policy: Sandbox.Policy, base?: string, executable?: st
       if trouble ~= "" then return refuse(string.format("%q", name) .. ": " .. trouble) end
     end
   end
-  return { paths = paths, executable = executable, core = core, database = database }, ""
+  local real_terminal: string
+  if terminal ~= nil then
+    local real, trouble = sys.realpath(terminal)
+    if real == nil then
+      return refuse("terminal " .. string.format("%q", terminal) .. ": " .. trouble)
+    end
+    real_terminal = real
+  end
+  return { paths = paths, executable = executable, core = core, database = database,
+    terminal = real_terminal }, ""
 end
 
 return Seatbelt

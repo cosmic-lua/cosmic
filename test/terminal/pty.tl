@@ -98,17 +98,19 @@ else
     { process_group = false, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(10) }))
   assert(session.ok, session.stderr)
   assert((assert(session.stdout)):find("pty: PASS", 1, true))
-  if (assert(sys.uname())).sysname == "Linux" then
+  do
     pty = assert(sys.openpty())
     assert(sys.tcraw(pty.slave))
     local process = process_table()
     local pid = assert(process.spawn("/bin/sh", { "/bin/sh", "-c",
       "test -t 0 && test -t 1 && test -t 2 && printf controlling-terminal >/dev/tty" }, nil, nil,
-      pty.slave, pty.slave, pty.slave, true, nil, nil, nil, true))
-    assert(sys.close(pty.slave))
+      pty.slave, pty.slave, pty.slave, true, nil, nil, nil, (assert(sys.ttyname(pty.slave)))))
+    -- The slave stays open until the output is read: macOS drops what the
+    -- master has not read when the last slave descriptor closes.
     assert(Poll.readable(pty.master, Clock.seconds(5)))
     assert((assert(sys.read(pty.master, 100))) == "controlling-terminal")
     assert((assert(process.waitpid(pid, false))).code == 0)
+    assert(sys.close(pty.slave))
     assert(sys.close(pty.master))
 
     pty = assert(sys.openpty())
@@ -138,7 +140,9 @@ else
     -- Child.start (refused above), and not through this either.
     local real = assert(sys.openpty())
     local program = { "/bin/sh", "-c", "test -t 0 && test -t 1 && test -t 2 && printf held-terminal" }
-    local held_policy: Child.Options = { policy = { profiles = { "system" } } }
+    -- Started in the root, which the profile lets a program read: a shell in
+    -- a directory it does not grant prints a getcwd error on macOS.
+    local held_policy: Child.Options = { policy = { profiles = { "system" } }, cwd = "/" }
     local function refused_on_pty(opts: Child.Options, streams: {integer}, slot: string)
       opts.policy = held_policy.policy
       local started, refusal = Child.start_on_pty(program, opts, { streams = streams })
@@ -171,21 +175,24 @@ else
     assert(sys.close(real.slave))
     assert(sys.close(real.master))
 
-    local started = assert(Child.start_on_pty(program, held_policy, { streams = { 0, 1, 2 }, rows = 30, columns = 90 }))
+    local started = assert(Child.start_on_pty(program, held_policy, { streams = { 0, 1, 2 }, rows = 30, columns = 90, keep_slave = true }))
     assert(Poll.readable(started.master, Clock.seconds(5)))
-    assert((assert(sys.read(started.master, 100))) == "held-terminal")
+    local held_said = assert(sys.read(started.master, 100))
+    assert(held_said == "held-terminal", string.format("the child wrote %q", held_said))
     assert((assert(started.child:wait())).code == 0)
+    assert(sys.close(started.slave))
     assert(sys.close(started.master))
 
     -- Only the streams named are the pty: stdout on it, stdin none (so no
     -- controlling terminal), stderr a pipe of its own.
     local mixed = assert(Child.start_on_pty({ "/bin/sh", "-c",
       "test -t 1 && ! test -t 0 && ! test -t 2 && printf out && printf err >&2" },
-      { policy = { profiles = { "system" } }, stdin = "null", stderr = "capture" }, { streams = { 1 } }))
+      { policy = { profiles = { "system" } }, cwd = "/", stdin = "null", stderr = "capture" }, { streams = { 1 }, keep_slave = true }))
     assert(Poll.readable(mixed.master, Clock.seconds(5)))
     assert((assert(sys.read(mixed.master, 100))) == "out")
     local done = assert(mixed.child:wait())
     assert(done.code == 0 and done.stderr == "err", tostring(done.stderr))
+    assert(sys.close(mixed.slave))
     assert(sys.close(mixed.master))
   end
 end

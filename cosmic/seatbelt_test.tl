@@ -250,3 +250,18 @@ local function test_compiling_does_not_mutate_the_policy_or_paths()
   assert(policy.grants[1].path == "a//b" and policy.grants[1].letters == "xr")
   assert(policy.profiles[1] == "system" and paths["a//b"].path == "/real")
 end
+
+local function test_a_terminal_grants_its_slave_and_dev_tty_by_parameter_and_nothing_otherwise()
+  local without = compile({ profiles = { "system" } })
+  assert(not without.text:find("/dev/tty", 1, true) and without.parameters.TTY == nil, without.text)
+  local out = (assert(Seatbelt.compile({}, { paths = {}, terminal = "/dev/ttys004" })))
+  assert(out.text == BASE .. [[(allow file-read-data file-write-data file-ioctl (literal (param "TTY")))
+(allow file-read-data file-write-data file-ioctl (literal "/dev/tty"))
+(allow file-read-data (literal "/dev"))
+]], out.text)
+  assert(out.parameters.TTY == "/dev/ttys004")
+  assert(not out.text:find("ttys004", 1, true), out.text)
+  local why: string
+  out, why = Seatbelt.compile({}, { paths = {}, terminal = "ttys004" })
+  assert(out == nil and why:find("terminal needs an absolute canonical path", 1, true), why)
+end
