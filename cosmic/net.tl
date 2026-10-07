@@ -1377,6 +1377,17 @@ local function copied_endpoints(endpoints: {Net.Endpoint}, empty: boolean): {Net
   return kept
 end
 
+--- A connector's wait to connect in milliseconds, from `timeout_ns` (nil
+--- for the default), raising at `level` above the caller for one out of
+--- range.
+local function connector_timeout_ms(timeout_ns: integer | nil, level: integer): integer
+  local chosen = timeout_ns or CONNECTOR_DEFAULT_NS
+  if math.type(chosen) ~= "integer" or chosen < 1000000 or chosen > 60000000000 then
+    error("net: timeout_ns must be an integer from 1 millisecond to 60 seconds", level + 1)
+  end
+  return (chosen + 999999) // 1000000
+end
+
 --- A copy of the public lists `public`, raising for one the process would
 --- refuse to start with.
 local function checked_public(public: Net.PublicOptions): Net.PublicOptions
@@ -1430,14 +1441,7 @@ end
 -- TODO: queue a table connector's requests with a lock of cosmic.poll's, once it
 -- has one: they wait here by polling a flag every millisecond.
 function Net.connector(endpoints?: {Net.Endpoint}, opts?: Net.ConnectorOptions): Net.Connector | nil, string
-  local timeout_ns = CONNECTOR_DEFAULT_NS
-  if opts ~= nil and opts.timeout_ns ~= nil then
-    timeout_ns = opts.timeout_ns
-    if math.type(timeout_ns) ~= "integer" or timeout_ns < 1000000 or timeout_ns > 60000000000 then
-      error("net: timeout_ns must be an integer from 1 millisecond to 60 seconds", 2)
-    end
-  end
-  local timeout_ms = (timeout_ns + 999999) // 1000000
+  local timeout_ms = connector_timeout_ms(opts ~= nil and opts.timeout_ns or nil, 2)
   local public = opts ~= nil and opts.public or nil
   if public ~= nil then public = checked_public(public) end
   local made: SocketConnector = setmetatable({
@@ -1469,21 +1473,24 @@ end
 --- a request the process refuses is answered as its refusal. A process
 --- that ends is not started again: the connector answers "net: the
 --- connector has ended" from then on. `fd` that is no descriptor, or a
---- `held` that is not a list of at most 128 endpoints, raises; nil and why
+--- `held` that is not a list of at most 128 endpoints, or a `timeout_ns`
+--- out of [`ConnectorOptions.timeout_ns`]'s range, raises; nil and why
 --- where the stream cannot be made nonblocking.
 --- @param fd integer The inherited Unix stream the connector answers on
 --- @param held {Net.Endpoint}|nil The process's table, if it has one
 --- @param public boolean|nil Whether the process takes public requests
+--- @param timeout_ns integer|nil The process's wait to connect, as it was started with (10 seconds by default), which a lookup through it waits out for each reply
 --- @return Net.Connector|nil The connector
 --- @return string Why not, when it is nil
-function Net.connector_from(fd: integer, held?: {Net.Endpoint}, public?: boolean): Net.Connector | nil, string
+function Net.connector_from(fd: integer, held?: {Net.Endpoint}, public?: boolean, timeout_ns?: integer):
+    Net.Connector | nil, string
   if math.type(fd) ~= "integer" or fd < 0 then error("net: fd must be a descriptor", 2) end
   local kept: {Net.Endpoint} = {}
   if held ~= nil then kept = copied_endpoints(held, true) end
   local adopted, why = Child.adopt_connector(fd)
   if adopted == nil then return nil, why end
   local made: SocketConnector = setmetatable({
-    timeout_ms = CONNECTOR_DEFAULT_NS // 1000000, busy = false, open = true, endpoints = kept,
+    timeout_ms = connector_timeout_ms(timeout_ns, 2), busy = false, open = true, endpoints = kept,
     process = adopted, inherited = true, accepts_public = public == true,
   }, socket_connector_mt)
   connectors_made[made] = made

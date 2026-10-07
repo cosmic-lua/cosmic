@@ -353,7 +353,8 @@ end
 local function test_a_connector_that_never_replies_ends_the_lookup_and_is_not_asked_again()
   local pair = assert(process.connector_pair())
   local peer = pair[2]
-  local dns <close> = assert(Net.connector_from(pair[1], { { host = "127.0.0.1", port = 53 } }))
+  -- Its process would wait 100 ms to connect: the lookup waits that and a grace for its reply.
+  local dns <close> = assert(Net.connector_from(pair[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
   local opts: Net.ResolveOptions = { timeout_ns = Clock.ms(200), connector = dns,
     servers = { Net.udp("127.0.0.1", 53) } }
   local found, why = Net.resolve("stalled.example.test", opts)
