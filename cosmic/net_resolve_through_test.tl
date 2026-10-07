@@ -17,6 +17,7 @@ local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 local _ = require("build.standalone")
 local type raw_process = require("cosmic.internal.process")
+local type raw_socket = require("cosmic.internal.socket")
 
 --- The program itself, which runs a lookup; a loopback alone answers; the
 --- connector is a process the lookup's forks.
@@ -34,6 +35,7 @@ local function raw_behind(wrapper: string): any
 end
 
 local process = raw_behind("cosmic.child") as raw_process -- cast: core/process.h's table
+local socket = raw_behind("cosmic.net") as raw_socket -- cast: core/socket.h's table
 
 --- Skips where the native connector does not run (it is Linux only).
 local function require_native_connector()
@@ -367,6 +369,44 @@ local function test_the_name_servers_connector_refuses_what_is_no_name_server(tm
   assert(asked(string.pack(">I4I4", 2, 53)) == sys.EPERM)
   assert(asked(string.pack(">I4I4I4", 0xffffffff, 53, 4) .. string.char(192, 0, 2, 1) .. string.rep("\0", 12)) ==
       sys.EPERM)
+end
+
+--- A connection a name server resets as it is made fails that server
+--- alone: the connector's reply came whole, so the lookup leaves its stream
+--- in step, not shut down, and the connector serves the next lookup. A
+--- stand-in on the stream's other end replies with sockets refused at once,
+--- which have no peer, as a reset one has none.
+local function test_a_name_server_reset_as_it_is_made_leaves_the_stream_in_step(tmp: string)
+  if assert(sys.uname()).sysname ~= "Linux" then
+    Test.skip("a lookup through a connector is Linux only, as the connector is")
+  end
+  local free = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
+  local port = free.address.port
+  assert(free:close())
+  local hosts = tmp .. "/hosts"
+  assert(Fs.write(hosts, ""))
+  local pair = assert(process.connector_pair())
+  assert(sys.set_nonblocking(pair[1], true))
+  assert(sys.set_nonblocking(pair[2], true))
+  -- More replies than the lookup asks for (one a query, and a retry):
+  -- one left over is never read.
+  for _ = 1, 4 do
+    local reset = assert(socket.start({ kind = "tcp", host = "127.0.0.1", port = port }))
+    assert(socket.wait(reset:fd(), true, 5000))
+    assert(sys.write(pair[2], string.pack(">I4", 0)) == 4)
+    assert(socket.sendfds(pair[2], { reset:fd() }))
+    assert(reset:close())
+  end
+  local found, why = socket.resolve_through("reset.example.test", 2000, pair[1], 1000,
+    { { host = "127.0.0.1", port = 53, index = 1 } }, hosts)
+  assert(found == nil and why ~= "", tostring(why))
+  local asked = assert(sys.read(pair[2], 4096))
+  assert(#asked >= 8 and #asked % 8 == 0 and asked:sub(1, 8) == string.pack(">I4I4", 1, 53), ("%q"):format(asked))
+  -- Shut down, the stream would read as ended here; in step, nothing waits.
+  local more, _, number = sys.read(pair[2], 1)
+  assert(more == nil and number == sys.EAGAIN, "the lookup shut the stream down: " .. tostring(more))
+  assert(sys.close(pair[1]))
+  assert(sys.close(pair[2]))
 end
 
 --- A connector that never replies holds the lookup to its deadline, and

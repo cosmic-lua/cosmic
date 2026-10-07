@@ -13,15 +13,17 @@
 --- connectors whose control streams [`Child.start`] hands it, which it
 --- starts in its own process and network from what this module answers:
 ---
---- - the table's, whose table ([`relay.table`]) holds every address
----   a target names literally and the upstream proxy's, at most 128 in all;
---- - for a policy that grants a name ([`relay.Plan.names`]),
----   [`relay_config.public_count`] public connectors, each of which
----   connects to any address its deny list ([`relay.public`]) allows:
----   what a granted name resolves to;
---- - for such a policy, the name servers' ([`relay.name_servers`]),
----   whose table holds the system's name servers alone, read once, over
----   which the relay resolves a name only once a grant opens it.
+--- - [`relay_config.pool_size`] of the table's, whose table
+---   ([`relay.table`]) holds every address a target names literally and
+---   the upstream proxy's, at most 128 in all;
+--- - for a policy that grants a name ([`relay.Plan.names`]) the relay
+---   reaches directly (with no upstream, or one `no_proxy` bypasses for
+---   some), the name servers' ([`relay.name_servers`]), whose table holds
+---   the system's name servers alone, read once, over which the relay
+---   resolves a name only once a grant opens it, and, where those could be
+---   read, as many public connectors, each of which connects to any address
+---   its deny list ([`relay.public`]) allows: what a granted name resolves
+---   to.
 ---
 --- The upstream proxy the caller's `https_proxy` names is resolved once,
 --- by the starter, through the name servers' connector

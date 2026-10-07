@@ -16,6 +16,7 @@ local Poll = require("cosmic.poll")
 local Relay = require("cosmic.relay")
 local SandboxRelay = require("cosmic.sandbox.relay")
 local Test = require("cosmic.test")
+local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 local _ = require("build.standalone")
 
@@ -119,14 +120,14 @@ local function test_handed_connectors_route_by_the_table()
     local table_rows: {Net.Endpoint} = { { host = "127.0.0.1", port = port } }
     local in_table = assert(Net.connector(table_rows))
     local public = assert(Net.connector(nil, { public = { deny = { "127.0.0.0/8" } } }))
-    local connect = Relay.handed({ table_connector = in_table, table = table_rows, public_connectors = { public },
+    local connect = Relay.handed({ table_connectors = { in_table }, table = table_rows, public_connectors = { public },
       wait_ns = Clock.seconds(10) })
     local conn, why = connect("127.0.0.1", port, Clock.seconds(1))
     assert(conn ~= nil, "the table's address is reached: " .. why)
     assert(conn:close())
     local refused, refusal = connect("127.0.0.2", port, Clock.seconds(1))
     assert(refused == nil and refusal:find("refused by the connector's deny list", 1, true), refusal)
-    local alone = Relay.handed({ table_connector = in_table, table = table_rows, wait_ns = Clock.seconds(10) })
+    local alone = Relay.handed({ table_connectors = { in_table }, table = table_rows, wait_ns = Clock.seconds(10) })
     local none, none_why = alone("127.0.0.1", port + 1, Clock.seconds(1))
     assert(none == nil and none_why:find("is in no table of the connectors the relay was handed", 1, true), none_why)
     assert(in_table:close())
@@ -193,7 +194,7 @@ local function test_a_public_connect_that_hangs_holds_its_connector_alone()
     local second = Poll.spawn(function() local _, _ = connect("127.0.0.1", stuck, wait) end)
     assert(Poll.delay(Clock.ms(50)))
     local queued_at = Clock.monotonic_ns()
-    local late, late_why = connect("127.0.0.1", listener.address.port, wait)
+    local late, late_why = connect("127.0.0.1", listener.address.port, Clock.seconds(5))
     assert(late ~= nil, "a request with every connector held waits and connects: " .. late_why)
     assert(late:close())
     assert(Clock.monotonic_ns() - queued_at >= Clock.ms(500), "it waited for a connector to be free")
@@ -204,6 +205,56 @@ local function test_a_public_connect_that_hangs_holds_its_connector_alone()
     assert(listener:close())
   end)
   for _, close in ipairs(held) do close() end
+end
+
+--- Two public connectors served by processes of this test's own, each
+--- stream adopted as the relay adopts one: the processes, to end, and the
+--- connectors.
+local function adopted_pair(wait: integer): {Child.ConnectorProcess}, {Net.Connector}
+  local processes: {Child.ConnectorProcess} = {}
+  local connectors: {Net.Connector} = {}
+  for i = 1, 2 do
+    processes[i] = assert(Child.start_connector({}, wait // 1000000, { deny = { "10.0.0.0/8" } }))
+    connectors[i] = assert(Net.connector_from(assert(sys.dup(processes[i].fd)), nil, true, wait))
+  end
+  return processes, connectors
+end
+
+--- A public connector whose process has ended is passed over: the request
+--- that finds it so is asked of another live one, and every later request
+--- goes to the live one; once every one has ended, a request fails saying
+--- so.
+local function test_a_public_connector_that_ended_is_passed_over()
+  require_native_connector()
+  Poll.run(function()
+    local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
+    local port = listener.address.port
+    local accepting = Poll.spawn(function()
+      while true do
+        local conn = listener:accept()
+        if conn == nil then return end
+        local _, _ = conn:close()
+      end
+    end)
+    local wait = Clock.seconds(1)
+    local processes, connectors = adopted_pair(wait)
+    local connect = Relay.handed({ public_connectors = connectors, wait_ns = wait })
+    assert(sys.kill(assert(processes[1].pid), sys.SIGKILL))
+    assert(processes[1]:close())
+    for round = 1, 3 do
+      local conn, why = connect("127.0.0.1", port, Clock.seconds(5))
+      assert(conn ~= nil, "round " .. round .. ": the live connector connects: " .. why)
+      assert(conn:close())
+    end
+    assert(connectors[1]:ended() and not connectors[2]:ended())
+    assert(sys.kill(assert(processes[2].pid), sys.SIGKILL))
+    assert(processes[2]:close())
+    local none, why = connect("127.0.0.1", port, Clock.seconds(5))
+    assert(none == nil and why == "relay: every public connector has ended", tostring(why))
+    for _, connector in ipairs(connectors) do assert(connector:close()) end
+    accepting:cancel()
+    assert(listener:close())
+  end)
 end
 
 local TYPE_A <const> = 1

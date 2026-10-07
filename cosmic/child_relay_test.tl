@@ -401,6 +401,25 @@ local function test_a_relay_that_will_not_serve_fails_the_start_and_ends_the_pro
   assert(said:find("directories: $"), "the relay's database was left: " .. said)
 end
 
+--- An upstream proxy whose host does not resolve fails the start, naming
+--- the host, with nothing left running: the starter resolves it once, and
+--- a relay that could reach nothing through it serves nothing.
+local function test_an_upstream_whose_host_does_not_resolve_fails_the_start(tmp: string)
+  local script = tmp .. "/start.tl"
+  assert(Fs.write(script, STARTER))
+  local env = this_program.environment()
+  env.https_proxy = "http://proxy.invalid:3128"
+  local started = this_program.program({ "--standalone", script, sealed_client(tmp) },
+    { env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
+  local result = assert(Child.run(started.argv, started.options))
+  assert(result.ok, "exit " .. tostring(result.code) .. ": " .. tostring(result.stderr))
+  local said = assert(result.stdout)
+  if said:find("Landlock", 1, true) or said:find("namespace", 1, true) then Test.skip(said) end
+  assert(said:find("^refused: child: start: sandbox: relay: https_proxy's host proxy.invalid "), said)
+  assert(said:find("running: \n", 1, true), "a program or connector was left running: " .. said)
+  assert(said:find("directories: $"), "the relay's database was left: " .. said)
+end
+
 --- Runs the flows of the program in a process of this program's own, which
 --- starts it with `relay_log` as given, and says what that process's
 --- standard error, where an "inherit" relay logs, held.

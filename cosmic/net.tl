@@ -194,6 +194,10 @@ local record Net
     --- to a connection or nil and why: [`Connector.connect`] over a
     --- numeric address, and no more.
     as_function: function(Connector): function(address: string, port: integer, timeout_ns: integer): Conn | nil, string
+    --- Whether the connector serves no request any more: it is closed, or
+    --- its process, one [`Net.connector_from`] adopted, has ended or its
+    --- stream fell out of step, so it cannot be started again.
+    ended: function(Connector): boolean
     --- Ends the connector process and reaps it: the connections it made
     --- are theirs and stay open. Safe to call more than once; a connector
     --- dropped unclosed is ended when it is collected.
@@ -996,6 +1000,7 @@ local record SocketConnector is Net.Connector
   open: boolean
   connect: function(SocketConnector, target: integer | string, port: integer, timeout_ns: integer): Net.Conn | nil, string
   as_function: function(SocketConnector): function(address: string, port: integer, timeout_ns: integer): Net.Conn | nil, string
+  ended: function(SocketConnector): boolean
   close: function(SocketConnector): boolean, string
 end
 
@@ -1079,11 +1084,19 @@ local function ask(process: Child.ConnectorProcess, request: string, host: strin
     local received, because, failure = raw.recvfds(process.fd, 1)
     if received ~= nil then
       local socket = received[1]
+      -- The reply came whole, so the stream is in step whatever the socket
+      -- is: one the far side reset as it was made (no peer) fails this
+      -- connection alone, and the connector serves the next.
       local peer, _ = raw.peer(socket:fd())
-      if peer == nil or peer.port ~= port or not same_host(peer.host, host) then
+      if peer == nil then
+        local _, _ = socket:close()
+        return { why = "net: the connection to " .. named(Net.tcp(host, port)) .. " ended as it was made",
+          kept = true }
+      end
+      if peer.port ~= port or not same_host(peer.host, host) then
         local _, _ = socket:close()
         return { why = "net: the connector passed a socket not connected to " ..
-            named(Net.tcp(host, port)), kept = false }
+            named(Net.tcp(host, port)), kept = true }
       end
       return { conn = new_conn(socket, timeout_ns), why = "", kept = true }
     end
@@ -1205,6 +1218,11 @@ function SocketConnector:as_function(): function(address: string, port: integer,
   return function(address: string, port: integer, timeout_ns: integer): Net.Conn | nil, string
     return self:connect(address, port, timeout_ns)
   end
+end
+
+function SocketConnector:ended(): boolean
+  if not self.open then return true end
+  return self.inherited and (self.process == nil or not self.process.open)
 end
 
 function SocketConnector:close(): boolean, string

@@ -117,12 +117,13 @@ local function test_the_config_travels_as_one_line_and_reads_back()
   assert(bare.https_proxy == nil and bare.no_proxy == nil and #bare.own_addresses == 0 and bare.log == "null")
   assert(bare.public == 0 and bare.table == nil and bare.name_servers == nil, "nothing is handed")
   local handed = assert(RelayConfig.decode(RelayConfig.encode({ grants = { "a.test:1" }, own_addresses = {},
-    log = "null", public = RelayConfig.public_count, table = { { host = "127.0.0.1", port = 0 } },
+    log = "null", public = RelayConfig.pool_size, tables = RelayConfig.pool_size, table = { { host = "127.0.0.1", port = 0 } },
     name_servers = { { host = "127.0.0.1", port = 53 } }, name_server_wait_ns = 2500000000,
     upstream_addresses = { "127.0.0.1" } })))
-  assert(handed.public == 4 and handed.table[1].port == 0 and handed.name_servers[1].port == 53 and
+  assert(handed.public == 4 and handed.tables == 4 and handed.table[1].port == 0 and handed.name_servers[1].port == 53 and
       handed.name_server_wait_ns == 2500000000 and handed.upstream_addresses[1] == "127.0.0.1")
-  assert(RelayConfig.public_fd == RelayConfig.name_server_fd + 1, "the public connectors follow the others")
+  assert(RelayConfig.name_server_fd == 4 and RelayConfig.table_fd == 5 and RelayConfig.public_fd == 9,
+    "the name servers' connector, then the table's pool, then the public pool")
 end
 
 local function test_a_config_that_is_none_is_refused_naming_why()
@@ -139,6 +140,7 @@ local function test_a_config_that_is_none_is_refused_naming_why()
   says('{"grants":["a"],"own_addresses":[],"log":"null","https_proxy":3}', "https_proxy is not a string")
   says('{"grants":["a"],"own_addresses":[],"log":"null","no_proxy":{}}', "no_proxy is not a string")
   says('{"grants":["a"],"own_addresses":[],"log":"null","public":5}', "public is not a count from 0 to 4")
+  says('{"grants":["a"],"own_addresses":[],"log":"null","tables":-1}', "tables is not a count from 0 to 4")
   says('{"grants":["a"],"own_addresses":[],"log":"null","public":true}', "public is not a count")
   assert(Json.decode_object('{"grants":[]}') ~= nil, "the fixtures are JSON")
 end

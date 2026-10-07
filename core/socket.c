@@ -1495,9 +1495,11 @@ static bool through_reaches (int fd, const struct resolve_server *server) {
  * in `*connected`. The exchange may outlast the lookup's deadline by up
  * to the connector's own reply time, so that a server that does not
  * answer its connect costs that time and leaves the stream in step for
- * the next server. A refusal the connector replies leaves its stream in
- * step; any other failure, or a socket not connected to `server`, leaves
- * the stream lost and shuts it down, so that its owner sees it end. */
+ * the next server. A refusal the connector replies, and a reply that
+ * came whole with a socket not connected to `server` (one the server
+ * reset as it was made), leave its stream in step; any other failure
+ * leaves the stream lost and shuts it down, so that its owner sees it
+ * end. */
 static bool through_ask (struct resolution *resolution, const struct resolve_server *server, int *connected) {
   *connected = -1;
   uint16_t port = ntohs(server->address.ss_family == AF_INET ?
@@ -1515,6 +1517,11 @@ static bool through_ask (struct resolution *resolution, const struct resolve_ser
   }
   if (failure == 0) failure = through_rights(resolution, deadline, connected);
   if (failure == 0 && through_reaches(*connected, server)) return true;
+  if (failure == 0) {
+    close(*connected);
+    *connected = -1;
+    return false;
+  }
   if (*connected >= 0) close(*connected);
   *connected = -1;
   resolution->lost = failure != 0 ? failure : EPROTO;

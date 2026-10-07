@@ -64,14 +64,17 @@ local record relay_config
     --- resolved once: the relay connects to these and resolves it never.
     --- Nil without an upstream.
     upstream_addresses: {string}
-    --- The table of the connector whose control stream is at
-    --- [`relay_config.table_fd`], which holds the addresses `grants` names
-    --- literally and the upstream's. Nil where none is handed.
+    --- The table of the connectors whose control streams are from
+    --- [`relay_config.table_fd`] on, which holds the addresses `grants`
+    --- names literally and the upstream's. Nil where none is handed.
     table: {Endpoint}
+    --- How many of those are handed: 0 for none, else
+    --- [`relay_config.pool_size`].
+    tables: integer
     --- How many public connectors' streams are handed, from
     --- [`relay_config.public_fd`] on, each one that reaches any address its
-    --- deny list allows, for the names `grants` opens: 0 for none, else
-    --- [`relay_config.public_count`].
+    --- deny list allows, for the names `grants` opens and the relay reaches
+    --- directly: 0 for none, else [`relay_config.pool_size`].
     public: integer
     --- The name servers of the connector whose stream is at
     --- [`relay_config.name_server_fd`], its whole table; nil where none is handed.
@@ -83,12 +86,12 @@ local record relay_config
     unresolved: string
   end
 
-  --- What the relay's starter makes for it before the relay starts
-  --- ([`cosmic.sandbox.relay`]'s `prepare`).
+  --- What the relay's starter, [`Child.start`], makes for it before the
+  --- relay starts, from what [`cosmic.sandbox.relay`] answers.
   record Handover
     --- What the relay is told of what it is handed: `upstream_addresses`,
-    --- `table`, `public`, `name_servers`, `name_server_wait_ns` and
-    --- `unresolved` are set; the starter sets the rest.
+    --- `table`, `tables`, `public`, `name_servers`, `name_server_wait_ns`
+    --- and `unresolved` are set; the starter sets the rest.
     config: Config
     --- The starter's ends of the connectors' control streams, by the
     --- descriptor of the relay's each is handed at.
@@ -103,19 +106,20 @@ local record relay_config
   http_port: integer
   --- The port of the relay's SOCKS5 listener.
   socks_port: integer
-  --- The relay's descriptor of the control stream of its table's
-  --- connector ([`Config.table`]).
-  table_fd: integer
-  --- Of the name servers' connector's ([`Config.name_servers`]).
+  --- The relay's descriptor of the control stream of its name servers'
+  --- connector ([`Config.name_servers`]).
   name_server_fd: integer
-  --- Of the first public connector's ([`Config.public`]): the rest follow
-  --- it, one descriptor each.
+  --- Of the first of its table's connectors ([`Config.tables`]): the rest
+  --- follow it, one descriptor each.
+  table_fd: integer
+  --- Of the first public connector's ([`Config.public`]), past every
+  --- table's descriptor whether handed or not: the rest follow it.
   public_fd: integer
-  --- How many public connectors the starter hands a relay whose policy
-  --- grants a name (4): each makes one connection at a time, so a connect
-  --- that hangs holds only its own connector, and the relay takes any of
-  --- the others that is free.
-  public_count: integer
+  --- How many alike connectors the starter hands a relay of each kind it
+  --- hands, the table's and the public ones (4): each makes one connection
+  --- at a time, so a connect that hangs holds only its own connector, and
+  --- the relay takes any of the others that is free.
+  pool_size: integer
   --- The wait for each connection the table's and the public connector
   --- make, in nanoseconds (10 seconds): the starter starts them with it,
   --- and the relay asks them with no less, so that every request is
@@ -125,10 +129,10 @@ end
 
 relay_config.http_port = 3128
 relay_config.socks_port = 1080
-relay_config.table_fd = 4
-relay_config.name_server_fd = 5
-relay_config.public_fd = 6
-relay_config.public_count = 4
+relay_config.pool_size = 4
+relay_config.name_server_fd = 4
+relay_config.table_fd = 5
+relay_config.public_fd = relay_config.table_fd + relay_config.pool_size
 relay_config.connect_ns = 10000000000
 
 --- The variables the relay sets for the program, which a policy with
@@ -328,7 +332,7 @@ function relay_config.encode(config: relay_config.Config): string
     grants = Json.array(config.grants), https_proxy = config.https_proxy, no_proxy = config.no_proxy,
     own_addresses = Json.array(config.own_addresses), log = config.log,
     upstream_addresses = config.upstream_addresses ~= nil and Json.array(config.upstream_addresses) or nil,
-    table = endpoints(config.table), public = config.public, name_servers = endpoints(config.name_servers),
+    table = endpoints(config.table), tables = config.tables, public = config.public, name_servers = endpoints(config.name_servers),
     name_server_wait_ns = config.name_server_wait_ns, unresolved = config.unresolved,
   })
   if encoded == nil then error("relay_config: " .. tostring(why), 2) end
@@ -395,12 +399,14 @@ function relay_config.decode(text: string): relay_config.Config | nil, string
     if listed == nil then return nil, why_table end
     config.table = listed
   end
-  local public = value.public
-  if public == nil then public = 0 end
-  if not public is integer or public < 0 or public > relay_config.public_count then
-    return nil, "public is not a count from 0 to " .. relay_config.public_count
+  for _, field in ipairs({ "tables", "public" }) do
+    local count = value[field]
+    if count == nil then count = 0 end
+    if not count is integer or count < 0 or count > relay_config.pool_size then
+      return nil, field .. " is not a count from 0 to " .. relay_config.pool_size
+    end
+    if field == "tables" then config.tables = count else config.public = count end
   end
-  config.public = public
   if value.name_servers ~= nil then
     local servers, why_servers = endpoints_of(value.name_servers, "name_servers")
     if servers == nil then return nil, why_servers end

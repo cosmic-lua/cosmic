@@ -395,12 +395,12 @@ local record Options
   ---   program's core on a database sealed for it, held by a pid namespace
   ---   and the files its resolver reads, which makes no socket of its own.
   ---   It reaches the network only through the native connectors this
-  ---   process starts and hands it ([`cosmic.sandbox.relay`]): one whose table
-  ---   holds the addresses a target names literally (at most 128, with the
-  ---   upstream proxy's: a policy with more fails to start, saying so), and,
-  ---   where a target names a host, one that connects to the public
-  ---   addresses a name resolves to and one that reaches the system's name
-  ---   servers alone, over TCP. The program reaches it at 127.0.0.1 ports 3128
+  ---   process starts and hands it ([`cosmic.sandbox.relay`]): a few whose
+  ---   table holds the addresses a target names literally (at most 128, with
+  ---   the upstream proxy's: a policy with more fails to start, saying so),
+  ---   and, where a target names a host the relay reaches directly, one that
+  ---   reaches the system's name servers alone, over TCP, and a few that
+  ---   connect to the public addresses a name resolves to. The program reaches it at 127.0.0.1 ports 3128
   ---   (HTTP CONNECT) and 1080 (SOCKS5), which the child's environment names:
   ---   `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY` (in both cases),
   ---   `NODE_USE_ENV_PROXY=1` and a `NO_PROXY` of `localhost`, 127.0.0.1, ::1
@@ -3793,16 +3793,18 @@ local function relay_connector(endpoints: {raw_process.ConnectorEndpoint}, wait_
 end
 
 --- The connectors the relay of the `connect` targets `connect` is handed
---- ([`cosmic.sandbox.relay`]), started in this process and network: the
---- table's, of the addresses a target names literally and the upstream
---- proxy's; for a target that names a host, a public one (refusing the
---- relay's deny list and `own`, the host's own addresses) and the name
---- servers'. The upstream's host is resolved once, here, through the name
---- servers' connector. Nil and why, with nothing left running, where the
---- upstream cannot be used or resolved, the table would be past 128, or a
+--- ([`cosmic.sandbox.relay`]), started in this process and network:
+--- [`RelayConfig.pool_size`] of the table's, of the addresses a target
+--- names literally and the upstream proxy's; and, for a target that names
+--- a host the relay reaches directly (no upstream, or one `no_proxy`
+--- bypasses for some), the name servers' and as many public ones (refusing
+--- the relay's deny list and `own`, the host's own addresses). The
+--- upstream's host is resolved once, here, through the name servers'
+--- connector. Nil and why, with nothing left running, where the upstream
+--- cannot be used or resolved, the table would be past 128, or a
 --- connector cannot start. Name servers that cannot be read are no
---- failure: the relay is told why, and reaches only what a target names
---- literally, and the upstream.
+--- failure: the relay is told why, is handed no public connector, and
+--- reaches only what a target names literally, and the upstream.
 local function relay_handover(connect: {string}, own: {string}): RelayConfig.Handover | nil, string
   local env: {string: string} = {}
   for _, name in ipairs({ "https_proxy", "HTTPS_PROXY", "no_proxy", "NO_PROXY" }) do
@@ -3822,13 +3824,16 @@ local function relay_handover(connect: {string}, own: {string}): RelayConfig.Han
     close()
     return nil, why
   end
-  local config: RelayConfig.Config = { grants = connect, own_addresses = own, log = "null", public = 0 }
+  local config: RelayConfig.Config = { grants = connect, own_addresses = own, log = "null", tables = 0, public = 0 }
   local fds: {integer: integer} = {}
   local up = plan.upstream
   local through: Rules.Relay.Through
   local dns: ConnectorProcess
   local unresolved = ""
-  if plan.names or (up ~= nil and Address.parse(up.host) == nil) then
+  -- A name is reached directly, and so resolved and connected by the relay
+  -- itself, only with no upstream or one that no_proxy bypasses for some.
+  local direct = plan.names and (up == nil or #up.no_proxy > 0)
+  if direct or (up ~= nil and Address.parse(up.host) == nil) then
     local servers, servers_why = SandboxRelay.name_servers()
     if servers == nil then
       unresolved = servers_why
@@ -3849,33 +3854,36 @@ local function relay_handover(connect: {string}, own: {string}): RelayConfig.Han
   end
   local rows, rows_why = SandboxRelay.table(plan, addresses)
   if rows == nil then return fail(rows_why) end
+  -- TODO: hand the relay one table connector and one public connector that
+  -- each make several connections at once, once core/connector.c's protocol
+  -- tags each request and its reply so that one process serves several
+  -- connects (a change of its own): each of these makes one at a time, so
+  -- RelayConfig.pool_size connects that hang, to the upstream proxy or to a
+  -- granted name, hold every other connection of their kind.
   if #rows > 0 then
-    local process, why = relay_connector(rows, RelayConfig.connect_ns)
-    if process == nil then return fail("the connector of the addresses granted: " .. why) end
-    processes[#processes + 1] = process
-    config.table, fds[RelayConfig.table_fd] = rows, process.fd
+    config.table = rows
+    for i = 1, RelayConfig.pool_size do
+      local process, why = relay_connector(rows, RelayConfig.connect_ns)
+      if process == nil then return fail("table connector " .. i .. ": " .. why) end
+      processes[#processes + 1] = process
+      config.tables, fds[RelayConfig.table_fd + i - 1] = i, process.fd
+    end
   end
-  if plan.names then
-    -- TODO: hand the relay one public connector that makes several
-    -- connections at once, once core/connector.c's protocol tags each
-    -- request and its reply so that one process serves several connects (a
-    -- change of its own): each of these makes one at a time, so
-    -- RelayConfig.public_count connects that hang hold every other
-    -- connection to a granted name.
-    for i = 1, RelayConfig.public_count do
+  if direct and through == nil then
+    -- No name resolves: the public connectors would reach nothing.
+    config.unresolved = unresolved
+  elseif direct then
+    for i = 1, RelayConfig.pool_size do
       local process, why = relay_connector({}, RelayConfig.connect_ns, SandboxRelay.public(own))
       if process == nil then return fail("public connector " .. i .. ": " .. why) end
       processes[#processes + 1] = process
       config.public, fds[RelayConfig.public_fd + i - 1] = i, process.fd
     end
-    if through == nil then
-      config.unresolved = unresolved
-    else
-      config.name_servers, config.name_server_wait_ns = through.name_servers.servers, through.name_servers.wait_ns
-      fds[RelayConfig.name_server_fd] = through.fd
-    end
+    config.name_servers, config.name_server_wait_ns = through.name_servers.servers, through.name_servers.wait_ns
+    fds[RelayConfig.name_server_fd] = through.fd
   elseif dns ~= nil then
-    -- Only the upstream's lookup needed it: the relay resolves no name.
+    -- Only the upstream's lookup needed it: the relay resolves no name, as
+    -- every name goes through the upstream.
     local _ = dns:close()
   end
   return { config = config, fds = fds, close = close }, ""
@@ -4240,8 +4248,9 @@ end
 --- the end of the program's relay channel that will carry the listeners,
 --- whose descriptors from 4 are the control streams of the connectors it
 --- is handed, and whose standard input carries the config and, held open,
---- keeps it alive. The relay's handle owns the connectors from then on. It answers once the relay says it has opened its database, which
---- it does before it waits for the listeners: the database is then no longer
+--- keeps it alive. The relay's handle owns the connectors from then on.
+--- It answers once the relay says it has opened its database, which it
+--- does before it waits for the listeners: the database is then no longer
 --- needed. Nil and why where it cannot start or ends first.
 begin_relay = function(prep: RelayPrep, channel: integer): RelayLaunch | nil, string
   local program, program_trouble = Proc.executable()

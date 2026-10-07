@@ -10,9 +10,9 @@
 --- - from descriptor 4, where the config says it is handed them, the
 ---   control streams of the connectors its starter started
 ---   ([`cosmic.sandbox.relay`]), which it adopts ([`Net.connector_from`]):
----   at 4 the table's, of the addresses a grant names literally and the
----   upstream proxy's; at 5 the name servers'; and from 6, one after
----   another, the public ones, for what a granted name resolves to;
+---   at 4 the name servers'; from 5, one after another, the table's, of the
+---   addresses a grant names literally and the upstream proxy's; and from
+---   9 the public ones, for what a granted name resolves to;
 --- - standard input: one line of JSON, a [`cosmic.relay_config`] `Config`,
 ---   and then nothing more until the process is to end. The grants, a
 ---   proxy's password and the rest are never in the arguments or the
@@ -105,10 +105,11 @@ end
 --- none is handed. Nil and why where one cannot be adopted.
 local function adopted(config: Config.Config): Relay.Handed | nil, Net.Connector | nil, string
   local handed: Relay.Handed = { wait_ns = Config.connect_ns }
-  if config.table ~= nil then
-    local made, why = Net.connector_from(Config.table_fd, config.table, false, Config.connect_ns)
-    if made == nil then return nil, nil, "the table's connector: " .. why end
-    handed.table_connector, handed.table = made, config.table
+  handed.table_connectors, handed.table = {}, config.table
+  for i = 1, config.table ~= nil and config.tables or 0 do
+    local made, why = Net.connector_from(Config.table_fd + i - 1, config.table, false, Config.connect_ns)
+    if made == nil then return nil, nil, "table connector " .. i .. ": " .. why end
+    handed.table_connectors[i] = made
   end
   handed.public_connectors = {}
   for i = 1, config.public do
@@ -158,7 +159,7 @@ local function serve(config: Config.Config): integer
     local connect: Relay.Connector = function(address: string, port: integer, _: integer): Net.Conn | nil, string
       return nil, "relay: no connector was handed for " .. address .. ":" .. port
     end
-    if handed.table_connector ~= nil or #handed.public_connectors > 0 then
+    if #handed.table_connectors > 0 or #handed.public_connectors > 0 then
       connect = Relay.handed(handed)
     end
     -- Without the name servers' connector the relay serves still, and every
@@ -189,7 +190,9 @@ local function serve(config: Config.Config): integer
     say("ready")
     serving:wait()
     watch:cancel()
-    if handed.table_connector ~= nil then local _, _ = handed.table_connector:close() end
+    for _, table_connector in ipairs(handed.table_connectors) do
+      local _, _ = table_connector:close()
+    end
     for _, public in ipairs(handed.public_connectors) do local _, _ = public:close() end
     if dns ~= nil then local _, _ = dns:close() end
     status = ended and 0 or failed("the relay's listeners ended")

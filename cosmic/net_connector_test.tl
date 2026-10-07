@@ -594,6 +594,50 @@ local function test_connector_from_is_not_started_again_when_its_process_ends()
   end)
 end
 
+--- A socket refused at once, by a loopback port nothing listens at: its
+--- peer reset it, so it has none, as a socket whose server resets it as it
+--- is made has none by the time the connector's reply is read.
+local function reset_socket(): raw_socket.Socket
+  local free = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
+  local port = free.address.port
+  assert(free:close())
+  local made = assert(socket.start({ kind = "tcp", host = "127.0.0.1", port = port }))
+  assert(Poll.writable(made:fd(), Clock.seconds(5)))
+  return made
+end
+
+--- A reply that came whole leaves an inherited connector in step though the
+--- socket it passes is no connection any more: that request fails alone,
+--- whether it named a table's endpoint or a public address, and the next is
+--- asked of the same stream. A stand-in on the stream's other end replies.
+local function test_connector_from_serves_on_after_a_socket_reset_as_it_was_made()
+  Poll.run(function()
+    local pair = stream_pair()
+    local connector = assert(Net.connector_from(pair[1], { { host = "127.0.0.1", port = 9 } }, true,
+      Clock.seconds(1)))
+    local targets: {integer | string} = { 1, "127.0.0.2" }
+    for _, target in ipairs(targets) do
+      local reset = reset_socket()
+      assert(sys.write(pair[2], string.pack(">I4", 0)) == 4)
+      assert(socket.sendfds(pair[2], { reset:fd() }))
+      local conn, why = connector:connect(target, 9, Clock.seconds(1))
+      assert(conn == nil and why:find("ended as it was made", 1, true) ~= nil, tostring(why))
+      assert(reset:close())
+      assert(not connector:ended(), "the connector serves on after " .. tostring(target))
+    end
+    assert(sys.write(pair[2], string.pack(">I4", socket.ECONNREFUSED)) == 4)
+    local refused, refusal = connector:connect(1, 9, Clock.seconds(1))
+    assert(refused == nil and refusal:find("refused", 1, true) ~= nil, tostring(refusal))
+    -- What the stand-in was asked: a table request, a public one, a table one.
+    local asked = assert(sys.read(pair[2], 4096))
+    assert(#asked == 8 + 28 + 8 and asked:sub(1, 8) == string.pack(">I4I4", 1, 9) and
+        asked:sub(9, 12) == string.pack(">I4", 0xffffffff), ("%q"):format(asked))
+    assert(connector:close())
+    assert(connector:ended())
+    assert(sys.close(pair[2]))
+  end)
+end
+
 local function test_connector_from_refuses_what_is_no_descriptor_or_table()
   local ok, why = pcall(Net.connector_from, -1)
   assert(not ok and tostring(why):find("fd must be a descriptor", 1, true) ~= nil, tostring(why))
