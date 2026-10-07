@@ -9,8 +9,8 @@ local teal = require("build.teal")
 local analyzer = require("build.analyzer")
 local test_inputs = require("build.test_inputs")
 
--- The source of cosmic.sandbox, whose `Policy` fields [`Test.Policy`] repeats.
-Test.policy{ grants = { { path = "cosmic/sandbox.tl", letters = "r" } } }
+-- The source of cosmic.sandbox_policy, whose `Policy` fields [`Test.Policy`] repeats.
+Test.policy{ grants = { { path = "cosmic/sandbox_policy.tl", letters = "r" } } }
 
 local built, load_trouble = teal.load()
 if built == nil then
@@ -224,10 +224,10 @@ local function test_a_module_declares_its_policy_once()
       "top level", 1, true), within)
 end
 
---- The fields [`Test.Policy`] repeats are the fields of cosmic.sandbox's
+--- The fields [`Test.Policy`] repeats are the fields of cosmic.sandbox_policy's
 --- `Policy`, and `requires`, which only a test declares.
 local function test_the_policy_record_is_the_sandboxs()
-  local text = assert(Fs.read("cosmic/sandbox.tl"))
+  local text = assert(Fs.read("cosmic/sandbox_policy.tl"))
   local record = assert(text:match("\n  record Policy\n(.-)\n  end\n"), "no Policy")
   local theirs: {string} = {}
   for name in ("\n" .. record):gmatch("\n    ([%a_]+): ") do theirs[#theirs + 1] = name end
