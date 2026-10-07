@@ -74,6 +74,25 @@ if arg[1] == "session" then
   -- Closing the master sends SIGHUP to our session; exit owns its close.
   print("pty: PASS")
   sys.exit(0)
+elseif arg[1] == "inherited" then
+  -- Started by the test of start_on_pty, with a terminal of its own on one
+  -- of its standard streams, which the pty's streams do not replace.
+  local program = { "/bin/sh", "-c", "exit 0" }
+  local case = arg[2]
+  local streams: {integer} = { 1 }
+  local opts: Child.Options = { policy = { profiles = { "system" } } }
+  local slot = "stdio[0]"
+  if case == "stderr" then
+    streams, slot = { 0, 1 }, "stdio[2]"
+  elseif case == "alias" then
+    -- stderr is stdout's, which is the terminal this process holds.
+    streams, slot, opts.stderr = { 0 }, "stdio[1]", "stdout"
+  end
+  local child, refusal = Child.start_on_pty(program, opts, { streams = streams })
+  assert(child == nil, "a terminal this process holds reached a policy child")
+  assert_terminal_refusal(nil, refusal, slot)
+  print("inherited: PASS")
+  sys.exit(0)
 else
   local session = assert(Child.run({ assert(Proc.executable()), arg[0], "session" },
     { process_group = false, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(10) }))
@@ -112,6 +131,62 @@ else
     assert_terminal_refusal(child, trouble, "fds[3]")
     assert(sys.close(pty.slave))
     assert(sys.close(pty.master))
+
+    -- The one start that gives a policy's child a terminal opens the pty
+    -- itself, so a terminal the caller holds reaches the child by no
+    -- entry point: not as stdio or on another descriptor through
+    -- Child.start (refused above), and not through this either.
+    local real = assert(sys.openpty())
+    local program = { "/bin/sh", "-c", "test -t 0 && test -t 1 && test -t 2 && printf held-terminal" }
+    local held_policy: Child.Options = { policy = { profiles = { "system" } } }
+    local function refused_on_pty(opts: Child.Options, streams: {integer}, slot: string)
+      opts.policy = held_policy.policy
+      local started, refusal = Child.start_on_pty(program, opts, { streams = streams })
+      assert(started == nil)
+      assert_terminal_refusal(nil, refusal, slot)
+    end
+    refused_on_pty({ stdin = real.slave }, { 1 }, "stdio[0]")
+    refused_on_pty({ stdout = real.slave }, { 0 }, "stdio[1]")
+    refused_on_pty({ stderr = real.slave }, { 0 }, "stdio[2]")
+    refused_on_pty({ stdout = "null", stderr = "null", fds = { [3] = real.slave } },
+      { 0 }, "fds[3]")
+    local also, also_why = pcall(Child.start_on_pty, program, { stdin = real.slave }, { streams = { 0 } })
+    assert(not also and tostring(also_why):find("takes no stdin, input, stdout or stderr of its own", 1, true),
+      tostring(also_why))
+
+    -- A stream not on the pty that is this process's own terminal, which no
+    -- option names: the refusal looks at the descriptor the child would get.
+    local function inherited(case: string, opts: Child.Options)
+      opts.timeout_ns = Clock.seconds(20)
+      local ran = assert(Child.run({ assert(Proc.executable()), arg[0], "inherited", case }, opts))
+      local said = "code " .. tostring(ran.code) .. " signal " .. tostring(ran.signal) ..
+        " stderr " .. tostring(ran.stderr) .. " stdout " .. tostring(ran.stdout)
+      if not ran.ok or (ran.stdout ~= nil and not ran.stdout:find("inherited: PASS", 1, true)) then
+        error(said, 0)
+      end
+    end
+    inherited("stdin", { stdin = real.slave, stdout = "capture", stderr = "capture" })
+    inherited("stderr", { stdin = "null", stdout = "capture", stderr = real.slave })
+    inherited("alias", { stdin = "null", stdout = real.slave, stderr = "capture" })
+    assert(sys.close(real.slave))
+    assert(sys.close(real.master))
+
+    local started = assert(Child.start_on_pty(program, held_policy, { streams = { 0, 1, 2 }, rows = 30, columns = 90 }))
+    assert(Poll.readable(started.master, Clock.seconds(5)))
+    assert((assert(sys.read(started.master, 100))) == "held-terminal")
+    assert((assert(started.child:wait())).code == 0)
+    assert(sys.close(started.master))
+
+    -- Only the streams named are the pty: stdout on it, stdin none (so no
+    -- controlling terminal), stderr a pipe of its own.
+    local mixed = assert(Child.start_on_pty({ "/bin/sh", "-c",
+      "test -t 1 && ! test -t 0 && ! test -t 2 && printf out && printf err >&2" },
+      { policy = { profiles = { "system" } }, stdin = "null", stderr = "capture" }, { streams = { 1 } }))
+    assert(Poll.readable(mixed.master, Clock.seconds(5)))
+    assert((assert(sys.read(mixed.master, 100))) == "out")
+    local done = assert(mixed.child:wait())
+    assert(done.code == 0 and done.stderr == "err", tostring(done.stderr))
+    assert(sys.close(mixed.master))
   end
 end
 print("pty: PASS")
