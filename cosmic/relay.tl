@@ -44,10 +44,16 @@
 ---
 --- Behind an upstream proxy ([`Relay.Upstream`], from [`Relay.upstream`]),
 --- steps 2 and 5 are the same and steps 3 and 4 connect to the upstream
---- instead -- its address resolved, checked as any other, connected through
---- the connector -- and ask it to CONNECT: the upstream resolves the
+--- instead -- its address resolved, its answers checked and connected
+--- through the connector -- and ask it to CONNECT: the upstream resolves the
 --- name, so the address checks do not apply to what it reaches, which the
---- relay says once, at its start.
+--- relay says once, at its start. The upstream's own address is the one the
+--- caller's `https_proxy` names, so it needs no grant (a proxy on loopback or
+--- a private network is the usual one), and a program that asks for that
+--- address by IP is refused as any other literal. A `*` host grant would let
+--- a name such as `internal.corp` reach what the upstream's own network
+--- resolves it to, which this relay cannot see: `localhost` and `*.localhost`
+--- are refused in this mode, and the rest is the upstream's to refuse.
 ---
 --- Caps, each refused with its own reason in the program's reply: the
 --- connections open at once (`connections`), the bytes of a request
@@ -213,6 +219,14 @@ local function lower(text: string): string
   return (text:gsub("%u", string.lower))
 end
 
+--- A decimal `port`, or nil.
+local function number_of(text: string): integer | nil
+  if not text:find("^[1-9]%d*$") or #text > 5 then return nil end
+  local port = math.tointeger(tonumber(text))
+  if port == nil or port < 1 or port > 65535 then return nil end
+  return port
+end
+
 --- `ns` in words: whole seconds, or milliseconds below one.
 local function span(ns: integer): string
   if ns >= Clock.seconds(1) then
@@ -235,9 +249,13 @@ local function name_grants(grants: {string}): {NameGrant}, {string}
   local notes: {string} = {}
   for _, grant in ipairs(grants) do
     local host, at = grant:match("^(.+):([^:]+)$")
-    local port = at == "*" and 0 or (at ~= nil and math.tointeger(tonumber(at)) or nil)
-    if host == nil or port == nil or port < 0 or port > 65535 then
+    -- A port is decimal digits from 1 to 65535 with no leading zero, as
+    -- cosmic.sandbox reads it, or "*".
+    local port = at == "*" and 0 or (at ~= nil and number_of(at) or nil)
+    if host == nil or port == nil then
       notes[#notes + 1] = ("grant \"%s\" is not host:port and opens nothing"):format(grant)
+    elseif host:find(":", 1, true) and host:sub(1, 1) ~= "[" then
+      notes[#notes + 1] = ("grant \"%s\" opens nothing: an IPv6 host is written in brackets"):format(grant)
     elseif host:sub(1, 1) == "[" or Address.parse(host) ~= nil then
       -- An address: matched literally, by [`Address.granted`].
       local inner = host:match("^%[(.*)%]$") or host
@@ -272,18 +290,16 @@ local function target(host: string, port: integer): string
   return host .. ":" .. port
 end
 
---- A decimal `port`, or nil.
-local function number_of(text: string): integer | nil
-  if not text:find("^%d+$") or #text > 5 then return nil end
-  local port = math.tointeger(tonumber(text))
-  if port == nil or port < 1 or port > 65535 then return nil end
-  return port
-end
-
 local function percent_decoded(text: string): string
   return (text:gsub("%%(%x%x)", function(hex: string): string
     return string.char(tonumber(hex, 16))
   end))
+end
+
+--- `value`, a proxy URL, with the credentials in it hidden, for a message.
+local function masked(value: string): string
+  local hidden = value:gsub("//[^@/]*@", "//***@")
+  return (hidden:gsub("^[^/@]*@", "***@"))
 end
 
 --- The upstream a caller's environment names, and nil when it names none:
@@ -302,7 +318,7 @@ function Relay.upstream(env: {string:string}): Relay.Upstream | nil, string
   local scheme, rest = value:match("^(%a[%w+.-]*)://(.*)$")
   if scheme ~= nil then
     if lower(scheme) ~= "http" then
-      return nil, ("https_proxy \"%s\" is not an http:// proxy (the relay speaks plain HTTP to its upstream)"):format(value)
+      return nil, ("https_proxy \"%s\" is not an http:// proxy (the relay speaks plain HTTP to its upstream)"):format(masked(value))
     end
   else
     rest = value
@@ -324,7 +340,7 @@ function Relay.upstream(env: {string:string}): Relay.Upstream | nil, string
     if at ~= "" then port = number_of(at) end
   end
   if host == nil or host == "" or port == nil then
-    return nil, ("https_proxy \"%s\" has no usable host:port"):format((value:gsub("//[^@/]*@", "//***@")))
+    return nil, ("https_proxy \"%s\" has no usable host:port"):format(masked(value))
   end
   local upstream: Relay.Upstream = { host = lower(host), port = port, no_proxy = {} }
   if userinfo ~= nil and userinfo ~= "" then
@@ -340,7 +356,8 @@ end
 
 --- Whether `no_proxy` says to reach `host` on `port` directly.
 local function bypasses(no_proxy: {string}, host: string, port: integer): boolean
-  for _, entry in ipairs(no_proxy) do
+  for _, listed in ipairs(no_proxy) do
+    local entry = lower(listed)
     if entry == "*" then return true end
     local name, at = entry:match("^(.-):(%d+)$")
     if name ~= nil and not entry:find("::", 1, true) and not entry:find("^%[") then
@@ -554,7 +571,7 @@ local record Found
 end
 
 --- Resolves `name` once, and the first address the checks allow.
-local function address_of(run: Running, name: string, kind: Wire.Kind, port: integer): Found
+local function address_of(run: Running, name: string, kind: Wire.Kind, port: integer, trusted?: boolean): Found
   local shown = target(name, port)
   if kind ~= "name" then
     return { address = name }
@@ -575,7 +592,17 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
   for i, resolved in ipairs(found) do
     answers[i] = { address = resolved.address, family = resolved.family }
   end
-  local chosen, trouble = Address.select(answers, port, run.spec.grants, run.own)
+  local grants = run.spec.grants
+  if trusted then
+    -- The upstream's address is the one the caller's own https_proxy names: the
+    -- relay may connect to it (a proxy on loopback or a private network is the
+    -- usual one) without the program being granted it, which would let the
+    -- program ask the proxy for any host.
+    grants = {}
+    for i, grant in ipairs(run.spec.grants) do grants[i] = grant end
+    for _, answer in ipairs(answers) do grants[#grants + 1] = target(answer.address, port) end
+  end
+  local chosen, trouble = Address.select(answers, port, grants, run.own)
   if chosen == nil then
     return { address = "", refused = refusal(("%s: %s"):format(shown, trouble), 403, "not_allowed") }
   end
@@ -623,6 +650,8 @@ local record Sniff
   strict: boolean
   --- The bytes held until the hello is decided.
   held: string
+  --- When a hello begun must be whole, from the program's first byte; 0
+  --- until it has sent one.
   deadline: integer
 end
 
@@ -681,6 +710,9 @@ local function tunnel(run: Running, req: Request, client: Net.Conn, far: Net.Con
     end
     local function take(data: string): boolean
       if check == nil then return pass(data) end
+      -- The hello's time starts at the program's first byte: a client that
+      -- waits for a server that speaks first is not on the clock.
+      if check.deadline == 0 then check.deadline = Clock.monotonic_ns() + run.timeouts.head end
       check.held = check.held .. data
       local seen = check.reader:feed(data)
       if seen.status == "more" then return true end
@@ -699,9 +731,13 @@ local function tunnel(run: Running, req: Request, client: Net.Conn, far: Net.Con
     if pending ~= "" and not take(pending) then return end
     while ended == "" do
       local left = idle - (Clock.monotonic_ns() - stamp)
-      if check ~= nil then left = math.min(left, check.deadline - Clock.monotonic_ns()) end
+      local hello_late = false
+      if check ~= nil and check.deadline ~= 0 then
+        local remaining = check.deadline - Clock.monotonic_ns()
+        if remaining < left then left, hello_late = remaining, true end
+      end
       if left <= 0 then
-        if check ~= nil then
+        if hello_late then
           run.log(("#%d %s %s: refused a ClientHello not complete within %s"):format(req.id, req.protocol,
             target(req.host, req.port), span(run.timeouts.head)))
           run.refused = run.refused + 1
@@ -792,6 +828,11 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
         format(shown), 403, "not_allowed"), true)
     return
   end
+  if through ~= nil and req.kind == "name" and (req.host == "localhost" or req.host:sub(-10) == ".localhost") then
+    reject(refusal(("%s is not relayed through the upstream proxy: it would name the proxy's own host, not the " ..
+      "sandbox's"):format(shown), 403, "not_allowed"), true)
+    return
+  end
   -- Steps 3 and 4.
   local far: Net.Conn
   local first = ""
@@ -808,10 +849,11 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
       reject(connect_failure(target(address, req.port), trouble), true)
       return
     end
+    run.live[id] = { client, conn }
     far, how = conn, "via " .. target(address, req.port)
   else
     local up = through
-    local found = address_of(run, up.host, "name", up.port)
+    local found = address_of(run, up.host, "name", up.port, true)
     if found.refused ~= nil then
       reject(found.refused, true)
       return
@@ -823,6 +865,7 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
       reject(connect_failure("the upstream proxy " .. target(address, up.port), trouble), true)
       return
     end
+    run.live[id] = { client, conn }
     local ask = ("CONNECT %s HTTP/1.1\r\nHost: %s\r\n%s\r\n"):format(shown, shown,
       up.authorization ~= nil and ("Proxy-Authorization: " .. up.authorization .. "\r\n") or "")
     local rest, bad = upstream_connect(conn, ask, deadline, run.timeouts.connect)
@@ -834,8 +877,11 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
     far, first = conn, rest
     how = ("through the upstream proxy %s, which resolves %s"):format(target(address, up.port), req.host)
   end
-  -- Step 5.
-  run.live[id] = { client, far }
+  -- Step 5. A connection made after `stop` is closed, not served.
+  if run.stopping then
+    local _, _ = far:close()
+    return
+  end
   local ok = send(client, protocol == "connect" and Wire.connect_ok() or Wire.socks_reply("succeeded"), run.timeouts.head)
   if not ok then
     run.log(("#%d %s %s: the program went away before the reply"):format(id, protocol, shown))
@@ -846,7 +892,7 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
   run.log(("#%d %s %s: allowed %s"):format(id, protocol, shown, how))
   local sniff: Sniff = {
     reader = Wire.hello_reader(), host = req.host, kind = req.kind, strict = run.tls_ports[req.port] == true,
-    held = "", deadline = Clock.monotonic_ns() + run.timeouts.head,
+    held = "", deadline = 0,
   }
   tunnel(run, req, client, far, first, sniff)
 end
@@ -904,6 +950,28 @@ local function accept_loop(run: Running, listener: Net.Listener, protocol: strin
   end
 end
 
+--- Raises, naming the field, where `up` is no usable upstream.
+local function checked_upstream(up: Relay.Upstream)
+  if type(up) ~= "table" then error("relay: spec.upstream must be a table", 3) end
+  if type(up.host) ~= "string" or up.host == "" or up.host:find("[%c%s]") then
+    error("relay: spec.upstream.host must be a host name or address", 3)
+  end
+  if number_of(tostring(up.port)) == nil or math.type(up.port) ~= "integer" then
+    error("relay: spec.upstream.port must be a port from 1 to 65535", 3)
+  end
+  if up.authorization ~= nil and (type(up.authorization) ~= "string" or up.authorization:find("[%c]")) then
+    error("relay: spec.upstream.authorization must be a header value with no control bytes", 3)
+  end
+  if type(up.no_proxy) ~= "table" then
+    error("relay: spec.upstream.no_proxy must be a list of strings", 3)
+  end
+  for _, entry in ipairs(up.no_proxy) do
+    if type(entry) ~= "string" then
+      error("relay: spec.upstream.no_proxy must be a list of strings", 3)
+    end
+  end
+end
+
 --- `given`, or `default` where it is nil; raises where it is no integer from 1.
 local function chosen(given: integer | nil, default: integer, name: string): integer
   if given == nil then return default end
@@ -937,6 +1005,17 @@ function Relay.start(spec: Relay.Spec): Relay.Serving
   for _, grant in ipairs(spec.grants) do
     if type(grant) ~= "string" then error("relay: spec.grants must hold strings", 2) end
   end
+  local function table_or_nil(value: any, field: string)
+    if value ~= nil and type(value) ~= "table" then
+      error(("relay: spec.%s must be a table"):format(field), 3)
+    end
+  end
+  table_or_nil(spec.timeouts, "timeouts")
+  table_or_nil(spec.limits, "limits")
+  table_or_nil(spec.resolve, "resolve")
+  table_or_nil(spec.own_addresses, "own_addresses")
+  table_or_nil(spec.tls_ports, "tls_ports")
+  if spec.upstream ~= nil then checked_upstream(spec.upstream) end
   if not Poll.in_task() then error("relay: start runs in a task of Poll.run", 2) end
   local given_timeouts: Relay.Timeouts = spec.timeouts or {}
   local given_limits: Relay.Limits = spec.limits or {}
@@ -980,7 +1059,7 @@ function Relay.start(spec: Relay.Spec): Relay.Serving
     local up = spec.upstream
     run.log(("upstream proxy %s: it resolves the names it is asked for, so the relay's address checks do " ..
       "not apply to what it reaches; names are still matched against the grants, and the proxy's own " ..
-      "address is checked and connected as any other"):format(target(up.host, up.port)))
+      "address is the one the caller's https_proxy names, so the relay connects to it without the program being granted it"):format(target(up.host, up.port)))
   end
   local function listen(listener: Net.Listener | nil, protocol: string)
     if listener ~= nil then

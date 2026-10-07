@@ -692,6 +692,99 @@ local function test_bytes_that_are_not_tls_pass_on_any_port(tmp: string)
   end)
 end
 
+local function test_a_client_that_waits_for_a_server_that_speaks_first_is_not_timed_out(tmp: string)
+  Poll.run(function()
+    local server = origin(banner)
+    local rig = start(tmp, { grants = { "127.0.0.1:" .. server.port }, timeouts = { head = Clock.ms(150) } })
+    local conn = connect_to(rig, "127.0.0.1:" .. server.port)
+    assert(read_exact(conn, 16) == "SSH-2.0-origin\r\n")
+    -- Silent for longer than the head timeout, as a client waiting on a prompt is.
+    assert(Poll.delay(Clock.ms(450)))
+    assert(rig.server:stats().open == 1, "still open")
+    assert(conn:write("SSH-2.0-client\r\n"))
+    until_it(function(): boolean return server.received == "SSH-2.0-client\r\n" end)
+    assert(#lines_with(rig, "refused") == 0 and #lines_with(rig, "closed") == 0, table.concat(rig.log, "\n"))
+    -- The clock starts at the first byte of a hello that then stops.
+    local late = connect_to(rig, "127.0.0.1:" .. server.port)
+    assert(Poll.delay(Clock.ms(300)))
+    assert(late:write(Fixture.records(Fixture.hello({})):sub(1, 10)))
+    assert(read_all(late):find("\21\3\3", 1, true) == 17, "a hello that stops is refused (after the banner)")
+    local _, _ = conn:close()
+    finish(rig, server)
+  end)
+end
+
+local function test_a_hello_sent_with_the_request_is_judged_and_passed(tmp: string)
+  Poll.run(function()
+    local server = origin(function(conn: Net.Conn, seen: Origin)
+      drain(conn, seen, "ack")
+    end)
+    local port = server.port
+    local rig = start(tmp, { grants = { "svc.test:" .. port, "127.0.0.1:" .. port } })
+    local hello = Fixture.records(Fixture.hello({ name = "svc.test" }))
+    local pipelined = dial(rig.http)
+    assert(pipelined:write(Fixture.connect("svc.test:" .. port) .. hello))
+    assert(status_line(read_head(pipelined)):find("^HTTP/1.1 200 "))
+    assert(read_exact(pipelined, 3) == "ack")
+    assert(server.received == hello)
+    local _, _ = pipelined:close()
+    local bad = dial(rig.http)
+    assert(bad:write(Fixture.connect("svc.test:" .. port) .. Fixture.records(Fixture.hello({ name = "evil.test" }))))
+    assert(status_line(read_head(bad)):find("^HTTP/1.1 200 "))
+    assert(read_all(bad) == "\21\3\3\0\2\2\40")
+    assert(server.received == hello, "nothing of the refused hello arrived")
+    local _, _ = bad:close()
+    -- SOCKS5: the request and the hello in one write after the greeting.
+    local socks = dial(rig.socks)
+    assert(socks:write("\5\1\0"))
+    assert(read_exact(socks, 2) == "\5\0")
+    assert(socks:write(Fixture.socks_request(1, 3, "\8svc.test", port) .. hello))
+    assert(read_exact(socks, 10):byte(2) == 0)
+    assert(read_exact(socks, 3) == "ack")
+    local _, _ = socks:close()
+    finish(rig, server)
+  end)
+end
+
+local function test_a_grant_whose_port_is_not_a_plain_decimal_opens_nothing(tmp: string)
+  Poll.run(function()
+    local server = origin(echo)
+    local port = server.port
+    local bad = { "svc.test:0x" .. ("%x"):format(port), "svc.test:1e2", "svc.test:80.0", "svc.test:0", "svc.test:00",
+      "svc.test:080", "svc.test:65536", "svc.test:+80", "svc.test:99999999", "::1:80", "2001:db8::1:443" }
+    local rig = start(tmp, { grants = bad })
+    assert(#lines_with(rig, "opens nothing") == #bad, table.concat(rig.log, "\n"))
+    for _, target in ipairs({ "svc.test:80", "svc.test:" .. port, "svc.test:100", "svc.test:1" }) do
+      local conn, head = connect_to(rig, target)
+      assert(status_line(head):find("^HTTP/1.1 403 .*not granted"), head)
+      local _, _ = conn:close()
+    end
+    finish(rig, server)
+  end)
+end
+
+local function test_a_connection_made_after_stop_is_closed(tmp: string)
+  Poll.run(function()
+    local server = origin(echo)
+    local rig = start(tmp, { grants = { "127.0.0.1:" .. server.port },
+      connector = function(address: string, port: integer, timeout_ns: integer): Net.Conn | nil, string
+        assert(Poll.delay(Clock.ms(150)))
+        return Net.connect(Net.tcp(address, port), { timeout_ns = timeout_ns })
+      end })
+    local conn = dial(rig.http)
+    assert(conn:write(Fixture.connect("127.0.0.1:" .. server.port)))
+    assert(Poll.delay(Clock.ms(40)))
+    rig.server:stop()
+    until_it(function(): boolean return server.connections == 1 end)
+    rig.server:wait()
+    until_it(function(): boolean return server.eof end)
+    local data, _ = conn:read()
+    assert(data == nil, "no reply to a connection made after stop")
+    local _, _ = conn:close()
+    finish(rig, server)
+  end)
+end
+
 local function test_each_side_ending_what_it_sends_is_passed_on(tmp: string)
   Poll.run(function()
     local seen = origin(answers_after_eof)
@@ -868,7 +961,7 @@ local function test_a_connect_goes_through_the_upstream_proxy_which_resolves(tmp
     local up: Relay.Upstream = {
       host = "127.0.0.1", port = through.server.port, authorization = "Basic dTpw", no_proxy = { "direct.test" },
     }
-    local grants = { "api.test:443", "127.0.0.1:" .. through.server.port, "direct.test:9" }
+    local grants = { "api.test:443", "direct.test:9", "a.localhost:443" }
     local rig = start(tmp, { grants = grants, upstream = up })
     assert(#lines_with(rig, "upstream proxy 127.0.0.1:" .. through.server.port ..
         ": it resolves the names it is asked for, so the relay's address checks do not apply") == 1,
@@ -893,26 +986,31 @@ local function test_a_connect_goes_through_the_upstream_proxy_which_resolves(tmp
     local direct, refusal = connect_to(rig, "direct.test:9")
     assert(status_line(refusal):find("^HTTP/1.1 403 .*is a loopback address"), refusal)
     local _, _ = direct:close()
-    -- A literal is passed to the upstream as granted.
+    -- The upstream's own address needs no grant, and the program is not granted it.
     local literal, ok = connect_to(rig, "127.0.0.1:" .. through.server.port)
-    assert(status_line(ok):find("^HTTP/1.1 200 "), ok)
-    assert(through.head:find("^CONNECT 127.0.0.1:" .. through.server.port), through.head)
+    assert(status_line(ok):find("^HTTP/1.1 403 .*not granted: %-%-connect 127.0.0.1:" .. through.server.port), ok)
     local _, _ = literal:close()
+    -- A name for the proxy's own host is not the sandbox's to ask for.
+    local named, local_answer = connect_to(rig, "a.localhost:443")
+    assert(status_line(local_answer):find("^HTTP/1.1 403 .*is not relayed through the upstream proxy"), local_answer)
+    local _, _ = named:close()
     finish(rig, through.server)
   end)
 end
 
-local function test_the_upstreams_address_is_checked_like_any_other(tmp: string)
+local function test_the_upstreams_own_address_needs_no_grant_and_is_the_programs_to_ask_for_only_if_granted(tmp: string)
   Poll.run(function()
     local through = proxy("200")
     local up: Relay.Upstream = { host = "127.0.0.1", port = through.server.port, no_proxy = {} }
-    -- The name is granted, but the upstream's address (loopback) is not.
-    local rig = start(tmp, { grants = { "api.test:443" }, upstream = up })
+    local rig = start(tmp, { grants = { "api.test:443", "localhost:443" }, upstream = up })
     local conn, head = connect_to(rig, "api.test:443")
-    local line = status_line(head)
-    assert(line:find("^HTTP/1.1 403 ") and line:find("grant it literally with --connect 127.0.0.1:" .. through.server.port, 1, true), line)
-    assert(through.server.connections == 0)
+    assert(status_line(head):find("^HTTP/1.1 200 "), head)
     local _, _ = conn:close()
+    -- Without the upstream a name is judged by what it resolves to: loopback is refused.
+    local local_name, answer = connect_to(rig, "localhost:443")
+    assert(status_line(answer):find("^HTTP/1.1 403 .*is not relayed through the upstream proxy"), answer)
+    assert(through.server.connections == 1)
+    local _, _ = local_name:close()
     finish(rig, through.server)
   end)
 end
@@ -953,9 +1051,12 @@ local function test_an_upstream_is_read_from_the_environment()
     local none, why = Relay.upstream({ https_proxy = bad })
     assert(none == nil and why:find("https_proxy", 1, true), bad .. ": " .. tostring(why))
   end
-  -- The credentials are never in the reason.
-  local _, why = Relay.upstream({ https_proxy = "http://user:secret@host:0" })
-  assert(not why:find("secret", 1, true), why)
+  -- The credentials are never in the reason, whichever way the value is wrong.
+  for _, value in ipairs({ "http://user:secret@host:0", "https://user:secret@host:443", "socks5://user:secret@host:1080",
+      "user:secret@host:0", "http://user:secret@:80" }) do
+    local _, why = Relay.upstream({ https_proxy = value })
+    assert(why ~= "" and not why:find("secret", 1, true), value .. ": " .. why)
+  end
 end
 
 local function test_no_proxy_names_the_hosts_reached_directly(tmp: string)
@@ -1073,6 +1174,13 @@ local function test_a_spec_that_is_no_spec_raises(tmp: string)
       { { http = listener, grants = {}, connector = connector, limits = { total = -1 } }, "limits.total must be an integer from 1" },
       { { http = listener, grants = {}, connector = connector, tls_ports = { 0 } }, "tls_ports" },
       { { http = listener, grants = {}, connector = connector, own_addresses = { "nope" } }, "not numeric" },
+      { { http = listener, grants = {}, connector = connector, timeouts = 5 as any as Relay.Timeouts }, "spec.timeouts must be a table" },
+      { { http = listener, grants = {}, connector = connector, upstream = { host = "", port = 80, no_proxy = {} } }, "upstream.host" },
+      { { http = listener, grants = {}, connector = connector, upstream = { host = "p", port = 0, no_proxy = {} } }, "upstream.port" },
+      { { http = listener, grants = {}, connector = connector,
+        upstream = { host = "p", port = 80, authorization = "x\r\nHost: y", no_proxy = {} } }, "upstream.authorization" },
+      { { http = listener, grants = {}, connector = connector,
+        upstream = { host = "p", port = 80, no_proxy = { 1 as any as string } } }, "upstream.no_proxy" },
     }
     for _, case in ipairs(cases) do
       local started, why = pcall(Relay.start, case[1])

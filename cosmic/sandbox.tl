@@ -260,15 +260,53 @@ local function loopback_ok(address: string): boolean
   return true
 end
 
+--- How many 16-bit groups `list` holds, colon-separated, or nil where a
+--- piece is empty, longer than four hex digits or no hex; `tail4` lets the
+--- last piece be an IPv4 address of four decimal numbers, which is two.
+local function group_count(list: string, tail4: boolean): integer | nil
+  if list == "" then return 0 end
+  local pieces: {string} = {}
+  for piece in (list .. ":"):gmatch("([^:]*):") do pieces[#pieces + 1] = piece end
+  local count = 0
+  for i, piece in ipairs(pieces) do
+    if piece:find(".", 1, true) then
+      local a, b, c, d = piece:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
+      if not tail4 or i ~= #pieces or a == nil then return nil end
+      for _, octet in ipairs({ a, b, c, d }) do
+        if #octet > 3 or tonumber(octet) > 255 then return nil end
+      end
+      count = count + 2
+    elseif #piece < 1 or #piece > 4 or piece:find("%X") then
+      return nil
+    else
+      count = count + 1
+    end
+  end
+  return count
+end
+
+--- Whether `text` is an IPv6 address: hex groups of one to four digits, at
+--- most one "::" and, last, an IPv4 tail of four decimal numbers.
+local function ipv6_ok(text: string): boolean
+  if text:find("[^%x:%.]") or text:find(":::", 1, true) then return false end
+  local gap = text:find("::", 1, true)
+  if gap == nil then return group_count(text, true) == 8 end
+  if text:find("::", gap + 1, true) then return false end
+  local head = group_count(text:sub(1, gap - 1), false)
+  local tail = group_count(text:sub(gap + 2), true)
+  return head ~= nil and tail ~= nil and head + tail <= 7
+end
+
 --- Whether `host` can head a `connect` target: an IPv6 address in
 --- brackets (`[::1]`), or text with no colon, which is a name, "*", or an
 --- IPv4 address. An unbracketed IPv6 host ("::1:80" is host "::1", port 80
---- to the split below) and a bracketed IPv4 one ("[1.2.3.4]:80") are
---- refused, as [`cosmic.relay_address`]'s grants open neither.
+--- to the split below), a bracketed IPv4 one ("[1.2.3.4]:80") and a
+--- bracketed text that is no IPv6 address ("[:]:80") are refused, as
+--- [`cosmic.relay_address`]'s grants open none of them.
 local function connect_host_ok(host: string): boolean
   local inner = host:match("^%[(.*)%]$")
   if inner ~= nil then
-    return inner:find(":", 1, true) ~= nil and not inner:find("[^%x:%.]")
+    return ipv6_ok(inner)
   end
   return not host:find("[:%[%]]")
 end

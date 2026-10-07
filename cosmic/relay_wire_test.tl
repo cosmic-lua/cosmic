@@ -678,10 +678,6 @@ local function test_client_hello_says_what_is_not_tls()
     "\128\46\1\3\1\0\21\0\0\0\16",
     "\23\3\3\0\5hello",
     "\21\3\3\0\2\2\40",
-    "\22\2\0\0\5hello",
-    "\22\4\1\0\5hello",
-    "\22\3\5\0\5hello",
-    "\22\255\255\0\5hello",
   }
   for _, input in ipairs(cases) do
     local r = client_hello(input)
@@ -771,6 +767,19 @@ local function test_client_hello_name_rules_match_connects()
   for _, case in ipairs(names) do
     assert(sni_of(Fixture.records(Fixture.hello({ name = case[1] }))) == case[2], case[1])
   end
+end
+
+local function test_a_handshake_record_of_an_unknown_version_is_refused_not_passed()
+  local hello = Fixture.hello({ name = "version.example" })
+  for _, version in ipairs({ 0x0305, 0x03ff, 0x0401, 0x0200, 0x0000, 0xffff }) do
+    local input = Fixture.records(hello, nil, version)
+    local r = client_hello(input)
+    assert(r.status == "malformed", ("%04x: %s"):format(version, r.status))
+    assert(r.reason:find("version", 1, true), r.reason)
+    hello_splits_agree(input, "malformed")
+  end
+  -- Only a first byte that is no handshake's is not TLS.
+  assert(client_hello(" x").status == "not_tls")
 end
 
 local function test_client_hello_waits_for_the_rest_of_a_short_message()
