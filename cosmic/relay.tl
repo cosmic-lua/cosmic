@@ -975,13 +975,10 @@ local function chosen(given: integer | nil, default: integer, name: string): int
   return given
 end
 
--- TODO: start this in a confined process of its own from Child.start (a policy
--- whose `connect` the relay serves) and the verb, with listeners the sandbox
--- bound in its network, which [`Net.listener_from`] now takes from a
--- descriptor handed down from the parent, once Child.start has that policy
--- and a way to pass the descriptors.
 --- Starts serving `spec`'s listeners in the calling task's run, and
---- returns once they are taken. Raises where the spec is no spec: no
+--- returns once they are taken. [`Child.start`] runs it for a policy's
+--- `connect`, in a process of its own ([`cosmic.relay_serve`]) whose
+--- listeners the sandbox bound in the program's network. Raises where the spec is no spec: no
 --- listener or `connector`, a grant that is no string, a timeout or limit
 --- that is no positive integer, an own address that is no address.
 --- @param spec Relay.Spec What to serve

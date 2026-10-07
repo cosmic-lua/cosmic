@@ -154,6 +154,14 @@ local function test_unmet_policy_fields_are_refused()
   end
 end
 
+--- macOS runs no relay for `connect`, which a Linux start does: it is refused
+--- naming the relay, on every host that compiles a profile.
+local function test_connect_is_refused_naming_the_relay_macos_does_not_run()
+  local out, why = Seatbelt.compile({ connect = { "example.com:443" } }, { paths = {} })
+  assert(out == nil and why:find("connect needs the network relay", 1, true), tostring(why))
+  assert(why:find("macOS does not run yet", 1, true), why)
+end
+
 local function test_missing_or_noncanonical_host_paths_fail_closed()
   local out, why = Seatbelt.compile({ grants = { { path = "a", letters = "r" } } }, { paths = {} })
   assert(out == nil and why:find("resolved host path", 1, true), why)

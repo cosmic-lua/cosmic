@@ -152,7 +152,6 @@ local function test_a_policy_that_is_not_met_fails_naming_the_field(tmp: string)
     return copy
   end
   local cases: {{any}} = {
-    { { grants = grants(), connect = { "example.com:443" } }, 'connect "example.com:443"' },
     { { grants = grants(), set_env_digests = { X = string.rep("0", 64) } }, 'set_env_digests "X"' },
   }
   for _, case in ipairs(cases) do
@@ -166,6 +165,58 @@ local function test_a_policy_that_is_not_met_fails_naming_the_field(tmp: string)
   local none, why = Child.start({ probe }, { policy = { grants = from } })
   assert(none == nil and why:find('grant "/data"', 1, true) and why:find("from", 1, true), why)
   assert(why:find('isolate "file"', 1, true), why)
+end
+
+--- The proxy variables a policy with `connect` is given are the relay's, so
+--- a policy that names one in `env` or `set_env` is refused, naming it;
+--- without `connect` they are as free as any other variable.
+local function test_a_policy_with_connect_may_not_name_a_proxy_variable(tmp: string)
+  skip_where_seatbelt_holds("the proxy variables")
+  local probe = stand_in_of(tmp)
+  for _, name in ipairs({ "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY",
+      "all_proxy", "NO_PROXY", "no_proxy", "NODE_USE_ENV_PROXY" }) do
+    for _, how in ipairs({ "set_env", "env" }) do
+      local policy: Sandbox.Policy = { grants = itself(probe), connect = { "example.com:443" } }
+      if how == "env" then
+        policy.env = { name }
+      else
+        policy.set_env = { [name] = "http://elsewhere:1" }
+      end
+      local why = refused({ probe, "print hi" }, policy)
+      assert(why:find("^child: start: sandbox: " .. name .. " is set by the relay"), name .. ": " .. why)
+      assert(why:find('connect "example.com:443"', 1, true) and why:find(how, 1, true), why)
+    end
+  end
+  local free, why = Child.run({ probe, "env-of HTTPS_PROXY" }, { policy = { grants = itself(probe),
+    set_env = { HTTPS_PROXY = "http://mine:1" } }, stdout = "capture", cwd = probe:match("^(.*)/") })
+  if free == nil then
+    assert(unsandboxable(why), why)
+  else
+    assert(free.stdout == "HTTPS_PROXY=http://mine:1\n", tostring(free.stdout))
+  end
+end
+
+local function test_a_relay_log_is_null_or_inherit(tmp: string)
+  local probe = stand_in_of(tmp)
+  local wrong: Child.Options = {}
+  wrong.relay_log = ("loud" as any) as Child.RelayLog -- cast: a caller of the wrong type is what is refused
+  local ok, why = pcall(Child.start, { probe }, wrong)
+  assert(not ok and tostring(why):find('relay_log must be "null" or "inherit"', 1, true), tostring(why))
+end
+
+--- A program that lacks the relay's own module (this worker's store holds only
+--- the closure of the test) cannot serve `connect`, which a start says in
+--- words that name the module, with nothing started.
+local function test_a_program_without_the_relays_module_cannot_start_a_policy_with_connect(tmp: string)
+  skip_where_seatbelt_holds("the relay's program")
+  local probe = stand_in_of(tmp)
+  local why = refused({ probe, "print hi" }, { grants = itself(probe), connect = { "example.com:443" } })
+  assert(why:find("^child: start: sandbox: relay: this program does not carry cosmic.relay_serve"), why)
+  assert(why:find("needs a program that has it", 1, true), why)
+  assert(#sandbox_directories() == 0, "a start that failed left a directory behind")
+  for _, name in ipairs((assert(Fs.list(sys.getenv("TMPDIR") or "/tmp")))) do
+    assert(not name:find("^cosmic%-relay%-"), "the relay's database was left: " .. name)
+  end
 end
 
 local function test_a_policy_that_does_not_merge_fails_naming_the_field(tmp: string)
@@ -198,7 +249,6 @@ local function test_from_needs_isolate_file_and_what_is_not_met_stays_refused(tm
   local from = says({ grants = { { path = probe, letters = "rx" },
     { path = "/data", letters = "r", from = tmp } } })
   assert(from:find("from", 1, true) and from:find("isolate", 1, true) and from:find("file", 1, true), from)
-  assert(says({ connect = { "example.com:443" } }):find("connect", 1, true))
   assert(says({ promises = { "nest" } }):find("nest", 1, true))
   local counted = says({ limits = { processes = 4 } })
   assert(counted:find("limits.processes", 1, true) and counted:find("isolate", 1, true), counted)

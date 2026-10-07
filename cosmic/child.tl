@@ -69,8 +69,10 @@
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
+local RelayConfig = require("cosmic.relay_config")
 local Rules = require("cosmic.sandbox")
 local Seatbelt = require("cosmic.seatbelt")
+local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local Stream = require("cosmic.stream")
 local Clock = require("cosmic.clock")
@@ -198,6 +200,14 @@ local enum Stderr
   "stream"
   --- Stdout's destination, capture or stream included.
   "stdout"
+end
+
+--- Where the network relay's decision lines go ([`Options.relay_log`]).
+local enum RelayLog
+  --- Nowhere.
+  "null"
+  --- This process's standard error.
+  "inherit"
 end
 
 --- An ordinary-filesystem Linux launch under both nonzero IDs. All
@@ -376,7 +386,29 @@ local record Options
   ---   process's hard limit allows.
   --- - `fds` names the only descriptors above 2 the child gets, as it
   ---   always has.
-  --- - `connect` is not yet available.
+  --- - `connect` gives the child a network namespace of its own, with
+  ---   its loopback up and inet sockets, whose only way out is the network
+  ---   relay this start runs (cosmic/relay_serve.tl): a process of this
+  ---   program's core on a database sealed for it, which keeps the host's
+  ---   network, and is held by a pid namespace, the files its resolver reads
+  ---   and the one system call it needs beyond its basics, `fork`, for the
+  ---   connectors it starts. The program reaches it at 127.0.0.1 ports 3128
+  ---   (HTTP CONNECT) and 1080 (SOCKS5), which the child's environment names:
+  ---   `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY` (in both cases),
+  ---   `NODE_USE_ENV_PROXY=1` and a `NO_PROXY` of `localhost`, 127.0.0.1, ::1
+  ---   and the policy's `loopback`. A policy with `connect` that names
+  ---   any of them in `env` or `set_env` is refused. The relay connects a
+  ---   request only where a `connect` target names its host and port, resolves
+  ---   a name itself and refuses an address of the host or a private, loopback
+  ---   or metadata one unless a target names that address literally
+  ---   ([`cosmic.relay`]). It reaches the network through this process's
+  ---   `https_proxy`, and its `no_proxy`, where they are set. It lives as long
+  ---   as the child's handle does: it is ended with the child, and a relay
+  ---   that dies first ends the child (SIGKILL, at its next wait). A relay that
+  ---   will not start fails the start, naming why, and ends the child. The
+  ---   relay's decision lines go where `relay_log` says. It needs this
+  ---   program to carry [`cosmic.relay_serve`] and to be a cosmic core, which
+  ---   the start says where it is not. Linux only: macOS refuses `connect`.
   ---
   --- A program that is this program's own file ([`Proc.executable`]),
   --- which the policy grants `rx` (the "cosmic" profile does), runs as its
@@ -464,6 +496,12 @@ local record Options
   --- a parent dumpability restoration error can follow exec and ends
   --- the owned child before reporting failure.
   credentials: Credentials
+  --- With a `policy` whose `connect` the relay serves, where the relay's
+  --- decision lines go, one for each connection it refused or made: "null"
+  --- (the default), which drops them, or "inherit", this process's standard
+  --- error. A policy with no `connect` starts no relay, and this has no
+  --- effect.
+  relay_log: RelayLog
 end
 
 --- What [`Handle.try_wait`] answers.
@@ -588,6 +626,15 @@ local record Handle
   --- The temporary directory a policy's `tmp` made for the child, removed
   --- once the child is settled; nil for none.
   _tmp: string | nil
+  --- The network relay that serves a policy's `connect`, a child of its
+  --- own, which a settle ends (the relay's standard input closes, and it
+  --- is ended should it outlive that); nil for none, and once it is ended.
+  _relay: Handle
+  --- The directory holding the database the relay runs on, removed with it.
+  _relay_dir: string | nil
+  --- Whether the relay was found dead while the child ran, which ended
+  --- the child for want of its way out.
+  _relay_gone: boolean
   --- Waits for the child to exit and answers its Result. With
   --- `timeout_ns`, or once the child's own [`Options.timeout_ns`]
   --- passes, whichever is first, a child still running is ended --
@@ -644,6 +691,9 @@ local POLL_NS <const> = Clock.ms(10)
 local REAP_NS <const> = Clock.seconds(1)
 local TERM_GRACE_NS <const> = Clock.ms(250)
 local KILL_REAP_NS <const> = Clock.seconds(1)
+--- How long a network relay is given to end once its standard input has
+--- closed, before it is ended.
+local RELAY_STOP_NS <const> = Clock.seconds(1)
 --- One millisecond, which [`sys.poll`] counts its waits in.
 local MS <const> = Clock.ms(1)
 local INT_MAX <const> = 2147483647
@@ -728,6 +778,9 @@ end
 local function exits_seen(handles: {Handle}): boolean
   for _, h in ipairs(handles) do
     if h._status == nil and h._exit_fd < 0 then return false end
+    -- A relay's exit ends its child's wait too.
+    local relay = h._relay
+    if relay ~= nil and relay._status == nil and relay._exit_fd < 0 then return false end
   end
   return true
 end
@@ -804,10 +857,16 @@ local function claim(self: Handle, status: raw_process.ChildStatus): raw_process
   return status
 end
 
+--- Ends the child of `self` where its relay has died, the child's one way
+--- out: SIGKILL to it and its group, once. Defined below [`exited`], which
+--- every look at a child goes through.
+local relay_lost: function(Handle)
+
 --- This handle's child's exit status, once it has one. With `block`,
 --- waits for it.
 local function exited(self: Handle, block?: boolean): raw_process.ChildStatus | nil, string
   if self._status then return self._status, "" end
+  if self._relay ~= nil then relay_lost(self) end
   collect()
   if reaped[self.pid] then return claim(self, reaped[self.pid]), "" end
   local status, trouble = raw.waitpid(self.pid, not block)
@@ -1009,6 +1068,10 @@ local function watching(handles: {Handle}, feeding?: Handle): {Entry}
     if h._status == nil and h._exit_fd >= 0 then
       entries[#entries + 1] = { fd = h._exit_fd, events = sys.POLLIN, owner = h, kind = "exit" }
     end
+    local relay = h._relay
+    if relay ~= nil and relay._status == nil and relay._exit_fd >= 0 then
+      entries[#entries + 1] = { fd = relay._exit_fd, events = sys.POLLIN, owner = relay, kind = "exit" }
+    end
   end
   return entries
 end
@@ -1132,6 +1195,37 @@ local function remove_tmp(self: Handle)
   local _, _ = Fs.remove_tree(dir)
 end
 
+relay_lost = function(self: Handle)
+  local relay = self._relay
+  if relay == nil or self._relay_gone then return end
+  local status, _ = exited(relay)
+  if status == nil then return end
+  self._relay_gone = true
+  -- TODO: say why on the Result, once it carries a field beside the exit
+  -- status for what a settle left behind (see the TODO at Child.wait_any):
+  -- today a program whose relay died is a SIGKILL like any other.
+  local _, _ = sys.kill(target(self), sys.SIGKILL)
+end
+
+--- Ends the relay of `self` once its program is gone: its standard input
+--- closes, which it takes as the end, and it is ended in a second should it
+--- outlive that. Removes the database it ran on.
+local function end_relay(self: Handle)
+  local relay = self._relay
+  self._relay = nil
+  if relay ~= nil then
+    local feed = relay.stdin_stream
+    if feed ~= nil then local _, _ = feed:close() end
+    local _, _ = relay:wait(RELAY_STOP_NS)
+    local _, _ = relay:close()
+  end
+  local dir = self._relay_dir
+  if dir ~= nil then
+    self._relay_dir = nil
+    local _, _ = Fs.remove_tree(dir)
+  end
+end
+
 --- Ends what is left of the child and settles it, answering its Result.
 --- A child still running is sent SIGTERM -- its group's too -- and
 --- SIGKILL once TERM_GRACE_NS has passed, and its Result says
@@ -1188,6 +1282,8 @@ local function end_child(self: Handle): Result | nil, string
       cleared = group_gone(self, now() + KILL_REAP_NS)
     end
   end
+  -- The program's way out is of no use once its group is gone.
+  end_relay(self)
   -- Clearing the group waits, through the run in a task, where another
   -- task may settle this handle meanwhile: its Result is the one.
   if self._result ~= nil then return self._result, "" end
@@ -1626,7 +1722,7 @@ Handle.wait = function(self: Handle, timeout_ns?: integer): Result | nil, string
   Poll.checked_ns(timeout_ns, "child", "timeout_ns", 2)
   if self._result then return self._result, "" end
   if timeout_ns == nil and self._deadline == nil and active == nil and not self._streams and
-      not self._input_fd and not through_run() then
+      not self._input_fd and self._relay == nil and not through_run() then
     local status, trouble = exited(self, true)
     if not status then return nil, trouble end
     return end_child(self)
@@ -1702,7 +1798,7 @@ local function make_handle(pid: integer, process_group: boolean, limit: integer,
                            deadline: integer | nil): Handle
   local h: Handle = setmetatable({
     pid = pid, process_group = process_group, _closed = false, _exit_fd = -1, _limit = limit,
-    _explicit_close = false, _drain_next = 1, _deadline = deadline,
+    _explicit_close = false, _drain_next = 1, _deadline = deadline, _relay_gone = false,
   }, handle_mt)
   -- Owned only once it has its metatable, so the finalizer covers the child from then; a
   -- failure between the two leaves an unowned child with a finalizer, which waitpid still reaps.
@@ -1915,6 +2011,7 @@ local record Child
   type Result = Result
   type Options = Options
   type Credentials = Credentials
+  type RelayLog = RelayLog
   type Sandbox = Sandbox
   type Unveil = Unveil
   type TryWait = TryWait
@@ -2136,6 +2233,9 @@ local function validate(argv: {string}, opts: Options)
     error("child: capture_limit is out of range", 3)
   end
   Poll.checked_ns(opts.timeout_ns, "child", "timeout_ns", 3)
+  if opts.relay_log ~= nil and opts.relay_log ~= "null" and opts.relay_log ~= "inherit" then
+    error("child: relay_log must be \"null\" or \"inherit\"", 3)
+  end
   if opts.policy ~= nil then
     if type(opts.policy) ~= "table" then
       error("child: policy must be a cosmic.sandbox Policy", 3)
@@ -2405,6 +2505,9 @@ local record Held
   --- Whether `sandbox` holds the child by Seatbelt, as on macOS, and not
   --- by Landlock and seccomp.
   seatbelt: boolean
+  --- The policy's `connect` targets, which the network relay serves; nil
+  --- for a policy with none, which starts no relay.
+  relay: {string}
 end
 
 --- The most grants spawn takes (`GRANT_MAX` in core/syscalls.c), the
@@ -2470,8 +2573,6 @@ local function nests(merged: Rules.Policy): boolean
 end
 
 --- A policy's fields not yet met, by what each would need.
--- TODO: meet `connect`, and delete this refusal, once the relay (the
--- design's phase 6) lands.
 local function unmet(merged: Rules.Policy): string
   local file = isolates(merged, "file")
   local held = #merged.grants + (merged.tmp and not file and 1 or 0)
@@ -2480,9 +2581,6 @@ local function unmet(merged: Rules.Policy): string
     return "grants: the policy holds " .. held ..
       (file and ", and the sandbox's /proc is one more" or ", tmp's included") ..
       ", past the most a start takes, " .. most .. "; grant a directory above them instead"
-  end
-  if #merged.connect > 0 then
-    return "connect \"" .. merged.connect[1] .. "\" is not yet available: it needs the relay"
   end
   if nests(merged) and not file then
     return "promises \"nest\" needs isolate \"file\": the root of the program's own is what " ..
@@ -3062,6 +3160,19 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
   if merged == nil then return nil, why end
   local trouble = unmet(merged)
   if trouble ~= "" then return nil, "sandbox: " .. trouble end
+  local relayed = #merged.connect > 0
+  if relayed then
+    local variables: {string} = {}
+    for _, name in ipairs(merged.env) do variables[#variables + 1] = name end
+    for name, _ in pairs(merged.set_env) do variables[#variables + 1] = name end
+    table.sort(variables)
+    local reserved = RelayConfig.reserved(variables)
+    if reserved ~= "" then
+      return nil, "sandbox: " .. reserved .. " is set by the relay that serves connect \"" ..
+        merged.connect[1] .. "\" (the proxy variables point the program at it), so the policy " ..
+        "may not name it in env or set_env"
+    end
+  end
   local file = isolates(merged, "file")
   local proc = isolates(merged, "proc")
   local nest = nests(merged)
@@ -3177,7 +3288,7 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
     local reached, reach_trouble = reached_by(merged, here, file, user)
     if reached == nil then return nil, "sandbox: " .. reach_trouble end
     idmap = reached
-    if file or proc or #merged.loopback > 0 or isolated_unix(merged) then
+    if file or proc or #merged.loopback > 0 or relayed or isolated_unix(merged) then
       proc = true
       -- The namespace is mapped from outside with this process's own group
       -- beside the program's, which may not be one id twice.
@@ -3258,6 +3369,9 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
     if value ~= nil then env[name] = value end
   end
   for name, value in pairs(merged.set_env) do env[name] = value end
+  if relayed then
+    for name, value in pairs(RelayConfig.proxy_env(merged.loopback)) do env[name] = value end
+  end
   local run_argv: {string}
   if relaunch ~= nil then
     for name, value in pairs(relaunch.env) do env[name] = value end
@@ -3287,10 +3401,11 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
   local promises: {string} = {}
   for _, promise in ipairs(merged.promises) do promises[#promises + 1] = promise end
   -- A network namespace of its own with a loopback holds the network of a
-  -- program that declares addresses of it or a unix socket to reach: the
-  -- filter then lets it make inet sockets (the namespace is their hold)
-  -- when it declared a loopback, and unix ones when it was granted `u`.
-  local inet = #merged.loopback > 0
+  -- program that declares addresses of it, has a relay to reach, or has a
+  -- unix socket to reach: the filter then lets it make inet sockets (the
+  -- namespace is their hold) when it declared a loopback or `connect`, and
+  -- unix ones when it was granted `u`.
+  local inet = #merged.loopback > 0 or relayed
   local sockets: {string} = {}
   if unix then sockets[#sockets + 1] = "unix" end
   if inet then sockets[#sockets + 1] = "inet" end
@@ -3329,7 +3444,8 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
   end
   return { path = path, env = env, tmp = "", wants_tmp = merged.tmp and not file,
     sandbox = sandbox, cwd = file and base or nil, user = user, drop = drop, nests = nest,
-    argv = run_argv, fds = relaunch ~= nil and relaunch.fds or nil }, ""
+    argv = run_argv, fds = relaunch ~= nil and relaunch.fds or nil,
+    relay = relayed and merged.connect or nil }, ""
 end
 
 --- Whether this host holds a policy's child by Seatbelt, which is how
@@ -3484,11 +3600,125 @@ local function nest_descriptors(slots: {integer:integer}): string
   return ""
 end
 
+--- The module the network relay's process runs: the main of a database
+--- sealed for it ([`cosmic.relay_serve`]), which this module cannot require
+--- (it and what it requires start children through this one).
+local RELAY_MAIN <const> = "cosmic.relay_serve"
+
+--- The files the relay's resolver reads, each granted to the relay's
+--- process where the host has it.
+local RELAY_FILES <const>: {string} = {
+  "/etc/resolv.conf", "/etc/hosts", "/etc/nsswitch.conf", "/etc/host.conf",
+}
+
+--- How long a relay has to say it serves, from its start.
+local RELAY_READY_NS <const> = Clock.seconds(30)
+
+--- What a start needs of the relay before it starts the program, so that
+--- a start that cannot have one fails with nothing running.
+local record RelayPrep
+  --- The directory holding the database the relay runs on, which the start
+  --- removes with the handle (or at once, where the start fails).
+  dir: string
+  --- The policy the relay's process is started under.
+  policy: Rules.Policy
+  --- The relay's config, one line of JSON.
+  config: string
+  --- Where its decision lines go.
+  log: RelayLog
+end
+
+--- The database a relay runs on, in a directory of its own.
+local record RelayProgram
+  dir: string
+  path: string
+  --- The SHA-256 of the file, in hex, which the start holds it to.
+  digest: string
+end
+
+--- Seals [`RELAY_MAIN`] and what it requires into a directory of its own,
+--- which the user a root caller's program runs as can search and read
+--- (the 0700 one [`Fs.mkdtemp`] makes is shut to it, and its parents are
+--- TMPDIR's, which the start says if they are too). Nil and why where this
+--- program does not carry the module or the database cannot be written.
+local function seal_relay(): RelayProgram | nil, string
+  local found, names = pcall(Store.closure, { RELAY_MAIN })
+  if not found or not names is {string} then
+    return nil, "this program does not carry " .. RELAY_MAIN .. ", the relay's program (" ..
+      (tostring(names):gsub("^.-:%d+: ", "")) .. "): a policy with connect needs a program that has it"
+  end
+  local dir, dir_trouble = Fs.mkdtemp("cosmic-relay-")
+  if dir == nil then return nil, dir_trouble end
+  local function fail(why: string): nil, string
+    local _, _ = Fs.remove_tree(dir)
+    return nil, why
+  end
+  local searchable, search_trouble = sys.chmod(dir, 0x1ed)
+  if not searchable then return fail(dir .. ": " .. search_trouble) end
+  local path = dir .. "/relay.db"
+  local sealed, digest, seal_trouble = pcall(Store.seal, names, path, { main = RELAY_MAIN })
+  if not sealed then return fail(RELAY_MAIN .. ": " .. (tostring(digest):gsub("^.-:%d+: ", ""))) end
+  if not digest is string then return fail(path .. ": " .. tostring(seal_trouble)) end
+  local shared, share_trouble = sys.chmod(path, 0x1a4)
+  if not shared then return fail(path .. ": " .. share_trouble) end
+  return { dir = dir, path = path, digest = digest }, ""
+end
+
+--- The policy the relay's process is started under, on the database at
+--- `path` (whose SHA-256 is `digest`): this program's core on it, a pid
+--- namespace of its own, `fork` for the connectors it starts, and the
+--- resolver's files read-only. The host's network is added by the start
+--- ([`start`]'s `relay_process`), which no policy field gives.
+local function relay_policy(path: string, digest: string): Rules.Policy
+  local grants: {Rules.Grant} = {}
+  for _, file in ipairs(RELAY_FILES) do
+    local there, _ = sys.stat(file)
+    if there ~= nil then grants[#grants + 1] = { path = file, letters = "r" } end
+  end
+  local policy: Rules.Policy = { database = path, promises = { "fork" }, isolate = { "proc" },
+    grants = grants }
+  Rules.expect_digest(policy, digest)
+  return policy
+end
+
+--- What the relay of a policy with `connect` needs before a program is
+--- started: the host's own addresses, the sealed database and the config.
+--- Nil and why where it cannot have them.
+local function prepare_relay(connect: {string}, opts: Options): RelayPrep | nil, string
+  local addresses, address_trouble = RelayConfig.host_addresses()
+  if addresses == nil then return nil, address_trouble end
+  local program, seal_trouble = seal_relay()
+  if program == nil then return nil, seal_trouble end
+  local log = opts.relay_log or "null"
+  local config: RelayConfig.Config = { grants = connect, own_addresses = addresses,
+    https_proxy = sys.getenv("https_proxy") or sys.getenv("HTTPS_PROXY"),
+    no_proxy = sys.getenv("no_proxy") or sys.getenv("NO_PROXY"), log = log == "inherit" and "stderr" or "null" }
+  return { dir = program.dir, policy = relay_policy(program.path, program.digest),
+    config = RelayConfig.encode(config), log = log }, ""
+end
+
+--- Removes what `prep` made, for a start that went no further.
+local function abandon_relay(prep: RelayPrep | nil)
+  if prep ~= nil then
+    local _, _ = Fs.remove_tree(prep.dir)
+  end
+end
+
 --- [`Child.start`] on options already validated. With `pty`, one that
 --- [`Child.start_on_pty`] has just made, the standard streams it names are
 --- its slave, which is not refused as a terminal is; stream 0 among them
 --- also makes it the child's controlling terminal.
-local function start(argv: {string}, opts: Options, pty?: Pty): Handle | nil, string
+local launch_relay: function(RelayPrep, integer): Handle | nil, string
+
+--- Closes both ends of a relay's channel.
+local function close_channel(channel: {integer} | nil)
+  if channel ~= nil then
+    local _, _ = sys.close(channel[1])
+    local _, _ = sys.close(channel[2])
+  end
+end
+
+local function start(argv: {string}, opts: Options, pty?: Pty, relay_process?: boolean): Handle | nil, string
   -- Refuse an explicit terminal before inspecting any platform policy:
   -- it needs a relay even on a host that cannot apply that policy.
   if opts.policy ~= nil then
@@ -3510,6 +3740,12 @@ local function start(argv: {string}, opts: Options, pty?: Pty): Handle | nil, st
     end
     if made == nil then return refuse("start: " .. why) end
     held = made
+    if relay_process then
+      -- The relay's own process alone keeps the host's network, which it
+      -- must reach from a sandbox; no policy field gives it.
+      held.sandbox.sockets = { "inet" }
+      held.sandbox.host_network = true
+    end
   end
   local grouped = opts.process_group
   if grouped == nil then grouped = true end
@@ -3588,14 +3824,36 @@ local function start(argv: {string}, opts: Options, pty?: Pty): Handle | nil, st
     credentials = { user = opts.credentials.user, group = opts.credentials.group }
   end
   local path, env, cwd = argv[1], opts.env, opts.cwd
+  local prep: RelayPrep
+  local channel: {integer}
   if held ~= nil then
     path, env, sandbox = held.path, held.env, held.sandbox
     if held.drop ~= nil then credentials = { user = held.drop.uid, group = held.drop.gid } end
     if held.cwd ~= nil then cwd = held.cwd end
+    if held.relay ~= nil then
+      -- The program's listeners are bound in its own network by the spawn,
+      -- and reach the relay's process down this channel.
+      local made, relay_trouble = prepare_relay(held.relay, opts)
+      if made == nil then
+        unwire(wiring, false)
+        return refuse("start: sandbox: relay: " .. relay_trouble)
+      end
+      prep = made
+      local pair, pair_trouble = raw.connector_pair()
+      if pair == nil then
+        unwire(wiring, false)
+        abandon_relay(prep)
+        return refuse("start: sandbox: relay: " .. pair_trouble)
+      end
+      channel = pair
+      sandbox.relay = { fd = pair[1], ports = { RelayConfig.http_port, RelayConfig.socks_port } }
+    end
     if held.wants_tmp then
       local why = make_tmp(held)
       if why ~= "" then
         unwire(wiring, false)
+        close_channel(channel)
+        abandon_relay(prep)
         return refuse("start: sandbox: " .. why)
       end
     end
@@ -3608,13 +3866,22 @@ local function start(argv: {string}, opts: Options, pty?: Pty): Handle | nil, st
     slots[0], slots[1], slots[2], grouped, extra, sandbox, credentials, pty ~= nil and pty.streams[0] == true)
   if not called then
     unwire(wiring, false)
+    close_channel(channel)
+    abandon_relay(prep)
     if held ~= nil and held.tmp ~= "" then
       local _, _ = Fs.remove_tree(held.tmp)
     end
     error(pid, 0)
   end
   unwire(wiring, pid ~= nil)
+  if channel ~= nil then
+    -- The program's end of the channel is its own now; ours is the relay's
+    -- to read the listeners from, or closed.
+    local _, _ = sys.close(channel[1])
+  end
   if not pid then
+    if channel ~= nil then local _, _ = sys.close(channel[2]) end
+    abandon_relay(prep)
     if held ~= nil and held.tmp ~= "" then
       local _, _ = Fs.remove_tree(held.tmp)
     end
@@ -3666,7 +3933,58 @@ local function start(argv: {string}, opts: Options, pty?: Pty): Handle | nil, st
   -- POLL_NS instead.
   local watch, _ = raw.exit_watch(pid)
   if watch ~= nil then h._exit_fd = watch end
+  if channel ~= nil then
+    h._relay_dir = prep.dir
+    local relay, relay_trouble = launch_relay(prep, channel[2])
+    local _, _ = sys.close(channel[2])
+    if relay == nil then
+      -- A program with no way out is no program the policy described.
+      local _, _ = sys.kill(target(h), sys.SIGKILL)
+      local _, _ = end_or_kill(h)
+      return refuse("start: sandbox: relay: " .. relay_trouble)
+    end
+    h._relay = relay
+  end
   return h, ""
+end
+
+--- Starts the relay's process of `prep` as a child of its own: this
+--- program's core on the sealed database, whose descriptor 3 is `channel`,
+--- the end of the program's relay channel that has the listeners, and whose
+--- standard input carries the config and, held open, keeps it alive. It
+--- answers once the relay says it serves. Nil and why where it cannot start
+--- or ends first.
+launch_relay = function(prep: RelayPrep, channel: integer): Handle | nil, string
+  local program, program_trouble = Proc.executable()
+  if program == nil then return nil, "this program's own file is unknown: " .. program_trouble end
+  local started, trouble = start({ program }, { policy = prep.policy, cwd = "/", stdin = "stream",
+    stdout = "stream", stderr = prep.log == "inherit" and "inherit" or "null", fds = { [3] = channel },
+    capture_limit = 4096, timeout_ns = RELAY_READY_NS }, nil, true)
+  if started == nil then return nil, (trouble:gsub("^child: start: ", "")) end
+  local relay: Handle = started
+  local function fail(why: string): nil, string
+    local _, _ = sys.kill(target(relay), sys.SIGKILL)
+    local _, _ = end_or_kill(relay)
+    return nil, why
+  end
+  local feed, reader = relay.stdin_stream, relay.stdout_stream
+  if feed == nil or reader == nil then return fail("the relay has no standard streams") end
+  local written, write_trouble = feed:write(prep.config .. "\n")
+  if not written then return fail("the relay would not take its config: " .. write_trouble) end
+  local line, read_trouble = Stream.lines(reader):read()
+  if line == "ready" then
+    -- Past the deadline its start had; the relay now lives as long as the
+    -- program does.
+    relay._deadline = nil
+    return relay, ""
+  end
+  if line ~= nil then return fail((line:gsub("^error: ", ""))) end
+  local ended, _ = end_or_kill(relay)
+  local how = ended ~= nil and ended.signal ~= nil and "signal " .. ended.signal or
+    "status " .. tostring(ended ~= nil and ended.code or "unknown")
+  return nil, "the relay ended (" .. how .. ") before it served" ..
+    (read_trouble ~= "" and ": " .. read_trouble or "") ..
+    (prep.log == "inherit" and "" or "; start with relay_log = \"inherit\" to see why")
 end
 
 --- Starts one executable and returns an owning handle. argv[1] is an exact

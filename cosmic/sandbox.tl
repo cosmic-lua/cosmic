@@ -34,8 +34,9 @@
 --- alone, under the `nest` promise, which Landlock's refusal of mounts
 --- gives up), a seccomp filter for the system calls, and rlimits, and,
 --- for a child, the namespaces `isolate`, `loopback`, a `u` grant and
---- `limits.processes` need. `connect`, which needs a relay, is part of
---- the policy but not yet met by it: a start under one fails, saying so.
+--- `limits.processes` need. `connect` needs a network relay, which a
+--- child's start runs ([`Child.start`]): on Linux alone, macOS's start
+--- refuses it.
 
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")

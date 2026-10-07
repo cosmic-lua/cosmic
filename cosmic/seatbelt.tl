@@ -83,7 +83,14 @@ end
 --- not Seatbelt operations; their handling remains the caller's.
 local function unsupported(policy: Sandbox.Policy): string
   if #(policy.isolate or {}) > 0 then return "isolate needs namespaces, which macOS has none of" end
-  if #(policy.connect or {}) > 0 then return "connect needs the network relay" end
+  -- TODO: serve `connect` on macOS with a relay that listens on the host's
+  -- loopback behind a per-sandbox token (the TODO at cosmic.relay's header, the
+  -- relay's CONNECT and SOCKS5 readers parse the credentials), whose port the
+  -- profile allows the program to reach: Seatbelt has no network namespace to
+  -- hold its listeners in, as Linux's start does ([`Child.start`]'s `connect`).
+  if #(policy.connect or {}) > 0 then
+    return "connect needs the network relay, which a start on macOS does not run yet"
+  end
   if #(policy.loopback or {}) > 0 then return "loopback needs a network namespace of its own" end
   for _, promise in ipairs(policy.promises or {}) do
     if promise == "nest" then return "promises nest cannot be held by Seatbelt" end

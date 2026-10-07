@@ -575,7 +575,8 @@ local record Cli
   --- `--cwd` names (as though `cd` there first; it is this process's own
   --- without one), and must exist, and paths and `--set-env` values must be UTF-8, as they are
   --- written as JSON. `cosmic docs cosmic.sandbox` names the policy's
-  --- fields. `--connect` is refused until the relay it needs exists.
+  --- fields. `--connect` names a host and port the relay that
+  --- the start runs connects the program to, on Linux; macOS refuses it.
   --- `--user` names the user and group the program runs as, by number
   --- (the group is the user's number unless given): only a caller that is
   --- root chooses one, the same every run, in place of a fresh one of its
@@ -860,7 +861,7 @@ local module: Module = {
         ["--cosmic"] = { about = "this program's own file, which then runs as its core" },
         ["--isolate"] = { value = "file|proc", about = "a root of its own, or a process space of its own" },
         ["--promise"] = { value = "name", about = "a system call it may make: fork, jit, fattr or nest" },
-        ["--connect"] = { value = "host:port", about = "a host it may reach (not yet available: needs the relay)" },
+        ["--connect"] = { value = "host:port", about = "a host it may reach, through a relay (Linux only)" },
         ["--loopback"] = { value = "addr", about = "an address of 127/8 it uses in its own network" },
         ["--env"] = { value = "name", about = "pass this variable through from the environment" },
         ["--set-env"] = { value = "name=value", about = "set this variable" },

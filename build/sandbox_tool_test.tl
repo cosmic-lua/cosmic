@@ -72,9 +72,9 @@ local function test_a_program_that_runs_past_the_timeout_exits_124(tmp: string)
 end
 
 local function test_a_start_that_fails_exits_125_with_the_reason(tmp: string)
-  local ran = cosmic(tmp, { "sandbox", "--system", "--connect", "example.com:443", "--", "true" })
+  local ran = cosmic(tmp, { "sandbox", "--system", "--processes", "4", "--", "true" })
   assert(ran.code == 125 and ran.out == "", ran.code .. ran.err)
-  assert(ran.err:find("^cosmic: sandbox: ") and ran.err:find("relay", 1, true), ran.err)
+  assert(ran.err:find("^cosmic: sandbox: ") and ran.err:find("limits.processes", 1, true), ran.err)
   -- A grant that names nothing is a start that cannot be met.
   local missing = cosmic(tmp, { "sandbox", "--system", "--read", tmp .. "/absent", "--", "true" })
   assert(missing.code == 125 and missing.err:find("absent", 1, true), missing.code .. missing.err)

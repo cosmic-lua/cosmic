@@ -66,19 +66,12 @@ for _, name in ipairs({ "udp", "datagram" }) do
     "prerequisite lands separately from the resolver that calls it"
 end
 
-for _, name in ipairs({ "listener_from", "connector" }) do
-  -- TODO: remove this allowance once Child.start serves the relay in a confined
-  -- process of its own (the TODO at cosmic/relay.tl's Relay.start), which adopts
-  -- its listeners with Net.listener_from and connects through Net.connector.
-  allowed["cosmic.net." .. name] = "tested directly: the sandbox relay's listeners and " ..
-    "connector, which land before the start that calls them"
-end
+allowed["cosmic.net.listener_from"] = "tested directly: it adopts one listening socket a " ..
+  "process holds, which Net.receive_listeners does for each socket a relay's channel carries; " ..
+  "no caller outside the module needs it yet"
 
--- TODO: remove this allowance once the verb reads the caller's https_proxy with
--- cosmic.relay.upstream to start the relay.
-allowed["cosmic.relay.upstream"] = "tested directly: the sandbox relay's reading of the caller's " ..
-  "https_proxy and no_proxy, which lands before the verb that calls it"
-
+allowed["cosmic.relay_config.parse_addresses"] = "tested directly: the reading of Linux's " ..
+  "interface tables over fixture text, which host_addresses makes of the host's own"
 allowed["cosmic.sandbox.restrict"] = "tested directly: it holds the process that calls it " ..
   "for good, so a worked example would hold the run that shows it; the test restricts " ..
   "a child of this program, and the harness holds its workers with it once the " ..
