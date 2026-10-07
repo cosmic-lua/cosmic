@@ -476,6 +476,16 @@ COSMIC_SYSCALL(own_proc, 0);
 COSMIC_SYSCALL(sandbox_platform, 0);
 
 /*
+ * --- DIAGNOSTIC, for cosmic/seatbelt_tty_restrict_probe_test.tl alone: applies a Seatbelt profile to this process, then reports what a second `sandbox_init_with_parameters`, `sandbox_check`, a pread of the store's descriptor and a thread did. TODO: remove, once the PR that gives Sandbox.restrict a Seatbelt hold replaces that test. macOS only; ENOSYS elsewhere
+ * ---@param profile string the profile's SBPL text
+ * ---@param parameters {string:string} the profile's parameters, by name
+ * ---@return string|nil report lines of `name=value` words, or nil on failure
+ * ---@return string error what went wrong, when report is nil
+ * ---@return integer errno the error number, when report is nil
+ */
+COSMIC_SYSCALL(diagnostic_seatbelt_restrict, 2);
+
+/*
  * --- Ignores SIGPIPE, so a write to a closed pipe fails with EPIPE instead of ending the process. A child started afterward gets the default back unless SIGPIPE was already ignored at this process's start.
  * ---@return boolean ok false on failure
  * ---@return string error what went wrong, when ok is false

@@ -54,6 +54,8 @@ extern int clone (int (*)(void *), void *, int, void *, ...);
 #include <dlfcn.h>
 #include <sys/event.h>
 #include <sys/sysctl.h>
+#include <pthread.h>
+#include <sys/file.h>
 #endif
 #if defined(__x86_64__)
 #include <cpuid.h>
@@ -5508,6 +5510,118 @@ COSMIC_SYSCALL(sandbox_platform, 0) {
   return cosmic_ok(L);
 #else
   return cosmic_fail_effect(L, ENOSYS);
+#endif
+}
+
+#if defined(__APPLE__)
+/* TODO: remove this diagnostic, with `diagnostic_seatbelt_restrict`, once
+ * the PR that gives Sandbox.restrict a Seatbelt hold replaces
+ * cosmic/seatbelt_tty_restrict_probe_test.tl. */
+static void *diagnostic_thread (void *argument) {
+  return argument;
+}
+
+typedef int (*diagnostic_check_function) (pid_t pid, const char *operation, int type, ...);
+
+/* Appends to `report`, which has `size` bytes of which `used` are filled, what
+ * opening `path` and its -wal and -shm, and a shared flock of each, answer. */
+static size_t diagnostic_reopen (char *report, size_t size, size_t used, const char *label,
+                                 const char *path) {
+  static const char *const suffixes[] = { "", "-wal", "-shm" };
+  for (size_t i = 0; i < 3 && used < size; i++) {
+    char full[PATH_MAX];
+    snprintf(full, sizeof full, "%s%s", path, suffixes[i]);
+    errno = 0;
+    int fd = open(full, O_RDONLY);
+    int opened = errno;
+    int locked = -1, lock_errno = 0;
+    if (fd >= 0) {
+      errno = 0;
+      locked = flock(fd, LOCK_SH | LOCK_NB);
+      lock_errno = errno;
+      close(fd);
+    }
+    used += (size_t)snprintf(report + used, size - used, "%s%s open=%d errno=%d flock=%d errno=%d\n",
+                             label, suffixes[i], fd >= 0 ? 0 : -1, opened, locked, lock_errno);
+  }
+  return used < size ? used : size - 1;
+}
+#endif
+
+COSMIC_SYSCALL(diagnostic_seatbelt_restrict, 2) {
+#if defined(__APPLE__)
+  const char *profile = plain_string(L, 1, "profile");
+  luaL_checktype(L, 2, LUA_TTABLE);
+  const char *words[2 * SEATBELT_PARAMETER_MAX + 1];
+  size_t count = 0;
+  lua_pushnil(L);
+  while (lua_next(L, 2) != 0) {
+    if (lua_type(L, -2) != LUA_TSTRING || lua_type(L, -1) != LUA_TSTRING ||
+        count >= 2 * SEATBELT_PARAMETER_MAX)
+      return luaL_argerror(L, 2, "parameters must map names to values");
+    words[count++] = lua_tostring(L, -2);
+    words[count++] = lua_tostring(L, -1);
+    lua_pop(L, 1);
+  }
+  words[count] = NULL;
+  seatbelt_init_function init = seatbelt_init();
+  if (init == NULL) return cosmic_fail(L, ENOSYS);
+  char report[8192];
+  size_t used = 0;
+  char *error = NULL;
+  errno = 0;
+  int applied = init(profile, 0, words, &error);
+  int number = errno;
+  used += (size_t)snprintf(report + used, sizeof report - used, "init=%d errno=%d error=%s\n",
+                           applied, number, error != NULL ? error : "");
+  if (applied != 0) {
+    seatbelt_free_function release = seatbelt_release();
+    if (error != NULL && release != NULL) release(error);
+    lua_pushlstring(L, report, used);
+    return 1;
+  }
+  /* A second profile on a process that has one. */
+  char *again_error = NULL;
+  errno = 0;
+  int again = init("(version 1)\n(deny default)\n", 0, words + count, &again_error);
+  number = errno;
+  used += (size_t)snprintf(report + used, sizeof report - used, "again=%d errno=%d error=%s\n",
+                           again, number, again_error != NULL ? again_error : "");
+  void *symbol = dlsym(RTLD_DEFAULT, "sandbox_check");
+  diagnostic_check_function check = NULL;
+  memcpy(&check, &symbol, sizeof check);
+  if (check == NULL) {
+    used += (size_t)snprintf(report + used, sizeof report - used, "check=missing\n");
+  } else {
+    errno = 0;
+    int answer = check(getpid(), NULL, 0);
+    used += (size_t)snprintf(report + used, sizeof report - used, "check=%d errno=%d\n", answer, errno);
+  }
+  const struct cosmic_artifact *artifact = cosmic_store_artifact(L);
+  if (artifact == NULL) {
+    used += (size_t)snprintf(report + used, sizeof report - used, "store_pread=none\n");
+  } else {
+    char byte;
+    errno = 0;
+    ssize_t got = pread(artifact->fd, &byte, 1, 0);
+    used += (size_t)snprintf(report + used, sizeof report - used, "store_pread=%zd errno=%d\n",
+                             got, got < 0 ? errno : 0);
+  }
+  if (artifact != NULL)
+    used = diagnostic_reopen(report, sizeof report, used, "artifact", artifact->logical_path);
+  for (int index = 1; index <= cosmic_store_count(L); index++) {
+    sqlite3 *db = cosmic_store_database(L, index);
+    const char *name = db == NULL ? NULL : sqlite3_db_filename(db, "main");
+    if (name != NULL && name[0] != '\0') used = diagnostic_reopen(report, sizeof report, used, "database", name);
+  }
+  pthread_t thread;
+  int started = pthread_create(&thread, NULL, diagnostic_thread, NULL);
+  int joined = started == 0 ? pthread_join(thread, NULL) : -1;
+  used += (size_t)snprintf(report + used, sizeof report - used, "thread=%d joined=%d\n", started, joined);
+  lua_pushlstring(L, report, used);
+  return 1;
+#else
+  return cosmic_fail(L, ENOSYS);
 #endif
 }
 
