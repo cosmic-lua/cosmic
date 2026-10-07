@@ -603,6 +603,36 @@ COSMIC_SYSCALL(accept, 1) {
   return 1;
 }
 
+COSMIC_SYSCALL(adopt, 1) {
+  int fd = cosmic_checkfd(L, 1);
+  struct owned *owned = owner_push(L, 0);
+  int type = 0;
+  socklen_t size = sizeof type;
+  if (getsockopt(fd, SOL_SOCKET, SO_TYPE, &type, &size) != 0) return cosmic_fail(L, errno);
+  if (type != SOCK_STREAM) return cosmic_fail(L, EPROTOTYPE);
+  int listening = 0;
+  size = sizeof listening;
+  if (getsockopt(fd, SOL_SOCKET, SO_ACCEPTCONN, &listening, &size) != 0) return cosmic_fail(L, errno);
+  if (!listening) return cosmic_fail(L, EINVAL);
+  struct sockaddr_storage address;
+  socklen_t length = sizeof address;
+  memset(&address, 0, sizeof address);
+  if (getsockname(fd, (struct sockaddr *)&address, &length) != 0) return cosmic_fail(L, errno);
+  if (address.ss_family != AF_INET && address.ss_family != AF_INET6) return cosmic_fail(L, EAFNOSUPPORT);
+  owned->fd = fcntl(fd, F_DUPFD_CLOEXEC, 0);
+  if (owned->fd < 0) return cosmic_fail(L, errno);
+  /* The copy shares the original's open file description, and `accept`
+   * must not block a task: the flag is the description's, so the original
+   * is nonblocking from here on. */
+  int flags = fcntl(owned->fd, F_GETFL);
+  if (flags < 0 || fcntl(owned->fd, F_SETFL, flags | O_NONBLOCK) != 0) {
+    int failure = errno;
+    released(owned);
+    return cosmic_fail(L, failure);
+  }
+  return 1;
+}
+
 COSMIC_SYSCALL(connect, 2) {
   struct target target;
   int failure = address_of(L, 1, &target);

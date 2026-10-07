@@ -871,6 +871,21 @@ local function test_rights_release_every_descriptor_when_allocation_fails(tmp: s
   assert_c_heap(bytes, blocks, "descriptor passing under refusal")
 end
 
+--- An adopted listener is a copy the new owner holds from the call that
+--- makes it: a refusal anywhere in the call leaves no copy open.
+local function test_adopting_a_listener_leaves_no_descriptor_when_allocation_fails()
+  collectgarbage("collect")
+  local original = assert(socket.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 1))
+  local before = testing.open_descriptors()
+  local ended = under_every_failure(function()
+    local copy <close> = assert(socket.adopt(original:fd()))
+    assert(copy:fd() ~= original:fd())
+  end)
+  assert(ended > 0, "adopting a listener allocates")
+  assert(testing.open_descriptors() == before, "a refused allocation leaked a descriptor")
+  assert(original:close())
+end
+
 --- A lowest-free probe cannot see a descriptor leaked above that slot.
 --- The census must see one without assuming an ambient descriptor count.
 local function test_descriptor_census_sees_a_descriptor_above_the_lowest_free(tmp: string)

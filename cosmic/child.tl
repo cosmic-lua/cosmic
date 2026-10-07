@@ -1861,7 +1861,37 @@ local record PtyOptions
   columns: integer
 end
 
+--- A native connector process, as [`Child.start_connector`] starts one.
+local record ConnectorProcess
+  --- The control stream's descriptor, nonblocking and the object's to
+  --- close: a request is eight bytes written to it, a big-endian
+  --- 1-based endpoint index and a port, and the reply is read from it:
+  --- a big-endian errno, and, on success only, one marker byte with the
+  --- connected socket passed beside it. Valid until `close`.
+  fd: integer
+  --- The connector's process id, which `close` reaps.
+  pid: integer
+  --- Whether `close` has not been called.
+  open: boolean
+  --- Ends the connector, which holds no state worth finishing, and reaps
+  --- it: true, and true again once closed. A connector dropped unclosed is
+  --- ended and reaped when it is collected.
+  close: function(ConnectorProcess): boolean
+end
+
+local connector_mt: metatable<ConnectorProcess> = {
+  __index = ConnectorProcess,
+  __close = function(self: ConnectorProcess)
+    local _ = self:close()
+  end,
+  __gc = function(self: ConnectorProcess)
+    local _ = self:close()
+  end,
+}
+
 local record Child
+  type ConnectorProcess = ConnectorProcess
+  type ConnectorEndpoint = raw_process.ConnectorEndpoint
   type Result = Result
   type Options = Options
   type Credentials = Credentials
@@ -1927,6 +1957,62 @@ end
 --- guard was open is not ended by the signals of one opened after it.
 function Child.guard(): Guard | nil, string
   return opened()
+end
+
+--- Ends the connector and reaps it.
+function ConnectorProcess:close(): boolean
+  if not self.open then return true end
+  self.open = false
+  local _, _ = sys.close(self.fd)
+  -- Nothing the connector is doing is worth waiting for: it may be in a
+  -- connect that would end only at its own timeout.
+  local _, _ = sys.kill(self.pid, sys.SIGKILL)
+  local _, _ = raw.waitpid(self.pid, false)
+  return true
+end
+
+--- Starts the sandbox's native TCP connector, confined to the numeric
+--- `endpoints` (at most 128, each a canonical IPv4 or IPv6 `host` and a
+--- `port`, 0 for any nonzero port at that address) and to nothing else:
+--- no file, no exec, no other address. It connects, within `timeout_ms`
+--- milliseconds (1 to 60000) each, to one endpoint a request names and
+--- passes the connected socket back over its control stream; one
+--- connector serves any number of requests, one at a time, until it is
+--- closed. It answers nil and why where this host cannot confine one:
+--- Linux on x86_64 and aarch64 only. An `endpoints` that is no table of
+--- such endpoints, or a `timeout_ms` outside 1 to 60000, raises.
+---
+---     local connector = assert(Child.start_connector({ { host = "127.0.0.1", port = 8080 } }, 5000))
+---     -- write ">I4I4" of endpoint 1 and the port to connector.fd, read the reply
+---     connector:close()
+-- TODO: confine the connector on macOS with Seatbelt's numeric remote rules
+-- (#2820): core/connector.c's connector_start answers ENOSYS there.
+function Child.start_connector(endpoints: {raw_process.ConnectorEndpoint}, timeout_ms: integer): ConnectorProcess | nil, string
+  local pair, why = raw.connector_pair()
+  if pair == nil then return nil, "child: " .. why end
+  local called, pid, trouble, errno = pcall(raw.connector_start, endpoints, pair[2], timeout_ms)
+  local _, _ = sys.close(pair[2])
+  if not called then
+    -- A table or a timeout the core refuses: the pair is not leaked by it.
+    local _, _ = sys.close(pair[1])
+    error(pid, 0)
+  end
+  if pid == nil then
+    local _, _ = sys.close(pair[1])
+    if errno == sys.ENOSYS or errno == sys.EOPNOTSUPP then
+      return nil, "child: the native connector is Linux only (x86_64 and aarch64): " .. trouble
+    end
+    return nil, "child: could not start the connector: " .. trouble
+  end
+  local ok, nonblocking = sys.set_nonblocking(pair[1], true)
+  if not ok then
+    local _, _ = sys.kill(pid, sys.SIGKILL)
+    local _, _ = raw.waitpid(pid, false)
+    local _, _ = sys.close(pair[1])
+    return nil, "child: " .. nonblocking
+  end
+  local started: ConnectorProcess = setmetatable({ fd = pair[1], pid = pid, open = true }, connector_mt)
+  return started
 end
 
 --- The status a shell reports for a child that ended as `result` says:

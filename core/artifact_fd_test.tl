@@ -114,6 +114,7 @@ local cases: {string: function(at: integer, fd: integer): {any}} = {
       at == 3 and fd or 0, at == 4 and fd or 0 }
   end,
   accept = function(_: integer, fd: integer): {any} return { fd } end,
+  adopt = function(_: integer, fd: integer): {any} return { fd } end,
   send = function(_: integer, fd: integer): {any} return { fd, "" } end,
   sendfds = function(at: integer, fd: integer): {any}
     if at == 1 then return { fd, { 0 } } end

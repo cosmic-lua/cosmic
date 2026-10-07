@@ -91,13 +91,8 @@ local record Relay
   --- Connects to the numeric `address` and `port` the relay has checked,
   --- waiting at most `timeout_ns`: the connection, or nil and why
   --- ("Connection refused", [`Poll.TIMEOUT`], ...). The sandbox's is
-  --- the native connector, which connects nothing but the numeric
-  --- endpoint it is given.
-  -- TODO: give cosmic.net a Net.connect through the native connector (one
-  -- connector process for each connection, as core/connector_test.tl starts it,
-  -- and cosmic/relay_native_test.tl adapts it) once it can start one: the raw
-  -- process table reaches only cosmic.child, cosmic.proc, cosmic.sandbox and
-  -- build.confine (core/store.c's raw_modules).
+  --- the native connector ([`Net.connector`]), which connects nothing but the
+  --- numeric endpoint it is given: its [`Net.Connector.as_function`] is one.
   type Connector = function(address: string, port: integer, timeout_ns: integer): Net.Conn | nil, string
 
   --- How long each wait may last, in nanoseconds; a nil field takes its
@@ -982,8 +977,9 @@ end
 
 -- TODO: start this in a confined process of its own from Child.start (a policy
 -- whose `connect` the relay serves) and the verb, with listeners the sandbox
--- bound in its network, once cosmic.net can take a listening descriptor handed
--- down from the parent: Net.listen only binds a new one.
+-- bound in its network, which [`Net.listener_from`] now takes from a
+-- descriptor handed down from the parent, once Child.start has that policy
+-- and a way to pass the descriptors.
 --- Starts serving `spec`'s listeners in the calling task's run, and
 --- returns once they are taken. Raises where the spec is no spec: no
 --- listener or `connector`, a grant that is no string, a timeout or limit
