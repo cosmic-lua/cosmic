@@ -260,6 +260,11 @@ local function loopback_ok(address: string): boolean
   return true
 end
 
+-- TODO: refuse or normalise an unbracketed IPv6 host ("::1:80"), which this
+-- accepts as host "::1" and port 80 but cosmic.relay_address's grant grammar
+-- reads as no address (it wants "[::1]:80"), so a grant cannot silently open
+-- nothing; likewise a bracketed IPv4 host ("[1.2.3.4]:80"), once the relay
+-- calls cosmic.relay_address.
 --- Whether `target` is "host:port": a host that is not empty and holds
 --- no blank or NUL, then "*" or a port from 1 to 65535.
 local function connect_ok(target: string): boolean

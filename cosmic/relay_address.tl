@@ -1,13 +1,17 @@
 --- Which destination addresses the sandbox relay may connect to: the
---- pure half of its address checks (doc/plans/sandbox.md, "The relay and
+--- pure half of its address checks (the sandbox plan, #2621, "The relay and
 --- the terminal"). A granted name is resolved once; [`relay_address.select`]
 --- classifies every answer and picks the first allowed one, so a name whose
 --- answers mix allowed and forbidden addresses still reaches an allowed
 --- one and never a forbidden one.
 ---
 --- An address is refused unless a literal grant names exactly it: a
---- `connect` target whose host is that address (and whose port is the
---- one asked for, or "*"). The classes refused:
+--- `connect` target whose host is that numeric address and whose port is
+--- the one asked for, or "*". The grant's grammar is narrower than
+--- [`cosmic.sandbox`]'s `connect` validation, and fails closed: an IPv6
+--- host must be in brackets (`[::1]:80`; unbracketed `::1:80` opens
+--- nothing), a bracketed IPv4 host (`[1.2.3.4]:80`) opens nothing, and a
+--- name or a "*" host opens no address. The classes refused:
 ---
 --- - loopback (127/8, ::1) and unspecified (0.0.0.0/8, ::);
 --- - link-local (169.254/16, fe80::/10);
@@ -16,32 +20,42 @@
 --- - private (10/8, 172.16/12, 192.168/16, fc00::/7, and the deprecated
 ---   site-local fec0::/10);
 --- - carrier-grade NAT (100.64/10);
---- - cloud metadata services: 169.254.169.254, fd00:ec2::254 and 100.100.100.200,
----   named though a range above holds each, so the refusal says what it is;
+--- - cloud metadata services: 169.254.169.254, 168.63.129.16 (Azure's
+---   wireserver), fd00:ec2::254 and 100.100.100.200, named though a range
+---   may hold each, so the refusal says what it is;
 --- - documentation and benchmarking ranges (192.0.2/24, 198.51.100/24,
 ---   203.0.113/24, 198.18/15, 2001:db8::/32, 3fff::/20, 2001:2::/48). Nothing
 ---   legitimate answers there, and some networks route them to something
 ---   internal (198.18/15 is a common fake-IP range of local proxies), so a
 ---   name that resolves to one is refused rather than trusted;
---- - the host's own addresses, which the caller lists.
+--- - IETF protocol assignments and other special ranges nothing public
+---   answers on: 192.0.0.0/24 (Oracle's metadata 192.0.0.192 and the NAT64
+---   discovery addresses), the deprecated 6to4 relay anycast 192.88.99/24,
+---   100::/64 (discard), 5f00::/16 (SRv6 segment ids) and 2001::/23, which
+---   holds the ORCHID ranges 2001:10::/28 and 2001:20::/28;
+--- - the host's own addresses, which the caller lists
+---   ([`relay_address.own_addresses`]).
 ---
 --- An IPv6 address that carries an IPv4 one is the IPv4 address it
---- carries, and refused when that one is: IPv4-mapped ::ffff:0:0/96,
---- IPv4-compatible ::/96 and NAT64 (64:ff9b::/96 and, as RFC 6052 lays
---- the address out in a /48, 64:ff9b:1::/48). 6to4 (2002::/16) and Teredo
---- (2001::/32) are refused outright with a reason of their own: decoding
---- either is a way to get it wrong, and a name that answers with one is
---- not one a sandbox needs. A literal grant of the carrier opens only the
---- carrier's own spelling; a grant of the IPv4 address it carries does not.
+--- carries where the carrying is fixed, and refused when that one is:
+--- IPv4-mapped ::ffff:0:0/96 and the well-known NAT64 prefix 64:ff9b::/96.
+--- The forms whose carrying is not fixed are refused outright, each with a
+--- reason of its own, never decoded: IPv4-compatible ::/96, the SIIT form
+--- 0:0:0:0:ffff:0::/96, 6to4 (2002::/16), Teredo (2001::/32), and the
+--- local-use NAT64 prefix 64:ff9b:1::/48 (RFC 8215), which an operator may
+--- carve at any RFC 6052 length -- a /96 gateway sends
+--- 64:ff9b:1:808:0:0:a9fe:a9fe to 169.254.169.254 -- so no one decoding
+--- is right. A literal grant of the carrier opens only the carrier's own
+--- spelling; a grant of the IPv4 address it carries does not.
 ---
---- Addresses are in the strict grammar the core's numeric hosts take
---- (core/socket.c's `cosmic_numeric_host`): IPv4 as four decimal octets
+--- Addresses are in the strict grammar [`cosmic.net`]'s numeric hosts take:
+--- IPv4 as four decimal octets
 --- with no leading zeros, IPv6 in hex groups of one to four digits with at
 --- most one "::" and an IPv4 tail, no zone. Anything else is refused as
 --- not numeric: an answer is untrusted bytes from DNS.
 
 local record relay_address
-  --- One answer of a name, as `Net.resolve` returns it.
+  --- One answer of a name, as the resolver of #2816 returns it.
   record Answer
     --- The numeric address text.
     address: string
@@ -68,6 +82,14 @@ local PHRASES <const>: {string: string} = {
   documentation = "a documentation address",
   benchmark = "a benchmarking address",
   own = "one of this host's own addresses",
+  special = "a special-purpose address",
+  discard = "a discard-only address",
+  compatible = "an IPv4-compatible address, which the relay does not decode",
+  translated = "an IPv4-translated (SIIT) address, which the relay does not decode",
+  ["6to4"] = "a 6to4 address, which carries an IPv4 address the relay does not decode",
+  teredo = "a Teredo address, which carries IPv4 addresses the relay does not decode",
+  nat64local = "a local-use NAT64 address, whose prefix length, and so the IPv4 address it " ..
+    "carries, the relay cannot know",
 }
 
 --- The IPv4 octets of `text` (four decimal numbers, none with a leading
@@ -172,6 +194,7 @@ end
 local METADATA <const>: {{integer}} = {
   { 169, 254, 169, 254 },
   { 100, 100, 100, 200 },
+  { 168, 63, 129, 16 },
   { 0xfd, 0x00, 0x0e, 0xc2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x02, 0x54 },
 }
 
@@ -186,6 +209,8 @@ local function class4(b: {integer}, own: {{integer}}): string | nil
     if same(b, o) then return "own" end
   end
   if a == 0 then return "unspecified" end
+  if a == 192 and c == 0 and d == 0 then return "special" end
+  if a == 192 and c == 88 and d == 99 then return "special" end
   if a == 10 then return "private" end
   if a == 100 and c & 0xc0 == 64 then return "cgnat" end
   if a == 127 then return "loopback" end
@@ -208,19 +233,11 @@ local function carried(b: {integer}): string | nil, {integer} | nil
   local function last(): {integer}
     return { b[13], b[14], b[15], b[16] }
   end
-  local zero10 = true
-  for i = 1, 10 do
-    if b[i] ~= 0 then zero10 = false end
+  if begins(b, { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff }) then
+    return "an IPv4-mapped", last()
   end
-  if zero10 and b[11] == 0xff and b[12] == 0xff then return "an IPv4-mapped", last() end
-  if zero10 and b[11] == 0 and b[12] == 0 then return "an IPv4-compatible", last() end
   if begins(b, { 0x00, 0x64, 0xff, 0x9b, 0, 0, 0, 0, 0, 0, 0, 0 }) then
     return "a NAT64", last()
-  end
-  -- RFC 6052: after a /48 prefix the address is bits 48-63 and 72-87,
-  -- the bits between (64-71) being zero.
-  if begins(b, { 0x00, 0x64, 0xff, 0x9b, 0x00, 0x01 }) then
-    return "a NAT64", { b[7], b[8], b[10], b[11] }
   end
   return nil
 end
@@ -235,14 +252,24 @@ local function class6(b: {integer}, own: {{integer}}): string | nil
   end
   if same(b, { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }) then return "unspecified" end
   if same(b, { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }) then return "loopback" end
+  -- ::/96 holds ::2 and up, which carry an address in no fixed way.
+  if begins(b, { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }) then return "compatible" end
+  if begins(b, { 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 0, 0 }) then return "translated" end
   local first, second = b[1], b[2]
   if first == 0xfe and second & 0xc0 == 0x80 then return "link-local" end
   if first == 0xfe and second & 0xc0 == 0xc0 then return "private" end
   if first & 0xfe == 0xfc then return "private" end
   if first == 0xff then return "multicast" end
+  if begins(b, { 0x00, 0x64, 0xff, 0x9b, 0x00, 0x01 }) then return "nat64local" end
+  if begins(b, { 0x01, 0x00, 0, 0, 0, 0, 0, 0 }) then return "discard" end
+  if first == 0x5f and second == 0 then return "special" end
+  if first == 0x20 and second == 0x02 then return "6to4" end
+  if begins(b, { 0x20, 0x01, 0x00, 0x00 }) then return "teredo" end
   if begins(b, { 0x20, 0x01, 0x0d, 0xb8 }) then return "documentation" end
   if first == 0x3f and second == 0xff and b[3] & 0xf0 == 0 then return "documentation" end
   if begins(b, { 0x20, 0x01, 0x00, 0x02, 0x00, 0x00 }) then return "benchmark" end
+  -- 2001::/23, past the Teredo and benchmarking prefixes named above.
+  if first == 0x20 and second == 0x01 and b[3] & 0xfe == 0 then return "special" end
   return nil
 end
 
@@ -279,57 +306,70 @@ local function granted(bytes: {integer}, port: integer, grants: {string}): boole
   return false
 end
 
+--- The host's own addresses `own`, numeric text, as the bytes [`check`] and
+--- [`select`] take, which they would otherwise read again for every answer.
+--- An IPv4-mapped entry is reduced to the IPv4 address it carries, so an
+--- own address is refused however an answer spells it. Raises for an entry
+--- that is no numeric address: a list of the host's own addresses is the
+--- caller's, never untrusted.
+-- TODO: the relay needs the host's own addresses for `own`, and the core has
+-- no binding that lists them (no getifaddrs in core/ or cosmic.sys): add one
+-- and have the relay pass its addresses here, once cosmic.sys carries getifaddrs.
+--- @param own {string} The addresses, as text
+--- @return {{integer}} Each one's bytes
+function relay_address.own_addresses(own: {string}): {{integer}}
+  local out: {{integer}} = {}
+  for _, text in ipairs(own) do
+    local bytes = relay_address.parse(text)
+    if bytes == nil then error("own address \"" .. tostring(text) .. "\" is not numeric", 2) end
+    if #bytes == 16 and begins(bytes, { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff }) then
+      bytes = { bytes[13], bytes[14], bytes[15], bytes[16] }
+    end
+    out[#out + 1] = bytes
+  end
+  return out
+end
+
+--- The most bytes of an answer a refusal repeats.
+local SHOWN <const> = 64
+
 --- Whether the relay may connect to the numeric `address` on `port`.
 --- Allowed answers `true` and "". Refused answers `false` and a reason
 --- that names the class and the remedy, a literal grant:
 --- "169.254.169.254 is a metadata address: grant it literally with
 --- --connect 169.254.169.254:80". Text that is no numeric address is
---- refused too.
+--- refused too, shown cut to 64 bytes with its control and non-ASCII bytes
+--- as "?".
 --- @param address string The numeric address text, as an answer holds it
 --- @param port integer The port the program asked for
 --- @param grants {string} The policy's `connect` targets (`host:port`)
---- @param own {string} The host's own addresses, numeric; one that is no
---- numeric address raises
+--- @param own {{integer}} The host's own addresses, from [`own_addresses`]
 --- @return boolean Whether the connection is allowed
 --- @return string The reason it is refused, "" when it is allowed
 function relay_address.check(address: string, port: integer, grants: {string},
-                             own: {string}): boolean, string
+                             own: {{integer}}): boolean, string
   local bytes = relay_address.parse(address)
   if bytes == nil then
-    local shown = tostring(address):gsub("[%c\128-\255]", "?")
+    local shown = tostring(address):sub(1, SHOWN):gsub("[%c\128-\255]", "?")
+    if #tostring(address) > SHOWN then shown = shown .. "..." end
     return false, "\"" .. shown .. "\" is not a numeric address"
-  end
-  local mine: {{integer}} = {}
-  for _, text in ipairs(own) do
-    local parsed = relay_address.parse(text)
-    if parsed == nil then error("own address \"" .. text .. "\" is not numeric", 2) end
-    mine[#mine + 1] = parsed
   end
   if granted(bytes, port, grants) then return true, "" end
   local remedy = ": grant it literally with --connect " .. target(address, port)
   if #bytes == 4 then
-    local class = class4(bytes, mine)
+    local class = class4(bytes, own)
     if class then return false, address .. " is " .. PHRASES[class] .. remedy end
     return true, ""
   end
-  local direct = class6(bytes, mine)
+  local direct = class6(bytes, own)
   if direct then return false, address .. " is " .. PHRASES[direct] .. remedy end
   local form, v4 = carried(bytes)
   if form and v4 then
-    local class = class4(v4, mine)
+    local class = class4(v4, own)
     if class then
       return false, address .. " is " .. form .. " address carrying " .. dotted(v4) ..
         ", " .. PHRASES[class] .. remedy
     end
-    return true, ""
-  end
-  if begins(bytes, { 0x20, 0x02 }) then
-    return false, address .. " is a 6to4 address, which carries an IPv4 address the relay " ..
-      "does not decode" .. remedy
-  end
-  if begins(bytes, { 0x20, 0x01, 0x00, 0x00 }) then
-    return false, address .. " is a Teredo address, which carries IPv4 addresses the relay " ..
-      "does not decode" .. remedy
   end
   return true, ""
 end
@@ -341,11 +381,11 @@ end
 --- @param answers {Answer} Every answer for a name, in the order received
 --- @param port integer The port the program asked for
 --- @param grants {string} The policy's `connect` targets (`host:port`)
---- @param own {string} The host's own addresses, numeric
+--- @param own {{integer}} The host's own addresses, from [`own_addresses`]
 --- @return Answer|nil The first allowed answer
 --- @return string Why none is allowed, "" when one is
 function relay_address.select(answers: {relay_address.Answer}, port: integer,
-                              grants: {string}, own: {string}): relay_address.Answer | nil, string
+                              grants: {string}, own: {{integer}}): relay_address.Answer | nil, string
   if #answers == 0 then return nil, "the name has no addresses" end
   local why: {string} = {}
   for _, answer in ipairs(answers) do
@@ -355,9 +395,5 @@ function relay_address.select(answers: {relay_address.Answer}, port: integer,
   end
   return nil, "no address of the name is allowed: " .. table.concat(why, "; ")
 end
-
--- TODO: the relay needs the host's own addresses for `own`, and the core has
--- no binding that lists them (no getifaddrs in core/ or cosmic.sys): add one
--- and have the relay pass its addresses here, once cosmic.sys carries getifaddrs.
 
 return relay_address

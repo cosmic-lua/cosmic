@@ -1,4 +1,4 @@
---- Fuzz properties for [`build.relay_address`], which reads addresses out
+--- Fuzz properties for [`cosmic.relay_address`], which reads addresses out
 --- of DNS answers, untrusted bytes: no text raises it; an IPv6 address
 --- reads as the 16 bytes it was written from, however it is spelled; an
 --- address that carries an IPv4 one is allowed exactly when that one is;
@@ -7,9 +7,10 @@
 --- (build/fuzz/init.tl).
 
 local Fuzz = require("build.fuzz")
-local relay_address = require("build.relay_address")
+local relay_address = require("cosmic.relay_address")
 
 local NONE: {string} = {}
+local NO_OWN: {{integer}} = {}
 
 --- Octets at the edges of the classes' ranges, and neighbours.
 local EDGES <const>: {integer} = { 0, 1, 9, 10, 11, 15, 16, 31, 32, 63, 64, 99, 100, 101, 126, 127,
@@ -103,10 +104,10 @@ local function test_no_text_raises_the_parser_or_the_check(tmp: string)
     check = function(text: string): boolean, string
       local ok, parsed = pcall(relay_address.parse, text)
       if not ok then return false, "parse raised: " .. tostring(parsed) end
-      local checked, allowed, why = pcall(relay_address.check, text, 443, { (text:find(":", 1, true) and "[" .. text .. "]" or text) .. ":443" }, NONE)
+      local checked, allowed, why = pcall(relay_address.check, text, 443, { (text:find(":", 1, true) and "[" .. text .. "]" or text) .. ":443" }, NO_OWN)
       if not checked then return false, "check raised: " .. tostring(allowed) end
       local selected, picked, reason = pcall(relay_address.select,
-        { { address = text, family = "inet" } }, 443, NONE, NONE)
+        { { address = text, family = "inet" } }, 443, NONE, NO_OWN)
       if not selected then return false, "select raised: " .. tostring(picked) end
       local bytes = parsed as {integer} | nil
       if bytes == nil then
@@ -191,7 +192,9 @@ local function test_an_ipv6_address_reads_as_the_bytes_it_was_written_from(tmp: 
 end
 
 --- Which prefix carries the IPv4 address `v4`: the 16 bytes, filled with
---- `filler` where the form leaves bits free.
+--- `filler` where the form leaves bits free: 0 is IPv4-mapped, 1 IPv4-compatible,
+--- 2 NAT64 in 64:ff9b::/96 and 3 the local-use 64:ff9b:1::/48 laid out as
+--- RFC 6052 would, which the relay refuses rather than decodes.
 local function carrying(form: integer, v4: {integer}, filler: string): string
   local head = filler
   if form == 0 then
@@ -213,7 +216,7 @@ local function test_an_address_carrying_ipv4_is_allowed_exactly_when_it_is(tmp: 
     dir = tmp,
     gen = function(src: Fuzz.Source): string
       local v4 = four(src)
-      return Fuzz.pack({ string.char(src:int(0, 3), src:int(0, 3), table.unpack(v4)),
+      return Fuzz.pack({ string.char(src:int(0, 1) * 2, src:int(0, 3), table.unpack(v4)),
         gen_bytes16(src), gen_style(src) })
     end,
     requires = { "allowed", "refused", "own" },
@@ -223,7 +226,7 @@ local function test_an_address_carrying_ipv4_is_allowed_exactly_when_it_is(tmp: 
       local form, own_mode = fields[1]:byte(1), fields[1]:byte(2)
       local v4 = { fields[1]:byte(3, 6) }
       local text = spelled(carrying(form, v4, fields[2]), fields[3])
-      local own: {string} = own_mode == 0 and { dotted(v4) } or NONE
+      local own = own_mode == 0 and relay_address.own_addresses({ dotted(v4) }) or NO_OWN
       if own_mode == 0 then Fuzz.label("own") end
       local want, why4 = relay_address.check(dotted(v4), 443, NONE, own)
       local got, why = relay_address.check(text, 443, NONE, own)
@@ -232,9 +235,7 @@ local function test_an_address_carrying_ipv4_is_allowed_exactly_when_it_is(tmp: 
           " though " .. dotted(v4) .. " is " .. (want and "allowed" or "refused (" .. why4 .. ")")
       end
       Fuzz.label(got and "allowed" or "refused")
-      -- "::" and "::1" are IPv6's own addresses, named as such.
-      local direct = form == 1 and v4[1] == 0 and v4[2] == 0 and v4[3] == 0 and v4[4] <= 1
-      if not got and not direct and not why:find(" carrying " .. dotted(v4) .. ", ", 1, true) then
+      if not got and not why:find(" carrying " .. dotted(v4) .. ", ", 1, true) then
         return false, "the reason does not name the carried address: " .. why
       end
       return true, ""
@@ -282,11 +283,11 @@ local function test_a_grant_opens_its_address_and_selection_takes_the_first_allo
       -- A grant of an address opens it on its port or any, and no other address.
       for i, a in ipairs(list) do
         for _, grant in ipairs({ target(a, port), (target(a, port):gsub(":%d+$", ":*")) }) do
-          if not relay_address.check(a, port, { grant }, NONE) then
+          if not relay_address.check(a, port, { grant }, NO_OWN) then
             return false, a .. " is not opened by " .. grant
           end
-          if relay_address.check(a, port + 1, { target(a, port) }, NONE) ~=
-              relay_address.check(a, port + 1, NONE, NONE) then
+          if relay_address.check(a, port + 1, { target(a, port) }, NO_OWN) ~=
+              relay_address.check(a, port + 1, NONE, NO_OWN) then
             return false, a .. " is opened on another port by " .. grant
           end
           Fuzz.label("granted")
@@ -294,7 +295,7 @@ local function test_a_grant_opens_its_address_and_selection_takes_the_first_allo
           for j, b in ipairs(list) do
             local theirs = relay_address.parse(b) as {integer}
             if j ~= i and table.concat(theirs, ",") ~= table.concat(mine, ",") then
-              if relay_address.check(b, port, { grant }, NONE) ~= relay_address.check(b, port, NONE, NONE) then
+              if relay_address.check(b, port, { grant }, NO_OWN) ~= relay_address.check(b, port, NONE, NO_OWN) then
                 return false, grant .. " opens " .. b
               end
             end
@@ -304,12 +305,12 @@ local function test_a_grant_opens_its_address_and_selection_takes_the_first_allo
       -- Selection: the first answer check allows, else a reason naming every one.
       local first: integer = nil
       for i, a in ipairs(list) do
-        if relay_address.check(a, port, NONE, NONE) then
+        if relay_address.check(a, port, NONE, NO_OWN) then
           first = i
           break
         end
       end
-      local picked, why = relay_address.select(answers, port, NONE, NONE)
+      local picked, why = relay_address.select(answers, port, NONE, NO_OWN)
       if first ~= nil then
         if picked == nil or picked ~= answers[first] then
           return false, "did not pick answer " .. first
