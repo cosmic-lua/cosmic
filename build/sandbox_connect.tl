@@ -44,10 +44,14 @@ local record sandbox_connect
     getenv: function(name: string): string | nil
     --- Writes one complaint line, without its newline.
     err: function(line: string)
-    --- The descriptor of the standard input the connection is sent.
-    input: integer
-    --- The descriptor of the standard output the connection is written to.
-    output: integer
+    --- The next bytes of the standard input the connection is sent, "" at
+    --- its end; nil and why where it fails.
+    read: function(): string | nil, string
+    --- Writes all of `data` to the standard output the connection is
+    --- written to. False and why where it fails.
+    write: function(data: string): boolean, string
+    --- Closes that standard output, which its reader hears as the end.
+    finish: function(): boolean, string
     --- How long the relay has to answer the greeting and the request, each,
     --- in nanoseconds: 30 seconds when nil.
     answer_ns: integer
@@ -120,6 +124,31 @@ local function write_all(fd: integer, data: string): boolean, string
   return true, ""
 end
 
+--- The standard input and output of this process, as descriptors: a read
+--- waits for the descriptor in the run, so that the other tasks go on.
+local function standard_io(input: integer, output: integer): sandbox_connect.Io
+  return {
+    getenv = sys.getenv, err = bare.err,
+    read = function(): string | nil, string
+      while true do
+        local ready, ready_why = Poll.readable(input)
+        if not ready then return nil, ready_why end
+        local data, why, errno = sys.read(input, CHUNK)
+        if data ~= nil then return data, "" end
+        if errno ~= sys.EAGAIN and errno ~= sys.EINTR then return nil, why end
+      end
+    end,
+    write = function(data: string): boolean, string
+      return write_all(output, data)
+    end,
+    finish = function(): boolean, string
+      local closed, why = sys.close(output)
+      if not closed then return false, why end
+      return true, ""
+    end,
+  }
+end
+
 --- The port of the relay `ALL_PROXY` names, a `socks5h` proxy on 127.0.0.1
 --- (the sandbox's has the relay's port, and its network holds nothing else),
 --- or nil and why not.
@@ -154,14 +183,10 @@ local function carry(conn: Net.Conn, first: string, io: sandbox_connect.Io, trac
   local function up()
     while true do
       trace("up: waiting for standard input")
-      local ready, ready_why = Poll.readable(io.input)
-      if not ready then return fail("standard input: " .. ready_why) end
-      local data, why, errno = sys.read(io.input, CHUNK)
+      local data, why = io.read()
       trace("up: read " .. (data ~= nil and plural.count(#data, "byte") or "failed: " .. tostring(why)))
       if data == nil then
-        if errno ~= sys.EAGAIN and errno ~= sys.EINTR then
-          return fail("standard input: " .. why)
-        end
+        return fail("standard input: " .. why)
       elseif data == "" then
         -- What the program sends has ended: the far side hears it as one.
         local shut, shut_why = conn:shutdown("write")
@@ -183,7 +208,7 @@ local function carry(conn: Net.Conn, first: string, io: sandbox_connect.Io, trac
     local data = first
     while true do
       if data ~= "" then
-        local wrote, write_why = write_all(io.output, data)
+        local wrote, write_why = io.write(data)
         trace("down: wrote " .. plural.count(#data, "byte") .. " to standard output: " .. (wrote and "ok" or tostring(write_why)))
         if not wrote then return fail("standard output: " .. write_why) end
       end
@@ -195,7 +220,7 @@ local function carry(conn: Net.Conn, first: string, io: sandbox_connect.Io, trac
         -- The far side has ended what it sends: ours hears it as the end of
         -- standard output.
         far_ended = true
-        local closed, closed_why = sys.close(io.output)
+        local closed, closed_why = io.finish()
         trace("down: standard output closed " .. (closed and "ok" or tostring(closed_why)))
         return
       end
@@ -303,9 +328,7 @@ end
 --- @param io the environment, descriptors and complaints; the process's own when nil
 --- @return the exit status
 function sandbox_connect.run(args: {string}, io?: sandbox_connect.Io): integer
-  local here: sandbox_connect.Io = io or {
-    getenv = sys.getenv, err = bare.err, input = 0, output = 1,
-  }
+  local here = io or standard_io(0, 1)
   -- A caller that is a task of a run already (a test) has the run it needs.
   if Poll.in_task() then return run_in(args, here) end
   local status = bare.failed

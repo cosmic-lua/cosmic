@@ -11,7 +11,6 @@ local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Test = require("cosmic.test")
 local Wire = require("cosmic.relay_wire")
-local sys = require("cosmic.sys")
 local connect = require("build.sandbox_connect")
 
 Test.policy{
@@ -41,34 +40,47 @@ end
 --- that a hang fails with the client's steps and not by the worker's deadline.
 local WAIT <const> = Clock.seconds(4)
 
---- How many pipes a test has made, which names each one.
-local made = 0
-
---- A named pipe's two ends in `dir`: the reader non-blocking, the writer
---- as [`sys.open`] makes it. [`sys`] has no pipe.
-local function pipe(dir: string, name: string): integer, integer
-  made = made + 1
-  local path = dir .. "/" .. name .. made
-  assert(sys.mkfifo(path, 384))
-  local reader = assert(sys.open(path, sys.O_RDONLY | sys.O_NONBLOCK, 0))
-  local writer = assert(sys.open(path, sys.O_WRONLY, 0))
-  return reader, writer
+--- The client's standard streams, held in memory: a host's own polling of
+--- a named pipe (macOS's reports no end) is no part of what the client does,
+--- and the descriptors' glue is the tool test's.
+local record Streams
+  --- What the program has sent and not yet been read, and whether it ended.
+  waiting: string
+  ended: boolean
+  --- What the client wrote to its standard output, and whether it closed it.
+  out: string
+  closed: boolean
 end
 
---- Everything the non-blocking descriptor `fd` holds now, to its end where it
---- has one.
-local function drained(fd: integer): string
-  local chunks: {string} = {}
-  while true do
-    local data, _, errno = sys.read(fd, 4096)
-    if data == nil then
-      assert(errno == sys.EAGAIN, "reading the client's output")
-      break
-    end
-    if data == "" then break end
-    chunks[#chunks + 1] = data
-  end
-  return table.concat(chunks)
+local function streams(): Streams
+  return { waiting = "", ended = false, out = "", closed = false }
+end
+
+--- The `Io` of `held`, for the client, and `variables` as its environment.
+local function io_of(held: Streams, variables: {string:string}, complaints: function(line: string),
+                     answer_ns?: integer): connect.Io
+  return {
+    getenv = function(name: string): string | nil return variables[name] end,
+    err = complaints,
+    read = function(): string | nil, string
+      while held.waiting == "" and not held.ended do
+        local ok, why = Poll.delay(Clock.ms(1))
+        if not ok then return nil, why end
+      end
+      local data = held.waiting
+      held.waiting = ""
+      return data, ""
+    end,
+    write = function(data: string): boolean, string
+      held.out = held.out .. data
+      return true, ""
+    end,
+    finish = function(): boolean, string
+      held.closed = true
+      return true, ""
+    end,
+    answer_ns = answer_ns,
+  }
 end
 
 --- Exactly `count` bytes of `conn`, fewer where it ends first.
@@ -87,53 +99,40 @@ end
 --- listener: `relay` is the
 --- relay's end of the one connection the client makes, `send` writes to
 --- its standard input and `finish` ends it. Answers how the client ended.
-local function against(tmp: string, args: {string}, body: function(relay: Net.Conn, send: function(string), finish: function()),
+local function against(args: {string}, body: function(relay: Net.Conn, send: function(string), finish: function()),
                        variable?: string, timeout_ns?: integer): Ran
   local ran: Ran = { code = -1, complaints = {}, trace = {}, out = "" }
-  local in_reader, in_writer = pipe(tmp, "in")
-  local out_reader, out_writer = pipe(tmp, "out")
+  local held = streams()
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     local variables = { [variable or "ALL_PROXY"] = proxy_at(listener.address.port), COSMIC_CONNECT_TRACE = "1" }
     if variable == "all_proxy" then variables.all_proxy = variables.all_proxy .. "/" end
     local client = Poll.spawn(function()
-      ran.code = connect.run(args, {
-        getenv = function(name: string): string | nil return variables[name] end,
-        err = function(line: string)
-          if line:find("^connect trace ") then
-            ran.trace[#ran.trace + 1] = line
-          else
-            ran.complaints[#ran.complaints + 1] = line
-          end
-        end,
-        input = in_reader, output = out_writer, answer_ns = timeout_ns,
-      })
+      ran.code = connect.run(args, io_of(held, variables, function(line: string)
+        if line:find("^connect trace ") then
+          ran.trace[#ran.trace + 1] = line
+        else
+          ran.complaints[#ran.complaints + 1] = line
+        end
+      end, timeout_ns))
     end)
     local relay: Net.Conn | nil
-    local ended = false
-    -- However the body ends, the listener, the connection and the pipes are
-    -- closed, so that one failing test leaves nothing for the next.
+    -- However the body ends, the listener and the connection are closed, so
+    -- that one failing test leaves nothing for the next.
     local ok, trouble = pcall(function()
       local accepted = assert(listener:accept(WAIT))
       relay = accepted
       accepted:set_timeout(WAIT)
       body(accepted, function(data: string)
-        assert(sys.write(in_writer, data))
+        held.waiting = held.waiting .. data
       end, function()
-        if not ended then
-          ended = true
-          assert(sys.close(in_writer))
-        end
+        held.ended = true
       end)
-      if not ended then
-        ended = true
-        assert(sys.close(in_writer))
-      end
+      held.ended = true
       local _, _ = accepted:close()
       assert(client:join(WAIT), "the client did not end")
-      ran.out = drained(out_reader)
+      ran.out = held.out
     end)
-    if not ended then local _, _ = sys.close(in_writer) end
     if relay ~= nil then local _, _ = relay:close() end
     client:cancel()
     local _, _ = listener:close()
@@ -142,8 +141,6 @@ local function against(tmp: string, args: {string}, body: function(relay: Net.Co
           "\nits complaints: " .. table.concat(ran.complaints, " | "), 0)
     end
   end)
-  assert(sys.close(in_reader))
-  assert(sys.close(out_reader))
   return ran
 end
 
@@ -166,10 +163,10 @@ local function asked(relay: Net.Conn): string
   return head .. bytes(relay, rest)
 end
 
-local function test_a_name_is_asked_for_as_a_name_and_the_bytes_go_both_ways(tmp: string)
+local function test_a_name_is_asked_for_as_a_name_and_the_bytes_go_both_ways()
   local request: string
   local seen_end = false
-  local ran = against(tmp, { "api.github.com", "443" }, function(relay: Net.Conn, send: function(string), finish: function())
+  local ran = against({ "api.github.com", "443" }, function(relay: Net.Conn, send: function(string), finish: function())
     request = asked(relay)
     -- The relay's first bytes of the tunnel come in the same write as its answer.
     assert(relay:write(Wire.socks_reply("succeeded") .. "banner "))
@@ -190,9 +187,9 @@ local function test_a_name_is_asked_for_as_a_name_and_the_bytes_go_both_ways(tmp
   assert(#ran.complaints == 0, table.concat(ran.complaints))
 end
 
-local function test_an_address_is_asked_for_as_an_address(tmp: string)
+local function test_an_address_is_asked_for_as_an_address()
   local request: string
-  local ran = against(tmp, { "127.0.0.2", "22" }, function(relay: Net.Conn, _: function(string), finish: function())
+  local ran = against({ "127.0.0.2", "22" }, function(relay: Net.Conn, _: function(string), finish: function())
     request = asked(relay)
     assert(relay:write(Wire.socks_reply("succeeded")))
     finish()
@@ -201,7 +198,7 @@ local function test_an_address_is_asked_for_as_an_address(tmp: string)
   assert(ran.code == 0, table.concat(ran.complaints))
   assert(request == "\5\1\0\1\127\0\0\2\0\22", "an address of type 1")
   local ipv6: string
-  assert(against(tmp, { "::1", "22" }, function(relay: Net.Conn, _: function(string), finish: function())
+  assert(against({ "::1", "22" }, function(relay: Net.Conn, _: function(string), finish: function())
     ipv6 = asked(relay)
     assert(relay:write(Wire.socks_reply("succeeded")))
     finish()
@@ -210,8 +207,8 @@ local function test_an_address_is_asked_for_as_an_address(tmp: string)
   assert(ipv6 == "\5\1\0\4" .. ("\0"):rep(15) .. "\1\0\22", "an address of type 4")
 end
 
-local function test_the_relay_ending_first_ends_the_output_and_the_run_ends_with_the_input(tmp: string)
-  local ran = against(tmp, { "host.example", "80" }, function(relay: Net.Conn, _: function(string), finish: function())
+local function test_the_relay_ending_first_ends_the_output_and_the_run_ends_with_the_input()
+  local ran = against({ "host.example", "80" }, function(relay: Net.Conn, _: function(string), finish: function())
     asked(relay)
     assert(relay:write(Wire.socks_reply("succeeded") .. "bye"))
     assert(relay:close())
@@ -234,9 +231,9 @@ local REFUSALS <const>: {{string}} = {
   { "address_type_not_supported", "address type not supported", "8" },
 }
 
-local function test_a_refusal_exits_1_with_one_line_naming_what_the_reply_means(tmp: string)
+local function test_a_refusal_exits_1_with_one_line_naming_what_the_reply_means()
   for _, case in ipairs(REFUSALS) do
-    local ran = against(tmp, { "host.example", "443" }, function(relay: Net.Conn)
+    local ran = against({ "host.example", "443" }, function(relay: Net.Conn)
       asked(relay)
       assert(relay:write(Wire.socks_reply(case[1] as Wire.SocksReply)))
     end)
@@ -247,38 +244,40 @@ local function test_a_refusal_exits_1_with_one_line_naming_what_the_reply_means(
       line)
     assert(ran.out == "", "nothing is written to standard output")
   end
-  local unknown = against(tmp, { "h", "1" }, function(relay: Net.Conn)
+  local unknown = against({ "h", "1" }, function(relay: Net.Conn)
     asked(relay)
     assert(relay:write("\5\200\0\1\0\0\0\0\0\0"))
   end)
   assert(unknown.code == 1 and unknown.complaints[1]:find("unknown reply code 200", 1, true), unknown.complaints[1])
 end
 
-local function test_a_relay_that_breaks_the_protocol_or_goes_away_is_a_failure(tmp: string)
-  local version = against(tmp, { "h", "1" }, function(relay: Net.Conn)
+local function test_a_relay_that_breaks_the_protocol_or_goes_away_is_a_failure()
+  local version = against({ "h", "1" }, function(relay: Net.Conn)
     asked(relay)
     assert(relay:write("\4\90\0\0\0\0\0\0"))
   end)
   assert(version.code == 1 and version.complaints[1]:find("SOCKS version 4", 1, true), version.complaints[1])
-  local silent = against(tmp, { "h", "1" }, function(relay: Net.Conn)
+  local silent = against({ "h", "1" }, function(relay: Net.Conn)
     asked(relay)
   end)
   assert(silent.code == 1 and silent.complaints[1]:find("closed the connection before it answered", 1, true),
     silent.complaints[1])
-  local method = against(tmp, { "h", "1" }, function(relay: Net.Conn)
+  local method = against({ "h", "1" }, function(relay: Net.Conn)
     assert(bytes(relay, 3) == "\5\1\0")
     assert(relay:write(Wire.socks_method_reply(255)))
   end)
   assert(method.code == 1 and method.complaints[1]:find("no authentication method", 1, true), method.complaints[1])
 end
 
-local function test_it_refuses_a_command_line_or_environment_that_is_not_a_sandboxs(tmp: string)
+local function test_it_refuses_a_command_line_or_environment_that_is_not_a_sandboxs()
   local function refused(args: {string}, env: {string:string}, why: string)
     local complaints: {string} = {}
     local code = connect.run(args, {
       getenv = function(name: string): string | nil return env[name] end,
       err = function(line: string) complaints[#complaints + 1] = line end,
-      input = 0, output = 1,
+      read = function(): string | nil, string return "", "" end,
+      write = function(): boolean, string return true, "" end,
+      finish = function(): boolean, string return true, "" end,
     })
     assert(code == 2 and #complaints == 1, tostring(args[1]) .. " " .. tostring(args[2]) .. ": " .. code)
     assert(complaints[1]:find("^cosmic: sandbox connect: "), complaints[1])
@@ -304,7 +303,7 @@ local function test_it_refuses_a_command_line_or_environment_that_is_not_a_sandb
   refused({ "", "22" }, { ALL_PROXY = PROXY }, "empty")
   refused({ ("a"):rep(256), "22" }, { ALL_PROXY = PROXY }, "255")
   -- The lower-case variable is read where the upper is not set.
-  local ran = against(tmp, { "host.example", "1" }, function(relay: Net.Conn)
+  local ran = against({ "host.example", "1" }, function(relay: Net.Conn)
     asked(relay)
     assert(relay:write(Wire.socks_reply("refused")))
   end, "all_proxy")
@@ -326,14 +325,16 @@ local function test_nothing_listening_is_a_failure_naming_the_relay(_: string)
       return nil
     end,
     err = function(line: string) complaints[#complaints + 1] = line end,
-    input = 0, output = 1,
+    read = function(): string | nil, string return "", "" end,
+    write = function(): boolean, string return true, "" end,
+    finish = function(): boolean, string return true, "" end,
   })
   assert(code == 1 and complaints[1]:find("the relay at " .. proxy_at(port), 1, true), tostring(complaints[1]))
 end
 
-local function test_a_relay_that_never_answers_is_a_failure_after_the_timeout_naming_the_relay(tmp: string)
+local function test_a_relay_that_never_answers_is_a_failure_after_the_timeout_naming_the_relay()
   local started = Clock.monotonic_ns()
-  local ran = against(tmp, { "host.example", "22" }, function(relay: Net.Conn)
+  local ran = against({ "host.example", "22" }, function(relay: Net.Conn)
     asked(relay)
     -- Holds the connection open and says nothing until the client has given up.
     local _, _ = relay:read(1)
