@@ -207,7 +207,9 @@ static size_t connector_endpoints (lua_State *L, int argument,
     struct sockaddr_in *v4 = (struct sockaddr_in *)&endpoint->address;
     struct sockaddr_in6 *v6 = (struct sockaddr_in6 *)&endpoint->address;
     if (strlen(host) != size) luaL_argerror(L, argument, "an endpoint host has a NUL");
-    if (inet_pton(AF_INET, host, &v4->sin_addr) == 1) {
+    if (!cosmic_numeric_host(host, size)) {
+      luaL_argerror(L, argument, "an endpoint host must be a numeric IPv4 or IPv6 address");
+    } else if (strchr(host, ':') == NULL && inet_pton(AF_INET, host, &v4->sin_addr) == 1) {
       v4->sin_family = AF_INET;
       endpoint->length = sizeof *v4;
     } else if (inet_pton(AF_INET6, host, &v6->sin6_addr) == 1) {
