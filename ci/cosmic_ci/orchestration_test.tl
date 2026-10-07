@@ -782,7 +782,7 @@ local function test_only_a_leg_that_runs_the_checked_suite_runs_the_checked_cosm
     return "printf '%s\\t%s\\t%s\\n' " .. fields .. "\n"
   end
   local function candidate(name: string, host_image: string,
-                           checked: string): string, string
+                           checked: string, candidate_target: string): string, string
     local fake = tmp .. "/checked-" .. name
     local runner_temp = fake .. "-runner-temp"
     local format = runner_temp .. "/cosmic-ci/platform/contract/format"
@@ -790,14 +790,14 @@ local function test_only_a_leg_that_runs_the_checked_suite_runs_the_checked_cosm
     assert(Fs.mkdirs(format))
     assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
     assert(Fs.write(fake .. "/o/sanitized/targets.tsv",
-      "1\t1\trelease\t" .. target .. "\tLinux\tx86_64\n" ..
-        "1\t2\tsanitized\tsanitized-" .. target .. "\tLinux\tx86_64\n"))
+      "1\t1\trelease\t" .. candidate_target .. "\tLinux\tx86_64\n" ..
+        "1\t2\tsanitized\tsanitized-" .. candidate_target .. "\tLinux\tx86_64\n"))
     assert(Fs.write(fake .. "/o/sanitized/cosmic-core", core))
     -- The release cosmic, which fails if run.
     Fixture.write(fake .. "/o/bin/cosmic", "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$0.ran\"\n" ..
         "exit 9\n", 493)
     -- The contract's decoder, which reads the checked artifact's entry.
-    Fixture.write(format .. "/format-test-" .. target, "#!/bin/sh\n" ..
+    Fixture.write(format .. "/format-test-" .. candidate_target, "#!/bin/sh\n" ..
         "case \"$1 $2\" in '--inspect '*/o/sanitized/bin/cosmic) ;; *) exit 9 ;; esac\n" ..
         "printf '%s\\n' 'prefix 32768 manifest 28672 4096 database 32768 0 entries 2' " ..
         "'entry 1 1 16384 1 " .. string.rep("1", 64) .. "' " ..
@@ -810,8 +810,11 @@ local function test_only_a_leg_that_runs_the_checked_suite_runs_the_checked_cosm
       "if [ \"$1\" = -e ]; then case \"$2\" in " ..
       "*\"print(Store.meta('runtime_context'), Store.meta('host'), Store.meta('host_image'))\"*) ;; " ..
       "*) exit 9 ;; esac\n" ..
-      "printf '%s\\t%s\\t%s\\n' portable-v1 " .. target .. " " .. host_image .. "; exit 0; fi\n" ..
-      "if [ \"$1\" = test ]; then printf '%s\\n' " ..
+      "printf '%s\\t%s\\t%s\\n' portable-v1 " .. candidate_target .. " " .. host_image .. "; exit 0; fi\n" ..
+      "if [ \"$1\" = test ]; then " ..
+      "if [ \"" .. candidate_target .. "\" = aarch64-macos ]; then " ..
+      "[ \"$2 $3\" = '--all core/socket_sigpipe_checked_test.tl' ] || exit 9; fi\n" ..
+      "printf '%s\\n' " ..
       "'test: key parts: host features 01, host 02, system , runtime 04, compiler 05, harness 06' " ..
       "'test: PASS (7 tests, 2 modules; 3 ran, 4 stood, 55 ms; sandboxed)'; exit 0; fi\n" ..
       entry(checked) .. "exit 0\n"
@@ -820,23 +823,26 @@ local function test_only_a_leg_that_runs_the_checked_suite_runs_the_checked_cosm
     return fake, runner_temp
   end
   for _, case in ipairs({
-      { name = "skip", switch = "skip", image = digest, checked = right,
+      { name = "skip", target = target, switch = "skip", image = digest, checked = right,
           ok = true, ran = "-e\n", removed = true },
-      { name = "run", switch = "run", image = digest, checked = right,
+      { name = "macos-skip", switch = "skip", image = digest, checked = right,
+          target = "aarch64-macos", ok = true, ran = "-e\ntest\n", removed = true },
+      { name = "run", target = target, switch = "run", image = digest, checked = right,
           ok = true, ran = "-e\n/tool.tl\ntest\n", removed = false },
-      { name = "another-core", switch = "skip", image = string.rep("0", 64),
+      { name = "another-core", target = target, switch = "skip", image = string.rep("0", 64),
           checked = right, ok = false, ran = "-e\n", removed = false },
-      { name = "checked-disagrees", switch = "run", image = digest,
+      { name = "checked-disagrees", target = target, switch = "run", image = digest,
           checked = wrong, ok = false, ran = "-e\n/tool.tl\n", removed = false },
   }) do
-    local fake, runner_temp = candidate(case.name, case.image, case.checked)
+    local selected_target = case.target or target
+    local fake, runner_temp = candidate(case.name, case.image, case.checked, selected_target)
     local verdicts = runner_temp .. "/verdicts"
     assert(Fs.mkdirs(verdicts))
     assert(Fs.write(verdicts .. "/verdicts.db", "native\n"))
     assert(Fs.write(verdicts .. "/checked.db", "checked\n"))
     local outcome = Fixture.call("checked-" .. case.name, append(base, { "platform", "checked" }),
       project, tmp .. "/logs", context(fake, runner_temp, {
-        TARGET = target, COSMIC_CI_CHECKED_SUITE = case.switch,
+        TARGET = selected_target, COSMIC_CI_CHECKED_SUITE = case.switch,
         COSMIC_VERDICT_CACHE = verdicts .. "/verdicts.db",
       }))
     assert(outcome.result.ok == case.ok, case.name .. ": the checked phase answered " ..
