@@ -102,8 +102,7 @@ local record TermRelay
   --- pty for each of `terminal`'s streams (this process's own when nil)
   --- that is a terminal, and answers its [`Child.Result`] once it has
   --- ended, as [`Child.run`] does; nil and why where the relay cannot be
-  --- set up (none of the streams a terminal, no pty, the start failed,
-  --- or the platform cannot give a program a terminal: macOS). Raises as
+  --- set up (none of the streams a terminal, no pty, or the start failed). Raises as
   --- [`Child.start_on_pty`] does for `opts`.
   run: function(argv: {string}, opts: Child.Options, terminal?: Terminal): Child.Result | nil, string
   --- The text to write to the caller's terminal for the bytes `data` of a
@@ -140,6 +139,20 @@ function TermRelay.note_lines(held: string, data: string): TermRelay.Notes
   local shown = whole:gsub("[%z\1-\9\11-\31\127-\255]", "?"):gsub("\n", "\r\n")
   return { text = shown .. "\r\n", tail = tail }
 end
+
+--- The pty's slave, which the relay holds until it has read all the program
+--- wrote: macOS drops what the master has not read when the last slave
+--- descriptor closes.
+local record Slave
+  metamethod __close: function(Slave)
+  fd: integer
+end
+
+local slave_mt: metatable<Slave> = {
+  __close = function(self: Slave)
+    local _, _ = sys.close(self.fd)
+  end,
+}
 
 --- What `run` puts back when it ends, however it does: held in a
 --- `<close>` variable, from the pty's start on.
@@ -215,17 +228,6 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
   local shown = input
   if sys.isatty(errors) then shown = errors end
   if sys.isatty(output) then shown = output end
-  local system, _ = sys.uname()
-  if system == nil or system.sysname ~= "Linux" then
-    -- TODO: give the program a terminal on macOS, once the Seatbelt
-    -- trampoline that applies a policy before exec (the design's phase 8,
-    -- doc/plans/sandbox.md) also makes the pty slave its controlling
-    -- terminal; until then spawn's terminal argument is ENOSYS there, and
-    -- a program with a terminal is not run unhooked.
-    return nil, "terminal: giving a sandboxed program a terminal needs the Seatbelt trampoline, " ..
-      "which is not yet available on " .. (system ~= nil and system.sysname or "this system") ..
-      "; run it with its standard streams from files or pipes"
-  end
   local saved: string | nil
   if keys then
     local state, saved_why = sys.tcgetattr(input)
@@ -233,7 +235,7 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
     saved = state
   end
   local rows, columns = window(shown)
-  local pty: Child.PtyOptions = { streams = streams }
+  local pty: Child.PtyOptions = { streams = streams, keep_slave = true }
   if rows >= 0 then pty.rows, pty.columns = rows, columns end
   -- Held before the program starts, and closed after it has ended, so a
   -- signal that comes between never finds it unguarded.
@@ -243,6 +245,7 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
   local started, start_why = Child.start_on_pty(argv, opts, pty)
   if started == nil then return nil, start_why end
   local master = started.master
+  local _slave <close>: Slave = setmetatable({ fd = started.slave }, slave_mt)
   local filter = TermFilter.new()
   local restoring <close>: Restoring = setmetatable({
     input = input, output = shown, master = master, saved = nil, filter = filter,

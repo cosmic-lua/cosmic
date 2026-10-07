@@ -643,6 +643,15 @@ COSMIC_SYSCALL(errno_message, 1);
 COSMIC_SYSCALL(isatty, 1);
 
 /*
+ * --- The path of the terminal a descriptor is open on, such as a pty slave's /dev/ttys003 or /dev/pts/3.
+ * ---@param fd integer the descriptor to ask about
+ * ---@return string|nil name the terminal's path, or nil on failure (ENOTTY for a descriptor that is no terminal)
+ * ---@return string error what went wrong, when name is nil
+ * ---@return integer errno the error number, when name is nil
+ */
+COSMIC_SYSCALL(ttyname, 1);
+
+/*
  * --- A newly opened pseudo-terminal; both descriptors are close-on-exec,
  * --- blocking, and owned by the caller. Close both when finished.
  * ---@class Pty

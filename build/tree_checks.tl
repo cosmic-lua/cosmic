@@ -70,8 +70,21 @@ allowed["cosmic.net.listener_from"] = "tested directly: it adopts one listening 
   "process holds, which Net.receive_listeners does for each socket a relay's channel carries; " ..
   "no caller outside the module needs it yet"
 
+allowed["cosmic.net.connector_from"] = "tested directly: it wraps a connector's control stream a " ..
+  "relay inherits instead of starting the process itself, which the relay's next change makes; " ..
+  "no caller outside the module needs it yet"
+
+allowed["cosmic.relay_address.deny_cidrs"] = "tested directly: the relay's refused prefixes as the " ..
+  "data the native connector's public mode takes, which the relay's next change passes it; " ..
+  "no caller outside the tests needs it yet"
+
 allowed["cosmic.relay_config.parse_addresses"] = "tested directly: the reading of Linux's " ..
   "interface tables over fixture text, which host_addresses makes of the host's own"
+-- TODO: drop this allowance once build.analyzer and build.receivers attribute a
+-- call made through a value taken from a module's field (cosmic.child's
+-- `local Seatbelt = Rules.Seatbelt`) to the module it names: today neither
+-- this check nor `cosmic uses` follows one, so `uses Seatbelt.compile` lists
+-- none of cosmic.child's calls.
 allowed["cosmic.sandbox.seatbelt.grants"] = "called through cosmic.sandbox's `Seatbelt`, " ..
   "the package's one path to it from outside, which cosmic.child takes; the check reads a " ..
   "call by the module's own name alone"

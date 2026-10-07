@@ -182,15 +182,24 @@ COSMIC_SYSCALL(user, 1);
 COSMIC_SYSCALL(connector_pair, 0);
 
 /*
+ * --- What a public native connector refuses, as data its caller owns: the connector holds no list of its own. Each `deny` entry is a numeric "address/bits" prefix, IPv4 or IPv6; each `own` entry a numeric address of the host, which an IPv4-mapped IPv6 spelling reduces to the IPv4 address it carries. At most 128 deny entries and 256 own addresses. An address is refused when a deny prefix or an own address holds it, and an IPv6 address also unless it is in 2000::/3, so IPv4-mapped and NAT64 forms are refused undecoded.
+ * ---@class ConnectorPublic
+ * ---@field deny {string} the refused prefixes, such as "10.0.0.0/8" and "fc00::/7"
+ * ---@field own {string}|nil the host's own numeric addresses, refused as their own
+ */
+
+/*
  * --- Starts the sandbox's native TCP connector, held to at most 128 approved numeric endpoints in immutable memory and no file access, exec, fork or descriptor replacement. Wildcard port tables together hold at most 262144 addresses. The caller supplies one end of connector_pair, retains ownership of it, and closes its copy after starting. Requests are eight bytes: big-endian 1-based endpoint index and port. A reply is a big-endian errno, then, on success only, the NUL marker and one SCM_RIGHTS descriptor recvfds expects. Closing the other end ends the connector; the caller owns and reaps its pid. Linux x86_64 and aarch64; ENOSYS elsewhere.
- * ---@param endpoints {ConnectorEndpoint} the launcher's checked, frozen numeric endpoints
+ * --- With `public`, the connector also connects to an address no table holds. Its request is the index 4294967295 (0xffffffff) and a port, then a big-endian family (4 or 6) and 16 address bytes (an IPv4 address in the first four, the rest zero): 28 bytes. Index 0 is refused (EPERM) in its eight bytes by every connector. The connector classifies the address against `public`'s data in its own confined process and, if allowed, connects through a writable scratch slot its filter accepts beside the table's immutable ones. The reply is the table's, with 65536 for an address its lists refuse (past any errno, so no connect failure is taken for it), EINVAL for a malformed request and EPERM where the connector is not public (the whole request is read first). Port 0 asks only for the decision: errno 0 for an allowed address, and no socket or descriptor. The table may then be empty.
+ * ---@param endpoints {ConnectorEndpoint} the launcher's checked, frozen numeric endpoints; empty only with `public`
  * ---@param control integer the private Unix stream descriptor, checked like every descriptor
  * ---@param timeout_ms integer connect deadline, from 1 to 60000 milliseconds
+ * ---@param public ConnectorPublic|nil what a public connector refuses; nil for a table-only connector
  * ---@return integer|nil pid the confined child, or nil on failure
  * ---@return string error what went wrong, when pid is nil
  * ---@return integer errno the error number, when pid is nil
  */
-COSMIC_SYSCALL(connector_start, 3);
+COSMIC_SYSCALL(connector_start, 4);
 
 /*
  * --- A synthetic immutable address-table range used to inspect the connector's seccomp program, without installing one.
@@ -211,9 +220,9 @@ COSMIC_SYSCALL(connector_start, 3);
 COSMIC_SYSCALL(connector_filter, 4);
 
 /*
- * --- Runs a fixed native security probe in a child under the connector's actual filter, with one approved endpoint. No arbitrary code is run. An operation refused by seccomp returns its errno; a killed probe returns minus its signal number.
+ * --- Runs a fixed native security probe in a child under the connector's actual filter, with one approved endpoint (a "scratch_" one with an empty-deny public connector). No arbitrary code is run. An operation refused by seccomp returns its errno; a killed probe returns minus its signal number.
  * ---@param endpoint ConnectorEndpoint the approved endpoint
- * ---@param operation string "pointer", "length", "mutation", "mprotect", "remap", "dup", "recvmsg", "sendto", "sendmsg", "close_control", "udp", "open", "exec" or "fork"
+ * ---@param operation string "pointer", "length", "mutation", "mprotect", "remap", "dup", "recvmsg", "sendto", "sendmsg", "close_control", "udp", "open", "exec" or "fork"; or, on a public connector's scratch page, "scratch_mprotect", "scratch_remap", "scratch_pointer", "scratch_length", "scratch_offset", "scratch_past" or "scratch_swapped"; or "unscratched", on a table-only connector with a writable page its filter does not list
  * ---@return integer|nil result the refusal errno or negative terminating signal, or nil on setup failure
  * ---@return string error what went wrong, when result is nil
  * ---@return integer errno the setup error number, when result is nil
@@ -304,7 +313,7 @@ COSMIC_SYSCALL(connector_probe, 2);
  * ---@param fds? {integer:integer} more descriptors the child gets, each child descriptor from 3 to 255 by the descriptor it copies; every other one above 2 is closed. The artifact descriptor a portable start retains raises here, as in every descriptor argument, but as `relaunch` hands it on: at the child descriptor the child's environment names its artifact's, from a process that may still run its own core
  * ---@param sandbox? Sandbox what the child, and every process it starts, is held to from its exec on
  * ---@param credentials? Credentials clear supplementary groups and effective, permitted, inheritable and ambient capabilities, set all IDs, and set no_new_privs before cwd and exec. Excludes sandbox unveil, offline, user and group. Inherited cwd and descriptors remain grants. The capability bounding set is unchanged. ENOSYS off Linux. Child setup failure prevents exec; parent dumpability restoration failure can follow exec and ends the owned child before returning failure
- * ---@param terminal? boolean make fd 0 the controlling terminal of a new session before confinement and exec. It must be a terminal slave; failure prevents exec. Internal relay starts only; cosmic.child continues to refuse terminal stdio with a policy. On macOS it is refused, ENOSYS (a `seatbelt` start goes through a trampoline, which has no terminal step yet)
+ * ---@param terminal? boolean|string make fd 0 the controlling terminal of a new session before confinement and exec. It must be a terminal slave; failure prevents exec. Internal relay starts only; cosmic.child continues to refuse terminal stdio with a policy except for the pty it opens itself. On macOS the slave's path is given instead of `true`, which the child's trampoline opens as the session's leader to acquire the terminal, before any `seatbelt` profile applies, and a start with a terminal goes through the trampoline whatever the profile
  * ---@return integer|nil pid the child process id, or nil when setup or exec failed
  * ---@return string error what went wrong, when pid is nil
  * ---@return integer errno the error number, when pid is nil

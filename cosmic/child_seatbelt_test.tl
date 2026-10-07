@@ -11,9 +11,7 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-local Proc = require("cosmic.proc")
 local Sandbox = require("cosmic.sandbox")
-local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local type raw_process = require("cosmic.internal.process")
@@ -282,62 +280,47 @@ local function test_a_policy_start_that_keeps_the_callers_group_is_refused(tmp: 
   assert(why:find("process_group = false is refused", 1, true), why)
 end
 
-local MARKER <const> = "a controlling terminal is not yet given to a child on macOS"
-
---- Says what a failing terminal start can show of the core it ran on: its
---- identity, whether its file holds the refusal's sentence, and whether the
---- twelfth argument reaches C.
-local function core_identity(process: raw_process): string
-  local parts: {string} = {
-    "host_image=" .. tostring(Store.meta("host_image")),
-    "image_hash=" .. tostring(Store.meta("image_hash")),
-    "runtime=" .. tostring(Store.meta("runtime")),
-  }
-  local path = Proc.executable()
-  if path == nil then
-    table.insert(parts, "executable=none")
-  else
-    local bytes = Fs.read(path)
-    table.insert(parts, "executable=" .. path .. " bytes=" ..
-        (bytes and tostring(#bytes) or "unreadable") .. " marker=" ..
-        tostring(bytes ~= nil and bytes:find(MARKER, 1, true) ~= nil))
-  end
-  -- A twelfth argument that is no boolean raises in any core that reads it.
-  local ok, raised = pcall(process.spawn, SH, { SH, "-c", "exit 0" }, nil, nil,
-    nil, nil, nil, true, nil, nil, nil, "x" as boolean) -- cast: a non-boolean is what is probed
-  table.insert(parts, "arg12=" .. (ok and "ignored" or tostring(raised)))
-  return table.concat(parts, " ")
-end
-
---- A controlling terminal is not yet given to a program on macOS.
-local function test_a_terminal_start_is_refused_where_none_survives_the_exec()
-  macos_only()
-  local process = process_table()
-  local function start(...: any): integer | nil, string, integer
-    return (process.spawn as function(...: any): integer | nil, string, integer)(...)
-  end
-  local pid, why, errno = start(SH, { SH, "-c", "exit 0" }, nil, nil,
-    nil, nil, nil, true, nil, nil, nil, true)
-  if pid ~= nil then process.waitpid(pid, false) end
-  local said = tostring(pid) .. ", " .. tostring(why) .. ", " .. tostring(errno)
-  local failed = pid ~= nil or errno ~= sys.ENOSYS or not tostring(why):find(MARKER, 1, true)
-  if failed then said = said .. " (core " .. core_identity(process) .. ")" end
-  assert(pid == nil, "a terminal start ran: " .. said)
-  assert(errno == sys.ENOSYS, "the refusal was not ENOSYS: " .. said)
-  assert(tostring(why):find(MARKER, 1, true), "the refusal is not this core's: " .. said)
-end
-
 --- The process table a test starts a child through hands its twelfth
---- argument on: a terminal asked of a descriptor that is none starts nothing.
+--- argument on: a terminal asked of a path that is none starts nothing.
 local function test_a_terminal_asked_of_no_terminal_starts_nothing()
   local process = process_table()
   local function start(...: any): integer | nil, string, integer
     return (process.spawn as function(...: any): integer | nil, string, integer)(...)
   end
   local pid, why = start(SH, { SH, "-c", "exit 0" }, nil, nil, nil, nil, nil, true,
-    nil, nil, nil, true)
+    nil, nil, nil, "/dev/null")
   if pid ~= nil then process.waitpid(pid, false) end
   assert(pid == nil, "a terminal start of a descriptor that is none ran: " .. tostring(why))
+  if assert(sys.uname()).sysname == "Darwin" then
+    assert(tostring(why):find("terminal", 1, true), tostring(why))
+  end
+end
+
+--- The terminal a trampoline acquires is the one descriptor 0 holds: another
+--- terminal's path, or a path that is none, fails the start at the step
+--- "terminal" rather than giving the program a terminal that is not its stdin.
+local function test_a_terminal_that_is_not_stdins_fails_the_start_at_the_terminal_step()
+  macos_only()
+  local process = process_table()
+  local function start(...: any): integer | nil, string, integer
+    return (process.spawn as function(...: any): integer | nil, string, integer)(...)
+  end
+  local mine = assert(sys.openpty())
+  local other = assert(sys.openpty())
+  local other_name = assert(sys.ttyname(other.slave))
+  local pid, why = start(SH, { SH, "-c", "exit 0" }, nil, nil, mine.slave, mine.slave, mine.slave, true,
+    nil, nil, nil, other_name)
+  if pid ~= nil then process.waitpid(pid, false) end
+  assert(pid == nil, "a start whose terminal is not its stdin ran")
+  assert(tostring(why):find("terminal", 1, true), tostring(why))
+  pid, why = start(SH, { SH, "-c", "exit 0" }, nil, nil, mine.slave, mine.slave, mine.slave, true,
+    nil, nil, nil, "/dev/null")
+  if pid ~= nil then process.waitpid(pid, false) end
+  assert(pid == nil and tostring(why):find("terminal", 1, true), tostring(why))
+  for _, pty in ipairs({ mine, other }) do
+    assert(sys.close(pty.slave))
+    assert(sys.close(pty.master))
+  end
 end
 
 --- A profile is macOS's: where Landlock and seccomp hold a child there is

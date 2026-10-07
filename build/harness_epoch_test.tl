@@ -334,6 +334,9 @@ local function test_the_harness_holds_what_it_runs_requires()
 end
 
 --- The modules split off one of the harness that it does not hold, and why.
+-- TODO: hold cosmic.sandbox.seatbelt too, and drop its entry, once macOS's
+-- workers are held by Sandbox.restrict (the TODO at build/confine.tl's
+-- forbid_running): its reason holds only while no macOS worker is.
 local unheld_split: {string:string} = {
   ["cosmic.sandbox.seatbelt"] = "it compiles a Seatbelt profile, which holds a process " ..
     "only on macOS, where no worker is sandboxed",
@@ -370,6 +373,19 @@ local function test_what_is_split_off_a_module_of_the_harness_is_held()
   table.sort(unheld)
   assert(#unheld == 0, "the harness holds a module and not what is split off it -- name " ..
       "each in build/test.tl's `harness_alone`: " .. table.concat(unheld, ", "))
+  -- An entry of `unheld_split` that no module of the harness requires, or
+  -- that the harness now holds, is stale.
+  local required: {string:boolean} = {}
+  for _, name in ipairs(found.names) do
+    for _, wanted in ipairs(by_value[name] or {}) do required[wanted] = true end
+  end
+  local stale: {string} = {}
+  for wanted in pairs(unheld_split) do
+    if named[wanted] or not required[wanted] then stale[#stale + 1] = wanted end
+  end
+  table.sort(stale)
+  assert(#stale == 0, "`unheld_split` names " .. table.concat(stale, ", ") ..
+      ", which the harness holds or no module of it requires: delete its entry")
 end
 
 --- The harness's `cosmic.*` modules are exactly those

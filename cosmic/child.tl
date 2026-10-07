@@ -490,7 +490,8 @@ local record Options
   --- runs as its core, as under Landlock: the core is granted `rx` and the
   --- database `r` (it is opened read-only and immutable); `tmp` is a
   --- directory made for the start and granted `rwc`. The child leads
-  --- a session of its own, with no controlling terminal, so `process_group`
+  --- a session of its own, with no controlling terminal unless it is started
+  --- by [`Child.start_on_pty`] with stdin on the pty, so `process_group`
   --- false is refused there. A start from a
   --- process Seatbelt already holds fails closed, as its profile is refused
   --- there, and nothing runs.
@@ -1963,6 +1964,9 @@ local record PtyStart
   --- The pty's master, close-on-exec and blocking: the caller's to
   --- read, write and close. Closing it hangs the child's terminal up.
   master: integer
+  --- The pty's slave, the caller's to close, when [`PtyOptions.keep_slave`]
+  --- asked for it; -1 otherwise.
+  slave: integer
 end
 
 --- What [`Child.start_on_pty`] is asked for.
@@ -1974,6 +1978,11 @@ local record PtyOptions
   --- terminal among those is refused under a `policy` as it is by
   --- [`Child.start`].
   streams: {integer}
+  --- Whether the caller is given the slave too, open and close-on-exec, to
+  --- close once it has read all the child wrote: macOS drops the output the
+  --- master has not read when the last slave descriptor closes, so a child
+  --- that writes and exits at once loses it unless the caller holds one.
+  keep_slave: boolean
   --- The terminal's size in character cells, set before the child starts,
   --- or nil for the system's default.
   rows: integer
@@ -1987,14 +1996,18 @@ local record ConnectorProcess
   --- close: a request is eight bytes written to it, a big-endian
   --- 1-based endpoint index and a port, and the reply is read from it:
   --- a big-endian errno, and, on success only, one marker byte with the
-  --- connected socket passed beside it. Valid until `close`.
+  --- connected socket passed beside it. The index 4294967295 (a public
+  --- request) follows the eight bytes with a big-endian family (4 or 6)
+  --- and 16 address bytes (see the core's `connector_start`). Valid until `close`.
   fd: integer
-  --- The connector's process id, which `close` reaps.
-  pid: integer
+  --- The connector's process id, which `close` reaps: nil for a stream
+  --- adopted with [`Child.adopt_connector`], whose process is its starter's
+  --- to end.
+  pid: integer | nil
   --- Whether `close` has not been called.
   open: boolean
   --- Ends the connector, which holds no state worth finishing, and reaps
-  --- it: true, and true again once closed. A connector dropped unclosed is
+  --- it (an adopted one is only disconnected): true, and true again once closed. A connector dropped unclosed is
   --- ended and reaped when it is collected.
   close: function(ConnectorProcess): boolean
   metamethod __close: function(ConnectorProcess)
@@ -2015,6 +2028,7 @@ local connector_mt: metatable<ConnectorProcess> = {
 local record Child
   type ConnectorProcess = ConnectorProcess
   type ConnectorEndpoint = raw_process.ConnectorEndpoint
+  type ConnectorPublic = raw_process.ConnectorPublic
   type Result = Result
   type Options = Options
   type Credentials = Credentials
@@ -2095,6 +2109,7 @@ end_connector = function(connector: ConnectorProcess, collecting: boolean)
   -- touch the run's state.
   if not collecting then Poll.closing(connector.fd) end
   local _, _ = sys.close(connector.fd)
+  if connector.pid == nil then return end
   local seen, gone = raw.waitpid(connector.pid, true)
   if seen == nil or gone ~= nil and gone ~= "" or seen.pid ~= 0 then return end
   -- Nothing the connector is doing is worth waiting for: it may be in a
@@ -2128,12 +2143,18 @@ end
 ---     local connector = assert(Child.start_connector({ { host = "127.0.0.1", port = 8080 } }, 5000))
 ---     -- write ">I4I4" of endpoint 1 and the port to connector.fd, read the reply
 ---     connector:close()
+---
+--- With `public` (`deny`, the numeric "address/bits" prefixes it refuses,
+--- and `own`, the host's own addresses), the connector also connects to
+--- an address its table lacks, once it has judged the address against
+--- those lists itself, and `endpoints` may be empty.
 -- TODO: confine the connector on macOS with Seatbelt's numeric remote rules
 -- (#2820): core/connector.c's connector_start answers ENOSYS there.
-function Child.start_connector(endpoints: {raw_process.ConnectorEndpoint}, timeout_ms: integer): ConnectorProcess | nil, string
+function Child.start_connector(endpoints: {raw_process.ConnectorEndpoint}, timeout_ms: integer,
+                               public?: raw_process.ConnectorPublic): ConnectorProcess | nil, string
   local pair, why = raw.connector_pair()
   if pair == nil then return nil, "child: " .. why end
-  local called, pid, trouble, errno = pcall(raw.connector_start, endpoints, pair[2], timeout_ms)
+  local called, pid, trouble, errno = pcall(raw.connector_start, endpoints, pair[2], timeout_ms, public)
   local _, _ = sys.close(pair[2])
   if not called then
     -- A table or a timeout the core refuses: the pair is not leaked by it.
@@ -2156,6 +2177,22 @@ function Child.start_connector(endpoints: {raw_process.ConnectorEndpoint}, timeo
   end
   local started: ConnectorProcess = setmetatable({ fd = pair[1], pid = pid, open = true }, connector_mt)
   return started
+end
+
+--- Takes the control stream `fd` of a connector this process did not
+--- start (it was inherited, its starter keeping the process) as a
+--- [`Child.ConnectorProcess`] with no pid: the stream is made nonblocking,
+--- and `close` closes it and does not signal or wait for anything. It
+--- answers nil and why where the stream cannot be made nonblocking, and
+--- leaves `fd` the caller's then.
+--- @param fd integer A Unix stream descriptor the connector answers on
+--- @return ConnectorProcess|nil The connector's stream
+--- @return string Why not, when it is nil
+function Child.adopt_connector(fd: integer): ConnectorProcess | nil, string
+  local ok, nonblocking = sys.set_nonblocking(fd, true)
+  if not ok then return nil, "child: " .. nonblocking end
+  local adopted: ConnectorProcess = setmetatable({ fd = fd, open = true }, connector_mt)
+  return adopted, ""
 end
 
 --- The status a shell reports for a child that ended as `result` says:
@@ -2294,6 +2331,8 @@ end
 --- which of the child's standard streams (0 to 2) are the slave.
 local record Pty
   slave: integer
+  --- The slave's path.
+  name: string
   streams: {integer:boolean}
 end
 
@@ -3488,7 +3527,7 @@ end
 --- own refusals, for `isolate`, `connect`, `loopback`, `nest`, `from`,
 --- `limits.processes` and a digest without its value.
 --- It acquires nothing.
-local function held_by_seatbelt(argv: {string}, opts: Options): Held | nil, string
+local function held_by_seatbelt(argv: {string}, opts: Options, pty?: Pty): Held | nil, string
   local merged, why = Rules.merge(opts.policy)
   if merged == nil then return nil, why end
   -- The child leads a session of its own, so that it has no controlling
@@ -3505,6 +3544,9 @@ local function held_by_seatbelt(argv: {string}, opts: Options): Held | nil, stri
     local real, _ = sys.realpath(executable)
     own = real
   end
+  -- The pty's slave, where stdin is on it, is the child's controlling
+  -- terminal, which the profile grants and /dev/tty with it.
+  local terminal = pty ~= nil and pty.streams[0] and pty.name or nil
   -- This program, granted, and a program on a `database` run as their
   -- core, as Linux's start has them ([`core_of`]): the launcher would fork
   -- and unpack a core into a cache the profile does not grant. The profile
@@ -3524,7 +3566,13 @@ local function held_by_seatbelt(argv: {string}, opts: Options): Held | nil, stri
       merged.grants[#merged.grants + 1] = { path = sealed, letters = "r" }
     end
   end
-  local options, resolve_trouble = Seatbelt.resolve(opts.policy, opts.cwd, own, core, sealed)
+  -- TODO: decide whether the profile should let a program getcwd in a
+  -- directory it grants nothing of: on the macOS leg a shell (bash as
+  -- /bin/sh) started in one prints "shell-init: error retrieving current
+  -- directory: getcwd: cannot access parent directories" and goes on, as
+  -- Linux's Landlock start never does. Until then a start whose output is
+  -- compared (test/terminal) gives the program the root as its `cwd`.
+  local options, resolve_trouble = Seatbelt.resolve(opts.policy, opts.cwd, own, core, sealed, terminal)
   if options == nil then return nil, "sandbox: " .. resolve_trouble end
   local profile, compile_trouble = Seatbelt.compile(opts.policy, options)
   if profile == nil then return nil, "sandbox: " .. compile_trouble end
@@ -3846,7 +3894,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, relay_process?: b
     local made: Held | nil
     local why: string
     if holds_by_seatbelt() then
-      made, why = held_by_seatbelt(argv, opts)
+      made, why = held_by_seatbelt(argv, opts, pty)
     else
       made, why = held_to(argv, opts)
     end
@@ -3994,8 +4042,11 @@ local function start(argv: {string}, opts: Options, pty?: Pty, relay_process?: b
   -- owner, the handle: a spawn that raises (an argument it refuses) must
   -- not leave it, nor the descriptors wired, behind.
   local run_argv = held ~= nil and held.argv or argv
+  -- The pty's path is the terminal where stdin is on it.
+  local terminal: boolean | string = false
+  if pty ~= nil and pty.streams[0] then terminal = pty.name or true end
   local called, pid, trouble, errno = pcall(raw.spawn, path, run_argv, env, cwd,
-    slots[0], slots[1], slots[2], grouped, extra, sandbox, credentials, pty ~= nil and pty.streams[0] == true)
+    slots[0], slots[1], slots[2], grouped, extra, sandbox, credentials, terminal)
   if not called then
     unwire(wiring, false)
     if channel ~= nil then
@@ -4145,11 +4196,15 @@ local record PtyHolder
   slave: integer
   --- Whether the master is the caller's.
   keep: boolean
+  --- Whether the slave is the caller's too.
+  keep_slave: boolean
 end
 
 local pty_holder_mt: metatable<PtyHolder> = {
   __close = function(self: PtyHolder)
-    local _, _ = sys.close(self.slave)
+    if not self.keep_slave then
+      local _, _ = sys.close(self.slave)
+    end
     if not self.keep then
       local _, _ = sys.close(self.master)
     end
@@ -4168,10 +4223,9 @@ local pty_holder_mt: metatable<PtyHolder> = {
 --- stdin is among the streams the child also starts a session of its own
 --- with the pty as its controlling terminal, made before the policy's
 --- confinement, so `process_group` has no say; without stdin it has none.
---- Nil and why where the pty cannot be opened or the start fails. On
---- macOS a start with stdin among the streams fails, as no child there
---- has a controlling terminal yet; a start under a `policy` fails there
---- whatever the streams, until Seatbelt holds a policy's child.
+--- Under a `policy` on macOS the profile grants the child that terminal
+--- and `/dev/tty`, which it is not otherwise given.
+--- Nil and why where the pty cannot be opened or the start fails.
 --- @param argv the program and its arguments, as [`Child.start`] takes them
 --- @param opts the start's options, naming none of the pty's streams
 --- @param pty the pty's streams and size
@@ -4199,11 +4253,20 @@ function Child.start_on_pty(argv: {string}, opts: Options, pty: PtyOptions): Pty
   -- Closes both ends where the start raises, or fails; the slave on any
   -- return, the master unless the caller is to have it.
   local holding <close>: PtyHolder = setmetatable({ master = made.master, slave = made.slave,
-    keep = false }, pty_holder_mt)
-  local started, trouble = start(argv, opts, { slave = made.slave, streams = streams })
+    keep = false, keep_slave = false }, pty_holder_mt)
+  -- Darwin's start opens the slave by name to make it the controlling
+  -- terminal, and its profile grants that path; Linux has no use for it.
+  local slave_path: string
+  if streams[0] and holds_by_seatbelt() then
+    local found, name_why = sys.ttyname(made.slave)
+    if found == nil then return refuse("pty: " .. name_why) end
+    slave_path = found
+  end
+  local started, trouble = start(argv, opts, { slave = made.slave, streams = streams, name = slave_path })
   if started == nil then return nil, trouble end
   holding.keep = true
-  return { child = started, master = made.master }, ""
+  holding.keep_slave = pty.keep_slave == true
+  return { child = started, master = made.master, slave = holding.keep_slave and made.slave or -1 }, ""
 end
 
 --- Waits for the first of several handles to finish, servicing every
