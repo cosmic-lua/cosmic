@@ -175,9 +175,10 @@ local record relay_wire
     consumed: integer
     --- When `refused`, why.
     reason: string
-    --- When `done`, the method chosen: 0, the one [`socks_client_greeting`]
-    --- offers. When `refused` because the server accepts none of those
-    --- offered, 255; nil for a refusal of another kind.
+    --- When `done`, the method chosen: 0, or 2 when the reader was made for
+    --- a password, the one [`socks_client_greeting`] offers. When `refused`
+    --- because the server accepts none of those offered, 255; nil for a
+    --- refusal of another kind.
     method: integer
   end
 
@@ -185,6 +186,27 @@ local record relay_wire
   interface SocksMethodReader
     --- Feeds the next bytes and answers what all fed so far say.
     feed: function(SocksMethodReader, chunk: string): SocksMethodAnswer
+  end
+
+  --- The SOCKS5 server's verdict on a username and password (RFC 1929),
+  --- the answer to [`socks_client_auth`].
+  record SocksAuthAnswer
+    --- How far the bytes have decided it.
+    status: Status
+    --- Bytes of the answer, when `done`.
+    consumed: integer
+    --- When `refused`, why.
+    reason: string
+    --- When `done`, whether the server accepted the credentials; the
+    --- connection is closed by the server where it did not.
+    accepted: boolean
+  end
+
+  --- Reads a SOCKS5 server's verdict on a username and password from the
+  --- bytes fed to it.
+  interface SocksAuthStatusReader
+    --- Feeds the next bytes and answers what all fed so far say.
+    feed: function(SocksAuthStatusReader, chunk: string): SocksAuthAnswer
   end
 
   --- A SOCKS5 server's answer to a CONNECT request.
@@ -703,8 +725,10 @@ end
 --- The reply to a CONNECT that was refused or failed: a status from 400
 --- through 599, and `why` as the reason phrase, which the program's error
 --- shows (`403 not granted: --connect api.github.com:443`). The phrase is
---- cut to visible ASCII, `?` for any other byte, and to 200 bytes. Raises
---- on a status outside 400 through 599.
+--- cut to visible ASCII, `?` for any other byte, and to 200 bytes. A 405
+--- names the method allowed, and a 407 asks for Basic credentials
+--- (`Proxy-Authenticate: Basic realm="cosmic sandbox"`). Raises on a status
+--- outside 400 through 599.
 function relay_wire.connect_refusal(status: integer, why: string): string
   if math.type(status) ~= "integer" or status < 400 or status > 599 then
     error("connect_refusal: status must be an integer from 400 to 599", 2)
@@ -713,8 +737,13 @@ function relay_wire.connect_refusal(status: integer, why: string): string
   if phrase == "" then
     phrase = "Refused"
   end
-  return ("HTTP/1.1 %d %s\r\n%sConnection: close\r\nContent-Length: 0\r\n\r\n"):format(status, phrase,
-    status == 405 and "Allow: CONNECT\r\n" or "")
+  local extra = ""
+  if status == 405 then
+    extra = "Allow: CONNECT\r\n"
+  elseif status == 407 then
+    extra = "Proxy-Authenticate: Basic realm=\"cosmic sandbox\"\r\n"
+  end
+  return ("HTTP/1.1 %d %s\r\n%sConnection: close\r\nContent-Length: 0\r\n\r\n"):format(status, phrase, extra)
 end
 
 --- The SOCKS5 greeting at the start of `buf`, whole.
@@ -958,9 +987,25 @@ function relay_wire.socks_request_reader(): relay_wire.SocksRequestReader
 end
 
 --- The greeting a SOCKS5 client opens with: version 5, offering no
---- authentication (method 0) alone.
-function relay_wire.socks_client_greeting(): string
-  return "\5\1\0"
+--- authentication (method 0) alone, or with `with_password` username and
+--- password (method 2) alone, which is what a relay with a token takes.
+function relay_wire.socks_client_greeting(with_password?: boolean): string
+  return with_password == true and "\5\1\2" or "\5\1\0"
+end
+
+--- The username and password message (RFC 1929) a client sends once the
+--- server has chosen method 2. Nil and why for a username or a password
+--- that is empty or over 255 bytes.
+--- @param user the username
+--- @param password the password
+--- @return the message, or nil
+--- @return why, when there is none
+function relay_wire.socks_client_auth(user: string, password: string): string | nil, string
+  if user == "" then return nil, "the username is empty" end
+  if password == "" then return nil, "the password is empty" end
+  if #user > 255 then return nil, "the username is longer than 255 bytes" end
+  if #password > 255 then return nil, "the password is longer than 255 bytes" end
+  return "\1" .. string.char(#user) .. user .. string.char(#password) .. password
 end
 
 --- The CONNECT request a SOCKS5 client sends for `host` and `port`: an
@@ -1000,7 +1045,7 @@ function relay_wire.socks_client_request(host: string, port: integer): string | 
 end
 
 --- The method choice at the start of `buf`, whole.
-local function read_method_answer(buf: string): relay_wire.SocksMethodAnswer
+local function read_method_answer(buf: string, password: boolean): relay_wire.SocksMethodAnswer
   if #buf < 1 then
     return { status = "more", consumed = 0 }
   end
@@ -1012,13 +1057,29 @@ local function read_method_answer(buf: string): relay_wire.SocksMethodAnswer
     return { status = "more", consumed = 0 }
   end
   local method = buf:byte(2)
-  if method == 0 then
-    return { status = "done", consumed = 2, method = 0 }
+  local offered = password and 2 or 0
+  if method == offered then
+    return { status = "done", consumed = 2, method = method }
   elseif method == 255 then
     return { status = "refused", consumed = 0, method = 255, reason = "no authentication method offered is accepted" }
   end
   return { status = "refused", consumed = 0,
-    reason = ("the method %d chosen is not one offered (only 0)"):format(method) }
+    reason = ("the method %d chosen is not one offered (only %d)"):format(method, offered) }
+end
+
+--- The verdict on a username and password at the start of `buf`, whole.
+local function read_auth_answer(buf: string): relay_wire.SocksAuthAnswer
+  if #buf < 1 then
+    return { status = "more", consumed = 0 }
+  end
+  if buf:byte(1) ~= 1 then
+    return { status = "refused", consumed = 0,
+      reason = ("username/password version %d in the answer, not 1"):format(buf:byte(1)) }
+  end
+  if #buf < 2 then
+    return { status = "more", consumed = 0 }
+  end
+  return { status = "done", consumed = 2, accepted = buf:byte(2) == 0 }
 end
 
 --- The reply codes by number, from [`SOCKS_CODES`].
@@ -1071,13 +1132,30 @@ local function read_answer(buf: string): relay_wire.SocksAnswer
 end
 
 --- Reads the SOCKS5 server's choice of a method from the bytes fed to it:
---- done for method 0, the one [`relay_wire.socks_client_greeting`] offers,
---- and refused for 255 (none accepted), another method or another version.
-function relay_wire.socks_method_reader(): relay_wire.SocksMethodReader
-  local step = small_reader(read_method_answer, function(answer: relay_wire.SocksMethodAnswer): boolean
+--- done for the method [`relay_wire.socks_client_greeting`] offers (0, or 2
+--- with `password`), and refused for 255 (none accepted), another method or
+--- another version.
+function relay_wire.socks_method_reader(password?: boolean): relay_wire.SocksMethodReader
+  local with = password == true
+  local step = small_reader(function(held: string): relay_wire.SocksMethodAnswer
+    return read_method_answer(held, with)
+  end, function(answer: relay_wire.SocksMethodAnswer): boolean
     return answer.status ~= "more"
   end)
   return { feed = function(_: relay_wire.SocksMethodReader, chunk: string): relay_wire.SocksMethodAnswer
+    return step(chunk)
+  end }
+end
+
+--- Reads the SOCKS5 server's verdict on [`relay_wire.socks_client_auth`]'s
+--- message from the bytes fed to it: two bytes, version 1 and a status,
+--- where 0 is acceptance and any other value a refusal. Refused for another
+--- version.
+function relay_wire.socks_auth_status_reader(): relay_wire.SocksAuthStatusReader
+  local step = small_reader(read_auth_answer, function(answer: relay_wire.SocksAuthAnswer): boolean
+    return answer.status ~= "more"
+  end)
+  return { feed = function(_: relay_wire.SocksAuthStatusReader, chunk: string): relay_wire.SocksAuthAnswer
     return step(chunk)
   end }
 end

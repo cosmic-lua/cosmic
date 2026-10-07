@@ -22,8 +22,8 @@ Test.policy{
 local PROXY <const> = "socks5h://127.0.0.1:1080"
 
 --- The `ALL_PROXY` for a relay at `port`.
-local function proxy_at(port: integer): string
-  return "socks5h://127.0.0.1:" .. port
+local function proxy_at(port: integer, userinfo?: string): string
+  return "socks5h://" .. (userinfo ~= nil and (userinfo .. "@") or "") .. "127.0.0.1:" .. port
 end
 
 --- What a run of the client left.
@@ -100,12 +100,12 @@ end
 --- relay's end of the one connection the client makes, `send` writes to
 --- its standard input and `finish` ends it. Answers how the client ended.
 local function against(args: {string}, body: function(relay: Net.Conn, send: function(string), finish: function()),
-                       variable?: string, timeout_ns?: integer): Ran
+                       variable?: string, timeout_ns?: integer, userinfo?: string): Ran
   local ran: Ran = { code = -1, complaints = {}, trace = {}, out = "" }
   local held = streams()
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-    local variables = { [variable or "ALL_PROXY"] = proxy_at(listener.address.port), COSMIC_CONNECT_TRACE = "1" }
+    local variables = { [variable or "ALL_PROXY"] = proxy_at(listener.address.port, userinfo), COSMIC_CONNECT_TRACE = "1" }
     if variable == "all_proxy" then variables.all_proxy = variables.all_proxy .. "/" end
     local client = Poll.spawn(function()
       ran.code = connect.run(args, io_of(held, variables, function(line: string)
@@ -343,4 +343,118 @@ local function test_a_relay_that_never_answers_is_a_failure_after_the_timeout_na
   assert(ran.complaints[1]:find("host.example:22: the relay at socks5h://127.0.0.1:", 1, true) and
       ran.complaints[1]:find("did not answer in time", 1, true), ran.complaints[1])
   assert(Clock.monotonic_ns() - started < Clock.seconds(15), "it gave up in time")
+end
+
+--- What a relay with a token reads of a client's greeting, the message of
+--- its username and password and its request, answering the method 2 and
+--- `verdict` ("\1\0" accepts): the user, the password and the request's bytes
+--- (nil where the verdict refused).
+local function asked_with_login(relay: Net.Conn, verdict: string): string, string, string | nil
+  assert(bytes(relay, 3) == "\5\1\2", "the greeting offers a password alone")
+  assert(relay:write(Wire.socks_method_reply(2)))
+  assert(bytes(relay, 1) == "\1", "RFC 1929's version")
+  local user = bytes(relay, bytes(relay, 1):byte(1))
+  local password = bytes(relay, bytes(relay, 1):byte(1))
+  assert(relay:write(verdict))
+  if verdict ~= "\1\0" then return user, password, nil end
+  local head = bytes(relay, 4)
+  local length = bytes(relay, 1)
+  return user, password, head .. length .. bytes(relay, length:byte(1) + 2)
+end
+
+local function test_a_userinfo_is_sent_as_the_username_and_password_percent_decoded()
+  local user, password, request: string, string, string | nil
+  local ran = against({ "api.github.com", "443" }, function(relay: Net.Conn, _: function(string), finish: function())
+    user, password, request = asked_with_login(relay, "\1\0")
+    assert(relay:write(Wire.socks_reply("succeeded") .. "banner"))
+    finish()
+    assert(relay:shutdown("write"))
+  end, nil, nil, "sandbox:tok%2Fen%40x%3a:%25")
+  assert(ran.code == 0, ran.code .. table.concat(ran.complaints))
+  assert(user == "sandbox" and password == "tok/en@x::%", "the userinfo is decoded: " .. tostring(password))
+  assert(request == "\5\1\0\3\14api.github.com\1\187", "the request follows the login")
+  assert(ran.out == "banner" and #ran.complaints == 0, ran.out .. table.concat(ran.complaints))
+  -- An empty user name is sent as a name the relay takes.
+  local named: string
+  local anonymous = against({ "h", "1" }, function(relay: Net.Conn)
+    named = asked_with_login(relay, "\1\0")
+    assert(relay:write(Wire.socks_reply("refused")))
+  end, nil, nil, ":tok")
+  assert(anonymous.code == 1 and named == "cosmic", tostring(named))
+end
+
+local function test_a_relay_that_refuses_the_token_exits_1_naming_it_and_never_the_password()
+  local secret <const> = "SECRET-token-1234"
+  local seen: string
+  local ran = against({ "host.example", "22" }, function(relay: Net.Conn)
+    local _, got = asked_with_login(relay, "\1\1")
+    seen = got
+  end, nil, nil, "u:" .. secret)
+  assert(seen == secret, "the relay was sent it")
+  assert(ran.code == 1 and #ran.complaints == 1, ran.code .. table.concat(ran.complaints))
+  assert(ran.complaints[1] == "cosmic: sandbox connect: host.example:22: the relay refused the sandbox's token",
+    ran.complaints[1])
+  local everything = table.concat(ran.complaints) .. table.concat(ran.trace)
+  assert(not everything:find(secret, 1, true), "the password is in no message")
+  assert(ran.out == "")
+end
+
+local function test_a_relay_that_answers_a_password_otherwise_is_a_failure()
+  local none = against({ "h", "1" }, function(relay: Net.Conn)
+    assert(bytes(relay, 3) == "\5\1\2")
+    assert(relay:write(Wire.socks_method_reply(255)))
+  end, nil, nil, "u:tok")
+  assert(none.code == 1 and none.complaints[1]:find("no authentication method", 1, true), none.complaints[1])
+  -- A relay that takes no token selects "no authentication", which was not offered.
+  local open = against({ "h", "1" }, function(relay: Net.Conn)
+    assert(bytes(relay, 3) == "\5\1\2")
+    assert(relay:write(Wire.socks_method_reply(0)))
+  end, nil, nil, "u:tok")
+  assert(open.code == 1 and open.complaints[1]:find("the method 0 chosen is not one offered (only 2)", 1, true),
+    open.complaints[1])
+  local version = against({ "h", "1" }, function(relay: Net.Conn)
+    asked_with_login(relay, "\5\0")
+  end, nil, nil, "u:tok")
+  assert(version.code == 1 and version.complaints[1]:find("username/password version 5", 1, true),
+    version.complaints[1])
+  local early = against({ "h", "1" }, function(relay: Net.Conn)
+    assert(bytes(relay, 3) == "\5\1\2")
+    assert(relay:write(Wire.socks_method_reply(2) .. "\1\0"))
+  end, nil, nil, "u:tok")
+  assert(early.code == 1 and early.complaints[1]:find("answered before it was asked", 1, true), early.complaints[1])
+end
+
+local function test_a_userinfo_that_cannot_be_used_is_refused_and_never_echoed()
+  local secret <const> = "SECRET-token-1234"
+  local function refused(value: string, why: string)
+    local complaints: {string} = {}
+    local code = connect.run({ "host", "22" }, {
+      getenv = function(name: string): string | nil
+        if name == "ALL_PROXY" then return value end
+        return nil
+      end,
+      err = function(line: string) complaints[#complaints + 1] = line end,
+      read = function(): string | nil, string return "", "" end,
+      write = function(): boolean, string return true, "" end,
+      finish = function(): boolean, string return true, "" end,
+    })
+    assert(code == 2 and #complaints == 1, value:gsub(secret, "<secret>") .. ": " .. code)
+    assert(complaints[1]:find(why, 1, true), complaints[1])
+    assert(not complaints[1]:find(secret, 1, true), "the password is echoed: " .. complaints[1])
+  end
+  -- The host is exactly 127.0.0.1, whatever the userinfo.
+  refused("socks5h://u:" .. secret .. "@10.0.0.1:1080", "no other proxy is served")
+  refused("socks5h://u:" .. secret .. "@localhost:1080", "no other proxy is served")
+  refused("socks5h://u:" .. secret .. "@127.0.0.1.example:1080", "no other proxy is served")
+  refused("socks5h://u:" .. secret .. "@127.0.0.1:1080@10.0.0.1:1080", "no other proxy is served")
+  refused("socks5h://u:" .. secret .. "@127.0.0.1", "no other proxy is served")
+  refused("socks5h://u:" .. secret .. "@127.0.0.1:0", "no other proxy is served")
+  refused("socks5://u:" .. secret .. "@127.0.0.1:1080", "no other proxy is served")
+  refused("socks5h://127.0.0.1:1080@" .. secret, "no other proxy is served")
+  -- A token that is no password.
+  refused("socks5h://onlyauser@127.0.0.1:1080", "not user:token")
+  refused("socks5h://u:@127.0.0.1:1080", "not user:token")
+  refused("socks5h://u:" .. ("p"):rep(256) .. "@127.0.0.1:1080", "the password is longer than 255 bytes")
+  refused("socks5h://" .. ("u"):rep(256) .. ":" .. secret .. "@127.0.0.1:1080", "the username is longer than 255 bytes")
+  refused("socks5h://u:%41" .. ("p"):rep(255) .. "@127.0.0.1:1080", "the password is longer than 255 bytes")
 end
