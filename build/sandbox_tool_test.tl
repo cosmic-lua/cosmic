@@ -129,3 +129,24 @@ local function test_cosmic_alone_runs_this_program_under_the_sandbox(tmp: string
     (assert(Proc.executable())), "run.tl" })
   assert(ran.code == 0 and ran.out == "ran\n", ran.code .. ": " .. ran.out .. ran.err)
 end
+
+--- `connect` right after the verb is the relay's client, which outside a
+--- sandbox with `--connect` has no relay to ask and says what it is for.
+local function test_the_relays_client_outside_a_sandbox_refuses_saying_what_it_is_for(tmp: string)
+  local ran = cosmic(tmp, { "sandbox", "connect", "github.com", "22" })
+  assert(ran.code == 2 and ran.out == "", ran.code .. ran.out .. ran.err)
+  assert(ran.err:find("^cosmic: sandbox connect: ALL_PROXY is not set"), ran.err)
+  assert(ran.err:find("ssh's ProxyCommand inside `cosmic sandbox --connect HOST:PORT`", 1, true), ran.err)
+end
+
+--- A program named `connect` is run, not the client, wherever the word is not
+--- the one right after the verb: after an option, or after `--`.
+local function test_a_program_named_connect_is_run_after_an_option_or_a_dash_dash(tmp: string)
+  for _, words in ipairs({ { "sandbox", "--system", "--", "connect", "a", "22" },
+      { "sandbox", "--system", "connect", "a", "22" }, { "sandbox", "--", "connect" } }) do
+    local ran = cosmic(tmp, words)
+    -- No such program on the PATH: the status of a program that is not there.
+    assert(ran.code == 127 and ran.err:find("connect", 1, true) and not ran.err:find("ALL_PROXY", 1, true),
+      ran.code .. ran.out .. ran.err)
+  end
+end

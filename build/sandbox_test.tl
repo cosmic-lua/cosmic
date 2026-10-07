@@ -226,11 +226,44 @@ local function test_a_connect_is_the_starts_to_serve_and_its_failure_is_the_star
   same(ran.opts.policy.connect, { "github.com:443" })
 end
 
-local function test_the_relays_client_is_refused_until_the_relay_exists()
-  local ran = run({ "connect", "github.com", "443" })
-  assert(ran.code == 125 and ran.argv == nil, ran.code .. ran.err)
-  assert(ran.err:find("relay", 1, true) and ran.err:find("not yet available", 1, true), ran.err)
+--- Runs the verb on `words` with the relay's client stood in for: the words
+--- it was given, or nil when it was not run, and the verb's status.
+local function client_of(words: {string}): {string} | nil, integer
+  local argv: {integer:string} = { [0] = "cosmic", [1] = "sandbox" }
+  for index, word in ipairs(words) do argv[index + 1] = word end
+  local given: {string} | nil
+  local started = false
+  local code = sandbox.run(argv, {
+    err = function(_: string) end,
+    run = function(_: {string}, _: Child.Options): Child.Result | nil, string
+      started = true
+      return finished(0), ""
+    end,
+    connect = function(args: {string}): integer
+      given = args
+      return 42
+    end,
+  })
+  assert(not started or given == nil, "the client and a program are not both run")
+  return given, code
+end
+
+local function test_a_connect_right_after_the_verb_is_the_relays_client()
+  local given, code = client_of({ "connect", "github.com", "22" })
+  same(given, { "github.com", "22" })
+  assert(code == 42, "its status is the verb's: " .. code)
+  same(client_of({ "connect" }), {})
+  -- Only the bare word after the verb: every other place is a program's.
+  assert(client_of({ "--system", "connect", "github.com", "22" }) == nil, "after an option it is a program")
+  assert(client_of({ "--", "connect", "github.com", "22" }) == nil, "after -- it is a program")
+  assert(client_of({ "prog", "connect", "github.com", "22" }) == nil, "after a program it is an argument")
   assert(run({ "--", "connect" }).argv[1] == "connect", "a program of that name is still run")
+  same(run({ "--", "connect", "a", "b" }).argv, { "connect", "a", "b" })
+  same(run({ "--cosmic", "connect" }).argv, { "connect" })
+end
+
+local function test_the_relays_decision_lines_go_to_the_verbs_standard_error()
+  assert(run({ "--connect", "github.com:443", "prog" }).opts.relay_log == "inherit")
 end
 
 local function test_the_programs_end_is_the_exit_status()

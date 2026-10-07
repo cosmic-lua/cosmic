@@ -166,6 +166,49 @@ local record relay_wire
     feed: function(SocksRequestReader, chunk: string): SocksRequest
   end
 
+  --- The SOCKS5 server's choice of a method, the answer to a client's
+  --- greeting.
+  record SocksMethodAnswer
+    --- How far the bytes have decided it.
+    status: Status
+    --- Bytes of the answer, when `done`.
+    consumed: integer
+    --- When `refused`, why.
+    reason: string
+    --- When `done`, the method chosen: 0, the one [`socks_client_greeting`]
+    --- offers. When `refused` because the server accepts none of those
+    --- offered, 255; nil for a refusal of another kind.
+    method: integer
+  end
+
+  --- Reads a SOCKS5 server's method choice from the bytes fed to it.
+  interface SocksMethodReader
+    --- Feeds the next bytes and answers what all fed so far say.
+    feed: function(SocksMethodReader, chunk: string): SocksMethodAnswer
+  end
+
+  --- A SOCKS5 server's answer to a CONNECT request.
+  record SocksAnswer
+    --- How far the bytes have decided it.
+    status: Status
+    --- Bytes of the answer, when `done`: what follows is the tunnel's.
+    consumed: integer
+    --- When `refused`, why.
+    reason: string
+    --- When `done`, the reply code: 0 for success, any other a refusal,
+    --- whether or not [`SocksReply`] names it.
+    code: integer
+    --- When `done`, the [`SocksReply`] that `code` is, or nil for a code
+    --- the protocol does not define.
+    reply: SocksReply
+  end
+
+  --- Reads a SOCKS5 server's answer to a request from the bytes fed to it.
+  interface SocksAnswerReader
+    --- Feeds the next bytes and answers what all fed so far say.
+    feed: function(SocksAnswerReader, chunk: string): SocksAnswer
+  end
+
   --- What a ClientHello says of its server name.
   enum SniStatus
     "more"
@@ -282,9 +325,9 @@ local function groups(text: string, tail: boolean): {integer} | nil
   end
 end
 
---- `text`, an IPv6 address without brackets or a zone, in RFC 5952's
---- form, or nil and why.
-local function ipv6(text: string): string | nil, string
+--- The eight 16-bit groups of `text`, an IPv6 address without brackets or a
+--- zone, or nil and why.
+local function ipv6_groups(text: string): {integer} | nil, string
   if text:find("[^%x:%.]") or not text:find(":", 1, true) then
     return nil, "not an IPv6 address (a zone, or a character an address does not hold)"
   end
@@ -318,6 +361,16 @@ local function ipv6(text: string): string | nil, string
       return nil, bad
     end
     all = whole
+  end
+  return all, ""
+end
+
+--- `text`, an IPv6 address without brackets or a zone, in RFC 5952's
+--- form, or nil and why.
+local function ipv6(text: string): string | nil, string
+  local all, bad = ipv6_groups(text)
+  if all == nil then
+    return nil, bad
   end
   local best_at, best_len, at = 0, 1, 1
   while at <= 8 do
@@ -902,6 +955,168 @@ function relay_wire.socks_request_reader(): relay_wire.SocksRequestReader
   return { feed = function(_: relay_wire.SocksRequestReader, chunk: string): relay_wire.SocksRequest
     return step(chunk)
   end }
+end
+
+--- The greeting a SOCKS5 client opens with: version 5, offering no
+--- authentication (method 0) alone.
+function relay_wire.socks_client_greeting(): string
+  return "\5\1\0"
+end
+
+--- The CONNECT request a SOCKS5 client sends for `host` and `port`: an
+--- address type 1 for a dotted IPv4 literal, 4 for an IPv6 one (without
+--- brackets), and otherwise 3, with `host` as the domain name for the
+--- relay to resolve and judge, which is sent as it is (the relay applies
+--- the name rules). Nil and why for an empty host, a name over 255 bytes or
+--- a port outside 1 to 65535.
+--- @param host the host: a name or an address literal
+--- @param port the port
+--- @return the request, or nil
+--- @return why, when there is none
+function relay_wire.socks_client_request(host: string, port: integer): string | nil, string
+  if math.type(port) ~= "integer" or port < 1 or port > 65535 then
+    return nil, "the port is not a number from 1 to 65535"
+  end
+  local tail = string.pack(">I2", port)
+  local four = octets(host)
+  if four ~= nil then
+    return "\5\1\0\1" .. string.char(four[1], four[2], four[3], four[4]) .. tail
+  end
+  local six, _ = ipv6_groups(host)
+  if six ~= nil then
+    local bytes: {string} = {}
+    for i, group in ipairs(six) do
+      bytes[i] = string.pack(">I2", group)
+    end
+    return "\5\1\0\4" .. table.concat(bytes) .. tail
+  end
+  if host == "" then
+    return nil, "the host is empty"
+  end
+  if #host > 255 then
+    return nil, "the host name is longer than 255 bytes"
+  end
+  return "\5\1\0\3" .. string.char(#host) .. host .. tail
+end
+
+--- The method choice at the start of `buf`, whole.
+local function read_method_answer(buf: string): relay_wire.SocksMethodAnswer
+  if #buf < 1 then
+    return { status = "more", consumed = 0 }
+  end
+  if buf:byte(1) ~= 5 then
+    return { status = "refused", consumed = 0,
+      reason = ("SOCKS version %d in the answer, not 5"):format(buf:byte(1)) }
+  end
+  if #buf < 2 then
+    return { status = "more", consumed = 0 }
+  end
+  local method = buf:byte(2)
+  if method == 0 then
+    return { status = "done", consumed = 2, method = 0 }
+  elseif method == 255 then
+    return { status = "refused", consumed = 0, method = 255, reason = "no authentication method offered is accepted" }
+  end
+  return { status = "refused", consumed = 0,
+    reason = ("the method %d chosen is not one offered (only 0)"):format(method) }
+end
+
+--- The reply codes by number, from [`SOCKS_CODES`].
+local SOCKS_REPLIES <const>: {integer: relay_wire.SocksReply} = {}
+for name, code in pairs(SOCKS_CODES) do
+  SOCKS_REPLIES[code] = name
+end
+
+--- The server's answer to a request at the start of `buf`, whole: the reply
+--- code and the bound address it carries, which is read to find where the
+--- tunnel begins and kept for nothing.
+local function read_answer(buf: string): relay_wire.SocksAnswer
+  local size = #buf
+  if size < 1 then
+    return { status = "more", consumed = 0 }
+  end
+  if buf:byte(1) ~= 5 then
+    return { status = "refused", consumed = 0,
+      reason = ("SOCKS version %d in the reply, not 5"):format(buf:byte(1)) }
+  end
+  if size < 3 then
+    return { status = "more", consumed = 0 }
+  end
+  if buf:byte(3) ~= 0 then
+    return { status = "refused", consumed = 0, reason = "the reserved byte of the reply is not 0" }
+  end
+  if size < 4 then
+    return { status = "more", consumed = 0 }
+  end
+  local atyp = buf:byte(4)
+  local width: integer
+  if atyp == 1 then
+    width = 4
+  elseif atyp == 4 then
+    width = 16
+  elseif atyp == 3 then
+    if size < 5 then
+      return { status = "more", consumed = 0 }
+    end
+    width = 1 + buf:byte(5)
+  else
+    return { status = "refused", consumed = 0, reason = ("SOCKS address type %d in the reply is not supported"):format(atyp) }
+  end
+  local total = 4 + width + 2
+  if size < total then
+    return { status = "more", consumed = 0 }
+  end
+  local code = buf:byte(2)
+  return { status = "done", consumed = total, code = code, reply = SOCKS_REPLIES[code] }
+end
+
+--- Reads the SOCKS5 server's choice of a method from the bytes fed to it:
+--- done for method 0, the one [`relay_wire.socks_client_greeting`] offers,
+--- and refused for 255 (none accepted), another method or another version.
+function relay_wire.socks_method_reader(): relay_wire.SocksMethodReader
+  local step = small_reader(read_method_answer, function(answer: relay_wire.SocksMethodAnswer): boolean
+    return answer.status ~= "more"
+  end)
+  return { feed = function(_: relay_wire.SocksMethodReader, chunk: string): relay_wire.SocksMethodAnswer
+    return step(chunk)
+  end }
+end
+
+--- Reads the SOCKS5 server's answer to a request from the bytes fed to it,
+--- through its bound address (an IPv4 or IPv6 address or a domain name,
+--- then a port), so that what is left of what was fed is the tunnel's. A
+--- reply code that is no success is a `done` answer with its `code`: the
+--- reader judges the message's shape, not the server's verdict. Refused for
+--- another version, a nonzero reserved byte or an address type the
+--- protocol does not define. The message is at most 262 bytes, so the
+--- reader re-reads what it holds as the others do.
+function relay_wire.socks_answer_reader(): relay_wire.SocksAnswerReader
+  local step = small_reader(read_answer, function(answer: relay_wire.SocksAnswer): boolean
+    return answer.status ~= "more"
+  end)
+  return { feed = function(_: relay_wire.SocksAnswerReader, chunk: string): relay_wire.SocksAnswer
+    return step(chunk)
+  end }
+end
+
+--- What a SOCKS5 reply code means, worded for a person: "connection not
+--- allowed by ruleset" for 2, "connection refused" for 5 and so on, and
+--- "unknown reply code N" for one the protocol does not define.
+--- @param code the reply code
+--- @return what it means
+function relay_wire.socks_reply_meaning(code: integer): string
+  local meanings: {integer: string} = {
+    [0] = "succeeded",
+    [1] = "general SOCKS server failure",
+    [2] = "connection not allowed by ruleset",
+    [3] = "network unreachable",
+    [4] = "host unreachable",
+    [5] = "connection refused",
+    [6] = "TTL expired",
+    [7] = "command not supported",
+    [8] = "address type not supported",
+  }
+  return meanings[code] or ("unknown reply code %d"):format(code)
 end
 
 local function u16(text: string, at: integer): integer

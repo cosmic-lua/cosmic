@@ -45,6 +45,13 @@
 --- program's: this returns what [`Child.run`] does, its [`Child.Result`],
 --- and the verb exits with the program's status.
 ---
+--- A LINE TO SHOW the caller, from the descriptor [`Terminal.notes`] names,
+--- goes to the caller's stderr beside the program's output, which the
+--- filter does not see: the sandbox relay writes one for each connection
+--- it allows or refuses, with the remedy a refusal needs, and it may not
+--- hold the caller's terminal itself. They are the relay's, with every
+--- control byte already shown as "?".
+---
 --- The loop waits in [`sys.poll`] at most `TICK_MS` at a time, which is
 --- what every check that no descriptor announces is made at: the
 --- program's exit, a signal the guard caught and the caller's window.
@@ -78,6 +85,13 @@ local record Terminal
   output: integer
   --- The caller's stderr, 2 by default.
   error: integer
+  --- The read end of a non-blocking pipe whose bytes are lines to show the caller on
+  --- `error`, beside the program's output and in order with it (nil for
+  --- none): the sandbox relay's decision lines, whose process may not hold
+  --- the caller's terminal as its standard error. Each line ends in CR and
+  --- LF there, for the terminal is raw where its input is a terminal, and
+  --- is written whole, between the program's writes.
+  notes: integer
 end
 
 local record TermRelay
@@ -153,6 +167,7 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
   local input = terminal ~= nil and terminal.input or 0
   local output = terminal ~= nil and terminal.output or 1
   local errors = terminal ~= nil and terminal.error or 2
+  local notes = terminal ~= nil and terminal.notes or nil
   local streams: {integer} = {}
   for number, fd in ipairs({ input, output, errors }) do
     if sys.isatty(fd) then streams[#streams + 1] = number - 1 end
@@ -274,6 +289,26 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
     return #data
   end
 
+  --- Shows the caller what the notes pipe holds, as lines: how many bytes
+  --- it read, 0 where there were none yet, and -1 once there are none for
+  --- good. A write to the caller that fails loses the line and ends nothing.
+  local notes_open = notes ~= nil
+  local function relay_notes(): integer
+    if notes == nil then return -1 end
+    local data, _, errno = sys.read(notes, CHUNK)
+    if data == nil then
+      if errno == sys.EAGAIN or errno == sys.EINTR then return 0 end
+      notes_open = false
+      return -1
+    end
+    if data == "" then
+      notes_open = false
+      return -1
+    end
+    local _, _ = write_all(errors, (data:gsub("\r?\n", "\r\n")))
+    return #data
+  end
+
   while failure == nil do
     local signal = guard:take()
     if signal ~= 0 then
@@ -304,7 +339,9 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
     local keys_fd = keys_open and #pending < MOST_PENDING and input or -1
     local master_fd = (master_open or #pending > 0) and master or -1
     local master_events = (master_open and sys.POLLIN or 0) | (#pending > 0 and sys.POLLOUT or 0)
-    local ready, poll_why = sys.poll({ keys_fd, master_fd }, { sys.POLLIN, master_events }, TICK_MS)
+    local notes_fd = notes_open and notes or -1
+    local ready, poll_why = sys.poll({ keys_fd, master_fd, notes_fd }, { sys.POLLIN, master_events, sys.POLLIN },
+      TICK_MS)
     if ready == nil then
       failure = "terminal: waiting: " .. poll_why
       break
@@ -316,6 +353,9 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
       if master_open and ready[2] & (sys.POLLIN | sys.POLLHUP | sys.POLLERR) ~= 0 then
         local _ = relay_output()
       end
+    end
+    if ready[3] ~= 0 then
+      local _ = relay_notes()
     end
     if ready[1] ~= 0 then
       local typed, _, errno = sys.read(input, CHUNK)
@@ -335,6 +375,16 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
     local budget = MOST_AFTER_EXIT
     while budget > 0 do
       local count = relay_output()
+      if count <= 0 then break end
+      budget = budget - count
+    end
+  end
+  if result ~= nil and notes_open then
+    -- The program is settled, and its relay ended with it: what it wrote
+    -- last is in the pipe, which the caller's end of keeps open.
+    local budget = MOST_AFTER_EXIT
+    while budget > 0 do
+      local count = relay_notes()
       if count <= 0 then break end
       budget = budget - count
     end

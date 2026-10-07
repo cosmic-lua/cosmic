@@ -444,6 +444,39 @@ local function test_the_relays_log_goes_where_the_start_says(tmp: string)
   assert(not errors["null"]:find("not granted", 1, true), "the log was dropped: " .. errors["null"])
 end
 
+--- A descriptor of this process as `relay_log` gets the relay's decision
+--- lines, and nothing reaches this process's standard error: the way a
+--- caller whose own standard error is a terminal, which a sandboxed relay
+--- may not hold, shows them.
+local function test_the_relays_log_goes_to_a_descriptor_the_caller_gives(tmp: string)
+  local database = sealed_client(tmp)
+  assert(sys.mkfifo(tmp .. "/log", 384))
+  local reader = assert(sys.open(tmp .. "/log", sys.O_RDONLY | sys.O_NONBLOCK, 0))
+  local writer = assert(sys.open(tmp .. "/log", sys.O_WRONLY, 0))
+  local refusal: string
+  local program_stderr: string
+  serving(function(granted: integer, ungranted: integer)
+    local options = granting(database, granted)
+    options.relay_log = writer
+    local result, why = Child.run({ assert(Proc.executable()), "flows", tostring(granted), tostring(ungranted) },
+      options)
+    if result == nil then
+      assert(unsandboxable(why), "the start was refused: " .. why)
+      refusal = why
+      return
+    end
+    assert(result.ok, "exit " .. tostring(result.code) .. ": " .. tostring(result.stderr))
+    program_stderr = result.stderr
+    local lines = assert(sys.read(reader, 65536))
+    assert(lines:find("not granted: --connect 127.0.0.2:" .. ungranted, 1, true), "the refusal is in it: " .. lines)
+    assert(lines:find("connect 127.0.0.2:" .. granted .. ": allowed", 1, true), "the flow is in it: " .. lines)
+  end)
+  assert(sys.close(reader))
+  assert(sys.close(writer))
+  if refusal ~= nil then Test.skip(refusal) end
+  assert(not program_stderr:find("not granted", 1, true), "the program's own standard error holds no line")
+end
+
 --- The directories of a start's making that are in the temporary directory.
 local function relay_directories(): {string}
   local found: {string} = {}
