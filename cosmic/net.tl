@@ -1092,7 +1092,8 @@ local function ask(process: Child.ConnectorProcess, request: string, host: strin
       local peer, peer_why, peer_errno = raw.peer(socket:fd())
       if peer == nil then
         local _, _ = socket:close()
-        if peer_errno == raw.ENOTCONN then
+        -- macOS answers EINVAL for a socket its far side reset, Linux ENOTCONN.
+        if peer_errno == raw.ENOTCONN or peer_errno == raw.EINVAL then
           return { why = "net: the connection to " .. named(Net.tcp(host, port)) .. " ended as it was made",
             kept = true }
         end

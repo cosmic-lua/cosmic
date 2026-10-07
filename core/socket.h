@@ -180,7 +180,7 @@ COSMIC_SYSCALL(sendfds, 2);
 COSMIC_SYSCALL(recvfds, 2);
 
 /*
- * --- The "tcp" host and port a connected stream socket is connected to. It fails ENOTCONN for a socket that is not connected, EPROTOTYPE for one that is no stream, EAFNOSUPPORT for one that is not IPv4 or IPv6, and ENOTSOCK for what is no socket.
+ * --- The "tcp" host and port a connected stream socket is connected to. It fails ENOTCONN for a socket that is not connected (EINVAL on macOS for one its far side reset), EPROTOTYPE for one that is no stream, EAFNOSUPPORT for one that is not IPv4 or IPv6, and ENOTSOCK for what is no socket.
  * ---@param fd integer the connected descriptor
  * ---@return Address|nil address the peer's address, or nil on failure
  * ---@return string error what went wrong, when address is nil
@@ -278,7 +278,7 @@ COSMIC_SYSCALL(nameservers, 1);
  * ---@field ECONNREFUSED integer nothing listens at an address
  * ---@field EPROTO integer a descriptor batch was malformed, truncated, or held a different count
  * ---@field EPROTOTYPE integer a descriptor channel was not a stream socket
- * ---@field ENOTCONN integer `peer`: the socket is connected to nothing, as one its far side reset is
+ * ---@field ENOTCONN integer `peer`: the socket is connected to nothing, as one its far side reset is on Linux (macOS answers EINVAL for that)
  * ---@field EINVAL integer a "tcp" host is no numeric address
  * ---@field ENAMETOOLONG integer a unix path's file name is past `SOCKET_NAME_MAX`, or its directory past the platform's bound on a path
  * ---@field SOCKET_NAME_MAX integer the most bytes a socket file's own name may take: 107 on Linux, 103 on macOS

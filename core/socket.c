@@ -1490,7 +1490,10 @@ static int through_reaches (int fd, const struct resolve_server *server) {
   struct sockaddr_storage peer;
   memset(&peer, 0, sizeof peer);
   size = sizeof peer;
-  if (getpeername(fd, (struct sockaddr *)&peer, &size) != 0) return errno == ENOTCONN ? ENOTCONN : EPROTO;
+  /* macOS answers EINVAL for a socket its far side reset, Linux ENOTCONN. */
+  if (getpeername(fd, (struct sockaddr *)&peer, &size) != 0) {
+    return errno == ENOTCONN || errno == EINVAL ? ENOTCONN : EPROTO;
+  }
   return through_same(&peer, &server->address) ? 0 : EPROTO;
 }
 
