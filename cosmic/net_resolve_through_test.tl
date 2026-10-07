@@ -73,7 +73,8 @@ end
 
 --- Resolves argv[1] through a connector whose table is 127.0.0.1 at each
 --- port of argv[2] (comma-separated) and nothing else, waiting argv[3]
---- milliseconds for each connection, twice, so the second asks the same
+--- milliseconds for each connection (or, where argv[3] is "relay", as
+--- Relay.name_servers chooses for its default lookup time), twice, so the second asks the same
 --- process again: the first within argv[4] milliseconds, if given, the
 --- second within five seconds. Prints each answer's addresses, sorted, on
 --- a line, and then how many milliseconds each lookup took, on a line.
@@ -81,6 +82,7 @@ local SCRIPT <const> = [[
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
+local Relay = require("cosmic.relay")
 return function(argv: {string}): integer
   local endpoints: {Net.Endpoint} = {}
   local servers: {Net.Address} = {}
@@ -89,7 +91,12 @@ return function(argv: {string}): integer
     endpoints[#endpoints + 1] = { host = "127.0.0.1", port = port }
     servers[#servers + 1] = Net.udp("127.0.0.1", port)
   end
-  local dns = assert(Net.connector(endpoints, { timeout_ns = Clock.ms(assert(math.tointeger(tonumber(argv[3])))) }))
+  local dns: Net.Connector
+  if argv[3] == "relay" then
+    dns = assert(Relay.name_servers({ servers = endpoints })).connector
+  else
+    dns = assert(Net.connector(endpoints, { timeout_ns = Clock.ms(assert(math.tointeger(tonumber(argv[3])))) }))
+  end
   local said: {string} = {}
   local took: {string} = {}
   for round = 1, 2 do
@@ -136,7 +143,7 @@ end
 --- `before` gives the ports of the connector's table that come before
 --- the server's, made in the run; `wait_ms` is the connector's wait, and
 --- `first_ms` the first lookup's time.
-local function served(tmp: string, name: string, wait_ms: integer, before?: function(): {integer},
+local function served(tmp: string, name: string, wait_ms: integer | string, before?: function(): {integer},
                       first_ms?: integer): Served
   local script = tmp .. "/resolve.tl"
   assert(Fs.write(script, SCRIPT))
@@ -357,7 +364,9 @@ local function test_a_connector_that_never_replies_ends_the_lookup_and_is_not_as
   local dns <close> = assert(Net.connector_from(pair[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
   local opts: Net.ResolveOptions = { timeout_ns = Clock.ms(200), connector = dns,
     servers = { Net.udp("127.0.0.1", 53) } }
+  local began = Clock.monotonic_ns()
   local found, why = Net.resolve("stalled.example.test", opts)
+  local took = (Clock.monotonic_ns() - began) // 1000000
   local sysname = assert(sys.uname()).sysname
   if sysname ~= "Linux" then
     assert(found == nil and why:find("not implemented", 1, true) ~= nil, tostring(why))
@@ -365,6 +374,8 @@ local function test_a_connector_that_never_replies_ends_the_lookup_and_is_not_as
     Test.skip("a lookup through a connector is Linux only, as the connector is")
   end
   assert(found == nil and why == Poll.TIMEOUT, tostring(why))
+  -- The process's wait given (100 ms) and a second's grace, not the default ten seconds.
+  assert(took >= 1000 and took < 3000, took .. " ms")
   -- What was asked: the table's first endpoint at port 53, as eight bytes.
   local request = assert(sys.read(peer, 64))
   assert(request == string.pack(">I4I4", 1, 53), ("%q"):format(request))
@@ -434,4 +445,73 @@ local function test_the_relays_name_servers_stand_when_the_system_names_others(t
   -- Unreadable servers are a reason, not a raise.
   local none, trouble = Relay.name_servers({ resolv_conf = tmp .. "/x\0y" })
   assert(none == nil and trouble == "Invalid argument", tostring(trouble))
+end
+
+--- The relay's connector waits for each server the lookup's time over one
+--- more than the servers: with its default five seconds and two servers,
+--- a first that never takes the connection leaves the second time to answer.
+local function test_the_relays_wait_leaves_the_second_server_time_to_answer(tmp: string)
+  require_native_connector()
+  local held: {function()} = {}
+  local seen = served(tmp, "ratio.example.test", "relay", function(): {integer}
+    return stuck_server(held)
+  end)
+  for _, close in ipairs(held) do close() end
+  assert(seen.lines[1] == "192.0.2.7,2001:db8::7", tostring(seen.lines[1]))
+  assert(seen.lines[2] == "192.0.2.7,2001:db8::7", tostring(seen.lines[2]))
+  for took in seen.lines[3]:gmatch("[^,]+") do
+    local ms = assert(math.tointeger(tonumber(took)))
+    assert(ms >= 1500 and ms < 5000, seen.lines[3] .. " ms")
+  end
+end
+
+--- `count` name servers that never take a connection, through a connector
+--- Relay.name_servers makes for a lookup of `lookup_ms`: the lookup fails
+--- as out of time, by its deadline, one connector wait and the grace.
+local function silent_lookup(count: integer, lookup_ms: integer)
+  require_native_connector()
+  local held: {function()} = {}
+  local endpoints: {Net.Endpoint} = {}
+  for _ = 1, count do
+    local port = stuck_server(held)[1]
+    endpoints[#endpoints + 1] = { host = "127.0.0.1", port = port }
+  end
+  local opts = assert(Relay.name_servers({ servers = endpoints, resolve = Clock.ms(lookup_ms) }))
+  local wait = math.max(500, lookup_ms // (count + 1))
+  local began = Clock.monotonic_ns()
+  local found, why = Net.resolve("silent.example.test",
+    { connector = opts.connector, servers = opts.servers, timeout_ns = Clock.ms(lookup_ms) })
+  local took = (Clock.monotonic_ns() - began) // 1000000
+  assert(opts.connector:close())
+  for _, close in ipairs(held) do close() end
+  assert(found == nil and why == Poll.TIMEOUT, tostring(why))
+  assert(took >= wait and took < lookup_ms + wait + 1000 + 300, took .. " ms")
+end
+
+local function test_a_silent_name_server_times_the_lookup_out_within_its_bound()
+  silent_lookup(1, 1500)
+end
+
+local function test_three_silent_name_servers_time_the_lookup_out_within_its_bound()
+  silent_lookup(3, 1500)
+end
+
+local function test_name_servers_and_a_connector_from_refuse_what_is_out_of_range()
+  local zero: any = 0
+  assert(not pcall(Relay.name_servers, { resolve = zero as integer }))
+  assert(not pcall(Relay.name_servers, { resolve = -1 }))
+  local pair = assert(process.connector_pair())
+  assert(not pcall(Net.connector_from, pair[1], nil, false, 5))
+  assert(not pcall(Net.connector_from, pair[1], nil, false, Clock.seconds(61)))
+  assert(sys.close(pair[1]))
+  assert(sys.close(pair[2]))
+end
+
+local function test_more_name_servers_than_a_connector_holds_is_a_failure()
+  require_native_connector()
+  local dns <close> = assert(Net.connector({ { host = "127.0.0.1", port = 53 } }))
+  local servers: {Net.Address} = {}
+  for i = 1, 129 do servers[i] = Net.udp("127.0.0.1", 1000 + i) end
+  local found, why = Net.resolve("many.example.test", { connector = dns, servers = servers })
+  assert(found == nil and why:find("at most 128", 1, true) ~= nil, tostring(why))
 end

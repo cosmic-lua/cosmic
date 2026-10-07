@@ -213,8 +213,11 @@ local record Relay
     --- A resolv.conf to read in place of the system's, for tests.
     resolv_conf: string
     --- The lookup's whole time, [`Timeouts.resolve`]'s (5 seconds), which
-    --- the connector's wait for each server is a share of.
+    --- the connector's wait for each server is a share of: a positive
+    --- integer of nanoseconds.
     resolve: integer
+    --- The servers in place of the system's, for tests.
+    servers: {Net.Endpoint}
   end
 
   --- What a running relay has done.
@@ -355,24 +358,33 @@ local NAME_SERVER_WAIT_LEAST <const> = Clock.ms(500)
 --- ([`Net.nameservers`]) at their port and nothing else, read once, now:
 --- `connector` and `servers`, the same list, so a lookup asks exactly
 --- the table even after the system's configuration changes. The
---- connector waits for each server's connection an even share of the
---- lookup's time (at least half a second), so a server that does not
---- answer leaves time for the next. Nil and why where the servers cannot
---- be read, are more than a connector holds (128), or the connector
---- cannot start: a relay given that as [`Spec.unresolved`] still reaches
---- an address a grant names. The caller closes the connector.
+--- connector waits for each server's connection the lookup's time divided
+--- by one more than the servers (at least half a second, at most a
+--- minute), so that servers that do not answer leave the last one time
+--- to. A `resolve` that is no positive integer raises. Nil and why where
+--- the servers cannot be read, are more than a connector holds (128), or
+--- the connector cannot start: a relay given that as [`Spec.unresolved`]
+--- still reaches an address a grant names. The caller closes the
+--- connector.
 --- @param opts Relay.NameServersOptions|nil Where to read, and the lookup's time
 --- @return Net.ResolveOptions|nil The options for [`Spec.resolve`]
 --- @return string Why there are none, "" otherwise
 function Relay.name_servers(opts?: Relay.NameServersOptions): Net.ResolveOptions | nil, string
   opts = opts or {}
-  local listed, why = Net.nameservers({ resolv_conf = opts.resolv_conf })
-  if listed == nil then return nil, why end
+  local resolve = opts.resolve or DEFAULT_TIMEOUTS.resolve
+  if math.type(resolve) ~= "integer" or resolve <= 0 then
+    error("relay: name_servers' resolve must be a positive integer of nanoseconds", 2)
+  end
+  local listed = opts.servers
+  if listed == nil then
+    local read, why = Net.nameservers({ resolv_conf = opts.resolv_conf })
+    if read == nil then return nil, why end
+    listed = read
+  end
   if #listed > 128 then
     return nil, "the system names " .. String.counted(#listed, "name server") .. ", more than a connector holds (128)"
   end
-  local resolve = opts.resolve or DEFAULT_TIMEOUTS.resolve
-  local wait = math.min(Clock.seconds(60), math.max(NAME_SERVER_WAIT_LEAST, resolve // #listed))
+  local wait = math.min(Clock.seconds(60), math.max(NAME_SERVER_WAIT_LEAST, resolve // (#listed + 1)))
   local connector, trouble = Net.connector(listed, { timeout_ns = wait })
   if connector == nil then return nil, trouble end
   local servers: {Net.Address} = {}
@@ -742,7 +754,8 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
   if kind ~= "name" then
     return { address = name }
   end
-  if run.spec.unresolved ~= nil then
+  -- A numeric host, as an upstream proxy's may be, answers itself.
+  if run.spec.unresolved ~= nil and Address.parse(name) == nil then
     return { address = "", refused = refusal(("could not resolve %s: %s"):format(name, run.spec.unresolved), 502,
       "host_unreachable") }
   end
@@ -751,6 +764,10 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
     opts.servers, opts.hosts_file = run.spec.resolve.servers, run.spec.resolve.hosts_file
     opts.connector = run.spec.resolve.connector
   end
+  -- TODO: resolve off the relay's loop once Net.resolve runs cooperatively
+  -- in a task of Poll.run (the TODO at Net.resolve): a lookup holds the
+  -- thread, so every client and tunnel of the relay waits up to its bound
+  -- (the resolve timeout, one connector wait and a second of grace).
   local found, why = Net.resolve(name, opts)
   if found == nil then
     if why == Poll.TIMEOUT then

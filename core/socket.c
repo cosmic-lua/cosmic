@@ -1197,6 +1197,10 @@ struct resolution {
   int64_t deadline;
   int reply_ms;
   int lost;
+  /* Whether a server went unanswered for want of time: the connector
+   * replied that its connect timed out, or the deadline had passed when
+   * c-ares asked for another connection, which is then refused unasked. */
+  bool late;
   size_t servers;
   struct resolve_server *server;
 };
@@ -1488,9 +1492,10 @@ static bool through_reaches (int fd, const struct resolve_server *server) {
 }
 
 /* Asks the connector for a connection to `server`: true with the socket
- * in `*connected`. The exchange may outlast the lookup's deadline by up to
- * the connector's own reply time, so that a server that does not answer
- * its connect costs that time and leaves the stream for the next server. A refusal the connector replies leaves its stream in
+ * in `*connected`. The exchange may outlast the lookup's deadline by up
+ * to the connector's own reply time, so that a server that does not
+ * answer its connect costs that time and leaves the stream in step for
+ * the next server. A refusal the connector replies leaves its stream in
  * step; any other failure, or a socket not connected to `server`, leaves
  * the stream lost and shuts it down, so that its owner sees it end. */
 static bool through_ask (struct resolution *resolution, const struct resolve_server *server, int *connected) {
@@ -1504,7 +1509,10 @@ static bool through_ask (struct resolution *resolution, const struct resolve_ser
   int64_t deadline = resolution->deadline < 0 || replied < resolution->deadline ? resolution->deadline : replied;
   int failure = through_whole(resolution, deadline, request, sizeof request, true);
   if (failure == 0) failure = through_whole(resolution, deadline, &status, sizeof status, false);
-  if (failure == 0 && status != 0) return false;
+  if (failure == 0 && status != 0) {
+    if (ntohl(status) == ETIMEDOUT) resolution->late = true;
+    return false;
+  }
   if (failure == 0) failure = through_rights(resolution, deadline, connected);
   if (failure == 0 && through_reaches(*connected, server)) return true;
   if (*connected >= 0) close(*connected);
@@ -1561,6 +1569,12 @@ static int through_connect (ares_socket_t sock, const struct sockaddr *address, 
     }
   }
   int connected = -1;
+  /* Past the deadline nothing more is asked: a lookup then outlasts its
+   * deadline by one exchange at most. */
+  if (resolution->deadline >= 0 && cosmic_now_ms() >= resolution->deadline) {
+    resolution->late = true;
+    server = NULL;
+  }
   if (server != NULL && resolution->lost == 0 && through_ask(resolution, server, &connected)) {
     int placed = dup3(connected, (int)sock, O_CLOEXEC);
     close(connected);
@@ -1623,6 +1637,14 @@ static int resolve_run (lua_State *L, const char *name, int timeout, const char 
     mask |= ARES_OPT_TIMEOUTMS;
     options.timeout = timeout < 2 ? 1 : timeout / 2;
   }
+  /* Through a connector each server is tried once, with the whole time:
+   * a connect blocks c-ares while its per-try clock, started before it,
+   * runs on, so a second try or a shorter one would expire the query a
+   * slow server's successor could still answer. */
+  if (resolution->connector >= 0) {
+    options.tries = 1;
+    if (timeout >= 0) options.timeout = timeout < 1 ? 1 : timeout;
+  }
   if (hosts != NULL) {
     mask |= ARES_OPT_HOSTS_FILE;
     options.hosts_path = (char *)hosts;
@@ -1653,6 +1675,11 @@ static int resolve_run (lua_State *L, const char *name, int timeout, const char 
    * ended, failed every server after it: the lookup ends for that reason. */
   if (resolution->status != ARES_SUCCESS && (resolution->lost == ETIMEDOUT || resolution->lost == EINTR)) {
     return cosmic_fail(L, resolution->lost);
+  }
+  /* Where no server answered, one left for want of time makes the lookup
+   * a timeout; a server's answer (no such name, a failure) still stands. */
+  if (resolution->late && (resolution->status == ARES_ECONNREFUSED || resolution->status == ARES_ETIMEOUT)) {
+    return cosmic_fail(L, ETIMEDOUT);
   }
   if (resolution->status != ARES_SUCCESS) return resolve_failed(L, resolution->status);
 

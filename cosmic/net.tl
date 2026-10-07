@@ -741,13 +741,15 @@ local resolved_through: function(name: string, opts: Net.ResolveOptions): {Net.R
 --- under one. `servers` and `hosts_file` are for tests and trusted
 --- callers, never for values a sandboxed program chose. With
 --- `connector`, the lookup goes over TCP alone, each connection made by
---- the connector ([`ResolveOptions.connector`]), which it waits for as
---- [`Connector.connect`] does: a server that does not answer its
---- connect costs the connector's `timeout_ns` (which may outlast
---- `timeout_ns` here), and the next server is asked, so a connector for
---- lookups waits well under the lookup's time for each. A server its
---- table lacks fails the call before anything is asked, and a lookup the
---- connector could connect nowhere for fails "Connection refused".
+--- the connector ([`ResolveOptions.connector`]), and each server is tried
+--- once: a server that does not answer its connect costs the connector's
+--- `timeout_ns` and the next server is asked, so a connector for lookups
+--- waits well under the lookup's time for each. Once `timeout_ns` here
+--- has passed, no other server is asked, so the call ends by then and
+--- one connector wait and a second of grace more at most. A server its
+--- table lacks fails the call before anything is asked; a lookup no
+--- server answered for want of time fails [`Poll.TIMEOUT`], and one
+--- every server was refused a connection for fails "Connection refused".
 ---
 ---     local found = assert(Net.resolve("localhost", { timeout_ns = Clock.seconds(5) }))
 ---     for _, resolved in ipairs(found) do print(resolved.address, resolved.family) end
@@ -1487,10 +1489,11 @@ function Net.connector_from(fd: integer, held?: {Net.Endpoint}, public?: boolean
   if math.type(fd) ~= "integer" or fd < 0 then error("net: fd must be a descriptor", 2) end
   local kept: {Net.Endpoint} = {}
   if held ~= nil then kept = copied_endpoints(held, true) end
+  local timeout_ms = connector_timeout_ms(timeout_ns, 2)
   local adopted, why = Child.adopt_connector(fd)
   if adopted == nil then return nil, why end
   local made: SocketConnector = setmetatable({
-    timeout_ms = connector_timeout_ms(timeout_ns, 2), busy = false, open = true, endpoints = kept,
+    timeout_ms = timeout_ms, busy = false, open = true, endpoints = kept,
     process = adopted, inherited = true, accepts_public = public == true,
   }, socket_connector_mt)
   connectors_made[made] = made

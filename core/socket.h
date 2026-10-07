@@ -246,7 +246,7 @@ COSMIC_SYSCALL(resolve, 4);
  */
 
 /*
- * --- Resolves a host name as `resolve` does, over TCP alone, every socket of the lookup made by a native connector (core/connector.c) over its control stream: c-ares asks the connector for a connection to each server, by its table index, and is refused every datagram socket, so the lookup reaches nothing the connector's table does not hold. The servers are `servers`, never the system's; the rest of the system's configuration is read as `resolve` reads it. Each exchange with the connector is given until the call's deadline or `reply_ms` from its start, whichever is later, so a server that does not answer its connect costs the connector's own wait and the next server is asked; an exchange that fails or runs out even so leaves the stream with a reply unread, so it is shut down, and its owner finds it ended, rather than out of step. A connector's refusal, a server not listed and every connection that fails are the server failing. Linux only: elsewhere ENOSYS once the arguments are checked, as no connector runs there. A degenerate argument raises, a malformed server included; a name `resolve` refuses fails EINVAL.
+ * --- Resolves a host name as `resolve` does, over TCP alone, every socket of the lookup made by a native connector (core/connector.c) over its control stream: c-ares asks the connector for a connection to each server, by its table index, and is refused every datagram socket, so the lookup reaches nothing the connector's table does not hold. The servers are `servers`, never the system's; the rest of the system's configuration is read as `resolve` reads it. Each server is tried once. Each exchange with the connector is given until the call's deadline or `reply_ms` from its start, whichever is later, so a server that does not answer its connect costs the connector's own wait and the next server is asked; past the deadline no other is asked, so the call ends by its deadline and one `reply_ms` at most. An exchange that fails or runs out even so leaves the stream with a reply unread, so it is shut down, and its owner finds it ended, rather than out of step. A connector's refusal, a server not listed and every connection that fails are the server failing. Linux only: elsewhere ENOSYS once the arguments are checked, as no connector runs there. A degenerate argument raises, a malformed server included; a name `resolve` refuses fails EINVAL.
  * ---@param name string the host name or numeric address
  * ---@param timeout_ms integer how long to wait at most, from 0, -1 for no limit beyond c-ares's own retries and timeouts
  * ---@param fd integer the connector's control stream, nonblocking, with no request in flight
@@ -255,7 +255,7 @@ COSMIC_SYSCALL(resolve, 4);
  * ---@param hosts? string a hosts file to read in place of the system's
  * ---@return {Resolved}|nil addresses every address, at least one, or nil on failure
  * ---@return string error what went wrong, when addresses is nil
- * ---@return integer errno the error number, when addresses is nil: as `resolve`'s, ECONNREFUSED where no server could be connected to through the connector, or ENOSYS off Linux
+ * ---@return integer errno the error number, when addresses is nil: as `resolve`'s, ETIMEDOUT also where a server went unanswered for want of time (its connect timed out, or the deadline passed before it was asked), ECONNREFUSED where every server was refused a connection, or ENOSYS off Linux
  */
 COSMIC_SYSCALL(resolve_through, 6);
 

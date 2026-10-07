@@ -1027,6 +1027,22 @@ local function test_a_connect_goes_through_the_upstream_proxy_which_resolves(tmp
   end)
 end
 
+--- A relay that resolves no name still reaches an upstream proxy named by
+--- its numeric address, which needs no lookup.
+local function test_a_numeric_upstream_is_reached_by_a_relay_that_resolves_no_name(tmp: string)
+  Poll.run(function()
+    local through = proxy("200")
+    local up: Relay.Upstream = { host = "127.0.0.1", port = through.server.port, no_proxy = {} }
+    local rig = start(tmp, { grants = { "api.test:443" }, upstream = up, unresolved = "no name servers here" })
+    local conn, head = connect_to(rig, "api.test:443")
+    assert(status_line(head) == "HTTP/1.1 200 Connection established", head)
+    assert(conn:write("tunnelled"))
+    assert(read_exact(conn, 9) == "tunnelled")
+    local _, _ = conn:close()
+    finish(rig, through.server)
+  end)
+end
+
 local function test_the_upstreams_own_address_needs_no_grant_and_is_the_programs_to_ask_for_only_if_granted(tmp: string)
   Poll.run(function()
     local through = proxy("200")
