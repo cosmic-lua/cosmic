@@ -37,6 +37,35 @@ local record Caller
   shown: string
 end
 
+--- Whether two termios states (opaque bytes from tcgetattr) are the same
+--- terminal setting. A BSD kernel (macOS) sets PENDIN in the local flags
+--- by itself as a terminal leaves raw mode for canonical, so a restored
+--- state differs from the one saved by that flag alone: it is left out,
+--- from the local flags, the fourth of Darwin's 8-byte words.
+local PENDIN <const> = 0x20000000
+local function same(a: string, b: string): boolean
+  if a == b then return true end
+  if (assert(sys.uname())).sysname ~= "Darwin" or #a ~= #b or #a < 32 then return false end
+  local function plain(state: string): string
+    local flags = string.unpack("<I8", state, 25)
+    return state:sub(1, 24) .. string.pack("<I8", flags & ~PENDIN) .. state:sub(33)
+  end
+  return plain(a) == plain(b)
+end
+
+local function hex(bytes: string): string
+  return (bytes:gsub(".", function(c: string): string return string.format("%02x", c:byte()) end))
+end
+
+--- The terminal's state is as it was at the start.
+local function restored(caller: Caller): boolean
+  return same((assert(sys.tcgetattr(caller.slave))), caller.before)
+end
+
+local function termios_note(caller: Caller, what: string): string
+  return what .. ": now " .. hex((assert(sys.tcgetattr(caller.slave)))) .. ", before " .. hex(caller.before)
+end
+
 local function new_caller(): Caller
   local pty = assert(sys.openpty())
   assert(sys.setwinsize(pty.master, 37, 111))
@@ -111,7 +140,7 @@ do
   }, "\n"), { stdin = caller.slave, stdout = caller.slave, stderr = caller.slave })
   wait_for(caller, "37 111", 30)
   -- The caller's terminal is raw while the program runs.
-  assert(assert(sys.tcgetattr(caller.slave)) ~= caller.before, "the caller's terminal was not made raw")
+  assert(not restored(caller), "the caller's terminal was not made raw")
   assert(sys.setwinsize(caller.master, 50, 120))
   -- The relay looks at the window between its waits.
   assert(sys.nanosleep(Clock.ms(300)))
@@ -128,7 +157,7 @@ do
       not caller.shown:find("aGVsbG8=", 1, true) and not caller.shown:find("title", 1, true),
     "OSC reached the terminal: " .. shown_of(caller))
   assert(caller.shown:find("50 120", 1, true), "the window size change did not reach the program")
-  assert(assert(sys.tcgetattr(caller.slave)) == caller.before, "the caller's termios was not restored")
+  assert(restored(caller), termios_note(caller, "the caller's termios was not restored"))
   finish(caller)
 end
 
@@ -149,7 +178,7 @@ do
   }, "\n"), { stdin = caller.slave, stdout = out_fd, stderr = err_fd })
   -- The program has written its stderr, so it is about to read.
   local deadline = Clock.monotonic_ns() + Clock.seconds(30)
-  while read_file(err) ~= "to-stderr\n" or assert(sys.tcgetattr(caller.slave)) == caller.before do
+  while read_file(err) ~= "to-stderr\n" or restored(caller) do
     assert(Clock.monotonic_ns() < deadline, "the program did not get to its read")
     assert(sys.nanosleep(Clock.ms(20)))
   end
@@ -164,7 +193,7 @@ do
   assert(wrote == expected, "stdout was changed: " .. string.format("%q", wrote))
   assert(read_file(err) == "to-stderr\n", "stderr was changed or merged: " .. string.format("%q", read_file(err)))
   assert(not caller.shown:find("52;c", 1, true), "the program's file output reached the terminal")
-  assert(assert(sys.tcgetattr(caller.slave)) == caller.before, "the caller's termios was not restored")
+  assert(restored(caller), termios_note(caller, "the caller's termios was not restored"))
   local _, _ = Fs.remove_tree(dir)
   finish(caller)
 end
@@ -188,7 +217,7 @@ do
   assert(caller.shown:find("A\27[1mB\27[0mC", 1, true), shown_of(caller))
   assert(not caller.shown:find("\27]", 1, true) and not caller.shown:find("title", 1, true),
     "OSC reached the terminal: " .. shown_of(caller))
-  assert(assert(sys.tcgetattr(caller.slave)) == caller.before, "the terminal was touched")
+  assert(restored(caller), termios_note(caller, "the terminal was touched"))
   finish(caller)
 end
 
@@ -219,7 +248,7 @@ do
     assert(not caller.shown:find("\r\r\n", 1, true) and not caller.shown:find("[^\r]\n"),
       "a line of the terminal's has no carriage return: " .. shown_of(caller))
     assert(caller.shown:find("connection not allowed by ruleset", 1, true), shown_of(caller))
-    assert(assert(sys.tcgetattr(caller.slave)) == caller.before, "the caller's termios was not restored")
+    assert(restored(caller), termios_note(caller, "the caller's termios was not restored"))
     finish(caller)
   end
 end
@@ -240,12 +269,12 @@ do
   local caller = new_caller()
   local child = start("echo ready\nread line", { stdin = caller.slave, stdout = caller.slave, stderr = caller.slave })
   wait_for(caller, "ready", 30)
-  assert(assert(sys.tcgetattr(caller.slave)) ~= caller.before)
+  assert(not restored(caller))
   assert(child:stop(sys.SIGTERM))
   local result = assert(child:wait())
   assert(result.signal == sys.SIGTERM, "the sandbox did not end by SIGTERM: " ..
       tostring(result.signal) .. "/" .. tostring(result.code) .. shown_of(caller))
-  assert(assert(sys.tcgetattr(caller.slave)) == caller.before, "the caller's termios was not restored")
+  assert(restored(caller), termios_note(caller, "the caller's termios was not restored"))
   finish(caller)
 end
 

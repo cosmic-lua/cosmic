@@ -105,10 +105,12 @@ else
     local pid = assert(process.spawn("/bin/sh", { "/bin/sh", "-c",
       "test -t 0 && test -t 1 && test -t 2 && printf controlling-terminal >/dev/tty" }, nil, nil,
       pty.slave, pty.slave, pty.slave, true, nil, nil, nil, (assert(sys.ttyname(pty.slave)))))
-    assert(sys.close(pty.slave))
+    -- The slave stays open until the output is read: macOS drops what the
+    -- master has not read when the last slave descriptor closes.
     assert(Poll.readable(pty.master, Clock.seconds(5)))
     assert((assert(sys.read(pty.master, 100))) == "controlling-terminal")
     assert((assert(process.waitpid(pid, false))).code == 0)
+    assert(sys.close(pty.slave))
     assert(sys.close(pty.master))
 
     pty = assert(sys.openpty())
@@ -171,21 +173,24 @@ else
     assert(sys.close(real.slave))
     assert(sys.close(real.master))
 
-    local started = assert(Child.start_on_pty(program, held_policy, { streams = { 0, 1, 2 }, rows = 30, columns = 90 }))
+    local started = assert(Child.start_on_pty(program, held_policy, { streams = { 0, 1, 2 }, rows = 30, columns = 90, keep_slave = true }))
     assert(Poll.readable(started.master, Clock.seconds(5)))
-    assert((assert(sys.read(started.master, 100))) == "held-terminal")
+    local held_said = assert(sys.read(started.master, 100))
+    assert(held_said == "held-terminal", string.format("the child wrote %q", held_said))
     assert((assert(started.child:wait())).code == 0)
+    assert(sys.close(started.slave))
     assert(sys.close(started.master))
 
     -- Only the streams named are the pty: stdout on it, stdin none (so no
     -- controlling terminal), stderr a pipe of its own.
     local mixed = assert(Child.start_on_pty({ "/bin/sh", "-c",
       "test -t 1 && ! test -t 0 && ! test -t 2 && printf out && printf err >&2" },
-      { policy = { profiles = { "system" } }, stdin = "null", stderr = "capture" }, { streams = { 1 } }))
+      { policy = { profiles = { "system" } }, stdin = "null", stderr = "capture" }, { streams = { 1 }, keep_slave = true }))
     assert(Poll.readable(mixed.master, Clock.seconds(5)))
     assert((assert(sys.read(mixed.master, 100))) == "out")
     local done = assert(mixed.child:wait())
     assert(done.code == 0 and done.stderr == "err", tostring(done.stderr))
+    assert(sys.close(mixed.slave))
     assert(sys.close(mixed.master))
   end
 end
