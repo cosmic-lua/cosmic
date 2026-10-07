@@ -29,6 +29,17 @@ local function unsandboxable(why: string): boolean
   return false
 end
 
+--- Ends the test where this host holds a child by Seatbelt, which refuses
+--- what it cannot hold in words of its own, in cosmic/child_seatbelt_test.tl:
+--- what a test reads of a refusal here is Landlock's and seccomp's, and
+--- the namespaces' advice.
+local function skip_where_seatbelt_holds(what: string)
+  if assert(sys.uname()).sysname == "Darwin" then
+    Test.skip(what .. " is answered in Landlock's and seccomp's words, which macOS does not use: " ..
+        "cosmic/child_seatbelt_test.tl has Seatbelt's")
+  end
+end
+
 --- A grant of the program itself, which a child needs to run at all.
 local function itself(program: string, more?: {Sandbox.Grant}): {Sandbox.Grant}
   local grants: {Sandbox.Grant} = { { path = program, letters = "rx" } }
@@ -70,7 +81,8 @@ end
 --- namespace, and no child runs, whatever the policy holds it to. A platform
 --- that has one runs the child, in the modules that `require` it.
 local function test_a_start_under_a_policy_is_refused_where_the_platform_has_no_sandbox(tmp: string)
-  if assert(sys.uname()).sysname == "Linux" then
+  local sysname = assert(sys.uname()).sysname
+  if sysname == "Linux" or sysname == "Darwin" then
     Test.skip("a platform with a sandbox answers this where a test requires one")
   end
   local probe = stand_in_of(tmp)
@@ -131,6 +143,7 @@ local function test_env_beside_a_policy_raises(tmp: string)
 end
 
 local function test_a_policy_that_is_not_met_fails_naming_the_field(tmp: string)
+  skip_where_seatbelt_holds("a policy that is not met")
   local probe = stand_in_of(tmp)
   local base = itself(probe)
   local function grants(): {Sandbox.Grant}
@@ -164,6 +177,7 @@ local function test_a_policy_that_does_not_merge_fails_naming_the_field(tmp: str
 end
 
 local function test_a_policy_of_too_many_grants_fails_before_it_makes_anything(tmp: string)
+  skip_where_seatbelt_holds("the most grants")
   local probe = stand_in_of(tmp)
   local before = #sandbox_directories()
   for _, count in ipairs({ 256, 300 }) do
@@ -176,6 +190,7 @@ local function test_a_policy_of_too_many_grants_fails_before_it_makes_anything(t
 end
 
 local function test_from_needs_isolate_file_and_what_is_not_met_stays_refused(tmp: string)
+  skip_where_seatbelt_holds("what is not met")
   local probe = stand_in_of(tmp)
   local function says(policy: Sandbox.Policy): string
     return refused({ probe, "print hi" }, policy)
@@ -208,6 +223,7 @@ local function nest_grants(tmp: string): {Sandbox.Grant}, string, string
 end
 
 local function test_nest_needs_isolate_file_and_says_so(tmp: string)
+  skip_where_seatbelt_holds("nest")
   local grants, probe = nest_grants(tmp)
   for _, isolate in ipairs({ {}, { "proc" } }) do
     local why = refused({ probe }, { isolate = isolate, promises = { "nest" }, grants = grants })
@@ -216,6 +232,7 @@ local function test_nest_needs_isolate_file_and_says_so(tmp: string)
 end
 
 local function test_nest_refuses_what_a_root_cannot_hold(tmp: string)
+  skip_where_seatbelt_holds("nest")
   local grants, probe, extra = nest_grants(tmp)
   local function without(letters: string, path: string): string
     return refused({ probe }, { isolate = { "file" }, promises = { "nest" },
@@ -260,6 +277,7 @@ local function place(tmp: string): string, string
 end
 
 local function test_processes_without_isolation_fails_naming_what_it_needs(tmp: string)
+  skip_where_seatbelt_holds("limits.processes")
   local probe = place(tmp)
   local why = refused({ probe, "print hi" }, { grants = { { path = probe, letters = "rx" } },
     limits = { processes = 8 } })
@@ -267,6 +285,7 @@ local function test_processes_without_isolation_fails_naming_what_it_needs(tmp: 
 end
 
 local function test_processes_above_the_callers_hard_limit_fails_naming_it(tmp: string)
+  skip_where_seatbelt_holds("limits.processes")
   local probe, work = place(tmp)
   local hard = assert(sys.getrlimit(sys.RLIMIT_NPROC)).hard
   if hard == math.maxinteger then return end

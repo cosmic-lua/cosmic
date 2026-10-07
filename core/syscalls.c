@@ -50,6 +50,7 @@ extern int clone (int (*)(void *), void *, int, void *, ...);
 #endif
 #if defined(__APPLE__)
 #include <spawn.h>
+#include <dlfcn.h>
 #include <sys/event.h>
 #include <sys/sysctl.h>
 #endif
@@ -506,6 +507,15 @@ void cosmic_raise_descriptor_limit (void) {
   descriptor_limit_raised = true;
 }
 
+/* The limits [`restore_descriptor_limit`] sets, in `limits`, without
+ * setting them: false where the start raised nothing to restore. */
+static bool restored_descriptor_limit (rlim_t least, struct rlimit *limits) {
+  if (!descriptor_limit_raised || getrlimit(RLIMIT_NOFILE, limits) != 0) return false;
+  rlim_t soft = started_descriptor_limit < least ? least : started_descriptor_limit;
+  limits->rlim_cur = soft < limits->rlim_max ? soft : limits->rlim_max;
+  return true;
+}
+
 /* Gives a program about to be exec'd the soft RLIMIT_NOFILE this
  * process started with, where the start raised it, so a host program --
  * a shell's `ulimit -n` -- sees what the user set; a relaunch of this
@@ -516,10 +526,7 @@ void cosmic_raise_descriptor_limit (void) {
  * the raised one, which harms no program. */
 static bool restore_descriptor_limit (rlim_t least) {
   struct rlimit limits;
-  if (!descriptor_limit_raised || getrlimit(RLIMIT_NOFILE, &limits) != 0) return false;
-  rlim_t soft = started_descriptor_limit < least ? least : started_descriptor_limit;
-  limits.rlim_cur = soft < limits.rlim_max ? soft : limits.rlim_max;
-  return setrlimit(RLIMIT_NOFILE, &limits) == 0;
+  return restored_descriptor_limit(least, &limits) && setrlimit(RLIMIT_NOFILE, &limits) == 0;
 }
 
 COSMIC_SYSCALL(setrlimit, 3) {
@@ -1714,6 +1721,13 @@ struct spawn_plan {
   /* The limits to set, last but the filter: `rlimit_count` of them. */
   int rlimit_count;
   const struct spawn_rlimit *rlimits;
+#if defined(__APPLE__)
+  /* The Seatbelt profile the child is held to, or NULL for none, and its
+   * parameters as `parameter_count` names and values, alternating. */
+  const char *seatbelt_profile;
+  const char *const *seatbelt_parameters;
+  int seatbelt_parameter_count;
+#endif
   int unveiling;
   int offline;
   int noexec_scratch;
@@ -2552,6 +2566,239 @@ _Noreturn void cosmic_sandbox_init (void) {
 }
 #endif
 
+#if defined(__APPLE__)
+/* Why Darwin's start has a trampoline. Seatbelt holds the process that
+ * applies a profile (sandbox_init_with_parameters), from that call on, and
+ * everything it execs; a limit and a controlling terminal are set by the
+ * process they are for as well. posix_spawn runs none of our code between
+ * its fork and the exec, and fork would: but once a process has had threads
+ * only async-signal-safe calls are allowed in its child, and compiling a
+ * profile allocates, reads the system's files and talks to its daemons.
+ * So the parent posix_spawns this very program under the name
+ * COSMIC_TRAMPOLINE ([`spawn_program`]), which `main` recognizes before it
+ * does anything else ([`cosmic_trampoline_asked`]); it is a process of its
+ * own, free to do all that, and it executes the child's program last,
+ * having applied the profile to itself: the program, and what it starts,
+ * is held by it, and the profile is never applied to the parent. The
+ * start's status pipe is handed to it, and a failure of any step -- the
+ * profile refused above all -- is written there, so the start fails and
+ * the program is never run unconfined.
+ *
+ * Its arguments, which carry everything, so no descriptor is spent on them
+ * that the program is to have, and the environment is the program's own.
+ * They show in the process table for the moment before the exec, the
+ * profile's parameters being the real paths a policy grants.
+ * TODO: hand the profile and its parameters over a pipe of their own
+ * instead of argv, once a descriptor may be spent on them past the
+ * program's own (the trampoline closes it before the exec) -- today a
+ * `ps` of the same user reads them while the trampoline runs.
+ *   0  COSMIC_TRAMPOLINE
+ *   1  the status pipe's descriptor, which is the one above the program's
+ *   2  "1" for a controlling terminal on descriptor 0, else "0"
+ *   3  the soft RLIMIT_NOFILE to give the program back, or "-" for none
+ *   4  how many limits follow
+ *   5  how many words of parameters follow, their names and values alternating
+ *   6  the profile's text, or "" for none
+ *   then each limit as its resource and its value, each parameter as its
+ *   name and its value, the program's path and its own arguments. */
+#define TRAMPOLINE_LIMITS 7
+#define TRAMPOLINE_LEAST 9
+
+/* Past every RLIMIT_ resource Darwin has (the most is 9): setrlimit's own EINVAL
+ * answers one in between, and this keeps the cast to `int` honest. */
+#define TRAMPOLINE_RESOURCE_MAX 32
+
+/* The most of a refusal's text the status pipe carries. */
+#define TRAMPOLINE_MESSAGE_MAX 480
+
+/* `text` as the whole of an unsigned decimal number. */
+static bool trampoline_number (const char *text, unsigned long long *into) {
+  if (text[0] < '0' || text[0] > '9') return false;
+  char *end;
+  errno = 0;
+  *into = strtoull(text, &end, 10);
+  return errno == 0 && *end == '\0';
+}
+
+bool cosmic_trampoline_asked (int argc, char **argv) {
+  unsigned long long status;
+  struct stat held;
+  return argc >= TRAMPOLINE_LEAST && strcmp(argv[0], COSMIC_TRAMPOLINE) == 0 &&
+         trampoline_number(argv[1], &status) && status <= (unsigned long long)CHILD_FD_MAX + 1 &&
+         fstat((int)status, &held) == 0 && S_ISFIFO(held.st_mode);
+}
+
+/* Writes the whole of `bytes` to `fd`, as far as it can be. */
+static bool trampoline_write (int fd, const void *bytes, size_t length) {
+  const char *at = bytes;
+  while (length > 0) {
+    ssize_t put = write(fd, at, length);
+    if (put < 0 && errno == EINTR) continue;
+    if (put <= 0) return false;
+    at += put;
+    length -= (size_t)put;
+  }
+  return true;
+}
+
+/* A trampoline's failure, which ends it: the errno and then, where there
+ * is one, the text of the refusal, on the status pipe, which the parent
+ * reads to its end (the spawn binding). Where the pipe cannot be
+ * written the parent would take the start for a success, so the trampoline
+ * kills itself instead, and the program is a child that died of a signal
+ * and never ran. */
+static _Noreturn void trampoline_fail (int status, int number, const char *message) {
+  if (!trampoline_write(status, &number, sizeof number)) {
+    cosmic_coverage_report();
+    kill(getpid(), SIGKILL);
+    _exit(127);
+  }
+  if (message != NULL) {
+    size_t length = strlen(message);
+    trampoline_write(status, message, length < TRAMPOLINE_MESSAGE_MAX ? length : TRAMPOLINE_MESSAGE_MAX);
+  }
+  cosmic_coverage_report();
+  _exit(127);
+}
+
+/* The system's own symbol `name`, which libSystem carries but no header
+ * the build has declares, as an address. */
+static void *seatbelt_symbol (const char *name) {
+  return dlsym(RTLD_DEFAULT, name);
+}
+
+typedef int (*seatbelt_init_function) (const char *profile, uint64_t flags,
+                                       const char *const parameters[], char **error);
+typedef void (*seatbelt_free_function) (char *error);
+
+/* libsystem_sandbox's private sandbox_init_with_parameters, or NULL where
+ * this system has none. Found at run time, so the build needs no SDK
+ * header for it, and where it is not found a start that needs it fails
+ * rather than runs unconfined.
+ * TODO: fall back to /usr/bin/sandbox-exec, which applies a profile and
+ * executes a program too, once a macOS release is seen to lack the symbol:
+ * every release the macOS leg runs on has it. A refusal of a profile is
+ * never retried either way. */
+static seatbelt_init_function seatbelt_init (void) {
+  void *symbol = seatbelt_symbol("sandbox_init_with_parameters");
+  seatbelt_init_function function = NULL;
+  memcpy(&function, &symbol, sizeof function);
+  return function;
+}
+
+static seatbelt_free_function seatbelt_release (void) {
+  void *symbol = seatbelt_symbol("sandbox_free_error");
+  seatbelt_free_function function = NULL;
+  memcpy(&function, &symbol, sizeof function);
+  return function;
+}
+
+_Noreturn void cosmic_trampoline (int argc, char **argv) {
+  cosmic_coverage_prepare();
+  unsigned long long number = 0, terminal = 0, restore = 0, limit_count = 0, parameter_count = 0;
+  /* [`cosmic_trampoline_asked`] found the descriptor to be a number. */
+  trampoline_number(argv[1], &number);
+  int status = (int)number;
+  int failure = 0;
+  char message[TRAMPOLINE_MESSAGE_MAX + 1];
+  message[0] = '\0';
+  bool restoring = strcmp(argv[3], "-") != 0;
+  if (!trampoline_number(argv[2], &terminal) || (restoring && !trampoline_number(argv[3], &restore)) ||
+      !trampoline_number(argv[4], &limit_count) || !trampoline_number(argv[5], &parameter_count) ||
+      limit_count > SPAWN_RLIMIT_MAX || parameter_count > 2 * SEATBELT_PARAMETER_MAX)
+    failure = EINVAL;
+  size_t first_parameter = TRAMPOLINE_LIMITS + 2 * (size_t)limit_count;
+  size_t program = first_parameter + (size_t)parameter_count;
+  if (!failure && (size_t)argc < program + 1) failure = EINVAL;
+  /* Closed when the program is executed, so the parent's read of the pipe
+   * ends then; any other descriptor of this process is the program's. */
+  if (!failure && fcntl(status, F_SETFD, FD_CLOEXEC) != 0) failure = errno;
+  /* Which step failed, in the text the parent reads with the errno. */
+  const char *step = "";
+  if (!failure && terminal) {
+    step = "terminal";
+    if (setsid() < 0) failure = errno;
+    else if (ioctl(0, TIOCSCTTY, 0) != 0) failure = errno;
+    /* Darwin may take the ioctl and still leave /dev/tty unconfigured (ENXIO);
+     * a session leader's open of the terminal, without O_NOCTTY, makes it
+     * the controlling one as BSD has it, and the program is refused its
+     * start where it still has none. */
+    if (!failure) {
+      int probe = open("/dev/tty", O_RDWR | O_NOCTTY);
+      if (probe < 0) {
+        const char *name = ttyname(0);
+        int again = name != NULL ? open(name, O_RDWR) : -1;
+        if (again >= 0) close(again);
+        probe = open("/dev/tty", O_RDWR | O_NOCTTY);
+      }
+      if (probe < 0) failure = errno != 0 ? errno : ENXIO;
+      else close(probe);
+    }
+  }
+  /* As a Linux child does, in this order: the descriptor limit the program
+   * started with, then the limits it is held to. */
+  if (!failure && restoring) {
+    step = "setrlimit";
+    struct rlimit limits;
+    if (getrlimit(RLIMIT_NOFILE, &limits) != 0) {
+      failure = errno;
+    } else {
+      limits.rlim_cur = (rlim_t)restore < limits.rlim_max ? (rlim_t)restore : limits.rlim_max;
+      if (setrlimit(RLIMIT_NOFILE, &limits) != 0) failure = errno;
+    }
+  }
+  for (unsigned long long i = 0; !failure && i < limit_count; i++) {
+    unsigned long long resource, value;
+    step = "setrlimit";
+    if (!trampoline_number(argv[TRAMPOLINE_LIMITS + 2 * i], &resource) ||
+        !trampoline_number(argv[TRAMPOLINE_LIMITS + 2 * i + 1], &value) ||
+        resource >= TRAMPOLINE_RESOURCE_MAX) {
+      failure = EINVAL;
+    } else {
+      struct rlimit limits = { .rlim_cur = (rlim_t)value, .rlim_max = (rlim_t)value };
+      if (setrlimit((int)resource, &limits) != 0) failure = errno;
+    }
+  }
+  /* The program reports the C it runs to a test, which the profile may
+   * not let it write: so the coverage of what is run here is reported
+   * before the profile, which every line of this function up to now has
+   * entered, and the environment it is given carries the report's name. */
+  char **given = COSMIC_ENVIRON;
+  if (!failure) given = cosmic_coverage_environment(COSMIC_ENVIRON);
+  cosmic_coverage_report();
+  const char *profile = argv[6];
+  if (!failure && profile[0] != '\0') {
+    step = "sandbox_init_with_parameters";
+    seatbelt_init_function init = seatbelt_init();
+    if (init == NULL) {
+      failure = ENOSYS;
+      snprintf(message, sizeof message, "sandbox_init_with_parameters is missing");
+    } else {
+      /* Names and values, alternating, then NULL. */
+      const char *parameters[2 * SEATBELT_PARAMETER_MAX + 1];
+      for (size_t i = 0; i < (size_t)parameter_count; i++) parameters[i] = argv[first_parameter + i];
+      parameters[parameter_count] = NULL;
+      char *error = NULL;
+      errno = 0;
+      if (init(profile, 0, parameters, &error) != 0) {
+        failure = errno != 0 ? errno : EINVAL;
+        snprintf(message, sizeof message, "sandbox_init_with_parameters: %s",
+                 error != NULL ? error : "refused the profile");
+        seatbelt_free_function release = seatbelt_release();
+        if (error != NULL && release != NULL) release(error);
+      }
+    }
+  }
+  if (!failure) {
+    step = "execve";
+    execve(argv[program], argv + program + 1, given);
+    failure = errno;
+  }
+  if (message[0] == '\0' && step[0] != '\0') snprintf(message, sizeof message, "%s", step);
+  trampoline_fail(status, failure, message[0] != '\0' ? message : NULL);
+}
+#endif
+
 #if !defined(__linux__)
 /* Darwin's start ([`start_child`]): posix_spawn, given as its attributes
  * and file actions what Linux's child does itself before exec
@@ -2566,11 +2813,23 @@ _Noreturn void cosmic_sandbox_init (void) {
  * own target is moved from a copy, as a dup2 onto itself may leave
  * CLOEXEC set. The kernel takes these steps in the child, which shares nothing
  * of this process's memory, and answers an exec's failure as
- * posix_spawn's own, so the status pipe is never written. The child's
+ * posix_spawn's own, so the status pipe is never written -- but for a
+ * start that needs a step posix_spawn has none for: a controlling
+ * terminal, limits, a Seatbelt profile. That one starts this program as
+ * a trampoline instead ([`cosmic_trampoline`]), handed the status pipe,
+ * which executes the program last and reports there what stopped it; its
+ * session replaces the process group. The child's
  * pid, or -1 and the errno in `error`. */
 static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
   /* Darwin has neither Landlock nor seccomp. */
-  if (plan->confine >= 0 || plan->pledged || plan->promising || plan->rlimit_count > 0) {
+  if (plan->confine >= 0 || plan->pledged || plan->promising) {
+    *error = ENOSYS;
+    return -1;
+  }
+  bool trampolined = plan->terminal || plan->rlimit_count > 0 || plan->seatbelt_profile != NULL;
+  /* A profile is applied by the system's own call, found before the child
+   * starts so that a system without it fails the start here, ENOSYS. */
+  if (plan->seatbelt_profile != NULL && seatbelt_init() == NULL) {
     *error = ENOSYS;
     return -1;
   }
@@ -2611,6 +2870,61 @@ static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
       if (pinned[t] < 0) failure = errno;
     }
   }
+  /* A trampoline start runs this program's core, as the system has it
+   * (the launcher a script or artifact names is none), with the arguments
+   * [`cosmic_trampoline`] reads, and each is made here, where this process
+   * may allocate: a number of its own for the descriptor, the limit to
+   * give the program back, and each limit. */
+  const char *launch = path;
+  char *const *launch_argv = plan->argv;
+  char **words = NULL;
+  char core[PATH_MAX];
+  char numbers[5 + 2 * SPAWN_RLIMIT_MAX][24];
+  if (!failure && trampolined) {
+    size_t count = 0;
+    while (plan->argv[count] != NULL) count++;
+    size_t room = TRAMPOLINE_LIMITS + 2 * (size_t)plan->rlimit_count +
+                  (size_t)plan->seatbelt_parameter_count + 1 + count + 1;
+    errno = 0;
+    words = calloc(room, sizeof *words);
+    if (words == NULL) {
+      failure = ENOMEM;
+    } else if (!cosmic_executable_path(core, sizeof core)) {
+      failure = errno != 0 ? errno : ENAMETOOLONG;
+    } else {
+      /* The limit the program started with comes back to it, as its
+       * limit would be where [`restore_descriptor_limit`] lowers this
+       * process's own for a start that has no trampoline. */
+      struct rlimit restored;
+      bool restoring = restored_descriptor_limit((rlim_t)top + 1, &restored);
+      snprintf(numbers[0], sizeof numbers[0], "%d", top + 1);
+      if (restoring)
+        snprintf(numbers[1], sizeof numbers[1], "%llu", (unsigned long long)restored.rlim_cur);
+      snprintf(numbers[2], sizeof numbers[2], "%d", plan->rlimit_count);
+      snprintf(numbers[3], sizeof numbers[3], "%d", plan->seatbelt_parameter_count);
+      size_t at = 0;
+      words[at++] = (char *)COSMIC_TRAMPOLINE;
+      words[at++] = numbers[0];
+      words[at++] = (char *)(plan->terminal ? "1" : "0");
+      words[at++] = restoring ? numbers[1] : (char *)"-";
+      words[at++] = numbers[2];
+      words[at++] = numbers[3];
+      words[at++] = (char *)(plan->seatbelt_profile != NULL ? plan->seatbelt_profile : "");
+      for (int i = 0; i < plan->rlimit_count; i++) {
+        char *resource = numbers[4 + 2 * i], *value = numbers[5 + 2 * i];
+        snprintf(resource, sizeof numbers[0], "%d", plan->rlimits[i].resource);
+        snprintf(value, sizeof numbers[0], "%llu", (unsigned long long)plan->rlimits[i].value);
+        words[at++] = resource;
+        words[at++] = value;
+      }
+      for (int i = 0; i < plan->seatbelt_parameter_count; i++)
+        words[at++] = (char *)plan->seatbelt_parameters[i];
+      words[at++] = (char *)path;
+      for (size_t i = 0; i < count; i++) words[at++] = plan->argv[i];
+      launch = core;
+      launch_argv = words;
+    }
+  }
   pid_t pid = -1;
   posix_spawn_file_actions_t actions;
   posix_spawnattr_t attributes;
@@ -2619,7 +2933,7 @@ static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
     failure = posix_spawnattr_init(&attributes);
     if (!failure) {
       int flags = POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGMASK;
-      if (plan->process_group) flags |= POSIX_SPAWN_SETPGROUP;
+      if (plan->process_group && !plan->terminal) flags |= POSIX_SPAWN_SETPGROUP;
       if (sigpipe_ignored_here) flags |= POSIX_SPAWN_SETSIGDEF;
       sigset_t defaults;
       sigemptyset(&defaults);
@@ -2643,6 +2957,10 @@ static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
           else if (errno != EBADF) failure = errno;
         }
       }
+      /* A trampoline holds the status pipe, above the program's own
+       * descriptors where the program has none ([`cosmic_trampoline`]). */
+      if (!failure && trampolined)
+        failure = posix_spawn_file_actions_adddup2(&actions, plan->status_write, top + 1);
       /* posix_spawn has no step for a limit: the child inherits this
        * process's, lowered for the call alone, across which this one
        * thread opens nothing. The kernel's dup2 refuses a target at or
@@ -2652,18 +2970,23 @@ static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
        * limit it started with, which its own host programs get, not the
        * user's: the user's would refuse it the descriptor it is handed.
        * A raise back that is refused leaves this process at the lowered
-       * limit, which its children then get as it is. */
-      if (!failure) {
+       * limit, which its children then get as it is. A trampoline is
+       * handed the limit to lower itself to instead, before it applies
+       * the profile, whose own work opens files. */
+      if (!failure && trampolined) {
+        failure = posix_spawn(&pid, launch, &actions, &attributes, launch_argv, plan->envp);
+      } else if (!failure) {
         struct rlimit raised;
         bool lowered = getrlimit(RLIMIT_NOFILE, &raised) == 0 &&
                        restore_descriptor_limit((rlim_t)top + 1);
-        failure = posix_spawn(&pid, path, &actions, &attributes, plan->argv, plan->envp);
+        failure = posix_spawn(&pid, launch, &actions, &attributes, launch_argv, plan->envp);
         if (lowered && setrlimit(RLIMIT_NOFILE, &raised) != 0) descriptor_limit_raised = false;
       }
       posix_spawnattr_destroy(&attributes);
     }
     posix_spawn_file_actions_destroy(&actions);
   }
+  free(words);
   for (int t = 0; t <= top; t++) {
     if (pinned[t] >= 0) close(pinned[t]);
   }
@@ -3599,8 +3922,12 @@ COSMIC_SYSCALL(spawn, 12) {
   if (!lua_isnoneornil(L, 12)) luaL_checktype(L, 12, LUA_TBOOLEAN);
   int terminal = lua_toboolean(L, 12);
 #if defined(__APPLE__)
-  /* TODO: set up a controlling terminal in the shared pre-exec trampoline
-   * once Seatbelt adds that step to the Darwin child start. */
+  /* TODO: give a Darwin child a controlling terminal, and drop this refusal,
+   * once one survives the trampoline's exec: on the macOS leg the trampoline's
+   * setsid and TIOCSCTTY (and an open of the terminal, as BSD has a session
+   * leader acquire one) left /dev/tty usable in the trampoline, yet the
+   * program it executed had none (ps showed TTY "??" and an open of /dev/tty
+   * was ENXIO), though its descriptor 0 was the terminal. */
   if (terminal) return cosmic_fail(L, ENOSYS);
 #endif
   int top = 2;
@@ -3646,6 +3973,13 @@ COSMIC_SYSCALL(spawn, 12) {
   char idmap_path[PATH_MAX];
   idmap_path[0] = '\0';
   int idmapping = 0;
+#if defined(__APPLE__)
+  /* Where the profile's text and its parameters, names and values
+   * alternating, are: in the strings of the tables given. */
+  const char *seatbelt_profile = NULL;
+  const char *seatbelt_words[2 * SEATBELT_PARAMETER_MAX];
+  int seatbelt_count = 0;
+#endif
   int strict = 0, proc_only = 0;
   unsigned sockets = 0;
   unsigned long tmp_bytes = 0;
@@ -3725,6 +4059,39 @@ COSMIC_SYSCALL(spawn, 12) {
     if (!lua_isnil(L, -1)) {
       if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "rlimits must be a table");
       rlimit_count = read_rlimits(L, lua_gettop(L), 10, rlimits);
+    }
+    lua_pop(L, 1);
+    lua_pushliteral(L, "seatbelt");
+    lua_rawget(L, 10);
+    if (!lua_isnil(L, -1)) {
+#if defined(__APPLE__)
+      if (!lua_istable(L, -1))
+        return luaL_argerror(L, 10, "seatbelt must be a table of a profile and its parameters");
+      lua_pushliteral(L, "profile");
+      lua_rawget(L, -2);
+      seatbelt_profile = plain_string(L, -1, "a seatbelt profile");
+      if (seatbelt_profile[0] == '\0') return luaL_argerror(L, 10, "a seatbelt profile is empty");
+      lua_pushliteral(L, "parameters");
+      lua_rawget(L, -3);
+      if (!lua_isnil(L, -1)) {
+        if (!lua_istable(L, -1))
+          return luaL_argerror(L, 10, "a seatbelt's parameters are a table of names and values");
+        lua_pushnil(L);
+        while (lua_next(L, -2) != 0) {
+          if (lua_type(L, -2) != LUA_TSTRING)
+            return luaL_argerror(L, 10, "a seatbelt parameter's name must be a string");
+          if (seatbelt_count >= 2 * SEATBELT_PARAMETER_MAX)
+            return luaL_argerror(L, 10, "too many seatbelt parameters");
+          seatbelt_words[seatbelt_count++] = plain_string(L, -2, "a seatbelt parameter's name");
+          seatbelt_words[seatbelt_count++] = plain_string(L, -1, "a seatbelt parameter's value");
+          lua_pop(L, 1);
+        }
+      }
+      lua_pop(L, 2);
+#else
+      return luaL_argerror(L, 10, "seatbelt is macOS's: this system holds a child by Landlock "
+                           "and seccomp");
+#endif
     }
     lua_pop(L, 1);
     lua_pushliteral(L, "grants");
@@ -4030,9 +4397,10 @@ COSMIC_SYSCALL(spawn, 12) {
    * that limit past macOS's default of 256
    * ([`cosmic_raise_descriptor_limit`]); a hard limit that low still
    * refuses a relaunch, which cosmic.child's `start` says. Darwin's
-   * start never writes the pipe ([`spawn_program`]), whose read ends at
-   * once there; it is made all the same, so a start meets the limit
-   * where it does on Linux and the count holds on both. */
+   * start writes the pipe only from a trampoline ([`spawn_program`]), and
+   * otherwise its read ends at once there; it is made all the same, so a
+   * start meets the limit where it does on Linux and the count holds on
+   * both. */
   int promote_error = 0;
   int status_read = fcntl(status_pipe[0], F_DUPFD_CLOEXEC, top + 2);
   if (status_read < 0) promote_error = errno;
@@ -4270,6 +4638,10 @@ COSMIC_SYSCALL(spawn, 12) {
 #endif
     .promising = promising, .promises = promise_bits, .held = held,
     .rlimit_count = rlimit_count, .rlimits = rlimits,
+#if defined(__APPLE__)
+    .seatbelt_profile = seatbelt_profile, .seatbelt_parameters = seatbelt_words,
+    .seatbelt_parameter_count = seatbelt_count,
+#endif
     .unveiling = unveiling, .offline = offline, .noexec_scratch = noexec_scratch,
     .strict = strict, .proc_only = proc_only, .tmp_bytes = tmp_bytes, .tmp_exec = tmp_exec, .unix_guard = unix_guard,
     .unveiled_unix = unveiled_unix,
@@ -4372,6 +4744,18 @@ COSMIC_SYSCALL(spawn, 12) {
     read_error = errno;
     break;
   }
+#if defined(__APPLE__)
+  /* A trampoline that was refused says why after the errno
+   * ([`trampoline_fail`]), and ends: its text is read to the end. */
+  char detail[TRAMPOLINE_MESSAGE_MAX + 1];
+  size_t detail_length = 0;
+  while (received == sizeof child_error && child_error != 0 && detail_length < TRAMPOLINE_MESSAGE_MAX) {
+    ssize_t got = read(status_read, detail + detail_length, TRAMPOLINE_MESSAGE_MAX - detail_length);
+    if (got > 0) { detail_length += (size_t)got; continue; }
+    if (got < 0 && errno == EINTR) continue;
+    break;
+  }
+#endif
   close(status_read);
   if (root_dir[0] != '\0') rmdir(root_dir);
   if (received != 0 || read_error != 0 || pid < 0) {
@@ -4388,6 +4772,14 @@ COSMIC_SYSCALL(spawn, 12) {
       lua_pushnil(L);
       lua_pushstring(L, message);
       lua_pushinteger(L, number & ((1 << STAGE_SHIFT) - 1));
+      return 3;
+    }
+#endif
+#if defined(__APPLE__)
+    if (detail_length > 0) {
+      lua_pushnil(L);
+      lua_pushlstring(L, detail, detail_length);
+      lua_pushinteger(L, number);
       return 3;
     }
 #endif

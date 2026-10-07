@@ -3,6 +3,9 @@ local Seatbelt = require("cosmic.seatbelt")
 
 local BASE <const> = [[(version 1)
 (deny default)
+(allow file-read-metadata)
+(allow file-read-data (literal (param "ROOT")))
+(allow sysctl-read)
 (allow signal (target self))
 (allow process-info-pidinfo (target self))
 ]]
@@ -14,7 +17,9 @@ end
 local function test_empty_policy_denies_every_file_network_and_process_fork()
   local out = compile({})
   assert(out.text == BASE, out.text)
-  assert(next(out.parameters) == nil)
+  local held = 0
+  for _, _ in pairs(out.parameters) do held = held + 1 end
+  assert(out.parameters.ROOT == "/" and held == 1)
   assert(out.rlimits.nofile == 1024 and out.rlimits.core == 0)
   assert((assert(Seatbelt.compile({}))).text == BASE)
 end
