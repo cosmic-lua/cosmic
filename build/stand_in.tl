@@ -74,6 +74,8 @@
 ---                      `sys.exit`, past what would end it
 ---     fd-closed N      ends with status 1 unless descriptor N is
 ---                      closed, and 2 when N names no descriptor
+---     sockets-open     `sockets` and how many descriptors from 3 up are
+---                      sockets, a line to stdout
 ---     write-fd N T     T and a newline, to descriptor N
 ---     env-of NAME      `NAME=` and the variable's value, or `NAME unset`,
 ---                      and a newline, to stdout: unlike `$NAME`, it
@@ -91,6 +93,8 @@
 ---                      a line to stdout
 ---     connect-tcp H P  connects to port P of numeric host H, as
 ---                      `connect` does
+---     bind-tcp H P     listens on port P of numeric host H and closes it,
+---                      saying `bound` or why not, a line to stdout
 ---     loopback-tcp H   listens on a port of numeric host H, connects to
 ---                      it and accepts the connection, saying `connected`
 ---                      or why not, a line to stdout

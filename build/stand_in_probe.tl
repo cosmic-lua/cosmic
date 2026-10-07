@@ -296,6 +296,15 @@ local verbs: {string:function(string, string): integer} = {
     if open ~= nil then return 1 end
     return nil
   end,
+  ["sockets-open"] = function(): integer
+    local count = 0
+    for fd = 3, 1023 do
+      -- fstat raises for the retained artifact descriptor, which is no socket.
+      local ok, stat = pcall(sys.fstat, fd)
+      if ok and stat ~= nil and stat.mode & 0xF000 == 0xC000 then count = count + 1 end
+    end
+    return put_all(1, "sockets " .. count .. "\n")
+  end,
   ["write-fd"] = function(word: string, text: string): integer
     local fd = number(word)
     if fd == nil or fd < 0 then return failed("write-fd", "no descriptor " .. word) end
@@ -352,6 +361,16 @@ local verbs: {string:function(string, string): integer} = {
     if conn == nil then return put_all(1, trouble .. "\n") end
     local _, _ = conn:close()
     return put_all(1, "connected\n")
+  end,
+  ["bind-tcp"] = function(host: string, word: string): integer
+    local port = number(word)
+    if port == nil or port < 0 or port > 65535 then
+      return failed("bind-tcp", "no port " .. word)
+    end
+    local server, trouble = Net.listen(Net.tcp(host, port), { timeout_ns = Time.seconds(5) })
+    if server == nil then return put_all(1, trouble .. "\n") end
+    local _, _ = server:close()
+    return put_all(1, "bound\n")
   end,
   ["loopback-tcp"] = function(host: string): integer
     local server, trouble = Net.listen(Net.tcp(host, 0), { timeout_ns = Time.seconds(5) })

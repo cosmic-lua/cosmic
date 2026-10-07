@@ -21,6 +21,7 @@
 #include <sys/mman.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
+#include <netinet/in.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <sys/ioctl.h>
@@ -1260,6 +1261,7 @@ enum {
   STAGE_ROOT,          /* the root's mounts */
   STAGE_IDMAP,         /* an idmapped mount of a path, which the plan's `idmap_failed` names */
   STAGE_KIND,          /* a path bound that is a directory or socket the start did not see */
+  STAGE_RELAY,         /* the relay's listeners: made, bound, or handed over the channel */
   STAGE_SHIFT = 16,
 };
 
@@ -1290,6 +1292,11 @@ static void staged_message (int stage, int number, const char *path, char *messa
              "became a directory, or a socket no `u` grant names), which would let the program "
              "reach what a host process put there: it is refused, not an error of the file "
              "system (%s)", what);
+  } else if (stage == STAGE_RELAY) {
+    snprintf(message, room,
+             "the relay's listeners could not be made in this sandbox's network namespace (%s): "
+             "a socket, a bind of 127.0.0.1 at one of the ports given (the two must differ), a "
+             "listen, or the send of both descriptors over the channel failed", what);
   } else if (stage == STAGE_PROC) {
     snprintf(message, room,
              "this sandbox's own /proc was refused (%s): a container's runtime masks parts of "
@@ -1347,6 +1354,67 @@ static int loopback_up (void) {
   close(pair[0]);
   close(pair[1]);
   return number;
+}
+
+/* In the child, in the network namespace it has just made its own
+ * ([`loopback_up`]) and before any ruleset or filter holds it: listens on
+ * 127.0.0.1 at each of `ports`, and sends both descriptors in one message
+ * over `channel`, the parent's end of a stream socketpair, pinned above
+ * the descriptors the program is handed, which this closes whatever the
+ * outcome. The listeners are the sandbox's own, so a program there
+ * reaches them at those ports, and whoever holds the other end of the
+ * channel accepts what it connects. It allocates nothing, as a child that
+ * shares the parent's memory must not. 0, or an errno staged as
+ * STAGE_RELAY, which the parent names whether or not the start is strict. */
+static int relay_listeners (int channel, const int *ports) {
+  int fds[2] = { -1, -1 };
+  int number = 0;
+  for (int i = 0; !number && i < 2; i++) {
+    fds[i] = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if (fds[i] < 0) {
+      number = errno;
+      break;
+    }
+    struct sockaddr_in address;
+    memset(&address, 0, sizeof address);
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    address.sin_port = htons((uint16_t)ports[i]);
+    if (bind(fds[i], (const struct sockaddr *)&address, sizeof address) != 0 ||
+        listen(fds[i], SOMAXCONN) != 0)
+      number = errno;
+  }
+  if (!number) {
+    union {
+      struct cmsghdr alignment;
+      unsigned char bytes[CMSG_SPACE(2 * sizeof(int))];
+    } control;
+    memset(&control, 0, sizeof control);
+    char marker = '\0';
+    struct iovec payload = { &marker, 1 };
+    struct msghdr message;
+    memset(&message, 0, sizeof message);
+    message.msg_iov = &payload;
+    message.msg_iovlen = 1;
+    message.msg_control = control.bytes;
+    message.msg_controllen = (socklen_t)CMSG_SPACE(2 * sizeof(int));
+    struct cmsghdr *rights = CMSG_FIRSTHDR(&message);
+    rights->cmsg_level = SOL_SOCKET;
+    rights->cmsg_type = SCM_RIGHTS;
+    rights->cmsg_len = (socklen_t)CMSG_LEN(2 * sizeof(int));
+    memcpy(CMSG_DATA(rights), fds, sizeof fds);
+    ssize_t sent;
+    do {
+      sent = sendmsg(channel, &message, MSG_NOSIGNAL);
+    } while (sent < 0 && errno == EINTR);
+    if (sent < 0) number = errno;
+    else if (sent != 1) number = EPROTO;
+  }
+  for (int i = 0; i < 2; i++) {
+    if (fds[i] >= 0) close(fds[i]);
+  }
+  close(channel);
+  return staged(1, STAGE_RELAY, number);
 }
 
 /* Whether this process is in a user namespace other than the host's:
@@ -1656,15 +1724,20 @@ static int mount_proc_only (int *own) {
 /* In a child that is `offline` and unveils nothing, before anything
  * else of the sandbox: a user namespace of its own, mapping its user
  * and group to themselves, and a network namespace of its own, which
- * has nothing but a loopback, brought up; then it gives up every
- * capability they gave it. It keeps the host's pid namespace, as it
+ * has nothing but a loopback, brought up, where it makes the relay's
+ * listeners if it has a channel for them ([`relay_listeners`]); then it
+ * gives up every capability they gave it. It keeps the host's pid namespace, as it
  * keeps the host's filesystem and /proc with it. 0, or an errno. */
-static int go_offline (int unmap_root, const char *uid_map, const char *gid_map, int strict) {
+static int go_offline (int unmap_root, const char *uid_map, const char *gid_map, int strict,
+                       int relayed, const int *relay_ports) {
   if (syscall(SYS_unshare, CLONE_NEWUSER | CLONE_NEWNET) != 0)
     return staged(strict, STAGE_NAMESPACE, errno);
   int mapped = 1;
   int number = map_ids(unmap_root, uid_map, gid_map, &mapped);
   if (number == 0) number = loopback_up();
+  /* A failure of the namespace is its stage's; the relay's is already staged. */
+  if (number != 0) return staged(strict, STAGE_NAMESPACE, number);
+  if (relayed >= 0) number = relay_listeners(relayed, relay_ports);
   if (number == 0) number = drop_capabilities();
   return staged(strict, STAGE_NAMESPACE, number);
 }
@@ -1731,6 +1804,11 @@ struct spawn_plan {
   int unveiling;
   int offline;
   int noexec_scratch;
+  /* With `offline`, the relay's channel (a parent descriptor, or -1 for
+   * no relay) and the two ports its listeners are bound at
+   * ([`relay_listeners`]). */
+  int relay_channel;
+  int relay_ports[2];
   /* A policy's sandbox ([`staged`], [`build_root`]): the child gives its
    * failures' stages, and its own procfs and tmpfs are Landlock-granted
    * ([`own_rules`]). */
@@ -2302,7 +2380,7 @@ static int idmapped_tree (const struct spawn_plan *plan, const char *path, int t
  * reads then ends, once the program's copy of it is closed at exec. A
  * failure goes to the parent over `status_fd` as an errno. */
 static _Noreturn void start_unveiled (const struct spawn_plan *plan, const int *pinned,
-                                      int confined, int status_fd) {
+                                      int confined, int relayed, int status_fd) {
   struct sandbox_start start = { plan, pinned, confined, status_fd, 1, -1, -1, -1, 0 };
   int top = plan->top;
   /* Each descriptor raised above `top` here is counted in
@@ -2365,6 +2443,7 @@ static _Noreturn void start_unveiled (const struct spawn_plan *plan, const int *
     failure = staged(plan->strict, STAGE_NAMESPACE,
                      map_ids(plan->unmap_root, plan->uid_map, plan->gid_map, &start.mapped));
   if (!failure && plan->offline) failure = staged(plan->strict, STAGE_NAMESPACE, loopback_up());
+  if (!failure && relayed >= 0) failure = relay_listeners(relayed, plan->relay_ports);
   if (!failure)
     failure = raise_descriptor(open("/proc/self/exe", O_RDONLY | O_CLOEXEC), top, &start.exe);
   int started[2] = { -1, -1 }, ready[2] = { -1, -1 };
@@ -2460,6 +2539,12 @@ static _Noreturn int spawn_child (void *argument) {
     confined = fcntl(plan->confine, F_DUPFD_CLOEXEC, top + 2);
     if (confined < 0) failure = errno;
   }
+  /* The relay's channel too, which [`relay_listeners`] closes. */
+  int relayed = -1;
+  if (!failure && plan->relay_channel >= 0) {
+    relayed = fcntl(plan->relay_channel, F_DUPFD_CLOEXEC, top + 2);
+    if (relayed < 0) failure = errno;
+  }
   /* The exec-status descriptor sits just above the child's own. */
   int status_fd = plan->status_write;
   if (!failure && status_fd != top + 1) {
@@ -2477,8 +2562,9 @@ static _Noreturn int spawn_child (void *argument) {
   }
   /* The sandbox's own namespaces first: the root the rest resolves in,
    * and mounting, which Landlock and a pledge would refuse. */
-  if (plan->unveiling) start_unveiled(plan, pinned, confined, status_fd);
-  if (plan->offline && (failure = go_offline(plan->unmap_root, plan->uid_map, plan->gid_map, plan->strict)) != 0) {
+  if (plan->unveiling) start_unveiled(plan, pinned, confined, relayed, status_fd);
+  if (plan->offline && (failure = go_offline(plan->unmap_root, plan->uid_map, plan->gid_map,
+                                              plan->strict, relayed, plan->relay_ports)) != 0) {
     report_child_error(status_fd, failure);
     _exit(127);
   }
@@ -3959,6 +4045,8 @@ COSMIC_SYSCALL(spawn, 12) {
   const char *unveiled_at[UNVEIL_MAX];
   int unveiled_writable[UNVEIL_MAX];
   int unveiling = 0, unveil_count = 0, offline = 0, noexec_scratch = 0;
+  int host_network = 0, relay_channel = -1;
+  int relay_ports[2] = { 3128, 1080 };
   int unveiled_noexec[UNVEIL_MAX];
   int unveiled_idmap[UNVEIL_MAX];
   int idmap_fds[UNVEIL_MAX];
@@ -4232,6 +4320,55 @@ COSMIC_SYSCALL(spawn, 12) {
     lua_rawget(L, 10);
     offline = lua_toboolean(L, -1);
     lua_pop(L, 1);
+    lua_pushliteral(L, "host_network");
+    lua_rawget(L, 10);
+    if (!lua_isnil(L, -1) && !lua_isboolean(L, -1))
+      return luaL_argerror(L, 10, "host_network must be a boolean");
+    /* TODO: drop host_network from the relay once a separate resolver
+     * helper and a pre-started range-table connector serve it, so the relay
+     * process holds no inet socket in the host's network: the TODO at
+     * Net.connector in cosmic/net.tl (serve names resolved at connect time
+     * from one process) waits on the same range table. */
+    host_network = lua_toboolean(L, -1);
+    lua_pop(L, 1);
+    lua_pushliteral(L, "relay");
+    lua_rawget(L, 10);
+    if (!lua_isnil(L, -1)) {
+      if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "relay must be a table");
+      lua_pushliteral(L, "fd");
+      lua_rawget(L, -2);
+      if (!lua_isinteger(L, -1)) return luaL_argerror(L, 10, "relay's fd must be a descriptor");
+      lua_Integer channel = lua_tointeger(L, -1);
+      /* Below 3 it would be a stdio descriptor the child may leave inherited. */
+      if (channel < 3 || channel > INT_MAX)
+        return luaL_argerror(L, 10, "relay's fd is out of range: 3 or more");
+      cosmic_argfd(L, 10, channel);
+      relay_channel = (int)channel;
+      lua_pop(L, 1);
+      lua_pushliteral(L, "ports");
+      lua_rawget(L, -2);
+      if (!lua_isnil(L, -1)) {
+        if (!lua_istable(L, -1) || lua_rawlen(L, -1) != 2)
+          return luaL_argerror(L, 10, "relay's ports are two ports");
+        for (int i = 0; i < 2; i++) {
+          lua_rawgeti(L, -1, i + 1);
+          if (!lua_isinteger(L, -1)) return luaL_argerror(L, 10, "a relay port is an integer");
+          lua_Integer port = lua_tointeger(L, -1);
+          if (port < 1 || port > 65535)
+            return luaL_argerror(L, 10, "a relay port is 1 to 65535");
+          relay_ports[i] = (int)port;
+          lua_pop(L, 1);
+        }
+        if (relay_ports[0] == relay_ports[1])
+          return luaL_argerror(L, 10, "a relay's two ports differ");
+      }
+      lua_pop(L, 1);
+      if (!offline)
+        return luaL_argerror(L, 10, "relay requires offline: its listeners are bound in the "
+                             "network namespace of the child's own");
+      if (fcntl(relay_channel, F_GETFD) < 0) return cosmic_fail(L, errno);
+    }
+    lua_pop(L, 1);
     lua_pushliteral(L, "user");
     lua_rawget(L, 10);
     lua_pushliteral(L, "group");
@@ -4255,7 +4392,17 @@ COSMIC_SYSCALL(spawn, 12) {
     if (tmp_bytes != 0 && !unveiling) return luaL_argerror(L, 10, "unveil's tmp requires unveil");
     if (tmp_bytes != 0 && !strict) return luaL_argerror(L, 10, "unveil's tmp requires strict");
     if (tmp_exec && tmp_bytes == 0) return luaL_argerror(L, 10, "unveil's tmp_exec requires tmp");
-    if (sockets != 0 && !offline)
+    if (host_network && offline)
+      return luaL_argerror(L, 10, "host_network excludes offline: it is the host's network");
+    if (host_network && !(sockets & COSMIC_SOCKETS_INET))
+      return luaL_argerror(L, 10, "host_network needs sockets of \"inet\", which it frees of the "
+                           "network namespace");
+    /* A unix socket in the host's network namespace shares its abstract names with
+     * every host process, which nothing scopes below Landlock ABI 6. */
+    if (host_network && (sockets & COSMIC_SOCKETS_UNIX))
+      return luaL_argerror(L, 10, "host_network allows \"inet\" sockets alone: a unix socket "
+                           "there reaches the host's abstract names");
+    if (sockets != 0 && !offline && !host_network)
       return luaL_argerror(L, 10, "sockets require offline: the network namespace is their hold");
     /* What `nest` leaves to the child's own root and pid namespace: its files, which Landlock
      * would hold but for the mounts it refuses, and its signals, which the filter lets reach
@@ -4636,6 +4783,7 @@ COSMIC_SYSCALL(spawn, 12) {
     .seatbelt_parameter_count = seatbelt_count,
 #endif
     .unveiling = unveiling, .offline = offline, .noexec_scratch = noexec_scratch,
+    .relay_channel = relay_channel, .relay_ports = { relay_ports[0], relay_ports[1] },
     .strict = strict, .proc_only = proc_only, .tmp_bytes = tmp_bytes, .tmp_exec = tmp_exec, .unix_guard = unix_guard,
     .unveiled_unix = unveiled_unix,
     .sockets = sockets,
@@ -4758,7 +4906,7 @@ COSMIC_SYSCALL(spawn, 12) {
 #endif
     int number = received == sizeof child_error ? child_error : (read_error != 0 ? read_error : EIO);
 #if defined(__linux__)
-    if (strict && number >> STAGE_SHIFT != 0) {
+    if ((strict || number >> STAGE_SHIFT == STAGE_RELAY) && number >> STAGE_SHIFT != 0) {
       char message[PATH_MAX + 512];
       staged_message(number >> STAGE_SHIFT, number & ((1 << STAGE_SHIFT) - 1),
                      idmap_path[0] != '\0' ? idmap_path : NULL, message, sizeof message);
