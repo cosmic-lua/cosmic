@@ -994,7 +994,7 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
                            cwd: string | nil, stdin: integer | nil, stdout: integer | nil,
                            stderr: integer | nil, process_group: boolean,
                            fds?: {integer:integer}, sandbox?: raw_process.Sandbox,
-                           credentials?: raw_process.Credentials):
+                           credentials?: raw_process.Credentials, terminal?: boolean):
       integer | nil, string, integer
     if ended then
       -- A reference to a stand-in that no longer stands in starts a
@@ -1004,7 +1004,7 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
           "started through a spawn taken while an earlier stand-in ran", sys.EINVAL), sys.EINVAL
       end
       return own_spawn(path, argv, environment, cwd, stdin, stdout, stderr, process_group,
-        fds, sandbox, credentials)
+        fds, sandbox, credentials, terminal)
     end
     -- A sandbox of its own that unveils and takes the network holds a
     -- process as a confinement does. It is read as the core reads it,
@@ -1025,7 +1025,7 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
     local must = confinement ~= nil and strict or nil
     if plain ~= nil and plain.unveil ~= nil and plain.offline == true then
       local pid, trouble, errno = spawn(path, argv, environment, cwd, stdin, stdout, stderr,
-        process_group, fds, plain, credentials)
+        process_group, fds, plain, credentials, terminal)
       if pid == nil and unconfinable[errno] and must ~= nil and runnable(path) then
         return nil, refuse(must, path, "its own sandbox's unveil and offline", trouble, errno),
           errno
@@ -1140,7 +1140,7 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
         end
         local pid, trouble, errno = spawn(path, argv, given_environment, start_in, stdin, stdout,
           stderr, process_group, fds, { unveil = { reads = reads, writes = writes },
-            offline = true }, credentials)
+            offline = true }, credentials, terminal)
         if pid ~= nil or not unconfinable[errno] then
           return pid, trouble, errno
         end
@@ -1158,7 +1158,7 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
     -- test asked, a sandboxed worker's process with this one's sandbox
     -- and no more.
     local pid, trouble, errno = spawn(path, argv, environment, cwd, stdin, stdout, stderr,
-      process_group, fds, sandbox, credentials)
+      process_group, fds, sandbox, credentials, terminal)
     if pid == nil and errno == sys.ENOENT and sandbox == nil and in_sandbox() then
       -- Found nothing for what the worker's sandbox left out: the start
       -- fails as it would have, saying so, and every running stand-in

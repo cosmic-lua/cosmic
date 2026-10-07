@@ -295,6 +295,19 @@ local function test_a_terminal_start_is_refused_where_none_survives_the_exec()
   assert(tostring(why):find(MARKER, 1, true), "the refusal is not this core's: " .. said)
 end
 
+--- The process table a test starts a child through hands its twelfth
+--- argument on: a terminal asked of a descriptor that is none starts nothing.
+local function test_a_terminal_asked_of_no_terminal_starts_nothing()
+  local process = process_table()
+  local function start(...: any): integer | nil, string, integer
+    return (process.spawn as function(...: any): integer | nil, string, integer)(...)
+  end
+  local pid, why = start(SH, { SH, "-c", "exit 0" }, nil, nil, nil, nil, nil, true,
+    nil, nil, nil, true)
+  if pid ~= nil then process.waitpid(pid, false) end
+  assert(pid == nil, "a terminal start of a descriptor that is none ran: " .. tostring(why))
+end
+
 --- A profile is macOS's: where Landlock and seccomp hold a child there is
 --- none to give, and a call that does is wrong rather than refused.
 local function test_a_seatbelt_profile_is_no_argument_where_there_is_no_seatbelt()
