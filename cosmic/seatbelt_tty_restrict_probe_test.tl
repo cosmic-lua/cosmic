@@ -134,6 +134,11 @@ typedef int (*init_function) (const char *, unsigned long long, const char *cons
 static int tramp (int argc, char **argv) {
   /* tramp <variant> <slave> <report> <profile or -> <count> <params...> <script> */
   int variant = atoi(argv[2]);
+  /* V5 and V6 are V0 (setsid alone) under a profile with and without the
+   * terminal's grants. */
+  int profiled = variant == 2 || variant == 3 || variant == 5 || variant == 6;
+  int granted = variant == 2 || variant == 5;
+  if (variant >= 5) variant = 0;
   const char *slave = argv[3];
   rpt = open(argv[4], O_WRONLY | O_APPEND | O_CREAT, 0600);
   if (rpt >= 0) fcntl(rpt, F_SETFD, FD_CLOEXEC);
@@ -167,7 +172,7 @@ static int tramp (int argc, char **argv) {
       snapshot("after-close-slave");
     }
   }
-  if (variant == 2 || variant == 3) {
+  if (profiled) {
     FILE *file = fopen(profile_file, "r");
     if (file == NULL) { say("cannot read the profile\n"); return 91; }
     char *text = malloc(1 << 20);
@@ -177,7 +182,7 @@ static int tramp (int argc, char **argv) {
     const char *words[64];
     int used = 0;
     for (int i = 0; i < count && used < 60; i++) words[used++] = argv[7 + i];
-    if (variant == 2) { words[used++] = "TTY"; words[used++] = slave; }
+    if (granted) { words[used++] = "TTY"; words[used++] = slave; }
     words[used] = NULL;
     void *symbol = dlsym(RTLD_DEFAULT, "sandbox_init_with_parameters");
     init_function init = NULL;
@@ -317,7 +322,8 @@ end
 --- The system profile as a Seatbelt profile and its parameters, with
 --- `extra` rules after it.
 local function system_profile(extra: string): string, {string:string}
-  local policy: Sandbox.Policy = { profiles = { "system" } }
+  -- fork: the shell starts `ps` and `tty` as children.
+  local policy: Sandbox.Policy = { profiles = { "system" }, promises = { "fork" } }
   local options = assert(Seatbelt.resolve(policy))
   local compiled = assert(Seatbelt.compile(policy, options))
   return compiled.text .. extra, compiled.parameters
@@ -374,6 +380,20 @@ local function test_v3_the_same_under_a_profile_without_the_grants(tmp: string)
   macos_only()
   local text, parameters = system_profile("")
   local said = variant(tmp, 3, text, parameters)
+  assert(said:find("devtty-", 1, true), said)
+end
+
+local function test_v5_setsid_alone_under_a_profile_that_grants_the_terminal(tmp: string)
+  macos_only()
+  local text, parameters = system_profile(TERMINAL_RULES)
+  local said = variant(tmp, 5, text, parameters)
+  assert(said:find("devtty-", 1, true), said)
+end
+
+local function test_v6_setsid_alone_under_a_profile_without_the_grants(tmp: string)
+  macos_only()
+  local text, parameters = system_profile("")
+  local said = variant(tmp, 6, text, parameters)
   assert(said:find("devtty-", 1, true), said)
 end
 
