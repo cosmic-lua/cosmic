@@ -21,14 +21,25 @@
 #define COSMIC_CHECKED 1
 #endif
 
+#if defined(__APPLE__)
+#define _DARWIN_C_SOURCE
+#else
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 #include "testing.h"
 
+#include <dirent.h>
+#include <errno.h>
+#include <stdlib.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <sys/socket.h>
 #include <string.h>
 
 #include "check.h"
 #include "fault.h"
+#include "fail.h"
 #include "executable.h"
 #include "http.h"
 #include "lauxlib.h"
@@ -167,6 +178,96 @@ static int testing_allow_allocations (lua_State *L) {
   return 1;
 }
 
+/* Core-created sockets suppress SIGPIPE already. The macOS regression
+ * clears that option before passing a channel, so sendfds must protect
+ * a received socket rather than rely on how it was originally made. */
+static int testing_socket_sigpipe (lua_State *L) {
+  int fd = cosmic_checkfd(L, 1);
+  luaL_checktype(L, 2, LUA_TBOOLEAN);
+#if defined(SO_NOSIGPIPE)
+  int on = lua_toboolean(L, 2);
+  if (setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, sizeof on) != 0)
+    return cosmic_fail_effect(L, errno);
+  return cosmic_ok(L);
+#else
+  (void)fd;
+  return cosmic_fail_effect(L, ENOSYS);
+#endif
+}
+
+/* Sends a batch above the public 16-right limit. This checked-only
+ * hostile sender exercises full rejection cleanup, including Darwin's
+ * kernel-installed rights that a short control buffer would hide. */
+static int testing_socket_send_rights (lua_State *L) {
+  int fd = cosmic_checkfd(L, 1);
+  int descriptor = cosmic_checkfd(L, 2);
+  int count = cosmic_checkint(L, 3);
+  luaL_argcheck(L, count >= 1 && count <= 253, 3, "expected 1 to 253 descriptors");
+  union {
+    struct cmsghdr alignment;
+    unsigned char bytes[CMSG_SPACE(253 * sizeof(int))];
+  } control;
+  memset(&control, 0, sizeof control);
+  struct msghdr message;
+  memset(&message, 0, sizeof message);
+  char marker = '\0';
+  struct iovec payload = { &marker, 1 };
+  message.msg_iov = &payload;
+  message.msg_iovlen = 1;
+  message.msg_control = control.bytes;
+  message.msg_controllen = (socklen_t)CMSG_SPACE((size_t)count * sizeof(int));
+  struct cmsghdr *rights = CMSG_FIRSTHDR(&message);
+  rights->cmsg_level = SOL_SOCKET;
+  rights->cmsg_type = SCM_RIGHTS;
+  rights->cmsg_len = (socklen_t)CMSG_LEN((size_t)count * sizeof(int));
+  for (int i = 0; i < count; i++)
+    memcpy(CMSG_DATA(rights) + (size_t)i * sizeof(int), &descriptor, sizeof descriptor);
+#if defined(MSG_NOSIGNAL)
+  const int flags = MSG_NOSIGNAL;
+#else
+  int on = 1;
+  if (setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, sizeof on) != 0)
+    return cosmic_fail_effect(L, errno);
+  const int flags = 0;
+#endif
+  ssize_t sent;
+  do {
+    sent = sendmsg(fd, &message, flags);
+  } while (sent < 0 && errno == EINTR);
+  if (sent < 0) return cosmic_fail_effect(L, errno);
+  if (sent != 1) return cosmic_fail_effect(L, EPROTO);
+  return cosmic_ok(L);
+}
+
+/* The count excludes the directory used for the census, and counts
+ * every other descriptor, including one above the lowest free slot.
+ * Enumeration ends before any Lua call that could allocate. */
+static int testing_open_descriptors (lua_State *L) {
+#if defined(__APPLE__)
+  const char *path = "/dev/fd";
+#else
+  const char *path = "/proc/self/fd";
+#endif
+  DIR *directory = opendir(path);
+  if (directory == NULL) return luaL_error(L, "cannot count descriptors: %s", strerror(errno));
+  int census = dirfd(directory);
+  lua_Integer count = 0;
+  errno = 0;
+  struct dirent *entry;
+  while ((entry = readdir(directory)) != NULL) {
+    const char *name = entry->d_name;
+    if (name[0] < '0' || name[0] > '9') continue;
+    char *end;
+    long fd = strtol(name, &end, 10);
+    if (*end == '\0' && fd != census) count++;
+  }
+  int failure = errno;
+  if (closedir(directory) != 0 && failure == 0) failure = errno;
+  if (failure != 0) return luaL_error(L, "cannot count descriptors: %s", strerror(failure));
+  lua_pushinteger(L, count);
+  return 1;
+}
+
 /* open_statements(): how many statements are prepared and not yet
  * finalized, across every database the store searches. */
 static int testing_open_statements (lua_State *L) {
@@ -252,6 +353,9 @@ static const luaL_Reg instruments[] = {
   {"fail_allocations", testing_fail_allocations},
   {"allow_allocations", testing_allow_allocations},
   {"open_statements", testing_open_statements},
+  {"open_descriptors", testing_open_descriptors},
+  {"socket_sigpipe", testing_socket_sigpipe},
+  {"socket_send_rights", testing_socket_send_rights},
   {"c_heap", testing_c_heap},
   {"fail_at", testing_fail_at},
   {"live_transfers", testing_live_transfers},

@@ -9,7 +9,8 @@
 #
 # The core's platform-conditional C: darwin and aarch64 C is neither
 # sanitized (orchestration.tl's `checked_suite` runs the checked core on
-# linux-x86_64 alone) nor checked by `fix` (build/c/init.tl compiles
+# linux-x86_64 alone, apart from the checked received-channel
+# regressions run during assemble) nor checked by `fix` (build/c/init.tl compiles
 # each file for the host's target alone). Nor are build/c_functions.tl's
 # Darwin exemptions tallied here: only a whole run, the scheduled one's,
 # tallies which C functions a test entered.

@@ -60,6 +60,12 @@ end
 --- uses them, by `<module>.<member>`, and why each is kept.
 local allowed: {string: string} = {}
 
+for _, name in ipairs({ "udp", "datagram" }) do
+  -- TODO: remove this allowance once the sandbox resolver uses UDP.
+  allowed["cosmic.net." .. name] = "tested directly: the namespace DNS stub's UDP " ..
+    "prerequisite lands separately from the resolver that calls it"
+end
+
 allowed["cosmic.sandbox.restrict"] = "tested directly: it holds the process that calls it " ..
   "for good, so a worked example would hold the run that shows it; the test restricts " ..
   "a child of this program, and the harness holds its workers with it once the " ..

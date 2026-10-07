@@ -842,13 +842,14 @@ local function checked_suite(c: Context, target: string, work: string,
   -- `checked`: phases `boot`, `checked-build` and this one), beside the
   -- legs rather than after one of them; every leg sets
   -- COSMIC_CI_CHECKED_SUITE=skip, and still builds and verifies the
-  -- checked core above, which its fixtures use.
+  -- checked core above, which its fixtures use. macOS also runs the
+  -- received-channel regressions: SIGPIPE protection on a channel
+  -- whose option was cleared, and cleanup of oversized native rights.
   -- TODO: the core's platform-conditional C (__APPLE__, __aarch64__ in
   -- core/syscalls.c, executable.c, ...) is not run under the sanitizer
-  -- off linux-x86_64: a leg that skips the suite runs the checked cosmic
-  -- only on a chunk (`-e`, above), not on a file in the tree, whose
-  -- build (staging it, writing SQLite) is the one real code it would run
-  -- there. A checked run of only the tests that enter that C, on the legs
+  -- off linux-x86_64: aside from macOS's received-channel regressions,
+  -- a leg that skips the suite runs the checked cosmic only on a chunk
+  -- (`-e`, above). A checked run of only the tests that enter that C, on the legs
   -- that skip the whole suite, would cover it for seconds: for macOS,
   -- ci/darwin-tests.txt names them.
   if Env.get("COSMIC_CI_CHECKED_SUITE") == "skip" then
@@ -863,6 +864,14 @@ local function checked_suite(c: Context, target: string, work: string,
       local removed, trouble = Fs.remove(stale)
       Fs.put(Fs.stderr, removed and ("checked suite: removed this leg's " .. stale .. "\n") or
           ("checked suite: could not remove " .. stale .. ": " .. tostring(trouble) .. "\n"))
+    end
+    if target == "aarch64-macos" then
+      local diagnostics = work .. "/checked-diagnostics"
+      mkdir(diagnostics)
+      return logged(c, "checked received-channel regressions",
+        { cosmic, "test", "--all", "core/socket_sigpipe_checked_test.tl" },
+        diagnostics .. "/socket-sigpipe.out", diagnostics .. "/socket-sigpipe.err",
+        checked_compile_timeout_ns, c.root, environment({ COSMIC_VERDICT_CACHE = "0" }))
     end
     return 0
   end
