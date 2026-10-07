@@ -829,6 +829,11 @@ local function test_a_tunnel_nothing_moves_in_ends_at_the_idle_timeout(tmp: stri
     -- Then none do.
     local data, _ = conn:read()
     assert(data == nil, "the relay ended the idle tunnel")
+    -- The relay closes the tunnel first and writes its line once both
+    -- directions have stopped.
+    until_it(function(): boolean
+      return #lines_with(rig, "closed: idle for 250 milliseconds") > 0
+    end)
     assert(#lines_with(rig, "closed: idle for 250 milliseconds") == 1, table.concat(rig.log, "\n"))
     local _, _ = conn:close()
     finish(rig, server)
