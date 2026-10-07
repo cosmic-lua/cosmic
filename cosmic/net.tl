@@ -652,10 +652,16 @@ end
 --- and IPv6, as the system's configuration (resolv.conf and hosts; on
 --- macOS also the system's DNS configuration) makes it: none is dropped
 --- or filtered, so a caller that refuses some address can refuse the
---- name. A numeric IPv4 or IPv6 address, as [`Net.tcp`] takes one, answers
+--- name. The answer is every address received: where one family fails
+--- and the other answers, nothing says so, so a caller that checks
+--- addresses connects only to those returned and never looks the name up
+--- again. A numeric IPv4 or IPv6 address, as [`Net.tcp`] takes one, answers
 --- itself without a query. `HOSTALIASES` is ignored. Where one family's
 --- lookup fails and the other's answers, the answer holds the one that
---- did.
+--- did. A name with fewer dots than resolv.conf's ndots may be tried
+--- under its `search` domains first, so a single-label name may resolve
+--- under one. `servers` and `hosts_file` are for tests and trusted
+--- callers, never for values a sandboxed program chose.
 ---
 ---     local found = assert(Net.resolve("localhost", { timeout_ns = Clock.seconds(5) }))
 ---     for _, resolved in ipairs(found) do print(resolved.address, resolved.family) end
@@ -669,6 +675,10 @@ end
 --- refuses, fail "Invalid argument". The call holds the thread until it
 --- answers, in a task of [`Poll.run`] too. A `name` that is no string
 --- or an option of the wrong shape raises.
+-- TODO: resolve cooperatively in a task of Poll.run, which a lookup holds up
+-- today: it waits on a core binding that starts a lookup and hands back
+-- the sockets c-ares watches (and when they next need a call) for
+-- Poll.wait, in place of the call that runs it to the end.
 function Net.resolve(name: string, opts?: Net.ResolveOptions): {Net.Resolved} | nil, string
   if not (name is string) then error("net: name must be a string", 2) end
   opts = opts or {}

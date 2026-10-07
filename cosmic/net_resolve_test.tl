@@ -1,10 +1,5 @@
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
-local Test = require("cosmic.test")
-
---- c-ares opens a socket to a server only when a name is not in the
---- hosts file or a literal, which these tests never leave to it.
-Test.policy{ loopback = { "127.0.0.1" } }
 
 --- The addresses `found` holds, one "family address" each, sorted.
 local function listed(found: {Net.Resolved}): {string}
@@ -70,4 +65,17 @@ local function test_a_name_the_resolver_cannot_take_fails_and_a_degenerate_argum
   assert(not pcall(Net.resolve, "example.test", { servers = text } as Net.ResolveOptions))
   assert(not pcall(Net.resolve, "example.test", { servers = {} }))
   assert(not pcall(Net.resolve, "example.test", { servers = { Net.tcp("127.0.0.1", 53) } }))
+end
+
+--- A name of 254 bytes (253 and a trailing dot) is the longest asked of
+--- the resolver: it reaches the lookup, here out of time at once, where
+--- one byte more fails before it.
+local function test_the_longest_name_is_looked_up_and_one_byte_more_is_refused()
+  local labels = { string.rep("a", 63), string.rep("b", 63), string.rep("c", 63), string.rep("d", 61) }
+  local longest = table.concat(labels, ".") .. "."
+  assert(#longest == 254)
+  local found, why = Net.resolve(longest, { timeout_ns = 0 })
+  assert(found == nil and why ~= "Invalid argument", tostring(why))
+  found, why = Net.resolve(longest .. "x", { timeout_ns = 0 })
+  assert(found == nil and why == "Invalid argument", tostring(why))
 end

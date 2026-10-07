@@ -1240,6 +1240,15 @@ static bool numeric_literal (const char *name, size_t size, int *family, unsigne
   return false;
 }
 
+/* TODO: report which family's lookup failed, so a caller that must see
+ * every address can fail closed: ares_getaddrinfo folds one family's
+ * failure into the other's success, so this waits on asking for A and
+ * AAAA separately (ares_search or ares_send, with the answers parsed
+ * here) or on c-ares reporting it.
+ * TODO: exercise the system's own configuration on macOS (resolv.conf
+ * through dnsinfo): no CI leg runs a lookup that reads it, as the tests
+ * name their servers and hosts file, so ares_sysconfig_mac.c's path is
+ * untested there until a leg can resolve a name through the system. */
 COSMIC_SYSCALL(resolve, 4) {
   size_t size = 0;
   const char *name = luaL_checklstring(L, 1, &size);
