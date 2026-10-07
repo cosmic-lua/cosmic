@@ -135,10 +135,12 @@ static int tramp (int argc, char **argv) {
   /* tramp <variant> <slave> <report> <profile or -> <count> <params...> <script> */
   int variant = atoi(argv[2]);
   /* V5 and V6 are V0 (setsid alone) under a profile with and without the
-   * terminal's grants. */
-  int profiled = variant == 2 || variant == 3 || variant == 5 || variant == 6;
-  int granted = variant == 2 || variant == 5;
-  if (variant >= 5) variant = 0;
+   * terminal's grants; V7, V8 and V9 are V1 under the profiles of the
+   * tests of that name, which all name the slave as TTY. */
+  int profiled = variant == 2 || variant == 3 || variant >= 5;
+  int granted = variant == 2 || variant == 5 || variant >= 7;
+  if (variant >= 7) variant = 1;
+  else if (variant >= 5) variant = 0;
   const char *slave = argv[3];
   rpt = open(argv[4], O_WRONLY | O_APPEND | O_CREAT, 0600);
   if (rpt >= 0) fcntl(rpt, F_SETFD, FD_CLOEXEC);
@@ -395,6 +397,25 @@ local function test_v6_setsid_alone_under_a_profile_without_the_grants(tmp: stri
   local text, parameters = system_profile("")
   local said = variant(tmp, 6, text, parameters)
   assert(said:find("devtty-", 1, true), said)
+end
+
+local function test_v7_only_the_slave_is_granted(tmp: string)
+  macos_only()
+  local text, parameters = system_profile(
+    '(allow file-read* file-write* file-ioctl (literal (param "TTY")))\n')
+  variant(tmp, 7, text, parameters)
+end
+
+local function test_v8_only_dev_tty_is_granted(tmp: string)
+  macos_only()
+  local text, parameters = system_profile('(allow file-read* file-write* file-ioctl (literal "/dev/tty"))\n')
+  variant(tmp, 8, text, parameters)
+end
+
+local function test_v9_both_granted_and_the_dev_directory_readable(tmp: string)
+  macos_only()
+  local text, parameters = system_profile(TERMINAL_RULES .. '(allow file-read-data (literal "/dev"))\n')
+  variant(tmp, 9, text, parameters)
 end
 
 local function test_v4_posix_spawn_setsid_with_the_slave_opened_as_descriptor_0(tmp: string)
