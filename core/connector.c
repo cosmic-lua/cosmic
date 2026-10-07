@@ -408,6 +408,39 @@ struct connector_plan {
   bool close_refused, filter_refused;
 };
 
+/* Maps the table's `bytes` where no 4 GiB boundary falls inside it: the
+ * filter compares the low 32 bits of an address with a range's, so a range
+ * that crossed one could not be expressed. Of twice `bytes` mapped, one
+ * boundary at most falls inside (the table is at most 32 MiB), and the
+ * table is placed on the side of it where it fits; the rest is unmapped.
+ * NULL, with errno, where it cannot be mapped.
+ * The fault point moves that span to start a page below a boundary, so a
+ * test meets the placement a mapping of the kernel's meets only now and
+ * then. */
+static void *connector_map (size_t bytes, size_t page) {
+  size_t span = 2 * bytes;
+  void *mapped = mmap(NULL, span, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (mapped == MAP_FAILED) return NULL;
+  uintptr_t start = (uintptr_t)mapped;
+  if (COSMIC_FAULT("connector_straddle")) {
+    uintptr_t below = start & ~(uintptr_t)UINT32_MAX;
+    munmap(mapped, span);
+    if (below <= page) { errno = EINVAL; return NULL; }
+    mapped = mmap((void *)(below - page), span, PROT_READ | PROT_WRITE,
+        MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
+    if (mapped == MAP_FAILED) return NULL;
+    start = (uintptr_t)mapped;
+  }
+  uintptr_t boundary = (start | (uintptr_t)UINT32_MAX) + 1;
+  /* Only a span in the last 4 GiB of the address space, which no user
+   * mapping reaches, has no boundary above it. */
+  if (boundary == 0) { munmap(mapped, span); errno = EOVERFLOW; return NULL; }
+  uintptr_t base = start + bytes < boundary ? start : boundary;
+  if (base > start) munmap((void *)start, base - start);
+  if (start + span > base + bytes) munmap((void *)(base + bytes), start + span - (base + bytes));
+  return (char *)mapped + (base - start);
+}
+
 static int connector_table (const struct connector_endpoint *endpoints, size_t count,
                             struct connector_plan *plan) {
   size_t slots = 0;
@@ -419,8 +452,8 @@ static int connector_table (const struct connector_endpoint *endpoints, size_t c
   size_t used = slots * CONNECTOR_STRIDE;
   plan->bytes = (used + (size_t)page - 1) / (size_t)page * (size_t)page;
   if (COSMIC_FAULT("connector_mmap")) return ENOMEM;
-  plan->memory = mmap(NULL, plan->bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-  if (plan->memory == MAP_FAILED) { plan->memory = NULL; return errno; }
+  plan->memory = connector_map(plan->bytes, (size_t)page);
+  if (plan->memory == NULL) return errno;
   size_t offset = 0;
   for (size_t i = 0; i < count; i++) {
     uintptr_t base = (uintptr_t)plan->memory + offset;
