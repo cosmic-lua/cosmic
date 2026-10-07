@@ -112,6 +112,15 @@ COSMIC_SYSCALL(listen, 2);
 COSMIC_SYSCALL(accept, 1);
 
 /*
+ * --- Takes a copy of a listening TCP descriptor this process holds, as a socket of its own, closed on exec and nonblocking: one inherited, or received by `recvfds`. The original stays its holder's to close. Both share one open file description, so making the copy nonblocking makes the original so. It fails ENOTSOCK for a file, a pipe or any descriptor that is no socket, EBADF for one not open, EPROTOTYPE for a socket that is no stream, EINVAL for a stream socket that is not listening, and EAFNOSUPPORT for one listening on a unix socket file; the retained artifact descriptor itself raises (a copy of it, which is no retained descriptor, does not).
+ * ---@param fd integer the listening descriptor
+ * ---@return Socket|nil socket the copy, or nil on failure
+ * ---@return string error what went wrong, when socket is nil
+ * ---@return integer errno the error number, when socket is nil
+ */
+COSMIC_SYSCALL(adopt, 1);
+
+/*
  * --- Connects a new stream socket to an address. A unix one fails ECONNREFUSED where nothing listens at a socket file and ENOENT where there is no file; where its listener's backlog is full, it fails at once: EAGAIN on Linux, and ECONNREFUSED on macOS, which cannot tell a busy listener from none. A caller that would wait for room asks again. A TCP one waits for the connection to be made, and fails with what refused it: ECONNREFUSED where nothing listens at the port. A failure the connect itself answers, rather than the wait, is answered at once, EAGAIN included (Linux's where it has no local port or other resource for the connection). A wait fails ETIMEDOUT once the time runs out, and EINTR once an open `Child.guard` catches a signal. A unix path too long to connect to whole is connected to from its directory, and raises where the process cannot return to its working directory after.
  * ---@param address Address where to connect
  * ---@param timeout_ms integer how long to wait at most, -1 for no limit
@@ -169,6 +178,15 @@ COSMIC_SYSCALL(sendfds, 2);
  * ---@return integer errno the error number, when descriptors is nil
  */
 COSMIC_SYSCALL(recvfds, 2);
+
+/*
+ * --- The "tcp" host and port a connected stream socket is connected to. It fails ENOTCONN for a socket that is not connected, EPROTOTYPE for one that is no stream, EAFNOSUPPORT for one that is not IPv4 or IPv6, and ENOTSOCK for what is no socket.
+ * ---@param fd integer the connected descriptor
+ * ---@return Address|nil address the peer's address, or nil on failure
+ * ---@return string error what went wrong, when address is nil
+ * ---@return integer errno the error number, when address is nil
+ */
+COSMIC_SYSCALL(peer, 1);
 
 /*
  * --- Where a socket is bound: a TCP one's host and port, the port the kernel chose for one listening at port 0, or a unix one's path as it was bound -- its file's own name alone, for a path too long to bind whole -- "" for one bound nowhere.
