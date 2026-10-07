@@ -332,20 +332,31 @@ end
 local function on_pty(binary: string, streams: {integer}, policy?: Sandbox.Policy): string, Child.Result
   local on: {integer:boolean} = {}
   for _, number in ipairs(streams) do on[number] = true end
-  local opts: Child.Options = { policy = policy, timeout_ns = Clock.seconds(30) }
+  local opts: Child.Options = { policy = policy, timeout_ns = Clock.seconds(5) }
   if not on[0] then opts.stdin = "null" end
   if not on[2] then opts.stderr = "null" end
-  local started, why = Child.start_on_pty({ binary }, opts, { streams = streams })
-  assert(started, why)
-  local result = assert(started.child:wait())
+  local started = assert(Child.start_on_pty({ binary }, opts, { streams = streams }))
+  -- Read as the child writes: Darwin drops what a slave wrote and the master
+  -- had not read when the slave's last descriptor closes.
   local said = ""
-  while true do
-    local ready, _ = Poll.readable(started.master, Clock.ms(300))
-    if not ready then break end
+  local function read_some(wait_ns: integer): boolean
+    local ready, _ = Poll.readable(started.master, wait_ns)
+    if not ready then return false end
     local data, _ = sys.read(started.master, 4096)
-    if data == nil or data == "" then break end
+    if data == nil or data == "" then return false end
     said = said .. data
+    return true
   end
+  local result: Child.Result
+  while result == nil do
+    local done, _ = Child.wait_any({ started.child }, Clock.ms(1))
+    if done ~= nil then
+      result = assert(done:wait())
+    else
+      read_some(Clock.ms(50))
+    end
+  end
+  while read_some(Clock.ms(200)) do end
   assert(sys.close(started.master))
   return (said:gsub("\r", "")), result
 end
