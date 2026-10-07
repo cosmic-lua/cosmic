@@ -618,6 +618,12 @@ function relay_wire.connect_reader(): relay_wire.ConnectReader
             i = last + 1
           end
           if special ~= nil then
+            -- A control byte is a byte of the head too: past the cap it is the
+            -- cap's refusal whatever feed it arrives in, as the top of the
+            -- loop gives it when it starts a feed.
+            if seen + special > MAX_HEAD then
+              return head_refusal()
+            end
             local byte = chunk:byte(special)
             if byte == 13 then
               after_cr = true
@@ -1027,6 +1033,15 @@ local function record_header(data: string, pos: integer, first: boolean): Header
     end
     return malformed("a ClientHello continued by " .. why)
   end
+  -- A record that begins as a handshake is TLS whatever its legacy version
+  -- says (RFC 8446 tells a receiver to ignore it), so one of a version this
+  -- reader does not know is refused, never passed on unread.
+  local function versioned(why: string): relay_wire.Hello
+    if first then
+      return malformed(why)
+    end
+    return wrong(why)
+  end
   if have < 1 then
     return { length = 0 }
   end
@@ -1037,13 +1052,13 @@ local function record_header(data: string, pos: integer, first: boolean): Header
     return { length = 0 }
   end
   if data:byte(pos + 1) ~= 3 then
-    return { refusal = wrong("a handshake record of a version that is not SSL 3 or TLS"), length = 0 }
+    return { refusal = versioned("a handshake record of a version that is not SSL 3 or TLS"), length = 0 }
   end
   if have < 3 then
     return { length = 0 }
   end
   if data:byte(pos + 2) > 4 then
-    return { refusal = wrong("a handshake record of a version past TLS 1.3"), length = 0 }
+    return { refusal = versioned("a handshake record of a version past TLS 1.3"), length = 0 }
   end
   if have < 5 then
     return { length = 0 }

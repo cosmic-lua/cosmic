@@ -306,6 +306,19 @@ local function granted(bytes: {integer}, port: integer, grants: {string}): boole
   return false
 end
 
+--- Whether a `connect` target in `grants` literally names `address` for
+--- `port`, by the grammar this module's header gives: the relay asks it of
+--- a request that carries an IP address, which no grant of a name or of "*"
+--- opens. Text that is no numeric address is not granted.
+--- @param address string The numeric address text
+--- @param port integer The port asked for
+--- @param grants {string} The policy's `connect` targets (`host:port`)
+--- @return boolean Whether a grant names exactly this address and port
+function relay_address.granted(address: string, port: integer, grants: {string}): boolean
+  local bytes = relay_address.parse(address)
+  return bytes ~= nil and granted(bytes, port, grants)
+end
+
 --- The host's own addresses `own`, numeric text, as the bytes [`check`] and
 --- [`select`] take, which they would otherwise read again for every answer.
 --- An IPv4-mapped entry is reduced to the IPv4 address it carries, so an
