@@ -230,12 +230,14 @@ function Seatbelt.compile(policy: Sandbox.Policy, options?: Seatbelt.Options): S
   local terminal = options and options.terminal
   if terminal ~= nil then
     if not absolute(terminal) then return refuse("terminal needs an absolute canonical path") end
+    -- Data and ioctl alone: file-write* would let a child without `fattr`
+    -- chmod its slave for other users to read, or unlink /dev/tty as root.
     -- The slave answers tcgetsid and tcgetpgrp only where granted by its
     -- path, /dev/tty opens only where granted as that literal, and ttyname
     -- and tty list /dev.
     parameters.TTY = terminal
-    text[#text + 1] = '(allow file-read* file-write* file-ioctl (literal (param "TTY")))'
-    text[#text + 1] = '(allow file-read* file-write* file-ioctl (literal "/dev/tty"))'
+    text[#text + 1] = '(allow file-read-data file-write-data file-ioctl (literal (param "TTY")))'
+    text[#text + 1] = '(allow file-read-data file-write-data file-ioctl (literal "/dev/tty"))'
     text[#text + 1] = '(allow file-read-data (literal "/dev"))'
   end
   local rlimits: {string:integer} = { nofile = merged.limits.open_files or 1024, core = 0 }

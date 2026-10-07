@@ -46,6 +46,6 @@ return {
     ["alpine-x86_64"] = linux,
     -- No macOS run is held (it has no sandbox), so a name it lacks is
     -- skipped there rather than failed: these say what it gives.
-    ["macos-aarch64"] = { shell, "unix_socket", env, passwd },
+    ["macos-aarch64"] = { shell, "unix_socket", env, passwd, "program:cc" },
   },
 }

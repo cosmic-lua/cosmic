@@ -140,6 +140,20 @@ function TermRelay.note_lines(held: string, data: string): TermRelay.Notes
   return { text = shown .. "\r\n", tail = tail }
 end
 
+--- The pty's slave, which the relay holds until it has read all the program
+--- wrote: macOS drops what the master has not read when the last slave
+--- descriptor closes.
+local record Slave
+  metamethod __close: function(Slave)
+  fd: integer
+end
+
+local slave_mt: metatable<Slave> = {
+  __close = function(self: Slave)
+    local _, _ = sys.close(self.fd)
+  end,
+}
+
 --- What `run` puts back when it ends, however it does: held in a
 --- `<close>` variable, from the pty's start on.
 local record Restoring
@@ -221,7 +235,7 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
     saved = state
   end
   local rows, columns = window(shown)
-  local pty: Child.PtyOptions = { streams = streams }
+  local pty: Child.PtyOptions = { streams = streams, keep_slave = true }
   if rows >= 0 then pty.rows, pty.columns = rows, columns end
   -- Held before the program starts, and closed after it has ended, so a
   -- signal that comes between never finds it unguarded.
@@ -231,6 +245,7 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
   local started, start_why = Child.start_on_pty(argv, opts, pty)
   if started == nil then return nil, start_why end
   local master = started.master
+  local _slave <close>: Slave = setmetatable({ fd = started.slave }, slave_mt)
   local filter = TermFilter.new()
   local restoring <close>: Restoring = setmetatable({
     input = input, output = shown, master = master, saved = nil, filter = filter,

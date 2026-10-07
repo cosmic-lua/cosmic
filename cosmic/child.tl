@@ -1961,6 +1961,9 @@ local record PtyStart
   --- The pty's master, close-on-exec and blocking: the caller's to
   --- read, write and close. Closing it hangs the child's terminal up.
   master: integer
+  --- The pty's slave, the caller's to close, when [`PtyOptions.keep_slave`]
+  --- asked for it; -1 otherwise.
+  slave: integer
 end
 
 --- What [`Child.start_on_pty`] is asked for.
@@ -1972,6 +1975,11 @@ local record PtyOptions
   --- terminal among those is refused under a `policy` as it is by
   --- [`Child.start`].
   streams: {integer}
+  --- Whether the caller is given the slave too, open and close-on-exec, to
+  --- close once it has read all the child wrote: macOS drops the output the
+  --- master has not read when the last slave descriptor closes, so a child
+  --- that writes and exits at once loses it unless the caller holds one.
+  keep_slave: boolean
   --- The terminal's size in character cells, set before the child starts,
   --- or nil for the system's default.
   rows: integer
@@ -3951,7 +3959,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, relay_process?: b
   local run_argv = held ~= nil and held.argv or argv
   -- The pty's path is the terminal where stdin is on it.
   local terminal: boolean | string = false
-  if pty ~= nil and pty.streams[0] then terminal = pty.name end
+  if pty ~= nil and pty.streams[0] then terminal = pty.name or true end
   local called, pid, trouble, errno = pcall(raw.spawn, path, run_argv, env, cwd,
     slots[0], slots[1], slots[2], grouped, extra, sandbox, credentials, terminal)
   if not called then
@@ -4103,11 +4111,15 @@ local record PtyHolder
   slave: integer
   --- Whether the master is the caller's.
   keep: boolean
+  --- Whether the slave is the caller's too.
+  keep_slave: boolean
 end
 
 local pty_holder_mt: metatable<PtyHolder> = {
   __close = function(self: PtyHolder)
-    local _, _ = sys.close(self.slave)
+    if not self.keep_slave then
+      local _, _ = sys.close(self.slave)
+    end
     if not self.keep then
       local _, _ = sys.close(self.master)
     end
@@ -4156,15 +4168,20 @@ function Child.start_on_pty(argv: {string}, opts: Options, pty: PtyOptions): Pty
   -- Closes both ends where the start raises, or fails; the slave on any
   -- return, the master unless the caller is to have it.
   local holding <close>: PtyHolder = setmetatable({ master = made.master, slave = made.slave,
-    keep = false }, pty_holder_mt)
+    keep = false, keep_slave = false }, pty_holder_mt)
   -- Darwin's start opens the slave by name to make it the controlling
-  -- terminal, and its profile grants that path.
-  local slave_path, name_why = sys.ttyname(made.slave)
-  if slave_path == nil then return refuse("pty: " .. name_why) end
+  -- terminal, and its profile grants that path; Linux has no use for it.
+  local slave_path: string
+  if streams[0] and holds_by_seatbelt() then
+    local found, name_why = sys.ttyname(made.slave)
+    if found == nil then return refuse("pty: " .. name_why) end
+    slave_path = found
+  end
   local started, trouble = start(argv, opts, { slave = made.slave, streams = streams, name = slave_path })
   if started == nil then return nil, trouble end
   holding.keep = true
-  return { child = started, master = made.master }, ""
+  holding.keep_slave = pty.keep_slave == true
+  return { child = started, master = made.master, slave = holding.keep_slave and made.slave or -1 }, ""
 end
 
 --- Waits for the first of several handles to finish, servicing every

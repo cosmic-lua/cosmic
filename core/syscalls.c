@@ -2832,11 +2832,18 @@ _Noreturn void cosmic_trampoline (int argc, char **argv) {
   const char *terminal = argv[7];
   if (!failure && terminal[0] != '\0') {
     step = "terminal";
-    int fd = open(terminal, O_RDWR);
+    /* Nonblocking, so that a path that is no terminal (a FIFO) cannot hold
+     * the start; and it must be the terminal descriptor 0 holds, which the
+     * caller's contract names as the controlling one. */
+    int fd = open(terminal, O_RDWR | O_NONBLOCK);
+    struct stat opened, standard;
     if (fd < 0) {
       failure = errno;
     } else {
-      if (tcgetsid(fd) != getsid(0) && ioctl(fd, TIOCSCTTY, 0) != 0) failure = errno;
+      if (!isatty(fd) || fstat(fd, &opened) != 0 || fstat(0, &standard) != 0 ||
+          opened.st_rdev != standard.st_rdev)
+        failure = ENOTTY;
+      else if (tcgetsid(fd) != getsid(0) && ioctl(fd, TIOCSCTTY, 0) != 0) failure = errno;
       close(fd);
     }
   }
