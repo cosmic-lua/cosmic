@@ -78,3 +78,19 @@ local function test_the_product_boots_its_own_tree_to_itself(tmp: string)
   assert(Fixture.hash(tree .. "/o/bin/cosmic") == Fixture.hash(product),
     "the tool a boot the product drove wrote is not the product")
 end
+
+--- The caller prepares terminals before confinement; no policy grants
+--- device ioctls to workers for this fixture's convenience. Exercise the
+--- real candidate core from this unsandboxed driver fixture instead.
+local function test_the_product_prepares_and_restores_terminals(tmp: string)
+  local product = Fixture.required("COSMIC_FIXTURE_PRODUCT") .. "/cosmic"
+  local source = Fixture.required("COSMIC_FIXTURE_SOURCE")
+  local diagnostics = tmp .. "/logs"
+  Fixture.mkdir(diagnostics)
+  local outcome = Fixture.call_with_environment("pty-bindings",
+    { product, source .. "/test/terminal/pty.tl", "bindings" }, tmp, diagnostics,
+    Fixture.environment(), Clock.seconds(30))
+  local captured = Fixture.succeeded("pty-bindings", outcome)
+  local out = Fixture.read(captured.out)
+  assert(out:find("pty: PASS", 1, true), out)
+end

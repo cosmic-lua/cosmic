@@ -74,6 +74,8 @@ local sys = require("cosmic.sys")
 local Stream = require("cosmic.stream")
 local Clock = require("cosmic.clock")
 
+local isatty = sys.isatty
+
 -- The calls that start, feed and reap a child, and hold this process's
 -- signals while it does, live in the raw process table, under the
 -- reserved `cosmic.internal.` namespace -- see cosmic/store.tl for
@@ -2296,8 +2298,6 @@ local function nests(merged: Rules.Policy): boolean
 end
 
 --- A policy's fields not yet met, by what each would need.
--- TODO: refuse a policy whose stdin, stdout or stderr is a terminal,
--- which only the pty relay (the design's phase 7) may carry.
 -- TODO: meet `connect`, and delete this refusal, once the relay (the
 -- design's phase 6) lands.
 local function unmet(merged: Rules.Policy): string
@@ -3236,6 +3236,16 @@ end
 
 --- [`Child.start`] on options already validated.
 local function start(argv: {string}, opts: Options): Handle | nil, string
+  -- Refuse an explicit terminal before inspecting any platform policy:
+  -- it needs a relay even on a host that cannot apply that policy.
+  if opts.policy ~= nil then
+    local streams: {integer: integer | string} = { [0] = opts.stdin, [1] = opts.stdout, [2] = opts.stderr }
+    for number, stream in pairs(streams) do
+      if stream is integer and isatty(stream) then
+        return refuse("start: sandbox: terminal stdio[" .. number .. "] needs the verb's pty relay")
+      end
+    end
+  end
   local held: Held
   if opts.policy ~= nil then
     local made, why = held_to(argv, opts)
@@ -3253,6 +3263,28 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
   if slots == nil then
     unwire(wiring, false)
     return refuse("start: " .. wire_trouble)
+  end
+  if held ~= nil then
+    -- A terminal on any descriptor the child holds, not only stdio, lets it
+    -- inject input (TIOCSTI) into the caller's session. The descriptors the
+    -- runtime retains of its own (its artifact and core) are files, and
+    -- every binding refuses them by raising; any other raise is rethrown.
+    for number = 0, 2 do
+      local fd = slots[number] or number
+      if isatty(fd) then
+        unwire(wiring, false)
+        return refuse("start: sandbox: terminal stdio[" .. number .. "] needs the verb's pty relay")
+      end
+    end
+    for number, fd in pairs(slots) do
+      local looked, terminal = true, false
+      if number > 2 then looked, terminal = pcall(isatty, fd) end
+      if not looked and not tostring(terminal):find("retained", 1, true) then error(terminal, 0) end
+      if looked and terminal then
+        unwire(wiring, false)
+        return refuse("start: sandbox: terminal fds[" .. number .. "] needs the verb's pty relay")
+      end
+    end
   end
   if held ~= nil and held.nests then
     local why = nest_descriptors(slots)
