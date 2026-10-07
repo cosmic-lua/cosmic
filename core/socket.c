@@ -1495,9 +1495,11 @@ static bool through_reaches (int fd, const struct resolve_server *server) {
  * in `*connected`. The exchange may outlast the lookup's deadline by up
  * to the connector's own reply time, so that a server that does not
  * answer its connect costs that time and leaves the stream in step for
- * the next server. A refusal the connector replies leaves its stream in
- * step; any other failure, or a socket not connected to `server`, leaves
- * the stream lost and shuts it down, so that its owner sees it end. */
+ * the next server. A refusal the connector replies, and a reply that
+ * came whole with a socket not connected to `server` (one the server
+ * reset as it was made), leave its stream in step; any other failure
+ * leaves the stream lost and shuts it down, so that its owner sees it
+ * end. */
 static bool through_ask (struct resolution *resolution, const struct resolve_server *server, int *connected) {
   *connected = -1;
   uint16_t port = ntohs(server->address.ss_family == AF_INET ?
@@ -1515,6 +1517,11 @@ static bool through_ask (struct resolution *resolution, const struct resolve_ser
   }
   if (failure == 0) failure = through_rights(resolution, deadline, connected);
   if (failure == 0 && through_reaches(*connected, server)) return true;
+  if (failure == 0) {
+    close(*connected);
+    *connected = -1;
+    return false;
+  }
   if (*connected >= 0) close(*connected);
   *connected = -1;
   resolution->lost = failure != 0 ? failure : EPROTO;
@@ -1785,7 +1792,10 @@ COSMIC_SYSCALL(resolve_through, 6) {
   luaL_checktype(L, 5, LUA_TTABLE);
   size_t count = lua_rawlen(L, 5);
   luaL_argcheck(L, count >= 1 && count <= RESOLVE_SERVERS_MAX, 5, "servers must hold 1 through 128 servers");
-  const char *hosts = lua_isnoneornil(L, 6) ? NULL : cosmic_path(L, 6);
+  /* Read before anything is pushed: past the arguments, slot 6 is the
+   * guard's or the server list's when no hosts file is given. */
+  bool hosts_given = !lua_isnoneornil(L, 6);
+  const char *hosts = hosts_given ? cosmic_path(L, 6) : NULL;
 #if defined(__linux__)
   struct resolution *resolution = resolution_push(L, timeout);
   if (resolution == NULL) return cosmic_fail(L, ENOMEM);
@@ -1802,7 +1812,7 @@ COSMIC_SYSCALL(resolve_through, 6) {
     lua_pop(L, 1);
     resolution->servers++;
   }
-  if (resolve_refused(name, size) || (!lua_isnoneornil(L, 6) && hosts == NULL)) return cosmic_fail(L, EINVAL);
+  if (resolve_refused(name, size) || (hosts_given && hosts == NULL)) return cosmic_fail(L, EINVAL);
   if (resolve_literal(L, name, size)) return 1;
   return resolve_run(L, name, timeout, listed, hosts, resolution);
 #else
@@ -1814,7 +1824,7 @@ COSMIC_SYSCALL(resolve_through, 6) {
     (void)through_server_read(L, 5, i == 0, &server, NULL, 0);
     lua_pop(L, 1);
   }
-  if (resolve_refused(name, size) || (!lua_isnoneornil(L, 6) && hosts == NULL)) return cosmic_fail(L, EINVAL);
+  if (resolve_refused(name, size) || (hosts_given && hosts == NULL)) return cosmic_fail(L, EINVAL);
   return cosmic_fail(L, ENOSYS);
 #endif
 }

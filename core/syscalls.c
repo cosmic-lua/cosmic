@@ -4582,11 +4582,10 @@ COSMIC_SYSCALL(spawn, 12) {
     lua_rawget(L, 10);
     if (!lua_isnil(L, -1) && !lua_isboolean(L, -1))
       return luaL_argerror(L, 10, "host_network must be a boolean");
-    /* TODO: drop host_network from the relay once a separate resolver
-     * helper and a pre-started range-table connector serve it, so the relay
-     * process holds no inet socket in the host's network: the TODO at
-     * Net.connector in cosmic/net.tl (serve names resolved at connect time
-     * from one process) waits on the same range table. */
+    /* TODO: remove host_network, and its checks and tests
+     * (core/syscalls_relay_test.tl), in the relay hardening's next change:
+     * nothing sets it since the relay runs offline on the connectors its
+     * starter hands it (cosmic/sandbox/relay.tl). */
     host_network = lua_toboolean(L, -1);
     lua_pop(L, 1);
     lua_pushliteral(L, "relay");

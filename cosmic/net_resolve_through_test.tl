@@ -11,12 +11,13 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
-local Relay = require("cosmic.relay")
+local Sandbox = require("cosmic.sandbox")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 local _ = require("build.standalone")
 local type raw_process = require("cosmic.internal.process")
+local type raw_socket = require("cosmic.internal.socket")
 
 --- The program itself, which runs a lookup; a loopback alone answers; the
 --- connector is a process the lookup's forks.
@@ -34,6 +35,7 @@ local function raw_behind(wrapper: string): any
 end
 
 local process = raw_behind("cosmic.child") as raw_process -- cast: core/process.h's table
+local socket = raw_behind("cosmic.net") as raw_socket -- cast: core/socket.h's table
 
 --- Skips where the native connector does not run (it is Linux only).
 local function require_native_connector()
@@ -42,6 +44,19 @@ local function require_native_connector()
     Test.skip("this host has no native connector: " .. why)
   end
   assert(result == sys.EPERM, "native connector setup failed: " .. tostring(why))
+end
+
+--- The resolver options of a connector of the name servers `opts` names,
+--- waiting for each as cosmic.sandbox.relay chooses: its `connector` and the
+--- same servers as `servers`. Nil and why where they cannot be read.
+local function name_server_options(opts: Sandbox.Relay.NameServerOptions): Net.ResolveOptions | nil, string
+  local plan, why = Sandbox.Relay.name_servers(opts)
+  if plan == nil then return nil, why end
+  local connector, trouble = Net.connector(plan.servers, { timeout_ns = plan.wait_ns })
+  if connector == nil then return nil, trouble end
+  local servers: {Net.Address} = {}
+  for i, server in ipairs(plan.servers) do servers[i] = Net.udp(server.host, server.port) end
+  return { connector = connector, servers = servers }, ""
 end
 
 local TYPE_A <const> = 1
@@ -74,7 +89,7 @@ end
 --- Resolves argv[1] through a connector whose table is 127.0.0.1 at each
 --- port of argv[2] (comma-separated) and nothing else, waiting argv[3]
 --- milliseconds for each connection (or, where argv[3] is "relay", as
---- Relay.name_servers chooses for its default lookup time), twice, so the second asks the same
+--- cosmic.sandbox.relay chooses for its default lookup time), twice, so the second asks the same
 --- process again: the first within argv[4] milliseconds, if given, the
 --- second within five seconds. Prints each answer's addresses, sorted, on
 --- a line, and then how many milliseconds each lookup took, on a line.
@@ -82,7 +97,7 @@ local SCRIPT <const> = [[
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
-local Relay = require("cosmic.relay")
+local Sandbox = require("cosmic.sandbox")
 return function(argv: {string}): integer
   local endpoints: {Net.Endpoint} = {}
   local servers: {Net.Address} = {}
@@ -93,7 +108,8 @@ return function(argv: {string}): integer
   end
   local dns: Net.Connector
   if argv[3] == "relay" then
-    dns = assert(Relay.name_servers({ servers = endpoints })).connector
+    local plan = assert(Sandbox.Relay.name_servers({ servers = endpoints }))
+    dns = assert(Net.connector(plan.servers, { timeout_ns = plan.wait_ns }))
   else
     dns = assert(Net.connector(endpoints, { timeout_ns = Clock.ms(assert(math.tointeger(tonumber(argv[3])))) }))
   end
@@ -324,7 +340,7 @@ local function test_the_name_servers_connector_refuses_what_is_no_name_server(tm
   require_native_connector()
   local conf = tmp .. "/resolv.conf"
   assert(Fs.write(conf, "nameserver 127.0.0.1\n"))
-  local servers = assert(Net.nameservers({ resolv_conf = conf }))
+  local servers = assert(Sandbox.Relay.nameservers(conf))
   assert(#servers == 1 and servers[1].host == "127.0.0.1" and servers[1].port == 53)
   local dns <close> = assert(Net.connector(servers))
   local conn, why = dns:connect("127.0.0.1", 80, Clock.seconds(5))
@@ -353,6 +369,44 @@ local function test_the_name_servers_connector_refuses_what_is_no_name_server(tm
   assert(asked(string.pack(">I4I4", 2, 53)) == sys.EPERM)
   assert(asked(string.pack(">I4I4I4", 0xffffffff, 53, 4) .. string.char(192, 0, 2, 1) .. string.rep("\0", 12)) ==
       sys.EPERM)
+end
+
+--- A connection a name server resets as it is made fails that server
+--- alone: the connector's reply came whole, so the lookup leaves its stream
+--- in step, not shut down, and the connector serves the next lookup. A
+--- stand-in on the stream's other end replies with sockets refused at once,
+--- which have no peer, as a reset one has none.
+local function test_a_name_server_reset_as_it_is_made_leaves_the_stream_in_step(tmp: string)
+  if assert(sys.uname()).sysname ~= "Linux" then
+    Test.skip("a lookup through a connector is Linux only, as the connector is")
+  end
+  local free = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
+  local port = free.address.port
+  assert(free:close())
+  local hosts = tmp .. "/hosts"
+  assert(Fs.write(hosts, ""))
+  local pair = assert(process.connector_pair())
+  assert(sys.set_nonblocking(pair[1], true))
+  assert(sys.set_nonblocking(pair[2], true))
+  -- More replies than the lookup asks for (one a query, and a retry):
+  -- one left over is never read.
+  for _ = 1, 4 do
+    local reset = assert(socket.start({ kind = "tcp", host = "127.0.0.1", port = port }))
+    assert(socket.wait(reset:fd(), true, 5000))
+    assert(sys.write(pair[2], string.pack(">I4", 0)) == 4)
+    assert(socket.sendfds(pair[2], { reset:fd() }))
+    assert(reset:close())
+  end
+  local found, why = socket.resolve_through("reset.example.test", 2000, pair[1], 1000,
+    { { host = "127.0.0.1", port = 53, index = 1 } }, hosts)
+  assert(found == nil and why ~= "", tostring(why))
+  local asked = assert(sys.read(pair[2], 4096))
+  assert(#asked >= 8 and #asked % 8 == 0 and asked:sub(1, 8) == string.pack(">I4I4", 1, 53), ("%q"):format(asked))
+  -- Shut down, the stream would read as ended here; in step, nothing waits.
+  local more, _, number = sys.read(pair[2], 1)
+  assert(more == nil and number == sys.EAGAIN, "the lookup shut the stream down: " .. tostring(more))
+  assert(sys.close(pair[1]))
+  assert(sys.close(pair[2]))
 end
 
 --- A connector that never replies holds the lookup to its deadline, and
@@ -387,21 +441,17 @@ end
 local function test_nameservers_reads_the_servers_resolv_conf_names(tmp: string)
   local conf = tmp .. "/resolv.conf"
   assert(Fs.write(conf, "nameserver 192.0.2.53\nnameserver 2001:db8::53\nnameserver fe80::1%lo\n"))
-  local servers, why = Net.nameservers({ resolv_conf = conf })
+  local servers, why = Sandbox.Relay.nameservers(conf)
   assert(servers ~= nil and #servers >= 1, why)
   for _, server in ipairs(servers) do
     assert(server.host:find("%", 1, true) == nil and server.port >= 1, server.host)
   end
   local scoped = tmp .. "/scoped.conf"
   assert(Fs.write(scoped, "nameserver fe80::1%lo\n"))
-  local none, trouble = Net.nameservers({ resolv_conf = scoped })
-  local missing = Net.nameservers({ resolv_conf = tmp .. "/missing.conf" })
-  local bad, invalid = Net.nameservers({ resolv_conf = tmp .. "/x\0y" })
+  local none, trouble = Sandbox.Relay.nameservers(scoped)
+  local missing = Sandbox.Relay.nameservers(tmp .. "/missing.conf")
+  local bad, invalid = Sandbox.Relay.nameservers(tmp .. "/x\0y")
   assert(bad == nil and invalid == "Invalid argument", tostring(invalid))
-  local number: any = 7
-  local numbered: any = { resolv_conf = 7 }
-  assert(not pcall(Net.nameservers, number as Net.NameserversOptions))
-  assert(not pcall(Net.nameservers, numbered as Net.NameserversOptions))
   -- On macOS the system's DNS configuration comes before any resolv.conf.
   if assert(sys.uname()).sysname ~= "Linux" then
     Test.skip("the system's DNS configuration answers before resolv.conf here")
@@ -431,10 +481,10 @@ local function test_the_relays_name_servers_stand_when_the_system_names_others(t
   assert(Fs.write(conf, "nameserver 192.0.2.53\n"))
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, "198.51.100.9 kept.example.test\n"))
-  local opts = assert(Relay.name_servers({ resolv_conf = conf }))
+  local opts = assert(name_server_options({ resolv_conf = conf }))
   local _dns <close> = opts.connector
   assert(#opts.servers == 1 and opts.servers[1].host == "192.0.2.53" and opts.servers[1].port == 53)
-  local system = Net.nameservers()
+  local system = Sandbox.Relay.nameservers()
   assert(system == nil or system[1].host ~= "192.0.2.53", "the system names the test's server")
   local found, why = Net.resolve("kept.example.test",
     { connector = opts.connector, servers = opts.servers, hosts_file = hosts, timeout_ns = Clock.seconds(5) })
@@ -443,7 +493,7 @@ local function test_the_relays_name_servers_stand_when_the_system_names_others(t
   found, why = Net.resolve("kept.example.test", { connector = opts.connector, hosts_file = hosts })
   assert(found == nil, "the system's servers were asked through the table")
   -- Unreadable servers are a reason, not a raise.
-  local none, trouble = Relay.name_servers({ resolv_conf = tmp .. "/x\0y" })
+  local none, trouble = Sandbox.Relay.name_servers({ resolv_conf = tmp .. "/x\0y" })
   assert(none == nil and trouble == "Invalid argument", tostring(trouble))
 end
 
@@ -466,7 +516,7 @@ local function test_the_relays_wait_leaves_the_second_server_time_to_answer(tmp:
 end
 
 --- `count` name servers that never take a connection, through a connector
---- Relay.name_servers makes for a lookup of `lookup_ms`: the lookup fails
+--- of the name servers, waiting as cosmic.sandbox.relay chooses, for a lookup of `lookup_ms`: the lookup fails
 --- as out of time, by its deadline, one connector wait and the grace.
 local function silent_lookup(count: integer, lookup_ms: integer)
   require_native_connector()
@@ -476,7 +526,7 @@ local function silent_lookup(count: integer, lookup_ms: integer)
     local port = stuck_server(held)[1]
     endpoints[#endpoints + 1] = { host = "127.0.0.1", port = port }
   end
-  local opts = assert(Relay.name_servers({ servers = endpoints, resolve = Clock.ms(lookup_ms) }))
+  local opts = assert(name_server_options({ servers = endpoints, resolve = Clock.ms(lookup_ms) }))
   local wait = math.max(500, lookup_ms // (count + 1))
   local began = Clock.monotonic_ns()
   local found, why = Net.resolve("silent.example.test",
@@ -498,8 +548,8 @@ end
 
 local function test_name_servers_and_a_connector_from_refuse_what_is_out_of_range()
   local zero: any = 0
-  assert(not pcall(Relay.name_servers, { resolve = zero as integer }))
-  assert(not pcall(Relay.name_servers, { resolve = -1 }))
+  assert(not pcall(Sandbox.Relay.name_servers, { resolve = zero as integer }))
+  assert(not pcall(Sandbox.Relay.name_servers, { resolve = -1 }))
   local pair = assert(process.connector_pair())
   assert(not pcall(Net.connector_from, pair[1], nil, false, 5))
   assert(not pcall(Net.connector_from, pair[1], nil, false, Clock.seconds(61)))

@@ -44,7 +44,9 @@
 ---
 --- Behind an upstream proxy ([`Relay.Upstream`], from [`Relay.upstream`]),
 --- steps 2 and 5 are the same and steps 3 and 4 connect to the upstream
---- instead -- its address resolved, its answers checked and connected
+--- instead -- at the addresses its starter resolved once
+--- ([`Relay.Upstream.addresses`]), or its host resolved for the
+--- connection where it gave none, its answers checked and connected
 --- through the connector -- and ask it to CONNECT: the upstream resolves the
 --- name, so the address checks do not apply to what it reaches, which the
 --- relay says once, at its start. The upstream's own address is the one the
@@ -106,6 +108,7 @@ local Log = require("cosmic.log")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Address = require("cosmic.relay_address")
+local Config = require("cosmic.relay_config")
 local Wire = require("cosmic.relay_wire")
 local String = require("cosmic.string")
 
@@ -150,18 +153,30 @@ local record Relay
     pre_auth: integer
   end
 
+
   --- The proxy a caller's `https_proxy` names, and the hosts `no_proxy`
-  --- says to reach directly.
-  record Upstream
-    --- The proxy's host: a name or an address.
-    host: string
-    --- The proxy's port.
-    port: integer
-    --- The `Proxy-Authorization` header value to send it, or nil.
-    authorization: string
-    --- The `no_proxy` entries: hosts, domains (leading dot or not, which
-    --- match their subdomains too), `host:port`, addresses, or "*".
-    no_proxy: {string}
+  --- says to reach directly ([`cosmic.relay_config`]'s [`Upstream`]).
+  type Upstream = Config.Upstream
+
+  --- The connectors a relay was handed by its starter, which
+  --- [`Relay.handed`] makes one [`Connector`] of. A field left nil is a
+  --- connector not handed.
+  record Handed
+    --- Connectors, alike, whose table holds the addresses a grant names
+    --- literally and the upstream's, which `table` lists in its order. Each
+    --- connection takes any that is free.
+    table_connectors: {Net.Connector}
+    --- Their table.
+    table: {Net.Endpoint}
+    --- Public connectors ([`Net.connector`]'s `public`), alike, for an
+    --- address no table holds: one a granted name resolved to. Each
+    --- connection takes any that is free.
+    public_connectors: {Net.Connector}
+    --- The wait each connector was started with, in nanoseconds, which
+    --- each request is given whatever the relay asks: shorter, the reply
+    --- would come after the request was given up on, and the connector,
+    --- which cannot be started again, would be lost.
+    wait_ns: integer
   end
 
   --- What a relay serves, and how.
@@ -179,7 +194,7 @@ local record Relay
     --- The resolver's options ([`Net.ResolveOptions`]): `servers`,
     --- `hosts_file` and `connector`, which are the trusted caller's own.
     --- The sandbox's relay resolves through a connector of the name
-    --- servers alone, over TCP ([`Relay.name_servers`]). Its `timeout_ns`
+    --- servers alone, over TCP ([`cosmic.sandbox.relay`]). Its `timeout_ns`
     --- is [`Timeouts.resolve`]'s.
     resolve: Net.ResolveOptions
     --- Why no name can be resolved, or nil: set, every name fails with it
@@ -206,18 +221,6 @@ local record Relay
     --- writes them in a printable form (hex, base64url): a guess is bounded
     --- by nothing but the token's entropy.
     token: string
-  end
-
-  --- What [`Relay.name_servers`] takes; a nil field takes its default.
-  record NameServersOptions
-    --- A resolv.conf to read in place of the system's, for tests.
-    resolv_conf: string
-    --- The lookup's whole time, [`Timeouts.resolve`]'s (5 seconds), which
-    --- the connector's wait for each server is a share of: a positive
-    --- integer of nanoseconds.
-    resolve: integer
-    --- The servers in place of the system's, for tests.
-    servers: {Net.Endpoint}
   end
 
   --- What a running relay has done.
@@ -343,107 +346,178 @@ local function target(host: string, port: integer): string
   return host .. ":" .. port
 end
 
-local function percent_decoded(text: string): string
-  return (text:gsub("%%(%x%x)", function(hex: string): string
-    return string.char(tonumber(hex, 16))
-  end))
+--- The name servers `servers`, each at its port, as the "udp" addresses
+--- [`Net.ResolveOptions.servers`] takes: the list a lookup through a
+--- connector of exactly those servers asks.
+--- @param servers {Net.Endpoint} The connector's table
+--- @return {Net.Address} The same servers
+function Relay.udp_servers(servers: {Net.Endpoint}): {Net.Address}
+  local out: {Net.Address} = {}
+  for i, server in ipairs(servers) do out[i] = Net.udp(server.host, server.port) end
+  return out
 end
 
---- The least a lookup's connector waits for a server to take its
---- connection, however many servers share the lookup's time.
-local NAME_SERVER_WAIT_LEAST <const> = Clock.ms(500)
-
---- The resolver options of a relay that resolves over TCP through a
---- native connector whose table holds the system's name servers
---- ([`Net.nameservers`]) at their port and nothing else, read once, now:
---- `connector` and `servers`, the same list, so a lookup asks exactly
---- the table even after the system's configuration changes. The
---- connector waits for each server's connection the lookup's time divided
---- by one more than the servers (at least half a second, at most a
---- minute), so that servers that do not answer leave the last one time
---- to. A `resolve` that is no positive integer raises. Nil and why where
---- the servers cannot be read, are more than a connector holds (128), or
---- the connector cannot start: a relay given that as [`Spec.unresolved`]
---- still reaches an address a grant names. The caller closes the
---- connector.
---- @param opts Relay.NameServersOptions|nil Where to read, and the lookup's time
---- @return Net.ResolveOptions|nil The options for [`Spec.resolve`]
---- @return string Why there are none, "" otherwise
-function Relay.name_servers(opts?: Relay.NameServersOptions): Net.ResolveOptions | nil, string
-  opts = opts or {}
-  local resolve = opts.resolve or DEFAULT_TIMEOUTS.resolve
-  if math.type(resolve) ~= "integer" or resolve <= 0 then
-    error("relay: name_servers' resolve must be a positive integer of nanoseconds", 2)
-  end
-  local listed = opts.servers
-  if listed == nil then
-    local read, why = Net.nameservers({ resolv_conf = opts.resolv_conf })
-    if read == nil then return nil, why end
-    listed = read
-  end
-  if #listed > 128 then
-    return nil, "the system names " .. String.counted(#listed, "name server") .. ", more than a connector holds (128)"
-  end
-  local wait = math.min(Clock.seconds(60), math.max(NAME_SERVER_WAIT_LEAST, resolve // (#listed + 1)))
-  local connector, trouble = Net.connector(listed, { timeout_ns = wait })
-  if connector == nil then return nil, trouble end
-  local servers: {Net.Address} = {}
-  for i, server in ipairs(listed) do servers[i] = Net.udp(server.host, server.port) end
-  return { connector = connector, servers = servers }, ""
+--- One connector of a pool and whether a request holds it.
+local record Pooled
+  connector: Net.Connector
+  busy: boolean
 end
 
---- The upstream a caller's environment names, and nil when it names none:
---- `https_proxy` (or `HTTPS_PROXY`) as `http://[user:password@]host[:port]`
---- (the scheme and the port, 80, may be left out) and `no_proxy` (or
---- `NO_PROXY`). `https://` proxies are refused, as the relay speaks plain
---- HTTP to its upstream.
+--- A request's hold on a connector of a pool, let go however the request
+--- ends: a raise, or its task cancelled, leaves no connector held.
+local record Hold
+  entry: Pooled
+  metamethod __close: function(Hold)
+end
+
+local hold_mt: metatable<Hold> = {
+  __close = function(self: Hold)
+    self.entry.busy = false
+  end,
+}
+
+--- The requests of the alike connectors `connectors` (`name` in a
+--- refusal), each given `wait_ns`. A request takes a connector no other
+--- request holds and whose process has not ended, in the order the
+--- requests came, waiting while every live one is held, at most its own
+--- `timeout_ns` ([`Poll.TIMEOUT`]); its connect's wait starts when it is
+--- sent, so its connector answers it within that wait and stays in step.
+--- A connector makes one connection at a time: one whose connect hangs
+--- holds itself alone. A request whose connector ends under it is asked
+--- of another; once every connector has ended, a request fails saying so.
+local function pooled(connectors: {Net.Connector}, wait_ns: integer, name: string):
+    function(endpoint: integer | string, port: integer, timeout_ns: integer): Net.Conn | nil, string
+  local pool: {Pooled} = {}
+  for i, connector in ipairs(connectors) do pool[i] = { connector = connector, busy = false } end
+  local waiting: {integer} = {}
+  local tickets = 0
+  --- A live connector no request holds, once every request before this
+  --- one has taken one, by `deadline`; or nil and why.
+  local function take(deadline: integer): Pooled | nil, string
+    tickets = tickets + 1
+    local me = tickets
+    waiting[#waiting + 1] = me
+    local function leave()
+      for i, other in ipairs(waiting) do
+        if other == me then
+          table.remove(waiting, i)
+          return
+        end
+      end
+    end
+    while true do
+      local live = false
+      local free: Pooled
+      for _, entry in ipairs(pool) do
+        if not entry.connector:ended() then
+          live = true
+          if free == nil and not entry.busy then free = entry end
+        end
+      end
+      if not live then
+        leave()
+        return nil, "relay: every " .. name .. " connector has ended"
+      end
+      if free ~= nil and waiting[1] == me then
+        leave()
+        return free, ""
+      end
+      if Clock.monotonic_ns() >= deadline then
+        leave()
+        return nil, Poll.TIMEOUT
+      end
+      -- TODO: wait on a lock of cosmic.poll's once it has one, as the TODO at
+      -- Net.connector says: a request waits here by polling every millisecond.
+      local waited, why = Poll.delay(Clock.ms(1))
+      if not waited then
+        leave()
+        return nil, why
+      end
+    end
+  end
+  --- `entry`'s connect, held for its length.
+  local function attempt(entry: Pooled, endpoint: integer | string, port: integer): Net.Conn | nil, string
+    entry.busy = true
+    local hold: Hold = setmetatable({ entry = entry }, hold_mt)
+    local _held <close> = hold
+    -- A connect raises only for arguments it refuses, which this module's
+    -- own are not.
+    local conn, why = entry.connector:connect(endpoint, port, wait_ns)
+    if conn == nil then return nil, why end
+    return conn, ""
+  end
+  return function(endpoint: integer | string, port: integer, timeout_ns: integer): Net.Conn | nil, string
+    local deadline = Clock.monotonic_ns() + timeout_ns
+    while true do
+      local entry, why = take(deadline)
+      if entry == nil then return nil, why end
+      local conn, trouble = attempt(entry, endpoint, port)
+      if conn ~= nil then return conn, "" end
+      -- A connector that ended during the request made no connection:
+      -- another live one is asked.
+      if not entry.connector:ended() then return nil, trouble end
+    end
+  end
+end
+
+--- The [`Connector`] of the connectors a relay's starter handed it
+--- ([`cosmic.sandbox.relay`]): an address and port the table holds is asked
+--- of a free table connector, by its place in the table, and any other of
+--- a free public connector, which refuses what its deny list does; with
+--- neither, the connection fails, naming the address. Each connector
+--- serves one request at a time, given its `wait_ns` whatever wait the
+--- relay asks: a connection waits only while every live connector of its
+--- kind is held, at most the relay's own wait, and a connector whose
+--- process has ended is passed over. A `handed` with no connector, a table connector without its table, or a
+--- `wait_ns` that is no positive integer raises.
+--- @param handed Relay.Handed The connectors
+--- @return Relay.Connector What [`Relay.Spec.connector`] takes
+function Relay.handed(handed: Relay.Handed): Relay.Connector
+  if type(handed) ~= "table" or (#(handed.table_connectors or {}) == 0 and #(handed.public_connectors or {}) == 0) then
+    error("relay: handed needs a table connector or a public one", 2)
+  end
+  if #(handed.table_connectors or {}) > 0 and type(handed.table) ~= "table" then
+    error("relay: handed.table must list the table connector's endpoints", 2)
+  end
+  if math.type(handed.wait_ns) ~= "integer" or handed.wait_ns < 1 then
+    error("relay: handed.wait_ns must be a positive integer of nanoseconds", 2)
+  end
+  local rows: {string} = {}
+  local ports: {integer} = {}
+  for i, entry in ipairs(handed.table or {}) do
+    local bytes = Address.parse(entry.host)
+    if bytes == nil then error("relay: handed.table[" .. i .. "] is not a numeric endpoint", 2) end
+    rows[i], ports[i] = table.concat(bytes, "."), entry.port
+  end
+  local in_table = #(handed.table_connectors or {}) > 0 and pooled(handed.table_connectors, handed.wait_ns,
+    "table") or nil
+  local public = #(handed.public_connectors or {}) > 0 and pooled(handed.public_connectors, handed.wait_ns,
+    "public") or nil
+  return function(address: string, port: integer, timeout_ns: integer): Net.Conn | nil, string
+    local bytes = Address.parse(address)
+    if bytes == nil then return nil, "relay: " .. address .. " is not a numeric address" end
+    if in_table ~= nil then
+      local row = table.concat(bytes, ".")
+      for i = 1, #rows do
+        if rows[i] == row and (ports[i] == 0 or ports[i] == port) then
+          return in_table(i, port, timeout_ns)
+        end
+      end
+    end
+    if public ~= nil then return public(address, port, timeout_ns) end
+    return nil, "relay: " .. target(address, port) .. " is in no table of the connectors the relay was handed"
+  end
+end
+
+--- The upstream a caller's `https_proxy` and `no_proxy` name, or nil for
+--- none, as the relay's starter reads them ([`relay_config.upstream`]).
 ---
 ---     local upstream = assert(Relay.upstream({ https_proxy = "http://proxy.example:3128" }))
 --- @param env {string:string} The caller's environment
 --- @return Relay.Upstream|nil The upstream, nil for none
 --- @return string Why the variable cannot be used, "" otherwise
 function Relay.upstream(env: {string:string}): Relay.Upstream | nil, string
-  local value = env.https_proxy or env.HTTPS_PROXY
-  if value == nil or value == "" then return nil, "" end
-  local scheme, rest = value:match("^(%a[%w+.-]*)://(.*)$")
-  if scheme ~= nil then
-    if lower(scheme) ~= "http" then
-      -- No reason below repeats the value: it may hold a password, and no
-      -- pattern that hides one is right for every place an "@" or "/" may fall.
-      return nil, ("https_proxy has the scheme \"%s\", not http:// (the relay speaks plain HTTP to its upstream)"):format(scheme)
-    end
-  else
-    rest = value
-  end
-  rest = rest:gsub("/.*$", "")
-  local userinfo, hostport = rest:match("^(.*)@(.-)$")
-  if userinfo == nil then hostport = rest end
-  local host: string
-  local port: integer | nil = 80
-  local bracketed, after = hostport:match("^%[([^%]]*)%](.*)$")
-  if bracketed ~= nil then
-    host = bracketed
-    if after ~= "" then
-      port = after:sub(1, 1) == ":" and number_of(after:sub(2)) or nil
-    end
-  else
-    local name, at = hostport:match("^([^:]*):?(.*)$")
-    host = name
-    if at ~= "" then port = number_of(at) end
-  end
-  if host == nil or host == "" or port == nil then
-    return nil, "https_proxy has no usable host:port (http://[user:password@]host[:port])"
-  end
-  local upstream: Relay.Upstream = { host = lower(host), port = port, no_proxy = {} }
-  if userinfo ~= nil and userinfo ~= "" then
-    local user, password = userinfo:match("^([^:]*):?(.*)$")
-    upstream.authorization = "Basic " .. Codec.base64(percent_decoded(user) .. ":" .. percent_decoded(password))
-  end
-  for entry in ((env.no_proxy or env.NO_PROXY or "") .. ","):gmatch("([^,]*),") do
-    local trimmed = String.trim(entry)
-    if trimmed ~= "" then upstream.no_proxy[#upstream.no_proxy + 1] = lower(trimmed) end
-  end
-  return upstream, ""
+  return Config.upstream(env)
 end
 
 --- Whether `no_proxy` says to reach `host` on `port` directly.
@@ -754,31 +828,39 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
   if kind ~= "name" then
     return { address = name }
   end
-  -- A numeric host, as an upstream proxy's may be, answers itself.
-  if run.spec.unresolved ~= nil and Address.parse(name) == nil then
-    return { address = "", refused = refusal(("could not resolve %s: %s"):format(name, run.spec.unresolved), 502,
-      "host_unreachable") }
-  end
-  local opts: Net.ResolveOptions = { timeout_ns = run.timeouts.resolve }
-  if run.spec.resolve ~= nil then
-    opts.servers, opts.hosts_file = run.spec.resolve.servers, run.spec.resolve.hosts_file
-    opts.connector = run.spec.resolve.connector
-  end
-  -- TODO: resolve off the relay's loop once Net.resolve runs cooperatively
-  -- in a task of Poll.run (the TODO at Net.resolve): a lookup holds the
-  -- thread, so every client and tunnel of the relay waits up to its bound
-  -- (the resolve timeout, one connector wait and a second of grace).
-  local found, why = Net.resolve(name, opts)
-  if found == nil then
-    if why == Poll.TIMEOUT then
-      return { address = "", refused = refusal(("resolving %s timed out after %s"):format(name,
-        span(run.timeouts.resolve)), 504, "ttl_expired") }
-    end
-    return { address = "", refused = refusal(("could not resolve %s: %s"):format(name, why), 502, "host_unreachable") }
-  end
   local answers: {Address.Answer} = {}
-  for i, resolved in ipairs(found) do
-    answers[i] = { address = resolved.address, family = resolved.family }
+  local resolved_once = trusted and run.spec.upstream.addresses or nil
+  if resolved_once ~= nil then
+    -- The upstream's addresses, which its starter resolved: no lookup.
+    for i, address in ipairs(resolved_once) do
+      answers[i] = { address = address, family = address:find(":", 1, true) and "ipv6" or "ipv4" }
+    end
+  else
+    -- A numeric host, as an upstream proxy's may be, answers itself.
+    if run.spec.unresolved ~= nil and Address.parse(name) == nil then
+      return { address = "", refused = refusal(("could not resolve %s: %s"):format(name, run.spec.unresolved), 502,
+        "host_unreachable") }
+    end
+    local opts: Net.ResolveOptions = { timeout_ns = run.timeouts.resolve }
+    if run.spec.resolve ~= nil then
+      opts.servers, opts.hosts_file = run.spec.resolve.servers, run.spec.resolve.hosts_file
+      opts.connector = run.spec.resolve.connector
+    end
+    -- TODO: resolve off the relay's loop once Net.resolve runs cooperatively
+    -- in a task of Poll.run (the TODO at Net.resolve): a lookup holds the
+    -- thread, so every client and tunnel of the relay waits up to its bound
+    -- (the resolve timeout, one connector wait and a second of grace).
+    local found, why = Net.resolve(name, opts)
+    if found == nil then
+      if why == Poll.TIMEOUT then
+        return { address = "", refused = refusal(("resolving %s timed out after %s"):format(name,
+          span(run.timeouts.resolve)), 504, "ttl_expired") }
+      end
+      return { address = "", refused = refusal(("could not resolve %s: %s"):format(name, why), 502, "host_unreachable") }
+    end
+    for i, resolved in ipairs(found) do
+      answers[i] = { address = resolved.address, family = resolved.family }
+    end
   end
   local grants = run.spec.grants
   if trusted then
@@ -1212,6 +1294,16 @@ local function checked_upstream(up: Relay.Upstream)
   for _, entry in ipairs(up.no_proxy) do
     if type(entry) ~= "string" then
       error("relay: spec.upstream.no_proxy must be a list of strings", 3)
+    end
+  end
+  if up.addresses ~= nil then
+    if type(up.addresses) ~= "table" or #up.addresses == 0 then
+      error("relay: spec.upstream.addresses must be a list of one numeric address or more", 3)
+    end
+    for _, address in ipairs(up.addresses) do
+      if Address.parse(address) == nil then
+        error("relay: spec.upstream.addresses must hold numeric addresses", 3)
+      end
     end
   end
 end

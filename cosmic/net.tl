@@ -45,6 +45,7 @@ local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local errors = require("cosmic.internal.errors")
 local relay_address = require("cosmic.relay_address")
+local Sandbox = require("cosmic.sandbox")
 
 --- The raw module behind this one lives under the reserved
 --- `cosmic.internal.` namespace and arrives as the second argument
@@ -193,6 +194,10 @@ local record Net
     --- to a connection or nil and why: [`Connector.connect`] over a
     --- numeric address, and no more.
     as_function: function(Connector): function(address: string, port: integer, timeout_ns: integer): Conn | nil, string
+    --- Whether the connector serves no request any more: it is closed, or
+    --- its process, one [`Net.connector_from`] adopted, has ended or its
+    --- stream fell out of step, so it cannot be started again.
+    ended: function(Connector): boolean
     --- Ends the connector process and reaps it: the connections it made
     --- are theirs and stay open. Safe to call more than once; a connector
     --- dropped unclosed is ended when it is collected.
@@ -246,19 +251,14 @@ local record Net
     --- Resolves over TCP alone, every socket of the lookup made by this
     --- connector, one [`Net.connector`] or [`Net.connector_from`] made with
     --- a table, and no datagram sent: the servers asked are `servers`, or
-    --- the system's ([`Net.nameservers`]), each of which the connector's
-    --- table must hold at its port. A connector built from
-    --- [`Net.nameservers`] alone reaches nothing else, so the lookup's
+    --- the system's ([`cosmic.sandbox.relay`]'s `nameservers`), each of which the
+    --- connector's table must hold at its port. A connector built from
+    --- those alone reaches nothing else, so the lookup's
     --- sockets reach nothing but the name servers. Linux only, as the
     --- connector is.
     connector: Connector
   end
 
-  --- What [`Net.nameservers`] takes.
-  record NameserversOptions
-    --- A resolv.conf to read in place of the system's, for tests.
-    resolv_conf: string
-  end
 
   --- What [`Net.serve`] serves, and how. A field of the wrong shape, or
   --- one not named here, raises, naming it.
@@ -801,68 +801,6 @@ function Net.resolve(name: string, opts?: Net.ResolveOptions): {Net.Resolved} | 
   return found, ""
 end
 
---- One entry of c-ares's server list, as [`Net.nameservers`] reads it:
---- the numeric host and the TCP port, or nil for an entry of none of the
---- list's forms or a link-local server written with its interface (a "%"
---- and its name), which a connector's endpoint cannot carry.
-local function nameserver_of(entry: string): Net.Endpoint | nil
-  local host, port, rest: string, string, string
-  local uri = entry:match("^dns://(.*)$")
-  if uri ~= nil then
-    local tcp = uri:match("[?&]tcpport=(%d+)")
-    host, port, rest = uri:match("^%[([%x:%.]+)%]:(%d+)(.*)$")
-    if host == nil then host, port, rest = uri:match("^([%d%.]+):(%d+)(.*)$") end
-    if rest ~= nil and rest:sub(1, 1) == "?" then rest = "" end
-    port = tcp or port
-  else
-    host, port, rest = entry:match("^%[([%x:%.]+)%]:(%d+)(.*)$")
-    if host == nil then host, port, rest = entry:match("^([%d%.]+):(%d+)(.*)$") end
-  end
-  if host == nil or rest ~= "" then return nil end
-  local number = math.tointeger(tonumber(port))
-  if number == nil or number < 1 or number > 65535 or relay_address.parse(host) == nil then
-    return nil
-  end
-  return { host = host, port = number }
-end
-
---- The name servers the system's configuration names, as [`Net.resolve`]
---- reads it (resolv.conf; on macOS, the system's DNS configuration
---- first), each a numeric [`Net.Endpoint`] at its TCP port, 53 for every
---- server resolv.conf names: the table of a connector for
---- [`ResolveOptions.connector`] that reaches nothing else. With none
---- configured, the resolver's default, 127.0.0.1 at 53. A link-local
---- server written with its interface is left out, as no connector
---- reaches one; where every server is, the answer is nil and why. Fails
---- with the system's words where the configuration cannot be read.
---- `opts.resolv_conf` is for tests; an option of the wrong shape raises.
--- TODO: reach a link-local name server (fe80::1%eth0) through a connector
--- once a connector's endpoint carries an interface: it is left out today.
-function Net.nameservers(opts?: Net.NameserversOptions): {Net.Endpoint} | nil, string
-  opts = opts or {}
-  if type(opts) ~= "table" then error("net: options must be a table", 2) end
-  local path = opts.resolv_conf
-  if path ~= nil and not (path is string) then error("net: resolv_conf must be a string", 2) end
-  local listed, trouble, errno = raw.nameservers(path)
-  if listed == nil then return nil, said(trouble, errno) end
-  local servers: {Net.Endpoint} = {}
-  local skipped = ""
-  for entry in listed:gmatch("[^,]+") do
-    local server = nameserver_of(entry)
-    if server ~= nil then
-      servers[#servers + 1] = server
-    elseif entry:find("%", 1, true) ~= nil then
-      skipped = "net: the name server " .. entry .. " is scoped to an interface, which a connector cannot reach"
-    else
-      return nil, "net: the resolver lists a server as " .. entry
-    end
-  end
-  if #servers == 0 then
-    return nil, skipped ~= "" and skipped or "net: the resolver lists no name server"
-  end
-  return servers, ""
-end
-
 --- A socket connected to `address`, waiting at most `timeout_ns`: in a
 --- task of [`Poll.run`], through the run; anywhere else, holding the
 --- thread.
@@ -1062,6 +1000,7 @@ local record SocketConnector is Net.Connector
   open: boolean
   connect: function(SocketConnector, target: integer | string, port: integer, timeout_ns: integer): Net.Conn | nil, string
   as_function: function(SocketConnector): function(address: string, port: integer, timeout_ns: integer): Net.Conn | nil, string
+  ended: function(SocketConnector): boolean
   close: function(SocketConnector): boolean, string
 end
 
@@ -1145,11 +1084,19 @@ local function ask(process: Child.ConnectorProcess, request: string, host: strin
     local received, because, failure = raw.recvfds(process.fd, 1)
     if received ~= nil then
       local socket = received[1]
+      -- The reply came whole, so the stream is in step whatever the socket
+      -- is: one the far side reset as it was made (no peer) fails this
+      -- connection alone, and the connector serves the next.
       local peer, _ = raw.peer(socket:fd())
-      if peer == nil or peer.port ~= port or not same_host(peer.host, host) then
+      if peer == nil then
+        local _, _ = socket:close()
+        return { why = "net: the connection to " .. named(Net.tcp(host, port)) .. " ended as it was made",
+          kept = true }
+      end
+      if peer.port ~= port or not same_host(peer.host, host) then
         local _, _ = socket:close()
         return { why = "net: the connector passed a socket not connected to " ..
-            named(Net.tcp(host, port)), kept = false }
+            named(Net.tcp(host, port)), kept = true }
       end
       return { conn = new_conn(socket, timeout_ns), why = "", kept = true }
     end
@@ -1273,6 +1220,11 @@ function SocketConnector:as_function(): function(address: string, port: integer,
   end
 end
 
+function SocketConnector:ended(): boolean
+  if not self.open then return true end
+  return self.inherited and (self.process == nil or not self.process.open)
+end
+
 function SocketConnector:close(): boolean, string
   if not self.open then return true, "" end
   self.open = false
@@ -1302,7 +1254,7 @@ resolved_through = function(name: string, opts: Net.ResolveOptions): {Net.Resolv
       listed[i] = { host = address.host, port = address.port }
     end
   else
-    local system, why = Net.nameservers()
+    local system, why = Sandbox.Relay.nameservers()
     if system == nil then return nil, why end
     listed = system
   end
@@ -1422,11 +1374,9 @@ end
 --- With none, every [`Connector.connect`] starts a process of its own,
 --- confined to the one address and port it is asked for, and ends it
 --- with the connection made: the way for a connector whose addresses are
---- known only when it connects, as a relay's are once it has resolved
---- the name a client asked for. Its cost is a process for each
+--- known only when it connects. Its cost is a process for each
 --- connection, and what it confines is the process alone: the caller
---- chooses the endpoint, as the relay does after its grants and its
---- address checks.
+--- chooses the endpoint.
 ---
 --- With `opts.public`, one process is started now (with an empty table if
 --- there are no `endpoints`) that also connects to any numeric address
@@ -1460,9 +1410,6 @@ function Net.connector(endpoints?: {Net.Endpoint}, opts?: Net.ConnectorOptions):
   return made, ""
 end
 
--- TODO: take the relay's connectors from the descriptors its starter
--- hands it with this, once the relay drops `host_network` (the next
--- changes of the relay's hardening): nothing outside the tests calls it yet.
 --- Answers a connector served by a process this one did not start: the
 --- control stream `fd` it was handed (a socket pair's end, inherited
 --- across a spawn), which the connector then owns and `close` closes,

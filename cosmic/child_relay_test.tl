@@ -5,8 +5,9 @@
 --- The program is this program's core on a database sealed for it, which sends
 --- an HTTP CONNECT and a SOCKS5 request to the relay and says what came back.
 --- The servers are this test's own, at 127.0.0.2 of the worker's network,
---- which the relay (it keeps the worker's network) reaches and the program
---- (a network of its own) does not. They need a sandbox that nests
+--- which the relay's connectors (started by the start, in the worker's
+--- network) reach and the program (a network of its own) and the relay
+--- (which makes no socket) do not. They need a sandbox that nests
 --- (`requires`): where the platform has none they are not applicable, and where
 --- this host gives no user namespace, Landlock or seccomp each skips itself
 --- (Test.skip).
@@ -18,6 +19,7 @@ local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local RelayConfig = require("cosmic.relay_config")
+local Sandbox = require("cosmic.sandbox")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
@@ -129,6 +131,9 @@ return function(args)
     for _, name in ipairs(names) do
       say("fd_" .. name, sys.readlink("/proc/self/fd/" .. name))
     end
+  elseif args[1] == "dial" then
+    local conn, why = Net.connect(Net.tcp(args[2], math.tointeger(tonumber(args[3]))), { timeout_ns = Clock.seconds(5) })
+    say("dial", conn ~= nil and "connected" or why)
   elseif args[1] == "wait" then
     sys.nanosleep(Clock.seconds(120))
   end
@@ -146,14 +151,15 @@ local function unsandboxable(why: string): boolean
   return false
 end
 
---- The program's database, sealed in `tmp`: this program's core runs it.
-local function sealed_client(tmp: string): string
+--- The program's database, sealed in `tmp`, and its SHA-256 in hex:
+--- this program's core runs it.
+local function sealed_client(tmp: string): string, string
   local chunk = assert(load(CLIENT, "=relay_client"))
   local requires = { "cosmic.clock", "cosmic.fs", "cosmic.net" }
   local path = tmp .. "/client.db"
-  assert(Store.seal(Store.closure(requires), path, { extra = { name = "relay_client",
+  local digest = assert(Store.seal(Store.closure(requires), path, { extra = { name = "relay_client",
     bytecode = string.dump(chunk), source = CLIENT, requires = requires } }))
-  return path
+  return path, digest
 end
 
 --- An echo server for `listener`, answering "echo:" and the four bytes each
@@ -395,6 +401,25 @@ local function test_a_relay_that_will_not_serve_fails_the_start_and_ends_the_pro
   assert(said:find("directories: $"), "the relay's database was left: " .. said)
 end
 
+--- An upstream proxy whose host does not resolve fails the start, naming
+--- the host, with nothing left running: the starter resolves it once, and
+--- a relay that could reach nothing through it serves nothing.
+local function test_an_upstream_whose_host_does_not_resolve_fails_the_start(tmp: string)
+  local script = tmp .. "/start.tl"
+  assert(Fs.write(script, STARTER))
+  local env = this_program.environment()
+  env.https_proxy = "http://proxy.invalid:3128"
+  local started = this_program.program({ "--standalone", script, sealed_client(tmp) },
+    { env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
+  local result = assert(Child.run(started.argv, started.options))
+  assert(result.ok, "exit " .. tostring(result.code) .. ": " .. tostring(result.stderr))
+  local said = assert(result.stdout)
+  if said:find("Landlock", 1, true) or said:find("namespace", 1, true) then Test.skip(said) end
+  assert(said:find("^refused: child: start: sandbox: relay: https_proxy's host proxy.invalid "), said)
+  assert(said:find("running: \n", 1, true), "a program or connector was left running: " .. said)
+  assert(said:find("directories: $"), "the relay's database was left: " .. said)
+end
+
 --- Runs the flows of the program in a process of this program's own, which
 --- starts it with `relay_log` as given, and says what that process's
 --- standard error, where an "inherit" relay logs, held.
@@ -578,4 +603,103 @@ local function test_no_connect_means_no_relay_and_no_extra_descriptors(tmp: stri
     assert(handle:wait(Clock.seconds(20)))
   end)
   assert(sys.close(fd))
+end
+
+--- The relay runs offline: a program under the very policy its process is
+--- started under ([`cosmic.sandbox.relay`]'s `policy`) cannot connect to a
+--- server this process reaches, as its filter refuses the socket, so the
+--- relay reaches nothing but through the connectors it is handed.
+local function test_the_relays_policy_gives_it_no_network_of_its_own(tmp: string)
+  local database, digest = sealed_client(tmp)
+  local said: string
+  local refusal: string
+  serving(function(granted: integer, _ungranted: integer)
+    local reached = assert(Net.connect(Net.tcp("127.0.0.2", granted), { timeout_ns = Clock.seconds(5) }))
+    assert(reached:close())
+    local result, why = Child.run({ assert(Proc.executable()), "dial", "127.0.0.2", tostring(granted) },
+      { policy = Sandbox.Relay.policy(database, digest), stdout = "capture", stderr = "capture",
+        timeout_ns = Clock.seconds(60) })
+    if result == nil then
+      assert(unsandboxable(why), "the start was refused: " .. why)
+      refusal = why
+      return
+    end
+    assert(result.ok, "exit " .. tostring(result.code) .. ": " .. tostring(result.stderr))
+    said = fields(assert(result.stdout)).dial
+  end)
+  if refusal ~= nil then Test.skip(refusal) end
+  assert(said ~= nil and said ~= "connected", "the relay's policy made a connection: " .. tostring(said))
+  assert(said:find("not permitted", 1, true), "the kernel refused the socket: " .. said)
+end
+
+--- A policy that names more addresses literally than the relay's
+--- connector holds fails to start, saying so, with nothing left running.
+local function test_more_literal_targets_than_a_connector_holds_fail_the_start(tmp: string)
+  local options = granting(sealed_client(tmp), 9)
+  local targets: {string} = {}
+  for port = 1, 129 do targets[port] = "127.0.0.2:" .. port end
+  options.policy.connect = targets
+  local started, why = Child.start({ assert(Proc.executable()), "wait" }, options)
+  if started ~= nil then
+    assert(started:stop())
+    assert(false, "a start with 129 literal targets went on")
+  end
+  if unsandboxable(why) then Test.skip(why) end
+  assert(why:find("relay: connect names 129 addresses literally, more than the relay's connector holds " ..
+      "(128): grant fewer addresses, or names", 1, true), why)
+  assert(#relay_directories() == 0, "the relay's database was left")
+end
+
+--- An upstream proxy the caller names by address is reached through the
+--- relay's table connector: the program's flow goes to it, and it is
+--- asked to CONNECT to the target.
+local function test_the_upstream_proxy_is_reached_through_the_table(tmp: string)
+  local script = tmp .. "/flows.tl"
+  assert(Fs.write(script, FLOWS))
+  local database = sealed_client(tmp)
+  local asked: {string} = {}
+  local said: {string:string}
+  local refusal: string
+  serving(function(granted: integer, ungranted: integer)
+    local listener = assert(Net.listen(Net.tcp("127.0.0.2", 0)))
+    local proxy = Poll.spawn(function()
+      while true do
+        local conn = listener:accept()
+        if conn == nil then return end
+        Poll.spawn(function()
+          local head = ""
+          while not head:find("\r\n\r\n", 1, true) do
+            local data = conn:read(4096)
+            if data == nil then break end
+            head = head .. data
+          end
+          asked[#asked + 1] = head:match("^[^\r]*") or ""
+          local _, _ = conn:write("HTTP/1.1 200 Connection established\r\n\r\n")
+          local data = conn:read(4)
+          if data ~= nil then
+            local _, _ = conn:write("echo:" .. data)
+          end
+          local _, _ = conn:close()
+        end)
+      end
+    end)
+    local env = this_program.environment()
+    env.https_proxy = "http://127.0.0.2:" .. listener.address.port
+    local started = this_program.program({ "--standalone", script, database, tostring(granted),
+      tostring(ungranted), "null" }, { env = env, stdout = "capture", stderr = "capture",
+        timeout_ns = Clock.seconds(60) })
+    local result = assert(Child.run(started.argv, started.options))
+    proxy:cancel()
+    assert(listener:close())
+    if not result.ok and unsandboxable(result.stderr or "") then
+      refusal = result.stderr
+      return
+    end
+    assert(result.ok, "exit " .. tostring(result.code) .. ": " .. tostring(result.stderr))
+    said = fields(assert(result.stdout))
+  end)
+  if refusal ~= nil then Test.skip(refusal) end
+  assert(said.connect == "HTTP/1.1 200 Connection established" and said.connect_echo == "echo:ping",
+    tostring(said.connect) .. " " .. tostring(said.connect_echo))
+  assert(#asked >= 1 and asked[1]:find("^CONNECT 127%.0%.0%.2:%d+ HTTP/1%.1$"), table.concat(asked, " | "))
 end

@@ -69,6 +69,7 @@
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
+local Address = require("cosmic.relay_address")
 local RelayConfig = require("cosmic.relay_config")
 local Rules = require("cosmic.sandbox")
 local Store = require("cosmic.store")
@@ -79,6 +80,7 @@ local Clock = require("cosmic.clock")
 local isatty = sys.isatty
 -- What holds a child by a policy on macOS, taken as this module loads.
 local Seatbelt = Rules.Seatbelt
+local SandboxRelay = Rules.Relay
 
 -- The calls that start, feed and reap a child, and hold this process's
 -- signals while it does, live in the raw process table, under the
@@ -390,10 +392,15 @@ local record Options
   --- - `connect` gives the child a network namespace of its own, with
   ---   its loopback up and inet sockets, whose only way out is the network
   ---   relay this start runs (cosmic/relay_serve.tl): a process of this
-  ---   program's core on a database sealed for it, which keeps the host's
-  ---   network, and is held by a pid namespace, the files its resolver reads
-  ---   and the one system call it needs beyond its basics, `fork`, for the
-  ---   connectors it starts. The program reaches it at 127.0.0.1 ports 3128
+  ---   program's core on a database sealed for it, held by a pid namespace
+  ---   and the files its resolver reads, which makes no socket of its own.
+  ---   It reaches the network only through the native connectors this
+  ---   process starts and hands it ([`cosmic.sandbox.relay`]): a few whose
+  ---   table holds the addresses a target names literally (at most 128, with
+  ---   the upstream proxy's: a policy with more fails to start, saying so),
+  ---   and, where a target names a host the relay reaches directly, one that
+  ---   reaches the system's name servers alone, over TCP, and a few that
+  ---   connect to the public addresses a name resolves to. The program reaches it at 127.0.0.1 ports 3128
   ---   (HTTP CONNECT) and 1080 (SOCKS5), which the child's environment names:
   ---   `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY` (in both cases),
   ---   `NODE_USE_ENV_PROXY=1` and a `NO_PROXY` of `localhost`, 127.0.0.1, ::1
@@ -404,16 +411,19 @@ local record Options
   ---   itself (an HTTP CONNECT or SOCKS5 request to 127.0.0.1:3128 or :1080).
   ---   A policy with `connect` that names
   ---   any of them in `env` or `set_env` is refused. The relay connects a
-  ---   request only where a `connect` target names its host and port, resolves
-  ---   a name itself and refuses an address of the host or a private, loopback
-  ---   or metadata one unless a target names that address literally
-  ---   ([`cosmic.relay`]). It reaches the network through this process's
-  ---   `https_proxy`, and its `no_proxy`, where they are set. It lives as long
+  ---   request only where a `connect` target names its host and port,
+  ---   resolves a name itself only then, and refuses an address of the host
+  ---   or a private, loopback or metadata one unless a target names that
+  ---   address literally ([`cosmic.relay`]). It reaches the network through
+  ---   this process's `https_proxy`, and its `no_proxy`, where they are set:
+  ---   the proxy's host is resolved once, as the start runs, and a host that
+  ---   does not resolve fails the start. It lives as long
   ---   as the child's handle does: it is ended with the child, and a relay
   ---   that dies first ends the child (SIGKILL, at its next wait). A relay that
   ---   will not start fails the start, naming why, and ends the child. The
   ---   relay's decision lines go where `relay_log` says. It needs this
-  ---   program to carry [`cosmic.relay_serve`] and to be a cosmic core, which
+  ---   program to carry [`cosmic.relay_serve`] and [`cosmic.sandbox.relay`]
+  ---   and to be a cosmic core, which
   ---   the start says where it is not. Linux only: macOS refuses `connect`.
   ---
   --- A program that is this program's own file ([`Proc.executable`]),
@@ -646,6 +656,9 @@ local record Handle
   --- Whether the relay was found dead while the child ran, which ended
   --- the child for want of its way out.
   _relay_gone: boolean
+  --- Of a relay's own handle, the connectors its starter handed it, ended
+  --- with it; nil for any other handle.
+  _handover: RelayConfig.Handover
   --- Waits for the child to exit and answers its Result. With
   --- `timeout_ns`, or once the child's own [`Options.timeout_ns`]
   --- passes, whichever is first, a child still running is ended --
@@ -1231,6 +1244,7 @@ local function end_relay(self: Handle)
     if feed ~= nil then local _, _ = feed:close() end
     local _, _ = relay:wait(RELAY_STOP_NS)
     local _, _ = relay:close()
+    if relay._handover ~= nil then relay._handover.close() end
   end
 end
 
@@ -3710,12 +3724,6 @@ end
 --- (it and what it requires start children through this one).
 local RELAY_MAIN <const> = "cosmic.relay_serve"
 
---- The files the relay's resolver reads, each granted to the relay's
---- process where the host has it.
-local RELAY_FILES <const>: {string} = {
-  "/etc/resolv.conf", "/etc/hosts", "/etc/nsswitch.conf", "/etc/host.conf",
-}
-
 --- How long a relay has to say it serves, from its start.
 local RELAY_READY_NS <const> = Clock.seconds(30)
 
@@ -3731,6 +3739,9 @@ local record RelayPrep
   config: string
   --- Where its decision lines go.
   log: RelayLog | integer
+  --- The connectors the relay is handed, which the start closes where the
+  --- relay never starts, and the relay's handle once it has.
+  handover: RelayConfig.Handover
 end
 
 --- The database a relay runs on, in a directory of its own.
@@ -3770,26 +3781,118 @@ local function seal_relay(): RelayProgram | nil, string
   return { dir = dir, path = path, digest = digest }, ""
 end
 
---- The policy the relay's process is started under, on the database at
---- `path` (whose SHA-256 is `digest`): this program's core on it, a pid
---- namespace of its own, `fork` for the connectors it starts, and the
---- resolver's files read-only. The host's network is added by the start
---- ([`start`]'s `relay_process`), which no policy field gives.
-local function relay_policy(path: string, digest: string): Rules.Policy
-  local grants: {Rules.Grant} = {}
-  for _, file in ipairs(RELAY_FILES) do
-    local there, _ = sys.stat(file)
-    if there ~= nil then grants[#grants + 1] = { path = file, letters = "r" } end
+--- A connector of `endpoints` (and `public`'s lists, if given) waiting
+--- `wait_ns` for each connection, for the relay: the process, or nil and
+--- why. A table or list the core refuses is a why too.
+local function relay_connector(endpoints: {raw_process.ConnectorEndpoint}, wait_ns: integer,
+                               public?: raw_process.ConnectorPublic): ConnectorProcess | nil, string
+  local called, process, why = pcall(Child.start_connector, endpoints, (wait_ns + 999999) // 1000000, public)
+  if not called then return nil, (tostring(process):gsub("^.-:%d+: ", "")) end
+  if process == nil then return nil, why end
+  return process, ""
+end
+
+--- The connectors the relay of the `connect` targets `connect` is handed
+--- ([`cosmic.sandbox.relay`]), started in this process and network:
+--- [`RelayConfig.pool_size`] of the table's, of the addresses a target
+--- names literally and the upstream proxy's; and, for a target that names
+--- a host the relay reaches directly (no upstream, or one `no_proxy`
+--- bypasses for some), the name servers' and as many public ones (refusing
+--- the relay's deny list and `own`, the host's own addresses). The
+--- upstream's host is resolved once, here, through the name servers'
+--- connector. Nil and why, with nothing left running, where the upstream
+--- cannot be used or resolved, the table would be past 128, or a
+--- connector cannot start. Name servers that cannot be read are no
+--- failure: the relay is told why, is handed no public connector, and
+--- reaches only what a target names literally, and the upstream.
+local function relay_handover(connect: {string}, own: {string}): RelayConfig.Handover | nil, string
+  local env: {string: string} = {}
+  for _, name in ipairs({ "https_proxy", "HTTPS_PROXY", "no_proxy", "NO_PROXY" }) do
+    env[name] = sys.getenv(name)
   end
-  local policy: Rules.Policy = { database = path, promises = { "fork" }, isolate = { "proc" },
-    grants = grants }
-  Rules.expect_digest(policy, digest)
-  return policy
+  local planned, plan_why = SandboxRelay.plan(connect, env)
+  if planned == nil then return nil, plan_why end
+  local plan: Rules.Relay.Plan = planned
+  local processes: {ConnectorProcess} = {}
+  local closed = false
+  local function close()
+    if closed then return end
+    closed = true
+    for _, process in ipairs(processes) do local _ = process:close() end
+  end
+  local function fail(why: string): nil, string
+    close()
+    return nil, why
+  end
+  local config: RelayConfig.Config = { grants = connect, own_addresses = own, log = "null", tables = 0, public = 0 }
+  local fds: {integer: integer} = {}
+  local up = plan.upstream
+  local through: Rules.Relay.Through
+  local dns: ConnectorProcess
+  local unresolved = ""
+  -- A name is reached directly, and so resolved and connected by the relay
+  -- itself, only with no upstream or one that no_proxy bypasses for some.
+  local direct = plan.names and (up == nil or #up.no_proxy > 0)
+  if direct or (up ~= nil and Address.parse(up.host) == nil) then
+    local servers, servers_why = SandboxRelay.name_servers()
+    if servers == nil then
+      unresolved = servers_why
+    else
+      local started, dns_why = relay_connector(servers.servers, servers.wait_ns)
+      if started == nil then return fail("the name servers' connector: " .. dns_why) end
+      dns = started
+      processes[#processes + 1] = started
+      through = { fd = started.fd, name_servers = servers }
+    end
+  end
+  local addresses: {string}
+  if up ~= nil then
+    local found, found_why = SandboxRelay.upstream_addresses(up, through, unresolved)
+    if found == nil then return fail(found_why) end
+    addresses = found
+    config.upstream_addresses = found
+  end
+  local rows, rows_why = SandboxRelay.table(plan, addresses)
+  if rows == nil then return fail(rows_why) end
+  -- TODO: hand the relay one table connector and one public connector that
+  -- each make several connections at once, once core/connector.c's protocol
+  -- tags each request and its reply so that one process serves several
+  -- connects (a change of its own): each of these makes one at a time, so
+  -- RelayConfig.pool_size connects that hang, to the upstream proxy or to a
+  -- granted name, hold every other connection of their kind.
+  if #rows > 0 then
+    config.table = rows
+    for i = 1, RelayConfig.pool_size do
+      local process, why = relay_connector(rows, RelayConfig.connect_ns)
+      if process == nil then return fail("table connector " .. i .. ": " .. why) end
+      processes[#processes + 1] = process
+      config.tables, fds[RelayConfig.table_fd + i - 1] = i, process.fd
+    end
+  end
+  if direct and through == nil then
+    -- No name resolves: the public connectors would reach nothing.
+    config.unresolved = unresolved
+  elseif direct then
+    for i = 1, RelayConfig.pool_size do
+      local process, why = relay_connector({}, RelayConfig.connect_ns, SandboxRelay.public(own))
+      if process == nil then return fail("public connector " .. i .. ": " .. why) end
+      processes[#processes + 1] = process
+      config.public, fds[RelayConfig.public_fd + i - 1] = i, process.fd
+    end
+    config.name_servers, config.name_server_wait_ns = through.name_servers.servers, through.name_servers.wait_ns
+    fds[RelayConfig.name_server_fd] = through.fd
+  elseif dns ~= nil then
+    -- Only the upstream's lookup needed it: the relay resolves no name, as
+    -- every name goes through the upstream.
+    local _ = dns:close()
+  end
+  return { config = config, fds = fds, close = close }, ""
 end
 
 --- What the relay of a policy with `connect` needs before a program is
---- started: the host's own addresses, the sealed database and the config.
---- Nil and why where it cannot have them.
+--- started: the host's own addresses, the sealed database, the connectors
+--- it is handed, started, and the config. Nil and why, with nothing left
+--- running, where it cannot have them.
 local function prepare_relay(connect: {string}, opts: Options): RelayPrep | nil, string
   -- A descriptor given as the relay's log is the relay's standard error, on
   -- which a terminal is refused as for any sandboxed process; say so naming
@@ -3811,15 +3914,22 @@ local function prepare_relay(connect: {string}, opts: Options): RelayPrep | nil,
   if addresses == nil then return nil, address_trouble end
   local program, seal_trouble = seal_relay()
   if program == nil then return nil, seal_trouble end
+  local handover, handover_trouble = relay_handover(connect, addresses)
+  if handover == nil then
+    local _, _ = Fs.remove_tree(program.dir)
+    return nil, handover_trouble
+  end
   local log = opts.relay_log or "null"
-  local config: RelayConfig.Config = { grants = connect, own_addresses = addresses,
-    https_proxy = sys.getenv("https_proxy") or sys.getenv("HTTPS_PROXY"),
-    no_proxy = sys.getenv("no_proxy") or sys.getenv("NO_PROXY"), log = log == "null" and "null" or "stderr" }
-  return { dir = program.dir, policy = relay_policy(program.path, program.digest),
-    config = RelayConfig.encode(config), log = log }, ""
+  local config = handover.config
+  config.https_proxy = sys.getenv("https_proxy") or sys.getenv("HTTPS_PROXY")
+  config.no_proxy = sys.getenv("no_proxy") or sys.getenv("NO_PROXY")
+  config.log = log == "null" and "null" or "stderr"
+  return { dir = program.dir, policy = SandboxRelay.policy(program.path, program.digest),
+    config = RelayConfig.encode(config), log = log, handover = handover }, ""
 end
 
---- Removes what `prep` made, for a start that went no further.
+--- Removes the database `prep` sealed, which the relay has opened or never
+--- will.
 local function abandon_relay(prep: RelayPrep | nil)
   if prep ~= nil then
     local _, _ = Fs.remove_tree(prep.dir)
@@ -3833,10 +3943,12 @@ local record RelayLaunch
   lines: Stream.Lines
 end
 
---- Ends `relay` at once, for a start that goes no further.
+--- Ends `relay` at once, and the connectors it was handed, for a start
+--- that goes no further.
 local function kill_relay(relay: Handle)
   local _, _ = sys.kill(target(relay), sys.SIGKILL)
   local _, _ = end_or_kill(relay)
+  if relay._handover ~= nil then relay._handover.close() end
 end
 
 --- What a relay that ended without the line a start waits for tells, as
@@ -3878,7 +3990,7 @@ end
 --- also makes it the child's controlling terminal.
 local begin_relay: function(RelayPrep, integer): RelayLaunch | nil, string
 
-local function start(argv: {string}, opts: Options, pty?: Pty, relay_process?: boolean): Handle | nil, string
+local function start(argv: {string}, opts: Options, pty?: Pty): Handle | nil, string
   -- Refuse an explicit terminal before inspecting any platform policy:
   -- it needs a relay even on a host that cannot apply that policy.
   if opts.policy ~= nil then
@@ -3900,12 +4012,6 @@ local function start(argv: {string}, opts: Options, pty?: Pty, relay_process?: b
     end
     if made == nil then return refuse("start: " .. why) end
     held = made
-    if relay_process then
-      -- The relay's own process alone keeps the host's network, which it
-      -- must reach from a sandbox; no policy field gives it.
-      held.sandbox.sockets = { "inet" }
-      held.sandbox.host_network = true
-    end
   end
   local grouped = opts.process_group
   if grouped == nil then grouped = true end
@@ -4006,6 +4112,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, relay_process?: b
       if pair == nil then
         unwire(wiring, false)
         abandon_relay(prep)
+        prep.handover.close()
         return refuse("start: sandbox: relay: " .. pair_trouble)
       end
       channel = pair
@@ -4021,6 +4128,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, relay_process?: b
       if launched == nil then
         unwire(wiring, false)
         local _, _ = sys.close(pair[1])
+        prep.handover.close()
         return refuse("start: sandbox: relay: " .. launch_trouble)
       end
       early = launched
@@ -4138,9 +4246,11 @@ end
 --- Starts the relay's process of `prep` as a child of its own: this
 --- program's core on the sealed database, whose descriptor 3 is `channel`,
 --- the end of the program's relay channel that will carry the listeners,
---- and whose standard input carries the config and, held open, keeps it
---- alive. It answers once the relay says it has opened its database, which
---- it does before it waits for the listeners: the database is then no longer
+--- whose descriptors from 4 are the control streams of the connectors it
+--- is handed, and whose standard input carries the config and, held open,
+--- keeps it alive. The relay's handle owns the connectors from then on.
+--- It answers once the relay says it has opened its database, which it
+--- does before it waits for the listeners: the database is then no longer
 --- needed. Nil and why where it cannot start or ends first.
 begin_relay = function(prep: RelayPrep, channel: integer): RelayLaunch | nil, string
   local program, program_trouble = Proc.executable()
@@ -4152,11 +4262,13 @@ begin_relay = function(prep: RelayPrep, channel: integer): RelayLaunch | nil, st
   else
     log = logged == "inherit" and "inherit" or "null"
   end
+  local fds: {integer: integer} = { [3] = channel }
+  for number, fd in pairs(prep.handover.fds) do fds[number] = fd end
   local started, trouble = start({ program }, { policy = prep.policy, cwd = "/", stdin = "stream",
-    stdout = "stream", stderr = log, fds = { [3] = channel },
-    capture_limit = 4096, timeout_ns = RELAY_READY_NS }, nil, true)
+    stdout = "stream", stderr = log, fds = fds, capture_limit = 4096, timeout_ns = RELAY_READY_NS })
   if started == nil then return nil, (trouble:gsub("^child: start: ", "")) end
   local relay: Handle = started
+  relay._handover = prep.handover
   local feed, reader = relay.stdin_stream, relay.stdout_stream
   if feed == nil or reader == nil then
     kill_relay(relay)

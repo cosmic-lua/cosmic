@@ -7,6 +7,12 @@
 --- - descriptor 3: the channel that carries the relay's HTTP CONNECT and
 ---   SOCKS5 listeners, bound in the program's network namespace and passed
 ---   out of it ([`Net.receive_listeners`] adopts them);
+--- - from descriptor 4, where the config says it is handed them, the
+---   control streams of the connectors its starter started
+---   ([`cosmic.sandbox.relay`]), which it adopts ([`Net.connector_from`]):
+---   at 4 the name servers'; from 5, one after another, the table's, of the
+---   addresses a grant names literally and the upstream proxy's; and from
+---   9 the public ones, for what a granted name resolves to;
 --- - standard input: one line of JSON, a [`cosmic.relay_config`] `Config`,
 ---   and then nothing more until the process is to end. The grants, a
 ---   proxy's password and the rest are never in the arguments or the
@@ -18,19 +24,16 @@
 --- reaches end of file: the starter holds the pipe's write end for as long
 --- as the program lives, and its death closes it.
 ---
---- The process keeps the host's network, and so reaches the network the
---- program may not. What holds it is its own code: every connection is
---- checked against the grants and the address classes by [`cosmic.relay`]
---- and made by [`Net.connector`], and every name is resolved over TCP
---- through a connector whose table holds the host's name servers alone,
---- read once as it starts ([`Relay.name_servers`]), so the resolver's
---- sockets reach nothing else. Where they cannot be read it serves still,
---- refusing every name and saying why.
--- TODO: drop the host network from this process once its starter (Child.start's
--- relay, cosmic/child.tl) starts its connectors and passes their control
--- streams, which it adopts with Net.connector_from (the TODO at spawn's
--- `host_network` in core/syscalls.c), so that it holds no inet socket of its
--- own in the host's network.
+--- The process runs offline: its filter refuses every socket it would
+--- make ([`cosmic.sandbox.relay`]'s `policy`), so what it reaches is what
+--- the connectors it is handed reach. Every connection is checked against
+--- the grants and the address classes by [`cosmic.relay`] and made by one
+--- of them ([`Relay.handed`]), and every name is resolved, once a grant
+--- names it, over TCP through the name servers' connector, whose table
+--- the starter read once. Where it had none to hand -- the name servers
+--- could not be read, or nothing names a host -- the relay serves still,
+--- refusing every name and saying why. It resolves the upstream proxy
+--- never: it is told the addresses its starter resolved.
 
 local Config = require("cosmic.relay_config")
 local Net = require("cosmic.net")
@@ -97,6 +100,33 @@ local function started(spec: Relay.Spec): Relay.Serving | nil, string
   return server, ""
 end
 
+--- The connectors `config` says the relay is handed, adopted: what
+--- [`Relay.handed`] takes, and the name servers' connector, or nil where
+--- none is handed. Nil and why where one cannot be adopted.
+local function adopted(config: Config.Config): Relay.Handed | nil, Net.Connector | nil, string
+  local handed: Relay.Handed = { wait_ns = Config.connect_ns }
+  handed.table_connectors, handed.table = {}, config.table
+  for i = 1, config.table ~= nil and config.tables or 0 do
+    local made, why = Net.connector_from(Config.table_fd + i - 1, config.table, false, Config.connect_ns)
+    if made == nil then return nil, nil, "table connector " .. i .. ": " .. why end
+    handed.table_connectors[i] = made
+  end
+  handed.public_connectors = {}
+  for i = 1, config.public do
+    local made, why = Net.connector_from(Config.public_fd + i - 1, nil, true, Config.connect_ns)
+    if made == nil then return nil, nil, "public connector " .. i .. ": " .. why end
+    handed.public_connectors[i] = made
+  end
+  local dns: Net.Connector
+  if config.name_servers ~= nil then
+    local made, why = Net.connector_from(Config.name_server_fd, config.name_servers, false,
+      config.name_server_wait_ns)
+    if made == nil then return nil, nil, "the name servers' connector: " .. why end
+    dns = made
+  end
+  return handed, dns, ""
+end
+
 --- Serves the relay `config` describes until standard input ends.
 local function serve(config: Config.Config): integer
   local status = 1
@@ -104,6 +134,15 @@ local function serve(config: Config.Config): integer
   env.https_proxy, env.no_proxy = config.https_proxy, config.no_proxy
   local upstream, upstream_why = Relay.upstream(env)
   if upstream == nil and upstream_why ~= "" then return failed(upstream_why) end
+  if upstream ~= nil then
+    if config.upstream_addresses == nil then
+      return failed("the upstream proxy's addresses are not given")
+    end
+    upstream.addresses = config.upstream_addresses
+  end
+  local adopting, dns, adopted_why = adopted(config)
+  if adopting == nil then return failed(adopted_why) end
+  local handed: Relay.Handed = adopting
   Poll.run(function()
     local listeners, listeners_why = Net.receive_listeners(CHANNEL_FD)
     if listeners == nil then
@@ -116,25 +155,26 @@ local function serve(config: Config.Config): integer
           socks.address.port .. ", not " .. Config.http_port .. " and " .. Config.socks_port)
       return
     end
-    local connector, connector_why = Net.connector()
-    if connector == nil then
-      status = failed(connector_why)
-      return
+    -- With no connector handed, nothing a grant opens can be reached.
+    local connect: Relay.Connector = function(address: string, port: integer, _: integer): Net.Conn | nil, string
+      return nil, "relay: no connector was handed for " .. address .. ":" .. port
     end
-    local made: Net.Connector = connector
-    -- TODO: adopt this connector's control stream with Net.connector_from,
-    -- once the relay's starter (cosmic/child.tl) starts it with the name
-    -- servers it read, as the relay is to read no resolv.conf and start no
-    -- process of its own.
-    -- Without them the relay serves still, and every name fails with why:
-    -- an address a grant names needs no lookup.
-    local resolve, unresolved = Relay.name_servers()
-    local connect = made:as_function()
+    if #handed.table_connectors > 0 or #handed.public_connectors > 0 then
+      connect = Relay.handed(handed)
+    end
+    -- Without the name servers' connector the relay serves still, and every
+    -- name fails with the starter's why: an address a grant names needs no
+    -- lookup. Where nothing names a host, no name passes the grants to be
+    -- looked up, and the starter gives no why.
+    local resolve: Net.ResolveOptions
+    if dns ~= nil then
+      resolve = { connector = dns, servers = Relay.udp_servers(config.name_servers) }
+    end
     local log: function(line: string)
     if config.log == "null" then log = function(_: string) end end
     local serving, start_why = started({
       http = http, socks = socks, grants = config.grants, connector = connect,
-      resolve = resolve, unresolved = resolve == nil and unresolved or nil,
+      resolve = resolve, unresolved = config.unresolved,
       own_addresses = config.own_addresses, upstream = upstream, log = log,
     })
     if serving == nil then
@@ -150,10 +190,11 @@ local function serve(config: Config.Config): integer
     say("ready")
     serving:wait()
     watch:cancel()
-    local _, _ = made:close()
-    if resolve ~= nil then
-      local _, _ = resolve.connector:close()
+    for _, table_connector in ipairs(handed.table_connectors) do
+      local _, _ = table_connector:close()
     end
+    for _, public in ipairs(handed.public_connectors) do local _, _ = public:close() end
+    if dns ~= nil then local _, _ = dns:close() end
     status = ended and 0 or failed("the relay's listeners ended")
   end)
   return status
