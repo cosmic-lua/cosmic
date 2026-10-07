@@ -1158,6 +1158,20 @@ struct watched_socket {
   short events;
 };
 
+/* The most name servers a lookup through a connector asks: no more than
+ * a connector's table holds. */
+#define RESOLVE_SERVERS_MAX 128
+/* "[" an IPv6 address "]:" a port and a comma, with room to spare. */
+#define RESOLVE_SERVER_TEXT (INET6_ADDRSTRLEN + 10)
+
+/* One name server a lookup through a connector asks: its address and
+ * port, as c-ares hands them to connect, and the 1-based index of the
+ * connector's table entry that reaches it. */
+struct resolve_server {
+  struct sockaddr_storage address;
+  uint32_t index;
+};
+
 /* One lookup: the channel, what it answered and the sockets it has
  * open. Guarded, so a raise while the answer is built releases the
  * channel; the channel goes first at release, as destroying it ends a
@@ -1170,12 +1184,32 @@ struct resolution {
   bool done;
   size_t watching;
   struct watched_socket sockets[RESOLVE_WATCHED_MAX];
+  /* A lookup through a connector (`resolve_through`): its control stream,
+   * -1 for none; the call's deadline, which every exchange with it keeps;
+   * how long the connector may take to reply to one request (its own
+   * wait to connect, and a grace), which an exchange is given even past
+   * the deadline, so that a slow connect leaves the stream in step; why
+   * an exchange left the stream out of step (a reply unread or half
+   * sent), 0 until one does, after which it is shut down and asked
+   * nothing more; and the servers it may reach, by address, allocated
+   * for a lookup through a connector alone. */
+  int connector;
+  int64_t deadline;
+  int reply_ms;
+  int lost;
+  /* Whether a server went unanswered for want of time: the connector
+   * replied that its connect timed out, or the deadline had passed when
+   * c-ares asked for another connection, which is then refused unasked. */
+  bool late;
+  size_t servers;
+  struct resolve_server *server;
 };
 
 static void resolution_release (void *resource) {
   struct resolution *resolution = resource;
   if (resolution->channel != NULL) ares_destroy(resolution->channel);
   if (resolution->found != NULL) ares_freeaddrinfo(resolution->found);
+  free(resolution->server);
   free(resolution);
 }
 
@@ -1312,55 +1346,304 @@ static bool numeric_literal (const char *name, size_t size, int *family, unsigne
   return false;
 }
 
-/* TODO: report which family's lookup failed, so a caller that must see
- * every address can fail closed: ares_getaddrinfo folds one family's
- * failure into the other's success, so this waits on asking for A and
- * AAAA separately (ares_search or ares_send, with the answers parsed
- * here) or on c-ares reporting it.
- * TODO: exercise the system's own configuration on macOS (resolv.conf
- * through dnsinfo): no CI leg runs a lookup that reads it, as the tests
- * name their servers and hosts file, so ares_sysconfig_mac.c's path is
- * untested there until a leg can resolve a name through the system. */
-COSMIC_SYSCALL(resolve, 4) {
-  size_t size = 0;
-  const char *name = luaL_checklstring(L, 1, &size);
-  int timeout = cosmic_checkint(L, 2);
-  luaL_argcheck(L, timeout >= -1, 2, "timeout is out of range");
-  const char *servers = lua_isnoneornil(L, 3) ? NULL : luaL_checkstring(L, 3);
-  const char *hosts = lua_isnoneornil(L, 4) ? NULL : cosmic_path(L, 4);
-  if (size == 0 || size > RESOLVE_NAME_MAX || memchr(name, '\0', size) != NULL ||
-      memchr(name, '%', size) != NULL || (!lua_isnoneornil(L, 4) && hosts == NULL)) {
-    return cosmic_fail(L, EINVAL);
-  }
-  int64_t deadline = timeout < 0 ? -1 : cosmic_now_ms() + timeout;
+/* Whether `name`, `size` bytes, is one `resolve` refuses before asking:
+ * empty, past RESOLVE_NAME_MAX, or holding a NUL or a "%". */
+static bool resolve_refused (const char *name, size_t size) {
+  return size == 0 || size > RESOLVE_NAME_MAX || memchr(name, '\0', size) != NULL ||
+    memchr(name, '%', size) != NULL;
+}
 
+/* Whether `name` is a numeric address, which answers itself: pushed then
+ * as the one address it names. */
+static bool resolve_literal (lua_State *L, const char *name, size_t size) {
   unsigned char literal[sizeof(struct in6_addr)];
   int family = 0;
-  if (numeric_literal(name, size, &family, literal)) {
-    lua_createtable(L, 1, 0);
-    resolved_pushed(L, family, literal, 1);
-    return 1;
+  if (!numeric_literal(name, size, &family, literal)) return false;
+  lua_createtable(L, 1, 0);
+  resolved_pushed(L, family, literal, 1);
+  return true;
+}
+
+#if defined(__linux__)
+/* A lookup through a connector reaches the network only through the
+ * connector's control stream: c-ares's sockets are made by these
+ * functions, which ask the connector for each connection and refuse
+ * every datagram socket. The connector replies as core/connector.c's
+ * `connector_reply` writes: a big-endian errno, and after a success one
+ * marker byte with the connected socket passed beside it. */
+
+/* Moves `size` bytes of `data` over the connector's stream, all of
+ * them, by `deadline`: 0, or why not. */
+static int through_whole (const struct resolution *resolution, int64_t deadline, void *data, size_t size,
+                          bool sending) {
+  unsigned char *at = data;
+  while (size > 0) {
+    ssize_t moved = sending ? send(resolution->connector, at, size, MSG_NOSIGNAL) :
+      recv(resolution->connector, at, size, 0);
+    if (moved > 0) {
+      at += moved;
+      size -= (size_t)moved;
+      continue;
+    }
+    if (moved == 0) return EPIPE;
+    if (errno == EINTR) continue;
+    if (errno != EAGAIN && errno != EWOULDBLOCK) return errno;
+    int failure = ready(resolution->connector, sending ? POLLOUT : POLLIN, deadline);
+    if (failure != 0) return failure;
   }
+  return 0;
+}
 
-  /* The guard first, the channel after: what it holds is acquired once
-   * a raise can no longer skip its release. */
-  struct cosmic_guard *guard = cosmic_guard_push(L, resolution_release);
-  struct resolution *resolution = calloc(1, sizeof *resolution);
-  if (resolution == NULL) return cosmic_fail(L, ENOMEM);
-  guard->resource = resolution;
+/* The socket the connector passes after a success, in `*received`: one
+ * marker byte beside exactly one descriptor. 0, or why not: EPROTO for
+ * any other message, every descriptor that came with it closed. */
+static int through_rights (const struct resolution *resolution, int64_t deadline, int *received) {
+  *received = -1;
+  union {
+    struct cmsghdr alignment;
+    unsigned char bytes[CMSG_SPACE(RIGHTS_RECEIVE_MAX * sizeof(int))];
+  } control;
+  char marker = '\1';
+  struct iovec payload = { &marker, 1 };
+  struct msghdr message;
+  ssize_t got;
+  for (;;) {
+    memset(&control, 0, sizeof control);
+    memset(&message, 0, sizeof message);
+    message.msg_iov = &payload;
+    message.msg_iovlen = 1;
+    message.msg_control = control.bytes;
+    message.msg_controllen = sizeof control.bytes;
+    got = recvmsg(resolution->connector, &message, MSG_CMSG_CLOEXEC);
+    if (got >= 0) break;
+    if (errno == EINTR) continue;
+    if (errno != EAGAIN && errno != EWOULDBLOCK) return errno;
+    int failure = ready(resolution->connector, POLLIN, deadline);
+    if (failure != 0) return failure;
+  }
+  int found = -1;
+  bool malformed = got != 1 || marker != '\0' || (message.msg_flags & (MSG_CTRUNC | MSG_TRUNC)) != 0;
+  size_t total = (size_t)message.msg_controllen, offset = 0;
+  if (total > sizeof control.bytes) {
+    total = sizeof control.bytes;
+    malformed = true;
+  }
+  while (total - offset >= CMSG_LEN(0)) {
+    struct cmsghdr *rights = (struct cmsghdr *)(control.bytes + offset);
+    if (rights->cmsg_len < CMSG_LEN(0)) {
+      malformed = true;
+      break;
+    }
+    size_t bytes = rights->cmsg_len - CMSG_LEN(0);
+    if (bytes > total - offset - CMSG_LEN(0)) {
+      bytes = total - offset - CMSG_LEN(0);
+      malformed = true;
+    }
+    /* Only SOL_SOCKET's SCM_RIGHTS carries descriptors: another's bytes
+     * are no descriptors to close. */
+    bool carried = rights->cmsg_level == SOL_SOCKET && rights->cmsg_type == SCM_RIGHTS;
+    if (!carried) malformed = true;
+    for (size_t i = 0; carried && i < bytes / sizeof(int); i++) {
+      int descriptor;
+      memcpy(&descriptor, CMSG_DATA(rights) + i * sizeof(int), sizeof descriptor);
+      if (found < 0) {
+        found = descriptor;
+      } else {
+        close(descriptor);
+        malformed = true;
+      }
+    }
+    size_t next = CMSG_SPACE(bytes);
+    if (next > total - offset) break;
+    offset += next;
+  }
+  if (malformed || found < 0) {
+    if (found >= 0) close(found);
+    return got == 0 ? EPIPE : EPROTO;
+  }
+  *received = found;
+  return 0;
+}
 
+/* Whether `a` and `b` are one IPv4 or IPv6 address and port. */
+static bool through_same (const struct sockaddr_storage *a, const struct sockaddr_storage *b) {
+  if (a->ss_family != b->ss_family) return false;
+  if (a->ss_family == AF_INET) {
+    const struct sockaddr_in *x = (const struct sockaddr_in *)a, *y = (const struct sockaddr_in *)b;
+    return x->sin_port == y->sin_port && x->sin_addr.s_addr == y->sin_addr.s_addr;
+  }
+  if (a->ss_family == AF_INET6) {
+    const struct sockaddr_in6 *x = (const struct sockaddr_in6 *)a, *y = (const struct sockaddr_in6 *)b;
+    return x->sin6_port == y->sin6_port && memcmp(&x->sin6_addr, &y->sin6_addr, sizeof x->sin6_addr) == 0;
+  }
+  return false;
+}
+
+/* Whether `fd` is a stream socket connected to `server`. */
+static bool through_reaches (int fd, const struct resolve_server *server) {
+  int kind = 0;
+  socklen_t size = sizeof kind;
+  if (getsockopt(fd, SOL_SOCKET, SO_TYPE, &kind, &size) != 0 || kind != SOCK_STREAM) return false;
+  struct sockaddr_storage peer;
+  memset(&peer, 0, sizeof peer);
+  size = sizeof peer;
+  if (getpeername(fd, (struct sockaddr *)&peer, &size) != 0) return false;
+  return through_same(&peer, &server->address);
+}
+
+/* Asks the connector for a connection to `server`: true with the socket
+ * in `*connected`. The exchange may outlast the lookup's deadline by up
+ * to the connector's own reply time, so that a server that does not
+ * answer its connect costs that time and leaves the stream in step for
+ * the next server. A refusal the connector replies leaves its stream in
+ * step; any other failure, or a socket not connected to `server`, leaves
+ * the stream lost and shuts it down, so that its owner sees it end. */
+static bool through_ask (struct resolution *resolution, const struct resolve_server *server, int *connected) {
+  *connected = -1;
+  uint16_t port = ntohs(server->address.ss_family == AF_INET ?
+    ((const struct sockaddr_in *)&server->address)->sin_port :
+    ((const struct sockaddr_in6 *)&server->address)->sin6_port);
+  uint32_t request[2] = { htonl(server->index), htonl(port) };
+  uint32_t status = 0;
+  int64_t replied = cosmic_now_ms() + resolution->reply_ms;
+  int64_t deadline = resolution->deadline < 0 || replied < resolution->deadline ? resolution->deadline : replied;
+  int failure = through_whole(resolution, deadline, request, sizeof request, true);
+  if (failure == 0) failure = through_whole(resolution, deadline, &status, sizeof status, false);
+  if (failure == 0 && status != 0) {
+    if (ntohl(status) == ETIMEDOUT) resolution->late = true;
+    return false;
+  }
+  if (failure == 0) failure = through_rights(resolution, deadline, connected);
+  if (failure == 0 && through_reaches(*connected, server)) return true;
+  if (*connected >= 0) close(*connected);
+  *connected = -1;
+  resolution->lost = failure != 0 ? failure : EPROTO;
+  shutdown(resolution->connector, SHUT_RDWR);
+  return false;
+}
+
+/* A stream socket's stand-in until [`through_connect`] puts the
+ * connector's socket at its number: a copy of the control stream, so no
+ * socket of the host's network is made. c-ares neither reads nor writes
+ * it before it connects, and closes it if that fails. */
+static ares_socket_t through_socket (int domain, int type, int protocol, void *data) {
+  struct resolution *resolution = data;
+  (void)protocol;
+  if (type != SOCK_STREAM || (domain != AF_INET && domain != AF_INET6)) {
+    errno = EPROTONOSUPPORT;
+    return ARES_SOCKET_BAD;
+  }
+  int placeholder = fcntl(resolution->connector, F_DUPFD_CLOEXEC, 0);
+  return placeholder < 0 ? ARES_SOCKET_BAD : placeholder;
+}
+
+static int through_close (ares_socket_t sock, void *data) {
+  (void)data;
+  return close(sock);
+}
+
+/* No option is set on the connector's sockets: ENOSYS, which c-ares
+ * takes for a choice, and so makes no TCP Fast Open attempt. */
+static int through_setsockopt (ares_socket_t sock, ares_socket_opt_t opt, const void *value,
+                               ares_socklen_t size, void *data) {
+  (void)sock; (void)opt; (void)value; (void)size; (void)data;
+  errno = ENOSYS;
+  return -1;
+}
+
+/* Connects `sock` to `address`, one of the lookup's servers, by putting
+ * the connector's socket at its number. Every failure is ECONNREFUSED,
+ * which c-ares takes for this server failing: a "wait" or "interrupted"
+ * from here would have it poll or call again on the stand-in. */
+static int through_connect (ares_socket_t sock, const struct sockaddr *address, ares_socklen_t length,
+                            unsigned int flags, void *data) {
+  struct resolution *resolution = data;
+  (void)flags;
+  struct sockaddr_storage asked;
+  memset(&asked, 0, sizeof asked);
+  const struct resolve_server *server = NULL;
+  if (length > 0 && (size_t)length <= sizeof asked) {
+    memcpy(&asked, address, (size_t)length);
+    for (size_t i = 0; i < resolution->servers && server == NULL; i++) {
+      if (through_same(&asked, &resolution->server[i].address)) server = &resolution->server[i];
+    }
+  }
+  int connected = -1;
+  /* Past the deadline nothing more is asked: a lookup then outlasts its
+   * deadline by one exchange at most. */
+  if (resolution->deadline >= 0 && cosmic_now_ms() >= resolution->deadline) {
+    resolution->late = true;
+    server = NULL;
+  }
+  if (server != NULL && resolution->lost == 0 && through_ask(resolution, server, &connected)) {
+    int placed = dup3(connected, (int)sock, O_CLOEXEC);
+    close(connected);
+    if (placed >= 0) return 0;
+  }
+  errno = ECONNREFUSED;
+  return -1;
+}
+
+static ares_ssize_t through_recvfrom (ares_socket_t sock, void *buffer, size_t length, int flags,
+                                      struct sockaddr *address, ares_socklen_t *address_length, void *data) {
+  (void)data;
+  if (address != NULL || address_length != NULL) {
+    errno = EINVAL;
+    return -1;
+  }
+  return recv(sock, buffer, length, flags);
+}
+
+static ares_ssize_t through_sendto (ares_socket_t sock, const void *buffer, size_t length, int flags,
+                                    const struct sockaddr *address, ares_socklen_t address_length,
+                                    void *data) {
+  (void)data;
+  if (address != NULL || address_length != 0) {
+    errno = EINVAL;
+    return -1;
+  }
+  return send(sock, buffer, length, flags | MSG_NOSIGNAL);
+}
+
+static const struct ares_socket_functions_ex through_functions = {
+  .version = 1,
+  .flags = ARES_SOCKFUNC_FLAG_NONBLOCKING,
+  .asocket = through_socket,
+  .aclose = through_close,
+  .asetsockopt = through_setsockopt,
+  .aconnect = through_connect,
+  .arecvfrom = through_recvfrom,
+  .asendto = through_sendto,
+};
+#endif
+
+/* Looks `name` up on a new channel of `resolution`, which the caller's
+ * guard holds and has filled for a lookup through a connector (or not:
+ * `connector` -1), and pushes what `resolve` answers. `servers` is
+ * c-ares's server list, NULL for the system's. */
+static int resolve_run (lua_State *L, const char *name, int timeout, const char *servers,
+                        const char *hosts, struct resolution *resolution) {
   /* c-ares needs no library initialization off Windows
    * (ares_library_initialized answers success). */
   struct ares_options options;
   memset(&options, 0, sizeof options);
   int mask = ARES_OPT_FLAGS | ARES_OPT_TRIES | ARES_OPT_SOCK_STATE_CB;
   options.flags = ARES_FLAG_NOALIASES;
+  if (resolution->connector >= 0) options.flags |= ARES_FLAG_USEVC;
   options.tries = 2;
   options.sock_state_cb = socket_state;
   options.sock_state_cb_data = resolution;
   if (timeout >= 0) {
     mask |= ARES_OPT_TIMEOUTMS;
     options.timeout = timeout < 2 ? 1 : timeout / 2;
+  }
+  /* Through a connector each server is tried once, with the whole time:
+   * a connect blocks c-ares while its per-try clock, started before it,
+   * runs on, so a second try or a shorter one would expire the query a
+   * slow server's successor could still answer. */
+  if (resolution->connector >= 0) {
+    options.tries = 1;
+    if (timeout >= 0) options.timeout = timeout < 1 ? 1 : timeout;
   }
   if (hosts != NULL) {
     mask |= ARES_OPT_HOSTS_FILE;
@@ -1371,6 +1654,12 @@ COSMIC_SYSCALL(resolve, 4) {
     resolution->channel = NULL;
     return resolve_failed(L, status);
   }
+#if defined(__linux__)
+  if (resolution->connector >= 0) {
+    status = (int)ares_set_socket_functions_ex(resolution->channel, &through_functions, resolution);
+    if (status != ARES_SUCCESS) return resolve_failed(L, status);
+  }
+#endif
   if (servers != NULL && ares_set_servers_ports_csv(resolution->channel, servers) != ARES_SUCCESS) {
     return cosmic_fail(L, EINVAL);
   }
@@ -1380,8 +1669,18 @@ COSMIC_SYSCALL(resolve, 4) {
   hints.ai_family = AF_UNSPEC;
   hints.ai_flags = ARES_AI_NOSORT;
   ares_getaddrinfo(resolution->channel, name, NULL, &hints, resolved, resolution);
-  int failure = resolution_wait(resolution, deadline);
+  int failure = resolution_wait(resolution, resolution->deadline);
   if (failure != 0) return cosmic_fail(L, failure);
+  /* A connector's exchange that ran out of time, or that a guard's signal
+   * ended, failed every server after it: the lookup ends for that reason. */
+  if (resolution->status != ARES_SUCCESS && (resolution->lost == ETIMEDOUT || resolution->lost == EINTR)) {
+    return cosmic_fail(L, resolution->lost);
+  }
+  /* Where no server answered, one left for want of time makes the lookup
+   * a timeout; a server's answer (no such name, a failure) still stands. */
+  if (resolution->late && (resolution->status == ARES_ECONNREFUSED || resolution->status == ARES_ETIMEOUT)) {
+    return cosmic_fail(L, ETIMEDOUT);
+  }
   if (resolution->status != ARES_SUCCESS) return resolve_failed(L, resolution->status);
 
   lua_createtable(L, 4, 0);
@@ -1398,6 +1697,163 @@ COSMIC_SYSCALL(resolve, 4) {
     lua_pop(L, 1);
     return resolve_failed(L, ARES_ENODATA);
   }
+  return 1;
+}
+
+/* A new lookup's state, held by a guard pushed first: what it holds is
+ * acquired once a raise can no longer skip its release. NULL where it
+ * could not be allocated. */
+static struct resolution *resolution_push (lua_State *L, int timeout) {
+  struct cosmic_guard *guard = cosmic_guard_push(L, resolution_release);
+  struct resolution *resolution = calloc(1, sizeof *resolution);
+  if (resolution == NULL) return NULL;
+  guard->resource = resolution;
+  resolution->connector = -1;
+  resolution->deadline = timeout < 0 ? -1 : cosmic_now_ms() + timeout;
+  return resolution;
+}
+
+/* TODO: report which family's lookup failed, so a caller that must see
+ * every address can fail closed: ares_getaddrinfo folds one family's
+ * failure into the other's success, so this waits on asking for A and
+ * AAAA separately (ares_search or ares_send, with the answers parsed
+ * here) or on c-ares reporting it.
+ * TODO: exercise the system's own configuration on macOS (resolv.conf
+ * through dnsinfo): no CI leg runs a lookup that reads it, as the tests
+ * name their servers and hosts file, so ares_sysconfig_mac.c's path is
+ * untested there until a leg can resolve a name through the system. */
+COSMIC_SYSCALL(resolve, 4) {
+  size_t size = 0;
+  const char *name = luaL_checklstring(L, 1, &size);
+  int timeout = cosmic_checkint(L, 2);
+  luaL_argcheck(L, timeout >= -1, 2, "timeout is out of range");
+  const char *servers = lua_isnoneornil(L, 3) ? NULL : luaL_checkstring(L, 3);
+  const char *hosts = lua_isnoneornil(L, 4) ? NULL : cosmic_path(L, 4);
+  if (resolve_refused(name, size) || (!lua_isnoneornil(L, 4) && hosts == NULL)) return cosmic_fail(L, EINVAL);
+  if (resolve_literal(L, name, size)) return 1;
+  struct resolution *resolution = resolution_push(L, timeout);
+  if (resolution == NULL) return cosmic_fail(L, ENOMEM);
+  return resolve_run(L, name, timeout, servers, hosts, resolution);
+}
+
+/* Reads the server on top of the stack, an entry of argument `arg`'s
+ * list, into `out`, raising for one that is malformed, and appends it to
+ * `listed` (`room` bytes, NULL for none) as c-ares takes a server list:
+ * how many bytes it appended. */
+static size_t through_server_read (lua_State *L, int arg, bool first, struct resolve_server *out,
+                                   char *listed, size_t room) {
+  int item = lua_gettop(L);
+  if (!lua_istable(L, item)) luaL_argerror(L, arg, "a server must be a table");
+  memset(out, 0, sizeof *out);
+  lua_getfield(L, item, "index");
+  lua_Integer index = lua_isinteger(L, -1) ? lua_tointeger(L, -1) : 0;
+  if (index < 1 || index > RESOLVE_SERVERS_MAX) luaL_argerror(L, arg, "a server's index must be 1 through 128");
+  lua_getfield(L, item, "port");
+  lua_Integer port = lua_isinteger(L, -1) ? lua_tointeger(L, -1) : 0;
+  if (port < 1 || port > 65535) luaL_argerror(L, arg, "a server's port must be 1 through 65535");
+  lua_getfield(L, item, "host");
+  size_t length = 0;
+  const char *host = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &length) : NULL;
+  struct sockaddr_in *v4 = (struct sockaddr_in *)&out->address;
+  struct sockaddr_in6 *v6 = (struct sockaddr_in6 *)&out->address;
+  bool numeric = host != NULL && strlen(host) == length && cosmic_numeric_host(host, length);
+  int written = 0;
+  if (numeric && strchr(host, ':') == NULL && inet_pton(AF_INET, host, &v4->sin_addr) == 1) {
+    v4->sin_family = AF_INET;
+    v4->sin_port = htons((uint16_t)port);
+    if (listed != NULL) written = snprintf(listed, room, "%s%s:%u", first ? "" : ",", host, (unsigned)port);
+  } else if (numeric && inet_pton(AF_INET6, host, &v6->sin6_addr) == 1) {
+    v6->sin6_family = AF_INET6;
+    v6->sin6_port = htons((uint16_t)port);
+    if (listed != NULL) written = snprintf(listed, room, "%s[%s]:%u", first ? "" : ",", host, (unsigned)port);
+  } else {
+    luaL_argerror(L, arg, "a server's host must be a numeric IPv4 or IPv6 address");
+  }
+  out->index = (uint32_t)index;
+  lua_pop(L, 3);
+  return written < 0 ? 0 : (size_t)written;
+}
+
+COSMIC_SYSCALL(resolve_through, 6) {
+  size_t size = 0;
+  const char *name = luaL_checklstring(L, 1, &size);
+  int timeout = cosmic_checkint(L, 2);
+  luaL_argcheck(L, timeout >= -1, 2, "timeout is out of range");
+  int connector = cosmic_checkfd(L, 3);
+  int reply = cosmic_checkint(L, 4);
+  luaL_argcheck(L, reply >= 1 && reply <= 120000, 4, "reply wait must be 1 through 120000 milliseconds");
+  luaL_checktype(L, 5, LUA_TTABLE);
+  size_t count = lua_rawlen(L, 5);
+  luaL_argcheck(L, count >= 1 && count <= RESOLVE_SERVERS_MAX, 5, "servers must hold 1 through 128 servers");
+  const char *hosts = lua_isnoneornil(L, 6) ? NULL : cosmic_path(L, 6);
+#if defined(__linux__)
+  struct resolution *resolution = resolution_push(L, timeout);
+  if (resolution == NULL) return cosmic_fail(L, ENOMEM);
+  resolution->server = calloc(count, sizeof *resolution->server);
+  size_t room = count * RESOLVE_SERVER_TEXT;
+  char *listed = lua_newuserdatauv(L, room, 0);
+  if (resolution->server == NULL) return cosmic_fail(L, ENOMEM);
+  resolution->connector = connector;
+  resolution->reply_ms = reply;
+  size_t used = 0;
+  for (size_t i = 0; i < count; i++) {
+    lua_rawgeti(L, 5, (lua_Integer)i + 1);
+    used += through_server_read(L, 5, i == 0, &resolution->server[i], listed + used, room - used);
+    lua_pop(L, 1);
+    resolution->servers++;
+  }
+  if (resolve_refused(name, size) || (!lua_isnoneornil(L, 6) && hosts == NULL)) return cosmic_fail(L, EINVAL);
+  if (resolve_literal(L, name, size)) return 1;
+  return resolve_run(L, name, timeout, listed, hosts, resolution);
+#else
+  /* The servers are held to their form here too, though no lookup runs. */
+  (void)connector;
+  for (size_t i = 0; i < count; i++) {
+    struct resolve_server server;
+    lua_rawgeti(L, 5, (lua_Integer)i + 1);
+    (void)through_server_read(L, 5, i == 0, &server, NULL, 0);
+    lua_pop(L, 1);
+  }
+  if (resolve_refused(name, size) || (!lua_isnoneornil(L, 6) && hosts == NULL)) return cosmic_fail(L, EINVAL);
+  return cosmic_fail(L, ENOSYS);
+#endif
+}
+
+/* What a `nameservers` call holds, released on every way out. */
+struct listing {
+  ares_channel_t *channel;
+  char *listed;
+};
+
+static void listing_release (void *resource) {
+  struct listing *listing = resource;
+  if (listing->listed != NULL) ares_free_string(listing->listed);
+  if (listing->channel != NULL) ares_destroy(listing->channel);
+  free(listing);
+}
+
+COSMIC_SYSCALL(nameservers, 1) {
+  const char *path = lua_isnoneornil(L, 1) ? NULL : cosmic_path(L, 1);
+  if (!lua_isnoneornil(L, 1) && path == NULL) return cosmic_fail(L, EINVAL);
+  struct cosmic_guard *guard = cosmic_guard_push(L, listing_release);
+  struct listing *listing = calloc(1, sizeof *listing);
+  if (listing == NULL) return cosmic_fail(L, ENOMEM);
+  guard->resource = listing;
+  struct ares_options options;
+  memset(&options, 0, sizeof options);
+  int mask = 0;
+  if (path != NULL) {
+    mask |= ARES_OPT_RESOLVCONF;
+    options.resolvconf_path = (char *)path;
+  }
+  int status = ares_init_options(&listing->channel, &options, mask);
+  if (status != ARES_SUCCESS) {
+    listing->channel = NULL;
+    return cosmic_fail(L, status == ARES_ENOMEM ? ENOMEM : status == ARES_EFILE ? EACCES : EIO);
+  }
+  listing->listed = ares_get_servers_csv(listing->channel);
+  if (listing->listed == NULL) return cosmic_fail(L, ENOMEM);
+  lua_pushstring(L, listing->listed);
   return 1;
 }
 

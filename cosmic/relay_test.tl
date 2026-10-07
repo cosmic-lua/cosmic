@@ -129,6 +129,7 @@ local record Options
   redirect: {string: integer}
   own_addresses: {string}
   token: string
+  unresolved: string
 end
 
 --- A running relay and what a test needs of it.
@@ -159,6 +160,7 @@ local function start(tmp: string, opts: Options): Rig
     http = http, socks = socks, grants = opts.grants, upstream = opts.upstream,
     timeouts = opts.timeouts, limits = opts.limits, tls_ports = opts.tls_ports,
     resolve = opts.resolve or { hosts_file = hosts }, own_addresses = opts.own_addresses, token = opts.token,
+    unresolved = opts.unresolved,
     log = function(line: string)
       rig.log[#rig.log + 1] = line
     end,
@@ -474,6 +476,31 @@ local function test_a_name_that_does_not_resolve_is_unreachable(tmp: string)
     assert(code == 4, code)
     local _, _ = socks:close()
     finish(rig)
+  end)
+end
+
+--- A relay whose name servers could not be read still serves: every name
+--- is refused, saying why, and a literally granted address is connected.
+local function test_a_relay_without_name_servers_refuses_names_and_reaches_granted_addresses(tmp: string)
+  Poll.run(function()
+    local server = origin(echo)
+    local port = server.port
+    local rig = start(tmp, { grants = { "svc.test:" .. port, "127.0.0.1:" .. port },
+      unresolved = "no name servers here" })
+    local conn, head = connect_to(rig, "svc.test:" .. port)
+    local line = status_line(head)
+    assert(line:find("^HTTP/1.1 502 ") and line:find("could not resolve svc.test: no name servers here", 1, true), line)
+    local _, _ = conn:close()
+    local socks, code = socks_to(rig, "svc.test", port)
+    assert(code == 4, code)
+    local _, _ = socks:close()
+    local literal, answer = connect_to(rig, "127.0.0.1:" .. port)
+    assert(status_line(answer):find("^HTTP/1.1 200 "), answer)
+    assert(literal:write("literal"))
+    assert(read_exact(literal, 7) == "literal")
+    local _, _ = literal:close()
+    assert(#lines_with(rig, "no name is resolved") == 1, table.concat(rig.log, "\n"))
+    finish(rig, server)
   end)
 end
 
@@ -1001,6 +1028,22 @@ local function test_a_connect_goes_through_the_upstream_proxy_which_resolves(tmp
     local named, local_answer = connect_to(rig, "a.localhost:443")
     assert(status_line(local_answer):find("^HTTP/1.1 403 .*is not relayed through the upstream proxy"), local_answer)
     local _, _ = named:close()
+    finish(rig, through.server)
+  end)
+end
+
+--- A relay that resolves no name still reaches an upstream proxy named by
+--- its numeric address, which needs no lookup.
+local function test_a_numeric_upstream_is_reached_by_a_relay_that_resolves_no_name(tmp: string)
+  Poll.run(function()
+    local through = proxy("200")
+    local up: Relay.Upstream = { host = "127.0.0.1", port = through.server.port, no_proxy = {} }
+    local rig = start(tmp, { grants = { "api.test:443" }, upstream = up, unresolved = "no name servers here" })
+    local conn, head = connect_to(rig, "api.test:443")
+    assert(status_line(head) == "HTTP/1.1 200 Connection established", head)
+    assert(conn:write("tunnelled"))
+    assert(read_exact(conn, 9) == "tunnelled")
+    local _, _ = conn:close()
     finish(rig, through.server)
   end)
 end
