@@ -11,6 +11,7 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
+local Relay = require("cosmic.relay")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
@@ -70,26 +71,40 @@ local function answer(query: string): string
     string.pack(">I2I2I2I4s2", 0xC00C, qtype, 1, 60, data)
 end
 
---- Resolves argv[1] through a connector whose table is 127.0.0.1 at the
---- port argv[2] and nothing else, twice, so the second asks the same
---- process again; prints each answer's addresses, sorted, on a line.
+--- Resolves argv[1] through a connector whose table is 127.0.0.1 at each
+--- port of argv[2] (comma-separated) and nothing else, waiting argv[3]
+--- milliseconds for each connection, twice, so the second asks the same
+--- process again: the first within argv[4] milliseconds, if given, the
+--- second within five seconds. Prints each answer's addresses, sorted, on
+--- a line, and then how many milliseconds each lookup took, on a line.
 local SCRIPT <const> = [[
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 return function(argv: {string}): integer
-  local port = assert(math.tointeger(argv[2]))
-  local dns = assert(Net.connector({ { host = "127.0.0.1", port = port } }))
+  local endpoints: {Net.Endpoint} = {}
+  local servers: {Net.Address} = {}
+  for text in argv[2]:gmatch("[^,]+") do
+    local port = assert(math.tointeger(tonumber(text)))
+    endpoints[#endpoints + 1] = { host = "127.0.0.1", port = port }
+    servers[#servers + 1] = Net.udp("127.0.0.1", port)
+  end
+  local dns = assert(Net.connector(endpoints, { timeout_ns = Clock.ms(assert(math.tointeger(tonumber(argv[3])))) }))
   local said: {string} = {}
-  for _ = 1, 2 do
-    local found, why = Net.resolve(argv[1], { timeout_ns = Clock.seconds(20), connector = dns,
-      servers = { Net.udp("127.0.0.1", port) } })
+  local took: {string} = {}
+  for round = 1, 2 do
+    local began = Clock.monotonic_ns()
+    local limit = round == 1 and argv[4] ~= nil and Clock.ms(assert(math.tointeger(tonumber(argv[4])))) or
+      Clock.seconds(5)
+    local found, why = Net.resolve(argv[1], { timeout_ns = limit, connector = dns, servers = servers })
+    took[#took + 1] = tostring((Clock.monotonic_ns() - began) // 1000000)
     local lines: {string} = {}
     for _, resolved in ipairs(found or {}) do lines[#lines + 1] = resolved.address end
     table.sort(lines)
     said[#said + 1] = found == nil and "error " .. why or table.concat(lines, ",")
   end
   assert(dns:close())
+  said[#said + 1] = table.concat(took, ",")
   Fs.put(Fs.stdout, table.concat(said, "\n"))
   return 0
 end
@@ -106,14 +121,26 @@ local function read_exact(conn: Net.Conn, count: integer): string | nil
   return out
 end
 
-local function test_a_name_resolves_over_tcp_through_the_connector_and_sends_no_datagram(tmp: string)
-  require_native_connector()
+--- What a run of SCRIPT saw: the lines it printed, and what the test's
+--- name server saw.
+local record Served
+  lines: {string}
+  --- Each query, "type name", sorted.
+  queries: {string}
+  datagrams: integer
+  connections: integer
+end
+
+--- Runs SCRIPT for `name` against a TCP name server of the test's own on
+--- 127.0.0.1, which a UDP socket at the same port watches for datagrams.
+--- `before` gives the ports of the connector's table that come before
+--- the server's, made in the run; `wait_ms` is the connector's wait, and
+--- `first_ms` the first lookup's time.
+local function served(tmp: string, name: string, wait_ms: integer, before?: function(): {integer},
+                      first_ms?: integer): Served
   local script = tmp .. "/resolve.tl"
   assert(Fs.write(script, SCRIPT))
-  local lines: {string}
-  local queries: {string} = {}
-  local datagrams = 0
-  local connections = 0
+  local out: Served = { lines = {}, queries = {}, datagrams = 0, connections = 0 }
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     local port = listener.address.port
@@ -123,7 +150,7 @@ local function test_a_name_resolves_over_tcp_through_the_connector_and_sends_no_
       while true do
         local conn = listener:accept()
         if conn == nil then return end
-        connections = connections + 1
+        out.connections = out.connections + 1
         Poll.spawn(function()
           conn:set_timeout(Clock.seconds(20))
           while true do
@@ -132,9 +159,8 @@ local function test_a_name_resolves_over_tcp_through_the_connector_and_sends_no_
             local query = read_exact(conn, (string.unpack(">I2", head)))
             if query == nil then break end
             local asked, qtype = question(query)
-            queries[#queries + 1] = qtype .. " " .. asked
-            local reply = answer(query)
-            assert(conn:write(string.pack(">s2", reply)))
+            out.queries[#out.queries + 1] = qtype .. " " .. asked
+            assert(conn:write(string.pack(">s2", answer(query))))
           end
           local _, _ = conn:close()
         end)
@@ -144,13 +170,20 @@ local function test_a_name_resolves_over_tcp_through_the_connector_and_sends_no_
       while true do
         local packet, why = udp:receive()
         if packet ~= nil then
-          datagrams = datagrams + 1
+          out.datagrams = out.datagrams + 1
         elseif why ~= Poll.TIMEOUT then
           return
         end
       end
     end)
-    local started = this_program.program({ "--standalone", script, "tcp.example.test", tostring(port) },
+    local ports: {string} = {}
+    for _, other in ipairs(before ~= nil and before() or {}) do
+      ports[#ports + 1] = tostring(other)
+    end
+    ports[#ports + 1] = tostring(port)
+    local argv = { "--standalone", script, name, table.concat(ports, ","), tostring(wait_ms) }
+    if first_ms ~= nil then argv[#argv + 1] = tostring(first_ms) end
+    local started = this_program.program(argv,
       { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
     local child <close> = assert(Child.start(started.argv, started.options))
     local result: Child.Result
@@ -163,20 +196,82 @@ local function test_a_name_resolves_over_tcp_through_the_connector_and_sends_no_
       end
     end
     assert(result.code == 0, tostring(result.code) .. " " .. tostring(result.stderr))
-    lines = {}
-    for line in ((result.stdout or "") .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
+    for line in ((result.stdout or "") .. "\n"):gmatch("([^\n]*)\n") do
+      out.lines[#out.lines + 1] = line
+    end
     serving:cancel()
     watching:cancel()
     assert(listener:close())
     assert(udp:close())
   end)
-  assert(lines[1] == "192.0.2.7,2001:db8::7", tostring(lines[1]))
-  assert(lines[2] == "192.0.2.7,2001:db8::7", tostring(lines[2]))
-  assert(datagrams == 0, datagrams .. " datagrams were sent")
-  table.sort(queries)
-  assert(table.concat(queries, ",") ==
-      "1 tcp.example.test,1 tcp.example.test,28 tcp.example.test,28 tcp.example.test", table.concat(queries, ","))
-  assert(connections == 2, connections .. " connections")
+  table.sort(out.queries)
+  return out
+end
+
+local function test_a_name_resolves_over_tcp_through_the_connector_and_sends_no_datagram(tmp: string)
+  require_native_connector()
+  local seen = served(tmp, "tcp.example.test", 10000)
+  assert(seen.lines[1] == "192.0.2.7,2001:db8::7", tostring(seen.lines[1]))
+  assert(seen.lines[2] == "192.0.2.7,2001:db8::7", tostring(seen.lines[2]))
+  assert(seen.datagrams == 0, seen.datagrams .. " datagrams were sent")
+  assert(table.concat(seen.queries, ",") ==
+      "1 tcp.example.test,1 tcp.example.test,28 tcp.example.test,28 tcp.example.test", table.concat(seen.queries, ","))
+  assert(seen.connections == 2, seen.connections .. " connections")
+end
+
+--- Fills the backlog of a listener of its own, so that the kernel drops
+--- what else asks it to connect: a name server that never takes a
+--- connection. `held` gets a closer for the listener and each connection the
+--- queue took.
+local function stuck_server(held: {function()}): {integer}
+  local stuck = assert(Net.listen(Net.tcp("127.0.0.1", 0), { backlog = 1 }))
+  held[#held + 1] = function() local _, _ = stuck:close() end
+  -- The queue takes the backlog and one more; the rest wait unanswered.
+  local taken = 0
+  for _ = 1, 4 do
+    local conn = Net.connect(stuck.address, { timeout_ns = Clock.ms(200) })
+    if conn ~= nil then
+      held[#held + 1] = function() local _, _ = conn:close() end
+      taken = taken + 1
+    end
+  end
+  assert(taken >= 1 and taken < 4, taken .. " connections were taken")
+  return { stuck.address.port }
+end
+
+--- A first name server that never takes the connection costs the
+--- connector's wait, and the lookup goes on to the next within its own
+--- time: the stream stays in step, so the same connector serves again.
+local function test_a_server_that_never_answers_its_connect_fails_over_to_the_next(tmp: string)
+  require_native_connector()
+  local held: {function()} = {}
+  local seen = served(tmp, "next.example.test", 500, function(): {integer}
+    return stuck_server(held)
+  end)
+  for _, close in ipairs(held) do close() end
+  assert(seen.lines[1] == "192.0.2.7,2001:db8::7", tostring(seen.lines[1]))
+  assert(seen.lines[2] == "192.0.2.7,2001:db8::7", tostring(seen.lines[2]))
+  for took in seen.lines[3]:gmatch("[^,]+") do
+    local ms = assert(math.tointeger(tonumber(took)))
+    assert(ms >= 400 and ms < 5000, seen.lines[3] .. " ms")
+  end
+  assert(seen.datagrams == 0, seen.datagrams .. " datagrams were sent")
+end
+
+--- A lookup whose time runs out while the connector still waits on a
+--- connection waits for its reply rather than cutting the stream off,
+--- so the next lookup through the same connector is served.
+local function test_a_lookup_out_of_time_still_takes_the_connectors_reply(tmp: string)
+  require_native_connector()
+  local held: {function()} = {}
+  local seen = served(tmp, "late.example.test", 500, function(): {integer}
+    return stuck_server(held)
+  end, 100)
+  for _, close in ipairs(held) do close() end
+  assert(seen.lines[1] == "error " .. Poll.TIMEOUT, tostring(seen.lines[1]))
+  assert(seen.lines[2] == "192.0.2.7,2001:db8::7", tostring(seen.lines[2]))
+  local first = assert(math.tointeger(tonumber(seen.lines[3]:match("^(%d+)"))))
+  assert(first >= 400, "the first lookup ended after " .. first .. " ms, before the connector replied")
 end
 
 local function test_an_unreachable_name_server_fails_the_lookup()
@@ -312,4 +407,30 @@ local function test_nameservers_reads_the_servers_resolv_conf_names(tmp: string)
   end
   -- None configured: the resolver's default.
   assert(missing ~= nil and #missing == 1 and missing[1].host == "127.0.0.1" and missing[1].port == 53)
+end
+
+--- The relay's resolver options name the servers read as it started, so a
+--- lookup asks exactly the connector's table even once the system's
+--- configuration names others; here the system's is whatever the worker
+--- reads, and a hosts file answers the name.
+local function test_the_relays_name_servers_stand_when_the_system_names_others(tmp: string)
+  require_native_connector()
+  local conf = tmp .. "/resolv.conf"
+  assert(Fs.write(conf, "nameserver 192.0.2.53\n"))
+  local hosts = tmp .. "/hosts"
+  assert(Fs.write(hosts, "198.51.100.9 kept.example.test\n"))
+  local opts = assert(Relay.name_servers({ resolv_conf = conf }))
+  local _dns <close> = opts.connector
+  assert(#opts.servers == 1 and opts.servers[1].host == "192.0.2.53" and opts.servers[1].port == 53)
+  local system = Net.nameservers()
+  assert(system == nil or system[1].host ~= "192.0.2.53", "the system names the test's server")
+  local found, why = Net.resolve("kept.example.test",
+    { connector = opts.connector, servers = opts.servers, hosts_file = hosts, timeout_ns = Clock.seconds(5) })
+  assert(found ~= nil and #found == 1 and found[1].address == "198.51.100.9", tostring(why))
+  -- Without the servers, the lookup asks the system's, which the table lacks.
+  found, why = Net.resolve("kept.example.test", { connector = opts.connector, hosts_file = hosts })
+  assert(found == nil, "the system's servers were asked through the table")
+  -- Unreadable servers are a reason, not a raise.
+  local none, trouble = Relay.name_servers({ resolv_conf = tmp .. "/x\0y" })
+  assert(none == nil and trouble == "Invalid argument", tostring(trouble))
 end

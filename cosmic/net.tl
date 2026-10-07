@@ -742,9 +742,12 @@ local resolved_through: function(name: string, opts: Net.ResolveOptions): {Net.R
 --- callers, never for values a sandboxed program chose. With
 --- `connector`, the lookup goes over TCP alone, each connection made by
 --- the connector ([`ResolveOptions.connector`]), which it waits for as
---- [`Connector.connect`] does; a server its table lacks fails the call
---- before anything is asked, and a lookup the connector could connect
---- nowhere for fails "Connection refused".
+--- [`Connector.connect`] does: a server that does not answer its
+--- connect costs the connector's `timeout_ns` (which may outlast
+--- `timeout_ns` here), and the next server is asked, so a connector for
+--- lookups waits well under the lookup's time for each. A server its
+--- table lacks fails the call before anything is asked, and a lookup the
+--- connector could connect nowhere for fails "Connection refused".
 ---
 ---     local found = assert(Net.resolve("localhost", { timeout_ns = Clock.seconds(5) }))
 ---     for _, resolved in ipairs(found) do print(resolved.address, resolved.family) end
@@ -1301,6 +1304,10 @@ resolved_through = function(name: string, opts: Net.ResolveOptions): {Net.Resolv
     if system == nil then return nil, why end
     listed = system
   end
+  if #listed > CONNECTOR_MAX_ENDPOINTS then
+    return nil, "net: a lookup through a connector asks at most " .. CONNECTOR_MAX_ENDPOINTS ..
+      " name servers, not " .. #listed
+  end
   local servers: {raw_socket.ThroughServer} = {}
   for _, server in ipairs(listed) do
     local index: integer
@@ -1336,8 +1343,12 @@ resolved_through = function(name: string, opts: Net.ResolveOptions): {Net.Resolv
   end
   request.process = through.process
   local left = deadline ~= nil and math.max(0, deadline - Clock.monotonic_ns()) or nil
+  -- The connector's own wait for a connection, and the grace its Lua
+  -- requests are given too: a server that does not answer costs that, and
+  -- the stream stays in step for the next.
+  local reply_ms = through.timeout_ms + CONNECTOR_GRACE_NS // 1000000
   local found, trouble, errno = raw.resolve_through(name, Poll.milliseconds(left), through.process.fd,
-    servers, opts.hosts_file)
+    reply_ms, servers, opts.hosts_file)
   -- The stream is in step when nothing waits on it: the core shuts it down
   -- where an exchange left a reply unread, which reads here as its end.
   local pending, _, number = sys.read(through.process.fd, 1)

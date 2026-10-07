@@ -1186,22 +1186,26 @@ struct resolution {
   struct watched_socket sockets[RESOLVE_WATCHED_MAX];
   /* A lookup through a connector (`resolve_through`): its control stream,
    * -1 for none; the call's deadline, which every exchange with it keeps;
-   * why an exchange left the stream out of step (a reply unread or half
+   * how long the connector may take to reply to one request (its own
+   * wait to connect, and a grace), which an exchange is given even past
+   * the deadline, so that a slow connect leaves the stream in step; why
+   * an exchange left the stream out of step (a reply unread or half
    * sent), 0 until one does, after which it is shut down and asked
-   * nothing more; and the servers it may reach, by address. */
+   * nothing more; and the servers it may reach, by address, allocated
+   * for a lookup through a connector alone. */
   int connector;
   int64_t deadline;
+  int reply_ms;
   int lost;
   size_t servers;
-  struct resolve_server server[RESOLVE_SERVERS_MAX];
-  /* The servers as c-ares takes a list of them. */
-  char listed[RESOLVE_SERVERS_MAX * RESOLVE_SERVER_TEXT];
+  struct resolve_server *server;
 };
 
 static void resolution_release (void *resource) {
   struct resolution *resolution = resource;
   if (resolution->channel != NULL) ares_destroy(resolution->channel);
   if (resolution->found != NULL) ares_freeaddrinfo(resolution->found);
+  free(resolution->server);
   free(resolution);
 }
 
@@ -1365,8 +1369,9 @@ static bool resolve_literal (lua_State *L, const char *name, size_t size) {
  * marker byte with the connected socket passed beside it. */
 
 /* Moves `size` bytes of `data` over the connector's stream, all of
- * them, by the lookup's deadline: 0, or why not. */
-static int through_whole (struct resolution *resolution, void *data, size_t size, bool sending) {
+ * them, by `deadline`: 0, or why not. */
+static int through_whole (const struct resolution *resolution, int64_t deadline, void *data, size_t size,
+                          bool sending) {
   unsigned char *at = data;
   while (size > 0) {
     ssize_t moved = sending ? send(resolution->connector, at, size, MSG_NOSIGNAL) :
@@ -1379,7 +1384,7 @@ static int through_whole (struct resolution *resolution, void *data, size_t size
     if (moved == 0) return EPIPE;
     if (errno == EINTR) continue;
     if (errno != EAGAIN && errno != EWOULDBLOCK) return errno;
-    int failure = ready(resolution->connector, sending ? POLLOUT : POLLIN, resolution->deadline);
+    int failure = ready(resolution->connector, sending ? POLLOUT : POLLIN, deadline);
     if (failure != 0) return failure;
   }
   return 0;
@@ -1388,7 +1393,7 @@ static int through_whole (struct resolution *resolution, void *data, size_t size
 /* The socket the connector passes after a success, in `*received`: one
  * marker byte beside exactly one descriptor. 0, or why not: EPROTO for
  * any other message, every descriptor that came with it closed. */
-static int through_rights (struct resolution *resolution, int *received) {
+static int through_rights (const struct resolution *resolution, int64_t deadline, int *received) {
   *received = -1;
   union {
     struct cmsghdr alignment;
@@ -1409,7 +1414,7 @@ static int through_rights (struct resolution *resolution, int *received) {
     if (got >= 0) break;
     if (errno == EINTR) continue;
     if (errno != EAGAIN && errno != EWOULDBLOCK) return errno;
-    int failure = ready(resolution->connector, POLLIN, resolution->deadline);
+    int failure = ready(resolution->connector, POLLIN, deadline);
     if (failure != 0) return failure;
   }
   int found = -1;
@@ -1430,8 +1435,11 @@ static int through_rights (struct resolution *resolution, int *received) {
       bytes = total - offset - CMSG_LEN(0);
       malformed = true;
     }
-    if (rights->cmsg_level != SOL_SOCKET || rights->cmsg_type != SCM_RIGHTS) malformed = true;
-    for (size_t i = 0; rights->cmsg_type == SCM_RIGHTS && i < bytes / sizeof(int); i++) {
+    /* Only SOL_SOCKET's SCM_RIGHTS carries descriptors: another's bytes
+     * are no descriptors to close. */
+    bool carried = rights->cmsg_level == SOL_SOCKET && rights->cmsg_type == SCM_RIGHTS;
+    if (!carried) malformed = true;
+    for (size_t i = 0; carried && i < bytes / sizeof(int); i++) {
       int descriptor;
       memcpy(&descriptor, CMSG_DATA(rights) + i * sizeof(int), sizeof descriptor);
       if (found < 0) {
@@ -1480,7 +1488,9 @@ static bool through_reaches (int fd, const struct resolve_server *server) {
 }
 
 /* Asks the connector for a connection to `server`: true with the socket
- * in `*connected`. A refusal the connector replies leaves its stream in
+ * in `*connected`. The exchange may outlast the lookup's deadline by up to
+ * the connector's own reply time, so that a server that does not answer
+ * its connect costs that time and leaves the stream for the next server. A refusal the connector replies leaves its stream in
  * step; any other failure, or a socket not connected to `server`, leaves
  * the stream lost and shuts it down, so that its owner sees it end. */
 static bool through_ask (struct resolution *resolution, const struct resolve_server *server, int *connected) {
@@ -1490,10 +1500,12 @@ static bool through_ask (struct resolution *resolution, const struct resolve_ser
     ((const struct sockaddr_in6 *)&server->address)->sin6_port);
   uint32_t request[2] = { htonl(server->index), htonl(port) };
   uint32_t status = 0;
-  int failure = through_whole(resolution, request, sizeof request, true);
-  if (failure == 0) failure = through_whole(resolution, &status, sizeof status, false);
+  int64_t replied = cosmic_now_ms() + resolution->reply_ms;
+  int64_t deadline = resolution->deadline < 0 || replied < resolution->deadline ? resolution->deadline : replied;
+  int failure = through_whole(resolution, deadline, request, sizeof request, true);
+  if (failure == 0) failure = through_whole(resolution, deadline, &status, sizeof status, false);
   if (failure == 0 && status != 0) return false;
-  if (failure == 0) failure = through_rights(resolution, connected);
+  if (failure == 0) failure = through_rights(resolution, deadline, connected);
   if (failure == 0 && through_reaches(*connected, server)) return true;
   if (*connected >= 0) close(*connected);
   *connected = -1;
@@ -1697,59 +1709,85 @@ COSMIC_SYSCALL(resolve, 4) {
   return resolve_run(L, name, timeout, servers, hosts, resolution);
 }
 
-COSMIC_SYSCALL(resolve_through, 5) {
+/* Reads the server on top of the stack, an entry of argument `arg`'s
+ * list, into `out`, raising for one that is malformed, and appends it to
+ * `listed` (`room` bytes, NULL for none) as c-ares takes a server list:
+ * how many bytes it appended. */
+static size_t through_server_read (lua_State *L, int arg, bool first, struct resolve_server *out,
+                                   char *listed, size_t room) {
+  int item = lua_gettop(L);
+  if (!lua_istable(L, item)) luaL_argerror(L, arg, "a server must be a table");
+  memset(out, 0, sizeof *out);
+  lua_getfield(L, item, "index");
+  lua_Integer index = lua_isinteger(L, -1) ? lua_tointeger(L, -1) : 0;
+  if (index < 1 || index > RESOLVE_SERVERS_MAX) luaL_argerror(L, arg, "a server's index must be 1 through 128");
+  lua_getfield(L, item, "port");
+  lua_Integer port = lua_isinteger(L, -1) ? lua_tointeger(L, -1) : 0;
+  if (port < 1 || port > 65535) luaL_argerror(L, arg, "a server's port must be 1 through 65535");
+  lua_getfield(L, item, "host");
+  size_t length = 0;
+  const char *host = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &length) : NULL;
+  struct sockaddr_in *v4 = (struct sockaddr_in *)&out->address;
+  struct sockaddr_in6 *v6 = (struct sockaddr_in6 *)&out->address;
+  bool numeric = host != NULL && strlen(host) == length && cosmic_numeric_host(host, length);
+  int written = 0;
+  if (numeric && strchr(host, ':') == NULL && inet_pton(AF_INET, host, &v4->sin_addr) == 1) {
+    v4->sin_family = AF_INET;
+    v4->sin_port = htons((uint16_t)port);
+    if (listed != NULL) written = snprintf(listed, room, "%s%s:%u", first ? "" : ",", host, (unsigned)port);
+  } else if (numeric && inet_pton(AF_INET6, host, &v6->sin6_addr) == 1) {
+    v6->sin6_family = AF_INET6;
+    v6->sin6_port = htons((uint16_t)port);
+    if (listed != NULL) written = snprintf(listed, room, "%s[%s]:%u", first ? "" : ",", host, (unsigned)port);
+  } else {
+    luaL_argerror(L, arg, "a server's host must be a numeric IPv4 or IPv6 address");
+  }
+  out->index = (uint32_t)index;
+  lua_pop(L, 3);
+  return written < 0 ? 0 : (size_t)written;
+}
+
+COSMIC_SYSCALL(resolve_through, 6) {
   size_t size = 0;
   const char *name = luaL_checklstring(L, 1, &size);
   int timeout = cosmic_checkint(L, 2);
   luaL_argcheck(L, timeout >= -1, 2, "timeout is out of range");
   int connector = cosmic_checkfd(L, 3);
-  luaL_checktype(L, 4, LUA_TTABLE);
-  size_t count = lua_rawlen(L, 4);
-  luaL_argcheck(L, count >= 1 && count <= RESOLVE_SERVERS_MAX, 4, "servers must hold 1 through 128 servers");
-  const char *hosts = lua_isnoneornil(L, 5) ? NULL : cosmic_path(L, 5);
-  if (resolve_refused(name, size) || (!lua_isnoneornil(L, 5) && hosts == NULL)) return cosmic_fail(L, EINVAL);
+  int reply = cosmic_checkint(L, 4);
+  luaL_argcheck(L, reply >= 1 && reply <= 120000, 4, "reply wait must be 1 through 120000 milliseconds");
+  luaL_checktype(L, 5, LUA_TTABLE);
+  size_t count = lua_rawlen(L, 5);
+  luaL_argcheck(L, count >= 1 && count <= RESOLVE_SERVERS_MAX, 5, "servers must hold 1 through 128 servers");
+  const char *hosts = lua_isnoneornil(L, 6) ? NULL : cosmic_path(L, 6);
 #if defined(__linux__)
-  if (resolve_literal(L, name, size)) return 1;
   struct resolution *resolution = resolution_push(L, timeout);
   if (resolution == NULL) return cosmic_fail(L, ENOMEM);
+  resolution->server = calloc(count, sizeof *resolution->server);
+  size_t room = count * RESOLVE_SERVER_TEXT;
+  char *listed = lua_newuserdatauv(L, room, 0);
+  if (resolution->server == NULL) return cosmic_fail(L, ENOMEM);
   resolution->connector = connector;
-  char *listed = resolution->listed;
+  resolution->reply_ms = reply;
   size_t used = 0;
   for (size_t i = 0; i < count; i++) {
-    lua_rawgeti(L, 4, (lua_Integer)i + 1);
-    int item = lua_gettop(L);
-    luaL_argcheck(L, lua_istable(L, item), 4, "a server must be a table");
-    lua_getfield(L, item, "index");
-    int index = cosmic_checkint(L, -1);
-    luaL_argcheck(L, index >= 1 && index <= RESOLVE_SERVERS_MAX, 4, "a server's index must be 1 through 128");
-    lua_getfield(L, item, "port");
-    int port = cosmic_checkint(L, -1);
-    luaL_argcheck(L, port >= 1 && port <= 65535, 4, "a server's port must be 1 through 65535");
-    lua_getfield(L, item, "host");
-    size_t length = 0;
-    const char *host = luaL_checklstring(L, -1, &length);
-    struct resolve_server *server = &resolution->server[i];
-    struct sockaddr_in *v4 = (struct sockaddr_in *)&server->address;
-    struct sockaddr_in6 *v6 = (struct sockaddr_in6 *)&server->address;
-    bool numeric = strlen(host) == length && cosmic_numeric_host(host, length);
-    if (numeric && strchr(host, ':') == NULL && inet_pton(AF_INET, host, &v4->sin_addr) == 1) {
-      v4->sin_family = AF_INET;
-      v4->sin_port = htons((uint16_t)port);
-      used += (size_t)snprintf(listed + used, sizeof resolution->listed - used, "%s%s:%d", i == 0 ? "" : ",", host, port);
-    } else if (numeric && inet_pton(AF_INET6, host, &v6->sin6_addr) == 1) {
-      v6->sin6_family = AF_INET6;
-      v6->sin6_port = htons((uint16_t)port);
-      used += (size_t)snprintf(listed + used, sizeof resolution->listed - used, "%s[%s]:%d", i == 0 ? "" : ",", host, port);
-    } else {
-      return luaL_argerror(L, 4, "a server's host must be a numeric IPv4 or IPv6 address");
-    }
-    server->index = (uint32_t)index;
+    lua_rawgeti(L, 5, (lua_Integer)i + 1);
+    used += through_server_read(L, 5, i == 0, &resolution->server[i], listed + used, room - used);
+    lua_pop(L, 1);
     resolution->servers++;
-    lua_pop(L, 4);
   }
+  if (resolve_refused(name, size) || (!lua_isnoneornil(L, 6) && hosts == NULL)) return cosmic_fail(L, EINVAL);
+  if (resolve_literal(L, name, size)) return 1;
   return resolve_run(L, name, timeout, listed, hosts, resolution);
 #else
+  /* The servers are held to their form here too, though no lookup runs. */
   (void)connector;
+  for (size_t i = 0; i < count; i++) {
+    struct resolve_server server;
+    lua_rawgeti(L, 5, (lua_Integer)i + 1);
+    (void)through_server_read(L, 5, i == 0, &server, NULL, 0);
+    lua_pop(L, 1);
+  }
+  if (resolve_refused(name, size) || (!lua_isnoneornil(L, 6) && hosts == NULL)) return cosmic_fail(L, EINVAL);
   return cosmic_fail(L, ENOSYS);
 #endif
 }

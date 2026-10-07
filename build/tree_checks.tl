@@ -60,11 +60,9 @@ end
 --- uses them, by `<module>.<member>`, and why each is kept.
 local allowed: {string: string} = {}
 
-for _, name in ipairs({ "udp", "datagram" }) do
-  -- TODO: remove this allowance once the sandbox resolver uses UDP.
-  allowed["cosmic.net." .. name] = "tested directly: the namespace DNS stub's UDP " ..
-    "prerequisite lands separately from the resolver that calls it"
-end
+-- TODO: remove this allowance once the sandbox resolver uses UDP.
+allowed["cosmic.net.datagram"] = "tested directly: the namespace DNS stub's UDP " ..
+  "prerequisite lands separately from the resolver that calls it"
 
 allowed["cosmic.net.listener_from"] = "tested directly: it adopts one listening socket a " ..
   "process holds, which Net.receive_listeners does for each socket a relay's channel carries; " ..

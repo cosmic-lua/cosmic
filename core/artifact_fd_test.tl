@@ -130,7 +130,7 @@ local cases: {string: function(at: integer, fd: integer): {any}} = {
   connected = function(_: integer, fd: integer): {any} return { fd } end,
   shutdown = function(_: integer, fd: integer): {any} return { fd, "both" } end,
   resolve_through = function(_: integer, fd: integer): {any}
-    return { "example.test", 0, fd, { { host = "127.0.0.1", port = 53, index = 1 } } }
+    return { "example.test", 0, fd, 1000, { { host = "127.0.0.1", port = 53, index = 1 } } }
   end,
   wait = function(_: integer, fd: integer): {any} return { fd, false, 0 } end,
   poll = function(_: integer, fd: integer): {any} return { { fd }, { sys.POLLIN }, 0 } end,

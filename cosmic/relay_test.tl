@@ -129,6 +129,7 @@ local record Options
   redirect: {string: integer}
   own_addresses: {string}
   token: string
+  unresolved: string
 end
 
 --- A running relay and what a test needs of it.
@@ -159,6 +160,7 @@ local function start(tmp: string, opts: Options): Rig
     http = http, socks = socks, grants = opts.grants, upstream = opts.upstream,
     timeouts = opts.timeouts, limits = opts.limits, tls_ports = opts.tls_ports,
     resolve = opts.resolve or { hosts_file = hosts }, own_addresses = opts.own_addresses, token = opts.token,
+    unresolved = opts.unresolved,
     log = function(line: string)
       rig.log[#rig.log + 1] = line
     end,
@@ -474,6 +476,31 @@ local function test_a_name_that_does_not_resolve_is_unreachable(tmp: string)
     assert(code == 4, code)
     local _, _ = socks:close()
     finish(rig)
+  end)
+end
+
+--- A relay whose name servers could not be read still serves: every name
+--- is refused, saying why, and a literally granted address is connected.
+local function test_a_relay_without_name_servers_refuses_names_and_reaches_granted_addresses(tmp: string)
+  Poll.run(function()
+    local server = origin(echo)
+    local port = server.port
+    local rig = start(tmp, { grants = { "svc.test:" .. port, "127.0.0.1:" .. port },
+      unresolved = "no name servers here" })
+    local conn, head = connect_to(rig, "svc.test:" .. port)
+    local line = status_line(head)
+    assert(line:find("^HTTP/1.1 502 ") and line:find("could not resolve svc.test: no name servers here", 1, true), line)
+    local _, _ = conn:close()
+    local socks, code = socks_to(rig, "svc.test", port)
+    assert(code == 4, code)
+    local _, _ = socks:close()
+    local literal, answer = connect_to(rig, "127.0.0.1:" .. port)
+    assert(status_line(answer):find("^HTTP/1.1 200 "), answer)
+    assert(literal:write("literal"))
+    assert(read_exact(literal, 7) == "literal")
+    local _, _ = literal:close()
+    assert(#lines_with(rig, "no name is resolved") == 1, table.concat(rig.log, "\n"))
+    finish(rig, server)
   end)
 end
 

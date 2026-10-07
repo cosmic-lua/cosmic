@@ -23,8 +23,9 @@
 --- checked against the grants and the address classes by [`cosmic.relay`]
 --- and made by [`Net.connector`], and every name is resolved over TCP
 --- through a connector whose table holds the host's name servers alone,
---- read once as it starts ([`Net.nameservers`]), so the resolver's sockets
---- reach nothing else.
+--- read once as it starts ([`Relay.name_servers`]), so the resolver's
+--- sockets reach nothing else. Where they cannot be read it serves still,
+--- refusing every name and saying why.
 -- TODO: drop the host network from this process once its starter (Child.start's
 -- relay, cosmic/child.tl) starts its connectors and passes their control
 -- streams, which it adopts with Net.connector_from (the TODO at spawn's
@@ -125,23 +126,15 @@ local function serve(config: Config.Config): integer
     -- once the relay's starter (cosmic/child.tl) starts it with the name
     -- servers it read, as the relay is to read no resolv.conf and start no
     -- process of its own.
-    local nameservers, nameservers_why = Net.nameservers()
-    if nameservers == nil then
-      status = failed("the name servers: " .. nameservers_why)
-      return
-    end
-    local dns, dns_why = Net.connector(nameservers)
-    if dns == nil then
-      status = failed("the name servers' connector: " .. dns_why)
-      return
-    end
-    local resolver: Net.Connector = dns
+    -- Without them the relay serves still, and every name fails with why:
+    -- an address a grant names needs no lookup.
+    local resolve, unresolved = Relay.name_servers()
     local connect = made:as_function()
     local log: function(line: string)
     if config.log == "null" then log = function(_: string) end end
     local serving, start_why = started({
       http = http, socks = socks, grants = config.grants, connector = connect,
-      resolve = { connector = resolver },
+      resolve = resolve, unresolved = resolve == nil and unresolved or nil,
       own_addresses = config.own_addresses, upstream = upstream, log = log,
     })
     if serving == nil then
@@ -158,7 +151,9 @@ local function serve(config: Config.Config): integer
     serving:wait()
     watch:cancel()
     local _, _ = made:close()
-    local _, _ = resolver:close()
+    if resolve ~= nil then
+      local _, _ = resolve.connector:close()
+    end
     status = ended and 0 or failed("the relay's listeners ended")
   end)
   return status
