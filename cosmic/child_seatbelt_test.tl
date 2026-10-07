@@ -250,10 +250,44 @@ local function test_a_profile_the_system_accepts_holds_the_program_by_its_parame
   assert(assert(process.waitpid(ran, false)).code == 0 and sys.stat(other) ~= nil)
 end
 
-local MARKER <const> = "seatbelt-terminal-refusal-1"
+--- A policy's child has no terminal to open, by name or otherwise: the
+--- profile grants no /dev/tty, and the start gives the child a session of
+--- its own, which the caller's terminal is not.
+local function test_a_policy_child_leads_a_session_and_opens_no_terminal(tmp: string)
+  macos_only()
+  local granted = files(tmp)
+  local policy: Sandbox.Policy = { profiles = { "system" },
+    grants = { { path = granted, letters = "r" } } }
+  local shut = run({ SH, "-c", ": </dev/tty" }, policy)
+  expect(not shut.ok, shut)
+  -- Granted by hand, the open still finds no controlling terminal.
+  local granting: Sandbox.Policy = { profiles = { "system" }, grants = {
+    { path = granted, letters = "r" }, { path = "/dev/tty", letters = "rw" } } }
+  local none = run({ SH, "-c", ": </dev/tty" }, granting)
+  expect(not none.ok, none)
+  local child = assert(Child.start({ "/bin/sleep", "30" }, { policy = policy }))
+  local pid = child.pid
+  local group = sys.getpgid(pid)
+  child:stop(sys.SIGKILL)
+  child:wait()
+  assert(group == pid, "the child leads no group of its own: " .. tostring(group))
+end
+
+--- A policy's child is a group of its own whatever the caller asks, so a
+--- caller that asks for its own group is refused.
+local function test_a_policy_start_that_keeps_the_callers_group_is_refused(tmp: string)
+  macos_only()
+  local granted = files(tmp)
+  local child, why = Child.start({ CAT, granted }, { process_group = false,
+    policy = { profiles = { "system" }, grants = { { path = granted, letters = "r" } } } })
+  assert(child == nil, "a start that keeps the caller's group ran")
+  assert(why:find("process_group = false is refused", 1, true), why)
+end
+
+local MARKER <const> = "a controlling terminal is not yet given to a child on macOS"
 
 --- Says what a failing terminal start can show of the core it ran on: its
---- identity, whether its file holds the refusal's text, and whether the
+--- identity, whether its file holds the refusal's sentence, and whether the
 --- twelfth argument reaches C.
 local function core_identity(process: raw_process): string
   local parts: {string} = {

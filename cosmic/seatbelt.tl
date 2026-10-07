@@ -57,7 +57,9 @@ local SYSTEM <const>: {{string}} = {
   { "/private/var/db/dyld", "r" },
   -- /bin/sh reads its own selection from here.
   { "/private/var/select", "r" },
-  { "/dev/null", "rw" }, { "/dev/dtracehelper", "rw" }, { "/dev/tty", "rw" }, { "/dev/zero", "r" },
+  -- No /dev/tty: as on Linux, a child opens no terminal by name, and the
+  -- start gives it a session with none besides.
+  { "/dev/null", "rw" }, { "/dev/dtracehelper", "rw" }, { "/dev/zero", "r" },
   { "/dev/random", "r" }, { "/dev/urandom", "r" },
 }
 

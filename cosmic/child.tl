@@ -449,7 +449,9 @@ local record Options
   --- but `processes`. It fails, saying so, for what Seatbelt cannot hold --
   --- `isolate`, `connect`, `loopback`, `nest`, a grant's `from`,
   --- `limits.processes` -- and for what is not yet held there: `tmp`, a
-  --- `database`, and a program that is this program's own. A start from a
+  --- `database`, and a program that is this program's own. The child leads
+  --- a session of its own, with no controlling terminal, so `process_group`
+  --- false is refused there. A start from a
   --- process Seatbelt already holds fails closed, as its profile is refused
   --- there, and nothing runs.
   ---
@@ -3239,6 +3241,14 @@ end
 local function held_by_seatbelt(argv: {string}, opts: Options): Held | nil, string
   local merged, why = Rules.merge(opts.policy)
   if merged == nil then return nil, why end
+  -- The child leads a session of its own, so that it has no controlling
+  -- terminal (the caller's would let it push input into the caller's
+  -- session): a session is a group of its own too, so a start that wants
+  -- the caller's group is refused rather than given another.
+  if opts.process_group == false then
+    return nil, "sandbox: a policy's child on macOS leads a session, and so a process group, of " ..
+      "its own, so process_group = false is refused"
+  end
   local own: string
   local executable, _ = Proc.executable()
   if executable ~= nil then

@@ -2569,7 +2569,7 @@ _Noreturn void cosmic_sandbox_init (void) {
 #if defined(__APPLE__)
 /* Why Darwin's start has a trampoline. Seatbelt holds the process that
  * applies a profile (sandbox_init_with_parameters), from that call on, and
- * everything it execs; a limit and a controlling terminal are set by the
+ * everything it execs; a limit and a session are made by the
  * process they are for as well. posix_spawn runs none of our code between
  * its fork and the exec, and fork would: but once a process has had threads
  * only async-signal-safe calls are allowed in its child, and compiling a
@@ -2594,7 +2594,8 @@ _Noreturn void cosmic_sandbox_init (void) {
  * `ps` of the same user reads them while the trampoline runs.
  *   0  COSMIC_TRAMPOLINE
  *   1  the status pipe's descriptor, which is the one above the program's
- *   2  "1" for a controlling terminal on descriptor 0, else "0"
+ *   2  "1" to lead a session of its own (setsid), which the program then
+ *      has no controlling terminal in, else "0"
  *   3  the soft RLIMIT_NOFILE to give the program back, or "-" for none
  *   4  how many limits follow
  *   5  how many words of parameters follow, their names and values alternating
@@ -2695,7 +2696,7 @@ static seatbelt_free_function seatbelt_release (void) {
 
 _Noreturn void cosmic_trampoline (int argc, char **argv) {
   cosmic_coverage_prepare();
-  unsigned long long number = 0, terminal = 0, restore = 0, limit_count = 0, parameter_count = 0;
+  unsigned long long number = 0, session = 0, restore = 0, limit_count = 0, parameter_count = 0;
   /* [`cosmic_trampoline_asked`] found the descriptor to be a number. */
   trampoline_number(argv[1], &number);
   int status = (int)number;
@@ -2703,7 +2704,7 @@ _Noreturn void cosmic_trampoline (int argc, char **argv) {
   char message[TRAMPOLINE_MESSAGE_MAX + 1];
   message[0] = '\0';
   bool restoring = strcmp(argv[3], "-") != 0;
-  if (!trampoline_number(argv[2], &terminal) || (restoring && !trampoline_number(argv[3], &restore)) ||
+  if (!trampoline_number(argv[2], &session) || (restoring && !trampoline_number(argv[3], &restore)) ||
       !trampoline_number(argv[4], &limit_count) || !trampoline_number(argv[5], &parameter_count) ||
       limit_count > SPAWN_RLIMIT_MAX || parameter_count > 2 * SEATBELT_PARAMETER_MAX)
     failure = EINVAL;
@@ -2715,25 +2716,12 @@ _Noreturn void cosmic_trampoline (int argc, char **argv) {
   if (!failure && fcntl(status, F_SETFD, FD_CLOEXEC) != 0) failure = errno;
   /* Which step failed, in the text the parent reads with the errno. */
   const char *step = "";
-  if (!failure && terminal) {
-    step = "terminal";
+  /* A confined program leads a session with no terminal, so it can neither
+   * open the caller's through /dev/tty nor push input into it; the session is
+   * a group of its own as well. */
+  if (!failure && session) {
+    step = "setsid";
     if (setsid() < 0) failure = errno;
-    else if (ioctl(0, TIOCSCTTY, 0) != 0) failure = errno;
-    /* Darwin may take the ioctl and still leave /dev/tty unconfigured (ENXIO);
-     * a session leader's open of the terminal, without O_NOCTTY, makes it
-     * the controlling one as BSD has it, and the program is refused its
-     * start where it still has none. */
-    if (!failure) {
-      int probe = open("/dev/tty", O_RDWR | O_NOCTTY);
-      if (probe < 0) {
-        const char *name = ttyname(0);
-        int again = name != NULL ? open(name, O_RDWR) : -1;
-        if (again >= 0) close(again);
-        probe = open("/dev/tty", O_RDWR | O_NOCTTY);
-      }
-      if (probe < 0) failure = errno != 0 ? errno : ENXIO;
-      else close(probe);
-    }
   }
   /* As a Linux child does, in this order: the descriptor limit the program
    * started with, then the limits it is held to. */
@@ -2814,11 +2802,11 @@ _Noreturn void cosmic_trampoline (int argc, char **argv) {
  * CLOEXEC set. The kernel takes these steps in the child, which shares nothing
  * of this process's memory, and answers an exec's failure as
  * posix_spawn's own, so the status pipe is never written -- but for a
- * start that needs a step posix_spawn has none for: a controlling
- * terminal, limits, a Seatbelt profile. That one starts this program as
+ * start that needs a step posix_spawn has none for: limits, a Seatbelt
+ * profile. That one starts this program as
  * a trampoline instead ([`cosmic_trampoline`]), handed the status pipe,
- * which executes the program last and reports there what stopped it; its
- * session replaces the process group. The child's
+ * which executes the program last and reports there what stopped it; a
+ * profile's start leads a session, which replaces the process group. The child's
  * pid, or -1 and the errno in `error`. */
 static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
   /* Darwin has neither Landlock nor seccomp. */
@@ -2826,7 +2814,7 @@ static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
     *error = ENOSYS;
     return -1;
   }
-  bool trampolined = plan->terminal || plan->rlimit_count > 0 || plan->seatbelt_profile != NULL;
+  bool trampolined = plan->rlimit_count > 0 || plan->seatbelt_profile != NULL;
   /* A profile is applied by the system's own call, found before the child
    * starts so that a system without it fails the start here, ENOSYS. */
   if (plan->seatbelt_profile != NULL && seatbelt_init() == NULL) {
@@ -2905,7 +2893,7 @@ static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
       size_t at = 0;
       words[at++] = (char *)COSMIC_TRAMPOLINE;
       words[at++] = numbers[0];
-      words[at++] = (char *)(plan->terminal ? "1" : "0");
+      words[at++] = (char *)(plan->seatbelt_profile != NULL ? "1" : "0");
       words[at++] = restoring ? numbers[1] : (char *)"-";
       words[at++] = numbers[2];
       words[at++] = numbers[3];
@@ -2933,7 +2921,7 @@ static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
     failure = posix_spawnattr_init(&attributes);
     if (!failure) {
       int flags = POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGMASK;
-      if (plan->process_group && !plan->terminal) flags |= POSIX_SPAWN_SETPGROUP;
+      if (plan->process_group && plan->seatbelt_profile == NULL) flags |= POSIX_SPAWN_SETPGROUP;
       if (sigpipe_ignored_here) flags |= POSIX_SPAWN_SETSIGDEF;
       sigset_t defaults;
       sigemptyset(&defaults);
@@ -3929,10 +3917,8 @@ COSMIC_SYSCALL(spawn, 12) {
    * program it executed had none (ps showed TTY "??" and an open of /dev/tty
    * was ENXIO), though its descriptor 0 was the terminal. */
   if (terminal) {
-    /* The text is unique so a test can tell, in the running core, that this
-     * refusal is compiled in; the shape is a refusal's: nil, text, errno. */
     lua_pushnil(L);
-    lua_pushliteral(L, "a controlling terminal is refused on macOS [seatbelt-terminal-refusal-1]");
+    lua_pushliteral(L, "a controlling terminal is not yet given to a child on macOS");
     lua_pushinteger(L, ENOSYS);
     return 3;
   }
