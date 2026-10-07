@@ -273,32 +273,52 @@ cosmic sandbox --system --path rwxc:. --tmp --promise fork --isolate file -- mak
 **The relay**, the program's only way out: a confined process of its
 own, holding listeners the sandbox bound in its network; it serves
 [`Child.start`] and the command line alike, and the sandbox ends with
-it. HTTP CONNECT and SOCKS5 with names; hosts parsed strictly,
-resolved once, every answer checked against loopback, link-local,
-private, CGNAT, metadata and mapped forms (opened only by a literal
-grant), the checked address connected; SNI matched to the host; capped
-connections, headers and queries; a DNS stub answering granted names
-only. The proxy variables are set in both cases, with `NO_PROXY` for
-loopback and `NODE_USE_ENV_PROXY=1`. Programs that ignore them reach
-nothing; `cosmic sandbox connect` serves ssh's ProxyCommand.
+it. HTTP CONNECT and SOCKS5 with names; hosts parsed strictly and
+matched against the grants before anything is resolved; SNI matched to
+the host; the proxy variables set, with `NO_PROXY` for loopback and
+`NODE_USE_ENV_PROXY=1`. Programs that ignore them reach nothing: the
+sandbox has no DNS, since a program that honours the variables sends
+the name and never resolves it. `cosmic sandbox connect` serves ssh's
+ProxyCommand.
+
+A granted name is resolved once and every answer classified; the
+relay connects to the first answer allowed, and only to it, so a name
+whose answers mix allowed and forbidden addresses still reaches an
+allowed one and never a forbidden one. Refused, unless a literal grant
+names the address: loopback, unspecified, link-local, multicast,
+private, CGNAT, the metadata addresses, the host's own addresses, and
+IPv6 forms that carry an IPv4 address (mapped, NAT64 `64:ff9b::/96`
+and `64:ff9b:1::/48`, 6to4 `2002::/16`, Teredo `2001::/32`), each
+classified as the IPv4 address it carries where it carries one.
+
+Every refusal names its remedy, in the reply to the program (a CONNECT
+failure's reason phrase, a SOCKS5 reply code and the relay's log line:
+"not granted: --connect api.github.com:443") and in one decision line
+per connection on the relay's log. A resolve, a connect and an idle
+connection each have a timeout of their own; open connections, header
+bytes and the connections a sandbox holds at once are capped, and a
+connection past the cap is refused, saying so.
+
+Behind an upstream proxy (`https_proxy` set for the caller, and its
+host not in `no_proxy`), the relay applies its name checks and CONNECTs
+through the upstream: the upstream resolves, so the address checks do
+not apply, and the relay says so once at the start. The upstream's
+address is checked as any other, and connected through the connector.
 
 It is three parts, so that no part both parses what the sandbox sends
 and holds a host socket that is not yet connected:
 
-- **The resolver** is c-ares, the library the core already carries for
-  curl, given a binding of its own: it reads the host's resolv.conf and
-  hosts (and, on macOS, the dnsinfo service), resolves a granted name
-  once, and returns every address, so that one forbidden answer refuses
-  the name rather than being skipped.
+- **The resolver** (#2816) is c-ares, the library the core already
+  carries for curl, given a binding of its own, `Net.resolve`: it
+  reads the host's resolv.conf and hosts (and, on macOS, the dnsinfo
+  service), resolves a granted name once, and returns every address it
+  received, unfiltered.
 - **The connector** (#2815) is a native process with no file access,
   exec or fork: it takes only numeric endpoints the relay has already
   checked, connects, and passes the connected socket back over
   descriptors (#2813). The relay never holds an unconnected host
   socket.
-- **The relay** parses the sandbox's side: CONNECT, SOCKS5, SNI and the
-  DNS stub, the stub served over [`Net.datagram`] (#2811). It answers a
-  granted name from the resolver's checked addresses and refuses every
-  other name.
+- **The relay** parses the sandbox's side: CONNECT, SOCKS5 and SNI.
 
 **The terminal**: only `cosmic sandbox` relays one, as a pty (#2814
 gives the core `openpty`, terminal modes, window size, a controlling
@@ -342,11 +362,11 @@ Each names its caller.
    preflight. Caller: the harness.
 4. The harness on the policy, migration steps (a) to (e).
 5. The `cosmic sandbox` verb.
-6. The relay. The core has UDP (#2811) and descriptor passing
-   (#2813); the connector is in #2815. Left: the c-ares binding, the
-   relay's listeners and DNS stub, the proxy variables, `connect` in
-   [`Child.start`], and `cosmic sandbox connect`. Caller: the verb, and
-   tests that fetch.
+6. The relay. The core has descriptor passing (#2813); the connector
+   is in #2815, the resolver in #2816. Left: the relay's listeners and
+   classification, the upstream proxy, the proxy variables, `connect`
+   in [`Child.start`], and `cosmic sandbox connect`. Caller: the verb,
+   and tests that fetch.
 7. The pty relay. The core's terminal calls are in #2814. Left: the
    relay loop and the verb's use of it. Caller: the verb.
 8. Seatbelt. The compiler is done (#2812). Left: applying it, as
@@ -356,7 +376,10 @@ Each names its caller.
 
 Cgroup limits for memory and CPU; policy files (narrow-only, judged
 after resolution); plain-HTTP forwarding; a transparent network mode;
-nested sandboxes through a broker.
+nested sandboxes through a broker; a DNS stub answering granted names,
+for programs that resolve before they use the proxy; a report mode
+that allows what it would refuse and logs it, to learn a program's
+grants.
 
 ## History
 
@@ -381,12 +404,16 @@ nested sandboxes through a broker.
 8. Phases 1-5 done; the relay split into a c-ares resolver, a confined
    connector and the parsing relay; the core's UDP, descriptor passing
    and Seatbelt compiler landed, the pty and connector in review.
+9. Compared with Smokescreen: the first allowed answer connected rather
+   than one forbidden answer refusing the name, no DNS in the sandbox,
+   IPv6 forms carrying IPv4 and the host's own addresses refused,
+   refusals naming their remedy, separate timeouts, and an upstream
+   proxy.
 
 [`Child.Options`]: ../../cosmic/child.tl
 [`Child.start`]: ../../cosmic/child.tl
 [`core/promises.c`]: ../../core/promises.c
 [`cosmic.sandbox`]: ../../cosmic/sandbox.tl
-[`Net.datagram`]: ../../cosmic/net.tl
 [`Sandbox.restrict`]: ../../cosmic/sandbox.tl
 [`Seatbelt.compile`]: ../../cosmic/seatbelt.tl
 [`Test.needs`]: ../../cosmic/test.tl
