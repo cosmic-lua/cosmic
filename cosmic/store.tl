@@ -126,6 +126,17 @@ function Store.zone_names(): {string:boolean} | nil, string
   return store.zone_names()
 end
 
+--- The paths of the files the runtime holds open for the store, and no
+--- other file: each database [`Store.databases`] hands out that is a
+--- file, then its write-ahead log (`-wal`) and shared-memory file
+--- (`-shm`), which SQLite opens beside it whether or not they exist yet.
+-- TODO: grant these files in Darwin's [`Sandbox.restrict`], once it applies a
+-- Seatbelt profile to the running process, and drop the allowance
+-- build/tree_checks.tl makes for this function's having no other caller.
+function Store.paths(): {string}
+  return store.paths()
+end
+
 --- Calls `fn` searching only the binary's own database, as a process
 --- that attached none would -- `require`, `meta`, `source` and
 --- `databases` included -- then puts every other back where it was,

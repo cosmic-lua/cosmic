@@ -942,6 +942,28 @@ static int store_trusted_core (lua_State *L) {
   return cosmic_succeeded(L);
 }
 
+/* The paths of the files the runtime holds open for the store, as a list:
+ * each database the store searches, then its write-ahead log and its
+ * shared-memory file, which SQLite opens beside it. These are the files
+ * [`cosmic_store_holds_descriptor`] recognises, and no other: not the
+ * artifact's descriptor, and no database kept in memory or as a
+ * temporary file, which names none. */
+static int store_paths (lua_State *L) {
+  static const char *const suffixes[] = { "", "-wal", "-shm" };
+  lua_newtable(L);
+  lua_Integer next = 1;
+  for (int index = 1; index <= cosmic_store_count(L); index++) {
+    sqlite3 *db = cosmic_store_database(L, index);
+    const char *name = db == NULL ? NULL : sqlite3_db_filename(db, "main");
+    if (name == NULL || name[0] == '\0') continue;
+    for (size_t part = 0; part < sizeof suffixes / sizeof suffixes[0]; part++) {
+      lua_pushfstring(L, "%s%s", name, suffixes[part]);
+      lua_rawseti(L, -2, next++);
+    }
+  }
+  return 1;
+}
+
 static int open_store_module (lua_State *L,
                               const struct cosmic_artifact *artifact) {
   lua_getfield(L, LUA_REGISTRYINDEX, STORE_LIST);
@@ -973,6 +995,8 @@ static int open_store_module (lua_State *L,
   lua_pushvalue(L, -2);
   lua_pushcclosure(L, store_zone_names, 1);
   lua_setfield(L, -2, "zone_names");
+  lua_pushcfunction(L, store_paths);
+  lua_setfield(L, -2, "paths");
   lua_pushlightuserdata(L, (void *)artifact);
   lua_pushcclosure(L, store_trusted_prefix, 1);
   lua_setfield(L, -2, "trusted_prefix");

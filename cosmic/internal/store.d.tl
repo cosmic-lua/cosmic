@@ -16,6 +16,10 @@ local record store
     digest: string
   end
 
+  --- The paths of the files the runtime holds open for the store: each
+  --- database `require` searches, then its `-wal` and `-shm` siblings.
+  paths: function(): {string}
+
   --- Opens a projected module database and searches it ahead of every other.
   attach: function(path: string): boolean, string
 

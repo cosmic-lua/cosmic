@@ -2780,6 +2780,27 @@ static seatbelt_free_function seatbelt_release (void) {
   return function;
 }
 
+/* Applies the Seatbelt `profile` to this process, with `parameters` (names
+ * and values alternating, then NULL): 0, or the errno of the refusal, with
+ * the reason in `text` (of `size` bytes). Shared by the trampoline and every
+ * other start that confines a process, so none words a refusal otherwise. */
+static int apply_seatbelt (const char *profile, const char *const parameters[], char *text,
+                           size_t size) {
+  seatbelt_init_function init = seatbelt_init();
+  if (init == NULL) {
+    snprintf(text, size, "sandbox_init_with_parameters is missing");
+    return ENOSYS;
+  }
+  char *error = NULL;
+  errno = 0;
+  if (init(profile, 0, parameters, &error) == 0) return 0;
+  int failure = errno != 0 ? errno : EINVAL;
+  snprintf(text, size, "sandbox_init_with_parameters: %s", error != NULL ? error : "refused the profile");
+  seatbelt_free_function release = seatbelt_release();
+  if (error != NULL && release != NULL) release(error);
+  return failure;
+}
+
 _Noreturn void cosmic_trampoline (int argc, char **argv) {
   cosmic_coverage_prepare();
   unsigned long long number = 0, session = 0, restore = 0, limit_count = 0, parameter_count = 0;
@@ -2843,25 +2864,11 @@ _Noreturn void cosmic_trampoline (int argc, char **argv) {
   const char *profile = argv[6];
   if (!failure && profile[0] != '\0') {
     step = "sandbox_init_with_parameters";
-    seatbelt_init_function init = seatbelt_init();
-    if (init == NULL) {
-      failure = ENOSYS;
-      snprintf(message, sizeof message, "sandbox_init_with_parameters is missing");
-    } else {
-      /* Names and values, alternating, then NULL. */
-      const char *parameters[2 * SEATBELT_PARAMETER_MAX + 1];
-      for (size_t i = 0; i < (size_t)parameter_count; i++) parameters[i] = argv[first_parameter + i];
-      parameters[parameter_count] = NULL;
-      char *error = NULL;
-      errno = 0;
-      if (init(profile, 0, parameters, &error) != 0) {
-        failure = errno != 0 ? errno : EINVAL;
-        snprintf(message, sizeof message, "sandbox_init_with_parameters: %s",
-                 error != NULL ? error : "refused the profile");
-        seatbelt_free_function release = seatbelt_release();
-        if (error != NULL && release != NULL) release(error);
-      }
-    }
+    /* Names and values, alternating, then NULL. */
+    const char *parameters[2 * SEATBELT_PARAMETER_MAX + 1];
+    for (size_t i = 0; i < (size_t)parameter_count; i++) parameters[i] = argv[first_parameter + i];
+    parameters[parameter_count] = NULL;
+    failure = apply_seatbelt(profile, parameters, message, sizeof message);
   }
   if (!failure) {
     step = "execve";
@@ -3650,6 +3657,23 @@ static int read_grants (lua_State *L, int list, int arg, const char **paths, uns
 /* The most descriptors `restrict_self` is told to keep. */
 #define RESTRICT_KEEP_MAX 256
 
+/* What lowering `resource`'s limits to at most `value`, soft and hard,
+ * needs, never raising either: `target` is the limits as they are to be,
+ * and `changes` whether that differs from what they are. 0, or the errno
+ * of reading them. Planned before anything is changed, so a restriction
+ * that fails later has set no limit. */
+/* TODO: drop `unused` once Darwin's `restrict_self` plans its limits with this, as
+ * Linux's does; until then only the Linux body calls it. */
+__attribute__((unused)) static int plan_limit (int resource, rlim_t value, struct rlimit *target, bool *changes) {
+  struct rlimit limits;
+  if (getrlimit(resource, &limits) != 0) return errno;
+  *target = limits;
+  if (target->rlim_cur > value) target->rlim_cur = value;
+  if (target->rlim_max > value) target->rlim_max = value;
+  *changes = target->rlim_cur != limits.rlim_cur || target->rlim_max != limits.rlim_max;
+  return 0;
+}
+
 #if defined(__linux__)
 
 /* Answers `restrict_self`'s refusal: false, `what` formatted, and `number`. */
@@ -3826,20 +3850,6 @@ static int unaccounted_descriptor (lua_State *L, const int *kept, int kept_count
   return found;
 }
 
-/* What lowering `resource`'s limits to at most `value`, soft and hard,
- * needs, never raising either: `target` is the limits as they are to be,
- * and `changes` whether that differs from what they are. 0, or the errno
- * of reading them. Planned before anything is changed, so a restriction
- * that fails later has set no limit. */
-static int plan_limit (int resource, rlim_t value, struct rlimit *target, bool *changes) {
-  struct rlimit limits;
-  if (getrlimit(resource, &limits) != 0) return errno;
-  *target = limits;
-  if (target->rlim_cur > value) target->rlim_cur = value;
-  if (target->rlim_max > value) target->rlim_max = value;
-  *changes = target->rlim_cur != limits.rlim_cur || target->rlim_max != limits.rlim_max;
-  return 0;
-}
 #endif
 
 COSMIC_SYSCALL(restrict_self, 2) {
