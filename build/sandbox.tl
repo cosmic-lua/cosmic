@@ -42,6 +42,18 @@
 --- program's own, unfiltered. Linux only: elsewhere the start fails, saying so, until the
 --- design's phase 8 gives a program held by Seatbelt a controlling terminal.
 ---
+--- THE RELAY: a `--connect` starts the network relay of [`Child.start`], whose
+--- decision line for each connection it allows or refuses (a refusal naming
+--- the option that would allow it) goes to this process's standard error,
+--- as `relay_log = "inherit"`; where that is a terminal, which the relay may
+--- not hold, through a pipe that the terminal relay shows on it as a line of
+--- its own, not through the program's pty. A `https_proxy` of this process's
+--- is the relay's upstream, which it says once as it starts.
+--- `cosmic sandbox connect HOST PORT`, the word right after the verb, is the
+--- relay's SOCKS5 client ([`build.sandbox_connect`]), which ssh's
+--- ProxyCommand runs inside the sandbox; a program of that name is run after
+--- an option or a `--`.
+---
 --- Like `cosmic json` it ends in no verdict line, and prints nothing of
 --- its own when the program starts: its exit status is the program's.
 --- That is the program's code; 128 and the signal's number when a signal
@@ -65,6 +77,7 @@ local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local ast = require("build.ast")
 local bare = require("build.bare")
+local connect_client = require("build.sandbox_connect")
 local plural = require("build.plural")
 local standalone = require("build.standalone")
 local teal = require("build.teal")
@@ -82,6 +95,10 @@ local record verb
     --- Runs the program to its end, as [`Child.run`] does, which is what
     --- it is when nil.
     run: function(argv: {string}, opts: Child.Options): Child.Result | nil, string
+    --- Runs `cosmic sandbox connect`'s client on the words after `connect`
+    --- and answers its exit status, as [`build.sandbox_connect`]'s `run`
+    --- does, which is what it is when nil.
+    connect: function(args: {string}): integer
   end
 end
 
@@ -499,15 +516,81 @@ local function failed_start(program: string, cwd: string | nil, why: string): in
   return START_FAILED, said
 end
 
+--- The two ends of the pipe the relay's decision lines go through.
+local record Notes
+  --- Non-blocking: [`TermRelay.run`] reads it.
+  reader: integer
+  --- The relay's standard error.
+  writer: integer
+end
+
+--- Makes the pipe for [`Notes`]: [`cosmic.sys`] has no pipe, so it is a named
+--- one in a directory of its own, opened at both ends and removed at once.
+-- TODO: make a plain pipe, and drop the directory, once cosmic.sys or Child
+-- gives a caller one whose write end can be a child's standard error (a
+-- `relay_log` of "stream" read through the handle): a host whose temporary
+-- directory is no place for a named pipe fails the start today.
+local function notes_pipe(): Notes | nil, string
+  local dir, dir_why = Fs.mkdtemp("sandbox-notes-")
+  if dir == nil then return nil, dir_why end
+  local path = dir .. "/lines"
+  local made, make_why = sys.mkfifo(path, tonumber("600", 8))
+  local reader, writer: integer | nil, integer | nil
+  local why = make_why
+  if made then
+    local opened, open_why = sys.open(path, sys.O_RDONLY | sys.O_NONBLOCK, 0)
+    if opened ~= nil then
+      reader = opened
+      writer, open_why = sys.open(path, sys.O_WRONLY, 0)
+      why = open_why
+    else
+      why = open_why
+    end
+  end
+  local removed, remove_why = Fs.remove_tree(dir)
+  if removed and reader ~= nil and writer ~= nil then
+    return { reader = reader, writer = writer }, ""
+  end
+  -- A pipe left on disk is no start's to go on with.
+  if reader ~= nil then local _, _ = sys.close(reader) end
+  if writer ~= nil then local _, _ = sys.close(writer) end
+  if not removed and reader ~= nil and writer ~= nil then
+    why = dir .. ": " .. tostring(remove_why)
+  end
+  return nil, tostring(why)
+end
+
 --- [`Child.run`], through the pty relay ([`TermRelay.run`]) when one of
 --- this process's standard streams is a terminal, so that the program is
 --- given a terminal of its own for each rather than the caller's, whose
 --- control sequences it could otherwise write and whose input it could
 --- push into; a stream that is no terminal is the program's as it is.
 --- Both answer the program's [`Child.Result`].
+---
+--- The network relay's decision lines (`opts.relay_log`) go to this
+--- process's standard error, which a sandboxed process may not hold as a
+--- terminal: where that is one, the relay writes to a pipe instead and
+--- [`TermRelay.run`] shows them on the terminal, beside the program's
+--- output and not through it.
 local function run_here(argv: {string}, opts: Child.Options): Child.Result | nil, string
-  if sys.isatty(0) or sys.isatty(1) or sys.isatty(2) then return TermRelay.run(argv, opts) end
-  return Child.run(argv, opts)
+  if not (sys.isatty(0) or sys.isatty(1) or sys.isatty(2)) then return Child.run(argv, opts) end
+  local terminal: TermRelay.Terminal | nil
+  local notes: Notes | nil
+  local connects = opts.policy ~= nil and opts.policy.connect ~= nil and #opts.policy.connect > 0
+  if opts.relay_log == "inherit" and connects and sys.isatty(2) then
+    local made, why = notes_pipe()
+    if made == nil then return nil, "the relay's log: " .. why end
+    notes = made
+    opts.relay_log = made.writer
+    terminal = { input = 0, output = 1, error = 2, notes = made.reader }
+  end
+  local result, why = TermRelay.run(argv, opts, terminal)
+  if notes ~= nil then
+    local _, _ = sys.close(notes.reader)
+    local _, _ = sys.close(notes.writer)
+  end
+  if result == nil then return nil, why end
+  return result, ""
 end
 
 local standard: verb.Io = { err = bare.err, run = run_here }
@@ -517,13 +600,13 @@ local standard: verb.Io = { err = bare.err, run = run_here }
 local function execute(argv: {integer:string}, io: verb.Io | nil, held: {string}): integer
   local to = io or standard
   local complain = bare.complainer("sandbox", to.err)
-  -- TODO: serve `cosmic sandbox connect HOST PORT`, the relay's client
-  -- that ssh's ProxyCommand runs, once the relay exists (the design's
-  -- phase 6), and delete this refusal. Until then a program named
-  -- `connect` runs as `cosmic sandbox -- connect`.
+  -- The word right after the verb is the relay's client, the command ssh's
+  -- ProxyCommand runs inside a sandbox. A program of that name is still
+  -- run after an option or a `--`: `cosmic sandbox -- connect`.
   if argv[2] == "connect" then
-    complain("connect is the relay's client, which is not yet available: it needs the relay")
-    return START_FAILED
+    local words: {string} = {}
+    for slot = 3, last_slot(argv) do words[#words + 1] = argv[slot] end
+    return (to.connect or connect_client.run)(words)
   end
   local request, trouble = request_of(argv)
   if request == nil then
@@ -567,12 +650,14 @@ local function execute(argv: {integer:string}, io: verb.Io | nil, held: {string}
   -- SIGKILL, which no handler sees: PR_SET_PDEATHSIG in the child, once
   -- Child.Options has an option for it. Until then only SIGINT and SIGTERM
   -- (Child.run's guard) end it, and a killed verb leaves it running.
-  -- TODO: pass relay_log = "inherit" so that a flow the relay refuses says
-  -- why on this verb's standard error, with the rest of the verb's wiring
-  -- of `--connect` (the client verb's TODO above): the library's start drops
-  -- the relay's decision lines by default.
+  -- The relay's decision lines go to this process's own standard error, not
+  -- through the program's pty, so that a flow it refuses says why, with the
+  -- remedy, where the caller reads it. The library's start drops them by
+  -- default. A proxy of the caller's (https_proxy) is the relay's upstream,
+  -- which the relay says once at its start, on the same line.
   local result, started = run(request.argv, {
     policy = policy, fds = request.fds, timeout_ns = request.timeout_ns, cwd = request.cwd,
+    relay_log = "inherit",
   })
   if result == nil then
     local code, said = failed_start(request.argv[1], request.cwd, started)
@@ -605,7 +690,8 @@ end
 verb.spec = {
   name = "sandbox",
   guide = "a program held to what you grant it",
-  tests = { "build.sandbox_test", "build.sandbox_tool_test", "build.sandbox_seal_tool_test",
+  tests = { "build.sandbox_test", "build.sandbox_tool_test", "build.sandbox_connect_test",
+    "build.sandbox_connect_tool_test", "build.sandbox_seal_tool_test",
     "build.sandbox_closure_tool_test", "build.sandbox_refusal_tool_test" },
   run = function(argv: {integer:string}): integer return verb.run(argv) end,
   bare = true,

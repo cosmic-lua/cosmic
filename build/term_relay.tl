@@ -45,6 +45,13 @@
 --- program's: this returns what [`Child.run`] does, its [`Child.Result`],
 --- and the verb exits with the program's status.
 ---
+--- A LINE TO SHOW the caller, from the descriptor [`Terminal.notes`] names,
+--- goes to the caller's stderr beside the program's output, which the
+--- filter does not see: the sandbox relay writes one for each connection
+--- it allows or refuses, with the remedy a refusal needs, and it may not
+--- hold the caller's terminal itself. They are the relay's, with every
+--- control byte already shown as "?".
+---
 --- The loop waits in [`sys.poll`] at most `TICK_MS` at a time, which is
 --- what every check that no descriptor announces is made at: the
 --- program's exit, a signal the guard caught and the caller's window.
@@ -78,6 +85,14 @@ local record Terminal
   output: integer
   --- The caller's stderr, 2 by default.
   error: integer
+  --- The read end of a non-blocking pipe whose bytes are lines to show the caller on
+  --- `error`, beside the program's output and in order with it (nil for
+  --- none): the sandbox relay's decision lines, whose process may not hold
+  --- the caller's terminal as its standard error. Each line ends in CR and
+  --- LF there, for the terminal is raw where its input is a terminal, and
+  --- is written whole, between the program's writes, with the bytes a
+  --- terminal could act on shown as "?" ([`TermRelay.note_lines`]).
+  notes: integer
 end
 
 local record TermRelay
@@ -91,6 +106,39 @@ local record TermRelay
   --- or the platform cannot give a program a terminal: macOS). Raises as
   --- [`Child.start_on_pty`] does for `opts`.
   run: function(argv: {string}, opts: Child.Options, terminal?: Terminal): Child.Result | nil, string
+  --- The text to write to the caller's terminal for the bytes `data` of a
+  --- notes pipe that follow `held` (what an earlier call kept), and what to
+  --- keep: the whole lines among them, each ending in CR LF, and the rest.
+  --- Every byte but a newline that a terminal could act on, and every byte
+  --- from 0x7f up, is shown as "?": the pipe carries the relay's whole
+  --- standard error, which is not all lines it chose. A tail that grows
+  --- past a line a screen holds is written as a line of its own.
+  note_lines: function(held: string, data: string): TermRelay.Notes
+  --- What [`note_lines`] answers.
+  record Notes
+    --- The text to write, ending in CR LF where it is not empty.
+    text: string
+    --- What to keep for the next call: a line's beginning.
+    tail: string
+  end
+end
+
+--- The longest line kept waiting for its newline.
+local MOST_NOTE <const> = 8192
+
+function TermRelay.note_lines(held: string, data: string): TermRelay.Notes
+  local text = held .. data
+  local last = text:match(".*()\n")
+  local whole, tail: string, string
+  if last ~= nil then
+    whole, tail = text:sub(1, last - 1), text:sub(last + 1)
+  elseif #text > MOST_NOTE then
+    whole, tail = text, ""
+  else
+    return { text = "", tail = text }
+  end
+  local shown = whole:gsub("[%z\1-\9\11-\31\127-\255]", "?"):gsub("\n", "\r\n")
+  return { text = shown .. "\r\n", tail = tail }
 end
 
 --- What `run` puts back when it ends, however it does: held in a
@@ -153,6 +201,7 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
   local input = terminal ~= nil and terminal.input or 0
   local output = terminal ~= nil and terminal.output or 1
   local errors = terminal ~= nil and terminal.error or 2
+  local notes = terminal ~= nil and terminal.notes or nil
   local streams: {integer} = {}
   for number, fd in ipairs({ input, output, errors }) do
     if sys.isatty(fd) then streams[#streams + 1] = number - 1 end
@@ -274,6 +323,31 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
     return #data
   end
 
+  --- Shows the caller what the notes pipe holds, as lines: how many bytes
+  --- it read, 0 where there were none yet, and -1 once there are none for
+  --- good. A write to the caller that fails loses the line and ends nothing.
+  local notes_open = notes ~= nil
+  local note_tail = ""
+  local function relay_notes(): integer
+    if notes == nil then return -1 end
+    local data, _, errno = sys.read(notes, CHUNK)
+    if data == nil then
+      if errno == sys.EAGAIN or errno == sys.EINTR then return 0 end
+      notes_open = false
+      return -1
+    end
+    if data == "" then
+      notes_open = false
+      return -1
+    end
+    local lines = TermRelay.note_lines(note_tail, data)
+    note_tail = lines.tail
+    if lines.text ~= "" then
+      local _, _ = write_all(errors, lines.text)
+    end
+    return #data
+  end
+
   while failure == nil do
     local signal = guard:take()
     if signal ~= 0 then
@@ -304,7 +378,9 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
     local keys_fd = keys_open and #pending < MOST_PENDING and input or -1
     local master_fd = (master_open or #pending > 0) and master or -1
     local master_events = (master_open and sys.POLLIN or 0) | (#pending > 0 and sys.POLLOUT or 0)
-    local ready, poll_why = sys.poll({ keys_fd, master_fd }, { sys.POLLIN, master_events }, TICK_MS)
+    local notes_fd = notes_open and notes or -1
+    local ready, poll_why = sys.poll({ keys_fd, master_fd, notes_fd }, { sys.POLLIN, master_events, sys.POLLIN },
+      TICK_MS)
     if ready == nil then
       failure = "terminal: waiting: " .. poll_why
       break
@@ -316,6 +392,9 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
       if master_open and ready[2] & (sys.POLLIN | sys.POLLHUP | sys.POLLERR) ~= 0 then
         local _ = relay_output()
       end
+    end
+    if ready[3] ~= 0 then
+      local _ = relay_notes()
     end
     if ready[1] ~= 0 then
       local typed, _, errno = sys.read(input, CHUNK)
@@ -338,6 +417,20 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
       if count <= 0 then break end
       budget = budget - count
     end
+  end
+  if result ~= nil and notes_open then
+    -- The program is settled, and its relay ended with it: what it wrote
+    -- last is in the pipe, which the caller's end of keeps open.
+    local budget = MOST_AFTER_EXIT
+    while budget > 0 do
+      local count = relay_notes()
+      if count <= 0 then break end
+      budget = budget - count
+    end
+  end
+  if note_tail ~= "" then
+    -- A last line the relay did not end.
+    local _, _ = write_all(errors, TermRelay.note_lines(note_tail, "\n").text)
   end
   if failure ~= nil then return nil, failure end
   return result, ""

@@ -101,7 +101,10 @@ end
 --- pty and the sandbox's own start. test/terminal/relay.tl checks that an
 --- allowed sequence passes, OSC 52 does not, the window size and the keys
 --- reach the program, its status is the verb's, and the caller's termios
---- is restored.
+--- is restored; and, for a policy with `connect` on a terminal, that the
+--- relay's decision line reaches it as a line of its own (CR LF, the relay
+--- not holding the terminal), which is skipped, with a line saying so,
+--- where the host gives the program no network of its own.
 local function test_the_product_relays_a_sandboxed_terminal(tmp: string)
   local product = Fixture.required("COSMIC_FIXTURE_PRODUCT") .. "/cosmic"
   local source = Fixture.required("COSMIC_FIXTURE_SOURCE")

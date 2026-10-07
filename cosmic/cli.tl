@@ -577,6 +577,33 @@ local record Cli
   --- written as JSON. `cosmic docs cosmic.sandbox` names the policy's
   --- fields. `--connect` names a host and port the relay that
   --- the start runs connects the program to, on Linux; macOS refuses it.
+  --- The program is told of the relay by the proxy variables (`HTTPS_PROXY`,
+  --- `ALL_PROXY` and the rest), so a program that honours them reaches
+  --- exactly the hosts granted, a name resolved by the relay and never by
+  --- the program; one that ignores them reaches nothing. The relay writes
+  --- one line to this process's standard error for each connection it
+  --- allows or refuses, a refusal naming the option that would allow it
+  --- (`not granted: --connect api.github.com:443`), and where this
+  --- process's `https_proxy` is set the relay connects through it, saying
+  --- so once, as it starts.
+  ---
+  --- `cosmic sandbox connect HOST PORT`, as the first word after `sandbox`,
+  --- is no sandbox but the relay's client, for a program that takes a
+  --- command to reach a host through, ssh's ProxyCommand: run inside a
+  --- sandbox with `--connect`, it asks the relay (`ALL_PROXY`, which it
+  --- needs to be the relay's) for HOST and PORT, copies its standard input
+  --- and output to the connection, and exits 1 saying what the relay's
+  --- reply means when it refuses. ssh runs it as a program of its own, so
+  --- the sandbox also needs `--system` (ssh, its libraries and a shell for
+  --- the ProxyCommand), `--promise fork` and `--cosmic` for this program, and
+  --- `--env PATH` for the shell to find `cosmic` by (or the ProxyCommand
+  --- names it by its absolute path):
+  ---
+  ---     cosmic sandbox --system --cosmic --env PATH --promise fork --read ~/.ssh \
+  ---       --connect github.com:22 -- ssh -o ProxyCommand='cosmic sandbox connect %h %p' git@github.com
+  ---
+  --- A program that is itself named `connect` runs after `--`, as in
+  --- `cosmic sandbox -- connect`.
   --- `--user` names the user and group the program runs as, by number
   --- (the group is the user's number unless given): only a caller that is
   --- root chooses one, the same every run, in place of a fresh one of its

@@ -196,12 +196,17 @@ local function test_a_policy_with_connect_may_not_name_a_proxy_variable(tmp: str
   end
 end
 
-local function test_a_relay_log_is_null_or_inherit(tmp: string)
+local function test_a_relay_log_is_null_inherit_or_a_descriptor(tmp: string)
   local probe = stand_in_of(tmp)
   local wrong: Child.Options = {}
   wrong.relay_log = ("loud" as any) as Child.RelayLog -- cast: a caller of the wrong type is what is refused
   local ok, why = pcall(Child.start, { probe }, wrong)
-  assert(not ok and tostring(why):find('relay_log must be "null" or "inherit"', 1, true), tostring(why))
+  assert(not ok and tostring(why):find('relay_log must be "null", "inherit" or a descriptor', 1, true), tostring(why))
+  for _, value in ipairs({ -1, 4294967296 }) do
+    wrong.relay_log = (value as any) as Child.RelayLog -- cast: a descriptor that is none
+    local refused_ok, refused_why = pcall(Child.start, { probe }, wrong)
+    assert(not refused_ok and tostring(refused_why):find("or a descriptor", 1, true), tostring(value))
+  end
 end
 
 --- A program that lacks the relay's own module (this worker's store holds only

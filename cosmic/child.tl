@@ -503,10 +503,14 @@ local record Options
   credentials: Credentials
   --- With a `policy` whose `connect` the relay serves, where the relay's
   --- decision lines go, one for each connection it refused or made: "null"
-  --- (the default), which drops them, or "inherit", this process's standard
-  --- error. A policy with no `connect` starts no relay, and this has no
-  --- effect.
-  relay_log: RelayLog
+  --- (the default), which drops them, "inherit", this process's standard
+  --- error, or a descriptor of this process (the write end of a pipe a
+  --- caller reads, as the verb's terminal relay does), which the caller
+  --- keeps open and closes. A terminal is refused as any child's standard
+  --- error is, so "inherit" with a terminal on this process's standard
+  --- error fails the start. A policy with no `connect` starts no relay, and
+  --- this has no effect.
+  relay_log: RelayLog | integer
 end
 
 --- What [`Handle.try_wait`] answers.
@@ -2233,8 +2237,10 @@ local function validate(argv: {string}, opts: Options)
     error("child: capture_limit is out of range", 3)
   end
   Poll.checked_ns(opts.timeout_ns, "child", "timeout_ns", 3)
-  if opts.relay_log ~= nil and opts.relay_log ~= "null" and opts.relay_log ~= "inherit" then
-    error("child: relay_log must be \"null\" or \"inherit\"", 3)
+  local logged = opts.relay_log
+  if logged ~= nil and logged ~= "null" and logged ~= "inherit" and
+      not (logged is integer and logged >= 0 and logged <= INT_MAX) then
+    error("child: relay_log must be \"null\", \"inherit\" or a descriptor", 3)
   end
   if opts.policy ~= nil then
     if type(opts.policy) ~= "table" then
@@ -3625,7 +3631,7 @@ local record RelayPrep
   --- The relay's config, one line of JSON.
   config: string
   --- Where its decision lines go.
-  log: RelayLog
+  log: RelayLog | integer
 end
 
 --- The database a relay runs on, in a directory of its own.
@@ -3686,6 +3692,20 @@ end
 --- started: the host's own addresses, the sealed database and the config.
 --- Nil and why where it cannot have them.
 local function prepare_relay(connect: {string}, opts: Options): RelayPrep | nil, string
+  -- A descriptor given as the relay's log is the relay's standard error, on
+  -- which a terminal is refused as for any sandboxed process; say so naming
+  -- the option, not the relay's own start. The descriptors this program
+  -- retains for itself raise when asked (every binding refuses them).
+  local logged = opts.relay_log
+  if logged is integer then
+    local looked, terminal = pcall(isatty, logged)
+    if not looked then
+      return nil, "relay_log " .. logged .. " is a descriptor this program keeps for itself"
+    elseif terminal then
+      return nil, "relay_log " .. logged .. " is a terminal, which a sandboxed relay may not hold as its " ..
+        "standard error: give a pipe, or \"inherit\" where this process's standard error is not one"
+    end
+  end
   -- The host's own addresses are read once, here: an address the host gains
   -- while the program runs is not refused by this relay.
   local addresses, address_trouble = RelayConfig.host_addresses()
@@ -3695,7 +3715,7 @@ local function prepare_relay(connect: {string}, opts: Options): RelayPrep | nil,
   local log = opts.relay_log or "null"
   local config: RelayConfig.Config = { grants = connect, own_addresses = addresses,
     https_proxy = sys.getenv("https_proxy") or sys.getenv("HTTPS_PROXY"),
-    no_proxy = sys.getenv("no_proxy") or sys.getenv("NO_PROXY"), log = log == "inherit" and "stderr" or "null" }
+    no_proxy = sys.getenv("no_proxy") or sys.getenv("NO_PROXY"), log = log == "null" and "null" or "stderr" }
   return { dir = program.dir, policy = relay_policy(program.path, program.digest),
     config = RelayConfig.encode(config), log = log }, ""
 end
@@ -3722,18 +3742,18 @@ end
 
 --- What a relay that ended without the line a start waits for tells, as
 --- `how` ended it and `read_trouble` is why its output failed.
-local function relay_ended(relay: Handle, read_trouble: string, log: RelayLog): string
+local function relay_ended(relay: Handle, read_trouble: string, log: RelayLog | integer): string
   local ended, _ = end_or_kill(relay)
   local how = ended ~= nil and ended.signal ~= nil and "signal " .. ended.signal or
     "status " .. tostring(ended ~= nil and ended.code or "unknown")
   return "the relay ended (" .. how .. ") before it served" ..
     (read_trouble ~= "" and ": " .. read_trouble or "") ..
-    (log == "inherit" and "" or "; start with relay_log = \"inherit\" to see why")
+    (log ~= "null" and "" or "; start with relay_log = \"inherit\" to see why")
 end
 
 --- Reads the relay's next line, which must be `wanted`: true; or false and
 --- why, the relay ended. A relay that said `error: why` fails with why.
-local function relay_says(launch: RelayLaunch, wanted: string, log: RelayLog): boolean, string
+local function relay_says(launch: RelayLaunch, wanted: string, log: RelayLog | integer): boolean, string
   local line, read_trouble = launch.lines:read()
   if line == wanted then return true, "" end
   if line ~= nil then
@@ -3746,7 +3766,7 @@ end
 --- Waits for the relay to say it serves, which it does once the program's
 --- listeners have reached it. Nil of the relay's deadline then: it lives as
 --- long as the program does.
-local function await_relay(launch: RelayLaunch, log: RelayLog): boolean, string
+local function await_relay(launch: RelayLaunch, log: RelayLog | integer): boolean, string
   local said, why = relay_says(launch, "ready", log)
   if not said then return false, why end
   launch.handle._deadline = nil
@@ -4023,8 +4043,15 @@ end
 begin_relay = function(prep: RelayPrep, channel: integer): RelayLaunch | nil, string
   local program, program_trouble = Proc.executable()
   if program == nil then return nil, "this program's own file is unknown: " .. program_trouble end
+  local logged = prep.log
+  local log: integer | Stderr
+  if logged is integer then
+    log = logged
+  else
+    log = logged == "inherit" and "inherit" or "null"
+  end
   local started, trouble = start({ program }, { policy = prep.policy, cwd = "/", stdin = "stream",
-    stdout = "stream", stderr = prep.log == "inherit" and "inherit" or "null", fds = { [3] = channel },
+    stdout = "stream", stderr = log, fds = { [3] = channel },
     capture_limit = 4096, timeout_ns = RELAY_READY_NS }, nil, true)
   if started == nil then return nil, (trouble:gsub("^child: start: ", "")) end
   local relay: Handle = started
