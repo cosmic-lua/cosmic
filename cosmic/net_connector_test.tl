@@ -219,7 +219,7 @@ local function test_a_table_connector_connects_to_its_endpoints_and_refuses_the_
   assert(descriptor_count() == before, "a closed connector left a descriptor open")
 end
 
-local function test_a_table_connector_serves_tasks_one_at_a_time()
+local function test_a_table_connector_serves_tasks_at_once()
   require_native_connector()
   Poll.run(function()
     local listener, task = echo_server()
@@ -313,7 +313,11 @@ local function hung_port(): integer, {raw_socket.Socket}
   return port, held
 end
 
-local function test_a_hung_request_times_out_holds_a_second_caller_and_the_next_restarts()
+--- One connector, several connects at once: a connect that hangs holds
+--- up none of the others, each answered as it is made, out of the order
+--- they were asked in, and times out at its own time, leaving the stream
+--- in step.
+local function test_a_hung_connect_holds_up_no_other()
   require_native_connector()
   Poll.run(function()
     local port, held = hung_port()
@@ -322,27 +326,76 @@ local function test_a_hung_request_times_out_holds_a_second_caller_and_the_next_
     local connector = assert(Net.connector({
       { host = "127.0.0.1", port = port }, { host = "127.0.0.1", port = echo },
     }, { timeout_ns = Clock.seconds(30) }))
-    local first: string
-    local second: string
+    local hung: string
     local started = Clock.monotonic_ns()
-    local one = Poll.spawn(function()
-      local _, why = connector:connect(1, port, Clock.ms(300))
-      first = why
+    local hanging = Poll.spawn(function()
+      local _, why = connector:connect(1, port, Clock.ms(800))
+      hung = why
     end)
-    -- The second caller waits for the first, whose deadline passes after its own.
-    local two = Poll.spawn(function()
-      assert(Poll.delay(Clock.ms(50)))
-      local _, why = connector:connect(2, echo, Clock.ms(100))
-      second = why
-    end)
-    assert(one:join() and two:join())
+    assert(Poll.delay(Clock.ms(50)))
+    local tasks: {Poll.Task} = {}
+    local done: {integer} = {}
+    for n = 1, 8 do
+      tasks[n] = Poll.spawn(function()
+        local conn = assert(connector:connect(2, echo, Clock.seconds(5)))
+        conn:set_timeout(Clock.seconds(5))
+        assert(conn:write("n" .. n))
+        assert(assert(conn:read()) == "n" .. n)
+        assert(conn:close())
+        done[#done + 1] = n
+      end)
+    end
+    for n = 1, 8 do assert(tasks[n]:join()) end
+    local others = Clock.monotonic_ns() - started
+    assert(#done == 8 and hung == nil, "the others finished first")
+    assert(others < Clock.ms(700), "the others waited for the hung connect: " .. others // Clock.ms(1) .. " ms")
+    assert(hanging:join())
     local elapsed = Clock.monotonic_ns() - started
-    assert(first == Poll.TIMEOUT, tostring(first))
-    assert(second == Poll.TIMEOUT, tostring(second))
-    assert(elapsed < Clock.seconds(5), "the waits ended after " .. elapsed // Clock.ms(1) .. " ms")
-    -- The connector the hung request left out of step was ended: the next request starts another.
+    assert(hung == Poll.TIMEOUT, tostring(hung))
+    assert(elapsed >= Clock.ms(800) and elapsed < Clock.seconds(3), elapsed // Clock.ms(1) .. " ms")
+    -- The hung connect's reply came whole: the same stream serves on.
+    assert(not connector:ended())
     local conn = assert(connector:connect(2, echo, Clock.seconds(5)))
     assert(conn:close())
+    assert(connector:close())
+    task:cancel()
+    assert(listener:close())
+    for _, each in ipairs(held) do assert(each:close()) end
+  end)
+end
+
+--- A connector makes at most Net.CONNECTOR_FLIGHT connections at once,
+--- and a request it gave up on, its task killed, counts until the process
+--- answers it: a request past them waits for room within its own time,
+--- and is made once one of them is answered.
+local function test_requests_past_the_flight_wait_for_room()
+  require_native_connector()
+  assert(Net.CONNECTOR_FLIGHT == 64)
+  Poll.run(function()
+    local port, held = hung_port()
+    local listener, task = echo_server()
+    local echo = listener.address.port
+    local connector = assert(Net.connector({
+      { host = "127.0.0.1", port = port }, { host = "127.0.0.1", port = echo },
+    }, { timeout_ns = Clock.seconds(30) }))
+    local hanging: {Poll.Task} = {}
+    for n = 1, Net.CONNECTOR_FLIGHT do
+      hanging[n] = Poll.spawn(function()
+        local _, _ = connector:connect(1, port, Clock.seconds(2))
+      end)
+    end
+    assert(Poll.delay(Clock.ms(100)))
+    local killed_at = Clock.monotonic_ns()
+    for _, each in ipairs(hanging) do each:kill() end
+    -- No room while the process still makes them, given up on or not.
+    local none, why = connector:connect(2, echo, Clock.ms(300))
+    assert(none == nil and why == Poll.TIMEOUT, tostring(why))
+    local conn = assert(connector:connect(2, echo, Clock.seconds(10)))
+    local waited = Clock.monotonic_ns() - killed_at
+    assert(waited >= Clock.ms(1500), "a request past the flight was made at once: " .. waited // Clock.ms(1) .. " ms")
+    assert(waited < Clock.seconds(5), waited // Clock.ms(1) .. " ms")
+    assert(conn:close())
+    assert(not connector:ended())
     assert(connector:close())
     task:cancel()
     assert(listener:close())
@@ -606,32 +659,72 @@ local function reset_socket(): raw_socket.Socket
   return made
 end
 
+--- A stand-in for a connector process on `fd`, the other end of a stream
+--- a connector adopted: it says `hello` (the protocol's own by default),
+--- then, in a task of the run, hands each request it reads, whole, to
+--- `on_request` with its tag, which replies as it will. The task, to
+--- cancel.
+local function stand_in(fd: integer, on_request: function(tag: integer, request: string), hello?: integer): Poll.Task
+  assert(sys.set_nonblocking(fd, true))
+  assert(sys.write(fd, string.pack(">I4", hello or socket.CONNECTOR_HELLO)) == 4)
+  return Poll.spawn(function()
+    local held = ""
+    while true do
+      local data, _, errno = sys.read(fd, socket.CONNECTOR_REQUEST_BYTES - #held)
+      if data == "" or (data == nil and errno ~= sys.EAGAIN) then return end
+      if data == nil then
+        if not Poll.readable(fd) then return end
+      else
+        held = held .. data
+        if #held == socket.CONNECTOR_REQUEST_BYTES then
+          local request = held
+          held = ""
+          on_request((string.unpack(">I4", request)), request)
+        end
+      end
+    end
+  end)
+end
+
 --- A reply that came whole leaves an inherited connector in step though the
 --- socket it passes is no connection any more: that request fails alone,
 --- whether it named a table's endpoint or a public address, and the next is
---- asked of the same stream. A stand-in on the stream's other end replies.
+--- asked of the same stream.
 local function test_connector_from_serves_on_after_a_socket_reset_as_it_was_made()
   Poll.run(function()
     local pair = stream_pair()
     local connector = assert(Net.connector_from(pair[1], { { host = "127.0.0.1", port = 9 } }, true,
       Clock.seconds(1)))
+    local asked: {string} = {}
+    local refuse = false
+    local serving = stand_in(pair[2], function(tag: integer, request: string)
+      asked[#asked + 1] = request
+      if refuse then
+        assert(sys.write(pair[2], string.pack(">I4I4", tag, socket.ECONNREFUSED)) == 8)
+        return
+      end
+      local reset = reset_socket()
+      assert(sys.write(pair[2], string.pack(">I4I4", tag, 0)) == 8)
+      assert(socket.sendfds(pair[2], { reset:fd() }))
+      assert(reset:close())
+    end)
     local targets: {integer | string} = { 1, "127.0.0.2" }
     for _, target in ipairs(targets) do
-      local reset = reset_socket()
-      assert(sys.write(pair[2], string.pack(">I4", 0)) == 4)
-      assert(socket.sendfds(pair[2], { reset:fd() }))
       local conn, why = connector:connect(target, 9, Clock.seconds(1))
       assert(conn == nil and why:find("ended as it was made", 1, true) ~= nil, tostring(why))
-      assert(reset:close())
       assert(not connector:ended(), "the connector serves on after " .. tostring(target))
     end
-    assert(sys.write(pair[2], string.pack(">I4", socket.ECONNREFUSED)) == 4)
+    refuse = true
     local refused, refusal = connector:connect(1, 9, Clock.seconds(1))
     assert(refused == nil and refusal:find("refused", 1, true) ~= nil, tostring(refusal))
-    -- What the stand-in was asked: a table request, a public one, a table one.
-    local asked = assert(sys.read(pair[2], 4096))
-    assert(#asked == 8 + 28 + 8 and asked:sub(1, 8) == string.pack(">I4I4", 1, 9) and
-        asked:sub(9, 12) == string.pack(">I4", 0xffffffff), ("%q"):format(asked))
+    -- What the stand-in was asked: a table request, a public one, a table
+    -- one, tagged in turn, each with its wait in milliseconds.
+    assert(#asked == 3)
+    assert(asked[1] == string.pack(">I4I4I4I4I4", 1, 1, 9, 1000, 0) .. string.rep("\0", 16), ("%q"):format(asked[1]))
+    assert(asked[2] == string.pack(">I4I4I4I4I4", 2, 0xffffffff, 9, 1000, 4) .. string.char(127, 0, 0, 2) ..
+        string.rep("\0", 12), ("%q"):format(asked[2]))
+    assert(asked[3]:sub(1, 12) == string.pack(">I4I4I4", 3, 1, 9), ("%q"):format(asked[3]))
+    serving:cancel()
     assert(connector:close())
     assert(connector:ended())
     assert(sys.close(pair[2]))
@@ -641,8 +734,7 @@ end
 --- A reply that came whole with a socket connected elsewhere, or with a
 --- descriptor that is no socket, is none a connector that works gives:
 --- the request fails naming it, and the stream is given up, not asked
---- again, as one that misbehaves. A stand-in on the stream's other end
---- replies.
+--- again, as one that misbehaves.
 local function test_connector_from_gives_up_a_stream_that_passes_the_wrong_descriptor()
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
@@ -658,19 +750,125 @@ local function test_connector_from_gives_up_a_stream_that_passes_the_wrong_descr
       local pair = stream_pair()
       local connector = assert(Net.connector_from(pair[1], { { host = "127.0.0.1", port = 9 } }, false,
         Clock.seconds(1)))
-      assert(sys.write(pair[2], string.pack(">I4", 0)) == 4)
-      assert(socket.sendfds(pair[2], { case[1] as integer }))
+      local serving = stand_in(pair[2], function(tag: integer, _: string)
+        assert(sys.write(pair[2], string.pack(">I4I4", tag, 0)) == 8)
+        assert(socket.sendfds(pair[2], { case[1] as integer }))
+      end)
       local conn, why = connector:connect(1, 9, Clock.seconds(1))
       assert(conn == nil and why:find(case[2] as string, 1, true) ~= nil, tostring(why))
       assert(connector:ended(), "the connector is given up after: " .. why)
       local again, trouble = connector:connect(1, 9, Clock.seconds(1))
       assert(again == nil and trouble == "net: the connector has ended", tostring(trouble))
+      serving:cancel()
       assert(connector:close())
       assert(sys.close(pair[2]))
     end
     assert(sys.close(null))
     assert(elsewhere:close())
     assert(listener:close())
+  end)
+end
+
+--- Replies come in the order the connects end, not the order they were
+--- asked in: each is handed to the request its tag names.
+local function test_replies_out_of_order_reach_the_requests_their_tags_name()
+  Poll.run(function()
+    local pair = stream_pair()
+    local endpoints: {Net.Endpoint} = {}
+    for i = 1, 3 do endpoints[i] = { host = "127.0.0." .. i, port = 9 } end
+    local connector = assert(Net.connector_from(pair[1], endpoints, false, Clock.seconds(5)))
+    local tags: {integer: integer} = {}
+    local count = 0
+    -- Each endpoint's own refusal, so the answer shows whose it was.
+    local errnos: {integer} = { socket.ECONNREFUSED, socket.ETIMEDOUT, sys.EPERM }
+    local serving = stand_in(pair[2], function(tag: integer, request: string)
+      local index = string.unpack(">I4", request, 5)
+      tags[index] = tag
+      count = count + 1
+      if count < 3 then return end
+      for i = 3, 1, -1 do
+        assert(sys.write(pair[2], string.pack(">I4I4", tags[i], errnos[i])) == 8)
+      end
+    end)
+    local answers: {integer: string} = {}
+    local tasks: {Poll.Task} = {}
+    for i = 1, 3 do
+      tasks[i] = Poll.spawn(function()
+        local conn, why = connector:connect(i, 9, Clock.seconds(5))
+        assert(conn == nil)
+        answers[i] = why
+      end)
+    end
+    for i = 1, 3 do assert(tasks[i]:join()) end
+    assert(answers[1]:find("refused", 1, true) ~= nil, answers[1])
+    assert(answers[2] == Poll.TIMEOUT, answers[2])
+    assert(answers[3] == sys.errno_message(sys.EPERM), answers[3])
+    assert(not connector:ended())
+    serving:cancel()
+    assert(connector:close())
+    assert(sys.close(pair[2]))
+  end)
+end
+
+--- A reply for a request no one asked, a framing error, puts the stream
+--- out of step: every request waiting on it fails, and an adopted
+--- connector has ended. A connector's refusal for want of room is said.
+local function test_a_reply_no_request_was_tagged_with_fails_every_request_waiting()
+  Poll.run(function()
+    local pair = stream_pair()
+    local endpoints: {Net.Endpoint} = { { host = "127.0.0.1", port = 9 } }
+    local connector = assert(Net.connector_from(pair[1], endpoints, false, Clock.seconds(5)))
+    local count = 0
+    local serving = stand_in(pair[2], function(tag: integer, _: string)
+      count = count + 1
+      if count == 1 then
+        assert(sys.write(pair[2], string.pack(">I4I4", tag, socket.CONNECTOR_BUSY)) == 8)
+      elseif count == 4 then
+        assert(sys.write(pair[2], string.pack(">I4I4", 999, 0)) == 8)
+      end
+    end)
+    local busy, busy_why = connector:connect(1, 9, Clock.seconds(5))
+    assert(busy == nil and busy_why:find("the connector is busy", 1, true) ~= nil, tostring(busy_why))
+    assert(not connector:ended(), "a refusal for want of room leaves the stream in step")
+    local answers: {string} = {}
+    local tasks: {Poll.Task} = {}
+    for i = 1, 3 do
+      tasks[i] = Poll.spawn(function()
+        local conn, why = connector:connect(1, 9, Clock.seconds(5))
+        assert(conn == nil)
+        answers[i] = why
+      end)
+    end
+    for i = 1, 3 do assert(tasks[i]:join()) end
+    for i = 1, 3 do
+      assert(answers[i] == "net: the connector replied to a request it was not asked (tag 999)", answers[i])
+    end
+    assert(connector:ended())
+    local again, trouble = connector:connect(1, 9, Clock.seconds(1))
+    assert(again == nil and trouble == "net: the connector has ended", tostring(trouble))
+    serving:cancel()
+    assert(connector:close())
+    assert(sys.close(pair[2]))
+  end)
+end
+
+--- A connector of another protocol says another hello: it is asked
+--- nothing, and the request fails saying so.
+local function test_a_connector_of_another_protocol_is_asked_nothing()
+  Poll.run(function()
+    local pair = stream_pair()
+    local connector = assert(Net.connector_from(pair[1], { { host = "127.0.0.1", port = 9 } }, false,
+      Clock.seconds(1)))
+    local asked = 0
+    local serving = stand_in(pair[2], function(_: integer, _: string) asked = asked + 1 end, 0x434e4301)
+    local conn, why = connector:connect(1, 9, Clock.seconds(1))
+    assert(conn == nil and why == "net: the connector speaks another protocol than this program's: " ..
+        "it said 0x434e4301, not 0x434e4302", tostring(why))
+    assert(connector:ended())
+    assert(asked == 0, "a request was sent before the hello was checked")
+    serving:cancel()
+    assert(connector:close())
+    assert(sys.close(pair[2]))
   end)
 end
 

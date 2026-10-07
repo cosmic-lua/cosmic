@@ -90,7 +90,7 @@ end
 -- `Address`, `Config` and `Wire`.
 local through_relay: {string: {string}} = {
   address = { "deny_cidrs" },
-  config = { "pool_size", "proxy_env", "reserved", "host_addresses", "encode" },
+  config = { "proxy_env", "reserved", "host_addresses", "encode" },
   wire = { "socks_client_greeting", "socks_client_auth", "socks_client_request", "socks_method_reader",
     "socks_auth_status_reader", "socks_answer_reader", "socks_reply_meaning" },
 }
@@ -101,6 +101,9 @@ for member, names in pairs(through_relay) do
       "name alone"
   end
 end
+allowed["cosmic.net.CONNECTOR_FLIGHT"] = "tested directly: how many connections one connector " ..
+  "makes at once, which Connector.connect's doc names for a caller that sizes its own concurrency; the " ..
+  "tree's callers go through the relay, which leaves the waiting to the connector"
 allowed["cosmic.net.connector"] = "tested directly: the library's face of the native connector, " ..
   "which ResolveOptions.connector takes; its callers in the tree start the process with " ..
   "Child.start_connector and adopt it with Net.connector_from instead"

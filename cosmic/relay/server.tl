@@ -162,26 +162,18 @@ local record Relay
   --- [`Relay.handed`] makes one [`Connector`] of. A field left nil is a
   --- connector not handed.
   record Handed
-    --- Connectors, alike, whose table holds the addresses a grant names
-    --- literally and the upstream's, which `table` lists in its order. Each
-    --- connection takes any that is free.
-    table_connectors: {Net.Connector}
-    --- Their table.
+    --- The connector whose table holds the addresses a grant names
+    --- literally and the upstream's, which `table` lists in its order.
+    table_connector: Net.Connector
+    --- Its table.
     table: {Net.Endpoint}
-    --- Public connectors ([`Net.connector`]'s `public`), alike, for an
-    --- address no table holds: one a granted name resolved to. Each
-    --- connection takes any that is free.
-    public_connectors: {Net.Connector}
-    --- The wait each connector was started with, in nanoseconds, which
-    --- each request is given whatever the relay asks: shorter, the reply
-    --- would come after the request was given up on, and the connector,
-    --- which cannot be started again, would be lost.
-    wait_ns: integer
-    --- Told why the first time a request finds that every connector of a
-    --- kind has ended, once for each kind: nothing that kind reaches can be
-    --- reached again, as no connector is started anew. The relay's process
-    --- ends then ([`cosmic.relay.main`]). Nil to fail each such request
-    --- alone.
+    --- A public connector ([`Net.connector`]'s `public`), for an address
+    --- no table holds: one a granted name resolved to.
+    public_connector: Net.Connector
+    --- Told why the first time a request finds a connector has ended,
+    --- once for each: nothing it reaches can be reached again, as no
+    --- connector is started anew. The relay's process ends then
+    --- ([`cosmic.relay.main`]). Nil to fail each such request alone.
     lost: function(why: string)
   end
 
@@ -368,152 +360,52 @@ function Relay.udp_servers(servers: {Net.Endpoint}): {Net.Address}
   return out
 end
 
---- One connector of a pool and whether a request holds it.
-local record Pooled
-  connector: Net.Connector
-  busy: boolean
-end
-
---- A request's hold on a connector of a pool, let go however the request
---- ends: a raise, or its task cancelled, leaves no connector held.
-local record Hold
-  entry: Pooled
-  metamethod __close: function(Hold)
-end
-
-local hold_mt: metatable<Hold> = {
-  __close = function(self: Hold)
-    self.entry.busy = false
-  end,
-}
-
---- The requests of the alike connectors `connectors` (`name` in a
---- refusal), each given `wait_ns`. A request takes a connector no other
---- request holds and whose process has not ended, in the order the
---- requests came, waiting while every live one is held, at most its own
---- `timeout_ns` ([`Poll.TIMEOUT`]); its connect's wait starts when it is
---- sent, so its connector answers it within that wait and stays in step.
---- A connector makes one connection at a time: one whose connect hangs
---- holds itself alone. A request whose connector ends under it is asked
---- of another while its `timeout_ns` lasts: a connect once sent runs its
---- connector's whole wait, so a request ends at most one such wait past
---- its own. Once every connector has ended, a request fails saying so, and
---- `lost`, where given, is told so the first time.
-local function pooled(connectors: {Net.Connector}, wait_ns: integer, name: string, lost: function(string) | nil):
+--- The requests of `connector` (`name` in a refusal), each asked with
+--- its own `timeout_ns`: the connector makes several connections at
+--- once, so a connect that hangs holds up no other. Once it has ended, a
+--- request fails saying so, and `lost`, where given, is told so the first
+--- time.
+local function served_by(connector: Net.Connector, name: string, lost: function(string) | nil):
     function(endpoint: integer | string, port: integer, timeout_ns: integer): Net.Conn | nil, string
-  local pool: {Pooled} = {}
-  for i, connector in ipairs(connectors) do pool[i] = { connector = connector, busy = false } end
-  local waiting: {integer} = {}
-  local tickets = 0
   local told = false
-  --- Why a request fails once every connector has ended, which `lost` is
-  --- told the first time.
+  --- Tells `lost`, the first time, that the connector has ended.
   local function ended(): string
-    local why = "relay: every " .. name .. " connector has ended"
+    local why = "relay: the " .. name .. " connector has ended"
     if lost ~= nil and not told then
       told = true
       lost(why)
     end
     return why
   end
-  --- A live connector no request holds, once every request before this
-  --- one has taken one, by `deadline`; or nil and why. A request's first
-  --- take is handed a free connector even at its deadline, so that a
-  --- `timeout_ns` of 0 is asked once; a `retry` is not.
-  local function take(deadline: integer, retry: boolean): Pooled | nil, string
-    tickets = tickets + 1
-    local me = tickets
-    waiting[#waiting + 1] = me
-    local function leave()
-      for i, other in ipairs(waiting) do
-        if other == me then
-          table.remove(waiting, i)
-          return
-        end
-      end
-    end
-    while true do
-      local live = false
-      local free: Pooled
-      for _, entry in ipairs(pool) do
-        if not entry.connector:ended() then
-          live = true
-          if free == nil and not entry.busy then free = entry end
-        end
-      end
-      if not live then
-        leave()
-        return nil, ended()
-      end
-      local late = Clock.monotonic_ns() >= deadline
-      if free ~= nil and waiting[1] == me and not (retry and late) then
-        leave()
-        return free, ""
-      end
-      if late then
-        leave()
-        return nil, Poll.TIMEOUT
-      end
-      -- TODO: wait on a lock of cosmic.poll's once it has one, as the TODO at
-      -- Net.connector says: a request waits here by polling every millisecond.
-      local waited, why = Poll.delay(Clock.ms(1))
-      if not waited then
-        leave()
-        return nil, why
-      end
-    end
-  end
-  --- `entry`'s connect, held for its length.
-  local function attempt(entry: Pooled, endpoint: integer | string, port: integer): Net.Conn | nil, string
-    entry.busy = true
-    local hold: Hold = setmetatable({ entry = entry }, hold_mt)
-    local _held <close> = hold
+  return function(endpoint: integer | string, port: integer, timeout_ns: integer): Net.Conn | nil, string
+    if connector:ended() then return nil, ended() end
     -- A connect raises only for arguments it refuses, which this module's
     -- own are not.
-    local conn, why = entry.connector:connect(endpoint, port, wait_ns)
-    if conn == nil then return nil, why end
-    return conn, ""
-  end
-  return function(endpoint: integer | string, port: integer, timeout_ns: integer): Net.Conn | nil, string
-    local deadline = Clock.monotonic_ns() + timeout_ns
-    local retry = false
-    while true do
-      local entry, why = take(deadline, retry)
-      if entry == nil then return nil, why end
-      local conn, trouble = attempt(entry, endpoint, port)
-      if conn ~= nil then return conn, "" end
-      -- A connector that ended during the request made no connection:
-      -- another live one is asked, within the request's time.
-      if not entry.connector:ended() then return nil, trouble end
-      retry = true
-    end
+    local conn, why = connector:connect(endpoint, port, timeout_ns)
+    if conn ~= nil then return conn, "" end
+    -- The connector ended under the request: why it did is the request's.
+    if connector:ended() then ended() end
+    return nil, why
   end
 end
 
 --- The [`Connector`] of the connectors a relay's starter handed it
 --- ([`cosmic.sandbox.relay`]): an address and port the table holds is asked
---- of a free table connector, by its place in the table, and any other of
---- a free public connector, which refuses what its deny list does; with
---- neither, the connection fails, naming the address. Each connector
---- serves one request at a time, given its `wait_ns` whatever wait the
---- relay asks: a connection waits only while every live connector of its
---- kind is held, at most the relay's own wait, and a connector whose
---- process has ended is passed over. Once every one of a kind has ended,
---- a connection of that kind fails saying so, and `handed.lost` is told.
---- A `handed` with no connector, a table connector without its table, a
---- `wait_ns` that is no positive integer, or a `lost` that is no function
---- raises.
+--- of the table connector, by its place in the table, and any other of
+--- the public connector, which refuses what its deny list does; with
+--- neither, the connection fails, naming the address. Each makes several
+--- connections at once, so a connect that hangs holds up no other. Once
+--- one has ended, a connection it would make fails saying so, and
+--- `handed.lost` is told. A `handed` with no connector, a table connector
+--- without its table, or a `lost` that is no function raises.
 --- @param handed Relay.Handed The connectors
 --- @return Relay.Connector What [`Relay.Spec.connector`] takes
 function Relay.handed(handed: Relay.Handed): Relay.Connector
-  if type(handed) ~= "table" or (#(handed.table_connectors or {}) == 0 and #(handed.public_connectors or {}) == 0) then
+  if type(handed) ~= "table" or (handed.table_connector == nil and handed.public_connector == nil) then
     error("relay: handed needs a table connector or a public one", 2)
   end
-  if #(handed.table_connectors or {}) > 0 and type(handed.table) ~= "table" then
+  if handed.table_connector ~= nil and type(handed.table) ~= "table" then
     error("relay: handed.table must list the table connector's endpoints", 2)
-  end
-  if math.type(handed.wait_ns) ~= "integer" or handed.wait_ns < 1 then
-    error("relay: handed.wait_ns must be a positive integer of nanoseconds", 2)
   end
   if handed.lost ~= nil and type(handed.lost) ~= "function" then
     error("relay: handed.lost must be a function", 2)
@@ -525,10 +417,8 @@ function Relay.handed(handed: Relay.Handed): Relay.Connector
     if bytes == nil then error("relay: handed.table[" .. i .. "] is not a numeric endpoint", 2) end
     rows[i], ports[i] = table.concat(bytes, "."), entry.port
   end
-  local in_table = #(handed.table_connectors or {}) > 0 and pooled(handed.table_connectors, handed.wait_ns,
-    "table", handed.lost) or nil
-  local public = #(handed.public_connectors or {}) > 0 and pooled(handed.public_connectors, handed.wait_ns,
-    "public", handed.lost) or nil
+  local in_table = handed.table_connector ~= nil and served_by(handed.table_connector, "table", handed.lost) or nil
+  local public = handed.public_connector ~= nil and served_by(handed.public_connector, "public", handed.lost) or nil
   return function(address: string, port: integer, timeout_ns: integer): Net.Conn | nil, string
     local bytes = Address.parse(address)
     if bytes == nil then return nil, "relay: " .. address .. " is not a numeric address" end

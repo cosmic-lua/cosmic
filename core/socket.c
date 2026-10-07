@@ -1197,6 +1197,8 @@ struct resolution {
   int64_t deadline;
   int reply_ms;
   int lost;
+  /* The tag of the last request asked of the connector. */
+  uint32_t tag;
   /* Whether a server went unanswered for want of time: the connector
    * replied that its connect timed out, or the deadline had passed when
    * c-ares asked for another connection, which is then refused unasked. */
@@ -1368,9 +1370,12 @@ static bool resolve_literal (lua_State *L, const char *name, size_t size) {
 /* A lookup through a connector reaches the network only through the
  * connector's control stream: c-ares's sockets are made by these
  * functions, which ask the connector for each connection and refuse
- * every datagram socket. The connector replies as core/connector.c's
- * `connector_reply` writes: a big-endian errno, and after a success one
- * marker byte with the connected socket passed beside it. */
+ * every datagram socket. They speak the protocol core/process.h's
+ * CONNECTOR_ constants name: each request is tagged, and its reply is
+ * the tag and a big-endian errno, and after a success one marker byte
+ * with the connected socket passed beside it. A lookup asks one request
+ * at a time, of a stream with none in flight, so a reply with another
+ * tag is a stream out of step. */
 
 /* Moves `size` bytes of `data` over the connector's stream, all of
  * them, by `deadline`: 0, or why not. */
@@ -1509,14 +1514,18 @@ static bool through_ask (struct resolution *resolution, const struct resolve_ser
   uint16_t port = ntohs(server->address.ss_family == AF_INET ?
     ((const struct sockaddr_in *)&server->address)->sin_port :
     ((const struct sockaddr_in6 *)&server->address)->sin6_port);
-  uint32_t request[2] = { htonl(server->index), htonl(port) };
-  uint32_t status = 0;
+  /* The wait word is 0, the connector's own; a table request has no
+   * family or address. */
+  uint32_t tag = ++resolution->tag;
+  uint32_t request[CONNECTOR_REQUEST_BYTES / 4] = { htonl(tag), htonl(server->index), htonl(port) };
+  uint32_t reply[2] = { 0, 0 };
   int64_t replied = cosmic_now_ms() + resolution->reply_ms;
   int64_t deadline = resolution->deadline < 0 || replied < resolution->deadline ? resolution->deadline : replied;
   int failure = through_whole(resolution, deadline, request, sizeof request, true);
-  if (failure == 0) failure = through_whole(resolution, deadline, &status, sizeof status, false);
-  if (failure == 0 && status != 0) {
-    if (ntohl(status) == ETIMEDOUT) resolution->late = true;
+  if (failure == 0) failure = through_whole(resolution, deadline, reply, sizeof reply, false);
+  if (failure == 0 && ntohl(reply[0]) != tag) failure = EPROTO;
+  if (failure == 0 && reply[1] != 0) {
+    if (ntohl(reply[1]) == ETIMEDOUT) resolution->late = true;
     return false;
   }
   if (failure == 0) failure = through_rights(resolution, deadline, connected);
@@ -1535,6 +1544,20 @@ static bool through_ask (struct resolution *resolution, const struct resolve_ser
   resolution->lost = failure;
   shutdown(resolution->connector, SHUT_RDWR);
   return false;
+}
+
+/* Reads the connector's CONNECTOR_HELLO, within `reply_ms`: 0, or why
+ * not, EPROTO for a connector of another protocol, the stream then shut
+ * down as one lost. */
+static int through_hello (struct resolution *resolution) {
+  uint32_t hello = 0;
+  int failure = through_whole(resolution, cosmic_now_ms() + resolution->reply_ms, &hello, sizeof hello, false);
+  if (failure == 0 && ntohl(hello) != CONNECTOR_HELLO) failure = EPROTO;
+  if (failure != 0) {
+    resolution->lost = failure;
+    shutdown(resolution->connector, SHUT_RDWR);
+  }
+  return failure;
 }
 
 /* A stream socket's stand-in until [`through_connect`] puts the
@@ -1789,7 +1812,7 @@ static size_t through_server_read (lua_State *L, int arg, bool first, struct res
   return written < 0 ? 0 : (size_t)written;
 }
 
-COSMIC_SYSCALL(resolve_through, 6) {
+COSMIC_SYSCALL(resolve_through, 7) {
   size_t size = 0;
   const char *name = luaL_checklstring(L, 1, &size);
   int timeout = cosmic_checkint(L, 2);
@@ -1804,6 +1827,7 @@ COSMIC_SYSCALL(resolve_through, 6) {
    * guard's or the server list's when no hosts file is given. */
   bool hosts_given = !lua_isnoneornil(L, 6);
   const char *hosts = hosts_given ? cosmic_path(L, 6) : NULL;
+  bool hello = lua_toboolean(L, 7);
 #if defined(__linux__)
   struct resolution *resolution = resolution_push(L, timeout);
   if (resolution == NULL) return cosmic_fail(L, ENOMEM);
@@ -1820,12 +1844,17 @@ COSMIC_SYSCALL(resolve_through, 6) {
     lua_pop(L, 1);
     resolution->servers++;
   }
+  if (hello) {
+    int failure = through_hello(resolution);
+    if (failure != 0) return cosmic_fail(L, failure);
+  }
   if (resolve_refused(name, size) || (hosts_given && hosts == NULL)) return cosmic_fail(L, EINVAL);
   if (resolve_literal(L, name, size)) return 1;
   return resolve_run(L, name, timeout, listed, hosts, resolution);
 #else
   /* The servers are held to their form here too, though no lookup runs. */
   (void)connector;
+  (void)hello;
   for (size_t i = 0; i < count; i++) {
     struct resolve_server server;
     lua_rawgeti(L, 5, (lua_Integer)i + 1);

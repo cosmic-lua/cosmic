@@ -123,16 +123,21 @@ local function require_native_connector()
 end
 
 --- The connector's decision for `item`, 17 bytes as [`packed`] leaves them.
-local function decided(fd: integer, item: string): boolean
-  local family = item:byte(1) == 4 and 4 or 6
-  assert(sys.write(fd, string.pack(">I4I4I4", 0xffffffff, 0, family) .. item:sub(2)) == 28)
+local function read_whole(fd: integer, count: integer): string
   local got = ""
-  while #got < 4 do
-    local more = assert(sys.read(fd, 4 - #got))
+  while #got < count do
+    local more = assert(sys.read(fd, count - #got))
     assert(more ~= "", "the connector ended before it replied")
     got = got .. more
   end
-  local errno = string.unpack(">I4", got)
+  return got
+end
+
+local function decided(fd: integer, item: string): boolean
+  local family = item:byte(1) == 4 and 4 or 6
+  assert(sys.write(fd, string.pack(">I4I4I4I4I4", 3, 0xffffffff, 0, 0, family) .. item:sub(2)) == 36)
+  local tag, errno = string.unpack(">I4I4", read_whole(fd, 8))
+  assert(tag == 3, "the reply carries another tag: " .. tag)
   assert(errno == 0 or errno == REFUSED, "errno " .. errno)
   return errno == 0
 end
@@ -143,6 +148,7 @@ local function test_the_connector_and_the_relay_s_check_agree_on_every_address(t
   local child, why = process.connector_start({}, pair[2], 500, { deny = DENIED, own = OWN })
   assert(sys.close(pair[2]))
   assert(child, why)
+  assert(string.unpack(">I4", read_whole(pair[1], 4)) == 0x434e4302, "the connector said no hello")
   local own = Relay.Address.own_addresses(OWN)
   local seen = Fuzz.run({
     name = "connector public classifier agrees with Relay.Address",

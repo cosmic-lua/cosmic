@@ -38,6 +38,12 @@ end
 local process = raw_behind("cosmic.child") as raw_process -- cast: core/process.h's table
 local socket = raw_behind("cosmic.net") as raw_socket -- cast: core/socket.h's table
 
+--- A lookup's request of `tag` for the table's endpoint `index` at
+--- `port`: no wait of its own, family or address.
+local function request(tag: integer, index: integer, port: integer): string
+  return string.pack(">I4I4I4I4I4", tag, index, port, 0, 0) .. string.rep("\0", 16)
+end
+
 --- Skips where the native connector does not run (it is Linux only).
 local function require_native_connector()
   local result, why, number = process.connector_probe({ host = "127.0.0.1", port = 9 }, "pointer")
@@ -350,11 +356,10 @@ local function test_the_name_servers_connector_refuses_what_is_no_name_server(tm
   assert(conn == nil and why:find("is not in the connector's table", 1, true) ~= nil, tostring(why))
   -- The process itself, asked past the checks of its Lua side.
   local started <close> = assert(Child.start_connector(servers, 1000))
-  local function asked(request: string): integer
-    assert(sys.write(started.fd, request) == #request)
+  local function read_whole(count: integer): string
     local reply = ""
-    while #reply < 4 do
-      local data, trouble, number = sys.read(started.fd, 4 - #reply)
+    while #reply < count do
+      local data, trouble, number = sys.read(started.fd, count - #reply)
       if data == nil then
         assert(number == sys.EAGAIN, trouble)
         local ready = Poll.readable(started.fd, Clock.seconds(5))
@@ -364,12 +369,20 @@ local function test_the_name_servers_connector_refuses_what_is_no_name_server(tm
         reply = reply .. data
       end
     end
-    return (string.unpack(">I4", reply))
+    return reply
   end
-  assert(asked(string.pack(">I4I4", 1, 80)) == sys.EPERM)
-  assert(asked(string.pack(">I4I4", 2, 53)) == sys.EPERM)
-  assert(asked(string.pack(">I4I4I4", 0xffffffff, 53, 4) .. string.char(192, 0, 2, 1) .. string.rep("\0", 12)) ==
-      sys.EPERM)
+  assert(string.unpack(">I4", read_whole(4)) == socket.CONNECTOR_HELLO)
+  local function asked(tag: integer, index: integer, port: integer, family?: integer, address?: string): integer
+    local wire = string.pack(">I4I4I4I4I4", tag, index, port, 0, family or 0) ..
+      (address or "") .. string.rep("\0", 16 - #(address or ""))
+    assert(sys.write(started.fd, wire) == #wire)
+    local replied, errno = string.unpack(">I4I4", read_whole(8))
+    assert(replied == tag, "the reply carries another tag: " .. replied)
+    return errno
+  end
+  assert(asked(7, 1, 80) == sys.EPERM)
+  assert(asked(8, 2, 53) == sys.EPERM)
+  assert(asked(9, 0xffffffff, 53, 4, string.char(192, 0, 2, 1)) == sys.EPERM)
 end
 
 --- A connection a name server resets as it is made fails that server
@@ -390,11 +403,11 @@ local function test_a_name_server_reset_as_it_is_made_leaves_the_stream_in_step(
   assert(sys.set_nonblocking(pair[1], true))
   assert(sys.set_nonblocking(pair[2], true))
   -- More replies than the lookup asks for (one a query, and a retry):
-  -- one left over is never read.
-  for _ = 1, 4 do
+  -- one left over is never read. A lookup tags its requests from 1.
+  for tag = 1, 4 do
     local reset = assert(socket.start({ kind = "tcp", host = "127.0.0.1", port = port }))
     assert(socket.wait(reset:fd(), true, 5000))
-    assert(sys.write(pair[2], string.pack(">I4", 0)) == 4)
+    assert(sys.write(pair[2], string.pack(">I4I4", tag, 0)) == 8)
     assert(socket.sendfds(pair[2], { reset:fd() }))
     assert(reset:close())
   end
@@ -402,12 +415,46 @@ local function test_a_name_server_reset_as_it_is_made_leaves_the_stream_in_step(
     { { host = "127.0.0.1", port = 53, index = 1 } }, hosts)
   assert(found == nil and why ~= "", tostring(why))
   local asked = assert(sys.read(pair[2], 4096))
-  assert(#asked >= 8 and #asked % 8 == 0 and asked:sub(1, 8) == string.pack(">I4I4", 1, 53), ("%q"):format(asked))
+  assert(#asked >= 36 and #asked % 36 == 0 and asked:sub(1, 36) == request(1, 1, 53), ("%q"):format(asked))
+  assert(#asked == 36 or asked:sub(37, 72) == request(2, 1, 53), ("%q"):format(asked))
   -- Shut down, the stream would read as ended here; in step, nothing waits.
   local more, _, number = sys.read(pair[2], 1)
   assert(more == nil and number == sys.EAGAIN, "the lookup shut the stream down: " .. tostring(more))
   assert(sys.close(pair[1]))
   assert(sys.close(pair[2]))
+end
+
+--- A lookup asked to read the connector's hello reads it before it asks
+--- anything: a stream that says another word is shut down, asked
+--- nothing, and the lookup fails EPROTO, which a lookup through
+--- [`Net.resolve`] says as a connector of another protocol, ended.
+local function test_a_lookup_reads_the_connectors_hello_before_it_asks(tmp: string)
+  if assert(sys.uname()).sysname ~= "Linux" then
+    Test.skip("a lookup through a connector is Linux only, as the connector is")
+  end
+  local hosts = tmp .. "/hosts"
+  assert(Fs.write(hosts, ""))
+  local pair = assert(process.connector_pair())
+  assert(sys.set_nonblocking(pair[1], true))
+  assert(sys.set_nonblocking(pair[2], true))
+  assert(sys.write(pair[2], string.pack(">I4", 0x434e4301)) == 4)
+  local found, why, errno = socket.resolve_through("hello.example.test", 2000, pair[1], 1000,
+    { { host = "127.0.0.1", port = 53, index = 1 } }, hosts, true)
+  assert(found == nil and errno == socket.EPROTO, tostring(why))
+  -- Shut down and asked nothing, the stream reads as ended.
+  local asked = sys.read(pair[2], 64)
+  assert(asked == "", "the lookup asked a connector of another protocol: " .. ("%q"):format(asked))
+  assert(sys.close(pair[1]))
+  assert(sys.close(pair[2]))
+  local other = assert(process.connector_pair())
+  assert(sys.write(other[2], string.pack(">I4", 0x434e4301)) == 4)
+  local dns <close> = assert(Net.connector_from(other[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
+  local none, trouble = Net.resolve("hello.example.test", { timeout_ns = Clock.seconds(2), connector = dns,
+    servers = { Net.udp("127.0.0.1", 53) }, hosts_file = hosts })
+  assert(none == nil and trouble == "net: the connector speaks another protocol than this program's: " ..
+      "it said 0x434e4301, not 0x434e4302", tostring(trouble))
+  assert(dns:ended())
+  assert(sys.close(other[2]))
 end
 
 --- A reply that came whole with a socket connected to another address
@@ -430,15 +477,15 @@ local function test_a_connector_that_passes_the_wrong_descriptor_is_given_up(tmp
     assert(sys.set_nonblocking(pair[2], true))
     -- A reply for every query the lookup could make: those it never asks
     -- for are never read.
-    for _ = 1, 4 do
-      assert(sys.write(pair[2], string.pack(">I4", 0)) == 4)
+    for tag = 1, 4 do
+      assert(sys.write(pair[2], string.pack(">I4I4", tag, 0)) == 8)
       assert(socket.sendfds(pair[2], { passed }))
     end
     local found, why = socket.resolve_through("wrong.example.test", 2000, pair[1], 1000,
       { { host = "127.0.0.1", port = 53, index = 1 } }, hosts)
     assert(found == nil and why ~= "", tostring(why))
     local asked = assert(sys.read(pair[2], 4096))
-    assert(asked == string.pack(">I4I4", 1, 53), "the stream was asked again: " .. ("%q"):format(asked))
+    assert(asked == request(1, 1, 53), "the stream was asked again: " .. ("%q"):format(asked))
     -- Shut down, the stream reads as ended.
     local more, trouble = sys.read(pair[2], 1)
     assert(more == "", "the lookup left the stream in step: " .. tostring(more) .. " " .. tostring(trouble))
@@ -455,6 +502,7 @@ end
 local function test_a_connector_that_never_replies_ends_the_lookup_and_is_not_asked_again()
   local pair = assert(process.connector_pair())
   local peer = pair[2]
+  assert(sys.write(peer, string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
   -- Its process would wait 100 ms to connect: the lookup waits that and a grace for its reply.
   local dns <close> = assert(Net.connector_from(pair[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
   local opts: Net.ResolveOptions = { timeout_ns = Clock.ms(200), connector = dns,
@@ -471,9 +519,9 @@ local function test_a_connector_that_never_replies_ends_the_lookup_and_is_not_as
   assert(found == nil and why == Poll.TIMEOUT, tostring(why))
   -- The process's wait given (100 ms) and a second's grace, not the default ten seconds.
   assert(took >= 1000 and took < 3000, took .. " ms")
-  -- What was asked: the table's first endpoint at port 53, as eight bytes.
-  local request = assert(sys.read(peer, 64))
-  assert(request == string.pack(">I4I4", 1, 53), ("%q"):format(request))
+  -- What was asked: the table's first endpoint at port 53, its hello read first.
+  local sent = assert(sys.read(peer, 64))
+  assert(sent == request(1, 1, 53), ("%q"):format(sent))
   found, why = Net.resolve("stalled.example.test", opts)
   assert(found == nil and why == "net: the connector has ended", tostring(why))
   assert(sys.close(peer))

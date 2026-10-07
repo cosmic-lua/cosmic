@@ -50,6 +50,22 @@
  * count times this, plus the last one's number, which is below it. */
 #define SIGNAL_STAMP_UNIT 64
 
+/* The native connector's protocol (core/connector.c), which
+ * core/socket.c's lookups through a connector and cosmic.net speak too.
+ * The connector says CONNECTOR_HELLO first, "CNC" and the protocol's
+ * version as one big-endian word, so a client of another version is
+ * told so before it asks anything. A request is CONNECTOR_REQUEST_BYTES;
+ * a reply carries its tag back, and replies come in the order the
+ * connects end. At most CONNECTOR_FLIGHT connects are made at once: a
+ * request for another is answered CONNECTOR_BUSY. CONNECTOR_DENIED is a
+ * public connector's refusal by its lists. Both are past any errno, so a
+ * kernel's failure to connect is never taken for either. */
+#define CONNECTOR_HELLO 0x434e4302
+#define CONNECTOR_REQUEST_BYTES 36
+#define CONNECTOR_FLIGHT 64
+#define CONNECTOR_DENIED 0x10000
+#define CONNECTOR_BUSY 0x10001
+
 /* Raises RLIMIT_NOFILE's soft limit toward the hard one, as far as
  * 10240 (macOS's OPEN_MAX) or kern.maxfilesperproc where that is lower,
  * as a Go program's runtime does at its start:
@@ -189,8 +205,8 @@ COSMIC_SYSCALL(connector_pair, 0);
  */
 
 /*
- * --- Starts the sandbox's native TCP connector, held to at most 128 approved numeric endpoints in immutable memory and no file access, exec, fork or descriptor replacement. Wildcard port tables together hold at most 262144 addresses. The caller supplies one end of connector_pair, retains ownership of it, and closes its copy after starting. Requests are eight bytes: big-endian 1-based endpoint index and port. A reply is a big-endian errno, then, on success only, the NUL marker and one SCM_RIGHTS descriptor recvfds expects. Closing the other end ends the connector; the caller owns and reaps its pid. Linux x86_64 and aarch64; ENOSYS elsewhere.
- * --- With `public`, the connector also connects to an address no table holds. Its request is the index 4294967295 (0xffffffff) and a port, then a big-endian family (4 or 6) and 16 address bytes (an IPv4 address in the first four, the rest zero): 28 bytes. Index 0 is refused (EPERM) in its eight bytes by every connector. The connector classifies the address against `public`'s data in its own confined process and, if allowed, connects through a writable scratch slot its filter accepts beside the table's immutable ones. The reply is the table's, with 65536 for an address its lists refuse (past any errno, so no connect failure is taken for it), EINVAL for a malformed request and EPERM where the connector is not public (the whole request is read first). Port 0 asks only for the decision: errno 0 for an allowed address, and no socket or descriptor. The table may then be empty.
+ * --- Starts the sandbox's native TCP connector, held to at most 128 approved numeric endpoints in immutable memory and no file access, exec, fork or descriptor replacement. Wildcard port tables together hold at most 262144 addresses. The caller supplies one end of connector_pair, retains ownership of it, and closes its copy after starting. The connector first writes `CONNECTOR_HELLO` (socket's constants), a big-endian word, and then serves requests, each `CONNECTOR_REQUEST_BYTES` (36): big-endian words of a tag, a 1-based endpoint index, a port, a wait in milliseconds (the connect's, at most `timeout_ms`; 0 for `timeout_ms`) and a family, then 16 address bytes; a table request's family and address are zero (EINVAL otherwise). Up to `CONNECTOR_FLIGHT` connects are made at once, a request for another answered `CONNECTOR_BUSY`. A reply is the request's tag and an errno, big-endian words, then, on success only, the NUL marker and one SCM_RIGHTS descriptor recvfds expects; replies come as connects end, in any order, each whole. Closing the other end ends the connector; the caller owns and reaps its pid. Linux x86_64 and aarch64; ENOSYS elsewhere.
+ * --- With `public`, the connector also connects to an address no table holds. Its request's index is 4294967295 (0xffffffff), its family 4 or 6 and its 16 address bytes the address (an IPv4 address in the first four, the rest zero). Index 0 is refused (EPERM) by every connector. The connector classifies the address against `public`'s data in its own confined process and, if allowed, connects through a writable scratch slot its filter accepts beside the table's immutable ones. The reply is the table's, with `CONNECTOR_DENIED` for an address its lists refuse, EINVAL for a malformed request and EPERM where the connector is not public. Port 0 asks only for the decision: errno 0 for an allowed address, and no socket or descriptor. The table may then be empty.
  * ---@param endpoints {ConnectorEndpoint} the launcher's checked, frozen numeric endpoints; empty only with `public`
  * ---@param control integer the private Unix stream descriptor, checked like every descriptor
  * ---@param timeout_ms integer connect deadline, from 1 to 60000 milliseconds
