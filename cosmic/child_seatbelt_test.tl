@@ -292,6 +292,8 @@ local REPORT <const> = [=[
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <sys/ioctl.h>
+#include <termios.h>
 #include <unistd.h>
 
 int main (void) {
