@@ -34,6 +34,7 @@ local RelayConfig = require("cosmic.relay_config")
 local Wire = require("cosmic.relay_wire")
 local sys = require("cosmic.sys")
 local bare = require("build.bare")
+local plural = require("build.plural")
 
 --- The pieces of the process the client uses: what a test stands in for.
 local record sandbox_connect
@@ -156,7 +157,7 @@ local function carry(conn: Net.Conn, first: string, io: sandbox_connect.Io, trac
       local ready, ready_why = Poll.readable(io.input)
       if not ready then return fail("standard input: " .. ready_why) end
       local data, why, errno = sys.read(io.input, CHUNK)
-      trace("up: read " .. (data ~= nil and #data .. " bytes" or "failed: " .. tostring(why)))
+      trace("up: read " .. (data ~= nil and plural.count(#data, "byte") or "failed: " .. tostring(why)))
       if data == nil then
         if errno ~= sys.EAGAIN and errno ~= sys.EINTR then
           return fail("standard input: " .. why)
@@ -168,7 +169,7 @@ local function carry(conn: Net.Conn, first: string, io: sandbox_connect.Io, trac
         return
       else
         local sent, send_why = conn:write(data)
-        trace("up: wrote " .. #data .. " to the relay: " .. (sent and "ok" or tostring(send_why)))
+        trace("up: wrote " .. plural.count(#data, "byte") .. " to the relay: " .. (sent and "ok" or tostring(send_why)))
         if not sent then
           -- Whether this is a fault or the far side's closing is known once
           -- the other task has read to the end of what it sends.
@@ -183,12 +184,12 @@ local function carry(conn: Net.Conn, first: string, io: sandbox_connect.Io, trac
     while true do
       if data ~= "" then
         local wrote, write_why = write_all(io.output, data)
-        trace("down: wrote " .. #data .. " to standard output: " .. (wrote and "ok" or tostring(write_why)))
+        trace("down: wrote " .. plural.count(#data, "byte") .. " to standard output: " .. (wrote and "ok" or tostring(write_why)))
         if not wrote then return fail("standard output: " .. write_why) end
       end
       trace("down: waiting for the relay")
       local more, why = conn:read(CHUNK)
-      trace("down: read " .. (more ~= nil and #more .. " bytes" or "end or failure: " .. tostring(why)))
+      trace("down: read " .. (more ~= nil and plural.count(#more, "byte") or "end or failure: " .. tostring(why)))
       if more == nil then
         if why ~= "" then return fail("reading from the relay: " .. why) end
         -- The far side has ended what it sends: ours hears it as the end of
@@ -284,7 +285,7 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
     return seen.status, seen.consumed, seen.reason
   end)
   if rest == nil then return fail(answer_why) end
-  trace("answer read, code " .. code .. ", " .. #rest .. " bytes after it")
+  trace("answer read, code " .. code .. ", " .. plural.count(#rest, "byte") .. " after it")
   if code ~= 0 then
     return fail(Wire.socks_reply_meaning(code) .. " (SOCKS reply " .. code .. "); the relay's log line says why")
   end
