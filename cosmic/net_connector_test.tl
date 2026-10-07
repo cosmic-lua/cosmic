@@ -7,6 +7,7 @@ local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
+local relay_address = require("cosmic.relay_address")
 local type raw_process = require("cosmic.internal.process")
 local type raw_socket = require("cosmic.internal.socket")
 
@@ -434,4 +435,175 @@ local function test_a_connector_refuses_what_a_host_cannot_confine_or_a_table_th
     assert(result:close())
     assert(result:close())
   end
+end
+
+--- Echoes `text` through `conn` and closes it.
+local function echoed(conn: Net.Conn, text: string)
+  conn:set_timeout(Clock.seconds(5))
+  assert(conn:write(text))
+  assert(assert(conn:read()) == text)
+  assert(conn:close())
+end
+
+local function test_a_public_connector_connects_to_an_address_its_table_lacks()
+  require_native_connector()
+  local before = descriptor_count()
+  Poll.run(function()
+    local listener, task = echo_server()
+    local port = listener.address.port
+    -- No test reaches a public host, so loopback stands in with an empty deny list.
+    local bare = assert(Net.connector(nil, { public = { deny = {} } }))
+    echoed(assert(bare:connect("127.0.0.1", port, Clock.seconds(5))), "public")
+    echoed(assert(bare:as_function()("127.0.0.1", port, Clock.seconds(5))), "as a function")
+    for _, target in ipairs({ "localhost", "127.1", "::ffff:127.0.0.1" }) do
+      local conn, why = bare:connect(target, port, Clock.seconds(5))
+      assert(conn == nil and why:find(target .. " is not a numeric address", 1, true) ~= nil or
+          why:find("refused by the connector's deny list", 1, true) ~= nil, target .. ": " .. tostring(why))
+    end
+    local no_port, why_port = bare:connect("127.0.0.1", 0, Clock.seconds(5))
+    assert(no_port == nil and why_port:find("port must be from 1 to 65535", 1, true) ~= nil, tostring(why_port))
+    assert(bare:close())
+    -- A table beside it: the table's entries by address or index, the rest public.
+    local both = assert(Net.connector({ { host = "127.0.0.1", port = port } }, { public = { deny = {} } }))
+    echoed(assert(both:connect(1, port, Clock.seconds(5))), "by index")
+    echoed(assert(both:connect("127.0.0.1", port, Clock.seconds(5))), "by address")
+    local free = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
+    local other = free.address.port
+    assert(free:close())
+    local conn, why = both:connect("127.0.0.1", other, Clock.seconds(5))
+    assert(conn == nil and why:find("refused", 1, true) ~= nil, tostring(why))
+    assert(both:close())
+    task:cancel()
+    assert(listener:close())
+  end)
+  assert(descriptor_count() == before, "a public connector left a descriptor open")
+end
+
+local function test_a_public_connector_refuses_what_its_lists_hold()
+  require_native_connector()
+  Poll.run(function()
+    local listener, task = echo_server()
+    local port = listener.address.port
+    for _, public in ipairs({ { deny = { "127.0.0.0/8" } }, { deny = {}, own = { "127.0.0.1" } },
+        { deny = relay_address.deny_cidrs() } } as {Net.PublicOptions}) do
+      local connector = assert(Net.connector(nil, { public = public }))
+      local conn, why = connector:connect("127.0.0.1", port, Clock.seconds(5))
+      assert(conn == nil and why == "net: 127.0.0.1 is refused by the connector's deny list", tostring(why))
+      -- The process answered and still serves.
+      local again, why_again = connector:connect("127.0.0.1", port, Clock.seconds(5))
+      assert(again == nil and why_again == why)
+      assert(connector:close())
+    end
+    task:cancel()
+    assert(listener:close())
+  end)
+end
+
+local function test_a_public_connector_is_asked_nothing_it_was_not_started_for()
+  require_native_connector()
+  local ok, why = pcall(Net.connector, nil, { public = { deny = "10.0.0.0/8" } as any as Net.PublicOptions })
+  assert(not ok and tostring(why):find("net: public must hold a deny list", 1, true) ~= nil, tostring(why))
+  ok, why = pcall(Net.connector, nil, { public = { deny = { "10.0.0.0" } } })
+  assert(not ok, "a prefix with no length")
+  -- A table connector with no public mode asks only its table.
+  Poll.run(function()
+    local listener, task = echo_server()
+    local port = listener.address.port
+    local connector = assert(Net.connector({ { host = "127.0.0.1", port = port } }))
+    local conn, trouble = connector:connect("127.0.0.2", port, Clock.seconds(5))
+    assert(conn == nil and trouble:find("is not in the connector's table", 1, true) ~= nil, tostring(trouble))
+    assert(connector:close())
+    task:cancel()
+    assert(listener:close())
+  end)
+end
+
+local function test_connector_from_wraps_an_inherited_control_stream_without_a_process()
+  require_native_connector()
+  local before = descriptor_count()
+  Poll.run(function()
+    local listener, task = echo_server()
+    local port = listener.address.port
+    local pair = stream_pair()
+    local child = assert(process.connector_start({ { host = "127.0.0.1", port = port } }, pair[2], 1000,
+      { deny = {} }))
+    assert(sys.close(pair[2]))
+    local connector = assert(Net.connector_from(pair[1], { { host = "127.0.0.1", port = port } }, true))
+    echoed(assert(connector:connect(1, port, Clock.seconds(5))), "table")
+    echoed(assert(connector:connect("127.0.0.1", port, Clock.seconds(5))), "by address")
+    local free = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
+    local other = free.address.port
+    assert(free:close())
+    local gone, why = connector:connect("127.0.0.1", other, Clock.seconds(5))
+    assert(gone == nil and why:find("refused", 1, true) ~= nil, tostring(why))
+    -- Closing it closes the stream only: the process sees the end of it and exits by itself.
+    assert(connector:close())
+    assert(connector:close())
+    local ended = assert(process.waitpid(child, false))
+    assert(ended.code == 0)
+    task:cancel()
+    assert(listener:close())
+  end)
+  assert(descriptor_count() == before, "an adopted connector left a descriptor open")
+end
+
+local function test_connector_from_asks_a_public_process_for_an_address_its_table_lacks()
+  require_native_connector()
+  Poll.run(function()
+    local listener, task = echo_server()
+    local port = listener.address.port
+    local pair = stream_pair()
+    local child = assert(process.connector_start({}, pair[2], 1000, { deny = {} }))
+    assert(sys.close(pair[2]))
+    local connector = assert(Net.connector_from(pair[1], nil, true))
+    echoed(assert(connector:connect("127.0.0.1", port, Clock.seconds(5))), "public")
+    assert(connector:close())
+    assert(assert(process.waitpid(child, false)).code == 0)
+    -- Not told it is public, it is asked nothing of the kind.
+    local second = stream_pair()
+    local other = assert(process.connector_start({}, second[2], 1000, { deny = {} }))
+    assert(sys.close(second[2]))
+    local plain = assert(Net.connector_from(second[1]))
+    local conn, why = plain:connect("127.0.0.1", port, Clock.seconds(5))
+    assert(conn == nil and why:find("is not in the connector's table", 1, true) ~= nil, tostring(why))
+    assert(plain:close())
+    assert(assert(process.waitpid(other, false)).code == 0)
+    task:cancel()
+    assert(listener:close())
+  end)
+end
+
+local function test_connector_from_is_not_started_again_when_its_process_ends()
+  require_native_connector()
+  Poll.run(function()
+    local listener, task = echo_server()
+    local port = listener.address.port
+    local pair = stream_pair()
+    local child = assert(process.connector_start({}, pair[2], 1000, { deny = {} }))
+    assert(sys.close(pair[2]))
+    local connector = assert(Net.connector_from(pair[1], nil, true))
+    assert(sys.kill(child, sys.SIGKILL))
+    assert(process.waitpid(child, false))
+    local conn, why = connector:connect("127.0.0.1", port, Clock.seconds(5))
+    assert(conn == nil and why ~= "", tostring(why))
+    local again, trouble = connector:connect("127.0.0.1", port, Clock.seconds(5))
+    assert(again == nil and trouble == "net: the connector has ended", tostring(trouble))
+    assert(connector:close())
+    task:cancel()
+    assert(listener:close())
+  end)
+end
+
+local function test_connector_from_refuses_what_is_no_descriptor_or_table()
+  local ok, why = pcall(Net.connector_from, -1)
+  assert(not ok and tostring(why):find("fd must be a descriptor", 1, true) ~= nil, tostring(why))
+  ok, why = pcall(Net.connector_from, "3" as any as integer)
+  assert(not ok and tostring(why):find("fd must be a descriptor", 1, true) ~= nil, tostring(why))
+  local pair = stream_pair()
+  ok, why = pcall(Net.connector_from, pair[1], { { host = "127.0.0.1" } } as {Net.Endpoint})
+  assert(not ok and tostring(why):find("endpoints[1] must be a host and a port", 1, true) ~= nil, tostring(why))
+  assert(sys.close(pair[1]) and sys.close(pair[2]))
+  -- A descriptor that is open but no stream cannot be made nonblocking where it is not open.
+  local none, trouble = Net.connector_from(1000000)
+  assert(none == nil and trouble:find("child: ", 1, true) == 1, tostring(trouble))
 end

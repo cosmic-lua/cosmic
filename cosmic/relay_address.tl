@@ -34,19 +34,22 @@
 ---   100::/64 (discard), 5f00::/16 (SRv6 segment ids) and 2001::/23, which
 ---   holds the ORCHID ranges 2001:10::/28 and 2001:20::/28;
 --- - the host's own addresses, which the caller lists
----   ([`relay_address.own_addresses`]).
+---   ([`relay_address.own_addresses`]);
+--- - every IPv6 address outside 2000::/3, the global unicast range.
 ---
---- An IPv6 address that carries an IPv4 one is the IPv4 address it
---- carries where the carrying is fixed, and refused when that one is:
---- IPv4-mapped ::ffff:0:0/96 and the well-known NAT64 prefix 64:ff9b::/96.
---- The forms whose carrying is not fixed are refused outright, each with a
---- reason of its own, never decoded: IPv4-compatible ::/96, the SIIT form
---- 0:0:0:0:ffff:0::/96, 6to4 (2002::/16), Teredo (2001::/32), and the
+--- An IPv6 address that carries an IPv4 one is refused outright, each form
+--- with a reason of its own, never decoded: IPv4-mapped ::ffff:0:0/96, the
+--- well-known NAT64 prefix 64:ff9b::/96, IPv4-compatible ::/96, the SIIT
+--- form 0:0:0:0:ffff:0::/96, 6to4 (2002::/16), Teredo (2001::/32), and the
 --- local-use NAT64 prefix 64:ff9b:1::/48 (RFC 8215), which an operator may
 --- carve at any RFC 6052 length -- a /96 gateway sends
 --- 64:ff9b:1:808:0:0:a9fe:a9fe to 169.254.169.254 -- so no one decoding
 --- is right. A literal grant of the carrier opens only the carrier's own
 --- spelling; a grant of the IPv4 address it carries does not.
+---
+--- The classes above are data, [`relay_address.deny_cidrs`]: the native
+--- connector ([`cosmic.net`]'s public mode) judges an address by the same
+--- list in its own process, so a prefix is added in one place.
 ---
 --- Addresses are in the strict grammar [`cosmic.net`]'s numeric hosts take:
 --- IPv4 as four decimal octets
@@ -63,6 +66,14 @@ local record relay_address
     --- own text decides how it is read.
     family: string
   end
+end
+
+--- One refused prefix.
+local record Deny
+  --- The prefix as "address/bits", the address numeric (IPv4 or IPv6).
+  cidr: string
+  --- The class it is refused as, which names its reason in a refusal.
+  class: string
 end
 
 --- The longest text of an IPv6 address, "ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255".
@@ -84,6 +95,9 @@ local PHRASES <const>: {string: string} = {
   own = "one of this host's own addresses",
   special = "a special-purpose address",
   discard = "a discard-only address",
+  mapped = "an IPv4-mapped address, which the relay does not decode",
+  nat64 = "a NAT64 address, which the relay does not decode",
+  nonglobal = "an IPv6 address outside 2000::/3, the global unicast range",
   compatible = "an IPv4-compatible address, which the relay does not decode",
   translated = "an IPv4-translated (SIIT) address, which the relay does not decode",
   ["6to4"] = "a 6to4 address, which carries an IPv4 address the relay does not decode",
@@ -191,90 +205,110 @@ local function begins(bytes: {integer}, prefix: {integer}): boolean
   return true
 end
 
-local METADATA <const>: {{integer}} = {
-  { 169, 254, 169, 254 },
-  { 100, 100, 100, 200 },
-  { 168, 63, 129, 16 },
-  { 0xfd, 0x00, 0x0e, 0xc2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x02, 0x54 },
+--- Every refused prefix, in the order a refusal names its class: the
+--- first to hold an address wins, which makes `::` and `::1` unspecified
+--- and loopback rather than IPv4-compatible, and a metadata address the
+--- metadata one rather than its range's.
+local DENY <const>: {Deny} = {
+  { cidr = "169.254.169.254/32", class = "metadata" },
+  { cidr = "100.100.100.200/32", class = "metadata" },
+  { cidr = "168.63.129.16/32", class = "metadata" },
+  { cidr = "fd00:ec2::254/128", class = "metadata" },
+  { cidr = "0.0.0.0/8", class = "unspecified" },
+  { cidr = "192.0.0.0/24", class = "special" },
+  { cidr = "192.88.99.0/24", class = "special" },
+  { cidr = "10.0.0.0/8", class = "private" },
+  { cidr = "100.64.0.0/10", class = "cgnat" },
+  { cidr = "127.0.0.0/8", class = "loopback" },
+  { cidr = "169.254.0.0/16", class = "link-local" },
+  { cidr = "172.16.0.0/12", class = "private" },
+  { cidr = "192.168.0.0/16", class = "private" },
+  { cidr = "192.0.2.0/24", class = "documentation" },
+  { cidr = "198.18.0.0/15", class = "benchmark" },
+  { cidr = "198.51.100.0/24", class = "documentation" },
+  { cidr = "203.0.113.0/24", class = "documentation" },
+  { cidr = "224.0.0.0/4", class = "multicast" },
+  { cidr = "255.255.255.255/32", class = "broadcast" },
+  { cidr = "240.0.0.0/4", class = "reserved" },
+  { cidr = "::/128", class = "unspecified" },
+  { cidr = "::1/128", class = "loopback" },
+  { cidr = "::/96", class = "compatible" },
+  { cidr = "::ffff:0:0/96", class = "mapped" },
+  { cidr = "0:0:0:0:ffff:0::/96", class = "translated" },
+  { cidr = "64:ff9b::/96", class = "nat64" },
+  { cidr = "64:ff9b:1::/48", class = "nat64local" },
+  { cidr = "fe80::/10", class = "link-local" },
+  { cidr = "fec0::/10", class = "private" },
+  { cidr = "fc00::/7", class = "private" },
+  { cidr = "ff00::/8", class = "multicast" },
+  { cidr = "100::/64", class = "discard" },
+  { cidr = "5f00::/16", class = "special" },
+  { cidr = "2002::/16", class = "6to4" },
+  { cidr = "2001::/32", class = "teredo" },
+  { cidr = "2001:db8::/32", class = "documentation" },
+  { cidr = "3fff::/20", class = "documentation" },
+  { cidr = "2001:2::/48", class = "benchmark" },
+  -- 2001::/23, past the Teredo and benchmarking prefixes named above.
+  { cidr = "2001::/23", class = "special" },
 }
 
---- The class an IPv4 address is refused as, or nil. `own` holds the host's
+-- TODO: pass this list to the connectors the relay starts, once the
+-- relay takes them as inherited descriptors (the next change of the
+-- relay's hardening): nothing outside the tests calls it yet.
+--- The refused prefixes as "address/bits" text, the list the native
+--- connector takes as its `deny` ([`cosmic.net`]'s [`Net.connector`]). An
+--- IPv6 address outside 2000::/3 is refused besides, by a rule of its own
+--- and not a prefix here.
+--- @return {string} The prefixes, in the order a refusal names them
+function relay_address.deny_cidrs(): {string}
+  local out: {string} = {}
+  for i, entry in ipairs(DENY) do out[i] = entry.cidr end
+  return out
+end
+
+local record Prefix
+  bytes: {integer}
+  bits: integer
+  class: string
+end
+
+local PREFIXES <const>: {Prefix} = (function(): {Prefix}
+  local out: {Prefix} = {}
+  for _, entry in ipairs(DENY) do
+    local address, bits = entry.cidr:match("^(.-)/(%d+)$")
+    out[#out + 1] = { bytes = assert(relay_address.parse(address)), bits = math.tointeger(tonumber(bits)),
+      class = entry.class }
+  end
+  return out
+end)()
+
+--- Whether `b` is in `prefix`.
+local function within(b: {integer}, prefix: Prefix): boolean
+  if #b ~= #prefix.bytes then return false end
+  local whole = prefix.bits // 8
+  for i = 1, whole do
+    if b[i] ~= prefix.bytes[i] then return false end
+  end
+  local rest = prefix.bits % 8
+  if rest == 0 then return true end
+  local mask = (0xff << (8 - rest)) & 0xff
+  return b[whole + 1] & mask == prefix.bytes[whole + 1] & mask
+end
+
+--- The class an address is refused as, or nil. `own` holds the host's
 --- addresses as bytes.
-local function class4(b: {integer}, own: {{integer}}): string | nil
-  local a, c, d = b[1], b[2], b[3]
-  for _, m in ipairs(METADATA) do
-    if same(b, m) then return "metadata" end
+local function classify(b: {integer}, own: {{integer}}): string | nil
+  for _, prefix in ipairs(PREFIXES) do
+    if prefix.class == "metadata" and within(b, prefix) then return "metadata" end
   end
   for _, o in ipairs(own) do
     if same(b, o) then return "own" end
   end
-  if a == 0 then return "unspecified" end
-  if a == 192 and c == 0 and d == 0 then return "special" end
-  if a == 192 and c == 88 and d == 99 then return "special" end
-  if a == 10 then return "private" end
-  if a == 100 and c & 0xc0 == 64 then return "cgnat" end
-  if a == 127 then return "loopback" end
-  if a == 169 and c == 254 then return "link-local" end
-  if a == 172 and c & 0xf0 == 16 then return "private" end
-  if a == 192 and c == 168 then return "private" end
-  if a == 192 and c == 0 and d == 2 then return "documentation" end
-  if a == 198 and c & 0xfe == 18 then return "benchmark" end
-  if a == 198 and c == 51 and d == 100 then return "documentation" end
-  if a == 203 and c == 0 and d == 113 then return "documentation" end
-  if a >= 224 and a <= 239 then return "multicast" end
-  if a == 255 and c == 255 and d == 255 and b[4] == 255 then return "broadcast" end
-  if a >= 240 then return "reserved" end
+  for _, prefix in ipairs(PREFIXES) do
+    if prefix.class ~= "metadata" and within(b, prefix) then return prefix.class end
+  end
+  if #b == 16 and b[1] & 0xe0 ~= 0x20 then return "nonglobal" end
   return nil
-end
-
---- How an IPv6 address carries an IPv4 one, the IPv4 address's bytes,
---- or nil for one that carries none.
-local function carried(b: {integer}): string | nil, {integer} | nil
-  local function last(): {integer}
-    return { b[13], b[14], b[15], b[16] }
-  end
-  if begins(b, { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff }) then
-    return "an IPv4-mapped", last()
-  end
-  if begins(b, { 0x00, 0x64, 0xff, 0x9b, 0, 0, 0, 0, 0, 0, 0, 0 }) then
-    return "a NAT64", last()
-  end
-  return nil
-end
-
---- The class an IPv6 address is refused as, or nil.
-local function class6(b: {integer}, own: {{integer}}): string | nil
-  for _, m in ipairs(METADATA) do
-    if same(b, m) then return "metadata" end
-  end
-  for _, o in ipairs(own) do
-    if same(b, o) then return "own" end
-  end
-  if same(b, { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }) then return "unspecified" end
-  if same(b, { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }) then return "loopback" end
-  -- ::/96 holds ::2 and up, which carry an address in no fixed way.
-  if begins(b, { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }) then return "compatible" end
-  if begins(b, { 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 0, 0 }) then return "translated" end
-  local first, second = b[1], b[2]
-  if first == 0xfe and second & 0xc0 == 0x80 then return "link-local" end
-  if first == 0xfe and second & 0xc0 == 0xc0 then return "private" end
-  if first & 0xfe == 0xfc then return "private" end
-  if first == 0xff then return "multicast" end
-  if begins(b, { 0x00, 0x64, 0xff, 0x9b, 0x00, 0x01 }) then return "nat64local" end
-  if begins(b, { 0x01, 0x00, 0, 0, 0, 0, 0, 0 }) then return "discard" end
-  if first == 0x5f and second == 0 then return "special" end
-  if first == 0x20 and second == 0x02 then return "6to4" end
-  if begins(b, { 0x20, 0x01, 0x00, 0x00 }) then return "teredo" end
-  if begins(b, { 0x20, 0x01, 0x0d, 0xb8 }) then return "documentation" end
-  if first == 0x3f and second == 0xff and b[3] & 0xf0 == 0 then return "documentation" end
-  if begins(b, { 0x20, 0x01, 0x00, 0x02, 0x00, 0x00 }) then return "benchmark" end
-  -- 2001::/23, past the Teredo and benchmarking prefixes named above.
-  if first == 0x20 and second == 0x01 and b[3] & 0xfe == 0 then return "special" end
-  return nil
-end
-
-local function dotted(b: {integer}): string
-  return table.concat({ b[1], b[2], b[3], b[4] }, ".")
 end
 
 --- `address` as the host of a `connect` grant.
@@ -368,21 +402,10 @@ function relay_address.check(address: string, port: integer, grants: {string},
     return false, "\"" .. shown .. "\" is not a numeric address"
   end
   if granted(bytes, port, grants) then return true, "" end
-  local remedy = ": grant it literally with --connect " .. target(address, port)
-  if #bytes == 4 then
-    local class = class4(bytes, own)
-    if class then return false, address .. " is " .. PHRASES[class] .. remedy end
-    return true, ""
-  end
-  local direct = class6(bytes, own)
-  if direct then return false, address .. " is " .. PHRASES[direct] .. remedy end
-  local form, v4 = carried(bytes)
-  if form and v4 then
-    local class = class4(v4, own)
-    if class then
-      return false, address .. " is " .. form .. " address carrying " .. dotted(v4) ..
-        ", " .. PHRASES[class] .. remedy
-    end
+  local class = classify(bytes, own)
+  if class then
+    return false, address .. " is " .. PHRASES[class] .. ": grant it literally with --connect " ..
+      target(address, port)
   end
   return true, ""
 end

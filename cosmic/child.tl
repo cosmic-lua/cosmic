@@ -1995,14 +1995,18 @@ local record ConnectorProcess
   --- close: a request is eight bytes written to it, a big-endian
   --- 1-based endpoint index and a port, and the reply is read from it:
   --- a big-endian errno, and, on success only, one marker byte with the
-  --- connected socket passed beside it. Valid until `close`.
+  --- connected socket passed beside it. The index 4294967295 (a public
+  --- request) follows the eight bytes with a big-endian family (4 or 6)
+  --- and 16 address bytes (see the core's `connector_start`). Valid until `close`.
   fd: integer
-  --- The connector's process id, which `close` reaps.
-  pid: integer
+  --- The connector's process id, which `close` reaps: nil for a stream
+  --- adopted with [`Child.adopt_connector`], whose process is its starter's
+  --- to end.
+  pid: integer | nil
   --- Whether `close` has not been called.
   open: boolean
   --- Ends the connector, which holds no state worth finishing, and reaps
-  --- it: true, and true again once closed. A connector dropped unclosed is
+  --- it (an adopted one is only disconnected): true, and true again once closed. A connector dropped unclosed is
   --- ended and reaped when it is collected.
   close: function(ConnectorProcess): boolean
   metamethod __close: function(ConnectorProcess)
@@ -2023,6 +2027,7 @@ local connector_mt: metatable<ConnectorProcess> = {
 local record Child
   type ConnectorProcess = ConnectorProcess
   type ConnectorEndpoint = raw_process.ConnectorEndpoint
+  type ConnectorPublic = raw_process.ConnectorPublic
   type Result = Result
   type Options = Options
   type Credentials = Credentials
@@ -2103,6 +2108,7 @@ end_connector = function(connector: ConnectorProcess, collecting: boolean)
   -- touch the run's state.
   if not collecting then Poll.closing(connector.fd) end
   local _, _ = sys.close(connector.fd)
+  if connector.pid == nil then return end
   local seen, gone = raw.waitpid(connector.pid, true)
   if seen == nil or gone ~= nil and gone ~= "" or seen.pid ~= 0 then return end
   -- Nothing the connector is doing is worth waiting for: it may be in a
@@ -2136,12 +2142,18 @@ end
 ---     local connector = assert(Child.start_connector({ { host = "127.0.0.1", port = 8080 } }, 5000))
 ---     -- write ">I4I4" of endpoint 1 and the port to connector.fd, read the reply
 ---     connector:close()
+---
+--- With `public` (`deny`, the numeric "address/bits" prefixes it refuses,
+--- and `own`, the host's own addresses), the connector also connects to
+--- an address its table lacks, once it has judged the address against
+--- those lists itself, and `endpoints` may be empty.
 -- TODO: confine the connector on macOS with Seatbelt's numeric remote rules
 -- (#2820): core/connector.c's connector_start answers ENOSYS there.
-function Child.start_connector(endpoints: {raw_process.ConnectorEndpoint}, timeout_ms: integer): ConnectorProcess | nil, string
+function Child.start_connector(endpoints: {raw_process.ConnectorEndpoint}, timeout_ms: integer,
+                               public?: raw_process.ConnectorPublic): ConnectorProcess | nil, string
   local pair, why = raw.connector_pair()
   if pair == nil then return nil, "child: " .. why end
-  local called, pid, trouble, errno = pcall(raw.connector_start, endpoints, pair[2], timeout_ms)
+  local called, pid, trouble, errno = pcall(raw.connector_start, endpoints, pair[2], timeout_ms, public)
   local _, _ = sys.close(pair[2])
   if not called then
     -- A table or a timeout the core refuses: the pair is not leaked by it.
@@ -2164,6 +2176,22 @@ function Child.start_connector(endpoints: {raw_process.ConnectorEndpoint}, timeo
   end
   local started: ConnectorProcess = setmetatable({ fd = pair[1], pid = pid, open = true }, connector_mt)
   return started
+end
+
+--- Takes the control stream `fd` of a connector this process did not
+--- start (it was inherited, its starter keeping the process) as a
+--- [`Child.ConnectorProcess`] with no pid: the stream is made nonblocking,
+--- and `close` closes it and does not signal or wait for anything. It
+--- answers nil and why where the stream cannot be made nonblocking, and
+--- leaves `fd` the caller's then.
+--- @param fd integer A Unix stream descriptor the connector answers on
+--- @return ConnectorProcess|nil The connector's stream
+--- @return string Why not, when it is nil
+function Child.adopt_connector(fd: integer): ConnectorProcess | nil, string
+  local ok, nonblocking = sys.set_nonblocking(fd, true)
+  if not ok then return nil, "child: " .. nonblocking end
+  local adopted: ConnectorProcess = setmetatable({ fd = fd, open = true }, connector_mt)
+  return adopted, ""
 end
 
 --- The status a shell reports for a child that ended as `result` says:

@@ -1,7 +1,7 @@
 --- Fuzz properties for [`cosmic.relay_address`], which reads addresses out
 --- of DNS answers, untrusted bytes: no text raises it; an IPv6 address
 --- reads as the 16 bytes it was written from, however it is spelled; an
---- address that carries an IPv4 one is allowed exactly when that one is;
+--- address that carries an IPv4 one is refused undecoded;
 --- and a literal grant opens its address alone, and selection answers the
 --- first allowed address. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
 --- (build/fuzz/init.tl).
@@ -210,17 +210,17 @@ local function carrying(form: integer, v4: {integer}, filler: string): string
     string.char(v4[3], v4[4]) .. head:sub(2, 6)
 end
 
-local function test_an_address_carrying_ipv4_is_allowed_exactly_when_it_is(tmp: string)
+local function test_an_address_carrying_ipv4_is_refused_whatever_it_carries(tmp: string)
   Fuzz.run({
     name = "relay address embedded forms",
     dir = tmp,
     gen = function(src: Fuzz.Source): string
       local v4 = four(src)
-      return Fuzz.pack({ string.char(src:int(0, 1) * 2, src:int(0, 3), table.unpack(v4)),
+      return Fuzz.pack({ string.char(src:int(0, 3), src:int(0, 1), table.unpack(v4)),
         gen_bytes16(src), gen_style(src) })
     end,
-    requires = { "allowed", "refused", "own" },
-    shares = { allowed = 0.05, refused = 0.2, own = 0.03 },
+    requires = { "refused", "own" },
+    shares = { refused = 0.9, own = 0.3 },
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
       local form, own_mode = fields[1]:byte(1), fields[1]:byte(2)
@@ -228,16 +228,12 @@ local function test_an_address_carrying_ipv4_is_allowed_exactly_when_it_is(tmp: 
       local text = spelled(carrying(form, v4, fields[2]), fields[3])
       local own = own_mode == 0 and relay_address.own_addresses({ dotted(v4) }) or NO_OWN
       if own_mode == 0 then Fuzz.label("own") end
-      local want, why4 = relay_address.check(dotted(v4), 443, NONE, own)
       local got, why = relay_address.check(text, 443, NONE, own)
-      if got ~= want then
-        return false, text .. " is " .. (got and "allowed" or "refused (" .. why .. ")") ..
-          " though " .. dotted(v4) .. " is " .. (want and "allowed" or "refused (" .. why4 .. ")")
+      if got then return false, text .. " is allowed though it carries " .. dotted(v4) end
+      if why:find("carrying", 1, true) then
+        return false, "the reason decodes the carried address: " .. why
       end
-      Fuzz.label(got and "allowed" or "refused")
-      if not got and not why:find(" carrying " .. dotted(v4) .. ", ", 1, true) then
-        return false, "the reason does not name the carried address: " .. why
-      end
+      Fuzz.label("refused")
       return true, ""
     end,
   })

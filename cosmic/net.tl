@@ -44,6 +44,7 @@ local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local errors = require("cosmic.internal.errors")
+local relay_address = require("cosmic.relay_address")
 
 --- The raw module behind this one lives under the reserved
 --- `cosmic.internal.` namespace and arrives as the second argument
@@ -153,7 +154,19 @@ local record Net
     --- gives that is shorter ends the wait for the reply sooner, and
     --- the connector with it (see [`Connector.connect`]).
     timeout_ns: integer
+    --- Makes the connector public: it also connects to an address its
+    --- table lacks, judged by the process itself against the lists given
+    --- here (see [`Net.connector`]).
+    public: PublicOptions
   end
+
+  --- What a public connector refuses, as data its process holds: the
+  --- native connector has no list of its own. `deny` is the refused
+  --- prefixes as numeric "address/bits" text, at most 128
+  --- ([`cosmic.relay_address`]'s `deny_cidrs` lists the relay's), and `own`
+  --- the host's own numeric addresses, at most 256, refused as their own.
+  --- An IPv6 address outside 2000::/3 is refused besides, whatever is listed.
+  type PublicOptions = Child.ConnectorPublic
 
   --- Connects to numeric addresses through the sandbox's native connector
   --- process, answered by [`Net.connector`]: a process confined to a
@@ -171,7 +184,10 @@ local record Net
     --- whose process failed in the middle of a request (it was not
     --- answered in time, or ended) is started again for the next. A
     --- `timeout_ns` that is no integer from 0 raises, and so does an
-    --- address that is no numeric one where the connector has no table.
+    --- address that is no numeric one where the connector has no table. A
+    --- public connector (see [`Net.connector`]) also connects to a numeric
+    --- `target` its table lacks, unless its process refuses the address
+    --- ("net: ... is refused by the connector's deny list").
     connect: function(Connector, target: integer | string, port: integer, timeout_ns: integer): Conn | nil, string
     --- The connector as the relay takes one, `address, port, timeout_ns`
     --- to a connection or nil and why: [`Connector.connect`] over a
@@ -939,6 +955,14 @@ local record SocketConnector is Net.Connector
   endpoints: {Net.Endpoint}
   -- The connector's wait to connect, in milliseconds.
   timeout_ms: integer
+  -- What a public process refuses, kept to start it again; nil for a
+  -- connector whose process is not public.
+  public: Net.PublicOptions
+  -- Whether the process serves an inherited stream: a connector made by
+  -- [`Net.connector_from`] is never started again.
+  inherited: boolean
+  -- Whether its process takes public requests.
+  accepts_public: boolean
   -- The process serving a table, nil before its first start and after a
   -- request left it with a reply unread.
   process: Child.ConnectorProcess
@@ -987,20 +1011,43 @@ local record Asked
   kept: boolean
 end
 
---- Asks `process` for a connection to its endpoint `index`, which is
---- `host` at `port`, by `deadline`. The socket it passes is taken only
---- if it is a stream connected to that very host and port.
-local function ask(process: Child.ConnectorProcess, index: integer, host: string, port: integer,
-                   deadline: integer, timeout_ns: integer): Asked
-  local sent, wrote = sys.write(process.fd, string.pack(">I4I4", index, port))
-  if sent ~= 8 then
+--- Whether the numeric hosts `a` and `b` are one address, however
+--- each is spelled.
+local function same_host(a: string, b: string): boolean
+  if a == b then return true end
+  local x, y = relay_address.parse(a), relay_address.parse(b)
+  return x ~= nil and y ~= nil and table.concat(x, ",") == table.concat(y, ",")
+end
+
+--- What the connector answers for an address its lists refuse: past any
+--- errno, so a kernel's EACCES or EPERM from connect is not taken for it.
+local CONNECTOR_DENIED <const> = 65536
+
+--- The request for a connection to the public address `bytes`: the public
+--- index (4294967295) and the port, then the family and the address in 16 bytes.
+local function public_request(bytes: {integer}, port: integer): string
+  return string.pack(">I4I4I4", 0xffffffff, port, #bytes == 4 and 4 or 6) ..
+    string.char(table.unpack(bytes)) .. string.rep("\0", 16 - #bytes)
+end
+
+--- Asks `process` with `request` for a connection to `host` at `port`, by
+--- `deadline`. The socket it passes is taken only if it is a stream
+--- connected to that very host and port. `refusal` is what a request the
+--- connector's lists refuse says.
+local function ask(process: Child.ConnectorProcess, request: string, host: string, port: integer,
+                   deadline: integer, timeout_ns: integer, refusal: string): Asked
+  -- send, not write: a connector that has ended is EPIPE, never SIGPIPE.
+  local sent, wrote = raw.send(process.fd, request)
+  if sent ~= #request then
     return { why = "net: could not ask the connector: " .. tostring(wrote), kept = false }
   end
   local status, saying = control_read(process, 4, deadline)
   if status == nil then return { why = saying, kept = false } end
   local errno = string.unpack(">I4", status)
   if errno ~= 0 then
-    return { why = errno == raw.ETIMEDOUT and Poll.TIMEOUT or sys.errno_message(errno), kept = true }
+    local why = errno == raw.ETIMEDOUT and Poll.TIMEOUT or sys.errno_message(errno)
+    if errno == CONNECTOR_DENIED and refusal ~= "" then why = refusal end
+    return { why = why, kept = true }
   end
   while true do
     if not process.open then return { why = "net: the connector is closed", kept = false } end
@@ -1008,7 +1055,7 @@ local function ask(process: Child.ConnectorProcess, index: integer, host: string
     if received ~= nil then
       local socket = received[1]
       local peer, _ = raw.peer(socket:fd())
-      if peer == nil or peer.host ~= host or peer.port ~= port then
+      if peer == nil or peer.port ~= port or not same_host(peer.host, host) then
         local _, _ = socket:close()
         return { why = "net: the connector passed a socket not connected to " ..
             named(Net.tcp(host, port)), kept = false }
@@ -1066,12 +1113,14 @@ function SocketConnector:connect(target: integer | string, port: integer, timeou
     if not called then return nil, "net: " .. target .. " is not a numeric address" end
     if started == nil then return nil, why end
     local alone <close> = started
-    local got = ask(alone, 1, target, port, deadline, timeout_ns)
+    local got = ask(alone, string.pack(">I4I4", 1, port), target, port, deadline, timeout_ns, "")
     if got.conn == nil then return nil, got.why end
     return got.conn, ""
   end
   local index: integer
   local host: string
+  local wire: string
+  local refusal = ""
   if type(target) == "number" then
     index = target
     local entry = math.type(index) == "integer" and self.endpoints[index] or nil
@@ -1091,9 +1140,19 @@ function SocketConnector:connect(target: integer | string, port: integer, timeou
       end
     end
     if index == nil then
-      return nil, "net: " .. target .. ":" .. port .. " is not in the connector's table"
+      if not self.accepts_public then
+        return nil, "net: " .. target .. ":" .. port .. " is not in the connector's table"
+      end
+      local bytes = relay_address.parse(target)
+      if bytes == nil then return nil, "net: " .. target .. " is not a numeric address" end
+      if port < 1 or port > 65535 then return nil, "net: port must be from 1 to 65535" end
+      index = 0
+      host = target
+      wire = public_request(bytes, port)
+      refusal = "net: " .. target .. " is refused by the connector's deny list"
     end
   end
+  wire = wire or string.pack(">I4I4", index, port)
   -- One request at a time: the process answers in order on one stream.
   while self.busy do
     local waiting, why = Poll.delay(Clock.ms(1))
@@ -1105,12 +1164,13 @@ function SocketConnector:connect(target: integer | string, port: integer, timeou
   local request: ConnectorRequest = setmetatable({ owner = self, keep = false }, request_mt)
   local _guard <close> = request
   if self.process == nil then
-    local started, why = Child.start_connector(self.endpoints, self.timeout_ms)
+    if self.inherited then return nil, "net: the connector has ended" end
+    local started, why = Child.start_connector(self.endpoints, self.timeout_ms, self.public)
     if started == nil then return nil, why end
     self.process = started
   end
   request.process = self.process
-  local got = ask(self.process, index, host, port, deadline, timeout_ns)
+  local got = ask(self.process, wire, host, port, deadline, timeout_ns, refusal)
   request.keep = got.kept
   if got.conn == nil then return nil, got.why end
   return got.conn, ""
@@ -1130,6 +1190,40 @@ function SocketConnector:close(): boolean, string
     self.process = nil
   end
   return true, ""
+end
+
+--- The endpoints `endpoints` as a copy, so the caller's later changes to
+--- its table reach neither the checks here nor a process started again;
+--- it raises for one that is no list of 1 through 128 endpoints (0 where
+--- `empty`).
+local function copied_endpoints(endpoints: {Net.Endpoint}, empty: boolean): {Net.Endpoint}
+  if type(endpoints) ~= "table" or #endpoints < (empty and 0 or 1) or #endpoints > CONNECTOR_MAX_ENDPOINTS then
+    error("net: endpoints must be from " .. (empty and 0 or 1) .. " to " .. CONNECTOR_MAX_ENDPOINTS ..
+        " numeric endpoints", 3)
+  end
+  local kept: {Net.Endpoint} = {}
+  for i, entry in ipairs(endpoints) do
+    if type(entry) ~= "table" or type(entry.host) ~= "string" or
+        math.type(entry.port) ~= "integer" or entry.port < 0 or entry.port > 65535 then
+      error("net: endpoints[" .. i .. "] must be a host and a port from 0 to 65535", 3)
+    end
+    kept[i] = { host = entry.host, port = entry.port }
+  end
+  return kept
+end
+
+--- A copy of the public lists `public`, raising for one the process would
+--- refuse to start with.
+local function checked_public(public: Net.PublicOptions): Net.PublicOptions
+  if type(public) ~= "table" or type(public.deny) ~= "table" or
+      (public.own ~= nil and type(public.own) ~= "table") then
+    error("net: public must hold a deny list and optionally an own list", 3)
+  end
+  local deny: {string} = {}
+  local own: {string} = {}
+  for i, cidr in ipairs(public.deny) do deny[i] = cidr end
+  for i, address in ipairs(public.own or {}) do own[i] = address end
+  return { deny = deny, own = own }
 end
 
 --- Starts the confined native connector, which connects TCP sockets to
@@ -1155,11 +1249,19 @@ end
 --- connection, and what it confines is the process alone: the caller
 --- chooses the endpoint, as the relay does after its grants and its
 --- address checks.
--- TODO: serve names resolved at connect time from one process, once
--- connector_start's protocol (core/connector.c) can take a range of
--- addresses in its immutable table, so a relay's connector starts once with
--- the public unicast addresses its checks allow rather than once for each
--- connection.
+---
+--- With `opts.public`, one process is started now (with an empty table if
+--- there are no `endpoints`) that also connects to any numeric address
+--- its table lacks, which [`Connector.connect`] asks it for by address
+--- and port. The process judges the address itself, with the lists
+--- `public` carries -- `deny`, the numeric "address/bits" prefixes it
+--- refuses (at most 128; [`cosmic.relay_address`]'s `deny_cidrs` is the
+--- relay's list), and `own`, the host's own addresses (at most 256) --
+--- and refuses every IPv6 address outside 2000::/3 whatever the lists
+--- say, so IPv4-mapped and NAT64 forms are never decoded. It is the
+--- check that stands if the caller's own is wrong, and the caller keeps
+--- its own as well. A refused address answers "net: ... is refused by the
+--- connector's deny list".
 -- TODO: queue a table connector's requests with a lock of cosmic.poll's, once it
 -- has one: they wait here by polling a flag every millisecond.
 function Net.connector(endpoints?: {Net.Endpoint}, opts?: Net.ConnectorOptions): Net.Connector | nil, string
@@ -1171,27 +1273,53 @@ function Net.connector(endpoints?: {Net.Endpoint}, opts?: Net.ConnectorOptions):
     end
   end
   local timeout_ms = (timeout_ns + 999999) // 1000000
+  local public = opts ~= nil and opts.public or nil
+  if public ~= nil then public = checked_public(public) end
   local made: SocketConnector = setmetatable({
-    timeout_ms = timeout_ms, busy = false, open = true,
+    timeout_ms = timeout_ms, busy = false, open = true, public = public, accepts_public = public ~= nil,
   }, socket_connector_mt)
-  if endpoints == nil then return made, "" end
-  if type(endpoints) ~= "table" or #endpoints < 1 or #endpoints > CONNECTOR_MAX_ENDPOINTS then
-    error("net: endpoints must be from 1 to " .. CONNECTOR_MAX_ENDPOINTS .. " numeric endpoints", 2)
-  end
-  for i, entry in ipairs(endpoints) do
-    if type(entry) ~= "table" or type(entry.host) ~= "string" or
-        math.type(entry.port) ~= "integer" or entry.port < 0 or entry.port > 65535 then
-      error("net: endpoints[" .. i .. "] must be a host and a port from 0 to 65535", 2)
-    end
-  end
-  -- A copy, so the caller's later changes to its table reach neither the
-  -- checks here nor a process started again.
+  if endpoints == nil and public == nil then return made, "" end
   local kept: {Net.Endpoint} = {}
-  for i, entry in ipairs(endpoints) do kept[i] = { host = entry.host, port = entry.port } end
+  if endpoints ~= nil then kept = copied_endpoints(endpoints, public ~= nil) end
   made.endpoints = kept
-  local started, why = Child.start_connector(kept, timeout_ms)
+  local started, why = Child.start_connector(kept, timeout_ms, public)
   if started == nil then return nil, why end
   made.process = started
+  return made, ""
+end
+
+-- TODO: take the relay's connectors from the descriptors its starter
+-- hands it with this, once the relay drops `host_network` (the next
+-- changes of the relay's hardening): nothing outside the tests calls it yet.
+--- Answers a connector served by a process this one did not start: the
+--- control stream `fd` it was handed (a socket pair's end, inherited
+--- across a spawn), which the connector then owns and `close` closes,
+--- and no process is signalled or waited for. `held`, the endpoints of
+--- the table the process was started with, in order, lets
+--- [`Connector.connect`] name them by address or index as [`Net.connector`]'s
+--- does; `public` says the process was started in public mode, so that
+--- it may be asked for an address the table lacks. Neither is
+--- checked against the process, which holds its own table and lists:
+--- a request the process refuses is answered as its refusal. A process
+--- that ends is not started again: the connector answers "net: the
+--- connector has ended" from then on. `fd` that is no descriptor, or a
+--- `held` that is not a list of at most 128 endpoints, raises; nil and why
+--- where the stream cannot be made nonblocking.
+--- @param fd integer The inherited Unix stream the connector answers on
+--- @param held {Net.Endpoint}|nil The process's table, if it has one
+--- @param public boolean|nil Whether the process takes public requests
+--- @return Net.Connector|nil The connector
+--- @return string Why not, when it is nil
+function Net.connector_from(fd: integer, held?: {Net.Endpoint}, public?: boolean): Net.Connector | nil, string
+  if math.type(fd) ~= "integer" or fd < 0 then error("net: fd must be a descriptor", 2) end
+  local kept: {Net.Endpoint} = {}
+  if held ~= nil then kept = copied_endpoints(held, true) end
+  local adopted, why = Child.adopt_connector(fd)
+  if adopted == nil then return nil, why end
+  local made: SocketConnector = setmetatable({
+    timeout_ms = CONNECTOR_DEFAULT_NS // 1000000, busy = false, open = true, endpoints = kept,
+    process = adopted, inherited = true, accepts_public = public == true,
+  }, socket_connector_mt)
   return made, ""
 end
 

@@ -125,19 +125,30 @@ local function test_each_ipv6_class_is_refused_at_both_ends_and_allowed_just_out
     { address = "2001:1ff:ffff:ffff:ffff:ffff:ffff:ffff", phrase = "a special-purpose address" },
     { address = "2001:2:0:ffff:ffff:ffff:ffff:ffff", phrase = "a benchmarking address" },
   })
+  -- Everything outside 2000::/3 is refused, whatever its neighbours are.
+  expect_refused({
+    { address = "1::", phrase = "outside 2000::/3" },
+    { address = "fe7f:ffff:ffff:ffff:ffff:ffff:ffff:ffff", phrase = "outside 2000::/3" },
+    { address = "fbff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", phrase = "outside 2000::/3" },
+    { address = "100:0:0:1::", phrase = "outside 2000::/3" },
+    { address = "5eff:ffff::", phrase = "outside 2000::/3" },
+    { address = "5f01::", phrase = "outside 2000::/3" },
+    { address = "1fff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", phrase = "outside 2000::/3" },
+    { address = "4000::", phrase = "outside 2000::/3" },
+    { address = "8000::", phrase = "outside 2000::/3" },
+  })
   expect_allowed({
-    "1::", "fe7f:ffff:ffff:ffff:ffff:ffff:ffff:ffff", "fbff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
     "2001:db7:ffff:ffff:ffff:ffff:ffff:ffff", "2001:db9::", "3ffe:ffff::", "3fff:1000::",
-    "2001:200::", "2000:ffff:ffff:ffff:ffff:ffff:ffff:ffff", "100:0:0:1::", "5eff:ffff::", "5f01::", "2606:4700:4700::1111",
-    "2a00:1450:4001:81b::200e",
+    "2001:200::", "2000:ffff:ffff:ffff:ffff:ffff:ffff:ffff", "2000::", "3fff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+    "2606:4700:4700::1111", "2a00:1450:4001:81b::200e",
   })
 end
 
-local function test_an_ipv6_address_carrying_ipv4_is_the_ipv4_it_carries()
+local function test_an_ipv6_address_carrying_ipv4_is_refused_outright_whatever_it_carries()
   local carriers: {{string}} = {
-    -- { prefix of the form, how a carried address is written in it }
-    { "an IPv4-mapped address", "::ffff:%s" },
-    { "a NAT64 address", "64:ff9b::%s" },
+    -- { reason of the form, how a carried address is written in it }
+    { "an IPv4-mapped address, which the relay does not decode", "::ffff:%s" },
+    { "a NAT64 address, which the relay does not decode", "64:ff9b::%s" },
   }
   local samples: {string} = {
     "10.0.0.1", "127.0.0.1", "169.254.169.254", "100.64.0.1", "224.0.0.1", "0.0.0.1",
@@ -146,13 +157,10 @@ local function test_an_ipv6_address_carrying_ipv4_is_the_ipv4_it_carries()
   for _, carrier in ipairs(carriers) do
     for _, v4 in ipairs(samples) do
       local address = carrier[2]:format(v4)
-      local v4_ok = relay_address.check(v4, 443, NONE, NO_OWN)
-      local ok, why = relay_address.check(address, 443, NONE, NO_OWN)
-      assert(ok == v4_ok, address .. ": " .. why)
-      if not ok then
-        assert(why:find(" carrying " .. v4 .. ", ", 1, true), why)
-        assert(why:find(carrier[1], 1, true), why)
-      end
+      local no, why = refused(address)
+      assert(no, address .. " is decoded to " .. v4)
+      assert(why:find(address .. " is " .. carrier[1], 1, true), why)
+      assert(not why:find("carrying", 1, true), why)
     end
   end
 end
@@ -168,12 +176,14 @@ local function test_the_local_use_nat64_prefix_is_refused_whatever_follows_it()
     assert(why:find(address .. " is a local-use NAT64 address", 1, true), why)
     assert(why:find("--connect [" .. address .. "]:443", 1, true), why)
   end
-  -- The neighbours of the /48, and the well-known /96 beside it.
-  assert(not refused("64:ff9b:2:a00:0:100:0:0"))
-  assert(not refused("64:ff9b:0:1::a00:1"))
-  assert(not refused("64:ff9a::a00:1"))
-  assert(not refused("64:ff9b::808:808"))
-  assert(not refused("64:ff9c:1::"))
+  -- The neighbours of the /48 are outside 2000::/3 like it, and the
+  -- well-known /96 beside it is a NAT64 prefix of its own.
+  for _, address in ipairs({ "64:ff9b:2:a00:0:100:0:0", "64:ff9b:0:1::a00:1", "64:ff9a::a00:1", "64:ff9c:1::" }) do
+    local no, why = refused(address)
+    assert(no and why:find("outside 2000::/3", 1, true), address .. ": " .. why)
+  end
+  local no, why = refused("64:ff9b::808:808")
+  assert(no and why:find("a NAT64 address", 1, true), why)
 end
 
 local function test_ipv4_compatible_and_translated_forms_are_refused_outright()
@@ -184,28 +194,31 @@ local function test_ipv4_compatible_and_translated_forms_are_refused_outright()
     assert(why:find(address .. " is an IPv4-compatible address, which the relay does not decode", 1, true), why)
   end
   -- ::1:a00:1 has its sixth group set, so it lies outside ::/96, and carries
-  -- nothing: it is judged as itself, and a public-looking address is allowed.
-  assert(not refused("::1:a00:1"))
-  assert(not refused("::1:0:0:1"))
+  -- nothing: it is judged as itself, and like all below 2000::/3 refused.
+  assert(refused("::1:a00:1"))
+  assert(refused("::1:0:0:1"))
   -- The SIIT form 0:0:0:0:ffff:0::/96.
   for _, address in ipairs({ "::ffff:0:8.8.8.8", "::ffff:0:a00:1", "0:0:0:0:ffff:0:ffff:ffff" }) do
     local no, why = refused(address)
     assert(no, address)
     assert(why:find("an IPv4-translated (SIIT) address", 1, true), why)
   end
-  -- Its neighbours are mapped (carrying) or nothing.
-  assert(not refused("::ffff:1:a00:1"))
-  assert(not refused("::fffe:0:a00:1"))
-  assert(not refused("0:0:0:1:ffff:0:a00:1"))
+  -- Its neighbours carry nothing, and are outside 2000::/3.
+  for _, address in ipairs({ "::ffff:1:a00:1", "::fffe:0:a00:1", "0:0:0:1:ffff:0:a00:1" }) do
+    local no, why = refused(address)
+    assert(no and why:find("outside 2000::/3", 1, true), address .. ": " .. why)
+  end
   local no, why = refused("::ffff:10.0.0.1")
-  assert(no and why:find("an IPv4-mapped address carrying 10.0.0.1", 1, true), why)
+  assert(no and why:find("an IPv4-mapped address, which the relay does not decode", 1, true), why)
 end
 
 local function test_the_neighbours_of_each_embedding_prefix_carry_nothing()
-  expect_allowed({
-    "::fffe:10.0.0.1", "::ffff:1:10.0.0.1", "::1:0:10.0.0.1", "64:ff9b:0:0:1::10.0.0.1",
-    "64:ff9c::10.0.0.1", "1::ffff:10.0.0.1",
-  })
+  -- Outside 2000::/3, so refused as themselves and not as what they might carry.
+  for _, address in ipairs({ "::fffe:10.0.0.1", "::ffff:1:10.0.0.1", "::1:0:10.0.0.1", "64:ff9b:0:0:1::10.0.0.1",
+      "64:ff9c::10.0.0.1", "1::ffff:10.0.0.1" }) do
+    local no, why = refused(address)
+    assert(no and why:find("outside 2000::/3", 1, true), address .. ": " .. why)
+  end
 end
 
 local function test_6to4_and_teredo_are_refused_outright_with_their_own_reasons()
@@ -266,10 +279,10 @@ local function test_the_hosts_own_addresses_are_refused_as_their_own()
   assert(not ok)
   assert(why:find("own addresses", 1, true), why)
   assert(relay_address.check("2606:4700::6810:84e6", 443, NONE, own))
-  -- A form that carries one of them is that address.
+  -- A form that carries one of them is refused undecoded.
   ok, why = relay_address.check("::ffff:8.8.4.4", 443, NONE, own)
   assert(not ok)
-  assert(why:find("carrying 8.8.4.4, one of this host's own addresses", 1, true), why)
+  assert(why:find("an IPv4-mapped address, which the relay does not decode", 1, true), why)
   ok, why = relay_address.check("64:ff9b::8.8.4.4", 443, NONE, own)
   assert(not ok)
   assert(why:find("a NAT64 address", 1, true), why)
@@ -303,8 +316,8 @@ local function test_a_refusal_names_the_class_and_the_remedy()
   _, why = relay_address.check("::1", 8080, NONE, NO_OWN)
   assert(why == "::1 is a loopback address: grant it literally with --connect [::1]:8080", why)
   _, why = relay_address.check("::ffff:192.168.1.1", 22, NONE, NO_OWN)
-  assert(why == "::ffff:192.168.1.1 is an IPv4-mapped address carrying 192.168.1.1, " ..
-      "a private address: grant it literally with --connect [::ffff:192.168.1.1]:22", why)
+  assert(why == "::ffff:192.168.1.1 is an IPv4-mapped address, which the relay does not decode: " ..
+      "grant it literally with --connect [::ffff:192.168.1.1]:22", why)
 end
 
 local function test_text_that_is_no_numeric_address_is_refused()
