@@ -112,6 +112,27 @@ else
     assert_terminal_refusal(child, trouble, "fds[3]")
     assert(sys.close(pty.slave))
     assert(sys.close(pty.master))
+
+    -- The relay's own start accepts the terminal under a policy, as the
+    -- program's stdio and its controlling terminal, and still refuses one
+    -- on another descriptor.
+    pty = assert(sys.openpty())
+    local other = assert(sys.openpty())
+    assert(sys.tcraw(pty.slave))
+    local program = { "/bin/sh", "-c", "test -t 0 && test -t 1 && test -t 2 && printf held-terminal" }
+    child, trouble = Child.start_on_terminal(program,
+      { policy = { profiles = { "system" } }, fds = { [3] = other.slave } }, pty.slave)
+    assert_terminal_refusal(child, trouble, "fds[3]")
+    local own_stdin = pcall(Child.start_on_terminal, program, { stdin = "null" }, pty.slave)
+    assert(not own_stdin)
+    local held = assert(Child.start_on_terminal(program, { policy = { profiles = { "system" } } }, pty.slave))
+    assert(sys.close(pty.slave))
+    assert(Poll.readable(pty.master, Clock.seconds(5)))
+    assert((assert(sys.read(pty.master, 100))) == "held-terminal")
+    assert((assert(held:wait())).code == 0)
+    assert(sys.close(pty.master))
+    assert(sys.close(other.slave))
+    assert(sys.close(other.master))
   end
 end
 print("pty: PASS")

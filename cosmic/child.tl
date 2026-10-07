@@ -2087,10 +2087,12 @@ end
 
 --- Resolves the options into the descriptor each child slot copies:
 --- nil to inherit, or a descriptor number.
-local function wire(opts: Options, wiring: Wiring): {integer:integer} | nil, string
+local function wire(opts: Options, wiring: Wiring, relay_slave?: integer): {integer:integer} | nil, string
   local slots: {integer:integer} = {}
   local stdin = descriptor(opts.stdin, "stdin", STDIN_WORDS)
-  if opts.input ~= nil or stdin == "stream" then
+  if relay_slave ~= nil then
+    slots[0], slots[1], slots[2] = relay_slave, relay_slave, relay_slave
+  elseif opts.input ~= nil or stdin == "stream" then
     local ends, trouble = raw.pipe()
     if ends == nil then return nil, trouble end
     wiring.child_ends[#wiring.child_ends + 1] = ends.reader
@@ -2115,16 +2117,18 @@ local function wire(opts: Options, wiring: Wiring): {integer:integer} | nil, str
   elseif stdin is integer then
     slots[0] = stdin
   end
-  local out, out_trouble = wire_output(wiring, 1, descriptor(opts.stdout, "stdout", STDOUT_WORDS))
-  if out_trouble ~= "" then return nil, out_trouble end
-  slots[1] = out
-  local stderr = descriptor(opts.stderr, "stderr", STDERR_WORDS)
-  if stderr == "stdout" then
-    slots[2] = slots[1] or 1
-  else
-    local err, err_trouble = wire_output(wiring, 2, stderr)
-    if err_trouble ~= "" then return nil, err_trouble end
-    slots[2] = err
+  if relay_slave == nil then
+    local out, out_trouble = wire_output(wiring, 1, descriptor(opts.stdout, "stdout", STDOUT_WORDS))
+    if out_trouble ~= "" then return nil, out_trouble end
+    slots[1] = out
+    local stderr = descriptor(opts.stderr, "stderr", STDERR_WORDS)
+    if stderr == "stdout" then
+      slots[2] = slots[1] or 1
+    else
+      local err, err_trouble = wire_output(wiring, 2, stderr)
+      if err_trouble ~= "" then return nil, err_trouble end
+      slots[2] = err
+    end
   end
   if opts.fds ~= nil then
     local numbers: {integer} = {}
@@ -3234,11 +3238,13 @@ local function nest_descriptors(slots: {integer:integer}): string
   return ""
 end
 
---- [`Child.start`] on options already validated.
-local function start(argv: {string}, opts: Options): Handle | nil, string
+--- [`Child.start`] on options already validated. With `relay_slave`, the
+--- slave of a pty the caller's relay owns, which opts.stdin, stdout and
+--- stderr all name and which is not refused as a terminal is.
+local function start(argv: {string}, opts: Options, relay_slave?: integer): Handle | nil, string
   -- Refuse an explicit terminal before inspecting any platform policy:
   -- it needs a relay even on a host that cannot apply that policy.
-  if opts.policy ~= nil then
+  if opts.policy ~= nil and relay_slave == nil then
     local streams: {integer: integer | string} = { [0] = opts.stdin, [1] = opts.stdout, [2] = opts.stderr }
     for number, stream in pairs(streams) do
       if stream is integer and isatty(stream) then
@@ -3259,7 +3265,7 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
     adopting = subreaper
   end
   local wiring: Wiring = { child_ends = {}, ours = {}, streams = {} }
-  local slots, wire_trouble = wire(opts, wiring)
+  local slots, wire_trouble = wire(opts, wiring, relay_slave)
   if slots == nil then
     unwire(wiring, false)
     return refuse("start: " .. wire_trouble)
@@ -3271,7 +3277,7 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
     -- every binding refuses them by raising; any other raise is rethrown.
     for number = 0, 2 do
       local fd = slots[number] or number
-      if isatty(fd) then
+      if relay_slave == nil and isatty(fd) then
         unwire(wiring, false)
         return refuse("start: sandbox: terminal stdio[" .. number .. "] needs the verb's pty relay")
       end
@@ -3346,7 +3352,7 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
   -- not leave it, nor the descriptors wired, behind.
   local run_argv = held ~= nil and held.argv or argv
   local called, pid, trouble, errno = pcall(raw.spawn, path, run_argv, env, cwd,
-    slots[0], slots[1], slots[2], grouped, extra, sandbox, credentials)
+    slots[0], slots[1], slots[2], grouped, extra, sandbox, credentials, relay_slave ~= nil)
   if not called then
     unwire(wiring, false)
     if held ~= nil and held.tmp ~= "" then
@@ -3414,6 +3420,28 @@ function Child.start(argv: {string}, opts?: Options): Handle | nil, string
   opts = opts or {}
   validate(argv, opts)
   return start(argv, opts)
+end
+
+--- Starts a program as [`Child.start`] does, with the pty slave `slave`
+--- (from [`sys.openpty`]) as its stdin, stdout and stderr and as the
+--- controlling terminal of a session of its own, made before the
+--- policy's confinement. It is the one start that accepts a terminal
+--- under a `policy`, which [`Child.start`] refuses: only the caller that
+--- owns the pty's master and filters what comes from it (the relay of
+--- `cosmic sandbox`) may use it, since a program given a terminal
+--- it does not own can inject input into its session or write control
+--- sequences to the user's. `opts` names no stdin, stdout, stderr or
+--- input of its own, and any other descriptor that is a terminal is refused as
+--- it is by [`Child.start`]. The caller keeps `slave` open, and closes
+--- it once this returns. The child is the leader of a new session, so
+--- `process_group` has no say. Where the platform cannot give a child a
+--- controlling terminal (macOS) it fails with ENOSYS's message.
+function Child.start_on_terminal(argv: {string}, opts: Options, slave: integer): Handle | nil, string
+  validate(argv, opts)
+  if opts.stdin ~= nil or opts.stdout ~= nil or opts.stderr ~= nil or opts.input ~= nil then
+    error("child: start_on_terminal takes no stdin, stdout, stderr or input: the terminal is all three", 2)
+  end
+  return start(argv, opts, slave)
 end
 
 --- Waits for the first of several handles to finish, servicing every
