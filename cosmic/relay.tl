@@ -65,11 +65,32 @@
 --- Name resolution holds the thread until it answers, as [`Net.resolve`]
 --- does, so every other connection waits meanwhile: at most the `resolve`
 --- timeout.
---- The relay asks no credentials: its listeners are in the sandbox's own
---- network, which only the sandbox reaches.
--- TODO: ask for the per-sandbox token (a CONNECT's Proxy-Authorization, a
--- SOCKS5 username and password: cosmic.relay_wire's readers parse both) once
--- Seatbelt applies a policy and the relay listens on the host's loopback on macOS.
+---
+--- The relay asks for no credentials unless its spec carries a `token`, as
+--- the listeners of a sandbox whose network is its own need none. With one,
+--- it is the first thing every connection is held to, before the grants:
+--- a CONNECT carries it as the password of a Basic `Proxy-Authorization`
+--- (any user name), and a SOCKS5 client as the password of RFC 1929's
+--- username and password (any user name), the only method it selects. A
+--- connection that does not is refused (407, or a failed authentication
+--- and a close) and logged as one short line that never holds a credential;
+--- it is no flow. A connection counts against `connections`, `total` and
+--- the stats only once it has authenticated; until then it counts against
+--- [`Relay.Limits.pre_auth`] alone, which the `auth` timeout bounds in time,
+--- so a program that opens connections and never authenticates cannot
+--- spend what an authenticated one is given. Authenticating has a wait of
+--- its own, the `auth` timeout (3 seconds, from the connection's first read
+--- to the credential, the `head` wait starting after it). A process that can
+--- reach the listener can still fill the pre-auth slots and keep them
+--- filled, each held for at most the `auth` timeout, and so delay a
+--- connection that arrives meanwhile by about that long: the relay bounds
+--- the harm, and cannot tell that process from the program. The user name
+--- is any value: a SOCKS5 one must be 1 to 255 bytes (RFC 1929) and an empty
+--- one is refused; `cosmic sandbox connect` sends "cosmic" for an empty one.
+-- TODO: have `cosmic sandbox` draw a token, hand it to cosmic.relay_serve's spec and
+-- put it in the sandbox's ALL_PROXY and https_proxy userinfo, once Seatbelt applies
+-- a policy and the relay listens on the host's loopback on macOS; nothing sets
+-- `token` until then.
 ---
 ---     local server = Relay.start({
 ---       http = http_listener, socks = socks_listener,
@@ -80,6 +101,7 @@
 
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
+local Hash = require("cosmic.hash")
 local Log = require("cosmic.log")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
@@ -107,6 +129,10 @@ local record Relay
     --- A request, and a ClientHello that has begun, to be read whole (10
     --- seconds): a program that dribbles one is not held.
     head: integer
+    --- With a [`Spec.token`], the whole of authenticating: a CONNECT's head
+    --- with its credential, a SOCKS5 greeting with its username and password
+    --- (3 seconds). The `head` wait starts only after it.
+    auth: integer
   end
 
   --- What the relay takes on at most; a nil field takes its default.
@@ -118,6 +144,10 @@ local record Relay
     --- Connections served in all, the relay's life being the sandbox's
     --- (100000).
     total: integer
+    --- With a [`Spec.token`], connections open at once that have not yet
+    --- authenticated (64): the listeners wait while that many are, and each
+    --- is ended by the `auth` timeout at the latest. Unused without one.
+    pre_auth: integer
   end
 
   --- The proxy a caller's `https_proxy` names, and the hosts `no_proxy`
@@ -164,15 +194,24 @@ local record Relay
     limits: Limits
     --- Where decision lines go, one call each; nil for stderr.
     log: function(line: string)
+    --- The per-sandbox token every connection must present, 16 to 255 bytes
+    --- with no control byte (255 is the most RFC 1929 carries), or nil to ask
+    --- for none. A caller draws 128 bits or more from a secure source and
+    --- writes them in a printable form (hex, base64url): a guess is bounded
+    --- by nothing but the token's entropy.
+    token: string
   end
 
   --- What a running relay has done.
   record Stats
-    --- Connections open now.
+    --- Connections open now. With a [`Spec.token`], only those that have
+    --- authenticated.
     open: integer
-    --- Connections accepted in all.
+    --- Connections accepted in all. With a [`Spec.token`], only those that
+    --- have authenticated.
     accepted: integer
-    --- Connections refused, for any reason.
+    --- Connections refused, for any reason, those that failed to
+    --- authenticate included.
     refused: integer
   end
 
@@ -191,8 +230,9 @@ end
 
 local DEFAULT_TIMEOUTS <const>: Relay.Timeouts = {
   resolve = Clock.seconds(5), connect = Clock.seconds(10), idle = Clock.minutes(5), head = Clock.seconds(10),
+  auth = Clock.seconds(3),
 }
-local DEFAULT_LIMITS <const>: Relay.Limits = { connections = 64, header_bytes = 16384, total = 100000 }
+local DEFAULT_LIMITS <const>: Relay.Limits = { connections = 64, header_bytes = 16384, total = 100000, pre_auth = 64 }
 local DEFAULT_TLS_PORTS <const>: {integer} = { 443, 853 }
 
 --- How many connections past `connections` are accepted to be refused
@@ -371,7 +411,11 @@ local record Running
   limits: Relay.Limits
   tls_ports: {integer: boolean}
   log: function(line: string)
+  --- The SHA-256 of the spec's token, or nil where it has none.
+  token_digest: string
   stopping: boolean
+  --- Connections that have not authenticated yet, where there is a token.
+  pending: integer
   open: integer
   accepted: integer
   refused: integer
@@ -407,6 +451,33 @@ end
 
 local function refusal(reason: string, http: integer, socks: Wire.SocksReply): Refusal
   return { reason = reason, http = http, socks = socks }
+end
+
+--- Whether `given` is the token, compared in constant time: both are
+--- hashed to a fixed length, and every byte of the digests is compared.
+local function is_token(run: Running, given: string): boolean
+  local have = Hash.sha256(given)
+  local want = run.token_digest
+  local diff = #have ~ #want
+  for i = 1, #want do
+    diff = diff | (have:byte(i) ~ want:byte(i))
+  end
+  return diff == 0
+end
+
+--- The password of a Basic `Proxy-Authorization` value, or nil and why not
+--- (a reason that holds none of the value).
+local function basic_password(authorization: string | nil): string | nil, string
+  if authorization == nil then return nil, "no Proxy-Authorization" end
+  local scheme, rest = authorization:match("^(%S+)%s+(.-)%s*$")
+  if scheme == nil or lower(scheme) ~= "basic" then
+    return nil, "Proxy-Authorization is not Basic"
+  end
+  local decoded, _ = Codec.unbase64(rest)
+  if decoded == nil then return nil, "Proxy-Authorization is not base64" end
+  local password = decoded:match("^[^:]*:(.*)$")
+  if password == nil then return nil, "Proxy-Authorization is not user:password" end
+  return password, ""
 end
 
 --- How a failure of connecting is told to the program.
@@ -454,7 +525,9 @@ end
 --- The request of a CONNECT connection, or a refusal to answer it with.
 local function read_connect(run: Running, conn: Net.Conn): Wire.Connect, string
   local reader = Wire.connect_reader()
-  local deadline = Clock.monotonic_ns() + run.timeouts.head
+  -- With a token the head and its credential are one wait, the auth timeout's.
+  local limit = run.token_digest ~= nil and run.timeouts.auth or run.timeouts.head
+  local deadline = Clock.monotonic_ns() + limit
   local cap = run.limits.header_bytes
   local all = ""
   while true do
@@ -462,7 +535,8 @@ local function read_connect(run: Running, conn: Net.Conn): Wire.Connect, string
     if data == nil then
       if why == Poll.TIMEOUT then
         return { status = "refused", consumed = 0, http_status = 408,
-          reason = ("request not received within %s"):format(span(run.timeouts.head)) }, ""
+          reason = ("%s not received within %s"):format(run.token_digest ~= nil and "request and credential" or "request",
+            span(limit)) }, ""
       end
       return { status = "refused", consumed = 0, http_status = 0, reason = "the program closed before its request was whole" }, ""
     end
@@ -496,17 +570,23 @@ local record Socks
   answer: boolean
 end
 
-local function read_socks(run: Running, conn: Net.Conn): Socks
-  local deadline = Clock.monotonic_ns() + run.timeouts.head
+local function read_socks(run: Running, conn: Net.Conn, authenticated: function()): Socks
+  local tokened = run.token_digest ~= nil
+  -- With a token, greeting and credential are one wait, the auth timeout's;
+  -- the request's wait, the head timeout's, starts once it has passed.
+  local limit = tokened and run.timeouts.auth or run.timeouts.head
+  local authing = tokened
+  local deadline = Clock.monotonic_ns() + limit
   local cap = run.limits.header_bytes
   local function early(why: string, reply: Wire.SocksReply, answer: boolean): Socks
     return { status = "refused", reason = why, reply = reply, answer = answer, host = "", kind = "name", port = 0, leftover = "" }
   end
   local function timed_out(): Socks
-    return early(("request not received within %s"):format(span(run.timeouts.head)),
+    return early(("%s not received within %s"):format(
+      authing and "greeting and credential" or "request", span(limit)),
       "ttl_expired", false)
   end
-  local greeting = Wire.socks_greeting_reader()
+  local greeting = Wire.socks_greeting_reader(run.token_digest ~= nil)
   local all = ""
   local greeted: Wire.SocksGreeting
   while true do
@@ -526,11 +606,57 @@ local function read_socks(run: Running, conn: Net.Conn): Socks
     end
     return early(greeted.reason, "failure", false)
   end
+  -- Whatever the greeting reader chose, a relay with a token serves nothing
+  -- but a client that has sent it.
+  if tokened and greeted.method ~= 2 then
+    local _ = send(conn, Wire.socks_method_reply(255), run.timeouts.head)
+    return early("not authenticated: the relay takes only username/password authentication", "failure", false)
+  end
   if not send(conn, Wire.socks_method_reply(greeted.method), run.timeouts.head) then
     return early("the program closed before its request was whole", "failure", false)
   end
-  local request = Wire.socks_request_reader()
   local rest = all:sub(greeted.consumed + 1)
+  if tokened then
+    local auth = Wire.socks_auth_reader()
+    local given: Wire.SocksAuth
+    local fed = ""
+    while true do
+      local data: string
+      if rest ~= "" then
+        data, rest = rest, ""
+      else
+        local got, why = read_before(conn, deadline, CHUNK)
+        if got == nil then
+          if why == Poll.TIMEOUT then return timed_out() end
+          return early("the program closed before its request was whole", "failure", false)
+        end
+        data = got
+      end
+      fed = fed .. data
+      given = auth:feed(data)
+      if given.status ~= "more" then
+        -- What follows the message is the request's.
+        rest = fed:sub(given.consumed + 1)
+        break
+      end
+    end
+    if given.status == "refused" then
+      local _ = send(conn, Wire.socks_auth_reply(false), run.timeouts.head)
+      return early("not authenticated: " .. given.reason, "failure", false)
+    end
+    if not is_token(run, given.password) then
+      local _ = send(conn, Wire.socks_auth_reply(false), run.timeouts.head)
+      return early("not authenticated: the password is not the sandbox's token", "failure", false)
+    end
+    if not send(conn, Wire.socks_auth_reply(true), run.timeouts.head) then
+      return early("the program closed before its request was whole", "failure", false)
+    end
+    authenticated()
+    limit = run.timeouts.head
+    authing = false
+    deadline = Clock.monotonic_ns() + limit
+  end
+  local request = Wire.socks_request_reader()
   local held = ""
   while true do
     local data: string
@@ -773,8 +899,44 @@ local function tunnel(run: Running, req: Request, client: Net.Conn, far: Net.Con
   return ended
 end
 
---- Serves one accepted connection.
-local function serve_connection(run: Running, protocol: string, client: Net.Conn, id: integer, over: string)
+--- Why a connection that arrives now is refused outright, or "".
+local function over_cap(run: Running): string
+  if run.accepted > run.limits.total then
+    return ("connection budget spent: this sandbox's relay serves at most %s"):format(String.counted(run.limits.total, "connection"))
+  end
+  if run.open > run.limits.connections then
+    return ("too many open connections: at most %d at once"):format(run.limits.connections)
+  end
+  return ""
+end
+
+--- Where one connection stands in the relay's counts.
+local record Slot
+  --- Whether it is in the count of connections not yet authenticated.
+  pre_auth: boolean
+  --- Whether it is in the counts of open and accepted connections.
+  admitted: boolean
+end
+
+--- Moves the connection of `slot` into the counts of open and accepted
+--- connections, from the pre-auth count where it was; answers why it is
+--- refused outright, or "".
+local function admit(run: Running, slot: Slot): string
+  if slot.pre_auth then
+    run.pending = run.pending - 1
+    slot.pre_auth = false
+  end
+  slot.admitted = true
+  run.open = run.open + 1
+  run.accepted = run.accepted + 1
+  return over_cap(run)
+end
+
+--- Serves one accepted connection. `over` is why it is refused outright, or
+--- "" when it is counted already; nil where it is counted once it has
+--- authenticated.
+local function serve_connection(run: Running, protocol: string, client: Net.Conn, id: integer, slot: Slot,
+                                over: string | nil)
   local req: Request = { id = id, protocol = protocol, client = client, host = "", kind = "name", port = 0, leftover = "" }
   local function reject(why: Refusal, replied: boolean)
     run.refused = run.refused + 1
@@ -782,12 +944,16 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
     run.log(("#%d %s%s: refused: %s"):format(id, protocol, at, why.reason))
     if replied then
       if protocol == "connect" then
-        local _ = send(client, Wire.connect_refusal(why.http, why.reason), run.timeouts.head)
+        local phrase = why.http == 407 and "Proxy Authentication Required" or why.reason
+        local _ = send(client, Wire.connect_refusal(why.http, phrase), run.timeouts.head)
       else
         local _ = send(client, Wire.socks_reply(why.socks), run.timeouts.head)
       end
     end
     close_refused(client)
+  end
+  local function authenticated()
+    if over == nil then over = admit(run, slot) end
   end
   if protocol == "connect" then
     local head, rest = read_connect(run, client)
@@ -795,9 +961,18 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
       reject(refusal(head.reason, head.http_status == 0 and 400 or head.http_status, "failure"), head.http_status ~= 0)
       return
     end
+    if run.token_digest ~= nil then
+      local password, why = basic_password(head.authorization)
+      if password == nil or not is_token(run, password) then
+        reject(refusal("not authenticated: " .. (why ~= "" and why or "the password is not the sandbox's token"),
+          407, "failure"), true)
+        return
+      end
+      authenticated()
+    end
     req.host, req.kind, req.port, req.leftover = head.host, head.kind, head.port, rest
   else
-    local asked = read_socks(run, client)
+    local asked = read_socks(run, client, authenticated)
     if asked.status == "refused" then
       reject(refusal(asked.reason, 400, asked.reply), asked.answer)
       return
@@ -805,6 +980,11 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
     req.host, req.kind, req.port, req.leftover = asked.host, asked.kind, asked.port, asked.leftover
   end
   local shown = target(req.host, req.port)
+  if over == nil then
+    -- A relay with a token has admitted nothing that did not authenticate.
+    reject(refusal("not authenticated", 407, "failure"), true)
+    return
+  end
   if over ~= "" then
     reject(refusal(over, 503, "failure"), true)
     return
@@ -891,21 +1071,11 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
   tunnel(run, req, client, far, first, sniff)
 end
 
---- Why a connection that arrives now is refused outright, or "".
-local function over_cap(run: Running): string
-  if run.accepted > run.limits.total then
-    return ("connection budget spent: this sandbox's relay serves at most %s"):format(String.counted(run.limits.total, "connection"))
-  end
-  if run.open > run.limits.connections then
-    return ("too many open connections: at most %d at once"):format(run.limits.connections)
-  end
-  return ""
-end
-
 --- Takes the connections of `listener`, each in a task of its own.
 local function accept_loop(run: Running, listener: Net.Listener, protocol: string)
   while not run.stopping do
-    if run.open >= run.limits.connections + REFUSING then
+    if run.open >= run.limits.connections + REFUSING or
+        (run.token_digest ~= nil and run.pending >= run.limits.pre_auth) then
       local ok, _ = Poll.delay(Clock.ms(20))
       if not ok then return end
     else
@@ -916,15 +1086,20 @@ local function accept_loop(run: Running, listener: Net.Listener, protocol: strin
         local ok, _ = Poll.delay(Clock.ms(50))
         if not ok then return end
       else
-        run.open = run.open + 1
-        run.accepted = run.accepted + 1
         run.next_id = run.next_id + 1
         local id = run.next_id
-        local over = over_cap(run)
+        local slot: Slot = { pre_auth = false, admitted = false }
+        local over: string | nil
+        if run.token_digest ~= nil then
+          slot.pre_auth = true
+          run.pending = run.pending + 1
+        else
+          over = admit(run, slot)
+        end
         run.live[id] = { conn }
         run.tasks[id] = Poll.spawn(function()
           local ok, trouble = pcall(function(): boolean
-            serve_connection(run, protocol, conn, id, over)
+            serve_connection(run, protocol, conn, id, slot, over)
             return true
           end)
           if not ok then
@@ -937,7 +1112,11 @@ local function accept_loop(run: Running, listener: Net.Listener, protocol: strin
           end
           run.live[id] = nil
           run.tasks[id] = nil
-          run.open = run.open - 1
+          if slot.pre_auth then
+            run.pending = run.pending - 1
+          elseif slot.admitted then
+            run.open = run.open - 1
+          end
         end)
       end
     end
@@ -1009,6 +1188,10 @@ function Relay.start(spec: Relay.Spec): Relay.Serving
   table_or_nil(spec.tls_ports, "tls_ports")
   if spec.upstream ~= nil then checked_upstream(spec.upstream) end
   if not Poll.in_task() then error("relay: start runs in a task of Poll.run", 2) end
+  if spec.token ~= nil and (type(spec.token) ~= "string" or #spec.token < 16 or #spec.token > 255 or
+      spec.token:find("[%c\127]")) then
+    error("relay: spec.token must be a string of 16 to 255 bytes with no control byte (draw 128 bits or more)", 2)
+  end
   local given_timeouts: Relay.Timeouts = spec.timeouts or {}
   local given_limits: Relay.Limits = spec.limits or {}
   local timeouts: Relay.Timeouts = {
@@ -1016,11 +1199,13 @@ function Relay.start(spec: Relay.Spec): Relay.Serving
     connect = chosen(given_timeouts.connect, DEFAULT_TIMEOUTS.connect, "timeouts.connect"),
     idle = chosen(given_timeouts.idle, DEFAULT_TIMEOUTS.idle, "timeouts.idle"),
     head = chosen(given_timeouts.head, DEFAULT_TIMEOUTS.head, "timeouts.head"),
+    auth = chosen(given_timeouts.auth, DEFAULT_TIMEOUTS.auth, "timeouts.auth"),
   }
   local limits: Relay.Limits = {
     connections = chosen(given_limits.connections, DEFAULT_LIMITS.connections, "limits.connections"),
     header_bytes = chosen(given_limits.header_bytes, DEFAULT_LIMITS.header_bytes, "limits.header_bytes"),
     total = chosen(given_limits.total, DEFAULT_LIMITS.total, "limits.total"),
+    pre_auth = chosen(given_limits.pre_auth, DEFAULT_LIMITS.pre_auth, "limits.pre_auth"),
   }
   local tls: {integer: boolean} = {}
   for _, port in ipairs(spec.tls_ports or DEFAULT_TLS_PORTS) do
@@ -1033,7 +1218,7 @@ function Relay.start(spec: Relay.Spec): Relay.Serving
   local names, notes = name_grants(spec.grants)
   local run: Running = {
     spec = spec, names = names, own = Address.own_addresses(spec.own_addresses or {}), timeouts = timeouts,
-    limits = limits, tls_ports = tls,
+    limits = limits, tls_ports = tls, token_digest = spec.token ~= nil and Hash.sha256(spec.token) or nil,
     log = function(line: string)
       -- A line carries what the program chose (a refused version, a resolver's
       -- words), so it is cut to a length and its control bytes shown as "?".
@@ -1044,7 +1229,7 @@ function Relay.start(spec: Relay.Spec): Relay.Serving
         local _, _ = logger:complain(clean)
       end
     end,
-    stopping = false, open = 0, accepted = 0, refused = 0, next_id = 0, live = {}, tasks = {}, acceptors = {},
+    stopping = false, pending = 0, open = 0, accepted = 0, refused = 0, next_id = 0, live = {}, tasks = {}, acceptors = {},
   }
   for _, note in ipairs(notes) do run.log(note) end
   if spec.upstream ~= nil then
