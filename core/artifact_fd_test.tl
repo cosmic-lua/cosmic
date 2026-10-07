@@ -114,6 +114,7 @@ local cases: {string: function(at: integer, fd: integer): {any}} = {
       at == 3 and fd or 0, at == 4 and fd or 0 }
   end,
   accept = function(_: integer, fd: integer): {any} return { fd } end,
+  adopt = function(_: integer, fd: integer): {any} return { fd } end,
   send = function(_: integer, fd: integer): {any} return { fd, "" } end,
   sendfds = function(at: integer, fd: integer): {any}
     if at == 1 then return { fd, { 0 } } end
@@ -125,6 +126,7 @@ local cases: {string: function(at: integer, fd: integer): {any}} = {
   end,
   recvfrom = function(_: integer, fd: integer): {any} return { fd, 1 } end,
   bound = function(_: integer, fd: integer): {any} return { fd } end,
+  peer = function(_: integer, fd: integer): {any} return { fd } end,
   connected = function(_: integer, fd: integer): {any} return { fd } end,
   shutdown = function(_: integer, fd: integer): {any} return { fd, "both" } end,
   wait = function(_: integer, fd: integer): {any} return { fd, false, 0 } end,
