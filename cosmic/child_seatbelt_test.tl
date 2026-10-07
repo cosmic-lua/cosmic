@@ -252,8 +252,8 @@ end
 
 --- The core a failing test ran on, as the program's own store names it.
 local function core_identity(): string
-  return "host_image=" .. tostring(Store.meta("host_image")) .. " image_hash="
-    .. tostring(Store.meta("image_hash")) .. " runtime=" .. tostring(Store.meta("runtime"))
+  return "host_image=" .. tostring(Store.meta("host_image")) .. " image_hash=" ..
+    tostring(Store.meta("image_hash")) .. " runtime=" .. tostring(Store.meta("runtime"))
 end
 
 --- A controlling terminal is not yet given to a program on macOS.
@@ -262,8 +262,8 @@ local function test_a_terminal_start_is_refused_where_none_survives_the_exec()
   local process = process_table()
   local pid, why, errno = process.spawn(SH, { SH, "-c", "exit 0" }, nil, nil,
     nil, nil, nil, true, nil, nil, nil, true)
-  local said = tostring(pid) .. ", " .. tostring(why) .. ", " .. tostring(errno)
-    .. " (core " .. core_identity() .. ")"
+  local said = tostring(pid) .. ", " .. tostring(why) .. ", " .. tostring(errno) ..
+    " (core " .. core_identity() .. ")"
   if pid ~= nil then process.waitpid(pid, false) end
   assert(pid == nil, "a terminal start ran: " .. said)
   assert(errno == sys.ENOSYS, "the refusal was not ENOSYS: " .. said)
