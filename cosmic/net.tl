@@ -664,9 +664,10 @@ end
 --- "name server failed" (an error or malformed answer),
 --- [`Poll.TIMEOUT`], "interrupted" (an open [`Child.guard`] caught a
 --- signal), or the system's words ("Connection refused" where every
---- server refuses). A `name` that is empty, over 254 bytes or holds a NUL or a "%", or
---- a `servers` list or `hosts_file` the resolver refuses, fails "Invalid argument". The call holds the thread until
---- it answers, in a task of [`Poll.run`] too. A `name` that is no string
+--- server refuses). A `name` that is empty, over 254 bytes or holds a
+--- NUL or a "%", and a `servers` list or `hosts_file` the resolver
+--- refuses, fail "Invalid argument". The call holds the thread until it
+--- answers, in a task of [`Poll.run`] too. A `name` that is no string
 --- or an option of the wrong shape raises.
 function Net.resolve(name: string, opts?: Net.ResolveOptions): {Net.Resolved} | nil, string
   if not (name is string) then error("net: name must be a string", 2) end
