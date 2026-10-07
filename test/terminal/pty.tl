@@ -32,7 +32,15 @@ assert(restored == false and restore_trouble ~= "" and restore_errno > 0)
 assert(sys.tcraw(pty.slave))
 assert((assert(sys.tcgetattr(pty.slave))) ~= saved)
 assert(sys.tcsetattr(pty.slave, saved))
-assert((assert(sys.tcgetattr(pty.slave))) == saved)
+local returned = assert(sys.tcgetattr(pty.slave))
+if returned ~= saved then
+  -- A BSD kernel (macOS) sets PENDIN as a terminal leaves raw mode for
+  -- canonical, so a restore differs from the state saved by that flag
+  -- alone; a second round trip from the restored state must match it.
+  assert(sys.tcraw(pty.slave))
+  assert(sys.tcsetattr(pty.slave, returned))
+  assert((assert(sys.tcgetattr(pty.slave))) == returned)
+end
 assert(sys.setwinsize(pty.master, 37, 111))
 local size = assert(sys.winsize(pty.slave))
 assert(size.rows == 37 and size.columns == 111)

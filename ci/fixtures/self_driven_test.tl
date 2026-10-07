@@ -91,5 +91,6 @@ local function test_the_product_prepares_and_restores_terminals(tmp: string)
     { product, source .. "/test/terminal/pty.tl", "bindings" }, tmp, diagnostics,
     Fixture.environment(), Clock.seconds(30))
   local captured = Fixture.succeeded("pty-bindings", outcome)
-  assert(captured.out:find("pty: PASS", 1, true), captured.out)
+  local out = Fixture.read(captured.out)
+  assert(out:find("pty: PASS", 1, true), out)
 end
