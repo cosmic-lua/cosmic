@@ -38,6 +38,25 @@ local function test_the_binary_s_database_inflates_its_source()
     "the query and Store.source read the same text")
 end
 
+--- [`Store.paths`] lists the file of each database the store searches and
+--- the `-wal` and `-shm` beside it, and nothing else.
+local function test_paths_lists_the_stores_files_and_their_siblings(tmp: string)
+  local path = tmp .. "/listed.db"
+  local db = assert(Sqlite.open(path, { writable = true }))
+  assert(db:exec("CREATE TABLE t (v TEXT)"))
+  assert(db:close())
+  assert(Store.attach(path))
+  -- The one attached last is searched first. The tmp directory may be
+  -- reached through a link, so its name is matched by its tail.
+  local listed = Store.paths()
+  local first = listed[1]
+  assert(first:sub(-#"/listed.db") == "/listed.db", first)
+  assert(listed[2] == first .. "-wal", "its write-ahead log")
+  assert(listed[3] == first .. "-shm", "its shared memory")
+  local count = #listed
+  assert(count == 3 * #Store.databases(), "three files to each database, no other")
+end
+
 --- Asserts a call failed as a store handle's refusal does: nil or false,
 --- and why.
 local function refused(value: any, message: any)
