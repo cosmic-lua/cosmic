@@ -138,6 +138,60 @@ _Noreturn void cosmic_sandbox_init (void);
 COSMIC_SYSCALL(user, 1);
 
 /*
+ * --- One numeric TCP endpoint already resolved and approved by the sandbox's trusted launcher. Port 0 grants ports 1 through 65535 at this address; it does not grant another address.
+ * ---@class ConnectorEndpoint
+ * ---@field host string a canonical numeric IPv4 or IPv6 address, without a scope
+ * ---@field port integer the granted port, or 0 for any nonzero port
+ */
+
+/*
+ * --- Makes the private stream socketpair a native connector uses. Both descriptors are close-on-exec and the caller must close both. No child is started.
+ * ---@return {integer}|nil pair two owned Unix stream descriptors, or nil on failure
+ * ---@return string error what went wrong, when pair is nil
+ * ---@return integer errno the error number, when pair is nil
+ */
+COSMIC_SYSCALL(connector_pair, 0);
+
+/*
+ * --- Starts the sandbox's native TCP connector, held to at most 128 approved numeric endpoints in immutable memory and no file access, exec, fork or descriptor replacement. Wildcard port tables together hold at most 262144 addresses. The caller supplies one end of connector_pair, retains ownership of it, and closes its copy after starting. Requests are eight bytes: big-endian 1-based endpoint index and port. A reply is a big-endian errno, then, on success only, the NUL marker and one SCM_RIGHTS descriptor recvfds expects. Closing the other end ends the connector; the caller owns and reaps its pid. Linux x86_64 and aarch64; ENOSYS elsewhere.
+ * ---@param endpoints {ConnectorEndpoint} the launcher's checked, frozen numeric endpoints
+ * ---@param control integer the private Unix stream descriptor, checked like every descriptor
+ * ---@param timeout_ms integer connect deadline, from 1 to 60000 milliseconds
+ * ---@return integer|nil pid the confined child, or nil on failure
+ * ---@return string error what went wrong, when pid is nil
+ * ---@return integer errno the error number, when pid is nil
+ */
+COSMIC_SYSCALL(connector_start, 3);
+
+/*
+ * --- A synthetic immutable address-table range used to inspect the connector's seccomp program, without installing one.
+ * ---@class ConnectorRange
+ * ---@field base integer address of the first 128-byte table slot, aligned to 128
+ * ---@field slots integer number of slots, from 1 to 65535
+ * ---@field length integer sockaddr size: 16 for Linux IPv4, 28 for Linux IPv6
+ */
+
+/*
+ * --- Builds the native connector's actual seccomp program for either supported Linux architecture; its layout is promise_filter's eight-byte instructions. No filter is applied.
+ * ---@param architecture string "x86_64" or "aarch64"
+ * ---@param ranges {ConnectorRange} the immutable table ranges, at most 128
+ * ---@param control integer the protected private Unix stream descriptor
+ * ---@param status integer the startup pipe descriptor
+ * ---@return string program the generated classic BPF program
+ */
+COSMIC_SYSCALL(connector_filter, 4);
+
+/*
+ * --- Runs a fixed native security probe in a child under the connector's actual filter, with one approved endpoint. No arbitrary code is run. An operation refused by seccomp returns its errno; a killed probe returns minus its signal number.
+ * ---@param endpoint ConnectorEndpoint the approved endpoint
+ * ---@param operation string "pointer", "length", "mutation", "mprotect", "remap", "dup", "recvmsg", "sendto", "sendmsg", "close_control", "udp", "open", "exec" or "fork"
+ * ---@return integer|nil result the refusal errno or negative terminating signal, or nil on setup failure
+ * ---@return string error what went wrong, when result is nil
+ * ---@return integer errno the setup error number, when result is nil
+ */
+COSMIC_SYSCALL(connector_probe, 2);
+
+/*
  * --- The paths a sandbox unveils, each absolute; at most `UNVEIL_MAX` in all.
  * ---@class Unveil
  * ---@field reads {string} the files and directories the child has, read-only

@@ -51,9 +51,18 @@ local init_only <const> =
 local maps_ids <const> =
   "runs only in a sandboxed child that made a user namespace: where unshare is refused it is never entered, though on a " ..
   "host that lets unshare(CLONE_NEWUSER) through and refuses the uid_map write (AppArmor's restriction) it is"
+local connector_only <const> =
+  "runs only in the native connector, whose filter forbids coverage files and whose inherited descriptors are " ..
+  "closed: the connector's live kernel probes and TCP handoff tests enter it, but it cannot report coverage"
 
 --- The C functions no test can enter, by [`key_of`], and why.
 local exempt: {string: string} = {
+  ["core/connector.c:connector_attack"] = connector_only,
+  ["core/connector.c:connector_connect"] = connector_only,
+  ["core/connector.c:connector_hold"] = connector_only,
+  ["core/connector.c:connector_loop"] = connector_only,
+  ["core/connector.c:connector_now"] = connector_only,
+  ["core/connector.c:connector_reply"] = connector_only,
   ["core/vfs.c:file_write"] = read_only,
   ["core/vfs.c:file_truncate"] = read_only,
   ["core/vfs.c:file_sync"] = read_only,

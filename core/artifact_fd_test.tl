@@ -106,6 +106,13 @@ local cases: {string: function(at: integer, fd: integer): {any}} = {
   flock = function(_: integer, fd: integer): {any} return { fd, "exclusive" } end,
   flock_kind = function(_: integer, fd: integer): {any} return { fd } end,
   set_nonblocking = function(_: integer, fd: integer): {any} return { fd, false } end,
+  connector_start = function(_: integer, fd: integer): {any}
+    return { { { host = "127.0.0.1", port = 1 } }, fd, 1 }
+  end,
+  connector_filter = function(at: integer, fd: integer): {any}
+    return { "x86_64", { { base = 128, slots = 1, length = 16 } },
+      at == 3 and fd or 0, at == 4 and fd or 0 }
+  end,
   accept = function(_: integer, fd: integer): {any} return { fd } end,
   send = function(_: integer, fd: integer): {any} return { fd, "" } end,
   sendfds = function(at: integer, fd: integer): {any}
