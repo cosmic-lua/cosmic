@@ -485,8 +485,10 @@ local record Options
   --- `promises` `fork`, `jit` and `fattr`, `env`, `set_env` and `limits`
   --- but `processes`. It fails, saying so, for what Seatbelt cannot hold --
   --- `isolate`, `connect`, `loopback`, `nest`, a grant's `from`,
-  --- `limits.processes` -- and for what is not yet held there: `tmp`, a
-  --- `database`, and a program that is this program's own. The child leads
+  --- `limits.processes`. This program, and any program on a `database`,
+  --- runs as its core, as under Landlock: the core is granted `rx` and the
+  --- database `r` (it is opened read-only and immutable); `tmp` is a
+  --- directory made for the start and granted `rwc`. The child leads
   --- a session of its own, with no controlling terminal, so `process_group`
   --- false is refused there. A start from a
   --- process Seatbelt already holds fails closed, as its profile is refused
@@ -2511,6 +2513,9 @@ local record Held
   --- Whether `sandbox` holds the child by Seatbelt, as on macOS, and not
   --- by Landlock and seccomp.
   seatbelt: boolean
+  --- Under Seatbelt, the profile's parameter that names `tmp`'s directory,
+  --- which [`make_tmp`] sets; nil without `tmp`.
+  tmp_parameter: string
   --- The policy's `connect` targets, which the network relay serves; nil
   --- for a policy with none, which starts no relay.
   relay: {string}
@@ -3114,6 +3119,53 @@ local function reaching(file: string, grants: {Rules.Grant}, base: string): stri
   return ""
 end
 
+--- The core a policy's program runs as, where it is this program or runs on
+--- a `database`: [`relaunch_of`]'s start, and for a `database`, with this
+--- program's own file out of the child's reach (it holds modules the
+--- database leaves out). Nil and "" for any other program, or nil and why.
+--- `user` is [`relaunch_of`]'s, and `base` the directory grants are
+--- relative to.
+local function core_of(argv: {string}, opts: Options, merged: Rules.Policy, user: MappedUser,
+                       base: string): Proc.Relaunch | nil, string
+  local database: string = merged.database
+  local program: string
+  if database ~= nil then
+    program = this_program(argv[1], opts.cwd)
+    if program == nil then
+      return nil, "sandbox: database " .. database .. ": a program runs on a database only " ..
+        "where it is this program's core, and " .. argv[1] .. " is not this program"
+    end
+  elseif not runs_this_program(argv[1], opts.cwd, merged.grants) then
+    return nil, ""
+  end
+  local found, relaunch_trouble = relaunch_of(user, database)
+  if found == nil and relaunch_trouble ~= "" then return nil, "sandbox: " .. relaunch_trouble end
+  if found == nil and database ~= nil then
+    return nil, "sandbox: database " .. database .. ": this program is a host program, " ..
+      "which has no core to start on a database"
+  end
+  if found ~= nil and database ~= nil then
+    -- The core a database program runs is the file it is started by only
+    -- where this process is that core already, so there it is granted.
+    local started, _ = Proc.relaunch()
+    local started_real: string
+    if started ~= nil then
+      local real, _ = sys.realpath(started.argv[1])
+      started_real = real
+    end
+    local own_core = started_real == program
+    local reached = own_core and "" or reaching(program, merged.grants, base)
+    if reached ~= "" then
+      return nil, "sandbox: grant \"" .. reached .. "\" reaches this program's own file, " ..
+        program .. ", which holds modules the database " .. database .. " leaves out: " ..
+        "a program on a database is given the core and the database alone (a profile's " ..
+        "grant of a directory above it, as \"system\"'s /usr is for a program installed " ..
+        "there, is such a grant: leave the profile out)"
+    end
+  end
+  return found, ""
+end
+
 --- The kernel's release, as uname(2) answers it, or "" where it fails.
 local function kernel_release(): string
   local names, _ = sys.uname()
@@ -3225,65 +3277,31 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
   -- file, which holds every module of the tree, is none of the child's.
   local relaunch: Proc.Relaunch
   local database: string = merged.database
-  local program: string
-  if database ~= nil then
-    program = this_program(argv[1], opts.cwd)
-    if program == nil then
-      return nil, "sandbox: database " .. database .. ": a program runs on a database only " ..
-        "where it is this program's core, and " .. argv[1] .. " is not this program"
-    end
+  local found, relaunch_trouble = core_of(argv, opts, merged, user, base)
+  if found == nil and relaunch_trouble ~= "" then return nil, relaunch_trouble end
+  -- A core on a database is started by path with no descriptor, so
+  -- `nest` may run it: the root binds the core and the database read-only
+  -- (no `w`, no `c`), and once the child makes a user namespace of its own
+  -- the kernel locks those binds (MNT_LOCK_READONLY, MNT_LOCKED).
+  -- A portable artifact hands its artifact and core as descriptors, which
+  -- [`nest_descriptors`] must refuse.
+  -- TODO: run a portable artifact under `nest` too, once its
+  -- relaunch runs on a database (a core and a file, no descriptor), or
+  -- nest_descriptors can hand its descriptors of read-only regular
+  -- files, which a child may reopen for writing through /proc/self/fd
+  -- where its user may.
+  if found ~= nil and nest and next(found.fds) ~= nil then
+    return nil, "sandbox: this program runs from descriptors of its artifact and core, " ..
+      "which the \"nest\" promise refuses a child"
   end
-  local on_database = database ~= nil
-  if on_database or runs_this_program(argv[1], opts.cwd, merged.grants) then
-    local found, relaunch_trouble = relaunch_of(user, database)
-    if found == nil and relaunch_trouble ~= "" then return nil, "sandbox: " .. relaunch_trouble end
-    if found == nil and on_database then
-      return nil, "sandbox: database " .. database .. ": this program is a host program, " ..
-        "which has no core to start on a database"
-    end
-    if found ~= nil and on_database then
-      -- The core a database program runs is the file it is started by only
-      -- where this process is that core already, so there it is granted.
-      local started, _ = Proc.relaunch()
-      local started_real: string
-      if started ~= nil then
-        local real, _ = sys.realpath(started.argv[1])
-        started_real = real
-      end
-      local own_core = started_real == program
-      local reached = own_core and "" or reaching(program, merged.grants, base)
-      if reached ~= "" then
-        return nil, "sandbox: grant \"" .. reached .. "\" reaches this program's own file, " ..
-          program .. ", which holds modules the database " .. database .. " leaves out: " ..
-          "a program on a database is given the core and the database alone (a profile's " ..
-          "grant of a directory above it, as \"system\"'s /usr is for a program installed " ..
-          "there, is such a grant: leave the profile out)"
-      end
-    end
-    -- A core on a database is started by path with no descriptor, so
-    -- `nest` may run it: the root binds the core and the database read-only
-    -- (no `w`, no `c`), and once the child makes a user namespace of its own
-    -- the kernel locks those binds (MNT_LOCK_READONLY, MNT_LOCKED).
-    -- A portable artifact hands its artifact and core as descriptors, which
-    -- [`nest_descriptors`] must refuse.
-    -- TODO: run a portable artifact under `nest` too, once its
-    -- relaunch runs on a database (a core and a file, no descriptor), or
-    -- nest_descriptors can hand its descriptors of read-only regular
-    -- files, which a child may reopen for writing through /proc/self/fd
-    -- where its user may.
-    if found ~= nil and nest and next(found.fds) ~= nil then
-      return nil, "sandbox: this program runs from descriptors of its artifact and core, " ..
-        "which the \"nest\" promise refuses a child"
-    end
-    if found ~= nil then
-      relaunch = found
-      merged.grants[#merged.grants + 1] = { path = found.argv[1], letters = "rx" }
-      -- A core on a database reads it, on its own start and on every
-      -- relaunch of its own; the grant is what a start that stays on it
-      -- needs, whether the database is the policy's or this process's.
-      if found.argv[2] == "--database" then
-        merged.grants[#merged.grants + 1] = { path = found.argv[3], letters = "r" }
-      end
+  if found ~= nil then
+    relaunch = found
+    merged.grants[#merged.grants + 1] = { path = found.argv[1], letters = "rx" }
+    -- A core on a database reads it, on its own start and on every
+    -- relaunch of its own; the grant is what a start that stays on it
+    -- needs, whether the database is the policy's or this process's.
+    if found.argv[2] == "--database" then
+      merged.grants[#merged.grants + 1] = { path = found.argv[3], letters = "r" }
     end
   end
   local idmap: {boolean} = {}
@@ -3332,10 +3350,10 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
   if relaunch ~= nil then
     path = relaunch.argv[1]
   elseif not path:find("/", 1, true) then
-    local found, absent = Proc.find(path)
-    if found == nil then return nil, absent end
-    local real, real_trouble = sys.realpath(found)
-    if real == nil then return nil, found .. ": " .. real_trouble end
+    local on_path, absent = Proc.find(path)
+    if on_path == nil then return nil, absent end
+    local real, real_trouble = sys.realpath(on_path)
+    if real == nil then return nil, on_path .. ": " .. real_trouble end
     path = real
   elseif file then
     local real, real_trouble = sys.realpath(named(path, base))
@@ -3466,7 +3484,7 @@ end
 --- before it runs the program, and the environment and limits the policy
 --- gives. Nil and why for a policy Seatbelt cannot hold or not yet: its
 --- own refusals, for `isolate`, `connect`, `loopback`, `nest`, `from`,
---- `limits.processes`, `tmp`, a `database` and a digest without its value.
+--- `limits.processes` and a digest without its value.
 --- It acquires nothing.
 local function held_by_seatbelt(argv: {string}, opts: Options): Held | nil, string
   local merged, why = Rules.merge(opts.policy)
@@ -3485,20 +3503,31 @@ local function held_by_seatbelt(argv: {string}, opts: Options): Held | nil, stri
     local real, _ = sys.realpath(executable)
     own = real
   end
-  local options, resolve_trouble = Seatbelt.resolve(opts.policy, opts.cwd, own)
+  -- This program, granted, and a program on a `database` run as their
+  -- core, as Linux's start has them ([`core_of`]): the launcher would fork
+  -- and unpack a core into a cache the profile does not grant. The profile
+  -- grants that core `rx` and, where it runs on a database, the database
+  -- `r` alone: the core opens it read-only and immutable.
+  local relaunch, core_trouble = core_of(argv, opts, merged, nil, opts.cwd)
+  if relaunch == nil and core_trouble ~= "" then return nil, core_trouble end
+  local core: string
+  local sealed: string
+  if relaunch ~= nil then
+    local real, real_trouble = sys.realpath(relaunch.argv[1])
+    if real == nil then return nil, "sandbox: " .. relaunch.argv[1] .. ": " .. real_trouble end
+    core = real
+    merged.grants[#merged.grants + 1] = { path = core, letters = "rx" }
+    if relaunch.argv[2] == "--database" then
+      sealed = relaunch.argv[3]
+      merged.grants[#merged.grants + 1] = { path = sealed, letters = "r" }
+    end
+  end
+  local options, resolve_trouble = Seatbelt.resolve(opts.policy, opts.cwd, own, core, sealed)
   if options == nil then return nil, "sandbox: " .. resolve_trouble end
   local profile, compile_trouble = Seatbelt.compile(opts.policy, options)
   if profile == nil then return nil, "sandbox: " .. compile_trouble end
-  -- TODO: run this program under a policy on macOS, by a relaunch of its
-  -- core as Linux's start does ([`relaunch_of`]): the launcher would fork
-  -- and unpack a core into a cache the profile does not grant. It waits on
-  -- the core's descriptors and Seatbelt's grant of them.
-  if this_program(argv[1], opts.cwd) ~= nil then
-    return nil, "sandbox: this program cannot yet be run under a policy on macOS: its launcher " ..
-      "unpacks a core into a cache the profile does not grant"
-  end
-  local path = argv[1]
-  if not path:find("/", 1, true) then
+  local path = core or argv[1]
+  if core == nil and not path:find("/", 1, true) then
     local found, absent = Proc.find(path)
     if found == nil then return nil, absent end
     local real, real_trouble = sys.realpath(found)
@@ -3512,7 +3541,7 @@ local function held_by_seatbelt(argv: {string}, opts: Options): Held | nil, stri
   if files == nil then return nil, loader_trouble end
   local missing = ungranted(files, merged.grants, opts.cwd)
   if missing ~= "" then return nil, "sandbox: " .. missing end
-  local parameters = 0
+  local parameters = profile.tmp ~= nil and 1 or 0
   for _, _ in pairs(profile.parameters) do parameters = parameters + 1 end
   if parameters > raw.SEATBELT_PARAMETER_MAX then
     return nil, "sandbox: grants: the paths the profile holds, " .. parameters .. ", are past the " ..
@@ -3524,12 +3553,27 @@ local function held_by_seatbelt(argv: {string}, opts: Options): Held | nil, stri
     if value ~= nil then env[name] = value end
   end
   for name, value in pairs(merged.set_env) do env[name] = value end
+  local run_argv: {string}
+  if relaunch ~= nil then
+    for name, value in pairs(relaunch.env) do env[name] = value end
+    -- As under Landlock: run as `--standalone`, writing no o/ beside the
+    -- core, unless the policy says otherwise.
+    if env.COSMIC_STANDALONE == nil then env.COSMIC_STANDALONE = "1" end
+    run_argv = {}
+    for _, word in ipairs(relaunch.argv) do run_argv[#run_argv + 1] = word end
+    for i = 2, #argv do run_argv[#run_argv + 1] = argv[i] end
+  end
+  if relaunch ~= nil and merged.database ~= nil then
+    local holds, held_why = Rules.database_is(merged, relaunch.argv[3])
+    if not holds then return nil, "sandbox: " .. held_why end
+  end
   local sandbox: raw_process.Sandbox = {
     seatbelt = { profile = profile.text, parameters = profile.parameters },
     rlimits = profile.rlimits,
   }
-  return { path = path, env = env, tmp = "", wants_tmp = false, sandbox = sandbox, nests = false,
-    seatbelt = true }, ""
+  return { path = path, env = env, tmp = "", wants_tmp = merged.tmp, tmp_parameter = profile.tmp,
+    sandbox = sandbox, nests = false, seatbelt = true, argv = run_argv,
+    fds = relaunch ~= nil and relaunch.fds or nil }, ""
 end
 
 --- Makes the temporary directory a policy's `tmp` asks for, as an absolute
@@ -3552,8 +3596,13 @@ local function make_tmp(held: Held): string
     end
   end
   held.tmp = real
-  local grants = held.sandbox.grants
-  grants[#grants + 1] = { path = real, access = "rwc" }
+  if held.seatbelt then
+    -- The profile grants the directory through a parameter, left for this.
+    held.sandbox.seatbelt.parameters[held.tmp_parameter] = real
+  else
+    local grants = held.sandbox.grants
+    grants[#grants + 1] = { path = real, access = "rwc" }
+  end
   held.env.TMPDIR = real
   return ""
 end
