@@ -575,10 +575,17 @@ local function denials(): string
     { stdout = "capture", stderr = "capture", stdin = "null", timeout_ns = Clock.seconds(6) })
   if result == nil then return "log: unavailable" end
   local lines: {string} = {}
+  local seen: {string:boolean} = {}
   for line in (result.stdout or ""):gmatch("[^\n]+") do
     for _, name in ipairs({ "perl", "scutil", "dscacheutil", "nc(", "bash", "sh(", "true" }) do
-      if line:find("Sandbox: " .. name, 1, true) then
-        lines[#lines + 1] = line
+      local at = line:find("Sandbox: " .. name, 1, true)
+      if at ~= nil then
+        -- The pid differs with each run, and only the operation says.
+        local said = line:sub(at):gsub("%(%d+%)", "")
+        if not seen[said] then
+          seen[said] = true
+          lines[#lines + 1] = said
+        end
         break
       end
     end
@@ -600,6 +607,7 @@ local function test_what_a_resolver_is_refused_with_network_and_resolver_files(t
   local no_files = profile(strict(), { OUTBOUND })
   local _, _ = resolve_under(tmp, no_files, report, "network, no resolver files")
   local with_files = profile(strict(), { OUTBOUND, table.concat(resolver_files(nil), "\n") })
+  -- Only the second run's refusals matter: the log is read once, after both.
   local c_ares, worked = resolve_under(tmp, with_files, report, "network and resolver files")
   report[#report + 1] = denials()
   assert(compiles(tmp, text, {}), "the strict profile does not compile\n" .. table.concat(report, "\n"))
@@ -663,5 +671,39 @@ local function test_which_mach_services_a_resolver_needs(tmp: string)
   local _ = any_worked
   assert(c_ares, "the c-ares way of resolving fails even with outbound, files and the Mach list\n" ..
       table.concat(report, "\n"))
+  conclude(report)
+end
+
+--- Which resolver files the resolvers cannot do without, and whether a rule on
+--- UDP port 53 alone takes the place of all outbound network.
+local function test_which_resolver_files_and_network_a_resolver_needs(tmp: string)
+  macos_only()
+  network_or_skip()
+  local report = new_report()
+  local function with(files: {string}, network: string): string
+    local lines: {string} = { network, "(allow mach-lookup (global-name-prefix \"com.apple.SystemConfiguration\"))" }
+    for _, line in ipairs(files) do lines[#lines + 1] = line end
+    return profile(strict(), lines)
+  end
+  local _, worked = resolve_under(tmp, with(resolver_files(nil), OUTBOUND), report, "all files")
+  for _, path in ipairs(RESOLVER_FILES) do
+    local needed: {string} = {}
+    for _, resolver in ipairs(RESOLVERS) do
+      if worked[resolver.name] then
+        local ended = run_under(tmp, with(resolver_files(path), OUTBOUND), {}, resolver.argv, 3)
+        if not (ended.started and ended.text:find(resolver.works, 1, true)) then
+          needed[#needed + 1] = resolver.name
+        end
+      end
+    end
+    report[#report + 1] = "without " .. path .. ": " ..
+      (#needed == 0 and "nothing fails" or ("needed by " .. table.concat(needed, ", ")))
+  end
+  for _, network in ipairs({ "(allow network-outbound (remote udp \"*:53\"))",
+      "(allow network-outbound (remote ip \"*:53\"))", "(allow network-outbound (remote udp \"*:*\"))" }) do
+    local _, by = resolve_under(tmp, with(resolver_files(nil), network), report, network)
+    local _ = by
+  end
+  assert(worked["udp-by-resolv.conf"], "the c-ares way fails with all the files\n" .. table.concat(report, "\n"))
   conclude(report)
 end
