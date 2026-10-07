@@ -102,9 +102,7 @@ static void say (const char *format, ...) {
 }
 
 static int tty_sid (int fd) {
-  int session = 0;
-  if (ioctl(fd, TIOCGSID, &session) < 0) return -1;
-  return session;
+  return (int)tcgetsid(fd);
 }
 
 static void snapshot (const char *where) {
@@ -439,6 +437,7 @@ say("read.open.file", errno_of(sys.read(file, 4)))
 say("write.open.file", errno_of(sys.write(writable, "x")))
 say("write.open.pipe", errno_of(sys.write(pipe.writer, "x")))
 say("read.open.pipe", errno_of(sys.read(pipe.reader, 1)))
+say("flock.open.file", errno_of(sys.flock(file, "shared")))
 say("pread.open.file", errno_of(sys.pread(file, 1, 0)))
 say("reopen.file", errno_of(sys.open(scratch .. "/readable", sys.O_RDONLY)))
 say("reopen.executable", errno_of(sys.open(executable, sys.O_RDONLY)))

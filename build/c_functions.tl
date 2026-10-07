@@ -55,6 +55,11 @@ local connector_only <const> =
   "runs only in the native connector, whose filter forbids coverage files and whose inherited descriptors are " ..
   "closed: the connector's live kernel probes and TCP handoff tests enter it, but it cannot report coverage"
 
+--- Why a diagnostic of the Seatbelt probe is left out: it runs in a process
+--- its own profile has made unable to write the coverage report.
+local diagnostic: string = "runs only in cosmic/seatbelt_tty_restrict_probe_test.tl's child, after a Seatbelt " ..
+  "profile that lets it write no coverage report"
+
 --- The C functions no test can enter, by [`key_of`], and why.
 local exempt: {string: string} = {
   ["core/connector.c:connector_attack"] = connector_only,
@@ -114,6 +119,10 @@ local exempt_on: {string: {string: string}} = {
     ["core/promises.c:cosmic_promises_apply"] = "Darwin has no seccomp: spawn_program refuses a start with " ..
       "promises, ENOSYS, before any child could install a filter; a Linux run enters it " ..
       "(core/promises_child_test.tl)",
+    -- TODO: remove with `diagnostic_seatbelt_restrict`, once Sandbox.restrict holds a process by Seatbelt.
+    ["core/syscalls.c:cosmic_sys_diagnostic_seatbelt_restrict"] = diagnostic,
+    ["core/syscalls.c:diagnostic_reopen"] = diagnostic,
+    ["core/syscalls.c:diagnostic_thread"] = diagnostic,
     ["core/store.c:cosmic_store_holds_descriptor"] = "only restrict_self asks it, after the checks Darwin's " ..
       "refuses before, having neither Landlock nor seccomp; a Linux run enters it " ..
       "(cosmic/sandbox_restrict_test.tl)",
