@@ -186,6 +186,46 @@ local function test_a_public_connector_that_ended_is_passed_over()
   end)
 end
 
+--- A relay whose name servers' connector has ended can resolve no name
+--- again: the lookup that finds it so fails, and tells `lost` why, once
+--- however many lookups follow.
+local function test_a_lookup_through_an_ended_name_servers_connector_tells_lost()
+  require_native_connector()
+  local told: {string} = {}
+  local statuses: {string} = {}
+  Poll.run(function()
+    local dns = assert(Net.connector({ { host = "127.0.0.1", port = 53 } }))
+    assert(dns:close())
+    local http = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
+    local relay = Relay.start({
+      http = http, grants = { "api.test:443" }, log = function(_: string) end,
+      resolve = { connector = dns, servers = { Net.udp("127.0.0.1", 53) } },
+      connector = function(_: string, _: integer, _: integer): Net.Conn | nil, string
+        return nil, "nothing is connected here"
+      end,
+      lost = function(why: string) told[#told + 1] = why end,
+    })
+    for _ = 1, 2 do
+      local conn = assert(Net.connect(http.address, { timeout_ns = Clock.seconds(5) }))
+      conn:set_timeout(Clock.seconds(10))
+      assert(conn:write("CONNECT api.test:443 HTTP/1.1\r\nHost: api.test:443\r\n\r\n"))
+      local reply = ""
+      while not reply:find("\r\n", 1, true) do
+        local data = conn:read(4096)
+        if data == nil then break end
+        reply = reply .. data
+      end
+      statuses[#statuses + 1] = reply:match("^HTTP/1.1 (%d+)") or "none"
+      local _, _ = conn:close()
+    end
+    relay:stop()
+    relay:wait()
+    assert(http:close())
+  end)
+  assert(table.concat(statuses, ",") == "502,502", table.concat(statuses, ","))
+  assert(#told == 1 and told[1] == "relay: the name servers' connector has ended", table.concat(told, ","))
+end
+
 local TYPE_A <const> = 1
 
 --- The name and type a query asks, and where its question ends.

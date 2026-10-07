@@ -22,11 +22,16 @@
 --- `ready` once it serves, or `error: <why>` and
 --- ends with status 1, and it ends with status 0 when standard input
 --- reaches end of file: the starter holds the pipe's write end for as long
---- as the program lives, and its death closes it. Once every connector
---- of a kind it was handed has ended ([`Relay.Handed.lost`]), it logs why,
---- stops serving and ends with status 1, as `error: <why>`: its starter
---- then ends the program, which would otherwise be refused every
---- connection of that kind for the rest of its life.
+--- as the program lives, and its death closes it.
+---
+--- Once every connector of a kind it was handed has ended
+--- ([`Relay.Handed.lost`]), or its name servers' connector has
+--- ([`Relay.Spec.lost`]), it logs why, stops serving and ends with status
+--- 1, as `error: <why>`, and its starter then ends the program. It does so
+--- even where its other connectors still work: none is ever started anew,
+--- so the program would be refused what the lost one reached for the rest
+--- of its life, a failure that looks like the remote's, and an ended
+--- program says plainly that its network is gone.
 ---
 --- The process runs offline: its filter refuses every socket it would
 --- make ([`cosmic.sandbox.relay`]'s `policy`), so what it reaches is what
@@ -156,13 +161,16 @@ local function serve(config: Config.Config): integer
   local serving: Relay.Serving
   local lost: string
   -- No connector is started anew, so a kind whose every connector has
-  -- ended reaches nothing again: the relay ends rather than refuse each
-  -- connection of that kind, and its starter ends the program with it.
-  handed.lost = function(why: string)
+  -- ended, or a name servers' connector that has, reaches nothing again:
+  -- the relay ends rather than refuse each connection that needs it, and
+  -- its starter ends the program with it.
+  local function lose(why: string)
+    if lost ~= nil then return end
     lost = why
     log(why .. ": the relay ends")
     if serving ~= nil then serving:stop() end
   end
+  handed.lost = lose
   Poll.run(function()
     local listeners, listeners_why = Net.receive_listeners(CHANNEL_FD)
     if listeners == nil then
@@ -193,7 +201,7 @@ local function serve(config: Config.Config): integer
     local running, start_why = started({
       http = http, socks = socks, grants = config.grants, connector = connect,
       resolve = resolve, unresolved = config.unresolved,
-      own_addresses = config.own_addresses, upstream = upstream, log = log,
+      own_addresses = config.own_addresses, upstream = upstream, log = log, lost = lose,
     })
     if running == nil then
       status = failed(start_why)

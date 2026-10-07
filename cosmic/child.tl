@@ -3797,8 +3797,8 @@ end
 
 --- The connectors the relay of the `connect` targets `connect` is handed
 --- ([`cosmic.sandbox.relay`]), started in this process and network:
---- [`relay_config.pool_size`] of the table's, of the addresses a target
---- names literally and the upstream proxy's; and, for a target that names
+--- [`cosmic.relay.config`]'s `pool_size` of the table's, of the addresses
+--- a target names literally and the upstream proxy's; and, for a target that names
 --- a host the relay reaches directly (no upstream, or one `no_proxy`
 --- bypasses for some), the name servers' and as many public ones (refusing
 --- the relay's deny list and `own`, the host's own addresses). The

@@ -42,21 +42,28 @@ end
 
 local WAIT <const> = Clock.seconds(1)
 
+--- A request that finds every connector held waits for its own time and
+--- no longer: it times out while the one that holds the connector still
+--- does, and is never asked of it.
 local function test_a_request_finding_every_connector_held_times_out_at_its_deadline()
   local log: {string} = {}
   Poll.run(function()
-    local connect = Relay.handed({ public_connectors = { fake("held", log, Clock.ms(500)) }, wait_ns = WAIT })
+    local connect = Relay.handed({ public_connectors = { fake("held", log, Clock.seconds(60)) },
+      wait_ns = Clock.seconds(60) })
+    local released = false
     local holding = Poll.spawn(function()
-      local _, _ = connect("192.0.2.1", 443, WAIT)
+      local _, _ = connect("192.0.2.1", 443, Clock.seconds(60))
+      released = true
     end)
     assert(Poll.delay(Clock.ms(20)))
     local began = Clock.monotonic_ns()
     local conn, why = connect("192.0.2.2", 443, Clock.ms(100))
     local took = Clock.monotonic_ns() - began
     assert(conn == nil and why == Poll.TIMEOUT, tostring(why))
-    assert(took >= Clock.ms(100) and took < Clock.ms(400), took .. " ns")
+    assert(took >= Clock.ms(100), took .. " ns")
+    assert(not released, "the connector was let go before the request timed out")
     assert(table.concat(log, ",") == "held 192.0.2.1", table.concat(log, ","))
-    local _, _ = holding:join()
+    holding:cancel()
   end)
 end
 
@@ -91,27 +98,28 @@ local function test_the_table_pool_passes_over_a_connector_that_has_ended()
 end
 
 --- A connector that ends under a request is replaced by another only while
---- the request's own time lasts: one past it ends with that connect,
---- however many connectors are left to try.
+--- the request's own time lasts: a request whose time ran out during that
+--- connect ends with it, however many connectors are left to try; one with
+--- time left tries each in turn.
 local function test_a_request_whose_connector_ends_under_it_retries_only_within_its_time()
   Poll.run(function()
-    local function dying(log: {string}): {Net.Connector}
+    local function dying(log: {string}, hold_ns: integer): {Net.Connector}
       local pool: {Net.Connector} = {}
-      for i = 1, 4 do pool[i] = fake("dies" .. i, log, Clock.ms(100), true) end
+      for i = 1, 4 do pool[i] = fake("dies" .. i, log, hold_ns, true) end
       return pool
     end
+    -- Each connect outlasts the request's whole time.
     local brief: {string} = {}
-    local connect = Relay.handed({ public_connectors = dying(brief), wait_ns = WAIT })
-    local began = Clock.monotonic_ns()
+    local connect = Relay.handed({ public_connectors = dying(brief, Clock.ms(200)), wait_ns = WAIT })
     local conn, why = connect("192.0.2.1", 443, Clock.ms(50))
-    local took = Clock.monotonic_ns() - began
     assert(conn == nil and why == Poll.TIMEOUT, tostring(why))
-    assert(#brief == 1 and took < Clock.ms(250), #brief .. " connects in " .. took .. " ns")
+    assert(table.concat(brief, ",") == "dies1 192.0.2.1", table.concat(brief, ","))
+    -- Each connect ends at once, well within the request's time.
     local longer: {string} = {}
-    connect = Relay.handed({ public_connectors = dying(longer), wait_ns = WAIT })
-    conn, why = connect("192.0.2.1", 443, Clock.ms(150))
-    assert(conn == nil and why == Poll.TIMEOUT, tostring(why))
-    assert(#longer == 2, table.concat(longer, ","))
+    connect = Relay.handed({ public_connectors = dying(longer, 0), wait_ns = WAIT })
+    conn, why = connect("192.0.2.1", 443, Clock.seconds(30))
+    assert(conn == nil and why == "relay: every public connector has ended", tostring(why))
+    assert(#longer == 4, table.concat(longer, ","))
   end)
 end
 

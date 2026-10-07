@@ -16,7 +16,7 @@
 --- connectors whose control streams [`Child.start`] hands it, which it
 --- starts in its own process and network from what this module answers:
 ---
---- - [`relay_config.pool_size`] of the table's, whose table
+--- - [`cosmic.relay.config`]'s `pool_size` of the table's, whose table
 ---   ([`relay.table`]) holds every address a target names literally and
 ---   the upstream proxy's, at most 128 in all;
 --- - for a policy that grants a name ([`relay.Plan.names`]) the relay
@@ -175,8 +175,9 @@ function relay.name_servers(opts?: relay.NameServerOptions): relay.NameServers |
   return { servers = listed, wait_ns = wait }, ""
 end
 
---- `bytes`, an address [`relay_address.parse`] read, as the numeric text a
---- connector's table takes: four decimal octets, or eight hex groups.
+--- `bytes`, an address [`cosmic.relay.address`]'s `parse` read, as the
+--- numeric text a connector's table takes: four decimal octets, or eight
+--- hex groups.
 local function numeric(bytes: {integer}): string
   if #bytes == 4 then return table.concat(bytes, ".") end
   local groups: {string} = {}
@@ -195,9 +196,10 @@ end
 
 --- What the `connect` targets `grants` open, as the relay reads them, and
 --- the upstream proxy `env` names (`https_proxy`, `no_proxy` and their
---- upper-case spellings; [`relay_config.upstream`]). A target that opens nothing
---- is in neither. Nil and why where the upstream cannot be used, or the
---- targets name more addresses literally than a connector holds (128).
+--- upper-case spellings; [`cosmic.relay.config`]'s `upstream`). A target
+--- that opens nothing is in neither. Nil and why where the upstream cannot
+--- be used, or the targets name more addresses literally than a connector
+--- holds (128).
 --- @param grants {string} The policy's `connect` targets
 --- @param env {string:string} The caller's proxy variables
 --- @return relay.Plan|nil What they open

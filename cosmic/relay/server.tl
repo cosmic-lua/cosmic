@@ -177,10 +177,11 @@ local record Relay
     --- would come after the request was given up on, and the connector,
     --- which cannot be started again, would be lost.
     wait_ns: integer
-    --- Told why, once, the first time a request finds that every connector
-    --- of a kind has ended: nothing that kind reaches can be reached again,
-    --- as no connector is started anew. The relay's process ends then
-    --- ([`cosmic.relay.main`]). Nil to fail each such request alone.
+    --- Told why the first time a request finds that every connector of a
+    --- kind has ended, once for each kind: nothing that kind reaches can be
+    --- reached again, as no connector is started anew. The relay's process
+    --- ends then ([`cosmic.relay.main`]). Nil to fail each such request
+    --- alone.
     lost: function(why: string)
   end
 
@@ -226,6 +227,11 @@ local record Relay
     --- writes them in a printable form (hex, base64url): a guess is bounded
     --- by nothing but the token's entropy.
     token: string
+    --- Told why, once, the first time a lookup fails through a `resolve`
+    --- connector that has ended: no name can be resolved again, as no
+    --- connector is started anew. The relay's process ends then
+    --- ([`cosmic.relay.main`]). Nil to fail each such lookup alone.
+    lost: function(why: string)
   end
 
   --- What a running relay has done.
@@ -589,6 +595,8 @@ local record Running
   live: {integer: {Net.Conn}}
   tasks: {integer: Poll.Task}
   acceptors: {Poll.Task}
+  --- Whether `spec.lost` has been told the name servers' connector ended.
+  told_lost: boolean
 end
 
 --- One connection's request and what has been decided of it.
@@ -881,6 +889,11 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
     -- thread, so every client and tunnel of the relay waits up to its bound
     -- (the resolve timeout, one connector wait and a second of grace).
     local found, why = Net.resolve(name, opts)
+    if found == nil and opts.connector ~= nil and opts.connector:ended() and run.spec.lost ~= nil and
+        not run.told_lost then
+      run.told_lost = true
+      run.spec.lost("relay: the name servers' connector has ended")
+    end
     if found == nil then
       if why == Poll.TIMEOUT then
         return { address = "", refused = refusal(("resolving %s timed out after %s"):format(name,
@@ -1382,6 +1395,9 @@ function Relay.start(spec: Relay.Spec): Relay.Serving
   end
   table_or_nil(spec.own_addresses, "own_addresses")
   table_or_nil(spec.tls_ports, "tls_ports")
+  if spec.lost ~= nil and type(spec.lost) ~= "function" then
+    error("relay: spec.lost must be a function", 2)
+  end
   if spec.upstream ~= nil then checked_upstream(spec.upstream) end
   if not Poll.in_task() then error("relay: start runs in a task of Poll.run", 2) end
   if spec.token ~= nil and (type(spec.token) ~= "string" or #spec.token < 16 or #spec.token > 255 or
@@ -1425,7 +1441,7 @@ function Relay.start(spec: Relay.Spec): Relay.Serving
         local _, _ = logger:complain(clean)
       end
     end,
-    stopping = false, pending = 0, open = 0, accepted = 0, refused = 0, next_id = 0, live = {}, tasks = {}, acceptors = {},
+    stopping = false, told_lost = false, pending = 0, open = 0, accepted = 0, refused = 0, next_id = 0, live = {}, tasks = {}, acceptors = {},
   }
   for _, note in ipairs(notes) do run.log(note) end
   if spec.unresolved ~= nil then

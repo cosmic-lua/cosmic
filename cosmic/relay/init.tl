@@ -27,44 +27,44 @@
 ---     local env = Relay.Config.proxy_env({})
 ---     print(env.ALL_PROXY) -- socks5h://127.0.0.1:1080
 
-local address = require("cosmic.relay.address")
-local config = require("cosmic.relay.config")
-local resolv = require("cosmic.relay.resolv")
-local wire = require("cosmic.relay.wire")
+local Address = require("cosmic.relay.address")
+local Config = require("cosmic.relay.config")
+local Resolv = require("cosmic.relay.resolv")
+local Wire = require("cosmic.relay.wire")
 
 local record Relay
   --- The address classes the relay refuses, and how it parses an address
   --- and picks one of a name's answers: the package's
   --- [`cosmic.relay.address`], each documented there.
-  Address: address
+  Address: Address
 
   --- What the relay's starter and its process agree on: the package's
   --- [`cosmic.relay.config`], each documented there.
-  Config: config
+  Config: Config
 
   --- What the relay reads from a program and answers it, and what a client
   --- of the relay sends: the package's [`cosmic.relay.wire`], each
   --- documented there.
-  Wire: wire
+  Wire: Wire
 
   --- One numeric endpoint of a connector's table ([`Net.Endpoint`]).
-  type Endpoint = resolv.Endpoint
+  type Endpoint = Resolv.Endpoint
 end
 
-Relay.Address = address
-Relay.Config = config
-Relay.Wire = wire
+Relay.Address = Address
+Relay.Config = Config
+Relay.Wire = Wire
 
 --- The name servers the system's configuration names, each a numeric
 --- endpoint at its TCP port: the table of a connector for
 --- [`Net.ResolveOptions.connector`] that reaches nothing else
---- ([`resolv.nameservers`], where the forms it reads and leaves out are
+--- ([`Resolv.nameservers`], where the forms it reads and leaves out are
 --- documented). Nil and why where they cannot be listed.
 --- @param resolv_conf string|nil A resolv.conf to read in place of the system's
 --- @return {Endpoint}|nil The servers
 --- @return string Why there are none, "" otherwise
 function Relay.nameservers(resolv_conf?: string): {Relay.Endpoint} | nil, string
-  return resolv.nameservers(resolv_conf)
+  return Resolv.nameservers(resolv_conf)
 end
 
 return Relay

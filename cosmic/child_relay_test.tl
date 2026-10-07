@@ -137,7 +137,12 @@ return function(args)
   elseif args[1] == "wait" then
     sys.nanosleep(Clock.seconds(120))
   elseif args[1] == "later" then
-    sys.nanosleep(Clock.seconds(2))
+    -- Asks only once standard input ends, which the test closes when it
+    -- is ready for the request.
+    while true do
+      local data = sys.read(0, 4096)
+      if data == nil or data == "" then break end
+    end
     through_connect("later", "127.0.0.2:" .. args[2])
     sys.nanosleep(Clock.seconds(120))
   end
@@ -518,8 +523,7 @@ local function test_a_relay_whose_connectors_have_all_ended_ends_with_its_progra
   local refusal: string
   serving(function(granted: integer, _: integer)
     local options = granting(database, granted)
-    options.stdout, options.stderr, options.relay_log = "null", "null", writer
-    -- The program asks for its granted target two seconds after it starts.
+    options.stdin, options.stdout, options.stderr, options.relay_log = "stream", "null", "null", writer
     local handle, why = Child.start({ assert(Proc.executable()), "later", tostring(granted) }, options)
     if handle == nil then
       assert(unsandboxable(why), "the start was refused: " .. why)
@@ -527,8 +531,10 @@ local function test_a_relay_whose_connectors_have_all_ended_ends_with_its_progra
       return
     end
     local relay = assert(handle._relay)
-    -- Every connector the relay was handed ends before it is asked.
+    -- Every connector the relay was handed ends, and only then does the
+    -- program ask for its target.
     assert(relay._handover).close()
+    assert(assert(handle.stdin_stream):close())
     local result = assert(handle:wait(Clock.seconds(20)))
     assert(result.signal == sys.SIGKILL and not result.timed_out,
       "the program was ended: " .. tostring(result.signal) .. " " .. tostring(result.timed_out))
