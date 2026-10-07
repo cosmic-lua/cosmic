@@ -864,6 +864,51 @@ function Net.listener_from(fd: integer, opts?: Net.ListenOptions): Net.Listener 
     opts ~= nil and opts.timeout_ns or nil).listener, ""
 end
 
+--- The two listeners a sandbox's relay channel carries: the TCP sockets a
+--- child bound in a network namespace of its own and sent over `channel`,
+--- a descriptor this process holds, in the order they were sent. Each is
+--- adopted as [`Net.listener_from`] does, and the descriptors received
+--- are closed. A channel that carries no such pair, or sockets that are no
+--- listening TCP, fails nil and why; `channel` is left open for its holder
+--- to close. The child sends both in one message before it runs its
+--- program, so a channel whose start has answered holds them already and
+--- this does not wait; a `timeout_ns` no wait can last raises.
+-- TODO: receive the pair in the process that started the child, and hand
+-- the relay's process the listeners as descriptors of their own, once
+-- cosmic.child can reach the raw socket table (core/store.c's `raw_modules`
+-- gives each wrapper module one): until then the relay's process receives
+-- them itself, so that Child only moves the channel.
+--- @param channel integer The descriptor of the channel's receiving end
+--- @param opts? Net.ListenOptions The listeners' options
+--- @return {Net.Listener}|nil The listeners
+--- @return string Why there are none, "" otherwise
+function Net.receive_listeners(channel: integer, opts?: Net.ListenOptions): {Net.Listener} | nil, string
+  if math.type(channel) ~= "integer" or channel < 0 then
+    error("net: channel must be an integer from 0", 2)
+  end
+  Poll.checked_ns(opts ~= nil and opts.timeout_ns or nil, "net", "timeout_ns", 2)
+  local received, why = raw.recvfds(channel, 2)
+  if received == nil then return nil, "net: descriptor " .. channel .. ": " .. why end
+  local listeners: {Net.Listener} = {}
+  local failure = ""
+  for _, owned in ipairs(received) do
+    if failure == "" then
+      local listener, trouble = Net.listener_from(owned:fd(), opts)
+      if listener == nil then
+        failure = trouble
+      else
+        listeners[#listeners + 1] = listener
+      end
+    end
+    local _, _ = owned:close()
+  end
+  if failure ~= "" then
+    for _, listener in ipairs(listeners) do local _, _ = listener:close() end
+    return nil, failure
+  end
+  return listeners, ""
+end
+
 --- Connects to `address`. A unix one fails "No such file or directory"
 --- where there is no socket file and "Connection refused" where nothing
 --- listens at it, and fails at once at a listener whose backlog is

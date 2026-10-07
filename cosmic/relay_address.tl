@@ -325,9 +325,9 @@ end
 --- own address is refused however an answer spells it. Raises for an entry
 --- that is no numeric address: a list of the host's own addresses is the
 --- caller's, never untrusted.
--- TODO: the relay needs the host's own addresses for `own`, and the core has
--- no binding that lists them (no getifaddrs in core/ or cosmic.sys): add one
--- and have the relay pass its addresses here, once cosmic.sys carries getifaddrs.
+-- TODO: list the host's own addresses with getifaddrs once cosmic.sys carries
+-- it: the relay's starter reads them from /proc/self/net today
+-- ([`cosmic.relay_config`]'s `host_addresses`), which is Linux's.
 --- @param own {string} The addresses, as text
 --- @return {{integer}} Each one's bytes
 function relay_address.own_addresses(own: {string}): {{integer}}

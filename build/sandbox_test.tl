@@ -217,12 +217,12 @@ local function test_the_other_values_are_the_decoders_too()
   assert(refused({ "--env", "A=B", "prog" }).err:find("/env/0", 1, true))
 end
 
-local function test_a_connect_is_left_to_the_start_to_refuse(tmp: string)
+local function test_a_connect_is_the_starts_to_serve_and_its_failure_is_the_starts(tmp: string)
   assert(Fs.write(tmp .. "/there", "x") and sys.chmod(tmp .. "/there", 493))
   local ran = run({ "--connect", "github.com:443", tmp .. "/there" },
-    { why = "child: start: sandbox: connect \"github.com:443\" is not yet available: it needs the relay" })
+    { why = "child: start: sandbox: relay: the relay ended (status 1) before it served" })
   assert(ran.code == 125, ran.code .. ran.err)
-  assert(ran.err:find("not yet available", 1, true) and ran.err:find("relay", 1, true), ran.err)
+  assert(ran.err:find("relay: the relay ended", 1, true), ran.err)
   same(ran.opts.policy.connect, { "github.com:443" })
 end
 

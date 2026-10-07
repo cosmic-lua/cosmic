@@ -48,8 +48,8 @@
 --- ended it, as a shell reports it; 124 when `--timeout` ended it. Of its
 --- own: 2 for a command line it refuses, 125 for a start that failed
 --- (the reason on standard error, `cosmic: sandbox: <reason>`: what the
---- policy needs that this host lacks, or an `--connect`, which waits for
---- the relay), 126 for a program that is there and cannot be run and 127
+--- policy needs that this host lacks, or a `--connect` on macOS, which has
+--- no relay), 126 for a program that is there and cannot be run and 127
 --- for one that is not.
 
 local Child = require("cosmic.child")
@@ -567,6 +567,10 @@ local function execute(argv: {integer:string}, io: verb.Io | nil, held: {string}
   -- SIGKILL, which no handler sees: PR_SET_PDEATHSIG in the child, once
   -- Child.Options has an option for it. Until then only SIGINT and SIGTERM
   -- (Child.run's guard) end it, and a killed verb leaves it running.
+  -- TODO: pass relay_log = "inherit" so that a flow the relay refuses says
+  -- why on this verb's standard error, with the rest of the verb's wiring
+  -- of `--connect` (the client verb's TODO above): the library's start drops
+  -- the relay's decision lines by default.
   local result, started = run(request.argv, {
     policy = policy, fds = request.fds, timeout_ns = request.timeout_ns, cwd = request.cwd,
   })

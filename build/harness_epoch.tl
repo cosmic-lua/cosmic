@@ -124,13 +124,13 @@ harness_epoch.acknowledged = {
 
   ["build.test_worker"] = "ef7f9270be6e9c66b8f4dd933db78d7555e643a8fe86c8f27c02410e68837163",
 
-  ["build.this_program"] = "7c92f68645762de7b5d774d8f0e0ae3494a9eb74b9a040e8a9c17b7ef2628a97",
+  ["build.this_program"] = "d111ef81b6f2303b92612c6db23abd195ef08c0216f4c53fc1040140cfb50894",
 
   ["build.zig_caches"] = "472c399b1bbbc6f9b58a2edd4fa6fabcddbea9140cac683b58acec608ff3c78c",
 
   ["cmd.cosmic.main"] = "d00f469acf42d89c76c2e9ebabd40e73e20d00cb3a5ad6d9189716265fcdf9bf",
 
-  ["cosmic.child"] = "8b479eff4f0c8769f3f0966ac46fdd2ef179c9ccf61c0fb90be8b4a04eb6ca57",
+  ["cosmic.child"] = "a56dc39e8bef9a007994994ce3ca26e9e34aae1355047af0a390fc736f0057ee",
 
   ["cosmic.coverage"] = "079fe202231c4ae3ee642e27f6703a37850132c28c2a6d1daf50c7eb1669ac9a",
 
@@ -140,7 +140,7 @@ harness_epoch.acknowledged = {
 
   ["cosmic.proc"] = "1f2f124e7478daaf5955a2043d03a379d8dbc657ffe938ac71d221376f677bcf",
 
-  ["cosmic.sandbox"] = "a59738afa25cd75ee4faf6a6b087f1f121cbebcab0098cfa9192c48649698ab7",
+  ["cosmic.sandbox"] = "c8749a3f028086082848848326ae2f429701d4332745af9cc598e2c4034bf16f",
 
   ["cosmic.sqlite"] = "ac3fd16dd89251feaee572e4e4b1d29257037afeca3b5c9b141557f2ce732390",
 
