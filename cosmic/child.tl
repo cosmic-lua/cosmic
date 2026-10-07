@@ -3858,9 +3858,10 @@ local function relay_handover(connect: {string}, own: {string}): RelayConfig.Han
   if plan.names then
     -- TODO: hand the relay one public connector that makes several
     -- connections at once, once core/connector.c's protocol tags each
-    -- request and reply (the next change of the relay's hardening): each of
-    -- these makes one at a time, so RelayConfig.public_count connects that
-    -- hang hold every other connection to a granted name.
+    -- request and its reply so that one process serves several connects (a
+    -- change of its own): each of these makes one at a time, so
+    -- RelayConfig.public_count connects that hang hold every other
+    -- connection to a granted name.
     for i = 1, RelayConfig.public_count do
       local process, why = relay_connector({}, RelayConfig.connect_ns, RelayStart.public(own))
       if process == nil then return fail("public connector " .. i .. ": " .. why) end
