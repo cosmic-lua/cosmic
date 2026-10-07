@@ -78,9 +78,14 @@ allowed["cosmic.relay_address.deny_cidrs"] = "tested directly: the relay's refus
 
 allowed["cosmic.relay_config.parse_addresses"] = "tested directly: the reading of Linux's " ..
   "interface tables over fixture text, which host_addresses makes of the host's own"
-allowed["cosmic.store.paths"] = "tested directly: the files the store holds open, which " ..
-  "a restriction of this process must keep readable; no caller outside the module needs " ..
-  "it yet (the TODO at cosmic.store's `paths`)"
+-- TODO: drop this allowance once build.analyzer and build.receivers attribute a
+-- call made through a value taken from a module's field (cosmic.child's
+-- `local Seatbelt = Rules.Seatbelt`) to the module it names: today neither
+-- this check nor `cosmic uses` follows one, so `uses Seatbelt.compile` lists
+-- none of cosmic.child's calls.
+allowed["cosmic.sandbox.seatbelt.grants"] = "called through cosmic.sandbox's `Seatbelt`, " ..
+  "the package's one path to it from outside, which cosmic.child takes; the check reads a " ..
+  "call by the module's own name alone"
 allowed["cosmic.sandbox.restrict"] = "tested directly: it holds the process that calls it " ..
   "for good, so a worked example would hold the run that shows it; the test restricts " ..
   "a child of this program, and the harness holds its workers with it once the " ..

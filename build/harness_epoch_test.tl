@@ -333,6 +333,61 @@ local function test_the_harness_holds_what_it_runs_requires()
       "a worker loads it: " .. table.concat(missing, ", "))
 end
 
+--- The modules split off one of the harness that it does not hold, and why.
+-- TODO: hold cosmic.sandbox.seatbelt too, and drop its entry, once macOS's
+-- workers are held by Sandbox.restrict (the TODO at build/confine.tl's
+-- forbid_running): its reason holds only while no macOS worker is.
+local unheld_split: {string:string} = {
+  ["cosmic.sandbox.seatbelt"] = "it compiles a Seatbelt profile, which holds a process " ..
+    "only on macOS, where no worker is sandboxed",
+}
+
+--- A standard-library module of the harness held alone, whose requires are
+--- not walked, holds what is split off it too: a module it requires by
+--- value named after it, a submodule (cosmic.sandbox.policy, which
+--- cosmic.sandbox's `merge` is, deciding a policy worker's grants) or a
+--- sibling (`<name>_...`), is in the harness, unless `unheld_split`
+--- says why not.
+--- Otherwise an edit to the part split off would move no digest.
+local function test_what_is_split_off_a_module_of_the_harness_is_held()
+  local db = assert(Sqlite.open("o/cosmic.db"))
+  local found, trouble = test.harness(db)
+  assert(found ~= nil, trouble)
+  local by_value = assert(test.value_imports(db))
+  db:close()
+  local named: {string:boolean} = {}
+  for _, name in ipairs(found.names) do named[name] = true end
+  assert(named["cosmic.sandbox.policy"], "cosmic.sandbox.policy is not held")
+  local unheld: {string} = {}
+  for _, name in ipairs(found.names) do
+    if name:match("^cosmic%.") then
+      for _, wanted in ipairs(by_value[name] or {}) do
+        local prefix = wanted:sub(1, #name + 1)
+        if (prefix == name .. "." or prefix == name .. "_") and not named[wanted] and
+            unheld_split[wanted] == nil then
+          unheld[#unheld + 1] = name .. " requires " .. wanted
+        end
+      end
+    end
+  end
+  table.sort(unheld)
+  assert(#unheld == 0, "the harness holds a module and not what is split off it -- name " ..
+      "each in build/test.tl's `harness_alone`: " .. table.concat(unheld, ", "))
+  -- An entry of `unheld_split` that no module of the harness requires, or
+  -- that the harness now holds, is stale.
+  local required: {string:boolean} = {}
+  for _, name in ipairs(found.names) do
+    for _, wanted in ipairs(by_value[name] or {}) do required[wanted] = true end
+  end
+  local stale: {string} = {}
+  for wanted in pairs(unheld_split) do
+    if named[wanted] or not required[wanted] then stale[#stale + 1] = wanted end
+  end
+  table.sort(stale)
+  assert(#stale == 0, "`unheld_split` names " .. table.concat(stale, ", ") ..
+      ", which the harness holds or no module of it requires: delete its entry")
+end
+
 --- The harness's `cosmic.*` modules are exactly those
 --- build/harness_epoch.tl's `library` names, each with its reason: a
 --- module of the harness that comes to require another -- cosmic.time

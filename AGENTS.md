@@ -604,7 +604,7 @@ unblocks: `o/bin/cosmic todos '"cosmic-driver.pin"'` lists them.
 [`core/fail.h`]: core/fail.h
 [`core/guard.h`]: core/guard.h
 [`core/syscalls.h`]: core/syscalls.h
-[`cosmic.sandbox`]: cosmic/sandbox.tl
+[`cosmic.sandbox`]: cosmic/sandbox/init.tl
 [`doc/roadmap.md`]: doc/roadmap.md
 [`Fuzz.label`]: build/fuzz/init.tl
 [`Fuzz.more`]: build/fuzz/init.tl

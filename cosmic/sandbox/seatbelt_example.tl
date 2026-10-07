@@ -1,4 +1,4 @@
-local Seatbelt = require("cosmic.seatbelt")
+local Seatbelt = require("cosmic.sandbox.seatbelt")
 
 local Example = {}
 

@@ -338,7 +338,7 @@ four-producer provenance join.
 [`cosmic.html`]: ../cosmic/html.tl
 [`cosmic.http`]: ../cosmic/http/init.tl
 [`cosmic.net`]: ../cosmic/net.tl
-[`cosmic.sandbox`]: ../cosmic/sandbox.tl
+[`cosmic.sandbox`]: ../cosmic/sandbox/init.tl
 [`cosmic.shape`]: ../cosmic/shape.tl
 [`cosmic.template`]: ../cosmic/template/init.tl
 [`cosmic.test`]: ../cosmic/test.tl

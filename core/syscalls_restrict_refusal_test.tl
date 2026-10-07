@@ -34,7 +34,12 @@ end
 local function test_a_named_descriptor_that_is_not_open_refuses_before_inspection()
   local fd <const> = 2147483647
   assert(sys.fd_flags(fd) == nil)
-  local ok, why, errno = raw_table().restrict_self({ promises = {}, grants = {}, rlimits = {} }, { fd })
+  local restriction: raw_process.Restriction = { promises = {}, grants = {}, rlimits = {} }
+  -- On macOS the restriction is a profile, read before the descriptors.
+  if assert(sys.uname()).sysname == "Darwin" then
+    restriction.seatbelt = { profile = "(version 1)", parameters = {} }
+  end
+  local ok, why, errno = raw_table().restrict_self(restriction, { fd })
   assert(not ok)
   if errno == sys.ENOSYS then
     assert(why == "Function not implemented", why)

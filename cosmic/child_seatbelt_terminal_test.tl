@@ -1,4 +1,4 @@
---- [`Child.start_on_pty`] on macOS (core/syscalls.c's trampoline, cosmic/seatbelt.tl's
+--- [`Child.start_on_pty`] on macOS (core/syscalls.c's trampoline, cosmic/sandbox/seatbelt.tl's
 --- terminal rules): a child started on a pty has it as its controlling
 --- terminal, under a policy or not. The tests compile a C program with the
 --- system's cc, which reports what the child can do with its terminal, so

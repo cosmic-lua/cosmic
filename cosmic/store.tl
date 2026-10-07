@@ -130,9 +130,8 @@ end
 --- other file: each database [`Store.databases`] hands out that is a
 --- file, then its write-ahead log (`-wal`) and shared-memory file
 --- (`-shm`), which SQLite opens beside it whether or not they exist yet.
--- TODO: grant these files in Darwin's [`Sandbox.restrict`], once it applies a
--- Seatbelt profile to the running process, and drop the allowance
--- build/tree_checks.tl makes for this function's having no other caller.
+--- What [`Sandbox.restrict`] grants on macOS, where Seatbelt checks a path
+--- at every open.
 function Store.paths(): {string}
   return store.paths()
 end

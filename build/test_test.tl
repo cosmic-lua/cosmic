@@ -187,7 +187,7 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   end
   local others = { "build.test_sandbox", "build.test_policy",
     "build.caches", "build.zig_caches",
-    "cosmic.child", "cosmic.sandbox",
+    "cosmic.child", "cosmic.sandbox", "cosmic.sandbox.policy",
     "build.closure_store", "build.writer",
     "build.test_report", "build.schema", "build.importer", "build.analyzer", "cosmic.removed",
     "cosmic.sqlite", "cosmic.sys" }
@@ -318,7 +318,7 @@ local function test_the_harness_walks_the_key_code_by_value()
   for _, name in ipairs({ "build.test", "build.declared_key", "build.shared_verdicts",
       "build.host_requires", "build.artifact", "build.test_sandbox", "build.test_policy",
       "build.caches", "build.zig_caches", "build.closure_store", "build.schema",
-      "cosmic.child", "cosmic.sandbox", "cosmic.time", "cosmic.sqlite", "cosmic.stream" }) do
+      "cosmic.child", "cosmic.sandbox", "cosmic.sandbox.policy", "cosmic.time", "cosmic.sqlite", "cosmic.stream" }) do
     add(name)
   end
   -- build.declared_key's edge to cosmic.stream is a `local type` one.

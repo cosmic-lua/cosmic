@@ -1,5 +1,5 @@
 --- A diagnostic for the macOS `connect` design (the TODO in
---- cosmic/seatbelt.tl): what Seatbelt lets a child reach on the network, said
+--- cosmic/sandbox/seatbelt.tl): what Seatbelt lets a child reach on the network, said
 --- by starting children under hand-written profiles through the raw spawn's
 --- `seatbelt`, as cosmic/child_seatbelt_test.tl does for its own. macOS's CI
 --- workers run unsandboxed, so one run of that leg settles the facts the
@@ -464,7 +464,7 @@ local function test_a_unix_socket_is_denied_under_default_deny(tmp: string)
   conclude(report)
 end
 
---- The paths the system's programs run from, as cosmic/seatbelt.tl's
+--- The paths the system's programs run from, as cosmic/sandbox/seatbelt.tl's
 --- "system" profile reads them, for a profile that holds the files too.
 local SYSTEM <const>: {string} = {
   "/usr", "/bin", "/sbin", "/System/Library", "/Library/Apple/System/Library",

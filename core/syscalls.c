@@ -52,6 +52,7 @@ extern int clone (int (*)(void *), void *, int, void *, ...);
 #if defined(__APPLE__)
 #include <spawn.h>
 #include <dlfcn.h>
+#include <libproc.h>
 #include <sys/event.h>
 #include <sys/sysctl.h>
 #endif
@@ -2794,6 +2795,39 @@ static seatbelt_free_function seatbelt_release (void) {
   return function;
 }
 
+/* Whether this process holds itself to a Seatbelt profile already
+ * (`restrict_self`). macOS refuses a second profile to a process (EPERM),
+ * so neither a second restriction nor a child's own profile, which the
+ * trampoline would apply beneath this one, is tried once one holds: each
+ * is refused in words first. A process forked from this one has both the
+ * profile and this flag; one it executes has the profile alone, and the
+ * system refuses it a second. */
+static bool seatbelt_held;
+
+typedef int (*seatbelt_check_function) (pid_t pid, const char *operation, int type, ...);
+
+/* Whether a Seatbelt profile holds this process, as libsystem_sandbox's
+ * sandbox_check answers with no operation (SANDBOX_FILTER_NONE, 0): one it
+ * was started under -- a policy's child, which the trampoline's profile
+ * holds -- as well as one it applied (`seatbelt_held`). 1 where one does,
+ * 0 where none does or the system has no sandbox_check (which a system
+ * with sandbox_init has), and -1 with the errno in `error` where
+ * sandbox_check fails, which tells neither. */
+static int seatbelt_holding (int *error) {
+  if (seatbelt_held) return 1;
+  void *symbol = seatbelt_symbol("sandbox_check");
+  seatbelt_check_function check = NULL;
+  memcpy(&check, &symbol, sizeof check);
+  if (check == NULL) return 0;
+  errno = 0;
+  int answer = check(getpid(), NULL, 0);
+  if (answer < 0) {
+    *error = errno != 0 ? errno : EPERM;
+    return -1;
+  }
+  return answer != 0;
+}
+
 /* Applies the Seatbelt `profile` to this process, with `parameters` (names
  * and values alternating, then NULL): 0, or the errno of the refusal, with
  * the reason in `text` (of `size` bytes). Shared by the trampoline and every
@@ -3705,9 +3739,7 @@ static int read_grants (lua_State *L, int list, int arg, const char **paths, uns
  * and `changes` whether that differs from what they are. 0, or the errno
  * of reading them. Planned before anything is changed, so a restriction
  * that fails later has set no limit. */
-/* TODO: drop `unused` once Darwin's `restrict_self` plans its limits with this, as
- * Linux's does; until then only the Linux body calls it. */
-__attribute__((unused)) static int plan_limit (int resource, rlim_t value, struct rlimit *target, bool *changes) {
+static int plan_limit (int resource, rlim_t value, struct rlimit *target, bool *changes) {
   struct rlimit limits;
   if (getrlimit(resource, &limits) != 0) return errno;
   *target = limits;
@@ -3716,8 +3748,6 @@ __attribute__((unused)) static int plan_limit (int resource, rlim_t value, struc
   *changes = target->rlim_cur != limits.rlim_cur || target->rlim_max != limits.rlim_max;
   return 0;
 }
-
-#if defined(__linux__)
 
 /* Answers `restrict_self`'s refusal: false, `what` formatted, and `number`. */
 static int restrict_refused (lua_State *L, int number, const char *format, ...)
@@ -3733,6 +3763,8 @@ static int restrict_refused (lua_State *L, int number, const char *format, ...) 
   lua_pushinteger(L, number);
   return 3;
 }
+
+#if defined(__linux__)
 
 /* The directories and file of this process's /proc a restriction reads,
  * held open from the first one: once Landlock holds the process, a path
@@ -3895,6 +3927,67 @@ static int unaccounted_descriptor (lua_State *L, const int *kept, int kept_count
 
 #endif
 
+#if defined(__APPLE__)
+/* The pid of a child of this process not yet reaped (libproc lists a
+ * zombie among them), or 0 for none, or -1 with the errno in `error` where
+ * they cannot be listed. Only the first is asked. */
+static pid_t darwin_first_child (int *error) {
+  pid_t pids[16];
+  int count = proc_listchildpids(getpid(), pids, (int)sizeof pids);
+  if (count < 0) {
+    *error = errno;
+    return -1;
+  }
+  return count > 0 ? pids[0] : 0;
+}
+
+/* The first descriptor above 2 that is open, is not one of the `kept` the
+ * caller names and is not one the runtime keeps itself
+ * (`cosmic_store_holds_descriptor`, core/store.c), or -1 for none; -2 with the errno in
+ * `error` where they cannot be listed. libproc lists them, into a buffer a
+ * guard on the stack holds, since the store's check calls into Lua; the
+ * list is asked again, a few times, while it fills the room it is given. */
+static int darwin_unaccounted_descriptor (lua_State *L, const int *kept, int kept_count,
+                                          int *error) {
+  struct cosmic_guard *guard = cosmic_guard_push(L, cosmic_free);
+  pid_t self = getpid();
+  for (int tries = 0; tries < 4; tries++) {
+    int estimate = proc_pidinfo(self, PROC_PIDLISTFDS, 0, NULL, 0);
+    if (estimate < 0) {
+      *error = errno;
+      return -2;
+    }
+    size_t room = (size_t)estimate + 32 * sizeof(struct proc_fdinfo);
+    if (room > INT_MAX) room = INT_MAX;
+    void *buffer = cosmic_realloc(guard->resource, room);
+    if (buffer == NULL) {
+      *error = ENOMEM;
+      return -2;
+    }
+    guard->resource = buffer;
+    int got = proc_pidinfo(self, PROC_PIDLISTFDS, 0, buffer, (int)room);
+    if (got < 0) {
+      *error = errno;
+      return -2;
+    }
+    if ((size_t)got >= room) continue;
+    const struct proc_fdinfo *listed = buffer;
+    int found = -1;
+    for (size_t i = 0; i < (size_t)got / sizeof *listed; i++) {
+      int fd = listed[i].proc_fd;
+      if (fd <= 2 || (found >= 0 && fd >= found)) continue;
+      bool accounted = false;
+      for (int k = 0; k < kept_count; k++) accounted = accounted || kept[k] == fd;
+      if (!accounted && !cosmic_store_holds_descriptor(L, fd)) found = fd;
+    }
+    cosmic_guard_release(guard);
+    return found;
+  }
+  *error = EAGAIN;
+  return -2;
+}
+#endif
+
 COSMIC_SYSCALL(restrict_self, 2) {
   luaL_checktype(L, 1, LUA_TTABLE);
   int kept[RESTRICT_KEEP_MAX];
@@ -3937,11 +4030,53 @@ COSMIC_SYSCALL(restrict_self, 2) {
   if (!lua_istable(L, -1)) return luaL_argerror(L, 1, "grants must be a list");
   grant_count = read_grants(L, lua_gettop(L), 1, grant_paths, grant_letters);
   /* The grants stay on the stack: their strings are what the paths point at. */
-#if defined(__linux__)
+  lua_pushliteral(L, "seatbelt");
+  lua_rawget(L, 1);
+#if defined(__APPLE__)
+  /* On Darwin the profile is the restriction: its text holds the paths and
+   * what the promises allow, so `grants` and `promises` name nothing of
+   * their own. The profile, its parameters and their strings stay on the
+   * stack, as the grants do. */
+  if (!lua_istable(L, -1))
+    return luaL_argerror(L, 1, "seatbelt must be a table of a profile and its parameters: on "
+                         "macOS a restriction is a Seatbelt profile");
+  if (grant_count > 0 || promise_bits != 0)
+    return luaL_argerror(L, 1, "grants and promises are the seatbelt profile's on macOS");
+  int seatbelt = lua_gettop(L);
+  lua_pushliteral(L, "profile");
+  lua_rawget(L, seatbelt);
+  const char *profile = plain_string(L, -1, "a seatbelt profile");
+  if (profile[0] == '\0') return luaL_argerror(L, 1, "a seatbelt profile is empty");
+  const char *parameters[2 * SEATBELT_PARAMETER_MAX + 1];
+  int parameter_count = 0;
+  lua_pushliteral(L, "parameters");
+  lua_rawget(L, seatbelt);
+  if (!lua_isnil(L, -1)) {
+    if (!lua_istable(L, -1))
+      return luaL_argerror(L, 1, "a seatbelt's parameters are a table of names and values");
+    lua_pushnil(L);
+    while (lua_next(L, -2) != 0) {
+      if (lua_type(L, -2) != LUA_TSTRING)
+        return luaL_argerror(L, 1, "a seatbelt parameter's name must be a string");
+      if (parameter_count >= 2 * SEATBELT_PARAMETER_MAX)
+        return luaL_argerror(L, 1, "too many seatbelt parameters");
+      parameters[parameter_count++] = plain_string(L, -2, "a seatbelt parameter's name");
+      parameters[parameter_count++] = plain_string(L, -1, "a seatbelt parameter's value");
+      lua_pop(L, 1);
+    }
+  }
+  parameters[parameter_count] = NULL;
+#else
+  if (!lua_isnil(L, -1))
+    return luaL_argerror(L, 1, "seatbelt is macOS's: this system holds a process by Landlock "
+                         "and seccomp");
+  lua_pop(L, 1);
+#endif
   for (int i = 0; i < kept_count; i++) {
     if (fcntl(kept[i], F_GETFD) < 0)
       return restrict_refused(L, errno, "descriptor %d, which fds names, is not open", kept[i]);
   }
+#if defined(__linux__)
   int error = 0;
   const char *unreadable = "";
   error = inspected_open(&unreadable);
@@ -4020,6 +4155,62 @@ COSMIC_SYSCALL(restrict_self, 2) {
     return restrict_refused(L, error, "seccomp filter: %s%s", cosmic_errno_describe(error, NULL),
                             partly);
   return cosmic_ok(L);
+#elif defined(__APPLE__)
+  /* A profile holds the whole process, every thread of it, so unlike
+   * Landlock's ruleset no other thread refuses it; a child started before
+   * it and a descriptor open before it are what it does not hold. */
+  int error = 0;
+  int holding = seatbelt_holding(&error);
+  if (holding < 0)
+    return restrict_refused(L, error, "whether a Seatbelt profile holds this process cannot be "
+                            "told (sandbox_check: %s)", cosmic_errno_describe(error, NULL));
+  if (holding > 0)
+    return restrict_refused(L, EPERM, "this process is held by a Seatbelt profile already, "
+                            "one it applied or was started under: macOS applies one profile "
+                            "to a process and refuses a second");
+  pid_t child = darwin_first_child(&error);
+  if (child < 0)
+    return restrict_refused(L, error, "the children of this process cannot be listed "
+                            "(proc_listchildpids: %s)", cosmic_errno_describe(error, NULL));
+  if (child > 0)
+    return restrict_refused(L, ECHILD, "this process has a child, pid %ld, not waited for: end "
+                            "it and wait for it first, since a restriction holds what a process "
+                            "starts after it, not what it started", (long)child);
+  int open_fd = darwin_unaccounted_descriptor(L, kept, kept_count, &error);
+  if (open_fd == -2)
+    return restrict_refused(L, error, "the descriptors of this process cannot be listed "
+                            "(proc_pidinfo: %s)", cosmic_errno_describe(error, NULL));
+  if (open_fd >= 0)
+    return restrict_refused(L, EBADF, "descriptor %d is open and not named in fds: close it, or "
+                            "name it to keep it", open_fd);
+  struct {
+    struct rlimit target;
+    bool changes;
+  } planned[SPAWN_RLIMIT_MAX] = {0};
+  for (int i = 0; i < rlimit_count; i++) {
+    error = plan_limit(rlimits[i].resource, rlimits[i].value, &planned[i].target,
+                       &planned[i].changes);
+    if (error != 0)
+      return restrict_refused(L, error, "getrlimit: %s", cosmic_errno_describe(error, NULL));
+  }
+  bool limits_moved = false;
+  for (int i = 0; i < rlimit_count; i++) {
+    if (!planned[i].changes) continue;
+    if (setrlimit(rlimits[i].resource, &planned[i].target) != 0) {
+      error = errno;
+      return restrict_refused(L, error, "setrlimit: %s%s", cosmic_errno_describe(error, NULL),
+                              limits_moved ? "; the process is now partly restricted" : "");
+    }
+    limits_moved = true;
+    if (rlimits[i].resource == RLIMIT_NOFILE) descriptor_limit_raised = false;
+  }
+  char message[PATH_MAX + 256];
+  error = apply_seatbelt(profile, parameters, message, sizeof message);
+  if (error != 0)
+    return restrict_refused(L, error, "%s%s", message,
+                            limits_moved ? "; the process is now partly restricted" : "");
+  seatbelt_held = true;
+  return cosmic_ok(L);
 #else
   (void)promise_bits;
   (void)rlimits;
@@ -4027,8 +4218,6 @@ COSMIC_SYSCALL(restrict_self, 2) {
   (void)grant_paths;
   (void)grant_letters;
   (void)grant_count;
-  (void)kept;
-  (void)kept_count;
   return cosmic_fail_effect(L, ENOSYS);
 #endif
 }
@@ -4203,6 +4392,24 @@ COSMIC_SYSCALL(spawn, 12) {
       lua_rawget(L, -2);
       seatbelt_profile = plain_string(L, -1, "a seatbelt profile");
       if (seatbelt_profile[0] == '\0') return luaL_argerror(L, 10, "a seatbelt profile is empty");
+      /* Before anything is made for the child: the trampoline's profile
+       * would be a second one in a process this one's profile holds. */
+      int unknown = 0;
+      int holding = seatbelt_holding(&unknown);
+      if (holding != 0) {
+        lua_pushnil(L);
+        if (holding > 0)
+          lua_pushliteral(L, "this process is held by a Seatbelt profile, one it applied "
+                          "(Sandbox.restrict) or was started under, and macOS applies no "
+                          "second profile to a child of it: start the child without a "
+                          "policy, held by this process's own profile");
+        else
+          lua_pushfstring(L, "whether a Seatbelt profile holds this process cannot be told "
+                          "(sandbox_check: %s), and a child's profile would be a second one "
+                          "where one does", cosmic_errno_describe(unknown, NULL));
+        lua_pushinteger(L, holding > 0 ? EPERM : unknown);
+        return 3;
+      }
       lua_pushliteral(L, "parameters");
       lua_rawget(L, -3);
       if (!lua_isnil(L, -1)) {

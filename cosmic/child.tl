@@ -71,13 +71,14 @@ local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local RelayConfig = require("cosmic.relay_config")
 local Rules = require("cosmic.sandbox")
-local Seatbelt = require("cosmic.seatbelt")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local Stream = require("cosmic.stream")
 local Clock = require("cosmic.clock")
 
 local isatty = sys.isatty
+-- What holds a child by a policy on macOS, taken as this module loads.
+local Seatbelt = Rules.Seatbelt
 
 -- The calls that start, feed and reap a child, and hold this process's
 -- signals while it does, live in the raw process table, under the
