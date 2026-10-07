@@ -67,11 +67,12 @@ local fifo, await_ready, release = Process.fifo, Process.await_ready, Process.re
 -- compiles the whole tree cold, as the product rebuilding itself on a
 -- fresh checkout does: 55 to 60 s of one core for the tree's modules
 -- (some 500 in October 2026), on a runner or under ci/run-local on a
--- four-core host, which this bound holds 1.5 times over. Five cold
--- compiles at once on four cores would take 86 to 90 s each, past it.
--- The driver bounds each test here at 120 s (orchestration.tl), which
+-- four-core host, which this bound holds 2.5 times over: a macOS runner
+-- took 90 s (run 37630361708 timed out at 90213 ms). Five cold
+-- compiles at once on four cores would take 86 to 90 s each.
+-- The driver bounds each test here at 180 s (orchestration.tl), which
 -- this leaves room inside.
-local rebuild_timeout_ns <const> = Clock.seconds(90)
+local rebuild_timeout_ns <const> = Clock.seconds(150)
 
 --- A copy of the leg's compiles (COSMIC_FIXTURE_COMPILES, orchestration.tl's
 --- `seed_compiles`) for one case's rebuild to take back
