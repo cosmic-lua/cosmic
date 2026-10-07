@@ -1,4 +1,4 @@
---- Fuzz properties for [`build.relay_wire`], whose readers take the bytes
+--- Fuzz properties for [`cosmic.relay_wire`], whose readers take the bytes
 --- an untrusted program sends the relay: none raises on any bytes, none
 --- reports more bytes consumed than it was given, a read in pieces
 --- (every prefix of an input) agrees with the read of the whole, and a
@@ -8,7 +8,7 @@
 
 local Fixture = require("build.relay_wire_fixture")
 local Fuzz = require("build.fuzz")
-local Wire = require("build.relay_wire")
+local Wire = require("cosmic.relay_wire")
 
 --- What a reader answered, reduced to what the properties compare.
 local record Answer
@@ -20,10 +20,11 @@ local record Answer
   key: string
 end
 
---- A format of bytes, and a generator of them.
+--- A format of bytes: a reader of it, made afresh, as a function that
+--- feeds the next bytes and answers; and a generator of them.
 local record Format
   name: string
-  read: function(string): Answer
+  fresh: function(): function(string): Answer
   gen: function(Fuzz.Source): string
 end
 
@@ -35,35 +36,56 @@ local function shown(fields: {any}): string
   return table.concat(out, "|")
 end
 
-local function answer_connect(input: string): Answer
-  local r = Wire.connect_head(input)
-  return { status = r.status, consumed = r.consumed,
-    key = shown({ r.status, r.consumed, r.reason, r.http_status, r.host, r.kind, r.port, r.authorization }) }
-end
-
-local function answer_greeting(password: boolean): function(string): Answer
-  return function(input: string): Answer
-    local r = Wire.socks_greeting(input, password)
-    return { status = r.status, consumed = r.consumed, key = shown({ r.status, r.consumed, r.reason, r.method }) }
+local function connect_fresh(): function(string): Answer
+  local reader = Wire.connect_reader()
+  return function(chunk: string): Answer
+    local r = reader:feed(chunk)
+    return { status = r.status, consumed = r.consumed,
+      key = shown({ r.status, r.consumed, r.reason, r.http_status, r.host, r.kind, r.port, r.authorization }) }
   end
 end
 
-local function answer_auth(input: string): Answer
-  local r = Wire.socks_auth(input)
-  return { status = r.status, consumed = r.consumed,
-    key = shown({ r.status, r.consumed, r.reason, r.username, r.password }) }
+local function greeting_fresh(password: boolean): function(): function(string): Answer
+  return function(): function(string): Answer
+    local reader = Wire.socks_greeting_reader(password)
+    return function(chunk: string): Answer
+      local r = reader:feed(chunk)
+      return { status = r.status, consumed = r.consumed, key = shown({ r.status, r.consumed, r.reason, r.method }) }
+    end
+  end
 end
 
-local function answer_request(input: string): Answer
-  local r = Wire.socks_request(input)
-  return { status = r.status, consumed = r.consumed,
-    key = shown({ r.status, r.consumed, r.reason, r.reply, r.host, r.kind, r.port }) }
+local function auth_fresh(): function(string): Answer
+  local reader = Wire.socks_auth_reader()
+  return function(chunk: string): Answer
+    local r = reader:feed(chunk)
+    return { status = r.status, consumed = r.consumed,
+      key = shown({ r.status, r.consumed, r.reason, r.username, r.password }) }
+  end
 end
 
-local function answer_hello(input: string): Answer
-  local r = Wire.client_hello(input)
-  local status = r.status == "more" and "more" or (r.status == "name" or r.status == "no_sni") and "done" or "refused"
-  return { status = status, consumed = r.consumed, key = shown({ r.status, r.consumed, r.reason, r.name }) }
+local function request_fresh(): function(string): Answer
+  local reader = Wire.socks_request_reader()
+  return function(chunk: string): Answer
+    local r = reader:feed(chunk)
+    return { status = r.status, consumed = r.consumed,
+      key = shown({ r.status, r.consumed, r.reason, r.reply, r.host, r.kind, r.port }) }
+  end
+end
+
+local function hello_fresh(): function(string): Answer
+  local reader = Wire.hello_reader()
+  return function(chunk: string): Answer
+    local r = reader:feed(chunk)
+    local status = r.status == "more" and "more" or (r.status == "name" or r.status == "no_sni" or r.status == "encrypted_sni") and
+      "done" or "refused"
+    return { status = status, consumed = r.consumed, key = shown({ r.status, r.consumed, r.reason, r.name }) }
+  end
+end
+
+--- What `format` answers to `input` fed whole.
+local function whole(format: Format, input: string): Answer
+  return format.fresh()(input)
 end
 
 --- Characters a name's labels are drawn from: valid ones, and those the
@@ -113,8 +135,14 @@ local OCTETS <const> = { "0", "1", "127", "255", "256", "010", "08", "9", "300",
 
 local function gen_ipv4(src: Fuzz.Source, sound: boolean): string
   local parts: {string} = {}
-  for i = 1, (not sound and src:int(0, 9) == 0) and src:int(1, 5) or 4 do
+  for i = 1, 4 do
     parts[i] = (not sound and src:int(0, 3) == 0) and Fuzz.pick(src, OCTETS) or tostring(src:int(0, 255))
+  end
+  while not sound and Fuzz.more(src, #parts - 4, 2) do
+    parts[#parts + 1] = tostring(src:int(0, 255))
+  end
+  if not sound and src:int(0, 9) == 0 then
+    table.remove(parts)
   end
   return table.concat(parts, ".")
 end
@@ -125,13 +153,18 @@ local GROUPS <const> = { "0", "0", "0", "1", "ff", "FFFF", "abcd", "0000", "1234
 --- (full, `::` for a run, a dotted tail) and some it does not.
 local function gen_ipv6(src: Fuzz.Source, sound: boolean): string
   local groups: {string} = {}
-  local count = (not sound and src:int(0, 9) == 0) and src:int(0, 9) or 8
-  for i = 1, count do
+  for i = 1, 8 do
     groups[i] = (not sound and src:int(0, 4) == 0) and Fuzz.pick(src, GROUPS) or
       ("%x"):format(src:int(0, 3) == 0 and src:int(0, 65535) or 0)
   end
+  while not sound and Fuzz.more(src, #groups - 8, 2) do
+    groups[#groups + 1] = "1"
+  end
+  if not sound and src:int(0, 9) == 0 then
+    table.remove(groups)
+  end
   local form = src:int(0, 3)
-  if (form == 0 and not sound) or #groups == 0 then
+  if form == 0 and not sound then
     return table.concat(groups, ":")
   end
   local at = src:int(1, #groups)
@@ -219,6 +252,7 @@ local function gen_socks_request(src: Fuzz.Source): string
     address = src:int(0, 3) == 0 and Fuzz.bytes(src, 16) or Fixture.ipv6_bytes(("%x::%x"):format(src:int(0, 65535), src:int(0, 65535)))
   else
     local name = gen_name(src, src:int(0, 2) ~= 0)
+    name = name:sub(1, 255)
     address = string.char(#name) .. name
   end
   local command = src:int(0, 6) == 0 and src:int(0, 4) or 1
@@ -234,7 +268,7 @@ end
 local function gen_extras(src: Fuzz.Source): {string}
   local out: {string} = {}
   while Fuzz.more(src, #out, 4) do
-    out[#out + 1] = Fixture.extension(Fuzz.pick(src, { 0, 10, 11, 21, 43, 65535 }), Fuzz.bytes(src, 8))
+    out[#out + 1] = Fixture.extension(Fuzz.pick(src, { 0, 10, 11, 21, 43, 0xfe0d, 0xffce, 0xff02, 0xff03, 65535 }), Fuzz.bytes(src, 8))
   end
   return out
 end
@@ -267,29 +301,29 @@ local function gen_hello(src: Fuzz.Source): string
 end
 
 local READERS <const>: {Format} = {
-  { name = "connect head", read = answer_connect, gen = gen_connect },
-  { name = "socks greeting", read = answer_greeting(false), gen = gen_greeting },
-  { name = "socks greeting with a password", read = answer_greeting(true), gen = gen_greeting },
-  { name = "socks username and password", read = answer_auth, gen = gen_auth },
-  { name = "socks request", read = answer_request, gen = gen_socks_request },
-  { name = "client hello", read = answer_hello, gen = gen_hello },
+  { name = "connect head", fresh = connect_fresh, gen = gen_connect },
+  { name = "socks greeting", fresh = greeting_fresh(false), gen = gen_greeting },
+  { name = "socks greeting with a password", fresh = greeting_fresh(true), gen = gen_greeting },
+  { name = "socks username and password", fresh = auth_fresh, gen = gen_auth },
+  { name = "socks request", fresh = request_fresh, gen = gen_socks_request },
+  { name = "client hello", fresh = hello_fresh, gen = gen_hello },
 }
 
 local function test_no_reader_raises_or_consumes_past_its_input(tmp: string)
-  for _, reader in ipairs(READERS) do
+  for _, format in ipairs(READERS) do
     Fuzz.run({
-      name = reader.name .. " is total and bounded",
+      name = format.name .. " is total and bounded",
       dir = tmp,
       gen = function(src: Fuzz.Source): string
         if src:int(0, 7) == 0 then
           return Fuzz.bytes(src, 40)
         end
-        return reader.gen(src)
+        return format.gen(src)
       end,
       requires = { "more", "done", "refused" },
       shares = { more = 0.01, done = 0.05, refused = 0.1 },
       check = function(input: string): boolean, string
-        local ok, got = pcall(reader.read, input)
+        local ok, got = pcall(whole, format, input)
         if not ok then
           return false, "raised " .. tostring(got)
         end
@@ -310,45 +344,45 @@ local function test_no_reader_raises_or_consumes_past_its_input(tmp: string)
   end
 end
 
-local function test_reading_in_pieces_agrees_with_reading_the_whole(tmp: string)
-  for _, reader in ipairs(READERS) do
+local function test_feeding_in_pieces_agrees_with_feeding_the_whole(tmp: string)
+  for _, format in ipairs(READERS) do
     Fuzz.run({
-      name = reader.name .. " in pieces",
+      name = format.name .. " in pieces",
       dir = tmp,
-      gen = reader.gen,
+      gen = format.gen,
       requires = { "done", "refused", "pieces" },
       shares = { done = 0.05, refused = 0.1 },
       check = function(input: string): boolean, string
-        local whole = reader.read(input)
-        if whole.status == "more" then
-          -- Nothing is settled, so every prefix is as undecided.
-          for cut = 0, #input do
-            if reader.read(input:sub(1, cut)).status ~= "more" then
-              return false, ("the whole is undecided but its first %d bytes are not"):format(cut)
-            end
-          end
-          return true, ""
-        end
-        Fuzz.label(whole.status)
+        local all = whole(format, input)
+        Fuzz.label(all.status)
+        -- Fed in two pieces at every cut: what the first decides is what
+        -- the whole decides, and the second ends where the whole does.
         for cut = 0, #input do
-          local part = reader.read(input:sub(1, cut))
-          if whole.status == "done" and cut < whole.consumed then
-            if part.status ~= "more" then
-              return false, ("the first %d bytes answer %s, short of the %d consumed"):format(cut, part.key, whole.consumed)
+          local feed = format.fresh()
+          local first = feed(input:sub(1, cut))
+          if first.status ~= "more" then
+            if first.key ~= all.key then
+              return false, ("the first %d bytes answer %s, not %s"):format(cut, first.key, all.key)
             end
-            Fuzz.label("pieces")
-          elseif whole.status == "done" and cut == whole.consumed then
-            if part.key ~= whole.key then
-              return false, ("the consumed %d bytes answer %s, not %s"):format(cut, part.key, whole.key)
-            end
-          elseif whole.status == "refused" and part.status ~= "more" then
-            if part.key ~= whole.key then
-              return false, ("the first %d bytes answer %s, not %s"):format(cut, part.key, whole.key)
-            end
-          end
-          if whole.status == "refused" and part.status == "more" then
+          elseif all.status ~= "more" then
             Fuzz.label("pieces")
           end
+          local second = feed(input:sub(cut + 1))
+          if second.key ~= all.key then
+            return false, ("fed %d bytes and then the rest, it answers %s, not %s"):format(cut, second.key, all.key)
+          end
+          if feed("more bytes").key ~= all.key and all.status ~= "more" then
+            return false, "an answer given is not given again"
+          end
+        end
+        -- And a byte at a time.
+        local feed = format.fresh()
+        local last: Answer
+        for at = 1, #input do
+          last = feed(input:sub(at, at))
+        end
+        if last ~= nil and last.key ~= all.key then
+          return false, ("fed a byte at a time it answers %s, not %s"):format(last.key, all.key)
         end
         return true, ""
       end,
@@ -368,7 +402,7 @@ local function test_a_request_built_from_an_answer_reads_back_the_same(tmp: stri
     requires = { "name", "ipv4", "ipv6", "authorization", "rebuilt" },
     shares = { name = 0.05, ipv4 = 0.02, ipv6 = 0.02, authorization = 0.02 },
     check = function(input: string): boolean, string
-      local first = Wire.connect_head(input)
+      local first = Wire.connect_reader():feed(input)
       if first.status ~= "done" then
         return true, ""
       end
@@ -379,7 +413,7 @@ local function test_a_request_built_from_an_answer_reads_back_the_same(tmp: stri
         headers[1] = "Proxy-Authorization: " .. first.authorization
       end
       local rebuilt = Fixture.connect(authority_of(first.host, first.kind, first.port), headers)
-      local second = Wire.connect_head(rebuilt)
+      local second = Wire.connect_reader():feed(rebuilt)
       if second.status ~= "done" or second.host ~= first.host or second.kind ~= first.kind or second.port ~= first.port or
           second.authorization ~= first.authorization or second.consumed ~= #rebuilt then
         return false, ("%q read as %s %s %s and rebuilt as %q reads %s %s %s"):format(input, first.host, first.kind,
@@ -399,7 +433,7 @@ local function test_a_socks_request_built_from_an_answer_reads_back_the_same(tmp
     requires = { "name", "ipv4", "ipv6", "rebuilt" },
     shares = { name = 0.05, ipv4 = 0.02, ipv6 = 0.02 },
     check = function(input: string): boolean, string
-      local first = Wire.socks_request(input)
+      local first = Wire.socks_request_reader():feed(input)
       if first.status ~= "done" then
         return true, ""
       end
@@ -416,7 +450,7 @@ local function test_a_socks_request_built_from_an_answer_reads_back_the_same(tmp
       end
       local atyp = first.kind == "name" and 3 or first.kind == "ipv4" and 1 or 4
       local rebuilt = Fixture.socks_request(1, atyp, address, first.port)
-      local second = Wire.socks_request(rebuilt)
+      local second = Wire.socks_request_reader():feed(rebuilt)
       if second.status ~= "done" or second.host ~= first.host or second.kind ~= first.kind or second.port ~= first.port or
           second.consumed ~= #rebuilt then
         return false, ("%q read as %s:%s and rebuilt as %q reads %s:%s"):format(input, first.host, first.port, rebuilt,
@@ -436,13 +470,13 @@ local function test_a_hello_built_from_an_answer_reads_back_the_same(tmp: string
     requires = { "name", "rebuilt" },
     shares = { name = 0.05 },
     check = function(input: string): boolean, string
-      local first = Wire.client_hello(input)
+      local first = Wire.hello_reader():feed(input)
       if first.status ~= "name" then
         return true, ""
       end
       Fuzz.label("name")
       local rebuilt = Fixture.records(Fixture.hello({ name = first.name }))
-      local second = Wire.client_hello(rebuilt)
+      local second = Wire.hello_reader():feed(rebuilt)
       if second.status ~= "name" or second.name ~= first.name or second.consumed ~= #rebuilt then
         return false, ("%q read as %s and rebuilt as %q reads %s"):format(input, first.name, rebuilt, tostring(second.name))
       end
@@ -460,12 +494,12 @@ local function test_a_username_and_password_built_from_an_answer_reads_back_the_
     requires = { "rebuilt" },
     shares = { rebuilt = 0.02 },
     check = function(input: string): boolean, string
-      local first = Wire.socks_auth(input)
+      local first = Wire.socks_auth_reader():feed(input)
       if first.status ~= "done" then
         return true, ""
       end
       local rebuilt = "\1" .. string.char(#first.username) .. first.username .. string.char(#first.password) .. first.password
-      local second = Wire.socks_auth(rebuilt)
+      local second = Wire.socks_auth_reader():feed(rebuilt)
       if second.status ~= "done" or second.username ~= first.username or second.password ~= first.password or
           second.consumed ~= #rebuilt then
         return false, ("%q read as %q:%q and rebuilt as %q"):format(input, first.username, first.password, rebuilt)
@@ -498,6 +532,47 @@ local function test_a_refusal_reply_is_one_status_line_of_visible_text(tmp: stri
         return false, ("%q gave more than a status line: %q"):format(fields[2], reply)
       end
       Fuzz.label(fields[2]:find("[^\32-\126]") and "controls" or "visible")
+      return true, ""
+    end,
+  })
+end
+
+local function test_a_hello_with_an_encrypted_server_name_is_never_named(tmp: string)
+  Fuzz.run({
+    name = "client hello encrypted server name",
+    dir = tmp,
+    gen = function(src: Fuzz.Source): string
+      local kinds: {integer} = { 0xfe0d, 0xffce, 0xff02, 0xff03 }
+      local sizes: {integer} = {}
+      while Fuzz.more(src, #sizes, 3) do
+        sizes[#sizes + 1] = src:int(1, 60)
+      end
+      local sizes_text: {string} = {}
+      for i, size in ipairs(sizes) do
+        sizes_text[i] = tostring(size)
+      end
+      return Fuzz.pack({ gen_name(src, true), tostring(Fuzz.pick(src, kinds)), Fuzz.bytes(src, 12),
+        src:int(0, 1) == 0 and "before" or "after", table.concat(sizes_text, ",") })
+    end,
+    requires = { "encrypted" },
+    shares = { encrypted = 0.5 },
+    check = function(input: string): boolean, string
+      local fields = Fuzz.unpack(input)
+      local sizes: {integer} = {}
+      for size in fields[5]:gmatch("%d+") do
+        sizes[#sizes + 1] = math.tointeger(tonumber(size))
+      end
+      local encrypted = Fixture.extension(math.tointeger(tonumber(fields[2])), fields[3])
+      local extras = fields[4] == "before" and { encrypted, Fixture.extension(21, "") } or { Fixture.extension(21, ""), encrypted }
+      local hello = Fixture.hello({ name = fields[1], extra = extras })
+      local r = Wire.hello_reader():feed(Fixture.records(hello, sizes))
+      if r.status == "name" or r.name ~= nil then
+        return false, ("named %s although an extension encrypts it"):format(tostring(r.name))
+      end
+      if r.status ~= "encrypted_sni" then
+        return false, ("answered %s %s"):format(r.status, tostring(r.reason))
+      end
+      Fuzz.label("encrypted")
       return true, ""
     end,
   })

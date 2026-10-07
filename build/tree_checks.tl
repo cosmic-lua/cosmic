@@ -66,13 +66,6 @@ for _, name in ipairs({ "udp", "datagram" }) do
     "prerequisite lands separately from the resolver that calls it"
 end
 
-for _, name in ipairs({ "connect_ok", "socks_method_reply", "socks_auth_reply", "socks_reply" }) do
-  -- TODO: remove this allowance once the sandbox relay's listeners (phase 6 of
-  -- doc/plans/sandbox.md) call the parsers.
-  allowed["build.relay_wire." .. name] = "tested directly: the relay's protocol parsers land " ..
-    "before the relay that drives them"
-end
-
 allowed["cosmic.sandbox.restrict"] = "tested directly: it holds the process that calls it " ..
   "for good, so a worked example would hold the run that shows it; the test restricts " ..
   "a child of this program, and the harness holds its workers with it once the " ..

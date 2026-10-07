@@ -3,25 +3,46 @@
 --- and request, and the server name in a TLS ClientHello. The program is
 --- untrusted, so each reader is a pure function of the bytes it is given: it
 --- never raises, reads nothing past a length field it has checked, and refuses
---- by naming why.
+--- by naming why. It opens no socket and resolves nothing.
 ---
---- Each reader is incremental by being repeatable. The caller keeps what it
---- has read so far and gives it all again after each read: the answer is
---- `more` until the bytes decide it, then `done` with the count of bytes
---- consumed (what follows is the tunnel's, not the request's), or a refusal.
---- A prefix is refused only when every longer input is refused for the same
---- reason, and an input is done at the same count wherever its reads split
---- (build/relay_wire_fuzz_test.tl). Every length is bounded, so a buffer that
---- grows past the largest cap below is already decided.
+--- A reader is an object fed the bytes as they arrive (`reader:feed(chunk)`).
+--- It answers `more` until the bytes decide it, then `done` with `consumed`,
+--- the count of bytes of everything fed so far that the request took (what
+--- follows is the tunnel's, not the request's), or a refusal. The answer is
+--- final: a later feed answers it again. A prefix is refused only when every
+--- longer input is refused for the same reason, and an input answers the same
+--- wherever its feeds split (cosmic/relay_wire_fuzz_test.tl). Total work is
+--- linear in the bytes fed: the HTTP and TLS readers keep an offset and
+--- the unfinished line or record, never reading a byte twice; a SOCKS message
+--- is at most 513 bytes, so its reader re-reads what it holds, which is
+--- bounded by that and not by what the program sends.
 ---
---- A host the readers answer is one of three kinds and is already in the
---- form a grant is matched in: a DNS name (labels of letters, digits and
---- hyphens, 63 bytes at most, 253 in all, lower-cased, a trailing dot
---- removed, and no final label that inet_aton would read as a number),
---- a dotted IPv4 address (decimal octets, no leading zeros), or an IPv6
---- address in RFC 5952's form without brackets. Nothing is resolved here.
+--- A host the readers answer is one of three kinds: a DNS name (labels of
+--- letters, digits and inner hyphens, 63 bytes at most, 253 in all,
+--- lower-cased, a trailing dot removed, and no final label that inet_aton
+--- would read as a number), a dotted IPv4 address (decimal octets, no leading
+--- zeros), or an IPv6 address in RFC 5952's form without brackets. The
+--- readers only parse and canonicalise: whether an address may be connected
+--- to is the address classifier's (cosmic.relay_address), and the relay
+--- passes it every address host, mapped (`::ffff:`), NAT64, `0.0.0.0` and
+--- `::` forms included. Nothing is resolved here.
+---
+--- The name rules refuse what some programs write. An underscore in a label
+--- (which some internal DNS names hold) is refused, as are a final label of
+--- digits and an IP literal in a TLS server_name (RFC 6066 forbids one, and a
+--- client that connects to an address sends none). A grant names such a host
+--- by its address instead.
+---
+--- A TLS reader judges only the first ClientHello of a connection. A second
+--- one, after a HelloRetryRequest or a renegotiation, is outside what it
+--- sees; the relay's tunnel carries it unread. A hello that carries an
+--- Encrypted Client Hello or an encrypted-SNI extension names only a public
+--- name in its server_name, so it answers `encrypted_sni` and no name. Clients
+--- that send ECH as GREASE (Chrome and other BoringSSL-based clients do, to a
+--- server that offers none) are indistinguishable from real ones, so the
+--- relay's policy for that status decides whether they connect.
 
-local plural = require("build.plural")
+local String = require("cosmic.string")
 
 local record relay_wire
   --- What a reader has decided so far.
@@ -40,8 +61,10 @@ local record relay_wire
 
   --- A CONNECT request head: `CONNECT host:port HTTP/1.1` and its headers.
   record Connect
+    --- How far the bytes have decided it.
     status: Status
-    --- Bytes of the head, through its empty line, when `done`.
+    --- Bytes of everything fed that the head took, through its empty line,
+    --- when `done`.
     consumed: integer
     --- When `refused`, why, worded to be shown to the program.
     reason: string
@@ -49,33 +72,61 @@ local record relay_wire
     http_status: integer
     --- When `done`, the host, in the form the module's header describes.
     host: string
+    --- When `done`, what the host is.
     kind: Kind
+    --- When `done`, the port.
     port: integer
     --- When `done`, the value of the `Proxy-Authorization` header, or nil
     --- when there is none. No other header is kept.
     authorization: string
   end
 
+  --- Reads a CONNECT head from the bytes fed to it.
+  interface ConnectReader
+    --- Feeds the next bytes and answers what all fed so far say.
+    feed: function(ConnectReader, chunk: string): Connect
+  end
+
   --- The SOCKS5 method selection, answered with [`socks_method_reply`].
   record SocksGreeting
+    --- How far the bytes have decided it.
     status: Status
     --- Bytes of the greeting, when `done`.
     consumed: integer
+    --- When `refused`, why.
     reason: string
     --- When `done`, the method to select: 0 (no authentication) or 2
-    --- (username and password). When `refused`, 255 (none acceptable) or,
-    --- for a greeting of the wrong version, 0.
+    --- (username and password). When `refused` because none offered is
+    --- acceptable, 255, which [`socks_method_reply`] sends; when refused for
+    --- another version, nil, and the caller closes without replying.
     method: integer
+  end
+
+  --- Reads a SOCKS5 greeting from the bytes fed to it.
+  interface SocksGreetingReader
+    --- Feeds the next bytes and answers what all fed so far say.
+    feed: function(SocksGreetingReader, chunk: string): SocksGreeting
   end
 
   --- A SOCKS5 username and password (RFC 1929), answered with
   --- [`socks_auth_reply`].
   record SocksAuth
+    --- How far the bytes have decided it.
     status: Status
+    --- Bytes of everything fed that the message took, when `done`.
     consumed: integer
+    --- When `refused`, why.
     reason: string
+    --- The username, when `done`.
     username: string
+    --- The password, when `done`.
     password: string
+  end
+
+  --- Reads a username and password from the bytes fed to it.
+  interface SocksAuthReader
+    --- Feeds the next bytes and answers what all fed so far say.
+    feed: function(SocksAuthReader, chunk: string): SocksAuth
   end
 
   --- The replies a SOCKS5 server answers a request with.
@@ -93,14 +144,26 @@ local record relay_wire
 
   --- A SOCKS5 CONNECT request.
   record SocksRequest
+    --- How far the bytes have decided it.
     status: Status
+    --- Bytes of everything fed that the message took, when `done`.
     consumed: integer
     --- When `refused`, why, and the reply to answer with.
     reason: string
+    --- The reply to answer with.
     reply: SocksReply
+    --- When `done`, the host.
     host: string
+    --- When `done`, what the host is.
     kind: Kind
+    --- When `done`, the port.
     port: integer
+  end
+
+  --- Reads a SOCKS5 request from the bytes fed to it.
+  interface SocksRequestReader
+    --- Feeds the next bytes and answers what all fed so far say.
+    feed: function(SocksRequestReader, chunk: string): SocksRequest
   end
 
   --- What a ClientHello says of its server name.
@@ -108,6 +171,7 @@ local record relay_wire
     "more"
     "name"
     "no_sni"
+    "encrypted_sni"
     "not_tls"
     "malformed"
   end
@@ -115,16 +179,28 @@ local record relay_wire
   --- The server name of a TLS ClientHello.
   record Hello
     --- `name`: the hello names a server, in `name`. `no_sni`: a well-formed
-    --- hello with no server_name extension. `not_tls`: the bytes are not a
-    --- TLS handshake at all, so the relay's policy for other protocols
-    --- applies. `malformed`: a TLS record or hello that breaks its own
-    --- lengths, or a name that breaks the rules above.
+    --- hello with no server_name extension. `encrypted_sni`: it carries an
+    --- Encrypted Client Hello (extension 0xfe0d) or an encrypted-SNI draft
+    --- (0xffce, 0xff02, 0xff03), so any server_name it holds is only the
+    --- public name and is not given. `not_tls`: the bytes are not a TLS
+    --- handshake at all, so the relay's policy for other protocols applies.
+    --- `malformed`: a TLS record or hello that breaks its own lengths, bytes
+    --- after the hello in its last record, or a name that breaks the rules
+    --- above.
     status: SniStatus
-    --- Bytes of the records the hello ends in, when `name` or `no_sni`.
+    --- Bytes of everything fed that the records the hello ends in took,
+    --- when `name`, `no_sni` or `encrypted_sni`.
     consumed: integer
+    --- When `name`, the server name.
     name: string
-    --- When `not_tls` or `malformed`, why.
+    --- When `encrypted_sni`, `not_tls` or `malformed`, why.
     reason: string
+  end
+
+  --- Reads a ClientHello from the bytes fed to it.
+  interface HelloReader
+    --- Feeds the next bytes and answers what all fed so far say.
+    feed: function(HelloReader, chunk: string): Hello
   end
 end
 
@@ -396,52 +472,21 @@ local function refused(why: string, http_status: integer): relay_wire.Connect
   return { status = "refused", consumed = 0, reason = why, http_status = http_status }
 end
 
---- One line of a head from `start`: "more" when it is not complete and
---- nothing in it is refused yet; "refused", why and the status to answer
---- with; or "line", "" and where the next begins (its content ends two
---- bytes before). Violations are decided by the position of the first
---- byte that commits one, so that a prefix never refuses what the whole
---- does not, or for another reason.
-local function scan_line(buf: string, start: integer, first: boolean): string, string, integer
-  local size = #buf
-  local special = buf:find(SPECIAL, start)
-  local excess_at = start + MAX_LINE
-  local head_at = MAX_HEAD + 1
-  local line_hit = size >= excess_at and (special == nil or special > excess_at)
-  local head_hit = size >= head_at and (special == nil or special >= head_at)
-  if head_hit and (not line_hit or head_at <= excess_at) then
-    return "refused", ("request head longer than %s"):format(plural.count(MAX_HEAD, "byte")), 431
-  end
-  if line_hit then
-    return "refused", ("%s longer than %s"):format(first and "request line" or "header line", plural.count(MAX_LINE, "byte")),
-      first and 414 or 431
-  end
-  if special == nil then
-    return "more", "", 0
-  end
-  local byte = buf:byte(special)
-  if byte == 13 then
-    if special >= MAX_HEAD then
-      return "refused", ("request head longer than %s"):format(plural.count(MAX_HEAD, "byte")), 431
-    end
-    if special == size then
-      return "more", "", 0
-    end
-    if buf:byte(special + 1) == 10 then
-      return "line", "", special + 2
-    end
-    return "refused", "a carriage return outside a CRLF line ending", 400
-  end
-  if byte == 10 then
-    return "refused", "a bare LF line ending (lines end in CRLF)", 400
-  end
-  return "refused", ("control byte 0x%02x in the request head"):format(byte), 400
-end
-
 --- A header name's bytes (RFC 9110's token).
 local TOKEN <const> = "^[%w!#$%%&'*+%-%.%^_`|~]+$"
 
---- Reads the CONNECT request head at the start of `buf`.
+--- `value` without the blanks at its ends, in two passes that each cost its
+--- length (a pattern that anchors both ends backtracks quadratically).
+local function trimmed(value: string): string
+  local first = value:find("[^ \t]")
+  if first == nil then
+    return ""
+  end
+  local back = value:reverse():find("[^ \t]")
+  return value:sub(first, #value - back + 1)
+end
+
+--- Reads the CONNECT request head from the bytes fed to it.
 ---
 --- It is exactly `CONNECT host:port HTTP/1.1` (or `HTTP/1.0`) with CRLF
 --- line endings, then header lines up to an empty line. A request line of
@@ -449,73 +494,146 @@ local TOKEN <const> = "^[%w!#$%%&'*+%-%.%^_`|~]+$"
 --- 8192 bytes to a line, 16384 to the head and 100 headers; a bare LF or CR,
 --- NUL or other control byte, and an obsolete line fold are refused.
 --- `Proxy-Authorization` is kept, and no other header is read.
-function relay_wire.connect_head(buf: string): relay_wire.Connect
-  local pos = 1
+function relay_wire.connect_reader(): relay_wire.ConnectReader
+  local final: relay_wire.Connect | nil = nil
+  -- Bytes fed before the chunk in hand, and the position of the first
+  -- byte of the line being read.
+  local seen = 0
+  local line_start = 1
+  local pieces: {string} = {}
+  local after_cr = false
   local first = true
   local count = 0
   local authorization: string
   local host: string
   local kind: relay_wire.Kind
   local port: integer
-  while true do
-    local outcome, why, next_start = scan_line(buf, pos, first)
-    if outcome == "more" then
-      return { status = "more", consumed = 0 }
-    elseif outcome == "refused" then
-      return refused(why, next_start)
-    end
-    local content = buf:sub(pos, next_start - 3)
-    pos = next_start
+
+  local function finish(answer: relay_wire.Connect): relay_wire.Connect
+    final = answer
+    pieces = {}
+    return answer
+  end
+
+  local function head_refusal(): relay_wire.Connect
+    return finish(refused(("request head longer than %s"):format(String.counted(MAX_HEAD, "byte")), 431))
+  end
+
+  local function line_refusal(): relay_wire.Connect
+    return finish(refused(("%s longer than %s"):format(first and "request line" or "header line",
+      String.counted(MAX_LINE, "byte")), first and 414 or 431))
+  end
+
+  --- What a whole line, ending at position `at`, decides: an answer, or
+  --- nil to go on.
+  local function line(content: string, at: integer): relay_wire.Connect | nil
     if first then
       first = false
       local method = content:match("^[^ \t]*")
       if method ~= "CONNECT" then
-        return refused("plain HTTP is not relayed: only CONNECT host:port is accepted", 405)
+        return finish(refused("plain HTTP is not relayed: only CONNECT host:port is accepted", 405))
       end
       local target, version = content:match("^CONNECT ([^ ]*) ([^ ]*)$")
       if target == nil then
-        return refused("malformed request line (expected CONNECT host:port HTTP/1.1)", 400)
+        return finish(refused("malformed request line (expected CONNECT host:port HTTP/1.1)", 400))
       end
       if version ~= "HTTP/1.1" and version ~= "HTTP/1.0" then
-        return refused("unsupported HTTP version " .. version .. " (HTTP/1.1 or HTTP/1.0)", 505)
+        return finish(refused("unsupported HTTP version " .. version .. " (HTTP/1.1 or HTTP/1.0)", 505))
       end
       local found, trouble = authority(target)
       if found == nil then
-        return refused(trouble, 400)
+        return finish(refused(trouble, 400))
       end
       host, kind, port = found.host, found.kind, found.port
-    elseif content == "" then
-      return {
-        status = "done",
-        consumed = pos - 1,
-        host = host,
-        kind = kind,
-        port = port,
-        authorization = authorization,
-      }
-    else
-      if content:find("^[ \t]") then
-        return refused("an obsolete header line fold (a line starting with whitespace)", 400)
-      end
-      count = count + 1
-      if count > MAX_HEADERS then
-        return refused(("more than %s"):format(plural.count(MAX_HEADERS, "header")), 431)
-      end
-      local name, value = content:match("^([^:]*):(.*)$")
-      if name == nil then
-        return refused("a header line without a colon", 400)
-      end
-      if not name:find(TOKEN) then
-        return refused("a header name that is not a token", 400)
-      end
-      if lower(name) == "proxy-authorization" then
-        if authorization ~= nil then
-          return refused("a repeated Proxy-Authorization header", 400)
-        end
-        authorization = value:match("^[ \t]*(.-)[ \t]*$")
-      end
+      return nil
     end
+    if content == "" then
+      return finish({ status = "done", consumed = at, host = host, kind = kind, port = port,
+        authorization = authorization })
+    end
+    if content:find("^[ \t]") then
+      return finish(refused("an obsolete header line fold (a line starting with whitespace)", 400))
+    end
+    count = count + 1
+    if count > MAX_HEADERS then
+      return finish(refused(("more than %s"):format(String.counted(MAX_HEADERS, "header")), 431))
+    end
+    local name, value = content:match("^([^:]*):(.*)$")
+    if name == nil then
+      return finish(refused("a header line without a colon", 400))
+    end
+    if not name:find(TOKEN) then
+      return finish(refused("a header name that is not a token", 400))
+    end
+    if lower(name) == "proxy-authorization" then
+      if authorization ~= nil then
+        return finish(refused("a repeated Proxy-Authorization header", 400))
+      end
+      authorization = trimmed(value)
+    end
+    return nil
   end
+
+  return {
+    feed = function(_: relay_wire.ConnectReader, chunk: string): relay_wire.Connect
+      if final ~= nil then
+        return final
+      end
+      local size = #chunk
+      local i = 1
+      while i <= size do
+        -- Each byte is judged by its position alone, so that where the
+        -- feeds split decides nothing: past the head's cap, then a line's
+        -- end after a CR, then the byte itself.
+        if seen + i > MAX_HEAD then
+          return head_refusal()
+        end
+        if after_cr then
+          if chunk:byte(i) ~= 10 then
+            return finish(refused("a carriage return outside a CRLF line ending", 400))
+          end
+          after_cr = false
+          local content = table.concat(pieces)
+          pieces = {}
+          line_start = seen + i + 1
+          local answer = line(content, seen + i)
+          if answer ~= nil then
+            return answer
+          end
+          i = i + 1
+        else
+          local special = chunk:find(SPECIAL, i)
+          local last = (special or size + 1) - 1
+          if last >= i then
+            local excess_at = line_start + MAX_LINE
+            local line_hit = seen + last >= excess_at
+            local head_hit = seen + last > MAX_HEAD
+            if head_hit and (not line_hit or MAX_HEAD + 1 <= excess_at) then
+              return head_refusal()
+            end
+            if line_hit then
+              return line_refusal()
+            end
+            pieces[#pieces + 1] = chunk:sub(i, last)
+            i = last + 1
+          end
+          if special ~= nil then
+            local byte = chunk:byte(special)
+            if byte == 13 then
+              after_cr = true
+            elseif byte == 10 then
+              return finish(refused("a bare LF line ending (lines end in CRLF)", 400))
+            else
+              return finish(refused(("control byte 0x%02x in the request head"):format(byte), 400))
+            end
+            i = special + 1
+          end
+        end
+      end
+      seen = seen + size
+      return { status = "more", consumed = 0 }
+    end,
+  }
 end
 
 --- The reply to a CONNECT that was granted and connected.
@@ -540,16 +658,13 @@ function relay_wire.connect_refusal(status: integer, why: string): string
     status == 405 and "Allow: CONNECT\r\n" or "")
 end
 
---- Reads the SOCKS5 greeting at the start of `buf` and picks the method:
---- no authentication (0x00), or with `password` set, only username and
---- password (0x02), which carries the sandbox's token. A greeting that
---- offers neither is refused with method 255.
-function relay_wire.socks_greeting(buf: string, password?: boolean): relay_wire.SocksGreeting
+--- The SOCKS5 greeting at the start of `buf`, whole.
+local function read_greeting(buf: string, password: boolean): relay_wire.SocksGreeting
   if #buf < 1 then
     return { status = "more", consumed = 0 }
   end
   if buf:byte(1) ~= 5 then
-    return { status = "refused", consumed = 0, method = 0,
+    return { status = "refused", consumed = 0,
       reason = ("SOCKS version %d is not supported (only 5)"):format(buf:byte(1)) }
   end
   if #buf < 2 then
@@ -581,9 +696,9 @@ function relay_wire.socks_method_reply(method: integer): string
   return "\5" .. string.char(method)
 end
 
---- Reads the RFC 1929 username and password at the start of `buf`: both
+--- The RFC 1929 username and password at the start of `buf`, whole: both
 --- from 1 to 255 bytes.
-function relay_wire.socks_auth(buf: string): relay_wire.SocksAuth
+local function read_auth(buf: string): relay_wire.SocksAuth
   if #buf < 1 then
     return { status = "more", consumed = 0 }
   end
@@ -635,11 +750,8 @@ local function socks_refused(reply: relay_wire.SocksReply, why: string): relay_w
   return { status = "refused", consumed = 0, reply = reply, reason = why }
 end
 
---- Reads the SOCKS5 request at the start of `buf`: CONNECT only (BIND and
---- UDP ASSOCIATE are refused with reply `command_not_supported`), to a
---- domain name (the rules of the module's header), an IPv4 or an IPv6
---- address, and a port from 1 to 65535.
-function relay_wire.socks_request(buf: string): relay_wire.SocksRequest
+--- The SOCKS5 request at the start of `buf`, whole.
+local function read_request(buf: string): relay_wire.SocksRequest
   local size = #buf
   if size < 1 then
     return { status = "more", consumed = 0 }
@@ -725,13 +837,85 @@ function relay_wire.socks_reply(which: relay_wire.SocksReply): string
   return "\5" .. string.char(code) .. "\0\1\0\0\0\0\0\0"
 end
 
+--- A reader of a message of at most a few hundred bytes: it holds what it
+--- is fed and reads it again, which costs at most that many bytes a feed
+--- and nothing once it has answered.
+local function small_reader<T>(read: function(string): T, decided: function(T): boolean): function(string): T
+  local held = ""
+  local final: T | nil = nil
+  return function(chunk: string): T
+    if final ~= nil then
+      return final
+    end
+    held = held .. chunk
+    local answer = read(held)
+    if decided(answer) then
+      final = answer
+      held = ""
+    end
+    return answer
+  end
+end
+
+--- Reads the SOCKS5 greeting from the bytes fed to it and picks the method:
+--- no authentication (0x00), or with `password` set, only username and
+--- password (0x02), which carries the sandbox's token. A greeting that
+--- offers neither is refused with method 255, and one of another version
+--- with no method, for the caller to close.
+function relay_wire.socks_greeting_reader(password?: boolean): relay_wire.SocksGreetingReader
+  local want = password == true
+  local step = small_reader(function(held: string): relay_wire.SocksGreeting
+    return read_greeting(held, want)
+  end, function(answer: relay_wire.SocksGreeting): boolean
+    return answer.status ~= "more"
+  end)
+  return { feed = function(_: relay_wire.SocksGreetingReader, chunk: string): relay_wire.SocksGreeting
+    return step(chunk)
+  end }
+end
+
+--- Reads the RFC 1929 username and password from the bytes fed to it: both
+--- from 1 to 255 bytes.
+function relay_wire.socks_auth_reader(): relay_wire.SocksAuthReader
+  local step = small_reader(read_auth, function(answer: relay_wire.SocksAuth): boolean
+    return answer.status ~= "more"
+  end)
+  return { feed = function(_: relay_wire.SocksAuthReader, chunk: string): relay_wire.SocksAuth
+    return step(chunk)
+  end }
+end
+
+--- Reads the SOCKS5 request from the bytes fed to it: CONNECT only (BIND and
+--- UDP ASSOCIATE are refused with reply `command_not_supported`), to a
+--- domain name (the rules of the module's header), an IPv4 or an IPv6
+--- address, and a port from 1 to 65535.
+function relay_wire.socks_request_reader(): relay_wire.SocksRequestReader
+  local step = small_reader(read_request, function(answer: relay_wire.SocksRequest): boolean
+    return answer.status ~= "more"
+  end)
+  return { feed = function(_: relay_wire.SocksRequestReader, chunk: string): relay_wire.SocksRequest
+    return step(chunk)
+  end }
+end
+
 local function u16(text: string, at: integer): integer
   return text:byte(at) * 256 + text:byte(at + 1)
 end
 
+--- What a ClientHello says of its server: the name, or "" for none, and
+--- whether an extension encrypts it.
+local record ServerName
+  name: string
+  encrypted: boolean
+end
+
+--- The extensions that carry the server name encrypted: Encrypted Client
+--- Hello and the encrypted-SNI drafts.
+local ENCRYPTED <const>: {integer: boolean} = { [0xfe0d] = true, [0xffce] = true, [0xff02] = true, [0xff03] = true }
+
 --- The server name in the body of a ClientHello message (what follows its
---- four-byte header): a name, or "" for none, and why not.
-local function hello_name(body: string): string | nil, string
+--- four-byte header), or nil and why not.
+local function hello_name(body: string): ServerName | nil, string
   local size = #body
   if size < 35 then
     return nil, "ClientHello shorter than its fixed fields"
@@ -759,7 +943,7 @@ local function hello_name(body: string): string | nil, string
   end
   at = at + 1 + methods
   if at == size + 1 then
-    return ""
+    return { name = "", encrypted = false }
   end
   if at + 1 > size then
     return nil, "ClientHello extensions length cut short"
@@ -770,6 +954,7 @@ local function hello_name(body: string): string | nil, string
   at = at + 2
   local seen: {integer: boolean} = {}
   local found = ""
+  local encrypted = false
   while at <= size do
     if at + 3 > size then
       return nil, "ClientHello extension header past its end"
@@ -783,6 +968,9 @@ local function hello_name(body: string): string | nil, string
       return nil, "ClientHello repeats an extension"
     end
     seen[kind] = true
+    if ENCRYPTED[kind] then
+      encrypted = true
+    end
     if kind == 0 then
       local list = body:sub(at + 4, at + 3 + length)
       if #list < 2 or u16(list, 1) ~= #list - 2 or #list == 2 then
@@ -813,92 +1001,177 @@ local function hello_name(body: string): string | nil, string
     end
     at = at + 4 + length
   end
-  return found
+  return { name = found, encrypted = encrypted }
 end
 
 local function malformed(why: string): relay_wire.Hello
   return { status = "malformed", consumed = 0, reason = why }
 end
 
---- Reads the TLS ClientHello at the start of `buf`, which may arrive in
---- pieces and span handshake records (up to 64 of them, 16384 bytes of
---- hello), and answers the server name it carries, lower-cased and by the
---- rules of the module's header. The hello is judged only whole; `consumed`
---- ends with the record its last byte is in.
-function relay_wire.client_hello(buf: string): relay_wire.Hello
-  local size = #buf
-  local pos = 1
+--- What a TLS record header says: a refusal, or the record's payload length
+--- (0 while the five bytes are not all there).
+local record Header
+  refusal: relay_wire.Hello
+  length: integer
+end
+
+--- The bytes of a TLS record header a reader has, judged as far as they
+--- go: a refusal, and the record's length once all five are there (0 until
+--- then). A first record that is not a TLS handshake is `not_tls`; a later
+--- one that is not is `malformed`.
+local function record_header(data: string, pos: integer, first: boolean): Header
+  local have = #data - pos + 1
+  local function wrong(why: string): relay_wire.Hello
+    if first then
+      return { status = "not_tls", consumed = 0, reason = why }
+    end
+    return malformed("a ClientHello continued by " .. why)
+  end
+  if have < 1 then
+    return { length = 0 }
+  end
+  if data:byte(pos) ~= 22 then
+    return { refusal = wrong(("a record whose first byte 0x%02x is not a TLS handshake record"):format(data:byte(pos))), length = 0 }
+  end
+  if have < 2 then
+    return { length = 0 }
+  end
+  if data:byte(pos + 1) ~= 3 then
+    return { refusal = wrong("a handshake record of a version that is not SSL 3 or TLS"), length = 0 }
+  end
+  if have < 3 then
+    return { length = 0 }
+  end
+  if data:byte(pos + 2) > 4 then
+    return { refusal = wrong("a handshake record of a version past TLS 1.3"), length = 0 }
+  end
+  if have < 5 then
+    return { length = 0 }
+  end
+  local length = u16(data, pos + 3)
+  if length == 0 or length > 16384 then
+    return { refusal = malformed("a handshake record of length " .. length), length = 0 }
+  end
+  return { length = length }
+end
+
+--- Reads the TLS ClientHello from the bytes fed to it, which may arrive in
+--- pieces and span handshake records (up to 64 of them, 16384 bytes of hello),
+--- and answers the server name it carries, lower-cased and by the rules of
+--- the module's header. The hello is judged only whole, and only the first;
+--- `consumed` ends with the record its last byte is in, which must end with
+--- it.
+function relay_wire.hello_reader(): relay_wire.HelloReader
+  local final: relay_wire.Hello | nil = nil
+  -- The bytes of the record in progress (and any after it), and the bytes
+  -- fed before them.
+  local pending: {string} = {}
+  local pending_len = 0
+  local need = 5
+  local base = 0
   local records = 0
+  -- The handshake bytes gathered from complete records, by piece, and the
+  -- size of the message once its four-byte header is in.
   local parts: {string} = {}
   local gathered = 0
-  while true do
-    if size < pos then
-      return { status = "more", consumed = 0 }
-    end
-    if buf:byte(pos) ~= 22 then
-      if records == 0 then
-        return { status = "not_tls", consumed = 0,
-          reason = ("first byte 0x%02x is not a TLS handshake record"):format(buf:byte(pos)) }
-      end
-      return malformed("a ClientHello continued by a record that is not a handshake record")
-    end
-    if size < pos + 1 then
-      return { status = "more", consumed = 0 }
-    end
-    if buf:byte(pos + 1) ~= 3 then
-      if records == 0 then
-        return { status = "not_tls", consumed = 0, reason = "handshake record of a version that is not SSL 3 or TLS" }
-      end
-      return malformed("a handshake record of another version")
-    end
-    if size < pos + 2 then
-      return { status = "more", consumed = 0 }
-    end
-    if buf:byte(pos + 2) > 4 then
-      if records == 0 then
-        return { status = "not_tls", consumed = 0, reason = "handshake record of a version past TLS 1.3" }
-      end
-      return malformed("a handshake record of another version")
-    end
-    if size < pos + 4 then
-      return { status = "more", consumed = 0 }
-    end
-    local length = u16(buf, pos + 3)
-    if length == 0 or length > 16384 then
-      return malformed("a handshake record of length " .. length)
-    end
-    if size < pos + 4 + length then
-      return { status = "more", consumed = 0 }
-    end
+  local total: integer | nil = nil
+
+  local function finish(answer: relay_wire.Hello): relay_wire.Hello
+    final = answer
+    pending, parts = {}, {}
+    return answer
+  end
+
+  --- Takes the whole record at `data`'s `pos`, of `length` payload bytes:
+  --- an answer once the hello is complete or refused, else nil.
+  local function take(data: string, pos: integer, length: integer): relay_wire.Hello | nil
     records = records + 1
     if records > MAX_RECORDS then
-      return malformed(("a ClientHello in more than %s"):format(plural.count(MAX_RECORDS, "record")))
+      return finish(malformed(("a ClientHello in more than %s"):format(String.counted(MAX_RECORDS, "record"))))
     end
-    parts[#parts + 1] = buf:sub(pos + 5, pos + 4 + length)
+    parts[#parts + 1] = data:sub(pos + 5, pos + 4 + length)
     gathered = gathered + length
-    pos = pos + 5 + length
-    if gathered >= 4 then
+    if total == nil then
+      if gathered < 4 then
+        return nil
+      end
       local message = table.concat(parts)
       parts = { message }
       if message:byte(1) ~= 1 then
-        return malformed(("handshake message type %d is not a ClientHello"):format(message:byte(1)))
+        return finish(malformed(("handshake message type %d is not a ClientHello"):format(message:byte(1))))
       end
-      local total = message:byte(2) * 65536 + message:byte(3) * 256 + message:byte(4)
+      total = message:byte(2) * 65536 + message:byte(3) * 256 + message:byte(4)
       if total > MAX_HELLO then
-        return malformed(("a ClientHello of %s (at most %d)"):format(plural.count(total, "byte"), MAX_HELLO))
-      end
-      if gathered >= 4 + total then
-        local name, why = hello_name(message:sub(5, 4 + total))
-        if name == nil then
-          return malformed(why)
-        end
-        if name == "" then
-          return { status = "no_sni", consumed = pos - 1 }
-        end
-        return { status = "name", consumed = pos - 1, name = name }
+        return finish(malformed(("a ClientHello of %s (at most %d)"):format(String.counted(total, "byte"), MAX_HELLO)))
       end
     end
+    if gathered < 4 + total then
+      return nil
+    end
+    if gathered > 4 + total then
+      return finish(malformed("bytes after the ClientHello in its last record"))
+    end
+    local server, why = hello_name(table.concat(parts):sub(5))
+    if server == nil then
+      return finish(malformed(why))
+    end
+    local name, encrypted = server.name, server.encrypted
+    local consumed = base + pos + 4 + length
+    if encrypted then
+      return finish({ status = "encrypted_sni", consumed = consumed,
+        reason = "the hello carries an encrypted server name (Encrypted Client Hello or encrypted SNI), so its server_name is only a public name" })
+    end
+    if name == "" then
+      return finish({ status = "no_sni", consumed = consumed })
+    end
+    return finish({ status = "name", consumed = consumed, name = name })
   end
+
+  return {
+    feed = function(_: relay_wire.HelloReader, chunk: string): relay_wire.Hello
+      if final ~= nil then
+        return final
+      end
+      pending[#pending + 1] = chunk
+      pending_len = pending_len + #chunk
+      if pending_len < need then
+        if pending_len < 5 then
+          local early = record_header(table.concat(pending), 1, records == 0).refusal
+          if early ~= nil then
+            return finish(early)
+          end
+        end
+        return { status = "more", consumed = 0 }
+      end
+      local data = table.concat(pending)
+      local size = #data
+      local pos = 1
+      while true do
+        local header = record_header(data, pos, records == 0)
+        if header.refusal ~= nil then
+          return finish(header.refusal)
+        end
+        local length = header.length
+        if length == 0 then
+          need = 5
+          break
+        end
+        if size - pos + 1 < 5 + length then
+          need = 5 + length
+          break
+        end
+        local answer = take(data, pos, length)
+        if answer ~= nil then
+          return answer
+        end
+        pos = pos + 5 + length
+      end
+      base = base + pos - 1
+      local rest = pos == 1 and data or data:sub(pos)
+      pending, pending_len = { rest }, #rest
+      return { status = "more", consumed = 0 }
+    end,
+  }
 end
 
 return relay_wire

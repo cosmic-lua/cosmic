@@ -1,4 +1,4 @@
---- Builders for the tests of [`build.relay_wire`]: the bytes a program
+--- Builders for the tests of [`cosmic.relay_wire`]: the bytes a program
 --- sends the relay, whole or damaged by a test.
 
 local record relay_wire_fixture
@@ -85,13 +85,19 @@ end
 function relay_wire_fixture.records(message: string, sizes?: {integer}, version?: integer): string
   local out: {string} = {}
   local at = 1
+  local function record(payload: string)
+    out[#out + 1] = "\22" .. relay_wire_fixture.be(version or 0x0301, 2) .. relay_wire_fixture.be(#payload, 2) .. payload
+  end
   for _, size in ipairs(sizes or {}) do
-    out[#out + 1] = "\22" .. relay_wire_fixture.be(version or 0x0301, 2) .. relay_wire_fixture.be(size, 2) ..
-      message:sub(at, at + size - 1)
+    if at > #message then
+      break
+    end
+    record(message:sub(at, at + size - 1))
     at = at + size
   end
-  local rest = message:sub(at)
-  out[#out + 1] = "\22" .. relay_wire_fixture.be(version or 0x0301, 2) .. relay_wire_fixture.be(#rest, 2) .. rest
+  if at <= #message or #out == 0 then
+    record(message:sub(at))
+  end
   return table.concat(out)
 end
 
@@ -105,7 +111,7 @@ function relay_wire_fixture.connect(target: string, headers?: {string}, version?
 end
 
 --- The sixteen bytes of the IPv6 address `text`, which is in the form
---- [`build.relay_wire`] writes (lower case, `::` at most once).
+--- [`cosmic.relay_wire`] writes (lower case, `::` at most once).
 function relay_wire_fixture.ipv6_bytes(text: string): string
   local function side(part: string): {integer}
     local out: {integer} = {}
