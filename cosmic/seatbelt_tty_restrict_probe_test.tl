@@ -21,8 +21,19 @@
 --- it in place (sandbox_init_with_parameters), through the core's
 --- `diagnostic_seatbelt_restrict` binding, which exists for this module.
 ---
---- Every test prints its whole finding in its assertion message and asserts
---- only what must hold for the finding to be one.
+--- Found on the macOS leg (macos15, aarch64): V0, V1 and V4 leave the
+--- program a terminal (`/dev/tty` opens) with no profile. Under a profile,
+--- a bare setsid (V5, V6) leaves it none: ENXIO with the grants, EPERM
+--- without. V1's open and TIOCSCTTY before the profile (V2, V3, V7 to V9)
+--- keep it, but the profile then decides what the program may do with it:
+--- `/dev/tty` opens only with a grant of that literal, and the descriptor
+--- answers tcgetsid and tcgetpgrp only with a grant of the slave's own
+--- path; ttyname needs `/dev` readable as well. After an in-place
+--- restriction (B), open descriptors, the store and a module not loaded
+--- before keep working, and a second profile, a path not granted and a
+--- start without the fork promise are refused with EPERM.
+---
+--- Every test asserts what was found, and a failure prints the whole finding.
 -- TODO: remove this module, and core/process.h's
 -- `diagnostic_seatbelt_restrict`, once the pull requests named above land.
 
@@ -47,10 +58,6 @@ Test.policy{
   grants = { { path = "o/bin", letters = "rx" } },
   env = { "TMPDIR", "PATH" },
 }
-
---- True while the findings are read from failures: a test that passes
---- prints nothing the run shows.
-local DISCOVERING <const> = true
 
 local function macos_only()
   if assert(sys.uname()).sysname ~= "Darwin" then
@@ -321,6 +328,24 @@ local function compile_helper(tmp: string): string
   return binary
 end
 
+--- Asserts that `said` holds the Lua pattern `pattern`, answering all of it
+--- otherwise.
+local function holds(said: string, pattern: string)
+  assert(said:find(pattern), "missing " .. pattern .. "\n" .. said)
+end
+
+--- Asserts that the trampoline, once the profile was applied, could (or could
+--- not) ask the terminal on descriptor 0 for its session.
+local function after_profile_asks(said: string, can: boolean)
+  if can then
+    holds(said, "after%-profile: getsid%(0%)=(%d+)%(errno 0%).- tcgetsid%(0%)=%d+%(errno 0%)")
+    local session, asked = said:match("after%-profile: getsid%(0%)=(%d+)%(errno 0%).- tcgetsid%(0%)=(%d+)%(errno 0%)")
+    assert(session == asked, said)
+  else
+    holds(said, "after%-profile:.- tcgetsid%(0%)=%-1%(errno 1%)")
+  end
+end
+
 --- The system profile as a Seatbelt profile and its parameters, with
 --- `extra` rules after it.
 local function system_profile(extra: string): string, {string:string}
@@ -355,73 +380,88 @@ local function variant(tmp: string, number: integer, profile?: string, parameter
   local said = "V" .. number .. " exit " .. tostring(result.code) .. "\n" .. (result.stdout or "") ..
     (result.stderr or "")
   assert(result.code == 0 and said:find("sh-pid=", 1, true), said)
-  assert(not DISCOVERING, said)
   return said
 end
 
 local function test_v0_trampoline_setsid_alone(tmp: string)
   macos_only()
   local said = variant(tmp, 0)
-  assert(said:find("devtty-", 1, true), said)
+  holds(said, "devtty%-ok")
+  holds(said, "ttys%d+")
 end
 
 local function test_v1_setsid_open_and_tiocsctty_without_a_profile(tmp: string)
   macos_only()
   local said = variant(tmp, 1)
-  assert(said:find("devtty-", 1, true), said)
+  holds(said, "devtty%-ok")
 end
 
 local function test_v2_the_same_under_a_profile_that_grants_the_terminal(tmp: string)
   macos_only()
   local text, parameters = system_profile(TERMINAL_RULES)
   local said = variant(tmp, 2, text, parameters)
-  assert(said:find("devtty-", 1, true), said)
+  holds(said, "devtty%-ok")
+  after_profile_asks(said, true)
 end
 
 local function test_v3_the_same_under_a_profile_without_the_grants(tmp: string)
   macos_only()
   local text, parameters = system_profile("")
   local said = variant(tmp, 3, text, parameters)
-  assert(said:find("devtty-", 1, true), said)
+  holds(said, "devtty%-fail")
+  holds(said, "/dev/tty: Operation not permitted")
+  after_profile_asks(said, false)
 end
 
 local function test_v5_setsid_alone_under_a_profile_that_grants_the_terminal(tmp: string)
   macos_only()
   local text, parameters = system_profile(TERMINAL_RULES)
   local said = variant(tmp, 5, text, parameters)
-  assert(said:find("devtty-", 1, true), said)
+  holds(said, "devtty%-fail")
+  holds(said, "/dev/tty: Device not configured")
 end
 
 local function test_v6_setsid_alone_under_a_profile_without_the_grants(tmp: string)
   macos_only()
   local text, parameters = system_profile("")
   local said = variant(tmp, 6, text, parameters)
-  assert(said:find("devtty-", 1, true), said)
+  holds(said, "devtty%-fail")
+  holds(said, "/dev/tty: Operation not permitted")
 end
 
 local function test_v7_only_the_slave_is_granted(tmp: string)
   macos_only()
   local text, parameters = system_profile(
     '(allow file-read* file-write* file-ioctl (literal (param "TTY")))\n')
-  variant(tmp, 7, text, parameters)
+  local said = variant(tmp, 7, text, parameters)
+  holds(said, "devtty%-fail")
+  holds(said, "/dev/tty: Operation not permitted")
+  after_profile_asks(said, true)
 end
 
 local function test_v8_only_dev_tty_is_granted(tmp: string)
   macos_only()
   local text, parameters = system_profile('(allow file-read* file-write* file-ioctl (literal "/dev/tty"))\n')
-  variant(tmp, 8, text, parameters)
+  local said = variant(tmp, 8, text, parameters)
+  holds(said, "devtty%-ok")
+  after_profile_asks(said, false)
 end
 
 local function test_v9_both_granted_and_the_dev_directory_readable(tmp: string)
   macos_only()
   local text, parameters = system_profile(TERMINAL_RULES .. '(allow file-read-data (literal "/dev"))\n')
-  variant(tmp, 9, text, parameters)
+  local said = variant(tmp, 9, text, parameters)
+  holds(said, "devtty%-ok")
+  holds(said, "/dev/ttys%d+")
+  holds(said, "after%-profile:.- ttyname%(0%)=/dev/ttys%d+")
+  after_profile_asks(said, true)
 end
 
 local function test_v4_posix_spawn_setsid_with_the_slave_opened_as_descriptor_0(tmp: string)
   macos_only()
   local said = variant(tmp, 4)
-  assert(said:find("devtty-", 1, true), said)
+  holds(said, "devtty%-ok")
+  holds(said, "ttys%d+")
 end
 
 --- What a child of this program says after `chunk`'s restriction: the
@@ -511,19 +551,40 @@ local function restrict_probe(tmp: string, fork: boolean): string
   local result = assert(Child.run(started.argv, started.options))
   local said = "restrict fork=" .. tostring(fork) .. " exit " .. tostring(result.code) .. "\n" ..
     (result.stdout or "") .. (result.stderr or "")
-  assert(result.code == 0 and said:find("restrict=", 1, true), said)
-  assert(not DISCOVERING, said)
+  assert(result.code == 0 and said:find("restrict=returned", 1, true), said)
   return said
+end
+
+--- What a restricted process keeps and loses, whatever its profile
+--- allows of processes: the descriptors it held open keep working, a
+--- second profile and a path the profile does not name are refused, the
+--- terminal on descriptor 1 stays a terminal, and the store, read through
+--- the descriptor it holds, still serves a module not loaded before.
+local function holds_what_a_restricted_process_keeps(said: string)
+  for _, line in ipairs({ "binding=init=0 errno=0", "binding=again=%-1 errno=1 error=Operation not permitted",
+      "binding=check=1 errno=0", "binding=store_pread=1 errno=0", "binding=thread=0 joined=0",
+      "read.open.file=ok", "write.open.file=ok", "write.open.pipe=ok", "read.open.pipe=ok",
+      "flock.open.file=ok", "pread.open.file=ok", "reopen.file=ok",
+      "reopen.executable=fail%(Operation not permitted, 1%)", "binding=artifact open=%-1 errno=1",
+      "binding=database open=%-1 errno=1", "isatty1=true", "tcgetattr1=ok",
+      "loaded.module.use=true", "require.cosmic.time=already%-loaded=false true loaded",
+      "require.cosmic.sqlite=already%-loaded=true true loaded" }) do
+    holds(said, line)
+  end
 end
 
 local function test_restrict_without_a_fork_allowance(tmp: string)
   macos_only()
-  restrict_probe(tmp, false)
+  local said = restrict_probe(tmp, false)
+  holds_what_a_restricted_process_keeps(said)
+  holds(said, "spawn.true=fail%(child: start: Operation not permitted")
 end
 
 local function test_restrict_with_a_fork_allowance(tmp: string)
   macos_only()
-  restrict_probe(tmp, true)
+  local said = restrict_probe(tmp, true)
+  holds_what_a_restricted_process_keeps(said)
+  holds(said, "spawn.true=code 0")
 end
 
 local type Searcher = function(string): any, any
