@@ -29,6 +29,7 @@
 local _ = require("cosmic.child") -- in the closure: [`process_table`] searches for it by hand
 local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
+local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Html = require("cosmic.html")
 local Http = require("cosmic.http")
@@ -256,6 +257,24 @@ local function test_udp_leaves_no_descriptor_whenever_an_allocation_fails(tmp: s
     assert(assert(client:receive()).data == "")
   end)
   assert(ended > 0, "binding and receiving allocate")
+  assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. before .. " open")
+end
+
+--- A lookup from a hosts file, which opens no socket, under every
+--- refusal: each raises or answers, no descriptor is left open, and the
+--- next lookup answers the same. What it cannot see is c-ares's own heap,
+--- which core/memory.h's counters do not cover: the channel is held in a
+--- guard (core/guard.h) so that a raise releases it, and the checked
+--- core's sanitizers are what would report one left.
+local function test_resolve_leaves_no_descriptor_whenever_an_allocation_fails(tmp: string)
+  local hosts = tmp .. "/hosts"
+  assert(Fs.write(hosts, "192.0.2.1 a.example.test\n2001:db8::1 a.example.test\n"))
+  local before = next_descriptor(tmp)
+  local ended = under_every_failure(function()
+    local found = assert(Net.resolve("a.example.test", { hosts_file = hosts, timeout_ns = Clock.seconds(5) }))
+    assert(#found == 2)
+  end)
+  assert(ended > 0, "answering allocates")
   assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. before .. " open")
 end
 

@@ -1,6 +1,6 @@
 /*
- * The socket table: the calls [`cosmic.net`] listens, accepts, connects
- * and sends with, registered as the raw [`cosmic.internal.socket`]
+ * The socket table: the calls [`cosmic.net`] listens, accepts, connects,
+ * sends and resolves names with, registered as the raw [`cosmic.internal.socket`]
  * module, which only that wrapper is handed. Every socket it makes is
  * closed on exec and nonblocking, so a wait is always `wait`'s, which
  * a deadline and a [`Child.guard`] end; reading is [`cosmic.sys`]'s `read`.
@@ -201,6 +201,25 @@ COSMIC_SYSCALL(shutdown, 2);
 COSMIC_SYSCALL(wait, 3);
 
 /*
+ * --- One address a name resolves to.
+ * ---@class Resolved
+ * ---@field address string the address in numeric form: an IPv4 address in four decimal octets, an IPv6 one as `inet_ntop` writes it
+ * ---@field family string "ipv4" or "ipv6"
+ */
+
+/*
+ * --- Resolves a host name with c-ares and answers every address the system's resolver returns, IPv4 and IPv6, in the order c-ares gives them, with none dropped and none filtered. The system's configuration is read as c-ares reads it: resolv.conf and hosts (and, on macOS, the system's DNS configuration), HOSTALIASES ignored. A numeric IPv4 or IPv6 address, written as a "tcp" address's host is, answers itself and asks no one; a name, and a literal that is not numeric in that grammar, is looked up. Hosts file entries answer as a server's records do. The answer is every address RECEIVED: one family's lookup failing while the other's succeeds answers the addresses of the one that succeeded, as c-ares does, and nothing says that one failed. A caller that checks addresses must connect only to the ones returned and never look the name up again. A name with fewer dots than the system's ndots may be tried under its search domains first (resolv.conf's `search`), so a single-label name may resolve under one; `servers` and `hosts` are for tests and trusted callers, never for values a sandboxed program chose. Nothing is cached between calls. The call holds the thread until the answer, `timeout_ms` or a signal an open `Child.guard` catches. A degenerate argument raises; a name that is empty, over 254 bytes (253 and a trailing dot), holds a NUL or a "%" fails EINVAL, as a name may come from bytes the caller did not write.
+ * ---@param name string the host name or numeric address
+ * ---@param timeout_ms integer how long to wait at most, from 0, -1 for no limit beyond c-ares's own retries and timeouts
+ * ---@param servers? string name servers to ask in place of the system's, as c-ares writes them: `host[:port]`, an IPv6 host in brackets before its port, comma-separated; a malformed list fails EINVAL
+ * ---@param hosts? string a hosts file to read in place of the system's
+ * ---@return {Resolved}|nil addresses every address, at least one, or nil on failure
+ * ---@return string error what went wrong, when addresses is nil
+ * ---@return integer errno the error number, when addresses is nil: `RESOLVE_NOTFOUND` where no such name exists, `RESOLVE_NODATA` where the name has no IPv4 or IPv6 address, `RESOLVE_FAILED` where the servers answered with an error or nonsense (never an answer), ETIMEDOUT where the time ran out or no server answered, ECONNREFUSED where every server refused the connection, EINTR where a guard caught a signal, ENOMEM, or EINVAL for a name or server list c-ares refuses. The `RESOLVE_` codes are negative, so none is an errno's number
+ */
+COSMIC_SYSCALL(resolve, 4);
+
+/*
  * --- The error numbers the calls above answer that a caller acts on, and the bound on a socket file's name, from this libc.
  * ---@class Constants
  * ---@field EAGAIN integer nothing to take or send now, or, on Linux, a unix listener's backlog full to `connect` or `start`: wait, then ask again
@@ -213,6 +232,9 @@ COSMIC_SYSCALL(wait, 3);
  * ---@field EINVAL integer a "tcp" host is no numeric address
  * ---@field ENAMETOOLONG integer a unix path's file name is past `SOCKET_NAME_MAX`, or its directory past the platform's bound on a path
  * ---@field SOCKET_NAME_MAX integer the most bytes a socket file's own name may take: 107 on Linux, 103 on macOS
+ * ---@field RESOLVE_NOTFOUND integer `resolve`: the name does not exist (NXDOMAIN), -2 on every OS
+ * ---@field RESOLVE_NODATA integer `resolve`: the name exists and has no IPv4 or IPv6 address, -5 on every OS
+ * ---@field RESOLVE_FAILED integer `resolve`: the servers answered with a failure or a malformed answer, -4 on every OS
  */
 COSMIC_CONSTANT(EAGAIN)
 COSMIC_CONSTANT(EINTR)
@@ -224,3 +246,6 @@ COSMIC_CONSTANT(EPROTOTYPE)
 COSMIC_CONSTANT(EINVAL)
 COSMIC_CONSTANT(ENAMETOOLONG)
 COSMIC_CONSTANT(SOCKET_NAME_MAX)
+COSMIC_CONSTANT(RESOLVE_NOTFOUND)
+COSMIC_CONSTANT(RESOLVE_NODATA)
+COSMIC_CONSTANT(RESOLVE_FAILED)
