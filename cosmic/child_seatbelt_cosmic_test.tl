@@ -94,7 +94,7 @@ end
 
 local function test_tmp_is_a_directory_it_may_write()
   macos_only()
-  local result = ran(FS .. 'local dir = os.getenv("TMPDIR"); local path = dir .. "/made"; ' ..
+  local result = ran(FS .. 'local dir = require("cosmic.sys").getenv("TMPDIR"); local path = dir .. "/made"; ' ..
       'print(dir, Fs.write(path, "x"), Fs.read(path))', { profiles = { "cosmic", "system" }, tmp = true })
   expect(result.ok, result)
   local dir = (result.stdout or ""):match("^([^\t]+)\ttrue\tx\n$")
