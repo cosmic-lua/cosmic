@@ -1228,7 +1228,7 @@ static void resolved_pushed (lua_State *L, int family, const void *address, lua_
 /* Whether `name` is a numeric address as a "tcp" address's host is,
  * written to `out` as raw bytes of the `*family` it names. */
 static bool numeric_literal (const char *name, size_t size, int *family, unsigned char *out) {
-  if (!numeric_host(name, size)) return false;
+  if (!cosmic_numeric_host(name, size)) return false;
   if (strchr(name, ':') == NULL && inet_pton(AF_INET, name, out) == 1) {
     *family = AF_INET;
     return true;
