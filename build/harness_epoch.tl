@@ -50,8 +50,8 @@
 ---   each worker to);
 --- * the sandbox's maker (`harness_own`);
 --- * build.test itself, cosmic.child, which applies a worker's
----   sandbox, and cosmic.sandbox, which decides a policy worker's grants
----   (`harness_alone`), each held alone;
+---   sandbox, and cosmic.sandbox and cosmic.sandbox_policy, which decide a
+---   policy worker's grants (`harness_alone`), each held alone;
 --- * the closure of the key's roots (`key_roots`) over the requires each
 ---   makes by value, as its bytecode names them ([`test.value_imports`]).
 ---   A `local type` require is not followed, since Teal erases it and
@@ -114,7 +114,7 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "516c08e34d1fc392de5363af92b6d669344fc3c8b504c469ae3771a424d0db6b",
 
-  ["build.test"] = "9cae197443a101ae06514d8e4f3af4b1065aca8c6cf41be417d77d3c58b3e8d3",
+  ["build.test"] = "49ff6786152b7665aba2511c7ca2a1c70425e6188abf0770b60021d2c9206a49",
 
   ["build.test_inputs"] = "ec023eee681364d5fb8e1ac9937d039c8320125cf60cb14ef55bc3c51a017b51",
 
@@ -140,7 +140,9 @@ harness_epoch.acknowledged = {
 
   ["cosmic.proc"] = "1f2f124e7478daaf5955a2043d03a379d8dbc657ffe938ac71d221376f677bcf",
 
-  ["cosmic.sandbox"] = "a8056f83e40a1b08674a5332d12dc655586fe833c4644ad2af038297ce64010a",
+  ["cosmic.sandbox"] = "c3cf1e5b9cfb211961fa2be142b32a3b35a3f1097fb4e7810d12a80c6da266c6",
+
+  ["cosmic.sandbox_policy"] = "8da27718cb32edbca2d30d7df36bf4dceb9e0c0b9b68cd2a48e6bf786613db0c",
 
   ["cosmic.sqlite"] = "ac3fd16dd89251feaee572e4e4b1d29257037afeca3b5c9b141557f2ce732390",
 
@@ -166,6 +168,9 @@ harness_epoch.library = {
     "(`relaunch`) for `build.host_requires`",
   ["cosmic.sandbox"] = "`merge` resolves a policy's profiles into the grants a worker " ..
     "is held to (`build.test_policy`'s `runs`); held alone, what it requires is not walked",
+  ["cosmic.sandbox_policy"] = "the policy layer cosmic.sandbox answers under its own " ..
+    "name: its `merge` and the profiles it joins decide the grants a worker is held to " ..
+    "(`build.test_policy`'s `runs`); held alone, what it requires is not walked",
   -- TODO: take cosmic.sqlite out of the harness, and this entry out of
   -- `library`, once build.shared_sqlite gives build.declared_key's
   -- `program`, build.shared_verdicts and build.bind what they read and

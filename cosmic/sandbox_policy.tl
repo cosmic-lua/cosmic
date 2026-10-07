@@ -1,15 +1,9 @@
---- A sandbox policy's data and the pure functions over it: the types a
---- [`SandboxPolicy.Policy`] is made of, the check of its values, the profiles it
---- names and the merge of policies into one. [`cosmic.sandbox`] answers all
---- of it under its own name, and holds a program to a policy;
---- [`cosmic.seatbelt`] compiles one for macOS. Apart from cosmic.sandbox so
---- that cosmic.seatbelt, which cosmic.sandbox requires, can require this.
----
----     local merged = assert(SandboxPolicy.merge({ grants = { { path = "/srv", letters = "xr" } } }))
----     print(merged.grants[1].letters) -- rx
----
---- Nothing here raises on a policy's contents: a failure answers `nil`
---- and why, under the name "sandbox".
+--- The policy layer cosmic.sandbox and cosmic.seatbelt share: the types
+--- of a policy, the check of its values, the profiles it names and the
+--- merge of policies into one. Use [`cosmic.sandbox`], which answers all of
+--- it under its own name and documents it there. Apart from cosmic.sandbox
+--- only so that cosmic.seatbelt, which cosmic.sandbox requires, can require
+--- this.
 
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
@@ -79,7 +73,7 @@ local record SandboxPolicy
   --- What a program is held to; every field is optional, and what a policy
   --- leaves out it does not have.
   record Policy
-    --- Named policies to join in, by [`SandboxPolicy.merge`]: "system", "cosmic".
+    --- Named policies to join in, by [`Sandbox.merge`]: "system", "cosmic".
     profiles: {string}
     --- The paths the program reaches.
     grants: {Grant}
@@ -145,7 +139,7 @@ local record SandboxPolicy
     --- modules the file holds and nothing of the tree or of this
     --- program's own file. A file [`Store.seal`] wrote, whose `main` names what runs. It
     --- is a regular file with no ".." in its path, which
-    --- [`SandboxPolicy.check`] refuses otherwise. [`Child.start`] runs
+    --- [`Sandbox.check`] refuses otherwise. [`Child.start`] runs
     --- only this program so, where it is a cosmic core (a host program has none), grants the
     --- file read-only and the core, and refuses a grant that reaches this
     --- program's own file, which holds modules the database leaves out.
@@ -287,7 +281,7 @@ end
 --- The first thing wrong in a policy's values, as `pointer "/grants/0/letters":
 --- why`, or "" when none is: the field's types are Teal's, and these are the
 --- values a type does not hold. With `exact`, a grant's letters must be
---- already in the order of "rwxcu", each once, as [`SandboxPolicy.check`] with
+--- already in the order of "rwxcu", each once, as [`Sandbox.check`] with
 --- `exact` takes them.
 local function invalid(p: SandboxPolicy.Policy, exact: boolean): string
   local function at(pointer: string, why: string): string
@@ -399,17 +393,8 @@ local function invalid(p: SandboxPolicy.Policy, exact: boolean): string
   return ""
 end
 
---- Whether the values of `p` are ones a policy may hold: `true`, or
---- `false` and why, naming the field by its JSON Pointer
---- (`pointer "/grants/0/letters": ...`, arrays counted from 0). What a
---- type holds is not looked at again, only what it does not stop: an
---- unknown profile, a letter outside "rwxcu", a malformed address, a
---- ".." in a path. With `exact`, a grant's `letters` must also be in the
---- order of "rwxcu", each once, as the text [`PolicyJson.decode`] reads is;
---- [`SandboxPolicy.merge`] takes any order and writes this one.
----
----     local ok, why = SandboxPolicy.check({ grants = { { path = "x", letters = "xr" } } }, true)
----     print(ok, why) -- false  sandbox: pointer "/grants/0/letters": "xr" is not in the order of "rwxcu", each letter once: "rx"
+--- Whether the values of `p` are ones a policy may hold: [`Sandbox.check`],
+--- which says how.
 function SandboxPolicy.check(p: SandboxPolicy.Policy, exact?: boolean): boolean, string
   local bad = invalid(p, exact == true)
   if bad ~= "" then return false, "sandbox: " .. bad end
@@ -518,18 +503,8 @@ local function cosmic_profile(): SandboxPolicy.Policy | nil, string
   return { grants = { { path = path, letters = "rx" } } }, ""
 end
 
---- What the profile `name` holds on this host, as a policy: "system"
---- grants the host's programs, libraries and the few files a libc reads to
---- start (`rx` on /usr and the library and binary directories, `r` on
---- /etc/ld.so.cache, nsswitch.conf, passwd, group and localtime, and the
---- null, zero and random devices), each only where it exists; "cosmic"
---- grants `rx` on the path this program is started by ([`Proc.executable`]),
---- which is its launcher where it has one: what [`Child.start`] runs as
---- this program's core, by a relaunch.
---- Nil and why for a name it has not, or one this host cannot give.
----
----     local system = assert(SandboxPolicy.profile("system"))
----     print(system.grants[1].path, system.grants[1].letters) -- /usr  rx
+--- What the profile `name` holds on this host: [`Sandbox.profile`], which
+--- says how.
 function SandboxPolicy.profile(name: string): SandboxPolicy.Policy | nil, string
   if name == "system" then return system_profile(), "" end
   if name == "cosmic" then return cosmic_profile() end
@@ -542,25 +517,14 @@ end
 --- its answer. Weak, so a policy that is dropped takes its entry along.
 local expected: {SandboxPolicy.Policy:string} = setmetatable({}, { __mode = "k" })
 
---- Records that `policy`, whose `database` was read from text naming
---- `digest` (the SHA-256 of its bytes, in hex), is to run only on a file
---- of that digest: [`SandboxPolicy.database_is`] holds a start to it, and a merge
---- of the policy keeps it. [`PolicyJson.decode`] calls it after
---- checking the file.
----
----     local p: SandboxPolicy.Policy = { database = "/srv/p.db" }
----     SandboxPolicy.expect_digest(p, string.rep("0", 64))
+--- Records the digest `policy`'s database is to have:
+--- [`Sandbox.expect_digest`], which says how.
 function SandboxPolicy.expect_digest(policy: SandboxPolicy.Policy, digest: string)
   expected[policy] = digest
 end
 
---- Whether the file at `path` (the merged policy's database, by its real
---- path) is the one `merged` was checked against: true where it hashes to
---- the digest [`SandboxPolicy.expect_digest`] recorded for it or for a policy
---- merged into it, or where none was recorded; otherwise false and why.
---- [`Child.start`] asks just before it starts the core on the file.
----
----     print(SandboxPolicy.database_is({}, "/nowhere")) -- true
+--- Whether the file at `path` is the database `merged` was checked
+--- against: [`Sandbox.database_is`], which says how.
 function SandboxPolicy.database_is(merged: SandboxPolicy.Policy, path: string): boolean, string
   local digest = expected[merged]
   if digest == nil then return true, "" end
@@ -573,31 +537,8 @@ function SandboxPolicy.database_is(merged: SandboxPolicy.Policy, path: string): 
   return true, ""
 end
 
---- What the policies given hold together: each one's `profiles` resolved
---- ([`SandboxPolicy.profile`]) and joined in before the policy's own, then
---- the grants joined by path (and `from`): the letters of one path are
---- the union of each grant's, in the order of "rwxcu", whatever order
---- they came in; each path is cleaned first ("a//b/./c/" is "a/b/c"; a
---- ".." is refused, since cleaning it could name another directory than
---- the kernel does after a link). Lists are unions, each member once, sorted; `tmp`
---- holds if any policy has it; a limit, `user` and `group` are the one
---- value given, and two different values for one are refused, as two different
---- values for one `set_env` name are (without saying them: they may be
---- secrets). Two different `database`s are refused too, and with one given
---- the "cosmic" profile resolves to nothing, since its grant is of this
---- program's own file, which a program on a database is not given. A name
---- with a value in one policy and a digest in another must have the
---- value's digest. The answer has no `profiles`, and every
---- list and table of it, empty or not, and `isolate` "file" holds "proc"
---- too, which it implies: it is what [`PolicyJson.encode`] writes and
---- [`Child.start`] meets. A value a policy's type does not stop -- an
---- unknown profile, a letter outside "rwxcu", a malformed address -- is
---- refused naming its field, as [`PolicyJson.decode`] does.
----
----     local a = { grants = { { path = "/srv", letters = "x" } }, promises = { "fork" } }
----     local b = { grants = { { path = "/srv", letters = "r" } }, promises = { "fork", "jit" } }
----     local merged = assert(SandboxPolicy.merge(a, b))
----     print(merged.grants[1].letters, table.concat(merged.promises, ",")) -- rx  fork,jit
+--- What the policies given hold together: [`Sandbox.merge`], which says
+--- how.
 function SandboxPolicy.merge(...: SandboxPolicy.Policy): SandboxPolicy.Policy | nil, string
   local flat: {SandboxPolicy.Policy} = {}
   local given: {SandboxPolicy.Policy} = { ... }

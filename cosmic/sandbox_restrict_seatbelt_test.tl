@@ -135,7 +135,7 @@ say("policy", started ~= nil, why)
 ]])
   assert(said.lines.restrict == "true ", said.raw)
   assert(said.lines.policy:find("^false ") and said.lines.policy:find(
-    "this process is held by a Seatbelt profile (Sandbox.restrict)", 1, true), said.raw)
+    "this process is held by a Seatbelt profile, one it applied (Sandbox.restrict)", 1, true), said.raw)
 end
 
 --- Every refusal comes before anything is applied: each child here is
@@ -244,4 +244,24 @@ say("other", other and other.ok, other and other.stdout, other and other.stderr)
   assert(said.lines.granted == "true granted-bytes", said.raw)
   assert(said.lines.other:find("^false ") and said.lines.other:find(DENIED, 1, true) and
       not said.lines.other:find("other-bytes", 1, true), said.raw)
+end
+
+--- A policy with no limits is given a child's defaults: 1024 open files and
+--- no core dump, each only ever lowered.
+local function test_a_child_s_default_limits_hold_the_process()
+  macos_only()
+  local said = in_child([[
+local nofile = sys.getrlimit(sys.RLIMIT_NOFILE)
+say("before", nofile.soft >= 1024 and nofile.hard >= 1024)
+say("restrict", Sandbox.restrict({}))
+nofile = sys.getrlimit(sys.RLIMIT_NOFILE)
+local core = sys.getrlimit(sys.RLIMIT_CORE)
+say("nofile", nofile.soft, nofile.hard)
+say("core", core.soft, core.hard)
+]])
+  assert(said.lines.restrict == "true ", said.raw)
+  if said.lines.before == "true" then
+    assert(said.lines.nofile == "1024 1024", said.raw)
+  end
+  assert(said.lines.core == "0 0", said.raw)
 end

@@ -333,6 +333,35 @@ local function test_the_harness_holds_what_it_runs_requires()
       "a worker loads it: " .. table.concat(missing, ", "))
 end
 
+--- A standard-library module of the harness held alone, whose requires are
+--- not walked, holds what is split off it too: a module it requires by
+--- value named after it (cosmic.sandbox_policy, which cosmic.sandbox's
+--- `merge` is, deciding a policy worker's grants) is in the harness.
+--- Otherwise an edit to the part split off would move no digest.
+local function test_what_is_split_off_a_module_of_the_harness_is_held()
+  local db = assert(Sqlite.open("o/cosmic.db"))
+  local found, trouble = test.harness(db)
+  assert(found ~= nil, trouble)
+  local by_value = assert(test.value_imports(db))
+  db:close()
+  local named: {string:boolean} = {}
+  for _, name in ipairs(found.names) do named[name] = true end
+  assert(named["cosmic.sandbox_policy"], "cosmic.sandbox_policy is not held")
+  local unheld: {string} = {}
+  for _, name in ipairs(found.names) do
+    if name:match("^cosmic%.") then
+      for _, wanted in ipairs(by_value[name] or {}) do
+        if wanted:sub(1, #name + 1) == name .. "_" and not named[wanted] then
+          unheld[#unheld + 1] = name .. " requires " .. wanted
+        end
+      end
+    end
+  end
+  table.sort(unheld)
+  assert(#unheld == 0, "the harness holds a module and not what is split off it -- name " ..
+      "each in build/test.tl's `harness_alone`: " .. table.concat(unheld, ", "))
+end
+
 --- The harness's `cosmic.*` modules are exactly those
 --- build/harness_epoch.tl's `library` names, each with its reason: a
 --- module of the harness that comes to require another -- cosmic.time

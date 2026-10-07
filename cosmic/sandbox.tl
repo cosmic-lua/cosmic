@@ -105,7 +105,12 @@ end
 
 --- Whether the values of `p` are ones a policy may hold: `true`, or
 --- `false` and why, naming the field by its JSON Pointer
---- ([`SandboxPolicy.check`]).
+--- (`pointer "/grants/0/letters": ...`, arrays counted from 0). What a
+--- type holds is not looked at again, only what it does not stop: an
+--- unknown profile, a letter outside "rwxcu", a malformed address, a
+--- ".." in a path. With `exact`, a grant's `letters` must also be in the
+--- order of "rwxcu", each once, as the text [`PolicyJson.decode`] reads is;
+--- [`Sandbox.merge`] takes any order and writes this one.
 ---
 ---     local ok, why = Sandbox.check({ grants = { { path = "x", letters = "xr" } } }, true)
 ---     print(ok, why) -- false  sandbox: pointer "/grants/0/letters": "xr" is not in the order of "rwxcu", each letter once: "rx"
@@ -113,9 +118,15 @@ function Sandbox.check(p: Sandbox.Policy, exact?: boolean): boolean, string
   return SandboxPolicy.check(p, exact)
 end
 
---- What the profile `name` holds on this host, as a policy: "system" or
---- "cosmic" ([`SandboxPolicy.profile`]). Nil and why for a name it has
---- not, or one this host cannot give.
+--- What the profile `name` holds on this host, as a policy: "system"
+--- grants the host's programs, libraries and the few files a libc reads to
+--- start (`rx` on /usr and the library and binary directories, `r` on
+--- /etc/ld.so.cache, nsswitch.conf, passwd, group and localtime, and the
+--- null, zero and random devices), each only where it exists; "cosmic"
+--- grants `rx` on the path this program is started by ([`Proc.executable`]),
+--- which is its launcher where it has one: what [`Child.start`] runs as
+--- this program's core, by a relaunch.
+--- Nil and why for a name it has not, or one this host cannot give.
 ---
 ---     local system = assert(Sandbox.profile("system"))
 ---     print(system.grants[1].path, system.grants[1].letters) -- /usr  rx
@@ -124,8 +135,10 @@ function Sandbox.profile(name: string): Sandbox.Policy | nil, string
 end
 
 --- Records that `policy`, whose `database` was read from text naming
---- `digest`, is to run only on a file of that digest
---- ([`SandboxPolicy.expect_digest`]).
+--- `digest` (the SHA-256 of its bytes, in hex), is to run only on a file
+--- of that digest: [`Sandbox.database_is`] holds a start to it, and a merge
+--- of the policy keeps it. [`PolicyJson.decode`] calls it after
+--- checking the file.
 ---
 ---     local p: Sandbox.Policy = { database = "/srv/p.db" }
 ---     Sandbox.expect_digest(p, string.rep("0", 64))
@@ -133,18 +146,37 @@ function Sandbox.expect_digest(policy: Sandbox.Policy, digest: string)
   SandboxPolicy.expect_digest(policy, digest)
 end
 
---- Whether the file at `path` is the database `merged` was checked
---- against: true, or false and why ([`SandboxPolicy.database_is`]).
+--- Whether the file at `path` (the merged policy's database, by its real
+--- path) is the one `merged` was checked against: true where it hashes to
+--- the digest [`Sandbox.expect_digest`] recorded for it or for a policy
+--- merged into it, or where none was recorded; otherwise false and why.
+--- [`Child.start`] asks just before it starts the core on the file.
 ---
 ---     print(Sandbox.database_is({}, "/nowhere")) -- true
 function Sandbox.database_is(merged: Sandbox.Policy, path: string): boolean, string
   return SandboxPolicy.database_is(merged, path)
 end
 
---- What the policies given hold together, as one policy: profiles
---- resolved, grants joined by path, lists united, one value of each limit
---- ([`SandboxPolicy.merge`]). Nil and why for values that do not join or
---- a value a policy's type does not stop.
+--- What the policies given hold together: each one's `profiles` resolved
+--- ([`Sandbox.profile`]) and joined in before the policy's own, then
+--- the grants joined by path (and `from`): the letters of one path are
+--- the union of each grant's, in the order of "rwxcu", whatever order
+--- they came in; each path is cleaned first ("a//b/./c/" is "a/b/c"; a
+--- ".." is refused, since cleaning it could name another directory than
+--- the kernel does after a link). Lists are unions, each member once, sorted; `tmp`
+--- holds if any policy has it; a limit, `user` and `group` are the one
+--- value given, and two different values for one are refused, as two different
+--- values for one `set_env` name are (without saying them: they may be
+--- secrets). Two different `database`s are refused too, and with one given
+--- the "cosmic" profile resolves to nothing, since its grant is of this
+--- program's own file, which a program on a database is not given. A name
+--- with a value in one policy and a digest in another must have the
+--- value's digest. The answer has no `profiles`, and every
+--- list and table of it, empty or not, and `isolate` "file" holds "proc"
+--- too, which it implies: it is what [`PolicyJson.encode`] writes and
+--- [`Child.start`] meets. A value a policy's type does not stop -- an
+--- unknown profile, a letter outside "rwxcu", a malformed address -- is
+--- refused naming its field, as [`PolicyJson.decode`] does.
 ---
 ---     local a = { grants = { { path = "/srv", letters = "x" } }, promises = { "fork" } }
 ---     local b = { grants = { { path = "/srv", letters = "r" } }, promises = { "fork", "jit" } }
@@ -378,11 +410,17 @@ local function store_unheld(): string
     if rows == nil then return "the store cannot be read: " .. why end
   end
   for _, path in ipairs(store_paths()) do
-    local found, _ = stat(path)
-    if path:sub(-4) == "-wal" and found ~= nil then
-      return "the store's database " .. path:sub(1, -5) .. " is in WAL mode: SQLite keeps " ..
-        "its log open for writing, and makes it again once closed, which a restriction can " ..
-        "neither keep from the program nor allow"
+    if path:sub(-4) == "-wal" then
+      local found, why, errno = stat(path)
+      if found ~= nil then
+        return "the store's database " .. path:sub(1, -5) .. " is in WAL mode: SQLite keeps " ..
+          "its log open for writing, and makes it again once closed, which a restriction can " ..
+          "neither keep from the program nor allow"
+      end
+      if errno ~= sys.ENOENT then
+        return "whether the store's database " .. path:sub(1, -5) .. " is in WAL mode cannot " ..
+          "be told: " .. path .. ": " .. why
+      end
     end
   end
   return ""

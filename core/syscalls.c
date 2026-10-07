@@ -2795,14 +2795,23 @@ typedef int (*seatbelt_check_function) (pid_t pid, const char *operation, int ty
 /* Whether a Seatbelt profile holds this process, as libsystem_sandbox's
  * sandbox_check answers with no operation (SANDBOX_FILTER_NONE, 0): one it
  * was started under -- a policy's child, which the trampoline's profile
- * holds -- as well as one it applied (`seatbelt_held`). False where the
- * system has no sandbox_check, which a system with sandbox_init has. */
-static bool seatbelt_holds (void) {
-  if (seatbelt_held) return true;
+ * holds -- as well as one it applied (`seatbelt_held`). 1 where one does,
+ * 0 where none does or the system has no sandbox_check (which a system
+ * with sandbox_init has), and -1 with the errno in `error` where
+ * sandbox_check fails, which tells neither. */
+static int seatbelt_holding (int *error) {
+  if (seatbelt_held) return 1;
   void *symbol = seatbelt_symbol("sandbox_check");
   seatbelt_check_function check = NULL;
   memcpy(&check, &symbol, sizeof check);
-  return check != NULL && check(getpid(), NULL, 0) != 0;
+  if (check == NULL) return 0;
+  errno = 0;
+  int answer = check(getpid(), NULL, 0);
+  if (answer < 0) {
+    *error = errno != 0 ? errno : EPERM;
+    return -1;
+  }
+  return answer != 0;
 }
 
 /* Applies the Seatbelt `profile` to this process, with `parameters` (names
@@ -4107,11 +4116,15 @@ COSMIC_SYSCALL(restrict_self, 2) {
   /* A profile holds the whole process, every thread of it, so unlike
    * Landlock's ruleset no other thread refuses it; a child started before
    * it and a descriptor open before it are what it does not hold. */
-  if (seatbelt_holds())
+  int error = 0;
+  int holding = seatbelt_holding(&error);
+  if (holding < 0)
+    return restrict_refused(L, error, "whether a Seatbelt profile holds this process cannot be "
+                            "told (sandbox_check: %s)", cosmic_errno_describe(error, NULL));
+  if (holding > 0)
     return restrict_refused(L, EPERM, "this process is held by a Seatbelt profile already, "
                             "one it applied or was started under: macOS applies one profile "
                             "to a process and refuses a second");
-  int error = 0;
   pid_t child = darwin_first_child(&error);
   if (child < 0)
     return restrict_refused(L, error, "the children of this process cannot be listed "
@@ -4340,12 +4353,20 @@ COSMIC_SYSCALL(spawn, 12) {
       if (seatbelt_profile[0] == '\0') return luaL_argerror(L, 10, "a seatbelt profile is empty");
       /* Before anything is made for the child: the trampoline's profile
        * would be a second one in a process this one's profile holds. */
-      if (seatbelt_held) {
+      int unknown = 0;
+      int holding = seatbelt_holding(&unknown);
+      if (holding != 0) {
         lua_pushnil(L);
-        lua_pushliteral(L, "this process is held by a Seatbelt profile (Sandbox.restrict), and "
-                        "macOS applies no second profile to a child of it: start the child "
-                        "without a policy, held by this process's own profile");
-        lua_pushinteger(L, EPERM);
+        if (holding > 0)
+          lua_pushliteral(L, "this process is held by a Seatbelt profile, one it applied "
+                          "(Sandbox.restrict) or was started under, and macOS applies no "
+                          "second profile to a child of it: start the child without a "
+                          "policy, held by this process's own profile");
+        else
+          lua_pushfstring(L, "whether a Seatbelt profile holds this process cannot be told "
+                          "(sandbox_check: %s), and a child's profile would be a second one "
+                          "where one does", cosmic_errno_describe(unknown, NULL));
+        lua_pushinteger(L, holding > 0 ? EPERM : unknown);
         return 3;
       }
       lua_pushliteral(L, "parameters");
