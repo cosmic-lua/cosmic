@@ -1176,7 +1176,9 @@ local function test_a_spec_that_is_no_spec_raises(tmp: string)
       { { http = listener, grants = {}, connector = connector, timeouts = { idle = 0 } }, "timeouts.idle must be an integer from 1" },
       { { http = listener, grants = {}, connector = connector, limits = { total = -1 } }, "limits.total must be an integer from 1" },
       { { http = listener, grants = {}, connector = connector, tls_ports = { 0 } }, "tls_ports" },
-      { { http = listener, grants = {}, connector = connector, token = "" }, "spec.token must be a string of 1 to 255 bytes" },
+      { { http = listener, grants = {}, connector = connector, token = "" }, "spec.token must be a string of 16 to 255 bytes" },
+      { { http = listener, grants = {}, connector = connector, token = ("t"):rep(15) }, "spec.token must be a string of 16" },
+      { { http = listener, grants = {}, connector = connector, timeouts = { auth = 0 } }, "timeouts.auth must be an integer from 1" },
       { { http = listener, grants = {}, connector = connector, token = ("t"):rep(256) }, "spec.token must be a string" },
       { { http = listener, grants = {}, connector = connector, token = "a\nb" }, "spec.token must be a string" },
       { { http = listener, grants = {}, connector = connector, token = 5 as any as string }, "spec.token must be a string" },
@@ -1413,7 +1415,7 @@ local function test_connections_not_yet_authenticated_are_bounded_in_number_and_
   Poll.run(function()
     local server = origin(echo)
     local rig = start(tmp, { grants = { "127.0.0.1:" .. server.port }, token = TOKEN,
-      limits = { pre_auth = 1 }, timeouts = { head = Clock.ms(300) } })
+      limits = { pre_auth = 1 }, timeouts = { auth = Clock.ms(300), head = Clock.seconds(30) } })
     local silent = dial(rig.http)
     -- A second connection is not served while the first holds the one slot.
     local waiting = dial(rig.http)
@@ -1421,12 +1423,12 @@ local function test_connections_not_yet_authenticated_are_bounded_in_number_and_
     waiting:set_timeout(Clock.ms(100))
     local early, why = waiting:read(1)
     assert(early == nil and why == Poll.TIMEOUT, "it waits for a slot")
-    -- The head timeout ends the silent one, and the waiting one is served.
+    -- The auth timeout ends the silent one, and the waiting one is served.
     waiting:set_timeout(Clock.seconds(5))
     local head = read_head(waiting)
     assert(status_line(head):find("^HTTP/1.1 200 "), head)
-    assert(#lines_with(rig, "request not received within 300 milliseconds") == 1, table.concat(rig.log, "\n"))
-    assert(read_all(silent):find("408 request not received", 1, true), "the silent connection was refused and closed")
+    assert(#lines_with(rig, "request and credential not received within 300 milliseconds") == 1, table.concat(rig.log, "\n"))
+    assert(read_all(silent):find("408 request and credential not received", 1, true), "the silent connection was refused and closed")
     local _, _ = silent:close()
     local _, _ = waiting:close()
     finish(rig, server)
@@ -1453,6 +1455,62 @@ local function test_without_a_token_no_credential_is_asked_or_read(tmp: string)
     local _, _ = only:close()
     until_it(function(): boolean return rig.server:stats().open == 0 end)
     assert(rig.server:stats().accepted == 3, "every connection is counted as it is accepted")
+    finish(rig, server)
+  end)
+end
+
+local function test_a_token_with_colons_is_matched_as_the_whole_password(tmp: string)
+  Poll.run(function()
+    local server = origin(echo)
+    local colons = "a:b::c:0123456789abcdef"
+    local rig = start(tmp, { grants = { "127.0.0.1:" .. server.port }, token = colons })
+    local conn, head = connect_to(rig, "127.0.0.1:" .. server.port, { basic("u:v", colons) })
+    -- The user ends at the first colon, so "u:v" with this token is the password "v:" .. token.
+    assert(status_line(head):find("^HTTP/1.1 407 "), head)
+    local _, _ = conn:close()
+    local good, answer = connect_to(rig, "127.0.0.1:" .. server.port, { basic("u", colons) })
+    assert(status_line(answer):find("^HTTP/1.1 200 "), answer)
+    local _, _ = good:close()
+    local partial, refused = connect_to(rig, "127.0.0.1:" .. server.port, { basic("u", "b::c:0123456789abcdef") })
+    assert(status_line(refused):find("^HTTP/1.1 407 "), refused)
+    local _, _ = partial:close()
+    local socks = dial(rig.socks)
+    assert(socks_greet(socks, "\2") == "\5\2")
+    assert(socks:write(auth_message("u", colons)))
+    assert(read_exact(socks, 2) == "\1\0")
+    local _, _ = socks:close()
+    finish(rig, server)
+  end)
+end
+
+local function test_authenticating_has_its_own_short_wait_and_the_request_its_own_after_it(tmp: string)
+  Poll.run(function()
+    local server = origin(echo)
+    local rig = start(tmp, { grants = { "127.0.0.1:" .. server.port }, token = TOKEN,
+      timeouts = { auth = Clock.ms(200), head = Clock.seconds(30) } })
+    -- A SOCKS5 client that greets and then stalls is closed after the auth wait.
+    local stalled = dial(rig.socks)
+    assert(socks_greet(stalled, "\2") == "\5\2")
+    local started = Clock.monotonic_ns()
+    assert(read_all(stalled) == "", "closed without a reply")
+    assert(Clock.monotonic_ns() - started < Clock.seconds(5), "long before the head timeout")
+    assert(#lines_with(rig, "greeting and credential not received within 200 milliseconds") == 1,
+      table.concat(rig.log, "\n"))
+    local _, _ = stalled:close()
+    -- A CONNECT head dribbled past it is refused with a 408.
+    local slow = dial(rig.http)
+    assert(slow:write("CONNECT 127.0.0.1:80 HTTP/1.1\r\n"))
+    assert(read_all(slow):find("408 request and credential not received within 200 milliseconds", 1, true))
+    local _, _ = slow:close()
+    -- A client that authenticates in time may take longer than the auth wait over its request.
+    local late = dial(rig.socks)
+    assert(socks_greet(late, "\2") == "\5\2")
+    assert(late:write(auth_message("u", TOKEN)))
+    assert(read_exact(late, 2) == "\1\0")
+    assert(Poll.delay(Clock.ms(500)))
+    assert(late:write(Fixture.socks_request(1, 1, "\127\0\0\1", server.port)))
+    assert(read_exact(late, 10):byte(2) == 0, "the request has the head wait")
+    local _, _ = late:close()
     finish(rig, server)
   end)
 end
