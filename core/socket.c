@@ -27,6 +27,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <ares.h>
+
 #include "check.h"
 #include "errnos.h"
 #include "fail.h"
@@ -1062,6 +1064,260 @@ COSMIC_SYSCALL(wait, 3) {
   int failure = ready(fd, writable ? POLLOUT : POLLIN, deadline);
   if (failure != 0) return cosmic_fail_effect(L, failure);
   return cosmic_ok(L);
+}
+
+/* What `resolve` answers where the resolver, not the system, refused:
+ * negative, so none is an errno's number, and fixed, so every OS reads
+ * the same (they are glibc's EAI_NONAME, EAI_FAIL and EAI_NODATA). */
+#define RESOLVE_NOTFOUND (-2)
+#define RESOLVE_FAILED (-4)
+#define RESOLVE_NODATA (-5)
+
+/* The longest a host name may be, with its trailing dot (RFC 1035). */
+#define RESOLVE_NAME_MAX 254
+
+/* Sockets c-ares may have open at once that a wait watches: a UDP and a
+ * TCP socket for each of a few servers. One past it is not watched, and
+ * its query ends by the retry timer or the call's deadline instead. */
+#define RESOLVE_WATCHED_MAX 64
+
+struct watched_socket {
+  ares_socket_t fd;
+  short events;
+};
+
+/* One lookup: the channel, what it answered and the sockets it has
+ * open. Guarded, so a raise while the answer is built releases the
+ * channel; the channel goes first at release, as destroying it ends a
+ * query still pending, which calls `resolved` once more, with
+ * ARES_EDESTRUCTION, while this struct is still whole. */
+struct resolution {
+  ares_channel_t *channel;
+  struct ares_addrinfo *found;
+  int status;
+  bool done;
+  size_t watching;
+  struct watched_socket sockets[RESOLVE_WATCHED_MAX];
+};
+
+static void resolution_release (void *resource) {
+  struct resolution *resolution = resource;
+  if (resolution->channel != NULL) ares_destroy(resolution->channel);
+  if (resolution->found != NULL) ares_freeaddrinfo(resolution->found);
+  free(resolution);
+}
+
+static void resolved (void *arg, int status, int timeouts, struct ares_addrinfo *found) {
+  struct resolution *resolution = arg;
+  (void)timeouts;
+  if (resolution->done) {
+    ares_freeaddrinfo(found);
+    return;
+  }
+  resolution->done = true;
+  resolution->status = status;
+  resolution->found = found;
+}
+
+/* c-ares's report that it opened, wants or closed a socket, kept as the
+ * poll set the wait reads. */
+static void socket_state (void *arg, ares_socket_t fd, int readable, int writable) {
+  struct resolution *resolution = arg;
+  short events = (short)((readable ? POLLIN : 0) | (writable ? POLLOUT : 0));
+  for (size_t at = 0; at < resolution->watching; at++) {
+    if (resolution->sockets[at].fd != fd) continue;
+    if (events != 0) {
+      resolution->sockets[at].events = events;
+    } else {
+      resolution->sockets[at] = resolution->sockets[--resolution->watching];
+    }
+    return;
+  }
+  if (events != 0 && resolution->watching < RESOLVE_WATCHED_MAX) {
+    resolution->sockets[resolution->watching].fd = fd;
+    resolution->sockets[resolution->watching].events = events;
+    resolution->watching++;
+  }
+}
+
+/* Runs c-ares until the lookup is answered, in slices a guard's signal
+ * ends: 0, ETIMEDOUT once `deadline` has passed, EINTR once a guard has
+ * caught a signal, or why poll failed. */
+static int resolution_wait (struct resolution *resolution, int64_t deadline) {
+  while (!resolution->done) {
+    if (cosmic_signal_caught()) return EINTR;
+    int left = cosmic_wait_slice(deadline);
+    if (deadline >= 0 && left == 0) return ETIMEDOUT;
+    struct timeval retry;
+    struct timeval *soonest = ares_timeout(resolution->channel, NULL, &retry);
+    if (soonest != NULL) {
+      int64_t ms = (int64_t)soonest->tv_sec * 1000 + (soonest->tv_usec + 999) / 1000;
+      if (ms < left) left = (int)ms;
+    }
+    struct pollfd polled[RESOLVE_WATCHED_MAX];
+    size_t count = resolution->watching;
+    for (size_t at = 0; at < count; at++) {
+      polled[at].fd = resolution->sockets[at].fd;
+      polled[at].events = resolution->sockets[at].events;
+      polled[at].revents = 0;
+    }
+    int found = poll(polled, (nfds_t)count, left);
+    if (found < 0 && errno != EINTR) return errno;
+    if (found <= 0) {
+      ares_process_fd(resolution->channel, ARES_SOCKET_BAD, ARES_SOCKET_BAD);
+      continue;
+    }
+    for (size_t at = 0; at < count; at++) {
+      if (polled[at].revents == 0) continue;
+      bool readable = (polled[at].revents & (POLLIN | POLLHUP | POLLERR)) != 0;
+      bool writable = (polled[at].revents & POLLOUT) != 0;
+      ares_process_fd(resolution->channel, readable ? polled[at].fd : ARES_SOCKET_BAD,
+                      writable ? polled[at].fd : ARES_SOCKET_BAD);
+    }
+  }
+  return 0;
+}
+
+/* The failure a lookup c-ares ended with `status` answers. */
+static int resolve_failed (lua_State *L, int status) {
+  int code;
+  const char *why;
+  switch (status) {
+    case ARES_ENOTFOUND:
+    code = RESOLVE_NOTFOUND;
+    why = "name not found";
+    break;
+    case ARES_ENODATA:
+    code = RESOLVE_NODATA;
+    why = "name has no address";
+    break;
+    case ARES_ETIMEOUT:
+    return cosmic_fail(L, ETIMEDOUT);
+    case ARES_ECONNREFUSED:
+    return cosmic_fail(L, ECONNREFUSED);
+    case ARES_ENOMEM:
+    return cosmic_fail(L, ENOMEM);
+    case ARES_EBADNAME:
+    case ARES_EBADQUERY:
+    case ARES_EBADFAMILY:
+    return cosmic_fail(L, EINVAL);
+    default:
+    code = RESOLVE_FAILED;
+    why = "name server failed";
+    break;
+  }
+  lua_pushnil(L);
+  lua_pushstring(L, why);
+  lua_pushinteger(L, code);
+  return 3;
+}
+
+/* Appends `{ address = ..., family = ... }` for the raw address at
+ * `address` of `family` to the table on top, as its element `index`. */
+static void resolved_pushed (lua_State *L, int family, const void *address, lua_Integer index) {
+  char text[INET6_ADDRSTRLEN];
+  if (inet_ntop(family, address, text, sizeof text) == NULL) text[0] = '\0';
+  lua_createtable(L, 0, 2);
+  lua_pushstring(L, text);
+  lua_setfield(L, -2, "address");
+  lua_pushstring(L, family == AF_INET ? "ipv4" : "ipv6");
+  lua_setfield(L, -2, "family");
+  lua_rawseti(L, -2, index);
+}
+
+/* Whether `name` is a numeric address as a "tcp" address's host is,
+ * written to `out` as raw bytes of the `*family` it names. */
+static bool numeric_literal (const char *name, size_t size, int *family, unsigned char *out) {
+  if (!numeric_host(name, size)) return false;
+  if (strchr(name, ':') == NULL && inet_pton(AF_INET, name, out) == 1) {
+    *family = AF_INET;
+    return true;
+  }
+  if (inet_pton(AF_INET6, name, out) == 1) {
+    *family = AF_INET6;
+    return true;
+  }
+  return false;
+}
+
+COSMIC_SYSCALL(resolve, 4) {
+  size_t size = 0;
+  const char *name = luaL_checklstring(L, 1, &size);
+  int timeout = cosmic_checkint(L, 2);
+  luaL_argcheck(L, timeout >= -1, 2, "timeout is out of range");
+  const char *servers = lua_isnoneornil(L, 3) ? NULL : luaL_checkstring(L, 3);
+  const char *hosts = lua_isnoneornil(L, 4) ? NULL : cosmic_path(L, 4);
+  if (size == 0 || size > RESOLVE_NAME_MAX || memchr(name, '\0', size) != NULL ||
+      memchr(name, '%', size) != NULL || (!lua_isnoneornil(L, 4) && hosts == NULL)) {
+    return cosmic_fail(L, EINVAL);
+  }
+  int64_t deadline = timeout < 0 ? -1 : cosmic_now_ms() + timeout;
+
+  unsigned char literal[sizeof(struct in6_addr)];
+  int family = 0;
+  if (numeric_literal(name, size, &family, literal)) {
+    lua_createtable(L, 1, 0);
+    resolved_pushed(L, family, literal, 1);
+    return 1;
+  }
+
+  /* The guard first, the channel after: what it holds is acquired once
+   * a raise can no longer skip its release. */
+  struct cosmic_guard *guard = cosmic_guard_push(L, resolution_release);
+  struct resolution *resolution = calloc(1, sizeof *resolution);
+  if (resolution == NULL) return cosmic_fail(L, ENOMEM);
+  guard->resource = resolution;
+
+  /* c-ares needs no library initialization off Windows
+   * (ares_library_initialized answers success). */
+  struct ares_options options;
+  memset(&options, 0, sizeof options);
+  int mask = ARES_OPT_FLAGS | ARES_OPT_TRIES | ARES_OPT_SOCK_STATE_CB;
+  options.flags = ARES_FLAG_NOALIASES;
+  options.tries = 2;
+  options.sock_state_cb = socket_state;
+  options.sock_state_cb_data = resolution;
+  if (timeout >= 0) {
+    mask |= ARES_OPT_TIMEOUTMS;
+    options.timeout = timeout < 2 ? 1 : timeout / 2;
+  }
+  if (hosts != NULL) {
+    mask |= ARES_OPT_HOSTS_FILE;
+    options.hosts_path = (char *)hosts;
+  }
+  int status = ares_init_options(&resolution->channel, &options, mask);
+  if (status != ARES_SUCCESS) {
+    resolution->channel = NULL;
+    return resolve_failed(L, status);
+  }
+  if (servers != NULL && ares_set_servers_ports_csv(resolution->channel, servers) != ARES_SUCCESS) {
+    return cosmic_fail(L, EINVAL);
+  }
+
+  struct ares_addrinfo_hints hints;
+  memset(&hints, 0, sizeof hints);
+  hints.ai_family = AF_UNSPEC;
+  hints.ai_flags = ARES_AI_NOSORT;
+  ares_getaddrinfo(resolution->channel, name, NULL, &hints, resolved, resolution);
+  int failure = resolution_wait(resolution, deadline);
+  if (failure != 0) return cosmic_fail(L, failure);
+  if (resolution->status != ARES_SUCCESS) return resolve_failed(L, resolution->status);
+
+  lua_createtable(L, 4, 0);
+  lua_Integer count = 0;
+  struct ares_addrinfo_node *node = resolution->found == NULL ? NULL : resolution->found->nodes;
+  for (; node != NULL; node = node->ai_next) {
+    if (node->ai_family == AF_INET) {
+      resolved_pushed(L, AF_INET, &((struct sockaddr_in *)node->ai_addr)->sin_addr, ++count);
+    } else if (node->ai_family == AF_INET6) {
+      resolved_pushed(L, AF_INET6, &((struct sockaddr_in6 *)node->ai_addr)->sin6_addr, ++count);
+    }
+  }
+  if (count == 0) {
+    lua_pop(L, 1);
+    return resolve_failed(L, ARES_ENODATA);
+  }
+  return 1;
 }
 
 /* The table is filled from the header's own entries, as core/syscalls.c

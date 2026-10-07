@@ -28,6 +28,7 @@
 
 local _ = require("cosmic.child") -- in the closure: [`process_table`] searches for it by hand
 local Codec = require("cosmic.codec")
+local Fs = require("cosmic.fs")
 local Compress = require("cosmic.compress")
 local Hash = require("cosmic.hash")
 local Html = require("cosmic.html")
@@ -256,6 +257,21 @@ local function test_udp_leaves_no_descriptor_whenever_an_allocation_fails(tmp: s
     assert(assert(client:receive()).data == "")
   end)
   assert(ended > 0, "binding and receiving allocate")
+  assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. before .. " open")
+end
+
+--- A lookup holds a c-ares channel in a guard from before the channel
+--- exists: a refusal anywhere, while the options are read or the answer
+--- is built, releases it, and the next lookup answers the same.
+local function test_resolve_leaves_no_descriptor_or_channel_whenever_an_allocation_fails(tmp: string)
+  local hosts = tmp .. "/hosts"
+  assert(Fs.write(hosts, "192.0.2.1 a.example.test\n2001:db8::1 a.example.test\n"))
+  local before = next_descriptor(tmp)
+  local ended = under_every_failure(function()
+    local found = assert(Net.resolve("a.example.test", { hosts_file = hosts, timeout_ns = Clock.seconds(5) }))
+    assert(#found == 2)
+  end)
+  assert(ended > 0, "answering allocates")
   assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. before .. " open")
 end
 

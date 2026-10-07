@@ -1,6 +1,8 @@
 --- Stream sockets listen, accept and connect, then read and write as a
 --- [`cosmic.stream`] Reader and Writer. UDP sockets send and receive
 --- complete datagrams with a numeric destination and sender address.
+--- [`Net.resolve`] looks a host name up, as the system's resolver would,
+--- and answers every address it has.
 ---
 ---     local server <close> = assert(Net.listen(Net.unix(dir .. "/app.sock")))
 ---     local conn <close> = assert(server:accept())
@@ -165,6 +167,22 @@ local record Net
     --- Closes the socket. Safe to call more than once.
     close: function(Datagram): boolean, string
     metamethod __close: function(Datagram)
+  end
+
+  --- One address a name resolves to, answered by [`Net.resolve`]: its
+  --- numeric form (four decimal octets for IPv4, `inet_ntop`'s for IPv6)
+  --- and its `family`, "ipv4" or "ipv6".
+  type Resolved = raw_socket.Resolved
+
+  record ResolveOptions
+    --- How long the lookup waits in all, in nanoseconds, from 0; nil for
+    --- no limit beyond the resolver's own retries.
+    timeout_ns: integer
+    --- Name servers to ask in place of the system's: one or more "udp"
+    --- addresses, from [`Net.udp`], which carry a port.
+    servers: {Address}
+    --- A hosts file to read in place of the system's.
+    hosts_file: string
   end
 
   --- What [`Net.serve`] serves, and how. A field of the wrong shape, or
@@ -628,6 +646,59 @@ function Net.datagram(address: Net.Address, opts?: Net.DatagramOptions): Net.Dat
     socket = socket, fd = socket:fd(), open = true, address = bound, limit = opts.timeout_ns,
   }, socket_datagram_mt)
   return datagram, ""
+end
+
+--- Resolves `name` with c-ares and answers every address it has, IPv4
+--- and IPv6, as the system's configuration (resolv.conf and hosts; on
+--- macOS also the system's DNS configuration) makes it: none is dropped
+--- or filtered, so a caller that refuses some address can refuse the
+--- name. A numeric IPv4 or IPv6 address, as [`Net.tcp`] takes one, answers
+--- itself without a query. `HOSTALIASES` is ignored. Where one family's
+--- lookup fails and the other's answers, the answer holds the one that
+--- did.
+---
+---     local found = assert(Net.resolve("localhost", { timeout_ns = Clock.seconds(5) }))
+---     for _, resolved in ipairs(found) do print(resolved.address, resolved.family) end
+---
+--- Fails with "name not found" (no such name), "name has no address",
+--- "name server failed" (an error or malformed answer),
+--- [`Poll.TIMEOUT`], "interrupted" (an open [`Child.guard`] caught a
+--- signal), or the system's words ("Connection refused" where every
+--- server refuses). A `name` that is empty, over 254 bytes or holds a NUL or a "%", or
+--- a `servers` list or `hosts_file` the resolver refuses, fails "Invalid argument". The call holds the thread until
+--- it answers, in a task of [`Poll.run`] too. A `name` that is no string
+--- or an option of the wrong shape raises.
+function Net.resolve(name: string, opts?: Net.ResolveOptions): {Net.Resolved} | nil, string
+  if not (name is string) then error("net: name must be a string", 2) end
+  opts = opts or {}
+  if type(opts) ~= "table" then error("net: options must be a table", 2) end
+  Poll.checked_ns(opts.timeout_ns, "net", "timeout_ns", 2)
+  local hosts_file = opts.hosts_file
+  if hosts_file ~= nil and not (hosts_file is string) then
+    error("net: hosts_file must be a string", 2)
+  end
+  local servers: string
+  if opts.servers ~= nil then
+    local listed = opts.servers
+    if not (listed is {Net.Address}) or #listed == 0 then
+      error("net: servers must be a list of udp addresses from Net.udp", 2)
+    end
+    local parts: {string} = {}
+    for _, address in ipairs(listed) do
+      checked_datagram_address(address, 2)
+      local host = address.host
+      -- Only a host that holds none of the list's own punctuation may
+      -- reach it, so one server cannot name another; the resolver
+      -- refuses what is not an address.
+      if host:find("[^%x:.]") then return nil, "Invalid argument" end
+      parts[#parts + 1] = host:find(":", 1, true) and ("[" .. host .. "]:" .. address.port) or
+        (host .. ":" .. address.port)
+    end
+    servers = table.concat(parts, ",")
+  end
+  local found, trouble, errno = raw.resolve(name, Poll.milliseconds(opts.timeout_ns), servers, hosts_file)
+  if found == nil then return nil, said(trouble, errno) end
+  return found, ""
 end
 
 --- A socket connected to `address`, waiting at most `timeout_ns`: in a
