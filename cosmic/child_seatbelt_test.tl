@@ -250,23 +250,49 @@ local function test_a_profile_the_system_accepts_holds_the_program_by_its_parame
   assert(assert(process.waitpid(ran, false)).code == 0 and sys.stat(other) ~= nil)
 end
 
---- The core a failing test ran on, as the program's own store names it.
-local function core_identity(): string
-  return "host_image=" .. tostring(Store.meta("host_image")) .. " image_hash=" ..
-    tostring(Store.meta("image_hash")) .. " runtime=" .. tostring(Store.meta("runtime"))
+local MARKER <const> = "seatbelt-terminal-refusal-1"
+
+--- Says what a failing terminal start can show of the core it ran on: its
+--- identity, whether its file holds the refusal's text, and whether the
+--- twelfth argument reaches C.
+local function core_identity(process: raw_process): string
+  local parts: {string} = {
+    "host_image=" .. tostring(Store.meta("host_image")),
+    "image_hash=" .. tostring(Store.meta("image_hash")),
+    "runtime=" .. tostring(Store.meta("runtime")),
+  }
+  local path = Proc.executable()
+  if path == nil then
+    table.insert(parts, "executable=none")
+  else
+    local bytes = Fs.read(path)
+    table.insert(parts, "executable=" .. path .. " bytes=" ..
+        (bytes and tostring(#bytes) or "unreadable") .. " marker=" ..
+        tostring(bytes ~= nil and bytes:find(MARKER, 1, true) ~= nil))
+  end
+  -- A twelfth argument that is no boolean raises in any core that reads it.
+  local ok, raised = pcall(process.spawn, SH, { SH, "-c", "exit 0" }, nil, nil,
+    nil, nil, nil, true, nil, nil, nil, "x" as boolean) -- cast: a non-boolean is what is probed
+  table.insert(parts, "arg12=" .. (ok and "ignored" or tostring(raised)))
+  return table.concat(parts, " ")
 end
 
 --- A controlling terminal is not yet given to a program on macOS.
 local function test_a_terminal_start_is_refused_where_none_survives_the_exec()
   macos_only()
   local process = process_table()
-  local pid, why, errno = process.spawn(SH, { SH, "-c", "exit 0" }, nil, nil,
+  local function start(...: any): integer | nil, string, integer
+    return (process.spawn as function(...: any): integer | nil, string, integer)(...)
+  end
+  local pid, why, errno = start(SH, { SH, "-c", "exit 0" }, nil, nil,
     nil, nil, nil, true, nil, nil, nil, true)
-  local said = tostring(pid) .. ", " .. tostring(why) .. ", " .. tostring(errno) ..
-    " (core " .. core_identity() .. ")"
   if pid ~= nil then process.waitpid(pid, false) end
+  local said = tostring(pid) .. ", " .. tostring(why) .. ", " .. tostring(errno)
+  local failed = pid ~= nil or errno ~= sys.ENOSYS or not tostring(why):find(MARKER, 1, true)
+  if failed then said = said .. " (core " .. core_identity(process) .. ")" end
   assert(pid == nil, "a terminal start ran: " .. said)
   assert(errno == sys.ENOSYS, "the refusal was not ENOSYS: " .. said)
+  assert(tostring(why):find(MARKER, 1, true), "the refusal is not this core's: " .. said)
 end
 
 --- A profile is macOS's: where Landlock and seccomp hold a child there is

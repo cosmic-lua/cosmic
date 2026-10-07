@@ -3928,7 +3928,14 @@ COSMIC_SYSCALL(spawn, 12) {
    * leader acquire one) left /dev/tty usable in the trampoline, yet the
    * program it executed had none (ps showed TTY "??" and an open of /dev/tty
    * was ENXIO), though its descriptor 0 was the terminal. */
-  if (terminal) return cosmic_fail(L, ENOSYS);
+  if (terminal) {
+    /* The text is unique so a test can tell, in the running core, that this
+     * refusal is compiled in; the shape is a refusal's: nil, text, errno. */
+    lua_pushnil(L);
+    lua_pushliteral(L, "a controlling terminal is refused on macOS [seatbelt-terminal-refusal-1]");
+    lua_pushinteger(L, ENOSYS);
+    return 3;
+  }
 #endif
   int top = 2;
   if (!lua_isnoneornil(L, 9)) {
