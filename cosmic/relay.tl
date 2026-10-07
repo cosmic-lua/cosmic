@@ -176,9 +176,10 @@ local record Relay
     grants: {string}
     --- How a connection is made.
     connector: Connector
-    --- The resolver's options ([`Net.ResolveOptions`]): `servers` and
-    --- `hosts_file`, which are the trusted caller's own. Its `timeout_ns`
-    --- is [`Timeouts.resolve`]'s.
+    --- The resolver's options ([`Net.ResolveOptions`]): `servers`,
+    --- `hosts_file` and `connector`, which are the trusted caller's own.
+    --- The sandbox's relay resolves through a connector of the name
+    --- servers alone, over TCP. Its `timeout_ns` is [`Timeouts.resolve`]'s.
     resolve: Net.ResolveOptions
     --- The host's own addresses, which the relay refuses to connect to
     --- ([`cosmic.relay_address`]'s `own_addresses`).
@@ -696,6 +697,7 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
   local opts: Net.ResolveOptions = { timeout_ns = run.timeouts.resolve }
   if run.spec.resolve ~= nil then
     opts.servers, opts.hosts_file = run.spec.resolve.servers, run.spec.resolve.hosts_file
+    opts.connector = run.spec.resolve.connector
   end
   local found, why = Net.resolve(name, opts)
   if found == nil then

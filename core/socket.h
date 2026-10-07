@@ -238,6 +238,36 @@ COSMIC_SYSCALL(wait, 3);
 COSMIC_SYSCALL(resolve, 4);
 
 /*
+ * --- One name server a lookup through a connector asks.
+ * ---@class ThroughServer
+ * ---@field host string its numeric IPv4 or IPv6 address
+ * ---@field port integer its TCP port, 1 through 65535
+ * ---@field index integer the 1-based index of the connector's table entry that reaches it at that port
+ */
+
+/*
+ * --- Resolves a host name as `resolve` does, over TCP alone, every socket of the lookup made by a native connector (core/connector.c) over its control stream: c-ares asks the connector for a connection to each server, by its table index, and is refused every datagram socket, so the lookup reaches nothing the connector's table does not hold. The servers are `servers`, never the system's; the rest of the system's configuration is read as `resolve` reads it. Each exchange with the connector keeps the call's deadline; one that fails or runs out leaves the stream with a reply unread, so it is shut down, and its owner finds it ended, rather than out of step. A connector's refusal, a server not listed and every connection that fails are the server failing. Linux only: elsewhere ENOSYS, as no connector runs there. A degenerate argument raises; a name `resolve` refuses fails EINVAL.
+ * ---@param name string the host name or numeric address
+ * ---@param timeout_ms integer how long to wait at most, from 0, -1 for no limit beyond c-ares's own retries and timeouts
+ * ---@param fd integer the connector's control stream, nonblocking, with no request in flight
+ * ---@param servers {ThroughServer} the name servers to ask, 1 through 128
+ * ---@param hosts? string a hosts file to read in place of the system's
+ * ---@return {Resolved}|nil addresses every address, at least one, or nil on failure
+ * ---@return string error what went wrong, when addresses is nil
+ * ---@return integer errno the error number, when addresses is nil: as `resolve`'s, ECONNREFUSED where no server could be connected to through the connector, or ENOSYS off Linux
+ */
+COSMIC_SYSCALL(resolve_through, 5);
+
+/*
+ * --- The name servers the system's configuration names, as c-ares reads it for `resolve` (resolv.conf; on macOS, the system's DNS configuration first), in its order: c-ares's own list, `host:port` comma-separated, an IPv6 host in brackets, a link-local one followed by `%` and its interface, and a server whose TCP port differs from its UDP one written as a `dns://` URI with a `tcpport` query. With none configured, c-ares's default, 127.0.0.1:53.
+ * ---@param resolv_conf? string a resolv.conf to read in place of the system's, for tests
+ * ---@return string|nil servers the list, or nil on failure
+ * ---@return string error what went wrong, when servers is nil
+ * ---@return integer errno the error number, when servers is nil: EACCES where the configuration could not be read, ENOMEM, or EINVAL for a path that holds a NUL
+ */
+COSMIC_SYSCALL(nameservers, 1);
+
+/*
  * --- The error numbers the calls above answer that a caller acts on, and the bound on a socket file's name, from this libc.
  * ---@class Constants
  * ---@field EAGAIN integer nothing to take or send now, or, on Linux, a unix listener's backlog full to `connect` or `start`: wait, then ask again

@@ -243,6 +243,21 @@ local record Net
     servers: {Address}
     --- A hosts file to read in place of the system's.
     hosts_file: string
+    --- Resolves over TCP alone, every socket of the lookup made by this
+    --- connector, one [`Net.connector`] or [`Net.connector_from`] made with
+    --- a table, and no datagram sent: the servers asked are `servers`, or
+    --- the system's ([`Net.nameservers`]), each of which the connector's
+    --- table must hold at its port. A connector built from
+    --- [`Net.nameservers`] alone reaches nothing else, so the lookup's
+    --- sockets reach nothing but the name servers. Linux only, as the
+    --- connector is.
+    connector: Connector
+  end
+
+  --- What [`Net.nameservers`] takes.
+  record NameserversOptions
+    --- A resolv.conf to read in place of the system's, for tests.
+    resolv_conf: string
   end
 
   --- What [`Net.serve`] serves, and how. A field of the wrong shape, or
@@ -708,6 +723,9 @@ function Net.datagram(address: Net.Address, opts?: Net.DatagramOptions): Net.Dat
   return datagram, ""
 end
 
+--- [`Net.resolve`] through `opts.connector`, defined with the connector.
+local resolved_through: function(name: string, opts: Net.ResolveOptions): {Net.Resolved} | nil, string
+
 --- Resolves `name` with c-ares and answers every address it has, IPv4
 --- and IPv6, as the system's configuration (resolv.conf and hosts; on
 --- macOS also the system's DNS configuration) makes it: none is dropped
@@ -721,7 +739,12 @@ end
 --- did. A name with fewer dots than resolv.conf's ndots may be tried
 --- under its `search` domains first, so a single-label name may resolve
 --- under one. `servers` and `hosts_file` are for tests and trusted
---- callers, never for values a sandboxed program chose.
+--- callers, never for values a sandboxed program chose. With
+--- `connector`, the lookup goes over TCP alone, each connection made by
+--- the connector ([`ResolveOptions.connector`]), which it waits for as
+--- [`Connector.connect`] does; a server its table lacks fails the call
+--- before anything is asked, and a lookup the connector could connect
+--- nowhere for fails "Connection refused".
 ---
 ---     local found = assert(Net.resolve("localhost", { timeout_ns = Clock.seconds(5) }))
 ---     for _, resolved in ipairs(found) do print(resolved.address, resolved.family) end
@@ -767,9 +790,72 @@ function Net.resolve(name: string, opts?: Net.ResolveOptions): {Net.Resolved} | 
     end
     servers = table.concat(parts, ",")
   end
+  if opts.connector ~= nil then return resolved_through(name, opts) end
   local found, trouble, errno = raw.resolve(name, Poll.milliseconds(opts.timeout_ns), servers, hosts_file)
   if found == nil then return nil, said(trouble, errno) end
   return found, ""
+end
+
+--- One entry of c-ares's server list, as [`Net.nameservers`] reads it:
+--- the numeric host and the TCP port, or nil for an entry of none of the
+--- list's forms or a link-local server written with its interface (a "%"
+--- and its name), which a connector's endpoint cannot carry.
+local function nameserver_of(entry: string): Net.Endpoint | nil
+  local host, port, rest: string, string, string
+  local uri = entry:match("^dns://(.*)$")
+  if uri ~= nil then
+    local tcp = uri:match("[?&]tcpport=(%d+)")
+    host, port, rest = uri:match("^%[([%x:%.]+)%]:(%d+)(.*)$")
+    if host == nil then host, port, rest = uri:match("^([%d%.]+):(%d+)(.*)$") end
+    if rest ~= nil and rest:sub(1, 1) == "?" then rest = "" end
+    port = tcp or port
+  else
+    host, port, rest = entry:match("^%[([%x:%.]+)%]:(%d+)(.*)$")
+    if host == nil then host, port, rest = entry:match("^([%d%.]+):(%d+)(.*)$") end
+  end
+  if host == nil or rest ~= "" then return nil end
+  local number = math.tointeger(tonumber(port))
+  if number == nil or number < 1 or number > 65535 or relay_address.parse(host) == nil then
+    return nil
+  end
+  return { host = host, port = number }
+end
+
+--- The name servers the system's configuration names, as [`Net.resolve`]
+--- reads it (resolv.conf; on macOS, the system's DNS configuration
+--- first), each a numeric [`Net.Endpoint`] at its TCP port, 53 for every
+--- server resolv.conf names: the table of a connector for
+--- [`ResolveOptions.connector`] that reaches nothing else. With none
+--- configured, the resolver's default, 127.0.0.1 at 53. A link-local
+--- server written with its interface is left out, as no connector
+--- reaches one; where every server is, the answer is nil and why. Fails
+--- with the system's words where the configuration cannot be read.
+--- `opts.resolv_conf` is for tests; an option of the wrong shape raises.
+-- TODO: reach a link-local name server (fe80::1%eth0) through a connector
+-- once a connector's endpoint carries an interface: it is left out today.
+function Net.nameservers(opts?: Net.NameserversOptions): {Net.Endpoint} | nil, string
+  opts = opts or {}
+  if type(opts) ~= "table" then error("net: options must be a table", 2) end
+  local path = opts.resolv_conf
+  if path ~= nil and not (path is string) then error("net: resolv_conf must be a string", 2) end
+  local listed, trouble, errno = raw.nameservers(path)
+  if listed == nil then return nil, said(trouble, errno) end
+  local servers: {Net.Endpoint} = {}
+  local skipped = ""
+  for entry in listed:gmatch("[^,]+") do
+    local server = nameserver_of(entry)
+    if server ~= nil then
+      servers[#servers + 1] = server
+    elseif entry:find("%", 1, true) ~= nil then
+      skipped = "net: the name server " .. entry .. " is scoped to an interface, which a connector cannot reach"
+    else
+      return nil, "net: the resolver lists a server as " .. entry
+    end
+  end
+  if #servers == 0 then
+    return nil, skipped ~= "" and skipped or "net: the resolver lists no name server"
+  end
+  return servers, ""
 end
 
 --- A socket connected to `address`, waiting at most `timeout_ns`: in a
@@ -1192,6 +1278,74 @@ function SocketConnector:close(): boolean, string
   return true, ""
 end
 
+--- Every connector this module made, by itself, held weakly: what
+--- [`ResolveOptions.connector`] takes.
+local connectors_made: {Net.Connector: SocketConnector} = setmetatable({}, { __mode = "k" })
+
+resolved_through = function(name: string, opts: Net.ResolveOptions): {Net.Resolved} | nil, string
+  local through = connectors_made[opts.connector]
+  if through == nil then
+    error("net: connector must be one Net.connector or Net.connector_from made", 3)
+  end
+  if not through.open then return nil, "net: the connector is closed" end
+  if through.endpoints == nil then
+    return nil, "net: a lookup goes through a connector with a table of the name servers"
+  end
+  local listed: {Net.Endpoint} = {}
+  if opts.servers ~= nil then
+    for i, address in ipairs(opts.servers) do
+      listed[i] = { host = address.host, port = address.port }
+    end
+  else
+    local system, why = Net.nameservers()
+    if system == nil then return nil, why end
+    listed = system
+  end
+  local servers: {raw_socket.ThroughServer} = {}
+  for _, server in ipairs(listed) do
+    local index: integer
+    for i, entry in ipairs(through.endpoints) do
+      if same_host(entry.host, server.host) and endpoint_allows(entry, server.port) then
+        index = i
+        break
+      end
+    end
+    if index == nil then
+      return nil, "net: the name server " .. named(Net.tcp(server.host, server.port)) ..
+        " is not in the connector's table"
+    end
+    servers[#servers + 1] = { host = through.endpoints[index].host, port = server.port, index = index }
+  end
+  local timeout_ns = opts.timeout_ns
+  local deadline = timeout_ns ~= nil and Clock.monotonic_ns() + timeout_ns or nil
+  -- One request at a time: the process answers in order on one stream.
+  while through.busy do
+    local waiting, why = Poll.delay(Clock.ms(1))
+    if not waiting then return nil, why end
+    if not through.open then return nil, "net: the connector is closed" end
+    if deadline ~= nil and Clock.monotonic_ns() >= deadline then return nil, Poll.TIMEOUT end
+  end
+  through.busy = true
+  local request: ConnectorRequest = setmetatable({ owner = through, keep = false }, request_mt)
+  local _guard <close> = request
+  if through.process == nil then
+    if through.inherited then return nil, "net: the connector has ended" end
+    local started, why = Child.start_connector(through.endpoints, through.timeout_ms, through.public)
+    if started == nil then return nil, why end
+    through.process = started
+  end
+  request.process = through.process
+  local left = deadline ~= nil and math.max(0, deadline - Clock.monotonic_ns()) or nil
+  local found, trouble, errno = raw.resolve_through(name, Poll.milliseconds(left), through.process.fd,
+    servers, opts.hosts_file)
+  -- The stream is in step when nothing waits on it: the core shuts it down
+  -- where an exchange left a reply unread, which reads here as its end.
+  local pending, _, number = sys.read(through.process.fd, 1)
+  request.keep = pending == nil and number == raw.EAGAIN
+  if found == nil then return nil, said(trouble, errno) end
+  return found, ""
+end
+
 --- The endpoints `endpoints` as a copy, so the caller's later changes to
 --- its table reach neither the checks here nor a process started again;
 --- it raises for one that is no list of 1 through 128 endpoints (0 where
@@ -1278,6 +1432,7 @@ function Net.connector(endpoints?: {Net.Endpoint}, opts?: Net.ConnectorOptions):
   local made: SocketConnector = setmetatable({
     timeout_ms = timeout_ms, busy = false, open = true, public = public, accepts_public = public ~= nil,
   }, socket_connector_mt)
+  connectors_made[made] = made
   if endpoints == nil and public == nil then return made, "" end
   local kept: {Net.Endpoint} = {}
   if endpoints ~= nil then kept = copied_endpoints(endpoints, public ~= nil) end
@@ -1320,6 +1475,7 @@ function Net.connector_from(fd: integer, held?: {Net.Endpoint}, public?: boolean
     timeout_ms = CONNECTOR_DEFAULT_NS // 1000000, busy = false, open = true, endpoints = kept,
     process = adopted, inherited = true, accepts_public = public == true,
   }, socket_connector_mt)
+  connectors_made[made] = made
   return made, ""
 end
 
