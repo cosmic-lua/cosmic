@@ -108,6 +108,10 @@ end
 --- as `opts` says (a terminal where it names the slave).
 local function start(script: string, opts: Child.Options): Child.Handle
   opts.timeout_ns = Clock.seconds(60)
+  -- The root, which the system profile lets a program read: a shell
+  -- started in a directory the profile does not grant prints a getcwd
+  -- error of its own on macOS, into what these tests compare byte for byte.
+  opts.cwd = "/"
   local child, why = Child.start({ exe, "sandbox", "--system", "--env", "PATH", "--promise", "fork",
     "--", "/bin/sh", "-c", script }, opts)
   assert(child, why)
@@ -179,7 +183,8 @@ do
   -- The program has written its stderr, so it is about to read.
   local deadline = Clock.monotonic_ns() + Clock.seconds(30)
   while read_file(err) ~= "to-stderr\n" or restored(caller) do
-    assert(Clock.monotonic_ns() < deadline, "the program did not get to its read")
+    assert(Clock.monotonic_ns() < deadline, "the program did not get to its read: stderr " ..
+        string.format("%q", read_file(err)) .. ", terminal " .. shown_of(caller))
     assert(sys.nanosleep(Clock.ms(20)))
   end
   assert(sys.write(caller.master, "hi\r"))

@@ -140,7 +140,9 @@ else
     -- Child.start (refused above), and not through this either.
     local real = assert(sys.openpty())
     local program = { "/bin/sh", "-c", "test -t 0 && test -t 1 && test -t 2 && printf held-terminal" }
-    local held_policy: Child.Options = { policy = { profiles = { "system" } } }
+    -- Started in the root, which the profile lets a program read: a shell in
+    -- a directory it does not grant prints a getcwd error on macOS.
+    local held_policy: Child.Options = { policy = { profiles = { "system" } }, cwd = "/" }
     local function refused_on_pty(opts: Child.Options, streams: {integer}, slot: string)
       opts.policy = held_policy.policy
       local started, refusal = Child.start_on_pty(program, opts, { streams = streams })
@@ -185,7 +187,7 @@ else
     -- controlling terminal), stderr a pipe of its own.
     local mixed = assert(Child.start_on_pty({ "/bin/sh", "-c",
       "test -t 1 && ! test -t 0 && ! test -t 2 && printf out && printf err >&2" },
-      { policy = { profiles = { "system" } }, stdin = "null", stderr = "capture" }, { streams = { 1 }, keep_slave = true }))
+      { policy = { profiles = { "system" } }, cwd = "/", stdin = "null", stderr = "capture" }, { streams = { 1 }, keep_slave = true }))
     assert(Poll.readable(mixed.master, Clock.seconds(5)))
     assert((assert(sys.read(mixed.master, 100))) == "out")
     local done = assert(mixed.child:wait())

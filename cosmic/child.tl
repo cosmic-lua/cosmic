@@ -3565,6 +3565,12 @@ local function held_by_seatbelt(argv: {string}, opts: Options, pty?: Pty): Held 
       merged.grants[#merged.grants + 1] = { path = sealed, letters = "r" }
     end
   end
+  -- TODO: decide whether the profile should let a program getcwd in a
+  -- directory it grants nothing of: on the macOS leg a shell (bash as
+  -- /bin/sh) started in one prints "shell-init: error retrieving current
+  -- directory: getcwd: cannot access parent directories" and goes on, as
+  -- Linux's Landlock start never does. Until then a start whose output is
+  -- compared (test/terminal) gives the program the root as its `cwd`.
   local options, resolve_trouble = Seatbelt.resolve(opts.policy, opts.cwd, own, core, sealed, terminal)
   if options == nil then return nil, "sandbox: " .. resolve_trouble end
   local profile, compile_trouble = Seatbelt.compile(opts.policy, options)
