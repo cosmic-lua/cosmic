@@ -68,10 +68,11 @@ local record relay_config
     --- [`relay_config.table_fd`], which holds the addresses `grants` names
     --- literally and the upstream's. Nil where none is handed.
     table: {Endpoint}
-    --- Whether a public connector's stream is at [`relay_config.public_fd`], one that
-    --- reaches any address its deny list allows, for the names `grants`
-    --- opens.
-    public: boolean
+    --- How many public connectors' streams are handed, from
+    --- [`relay_config.public_fd`] on, each one that reaches any address its
+    --- deny list allows, for the names `grants` opens: 0 for none, else
+    --- [`relay_config.public_count`].
+    public: integer
     --- The name servers of the connector whose stream is at
     --- [`relay_config.name_server_fd`], its whole table; nil where none is handed.
     name_servers: {Endpoint}
@@ -105,10 +106,16 @@ local record relay_config
   --- The relay's descriptor of the control stream of its table's
   --- connector ([`Config.table`]).
   table_fd: integer
-  --- Of the public connector's ([`Config.public`]).
-  public_fd: integer
   --- Of the name servers' connector's ([`Config.name_servers`]).
   name_server_fd: integer
+  --- Of the first public connector's ([`Config.public`]): the rest follow
+  --- it, one descriptor each.
+  public_fd: integer
+  --- How many public connectors the starter hands a relay whose policy
+  --- grants a name (4): each makes one connection at a time, so a connect
+  --- that hangs holds only its own connector, and the relay takes any of
+  --- the others that is free.
+  public_count: integer
   --- The wait for each connection the table's and the public connector
   --- make, in nanoseconds (10 seconds): the starter starts them with it,
   --- and the relay asks them with no less, so that every request is
@@ -119,8 +126,9 @@ end
 relay_config.http_port = 3128
 relay_config.socks_port = 1080
 relay_config.table_fd = 4
-relay_config.public_fd = 5
-relay_config.name_server_fd = 6
+relay_config.name_server_fd = 5
+relay_config.public_fd = 6
+relay_config.public_count = 4
 relay_config.connect_ns = 10000000000
 
 --- The variables the relay sets for the program, which a policy with
@@ -388,8 +396,11 @@ function relay_config.decode(text: string): relay_config.Config | nil, string
     config.table = listed
   end
   local public = value.public
-  if public ~= nil and not public is boolean then return nil, "public is not a boolean" end
-  config.public = public == true
+  if public == nil then public = 0 end
+  if not public is integer or public < 0 or public > relay_config.public_count then
+    return nil, "public is not a count from 0 to " .. relay_config.public_count
+  end
+  config.public = public
   if value.name_servers ~= nil then
     local servers, why_servers = endpoints_of(value.name_servers, "name_servers")
     if servers == nil then return nil, why_servers end

@@ -14,9 +14,10 @@
 ---
 --- - the table's, whose table ([`relay_start.table`]) holds every address
 ---   a target names literally and the upstream proxy's, at most 128 in all;
---- - for a policy that grants a name ([`relay_start.Plan.names`]), a
----   public connector, which connects to any address its deny list
----   ([`relay_start.public`]) allows: what a granted name resolves to;
+--- - for a policy that grants a name ([`relay_start.Plan.names`]),
+---   [`relay_config.public_count`] public connectors, each of which
+---   connects to any address its deny list ([`relay_start.public`]) allows:
+---   what a granted name resolves to;
 --- - for such a policy, the name servers' ([`relay_start.name_servers`]),
 ---   whose table holds the system's name servers alone, read once, over
 ---   which the relay resolves a name only once a grant opens it.

@@ -168,9 +168,10 @@ local record Relay
     table_connector: Net.Connector
     --- Its table.
     table: {Net.Endpoint}
-    --- A public connector ([`Net.connector`]'s `public`), for an address
-    --- no table holds: one a granted name resolved to.
-    public_connector: Net.Connector
+    --- Public connectors ([`Net.connector`]'s `public`), alike, for an
+    --- address no table holds: one a granted name resolved to. Each
+    --- connection takes any that is free.
+    public_connectors: {Net.Connector}
     --- The wait each connector was started with, in nanoseconds, which
     --- each request is given whatever the relay asks: shorter, the reply
     --- would come after the request was given up on, and the connector,
@@ -398,24 +399,43 @@ function Relay.name_servers(opts?: Relay.NameServersOptions): Net.ResolveOptions
   return { connector = connector, servers = Relay.udp_servers(plan.servers) }, ""
 end
 
---- `connector`'s requests, one at a time, each given `wait_ns`: a request
---- waits for the one before it to be answered, so that its own wait starts
---- when it is sent and the connector answers it within that wait.
-local function queued(connector: Net.Connector, wait_ns: integer):
+--- One connector of a pool and whether a request holds it.
+local record Pooled
+  connector: Net.Connector
+  busy: boolean
+end
+
+--- The requests of the alike connectors `connectors`, each given
+--- `wait_ns`: a request takes any connector no other request holds, and
+--- waits only while every one is held, so that its own wait starts when it
+--- is sent and its connector answers it within that wait. A connector
+--- makes one connection at a time: one whose connect hangs holds itself
+--- alone.
+local function pooled(connectors: {Net.Connector}, wait_ns: integer):
     function(endpoint: integer | string, port: integer): Net.Conn | nil, string
-  local busy = false
+  local pool: {Pooled} = {}
+  for i, connector in ipairs(connectors) do pool[i] = { connector = connector, busy = false } end
   return function(endpoint: integer | string, port: integer): Net.Conn | nil, string
-    -- TODO: wait on a lock of cosmic.poll's once it has one, as the TODO at
-    -- Net.connector says: a request waits here by polling every millisecond.
-    while busy do
-      local waited, why = Poll.delay(Clock.ms(1))
-      if not waited then return nil, why end
+    local taken: Pooled
+    while taken == nil do
+      for _, entry in ipairs(pool) do
+        if not entry.busy then
+          taken = entry
+          break
+        end
+      end
+      if taken == nil then
+        -- TODO: wait on a lock of cosmic.poll's once it has one, as the TODO at
+        -- Net.connector says: a request waits here by polling every millisecond.
+        local waited, why = Poll.delay(Clock.ms(1))
+        if not waited then return nil, why end
+      end
     end
-    busy = true
+    taken.busy = true
     -- A connect raises only for arguments it refuses, which this module's
     -- own are not.
-    local conn, why = connector:connect(endpoint, port, wait_ns)
-    busy = false
+    local conn, why = taken.connector:connect(endpoint, port, wait_ns)
+    taken.busy = false
     if conn == nil then return nil, why end
     return conn, ""
   end
@@ -424,16 +444,17 @@ end
 --- The [`Connector`] of the connectors a relay's starter handed it
 --- ([`cosmic.relay_start`]): an address and port the table holds is asked
 --- of the table's connector, by its place in the table, and any other of
---- the public connector, which refuses what its deny list does; with
+--- a free public connector, which refuses what its deny list does; with
 --- neither, the connection fails, naming the address. Each connector
 --- serves one request at a time, given its `wait_ns` whatever wait the
---- relay asks: a connection waits for those ahead of it. A `handed` with
---- no connector, a table connector without its table, or a `wait_ns`
---- that is no positive integer raises.
+--- relay asks: a connection to the table waits for those ahead of it, and
+--- one to a public address only while every public connector is held. A
+--- `handed` with no connector, a table connector without its table, or a
+--- `wait_ns` that is no positive integer raises.
 --- @param handed Relay.Handed The connectors
 --- @return Relay.Connector What [`Relay.Spec.connector`] takes
 function Relay.handed(handed: Relay.Handed): Relay.Connector
-  if type(handed) ~= "table" or (handed.table_connector == nil and handed.public_connector == nil) then
+  if type(handed) ~= "table" or (handed.table_connector == nil and #(handed.public_connectors or {}) == 0) then
     error("relay: handed needs a table connector or a public one", 2)
   end
   if handed.table_connector ~= nil and type(handed.table) ~= "table" then
@@ -449,8 +470,8 @@ function Relay.handed(handed: Relay.Handed): Relay.Connector
     if bytes == nil then error("relay: handed.table[" .. i .. "] is not a numeric endpoint", 2) end
     rows[i], ports[i] = table.concat(bytes, "."), entry.port
   end
-  local in_table = handed.table_connector ~= nil and queued(handed.table_connector, handed.wait_ns) or nil
-  local public = handed.public_connector ~= nil and queued(handed.public_connector, handed.wait_ns) or nil
+  local in_table = handed.table_connector ~= nil and pooled({ handed.table_connector }, handed.wait_ns) or nil
+  local public = #(handed.public_connectors or {}) > 0 and pooled(handed.public_connectors, handed.wait_ns) or nil
   return function(address: string, port: integer, _timeout_ns: integer): Net.Conn | nil, string
     local bytes = Address.parse(address)
     if bytes == nil then return nil, "relay: " .. address .. " is not a numeric address" end

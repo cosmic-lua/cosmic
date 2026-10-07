@@ -102,7 +102,7 @@ local function test_name_servers_and_the_public_lists()
 end
 
 --- [`Relay.handed`] asks the table's connector for what its table holds,
---- by its place, and the public one for any other address, which refuses
+--- by its place, and a public one for any other address, which refuses
 --- what its deny list does.
 local function test_handed_connectors_route_by_the_table()
   require_native_connector()
@@ -119,7 +119,7 @@ local function test_handed_connectors_route_by_the_table()
     local table_rows: {Net.Endpoint} = { { host = "127.0.0.1", port = port } }
     local in_table = assert(Net.connector(table_rows))
     local public = assert(Net.connector(nil, { public = { deny = { "127.0.0.0/8" } } }))
-    local connect = Relay.handed({ table_connector = in_table, table = table_rows, public_connector = public,
+    local connect = Relay.handed({ table_connector = in_table, table = table_rows, public_connectors = { public },
       wait_ns = Clock.seconds(10) })
     local conn, why = connect("127.0.0.1", port, Clock.seconds(1))
     assert(conn ~= nil, "the table's address is reached: " .. why)
@@ -134,6 +134,76 @@ local function test_handed_connectors_route_by_the_table()
     accepting:cancel()
     assert(listener:close())
   end)
+end
+
+--- A listener of its own whose backlog this fills, so that the kernel
+--- drops what else asks it to connect: a public address whose connect
+--- hangs. `held` gets a closer for the listener and each connection the
+--- queue took.
+local function stuck_port(held: {function()}): integer
+  local stuck = assert(Net.listen(Net.tcp("127.0.0.1", 0), { backlog = 1 }))
+  held[#held + 1] = function() local _, _ = stuck:close() end
+  local taken = 0
+  for _ = 1, 4 do
+    local conn = Net.connect(stuck.address, { timeout_ns = Clock.ms(200) })
+    if conn ~= nil then
+      held[#held + 1] = function() local _, _ = conn:close() end
+      taken = taken + 1
+    end
+  end
+  assert(taken >= 1 and taken < 4, taken .. " connections were taken")
+  return stuck.address.port
+end
+
+--- A connect that hangs holds its own public connector alone: another
+--- connection to a public address goes through a free one at once; and
+--- one that finds every connector held waits for one to be free, rather
+--- than failing.
+local function test_a_public_connect_that_hangs_holds_its_connector_alone()
+  require_native_connector()
+  local held: {function()} = {}
+  Poll.run(function()
+    local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
+    local accepting = Poll.spawn(function()
+      while true do
+        local conn = listener:accept()
+        if conn == nil then return end
+        local _, _ = conn:close()
+      end
+    end)
+    local stuck = stuck_port(held)
+    local wait = Clock.seconds(1)
+    local publics: {Net.Connector} = {}
+    for i = 1, 2 do
+      publics[i] = assert(Net.connector(nil, { timeout_ns = wait, public = { deny = { "10.0.0.0/8" } } }))
+    end
+    local connect = Relay.handed({ public_connectors = publics, wait_ns = wait })
+    local hanging = Poll.spawn(function()
+      local _, _ = connect("127.0.0.1", stuck, wait)
+    end)
+    assert(Poll.delay(Clock.ms(50)))
+    local began = Clock.monotonic_ns()
+    local conn, why = connect("127.0.0.1", listener.address.port, wait)
+    assert(conn ~= nil, "a free connector connects: " .. why)
+    assert(conn:close())
+    assert(Clock.monotonic_ns() - began < Clock.ms(500), "the connection waited for the hanging one")
+    local _, _ = hanging:join()
+    -- Both connectors held by connects that hang: the next waits for one.
+    local first = Poll.spawn(function() local _, _ = connect("127.0.0.1", stuck, wait) end)
+    local second = Poll.spawn(function() local _, _ = connect("127.0.0.1", stuck, wait) end)
+    assert(Poll.delay(Clock.ms(50)))
+    local queued_at = Clock.monotonic_ns()
+    local late, late_why = connect("127.0.0.1", listener.address.port, wait)
+    assert(late ~= nil, "a request with every connector held waits and connects: " .. late_why)
+    assert(late:close())
+    assert(Clock.monotonic_ns() - queued_at >= Clock.ms(500), "it waited for a connector to be free")
+    local _, _ = first:join()
+    local _, _ = second:join()
+    for _, public in ipairs(publics) do assert(public:close()) end
+    accepting:cancel()
+    assert(listener:close())
+  end)
+  for _, close in ipairs(held) do close() end
 end
 
 local TYPE_A <const> = 1

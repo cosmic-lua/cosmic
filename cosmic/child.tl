@@ -3822,7 +3822,7 @@ local function relay_handover(connect: {string}, own: {string}): RelayConfig.Han
     close()
     return nil, why
   end
-  local config: RelayConfig.Config = { grants = connect, own_addresses = own, log = "null", public = false }
+  local config: RelayConfig.Config = { grants = connect, own_addresses = own, log = "null", public = 0 }
   local fds: {integer: integer} = {}
   local up = plan.upstream
   local through: RelayStart.Through
@@ -3856,14 +3856,17 @@ local function relay_handover(connect: {string}, own: {string}): RelayConfig.Han
     config.table, fds[RelayConfig.table_fd] = rows, process.fd
   end
   if plan.names then
-    -- TODO: hand the relay several public connectors, and Relay.handed a
-    -- free one for each connection: one process makes one connection at a
-    -- time, so a connect that hangs holds every other connection to a
-    -- granted name for up to RelayConfig.connect_ns.
-    local process, why = relay_connector({}, RelayConfig.connect_ns, RelayStart.public(own))
-    if process == nil then return fail("the public connector: " .. why) end
-    processes[#processes + 1] = process
-    config.public, fds[RelayConfig.public_fd] = true, process.fd
+    -- TODO: hand the relay one public connector that makes several
+    -- connections at once, once core/connector.c's protocol tags each
+    -- request and reply (the next change of the relay's hardening): each of
+    -- these makes one at a time, so RelayConfig.public_count connects that
+    -- hang hold every other connection to a granted name.
+    for i = 1, RelayConfig.public_count do
+      local process, why = relay_connector({}, RelayConfig.connect_ns, RelayStart.public(own))
+      if process == nil then return fail("public connector " .. i .. ": " .. why) end
+      processes[#processes + 1] = process
+      config.public, fds[RelayConfig.public_fd + i - 1] = i, process.fd
+    end
     if through == nil then
       config.unresolved = unresolved
     else
