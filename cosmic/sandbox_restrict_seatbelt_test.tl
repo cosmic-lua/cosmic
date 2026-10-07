@@ -178,11 +178,10 @@ say("after", reads(%q))
   assert(said.lines.after == "denied: " .. DENIED, said.raw)
 end
 
---- A database in WAL mode, attached and searched first, has no write-ahead
---- log or shared-memory file until it is read: the restriction reads it
---- first, so a `require` after it still finds what it holds.
-local function test_an_attached_database_in_wal_mode_is_read_after_the_restriction(tmp: string)
-  macos_only()
+--- A database in WAL mode, attached and searched first, keeps its log
+--- open for writing: the restriction is refused, on every platform, before
+--- anything is applied, and the store still reads it.
+local function test_an_attached_database_in_wal_mode_refuses_the_restriction(tmp: string)
   local said = in_child(string.format([[
 local Sqlite = require("cosmic.sqlite")
 local copy = %q .. "/copy.db"
@@ -197,14 +196,14 @@ sys.close(source) sys.close(target)
 local db = assert(Sqlite.open(copy, { writable = true }))
 say("mode", assert(Sqlite.text_rows(db, "PRAGMA journal_mode=WAL"))[1][1])
 assert(db:close())
-say("log", sys.stat(copy .. "-wal") == nil)
 assert(Store.attach(copy))
 say("restrict", Sandbox.restrict({}))
 local loaded, csv = pcall(require, "cosmic.csv")
 say("loaded", loaded, type(csv) == "table" and csv.parse("a,b")[1][2] or csv)
 ]], tmp))
-  assert(said.lines.mode == "wal" and said.lines.log == "true", said.raw)
-  assert(said.lines.restrict == "true ", said.raw)
+  assert(said.lines.mode == "wal", said.raw)
+  assert(said.lines.restrict:find("^false sandbox: restrict: the store's database .*copy%.db " ..
+      "is in WAL mode"), said.raw)
   assert(said.lines.loaded == "true b", said.raw)
 end
 

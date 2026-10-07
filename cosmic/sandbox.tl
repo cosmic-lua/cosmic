@@ -362,16 +362,28 @@ local function not_in_process(merged: Sandbox.Policy): string
   return ""
 end
 
---- Reads once from each database of the store, so that SQLite opens what
---- it keeps beside one -- the write-ahead log and shared-memory file of a
---- database in WAL mode, which it removes as the last connection closes
---- and makes again at the next read -- while this process may still make
---- them: once restricted, it could not, and every `require` that reaches
---- the database would fail. "" or why one could not be read.
-local function store_opened(): string
+--- Why the store keeps a restriction from holding, or "" for nothing: a
+--- database of it in WAL mode, or one that cannot be read. SQLite holds a
+--- WAL database's write-ahead log open for writing, though it opens the
+--- database read-only, and makes the log afresh at a read after the last
+--- connection closed it: a restriction can neither keep the program from
+--- writing that log, which would change what the store reads, nor let
+--- SQLite make it again. Each database is read once first, so that one in
+--- WAL mode has its log, which is how it is told (the store's connections
+--- may not ask its journal mode, and a database inside this program's own
+--- file has its header at no offset a path tells).
+local function store_unheld(): string
   for _, db in ipairs(store_databases()) do
     local rows, why = text_rows(db, "SELECT count(*) FROM sqlite_schema")
-    if rows == nil then return "the store cannot be read before the restriction: " .. why end
+    if rows == nil then return "the store cannot be read: " .. why end
+  end
+  for _, path in ipairs(store_paths()) do
+    local found, _ = stat(path)
+    if path:sub(-4) == "-wal" and found ~= nil then
+      return "the store's database " .. path:sub(1, -5) .. " is in WAL mode: SQLite keeps " ..
+        "its log open for writing, and makes it again once closed, which a restriction can " ..
+        "neither keep from the program nor allow"
+    end
   end
   return ""
 end
@@ -383,7 +395,8 @@ end
 --- read, and its shared-memory file read and written, as SQLite opens
 --- it; and this program's own file ([`Proc.executable`]), read and run.
 --- A write-ahead log is read alone, never written or made: one this
---- process could write would change what the store reads.
+--- process could write would change what the store reads (and the
+--- restriction refuses a database in WAL mode, which has one).
 -- TODO: grant a portable start's unpacked core too, once its path can be
 -- had without opening it: [`Proc.relaunch`] names it, but holds a descriptor
 -- on it from then on, which the restriction's check of descriptors refuses.
@@ -492,8 +505,8 @@ end
 --- program's own file to read and run -- the file it is started by, so
 --- a portable start's core, unpacked into a cache, is not granted, and
 --- this program cannot be started again from a process so restricted.
---- Before either platform's restriction, each database of the store is
---- read once, so that SQLite has opened the files it keeps beside one.
+--- It fails, on either platform, while a database of the store is in WAL
+--- mode, whose log SQLite keeps open for writing.
 --- macOS applies one profile to a process: a second call fails, and
 --- so does a [`Child.start`] with a policy afterwards, since its child's
 --- profile would be a second one; a child started without one is held by
@@ -510,8 +523,8 @@ function Sandbox.restrict(policy: Sandbox.Policy, options?: Sandbox.RestrictOpti
     end
     kept[#kept + 1] = fd
   end
-  local unread = store_opened()
-  if unread ~= "" then return denied(unread) end
+  local logged = store_unheld()
+  if logged ~= "" then return denied(logged) end
   if darwin() then return held_by_seatbelt(policy, kept) end
   local grants: {raw_process.Grant} = {}
   for _, grant in ipairs(merged.grants) do
