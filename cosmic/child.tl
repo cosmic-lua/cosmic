@@ -406,10 +406,12 @@ local record Options
   ---   `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY` (in both cases),
   ---   `NODE_USE_ENV_PROXY=1` and a `NO_PROXY` of `localhost`, 127.0.0.1, ::1
   ---   and the policy's `loopback`, which a proxy-aware client dials in its
-  ---   own network, never through the relay: a `connect` target that is one
-  ---   of those hosts (a service of the host's own loopback, granted
-  ---   literally) is reached only by a client that sends it to the relay
-  ---   itself (an HTTP CONNECT or SOCKS5 request to 127.0.0.1:3128 or :1080).
+  ---   own network, never through the relay, but for the address a `connect`
+  ---   target names (a service of the host's own loopback, granted
+  ---   literally): that is left out, with `localhost` where it is 127.0.0.1,
+  ---   so a client reaches it through the relay. A `loopback` address a
+  ---   `connect` target also names is refused: the sandbox's own services
+  ---   take another 127.x address.
   ---   A policy with `connect` that names
   ---   any of them in `env` or `set_env` is refused. The relay connects a
   ---   request only where a `connect` target names its host and port,
@@ -3496,7 +3498,9 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
   end
   for name, value in pairs(merged.set_env) do env[name] = value end
   if relayed then
-    for name, value in pairs(RelayConfig.proxy_env(merged.loopback)) do env[name] = value end
+    for name, value in pairs(RelayConfig.proxy_env(merged.loopback, nil, nil, merged.connect)) do
+      env[name] = value
+    end
   end
   local run_argv: {string}
   if relaunch ~= nil then
@@ -3721,7 +3725,9 @@ local function relay_held(held: Held, port: integer, token: string): string
   local profile, trouble = Seatbelt.compile(held.seatbelt_policy, held.seatbelt_options)
   if profile == nil then return trouble end
   held.sandbox.seatbelt.profile = profile.text
-  for name, value in pairs(RelayConfig.proxy_env({}, port, token)) do held.env[name] = value end
+  for name, value in pairs(RelayConfig.proxy_env({}, port, token, held.relay)) do
+    held.env[name] = value
+  end
   return ""
 end
 

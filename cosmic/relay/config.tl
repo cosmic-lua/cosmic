@@ -15,6 +15,7 @@
 
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
+local Grant = require("cosmic.relay.grant")
 local Json = require("cosmic.json")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
@@ -146,29 +147,74 @@ local RESERVED <const>: {string} = {
   "all_proxy", "http_proxy", "https_proxy", "no_proxy",
 }
 
+--- The key of an address's bytes: its octets, an IPv4-mapped IPv6 address
+--- as the IPv4 address it carries.
+local function address_key(bytes: {integer}): string
+  if #bytes == 16 then
+    local mapped = bytes[11] == 0xff and bytes[12] == 0xff
+    for i = 1, 10 do
+      if bytes[i] ~= 0 then mapped = false end
+    end
+    if mapped then return table.concat({ bytes[13], bytes[14], bytes[15], bytes[16] }, ".") end
+  end
+  return table.concat(bytes, ".")
+end
+
+--- The first `connect` target of `connect` that names the address `host`
+--- (numeric text) at any port, or "" for none: compared by the address's
+--- bytes, so every spelling of it is the one, and an IPv4-mapped IPv6
+--- address is the IPv4 address it carries.
+--- @param connect {string} A policy's `connect` targets
+--- @param host string A numeric address
+--- @return string The target that names it, or ""
+function relay_config.naming(connect: {string}, host: string): string
+  local wanted = Grant.address(host)
+  if wanted == nil then return "" end
+  local key = address_key(wanted)
+  for _, target in ipairs(connect) do
+    local parsed, _ = Grant.parse(target)
+    if parsed ~= nil and parsed.bytes ~= nil and address_key(parsed.bytes) == key then
+      return target
+    end
+  end
+  return ""
+end
+
 --- The environment a program of a policy with `connect` is given: every
 --- proxy client's variable, pointing at the relay's listeners, and
 --- `NO_PROXY` naming the program's own network. `loopback` is the
---- policy's declared addresses, which stay direct. A relay on the host's
+--- policy's declared addresses, which stay direct. A loopback address a
+--- `connect` target names is the host's own service, so it is left out of
+--- `NO_PROXY` and a client sends it to the relay; `localhost` is left out
+--- only with 127.0.0.1, as a client reads it as that address first: with
+--- just ::1 granted, `localhost` stays direct, for the sandbox's own
+--- 127.0.0.1 services, which a granted ::1 is not. A relay on the host's
 --- loopback (`port`, macOS's) is at that one port for both protocols, and
 --- with a `token` each variable carries it as the password of the user
 --- "cosmic": a token is drawn in hex, which a URL holds as it is.
 --- @param loopback {string} The policy's `loopback` addresses
 --- @param port integer|nil The one port of a relay on the host's loopback, nil for Linux's two
 --- @param token string|nil The relay's token, nil for none
+--- @param connect {string}|nil The policy's `connect` targets, nil for none
 --- @return {string:string} The variables, by name
-function relay_config.proxy_env(loopback: {string}, port?: integer, token?: string): {string:string}
+function relay_config.proxy_env(loopback: {string}, port?: integer, token?: string,
+                                connect?: {string}): {string:string}
   local userinfo = token ~= nil and ("cosmic:" .. token .. "@") or ""
   local http = "http://" .. userinfo .. "127.0.0.1:" .. (port or relay_config.http_port)
   local socks = "socks5h://" .. userinfo .. "127.0.0.1:" .. (port or relay_config.socks_port)
-  local direct: {string} = { "localhost", "127.0.0.1", "::1" }
-  local listed: {string:boolean} = { ["localhost"] = true, ["127.0.0.1"] = true, ["::1"] = true }
-  for _, address in ipairs(loopback) do
-    if not listed[address] then
+  local targets = connect or {}
+  local direct: {string} = {}
+  local listed: {string:boolean} = {}
+  local function keep(address: string)
+    if not listed[address] and relay_config.naming(targets, address) == "" then
       listed[address] = true
       direct[#direct + 1] = address
     end
   end
+  if relay_config.naming(targets, "127.0.0.1") == "" then keep("localhost") end
+  keep("127.0.0.1")
+  keep("::1")
+  for _, address in ipairs(loopback) do keep(address) end
   local skipped = table.concat(direct, ",")
   return {
     HTTPS_PROXY = http, https_proxy = http, HTTP_PROXY = http, http_proxy = http,

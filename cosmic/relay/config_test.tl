@@ -41,6 +41,38 @@ local function test_a_policys_loopback_addresses_are_direct_too_each_once()
   assert(env.no_proxy == env.NO_PROXY)
 end
 
+--- A loopback address a `connect` target names is the host's service, which
+--- a client must send to the relay: it leaves `NO_PROXY`, by its bytes
+--- whatever its spelling or port. `localhost` leaves with 127.0.0.1 only: a
+--- granted ::1 is not the sandbox's own 127.0.0.1 that `localhost` names.
+local function test_a_granted_loopback_address_is_not_direct()
+  local function skipped(connect: {string}, loopback?: {string}): string
+    return RelayConfig.proxy_env(loopback or {}, nil, nil, connect).NO_PROXY
+  end
+  assert(skipped({ "127.0.0.1:8080" }) == "::1", skipped({ "127.0.0.1:8080" }))
+  assert(skipped({ "127.0.0.1:*" }) == "::1")
+  assert(skipped({ "[::1]:8080" }) == "localhost,127.0.0.1", skipped({ "[::1]:8080" }))
+  assert(skipped({ "[0:0:0:0:0:0:0:1]:80" }) == "localhost,127.0.0.1", "a spelling of ::1 is ::1")
+  assert(skipped({ "[::ffff:127.0.0.1]:80" }) == "::1", "an IPv4-mapped address is the IPv4 address")
+  assert(skipped({ "127.0.0.1:1", "[::1]:2" }) == "", skipped({ "127.0.0.1:1", "[::1]:2" }))
+  -- Another 127.x host is not in the default list, and stays direct where the policy declares it.
+  assert(skipped({ "127.0.0.2:80" }) == "localhost,127.0.0.1,::1")
+  assert(skipped({ "127.0.0.2:80" }, { "127.0.0.9" }) == "localhost,127.0.0.1,::1,127.0.0.9")
+  assert(skipped({ "api.example.com:443", "10.0.0.1:80", "*:443" }) == "localhost,127.0.0.1,::1",
+    "a name, another address and \"*\" leave it as it was")
+  assert(RelayConfig.naming({ "127.0.0.1:80", "[::1]:*" }, "::1") == "[::1]:*")
+  assert(RelayConfig.naming({ "127.0.0.1:80" }, "127.0.0.2") == "")
+end
+
+--- Without a connect target at a loopback address the environment is what
+--- it was.
+local function test_a_policy_without_a_loopback_grant_has_the_same_environment()
+  local plain = RelayConfig.proxy_env({ "127.0.0.2" })
+  local given = RelayConfig.proxy_env({ "127.0.0.2" }, nil, nil, { "api.example.com:443", "192.0.2.1:80" })
+  for name, value in pairs(plain) do assert(given[name] == value, name) end
+  assert(plain.NO_PROXY == "localhost,127.0.0.1,::1,127.0.0.2")
+end
+
 local function test_a_variable_the_relay_sets_is_reserved_by_name()
   for _, name in ipairs({ "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY",
       "all_proxy", "NO_PROXY", "no_proxy", "NODE_USE_ENV_PROXY" }) do

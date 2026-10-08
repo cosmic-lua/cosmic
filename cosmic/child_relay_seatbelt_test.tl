@@ -353,7 +353,8 @@ local function test_the_program_is_given_the_relay_and_its_token(tmp: string)
     assert(said["env_" .. name] == http, name .. " is " .. redacted(tostring(said["env_" .. name])))
   end
   assert(said.env_ALL_PROXY == socks and said.env_all_proxy == socks, redacted(tostring(said.env_ALL_PROXY)))
-  assert(said.env_NO_PROXY == "localhost,127.0.0.1,::1" and said.env_NODE_USE_ENV_PROXY == "1")
+  -- 127.0.0.1 is granted: it, and localhost with it, go through the relay.
+  assert(said.env_NO_PROXY == "::1" and said.env_NODE_USE_ENV_PROXY == "1", tostring(said.env_NO_PROXY))
   local again = flows(tmp).said
   assert(not tostring(again.env_HTTPS_PROXY):find(token, 1, true), "each start draws a token of its own")
 end

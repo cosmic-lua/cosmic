@@ -31,13 +31,19 @@ local cat = "path:/bin/cat"
 local linux = { "sandbox", "landlock", "userns", "nest", "own_proc", "proc", "unix_socket", shell, cat, children,
   env, passwd }
 
+local with_curl = {}
+for i = 1, #linux do with_curl[i] = linux[i] end
+with_curl[#with_curl + 1] = "program:curl"
+
 local checked_leg = {}
 for i = 1, #linux do checked_leg[i] = linux[i] end
 checked_leg[#checked_leg + 1] = "checked"
 
 return {
   legs = {
-    ["linux-x86_64"] = linux,
+    -- The ubuntu runner has curl, which cosmic/child_relay_curl_test.tl
+    -- runs in a sandbox as a client that honours the proxy variables.
+    ["linux-x86_64"] = with_curl,
     ["linux-x86_64-shard"] = linux,
     -- The checked leg's core is the checked build, whose instruments the
     -- tests that require `checked` use: a held run fails them if they skip.
