@@ -183,7 +183,7 @@ local function test_a_host_path_is_given_where_it_is_declared(tmp: string)
   assert(text:find("read|given|nil|end", 1, true), text)
 end
 
---- The suite the two tests below run `cosmic test` on, two modules whose
+--- The suite the tests below run `cosmic test` on, two modules whose
 --- tests start the stand-in, and the first of those runs, which runs both.
 --- Answers its root and `said`, which runs again and checks the summary says
 --- `wanted` and passes unless `passes` is false. Where the first run was not
