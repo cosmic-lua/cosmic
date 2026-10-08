@@ -144,16 +144,6 @@ local function serve(config: Config.Config): integer
   if config.direct and (config.token == nil or config.listeners == nil) then
     return failed("a relay on the host's loopback needs its token and its listeners")
   end
-  local env: {string:string} = {}
-  env.https_proxy, env.no_proxy = config.https_proxy, config.no_proxy
-  local upstream, upstream_why = Relay.upstream(env)
-  if upstream == nil and upstream_why ~= "" then return failed(upstream_why) end
-  if upstream ~= nil then
-    if config.upstream_addresses == nil then
-      return failed("the upstream proxy's addresses are not given")
-    end
-    upstream.addresses = config.upstream_addresses
-  end
   local adopting, dns, adopted_why = adopted(config)
   if adopting == nil then return failed(adopted_why) end
   local handed: Relay.Handed = adopting
@@ -229,7 +219,7 @@ local function serve(config: Config.Config): integer
     local running, start_why = started({
       http = http, socks = socks, mixed = mixed, token = config.token, grants = config.grants, connector = connect,
       resolve = resolve, unresolved = config.unresolved,
-      own_addresses = config.own_addresses, upstream = upstream, log = log, lost = lose,
+      own_addresses = config.own_addresses, upstream = config.upstream, log = log, lost = lose,
     })
     if running == nil then
       status = failed(start_why)

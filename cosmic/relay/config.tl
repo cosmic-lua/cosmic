@@ -13,6 +13,7 @@
 ---     local env = relay_config.proxy_env({ "127.0.0.2" })
 ---     print(env.HTTPS_PROXY) -- http://127.0.0.1:3128
 
+local Address = require("cosmic.relay.address")
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Grant = require("cosmic.relay.grant")
@@ -50,21 +51,16 @@ local record relay_config
   record Config
     --- The policy's `connect` targets, `host:port`.
     grants: {string}
-    --- The caller's `https_proxy` (or `HTTPS_PROXY`), which the relay
-    --- reaches the network through ([`cosmic.relay.server`]'s `upstream`); nil for
-    --- none.
-    https_proxy: string
-    --- The caller's `no_proxy` (or `NO_PROXY`); nil for none.
-    no_proxy: string
+    --- The upstream proxy the relay reaches the network through
+    --- ([`cosmic.relay.server`]'s `upstream`), parsed once by the starter
+    --- ([`relay_config.upstream`]) with its `addresses` resolved; nil for
+    --- none. [`decode`] refuses a record without them.
+    upstream: Upstream
     --- The host's own addresses, which the relay never connects to
     --- ([`cosmic.relay.address`]'s `own_addresses`).
     own_addresses: {string}
     --- Where the relay's decision lines go: "stderr" or "null".
     log: string
-    --- The numeric addresses of `https_proxy`'s host, which the starter
-    --- resolved once: the relay connects to these and resolves it never.
-    --- Nil without an upstream.
-    upstream_addresses: {string}
     --- The table of the connector whose control stream is at
     --- [`relay_config.connector_fd`], which holds the addresses `grants`
     --- names literally and the upstream's. Nil where it has none.
@@ -102,7 +98,7 @@ local record relay_config
   --- What the relay's starter, [`Child.start`], makes for it before the
   --- relay starts, from what [`cosmic.sandbox.relay`] answers.
   record Handover
-    --- What the relay is told of what it is handed: `upstream_addresses`,
+    --- What the relay is told of what it is handed: `upstream`,
     --- `table`, `public`, `name_servers`, `name_server_wait_ns`
     --- and `unresolved` are set; the starter sets the rest.
     config: Config
@@ -386,6 +382,18 @@ function relay_config.upstream(env: {string:string}): relay_config.Upstream | ni
   return upstream, ""
 end
 
+--- `up` as the record [`decode`] reads, or nil for none.
+local function upstream_record(up: relay_config.Upstream | nil): any
+  if up == nil then return nil end
+  return {
+    host = up.host,
+    port = up.port,
+    authorization = up.authorization,
+    no_proxy = Json.array(up.no_proxy),
+    addresses = up.addresses ~= nil and Json.array(up.addresses) or nil,
+  }
+end
+
 --- `config` as one line of JSON, the text the relay reads from its
 --- standard input.
 --- @param config Config What the relay is told
@@ -399,11 +407,9 @@ function relay_config.encode(config: relay_config.Config): string
   end
   local encoded, why = Json.encode({
     grants = Json.array(config.grants),
-    https_proxy = config.https_proxy,
-    no_proxy = config.no_proxy,
     own_addresses = Json.array(config.own_addresses),
     log = config.log,
-    upstream_addresses = config.upstream_addresses ~= nil and Json.array(config.upstream_addresses) or nil,
+    upstream = upstream_record(config.upstream),
     table = endpoints(config.table),
     public = config.public,
     name_servers = endpoints(config.name_servers),
@@ -444,6 +450,38 @@ local function endpoints_of(value: any, name: string): {relay_config.Endpoint} |
   return out, ""
 end
 
+--- The [`Upstream`] `value` holds, or nil and why. No reason repeats a
+--- value: `authorization` is a credential.
+local function upstream_of(value: any): relay_config.Upstream | nil, string
+  if not value is {string: any} then return nil, "upstream is not an object" end
+  local host, port, authorization = value.host, value.port, value.authorization
+  if not host is string or host == "" or host:find("[%c%s]") then
+    return nil, "upstream.host is not a host name or address"
+  end
+  if not port is integer or port < 1 or port > 65535 then
+    return nil, "upstream.port is not a port from 1 to 65535"
+  end
+  if authorization ~= nil and (not authorization is string or authorization:find("%c")) then
+    return nil, "upstream.authorization is not a header value with no control bytes"
+  end
+  local skipped, skipped_why = strings(value.no_proxy, "upstream.no_proxy")
+  if skipped == nil then return nil, skipped_why end
+  local addresses, addresses_why = strings(value.addresses, "upstream.addresses")
+  if addresses == nil then
+    if value.addresses == nil then return nil, "upstream.addresses is not given" end
+    return nil, addresses_why
+  end
+  if #addresses == 0 then return nil, "upstream.addresses holds no address" end
+  for i, address in ipairs(addresses) do
+    if Address.parse(address) == nil then
+      return nil, "upstream.addresses[" .. i .. "] is not a numeric address"
+    end
+  end
+  local up: relay_config.Upstream = { host = host, port = port, no_proxy = skipped, addresses = addresses }
+  if authorization is string then up.authorization = authorization end
+  return up, ""
+end
+
 --- A [`Config`] from the text [`encode`] wrote, or nil and what is wrong.
 --- @param text string The config
 --- @return Config|nil What it holds
@@ -459,18 +497,11 @@ function relay_config.decode(text: string): relay_config.Config | nil, string
   if not log is string or (log ~= "stderr" and log ~= "null") then
     return nil, "log is not \"stderr\" or \"null\""
   end
-  local https_proxy, no_proxy = value.https_proxy, value.no_proxy
-  if https_proxy ~= nil and not https_proxy is string then
-    return nil, "https_proxy is not a string"
-  end
-  if no_proxy ~= nil and not no_proxy is string then return nil, "no_proxy is not a string" end
   local config: relay_config.Config = { grants = grants, own_addresses = own, log = log }
-  if https_proxy is string then config.https_proxy = https_proxy end
-  if no_proxy is string then config.no_proxy = no_proxy end
-  if value.upstream_addresses ~= nil then
-    local addresses, why_addresses = strings(value.upstream_addresses, "upstream_addresses")
-    if addresses == nil then return nil, why_addresses end
-    config.upstream_addresses = addresses
+  if value.upstream ~= nil then
+    local up, up_why = upstream_of(value.upstream)
+    if up == nil then return nil, up_why end
+    config.upstream = up
   end
   if value.table ~= nil then
     local listed, why_table = endpoints_of(value.table, "table")

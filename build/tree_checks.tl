@@ -94,7 +94,7 @@ end
 -- `Address`, `Config` and `Wire`.
 local through_relay: {string: {string}} = {
   address = { "deny_cidrs" },
-  config = { "proxy_env", "reserved", "host_addresses", "encode" },
+  config = { "proxy_env", "reserved", "host_addresses", "encode", "upstream" },
   wire = { "socks_client_greeting", "socks_client_auth", "socks_client_request", "socks_method_reader",
     "socks_auth_status_reader", "socks_answer_reader", "socks_reply_meaning" },
 }
