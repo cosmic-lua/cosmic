@@ -44,7 +44,10 @@
 --- markup; in a quoted attribute value; and in a quoted URL attribute
 --- value that the slot begins, when the literal text after it, up to the
 --- first `/`, `?` or `#`, has no `:` or `&` (which could complete a scheme:
---- `href="{{.p}}:alert(1)"`, `{{.p}}&colon;alert(1)`).
+--- `href="{{.p}}:alert(1)"`, `{{.p}}&colon;alert(1)`), and does not begin
+--- with `/` or `\` (which, after a value of `/`, would make `//host`, the
+--- protocol-relative URL [`Html.href`] refuses; a tab, line feed or carriage
+--- return before it is dropped by a URL parser and does not count).
 ---
 --- Foreign content (`<svg>`, `<math>`) is followed only as far as the
 --- elements in them, their attributes and plain text, on a stack of the
@@ -142,6 +145,12 @@ local record Markup
     after_url: boolean
     --- Set when that text held a `:`.
     colon: boolean
+    --- Whether no literal text has followed a URL slot yet in its value (a
+    --- tab, line feed or carriage return, which a URL parser drops, aside).
+    bare: boolean
+    --- Set when the first such text began with `/` or `\`: a slot value of
+    --- `/` and that text would make `//host`.
+    rooted: boolean
     --- Whether the tag has an `http-equiv` attribute.
     equiv: boolean
     --- Where a slot in the `content` of a `<meta>` stood (the line, then
@@ -260,14 +269,16 @@ local ANIMATION <const>: {string: boolean} = {
 
 local function start(): Place
   return { phase = "text", tag = "", attr = "", closing = false, fresh = false, stack = "", murky = false,
-    select = false, fontattr = false, slash = false, after_url = false, colon = false, equiv = false,
+    select = false, fontattr = false, slash = false, after_url = false, colon = false, bare = false, rooted = false,
+    equiv = false,
     meta_line = 0, meta_col = 0, late = "", late_line = 0, late_col = 0, raw_tail = "",
     escaped = false, double = false }
 end
 
 local function copy(p: Place): Place
   return { phase = p.phase, tag = p.tag, attr = p.attr, closing = p.closing, fresh = p.fresh, stack = p.stack,
-    murky = p.murky, select = p.select, fontattr = p.fontattr, slash = p.slash, after_url = p.after_url, colon = p.colon, equiv = p.equiv,
+    murky = p.murky, select = p.select, fontattr = p.fontattr, slash = p.slash, after_url = p.after_url, colon = p.colon, bare = p.bare,
+    rooted = p.rooted, equiv = p.equiv,
     meta_line = p.meta_line, meta_col = p.meta_col, late = p.late, late_line = p.late_line,
     late_col = p.late_col, raw_tail = p.raw_tail,
     escaped = p.escaped, double = p.double }
@@ -330,6 +341,7 @@ end
 local function join(a: Place, b: Place)
   a.fresh = a.fresh and b.fresh
   a.after_url = a.after_url or b.after_url
+  a.bare = a.bare or b.bare
   if a.meta_line == 0 then
     a.meta_line = b.meta_line
     a.meta_col = b.meta_col
@@ -632,6 +644,13 @@ local function scan(p: Place, text: string)
           p.fresh = false
         end
       end
+      if p.bare then
+        local first = text:match("^[\t\n\r]*()", i)
+        if first <= last then
+          p.bare = false
+          p.rooted = text:find("^[/\\]", first) ~= nil
+        end
+      end
       if p.after_url then
         local seg = text:sub(i, last)
         local cut = seg:find("[/?#]")
@@ -648,6 +667,7 @@ local function scan(p: Place, text: string)
       p.phase = "before_attr"
       p.fresh = false
       p.after_url = false
+      p.bare = false
       i = close + 1
     elseif phase == "value_unq" then
       if b == 62 then
@@ -831,6 +851,7 @@ local function wrote(p: Place, ctx: types.Slot, line: integer, col: integer)
   p.fresh = false
   p.raw_tail = ""
   p.after_url = ctx == "url"
+  p.bare = ctx == "url"
   if p.tag == "meta" and p.attr == "content" and ctx == "attr" then
     p.meta_line = line
     p.meta_col = col

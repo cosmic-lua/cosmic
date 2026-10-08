@@ -87,7 +87,10 @@ As built (`cosmic/template/`), where it differs from the above:
 - A URL slot must begin the attribute's value (`href="{{.u}}"`, not
   `href="/a/{{.id}}"`: a piece of a URL needs an escaper for a piece,
   [`doc/roadmap.md`]), and the literal text after it, up to the first `/`,
-  `?` or `#`, may not hold `:` or `&`, which could complete a scheme.
+  `?` or `#`, may not hold `:` or `&`, which could complete a scheme, and
+  may not begin with `/` or `\`, which after a value of `/` would make a
+  protocol-relative `//host`. A URL that is a base and a path is built in a
+  typed function and passed whole.
   A `{{range}}` body is walked twice, so a URL it began is not fresh the
   second time round; the arms of a block must end in the same place in the
   markup.

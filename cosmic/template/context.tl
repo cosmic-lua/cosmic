@@ -76,6 +76,9 @@ walk = function(name: string, body: {types.Node}, from: markup.Place): markup.Pl
       if at.colon then
         return nil, refuse(name, node.line, node.col,
           "text after a URL slot, before its first / ? or #, holds a ':' and could complete a scheme")
+      elseif at.rooted then
+        return nil, refuse(name, node.line, node.col,
+          "text after a URL slot begins with '/' or '\\': the value and that text could make a protocol-relative URL (//host)")
       elseif at.late ~= "" then
         return nil, refuse(name, at.late_line, at.late_col, at.late)
       end
