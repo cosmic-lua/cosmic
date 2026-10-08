@@ -4,6 +4,7 @@
 --- noticed, and how a change to what the build stores is judged by
 --- what it costs.
 
+local build_paths = require("build.paths")
 local Clock = require("cosmic.clock")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
@@ -146,12 +147,12 @@ local source_columns = { "file", "from_file", "path", "source_hash", "sha256" }
 local function module_files(root: string): {string:string} | nil, string
   local files: {string:string} = {}
   for _, source in ipairs({
-      { "o/cosmic.db", "SELECT path, file FROM modules" },
-      { "o/build.db", "SELECT path, file FROM derived" },
-      { "o/build.db", "SELECT source_hash, file FROM derived" },
-      { "o/build.db", "SELECT sha256, path FROM files" },
+      { "cosmic.db", "SELECT path, file FROM modules" },
+      { "build.db", "SELECT path, file FROM derived" },
+      { "build.db", "SELECT source_hash, file FROM derived" },
+      { "build.db", "SELECT sha256, path FROM files" },
   }) do
-    local path = root .. "/" .. source[1]
+    local path = build_paths.required(root) .. "/" .. source[1]
     local present, present_trouble = Fs.exists(path)
     if present == nil then
       return nil, present_trouble
@@ -272,8 +273,8 @@ local function run(argv: {integer:string}): integer
   local seen = 0
   local tables = 0
   local rows = 0
-  for _, name in ipairs({ "o/cosmic.db", "o/carried.db", "o/build.db" }) do
-    local path = root .. "/" .. name
+  for _, name in ipairs({ "cosmic.db", "carried.db", "build.db" }) do
+    local path = build_paths.required(root) .. "/" .. name
     local present, present_trouble = Fs.exists(path)
     if present == nil then
       log:complain(present_trouble)
@@ -296,7 +297,7 @@ local function run(argv: {integer:string}): integer
       else
         tables = tables + counted
       end
-      if name == "o/build.db" then
+      if name == "build.db" then
         if #paths == 0 then
           local ok, build_trouble = builds(path)
           if not ok then
@@ -318,7 +319,7 @@ local function run(argv: {integer:string}): integer
   -- build.test's `base_name`), which the census digests and no worker
   -- is given.
   if #paths == 0 then
-    local stores = root .. "/o/stores"
+    local stores = build_paths.required(root) .. "/stores"
     local listed, _ = Fs.list(stores)
     local count, bytes = 0, 0
     for _, entry in ipairs(listed or {}) do
@@ -332,7 +333,7 @@ local function run(argv: {integer:string}): integer
     end
   end
   if seen == 0 then
-    log:verdict("db", false, "no database under " .. root .. "/o; build first, " ..
+    log:verdict("db", false, "no database under " .. build_paths.required(root) .. "; build first, " ..
         clock.took(started))
     return 1
   end

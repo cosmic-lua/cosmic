@@ -21,6 +21,7 @@
 --- only [`reboot.guard`]'s nil, "go on", hands it back open. A function
 --- handed none, [`reboot.boot_into`], needs it closed already.
 
+local build_paths = require("build.paths")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -106,7 +107,7 @@ function reboot.own_tool(root: string, executable?: string): boolean | nil, stri
   if directory == nil then
     return nil, directory_trouble
   end
-  local outputs, outputs_trouble = Fs.absolute(root .. "/o")
+  local outputs, outputs_trouble = Fs.absolute(build_paths.required(root))
   if outputs == nil then
     return nil, outputs_trouble
   end
@@ -308,7 +309,7 @@ local function into(handle: work.Handle, built: compiler,
     return closing(handle, compile_trouble),
       reboot.compiler_moved(Store.meta("compiler"), tree_compiler)
   end
-  local database_path = handle.root .. "/o/cosmic.db"
+  local database_path = build_paths.required(handle.root) .. "/cosmic.db"
   local written, write_trouble =
     writer.write_result(handle, database_path, result, tree_code)
   if not written then
@@ -318,7 +319,7 @@ local function into(handle: work.Handle, built: compiler,
   -- tree's: the projection it carries is signed by that writer, and a
   -- tool it wrote whose writer differs writes itself again on re-entry
   -- (`unsettled`).
-  local carried_path = handle.root .. "/o/carried.db"
+  local carried_path = build_paths.required(handle.root) .. "/carried.db"
   local carried, carry_trouble = writer.carried(database_path, carried_path)
   if not carried then
     return closing(handle, carry_trouble), false
@@ -357,7 +358,7 @@ end
 
 --- Where the holder of the rebuild lock sets aside the database of the
 --- tool under o/ to read it (`replaced`).
-local probe_name = "/o/rebuild.lock.probe"
+local probe_name = "/rebuild.lock.probe"
 
 --- The meta a tool's database carries that tells one written apart
 --- from another: a rebuild moves `boot_hash` (the tree's, which is why it
@@ -380,7 +381,7 @@ local function replaced(root: string, out: string): boolean
   if parts == nil then
     return false
   end
-  local probe = root .. probe_name
+  local probe = build_paths.required(root) .. probe_name
   local written, _ = Fs.write(probe, parts.database)
   if not written then
     return false
@@ -523,7 +524,7 @@ function reboot.boot_into(root: string, argv: {integer:string},
     return "bin/zig build boot failed; fix what it reports and run this again"
   end
   environment[marker] = "1"
-  local _, exec_trouble = Proc.exec(reentry(root .. "/o/bin/cosmic", argv),
+  local _, exec_trouble = Proc.exec(reentry(build_paths.required(root) .. "/bin/cosmic", argv),
     { env = environment })
   return exec_trouble
 end

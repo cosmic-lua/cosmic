@@ -138,6 +138,8 @@ end
 ---   process of the program running the tests reads to run at all
 ---   (build/this_program.tl's `runtime_environment`, and COSMIC_SANDBOX,
 ---   which `confine` reads).
+--- - COSMIC_BUILD_HOME: the generated-directory base, shared by a child
+---   and the driver resolving its products.
 --- - COSMIC_BOOTSTRAP: the cosmic bin/zig runs build/zig.tl on, where a
 ---   run names one (AGENTS.md's Bootstrap).
 --- - COSMIC_ZIG, COSMIC_ZIG_CACHE and COSMIC_ZIG_GLOBAL_CACHE: the zig
@@ -167,7 +169,7 @@ Fixture.inherited = {
   "PATH", "HOME", "XDG_CACHE_HOME", "TMPDIR",
   "COSMIC_PORTABLE_CACHE", "COSMIC_VERDICT_CACHE", "COSMIC_AUTO_BOOT",
   "COSMIC_TEST_SANDBOX", "COSMIC_SANDBOX", "COSMIC_TEST_HELD",
-  "COSMIC_BOOTSTRAP",
+  "COSMIC_BOOTSTRAP", "COSMIC_BUILD_HOME",
   "COSMIC_ZIG", "COSMIC_ZIG_CACHE", "COSMIC_ZIG_GLOBAL_CACHE",
   "ZIG_LIB_DIR", "ZIG_GLOBAL_CACHE_DIR", "ZIG_LOCAL_CACHE_DIR",
   "SDKROOT", "DEVELOPER_DIR", "MACOSX_DEPLOYMENT_TARGET",

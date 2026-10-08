@@ -51,6 +51,12 @@ local function command(tmp: string): {string}, string
   return { host, project .. "/cosmic_ci/driver.tl" }, project
 end
 
+--- Synthetic candidates keep their selected physical output layout.
+local function build_resolver(root: string)
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {integer:string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
+end
+
 --- The driver reads its context (GITHUB_WORKSPACE, GITHUB_RUN_ID,
 --- GITHUB_RUN_ATTEMPT, RUNNER_TEMP, COSMIC_WORKER, TARGET) from the
 --- environment. In CI the self-check runs inside a job where all of these
@@ -60,6 +66,7 @@ end
 --- explicitly and passes it as Fixture.call's extra env instead.
 local function context(candidate: string, runner_temp: string,
                        extra?: {string:string}): {string:string}
+  if Fs.exists(candidate .. "/AGENTS.md") then build_resolver(candidate) end
   local env: {string:string} = {
     GITHUB_WORKSPACE = candidate,
     GITHUB_RUN_ID = "run",
@@ -1254,6 +1261,7 @@ local function test_the_portable_suite_stands_on_its_own_verdicts(tmp: string)
     assert(Fs.mkdirs(fake) and Fs.mkdirs(diagnostics) and
         Fs.mkdirs(fresh .. "/o") and Fs.mkdirs(fresh .. "/ci/testdata/portable"))
     assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
+    build_resolver(fresh)
     assert(Fs.write(fresh .. "/o/build.db", "db"))
     assert(Fs.write(fresh .. "/ci/testdata/portable/work_db_integrity.tl", "\n"))
     local executable = diagnostics .. "/cosmic-portable"

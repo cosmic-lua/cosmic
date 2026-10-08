@@ -35,6 +35,7 @@
 --- `no such table` are answered with the names that exist. The database
 --- is built from the data alone, so nothing under o/ is read.
 
+local build_paths = require("build.paths")
 local Cli = require("cosmic.cli")
 local Clock = require("cosmic.clock")
 local Flags = require("cosmic.flags")
@@ -125,13 +126,13 @@ function sql.source(root: string, parsed: Flags.Parsed): sql.Source | nil, strin
   local within = "; o/ is looked for only in the working directory, " ..
     "never above it"
   if parsed.set["--build"] then
-    return { name = "o/build.db", path = root .. "/o/build.db",
-      hint = root .. "/o/build.db" .. within }
+    return { name = "o/build.db", path = build_paths.required(root) .. "/build.db",
+      hint = build_paths.required(root) .. "/build.db" .. within }
   end
   if parsed.set["--store"] then
     return { name = "the binary's own database" }
   end
-  local project = root .. "/o/cosmic.db"
+  local project = build_paths.required(root) .. "/cosmic.db"
   local present, trouble = Fs.exists(project)
   if present == nil then
     return nil, trouble

@@ -26,6 +26,8 @@ local function checkout(tmp: string): string, {string:string}
   local root = tmp .. "/source tree"
   assert(Fs.mkdirs(root .. "/o/bin") and Fs.mkdirs(root .. "/ci/cosmic_ci"))
   assert(Fs.write(root .. "/ci/cosmic_ci/driver.tl", "fixture driver\n"))
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {integer:string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
   assert(Fs.write(root .. "/tracked", "old\n"))
   assert(Fs.write(root .. "/ci/run_local.tl", "fixture entry\n"))
   assert(Fs.write(root .. "/.gitignore", "o/\nignored\n"))

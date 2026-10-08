@@ -6,6 +6,7 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local this_program = require("build.this_program")
 local rebuild_lock = require("build.rebuild_lock")
 local stand_in = require("build.stand_in")
@@ -25,6 +26,7 @@ Test.policy{
   grants = {
     { path = "o/bin", letters = "rx" },
     { path = "build/patch.tl", letters = "r" },
+    { path = "build/paths.tl", letters = "r" },
     { path = "build/zig_fetch.tl", letters = "r" },
   },
 }
@@ -89,7 +91,7 @@ end
 local function bare_root(tmp: string): string
   assert(Fs.mkdirs(tmp .. "/root/build"))
   assert(Fs.mkdirs(tmp .. "/root/vendor"))
-  for _, name in ipairs({ "zig.tl", "patch.tl" }) do
+  for _, name in ipairs({ "zig.tl", "patch.tl", "paths.tl" }) do
     assert(Fs.write(tmp .. "/root/build/" .. name, (assert(Fs.read("build/" .. name)))))
   end
   return tmp .. "/root/build/zig.tl"
@@ -182,4 +184,61 @@ local function test_a_boot_holds_the_lock_and_hands_it_on(tmp: string)
   assert(taken == "busy", "the boot's lock was taken under it: " .. tostring(taken) .. " " .. trouble)
   assert(rebuild_lock.take(root, 0, "test") == "held", "the boot left the lock held")
   rebuild_lock.release()
+end
+
+local function test_other_subcommands_accept_cache_directories_not_yet_created(tmp: string)
+  local script = bare_root(tmp)
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  assert(stand_in.place(probe, tmp .. "/zig-for-test", "exit 0"))
+  local project, shared = tmp .. "/new-project", tmp .. "/new-global"
+  local started = this_program.program({ "--standalone", script, "version" }, {
+    env = { COSMIC_ZIG = tmp .. "/zig-for-test", COSMIC_ZIG_CACHE = project,
+      COSMIC_ZIG_GLOBAL_CACHE = shared }, stdout = "capture", stderr = "capture",
+    timeout_ns = Clock.seconds(30),
+  })
+  local result = assert(Child.run(started.argv, started.options))
+  assert(result.ok, result.stderr)
+  assert(not Fs.exists(project) and not Fs.exists(shared))
+  assert(not Fs.exists(tmp .. "/root/o"))
+end
+
+local function test_a_build_repairs_a_manifest_whose_contents_do_not_match_its_name(tmp: string)
+  local script = bare_root(tmp)
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  assert(stand_in.place(probe, tmp .. "/zig-for-test", "exit 0"))
+  local project = tmp .. "/project"
+  local started = this_program.program({ "--standalone", script, "build" }, {
+    env = { COSMIC_ZIG = tmp .. "/zig-for-test", COSMIC_ZIG_CACHE = project,
+      COSMIC_ZIG_GLOBAL_CACHE = tmp .. "/global" },
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
+  })
+  local first = assert(Child.run(started.argv, started.options))
+  assert(first.ok, first.stderr)
+  local manifest = project .. "/cosmic-vendor/manifest-" .. Hash.hex_sha256("") .. ".tsv"
+  assert(Fs.read(manifest) == "")
+  assert(Fs.write(manifest, "incomplete manifest"))
+  local second = assert(Child.run(started.argv, started.options))
+  assert(second.ok, second.stderr)
+  assert(Fs.read(manifest) == "")
+end
+
+local function test_boot_refuses_an_install_prefix_that_would_name_another_lock(tmp: string)
+  local script = bare_root(tmp)
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  assert(stand_in.place(probe, tmp .. "/zig-for-test", "exit 0"))
+  for _, args in ipairs({ { "build", "boot", "--prefix", tmp .. "/other" },
+      { "build", "sanitized", "--prefix=" .. tmp .. "/other" },
+      { "build", "boot", "-p", tmp .. "/other" } }) do
+    local words = { "--standalone", script }
+    for _, word in ipairs(args) do words[#words + 1] = word end
+    local started = this_program.program(words, {
+      env = { COSMIC_ZIG = tmp .. "/zig-for-test" },
+      stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
+    })
+    local result = assert(Child.run(started.argv, started.options))
+    assert(result.code == 2)
+    assert((result.stderr or ""):find("do not pass --prefix or -p", 1, true))
+  end
+  assert(not Fs.exists(tmp .. "/other"))
+  assert(not Fs.exists(tmp .. "/root/o"))
 end

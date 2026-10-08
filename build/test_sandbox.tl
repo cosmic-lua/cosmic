@@ -62,12 +62,15 @@
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local build_paths = require("build.paths")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 local confine = require("build.confine")
 local test_inputs = require("build.test_inputs")
 local caches = require("build.caches")
 local String = require("cosmic.string")
+
+local build_directory = build_paths.required
 
 local record test_sandbox
   --- Where a sandboxed worker has the tree, and runs.
@@ -278,7 +281,7 @@ local function program_name(root: string): string | nil, boolean
   local program = confine.executable()
   if program == nil then return nil, false end
   local real = confine.resolution(program)
-  if real ~= "" and real == confine.resolution(root .. "/o/bin/cosmic") then
+  if real ~= "" and real == confine.resolution(build_directory(root) .. "/bin/cosmic") then
     return test_sandbox.tree .. "/o/bin/cosmic", true
   end
   if Fs.within(program, test_sandbox.tree) then
@@ -389,7 +392,8 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
       runs[path] = true
     end
   end
-  local store = root .. "/o/cosmic.db"
+  local output = build_directory(root)
+  local store = output .. "/cosmic.db"
   -- The store at o/cosmic.db is the one its worker attaches to load
   -- every module of the closure ([`build.test_worker`]): `closure_store`
   -- where the module does not declare `store`, and the whole projection
@@ -428,7 +432,15 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     if plain == "." then
       give(root, test_sandbox.tree, run)
     elseif plain:sub(1, 1) ~= "/" and plain:sub(1, 3) ~= "../" and plain ~= ".." then
-      give(root .. "/" .. plain, test_sandbox.tree .. "/" .. plain, run)
+      local source = root .. "/" .. plain
+      -- o is the worker's stable virtual build directory; the host's output
+      -- may live elsewhere, and only the declared entry is bound.
+      if plain == "o" then
+        source = output
+      elseif plain:sub(1, 2) == "o/" then
+        source = output .. plain:sub(2)
+      end
+      give(source, test_sandbox.tree .. "/" .. plain, run)
     end
   end
   local files: {string} = {}

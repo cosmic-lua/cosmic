@@ -47,6 +47,8 @@ function Proof.main(argv: {integer:string}): integer
     assert(Fs.write(root .. "/ci/run_local.tl", (assert(Fs.read(source .. "/ci/run_local.tl")))))
     assert(Fs.write(root .. "/ci/cosmic_ci/driver.tl", "fixture driver"))
     assert(Fs.write(root .. "/ci/.hidden", "hidden"))
+    assert(Fs.mkdirs(root .. "/build"))
+    assert(Fs.write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {integer:string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
     assert(Fs.write(root .. "/tracked", "initial"))
     assert(Fs.write(root .. "/.gitignore", "o/\nignored\n"))
     assert(Fs.write(root .. "/o/bin/cosmic", [=[#!/bin/sh

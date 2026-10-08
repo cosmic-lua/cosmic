@@ -32,7 +32,7 @@ eval/arena notes o/bin/cosmic /tmp/cosmic-evals/notes/codex/run-001
 ```
 
 Choose new absolute paths outside the checkout; an existing destination
-is an error, never deleted. The arena contains `bin/cosmic`,
+is an error, never deleted. The arena contains [`bin/cosmic`],
 `project/TASK.md` (task plus journal contract), `tmp/` (the solver's
 `TMPDIR`, its one sanctioned place outside `project/`), `PROMPT.md` (the
 entire launch prompt), and `inputs.sha256`. Give the solver only PROMPT.md's
@@ -338,6 +338,7 @@ ranking. Then:
   time so far, and cheap. Start there.
 
 [`bin/cosmic-bootstrap`]: ../bin/cosmic-bootstrap
+[`bin/cosmic`]: ../bin/cosmic
 [`eval/arena`]: arena
 [`eval/check/grade.tl`]: check/grade.tl
 [`eval/journal.md`]: journal.md

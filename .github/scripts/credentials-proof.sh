@@ -12,13 +12,14 @@ chmod 700 "$proof/secret" "$proof/target" "$proof/cache"
 # The root proof must not reuse or re-own the ordinary runner's cache.
 export XDG_CACHE_HOME="$proof/cache"
 export COSMIC_PORTABLE_CACHE="$proof/cache/cores"
+output=$("$root/bin/cosmic-bootstrap" --standalone "$root/build/paths.tl" "$root")
 printf 'grant\n' > "$proof/secret/file"
 chmod 600 "$proof/secret/file"
 chown 65532:65532 "$proof/target"
-cp o/credentials-probe "$proof/setuid-probe"
+cp "$output/credentials-probe" "$proof/setuid-probe"
 chmod 4755 "$proof/setuid-probe"
 export COSMIC_AUTO_BOOT=0
 for mode in success groups gid uid caps nnp capture restore; do
-  timeout 20 o/credentials-probe setup "$mode" "$root/o/bin/cosmic" \
-    "$root/build/credentials_proof.tl" "$root/o/credentials-probe" "$proof"
+  timeout 20 "$output/credentials-probe" setup "$mode" "$output/bin/cosmic" \
+    "$root/build/credentials_proof.tl" "$output/credentials-probe" "$proof"
 done

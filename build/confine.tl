@@ -8,6 +8,7 @@
 --- (`resolution`).
 
 local Fs = require("cosmic.fs")
+local build_paths = require("build.paths")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 
@@ -35,6 +36,8 @@ local sandbox_platform, may_map_ids, own_proc, landlock_abi = process.sandbox_pl
 --- stand-in for it (see `enter`) is put in its place.
 local own_spawn = process.spawn
 local unix_socket, close_socket = process.unix_socket, sys.close
+
+local build_directory = build_paths.required
 
 local record confine
   --- What a test declares the processes it starts need, beyond the
@@ -505,7 +508,7 @@ function confine.worker_unveil(tree: string, cwd: string | nil, scratch: string,
   for _, path in ipairs(confine.itself()) do
     if path ~= withheld then add(path) end
   end
-  add((tree == "/" and "" or tree) .. "/o/cosmic.db")
+  add(build_directory(tree) .. "/cosmic.db")
   if cwd ~= nil then add(cwd) end
   return { reads = reads, writes = { scratch } }
 end

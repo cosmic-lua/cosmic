@@ -1,3 +1,4 @@
+local BuildPaths = require("cosmic_ci.build_paths")
 local Capabilities = require("cosmic_ci.capabilities")
 local Clock = require("cosmic.clock")
 local ContextEnv = require("cosmic_ci.context")
@@ -371,7 +372,7 @@ local function operation(c: Context, phase: string, command: {string},
   -- be reused there: CI saves the seed's as it stands.
   if (child_environment.COSMIC_ZIG_CACHE or "") == "" then
     local seed = named("COSMIC_ZIG_CACHE_SEED")
-    child_environment.COSMIC_ZIG_CACHE = seed and seed .. "/zig-cache" or c.root .. "/o/zig-cache"
+    child_environment.COSMIC_ZIG_CACHE = seed and seed .. "/zig-cache" or BuildPaths.directory(c.root, child_environment) .. "/zig-cache"
   end
   -- The driver boots the candidate itself; a tool that finds its core
   -- stale is a fault to report, not one to boot past (build/reboot.tl).
@@ -756,7 +757,7 @@ end
 --- and its whole suite run where COSMIC_CI_CHECKED_SUITE is not `skip`.
 local function checked_suite(c: Context, target: string, work: string,
                              decoder: string): integer
-  local sanitized = c.root .. "/o/sanitized"
+  local sanitized = BuildPaths.directory(c.root) .. "/sanitized"
   local targets_path = sanitized .. "/targets.tsv"
   local target_id: string | nil = nil
   local checked_target: string | nil = nil
@@ -818,7 +819,7 @@ local function checked_suite(c: Context, target: string, work: string,
   -- a find can see, so only a root followed by a path is refused. No
   -- key moves with a unit's comp_dir (the image leaves it out), so what
   -- this would add is only a checked core the same from every checkout.
-  local cache = c.root .. "/o/zig-cache/"
+  local cache = BuildPaths.directory(c.root) .. "/zig-cache/"
   local at = 1
   while true do
     local leak = raw:find(c.root .. "/", at, true)
@@ -928,8 +929,8 @@ local function checked_suite(c: Context, target: string, work: string,
   -- the workflow uploads with the diagnostics when the leg fails: what
   -- a timeout here leaves to read, since the suite's output names no
   -- times, and what says which tests the checked core runs slowest.
-  if exists(c.root .. "/o/build.db") then
-    write(diagnostics .. "/build.db", read(c.root .. "/o/build.db"))
+  if exists(BuildPaths.directory(c.root) .. "/build.db") then
+    write(diagnostics .. "/build.db", read(BuildPaths.directory(c.root) .. "/build.db"))
   end
   return s
 end
@@ -945,9 +946,9 @@ local function snapshot(c: Context, diagnostics: string, label: string,
   local out = destination .. "/" .. label
   assert(not exists(out), "snapshot already exists: " .. out)
   mkdir(out)
-  write(out .. "/build.db", read(c.root .. "/o/build.db"))
-  if exists(c.root .. "/o/build.db-journal") then
-    write(out .. "/build.db-journal", read(c.root .. "/o/build.db-journal"))
+  write(out .. "/build.db", read(BuildPaths.directory(c.root) .. "/build.db"))
+  if exists(BuildPaths.directory(c.root) .. "/build.db-journal") then
+    write(out .. "/build.db-journal", read(BuildPaths.directory(c.root) .. "/build.db-journal"))
   end
   local hashes = hash(out .. "/build.db") .. "  build.db\n"
   if exists(out .. "/build.db-journal") then
@@ -1051,7 +1052,7 @@ end
 local function boot(p: PlatformContext): integer
   local c = p.operation
   local root = p.root
-  assert(not exists(root .. "/o"), "build requires fresh checkout without o")
+  assert(not exists(BuildPaths.directory(root) .. "/build.db"), "build requires fresh working database")
   -- zig's caches are used where CI restored them: its global cache
   -- (COSMIC_ZIG_GLOBAL_CACHE, build/zig.tl) and the project cache, the
   -- zig-cache under COSMIC_ZIG_CACHE_SEED (see `operation`). Only a
@@ -1067,16 +1068,16 @@ local function boot(p: PlatformContext): integer
         "; compiling from nothing\n")
   end
   if not seed and from and is_dir(from) then
-    mkdir(root .. "/o")
+    mkdir(BuildPaths.directory(root))
     local copied = step(c, "restore zig-cache", function(): boolean, string
-      return Fs.copy_tree(from, root .. "/o/zig-cache")
+      return Fs.copy_tree(from, BuildPaths.directory(root) .. "/zig-cache")
     end)
     if copied ~= 0 then return copied end
   end
   -- A restore or a copy gives every file of zig's caches a new inode,
   -- which zig 0.17 reads as a changed C source (cosmic_ci/zig_restat.tl).
   if cache then
-    local project = seed and cache or root .. "/o/zig-cache"
+    local project = seed and cache or BuildPaths.directory(root) .. "/zig-cache"
     local _, out, err = ZigRestat.run(root, project, named("COSMIC_ZIG_GLOBAL_CACHE"))
     Fs.put(Fs.stderr, out .. err)
   end
@@ -1158,7 +1159,7 @@ local function phase_darwin_suite(p: PlatformContext): integer
     end
   end
   values.COSMIC_TEST_TIMEOUT = suite_test_timeout_s
-  local argv: {string} = { p.root .. "/o/bin/cosmic" }
+  local argv: {string} = { BuildPaths.directory(p.root) .. "/bin/cosmic" }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   mkdir(p.local_diagnostics)
   local out = p.local_diagnostics .. "/darwin-test.out"
@@ -1179,7 +1180,7 @@ end
 --- (`cosmic test --shard`): the leg that runs each other share runs the
 --- rest, on the same host.
 local function phase_local_suite(p: PlatformContext): integer
-  return suite(p.operation, "local", p.root .. "/o/bin/cosmic", p.local_diagnostics,
+  return suite(p.operation, "local", BuildPaths.directory(p.root) .. "/bin/cosmic", p.local_diagnostics,
     nil, named("COSMIC_CI_SHARD"))
 end
 
@@ -1207,7 +1208,7 @@ local function phase_checked_build(p: PlatformContext): integer
   local decoder = format .. "/format-test-" .. p.target
   assert(not exists(decoder), "format decoder already exists: " .. decoder)
   mkdir(format)
-  write(decoder, read(root .. "/o/portable-fixture/format/format-test-" .. p.target))
+  write(decoder, read(BuildPaths.directory(root) .. "/portable-fixture/format/format-test-" .. p.target))
   return step(c, "format decoder mode", function(): boolean, string
     return Fs.chmod(decoder, 0x1ed)
   end)
@@ -1217,7 +1218,7 @@ local function phase_local_boundary(p: PlatformContext): integer
   local c = p.operation
   local root = p.root
   local local_d = p.local_diagnostics
-  local s = snapshot(c, local_d, "local-boundary", root .. "/o/bin/cosmic")
+  local s = snapshot(c, local_d, "local-boundary", BuildPaths.directory(root) .. "/bin/cosmic")
   if s ~= 0 then return s end
   assert(read(local_d .. "/local-immediate/hashes.sha256") == read(local_d .. "/local-boundary/hashes.sha256"), "local database changed across boundary")
   return 0
@@ -1235,7 +1236,7 @@ end
 local function phase_sandbox(p: PlatformContext): integer
   local c = p.operation
   local report = p.work .. "/sandbox-probe.md"
-  local s = capture_small(c, "sandbox probe", { p.root .. "/o/bin/cosmic",
+  local s = capture_small(c, "sandbox probe", { BuildPaths.directory(p.root) .. "/bin/cosmic",
     "build/sandbox_probe.tl" }, report, sandbox_probe_timeout_ns)
   if s ~= 0 then return s end
   local said = read(report)
@@ -1258,7 +1259,7 @@ end
 --- it where a path named is part of what checks each file. A file that
 --- cannot be read checks the whole tree.
 local function format_command(root: string): {string}
-  local command = { root .. "/o/bin/cosmic", "fix", "--check" }
+  local command = { BuildPaths.directory(root) .. "/bin/cosmic", "fix", "--check" }
   local listed = Env.get("COSMIC_CI_FORMAT_CHANGED") or ""
   local text: string | nil = nil
   if listed ~= "" then
@@ -1316,7 +1317,7 @@ local function phase_assemble(p: PlatformContext): integer
   if s ~= 0 then return s end
   s = checked(c, "codesign verification",
     { root .. "/bin/verify-codesign",
-      root .. "/o/core/aarch64-macos/cosmic-core" })
+      BuildPaths.directory(root) .. "/core/aarch64-macos/cosmic-core" })
   if s ~= 0 then return s end
   assert(ProductSetup.build(root, product, work .. "/product-setup") == product,
     "product setup returned the wrong product")
@@ -1339,7 +1340,7 @@ local function phase_assemble(p: PlatformContext): integer
   s = checked(c, "hook-core build", { root .. "/bin/zig", "build", "portable-hook-cores", "--prefix", work .. "/prebuilt" })
   if s ~= 0 then return s end
   mkdir(work .. "/prebuilt/portable-fixture/sanitized")
-  write(work .. "/prebuilt/portable-fixture/sanitized/cosmic-core", read(root .. "/o/sanitized/cosmic-core"))
+  write(work .. "/prebuilt/portable-fixture/sanitized/cosmic-core", read(BuildPaths.directory(root) .. "/sanitized/cosmic-core"))
   assert(RuntimeSetup.build(root, work .. "/prebuilt", product .. "/cosmic",
     product .. "/cosmic.db", runtime, work .. "/runtime-setup") == runtime,
     "runtime setup returned the wrong output")
@@ -1652,7 +1653,7 @@ local function platform_impl(phase: string, p: PlatformContext): integer
     return checked_suite(p.operation, p.target, p.work,
       p.contract .. "/format/format-test-" .. p.target)
   elseif phase == "performance-checked" then
-    return performance_fixture(p.operation, p.work, "checked", p.root .. "/o/sanitized/bin/cosmic")
+    return performance_fixture(p.operation, p.work, "checked", BuildPaths.directory(p.root) .. "/sanitized/bin/cosmic")
   elseif phase == "sandbox" then
     return phase_sandbox(p)
   elseif phase == "assemble" then

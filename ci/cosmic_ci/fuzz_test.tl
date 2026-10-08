@@ -147,6 +147,7 @@ end
 --- A checkout whose checked core is a script standing in for it: it
 --- says what it was given and ran with, and fails as told.
 local function fake_checkout(root: string, exit: string, body?: {string})
+  write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {integer:string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n")
   write(root .. "/AGENTS.md", "fixture\n")
   write(root .. "/build/a_fuzz_test.tl", "")
   write(root .. "/build/fuzz/b_fuzz_test.tl", "")
@@ -205,6 +206,7 @@ end
 
 local function test_execute_reports_a_core_that_cannot_start(tmp: string)
   local root, temp = tmp .. "/checkout", tmp .. "/runner-temp"
+  write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {integer:string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n")
   write(root .. "/AGENTS.md", "fixture\n")
   assert(Fs.mkdirs(temp))
   local log_fd = assert(Fs.open_write(tmp .. "/log"))
@@ -394,7 +396,8 @@ end
 
 local function test_a_sink_constructor_failure_closes_the_output_descriptor(tmp: string)
   local root, temp = tmp .. "/checkout", tmp .. "/temp"
-  assert(Fs.mkdirs(root) and Fs.mkdirs(temp))
+  fake_checkout(root, "0")
+  assert(Fs.mkdirs(temp))
   local original_open, original_tee = Fs.open_write, Stream.tee
   local opened: integer = nil
   Fs.open_write = function(path: string, mode?: integer): integer | nil, string

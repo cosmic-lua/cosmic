@@ -230,6 +230,7 @@ local record Fixture
   portable: string
   host_tool: string
   logs: string
+  output: string
   env: {string:string}
 end
 
@@ -280,11 +281,15 @@ local function command(argv: {string}, fixture: Fixture): Child.Result
   local result, trouble = Child.run(argv, { cwd = fixture.root, env = fixture.env,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   if result == nil then
-    save(fixture.logs .. "/failure.json", { argv = argv, trouble = trouble })
+    if fixture.logs ~= "" then
+      save(fixture.logs .. "/failure.json", { argv = argv, trouble = trouble })
+    end
     error(trouble)
   end
   if not result.ok or result.truncated then
-    save(fixture.logs .. "/failure.json", { argv = argv, result = result })
+    if fixture.logs ~= "" then
+      save(fixture.logs .. "/failure.json", { argv = argv, result = result })
+    end
     error(table.concat(argv, " ") .. ": " .. (result.stderr or "") .. (result.stdout or ""))
   end
   return result
@@ -297,7 +302,7 @@ local function leaf(fixture: Fixture, value: integer)
 end
 
 local function latest_build(fixture: Fixture): {string}
-  local db = assert(Sqlite.open(fixture.root .. "/o/build.db"))
+  local db = assert(Sqlite.open(fixture.output .. "/build.db"))
   local rows = assert(Sqlite.text_rows(db,
     "SELECT compiled, cached, read, verdict, run, (SELECT COUNT(*) FROM builds) FROM builds ORDER BY run DESC LIMIT 1"))
   assert(db:close())
@@ -307,19 +312,36 @@ end
 
 local function fixture(binary: string, root: string): Fixture
   assert(Fs.mkdirs(root .. "/cmd/noop"))
-  assert(Fs.mkdirs(root .. "/o/perf"))
   local env = Env.all()
   for name in pairs(env) do
     if name:sub(1, 7) == "COSMIC_" then env[name] = nil end
   end
+  env.COSMIC_TREE = root
   env.COSMIC_AUTO_BOOT = "0"
   env.COSMIC_BUILD_CACHE = "0"
   env.COSMIC_VERDICT_CACHE = "0"
   env.COSMIC_TEST_SANDBOX = "0"
-  env.COSMIC_PORTABLE_CACHE = root .. "/o/portable-cache"
+  env.COSMIC_PORTABLE_CACHE = root .. "/portable-cache"
   local f: Fixture = { binary = binary, root = root, host = root .. "/host",
     portable = root .. "/portable", host_tool = root .. "/host-tool",
-    logs = root .. "/o/perf", env = env }
+    logs = "", output = "", env = env }
+  -- Retained baselines predate the directory resolver. Ask each artifact
+  -- for its own rule outside the measurements, selecting the legacy rule
+  -- only when its store has no resolver module.
+  local resolved = command({ binary, "-e", [[
+local S = require("cosmic.store")
+local E = require("cosmic.env")
+local root = assert(E.get("COSMIC_TREE"))
+if S.source("build.paths") ~= nil then
+  print(require("build.paths").required(root))
+else
+  print(root .. "/o")
+end
+]] }, f)
+  f.output = (resolved.stdout or ""):gsub("\n$", "")
+  assert(f.output ~= "", "artifact named no generated directory")
+  f.logs = f.output .. "/perf"
+  assert(Fs.mkdirs(f.logs))
   leaf(f, 1)
   assert(Fs.write(root .. "/branch.tl", [[local Leaf = require("leaf")
 local record Branch end
@@ -359,9 +381,9 @@ end
   end
   local setup: {Child.Result} = {}
   setup[#setup + 1] = command({ binary, "build", "--host" }, f)
-  assert(Fs.write(f.host, assert(Fs.read(root .. "/o/bin/noop")), 493))
+  assert(Fs.write(f.host, assert(Fs.read(f.output .. "/bin/noop")), 493))
   setup[#setup + 1] = command({ binary, "build" }, f)
-  assert(Fs.write(f.portable, assert(Fs.read(root .. "/o/bin/noop")), 493))
+  assert(Fs.write(f.portable, assert(Fs.read(f.output .. "/bin/noop")), 493))
   setup[#setup + 1] = command({ binary, "test" }, f)
   setup[#setup + 1] = command({ binary, "test" }, f)
   -- Produce a native tool from its own trusted core, preserving its database.
@@ -429,7 +451,7 @@ local function measure(f: Fixture, w: Workload, phase: string, pair: integer,
     leaf(f, leaf_value)
   end
   if w.name == "full_fixture_test" then
-    local db = assert(Sqlite.open(f.root .. "/o/build.db", { writable = true }))
+    local db = assert(Sqlite.open(f.output .. "/build.db", { writable = true }))
     assert(db:exec("DELETE FROM verdicts"))
     assert(db:close())
   end

@@ -11,7 +11,7 @@
 --- build/vendor.tl. `--standalone` loads no module beside this file, so
 --- every task's checks live here, after the plumbing they share, and
 --- the file requires `cosmic.*` modules only. The arena's own
---- `bin/cosmic` does the testing and building.
+--- [`bin/cosmic`] does the testing and building.
 ---
 --- The executable runs with an empty environment -- no PATH, no HOME,
 --- no TMPDIR -- unless a check names one, so nothing beside it and

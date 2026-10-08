@@ -594,7 +594,7 @@
           name: "build the credential transition probe",
           if: "runner.os == 'Linux'",
           "working-directory": ".",
-          run: "bin/zig cc -std=c11 -Wall -Wextra -Werror -O2 .github/scripts/credentials-probe.c -o o/credentials-probe",
+          run: ".github/scripts/credentials-build.sh",
         },
 
         {

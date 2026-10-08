@@ -1,3 +1,4 @@
+local BuildPaths = require("cosmic_ci.build_paths")
 local Clock = require("cosmic.clock")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
@@ -26,7 +27,7 @@ Test.policy{
     "COSMIC_TEST_SANDBOX",
     "COSMIC_SANDBOX",
     "COSMIC_TEST_HELD",
-    "COSMIC_BOOTSTRAP",
+    "COSMIC_BOOTSTRAP", "COSMIC_BUILD_HOME",
     "COSMIC_ZIG",
     "COSMIC_ZIG_CACHE",
     "COSMIC_ZIG_GLOBAL_CACHE",
@@ -81,17 +82,17 @@ local function test_portable_format_contract(tmp: string)
   local root = Fixture.required("COSMIC_FIXTURE_ROOT")
   local publish = Fixture.required("COSMIC_FIXTURE_FORMAT")
   local publish_target = Fixture.required("COSMIC_FIXTURE_TARGET")
-  local cosmic = root .. "/o/bin/cosmic"
+  local cosmic = BuildPaths.directory(root) .. "/bin/cosmic"
   local program = tmp .. "/program"
   local diagnostics = tmp .. "/logs"
   Fixture.run("fixture-write", { cosmic, root .. "/test/portable/tool.tl",
-    "write-format-fixture", root .. "/o/targets.tsv", root .. "/o/core",
+    "write-format-fixture", BuildPaths.directory(root) .. "/targets.tsv", BuildPaths.directory(root) .. "/core",
     program }, root, diagnostics)
   Fixture.run("native-decoder-build", { root .. "/bin/zig", "build",
     "portable-format-native" }, root, diagnostics, nil,
     native_build_timeout_ns)
   local decoder = tmp .. "/format-test"
-  Fixture.copy(root .. "/o/portable-fixture/format/format-test-native",
+  Fixture.copy(BuildPaths.directory(root) .. "/portable-fixture/format/format-test-native",
     decoder, 0x1ed)
   Fixture.run("malformed-mutations", { decoder, program .. ".a" }, root,
     diagnostics)
@@ -99,13 +100,13 @@ local function test_portable_format_contract(tmp: string)
     program .. ".a" }, root, diagnostics)
   local decoded = Fixture.inspection(inspection.out)
   local artifact = Fixture.read(program .. ".a")
-  local targets = Fixture.targets(root .. "/o/targets.tsv")
+  local targets = Fixture.targets(BuildPaths.directory(root) .. "/targets.tsv")
   assert(decoded.entry_count == #targets, "format entry count differs")
   for _, target in ipairs(targets) do
     assert(target.kind == "release", "format target is not release")
     local entry = assert(Fixture.entry(decoded, target.id, target.configuration),
       "missing format entry for " .. target.name)
-    local core = Fixture.read(root .. "/o/core/" .. target.name .. "/cosmic-core")
+    local core = Fixture.read(BuildPaths.directory(root) .. "/core/" .. target.name .. "/cosmic-core")
     local host_path = program .. ".host-" .. target.name
     local host_inspection = Fixture.run("host-inspection-" .. target.name,
       { decoder, "--inspect-host", host_path }, root, diagnostics)
@@ -144,7 +145,7 @@ local function test_portable_format_contract(tmp: string)
   assert(artifact ~= other, "fixture programs unexpectedly match")
 
   local supported = false
-  for _, target in ipairs(Fixture.targets(root .. "/o/targets.tsv")) do
+  for _, target in ipairs(Fixture.targets(BuildPaths.directory(root) .. "/targets.tsv")) do
     if target.name == publish_target then supported = true end
   end
   assert(supported, "unsupported target: " .. publish_target)
@@ -152,10 +153,10 @@ local function test_portable_format_contract(tmp: string)
   assert(not publish_exists, "format output already exists: " .. publish)
   Fixture.mkdir(publish)
   Fixture.copy(program .. ".a", publish .. "/program")
-  Fixture.copy(root .. "/o/targets.tsv", publish .. "/targets.tsv")
+  Fixture.copy(BuildPaths.directory(root) .. "/targets.tsv", publish .. "/targets.tsv")
   Fixture.run("target-decoder-build", { root .. "/bin/zig", "build",
     "portable-format-" .. publish_target }, root, diagnostics, nil,
     native_build_timeout_ns)
-  Fixture.copy(root .. "/o/portable-fixture/format/format-test-" ..
+  Fixture.copy(BuildPaths.directory(root) .. "/portable-fixture/format/format-test-" ..
       publish_target, publish .. "/format-test-" .. publish_target, 0x1ed)
 end
