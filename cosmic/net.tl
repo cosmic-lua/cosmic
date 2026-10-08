@@ -1547,7 +1547,11 @@ end
 --- is started now and serves every request of the connector, up to
 --- [`Net.CONNECTOR_FLIGHT`] at once: it suits a fixed set of addresses,
 --- such as a relay whose grants are numeric. An endpoint that is no numeric address or a table that is
---- empty or too long raises.
+--- empty or too long raises. An endpoint at port 0 stands for every port,
+--- and its slots take 1 MiB of the table if the address is IPv4 and 2 MiB
+--- if IPv6: the port tables of all the endpoints are at most 32 MiB, so at
+--- most 32 IPv4 or 16 IPv6 addresses at port 0 (a fixed-port endpoint
+--- takes 16 or 32 bytes), and a table past it raises.
 ---
 --- With none, every [`Connector.connect`] starts a process of its own,
 --- confined to the one address and port it is asked for, and ends it

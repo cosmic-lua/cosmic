@@ -425,6 +425,9 @@ COSMIC_SYSCALL(connector_filter, 4) {
 
 #if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__))
 _Static_assert(sizeof(struct connector_insn) == sizeof(struct sock_filter), "BPF layout");
+/* Only the scratch slots rely on this: a public request zeroes CONNECTOR_STRIDE
+ * bytes at a scratch slot, which holds a sockaddr_storage. The table's slots
+ * are connector_stride apart, not this far. */
 _Static_assert(sizeof(struct sockaddr_storage) == CONNECTOR_STRIDE, "address slot size");
 
 struct connector_plan {

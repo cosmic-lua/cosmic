@@ -123,6 +123,56 @@ end
 --- The most endpoints a connector's table holds.
 local MOST_ENDPOINTS <const> = 128
 
+--- The most bytes of port tables a connector holds, as core/connector.c
+--- counts them: each endpoint is a slot of its address family's stride (16
+--- bytes for IPv4, 32 for IPv6), at port 0 a slot for each port 1 through
+--- 65535, and each range starts aligned to its stride.
+local MOST_TABLE_BYTES <const> = 32 << 20
+local WILDCARD_SLOTS <const> = 65535
+
+--- The table bytes of `rows` in order, as the connector counts them.
+local function table_bytes(rows: {Config.Endpoint}): integer
+  local bytes = 0
+  for _, row in ipairs(rows) do
+    local stride = row.host:find(":", 1, true) and 32 or 16
+    bytes = (bytes + stride - 1) // stride * stride + (row.port == 0 and WILDCARD_SLOTS or 1) * stride
+  end
+  return bytes
+end
+
+--- `rows` without a fixed-port endpoint whose address has a port-0 (any
+--- port) endpoint too, and without a repeat.
+local function normalized(rows: {Config.Endpoint}): {Config.Endpoint}
+  local any: {string: boolean} = {}
+  for _, row in ipairs(rows) do
+    if row.port == 0 then any[row.host] = true end
+  end
+  local kept: {Config.Endpoint} = {}
+  local seen: {string: boolean} = {}
+  for _, row in ipairs(rows) do
+    local key = row.host .. " " .. row.port
+    if not seen[key] and (row.port == 0 or not any[row.host]) then
+      seen[key] = true
+      kept[#kept + 1] = row
+    end
+  end
+  return kept
+end
+
+--- Which limit of a connector `rows` pass, as text naming it, or nil for
+--- none: the endpoints (128) and the table bytes (32 MiB) together.
+local function limit_passed(rows: {Config.Endpoint}): string | nil
+  if #rows > MOST_ENDPOINTS then
+    return ("%s, more than the 128 a connector holds"):format(String.counted(#rows, "endpoint"))
+  end
+  local bytes = table_bytes(rows)
+  if bytes > MOST_TABLE_BYTES then
+    return ("%d MiB of port tables, more than the 32 MiB a connector holds (an address at any port takes " ..
+      "1 MiB if IPv4, 2 MiB if IPv6)"):format((bytes + (1 << 20) - 1) >> 20)
+  end
+  return nil
+end
+
 --- The least a lookup's connector waits for a server to take its
 --- connection, however many servers share the lookup's time.
 local NAME_SERVER_WAIT_LEAST <const> = Clock.ms(500)
@@ -276,7 +326,8 @@ end
 --- upper-case spellings; [`cosmic.relay.config`]'s `upstream`). A target
 --- that opens nothing is in neither. Nil and why where the upstream cannot
 --- be used, or the targets name more addresses literally than a connector
---- holds (128).
+--- holds (128 endpoints, 32 MiB of port tables; a fixed port of an address
+--- granted at any port is dropped, and a repeat).
 --- @param grants {string} The policy's `connect` targets
 --- @param env {string:string} The caller's proxy variables
 --- @return relay.Plan|nil What they open
@@ -284,32 +335,25 @@ end
 function relay.plan(grants: {string}, env: {string: string}): relay.Plan | nil, string
   local up, up_why = Config.upstream(env)
   if up == nil and up_why ~= "" then return nil, up_why end
-  local literals: {Config.Endpoint} = {}
-  local seen: {string: boolean} = {}
+  local listed: {Config.Endpoint} = {}
   local names = false
-  local function literal(bytes: {integer}, port: integer)
-    local entry: Config.Endpoint = { host = numeric(bytes), port = port }
-    local key = entry.host .. " " .. port
-    if not seen[key] then
-      seen[key] = true
-      literals[#literals + 1] = entry
-    end
-  end
   for _, grant in ipairs(grants) do
     -- A target the relay cannot use was refused when the policy was
     -- checked; one that is not parsed here opens nothing.
     local parsed, _ = Relay.Grant.parse(grant)
     if parsed ~= nil then
       if parsed.bytes ~= nil then
-        literal(parsed.bytes, parsed.port)
+        listed[#listed + 1] = { host = numeric(parsed.bytes), port = parsed.port }
       else
         names = true
       end
     end
   end
-  if #literals > MOST_ENDPOINTS then
-    return nil, ("connect names %s literally, more than the relay's connector holds (%d): grant fewer " ..
-      "addresses, or names"):format(String.counted(#literals, "address", "addresses"), MOST_ENDPOINTS)
+  local literals = normalized(listed)
+  local passed = limit_passed(literals)
+  if passed ~= nil then
+    return nil, ("connect names %s literally: %s; grant fewer addresses, or names"):format(
+      String.counted(#literals, "address", "addresses"), passed)
   end
   return { literals = literals, names = names, upstream = up }, ""
 end
@@ -456,31 +500,25 @@ function relay.resolved_upstream(up: Config.Upstream): {string} | nil, string
 end
 
 --- The table of the connector of `plan`'s literal addresses and the
---- upstream's `addresses` at its port: each endpoint once. Nil and why
---- where they are more than a connector holds (128).
+--- upstream's `addresses` at its port: each endpoint once, and no fixed
+--- port of an address that has the any port too. Nil and why where they
+--- are more than a connector holds (128 endpoints, 32 MiB of port tables).
 --- @param plan relay.Plan What the targets open
 --- @param addresses {string}|nil The upstream's addresses, nil for none
 --- @return {Config.Endpoint}|nil The table
 --- @return string Why there is none, "" otherwise
 function relay.table(plan: relay.Plan, addresses: {string} | nil): {Config.Endpoint} | nil, string
-  local rows: {Config.Endpoint} = {}
-  local seen: {string: boolean} = {}
-  local function add(entry: Config.Endpoint)
-    local key = entry.host .. " " .. entry.port
-    if not seen[key] then
-      seen[key] = true
-      rows[#rows + 1] = entry
-    end
-  end
-  for _, entry in ipairs(plan.literals) do add(entry) end
+  local all: {Config.Endpoint} = {}
+  for _, entry in ipairs(plan.literals) do all[#all + 1] = entry end
   for _, address in ipairs(addresses or {}) do
     local bytes = Address.parse(address)
-    if bytes ~= nil then add({ host = numeric(bytes), port = plan.upstream.port }) end
+    if bytes ~= nil then all[#all + 1] = { host = numeric(bytes), port = plan.upstream.port } end
   end
-  if #rows > MOST_ENDPOINTS then
-    return nil, ("connect names %s literally, with the upstream proxy's: %s, more than the relay's " ..
-      "connector holds (%d); grant fewer addresses, or names"):format(
-        String.counted(#plan.literals, "address", "addresses"), String.counted(#rows, "endpoint"), MOST_ENDPOINTS)
+  local rows = normalized(all)
+  local passed = limit_passed(rows)
+  if passed ~= nil then
+    return nil, ("connect names %s literally, with the upstream proxy's: %s; grant fewer addresses, or names"):format(
+      String.counted(#plan.literals, "address", "addresses"), passed)
   end
   return rows, ""
 end
