@@ -30,11 +30,19 @@ local function gen_target(src: Fuzz.Source): string
   return sample
 end
 
+--- A listed host with a port that reads, so that most inputs reach the readers.
+local function gen_listed_target(src: Fuzz.Source): string
+  local mode = src:int(0, 7)
+  if mode == 0 then return gen_target(src) end
+  if mode == 1 then return "*:*" end
+  return Fuzz.pick(src, HOSTS) .. ":" .. Fuzz.pick(src, { "1", "80", "443", "65535", "*" })
+end
+
 local function test_no_target_raises_and_an_accepted_one_reads_as_itself(tmp: string)
   Fuzz.run({
     name = "relay grant parse never raises and is idempotent",
     dir = tmp,
-    gen = gen_target,
+    gen = gen_listed_target,
     requires = { "accepted", "refused", "name", "address", "any" },
     shares = { accepted = 0.05, refused = 0.1, name = 0.02, address = 0.01, any = 0.001 },
     check = function(text: string): boolean, string
@@ -65,7 +73,7 @@ local function test_every_accepted_host_is_carried_by_both_request_readers(tmp: 
   Fuzz.run({
     name = "relay grant hosts round-trip through the request readers",
     dir = tmp,
-    gen = gen_target,
+    gen = gen_listed_target,
     requires = { "name", "ipv4", "ipv6" },
     shares = { name = 0.01, ipv4 = 0.005, ipv6 = 0.005 },
     check = function(text: string): boolean, string
