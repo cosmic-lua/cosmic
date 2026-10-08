@@ -91,7 +91,7 @@ int main (int argc, char **argv) {
     require(prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_RAISE, CAP_CHOWN, 0, 0) == 0,
             "fixture ambient capability");
     refuse(argv[2]);
-    execl(argv[3], argv[3], argv[4], argv[5], argv[6], argv[2], (char *)NULL);
+    execl(argv[3], argv[3], "--standalone", argv[4], argv[5], argv[6], argv[2], (char *)NULL);
     perror("fixture exec");
     return 1;
   }

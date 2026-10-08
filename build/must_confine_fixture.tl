@@ -51,6 +51,9 @@ end
 --- on.
 function must_confine_fixture.environment(mode: string | nil): {string:string}
   local env = this_program.environment()
+  -- A confined child retains only the test's owned directory. Its
+  -- generated state must live there to survive the next child run.
+  env.COSMIC_BUILD_HOME = assert(Fs.absolute(assert(env.TMPDIR))) .. "/build-home"
   env.COSMIC_VERDICT_CACHE = "0"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_TEST_SANDBOX = nil
