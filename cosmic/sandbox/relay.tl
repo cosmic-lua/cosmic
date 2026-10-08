@@ -16,7 +16,7 @@
 --- connectors whose control streams [`Child.start`] hands it, which it
 --- starts in its own process and network from what this module answers:
 ---
---- - [`cosmic.relay.config`]'s `pool_size` of the table's, whose table
+--- - the table's, whose table
 ---   ([`relay.table`]) holds every address a target names literally and
 ---   the upstream proxy's, at most 128 in all;
 --- - for a policy that grants a name ([`relay.Plan.names`]) the relay
@@ -24,12 +24,14 @@
 ---   some), the name servers' ([`relay.name_servers`]), whose table holds
 ---   the system's name servers alone, read once, over which the relay
 ---   resolves a name only once a grant opens it, and, where those could be
----   read, as many public connectors, each of which connects to any address
----   its deny list ([`relay.public`]) allows: what a granted name resolves
----   to.
+---   read, a public connector, which connects to any address its deny list
+---   ([`relay.public`]) allows: what a granted name resolves to.
+---
+--- Each makes several connections at once, so a connect that hangs holds
+--- up no other.
 ---
 --- The upstream proxy the caller's `https_proxy` names is resolved once,
---- by the starter, through the name servers' connector
+--- by the starter, through a name servers' connector of its own
 --- ([`relay.upstream_addresses`]), and the relay is told its
 --- addresses, which it never resolves again.
 ---
@@ -95,7 +97,8 @@ local record relay
   --- A name servers' connector's control stream, and what it was started
   --- with.
   record Through
-    --- The stream's descriptor, the caller's.
+    --- The stream's descriptor, the caller's, of a connector just started:
+    --- nothing has been read from it, what it says first included.
     fd: integer
     --- What the connector was started with.
     name_servers: NameServers
@@ -266,7 +269,7 @@ function relay.upstream_addresses(up: Config.Upstream, through: relay.Through | 
     servers[i] = { host = server.host, port = server.port, index = i }
   end
   local reply_ms = (through.name_servers.wait_ns + 999999) // 1000000 + REPLY_GRACE_MS
-  local found, trouble = raw.resolve_through(up.host, RESOLVE_NS // 1000000, through.fd, reply_ms, servers)
+  local found, trouble = raw.resolve_through(up.host, RESOLVE_NS // 1000000, through.fd, reply_ms, servers, nil, true)
   if found == nil then
     return nil, "https_proxy's host " .. up.host .. " does not resolve: " .. trouble
   end

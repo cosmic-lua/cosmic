@@ -246,18 +246,19 @@ COSMIC_SYSCALL(resolve, 4);
  */
 
 /*
- * --- Resolves a host name as `resolve` does, over TCP alone, every socket of the lookup made by a native connector (core/connector.c) over its control stream: c-ares asks the connector for a connection to each server, by its table index, and is refused every datagram socket, so the lookup reaches nothing the connector's table does not hold. The servers are `servers`, never the system's; the rest of the system's configuration is read as `resolve` reads it. Each server is tried once. Each exchange with the connector is given until the call's deadline or `reply_ms` from its start, whichever is later, so a server that does not answer its connect costs the connector's own wait and the next server is asked; past the deadline no other is asked, so the call ends by its deadline and one `reply_ms` at most. An exchange that fails or runs out even so leaves the stream with a reply unread, so it is shut down, and its owner finds it ended, rather than out of step. A connector's refusal, a server not listed and every connection that fails are the server failing. Linux only: elsewhere ENOSYS once the arguments are checked, as no connector runs there. A degenerate argument raises, a malformed server included; a name `resolve` refuses fails EINVAL.
+ * --- Resolves a host name as `resolve` does, over TCP alone, every socket of the lookup made by a native connector (core/connector.c) over its control stream: c-ares asks the connector for a connection to each server, by its table index, one request at a time, each tagged as core/process.h's CONNECTOR_ constants say, and is refused every datagram socket, so the lookup reaches nothing the connector's table does not hold. The servers are `servers`, never the system's; the rest of the system's configuration is read as `resolve` reads it. Each server is tried once. Each exchange with the connector is given until the call's deadline or `reply_ms` from its start, whichever is later, so a server that does not answer its connect costs the connector's own wait and the next server is asked; past the deadline no other is asked, so the call ends by its deadline and one `reply_ms` at most. An exchange that fails or runs out even so leaves the stream with a reply unread, so it is shut down, and its owner finds it ended, rather than out of step. A connector's refusal, a server not listed and every connection that fails are the server failing. Linux only: elsewhere ENOSYS once the arguments are checked, as no connector runs there. A degenerate argument raises, a malformed server included; a name `resolve` refuses fails EINVAL.
  * ---@param name string the host name or numeric address
  * ---@param timeout_ms integer how long to wait at most, from 0, -1 for no limit beyond c-ares's own retries and timeouts
  * ---@param fd integer the connector's control stream, nonblocking, with no request in flight
  * ---@param reply_ms integer how long the connector may take to reply to one request, 1 through 120000: its own wait to connect and a grace
  * ---@param servers {ThroughServer} the name servers to ask, 1 through 128
  * ---@param hosts? string a hosts file to read in place of the system's
+ * ---@param hello? boolean whether the connector's `CONNECTOR_HELLO` is yet to be read from the stream: it is read first, before the name is looked at, within the wait each exchange has (the later of the call's deadline and `reply_ms` from then, or `reply_ms` where the call has none), and a stream that says no such word fails EPROTO and is shut down; nil is false, and any other value raises
  * ---@return {Resolved}|nil addresses every address, at least one, or nil on failure
  * ---@return string error what went wrong, when addresses is nil
- * ---@return integer errno the error number, when addresses is nil: as `resolve`'s, ETIMEDOUT also where a server went unanswered for want of time (its connect timed out, or the deadline passed before it was asked), ECONNREFUSED where every server was refused a connection, or ENOSYS off Linux
+ * ---@return integer errno the error number, when addresses is nil: as `resolve`'s, EPROTO where `hello` was asked for and the connector said another word (and EPIPE or ETIMEDOUT where it said none), ETIMEDOUT also where a server went unanswered for want of time (its connect timed out, or the deadline passed before it was asked), ECONNREFUSED where every server was refused a connection, or ENOSYS off Linux
  */
-COSMIC_SYSCALL(resolve_through, 6);
+COSMIC_SYSCALL(resolve_through, 7);
 
 /*
  * --- The name servers the system's configuration names, as c-ares reads it for `resolve` (resolv.conf; on macOS, the system's DNS configuration first), in its order: c-ares's own list, `host:port` comma-separated, an IPv6 host in brackets, a link-local one followed by `%` and its interface, and a server whose TCP port differs from its UDP one written as a `dns://` URI with a `tcpport` query. With none configured, c-ares's default, 127.0.0.1:53.
@@ -282,6 +283,11 @@ COSMIC_SYSCALL(nameservers, 1);
  * ---@field EINVAL integer a "tcp" host is no numeric address
  * ---@field ENAMETOOLONG integer a unix path's file name is past `SOCKET_NAME_MAX`, or its directory past the platform's bound on a path
  * ---@field SOCKET_NAME_MAX integer the most bytes a socket file's own name may take: 107 on Linux, 103 on macOS
+ * ---@field CONNECTOR_HELLO integer what a native connector (core/connector.c) says first on its control stream, a big-endian word: "CNC" and its protocol's version
+ * ---@field CONNECTOR_REQUEST_BYTES integer the length of a request to a native connector
+ * ---@field CONNECTOR_FLIGHT integer the most connects a native connector makes at once
+ * ---@field CONNECTOR_DENIED integer a public connector's reply for an address its lists refuse, past any errno
+ * ---@field CONNECTOR_BUSY integer a connector's reply for a connect past `CONNECTOR_FLIGHT`, past any errno
  * ---@field RESOLVE_NOTFOUND integer `resolve`: the name does not exist (NXDOMAIN), -2 on every OS
  * ---@field RESOLVE_NODATA integer `resolve`: the name exists and has no IPv4 or IPv6 address, -5 on every OS
  * ---@field RESOLVE_FAILED integer `resolve`: the servers answered with a failure or a malformed answer, -4 on every OS
@@ -297,6 +303,11 @@ COSMIC_CONSTANT(ENOTCONN)
 COSMIC_CONSTANT(EINVAL)
 COSMIC_CONSTANT(ENAMETOOLONG)
 COSMIC_CONSTANT(SOCKET_NAME_MAX)
+COSMIC_CONSTANT(CONNECTOR_HELLO)
+COSMIC_CONSTANT(CONNECTOR_REQUEST_BYTES)
+COSMIC_CONSTANT(CONNECTOR_FLIGHT)
+COSMIC_CONSTANT(CONNECTOR_DENIED)
+COSMIC_CONSTANT(CONNECTOR_BUSY)
 COSMIC_CONSTANT(RESOLVE_NOTFOUND)
 COSMIC_CONSTANT(RESOLVE_NODATA)
 COSMIC_CONSTANT(RESOLVE_FAILED)

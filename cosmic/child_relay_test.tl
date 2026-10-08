@@ -511,11 +511,11 @@ local function test_the_relays_log_goes_to_a_descriptor_the_caller_gives(tmp: st
   assert(not program_stderr:find("not granted", 1, true), "the program's own standard error holds no line")
 end
 
---- A relay whose every connector of a kind has ended can reach nothing
---- of that kind again: at the next connection of that kind it logs why
---- and ends, and so its program is ended, rather than refused each such
---- connection for the rest of its life.
-local function test_a_relay_whose_connectors_have_all_ended_ends_with_its_program(tmp: string)
+--- A relay whose connector of a kind has ended can reach nothing of that
+--- kind again: at the next connection of that kind it logs why and ends,
+--- and so its program is ended, rather than refused each such connection
+--- for the rest of its life.
+local function test_a_relay_whose_connector_has_ended_ends_with_its_program(tmp: string)
   local database = sealed_client(tmp)
   assert(sys.mkfifo(tmp .. "/log", 384))
   local reader = assert(sys.open(tmp .. "/log", sys.O_RDONLY | sys.O_NONBLOCK, 0))
@@ -540,7 +540,7 @@ local function test_a_relay_whose_connectors_have_all_ended_ends_with_its_progra
       "the program was ended: " .. tostring(result.signal) .. " " .. tostring(result.timed_out))
     assert(gone(relay.pid), "the relay ended")
     local lines = assert(sys.read(reader, 65536))
-    assert(lines:find("relay: every table connector has ended: the relay ends", 1, true), "it says why: " .. lines)
+    assert(lines:find("relay: the table connector has ended: the relay ends", 1, true), "it says why: " .. lines)
   end)
   assert(sys.close(reader))
   assert(sys.close(writer))

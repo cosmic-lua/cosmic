@@ -53,11 +53,8 @@
 #define CONNECTOR_OWN 256
 #define CONNECTOR_SCRATCH 2
 /* The index of a public request: a table's indexes are small, and 0 is
- * refused (EPERM) in eight bytes by every connector. */
+ * refused (EPERM) by every connector. */
 #define CONNECTOR_PUBLIC 0xffffffffu
-/* A public refusal's reply: past any errno, so a kernel's EACCES or EPERM
- * from connect is never taken for the deny list. */
-#define CONNECTOR_DENIED 0x10000
 
 struct connector_insn { uint16_t code; uint8_t jt, jf; uint32_t k; };
 struct connector_range { uintptr_t base; uint32_t slots, length; };
@@ -73,9 +70,25 @@ struct connector_public {
   size_t denies, owns;
   bool enabled;
 };
-/* A public request: index CONNECTOR_PUBLIC, a port (0 asks only for the decision), the
- * family (4 or 6) and the address, an IPv4 one followed by zeros. */
-struct connector_request { uint32_t index, port, family; uint8_t address[16]; };
+/* A request, as CONNECTOR_REQUEST_BYTES on the wire: the tag its reply
+ * carries back, a table's 1-based index (or CONNECTOR_PUBLIC) and a port
+ * (0 asks a public one only for the decision), the most milliseconds to
+ * wait for the connect (0 for the connector's own wait), and, for a public
+ * one alone, the family (4 or 6) and the address, an IPv4 one followed by
+ * zeros. */
+struct connector_request { uint32_t tag, index, port, wait, family; uint8_t address[16]; };
+
+/* One connect in flight: its socket, its request's tag, and the
+ * monotonic millisecond it is given up at. */
+struct connector_flight { int fd; uint32_t tag; int64_t deadline; };
+
+/* What the serving loop holds: the connects in flight, and the bytes of
+ * the request read so far. */
+struct connector_serving {
+  struct connector_flight flight[CONNECTOR_FLIGHT];
+  size_t flying, got;
+  unsigned char held[CONNECTOR_REQUEST_BYTES];
+};
 
 /* Explicit Linux numbers let the same builder be checked for both
  * architectures on every host, independently of its own libc headers. */
@@ -541,43 +554,33 @@ static int64_t connector_now (void) {
   return (int64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
 }
 
-/* Connects a new nonblocking socket to `address`, a table or scratch slot
- * the filter accepts at `size`, within the plan's timeout. */
-static int connector_establish (const struct connector_plan *plan, const struct sockaddr *address,
-                                socklen_t size, int *connected) {
-  int fd = socket(address->sa_family, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, IPPROTO_TCP);
-  if (fd < 0) return errno;
-  int failure = 0;
-  if (connect(fd, address, size) != 0) {
-    failure = errno;
-    if (failure == EINPROGRESS) {
-      int64_t now = connector_now();
-      int64_t deadline = now + plan->timeout;
-      while (now >= 0 && now < deadline) {
-        struct pollfd wait[2] = {{fd, POLLOUT, 0}, {plan->control, POLLHUP, 0}};
-        struct timespec remaining = {(time_t)((deadline - now) / 1000),
-          (long)((deadline - now) % 1000) * 1000000L};
-        int ready = ppoll(wait, 2, &remaining, NULL);
-        if (ready < 0 && errno != EINTR) { failure = errno; break; }
-        if (wait[1].revents & (POLLHUP | POLLERR | POLLNVAL)) { failure = EPIPE; break; }
-        if (wait[0].revents != 0) {
-          socklen_t length = sizeof failure;
-          if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &failure, &length) != 0) failure = errno;
-          break;
-        }
-        now = connector_now();
-      }
-      if (failure == EINPROGRESS) failure = now < 0 ? EIO : ETIMEDOUT;
-    }
-  }
-  if (failure) close(fd);
-  else *connected = fd;
+/* Starts a new nonblocking socket's connect to `address`, a table or
+ * scratch slot the filter accepts at `size`: 0 with the socket connected,
+ * EINPROGRESS with it connecting, in `*fd` either way; or why not, with
+ * no socket. The kernel copies the address at the call, so the slot may
+ * be written for the next request while this one connects. */
+static int connector_begin (const struct sockaddr *address, socklen_t size, int *fd) {
+  *fd = socket(address->sa_family, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, IPPROTO_TCP);
+  if (*fd < 0) return errno;
+  if (connect(*fd, address, size) == 0) return 0;
+  int failure = errno;
+  /* An interrupted nonblocking connect goes on in the background. */
+  if (failure == EINPROGRESS || failure == EINTR) return EINPROGRESS;
+  close(*fd);
+  *fd = -1;
   return failure;
 }
 
-static int connector_connect (const struct connector_plan *plan, uint32_t index, uint32_t port,
-                              int *connected) {
+/* A table request: EINVAL where it carries a family or an address, which
+ * only a public one does; EPERM for an index or port the table does not
+ * hold; CONNECTOR_BUSY where there is no `room` for another connect. */
+static int connector_connect (const struct connector_plan *plan, const struct connector_request *request,
+                              bool room, int *connected) {
   *connected = -1;
+  if (request->family != 0) return EINVAL;
+  for (size_t i = 0; i < sizeof request->address; i++)
+    if (request->address[i] != 0) return EINVAL;
+  uint32_t index = request->index, port = request->port;
   if (index < 1 || index > plan->count || port < 1 || port > 65535) return EPERM;
   const struct connector_range *range = &plan->ranges[index - 1];
   const struct sockaddr *address = (const struct sockaddr *)(range->base +
@@ -585,15 +588,17 @@ static int connector_connect (const struct connector_plan *plan, uint32_t index,
   uint16_t held = address->sa_family == AF_INET ?
     ((const struct sockaddr_in *)address)->sin_port : ((const struct sockaddr_in6 *)address)->sin6_port;
   if (ntohs(held) != port) return EPERM;
-  return connector_establish(plan, address, range->length, connected);
+  if (!room) return CONNECTOR_BUSY;
+  return connector_begin(address, range->length, connected);
 }
 
 /* A public request, answered EPERM where the connector is not public,
- * EINVAL where it is malformed and CONNECTOR_DENIED where the address is refused.
+ * EINVAL where it is malformed, CONNECTOR_DENIED where the address is
+ * refused and CONNECTOR_BUSY where there is no `room` for another connect.
  * Port 0 asks only for the decision: 0 for an allowed address, with no
  * socket made and no descriptor passed. */
 static int connector_public_connect (const struct connector_plan *plan,
-                                     const struct connector_request *request, int *connected) {
+                                     const struct connector_request *request, bool room, int *connected) {
   *connected = -1;
   if (!plan->pub.enabled) return EPERM;
   size_t length = request->family == 4 ? 4 : request->family == 6 ? 16 : 0;
@@ -602,6 +607,7 @@ static int connector_public_connect (const struct connector_plan *plan,
     if (request->address[i] != 0) return EINVAL;
   if (!connector_public_allowed(&plan->pub, request->address, length)) return CONNECTOR_DENIED;
   if (request->port == 0) return 0;
+  if (!room) return CONNECTOR_BUSY;
   unsigned char *slot = (unsigned char *)plan->scratch;
   if (length == 16) slot += CONNECTOR_STRIDE;
   memset(slot, 0, CONNECTOR_STRIDE);
@@ -619,12 +625,21 @@ static int connector_public_connect (const struct connector_plan *plan,
     memcpy(&v6->sin6_addr, request->address, 16);
     size = sizeof *v6;
   }
-  return connector_establish(plan, (const struct sockaddr *)slot, size, connected);
+  return connector_begin((const struct sockaddr *)slot, size, connected);
 }
 
-static int connector_reply (int control, int failure, int fd) {
-  uint32_t number = htonl((uint32_t)failure);
-  int trouble = connector_whole(control, &number, sizeof number, true);
+/* Replies to the request `tag`: its tag and errno, big-endian, and after
+ * a success with a socket, one marker byte with `fd` passed beside it.
+ * The two are written back to back, so replies never interleave.
+ * TODO: send the header and the descriptor in one message, so that a
+ * sendmsg the kernel refuses (ETOOMANYREFS, once this user has more
+ * descriptors in flight than RLIMIT_NOFILE, as unread replies to requests
+ * a client gave up on can make it) fails that request alone rather than
+ * ending the connector with its header sent; that waits on cosmic.net and
+ * core/socket.c's `through_ask` reading a header with its rights. */
+static int connector_reply (int control, uint32_t tag, int failure, int fd) {
+  uint32_t head[2] = {htonl(tag), htonl((uint32_t)failure)};
+  int trouble = connector_whole(control, head, sizeof head, true);
   if (trouble || failure || fd < 0) return trouble;
   char marker = '\0';
   struct iovec payload = {&marker, 1};
@@ -642,31 +657,111 @@ static int connector_reply (int control, int failure, int fd) {
   return sent == 1 ? 0 : sent < 0 ? errno : EIO;
 }
 
-/* A public request carries its family and address after the eight
- * bytes every request begins with. */
-static int connector_receive (int control, struct connector_request *request) {
-  uint32_t head[2];
-  int trouble = connector_whole(control, head, sizeof head, false);
-  if (trouble) return trouble;
-  *request = (struct connector_request){ntohl(head[0]), ntohl(head[1]), 0, {0}};
-  if (request->index != CONNECTOR_PUBLIC) return 0;
-  uint32_t family;
-  trouble = connector_whole(control, &family, sizeof family, false);
-  if (trouble) return trouble;
-  request->family = ntohl(family);
-  return connector_whole(control, request->address, sizeof request->address, false);
+/* The request in `bytes`, CONNECTOR_REQUEST_BYTES of them: five
+ * big-endian words (tag, index, port, wait, family) and 16 address bytes.
+ * Any bytes decode; what they ask is judged when the request is served. */
+static void connector_decode (const unsigned char *bytes, struct connector_request *request) {
+  uint32_t words[5];
+  memcpy(words, bytes, sizeof words);
+  request->tag = ntohl(words[0]);
+  request->index = ntohl(words[1]);
+  request->port = ntohl(words[2]);
+  request->wait = ntohl(words[3]);
+  request->family = ntohl(words[4]);
+  memcpy(request->address, bytes + sizeof words, sizeof request->address);
 }
 
+/* Serves the request `serving` holds whole: its reply now, or, for a
+ * connect that has begun, a place among the connects in flight, given
+ * the request's wait or the connector's, whichever is shorter (0 asks for
+ * the connector's). */
+static void connector_serve (const struct connector_plan *plan, struct connector_serving *serving) {
+  struct connector_request request;
+  connector_decode(serving->held, &request);
+  bool room = serving->flying < CONNECTOR_FLIGHT;
+  int fd = -1;
+  int failure = request.index == CONNECTOR_PUBLIC ? connector_public_connect(plan, &request, room, &fd) :
+    connector_connect(plan, &request, room, &fd);
+  if (failure == EINPROGRESS) {
+    int64_t now = connector_now();
+    if (now >= 0) {
+      uint32_t wait = request.wait == 0 || request.wait > (uint32_t)plan->timeout ?
+        (uint32_t)plan->timeout : request.wait;
+      serving->flight[serving->flying++] = (struct connector_flight){fd, request.tag, now + wait};
+      return;
+    }
+    close(fd);
+    fd = -1;
+    failure = EIO;
+  }
+  int sent = connector_reply(plan->control, request.tag, failure, fd);
+  if (fd >= 0) close(fd);
+  if (sent) _exit(0);
+}
+
+/* Ends the connect in flight at `at` with `failure` (0 for a connection
+ * made) and replies to its request. */
+static void connector_settle (const struct connector_plan *plan, struct connector_serving *serving,
+                              size_t at, int failure) {
+  struct connector_flight flight = serving->flight[at];
+  serving->flight[at] = serving->flight[--serving->flying];
+  int sent = connector_reply(plan->control, flight.tag, failure, failure ? -1 : flight.fd);
+  close(flight.fd);
+  if (sent) _exit(0);
+}
+
+/* Says CONNECTOR_HELLO, then serves requests as they come, each connect
+ * made while up to CONNECTOR_FLIGHT others are, and replies to each as it
+ * ends, in whatever order. A request is read a part at a time, as the
+ * stream has it, so one that comes in pieces holds no connect up. The
+ * stream's end, or a reply it does not take, ends the process. */
 static _Noreturn void connector_loop (const struct connector_plan *plan) {
+  struct connector_serving serving;
+  memset(&serving, 0, sizeof serving);
+  uint32_t hello = htonl(CONNECTOR_HELLO);
+  if (connector_whole(plan->control, &hello, sizeof hello, true) != 0) _exit(0);
   for (;;) {
-    struct connector_request request;
-    if (connector_receive(plan->control, &request) != 0) _exit(0);
-    int fd = -1;
-    int failure = request.index == CONNECTOR_PUBLIC ? connector_public_connect(plan, &request, &fd) :
-      connector_connect(plan, request.index, request.port, &fd);
-    int sent = connector_reply(plan->control, failure, fd);
-    if (fd >= 0) close(fd);
-    if (sent || failure == EPIPE) _exit(0);
+    struct pollfd wait[1 + CONNECTOR_FLIGHT];
+    wait[0] = (struct pollfd){plan->control, POLLIN, 0};
+    int64_t nearest = -1;
+    for (size_t i = 0; i < serving.flying; i++) {
+      wait[1 + i] = (struct pollfd){serving.flight[i].fd, POLLOUT, 0};
+      if (nearest < 0 || serving.flight[i].deadline < nearest) nearest = serving.flight[i].deadline;
+    }
+    int64_t now = connector_now();
+    struct timespec left = {0, 0};
+    if (nearest >= 0 && now >= 0 && nearest > now)
+      left = (struct timespec){(time_t)((nearest - now) / 1000), (long)((nearest - now) % 1000) * 1000000L};
+    int ready = ppoll(wait, 1 + serving.flying, nearest < 0 ? NULL : &left, NULL);
+    if (ready < 0) {
+      if (errno == EINTR) continue;
+      _exit(0);
+    }
+    if (wait[0].revents & (POLLERR | POLLNVAL)) _exit(0);
+    now = connector_now();
+    /* Downward, so the last connect moved into a settled one's place has
+     * been looked at already. */
+    for (size_t i = serving.flying; i-- > 0;) {
+      if (wait[1 + i].revents != 0) {
+        int failure = 0;
+        socklen_t length = sizeof failure;
+        if (getsockopt(serving.flight[i].fd, SOL_SOCKET, SO_ERROR, &failure, &length) != 0) failure = errno;
+        connector_settle(plan, &serving, i, failure);
+      } else if (now < 0 || now >= serving.flight[i].deadline) {
+        connector_settle(plan, &serving, i, now < 0 ? EIO : ETIMEDOUT);
+      }
+    }
+    if (wait[0].revents & (POLLIN | POLLHUP)) {
+      /* The stream is blocking, but poll found it readable: the read takes
+       * what is there, at most the rest of one request. */
+      ssize_t got = read(plan->control, serving.held + serving.got, sizeof serving.held - serving.got);
+      if (got == 0 || (got < 0 && errno != EINTR)) _exit(0);
+      if (got > 0) serving.got += (size_t)got;
+      if (serving.got == sizeof serving.held) {
+        serving.got = 0;
+        connector_serve(plan, &serving);
+      }
+    }
   }
 }
 

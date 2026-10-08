@@ -396,12 +396,12 @@ local record Options
   ---   program's core on a database sealed for it, held by a pid namespace
   ---   and the files its resolver reads, which makes no socket of its own.
   ---   It reaches the network only through the native connectors this
-  ---   process starts and hands it ([`cosmic.sandbox.relay`]): a few whose
+  ---   process starts and hands it ([`cosmic.sandbox.relay`]): one whose
   ---   table holds the addresses a target names literally (at most 128, with
   ---   the upstream proxy's: a policy with more fails to start, saying so),
   ---   and, where a target names a host the relay reaches directly, one that
-  ---   reaches the system's name servers alone, over TCP, and a few that
-  ---   connect to the public addresses a name resolves to. The program reaches it at 127.0.0.1 ports 3128
+  ---   reaches the system's name servers alone, over TCP, and one that
+  ---   connects to the public addresses a name resolves to. The program reaches it at 127.0.0.1 ports 3128
   ---   (HTTP CONNECT) and 1080 (SOCKS5), which the child's environment names:
   ---   `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY` (in both cases),
   ---   `NODE_USE_ENV_PROXY=1` and a `NO_PROXY` of `localhost`, 127.0.0.1, ::1
@@ -421,8 +421,8 @@ local record Options
   ---   does not resolve fails the start. It lives as long
   ---   as the child's handle does: it is ended with the child, and a relay
   ---   that dies first ends the child (SIGKILL, at its next wait), as one
-  ---   does once every connector of a kind it was handed has ended, since
-  ---   none is started anew. A relay that
+  ---   does once a connector it was handed has ended, since none is started
+  ---   anew. A relay that
   ---   will not start fails the start, naming why, and ends the child. The
   ---   relay's decision lines go where `relay_log` says. It needs this
   ---   program to carry [`cosmic.relay.main`] and [`cosmic.sandbox.relay`]
@@ -2010,12 +2010,9 @@ end
 --- A native connector process, as [`Child.start_connector`] starts one.
 local record ConnectorProcess
   --- The control stream's descriptor, nonblocking and the object's to
-  --- close: a request is eight bytes written to it, a big-endian
-  --- 1-based endpoint index and a port, and the reply is read from it:
-  --- a big-endian errno, and, on success only, one marker byte with the
-  --- connected socket passed beside it. The index 4294967295 (a public
-  --- request) follows the eight bytes with a big-endian family (4 or 6)
-  --- and 16 address bytes (see the core's `connector_start`). Valid until `close`.
+  --- close, which speaks the protocol the core's `connector_start` says:
+  --- the connector's hello first, then a tagged reply to each request,
+  --- in the order the connects end. Valid until `close`.
   fd: integer
   --- The connector's process id, which `close` reaps: nil for a stream
   --- adopted with [`Child.adopt_connector`], whose process is its starter's
@@ -2152,13 +2149,13 @@ end
 --- no file, no exec, no other address. It connects, within `timeout_ms`
 --- milliseconds (1 to 60000) each, to one endpoint a request names and
 --- passes the connected socket back over its control stream; one
---- connector serves any number of requests, one at a time, until it is
+--- connector serves any number of requests, several at once, until it is
 --- closed. It answers nil and why where this host cannot confine one:
 --- Linux on x86_64 and aarch64 only. An `endpoints` that is no table of
 --- such endpoints, or a `timeout_ms` outside 1 to 60000, raises.
 ---
 ---     local connector = assert(Child.start_connector({ { host = "127.0.0.1", port = 8080 } }, 5000))
----     -- write ">I4I4" of endpoint 1 and the port to connector.fd, read the reply
+---     -- read the hello from connector.fd, write a tagged request, read its reply
 ---     connector:close()
 ---
 --- With `public` (`deny`, the numeric "address/bits" prefixes it refuses,
@@ -3796,15 +3793,17 @@ local function relay_connector(endpoints: {raw_process.ConnectorEndpoint}, wait_
 end
 
 --- The connectors the relay of the `connect` targets `connect` is handed
---- ([`cosmic.sandbox.relay`]), started in this process and network:
---- [`cosmic.relay.config`]'s `pool_size` of the table's, of the addresses
---- a target names literally and the upstream proxy's; and, for a target that names
---- a host the relay reaches directly (no upstream, or one `no_proxy`
---- bypasses for some), the name servers' and as many public ones (refusing
---- the relay's deny list and `own`, the host's own addresses). The
---- upstream's host is resolved once, here, through the name servers'
---- connector. Nil and why, with nothing left running, where the upstream
---- cannot be used or resolved, the table would be past 128, or a
+--- ([`cosmic.sandbox.relay`]), started in this process and network: the
+--- table's, of the addresses a target names literally and the upstream
+--- proxy's; and, for a target that names a host the relay reaches
+--- directly (no upstream, or one `no_proxy` bypasses for some), the name
+--- servers' and a public one (refusing the relay's deny list and `own`,
+--- the host's own addresses). Each makes several connections at once.
+--- The upstream's host is resolved once, here, through a name servers'
+--- connector of its own, closed after: a stream handed to the relay is
+--- handed as its connector started it, what it says first unread, for
+--- the relay to check. Nil and why, with nothing left running, where the
+--- upstream cannot be used or resolved, the table would be past 128, or a
 --- connector cannot start. Name servers that cannot be read are no
 --- failure: the relay is told why, is handed no public connector, and
 --- reaches only what a target names literally, and the upstream.
@@ -3827,67 +3826,57 @@ local function relay_handover(connect: {string}, own: {string}): RelayConfig.Han
     close()
     return nil, why
   end
-  local config: RelayConfig.Config = { grants = connect, own_addresses = own, log = "null", tables = 0, public = 0 }
+  local config: RelayConfig.Config = { grants = connect, own_addresses = own, log = "null", public = false }
   local fds: {integer: integer} = {}
   local up = plan.upstream
-  local through: Rules.Relay.Through
-  local dns: ConnectorProcess
+  local servers: Rules.Relay.NameServers
   local unresolved = ""
   -- A name is reached directly, and so resolved and connected by the relay
   -- itself, only with no upstream or one that no_proxy bypasses for some.
   local direct = plan.names and (up == nil or #up.no_proxy > 0)
-  if direct or (up ~= nil and Address.parse(up.host) == nil) then
-    local servers, servers_why = SandboxRelay.name_servers()
-    if servers == nil then
-      unresolved = servers_why
-    else
-      local started, dns_why = relay_connector(servers.servers, servers.wait_ns)
-      if started == nil then return fail("the name servers' connector: " .. dns_why) end
-      dns = started
-      processes[#processes + 1] = started
-      through = { fd = started.fd, name_servers = servers }
-    end
+  local upstream_named = up ~= nil and Address.parse(up.host) == nil
+  if direct or upstream_named then
+    local listed, servers_why = SandboxRelay.name_servers()
+    if listed == nil then unresolved = servers_why else servers = listed end
   end
   local addresses: {string}
   if up ~= nil then
+    local through: Rules.Relay.Through
+    local lookup: ConnectorProcess
+    if upstream_named and servers ~= nil then
+      local started, dns_why = relay_connector(servers.servers, servers.wait_ns)
+      if started == nil then return fail("the name servers' connector: " .. dns_why) end
+      lookup = started
+      through = { fd = started.fd, name_servers = servers }
+    end
     local found, found_why = SandboxRelay.upstream_addresses(up, through, unresolved)
+    if lookup ~= nil then local _ = lookup:close() end
     if found == nil then return fail(found_why) end
     addresses = found
     config.upstream_addresses = found
   end
   local rows, rows_why = SandboxRelay.table(plan, addresses)
   if rows == nil then return fail(rows_why) end
-  -- TODO: hand the relay one table connector and one public connector that
-  -- each make several connections at once, once core/connector.c's protocol
-  -- tags each request and its reply so that one process serves several
-  -- connects (a change of its own): each of these makes one at a time, so
-  -- RelayConfig.pool_size connects that hang, to the upstream proxy or to a
-  -- granted name, hold every other connection of their kind.
   if #rows > 0 then
     config.table = rows
-    for i = 1, RelayConfig.pool_size do
-      local process, why = relay_connector(rows, RelayConfig.connect_ns)
-      if process == nil then return fail("table connector " .. i .. ": " .. why) end
-      processes[#processes + 1] = process
-      config.tables, fds[RelayConfig.table_fd + i - 1] = i, process.fd
-    end
+    local process, why = relay_connector(rows, RelayConfig.connect_ns)
+    if process == nil then return fail("the table connector: " .. why) end
+    processes[#processes + 1] = process
+    fds[RelayConfig.table_fd] = process.fd
   end
-  if direct and through == nil then
-    -- No name resolves: the public connectors would reach nothing.
+  if direct and servers == nil then
+    -- No name resolves: the public connector would reach nothing.
     config.unresolved = unresolved
   elseif direct then
-    for i = 1, RelayConfig.pool_size do
-      local process, why = relay_connector({}, RelayConfig.connect_ns, SandboxRelay.public(own))
-      if process == nil then return fail("public connector " .. i .. ": " .. why) end
-      processes[#processes + 1] = process
-      config.public, fds[RelayConfig.public_fd + i - 1] = i, process.fd
-    end
-    config.name_servers, config.name_server_wait_ns = through.name_servers.servers, through.name_servers.wait_ns
-    fds[RelayConfig.name_server_fd] = through.fd
-  elseif dns ~= nil then
-    -- Only the upstream's lookup needed it: the relay resolves no name, as
-    -- every name goes through the upstream.
-    local _ = dns:close()
+    local dns, dns_why = relay_connector(servers.servers, servers.wait_ns)
+    if dns == nil then return fail("the name servers' connector: " .. dns_why) end
+    processes[#processes + 1] = dns
+    fds[RelayConfig.name_server_fd] = dns.fd
+    local process, why = relay_connector({}, RelayConfig.connect_ns, SandboxRelay.public(own))
+    if process == nil then return fail("the public connector: " .. why) end
+    processes[#processes + 1] = process
+    config.public, fds[RelayConfig.public_fd] = true, process.fd
+    config.name_servers, config.name_server_wait_ns = servers.servers, servers.wait_ns
   end
   return { config = config, fds = fds, close = close }, ""
 end

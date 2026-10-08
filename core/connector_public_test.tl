@@ -32,6 +32,22 @@ end
 
 local OWN <const>: {string} = { "8.8.4.4", "2606:4700::6810:84e5" }
 
+--- Reads exactly `count` bytes of `fd`.
+local function read_whole(fd: integer, count: integer): string
+  local got = ""
+  while #got < count do
+    local more = assert(sys.read(fd, count - #got))
+    assert(more ~= "", "the connector ended before it replied")
+    got = got .. more
+  end
+  return got
+end
+
+--- Reads the hello a connector says first.
+local function greeted(fd: integer)
+  assert(string.unpack(">I4", read_whole(fd, 4)) == 0x434e4302, "the connector said no hello")
+end
+
 --- A public connector over the relay's own list and `OWN`, whose decision
 --- `decide` reads for an address.
 local function start(): {integer}, integer
@@ -39,20 +55,16 @@ local function start(): {integer}, integer
   local child, why = process.connector_start({}, pair[2], 500, { deny = Relay.Address.deny_cidrs(), own = OWN })
   assert(sys.close(pair[2]))
   assert(child, why)
+  greeted(pair[1])
   return pair, child
 end
 
 local function decide(fd: integer, address: string): boolean
   local bytes = assert(Relay.Address.parse(address))
-  assert(sys.write(fd, string.pack(">I4I4I4", 0xffffffff, 0, #bytes == 4 and 4 or 6) ..
-      string.char(table.unpack(bytes)) .. string.rep("\0", 16 - #bytes)) == 28)
-  local got = ""
-  while #got < 4 do
-    local more = assert(sys.read(fd, 4 - #got))
-    assert(more ~= "", "the connector ended before it replied")
-    got = got .. more
-  end
-  local errno = string.unpack(">I4", got)
+  assert(sys.write(fd, string.pack(">I4I4I4I4I4", 5, 0xffffffff, 0, 0, #bytes == 4 and 4 or 6) ..
+      string.char(table.unpack(bytes)) .. string.rep("\0", 16 - #bytes)) == 36)
+  local tag, errno = string.unpack(">I4I4", read_whole(fd, 8))
+  assert(tag == 5, "the reply carries another tag: " .. tag)
   assert(errno == 0 or errno == DENIED, address .. ": errno " .. errno)
   return errno == 0
 end
@@ -205,6 +217,7 @@ local function test_a_prefix_of_any_length_holds_exactly_the_addresses_that_shar
       local child, why = process.connector_start({}, pair[2], 500, { deny = { base .. "/" .. bits } })
       assert(sys.close(pair[2]))
       assert(child, why)
+      greeted(pair[1])
       assert(not decide(pair[1], base), base .. "/" .. bits .. " does not hold its own address")
       for _, at in ipairs({ 1, 3, 4, bits - 1, bits, bits + 1, bits + 2, width }) do
         if at >= 1 and at <= width then

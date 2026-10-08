@@ -147,12 +147,11 @@ local record Net
   type Endpoint = Child.ConnectorEndpoint
 
   record ConnectorOptions
-    --- How long the connector process waits to make each connection, in
-    --- nanoseconds, from 1 millisecond to 60 seconds (10 seconds by
-    --- default). It is fixed when the process starts, so a table's
-    --- connector holds every request to it; a `timeout_ns` a request
-    --- gives that is shorter ends the wait for the reply sooner, and
-    --- the connector with it (see [`Connector.connect`]).
+    --- The longest the connector process waits to make each connection,
+    --- in nanoseconds, from 1 millisecond to 60 seconds (10 seconds by
+    --- default). It is fixed when the process starts; a request's own
+    --- `timeout_ns`, where shorter, bounds its connect instead (see
+    --- [`Connector.connect`]).
     timeout_ns: integer
     --- Makes the connector public: it also connects to an address its
     --- table lacks, judged by the process itself against the lists given
@@ -171,19 +170,25 @@ local record Net
   --- Connects to numeric addresses through the sandbox's native connector
   --- process, answered by [`Net.connector`]: a process confined to a
   --- fixed set of endpoints, which connects a socket and passes it back
-  --- over a private stream. A connector is not safe to share between
-  --- tasks that need their connections at once: requests to one process
-  --- go one at a time (see [`Net.connector`]).
+  --- over a private stream. Tasks of a [`Poll.run`] share one: its
+  --- process makes up to [`Net.CONNECTOR_FLIGHT`] connections at once,
+  --- answering each as it is made, so a connect that hangs holds up no
+  --- other.
   interface Connector
     --- Connects to `target` at `port` within `timeout_ns` nanoseconds: the
     --- connection, or nil and why ([`Poll.TIMEOUT`], "Connection
     --- refused", the connector's own refusal of an endpoint not in its
     --- table, ...). `target` is the numeric address as the table wrote
     --- it, or the table's 1-based index of an endpoint; `port` is that
-    --- endpoint's, or any nonzero one where its port is 0. A connector
-    --- whose process failed in the middle of a request (it was not
-    --- answered in time, or ended) is started again for the next. A
-    --- `timeout_ns` that is no integer from 0 raises, and so does an
+    --- endpoint's, or any nonzero one where its port is 0. The process
+    --- connects for at most `timeout_ns` (or its own wait, where shorter),
+    --- and its answer is waited for a second more. A request past the
+    --- [`Net.CONNECTOR_FLIGHT`] the process is making waits for one of them
+    --- to end, within its `timeout_ns`; one given up on still counts until
+    --- the process answers it. A connector whose process ended, or whose
+    --- stream fell out of step, fails every request waiting on it, and is
+    --- started again for the next, unless [`Net.connector_from`] adopted
+    --- it. A `timeout_ns` that is no integer from 0 raises, and so does an
     --- address that is no numeric one where the connector has no table. A
     --- public connector (see [`Net.connector`]) also connects to a numeric
     --- `target` its table lacks, unless its process refuses the address
@@ -253,10 +258,17 @@ local record Net
     --- the system's ([`cosmic.relay`]'s `nameservers`), each of which the
     --- connector's table must hold at its port. A connector built from
     --- those alone reaches nothing else, so the lookup's
-    --- sockets reach nothing but the name servers. Linux only, as the
+    --- sockets reach nothing but the name servers. The lookup asks
+    --- one connection at a time, once every request the connector has
+    --- pending is answered, and holds the thread while it runs, so a
+    --- connector for lookups is best one of their own. Linux only, as the
     --- connector is.
     connector: Connector
   end
+
+  --- The most connections one [`Net.Connector`]'s process makes at once
+  --- (64).
+  CONNECTOR_FLIGHT: integer
 
 
   --- What [`Net.serve`] serves, and how. A field of the wrong shape, or
@@ -977,6 +989,61 @@ local CONNECTOR_DEFAULT_NS <const> = Clock.seconds(10)
 local CONNECTOR_GRACE_NS <const> = Clock.seconds(1)
 local CONNECTOR_MAX_ENDPOINTS <const> = 128
 
+Net.CONNECTOR_FLIGHT = raw.CONNECTOR_FLIGHT
+
+--- A request sent on a connector's stream whose reply has not been
+--- taken: what it asked for, so its socket is checked, and, once
+--- answered, the connection or why not. One its caller gave up on is
+--- still answered, its socket closed, so the stream stays in step.
+local record Pending
+  host: string
+  port: integer
+  timeout_ns: integer
+  -- What a refusal by the connector's lists says.
+  refusal: string
+  given_up: boolean
+  done: boolean
+  conn: Net.Conn
+  why: string
+  -- Whether its caller took `conn`: one answered but left behind is closed.
+  taken: boolean
+end
+
+--- One connector process's control stream, which every request to it
+--- shares: each request is tagged, and whichever caller finds the stream
+--- readable reads what replies there are, a part at a time as the stream
+--- has them, and hands each to the request its tag names. A reply is read
+--- as its header (the tag and the errno, eight bytes) and, after a
+--- success, the marker with its socket, never more than that at once: a
+--- read past the header would take the marker and drop its socket.
+local record Channel
+  process: Child.ConnectorProcess
+  -- Whether the connector's CONNECTOR_HELLO has been read and matched;
+  -- `hello` holds what of it has been read until then.
+  greeted: boolean
+  hello: string
+  -- The tag the next request takes, from 1, wrapping at 2^32.
+  next_tag: integer
+  -- Each request sent whose reply has not been taken, by tag, those
+  -- given up on among them, and how many there are.
+  pending: {integer: Pending}
+  count: integer
+  -- What of a reply's header has been read.
+  header: string
+  -- The request whose socket comes next, its header read, and its tag;
+  -- nil for none.
+  passing: Pending
+  passing_tag: integer
+  -- Why the stream is out of step or gone; nil while it is in step. Once
+  -- set, the process's descriptor is closed and its number is never used
+  -- again: every predicate a caller waits on before it writes or hands
+  -- the stream on requires this nil.
+  lost: string
+  -- How many times a read changed what a waiter looks at (the hello read,
+  -- a request answered), so a reader knows to wake the others.
+  progress: integer
+end
+
 local record SocketConnector is Net.Connector
   -- The endpoints the process is confined to, in order; nil where each
   -- connection starts a process of its own for the one endpoint it asks.
@@ -991,11 +1058,10 @@ local record SocketConnector is Net.Connector
   inherited: boolean
   -- Whether its process takes public requests.
   accepts_public: boolean
-  -- The process serving a table, nil before its first start and after a
-  -- request left it with a reply unread.
-  process: Child.ConnectorProcess
-  -- Whether a request is in flight to `process`: a second waits.
-  busy: boolean
+  -- The stream of the process serving a table, nil before its first
+  -- start; one lost is replaced at the next request where the process is
+  -- this one's to start.
+  channel: Channel
   open: boolean
   connect: function(SocketConnector, target: integer | string, port: integer, timeout_ns: integer): Net.Conn | nil, string
   as_function: function(SocketConnector): function(address: string, port: integer, timeout_ns: integer): Net.Conn | nil, string
@@ -1010,34 +1076,35 @@ local socket_connector_mt: metatable<SocketConnector> = {
   end,
 }
 
---- Reads exactly `count` bytes of the control stream by `deadline`. A
---- process closed meanwhile, by [`Connector.close`], ends the wait.
-local function control_read(process: Child.ConnectorProcess, count: integer, deadline: integer): string | nil, string
-  local out = ""
-  while #out < count do
-    if not process.open then return nil, "net: the connector is closed" end
-    local data, why, errno = sys.read(process.fd, count - #out)
-    if data == "" then
-      return nil, "net: the connector ended before it replied"
-    elseif data ~= nil then
-      out = out .. data
-    elseif errno ~= raw.EAGAIN then
-      return nil, why
-    else
-      local ready, waiting = waited(process.fd, false, math.max(0, deadline - Clock.monotonic_ns()))
-      if not ready then return nil, waiting end
-    end
-  end
-  return out, ""
+local function channel_of(process: Child.ConnectorProcess): Channel
+  return { process = process, greeted = false, hello = "", next_tag = 1, pending = {}, count = 0, header = "",
+    progress = 0 }
 end
 
---- What [`ask`] found: the connection, or why not, and whether the
---- process is still in step with its requests (it answered, a refusal
---- included) or has a reply unread or is gone.
-local record Asked
-  conn: Net.Conn
-  why: string
-  kept: boolean
+--- Gives the stream of `channel` up, `why` it is lost: every request
+--- waiting on it fails so, and its process is closed, which wakes a task
+--- waiting on the stream.
+local function lose(channel: Channel, why: string)
+  if channel.lost ~= nil then return end
+  channel.lost = why
+  for _, pending in pairs(channel.pending) do
+    if not pending.done then pending.done, pending.why = true, why end
+  end
+  channel.pending, channel.count, channel.passing = {}, 0, nil
+  local _ = channel.process:close()
+end
+
+--- Answers `pending`, the request of `tag`, with `conn` or why not; one
+--- given up on has its connection closed.
+local function answer(channel: Channel, tag: integer, pending: Pending, conn: Net.Conn, why: string)
+  channel.pending[tag] = nil
+  channel.count = channel.count - 1
+  channel.progress = channel.progress + 1
+  if pending.given_up then
+    if conn ~= nil then local _, _ = conn:close() end
+    return
+  end
+  pending.done, pending.conn, pending.why = true, conn, why
 end
 
 --- Whether the numeric hosts `a` and `b` are one address, however
@@ -1048,69 +1115,216 @@ local function same_host(a: string, b: string): boolean
   return x ~= nil and y ~= nil and table.concat(x, ",") == table.concat(y, ",")
 end
 
---- What the connector answers for an address its lists refuse: past any
---- errno, so a kernel's EACCES or EPERM from connect is not taken for it.
-local CONNECTOR_DENIED <const> = 65536
-
---- The request for a connection to the public address `bytes`: the public
---- index (4294967295) and the port, then the family and the address in 16 bytes.
-local function public_request(bytes: {integer}, port: integer): string
-  return string.pack(">I4I4I4", 0xffffffff, port, #bytes == 4 and 4 or 6) ..
-    string.char(table.unpack(bytes)) .. string.rep("\0", 16 - #bytes)
+--- What a reply's errno `status` says for `pending`.
+local function refused_why(status: integer, pending: Pending): string
+  if status == raw.ETIMEDOUT then return Poll.TIMEOUT end
+  if status == raw.CONNECTOR_DENIED and pending.refusal ~= "" then return pending.refusal end
+  if status == raw.CONNECTOR_BUSY then
+    return "net: the connector is busy: it makes at most " .. raw.CONNECTOR_FLIGHT .. " connections at once"
+  end
+  return sys.errno_message(status)
 end
 
---- Asks `process` with `request` for a connection to `host` at `port`, by
---- `deadline`. The socket it passes is taken only if it is a stream
---- connected to that very host and port. `refusal` is what a request the
---- connector's lists refuse says.
----
---- A reply that came whole keeps the stream in step when its socket is
---- connected to nothing: the far side reset it as it was made, which fails
---- this connection alone. A socket connected elsewhere, or a descriptor
---- that is no stream socket, is no reply a connector that works gives, so
---- the stream is given up as one that misbehaves.
-local function ask(process: Child.ConnectorProcess, request: string, host: string, port: integer,
-                   deadline: integer, timeout_ns: integer, refusal: string): Asked
-  -- send, not write: a connector that has ended is EPIPE, never SIGPIPE.
-  local sent, wrote = raw.send(process.fd, request)
-  if sent ~= #request then
-    return { why = "net: could not ask the connector: " .. tostring(wrote), kept = false }
+--- Takes the socket `channel.passing` waits for, if it has come. The
+--- socket is taken only if it is a stream connected to that very host and
+--- port. One connected to nothing (the far side reset it as it was made)
+--- fails that request alone; one connected elsewhere, or a descriptor
+--- that is no stream socket, is no reply a connector that works gives,
+--- so the stream is given up as one that misbehaves. False where the
+--- socket has not come yet or the stream is lost.
+local function take_socket(channel: Channel, tag: integer): boolean
+  local pending = channel.passing
+  local received, because, failure = raw.recvfds(channel.process.fd, 1)
+  if received == nil then
+    if failure ~= raw.EAGAIN then lose(channel, because) end
+    return false
   end
-  local status, saying = control_read(process, 4, deadline)
-  if status == nil then return { why = saying, kept = false } end
-  local errno = string.unpack(">I4", status)
-  if errno ~= 0 then
-    local why = errno == raw.ETIMEDOUT and Poll.TIMEOUT or sys.errno_message(errno)
-    if errno == CONNECTOR_DENIED and refusal ~= "" then why = refusal end
-    return { why = why, kept = true }
-  end
-  while true do
-    if not process.open then return { why = "net: the connector is closed", kept = false } end
-    local received, because, failure = raw.recvfds(process.fd, 1)
-    if received ~= nil then
-      local socket = received[1]
-      local peer, peer_why, peer_errno = raw.peer(socket:fd())
-      if peer == nil then
-        local _, _ = socket:close()
-        -- macOS answers EINVAL for a socket its far side reset, Linux ENOTCONN.
-        if peer_errno == raw.ENOTCONN or peer_errno == raw.EINVAL then
-          return { why = "net: the connection to " .. named(Net.tcp(host, port)) .. " ended as it was made",
-            kept = true }
-        end
-        return { why = "net: the connector passed a descriptor that is no connected stream socket (" ..
-            peer_why .. ")", kept = false }
-      end
-      if peer.port ~= port or not same_host(peer.host, host) then
-        local _, _ = socket:close()
-        return { why = "net: the connector passed a socket connected to " .. named(peer) .. ", not " ..
-            named(Net.tcp(host, port)), kept = false }
-      end
-      return { conn = new_conn(socket, timeout_ns), why = "", kept = true }
+  channel.passing = nil
+  local socket = received[1]
+  local peer, peer_why, peer_errno = raw.peer(socket:fd())
+  local wanted = named(Net.tcp(pending.host, pending.port))
+  if peer == nil then
+    local _, _ = socket:close()
+    -- macOS answers EINVAL for a socket its far side reset, Linux ENOTCONN.
+    if peer_errno == raw.ENOTCONN or peer_errno == raw.EINVAL then
+      answer(channel, tag, pending, nil, "net: the connection to " .. wanted .. " ended as it was made")
+      return true
     end
-    if failure ~= raw.EAGAIN then return { why = because, kept = false } end
-    local ready, waiting = waited(process.fd, false, math.max(0, deadline - Clock.monotonic_ns()))
-    if not ready then return { why = waiting, kept = false } end
+    lose(channel, "net: the connector passed a descriptor that is no connected stream socket (" .. peer_why .. ")")
+    return false
   end
+  if peer.port ~= pending.port or not same_host(peer.host, pending.host) then
+    local _, _ = socket:close()
+    lose(channel, "net: the connector passed a socket connected to " .. named(peer) .. ", not " .. wanted)
+    return false
+  end
+  answer(channel, tag, pending, new_conn(socket, pending.timeout_ns), "")
+  return true
+end
+
+--- Reads what the stream of `channel` holds now, without waiting: its
+--- CONNECTOR_HELLO first, then replies, each handed to its request. It
+--- stops where the stream has nothing more, or is lost.
+-- TODO: read the replies to requests given up on as they come, so that an
+-- idle connector's stream holds none of their connections (up to
+-- CONNECTOR_FLIGHT) until the next request reads it, once cosmic.poll has
+-- a task a run does not wait for: a task spawned to read them would hold
+-- Poll.run open for the connector's whole wait.
+local function read_replies(channel: Channel)
+  while channel.lost == nil do
+    if not channel.process.open then
+      lose(channel, "net: the connector is closed")
+      return
+    end
+    if channel.passing ~= nil then
+      if not take_socket(channel, channel.passing_tag) then return end
+    else
+      local want = channel.greeted and 8 - #channel.header or 4 - #channel.hello
+      local data, why, errno = sys.read(channel.process.fd, want)
+      if data == "" then
+        lose(channel, "net: the connector has ended")
+        return
+      elseif data == nil then
+        if errno ~= raw.EAGAIN then lose(channel, why) end
+        return
+      elseif not channel.greeted then
+        channel.hello = channel.hello .. data
+        if #channel.hello == 4 then
+          local said_first = string.unpack(">I4", channel.hello)
+          if said_first ~= raw.CONNECTOR_HELLO then
+            lose(channel, ("net: the connector speaks another protocol than this program's: it said 0x%08x, " ..
+              "not 0x%08x"):format(said_first, raw.CONNECTOR_HELLO))
+            return
+          end
+          channel.greeted = true
+          channel.progress = channel.progress + 1
+        end
+      else
+        channel.header = channel.header .. data
+        if #channel.header == 8 then
+          local tag, status = string.unpack(">I4I4", channel.header)
+          channel.header = ""
+          local pending = channel.pending[tag]
+          if pending == nil then
+            lose(channel, "net: the connector replied to a request it was not asked (tag " .. tag .. ")")
+            return
+          end
+          if status ~= 0 then
+            answer(channel, tag, pending, nil, refused_why(status, pending))
+          else
+            channel.passing, channel.passing_tag = pending, tag
+          end
+        end
+      end
+    end
+  end
+end
+
+--- [`read_replies`], and then, where what it read answers another
+--- task's request or makes room, wakes every task waiting on the stream
+--- to look again: a task parked in its wait would otherwise sleep on until
+--- more bytes came, or its deadline. A stream lost was woken by its
+--- closing.
+-- TODO: wake only the tasks whose request was answered, and one waiting
+-- for room for each slot freed, with a wakeup of each request's own: every
+-- waiter looks again at each reply, so n waiting cost n looks a reply.
+local function pump(channel: Channel)
+  local before = channel.progress
+  read_replies(channel)
+  if channel.lost == nil and channel.progress ~= before then Poll.wake(channel.process.fd) end
+end
+
+--- Waits on the stream of `channel` until `ready` holds, reading what
+--- comes meanwhile, by `deadline` (nil for none): true, or false and why
+--- not, the stream's loss among them, and a cancel's [`Poll.CANCELLED`]
+--- before it. With `late`, `ready` is looked at once more after a wait
+--- fails, as another task may have answered it meanwhile: for an answer
+--- already come, never for leave to act, which a caller that has timed
+--- out or been cancelled no longer has.
+local function await(channel: Channel, deadline: integer | nil, late: boolean,
+                     ready: function(): boolean): boolean, string
+  while true do
+    pump(channel)
+    if ready() then return true, "" end
+    if channel.lost ~= nil then return false, channel.lost end
+    local left = deadline ~= nil and math.max(0, deadline - Clock.monotonic_ns()) or nil
+    local woke, why = waited(channel.process.fd, false, left)
+    if not woke then
+      if late then
+        pump(channel)
+        if ready() then return true, "" end
+      end
+      if why == Poll.CANCELLED then return false, why end
+      return false, channel.lost or why
+    end
+  end
+end
+
+--- Marks a request given up on where its caller leaves before its reply,
+--- however it leaves, a task killed in its wait included, and closes a
+--- connection answered but not taken.
+local record Asking
+  pending: Pending
+  metamethod __close: function(Asking)
+end
+
+local asking_mt: metatable<Asking> = {
+  __close = function(self: Asking)
+    local pending = self.pending
+    if not pending.done then
+      pending.given_up = true
+    elseif pending.conn ~= nil and not pending.taken then
+      local _, _ = pending.conn:close()
+    end
+  end,
+}
+
+--- Asks the connector of `channel` with `body`, a request less its tag,
+--- for a connection to `host` at `port` by `deadline`, once its hello has
+--- been read and fewer than CONNECTOR_FLIGHT requests are pending: the
+--- connection, or nil and why. A request given up on stays pending until
+--- its reply comes, which the connector sends within the request's wait.
+local function ask(channel: Channel, body: string, host: string, port: integer, deadline: integer,
+                   timeout_ns: integer, refusal: string): Net.Conn | nil, string
+  local room, waiting = await(channel, deadline, false, function(): boolean
+    return channel.lost == nil and channel.greeted and channel.count < raw.CONNECTOR_FLIGHT
+  end)
+  if not room then return nil, waiting end
+  local tag = channel.next_tag
+  while channel.pending[tag] ~= nil do tag = tag % 0xffffffff + 1 end
+  channel.next_tag = tag % 0xffffffff + 1
+  local request = string.pack(">I4", tag) .. body
+  -- send, not write: a connector that has ended is EPIPE, never SIGPIPE.
+  local sent, wrote = raw.send(channel.process.fd, request)
+  if sent ~= #request then
+    -- A request half sent leaves the stream out of step.
+    lose(channel, "net: could not ask the connector: " .. tostring(wrote))
+    return nil, channel.lost
+  end
+  local pending: Pending = { host = host, port = port, timeout_ns = timeout_ns, refusal = refusal,
+    given_up = false, done = false }
+  channel.pending[tag] = pending
+  channel.count = channel.count + 1
+  local asking: Asking = setmetatable({ pending = pending }, asking_mt)
+  local _held <close> = asking
+  local answered, why = await(channel, deadline, true, function(): boolean return pending.done end)
+  if not answered then return nil, why end
+  if pending.conn == nil then return nil, pending.why end
+  pending.taken = true
+  return pending.conn, ""
+end
+
+--- A request's body, past its tag: `index` and `port`, then the wait in
+--- milliseconds `timeout_ns` asks (at least 1, so 0 is never the
+--- connector's own), and, for a public one, the family and the address
+--- `bytes` in 16 bytes.
+local function request_body(index: integer, port: integer, timeout_ns: integer, bytes?: {integer}): string
+  local wait = math.max(1, math.min(0xffffffff, (timeout_ns + 999999) // 1000000))
+  if bytes == nil then
+    return string.pack(">I4I4I4I4", index, port, wait, 0) .. string.rep("\0", 16)
+  end
+  return string.pack(">I4I4I4I4", index, port, wait, #bytes == 4 and 4 or 6) ..
+    string.char(table.unpack(bytes)) .. string.rep("\0", 16 - #bytes)
 end
 
 --- Whether `entry` allows `port` at its host.
@@ -1119,25 +1333,18 @@ local function endpoint_allows(entry: Net.Endpoint, port: integer): boolean
   return port >= 1 and port <= 65535
 end
 
---- What a table request holds from its start to its end, closed on every
---- way out, a task killed in the middle of one included: the next request
---- finds the connector free, and no process with a reply unread.
-local record ConnectorRequest
-  owner: SocketConnector
-  process: Child.ConnectorProcess
-  keep: boolean
-  metamethod __close: function(ConnectorRequest)
+--- The stream of `self`'s process, started where it has none or lost
+--- its last and the process is this one's to start: nil and why where
+--- it cannot be.
+local function served(self: SocketConnector): Channel | nil, string
+  local channel = self.channel
+  if channel ~= nil and channel.lost == nil then return channel, "" end
+  if self.inherited then return nil, "net: the connector has ended" end
+  local started, why = Child.start_connector(self.endpoints, self.timeout_ms, self.public)
+  if started == nil then return nil, why end
+  self.channel = channel_of(started)
+  return self.channel, ""
 end
-
-local request_mt: metatable<ConnectorRequest> = {
-  __close = function(self: ConnectorRequest)
-    self.owner.busy = false
-    if not self.keep and self.process ~= nil then
-      local _ = self.process:close()
-      if self.owner.process == self.process then self.owner.process = nil end
-    end
-  end,
-}
 
 function SocketConnector:connect(target: integer | string, port: integer, timeout_ns: integer): Net.Conn | nil, string
   if math.type(timeout_ns) ~= "integer" or timeout_ns < 0 then
@@ -1158,13 +1365,11 @@ function SocketConnector:connect(target: integer | string, port: integer, timeou
     if not called then return nil, "net: " .. target .. " is not a numeric address" end
     if started == nil then return nil, why end
     local alone <close> = started
-    local got = ask(alone, string.pack(">I4I4", 1, port), target, port, deadline, timeout_ns, "")
-    if got.conn == nil then return nil, got.why end
-    return got.conn, ""
+    return ask(channel_of(alone), request_body(1, port, timeout_ns), target, port, deadline, timeout_ns, "")
   end
   local index: integer
   local host: string
-  local wire: string
+  local body: string
   local refusal = ""
   if type(target) == "number" then
     index = target
@@ -1191,34 +1396,16 @@ function SocketConnector:connect(target: integer | string, port: integer, timeou
       local bytes = Relay.Address.parse(target)
       if bytes == nil then return nil, "net: " .. target .. " is not a numeric address" end
       if port < 1 or port > 65535 then return nil, "net: port must be from 1 to 65535" end
-      index = 0
       host = target
-      wire = public_request(bytes, port)
+      -- The public index, 4294967295.
+      body = request_body(0xffffffff, port, timeout_ns, bytes)
       refusal = "net: " .. target .. " is refused by the connector's deny list"
     end
   end
-  wire = wire or string.pack(">I4I4", index, port)
-  -- One request at a time: the process answers in order on one stream.
-  while self.busy do
-    local waiting, why = Poll.delay(Clock.ms(1))
-    if not waiting then return nil, why end
-    if not self.open then return nil, "net: the connector is closed" end
-    if Clock.monotonic_ns() >= deadline then return nil, Poll.TIMEOUT end
-  end
-  self.busy = true
-  local request: ConnectorRequest = setmetatable({ owner = self, keep = false }, request_mt)
-  local _guard <close> = request
-  if self.process == nil then
-    if self.inherited then return nil, "net: the connector has ended" end
-    local started, why = Child.start_connector(self.endpoints, self.timeout_ms, self.public)
-    if started == nil then return nil, why end
-    self.process = started
-  end
-  request.process = self.process
-  local got = ask(self.process, wire, host, port, deadline, timeout_ns, refusal)
-  request.keep = got.kept
-  if got.conn == nil then return nil, got.why end
-  return got.conn, ""
+  body = body or request_body(index, port, timeout_ns)
+  local channel, why = served(self)
+  if channel == nil then return nil, why end
+  return ask(channel, body, host, port, deadline, timeout_ns, refusal)
 end
 
 function SocketConnector:as_function(): function(address: string, port: integer, timeout_ns: integer): Net.Conn | nil, string
@@ -1229,16 +1416,14 @@ end
 
 function SocketConnector:ended(): boolean
   if not self.open then return true end
-  return self.inherited and (self.process == nil or not self.process.open)
+  local channel = self.channel
+  return self.inherited and (channel == nil or channel.lost ~= nil or not channel.process.open)
 end
 
 function SocketConnector:close(): boolean, string
   if not self.open then return true, "" end
   self.open = false
-  if self.process ~= nil then
-    local _ = self.process:close()
-    self.process = nil
-  end
+  if self.channel ~= nil then lose(self.channel, "net: the connector is closed") end
   return true, ""
 end
 
@@ -1286,34 +1471,32 @@ resolved_through = function(name: string, opts: Net.ResolveOptions): {Net.Resolv
   end
   local timeout_ns = opts.timeout_ns
   local deadline = timeout_ns ~= nil and Clock.monotonic_ns() + timeout_ns or nil
-  -- One request at a time: the process answers in order on one stream.
-  while through.busy do
-    local waiting, why = Poll.delay(Clock.ms(1))
-    if not waiting then return nil, why end
-    if not through.open then return nil, "net: the connector is closed" end
-    if deadline ~= nil and Clock.monotonic_ns() >= deadline then return nil, Poll.TIMEOUT end
-  end
-  through.busy = true
-  local request: ConnectorRequest = setmetatable({ owner = through, keep = false }, request_mt)
-  local _guard <close> = request
-  if through.process == nil then
-    if through.inherited then return nil, "net: the connector has ended" end
-    local started, why = Child.start_connector(through.endpoints, through.timeout_ms, through.public)
-    if started == nil then return nil, why end
-    through.process = started
-  end
-  request.process = through.process
-  local left = deadline ~= nil and math.max(0, deadline - Clock.monotonic_ns()) or nil
+  local channel, why = served(through)
+  if channel == nil then return nil, why end
+  -- The core asks one request at a time and reads every reply as its
+  -- own, so it is handed the stream in step, its hello read here, with
+  -- nothing pending, given-up requests included, and no reply read in
+  -- part. It holds the thread while it runs, so no request is sent
+  -- meanwhile. A lookup waits for every connect pending to be answered,
+  -- and a stream that connects keep busy could keep one waiting to its
+  -- deadline: the relay gives its lookups a connector of their own.
+  local idle, waiting = await(channel, deadline, false, function(): boolean
+    return channel.lost == nil and channel.greeted and channel.count == 0 and channel.header == ""
+  end)
+  if not idle then return nil, waiting end
   -- The connector's own wait for a connection, and the grace its Lua
   -- requests are given too: a server that does not answer costs that, and
   -- the stream stays in step for the next.
   local reply_ms = through.timeout_ms + CONNECTOR_GRACE_NS // 1000000
-  local found, trouble, errno = raw.resolve_through(name, Poll.milliseconds(left), through.process.fd,
-    reply_ms, servers, opts.hosts_file)
+  local left = deadline ~= nil and math.max(0, deadline - Clock.monotonic_ns()) or nil
+  local found, trouble, errno = raw.resolve_through(name, Poll.milliseconds(left), channel.process.fd,
+    reply_ms, servers, opts.hosts_file, false)
   -- The stream is in step when nothing waits on it: the core shuts it down
   -- where an exchange left a reply unread, which reads here as its end.
-  local pending, _, number = sys.read(through.process.fd, 1)
-  request.keep = pending == nil and number == raw.EAGAIN
+  local unread, _, number = sys.read(channel.process.fd, 1)
+  if unread ~= nil or number ~= raw.EAGAIN then
+    lose(channel, "net: a lookup left the connector's stream out of step")
+  end
   if found == nil then return nil, said(trouble, errno) end
   return found, ""
 end
@@ -1372,10 +1555,9 @@ end
 --- nil and why.
 ---
 --- With `endpoints`, a table of at most 128 [`Net.Endpoint`], one process
---- is started now and serves every request of the connector, one at a
---- time, a connect that hangs holding the rest up to its timeout: it
---- suits a fixed set of addresses, such as a relay whose grants are
---- numeric. An endpoint that is no numeric address or a table that is
+--- is started now and serves every request of the connector, up to
+--- [`Net.CONNECTOR_FLIGHT`] at once: it suits a fixed set of addresses,
+--- such as a relay whose grants are numeric. An endpoint that is no numeric address or a table that is
 --- empty or too long raises.
 ---
 --- With none, every [`Connector.connect`] starts a process of its own,
@@ -1397,14 +1579,12 @@ end
 --- check that stands if the caller's own is wrong, and the caller keeps
 --- its own as well. A refused address answers "net: ... is refused by the
 --- connector's deny list".
--- TODO: queue a table connector's requests with a lock of cosmic.poll's, once it
--- has one: they wait here by polling a flag every millisecond.
 function Net.connector(endpoints?: {Net.Endpoint}, opts?: Net.ConnectorOptions): Net.Connector | nil, string
   local timeout_ms = connector_timeout_ms(opts ~= nil and opts.timeout_ns or nil, 2)
   local public = opts ~= nil and opts.public or nil
   if public ~= nil then public = checked_public(public) end
   local made: SocketConnector = setmetatable({
-    timeout_ms = timeout_ms, busy = false, open = true, public = public, accepts_public = public ~= nil,
+    timeout_ms = timeout_ms, open = true, public = public, accepts_public = public ~= nil,
   }, socket_connector_mt)
   connectors_made[made] = made
   if endpoints == nil and public == nil then return made, "" end
@@ -1413,7 +1593,7 @@ function Net.connector(endpoints?: {Net.Endpoint}, opts?: Net.ConnectorOptions):
   made.endpoints = kept
   local started, why = Child.start_connector(kept, timeout_ms, public)
   if started == nil then return nil, why end
-  made.process = started
+  made.channel = channel_of(started)
   return made, ""
 end
 
@@ -1426,9 +1606,13 @@ end
 --- does; `public` says the process was started in public mode, so that
 --- it may be asked for an address the table lacks. Neither is
 --- checked against the process, which holds its own table and lists:
---- a request the process refuses is answered as its refusal. A process
---- that ends is not started again: the connector answers "net: the
---- connector has ended" from then on. `fd` that is no descriptor, or a
+--- a request the process refuses is answered as its refusal. The
+--- stream is the process's own from its start: what it says first, which
+--- names its protocol, is read before the first request, and a process
+--- of another program's protocol fails it ("net: the connector speaks
+--- another protocol than this program's"). A process that ends, or
+--- whose stream falls out of step, is not started again: the connector
+--- answers "net: the connector has ended" from then on. `fd` that is no descriptor, or a
 --- `held` that is not a list of at most 128 endpoints, or a `timeout_ns`
 --- out of [`ConnectorOptions.timeout_ns`]'s range, raises; nil and why
 --- where the stream cannot be made nonblocking.
@@ -1447,8 +1631,8 @@ function Net.connector_from(fd: integer, held?: {Net.Endpoint}, public?: boolean
   local adopted, why = Child.adopt_connector(fd)
   if adopted == nil then return nil, why end
   local made: SocketConnector = setmetatable({
-    timeout_ms = timeout_ms, busy = false, open = true, endpoints = kept,
-    process = adopted, inherited = true, accepts_public = public == true,
+    timeout_ms = timeout_ms, open = true, endpoints = kept,
+    channel = channel_of(adopted), inherited = true, accepts_public = public == true,
   }, socket_connector_mt)
   connectors_made[made] = made
   return made, ""
