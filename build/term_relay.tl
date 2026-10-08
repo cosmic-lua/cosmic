@@ -65,7 +65,10 @@
 --- nothing more is read from the program's pty or the notes pipe, so a
 --- terminal that stops taking output (flow control) makes the program wait
 --- on its own pty and leaves the loop serving signals, the program's exit
---- and the window. After the program has ended, what is queued is written
+--- and the window. Once a signal has been passed on, the program's output
+--- is read and dropped while the queue is full, for a program blocked on
+--- its pty cannot end where closing a tty waits for its output (macOS).
+--- After the program has ended, what is queued is written
 --- for as long as the terminal makes progress, `STALL_MS` at most, and
 --- dropped past that or on a signal.
 
@@ -404,7 +407,12 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
     if #answers > 0 and #pending + #answers <= MOST_PENDING then
       pending = pending .. answers
     end
-    if passed ~= "" then
+    -- Once a signal is passed on, a full queue drops the program's output
+    -- instead of holding the program on its pty: a tty's last close waits
+    -- for its output to drain on macOS, so a program that cannot close its
+    -- pty cannot end, and the terminal that stopped taking output would
+    -- keep the run alive for good.
+    if passed ~= "" and not (signals > 0 and queued >= MOST_QUEUED) then
       enqueue(shown, passed, true)
       if failure ~= nil then return -1 end
     end
@@ -463,9 +471,11 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
     end
     local keys_fd = keys_open and #pending < MOST_PENDING and input or -1
     -- Nothing is read for a terminal that has a full queue of output
-    -- waiting: the program waits on its pty instead.
+    -- waiting: the program waits on its pty instead. After a signal the
+    -- program's output is read and dropped (`relay_output`).
     local room = queued < MOST_QUEUED
-    local master_events = (master_open and room and sys.POLLIN or 0) | (#pending > 0 and sys.POLLOUT or 0)
+    local reading_output = room or signals > 0
+    local master_events = (master_open and reading_output and sys.POLLIN or 0) | (#pending > 0 and sys.POLLOUT or 0)
     local master_fd = master_events ~= 0 and master or -1
     local notes_fd = notes_open and room and notes or -1
     local out_fd = queue[1] ~= nil and queue[1].fd or -1
@@ -479,7 +489,7 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
       if ready[2] & sys.POLLOUT ~= 0 and #pending > 0 then
         local _ = flush_pending()
       end
-      if master_open and room and ready[2] & (sys.POLLIN | sys.POLLHUP | sys.POLLERR) ~= 0 then
+      if master_open and reading_output and ready[2] & (sys.POLLIN | sys.POLLHUP | sys.POLLERR) ~= 0 then
         local _ = relay_output()
       end
     end
