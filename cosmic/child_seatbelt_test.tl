@@ -91,6 +91,49 @@ local function files(tmp: string): string, string
   return granted, other
 end
 
+--- Starts `/bin/true` under `policy`, refused or not, as a host that
+--- holds a child by Seatbelt: [`sys.uname`] answers Darwin for the start
+--- (the credentials are met or refused before anything is acquired, so
+--- no child runs on a host that is not macOS), restored after.
+local function start_as_macos(policy: Sandbox.Policy): Child.Handle | nil, string
+  local uname = sys.uname
+  sys.uname = function(): sys.Uname | nil, string, integer
+    return { sysname = "Darwin" } as sys.Uname, "", 0
+  end
+  local ok, handle, why = pcall(Child.start, { "/bin/true" },
+    { policy = policy, stdin = "null", stdout = "null", stderr = "null" })
+  sys.uname = uname
+  assert(ok, tostring(handle))
+  return handle as Child.Handle, why as string
+end
+
+local function test_another_user_or_group_is_refused_before_a_child_starts()
+  local own, group = sys.getuid(), sys.getgid()
+  if own == 0 then
+    Test.skip("root is refused whatever the policy names (test_a_root_start_is_refused_not_run_as_root)")
+  end
+  local handle, why = start_as_macos({ profiles = { "system" }, user = own + 1 })
+  assert(handle == nil and why:find("cannot change them", 1, true), why)
+  handle, why = start_as_macos({ profiles = { "system" }, user = own, group = group + 1 })
+  assert(handle == nil and why:find("cannot change them", 1, true), why)
+end
+
+local function test_a_root_start_is_refused_not_run_as_root()
+  if sys.getuid() ~= 0 then
+    Test.skip("this process is not root")
+  end
+  local handle, why = start_as_macos({ profiles = { "system" } })
+  assert(handle == nil and why:find("never runs as root", 1, true), why)
+end
+
+local function test_the_callers_own_user_and_group_are_met()
+  macos_only()
+  if sys.getuid() == 0 then Test.skip("root is refused") end
+  local result = run({ "/usr/bin/id", "-u" }, { profiles = { "system" },
+    user = sys.getuid(), group = sys.getgid() })
+  expect(result.ok and (result.stdout or ""):find(tostring(sys.getuid()), 1, true) ~= nil, result)
+end
+
 local function test_a_granted_file_is_read(tmp: string)
   macos_only()
   local granted = files(tmp)

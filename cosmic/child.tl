@@ -3570,6 +3570,29 @@ local function holds_by_seatbelt(): boolean
   return names ~= nil and names.sysname == "Darwin"
 end
 
+--- Whether a program of `merged` may be started on macOS as the policy
+--- says: "" or why not. Seatbelt holds a program but changes no user or
+--- group, and the core carries credentials on Linux alone, so the program
+--- runs as this process does. A policy that names that user and group (or
+--- neither) is met; one that names another is refused, and so is a start by
+--- root, whose program the policy says is never root.
+--- TODO: run the program as the policy's `user` and `group`, and drop root,
+--- once core/syscalls.c carries credentials outside Linux.
+local function seatbelt_credentials(merged: Rules.Policy): string
+  local own = effective_user()
+  if own == 0 then
+    return "this process is root, and a program of a policy never runs as root, which " ..
+      "Seatbelt cannot change the user to: start as another user"
+  end
+  local group = effective_group()
+  if (merged.user ~= nil and merged.user ~= own) or (merged.group ~= nil and merged.group ~= group) then
+    return "user " .. tostring(merged.user) .. ", group " .. tostring(merged.group) ..
+      ": Seatbelt runs a program as this process's own user and group, " .. own .. " and " ..
+      group .. ", and cannot change them: name those or none"
+  end
+  return ""
+end
+
 --- A policy's start on macOS: the profile [`Seatbelt.compile`] makes of
 --- it, with the paths it names resolved on this host, for spawn to apply
 --- before it runs the program, and the environment and limits the policy
@@ -3583,6 +3606,8 @@ end
 local function held_by_seatbelt(argv: {string}, opts: Options, pty?: Pty, serves_relay?: integer): Held | nil, string
   local merged, why = Rules.merge(opts.policy)
   if merged == nil then return nil, why end
+  local credentials = seatbelt_credentials(merged)
+  if credentials ~= "" then return nil, "sandbox: " .. credentials end
   local reserved = reserved_by_relay(merged)
   if reserved ~= "" then return nil, reserved end
   local relayed = #merged.connect > 0
