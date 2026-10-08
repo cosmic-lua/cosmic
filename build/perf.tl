@@ -281,11 +281,15 @@ local function command(argv: {string}, fixture: Fixture): Child.Result
   local result, trouble = Child.run(argv, { cwd = fixture.root, env = fixture.env,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   if result == nil then
-    save(fixture.logs .. "/failure.json", { argv = argv, trouble = trouble })
+    if fixture.logs ~= "" then
+      save(fixture.logs .. "/failure.json", { argv = argv, trouble = trouble })
+    end
     error(trouble)
   end
   if not result.ok or result.truncated then
-    save(fixture.logs .. "/failure.json", { argv = argv, result = result })
+    if fixture.logs ~= "" then
+      save(fixture.logs .. "/failure.json", { argv = argv, result = result })
+    end
     error(table.concat(argv, " ") .. ": " .. (result.stderr or "") .. (result.stdout or ""))
   end
   return result
@@ -308,7 +312,6 @@ end
 
 local function fixture(binary: string, root: string): Fixture
   assert(Fs.mkdirs(root .. "/cmd/noop"))
-  assert(Fs.mkdirs(root .. "/perf"))
   local env = Env.all()
   for name in pairs(env) do
     if name:sub(1, 7) == "COSMIC_" then env[name] = nil end
@@ -321,7 +324,7 @@ local function fixture(binary: string, root: string): Fixture
   env.COSMIC_PORTABLE_CACHE = root .. "/portable-cache"
   local f: Fixture = { binary = binary, root = root, host = root .. "/host",
     portable = root .. "/portable", host_tool = root .. "/host-tool",
-    logs = root .. "/perf", output = "", env = env }
+    logs = "", output = "", env = env }
   -- Retained baselines predate the directory resolver. Ask each artifact
   -- for its own rule outside the measurements, selecting the legacy rule
   -- only when its store has no resolver module.
@@ -337,6 +340,8 @@ end
 ]] }, f)
   f.output = (resolved.stdout or ""):gsub("\n$", "")
   assert(f.output ~= "", "artifact named no generated directory")
+  f.logs = f.output .. "/perf"
+  assert(Fs.mkdirs(f.logs))
   leaf(f, 1)
   assert(Fs.write(root .. "/branch.tl", [[local Leaf = require("leaf")
 local record Branch end
