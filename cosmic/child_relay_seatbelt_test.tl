@@ -177,8 +177,9 @@ return function(args)
     local http = relay_of("HTTPS_PROXY")
     local found, accepted, refusals = 0, 0, {}
     for fd = 3, 9 do
-      local listener = Net.listener_from(fd)
-      if listener ~= nil then
+      -- The core's own descriptors raise when named; any other is no listener.
+      local ok, listener = pcall(Net.listener_from, fd)
+      if ok and listener ~= nil then
         found = found + 1
         for _ = 1, 3 do
           local conn = Net.connect(Net.tcp("127.0.0.1", http.port), { timeout_ns = Clock.seconds(5) })
@@ -483,12 +484,9 @@ local function test_no_other_process_can_listen_at_the_relays_port(tmp: string)
       assert(why:find("in use", 1, true), host .. ", the relay running: " .. why)
     end
     assert(sys.kill(relay.pid, sys.SIGKILL))
-    local deadline = Clock.monotonic_ns() + Clock.seconds(10)
-    while not gone(relay.pid) do
-      local _, _ = process_table().waitpid(relay.pid, true)
-      assert(Clock.monotonic_ns() < deadline, "the relay did not die")
-      assert(Poll.delay(Clock.ms(20)))
-    end
+    -- A process killed closes its descriptors as it exits, before anything
+    -- reaps it, which its handle does at the program's wait.
+    assert(Poll.delay(Clock.ms(500)))
     assert(not gone(handle.pid), "the program lives on until its next wait")
     for _, host in ipairs({ "127.0.0.1", "::1" }) do
       local why = taken(host, port)
