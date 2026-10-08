@@ -93,3 +93,13 @@ local function test_a_fixtures_children_run_cosmic_test_unsandboxed()
       "1", "a fixture cannot choose its child's sandbox")
   assert(Fixture.environment().COSMIC_TEST_SANDBOX == "0")
 end
+
+local function test_children_keep_build_state_in_the_fixture_temporary_directory()
+  local base = { TMPDIR = "/fixture", COSMIC_BUILD_HOME = "/outer" }
+  local child = Fixture.environment_of(base)
+  assert(child.COSMIC_BUILD_HOME == "/fixture/cosmic-build")
+  assert(child.COSMIC_PORTABLE_CACHE == "/fixture/cosmic-cores")
+  assert(base.COSMIC_BUILD_HOME == "/outer")
+  assert(Fixture.environment_of(base, { COSMIC_BUILD_HOME = "/chosen" }).COSMIC_BUILD_HOME == "/chosen")
+  assert(Fixture.environment_of({ TMPDIR = "" }).COSMIC_BUILD_HOME == "/tmp/cosmic-build")
+end

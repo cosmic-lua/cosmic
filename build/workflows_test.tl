@@ -2583,15 +2583,20 @@ local function test_the_credential_proof_follows_the_native_database_boundary()
       runner["continue-on-error"] == nil, "local runner proof lost its required privileged Linux gate")
 end
 
---- Root must establish its own portable cache before starting the
---- bootstrap resolver, which otherwise meets the runner's cache owner.
-local function test_the_credential_proof_isolates_its_cache_before_resolving_paths()
+--- The ordinary runner resolves its output; root uses that concrete
+--- handoff with isolated caches and an accessible copy for dropped children.
+local function test_the_credential_proof_uses_the_unprivileged_output_handoff()
+  local builder = assert(Fs.read(SCRIPTS .. "/credentials-build.sh"))
   local proof = assert(Fs.read(SCRIPTS .. "/credentials-proof.sh"))
+  local handoff = '"${RUNNER_TEMP:?}/cosmic-credentials-output"'
+  assert(builder:find(handoff, 1, true) and proof:find(handoff, 1, true))
+  assert(not proof:find("cosmic-bootstrap", 1, true), "root re-resolves ordinary-owned output")
   local cache = assert(proof:find('export XDG_CACHE_HOME="$proof/cache"', 1, true))
   local portable = assert(proof:find('export COSMIC_PORTABLE_CACHE="$proof/cache/cores"', 1, true))
-  local resolver = assert(proof:find('output=$("$root/bin/cosmic-bootstrap"', 1, true))
-  assert(cache < resolver and portable < resolver,
-    "credential proof resolves paths before isolating root's caches")
+  local start = assert(proof:find('timeout 20 "$proof/probe" setup', 1, true))
+  assert(cache < start and portable < start)
+  assert(proof:find('"$root/build/credentials_proof.tl" "$proof/probe"', 1, true),
+    "dropped child executes a helper in the runner's private cache")
 end
 
 --- Each leg that runs a suite (the platform legs of a light and a full run,

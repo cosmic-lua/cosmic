@@ -76,18 +76,18 @@ local core_refusal = "the tool is stale; run bin/zig build boot"
 --- What a stale cosmic that is not the tree's own tool says: it neither
 --- rebuilds itself nor boots the tree.
 local foreign_refusal = "this cosmic is stale against the tree and is not " ..
-  "the tree's own tool (under o/), so it will not rebuild itself; " ..
-  "run bin/zig build boot and use o/bin/cosmic"
+  "the tree's own tool (in its configured build directory), so it will not rebuild itself; " ..
+  "run bin/zig build boot and use bin/cosmic"
 
---- Whether the running binary is one this tree built: under `root/o`,
---- as o/bin/cosmic and the checked suite's o/sanitized one are. Only such
+--- Whether the running binary is one this tree built: in its configured
+--- build directory, including its checked artifact. Only such
 --- a tool rebuilds itself when stale. A rebuild writes the tree's tool
 --- over the path it was started as, so any other cosmic run here (a
 --- release, the bootstrap cache's, one on PATH) would be overwritten.
 --- The path is judged where it names: its directory is resolved but not
 --- its name. A file renamed or removed while it runs is still judged by
---- where it was, and a link into o/ from elsewhere is elsewhere, since
---- a rebuild would replace the link, not o/'s tool. `executable` is the
+--- where it was, and a link into the build directory from elsewhere is
+--- elsewhere, since a rebuild would replace the link. `executable` is the
 --- path this process was started as, by default.
 -- TODO: refuse a host-built tool whose file was removed while it runs:
 -- with no started-as path, Proc.executable falls back to /proc/self/exe,
@@ -107,7 +107,7 @@ function reboot.own_tool(root: string, executable?: string): boolean | nil, stri
   if directory == nil then
     return nil, directory_trouble
   end
-  local outputs, outputs_trouble = Fs.absolute(build_paths.required(root))
+  local outputs, outputs_trouble = build_paths.directory(root)
   if outputs == nil then
     return nil, outputs_trouble
   end
@@ -357,7 +357,7 @@ end
 -- lets it go.
 
 --- Where the holder of the rebuild lock sets aside the database of the
---- tool under o/ to read it (`replaced`).
+--- tool in its build directory to read it (`replaced`).
 local probe_name = "/rebuild.lock.probe"
 
 --- The meta a tool's database carries that tells one written apart
@@ -370,8 +370,8 @@ local identity_keys <const> = { "written_by", "compiled_by", "boot_hash" }
 --- Whether the program at `out` is no longer the one this process runs:
 --- another run rebuilt the tool, and exec'd, between this run's start
 --- and its taking the rebuild lock. Read from the database `out` carries,
---- set aside under o/ while this run holds the lock; anything that
---- cannot be read answers false, and this run rebuilds as it would have.
+--- set aside in the build directory while this run holds the lock. A
+--- failure to read it answers false, and this run rebuilds as it would have.
 local function replaced(root: string, out: string): boolean
   local bytes, _ = Fs.read(out)
   if bytes == nil then
@@ -402,7 +402,7 @@ local function replaced(root: string, out: string): boolean
     carried[row[1]] = row[2]
   end
   -- The running tool's own, not a database a verb attached before
-  -- [`stale_exit`] ran (o/cosmic.db, whose meta Store.meta finds first).
+  -- [`stale_exit`] ran (cosmic.db, whose meta Store.meta finds first).
   local own: {string:string} = {}
   Store.alone(function()
     for _, key in ipairs(identity_keys) do
@@ -440,11 +440,11 @@ end
 ---
 --- When another run holds the lock, this one closes `handle` (the holder
 --- needs the working database to finish), says so, waits for the holder
---- to re-enter or exit, and replaces itself with the tool now under o/,
+--- to re-enter or exit, and replaces itself with the tool now in the build directory,
 --- running `argv` again. That tool is fresh when the holder's rebuild
 --- landed; when it did not, the re-entered run takes the lock and
 --- rebuilds itself. A run that takes the lock at once but finds the tool
---- under o/ is no longer the one it runs (`replaced`) re-enters that
+--- in the build directory is no longer the one it runs (`replaced`) re-enters that
 --- tool too, rather than rebuild from an older one.
 ---
 --- A re-entered run keeps `marker` as it was: a run a reboot entered
@@ -497,7 +497,7 @@ end
 
 --- Rebuilds the core with `root/bin/zig build boot`, whose output goes to
 --- stderr so a verb's own stdout stays its own, then replaces this process
---- with the tool the boot wrote, `root/o/bin/cosmic`, running `argv` again.
+--- with the tool the boot wrote, the build directory's [`bin/cosmic`], running `argv` again.
 --- It is handed no handle: the caller closes its working database
 --- first, since the boot writes it ([`reboot.guard`] does).
 --- `environment` is what both run in, this process's by default.
@@ -524,7 +524,7 @@ function reboot.boot_into(root: string, argv: {integer:string},
     return "bin/zig build boot failed; fix what it reports and run this again"
   end
   environment[marker] = "1"
-  local _, exec_trouble = Proc.exec(reentry(build_paths.required(root) .. "/bin/cosmic", argv),
+  local _, exec_trouble = Proc.exec(reentry(build_paths.required(root, environment) .. "/bin/cosmic", argv),
     { env = environment })
   return exec_trouble
 end
@@ -697,7 +697,7 @@ end
 --- `meta` ([`identity.recorded_boot_hash`]) still describes `tool` exactly,
 --- so it is read back rather than recomputed. Only when something moved,
 --- or the database has no
---- recorded `boot_hash` yet (a fresh `o/`, or one nothing has staged
+--- recorded `boot_hash` yet (a fresh build directory, or one nothing has staged
 --- for), does this fall back to [`work.stage`]'s directory walk and
 --- [`reboot.guard`] -- the same path `cosmic test` always takes.
 ---

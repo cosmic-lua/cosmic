@@ -218,8 +218,8 @@ local SECOND_NS <const> = 1000 * 1000 * 1000
 worker.loads = {
   "build.assertions", "build.cache_names", "build.confine", "build.key_parts", "build.paths",
   "build.test_inputs",
-  "build.test_worker", "build.this_program", "cmd.cosmic.main", "cosmic.coverage", "cosmic.env",
-  "cosmic.fs", "cosmic.proc", "cosmic.test",
+  "build.test_worker", "build.this_program", "cmd.cosmic.main", "cosmic.codec", "cosmic.coverage", "cosmic.env",
+  "cosmic.fs", "cosmic.hash", "cosmic.proc", "cosmic.test",
 }
 
 -- Taken at load, ahead of any test that could replace them on the

@@ -34,7 +34,6 @@ local log = Log.new("cosmic")
 local function boot(root: string, argv: {integer:string},
                     compiler_source: string): integer
   local started = Clock.monotonic_ns()
-  local working = argv[6] or root .. "/o"
   local host = argv[4]
   if host == nil or host == "" then
     log:verdict("boot", false, "the command line names no host target")
@@ -44,6 +43,11 @@ local function boot(root: string, argv: {integer:string},
   local records_path = argv[5]
   if records_path == nil or records_path == "" then
     log:verdict("boot", false, "the command line names no target records")
+    return 1
+  end
+  local working = argv[6]
+  if working == nil or working == "" then
+    log:verdict("boot", false, "the command line names no working directory")
     return 1
   end
   local records, records_trouble = Fs.read(records_path)
@@ -194,7 +198,7 @@ local function boot(root: string, argv: {integer:string},
   end
 
   -- The tool carries the projection without the tree's own tests and
-  -- examples, which `cosmic test` reads from `o/cosmic.db` itself.
+  -- examples, which `cosmic test` reads from the project's projection.
   local carried_path = output .. "/carried.db"
   local carried, carry_trouble = writer.carried(database_path, carried_path)
   if not carried then

@@ -70,7 +70,7 @@ local test_inputs = require("build.test_inputs")
 local caches = require("build.caches")
 local String = require("cosmic.string")
 
-local build_directory = build_paths.required
+local build_directory, in_home = build_paths.required, build_paths.in_home
 
 local record test_sandbox
   --- Where a sandboxed worker has the tree, and runs.
@@ -104,9 +104,9 @@ local record test_sandbox
     trouble: string
     --- The name the worker has the program by -- the artifact path its
     --- relaunch names (`--artifact`), which [`Proc.executable()`] answers
-    --- -- where the program is the tree's own o/bin/cosmic:
-    --- /tree/o/bin/cosmic, as the rest of the tree is; where it is the
-    --- runner's own beneath /tree, /program/<its name> ([`program_name`]);
+    --- -- where the program is the tree's own tool, at `output`/bin/cosmic;
+    --- where it is the runner's beneath /tree or the worker's private
+    --- build home, /program/<its name> ([`program_name`]);
     --- nil where it keeps the runner's, as a worker whose module does
     --- not declare `tool` does.
     program: string | nil
@@ -140,6 +140,8 @@ end
 test_sandbox.scratch = test_sandbox.padded("/tmp/cosmic-test-padded-to-a-macos-length",
   test_sandbox.scratch_length)
 test_sandbox.switch = "COSMIC_TEST_SANDBOX"
+local build_home <const> = test_sandbox.scratch .. "/build"
+local virtual_output <const> = in_home(test_sandbox.tree, build_home)
 
 --- Where a sandboxed worker has the program that runs it, when that is
 --- neither the tree's own nor to be had at its own name
@@ -177,6 +179,9 @@ function test_sandbox.environment(environment: {string:string},
   for name in pairs(effective.env) do out[name] = environment[name] end
   out.COSMIC_TEST_NOEXEC = effective.noexec_ready and "/noexec" or nil
   out.TMPDIR = test_sandbox.scratch
+  -- Host build homes never enter a worker's root. Its nested projects write
+  -- beside the read-only entries of the main project, in private scratch.
+  out.COSMIC_BUILD_HOME = build_home
   -- The cores of its own a worker that declares the `bootstrap` cache
   -- writes (`cache_writes`).
   for _, name in ipairs(effective.caches or {}) do
@@ -198,6 +203,7 @@ function test_sandbox.unenforced_view(environment: {string:string},
                                       effective: test_inputs.Effective): {string:string}
   local out = test_sandbox.environment(environment, effective)
   out.COSMIC_TEST_NOEXEC = nil
+  out.COSMIC_BUILD_HOME = environment.COSMIC_BUILD_HOME
   if out.COSMIC_PORTABLE_CACHE == own_cores then
     out.COSMIC_PORTABLE_CACHE = environment.COSMIC_PORTABLE_CACHE
   end
@@ -267,12 +273,10 @@ end
 --- by, where the program is a portable artifact ([`Proc.relaunch`] names
 --- its artifact's path, which the worker's startup takes as it is
 --- given: core/startup.c's `cosmic_startup_adopt`), and whether that is
---- the tree's own, by where each resolves. The tree's own o/bin/cosmic
---- is /tree/o/bin/cosmic, where a worker whose module declares `tool`
---- has it, as it has the rest of o/bin. Another program keeps its own
---- name -- a release run on the tree -- but for one beneath /tree
---- itself, a run started in a sandboxed worker of another tree, whose
---- worker has a tree of its own there: it is given at
+--- the tree's own, by where each resolves. The tree's own tool is given
+--- at `output`/bin/cosmic with the rest of its bin directory. Another
+--- program keeps its own name unless it is under the virtual tree or
+--- build home of a parent worker; a nested worker gives it at
 --- /program/<its name> instead (`program_place`). Nil where it
 --- keeps its own name.
 local function program_name(root: string): string | nil, boolean
@@ -282,9 +286,9 @@ local function program_name(root: string): string | nil, boolean
   if program == nil then return nil, false end
   local real = confine.resolution(program)
   if real ~= "" and real == confine.resolution(build_directory(root) .. "/bin/cosmic") then
-    return test_sandbox.tree .. "/o/bin/cosmic", true
+    return virtual_output .. "/bin/cosmic", true
   end
-  if Fs.within(program, test_sandbox.tree) then
+  if Fs.within(program, test_sandbox.tree) or Fs.within(program, build_home) then
     return program_place .. "/" .. Fs.basename(program), false
   end
   return nil, false
@@ -366,7 +370,7 @@ end
 function test_sandbox.plan(root: string, scratch: string, effective: test_inputs.Effective,
                            environment: {string:string}, closure_store?: string): test_sandbox.Plan
   -- The program is given at its own name only where the worker does
-  -- not have it as the tree's own, at /tree/o/bin/cosmic. A worker
+  -- not have it as the tree's own, at `output`/bin/cosmic. A worker
   -- whose module does not declare `tool` has no name to read it by, so
   -- it keeps the runner's, which it cannot open either.
   local program, own_program: string | nil, boolean = nil, false
@@ -420,7 +424,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
       -- A policy's sandbox has a /proc of its own, which a grant of the
       -- host's would replace.
     elseif path == store then
-      give(given_store, test_sandbox.tree .. "/o/cosmic.db")
+      give(given_store, virtual_output .. "/cosmic.db")
     elseif path == executable and program ~= nil and not own_program then
       give(path, program)
     else
@@ -432,15 +436,15 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     if plain == "." then
       give(root, test_sandbox.tree, run)
     elseif plain:sub(1, 1) ~= "/" and plain:sub(1, 3) ~= "../" and plain ~= ".." then
-      local source = root .. "/" .. plain
-      -- o is the worker's stable virtual build directory; the host's output
-      -- may live elsewhere, and only the declared entry is bound.
+      local source, destination = root .. "/" .. plain, test_sandbox.tree .. "/" .. plain
+      -- o names generated inputs in policies, rather than a physical directory.
+      -- Only each declared entry is bound into the worker's private build home.
       if plain == "o" then
-        source = output
+        source, destination = output, virtual_output
       elseif plain:sub(1, 2) == "o/" then
-        source = output .. plain:sub(2)
+        source, destination = output .. plain:sub(2), virtual_output .. plain:sub(2)
       end
-      give(source, test_sandbox.tree .. "/" .. plain, run)
+      give(source, destination, run)
     end
   end
   local files: {string} = {}

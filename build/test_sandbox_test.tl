@@ -105,3 +105,16 @@ local function test_noexec_does_not_probe_an_ordinary_or_unsandboxed_worker()
   assert(not inputs.noexec_ready and next(known) == nil)
   assert(inputs.noexec_trouble:find("requires a Linux filesystem sandbox", 1, true))
 end
+
+local function test_a_worker_replaces_the_host_build_home()
+  local inputs = effective({})
+  inputs.env = { COSMIC_BUILD_HOME = true }
+  local host = { COSMIC_BUILD_HOME = "/host/shared-build-home" }
+  local sandboxed = test_sandbox.environment(host, inputs)
+  assert(sandboxed.COSMIC_BUILD_HOME == (test_sandbox.scratch .. "/build"))
+  assert(sandboxed.COSMIC_BUILD_HOME:sub(1, #test_sandbox.scratch + 1) ==
+      test_sandbox.scratch .. "/", "the build home must be in private scratch")
+  local unsandboxed = test_sandbox.unenforced_environment(host, inputs, "/scratch")
+  assert(unsandboxed.COSMIC_BUILD_HOME == host.COSMIC_BUILD_HOME)
+  assert(test_sandbox.unenforced_environment({}, inputs, "/scratch").COSMIC_BUILD_HOME == nil)
+end

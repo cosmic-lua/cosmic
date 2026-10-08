@@ -6,6 +6,7 @@
 --- and runs the program in a process of its own.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
+local build_paths = require("build.paths")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Fuzz = require("build.fuzz")
@@ -106,7 +107,7 @@ local function test_a_corrupt_host_program_is_refused_by_name(tmp: string)
   assert(Fs.mkdirs(tree .. "/cmd/ok"))
   assert(Fs.write(tree .. "/cmd/ok/main.tl", 'return function(): integer print("ok") return 0 end\n'))
   assert(embed.tree(tree, true))
-  local tail = split((assert(Fs.read(tree .. "/o/bin/ok"))))
+  local tail = split((assert(Fs.read(build_paths.required(tree) .. "/bin/ok"))))
   local program = tmp .. "/program"
   -- The core is written once; each input rewrites only what follows it
   -- and cuts the file to its own length, since an input can be shorter.

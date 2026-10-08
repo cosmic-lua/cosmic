@@ -16,25 +16,24 @@ end
 --- Where one of zig's caches would be: `variable` from `environment`
 --- when set, else `tool` in this user's cosmic cache directory as
 --- [`Fs.cache_dir`] names it with `make = false`, so nothing is made, else `fallback`.
-local function located(variable: string, tool: string, fallback: string,
+local function located(variable: string, tool: string, root: string, suffix: string,
                        environment: {string:string}): string
   local given = environment[variable]
   if given ~= nil and given ~= "" then return given end
   local named, _ = Fs.cache_dir(tool, { environment = environment, make = false })
   if named ~= nil then return named end
-  return fallback
+  return build_paths.required(root, environment) .. "/" .. suffix
 end
 
 --- Where zig's global cache and then its project cache are for a tree
 --- at `root`, as `environment` names them, with nothing made or
 --- checked: COSMIC_ZIG_GLOBAL_CACHE and COSMIC_ZIG_CACHE when set, else
 --- `zig-global` and `zig-project` in the user's cosmic cache
---- directory, else `root`/o's `zig-global` and `zig-cache`.
+--- directory, else the project's generated directory's `zig-global` and `zig-cache`.
 function zig_caches.paths(root: string, environment: {string:string}): {string}
-  local output = build_paths.required(root, environment)
   return {
-    located("COSMIC_ZIG_GLOBAL_CACHE", "zig-global", output .. "/zig-global", environment),
-    located("COSMIC_ZIG_CACHE", "zig-project", output .. "/zig-cache", environment),
+    located("COSMIC_ZIG_GLOBAL_CACHE", "zig-global", root, "zig-global", environment),
+    located("COSMIC_ZIG_CACHE", "zig-project", root, "zig-cache", environment),
   }
 end
 

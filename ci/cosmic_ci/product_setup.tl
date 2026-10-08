@@ -1,5 +1,6 @@
 local BuildPaths = require("cosmic_ci.build_paths")
 local Fs = require("cosmic.fs")
+local Env = require("cosmic.env")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Fixture = require("cosmic_ci.fixture")
 
@@ -25,11 +26,13 @@ function ProductSetup.build(root: string, product: string, tmp: string): string
   Fixture.copy(root .. "/ci/testdata/portable/cmd/second/main.tl",
     project .. "/cmd/second/main.tl")
   local diagnostics = tmp .. "/logs"
+  local application = { COSMIC_PORTABLE_CACHE = tmp .. "/cache", COSMIC_BUILD_HOME = tmp .. "/build-home" }
+  local output = BuildPaths.directory(project, Fixture.environment(application), root, cosmic)
   local built = Fixture.run("application-build", { cosmic, "build" }, project,
-    diagnostics, { COSMIC_PORTABLE_CACHE = tmp .. "/cache" })
-  Fixture.contains(built.out, "build: PASS (o/bin/hello, o/bin/second")
-  local hello = project .. "/o/bin/hello"
-  local second = project .. "/o/bin/second"
+    diagnostics, application)
+  Fixture.contains(built.out, "build: PASS (" .. output .. "/bin/hello, " .. output .. "/bin/second")
+  local hello = output .. "/bin/hello"
+  local second = output .. "/bin/second"
   Fixture.assert_executable(hello)
   Fixture.assert_executable(second)
   local hello_run = Fixture.run("hello", { hello }, project, diagnostics,
@@ -58,15 +61,16 @@ function ProductSetup.build(root: string, product: string, tmp: string): string
     Fixture.copy(BuildPaths.directory(root) .. "/core/" .. target.name .. "/cosmic-core",
       directory .. "/cosmic-core")
   end
+  local original = { COSMIC_BUILD_HOME = Env.get("COSMIC_BUILD_HOME") or "" }
   Fixture.run("product-extract", { cosmic,
     root .. "/test/portable/tool.tl", "product-extract",
     product .. "/cosmic", product .. "/prefix", product .. "/manifest",
     product .. "/targets.tsv", product .. "/cores",
-    product .. "/apps/hello", product .. "/apps/second" }, root, diagnostics)
+    product .. "/apps/hello", product .. "/apps/second" }, root, diagnostics, original)
 
   Fixture.run("product-database", { cosmic,
     root .. "/test/portable/tool.tl", "product-database",
-    product .. "/cosmic", product .. "/cosmic.db" }, root, diagnostics)
+    product .. "/cosmic", product .. "/cosmic.db" }, root, diagnostics, original)
 
   local names = { "cosmic", "prefix", "manifest", "apps/hello",
     "apps/second", "cosmic.db", "targets.tsv" }

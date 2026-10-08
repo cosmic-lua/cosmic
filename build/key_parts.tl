@@ -97,8 +97,14 @@ local tree_marker <const> = "\0tree"
 --- only on a run that runs the test: every run while CI stands only on
 --- what it runs itself, and once it stands on shared verdicts, only a
 --- run where the test's key changed.
-function key_parts.tree_name(path: string, tree: string): string
+function key_parts.tree_name(path: string, tree: string, output?: string): string
   if ("/" .. path .. "/"):find("/%.%./") ~= nil then return path end
+  if output ~= nil then
+    local generated, _ = relative(path, output)
+    if generated ~= nil then
+      return tree_marker .. "/o" .. (generated == "." and "" or "/" .. generated)
+    end
+  end
   local rest, _ = relative(path, tree)
   if rest == nil then return path end
   if rest == "." then return tree_marker end

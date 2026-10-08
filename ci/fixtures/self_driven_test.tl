@@ -1,4 +1,3 @@
-local BuildPaths = require("cosmic_ci.build_paths")
 local Clock = require("cosmic.clock")
 local Fixture = require("cosmic_ci.fixture")
 
@@ -76,7 +75,7 @@ local function test_the_product_boots_its_own_tree_to_itself(tmp: string)
       COSMIC_BOOTSTRAP = product,
       COSMIC_PORTABLE_CACHE = tmp .. "/portable-cache",
     }), boot_timeout_ns))
-  assert(Fixture.hash(BuildPaths.directory(tree) .. "/bin/cosmic") == Fixture.hash(product),
+  assert(Fixture.hash(Fixture.build_directory(tree) .. "/bin/cosmic") == Fixture.hash(product),
     "the tool a boot the product drove wrote is not the product")
 end
 

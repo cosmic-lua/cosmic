@@ -200,6 +200,9 @@ local record declared_key
     root: string
     --- `root` with its links resolved.
     real_root: string
+    --- The generated directory and its resolved location, separate from the source tree.
+    output: string
+    real_output: string
     --- Each file's hash by its absolute path, with what `lstat` said of
     --- it when it was hashed: `signature` .. "\0" .. hex sha256.
     hashed: {string:string}
@@ -359,7 +362,10 @@ function declared_key.digests(root: string, remembered?: {{string}}): declared_k
   local hashed: {string:string} = {}
   for _, row in ipairs(remembered or {}) do hashed[row[1]] = row[2] .. "\0" .. row[3] end
   local real, _ = sys.realpath(root)
-  return { root = root, real_root = real or root, hashed = hashed, used = {}, this_run = {},
+  local output = build_directory(root)
+  local resolved_output, _ = sys.realpath(output)
+  return { root = root, real_root = real or root, output = output,
+    real_output = resolved_output or output, hashed = hashed, used = {}, this_run = {},
     read = 0, spent_ns = 0 }
 end
 
@@ -703,7 +709,7 @@ end
 --- sandbox gives and a key holds.
 local function leads_out(digests: declared_key.Digests, path: string,
                          directory: string, bounds?: {string}): string | nil
-  local within = bounds or { digests.root, digests.real_root }
+  local within = bounds or { digests.root, digests.real_root, digests.output, digests.real_output }
   local what = bounds ~= nil and within[1] or "the tree"
   local function inside(candidate: string): boolean
     for _, bound in ipairs(within) do
@@ -795,9 +801,9 @@ local function of_tree(digests: declared_key.Digests, relative: string): string,
   if plain:sub(1, 1) == "/" or plain == ".." or plain:sub(1, 3) == "../" then return plain, "" end
   -- Declarations keep the worker's virtual o names. Digest the physical
   -- output entries that its sandbox binds there.
-  if plain == "o" then return plain, build_directory(digests.root) end
+  if plain == "o" then return plain, digests.output end
   if plain:sub(1, 2) == "o/" then
-    return plain, build_directory(digests.root) .. plain:sub(2)
+    return plain, digests.output .. plain:sub(2)
   end
   return plain, digests.root .. "/" .. plain
 end
@@ -827,10 +833,10 @@ end
 --- parts that is a path of the tree by its name there
 --- (`tree_name`), as PATH's are: what is there is keyed by its
 --- contents, and its place is no more an input than the tree's.
-local function held_value(value: string, root: string): string
+local function held_value(value: string, digests: declared_key.Digests): string
   local parts: {string} = {}
   for part in (value .. ":"):gmatch("([^:]*):") do
-    parts[#parts + 1] = tree_name(part, root)
+    parts[#parts + 1] = tree_name(part, digests.root, digests.output)
   end
   return table.concat(parts, ":")
 end
@@ -931,7 +937,7 @@ function declared_key.preimage(digests: declared_key.Digests,
   for name in pairs(spec.environment) do names[#names + 1] = name end
   table.sort(names)
   for _, name in ipairs(names) do
-    lines[#lines + 1] = part("e", name, held_value(spec.environment[name], digests.root))
+    lines[#lines + 1] = part("e", name, held_value(spec.environment[name], digests))
   end
   return table.concat(lines, "\n"), ""
 end

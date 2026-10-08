@@ -90,7 +90,9 @@ true
 
 A verb takes paths to narrow it. `cosmic build cmd/hi` builds the tree
 but writes only the programs under `cmd/hi`. With `--host`, as here, each
-is this system's native executable, which runs with no launcher.
+is this system's native executable, which runs with no launcher. The
+verdict reports the full path of each program, in the project's external
+build directory.
 
 ```teal file=cmd/hi/main.tl
 return function(): integer
@@ -121,10 +123,11 @@ for _, word in ipairs({ "build", "--host", "cmd/hi" }) do argv[#argv + 1] = word
 local built = assert(Child.run(argv,
   { env = env, fds = relaunch.fds, cwd = tmp, stdout = "capture", timeout_ns = Clock.seconds(60) }))
 print("exit " .. tostring(built.code))
-local hi, _ = Fs.exists(tmp .. "/o/bin/hi")
-local bye, _ = Fs.exists(tmp .. "/o/bin/bye")
+local output = assert((built.stdout or ""):match("build: PASS %((.-)/bin/hi %(host%)"))
+local hi, _ = Fs.exists(output .. "/bin/hi")
+local bye, _ = Fs.exists(output .. "/bin/bye")
 print("hi: " .. tostring(hi) .. ", bye: " .. tostring(bye))
-local ran = assert(Child.run({ tmp .. "/o/bin/hi" }, { stdout = "capture", timeout_ns = Clock.seconds(10) }))
+local ran = assert(Child.run({ output .. "/bin/hi" }, { stdout = "capture", timeout_ns = Clock.seconds(10) }))
 print(((ran.stdout or ""):gsub("\n$", "")))
 ```
 

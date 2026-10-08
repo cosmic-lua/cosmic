@@ -8,6 +8,7 @@
 --- checkout; the cache's own cases, in-process, are in
 --- build/shared_compiles_test.tl.
 
+local build_paths = require("build.paths")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
@@ -134,20 +135,20 @@ local function test_a_second_checkout_compiles_nothing_the_first_compiled(tmp: s
   -- What each checkout ships, and keeps, is what a compile makes: its
   -- bytecode, and the record-field use `b` makes of `c.Box` with it.
   local queries: {{string}} = {
-    { "o/cosmic.db", "SELECT path, file, kind, hex(source_hash), hex(key), hex(bytecode), " ..
+    { "cosmic.db", "SELECT path, file, kind, hex(source_hash), hex(key), hex(bytecode), " ..
         "tests FROM modules ORDER BY path" },
-    { "o/cosmic.db", "SELECT module, symbol, from_module, from_file, line FROM uses " ..
+    { "cosmic.db", "SELECT module, symbol, from_module, from_file, line FROM uses " ..
         "ORDER BY module, symbol, from_module, line" },
-    { "o/build.db", "SELECT key, tool, lua, hex(bytecode), seen FROM compiled ORDER BY key" },
-    { "o/build.db", "SELECT key, ordinal, module, member, line FROM typed_refs " ..
+    { "build.db", "SELECT key, tool, lua, hex(bytecode), seen FROM compiled ORDER BY key" },
+    { "build.db", "SELECT key, ordinal, module, member, line FROM typed_refs " ..
         "ORDER BY key, ordinal" },
   }
   for _, query in ipairs(queries) do
-    local first = dump(tmp .. "/first/" .. query[1], query[2])
-    local second = dump(tmp .. "/second/" .. query[1], query[2])
+    local first = dump(build_paths.required(tmp .. "/first") .. "/" .. query[1], query[2])
+    local second = dump(build_paths.required(tmp .. "/second") .. "/" .. query[1], query[2])
     assert(first ~= "" and first == second, query[2] .. "\n" .. first .. "\n--\n" .. second)
   end
-  local uses = dump(tmp .. "/second/o/cosmic.db", "SELECT symbol FROM uses WHERE module = 'c'")
+  local uses = dump(build_paths.required(tmp .. "/second") .. "/cosmic.db", "SELECT symbol FROM uses WHERE module = 'c'")
   assert(uses:find("Box.value", 1, true), uses)
   -- Its own now: a build again takes nothing from the cache.
   local again = built(tmp .. "/second", env, "(0 compiled, 3 cached;")
@@ -224,7 +225,7 @@ local function test_a_damaged_row_is_compiled_again_and_replaced(tmp: string)
   checkout(tmp .. "/first")
   built(tmp .. "/first", env, "(3 compiled, 0 cached;")
   local keys: {string:string} = {}
-  local db = assert(Sqlite.open(tmp .. "/first/o/cosmic.db"))
+  local db = assert(Sqlite.open(build_paths.required(tmp .. "/first") .. "/cosmic.db"))
   local rows = assert(Sqlite.text_rows(db, "SELECT path, CAST(key AS TEXT) FROM modules"))
   for _, row in ipairs(rows) do
     keys[row[1]] = shared_compiles.key(row[2], false, false)

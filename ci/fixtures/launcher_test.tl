@@ -8,10 +8,10 @@ local Process = require("cosmic_ci.process")
 local Test = require("cosmic.test")
 local String = require("cosmic.string")
 
--- The launcher contract (o/fixtures/launcher,
+-- The launcher contract (testdata/ci-fixtures/launcher,
 -- cosmic_ci/launcher_setup.tl): the launcher and the target's socket
 -- payload, one of each target's there and the others keyed as missing;
--- and the product's prefix (o/fixtures/product's `prefix`: its
+-- and the product's prefix (testdata/ci-fixtures/product's `prefix`: its
 -- launcher, manifest and cores, what these tests exercise), in every
 -- verdict's key, so no verdict stands for a launcher it was not reached
 -- on; the database the product carries moves no verdict here
@@ -21,11 +21,11 @@ local String = require("cosmic.string")
 -- private noexec scratch on the Linux legs.
 Test.policy{
   grants = {
-    { path = "o/fixtures/product/prefix", letters = "r" },
-    { path = "o/fixtures/launcher/launcher.test", letters = "r" },
-    { path = "o/fixtures/launcher/payloads/socket-x86_64-linux-musl", letters = "r" },
-    { path = "o/fixtures/launcher/payloads/socket-aarch64-linux-musl", letters = "r" },
-    { path = "o/fixtures/launcher/payloads/socket-aarch64-macos", letters = "r" },
+    { path = "testdata/ci-fixtures/product/prefix", letters = "r" },
+    { path = "testdata/ci-fixtures/launcher/launcher.test", letters = "r" },
+    { path = "testdata/ci-fixtures/launcher/payloads/socket-x86_64-linux-musl", letters = "r" },
+    { path = "testdata/ci-fixtures/launcher/payloads/socket-aarch64-linux-musl", letters = "r" },
+    { path = "testdata/ci-fixtures/launcher/payloads/socket-aarch64-macos", letters = "r" },
   },
   env = { "COSMIC_FIXTURE_TARGET" },
   profiles = { "system" },

@@ -7,8 +7,12 @@ optimized target/configuration. Then run from either checkout:
 ```sh
 COSMIC_PERF_BASELINE_COMMIT=<full-parent-commit> \
 COSMIC_PERF_CANDIDATE_COMMIT=<full-candidate-commit> \
-bin/perf /absolute/parent/o/bin/cosmic /absolute/candidate/o/bin/cosmic /new/result/directory
+bin/perf /absolute/parent-artifact /absolute/candidate-artifact /new/result/directory
 ```
+
+Use the actual built executables. [`bin/cosmic`] is a checkout launcher rather
+than a retained artifact. `bin/cosmic db` reports the full database paths;
+the built tool is [`bin/cosmic`] beneath that same build directory.
 
 [`bin/perf`] uses the pinned bootstrap as one fixed controller. It copies and hashes
 both executables, creates four independent fixture trees, and retains all
@@ -38,14 +42,18 @@ Fixtures deliberately run unsandboxed, with shared compile/verdict caches off;
 these measurements establish no sandbox correctness. Automatic boot is disabled.
 
 `metadata.json` identifies retained artifact bytes and host conditions. Each
-fixture's `o/perf/runtime.json` records core, target, configuration and SQLite
-identities; `compiler.tsv` records the external artifact's compiler identities
-through its SQL command. `o/perf/setup.json` retains untimed setup command results,
-and `query-plan.txt` records a representative reverse-import plan. Raw per-phase
-observations, including checked warmups, are saved after every pair under
-`aa-a/o/perf/` and `ab-a/o/perf/`; `raw.json` combines measured observations only. A failing child is
-recorded in its fixture's `o/perf/failure.json`; the latest completed observation
-and build counters are retained beside it. Generated files stay outside Git.
+fixture keeps its logs under `perf/` in its resolved build directory.
+`runtime.json` records core, target, configuration and SQLite identities;
+`compiler.tsv` records the retained artifact's compiler identities through its
+SQL command. `setup.json` retains untimed setup command results, and
+`query-plan.txt` records a representative reverse-import plan. Raw per-phase
+observations, including checked warmups, are saved after every pair in the
+A/A and A/B parent fixtures' log directories; `raw.json` combines measured
+observations only. A failing child is recorded in `failure.json` there; the
+latest completed observation and build counters are retained beside it. The
+fixtures select separate keyed directories under the result directory's
+`build-home`; a retained artifact predating this resolver uses its fixture's
+legacy `o/` instead. Logs stay outside the scanned sources and outside Git.
 
 The report gives medians, p95s, sample counts, reason codes and uncertainty
 intervals. Median bounds use the exact binomial sign ranks with 95% coverage.
@@ -99,8 +107,8 @@ build-history rows. Building commands must advance both history counters
 exactly once; other commands must leave all counters unchanged. No-op builds
 must read and compile zero modules and reuse all six fixture modules. Histories
 must match within each pair and across all four trees before A/A and after A/B
-at each workload boundary. The phase logs live in `aa-a/o/perf` and
-`ab-a/o/perf`, respectively.
+at each workload boundary. The phase logs live under `perf/` in the resolved
+build directories of the `aa-a` and `ab-a` fixtures, respectively.
 
 Leaf edits use the same content sequence in both phases while retaining
 distinct observation pair IDs. With the selected workload's one-based index,
@@ -118,4 +126,5 @@ The release suite keeps its 10-second per-test deadline; that deadline had
 interrupted these process-heavy correctness cases on Linux and macOS. The
 checked suite retains its separate 120-second per-test deadline.
 
+[`bin/cosmic`]: ../bin/cosmic
 [`ci/fixtures/performance_test.tl`]: ../ci/fixtures/performance_test.tl

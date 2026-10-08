@@ -301,7 +301,7 @@ end
     COSMIC_PORTABLE_CACHE = "c", PATH = "p", COSMIC_REBOOTED = "1", OLDPWD = "/elsewhere",
     _ = "/usr/bin/timeout", SHLVL = "2", COSMIC_BUILD_CACHE = "/shared/cache.db",
     COSMIC_VERDICT_CACHE = "/shared/verdicts.db", COSMIC_TEST_NO_SHARED = "1",
-    COSMIC_REBUILD_LOCK_HANDED = "/tree/o/rebuild.lock" })
+    COSMIC_REBUILD_LOCK_HANDED = "/build-home/project/rebuild.lock" })
   assert(kept.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
   -- Nor a rebuild lock handed to the run: what a test starts holds none
   -- of the run's (build.rebuild_lock).

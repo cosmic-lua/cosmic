@@ -13,6 +13,7 @@ local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local rebuild_lock = require("build.rebuild_lock")
+local build_paths = require("build.paths")
 local stand_in = require("build.stand_in")
 local Zig = require("build.zig")
 
@@ -63,12 +64,12 @@ local function test_host_agrees_with_the_running_host()
 end
 
 local function test_build_args_adds_cache_flags_only_for_build()
-  local got = Zig.build_args("/repo", "/cache/zig-project", { "build", "-Doptimize=ReleaseFast" }, 4)
+  local got = Zig.build_args("/repo", "/cache/zig-project", { "build", "-Doptimize=ReleaseFast" }, 4, {}, "/selected")
   assert(#got == 10)
   assert(got[1] == "build")
   assert(got[2] == "--build-file" and got[3] == "/repo/build.zig")
   assert(got[4] == "--cache-dir" and got[5] == "/cache/zig-project")
-  assert(got[6] == "--prefix" and got[7] == "/repo/o")
+  assert(got[6] == "--prefix" and got[7] == "/selected")
   assert(got[8] == "--cache-poison=disallowed")
   assert(got[9] == "-j8")
   assert(got[10] == "-Doptimize=ReleaseFast")
@@ -80,12 +81,12 @@ local function test_build_args_run_steps_past_the_processor_count()
   assert(Zig.build_jobs(1) == 8)
   assert(Zig.build_jobs(4) == 8)
   assert(Zig.build_jobs(16) == 32)
-  local got = Zig.build_args("/repo", "/cache/zig-project", { "build", "boot" }, 16)
+  local got = Zig.build_args("/repo", "/cache/zig-project", { "build", "boot" }, 16, {}, "/selected")
   assert(got[9] == "-j32" and got[10] == "boot")
 end
 
 local function test_build_args_keep_the_callers_jobs()
-  local got = Zig.build_args("/repo", "/cache/zig-project", { "build", "-j2", "boot" }, 16)
+  local got = Zig.build_args("/repo", "/cache/zig-project", { "build", "-j2", "boot" }, 16, {}, "/selected")
   assert(#got == 10)
   assert(got[9] == "-j2" and got[10] == "boot")
 end
@@ -132,12 +133,13 @@ local function test_build_compiles_its_maker_in_debug()
 end
 
 -- The global cache is shared: named outright, else in this user's cache
--- directory, and in the checkout only when there is no cache directory.
+-- directory. Without either, it refuses an implicit local fallback.
 local function test_global_cache_is_named_then_shared_then_local(tmp: string)
   assert(Zig.global_cache("/repo", { COSMIC_ZIG_GLOBAL_CACHE = "/ci/zig-global",
     XDG_CACHE_HOME = tmp }) == "/ci/zig-global")
   assert(Zig.global_cache("/repo", { XDG_CACHE_HOME = tmp }) == tmp .. "/cosmic/zig-global")
-  assert(Zig.global_cache("/repo", {}) == "/repo/o/zig-global")
+  local ok, why = pcall(Zig.global_cache, "/repo", {})
+  assert(not ok and tostring(why):find("COSMIC_ZIG_GLOBAL_CACHE", 1, true))
 end
 
 -- The project cache is shared as the global one is: a fresh worktree then
@@ -146,7 +148,8 @@ local function test_project_cache_is_named_then_shared_then_local(tmp: string)
   assert(Zig.project_cache("/repo", { COSMIC_ZIG_CACHE = "/ci/zig-cache",
     XDG_CACHE_HOME = tmp }) == "/ci/zig-cache")
   assert(Zig.project_cache("/repo", { XDG_CACHE_HOME = tmp }) == tmp .. "/cosmic/zig-project")
-  assert(Zig.project_cache("/repo", {}) == "/repo/o/zig-cache")
+  local ok, why = pcall(Zig.project_cache, "/repo", {})
+  assert(not ok and tostring(why):find("COSMIC_ZIG_CACHE", 1, true))
 end
 
 local function test_repo_root_from_the_scripts_own_path(tmp: string)
@@ -343,16 +346,17 @@ end
 --- no process answers to or this one's own.
 local function test_a_boot_names_a_holder_as_the_tool_does(tmp: string)
   local root = tmp .. "/tree"
-  assert(Fs.mkdirs(root .. "/o"))
+  assert(Fs.mkdirs(root))
+  local output = assert(build_paths.prepare(root))
   local contents: {string} = { "1\nnone\n", "1\n", "", "x\ntest\n",
     tostring(sys.getpid()) .. "\ntest\n" }
   for _, role in ipairs({ "test", "rebuild", "write" }) do
     contents[#contents + 1] = "1\n" .. role .. "\n"
   end
   for _, text in ipairs(contents) do
-    assert(Fs.write(root .. "/o/rebuild.lock.pid", text))
-    assert(Zig.holder(root) == rebuild_lock.holder(root), text .. ": " ..
-        Zig.holder(root) .. " against " .. rebuild_lock.holder(root))
+    assert(Fs.write(output .. "/rebuild.lock.pid", text))
+    assert(Zig.holder(root, output) == rebuild_lock.holder(root), text .. ": " ..
+        Zig.holder(root, output) .. " against " .. rebuild_lock.holder(root))
   end
 end
 
@@ -362,16 +366,17 @@ end
 --- to see.
 local function test_a_boot_refuses_a_lock_file_it_cannot_write(tmp: string)
   local root = tmp .. "/tree"
-  assert(Fs.mkdirs(root .. "/o"))
-  assert(Fs.write(root .. "/o/rebuild.lock", "", 0x124))
-  local fd, _ = sys.open(root .. "/o/rebuild.lock", sys.O_RDWR, 0)
+  assert(Fs.mkdirs(root))
+  local output = assert(build_paths.prepare(root))
+  assert(Fs.write(output .. "/rebuild.lock", "", 0x124))
+  local fd, _ = sys.open(output .. "/rebuild.lock", sys.O_RDWR, 0)
   if fd ~= nil then
     assert(sys.close(fd))
     return
   end
   local status = Zig.with_lock(root, {}, function(): integer
     error("a boot ran without a writable lock")
-  end)
+  end, output)
   assert(status == 1)
 end
 
@@ -428,7 +433,7 @@ local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: st
     end
     statuses[i] = Zig.with_lock(tmp .. "/" .. i, {}, function(_env: {string:string}): integer
       return 7
-    end)
+    end, tmp .. "/output-" .. i)
     attempts[i], closures[i] = calls, closes
   end
   Sqlite.open, sys.flock_kind = real_open, real_kind
@@ -491,4 +496,11 @@ local function test_cache_fallbacks_follow_selected_output()
   local environment = Zig.passthrough_environment("/repo", {}, "/selected")
   assert(environment.ZIG_GLOBAL_CACHE_DIR == "/selected/zig-global")
   assert(environment.ZIG_LOCAL_CACHE_DIR == "/selected/zig-cache")
+end
+
+local function test_passthrough_with_explicit_zig_caches_needs_no_build_home()
+  local environment = Zig.passthrough_environment("/missing-project", {
+    ZIG_GLOBAL_CACHE_DIR = "/g", ZIG_LOCAL_CACHE_DIR = "/p",
+  })
+  assert(environment.ZIG_GLOBAL_CACHE_DIR == "/g" and environment.ZIG_LOCAL_CACHE_DIR == "/p")
 end

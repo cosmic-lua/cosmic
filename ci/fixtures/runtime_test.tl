@@ -7,10 +7,10 @@ local Process = require("cosmic_ci.process")
 local Test = require("cosmic.test")
 local String = require("cosmic.string")
 
--- What the runtime setup made (o/fixtures/runtime,
+-- What the runtime setup made (testdata/ci-fixtures/runtime,
 -- cosmic_ci/runtime_setup.tl), each file the tests read or run by name,
 -- which holds the database it was written from, and the prefix of the
--- product it was made from (o/fixtures/product's `prefix`: its
+-- product it was made from (testdata/ci-fixtures/product's `prefix`: its
 -- launcher, manifest and cores): each is in every verdict's key, so no
 -- verdict stands for a product part it was not reached on
 -- (cosmic_ci/orchestration.tl's `sandboxed_fixtures`).
@@ -19,20 +19,20 @@ local String = require("cosmic.string")
 -- uname, mkfifo, cat and tee through /usr/bin/env (cosmic_ci/process.tl).
 Test.policy{
   grants = {
-    { path = "o/fixtures/product/prefix", letters = "r" },
-    { path = "o/fixtures/runtime/runtime.old", letters = "r" },
-    { path = "o/fixtures/runtime/runtime.old.prefix-sha256", letters = "r" },
-    { path = "o/fixtures/runtime/runtime.new", letters = "r" },
-    { path = "o/fixtures/runtime/runtime.new.prefix-sha256", letters = "r" },
-    { path = "o/fixtures/runtime/runtime.release", letters = "r" },
-    { path = "o/fixtures/runtime/runtime.release.prefix-sha256", letters = "r" },
-    { path = "o/fixtures/runtime/runtime.incompatible", letters = "r" },
-    { path = "o/fixtures/runtime/probe.tl", letters = "r" },
-    { path = "o/fixtures/runtime/tool.tar", letters = "r" },
-    { path = "o/fixtures/runtime/hooked-build/targets.tsv", letters = "r" },
-    { path = "o/fixtures/runtime/hooked-build/core/x86_64-linux-musl/cosmic-core", letters = "r" },
-    { path = "o/fixtures/runtime/hooked-build/core/aarch64-linux-musl/cosmic-core", letters = "r" },
-    { path = "o/fixtures/runtime/hooked-build/core/aarch64-macos/cosmic-core", letters = "r" },
+    { path = "testdata/ci-fixtures/product/prefix", letters = "r" },
+    { path = "testdata/ci-fixtures/runtime/runtime.old", letters = "r" },
+    { path = "testdata/ci-fixtures/runtime/runtime.old.prefix-sha256", letters = "r" },
+    { path = "testdata/ci-fixtures/runtime/runtime.new", letters = "r" },
+    { path = "testdata/ci-fixtures/runtime/runtime.new.prefix-sha256", letters = "r" },
+    { path = "testdata/ci-fixtures/runtime/runtime.release", letters = "r" },
+    { path = "testdata/ci-fixtures/runtime/runtime.release.prefix-sha256", letters = "r" },
+    { path = "testdata/ci-fixtures/runtime/runtime.incompatible", letters = "r" },
+    { path = "testdata/ci-fixtures/runtime/probe.tl", letters = "r" },
+    { path = "testdata/ci-fixtures/runtime/tool.tar", letters = "r" },
+    { path = "testdata/ci-fixtures/runtime/hooked-build/targets.tsv", letters = "r" },
+    { path = "testdata/ci-fixtures/runtime/hooked-build/core/x86_64-linux-musl/cosmic-core", letters = "r" },
+    { path = "testdata/ci-fixtures/runtime/hooked-build/core/aarch64-linux-musl/cosmic-core", letters = "r" },
+    { path = "testdata/ci-fixtures/runtime/hooked-build/core/aarch64-macos/cosmic-core", letters = "r" },
   },
   profiles = { "system" },
 }

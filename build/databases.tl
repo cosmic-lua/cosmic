@@ -1,4 +1,4 @@
---- What the databases under `o/` hold, table by table: rows,
+--- What the databases in the build directory hold, table by table: rows,
 --- pages and bytes, from SQLite's own `dbstat` table, and how the
 --- last few builds went. This is how growth gets named rather than
 --- noticed, and how a change to what the build stores is judged by
@@ -142,8 +142,8 @@ end
 local source_columns = { "file", "from_file", "path", "source_hash", "sha256" }
 
 --- The source file each module name and each source hash stands for,
---- from whichever of the two databases hold one: `o/cosmic.db`'s modules
---- and `o/build.db`'s derived rows and staged files.
+--- from whichever of the two databases hold one: `cosmic.db`'s modules
+--- and `build.db`'s derived rows and staged files.
 local function module_files(root: string): {string:string} | nil, string
   local files: {string:string} = {}
   for _, source in ipairs({
@@ -225,10 +225,10 @@ local function describe_under(path: string, about: function(string): boolean): i
   return kept
 end
 
---- `cosmic db [path...]`: describes `o/cosmic.db`, `o/carried.db` (what
---- the tool built from cosmic's own tree carries) and `o/build.db` under
---- the working directory, each one there is, and how many closure stores
---- `o/stores` holds and their bytes. It prints a verdict line and
+--- `cosmic db [path...]`: describes `cosmic.db`, `carried.db` (what
+--- the tool built from cosmic's own tree carries) and `build.db` in
+--- the project's build directory, each one there is, and the number and
+--- bytes of its closure stores. It prints a verdict line and
 --- returns the exit code. Paths narrow it to the rows about the sources
 --- under them: each table's count of those rows, and the slowest of
 --- those tests. The coverage rows counted are every kept run's, not only

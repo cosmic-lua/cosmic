@@ -167,8 +167,8 @@ would have added null-argument and `_FORTIFY_SOURCE` checks, which
 musl's lack; a `TODO:` above the checked core in `build.zig` for each
 says how a header the checked build force-includes would recover them.
 `bin/zig build sanitized` boots with that core and embeds it in
-`o/sanitized/bin/cosmic`; every full CI run (merge queue, main, or a
-manual run) verifies the embedded core bytes and, on the Linux x86-64
+`sanitized/bin/cosmic` in the selected build directory; every full CI run
+(merge queue, main, or a manual run) verifies the embedded core bytes and, on the Linux x86-64
 leg, runs the test suite under a 320-second limit, with full
 undefined-behavior checking and coverage collection enabled: every
 test in main's scheduled run and a manual one, and in the merge
@@ -446,7 +446,8 @@ and `zoneinfo` use rowid tables for their size. `modules` has a separate
 path index, so a name lookup need not read unrelated bytecode and source
 overflow pages. every producer inserts rows in a deterministic order;
 a rowid is not an identity across builds. everything a build
-does on one host lives in a second database beside it, `o/build.db`,
+does on one host lives in a second database, `build.db`, in the selected
+build directory,
 the working database: the tree as it was last read, staged whole
 before anything transforms it; what a stat said about each file, so
 an unchanged file is never read again; one row per run saying what
@@ -505,8 +506,8 @@ only that entry. target/configuration pairs are unique across the manifest and
 system identities are unique in the selected configuration. the production
 decoder's required-release mask is unchanged.
 
-a project's projected module database, `o/cosmic.db`, is read ahead of the
-binary's: when cosmic runs or tests a project, `require` answers from
+a project's projected module database, `cosmic.db` in its build directory,
+is read ahead of the binary's: when cosmic runs or tests a project, `require` answers from
 the project's database first and the binary's second, except for
 `cosmic.*`, which the binary answers first. the checker is answered
 the same way while the project builds: a `cosmic.*` name the
@@ -528,7 +529,7 @@ no tool, and only a test may require one. a vendored
 tree is a function of its pin and its patch records and is never
 edited in place, so those are its inputs and the tree is not walked.
 on a mismatch the tool rebuilds itself, as below, or refuses with exit 3
-when it cannot. raw cores remain build outputs under `o/core`; the working
+when it cannot. raw cores remain under `core/` in that directory; the working
 database carries the compiler source needed for a later database-only rebuild.
 
 sqlite is load-bearing at boot, so its sharp edges are the runtime's
@@ -546,18 +547,31 @@ each database costs in rows, pages, and bytes.
 the build is a cosmic program reading the tree by position into the
 database: compile, check, record, embed. `build.zig` owns the C.
 `bin/zig build` patches the vendored trees first, in Teal (below),
-and `zig build` installs them under `o/vendor/` and produces the core
+and `zig build` installs them under `vendor/` in the build directory and
+produces the core
 for each target. `zig build boot`
 bridges: it runs the fresh host core over `build/` to compile the
 importer with the compiler the vendored `tl.lua` compiles from the
-patched `tl.tl`, writes `o/cosmic.db`, and writes one
-portable `o/bin/cosmic`. the tool carries `o/carried.db`, that projection
+patched `tl.tl`, writes `cosmic.db`, and writes one
+portable [`bin/cosmic`] there. the tool carries `carried.db`, that projection
 without the tree's own tests and examples, and with the docs, uses
 and examples of the public standard library alone (and the doc rows
 the error catalog's guidance joins to): `cosmic test` and a lookup
-inside the tree read the rest from `o/cosmic.db`, and a release has no
+inside the tree read the rest from that `cosmic.db`, and a release has no
 use for them. a fresh clone and CI run `boot`; a
-developer runs `o/bin/cosmic build` the other hundred times a day.
+developer runs `bin/cosmic test` or `bin/cosmic fix` after an edit.
+
+[`build.paths`] selects one directory for databases, raw
+cores, executables, and the rebuild lock. `COSMIC_BUILD_HOME` names an absolute
+base outside the project; by default, generated state is outside the sources under
+`$XDG_CACHE_HOME/cosmic/trees`, or
+`$HOME/.cache/cosmic/trees`. The full SHA-256 of the canonical project root
+selects its directory there: worktrees and nested projects have separate state,
+while aliases of one root share it. Existing generated directories must belong
+to the user and be unwritable by others; new ones are private. Invalid
+configuration fails rather than falling back to the checkout. Old `o/` output
+is unused. The source-tree [`bin/cosmic`] launcher resolves and runs the built
+tool, and `cosmic build` reports the full path of every program it writes.
 
 [`build.work`] stages inputs and manages the working database.
 [`build.identity`] defines input policy, fingerprints and semantic identities.
@@ -578,7 +592,8 @@ and a stale tool is the bug to design against. `boot` stores two
 fingerprints in the binary it produces: one over everything the tool
 is made of, one over what the C core is built from. every run in
 cosmic's own tree fingerprints the tree first. only the tree's own tool
-under `o/` rebuilds itself ([`build.reboot.own_tool`]); a stale release or
+in the selected build directory rebuilds itself ([`build.reboot.own_tool`]);
+a stale release or
 an externally copied tool refuses with exit 3. when only Teal differs,
 the tree's tool compiles the tree, projects the database and combines it
 with the exact retained portable prefix before re-entering the command.
@@ -616,8 +631,8 @@ zig's caches, keyed by content, in the user's cosmic cache directory
 (`zig-project` and `zig-global` under `~/.cache/cosmic` by default) and
 shared by every checkout (`COSMIC_ZIG_CACHE` and
 `COSMIC_ZIG_GLOBAL_CACHE` move them, and with no cache directory at all
-they fall back to `o/`); `o/` and those caches are the only things to
-delete. the
+they use the selected build directory); that directory and those caches
+are the disposable generated state. the
 applier's output replaces the vendor directory the core compiles
 from, whole, never one file beside a pristine tree, because a quoted
 `#include` finds the neighbor first and a half-applied patch builds
@@ -755,9 +770,9 @@ what the declared key leaves out, each with a `TODO:` where its fix goes:
   developer's Mac installs beyond the sealed system volume is keyed by
   nothing -- its runs keyed so are CI's, whose image the variable names.
 - *the program's own modules*: a worker whose module does not declare
-  `store` is given at `o/cosmic.db` the store of its import closure alone
-  ([`build/closure_store.tl`]'s `write`, kept under `o/stores/` by the address its
-  key holds), and `require` refuses it a module of the tree outside the
+  `store` is given at its virtual build path the store of its import closure alone
+  ([`build/closure_store.tl`]'s `write`, kept under `stores/` in the build
+  directory by the address its key holds), and `require` refuses it a module of the tree outside the
   closure ([`build/test_worker.tl`]'s `hold_requires`); nothing else in the
   worker holds a lookup in the store to the closure. A worker whose module
   declares neither `store` nor `tool`, a `nests` one among them, also runs on
@@ -1025,6 +1040,7 @@ bin/zig             POSIX sh: hand off to build/zig.tl, which fetches, verifies,
 bin/zig.pin         version and per-host sha256; build.zig reads it
 bin/vendor          POSIX sh: hand off to build/vendor.tl, which refetches vendor/<name>/
 bin/cosmic-bootstrap POSIX sh: fetch, verify, cache the cosmic ci/cosmic-driver.pin names
+bin/cosmic          POSIX sh: resolve and run the checkout's built tool
 build.zig           the C build; build.zig.zon names the package
 vendor/<name>/      the upstream files the build reads, unedited, with a PIN
 patch/<name>/       exact find/replace records, each with a note
@@ -1036,7 +1052,6 @@ cosmic/             the standard library; entry files are public, siblings not
 cmd/cosmic/         the binary's main
 build/              the importer, checker driver, embed (Teal; private to build/ cmd/ test/ tests)
 doc/                prose
-o/                  output; o/cosmic.db, o/carried.db, o/build.db, o/stores/; never committed
 ```
 
 every directory name is singular: `doc`, not `docs`; `patch`, not
@@ -1101,6 +1116,7 @@ in [roadmap.md](roadmap.md).
 
 [`artifact.split`]: ../build/artifact.tl
 [`bin/cosmic-bootstrap`]: ../bin/cosmic-bootstrap
+[`bin/cosmic`]: ../bin/cosmic
 [`bin/vendor`]: ../bin/vendor
 [`bin/zig.pin`]: ../bin/zig.pin
 [`bin/zig`]: ../bin/zig
@@ -1110,6 +1126,7 @@ in [roadmap.md](roadmap.md).
 [`build.identity`]: ../build/identity.tl
 [`build.importer.analyzer_identity`]: ../build/importer.tl
 [`build.importer`]: ../build/importer.tl
+[`build.paths`]: ../build/paths.tl
 [`build.reboot.own_tool`]: ../build/reboot.tl
 [`build.work`]: ../build/work.tl
 [`build.writer`]: ../build/writer.tl

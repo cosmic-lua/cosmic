@@ -333,41 +333,6 @@ local function module_of(root: string, file: string): string | nil, string
   return (name:gsub("/", "."))
 end
 
---- Whether `dir`, a build's o/, can be made and written: it, and the
---- databases a build writes there.
-local function writable(dir: string): boolean
-  local Fs = require("cosmic.fs")
-  local sys = require("cosmic.sys")
-  local made, _ = Fs.mkdirs(dir)
-  if not made then return false end
-  local reached, _ = sys.access(dir, sys.W_OK | sys.X_OK)
-  if not reached then return false end
-  for _, name in ipairs({ "/build.db", "/cosmic.db" }) do
-    local there, _ = sys.access(dir .. name, 0) -- 0: whether it exists
-    local open, _ = sys.access(dir .. name, sys.W_OK)
-    if there and not open then return false end
-  end
-  return true
-end
-
---- Where a run builds the tree around `root` when its o/ cannot be
---- written (another user's, a read-only checkout): a directory of this
---- user's cache of its own for `root`, named by its path's SHA-256, so a
---- later run reuses it, and whether it is new. Nil and why where there
---- is no such cache.
--- TODO: remove a directory of `runs` no run has used for a while, once
--- the caches under $XDG_CACHE_HOME/cosmic share a rule to prune by: each
--- tree run so keeps one, a copy of every file it staged among it.
-local function private_dir(root: string): string | nil, boolean, string
-  local Fs = require("cosmic.fs")
-  local Hash = require("cosmic.hash")
-  local base, trouble = Fs.cache_dir("runs")
-  if base == nil then return nil, false, trouble end
-  local dir = base .. "/" .. Hash.hex_sha256(root)
-  local there, _ = Fs.exists(dir)
-  return dir, not there, ""
-end
-
 --- Runs a file. The file is a module: it is required once its tree is
 --- built, with its arguments (below) set in the global `arg` before its
 --- top level runs, and if what it returns is a function, that function is
@@ -395,7 +360,6 @@ local function run(file: string, argv: {integer:string}): integer
   local reboot = require("build.reboot")
   local teal = require("build.teal")
   local tree = require("build.tree")
-  local build_paths = require("build.paths")
   local work = require("build.work")
   local writer = require("build.writer")
   local root, trouble = root_of(file)
@@ -415,32 +379,12 @@ local function run(file: string, argv: {integer:string}): integer
     log:complain(own_trouble)
     return 1
   end
-  -- Any tree but cosmic's own whose o/ cannot be written builds into a
-  -- directory of this user's instead. Cosmic's o/ has no stand-in: its
-  -- tool rebuilds from it and its lock guards it.
-  local dir, directory_trouble = build_paths.directory(root)
-  if dir == nil then
-    log:complain(directory_trouble)
-    return 1
-  end
-  if not own_tree and not writable(dir) then
-    local private, new, private_trouble = private_dir(root)
-    if private == nil then
-      log:complain(dir .. " cannot be written, and there is nowhere else to build " .. root ..
-          ": " .. private_trouble)
-      return 1
-    end
-    if new then
-      log:complain(dir .. " cannot be written; building " .. root .. " into " .. private ..
-          " instead, as every run of it will")
-    end
-    dir = private
-  end
-  local handle, open_trouble = work.open(root, dir)
+  local handle, open_trouble = work.open(root)
   if handle == nil then
     log:complain(open_trouble)
     return 1
   end
+  local dir = handle.dir
   local staged, stage_trouble = work.stage(handle, own_tree)
   if staged == nil then
     local _, _ = work.close(handle)

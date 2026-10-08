@@ -1,5 +1,6 @@
 local BuildPaths = require("cosmic_ci.build_paths")
 local Clock = require("cosmic.clock")
+local Env = require("cosmic.env")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
 local Fixture = require("cosmic_ci.fixture")
@@ -83,11 +84,12 @@ local function test_portable_format_contract(tmp: string)
   local publish = Fixture.required("COSMIC_FIXTURE_FORMAT")
   local publish_target = Fixture.required("COSMIC_FIXTURE_TARGET")
   local cosmic = BuildPaths.directory(root) .. "/bin/cosmic"
+  local original = { COSMIC_BUILD_HOME = Env.get("COSMIC_BUILD_HOME") or "" }
   local program = tmp .. "/program"
   local diagnostics = tmp .. "/logs"
   Fixture.run("fixture-write", { cosmic, root .. "/test/portable/tool.tl",
     "write-format-fixture", BuildPaths.directory(root) .. "/targets.tsv", BuildPaths.directory(root) .. "/core",
-    program }, root, diagnostics)
+    program }, root, diagnostics, original)
   Fixture.run("native-decoder-build", { root .. "/bin/zig", "build",
     "portable-format-native" }, root, diagnostics, nil,
     native_build_timeout_ns)
@@ -97,7 +99,7 @@ local function test_portable_format_contract(tmp: string)
   Fixture.run("malformed-mutations", { decoder, program .. ".a" }, root,
     diagnostics)
   local inspection = Fixture.run("inspection", { decoder, "--inspect",
-    program .. ".a" }, root, diagnostics)
+    program .. ".a" }, root, diagnostics, original)
   local decoded = Fixture.inspection(inspection.out)
   local artifact = Fixture.read(program .. ".a")
   local targets = Fixture.targets(BuildPaths.directory(root) .. "/targets.tsv")
@@ -109,7 +111,7 @@ local function test_portable_format_contract(tmp: string)
     local core = Fixture.read(BuildPaths.directory(root) .. "/core/" .. target.name .. "/cosmic-core")
     local host_path = program .. ".host-" .. target.name
     local host_inspection = Fixture.run("host-inspection-" .. target.name,
-      { decoder, "--inspect-host", host_path }, root, diagnostics)
+      { decoder, "--inspect-host", host_path }, root, diagnostics, original)
     local host = Fixture.inspection(host_inspection.out)
     local host_entry = assert(Fixture.entry(host, target.id, target.configuration),
       "host inspection identity differs: " .. target.name)
@@ -120,7 +122,7 @@ local function test_portable_format_contract(tmp: string)
       "host inspection does not describe the leading core: " .. target.name)
     local subset_path = program .. ".subset-" .. target.name
     local subset_inspection = Fixture.run("subset-inspection-" .. target.name,
-      { decoder, "--inspect", subset_path }, root, diagnostics)
+      { decoder, "--inspect", subset_path }, root, diagnostics, original)
     local subset = Fixture.inspection(subset_inspection.out)
     local subset_entry = assert(Fixture.entry(subset, target.id, target.configuration),
       "subset inspection identity differs: " .. target.name)

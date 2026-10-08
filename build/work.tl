@@ -1,7 +1,7 @@
---- The working database, `o/build.db`: where a build stages the tree
+--- The working database, `build.db`: where a build stages the tree
 --- and keeps everything it learns about it on this host.
 ---
---- Two databases, two promises. `o/cosmic.db` is a pure function of
+--- Two databases, two promises. `cosmic.db` is a pure function of
 --- the tree, byte-identical from any build of it, and ships. This one
 --- is a log of what happened on one host -- the tree as it was last
 --- read, what a stat said about each file, test verdicts, coverage --
@@ -38,7 +38,7 @@ local record work
   record Handle
     db: Sqlite.Handle
     root: string
-    --- The directory the build writes into: `root`'s o/, or another
+    --- The directory the build writes into: the project's build directory, or another
     --- [`open`] was given.
     dir: string
     --- This run's number: one more than the last run over this file.
@@ -156,7 +156,7 @@ local version <const> = "28"
 --- on. `cosmic todos` fills it, since a build has no business running
 --- git.
 ---
---- Raw cores are build outputs under `o/core`; they are never copied into
+--- Raw cores are build outputs under `core/` in the build directory; they are never copied into
 --- this working database. The compiler lives in `derived`, the one row
 --- there with no file behind it.
 ---
@@ -212,7 +212,7 @@ local version <const> = "28"
 ---
 --- `digests` is the hash of each file a sandboxed run's keys looked
 --- at ([`build.declared_key`]) -- declared inputs beyond what the stage
---- hashes, o/bin/cosmic and vendor/ among them -- by absolute path,
+--- hashes, the generated cosmic and vendor/ among them -- by absolute path,
 --- with what `lstat` said of it then: a later run whose `lstat` says
 --- the same reads none of them again. A sandboxed run that read one
 --- writes what it looked at: a run of the whole tree in place of the
@@ -415,7 +415,7 @@ local function create(db: Sqlite.Handle): boolean, string
 end
 
 --- How long a run waits for another run of the same tree to end its
---- transaction on `o/build.db`. That run holds it from staging through
+--- transaction on `build.db`. That run holds it from staging through
 --- its compile: a cold compile, a boot, or a stale tool's whole rebuild
 --- of itself (build.reboot), each of which takes minutes on a loaded
 --- host. That is past the 60 s every handle waits by default
@@ -449,20 +449,20 @@ local function begin_waiting(db: Sqlite.Handle, path: string): boolean, string
   return true, ""
 end
 
---- Opens `build.db` in `dir` (`<root>/o` where nil), creating it and its
---- tables when new, and counts this run. A file whose schema is not this
+--- Opens the project's `build.db`, creating its private directory and
+--- tables when new, and counts this run. `dir`, when supplied by
+--- bootstrap or a fixture, names its prepared directory. A file whose schema is not this
 --- module's is removed and made again: it holds nothing the tree cannot
 --- produce.
 function work.open(root: string, dir?: string): work.Handle | nil, string
   local out = dir
   if out == nil then
-    local found, directory_trouble = build_paths.directory(root)
+    local found, directory_trouble = build_paths.prepare(root)
     if found == nil then return nil, directory_trouble end
     out = found
-  end
-  local made, mkdir_trouble = Fs.mkdirs(out)
-  if not made then
-    return nil, mkdir_trouble
+  else
+    local made, mkdir_trouble = Fs.mkdirs(out)
+    if not made then return nil, mkdir_trouble end
   end
   local path = out .. "/build.db"
   local db, open_trouble = Sqlite.open(path, { writable = true })

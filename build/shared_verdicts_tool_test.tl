@@ -9,6 +9,7 @@
 --- explicit cache: their assertions concern cache handling, not isolation.
 --- They declare `tool` because they start this program.
 
+local build_paths = require("build.paths")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -408,6 +409,9 @@ local function test_reads_an_attached_database()
 end
 ]]))
     assert(Fs.write(root .. "/suite/working_test.tl", [[
+local sys = require("cosmic.sys")
+local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 
@@ -416,7 +420,9 @@ Test.policy { grants = { { path = "o/build.db", letters = "r" } } }
 -- Through the store's own lookup, which searches a database the test
 -- attached ahead of the rest.
 local function test_reads_the_working_database()
-  assert(Store.attach("o/build.db"))
+  local home = sys.getenv("COSMIC_BUILD_HOME") or assert(Fs.cache_dir("trees", { make = false }))
+  local path = home .. "/" .. Hash.hex_sha256((assert(Fs.absolute(".")))) .. "/build.db"
+  assert(Store.attach(path))
   assert(Store.meta("schema") ~= nil, "the working database records its schema")
 end
 ]]))
@@ -466,11 +472,8 @@ end
   assert(again:find("0 ran, 1 stood", 1, true), again)
 end
 
---- What the build left under o/ is an input like any file of the tree:
---- a checkout whose o/ holds the same bytes stands on a sibling's
---- verdict of a test that read it, one whose o/ holds other bytes runs
---- it, and a test that read the working database, which every run
---- rewrites, runs every time.
+--- A declared file in the build directory is keyed by its bytes;
+--- the working database, which every run rewrites, runs every time.
 local function test_a_read_of_the_builds_output_is_keyed_by_its_bytes(tmp: string)
   local env = environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
@@ -479,27 +482,35 @@ local function test_a_read_of_the_builds_output_is_keyed_by_its_bytes(tmp: strin
   local function said(name: string, tool: string, wanted: string): string
     local root = tmp .. "/" .. name
     assert(Fs.mkdirs(root .. "/suite"))
-    assert(Fs.mkdirs(root .. "/o/bin"))
-    assert(Fs.write(root .. "/o/bin/tool", tool))
+    assert(Fs.mkdirs(build_paths.required(root, env) .. "/bin"))
+    assert(Fs.write(build_paths.required(root, env) .. "/bin/tool", tool))
     assert(Fs.write(root .. "/suite/output_test.tl", [[
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
+local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
 Test.policy { grants = { { path = "o/bin/tool", letters = "r" } } }
 
 local function test_reads_the_tool()
-  assert(Fs.read("o/bin/tool") ~= nil)
-  assert(Fs.stat("o/bin/tool") ~= nil)
+  local home = sys.getenv("COSMIC_BUILD_HOME") or assert(Fs.cache_dir("trees", { make = false }))
+  local path = home .. "/" .. Hash.hex_sha256((assert(Fs.absolute(".")))) .. "/bin/tool"
+  assert(Fs.read(path) ~= nil)
+  assert(Fs.stat(path) ~= nil)
 end
 ]]))
     assert(Fs.write(root .. "/suite/working_test.tl", [[
+local sys = require("cosmic.sys")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Test = require("cosmic.test")
 
 Test.policy { grants = { { path = "o/build.db", letters = "r" } } }
 
 local function test_reads_the_working_database()
-  assert(Fs.read("o/build.db") ~= nil)
+  local home = sys.getenv("COSMIC_BUILD_HOME") or assert(Fs.cache_dir("trees", { make = false }))
+  local path = home .. "/" .. Hash.hex_sha256((assert(Fs.absolute(".")))) .. "/build.db"
+  assert(Fs.read(path) ~= nil)
 end
 ]]))
     local text = run(root, tmp .. "/" .. name .. ".out", env)
@@ -649,6 +660,7 @@ local function test_a_checkout_made_again_at_the_same_path_stands_on_the_last(tm
   local first = run(tmp .. "/here", tmp .. "/first.out", env, words)
   assert(first:find("4 ran, 0 stood", 1, true), first)
   if not shares(first) then return end
+  assert(Fs.remove_tree(build_paths.required(tmp .. "/here", env)))
   assert(Fs.remove_tree(tmp .. "/here"))
   checkout(tmp .. "/here", "one\n")
   local again = run(tmp .. "/here", tmp .. "/again.out", env, words)

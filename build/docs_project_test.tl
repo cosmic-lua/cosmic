@@ -5,9 +5,11 @@
 --- tests of the verbs' contract (build/verbs_store_test.tl) stand while
 --- the build's cache is out of their keys.
 
+local build_paths = require("build.paths")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local invoke = require("build.invoke")
+local this_program = require("build.this_program")
 
 Test.policy{
   grants = { { path = "core", letters = "r" }, { path = "o/cosmic.db", letters = "r" } },
@@ -17,7 +19,9 @@ Test.policy{
 --- `cosmic <args>` in `dir`, built without the shared cache, which lives
 --- outside the test's own directory.
 local function cosmic(dir: string, args: {string}): invoke.Result
-  return invoke.run(args, { cwd = dir, env = { COSMIC_BUILD_CACHE = "0" } })
+  local env = this_program.environment()
+  env.COSMIC_BUILD_CACHE = "0"
+  return invoke.run(args, { cwd = dir, env = env })
 end
 
 local function docs_in(dir: string, ...: string): string
@@ -48,22 +52,22 @@ local function test_docs_answers_from_the_tree_as_it_stands(tmp: string)
   local empty = tmp .. "/nothing"
   assert(Fs.mkdirs(empty))
   local _ = cosmic(empty, { "docs", "Fs.read" })
-  local made, made_trouble = Fs.exists(empty .. "/o")
+  local made, made_trouble = Fs.exists(build_paths.required(empty))
   assert(made ~= nil, made_trouble)
-  assert(not made, "a directory of no project gets no o/")
+  assert(not made, "a directory of no project gets no build directory")
 end
 
 --- A directory no build has been made of is not built by a lookup, even
---- one holding a stray `.tl`: it gets no `o/`, and is told to build.
+--- one holding a stray `.tl`: it gets no build directory, and is told to build.
 local function test_a_lookup_builds_nothing_in_an_unbuilt_directory(tmp: string)
   local stray = tmp .. "/stray"
   assert(Fs.mkdirs(stray))
   assert(Fs.write(stray .. "/notes.tl", "--- Notes.\nlocal record Notes\nend\nreturn Notes\n"))
   local result = cosmic(stray, { "docs", "Fs.read" })
   assert(result.code == 0, result.stdout .. result.stderr)
-  local made, made_trouble = Fs.exists(stray .. "/o")
+  local made, made_trouble = Fs.exists(build_paths.required(stray))
   assert(made ~= nil, made_trouble)
-  assert(not made, "a directory never built gets no o/")
+  assert(not made, "a directory never built gets no build directory")
   assert(result.stderr:find("has not been built", 1, true), result.stderr)
   assert(not result.stdout:find("Notes", 1, true), result.stdout)
 end
@@ -112,4 +116,24 @@ local function test_uses_lists_a_projects_links_to_the_standard_library(tmp: str
   for _ in result.stdout:gmatch(": link cosmic%.fs read\n") do linked = linked + 1 end
   local page = docs_in(project, "cosmic.fs.read")
   assert(page:find("linked from " .. linked .. ";", 1, true), linked .. " links listed:\n" .. page)
+end
+
+--- Shipped documentation and the executable's database need no cache
+--- directory when there is no project to look up.
+local function test_lookups_without_a_cache_home_use_the_binary(tmp: string)
+  for _, words in ipairs({ { "docs", "cosmic.fs.read" }, { "sql", "SELECT 1" } }) do
+    local result = invoke.run(words, { cwd = tmp, env = {} })
+    assert(result.code == 0, table.concat(words, " ") .. ": " .. result.stdout .. result.stderr)
+    assert(result.stdout ~= "", table.concat(words, " ") .. " produced no answer")
+  end
+  assert(#assert(Fs.list(tmp)) == 0, "a lookup wrote output without a cache home")
+end
+
+--- A lookup in the home directory answers from the executable because
+--- its default cache cannot also be output for that entire source root.
+local function test_docs_from_home_uses_the_binary(tmp: string)
+  local result = invoke.run({ "docs", "cosmic.fs.read" }, { cwd = tmp, env = { HOME = tmp } })
+  assert(result.code == 0, result.stdout .. result.stderr)
+  assert(result.stdout:find("function Fs.read(path: string)", 1, true) ~= nil, result.stdout)
+  assert(#assert(Fs.list(tmp)) == 0, "a documentation lookup wrote inside HOME")
 end

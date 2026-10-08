@@ -111,7 +111,7 @@ promises lean on come first:
   Pointer, so its tests match the field and the failure, not the path.
 - a hand-written spec that agrees with its record. [`Shape.record_of`] derives
   a spec from the record, and no [`Shape.record`] or [`Shape.strict_record`]
-  outside a test or an example is left (`o/bin/cosmic uses Shape.record`
+  outside a test or an example is left (`bin/cosmic uses Shape.record`
   lists them). Nothing yet checks that one names the fields of the record its
   answer is annotated as, so a field added to the record and not to such a
   spec is never set (and a strict one refuses the key outright): have `cosmic

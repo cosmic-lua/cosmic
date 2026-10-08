@@ -1,6 +1,6 @@
 --- What the database says about a symbol: `cosmic docs` and `cosmic
 --- uses`, read off the shipped `docs`, `uses` and `links` tables of every
---- database the store searches, and of a project's own `o/cosmic.db`
+--- database the store searches, and of a project's own `cosmic.db`
 --- when the working directory holds one.
 ---
 --- A query is a symbol first -- [`Fs.read`], `read`, [`cosmic.fs`] -- and
@@ -934,7 +934,7 @@ local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {docs
 end
 
 --- The databases a lookup reads, in order: the working directory's own
---- `o/cosmic.db` when there is one, then every database the store
+--- `cosmic.db` when there is one, then every database the store
 --- searches. A module found in an earlier one hides the same module in
 --- a later one, so a project's build answers for its own modules and
 --- the binary answers for the standard library.
@@ -946,23 +946,27 @@ function docs.databases(store?: {Sqlite.Handle}): docs.Sources
   local opened: {Sqlite.Handle} = {}
   local root, root_trouble = Fs.absolute(".")
   assert(root ~= nil, root_trouble)
-  local own_path = build_paths.required(root) .. "/cosmic.db"
-  local own_exists, own_trouble = Fs.exists(own_path)
-  assert(own_exists ~= nil, own_trouble)
-  if own_exists then
-    -- The project's own build is best effort: one that cannot be opened
-    -- or read (a directory, a file that is not a database, one a build
-    -- is rewriting) is left out, so help and docs still answer from the
-    -- binary's own databases rather than failing on a stale output.
-    local own, _ = Sqlite.open(own_path)
-    if own ~= nil then
-      local readable, _ = has_docs(own)
-      if readable == nil then
-        local _, _ = own:close()
-      else
-        out[#out + 1] = own
-        public[#out] = false
-        opened[#opened + 1] = own
+  local directory, directory_trouble = build_paths.optional(root)
+  assert(directory ~= nil or directory_trouble == "", directory_trouble)
+  if directory ~= nil then
+    local own_path = directory .. "/cosmic.db"
+    local own_exists, own_trouble = Fs.exists(own_path)
+    assert(own_exists ~= nil, own_trouble)
+    if own_exists then
+      -- The project's own build is best effort: one that cannot be opened
+      -- or read (a directory, a file that is not a database, one a build
+      -- is rewriting) is left out, so help and docs still answer from the
+      -- binary's own databases rather than failing on a stale output.
+      local own, _ = Sqlite.open(own_path)
+      if own ~= nil then
+        local readable, _ = has_docs(own)
+        if readable == nil then
+          local _, _ = own:close()
+        else
+          out[#out + 1] = own
+          public[#out] = false
+          opened[#opened + 1] = own
+        end
       end
     end
   end

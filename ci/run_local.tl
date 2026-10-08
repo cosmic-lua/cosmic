@@ -1,6 +1,6 @@
 --- Runs the checkout's CI phases from a private snapshot and CI copy.
 --- [`./run-local`] loads this file standalone on the pinned library;
---- the phase driver remains the checkout's built `o/bin/cosmic`.
+--- the phase driver is the checkout's built tool.
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
@@ -192,6 +192,9 @@ local function execute(argv: {integer:string}): integer
     output.fd = -1
     assert(Fs.close(written))
     runtime.fd = assert(Fs.open_read(native))
+    local driver = runtime.path .. "/driver"
+    assert(Fs.write(driver, assert(Fs.read(cosmic)), 0x16d))
+    cosmic = driver
     assert(Fs.chmod(runtime.path, 0x1c9))
   end
   -- Every invocation gets new tables; Proc.relaunch is cached.
@@ -339,6 +342,7 @@ local function execute(argv: {integer:string}): integer
         git_run({ "worktree", "prune" })
       end
       assert(Fs.remove_tree(state .. "/runner"))
+      assert(Fs.remove_tree(state .. "/build-home"))
       git_run({ "worktree", "add", "--quiet", "--detach", candidate, snapshot })
       reown(candidate, true)
       say("candidate " .. snapshot .. " at " .. candidate)
@@ -357,6 +361,7 @@ local function execute(argv: {integer:string}): integer
     values.GITHUB_WORKSPACE, values.RUNNER_TEMP = candidate, state .. "/runner"
     values.GITHUB_RUN_ID, values.GITHUB_RUN_ATTEMPT, values.COSMIC_WORKER = "local", "1", "local"
     values.TARGET, values.XDG_CACHE_HOME = target, state .. "/cache"
+    values.COSMIC_BUILD_HOME = state .. "/build-home"
     values.COSMIC_ZIG_CACHE_FROM, values.COSMIC_ZIG_GLOBAL_CACHE = seed, zig_global
     local start = Clock.monotonic_ns()
     local result, why = Child.run({ cosmic, "cosmic_ci/driver.tl", "platform", phase, "success" },

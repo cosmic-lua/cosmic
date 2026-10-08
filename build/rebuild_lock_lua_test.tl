@@ -9,6 +9,7 @@
 --- build/rebuild_lock_tool_test.tl's, and the rest
 --- `rebuild_lock_test.tl`'s.
 
+local build_paths = require("build.paths")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
@@ -27,11 +28,12 @@ Test.policy{ profiles = { "cosmic" } }
 --- it for the `%d` nanoseconds, or until its standard input ends when
 --- that is negative, then writes o/let-go, still holding it, and exits.
 local old_tool = [[
+local build_paths = require("build.paths")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local root = %q
-local db = assert(Sqlite.open(root .. "/o/rebuild.lock", { writable = true }))
+local db = assert(Sqlite.open(build_paths.required(root) .. "/rebuild.lock", { writable = true }))
 assert(db:exec("PRAGMA busy_timeout = 0"))
 if not db:exec("BEGIN IMMEDIATE") then
   print("busy")
@@ -40,11 +42,12 @@ end
 print("held")
 local hold_ns = %d
 if hold_ns < 0 then Fs.take(Fs.stdin, 1) else Clock.sleep_ns(hold_ns) end
-assert(Fs.write(root .. "/o/let-go", ""))
+assert(Fs.write(build_paths.required(root) .. "/let-go", ""))
 ]]
 
 --- The same, as this tool does.
 local new_tool = [[
+local build_paths = require("build.paths")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local root = %q
@@ -53,14 +56,15 @@ print(taken)
 if taken ~= "held" then return end
 local hold_ns = %d
 if hold_ns < 0 then Fs.take(Fs.stdin, 1) else Clock.sleep_ns(hold_ns) end
-assert(Fs.write(root .. "/o/let-go", ""))
+assert(Fs.write(build_paths.required(root) .. "/let-go", ""))
 ]]
 
 --- Asks once for the flock of the lock file of the tree at `%q`, as a
 --- run taking the lock asks first, and prints "taken" or "refused".
 local probe = [[
+local build_paths = require("build.paths")
 local sys = require("cosmic.sys")
-local fd = assert(sys.open(%q .. "/o/rebuild.lock", sys.O_RDWR, 0))
+local fd = assert(sys.open(build_paths.required(%q) .. "/rebuild.lock", sys.O_RDWR, 0))
 print(sys.flock(fd, "exclusive") and "taken" or "refused")
 ]]
 
@@ -92,7 +96,8 @@ end
 
 local function tree(tmp: string): string
   local root = tmp .. "/tree"
-  assert(Fs.mkdirs(root .. "/o"))
+  assert(Fs.mkdirs(root))
+  assert(Fs.mkdirs(build_paths.required(root)))
   return root
 end
 
@@ -148,12 +153,12 @@ local function test_a_waiting_run_takes_the_lock_once_let_go(tmp: string)
     local holder, said = start(script, root, Clock.seconds(1))
     assert(said == "held", said)
     local taken, trouble = rebuild_lock.take(root, Clock.seconds(20))
-    local let_go = Fs.exists(root .. "/o/let-go")
+    local let_go = Fs.exists(build_paths.required(root) .. "/let-go")
     rebuild_lock.release()
     finish(holder)
     assert(taken == "held", tostring(taken) .. " " .. trouble)
     assert(let_go == true, "took the lock while its holder held it")
-    assert(Fs.remove(root .. "/o/let-go"))
+    assert(Fs.remove(build_paths.required(root) .. "/let-go"))
   end
 end
 
@@ -180,7 +185,7 @@ print(tostring(held) .. " " .. trouble)
 local function start_handed(root: string, role: string, output: string): Child.Handle
   local fd = assert(Fs.open_write(output))
   local env = this_program.environment()
-  env.COSMIC_REBUILD_LOCK_HANDED = root .. "/./o/rebuild.lock"
+  env.COSMIC_REBUILD_LOCK_HANDED = build_paths.required(root) .. "/./rebuild.lock"
   local started = this_program.program({ "-e", holding:format(root, role) },
     { env = env, stdout = fd, stderr = fd, process_group = true })
   local h = assert(Child.start(started.argv, started.options))

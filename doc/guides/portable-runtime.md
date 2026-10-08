@@ -25,8 +25,12 @@ artifact. SQLite reads only the validated database range.
 
 [`build.zig`](../../build.zig) owns native compilation. Its `cores` step builds
 the same C sources for `x86_64-linux-musl`, `aarch64-linux-musl`, and
-`aarch64-macos`. It also writes `o/targets.tsv`. Each record gives a stable
-numeric identity, configuration, target name, and `uname` pair.
+`aarch64-macos`. It also writes `targets.tsv` in the selected build directory.
+[`build.paths`](../../build/paths.tl) selects that directory:
+`COSMIC_BUILD_HOME` names an absolute base, otherwise the base is
+`$XDG_CACHE_HOME/cosmic/trees`, or `$HOME/.cache/cosmic/trees`. The canonical
+project root selects a separate directory within that base. Each record gives
+a stable numeric identity, configuration, target name, and `uname` pair.
 
 The generated records are the authority shared by Zig, the artifact writer,
 the launcher, and tests. A release build requires all three release records.
@@ -40,25 +44,25 @@ Cosmic executable exists.
 
 ## separate working and shipped state
 
-Boot opens `o/build.db` through [`build.work`](../../build/work.tl). This is a
-mutable working database. It holds staged source, parsed forms, compiled
+Boot opens `build.db` in that directory through
+[`build.work`](../../build/work.tl). This is a mutable working database. It holds staged source, parsed forms, compiled
 modules, test verdicts, coverage, and recent build records. Raw cores remain
-files under `o/core`; they are never database rows.
+files under its `core/`; they are never database rows.
 
 [`build.importer`](../../build/importer.tl) derives generated modules and
 compiles the staged tree. [`build.writer`](../../build/writer.tl) projects the
-result into `o/cosmic.db`, a fresh host-neutral database. The projection has a
+result into its `cosmic.db`, a fresh host-neutral database. The projection has a
 smaller schema, deterministic insertion order, natural keys, and no working
 history. In cosmic's own tree, the database the tool carries is
-`o/carried.db`, which [`writer.carried`] derives from the projection by leaving
-out the tree's own tests and examples, and every row about one, and every
+`carried.db` in the same directory, which [`writer.carried`] derives from the
+projection by leaving out the tree's own tests and examples, and every row about one, and every
 docs, uses and examples row but the public standard library's (and the doc
 rows the error catalog's guidance joins to).
 
 The writer hashes the planned modules, declarations, build identities, main
 module, and format name. It stores that signature inside the projection. A
 later write skips work only when the file at the output path carries the same
-signature. A side record in `o/build.db` cannot make a replaced output look
+signature. A side record in `build.db` cannot make a replaced output look
 current.
 
 [`cosmic.store`](../../cosmic/store.tl) exposes these identities: each
@@ -238,11 +242,10 @@ journal beside the artifact. [`core/store.c`](../../core/store.c) installs the
 database as the last module source and derives runtime metadata from validated
 startup context plus the projection's `runtime_basis`.
 
-This immutable shipped database is distinct from `o/build.db`. The latter is
-ordinary mutable developer state and can have SQLite journals. Investigation
-of delayed cold-journal materialization for that working database remains a
-follow-up. It has no established cause or fix, and does not change the
-portable artifact's immutable database contract.
+This immutable shipped database is distinct from the working `build.db`. The
+latter is ordinary mutable developer state and can have SQLite journals. Its
+default external build directory keeps this disposable state separate from
+the source checkout and source-file synchronization.
 
 ## run a core against a database of its own
 
@@ -300,15 +303,16 @@ separately; the core only reads it.
 ## build a project with the same prefix
 
 `cosmic build` enters [`build.embed`](../../build/embed.tl). It stages and
-compiles the project into the project's `o/cosmic.db`. The projection copies
-needed standard-library modules, then adds project modules, files, and a main
-entry.
+compiles the project into `cosmic.db` in its selected build directory. The
+projection copies needed standard-library modules, then adds project modules,
+files, and a main entry.
 
 The output database contains no raw cores. [`embed.tree`] obtains the exact
 retained prefix and calls [`artifact.program`] for each application. Applications
 built together share launcher, core, and manifest bytes while their database
 suffixes differ. Output appears only after the complete database and program
-are written. A library tree with no `cmd/<name>/main.tl` produces no executable.
+are written, and the build verdict reports each executable's full path. A library
+tree with no `cmd/<name>/main.tl` produces no executable.
 
 `cosmic build --host` writes a host program instead: the running core's exact
 bytes at the start of the file, zero-filled to the core alignment, one manifest
@@ -332,9 +336,10 @@ reuse the validated prefix. The rebuild projects a new database, combines it
 with that prefix, atomically replaces the logical artifact, and re-executes the
 original arguments and environment once.
 
-The logical artifact is the path returned by [`Proc.executable()`]. Running a
-copy outside the checkout rewrites that copy; it does not redirect the rebuild
-to `o/bin/cosmic`. A read-only logical path therefore fails. Rename and unlink
+The logical artifact is the path returned by [`Proc.executable()`]. Only a
+tool in the project's selected build directory may rebuild itself; a stale
+release or an externally copied tool refuses with exit 3. [`bin/cosmic`] finds
+the checkout's built tool. A read-only logical path fails. Rename and unlink
 remain supported because the running process reads the retained descriptor.
 
 A marker rejects a second rebuild loop. A core-input change cannot reuse the
@@ -354,7 +359,7 @@ kernel allows it, a worker sees only those inputs, so a test that reads what it
 does not declare fails rather than standing on a verdict; a test that reaches
 the network beyond loopback has no key and runs every time. An unchanged application database cannot hide a
 changed core or runtime basis. Verdict and coverage history live only in
-`o/build.db` and are bounded.
+the working `build.db` and are bounded.
 
 The fixtures under [`ci/fixtures`](../../ci/fixtures/), run by the pinned CI
 driver in isolated projects (see [`ci`](../../ci/)'s own README), with
@@ -472,6 +477,7 @@ manifest: names the running core
 ```
 
 [`artifact.program`]: ../../build/artifact.tl
+[`bin/cosmic`]: ../../bin/cosmic
 [`build.artifact.trusted_prefix`]: ../../build/artifact.tl
 [`Child.start`]: ../../cosmic/child.tl
 [`ci/cosmic_ci/orchestration.tl`]: ../../ci/cosmic_ci/orchestration.tl

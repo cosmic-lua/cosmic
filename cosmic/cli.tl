@@ -18,7 +18,7 @@ local record Cli
   --- `cosmic <file.tl> [args...]`: builds the tree the file sits in --
   --- the working directory when the file is under it, so a file of a
   --- project reaches the rest of it; the file's own directory
-  --- otherwise -- into its o/, then runs it: requires the file, and if
+  --- otherwise -- into its build directory, then runs it: requires the file, and if
   --- what it returns is a function, calls it with one argument, the
   --- words after the file's path (`argv[1]` on, its own path at
   --- `argv[0]`), and exits with what it returns, as `eval` does:
@@ -32,17 +32,22 @@ local record Cli
   ---       return 0
   ---     end
   ---
-  --- A tree whose o/ this user cannot write (another user's checkout,
-  --- say) is built into a directory of this user's own under
-  --- $XDG_CACHE_HOME/cosmic/runs instead, named by the tree's path.
+  --- By default, generated databases and programs live outside the sources, under
+  --- $XDG_CACHE_HOME/cosmic/trees, or $HOME/.cache/cosmic/trees.
+  --- COSMIC_BUILD_HOME names another absolute base outside the project. Each base
+  --- holds a separate directory per canonical project root, so worktrees
+  --- and nested projects do not share mutable state. Old output is not read
+  --- or migrated; an existing o/ may be removed after a successful build.
+  --- `cosmic db` reports the database paths. In this repository,
+  --- [`bin/cosmic`] runs the tool built by `bin/zig build boot`.
   ---
   --- With COSMIC_STANDALONE=1 it runs the file as `--standalone` does,
-  --- building nothing and writing no o/; a program `cosmic sandbox
+  --- building nothing and writing no project output; a program `cosmic sandbox
   --- --cosmic` runs has it set unless `--set-env` says otherwise
   run: string
   --- `cosmic --standalone <file.tl> [args...]`: runs one file against this
   --- binary's own standard library, with no tree around it -- nothing
-  --- staged or built, nothing under o/ written, and no staleness
+  --- staged or built, no project output written, and no staleness
   --- check, so it runs the same whatever state the working directory
   --- is in. The file may require `cosmic.*` modules only; it is
   --- checked and compiled in memory (a clean compile is cached under
@@ -53,7 +58,7 @@ local record Cli
   standalone: string
   --- `cosmic -e '<chunk>' [args...]`: runs the chunk as Lua, the way
   --- `lua -e` does, against this binary's own standard library, with no
-  --- tree around it -- nothing staged or built, nothing under o/
+  --- tree around it -- nothing staged or built, no project output
   --- written, and no staleness check. The words after the chunk are its
   --- `...`; it prints only what it prints. What it returns is the exit
   --- code, as a built program's is: nothing is 0, a whole number from 0
@@ -102,7 +107,7 @@ local record Cli
   --- file it read -- says so beneath it, naming what to declare.
   ---
   --- A test whose verdict still stands is not run again: one this
-  --- checkout reached, in o/build.db, or one any checkout of the same
+  --- checkout reached, in its working build.db, or one any checkout of the same
   --- content did, which every sandboxed run shares through
   --- $XDG_CACHE_HOME/cosmic/verdicts (~/.cache/cosmic/verdicts):
   --- COSMIC_VERDICT_CACHE names another file, and COSMIC_VERDICT_CACHE=0
@@ -116,7 +121,7 @@ local record Cli
   --- COSMIC_BUILD_CACHE names another file, and COSMIC_BUILD_CACHE=0
   --- turns it off.
   ---
-  --- The tree is the working directory, unless that has no o/cosmic.db
+  --- The tree is the working directory, unless it has no projection
   --- and an ancestor below the home directory has one whose build
   --- staged the working directory: then it is that ancestor, named on
   --- stderr, and paths are read from the working directory.
@@ -142,9 +147,9 @@ local record Cli
   --- as `test` finds it
   fix: string
   --- `cosmic build [options] [path...]`: builds the tree in the working
-  --- directory, then writes one executable under o/bin/ for each
+  --- directory, then writes one executable in its build directory for each
   --- cmd/<name>/main.tl it holds -- or only those under the paths --
-  --- o/bin/<name> -- see cmd. That one file is the whole program: copied
+  --- and reports each full path -- see cmd. That one file is the whole program: copied
   --- alone to a host with no cosmic, it runs with an empty environment
   --- (`env -i ./name`) on every supported system. It is a /bin/sh
   --- launcher with a core for each system and the program appended;
@@ -158,10 +163,10 @@ local record Cli
   --- cache -- but only on this system and processor: the choice for a
   --- container with no /bin/sh or a host with nowhere to write. Either
   --- carries this binary's CA roots and time zones: `cosmic refresh
-  --- --binary o/bin/<name> -o <copy>` writes a copy with newer ones
+  --- --binary <built-program> -o <copy>` writes a copy with newer ones
   --- later. The tree is found as `test` finds it
   build: string
-  --- `cosmic db [path...]`: what the three databases under o/ hold,
+  --- `cosmic db [path...]`: what the project's generated databases hold,
   --- table by table -- rows, pages, bytes -- how the last few builds
   --- went, and the slowest tests. Paths narrow it to the rows about the
   --- sources under them -- a row whose file, module or source hash is
@@ -172,9 +177,9 @@ local record Cli
   db: string
   --- `cosmic sql [--db <path> | --build | --store] <statement>`: runs
   --- one SQL statement read-only -- SQLite itself refuses a write --
-  --- against o/cosmic.db, or the binary's own database when there is
-  --- none, or the one database an option names. o/ is looked for in
-  --- the working directory only, never above it. `cosmic sql --from
+  --- against the project's projection, or the binary's own database when
+  --- there is none, or the one database an option names. The project is
+  --- the working directory only, never an ancestor. `cosmic sql --from
   --- <file> ['<statement>']` asks it of a data file instead, to count,
   --- filter, join and sum where `cosmic json` only looks up (`cosmic sql
   --- --from accounts.json 'SELECT type, sum(balance) FROM accounts GROUP
@@ -478,7 +483,7 @@ local record Cli
   --- `cosmic todos [options] [path | words...]`: every `TODO:` comment
   --- in the tree, as file:line, with the date and commit git blames its
   --- first line on -- in a git repository only: elsewhere git is not
-  --- started, and each is listed with none -- indexed into o/build.db so
+  --- started, and each is listed with none -- indexed into the project's working database so
   --- only a file that moved is blamed again. An argument that names a path narrows it to that
   --- path; the rest are words to search the TODOs' text for, best match
   --- first, in FTS5's own syntax ("a phrase", OR, prefix*) when they
@@ -534,10 +539,10 @@ local record Cli
   ---     cosmic sandbox --cosmic --read . -- cosmic run.tl IN OUT
   ---
   --- A file it runs is run as `--standalone` (COSMIC_STANDALONE=1), so a
-  --- grant to read it is enough and no o/ is written beside it, which
-  --- another run's user would own; it may then require `cosmic.*` modules
+  --- grant to read it is enough and no project output is written; it may then require `cosmic.*` modules
   --- only. `--set-env COSMIC_STANDALONE=0` builds the tree around it
-  --- instead, which finds its own modules and needs a grant to write there.
+  --- instead, which finds its own modules and needs a grant to write its
+  --- build directory.
   ---
   --- `--database`, `--modules` and `--closure` run this program on a
   --- database that holds the modules it may load and no more: a `require`
@@ -709,14 +714,14 @@ local module: Module = {
       },
     },
     build = {
-      about = "write o/bin/<name> per cmd/<name>/main.tl",
+      about = "write and report an executable per cmd/<name>/main.tl",
       usage = "[path...]",
       spec = {
         ["--host"] = { about = "this system's native executable: no launcher, runs only here" },
       },
     },
     db = {
-      about = "what the databases under o/ hold",
+      about = "what the project databases hold, and where they are",
       usage = "[path...]",
     },
     sql = {
@@ -724,7 +729,7 @@ local module: Module = {
       usage = "<statement>",
       spec = {
         ["--db"] = { value = "path", about = "run against this file" },
-        ["--build"] = { about = "run against o/build.db" },
+        ["--build"] = { about = "run against the project's working database" },
         ["--store"] = { about = "run against the binary's own; only PRAGMA data_version" },
         ["--from"] = { value = "file", about = "load a data file (`-` for standard input) as a table " ..
             "named for its stem, or `name=file`; repeat for a join" },

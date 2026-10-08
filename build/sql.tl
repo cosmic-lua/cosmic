@@ -13,7 +13,7 @@
 --- undone ahead of a write in the same call. What the database holds is
 --- never changed, though SQLite may leave files beside it (see
 --- [`sql.open`]). Nothing is built, staged or scanned: the only directory
---- looked in is `o/` under the working directory, never one above it.
+--- looked in belongs to the working directory, never a project above it.
 ---
 --- A cell, and a column's name, is written as text. NULL is `\N` and a
 --- blob is `X'<hex>'`. Inside text, a backslash is `\\`, a tab, newline
@@ -33,7 +33,7 @@
 --- no statement the verb prints each table's name, row count, columns
 --- with the SQLite types seen, and a sample row. `no such column` and
 --- `no such table` are answered with the names that exist. The database
---- is built from the data alone, so nothing under o/ is read.
+--- is built from the data alone, so no generated file is read.
 
 local build_paths = require("build.paths")
 local Cli = require("cosmic.cli")
@@ -107,9 +107,9 @@ end
 local spec = Cli.verbs.sql.spec
 
 --- The database a command line names under `root`, the working
---- directory: `--db <path>`, `--build` (o/build.db), `--store` (the
+--- directory: `--db <path>`, `--build` (the project's build.db), `--store` (the
 --- binary's own database), or, with none of them, the project's own
---- o/cosmic.db when there is one and the binary's own otherwise. Nil
+--- cosmic.db when there is one and the binary's own otherwise. Nil
 --- and why when the line gives more than one of them, or one of them
 --- twice, or `--db` names the empty path.
 function sql.source(root: string, parsed: Flags.Parsed): sql.Source | nil, string
@@ -123,22 +123,27 @@ function sql.source(root: string, parsed: Flags.Parsed): sql.Source | nil, strin
     end
     return { name = chosen, path = chosen }
   end
-  local within = "; o/ is looked for only in the working directory, " ..
-    "never above it"
+  local within = "; the build directory belongs to the working directory, " ..
+    "never a project above it"
   if parsed.set["--build"] then
-    return { name = "o/build.db", path = build_paths.required(root) .. "/build.db",
+    return { name = build_paths.required(root) .. "/build.db", path = build_paths.required(root) .. "/build.db",
       hint = build_paths.required(root) .. "/build.db" .. within }
   end
   if parsed.set["--store"] then
     return { name = "the binary's own database" }
   end
-  local project = build_paths.required(root) .. "/cosmic.db"
+  local directory, directory_trouble = build_paths.optional(root)
+  if directory == nil then
+    if directory_trouble ~= "" then return nil, directory_trouble end
+    return { name = "the binary's own database" }
+  end
+  local project = directory .. "/cosmic.db"
   local present, trouble = Fs.exists(project)
   if present == nil then
     return nil, trouble
   end
   if present then
-    return { name = "o/cosmic.db", path = project }
+    return { name = project, path = project }
   end
   return { name = "the binary's own database" }
 end
@@ -698,7 +703,7 @@ end
 --- failure), 1 when the database or the statement failed, 2 for a
 --- command line it cannot read.
 --- @param argv the command line, `sql` at slot 1
---- @param root the directory whose o/ holds the databases; the working
+--- @param root the project whose build directory holds the databases; the working
 ---   directory when nil
 --- @param output where rows, complaints and the verdict go; stdout,
 ---   stderr and [`build.verdict`]'s logger when nil
@@ -767,7 +772,7 @@ function sql.run(argv: {integer:string}, root?: string, output?: sql.Output,
 end
 
 --- The `sql` verb as [`build/verb_list.tl`] lists it. Never stale-checked,
---- unlike `db`: a staleness check stages the tree, and this verb reads o/
+--- unlike `db`: a staleness check stages the tree, and this verb reads the build directory
 --- and nothing else under it. It gives its own verdict on every exit, a
 --- usage error included, so the check main runs after a verdictless exit
 --- 2 never runs for it (build/verbs_store_test.tl's

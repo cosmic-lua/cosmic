@@ -1,4 +1,3 @@
-local BuildPaths = require("cosmic_ci.build_paths")
 local Clock = require("cosmic.clock")
 local Sqlite = require("cosmic.sqlite")
 local Fs = require("cosmic.fs")
@@ -202,11 +201,11 @@ local function archive_tree(tree: string)
   Fixture.source_tree(tree)
 end
 
--- Copies the fixture-only runtime into the archived tree's `o/bin/cosmic`,
+-- Copies the fixture-only runtime into the archived tree's build directory,
 -- executable, and returns its path.
 local function place_runtime(fixture_dir: string, tree: string): string
-  local program = BuildPaths.directory(tree) .. "/bin/cosmic"
-  Fixture.mkdir(BuildPaths.directory(tree) .. "/bin")
+  local program = Fixture.prepare_build(tree) .. "/bin/cosmic"
+  Fixture.mkdir(Fixture.build_directory(tree) .. "/bin")
   Fixture.copy(fixture_dir .. "/runtime.old", program, 0x1ed)
   return program
 end
@@ -520,7 +519,7 @@ end
 -- a watcher's and a terminal's -- rebuild it one at a time: each either
 -- rebuilds it or waits for the run that is and re-enters on the tool that
 -- run wrote, and every one shows the edit. Unserialized, their rebuilds
--- would write o/cosmic.db, o/carried.db and the tool under one another,
+-- would publish the projection, carried database and tool over one another,
 -- and end in "disk I/O error" or "portable program database has no SQLite
 -- header" and a spurious "(the tool is stale)" failure.
 local function test_self_rebuild_by_concurrent_runs(tmp: string)
@@ -555,7 +554,7 @@ local function test_self_rebuild_by_concurrent_runs(tmp: string)
       Fixture.contains(child.out, "step8-docs-marker")
       -- Started together, before any rebuild could land, each run meets
       -- the tool stale: it rebuilds, waits for the run that does (or for
-      -- one writing o/cosmic.db, which holds the same lock), or finds
+      -- one writing the projection, which holds the same lock), or finds
       -- that run's rebuild already landed and enters it.
       assert(err:find("the tool is stale; rebuilding it from the tree", 1, true) or
           err:find("in this checkout is [^\n]*; waiting for it") or
@@ -590,7 +589,7 @@ local function test_a_rebooted_run_refuses_without_waiting(tmp: string)
 
   -- The rebuild lock's SQLite half, which a tool from before the flock
   -- holds alone and every run still waits for (build.rebuild_lock).
-  local lock = assert(Sqlite.open(BuildPaths.directory(tree) .. "/rebuild.lock", { writable = true }))
+  local lock = assert(Sqlite.open(Fixture.build_directory(tree) .. "/rebuild.lock", { writable = true }))
   assert(lock:exec("BEGIN IMMEDIATE"))
   local held_ok, failure = pcall(function(): boolean
     for _, entered in ipairs({ "1", "2" }) do
@@ -664,7 +663,7 @@ local function test_self_rebuild_fix_verb(tmp: string)
     "fix: second invocation reported staleness though the tool is fresh")
 end
 
--- A stale cosmic that is not the tree's own tool (one outside `o/`, as a
+-- A stale cosmic that is not the tree's own tool (one outside its build directory, as a
 -- release, the bootstrap cache's or one on PATH is) refuses rather than
 -- rebuild, since the rebuild would write the tree's tool over its own
 -- file. `docs` meets the refusal in `build.reboot.stale_exit`, `test` and
@@ -704,7 +703,7 @@ local function test_a_stale_tool_outside_the_tree_refuses(tmp: string)
       verb[1] .. ": a tool outside the tree rebuilt itself")
     assert(Fixture.hash(program) == before_hash,
       verb[1] .. ": a tool outside the tree was overwritten")
-    assert(Fs.exists(BuildPaths.directory(tree) .. "/bin/cosmic") == false,
+    assert(Fs.exists(Fixture.build_directory(tree) .. "/bin/cosmic") == false,
       verb[1] .. ": a tool outside the tree wrote one into it")
   end
 end

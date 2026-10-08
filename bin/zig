@@ -4,7 +4,7 @@
 # release tarball.
 #
 # The tarball is cached outside the tree, under $XDG_CACHE_HOME/cosmic/zig
-# (default ~/.cache/cosmic/zig), so a clean `o/` never costs a download.
+# (default ~/.cache/cosmic/zig), so cleaning project output costs no download.
 # COSMIC_ZIG names an already-installed zig binary and skips all of this.
 #
 # The fetch/verify/run logic itself is build/zig.tl, which bin/zig

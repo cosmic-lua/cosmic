@@ -9,6 +9,7 @@
 --- build/test_sandbox_system_hint_test.tl.
 
 local Fs = require("cosmic.fs")
+local paths = require("build.paths")
 local test_inputs = require("build.test_inputs")
 local test_policy = require("build.test_policy")
 local test_sandbox = require("build.test_sandbox")
@@ -36,9 +37,9 @@ end
 local function test_a_module_that_declares_system_is_given_the_system_profile(tmp: string)
   local root, scratch = tmp .. "/root", tmp .. "/scratch"
   -- Laid out as build.test's `scratch` lays one out.
-  for _, dir in ipairs({ root .. "/o", scratch .. "/real" }) do assert(Fs.mkdirs(dir)) end
+  for _, dir in ipairs({ root, scratch .. "/real" }) do assert(Fs.mkdirs(dir)) end
   assert(Fs.symlink("real", scratch .. "/tmp"))
-  assert(Fs.write(root .. "/o/cosmic.db", "x"))
+  assert(Fs.write(assert(paths.prepare(root)) .. "/cosmic.db", "x"))
   local inputs: test_inputs.Effective = { files = {}, reads = {}, host = {}, env = {},
     network = {}, tool = false, store = false, system = true }
   local plan = test_sandbox.plan(root, scratch, inputs, {})

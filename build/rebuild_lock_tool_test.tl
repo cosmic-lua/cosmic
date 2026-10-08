@@ -5,6 +5,7 @@
 --- build/rebuild_lock_lua_test.tl's; the rest is in
 --- `rebuild_lock_test.tl`.
 
+local build_paths = require("build.paths")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -95,7 +96,7 @@ local function test_a_run_lets_the_lock_go_on_failure_and_interrupt(tmp: string)
   project(root, Clock.seconds(60))
   local h = start_test(root, tmp .. "/interrupted.out")
   local _ = await("the run to take the lock", function(): boolean
-    return Fs.read(root .. "/o/rebuild.lock.pid") ~= nil and
+    return Fs.read(build_paths.required(root) .. "/rebuild.lock.pid") ~= nil and
       rebuild_lock.take(root, 0, "write") == "busy"
   end)
   assert(h:stop(sys.SIGINT))
@@ -124,7 +125,8 @@ end
 --- does.
 local function test_a_write_of_the_projection_waits_for_the_lock(tmp: string)
   local root = tmp .. "/project"
-  assert(Fs.mkdirs(root .. "/o"))
+  assert(Fs.mkdirs(root))
+  assert(Fs.mkdirs(build_paths.required(root)))
   assert(Fs.write(root .. "/hello.tl", 'print("hello")\n'))
   assert(rebuild_lock.take(root, 0, "test") == "held")
   local output = tmp .. "/run.out"
@@ -140,7 +142,7 @@ local function test_a_write_of_the_projection_waits_for_the_lock(tmp: string)
     return text:find("waiting for it", 1, true) ~= nil
   end)
   local running, _ = h:try_wait()
-  local projection, _ = sys.stat(root .. "/o/cosmic.db")
+  local projection, _ = sys.stat(build_paths.required(root) .. "/cosmic.db")
   local unwritten = projection == nil
   rebuild_lock.release()
   local result = assert(h:wait(Clock.seconds(20)))
@@ -160,7 +162,8 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
   local built = assert(teal.load())
   for _, succeeds in ipairs({ false, true }) do
     local root = tmp .. (succeeds and "/valid" or "/failed")
-    assert(Fs.mkdirs(root .. "/o"))
+    assert(Fs.mkdirs(root))
+    assert(Fs.mkdirs(build_paths.required(root)))
     local original = 'print("original")\n'
     assert(Fs.write(root .. "/main.tl", original))
     assert(rebuild_lock.take(root, 0, "test") == "held")
@@ -209,7 +212,7 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
       local text = assert(Fs.read(output))
       assert(result.ok, text)
       assert(text:find("original\n", 1, true), text)
-      local db = assert(Sqlite.open(root .. "/o/cosmic.db"))
+      local db = assert(Sqlite.open(build_paths.required(root) .. "/cosmic.db"))
       local rows = assert(Sqlite.text_rows(db,
         "SELECT inflate(source) FROM modules WHERE path = 'main'"))
       assert(rows[1][1] == original, "published another run's source")

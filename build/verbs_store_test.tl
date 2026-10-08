@@ -3,6 +3,7 @@
 --- and docs, which read every module's docs, and the verbs run in this
 --- process ([`build.invoke`]), which read every module's rows.
 
+local build_paths = require("build.paths")
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
@@ -222,13 +223,13 @@ end
 local function test_build_takes_paths_to_narrow_it(tmp: string)
   local tree = write_programs(tmp)
   local one = verbs_fixture.expect(tree, "build", { "build", "./cmd/hi/" }, 0).stdout or ""
-  assert(one:find("o/bin/hi,", 1, true) and not one:find("bye", 1, true), one)
-  assert(Fs.exists(tree .. "/o/bin/hi"))
-  assert(not Fs.exists(tree .. "/o/bin/bye"))
+  assert(one:find(build_paths.required(tree) .. "/bin/hi", 1, true) and not one:find("bye", 1, true), one)
+  assert(Fs.exists(build_paths.required(tree) .. "/bin/hi"))
+  assert(not Fs.exists(build_paths.required(tree) .. "/bin/bye"))
   local refused = verbs_fixture.expect(tree, "build", { "build", "cmd/hi", "lib" }, 1)
   assert((refused.stderr or ""):find("no cmd/<name>/main.tl under lib", 1, true), refused.stderr)
   local _ = verbs_fixture.expect(tree, "build", { "build", "cmd" }, 0)
-  assert(Fs.exists(tree .. "/o/bin/bye"))
+  assert(Fs.exists(build_paths.required(tree) .. "/bin/bye"))
 end
 
 local function test_uses_takes_paths_to_narrow_it(tmp: string)
@@ -320,9 +321,9 @@ local function test_sql_never_stages_the_tree(tmp: string)
   assert(Fs.mkdirs(tmp .. "/core"))
   assert(Fs.mkdirs(tmp .. "/build"))
   assert(Fs.write(tmp .. "/build/importer.tl", ""))
-  assert(Fs.mkdirs(tmp .. "/o"))
+  assert(Fs.mkdirs(build_paths.required(tmp)))
   local garbage = string.rep("not a database. ", 16)
-  assert(Fs.write(tmp .. "/o/build.db", garbage))
+  assert(Fs.write(build_paths.required(tmp) .. "/build.db", garbage))
   local staged = verbs_fixture.expect(tmp, "db", { "db" }, 1)
   assert((staged.stderr or ""):find("file is not a database", 1, true), staged.stderr)
   -- Every listing `sql` makes, through [`cosmic.sys`]'s shared table,
@@ -352,8 +353,8 @@ local function test_sql_never_stages_the_tree(tmp: string)
     local under = String.starts_with(path, tmp) or String.starts_with(path, real)
     assert(not under, "sql listed " .. path)
   end
-  assert(Fs.read(tmp .. "/o/build.db") == garbage)
-  local names = assert(Fs.list(tmp .. "/o"))
+  assert(Fs.read(build_paths.required(tmp) .. "/build.db") == garbage)
+  local names = assert(Fs.list(build_paths.required(tmp)))
   assert(#names == 1, table.concat(names, " "))
 end
 
@@ -362,9 +363,9 @@ end
 local function test_db_counts_the_closure_stores_alone(tmp: string)
   local tree = write_programs(tmp)
   local _ = verbs_fixture.expect(tree, "build", { "build" }, 0)
-  assert(Fs.mkdirs(tree .. "/o/stores"))
-  assert(Fs.write(tree .. "/o/stores/" .. ("a"):rep(64) .. ".db", "abc"))
-  assert(Fs.write(tree .. "/o/stores/base-" .. ("b"):rep(64) .. ".db", "defgh"))
+  assert(Fs.mkdirs(build_paths.required(tree) .. "/stores"))
+  assert(Fs.write(build_paths.required(tree) .. "/stores/" .. ("a"):rep(64) .. ".db", "abc"))
+  assert(Fs.write(build_paths.required(tree) .. "/stores/base-" .. ("b"):rep(64) .. ".db", "defgh"))
   local whole = verbs_fixture.expect(tree, "db", { "db" }, 0).stdout or ""
   assert(whole:find("1 closure store, 3 bytes", 1, true), whole)
 end

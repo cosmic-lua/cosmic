@@ -15,6 +15,7 @@
 local type Sandbox = require("cosmic.sandbox")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local paths = require("build.paths")
 local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
 local Test = require("cosmic.test")
@@ -28,6 +29,11 @@ Test.policy{
   profiles = { "cosmic", "system" },
   grants = { { path = "o/bin", letters = "rx" } },
 }
+
+local function generated(root: string): string
+  assert(Fs.mkdirs(root))
+  return (assert(paths.prepare(root)))
+end
 
 --- An `Effective` holding `files` of the tree and nothing else declared.
 local function effective(files: {string}): test_inputs.Effective
@@ -61,8 +67,8 @@ end
 --- reads that are run, and a worker that declares `tool` runs o/bin.
 local function test_a_plan_for_the_policy_leaves_the_system_and_proc_to_the_policy(tmp: string)
   local root, scratch = tmp .. "/root", scratch_in(tmp)
-  assert(Fs.mkdirs(root .. "/o/bin"))
-  assert(Fs.write(root .. "/o/cosmic.db", "x"))
+  assert(Fs.mkdirs(generated(root) .. "/bin"))
+  assert(Fs.write(generated(root) .. "/cosmic.db", "x"))
   local inputs = effective({})
   inputs.system, inputs.tool = true, true
   inputs.host = { "/proc", "/dev/urandom" }
@@ -73,7 +79,7 @@ local function test_a_plan_for_the_policy_leaves_the_system_and_proc_to_the_poli
     table.concat(reads, " "))
   assert(holds(reads, "/dev/urandom") and holds(reads, "/dev/null"))
   assert(policy.sandbox.user == nil, "a policy chooses the user")
-  assert(policy.runs[root .. "/o/bin"] == true)
+  assert(policy.runs[generated(root) .. "/bin"] == true)
 end
 
 --- The plan of one module made once a run is rebound to the scratch
@@ -82,8 +88,8 @@ end
 --- plan's path of, and a copy that shares nothing with the first.
 local function test_a_plan_rebound_to_another_scratch_is_the_plan_made_for_it(tmp: string)
   local root = tmp .. "/root"
-  assert(Fs.mkdirs(root .. "/o/bin"))
-  assert(Fs.write(root .. "/o/cosmic.db", "x"))
+  assert(Fs.mkdirs(generated(root) .. "/bin"))
+  assert(Fs.write(generated(root) .. "/cosmic.db", "x"))
   assert(Fs.write(root .. "/a.tl", "x"))
   for _, own in ipairs({ true, false }) do
     local inputs = effective({ "a.tl" })
@@ -117,7 +123,7 @@ local function test_a_plan_rebound_to_another_scratch_is_the_plan_made_for_it(tm
   end
 end
 
---- A tree tested by a tool of another tree (ci/, run by ../o/bin/cosmic) is
+--- A tree tested by a tool of another tree (ci/, run by ../bin/cosmic) is
 --- started by a name with ".." in it: [`Proc.executable`] keeps it as given,
 --- and so does the artifact path of the relaunch. A grant may not name
 --- "..", so the plan names the program, and the artifact a worker that
@@ -196,8 +202,8 @@ local function test_a_plan_for_a_nesting_worker_grants_the_artifact_only_with_st
   end
   local artifact = launched.argv[3]
   local root, scratch = tmp .. "/root", scratch_in(tmp)
-  assert(Fs.mkdirs(root .. "/o/bin"))
-  assert(Fs.write(root .. "/o/cosmic.db", "x"))
+  assert(Fs.mkdirs(generated(root) .. "/bin"))
+  assert(Fs.write(generated(root) .. "/cosmic.db", "x"))
   local bare = effective({})
   bare.nests = true
   local storing = effective({})
@@ -221,9 +227,9 @@ end
 --- Any of those declarations gives the plan the host's directory, and says which.
 local function test_a_plan_gives_a_scratch_of_its_own_only_where_no_host_directory_is_declared(tmp: string)
   local root, scratch = tmp .. "/root", scratch_in(tmp)
-  assert(Fs.mkdirs(root .. "/o/bin"))
+  assert(Fs.mkdirs(generated(root) .. "/bin"))
   assert(Fs.mkdirs(root .. "/data"))
-  assert(Fs.write(root .. "/o/cosmic.db", "x"))
+  assert(Fs.write(generated(root) .. "/cosmic.db", "x"))
   assert(Fs.write(root .. "/file.txt", "x"))
   local function planned(inputs: test_inputs.Effective): test_sandbox.Plan
     local made = test_sandbox.plan(root, scratch, inputs, {})

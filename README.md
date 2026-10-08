@@ -11,13 +11,17 @@ database of compiled modules rather than reading files at run time.
 bin/zig build boot
 ```
 
-`boot` builds the cores it needs and stages the working database under `o/`.
+`boot` builds the cores and stages generated files outside the checkout,
+under `$XDG_CACHE_HOME/cosmic/trees` (`$HOME/.cache/cosmic/trees` by default),
+in a directory keyed by the canonical project root. Set
+`COSMIC_BUILD_HOME=/absolute/base` to choose another base outside the project; each worktree
+keeps its own directory there. Existing `o/` output is unused.
 
 ## run a file
 
 ```sh
 echo 'print("hello from the database")' > hello.tl
-o/bin/cosmic hello.tl
+bin/cosmic hello.tl
 ```
 
 ```output

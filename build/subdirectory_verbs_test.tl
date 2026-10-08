@@ -4,9 +4,11 @@
 --- Run in this process ([`build.invoke`]), which reads every module's
 --- rows.
 
+local build_paths = require("build.paths")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local invoke = require("build.invoke")
+local this_program = require("build.this_program")
 
 -- `store`: the verbs, run in this process, read every module's docs.
 Test.policy{
@@ -17,7 +19,9 @@ Test.policy{
 --- `cosmic <args>` in `dir`, built without the shared cache, which lives
 --- outside the test's own directory.
 local function cosmic(dir: string, args: {string}): invoke.Result
-  return invoke.run(args, { cwd = dir, env = { COSMIC_BUILD_CACHE = "0" } })
+  local env = this_program.environment()
+  env.COSMIC_BUILD_CACHE = "0"
+  return invoke.run(args, { cwd = dir, env = env })
 end
 
 --- A project at `tmp/project` built at its root, with a module and a
@@ -61,7 +65,7 @@ local function test_fix_in_a_subdirectory_resolves_links_at_the_root(tmp: string
   local result = cosmic(root .. "/greet", { "fix", "--check", "notes.md" })
   assert(result.code == 0, result.stdout .. result.stderr)
   assert(result.stderr:find("fix runs in " .. root, 1, true), result.stderr)
-  local made, made_trouble = Fs.exists(root .. "/greet/o")
+  local made, made_trouble = Fs.exists(build_paths.required(root .. "/greet"))
   assert(made ~= nil, made_trouble)
   assert(not made, "a fix in a subdirectory made an o/ there")
 

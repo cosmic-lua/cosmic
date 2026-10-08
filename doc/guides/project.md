@@ -262,7 +262,7 @@ the cat saw the dog
 cosmic fix                                format every file, and check it parses
 cosmic test                               run every test and example
 cosmic cmd/tally/main.tl words words.txt  run the program
-cosmic build                              write o/bin/tally
+cosmic build                              write tally and report its path
 cosmic docs tally                         what your own module offers
 ```
 
@@ -270,11 +270,15 @@ cosmic docs tally                         what your own module offers
 after editing. `cosmic test` builds the tree, then runs each test, and
 skips one whose code and inputs have not changed since it last passed.
 `cosmic cmd/tally/main.tl words words.txt` runs the program from source. `cosmic
-build` writes `o/bin/tally`, and `cosmic build cmd/tally` writes only that
-one. `cosmic docs` lists your own modules with the standard library's, and
+build` writes `tally` in the project's external build directory and
+reports its full path; `cosmic build cmd/tally` writes only that one.
+Generated files live under `$XDG_CACHE_HOME/cosmic/trees` (or
+`$HOME/.cache/cosmic/trees`), separated by canonical project root.
+`COSMIC_BUILD_HOME=/absolute/base` selects another base outside the project. `cosmic db`
+reports the databases' full paths. `cosmic docs` lists your own modules with the standard library's, and
 `cosmic docs Tally.words` shows a function with the examples that call it.
 
-`o/bin/tally` is the whole program: copy that one file to a Linux (x86-64
+The built `tally` is the whole program: copy that one file to a Linux (x86-64
 or arm64) or arm64 macOS host with no cosmic on it and it runs, even with
 an empty environment (`env -i ./tally`). `file` calls it a shell script
 because it starts as one: a /bin/sh launcher with a core for each
@@ -323,8 +327,10 @@ print(((cosmic("cmd/tally/main.tl", "top", "words.txt", "--limit", "2").stdout o
 local missing = cosmic("cmd/tally/main.tl", "words", "--nope")
 print(missing.code, ((missing.stderr or ""):gsub("\n$", "")))
 print(((cosmic("cmd/tally/main.tl", "--help").stdout or ""):gsub("\n$", "")))
-verdict(cosmic("build", "--host"), "build")
-local built = assert(Child.run({ tmp .. "/o/bin/tally", "words", "words.txt" },
+local compiled = cosmic("build", "--host")
+verdict(compiled, "build")
+local tally = assert((compiled.stdout or ""):match("build: PASS %((.-/bin/tally) %(host%)"))
+local built = assert(Child.run({ tally, "words", "words.txt" },
   { cwd = tmp, stdout = "capture", timeout_ns = Clock.seconds(60) }))
 print(((built.stdout or ""):gsub("\n$", "")))
 verdict(cosmic_in(tmp .. "/cmd/tally", "test"), "test")

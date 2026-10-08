@@ -60,3 +60,13 @@ local function test_declared_key_answers_the_compiler_readers()
   assert(key_parts.reads_compiler({ "build.a", key_parts.compiler_readers[1] }))
   assert(not key_parts.reads_compiler({ "build.a" }))
 end
+
+local function test_generated_paths_have_the_same_identity_as_policy_aliases()
+  local marker = key_parts.tree_name("/source/o/bin/cosmic", "/source")
+  assert(key_parts.tree_name("/cache/one/bin/cosmic", "/source", "/cache/one") == marker)
+  assert(key_parts.tree_name("/other-cache/two/bin/cosmic", "/other-source", "/other-cache/two") == marker)
+  assert(key_parts.tree_name("/cache/one-other/bin/cosmic", "/source", "/cache/one") ==
+      "/cache/one-other/bin/cosmic")
+  assert(key_parts.tree_name("/cache/one/../outside", "/source", "/cache/one") ==
+      "/cache/one/../outside")
+end

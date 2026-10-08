@@ -7,6 +7,7 @@
 --- they are not applicable, and where this host's kernel refuses Landlock
 --- or seccomp a child that reports it skips its case (Test.skip).
 
+local build_paths = require("build.paths")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 -- The child loads these from the store, which holds this test's closure alone.
@@ -21,10 +22,11 @@ local this_program = require("build.this_program")
 local type raw_process = require("cosmic.internal.process")
 
 --- The program is this one, which a test starts only with `tool`; its
---- temporary directory is the test's own.
+--- temporary directory is the test's own. The store grant supplies the
+--- projection copied by the attached-database case.
 Test.policy{
   profiles = { "cosmic" },
-  grants = { { path = "o/bin", letters = "rx" } },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "o/cosmic.db", letters = "r" } },
   env = { "TMPDIR" },
   requires = { "sandbox" },
 }
@@ -457,7 +459,7 @@ end
 local function test_a_writable_descriptor_on_a_store_database_is_the_programs_own(tmp: string)
   local said = in_child(string.format([[
 -- A database of the store's own kind, attached: the store holds it read-only.
-local original = "o/cosmic.db"
+local original = %q
 local copy = %q .. "/copy.db"
 local source = assert(sys.open(original, sys.O_RDONLY))
 local target = assert(sys.open(copy, sys.O_WRONLY | sys.O_CREAT, 420))
@@ -472,7 +474,7 @@ local mine = assert(sys.open(copy, sys.O_RDWR))
 say("mine", mine)
 say("refused", Sandbox.restrict({}))
 say("named", Sandbox.restrict({}, { fds = { mine } }))
-]], tmp))
+]], build_paths.required((assert(Fs.absolute(".")))) .. "/cosmic.db", tmp))
   if said == nil then return end
   assert(said.lines.refused == "false sandbox: restrict: descriptor " .. said.lines.mine ..
       " is open and not named in fds: close it, or name it to keep it", said.raw)

@@ -5,10 +5,10 @@
 --- with no `cosmic` beside it.
 ---
 --- A binary is a directory under `cmd/`: `cmd/<name>/main.tl` compiles
---- as `kind = "main"`, and `cosmic build` writes `o/bin/<name>` for
---- each one the tree holds, after building the tree as `cosmic test`
+--- as `kind = "main"`, and `cosmic build` writes `bin/<name>` in the
+--- build directory for each one, after building the tree as `cosmic test`
 --- does; a tree with no `cmd/` builds and writes nothing. The project's
---- own projection, `o/cosmic.db`, carries the project and nothing of
+--- own projection, `cosmic.db`, carries the project and nothing of
 --- cosmic's; what the standard library needs at run time is read out of
 --- the running binary's own database, by handle, so no format of the
 --- executable is parsed here.
@@ -307,7 +307,7 @@ function embed.database(project: string, main: string): string | nil, string
   return bytes
 end
 
---- Builds the tree at `root` and writes `root/o/bin/<name>` for every
+--- Builds the tree at `root` and writes `<build-directory>/bin/<name>` for every
 --- `cmd/<name>/main.tl` it holds: a portable program, or with `host` a host
 --- program -- this binary's own core with the program's database appended,
 --- which the kernel runs directly, with no launcher, only where this core
@@ -420,7 +420,7 @@ function embed.tree(root: string, host?: boolean, under?: {string}): {string} | 
 end
 
 --- `cosmic build [--host] [path...]`: the tree in the working directory,
---- and its executables under `o/bin/` -- only those whose `main.tl` is
+--- and its executables in the project's build directory -- only those whose `main.tl` is
 --- under one of the paths, when there are any. Ends in a verdict line
 --- that names what was written, or says why nothing was.
 local function run(argv: {integer:string}): integer
@@ -443,7 +443,7 @@ local function run(argv: {integer:string}): integer
   end
   local outputs: {string} = {}
   for _, name in ipairs(names) do
-    outputs[#outputs + 1] = "o/bin/" .. name .. (host and " (host)" or "")
+    outputs[#outputs + 1] = build_paths.required(root) .. "/bin/" .. name .. (host and " (host)" or "")
   end
   local wrote = #outputs > 0 and table.concat(outputs, ", ") or
     "no executable: no cmd/<name>/main.tl in the tree"

@@ -2,6 +2,7 @@
 --- picks by default, and what that database answers and refuses
 --- (build/sql_test.tl holds the rest).
 
+local build_paths = require("build.paths")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
@@ -15,8 +16,8 @@ Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
 --- A temporary root whose o/cosmic.db holds one small table.
 local function project(): string
   local root = assert(Fs.mkdtemp("cosmic-sql-test-"))
-  assert(Fs.mkdirs(root .. "/o"))
-  local db = assert(Sqlite.open(root .. "/o/cosmic.db", { writable = true }))
+  assert(Fs.mkdirs(build_paths.required(root)))
+  local db = assert(Sqlite.open(build_paths.required(root) .. "/cosmic.db", { writable = true }))
   assert(db:exec("CREATE TABLE t (a, b); INSERT INTO t VALUES " ..
       "(1, 'one'), (NULL, x'00ff'), (1.5, 'tab' || char(9) || 'and\\'), (2.0, ''), " ..
       "(3, char(27) || '[31m' || char(127) || '\\N')"))
@@ -76,9 +77,9 @@ end
 local function test_the_default_is_the_project_database_else_the_binarys_own()
   local root = project()
   local chosen = assert(source(root, {}))
-  assert(chosen.path == root .. "/o/cosmic.db", chosen.name)
+  assert(chosen.path == build_paths.required(root) .. "/cosmic.db", chosen.name)
   chosen = assert(source(root, { "--build" }))
-  assert(chosen.path == root .. "/o/build.db")
+  assert(chosen.path == build_paths.required(root) .. "/build.db")
   chosen = assert(source(root, { "--store" }))
   assert(chosen.path == nil)
   chosen = assert(source(root, { "--db", root .. "/x.db" }))
@@ -88,7 +89,7 @@ local function test_the_default_is_the_project_database_else_the_binarys_own()
   refused, why = source(root, { "--db=a.db", "--db", "b.db" })
   assert(refused == nil and why == "name one database, not --db and --db", why)
 
-  assert(Fs.remove(root .. "/o/cosmic.db"))
+  assert(Fs.remove(build_paths.required(root) .. "/cosmic.db"))
   chosen = assert(source(root, {}))
   assert(chosen.path == nil, chosen.name)
   -- The binary's own database answers, and still refuses a write.

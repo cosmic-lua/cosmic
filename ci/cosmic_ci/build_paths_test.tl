@@ -48,3 +48,16 @@ local function test_extra_output_is_refused(tmp: string)
   local ok, why = pcall(BuildPaths.directory, tmp, {})
   assert(not ok and tostring(why):find("did not print one path", 1, true), tostring(why))
 end
+
+local function test_prepare_runs_even_after_the_directory_was_named(tmp: string)
+  source(tmp, [[
+  local root = _argv[1] == "--prepare" and _argv[2] or _argv[1]
+  if _argv[1] == "--prepare" then assert(Fs.write(root .. "/prepared", "created")) end
+  assert(Fs.put(Fs.stdout, root .. "/output\n"))
+  return 0
+]])
+  assert(BuildPaths.directory(tmp, {}) == tmp .. "/output")
+  assert(Fs.exists(tmp .. "/prepared") == false)
+  assert(BuildPaths.prepare(tmp, {}) == tmp .. "/output")
+  assert(Fs.read(tmp .. "/prepared") == "created")
+end

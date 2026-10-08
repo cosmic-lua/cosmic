@@ -1,3 +1,4 @@
+local build_paths = require("build.paths")
 --- End to end: an unsandboxed run keys each verdict by its test's
 --- declared inputs, as a sandboxed run does (build/declared_key.tl),
 --- though nothing holds a worker to them. macOS, which has no sandbox,
@@ -57,6 +58,7 @@ local function test_an_unenforced_verdict_stands_again_and_in_another_checkout(t
   says(tmp .. "/first", tmp .. "/again.out", env, "0 ran, 2 stood")
   -- Another checkout where the first was, which has none of the
   -- first's own verdicts: it stands on those it shared.
+  assert(Fs.remove_tree(build_paths.required(tmp .. "/first", env)))
   assert(Fs.rename(tmp .. "/first", tmp .. "/moved"))
   checkout(tmp .. "/first")
   local second = says(tmp .. "/first", tmp .. "/second.out", env,
@@ -115,6 +117,7 @@ local function test_an_unenforced_run_shares_only_through_a_named_cache(tmp: str
   local first = says(tmp .. "/first", tmp .. "/first.out", env, "2 ran, 0 stood")
   assert(first:find(UNSHARED, 1, true), first)
   says(tmp .. "/first", tmp .. "/again.out", env, "0 ran, 2 stood")
+  assert(Fs.remove_tree(build_paths.required(tmp .. "/first", env)))
   assert(Fs.rename(tmp .. "/first", tmp .. "/moved"))
   checkout(tmp .. "/first")
   says(tmp .. "/first", tmp .. "/second.out", env, "2 ran, 0 stood")
@@ -131,24 +134,25 @@ local function test_an_unenforced_worker_attaches_its_closure_store(tmp: string)
   local env = environment(tmp .. "/cache/verdicts.db")
   local root = tmp .. "/root"
   checkout(root)
-  assert(Fs.write(root .. "/suite/store_test.tl", [[
+  assert(Fs.write(root .. "/suite/store_test.tl", ([[
 local Fs = require("cosmic.fs")
 
 local function test_the_store_it_attached()
+  local output = %q
   local listed = Fs.list("/proc/self/fd")
   if listed == nil then return end
   local attached: {string} = {}
   for _, fd in ipairs(listed) do
     local link = Fs.readlink("/proc/self/fd/" .. fd)
-    if link ~= nil and link:find("/o/", 1, true) ~= nil and link:sub(-3) == ".db" then
+    if link ~= nil and link:sub(1, #output + 1) == output .. "/" and link:sub(-3) == ".db" then
       attached[#attached + 1] = link
     end
   end
   assert(#attached > 0, "it holds no database of the tree open")
   for _, link in ipairs(attached) do
-    assert(link:find("/o/stores/", 1, true) ~= nil, "it attached " .. link)
+    assert(link:sub(1, #output + 8) == output .. "/stores/", "it attached " .. link)
   end
 end
-]]))
+]]):format(build_paths.required(root, env))))
   says(root, tmp .. "/first.out", env, "3 ran, 0 stood")
 end

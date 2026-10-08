@@ -4,6 +4,7 @@
 --- ([`build.compilation`]'s `booting`): the row moves with every file of
 --- the tree, so no key can hold it, and a worker on a sealed database
 --- carries none. build/importer_test.tl holds the importer's other cases.
+local build_paths = require("build.paths")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
@@ -70,9 +71,9 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
   assert(importer.derive(handle, true, built))
   local identities = assert(identity.record_identities(handle.db))
   local result = assert(importer.compile(handle, built, identities.compiler))
-  assert(writer.write_result(handle, root .. "/o/cosmic.db", result))
+  assert(writer.write_result(handle, build_paths.required(root) .. "/cosmic.db", result))
   work.close(handle)
-  local out = assert(Sqlite.open(root .. "/o/cosmic.db"))
+  local out = assert(Sqlite.open(build_paths.required(root) .. "/cosmic.db"))
   local compiled_by = assert(Sqlite.text_rows(out,
     "SELECT value FROM meta WHERE key = 'compiler'"))
   local binary: importer.Code = {

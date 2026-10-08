@@ -7,6 +7,7 @@
 --- for it, so every case calls [`Test.skip`] on any other host, where
 --- Landlock and seccomp hold the process (cosmic/sandbox_restrict_test.tl).
 
+local build_paths = require("build.paths")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -22,10 +23,11 @@ local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 
 --- The program is this one, which a test starts only with `tool`; its
---- temporary directory is the test's own.
+--- temporary directory is the test's own. The store grant supplies the
+--- projection copied by the attached-database case.
 Test.policy{
   profiles = { "cosmic", "system" },
-  grants = { { path = "o/bin", letters = "rx" } },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "o/cosmic.db", letters = "r" } },
   env = { "HOME", "TMPDIR" },
 }
 
@@ -185,7 +187,7 @@ local function test_an_attached_database_in_wal_mode_refuses_the_restriction(tmp
   local said = in_child(string.format([[
 local Sqlite = require("cosmic.sqlite")
 local copy = %q .. "/copy.db"
-local source = assert(sys.open("o/cosmic.db", sys.O_RDONLY))
+local source = assert(sys.open(%q, sys.O_RDONLY))
 local target = assert(sys.open(copy, sys.O_WRONLY | sys.O_CREAT, 420))
 while true do
   local chunk = sys.read(source, 65536)
@@ -200,7 +202,7 @@ assert(Store.attach(copy))
 say("restrict", Sandbox.restrict({}))
 local loaded, csv = pcall(require, "cosmic.csv")
 say("loaded", loaded, type(csv) == "table" and csv.parse("a,b")[1][2] or csv)
-]], tmp))
+]], tmp, build_paths.required((assert(Fs.absolute(".")))) .. "/cosmic.db"))
   assert(said.lines.mode == "wal", said.raw)
   assert(said.lines.restrict:find("^false sandbox: restrict: the store's database .*copy%.db " ..
       "is in WAL mode"), said.raw)

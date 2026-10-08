@@ -4,7 +4,7 @@
 //!     bin/zig build cores     the core for all three targets
 //!     bin/zig build boot      all release cores, then the boot bridge
 //!
-//! Everything lands under `o/`. Run it through [`bin/zig`], which pins the
+//! Everything lands in the selected project build directory. [`bin/zig`] pins the
 //! compiler and names zig's two caches, which every checkout shares
 //! (build/zig.tl): everything, vendored or the tree's own, compiles from
 //! copies in the project cache, so a checkout at a path no build has seen
@@ -602,7 +602,7 @@ pub fn build(b: *std.Build) void {
     const curl = patched(b, trees, "curl");
     const yyjson = patched(b, trees, "yyjson");
 
-    // The patched copies land under o/vendor, which is where the boot
+    // The patched copies land under the selected prefix's vendor/, where the boot
     // bridge reads the Teal compiler from.
     const vendored = b.step("vendor", "write the patched vendor trees");
     for ([_]struct { []const u8, std.Build.LazyPath }{

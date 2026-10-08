@@ -5,6 +5,7 @@
 --- and keyed with the runtime's identity, as [`core/boot_test.tl`]'s is.
 --- The executables it writes are proved in `embed_tool_test.tl`.
 
+local build_paths = require("build.paths")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local artifact = require("build.artifact")
@@ -27,10 +28,10 @@ local function test_a_tree_without_a_main_builds_and_writes_nothing(tmp: string)
   local names, trouble = embed.tree(tmp)
   assert(names ~= nil, trouble)
   assert(#names == 0, "a library tree has no executable to write")
-  local database_exists, exists_trouble = Fs.exists(tmp .. "/o/cosmic.db")
+  local database_exists, exists_trouble = Fs.exists(build_paths.required(tmp) .. "/cosmic.db")
   assert(database_exists ~= nil, exists_trouble)
   assert(database_exists, "but it was built")
-  assert(Fs.exists(tmp .. "/o/bin") == false)
+  assert(Fs.exists(build_paths.required(tmp) .. "/bin") == false)
 end
 
 local function test_cosmic_s_own_tree_is_refused(tmp: string)

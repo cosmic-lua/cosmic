@@ -24,6 +24,7 @@ local work = require("build.work")
 local writer = require("build.writer")
 local shared_compiles = require("build.shared_compiles")
 
+local build_paths = require("build.paths")
 --- Whether the tree is cosmic's own. The tests that read the projection
 --- beyond this module's closure -- the docs a compile's hint names --
 --- are build/importer_store_test.tl's.
@@ -691,8 +692,8 @@ local function test_uses_of_a_record_field_follow_the_value_s_type()
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
   local result = assert(importer.compile(handle, built, "importer-test"))
-  assert(writer.write_result(handle, root .. "/o/cosmic.db", result))
-  local shipped = assert(Sqlite.open(root .. "/o/cosmic.db"))
+  assert(writer.write_result(handle, build_paths.required(root) .. "/cosmic.db", result))
+  local shipped = assert(Sqlite.open(build_paths.required(root) .. "/cosmic.db"))
   local rows = assert(Sqlite.text_rows(shipped,
     "SELECT module, symbol, line FROM uses WHERE from_module = 'main' " ..
       "ORDER BY line, module, symbol"))
@@ -755,8 +756,8 @@ local function test_uses_of_an_inherited_field_name_its_interface()
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
   local result = assert(importer.compile(handle, built, "importer-test"))
-  assert(writer.write_result(handle, root .. "/o/cosmic.db", result))
-  local shipped = assert(Sqlite.open(root .. "/o/cosmic.db"))
+  assert(writer.write_result(handle, build_paths.required(root) .. "/cosmic.db", result))
+  local shipped = assert(Sqlite.open(build_paths.required(root) .. "/cosmic.db"))
   local rows = assert(Sqlite.text_rows(shipped,
     "SELECT module, symbol, line FROM uses WHERE from_module = 'main' " ..
       "ORDER BY line, module, symbol"))

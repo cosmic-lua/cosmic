@@ -4,6 +4,7 @@
 --- tree's own last projection, document, and a project's uses of the
 --- standard library are read back beside the binary's own rows.
 
+local build_paths = require("build.paths")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
@@ -90,8 +91,8 @@ local function test_project_keeps_uses_of_bundled_symbols()
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
   local result = assert(importer.compile(handle, built, "importer-test"))
-  assert(writer.write_result(handle, root .. "/o/cosmic.db", result))
-  local shipped = assert(Sqlite.open(root .. "/o/cosmic.db"))
+  assert(writer.write_result(handle, build_paths.required(root) .. "/cosmic.db", result))
+  local shipped = assert(Sqlite.open(build_paths.required(root) .. "/cosmic.db"))
   local rows = assert(Sqlite.text_rows(shipped,
     "SELECT module, symbol, from_module, line FROM uses ORDER BY module, symbol"))
   assert(#rows == 1, tostring(#rows))
@@ -174,8 +175,8 @@ local function test_a_hint_names_what_the_tree_s_own_projection_documents()
   local root = assert(write_fixture("projection-hint", {
     ["thing.tl"] = "return function(): integer\n  return greeter.count()\nend\n",
   }))
-  assert(Fs.mkdirs(root .. "/o"))
-  local projection = assert(Sqlite.open(root .. "/o/cosmic.db", { writable = true }))
+  assert(Fs.mkdirs(build_paths.required(root)))
+  local projection = assert(Sqlite.open(build_paths.required(root) .. "/cosmic.db", { writable = true }))
   for _, statement in ipairs(schema.create("")) do assert(projection:exec(statement)) end
   assert(projection:exec("INSERT INTO docs (module, symbol, source_symbol, exported, " ..
       "kind, signature, text, file, line) VALUES ('greeter', '', 'greeter', 1, " ..

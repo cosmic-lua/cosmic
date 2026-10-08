@@ -4,6 +4,7 @@
 --- compiler, compiling the same source, must give back exactly the Lua
 --- it is, so the compiler the tree is built with is a function of its
 --- Teal source and records alone, not of the one that first compiled it.
+local build_paths = require("build.paths")
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
@@ -17,11 +18,12 @@ Test.policy{ grants = { { path = "o/vendor/tl/tl.tl", letters = "r" } } }
 --- where nothing under o/ was built. In a booted tree -- one with its
 --- cores under o/core -- a missing source is a failure.
 local function patched_source(): string | nil
-  local path = "o/vendor/tl/tl.tl"
+  local output = build_paths.required((assert(Fs.absolute("."))))
+  local path = output .. "/vendor/tl/tl.tl"
   if Fs.exists(path) then
     return (assert(Fs.read(path)))
   end
-  assert(not Fs.exists("o/core"), path .. " is missing; run bin/zig build boot")
+  assert(not Fs.exists(output .. "/core"), path .. " is missing; run bin/zig build boot")
   return nil
 end
 

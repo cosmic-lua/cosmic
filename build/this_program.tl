@@ -24,7 +24,7 @@ end
 
 this_program.runtime_environment = {
   "HOME", "XDG_CACHE_HOME", "PATH", "TMPDIR", "COSMIC_PORTABLE_CACHE", "COSMIC_VERDICT_CACHE",
-  "COSMIC_BUILD_CACHE", "COSMIC_AUTO_BOOT", "COSMIC_TEST_SANDBOX", confine.held_variable,
+  "COSMIC_BUILD_CACHE", "COSMIC_BUILD_HOME", "COSMIC_AUTO_BOOT", "COSMIC_TEST_SANDBOX", confine.held_variable,
 }
 
 --- The environment to start a process of this very program with, for a

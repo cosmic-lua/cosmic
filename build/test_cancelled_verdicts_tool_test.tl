@@ -1,6 +1,7 @@
 --- Completed failures invalidate old passes even when a later worker is
 --- cancelled. The incomplete run publishes neither passes nor coverage.
 
+local build_paths = require("build.paths")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -68,7 +69,7 @@ local function test_d_unstarted() assert(true) end
   end
   local passed = run("prime", { "work_test.tl:test_b_observed_failure", "work_test.tl:test_d_unstarted" }, true)
   assert(passed:find("2 ran, 0 stood", 1, true), passed)
-  local records = root .. "/o/build.db"
+  local records = build_paths.required(root) .. "/build.db"
   local key = snapshot(cache, "SELECT key FROM " .. declared .. " WHERE test = 'work_test test_b_observed_failure'")
   assert(key ~= "")
   local histories: {string:string} = {}
@@ -107,11 +108,11 @@ local function test_d_unstarted() assert(true) end
   assert(snapshot(cache, "SELECT key FROM " .. declared .. " WHERE key = '" .. key .. "'") == "", "shared pass survived")
   -- Unsandboxed keys include the checkout path. Temporarily set aside
   -- its working database so a fresh consumer meets exactly the same key.
-  assert(Fs.rename(root .. "/o", tmp .. "/saved-o"))
+  assert(Fs.rename(build_paths.required(root), tmp .. "/saved-o"))
   local fresh = run("fresh", { "work_test.tl:test_b_observed_failure" }, false)
   assert(fresh:find("1 of 1 failed, 0 infrastructure errors", 1, true), fresh)
-  assert(Fs.remove_tree(root .. "/o"))
-  assert(Fs.rename(tmp .. "/saved-o", root .. "/o"))
+  assert(Fs.remove_tree(build_paths.required(root)))
+  assert(Fs.rename(tmp .. "/saved-o", build_paths.required(root)))
   -- Another checkout may subsequently share a pass. The local failure
   -- still wins: deletion alone would allow this replacement to stand.
   local shared = assert(Sqlite.open(cache, { writable = true }))

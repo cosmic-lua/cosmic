@@ -2,12 +2,13 @@
 
 `ci/` is a project of its own inside the checkout, distinct from cosmic's
 own tree: the outer build excludes its modules and tests, but walks its
-files outside `ci/o/` for TODOs ([input policy](https://github.com/cosmic-lua/cosmic/blob/main/build/identity.tl)). The
+source files for TODOs ([input policy](https://github.com/cosmic-lua/cosmic/blob/main/build/identity.tl)). The
 pinned host never tries to rebuild itself from the candidate. It is run in
 place by the pinned, digest-verified host, with cwd `ci/`, so the host's project root is `ci/`
 itself. `cosmic_ci/` is its Teal namespace; `testdata/` holds fixture input
 and is excluded from module and test discovery. Its working database lands
-at `ci/o/build.db` (gitignored).
+in its own external build directory, keyed separately from the outer
+project. `../bin/cosmic db` from `ci/` reports its paths.
 
 `bin/cosmic-bootstrap` downloads and verifies the pinned host, caching it by
 digest under `$XDG_CACHE_HOME/cosmic/bootstrap`, and tries a failed download
@@ -26,11 +27,11 @@ pin's own.
 ## running the platform job locally
 
 `ci/run-local` runs the platform job's phases (`build` through `fixtures`) on
-this machine, for its own target, with this checkout's `o/bin/cosmic` as the
+this machine, for its own target, with this checkout's `bin/cosmic` as the
 driver instead of the pinned release. It snapshots the working tree, tracked
 and untracked files alike, into a fresh candidate outside the checkout, sets
 the variables a workflow job would, and seeds the zig caches from this
-checkout's `o/`. A full run takes a few minutes. The driver runs from a
+checkout's build directory. A full run takes a few minutes. The driver runs from a
 copy of this checkout's `ci/`, fixtures included, taken each time run-local
 starts, so after one full run `ci/run-local fixtures` re-runs edited
 fixtures against the same products. Each phase's log is under
@@ -55,7 +56,7 @@ gives every suite's `cosmic test` the list as `COSMIC_TEST_PROMISES` and
 the leg's name (`COSMIC_WORKER`) as `COSMIC_TEST_LEG`, and a held run
 fails a module whose promised requirement is absent. A worker that is no
 leg's (provenance, fuzz) promises none, and `run-local` sets neither
-variable, so a local run only reports. `o/bin/cosmic fix --check .` fails a
+variable, so a local run only reports. `bin/cosmic fix --check .` fails a
 requirement no leg promises.
 
 Where `COSMIC_CI_REQUIRE_SANDBOX=1`, every phase's `cosmic test` runs each
@@ -238,8 +239,8 @@ downloads over `cosmic.http`'s scripted replies; neither reaches the
 network.
 
 `fuzz` and `fuzz-cancelled` are fuzz.yml's, and record no operation.
-`fuzz` runs `o/sanitized/bin/cosmic test --all` from `GITHUB_WORKSPACE`
-over every `*_fuzz_test.tl` outside its top-level `o/`, `vendor/` and
+`fuzz` runs the resolved checked tool with `test --all` from `GITHUB_WORKSPACE`
+over every `*_fuzz_test.tl` outside its top-level `vendor/` and
 `ci/`, with the environment it was given (`FUZZ_SEED` and `FUZZ_ITERS`
 among it), `TMPDIR` at `$RUNNER_TEMP/fuzz`, `COSMIC_AUTO_BOOT=0` and
 `COSMIC_TEST_TIMEOUT=1200`. Both its streams go to

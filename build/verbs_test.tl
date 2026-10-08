@@ -5,6 +5,7 @@
 --- verb [`cosmic.cli`] names classified in the tables
 --- build/verbs_tool_test.tl holds each one to ([`build.verb_cases`]).
 
+local build_paths = require("build.paths")
 local Cli = require("cosmic.cli")
 local Fs = require("cosmic.fs")
 local invoke = require("build.invoke")
@@ -68,7 +69,7 @@ local function test_e_runs_a_lua_chunk(tmp: string)
     assert((refused.stderr or ""):find("-e returned " .. shown, 1, true), refused.stderr)
     assert((refused.stderr or ""):find("not an exit status 0-255", 1, true), refused.stderr)
   end
-  local nothing, _ = Fs.exists(tmp .. "/o")
+  local nothing, _ = Fs.exists(build_paths.required(tmp))
   assert(nothing == false, "-e wrote under o/")
 end
 

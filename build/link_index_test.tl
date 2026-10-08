@@ -1,3 +1,4 @@
+local build_paths = require("build.paths")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
@@ -211,7 +212,7 @@ local function test_a_row_follows_its_link_and_its_file(tmp: string)
   local root = assert(Fs.absolute(tmp)) .. "/project"
   write_project(root, "greet.hello", "bye")
   local handle = assert(work.open(root))
-  local out = root .. "/o/cosmic.db"
+  local out = build_paths.required(root) .. "/cosmic.db"
   same(build_links(handle, out), { "greet.tl:1 symbol hello #", "wave.tl:2 symbol bye #" })
   assert(Fs.write(root .. "/notes.md", source("# Usage")))
   same(build_links(handle, out), { "greet.tl:1 symbol hello #", "greet.tl:1 anchor  notes.md#usage",
@@ -380,7 +381,7 @@ local function test_a_markdown_or_zig_files_links_are_rows(tmp: string)
   assert(Fs.write(root .. "/build.zig", source("// Builds what [`greet.hello`] greets.")))
   assert(Fs.write(root .. "/.hidden/away.md", source("Not [`greet.hello`].")))
   local handle = assert(work.open(root))
-  local out = root .. "/o/cosmic.db"
+  local out = build_paths.required(root) .. "/cosmic.db"
   build_links(handle, out)
   assert(work.close(handle))
   same(file_links(out), {
@@ -452,7 +453,7 @@ local function test_a_files_links_and_headings_sign_the_projection(tmp: string)
   settle(root, 4, { "README.md" })
   assert(staged().read == 1)
   assert(signed() ~= renamed)
-  local out = root .. "/o/cosmic.db"
+  local out = build_paths.required(root) .. "/cosmic.db"
   build_links(handle, out)
   same(file_links(out), { "README.md:3:13 text symbol bye #" })
   assert(work.close(handle))
@@ -466,7 +467,7 @@ local function test_a_file_gone_or_renamed_takes_its_rows(tmp: string)
   assert(Fs.write(root .. "/README.md", source("Say it with [`greet.hello`].")))
   assert(Fs.write(root .. "/other.md", source("Or [`greet.bye`].")))
   local handle = assert(work.open(root))
-  local out = root .. "/o/cosmic.db"
+  local out = build_paths.required(root) .. "/cosmic.db"
   local function signed(): string
     assert(work.stage(handle, false))
     local result = assert(importer.compile(handle, built, "link-index-test"))
@@ -507,7 +508,7 @@ local function test_a_nested_tree_is_not_indexed(tmp: string)
   same(assert(link_files.walk(root)), { ".claude/skills/greet/SKILL.md", "greet.tl",
     "kept/README.md", "wave.tl" })
   local handle = assert(work.open(root))
-  local out = root .. "/o/cosmic.db"
+  local out = build_paths.required(root) .. "/cosmic.db"
   build_links(handle, out)
   assert(work.close(handle))
   same(file_links(out), { ".claude/skills/greet/SKILL.md:1:5 text symbol hello #",
@@ -531,7 +532,7 @@ local function test_a_c_comments_links_are_rows_but_not_ci(tmp: string)
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
   local result = assert(importer.compile(handle, built, "link-index-test"))
-  local out = root .. "/o/cosmic.db"
+  local out = build_paths.required(root) .. "/cosmic.db"
   assert(writer.write_result(handle, out, result, nil, link_index.none))
   assert(work.close(handle))
   same(file_links(out), {
@@ -591,7 +592,7 @@ local function test_a_projects_links_to_the_standard_library_are_rows(tmp: strin
   local root = assert(Fs.absolute(tmp)) .. "/project"
   write_linking_project(root)
   local handle = assert(work.open(root))
-  local out = root .. "/o/cosmic.db"
+  local out = build_paths.required(root) .. "/cosmic.db"
   assert(work.stage(handle, false))
   local result = assert(importer.compile(handle, built, "link-index-test"))
   local stdlib = library(tmp, "docs one", true)
@@ -661,7 +662,7 @@ local function test_a_projects_links_through_required_modules_are_rows(tmp: stri
     "",
     "return greet")))
   local handle = assert(work.open(root))
-  local out = root .. "/o/cosmic.db"
+  local out = build_paths.required(root) .. "/cosmic.db"
   assert(work.stage(handle, false))
   local result = assert(importer.compile(handle, built, "link-index-test"))
   assert(writer.write_result(handle, out, result, nil, streams))
@@ -688,7 +689,7 @@ local function test_the_librarys_docs_sign_a_projects_projection(tmp: string)
   local again = library(tmp, "docs one", true)
   local two = library(tmp, "docs two", false)
   local handle = assert(work.open(root))
-  local out = root .. "/o/cosmic.db"
+  local out = build_paths.required(root) .. "/cosmic.db"
   assert(work.stage(handle, false))
   local result = assert(importer.compile(handle, built, "link-index-test"))
   local first = assert(writer.signature(handle, result, "a writer", one))
@@ -739,7 +740,7 @@ local function test_cosmics_own_tree_reads_no_library(tmp: string)
     databases = function(): {Sqlite.Handle} | nil, string return nil, "not read" end }
   assert(writer.signature(handle, result, "a writer", refusing) ==
       writer.signature(handle, result, "a writer", library(tmp, "docs one", true)))
-  local out = root .. "/o/cosmic.db"
+  local out = build_paths.required(root) .. "/cosmic.db"
   assert(writer.write_result(handle, out, result, nil, refusing))
   assert(work.close(handle))
   local db = assert(Sqlite.open(out))
@@ -766,7 +767,7 @@ local function test_a_projects_own_links_read_no_library(tmp: string)
     "return other")))
   assert(Fs.write(root .. "/README.md", source("See [`other.fn`].")))
   local handle = assert(work.open(root))
-  local out = root .. "/o/cosmic.db"
+  local out = build_paths.required(root) .. "/cosmic.db"
   assert(work.stage(handle, false))
   local result = assert(importer.compile(handle, built, "link-index-test"))
   assert(writer.write_result(handle, out, result))

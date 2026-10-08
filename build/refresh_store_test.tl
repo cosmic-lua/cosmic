@@ -8,6 +8,7 @@
 --- them. Refreshing this program itself is in build/refresh_tool_test.tl,
 --- and what needs neither in build/refresh_test.tl.
 
+local build_paths = require("build.paths")
 local Child = require("cosmic.child")
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
@@ -60,7 +61,7 @@ local function program(tmp: string, host?: boolean): string
   assert(Fs.mkdirs(tree .. "/cmd/ok"))
   assert(Fs.write(tree .. "/cmd/ok/main.tl", 'return function(): integer print("ok") return 0 end\n'))
   assert(embed.tree(tree, host))
-  return tree .. "/o/bin/ok"
+  return build_paths.required(tree) .. "/bin/ok"
 end
 
 --- The database the artifact at `path` carries, opened from a copy.

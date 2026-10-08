@@ -4,6 +4,7 @@
 --- is refused before it changes anything. Its own module, since a
 --- `tool` test runs again on every edit to the tree.
 
+local build_paths = require("build.paths")
 local sys = require("cosmic.sys")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -56,24 +57,23 @@ local function test_a_tool_opens_the_program_by_its_own_name()
   assert(sys.close(fd))
 end
 
---- Sandboxed, where the program is the tree's own o/bin/cosmic -- the
---- file /tree/o/bin/cosmic is the artifact this worker runs -- the
---- worker has it there, as it has the rest of the tree, and by no name
---- of the host's: [`Proc.executable()`] answers /tree/o/bin/cosmic, and
---- so does a relaunch, which starts it again there
+--- Sandboxed, the tree's own program is bound beneath the worker's
+--- virtual build home. The worker has no name for the host's file:
+--- [`Proc.executable()`] and a relaunch both name that same bound artifact
 --- (build/test_sandbox.tl's `program_name`).
 local function test_a_tool_has_the_tree_s_own_program_in_the_tree()
   local relaunch, _ = Proc.relaunch()
   if relaunch == nil or sys.getcwd() ~= "/tree" then return end
   local slot = math.tointeger(tonumber(relaunch.env.COSMIC_PORTABLE_ARTIFACT_FD)) as integer
   local artifact = sys.stat("/proc/self/fd/" .. relaunch.fds[slot])
-  local own = sys.stat("/tree/o/bin/cosmic")
+  local path = build_paths.required("/tree") .. "/bin/cosmic"
+  local own = sys.stat(path)
   if artifact == nil or own == nil or artifact.dev ~= own.dev or artifact.ino ~= own.ino then
     return -- another program runs the tree's tests: it keeps its own name
   end
   local executable, _ = Proc.executable()
-  assert(executable == "/tree/o/bin/cosmic", tostring(executable))
-  assert(relaunch.argv[3] == "/tree/o/bin/cosmic", relaunch.argv[3])
+  assert(executable == path, tostring(executable))
+  assert(relaunch.argv[3] == path, relaunch.argv[3])
 end
 
 --- What the child runs: each call that would change its artifact

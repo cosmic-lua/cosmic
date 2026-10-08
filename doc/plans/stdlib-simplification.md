@@ -17,7 +17,7 @@ these were taken up front and are not reopened per PR.
 - **verb-only code moves to `build/`.** code only a `cosmic` verb calls is the
   tool's, not the library's. it moves beside its verb and leaves the documented
   stdlib. `ci/` and `eval/` count as callers: a change greps them too, since
-  `../o/bin/cosmic fix --check` from `ci/` type-checks that tree against this
+  `../bin/cosmic fix --check` from `ci/` type-checks that tree against this
   binary.
 - **time is nanoseconds everywhere.** every parameter, field and constant that
   holds a span or an instant is an integer of nanoseconds, suffixed `_ns` where
@@ -46,9 +46,9 @@ these were taken up front and are not reopened per PR.
 1. it stands alone and passes CI; it starts from `origin/main` in a worktree of
    its own, per [`.claude/skills/ship/SKILL.md`], and is never stacked.
 2. the change has a test that fails without it, and the suite passes:
-   `bin/zig build boot`, `o/bin/cosmic fix <changed-paths>`, `timeout 30
-   o/bin/cosmic test`, `o/bin/cosmic fix --check .` before pushing, and
-   `../o/bin/cosmic fix --check` from `ci/` when `ci/` changed.
+   `bin/zig build boot`, `bin/cosmic fix <changed-paths>`, `timeout 30
+   bin/cosmic test`, `bin/cosmic fix --check .` before pushing, and
+   `../bin/cosmic fix --check` from `ci/` when `ci/` changed.
 3. every removed export has a [`cosmic.removed`] entry, every moved one a
    replacement that names its new home, so a program that used it fails to
    compile with the replacement in the message (`cosmic docs` has no
@@ -57,7 +57,7 @@ these were taken up front and are not reopened per PR.
 4. a worked example or guide that called a removed export is rewritten to the
    replacement, never deleted to make the export "unearned".
 5. a gap the PR leaves is a `TODO:` in the code at the moment it is left, and
-   the PR description lists each from `o/bin/cosmic todos <paths>`.
+   the PR description lists each from `bin/cosmic todos <paths>`.
 6. a separate agent reviews the diff adversarially before the PR opens;
    every BLOCKING finding is fixed, and what is left is said in the
    description.

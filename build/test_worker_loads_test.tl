@@ -3,9 +3,9 @@
 --- by hand, as `cosmic test` starts one, runs a module whose closure is
 --- small, and what its report says it ran of the tree -- all but Lua's
 --- libraries and the core's own -- is that module's closure and
---- [`worker.loads`], which names nothing it did not run. Nor does it run the code that computes a key
---- but the parts it spells (build.key_parts), nor hash through
---- cosmic.hash and cosmic.codec rather than build.digest. It starts this
+--- [`worker.loads`], which names nothing it did not run. Nor does it run
+--- the code that computes a verdict key beyond its framing (build.key_parts).
+--- Hash and Codec locate the project's generated directory. It starts this
 --- program, so it declares `tool`.
 
 local Child = require("cosmic.child")
@@ -54,7 +54,7 @@ local function test_a_worker_loads_what_worker_loads_names(tmp: string)
   end
   for _, name in ipairs({ "build.declared_key", "build.artifact", "build.core_image",
       "build.launcher", "build.verdict", "cosmic.time", "cosmic.log",
-      "cosmic.string", "cosmic.hash", "cosmic.codec" }) do
+      "cosmic.string" }) do
     assert(not ran[name], "a worker loaded " .. name)
   end
 end

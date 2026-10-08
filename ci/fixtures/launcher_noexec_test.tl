@@ -11,11 +11,11 @@ local Test = require("cosmic.test")
 -- scratch supplied only after the worker's execution-refusal probe.
 Test.policy{
   grants = {
-    { path = "o/fixtures/product/prefix", letters = "r" },
-    { path = "o/fixtures/launcher/launcher.test", letters = "r" },
-    { path = "o/fixtures/launcher/payloads/socket-x86_64-linux-musl", letters = "r" },
-    { path = "o/fixtures/launcher/payloads/socket-aarch64-linux-musl", letters = "r" },
-    { path = "o/fixtures/launcher/payloads/socket-aarch64-macos", letters = "r" },
+    { path = "testdata/ci-fixtures/product/prefix", letters = "r" },
+    { path = "testdata/ci-fixtures/launcher/launcher.test", letters = "r" },
+    { path = "testdata/ci-fixtures/launcher/payloads/socket-x86_64-linux-musl", letters = "r" },
+    { path = "testdata/ci-fixtures/launcher/payloads/socket-aarch64-linux-musl", letters = "r" },
+    { path = "testdata/ci-fixtures/launcher/payloads/socket-aarch64-macos", letters = "r" },
     { path = "/noexec", letters = "rwc" },
   },
   env = { "COSMIC_FIXTURE_TARGET" },

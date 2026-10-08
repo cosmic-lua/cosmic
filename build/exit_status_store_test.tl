@@ -4,6 +4,7 @@
 --- its own rather than a case of build/embed_test.tl, which the CI
 --- fixtures run as a timed workload.
 
+local build_paths = require("build.paths")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local embed = require("build.embed")
@@ -36,12 +37,12 @@ local function test_a_main_that_returns_no_exit_status_is_refused(tmp: string)
   end
   assert(embed.tree(tmp, true))
   for name, code in pairs({ fits = 7, whole = 3, none = 0, numeric = 5 } as {string:integer}) do
-    local r = run_program(tmp .. "/o/bin/" .. name)
+    local r = run_program(build_paths.required(tmp) .. "/bin/" .. name)
     assert(r.code == code, "an exit status that fits is the program's own: " ..
         name .. " exited " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   end
   for _, name in ipairs({ "big", "text", "float", "yes", "negative" }) do
-    local r = run_program(tmp .. "/o/bin/" .. name)
+    local r = run_program(build_paths.required(tmp) .. "/bin/" .. name)
     assert(r.code == 2, name .. " exited " .. tostring(r.code) .. ": " .. tostring(r.stderr))
     assert(tostring(r.stderr):find("returned no exit status", 1, true) ~= nil, tostring(r.stderr))
   end

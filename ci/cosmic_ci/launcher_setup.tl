@@ -1,5 +1,6 @@
 local BuildPaths = require("cosmic_ci.build_paths")
 local Clock = require("cosmic.clock")
+local Env = require("cosmic.env")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Fixture = require("cosmic_ci.fixture")
 
@@ -20,26 +21,27 @@ function LauncherSetup.build(root: string, output: string,
   assert(supported, "unsupported launcher target: " .. worker_target)
 
   local diagnostics = tmp .. "/logs"
+  local original = { COSMIC_BUILD_HOME = Env.get("COSMIC_BUILD_HOME") or "" }
   Fixture.mkdir(output .. "/payloads")
   for _, target in ipairs(targets) do
     assert(target.kind == "release", "launcher target is not release")
     Fixture.run("payload-" .. target.name,
       { root .. "/bin/zig", "build",
         "portable-launcher-payload-" .. target.name },
-      root, diagnostics, nil, native_build_timeout_ns)
+      root, diagnostics, original, native_build_timeout_ns)
     Fixture.copy(BuildPaths.directory(root) .. "/portable-fixture/launcher/payload-" ..
         target.name, output .. "/payloads/payload-" .. target.name)
   end
   Fixture.run("socket-" .. worker_target,
     { root .. "/bin/zig", "build",
       "portable-launcher-socket-" .. worker_target },
-    root, diagnostics, nil, native_build_timeout_ns)
+    root, diagnostics, original, native_build_timeout_ns)
   Fixture.copy(BuildPaths.directory(root) .. "/portable-fixture/launcher/socket-" .. worker_target,
     output .. "/payloads/socket-" .. worker_target, 0x1ed)
   Fixture.run("fixture-write", { BuildPaths.directory(root) .. "/bin/cosmic",
     root .. "/test/portable/tool.tl", "write-launcher-fixture",
     BuildPaths.directory(root) .. "/targets.tsv", output .. "/payloads",
-    output .. "/launcher" }, root, diagnostics)
+    output .. "/launcher" }, root, diagnostics, original)
 
   for _, kind in ipairs({ "release", "test" }) do
     local path = output .. "/launcher." .. kind

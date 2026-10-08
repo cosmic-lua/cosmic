@@ -12,8 +12,8 @@ local Test = require("cosmic.test")
 --- each candidate runs the controller and private fixtures itself.
 Test.policy{
   grants = {
-    { path = "o/fixtures/performance/program", letters = "r" },
-    { path = "o/fixtures/performance/perf.tl", letters = "r" },
+    { path = "testdata/ci-fixtures/performance/program", letters = "r" },
+    { path = "testdata/ci-fixtures/performance/perf.tl", letters = "r" },
   },
   profiles = { "system" },
 }
@@ -44,6 +44,17 @@ local function run(tmp: string, source: string): Child.Result
     { cwd = tmp, env = env, stdout = "capture", stderr = "capture", timeout_ns = controller_timeout_ns })))
 end
 
+local function generated(root: string, tmp: string): string
+  local binary = Fixture.placed("performance") .. "/program"
+  local env = Fixture.environment({ COSMIC_TREE = root,
+    COSMIC_BUILD_HOME = Fs.dirname(root) .. "/build-home", COSMIC_PORTABLE_CACHE = tmp .. "/cores" })
+  local result = assert(Child.run({ binary, "-e",
+    "print(require('build.paths').required(assert(require('cosmic.env').get('COSMIC_TREE'))))" },
+    { env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
+  assert(result.ok, diagnostic(result))
+  return (assert((result.stdout or ""):match("^([^\n]+)\n$"), "candidate named no generated directory"))
+end
+
 local function test_independent_fixture_histories_match_through_warmups_and_samples(tmp: string)
   local result = run(tmp, controller())
   assert(result.code == 2, diagnostic(result))
@@ -57,7 +68,8 @@ local function test_independent_fixture_histories_match_through_warmups_and_samp
     assert(manifest[i].id == name and manifest[i].root == root .. "/" .. name)
   end
   for _, phase in ipairs({ "aa", "ab" }) do
-    local observations = assert(Json.decode((assert(Fs.read(tmp .. "/results/" .. phase .. "-a/o/perf/" .. phase .. "-uses.json"))))) as {{string:any}}
+    local output = generated(root .. "/" .. phase .. "-a", tmp)
+    local observations = assert(Json.decode((assert(Fs.read(output .. "/perf/" .. phase .. "-uses.json"))))) as {{string:any}}
     assert(#observations == 66)
     for i, observation in ipairs(observations) do
       local iteration = (i + 1) // 2

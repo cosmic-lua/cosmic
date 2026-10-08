@@ -1,3 +1,4 @@
+local BuildPaths = require("cosmic_ci.build_paths")
 local Archive = require("cosmic.archive")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -56,13 +57,13 @@ function Fixture.required(name: string): string
 end
 
 --- Where the driver placed what a setup made for this fixture to read:
---- the absolute path of o/fixtures/`kind` in the project the fixture runs
+--- the absolute path of testdata/ci-fixtures/`kind` in the project the fixture runs
 --- in (cosmic_ci/orchestration.tl's `place`), which its declaration
 --- names as the tree-relative `reads` of the same path, so its key holds
 --- what is there. A child of the fixture, in a directory of its own,
 --- is given this path.
 function Fixture.placed(kind: string): string
-  return (assert(Fs.absolute("o/fixtures/" .. kind)))
+  return (assert(Fs.absolute("testdata/ci-fixtures/" .. kind)))
 end
 
 function Fixture.mkdir(path: string)
@@ -102,7 +103,7 @@ end
 --- The runtime setup's copy of test/portable/tool.tl and the modules of
 --- the tree it requires (its `tool.tar`), unpacked beneath `work` once:
 --- the directory a tool.tl run starts in, where it resolves its
---- `require`s and writes what it builds (its o/).
+--- `require`s and writes what it builds in its private build home.
 function Fixture.tool_tree(fixture_dir: string, work: string): string
   local tree = work .. "/tool-tree"
   if Fs.exists(tree) then return tree end
@@ -183,7 +184,8 @@ Fixture.inherited = {
 --- The environment for a child a fixture starts, with `extra` set over
 --- it: of `base`, the fixture's own (`environment` makes it of that),
 --- the variables of [`inherited`] it has, and nothing else. A copy,
---- which `base` keeps nothing of. The child
+--- which `base` keeps nothing of. Its build home is beneath the fixture's
+--- temporary directory, so sandboxed children never write to the host cache. The child
 --- shares no compiles or parses (COSMIC_BUILD_CACHE=0) unless `extra`
 --- says otherwise. The fixture's own run shares one file with the leg's
 --- other fixtures (`Orchestration.fixture`), but a tree a child builds (a
@@ -205,6 +207,10 @@ function Fixture.environment_of(base: {string:string},
   for _, name in ipairs(Fixture.inherited) do
     if base[name] ~= nil then environment[name] = base[name] end
   end
+  local temporary = base.TMPDIR
+  if temporary == nil or temporary == "" then temporary = "/tmp" end
+  environment.COSMIC_BUILD_HOME = temporary .. "/cosmic-build"
+  environment.COSMIC_PORTABLE_CACHE = temporary .. "/cosmic-cores"
   environment.COSMIC_BUILD_CACHE = "0"
   environment.COSMIC_TEST_SANDBOX = "0"
   if extra then
@@ -216,6 +222,17 @@ end
 --- [`environment_of`] the fixture's own environment.
 function Fixture.environment(extra?: {string:string}): {string:string}
   return Fixture.environment_of(Env.all(), extra)
+end
+
+--- The output directory observed under the same environment a fixture's
+--- child receives. An application uses the packed tool tree's resolver
+--- and a runtime the fixture declared, rather than the outer driver.
+function Fixture.build_directory(root: string, source?: string, program?: string): string
+  return BuildPaths.directory(root, Fixture.environment(), source, program)
+end
+
+function Fixture.prepare_build(root: string, source?: string, program?: string): string
+  return BuildPaths.prepare(root, Fixture.environment(), source, program)
 end
 
 local function preview(path: string): string

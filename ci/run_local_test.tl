@@ -115,15 +115,15 @@ local function test_named_rerun_refreshes_ci_but_keeps_candidate_and_database(tm
   local root, env = checkout(tmp)
   assert(invoke(root, env, { "build" }) == 0)
   local state = env.COSMIC_CI_LOCAL
-  assert(Fs.mkdirs(state .. "/ci/o"))
-  assert(Fs.write(state .. "/ci/o/sentinel", "persistent"))
+  assert(Fs.mkdirs(state .. "/build-home"))
+  assert(Fs.write(state .. "/build-home/sentinel", "persistent"))
   assert(Fs.write(state .. "/ci/obsolete", "remove"))
   assert(Fs.write(root .. "/ci/cosmic_ci/driver.tl", "edited fixture\n"))
   assert(Fs.write(root .. "/tracked", "later\n"))
   assert(invoke(root, env, { "fixtures" }) == 0)
   assert(Fs.read(state .. "/candidate/tracked") == "old\n")
   assert(Fs.read(state .. "/ci/cosmic_ci/driver.tl") == "edited fixture\n")
-  assert(Fs.read(state .. "/ci/o/sentinel") == "persistent")
+  assert(Fs.read(state .. "/build-home/sentinel") == "persistent")
   assert(Fs.exists(state .. "/ci/obsolete") == false)
   assert(Fs.read(env.TRACE) == "build\nfixtures\n")
 end
@@ -382,4 +382,15 @@ local function test_cancelled_credential_probe_removes_its_runtime_grant(tmp: st
   assert(called, tostring(code))
   assert(code == 2 and signal == sys.SIGTERM and scratch ~= "" and Fs.exists(scratch) == false)
   assert(Fs.exists(env.COSMIC_CI_LOCAL) == false)
+end
+
+local function test_a_new_build_discards_the_old_candidates_generated_state(tmp: string)
+  local root, env = checkout(tmp)
+  assert(invoke(root, env, { "build" }) == 0)
+  local home = env.COSMIC_CI_LOCAL .. "/build-home"
+  assert(Fs.mkdirs(home) and Fs.write(home .. "/obsolete", "old state"))
+  assert(invoke(root, env, { "fixtures" }) == 0)
+  assert(Fs.read(home .. "/obsolete") == "old state")
+  assert(invoke(root, env, { "build" }) == 0)
+  assert(Fs.exists(home .. "/obsolete") == false)
 end

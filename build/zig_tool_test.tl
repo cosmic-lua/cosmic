@@ -9,6 +9,7 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local this_program = require("build.this_program")
 local rebuild_lock = require("build.rebuild_lock")
+local build_paths = require("build.paths")
 local stand_in = require("build.stand_in")
 local sys = require("cosmic.sys")
 local Clock = require("cosmic.clock")
@@ -151,7 +152,7 @@ end
 
 --- A build of the boot step holds the checkout's rebuild lock while zig
 --- runs, so a `cosmic test` run or a rebuild in the checkout waits for
---- it, and hands it on to zig, whose bridge writes o/cosmic.db holding
+--- it, and hands it on to zig, whose bridge writes the projection holding
 --- it (build/writer.tl): the stand-in zig records the variable, and
 --- waits while this test finds the lock busy.
 local function test_a_boot_holds_the_lock_and_hands_it_on(tmp: string)
@@ -160,8 +161,13 @@ local function test_a_boot_holds_the_lock_and_hands_it_on(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   assert(stand_in.place(probe, tmp .. "/zig-for-test",
     "write $DIR/handed [$COSMIC_REBUILD_LOCK_HANDED]; wait-for $DIR/go; exit 0"))
+  local env = this_program.environment()
+  env.COSMIC_ZIG, env.PATH, env.XDG_CACHE_HOME = "zig-for-test", tmp, tmp .. "/cache"
+  -- The cache override belongs to zig; the boot and this process must
+  -- still probe the same canonical project build directory.
+  env.COSMIC_BUILD_HOME = Fs.dirname(build_paths.required(root))
   local started = this_program.program({ "--standalone", script, "build", "boot" }, {
-    env = { COSMIC_ZIG = "zig-for-test", PATH = tmp, XDG_CACHE_HOME = tmp .. "/cache" },
+    env = env,
     stdout = "capture", stderr = "capture",
   })
   local h = assert(Child.start(started.argv, started.options))
@@ -178,7 +184,7 @@ local function test_a_boot_holds_the_lock_and_hands_it_on(tmp: string)
   assert(result.ok, tostring(result.stderr))
   local named = tostring(handed):match("^%[(.*)%]\n$")
   local given, _ = sys.stat(named or "")
-  local own, _ = sys.stat(root .. "/o/rebuild.lock")
+  local own, _ = sys.stat(build_paths.required(root) .. "/rebuild.lock")
   assert(given ~= nil and own ~= nil and given.ino == own.ino and given.dev == own.dev,
     "the boot handed on no lock of its tree: " .. tostring(handed))
   assert(taken == "busy", "the boot's lock was taken under it: " .. tostring(taken) .. " " .. trouble)
@@ -191,14 +197,31 @@ local function test_other_subcommands_accept_cache_directories_not_yet_created(t
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   assert(stand_in.place(probe, tmp .. "/zig-for-test", "exit 0"))
   local project, shared = tmp .. "/new-project", tmp .. "/new-global"
-  local started = this_program.program({ "--standalone", script, "version" }, {
-    env = { COSMIC_ZIG = tmp .. "/zig-for-test", COSMIC_ZIG_CACHE = project,
-      COSMIC_ZIG_GLOBAL_CACHE = shared }, stdout = "capture", stderr = "capture",
-    timeout_ns = Clock.seconds(30),
+  for _, command in ipairs({ "version", "cc" }) do
+    local started = this_program.program({ "--standalone", script, command }, {
+      env = { COSMIC_ZIG = tmp .. "/zig-for-test", COSMIC_ZIG_CACHE = project,
+        COSMIC_ZIG_GLOBAL_CACHE = shared, COSMIC_BUILD_HOME = "invalid-relative-home" },
+      stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
+    })
+    local result = assert(Child.run(started.argv, started.options))
+    assert(result.ok, result.stderr)
+  end
+  assert(not Fs.exists(project) and not Fs.exists(shared))
+  assert(not Fs.exists(tmp .. "/root/o"))
+end
+
+local function test_a_build_refuses_an_invalid_build_home_before_running_zig(tmp: string)
+  local script = bare_root(tmp)
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  assert(stand_in.place(probe, tmp .. "/zig-for-test", "write $DIR/ran zig; exit 0"))
+  local started = this_program.program({ "--standalone", script, "build", "boot" }, {
+    env = { COSMIC_ZIG = tmp .. "/zig-for-test", COSMIC_BUILD_HOME = "relative" },
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
   })
   local result = assert(Child.run(started.argv, started.options))
-  assert(result.ok, result.stderr)
-  assert(not Fs.exists(project) and not Fs.exists(shared))
+  assert(not result.ok)
+  assert((result.stderr or ""):find("COSMIC_BUILD_HOME must name an absolute directory", 1, true))
+  assert(not Fs.exists(tmp .. "/ran"), "zig ran after build directory resolution failed")
   assert(not Fs.exists(tmp .. "/root/o"))
 end
 
@@ -209,7 +232,7 @@ local function test_a_build_repairs_a_manifest_whose_contents_do_not_match_its_n
   local project = tmp .. "/project"
   local started = this_program.program({ "--standalone", script, "build" }, {
     env = { COSMIC_ZIG = tmp .. "/zig-for-test", COSMIC_ZIG_CACHE = project,
-      COSMIC_ZIG_GLOBAL_CACHE = tmp .. "/global" },
+      COSMIC_ZIG_GLOBAL_CACHE = tmp .. "/global", COSMIC_BUILD_HOME = tmp .. "/generated" },
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
   })
   local first = assert(Child.run(started.argv, started.options))

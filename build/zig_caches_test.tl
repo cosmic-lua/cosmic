@@ -10,11 +10,18 @@ local function test_the_caches_are_where_zig_puts_them(tmp: string)
       { XDG_CACHE_HOME = tmp .. "/xdg" },
       { HOME = tmp .. "/home" },
       { XDG_CACHE_HOME = tmp .. "/xdg", COSMIC_ZIG_GLOBAL_CACHE = "/g", COSMIC_ZIG_CACHE = "/p" },
-      {},
   } as {{string:string}}) do
     local paths = zig_caches.paths("/repo", env)
     local shared, project = Zig.global_cache("/repo", env), Zig.project_cache("/repo", env)
     assert(paths[1] == shared and paths[2] == project,
       table.concat(paths, " ") .. " but zig puts them at " .. shared .. " " .. project)
   end
+end
+
+local function test_a_missing_cache_home_is_refused()
+  local planned = pcall(zig_caches.paths, "/repo", {})
+  local shared = pcall(Zig.global_cache, "/repo", {})
+  local project = pcall(Zig.project_cache, "/repo", {})
+  assert(not planned and not shared and not project,
+    "a missing cache home must not create generated files in the checkout")
 end

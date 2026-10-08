@@ -281,15 +281,11 @@ local function command(argv: {string}, fixture: Fixture): Child.Result
   local result, trouble = Child.run(argv, { cwd = fixture.root, env = fixture.env,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   if result == nil then
-    if fixture.logs ~= "" then
-      save(fixture.logs .. "/failure.json", { argv = argv, trouble = trouble })
-    end
+    save(fixture.logs .. "/failure.json", { argv = argv, trouble = trouble })
     error(trouble)
   end
   if not result.ok or result.truncated then
-    if fixture.logs ~= "" then
-      save(fixture.logs .. "/failure.json", { argv = argv, result = result })
-    end
+    save(fixture.logs .. "/failure.json", { argv = argv, result = result })
     error(table.concat(argv, " ") .. ": " .. (result.stderr or "") .. (result.stdout or ""))
   end
   return result
@@ -317,6 +313,7 @@ local function fixture(binary: string, root: string): Fixture
     if name:sub(1, 7) == "COSMIC_" then env[name] = nil end
   end
   env.COSMIC_TREE = root
+  env.COSMIC_BUILD_HOME = Fs.dirname(root) .. "/build-home"
   env.COSMIC_AUTO_BOOT = "0"
   env.COSMIC_BUILD_CACHE = "0"
   env.COSMIC_VERDICT_CACHE = "0"
@@ -324,7 +321,7 @@ local function fixture(binary: string, root: string): Fixture
   env.COSMIC_PORTABLE_CACHE = root .. "/portable-cache"
   local f: Fixture = { binary = binary, root = root, host = root .. "/host",
     portable = root .. "/portable", host_tool = root .. "/host-tool",
-    logs = "", output = "", env = env }
+    logs = Fs.dirname(root), output = "", env = env }
   -- Retained baselines predate the directory resolver. Ask each artifact
   -- for its own rule outside the measurements, selecting the legacy rule
   -- only when its store has no resolver module.
@@ -333,7 +330,8 @@ local S = require("cosmic.store")
 local E = require("cosmic.env")
 local root = assert(E.get("COSMIC_TREE"))
 if S.source("build.paths") ~= nil then
-  print(require("build.paths").required(root))
+  local paths = require("build.paths")
+  print(paths.prepare and assert(paths.prepare(root)) or paths.required(root))
 else
   print(root .. "/o")
 end

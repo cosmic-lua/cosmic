@@ -1,6 +1,6 @@
 --- The build a read-only verb makes so it answers from the tree as it
---- stands: `docs` and `uses` read `o/cosmic.db`, which only a build
---- writes, so without this an edit is invisible to them until a
+--- stands: `docs` and `uses` read the project's `cosmic.db`, which only
+--- a build writes, so an edit is invisible to them until a
 --- `cosmic test` or `cosmic fix` builds. It is the build `cosmic test`
 --- makes (stage, compile, write the projection), and no more.
 
@@ -22,14 +22,19 @@ local record rebuild
 end
 
 --- Whether the directory `root` is one to build: cosmic's own tree, or
---- one a build has written `o/cosmic.db` under. Anything else is left
+--- one whose build directory holds `cosmic.db`. Anything else is left
 --- alone, whatever it holds: a lookup never starts a tree of its own in
 --- a directory that has a stray `.tl`, nor below the home directory.
 local function is_project(root: string): boolean | nil, string
   local own, own_trouble = tree.is_own(root)
   if own == nil then return nil, own_trouble end
   if own then return true, "" end
-  return Fs.exists(build_paths.required(root) .. "/cosmic.db")
+  local directory, directory_trouble = build_paths.optional(root)
+  if directory == nil then
+    if directory_trouble ~= "" then return nil, directory_trouble end
+    return false, ""
+  end
+  return Fs.exists(directory .. "/cosmic.db")
 end
 
 --- Whether `root` looks like a project that has not been built: Teal at
@@ -44,7 +49,7 @@ local function looks_unbuilt(root: string): boolean
 end
 
 --- Builds the project at `root` as `cosmic test` does, leaving
---- `o/cosmic.db` as the tree stands. It does nothing, answering true,
+--- its projection as the tree stands. It does nothing, answering true,
 --- where `root` is not one to build ([`is_project`]) and `start` is not
 --- set, saying so on stderr when it looks like a project no build has
 --- been made of. Answers false and why when the build fails, which the

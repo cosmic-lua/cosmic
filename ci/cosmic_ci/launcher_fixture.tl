@@ -48,7 +48,7 @@ function LauncherFixture.environment(cache?: string,
 end
 
 --- A case's context beneath `tmp`: the contract's launcher
---- (o/fixtures/launcher, cosmic_ci/launcher_setup.tl) copied into a
+--- (testdata/ci-fixtures/launcher, cosmic_ci/launcher_setup.tl) copied into a
 --- directory whose name holds a space, a run directory and a link to it,
 --- and the target's socket payload, where the contract has it.
 function LauncherFixture.setup(tmp: string): Context

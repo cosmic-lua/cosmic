@@ -1,3 +1,4 @@
+local build_paths = require("build.paths")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
@@ -1747,8 +1748,8 @@ end
 --- the store's databases, here one of the test's own.
 local function test_an_unreadable_own_database_is_left_out(dir: string)
   local store = built(dir, fs_tree())
-  assert(Fs.mkdirs(dir .. "/o"))
-  assert(Fs.write(dir .. "/o/cosmic.db", "not a database"))
+  assert(Fs.mkdirs(build_paths.required(dir)))
+  assert(Fs.write(build_paths.required(dir) .. "/cosmic.db", "not a database"))
   local before = assert(sys.getcwd())
   assert(sys.chdir(dir))
   local sources = docs.databases({ store })

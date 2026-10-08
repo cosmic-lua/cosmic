@@ -2,29 +2,29 @@ local Hash = require("cosmic.hash")
 local Fixture = require("cosmic_ci.fixture")
 local Test = require("cosmic.test")
 
--- The product (o/fixtures/product), each file of it the test reads,
+-- The product (testdata/ci-fixtures/product), each file of it the test reads,
 -- so every byte it checks is in the verdict's key and no verdict stands
 -- for a product it was not reached on (cosmic_ci/orchestration.tl's
 -- `sandboxed_fixtures`); and the target's format decoder
--- (o/fixtures/format). A file of another target's is not there, and
+-- (testdata/ci-fixtures/format). A file of another target's is not there, and
 -- is keyed as missing. `system`: the applications launch through /bin/sh,
 -- and macOS's leg runs /usr/bin/codesign (COSMIC_FIXTURE_CODESIGN).
 Test.policy{
   grants = {
-    { path = "o/fixtures/product/cosmic", letters = "r" },
-    { path = "o/fixtures/product/hashes.sha256", letters = "r" },
-    { path = "o/fixtures/product/prefix", letters = "r" },
-    { path = "o/fixtures/product/manifest", letters = "r" },
-    { path = "o/fixtures/product/apps/hello", letters = "r" },
-    { path = "o/fixtures/product/apps/second", letters = "r" },
-    { path = "o/fixtures/product/cosmic.db", letters = "r" },
-    { path = "o/fixtures/product/targets.tsv", letters = "r" },
-    { path = "o/fixtures/product/cores/x86_64-linux-musl/cosmic-core", letters = "r" },
-    { path = "o/fixtures/product/cores/aarch64-linux-musl/cosmic-core", letters = "r" },
-    { path = "o/fixtures/product/cores/aarch64-macos/cosmic-core", letters = "r" },
-    { path = "o/fixtures/format/format-test-x86_64-linux-musl", letters = "r" },
-    { path = "o/fixtures/format/format-test-aarch64-linux-musl", letters = "r" },
-    { path = "o/fixtures/format/format-test-aarch64-macos", letters = "r" },
+    { path = "testdata/ci-fixtures/product/cosmic", letters = "r" },
+    { path = "testdata/ci-fixtures/product/hashes.sha256", letters = "r" },
+    { path = "testdata/ci-fixtures/product/prefix", letters = "r" },
+    { path = "testdata/ci-fixtures/product/manifest", letters = "r" },
+    { path = "testdata/ci-fixtures/product/apps/hello", letters = "r" },
+    { path = "testdata/ci-fixtures/product/apps/second", letters = "r" },
+    { path = "testdata/ci-fixtures/product/cosmic.db", letters = "r" },
+    { path = "testdata/ci-fixtures/product/targets.tsv", letters = "r" },
+    { path = "testdata/ci-fixtures/product/cores/x86_64-linux-musl/cosmic-core", letters = "r" },
+    { path = "testdata/ci-fixtures/product/cores/aarch64-linux-musl/cosmic-core", letters = "r" },
+    { path = "testdata/ci-fixtures/product/cores/aarch64-macos/cosmic-core", letters = "r" },
+    { path = "testdata/ci-fixtures/format/format-test-x86_64-linux-musl", letters = "r" },
+    { path = "testdata/ci-fixtures/format/format-test-aarch64-linux-musl", letters = "r" },
+    { path = "testdata/ci-fixtures/format/format-test-aarch64-macos", letters = "r" },
   },
   env = { "COSMIC_FIXTURE_TARGET", "COSMIC_FIXTURE_CODESIGN" },
   profiles = { "system" },

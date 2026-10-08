@@ -54,7 +54,7 @@ end
 --- Synthetic candidates keep their selected physical output layout.
 local function build_resolver(root: string)
   assert(Fs.mkdirs(root .. "/build"))
-  assert(Fs.write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {integer:string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
+  assert(Fs.write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {integer:string}): integer\n  if argv[1] == \"--prepare\" then assert(Fs.mkdirs(argv[2] .. \"/o\")) end\n  assert(Fs.put(Fs.stdout, argv[argv[1] == \"--prepare\" and 2 or 1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
 end
 
 --- The driver reads its context (GITHUB_WORKSPACE, GITHUB_RUN_ID,
@@ -621,16 +621,16 @@ local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
       sandboxed = sandboxed + 1
       local host = declared_reads(name)
       if name == "performance" then
-        assert(host["o/fixtures/performance/program"] and
-            host["o/fixtures/performance/perf.tl"],
+        assert(host["testdata/ci-fixtures/performance/program"] and
+            host["testdata/ci-fixtures/performance/perf.tl"],
           "performance fixture must key the full candidate and controller source")
       else
-        assert(host["o/fixtures/product/prefix"],
+        assert(host["testdata/ci-fixtures/product/prefix"],
           name .. ": a sandboxed fixture's key does not hold the product's prefix")
       end
       if name ~= "product" then
         for _, whole in ipairs({ "cosmic", "cosmic.db" }) do
-          assert(not host["o/fixtures/product/" .. whole],
+          assert(not host["testdata/ci-fixtures/product/" .. whole],
             name .. ": a sandboxed fixture that does not check the whole product declares its " ..
               whole .. ", which moves with every edit to the tool's code")
         end
@@ -667,7 +667,7 @@ local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
   local whole = declared_reads("product")
   for _, part in ipairs({ "cosmic", "hashes.sha256", "prefix", "manifest", "apps/hello",
       "apps/second", "cosmic.db", "targets.tsv" }) do
-    assert(whole["o/fixtures/product/" .. part],
+    assert(whole["testdata/ci-fixtures/product/" .. part],
       "product: the fixture that checks the whole product does not declare " .. part)
   end
   local listed = 0

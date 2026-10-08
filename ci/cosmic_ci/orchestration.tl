@@ -316,7 +316,7 @@ end
 --- absolute path or turns the cache off.
 ---
 --- It is not the other suites' file. The portable artifact carries the
---- cores o/bin/cosmic does, from o/core (`ProductSetup`), so a test that
+--- cores the candidate tool does, from its build directory (`ProductSetup`), so a test that
 --- does not run the program (`tool`) may key the same under either: the
 --- same runtime identity, and the same identity of what runs that core
 --- (build/declared_key.tl's `launcher_identity`) wherever the two
@@ -366,9 +366,9 @@ local function operation(c: Context, phase: string, command: {string},
   -- bin/zig shares one project cache among checkouts unless told otherwise
   -- (build/zig.tl). A candidate uses the zig-cache under
   -- COSMIC_ZIG_CACHE_SEED where CI restored it, else keeps its own under
-  -- o/, which the build phase seeds. zig keys what it compiles by its
+  -- its build directory, which the build phase seeds. zig keys what it compiles by its
   -- own cache's path too, and CI puts the checkout at a path of the commit's
-  -- own (ci/cosmic_ci/place_tree.tl), so a cache under o/ would never
+  -- own (ci/cosmic_ci/place_tree.tl), so a cache keyed by that path would never
   -- be reused there: CI saves the seed's as it stands.
   if (child_environment.COSMIC_ZIG_CACHE or "") == "" then
     local seed = named("COSMIC_ZIG_CACHE_SEED")
@@ -553,7 +553,7 @@ end
 --- The fixtures (ci/fixtures/<name>_test.tl) whose workers run
 --- sandboxed, where the leg sandboxes its suites, and whose verdicts are
 --- shared (`fixture`). Each declares with [`Test.policy`] every path it
---- reads of what [`place`] put at o/fixtures/<product|runtime|launcher|
+--- reads of what [`place`] put at testdata/ci-fixtures/<product|runtime|launcher|
 --- format|performance> of its project -- the product, the runtime
 --- setup's directory, the launcher contract's, the format decoders' or
 --- the performance inputs -- so its key holds what each holds, not
@@ -618,7 +618,7 @@ end
 --- it reaches itself. It reads the candidate and its products where
 --- variables of `env` say (COSMIC_FIXTURE_*), which no key of its holds,
 --- so it neither reads nor writes the shared verdicts, whatever the
---- event. Nor can a verdict of its own stand: its project, and the o/
+--- event. Nor can a verdict of its own stand: its project and generated state
 --- under it, is made afresh for each run, and it names the file it
 --- runs, so none is assumed.
 ---
@@ -681,7 +681,7 @@ end
 --- What a sandboxed fixture reads of a setup's output, `from` (the
 --- product, the runtime setup's directory, the launcher contract's, the
 --- format decoders', the performance inputs), placed at `kind` under
---- o/fixtures of the project it runs in: the fixture declares each path
+--- testdata/ci-fixtures of the project it runs in: the fixture declares each path
 --- it reads there with [`Test.policy`], a grant, so its
 --- key holds what each holds, not where the leg keeps it. Only `only`, the
 --- names beneath `from` it reads, are copied where it is given: a fixture
@@ -693,13 +693,13 @@ local record Placement
   only: {string}
 end
 
---- Places each of `placements` beneath `project`'s o/fixtures
+--- Places each of `placements` beneath `project`'s testdata/ci-fixtures
 --- ([`Placement`]). A copy, so a fixture is free to run what it is
 --- placed without touching the product the leg attests.
 local function place(project: string, placements: {Placement})
   for _, placement in ipairs(placements) do
     assert(placement.kind:match("^[%w_]+$"), "invalid fixture placement")
-    local where = project .. "/o/fixtures/" .. placement.kind
+    local where = project .. "/testdata/ci-fixtures/" .. placement.kind
     assert(Fs.mkdirs(Fs.dirname(where)))
     if placement.only == nil then
       assert(Fs.copy_tree(placement.from, where))
@@ -809,7 +809,7 @@ local function checked_suite(c: Context, target: string, work: string,
   -- such as an assert's __FILE__, would move every key each run and
   -- stand on none. These are plain finds over the core already read
   -- above, some 35 ms for 38 MB. The tree root may be named under the
-  -- checkout's own zig cache (run-local's `o/zig-cache`, whose vendored
+  -- checkout's own zig cache (run-local's seeded project cache, whose vendored
   -- trees' paths the core's assert strings hold; build.zig's
   -- `debug_dir`), which is no path CI's builds name.
   -- TODO: hold each compile unit's DW_AT_comp_dir to "." here, reading
@@ -911,7 +911,7 @@ local function checked_suite(c: Context, target: string, work: string,
   -- ([`suite_verdicts`]), and says which key parts a run that stands on
   -- none reached (`--census`, build/test.tl).
   -- --all where it stands on no verdict (`stands`): CI answers for
-  -- every test then, whatever o/ holds.
+  -- every test then, whatever the working database holds.
   local checked_argv: {string} = { cosmic }
   local checked_words, checked_environment = Orchestration.suite_run({
     COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "checked"),
@@ -1046,17 +1046,17 @@ local record PlatformContext
   fresh: string
 end
 
---- The candidate's cores and boot, on a fresh checkout: the `build`
+--- The candidate's cores and boot, on its checkout: the `build`
 --- phase without its native suite. It is all the `boot` phase runs, for
 --- a job that runs no native suite (ci.yml's `checked`).
 local function boot(p: PlatformContext): integer
   local c = p.operation
   local root = p.root
-  assert(not exists(BuildPaths.directory(root) .. "/build.db"), "build requires fresh working database")
+
   -- zig's caches are used where CI restored them: its global cache
   -- (COSMIC_ZIG_GLOBAL_CACHE, build/zig.tl) and the project cache, the
   -- zig-cache under COSMIC_ZIG_CACHE_SEED (see `operation`). Only a
-  -- local run's is copied into o/, from the project cache
+  -- local run's is copied into its private build directory, from the project cache
   -- COSMIC_ZIG_CACHE_FROM names, a developer's shared one.
   local seed = named("COSMIC_ZIG_CACHE_SEED")
   local from = named("COSMIC_ZIG_CACHE_FROM")
@@ -1067,8 +1067,8 @@ local function boot(p: PlatformContext): integer
     Fs.put(Fs.stderr, "build: no zig-cache at " .. cache ..
         "; compiling from nothing\n")
   end
-  if not seed and from and is_dir(from) then
-    mkdir(BuildPaths.directory(root))
+  if not seed and from and is_dir(from) and not is_dir(BuildPaths.directory(root) .. "/zig-cache") then
+    BuildPaths.prepare(root)
     local copied = step(c, "restore zig-cache", function(): boolean, string
       return Fs.copy_tree(from, BuildPaths.directory(root) .. "/zig-cache")
     end)
@@ -1374,7 +1374,7 @@ local function phase_portable(p: PlatformContext): integer
     attempt = c.attempt, root = fresh, driver = c.driver, phase = c.phase }
   local s = 0
   -- The suite reruns the local suite's tests under the portable build,
-  -- whose artifact carries the cores o/bin/cosmic does (`ProductSetup`);
+  -- whose artifact carries the candidate tool's cores (`ProductSetup`);
   -- each leg's launcher, runtime and identity fixtures still run the
   -- portable product's launcher (phase_fixtures). So a push to main
   -- runs it on the two x86-64 legs, a glibc host and a musl one, the
@@ -1444,7 +1444,7 @@ end
 
 --- The candidate's tracked source, unpacked afresh at `destination`
 --- from the `git archive` assemble made of it (`archive`, beside
---- `p.fresh`, where the portable suite has written its o/ since): the
+--- `p.fresh`, where the portable suite has since written build state): the
 --- tree a fixture that boots or rebuilds one copies
 --- (COSMIC_FIXTURE_SOURCE, [`Fixture.source_tree`]), the one the product
 --- was booted from.
