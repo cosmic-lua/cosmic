@@ -390,6 +390,10 @@ local function test_tzif_with_long_abbreviations_is_read_in_linear_time()
     return table.concat({ "TZif", "\0", ("\0"):rep(15),
       string.pack(">I4I4I4I4I4I4", 0, 0, 0, 0, count, count * 6), types, abbreviations })
   end
+  -- TODO: measure process CPU time here once cosmic.sys carries
+  -- clock_gettime(CLOCK_PROCESS_CPUTIME_ID) or getrusage, so scheduling
+  -- and other processes' load stop counting; until then wall time, the
+  -- least of many reads, stands in.
   local function read(data: string, near: boolean): integer
     local started = Time.monotonic_ns()
     local z, why = Time.zone_from_tzif(data, "x")
