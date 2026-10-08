@@ -75,6 +75,8 @@ allowed["cosmic.relay.config.parse_addresses"] = "tested directly: the reading o
 allowed["cosmic.sandbox.seatbelt.grants"] = "called through cosmic.sandbox's `Seatbelt`, " ..
   "the package's one path to it from outside, which cosmic.child takes; the check reads a " ..
   "call by the module's own name alone"
+allowed["cosmic.sandbox.policy.system_profile"] = "the seam that lets a test draw the " ..
+  "other host's \"system\" profile; rules.profile calls it with this host's"
 -- The same gap as the allowance above (its TODO): cosmic.child calls these
 -- through cosmic.sandbox's `Relay`.
 for _, name in ipairs({ "policy", "seatbelt_policy", "loopback_listeners", "name_servers", "plan", "upstream_addresses",

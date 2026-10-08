@@ -1383,7 +1383,7 @@ function SocketConnector:connect(target: integer | string, port: integer, timeou
     host = entry.host
   else
     for i, entry in ipairs(self.endpoints) do
-      if entry.host == target and endpoint_allows(entry, port) then
+      if same_host(entry.host, target) and endpoint_allows(entry, port) then
         index = i
         host = entry.host
         break
