@@ -77,25 +77,53 @@ local function filter(architecture: string): {Insn}
     { base = BASE + 4096, slots = 65535, length = 28 },
   }, CONTROL, STATUS))
 end
+local V4 <const> = 16
+local V6 <const> = 32
 local function test_connect_accepts_only_whole_immutable_slots_with_exact_sizes()
   for i, architecture in ipairs(arches) do
     local code = filter(architecture)
-    for slot = 0, 3 do
-      assert(run(code, audit[architecture], numbers.connect[i], { 5, BASE + 128 * slot, 16 }) == ALLOW)
+    local function connect(pointer: integer, length: integer): integer
+      return run(code, audit[architecture], numbers.connect[i], { 5, pointer, length })
     end
-    for _, pointer in ipairs({ BASE - 128, BASE - 1, BASE + 1, BASE + 127, BASE + 512,
+    for slot = 0, 3 do
+      assert(connect(BASE + V4 * slot, 16) == ALLOW)
+    end
+    for _, pointer in ipairs({ BASE - V4, BASE - 1, BASE + 1, BASE + 8, BASE + 15, BASE + 4 * V4,
         BASE + (1 << 32), BASE - (1 << 32) }) do
-      assert(run(code, audit[architecture], numbers.connect[i], { 5, pointer, 16 }) == REFUSE)
+      assert(connect(pointer, 16) == REFUSE)
     end
     for _, length in ipairs({ 0, 15, 17, 28, 16 + (1 << 32), -1 }) do
-      assert(run(code, audit[architecture], numbers.connect[i], { 5, BASE, length }) == REFUSE)
+      assert(connect(BASE, length) == REFUSE)
     end
-    assert(run(code, audit[architecture], numbers.connect[i], { 5, BASE + 4096, 28 }) == ALLOW)
-    assert(run(code, audit[architecture], numbers.connect[i], { 5, BASE + 4096 + 65534 * 128, 28 }) == ALLOW)
-    assert(run(code, audit[architecture], numbers.connect[i], { 5, BASE + 4096 + 65535 * 128, 28 }) == REFUSE)
-    assert(run(code, audit[architecture], numbers.connect[i], { 5, BASE + 4096, 16 }) == REFUSE)
+    assert(connect(BASE + 4096, 28) == ALLOW)
+    assert(connect(BASE + 4096 + 65534 * V6, 28) == ALLOW)
+    assert(connect(BASE + 4096 + 65535 * V6, 28) == REFUSE)
+    assert(connect(BASE + 4096, 16) == REFUSE)
     assert(run(code, 0x40000003, numbers.connect[i], { 5, BASE, 16 }) == KILL)
     assert(run(code, audit[architecture], numbers.connect[i] | 0x40000000, { 5, BASE, 16 }) == REFUSE)
+  end
+end
+local function test_a_slot_is_held_to_its_own_ranges_stride_and_length()
+  for i, architecture in ipairs(arches) do
+    local code = filter(architecture)
+    local function connect(pointer: integer, length: integer): integer
+      return run(code, audit[architecture], numbers.connect[i], { 5, pointer, length })
+    end
+    -- Into the other range: an IPv6 slot at the IPv4 length, and the reverse.
+    assert(connect(BASE + 4096, 16) == REFUSE)
+    assert(connect(BASE + 4096 + V6, 16) == REFUSE)
+    assert(connect(BASE, 28) == REFUSE)
+    assert(connect(BASE + V4, 28) == REFUSE)
+    -- Aligned to the IPv4 stride but not to the IPv6 one.
+    assert(connect(BASE + 4096 + V4, 28) == REFUSE)
+    assert(connect(BASE + 4096 + V6 + V4, 28) == REFUSE)
+    assert(connect(BASE + 4096 + 3 * V6 + 1, 28) == REFUSE)
+    -- Between the ranges, and past the last slot of each.
+    assert(connect(BASE + 4 * V4, 16) == REFUSE)
+    assert(connect(BASE + 2048, 28) == REFUSE)
+    assert(connect(BASE + 4096 + 65535 * V6, 28) == REFUSE)
+    -- A pointer whose low 32 bits are right in another 4 GiB.
+    assert(connect(BASE + 4096 + (1 << 32), 28) == REFUSE)
   end
 end
 local function test_only_tcp_creation_and_protected_ipc_descriptor_sends_are_allowed()
@@ -143,9 +171,11 @@ local function test_invalid_filter_inputs_are_refused()
   for _, ranges in ipairs({
       {} as {raw_process.ConnectorRange},
       { { base = BASE + 1, slots = 1, length = 16 } },
+      { { base = BASE + 16, slots = 1, length = 28 } },
       { { base = BASE, slots = 0, length = 16 } },
       { { base = BASE, slots = 1, length = 128 } },
-      { { base = 0x11223344ffffff80, slots = 2, length = 16 } },
+      { { base = 0x11223344ffffff80, slots = 9, length = 16 } },
+      { { base = 0x11223344ffffff80, slots = 5, length = 28 } },
   }) do
     local ok = pcall(process.connector_filter, "x86_64", ranges, CONTROL, STATUS)
     assert(not ok)
