@@ -1,3 +1,4 @@
+local BuildPaths = require("cosmic_ci.build_paths")
 local Clock = require("cosmic.clock")
 local Sqlite = require("cosmic.sqlite")
 local Fs = require("cosmic.fs")
@@ -28,7 +29,7 @@ Test.policy{
     "COSMIC_TEST_SANDBOX",
     "COSMIC_SANDBOX",
     "COSMIC_TEST_HELD",
-    "COSMIC_BOOTSTRAP",
+    "COSMIC_BOOTSTRAP", "COSMIC_BUILD_HOME",
     "COSMIC_ZIG",
     "COSMIC_ZIG_CACHE",
     "COSMIC_ZIG_GLOBAL_CACHE",
@@ -204,8 +205,8 @@ end
 -- Copies the fixture-only runtime into the archived tree's `o/bin/cosmic`,
 -- executable, and returns its path.
 local function place_runtime(fixture_dir: string, tree: string): string
-  local program = tree .. "/o/bin/cosmic"
-  Fixture.mkdir(tree .. "/o/bin")
+  local program = BuildPaths.directory(tree) .. "/bin/cosmic"
+  Fixture.mkdir(BuildPaths.directory(tree) .. "/bin")
   Fixture.copy(fixture_dir .. "/runtime.old", program, 0x1ed)
   return program
 end
@@ -589,7 +590,7 @@ local function test_a_rebooted_run_refuses_without_waiting(tmp: string)
 
   -- The rebuild lock's SQLite half, which a tool from before the flock
   -- holds alone and every run still waits for (build.rebuild_lock).
-  local lock = assert(Sqlite.open(tree .. "/o/rebuild.lock", { writable = true }))
+  local lock = assert(Sqlite.open(BuildPaths.directory(tree) .. "/rebuild.lock", { writable = true }))
   assert(lock:exec("BEGIN IMMEDIATE"))
   local held_ok, failure = pcall(function(): boolean
     for _, entered in ipairs({ "1", "2" }) do
@@ -703,7 +704,7 @@ local function test_a_stale_tool_outside_the_tree_refuses(tmp: string)
       verb[1] .. ": a tool outside the tree rebuilt itself")
     assert(Fixture.hash(program) == before_hash,
       verb[1] .. ": a tool outside the tree was overwritten")
-    assert(Fs.exists(tree .. "/o/bin/cosmic") == false,
+    assert(Fs.exists(BuildPaths.directory(tree) .. "/bin/cosmic") == false,
       verb[1] .. ": a tool outside the tree wrote one into it")
   end
 end

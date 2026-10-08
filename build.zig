@@ -787,6 +787,10 @@ pub fn build(b: *std.Build) void {
             bridge.addDirectoryArg2(tl, .{});
             bridge.addArg(t.name);
             bridge.addFileArg2(target_records, .{});
+            bridge.addDirectoryArg2(
+                .{ .relative = .{ .base = .install_prefix, .sub_path = "" } },
+                .{ .make_absolute = true },
+            );
             // The bridge reads every raw core and writes the database
             // beside them, so it runs after both.
             bridge.step.dependOn(cores);
@@ -865,11 +869,15 @@ pub fn build(b: *std.Build) void {
     checked_boot.addArg(checked_target.name);
     checked_boot.addFileArg2(target_records, .{});
     checked_boot.addDirectoryArg2(
-        .{ .relative = .{ .base = .install_prefix, .sub_path = "sanitized" } },
+        .{ .relative = .{ .base = .install_prefix, .sub_path = "" } },
         .{ .make_absolute = true },
     );
     checked_boot.addFileArg2(checked.getEmittedBin(), .{});
     checked_boot.addFileArg2(checked_records, .{});
+    checked_boot.addDirectoryArg2(
+        .{ .relative = .{ .base = .install_prefix, .sub_path = "sanitized" } },
+        .{ .make_absolute = true },
+    );
     checked_boot.step.dependOn(cores);
     checked_boot.step.dependOn(vendored);
     checked_boot.has_side_effects = true;
@@ -976,23 +984,22 @@ fn launcherHelper(
 }
 
 /// The patched vendor trees bin/zig wrote before it ran zig
-/// (build/patch.tl), as the manifest it names with `-Dpatched=`, a path
-/// under the build root, holds them: a name, a tab and a directory per
-/// line. Each directory is named by its contents, so its path is the
+/// (build/patch.tl), as the manifest it names with `-Dpatched=` holds them:
+/// a name, a tab and a directory per line. Each directory is named by its contents, so its path is the
 /// same from every checkout.
 fn patchedTrees(b: *std.Build) []const u8 {
     const manifest = b.option([]const u8, "patched", "the patched vendor trees' manifest bin/zig writes") orelse {
         std.debug.print("build.zig: no -Dpatched=; run bin/zig build, which patches vendor/ first\n", .{});
         std.process.exit(1);
     };
-    if (std.fs.path.isAbsolute(manifest)) {
-        std.debug.print("build.zig: -Dpatched={s} is absolute; name it under the build root, as bin/zig does\n", .{manifest});
-        std.process.exit(1);
-    }
-    // The manifest's path is the same from build to build while the trees
-    // it names move with every patch, so its contents key the configuration.
-    b.dependOnFileContents(b.path(manifest));
-    const at = b.root.joinString(b.allocator, manifest) catch @panic("OOM");
+    // Immutable manifests in the shared cache have the same absolute path
+    // in every checkout. Relative manifests remain valid for direct callers.
+    const path: std.Build.LazyPath = if (std.fs.path.isAbsolute(manifest))
+        .{ .cwd_relative = manifest }
+    else
+        b.path(manifest);
+    b.dependOnFileContents(path);
+    const at = if (std.fs.path.isAbsolute(manifest)) manifest else b.root.joinString(b.allocator, manifest) catch @panic("OOM");
     return std.Io.Dir.cwd().readFileAlloc(b.graph.io, at, b.allocator, .limited(1 << 20)) catch |err| {
         std.debug.print("build.zig: cannot read {s}: {s}\n", .{ manifest, @errorName(err) });
         std.process.exit(1);

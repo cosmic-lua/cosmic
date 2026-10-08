@@ -94,7 +94,21 @@ end
 
 local function execute(argv: {integer:string}): integer
   local root = Fs.dirname(Fs.dirname((assert(Fs.absolute(argv[0])))))
-  local cosmic = root .. "/o/bin/cosmic"
+  local caller_env = Env.all()
+  local relaunch = assert(Proc.relaunch())
+  local resolver_argv: {string} = {}
+  local resolver_env = copy(caller_env)
+  local resolver_fds: {integer:integer | string} = {}
+  for _, word in ipairs(relaunch.argv) do resolver_argv[#resolver_argv + 1] = word end
+  for name, value in pairs(relaunch.env) do resolver_env[name] = value end
+  for number, fd in pairs(relaunch.fds) do resolver_fds[number] = fd end
+  resolver_argv[#resolver_argv + 1], resolver_argv[#resolver_argv + 2], resolver_argv[#resolver_argv + 3] = "--standalone", root .. "/build/paths.tl", root
+  local named = assert(Child.run(resolver_argv, { env = resolver_env, fds = resolver_fds,
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
+  successful(named, "build directory")
+  local build_directory = assert((named.stdout or ""):match("^([^\n]+)\n$"),
+    "build directory resolver did not print one path")
+  local cosmic = build_directory .. "/bin/cosmic"
   assert(sys.access(cosmic, sys.X_OK), "no " .. cosmic .. "; run bin/zig build boot")
   local platform = assert(sys.uname())
   local target: string
@@ -107,7 +121,6 @@ local function execute(argv: {integer:string}): integer
   else
     error("unsupported host: " .. platform.sysname .. " " .. platform.machine)
   end
-  local caller_env = Env.all()
   local env = copy(caller_env)
   local uid = sys.getuid()
   local cache = fallback_value(env, "XDG_CACHE_HOME", (env.HOME or "") .. "/.cache") .. "/cosmic"
@@ -151,7 +164,6 @@ local function execute(argv: {integer:string}): integer
   -- Grant one nonwritable copy for this run without changing that cache.
   -- Its retained descriptor must name the executing copy: startup checks
   -- both its digest against the artifact and its physical inode.
-  local relaunch = assert(Proc.relaunch())
   local runtime <close>: Runtime = setmetatable({ path = "", fd = -1 }, runtime_mt)
   local core_slot: integer | nil = nil
   if credentials then

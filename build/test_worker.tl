@@ -17,6 +17,8 @@ local type Child = require("cosmic.child")
 local type Sandbox = require("cosmic.sandbox")
 local Coverage = require("cosmic.coverage")
 local Fs = require("cosmic.fs")
+local build_paths = require("build.paths")
+local build_directory = build_paths.required
 local Proc = require("cosmic.proc")
 local type raw_store = require("cosmic.internal.store")
 local sys = require("cosmic.sys")
@@ -214,7 +216,8 @@ local SECOND_NS <const> = 1000 * 1000 * 1000
 --- table, which follows `local type` requires Teal erases and requires
 --- inside functions no worker calls.
 worker.loads = {
-  "build.assertions", "build.cache_names", "build.confine", "build.key_parts", "build.test_inputs",
+  "build.assertions", "build.cache_names", "build.confine", "build.key_parts", "build.paths",
+  "build.test_inputs",
   "build.test_worker", "build.this_program", "cmd.cosmic.main", "cosmic.coverage", "cosmic.env",
   "cosmic.fs", "cosmic.proc", "cosmic.test",
 }
@@ -817,7 +820,7 @@ function worker.run(argv: {integer:string}): integer
       return 2
     end
   end
-  local db_path = root .. "/o/cosmic.db"
+  local db_path = build_directory(root) .. "/cosmic.db"
   if argv[first] == "--store" then
     if argv[first + 1] == nil then
       complain("test --worker: --store needs a path")

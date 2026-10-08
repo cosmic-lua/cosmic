@@ -24,6 +24,7 @@
 --- run in a subdirectory it still writes an `o/` there, which then makes
 --- that directory a root of its own.
 
+local build_paths = require("build.paths")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
@@ -53,7 +54,7 @@ end
 
 --- Whether a build wrote a database under `dir`'s `o/`.
 local function established(dir: string): boolean
-  local found, _ = Fs.exists(dir .. "/o/cosmic.db")
+  local found, _ = Fs.exists(build_paths.required(dir) .. "/cosmic.db")
   return found == true
 end
 
@@ -68,7 +69,7 @@ end
 -- their own within it (`ci/`, [`build.identity.is_foreign_tree`]), and to climb
 -- on that record.
 local function staged(root: string, path: string): boolean | nil, string
-  local file = root .. "/o/build.db"
+  local file = build_paths.required(root) .. "/build.db"
   local db, open_trouble = Sqlite.open(file)
   if db == nil then return nil, open_trouble end
   local rows, trouble = Sqlite.rows(db, "SELECT 1 FROM files WHERE path = ?1 OR " ..

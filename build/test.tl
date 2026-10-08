@@ -100,6 +100,7 @@ local Env = require("cosmic.env")
 local testing = require("cosmic.internal.testing")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
+local build_paths = require("build.paths")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local type Sandbox = require("cosmic.sandbox")
@@ -2013,7 +2014,7 @@ end
 --- import closures, each named by its address ([`build.closure_store`]'s
 --- `address`).
 local function stores_directory(root: string): string
-  return root .. "/o/stores"
+  return build_paths.required(root) .. "/stores"
 end
 
 --- The name in the stores directory of the store of no module
@@ -3270,7 +3271,7 @@ local function read_identities(ctx: Run): integer | nil
     return 1
   end
   ctx.harness = harness
-  ctx.database = ctx.root .. "/o/cosmic.db"
+  ctx.database = handle.dir .. "/cosmic.db"
   return nil
 end
 
@@ -3518,7 +3519,7 @@ local function open_records(ctx: Run): integer | nil
     log:complain(begin_trouble)
     return 1
   end
-  local records_path = ctx.root .. "/o/build.db"
+  local records_path = handle.dir .. "/build.db"
   local records = handle.db
   ctx.records_path, ctx.records = records_path, records
   local previous, previous_trouble = previous_runs(records)

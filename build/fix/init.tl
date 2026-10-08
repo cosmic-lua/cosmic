@@ -61,6 +61,7 @@
 --- that would link to one thing is made a link ([`build.links`]'s
 --- `rewrite`), and `--check` fails on one it would link.
 
+local build_paths = require("build.paths")
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
@@ -868,7 +869,7 @@ function fix.link_context(root: string, whole: boolean, own: boolean,
   end
   local function unbuilt(): string | nil
     if own then return nil end
-    local built_before, _ = Fs.exists(root .. "/o/cosmic.db")
+    local built_before, _ = Fs.exists(build_paths.required(root) .. "/cosmic.db")
     if built_before then return nil end
     return "the project has no o/cosmic.db yet (`cosmic build` or `cosmic test` makes one)"
   end
@@ -1327,7 +1328,7 @@ end
 --- test modules declare ([`tree_checks.promises`]), the declarations read
 --- from the working database the projection just wrote.
 local function promise_findings(root: string): {string}
-  local build, open_trouble = Sqlite.open(root .. "/o/build.db")
+  local build, open_trouble = Sqlite.open(build_paths.required(root) .. "/build.db")
   if build == nil then return { "tree checks: " .. open_trouble } end
   local declared, declared_trouble = tree_checks.requirements(build)
   local _, _ = build:close()
@@ -1361,8 +1362,8 @@ local function run_tree_checks(ctx: Fix)
       if guide == nil then
         findings[#findings + 1] = "tree checks: " .. guide_trouble
       end
-      local carried, carried_trouble = docs_checks.carried(root .. "/o/cosmic.db",
-        root .. "/o/docs-check.db")
+      local carried, carried_trouble = docs_checks.carried(build_paths.required(root) .. "/cosmic.db",
+        build_paths.required(root) .. "/docs-check.db")
       if carried == nil then
         findings[#findings + 1] = "tree checks: " .. carried_trouble
       end

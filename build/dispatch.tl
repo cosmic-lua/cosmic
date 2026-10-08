@@ -395,6 +395,7 @@ local function run(file: string, argv: {integer:string}): integer
   local reboot = require("build.reboot")
   local teal = require("build.teal")
   local tree = require("build.tree")
+  local build_paths = require("build.paths")
   local work = require("build.work")
   local writer = require("build.writer")
   local root, trouble = root_of(file)
@@ -417,7 +418,11 @@ local function run(file: string, argv: {integer:string}): integer
   -- Any tree but cosmic's own whose o/ cannot be written builds into a
   -- directory of this user's instead. Cosmic's o/ has no stand-in: its
   -- tool rebuilds from it and its lock guards it.
-  local dir = root .. "/o"
+  local dir, directory_trouble = build_paths.directory(root)
+  if dir == nil then
+    log:complain(directory_trouble)
+    return 1
+  end
   if not own_tree and not writable(dir) then
     local private, new, private_trouble = private_dir(root)
     if private == nil then

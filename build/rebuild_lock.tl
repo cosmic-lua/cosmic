@@ -48,6 +48,7 @@
 --- -- is handed it instead (`handed_variable`), since a lock its parent
 --- holds keeps it out.
 
+local build_paths = require("build.paths")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
@@ -74,14 +75,14 @@ local record rebuild_lock
   end
 end
 
-local lock_name = "/o/rebuild.lock"
+local lock_name = "/rebuild.lock"
 
 --- One millisecond, which [`sys.flock`] and SQLite count their waits in.
 local MS <const> = Clock.ms(1)
 
 --- Where the holder writes its process id and role, a line each, for
 --- a waiting run to name it. build/zig.tl writes and reads it too.
-local holder_name = "/o/rebuild.lock.pid"
+local holder_name = "/rebuild.lock.pid"
 
 --- What a role's holder is doing, as a waiting run says it. build/zig.tl
 --- keeps a copy (build/zig_test.tl holds the two alike).
@@ -166,10 +167,10 @@ function rebuild_lock.take(root: string, wait_ns: integer,
     if held_root == root then
       return "held", ""
     end
-    return nil, "this process holds " .. tostring(held_root) .. lock_name ..
+    return nil, "this process holds " .. build_paths.required(tostring(held_root)) .. lock_name ..
       " and cannot take another checkout's too"
   end
-  local path = root .. lock_name
+  local path = build_paths.required(root) .. lock_name
   local started_ns = Clock.monotonic_ns()
   -- For writing, which an exclusive flock over NFS or SMB needs.
   local fd, open_trouble = sys.open(path, sys.O_RDWR | sys.O_CREAT, 0x1a4)
@@ -207,10 +208,10 @@ function rebuild_lock.take(root: string, wait_ns: integer,
   held, held_root = holding, root
   -- Written aside and moved into place, so a waiting run reads a whole
   -- one or the one before.
-  local aside = root .. holder_name .. "." .. tostring(sys.getpid())
+  local aside = build_paths.required(root) .. holder_name .. "." .. tostring(sys.getpid())
   local written, _ = Fs.write(aside, tostring(sys.getpid()) .. "\n" .. (role or "rebuild") .. "\n")
   if written then
-    local _, _ = Fs.rename(aside, root .. holder_name)
+    local _, _ = Fs.rename(aside, build_paths.required(root) .. holder_name)
   end
   return "held", ""
 end
@@ -240,7 +241,7 @@ end
 --- A holder that names no role, as a tool from before roles did, is
 --- taken to be rebuilding.
 function rebuild_lock.holder(root: string): string
-  local text, _ = Fs.read(root .. holder_name)
+  local text, _ = Fs.read(build_paths.required(root) .. holder_name)
   local pid: integer | nil = nil
   local role = "rebuild"
   if text ~= nil then
@@ -262,7 +263,7 @@ end
 
 --- What a waiting run's line ends with: the lock it waits for.
 function rebuild_lock.suffix(root: string): string
-  return " (one run at a time holds " .. root .. lock_name .. ")"
+  return " (one run at a time holds " .. build_paths.required(root) .. lock_name .. ")"
 end
 
 --- `environment` with the lock of `root`, which this process holds,
@@ -270,7 +271,7 @@ end
 function rebuild_lock.hand(environment: {string:string}, root: string): {string:string}
   local out: {string:string} = {}
   for name, value in pairs(environment) do out[name] = value end
-  out[handed_variable] = root .. lock_name
+  out[handed_variable] = build_paths.required(root) .. lock_name
   return out
 end
 
@@ -294,7 +295,7 @@ local function handed(root: string): boolean
     return false
   end
   local given, _ = sys.stat(named)
-  local own, _ = sys.stat(root .. lock_name)
+  local own, _ = sys.stat(build_paths.required(root) .. lock_name)
   return given ~= nil and own ~= nil and given.dev == own.dev and given.ino == own.ino
 end
 
@@ -337,9 +338,9 @@ function rebuild_lock.hold(root: string, role: rebuild_lock.Role,
   if rebuild_lock.holds(root) then
     return false, ""
   end
-  local made, made_trouble = Fs.mkdirs(root .. "/o")
+  local made, made_trouble = Fs.mkdirs(build_paths.required(root))
   if not made then
-    return nil, root .. "/o: " .. made_trouble
+    return nil, build_paths.required(root) .. ": " .. made_trouble
   end
   local taken, trouble = rebuild_lock.take(root, 0, role)
   if taken == nil then

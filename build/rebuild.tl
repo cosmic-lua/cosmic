@@ -4,6 +4,7 @@
 --- `cosmic test` or `cosmic fix` builds. It is the build `cosmic test`
 --- makes (stage, compile, write the projection), and no more.
 
+local build_paths = require("build.paths")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
@@ -28,7 +29,7 @@ local function is_project(root: string): boolean | nil, string
   local own, own_trouble = tree.is_own(root)
   if own == nil then return nil, own_trouble end
   if own then return true, "" end
-  return Fs.exists(root .. "/o/cosmic.db")
+  return Fs.exists(build_paths.required(root) .. "/cosmic.db")
 end
 
 --- Whether `root` looks like a project that has not been built: Teal at
@@ -75,7 +76,7 @@ local function project(root: string, verb: string, start: boolean): boolean, str
     local _, _ = work.close(handle)
     return false, compile_trouble
   end
-  local written, write_trouble = writer.write_result(handle, root .. "/o/cosmic.db", result)
+  local written, write_trouble = writer.write_result(handle, build_paths.required(root) .. "/cosmic.db", result)
   local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled,
     result.cached, written and "PASS" or "FAIL")
   local _, _ = work.close(handle)

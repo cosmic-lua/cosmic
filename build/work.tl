@@ -15,6 +15,7 @@
 --- the bytes and the hash on the row are still right and the file is
 --- not read again.
 
+local build_paths = require("build.paths")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -453,7 +454,12 @@ end
 --- module's is removed and made again: it holds nothing the tree cannot
 --- produce.
 function work.open(root: string, dir?: string): work.Handle | nil, string
-  local out = dir or root .. "/o"
+  local out = dir
+  if out == nil then
+    local found, directory_trouble = build_paths.directory(root)
+    if found == nil then return nil, directory_trouble end
+    out = found
+  end
   local made, mkdir_trouble = Fs.mkdirs(out)
   if not made then
     return nil, mkdir_trouble

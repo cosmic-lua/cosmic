@@ -16,6 +16,7 @@
 --- cosmic's own tree is not embedded this way: `bin/zig build boot`
 --- builds the tool.
 
+local build_paths = require("build.paths")
 local Cli = require("cosmic.cli")
 local Clock = require("cosmic.clock")
 local Flags = require("cosmic.flags")
@@ -335,7 +336,7 @@ function embed.tree(root: string, host?: boolean, under?: {string}): {string} | 
     local _, _ = work.close(handle)
     return nil, load_trouble
   end
-  local project = root .. "/o/cosmic.db"
+  local project = build_paths.required(root) .. "/cosmic.db"
   local result, compile_trouble =
     importer.compile(handle, built, Store.meta("compiler") or "", false,
       shared_compiles.for_build())
@@ -385,7 +386,7 @@ function embed.tree(root: string, host?: boolean, under?: {string}): {string} | 
   if prefix == nil and core == nil then
     return nil, source_trouble
   end
-  local made, mkdir_trouble = Fs.mkdirs(root .. "/o/bin")
+  local made, mkdir_trouble = Fs.mkdirs(build_paths.required(root) .. "/bin")
   if not made then
     return nil, mkdir_trouble
   end
@@ -399,7 +400,7 @@ function embed.tree(root: string, host?: boolean, under?: {string}): {string} | 
     if database == nil then
       return nil, name .. ": " .. database_trouble
     end
-    local out = root .. "/o/bin/" .. name
+    local out = build_paths.required(root) .. "/bin/" .. name
     local program, program_trouble: string, string
     if core ~= nil then
       program, program_trouble = artifact.host_program(core, database)

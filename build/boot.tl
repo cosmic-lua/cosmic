@@ -25,14 +25,16 @@ local log = Log.new("cosmic")
 
 --- @param root the tree to build
 --- @param argv the command line: slot 4 is the host target, slot 5 is the
---- generated release target record file, and slots 6 through 8 optionally set
---- the checked output directory, checked raw core, and four-entry record file
+--- generated release target record file, and slot 6 the working directory.
+--- Slots 7 through 9 optionally set the checked raw core, four-entry record
+--- file and checked output directory
 --- @param compiler_source the Lua the compiler running this was compiled
 --- to from the vendored `tl.tl` (core/bridge.lua's `bootstrap`): the
 --- compiler the tool carries
 local function boot(root: string, argv: {integer:string},
                     compiler_source: string): integer
   local started = Clock.monotonic_ns()
+  local working = argv[6] or root .. "/o"
   local host = argv[4]
   if host == nil or host == "" then
     log:verdict("boot", false, "the command line names no host target")
@@ -63,7 +65,7 @@ local function boot(root: string, argv: {integer:string},
       log:verdict("boot", false, "invalid generated release target record")
       return 1
     end
-    local path = root .. "/o/core/" .. target .. "/cosmic-core"
+    local path = working .. "/core/" .. target .. "/cosmic-core"
     local image, failure = Fs.read(path)
     if image == nil then
       log:verdict("boot", false, failure)
@@ -84,7 +86,7 @@ local function boot(root: string, argv: {integer:string},
     return 1
   end
 
-  local output = argv[6] or root .. "/o"
+  local output = argv[9] or working
   local selected_configuration = 1
   local manifest_records = records
   if argv[7] ~= nil then
@@ -129,7 +131,7 @@ local function boot(root: string, argv: {integer:string},
     log:verdict("boot", false, mkdir_trouble)
     return 1
   end
-  local handle, open_trouble = work.open(root)
+  local handle, open_trouble = work.open(root, working)
   if handle == nil then
     log:verdict("boot", false, open_trouble)
     return 1

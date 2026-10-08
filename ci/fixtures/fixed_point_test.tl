@@ -1,3 +1,4 @@
+local BuildPaths = require("cosmic_ci.build_paths")
 local Clock = require("cosmic.clock")
 local Fixture = require("cosmic_ci.fixture")
 
@@ -23,7 +24,7 @@ Test.policy{
     "COSMIC_TEST_SANDBOX",
     "COSMIC_SANDBOX",
     "COSMIC_TEST_HELD",
-    "COSMIC_BOOTSTRAP",
+    "COSMIC_BOOTSTRAP", "COSMIC_BUILD_HOME",
     "COSMIC_ZIG",
     "COSMIC_ZIG_CACHE",
     "COSMIC_ZIG_GLOBAL_CACHE",
@@ -87,8 +88,8 @@ local function run_fixed_point_case(tmp: string, name: string, file: string,
   Fixture.mkdir(diagnostics)
   -- The tree the product was booted from (COSMIC_FIXTURE_SOURCE).
   Fixture.source_tree(tree)
-  local program = tree .. "/o/bin/cosmic"
-  Fixture.mkdir(tree .. "/o/bin")
+  local program = BuildPaths.directory(tree) .. "/bin/cosmic"
+  Fixture.mkdir(BuildPaths.directory(tree) .. "/bin")
   Fixture.copy(product, program, 0x1ed)
   local booted = Fixture.hash(product)
 

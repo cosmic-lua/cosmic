@@ -1,3 +1,4 @@
+local BuildPaths = require("cosmic_ci.build_paths")
 local Clock = require("cosmic.clock")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Fixture = require("cosmic_ci.fixture")
@@ -11,7 +12,7 @@ function LauncherSetup.build(root: string, output: string,
                              worker_target: string, tmp: string): string
   local output_exists = Predicate.exists(output)
   assert(not output_exists, "launcher output already exists: " .. output)
-  local targets = Fixture.targets(root .. "/o/targets.tsv")
+  local targets = Fixture.targets(BuildPaths.directory(root) .. "/targets.tsv")
   local supported = false
   for _, target in ipairs(targets) do
     if target.name == worker_target then supported = true end
@@ -26,18 +27,18 @@ function LauncherSetup.build(root: string, output: string,
       { root .. "/bin/zig", "build",
         "portable-launcher-payload-" .. target.name },
       root, diagnostics, nil, native_build_timeout_ns)
-    Fixture.copy(root .. "/o/portable-fixture/launcher/payload-" ..
+    Fixture.copy(BuildPaths.directory(root) .. "/portable-fixture/launcher/payload-" ..
         target.name, output .. "/payloads/payload-" .. target.name)
   end
   Fixture.run("socket-" .. worker_target,
     { root .. "/bin/zig", "build",
       "portable-launcher-socket-" .. worker_target },
     root, diagnostics, nil, native_build_timeout_ns)
-  Fixture.copy(root .. "/o/portable-fixture/launcher/socket-" .. worker_target,
+  Fixture.copy(BuildPaths.directory(root) .. "/portable-fixture/launcher/socket-" .. worker_target,
     output .. "/payloads/socket-" .. worker_target, 0x1ed)
-  Fixture.run("fixture-write", { root .. "/o/bin/cosmic",
+  Fixture.run("fixture-write", { BuildPaths.directory(root) .. "/bin/cosmic",
     root .. "/test/portable/tool.tl", "write-launcher-fixture",
-    root .. "/o/targets.tsv", output .. "/payloads",
+    BuildPaths.directory(root) .. "/targets.tsv", output .. "/payloads",
     output .. "/launcher" }, root, diagnostics)
 
   for _, kind in ipairs({ "release", "test" }) do
