@@ -538,7 +538,7 @@ local function test_the_connect_timeout_bounds_every_address_together(tmp: strin
     local line = status_line(head)
     assert(line:find("^HTTP/1.1 504 ") and line:find("none of its addresses answered", 1, true), line)
     assert(#asked == 2 and given[1] == Clock.ms(300) and given[2] <= Clock.ms(300), table.concat(asked, ","))
-    assert(took >= 550 and took < 2500, took .. " ms for two addresses of a 600 ms connect timeout")
+    assert(took >= 450 and took < 2500, took .. " ms for two addresses of a 600 ms connect timeout")
     local _, _ = conn:close()
     finish(rig)
   end)

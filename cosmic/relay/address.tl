@@ -266,7 +266,7 @@ function relay_address.granted(address: string, port: integer, grants: {string})
 end
 
 --- The host's own addresses `own`, numeric text, as the bytes [`check`] and
---- [`select`] take, which they would otherwise read again for every answer.
+--- [`permitted`] take, which they would otherwise read again for every answer.
 --- An IPv4-mapped entry is reduced to the IPv4 address it carries, so an
 --- own address is refused however an answer spells it. Raises for an entry
 --- that is no numeric address: a list of the host's own addresses is the

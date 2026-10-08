@@ -28,8 +28,10 @@
 ---    grant of that address.
 --- 4. The `connector` connects the first of them that answers, one after
 ---    another within the one `connect` timeout, each given an equal share
----    of what is left; the program is told of one failure, naming every
----    address tried, only when all failed.
+---    of what is left, so with several addresses a slow but working first
+---    one gets only its share (the `connect` timeout divided by their
+---    number); the program is told of one failure, naming every address
+---    tried, only when all failed, and its status is the last failure's.
 --- 5. The program is told it has succeeded, and the first bytes it sends
 ---    are read as a TLS ClientHello when they are one: a hello that
 ---    carries Encrypted Client Hello or encrypted SNI, one whose server
@@ -883,7 +885,7 @@ local function connect_any(run: Running, addresses: {string}, port: integer, dea
       last = connect_failure(label .. target(address, port), Poll.TIMEOUT)
       break
     end
-    local conn, trouble = run.spec.connector(address, port, left // (#addresses - i + 1))
+    local conn, trouble = run.spec.connector(address, port, math.max(1, left // (#addresses - i + 1)))
     if conn ~= nil then return { conn = conn, address = address } end
     failures[#failures + 1] = ("%s: %s"):format(target(address, port), trouble)
     last = connect_failure(label .. target(address, port), trouble)

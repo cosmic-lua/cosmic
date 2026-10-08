@@ -251,7 +251,7 @@ local function target(address: string, port: integer): string
   return (address:find(":", 1, true) and "[" .. address .. "]" or address) .. ":" .. port
 end
 
-local function test_a_grant_opens_its_address_and_selection_takes_the_first_allowed(tmp: string)
+local function test_a_grant_opens_its_address_and_selection_keeps_every_allowed_in_order(tmp: string)
   Fuzz.run({
     name = "relay address grants and selection",
     dir = tmp,
@@ -269,8 +269,8 @@ local function test_a_grant_opens_its_address_and_selection_takes_the_first_allo
       end
       return Fuzz.pack(list)
     end,
-    requires = { "picked", "none", "granted" },
-    shares = { picked = 0.2, none = 0.05, granted = 0.5 },
+    requires = { "picked", "several", "none", "granted" },
+    shares = { picked = 0.2, several = 0.05, none = 0.05, granted = 0.5 },
     check = function(input: string): boolean, string
       local list = Fuzz.unpack(input)
       local port = 8443
@@ -312,6 +312,7 @@ local function test_a_grant_opens_its_address_and_selection_takes_the_first_allo
           if picked[k] ~= answers[i] then return false, "kept answer " .. k .. " out of order" end
         end
         Fuzz.label("picked")
+        if #want > 1 then Fuzz.label("several") end
       elseif #list > 0 then
         if picked ~= nil then return false, "picked a refused answer" end
         for _, a in ipairs(list) do
