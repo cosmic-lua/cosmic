@@ -7,6 +7,7 @@
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
+local Poll = require("cosmic.poll")
 local Test = require("cosmic.test")
 local TermRelay = require("build.term_relay")
 local sys = require("cosmic.sys")
@@ -15,8 +16,8 @@ local sys = require("cosmic.sys")
 Test.policy{ env = { "TMPDIR" }, profiles = { "system" } }
 
 --- A relay that waits on the terminal for longer than this has stopped
---- serving it (a run that is not stuck takes about a second).
-local BOUND_MS <const> = 15000
+--- serving it (a run that is not stuck takes about a second, the stall of 1 s included).
+local BOUND_MS <const> = 4000
 
 --- Two termios states are the same terminal setting. A BSD kernel
 --- (macOS) sets PENDIN in the local flags by itself as a terminal leaves
@@ -39,6 +40,11 @@ local record Caller
 end
 
 local function caller_pty(): Caller
+  -- TODO: run these on Linux workers too, once a test policy can grant a
+  -- pty (/dev/ptmx and the slave /dev/pts/N, which an absolute-path grant
+  -- cannot name) or build/host_names.tl has a name for one: a sandboxed
+  -- worker has no pty, so these skip there and the CI fixture
+  -- test/terminal/relay.tl covers the relay on a pty.
   local opened, why = sys.openpty()
   if opened == nil then Test.skip("no pty: " .. why) end
   local pty = assert(opened)
@@ -86,6 +92,17 @@ local function test_a_program_that_ends_does_not_wait_for_a_terminal_that_takes_
   local took = (Clock.monotonic_ns() - started) // Clock.ms(1)
   assert(result ~= nil, tostring(why))
   assert(result.code == 0, tostring(result.code))
+  -- The program wrote 400000 bytes of x and nobody read the caller's end:
+  -- a pty holds far less, so what was queued past it was dropped.
+  local held = 0
+  while true do
+    local ready, _ = Poll.readable(caller.master, 0)
+    if not ready then break end
+    local data, _ = sys.read(caller.master, 65536)
+    if data == nil or data == "" then break end
+    held = held + #data
+  end
+  assert(held < 400000, "the stalled output was delivered whole: " .. held)
   assert(took < BOUND_MS, took .. " ms")
   assert(same(caller.before, (assert(sys.tcgetattr(caller.slave)))), "the termios was not restored")
   assert(blocking(caller.slave), "the terminal was left non-blocking")

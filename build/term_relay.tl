@@ -27,9 +27,11 @@
 --- let the program set (attributes, scroll region, hidden cursor,
 --- alternate screen and the rest of the private modes) are written for as
 --- long as the terminal takes them, `RESET_MS` at most, so a terminal that
---- stopped taking output cannot keep it raw; nothing is flushed with `tcflush` -- see the TODO in `restore`. A
---- process ended by SIGKILL restores nothing, as with any program that
---- sets a terminal raw.
+--- stopped taking output cannot keep it raw; nothing is flushed with
+--- `tcflush` -- see the TODO in `restore`. A process ended by SIGKILL (or
+--- a crash) restores nothing, as with any program that sets a terminal
+--- raw, and leaves the caller's output O_NONBLOCK as the run set it: the
+--- open file is shared with the caller's shell.
 ---
 --- THE WINDOW SIZE is the terminal's, set on the pty before the program
 --- starts and again whenever it is seen to change.
