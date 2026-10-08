@@ -117,6 +117,56 @@ local function test_wildcard_ports_remain_fixed_to_the_granted_numeric_address()
   local ended = assert(process.waitpid(child, false))
   assert(ended.code == 0)
 end
+local function wildcards(host: (function(integer): string), count: integer): {raw_process.ConnectorEndpoint}
+  local out: {raw_process.ConnectorEndpoint} = {}
+  for i = 1, count do out[i] = { host = host(i), port = 0 } end
+  return out
+end
+local function test_wildcard_tables_are_bounded_by_their_bytes_not_by_a_count_of_four()
+  local pair = assert(process.connector_pair())
+  local function v4(i: integer): string return "127.0.1." .. i end
+  local function v6(i: integer): string return "2001:db8::" .. string.format("%x", i) end
+  -- 65535 slots of 16 bytes (IPv4) or 32 (IPv6): 32 and 16 fill 32 MiB.
+  local ok, why = pcall(process.connector_start, wildcards(v4, 33), pair[2], 500, nil)
+  assert(not ok and tostring(why):find("exceed 32 MiB", 1, true), tostring(why))
+  ok, why = pcall(process.connector_start, wildcards(v6, 17), pair[2], 500, nil)
+  assert(not ok and tostring(why):find("exceed 32 MiB", 1, true), tostring(why))
+  require_native_connector()
+  local fits: {{raw_process.ConnectorEndpoint}} = { wildcards(v4, 32), wildcards(v6, 16) }
+  for _, endpoints in ipairs(fits) do
+    local made = assert(process.connector_pair())
+    local child = assert(process.connector_start(endpoints, made[2], 500, nil))
+    assert(sys.close(made[2]))
+    greeted(made[1])
+    assert(sys.close(made[1]))
+    local ended = assert(process.waitpid(child, false))
+    assert(ended.code == 0)
+  end
+  assert(sys.close(pair[1]))
+  assert(sys.close(pair[2]))
+end
+local function test_mixed_tables_keep_each_range_at_its_own_stride()
+  require_native_connector()
+  local listener <close> = assert(socket.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 1))
+  local bound = assert(socket.bound(listener:fd()))
+  local pair = assert(process.connector_pair())
+  -- An IPv4 range, an IPv6 one that needs a wider alignment, a single IPv4 slot, and a wildcard after it.
+  local child = assert(process.connector_start({ { host = "127.0.0.2", port = 9 },
+    { host = "2001:db8::1", port = 0 }, { host = "127.0.0.1", port = bound.port },
+    { host = "127.0.0.3", port = 0 } }, pair[2], 500, nil))
+  assert(sys.close(pair[2]))
+  greeted(pair[1])
+  assert(asked(pair[1], table_request(1, 3, bound.port)) == 0)
+  assert(read_whole(pair[1], 1) == "\0")
+  assert(socket.wait(listener:fd(), false, 500))
+  local accepted <close> = assert(socket.accept(listener:fd()))
+  assert(accepted:fd() >= 0)
+  -- A port the single slot does not hold is refused, not read from the next slot.
+  assert(asked(pair[1], table_request(2, 3, bound.port + 1 > 65535 and 1 or bound.port + 1)) == sys.EPERM)
+  assert(sys.close(pair[1]))
+  local ended = assert(process.waitpid(child, false))
+  assert(ended.code == 0)
+end
 local function test_invalid_numeric_endpoints_cannot_start_a_connector()
   local pair = assert(process.connector_pair())
   for _, endpoint in ipairs({ { host = "localhost", port = 80 }, { host = "127.1", port = 80 },

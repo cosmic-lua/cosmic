@@ -529,6 +529,79 @@ local function test_a_lookup_that_is_not_answered_times_out(tmp: string)
   end)
 end
 
+--- A lookup nobody answers holds up its own connection alone: a tunnel
+--- to a literal address is opened and carries bytes meanwhile, and the
+--- relay stops without waiting for the lookup's time.
+local function test_a_lookup_that_is_not_answered_stalls_only_its_own_connection(tmp: string)
+  Poll.run(function()
+    local silent = assert(Net.datagram(Net.udp("127.0.0.1", 0)))
+    local server = origin(echo)
+    local port = server.port
+    local rig = start(tmp, { grants = { "slow.test:80", "127.0.0.1:" .. port },
+      timeouts = { resolve = Clock.seconds(2) },
+      resolve = { hosts_file = tmp .. "/hosts", servers = { silent.address } } })
+    local slow_answered = false
+    local began = Clock.monotonic_ns()
+    local waiting = Poll.spawn(function()
+      local conn = dial(rig.http)
+      assert(conn:write(Fixture.connect("slow.test:80")))
+      -- Answered, or ended by the relay's stop.
+      local _, _ = conn:read(1)
+      slow_answered = true
+      local _, _ = conn:close()
+    end)
+    -- Let the lookup start, then use the relay for something else.
+    assert(Poll.delay(Clock.ms(100)))
+    local conn, head = connect_to(rig, "127.0.0.1:" .. port)
+    assert(status_line(head):find("^HTTP/1.1 200 "), head)
+    assert(conn:write("meanwhile"))
+    assert(read_exact(conn, 9) == "meanwhile")
+    local meanwhile = (Clock.monotonic_ns() - began) // 1000000
+    assert(meanwhile < 1000, "a tunnel waited " .. meanwhile .. " ms behind another connection's lookup")
+    assert(not slow_answered, "the lookup ended before its time")
+    -- The relay stops while the lookup is pending, and does not wait it out.
+    local _, _ = conn:close()
+    local stopping = Clock.monotonic_ns()
+    finish(rig, server)
+    local stopped = (Clock.monotonic_ns() - stopping) // 1000000
+    assert(stopped < 1500, "the relay took " .. stopped .. " ms to stop with a lookup pending")
+    waiting:cancel()
+    local _, _ = silent:close()
+  end)
+end
+
+--- The lookup's own deadline still ends it, with the 504 that says so,
+--- while another connection's lookup is answered at once.
+local function test_a_lookup_out_of_time_is_refused_while_another_is_answered(tmp: string)
+  Poll.run(function()
+    local silent = assert(Net.datagram(Net.udp("127.0.0.1", 0)))
+    local server = origin(echo)
+    local port = server.port
+    local rig = start(tmp, { grants = { "slow.test:80", "svc.test:" .. port, "127.0.0.1:" .. port },
+      timeouts = { resolve = Clock.ms(300) },
+      resolve = { hosts_file = tmp .. "/hosts", servers = { silent.address } } })
+    local head = ""
+    local waiting = Poll.spawn(function()
+      local conn, answer = connect_to(rig, "slow.test:80")
+      head = answer
+      local _, _ = conn:close()
+    end)
+    -- A name the hosts file answers needs no server.
+    local conn, answer = connect_to(rig, "svc.test:" .. port)
+    assert(status_line(answer):find("^HTTP/1.1 200 "), answer)
+    assert(conn:write("hosts"))
+    assert(read_exact(conn, 5) == "hosts")
+    assert(head == "", "the slow lookup ended before its time")
+    until_it(function(): boolean return head ~= "" end)
+    local line = status_line(head)
+    assert(line:find("^HTTP/1.1 504 ") and line:find("resolving slow.test timed out after 300 milliseconds", 1, true), line)
+    assert(waiting:join())
+    local _, _ = conn:close()
+    local _, _ = silent:close()
+    finish(rig, server)
+  end)
+end
+
 local function test_a_connection_that_fails_or_times_out_says_which(tmp: string)
   Poll.run(function()
     local port = 4000

@@ -270,8 +270,13 @@ local makers: {string: function(raw: {string: any}): Made} = {
     -- A TCP listener on the worker's own loopback: a unix one needs a `u`
     -- grant the policy path cannot give below Landlock ABI 9.
     local socket = assert(call(raw.listen, { kind = "tcp", host = "127.0.0.1", port = 0 }, 1))
-    return { instances = { Socket = socket },
-      release = function() call(members(socket).close, socket) end }
+    -- A numeric address answers itself, so the lookup opens nothing.
+    local lookup = assert(call(raw.lookup, "127.0.0.1", -1))
+    return { instances = { Socket = socket, Lookup = lookup },
+      release = function()
+        call(members(socket).close, socket)
+        call(members(lookup).close, lookup)
+      end }
   end,
   sqlite = function(raw: {string: any}): Made
     local handle = assert(call(raw.open, ":memory:", true))

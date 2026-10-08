@@ -9,7 +9,13 @@ local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
+local Relay = require("cosmic.relay")
 local sys = require("cosmic.sys")
+
+-- Taken at load: a test that replaces a member of the library table does not
+-- change what a profile holds.
+local uname <const> = sys.uname
+local stat <const> = sys.stat
 
 local record rules
   --- How far a program is isolated from the host: `file` gives it a root
@@ -84,7 +90,10 @@ local record rules
     --- The system calls it may make beyond its basics.
     promises: {Promise}
     --- The hosts it may reach, "host:port", where the host or the port is
-    --- "*" for any.
+    --- "*" for any. A host is a DNS name, an IPv4 address or an IPv6 address
+    --- in brackets, and a name is read lower-case without a final dot; a
+    --- pattern, an underscore and anything else the relay's readers refuse
+    --- is refused here too ([`cosmic.relay.grant`]).
     connect: {string}
     --- The addresses of 127/8 it uses inside its own network.
     loopback: {string}
@@ -201,71 +210,6 @@ local function loopback_ok(address: string): boolean
   return true
 end
 
---- How many 16-bit groups `list` holds, colon-separated, or nil where a
---- piece is empty, longer than four hex digits or no hex; `tail4` lets the
---- last piece be an IPv4 address of four decimal numbers, which is two.
-local function group_count(list: string, tail4: boolean): integer | nil
-  if list == "" then return 0 end
-  local pieces: {string} = {}
-  for piece in (list .. ":"):gmatch("([^:]*):") do pieces[#pieces + 1] = piece end
-  local count = 0
-  for i, piece in ipairs(pieces) do
-    if piece:find(".", 1, true) then
-      local a, b, c, d = piece:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
-      if not tail4 or i ~= #pieces or a == nil then return nil end
-      for _, octet in ipairs({ a, b, c, d }) do
-        if #octet > 3 or tonumber(octet) > 255 or (#octet > 1 and octet:sub(1, 1) == "0") then
-          return nil
-        end
-      end
-      count = count + 2
-    elseif #piece < 1 or #piece > 4 or piece:find("%X") then
-      return nil
-    else
-      count = count + 1
-    end
-  end
-  return count
-end
-
---- Whether `text` is an IPv6 address: hex groups of one to four digits, at
---- most one "::" and, last, an IPv4 tail of four decimal numbers.
-local function ipv6_ok(text: string): boolean
-  if text:find("[^%x:%.]") or text:find(":::", 1, true) then return false end
-  local gap = text:find("::", 1, true)
-  if gap == nil then return group_count(text, true) == 8 end
-  if text:find("::", gap + 1, true) then return false end
-  local head = group_count(text:sub(1, gap - 1), false)
-  local tail = group_count(text:sub(gap + 2), true)
-  return head ~= nil and tail ~= nil and head + tail <= 7
-end
-
---- Whether `host` can head a `connect` target: an IPv6 address in
---- brackets (`[::1]`), or text with no colon, which is a name, "*", or an
---- IPv4 address. An unbracketed IPv6 host ("::1:80" is host "::1", port 80
---- to the split below), a bracketed IPv4 one ("[1.2.3.4]:80") and a
---- bracketed text that is no IPv6 address ("[:]:80") are refused, as
---- [`cosmic.relay.address`]'s grants open none of them.
-local function connect_host_ok(host: string): boolean
-  local inner = host:match("^%[(.*)%]$")
-  if inner ~= nil then
-    return ipv6_ok(inner)
-  end
-  return not host:find("[:%[%]]")
-end
-
---- Whether `target` is "host:port": a host that is not empty and holds
---- no blank or NUL (see connect_host_ok), then "*" or a port from 1 to
---- 65535.
-local function connect_ok(target: string): boolean
-  local host, port = target:match("^(.+):([^:]+)$")
-  if host == nil or host:find("[%s%z]") or not connect_host_ok(host) then return false end
-  if port == "*" then return true end
-  if not port:match("^[1-9]%d*$") or #port > 5 then return false end
-  local number = tonumber(port)
-  return number >= 1 and number <= 65535
-end
-
 local PROFILES <const>: {string} = { "cosmic", "system" }
 
 local function listed(name: string, names: {string}): boolean
@@ -319,9 +263,11 @@ local function invalid(p: rules.Policy, exact: boolean): string
     end
   end
   for i, target in ipairs(p.connect or {}) do
-    if not connect_ok(target) then
-      return at("/connect/" .. (i - 1), "\"" .. target .. "\" is not host:port, the host or " ..
-          "the port \"*\" for any (an IPv6 host is written in brackets)")
+    local _, why = Relay.Grant.parse(target)
+    if why ~= "" then
+      return at("/connect/" .. (i - 1), "\"" .. target .. "\" is not a target the relay can use: " ..
+          why .. " (host:port, the host a name, an IPv4 address, an IPv6 address in " ..
+          "brackets or \"*\" for any name, the port from 1 to 65535 or \"*\" for any)")
     end
   end
   for i, address in ipairs(p.loopback or {}) do
@@ -457,9 +403,9 @@ local record Joined
   letters: {string:boolean}
 end
 
---- The paths of the "system" profile and what each is for, read and
---- run, or read, or written: the host's, filtered to those that exist.
-local SYSTEM_PATHS <const>: {{string}} = {
+--- The paths of the "system" profile on Linux and what each is for, read and
+--- run, or read, or written, before the host's are filtered to those that exist.
+local LINUX_SYSTEM_PATHS <const>: {{string}} = {
   -- The programs and libraries of the system, and the loader. Everything
   -- installed under /usr is reachable, /usr/local included; /opt, /home
   -- and /var are not. /bin and the /lib directories are links into /usr on
@@ -476,18 +422,62 @@ local SYSTEM_PATHS <const>: {{string}} = {
   { "/dev/null", "rw" }, { "/dev/zero", "r" }, { "/dev/urandom", "r" }, { "/dev/random", "r" },
 }
 
---- The "system" profile: what the host gives a dynamically linked program
---- to run. A path of `SYSTEM_PATHS` is granted when it exists here, so the
---- same profile fits a host with and without a /lib64.
-local function system_profile(): rules.Policy
+--- The paths of the "system" profile on macOS. Unlike Linux's this
+--- includes the system frameworks and dyld's cryptexes; no Mach service
+--- or network permission follows merely from reading system libraries.
+local DARWIN_SYSTEM_PATHS <const>: {{string}} = {
+  { "/usr", "rx" }, { "/bin", "rx" }, { "/sbin", "rx" },
+  { "/System/Library", "rx" }, { "/Library/Apple/System/Library", "rx" },
+  { "/System/Cryptexes/App", "rx" }, { "/System/Cryptexes/OS", "rx" },
+  { "/System/Volumes/Preboot/Cryptexes/App/System", "rx" },
+  { "/System/Volumes/Preboot/Cryptexes/OS", "rx" },
+  { "/etc/passwd", "r" }, { "/etc/group", "r" }, { "/etc/localtime", "r" },
+  { "/private/var/db/timezone", "r" },
+  -- dyld's own state: it reads its closures and shared cache map from here.
+  { "/private/var/db/dyld", "r" },
+  -- /bin/sh reads its own selection from here.
+  { "/private/var/select", "r" },
+  -- No /dev/tty: as on Linux, a child opens no terminal by name, and the
+  -- start gives it a session with none besides. One started with a pty
+  -- is granted its slave and /dev/tty by the terminal option of the Seatbelt backend.
+  { "/dev/null", "rw" }, { "/dev/dtracehelper", "rw" }, { "/dev/zero", "r" },
+  { "/dev/random", "r" }, { "/dev/urandom", "r" },
+}
+
+--- The paths of the "system" profile for `host`, "darwin" or "linux",
+--- whether or not this host has them: the one list [`rules.profile`] and
+--- the Seatbelt backend both read, so a profile means the same raw, merged
+--- or through JSON.
+function rules.system_paths(host: string): {{string}}
+  if host == "darwin" then return DARWIN_SYSTEM_PATHS end
+  return LINUX_SYSTEM_PATHS
+end
+
+--- Whether this host is macOS.
+local function on_darwin(): boolean
+  local names, _ = uname()
+  return names ~= nil and names.sysname == "Darwin"
+end
+
+--- The "system" profile of `host` ("darwin" or "linux"): what the host
+--- gives a dynamically linked program to run. A path of that host's list is
+--- granted when `exists` finds it, so the same profile fits a host with and
+--- without a /lib64. Apart from [`rules.profile`], which asks this host, only
+--- a test of the other host's list calls it.
+function rules.system_profile(host: string, exists: function(string): boolean): rules.Policy
   local grants: {rules.Grant} = {}
-  for _, entry in ipairs(SYSTEM_PATHS) do
-    local found, _ = sys.stat(entry[1])
-    if found ~= nil then
+  for _, entry in ipairs(rules.system_paths(host)) do
+    if exists(entry[1]) then
       grants[#grants + 1] = { path = entry[1], letters = entry[2] }
     end
   end
   return { grants = grants }
+end
+
+--- Whether `path` exists on this host.
+local function present(path: string): boolean
+  local found, _ = stat(path)
+  return found ~= nil
 end
 
 --- The "cosmic" profile: `rx` on what [`Proc.executable`] names, which is
@@ -509,7 +499,9 @@ end
 --- What the profile `name` holds on this host: [`Sandbox.profile`], which
 --- says how.
 function rules.profile(name: string): rules.Policy | nil, string
-  if name == "system" then return system_profile(), "" end
+  if name == "system" then
+    return rules.system_profile(on_darwin() and "darwin" or "linux", present), ""
+  end
   if name == "cosmic" then return cosmic_profile() end
   return refuse("unknown profile \"" .. tostring(name) .. "\" (known: " ..
       table.concat(PROFILES, ", ") .. ")")

@@ -77,6 +77,8 @@ allowed["cosmic.sandbox.seatbelt.grants"] = "called through cosmic.sandbox's `Se
   "call by the module's own name alone"
 allowed["cosmic.sandbox.seatbelt.credentials_unmet"] = "called through cosmic.sandbox's `Seatbelt`, " ..
   "as `grants` is"
+allowed["cosmic.sandbox.policy.system_profile"] = "the seam that lets a test draw the " ..
+  "other host's \"system\" profile; rules.profile calls it with this host's"
 -- The same gap as the allowance above (its TODO): cosmic.child calls these
 -- through cosmic.sandbox's `Relay`.
 for _, name in ipairs({ "policy", "seatbelt_policy", "loopback_listeners", "name_servers", "plan", "upstream_addresses",

@@ -11,8 +11,8 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
+local PolicyJson = require("cosmic.policy")
 local Sandbox = require("cosmic.sandbox")
-
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local Seatbelt = Sandbox.Seatbelt
@@ -125,6 +125,23 @@ local function test_another_user_is_refused_before_a_child_starts()
   local handle, why = Child.start({ "/bin/true" }, { policy = { profiles = { "system" },
     user = sys.getuid() + 1 }, stdin = "null", stdout = "null", stderr = "null" })
   assert(handle == nil and why:find("cannot change them", 1, true), why)
+end
+
+--- The "system" profile means one thing whether the policy is started
+--- as given, merged first, or merged and read back from JSON: a program
+--- of /sbin and one that loads the system frameworks (sw_vers reads
+--- /System/Library) run under each.
+local function test_the_system_profile_is_the_same_raw_merged_and_through_json()
+  macos_only()
+  local raw: Sandbox.Policy = { profiles = { "system" } }
+  local merged = assert(Sandbox.merge(raw))
+  local decoded = assert(PolicyJson.decode(PolicyJson.encode(merged)))
+  for _, policy in ipairs({ raw, merged, decoded }) do
+    local versions = run({ "/usr/bin/sw_vers", "-productVersion" }, policy)
+    expect(versions.ok and (versions.stdout or ""):find("%d") ~= nil, versions)
+    local digest = run({ "/sbin/md5", "-s", "abc" }, policy)
+    expect(digest.ok and (digest.stdout or ""):find("900150983cd24fb0d6963f7d28e17f72", 1, true) ~= nil, digest)
+  end
 end
 
 local function test_a_granted_file_is_read(tmp: string)

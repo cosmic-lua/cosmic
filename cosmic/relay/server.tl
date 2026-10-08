@@ -64,9 +64,9 @@
 --- request, to be answered, but at most [`Relay.Limits.connections`] more
 --- than the cap are accepted: the listeners wait beyond that.
 ---
---- Name resolution holds the thread until it answers, as [`Net.resolve`]
---- does, so every other connection waits meanwhile: at most the `resolve`
---- timeout.
+--- Name resolution waits through the run ([`Net.resolve`] in a task), so
+--- only the connection resolving waits for its answer, at most the
+--- `resolve` timeout; the others, their deadlines and the stop go on.
 ---
 --- The relay asks for no credentials unless its spec carries a `token`, as
 --- the listeners of a sandbox whose network is its own need none. With one,
@@ -113,6 +113,7 @@ local Poll = require("cosmic.poll")
 local Address = require("cosmic.relay.address")
 local Config = require("cosmic.relay.config")
 local Wire = require("cosmic.relay.wire")
+local Grant = require("cosmic.relay.grant")
 local String = require("cosmic.string")
 
 local record Relay
@@ -310,31 +311,18 @@ local record NameGrant
 end
 
 --- The grants that match names, and a note for each that opens nothing.
+--- A grant a policy validated ([`cosmic.relay.grant`]) has none; a relay
+--- started on its own configuration may be given one.
 local function name_grants(grants: {string}): {NameGrant}, {string}
   local names: {NameGrant} = {}
   local notes: {string} = {}
   for _, grant in ipairs(grants) do
-    local host, at = grant:match("^(.+):([^:]+)$")
-    -- A port is decimal digits from 1 to 65535 with no leading zero, as
-    -- cosmic.sandbox reads it, or "*".
-    local port = at == "*" and 0 or (at ~= nil and number_of(at) or nil)
-    if host == nil or port == nil then
-      notes[#notes + 1] = ("grant \"%s\" is not host:port and opens nothing"):format(grant)
-    elseif host:find(":", 1, true) and host:sub(1, 1) ~= "[" then
-      notes[#notes + 1] = ("grant \"%s\" opens nothing: an IPv6 host is written in brackets"):format(grant)
-    elseif host:sub(1, 1) == "[" or Address.parse(host) ~= nil then
-      -- An address: matched literally, by [`Address.granted`].
-      local inner = host:match("^%[(.*)%]$") or host
-      if Address.parse(inner) == nil or (host ~= inner and not inner:find(":", 1, true)) then
-        notes[#notes + 1] = ("grant \"%s\" is not an address in the form a literal grant takes (IPv6 in brackets, IPv4 without) and opens nothing"):format(grant)
-      end
-    elseif host == "*" then
-      names[#names + 1] = { host = "*", port = port }
-    elseif host:find("[%*:%[%]]") then
-      notes[#notes + 1] = ("grant \"%s\" opens nothing: a host is a whole name or \"*\", not a pattern"):format(grant)
-    else
-      local canonical = lower(host):gsub("%.$", "")
-      names[#names + 1] = { host = canonical, port = port }
+    local parsed, why = Grant.parse(grant)
+    if parsed == nil then
+      notes[#notes + 1] = ("grant \"%s\" opens nothing: %s"):format(grant, why)
+    elseif parsed.kind == "any" or parsed.kind == "name" then
+      -- An address is matched literally, by [`Address.granted`].
+      names[#names + 1] = { host = parsed.host, port = parsed.port }
     end
   end
   return names, notes
@@ -492,6 +480,9 @@ local record Running
   live: {integer: {Net.Conn}}
   tasks: {integer: Poll.Task}
   acceptors: {Poll.Task}
+  --- The lookups in progress, each a task of its own that `stop` cancels,
+  --- so a connection waiting for a name does not hold the stop back.
+  lookups: {Poll.Task: boolean}
   --- Whether `spec.lost` has been told the name servers' connector ended.
   told_lost: boolean
 end
@@ -801,11 +792,28 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
       opts.servers, opts.hosts_file = run.spec.resolve.servers, run.spec.resolve.hosts_file
       opts.connector = run.spec.resolve.connector
     end
-    -- TODO: resolve off the relay's loop once Net.resolve runs cooperatively
-    -- in a task of Poll.run (the TODO at Net.resolve): a lookup holds the
-    -- thread, so every client and tunnel of the relay waits up to its bound
-    -- (the resolve timeout, one connector wait and a second of grace).
-    local found, why = Net.resolve(name, opts)
+    -- A connection between `stop` setting this and its cancellation must
+    -- not start a lookup `stop` has already passed over.
+    if run.stopping then
+      return { address = "", refused = refusal(("could not resolve %s: the relay is stopping"):format(name), 502,
+        "host_unreachable") }
+    end
+    local found: {Net.Resolved} | nil
+    local why: string
+    local lookup = Poll.spawn(function()
+      found, why = Net.resolve(name, opts)
+    end)
+    run.lookups[lookup] = true
+    local joined, joined_why = lookup:join()
+    run.lookups[lookup] = nil
+    if not joined then
+      -- This connection's task was cancelled, or the lookup was at stop.
+      lookup:cancel()
+      found, why = nil, joined_why
+    elseif found == nil and why == nil then
+      -- Ended without an answer, which a cancel or a stop does not do.
+      why = "the lookup ended without an answer"
+    end
     if found == nil and opts.connector ~= nil and opts.connector:ended() and run.spec.lost ~= nil and
         not run.told_lost then
       run.told_lost = true
@@ -1377,7 +1385,7 @@ function Relay.start(spec: Relay.Spec): Relay.Serving
         local _, _ = logger:complain(clean)
       end
     end,
-    stopping = false, told_lost = false, pending = 0, open = 0, accepted = 0, refused = 0, next_id = 0, live = {}, tasks = {}, acceptors = {},
+    stopping = false, told_lost = false, pending = 0, open = 0, accepted = 0, refused = 0, next_id = 0, live = {}, tasks = {}, acceptors = {}, lookups = {},
   }
   for _, note in ipairs(notes) do run.log(note) end
   if spec.unresolved ~= nil then
@@ -1403,6 +1411,7 @@ function Relay.start(spec: Relay.Spec): Relay.Serving
     stop = function(_: Relay.Serving)
       run.stopping = true
       for _, task in ipairs(run.acceptors) do task:cancel() end
+      for lookup in pairs(run.lookups) do lookup:cancel() end
       for _, conns in pairs(run.live) do
         for _, conn in ipairs(conns) do local _, _ = conn:close() end
       end
