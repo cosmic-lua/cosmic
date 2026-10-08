@@ -370,6 +370,26 @@ local function test_bootstrap_refuses_a_cosmic_bootstrap_it_cannot_run(tmp: stri
   assert(not Predicate.exists(tmp .. "/calls"), "a refused stand-in fell back to the pin")
 end
 
+local function test_bootstrap_refuses_its_launchers_and_their_symlink_aliases(tmp: string)
+  local root, _ = bootstrap_root(tmp, string.rep("e", 40), string.rep("0", 64))
+  assert(Fs.write(root .. "/bin/cosmic",
+    (assert(Fs.read(checkout_root() .. "/bin/cosmic"))), 0x1ed))
+  assert(Fs.symlink(root .. "/bin/cosmic", tmp .. "/cosmic-link"))
+  assert(Fs.symlink(root .. "/bin/cosmic-bootstrap", tmp .. "/bootstrap-link"))
+  for _, given in ipairs({ root .. "/bin/cosmic", root .. "/bin/cosmic-bootstrap",
+      "root/bin/cosmic", tmp .. "/cosmic-link", tmp .. "/bootstrap-link" }) do
+    for _, words in ipairs({ { "/bin/sh", root .. "/bin/cosmic-bootstrap" },
+        { "/bin/sh", root .. "/bin/cosmic-bootstrap", "--version" } }) do
+      local result = call(words, tmp, tmp .. "/recursive.out",
+        { COSMIC_BOOTSTRAP = given, PATH = fake_curl(tmp), CALLS = tmp .. "/calls" })
+      local out = assert(Fs.read(tmp .. "/recursive.out"))
+      assert(result.code == 1 and not result.timed_out, out)
+      assert(out:find("uses the bootstrap itself; name a built cosmic executable", 1, true), out)
+    end
+  end
+  assert(not Predicate.exists(tmp .. "/calls"), "a refused launcher fetched the pin")
+end
+
 --- Each tool behind bin/ runs its own Teal standalone, with the words it
 --- was given, in the caller's directory, on the cosmic bin/cosmic-bootstrap
 --- answers: seen through a stand-in, from another directory.

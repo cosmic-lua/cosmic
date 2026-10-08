@@ -560,8 +560,10 @@ compiles each C file to clang's syntax tree and holds it to the items marked
 their Teal ([`build/zig.tl`], ...) through [`bin/cosmic-bootstrap`], on the cosmic
 release [`ci/cosmic-driver.pin`] names, which it fetches once and caches by
 digest. `COSMIC_BOOTSTRAP=<path>` makes [`bin/cosmic-bootstrap`] answer another
-cosmic instead, such as a tree-built [`bin/cosmic`], for all of them and for
-CI's driver step alike.
+cosmic instead for all of them and for CI's driver step alike. Point it at an
+actual generated executable: `bin/cosmic db` reports the build directory in its
+full database paths, and the built tool is [`bin/cosmic`] beneath that directory.
+The source-tree [`bin/cosmic`] launcher itself cannot serve as the bootstrap.
 
 A change that moves ci/cosmic-driver.pin also takes up every `TODO:` the new release
 unblocks: `bin/cosmic todos '"cosmic-driver.pin"'` lists them.

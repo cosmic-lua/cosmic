@@ -77,7 +77,7 @@ local function named(path: string): string | nil, string
 end
 
 local function location(root: string, environment?: {string:string},
-                        optional_default?: boolean): Location | nil, string
+                        optional_lookup?: boolean): Location | nil, string
   if root == "" then return nil, "project root is empty" end
   if root:find("\0", 1, true) ~= nil then return nil, "project root contains a NUL byte" end
   local canonical, root_trouble = absolute(root)
@@ -91,7 +91,7 @@ local function location(root: string, environment?: {string:string},
   if cache then
     local selected, home_trouble = cache_dir("trees", { environment = variables, make = false })
     if selected == nil then
-      if optional_default then return nil, "" end
+      if optional_lookup then return nil, "" end
       return nil, "build directory: " .. home_trouble
     end
     home = selected
@@ -116,7 +116,7 @@ local function location(root: string, environment?: {string:string},
   local output_valid, output_trust_trouble = trusted(output, true)
   if not output_valid then return nil, output_trust_trouble end
   if within(output, canonical) then
-    if cache and optional_default then return nil, "" end
+    if optional_lookup then return nil, "" end
     return nil, "build directory must be outside the project root: " .. output
   end
   return { root = canonical, home = resolved, output = output,
@@ -138,7 +138,8 @@ local directory_of = paths.directory
 --- Names a project directory for an optional lookup. Without a cache
 --- home outside the sources there can be no project output, so nil with
 --- no error leaves a lookup free to answer from the executable's own
---- database. Explicit build-home configuration and directory trust are
+--- database. A candidate containing its output cannot be a built project.
+--- Absolute build-home configuration and directory trust are still
 --- validated just as by `directory`.
 function paths.optional(root: string, environment?: {string:string}): string | nil, string
   local selected, trouble = location(root, environment, true)

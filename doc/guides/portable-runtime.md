@@ -27,10 +27,11 @@ artifact. SQLite reads only the validated database range.
 the same C sources for `x86_64-linux-musl`, `aarch64-linux-musl`, and
 `aarch64-macos`. It also writes `targets.tsv` in the selected build directory.
 [`build.paths`](../../build/paths.tl) selects that directory:
-`COSMIC_BUILD_HOME` names an absolute base, otherwise the base is
-`$XDG_CACHE_HOME/cosmic/trees`, or `$HOME/.cache/cosmic/trees`. The canonical
-project root selects a separate directory within that base. Each record gives
-a stable numeric identity, configuration, target name, and `uname` pair.
+`COSMIC_BUILD_HOME` names an absolute base outside the project, otherwise the
+base is `$XDG_CACHE_HOME/cosmic/trees`, or `$HOME/.cache/cosmic/trees`. The
+canonical project root selects a separate directory within that base. A build
+refuses any selected output inside its source tree. Each record gives a stable
+numeric identity, configuration, target name, and `uname` pair.
 
 The generated records are the authority shared by Zig, the artifact writer,
 the launcher, and tests. A release build requires all three release records.

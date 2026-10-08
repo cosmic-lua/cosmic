@@ -183,3 +183,25 @@ local function test_a_missing_named_tree_refuses_the_line(tmp: string)
     result.stderr)
   assert(not result.stderr:find("runs in", 1, true), result.stderr)
 end
+
+--- A valid project may share its parent with its configured build home.
+--- Probing that parent cannot mistake it for a project or reject the
+--- child's configuration because a hypothetical parent output is inside it.
+local function test_a_sibling_build_home_does_not_refuse_ancestor_discovery(tmp: string)
+  local environment = { COSMIC_BUILD_HOME = tmp .. "/build-home" }
+  local environ = sys.environ
+  sys.environ = function(): {string:string} return environment end
+  local ok, trouble = pcall(function(): boolean
+    local root = project(tmp)
+    assert(rooted(root .. "/a/b", nil) == root)
+    assert(Fs.mkdirs(tmp .. "/fresh"))
+    assert(rooted(tmp .. "/fresh", nil) == nil, "an unbuilt child found an ancestor project")
+    assert(build_paths.optional(tmp, environment) == nil, "an ancestor containing output became a project")
+    local named, refused = pcall(build_paths.required, tmp, environment)
+    assert(not named and tostring(refused):find("must be outside the project root", 1, true) ~= nil,
+      tostring(refused))
+    return true
+  end)
+  sys.environ = environ
+  assert(ok, tostring(trouble))
+end

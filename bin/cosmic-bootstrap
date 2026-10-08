@@ -49,6 +49,10 @@ if [ -n "${COSMIC_BOOTSTRAP:-}" ]; then
   if [ ! -f "$COSMIC_BOOTSTRAP" ] || [ ! -x "$COSMIC_BOOTSTRAP" ]; then
     die "COSMIC_BOOTSTRAP=$COSMIC_BOOTSTRAP is not an executable file"
   fi
+  if [ "$COSMIC_BOOTSTRAP" -ef "$root/bin/cosmic" ] ||
+      [ "$COSMIC_BOOTSTRAP" -ef "$root/bin/cosmic-bootstrap" ]; then
+    die "COSMIC_BOOTSTRAP=$COSMIC_BOOTSTRAP uses the bootstrap itself; name a built cosmic executable"
+  fi
   case $COSMIC_BOOTSTRAP in
     /*) ;;
     *) COSMIC_BOOTSTRAP=$(pwd)/$COSMIC_BOOTSTRAP ;;

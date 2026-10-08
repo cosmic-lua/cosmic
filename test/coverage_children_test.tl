@@ -60,6 +60,7 @@ return function(argv: {string}): integer
   for _, word in ipairs(relaunch ~= nil and relaunch.argv or { assert(Proc.executable()) }) do
     words[#words + 1] = word
   end
+  words[#words + 1] = "--standalone"
   words[#words + 1] = argv[2]
   local r = assert(Child.run(words, { env = relaunch ~= nil and relaunch.env or {},
     fds = relaunch ~= nil and relaunch.fds or {}, cwd = argv[3], stdout = "capture",
