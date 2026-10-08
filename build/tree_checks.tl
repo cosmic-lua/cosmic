@@ -69,9 +69,9 @@ allowed["cosmic.relay.config.parse_addresses"] = "tested directly: the reading o
   "interface tables over fixture text, which host_addresses makes of the host's own"
 -- TODO: drop this allowance and the next once build.analyzer and build.receivers attribute a
 -- call made through a value taken from a module's field (cosmic.child's
--- `local Seatbelt = Rules.Seatbelt`) to the module it names: today neither
--- this check nor `cosmic uses` follows one, so `uses Seatbelt.compile` lists
--- none of cosmic.child's calls.
+-- `local Seatbelt = Rules.Seatbelt`, cosmic.sandbox.policy's `Relay.Config.naming`)
+-- to the module it names: today neither this check nor `cosmic uses` follows
+-- one, so `uses Seatbelt.compile` lists none of cosmic.child's calls.
 allowed["cosmic.relay.config.naming"] = "called through cosmic.sandbox.policy's `Relay.Config`, " ..
   "the entry's field, which the check does not follow"
 allowed["cosmic.sandbox.seatbelt.grants"] = "called through cosmic.sandbox's `Seatbelt`, " ..

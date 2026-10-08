@@ -77,7 +77,8 @@ host and a service of the sandbox's own can share 127.0.0.1. Today a
 `connect` target at 127.0.0.1 or ::1 is the host's service and leaves
 `NO_PROXY`, so the sandbox's own services use another 127.x address and a
 policy naming both is refused (cosmic/relay/config.tl's `proxy_env`,
-cosmic/sandbox/policy.tl). A reserved alias, such as `host.cosmic.internal`,
+cosmic/sandbox/policy.tl). A grant of `localhost:P` does not move `localhost`
+out of `NO_PROXY`; only a literal 127.0.0.1 does. A reserved alias, such as `host.cosmic.internal`,
 that the relay maps to the host's loopback would let a program say which it
 means by the name it dials, with no renumbering of the in-sandbox services:
 a `connect` target on the alias, the relay resolving it to 127.0.0.1 (and

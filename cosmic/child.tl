@@ -409,9 +409,11 @@ local record Options
   ---   own network, never through the relay, but for the address a `connect`
   ---   target names (a service of the host's own loopback, granted
   ---   literally): that is left out, with `localhost` where it is 127.0.0.1,
-  ---   so a client reaches it through the relay. A `loopback` address a
-  ---   `connect` target also names is refused: the sandbox's own services
-  ---   take another 127.x address.
+  ---   so a client reaches it through the relay (a grant of `localhost:P`
+  ---   does not do this: `localhost` stays direct unless 127.0.0.1 is
+  ---   granted literally). A `loopback` address a `connect` target also
+  ---   names is refused: with a grant to 127.0.0.1, a service of the
+  ---   sandbox's own is on another 127.x address, declared under `loopback`.
   ---   A policy with `connect` that names
   ---   any of them in `env` or `set_env` is refused. The relay connects a
   ---   request only where a `connect` target names its host and port,

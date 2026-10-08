@@ -66,7 +66,7 @@ end
 --- a CONNECT tunnel (-p) where it uses the proxy; its output and exit code.
 local function curl(target: string, url: string, loopback?: {string}): string, integer
   local out, code = "", -1
-  local result, why = Child.run({ "/usr/bin/curl", "-sS", "-p", "--max-time", "20", url }, {
+  local result, why = Child.run({ "curl", "-sS", "-p", "--max-time", "20", url }, {
     policy = { profiles = { "system" }, connect = { target }, loopback = loopback },
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   if result == nil then
@@ -79,6 +79,16 @@ end
 
 --- A service of the host's own loopback, granted at 127.0.0.1, is reached:
 --- curl sends it through the relay because NO_PROXY no longer names it.
+--- An address the policy declares under `loopback` stays direct: curl dials
+--- it in the sandbox's own network, where nothing listens (exit 7), and the
+--- relay is never asked (it would answer 403).
+local function test_a_declared_loopback_address_stays_direct()
+  serving(function(port: integer)
+    local out, code = curl("127.0.0.1:" .. port, "http://127.0.0.2:" .. port .. "/", { "127.0.0.2" })
+    assert(code == 7 and out:find("403", 1, true) == nil, "exit " .. code .. ": " .. out)
+  end)
+end
+
 local function test_a_proxy_client_reaches_a_granted_host_loopback_service()
   serving(function(port: integer)
     local out, code = curl("127.0.0.1:" .. port, "http://127.0.0.1:" .. port .. "/")
