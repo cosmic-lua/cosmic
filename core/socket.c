@@ -1546,12 +1546,13 @@ static bool through_ask (struct resolution *resolution, const struct resolve_ser
   return false;
 }
 
-/* Reads the connector's CONNECTOR_HELLO, within `reply_ms`: 0, or why
- * not, EPROTO for a connector of another protocol, the stream then shut
- * down as one lost. */
+/* Reads the connector's CONNECTOR_HELLO by the call's deadline, or within
+ * `reply_ms` for a call with none: 0, or why not, EPROTO for a connector
+ * of another protocol, the stream then shut down as one lost. */
 static int through_hello (struct resolution *resolution) {
   uint32_t hello = 0;
-  int failure = through_whole(resolution, cosmic_now_ms() + resolution->reply_ms, &hello, sizeof hello, false);
+  int64_t deadline = resolution->deadline >= 0 ? resolution->deadline : cosmic_now_ms() + resolution->reply_ms;
+  int failure = through_whole(resolution, deadline, &hello, sizeof hello, false);
   if (failure == 0 && ntohl(hello) != CONNECTOR_HELLO) failure = EPROTO;
   if (failure != 0) {
     resolution->lost = failure;
@@ -1827,6 +1828,7 @@ COSMIC_SYSCALL(resolve_through, 7) {
    * guard's or the server list's when no hosts file is given. */
   bool hosts_given = !lua_isnoneornil(L, 6);
   const char *hosts = hosts_given ? cosmic_path(L, 6) : NULL;
+  if (!lua_isnoneornil(L, 7)) luaL_checktype(L, 7, LUA_TBOOLEAN);
   bool hello = lua_toboolean(L, 7);
 #if defined(__linux__)
   struct resolution *resolution = resolution_push(L, timeout);

@@ -461,6 +461,35 @@ local function test_closing_answers_the_waits_on_a_descriptor(tmp: string)
   sys.close(writer)
 end
 
+--- `wake` answers the waits on a descriptor that is not ready, each as
+--- though it were ready for what it asked, and leaves the descriptor
+--- open and waitable: a task that waits again waits for it anew.
+local function test_wake_answers_the_waits_on_a_descriptor_as_ready(tmp: string)
+  local reader, writer = fifo(tmp, "p")
+  local answered, answers = false, nil as {integer}
+  local again: string
+  Poll.run(function()
+    local waiter = Poll.spawn(function()
+      answered = Poll.readable(reader, Clock.seconds(5))
+      local _, why = Poll.readable(reader, Clock.ms(20))
+      again = why
+    end)
+    local several = Poll.spawn(function()
+      answers = Poll.ready({ reader }, { sys.POLLIN }, Clock.seconds(5))
+    end)
+    assert(Poll.delay(0))
+    Poll.wake(reader)
+    assert(waiter:join(Clock.seconds(1)))
+    assert(several:join(Clock.seconds(1)))
+  end)
+  assert(answered, "the wait was not answered")
+  assert(again == Poll.TIMEOUT, "a wait after the wake waits anew: " .. tostring(again))
+  assert(answers ~= nil and answers[1] == sys.POLLIN, "a wait on several is answered what it asked")
+  Poll.wake(reader)
+  sys.close(reader)
+  sys.close(writer)
+end
+
 --- A killed task is ended where it waits and never resumed: its
 --- `<close>` variables are closed, its joiners answer CANCELLED, and
 --- neither its descriptor turning ready nor its timeout passing wakes

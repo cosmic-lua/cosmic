@@ -49,8 +49,8 @@ local function gen_request(src: Fuzz.Source): string
   local index, family: integer, integer
   local address = zeros
   if shape == 0 then
-    index = Fuzz.pick(src, { 1, 1, 1, 0, 2, word(src) })
-    family = Fuzz.pick(src, { 0, 0, 0, 4, word(src) })
+    index = Fuzz.pick(src, { 1, 1, 1, 1, 1, 0, 2, word(src) })
+    family = Fuzz.pick(src, { 0, 0, 0, 0, 0, 4, word(src) })
     address = Fuzz.pick(src, { zeros, zeros, zeros, string.rep("\0", 15) .. "\1" })
   else
     index = shape == 1 and PUBLIC or word(src)
@@ -65,7 +65,7 @@ local function gen_request(src: Fuzz.Source): string
       string.char(0x20, 1) .. string.rep("\0", 13) .. string.char(1),
     })
   end
-  local port = Fuzz.pick(src, { LISTENER, LISTENER, LISTENER, 0, 1, 65535, 65536, word(src) })
+  local port = Fuzz.pick(src, { LISTENER, LISTENER, LISTENER, LISTENER, LISTENER, 0, 1, 65535, 65536, word(src) })
   local wait = Fuzz.pick(src, { 0, 0, 1000, 60000, 0xffffffff, src:int(500, 70000) })
   return string.pack(">I4I4I4I4I4", word(src), index, port, wait, family) .. address
 end
@@ -139,6 +139,9 @@ local function test_every_request_is_answered_once_with_its_own_tag(tmp: string)
       return Fuzz.pack({ table.concat(list), table.concat(cuts) })
     end,
     requires = { "table", "public", "decision", "denied", "malformed", "outside", "split" },
+    -- Well under what a run reaches, so that a generator whose inputs
+    -- mostly stop at the parser's refusals is found out.
+    shares = { table = 0.1, public = 0.08 },
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
       if #fields ~= 2 or #fields[1] % 36 ~= 0 or #fields[2] % 2 ~= 0 then

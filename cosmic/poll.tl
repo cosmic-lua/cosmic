@@ -781,24 +781,39 @@ local function turn()
   end
 end
 
---- Answers every wait on `fd` as though it were ready, for a module
---- about to close it: each waiting task, looking again, finds it closed
---- rather than waiting on a number the next descriptor opened may take.
---- Outside a run, and for a descriptor nothing waits on, it does nothing.
-function Poll.closing(fd: integer)
+--- Answers every wait on `fd` as though it had `answer` (a mask, for a
+--- wait on several descriptors), or what it asked where `answer` is nil.
+local function answer_waits(fd: integer, answer: integer | nil)
   if loop == nil then return end
   local entry = loop.watched[fd]
   if entry == nil then return end
   local hits: {Wait} = {}
   for _, watch in ipairs(entry.watches) do
     local w = watch.wait
-    if watch.place > 0 then w.answers[watch.place] = sys.POLLNVAL end
+    if watch.place > 0 then w.answers[watch.place] = answer or watch.mask end
     if not w.hit then
       w.hit = true
       hits[#hits + 1] = w
     end
   end
   wake_hits(hits)
+end
+
+--- Answers every wait on `fd` as though it were ready, for a module
+--- about to close it: each waiting task, looking again, finds it closed
+--- rather than waiting on a number the next descriptor opened may take.
+--- Outside a run, and for a descriptor nothing waits on, it does nothing.
+function Poll.closing(fd: integer)
+  answer_waits(fd, sys.POLLNVAL)
+end
+
+--- Answers every wait on `fd` as though it were ready for what it asked,
+--- for a module whose tasks share the descriptor: one task has read for
+--- another what that one waits for, and each waiting task looks again,
+--- finding its own answer or waiting anew. Outside a run, and for a
+--- descriptor nothing waits on, it does nothing.
+function Poll.wake(fd: integer)
+  answer_waits(fd, nil)
 end
 
 --- Whether the caller is a task of a running [`Poll.run`], whose waits

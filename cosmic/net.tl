@@ -1005,6 +1005,8 @@ local record Pending
   done: boolean
   conn: Net.Conn
   why: string
+  -- Whether its caller took `conn`: one answered but left behind is closed.
+  taken: boolean
 end
 
 --- One connector process's control stream, which every request to it
@@ -1032,8 +1034,14 @@ local record Channel
   -- nil for none.
   passing: Pending
   passing_tag: integer
-  -- Why the stream is out of step or gone; nil while it is in step.
+  -- Why the stream is out of step or gone; nil while it is in step. Once
+  -- set, the process's descriptor is closed and its number is never used
+  -- again: every predicate a caller waits on before it writes or hands
+  -- the stream on requires this nil.
   lost: string
+  -- How many times a read changed what a waiter looks at (the hello read,
+  -- a request answered), so a reader knows to wake the others.
+  progress: integer
 end
 
 local record SocketConnector is Net.Connector
@@ -1069,7 +1077,8 @@ local socket_connector_mt: metatable<SocketConnector> = {
 }
 
 local function channel_of(process: Child.ConnectorProcess): Channel
-  return { process = process, greeted = false, hello = "", next_tag = 1, pending = {}, count = 0, header = "" }
+  return { process = process, greeted = false, hello = "", next_tag = 1, pending = {}, count = 0, header = "",
+    progress = 0 }
 end
 
 --- Gives the stream of `channel` up, `why` it is lost: every request
@@ -1090,6 +1099,7 @@ end
 local function answer(channel: Channel, tag: integer, pending: Pending, conn: Net.Conn, why: string)
   channel.pending[tag] = nil
   channel.count = channel.count - 1
+  channel.progress = channel.progress + 1
   if pending.given_up then
     if conn ~= nil then local _, _ = conn:close() end
     return
@@ -1155,7 +1165,7 @@ end
 --- Reads what the stream of `channel` holds now, without waiting: its
 --- CONNECTOR_HELLO first, then replies, each handed to its request. It
 --- stops where the stream has nothing more, or is lost.
-local function pump(channel: Channel)
+local function read_replies(channel: Channel)
   while channel.lost == nil do
     if not channel.process.open then
       lose(channel, "net: the connector is closed")
@@ -1182,6 +1192,7 @@ local function pump(channel: Channel)
             return
           end
           channel.greeted = true
+          channel.progress = channel.progress + 1
         end
       else
         channel.header = channel.header .. data
@@ -1204,9 +1215,21 @@ local function pump(channel: Channel)
   end
 end
 
+--- [`read_replies`], and then, where what it read answers another
+--- task's request or makes room, wakes every task waiting on the stream
+--- to look again: a task parked in its wait would otherwise sleep on until
+--- more bytes came, or its deadline. A stream lost was woken by its
+--- closing.
+local function pump(channel: Channel)
+  local before = channel.progress
+  read_replies(channel)
+  if channel.lost == nil and channel.progress ~= before then Poll.wake(channel.process.fd) end
+end
+
 --- Waits on the stream of `channel` until `ready` holds, reading what
 --- comes meanwhile, by `deadline` (nil for none): true, or false and why
---- not, the stream's loss among them.
+--- not, the stream's loss among them. `ready` is looked at once more
+--- after a wait fails, as another task may have answered it meanwhile.
 local function await(channel: Channel, deadline: integer | nil, ready: function(): boolean): boolean, string
   while true do
     pump(channel)
@@ -1214,12 +1237,22 @@ local function await(channel: Channel, deadline: integer | nil, ready: function(
     if channel.lost ~= nil then return false, channel.lost end
     local left = deadline ~= nil and math.max(0, deadline - Clock.monotonic_ns()) or nil
     local woke, why = waited(channel.process.fd, false, left)
-    if not woke then return false, why end
+    if not woke then
+      pump(channel)
+      if ready() then return true, "" end
+      return false, channel.lost or why
+    end
   end
 end
 
+-- TODO: read the replies to requests given up on as they come, so that an
+-- idle connector's stream holds none of their connections (up to
+-- CONNECTOR_FLIGHT) until the next request reads it, once cosmic.poll has
+-- a task a run does not wait for: a task spawned to read them would hold
+-- Poll.run open for the connector's whole wait.
 --- Marks a request given up on where its caller leaves before its reply,
---- however it leaves: a task killed in its wait included.
+--- however it leaves, a task killed in its wait included, and closes a
+--- connection answered but not taken.
 local record Asking
   pending: Pending
   metamethod __close: function(Asking)
@@ -1227,7 +1260,12 @@ end
 
 local asking_mt: metatable<Asking> = {
   __close = function(self: Asking)
-    if not self.pending.done then self.pending.given_up = true end
+    local pending = self.pending
+    if not pending.done then
+      pending.given_up = true
+    elseif pending.conn ~= nil and not pending.taken then
+      local _, _ = pending.conn:close()
+    end
   end,
 }
 
@@ -1239,7 +1277,7 @@ local asking_mt: metatable<Asking> = {
 local function ask(channel: Channel, body: string, host: string, port: integer, deadline: integer,
                    timeout_ns: integer, refusal: string): Net.Conn | nil, string
   local room, waiting = await(channel, deadline, function(): boolean
-    return channel.greeted and channel.count < raw.CONNECTOR_FLIGHT
+    return channel.lost == nil and channel.greeted and channel.count < raw.CONNECTOR_FLIGHT
   end)
   if not room then return nil, waiting end
   local tag = channel.next_tag
@@ -1262,6 +1300,7 @@ local function ask(channel: Channel, body: string, host: string, port: integer, 
   local answered, why = await(channel, deadline, function(): boolean return pending.done end)
   if not answered then return nil, why end
   if pending.conn == nil then return nil, pending.why end
+  pending.taken = true
   return pending.conn, ""
 end
 
@@ -1425,11 +1464,14 @@ resolved_through = function(name: string, opts: Net.ResolveOptions): {Net.Resolv
   local channel, why = served(through)
   if channel == nil then return nil, why end
   -- The core asks one request at a time and reads every reply as its
-  -- own, so it is handed the stream with nothing pending, given-up
-  -- requests included, and no reply or hello read in part. It holds the
-  -- thread while it runs, so no request is sent meanwhile.
+  -- own, so it is handed the stream in step, its hello read here, with
+  -- nothing pending, given-up requests included, and no reply read in
+  -- part. It holds the thread while it runs, so no request is sent
+  -- meanwhile. A lookup waits for every connect pending to be answered,
+  -- and a stream that connects keep busy could keep one waiting to its
+  -- deadline: the relay gives its lookups a connector of their own.
   local idle, waiting = await(channel, deadline, function(): boolean
-    return channel.count == 0 and channel.header == "" and (channel.greeted or channel.hello == "")
+    return channel.lost == nil and channel.greeted and channel.count == 0 and channel.header == ""
   end)
   if not idle then return nil, waiting end
   -- The connector's own wait for a connection, and the grace its Lua
@@ -1438,21 +1480,14 @@ resolved_through = function(name: string, opts: Net.ResolveOptions): {Net.Resolv
   local reply_ms = through.timeout_ms + CONNECTOR_GRACE_NS // 1000000
   local left = deadline ~= nil and math.max(0, deadline - Clock.monotonic_ns()) or nil
   local found, trouble, errno = raw.resolve_through(name, Poll.milliseconds(left), channel.process.fd,
-    reply_ms, servers, opts.hosts_file, not channel.greeted)
-  local hello_asked = not channel.greeted
-  channel.greeted = true
+    reply_ms, servers, opts.hosts_file, false)
   -- The stream is in step when nothing waits on it: the core shuts it down
   -- where an exchange left a reply unread, which reads here as its end.
   local unread, _, number = sys.read(channel.process.fd, 1)
   if unread ~= nil or number ~= raw.EAGAIN then
     lose(channel, "net: a lookup left the connector's stream out of step")
   end
-  if found == nil then
-    if hello_asked and errno == raw.EPROTO then
-      return nil, "net: the connector speaks another protocol than this program's"
-    end
-    return nil, said(trouble, errno)
-  end
+  if found == nil then return nil, said(trouble, errno) end
   return found, ""
 end
 

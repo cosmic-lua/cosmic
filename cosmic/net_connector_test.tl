@@ -352,7 +352,7 @@ local function test_a_hung_connect_holds_up_no_other()
     assert(hanging:join())
     local elapsed = Clock.monotonic_ns() - started
     assert(hung == Poll.TIMEOUT, tostring(hung))
-    assert(elapsed >= Clock.ms(800) and elapsed < Clock.seconds(3), elapsed // Clock.ms(1) .. " ms")
+    assert(elapsed >= Clock.ms(790) and elapsed < Clock.seconds(3), elapsed // Clock.ms(1) .. " ms")
     -- The hung connect's reply came whole: the same stream serves on.
     assert(not connector:ended())
     local conn = assert(connector:connect(2, echo, Clock.seconds(5)))
@@ -849,6 +849,89 @@ local function test_a_reply_no_request_was_tagged_with_fails_every_request_waiti
     serving:cancel()
     assert(connector:close())
     assert(sys.close(pair[2]))
+  end)
+end
+
+--- A reply one task reads for another wakes the other: a request whose
+--- reply comes while a second task asks is answered then, not when more
+--- bytes come or its deadline passes. The second task's own request is
+--- never answered, so nothing else wakes the first.
+local function test_a_reply_another_task_reads_wakes_its_owner()
+  Poll.run(function()
+    local pair = stream_pair()
+    local connector = assert(Net.connector_from(pair[1], { { host = "127.0.0.1", port = 9 },
+      { host = "127.0.0.2", port = 9 } }, false, Clock.seconds(5)))
+    local first_tag: integer
+    local serving = stand_in(pair[2], function(tag: integer, request: string)
+      if string.unpack(">I4", request, 5) == 1 then first_tag = tag end
+    end)
+    local started = Clock.monotonic_ns()
+    local first: string
+    local took: integer
+    local asking = Poll.spawn(function()
+      local conn, why = connector:connect(1, 9, Clock.seconds(3))
+      assert(conn == nil)
+      first, took = why, Clock.monotonic_ns() - started
+    end)
+    assert(Poll.delay(Clock.ms(100)))
+    assert(first_tag ~= nil, "the first request was not asked")
+    -- Its reply, and then a request of this task's, whose read takes it.
+    assert(sys.write(pair[2], string.pack(">I4I4", first_tag, socket.ECONNREFUSED)) == 8)
+    local conn, why = connector:connect(2, 9, Clock.ms(100))
+    assert(conn == nil and why == Poll.TIMEOUT, tostring(why))
+    assert(asking:join(Clock.seconds(5)))
+    assert(first ~= nil and first:find("refused", 1, true) ~= nil, tostring(first))
+    assert(took < Clock.seconds(1), "the first request was answered after " .. took // Clock.ms(1) .. " ms")
+    serving:cancel()
+    assert(connector:close())
+    assert(sys.close(pair[2]))
+  end)
+end
+
+--- A task waiting for room on a stream that is then lost sends nothing:
+--- the descriptor's number, closed with the stream, may be another's by
+--- the time it looks again.
+local function test_a_lost_stream_sends_nothing_to_its_closed_descriptor()
+  Poll.run(function()
+    local pair = stream_pair()
+    local connector = assert(Net.connector_from(pair[1], { { host = "127.0.0.1", port = 9 } }, false,
+      Clock.seconds(5)))
+    local count = 0
+    local serving = stand_in(pair[2], function(_: integer, _: string)
+      count = count + 1
+      if count == Net.CONNECTOR_FLIGHT then
+        assert(sys.write(pair[2], string.pack(">I4I4", 999, 0)) == 8)
+      end
+    end)
+    local taken: {integer}
+    local tasks: {Poll.Task} = {}
+    for i = 1, Net.CONNECTOR_FLIGHT do
+      tasks[i] = Poll.spawn(function()
+        local conn, _ = connector:connect(1, 9, Clock.seconds(3))
+        assert(conn == nil)
+        -- The first to learn of the loss opens a pair, which takes the
+        -- lowest numbers free: the stream's closed one among them.
+        if taken == nil then taken = stream_pair() end
+      end)
+    end
+    local past: string
+    local waiting = Poll.spawn(function()
+      local conn, why = connector:connect(1, 9, Clock.seconds(3))
+      assert(conn == nil)
+      past = why
+    end)
+    for i = 1, Net.CONNECTOR_FLIGHT do assert(tasks[i]:join(Clock.seconds(5))) end
+    assert(waiting:join(Clock.seconds(5)))
+    assert(past == "net: the connector replied to a request it was not asked (tag 999)", tostring(past))
+    assert(count == Net.CONNECTOR_FLIGHT, count .. " requests were sent")
+    assert(taken ~= nil)
+    assert(sys.set_nonblocking(taken[2], true))
+    local leaked, _, errno = sys.read(taken[2], 4096)
+    assert(leaked == nil and errno == sys.EAGAIN, "bytes went to the descriptor that took the closed number: " ..
+        tostring(leaked and #leaked))
+    serving:cancel()
+    assert(connector:close())
+    assert(sys.close(pair[2]) and sys.close(taken[1]) and sys.close(taken[2]))
   end)
 end
 

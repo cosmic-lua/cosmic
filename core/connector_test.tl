@@ -338,7 +338,8 @@ local function test_a_hung_connect_holds_up_no_other_and_replies_come_as_connect
   local tag, errno = reply(pair[1])
   local took = Clock.monotonic_ns() - began
   assert(tag == 1 and errno == socket.ETIMEDOUT, tag .. " " .. errno)
-  assert(took >= Clock.ms(400) and took < Clock.seconds(5), "the hung connect ended after " .. took // Clock.ms(1) .. " ms")
+  -- The connector counts whole milliseconds, so it may end a little short.
+  assert(took >= Clock.ms(390) and took < Clock.seconds(5), "the hung connect ended after " .. took // Clock.ms(1) .. " ms")
   finish(pair, child)
   for _, each in ipairs(held) do assert(each:close()) end
 end
