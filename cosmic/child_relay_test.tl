@@ -205,8 +205,7 @@ end
 
 --- The policy that grants `port` of 127.0.0.2 to the program on `database`.
 local function granting(database: string, port: integer): Child.Options
-  return { policy = { database = database, connect = { "127.0.0.2:" .. port },
-    loopback = { "127.0.0.2" } }, stdout = "capture", stderr = "capture",
+  return { policy = { database = database, connect = { "127.0.0.2:" .. port } }, stdout = "capture", stderr = "capture",
     timeout_ns = Clock.seconds(60) }
 end
 
@@ -299,11 +298,11 @@ end
 --- reads, and its own network (the policy's loopback) is left direct.
 local function test_the_program_is_given_the_proxy_environment(tmp: string)
   local said = flows(tmp)
-  for name, value in pairs(Relay.Config.proxy_env({ "127.0.0.2" })) do
+  for name, value in pairs(Relay.Config.proxy_env({}, nil, nil, { "127.0.0.2:1" })) do
     assert(said["env_" .. name] == value, name .. " is " .. tostring(said["env_" .. name]))
   end
   assert(said.env_HTTPS_PROXY == "http://127.0.0.1:3128" and said.env_ALL_PROXY == "socks5h://127.0.0.1:1080" and
-      said.env_NO_PROXY == "localhost,127.0.0.1,::1,127.0.0.2" and said.env_NODE_USE_ENV_PROXY == "1",
+      said.env_NO_PROXY == "localhost,127.0.0.1,::1" and said.env_NODE_USE_ENV_PROXY == "1",
     "the variables are the relay's")
 end
 
@@ -439,7 +438,7 @@ local Proc = require("cosmic.proc")
 return function(argv: {string}): integer
   local log: Child.RelayLog = argv[4] == "inherit" and "inherit" or "null"
   local result, why = Child.run({ assert(Proc.executable()), "flows", argv[2], argv[3] }, {
-    policy = { database = argv[1], connect = { "127.0.0.2:" .. argv[2] }, loopback = { "127.0.0.2" } },
+    policy = { database = argv[1], connect = { "127.0.0.2:" .. argv[2] } },
     stdout = "capture", stderr = "capture", relay_log = log })
   assert(result, why)
   Fs.put(Fs.stdout, assert(result.stdout))

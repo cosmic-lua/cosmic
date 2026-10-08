@@ -225,6 +225,24 @@ local function below(name: string, value: integer, least: integer): string
   return "pointer \"/limits/" .. name .. "\": a limit is at least " .. least
 end
 
+--- Why `loopback` and `connect` may not be held together, or "": a
+--- `loopback` address is the program's own network, which `NO_PROXY` keeps
+--- direct, while a `connect` target of it names the host's service, which
+--- the program reaches through the relay. `NO_PROXY` is by host, so the
+--- port does not tell them apart. Names the `loopback` entry's pointer; in a merged policy, whose lists
+--- hold each address once, sorted, it is the entry of the merged list.
+local function loopback_conflict(loopback: {string}, connect: {string}, joined: boolean): string
+  for i, address in ipairs(loopback) do
+    local target = Relay.Config.naming(connect, address)
+    if target ~= "" then
+      return "pointer \"/loopback/" .. (i - 1) .. "\"" .. (joined and " of the merged policy" or "") .. ": \"" .. address .. "\" is also the host address that " ..
+        "connect \"" .. target .. "\" names, and a proxy client cannot tell the two apart by port: " ..
+        "give the sandbox's own services another 127.x address (127.0.0.2, say)"
+    end
+  end
+  return ""
+end
+
 --- The first thing wrong in a policy's values, as `pointer "/grants/0/letters":
 --- why`, or "" when none is: the field's types are Teal's, and these are the
 --- values a type does not hold. With `exact`, a grant's letters must be
@@ -275,6 +293,8 @@ local function invalid(p: rules.Policy, exact: boolean): string
       return at("/loopback/" .. (i - 1), "\"" .. address .. "\" is not an address of 127/8")
     end
   end
+  local conflict = loopback_conflict(p.loopback or {}, p.connect or {}, false)
+  if conflict ~= "" then return conflict end
   for i, name in ipairs(p.env or {}) do
     if not env_name_ok(name) then
       return at("/env/" .. (i - 1), "a variable's name is not empty and holds no '=' or NUL")
@@ -660,6 +680,8 @@ function rules.merge(...: rules.Policy): rules.Policy | nil, string
     end
     digests[name] = nil
   end
+  local conflict = loopback_conflict(loopback, connect, true)
+  if conflict ~= "" then return refuse(conflict) end
   local result: rules.Policy = {
     grants = grants, isolate = isolate, promises = promises,
     connect = connect, loopback = loopback, env = env, set_env = set_env,

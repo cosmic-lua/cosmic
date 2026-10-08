@@ -159,6 +159,8 @@ local function test_merge_refuses_values_a_type_does_not_stop()
     { { connect = { "[::1.2.3.04]:80" } }, "/connect/0" },
     { { connect = { "[::1.2.3.256]:80" } }, "/connect/0" },
     { { loopback = { "8.8.8.8" } }, "/loopback/0" },
+    { { loopback = { "127.0.0.2", "127.0.0.1" }, connect = { "127.0.0.1:80" } }, "/loopback/1" },
+    { { loopback = { "127.0.0.1" }, connect = { "[::ffff:127.0.0.1]:*" } }, "/loopback/0" },
     { { env = { "A=1" } }, "/env/0" },
     { { limits = { open_files = 0 } }, "/limits/open_files" },
   }
@@ -166,6 +168,16 @@ local function test_merge_refuses_values_a_type_does_not_stop()
     local none, why = Sandbox.merge(case[1] as Sandbox.Policy)
     assert(none == nil and why:find(case[2] as string, 1, true), why)
   end
+end
+
+--- A loopback address and a connect target of the same address, in one
+--- policy or in two, are refused at the loopback entry, saying what to do.
+local function test_a_loopback_address_a_connect_target_names_is_refused()
+  local none, why = Sandbox.merge({ loopback = { "127.0.0.1" } }, { connect = { "127.0.0.1:8080" } })
+  assert(none == nil and why:find("/loopback/0", 1, true) and why:find("127.0.0.2", 1, true), tostring(why))
+  local ok, checked = Sandbox.check({ loopback = { "127.0.0.2" }, connect = { "127.0.0.1:80" } })
+  assert(ok, checked)
+  assert(merged({ loopback = { "127.0.0.2" }, connect = { "127.0.0.3:80", "[::1]:80", "example.com:80" } }))
 end
 
 local function test_merge_takes_letters_in_any_order_where_decode_does_not()
