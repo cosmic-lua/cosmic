@@ -2028,7 +2028,8 @@ local record PtyOptions
   --- that writes and exits at once loses it unless the caller holds one.
   keep_slave: boolean
   --- The terminal's size in character cells, set before the child starts,
-  --- or nil for the system's default.
+  --- or nil for the system's default. Given with `columns` or not at all,
+  --- each an integer in 0..65535: anything else raises before a pty opens.
   rows: integer
   --- Its width, set with `rows`.
   columns: integer
@@ -4543,15 +4544,24 @@ function Child.start_on_pty(argv: {string}, opts: Options, pty: PtyOptions): Pty
       (streams[1] and opts.stdout ~= nil) or (streams[2] and opts.stderr ~= nil) then
     error("child: a stream on the pty takes no stdin, input, stdout or stderr of its own", 2)
   end
+  if (pty.rows == nil) ~= (pty.columns == nil) then
+    error("child: a pty's rows and columns are given together", 2)
+  end
+  for _, size in ipairs({ pty.rows, pty.columns }) do
+    if not (size is integer) or size < 0 or size > 65535 then
+      error("child: a pty's rows and columns are each an integer in 0..65535", 2)
+    end
+  end
   local made, why = sys.openpty()
   if made == nil then return refuse("pty: " .. why) end
-  if pty.rows ~= nil and pty.columns ~= nil then
-    local _, _ = sys.setwinsize(made.master, pty.rows, pty.columns)
-  end
   -- Closes both ends where the start raises, or fails; the slave on any
   -- return, the master unless the caller is to have it.
   local holding <close>: PtyHolder = setmetatable({ master = made.master, slave = made.slave,
     keep = false, keep_slave = false }, pty_holder_mt)
+  if pty.rows ~= nil then
+    local sized, size_why = sys.setwinsize(made.master, pty.rows, pty.columns)
+    if not sized then return refuse("pty size: " .. size_why) end
+  end
   -- Darwin's start opens the slave by name to make it the controlling
   -- terminal, and its profile grants that path; Linux has no use for it.
   local slave_path: string
