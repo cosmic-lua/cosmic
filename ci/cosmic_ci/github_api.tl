@@ -53,6 +53,10 @@ local record GithubApi
     --- What precedes `/repos/` in an upload's path: "" on the hosts
     --- above, "/api/uploads" on an Enterprise Server.
     upload_path: string
+    --- The monotonic clock, in nanoseconds, that a paginated call's
+    --- deadline is measured on; [`Clock.monotonic_ns`] where nil. A test
+    --- sets it to step time by hand.
+    now_ns: function(): integer | nil
   end
   --- What a test changes about [`GithubApi.live`]: `script` holds one
   --- list of canned replies ([`cosmic.http`]'s `script`) for each call
@@ -250,13 +254,20 @@ local max_pages <const> = 1000
 --- (an object or an array). Nil and why where a request fails, a page is
 --- not JSON, or the list runs past 1000 pages. A next URL on another
 --- origin than the API's is refused by `send`, so it fails the listing
---- and never receives the token. `seconds` bounds each request.
+--- and never receives the token. `seconds` (a minute where nil) bounds
+--- the whole listing: each request gets the time left of it, and none
+--- starts once it has run out.
 function GithubApi.pages(client: GithubApi.Client, path: string, seconds?: integer): {any} | nil, string
   local pages: {any} = {}
+  local now = client.now_ns or Clock.monotonic_ns
+  local deadline = now() + (seconds and Clock.seconds(seconds) or request_ns)
   local request = request_for(client, "GET", path, seconds)
   local seen: {string:boolean} = { [request.url] = true }
   for number = 1, max_pages do
     local label = number == 1 and path or (path .. " (page " .. number .. ")")
+    local left = deadline - now()
+    if left <= 0 then return nil, "GET " .. label .. ": the listing's time ran out" end
+    request.timeout_ns = left
     local reply, why = client.send(request)
     if reply == nil then return nil, "GET " .. label .. ": " .. why end
     if not succeeded(reply) then return nil, refused("GET", label, reply) end
@@ -269,7 +280,7 @@ function GithubApi.pages(client: GithubApi.Client, path: string, seconds?: integ
     if target == nil then return pages, "" end
     if seen[target] then return nil, "GET " .. label .. ": the next page repeats " .. target end
     seen[target] = true
-    request = { method = "GET", url = target, headers = {}, timeout_ns = request.timeout_ns }
+    request = { method = "GET", url = target, headers = {} }
   end
   return nil, "GET " .. path .. ": more than " .. max_pages .. " pages"
 end
