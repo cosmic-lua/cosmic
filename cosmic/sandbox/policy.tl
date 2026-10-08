@@ -11,6 +11,11 @@ local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 
+-- Taken at load: a test that replaces a member of the library table does not
+-- change what a profile holds.
+local uname <const> = sys.uname
+local stat <const> = sys.stat
+
 local record rules
   --- How far a program is isolated from the host: `file` gives it a root
   --- of its own holding only what is granted, `proc` a process space and a
@@ -490,7 +495,7 @@ local DARWIN_SYSTEM_PATHS <const>: {{string}} = {
   { "/private/var/select", "r" },
   -- No /dev/tty: as on Linux, a child opens no terminal by name, and the
   -- start gives it a session with none besides. One started with a pty
-  -- is granted its slave and /dev/tty by [`Seatbelt.Options.terminal`].
+  -- is granted its slave and /dev/tty by the terminal option of the Seatbelt backend.
   { "/dev/null", "rw" }, { "/dev/dtracehelper", "rw" }, { "/dev/zero", "r" },
   { "/dev/random", "r" }, { "/dev/urandom", "r" },
 }
@@ -506,22 +511,29 @@ end
 
 --- Whether this host is macOS.
 local function on_darwin(): boolean
-  local names, _ = sys.uname()
+  local names, _ = uname()
   return names ~= nil and names.sysname == "Darwin"
 end
 
---- The "system" profile: what the host gives a dynamically linked program
---- to run. A path of this host's list is granted when it exists here, so the
---- same profile fits a host with and without a /lib64.
-local function system_profile(): rules.Policy
+--- The "system" profile of `host` ("darwin" or "linux"): what the host
+--- gives a dynamically linked program to run. A path of that host's list is
+--- granted when `exists` finds it, so the same profile fits a host with and
+--- without a /lib64. Apart from [`rules.profile`], which asks this host, only
+--- a test of the other host's list calls it.
+function rules.system_profile(host: string, exists: function(string): boolean): rules.Policy
   local grants: {rules.Grant} = {}
-  for _, entry in ipairs(rules.system_paths(on_darwin() and "darwin" or "linux")) do
-    local found, _ = sys.stat(entry[1])
-    if found ~= nil then
+  for _, entry in ipairs(rules.system_paths(host)) do
+    if exists(entry[1]) then
       grants[#grants + 1] = { path = entry[1], letters = entry[2] }
     end
   end
   return { grants = grants }
+end
+
+--- Whether `path` exists on this host.
+local function present(path: string): boolean
+  local found, _ = stat(path)
+  return found ~= nil
 end
 
 --- The "cosmic" profile: `rx` on what [`Proc.executable`] names, which is
@@ -543,7 +555,9 @@ end
 --- What the profile `name` holds on this host: [`Sandbox.profile`], which
 --- says how.
 function rules.profile(name: string): rules.Policy | nil, string
-  if name == "system" then return system_profile(), "" end
+  if name == "system" then
+    return rules.system_profile(on_darwin() and "darwin" or "linux", present), ""
+  end
   if name == "cosmic" then return cosmic_profile() end
   return refuse("unknown profile \"" .. tostring(name) .. "\" (known: " ..
       table.concat(PROFILES, ", ") .. ")")
