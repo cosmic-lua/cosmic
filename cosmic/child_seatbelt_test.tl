@@ -12,8 +12,10 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sandbox = require("cosmic.sandbox")
+
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
+local Seatbelt = Sandbox.Seatbelt
 local type raw_process = require("cosmic.internal.process")
 
 --- The system's own paths, which the child's program, its loader and its
@@ -93,7 +95,7 @@ end
 
 local function test_another_user_or_group_is_refused_naming_what_differs()
   local function unmet(policy: Sandbox.Policy, user: integer, group: integer): string
-    return Sandbox.credentials_unmet(assert(Sandbox.merge(policy)), user, group)
+    return Seatbelt.credentials_unmet(assert(Sandbox.merge(policy)), user, group)
   end
   local why = unmet({ user = 6, group = 7 }, 5, 7)
   assert(why:find("^user 6:") and not why:find("group 7", 1, true) and not why:find("nil", 1, true), why)
@@ -105,8 +107,8 @@ local function test_another_user_or_group_is_refused_naming_what_differs()
 end
 
 local function test_a_root_caller_is_refused_whatever_the_policy_names()
-  assert(Sandbox.credentials_unmet({}, 0, 0):find("never runs as root", 1, true))
-  assert(Sandbox.credentials_unmet({ user = 5 }, 0, 0):find("never runs as root", 1, true))
+  assert(Seatbelt.credentials_unmet({}, 0, 0):find("never runs as root", 1, true))
+  assert(Seatbelt.credentials_unmet({ user = 5 }, 0, 0):find("never runs as root", 1, true))
 end
 
 local function test_the_callers_own_user_and_group_run_the_child()

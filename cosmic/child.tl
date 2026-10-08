@@ -3580,14 +3580,14 @@ local function holds_by_seatbelt(): boolean
 end
 
 --- Whether a program of `merged` may be started on macOS as the policy
---- says: "" or why not ([`Sandbox.credentials_unmet`], told this process's
+--- says: "" or why not ([`Seatbelt.credentials_unmet`], told this process's
 --- ids). Seatbelt holds a program but changes no user or group, and the core
 --- carries credentials on Linux alone, so the program runs as this process
 --- does.
 --- TODO: run the program as the policy's `user` and `group`, and drop root,
 --- once core/syscalls.c carries credentials outside Linux (#2852).
 local function seatbelt_credentials(merged: Rules.Policy): string
-  return Rules.credentials_unmet(merged, effective_user(), effective_group())
+  return Seatbelt.credentials_unmet(merged, effective_user(), effective_group())
 end
 
 --- A policy's start on macOS: the profile [`Seatbelt.compile`] makes of
