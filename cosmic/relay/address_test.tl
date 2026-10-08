@@ -380,38 +380,39 @@ local function test_parsing_gives_the_bytes()
   end
 end
 
-local function test_selection_picks_the_first_allowed_answer_and_only_it()
+local function test_selection_keeps_every_allowed_answer_in_order_and_only_those()
   local answers: {relay_address.Answer} = {
     { address = "10.0.0.1", family = "inet" },
     { address = "2001:db8::1", family = "inet6" },
     { address = "93.184.216.34", family = "inet" },
     { address = "8.8.8.8", family = "inet" },
   }
-  local picked, why = relay_address.select(answers, 443, NONE, NO_OWN)
-  assert(picked ~= nil and picked.address == "93.184.216.34", why)
+  local allowed, why = relay_address.permitted(answers, 443, NONE, NO_OWN)
+  assert(allowed ~= nil and #allowed == 2 and allowed[1].address == "93.184.216.34" and
+      allowed[2].address == "8.8.8.8", why)
   assert(why == "")
-  -- An earlier answer a grant opens is the first allowed one.
-  picked = relay_address.select(answers, 443, { "10.0.0.1:443" }, NO_OWN)
-  assert(picked ~= nil and picked.address == "10.0.0.1")
-  -- The host's own address is skipped to the next.
-  picked = relay_address.select(answers, 443, NONE, relay_address.own_addresses({ "93.184.216.34" }))
-  assert(picked ~= nil and picked.address == "8.8.8.8")
+  -- An earlier answer a grant opens is allowed, and first.
+  allowed = relay_address.permitted(answers, 443, { "10.0.0.1:443" }, NO_OWN)
+  assert(allowed ~= nil and #allowed == 3 and allowed[1].address == "10.0.0.1")
+  -- The host's own address is left out.
+  allowed = relay_address.permitted(answers, 443, NONE, relay_address.own_addresses({ "93.184.216.34" }))
+  assert(allowed ~= nil and #allowed == 1 and allowed[1].address == "8.8.8.8")
 end
 
 local function test_selection_refuses_when_no_answer_is_allowed_and_says_why_for_each()
-  local picked, why = relay_address.select({
+  local allowed, why = relay_address.permitted({
     { address = "127.0.0.1", family = "inet" },
     { address = "::1", family = "inet6" },
     { address = "169.254.169.254", family = "inet" },
     { address = "bogus", family = "inet" },
   }, 80, NONE, NO_OWN)
-  assert(picked == nil)
+  assert(allowed == nil)
   assert(why:find("127.0.0.1 is a loopback address: grant it literally with --connect 127.0.0.1:80", 1, true), why)
   assert(why:find("::1 is a loopback address", 1, true), why)
   assert(why:find("169.254.169.254 is a metadata address", 1, true), why)
   assert(why:find("\"bogus\" is not a numeric address", 1, true), why)
-  picked, why = relay_address.select({}, 80, NONE, NO_OWN)
-  assert(picked == nil and why:find("no addresses", 1, true), why)
+  allowed, why = relay_address.permitted({}, 80, NONE, NO_OWN)
+  assert(allowed == nil and why:find("no addresses", 1, true), why)
 end
 
 local function test_granted_names_only_a_literal_grant_of_the_address_and_port()

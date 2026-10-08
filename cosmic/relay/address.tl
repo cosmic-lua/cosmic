@@ -1,9 +1,9 @@
 --- Which destination addresses the sandbox relay may connect to: the
 --- pure half of its address checks (the sandbox plan, #2621, "The relay and
---- the terminal"). A granted name is resolved once; [`relay_address.select`]
---- classifies every answer and picks the first allowed one, so a name whose
---- answers mix allowed and forbidden addresses still reaches an allowed
---- one and never a forbidden one.
+--- the terminal"). A granted name is resolved once; [`relay_address.permitted`]
+--- classifies every answer and keeps the allowed ones in order, so a name
+--- whose answers mix allowed and forbidden addresses is connected to at an
+--- allowed one, never a forbidden one.
 ---
 --- An address is refused unless a literal grant names exactly it: a
 --- `connect` target whose host is that numeric address and whose port is
@@ -266,7 +266,7 @@ function relay_address.granted(address: string, port: integer, grants: {string})
 end
 
 --- The host's own addresses `own`, numeric text, as the bytes [`check`] and
---- [`select`] take, which they would otherwise read again for every answer.
+--- [`permitted`] take, which they would otherwise read again for every answer.
 --- An IPv4-mapped entry is reduced to the IPv4 address it carries, so an
 --- own address is refused however an answer spells it. Raises for an entry
 --- that is no numeric address: a list of the host's own addresses is the
@@ -320,25 +320,31 @@ function relay_address.check(address: string, port: integer, grants: {string},
   return true, ""
 end
 
---- The first of `answers` the relay may connect to on `port`, which is the
---- only one it connects to. Nil and every answer's reason when none is
+--- Every one of `answers` the relay may connect to on `port`, in the order
+--- received: the candidates it tries one after another, and never an
+--- address outside them. Nil and every answer's reason when none is
 --- allowed, so the refusal says why each was; an empty list is refused
 --- with its own reason.
 --- @param answers {Answer} Every answer for a name, in the order received
 --- @param port integer The port the program asked for
 --- @param grants {string} The policy's `connect` targets (`host:port`)
 --- @param own {{integer}} The host's own addresses, from [`own_addresses`]
---- @return Answer|nil The first allowed answer
+--- @return {Answer}|nil The allowed answers, at least one
 --- @return string Why none is allowed, "" when one is
-function relay_address.select(answers: {relay_address.Answer}, port: integer,
-                              grants: {string}, own: {{integer}}): relay_address.Answer | nil, string
+function relay_address.permitted(answers: {relay_address.Answer}, port: integer,
+                                 grants: {string}, own: {{integer}}): {relay_address.Answer} | nil, string
   if #answers == 0 then return nil, "the name has no addresses" end
   local why: {string} = {}
+  local allowed: {relay_address.Answer} = {}
   for _, answer in ipairs(answers) do
     local ok, reason = relay_address.check(answer.address, port, grants, own)
-    if ok then return answer, "" end
-    why[#why + 1] = reason
+    if ok then
+      allowed[#allowed + 1] = answer
+    else
+      why[#why + 1] = reason
+    end
   end
+  if #allowed > 0 then return allowed, "" end
   return nil, "no address of the name is allowed: " .. table.concat(why, "; ")
 end
 

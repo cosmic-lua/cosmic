@@ -438,7 +438,7 @@ local function test_an_ip_literal_a_grant_names_is_connected(tmp: string)
   end)
 end
 
-local function test_a_name_connects_to_the_first_allowed_answer_and_only_to_it(tmp: string)
+local function test_a_name_connects_to_the_first_allowed_answer_that_answers(tmp: string)
   Poll.run(function()
     local server = origin(echo)
     local port = server.port
@@ -452,6 +452,95 @@ local function test_a_name_connects_to_the_first_allowed_answer_and_only_to_it(t
     assert(rig.asked[1] == "93.184.216.34:" .. port or rig.asked[1] == "93.184.216.35:" .. port, rig.asked[1])
     local _, _ = conn:close()
     finish(rig, server)
+  end)
+end
+
+--- A connector that fails the first address it is asked and connects the
+--- others to the loopback `port`, recording each address and the time it
+--- was given.
+local function first_fails_connector(how: string, port: integer, asked: {string}, given: {integer}): Relay.Connector
+  return function(address: string, _port: integer, timeout_ns: integer): Net.Conn | nil, string
+    asked[#asked + 1] = address
+    given[#given + 1] = timeout_ns
+    if #asked == 1 then return nil, how end
+    return Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = timeout_ns })
+  end
+end
+
+local function contains(list: {string}, value: string): boolean
+  for _, item in ipairs(list) do
+    if item == value then return true end
+  end
+  return false
+end
+
+local function test_a_name_whose_first_address_fails_connects_to_the_next(tmp: string)
+  for _, how in ipairs({ "Connection refused", "Network is unreachable", Poll.TIMEOUT }) do
+    Poll.run(function()
+      local server = origin(echo)
+      local port = server.port
+      local asked, given: {string}, {integer} = {}, {}
+      local rig = start(tmp, { grants = { "multi.test:" .. port },
+        connector = first_fails_connector(how, port, asked, given) })
+      local conn, head = connect_to(rig, "multi.test:" .. port)
+      assert(status_line(head):find("^HTTP/1.1 200 "), how .. ": " .. head)
+      assert(conn:write("second"))
+      assert(read_exact(conn, 6) == "second")
+      assert(#asked == 2 and asked[1] ~= asked[2], table.concat(asked, ","))
+      -- Only the public answers are candidates: the private one is never tried.
+      assert(not contains(asked, "10.1.2.3"), table.concat(asked, ","))
+      assert(#lines_with(rig, "allowed via " .. asked[2] .. ":" .. port) == 1, table.concat(rig.log, "\n"))
+      -- The two share the connect timeout: the second gets all that is left.
+      assert(given[1] == Clock.seconds(5) and given[2] > Clock.seconds(9) and given[2] <= Clock.seconds(10), given[2])
+      local _, _ = conn:close()
+      finish(rig, server)
+    end)
+  end
+end
+
+local function test_a_name_none_of_whose_addresses_answer_is_refused_once_naming_each(tmp: string)
+  Poll.run(function()
+    local asked, given: {string}, {integer} = {}, {}
+    local rig = start(tmp, { grants = { "multi.test:80" },
+      connector = function(address: string, _port: integer, timeout_ns: integer): Net.Conn | nil, string
+        asked[#asked + 1] = address
+        given[#given + 1] = timeout_ns
+        return nil, "Connection refused"
+      end })
+    local conn, head = connect_to(rig, "multi.test:80")
+    local line = status_line(head)
+    assert(line:find("^HTTP/1.1 502 ") and line:find("could not connect to multi.test:80: none of its addresses answered", 1, true), line)
+    assert(line:find("93.184.216.34:80: Connection refused", 1, true) and line:find("93.184.216.35:80: Connection refused", 1, true), line)
+    assert(not line:find("10.1.2.3", 1, true), line)
+    assert(#asked == 2 and not contains(asked, "10.1.2.3"), table.concat(asked, ","))
+    local _, _ = conn:close()
+    local socks, code = socks_to(rig, "multi.test", 80)
+    assert(code == 5, code)
+    local _, _ = socks:close()
+    finish(rig)
+  end)
+end
+
+local function test_the_connect_timeout_bounds_every_address_together(tmp: string)
+  Poll.run(function()
+    local asked, given: {string}, {integer} = {}, {}
+    local rig = start(tmp, { grants = { "multi.test:80" }, timeouts = { connect = Clock.ms(600) },
+      connector = function(address: string, _port: integer, timeout_ns: integer): Net.Conn | nil, string
+        asked[#asked + 1] = address
+        given[#given + 1] = timeout_ns
+        -- A host that never answers: the attempt lasts what it is given.
+        assert(Poll.delay(timeout_ns))
+        return nil, Poll.TIMEOUT
+      end })
+    local began = Clock.monotonic_ns()
+    local conn, head = connect_to(rig, "multi.test:80")
+    local took = (Clock.monotonic_ns() - began) // 1000000
+    local line = status_line(head)
+    assert(line:find("^HTTP/1.1 504 ") and line:find("none of its addresses answered", 1, true), line)
+    assert(#asked == 2 and given[1] == Clock.ms(300) and given[2] <= Clock.ms(300), table.concat(asked, ","))
+    assert(took >= 450 and took < 2500, took .. " ms for two addresses of a 600 ms connect timeout")
+    local _, _ = conn:close()
+    finish(rig)
   end)
 end
 
@@ -1142,6 +1231,48 @@ local function test_the_upstreams_own_address_needs_no_grant_and_is_the_programs
     assert(through.server.connections == 1)
     local _, _ = local_name:close()
     finish(rig, through.server)
+  end)
+end
+
+local function test_an_upstream_proxy_is_reached_at_the_next_of_its_addresses(tmp: string)
+  Poll.run(function()
+    local through = proxy("200")
+    local asked, given: {string}, {integer} = {}, {}
+    local up: Relay.Upstream = { host = "proxy.test", port = through.server.port, no_proxy = {},
+      addresses = { "192.0.2.1", "127.0.0.1" } }
+    local rig = start(tmp, { grants = { "api.test:443" }, upstream = up,
+      connector = function(address: string, port: integer, timeout_ns: integer): Net.Conn | nil, string
+        asked[#asked + 1] = address
+        given[#given + 1] = timeout_ns
+        if address == "192.0.2.1" then return nil, "No route to host" end
+        return Net.connect(Net.tcp(address, port), { timeout_ns = timeout_ns })
+      end })
+    local conn, head = connect_to(rig, "api.test:443")
+    assert(status_line(head) == "HTTP/1.1 200 Connection established", head)
+    assert(conn:write("proxied"))
+    assert(read_exact(conn, 7) == "proxied")
+    assert(table.concat(asked, ",") == "192.0.2.1,127.0.0.1", table.concat(asked, ","))
+    local _, _ = conn:close()
+    finish(rig, through.server)
+  end)
+end
+
+local function test_an_upstream_proxy_none_of_whose_addresses_answer_is_refused_once(tmp: string)
+  Poll.run(function()
+    local up: Relay.Upstream = { host = "proxy.test", port = 3128, no_proxy = {}, addresses = { "192.0.2.1", "192.0.2.2" } }
+    local asked: {string} = {}
+    local rig = start(tmp, { grants = { "api.test:443" }, upstream = up,
+      connector = function(address: string, _port: integer, _timeout_ns: integer): Net.Conn | nil, string
+        asked[#asked + 1] = address
+        return nil, "Connection refused"
+      end })
+    local conn, head = connect_to(rig, "api.test:443")
+    local line = status_line(head)
+    assert(line:find("^HTTP/1.1 502 ") and
+        line:find("could not connect to the upstream proxy proxy.test:3128: none of its addresses answered", 1, true), line)
+    assert(#asked == 2, table.concat(asked, ","))
+    local _, _ = conn:close()
+    finish(rig)
   end)
 end
 
