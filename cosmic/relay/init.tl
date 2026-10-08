@@ -16,7 +16,8 @@
 --- - `Wire`, the readers and writers of what the relay and its clients say
 ---   ([`cosmic.relay.wire`]);
 --- - `nameservers`, the system's name servers as a connector's table
----   ([`cosmic.relay.resolv`]).
+---   ([`cosmic.relay.resolv`]);
+--- - `lookup`, which runs a lookup ([`cosmic.relay.resolv`]'s).
 ---
 --- The relay that serves ([`cosmic.relay.server`]) and its process's main
 --- ([`cosmic.relay.main`]) are members this entry does not carry: the
@@ -49,6 +50,16 @@ local record Relay
 
   --- One numeric endpoint of a connector's table ([`Net.Endpoint`]).
   type Endpoint = Resolv.Endpoint
+
+  --- A connected socket a lookup through a connector is handed
+  --- ([`Resolv.Connection`]).
+  type Connection = Resolv.Connection
+
+  --- What [`Relay.lookup`] is asked ([`Resolv.Request`]).
+  type Request = Resolv.Request
+
+  --- One address a name resolves to ([`Net.Resolved`]).
+  type Resolved = Resolv.Resolved
 end
 
 Relay.Address = Address
@@ -65,6 +76,17 @@ Relay.Wire = Wire
 --- @return string Why there are none, "" otherwise
 function Relay.nameservers(resolv_conf?: string): {Relay.Endpoint} | nil, string
   return Resolv.nameservers(resolv_conf)
+end
+
+--- Looks `name` up as the system's resolver would, or through the
+--- connector a request's `connect` reaches, waiting through the run in a
+--- task of [`Poll.run`] ([`Resolv.lookup`], where it is documented).
+--- @param name string The host name or numeric address
+--- @param request Relay.Request What to ask
+--- @return {Net.Resolved}|nil Every address, at least one
+--- @return string What went wrong, when there are none
+function Relay.lookup(name: string, request: Relay.Request): {Relay.Resolved} | nil, string
+  return Resolv.lookup(name, request)
 end
 
 return Relay

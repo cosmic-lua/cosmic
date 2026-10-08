@@ -64,9 +64,9 @@
 --- request, to be answered, but at most [`Relay.Limits.connections`] more
 --- than the cap are accepted: the listeners wait beyond that.
 ---
---- Name resolution holds the thread until it answers, as [`Net.resolve`]
---- does, so every other connection waits meanwhile: at most the `resolve`
---- timeout.
+--- Name resolution waits through the run ([`Net.resolve`] in a task), so
+--- only the connection resolving waits for its answer, at most the
+--- `resolve` timeout; the others, their deadlines and the stop go on.
 ---
 --- The relay asks for no credentials unless its spec carries a `token`, as
 --- the listeners of a sandbox whose network is its own need none. With one,
@@ -492,6 +492,9 @@ local record Running
   live: {integer: {Net.Conn}}
   tasks: {integer: Poll.Task}
   acceptors: {Poll.Task}
+  --- The lookups in progress, each a task of its own that `stop` cancels,
+  --- so a connection waiting for a name does not hold the stop back.
+  lookups: {Poll.Task: boolean}
   --- Whether `spec.lost` has been told the name servers' connector ended.
   told_lost: boolean
 end
@@ -801,11 +804,19 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
       opts.servers, opts.hosts_file = run.spec.resolve.servers, run.spec.resolve.hosts_file
       opts.connector = run.spec.resolve.connector
     end
-    -- TODO: resolve off the relay's loop once Net.resolve runs cooperatively
-    -- in a task of Poll.run (the TODO at Net.resolve): a lookup holds the
-    -- thread, so every client and tunnel of the relay waits up to its bound
-    -- (the resolve timeout, one connector wait and a second of grace).
-    local found, why = Net.resolve(name, opts)
+    local found: {Net.Resolved} | nil
+    local why: string
+    local lookup = Poll.spawn(function()
+      found, why = Net.resolve(name, opts)
+    end)
+    run.lookups[lookup] = true
+    local joined, joined_why = lookup:join()
+    run.lookups[lookup] = nil
+    if not joined then
+      -- This connection's task was cancelled, or the lookup was at stop.
+      lookup:cancel()
+      found, why = nil, joined_why
+    end
     if found == nil and opts.connector ~= nil and opts.connector:ended() and run.spec.lost ~= nil and
         not run.told_lost then
       run.told_lost = true
@@ -1377,7 +1388,7 @@ function Relay.start(spec: Relay.Spec): Relay.Serving
         local _, _ = logger:complain(clean)
       end
     end,
-    stopping = false, told_lost = false, pending = 0, open = 0, accepted = 0, refused = 0, next_id = 0, live = {}, tasks = {}, acceptors = {},
+    stopping = false, told_lost = false, pending = 0, open = 0, accepted = 0, refused = 0, next_id = 0, live = {}, tasks = {}, acceptors = {}, lookups = {},
   }
   for _, note in ipairs(notes) do run.log(note) end
   if spec.unresolved ~= nil then
@@ -1403,6 +1414,7 @@ function Relay.start(spec: Relay.Spec): Relay.Serving
     stop = function(_: Relay.Serving)
       run.stopping = true
       for _, task in ipairs(run.acceptors) do task:cancel() end
+      for lookup in pairs(run.lookups) do lookup:cancel() end
       for _, conns in pairs(run.live) do
         for _, conn in ipairs(conns) do local _, _ = conn:close() end
       end
