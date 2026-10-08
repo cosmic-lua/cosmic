@@ -696,6 +696,32 @@ function Sandbox.in_pool(uid_map: string, gid_map: string, id: integer): boolean
   return first ~= nil and id >= first and id < first + USER_POOL
 end
 
+--- Why a program of `merged` cannot start as the policy says where nothing
+--- changes its credentials, as on macOS (Seatbelt holds a program but
+--- changes no user or group): "" where it can, run as the caller, whose
+--- effective `user` and `group` are given. The policy's `user` and `group`
+--- must be those or left out, and the caller must not be root, whose program
+--- a policy says is never root. Names only what differs.
+---
+---     print(Sandbox.credentials_unmet({ user = 5 }, 5, 7) == "") -- true
+---     print(Sandbox.credentials_unmet({}, 0, 0) ~= "") -- true
+function Sandbox.credentials_unmet(merged: Sandbox.Policy, user: integer, group: integer): string
+  if user == 0 then
+    return "this process is root, and a program of a policy never runs as root, which " ..
+      "Seatbelt cannot change the user to: start as another user"
+  end
+  local differs: {string} = {}
+  if merged.user ~= nil and merged.user ~= user then
+    differs[#differs + 1] = "user " .. merged.user
+  end
+  if merged.group ~= nil and merged.group ~= group then
+    differs[#differs + 1] = "group " .. merged.group
+  end
+  if #differs == 0 then return "" end
+  return table.concat(differs, ", ") .. ": Seatbelt runs a program as this process's own user and " ..
+    "group, " .. user .. " and " .. group .. ", and cannot change them: name those or none"
+end
+
 --- Whether a kernel, by its release as /proc/sys/kernel/osrelease names
 --- it, counts the processes of a user namespace apart from the user's in
 --- the namespace it was made in, which `limits.processes` needs: Linux

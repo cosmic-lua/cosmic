@@ -113,7 +113,9 @@ local record rules
     --- caller's child is given from a pool ([`Sandbox.user_id`]): the same
     --- one every start, which may own the files it works on, and which
     --- may not be one of that pool's. Only a root caller chooses one; any
-    --- other may name only itself, which changes nothing.
+    --- other may name only itself, which changes nothing. On macOS no caller
+    --- chooses one, since Seatbelt changes no credentials: a user other
+    --- than the caller's is refused, and so is a root caller.
     ---
     --- A user named so is shared with whatever else runs as it on the
     --- host, which a pool's user never is: every process of that user,
@@ -131,7 +133,8 @@ local record rules
     --- everyone (or its group, where theirs is the owner's), never written.
     user: integer
     --- The group a child runs as, with `user`: for a root caller, `user`'s
-    --- own number where it is left out; for any other, its own group.
+    --- own number where it is left out; for any other, its own group. On
+    --- macOS only the caller's own group is met, as for `user`.
     group: integer
     --- A database the program runs on, by its absolute path: the program
     --- is this program's core started on that database

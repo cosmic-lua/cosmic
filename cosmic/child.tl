@@ -457,6 +457,11 @@ local record Options
   --- `database` takes `nest` the same way, its database bound from its own
   --- start.
   ---
+  --- On macOS, where Seatbelt holds a child, no credentials change: the
+  --- child runs as this process's user and group. A `user` or `group` other
+  --- than those is refused, and so is a root caller (the start fails
+  --- before anything runs), until the core carries credentials there.
+  ---
   --- A child never runs as root. Where this process is not root, it runs
   --- as this process's user, mapped as itself in its user namespace.
   --- Where this process is root, it runs as a user and group of its own,
@@ -2853,7 +2858,10 @@ local PID_SPREAD <const> = 2481
 local sandboxes_started = 0
 
 --- The user this process runs as, which a program of a policy is not to
---- be where it is root.
+--- be where it is root. Where /proc/self/status is not there (macOS) it is
+--- the real user.
+--- TODO: answer the effective user on macOS, once cosmic.sys carries
+--- geteuid: a setuid program's real and effective users differ there.
 local function effective_user(): integer
   local status, _ = Fs.read("/proc/self/status")
   local effective = status ~= nil and status:match("\nUid:%s+%d+%s+(%d+)") or nil
@@ -2863,7 +2871,8 @@ end
 
 --- The group this process runs as, which a caller that is not root may
 --- name as its program's, and which a root caller's namespace maps beside
---- its program's.
+--- its program's. Where /proc/self/status is not there (macOS) it is the
+--- real group, until cosmic.sys carries getegid (the TODO of [`effective_user`]).
 local function effective_group(): integer
   local status, _ = Fs.read("/proc/self/status")
   local effective = status ~= nil and status:match("\nGid:%s+%d+%s+(%d+)") or nil
@@ -3571,26 +3580,14 @@ local function holds_by_seatbelt(): boolean
 end
 
 --- Whether a program of `merged` may be started on macOS as the policy
---- says: "" or why not. Seatbelt holds a program but changes no user or
---- group, and the core carries credentials on Linux alone, so the program
---- runs as this process does. A policy that names that user and group (or
---- neither) is met; one that names another is refused, and so is a start by
---- root, whose program the policy says is never root.
+--- says: "" or why not ([`Sandbox.credentials_unmet`], told this process's
+--- ids). Seatbelt holds a program but changes no user or group, and the core
+--- carries credentials on Linux alone, so the program runs as this process
+--- does.
 --- TODO: run the program as the policy's `user` and `group`, and drop root,
---- once core/syscalls.c carries credentials outside Linux.
+--- once core/syscalls.c carries credentials outside Linux (#2852).
 local function seatbelt_credentials(merged: Rules.Policy): string
-  local own = effective_user()
-  if own == 0 then
-    return "this process is root, and a program of a policy never runs as root, which " ..
-      "Seatbelt cannot change the user to: start as another user"
-  end
-  local group = effective_group()
-  if (merged.user ~= nil and merged.user ~= own) or (merged.group ~= nil and merged.group ~= group) then
-    return "user " .. tostring(merged.user) .. ", group " .. tostring(merged.group) ..
-      ": Seatbelt runs a program as this process's own user and group, " .. own .. " and " ..
-      group .. ", and cannot change them: name those or none"
-  end
-  return ""
+  return Rules.credentials_unmet(merged, effective_user(), effective_group())
 end
 
 --- A policy's start on macOS: the profile [`Seatbelt.compile`] makes of

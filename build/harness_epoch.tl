@@ -132,7 +132,7 @@ harness_epoch.acknowledged = {
 
   ["cmd.cosmic.main"] = "d00f469acf42d89c76c2e9ebabd40e73e20d00cb3a5ad6d9189716265fcdf9bf",
 
-  ["cosmic.child"] = "4d615a907d0ff2286f0f0cca03623b87d471813fc93f05c95a791cc21fb48a3c",
+  ["cosmic.child"] = "1eb9205daaa38857b61972916604eb91c46314147fc6941400ff3d77b7f92152",
 
   ["cosmic.coverage"] = "079fe202231c4ae3ee642e27f6703a37850132c28c2a6d1daf50c7eb1669ac9a",
 
@@ -142,9 +142,9 @@ harness_epoch.acknowledged = {
 
   ["cosmic.proc"] = "1f2f124e7478daaf5955a2043d03a379d8dbc657ffe938ac71d221376f677bcf",
 
-  ["cosmic.sandbox"] = "36db33a81c001510d645ed270fdd4f4689ba357bf35fb222d6f09b16a764ced9",
+  ["cosmic.sandbox"] = "004440cbb6dcfa2c9c7e0a8693010c4d46a9df38f9fb0e8426abf01fe1faf588",
 
-  ["cosmic.sandbox.policy"] = "e943322241147108f780926c16353693c25e21adad148c6d14d1fc3a8207750e",
+  ["cosmic.sandbox.policy"] = "7066e659fd866a90a199a389b216eb96b38e54b4bc0a7375bdb451a75304089e",
 
   ["cosmic.sqlite"] = "ac3fd16dd89251feaee572e4e4b1d29257037afeca3b5c9b141557f2ce732390",
 
