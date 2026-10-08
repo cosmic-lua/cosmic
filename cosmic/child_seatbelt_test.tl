@@ -211,7 +211,7 @@ local function test_a_database_is_refused_for_a_program_that_is_not_this_one(tmp
   macos_only()
   local sealed = tmp .. "/sealed.db"
   assert(Fs.write(sealed, "not a database, but a regular file"))
-  local why = refusal({ profiles = { "system" }, database = sealed })
+  local why = refusal({ profiles = { "system" }, database = { path = sealed } })
   assert(why:find("^child: start: sandbox: database ") and why:find("is not this program", 1, true), why)
 end
 

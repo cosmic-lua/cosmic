@@ -443,25 +443,25 @@ end
 
 local function test_check_refuses_a_database_that_is_not_a_file_by_its_absolute_path(tmp: string)
   local path = database_file(tmp)
-  assert(Sandbox.check({ database = path }))
-  local ok, why = Sandbox.check({ database = "program.db" })
+  assert(Sandbox.check({ database = { path = path } }))
+  local ok, why = Sandbox.check({ database = { path = "program.db" } })
   assert(not ok and why:find("/database", 1, true) and why:find("relative", 1, true), why)
-  ok, why = Sandbox.check({ database = tmp .. "/absent.db" })
+  ok, why = Sandbox.check({ database = { path = tmp .. "/absent.db" } })
   assert(not ok and why:find("/database", 1, true) and why:find("absent.db", 1, true), why)
-  ok, why = Sandbox.check({ database = tmp .. "/../" .. assert(tmp:match("[^/]+$")) .. "/program.db" })
+  ok, why = Sandbox.check({ database = { path = tmp .. "/../" .. assert(tmp:match("[^/]+$")) .. "/program.db" } })
   assert(not ok and why:find("\"..\"", 1, true), why)
-  ok, why = Sandbox.check({ database = tmp })
+  ok, why = Sandbox.check({ database = { path = tmp } })
   assert(not ok and why:find("not a regular file", 1, true), why)
-  ok, why = Sandbox.check({ database = "" })
+  ok, why = Sandbox.check({ database = { path = "" } })
   assert(not ok and why:find("/database", 1, true), why)
 end
 
 local function test_merge_carries_a_database_and_refuses_two(tmp: string)
   local path = database_file(tmp)
   local other = database_file(tmp, "other.db")
-  assert(merged({ database = path }).database == path)
-  assert(merged({ database = path }, { database = tmp .. "//./program.db" }, {}).database == path)
-  local none, why = Sandbox.merge({ database = path }, { database = other })
+  assert(merged({ database = { path = path } }).database.path == path)
+  assert(merged({ database = { path = path } }, { database = { path = tmp .. "//./program.db" } }, {}).database.path == path)
+  local none, why = Sandbox.merge({ database = { path = path } }, { database = { path = other } })
   assert(none == nil and why:find("database is given two values", 1, true), tostring(why))
   assert(merged({}).database == nil)
 end
@@ -477,10 +477,10 @@ local function test_a_database_beside_the_cosmic_profile_leaves_the_programs_fil
     if grant.path == executable then found = true end
   end
   assert(found, "the profile no longer grants the program")
-  local out = merged({ profiles = { "cosmic" }, database = path })
-  assert(#out.grants == 0 and out.database == path)
+  local out = merged({ profiles = { "cosmic" }, database = { path = path } })
+  assert(#out.grants == 0 and out.database.path == path)
   -- In either order of the two.
-  out = merged({ database = path }, { profiles = { "cosmic", "system" } })
+  out = merged({ database = { path = path } }, { profiles = { "cosmic", "system" } })
   for _, grant in ipairs(out.grants) do
     assert(grant.path ~= executable, "the profile's grant stayed")
   end
@@ -488,7 +488,7 @@ end
 
 local function test_restrict_refuses_a_database_before_it_holds_anything(tmp: string)
   local path = database_file(tmp)
-  local ok, why = Sandbox.restrict({ database = path })
+  local ok, why = Sandbox.restrict({ database = { path = path } })
   assert(not ok and why:find("^sandbox: restrict: "), why)
   assert(why:find("database", 1, true) and why:find("Child.start", 1, true), why)
 end

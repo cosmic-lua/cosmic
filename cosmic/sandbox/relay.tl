@@ -211,8 +211,7 @@ function relay.policy(database: string, digest: string): rules.Policy
     local there, _ = sys.stat(file)
     if there ~= nil then grants[#grants + 1] = { path = file, letters = "r" } end
   end
-  local policy: rules.Policy = { database = database, isolate = { "proc" }, grants = grants }
-  rules.expect_digest(policy, digest)
+  local policy: rules.Policy = { database = { path = database, sha256 = digest }, isolate = { "proc" }, grants = grants }
   return policy
 end
 
@@ -232,8 +231,7 @@ function relay.seatbelt_policy(database: string, digest: string): rules.Policy
     local there, _ = sys.stat(file)
     if there ~= nil then grants[#grants + 1] = { path = file, letters = "r" } end
   end
-  local policy: rules.Policy = { database = database, profiles = { "system" }, grants = grants }
-  rules.expect_digest(policy, digest)
+  local policy: rules.Policy = { database = { path = database, sha256 = digest }, profiles = { "system" }, grants = grants }
   return policy
 end
 

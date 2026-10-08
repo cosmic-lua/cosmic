@@ -81,6 +81,10 @@ local record Sandbox
   --- leaves out it does not have ([`rules.Policy`]).
   type Policy = rules.Policy
 
+  --- A database a policy runs a program on: its path, and the SHA-256 of
+  --- its bytes where the policy is to hold to that ([`rules.Database`]).
+  type Database = rules.Database
+
   --- What holds a program by a policy on macOS: the package's
   --- [`cosmic.sandbox.seatbelt`], whose `compile` makes a policy's Seatbelt
   --- profile, `resolve` reads the host paths it names and `grants` lists
@@ -163,27 +167,16 @@ function Sandbox.profile(name: string): Sandbox.Policy | nil, string
   return rules.profile(name)
 end
 
---- Records that `policy`, whose `database` was read from text naming
---- `digest` (the SHA-256 of its bytes, in hex), is to run only on a file
---- of that digest: [`Sandbox.database_is`] holds a start to it, and a merge
---- of the policy keeps it. [`PolicyJson.decode`] calls it after
---- checking the file.
+--- The database at `path` with the SHA-256 of its bytes, taken now: a
+--- [`Sandbox.Database`] that [`Child.start`] runs a program on only while
+--- the file hashes to that. Nil and why where the file cannot be read. A
+--- database named by its path alone (`{ path = ... }`) is held to no
+--- digest; this is where a path acquires one.
 ---
----     local p: Sandbox.Policy = { database = "/srv/p.db" }
----     Sandbox.expect_digest(p, string.rep("0", 64))
-function Sandbox.expect_digest(policy: Sandbox.Policy, digest: string)
-  rules.expect_digest(policy, digest)
-end
-
---- Whether the file at `path` (the merged policy's database, by its real
---- path) is the one `merged` was checked against: true where it hashes to
---- the digest [`Sandbox.expect_digest`] recorded for it or for a policy
---- merged into it, or where none was recorded; otherwise false and why.
---- [`Child.start`] asks just before it starts the core on the file.
----
----     print(Sandbox.database_is({}, "/nowhere")) -- true
-function Sandbox.database_is(merged: Sandbox.Policy, path: string): boolean, string
-  return rules.database_is(merged, path)
+---     local db = assert(Sandbox.database("/etc/hostname"))
+---     print(#db.sha256) -- 64
+function Sandbox.database(path: string): Sandbox.Database | nil, string
+  return rules.database(path)
 end
 
 --- What the policies given hold together: each one's `profiles` resolved
@@ -357,7 +350,7 @@ end
 --- process is not in, or by a relay it has not.
 local function not_in_process(merged: Sandbox.Policy): string
   if merged.database ~= nil then
-    return "database \"" .. merged.database .. "\" is the program a child runs on, which a " ..
+    return "database \"" .. merged.database.path .. "\" is the program a child runs on, which a " ..
       "running process cannot change: start a child with Child.start and a policy instead"
   end
   if #merged.isolate > 0 then
