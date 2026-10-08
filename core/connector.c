@@ -43,7 +43,7 @@
 #include "process.h"
 
 #define CONNECTOR_ENDPOINTS 128
-#define CONNECTOR_SLOTS 262144
+#define CONNECTOR_TABLE_BYTES 33554432
 #define CONNECTOR_STRIDE 128
 #define CONNECTOR_INSNS 4096
 #define CONNECTOR_ALLOW 0x7fff0000u
@@ -55,6 +55,20 @@
 /* The index of a public request: a table's indexes are small, and 0 is
  * refused (EPERM) by every connector. */
 #define CONNECTOR_PUBLIC 0xffffffffu
+
+/* The distance between a table's slots of one range: the sockaddr's size
+ * rounded up to a power of two, so the filter can hold a pointer to a
+ * multiple of it with one mask. A range's `length` (16 for IPv4, 28 for
+ * IPv6) is all that chooses it; the scratch page's slots, which sit
+ * CONNECTOR_STRIDE apart, are single-slot ranges of the same two lengths. */
+#define CONNECTOR_STRIDE_V4 16
+#define CONNECTOR_STRIDE_V6 32
+_Static_assert(sizeof(struct sockaddr_in) == CONNECTOR_STRIDE_V4, "IPv4 slot size");
+_Static_assert(sizeof(struct sockaddr_in6) <= CONNECTOR_STRIDE_V6, "IPv6 slot size");
+
+static uintptr_t connector_stride (uint32_t length) {
+  return length == sizeof(struct sockaddr_in6) ? CONNECTOR_STRIDE_V6 : CONNECTOR_STRIDE_V4;
+}
 
 struct connector_insn { uint16_t code; uint8_t jt, jf; uint32_t k; };
 struct connector_range { uintptr_t base; uint32_t slots, length; };
@@ -210,13 +224,14 @@ static size_t connector_program (struct connector_code *code,
   connector_target(code, connecting);
   for (size_t i = 0; i < count; i++) {
     uintptr_t base = ranges[i].base;
-    uintptr_t end = base + (uintptr_t)ranges[i].slots * CONNECTOR_STRIDE;
+    uintptr_t stride = connector_stride(ranges[i].length);
+    uintptr_t end = base + (uintptr_t)ranges[i].slots * stride;
     connector_load(code, 1, true);
     connector_emit(code, 0x15, 0, 10, (uint32_t)(base >> 32));
     connector_load(code, 1, false);
     connector_emit(code, 0x35, 0, 8, (uint32_t)base);
     connector_emit(code, 0x35, 7, 0, (uint32_t)end);
-    connector_emit(code, 0x54, 0, 0, CONNECTOR_STRIDE - 1);
+    connector_emit(code, 0x54, 0, 0, (uint32_t)(stride - 1));
     connector_emit(code, 0x15, 0, 5, 0);
     connector_load(code, 2, true);
     connector_emit(code, 0x15, 0, 3, 0);
@@ -235,7 +250,7 @@ static size_t connector_endpoints (lua_State *L, int argument,
   size_t count = list ? lua_rawlen(L, argument) : 1;
   if ((count == 0 && !empty) || count > CONNECTOR_ENDPOINTS)
     luaL_argerror(L, argument, "endpoints must hold 1 through 128 numeric TCP endpoints");
-  uint32_t slots = 0;
+  size_t bytes = 0;
   for (size_t i = 0; i < count; i++) {
     if (list) lua_rawgeti(L, argument, (lua_Integer)i + 1);
     else lua_pushvalue(L, argument);
@@ -265,8 +280,9 @@ static size_t connector_endpoints (lua_State *L, int argument,
     if (v4->sin_family == AF_INET) v4->sin_port = htons((uint16_t)port);
     else v6->sin6_port = htons((uint16_t)port);
     endpoint->slots = port == 0 ? 65535 : 1;
-    slots += endpoint->slots;
-    if (slots > CONNECTOR_SLOTS) luaL_argerror(L, argument, "endpoint port tables exceed 32 MiB");
+    uintptr_t stride = connector_stride(endpoint->length);
+    bytes = (bytes + stride - 1) / stride * stride + (size_t)endpoint->slots * stride;
+    if (bytes > CONNECTOR_TABLE_BYTES) luaL_argerror(L, argument, "endpoint port tables exceed 32 MiB");
     lua_pop(L, 2);
   }
   return count;
@@ -378,7 +394,7 @@ COSMIC_SYSCALL(connector_filter, 4) {
   size_t count = lua_rawlen(L, 2);
   if (count == 0 || count > CONNECTOR_ENDPOINTS) return luaL_argerror(L, 2, "ranges must hold 1 through 128 entries");
   struct connector_range ranges[CONNECTOR_ENDPOINTS];
-  uint32_t slots = 0;
+  size_t bytes = 0;
   for (size_t i = 0; i < count; i++) {
     lua_rawgeti(L, 2, (lua_Integer)i + 1);
     luaL_checktype(L, -1, LUA_TTABLE);
@@ -388,13 +404,15 @@ COSMIC_SYSCALL(connector_filter, 4) {
     int each = cosmic_checkint(L, -1);
     lua_getfield(L, -3, "length");
     int length = cosmic_checkint(L, -1);
-    if (base <= 0 || (base & (CONNECTOR_STRIDE - 1)) != 0 || each < 1 || each > 65535 ||
-        (length != 16 && length != 28)) return luaL_argerror(L, 2, "a range is invalid");
-    uint64_t end = (uint64_t)base + (uint64_t)each * CONNECTOR_STRIDE;
+    if (length != 16 && length != 28) return luaL_argerror(L, 2, "a range is invalid");
+    uintptr_t stride = connector_stride((uint32_t)length);
+    if (base <= 0 || (base & (lua_Integer)(stride - 1)) != 0 || each < 1 || each > 65535)
+      return luaL_argerror(L, 2, "a range is invalid");
+    uint64_t end = (uint64_t)base + (uint64_t)each * stride;
     if (((uint64_t)base >> 32) != (end >> 32)) return luaL_argerror(L, 2, "a range crosses a 32-bit boundary");
     ranges[i] = (struct connector_range){(uintptr_t)base, (uint32_t)each, (uint32_t)length};
-    slots += (uint32_t)each;
-    if (slots > CONNECTOR_SLOTS) return luaL_argerror(L, 2, "ranges exceed 32 MiB");
+    bytes += (size_t)each * stride;
+    if (bytes > CONNECTOR_TABLE_BYTES) return luaL_argerror(L, 2, "ranges exceed 32 MiB");
     lua_pop(L, 4);
   }
   int control = cosmic_checkfd(L, 3), status = cosmic_checkfd(L, 4);
@@ -456,33 +474,38 @@ static void *connector_map (size_t bytes, size_t page) {
 
 static int connector_table (const struct connector_endpoint *endpoints, size_t count,
                             struct connector_plan *plan) {
-  size_t slots = 0;
-  for (size_t i = 0; i < count; i++) slots += endpoints[i].slots;
+  size_t used = 0;
+  for (size_t i = 0; i < count; i++) {
+    size_t stride = connector_stride(endpoints[i].length);
+    used = (used + stride - 1) / stride * stride + (size_t)endpoints[i].slots * stride;
+  }
   plan->count = plan->filtered = 0;
-  if (slots == 0) return 0;
+  if (used == 0) return 0;
   long page = sysconf(_SC_PAGESIZE);
   if (page <= 0) return EINVAL;
-  size_t used = slots * CONNECTOR_STRIDE;
   plan->bytes = (used + (size_t)page - 1) / (size_t)page * (size_t)page;
   if (COSMIC_FAULT("connector_mmap")) return ENOMEM;
   plan->memory = connector_map(plan->bytes, (size_t)page);
   if (plan->memory == NULL) return errno;
   size_t offset = 0;
   for (size_t i = 0; i < count; i++) {
+    size_t stride = connector_stride(endpoints[i].length);
+    offset = (offset + stride - 1) / stride * stride;
     uintptr_t base = (uintptr_t)plan->memory + offset;
-    uintptr_t end = base + (uintptr_t)endpoints[i].slots * CONNECTOR_STRIDE;
+    uintptr_t end = base + (uintptr_t)endpoints[i].slots * stride;
     if ((base >> 32) != (end >> 32)) return EOVERFLOW;
     plan->ranges[i] = (struct connector_range){base, endpoints[i].slots, endpoints[i].length};
     for (uint32_t j = 0; j < endpoints[i].slots; j++) {
-      struct sockaddr_storage *address = (struct sockaddr_storage *)(base + (uintptr_t)j * CONNECTOR_STRIDE);
-      *address = endpoints[i].address;
+      /* Only the address's own bytes: the slot ends where the next begins. */
+      struct sockaddr_storage *address = (struct sockaddr_storage *)(base + (uintptr_t)j * stride);
+      memcpy(address, &endpoints[i].address, endpoints[i].length);
       if (endpoints[i].slots > 1) {
         uint16_t port = htons((uint16_t)(j + 1));
         if (address->ss_family == AF_INET) ((struct sockaddr_in *)address)->sin_port = port;
         else ((struct sockaddr_in6 *)address)->sin6_port = port;
       }
     }
-    offset += (size_t)endpoints[i].slots * CONNECTOR_STRIDE;
+    offset += (size_t)endpoints[i].slots * stride;
   }
   if (COSMIC_FAULT("connector_mprotect")) return EACCES;
   if (mprotect(plan->memory, plan->bytes, PROT_READ) != 0) return errno;
@@ -584,7 +607,7 @@ static int connector_connect (const struct connector_plan *plan, const struct co
   if (index < 1 || index > plan->count || port < 1 || port > 65535) return EPERM;
   const struct connector_range *range = &plan->ranges[index - 1];
   const struct sockaddr *address = (const struct sockaddr *)(range->base +
-      (range->slots > 1 ? (uintptr_t)(port - 1) * CONNECTOR_STRIDE : 0));
+      (range->slots > 1 ? (uintptr_t)(port - 1) * connector_stride(range->length) : 0));
   uint16_t held = address->sa_family == AF_INET ?
     ((const struct sockaddr_in *)address)->sin_port : ((const struct sockaddr_in6 *)address)->sin6_port;
   if (ntohs(held) != port) return EPERM;
