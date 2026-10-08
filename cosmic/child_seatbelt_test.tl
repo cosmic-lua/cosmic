@@ -104,8 +104,8 @@ local function test_the_system_profile_is_the_same_raw_merged_and_through_json()
   for _, policy in ipairs({ raw, merged, decoded }) do
     local versions = run({ "/usr/bin/sw_vers", "-productVersion" }, policy)
     expect(versions.ok and (versions.stdout or ""):find("%d") ~= nil, versions)
-    local sysctl = run({ "/sbin/sysctl", "-n", "hw.ncpu" }, policy)
-    expect(sysctl.ok and (sysctl.stdout or ""):find("%d") ~= nil, sysctl)
+    local digest = run({ "/sbin/md5", "-s", "abc" }, policy)
+    expect(digest.ok and (digest.stdout or ""):find("900150983cd24fb0d6963f7d28e17f72", 1, true) ~= nil, digest)
   end
 end
 
