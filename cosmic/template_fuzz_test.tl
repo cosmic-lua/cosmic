@@ -403,6 +403,9 @@ local UNITS <const>: {{string}} = {
   { "<textarea></textarea{{.a}}><p>x</p>", "x" },
   { "<title><{{.a}}title>", "x" },
   { "<textarea>x < {{.a}}</textarea>", "r" },
+  { "<textarea></text{{if .a}}{{end}}area><script>{{.a}}</script></textarea>", "x" },
+  { "<script><!--<script>{{if .a}}{{end}}</script>{{.a}}</script>", "x" },
+  { "<textarea></text{{if .a}}{{end}}area>{{.a}}", "t" },
 }
 
 --- A payload, the kinds its template's slots must be judged as, and a
@@ -584,6 +587,76 @@ local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
       end
       if body:find("{{range", 1, true) or body:find("{{if", 1, true) or body:find("{{with", 1, true) then
         Fuzz.label("block")
+      end
+      return true, ""
+    end,
+  })
+end
+
+--- The pieces of raw text and RCDATA elements and of what ends them, cut
+--- short in places so that two of them can complete a tag or a comment
+--- between them.
+local RAW_PIECES <const> = {
+  "<textarea>", "</textarea>", "</text", "area>", "<title>", "</ti", "tle >", "<style>", "</style>", "</sty", "le>",
+  "<script>", "</script>", "</scr", "ipt>", "<scr", "ipt ", "<!--", "<!-", "-", "--", ">", "-->", "<", "</", "/", "!", "x",
+  " ", "\n", "<svg>", "</svg>", "<p>", "<a href=\"", "\"", "'",
+  -- A whole element, so that a cut inside its tags is drawn at default counts.
+  "<textarea></textarea><script>", "<title></title><script>", "<style></style><script>",
+  "<script><!--<script></script>", "<script><!--<script></script>--></script>", "<script></script><textarea>",
+}
+
+--- A literal run, cut at every byte boundary in turn by a block that emits
+--- nothing, then a slot.
+local function gen_cut(src: Fuzz.Source): string
+  local out: {string} = {}
+  while Fuzz.more(src, #out, 12) do
+    out[#out + 1] = Fuzz.pick(src, RAW_PIECES)
+  end
+  return table.concat(out)
+end
+
+--- The helpers a compiled template calls, in order.
+local function helpers(source: string): string
+  local out: {string} = {}
+  for helper in source:gmatch("parts%[#parts %+ 1%] = (_%a+)%(v%) end") do
+    out[#out + 1] = helper
+  end
+  return table.concat(out, " ")
+end
+
+-- A block that emits nothing, between any two bytes of the literal text,
+-- does not change where a slot after it lands: a template that compiles
+-- with the block compiles without it and gives its slots the same escaping.
+-- (Else a value could be escaped for text where the browser reads script,
+-- as in `<textarea></text{{if .a}}{{end}}area><script>{{.b}}`.)
+local function test_an_empty_block_in_the_text_does_not_move_where_a_slot_lands(tmp: string)
+  Fuzz.run({
+    name = "template cut",
+    dir = tmp,
+    gen = gen_cut,
+    requires = { "agreed", "cut refused", "raw text", "script slot refused" },
+    shares = { agreed = 0.2, ["raw text"] = 0.3, ["cut refused"] = 0.05 },
+    check = function(literal: string): boolean, string
+      local whole = Template.compile("{{type T from m.t}}" .. literal .. "{{.a}}{{.b}}", "t.tmpl")
+      if literal:find("<script", 1, true) or literal:find("<textarea", 1, true) or literal:find("<title", 1, true) or
+          literal:find("<style", 1, true) then
+        Fuzz.label("raw text")
+      end
+      if whole == nil and literal:find("<script", 1, true) then
+        Fuzz.label("script slot refused")
+      end
+      for cut = 0, #literal do
+        local body = literal:sub(1, cut) .. "{{if .a}}{{end}}" .. literal:sub(cut + 1) .. "{{.a}}{{.b}}"
+        local split = Template.compile("{{type T from m.t}}" .. body, "t.tmpl")
+        if split == nil then
+          Fuzz.label("cut refused")
+        elseif whole == nil then
+          return false, "compiled with a cut at " .. cut .. " what it refuses whole: " .. body
+        elseif helpers(split) ~= helpers(whole) then
+          return false, "cut at " .. cut .. " gives " .. helpers(split) .. ", not " .. helpers(whole) .. ": " .. body
+        else
+          Fuzz.label("agreed")
+        end
       end
       return true, ""
     end,
