@@ -3899,8 +3899,9 @@ end
 --- proxy's; and, for a target that names a host the relay reaches
 --- directly (no upstream, or one `no_proxy` bypasses for some), also
 --- public (refusing the relay's deny list and `own`, the host's own
---- addresses) and the name servers'. Each makes several connections at
---- once.
+--- addresses), and a name servers' connector beside it. Each makes
+--- several connections at once; the first keeps 16 of its flights for each
+--- of its table's and its public requests.
 --- The upstream's host is resolved once, here, through a name servers'
 --- connector of its own, closed after: a stream handed to the relay is
 --- handed as its connector started it, what it says first unread, for
