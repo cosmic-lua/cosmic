@@ -215,6 +215,13 @@ local ACCEPTED <const>: {{string}} = {
   { "RCDATA end tag: a slot, then text with '<'", "<textarea>{{.x}}<b</textarea>", "", "rtext" },
   { "RCDATA end tag: title: another tag's start", "<title><i{{.x}}</title>", "", "rtext" },
   { "RCDATA end tag: attribute value '<' then slot (harmless)", "<a title=\"<{{.x}}\">", "", "attr" },
+  { "split: a dash outside a script comment is no state", "<script>{{if .a}}x-{{else}}x{{end}}</script>{{.x}}", "", "text" },
+  { "split: a dash pair outside a script comment", "<script>{{if .a}}x--{{end}}</script>{{.x}}", "", "text" },
+  { "split: RCDATA end tag", "<textarea></text{{if .f}}{{end}}area>{{.x}}", "", "text" },
+  { "split: RCDATA end tag name and delimiter", "<title></title{{if .f}}{{end}}>{{.x}}", "", "text" },
+  { "split: script end tag", "<script>x</scr{{if .f}}{{end}}ipt>{{.x}}", "", "text" },
+  { "split: script comment end", "<script><!--<script></script>--{{if .f}}{{end}}></script>{{.x}}", "", "text" },
+  { "split: a partial end tag that is not one", "<textarea></tex{{if .f}}{{end}}x>{{.y}}</textarea>", "", "rtext" },
   { "TestFindEndTag[0]", "<textarea>hello </textarea> hello{{.x}}", "", "text" },
   { "TestFindEndTag[1]", "<textarea>hello </TEXTarea> hello{{.x}}", "", "text" },
   { "TestFindEndTag[2]", "<textarea>hello </textAREA>{{.x}}", "", "text" },
@@ -292,6 +299,17 @@ local REFUSED <const>: {{string}} = {
   { "TestEscapeText[50]", "<a onclick=\"'foo\\'{{.x}}", "2", "19", "event handler" },
   { "TestEscapeText[51]", "<a onclick=\"'foo\\'{{.x}}", "2", "19", "event handler" },
   { "TestEscapeText[52]", "<a onclick=\"/foo/{{.x}}", "2", "18", "event handler" },
+  { "split: arms leave a script end tag cut short", "<script>{{if .a}}</sc{{else}}x{{end}}</script>{{.x}}", "2", "9", "one leaves <script>, another <script> after '</sc'" },
+  { "split: arms leave a textarea end tag cut short", "<textarea>{{if .a}}</te{{end}}</textarea>{{.x}}", "2", "11", "after '</te'" },
+  { "split: arms leave a script comment open", "<script>{{if .a}}<!--{{end}}</script>{{.x}}", "2", "9", "inside a <!--" },
+  { "split: arms leave a nested script open", "<script><!--{{if .a}}<script >{{end}}</script>{{.x}}", "2", "13", "inside a <!-- and a nested <script" },
+  { "split: a loop leaves a script comment open", "<script>{{range .l}}<!--{{end}}</script>{{.x}}", "2", "9", "inside a <!--" },
+  -- An action that emits nothing splits literal text without moving what the browser reads.
+  { "split: RCDATA end tag, then a script", "<textarea></text{{if .f}}{{end}}area><script>{{.x}}</script></textarea>", "2", "46", "<script>" },
+  { "split: script comment and nested script", "<script><!--\n/*<script>*/{{if .f}}{{end}}\n//</script>\n{{.x}}\n</script>", "5", "1", "<script>" },
+  { "split: script end tag after a split nested start", "<script><!--<scr{{if .f}}{{end}}ipt></script>{{.x}}", "2", "46", "<script>" },
+  { "split: script end tag after a split comment start", "<script><!{{if .f}}{{end}}--<script></script>{{.x}}", "2", "46", "<script>" },
+  { "split: style end tag name", "<style></sty{{if .f}}{{end}}le><script>{{.x}}</script>", "2", "40", "<script>" },
   { "TestEscapeText[53]", "<script>/foo/ /={{.x}}", "2", "17", "<script>" },
   { "TestEscapeText[54]", "<a onclick=\"1 /foo{{.x}}", "2", "19", "event handler" },
   { "TestEscapeText[55]", "<a onclick=\"1 /*c*/ /foo{{.x}}", "2", "25", "event handler" },
@@ -578,6 +596,67 @@ local function test_a_ported_case_that_cosmic_refuses_is_refused_where_and_why_i
       wrong[#wrong + 1] = case[1] .. " said " .. why .. ", not " .. want .. "..." .. case[5]
     end
   end
+  assert(#wrong == 0, table.concat(wrong, "\n"))
+end
+
+--- `body` with `{{if .f}}{{end}}`, which emits nothing, put after its `cut`th
+--- byte; nil when that byte is inside an action.
+local function split_at(body: string, cut: integer): string | nil
+  local at = 1
+  while true do
+    local open, close = body:find("{{.-}}", at)
+    if open == nil then
+      break
+    end
+    if cut >= open and cut < close then
+      return nil
+    end
+    at = close + 1
+  end
+  return body:sub(1, cut) .. "{{if .f}}{{end}}" .. body:sub(cut + 1)
+end
+
+-- A block that emits nothing, put between any two bytes of a template's
+-- text, must not change what the browser reads, so it must not change the
+-- kind of any slot: a template that compiles with it compiles without it,
+-- with the same kinds.
+local function test_an_empty_action_at_any_byte_boundary_leaves_the_slots_as_they_were()
+  local wrong: {string} = {}
+  local cases: {string} = {}
+  for _, case in ipairs(ACCEPTED) do
+    cases[#cases + 1] = case[2] .. case[3]
+  end
+  for _, case in ipairs(REFUSED) do
+    cases[#cases + 1] = case[2]
+  end
+  for _, body in ipairs({
+      "<textarea></textarea><script>{{.x}}</script></textarea>",
+      "<title></title><style>a</style><script>{{.x}}</script>",
+      "<script><!--\n/*<script>*/\n//</script>\n{{.x}}\n</script>",
+      "<script><!--<script></script>-->{{.x}}</script>{{.y}}",
+      "<script><!--<script></script>--></script>{{.y}}",
+      "<script>a</script >{{.y}}<textarea>b</TextArea\n>{{.z}}",
+      "<style>x</style>{{.x}}<textarea></textareax></textarea>{{.y}}",
+  }) do
+    cases[#cases + 1] = body
+  end
+  local checked = 0
+  for _, body in ipairs(cases) do
+    local plain = Template.compile(HEAD .. body, "t.tmpl")
+    for cut = 0, #body do
+      local split = split_at(body, cut)
+      if split ~= nil then
+        checked = checked + 1
+        local out = Template.compile(HEAD .. split, "t.tmpl")
+        if out ~= nil and plain == nil then
+          wrong[#wrong + 1] = string.format("%q compiled split at %d: %q", body, cut, split)
+        elseif out ~= nil and plain ~= nil and kinds_of(out) ~= kinds_of(plain) then
+          wrong[#wrong + 1] = string.format("%q split at %d: %s, not %s", body, cut, kinds_of(out), kinds_of(plain))
+        end
+      end
+    end
+  end
+  assert(checked > 1000, "too few splits checked: " .. checked)
   assert(#wrong == 0, table.concat(wrong, "\n"))
 end
 

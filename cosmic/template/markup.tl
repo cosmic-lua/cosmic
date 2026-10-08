@@ -32,6 +32,11 @@
 ---   run or load what the URL names (`script`, `link`, `object`,
 ---   `embed`, `base`, `use`), or one not at the start of the value.
 ---
+--- The state is the tokenizer's in full, carried over every action: text
+--- split by one that emits nothing (`</text{{if .a}}{{end}}area>`) is read
+--- as it would be whole, so an end tag, a comment or a script's escape
+--- states cut short at an action are completed by the text after it.
+---
 --- A slot in a template's end must leave it in plain text: see `ending`.
 ---
 --- What is left is a slot in text; in `<textarea>` and `<title>`, whose
@@ -151,10 +156,19 @@ local record Markup
     late_line: integer
     --- Its column.
     late_col: integer
-    --- In the text of a `<textarea>` or `<title>`, the literal text since
-    --- the last `<` while it could still become the element's end tag (`<`,
-    --- `</`, `</tex`): a slot after it could complete the tag.
-    rc_tail: string
+    --- In the text of a raw text or RCDATA element, the literal text since
+    --- the last point that could still begin something the tokenizer acts
+    --- on (`<`, `</`, `</tex`; in a `<script>` also `<!-`, `<scr`, `-`,
+    --- `--`): the next run of text, which a block that emits nothing may
+    --- have put between, is read after it, and a slot after it could
+    --- complete the tag.
+    raw_tail: string
+    --- In the text of a `<script>`, whether a `<!--` has opened (and no `-->`
+    --- has closed) the escaped state, in which a `<script` opens a nested
+    --- script whose `</script>` does not end the element.
+    escaped: boolean
+    --- Whether that nested script is open.
+    double: boolean
   end
 
   --- A new place: the start of the template, in text.
@@ -181,6 +195,10 @@ local record Markup
   --- markup (a `SafeHtml` goes into another template's text slot as it is),
   --- or "" when it ends in plain text.
   ending: function(p: Place): string
+
+  --- How two places that `same` found different differ in the text of a raw
+  --- text or RCDATA element, or "" when they differ otherwise.
+  differ: function(a: Place, b: Place): string
 
   --- Folds the place `b`, which `same` found the same as `a`, into `a`: a
   --- value is fresh only if it is in both, and a URL slot or a pending
@@ -243,14 +261,16 @@ local ANIMATION <const>: {string: boolean} = {
 local function start(): Place
   return { phase = "text", tag = "", attr = "", closing = false, fresh = false, stack = "", murky = false,
     select = false, fontattr = false, slash = false, after_url = false, colon = false, equiv = false,
-    meta_line = 0, meta_col = 0, late = "", late_line = 0, late_col = 0, rc_tail = "" }
+    meta_line = 0, meta_col = 0, late = "", late_line = 0, late_col = 0, raw_tail = "",
+    escaped = false, double = false }
 end
 
 local function copy(p: Place): Place
   return { phase = p.phase, tag = p.tag, attr = p.attr, closing = p.closing, fresh = p.fresh, stack = p.stack,
     murky = p.murky, select = p.select, fontattr = p.fontattr, slash = p.slash, after_url = p.after_url, colon = p.colon, equiv = p.equiv,
     meta_line = p.meta_line, meta_col = p.meta_col, late = p.late, late_line = p.late_line,
-    late_col = p.late_col, rc_tail = p.rc_tail }
+    late_col = p.late_col, raw_tail = p.raw_tail,
+    escaped = p.escaped, double = p.double }
 end
 
 --- The phases in which the tag and whether it is an end tag mean something;
@@ -278,10 +298,33 @@ local function same(a: Place, b: Place): boolean
       (a.meta_line > 0) ~= (b.meta_line > 0)) then
     return false
   end
-  if a.phase == "rcdata" and a.rc_tail ~= b.rc_tail then
+  if (a.phase == "rcdata" or a.phase == "raw") and
+      (a.raw_tail ~= b.raw_tail or a.escaped ~= b.escaped or a.double ~= b.double) then
     return false
   end
   return not ATTRIBUTED[a.phase] or a.attr == b.attr
+end
+
+--- Where a place stands in the text of a raw text or RCDATA element.
+local function raw_state(p: Place): string
+  local out = "<" .. p.tag .. ">"
+  if p.raw_tail ~= "" then
+    out = out .. " after '" .. p.raw_tail .. "'"
+  end
+  if p.escaped then
+    out = out .. (p.double and " inside a <!-- and a nested <script" or " inside a <!--")
+  end
+  return out
+end
+
+local function differ(a: Place, b: Place): string
+  if (a.phase == "rcdata" or a.phase == "raw") and a.phase == b.phase then
+    local x, y = raw_state(a), raw_state(b)
+    if x ~= y then
+      return "one leaves " .. x .. ", another " .. y
+    end
+  end
+  return ""
 end
 
 local function join(a: Place, b: Place)
@@ -326,40 +369,61 @@ local function plain_end(text: string, from: integer, tag: string): integer | ni
   end
 end
 
+--- What a `<script>` acts on in its text, of which [`script_tail`] keeps the
+--- start of one cut short.
+local SCRIPT_MARKS <const>: {string} = { "<!--", "<script", "</script", "-->" }
+
+--- The longest end of `region` that is the start of one of those and not
+--- yet the whole of it (`<script` and `</script` are whole only with the
+--- delimiter after them), or "".
+local function script_tail(region: string, escaped: boolean): string
+  for len = math.min(#region, 8), 1, -1 do
+    local tail = region:sub(-len):lower()
+    for _, mark in ipairs(SCRIPT_MARKS) do
+      -- A dash only matters in a comment, where `-->` leaves it.
+      local dashes = mark == "-->" and not escaped
+      if not dashes and #tail <= #mark and mark:sub(1, #tail) == tail and
+          (#tail < #mark or mark:find("script", 1, true) ~= nil) then
+        return region:sub(-len)
+      end
+    end
+  end
+  return ""
+end
+
 --- Where a `<script>`'s end tag next begins in `text` from `from`: the
 --- offset of its `<`, or nil. A script that opens a comment (`<!--`)
 --- and a script in it (`<script`) has its first `</script>` in the
 --- script, not at its end, as the standard has it; `-->` leaves the
---- comment.
-local function script_end(text: string, from: integer): integer | nil
+--- comment. Those states are `p`'s, so they hold across a block that
+--- emits nothing, and are left as they stand at the end of `text`.
+local function script_end(p: Place, text: string, from: integer): integer | nil
   local at = from
-  local escaped = false
-  local double = false
   while true do
     local hit = text:find("[<%-]", at)
     if hit == nil then
       return nil
     end
     if text:byte(hit) == 45 then
-      if escaped and text:sub(hit, hit + 2) == "-->" then
-        escaped = false
-        double = false
+      if p.escaped and text:sub(hit, hit + 2) == "-->" then
+        p.escaped = false
+        p.double = false
         at = hit + 3
       else
         at = hit + 1
       end
-    elseif text:sub(hit, hit + 3) == "<!--" and not escaped then
-      escaped = true
+    elseif text:sub(hit, hit + 3) == "<!--" and not p.escaped then
+      p.escaped = true
       at = hit + 2
     elseif text:byte(hit + 1) == 47 and text:sub(hit + 2, hit + 7):lower() == "script" and
         delimiter(text, hit + 8) then
-      if not double then
+      if not p.double then
         return hit
       end
-      double = false
+      p.double = false
       at = hit + 8
-    elseif escaped and text:sub(hit + 1, hit + 6):lower() == "script" and delimiter(text, hit + 7) then
-      double = true
+    elseif p.escaped and text:sub(hit + 1, hit + 6):lower() == "script" and delimiter(text, hit + 7) then
+      p.double = true
       at = hit + 7
     else
       at = hit + 1
@@ -461,6 +525,10 @@ end
 --- slot or the template does, so the places a slot may not stand in
 --- (inside a tag) are never left half read.
 local function scan(p: Place, text: string)
+  if p.raw_tail ~= "" and (p.phase == "raw" or p.phase == "rcdata") then
+    text = p.raw_tail .. text
+    p.raw_tail = ""
+  end
   local i = 1
   local n = #text
   while i <= n do
@@ -669,7 +737,7 @@ local function scan(p: Place, text: string)
       end
       local found: integer | nil
       if p.tag == "script" then
-        found = script_end(text, i)
+        found = script_end(p, text, i)
       else
         found = plain_end(text, i, p.tag)
       end
@@ -678,16 +746,19 @@ local function scan(p: Place, text: string)
         p.murky = true
       end
       if found == nil then
-        if p.phase == "rcdata" then
+        if p.tag == "script" then
+          p.raw_tail = script_tail(region, p.escaped)
+        else
           local last = region:match(".*()<")
-          local tail = last and region:sub(last) or (p.rc_tail .. region)
+          local tail = last and region:sub(last) or ""
           local close = "</" .. p.tag
-          p.rc_tail = (#tail <= #close and close:sub(1, #tail) == tail:lower()) and tail or ""
+          p.raw_tail = (#tail <= #close and close:sub(1, #tail) == tail:lower()) and tail or ""
         end
         return
       end
       p.phase = "text"
-      p.rc_tail = ""
+      p.escaped = false
+      p.double = false
       i = found
     end
   end
@@ -705,8 +776,8 @@ local function slot(p: Place): types.Slot | nil, string
   elseif phase == "text" then
     return "text", ""
   elseif phase == "rcdata" then
-    if p.rc_tail ~= "" then
-      return nil, "a slot after '" .. p.rc_tail .. "' in <" .. p.tag ..
+    if p.raw_tail ~= "" then
+      return nil, "a slot after '" .. p.raw_tail .. "' in <" .. p.tag ..
         "> could complete its end tag"
     end
     return "rtext", ""
@@ -758,7 +829,7 @@ end
 
 local function wrote(p: Place, ctx: types.Slot, line: integer, col: integer)
   p.fresh = false
-  p.rc_tail = ""
+  p.raw_tail = ""
   p.after_url = ctx == "url"
   if p.tag == "meta" and p.attr == "content" and ctx == "attr" then
     p.meta_line = line
@@ -788,6 +859,6 @@ local function ending(p: Place): string
   return "inside a comment or markup declaration"
 end
 
-local M: Markup = { start = start, ending = ending, copy = copy, same = same, join = join, feed = feed,
+local M: Markup = { start = start, ending = ending, copy = copy, same = same, differ = differ, join = join, feed = feed,
   slot = slot, wrote = wrote }
 return M

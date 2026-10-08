@@ -435,6 +435,90 @@ local function test_requests_past_the_flight_wait_for_room()
   end)
 end
 
+--- Makes `count` connections at once with `connect`, each within 500 ms:
+--- how many were made, closed again.
+local function made_at_once(count: integer, connect: function(): Net.Conn | nil, string): integer
+  local made = 0
+  local tasks: {Poll.Task} = {}
+  for i = 1, count do
+    tasks[i] = Poll.spawn(function()
+      local conn = connect()
+      if conn ~= nil then
+        made = made + 1
+        assert(conn:close())
+      end
+    end)
+  end
+  for _, task in ipairs(tasks) do assert(task:join()) end
+  return made
+end
+
+--- A connector with a table and public lists shares its flights between
+--- the two kinds of request, and keeps 16 for each against the other: a
+--- flood of `flooded` ("table" or "public"), even given up on (it counts
+--- until answered), leaves the other kind 16 at once, and the flooded kind
+--- its own 48 and no more.
+local function keeps_flights_against(flooded: string)
+  require_native_connector()
+  Poll.run(function()
+    local table_hung, held = hung_port()
+    local public_hung, more = hung_port()
+    for _, each in ipairs(more) do held[#held + 1] = each end
+    local table_echo, table_task = echo_server()
+    local public_echo, public_task = echo_server()
+    -- Entry 2 hangs; the public requests go to addresses no entry holds at that port.
+    local connector = assert(Net.connector({ { host = "127.0.0.1", port = table_echo.address.port },
+      { host = "127.0.0.1", port = table_hung } }, { timeout_ns = Clock.seconds(30), public = { deny = {} } }))
+    -- The stalled connects end at the process after STALL, a flood request
+    -- as soon as its own wait does.
+    local STALL <const> = Clock.ms(600)
+    local function hangs(wait: integer): Net.Conn | nil, string
+      if flooded == "table" then return connector:connect(2, table_hung, wait) end
+      return connector:connect("127.0.0.1", public_hung, wait)
+    end
+    local function other(): Net.Conn | nil, string
+      if flooded == "table" then
+        return connector:connect("127.0.0.1", public_echo.address.port, Clock.ms(500))
+      end
+      return connector:connect(1, table_echo.address.port, Clock.ms(500))
+    end
+    local hanging: {Poll.Task} = {}
+    for n = 1, Net.CONNECTOR_FLIGHT do
+      hanging[n] = Poll.spawn(function()
+        local _, _ = hangs(STALL)
+      end)
+    end
+    assert(Poll.delay(Clock.ms(100)))
+    -- Given up on, and so still counted until the process answers each.
+    for _, each in ipairs(hanging) do each:kill() end
+    assert(made_at_once(16, other) == 16, "the other kind waited behind the " .. flooded .. " flood")
+    -- The flooded kind has the rest of its 48, and no more.
+    local none, why = hangs(Clock.ms(200))
+    assert(none == nil and why == Poll.TIMEOUT, flooded .. ": " .. tostring(why))
+    -- Once the stalled connects end at the process, the kind is served again.
+    assert(Poll.delay(STALL + Clock.ms(500)))
+    assert(made_at_once(1, flooded == "table" and function(): Net.Conn | nil, string
+      return connector:connect(1, table_echo.address.port, Clock.ms(500))
+    end or function(): Net.Conn | nil, string
+      return connector:connect("127.0.0.1", public_echo.address.port, Clock.ms(500))
+    end) == 1)
+    assert(connector:close())
+    table_task:cancel()
+    public_task:cancel()
+    assert(table_echo:close())
+    assert(public_echo:close())
+    for _, each in ipairs(held) do assert(each:close()) end
+  end)
+end
+
+local function test_a_table_flood_leaves_public_requests_their_flights()
+  keeps_flights_against("table")
+end
+
+local function test_a_public_flood_leaves_table_requests_their_flights()
+  keeps_flights_against("public")
+end
+
 local function test_closing_a_connector_wakes_a_request_in_flight()
   require_native_connector()
   Poll.run(function()
@@ -562,6 +646,26 @@ local function test_a_public_connector_connects_to_an_address_its_table_lacks()
     assert(listener:close())
   end)
   assert(descriptor_count() == before, "a public connector left a descriptor open")
+end
+
+--- A full table of 128 endpoints still leaves room for the public lists:
+--- the one process holds both.
+local function test_a_full_table_and_the_public_lists_share_one_process()
+  require_native_connector()
+  Poll.run(function()
+    local listener, task = echo_server()
+    local other, other_task = echo_server()
+    local rows: {Net.Endpoint} = { { host = "127.0.0.1", port = listener.address.port } }
+    for i = 2, 128 do rows[i] = { host = "10.0.0." .. i, port = 80 } end
+    local connector = assert(Net.connector(rows, { public = { deny = {} } }))
+    echoed(assert(connector:connect("127.0.0.1", listener.address.port, Clock.seconds(5))), "table")
+    echoed(assert(connector:connect("127.0.0.1", other.address.port, Clock.seconds(5))), "public")
+    assert(connector:close())
+    task:cancel()
+    other_task:cancel()
+    assert(listener:close())
+    assert(other:close())
+  end)
 end
 
 local function test_a_public_connector_refuses_what_its_lists_hold()

@@ -43,8 +43,10 @@ local function block(name: string, node: types.Node, from: markup.Place): markup
     else
       local what = node.kind == "range" and "the body of this {{range}} ends where it did not begin" or
         "the arms of this {{" .. node.kind .. "}} end in different places in the HTML"
+      local raw = markup.differ(place, ends[1])
       return nil, refuse(name, node.line, node.col, what ..
-          " (a tag, attribute or comment is left open in one way and not another)")
+          (raw ~= "" and " (" .. raw .. ")" or
+            " (a tag, attribute or comment is left open in one way and not another)"))
     end
   end
   if node.kind == "range" then
@@ -56,8 +58,10 @@ local function block(name: string, node: types.Node, from: markup.Place): markup
       return nil, why
     end
     if not markup.same(again, ends[1]) then
+      local raw = markup.differ(again, ends[1])
       return nil, refuse(name, node.line, node.col,
-        "the body of this {{range}} ends where it did not begin (a tag, attribute or comment is left open in one way and not another)")
+        "the body of this {{range}} ends where it did not begin (" .. (raw ~= "" and raw or
+          "a tag, attribute or comment is left open in one way and not another") .. ")")
     end
     markup.join(ends[1], again)
   end
