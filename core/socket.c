@@ -1546,12 +1546,15 @@ static bool through_ask (struct resolution *resolution, const struct resolve_ser
   return false;
 }
 
-/* Reads the connector's CONNECTOR_HELLO by the call's deadline, or within
- * `reply_ms` for a call with none: 0, or why not, EPROTO for a connector
- * of another protocol, the stream then shut down as one lost. */
+/* Reads the connector's CONNECTOR_HELLO within the wait each exchange
+ * has ([`through_ask`]'s): until the call's deadline or `reply_ms` from now,
+ * whichever is later, and `reply_ms` for a call with no deadline. 0, or
+ * why not, EPROTO for a connector of another protocol, the stream then
+ * shut down as one lost. */
 static int through_hello (struct resolution *resolution) {
   uint32_t hello = 0;
-  int64_t deadline = resolution->deadline >= 0 ? resolution->deadline : cosmic_now_ms() + resolution->reply_ms;
+  int64_t replied = cosmic_now_ms() + resolution->reply_ms;
+  int64_t deadline = resolution->deadline < 0 || replied > resolution->deadline ? replied : resolution->deadline;
   int failure = through_whole(resolution, deadline, &hello, sizeof hello, false);
   if (failure == 0 && ntohl(hello) != CONNECTOR_HELLO) failure = EPROTO;
   if (failure != 0) {

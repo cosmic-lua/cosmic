@@ -507,7 +507,10 @@ end
 --- waits as [`cosmic.net`] does outside a task, in the core's own wait.
 --- In a `<close>` handler of a task the run is ending -- killed, or
 --- closed as the run fails -- it raises, as every wait but a finalizer's
---- does: such a handler must not hold the thread.
+--- does: such a handler must not hold the thread. In a task, true is no
+--- promise that `fd` is ready: [`Poll.wake`] and [`Poll.closing`] answer
+--- a wait as though it were, so a caller reads or writes without waiting
+--- (a nonblocking descriptor) and waits again on EAGAIN.
 function Poll.wait(fd: integer, events: integer, timeout_ns?: integer): boolean, string
   return wait_on(fd, events, timeout_ns, "Poll.wait")
 end
@@ -515,14 +518,16 @@ end
 --- Waits until `fd` can be read without waiting -- data, the end of what
 --- the peer sends, a connection to accept, or an error to read -- at most
 --- `timeout_ns` nanoseconds (no limit when nil): [`Poll.wait`] for
---- [`sys.POLLIN`].
+--- [`sys.POLLIN`], which [`Poll.wake`] may answer while nothing can be
+--- read.
 function Poll.readable(fd: integer, timeout_ns?: integer): boolean, string
   return wait_on(fd, sys.POLLIN, timeout_ns, "Poll.readable")
 end
 
 --- Waits until `fd` can be written without waiting, or has failed, at
 --- most `timeout_ns` nanoseconds (no limit when nil): [`Poll.wait`] for
---- [`sys.POLLOUT`].
+--- [`sys.POLLOUT`], which [`Poll.wake`] may answer while nothing can be
+--- written.
 function Poll.writable(fd: integer, timeout_ns?: integer): boolean, string
   return wait_on(fd, sys.POLLOUT, timeout_ns, "Poll.writable")
 end
@@ -534,7 +539,8 @@ end
 --- unasked -- or nil and [`Poll.TIMEOUT`] once `timeout_ns` passes
 --- first, as [`Poll.readable`] fails, or nil and [`Poll.CANCELLED`] once
 --- the task is cancelled. A descriptor another module is about to close
---- ([`Poll.closing`]) answers [`sys.POLLNVAL`].
+--- ([`Poll.closing`]) answers [`sys.POLLNVAL`], and one another task woke
+--- ([`Poll.wake`]) the events asked of it, though it may not have them.
 function Poll.ready(fds: {integer}, events: {integer}, timeout_ns?: integer): {integer} | nil, string
   local task = current("Poll.ready", 2)
   Poll.checked_ns(timeout_ns, "poll", "timeout_ns", 2)

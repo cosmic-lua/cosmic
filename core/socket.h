@@ -253,7 +253,7 @@ COSMIC_SYSCALL(resolve, 4);
  * ---@param reply_ms integer how long the connector may take to reply to one request, 1 through 120000: its own wait to connect and a grace
  * ---@param servers {ThroughServer} the name servers to ask, 1 through 128
  * ---@param hosts? string a hosts file to read in place of the system's
- * ---@param hello? boolean whether the connector's `CONNECTOR_HELLO` is yet to be read from the stream: it is read first, before the name is looked at, by the call's deadline (within `reply_ms` where it has none), and a stream that says no such word fails EPROTO and is shut down; nil is false, and any other value raises
+ * ---@param hello? boolean whether the connector's `CONNECTOR_HELLO` is yet to be read from the stream: it is read first, before the name is looked at, within the wait each exchange has (the later of the call's deadline and `reply_ms` from then, or `reply_ms` where the call has none), and a stream that says no such word fails EPROTO and is shut down; nil is false, and any other value raises
  * ---@return {Resolved}|nil addresses every address, at least one, or nil on failure
  * ---@return string error what went wrong, when addresses is nil
  * ---@return integer errno the error number, when addresses is nil: as `resolve`'s, EPROTO where `hello` was asked for and the connector said another word (and EPIPE or ETIMEDOUT where it said none), ETIMEDOUT also where a server went unanswered for want of time (its connect timed out, or the deadline passed before it was asked), ECONNREFUSED where every server was refused a connection, or ENOSYS off Linux

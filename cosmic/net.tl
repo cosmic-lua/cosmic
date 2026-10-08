@@ -1165,6 +1165,11 @@ end
 --- Reads what the stream of `channel` holds now, without waiting: its
 --- CONNECTOR_HELLO first, then replies, each handed to its request. It
 --- stops where the stream has nothing more, or is lost.
+-- TODO: read the replies to requests given up on as they come, so that an
+-- idle connector's stream holds none of their connections (up to
+-- CONNECTOR_FLIGHT) until the next request reads it, once cosmic.poll has
+-- a task a run does not wait for: a task spawned to read them would hold
+-- Poll.run open for the connector's whole wait.
 local function read_replies(channel: Channel)
   while channel.lost == nil do
     if not channel.process.open then
@@ -1220,6 +1225,9 @@ end
 --- to look again: a task parked in its wait would otherwise sleep on until
 --- more bytes came, or its deadline. A stream lost was woken by its
 --- closing.
+-- TODO: wake only the tasks whose request was answered, and one waiting
+-- for room for each slot freed, with a wakeup of each request's own: every
+-- waiter looks again at each reply, so n waiting cost n looks a reply.
 local function pump(channel: Channel)
   local before = channel.progress
   read_replies(channel)
@@ -1228,9 +1236,13 @@ end
 
 --- Waits on the stream of `channel` until `ready` holds, reading what
 --- comes meanwhile, by `deadline` (nil for none): true, or false and why
---- not, the stream's loss among them. `ready` is looked at once more
---- after a wait fails, as another task may have answered it meanwhile.
-local function await(channel: Channel, deadline: integer | nil, ready: function(): boolean): boolean, string
+--- not, the stream's loss among them, and a cancel's [`Poll.CANCELLED`]
+--- before it. With `late`, `ready` is looked at once more after a wait
+--- fails, as another task may have answered it meanwhile: for an answer
+--- already come, never for leave to act, which a caller that has timed
+--- out or been cancelled no longer has.
+local function await(channel: Channel, deadline: integer | nil, late: boolean,
+                     ready: function(): boolean): boolean, string
   while true do
     pump(channel)
     if ready() then return true, "" end
@@ -1238,18 +1250,16 @@ local function await(channel: Channel, deadline: integer | nil, ready: function(
     local left = deadline ~= nil and math.max(0, deadline - Clock.monotonic_ns()) or nil
     local woke, why = waited(channel.process.fd, false, left)
     if not woke then
-      pump(channel)
-      if ready() then return true, "" end
+      if late then
+        pump(channel)
+        if ready() then return true, "" end
+      end
+      if why == Poll.CANCELLED then return false, why end
       return false, channel.lost or why
     end
   end
 end
 
--- TODO: read the replies to requests given up on as they come, so that an
--- idle connector's stream holds none of their connections (up to
--- CONNECTOR_FLIGHT) until the next request reads it, once cosmic.poll has
--- a task a run does not wait for: a task spawned to read them would hold
--- Poll.run open for the connector's whole wait.
 --- Marks a request given up on where its caller leaves before its reply,
 --- however it leaves, a task killed in its wait included, and closes a
 --- connection answered but not taken.
@@ -1276,7 +1286,7 @@ local asking_mt: metatable<Asking> = {
 --- its reply comes, which the connector sends within the request's wait.
 local function ask(channel: Channel, body: string, host: string, port: integer, deadline: integer,
                    timeout_ns: integer, refusal: string): Net.Conn | nil, string
-  local room, waiting = await(channel, deadline, function(): boolean
+  local room, waiting = await(channel, deadline, false, function(): boolean
     return channel.lost == nil and channel.greeted and channel.count < raw.CONNECTOR_FLIGHT
   end)
   if not room then return nil, waiting end
@@ -1297,7 +1307,7 @@ local function ask(channel: Channel, body: string, host: string, port: integer, 
   channel.count = channel.count + 1
   local asking: Asking = setmetatable({ pending = pending }, asking_mt)
   local _held <close> = asking
-  local answered, why = await(channel, deadline, function(): boolean return pending.done end)
+  local answered, why = await(channel, deadline, true, function(): boolean return pending.done end)
   if not answered then return nil, why end
   if pending.conn == nil then return nil, pending.why end
   pending.taken = true
@@ -1470,7 +1480,7 @@ resolved_through = function(name: string, opts: Net.ResolveOptions): {Net.Resolv
   -- meanwhile. A lookup waits for every connect pending to be answered,
   -- and a stream that connects keep busy could keep one waiting to its
   -- deadline: the relay gives its lookups a connector of their own.
-  local idle, waiting = await(channel, deadline, function(): boolean
+  local idle, waiting = await(channel, deadline, false, function(): boolean
     return channel.lost == nil and channel.greeted and channel.count == 0 and channel.header == ""
   end)
   if not idle then return nil, waiting end

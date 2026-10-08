@@ -935,6 +935,46 @@ local function test_a_lost_stream_sends_nothing_to_its_closed_descriptor()
   end)
 end
 
+--- A task cancelled while it waits for room asks nothing, though room
+--- comes as it is cancelled: a request sent then would be given up at
+--- once, and the connector would make its connect and hold its slot all
+--- the same.
+local function test_a_task_cancelled_waiting_for_room_asks_nothing()
+  Poll.run(function()
+    local pair = stream_pair()
+    local connector = assert(Net.connector_from(pair[1], { { host = "127.0.0.1", port = 9 } }, false,
+      Clock.seconds(30)))
+    local tags: {integer} = {}
+    local serving = stand_in(pair[2], function(tag: integer, _: string) tags[#tags + 1] = tag end)
+    local tasks: {Poll.Task} = {}
+    for i = 1, Net.CONNECTOR_FLIGHT do
+      tasks[i] = Poll.spawn(function() local _, _ = connector:connect(1, 9, Clock.seconds(3)) end)
+    end
+    local cancelled: string
+    local waiting = Poll.spawn(function()
+      local conn, why = connector:connect(1, 9, Clock.seconds(3))
+      assert(conn == nil)
+      cancelled = why
+    end)
+    assert(Poll.delay(Clock.ms(50)))
+    assert(#tags == Net.CONNECTOR_FLIGHT, #tags .. " requests were asked")
+    -- Room for two, and the waiting task cancelled before it looks again.
+    assert(sys.write(pair[2], string.pack(">I4I4I4I4", tags[1], socket.ECONNREFUSED, tags[2],
+      socket.ECONNREFUSED)) == 16)
+    waiting:cancel()
+    local conn, why = connector:connect(1, 9, Clock.ms(50))
+    assert(conn == nil and why == Poll.TIMEOUT, tostring(why))
+    assert(waiting:join(Clock.seconds(5)))
+    assert(cancelled == Poll.CANCELLED, tostring(cancelled))
+    assert(#tags == Net.CONNECTOR_FLIGHT + 1, "the cancelled task asked: " .. #tags .. " requests")
+    for _, task in ipairs(tasks) do task:cancel() end
+    for _, task in ipairs(tasks) do assert(task:join(Clock.seconds(5))) end
+    serving:cancel()
+    assert(connector:close())
+    assert(sys.close(pair[2]))
+  end)
+end
+
 --- A connector of another protocol says another hello: it is asked
 --- nothing, and the request fails saying so.
 local function test_a_connector_of_another_protocol_is_asked_nothing()
