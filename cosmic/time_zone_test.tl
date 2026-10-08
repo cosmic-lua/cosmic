@@ -375,10 +375,10 @@ end
 --- A file of many local time types whose abbreviations run to one NUL
 --- at the end of many bytes is refused, not searched from every type to
 --- the end, and one whose NUL is near is read in time linear in its
---- length. The bound is on the ratio of reading 40000 types to reading
+--- length. The bound is on the ratio of reading 80000 types to reading
 --- 10000, not on wall time, so it holds on a slow core and a loaded
---- host: linear time gives about 4, a search from every type to the end
---- about 16.
+--- host: linear time gives about 8, a search from every type to the end
+--- about 64.
 local function test_tzif_with_long_abbreviations_is_read_in_linear_time()
   -- A file of `count` types; with `near`, its abbreviations hold a NUL
   -- near their start, and every type reads its own, found once.
@@ -403,19 +403,24 @@ local function test_tzif_with_long_abbreviations_is_read_in_linear_time()
     return elapsed
   end
   for _, near in ipairs({ false, true }) do
-    local few, many = file(10000, near), file(40000, near)
-    -- The least of up to three of each, taken in turn, so a pause
-    -- elsewhere on the host inflates neither; a ratio within the bound
-    -- ends the tries.
+    local few, many = file(10000, near), file(80000, near)
+    -- One read of each first, so the first-call costs (code paths,
+    -- allocator growth) are in neither timing. Then the least of up to
+    -- ten of each, taken in turn, so a pause elsewhere on the host
+    -- inflates neither; a ratio within the bound ends the tries. Linear
+    -- time is about 8 and a quadratic search about 64, so the bound 24
+    -- leaves the noise a factor of three either way.
+    read(few, near)
+    read(many, near)
     local few_ns, many_ns = math.maxinteger, math.maxinteger
     local ratio: number
-    for _ = 1, 3 do
+    for _ = 1, 10 do
       few_ns = math.min(few_ns, read(few, near))
       many_ns = math.min(many_ns, read(many, near))
       ratio = many_ns / math.max(few_ns, 1000000)
-      if ratio < 8 then break end
+      if ratio < 24 then break end
     end
-    assert(ratio < 8, ("40000 types took %d ms, 10000 %d ms: %.1fx"):format(
+    assert(ratio < 24, ("80000 types took %d ms, 10000 %d ms: %.1fx"):format(
       many_ns // 1000000, few_ns // 1000000, ratio))
   end
 end
