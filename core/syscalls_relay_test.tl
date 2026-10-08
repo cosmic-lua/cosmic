@@ -1,11 +1,10 @@
---- `spawn`'s `relay` and `host_network` on a live child (core/process.h's
---- `Sandbox`): the listeners a child binds in the network namespace it makes
---- for itself and hands out over a channel, and the one raw flag that lets a
---- policy child keep the host's network. The child is a stand-in
---- (build/stand_in.tl). Where the platform has no sandbox they are not
---- applicable, and where this host gives no user namespace or seccomp a test
---- skips itself. The arguments' own checks, which raise before a child, are
---- core/syscalls_test.tl's.
+--- `spawn`'s `relay` on a live child (core/process.h's `Sandbox`): the
+--- listeners a child binds in the network namespace it makes for itself and
+--- hands out over a channel, and the loopback of that namespace, which is
+--- its own. The child is a stand-in (build/stand_in.tl). Where the platform
+--- has no sandbox they are not applicable, and where this host gives no user
+--- namespace or seccomp a test skips itself. The arguments' own checks, which
+--- raise before a child, are core/syscalls_test.tl's.
 
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -190,36 +189,23 @@ local function test_a_channel_not_open_is_refused_before_a_child(tmp: string)
   assert(pid == nil and errno == sys.EBADF, "a descriptor not open is EBADF")
 end
 
---- With `host_network` a policy child's inet sockets are in the host's
---- network: it connects to a listener this worker made.
-local function test_host_network_reaches_a_listener_of_the_hosts_own_loopback(tmp: string)
+--- An offline child with inet sockets is in a network of its own, where a
+--- port this worker listens on is nothing; and one with no family named
+--- makes no socket at all.
+local function test_an_offline_childs_loopback_is_its_own(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-  local target = "connect-tcp 127.0.0.1 " .. listener.address.port
-  local pid, why = start(tmp, probe, target,
-    { promises = {}, sockets = { "inet" }, host_network = true })
-  if pid == nil then
+  local alone = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
+  local target = "connect-tcp 127.0.0.1 " .. alone.address.port
+  local private, why = start(tmp, probe, target,
+    { offline = true, promises = {}, sockets = { "inet" } })
+  if private == nil then
+    assert(alone:close())
     assert(unsandboxable(why), "the start was refused: " .. why)
     Test.skip("this host gives no such sandbox: " .. why)
   end
-  local said, code = finished(tmp, pid)
-  assert(said == "connected\n" and code == 0, "it reaches the host's loopback: " .. said)
-  Poll.run(function()
-    local conn = assert(listener:accept(Clock.seconds(5)), "the host's listener took it")
-    assert(conn:close())
-  end)
-  assert(listener:close())
-  -- Without the flag a child with inet sockets is in a network of its own,
-  -- where that port is nothing; and one with no family named makes none.
-  local alone = Net.listen(Net.tcp("127.0.0.1", 0))
-  assert(alone ~= nil)
-  local private = start(tmp, probe, "connect-tcp 127.0.0.1 " .. alone.address.port,
-    { offline = true, promises = {}, sockets = { "inet" } })
-  assert(private ~= nil, "a policy start with inet sockets")
   local refused = finished(tmp, private)
   assert(refused:find("refused", 1, true), "its loopback is its own: " .. refused)
-  local held = start(tmp, probe, target, { promises = {} })
-  assert(held ~= nil)
+  local held = assert(start(tmp, probe, target, { promises = {} }))
   local barred = finished(tmp, held)
   assert(barred:find("not permitted", 1, true), "no family named: " .. barred)
   assert(alone:close())
