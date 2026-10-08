@@ -361,6 +361,18 @@ local function test_getgroups_leaves_nothing_whenever_an_allocation_fails()
   assert_c_heap(bytes, blocks, "getgroups under refusal")
 end
 
+--- `getifaddrs` holds libc's list in a guard while it builds the table, so
+--- a refusal anywhere in the table frees it; a core that has no
+--- `getifaddrs` (every one but Darwin's) answers ENOSYS under refusal too.
+local function test_getifaddrs_survives_every_refused_allocation()
+  local darwin = assert(sys.uname()).sysname == "Darwin"
+  local ended = under_every_failure(function()
+    local listed, why, errno = sys.getifaddrs()
+    if darwin then assert(listed ~= nil, why) else assert(listed == nil and errno == sys.ENOSYS) end
+  end)
+  assert(not darwin or ended > 0, "the list's table allocates")
+end
+
 --- The C heap counts what the core's C allocates and frees, and a
 --- refused C allocation is counted with Lua's.
 local function test_the_c_heap_counts_its_blocks_and_refusals()

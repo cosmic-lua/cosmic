@@ -520,9 +520,10 @@ local record Options
   --- The token is in the program's environment, which its children inherit
   --- and which processes of the same user, and root, can read (`ps -E`);
   --- other users cannot. A program held by another policy may read it too,
-  --- but reaches no port but its own relay's. This host's own addresses are not refused on macOS,
-  --- where they are not read: a granted name that resolves to a public
-  --- address of this host's is connected. This program, and any program on a `database`,
+  --- but reaches no port but its own relay's. The relay refuses this host's
+  --- own addresses as on Linux: the start lists them once, as it runs
+  --- ([`sys.getifaddrs`]), so an address the host gains later is not refused.
+  --- This program, and any program on a `database`,
   --- runs as its core, as under Landlock: the core is granted `rx` and the
   --- database `r` (it is opened read-only and immutable); `tmp` is a
   --- directory made for the start and granted `rwc`. The child leads
@@ -4023,21 +4024,13 @@ local function prepare_relay(connect: {string}, opts: Options, seatbelt: boolean
   end
   -- The host's own addresses are read once, here: an address the host gains
   -- while the program runs is not refused by this relay.
-  local addresses: {string} = {}
+  local addresses, address_trouble = RelayConfig.host_addresses()
+  if addresses == nil then return nil, address_trouble end
   local token: string
   if seatbelt then
-    -- TODO: refuse the host's own addresses on macOS too, once cosmic.sys
-    -- carries getifaddrs (the TODO at cosmic.relay.config's host_addresses):
-    -- /proc/self/net is Linux's, so this relay refuses only the classes
-    -- cosmic.relay.address names, and connects to a public address of this
-    -- host's where a granted name resolves to one.
     local drawn, token_trouble = relay_token()
     if drawn == nil then return nil, token_trouble end
     token = drawn
-  else
-    local read, address_trouble = RelayConfig.host_addresses()
-    if read == nil then return nil, address_trouble end
-    addresses = read
   end
   local program, seal_trouble = seal_relay()
   if program == nil then return nil, seal_trouble end

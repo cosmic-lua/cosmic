@@ -568,6 +568,69 @@ local function test_a_public_name_is_resolved_and_reached_through_the_relay(tmp:
       "\nrelay: " .. relay_log .. denials())
 end
 
+--- What the relay answered a CONNECT to `target` that a policy granting
+--- `target` alone asked of it: the status line, and the relay's log.
+local function connect_through(tmp: string, target: string): string, string
+  local log_path = tmp .. "/relay.log"
+  local log = assert(sys.open(log_path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 384))
+  local result, why = Child.run({ assert(Proc.executable()), "public", target }, { policy = {
+    database = sealed_client(tmp), profiles = { "system" }, connect = { target } },
+    stdout = "capture", stderr = "capture", relay_log = log, timeout_ns = Clock.seconds(90) })
+  assert(sys.close(log))
+  local relay_log = Fs.read(log_path) or ""
+  assert(result, tostring(why) .. "\nrelay: " .. relay_log .. denials())
+  assert(result.ok, redacted(tostring(result.stdout) .. "\nstderr: " .. tostring(result.stderr)) ..
+      "\nrelay: " .. relay_log .. denials())
+  return tostring(fields(result.stdout or "").public), relay_log
+end
+
+--- The start tells the relay this host's own addresses, which it refuses
+--- for a granted name as Linux's does: `localhost` granted by name, and
+--- 127.0.0.1 not literally, is refused as one of them, which the relay
+--- would otherwise name only a loopback address.
+local function test_a_granted_name_of_the_hosts_loopback_is_refused_as_its_own(tmp: string)
+  macos_only()
+  local line, log = connect_through(tmp, "localhost:9")
+  assert(line:find("^HTTP/1.1 403 ") and line:find("127.0.0.1 is one of this host's own addresses", 1, true),
+    line .. "\nrelay: " .. log)
+  assert(log:find("one of this host's own addresses", 1, true), log)
+end
+
+--- A granted name that resolves to an address of one of this host's other
+--- interfaces is refused as one of its own, whatever other class the
+--- address is in. The name is a wildcard DNS service's for the address
+--- (sslip.io answers `10-1-2-3.sslip.io` with 10.1.2.3); skipped where this
+--- host has no such address or the name does not resolve to it alone.
+local function test_a_granted_name_of_another_host_address_is_refused_as_its_own(tmp: string)
+  macos_only()
+  local address: string
+  for _, entry in ipairs((assert(sys.getifaddrs()))) do
+    if entry.family == "ipv4" and not entry.loopback then
+      address = entry.address
+      break
+    end
+  end
+  if address == nil then
+    Test.skip("this host has no IPv4 address but its loopback's")
+    return
+  end
+  local name = address:gsub("%.", "-") .. ".sslip.io"
+  local found, resolve_why = Net.resolve(name, { timeout_ns = Clock.seconds(5) })
+  if found == nil then
+    Test.skip("this host does not resolve " .. name .. ": " .. resolve_why)
+    return
+  end
+  for _, answer in ipairs(found) do
+    if answer.address ~= address then
+      Test.skip(name .. " resolves to " .. answer.address .. ", not " .. address)
+      return
+    end
+  end
+  local line, log = connect_through(tmp, name .. ":443")
+  assert(line:find("^HTTP/1.1 403 ") and line:find(address .. " is one of this host's own addresses", 1, true),
+    line .. "\nrelay: " .. log)
+end
+
 --- The proxy variables are the relay's to set, so a policy with `connect`
 --- that names one is refused on macOS too.
 local function test_a_policy_with_connect_may_not_set_a_proxy_variable(tmp: string)

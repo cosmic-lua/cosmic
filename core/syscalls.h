@@ -598,6 +598,25 @@ COSMIC_SYSCALL(cpu_features, 0);
 COSMIC_SYSCALL(uname, 0);
 
 /*
+ * --- One IPv4 or IPv6 address of one of the host's interfaces.
+ * ---@class InterfaceAddress
+ * ---@field name string the interface's name: "lo0", "en0"
+ * ---@field family string "ipv4" or "ipv6"
+ * ---@field address string the address in numeric form, as `inet_ntop` writes it, with no zone: a link-local IPv6 address comes without the interface index Darwin's kernel writes into its second group
+ * ---@field prefix integer how many leading one bits the address's netmask has, 0 where the interface reports no netmask
+ * ---@field up boolean whether the interface is up (IFF_UP)
+ * ---@field loopback boolean whether the interface is a loopback one (IFF_LOOPBACK)
+ */
+
+/*
+ * --- The IPv4 and IPv6 addresses of the host's interfaces, as `getifaddrs(3)` lists them, in its order; an entry of another family (a link-layer address) is left out. Darwin only: elsewhere ENOSYS. Linux's `getifaddrs` asks the kernel over a netlink socket, which a sandboxed process's filter refuses, so a caller there reads /proc/self/net instead ([`cosmic.relay.config`]'s `host_addresses`).
+ * ---@return {InterfaceAddress}|nil addresses every address, or nil on failure
+ * ---@return string error what went wrong, when addresses is nil
+ * ---@return integer errno the error number, when addresses is nil: ENOSYS off Darwin
+ */
+COSMIC_SYSCALL(getifaddrs, 0);
+
+/*
  * --- Reads a clock, in nanoseconds.
  * ---@param clock integer one of `CLOCK_REALTIME`, `CLOCK_MONOTONIC`
  * ---@return integer|nil nanoseconds the reading, or nil on failure

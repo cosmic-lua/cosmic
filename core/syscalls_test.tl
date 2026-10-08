@@ -12,6 +12,7 @@
 
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
+local Relay = require("cosmic.relay")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
@@ -748,6 +749,35 @@ local function test_uname_reports_nonempty_sysname_and_machine()
   -- Stable across a call: this is the running host, not a moving target.
   local again = assert(sys.uname())
   assert(again.sysname == names.sysname and again.machine == names.machine and again.release == names.release)
+end
+
+--- On Darwin `getifaddrs` lists the loopback interface's 127.0.0.1/8 and
+--- every address in numeric form with no zone, a link-local one without
+--- the interface index the kernel writes into its second group; elsewhere
+--- it fails ENOSYS.
+local function test_getifaddrs_lists_the_loopback_on_darwin_and_fails_enosys_elsewhere()
+  local listed, why, errno = sys.getifaddrs()
+  if assert(sys.uname()).sysname ~= "Darwin" then
+    assert(listed == nil and why ~= "" and errno == sys.ENOSYS, tostring(why))
+    return
+  end
+  assert(listed ~= nil, why)
+  local loopback = false
+  for _, entry in ipairs(listed) do
+    local shown = entry.name .. " " .. entry.address .. "/" .. entry.prefix
+    assert(#entry.name > 0 and (entry.family == "ipv4" or entry.family == "ipv6"), shown)
+    local bytes = Relay.Address.parse(entry.address)
+    assert(bytes ~= nil and #bytes == (entry.family == "ipv4" and 4 or 16), shown)
+    assert(entry.prefix >= 0 and entry.prefix <= #bytes * 8, shown)
+    if #bytes == 16 and bytes[1] == 0xfe and bytes[2] & 0xc0 == 0x80 then
+      assert(bytes[3] == 0 and bytes[4] == 0, "a link-local address keeps its scope: " .. shown)
+    end
+    if entry.address == "127.0.0.1" then
+      assert(entry.loopback and entry.up and entry.prefix == 8 and entry.family == "ipv4", shown)
+      loopback = true
+    end
+  end
+  assert(loopback, "127.0.0.1 is listed")
 end
 
 --- C reads a path up to its first NUL, so a call handed "<dir>\0/x"
