@@ -81,11 +81,14 @@ end
 --- curl sends it through the relay because NO_PROXY no longer names it.
 --- An address the policy declares under `loopback` stays direct: curl dials
 --- it in the sandbox's own network, where nothing listens (exit 7), and the
---- relay is never asked (it would answer 403).
+--- relay is never asked (through it curl would report a CONNECT tunnel the
+--- relay refused).
 local function test_a_declared_loopback_address_stays_direct()
   serving(function(port: integer)
     local out, code = curl("127.0.0.1:" .. port, "http://127.0.0.2:" .. port .. "/", { "127.0.0.2" })
-    assert(code == 7 and out:find("403", 1, true) == nil, "exit " .. code .. ": " .. out)
+    -- Not out:find("403"): the port, chosen by the kernel, may hold those digits.
+    assert(code == 7 and out:find("Failed to connect to 127.0.0.2", 1, true) ~= nil and
+        out:find("CONNECT", 1, true) == nil, "exit " .. code .. ": " .. out)
   end)
 end
 
