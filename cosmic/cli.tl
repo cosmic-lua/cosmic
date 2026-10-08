@@ -576,7 +576,9 @@ local record Cli
   --- without one), and must exist, and paths and `--set-env` values must be UTF-8, as they are
   --- written as JSON. `cosmic docs cosmic.sandbox` names the policy's
   --- fields. `--connect` names a host and port the relay that
-  --- the start runs connects the program to, on Linux; macOS refuses it.
+  --- the start runs connects the program to: on Linux in the program's own
+  --- network, and on macOS on the host's loopback, behind a token drawn for
+  --- the run that the proxy variables carry.
   --- The program is told of the relay by the proxy variables (`HTTPS_PROXY`,
   --- `ALL_PROXY` and the rest), so a program that honours them reaches
   --- exactly the hosts granted, a name resolved by the relay and never by

@@ -146,7 +146,6 @@ local function test_what_seatbelt_cannot_hold_fails_the_start_with_its_own_refus
   end
   says({ isolate = { "proc" } }, "isolate needs namespaces")
   says({ isolate = { "file" } }, "isolate needs namespaces")
-  says({ connect = { "example.com:443" } }, "connect needs the network relay")
   says({ loopback = { "127.0.0.1" } }, "loopback needs a network namespace")
   says({ promises = { "nest" } }, "nest cannot be held by Seatbelt")
   says({ limits = { processes = 8 } }, "limits.processes needs a user namespace")

@@ -81,6 +81,21 @@ local record relay_config
     --- Why no name is resolved, or nil: the relay then reaches only what
     --- a grant names literally, and the upstream.
     unresolved: string
+    --- Whether the relay serves on the host's loopback, as macOS's start
+    --- has it ([`Child.start`]): it is handed `listeners` listening sockets
+    --- from descriptor 3, at one port of 127.0.0.1 and ::1, each for both
+    --- protocols, behind `token`; and it connects and resolves itself, as its
+    --- own profile allows, rather than through connectors it is handed.
+    --- False for Linux's relay, which is handed the program's listeners
+    --- over a channel.
+    direct: boolean
+    --- With `direct`, how many listening sockets it is handed, from
+    --- descriptor 3: 1 or 2.
+    listeners: integer
+    --- The per-sandbox token every connection must present
+    --- ([`cosmic.relay.server`]'s `token`), or nil for none: a `direct`
+    --- relay's listener is one every user of the host can reach.
+    token: string
   end
 
   --- What the relay's starter, [`Child.start`], makes for it before the
@@ -134,12 +149,18 @@ local RESERVED <const>: {string} = {
 --- The environment a program of a policy with `connect` is given: every
 --- proxy client's variable, pointing at the relay's listeners, and
 --- `NO_PROXY` naming the program's own network. `loopback` is the
---- policy's declared addresses, which stay direct.
+--- policy's declared addresses, which stay direct. A relay on the host's
+--- loopback (`port`, macOS's) is at that one port for both protocols, and
+--- with a `token` each variable carries it as the password of the user
+--- "cosmic": a token is drawn in hex, which a URL holds as it is.
 --- @param loopback {string} The policy's `loopback` addresses
+--- @param port integer|nil The one port of a relay on the host's loopback, nil for Linux's two
+--- @param token string|nil The relay's token, nil for none
 --- @return {string:string} The variables, by name
-function relay_config.proxy_env(loopback: {string}): {string:string}
-  local http = "http://127.0.0.1:" .. relay_config.http_port
-  local socks = "socks5h://127.0.0.1:" .. relay_config.socks_port
+function relay_config.proxy_env(loopback: {string}, port?: integer, token?: string): {string:string}
+  local userinfo = token ~= nil and ("cosmic:" .. token .. "@") or ""
+  local http = "http://" .. userinfo .. "127.0.0.1:" .. (port or relay_config.http_port)
+  local socks = "socks5h://" .. userinfo .. "127.0.0.1:" .. (port or relay_config.socks_port)
   local direct: {string} = { "localhost", "127.0.0.1", "::1" }
   local listed: {string:boolean} = { ["localhost"] = true, ["127.0.0.1"] = true, ["::1"] = true }
   for _, address in ipairs(loopback) do
@@ -329,6 +350,9 @@ function relay_config.encode(config: relay_config.Config): string
     name_servers = endpoints(config.name_servers),
     name_server_wait_ns = config.name_server_wait_ns,
     unresolved = config.unresolved,
+    direct = config.direct,
+    listeners = config.listeners,
+    token = config.token,
   })
   if encoded == nil then error("relay_config: " .. tostring(why), 2) end
   return encoded
@@ -411,6 +435,17 @@ function relay_config.decode(text: string): relay_config.Config | nil, string
     return nil, "unresolved is not a string"
   end
   if unresolved is string then config.unresolved = unresolved end
+  local direct = value.direct
+  if direct ~= nil and not direct is boolean then return nil, "direct is not a boolean" end
+  config.direct = direct == true
+  local token = value.token
+  if token ~= nil and not token is string then return nil, "token is not a string" end
+  if token is string then config.token = token end
+  local listeners = value.listeners
+  if listeners ~= nil and (not listeners is integer or listeners < 1 or listeners > 2) then
+    return nil, "listeners is not 1 or 2"
+  end
+  if listeners is integer then config.listeners = listeners end
   return config, ""
 end
 

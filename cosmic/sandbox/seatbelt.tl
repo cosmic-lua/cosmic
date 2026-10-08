@@ -44,6 +44,25 @@ local record Seatbelt
     --- terminal, or nil for none. With it the profile grants the slave and
     --- `/dev/tty`, and `/dev` to list, which no other profile does.
     terminal: string
+    --- The port the network relay that serves the policy's `connect`
+    --- listens at on the host's loopback ([`Child.start`]), which the
+    --- profile lets the program connect to over TCP and nothing else of the
+    --- network: Seatbelt names a host only as `localhost` or `*`, so the rule
+    --- is `localhost:PORT`, which holds 127.0.0.1 and ::1 alike (the relay
+    --- holds the port on both) and lets it bind and listen nowhere. Required with `connect`; a policy without
+    --- `connect` is refused one.
+    relay_port: integer
+    --- The port of the host's loopback the network relay accepts at, for
+    --- the relay's own profile; nil for any other. The relay may connect to
+    --- any address and port (Seatbelt cannot name one by number, so the
+    --- relay's own checks of the grants decide where it connects,
+    --- [`cosmic.relay.server`]), accept at that port of the loopback and bind
+    --- nothing (its starter binds its listeners and hands them over), look up
+    --- the system's DNS configuration, the one Mach service the resolver
+    --- reaches, and run no program but `core`: the rest of what it is granted
+    --- `x` it may map as a library and not run. Only the start of the relay
+    --- sets it.
+    serves_relay: integer
   end
 
   --- Text to pass to sandbox_init_with_parameters, values kept outside
@@ -109,15 +128,6 @@ end
 --- not Seatbelt operations; their handling remains the caller's.
 local function unsupported(policy: rules.Policy): string
   if #(policy.isolate or {}) > 0 then return "isolate needs namespaces, which macOS has none of" end
-  -- TODO: serve `connect` on macOS with a relay that listens on the host's
-  -- loopback behind a per-sandbox token (the TODO at cosmic.relay.server's
-  -- header, the relay's CONNECT and SOCKS5 readers parse the credentials),
-  -- whose port the profile allows the program to reach: Seatbelt has no
-  -- network namespace to hold its listeners in, as Linux's start does
-  -- ([`Child.start`]'s `connect`).
-  if #(policy.connect or {}) > 0 then
-    return "connect needs the network relay, which a start on macOS does not run yet"
-  end
   if #(policy.loopback or {}) > 0 then return "loopback needs a network namespace of its own" end
   -- A promise the profile has no rule for would be dropped from it, not
   -- held: each is named here or refused.
@@ -141,14 +151,16 @@ local function unsupported(policy: rules.Policy): string
 end
 
 --- Appends to `text` the rules `letters` give at `at`, an SBPL path filter;
---- `fattr` adds the attribute writes a `w` or `c` then allows.
-local function allow(text: {string}, fattr: boolean, letters: string, at: string)
+--- `fattr` adds the attribute writes a `w` or `c` then allows, and `map_only`
+--- makes an `x` a library's mapping alone, never a program's run.
+local function allow(text: {string}, fattr: boolean, letters: string, at: string, map_only?: boolean)
   if letters:find("r", 1, true) then text[#text + 1] = "(allow file-read* " .. at .. ")" end
   if letters:find("w", 1, true) then
     text[#text + 1] = "(allow file-write-data " .. at .. ")"
   end
   if letters:find("x", 1, true) then
-    text[#text + 1] = "(allow process-exec file-map-executable " .. at .. ")"
+    text[#text + 1] = (map_only and "(allow file-map-executable " or "(allow process-exec file-map-executable ") ..
+      at .. ")"
   end
   if letters:find("c", 1, true) then
     text[#text + 1] = "(allow file-write-create file-write-unlink " .. at .. ")"
@@ -172,6 +184,8 @@ end
 --- file alone, `options.core` (`rx`) and `options.database` (`r`), which the
 --- policy's own `database` must be. A policy's `tmp` is granted `rwc` through
 --- the parameter [`Seatbelt.Profile`]'s `tmp` names, which the caller sets.
+--- A policy's `connect` is reached through the network relay alone, at
+--- [`Seatbelt.Options.relay_port`] of the host's loopback.
 --- Nil and why for an invalid policy, missing path or unsupported field.
 ---
 --- The returned rlimits must be applied separately. This is preparation
@@ -183,6 +197,14 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
   if not valid then return nil, why end
   local trouble = unsupported(policy)
   if trouble ~= "" then return refuse(trouble) end
+  local relay_port = options and options.relay_port
+  if #(policy.connect or {}) > 0 then
+    if math.type(relay_port) ~= "integer" or relay_port < 1 or relay_port > 65535 then
+      return refuse("connect needs the port of the network relay that serves it")
+    end
+  elseif relay_port ~= nil then
+    return refuse("a relay's port is given to a policy with no connect")
+  end
   local grants: {rules.Grant} = {}
   local directories: {string:boolean} = {}
   local paths = options and options.paths or {}
@@ -269,11 +291,15 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
     if promise == "fattr" then fattr = true end
   end
   local parameters: {string:string} = { ROOT = "/" }
+  local serves = options and options.serves_relay
+  -- The relay runs its core alone, which the start executes under the profile.
+  local runs: string
+  if serves ~= nil and options.core ~= nil then runs = paths[options.core].path end
   for i, grant in ipairs(merged.grants) do
     local name = "PATH_" .. i
     parameters[name] = grant.path
     allow(text, fattr, grant.letters, '(' .. (directories[grant.path] and "subpath" or "literal") ..
-        ' (param "' .. name .. '"))')
+        ' (param "' .. name .. '"))', serves ~= nil and grant.path ~= runs)
   end
   local tmp: string
   if policy.tmp then
@@ -292,6 +318,23 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
     text[#text + 1] = '(allow file-read-data file-write-data file-ioctl (literal (param "TTY")))'
     text[#text + 1] = '(allow file-read-data file-write-data file-ioctl (literal "/dev/tty"))'
     text[#text + 1] = '(allow file-read-data (literal "/dev"))'
+  end
+  if relay_port ~= nil then
+    -- `localhost` is ::1 at the port as well: the start holds the port
+    -- there too ([`cosmic.sandbox.relay`]'s `loopback_listeners`).
+    text[#text + 1] = '(allow network-outbound (remote tcp "localhost:' .. relay_port .. '"))'
+  end
+  if serves ~= nil then
+    if math.type(serves) ~= "integer" or serves < 1 or serves > 65535 then
+      return refuse("serves_relay needs the port the relay accepts at")
+    end
+    -- What the relay connects to is any host its grants open, which a
+    -- profile cannot name; it accepts at its own port of the loopback; and
+    -- c-ares reads the system's name servers from configd's DNS
+    -- configuration, through this one service.
+    text[#text + 1] = '(allow network-outbound (remote ip "*:*"))'
+    text[#text + 1] = '(allow network-inbound (local tcp "localhost:' .. serves .. '"))'
+    text[#text + 1] = '(allow mach-lookup (global-name "com.apple.SystemConfiguration.DNSConfiguration"))'
   end
   local rlimits: {string:integer} = { nofile = merged.limits.open_files or 1024, core = 0 }
   rlimits.fsize, rlimits.cpu = merged.limits.file_bytes, merged.limits.cpu_seconds

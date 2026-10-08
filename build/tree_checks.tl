@@ -64,10 +64,6 @@ local allowed: {string: string} = {}
 allowed["cosmic.net.datagram"] = "tested directly: the namespace DNS stub's UDP " ..
   "prerequisite lands separately from the resolver that calls it"
 
-allowed["cosmic.net.listener_from"] = "tested directly: it adopts one listening socket a " ..
-  "process holds, which Net.receive_listeners does for each socket a relay's channel carries; " ..
-  "no caller outside the module needs it yet"
-
 allowed["cosmic.relay.config.parse_addresses"] = "tested directly: the reading of Linux's " ..
   "interface tables over fixture text, which host_addresses makes of the host's own"
 -- TODO: drop this allowance once build.analyzer and build.receivers attribute a
@@ -80,7 +76,8 @@ allowed["cosmic.sandbox.seatbelt.grants"] = "called through cosmic.sandbox's `Se
   "call by the module's own name alone"
 -- The same gap as the allowance above (its TODO): cosmic.child calls these
 -- through cosmic.sandbox's `Relay`.
-for _, name in ipairs({ "policy", "name_servers", "plan", "upstream_addresses", "table", "public" }) do
+for _, name in ipairs({ "policy", "seatbelt_policy", "loopback_listeners", "name_servers", "plan", "upstream_addresses",
+    "resolved_upstream", "table", "public" }) do
   allowed["cosmic.sandbox.relay." .. name] = "called through cosmic.sandbox's `Relay`, the " ..
     "package's one path to it from outside, which cosmic.child takes; the check reads a call by " ..
     "the module's own name alone"

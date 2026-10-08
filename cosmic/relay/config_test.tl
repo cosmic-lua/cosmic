@@ -21,6 +21,20 @@ local function test_the_environment_points_every_proxy_client_at_the_relay()
   assert(RelayConfig.http_port == 3128 and RelayConfig.socks_port == 1080)
 end
 
+--- A relay on the host's loopback serves both protocols at one port, and
+--- each variable carries its token as the password of the user "cosmic".
+local function test_a_relay_on_the_hosts_loopback_is_named_with_its_port_and_token()
+  local token = string.rep("ab", 32)
+  local env = RelayConfig.proxy_env({}, 49152, token)
+  for _, name in ipairs({ "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy" }) do
+    assert(env[name] == "http://cosmic:" .. token .. "@127.0.0.1:49152", name .. " is " .. tostring(env[name]))
+  end
+  for _, name in ipairs({ "ALL_PROXY", "all_proxy" }) do
+    assert(env[name] == "socks5h://cosmic:" .. token .. "@127.0.0.1:49152", name .. " is " .. tostring(env[name]))
+  end
+  assert(env.NO_PROXY == "localhost,127.0.0.1,::1" and env.NODE_USE_ENV_PROXY == "1")
+end
+
 local function test_a_policys_loopback_addresses_are_direct_too_each_once()
   local env = RelayConfig.proxy_env({ "127.0.0.1", "127.0.0.2", "127.0.0.9", "127.0.0.2" })
   assert(env.NO_PROXY == "localhost,127.0.0.1,::1,127.0.0.2,127.0.0.9", env.NO_PROXY)
@@ -122,6 +136,10 @@ local function test_the_config_travels_as_one_line_and_reads_back()
     upstream_addresses = { "127.0.0.1" } })))
   assert(handed.public == true and handed.table[1].port == 0 and handed.name_servers[1].port == 53 and
       handed.name_server_wait_ns == 2500000000 and handed.upstream_addresses[1] == "127.0.0.1")
+  assert(handed.direct == false and handed.token == nil, "Linux's relay is handed its listeners")
+  local direct = assert(RelayConfig.decode(RelayConfig.encode({ grants = { "a.test:1" }, own_addresses = {},
+    log = "null", direct = true, token = "0123456789abcdef0123" })))
+  assert(direct.direct == true and direct.token == "0123456789abcdef0123")
   assert(RelayConfig.name_server_fd == 4 and RelayConfig.table_fd == 5 and RelayConfig.public_fd == 6,
     "the name servers' connector, then the table's, then the public one")
 end
@@ -140,5 +158,7 @@ local function test_a_config_that_is_none_is_refused_naming_why()
   says('{"grants":["a"],"own_addresses":[],"log":"null","https_proxy":3}', "https_proxy is not a string")
   says('{"grants":["a"],"own_addresses":[],"log":"null","no_proxy":{}}', "no_proxy is not a string")
   says('{"grants":["a"],"own_addresses":[],"log":"null","public":4}', "public is not a boolean")
+  says('{"grants":["a"],"own_addresses":[],"log":"null","direct":"yes"}', "direct is not a boolean")
+  says('{"grants":["a"],"own_addresses":[],"log":"null","token":7}', "token is not a string")
   assert(Json.decode_object('{"grants":[]}') ~= nil, "the fixtures are JSON")
 end
