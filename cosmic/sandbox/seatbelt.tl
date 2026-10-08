@@ -86,28 +86,6 @@ end
 --- makes the directory, so its path is known only after the profile.
 local TMP_PARAMETER <const> = "TMP"
 
---- Paths a macOS "system" program needs. Unlike the Linux profile this
---- includes the system frameworks and dyld's cryptexes; no Mach service
---- or network permission follows merely from reading system libraries.
-local SYSTEM <const>: {{string}} = {
-  { "/usr", "rx" }, { "/bin", "rx" }, { "/sbin", "rx" },
-  { "/System/Library", "rx" }, { "/Library/Apple/System/Library", "rx" },
-  { "/System/Cryptexes/App", "rx" }, { "/System/Cryptexes/OS", "rx" },
-  { "/System/Volumes/Preboot/Cryptexes/App/System", "rx" },
-  { "/System/Volumes/Preboot/Cryptexes/OS", "rx" },
-  { "/etc/passwd", "r" }, { "/etc/group", "r" }, { "/etc/localtime", "r" },
-  { "/private/var/db/timezone", "r" },
-  -- dyld's own state: it reads its closures and shared cache map from here.
-  { "/private/var/db/dyld", "r" },
-  -- /bin/sh reads its own selection from here.
-  { "/private/var/select", "r" },
-  -- No /dev/tty: as on Linux, a child opens no terminal by name, and the
-  -- start gives it a session with none besides. One started with a pty
-  -- is granted its slave and /dev/tty by [`Options.terminal`].
-  { "/dev/null", "rw" }, { "/dev/dtracehelper", "rw" }, { "/dev/zero", "r" },
-  { "/dev/random", "r" }, { "/dev/urandom", "r" },
-}
-
 local function refuse(why: string): nil, string
   return nil, "seatbelt: " .. why
 end
@@ -226,7 +204,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
   end
   for _, name in ipairs(policy.profiles or {}) do
     if name == "system" then
-      for _, entry in ipairs(SYSTEM) do
+      for _, entry in ipairs(rules.system_paths("darwin")) do
         if paths[entry[1]] ~= nil then
           trouble = add(entry[1], entry[2])
           if trouble ~= "" then return refuse(trouble) end
@@ -350,7 +328,9 @@ function Seatbelt.grants(policy: rules.Policy): {rules.Grant}
   local out: {rules.Grant} = {}
   for _, name in ipairs(policy.profiles or {}) do
     if name == "system" then
-      for _, entry in ipairs(SYSTEM) do out[#out + 1] = { path = entry[1], letters = entry[2] } end
+      for _, entry in ipairs(rules.system_paths("darwin")) do
+        out[#out + 1] = { path = entry[1], letters = entry[2] }
+      end
     end
   end
   for _, grant in ipairs(policy.grants or {}) do out[#out + 1] = grant end
@@ -380,7 +360,7 @@ function Seatbelt.resolve(policy: rules.Policy, base?: string, executable?: stri
   for _, name in ipairs(policy.profiles or {}) do
     if name == "system" then
       -- A path this host lacks is one its system has none of.
-      for _, entry in ipairs(SYSTEM) do
+      for _, entry in ipairs(rules.system_paths("darwin")) do
         local _ = look(entry[1], entry[1])
       end
     end

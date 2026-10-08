@@ -142,14 +142,22 @@ end
 --- grants the host's programs, libraries and the few files a libc reads to
 --- start (`rx` on /usr and the library and binary directories, `r` on
 --- /etc/ld.so.cache, nsswitch.conf, passwd, group and localtime, and the
---- null, zero and random devices), each only where it exists; "cosmic"
+--- null, zero and random devices), each only where it exists; on macOS
+--- it is macOS's own list instead (/usr, /bin, /sbin, the system
+--- frameworks and dyld's cryptexes and state, the accounts and time zone,
+--- and the same devices), the list a policy naming "system" is held to
+--- there without being merged, so the profile means the same given
+--- directly, merged or through [`PolicyJson.decode`]. The list is the
+--- running host's, read when the profile is resolved ([`Sandbox.merge`],
+--- or here), so a policy merged on one OS and started on another carries
+--- the first host's paths; "cosmic"
 --- grants `rx` on the path this program is started by ([`Proc.executable`]),
 --- which is its launcher where it has one: what [`Child.start`] runs as
 --- this program's core, by a relaunch.
 --- Nil and why for a name it has not, or one this host cannot give.
 ---
 ---     local system = assert(Sandbox.profile("system"))
----     print(system.grants[1].path, system.grants[1].letters) -- /usr  rx
+---     print(system.grants[1].path, system.grants[1].letters) -- /usr  rx (Linux and macOS)
 function Sandbox.profile(name: string): Sandbox.Policy | nil, string
   return rules.profile(name)
 end
