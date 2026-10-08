@@ -81,13 +81,17 @@ local record relay_config
     --- Why no name is resolved, or nil: the relay then reaches only what
     --- a grant names literally, and the upstream.
     unresolved: string
-    --- Whether the relay listens on the host's loopback itself, as macOS's
-    --- start has it ([`Child.start`]): at 127.0.0.1, a port the kernel
-    --- chooses, which it names in its `ready` line, one listener for both
-    --- protocols; and it connects and resolves itself, as its own profile
-    --- allows, rather than through connectors it is handed. False for
-    --- Linux's relay, which is handed the program's listeners.
+    --- Whether the relay serves on the host's loopback, as macOS's start
+    --- has it ([`Child.start`]): it is handed `listeners` listening sockets
+    --- from descriptor 3, at one port of 127.0.0.1 and ::1, each for both
+    --- protocols, behind `token`; and it connects and resolves itself, as its
+    --- own profile allows, rather than through connectors it is handed.
+    --- False for Linux's relay, which is handed the program's listeners
+    --- over a channel.
     direct: boolean
+    --- With `direct`, how many listening sockets it is handed, from
+    --- descriptor 3: 1 or 2.
+    listeners: integer
     --- The per-sandbox token every connection must present
     --- ([`cosmic.relay.server`]'s `token`), or nil for none: a `direct`
     --- relay's listener is one every user of the host can reach.
@@ -347,6 +351,7 @@ function relay_config.encode(config: relay_config.Config): string
     name_server_wait_ns = config.name_server_wait_ns,
     unresolved = config.unresolved,
     direct = config.direct,
+    listeners = config.listeners,
     token = config.token,
   })
   if encoded == nil then error("relay_config: " .. tostring(why), 2) end
@@ -436,6 +441,11 @@ function relay_config.decode(text: string): relay_config.Config | nil, string
   local token = value.token
   if token ~= nil and not token is string then return nil, "token is not a string" end
   if token is string then config.token = token end
+  local listeners = value.listeners
+  if listeners ~= nil and (not listeners is integer or listeners < 1 or listeners > 2) then
+    return nil, "listeners is not 1 or 2"
+  end
+  if listeners is integer then config.listeners = listeners end
   return config, ""
 end
 

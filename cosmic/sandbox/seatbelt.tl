@@ -52,13 +52,17 @@ local record Seatbelt
     --- holds the port on both) and lets it bind and listen nowhere. Required with `connect`; a policy without
     --- `connect` is refused one.
     relay_port: integer
-    --- Whether the profile is the network relay's own: it may connect to
+    --- The port of the host's loopback the network relay accepts at, for
+    --- the relay's own profile; nil for any other. The relay may connect to
     --- any address and port (Seatbelt cannot name one by number, so the
     --- relay's own checks of the grants decide where it connects,
-    --- [`cosmic.relay.server`]), bind and accept on the host's loopback
-    --- alone, and look up the system's DNS configuration, the one Mach
-    --- service the resolver reaches. Only the start of the relay sets it.
-    serves_relay: boolean
+    --- [`cosmic.relay.server`]), accept at that port of the loopback and bind
+    --- nothing (its starter binds its listeners and hands them over), look up
+    --- the system's DNS configuration, the one Mach service the resolver
+    --- reaches, and run no program but `core`: the rest of what it is granted
+    --- `x` it may map as a library and not run. Only the start of the relay
+    --- sets it.
+    serves_relay: integer
   end
 
   --- Text to pass to sandbox_init_with_parameters, values kept outside
@@ -147,14 +151,16 @@ local function unsupported(policy: rules.Policy): string
 end
 
 --- Appends to `text` the rules `letters` give at `at`, an SBPL path filter;
---- `fattr` adds the attribute writes a `w` or `c` then allows.
-local function allow(text: {string}, fattr: boolean, letters: string, at: string)
+--- `fattr` adds the attribute writes a `w` or `c` then allows, and `map_only`
+--- makes an `x` a library's mapping alone, never a program's run.
+local function allow(text: {string}, fattr: boolean, letters: string, at: string, map_only?: boolean)
   if letters:find("r", 1, true) then text[#text + 1] = "(allow file-read* " .. at .. ")" end
   if letters:find("w", 1, true) then
     text[#text + 1] = "(allow file-write-data " .. at .. ")"
   end
   if letters:find("x", 1, true) then
-    text[#text + 1] = "(allow process-exec file-map-executable " .. at .. ")"
+    text[#text + 1] = (map_only and "(allow file-map-executable " or "(allow process-exec file-map-executable ") ..
+      at .. ")"
   end
   if letters:find("c", 1, true) then
     text[#text + 1] = "(allow file-write-create file-write-unlink " .. at .. ")"
@@ -285,11 +291,15 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
     if promise == "fattr" then fattr = true end
   end
   local parameters: {string:string} = { ROOT = "/" }
+  local serves = options and options.serves_relay
+  -- The relay runs its core alone, which the start executes under the profile.
+  local runs: string
+  if serves ~= nil and options.core ~= nil then runs = paths[options.core].path end
   for i, grant in ipairs(merged.grants) do
     local name = "PATH_" .. i
     parameters[name] = grant.path
     allow(text, fattr, grant.letters, '(' .. (directories[grant.path] and "subpath" or "literal") ..
-        ' (param "' .. name .. '"))')
+        ' (param "' .. name .. '"))', serves ~= nil and grant.path ~= runs)
   end
   local tmp: string
   if policy.tmp then
@@ -310,17 +320,20 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
     text[#text + 1] = '(allow file-read-data (literal "/dev"))'
   end
   if relay_port ~= nil then
-    -- `localhost` is ::1 at the port as well: the relay holds the port
-    -- there too (cosmic.relay.main's `loopback_listeners`).
+    -- `localhost` is ::1 at the port as well: the start holds the port
+    -- there too ([`cosmic.sandbox.relay`]'s `loopback_listeners`).
     text[#text + 1] = '(allow network-outbound (remote tcp "localhost:' .. relay_port .. '"))'
   end
-  if options ~= nil and options.serves_relay then
+  if serves ~= nil then
+    if math.type(serves) ~= "integer" or serves < 1 or serves > 65535 then
+      return refuse("serves_relay needs the port the relay accepts at")
+    end
     -- What the relay connects to is any host its grants open, which a
-    -- profile cannot name; its listener is on the loopback alone; and
+    -- profile cannot name; it accepts at its own port of the loopback; and
     -- c-ares reads the system's name servers from configd's DNS
     -- configuration, through this one service.
     text[#text + 1] = '(allow network-outbound (remote ip "*:*"))'
-    text[#text + 1] = '(allow network-bind network-inbound (local ip "localhost:*"))'
+    text[#text + 1] = '(allow network-inbound (local tcp "localhost:' .. serves .. '"))'
     text[#text + 1] = '(allow mach-lookup (global-name "com.apple.SystemConfiguration.DNSConfiguration"))'
   end
   local rlimits: {string:integer} = { nofile = merged.limits.open_files or 1024, core = 0 }

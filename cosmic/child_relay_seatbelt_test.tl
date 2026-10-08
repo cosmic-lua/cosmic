@@ -168,12 +168,54 @@ return function(args)
     direct("direct_granted", "127.0.0.1", granted)
     direct("direct_ungranted", "127.0.0.1", ungranted)
     direct("direct_outside", "192.0.2.1", 443)
+  elseif args[1] == "public" then
+    local http = relay_of("HTTPS_PROXY")
+    through_connect("public", http.port, args[2], http.token)
+  elseif args[1] == "accept" then
+    -- The relay's listening sockets, which the start hands the program too:
+    -- a connection to the relay must never be the program's to accept.
+    local http = relay_of("HTTPS_PROXY")
+    local found, accepted, refusals = 0, 0, {}
+    for fd = 3, 9 do
+      local listener = Net.listener_from(fd)
+      if listener ~= nil then
+        found = found + 1
+        for _ = 1, 3 do
+          local conn = Net.connect(Net.tcp("127.0.0.1", http.port), { timeout_ns = Clock.seconds(5) })
+          local got, why = listener:accept(Clock.seconds(1))
+          if got ~= nil then
+            accepted = accepted + 1
+            got:close()
+          else
+            refusals[#refusals + 1] = why
+          end
+          if conn ~= nil then conn:close() end
+        end
+        listener:close()
+      end
+    end
+    say("listeners", found)
+    say("accepted", accepted)
+    say("refusals", table.concat(refusals, "; "))
+  elseif args[1] == "probe" then
+    -- Run under the relay's own profile: what it may read.
+    for _, path in ipairs({ "/etc/hosts", args[2] }) do
+      local fd, why = sys.open(path, sys.O_RDONLY)
+      say("read " .. path, fd ~= nil and "read" or why)
+      if fd ~= nil then sys.close(fd) end
+    end
   elseif args[1] == "wait" then
     sys.nanosleep(Clock.seconds(120))
   end
   return 0
 end
 ]==]
+
+--- `text` with the relay's token, wherever a proxy URL carries it, hidden:
+--- a failure's message is a log anyone reading CI sees.
+local function redacted(text: string): string
+  return (text:gsub("cosmic:%x+@", "cosmic:<token>@"))
+end
 
 --- The program's database, sealed in `tmp`: this program's core runs it.
 local function sealed_client(tmp: string): string
@@ -259,9 +301,9 @@ local function flows(tmp: string): Flows
     assert(second:close())
     local relay_log = Fs.read(log_path) or ""
     assert(result, tostring(why) .. "\nrelay: " .. relay_log .. denials())
-    local report = "code " .. tostring(result.code) .. ", signal " .. tostring(result.signal) ..
-      "\nstdout: " .. tostring(result.stdout) .. "\nstderr: " .. tostring(result.stderr) ..
-      "\nrelay: " .. relay_log
+    local report = redacted("code " .. tostring(result.code) .. ", signal " .. tostring(result.signal) ..
+        "\nstdout: " .. tostring(result.stdout) .. "\nstderr: " .. tostring(result.stderr) ..
+        "\nrelay: " .. relay_log)
     assert(result.ok, report .. denials())
     seen = { said = fields(result.stdout or ""), log = relay_log, granted = granted, ungranted = ungranted,
       reached = ungranted_count[1], report = report }
@@ -318,13 +360,13 @@ local function test_the_program_is_given_the_relay_and_its_token(tmp: string)
   macos_only()
   local said, report = flows(tmp).said, ""
   local token, port = tostring(said.env_HTTPS_PROXY):match("^http://cosmic:(%x+)@127%.0%.0%.1:(%d+)$")
-  assert(token ~= nil and #token == 64, "HTTPS_PROXY is " .. tostring(said.env_HTTPS_PROXY) .. report)
+  assert(token ~= nil and #token == 64, "HTTPS_PROXY is " .. redacted(tostring(said.env_HTTPS_PROXY)) .. report)
   local http = "http://cosmic:" .. token .. "@127.0.0.1:" .. port
   local socks = "socks5h://cosmic:" .. token .. "@127.0.0.1:" .. port
   for _, name in ipairs({ "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy" }) do
-    assert(said["env_" .. name] == http, name .. " is " .. tostring(said["env_" .. name]))
+    assert(said["env_" .. name] == http, name .. " is " .. redacted(tostring(said["env_" .. name])))
   end
-  assert(said.env_ALL_PROXY == socks and said.env_all_proxy == socks, tostring(said.env_ALL_PROXY))
+  assert(said.env_ALL_PROXY == socks and said.env_all_proxy == socks, redacted(tostring(said.env_ALL_PROXY)))
   assert(said.env_NO_PROXY == "localhost,127.0.0.1,::1" and said.env_NODE_USE_ENV_PROXY == "1")
   local again = flows(tmp).said
   assert(not tostring(again.env_HTTPS_PROXY):find(token, 1, true), "each start draws a token of its own")
@@ -379,74 +421,177 @@ local function process_table(): raw_process
   error("cosmic.child has no process table")
 end
 
---- What /bin/cat says of `path` under the profile `held`: its exit status
---- and output.
-local function cat_under(held: raw_process.Seatbelt, path: string, tmp: string): integer, string
-  local out_path = tmp .. "/cat.out"
+--- How a program started under a profile ended.
+local record Ran
+  --- Why the start failed, or "" where it ran.
+  refused: string
+  code: integer
+  output: string
+end
+
+--- `argv` run under the profile `held`, through the raw spawn, which applies
+--- it before it executes the program.
+local function run_under(held: raw_process.Seatbelt, argv: {string}, tmp: string): Ran
+  local out_path = tmp .. "/run.out"
   local out = assert(sys.open(out_path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 384))
   local null = assert(sys.open("/dev/null", sys.O_RDONLY))
   local process = process_table()
-  local pid, why = process.spawn("/bin/cat", { "/bin/cat", path }, nil, nil, null, out, out, false, nil,
+  local pid, why = process.spawn(argv[1], argv, { COSMIC_STANDALONE = "1" }, "/", null, out, out, false, nil,
     { seatbelt = held })
   assert(sys.close(out))
   assert(sys.close(null))
-  assert(pid, why)
-  local deadline = Clock.monotonic_ns() + Clock.seconds(20)
+  if pid == nil then return { refused = tostring(why), code = -1, output = "" } end
+  local deadline = Clock.monotonic_ns() + Clock.seconds(30)
   local status = assert(process.waitpid(pid, true))
   while status.pid == 0 do
-    assert(Clock.monotonic_ns() < deadline, "cat did not end")
+    assert(Clock.monotonic_ns() < deadline, argv[1] .. " did not end")
     assert(Clock.sleep_ns(Clock.ms(20)))
     status = assert(process.waitpid(pid, true))
   end
-  return status.code, Fs.read(out_path) or ""
+  return { refused = "", code = status.code, output = Fs.read(out_path) or "" }
 end
 
---- The relay holds its port on 127.0.0.1 and on ::1, both of which the
---- program's `localhost:PORT` rule reaches, so no other process can listen
---- at either while it runs.
+--- The port the program's profile lets it reach, the relay's.
+local function relay_port(handle: Child.Handle): integer
+  local program = assert(handle._seatbelt)
+  local port = math.tointeger(tonumber(program.profile:match('%(remote tcp "localhost:(%d+)"%)') or ""))
+  return (assert(port, program.profile))
+end
+
+--- Whether a listener of this process's can take `port` of `host`, and why not.
+local function taken(host: string, port: integer): string
+  local listener, why = Net.listen(Net.tcp(host, port))
+  if listener ~= nil then
+    assert(listener:close())
+    return "a listener took the port"
+  end
+  return why
+end
+
+--- The start holds the relay's port on 127.0.0.1 and on ::1, both of which
+--- the program's `localhost:PORT` rule reaches, and hands both sockets to
+--- the relay and the program: no other process can listen at either while
+--- the program lives, the relay killed or not.
 local function test_no_other_process_can_listen_at_the_relays_port(tmp: string)
   macos_only()
   Poll.run(function()
     local handle = waiting(tmp)
-    local program = assert(handle._seatbelt)
-    local port = math.tointeger(tonumber(program.profile:match('%(remote tcp "localhost:(%d+)"%)') or ""))
-    assert(port ~= nil, program.profile)
+    local port = relay_port(handle)
+    local relay = assert(handle._relay)
     for _, host in ipairs({ "127.0.0.1", "::1" }) do
-      local taken, why = Net.listen(Net.tcp(host, port))
-      assert(taken == nil, "a listener took the relay's port " .. port .. " on " .. host)
-      assert(why:find("in use", 1, true), host .. ": " .. why)
+      local why = taken(host, port)
+      assert(why:find("in use", 1, true), host .. ", the relay running: " .. why)
     end
+    assert(sys.kill(relay.pid, sys.SIGKILL))
+    local deadline = Clock.monotonic_ns() + Clock.seconds(10)
+    while not gone(relay.pid) do
+      local _, _ = process_table().waitpid(relay.pid, true)
+      assert(Clock.monotonic_ns() < deadline, "the relay did not die")
+      assert(Poll.delay(Clock.ms(20)))
+    end
+    assert(not gone(handle.pid), "the program lives on until its next wait")
+    for _, host in ipairs({ "127.0.0.1", "::1" }) do
+      local why = taken(host, port)
+      assert(why:find("in use", 1, true), host .. ", the relay killed: " .. why)
+    end
+    local _ = handle:wait(Clock.seconds(20))
+  end)
+end
+
+--- The program holds the relay's listening sockets but its profile lets it
+--- accept on neither: a connection to the relay is never the program's.
+local function test_the_program_cannot_accept_at_the_relays_port(tmp: string)
+  macos_only()
+  local result, why = Child.run({ assert(Proc.executable()), "accept" }, { policy = {
+    database = sealed_client(tmp), profiles = { "system" }, connect = { "127.0.0.1:9" } },
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(90) })
+  assert(result, tostring(why) .. denials())
+  local said = fields(result.stdout or "")
+  local report = redacted(tostring(result.stdout) .. "\nstderr: " .. tostring(result.stderr))
+  assert(result.ok, report .. denials())
+  assert(said.listeners == "2", "the program holds the relay's two listening sockets\n" .. report)
+  assert(said.accepted == "0", "the program accepted a connection to the relay\n" .. report .. denials())
+end
+
+--- The relay itself is held by a profile of its own: it accepts at its
+--- port, binds nothing, and runs no program but its core. That profile, run
+--- with the test's program in place of the relay's database, reads the
+--- resolver's files it grants and refuses a file it does not, and a program
+--- it does not run, /bin/cat, is refused.
+local function test_the_relay_is_held_by_a_profile_of_its_own(tmp: string)
+  macos_only()
+  local secret = tmp .. "/secret"
+  assert(Fs.write(secret, "secret"))
+  local client = sealed_client(tmp)
+  Poll.run(function()
+    local handle = waiting(tmp)
+    local port = relay_port(handle)
+    local relay = assert(handle._relay, "the start runs a relay")
+    local held = assert(relay._seatbelt, "the relay was started under a profile")
+    assert(held.profile:find("(deny default)", 1, true), held.profile)
+    assert(held.profile:find('(allow network-inbound (local tcp "localhost:' .. port .. '"))', 1, true), held.profile)
+    assert(not held.profile:find("network-bind", 1, true) and not held.profile:find("(allow file-read*)", 1, true),
+      held.profile)
+    assert(select(2, held.profile:gsub("process%-exec", "")) == 1, "the relay runs its core alone: " .. held.profile)
+    local program = assert(handle._seatbelt)
+    assert(not program.profile:find("*:*", 1, true), "the program reaches only the relay: " .. program.profile)
+    local cat = run_under(held, { "/bin/cat", "/etc/hosts" }, tmp)
+    assert(cat.refused ~= "" or cat.code ~= 0, "the relay's profile ran /bin/cat: " .. cat.output)
+    -- The relay's database is gone once it opened it: the test's program
+    -- takes its place in the profile's parameters.
+    local swapped: raw_process.Seatbelt = { profile = held.profile, parameters = {} }
+    local real_client = assert(sys.realpath(client))
+    local replaced = false
+    for name, value in pairs(held.parameters) do
+      if value:find("/relay%.db$") then
+        swapped.parameters[name] = real_client
+        replaced = true
+      else
+        swapped.parameters[name] = value
+      end
+    end
+    assert(replaced, "no parameter names the relay's database")
+    local core = assert(sys.realpath(assert(Proc.relaunch()).argv[1]))
+    local probe = run_under(swapped, { core, "--database", real_client, "probe", secret }, tmp)
+    assert(probe.refused == "" and probe.code == 0, "the probe did not run under the relay's profile: " ..
+        probe.refused .. " " .. probe.output .. denials())
+    local said = fields(probe.output)
+    assert(said["read /etc/hosts"] == "read", "the relay's profile does not read /etc/hosts: " .. probe.output)
+    assert(tostring(said["read " .. secret]):find("not permitted", 1, true),
+      "the relay's profile read a file it does not grant: " .. probe.output)
     assert(handle:stop())
     local _ = handle:wait(Clock.seconds(20))
   end)
 end
 
---- The relay itself is held by a profile: the one it was started under
---- reads the resolver's files it grants and refuses a file it does not, and
---- holds its listener to the loopback.
-local function test_the_relay_is_held_by_a_profile_of_its_own(tmp: string)
+--- A granted public name is resolved by the relay under its own profile,
+--- through the system's DNS configuration and name servers, and connected.
+--- Skipped where this host itself reaches no such name.
+local function test_a_public_name_is_resolved_and_reached_through_the_relay(tmp: string)
   macos_only()
-  local secret = tmp .. "/secret"
-  assert(Fs.write(secret, "secret"))
-  Poll.run(function()
-    local handle = waiting(tmp)
-    local relay = assert(handle._relay, "the start runs a relay")
-    local held = assert(relay._seatbelt, "the relay was started under a profile")
-    assert(held.profile:find("(deny default)", 1, true), held.profile)
-    assert(held.profile:find('(allow network-bind network-inbound (local ip "localhost:*"))', 1, true), held.profile)
-    assert(not held.profile:find("(allow file-read*)", 1, true), held.profile)
-    local program = assert(handle._seatbelt)
-    assert(program.profile:find('%(allow network%-outbound %(remote tcp "localhost:%d+"%)%)'), program.profile)
-    assert(not program.profile:find("*:*", 1, true), "the program reaches only the relay: " .. program.profile)
-    -- The resolver's hosts file is the relay's to read; a file of the test's is not.
-    local granted_code, granted_out = cat_under(held, "/etc/hosts", tmp)
-    assert(granted_code == 0, "the relay's profile does not read /etc/hosts: " .. granted_out .. denials())
-    local code, out = cat_under(held, secret, tmp)
-    assert(code ~= 0 and out:find("not permitted", 1, true) and not out:find("secret\n", 1, true),
-      "the relay's profile read a file it does not grant: " .. out)
-    assert(handle:stop())
-    local _ = handle:wait(Clock.seconds(20))
-  end)
+  local name = "example.com"
+  local found, resolve_why = Net.resolve(name, { timeout_ns = Clock.seconds(5) })
+  if found == nil then
+    Test.skip("this host resolves no public name: " .. resolve_why)
+    return
+  end
+  local reached, reach_why = Net.connect(Net.tcp(found[1].address, 443), { timeout_ns = Clock.seconds(5) })
+  if reached == nil then
+    Test.skip("this host reaches no public address: " .. reach_why)
+    return
+  end
+  assert(reached:close())
+  local log_path = tmp .. "/relay.log"
+  local log = assert(sys.open(log_path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 384))
+  local result, why = Child.run({ assert(Proc.executable()), "public", name .. ":443" }, { policy = {
+    database = sealed_client(tmp), profiles = { "system" }, connect = { name .. ":443" } },
+    stdout = "capture", stderr = "capture", relay_log = log, timeout_ns = Clock.seconds(90) })
+  assert(sys.close(log))
+  local relay_log = Fs.read(log_path) or ""
+  assert(result, tostring(why) .. "\nrelay: " .. relay_log .. denials())
+  local said = fields(result.stdout or "")
+  assert(said.public == "HTTP/1.1 200 Connection established", redacted(tostring(result.stdout)) ..
+      "\nrelay: " .. relay_log .. denials())
 end
 
 --- The proxy variables are the relay's to set, so a policy with `connect`

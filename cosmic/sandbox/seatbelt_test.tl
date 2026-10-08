@@ -168,15 +168,30 @@ local function test_connect_reaches_the_relay_port_alone()
   assert(stray == nil and why:find("no connect", 1, true), tostring(why))
 end
 
---- The relay's own profile connects anywhere, as its grants decide, and
---- listens on the loopback alone; it reaches configd's DNS configuration and
---- no other Mach service.
-local function test_the_relay_profile_connects_out_and_listens_on_the_loopback()
-  local out = assert(Seatbelt.compile({}, { paths = {}, serves_relay = true }))
-  assert(out.text == BASE .. [[(allow network-outbound (remote ip "*:*"))
-(allow network-bind network-inbound (local ip "localhost:*"))
+--- The relay's own profile connects anywhere, as its grants decide,
+--- accepts at its own port of the loopback and binds nothing; it reaches
+--- configd's DNS configuration and no other Mach service; and it runs its
+--- core alone, mapping what else it is granted `x` as a library.
+local function test_the_relay_profile_connects_out_and_accepts_at_its_port()
+  local paths: {string:Seatbelt.Path} = {
+    ["/core"] = { path = "/real/core", directory = false },
+    ["/db"] = { path = "/real/db", directory = false },
+    ["/usr"] = { path = "/usr", directory = true },
+  }
+  local out = assert(Seatbelt.compile({ grants = { { path = "/usr", letters = "rx" } } },
+    { paths = paths, core = "/core", database = "/db", serves_relay = 49153 }))
+  assert(out.text:find('(allow process-exec file-map-executable (literal (param "PATH_1")))', 1, true) and
+      out.parameters.PATH_1 == "/real/core", out.text)
+  assert(out.text:find('(allow file-map-executable (subpath (param "PATH_3")))', 1, true) and
+      out.parameters.PATH_3 == "/usr", out.text)
+  assert(select(2, out.text:gsub("process%-exec", "")) == 1, "the core alone runs: " .. out.text)
+  assert(out.text:find([[(allow network-outbound (remote ip "*:*"))
+(allow network-inbound (local tcp "localhost:49153"))
 (allow mach-lookup (global-name "com.apple.SystemConfiguration.DNSConfiguration"))
-]], out.text)
+]], 1, true), out.text)
+  assert(not out.text:find("network-bind", 1, true), out.text)
+  local refused, why = Seatbelt.compile({}, { paths = {}, serves_relay = 0 })
+  assert(refused == nil and why:find("serves_relay needs the port", 1, true), tostring(why))
 end
 
 --- `tmp`'s directory is made after the profile, so the profile grants it

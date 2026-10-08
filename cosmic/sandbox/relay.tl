@@ -98,6 +98,16 @@ local record relay
     wait_ns: integer
   end
 
+  --- The listening sockets of a relay on the host's loopback, as macOS's
+  --- start makes them ([`relay.loopback_listeners`]).
+  record Loopback
+    --- 127.0.0.1's, then ::1's where the host has an IPv6 loopback: each
+    --- owns its descriptor, which the start hands on and then closes.
+    sockets: {raw_socket.Socket}
+    --- The port both are at.
+    port: integer
+  end
+
   --- A name servers' connector's control stream, and what it was started
   --- with.
   record Through
@@ -173,6 +183,52 @@ function relay.seatbelt_policy(database: string, digest: string): rules.Policy
   local policy: rules.Policy = { database = database, profiles = { "system" }, grants = grants }
   rules.expect_digest(policy, digest)
   return policy
+end
+
+--- How many ports [`relay.loopback_listeners`] tries before it gives up
+--- finding one free on both loopbacks.
+local LOOPBACK_TRIES <const> = 16
+
+--- How many connections may wait at a relay's listener to be accepted.
+local LOOPBACK_BACKLOG <const> = 128
+
+--- Listening sockets at one port of 127.0.0.1 the kernel chooses and the
+--- same port of ::1, for a relay on the host's loopback (macOS's start).
+--- A program's profile allows it `localhost:PORT`, which Seatbelt reads as
+--- both addresses, so a port of either that another process held would be
+--- reachable from the program: the start holds both, and hands them to the
+--- relay and to the program, so the port stays this sandbox's for as long as
+--- either lives. Neither is bound with SO_REUSEPORT, so no other socket can
+--- take the same address and port meanwhile. Where the port is taken on
+--- ::1 another is tried, at most 16 times. Where the host has no IPv6
+--- loopback (no port of ::1 can be bound) the 127.0.0.1 socket is alone:
+--- no process can listen on ::1 there either, so the program's connects to
+--- it reach nothing. Nil and why where no port is free on both.
+--- @return relay.Loopback|nil The sockets and their port
+--- @return string Why there are none, "" otherwise
+function relay.loopback_listeners(): relay.Loopback | nil, string
+  local last = ""
+  for _ = 1, LOOPBACK_TRIES do
+    local v4, why = raw.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, LOOPBACK_BACKLOG)
+    if v4 == nil then return nil, "127.0.0.1: " .. why end
+    local bound, bound_why = raw.bound(v4:fd())
+    if bound == nil then
+      local _, _ = v4:close()
+      return nil, "127.0.0.1: " .. bound_why
+    end
+    local v6, v6_why, errno = raw.listen({ kind = "tcp", host = "::1", port = bound.port }, LOOPBACK_BACKLOG)
+    if v6 ~= nil then return { sockets = { v4, v6 }, port = bound.port }, "" end
+    if errno ~= raw.EADDRINUSE then
+      -- Another port of ::1 says whether this one is refused or ::1 is not there.
+      local probe, _ = raw.listen({ kind = "tcp", host = "::1", port = 0 }, 1)
+      if probe == nil then return { sockets = { v4 }, port = bound.port }, "" end
+      local _, _ = probe:close()
+    end
+    local _, _ = v4:close()
+    last = v6_why
+  end
+  return nil, "no port of 127.0.0.1 the kernel chose was free on ::1 too, in " ..
+    String.counted(LOOPBACK_TRIES, "try", "tries") .. ": " .. last
 end
 
 --- The name servers a lookup asks, read now, and the wait a connector of

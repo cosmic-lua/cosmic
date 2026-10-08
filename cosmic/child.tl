@@ -504,11 +504,15 @@ local record Options
   --- "system" profile and the resolver's files, which may connect to any
   --- address and resolve names itself (Seatbelt names no remote host by
   --- number, so the relay's own checks of the grants are what hold it), and
-  --- listens at a port of the host's loopback the kernel chooses, one port
-  --- for both protocols, on 127.0.0.1 and on ::1 (the profile's `localhost`
-  --- is both, so no other process may hold the port there; a host with no
-  --- IPv6 loopback has none to hold, and the start fails where no port is
-  --- free on both). The program's profile lets it connect to that port
+  --- serves a port of the host's loopback the kernel chooses, one port for
+  --- both protocols, on 127.0.0.1 and on ::1: the profile's `localhost` is
+  --- both, so the start binds both and hands the listening sockets to the
+  --- relay and to the program alike (at the lowest descriptors above 2
+  --- that `fds` leaves free), which its profile lets accept on neither, so
+  --- that no other process can take the port while the program lives,
+  --- whether or not the relay and this process do. A host with no IPv6
+  --- loopback has no ::1 any process could listen on, and is held at
+  --- 127.0.0.1 alone; the start fails where no port is free on both. The program's profile lets it connect to that port
   --- and to nothing else of the network, and its proxy variables name it
   --- with a token drawn for the start as the password of the user "cosmic"
   --- (`http://cosmic:TOKEN@127.0.0.1:PORT`, `socks5h://` in `ALL_PROXY`).
@@ -3573,9 +3577,10 @@ end
 --- own refusals, for `isolate`, `loopback`, `nest`, `from`,
 --- `limits.processes` and a digest without its value. With `connect`
 --- the profile is compiled again once the relay's port is known
---- ([`relay_held`]); `serves_relay` makes it the relay's own.
+--- ([`relay_held`]); `serves_relay`, the port the relay accepts at, makes it
+--- the relay's own.
 --- It acquires nothing.
-local function held_by_seatbelt(argv: {string}, opts: Options, pty?: Pty, serves_relay?: boolean): Held | nil, string
+local function held_by_seatbelt(argv: {string}, opts: Options, pty?: Pty, serves_relay?: integer): Held | nil, string
   local merged, why = Rules.merge(opts.policy)
   if merged == nil then return nil, why end
   local reserved = reserved_by_relay(merged)
@@ -3804,6 +3809,8 @@ local record RelayPrep
   --- The token the program presents to a relay on the host's loopback; nil
   --- for Linux's, whose listeners are in the program's own network.
   token: string
+  --- The port of the host's loopback such a relay listens at; nil for Linux's.
+  port: integer
 end
 
 --- The database a relay runs on, in a directory of its own.
@@ -3964,6 +3971,26 @@ local function direct_handover(connect: {string}, own: {string}): RelayConfig.Ha
   return { config = config, fds = {}, close = function() end }, ""
 end
 
+--- Binds the listening sockets of a relay on the host's loopback
+--- ([`cosmic.sandbox.relay`]'s `loopback_listeners`) into `handover`: its config's
+--- `listeners`, its descriptors from 3, and its `close`, which closes this
+--- process's own hold of the port once the relay ends, as a connector's
+--- would; the relay and the program hold it beside. The port, or nil and why.
+local function hold_loopback(handover: RelayConfig.Handover): integer | nil, string
+  local loopback, trouble = SandboxRelay.loopback_listeners()
+  if loopback == nil then return nil, trouble end
+  local sockets, port = loopback.sockets, loopback.port
+  handover.config.listeners = #sockets
+  for i, socket in ipairs(sockets) do handover.fds[2 + i] = socket:fd() end
+  local closed = false
+  handover.close = function()
+    if closed then return end
+    closed = true
+    for _, socket in ipairs(sockets) do local _, _ = socket:close() end
+  end
+  return port, ""
+end
+
 --- A token for a relay on the host's loopback, which every user of the host
 --- can reach: 32 bytes from the system's secure source, in hex. Nil and why
 --- where the source fails.
@@ -4025,6 +4052,15 @@ local function prepare_relay(connect: {string}, opts: Options, seatbelt: boolean
     local _, _ = Fs.remove_tree(program.dir)
     return nil, handover_trouble
   end
+  local port: integer
+  if seatbelt then
+    local held_port, loopback_trouble = hold_loopback(handover)
+    if held_port == nil then
+      local _, _ = Fs.remove_tree(program.dir)
+      return nil, loopback_trouble
+    end
+    port = held_port
+  end
   local log = opts.relay_log or "null"
   local config = handover.config
   config.https_proxy = sys.getenv("https_proxy") or sys.getenv("HTTPS_PROXY")
@@ -4034,7 +4070,7 @@ local function prepare_relay(connect: {string}, opts: Options, seatbelt: boolean
   local policy = seatbelt and SandboxRelay.seatbelt_policy(program.path, program.digest) or
     SandboxRelay.policy(program.path, program.digest)
   return { dir = program.dir, policy = policy, config = RelayConfig.encode(config), log = log,
-    handover = handover, seatbelt = seatbelt, token = token }, ""
+    handover = handover, seatbelt = seatbelt, token = token, port = port }, ""
 end
 
 --- Removes the database `prep` sealed, which the relay has opened or never
@@ -4093,32 +4129,13 @@ local function await_relay(launch: RelayLaunch, log: RelayLog | integer): boolea
   return true, ""
 end
 
---- Waits for a relay that listens on the host's loopback to say it serves,
---- which it does before the program starts, and answers the port it names.
---- Nil of the relay's deadline then. Nil and why where it ends first or says
---- anything else.
-local function await_relay_port(launch: RelayLaunch, log: RelayLog | integer): integer | nil, string
-  local line, read_trouble = launch.lines:read()
-  local said = line ~= nil and line:match("^ready ([1-9]%d?%d?%d?%d?)$") or nil
-  local port = said ~= nil and math.tointeger(tonumber(said)) or nil
-  if port ~= nil and port <= 65535 then
-    launch.handle._deadline = nil
-    return port, ""
-  end
-  if line ~= nil then
-    kill_relay(launch.handle)
-    return nil, (line:gsub("^error: ", ""))
-  end
-  return nil, relay_ended(launch.handle, read_trouble, log)
-end
-
 --- [`Child.start`] on options already validated. With `pty`, one that
 --- [`Child.start_on_pty`] has just made, the standard streams it names are
 --- its slave, which is not refused as a terminal is; stream 0 among them
 --- also makes it the child's controlling terminal.
 local begin_relay: function(RelayPrep, integer | nil): RelayLaunch | nil, string
 
-local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: boolean): Handle | nil, string
+local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: integer): Handle | nil, string
   -- Refuse an explicit terminal before inspecting any platform policy:
   -- it needs a relay even on a host that cannot apply that policy.
   if opts.policy ~= nil then
@@ -4226,9 +4243,9 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: bo
     if held.drop ~= nil then credentials = { user = held.drop.uid, group = held.drop.gid } end
     if held.cwd ~= nil then cwd = held.cwd end
     if held.relay ~= nil and held.seatbelt then
-      -- The relay starts first, opens its database, which is then removed,
-      -- and serves on the host's loopback before the program exists: the
-      -- program's profile and environment name the port it says.
+      -- The relay starts first on the listening sockets the preparation
+      -- bound, opens its database, which is then removed, and serves before
+      -- the program exists, whose profile and environment name its port.
       local made, relay_trouble = prepare_relay(held.relay, opts, true)
       if made == nil then
         unwire(wiring, false)
@@ -4243,20 +4260,19 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: bo
       end)
       if not ok then launched, launch_trouble = nil, tostring(raised) end
       abandon_relay(prep)
-      local port: integer
       if launched ~= nil then
-        local served: integer | nil
+        local served = false
         ok, raised = pcall(function()
-          served, launch_trouble = await_relay_port(launched, prep.log)
+          served, launch_trouble = await_relay(launched, prep.log)
         end)
         if not ok then
           kill_relay(launched.handle)
-          served, launch_trouble = nil, tostring(raised)
+          served, launch_trouble = false, tostring(raised)
         end
-        if served == nil then launched = nil else port = served end
+        if not served then launched = nil end
       end
       if launched ~= nil then
-        launch_trouble = relay_held(held, port, prep.token)
+        launch_trouble = relay_held(held, prep.port, prep.token)
         if launch_trouble ~= "" then
           kill_relay(launched.handle)
           launched = nil
@@ -4264,9 +4280,24 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: bo
       end
       if launched == nil then
         unwire(wiring, false)
+        prep.handover.close()
         return refuse("start: sandbox: relay: " .. launch_trouble)
       end
       early = launched
+      -- The program holds the relay's listening sockets too, at descriptors
+      -- `fds` leaves free, so that the port stays this sandbox's for as long
+      -- as the program lives, the relay and this process gone or not. Its
+      -- profile lets it accept on neither.
+      local number = 3
+      for given = 3, 4 do
+        local fd = prep.handover.fds[given]
+        if fd == nil then break end
+        while slots[number] ~= nil or (extra ~= nil and extra[number] ~= nil) do
+          number = number + 1
+        end
+        extra = extra or {}
+        extra[number] = fd
+      end
     elseif held.relay ~= nil then
       -- The relay starts first and opens its database before the program
       -- exists: the database is then removed, so no program can swap it
@@ -4434,7 +4465,7 @@ begin_relay = function(prep: RelayPrep, channel: integer | nil): RelayLaunch | n
   for number, fd in pairs(prep.handover.fds) do fds[number] = fd end
   local started, trouble = start({ program }, { policy = prep.policy, cwd = "/", stdin = "stream",
     stdout = "stream", stderr = log, fds = fds, capture_limit = 4096, timeout_ns = RELAY_READY_NS },
-    nil, prep.seatbelt)
+    nil, prep.port)
   if started == nil then return nil, (trouble:gsub("^child: start: ", "")) end
   local relay: Handle = started
   relay._handover = prep.handover

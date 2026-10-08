@@ -19,14 +19,14 @@
 ---   environment, which other users' processes can read.
 ---
 --- A `direct` config (macOS's start, [`cosmic.relay.config`]'s `direct`) hands it
---- neither: it listens itself, at a port of 127.0.0.1 the kernel chooses
---- and the same port of ::1 ([`loopback_listeners`]), each for both
---- protocols, behind the config's token, and connects
---- and resolves itself, as the profile it is held by allows.
+--- neither: from descriptor 3 it is handed the listening sockets its
+--- starter bound at one port of 127.0.0.1 and ::1 ([`cosmic.sandbox.relay`]'s
+--- `loopback_listeners`), each for both protocols, which it serves behind
+--- the config's token, refusing a config without one; and it connects and
+--- resolves itself, as the profile it is held by allows.
 ---
 --- It says `opened` on standard output once it runs (its database is open),
---- `ready` once it serves (`ready <port>` where it listens itself, naming
---- the port), or `error: <why>` and
+--- `ready` once it serves, or `error: <why>` and
 --- ends with status 1, and it ends with status 0 when standard input
 --- reaches end of file: the starter holds the pipe's write end for as long
 --- as the program lives, and its death closes it.
@@ -97,37 +97,6 @@ local function read_line(): string | nil, string
   end
 end
 
---- How many ports a relay on the host's loopback tries before it gives up
---- finding one free on both 127.0.0.1 and ::1.
-local LOOPBACK_TRIES <const> = 16
-
---- Listeners at one port of 127.0.0.1 and the same port of ::1, which a
---- relay on the host's loopback holds both of: a program's profile allows
---- `localhost:PORT`, which Seatbelt reads as both addresses, so a port of
---- ::1 another process held would be reachable from the program. Where the
---- port is taken on ::1 the relay tries another, at most `LOOPBACK_TRIES`.
---- Where the host has no IPv6 loopback (no port of ::1 can be bound at
---- all) the 127.0.0.1 listener is alone: then no process can listen on ::1
---- either, and the program's connects there reach nothing. Nil and why
---- where no port is free on both.
-local function loopback_listeners(): {Net.Listener} | nil, string
-  local last = ""
-  for _ = 1, LOOPBACK_TRIES do
-    local v4, why = Net.listen(Net.tcp("127.0.0.1", 0))
-    if v4 == nil then return nil, why end
-    local v6, v6_why = Net.listen(Net.tcp("::1", v4.address.port))
-    if v6 ~= nil then return { v4, v6 }, "" end
-    -- Another port of ::1 says whether this one is taken or ::1 is not there.
-    local probe, _ = Net.listen(Net.tcp("::1", 0))
-    if probe == nil then return { v4 }, "" end
-    local _, _ = probe:close()
-    local _, _ = v4:close()
-    last = v6_why
-  end
-  return nil, "no port of 127.0.0.1 the kernel chose was free on ::1 too, in " ..
-    String.counted(LOOPBACK_TRIES, "try", "tries") .. ": " .. last
-end
-
 --- Waits for standard input to end, in a task of the run.
 local function until_end_of_input()
   while true do
@@ -176,6 +145,10 @@ end
 --- Serves the relay `config` describes until standard input ends.
 local function serve(config: Config.Config): integer
   local status = 1
+  -- A listener on the host's loopback is one every user of the host reaches.
+  if config.direct and (config.token == nil or config.listeners == nil) then
+    return failed("a relay on the host's loopback needs its token and its listeners")
+  end
   local env: {string:string} = {}
   env.https_proxy, env.no_proxy = config.https_proxy, config.no_proxy
   local upstream, upstream_why = Relay.upstream(env)
@@ -211,12 +184,19 @@ local function serve(config: Config.Config): integer
     local http, socks: Net.Listener, Net.Listener
     local mixed: {Net.Listener}
     if config.direct then
-      local listeners, listen_why = loopback_listeners()
-      if listeners == nil then
-        status = failed(listen_why)
-        return
+      mixed = {}
+      for i = 1, config.listeners or 0 do
+        local listener, adopt_why = Net.listener_from(CHANNEL_FD + i - 1)
+        if listener == nil then
+          status = failed(adopt_why)
+          return
+        end
+        if listener.address.port ~= (mixed[1] or listener).address.port then
+          status = failed("the loopback listeners are at two ports")
+          return
+        end
+        mixed[#mixed + 1] = listener
       end
-      mixed = listeners
     else
       local listeners, listeners_why = Net.receive_listeners(CHANNEL_FD)
       if listeners == nil then
@@ -267,7 +247,7 @@ local function serve(config: Config.Config): integer
       ended = true
       serving:stop()
     end)
-    say(mixed ~= nil and ("ready " .. mixed[1].address.port) or "ready")
+    say("ready")
     serving:wait()
     watch:cancel()
     if handed.table_connector ~= nil then local _, _ = handed.table_connector:close() end
