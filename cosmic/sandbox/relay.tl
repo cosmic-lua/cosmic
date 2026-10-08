@@ -296,6 +296,8 @@ function relay.plan(grants: {string}, env: {string: string}): relay.Plan | nil, 
     end
   end
   for _, grant in ipairs(grants) do
+    -- A target the relay cannot use was refused when the policy was
+    -- checked; one that is not parsed here opens nothing.
     local parsed, _ = Grant.parse(grant)
     if parsed ~= nil then
       if parsed.bytes ~= nil then

@@ -90,3 +90,12 @@ local function test_consumers_read_one_canonical_meaning()
   assert(not Address.granted("::1", 81, { "[::1]:80" }))
   assert(not Address.granted("1.2.3.4", 80, { "*:80", "example.com:80" }))
 end
+
+local function test_ipv6_hosts_round_trip_through_both_readers()
+  local target = assert(Grant.parse("[2001:DB8:0:0:0:0:0:1]:443"))
+  local socks = Wire.socks_request_reader():feed((assert(Wire.socks_client_request("2001:db8::1", 443))))
+  assert(socks.status == "done" and socks.kind == "ipv6" and socks.host == target.host, socks.host)
+  local head = Wire.connect_reader():feed("CONNECT [2001:db8::1]:443 HTTP/1.1\r\n\r\n")
+  assert(head.status == "done" and head.host == target.host)
+  assert(Address.granted("2001:db8::1", 443, { "[2001:DB8:0:0:0:0:0:1]:*" }))
+end

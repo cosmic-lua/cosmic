@@ -85,7 +85,10 @@ local record rules
     --- The system calls it may make beyond its basics.
     promises: {Promise}
     --- The hosts it may reach, "host:port", where the host or the port is
-    --- "*" for any.
+    --- "*" for any. A host is a DNS name, an IPv4 address or an IPv6 address
+    --- in brackets, and a name is read lower-case without a final dot; a
+    --- pattern, an underscore and anything else the relay's readers refuse
+    --- is refused here too ([`cosmic.grant`]).
     connect: {string}
     --- The addresses of 127/8 it uses inside its own network.
     loopback: {string}

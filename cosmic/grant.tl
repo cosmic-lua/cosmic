@@ -194,6 +194,7 @@ end
 --- @return string|nil The canonical name
 --- @return string Why there is none, "" otherwise
 function Grant.name(text: string): string | nil, string
+  if type(text) ~= "string" then return nil, "a host name is text" end
   if text:sub(-1) == "." then
     text = text:sub(1, -2)
   end
@@ -228,6 +229,7 @@ end
 --- @return integer|nil The port
 --- @return string Why there is none, "" otherwise
 function Grant.port(text: string): integer | nil, string
+  if type(text) ~= "string" then return nil, "a port is text" end
   local why = "port is not a decimal number from 1 to 65535 without leading zeros"
   if not text:find("^[1-9]%d*$") or #text > 5 then
     return nil, why
