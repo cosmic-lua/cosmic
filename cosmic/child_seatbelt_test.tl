@@ -15,6 +15,7 @@ local PolicyJson = require("cosmic.policy")
 local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
+local Seatbelt = Sandbox.Seatbelt
 local type raw_process = require("cosmic.internal.process")
 
 --- The system's own paths, which the child's program, its loader and its
@@ -90,6 +91,40 @@ local function files(tmp: string): string, string
   assert(Fs.write(granted, "granted-bytes"))
   assert(Fs.write(other, "other-bytes"))
   return granted, other
+end
+
+local function test_another_user_or_group_is_refused_naming_what_differs()
+  local function unmet(policy: Sandbox.Policy, user: integer, group: integer): string
+    return Seatbelt.credentials_unmet(assert(Sandbox.merge(policy)), user, group)
+  end
+  local why = unmet({ user = 6, group = 7 }, 5, 7)
+  assert(why:find("^user 6:") and not why:find("group 7", 1, true) and not why:find("nil", 1, true), why)
+  why = unmet({ user = 5, group = 8 }, 5, 7)
+  assert(why:find("^group 8") and not why:find("user 5", 1, true) and not why:find("nil", 1, true), why)
+  why = unmet({ user = 6, group = 8 }, 5, 7)
+  assert(why:find("user 6, group 8", 1, true), why)
+  assert(unmet({ user = 5, group = 7 }, 5, 7) == "" and unmet({}, 5, 7) == "")
+end
+
+local function test_a_root_caller_is_refused_whatever_the_policy_names()
+  assert(Seatbelt.credentials_unmet({}, 0, 0):find("never runs as root", 1, true))
+  assert(Seatbelt.credentials_unmet({ user = 5 }, 0, 0):find("never runs as root", 1, true))
+end
+
+local function test_the_callers_own_user_and_group_run_the_child()
+  macos_only()
+  if sys.getuid() == 0 then Test.skip("root is refused") end
+  local result = run({ "/usr/bin/id", "-u" }, { profiles = { "system" },
+    user = sys.getuid(), group = sys.getgid() })
+  expect(result.ok and result.stdout == tostring(sys.getuid()) .. "\n", result)
+end
+
+local function test_another_user_is_refused_before_a_child_starts()
+  macos_only()
+  if sys.getuid() == 0 then Test.skip("root is refused") end
+  local handle, why = Child.start({ "/bin/true" }, { policy = { profiles = { "system" },
+    user = sys.getuid() + 1 }, stdin = "null", stdout = "null", stderr = "null" })
+  assert(handle == nil and why:find("cannot change them", 1, true), why)
 end
 
 --- The "system" profile means one thing whether the policy is started
