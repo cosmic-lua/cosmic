@@ -280,6 +280,9 @@ static size_t connector_endpoints (lua_State *L, int argument,
     if (v4->sin_family == AF_INET) v4->sin_port = htons((uint16_t)port);
     else v6->sin6_port = htons((uint16_t)port);
     endpoint->slots = port == 0 ? 65535 : 1;
+    /* cosmic/sandbox/relay.tl's table_bytes counts the same, to refuse a policy's
+     * table before a connector starts; cosmic/sandbox/relay_test.tl holds the
+     * two to agree. */
     uintptr_t stride = connector_stride(endpoint->length);
     bytes = (bytes + stride - 1) / stride * stride + (size_t)endpoint->slots * stride;
     if (bytes > CONNECTOR_TABLE_BYTES) luaL_argerror(L, argument, "endpoint port tables exceed 32 MiB");
@@ -425,6 +428,9 @@ COSMIC_SYSCALL(connector_filter, 4) {
 
 #if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__))
 _Static_assert(sizeof(struct connector_insn) == sizeof(struct sock_filter), "BPF layout");
+/* Only the scratch slots rely on this: a public request zeroes CONNECTOR_STRIDE
+ * bytes at a scratch slot, which holds a sockaddr_storage. The table's slots
+ * are connector_stride apart, not this far. */
 _Static_assert(sizeof(struct sockaddr_storage) == CONNECTOR_STRIDE, "address slot size");
 
 struct connector_plan {

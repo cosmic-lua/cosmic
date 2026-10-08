@@ -161,8 +161,10 @@ local function test_mixed_tables_keep_each_range_at_its_own_stride()
   assert(socket.wait(listener:fd(), false, 500))
   local accepted <close> = assert(socket.accept(listener:fd()))
   assert(accepted:fd() >= 0)
-  -- A port the single slot does not hold is refused, not read from the next slot.
-  assert(asked(pair[1], table_request(2, 3, bound.port + 1 > 65535 and 1 or bound.port + 1)) == sys.EPERM)
+  -- A port the single slot does not hold (any but its own) is refused, not read from the next slot.
+  local other = bound.port % 65535 + 1
+  assert(other ~= bound.port)
+  assert(asked(pair[1], table_request(2, 3, other)) == sys.EPERM)
   assert(sys.close(pair[1]))
   local ended = assert(process.waitpid(child, false))
   assert(ended.code == 0)
