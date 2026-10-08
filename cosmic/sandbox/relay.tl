@@ -150,6 +150,27 @@ function relay.policy(database: string, digest: string): rules.Policy
   return policy
 end
 
+--- The policy the relay's process is started under on macOS, where
+--- Seatbelt holds it ([`Seatbelt.compile`]) and no connector runs: this
+--- program's core on the database at `database` (whose SHA-256 is `digest`,
+--- in hex), the "system" profile its core loads from, and the resolver's
+--- files read-only. Its network is not the policy's to say: the start of the
+--- relay gives its profile what [`Seatbelt.Options.serves_relay`] names,
+--- since it connects and resolves itself.
+--- @param database string The relay's sealed database
+--- @param digest string The database's SHA-256, in hex
+--- @return rules.Policy The policy
+function relay.seatbelt_policy(database: string, digest: string): rules.Policy
+  local grants: {rules.Grant} = {}
+  for _, file in ipairs(RELAY_FILES) do
+    local there, _ = sys.stat(file)
+    if there ~= nil then grants[#grants + 1] = { path = file, letters = "r" } end
+  end
+  local policy: rules.Policy = { database = database, profiles = { "system" }, grants = grants }
+  rules.expect_digest(policy, digest)
+  return policy
+end
+
 --- The name servers a lookup asks, read now, and the wait a connector of
 --- them gives each server's connection: the lookup's time divided by one
 --- more than the servers (at least half a second, at most a minute), so
@@ -270,6 +291,25 @@ function relay.upstream_addresses(up: Config.Upstream, through: relay.Through | 
   end
   local reply_ms = (through.name_servers.wait_ns + 999999) // 1000000 + REPLY_GRACE_MS
   local found, trouble = raw.resolve_through(up.host, RESOLVE_NS // 1000000, through.fd, reply_ms, servers, nil, true)
+  if found == nil then
+    return nil, "https_proxy's host " .. up.host .. " does not resolve: " .. trouble
+  end
+  local addresses: {string} = {}
+  for i, answer in ipairs(found) do addresses[i] = answer.address end
+  return addresses, ""
+end
+
+--- The addresses of `up`'s host, resolved now and once, as the system's
+--- resolver answers this process: what macOS's start, which runs no
+--- connector, tells its relay. A numeric host is its own address. Nil and
+--- why where it does not resolve.
+--- @param up Config.Upstream The upstream
+--- @return {string}|nil The addresses, numeric text
+--- @return string Why there are none, "" otherwise
+function relay.resolved_upstream(up: Config.Upstream): {string} | nil, string
+  local bytes = Address.parse(up.host)
+  if bytes ~= nil then return { numeric(bytes) }, "" end
+  local found, trouble = raw.resolve(up.host, RESOLVE_NS // 1000000)
   if found == nil then
     return nil, "https_proxy's host " .. up.host .. " does not resolve: " .. trouble
   end

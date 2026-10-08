@@ -136,7 +136,7 @@ end
 local function test_unmet_policy_fields_are_refused()
   local cases: {{any}} = {
     { { isolate = { "file" } }, "isolate" },
-    { { connect = { "example.com:443" } }, "connect" },
+    { { connect = { "example.com:443" } }, "connect needs the port of the network relay" },
     { { loopback = { "127.0.0.1" } }, "loopback" },
     { { promises = { "nest" } }, "nest" },
     { { grants = { { path = "a", from = "b", letters = "r" } } }, "from" },
@@ -154,12 +154,29 @@ local function test_unmet_policy_fields_are_refused()
   end
 end
 
---- macOS runs no relay for `connect`, which a Linux start does: it is refused
---- naming the relay, on every host that compiles a profile.
-local function test_connect_is_refused_naming_the_relay_macos_does_not_run()
-  local out, why = Seatbelt.compile({ connect = { "example.com:443" } }, { paths = {} })
-  assert(out == nil and why:find("connect needs the network relay", 1, true), tostring(why))
-  assert(why:find("macOS does not run yet", 1, true), why)
+--- A policy's `connect` reaches the network through the relay alone: the
+--- profile lets the program connect to the relay's port on the loopback over
+--- TCP, and to nothing else, nor bind or listen anywhere.
+local function test_connect_reaches_the_relay_port_alone()
+  local out = assert(Seatbelt.compile({ connect = { "example.com:443" } }, { paths = {}, relay_port = 49152 }))
+  assert(out.text == BASE .. '(allow network-outbound (remote tcp "localhost:49152"))\n', out.text)
+  for _, port in ipairs({ 0, 65536, -1 }) do
+    local refused, why = Seatbelt.compile({ connect = { "example.com:443" } }, { paths = {}, relay_port = port })
+    assert(refused == nil and why:find("connect needs the port", 1, true), tostring(why))
+  end
+  local stray, why = Seatbelt.compile({}, { paths = {}, relay_port = 49152 })
+  assert(stray == nil and why:find("no connect", 1, true), tostring(why))
+end
+
+--- The relay's own profile connects anywhere, as its grants decide, and
+--- listens on the loopback alone; it reaches configd's DNS configuration and
+--- no other Mach service.
+local function test_the_relay_profile_connects_out_and_listens_on_the_loopback()
+  local out = assert(Seatbelt.compile({}, { paths = {}, serves_relay = true }))
+  assert(out.text == BASE .. [[(allow network-outbound (remote ip "*:*"))
+(allow network-bind network-inbound (local ip "localhost:*"))
+(allow mach-lookup (global-name "com.apple.SystemConfiguration.DNSConfiguration"))
+]], out.text)
 end
 
 --- `tmp`'s directory is made after the profile, so the profile grants it

@@ -130,6 +130,9 @@ local record Options
   own_addresses: {string}
   token: string
   unresolved: string
+  --- Serve both protocols at one listener, as a relay on the host's
+  --- loopback does: `http` and `socks` are then its one address.
+  mixed: boolean
 end
 
 --- A running relay and what a test needs of it.
@@ -150,14 +153,18 @@ end
 local function start(tmp: string, opts: Options): Rig
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, HOSTS))
-  local http, socks = listen_here(), listen_here()
-  local rig: Rig = {
-    http = http.address, socks = socks.address, log = {}, asked = {}, given = {}, listeners = { http, socks },
-    server = nil as Relay.Serving,
-  }
+  local http, socks, mixed: Net.Listener, Net.Listener, Net.Listener
+  local rig: Rig = { log = {}, asked = {}, given = {}, server = nil as Relay.Serving }
+  if opts.mixed then
+    mixed = listen_here()
+    rig.http, rig.socks, rig.listeners = mixed.address, mixed.address, { mixed }
+  else
+    http, socks = listen_here(), listen_here()
+    rig.http, rig.socks, rig.listeners = http.address, socks.address, { http, socks }
+  end
   local redirect = opts.redirect or {}
   local spec: Relay.Spec = {
-    http = http, socks = socks, grants = opts.grants, upstream = opts.upstream,
+    http = http, socks = socks, mixed = mixed, grants = opts.grants, upstream = opts.upstream,
     timeouts = opts.timeouts, limits = opts.limits, tls_ports = opts.tls_ports,
     resolve = opts.resolve or { hosts_file = hosts }, own_addresses = opts.own_addresses, token = opts.token,
     unresolved = opts.unresolved,
@@ -1217,7 +1224,7 @@ local function test_a_spec_that_is_no_spec_raises(tmp: string)
       return nil, "unused"
     end
     local cases: {{Relay.Spec, string}} = {
-      { { grants = {}, connector = connector }, "an http or a socks listener" },
+      { { grants = {}, connector = connector }, "an http, a socks or a mixed listener" },
       { { http = listener, grants = {} }, "spec.connector" },
       { { http = listener, connector = connector } as Relay.Spec, "spec.grants" },
       { { http = listener, grants = { 1 as any as string }, connector = connector }, "spec.grants must hold strings" },
@@ -1370,6 +1377,50 @@ local function test_a_socks5_client_with_the_password_goes_through(tmp: string)
     local _, _ = conn:close()
     local _, _ = pipelined:close()
     assert(#lines_with(rig, "not authenticated") == 0, table.concat(rig.log, "\n"))
+    finish(rig, server)
+  end)
+end
+
+--- One listener serves both protocols, each connection read as its first
+--- byte says, behind the token: a CONNECT and a SOCKS5 client each reach a
+--- granted server, a request in either without the token is refused, and
+--- a connection that sends nothing is refused at the auth timeout.
+local function test_a_mixed_listener_reads_each_connection_as_its_first_byte_says(tmp: string)
+  Poll.run(function()
+    local server = origin(echo)
+    local grants = { "127.0.0.1:" .. server.port }
+    local rig = start(tmp, { grants = grants, token = TOKEN, mixed = true,
+      timeouts = { auth = Clock.ms(300) } })
+    assert(rig.http.port == rig.socks.port)
+    local conn, head = connect_to(rig, "127.0.0.1:" .. server.port, { basic("cosmic", TOKEN) })
+    assert(status_line(head) == "HTTP/1.1 200 Connection established", head)
+    assert(conn:write("over-connect"))
+    assert(read_exact(conn, 12) == "over-connect")
+    local _, _ = conn:close()
+    local socks = dial(rig.socks)
+    assert(socks_greet(socks, "\2") == "\5\2")
+    assert(socks:write(auth_message("cosmic", TOKEN)))
+    assert(read_exact(socks, 2) == "\1\0")
+    assert(socks:write(Fixture.socks_request(1, 1, "\127\0\0\1", server.port)))
+    assert(read_exact(socks, 10):byte(2) == 0, "the request is served")
+    assert(socks:write("over-socks"))
+    assert(read_exact(socks, 10) == "over-socks")
+    local _, _ = socks:close()
+    local bare, refused = connect_to(rig, "127.0.0.1:" .. server.port)
+    assert(status_line(refused) == "HTTP/1.1 407 Proxy Authentication Required", refused)
+    local _, _ = bare:close()
+    local unauthenticated = dial(rig.socks)
+    assert(socks_greet(unauthenticated, "\0") == "\5\255")
+    local _, _ = unauthenticated:close()
+    local silent = dial(rig.http)
+    assert(ended(silent), "a connection that sends nothing is closed")
+    local _, _ = silent:close()
+    until_it(function(): boolean
+      return #lines_with(rig, "mixed: refused: nothing received") == 1
+    end)
+    assert(server.connections == 2, "only the two with the token reached the server")
+    assert(#lines_with(rig, "connect 127.0.0.1:" .. server.port .. ": allowed") == 1, table.concat(rig.log, "\n"))
+    assert(#lines_with(rig, "socks5 127.0.0.1:" .. server.port .. ": allowed") == 1, table.concat(rig.log, "\n"))
     finish(rig, server)
   end)
 end

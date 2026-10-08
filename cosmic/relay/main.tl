@@ -18,8 +18,14 @@
 ---   proxy's password and the rest are never in the arguments or the
 ---   environment, which other users' processes can read.
 ---
+--- A `direct` config (macOS's start, [`cosmic.relay.config`]'s `direct`) hands it
+--- neither: it listens itself, at a port of 127.0.0.1 the kernel chooses,
+--- one listener for both protocols behind the config's token, and connects
+--- and resolves itself, as the profile it is held by allows.
+---
 --- It says `opened` on standard output once it runs (its database is open),
---- `ready` once it serves, or `error: <why>` and
+--- `ready` once it serves (`ready <port>` where it listens itself, naming
+--- the port), or `error: <why>` and
 --- ends with status 1, and it ends with status 0 when standard input
 --- reaches end of file: the starter holds the pipe's write end for as long
 --- as the program lives, and its death closes it.
@@ -33,7 +39,7 @@
 --- of its life, a failure that looks like the remote's, and an ended
 --- program says plainly that its network is gone.
 ---
---- The process runs offline: its filter refuses every socket it would
+--- On Linux the process runs offline: its filter refuses every socket it would
 --- make ([`cosmic.sandbox.relay`]'s `policy`), so what it reaches is what
 --- the connectors it is handed reach. Every connection is checked against
 --- the grants and the address classes by [`cosmic.relay.server`] and made by one
@@ -170,22 +176,38 @@ local function serve(config: Config.Config): integer
   end
   handed.lost = lose
   Poll.run(function()
-    local listeners, listeners_why = Net.receive_listeners(CHANNEL_FD)
-    if listeners == nil then
-      status = failed(listeners_why)
-      return
-    end
-    local http, socks = listeners[1], listeners[2]
-    if http.address.port ~= Config.http_port or socks.address.port ~= Config.socks_port then
-      status = failed("the listeners are at ports " .. http.address.port .. " and " ..
-          socks.address.port .. ", not " .. Config.http_port .. " and " .. Config.socks_port)
-      return
+    local http, socks, mixed: Net.Listener, Net.Listener, Net.Listener
+    if config.direct then
+      local listener, listen_why = Net.listen(Net.tcp("127.0.0.1", 0))
+      if listener == nil then
+        status = failed(listen_why)
+        return
+      end
+      mixed = listener
+    else
+      local listeners, listeners_why = Net.receive_listeners(CHANNEL_FD)
+      if listeners == nil then
+        status = failed(listeners_why)
+        return
+      end
+      http, socks = listeners[1], listeners[2]
+      if http.address.port ~= Config.http_port or socks.address.port ~= Config.socks_port then
+        status = failed("the listeners are at ports " .. http.address.port .. " and " ..
+            socks.address.port .. ", not " .. Config.http_port .. " and " .. Config.socks_port)
+        return
+      end
     end
     -- With no connector handed, nothing a grant opens can be reached.
     local connect: Relay.Connector = function(address: string, port: integer, _: integer): Net.Conn | nil, string
       return nil, "relay: no connector was handed for " .. address .. ":" .. port
     end
-    if handed.table_connector ~= nil or handed.public_connector ~= nil then
+    if config.direct then
+      -- The address is one the relay has checked; the profile lets it
+      -- connect anywhere.
+      connect = function(address: string, port: integer, timeout_ns: integer): Net.Conn | nil, string
+        return Net.connect(Net.tcp(address, port), { timeout_ns = timeout_ns })
+      end
+    elseif handed.table_connector ~= nil or handed.public_connector ~= nil then
       connect = Relay.handed(handed)
     end
     -- Without the name servers' connector the relay serves still, and every
@@ -197,7 +219,7 @@ local function serve(config: Config.Config): integer
       resolve = { connector = dns, servers = Relay.udp_servers(config.name_servers) }
     end
     local running, start_why = started({
-      http = http, socks = socks, grants = config.grants, connector = connect,
+      http = http, socks = socks, mixed = mixed, token = config.token, grants = config.grants, connector = connect,
       resolve = resolve, unresolved = config.unresolved,
       own_addresses = config.own_addresses, upstream = upstream, log = log, lost = lose,
     })
@@ -212,7 +234,7 @@ local function serve(config: Config.Config): integer
       ended = true
       serving:stop()
     end)
-    say("ready")
+    say(mixed ~= nil and ("ready " .. mixed.address.port) or "ready")
     serving:wait()
     watch:cancel()
     if handed.table_connector ~= nil then local _, _ = handed.table_connector:close() end

@@ -89,10 +89,13 @@
 --- the harm, and cannot tell that process from the program. The user name
 --- is any value: a SOCKS5 one must be 1 to 255 bytes (RFC 1929) and an empty
 --- one is refused; `cosmic sandbox connect` sends "cosmic" for an empty one.
--- TODO: have `cosmic sandbox` draw a token, hand it to cosmic.relay.main's spec and
--- put it in the sandbox's ALL_PROXY and https_proxy userinfo, once Seatbelt applies
--- a policy and the relay listens on the host's loopback on macOS; nothing sets
--- `token` until then.
+--- macOS's start draws one for each sandbox, whose relay listens on the
+--- host's loopback ([`cosmic.relay.main`]).
+---
+--- A `mixed` listener serves both protocols at one port: a connection whose
+--- first byte is 5, SOCKS5's version, is read as SOCKS5, and any other as
+--- an HTTP CONNECT, whose method begins with a letter. That byte is read
+--- within the wait of the reader it chooses, and is the reader's first.
 ---
 ---     local server = Relay.start({
 ---       http = http_listener, socks = socks_listener,
@@ -183,8 +186,11 @@ local record Relay
     --- for none.
     http: Net.Listener
     --- The listener that takes SOCKS5 requests, already bound; nil for
-    --- none. One of the two is needed.
+    --- none.
     socks: Net.Listener
+    --- A listener that takes both, each connection read as its first byte
+    --- says; nil for none. One of the three is needed.
+    mixed: Net.Listener
     --- The policy's `connect` targets, `host:port`.
     grants: {string}
     --- How a connection is made.
@@ -585,16 +591,28 @@ local function close_refused(conn: Net.Conn)
   local _, _ = conn:close()
 end
 
+--- The first wait of a connection, from its first read: with a token, the
+--- head or greeting and its credential are one wait, the auth timeout's.
+local function first_wait(run: Running): integer
+  return run.token_digest ~= nil and run.timeouts.auth or run.timeouts.head
+end
+
 --- The request of a CONNECT connection, or a refusal to answer it with.
-local function read_connect(run: Running, conn: Net.Conn): Wire.Connect, string
+--- `first` is what was read of it already, within the wait that ends at
+--- `deadline`.
+local function read_connect(run: Running, conn: Net.Conn, first: string, deadline: integer): Wire.Connect, string
   local reader = Wire.connect_reader()
-  -- With a token the head and its credential are one wait, the auth timeout's.
-  local limit = run.token_digest ~= nil and run.timeouts.auth or run.timeouts.head
-  local deadline = Clock.monotonic_ns() + limit
+  local limit = first_wait(run)
   local cap = run.limits.header_bytes
   local all = ""
+  local pending = first
   while true do
-    local data, why = read_before(conn, deadline, CHUNK)
+    local data, why: string, string
+    if pending ~= "" then
+      data, why, pending = pending, "", ""
+    else
+      data, why = read_before(conn, deadline, CHUNK)
+    end
     if data == nil then
       if why == Poll.TIMEOUT then
         return { status = "refused", consumed = 0, http_status = 408,
@@ -633,13 +651,15 @@ local record Socks
   answer: boolean
 end
 
-local function read_socks(run: Running, conn: Net.Conn, authenticated: function()): Socks
+--- The request of a SOCKS5 connection, or a refusal. `first` is what was
+--- read of it already, within the wait that ends at `deadline`; with a
+--- token, the request's own wait, the head timeout's, starts once the
+--- credential has passed.
+local function read_socks(run: Running, conn: Net.Conn, authenticated: function(), first: string,
+                          deadline: integer): Socks
   local tokened = run.token_digest ~= nil
-  -- With a token, greeting and credential are one wait, the auth timeout's;
-  -- the request's wait, the head timeout's, starts once it has passed.
-  local limit = tokened and run.timeouts.auth or run.timeouts.head
+  local limit = first_wait(run)
   local authing = tokened
-  local deadline = Clock.monotonic_ns() + limit
   local cap = run.limits.header_bytes
   local function early(why: string, reply: Wire.SocksReply, answer: boolean): Socks
     return { status = "refused", reason = why, reply = reply, answer = answer, host = "", kind = "name", port = 0, leftover = "" }
@@ -652,8 +672,14 @@ local function read_socks(run: Running, conn: Net.Conn, authenticated: function(
   local greeting = Wire.socks_greeting_reader(run.token_digest ~= nil)
   local all = ""
   local greeted: Wire.SocksGreeting
+  local pending = first
   while true do
-    local data, why = read_before(conn, deadline, CHUNK)
+    local data, why: string, string
+    if pending ~= "" then
+      data, why, pending = pending, "", ""
+    else
+      data, why = read_before(conn, deadline, CHUNK)
+    end
     if data == nil then
       if why == Poll.TIMEOUT then return timed_out() end
       return early("the program closed before its request was whole", "failure", false)
@@ -1041,8 +1067,24 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
   local function authenticated()
     if over == nil then over = admit(run, slot) end
   end
+  local reading_until = Clock.monotonic_ns() + first_wait(run)
+  local sniffed = ""
+  if protocol == "mixed" then
+    local data, why = read_before(client, reading_until, 1)
+    if data == nil or data == "" then
+      run.refused = run.refused + 1
+      run.log(("#%d mixed: refused: %s"):format(id, why == Poll.TIMEOUT and
+          ("nothing received within %s"):format(span(first_wait(run))) or
+          "the program closed before its request was whole"))
+      close_refused(client)
+      return
+    end
+    sniffed = data
+    protocol = sniffed:byte(1) == 5 and "socks5" or "connect"
+    req.protocol = protocol
+  end
   if protocol == "connect" then
-    local head, rest = read_connect(run, client)
+    local head, rest = read_connect(run, client, sniffed, reading_until)
     if head.status == "refused" then
       reject(refusal(head.reason, head.http_status == 0 and 400 or head.http_status, "failure"), head.http_status ~= 0)
       return
@@ -1058,7 +1100,7 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
     end
     req.host, req.kind, req.port, req.leftover = head.host, head.kind, head.port, rest
   else
-    local asked = read_socks(run, client, authenticated)
+    local asked = read_socks(run, client, authenticated, sniffed, reading_until)
     if asked.status == "refused" then
       reject(refusal(asked.reason, 400, asked.reply), asked.answer)
       return
@@ -1260,8 +1302,8 @@ end
 --- @return Relay.Serving The running relay
 function Relay.start(spec: Relay.Spec): Relay.Serving
   if type(spec) ~= "table" then error("relay: start takes a spec table", 2) end
-  if spec.http == nil and spec.socks == nil then
-    error("relay: spec needs an http or a socks listener", 2)
+  if spec.http == nil and spec.socks == nil and spec.mixed == nil then
+    error("relay: spec needs an http, a socks or a mixed listener", 2)
   end
   if type(spec.connector) ~= "function" then
     error("relay: spec.connector must be a function", 2)
@@ -1352,6 +1394,7 @@ function Relay.start(spec: Relay.Spec): Relay.Serving
   end
   listen(spec.http, "connect")
   listen(spec.socks, "socks5")
+  listen(spec.mixed, "mixed")
   local server: Relay.Serving = {
     stop = function(_: Relay.Serving)
       run.stopping = true

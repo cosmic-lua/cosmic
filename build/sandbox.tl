@@ -60,8 +60,7 @@
 --- ended it, as a shell reports it; 124 when `--timeout` ended it. Of its
 --- own: 2 for a command line it refuses, 125 for a start that failed
 --- (the reason on standard error, `cosmic: sandbox: <reason>`: what the
---- policy needs that this host lacks, or a `--connect` on macOS, which has
---- no relay), 126 for a program that is there and cannot be run and 127
+--- policy needs that this host lacks), 126 for a program that is there and cannot be run and 127
 --- for one that is not.
 
 local Child = require("cosmic.child")

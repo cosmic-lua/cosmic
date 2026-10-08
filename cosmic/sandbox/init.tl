@@ -35,9 +35,10 @@
 --- gives up), a seccomp filter for the system calls, and rlimits, and,
 --- for a child, the namespaces `isolate`, `loopback`, a `u` grant and
 --- `limits.processes` need. `connect` needs a network relay, which a
---- child's start runs ([`Child.start`]): on Linux alone, macOS's start
---- refuses it. On macOS a Seatbelt profile holds a child and the running
---- process alike ([`Seatbelt.compile`]).
+--- child's start runs ([`Child.start`]): in the child's own network on
+--- Linux, and on macOS on the host's loopback behind a token. On macOS a
+--- Seatbelt profile holds a child and the running process alike
+--- ([`Seatbelt.compile`]).
 
 local Proc = require("cosmic.proc")
 local rules = require("cosmic.sandbox.policy")
@@ -89,10 +90,10 @@ local record Sandbox
 
   --- What the starter of a policy's network relay reads and decides before
   --- the relay runs: the package's [`cosmic.sandbox.relay`], whose `policy`
-  --- is the relay's own, `plan` what a policy's `connect` targets open,
+  --- is the relay's own (`seatbelt_policy` on macOS), `plan` what a policy's `connect` targets open,
   --- `table`, `public` and `name_servers` the connectors [`Child.start`]
   --- hands the relay, and `upstream_addresses` the one lookup of the
-  --- upstream proxy, each documented there.
+  --- upstream proxy (`resolved_upstream` on macOS), each documented there.
   Relay: Relay
 
   --- What [`Sandbox.reach`] finds.
