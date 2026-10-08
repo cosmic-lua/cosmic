@@ -142,7 +142,12 @@ end
 --- grants the host's programs, libraries and the few files a libc reads to
 --- start (`rx` on /usr and the library and binary directories, `r` on
 --- /etc/ld.so.cache, nsswitch.conf, passwd, group and localtime, and the
---- null, zero and random devices), each only where it exists; "cosmic"
+--- null, zero and random devices), each only where it exists; on macOS
+--- it is macOS's own list instead (/usr, /bin, /sbin, the system
+--- frameworks and dyld's cryptexes and state, the accounts and time zone,
+--- and the same devices), the list a policy naming "system" is held to
+--- there without being merged, so the profile means the same given
+--- directly, merged or through [`PolicyJson.decode`]; "cosmic"
 --- grants `rx` on the path this program is started by ([`Proc.executable`]),
 --- which is its launcher where it has one: what [`Child.start`] runs as
 --- this program's core, by a relaunch.

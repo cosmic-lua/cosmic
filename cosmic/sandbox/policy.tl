@@ -454,9 +454,9 @@ local record Joined
   letters: {string:boolean}
 end
 
---- The paths of the "system" profile and what each is for, read and
---- run, or read, or written: the host's, filtered to those that exist.
-local SYSTEM_PATHS <const>: {{string}} = {
+--- The paths of the "system" profile on Linux and what each is for, read and
+--- run, or read, or written, before the host's are filtered to those that exist.
+local LINUX_SYSTEM_PATHS <const>: {{string}} = {
   -- The programs and libraries of the system, and the loader. Everything
   -- installed under /usr is reachable, /usr/local included; /opt, /home
   -- and /var are not. /bin and the /lib directories are links into /usr on
@@ -473,12 +473,49 @@ local SYSTEM_PATHS <const>: {{string}} = {
   { "/dev/null", "rw" }, { "/dev/zero", "r" }, { "/dev/urandom", "r" }, { "/dev/random", "r" },
 }
 
+--- The paths of the "system" profile on macOS. Unlike Linux's this
+--- includes the system frameworks and dyld's cryptexes; no Mach service
+--- or network permission follows merely from reading system libraries.
+local DARWIN_SYSTEM_PATHS <const>: {{string}} = {
+  { "/usr", "rx" }, { "/bin", "rx" }, { "/sbin", "rx" },
+  { "/System/Library", "rx" }, { "/Library/Apple/System/Library", "rx" },
+  { "/System/Cryptexes/App", "rx" }, { "/System/Cryptexes/OS", "rx" },
+  { "/System/Volumes/Preboot/Cryptexes/App/System", "rx" },
+  { "/System/Volumes/Preboot/Cryptexes/OS", "rx" },
+  { "/etc/passwd", "r" }, { "/etc/group", "r" }, { "/etc/localtime", "r" },
+  { "/private/var/db/timezone", "r" },
+  -- dyld's own state: it reads its closures and shared cache map from here.
+  { "/private/var/db/dyld", "r" },
+  -- /bin/sh reads its own selection from here.
+  { "/private/var/select", "r" },
+  -- No /dev/tty: as on Linux, a child opens no terminal by name, and the
+  -- start gives it a session with none besides. One started with a pty
+  -- is granted its slave and /dev/tty by [`Seatbelt.Options.terminal`].
+  { "/dev/null", "rw" }, { "/dev/dtracehelper", "rw" }, { "/dev/zero", "r" },
+  { "/dev/random", "r" }, { "/dev/urandom", "r" },
+}
+
+--- The paths of the "system" profile for `host`, "darwin" or "linux",
+--- whether or not this host has them: the one list [`rules.profile`] and
+--- the Seatbelt backend both read, so a profile means the same raw, merged
+--- or through JSON.
+function rules.system_paths(host: string): {{string}}
+  if host == "darwin" then return DARWIN_SYSTEM_PATHS end
+  return LINUX_SYSTEM_PATHS
+end
+
+--- Whether this host is macOS.
+local function on_darwin(): boolean
+  local names, _ = sys.uname()
+  return names ~= nil and names.sysname == "Darwin"
+end
+
 --- The "system" profile: what the host gives a dynamically linked program
---- to run. A path of `SYSTEM_PATHS` is granted when it exists here, so the
+--- to run. A path of this host's list is granted when it exists here, so the
 --- same profile fits a host with and without a /lib64.
 local function system_profile(): rules.Policy
   local grants: {rules.Grant} = {}
-  for _, entry in ipairs(SYSTEM_PATHS) do
+  for _, entry in ipairs(rules.system_paths(on_darwin() and "darwin" or "linux")) do
     local found, _ = sys.stat(entry[1])
     if found ~= nil then
       grants[#grants + 1] = { path = entry[1], letters = entry[2] }
