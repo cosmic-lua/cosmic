@@ -231,17 +231,33 @@ function relay_config.parse_addresses(fib_trie: string, if_inet6: string): {stri
   return found
 end
 
--- TODO: read the host's own addresses with getifaddrs once cosmic.sys carries
--- it: /proc/self/net is Linux's, and shows the network of the process that
--- reads it, the starter's, which its connectors reach from.
---- The addresses of this host's interfaces ([`parse_addresses`]), read from
---- /proc/self/net. Nil and why where /proc/self/net/fib_trie cannot be read: the relay
---- must not run without knowing them, since it would then connect to the
---- host's own addresses where it should refuse. An absent
---- /proc/self/net/if_inet6 is a host with no IPv6.
+--- The addresses of this host's interfaces: sorted, each once, numeric
+--- text. Darwin's come from [`sys.getifaddrs`]; Linux's are read from
+--- /proc/self/net ([`parse_addresses`]), since Linux's getifaddrs asks the
+--- kernel over a netlink socket, which a sandboxed process's filter refuses,
+--- and a sandboxed program may start a relay of its own. Nil and why where
+--- they cannot be read (on Linux, /proc/self/net/fib_trie): the relay must
+--- not run without knowing them, since it would then connect to the host's
+--- own addresses where it should refuse. An absent /proc/self/net/if_inet6
+--- is a host with no IPv6.
 --- @return {string}|nil The addresses
 --- @return string Why they cannot be read, "" otherwise
 function relay_config.host_addresses(): {string} | nil, string
+  local listed, listed_why, errno = sys.getifaddrs()
+  if listed ~= nil then
+    local seen: {string:boolean} = {}
+    local found: {string} = {}
+    for _, entry in ipairs(listed) do
+      if not seen[entry.address] then
+        seen[entry.address] = true
+        found[#found + 1] = entry.address
+      end
+    end
+    table.sort(found)
+    return found, ""
+  elseif errno ~= sys.ENOSYS then
+    return nil, "getifaddrs: " .. listed_why
+  end
   local trie, trie_why = Fs.read("/proc/self/net/fib_trie")
   if trie == nil then return nil, "/proc/self/net/fib_trie: " .. trie_why end
   local inet6 = ""

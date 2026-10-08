@@ -55,6 +55,9 @@ extern int clone (int (*)(void *), void *, int, void *, ...);
 #include <libproc.h>
 #include <sys/event.h>
 #include <sys/sysctl.h>
+#include <arpa/inet.h>
+#include <ifaddrs.h>
+#include <net/if.h>
 #endif
 #if defined(__x86_64__)
 #include <cpuid.h>
@@ -5947,6 +5950,86 @@ COSMIC_SYSCALL(uname, 0) {
   lua_pushstring(L, info.machine);
   lua_setfield(L, -2, "machine");
   return 1;
+}
+
+#if defined(__APPLE__)
+static void ifaddrs_release (void *resource) {
+  freeifaddrs(resource);
+}
+
+/* How many leading one bits the `size` bytes of `mask` from `offset` hold.
+ * Darwin's kernel shortens a netmask's sockaddr to its last nonzero byte
+ * (its sa_len says how far), so a byte past sa_len is zero, not read. */
+static lua_Integer netmask_prefix (const struct sockaddr *mask, size_t offset, size_t size) {
+  const unsigned char *bytes = (const unsigned char *)mask;
+  size_t held = mask->sa_len;
+  lua_Integer bits = 0;
+  for (size_t i = offset; i < offset + size && i < held; i++) {
+    unsigned byte = bytes[i];
+    while (byte & 0x80u) {
+      bits++;
+      byte = (byte << 1) & 0xffu;
+    }
+    if (bytes[i] != 0xff) break;
+  }
+  return bits;
+}
+#endif
+
+COSMIC_SYSCALL(getifaddrs, 0) {
+#if defined(__APPLE__)
+  struct cosmic_guard *guard = cosmic_guard_push(L, ifaddrs_release);
+  struct ifaddrs *list = NULL;
+  if (getifaddrs(&list) != 0) return cosmic_fail(L, errno);
+  guard->resource = list;
+  lua_newtable(L);
+  lua_Integer count = 0;
+  for (struct ifaddrs *entry = list; entry != NULL; entry = entry->ifa_next) {
+    if (entry->ifa_addr == NULL) continue;
+    sa_family_t family = entry->ifa_addr->sa_family;
+    char text[INET6_ADDRSTRLEN];
+    lua_Integer prefix = 0;
+    if (family == AF_INET) {
+      const struct sockaddr_in *v4 = (const struct sockaddr_in *)entry->ifa_addr;
+      if (inet_ntop(AF_INET, &v4->sin_addr, text, sizeof text) == NULL) return cosmic_fail(L, errno);
+      if (entry->ifa_netmask != NULL) {
+        prefix = netmask_prefix(entry->ifa_netmask, offsetof(struct sockaddr_in, sin_addr), sizeof v4->sin_addr);
+      }
+    } else if (family == AF_INET6) {
+      struct in6_addr address = ((const struct sockaddr_in6 *)entry->ifa_addr)->sin6_addr;
+      /* Darwin's kernel keeps a link-local address's interface index in
+       * its second group (KAME's embedded scope); the address itself has
+       * zeros there. */
+      if (IN6_IS_ADDR_LINKLOCAL(&address)) {
+        address.s6_addr[2] = 0;
+        address.s6_addr[3] = 0;
+      }
+      if (inet_ntop(AF_INET6, &address, text, sizeof text) == NULL) return cosmic_fail(L, errno);
+      if (entry->ifa_netmask != NULL) {
+        prefix = netmask_prefix(entry->ifa_netmask, offsetof(struct sockaddr_in6, sin6_addr), sizeof address);
+      }
+    } else {
+      continue;
+    }
+    lua_createtable(L, 0, 6);
+    lua_pushstring(L, entry->ifa_name);
+    lua_setfield(L, -2, "name");
+    lua_pushstring(L, family == AF_INET ? "ipv4" : "ipv6");
+    lua_setfield(L, -2, "family");
+    lua_pushstring(L, text);
+    lua_setfield(L, -2, "address");
+    lua_pushinteger(L, prefix);
+    lua_setfield(L, -2, "prefix");
+    lua_pushboolean(L, (entry->ifa_flags & IFF_UP) != 0);
+    lua_setfield(L, -2, "up");
+    lua_pushboolean(L, (entry->ifa_flags & IFF_LOOPBACK) != 0);
+    lua_setfield(L, -2, "loopback");
+    lua_rawseti(L, -2, ++count);
+  }
+  return 1;
+#else
+  return cosmic_fail(L, ENOSYS);
+#endif
 }
 
 /* The signals the guards have caught, as one stamp: how many, times
