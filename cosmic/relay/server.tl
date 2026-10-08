@@ -21,11 +21,15 @@
 ---    address and port literally ([`cosmic.relay.address`]'s `granted`),
 ---    whatever the address is. Nothing is resolved before this passes.
 --- 3. A name is resolved once, right now, with no cache, within the
----    `resolve` timeout, and the first answer
----    [`cosmic.relay.address`]'s `select` allows is the one connected to:
----    never another. A loopback, private or metadata answer is allowed
----    only by a literal grant of that address.
---- 4. The `connector` connects it, within the `connect` timeout.
+---    `resolve` timeout, and the answers
+---    [`cosmic.relay.address`]'s `permitted` allows are the only ones
+---    connected to, tried in the order received (step 4): never another.
+---    A loopback, private or metadata answer is allowed only by a literal
+---    grant of that address.
+--- 4. The `connector` connects the first of them that answers, one after
+---    another within the one `connect` timeout, each given an equal share
+---    of what is left; the program is told of one failure, naming every
+---    address tried, only when all failed.
 --- 5. The program is told it has succeeded, and the first bytes it sends
 ---    are read as a TLS ClientHello when they are one: a hello that
 ---    carries Encrypted Client Hello or encrypted SNI, one whose server
@@ -774,17 +778,18 @@ local function read_socks(run: Running, conn: Net.Conn, authenticated: function(
   end
 end
 
---- An address chosen, or the refusal that says why none was.
+--- The addresses chosen, in the order to try them, or the refusal that
+--- says why none was.
 local record Found
-  address: string
+  addresses: {string}
   refused: Refusal
 end
 
---- Resolves `name` once, and the first address the checks allow.
+--- Resolves `name` once, and every address the checks allow, in order.
 local function address_of(run: Running, name: string, kind: Wire.Kind, port: integer, trusted?: boolean): Found
   local shown = target(name, port)
   if kind ~= "name" then
-    return { address = name }
+    return { addresses = { name } }
   end
   local answers: {Address.Answer} = {}
   local resolved_once = trusted and run.spec.upstream.addresses or nil
@@ -796,7 +801,7 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
   else
     -- A numeric host, as an upstream proxy's may be, answers itself.
     if run.spec.unresolved ~= nil and Address.parse(name) == nil then
-      return { address = "", refused = refusal(("could not resolve %s: %s"):format(name, run.spec.unresolved), 502,
+      return { addresses = {}, refused = refusal(("could not resolve %s: %s"):format(name, run.spec.unresolved), 502,
         "host_unreachable") }
     end
     local opts: Net.ResolveOptions = { timeout_ns = run.timeouts.resolve }
@@ -807,7 +812,7 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
     -- A connection between `stop` setting this and its cancellation must
     -- not start a lookup `stop` has already passed over.
     if run.stopping then
-      return { address = "", refused = refusal(("could not resolve %s: the relay is stopping"):format(name), 502,
+      return { addresses = {}, refused = refusal(("could not resolve %s: the relay is stopping"):format(name), 502,
         "host_unreachable") }
     end
     local found: {Net.Resolved} | nil
@@ -833,10 +838,10 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
     end
     if found == nil then
       if why == Poll.TIMEOUT then
-        return { address = "", refused = refusal(("resolving %s timed out after %s"):format(name,
+        return { addresses = {}, refused = refusal(("resolving %s timed out after %s"):format(name,
           span(run.timeouts.resolve)), 504, "ttl_expired") }
       end
-      return { address = "", refused = refusal(("could not resolve %s: %s"):format(name, why), 502, "host_unreachable") }
+      return { addresses = {}, refused = refusal(("could not resolve %s: %s"):format(name, why), 502, "host_unreachable") }
     end
     for i, resolved in ipairs(found) do
       answers[i] = { address = resolved.address, family = resolved.family }
@@ -848,18 +853,56 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
     -- relay may connect to it (a proxy on loopback or a private network is the
     -- usual one) without the program being granted it, which would let the
     -- program ask the proxy for any host. Every answer of its name is trusted
-    -- so, but `select` still takes the first, and the decision line names the
-    -- one connected to; the metadata and unspecified classes are not excepted,
+    -- so, and tried in order; the decision line names the one connected to;
+    -- the metadata and unspecified classes are not excepted,
     -- since the caller, not the sandbox, chose this name.
     grants = {}
     for i, grant in ipairs(run.spec.grants) do grants[i] = grant end
     for _, answer in ipairs(answers) do grants[#grants + 1] = target(answer.address, port) end
   end
-  local chosen, trouble = Address.select(answers, port, grants, run.own)
+  local chosen, trouble = Address.permitted(answers, port, grants, run.own)
   if chosen == nil then
-    return { address = "", refused = refusal(("%s: %s"):format(shown, trouble), 403, "not_allowed") }
+    return { addresses = {}, refused = refusal(("%s: %s"):format(shown, trouble), 403, "not_allowed") }
   end
-  return { address = chosen.address }
+  local addresses: {string} = {}
+  for i, answer in ipairs(chosen) do addresses[i] = answer.address end
+  return { addresses = addresses }
+end
+
+--- A connection made, with the address it was made to, or the refusal
+--- that says why none could be.
+local record Connected
+  conn: Net.Conn
+  address: string
+  refused: Refusal
+end
+
+--- Connects to the first of `addresses` on `port` that answers, trying
+--- them in order within `deadline`: each attempt is given an equal share of
+--- the time left, the first of the connect timeout, so one that hangs
+--- leaves the rest theirs. `label` names the destination in a failure
+--- ("the upstream proxy " for one that is, else "") and `name` its host.
+--- When all fail, one refusal names every address and why, with the
+--- status of the last.
+local function connect_any(run: Running, addresses: {string}, port: integer, deadline: integer,
+                           label: string, name: string): Connected
+  local failures: {string} = {}
+  local last: Refusal
+  for i, address in ipairs(addresses) do
+    local left = i == 1 and run.timeouts.connect or deadline - Clock.monotonic_ns()
+    if left <= 0 then
+      failures[#failures + 1] = ("%s: %s"):format(target(address, port), "no time left")
+      last = connect_failure(label .. target(address, port), Poll.TIMEOUT)
+      break
+    end
+    local conn, trouble = run.spec.connector(address, port, left // (#addresses - i + 1))
+    if conn ~= nil then return { conn = conn, address = address } end
+    failures[#failures + 1] = ("%s: %s"):format(target(address, port), trouble)
+    last = connect_failure(label .. target(address, port), trouble)
+  end
+  if #addresses == 1 then return { refused = last } end
+  return { refused = refusal(("could not connect to %s%s: none of its addresses answered (%s)"):format(label,
+    target(name, port), table.concat(failures, "; ")), last.http, last.socks) }
 end
 
 --- The part of a CONNECT through an upstream the relay reads: its status
@@ -1166,12 +1209,13 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
       reject(found.refused, true)
       return
     end
-    local address = found.address
-    local conn, trouble = run.spec.connector(address, req.port, run.timeouts.connect)
-    if conn == nil then
-      reject(connect_failure(target(address, req.port), trouble), true)
+    local made = connect_any(run, found.addresses, req.port, Clock.monotonic_ns() + run.timeouts.connect, "",
+      req.host)
+    if made.refused ~= nil then
+      reject(made.refused, true)
       return
     end
+    local conn, address = made.conn, made.address
     run.live[id] = { client, conn }
     far, how = conn, "via " .. target(address, req.port)
   else
@@ -1181,13 +1225,13 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
       reject(found.refused, true)
       return
     end
-    local address = found.address
     local deadline = Clock.monotonic_ns() + run.timeouts.connect
-    local conn, trouble = run.spec.connector(address, up.port, run.timeouts.connect)
-    if conn == nil then
-      reject(connect_failure("the upstream proxy " .. target(address, up.port), trouble), true)
+    local made = connect_any(run, found.addresses, up.port, deadline, "the upstream proxy ", up.host)
+    if made.refused ~= nil then
+      reject(made.refused, true)
       return
     end
+    local conn, address = made.conn, made.address
     run.live[id] = { client, conn }
     local ask = ("CONNECT %s HTTP/1.1\r\nHost: %s\r\n%s\r\n"):format(shown, shown,
       up.authorization ~= nil and ("Proxy-Authorization: " .. up.authorization .. "\r\n") or "")

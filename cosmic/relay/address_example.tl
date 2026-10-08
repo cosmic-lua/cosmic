@@ -2,16 +2,16 @@ local relay_address = require("cosmic.relay.address")
 
 local Example = {}
 
---- A name's answers are classified one by one and the first allowed one is
---- the only one connected to; a refusal names the remedy.
-function Example.select()
+--- A name's answers are classified one by one and the allowed ones are the
+--- only ones connected to, in order; a refusal names the remedy.
+function Example.permitted()
   local own = relay_address.own_addresses({ "192.0.2.7" })
-  local picked = assert(relay_address.select({
+  local allowed = assert(relay_address.permitted({
     { address = "169.254.169.254", family = "inet" },
     { address = "::ffff:10.0.0.1", family = "inet6" },
     { address = "93.184.216.34", family = "inet" },
   }, 443, {}, own))
-  print(picked.address) -- 93.184.216.34
+  print(#allowed, allowed[1].address) -- 1 93.184.216.34
 
   local ok, why = relay_address.check("169.254.169.254", 80, {}, own)
   assert(not ok)

@@ -2,8 +2,8 @@
 --- of DNS answers, untrusted bytes: no text raises it; an IPv6 address
 --- reads as the 16 bytes it was written from, however it is spelled; an
 --- address that carries an IPv4 one is refused undecoded;
---- and a literal grant opens its address alone, and selection answers the
---- first allowed address. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
+--- and a literal grant opens its address alone, and selection keeps every allowed
+--- address, in order. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
 --- (build/fuzz/init.tl).
 
 local Fuzz = require("build.fuzz")
@@ -106,9 +106,9 @@ local function test_no_text_raises_the_parser_or_the_check(tmp: string)
       if not ok then return false, "parse raised: " .. tostring(parsed) end
       local checked, allowed, why = pcall(relay_address.check, text, 443, { (text:find(":", 1, true) and "[" .. text .. "]" or text) .. ":443" }, NO_OWN)
       if not checked then return false, "check raised: " .. tostring(allowed) end
-      local selected, picked, reason = pcall(relay_address.select,
+      local selected, picked, reason = pcall(relay_address.permitted,
         { { address = text, family = "inet" } }, 443, NONE, NO_OWN)
-      if not selected then return false, "select raised: " .. tostring(picked) end
+      if not selected then return false, "permitted raised: " .. tostring(picked) end
       local bytes = parsed as {integer} | nil
       if bytes == nil then
         Fuzz.label("rejected")
@@ -298,18 +298,18 @@ local function test_a_grant_opens_its_address_and_selection_takes_the_first_allo
           end
         end
       end
-      -- Selection: the first answer check allows, else a reason naming every one.
-      local first: integer = nil
+      -- Selection: every answer check allows, in order, else a reason naming every one.
+      local want: {integer} = {}
       for i, a in ipairs(list) do
-        if relay_address.check(a, port, NONE, NO_OWN) then
-          first = i
-          break
-        end
+        if relay_address.check(a, port, NONE, NO_OWN) then want[#want + 1] = i end
       end
-      local picked, why = relay_address.select(answers, port, NONE, NO_OWN)
-      if first ~= nil then
-        if picked == nil or picked ~= answers[first] then
-          return false, "did not pick answer " .. first
+      local picked, why = relay_address.permitted(answers, port, NONE, NO_OWN)
+      if #want > 0 then
+        if picked == nil or #picked ~= #want then
+          return false, "did not keep the allowed answers"
+        end
+        for k, i in ipairs(want) do
+          if picked[k] ~= answers[i] then return false, "kept answer " .. k .. " out of order" end
         end
         Fuzz.label("picked")
       elseif #list > 0 then
