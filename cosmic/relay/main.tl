@@ -31,11 +31,11 @@
 --- reaches end of file: the starter holds the pipe's write end for as long
 --- as the program lives, and its death closes it.
 ---
---- Once a connector it was handed has ended ([`Relay.Handed.lost`]), or
+--- Once the connector it was handed has ended ([`Relay.Handed.lost`]), or
 --- its name servers' connector has ([`Relay.Spec.lost`]), it logs why,
 --- stops serving and ends with status 1, as `error: <why>`, and its
---- starter then ends the program. It does so even where its other
---- connectors still work: none is ever started anew,
+--- starter then ends the program. It does so even where the other
+--- still works: none is ever started anew,
 --- so the program would be refused what the lost one reached for the rest
 --- of its life, a failure that looks like the remote's, and an ended
 --- program says plainly that its network is gone.
@@ -43,8 +43,8 @@
 --- On Linux the process runs offline: its filter refuses every socket it would
 --- make ([`cosmic.sandbox.relay`]'s `policy`), so what it reaches is what
 --- the connectors it is handed reach. Every connection is checked against
---- the grants and the address classes by [`cosmic.relay.server`] and made by one
---- of them ([`Relay.handed`]), and every name is resolved, once a grant
+--- the grants and the address classes by [`cosmic.relay.server`] and made by its
+--- one connector ([`Relay.handed`]), and every name is resolved, once a grant
 --- names it, over TCP through the name servers' connector, whose table
 --- the starter read once. Where it had none to hand -- the name servers
 --- could not be read, or nothing names a host -- the relay serves still,
@@ -117,20 +117,15 @@ local function started(spec: Relay.Spec): Relay.Serving | nil, string
   return server, ""
 end
 
---- The connectors `config` says the relay is handed, adopted: what
+--- The connector `config` says the relay is handed, adopted: what
 --- [`Relay.handed`] takes, and the name servers' connector, or nil where
 --- none is handed. Nil and why where one cannot be adopted.
 local function adopted(config: Config.Config): Relay.Handed | nil, Net.Connector | nil, string
-  local handed: Relay.Handed = { table = config.table }
-  if config.table ~= nil then
-    local made, why = Net.connector_from(Config.table_fd, config.table, false, Config.connect_ns)
-    if made == nil then return nil, nil, "the table connector: " .. why end
-    handed.table_connector = made
-  end
-  if config.public then
-    local made, why = Net.connector_from(Config.public_fd, nil, true, Config.connect_ns)
-    if made == nil then return nil, nil, "the public connector: " .. why end
-    handed.public_connector = made
+  local handed: Relay.Handed = {}
+  if config.table ~= nil or config.public then
+    local made, why = Net.connector_from(Config.connector_fd, config.table, config.public, Config.connect_ns)
+    if made == nil then return nil, nil, "the connector: " .. why end
+    handed.connector = made
   end
   local dns: Net.Connector
   if config.name_servers ~= nil then
@@ -220,7 +215,7 @@ local function serve(config: Config.Config): integer
       connect = function(address: string, port: integer, timeout_ns: integer): Net.Conn | nil, string
         return Net.connect(Net.tcp(address, port), { timeout_ns = timeout_ns })
       end
-    elseif handed.table_connector ~= nil or handed.public_connector ~= nil then
+    elseif handed.connector ~= nil then
       connect = Relay.handed(handed)
     end
     -- Without the name servers' connector the relay serves still, and every
@@ -250,8 +245,7 @@ local function serve(config: Config.Config): integer
     say("ready")
     serving:wait()
     watch:cancel()
-    if handed.table_connector ~= nil then local _, _ = handed.table_connector:close() end
-    if handed.public_connector ~= nil then local _, _ = handed.public_connector:close() end
+    if handed.connector ~= nil then local _, _ = handed.connector:close() end
     if dns ~= nil then local _, _ = dns:close() end
     status = ended and 0 or failed(lost or "the relay's listeners ended")
   end)

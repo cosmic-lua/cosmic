@@ -20,16 +20,17 @@
 --- connectors whose control streams [`Child.start`] hands it, which it
 --- starts in its own process and network from what this module answers:
 ---
---- - the table's, whose table
+--- - the connector, whose table
 ---   ([`relay.table`]) holds every address a target names literally and
----   the upstream proxy's, at most 128 in all;
---- - for a policy that grants a name ([`relay.Plan.names`]) the relay
+---   the upstream proxy's, at most 128 in all, and which asks it first.
+---   For a policy that grants a name ([`relay.Plan.names`]) the relay
 ---   reaches directly (with no upstream, or one `no_proxy` bypasses for
----   some), the name servers' ([`relay.name_servers`]), whose table holds
----   the system's name servers alone, read once, over which the relay
----   resolves a name only once a grant opens it, and, where those could be
----   read, a public connector, which connects to any address its deny list
----   ([`relay.public`]) allows: what a granted name resolves to.
+---   some), where the system's name servers could be read, it is also
+---   public: it connects to any address its deny list
+---   ([`relay.public`]) allows, which is what a granted name resolves to;
+--- - for such a policy, the name servers' ([`relay.name_servers`]), whose
+---   table holds the system's name servers alone, read once, over which
+---   the relay resolves a name only once a grant opens it.
 ---
 --- Each makes several connections at once, so a connect that hangs holds
 --- up no other.

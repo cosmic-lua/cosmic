@@ -192,7 +192,10 @@ local record Net
     --- address that is no numeric one where the connector has no table. A
     --- public connector (see [`Net.connector`]) also connects to a numeric
     --- `target` its table lacks, unless its process refuses the address
-    --- ("net: ... is refused by the connector's deny list").
+    --- ("net: ... is refused by the connector's deny list"); one with a
+    --- table holds 16 of its [`Net.CONNECTOR_FLIGHT`] back from such
+    --- requests, so that a connect to its table never waits behind public
+    --- ones that hang.
     connect: function(Connector, target: integer | string, port: integer, timeout_ns: integer): Conn | nil, string
     --- The connector as the relay takes one, `address, port, timeout_ns`
     --- to a connection or nil and why: [`Connector.connect`] over a
@@ -981,6 +984,10 @@ end
 
 local CONNECTOR_DEFAULT_NS <const> = Clock.seconds(10)
 local CONNECTOR_GRACE_NS <const> = Clock.seconds(1)
+--- The flights a public connector with a table holds back from its public
+--- requests, which wait on a connect that may hang for the process's whole
+--- wait, so that a table's endpoint is never kept waiting behind them.
+local TABLE_RESERVE <const> = 16
 local CONNECTOR_MAX_ENDPOINTS <const> = 128
 
 Net.CONNECTOR_FLIGHT = raw.CONNECTOR_FLIGHT
@@ -1001,6 +1008,9 @@ local record Pending
   why: string
   -- Whether its caller took `conn`: one answered but left behind is closed.
   taken: boolean
+  -- Whether it is a public request of a connector with a table, counted in
+  -- [`Channel.public_count`] until answered.
+  capped: boolean
 end
 
 --- One connector process's control stream, which every request to it
@@ -1022,6 +1032,9 @@ local record Channel
   -- given up on among them, and how many there are.
   pending: {integer: Pending}
   count: integer
+  -- Of `count`, the public requests of a connector with a table, which
+  -- never hold more than CONNECTOR_FLIGHT less TABLE_RESERVE flights.
+  public_count: integer
   -- What of a reply's header has been read.
   header: string
   -- The request whose socket comes next, its header read, and its tag;
@@ -1071,8 +1084,8 @@ local socket_connector_mt: metatable<SocketConnector> = {
 }
 
 local function channel_of(process: Child.ConnectorProcess): Channel
-  return { process = process, greeted = false, hello = "", next_tag = 1, pending = {}, count = 0, header = "",
-    progress = 0 }
+  return { process = process, greeted = false, hello = "", next_tag = 1, pending = {}, count = 0, public_count = 0,
+    header = "", progress = 0 }
 end
 
 --- Gives the stream of `channel` up, `why` it is lost: every request
@@ -1084,7 +1097,7 @@ local function lose(channel: Channel, why: string)
   for _, pending in pairs(channel.pending) do
     if not pending.done then pending.done, pending.why = true, why end
   end
-  channel.pending, channel.count, channel.passing = {}, 0, nil
+  channel.pending, channel.count, channel.public_count, channel.passing = {}, 0, 0, nil
   local _ = channel.process:close()
 end
 
@@ -1093,6 +1106,7 @@ end
 local function answer(channel: Channel, tag: integer, pending: Pending, conn: SocketConn, why: string)
   channel.pending[tag] = nil
   channel.count = channel.count - 1
+  if pending.capped then channel.public_count = channel.public_count - 1 end
   channel.progress = channel.progress + 1
   if pending.given_up then
     if conn ~= nil then local _, _ = conn:close() end
@@ -1275,13 +1289,16 @@ local asking_mt: metatable<Asking> = {
 
 --- Asks the connector of `channel` with `body`, a request less its tag,
 --- for a connection to `host` at `port` by `deadline`, once its hello has
---- been read and fewer than CONNECTOR_FLIGHT requests are pending: the
---- connection, or nil and why. A request given up on stays pending until
---- its reply comes, which the connector sends within the request's wait.
+--- been read and fewer than CONNECTOR_FLIGHT requests are pending (and,
+--- for a `capped` one, fewer than CONNECTOR_FLIGHT less TABLE_RESERVE
+--- capped ones): the connection, or nil and why. A request given up on
+--- stays pending until its reply comes, which the connector sends within
+--- the request's wait.
 local function ask(channel: Channel, body: string, host: string, port: integer, deadline: integer,
-                   timeout_ns: integer, refusal: string): SocketConn | nil, string
+                   timeout_ns: integer, refusal: string, capped?: boolean): SocketConn | nil, string
   local room, waiting = await(channel, deadline, false, function(): boolean
-    return channel.lost == nil and channel.greeted and channel.count < raw.CONNECTOR_FLIGHT
+    return channel.lost == nil and channel.greeted and channel.count < raw.CONNECTOR_FLIGHT and
+      (not capped or channel.public_count < raw.CONNECTOR_FLIGHT - TABLE_RESERVE)
   end)
   if not room then return nil, waiting end
   local tag = channel.next_tag
@@ -1296,9 +1313,10 @@ local function ask(channel: Channel, body: string, host: string, port: integer, 
     return nil, channel.lost
   end
   local pending: Pending = { host = host, port = port, timeout_ns = timeout_ns, refusal = refusal,
-    given_up = false, done = false }
+    given_up = false, done = false, capped = capped == true }
   channel.pending[tag] = pending
   channel.count = channel.count + 1
+  if capped then channel.public_count = channel.public_count + 1 end
   local asking: Asking = setmetatable({ pending = pending }, asking_mt)
   local _held <close> = asking
   local answered, why = await(channel, deadline, true, function(): boolean return pending.done end)
@@ -1365,6 +1383,7 @@ function SocketConnector:connect(target: integer | string, port: integer, timeou
   local host: string
   local body: string
   local refusal = ""
+  local capped = false
   if type(target) == "number" then
     index = target
     local entry = math.type(index) == "integer" and self.endpoints[index] or nil
@@ -1393,13 +1412,14 @@ function SocketConnector:connect(target: integer | string, port: integer, timeou
       host = target
       -- The public index, 4294967295.
       body = request_body(0xffffffff, port, timeout_ns, bytes)
+      capped = #self.endpoints > 0
       refusal = "net: " .. target .. " is refused by the connector's deny list"
     end
   end
   body = body or request_body(index, port, timeout_ns)
   local channel, why = served(self)
   if channel == nil then return nil, why end
-  return ask(channel, body, host, port, deadline, timeout_ns, refusal)
+  return ask(channel, body, host, port, deadline, timeout_ns, refusal, capped)
 end
 
 function SocketConnector:as_function(): function(address: string, port: integer, timeout_ns: integer): Net.Conn | nil, string
