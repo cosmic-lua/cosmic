@@ -183,14 +183,13 @@ local function test_a_host_path_is_given_where_it_is_declared(tmp: string)
   assert(text:find("read|given|nil|end", 1, true), text)
 end
 
---- End to end: a process a sandboxed test starts is keyed by what its
---- module declares. Run again, the test stands; a change to a file of
---- the tree it does not declare leaves it standing; a change to one it
---- declares runs it again, and so does making one it declares that was
---- not there when it last ran; none is assumed, and none runs every
---- time. One that does not declare `store` stands too: what it starts
---- can read only the store of its closure, which its key holds.
-local function test_a_process_a_sandboxed_test_starts_is_keyed_by_what_it_declares(tmp: string)
+--- The suite the two tests below run `cosmic test` on, two modules whose
+--- tests start the stand-in, and the first of those runs, which runs both.
+--- Answers its root and `said`, which runs again and checks the summary says
+--- `wanted` and passes unless `passes` is false. Where the first run was not
+--- sandboxed the running test is skipped. Each test makes its own, since a
+--- run takes a second and a half and a test is held to its timeout.
+local function keyed_suite(tmp: string): string, (function(string, ?boolean): string)
   local root = tmp .. "/root"
   suite_tree(tmp, root)
   assert(Fs.write(root .. "/suite/data.txt", "one"))
@@ -241,16 +240,39 @@ end
     return text
   end
   local first = said("2 ran, 0 stood")
-  if unsandboxed(first) then return end
+  if unsandboxed(first) then return root, said end
   assert(first:find("; sandboxed", 1, true), first)
+  return root, said
+end
+
+--- End to end: a process a sandboxed test starts is keyed by what its
+--- module declares. A change to a file of the tree it does not declare
+--- leaves it standing, and none is assumed, nor runs every time. One that
+--- does not declare `store` stands too: what it starts can read only the
+--- store of its closure, which its key holds.
+local function test_a_process_a_sandboxed_test_starts_stands_on_an_undeclared_change(tmp: string)
+  local root, said = keyed_suite(tmp)
+  -- A file no test declares moved, so this run is also the second of the
+  -- same declarations.
+  assert(Fs.write(root .. "/suite/unrelated.txt", "two"))
   local again = said("0 ran, 2 stood")
   assert(not again:find("assumed", 1, true) and not again:find("every time", 1, true), again)
-  assert(Fs.write(root .. "/suite/unrelated.txt", "two"))
-  said("0 ran, 2 stood")
+end
+
+--- End to end: a change to a file a sandboxed test's module declares runs
+--- it again, and the run after that stands.
+local function test_a_process_a_sandboxed_test_starts_runs_again_on_a_declared_change(tmp: string)
+  local root, said = keyed_suite(tmp)
   assert(Fs.write(root .. "/suite/data.txt", "two"))
   said("1 ran, 1 stood")
   said("0 ran, 2 stood")
-  -- Made since, what the child reads is there, and the test fails.
+end
+
+--- End to end: making a file a sandboxed test's module declares that was
+--- not there when it last ran runs it again; what the child reads is
+--- there now, and the test fails.
+local function test_a_process_a_sandboxed_test_starts_runs_again_on_a_file_made_since(tmp: string)
+  local root, said = keyed_suite(tmp)
   assert(Fs.write(root .. "/suite/later.txt", "made"))
   said("FAIL  suite.child_test test_child_reads: ", false)
 end
