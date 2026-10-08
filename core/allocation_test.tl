@@ -297,8 +297,12 @@ local function test_lookup_leaves_no_descriptor_whenever_an_allocation_fails(tmp
     assert(#assert(answered:result()) == 1)
     for _, supplied in ipairs({ true, false }) do
       local parked <close> = assert(socket.lookup("b.example.test", 5000, nil, hosts, through))
-      local done, _, _, _, wants = parked:step(nil, nil)
-      assert(not done and #wants == 1)
+      -- A step a refusal raised in has lost no connect: the next tells it.
+      local stepped: {any} = { pcall(parked.step, parked, nil, nil) }
+      if not stepped[1] then stepped = { pcall(parked.step, parked, nil, nil) } end
+      assert(stepped[1], "a step raised twice")
+      local wants = stepped[6] as {raw_socket.Want}
+      assert(not stepped[2] and #wants == 1)
       if supplied then
         local conn <close> = assert(socket.start({ kind = "tcp", host = "127.0.0.1", port = server.address.port }))
         assert(parked:supply(wants[1].id, conn:fd(), nil))

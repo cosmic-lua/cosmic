@@ -379,6 +379,11 @@ local function passed_socket(fd: integer, host: string, port: integer, deadline:
   end
 end
 
+-- This starter keeps a serial connector client of its own, not
+-- cosmic.net's tagged one: cosmic.net requires cosmic.child, which
+-- requires this module, so it cannot require cosmic.net. A reply that
+-- does not come within its wait leaves the stream out of step, which fails
+-- that lookup alone: the starter closes the connector after its one lookup.
 --- The connects of a lookup through the connector whose control stream is
 --- `fd`, nothing yet read from it: each asks the connector, one at a
 --- time, for the table entry `index`, whose address is `servers[index]`.

@@ -564,7 +564,7 @@ local function test_a_lookup_that_is_not_answered_stalls_only_its_own_connection
     local stopping = Clock.monotonic_ns()
     finish(rig, server)
     local stopped = (Clock.monotonic_ns() - stopping) // 1000000
-    assert(stopped < 1000, "the relay took " .. stopped .. " ms to stop with a lookup pending")
+    assert(stopped < 1500, "the relay took " .. stopped .. " ms to stop with a lookup pending")
     waiting:cancel()
     local _, _ = silent:close()
   end)

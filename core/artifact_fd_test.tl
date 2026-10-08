@@ -187,6 +187,23 @@ local function test_every_descriptor_argument_refuses_the_artifact_descriptor()
   assert(tried >= 18, "only " .. tried .. " descriptor arguments were tried")
 end
 
+--- A lookup's `supply`, a method the table walk above does not reach,
+--- refuses the artifact's descriptor as the socket for a parked connect.
+local function test_a_lookup_refuses_the_retained_artifact_as_a_supplied_socket(tmp: string)
+  local fd = artifact_fd()
+  if fd == nil then Test.skip("this start retains no portable artifact descriptor") end
+  if assert(sys.uname()).sysname ~= "Linux" then
+    Test.skip("a lookup through a connector is Linux only")
+  end
+  local hosts = tmp .. "/hosts"
+  assert(Fs.write(hosts, ""))
+  local lookup <close> = assert(socket.lookup("artifact.example.test", 1000, nil, hosts,
+    { { host = "127.0.0.1", port = 53, index = 1 } }))
+  local _, _, _, _, wants = lookup:step(nil, nil)
+  assert(#wants == 1)
+  refused("Lookup:supply", lookup.supply, lookup, wants[1].id, fd, nil)
+end
+
 local function test_a_descriptor_batch_refuses_the_retained_artifact_as_payload()
   local fd = artifact_fd()
   if fd == nil then Test.skip("this start retains no portable artifact descriptor") end

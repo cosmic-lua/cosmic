@@ -804,6 +804,12 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
       opts.servers, opts.hosts_file = run.spec.resolve.servers, run.spec.resolve.hosts_file
       opts.connector = run.spec.resolve.connector
     end
+    -- A connection between `stop` setting this and its cancellation must
+    -- not start a lookup `stop` has already passed over.
+    if run.stopping then
+      return { address = "", refused = refusal(("could not resolve %s: the relay is stopping"):format(name), 502,
+        "host_unreachable") }
+    end
     local found: {Net.Resolved} | nil
     local why: string
     local lookup = Poll.spawn(function()
@@ -816,6 +822,9 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
       -- This connection's task was cancelled, or the lookup was at stop.
       lookup:cancel()
       found, why = nil, joined_why
+    elseif found == nil and why == nil then
+      -- Ended without an answer, which a cancel or a stop does not do.
+      why = "the lookup ended without an answer"
     end
     if found == nil and opts.connector ~= nil and opts.connector:ended() and run.spec.lost ~= nil and
         not run.told_lost then

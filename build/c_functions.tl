@@ -122,6 +122,9 @@ local exempt_on: {string: {string: string}} = {
     ["core/promises.c:cosmic_promises_apply"] = "Darwin has no seccomp: spawn_program refuses a start with " ..
       "promises, ENOSYS, before any child could install a filter; a Linux run enters it " ..
       "(core/promises_child_test.tl)",
+    ["core/socket.c:lookup_supply"] = "answers the connects of a lookup through a connector, which Darwin has " ..
+      "none of (the lookup fails ENOSYS before any is parked); a Linux run enters it " ..
+      "(core/lookup_test.tl)",
   },
 }
 

@@ -1356,8 +1356,8 @@ static bool resolve_refused (const char *name, size_t size) {
 /* A stream socket's stand-in until a connect is supplied: the read end
  * of a pipe whose write end is closed, so it is a descriptor of its own,
  * not a socket of the host's network. c-ares neither reads nor writes it
- * before it connects, and a read of it is the end of file that reads as
- * the server failing. */
+ * before it connects. A pipe reads as hung up, and c-ares's `recv` on it
+ * fails ENOTSOCK, which it takes for the server's connection failing. */
 static ares_socket_t through_socket (int domain, int type, int protocol, void *data) {
   (void)data;
   (void)protocol;
@@ -1447,6 +1447,7 @@ static ares_ssize_t through_recvfrom (ares_socket_t sock, void *buffer, size_t l
     errno = EINVAL;
     return -1;
   }
+  /* On a stand-in this fails ENOTSOCK: the server failing. */
   return recv(sock, buffer, length, flags);
 }
 
@@ -1547,7 +1548,6 @@ static int lookup_step (lua_State *L) {
   for (size_t i = 0; i < RESOLVE_PARKED_MAX; i++) {
     struct parked_connect *parked = &resolution->parked[i];
     if (parked->id == 0 || parked->asked) continue;
-    parked->asked = true;
     const struct sockaddr_storage *address = &parked->server->address;
     lua_createtable(L, 0, 3);
     lua_pushinteger(L, parked->id);
@@ -1558,6 +1558,9 @@ static int lookup_step (lua_State *L) {
       ((const struct sockaddr_in6 *)address)->sin6_port));
     lua_setfield(L, -2, "port");
     lua_rawseti(L, -2, ++wants);
+    /* Told only once it is in the table, so a refused allocation above
+     * loses no connect. */
+    parked->asked = true;
   }
   return 5;
 }
@@ -1567,6 +1570,7 @@ static int lookup_wait (lua_State *L) {
   int timeout = cosmic_checkint(L, 2);
   luaL_argcheck(L, timeout >= -1, 2, "timeout is out of range");
   int64_t deadline = timeout < 0 ? -1 : cosmic_now_ms() + timeout;
+  if (resolution->done) return cosmic_ok(L);
   if (cosmic_signal_caught()) return cosmic_fail_effect(L, EINTR);
   int left = cosmic_wait_slice(deadline);
   int timer = lookup_timer(resolution);
@@ -1599,18 +1603,39 @@ static int lookup_supply (lua_State *L) {
   struct resolution *resolution = lookup_open(L);
   int id = cosmic_checkint(L, 2);
   int failure = cosmic_optint(L, 4, 0);
-  int fd = lua_isnoneornil(L, 3) ? -1 : cosmic_checkfd(L, 3);
+  int fd = -1;
+  if (!lua_isnoneornil(L, 3)) {
+    fd = cosmic_checkfd(L, 3);
+    luaL_argcheck(L, fd >= 0, 3, "descriptor is negative");
+  }
   struct parked_connect *parked = NULL;
   for (size_t i = 0; i < RESOLVE_PARKED_MAX && id > 0; i++) {
     if (resolution->parked[i].id == (uint32_t)id) parked = &resolution->parked[i];
   }
   if (parked == NULL) return cosmic_fail_effect(L, ENOENT);
   if (fd < 0 && failure == ETIMEDOUT) resolution->late = true;
-  bool placed = fd >= 0 && dup2(fd, parked->fd) >= 0 && fcntl(parked->fd, F_SETFD, FD_CLOEXEC) == 0;
-  int refused = errno;
-  parked->id = 0;
-  if (fd >= 0 && !placed) return cosmic_fail_effect(L, refused);
-  return cosmic_ok(L);
+  int refused = 0;
+  if (fd >= 0) {
+    /* c-ares reads and writes the socket from `step`, which must never
+     * block: a blocking one is refused, the stand-in left to fail. */
+    int flags = fcntl(fd, F_GETFL);
+    if (flags < 0) {
+      refused = errno;
+    } else if ((flags & O_NONBLOCK) == 0) {
+      refused = EINVAL;
+#if defined(__linux__)
+    } else if (dup3(fd, parked->fd, O_CLOEXEC) < 0) {
+      refused = errno;
+    }
+#else
+  } else if (dup2(fd, parked->fd) < 0 || fcntl(parked->fd, F_SETFD, FD_CLOEXEC) != 0) {
+    refused = errno;
+  }
+#endif
+}
+parked->id = 0;
+if (refused != 0) return cosmic_fail_effect (L, refused);
+return cosmic_ok (L);
 }
 
 static int lookup_result (lua_State *L) {
@@ -1620,13 +1645,13 @@ static int lookup_result (lua_State *L) {
     resolved_pushed(L, resolution->literal_family, resolution->literal, 1);
     return 1;
   }
-  if (!resolution->done) return cosmic_fail(L, ETIMEDOUT);
+  if (!resolution->done) return cosmic_fail (L, ETIMEDOUT);
   /* Where no server answered, one left for want of time makes the lookup
    * a timeout; a server's answer (no such name, a failure) still stands. */
   if (resolution->late && (resolution->status == ARES_ECONNREFUSED || resolution->status == ARES_ETIMEOUT)) {
     return cosmic_fail(L, ETIMEDOUT);
   }
-  if (resolution->status != ARES_SUCCESS) return resolve_failed(L, resolution->status);
+  if (resolution->status != ARES_SUCCESS) return resolve_failed (L, resolution->status);
   lua_createtable(L, 4, 0);
   lua_Integer count = 0;
   struct ares_addrinfo_node *node = resolution->found == NULL ? NULL : resolution->found->nodes;
@@ -1806,7 +1831,7 @@ COSMIC_SYSCALL(lookup, 5) {
   struct lookup *lookup = lookup_push(L);
   int owner = lua_gettop(L);
   struct resolution *resolution = calloc(1, sizeof *resolution);
-  if (resolution == NULL) return cosmic_fail(L, ENOMEM);
+  if (resolution == NULL) return cosmic_fail (L, ENOMEM);
   lookup->resolution = resolution;
   resolution->deadline = timeout < 0 ? -1 : cosmic_now_ms() + timeout;
   char *listed = NULL;
@@ -1825,15 +1850,15 @@ COSMIC_SYSCALL(lookup, 5) {
     }
     servers = listed;
   }
-  if (resolve_refused(name, size) || (hosts_given && hosts == NULL)) return cosmic_fail(L, EINVAL);
+  if (resolve_refused(name, size) || (hosts_given && hosts == NULL)) return cosmic_fail (L, EINVAL);
   if (numeric_literal(name, size, &resolution->literal_family, resolution->literal)) {
     resolution->done = true;
     lua_pushvalue(L, owner);
     return 1;
   }
   int failure = lookup_begin(name, timeout, servers, hosts, resolution);
-  if (failure > 0) return resolve_failed(L, failure);
-  if (failure < 0) return cosmic_fail(L, -failure);
+  if (failure > 0) return resolve_failed (L, failure);
+  if (failure < 0) return cosmic_fail (L, -failure);
   lua_pushvalue(L, owner);
   return 1;
 #else
@@ -1844,12 +1869,12 @@ COSMIC_SYSCALL(lookup, 5) {
     (void)through_server_read(L, 5, i == 0, &server, NULL, 0);
     lua_pop(L, 1);
   }
-  if (resolve_refused(name, size) || (hosts_given && hosts == NULL)) return cosmic_fail(L, EINVAL);
-  if (through) return cosmic_fail(L, ENOSYS);
+  if (resolve_refused(name, size) || (hosts_given && hosts == NULL)) return cosmic_fail (L, EINVAL);
+  if (through) return cosmic_fail (L, ENOSYS);
   struct lookup *lookup = lookup_push(L);
   int owner = lua_gettop(L);
   struct resolution *resolution = calloc(1, sizeof *resolution);
-  if (resolution == NULL) return cosmic_fail(L, ENOMEM);
+  if (resolution == NULL) return cosmic_fail (L, ENOMEM);
   lookup->resolution = resolution;
   resolution->deadline = timeout < 0 ? -1 : cosmic_now_ms() + timeout;
   if (numeric_literal(name, size, &resolution->literal_family, resolution->literal)) {
@@ -1858,8 +1883,8 @@ COSMIC_SYSCALL(lookup, 5) {
     return 1;
   }
   int failure = lookup_begin(name, timeout, servers, hosts, resolution);
-  if (failure > 0) return resolve_failed(L, failure);
-  if (failure < 0) return cosmic_fail(L, -failure);
+  if (failure > 0) return resolve_failed (L, failure);
+  if (failure < 0) return cosmic_fail (L, -failure);
   lua_pushvalue(L, owner);
   return 1;
 #endif
@@ -1881,10 +1906,10 @@ static void listing_release (void *resource) {
 
 COSMIC_SYSCALL(nameservers, 1) {
   const char *path = lua_isnoneornil(L, 1) ? NULL : cosmic_path(L, 1);
-  if (!lua_isnoneornil(L, 1) && path == NULL) return cosmic_fail(L, EINVAL);
+  if (!lua_isnoneornil(L, 1) && path == NULL) return cosmic_fail (L, EINVAL);
   struct cosmic_guard *guard = cosmic_guard_push(L, listing_release);
   struct listing *listing = calloc(1, sizeof *listing);
-  if (listing == NULL) return cosmic_fail(L, ENOMEM);
+  if (listing == NULL) return cosmic_fail (L, ENOMEM);
   guard->resource = listing;
   struct ares_options options;
   memset(&options, 0, sizeof options);
@@ -1899,7 +1924,7 @@ COSMIC_SYSCALL(nameservers, 1) {
     return cosmic_fail(L, status == ARES_ENOMEM ? ENOMEM : status == ARES_EFILE ? EACCES : EIO);
   }
   listing->listed = ares_get_servers_csv(listing->channel);
-  if (listing->listed == NULL) return cosmic_fail(L, ENOMEM);
+  if (listing->listed == NULL) return cosmic_fail (L, ENOMEM);
   lua_pushstring(L, listing->listed);
   return 1;
 }
