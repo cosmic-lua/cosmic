@@ -40,9 +40,9 @@ local function read_exact(conn: Net.Conn, count: integer): string
   return out
 end
 
---- A connection to the relay at `port`.
-local function dial(port: integer): Net.Conn
-  local conn = assert(Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(10) }))
+--- A connection to the relay at `port` of `host`, 127.0.0.1 by default.
+local function dial(port: integer, host?: string): Net.Conn
+  local conn = assert(Net.connect(Net.tcp(host or "127.0.0.1", port), { timeout_ns = Clock.seconds(10) }))
   conn:set_timeout(Clock.seconds(10))
   return conn
 end
@@ -79,8 +79,8 @@ local function test_a_direct_relay_listens_itself_and_serves_both_protocols_behi
     local port = math.tointeger(tonumber(ready:match("^ready (%d+)$") or ""))
     assert(port ~= nil and port ~= granted and port ~= ungranted, ready)
     local auth = "Proxy-Authorization: Basic " .. Codec.base64("cosmic:" .. TOKEN) .. "\r\n"
-    local function connect(target: string, header: string): string, string
-      local conn = dial(port)
+    local function connect(target: string, header: string, host?: string): string, string
+      local conn = dial(port, host)
       assert(conn:write("CONNECT " .. target .. " HTTP/1.1\r\nHost: " .. target .. "\r\n" .. header .. "\r\n"))
       local head = ""
       while not head:find("\r\n\r\n", 1, true) do
@@ -110,6 +110,20 @@ local function test_a_direct_relay_listens_itself_and_serves_both_protocols_behi
     assert(socks:write("pong"))
     assert(read_exact(socks, 9) == "echo:pong")
     local _, _ = socks:close()
+    -- Where this host has an IPv6 loopback the relay holds its port there
+    -- too, serving it as it serves 127.0.0.1; no other listener can take it.
+    local v6, _ = Net.listen(Net.tcp("::1", 0))
+    if v6 ~= nil then
+      assert(v6:close())
+      local taken, taken_why = Net.listen(Net.tcp("::1", port))
+      assert(taken == nil, "another listener took the relay's port on ::1")
+      assert(taken_why ~= "")
+      local over_v6, echoed_v6 = connect("127.0.0.1:" .. granted, auth, "::1")
+      assert(over_v6 == "HTTP/1.1 200 Connection established" and echoed_v6 == "echo:ping", over_v6)
+      assert(connect("127.0.0.1:" .. granted, "", "::1") == "HTTP/1.1 407 Proxy Authentication Required")
+    end
+    local taken_v4, _ = Net.listen(Net.tcp("127.0.0.1", port))
+    assert(taken_v4 == nil, "another listener took the relay's port on 127.0.0.1")
     assert(feed:close())
     local result = assert(relay:wait(Clock.seconds(20)))
     assert(result.code == 0, "exit " .. tostring(result.code) .. ": " .. tostring(result.stderr))

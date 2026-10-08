@@ -164,7 +164,7 @@ local function start(tmp: string, opts: Options): Rig
   end
   local redirect = opts.redirect or {}
   local spec: Relay.Spec = {
-    http = http, socks = socks, mixed = mixed, grants = opts.grants, upstream = opts.upstream,
+    http = http, socks = socks, mixed = mixed ~= nil and { mixed } or nil, grants = opts.grants, upstream = opts.upstream,
     timeouts = opts.timeouts, limits = opts.limits, tls_ports = opts.tls_ports,
     resolve = opts.resolve or { hosts_file = hosts }, own_addresses = opts.own_addresses, token = opts.token,
     unresolved = opts.unresolved,

@@ -79,16 +79,16 @@ local function relay_of(name)
   return { user = user, token = token, port = math.tointeger(tonumber(port or "")) }
 end
 
-local function dial(label, port)
-  local conn, why = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(20) })
+local function dial(label, port, host)
+  local conn, why = Net.connect(Net.tcp(host or "127.0.0.1", port), { timeout_ns = Clock.seconds(20) })
   if conn == nil then say(label, "dial: " .. why) end
   return conn
 end
 
--- A CONNECT to `target` through the relay at `port`, with `password` as the
--- Basic credential's, or none.
-local function through_connect(label, port, target, password)
-  local conn = dial(label, port)
+-- A CONNECT to `target` through the relay at `port` of `host` (127.0.0.1 by
+-- default), with `password` as the Basic credential's, or none.
+local function through_connect(label, port, target, password, host)
+  local conn = dial(label, port, host)
   if conn == nil then return end
   conn:set_timeout(Clock.seconds(20))
   local auth = ""
@@ -156,6 +156,8 @@ return function(args)
     end
     local target = "127.0.0.1:" .. granted
     through_connect("connect", http.port, target, http.token)
+    through_connect("connect_v6", http.port, target, http.token, "::1")
+    through_connect("connect_v6_no_token", http.port, target, nil, "::1")
     through_connect("connect_name", http.port, "localhost:" .. granted, http.token)
     through_connect("connect_ungranted", http.port, "127.0.0.1:" .. ungranted, http.token)
     through_connect("connect_no_token", http.port, target, nil)
@@ -281,6 +283,10 @@ local function test_a_granted_server_is_reached_through_the_relay_and_an_ungrant
   assert(said.connect_name == "HTTP/1.1 200 Connection established" and said.connect_name_echo == "echo:ping",
     "CONNECT by a granted name\n" .. report .. denials())
   assert(said.socks == "0" and said.socks_echo == "echo:ping", "SOCKS5\n" .. report .. denials())
+  assert(said.connect_v6 == "HTTP/1.1 200 Connection established" and said.connect_v6_echo == "echo:ping",
+    "CONNECT to the relay's port on ::1\n" .. report .. denials())
+  assert(said.connect_v6_no_token == "HTTP/1.1 407 Proxy Authentication Required",
+    "no token on ::1\n" .. report)
   assert(tostring(said.connect_ungranted):find(" 403 not granted: --connect 127.0.0.1:" .. seen.ungranted, 1, true),
     "an ungranted CONNECT\n" .. report)
   assert(said.socks_ungranted == "2" and said.socks_ungranted_echo == nil, "an ungranted SOCKS5 request\n" .. report)
@@ -393,6 +399,26 @@ local function cat_under(held: raw_process.Seatbelt, path: string, tmp: string):
     status = assert(process.waitpid(pid, true))
   end
   return status.code, Fs.read(out_path) or ""
+end
+
+--- The relay holds its port on 127.0.0.1 and on ::1, both of which the
+--- program's `localhost:PORT` rule reaches, so no other process can listen
+--- at either while it runs.
+local function test_no_other_process_can_listen_at_the_relays_port(tmp: string)
+  macos_only()
+  Poll.run(function()
+    local handle = waiting(tmp)
+    local program = assert(handle._seatbelt)
+    local port = math.tointeger(tonumber(program.profile:match('%(remote tcp "localhost:(%d+)"%)') or ""))
+    assert(port ~= nil, program.profile)
+    for _, host in ipairs({ "127.0.0.1", "::1" }) do
+      local taken, why = Net.listen(Net.tcp(host, port))
+      assert(taken == nil, "a listener took the relay's port " .. port .. " on " .. host)
+      assert(why:find("in use", 1, true), host .. ": " .. why)
+    end
+    assert(handle:stop())
+    local _ = handle:wait(Clock.seconds(20))
+  end)
 end
 
 --- The relay itself is held by a profile: the one it was started under

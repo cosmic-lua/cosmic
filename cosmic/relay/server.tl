@@ -92,7 +92,7 @@
 --- macOS's start draws one for each sandbox, whose relay listens on the
 --- host's loopback ([`cosmic.relay.main`]).
 ---
---- A `mixed` listener serves both protocols at one port: a connection whose
+--- A `mixed` listener serves both protocols at its port: a connection whose
 --- first byte is 5, SOCKS5's version, is read as SOCKS5, and any other as
 --- an HTTP CONNECT, whose method begins with a letter. That byte is read
 --- within the wait of the reader it chooses, and is the reader's first.
@@ -188,9 +188,10 @@ local record Relay
     --- The listener that takes SOCKS5 requests, already bound; nil for
     --- none.
     socks: Net.Listener
-    --- A listener that takes both, each connection read as its first byte
-    --- says; nil for none. One of the three is needed.
-    mixed: Net.Listener
+    --- Listeners that take both, each connection read as its first byte
+    --- says (a relay on the host's loopback holds one port on 127.0.0.1
+    --- and ::1); nil or empty for none. One of the three is needed.
+    mixed: {Net.Listener}
     --- The policy's `connect` targets, `host:port`.
     grants: {string}
     --- How a connection is made.
@@ -1302,7 +1303,10 @@ end
 --- @return Relay.Serving The running relay
 function Relay.start(spec: Relay.Spec): Relay.Serving
   if type(spec) ~= "table" then error("relay: start takes a spec table", 2) end
-  if spec.http == nil and spec.socks == nil and spec.mixed == nil then
+  if spec.mixed ~= nil and type(spec.mixed) ~= "table" then
+    error("relay: spec.mixed must be a list of listeners", 2)
+  end
+  if spec.http == nil and spec.socks == nil and #(spec.mixed or {}) == 0 then
     error("relay: spec needs an http, a socks or a mixed listener", 2)
   end
   if type(spec.connector) ~= "function" then
@@ -1394,7 +1398,7 @@ function Relay.start(spec: Relay.Spec): Relay.Serving
   end
   listen(spec.http, "connect")
   listen(spec.socks, "socks5")
-  listen(spec.mixed, "mixed")
+  for _, listener in ipairs(spec.mixed or {}) do listen(listener, "mixed") end
   local server: Relay.Serving = {
     stop = function(_: Relay.Serving)
       run.stopping = true

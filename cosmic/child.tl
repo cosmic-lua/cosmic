@@ -505,7 +505,10 @@ local record Options
   --- address and resolve names itself (Seatbelt names no remote host by
   --- number, so the relay's own checks of the grants are what hold it), and
   --- listens at a port of the host's loopback the kernel chooses, one port
-  --- for both protocols. The program's profile lets it connect to that port
+  --- for both protocols, on 127.0.0.1 and on ::1 (the profile's `localhost`
+  --- is both, so no other process may hold the port there; a host with no
+  --- IPv6 loopback has none to hold, and the start fails where no port is
+  --- free on both). The program's profile lets it connect to that port
   --- and to nothing else of the network, and its proxy variables name it
   --- with a token drawn for the start as the password of the user "cosmic"
   --- (`http://cosmic:TOKEN@127.0.0.1:PORT`, `socks5h://` in `ALL_PROXY`).

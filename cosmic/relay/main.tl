@@ -19,8 +19,9 @@
 ---   environment, which other users' processes can read.
 ---
 --- A `direct` config (macOS's start, [`cosmic.relay.config`]'s `direct`) hands it
---- neither: it listens itself, at a port of 127.0.0.1 the kernel chooses,
---- one listener for both protocols behind the config's token, and connects
+--- neither: it listens itself, at a port of 127.0.0.1 the kernel chooses
+--- and the same port of ::1 ([`loopback_listeners`]), each for both
+--- protocols, behind the config's token, and connects
 --- and resolves itself, as the profile it is held by allows.
 ---
 --- It says `opened` on standard output once it runs (its database is open),
@@ -94,6 +95,37 @@ local function read_line(): string | nil, string
       return nil, "the config is past " .. String.counted(MOST_CONFIG, "byte")
     end
   end
+end
+
+--- How many ports a relay on the host's loopback tries before it gives up
+--- finding one free on both 127.0.0.1 and ::1.
+local LOOPBACK_TRIES <const> = 16
+
+--- Listeners at one port of 127.0.0.1 and the same port of ::1, which a
+--- relay on the host's loopback holds both of: a program's profile allows
+--- `localhost:PORT`, which Seatbelt reads as both addresses, so a port of
+--- ::1 another process held would be reachable from the program. Where the
+--- port is taken on ::1 the relay tries another, at most `LOOPBACK_TRIES`.
+--- Where the host has no IPv6 loopback (no port of ::1 can be bound at
+--- all) the 127.0.0.1 listener is alone: then no process can listen on ::1
+--- either, and the program's connects there reach nothing. Nil and why
+--- where no port is free on both.
+local function loopback_listeners(): {Net.Listener} | nil, string
+  local last = ""
+  for _ = 1, LOOPBACK_TRIES do
+    local v4, why = Net.listen(Net.tcp("127.0.0.1", 0))
+    if v4 == nil then return nil, why end
+    local v6, v6_why = Net.listen(Net.tcp("::1", v4.address.port))
+    if v6 ~= nil then return { v4, v6 }, "" end
+    -- Another port of ::1 says whether this one is taken or ::1 is not there.
+    local probe, _ = Net.listen(Net.tcp("::1", 0))
+    if probe == nil then return { v4 }, "" end
+    local _, _ = probe:close()
+    local _, _ = v4:close()
+    last = v6_why
+  end
+  return nil, "no port of 127.0.0.1 the kernel chose was free on ::1 too, in " ..
+    String.counted(LOOPBACK_TRIES, "try", "tries") .. ": " .. last
 end
 
 --- Waits for standard input to end, in a task of the run.
@@ -176,14 +208,15 @@ local function serve(config: Config.Config): integer
   end
   handed.lost = lose
   Poll.run(function()
-    local http, socks, mixed: Net.Listener, Net.Listener, Net.Listener
+    local http, socks: Net.Listener, Net.Listener
+    local mixed: {Net.Listener}
     if config.direct then
-      local listener, listen_why = Net.listen(Net.tcp("127.0.0.1", 0))
-      if listener == nil then
+      local listeners, listen_why = loopback_listeners()
+      if listeners == nil then
         status = failed(listen_why)
         return
       end
-      mixed = listener
+      mixed = listeners
     else
       local listeners, listeners_why = Net.receive_listeners(CHANNEL_FD)
       if listeners == nil then
@@ -234,7 +267,7 @@ local function serve(config: Config.Config): integer
       ended = true
       serving:stop()
     end)
-    say(mixed ~= nil and ("ready " .. mixed.address.port) or "ready")
+    say(mixed ~= nil and ("ready " .. mixed[1].address.port) or "ready")
     serving:wait()
     watch:cancel()
     if handed.table_connector ~= nil then local _, _ = handed.table_connector:close() end

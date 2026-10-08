@@ -48,8 +48,8 @@ local record Seatbelt
     --- listens at on the host's loopback ([`Child.start`]), which the
     --- profile lets the program connect to over TCP and nothing else of the
     --- network: Seatbelt names a host only as `localhost` or `*`, so the rule
-    --- is `localhost:PORT`, which holds 127.0.0.1 and ::1 alike and lets it
-    --- bind and listen nowhere. Required with `connect`; a policy without
+    --- is `localhost:PORT`, which holds 127.0.0.1 and ::1 alike (the relay
+    --- holds the port on both) and lets it bind and listen nowhere. Required with `connect`; a policy without
     --- `connect` is refused one.
     relay_port: integer
     --- Whether the profile is the network relay's own: it may connect to
@@ -310,10 +310,8 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
     text[#text + 1] = '(allow file-read-data (literal "/dev"))'
   end
   if relay_port ~= nil then
-    -- TODO: have the relay hold its port on ::1 too, or name 127.0.0.1
-    -- alone here once Seatbelt takes a numeric host: `localhost` holds
-    -- ::1 at the port as well, where the relay does not listen, so a
-    -- process of the host's that does is reachable from the program.
+    -- `localhost` is ::1 at the port as well: the relay holds the port
+    -- there too (cosmic.relay.main's `loopback_listeners`).
     text[#text + 1] = '(allow network-outbound (remote tcp "localhost:' .. relay_port .. '"))'
   end
   if options ~= nil and options.serves_relay then
