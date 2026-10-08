@@ -4,6 +4,10 @@ local Hash = require("cosmic.hash")
 local LauncherSetup = require("cosmic_ci.launcher_setup")
 local ProductSetup = require("cosmic_ci.product_setup")
 local RuntimeSetup = require("cosmic_ci.runtime_setup")
+local Test = require("cosmic.test")
+
+-- The setup resolves outputs through the running driver before boot.
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local function fails(action: function(), expected: string)
   local ok, problem = pcall(function(): boolean
@@ -16,7 +20,8 @@ local function fails(action: function(), expected: string)
 end
 
 local function test_product_setup_rejects_missing_boot_outputs(tmp: string)
-  assert(Fs.mkdirs(tmp .. "/root"))
+  assert(Fs.mkdirs(tmp .. "/root/build"))
+  assert(Fs.write(tmp .. "/root/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {integer:string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
   fails(function()
     ProductSetup.build(tmp .. "/root", tmp .. "/product", tmp .. "/work")
   end, "/o/bin/cosmic")
@@ -24,7 +29,8 @@ local function test_product_setup_rejects_missing_boot_outputs(tmp: string)
 end
 
 local function test_launcher_setup_rejects_missing_targets(tmp: string)
-  assert(Fs.mkdirs(tmp .. "/root/o"))
+  assert(Fs.mkdirs(tmp .. "/root/build"))
+  assert(Fs.write(tmp .. "/root/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {integer:string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
   fails(function()
     LauncherSetup.build(tmp .. "/root", tmp .. "/launcher", "target",
       tmp .. "/work")

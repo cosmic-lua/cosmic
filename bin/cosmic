@@ -1,0 +1,12 @@
+#!/bin/sh
+# Resolve the tree's built tool through the same standalone path resolver
+# bin/zig uses, even when no tree-built tool exists yet.
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+output=$("$root/bin/cosmic-bootstrap" --standalone "$root/build/paths.tl" "$root")
+if [ ! -x "$output/bin/cosmic" ]; then
+  printf 'bin/cosmic: no tool at %s; run %s/bin/zig build boot\n' "$output/bin/cosmic" "$root" >&2
+  exit 3
+fi
+exec "$output/bin/cosmic" "$@"

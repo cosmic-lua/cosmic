@@ -2,12 +2,13 @@
 --- them. [`build.caches`] uses it to bind them into a sandboxed worker
 --- that declares the `zig` cache. It is part of the test harness
 --- ([`build.test`]'s `harness_own`), so it requires nothing but
---- cosmic.fs. build/zig.tl runs standalone on the bootstrap's own
+--- cosmic.fs and build.paths. build/zig.tl runs standalone on the bootstrap's own
 --- standard library and cannot require this module; it spells the same
 --- rule in its [`Zig.global_cache`] and [`Zig.project_cache`], which
 --- build/zig_caches_test.tl holds this to.
 
 local Fs = require("cosmic.fs")
+local build_paths = require("build.paths")
 
 local record zig_caches
 end
@@ -30,9 +31,10 @@ end
 --- `zig-global` and `zig-project` in the user's cosmic cache
 --- directory, else `root`/o's `zig-global` and `zig-cache`.
 function zig_caches.paths(root: string, environment: {string:string}): {string}
+  local output = build_paths.required(root, environment)
   return {
-    located("COSMIC_ZIG_GLOBAL_CACHE", "zig-global", root .. "/o/zig-global", environment),
-    located("COSMIC_ZIG_CACHE", "zig-project", root .. "/o/zig-cache", environment),
+    located("COSMIC_ZIG_GLOBAL_CACHE", "zig-global", output .. "/zig-global", environment),
+    located("COSMIC_ZIG_CACHE", "zig-project", output .. "/zig-cache", environment),
   }
 end
 

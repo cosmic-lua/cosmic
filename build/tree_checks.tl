@@ -24,6 +24,7 @@
 --- tree's own, so its test can hand it a fixture database and a list of
 --- its own.
 
+local build_paths = require("build.paths")
 local Fs = require("cosmic.fs")
 local Shape = require("cosmic.shape")
 local Sqlite = require("cosmic.sqlite")
@@ -843,7 +844,7 @@ function tree_checks.projection(root: string, built: compiler): Sqlite.Handle | 
     local _, _ = work.close(handle)
     return nil, "the tree does not build:\n" .. table.concat(result.refused, "\n")
   end
-  local path = root .. "/o/cosmic.db"
+  local path = build_paths.required(root) .. "/cosmic.db"
   local written, write_trouble = writer.write_result(handle, path, result)
   local closed, close_trouble = work.close(handle)
   if not written then

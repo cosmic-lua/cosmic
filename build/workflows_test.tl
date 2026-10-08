@@ -661,7 +661,7 @@ end
 
 --- The scripts the workflows run are the ones under SCRIPTS: each one a
 --- step names is a file there, found from where the step starts, and
---- each file there is one some step names. So are the local actions
+--- each file there is one some step or its script names. So are the local actions
 --- under ACTIONS: each is one some workflow uses.
 local function test_the_workflows_run_the_scripts_there_are()
   local named: {string: boolean} = {}
@@ -675,9 +675,29 @@ local function test_the_workflows_run_the_scripts_there_are()
     end
     for dir in pairs(actions) do used[dir] = true end
   end
+  -- A wrapper may compile or run another file here. Follow its literal
+  -- checkout-root names as dependencies, including files that no step
+  -- names directly; dynamic script dependencies still need a declaration.
+  local pending: {string} = {}
+  for script in pairs(named) do pending[#pending + 1] = script end
+  local at = 1
+  while at <= #pending do
+    local script = pending[at]
+    at = at + 1
+    local text = assert(Fs.read(script))
+    for reference in text:gmatch("%.github/scripts/[%w_./%-]+") do
+      local dependency = normal(reference)
+      local st = Fs.stat(dependency)
+      assert(st ~= nil and st.kind == "file", script .. " names " .. dependency .. ", which is no file")
+      if not named[dependency] then
+        named[dependency] = true
+        pending[#pending + 1] = dependency
+      end
+    end
+  end
   for _, name in ipairs((assert(Fs.list(SCRIPTS)))) do
     local script = SCRIPTS .. "/" .. name
-    assert(named[script], script .. " is run by no workflow")
+    assert(named[script], script .. " is named by no workflow or its scripts")
   end
   for _, file in ipairs(action_paths()) do
     local dir = file:match("^(.*)/[^/]+$")
@@ -2545,8 +2565,12 @@ local function test_the_credential_proof_follows_the_native_database_boundary()
   local steps = jobs.platform.steps as {{string: any}}
   local _, suite = step_running(steps, "driver.tl platform local-suite")
   local _, boundary = step_running(steps, "driver.tl platform local-boundary")
-  local compile, compiled = step_running(steps, "credentials-probe.c")
+  local compile, compiled = step_running(steps, "credentials-build.sh")
   local proof, proved = step_running(steps, "credentials-proof.sh")
+  local wrapper = assert(Fs.read(SCRIPTS .. "/credentials-build.sh"))
+  assert(wrapper:find('"$root/bin/zig" cc', 1, true) and
+      wrapper:find('"$root/.github/scripts/credentials-probe.c"', 1, true),
+    "credential proof wrapper does not compile the transition helper")
   assert(suite < boundary and boundary < compiled and compiled < proved,
     "credential proof setup or dispatch writes across the native database boundary")
   assert(compile["if"] == "runner.os == 'Linux'" and proof["if"] == "runner.os == 'Linux'",
@@ -2557,6 +2581,17 @@ local function test_the_credential_proof_follows_the_native_database_boundary()
   assert(proved < ran, "local runner proof must follow the credential proof and database boundary")
   assert(runner["if"] == "runner.os == 'Linux'" and runner.shell == "leg-shell --root {0}" and
       runner["continue-on-error"] == nil, "local runner proof lost its required privileged Linux gate")
+end
+
+--- Root must establish its own portable cache before starting the
+--- bootstrap resolver, which otherwise meets the runner's cache owner.
+local function test_the_credential_proof_isolates_its_cache_before_resolving_paths()
+  local proof = assert(Fs.read(SCRIPTS .. "/credentials-proof.sh"))
+  local cache = assert(proof:find('export XDG_CACHE_HOME="$proof/cache"', 1, true))
+  local portable = assert(proof:find('export COSMIC_PORTABLE_CACHE="$proof/cache/cores"', 1, true))
+  local resolver = assert(proof:find('output=$("$root/bin/cosmic-bootstrap"', 1, true))
+  assert(cache < resolver and portable < resolver,
+    "credential proof resolves paths before isolating root's caches")
 end
 
 --- Each leg that runs a suite (the platform legs of a light and a full run,

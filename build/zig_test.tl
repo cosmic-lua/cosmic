@@ -470,3 +470,25 @@ local function test_snapshot_names_a_same_size_rewrite_with_preserved_mtime(tmp:
   sys.stat = stat
   assert(ok, tostring(trouble))
 end
+
+local function test_selected_output_controls_installation_and_lock(tmp: string)
+  local root, output = tmp .. "/tree", tmp .. "/output"
+  local args = Zig.build_args(root, tmp .. "/cache", { "build", "boot" }, 1, {}, output)
+  assert(args[6] == "--prefix" and args[7] == output)
+  local status = Zig.with_lock(root, {}, function(env: {string:string}): integer
+    assert(env.COSMIC_REBUILD_LOCK_HANDED == output .. "/rebuild.lock")
+    assert(Fs.exists(output .. "/rebuild.lock"))
+    assert(Zig.holder(root, output):find("is rebuilding the tool", 1, true))
+    return 7
+  end, output)
+  assert(status == 7)
+  assert(not Fs.exists(root .. "/o"))
+end
+
+local function test_cache_fallbacks_follow_selected_output()
+  assert(Zig.global_cache("/repo", {}, "/selected") == "/selected/zig-global")
+  assert(Zig.project_cache("/repo", {}, "/selected") == "/selected/zig-cache")
+  local environment = Zig.passthrough_environment("/repo", {}, "/selected")
+  assert(environment.ZIG_GLOBAL_CACHE_DIR == "/selected/zig-global")
+  assert(environment.ZIG_LOCAL_CACHE_DIR == "/selected/zig-cache")
+end

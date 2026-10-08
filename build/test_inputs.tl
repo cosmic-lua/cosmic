@@ -113,7 +113,7 @@ for _, name in ipairs(this_program.runtime_environment) do pinned_env[#pinned_en
 -- `ask_guidance`), which a child of a `lua` module cannot load and so
 -- prints none, silently, where another prints the catalog's.
 test_inputs.lua_loads = {
-  "build.dispatch", "build.exit_status", "build.help_source", "build.verdict",
+  "build.dispatch", "build.exit_status", "build.help_source", "build.paths", "build.verdict",
   "cmd.cosmic.main", "cosmic.env", "cosmic.fs", "cosmic.log",
 }
 

@@ -439,7 +439,7 @@ end
 -- TODO: nothing removes a tree no build names any more, and each edit
 -- that changes a tree's bytes leaves the one before behind (tens of MB
 -- when every tree changes at once); remove the ones older than the newest of each
--- name, or those no manifest (o/patched.tsv) names, as zig leaves its
+-- name, or those no active build names, as zig leaves its
 -- own cache to be deleted whole.
 function Patch.prepare(root: string, name: string, cache: string): string | nil, string
   local inputs, trouble = read_inputs(root, name)

@@ -9,6 +9,7 @@
 --- its qualifier offers, and a search ranks first the functions whose
 --- documentation names its first word as what they stand in for.
 
+local build_paths = require("build.paths")
 local Cli = require("cosmic.cli")
 local Clock = require("cosmic.clock")
 local Flags = require("cosmic.flags")
@@ -943,14 +944,17 @@ function docs.databases(store?: {Sqlite.Handle}): docs.Sources
   local out: {Sqlite.Handle} = {}
   local public: {boolean} = {}
   local opened: {Sqlite.Handle} = {}
-  local own_exists, own_trouble = Fs.exists("o/cosmic.db")
+  local root, root_trouble = Fs.absolute(".")
+  assert(root ~= nil, root_trouble)
+  local own_path = build_paths.required(root) .. "/cosmic.db"
+  local own_exists, own_trouble = Fs.exists(own_path)
   assert(own_exists ~= nil, own_trouble)
   if own_exists then
     -- The project's own build is best effort: one that cannot be opened
     -- or read (a directory, a file that is not a database, one a build
     -- is rewriting) is left out, so help and docs still answer from the
     -- binary's own databases rather than failing on a stale output.
-    local own, _ = Sqlite.open("o/cosmic.db")
+    local own, _ = Sqlite.open(own_path)
     if own ~= nil then
       local readable, _ = has_docs(own)
       if readable == nil then
@@ -965,8 +969,6 @@ function docs.databases(store?: {Sqlite.Handle}): docs.Sources
   -- Outside cosmic's own tree the store's databases are public sources:
   -- a project sees its own code and the standard library, never the
   -- build that made the binary.
-  local root, root_trouble = Fs.absolute(".")
-  assert(root ~= nil, root_trouble)
   local own_tree, tree_trouble = tree.is_own(root)
   assert(own_tree ~= nil, tree_trouble)
   local outside = not own_tree

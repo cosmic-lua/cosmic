@@ -157,6 +157,7 @@
 --- and o/build.db keeps them from run to run.
 
 local Fs = require("cosmic.fs")
+local build_paths = require("build.paths")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local artifact = require("build.artifact")
@@ -186,6 +187,8 @@ local function monotonic_ns(): integer
   if reading == nil then error("clock_gettime(CLOCK_MONOTONIC): " .. trouble, 2) end
   return reading
 end
+
+local build_directory = build_paths.required
 
 local record declared_key
   --- build.key_parts', answered as this module's own.
@@ -790,6 +793,12 @@ local function of_tree(digests: declared_key.Digests, relative: string): string,
   local plain = test_inputs.plain(relative)
   if plain == "." then return plain, digests.root end
   if plain:sub(1, 1) == "/" or plain == ".." or plain:sub(1, 3) == "../" then return plain, "" end
+  -- Declarations keep the worker's virtual o names. Digest the physical
+  -- output entries that its sandbox binds there.
+  if plain == "o" then return plain, build_directory(digests.root) end
+  if plain:sub(1, 2) == "o/" then
+    return plain, build_directory(digests.root) .. plain:sub(2)
+  end
   return plain, digests.root .. "/" .. plain
 end
 

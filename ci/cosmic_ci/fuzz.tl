@@ -1,3 +1,4 @@
+local BuildPaths = require("cosmic_ci.build_paths")
 -- fuzz.yml's run: every property fuzzed on the checked core, from the
 -- checkout's root, its log streamed as it runs and kept for the run's
 -- summary, which says what failed; and, for a run cancelled before it
@@ -27,7 +28,7 @@ end
 
 --- The checked core, relative to the checkout's root: `bin/zig build
 --- sanitized` builds it.
-local executable <const> = "o/sanitized/bin/cosmic"
+local executable <const> = "/sanitized/bin/cosmic"
 --- Top-level trees the search leaves out: build output, vendored
 --- sources, and the CI driver's own project.
 local pruned <const>: {string:boolean} = { o = true, vendor = true, ci = true }
@@ -282,7 +283,7 @@ function Fuzz.execute(r: Fuzz.Run): integer
   env.TMPDIR = scratch
   env.COSMIC_AUTO_BOOT = "0"
   env.COSMIC_TEST_TIMEOUT = "1200"
-  local argv: {string} = { r.root .. "/" .. executable, "test", "--all" }
+  local argv: {string} = { BuildPaths.directory(r.root, env) .. executable, "test", "--all" }
   for _, test in ipairs(Fuzz.discover(r.root)) do argv[#argv + 1] = test end
   local out = r.temp .. "/fuzz.out"
   local status: integer

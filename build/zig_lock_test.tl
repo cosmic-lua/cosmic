@@ -11,8 +11,9 @@ local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 local Zig = require("build.zig")
 local this_program = require("build.this_program")
+local type _ = require("build.standalone")
 
-Test.policy{ profiles = { "cosmic" } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "build/paths.tl", letters = "r" } } }
 
 --- An older tool takes only SQLite's transaction. A negative wait keeps
 --- its hold until stdin closes; zero is a nonblocking probe.
@@ -157,6 +158,7 @@ local function test_a_snapshot_exception_releases_mains_lock(tmp: string)
   local root = tree(tmp)
   assert(Fs.mkdirs(root .. "/build"))
   assert(Fs.write(root .. "/build/zig.tl", ""))
+  assert(Fs.write(root .. "/build/paths.tl", (assert(Fs.read("build/paths.tl")))))
   local fake = tmp .. "/zig"
   assert(Fs.write(fake, "", 0x1ed))
   local get, snapshot = Env.get, Zig.snapshot

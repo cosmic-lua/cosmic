@@ -1,3 +1,4 @@
+local BuildPaths = require("cosmic_ci.build_paths")
 local Fs = require("cosmic.fs")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Fixture = require("cosmic_ci.fixture")
@@ -6,11 +7,11 @@ local record ProductSetup
 end
 
 function ProductSetup.build(root: string, product: string, tmp: string): string
-  local cosmic = root .. "/o/bin/cosmic"
-  local targets_path = root .. "/o/targets.tsv"
+  local cosmic = BuildPaths.directory(root) .. "/bin/cosmic"
+  local targets_path = BuildPaths.directory(root) .. "/targets.tsv"
   local product_exists = Predicate.exists(product)
   assert(not product_exists, "product already exists: " .. product)
-  for _, required in ipairs({ cosmic, root .. "/o/carried.db", targets_path }) do
+  for _, required in ipairs({ cosmic, BuildPaths.directory(root) .. "/carried.db", targets_path }) do
     assert(assert(Fs.stat(required)).kind == "file",
       "boot output is missing: " .. required)
   end
@@ -47,14 +48,14 @@ function ProductSetup.build(root: string, product: string, tmp: string): string
   -- the tree's tests too, and signs them in its meta, so an edit to a
   -- test would move the runtime artifacts written from it
   -- (runtime_setup.tl) and every fixture keyed by one.
-  Fixture.copy(root .. "/o/carried.db", product .. "/cosmic.db")
+  Fixture.copy(BuildPaths.directory(root) .. "/carried.db", product .. "/cosmic.db")
   Fixture.copy(targets_path, product .. "/targets.tsv")
   local targets = Fixture.targets(product .. "/targets.tsv")
   for _, target in ipairs(targets) do
     assert(target.kind == "release", "product target is not release")
     local directory = product .. "/cores/" .. target.name
     Fixture.mkdir(directory)
-    Fixture.copy(root .. "/o/core/" .. target.name .. "/cosmic-core",
+    Fixture.copy(BuildPaths.directory(root) .. "/core/" .. target.name .. "/cosmic-core",
       directory .. "/cosmic-core")
   end
   Fixture.run("product-extract", { cosmic,

@@ -13,6 +13,7 @@
 --- [`build.closure_store`], apart from this module, so an edit here that
 --- leaves every store's bytes alone moves no store's address.
 
+local build_paths = require("build.paths")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Sqlite = require("cosmic.sqlite")
@@ -467,7 +468,7 @@ function writer.write_result(handle: work.Handle, out: string,
   -- a holder waiting for that database is not waited on in turn.
   local took = false
   local held_fd: integer = nil
-  if out == handle.root .. "/o/cosmic.db" then
+  if out == build_paths.required(handle.root) .. "/cosmic.db" then
     local taken, lock_trouble = rebuild_lock.hold(handle.root, "write", "o/cosmic.db")
     if taken == nil then
       local _, _ = db:exec("DETACH out")
