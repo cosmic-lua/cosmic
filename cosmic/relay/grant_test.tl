@@ -48,6 +48,10 @@ local function test_refuses_what_the_relay_cannot_use()
   refused("a..b:443")
   refused("example.:443:443")
   refused("1.2.3:443")
+  refused("0177.0.0.1:443")
+  refused("2130706433:443")
+  refused("0x7f.1:443")
+  refused("1.2.3.256:443")
   refused("1.2.3.04:443")
   refused("host name:443")
   refused("host\0:443")
@@ -74,7 +78,7 @@ local function test_policy_refuses_at_the_connect_pointer()
 end
 
 local function test_every_accepted_name_is_a_request_host()
-  for _, host in ipairs({ "example.com", "a-b.example", "EXAMPLE.com.", "x1.y2" }) do
+  for _, host in ipairs({ "example.com", "a-b.example", "EXAMPLE.com.", "x1.y2", "93.184.216.34" }) do
     local target = assert(Grant.parse(host .. ":443"))
     local head = Wire.connect_reader():feed(("CONNECT %s:443 HTTP/1.1\r\n\r\n"):format(host))
     assert(head.status == "done" and head.host == target.host, host)
@@ -86,6 +90,9 @@ end
 local function test_consumers_read_one_canonical_meaning()
   local plan = assert(Sandbox.Relay.plan({ "[0:0:0:0:0:0:0:1]:80", "[::1]:80", "Example.COM.:443" }, {}))
   assert(#plan.literals == 1 and plan.names, "one literal, however it is spelt")
+  -- Targets the request readers always refuse open no name (the plan once took them for names).
+  local none = assert(Sandbox.Relay.plan({ "bad_name:443", "-bad.example:443", ".:443", "*.example.com:443" }, {}))
+  assert(not none.names and #none.literals == 0)
   assert(Address.granted("::1", 80, { "[0:0:0:0:0:0:0:1]:80" }))
   assert(not Address.granted("::1", 81, { "[::1]:80" }))
   assert(not Address.granted("1.2.3.4", 80, { "*:80", "example.com:80" }))
