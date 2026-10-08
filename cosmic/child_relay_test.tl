@@ -690,7 +690,7 @@ local function test_more_literal_targets_than_a_connector_holds_fail_the_start(t
     assert(false, "a start with 129 literal targets went on")
   end
   if unsandboxable(why) then Test.skip(why) end
-  assert(why:find("relay: connect names 129 addresses literally: 129 endpoints, more than the " ..
+  assert(why:find("relay: connect names 129 endpoints, more than the " ..
       "128 a connector holds; grant fewer addresses, or names", 1, true), why)
   assert(#relay_directories() == 0, "the relay's database was left")
 end

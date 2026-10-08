@@ -1550,8 +1550,10 @@ end
 --- empty or too long raises. An endpoint at port 0 stands for every port,
 --- and its slots take 1 MiB of the table if the address is IPv4 and 2 MiB
 --- if IPv6: the port tables of all the endpoints are at most 32 MiB, so at
---- most 32 IPv4 or 16 IPv6 addresses at port 0 (a fixed-port endpoint
---- takes 16 or 32 bytes), and a table past it raises.
+--- most 32 IPv4 or 16 IPv6 addresses at port 0 in a table of those alone.
+--- Fixed-port endpoints (16 bytes if IPv4, 32 if IPv6, and each IPv6 range
+--- starts at a 32-byte boundary) and a mix of the two change that count; a
+--- table past the limit raises.
 ---
 --- With none, every [`Connector.connect`] starts a process of its own,
 --- confined to the one address and port it is asked for, and ends it

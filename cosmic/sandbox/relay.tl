@@ -167,7 +167,7 @@ local function limit_passed(rows: {Config.Endpoint}): string | nil
   end
   local bytes = table_bytes(rows)
   if bytes > MOST_TABLE_BYTES then
-    return ("%d MiB of port tables, more than the 32 MiB a connector holds (an address at any port takes " ..
+    return ("addresses whose port tables take %d MiB, more than the 32 MiB a connector holds (an address at any port takes " ..
       "1 MiB if IPv4, 2 MiB if IPv6)"):format((bytes + (1 << 20) - 1) >> 20)
   end
   return nil
@@ -352,8 +352,7 @@ function relay.plan(grants: {string}, env: {string: string}): relay.Plan | nil, 
   local literals = normalized(listed)
   local passed = limit_passed(literals)
   if passed ~= nil then
-    return nil, ("connect names %s literally: %s; grant fewer addresses, or names"):format(
-      String.counted(#literals, "address", "addresses"), passed)
+    return nil, ("connect names %s; grant fewer addresses, or names"):format(passed)
   end
   return { literals = literals, names = names, upstream = up }, ""
 end
@@ -517,8 +516,7 @@ function relay.table(plan: relay.Plan, addresses: {string} | nil): {Config.Endpo
   local rows = normalized(all)
   local passed = limit_passed(rows)
   if passed ~= nil then
-    return nil, ("connect names %s literally, with the upstream proxy's: %s; grant fewer addresses, or names"):format(
-      String.counted(#plan.literals, "address", "addresses"), passed)
+    return nil, ("connect and the upstream proxy together name %s; grant fewer addresses, or names"):format(passed)
   end
   return rows, ""
 end
