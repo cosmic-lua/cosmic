@@ -165,6 +165,38 @@ local function test_listener_from_refuses_what_is_no_listening_tcp_socket(tmp: s
   assert(descriptor_count() == before, "a refused adoption left a descriptor open")
 end
 
+--- The table matches a requested address by what it is, not how it is
+--- spelled, and the entry's port still limits it. Nothing listens on ::1
+--- here, so a match shows as the kernel's refusal and a miss as the
+--- table's (or, in public mode, the deny list's).
+local function test_a_table_connector_matches_an_address_however_it_is_spelled()
+  require_native_connector()
+  local function matched(table_host: string, asked: string, port: integer, public: boolean): boolean, string
+    local connector = assert(Net.connector({ { host = table_host, port = 54321 } },
+      { public = public and { deny = { "::/0" } } or nil }))
+    local conn, why = connector:connect(asked, port, Clock.seconds(5))
+    assert(connector:close())
+    assert(conn == nil)
+    local missed = why:find("not in the connector's table", 1, true) ~= nil or
+      why:find("deny list", 1, true) ~= nil
+    return not missed, why
+  end
+  for _, public in ipairs({ false, true }) do
+    for _, pair in ipairs({
+        { "0:0:0:0:0:0:0:1", "::1" }, { "::1", "0:0:0:0:0:0:0:1" }, { "2001:DB8::A", "2001:db8:0:0:0:0:0:a" },
+        { "2001:db8::a", "2001:0DB8::000A" },
+    }) do
+      local ok, why = matched(pair[1], pair[2], 54321, public)
+      assert(ok, pair[1] .. " asked as " .. pair[2] .. ": " .. why)
+    end
+    -- Another address, or an ungranted port, is still refused.
+    local other, other_why = matched("::1", "::2", 54321, public)
+    assert(not other, other_why)
+    local port, port_why = matched("0:0:0:0:0:0:0:1", "::1", 54322, public)
+    assert(not port, port_why)
+  end
+end
+
 local function test_a_table_connector_connects_to_its_endpoints_and_refuses_the_rest()
   require_native_connector()
   local before = descriptor_count()
