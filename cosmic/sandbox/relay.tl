@@ -43,6 +43,7 @@
 ---     print(plan.names) -- true
 
 local Clock = require("cosmic.clock")
+local Poll = require("cosmic.poll")
 local Relay = require("cosmic.relay")
 local rules = require("cosmic.sandbox.policy")
 local String = require("cosmic.string")
@@ -329,6 +330,93 @@ function relay.plan(grants: {string}, env: {string: string}): relay.Plan | nil, 
   return { literals = literals, names = names, upstream = up }, ""
 end
 
+--- Reads exactly `size` bytes of the connector's stream `fd` by
+--- `deadline` (a monotonic time in nanoseconds): them, or nil and why.
+local function read_exactly(fd: integer, size: integer, deadline: integer): string | nil, string
+  local got = ""
+  while #got < size do
+    local data, _, errno = sys.read(fd, size - #got)
+    if data == "" then return nil, "the connector has ended" end
+    if data ~= nil then
+      got = got .. data
+    elseif errno ~= raw.EAGAIN then
+      return nil, "the connector's stream failed"
+    else
+      local left = deadline - Clock.monotonic_ns()
+      if left <= 0 then return nil, Poll.TIMEOUT end
+      local ok, _, wait_errno = raw.wait(fd, false, (left + 999999) // 1000000)
+      if not ok and wait_errno ~= raw.ETIMEDOUT then return nil, "the connector's stream failed" end
+    end
+  end
+  return got, ""
+end
+
+--- Takes the one socket the connector passes after a success by
+--- `deadline`, and checks it is connected to `host` at `port`: its
+--- descriptor and a function that closes it, or nil and why.
+local function passed_socket(fd: integer, host: string, port: integer, deadline: integer):
+    Relay.Connection | nil, string
+  while true do
+    local received, because, errno = raw.recvfds(fd, 1)
+    if received ~= nil then
+      local socket = received[1]
+      local peer, _ = raw.peer(socket:fd())
+      local wanted, reached = Address.parse(host), peer ~= nil and Address.parse(peer.host) or nil
+      if peer == nil or peer.port ~= port or wanted == nil or reached == nil or
+          table.concat(wanted, ",") ~= table.concat(reached, ",") then
+        local _, _ = socket:close()
+        return nil, "the connector passed a socket that is not connected to " .. host .. ":" .. port
+      end
+      return { fd = socket:fd(), release = function() local _, _ = socket:close() end }, ""
+    end
+    if errno ~= raw.EAGAIN then return nil, because end
+    local left = deadline - Clock.monotonic_ns()
+    if left <= 0 then return nil, Poll.TIMEOUT end
+    local _, _, wait_errno = raw.wait(fd, false, (left + 999999) // 1000000)
+    if wait_errno ~= nil and wait_errno ~= raw.ETIMEDOUT then
+      return nil, "the connector's stream failed"
+    end
+  end
+end
+
+-- This starter keeps a serial connector client of its own, not
+-- cosmic.net's tagged one: cosmic.net requires cosmic.child, which
+-- requires this module, so it cannot require cosmic.net. A reply that
+-- does not come within its wait leaves the stream out of step, which fails
+-- that lookup alone: the starter closes the connector after its one lookup.
+--- The connects of a lookup through the connector whose control stream is
+--- `fd`, nothing yet read from it: each asks the connector, one at a
+--- time, for the table entry `index`, whose address is `servers[index]`.
+--- The connector's hello is read first, at the first.
+local function connector_connects(fd: integer, servers: {raw_socket.ThroughServer}, reply_ns: integer):
+    function(index: integer, port: integer, deadline: integer | nil): Relay.Connection | nil, string
+  local greeted = false
+  local tag = 0
+  return function(index: integer, port: integer, deadline: integer | nil): Relay.Connection | nil, string
+    local until_ns = Clock.monotonic_ns() + reply_ns
+    if deadline ~= nil and deadline > until_ns then until_ns = deadline end
+    if not greeted then
+      local hello, why = read_exactly(fd, 4, until_ns)
+      if hello == nil then return nil, why end
+      if string.unpack(">I4", hello) ~= raw.CONNECTOR_HELLO then
+        return nil, "the connector speaks another protocol than this program's"
+      end
+      greeted = true
+    end
+    tag = tag % 0xffffffff + 1
+    local request = string.pack(">I4I4I4I4", tag, index, port, 0) .. string.rep("\0", raw.CONNECTOR_REQUEST_BYTES - 16)
+    local sent, sent_why = raw.send(fd, request)
+    if sent ~= #request then return nil, "could not ask the connector: " .. tostring(sent_why) end
+    local header, why = read_exactly(fd, 8, until_ns)
+    if header == nil then return nil, why end
+    local replied, status = string.unpack(">I4I4", header)
+    if replied ~= tag then return nil, "the connector replied to a request it was not asked" end
+    if status == raw.ETIMEDOUT then return nil, Poll.TIMEOUT end
+    if status ~= 0 then return nil, sys.errno_message(status) end
+    return passed_socket(fd, servers[index].host, port, until_ns)
+  end
+end
+
 --- The addresses of `up`'s host, resolved now and once: a numeric host is
 --- its own address, and a name is resolved over TCP through the name
 --- servers' connector `through`, the lookup's sockets that connector's.
@@ -350,8 +438,12 @@ function relay.upstream_addresses(up: Config.Upstream, through: relay.Through | 
   for i, server in ipairs(through.name_servers.servers) do
     servers[i] = { host = server.host, port = server.port, index = i }
   end
-  local reply_ms = (through.name_servers.wait_ns + 999999) // 1000000 + REPLY_GRACE_MS
-  local found, trouble = raw.resolve_through(up.host, RESOLVE_NS // 1000000, through.fd, reply_ms, servers, nil, true)
+  local reply_ns = through.name_servers.wait_ns + Clock.ms(REPLY_GRACE_MS)
+  local found, trouble = Relay.lookup(up.host, {
+    timeout_ns = RESOLVE_NS,
+    through = servers,
+    connect = connector_connects(through.fd, servers, reply_ns),
+  })
   if found == nil then
     return nil, "https_proxy's host " .. up.host .. " does not resolve: " .. trouble
   end
@@ -370,7 +462,7 @@ end
 function relay.resolved_upstream(up: Config.Upstream): {string} | nil, string
   local bytes = Address.parse(up.host)
   if bytes ~= nil then return { numeric(bytes) }, "" end
-  local found, trouble = raw.resolve(up.host, RESOLVE_NS // 1000000)
+  local found, trouble = Relay.lookup(up.host, { timeout_ns = RESOLVE_NS })
   if found == nil then
     return nil, "https_proxy's host " .. up.host .. " does not resolve: " .. trouble
   end

@@ -278,6 +278,46 @@ local function test_resolve_leaves_no_descriptor_whenever_an_allocation_fails(tm
   assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. before .. " open")
 end
 
+--- A lookup keeps a c-ares channel, and a stand-in descriptor for each
+--- connect it parks while it waits to be handed a socket: under every
+--- refusal, started, stepped, supplied (with a socket, and with none) and
+--- ended, it leaves no descriptor open and its Lookup answers or raises.
+local function test_lookup_leaves_no_descriptor_whenever_an_allocation_fails(tmp: string)
+  if assert(sys.uname()).sysname ~= "Linux" then
+    Test.skip("a lookup through a connector is Linux only, as the connector is")
+  end
+  local hosts = tmp .. "/hosts"
+  assert(Fs.write(hosts, "192.0.2.1 a.example.test\n"))
+  local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
+  local through = { { host = "127.0.0.1", port = server.address.port, index = 1 } }
+  local before = next_descriptor(tmp)
+  local ended = under_every_failure(function()
+    local answered <close> = assert(socket.lookup("a.example.test", 5000, nil, hosts, nil))
+    assert(answered:step(nil, nil))
+    assert(#assert(answered:result()) == 1)
+    for _, supplied in ipairs({ true, false }) do
+      local parked <close> = assert(socket.lookup("b.example.test", 5000, nil, hosts, through))
+      -- A step a refusal raised in has lost no connect: the next tells it.
+      local stepped: {any} = { pcall(parked.step, parked, nil, nil) }
+      if not stepped[1] then stepped = { pcall(parked.step, parked, nil, nil) } end
+      assert(stepped[1], "a step raised twice")
+      local wants = stepped[6] as {raw_socket.Want}
+      assert(not stepped[2] and #wants == 1)
+      if supplied then
+        local conn <close> = assert(socket.start({ kind = "tcp", host = "127.0.0.1", port = server.address.port }))
+        assert(parked:supply(wants[1].id, conn:fd(), nil))
+      else
+        assert(parked:supply(wants[1].id, nil, socket.ETIMEDOUT))
+      end
+      assert(not parked:supply(wants[1].id, nil, nil))
+      assert(parked:wait(1))
+      parked:close()
+    end
+  end)
+  assert(ended > 0, "starting a lookup allocates")
+  assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. before .. " open")
+end
+
 --- A unix listener owns its socket file too: a refusal anywhere leaves
 --- neither the descriptor nor the file to the process, and the next
 --- listener takes the same path.

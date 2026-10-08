@@ -259,9 +259,8 @@ local record Net
     --- connector's table must hold at its port. A connector built from
     --- those alone reaches nothing else, so the lookup's
     --- sockets reach nothing but the name servers. The lookup asks
-    --- one connection at a time, once every request the connector has
-    --- pending is answered, and holds the thread while it runs, so a
-    --- connector for lookups is best one of their own. Linux only, as the
+    --- one connection at a time, sharing the connector's stream with
+    --- any other request, each in its place by tag. Linux only, as the
     --- connector is.
     connector: Connector
   end
@@ -525,7 +524,7 @@ function SocketConn:abort(): boolean, string
 end
 
 --- The connection over `socket`.
-local function new_conn(socket: raw_socket.Socket, timeout_ns: integer | nil): Net.Conn
+local function new_conn(socket: raw_socket.Socket, timeout_ns: integer | nil): SocketConn
   local conn: SocketConn = setmetatable({
     socket = socket, fd = socket:fd(), open = true, limit = timeout_ns,
     read_failure = "", write_failure = "" }, socket_conn_mt)
@@ -756,8 +755,7 @@ local resolved_through: function(name: string, opts: Net.ResolveOptions): {Net.R
 --- once: a server that does not answer its connect costs the connector's
 --- `timeout_ns` and the next server is asked, so a connector for lookups
 --- waits well under the lookup's time for each. Once `timeout_ns` here
---- has passed, no other server is asked, so the call ends by then and
---- one connector wait and a second of grace more at most. A server its
+--- has passed the call ends, whatever the connector has yet to answer. A server its
 --- table lacks fails the call before anything is asked; a lookup no
 --- server answered for want of time fails [`Poll.TIMEOUT`], and one
 --- every server was refused a connection for fails "Connection refused".
@@ -771,13 +769,11 @@ local resolved_through: function(name: string, opts: Net.ResolveOptions): {Net.R
 --- signal), or the system's words ("Connection refused" where every
 --- server refuses). A `name` that is empty, over 254 bytes or holds a
 --- NUL or a "%", and a `servers` list or `hosts_file` the resolver
---- refuses, fail "Invalid argument". The call holds the thread until it
---- answers, in a task of [`Poll.run`] too. A `name` that is no string
+--- refuses, fail "Invalid argument". In a task of [`Poll.run`] the call
+--- waits through the run, so only that task waits for the answer, and a
+--- task cancelled in it ends the lookup and fails "cancelled"; anywhere
+--- else it holds the thread until it answers. A `name` that is no string
 --- or an option of the wrong shape raises.
--- TODO: resolve cooperatively in a task of Poll.run, which a lookup holds up
--- today: it waits on a core binding that starts a lookup and hands back
--- the sockets c-ares watches (and when they next need a call) for
--- Poll.wait, in place of the call that runs it to the end.
 function Net.resolve(name: string, opts?: Net.ResolveOptions): {Net.Resolved} | nil, string
   if not (name is string) then error("net: name must be a string", 2) end
   opts = opts or {}
@@ -807,9 +803,7 @@ function Net.resolve(name: string, opts?: Net.ResolveOptions): {Net.Resolved} | 
     servers = table.concat(parts, ",")
   end
   if opts.connector ~= nil then return resolved_through(name, opts) end
-  local found, trouble, errno = raw.resolve(name, Poll.milliseconds(opts.timeout_ns), servers, hosts_file)
-  if found == nil then return nil, said(trouble, errno) end
-  return found, ""
+  return Relay.lookup(name, { timeout_ns = opts.timeout_ns, servers = servers, hosts = hosts_file })
 end
 
 --- A socket connected to `address`, waiting at most `timeout_ns`: in a
@@ -1003,7 +997,7 @@ local record Pending
   refusal: string
   given_up: boolean
   done: boolean
-  conn: Net.Conn
+  conn: SocketConn
   why: string
   -- Whether its caller took `conn`: one answered but left behind is closed.
   taken: boolean
@@ -1096,7 +1090,7 @@ end
 
 --- Answers `pending`, the request of `tag`, with `conn` or why not; one
 --- given up on has its connection closed.
-local function answer(channel: Channel, tag: integer, pending: Pending, conn: Net.Conn, why: string)
+local function answer(channel: Channel, tag: integer, pending: Pending, conn: SocketConn, why: string)
   channel.pending[tag] = nil
   channel.count = channel.count - 1
   channel.progress = channel.progress + 1
@@ -1285,7 +1279,7 @@ local asking_mt: metatable<Asking> = {
 --- connection, or nil and why. A request given up on stays pending until
 --- its reply comes, which the connector sends within the request's wait.
 local function ask(channel: Channel, body: string, host: string, port: integer, deadline: integer,
-                   timeout_ns: integer, refusal: string): Net.Conn | nil, string
+                   timeout_ns: integer, refusal: string): SocketConn | nil, string
   local room, waiting = await(channel, deadline, false, function(): boolean
     return channel.lost == nil and channel.greeted and channel.count < raw.CONNECTOR_FLIGHT
   end)
@@ -1469,35 +1463,30 @@ resolved_through = function(name: string, opts: Net.ResolveOptions): {Net.Resolv
     end
     servers[#servers + 1] = { host = through.endpoints[index].host, port = server.port, index = index }
   end
-  local timeout_ns = opts.timeout_ns
-  local deadline = timeout_ns ~= nil and Clock.monotonic_ns() + timeout_ns or nil
-  local channel, why = served(through)
-  if channel == nil then return nil, why end
-  -- The core asks one request at a time and reads every reply as its
-  -- own, so it is handed the stream in step, its hello read here, with
-  -- nothing pending, given-up requests included, and no reply read in
-  -- part. It holds the thread while it runs, so no request is sent
-  -- meanwhile. A lookup waits for every connect pending to be answered,
-  -- and a stream that connects keep busy could keep one waiting to its
-  -- deadline: the relay gives its lookups a connector of their own.
-  local idle, waiting = await(channel, deadline, false, function(): boolean
-    return channel.lost == nil and channel.greeted and channel.count == 0 and channel.header == ""
-  end)
-  if not idle then return nil, waiting end
-  -- The connector's own wait for a connection, and the grace its Lua
-  -- requests are given too: a server that does not answer costs that, and
-  -- the stream stays in step for the next.
-  local reply_ms = through.timeout_ms + CONNECTOR_GRACE_NS // 1000000
-  local left = deadline ~= nil and math.max(0, deadline - Clock.monotonic_ns()) or nil
-  local found, trouble, errno = raw.resolve_through(name, Poll.milliseconds(left), channel.process.fd,
-    reply_ms, servers, opts.hosts_file, false)
-  -- The stream is in step when nothing waits on it: the core shuts it down
-  -- where an exchange left a reply unread, which reads here as its end.
-  local unread, _, number = sys.read(channel.process.fd, 1)
-  if unread ~= nil or number ~= raw.EAGAIN then
-    lose(channel, "net: a lookup left the connector's stream out of step")
+  -- A request's wait word 0 is the connector's own wait to connect. The
+  -- lookup gives each connect until its deadline; one given up on is still
+  -- answered, its socket closed, so the stream stays in step.
+  local reply_ns = Clock.ms(through.timeout_ms) + CONNECTOR_GRACE_NS
+  local found, trouble = Relay.lookup(name, {
+    timeout_ns = opts.timeout_ns,
+    hosts = opts.hosts_file,
+    through = servers,
+    connect = function(index: integer, port: integer, deadline: integer | nil):
+      Relay.Connection | nil, string
+      local channel, why = served(through)
+      if channel == nil then return nil, why end
+      local body = string.pack(">I4I4I4I4", index, port, 0, 0) .. string.rep("\0", 16)
+      local conn, because = ask(channel, body, through.endpoints[index].host, port,
+        deadline or Clock.monotonic_ns() + reply_ns, Clock.ms(through.timeout_ms), "")
+      if conn == nil then return nil, because end
+      return { fd = conn.fd, release = function() local _, _ = conn:close() end }, ""
+    end,
+  })
+  if found == nil then
+    -- A stream given up fails every connect after it: its words say why.
+    local lost = through.channel ~= nil and through.channel.lost or nil
+    return nil, lost or trouble
   end
-  if found == nil then return nil, said(trouble, errno) end
   return found, ""
 end
 
