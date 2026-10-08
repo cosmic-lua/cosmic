@@ -171,33 +171,18 @@ return function(args)
   elseif args[1] == "public" then
     local http = relay_of("HTTPS_PROXY")
     through_connect("public", http.port, args[2], http.token)
-  elseif args[1] == "accept" then
-    -- The relay's listening sockets, which the start hands the program too:
-    -- a connection to the relay must never be the program's to accept.
-    local http = relay_of("HTTPS_PROXY")
-    local found, accepted, refusals = 0, 0, {}
-    for fd = 3, 9 do
+  elseif args[1] == "listeners" then
+    -- Any descriptor of a listening socket the program was started with.
+    local found = {}
+    for fd = 3, 64 do
       -- The core's own descriptors raise when named; any other is no listener.
       local ok, listener = pcall(Net.listener_from, fd)
       if ok and listener ~= nil then
-        found = found + 1
-        for _ = 1, 3 do
-          local conn = Net.connect(Net.tcp("127.0.0.1", http.port), { timeout_ns = Clock.seconds(5) })
-          local got, why = listener:accept(Clock.seconds(1))
-          if got ~= nil then
-            accepted = accepted + 1
-            got:close()
-          else
-            refusals[#refusals + 1] = why
-          end
-          if conn ~= nil then conn:close() end
-        end
+        found[#found + 1] = fd .. "=" .. listener.address.host .. ":" .. listener.address.port
         listener:close()
       end
     end
-    say("listeners", found)
-    say("accepted", accepted)
-    say("refusals", table.concat(refusals, "; "))
+    say("listeners", #found == 0 and "none" or table.concat(found, ","))
   elseif args[1] == "probe" then
     -- Run under the relay's own profile: what it may read.
     for _, path in ipairs({ "/etc/hosts", args[2] }) do
@@ -471,44 +456,35 @@ end
 
 --- The start holds the relay's port on 127.0.0.1 and on ::1, both of which
 --- the program's `localhost:PORT` rule reaches, and hands both sockets to
---- the relay and the program: no other process can listen at either while
---- the program lives, the relay killed or not.
+--- the relay: no other process can listen at either while it runs.
 local function test_no_other_process_can_listen_at_the_relays_port(tmp: string)
   macos_only()
   Poll.run(function()
     local handle = waiting(tmp)
     local port = relay_port(handle)
-    local relay = assert(handle._relay)
     for _, host in ipairs({ "127.0.0.1", "::1" }) do
       local why = taken(host, port)
       assert(why:find("in use", 1, true), host .. ", the relay running: " .. why)
     end
-    assert(sys.kill(relay.pid, sys.SIGKILL))
-    -- A process killed closes its descriptors as it exits, before anything
-    -- reaps it, which its handle does at the program's wait.
-    assert(Poll.delay(Clock.ms(500)))
-    assert(not gone(handle.pid), "the program lives on until its next wait")
-    for _, host in ipairs({ "127.0.0.1", "::1" }) do
-      local why = taken(host, port)
-      assert(why:find("in use", 1, true), host .. ", the relay killed: " .. why)
-    end
+    assert(handle:stop())
     local _ = handle:wait(Clock.seconds(20))
   end)
 end
 
---- The program holds the relay's listening sockets but its profile lets it
---- accept on neither: a connection to the relay is never the program's.
-local function test_the_program_cannot_accept_at_the_relays_port(tmp: string)
+--- The program is handed no descriptor of the relay's listening sockets:
+--- Seatbelt does not refuse accept() on one inherited (a profile without
+--- network-inbound accepted connections there), and any user of the host can
+--- connect to the port, so holding one would give the program a way in past
+--- the token and the relay.
+local function test_the_program_holds_no_listener_of_the_relays(tmp: string)
   macos_only()
-  local result, why = Child.run({ assert(Proc.executable()), "accept" }, { policy = {
+  local result, why = Child.run({ assert(Proc.executable()), "listeners" }, { policy = {
     database = sealed_client(tmp), profiles = { "system" }, connect = { "127.0.0.1:9" } },
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(90) })
   assert(result, tostring(why) .. denials())
-  local said = fields(result.stdout or "")
   local report = redacted(tostring(result.stdout) .. "\nstderr: " .. tostring(result.stderr))
   assert(result.ok, report .. denials())
-  assert(said.listeners == "2", "the program holds the relay's two listening sockets\n" .. report)
-  assert(said.accepted == "0", "the program accepted a connection to the relay\n" .. report .. denials())
+  assert(fields(result.stdout or "").listeners == "none", "the program holds a listening socket\n" .. report)
 end
 
 --- The relay itself is held by a profile of its own: it accepts at its

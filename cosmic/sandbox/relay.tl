@@ -197,8 +197,9 @@ local LOOPBACK_BACKLOG <const> = 128
 --- A program's profile allows it `localhost:PORT`, which Seatbelt reads as
 --- both addresses, so a port of either that another process held would be
 --- reachable from the program: the start holds both, and hands them to the
---- relay and to the program, so the port stays this sandbox's for as long as
---- either lives. Neither is bound with SO_REUSEPORT, so no other socket can
+--- relay, so the port stays this sandbox's while either lives. Never hand
+--- one to the program: Seatbelt does not refuse accept() on an inherited
+--- listener, and any user of the host can connect to the port. Neither is bound with SO_REUSEPORT, so no other socket can
 --- take the same address and port meanwhile. Where the port is taken on
 --- ::1 another is tried, at most 16 times. Where the host has no IPv6
 --- loopback (no port of ::1 can be bound) the 127.0.0.1 socket is alone:

@@ -507,10 +507,9 @@ local record Options
   --- serves a port of the host's loopback the kernel chooses, one port for
   --- both protocols, on 127.0.0.1 and on ::1: the profile's `localhost` is
   --- both, so the start binds both and hands the listening sockets to the
-  --- relay and to the program alike (at the lowest descriptors above 2
-  --- that `fds` leaves free), which its profile lets accept on neither, so
-  --- that no other process can take the port while the program lives,
-  --- whether or not the relay and this process do. A host with no IPv6
+  --- relay, and holds them itself until the relay ends: no other process can
+  --- take the port while either lives. The program gets no descriptor of
+  --- them, since Seatbelt would not stop it accepting there. A host with no IPv6
   --- loopback has no ::1 any process could listen on, and is held at
   --- 127.0.0.1 alone; the start fails where no port is free on both. The program's profile lets it connect to that port
   --- and to nothing else of the network, and its proxy variables name it
@@ -4283,21 +4282,15 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
         prep.handover.close()
         return refuse("start: sandbox: relay: " .. launch_trouble)
       end
+      -- The program gets no descriptor of the relay's listeners: Seatbelt
+      -- does not refuse accept() on one inherited, and any user of the
+      -- host can connect to the port, so the program would have a way in
+      -- that passes neither the token nor the relay.
+      -- TODO: end the program the moment its relay dies, before another
+      -- process can listen at the port its profile reaches (the relay_lost
+      -- TODO); today the port is free from the relay's death, and this
+      -- process's if it goes too, until the program's next wait.
       early = launched
-      -- The program holds the relay's listening sockets too, at descriptors
-      -- `fds` leaves free, so that the port stays this sandbox's for as long
-      -- as the program lives, the relay and this process gone or not. Its
-      -- profile lets it accept on neither.
-      local number = 3
-      for given = 3, 4 do
-        local fd = prep.handover.fds[given]
-        if fd == nil then break end
-        while slots[number] ~= nil or (extra ~= nil and extra[number] ~= nil) do
-          number = number + 1
-        end
-        extra = extra or {}
-        extra[number] = fd
-      end
     elseif held.relay ~= nil then
       -- The relay starts first and opens its database before the program
       -- exists: the database is then removed, so no program can swap it
