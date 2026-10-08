@@ -145,7 +145,7 @@ local record rules
     --- own number where it is left out; for any other, its own group. On
     --- macOS only the caller's own group is met, as for `user`.
     group: integer
-    --- A database the program runs on, by its absolute path: the program
+    --- A database the program runs on, by its absolute path ([`rules.Database`]): the program
     --- is this program's core started on that database
     --- (`core --database <path>`), so what it can `require` is the
     --- modules the file holds and nothing of the tree or of this
@@ -161,9 +161,24 @@ local record rules
     --- merge. The "system" profile cannot be joined with it where this
     --- program is installed under a directory the profile grants (/usr):
     --- the grant reaches the program's own file, and the start fails, naming
-    --- it. [`PolicyJson.encode`] writes it with the SHA-256 of the
-    --- file, so the text holds what the database is and not only where.
-    database: string
+    --- it. With a `sha256`, [`Child.start`] runs the program only on a
+    --- file of that digest, and [`PolicyJson.encode`] writes it, so the
+    --- text holds what the database is and not only where; merging keeps
+    --- it.
+    database: rules.Database
+  end
+  --- A database a policy names: its absolute `path`, and the SHA-256 of
+  --- its bytes (`sha256`, 64 lowercase hex digits) where the policy is to
+  --- run only on a file of that digest. The two travel together through
+  --- copies, [`Sandbox.merge`] and [`PolicyJson.encode`], so a digest is never
+  --- apart from the path it was taken at. With no `sha256` the policy
+  --- names a file and not its content: [`Sandbox.database`] takes the
+  --- digest of one now.
+  record Database
+    --- The file's absolute path, with no "..".
+    path: string
+    --- The SHA-256 of the file's bytes, in lowercase hex; nil for a path alone.
+    sha256: string | nil
   end
 end
 
@@ -331,25 +346,29 @@ local function invalid(p: rules.Policy, exact: boolean): string
     return at("/group", "a group is given with a user")
   end
   if p.database ~= nil then
-    local path = p.database
+    local path = p.database.path
     if path == "" or path:find("\0", 1, true) then
-      return at("/database", "a path is not empty and holds no NUL")
+      return at("/database/path", "a path is not empty and holds no NUL")
     end
     if path:sub(1, 1) ~= "/" then
-      return at("/database", "\"" .. path .. "\" is relative: the program's directory is not the " ..
+      return at("/database/path", "\"" .. path .. "\" is relative: the program's directory is not the " ..
           "one this is read from, so name the file by its absolute path")
     end
     for segment in path:gmatch("[^/]+") do
       if segment == ".." then
-        return at("/database", "\"..\" is not allowed; name the file itself")
+        return at("/database/path", "\"..\" is not allowed; name the file itself")
       end
+    end
+    local digest = p.database.sha256
+    if digest ~= nil and not (digest:find("^%x+$") and #digest == 64 and digest:lower() == digest) then
+      return at("/database/sha256", "a digest is 64 lowercase hex digits")
     end
     local found, trouble = sys.stat(path)
     if found == nil then
-      return at("/database", path .. ": " .. trouble)
+      return at("/database/path", path .. ": " .. trouble)
     end
     if found.kind ~= "file" then
-      return at("/database", path .. " is not a regular file")
+      return at("/database/path", path .. " is not a regular file")
     end
   end
   local limits = p.limits or {}
@@ -527,29 +546,12 @@ function rules.profile(name: string): rules.Policy | nil, string
       table.concat(PROFILES, ", ") .. ")")
 end
 
---- The SHA-256 of the database each policy was checked against
---- ([`rules.expect_digest`]), by the policy table; a merge carries it to
---- its answer. Weak, so a policy that is dropped takes its entry along.
-local expected: {rules.Policy:string} = setmetatable({}, { __mode = "k" })
-
---- Records the digest `policy`'s database is to have:
---- [`Sandbox.expect_digest`], which says how.
-function rules.expect_digest(policy: rules.Policy, digest: string)
-  expected[policy] = digest
-end
-
---- Whether the file at `path` is the database `merged` was checked
---- against: [`Sandbox.database_is`], which says how.
-function rules.database_is(merged: rules.Policy, path: string): boolean, string
-  local digest = expected[merged]
-  if digest == nil then return true, "" end
+--- The database at `path`, with the SHA-256 of its bytes now:
+--- [`Sandbox.database`], which says how.
+function rules.database(path: string): rules.Database | nil, string
   local bytes, why = Fs.read(path)
-  if bytes == nil then return false, "database " .. why end
-  if Hash.hex_sha256(bytes) ~= digest then
-    return false, "database " .. path .. " is not the one its policy was checked against: " ..
-      "its SHA-256 has changed since"
-  end
-  return true, ""
+  if bytes == nil then return refuse("database " .. why) end
+  return { path = path, sha256 = Hash.hex_sha256(bytes) }, ""
 end
 
 --- What the policies given hold together: [`Sandbox.merge`], which says
@@ -588,22 +590,19 @@ function rules.merge(...: rules.Policy): rules.Policy | nil, string
   local env: {string} = {}
   local tmp = false
   local user, group: integer, integer
-  local database: string
-  local vouched: string
+  local database: rules.Database = nil
   for _, p in ipairs(flat) do
-    local seen = expected[p]
-    if seen ~= nil then
-      if vouched ~= nil and vouched ~= seen then
-        return refuse("database is checked against two digests")
-      end
-      vouched = seen
-    end
     if p.database ~= nil then
-      local at = clean_path(p.database)
-      if database ~= nil and database ~= at then
-        return refuse("database is given two values, " .. database .. " and " .. at)
+      local at = clean_path(p.database.path)
+      local digest = p.database.sha256
+      if database ~= nil and database.path ~= at then
+        return refuse("database is given two values, " .. database.path .. " and " .. at)
       end
-      database = at
+      if database ~= nil and digest ~= nil and database.sha256 ~= nil and database.sha256 ~= digest then
+        return refuse("database " .. at .. " is given two digests, " .. database.sha256 ..
+            " and " .. digest)
+      end
+      database = { path = at, sha256 = digest or (database and database.sha256) }
     end
     for _, grant in ipairs(p.grants or {}) do
       local at = clean_path(grant.path)
@@ -688,7 +687,6 @@ function rules.merge(...: rules.Policy): rules.Policy | nil, string
     set_env_digests = digests, tmp = tmp, limits = limits,
     user = user, group = group, database = database,
   }
-  if vouched ~= nil and database ~= nil then expected[result] = vouched end
   return result, ""
 end
 

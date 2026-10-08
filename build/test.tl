@@ -2756,7 +2756,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
       return false
     end
     policy = made
-    policy.database = sealed
+    policy.database = sealed ~= nil and { path = sealed } or nil
     if hold == "forbid" then
       local ran, ran_trouble = test_policy.runs(policy)
       if ran == nil then

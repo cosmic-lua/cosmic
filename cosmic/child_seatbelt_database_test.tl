@@ -50,7 +50,7 @@ local function ran_sealed(path: string, extra?: {string}): Child.Result
   local executable = assert(Proc.executable())
   local argv: {string} = { executable, executable }
   for _, word in ipairs(extra or {}) do argv[#argv + 1] = word end
-  local result, why = Child.run(argv, { policy = { profiles = { "system" }, database = path },
+  local result, why = Child.run(argv, { policy = { profiles = { "system" }, database = { path = path } },
     stdout = "capture", stderr = "capture", stdin = "null", timeout_ns = Clock.seconds(60) })
   assert(result, why)
   if not result.ok then
@@ -98,7 +98,7 @@ local function test_a_database_that_is_not_there_fails_the_start(tmp: string)
   macos_only()
   local executable = assert(Proc.executable())
   local result, why = Child.run({ executable, executable }, { policy = { profiles = { "system" },
-    database = tmp .. "/absent.db" }, stdout = "capture", stderr = "capture" })
+    database = { path = tmp .. "/absent.db" } }, stdout = "capture", stderr = "capture" })
   assert(result == nil and why:find("absent.db", 1, true), tostring(why))
 end
 

@@ -409,7 +409,7 @@ local Proc = require("cosmic.proc")
 
 return function(argv: {string}): integer
   local started, why = Child.start({ assert(Proc.executable()), "x" },
-    { policy = { database = argv[1] } })
+    { policy = { database = { path = argv[1] } } })
   print(started == nil, why)
   return 0
 end

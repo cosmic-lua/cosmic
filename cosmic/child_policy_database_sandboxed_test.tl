@@ -69,7 +69,7 @@ local function test_a_policy_runs_a_sealed_database_under_a_sandbox(tmp: string)
   local path = tmp .. "/sealed.db"
   fixture.seal(tmp, path)
   local executable = assert(Proc.executable())
-  local result, why = Child.run({ executable, executable }, { policy = { database = path },
+  local result, why = Child.run({ executable, executable }, { policy = { database = { path = path } },
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   if result == nil then
     assert(unsandboxable(why), "the start was refused: " .. why)
@@ -96,18 +96,18 @@ local function test_a_database_policy_refuses_another_program_and_this_ones_own_
   local path = tmp .. "/sealed.db"
   fixture.seal(tmp, path)
   local executable = assert(Proc.executable())
-  local other, why = Child.start({ "/bin/sh", "-c", "true" }, { policy = { database = path } })
+  local other, why = Child.start({ "/bin/sh", "-c", "true" }, { policy = { database = { path = path } } })
   assert(other == nil and why:find("is not this program", 1, true), tostring(why))
-  local file, file_why = Child.start({ executable, "x" }, { policy = { database = path,
+  local file, file_why = Child.start({ executable, "x" }, { policy = { database = { path = path },
     grants = { { path = executable, letters = "r" } } } })
   assert(file == nil and file_why:find("own file", 1, true), tostring(file_why))
-  local above, above_why = Child.start({ executable, "x" }, { policy = { database = path,
+  local above, above_why = Child.start({ executable, "x" }, { policy = { database = { path = path },
     grants = { { path = assert(executable:match("^(.*)/[^/]+$")), letters = "r" } } } })
   assert(above == nil and above_why:find("own file", 1, true), tostring(above_why))
   -- The profile that grants the program's file is left out beside a
   -- database, so it refuses nothing.
   local profiled, profile_why = Child.run({ executable, executable },
-    { policy = { database = path, profiles = { "cosmic" } }, stdout = "capture",
+    { policy = { database = { path = path }, profiles = { "cosmic" } }, stdout = "capture",
       stderr = "capture", timeout_ns = Clock.seconds(30) })
   if profiled == nil then
     assert(unsandboxable(profile_why), tostring(profile_why))
@@ -126,7 +126,7 @@ local function test_a_decoded_policy_refuses_a_database_that_changed_since(tmp: 
   end
   local path = tmp .. "/sealed.db"
   fixture.seal(tmp, path)
-  local merged = assert(Sandbox.merge({ database = path }))
+  local merged = assert(Sandbox.merge({ database = assert(Sandbox.database(path)) }))
   local policy = assert(PolicyJson.decode(PolicyJson.encode(merged)))
   local executable = assert(Proc.executable())
   local bytes = assert(Fs.read(path))
@@ -148,7 +148,7 @@ local function under_nest(tmp: string, mode: string, policy: Sandbox.Policy): {s
   local scratch = tmp .. "/scratch"
   assert(Fs.mkdirs(scratch))
   searchable.share(scratch)
-  policy.database = policy.database or path
+  policy.database = policy.database or { path = path }
   policy.isolate = { "file" }
   policy.promises = { "fork", "nest" }
   policy.set_env = { TMPDIR = scratch }

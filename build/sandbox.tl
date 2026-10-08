@@ -67,7 +67,6 @@ local Child = require("cosmic.child")
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
-local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
 local Sandbox = require("cosmic.sandbox")
@@ -361,9 +360,9 @@ local function policy_of(request: Request, database: string | nil): Sandbox.Poli
   local fields = request.policy
   if database ~= nil then
     -- The text holds the file's digest as well as its path.
-    local bytes, read_trouble = Fs.read(database)
-    if bytes == nil then return nil, "sandbox: database " .. read_trouble end
-    fields.database = { path = database, sha256 = Hash.hex_sha256(bytes) }
+    local named, named_trouble = Sandbox.database(database)
+    if named == nil then return nil, named_trouble end
+    fields.database = named
   end
   local json, json_why = Json.encode(fields)
   if json == nil then return nil, json_why end
