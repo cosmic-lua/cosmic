@@ -324,6 +324,7 @@ local function test_modes_agree_on_syntax_and_text_takes_what_html_does(tmp: str
         if not html_why:find(": a slot ", 1, true) and not html_why:find(" end in different places", 1, true) and
             not html_why:find(" ends where it did not", 1, true) and
             not html_why:find("could complete a scheme", 1, true) and
+            not html_why:find("protocol-relative", 1, true) and
             not html_why:find(": the template ends ", 1, true) then
           return false, "html refused what text takes, and not for its markup: " .. html_why
         end
@@ -348,7 +349,12 @@ local UNITS <const>: {{string}} = {
   { "<p>{{.a}}</p>", "t" },
   { "<a href=\"{{.a}}\">x</a>", "u" },
   { "<a href='{{.a}}'>x</a>", "u" },
-  { "<a href=\"{{.a}}/x?y:z\">x</a>", "u" },
+  { "<a href=\"{{.a}}x/y?z:w\">x</a>", "u" },
+  { "<a href=\"{{.a}}?/x\">x</a>", "u" },
+  { "<a href=\"{{.a}}/x\">x</a>", "x" },
+  { "<a href=\"{{.a}}\\x\">x</a>", "x" },
+  { "<a href=\"{{.a}}\n/x\">x</a>", "x" },
+  { "<a href=\"{{.a}}{{if .a}}{{end}}//x\">x</a>", "x" },
   { "<img lowsrc=\"{{.a}}\">", "u" },
   { "<p title=\"{{.a}}\">x</p>", "a" },
   { "<textarea>{{.a}}</textarea>", "r" },
@@ -448,7 +454,8 @@ local function gen_sound(src: Fuzz.Source): string
       kinds[#kinds + 1] = first[2]
     end
   end
-  return Fuzz.pack({ Fuzz.pick(src, { "<\"'>& onload=x", "javascript:alert(1)", "\"'\n\t<script>" }),
+  return Fuzz.pack({ Fuzz.pick(src, { "<\"'>& onload=x", "javascript:alert(1)", "\"'\n\t<script>", "/",
+    "\\", "/\t" }),
     table.concat(kinds), table.concat(body) })
 end
 
@@ -507,7 +514,7 @@ local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
     name = "template sound",
     dir = tmp,
     gen = gen_sound,
-    requires = { "refused", "text", "rtext", "attr", "url", "block" },
+    requires = { "refused", "text", "rtext", "attr", "url", "block", "assembled url" },
     shares = { refused = 0.01, text = 0.05, rtext = 0.01, attr = 0.01, url = 0.01 },
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
@@ -583,6 +590,18 @@ local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
         Fuzz.label("url")
         if out:find("\3&#5;javascript", 1, true) then
           return false, "a URL slot began with the script scheme"
+        end
+      end
+      -- Whatever a URL slot is given, the value the browser assembles from
+      -- it and the literal text after it (entities decoded, the bytes a URL
+      -- parser drops removed) is not protocol-relative, which `href` refuses.
+      for value, after in out:gmatch("\3&#5;([^\4]*)\4([^\"']*)") do
+        Fuzz.label("assembled url")
+        local url = (value .. after):gsub("&#(%d+);", function(n: string): string
+          return string.char(tonumber(n) as integer % 256)
+        end):gsub("[\t\n\r]", "")
+        if url:find("^[/\\][/\\]") then
+          return false, "an assembled URL is protocol-relative: " .. url
         end
       end
       if body:find("{{range", 1, true) or body:find("{{if", 1, true) or body:find("{{with", 1, true) then
@@ -680,6 +699,57 @@ local function test_a_cut_in_the_text_does_not_move_where_a_slot_lands(tmp: stri
         else
           Fuzz.label("agreed")
         end
+      end
+      return true, ""
+    end,
+  })
+end
+
+--- What may follow a URL slot in a value: text that begins a path, an
+--- authority, a scheme or an entity, bytes a URL parser drops, and blocks
+--- that emit nothing or something.
+local SUFFIX <const> = {
+  "/", "\\", "\t", "\n", "\r", "x", "?", "#", "/x", "//", ":", "&", "&#47;", "&sol;", "&bsol;", "&Tab;", ".", "evil",
+  "{{if .a}}{{end}}", "{{if .a}}x{{end}}", "{{if .a}}/{{end}}", "{{.b}}", " ",
+}
+
+local function gen_suffix(src: Fuzz.Source): string
+  local out: {string} = {}
+  while Fuzz.more(src, #out, 8) do
+    out[#out + 1] = Fuzz.pick(src, SUFFIX)
+  end
+  return table.concat(out)
+end
+
+-- A URL attribute built from a slot and literal text compiles only when the
+-- text cannot make the assembled value protocol-relative (`//host`) or
+-- complete a scheme, whatever the slot's value: the text, with the blocks
+-- struck out and the bytes a URL parser drops removed, begins with neither
+-- `/` nor `\`, and holds no `:` or `&` before its first `/`, `?` or `#`.
+local function test_a_url_suffix_cannot_make_the_assembled_value_leave_the_policy(tmp: string)
+  Fuzz.run({
+    name = "template url suffix",
+    dir = tmp,
+    gen = gen_suffix,
+    requires = { "compiled", "refused" },
+    shares = { compiled = 0.1, refused = 0.1 },
+    check = function(suffix: string): boolean, string
+      local body = "<a href=\"{{.u}}" .. suffix .. "\">x</a>"
+      local source = Template.compile("{{type T from m.t}}" .. body, "t.tmpl")
+      if source == nil then
+        Fuzz.label("refused")
+        return true, ""
+      end
+      Fuzz.label("compiled")
+      -- Only literal text counts: the arms of a block that emit text are
+      -- struck out whole, as the compiler treats them as text of their own.
+      local literal = suffix:gsub("{{if %.a}}(.-){{end}}", "%1"):gsub("{{[^}]*}}", ""):gsub("[\t\n\r]", "")
+      if literal:find("^[/\\]") then
+        return false, "compiled a suffix that begins with a slash: " .. body
+      end
+      local cut = literal:find("[/?#]")
+      if (cut and literal:sub(1, cut - 1) or literal):find("[:&]") then
+        return false, "compiled a suffix that could complete a scheme: " .. body
       end
       return true, ""
     end,
