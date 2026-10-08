@@ -7,11 +7,10 @@
 ---
 --- An address is refused unless a literal grant names exactly it: a
 --- `connect` target whose host is that numeric address and whose port is
---- the one asked for, or "*". The grant's grammar is narrower than
---- [`cosmic.sandbox`]'s `connect` validation, and fails closed: an IPv6
---- host must be in brackets (`[::1]:80`; unbracketed `::1:80` opens
---- nothing), a bracketed IPv4 host (`[1.2.3.4]:80`) opens nothing, and a
---- name or a "*" host opens no address. The classes refused:
+--- the one asked for, or "*". The grant's grammar is [`cosmic.grant`]'s, which
+--- [`cosmic.sandbox`] validates `connect` by: an IPv6 host is in brackets
+--- (`[::1]:80`) and any spelling of it opens the one address, and a name
+--- or a "*" host opens no address. The classes refused:
 ---
 --- - loopback (127/8, ::1) and unspecified (0.0.0.0/8, ::);
 --- - link-local (169.254/16, fe80::/10);
@@ -57,6 +56,8 @@
 --- most one "::" and an IPv4 tail, no zone. Anything else is refused as
 --- not numeric: an answer is untrusted bytes from DNS.
 
+local Grant = require("cosmic.grant")
+
 local record relay_address
   --- One answer of a name, as the resolver of #2816 returns it.
   record Answer
@@ -75,9 +76,6 @@ local record Deny
   --- The class it is refused as, which names its reason in a refusal.
   class: string
 end
-
---- The longest text of an IPv6 address, "ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255".
-local MAX_ADDRESS <const> = 45
 
 --- What each class is called in a refusal.
 local PHRASES <const>: {string: string} = {
@@ -106,87 +104,13 @@ local PHRASES <const>: {string: string} = {
     "carries, the relay cannot know",
 }
 
---- The IPv4 octets of `text` (four decimal numbers, none with a leading
---- zero), or nil.
-local function parse4(text: string): {integer} | nil
-  local a, b, c, d = text:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
-  if a == nil then return nil end
-  local out: {integer} = {}
-  for _, part in ipairs({ a, b, c, d }) do
-    if #part > 3 or (#part > 1 and part:sub(1, 1) == "0") then return nil end
-    local n = math.tointeger(tonumber(part))
-    if n > 255 then return nil end
-    out[#out + 1] = n
-  end
-  return out
-end
-
---- The 16-bit groups of `list`, colon-separated, as numbers, with an
---- IPv4 tail (when `tail4`, and only as the last part) as its two. Nil
---- for an empty part, one of more than four digits or that is no hex.
-local function groups(list: string, tail4: boolean): {integer} | nil
-  local parts: {string} = {}
-  local out: {integer} = {}
-  if list == "" then return out end
-  for part in (list .. ":"):gmatch("([^:]*):") do parts[#parts + 1] = part end
-  for i, part in ipairs(parts) do
-    if part:find(".", 1, true) then
-      local v4 = tail4 and i == #parts and parse4(part)
-      if not v4 then return nil end
-      out[#out + 1] = v4[1] * 256 + v4[2]
-      out[#out + 1] = v4[3] * 256 + v4[4]
-    else
-      if #part < 1 or #part > 4 or part:find("%X") then return nil end
-      out[#out + 1] = tonumber(part, 16)
-    end
-  end
-  return out
-end
-
---- The 16 bytes of the IPv6 address `text`, or nil.
-local function parse6(text: string): {integer} | nil
-  local start = text:find("::", 1, true)
-  local head, tail, elided: string, string, boolean
-  if start then
-    if text:find("::", start + 1, true) then return nil end
-    head, tail, elided = text:sub(1, start - 1), text:sub(start + 2), true
-  else
-    head, tail, elided = text, "", false
-  end
-  -- Without "::" the address is one list whose last group may be the
-  -- IPv4 tail; with it the head has none, and the tail's last group may.
-  local first = groups(head, not elided)
-  local second = groups(tail, true)
-  if first == nil or second == nil then return nil end
-  local all: {integer} = {}
-  for _, g in ipairs(first) do all[#all + 1] = g end
-  local gap = 8 - #first - #second
-  if elided then
-    if gap < 1 then return nil end
-    for _ = 1, gap do all[#all + 1] = 0 end
-  elseif gap ~= 0 then
-    return nil
-  end
-  for _, g in ipairs(second) do all[#all + 1] = g end
-  local out: {integer} = {}
-  for _, g in ipairs(all) do
-    out[#out + 1] = g >> 8
-    out[#out + 1] = g & 0xff
-  end
-  return out
-end
-
 --- The bytes of the numeric address `address`, most significant first: 4
 --- for an IPv4 one, 16 for an IPv6 one. Nil for anything else, which
 --- never raises.
 --- @param address string The text to read
 --- @return {integer}|nil The bytes
 function relay_address.parse(address: string): {integer} | nil
-  if type(address) ~= "string" or address == "" or #address > MAX_ADDRESS then
-    return nil
-  end
-  if address:find(":", 1, true) then return parse6(address) end
-  return parse4(address)
+  return Grant.address(address)
 end
 
 local function same(a: {integer}, b: {integer}): boolean
@@ -319,19 +243,10 @@ end
 --- and its port the one asked for or "*". A grant of a name opens no address.
 local function granted(bytes: {integer}, port: integer, grants: {string}): boolean
   for _, grant in ipairs(grants) do
-    local host, at = grant:match("^(.+):([^:]+)$")
-    if host ~= nil then
-      local inner = host:match("^%[(.*)%]$")
-      if inner ~= nil then
-        host = inner
-        if not inner:find(":", 1, true) then host = "" end
-      elseif host:find(":", 1, true) then
-        host = ""
-      end
-      local parsed = host ~= "" and relay_address.parse(host)
-      if parsed and same(parsed, bytes) and (at == "*" or at == tostring(port)) then
-        return true
-      end
+    local parsed, _ = Grant.parse(grant)
+    if parsed ~= nil and parsed.bytes ~= nil and same(parsed.bytes, bytes) and
+        (parsed.port == 0 or parsed.port == port) then
+      return true
     end
   end
   return false

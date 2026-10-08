@@ -43,6 +43,7 @@
 --- relay's policy for that status decides whether they connect.
 
 local String = require("cosmic.string")
+local Grant = require("cosmic.grant")
 
 local record relay_wire
   --- What a reader has decided so far.
@@ -293,179 +294,38 @@ end
 
 --- The four decimal octets of `text`, or nil.
 local function octets(text: string): {integer} | nil
-  local a, b, c, d = text:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
-  if a == nil or b == nil or c == nil or d == nil then
-    return nil
-  end
-  local out: {integer} = {}
-  for _, octet in ipairs({ a, b, c, d }) do
-    if #octet > 3 or (#octet > 1 and octet:sub(1, 1) == "0") then
-      return nil
-    end
-    local value = math.tointeger(tonumber(octet))
-    if value == nil or value > 255 then
-      return nil
-    end
-    out[#out + 1] = value
-  end
-  return out
+  local bytes = Grant.address(text)
+  return bytes ~= nil and #bytes == 4 and bytes or nil
 end
 
 local function ipv4(text: string): boolean
   return octets(text) ~= nil
 end
 
---- The 16-bit groups of the colon-separated `text`, whose last piece may be
---- a dotted IPv4 address when `tail` says so.
-local function groups(text: string, tail: boolean): {integer} | nil
-  local out: {integer} = {}
-  if text == "" then
-    return out
+--- The sixteen bytes of `text`, an IPv6 address without brackets or a zone,
+--- or nil and why.
+local function ipv6_bytes(text: string): {integer} | nil, string
+  local bytes = text:find(":", 1, true) and Grant.address(text) or nil
+  if bytes == nil or #bytes ~= 16 then
+    if text:find("[^%x:%.]") or not text:find(":", 1, true) then
+      return nil, "not an IPv6 address (a zone, or a character an address does not hold)"
+    end
+    return nil, "not an IPv6 address"
   end
-  local pos = 1
-  while true do
-    local colon = text:find(":", pos, true)
-    local piece = text:sub(pos, (colon or #text + 1) - 1)
-    if piece:find(".", 1, true) then
-      local n = octets(piece)
-      if colon ~= nil or not tail or n == nil then
-        return nil
-      end
-      out[#out + 1] = n[1] * 256 + n[2]
-      out[#out + 1] = n[3] * 256 + n[4]
-    else
-      local value = math.tointeger(tonumber(piece, 16))
-      if #piece < 1 or #piece > 4 or piece:find("%X") or value == nil then
-        return nil
-      end
-      out[#out + 1] = value
-    end
-    if colon == nil then
-      return out
-    end
-    pos = colon + 1
-  end
-end
-
---- The eight 16-bit groups of `text`, an IPv6 address without brackets or a
---- zone, or nil and why.
-local function ipv6_groups(text: string): {integer} | nil, string
-  if text:find("[^%x:%.]") or not text:find(":", 1, true) then
-    return nil, "not an IPv6 address (a zone, or a character an address does not hold)"
-  end
-  local bad = "not an IPv6 address"
-  if text:find(":::", 1, true) then
-    return nil, bad
-  end
-  local all: {integer} = {}
-  local gap = text:find("::", 1, true)
-  if gap ~= nil then
-    if text:find("::", gap + 2, true) then
-      return nil, bad
-    end
-    local left = groups(text:sub(1, gap - 1), false)
-    local right = groups(text:sub(gap + 2), true)
-    if left == nil or right == nil or #left + #right > 7 then
-      return nil, bad
-    end
-    for _, g in ipairs(left) do
-      all[#all + 1] = g
-    end
-    for _ = 1, 8 - #left - #right do
-      all[#all + 1] = 0
-    end
-    for _, g in ipairs(right) do
-      all[#all + 1] = g
-    end
-  else
-    local whole = groups(text, true)
-    if whole == nil or #whole ~= 8 then
-      return nil, bad
-    end
-    all = whole
-  end
-  return all, ""
+  return bytes, ""
 end
 
 --- `text`, an IPv6 address without brackets or a zone, in RFC 5952's
 --- form, or nil and why.
 local function ipv6(text: string): string | nil, string
-  local all, bad = ipv6_groups(text)
-  if all == nil then
+  local bytes, bad = ipv6_bytes(text)
+  if bytes == nil then
     return nil, bad
   end
-  local best_at, best_len, at = 0, 1, 1
-  while at <= 8 do
-    if all[at] == 0 then
-      local stop = at
-      while stop < 8 and all[stop + 1] == 0 do
-        stop = stop + 1
-      end
-      if stop - at + 1 > best_len then
-        best_at, best_len = at, stop - at + 1
-      end
-      at = stop + 1
-    else
-      at = at + 1
-    end
-  end
-  local parts: {string} = {}
-  local i = 1
-  while i <= 8 do
-    if i == best_at then
-      if best_len == 8 then
-        return "::"
-      end
-      parts[#parts + 1] = ""
-      if i == 1 or i + best_len > 8 then
-        parts[#parts + 1] = ""
-      end
-      i = i + best_len
-    else
-      parts[#parts + 1] = ("%x"):format(all[i])
-      i = i + 1
-    end
-  end
-  local out = table.concat(parts, ":")
-  return out
+  return Grant.ipv6_text(bytes), ""
 end
 
---- Whether `label`, the last of a name's, is one a resolver may read as a
---- number: all digits, or `0x` and hex digits (`inet_aton`'s forms).
-local function numeric(label: string): boolean
-  return label:find("^%d+$") ~= nil or label:find("^0x%x*$") ~= nil
-end
-
---- `text` as a DNS name in the form a grant is matched in, or nil and why.
-local function dns_name(text: string): string | nil, string
-  if text:sub(-1) == "." then
-    text = text:sub(1, -2)
-  end
-  if text == "" then
-    return nil, "empty host name"
-  end
-  if #text > 253 then
-    return nil, "host name longer than 253 bytes"
-  end
-  text = lower(text)
-  local last = ""
-  for label in (text .. "."):gmatch("([^.]*)%.") do
-    if label == "" then
-      return nil, "host name with an empty label"
-    end
-    if #label > 63 then
-      return nil, "host name label longer than 63 bytes"
-    end
-    if not label:find("^[a-z0-9][a-z0-9-]*$") or label:sub(-1) == "-" then
-      return nil, "host name label that is not letters, digits and inner hyphens"
-    end
-    last = label
-  end
-  if numeric(last) then
-    return nil, "host name whose last label is a number (write an IPv4 address in four parts)"
-  end
-  return text
-end
+local dns_name = Grant.name
 
 --- A host in the form a grant is matched in and its kind, or nil, nil and why.
 local function bare_host(text: string): string | nil, relay_wire.Kind | nil, string
@@ -479,18 +339,7 @@ local function bare_host(text: string): string | nil, relay_wire.Kind | nil, str
   return name, "name", ""
 end
 
---- The port in `text`: decimal, 1 to 65535, without leading zeros.
-local function port_of(text: string): integer | nil, string
-  local why = "port is not a decimal number from 1 to 65535 without leading zeros"
-  if not text:find("^[1-9]%d*$") or #text > 5 then
-    return nil, why
-  end
-  local port = math.tointeger(tonumber(text))
-  if port > 65535 then
-    return nil, why
-  end
-  return port
-end
+local port_of = Grant.port
 
 --- A `host:port` authority taken apart.
 local record Authority
@@ -1027,13 +876,9 @@ function relay_wire.socks_client_request(host: string, port: integer): string | 
   if four ~= nil then
     return "\5\1\0\1" .. string.char(four[1], four[2], four[3], four[4]) .. tail
   end
-  local six, _ = ipv6_groups(host)
+  local six, _ = ipv6_bytes(host)
   if six ~= nil then
-    local bytes: {string} = {}
-    for i, group in ipairs(six) do
-      bytes[i] = string.pack(">I2", group)
-    end
-    return "\5\1\0\4" .. table.concat(bytes) .. tail
+    return "\5\1\0\4" .. string.char(table.unpack(six)) .. tail
   end
   if host == "" then
     return nil, "the host is empty"

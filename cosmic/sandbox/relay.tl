@@ -44,6 +44,7 @@
 
 local Clock = require("cosmic.clock")
 local Relay = require("cosmic.relay")
+local Grant = require("cosmic.grant")
 local rules = require("cosmic.sandbox.policy")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
@@ -270,15 +271,6 @@ local function numeric(bytes: {integer}): string
   return table.concat(groups, ":")
 end
 
---- A decimal port from 1 to 65535 with no leading zero, "*" as 0, or nil.
-local function port_of(text: string): integer | nil
-  if text == "*" then return 0 end
-  if not text:find("^[1-9]%d*$") or #text > 5 then return nil end
-  local port = math.tointeger(tonumber(text))
-  if port == nil or port > 65535 then return nil end
-  return port
-end
-
 --- What the `connect` targets `grants` open, as the relay reads them, and
 --- the upstream proxy `env` names (`https_proxy`, `no_proxy` and their
 --- upper-case spellings; [`cosmic.relay.config`]'s `upstream`). A target
@@ -304,21 +296,12 @@ function relay.plan(grants: {string}, env: {string: string}): relay.Plan | nil, 
     end
   end
   for _, grant in ipairs(grants) do
-    local host, at = grant:match("^(.+):([^:]+)$")
-    local port = at ~= nil and port_of(at) or nil
-    if host ~= nil and port ~= nil then
-      local inner = host:match("^%[(.*)%]$")
-      if inner ~= nil then
-        -- Only IPv6 is written in brackets.
-        local bytes = inner:find(":", 1, true) and Address.parse(inner) or nil
-        if bytes ~= nil then literal(bytes, port) end
-      elseif not host:find(":", 1, true) then
-        local bytes = Address.parse(host)
-        if bytes ~= nil then
-          literal(bytes, port)
-        elseif host == "*" or not host:find("[%*%[%]]") then
-          names = true
-        end
+    local parsed, _ = Grant.parse(grant)
+    if parsed ~= nil then
+      if parsed.bytes ~= nil then
+        literal(parsed.bytes, parsed.port)
+      else
+        names = true
       end
     end
   end

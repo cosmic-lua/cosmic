@@ -113,6 +113,7 @@ local Poll = require("cosmic.poll")
 local Address = require("cosmic.relay.address")
 local Config = require("cosmic.relay.config")
 local Wire = require("cosmic.relay.wire")
+local Grant = require("cosmic.grant")
 local String = require("cosmic.string")
 
 local record Relay
@@ -310,31 +311,18 @@ local record NameGrant
 end
 
 --- The grants that match names, and a note for each that opens nothing.
+--- A grant a policy validated ([`cosmic.grant`]) has none; a relay
+--- started on its own configuration may be given one.
 local function name_grants(grants: {string}): {NameGrant}, {string}
   local names: {NameGrant} = {}
   local notes: {string} = {}
   for _, grant in ipairs(grants) do
-    local host, at = grant:match("^(.+):([^:]+)$")
-    -- A port is decimal digits from 1 to 65535 with no leading zero, as
-    -- cosmic.sandbox reads it, or "*".
-    local port = at == "*" and 0 or (at ~= nil and number_of(at) or nil)
-    if host == nil or port == nil then
-      notes[#notes + 1] = ("grant \"%s\" is not host:port and opens nothing"):format(grant)
-    elseif host:find(":", 1, true) and host:sub(1, 1) ~= "[" then
-      notes[#notes + 1] = ("grant \"%s\" opens nothing: an IPv6 host is written in brackets"):format(grant)
-    elseif host:sub(1, 1) == "[" or Address.parse(host) ~= nil then
-      -- An address: matched literally, by [`Address.granted`].
-      local inner = host:match("^%[(.*)%]$") or host
-      if Address.parse(inner) == nil or (host ~= inner and not inner:find(":", 1, true)) then
-        notes[#notes + 1] = ("grant \"%s\" is not an address in the form a literal grant takes (IPv6 in brackets, IPv4 without) and opens nothing"):format(grant)
-      end
-    elseif host == "*" then
-      names[#names + 1] = { host = "*", port = port }
-    elseif host:find("[%*:%[%]]") then
-      notes[#notes + 1] = ("grant \"%s\" opens nothing: a host is a whole name or \"*\", not a pattern"):format(grant)
-    else
-      local canonical = lower(host):gsub("%.$", "")
-      names[#names + 1] = { host = canonical, port = port }
+    local parsed, why = Grant.parse(grant)
+    if parsed == nil then
+      notes[#notes + 1] = ("grant \"%s\" opens nothing: %s"):format(grant, why)
+    elseif parsed.kind == "any" or parsed.kind == "name" then
+      -- An address is matched literally, by [`Address.granted`].
+      names[#names + 1] = { host = parsed.host, port = parsed.port }
     end
   end
   return names, notes

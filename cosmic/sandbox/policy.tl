@@ -7,6 +7,7 @@
 
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
+local Grant = require("cosmic.grant")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
@@ -198,71 +199,6 @@ local function loopback_ok(address: string): boolean
   return true
 end
 
---- How many 16-bit groups `list` holds, colon-separated, or nil where a
---- piece is empty, longer than four hex digits or no hex; `tail4` lets the
---- last piece be an IPv4 address of four decimal numbers, which is two.
-local function group_count(list: string, tail4: boolean): integer | nil
-  if list == "" then return 0 end
-  local pieces: {string} = {}
-  for piece in (list .. ":"):gmatch("([^:]*):") do pieces[#pieces + 1] = piece end
-  local count = 0
-  for i, piece in ipairs(pieces) do
-    if piece:find(".", 1, true) then
-      local a, b, c, d = piece:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
-      if not tail4 or i ~= #pieces or a == nil then return nil end
-      for _, octet in ipairs({ a, b, c, d }) do
-        if #octet > 3 or tonumber(octet) > 255 or (#octet > 1 and octet:sub(1, 1) == "0") then
-          return nil
-        end
-      end
-      count = count + 2
-    elseif #piece < 1 or #piece > 4 or piece:find("%X") then
-      return nil
-    else
-      count = count + 1
-    end
-  end
-  return count
-end
-
---- Whether `text` is an IPv6 address: hex groups of one to four digits, at
---- most one "::" and, last, an IPv4 tail of four decimal numbers.
-local function ipv6_ok(text: string): boolean
-  if text:find("[^%x:%.]") or text:find(":::", 1, true) then return false end
-  local gap = text:find("::", 1, true)
-  if gap == nil then return group_count(text, true) == 8 end
-  if text:find("::", gap + 1, true) then return false end
-  local head = group_count(text:sub(1, gap - 1), false)
-  local tail = group_count(text:sub(gap + 2), true)
-  return head ~= nil and tail ~= nil and head + tail <= 7
-end
-
---- Whether `host` can head a `connect` target: an IPv6 address in
---- brackets (`[::1]`), or text with no colon, which is a name, "*", or an
---- IPv4 address. An unbracketed IPv6 host ("::1:80" is host "::1", port 80
---- to the split below), a bracketed IPv4 one ("[1.2.3.4]:80") and a
---- bracketed text that is no IPv6 address ("[:]:80") are refused, as
---- [`cosmic.relay.address`]'s grants open none of them.
-local function connect_host_ok(host: string): boolean
-  local inner = host:match("^%[(.*)%]$")
-  if inner ~= nil then
-    return ipv6_ok(inner)
-  end
-  return not host:find("[:%[%]]")
-end
-
---- Whether `target` is "host:port": a host that is not empty and holds
---- no blank or NUL (see connect_host_ok), then "*" or a port from 1 to
---- 65535.
-local function connect_ok(target: string): boolean
-  local host, port = target:match("^(.+):([^:]+)$")
-  if host == nil or host:find("[%s%z]") or not connect_host_ok(host) then return false end
-  if port == "*" then return true end
-  if not port:match("^[1-9]%d*$") or #port > 5 then return false end
-  local number = tonumber(port)
-  return number >= 1 and number <= 65535
-end
-
 local PROFILES <const>: {string} = { "cosmic", "system" }
 
 local function listed(name: string, names: {string}): boolean
@@ -316,9 +252,11 @@ local function invalid(p: rules.Policy, exact: boolean): string
     end
   end
   for i, target in ipairs(p.connect or {}) do
-    if not connect_ok(target) then
-      return at("/connect/" .. (i - 1), "\"" .. target .. "\" is not host:port, the host or " ..
-          "the port \"*\" for any (an IPv6 host is written in brackets)")
+    local _, why = Grant.parse(target)
+    if why ~= "" then
+      return at("/connect/" .. (i - 1), "\"" .. target .. "\" is not a target the relay can use: " ..
+          why .. " (host:port, the host a name, an IPv4 address, an IPv6 address in " ..
+          "brackets or \"*\" for any name, the port from 1 to 65535 or \"*\" for any)")
     end
   end
   for i, address in ipairs(p.loopback or {}) do
