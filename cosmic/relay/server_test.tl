@@ -1295,32 +1295,6 @@ local function test_an_upstream_that_refuses_is_told_to_the_program(tmp: string)
   end)
 end
 
-local function test_an_upstream_is_read_from_the_environment()
-  local up = assert(Relay.upstream({
-    https_proxy = "http://user:p%40ss@Proxy.Example:3128/", no_proxy = "localhost, .internal.test,10.0.0.1,*.corp.test:8443",
-  }))
-  assert(up.host == "proxy.example" and up.port == 3128)
-  assert(up.authorization == "Basic dXNlcjpwQHNz", up.authorization)
-  assert(table.concat(up.no_proxy, "|") == "localhost|.internal.test|10.0.0.1|*.corp.test:8443")
-  local bare = assert(Relay.upstream({ HTTPS_PROXY = "proxy.example", NO_PROXY = "*" }))
-  assert(bare.host == "proxy.example" and bare.port == 80 and bare.authorization == nil and bare.no_proxy[1] == "*")
-  local v6 = assert(Relay.upstream({ https_proxy = "http://[::1]:8080" }))
-  assert(v6.host == "::1" and v6.port == 8080)
-  assert(Relay.upstream({}) == nil and Relay.upstream({ https_proxy = "" }) == nil)
-  for _, bad in ipairs({ "https://proxy.example:443", "socks5://proxy.example:1080", "http://:80", "http://host:0",
-      "http://host:99999", "http://host:x" }) do
-    local none, why = Relay.upstream({ https_proxy = bad })
-    assert(none == nil and why:find("https_proxy", 1, true), bad .. ": " .. tostring(why))
-  end
-  -- The credentials are never in the reason, whichever way the value is wrong.
-  for _, value in ipairs({ "http://user:secret@host:0", "https://user:secret@host:443", "socks5://user:secret@host:1080",
-      "user:secret@host:0", "http://user:secret@:80", "http://u:p@secret@host:x", "http://u:pa/secret@host:x",
-      "socks5://u:p@secret@host", "socks5://u:pa/secret@host", "http://u:pa/secret@host:x/path", "u:p@secret@host:x" }) do
-    local _, why = Relay.upstream({ https_proxy = value })
-    assert(why ~= "" and not why:find("secret", 1, true), value .. ": " .. why)
-  end
-end
-
 local function test_no_proxy_names_the_hosts_reached_directly(tmp: string)
   Poll.run(function()
     local through = proxy("200")

@@ -3898,6 +3898,13 @@ local function seal_relay(): RelayProgram | nil, string
   return { dir = dir, path = path, digest = digest }, ""
 end
 
+--- `up` with the numeric `addresses` its host resolved to, the value the
+--- relay is handed.
+local function completed_upstream(up: RelayConfig.Upstream, addresses: {string}): RelayConfig.Upstream
+  return { host = up.host, port = up.port, authorization = up.authorization, no_proxy = up.no_proxy,
+    addresses = addresses }
+end
+
 --- A connector of `endpoints` (and `public`'s lists, if given) waiting
 --- `wait_ns` for each connection, for the relay: the process, or nil and
 --- why. A table or list the core refuses is a why too.
@@ -3972,7 +3979,7 @@ local function relay_handover(connect: {string}, own: {string}): RelayConfig.Han
     if lookup ~= nil then local _ = lookup:close() end
     if found == nil then return fail(found_why) end
     addresses = found
-    config.upstream_addresses = found
+    config.upstream = completed_upstream(up, found)
   end
   local rows, rows_why = SandboxRelay.table(plan, addresses)
   if rows == nil then return fail(rows_why) end
@@ -4016,7 +4023,7 @@ local function direct_handover(connect: {string}, own: {string}): RelayConfig.Ha
   if up ~= nil then
     local found, found_why = SandboxRelay.resolved_upstream(up)
     if found == nil then return nil, found_why end
-    config.upstream_addresses = found
+    config.upstream = completed_upstream(up, found)
   end
   return { config = config, fds = {}, close = function() end }, ""
 end
@@ -4105,8 +4112,6 @@ local function prepare_relay(connect: {string}, opts: Options, seatbelt: boolean
   end
   local log = opts.relay_log or "null"
   local config = handover.config
-  config.https_proxy = sys.getenv("https_proxy") or sys.getenv("HTTPS_PROXY")
-  config.no_proxy = sys.getenv("no_proxy") or sys.getenv("NO_PROXY")
   config.log = log == "null" and "null" or "stderr"
   config.token = token
   -- `program.digest` is the hex SHA-256 [`Store.seal`] hashed the file to,

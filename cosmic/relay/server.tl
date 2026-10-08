@@ -48,7 +48,7 @@
 ---    `idle` timeout. A side that ends is passed on to the other as a
 ---    half-close.
 ---
---- Behind an upstream proxy ([`Relay.Upstream`], from [`Relay.upstream`]),
+--- Behind an upstream proxy ([`Relay.Upstream`], from [`relay_config.upstream`]),
 --- steps 2 and 5 are the same and steps 3 and 4 connect to the upstream
 --- instead -- at the addresses its starter resolved once
 --- ([`Relay.Upstream.addresses`]), or its host resolved for the
@@ -399,17 +399,6 @@ function Relay.handed(handed: Relay.Handed): Relay.Connector
     if connector:ended() then ended() end
     return nil, why
   end
-end
-
---- The upstream a caller's `https_proxy` and `no_proxy` name, or nil for
---- none, as the relay's starter reads them ([`relay_config.upstream`]).
----
----     local upstream = assert(Relay.upstream({ https_proxy = "http://proxy.example:3128" }))
---- @param env {string:string} The caller's environment
---- @return Relay.Upstream|nil The upstream, nil for none
---- @return string Why the variable cannot be used, "" otherwise
-function Relay.upstream(env: {string:string}): Relay.Upstream | nil, string
-  return Config.upstream(env)
 end
 
 --- Whether `no_proxy` says to reach `host` on `port` directly.

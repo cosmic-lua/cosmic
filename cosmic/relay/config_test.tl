@@ -149,25 +149,55 @@ local function test_text_that_is_neither_table_names_no_address()
     "a LOCAL line with no address before it, and a short row, are passed over")
 end
 
+local function test_an_upstream_is_read_from_the_environment()
+  local up = assert(RelayConfig.upstream({
+    https_proxy = "http://user:p%40ss@Proxy.Example:3128/", no_proxy = "localhost, .internal.test,10.0.0.1,*.corp.test:8443",
+  }))
+  assert(up.host == "proxy.example" and up.port == 3128)
+  assert(up.authorization == "Basic dXNlcjpwQHNz", up.authorization)
+  assert(table.concat(up.no_proxy, "|") == "localhost|.internal.test|10.0.0.1|*.corp.test:8443")
+  local bare = assert(RelayConfig.upstream({ HTTPS_PROXY = "proxy.example", NO_PROXY = "*" }))
+  assert(bare.host == "proxy.example" and bare.port == 80 and bare.authorization == nil and bare.no_proxy[1] == "*")
+  local v6 = assert(RelayConfig.upstream({ https_proxy = "http://[::1]:8080" }))
+  assert(v6.host == "::1" and v6.port == 8080)
+  assert(RelayConfig.upstream({}) == nil and RelayConfig.upstream({ https_proxy = "" }) == nil)
+  for _, bad in ipairs({ "https://proxy.example:443", "socks5://proxy.example:1080", "http://:80", "http://host:0",
+      "http://host:99999", "http://host:x" }) do
+    local none, why = RelayConfig.upstream({ https_proxy = bad })
+    assert(none == nil and why:find("https_proxy", 1, true), bad .. ": " .. tostring(why))
+  end
+  -- The credentials are never in the reason, whichever way the value is wrong.
+  for _, value in ipairs({ "http://user:secret@host:0", "https://user:secret@host:443", "socks5://user:secret@host:1080",
+      "user:secret@host:0", "http://user:secret@:80", "http://u:p@secret@host:x", "http://u:pa/secret@host:x",
+      "socks5://u:p@secret@host", "socks5://u:pa/secret@host", "http://u:pa/secret@host:x/path", "u:p@secret@host:x" }) do
+    local _, why = RelayConfig.upstream({ https_proxy = value })
+    assert(why ~= "" and not why:find("secret", 1, true), value .. ": " .. why)
+  end
+end
+
 local function test_the_config_travels_as_one_line_and_reads_back()
   local text = RelayConfig.encode({ grants = { "api.example.com:443", "127.0.0.2:8080" },
-    https_proxy = "http://user:pass@proxy:3128", no_proxy = ".corp", own_addresses = { "10.1.0.2" },
-    log = "stderr" })
+    upstream = { host = "proxy", port = 3128, authorization = "Basic dXNlcjpwYXNz", no_proxy = { ".corp" },
+      addresses = { "10.0.0.9", "::1" } },
+    own_addresses = { "10.1.0.2" }, log = "stderr" })
   assert(not text:find("\n", 1, true), "one line")
   local read = assert(RelayConfig.decode(text))
   assert(table.concat(read.grants, ",") == "api.example.com:443,127.0.0.2:8080")
-  assert(read.https_proxy == "http://user:pass@proxy:3128" and read.no_proxy == ".corp")
+  local up = read.upstream
+  assert(up.host == "proxy" and up.port == 3128 and up.authorization == "Basic dXNlcjpwYXNz" and
+      table.concat(up.no_proxy, ",") == ".corp" and table.concat(up.addresses, ",") == "10.0.0.9,::1")
   assert(table.concat(read.own_addresses, ",") == "10.1.0.2" and read.log == "stderr")
   local bare = assert(RelayConfig.decode(RelayConfig.encode({ grants = { "a.test:1" },
     own_addresses = {}, log = "null" })))
-  assert(bare.https_proxy == nil and bare.no_proxy == nil and #bare.own_addresses == 0 and bare.log == "null")
+  assert(bare.upstream == nil and #bare.own_addresses == 0 and bare.log == "null")
   assert(bare.public == false and bare.table == nil and bare.name_servers == nil, "nothing is handed")
   local handed = assert(RelayConfig.decode(RelayConfig.encode({ grants = { "a.test:1" }, own_addresses = {},
     log = "null", public = true, table = { { host = "127.0.0.1", port = 0 } },
     name_servers = { { host = "127.0.0.1", port = 53 } }, name_server_wait_ns = 2500000000,
-    upstream_addresses = { "127.0.0.1" } })))
+    upstream = { host = "p.test", port = 80, no_proxy = {}, addresses = { "127.0.0.1" } } })))
   assert(handed.public == true and handed.table[1].port == 0 and handed.name_servers[1].port == 53 and
-      handed.name_server_wait_ns == 2500000000 and handed.upstream_addresses[1] == "127.0.0.1")
+      handed.name_server_wait_ns == 2500000000 and handed.upstream.addresses[1] == "127.0.0.1" and
+      handed.upstream.authorization == nil)
   assert(handed.direct == false and handed.token == nil, "Linux's relay is handed its listeners")
   local direct = assert(RelayConfig.decode(RelayConfig.encode({ grants = { "a.test:1" }, own_addresses = {},
     log = "null", direct = true, token = "0123456789abcdef0123" })))
@@ -187,8 +217,21 @@ local function test_a_config_that_is_none_is_refused_naming_why()
   says('{"grants":["a"],"log":"null"}', "own_addresses is not a list")
   says('{"grants":[1],"own_addresses":[],"log":"null"}', "grants[1] is not a string")
   says('{"grants":["a"],"own_addresses":[],"log":"loud"}', "log is not")
-  says('{"grants":["a"],"own_addresses":[],"log":"null","https_proxy":3}', "https_proxy is not a string")
-  says('{"grants":["a"],"own_addresses":[],"log":"null","no_proxy":{}}', "no_proxy is not a string")
+  local head = '{"grants":["a"],"own_addresses":[],"log":"null","upstream":'
+  local ok = '"host":"p.test","port":80,"no_proxy":[],"addresses":["10.0.0.9"]'
+  assert(RelayConfig.decode(head .. "{" .. ok .. "}}") ~= nil, "the fixture's record is whole")
+  says(head .. "3}", "upstream is not an object")
+  says(head .. '{"port":80,"no_proxy":[],"addresses":["10.0.0.9"]}}', "upstream.host")
+  says(head .. '{"host":"p.test","port":0,"no_proxy":[],"addresses":["10.0.0.9"]}}', "upstream.port")
+  says(head .. '{"host":"p.test","port":80,"authorization":"a\\nb","no_proxy":[],"addresses":["10.0.0.9"]}}',
+    "upstream.authorization")
+  says(head .. '{"host":"p.test","port":80,"authorization":5,"no_proxy":[],"addresses":["10.0.0.9"]}}',
+    "upstream.authorization")
+  says(head .. '{"host":"p.test","port":80,"addresses":["10.0.0.9"]}}', "upstream.no_proxy is not a list")
+  says(head .. '{"host":"p.test","port":80,"no_proxy":[1],"addresses":["10.0.0.9"]}}', "upstream.no_proxy[1]")
+  says(head .. '{"host":"p.test","port":80,"no_proxy":[]}}', "upstream.addresses is not given")
+  says(head .. '{"host":"p.test","port":80,"no_proxy":[],"addresses":[]}}', "holds no address")
+  says(head .. '{"host":"p.test","port":80,"no_proxy":[],"addresses":["p.test"]}}', "upstream.addresses[1]")
   says('{"grants":["a"],"own_addresses":[],"log":"null","public":4}', "public is not a boolean")
   says('{"grants":["a"],"own_addresses":[],"log":"null","direct":"yes"}', "direct is not a boolean")
   says('{"grants":["a"],"own_addresses":[],"log":"null","token":7}', "token is not a string")
