@@ -906,6 +906,18 @@ COSMIC_SYSCALL(mkfifo, 2);
 COSMIC_SYSCALL(set_nonblocking, 2);
 
 /*
+ * --- An open file's status flags, `fcntl(fd, F_GETFL)`: O_NONBLOCK is set
+ * --- while `set_nonblocking` has it on, so a caller can put the mode back
+ * --- as it found it. The flags belong to the open file, which every
+ * --- descriptor duplicated from it shares.
+ * ---@param fd integer the descriptor to ask about
+ * ---@return integer|nil flags the open file's status flags, or nil on failure
+ * ---@return string error what went wrong, when flags is nil
+ * ---@return integer errno the error number, when flags is nil
+ */
+COSMIC_SYSCALL(fd_status, 1);
+
+/*
  * --- Waits until one of the descriptors is ready or the timeout passes,
  * --- and answers what happened to each, 0 for one not ready. A
  * --- descriptor of -1 is not watched and answers 0, one below -1 raises,

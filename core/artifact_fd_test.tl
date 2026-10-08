@@ -107,6 +107,7 @@ local cases: {string: function(at: integer, fd: integer): {any}} = {
   flock = function(_: integer, fd: integer): {any} return { fd, "exclusive" } end,
   flock_kind = function(_: integer, fd: integer): {any} return { fd } end,
   set_nonblocking = function(_: integer, fd: integer): {any} return { fd, false } end,
+  fd_status = function(_: integer, fd: integer): {any} return { fd } end,
   connector_start = function(_: integer, fd: integer): {any}
     return { { { host = "127.0.0.1", port = 1 } }, fd, 1 }
   end,
@@ -332,6 +333,7 @@ local function test_other_descriptors_still_work(tmp: string)
   assert(sys.pread(fd, 16, 0) == "he")
   assert(not sys.isatty(fd))
   assert(sys.set_nonblocking(fd, true))
+  assert((assert(sys.fd_status(fd))) & sys.O_NONBLOCK ~= 0)
   assert(#assert(sys.poll({ fd }, { sys.POLLIN }, 0)) == 1)
   assert(sys.close(copy))
   assert(sys.close(fd))

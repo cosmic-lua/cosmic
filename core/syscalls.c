@@ -5413,6 +5413,14 @@ COSMIC_SYSCALL(set_nonblocking, 2) {
   return cosmic_ok(L);
 }
 
+COSMIC_SYSCALL(fd_status, 1) {
+  int fd = cosmic_checkfd(L, 1);
+  int flags = fcntl(fd, F_GETFL);
+  if (flags < 0) return cosmic_fail(L, errno);
+  lua_pushinteger(L, flags);
+  return 1;
+}
+
 /* One entry of `poll`'s argument: its descriptor, and where it is in
  * the argument, so the entries sorted by descriptor can be answered in
  * place. */
