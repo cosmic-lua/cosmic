@@ -455,9 +455,10 @@ end
 
 --- A connector with a table and public lists shares its flights between
 --- the two kinds of request, and keeps 16 for each against the other: a
---- flood of one kind, even given up on (it counts until answered), leaves
---- the other 16 at once, and the flooded kind its own 48 and no more.
-local function test_each_kind_of_request_keeps_flights_against_the_other()
+--- flood of `flooded` ("table" or "public"), even given up on (it counts
+--- until answered), leaves the other kind 16 at once, and the flooded kind
+--- its own 48 and no more.
+local function keeps_flights_against(flooded: string)
   require_native_connector()
   Poll.run(function()
     local table_hung, held = hung_port()
@@ -465,43 +466,42 @@ local function test_each_kind_of_request_keeps_flights_against_the_other()
     for _, each in ipairs(more) do held[#held + 1] = each end
     local table_echo, table_task = echo_server()
     local public_echo, public_task = echo_server()
-    -- Entry 2 hangs; the public ones go to addresses no entry holds at that port.
+    -- Entry 2 hangs; the public requests go to addresses no entry holds at that port.
     local connector = assert(Net.connector({ { host = "127.0.0.1", port = table_echo.address.port },
       { host = "127.0.0.1", port = table_hung } }, { timeout_ns = Clock.seconds(30), public = { deny = {} } }))
-    local function table_call(): Net.Conn | nil, string
+    -- The stalled connects end at the process after STALL, a flood request
+    -- as soon as its own wait does.
+    local STALL <const> = Clock.ms(600)
+    local function hangs(wait: integer): Net.Conn | nil, string
+      if flooded == "table" then return connector:connect(2, table_hung, wait) end
+      return connector:connect("127.0.0.1", public_hung, wait)
+    end
+    local function other(): Net.Conn | nil, string
+      if flooded == "table" then
+        return connector:connect("127.0.0.1", public_echo.address.port, Clock.ms(500))
+      end
       return connector:connect(1, table_echo.address.port, Clock.ms(500))
     end
-    local function public_call(): Net.Conn | nil, string
+    local hanging: {Poll.Task} = {}
+    for n = 1, Net.CONNECTOR_FLIGHT do
+      hanging[n] = Poll.spawn(function()
+        local _, _ = hangs(STALL)
+      end)
+    end
+    assert(Poll.delay(Clock.ms(100)))
+    -- Given up on, and so still counted until the process answers each.
+    for _, each in ipairs(hanging) do each:kill() end
+    assert(made_at_once(16, other) == 16, "the other kind waited behind the " .. flooded .. " flood")
+    -- The flooded kind has the rest of its 48, and no more.
+    local none, why = hangs(Clock.ms(200))
+    assert(none == nil and why == Poll.TIMEOUT, flooded .. ": " .. tostring(why))
+    -- Once the stalled connects end at the process, the kind is served again.
+    assert(Poll.delay(STALL + Clock.ms(500)))
+    assert(made_at_once(1, flooded == "table" and function(): Net.Conn | nil, string
+      return connector:connect(1, table_echo.address.port, Clock.ms(500))
+    end or function(): Net.Conn | nil, string
       return connector:connect("127.0.0.1", public_echo.address.port, Clock.ms(500))
-    end
-    local function table_hangs(): Net.Conn | nil, string
-      return connector:connect(2, table_hung, Clock.seconds(2))
-    end
-    local function public_hangs(): Net.Conn | nil, string
-      return connector:connect("127.0.0.1", public_hung, Clock.seconds(2))
-    end
-    local floods = {
-      { name = "table", flood = table_hangs, other = public_call },
-      { name = "public", flood = public_hangs, other = table_call },
-    }
-    for _, case in ipairs(floods) do
-      local hanging: {Poll.Task} = {}
-      for n = 1, Net.CONNECTOR_FLIGHT do
-        hanging[n] = Poll.spawn(function()
-          local _, _ = case.flood()
-        end)
-      end
-      assert(Poll.delay(Clock.ms(100)))
-      -- Given up on, and so still counted until the process answers each.
-      for _, each in ipairs(hanging) do each:kill() end
-      assert(made_at_once(16, case.other) == 16, "the other kind waited behind the " .. case.name .. " flood")
-      -- The flooded kind has the rest of its 48, and no more.
-      local none, why = case.flood()
-      assert(none == nil and why == Poll.TIMEOUT, case.name .. ": " .. tostring(why))
-      -- Wait out the stalled connects, which the process ends at its wait.
-      assert(Poll.delay(Clock.seconds(3)))
-      assert(made_at_once(1, case.flood == table_hangs and table_call or public_call) == 1)
-    end
+    end) == 1)
     assert(connector:close())
     table_task:cancel()
     public_task:cancel()
@@ -509,6 +509,14 @@ local function test_each_kind_of_request_keeps_flights_against_the_other()
     assert(public_echo:close())
     for _, each in ipairs(held) do assert(each:close()) end
   end)
+end
+
+local function test_a_table_flood_leaves_public_requests_their_flights()
+  keeps_flights_against("table")
+end
+
+local function test_a_public_flood_leaves_table_requests_their_flights()
+  keeps_flights_against("public")
 end
 
 local function test_closing_a_connector_wakes_a_request_in_flight()
