@@ -196,7 +196,7 @@ end
 
 local function test_a_database_is_written_with_its_digest_and_read_back(tmp: string)
   local path = database_of(tmp, "bytes of a database")
-  local text = PolicyJson.encode(merged({ database = { path = path } }))
+  local text = PolicyJson.encode(merged({ database = assert(Sandbox.database(path)) }))
   local digest = Hash.hex_sha256("bytes of a database")
   assert(text == '{"database":{"path":"' .. path .. '","sha256":"' .. digest .. '"}}', text)
   local policy = assert(PolicyJson.decode(text))
@@ -208,11 +208,12 @@ end
 --- not it, and the text moves with the file.
 local function test_a_database_that_changed_is_not_the_one_the_text_names(tmp: string)
   local path = database_of(tmp, "one")
-  local before = PolicyJson.encode(merged({ database = { path = path } }))
+  local before = PolicyJson.encode(merged({ database = assert(Sandbox.database(path)) }))
   database_of(tmp, "two")
   local policy, why = PolicyJson.decode(before)
   assert(policy == nil and why:find("/database/sha256", 1, true), tostring(why))
-  assert(PolicyJson.encode(merged({ database = { path = path } })) ~= before, "the digest did not move")
+  assert(PolicyJson.encode(merged({ database = assert(Sandbox.database(path)) })) ~= before,
+    "the digest did not move")
   assert(Fs.remove(path))
   policy, why = PolicyJson.decode(before)
   assert(policy == nil and why:find("/database", 1, true), tostring(why))
@@ -224,8 +225,9 @@ local function test_a_database_text_is_held_to_its_shape(tmp: string)
   refused('{"database":{"path":"' .. path .. '"}}', "/database")
   refused('{"database":{"path":"rel.db","sha256":"00"}}', "/database")
   refused('{"database":{"path":"' .. path .. '","sha256":"00","more":1}}', "/database")
-  local ok, trouble = pcall(PolicyJson.encode, { database = { path = tmp .. "/absent.db" } })
-  assert(not ok and tostring(trouble):find("/database", 1, true), tostring(trouble))
+  local ok, trouble = pcall(PolicyJson.encode,
+    { database = { path = tmp .. "/absent.db", sha256 = string.rep("0", 64) } })
+  assert(not ok and tostring(trouble):find("absent.db", 1, true), tostring(trouble))
 end
 
 --- The digest lives in the policy's `database`, so a copy of a checked
@@ -234,7 +236,7 @@ end
 local function test_a_checked_database_keeps_its_digest_through_copies_and_merges(tmp: string)
   local path = database_of(tmp, "one")
   local digest = Hash.hex_sha256("one")
-  local checked = assert(PolicyJson.decode(PolicyJson.encode(merged({ database = { path = path } }))))
+  local checked = assert(PolicyJson.decode(PolicyJson.encode(merged({ database = assert(Sandbox.database(path)) }))))
   assert(checked.database.sha256 == digest)
   local copy: Sandbox.Policy = {}
   for key, value in pairs(checked as {string:any}) do (copy as {string:any})[key] = value end
@@ -243,9 +245,9 @@ local function test_a_checked_database_keeps_its_digest_through_copies_and_merge
   database_of(tmp, "two")
   local ok, trouble = pcall(PolicyJson.encode, again)
   assert(not ok and tostring(trouble):find("has changed since", 1, true), tostring(trouble))
-  -- A path alone names no identity: encoding takes the file's as it is.
-  local text = PolicyJson.encode(merged({ database = { path = path } }))
-  assert(text:find(Hash.hex_sha256("two"), 1, true), text)
+  -- A path alone names no identity, and encoding does not give it one.
+  ok, trouble = pcall(PolicyJson.encode, merged({ database = { path = path } }))
+  assert(not ok and tostring(trouble):find("Sandbox.database", 1, true), tostring(trouble))
 end
 
 --- A digest cannot come apart from its path in a merge: two paths, or

@@ -110,12 +110,13 @@ end
 --- the value, unsalted: one of a value that can be guessed (a short
 --- password, a flag) can be found by trying guesses, so a printed policy
 --- keeps a value's change from view, not a secret from a reader who can
---- guess it. A `database` is written as its path and the SHA-256 of the
---- file's bytes. One with a `sha256` is written with that digest, and
---- raises if the file no longer hashes to it, so encoding never rebases a
---- checked database; one named by its path alone is hashed now, as
---- [`Sandbox.database`] does. An unreadable one raises. What a profile names is a path of this host, so an encoding
---- that resolved one is one host's. Raises for a policy that
+--- guess it. A `database` is written as its path and its `sha256`, which
+--- must be there: a path alone raises, naming [`Sandbox.database`], the
+--- one way a file is given a digest, since hashing at encode would bless
+--- whatever is there at that moment. It also raises if the file no longer
+--- hashes to the digest, so encoding never rebases a checked database, or
+--- if it is unreadable. What a profile names is a path of this host, so an
+--- encoding that resolved one is one host's. Raises for a policy that
 --- is not merged -- one with `profiles`, or [`Sandbox.merge`] would refuse
 --- -- since text cannot say what was dropped.
 ---
@@ -150,14 +151,18 @@ function PolicyJson.encode(p: Sandbox.Policy): string
   fields.user, fields.group = merged.user, merged.group
   local database = merged.database
   if database ~= nil then
+    if database.sha256 == nil then
+      error("sandbox: encode: database " .. database.path .. " names no digest: give it one " ..
+          "with Sandbox.database(path), which hashes the file now", 2)
+    end
     local bytes, trouble = Fs.read(database.path)
     if bytes == nil then error("sandbox: encode: database " .. trouble, 2) end
     local digest = Hash.hex_sha256(bytes)
-    if database.sha256 ~= nil and database.sha256 ~= digest then
+    if database.sha256 ~= digest then
       error("sandbox: encode: database " .. database.path .. " is not the one the policy " ..
           "names: its SHA-256 has changed since", 2)
     end
-    fields.database = { path = database.path, sha256 = digest }
+    fields.database = { path = database.path, sha256 = database.sha256 }
   end
   local limits = merged.limits
   if limits.open_files ~= nil or limits.file_bytes ~= nil or limits.cpu_seconds ~= nil or

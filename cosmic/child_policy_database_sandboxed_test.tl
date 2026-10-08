@@ -126,7 +126,7 @@ local function test_a_decoded_policy_refuses_a_database_that_changed_since(tmp: 
   end
   local path = tmp .. "/sealed.db"
   fixture.seal(tmp, path)
-  local merged = assert(Sandbox.merge({ database = { path = path } }))
+  local merged = assert(Sandbox.merge({ database = assert(Sandbox.database(path)) }))
   local policy = assert(PolicyJson.decode(PolicyJson.encode(merged)))
   local executable = assert(Proc.executable())
   local bytes = assert(Fs.read(path))

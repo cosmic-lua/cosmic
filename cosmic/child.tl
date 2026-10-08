@@ -4107,6 +4107,8 @@ local function prepare_relay(connect: {string}, opts: Options, seatbelt: boolean
   config.no_proxy = sys.getenv("no_proxy") or sys.getenv("NO_PROXY")
   config.log = log == "null" and "null" or "stderr"
   config.token = token
+  -- `program.digest` is the hex SHA-256 [`Store.seal`] hashed the file to,
+  -- which is what `/database/sha256` holds; [`Rules.merge`] checks it anyway.
   local policy = seatbelt and SandboxRelay.seatbelt_policy(program.path, program.digest) or
     SandboxRelay.policy(program.path, program.digest)
   return { dir = program.dir, policy = policy, config = RelayConfig.encode(config), log = log,
