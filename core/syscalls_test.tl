@@ -1717,15 +1717,6 @@ local function test_a_policys_sandbox_fields_are_checked_before_a_start()
     "a relay port is 1 to 65535")
   says(refused_sandbox({ relay = { fd = 3, ports = { 1, 65536 } }, offline = true }),
     "a relay port is 1 to 65535")
-  says(refused_sandbox({ host_network = 1 }), "host_network must be a boolean")
-  says(refused_sandbox({ host_network = true, promises = {}, sockets = { "inet" }, offline = true }),
-    "host_network excludes offline")
-  says(refused_sandbox({ host_network = true, promises = {}, sockets = { "unix" } }),
-    "host_network needs sockets of \"inet\"")
-  says(refused_sandbox({ host_network = true }), "host_network needs sockets of \"inet\"")
-  says(refused_sandbox({ host_network = true, promises = {}, sockets = { "inet", "unix" } }),
-    "host_network allows \"inet\" sockets alone")
-  -- Without the flag the network namespace stays what holds a socket.
   says(refused_sandbox({ unveil = { tmp = 4096 } }), "unveil's tmp requires strict")
   says(refused_sandbox({ promises = {}, sockets = "inet" }), "sockets must be a list")
   says(refused_sandbox({ unveil = { tmp = 0 } }), "unveil's tmp is a size in bytes")

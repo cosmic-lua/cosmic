@@ -4285,7 +4285,7 @@ COSMIC_SYSCALL(spawn, 12) {
   const char *unveiled_at[UNVEIL_MAX];
   int unveiled_writable[UNVEIL_MAX];
   int unveiling = 0, unveil_count = 0, offline = 0, noexec_scratch = 0;
-  int host_network = 0, relay_channel = -1;
+  int relay_channel = -1;
   int relay_ports[2] = { 3128, 1080 };
   int unveiled_noexec[UNVEIL_MAX];
   int unveiled_idmap[UNVEIL_MAX];
@@ -4578,16 +4578,6 @@ COSMIC_SYSCALL(spawn, 12) {
     lua_rawget(L, 10);
     offline = lua_toboolean(L, -1);
     lua_pop(L, 1);
-    lua_pushliteral(L, "host_network");
-    lua_rawget(L, 10);
-    if (!lua_isnil(L, -1) && !lua_isboolean(L, -1))
-      return luaL_argerror(L, 10, "host_network must be a boolean");
-    /* TODO: remove host_network, and its checks and tests
-     * (core/syscalls_relay_test.tl), in the relay hardening's next change:
-     * nothing sets it since the relay runs offline on the connectors its
-     * starter hands it (cosmic/sandbox/relay.tl). */
-    host_network = lua_toboolean(L, -1);
-    lua_pop(L, 1);
     lua_pushliteral(L, "relay");
     lua_rawget(L, 10);
     if (!lua_isnil(L, -1)) {
@@ -4649,17 +4639,7 @@ COSMIC_SYSCALL(spawn, 12) {
     if (tmp_bytes != 0 && !unveiling) return luaL_argerror(L, 10, "unveil's tmp requires unveil");
     if (tmp_bytes != 0 && !strict) return luaL_argerror(L, 10, "unveil's tmp requires strict");
     if (tmp_exec && tmp_bytes == 0) return luaL_argerror(L, 10, "unveil's tmp_exec requires tmp");
-    if (host_network && offline)
-      return luaL_argerror(L, 10, "host_network excludes offline: it is the host's network");
-    if (host_network && !(sockets & COSMIC_SOCKETS_INET))
-      return luaL_argerror(L, 10, "host_network needs sockets of \"inet\", which it frees of the "
-                           "network namespace");
-    /* A unix socket in the host's network namespace shares its abstract names with
-     * every host process, which nothing scopes below Landlock ABI 6. */
-    if (host_network && (sockets & COSMIC_SOCKETS_UNIX))
-      return luaL_argerror(L, 10, "host_network allows \"inet\" sockets alone: a unix socket "
-                           "there reaches the host's abstract names");
-    if (sockets != 0 && !offline && !host_network)
+    if (sockets != 0 && !offline)
       return luaL_argerror(L, 10, "sockets require offline: the network namespace is their hold");
     /* What `nest` leaves to the child's own root and pid namespace: its files, which Landlock
      * would hold but for the mounts it refuses, and its signals, which the filter lets reach
