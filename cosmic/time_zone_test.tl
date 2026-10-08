@@ -406,7 +406,7 @@ local function test_tzif_with_long_abbreviations_is_read_in_linear_time()
     local few, many = file(10000, near), file(80000, near)
     -- One read of each first, so the first-call costs (code paths,
     -- allocator growth) are in neither timing. Then the least of up to
-    -- ten of each, taken in turn, so a pause elsewhere on the host
+    -- thirty of each, taken in turn, so a pause elsewhere on the host
     -- inflates neither; a ratio within the bound ends the tries. Linear
     -- time is about 8 and a quadratic search about 64, so the bound 24
     -- leaves the noise a factor of three either way.
@@ -414,7 +414,7 @@ local function test_tzif_with_long_abbreviations_is_read_in_linear_time()
     read(many, near)
     local few_ns, many_ns = math.maxinteger, math.maxinteger
     local ratio: number
-    for _ = 1, 10 do
+    for _ = 1, 30 do
       few_ns = math.min(few_ns, read(few, near))
       many_ns = math.min(many_ns, read(many, near))
       ratio = many_ns / math.max(few_ns, 1000000)
