@@ -600,24 +600,28 @@ end
 --- interfaces is refused as one of its own, whatever other class the
 --- address is in. The name is a wildcard DNS service's for the address
 --- (sslip.io answers `10-1-2-3.sslip.io` with 10.1.2.3); skipped where this
---- host has no such address or the name does not resolve to it alone.
+--- host has no such routable (not link-local) address or the name does not resolve to it alone.
 local function test_a_granted_name_of_another_host_address_is_refused_as_its_own(tmp: string)
   macos_only()
   local address: string
   for _, entry in ipairs((assert(sys.getifaddrs()))) do
-    if entry.family == "ipv4" and not entry.loopback then
+    if entry.family == "ipv4" and not entry.loopback and not entry.address:find("^169%.254%.") then
       address = entry.address
       break
     end
   end
   if address == nil then
-    Test.skip("this host has no IPv4 address but its loopback's")
+    Test.skip("this host has no routable IPv4 address but its loopback's and link-local ones")
     return
   end
   local name = address:gsub("%.", "-") .. ".sslip.io"
   local found, resolve_why = Net.resolve(name, { timeout_ns = Clock.seconds(5) })
   if found == nil then
     Test.skip("this host does not resolve " .. name .. ": " .. resolve_why)
+    return
+  end
+  if #found == 0 then
+    Test.skip(name .. " resolves to no address")
     return
   end
   for _, answer in ipairs(found) do

@@ -366,11 +366,13 @@ end
 --- `getifaddrs` (every one but Darwin's) answers ENOSYS under refusal too.
 local function test_getifaddrs_survives_every_refused_allocation()
   local darwin = assert(sys.uname()).sysname == "Darwin"
+  local bytes, blocks = testing.c_heap()
   local ended = under_every_failure(function()
     local listed, why, errno = sys.getifaddrs()
     if darwin then assert(listed ~= nil, why) else assert(listed == nil and errno == sys.ENOSYS) end
   end)
   assert(not darwin or ended > 0, "the list's table allocates")
+  assert_c_heap(bytes, blocks, "getifaddrs under refusal")
 end
 
 --- The C heap counts what the core's C allocates and frees, and a
