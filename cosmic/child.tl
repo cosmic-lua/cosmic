@@ -3910,19 +3910,21 @@ local function relay_connector(endpoints: {raw_process.ConnectorEndpoint}, wait_
 end
 
 --- The connectors the relay of the `connect` targets `connect` is handed
---- ([`cosmic.sandbox.relay`]), started in this process and network: the
---- table's, of the addresses a target names literally and the upstream
+--- ([`cosmic.sandbox.relay`]), started in this process and network: one
+--- with a table of the addresses a target names literally and the upstream
 --- proxy's; and, for a target that names a host the relay reaches
---- directly (no upstream, or one `no_proxy` bypasses for some), the name
---- servers' and a public one (refusing the relay's deny list and `own`,
---- the host's own addresses). Each makes several connections at once.
+--- directly (no upstream, or one `no_proxy` bypasses for some), also
+--- public (refusing the relay's deny list and `own`, the host's own
+--- addresses), and a name servers' connector beside it. Each makes
+--- several connections at once; the first keeps 16 of its flights for each
+--- of its table's and its public requests.
 --- The upstream's host is resolved once, here, through a name servers'
 --- connector of its own, closed after: a stream handed to the relay is
 --- handed as its connector started it, what it says first unread, for
 --- the relay to check. Nil and why, with nothing left running, where the
 --- upstream cannot be used or resolved, the table would be past 128, or a
 --- connector cannot start. Name servers that cannot be read are no
---- failure: the relay is told why, is handed no public connector, and
+--- failure: the relay is told why, is handed a connector that is not public, and
 --- reaches only what a target names literally, and the upstream.
 local function relay_handover(connect: {string}, own: {string}): RelayConfig.Handover | nil, string
   local env: {string: string} = {}
@@ -3974,25 +3976,25 @@ local function relay_handover(connect: {string}, own: {string}): RelayConfig.Han
   end
   local rows, rows_why = SandboxRelay.table(plan, addresses)
   if rows == nil then return fail(rows_why) end
-  if #rows > 0 then
-    config.table = rows
-    local process, why = relay_connector(rows, RelayConfig.connect_ns)
-    if process == nil then return fail("the table connector: " .. why) end
+  -- No name resolves without the name servers: a public connector would
+  -- reach nothing.
+  local public = direct and servers ~= nil
+  if direct and servers == nil then config.unresolved = unresolved end
+  if #rows > 0 or public then
+    if #rows > 0 then config.table = rows end
+    -- One connector holds the table and, where public, the lists, asking
+    -- the table first: a literal grant reaches what the public lists
+    -- refuse, and a table-only relay reaches nothing else.
+    local process, why = relay_connector(rows, RelayConfig.connect_ns, public and SandboxRelay.public(own) or nil)
+    if process == nil then return fail("the connector: " .. why) end
     processes[#processes + 1] = process
-    fds[RelayConfig.table_fd] = process.fd
+    config.public, fds[RelayConfig.connector_fd] = public, process.fd
   end
-  if direct and servers == nil then
-    -- No name resolves: the public connector would reach nothing.
-    config.unresolved = unresolved
-  elseif direct then
+  if public then
     local dns, dns_why = relay_connector(servers.servers, servers.wait_ns)
     if dns == nil then return fail("the name servers' connector: " .. dns_why) end
     processes[#processes + 1] = dns
     fds[RelayConfig.name_server_fd] = dns.fd
-    local process, why = relay_connector({}, RelayConfig.connect_ns, SandboxRelay.public(own))
-    if process == nil then return fail("the public connector: " .. why) end
-    processes[#processes + 1] = process
-    config.public, fds[RelayConfig.public_fd] = true, process.fd
     config.name_servers, config.name_server_wait_ns = servers.servers, servers.wait_ns
   end
   return { config = config, fds = fds, close = close }, ""

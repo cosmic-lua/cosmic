@@ -95,7 +95,8 @@ local record Sandbox
   --- What the starter of a policy's network relay reads and decides before
   --- the relay runs: the package's [`cosmic.sandbox.relay`], whose `policy`
   --- is the relay's own (`seatbelt_policy` on macOS), `plan` what a policy's `connect` targets open,
-  --- `table`, `public` and `name_servers` the connectors [`Child.start`]
+  --- `table` and `public` the one connector's rows and lists, and
+  --- `name_servers` the name servers' connector, which [`Child.start`]
   --- hands the relay, and `upstream_addresses` the one lookup of the
   --- upstream proxy (`resolved_upstream` on macOS), each documented there.
   Relay: Relay

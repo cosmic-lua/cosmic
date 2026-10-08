@@ -31,10 +31,11 @@ local function require_native_connector()
   end
 end
 
---- [`Relay.handed`] asks the table's connector for what its table holds,
---- by its place, and a public one for any other address, which refuses
---- what its deny list does.
-local function test_handed_connectors_route_by_the_table()
+--- [`Relay.handed`] asks one connector, whose table is asked first: an
+--- address and port the table holds is reached though the public lists
+--- refuse that address at any other port, and a table-only connector
+--- refuses everything else.
+local function test_handed_connector_asks_its_table_before_its_public_lists()
   require_native_connector()
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
@@ -47,19 +48,19 @@ local function test_handed_connectors_route_by_the_table()
       end
     end)
     local table_rows: {Net.Endpoint} = { { host = "127.0.0.1", port = port } }
-    local in_table = assert(Net.connector(table_rows))
-    local public = assert(Net.connector(nil, { public = { deny = { "127.0.0.0/8" } } }))
-    local connect = Relay.handed({ table_connector = in_table, table = table_rows, public_connector = public })
+    local mixed = assert(Net.connector(table_rows, { public = { deny = { "127.0.0.0/8" } } }))
+    local connect = Relay.handed({ connector = mixed })
     local conn, why = connect("127.0.0.1", port, Clock.seconds(1))
     assert(conn ~= nil, "the table's address is reached: " .. why)
     assert(conn:close())
-    local refused, refusal = connect("127.0.0.2", port, Clock.seconds(1))
+    local refused, refusal = connect("127.0.0.1", port + 1, Clock.seconds(1))
     assert(refused == nil and refusal:find("refused by the connector's deny list", 1, true), refusal)
-    local alone = Relay.handed({ table_connector = in_table, table = table_rows })
+    local other, other_why = connect("127.0.0.2", port, Clock.seconds(1))
+    assert(other == nil and other_why:find("refused by the connector's deny list", 1, true), other_why)
+    local alone = Relay.handed({ connector = assert(Net.connector(table_rows)) })
     local none, none_why = alone("127.0.0.1", port + 1, Clock.seconds(1))
-    assert(none == nil and none_why:find("is in no table of the connectors the relay was handed", 1, true), none_why)
-    assert(in_table:close())
-    assert(public:close())
+    assert(none == nil and none_why:find("is not in the connector's table", 1, true), none_why)
+    assert(mixed:close())
     accepting:cancel()
     assert(listener:close())
   end)
@@ -102,7 +103,7 @@ local function test_a_public_connect_that_hangs_holds_up_no_other()
     local stuck = stuck_port(held)
     local wait = Clock.seconds(1)
     local public = assert(Net.connector(nil, { timeout_ns = wait, public = { deny = { "10.0.0.0/8" } } }))
-    local connect = Relay.handed({ public_connector = public })
+    local connect = Relay.handed({ connector = public })
     local hung: string
     local hanging = Poll.spawn(function()
       local _, why = connect("127.0.0.1", stuck, wait)
@@ -145,7 +146,7 @@ local function test_a_public_connector_that_ended_tells_lost()
     local wait = Clock.seconds(1)
     local process = assert(Child.start_connector({}, wait // 1000000, { deny = { "10.0.0.0/8" } }))
     local connector = assert(Net.connector_from(assert(sys.dup(process.fd)), nil, true, wait))
-    local connect = Relay.handed({ public_connector = connector,
+    local connect = Relay.handed({ connector = connector,
       lost = function(why: string) told[#told + 1] = why end })
     local conn, why = connect("127.0.0.1", port, Clock.seconds(5))
     assert(conn ~= nil, "the adopted connector connects: " .. why)
@@ -155,7 +156,7 @@ local function test_a_public_connector_that_ended_tells_lost()
     for _ = 1, 2 do
       local none, none_why = connect("127.0.0.1", port, Clock.seconds(5))
       assert(none == nil, "a connector whose process ended connects nothing")
-      assert(none_why == "net: the connector has ended" or none_why == "relay: the public connector has ended",
+      assert(none_why == "net: the connector has ended" or none_why == "relay: the connector has ended",
         tostring(none_why))
     end
     assert(connector:ended())
@@ -163,7 +164,7 @@ local function test_a_public_connector_that_ended_tells_lost()
     accepting:cancel()
     assert(listener:close())
   end)
-  assert(#told == 1 and told[1] == "relay: the public connector has ended", table.concat(told, ","))
+  assert(#told == 1 and told[1] == "relay: the connector has ended", table.concat(told, ","))
 end
 
 --- A relay whose name servers' connector has ended can resolve no name

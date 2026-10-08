@@ -66,13 +66,13 @@ local record relay_config
     --- Nil without an upstream.
     upstream_addresses: {string}
     --- The table of the connector whose control stream is at
-    --- [`relay_config.table_fd`], which holds the addresses `grants`
-    --- names literally and the upstream's. Nil where none is handed.
+    --- [`relay_config.connector_fd`], which holds the addresses `grants`
+    --- names literally and the upstream's. Nil where it has none.
     table: {Endpoint}
-    --- Whether the stream of a public connector, one that reaches any
-    --- address its deny list allows, is handed at
-    --- [`relay_config.public_fd`], for the names `grants` opens and the
-    --- relay reaches directly.
+    --- Whether that connector is public, reaching any address its deny
+    --- list allows beside its table, for the names `grants` opens and the
+    --- relay reaches directly. With neither a `table` nor `public`, no
+    --- connector is handed.
     public: boolean
     --- The name servers of the connector whose stream is at
     --- [`relay_config.name_server_fd`], its whole table; nil where none is handed.
@@ -122,22 +122,19 @@ local record relay_config
   --- The relay's descriptor of the control stream of its name servers'
   --- connector ([`Config.name_servers`]).
   name_server_fd: integer
-  --- Of its table's connector ([`Config.table`]).
-  table_fd: integer
-  --- Of its public connector's ([`Config.public`]).
-  public_fd: integer
-  --- The longest wait for each connection the table's and the public
-  --- connector make, in nanoseconds (10 seconds): the starter starts them
-  --- with it, and a request of the relay's that asks for less is given
-  --- less.
+  --- Of its one connector, of the table and, where public, the public
+  --- lists ([`Config.table`], [`Config.public`]).
+  connector_fd: integer
+  --- The longest wait for each connection the connector makes, in
+  --- nanoseconds (10 seconds): the starter starts it with it, and a
+  --- request of the relay's that asks for less is given less.
   connect_ns: integer
 end
 
 relay_config.http_port = 3128
 relay_config.socks_port = 1080
 relay_config.name_server_fd = 4
-relay_config.table_fd = 5
-relay_config.public_fd = 6
+relay_config.connector_fd = 5
 relay_config.connect_ns = 10000000000
 
 --- The variables the relay sets for the program, which a policy with

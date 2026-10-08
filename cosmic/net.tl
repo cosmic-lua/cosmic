@@ -173,7 +173,10 @@ local record Net
   --- over a private stream. Tasks of a [`Poll.run`] share one: its
   --- process makes up to [`Net.CONNECTOR_FLIGHT`] connections at once,
   --- answering each as it is made, so a connect that hangs holds up no
-  --- other.
+  --- other. A connector with a table and public lists keeps 16 of those
+  --- for each kind of request against the other (see
+  --- [`Connector.connect`]), so a flood of one never keeps the other
+  --- waiting.
   interface Connector
     --- Connects to `target` at `port` within `timeout_ns` nanoseconds: the
     --- connection, or nil and why ([`Poll.TIMEOUT`], "Connection
@@ -192,7 +195,11 @@ local record Net
     --- address that is no numeric one where the connector has no table. A
     --- public connector (see [`Net.connector`]) also connects to a numeric
     --- `target` its table lacks, unless its process refuses the address
-    --- ("net: ... is refused by the connector's deny list").
+    --- ("net: ... is refused by the connector's deny list"); one with a
+    --- table too holds 16 of its [`Net.CONNECTOR_FLIGHT`] back from each
+    --- kind for the other, so that neither the table's requests nor the
+    --- public ones wait behind the other's that hang: at most 48 of
+    --- either are in flight at once.
     connect: function(Connector, target: integer | string, port: integer, timeout_ns: integer): Conn | nil, string
     --- The connector as the relay takes one, `address, port, timeout_ns`
     --- to a connection or nil and why: [`Connector.connect`] over a
@@ -981,6 +988,11 @@ end
 
 local CONNECTOR_DEFAULT_NS <const> = Clock.seconds(10)
 local CONNECTOR_GRACE_NS <const> = Clock.seconds(1)
+--- The flights a connector with a table and public lists keeps for each
+--- kind of request against the other: a connect may hang for the process's
+--- whole wait, and one given up on counts until answered, so neither kind
+--- may fill the process and keep the other waiting.
+local TABLE_RESERVE <const> = 16
 local CONNECTOR_MAX_ENDPOINTS <const> = 128
 
 Net.CONNECTOR_FLIGHT = raw.CONNECTOR_FLIGHT
@@ -1001,6 +1013,10 @@ local record Pending
   why: string
   -- Whether its caller took `conn`: one answered but left behind is closed.
   taken: boolean
+  -- On a connector with a table and public lists, which kind it is,
+  -- "table" or "public", counted in its channel's table_count or
+  -- public_count until answered; "" on any other.
+  kind: string
 end
 
 --- One connector process's control stream, which every request to it
@@ -1022,6 +1038,10 @@ local record Channel
   -- given up on among them, and how many there are.
   pending: {integer: Pending}
   count: integer
+  -- Of `count`, the table and the public requests of a connector with both,
+  -- which each hold at most CONNECTOR_FLIGHT less TABLE_RESERVE flights.
+  table_count: integer
+  public_count: integer
   -- What of a reply's header has been read.
   header: string
   -- The request whose socket comes next, its header read, and its tag;
@@ -1071,8 +1091,8 @@ local socket_connector_mt: metatable<SocketConnector> = {
 }
 
 local function channel_of(process: Child.ConnectorProcess): Channel
-  return { process = process, greeted = false, hello = "", next_tag = 1, pending = {}, count = 0, header = "",
-    progress = 0 }
+  return { process = process, greeted = false, hello = "", next_tag = 1, pending = {}, count = 0, table_count = 0, public_count = 0,
+    header = "", progress = 0 }
 end
 
 --- Gives the stream of `channel` up, `why` it is lost: every request
@@ -1084,7 +1104,8 @@ local function lose(channel: Channel, why: string)
   for _, pending in pairs(channel.pending) do
     if not pending.done then pending.done, pending.why = true, why end
   end
-  channel.pending, channel.count, channel.passing = {}, 0, nil
+  channel.pending, channel.count, channel.table_count, channel.public_count, channel.passing =
+    {}, 0, 0, 0, nil
   local _ = channel.process:close()
 end
 
@@ -1093,6 +1114,11 @@ end
 local function answer(channel: Channel, tag: integer, pending: Pending, conn: SocketConn, why: string)
   channel.pending[tag] = nil
   channel.count = channel.count - 1
+  if pending.kind == "table" then
+    channel.table_count = channel.table_count - 1
+  elseif pending.kind == "public" then
+    channel.public_count = channel.public_count - 1
+  end
   channel.progress = channel.progress + 1
   if pending.given_up then
     if conn ~= nil then local _, _ = conn:close() end
@@ -1275,13 +1301,17 @@ local asking_mt: metatable<Asking> = {
 
 --- Asks the connector of `channel` with `body`, a request less its tag,
 --- for a connection to `host` at `port` by `deadline`, once its hello has
---- been read and fewer than CONNECTOR_FLIGHT requests are pending: the
---- connection, or nil and why. A request given up on stays pending until
---- its reply comes, which the connector sends within the request's wait.
+--- been read and fewer than CONNECTOR_FLIGHT requests are pending (and,
+--- for a `kind` of "table" or "public", fewer than CONNECTOR_FLIGHT less
+--- TABLE_RESERVE of its kind): the connection, or nil and why. A request given up on
+--- stays pending until its reply comes, which the connector sends within
+--- the request's wait.
 local function ask(channel: Channel, body: string, host: string, port: integer, deadline: integer,
-                   timeout_ns: integer, refusal: string): SocketConn | nil, string
+                   timeout_ns: integer, refusal: string, kind: string): SocketConn | nil, string
   local room, waiting = await(channel, deadline, false, function(): boolean
-    return channel.lost == nil and channel.greeted and channel.count < raw.CONNECTOR_FLIGHT
+    return channel.lost == nil and channel.greeted and channel.count < raw.CONNECTOR_FLIGHT and
+      (kind ~= "table" or channel.table_count < raw.CONNECTOR_FLIGHT - TABLE_RESERVE) and
+      (kind ~= "public" or channel.public_count < raw.CONNECTOR_FLIGHT - TABLE_RESERVE)
   end)
   if not room then return nil, waiting end
   local tag = channel.next_tag
@@ -1296,9 +1326,14 @@ local function ask(channel: Channel, body: string, host: string, port: integer, 
     return nil, channel.lost
   end
   local pending: Pending = { host = host, port = port, timeout_ns = timeout_ns, refusal = refusal,
-    given_up = false, done = false }
+    given_up = false, done = false, kind = kind }
   channel.pending[tag] = pending
   channel.count = channel.count + 1
+  if kind == "table" then
+    channel.table_count = channel.table_count + 1
+  elseif kind == "public" then
+    channel.public_count = channel.public_count + 1
+  end
   local asking: Asking = setmetatable({ pending = pending }, asking_mt)
   local _held <close> = asking
   local answered, why = await(channel, deadline, true, function(): boolean return pending.done end)
@@ -1359,12 +1394,13 @@ function SocketConnector:connect(target: integer | string, port: integer, timeou
     if not called then return nil, "net: " .. target .. " is not a numeric address" end
     if started == nil then return nil, why end
     local alone <close> = started
-    return ask(channel_of(alone), request_body(1, port, timeout_ns), target, port, deadline, timeout_ns, "")
+    return ask(channel_of(alone), request_body(1, port, timeout_ns), target, port, deadline, timeout_ns, "", "")
   end
   local index: integer
   local host: string
   local body: string
   local refusal = ""
+  local kind = ""
   if type(target) == "number" then
     index = target
     local entry = math.type(index) == "integer" and self.endpoints[index] or nil
@@ -1393,13 +1429,15 @@ function SocketConnector:connect(target: integer | string, port: integer, timeou
       host = target
       -- The public index, 4294967295.
       body = request_body(0xffffffff, port, timeout_ns, bytes)
+      if #self.endpoints > 0 then kind = "public" end
       refusal = "net: " .. target .. " is refused by the connector's deny list"
     end
   end
+  if index ~= nil and self.accepts_public then kind = "table" end
   body = body or request_body(index, port, timeout_ns)
   local channel, why = served(self)
   if channel == nil then return nil, why end
-  return ask(channel, body, host, port, deadline, timeout_ns, refusal)
+  return ask(channel, body, host, port, deadline, timeout_ns, refusal, kind)
 end
 
 function SocketConnector:as_function(): function(address: string, port: integer, timeout_ns: integer): Net.Conn | nil, string
@@ -1477,7 +1515,7 @@ resolved_through = function(name: string, opts: Net.ResolveOptions): {Net.Resolv
       if channel == nil then return nil, why end
       local body = string.pack(">I4I4I4I4", index, port, 0, 0) .. string.rep("\0", 16)
       local conn, because = ask(channel, body, through.endpoints[index].host, port,
-        deadline or Clock.monotonic_ns() + reply_ns, Clock.ms(through.timeout_ms), "")
+        deadline or Clock.monotonic_ns() + reply_ns, Clock.ms(through.timeout_ms), "", "")
       if conn == nil then return nil, because end
       return { fd = conn.fd, release = function() local _, _ = conn:close() end }, ""
     end,

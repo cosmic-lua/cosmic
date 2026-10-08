@@ -172,8 +172,8 @@ local function test_the_config_travels_as_one_line_and_reads_back()
   local direct = assert(RelayConfig.decode(RelayConfig.encode({ grants = { "a.test:1" }, own_addresses = {},
     log = "null", direct = true, token = "0123456789abcdef0123" })))
   assert(direct.direct == true and direct.token == "0123456789abcdef0123")
-  assert(RelayConfig.name_server_fd == 4 and RelayConfig.table_fd == 5 and RelayConfig.public_fd == 6,
-    "the name servers' connector, then the table's, then the public one")
+  assert(RelayConfig.name_server_fd == 4 and RelayConfig.connector_fd == 5,
+    "the name servers' connector, then the one that reaches the rest")
 end
 
 local function test_a_config_that_is_none_is_refused_naming_why()
