@@ -1,6 +1,8 @@
 local Fs = require("cosmic.fs")
+local PolicyJson = require("cosmic.policy")
 local Sandbox = require("cosmic.sandbox")
 local Seatbelt = require("cosmic.sandbox.seatbelt")
+local rules = require("cosmic.sandbox.policy")
 
 local BASE <const> = [[(version 1)
 (deny default)
@@ -259,6 +261,33 @@ local function test_the_grants_a_policy_reaches_are_macoss_own()
       grants = { { path = "/srv", letters = "r" } } })) do held[grant.path] = grant.letters end
   assert(held["/System/Library"] == "rx" and held["/sbin"] == "rx" and held["/srv"] == "r")
   assert(#Seatbelt.grants({}) == 0)
+end
+
+--- What the "system" profile holds does not depend on whether it is
+--- compiled raw, merged first, or merged and read back from JSON: each
+--- reaches macOS's list, including /System/Library and /sbin. The profile of
+--- macOS is drawn as a host that has every path would give it.
+local function test_system_profile_means_the_same_raw_merged_and_through_json()
+  local raw: Sandbox.Policy = { profiles = { "system" } }
+  local profile = rules.system_profile("darwin", function(_: string): boolean return true end)
+  local merged = assert(Sandbox.merge(profile))
+  local decoded = assert(PolicyJson.decode(PolicyJson.encode(merged)))
+  local paths: {string:Seatbelt.Path} = {}
+  for _, grant in ipairs(Seatbelt.grants(raw)) do
+    paths[grant.path] = { path = "/real" .. grant.path, directory = true }
+  end
+  local want = compile(raw, paths)
+  assert(want.parameters.PATH_1 ~= nil)
+  for _, other in ipairs({ profile, merged, decoded }) do
+    assert(other.profiles == nil)
+    local seen: {string:string} = {}
+    for _, grant in ipairs(other.grants) do seen[grant.path] = grant.letters end
+    assert(seen["/System/Library"] == "rx" and seen["/sbin"] == "rx" and seen["/lib64"] == nil)
+    assert(seen["/private/var/db/dyld"] == "r" and seen["/dev/dtracehelper"] == "rw")
+    local got = compile(other, paths)
+    assert(got.text == want.text, got.text)
+    for name, value in pairs(want.parameters) do assert(got.parameters[name] == value, name) end
+  end
 end
 
 local function test_missing_or_noncanonical_host_paths_fail_closed()
