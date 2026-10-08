@@ -605,14 +605,18 @@ local RAW_PIECES <const> = {
   "<script><!--<script></script>", "<script><!--<script></script>--></script>", "<script></script><textarea>",
 }
 
---- A literal run, cut at every byte boundary in turn by a block that emits
---- nothing, then a slot.
+--- The blocks that cut a literal run: ones that emit nothing, and one whose
+--- arms emit the same text `X`, which reads as `X` put there.
+local CUTS <const>: {string} = { "{{if .a}}{{end}}", "{{range .l}}{{end}}", "{{with .a}}{{end}}", "{{if .a}}X{{else}}X{{end}}" }
+
+--- A literal run, how it is cut (an index of `CUTS`) and the text `X` of a
+--- cut whose arms emit it.
 local function gen_cut(src: Fuzz.Source): string
   local out: {string} = {}
   while Fuzz.more(src, #out, 12) do
     out[#out + 1] = Fuzz.pick(src, RAW_PIECES)
   end
-  return table.concat(out)
+  return Fuzz.pack({ table.concat(out), tostring(src:int(1, #CUTS)), Fuzz.pick(src, RAW_PIECES) })
 end
 
 --- The helpers a compiled template calls, in order.
@@ -624,36 +628,55 @@ local function helpers(source: string): string
   return table.concat(out, " ")
 end
 
--- A block that emits nothing, between any two bytes of the literal text,
--- does not change where a slot after it lands: a template that compiles
--- with the block compiles without it and gives its slots the same escaping.
+-- A block that emits nothing, or whose arms emit the same text, between any
+-- two bytes of the literal text, does not change where a slot after it
+-- lands: a template that compiles with the block compiles without it (with
+-- the text it emits put there) and gives its slots the same escaping.
 -- (Else a value could be escaped for text where the browser reads script,
 -- as in `<textarea></text{{if .a}}{{end}}area><script>{{.b}}`.)
-local function test_an_empty_block_in_the_text_does_not_move_where_a_slot_lands(tmp: string)
+--
+-- TODO: compare each slot's context with an independent HTML tokenizer
+-- reading the rendered output, as #2741 asks, not with this template's own
+-- unsplit reading; waits on an HTML parser in the tree that reports the
+-- tokenizer state at a given byte (the html5lib tokenizer test holds a
+-- reference tokenizer for the data state only).
+local function test_a_cut_in_the_text_does_not_move_where_a_slot_lands(tmp: string)
   Fuzz.run({
     name = "template cut",
     dir = tmp,
     gen = gen_cut,
-    requires = { "agreed", "cut refused", "raw text", "script slot refused" },
-    shares = { agreed = 0.2, ["raw text"] = 0.3, ["cut refused"] = 0.05 },
-    check = function(literal: string): boolean, string
-      local whole = Template.compile("{{type T from m.t}}" .. literal .. "{{.a}}{{.b}}", "t.tmpl")
+    requires = { "agreed", "cut refused", "raw text", "script slot refused", "range", "with", "arms" },
+    shares = { agreed = 0.2, ["raw text"] = 0.3, ["cut refused"] = 0.05, ["script slot refused"] = 0.02 },
+    check = function(input: string): boolean, string
+      local fields = Fuzz.unpack(input)
+      local literal = fields[1] or ""
+      local kind = math.tointeger(tonumber(fields[2])) or 1
+      local extra = fields[3] or ""
+      local head = "{{type T from m.t}}"
+      local tail = "{{.a}}{{.b}}"
+      local whole, why = Template.compile(head .. literal .. tail, "t.tmpl")
       if literal:find("<script", 1, true) or literal:find("<textarea", 1, true) or literal:find("<title", 1, true) or
           literal:find("<style", 1, true) then
         Fuzz.label("raw text")
       end
-      if whole == nil and literal:find("<script", 1, true) then
+      if whole == nil and why:find("<script>", 1, true) then
         Fuzz.label("script slot refused")
       end
+      Fuzz.label(kind == 2 and "range" or kind == 3 and "with" or kind == 4 and "arms" or "if")
+      local block = (CUTS[kind]:gsub("X", function(): string return extra end))
       for cut = 0, #literal do
-        local body = literal:sub(1, cut) .. "{{if .a}}{{end}}" .. literal:sub(cut + 1) .. "{{.a}}{{.b}}"
-        local split = Template.compile("{{type T from m.t}}" .. body, "t.tmpl")
+        local body = literal:sub(1, cut) .. block .. literal:sub(cut + 1) .. tail
+        local split = Template.compile(head .. body, "t.tmpl")
+        local reference = whole
+        if kind == 4 then
+          reference = Template.compile(head .. literal:sub(1, cut) .. extra .. literal:sub(cut + 1) .. tail, "t.tmpl")
+        end
         if split == nil then
           Fuzz.label("cut refused")
-        elseif whole == nil then
+        elseif reference == nil then
           return false, "compiled with a cut at " .. cut .. " what it refuses whole: " .. body
-        elseif helpers(split) ~= helpers(whole) then
-          return false, "cut at " .. cut .. " gives " .. helpers(split) .. ", not " .. helpers(whole) .. ": " .. body
+        elseif helpers(split) ~= helpers(reference) then
+          return false, "cut at " .. cut .. " gives " .. helpers(split) .. ", not " .. helpers(reference) .. ": " .. body
         else
           Fuzz.label("agreed")
         end

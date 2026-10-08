@@ -196,6 +196,10 @@ local record Markup
   --- or "" when it ends in plain text.
   ending: function(p: Place): string
 
+  --- How two places that `same` found different differ in the text of a raw
+  --- text or RCDATA element, or "" when they differ otherwise.
+  differ: function(a: Place, b: Place): string
+
   --- Folds the place `b`, which `same` found the same as `a`, into `a`: a
   --- value is fresh only if it is in both, and a URL slot or a pending
   --- `<meta>` slot in either is kept.
@@ -301,6 +305,28 @@ local function same(a: Place, b: Place): boolean
   return not ATTRIBUTED[a.phase] or a.attr == b.attr
 end
 
+--- Where a place stands in the text of a raw text or RCDATA element.
+local function raw_state(p: Place): string
+  local out = "<" .. p.tag .. ">"
+  if p.raw_tail ~= "" then
+    out = out .. " after '" .. p.raw_tail .. "'"
+  end
+  if p.escaped then
+    out = out .. (p.double and " inside a <!-- and a nested <script" or " inside a <!--")
+  end
+  return out
+end
+
+local function differ(a: Place, b: Place): string
+  if (a.phase == "rcdata" or a.phase == "raw") and a.phase == b.phase then
+    local x, y = raw_state(a), raw_state(b)
+    if x ~= y then
+      return "one leaves " .. x .. ", another " .. y
+    end
+  end
+  return ""
+end
+
 local function join(a: Place, b: Place)
   a.fresh = a.fresh and b.fresh
   a.after_url = a.after_url or b.after_url
@@ -350,11 +376,14 @@ local SCRIPT_MARKS <const>: {string} = { "<!--", "<script", "</script", "-->" }
 --- The longest end of `region` that is the start of one of those and not
 --- yet the whole of it (`<script` and `</script` are whole only with the
 --- delimiter after them), or "".
-local function script_tail(region: string): string
+local function script_tail(region: string, escaped: boolean): string
   for len = math.min(#region, 8), 1, -1 do
     local tail = region:sub(-len):lower()
     for _, mark in ipairs(SCRIPT_MARKS) do
-      if #tail <= #mark and mark:sub(1, #tail) == tail and (#tail < #mark or mark:find("script", 1, true) ~= nil) then
+      -- A dash only matters in a comment, where `-->` leaves it.
+      local dashes = mark == "-->" and not escaped
+      if not dashes and #tail <= #mark and mark:sub(1, #tail) == tail and
+          (#tail < #mark or mark:find("script", 1, true) ~= nil) then
         return region:sub(-len)
       end
     end
@@ -718,7 +747,7 @@ local function scan(p: Place, text: string)
       end
       if found == nil then
         if p.tag == "script" then
-          p.raw_tail = script_tail(region)
+          p.raw_tail = script_tail(region, p.escaped)
         else
           local last = region:match(".*()<")
           local tail = last and region:sub(last) or ""
@@ -830,6 +859,6 @@ local function ending(p: Place): string
   return "inside a comment or markup declaration"
 end
 
-local M: Markup = { start = start, ending = ending, copy = copy, same = same, join = join, feed = feed,
+local M: Markup = { start = start, ending = ending, copy = copy, same = same, differ = differ, join = join, feed = feed,
   slot = slot, wrote = wrote }
 return M
