@@ -205,7 +205,7 @@ end
 
 --- The policy that grants `port` of 127.0.0.2 to the program on `database`.
 local function granting(database: string, port: integer): Child.Options
-  return { policy = { database = database, connect = { "127.0.0.2:" .. port } }, stdout = "capture", stderr = "capture",
+  return { policy = { database = { path = database }, connect = { "127.0.0.2:" .. port } }, stdout = "capture", stderr = "capture",
     timeout_ns = Clock.seconds(60) }
 end
 
@@ -372,7 +372,7 @@ local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 return function(argv: {string}): integer
   local started, why = Child.start({ assert(Proc.executable()), "wait" }, { policy = {
-    database = argv[1], connect = { "127.0.0.2:9" } }, stdout = "null", stderr = "null" })
+    database = { path = argv[1] }, connect = { "127.0.0.2:9" } }, stdout = "null", stderr = "null" })
   local pid = sys.getpid()
   local running: {string} = {}
   for child in (Fs.read("/proc/" .. pid .. "/task/" .. pid .. "/children") or ""):gmatch("%d+") do
@@ -438,7 +438,7 @@ local Proc = require("cosmic.proc")
 return function(argv: {string}): integer
   local log: Child.RelayLog = argv[4] == "inherit" and "inherit" or "null"
   local result, why = Child.run({ assert(Proc.executable()), "flows", argv[2], argv[3] }, {
-    policy = { database = argv[1], connect = { "127.0.0.2:" .. argv[2] } },
+    policy = { database = { path = argv[1] }, connect = { "127.0.0.2:" .. argv[2] } },
     stdout = "capture", stderr = "capture", relay_log = log })
   assert(result, why)
   Fs.put(Fs.stdout, assert(result.stdout))
@@ -613,7 +613,7 @@ end
 --- the program holds no socket.
 local function test_no_connect_means_no_relay_and_no_extra_descriptors(tmp: string)
   local database = sealed_client(tmp)
-  local plain, why = Child.run({ assert(Proc.executable()), "env" }, { policy = { database = database },
+  local plain, why = Child.run({ assert(Proc.executable()), "env" }, { policy = { database = { path = database } },
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   if plain == nil then
     assert(unsandboxable(why), "the start was refused: " .. why)

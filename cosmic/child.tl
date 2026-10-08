@@ -67,6 +67,7 @@
 --- child is left to wait until the caller reads. Nothing streamed is
 --- dropped, and nothing is kept for the Result.
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local Relay = require("cosmic.relay")
@@ -3173,6 +3174,21 @@ local function relaunch_of(user: MappedUser, database?: string): Proc.Relaunch |
   return { argv = argv, env = launched.env, fds = fds, cwd = launched.cwd }, ""
 end
 
+--- Whether the file at `path`, the database a policy's program runs on,
+--- is the one `database` names: true where it hashes to the policy's
+--- `sha256`, or where the policy holds none; otherwise false and why.
+local function database_holds(database: Rules.Database, path: string): boolean, string
+  local digest = database.sha256
+  if digest == nil then return true, "" end
+  local bytes, why = Fs.read(path)
+  if bytes == nil then return false, "database " .. why end
+  if Hash.hex_sha256(bytes) ~= digest then
+    return false, "database " .. path .. " is not the one its policy names: " ..
+      "its SHA-256 has changed since"
+  end
+  return true, ""
+end
+
 --- This program's own file's real path ([`Proc.executable`]) where `name`,
 --- a policy's program as the caller names it, from `cwd` (this process's
 --- own where nil), is it; nil for any other program.
@@ -3228,7 +3244,7 @@ end
 --- the host's own (Landlock's profiles are not Seatbelt's).
 local function core_of(argv: {string}, opts: Options, merged: Rules.Policy, user: MappedUser,
                        base: string, reach: {Rules.Grant}): Proc.Relaunch | nil, string
-  local database: string = merged.database
+  local database: string = merged.database and merged.database.path
   local program: string
   if database ~= nil then
     program = this_program(argv[1], opts.cwd)
@@ -3382,7 +3398,7 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
   -- `database` it is the core and that file alone, so this program's own
   -- file, which holds every module of the tree, is none of the child's.
   local relaunch: Proc.Relaunch
-  local database: string = merged.database
+  local database: string = merged.database and merged.database.path
   local found, relaunch_trouble = core_of(argv, opts, merged, user, base, merged.grants)
   if found == nil and relaunch_trouble ~= "" then return nil, relaunch_trouble end
   -- A core on a database is started by path with no descriptor, so
@@ -3571,7 +3587,7 @@ local function held_to(argv: {string}, opts: Options): Held | nil, string
     -- reopens the database by its path after the hash, so a file swapped
     -- in that instant runs. Hand it the checked descriptor once core/main.c
     -- opens SQLite on the descriptor it checked (the TODO in open_database).
-    local holds, held_why = Rules.database_is(merged, relaunch.argv[3])
+    local holds, held_why = database_holds(merged.database, relaunch.argv[3])
     if not holds then return nil, "sandbox: " .. held_why end
   end
   return { path = path, env = env, tmp = "", wants_tmp = merged.tmp and not file,
@@ -3705,7 +3721,7 @@ local function held_by_seatbelt(argv: {string}, opts: Options, pty?: Pty, serves
     for i = 2, #argv do run_argv[#run_argv + 1] = argv[i] end
   end
   if relaunch ~= nil and merged.database ~= nil then
-    local holds, held_why = Rules.database_is(merged, relaunch.argv[3])
+    local holds, held_why = database_holds(merged.database, relaunch.argv[3])
     if not holds then return nil, "sandbox: " .. held_why end
   end
   local sandbox: raw_process.Sandbox = {

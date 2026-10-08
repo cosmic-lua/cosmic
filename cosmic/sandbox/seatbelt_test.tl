@@ -143,7 +143,7 @@ local function test_unmet_policy_fields_are_refused()
     { { promises = { "nest" } }, "nest" },
     { { grants = { { path = "a", from = "b", letters = "r" } } }, "from" },
     { { limits = { processes = 2 } }, "limits.processes" },
-    { { database = "/does/not/exist" }, "database" },
+    { { database = { path = "/does/not/exist" } }, "database" },
     { { set_env_digests = { A = string.rep("0", 64) } }, "set_env_digests" },
     { { profiles = { "unrecognized" } }, "profiles" },
     { { grants = { { path = "a", letters = "bad" } } }, "letters" },
@@ -219,7 +219,7 @@ local function test_a_database_grants_its_core_and_itself_and_not_this_programs_
     [database] = { path = database, directory = false },
     ["/launcher"] = { path = "/private/launcher", directory = false },
   }
-  local policy: Sandbox.Policy = { database = database, profiles = { "cosmic" } }
+  local policy: Sandbox.Policy = { database = { path = database }, profiles = { "cosmic" } }
   local out = assert(Seatbelt.compile(policy,
     { paths = paths, core = "/core", database = database, executable = "/launcher" }))
   assert(out.text == BASE .. '(allow file-read* (literal (param "PATH_1")))\n' ..
@@ -242,7 +242,7 @@ local function test_a_database_needs_the_core_and_the_file_the_core_runs_on(tmp:
     [database] = { path = database, directory = false },
     [other] = { path = other, directory = false },
   }
-  local policy: Sandbox.Policy = { database = database }
+  local policy: Sandbox.Policy = { database = { path = database } }
   local out, why = Seatbelt.compile(policy, { paths = paths })
   assert(out == nil and why:find("database needs the core", 1, true), tostring(why))
   out, why = Seatbelt.compile(policy, { paths = paths, core = "/core" })

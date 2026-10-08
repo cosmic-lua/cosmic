@@ -279,7 +279,7 @@ local function flows(tmp: string): Flows
     local tasks = { echoing(first, granted_count), echoing(second, ungranted_count) }
     local granted, ungranted = first.address.port, second.address.port
     local result, why = Child.run({ assert(Proc.executable()), "flows", tostring(granted), tostring(ungranted) },
-      { policy = { database = database, profiles = { "system" },
+      { policy = { database = { path = database }, profiles = { "system" },
         connect = { "127.0.0.1:" .. granted, "localhost:" .. granted } },
         stdout = "capture", stderr = "capture", relay_log = log, timeout_ns = Clock.seconds(90) })
     for _, task in ipairs(tasks) do task:cancel() end
@@ -362,7 +362,7 @@ end
 --- A handle to a program that waits under a policy with `connect`.
 local function waiting(tmp: string): Child.Handle
   local handle, why = Child.start({ assert(Proc.executable()), "wait" }, { policy = {
-    database = sealed_client(tmp), profiles = { "system" }, connect = { "127.0.0.1:9" } },
+    database = { path = sealed_client(tmp) }, profiles = { "system" }, connect = { "127.0.0.1:9" } },
     stdout = "null", stderr = "null" })
   assert(handle, tostring(why) .. denials())
   return handle
@@ -480,7 +480,7 @@ end
 local function test_the_program_holds_no_listener_of_the_relays(tmp: string)
   macos_only()
   local result, why = Child.run({ assert(Proc.executable()), "listeners" }, { policy = {
-    database = sealed_client(tmp), profiles = { "system" }, connect = { "127.0.0.1:9" } },
+    database = { path = sealed_client(tmp) }, profiles = { "system" }, connect = { "127.0.0.1:9" } },
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(90) })
   assert(result, tostring(why) .. denials())
   local report = redacted(tostring(result.stdout) .. "\nstderr: " .. tostring(result.stderr))
@@ -559,7 +559,7 @@ local function test_a_public_name_is_resolved_and_reached_through_the_relay(tmp:
   local log_path = tmp .. "/relay.log"
   local log = assert(sys.open(log_path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 384))
   local result, why = Child.run({ assert(Proc.executable()), "public", name .. ":443" }, { policy = {
-    database = sealed_client(tmp), profiles = { "system" }, connect = { name .. ":443" } },
+    database = { path = sealed_client(tmp) }, profiles = { "system" }, connect = { name .. ":443" } },
     stdout = "capture", stderr = "capture", relay_log = log, timeout_ns = Clock.seconds(90) })
   assert(sys.close(log))
   local relay_log = Fs.read(log_path) or ""
@@ -575,7 +575,7 @@ local function connect_through(tmp: string, target: string): string, string
   local log_path = tmp .. "/relay.log"
   local log = assert(sys.open(log_path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 384))
   local result, why = Child.run({ assert(Proc.executable()), "public", target }, { policy = {
-    database = sealed_client(tmp), profiles = { "system" }, connect = { target } },
+    database = { path = sealed_client(tmp) }, profiles = { "system" }, connect = { target } },
     stdout = "capture", stderr = "capture", relay_log = log, timeout_ns = Clock.seconds(90) })
   assert(sys.close(log))
   local relay_log = Fs.read(log_path) or ""
@@ -641,7 +641,7 @@ end
 local function test_a_policy_with_connect_may_not_set_a_proxy_variable(tmp: string)
   macos_only()
   local handle, why = Child.start({ assert(Proc.executable()), "wait" }, { policy = {
-    database = sealed_client(tmp), profiles = { "system" }, connect = { "127.0.0.1:9" },
+    database = { path = sealed_client(tmp) }, profiles = { "system" }, connect = { "127.0.0.1:9" },
     set_env = { HTTPS_PROXY = "http://elsewhere:1" } } })
   assert(handle == nil and why:find("HTTPS_PROXY is set by the relay", 1, true), tostring(why))
 end
@@ -652,7 +652,7 @@ end
 local function test_the_relays_policy_grants_reads_alone(_tmp: string)
   macos_only()
   local policy = Sandbox.Relay.seatbelt_policy("/tmp/relay.db", string.rep("0", 64))
-  assert(policy.database == "/tmp/relay.db" and policy.profiles[1] == "system")
+  assert(policy.database.path == "/tmp/relay.db" and policy.profiles[1] == "system")
   for _, grant in ipairs(policy.grants) do
     assert(grant.letters == "r", grant.path .. " is granted " .. grant.letters)
   end

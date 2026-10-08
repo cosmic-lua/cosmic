@@ -47,16 +47,6 @@ local DATABASE_SPEC <const> = Shape.strict_record({
   sha256 = Shape.string,
 })
 
-local record DatabaseWire
-  record Database
-    path: string
-    sha256: string
-  end
-  database: Database
-end
-
-local DATABASE_WIRE_SPEC <const> = Shape.record({ database = Shape.optional(DATABASE_SPEC) })
-
 local POLICY_SPEC <const> = Shape.strict_record({
   profiles = Shape.optional(Shape.list(Shape.string)),
   grants = Shape.optional(Shape.list(GRANT_SPEC)),
@@ -83,8 +73,8 @@ local POLICY_SPEC <const> = Shape.strict_record({
 --- instead, which takes any order of letters and writes them in this one.
 --- A `database` is `{"path": ..., "sha256": ...}`: the file must be there
 --- and hash to that, or the policy is refused. The digest is kept with the
---- policy ([`Sandbox.expect_digest`]), and [`Child.start`] hashes the file
---- again just before it starts the core on it, refusing one that has
+--- policy as the `sha256` of its `database`, and [`Child.start`] hashes the
+--- file again just before it starts the core on it, refusing one that has
 --- changed; the core opens it by its path after that, so a file swapped in
 --- that instant is not caught.
 ---
@@ -95,15 +85,10 @@ local POLICY_SPEC <const> = Shape.strict_record({
 function PolicyJson.decode(json: string): Sandbox.Policy | nil, string
   local policy, why: Sandbox.Policy | nil, string = Shape.decode_into(json, POLICY_SPEC)
   if policy == nil then return nil, "sandbox: " .. why end
-  -- The text holds a database as where it is and what it is, which the
-  -- policy's `database` is the first of.
-  local named, _: DatabaseWire | nil, string = Shape.decode_into(json, DATABASE_WIRE_SPEC)
-  local database = named ~= nil and named.database or nil
-  policy.database = database ~= nil and database.path or nil
   local ok, bad = Sandbox.check(policy, true)
   if not ok then return nil, bad end
+  local database = policy.database
   if database ~= nil then
-    Sandbox.expect_digest(policy, database.sha256)
     local bytes, trouble = Fs.read(database.path)
     if bytes == nil then
       return nil, "sandbox: pointer \"/database/path\": " .. trouble
@@ -126,8 +111,10 @@ end
 --- password, a flag) can be found by trying guesses, so a printed policy
 --- keeps a value's change from view, not a secret from a reader who can
 --- guess it. A `database` is written as its path and the SHA-256 of the
---- file's bytes, so the text moves when the database does: an unreadable
---- one raises. What a profile names is a path of this host, so an encoding
+--- file's bytes. One with a `sha256` is written with that digest, and
+--- raises if the file no longer hashes to it, so encoding never rebases a
+--- checked database; one named by its path alone is hashed now, as
+--- [`Sandbox.database`] does. An unreadable one raises. What a profile names is a path of this host, so an encoding
 --- that resolved one is one host's. Raises for a policy that
 --- is not merged -- one with `profiles`, or [`Sandbox.merge`] would refuse
 --- -- since text cannot say what was dropped.
@@ -161,10 +148,16 @@ function PolicyJson.encode(p: Sandbox.Policy): string
   if next(digests) ~= nil then fields.set_env_digests = digests end
   if merged.tmp then fields.tmp = true end
   fields.user, fields.group = merged.user, merged.group
-  if merged.database ~= nil then
-    local bytes, trouble = Fs.read(merged.database)
+  local database = merged.database
+  if database ~= nil then
+    local bytes, trouble = Fs.read(database.path)
     if bytes == nil then error("sandbox: encode: database " .. trouble, 2) end
-    fields.database = { path = merged.database, sha256 = Hash.hex_sha256(bytes) }
+    local digest = Hash.hex_sha256(bytes)
+    if database.sha256 ~= nil and database.sha256 ~= digest then
+      error("sandbox: encode: database " .. database.path .. " is not the one the policy " ..
+          "names: its SHA-256 has changed since", 2)
+    end
+    fields.database = { path = database.path, sha256 = digest }
   end
   local limits = merged.limits
   if limits.open_files ~= nil or limits.file_bytes ~= nil or limits.cpu_seconds ~= nil or

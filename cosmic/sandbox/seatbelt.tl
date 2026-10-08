@@ -225,9 +225,9 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
     if options == nil or options.core == nil or options.database == nil then
       return refuse("database needs the core to run and the database it runs on")
     end
-    local named, held = options.paths[policy.database], options.paths[options.database]
+    local named, held = options.paths[policy.database.path], options.paths[options.database]
     if named == nil or held == nil or named.path ~= held.path then
-      return refuse("database " .. string.format("%q", policy.database) ..
+      return refuse("database " .. string.format("%q", policy.database.path) ..
           " is not the database the core is run on, " .. string.format("%q", options.database))
     end
   end
@@ -402,7 +402,7 @@ function Seatbelt.resolve(policy: rules.Policy, base?: string, executable?: stri
       return refuse("executable " .. string.format("%q", executable) .. ": " .. trouble)
     end
   end
-  for _, name in ipairs({ core or "", database or "", policy.database or "" }) do
+  for _, name in ipairs({ core or "", database or "", policy.database and policy.database.path or "" }) do
     if name ~= "" then
       local trouble = look(name, name)
       if trouble ~= "" then return refuse(string.format("%q", name) .. ": " .. trouble) end
