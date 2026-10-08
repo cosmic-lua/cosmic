@@ -2029,7 +2029,8 @@ local record PtyOptions
   keep_slave: boolean
   --- The terminal's size in character cells, set before the child starts,
   --- or nil for the system's default. Given with `columns` or not at all,
-  --- each an integer in 0..65535: anything else raises before a pty opens.
+  --- each an integer in 0..65535 (an integral float such as 24.0 is
+  --- refused): anything else raises before a pty opens.
   rows: integer
   --- Its width, set with `rows`.
   columns: integer
@@ -4524,7 +4525,9 @@ local pty_holder_mt: metatable<PtyHolder> = {
 --- confinement, so `process_group` has no say; without stdin it has none.
 --- Under a `policy` on macOS the profile grants the child that terminal
 --- and `/dev/tty`, which it is not otherwise given.
---- Nil and why where the pty cannot be opened or the start fails.
+--- Nil and why where the pty cannot be opened, its size cannot be set or
+--- the start fails. A `pty.rows` or `pty.columns` that is not given with
+--- the other, or is not an integer in 0..65535, raises before a pty opens.
 --- @param argv the program and its arguments, as [`Child.start`] takes them
 --- @param opts the start's options, naming none of the pty's streams
 --- @param pty the pty's streams and size
@@ -4560,6 +4563,8 @@ function Child.start_on_pty(argv: {string}, opts: Options, pty: PtyOptions): Pty
     keep = false, keep_slave = false }, pty_holder_mt)
   if pty.rows ~= nil then
     local sized, size_why = sys.setwinsize(made.master, pty.rows, pty.columns)
+    -- TODO: test this branch once the checked core has a fault point that
+    -- makes TIOCSWINSZ fail on a fresh master, or a platform refuses it.
     if not sized then return refuse("pty size: " .. size_why) end
   end
   -- Darwin's start opens the slave by name to make it the controlling

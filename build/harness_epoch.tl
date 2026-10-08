@@ -132,7 +132,7 @@ harness_epoch.acknowledged = {
 
   ["cmd.cosmic.main"] = "d00f469acf42d89c76c2e9ebabd40e73e20d00cb3a5ad6d9189716265fcdf9bf",
 
-  ["cosmic.child"] = "91f480fb574362098cf271d5a92895f1a857b52573746e1e7ef5d2722393075e",
+  ["cosmic.child"] = "9e12519d16e40ac7b76302389de96fa6c4b75e205349c1f88743bd44f5ab55b4",
 
   ["cosmic.coverage"] = "079fe202231c4ae3ee642e27f6703a37850132c28c2a6d1daf50c7eb1669ac9a",
 
