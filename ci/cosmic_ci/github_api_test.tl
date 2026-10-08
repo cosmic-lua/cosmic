@@ -406,3 +406,37 @@ local function test_a_download_takes_the_bytes_when_the_api_answers_with_them(tm
   assert(not ok and why:find("no redirect to a file", 1, true), tostring(why))
   assert(not Fs.exists(tmp .. "/b"))
 end
+
+--- A client whose `send` answers each page after `cost_ns` of a clock
+--- the test steps, recording the timeout each request was given.
+local function stepped(pages: integer, cost_ns: integer): GithubApi.Client, {integer}
+  local clock = 0
+  local timeouts: {integer} = {}
+  local function send(request: GithubApi.Request): GithubApi.Reply | nil, string
+    timeouts[#timeouts + 1] = request.timeout_ns as integer
+    clock = clock + cost_ns
+    local number = #timeouts
+    local head = {}
+    if number < pages then head["link"] = '<http://api.test/next' .. number .. '>; rel="next"' end
+    return { status = 200, headers = head, body = "[]" }, ""
+  end
+  return { send = send, fetch = nil as GithubApi.Fetch, base = "http://api.test",
+    upload_origin = "", upload_path = "", now_ns = function(): integer return clock end }, timeouts
+end
+
+local function test_pages_share_one_deadline_so_each_gets_the_time_left()
+  local client, timeouts = stepped(3, 300)
+  local pages, why = GithubApi.pages(client, "repos/o/r/x", 1)
+  assert(pages ~= nil and #pages == 3, why)
+  assert(timeouts[1] == 1000000000 and timeouts[2] == 999999700 and timeouts[3] == 999999400,
+    table.concat(timeouts, ","))
+end
+
+local function test_pages_that_are_each_timely_fail_once_the_total_runs_out()
+  local client, timeouts = stepped(5, 400000000)
+  local pages, why = GithubApi.pages(client, "repos/o/r/x", 1)
+  assert(pages == nil, "succeeded past the budget")
+  assert(why:find("page 4", 1, true) and why:find("ran out", 1, true), why)
+  assert(#timeouts == 3, "a request began after the deadline: " .. #timeouts)
+  assert(timeouts[1] > timeouts[2] and timeouts[2] > timeouts[3])
+end

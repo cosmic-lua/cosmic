@@ -120,6 +120,7 @@ end
 local function test_a_lookup_carries_its_time_limit()
   local limits: {integer | nil} = {}
   local fetch, delete = Github.over({ base = "http://api.test",
+    now_ns = function(): integer return 0 end,
     fetch = function(): boolean, string return false, "" end,
     send = function(request: GithubApi.Request): GithubApi.Reply | nil, string
       limits[#limits + 1] = request.timeout_ns
