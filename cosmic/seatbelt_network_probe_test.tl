@@ -1,5 +1,5 @@
---- A diagnostic for the macOS `connect` design (the TODO in
---- cosmic/sandbox/seatbelt.tl): what Seatbelt lets a child reach on the network, said
+--- A diagnostic for the macOS `connect` design (cosmic/sandbox/seatbelt.tl's
+--- `relay_port` and `serves_relay`): what Seatbelt lets a child reach on the network, said
 --- by starting children under hand-written profiles through the raw spawn's
 --- `seatbelt`, as cosmic/child_seatbelt_test.tl does for its own. macOS's CI
 --- workers run unsandboxed, so one run of that leg settles the facts the
@@ -9,8 +9,9 @@
 --- listen, whether a unix socket such as mDNSResponder's is reachable under
 --- default-deny, and which rules a resolver needs.
 ---
---- This module is not a regression suite: it will be trimmed into the real
---- tests of the `connect` design once its findings are in. Each test says what
+--- This module is not a regression suite (cosmic/child_relay_seatbelt_test.tl
+--- holds the design to what it found): it keeps the facts a profile's
+--- network rules rest on checked on each macOS run. Each test says what
 --- it saw in the message of its last assertion, and asserts what must hold of
 --- the design. Every test calls [`Test.skip`] on any other host, where Landlock
 --- and seccomp hold a child, so the whole module skips there.

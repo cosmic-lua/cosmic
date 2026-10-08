@@ -80,7 +80,8 @@ allowed["cosmic.sandbox.seatbelt.grants"] = "called through cosmic.sandbox's `Se
   "call by the module's own name alone"
 -- The same gap as the allowance above (its TODO): cosmic.child calls these
 -- through cosmic.sandbox's `Relay`.
-for _, name in ipairs({ "policy", "name_servers", "plan", "upstream_addresses", "table", "public" }) do
+for _, name in ipairs({ "policy", "seatbelt_policy", "name_servers", "plan", "upstream_addresses",
+    "resolved_upstream", "table", "public" }) do
   allowed["cosmic.sandbox.relay." .. name] = "called through cosmic.sandbox's `Relay`, the " ..
     "package's one path to it from outside, which cosmic.child takes; the check reads a call by " ..
     "the module's own name alone"

@@ -10,7 +10,11 @@
 --- cosmic.relay's entry holds what the relay and this starter share, and
 --- requires nothing of cosmic.sandbox.
 ---
---- The relay runs offline: under [`relay.policy`] it makes no
+--- On macOS no connector runs: the relay is held by Seatbelt under
+--- [`relay.seatbelt_policy`], connects and resolves itself, and is told the
+--- upstream's addresses [`relay.resolved_upstream`] reads.
+---
+--- On Linux the relay runs offline: under [`relay.policy`] it makes no
 --- socket, and holds none but its listeners, the connections it accepts
 --- and those it is handed. It reaches the network only through the native
 --- connectors whose control streams [`Child.start`] hands it, which it
