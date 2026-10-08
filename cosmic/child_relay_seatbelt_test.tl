@@ -176,7 +176,7 @@ end
 --- The program's database, sealed in `tmp`: this program's core runs it.
 local function sealed_client(tmp: string): string
   local chunk = assert(load(CLIENT, "=relay_seatbelt_client"))
-  local requires = { "cosmic.clock", "cosmic.codec", "cosmic.net", "cosmic.sys" }
+  local requires = { "cosmic.clock", "cosmic.codec", "cosmic.net" }
   local path = tmp .. "/client.db"
   assert(Store.seal(Store.closure(requires), path, { extra = { name = "relay_seatbelt_client",
     bytecode = string.dump(chunk), source = CLIENT, requires = requires } }))
