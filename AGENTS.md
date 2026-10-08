@@ -3,6 +3,10 @@
 - Use [`bin/zig`], the repository's pinned compiler, rather than a system Zig.
 - Use a separate worktree for each independent fix. Check `git status --short`
   before building or switching branches: untracked test files can enter a build.
+- Build and test outside directories mirrored live between machines. In
+  ChatGPT Work, `/workspace/scratch` is bidirectionally synced: an old rollback
+  journal can be copied back after commit and corrupt `o/build.db` on its next
+  open. Use a worktree outside that mirror, such as `/tmp/cosmic-<task>`.
 - Keep `vendor/` unedited; express vendor changes as records under `patch/`.
   [`bin/vendor`] refetches a tree from its PIN, keeping only what the build reads.
   Generated output under `o/` must not be committed.
