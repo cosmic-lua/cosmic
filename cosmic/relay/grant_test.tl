@@ -1,4 +1,4 @@
-local Grant = require("cosmic.grant")
+local Grant = require("cosmic.relay.grant")
 local Sandbox = require("cosmic.sandbox")
 local Relay = require("cosmic.relay")
 

@@ -10,6 +10,8 @@
 ---
 --- - `Address`, the address classes the relay refuses and how it parses
 ---   and picks an address ([`cosmic.relay.address`]);
+--- - `Grant`, a policy's `connect` target read once
+---   ([`cosmic.relay.grant`]);
 --- - `Config`, what the starter and the relay's process agree on: its
 ---   ports, the proxy environment, the config it is handed
 ---   ([`cosmic.relay.config`]);
@@ -29,6 +31,7 @@
 
 local Address = require("cosmic.relay.address")
 local Config = require("cosmic.relay.config")
+local Grant = require("cosmic.relay.grant")
 local Resolv = require("cosmic.relay.resolv")
 local Wire = require("cosmic.relay.wire")
 
@@ -37,6 +40,10 @@ local record Relay
   --- and picks one of a name's answers: the package's
   --- [`cosmic.relay.address`], each documented there.
   Address: Address
+
+  --- A policy's `connect` target, read once: the package's
+  --- [`cosmic.relay.grant`], documented there.
+  Grant: Grant
 
   --- What the relay's starter and its process agree on: the package's
   --- [`cosmic.relay.config`], each documented there.
@@ -53,6 +60,7 @@ end
 
 Relay.Address = Address
 Relay.Config = Config
+Relay.Grant = Grant
 Relay.Wire = Wire
 
 --- The name servers the system's configuration names, each a numeric

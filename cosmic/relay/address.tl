@@ -7,7 +7,7 @@
 ---
 --- An address is refused unless a literal grant names exactly it: a
 --- `connect` target whose host is that numeric address and whose port is
---- the one asked for, or "*". The grant's grammar is [`cosmic.grant`]'s, which
+--- the one asked for, or "*". The grant's grammar is [`cosmic.relay.grant`]'s, which
 --- [`cosmic.sandbox`] validates `connect` by: an IPv6 host is in brackets
 --- (`[::1]:80`) and any spelling of it opens the one address, and a name
 --- or a "*" host opens no address. The classes refused:
@@ -56,7 +56,7 @@
 --- most one "::" and an IPv4 tail, no zone. Anything else is refused as
 --- not numeric: an answer is untrusted bytes from DNS.
 
-local Grant = require("cosmic.grant")
+local Grant = require("cosmic.relay.grant")
 
 local record relay_address
   --- One answer of a name, as the resolver of #2816 returns it.

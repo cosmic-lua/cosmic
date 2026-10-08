@@ -44,7 +44,6 @@
 
 local Clock = require("cosmic.clock")
 local Relay = require("cosmic.relay")
-local Grant = require("cosmic.grant")
 local rules = require("cosmic.sandbox.policy")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
@@ -298,7 +297,7 @@ function relay.plan(grants: {string}, env: {string: string}): relay.Plan | nil, 
   for _, grant in ipairs(grants) do
     -- A target the relay cannot use was refused when the policy was
     -- checked; one that is not parsed here opens nothing.
-    local parsed, _ = Grant.parse(grant)
+    local parsed, _ = Relay.Grant.parse(grant)
     if parsed ~= nil then
       if parsed.bytes ~= nil then
         literal(parsed.bytes, parsed.port)

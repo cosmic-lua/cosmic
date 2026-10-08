@@ -7,9 +7,9 @@
 
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
-local Grant = require("cosmic.grant")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
+local Relay = require("cosmic.relay")
 local sys = require("cosmic.sys")
 
 local record rules
@@ -88,7 +88,7 @@ local record rules
     --- "*" for any. A host is a DNS name, an IPv4 address or an IPv6 address
     --- in brackets, and a name is read lower-case without a final dot; a
     --- pattern, an underscore and anything else the relay's readers refuse
-    --- is refused here too ([`cosmic.grant`]).
+    --- is refused here too ([`cosmic.relay.grant`]).
     connect: {string}
     --- The addresses of 127/8 it uses inside its own network.
     loopback: {string}
@@ -255,7 +255,7 @@ local function invalid(p: rules.Policy, exact: boolean): string
     end
   end
   for i, target in ipairs(p.connect or {}) do
-    local _, why = Grant.parse(target)
+    local _, why = Relay.Grant.parse(target)
     if why ~= "" then
       return at("/connect/" .. (i - 1), "\"" .. target .. "\" is not a target the relay can use: " ..
           why .. " (host:port, the host a name, an IPv4 address, an IPv6 address in " ..

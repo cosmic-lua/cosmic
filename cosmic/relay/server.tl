@@ -113,7 +113,7 @@ local Poll = require("cosmic.poll")
 local Address = require("cosmic.relay.address")
 local Config = require("cosmic.relay.config")
 local Wire = require("cosmic.relay.wire")
-local Grant = require("cosmic.grant")
+local Grant = require("cosmic.relay.grant")
 local String = require("cosmic.string")
 
 local record Relay
@@ -311,7 +311,7 @@ local record NameGrant
 end
 
 --- The grants that match names, and a note for each that opens nothing.
---- A grant a policy validated ([`cosmic.grant`]) has none; a relay
+--- A grant a policy validated ([`cosmic.relay.grant`]) has none; a relay
 --- started on its own configuration may be given one.
 local function name_grants(grants: {string}): {NameGrant}, {string}
   local names: {NameGrant} = {}
