@@ -469,18 +469,25 @@ const core_sources = [_][]const u8{
 /// (ci/cosmic_ci/place_tree.tl). A copy sits in a directory named by
 /// its contents, so its path is the same from every checkout.
 ///
-/// Each source file is copied on its own, beside a copy of every header
-/// under core/, laid out as the tree is (`core/x.c` beside `core/x.h`): a
-/// quoted `#include` finds its neighbour first, as in the tree, and an
-/// edit to one file moves only that file's copy, so only its objects
-/// compile again. An edit to any header under core/ moves every copy, so
-/// every core object compiles again (a boot of 19 s locally, against 6 s
-/// after an edit to one .c file): a trade for copies that need no list of
-/// what each file includes. The headers alone are copied once more, the
-/// include directory a file outside core/ reads them from. Only core/'s
-/// own headers sit beside a copy: a quoted `#include` of a neighbouring
-/// .c file, or of a header in a directory under core/, would find nothing
-/// there and fail to compile. Debug information names the copy, which is
+/// Each source file is copied on its own, beside a copy of the headers it
+/// includes, directly or through another header, laid out as the tree is
+/// (`core/x.c` beside `core/x.h`): a quoted `#include` finds its neighbour
+/// first, as in the tree. An edit to a header moves the copy of exactly the
+/// files that include it, so only their objects compile again; the compiler
+/// itself records the headers an object read, so a copy that holds one it
+/// did not read costs nothing but the copy. A file outside core/ (test/...)
+/// names core/'s headers with no include path: the copy holds a header
+/// of that name beside it that includes core's, so nothing but the
+/// closure is a flag or a path. `closure` finds the headers by reading
+/// `#include` lines, whether or not a `#if` keeps them, so a copy holds
+/// at least what any configuration reads; a quoted name found neither
+/// beside the includer nor in core/ is a library's, which an include path
+/// of the library's own tree finds (and keys). `closureCheck` holds the
+/// scan to the compiler's own list, in `analyze`.
+///
+/// Only a quoted `#include` of a name is followed: one of a macro, a
+/// `..` path, or an angle-bracket name that is a header of core/ fails the
+/// build, naming the line. Debug information names the copy, which is
 /// there to read, and whose path ends in the tree's own (`.../core/x.c`):
 /// [`core/coverage_map.zig`] maps a line back to the tree by it. The
 /// checked core's sanitizer names the tree's `core/x.c` (`checked_flags`)
@@ -492,64 +499,177 @@ const core_sources = [_][]const u8{
 // would rewrite zig's output, `<cache>/o/<digest>/` to the tree's root.
 const Own = struct {
     b: *std.Build,
-    /// Every header directly under core/, by name, sorted.
-    headers: []const []const u8,
-    /// The headers' copy: the directory whose `core/` holds them.
-    header_root: std.Build.LazyPath,
     /// Each source file copied so far, by its path in the tree, to the
     /// directory holding its copy at that path. One copy per file, however
     /// many compiles read it: two steps writing one directory at once
     /// could hand a compile a file half written.
     roots: std.StringArrayHashMapUnmanaged(std.Build.LazyPath),
+    /// Each tree file `closure` read, by path: its text, or null where
+    /// there is no such file.
+    texts: std.StringHashMapUnmanaged(?[]const u8),
+    /// Each file's closure, by its path.
+    closures: std.StringHashMapUnmanaged(Closure),
+
+    /// The tree files a source file's copy holds, sorted: the file, and
+    /// each header it includes, however deep.
+    const Closure = struct {
+        files: []const []const u8,
+        /// A header beside a file outside core/ that includes core's of the
+        /// same name, for a name the file includes that only core/ holds.
+        forwards: []const Forward,
+    };
+
+    const Forward = struct {
+        /// The tree path the header sits at in the copy.
+        at: []const u8,
+        /// The core header it includes: a tree path.
+        target: []const u8,
+        /// `target` as the header names it, relative to its own directory.
+        relative: []const u8,
+    };
 
     fn init(b: *std.Build) *Own {
-        const io = b.graph.io;
-        // zig caches what build.zig configures, keyed by what it reads
-        // through the build API alone: a header added to core/ would
-        // otherwise go uncopied until something else moved the key.
-        b.dependOnDirectoryContents(b.path("core"));
-        var names: std.ArrayList([]const u8) = .empty;
-        var dir = b.root.openDir(io, "core", .{ .iterate = true }) catch |err| {
-            std.debug.print("build.zig: cannot open core/: {s}\n", .{@errorName(err)});
-            std.process.exit(1);
-        };
-        defer dir.close(io);
-        var it = dir.iterate();
-        while (it.next(io) catch |err| {
-            std.debug.print("build.zig: cannot list core/: {s}\n", .{@errorName(err)});
-            std.process.exit(1);
-        }) |entry| {
-            if (entry.kind == .file and std.mem.endsWith(u8, entry.name, ".h"))
-                names.append(b.allocator, b.graph.dupeString(entry.name)) catch @panic("OOM");
-        }
-        std.mem.sort([]const u8, names.items, {}, struct {
-            fn lessThan(_: void, x: []const u8, y: []const u8) bool {
-                return std.mem.lessThan(u8, x, y);
-            }
-        }.lessThan);
         const own = b.allocator.create(Own) catch @panic("OOM");
-        own.* = .{ .b = b, .headers = names.items, .header_root = undefined, .roots = .empty };
-        own.header_root = own.copyHeaders(b.addWriteFiles());
+        own.* = .{ .b = b, .roots = .empty, .texts = .empty, .closures = .empty };
         return own;
     }
 
-    fn copyHeaders(own: *Own, files: *std.Build.Step.WriteFile) std.Build.LazyPath {
+    /// The text of the tree's `path`, or null if there is none. zig caches
+    /// what build.zig configures, keyed by what it reads through the build
+    /// API alone: a file read is declared so that an edit to it, to an
+    /// include line above all, configures again, and a directory listed
+    /// so that a header added beside the includer, shadowing a library's,
+    /// does too.
+    fn text(own: *Own, path: []const u8) ?[]const u8 {
         const b = own.b;
-        for (own.headers) |name| {
-            const at = b.fmt("core/{s}", .{name});
-            _ = files.addCopyFile(b.path(at), at);
+        if (own.texts.get(path)) |found| return found;
+        const key = b.graph.dupeString(path);
+        const at = b.root.joinString(b.allocator, path) catch @panic("OOM");
+        const read: ?[]const u8 = std.Io.Dir.cwd().readFileAlloc(b.graph.io, at, b.allocator, .limited(1 << 24)) catch |err| switch (err) {
+            error.FileNotFound => null,
+            else => {
+                std.debug.print("build.zig: cannot read {s}: {s}\n", .{ path, @errorName(err) });
+                std.process.exit(1);
+            },
+        };
+        if (read != null) b.dependOnFileContents(b.path(path));
+        own.texts.put(b.allocator, key, read) catch @panic("OOM");
+        return read;
+    }
+
+    fn fail(path: []const u8, number: usize, comptime what: []const u8) noreturn {
+        std.debug.print("build.zig: {s}:{d}: " ++ what ++ "\n", .{ path, number });
+        std.process.exit(1);
+    }
+
+    /// The headers `path`, a C file of the tree, includes, as a closure.
+    fn closure(own: *Own, path: []const u8) Closure {
+        const b = own.b;
+        if (own.closures.get(path)) |found| return found;
+        var files: std.ArrayList([]const u8) = .empty;
+        var forwards: std.ArrayList(Forward) = .empty;
+        var seen: std.StringHashMapUnmanaged(void) = .empty;
+        files.append(b.allocator, b.graph.dupeString(path)) catch @panic("OOM");
+        seen.put(b.allocator, files.items[0], {}) catch @panic("OOM");
+        var next: usize = 0;
+        while (next < files.items.len) : (next += 1) {
+            const current = files.items[next];
+            const directory = std.fs.path.dirname(current) orelse "";
+            // Where a directory's listing matters: a header added beside
+            // the includer, or to core/, changes what a name finds.
+            b.dependOnDirectoryContents(b.path(if (directory.len == 0) "." else directory));
+            b.dependOnDirectoryContents(b.path("core"));
+            const source = own.text(current) orelse {
+                std.debug.print("build.zig: {s} is not a file of the tree\n", .{current});
+                std.process.exit(1);
+            };
+            var number: usize = 0;
+            var lines = std.mem.splitScalar(u8, source, '\n');
+            while (lines.next()) |line| {
+                number += 1;
+                var rest = std.mem.trimStart(u8, line, " \t");
+                if (!std.mem.startsWith(u8, rest, "#")) continue;
+                rest = std.mem.trimStart(u8, rest[1..], " \t");
+                if (!std.mem.startsWith(u8, rest, "include")) continue;
+                rest = rest["include".len..];
+                if (rest.len > 0 and (std.ascii.isAlphanumeric(rest[0]) or rest[0] == '_'))
+                    fail(current, number, "an `#include` directive other than include is not followed");
+                rest = std.mem.trimStart(u8, rest, " \t");
+                if (rest.len == 0) continue;
+                const close: u8 = switch (rest[0]) {
+                    '"' => '"',
+                    '<' => '>',
+                    else => fail(current, number, "an `#include` of a macro is not followed; name the header"),
+                };
+                const end = std.mem.indexOfScalarPos(u8, rest, 1, close) orelse
+                    fail(current, number, "an `#include` that does not close");
+                const name = rest[1..end];
+                if (std.mem.indexOf(u8, name, "..") != null)
+                    fail(current, number, "an `#include` with `..` is not followed");
+                const beside = if (directory.len == 0) name else b.fmt("{s}/{s}", .{ directory, name });
+                const in_core = b.fmt("core/{s}", .{name});
+                if (close == '>') {
+                    // A system name; but a header of core/ in angle
+                    // brackets would have been found in core/'s include path,
+                    // which a copy no longer has.
+                    if (own.text(in_core) != null)
+                        fail(current, number, "an angle-bracket `#include` of a header of core/; quote it");
+                    continue;
+                }
+                var found: ?[]const u8 = null;
+                if (own.text(beside) != null) {
+                    found = beside;
+                } else if (!std.mem.eql(u8, directory, "core") and own.text(in_core) != null) {
+                    found = in_core;
+                    var up: usize = 0;
+                    if (directory.len > 0) {
+                        up = 1;
+                        for (directory) |c| up += @intFromBool(c == '/');
+                    }
+                    var relative: std.ArrayList(u8) = .empty;
+                    for (0..up) |_| relative.appendSlice(b.allocator, "../") catch @panic("OOM");
+                    relative.appendSlice(b.allocator, in_core) catch @panic("OOM");
+                    for (forwards.items) |forward| {
+                        if (std.mem.eql(u8, forward.at, beside)) break;
+                    } else forwards.append(b.allocator, .{
+                        .at = b.graph.dupeString(beside),
+                        .target = b.graph.dupeString(in_core),
+                        .relative = relative.items,
+                    }) catch @panic("OOM");
+                }
+                const header = found orelse continue;
+                if (seen.contains(header)) continue;
+                const kept = b.graph.dupeString(header);
+                seen.put(b.allocator, kept, {}) catch @panic("OOM");
+                files.append(b.allocator, kept) catch @panic("OOM");
+            }
         }
-        return files.getDirectory();
+        std.mem.sort([]const u8, files.items, {}, lessThan);
+        std.mem.sort(Forward, forwards.items, {}, struct {
+            fn lessThan(_: void, x: Forward, y: Forward) bool {
+                return std.mem.lessThan(u8, x.at, y.at);
+            }
+        }.lessThan);
+        const done: Closure = .{ .files = files.items, .forwards = forwards.items };
+        own.closures.put(b.allocator, b.graph.dupeString(path), done) catch @panic("OOM");
+        return done;
+    }
+
+    fn lessThan(_: void, x: []const u8, y: []const u8) bool {
+        return std.mem.lessThan(u8, x, y);
     }
 
     /// The directory holding the copy of `path`, a C file of the tree,
-    /// at `path`, beside the headers' copies.
+    /// at `path`, beside the headers it includes.
     fn root(own: *Own, path: []const u8) std.Build.LazyPath {
         const b = own.b;
         if (own.roots.get(path)) |found| return found;
         const files = b.addWriteFiles();
-        _ = files.addCopyFile(b.path(path), path);
-        const copied = own.copyHeaders(files);
+        const closed = own.closure(path);
+        for (closed.files) |name| _ = files.addCopyFile(b.path(name), name);
+        for (closed.forwards) |forward|
+            _ = files.add(forward.at, b.fmt("#include \"{s}\"\n", .{forward.relative}));
+        const copied = files.getDirectory();
         own.roots.put(b.allocator, b.graph.dupeString(path), copied) catch @panic("OOM");
         return copied;
     }
@@ -557,12 +677,6 @@ const Own = struct {
     /// The copy of `path`, a C file of the tree, to compile.
     fn file(own: *Own, path: []const u8) std.Build.LazyPath {
         return own.root(path).path(own.b, path);
-    }
-
-    /// The include directory holding core/'s headers' copies, in place of
-    /// core/ itself.
-    fn include(own: *Own) std.Build.LazyPath {
-        return own.header_root.path(own.b, "core");
     }
 
     /// Each of `paths`, C files of the tree, added to `mod` from its copy.
@@ -581,13 +695,7 @@ pub fn build(b: *std.Build) void {
     // configuration headers the libraries read from core/ are copied here.
     // A checkout sharing another's zig cache then compiles none of vendor/
     // again.
-    const copies = b.addWriteFiles();
-    _ = copies.addCopyFile(b.path("core/ares_config.h"), "include/ares_config.h");
-    _ = copies.addCopyFile(b.path("core/curl_config.h"), "include/curl_config.h");
-    _ = copies.addCopyFile(b.path("core/mbedtls_cosmic_config.h"), "include/mbedtls_cosmic_config.h");
-    _ = copies.addCopyFile(b.path("core/xz_config/config.h"), "xz_config/config.h");
-    _ = copies.addCopyDirectory(b.path("core/darwin-compat"), "darwin-compat", .{});
-    const vendor_config = copies.getDirectory();
+    const config = configHeaders(b);
     const own = Own.init(b);
 
     const trees = patchedTrees(b);
@@ -745,7 +853,6 @@ pub fn build(b: *std.Build) void {
         }),
     });
     own.add(environment_check.root_module, &.{ "core/environment.c", "core/environment_test.c" }, &own_c);
-    environment_check.root_module.addIncludePath(own.include());
     boot.dependOn(&b.addRunArtifact(environment_check).step);
 
     // Every core but the test fixtures observes its own C: a table from
@@ -761,7 +868,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .debug,
         }),
     });
-    const sources: Sources = .{ .own = own, .lua = lua, .sqlite = sqlite, .miniz = miniz, .mbedtls = mbedtls, .bzip2 = bzip2, .xz = xz, .cares = cares, .curl = curl, .yyjson = yyjson, .config = vendor_config };
+    const sources: Sources = .{ .own = own, .lua = lua, .sqlite = sqlite, .miniz = miniz, .mbedtls = mbedtls, .bzip2 = bzip2, .xz = xz, .cares = cares, .curl = curl, .yyjson = yyjson, .config = config };
 
     for (targets) |t| {
         const resolved = b.resolveTargetQuery(t.query);
@@ -942,7 +1049,6 @@ fn formatDecoder(
         .strip = optimize != .debug,
     });
     own.add(mod, &.{ "core/portable.c", "test/portable/format_test.c" }, &own_c);
-    mod.addIncludePath(own.include());
     mod.addCMacro(
         "COSMIC_PORTABLE_REQUIRED_TARGET_MASK",
         b.fmt("UINT64_C({d})", .{requiredTargetMask()}),
@@ -1034,38 +1140,11 @@ fn analyze(
     const extra = [_][]const u8{
         "entry.c", "startup_hook.c", "testing.c", "testing_checked.c",
     };
-    const crypto = sources.mbedtls.path(b, "tf-psa-crypto");
     for (core_sources ++ extra) |file| {
         // -S, not -c: `zig cc` would take the analyzer's report for an
         // object and try to link it; as assembly it is left alone.
         const run = b.addSystemCommand(&.{ b.graph.zig_exe, "cc", "-S", "--analyze", "-Xanalyzer", "-analyzer-werror" });
-        run.addArgs(&own_c);
-        // `zig cc` passes options the analyzer has no use for.
-        run.addArg("-Wno-unused-command-line-argument");
-        run.addArgs(&mbedtls_config);
-        run.addArgs(&.{
-            "-DLUA_USE_POSIX",
-            "-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES",
-            "-DCOSMIC_TARGET_ID=1",
-            "-DCOSMIC_TARGET_NAME=\"analyze\"",
-            "-DCOSMIC_CONFIGURATION_ID=1",
-            "-DCOSMIC_CONFIGURATION_NAME=\"analyze\"",
-            b.fmt("-DCOSMIC_PORTABLE_REQUIRED_TARGET_MASK=UINT64_C({d})", .{requiredTargetMask()}),
-            b.fmt("-DCOSMIC_PORTABLE_RELEASE_CONFIGURATION_ID={d}", .{release_configuration.id}),
-        });
-        run.addDirectoryArg2(sources.own.include(), .{ .prefix = "-I" });
-        run.addDirectoryArg2(sources.lua.path(b, "src"), .{ .prefix = "-I" });
-        run.addDirectoryArg2(sources.sqlite, .{ .prefix = "-I" });
-        run.addDirectoryArg2(sources.miniz, .{ .prefix = "-I" });
-        for (crypto_include_dirs) |dir| {
-            run.addDirectoryArg2(crypto.path(b, dir), .{ .prefix = "-I" });
-        }
-        run.addDirectoryArg2(sources.mbedtls.path(b, "include"), .{ .prefix = "-I" });
-        run.addDirectoryArg2(sources.bzip2, .{ .prefix = "-I" });
-        run.addDirectoryArg2(sources.xz.path(b, "src/liblzma/api"), .{ .prefix = "-I" });
-        run.addDirectoryArg2(sources.cares.path(b, "include"), .{ .prefix = "-I" });
-        run.addDirectoryArg2(sources.curl.path(b, "include"), .{ .prefix = "-I" });
-        run.addDirectoryArg2(sources.yyjson.path(b, "src"), .{ .prefix = "-I" });
+        addSyntaxFlags(b, run, sources);
         run.addArg("-o");
         _ = run.addOutputFileArg2(b.fmt("{s}.analysis", .{file}), .{});
         // The tree's own file, so a finding names it: a file argument's
@@ -1074,6 +1153,136 @@ fn analyze(
         run.addFileArg2(b.path(b.fmt("core/{s}", .{file})), .{});
         step.dependOn(&run.step);
     }
+    closureChecks(b, step, sources);
+}
+
+/// The flags the analyzer and the closure check read the tree's own C
+/// with: the warnings, defines and include directories a core is built
+/// with, but for the tree's own, which a file finds beside it.
+fn addSyntaxFlags(b: *std.Build, run: *std.Build.Step.Run, sources: Sources) void {
+    const crypto = sources.mbedtls.path(b, "tf-psa-crypto");
+    run.addArgs(&own_c);
+    // `zig cc` passes options the analyzer has no use for.
+    run.addArg("-Wno-unused-command-line-argument");
+    run.addArgs(&mbedtls_config);
+    run.addArgs(&.{
+        "-DLUA_USE_POSIX",
+        "-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES",
+        "-DCOSMIC_TARGET_ID=1",
+        "-DCOSMIC_TARGET_NAME=\"analyze\"",
+        "-DCOSMIC_CONFIGURATION_ID=1",
+        "-DCOSMIC_CONFIGURATION_NAME=\"analyze\"",
+        b.fmt("-DCOSMIC_PORTABLE_REQUIRED_TARGET_MASK=UINT64_C({d})", .{requiredTargetMask()}),
+        b.fmt("-DCOSMIC_PORTABLE_RELEASE_CONFIGURATION_ID={d}", .{release_configuration.id}),
+    });
+    run.addDirectoryArg2(sources.config.mbedtls, .{ .prefix = "-I" });
+    run.addDirectoryArg2(sources.lua.path(b, "src"), .{ .prefix = "-I" });
+    run.addDirectoryArg2(sources.sqlite, .{ .prefix = "-I" });
+    run.addDirectoryArg2(sources.miniz, .{ .prefix = "-I" });
+    for (crypto_include_dirs) |dir| {
+        run.addDirectoryArg2(crypto.path(b, dir), .{ .prefix = "-I" });
+    }
+    run.addDirectoryArg2(sources.mbedtls.path(b, "include"), .{ .prefix = "-I" });
+    run.addDirectoryArg2(sources.bzip2, .{ .prefix = "-I" });
+    run.addDirectoryArg2(sources.xz.path(b, "src/liblzma/api"), .{ .prefix = "-I" });
+    run.addDirectoryArg2(sources.cares.path(b, "include"), .{ .prefix = "-I" });
+    run.addDirectoryArg2(sources.curl.path(b, "include"), .{ .prefix = "-I" });
+    run.addDirectoryArg2(sources.yyjson.path(b, "src"), .{ .prefix = "-I" });
+}
+
+/// Every C file of the tree a core, a check or a helper is built from.
+const closure_checked = [_][]const u8{
+    "core/entry.c",                       "core/startup_hook.c",
+    "core/testing.c",                     "core/testing_checked.c",
+    "core/coverage_map_empty.c",          "core/strnlen_test.c",
+    "core/environment_test.c",            "test/portable/format_test.c",
+    "test/portable/startup_hook.c",       "test/portable/launcher_payload.c",
+    "test/portable/launcher_socket_fd.c",
+};
+
+/// What a copy of a C file holds ([`Own`]) against what the compiler
+/// reads: `zig cc -MM` lists the headers of the tree a file includes, and
+/// each must be in the copy's closure, or the file would compile from a
+/// copy that lacks one -- an error where the header is missing, but a
+/// stale object where another header of the same name is found. It runs
+/// for the host's target and the other cores' (their `#if` branches keep
+/// different includes) and the checked core's defines, over every C file a
+/// core is built from.
+fn closureChecks(b: *std.Build, step: *std.Build.Step, sources: Sources) void {
+    const checker = b.addExecutable(.{
+        .name = "closure-check",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("build/closure_check.zig"),
+            .target = baselineHostTarget(b),
+            .optimize = .debug,
+        }),
+    });
+    const root = std.fs.path.dirname(b.root.joinString(b.allocator, "build.zig") catch @panic("OOM")).?;
+    const variants = [_]struct { name: []const u8, flags: []const []const u8 }{
+        .{ .name = "host", .flags = &.{} },
+        .{ .name = "aarch64-linux-musl", .flags = &.{ "-target", "aarch64-linux-musl" } },
+        .{ .name = "aarch64-macos", .flags = &.{ "-target", "aarch64-macos" } },
+        .{ .name = "checked", .flags = &.{ "-DCOSMIC_CHECKED", "-DLUAI_ASSERT", "-DLUA_USE_APICHECK" } },
+    };
+    var paths: std.ArrayList([]const u8) = .empty;
+    for (core_sources) |name| paths.append(b.allocator, b.fmt("core/{s}", .{name})) catch @panic("OOM");
+    paths.appendSlice(b.allocator, &closure_checked) catch @panic("OOM");
+    for (variants) |variant| for (paths.items) |path| {
+        const deps = b.addSystemCommand(&.{ b.graph.zig_exe, "cc", "-MM" });
+        deps.addArgs(variant.flags);
+        addSyntaxFlags(b, deps, sources);
+        // A file outside core/ finds core/'s headers as its copy does, by
+        // the header beside it that includes them.
+        if (!std.mem.startsWith(u8, path, "core/")) deps.addArg(b.fmt("-I{s}/core", .{root}));
+        deps.addArg("-MF");
+        const list = deps.addOutputFileArg2(b.fmt("{s}-{s}.d", .{ variant.name, std.fs.path.basename(path) }), .{});
+        deps.addFileArg2(b.path(path), .{});
+        // The headers it reads are no input of this step, so it asks again
+        // each run; the check below stands on the list.
+        deps.has_side_effects = true;
+        const check = b.addRunArtifact(checker);
+        check.addArg(root);
+        check.addArg(path);
+        check.addFileArg2(list, .{});
+        check.addArgs(sources.own.closure(path).files);
+        step.dependOn(&check.step);
+    };
+}
+
+/// The configuration headers the vendored libraries read from core/, each
+/// copied into a directory of its own in the zig cache, named by its
+/// contents (see the head of `build`). A module's include directory is
+/// part of every compile's flags, so a directory holding more than a
+/// module needs moves that module's compiles when it changes.
+const ConfigHeaders = struct {
+    ares: std.Build.LazyPath,
+    curl: std.Build.LazyPath,
+    mbedtls: std.Build.LazyPath,
+    xz: std.Build.LazyPath,
+    darwin_compat: std.Build.LazyPath,
+};
+
+fn configHeaders(b: *std.Build) ConfigHeaders {
+    return .{
+        .ares = configFile(b, "core/ares_config.h"),
+        .curl = configFile(b, "core/curl_config.h"),
+        .mbedtls = configFile(b, "core/mbedtls_cosmic_config.h"),
+        .xz = configFile(b, "core/xz_config/config.h"),
+        .darwin_compat = darwinCompat(b).path(b, "darwin-compat"),
+    };
+}
+
+/// A directory holding the tree's `path`, a header, by its basename.
+fn configFile(b: *std.Build, path: []const u8) std.Build.LazyPath {
+    const copies = b.addWriteFiles();
+    _ = copies.addCopyFile(b.path(path), std.fs.path.basename(path));
+    return copies.getDirectory();
+}
+
+fn darwinCompat(b: *std.Build) std.Build.LazyPath {
+    const copies = b.addWriteFiles();
+    _ = copies.addCopyDirectory(b.path("core/darwin-compat"), "darwin-compat", .{});
+    return copies.getDirectory();
 }
 
 /// The vendored trees every core is built from.
@@ -1091,7 +1300,7 @@ const Sources = struct {
     yyjson: std.Build.LazyPath,
     /// The configuration headers the libraries read from core/, copied
     /// into the zig cache (see the head of `build`).
-    config: std.Build.LazyPath,
+    config: ConfigHeaders,
 };
 
 /// A core that observes its own C: linked first with an empty block table
@@ -1114,12 +1323,11 @@ fn observedCore(
     write_map.addArg("write");
     write_map.addFileArg2(first.getEmittedBin(), .{});
     const map = write_map.addOutputFileArg2("coverage_map.c", .{});
-    // Where each file the core observes was compiled from, and the
-    // headers' copy a file outside core/ reads.
+    // Where each file the core observes was compiled from: a copy holds
+    // the headers it includes.
     for (ownCoreFiles(b, configuration, false)) |path| {
         write_map.addDirectoryArg2(sources.own.root(path), .{});
     }
-    write_map.addDirectoryArg2(sources.own.header_root, .{});
     const second = core(b, target_record, configuration, target, sources, vendor, false, .{ .map = map });
     const check_map = b.addRunArtifact(mapper);
     check_map.addArg("check");
@@ -1149,9 +1357,15 @@ fn vendorLibrary(
         .sanitize_c = if (configuration.sanitize) .full else .off,
     });
     vendorIncludes(b, mod, target_record, sources);
-    // Last, as core/ is in the core's own module: c-ares, curl and mbedtls
-    // read their configuration headers from there.
-    mod.addIncludePath(sources.config.path(b, "include"));
+    // c-ares, curl and mbedtls read their configuration headers from here.
+    // TODO: compile each vendored library as a module of its own, with only
+    // the include directories it reads: they are one module's flags now, so
+    // an edit to core/ares_config.h or core/curl_config.h still compiles
+    // all of vendor/ again, though the compiler's dependency list would
+    // recompile only the files that include it.
+    mod.addIncludePath(sources.config.ares);
+    mod.addIncludePath(sources.config.curl);
+    mod.addIncludePath(sources.config.mbedtls);
     const lua = sources.lua;
     const sqlite = sources.sqlite;
     const miniz = sources.miniz;
@@ -1473,7 +1687,7 @@ fn vendorIncludes(
     mod.addIncludePath(sources.bzip2);
     // xz's own config.h stands in for autoconf's; see [`vendorLibrary`].
     const xz_src = sources.xz.path(b, "src");
-    mod.addIncludePath(sources.config.path(b, "xz_config"));
+    mod.addIncludePath(sources.config.xz);
     mod.addIncludePath(sources.xz.path(b, "src/common"));
     mod.addIncludePath(xz_src.path(b, "liblzma/api"));
     mod.addIncludePath(xz_src.path(b, "liblzma/common"));
@@ -1493,7 +1707,7 @@ fn vendorIncludes(
     mod.addIncludePath(sources.cares.path(b, "src/lib"));
     mod.addIncludePath(sources.cares.path(b, "src/lib/include"));
     if (target_record.query.os_tag == .macos) {
-        mod.addIncludePath(sources.config.path(b, "darwin-compat"));
+        mod.addIncludePath(sources.config.darwin_compat);
     }
     mod.addIncludePath(sources.curl.path(b, "lib"));
     mod.addIncludePath(sources.curl.path(b, "include"));
@@ -1544,6 +1758,10 @@ fn core(
         .sanitize_c = if (configuration.sanitize) .full else .off,
     });
     vendorIncludes(b, mod, target_record, sources);
+    // mbedtls's headers name the library's configuration header, which is
+    // not beside them. Only it: an edit to any other header of core/ is no
+    // flag of this module, and moves no object it does not include.
+    mod.addIncludePath(sources.config.mbedtls);
     mod.linkLibrary(vendor);
 
     // The core sees the library through the same configuration it was
@@ -1573,7 +1791,6 @@ fn core(
         .first_link, .map => if (configuration.sanitize) &checked_observed_flags else &observed_flags,
     };
     sources.own.add(mod, ownCoreFiles(b, configuration, portable_startup_test_hooks), own_flags);
-    mod.addIncludePath(sources.own.include());
 
     mod.addCMacro("COSMIC_TARGET_ID", b.fmt("{d}", .{target_record.id}));
     mod.addCMacro("COSMIC_TARGET_NAME", b.fmt("\"{s}\"", .{target_record.name}));
