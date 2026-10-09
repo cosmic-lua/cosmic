@@ -52,10 +52,15 @@ Test.policy{
   },
 }
 
--- A rebuild from a fresh tree compiles all of it (about 20 s on a
--- runner), and one whose compiler moved compiles it again on
--- re-entry; the driver bounds each test here (orchestration.tl).
-local rebuild_timeout_ns <const> = Clock.seconds(150)
+-- A rebuild from a fresh tree compiles all of it cold (about 43 s of one
+-- core), and one whose compiler moved compiles it again on re-entry: a
+-- compiler case's rebuild took 110 s alone on an idle core, and is
+-- expected to take about 210 s on an x86-64 runner with the file's other
+-- tests beside it. The 150 s this was ended compiler cases on
+-- linux-x86_64 on October 7 and 8 and on alpine-x86_64 on October 7. The
+-- driver bounds each test and the file (orchestration.tl's
+-- `fixed_point_test_timeout_ns`).
+local rebuild_timeout_ns <const> = Clock.seconds(300)
 
 local function count_occurrences(text: string, needle: string): integer
   local count = 0
