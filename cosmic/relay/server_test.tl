@@ -563,7 +563,7 @@ local function test_a_name_that_does_not_resolve_is_unreachable(tmp: string)
   Poll.run(function()
     local rig = start(tmp, { grants = { "nowhere.test:80" },
       -- A server that is closed: the query is refused at once.
-      resolve = { hosts_file = tmp .. "/hosts", servers = { Net.udp("127.0.0.1", 9) } } })
+      resolve = { hosts_file = tmp .. "/hosts", servers = { { host = "127.0.0.1", port = 9 } } } })
     local conn, head = connect_to(rig, "nowhere.test:80")
     local line = status_line(head)
     assert(line:find("^HTTP/1.1 502 ") and line:find("could not resolve nowhere.test", 1, true), line)
@@ -605,7 +605,7 @@ local function test_a_lookup_that_is_not_answered_times_out(tmp: string)
     -- A socket nothing reads: the query is sent and never answered.
     local silent = assert(Net.datagram(Net.udp("127.0.0.1", 0)))
     local rig = start(tmp, { grants = { "slow.test:80" }, timeouts = { resolve = Clock.ms(200) },
-      resolve = { hosts_file = tmp .. "/hosts", servers = { silent.address } } })
+      resolve = { hosts_file = tmp .. "/hosts", servers = { { host = "127.0.0.1", port = silent.address.port } } } })
     local conn, head = connect_to(rig, "slow.test:80")
     local line = status_line(head)
     assert(line:find("^HTTP/1.1 504 ") and line:find("resolving slow.test timed out after 200 milliseconds", 1, true), line)
@@ -628,7 +628,7 @@ local function test_a_lookup_that_is_not_answered_stalls_only_its_own_connection
     local port = server.port
     local rig = start(tmp, { grants = { "slow.test:80", "127.0.0.1:" .. port },
       timeouts = { resolve = Clock.seconds(2) },
-      resolve = { hosts_file = tmp .. "/hosts", servers = { silent.address } } })
+      resolve = { hosts_file = tmp .. "/hosts", servers = { { host = "127.0.0.1", port = silent.address.port } } } })
     local slow_answered = false
     local began = Clock.monotonic_ns()
     local waiting = Poll.spawn(function()
@@ -668,7 +668,7 @@ local function test_a_lookup_out_of_time_is_refused_while_another_is_answered(tm
     local port = server.port
     local rig = start(tmp, { grants = { "slow.test:80", "svc.test:" .. port, "127.0.0.1:" .. port },
       timeouts = { resolve = Clock.ms(300) },
-      resolve = { hosts_file = tmp .. "/hosts", servers = { silent.address } } })
+      resolve = { hosts_file = tmp .. "/hosts", servers = { { host = "127.0.0.1", port = silent.address.port } } } })
     local head = ""
     local waiting = Poll.spawn(function()
       local conn, answer = connect_to(rig, "slow.test:80")

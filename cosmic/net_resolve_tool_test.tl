@@ -79,7 +79,7 @@ local Net = require("cosmic.net")
 return function(argv: {string}): integer
   local opts: Net.ResolveOptions = { timeout_ns = Clock.ms(assert(math.tointeger(argv[3]))) }
   if argv[2] ~= "" then
-    opts.servers = { Net.udp("127.0.0.1", assert(math.tointeger(argv[2]))) }
+    opts.servers = { { host = "127.0.0.1", port = assert(math.tointeger(argv[2])) } }
   end
   local found, why = Net.resolve(argv[1], opts)
   local lines: {string} = {}
@@ -100,7 +100,7 @@ local Net = require("cosmic.net")
 return function(argv: {string}): integer
   local guard = assert(Child.guard())
   local found, why = Net.resolve(argv[1],
-    { servers = { Net.udp("127.0.0.1", assert(math.tointeger(argv[2]))) } })
+    { servers = { { host = "127.0.0.1", port = assert(math.tointeger(argv[2])) } } })
   Fs.put(Fs.stdout, found == nil and "error " .. why or "found")
   assert(guard:release())
   return 0

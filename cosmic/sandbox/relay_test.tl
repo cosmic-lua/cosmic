@@ -124,9 +124,9 @@ end
 local function test_name_servers_and_the_public_lists()
   local one = assert(SandboxRelay.name_servers({ servers = { { host = "127.0.0.1", port = 53 } } }))
   assert(#one.servers == 1 and one.wait_ns == Clock.seconds(5) // 2, tostring(one.wait_ns))
-  local many: {Net.Endpoint} = {}
-  for port = 1, 129 do many[port] = { host = "127.0.0.1", port = port } end
-  local none, why = SandboxRelay.name_servers({ servers = many })
+  local many: SandboxRelay.NameServerOptions = { servers = {} }
+  for port = 1, 129 do many.servers[port] = { host = "127.0.0.1", port = port } end
+  local none, why = SandboxRelay.name_servers(many)
   assert(none == nil and why:find("more than a connector holds (128)", 1, true), why)
   local public = SandboxRelay.public({ "10.1.0.2" })
   local own, deny = assert(public.own), public.deny
