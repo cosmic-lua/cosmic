@@ -1,6 +1,7 @@
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
 local type Log = require("cosmic.log")
+local paths = require("build.paths")
 local reboot = require("build.reboot")
 local rebuild_lock = require("build.rebuild_lock")
 local stand_in = require("build.stand_in")
@@ -38,7 +39,8 @@ end
 --- good); one started by a run that holds none is handed nothing.
 local function test_boot_into_hands_on_the_lock_it_holds(tmp: string)
   local root = tmp .. "/tree"
-  assert(Fs.mkdirs(root .. "/bin") and Fs.mkdirs(root .. "/o"))
+  local layout = paths.resolve(root)
+  assert(Fs.mkdirs(root .. "/bin") and Fs.mkdirs(layout.directory))
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   assert(stand_in.place(probe, root .. "/bin/zig",
     "write $DIR/handed [$COSMIC_REBUILD_LOCK_HANDED]\nexit 1"))
@@ -48,7 +50,7 @@ local function test_boot_into_hands_on_the_lock_it_holds(tmp: string)
   local trouble = reboot.boot_into(root, { [0] = "cosmic", "test" }, {})
   rebuild_lock.release()
   assert(trouble:find("bin/zig build boot failed", 1, true), trouble)
-  assert(Fs.read(root .. "/bin/handed") == "[" .. root .. "/o/rebuild.lock]\n",
+  assert(Fs.read(root .. "/bin/handed") == "[" .. layout.lock .. "]\n",
     Fs.read(root .. "/bin/handed"))
 end
 
@@ -142,25 +144,27 @@ local function test_rebuild_failed_refuses_when_told_not_to_boot(tmp: string)
 end
 
 --- Only a binary under the tree's o/ is its own tool, judged by the
---- path it was started as, its directory resolved: a link into o/ from
---- outside is outside, a name in o/ is inside even when the file is gone
---- (renamed or removed while it runs), and a directory link into o/
---- counts. A tree with no o/ has no tool of its own to judge.
+--- path it was started as, its directory resolved: a link into the
+--- build directory from outside is outside, a name in it is inside even
+--- when the file is gone (renamed or removed while it runs), and a
+--- directory link into it counts. A tree with no build directory has no
+--- tool of its own to judge.
 local function test_own_tool_is_a_binary_under_the_trees_outputs(tmp: string)
   local root = tmp .. "/tree"
-  assert(Fs.mkdirs(root .. "/o/bin"))
-  assert(Fs.mkdirs(root .. "/o/sanitized/bin"))
+  local layout = paths.resolve(root)
+  local sanitized = paths.under(layout.sanitized)
+  assert(Fs.mkdirs(layout.bin))
+  assert(Fs.mkdirs(sanitized.bin))
   assert(Fs.mkdirs(tmp .. "/elsewhere"))
-  for _, path in ipairs({ root .. "/o/bin/cosmic",
-      root .. "/o/sanitized/bin/cosmic", tmp .. "/elsewhere/cosmic" }) do
+  for _, path in ipairs({ layout.tool, sanitized.tool, tmp .. "/elsewhere/cosmic" }) do
     assert(Fs.write(path, "binary", 0x1ed))
   end
-  assert(Fs.symlink(root .. "/o/bin/cosmic", tmp .. "/elsewhere/into"))
-  assert(Fs.symlink(root .. "/o/bin", tmp .. "/bin-link"))
+  assert(Fs.symlink(layout.tool, tmp .. "/elsewhere/into"))
+  assert(Fs.symlink(layout.bin, tmp .. "/bin-link"))
   local cases: {string:boolean} = {
-    [root .. "/o/bin/cosmic"] = true,
-    [root .. "/o/sanitized/bin/cosmic"] = true,
-    [root .. "/o/bin/gone"] = true,
+    [layout.tool] = true,
+    [sanitized.tool] = true,
+    [layout.bin .. "/gone"] = true,
     [tmp .. "/bin-link/cosmic"] = true,
     [tmp .. "/elsewhere/into"] = false,
     [tmp .. "/elsewhere/cosmic"] = false,
@@ -170,7 +174,7 @@ local function test_own_tool_is_a_binary_under_the_trees_outputs(tmp: string)
     assert(own == want, path .. ": " .. tostring(own) .. " " .. trouble)
   end
   local none, missing = reboot.own_tool(tmp .. "/elsewhere", tmp .. "/elsewhere/cosmic")
-  assert(none == nil and missing:find("/elsewhere/o", 1, true), missing)
+  assert(none == nil and missing:find(paths.resolve(tmp .. "/elsewhere").directory, 1, true), missing)
 end
 
 --- A tool carries a tree's code when every module and main of the tree

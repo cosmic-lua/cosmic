@@ -6,10 +6,10 @@
 # -- build/zig.tl behind bin/zig, build/vendor.tl behind bin/vendor,
 # build/verify_codesign.tl behind bin/verify-codesign, each a one-line
 # `exec` of this script -- against its own embedded standard library,
-# so neither the tree's state nor o/ matters to it.
+# so neither the tree's state nor its build directory matters to it.
 #
 # COSMIC_BOOTSTRAP, when set, names another cosmic to stand in for the
-# pin's -- a tree-built o/bin/cosmic, say -- for every one of them, and
+# pin's -- the tree's own tool, say -- for every one of them, and
 # for CI's driver. It must be an executable file; anything else is an
 # error, never a silent fallback to the pin. Nothing is fetched then,
 # and the path printed or run is absolute, so a caller that changes
@@ -48,6 +48,12 @@ if [ -n "${COSMIC_BOOTSTRAP:-}" ]; then
   fi
   if [ ! -f "$COSMIC_BOOTSTRAP" ] || [ ! -x "$COSMIC_BOOTSTRAP" ]; then
     die "COSMIC_BOOTSTRAP=$COSMIC_BOOTSTRAP is not an executable file"
+  fi
+  # bin/cosmic asks this script where the tool is, so a stand-in of it
+  # would call itself without end.
+  if [ "$COSMIC_BOOTSTRAP" -ef "$root/bin/cosmic" ] ||
+      [ "$COSMIC_BOOTSTRAP" -ef "$root/bin/cosmic-bootstrap" ]; then
+    die "COSMIC_BOOTSTRAP=$COSMIC_BOOTSTRAP is this checkout's entrypoint, not a cosmic; name a built one"
   fi
   case $COSMIC_BOOTSTRAP in
     /*) ;;

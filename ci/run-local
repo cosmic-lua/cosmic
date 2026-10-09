@@ -2,8 +2,9 @@
 # Run the host CI phases against a private snapshot of this checkout.
 # With no arguments, build a fresh candidate and run every phase;
 # named phases reuse the last candidate with a fresh copy of ci/.
-# The pinned tool runs the standalone entry; the checkout's o/bin/cosmic
-# remains the phase driver. Root must drop to a nonzero account.
+# The pinned tool runs the standalone entry; the checkout's own tool, in
+# the build directory build/paths.tl names, remains the phase driver.
+# Root must drop to a nonzero account.
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 exec "$root/bin/cosmic-bootstrap" --standalone "$root/ci/run_local.tl" "$@"

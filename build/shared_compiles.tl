@@ -33,7 +33,7 @@
 --- parse.
 ---
 --- A row's bytecode runs (a build of cosmic's own tree carries the
---- `build.*` modules' in `o/bin/cosmic`), so whoever can write the file
+--- `build.*` modules' in its tool), so whoever can write the file
 --- can run code as every user of it. The file and its directory are held
 --- to what [`Fs.cache_dir`] holds its directories to, wherever the file
 --- is: owned by this user, and writable by no one else.

@@ -109,7 +109,8 @@ in all supported platform environments.
 
 `self_rebuild_test.tl` archives a fresh `git archive HEAD` tree per case
 (`COSMIC_FIXTURE_ROOT`) and places the fixture-only runtime
-(`COSMIC_FIXTURE_RUNTIME`) at its `o/bin/cosmic`. Each child selects only
+(`COSMIC_FIXTURE_RUNTIME`) as its tool, in the build directory its
+[`build/paths.tl`] names. Each child selects only
 `embed_test.tl`, so unrelated tests remain untouched and cannot run. It uses
 the same fixture-only startup pause to
 rename and unlink the artifact after descriptor adoption. In each case a
@@ -137,6 +138,7 @@ command contracts are documented in `ci`.
 [`build.artifact`]: ../../build/artifact.tl
 [`build/artifact.tl`]: ../../build/artifact.tl
 [`build/launcher.tl`]: ../../build/launcher.tl
+[`build/paths.tl`]: ../../build/paths.tl
 [`core/portable.c`]: ../../core/portable.c
 [`core/startup.h`]: ../../core/startup.h
 [`test.portable`]: init.tl

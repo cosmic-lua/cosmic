@@ -28,8 +28,11 @@ function ProductSetup.build(root: string, product: string, tmp: string): string
   local built = Fixture.run("application-build", { cosmic, "build" }, project,
     diagnostics, { COSMIC_PORTABLE_CACHE = tmp .. "/cache" })
   Fixture.contains(built.out, "build: PASS (o/bin/hello, o/bin/second")
-  local hello = project .. "/o/bin/hello"
-  local second = project .. "/o/bin/second"
+  -- The application's build directory, as the tool built from `root`
+  -- names it: `root`'s resolver, asked of the project.
+  local built_bin = BuildPaths.directory(project, nil, root) .. "/bin"
+  local hello = built_bin .. "/hello"
+  local second = built_bin .. "/second"
   Fixture.assert_executable(hello)
   Fixture.assert_executable(second)
   local hello_run = Fixture.run("hello", { hello }, project, diagnostics,

@@ -212,7 +212,7 @@ local version <const> = "28"
 ---
 --- `digests` is the hash of each file a sandboxed run's keys looked
 --- at ([`build.declared_key`]) -- declared inputs beyond what the stage
---- hashes, o/bin/cosmic and vendor/ among them -- by absolute path,
+--- hashes, the tree's tool and vendor/ among them -- by absolute path,
 --- with what `lstat` said of it then: a later run whose `lstat` says
 --- the same reads none of them again. A sandboxed run that read one
 --- writes what it looked at: a run of the whole tree in place of the

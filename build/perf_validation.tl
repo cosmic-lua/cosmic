@@ -1,5 +1,5 @@
 --- Fixed synthetic validation; no executable measurements are inputs.
---- Run: o/bin/cosmic build/perf_validation.tl /tmp/perf-validation.json
+--- Run: bin/cosmic build/perf_validation.tl /tmp/perf-validation.json
 local Perf = require("build.perf")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")

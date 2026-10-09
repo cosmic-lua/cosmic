@@ -565,7 +565,7 @@ and examples of the public standard library alone (and the doc rows
 the error catalog's guidance joins to): `cosmic test` and a lookup
 inside the tree read the rest from `o/cosmic.db`, and a release has no
 use for them. a fresh clone and CI run `boot`; a
-developer runs `o/bin/cosmic build` the other hundred times a day.
+developer runs `bin/cosmic build` the other hundred times a day.
 
 [`build.work`] stages inputs and manages the working database.
 [`build.identity`] defines input policy, fingerprints and semantic identities.
@@ -586,7 +586,7 @@ and a stale tool is the bug to design against. `boot` stores two
 fingerprints in the binary it produces: one over everything the tool
 is made of, one over what the C core is built from. every run in
 cosmic's own tree fingerprints the tree first. only the tree's own tool
-under `o/` rebuilds itself ([`build.reboot.own_tool`]); a stale release or
+in its build directory rebuilds itself ([`build.reboot.own_tool`]); a stale release or
 an externally copied tool refuses with exit 3. when only Teal differs,
 the tree's tool compiles the tree, projects the database and combines it
 with the exact retained portable prefix before re-entering the command.
@@ -1044,7 +1044,8 @@ cosmic/             the standard library; entry files are public, siblings not
 cmd/cosmic/         the binary's main
 build/              the importer, checker driver, embed (Teal; private to build/ cmd/ test/ tests)
 doc/                prose
-o/                  output; o/cosmic.db, o/carried.db, o/build.db, o/stores/; never committed
+o/                  the build directory build/paths.tl names: cosmic.db, carried.db, build.db, stores/; never committed
+bin/cosmic          the stable way to run the tree's tool, wherever the build directory is
 ```
 
 every directory name is singular: `doc`, not `docs`; `patch`, not

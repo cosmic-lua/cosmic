@@ -334,8 +334,9 @@ original arguments and environment once.
 
 The logical artifact is the path returned by [`Proc.executable()`]. Running a
 copy outside the checkout rewrites that copy; it does not redirect the rebuild
-to `o/bin/cosmic`. A read-only logical path therefore fails. Rename and unlink
-remain supported because the running process reads the retained descriptor.
+to the tree's own tool in its build directory. A read-only logical path
+therefore fails. Rename and unlink remain supported because the running
+process reads the retained descriptor.
 
 A marker rejects a second rebuild loop. A core-input change cannot reuse the
 prefix, so the tool runs `bin/zig build boot` itself and re-enters the command

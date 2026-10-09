@@ -174,18 +174,18 @@ Kept as is -- it says why, which the code cannot:
 
 1. Work in a worktree of its own, per AGENTS.md, and boot it.
 2. Read each file whole: a comment is judged against the code around it,
-   and a cross-reference against what it names (`o/bin/cosmic docs`,
-   `o/bin/cosmic uses`, grep).
+   and a cross-reference against what it names (`bin/cosmic docs`,
+   `bin/cosmic uses`, grep).
 3. Fix what fails the standard. Leave a comment that meets it alone:
    the audit is not a rewrite into one voice, and churn costs reviewers.
 4. A comment that turns out wrong because the code is wrong is a bug
    report, not a comment fix: leave the comment, add a `TODO:` naming
    the defect, and list it in the PR.
-5. `o/bin/cosmic fix <changed-paths>`, then `timeout 30 o/bin/cosmic
+5. `bin/cosmic fix <changed-paths>`, then `timeout 30 bin/cosmic
    test`. A comment edit in a harness module ([`build/harness_epoch.tl`])
    moves its digest: set the lines [`build/harness_epoch_test.tl`] prints,
    and do not bump `epoch`, since no pass or fail moves. Before pushing,
-   `o/bin/cosmic fix --check .`.
+   `bin/cosmic fix --check .`.
 6. One PR per coherent part of the tree, titled `<area>: audit comments`.
    Its description gives the kinds of change made, with a few examples,
    any refactor, and any defect found.

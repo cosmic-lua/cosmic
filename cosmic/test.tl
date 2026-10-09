@@ -101,7 +101,7 @@ local record Test
     --- What the tests need of the host, as `requires` of [`Policy`]
     --- says.
     requires: {string}
-    --- Whether the tests read the tool itself, `o/bin/cosmic`, or the
+    --- Whether the tests read the tool itself, in the build directory, or the
     --- program running them, or start either: it gives them the program
     --- and nothing else -- not the store beyond their closure (`store`),
     --- nor a root of their own for what they start (`nests`).
@@ -173,7 +173,7 @@ local record Test
     --- stood on one host stands on another of the same kernel and
     --- processor. A test that starts this program's core directly, past
     --- its launcher, needs none; one that runs the launcher itself
-    --- (o/bin/cosmic, `#!/bin/sh`) needs it. One that reads a file or two
+    --- (a `#!/bin/sh` script) needs it. One that reads a file or two
     --- of the system rather names them in `host`, which keys a file by
     --- its contents.
     system: boolean

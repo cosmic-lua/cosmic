@@ -4,7 +4,8 @@
 //!     bin/zig build cores     the core for all three targets
 //!     bin/zig build boot      all release cores, then the boot bridge
 //!
-//! Everything lands under `o/`. Run it through [`bin/zig`], which pins the
+//! Everything lands in the install prefix bin/zig hands it: the build
+//! directory build/paths.tl names. Run it through [`bin/zig`], which pins the
 //! compiler and names zig's two caches, which every checkout shares
 //! (build/zig.tl): everything, vendored or the tree's own, compiles from
 //! copies in the project cache, so a checkout at a path no build has seen
@@ -45,7 +46,7 @@ comptime {
 const Target = struct {
     /// Stable identifier used by portable artifact records. Never renumber.
     id: u32,
-    /// The name the database and `o/bin/` use.
+    /// The name the database and the build directory's `bin/` use.
     name: []const u8,
     /// The pair printed by `uname -s` and `uname -m` on this target.
     uname_os: []const u8,
@@ -146,7 +147,8 @@ const own_warnings = [_][]const u8{
 /// the project cache's `cosmic-vendor/`, in their `assert` strings and
 /// type names. Each directory is named by its contents, so those paths
 /// are the same from every checkout at one cache path, which CI's is
-/// (COSMIC_ZIG_CACHE_SEED); a checkout's own `o/zig-cache` names that
+/// (COSMIC_ZIG_CACHE_SEED); a checkout's own `zig-cache`, in its build
+/// directory, names that
 /// checkout, as run-local's does.
 // TODO: compile musl's debug information with `.` for its directory,
 // or strip it alone, once zig's libc build takes our flags (zig 0.17
@@ -710,7 +712,8 @@ pub fn build(b: *std.Build) void {
     const curl = patched(b, trees, "curl");
     const yyjson = patched(b, trees, "yyjson");
 
-    // The patched copies land under o/vendor, which is where the boot
+    // The patched copies land in the build directory's vendor/, which is
+    // where the boot
     // bridge reads the Teal compiler from.
     const vendored = b.step("vendor", "write the patched vendor trees");
     for ([_]struct { []const u8, std.Build.LazyPath }{
