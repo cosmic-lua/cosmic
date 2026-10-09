@@ -504,6 +504,71 @@ function tree_checks.compiler_readers(db: Sqlite.Handle, named?: {string}): {str
   return missing
 end
 
+--- The files of the tree that may spell a path under the build directory
+--- themselves rather than ask [`build.paths`], each with why.
+local spelled: {string: string} = {
+  ["build/paths.tl"] = "the resolver itself",
+  ["build/perf.tl"] = "asks a baseline artifact from before build.paths for its build " ..
+    "directory, which that artifact can only name by the rule it was built with",
+  ["build/identity.tl"] = "skips a checkout-local o/ of a tree of its own (ci/o) from the " ..
+    "input walk, by its name in the tree, which a stale one keeps wherever the build " ..
+    "directory goes",
+  ["eval/check/grade.tl"] = "runs standalone on the cosmic.* modules alone, and grades a " ..
+    "project the arena's own cosmic built",
+  -- TODO: drop this once #2864's step 3 names the sandbox's virtual
+  -- build directory apart from o/.
+  ["build/test_sandbox.tl"] = "names where a sandboxed worker finds the build directory " ..
+    "in its own tree, /tree/o, which policies grant as o/ wherever the host's is",
+}
+
+--- Whether `line`, code rather than a comment, joins a path to `/o`: a
+--- build directory spelled by hand.
+local function spells_build_directory(line: string): boolean
+  if line:find("^%s*%-%-") ~= nil then return false end
+  return line:find("%.%.%s*([\"'])/o%1") ~= nil or line:find("%.%.%s*[\"']/o/") ~= nil
+end
+
+--- Each line of a module of `db` but a test that spells a path under the
+--- build directory by hand -- `root .. "/o"` -- where `excused` (by
+--- default [`spelled`]) does not name its file, as `<file>:<line>: ...`,
+--- and then each file `excused` names that no longer does. Only
+--- [`build.paths`] says where a build directory is, so boot, the verbs and
+--- the rebuild lock cannot come to name different ones.
+function tree_checks.build_directory(db: Sqlite.Handle, excused?: {string: string}): {string}
+  excused = excused or spelled
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT file, CAST(inflate(source) AS TEXT) FROM modules " ..
+      "WHERE file GLOB '*.tl' AND file NOT GLOB '*_test.tl' ORDER BY file")
+  if rows == nil then
+    return { "reading the modules' sources: " .. trouble }
+  end
+  local out: {string} = {}
+  local found: {string: boolean} = {}
+  for _, row in ipairs(rows) do
+    local number = 0
+    for line in String.lines(row[2]) do
+      number = number + 1
+      if spells_build_directory(line) then
+        found[row[1]] = true
+        if excused[row[1]] == nil then
+          out[#out + 1] = row[1] .. ":" .. tostring(number) .. ": spells the build directory " ..
+            "by hand; ask build.paths' `resolve` for it, or for the path under it"
+        end
+      end
+    end
+  end
+  local stale: {string} = {}
+  for file in pairs(excused) do
+    if not found[file] then
+      stale[#stale + 1] = file .. ": excused in build/tree_checks.tl's `spelled`, but no " ..
+        "longer spells the build directory -- remove it"
+    end
+  end
+  table.sort(stale)
+  for _, line in ipairs(stale) do out[#out + 1] = line end
+  return out
+end
+
 --- What a newcomer types first, and the function that stands in for it.
 local stand_ins_expected: {{string}} = {
   { "which", "Proc.find" },
@@ -930,7 +995,7 @@ function tree_checks.projection(root: string, built: compiler): Sqlite.Handle | 
     local _, _ = work.close(handle)
     return nil, "the tree does not build:\n" .. table.concat(result.refused, "\n")
   end
-  local path = build_paths.required(root) .. "/cosmic.db"
+  local path = build_paths.resolve(root).projection
   local written, write_trouble = writer.write_result(handle, path, result)
   local closed, close_trouble = work.close(handle)
   if not written then
@@ -1661,6 +1726,7 @@ function tree_checks.run(db: Sqlite.Handle, quickstart: string | nil, built?: co
       { name = "exports", lines = tree_checks.exports(db) },
       { name = "doc anchors", lines = tree_checks.anchors(db) },
       { name = "compiler readers", lines = tree_checks.compiler_readers(db) },
+      { name = "build directory", lines = tree_checks.build_directory(db) },
       { name = "stand-ins", lines = tree_checks.stand_ins(db) },
       { name = "docs queries", lines = tree_checks.queries(db) },
       { name = "quieted", lines = tree_checks.quieted(db) },

@@ -449,10 +449,10 @@ local function begin_waiting(db: Sqlite.Handle, path: string): boolean, string
   return true, ""
 end
 
---- Opens `build.db` in `dir` (`<root>/o` where nil), creating it and its
---- tables when new, and counts this run. A file whose schema is not this
---- module's is removed and made again: it holds nothing the tree cannot
---- produce.
+--- Opens `build.db` in `dir` (`root`'s build directory where nil, as
+--- [`build.paths`] names it), creating it and its tables when new, and
+--- counts this run. A file whose schema is not this module's is removed
+--- and made again: it holds nothing the tree cannot produce.
 function work.open(root: string, dir?: string): work.Handle | nil, string
   local out = dir
   if out == nil then
@@ -464,7 +464,7 @@ function work.open(root: string, dir?: string): work.Handle | nil, string
   if not made then
     return nil, mkdir_trouble
   end
-  local path = out .. "/build.db"
+  local path = build_paths.under(out).working
   local db, open_trouble = Sqlite.open(path, { writable = true })
   if db == nil then
     return nil, path .. ": " .. open_trouble

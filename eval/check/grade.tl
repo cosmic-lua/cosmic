@@ -2099,6 +2099,9 @@ function Grader.grade(name: string, dir: string, testdata: string): integer
     say("FAIL")
     return 1
   end
+  -- TODO: ask the arena's cosmic where it built the project once #2864's
+  -- step 3 gives it a stable entrypoint that says so: here and below the
+  -- grader spells the build directory as the project's o/.
   local g: Grade = { dir = dir, name = name, exe = project .. "/o/bin/" .. name,
     empty = dir .. "/empty", steps = 0, failed = false,
     timeout_ns = Clock.seconds(task.timeout), null_stdin = task.null_stdin, own_group = task.own_group }

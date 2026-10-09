@@ -946,7 +946,7 @@ function docs.databases(store?: {Sqlite.Handle}): docs.Sources
   local opened: {Sqlite.Handle} = {}
   local root, root_trouble = Fs.absolute(".")
   assert(root ~= nil, root_trouble)
-  local own_path = build_paths.required(root) .. "/cosmic.db"
+  local own_path = build_paths.resolve(root).projection
   local own_exists, own_trouble = Fs.exists(own_path)
   assert(own_exists ~= nil, own_trouble)
   if own_exists then

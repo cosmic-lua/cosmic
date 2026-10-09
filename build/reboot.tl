@@ -75,6 +75,8 @@ local core_refusal = "the tool is stale; run bin/zig build boot"
 
 --- What a stale cosmic that is not the tree's own tool says: it neither
 --- rebuilds itself nor boots the tree.
+-- TODO: name the build directory and the stable tool entrypoint in
+-- place of o/ once #2864's steps 2 and 3 move them.
 local foreign_refusal = "this cosmic is stale against the tree and is not " ..
   "the tree's own tool (under o/), so it will not rebuild itself; " ..
   "run bin/zig build boot and use o/bin/cosmic"
@@ -107,7 +109,7 @@ function reboot.own_tool(root: string, executable?: string): boolean | nil, stri
   if directory == nil then
     return nil, directory_trouble
   end
-  local outputs, outputs_trouble = Fs.absolute(build_paths.required(root))
+  local outputs, outputs_trouble = Fs.absolute(build_paths.resolve(root).directory)
   if outputs == nil then
     return nil, outputs_trouble
   end
@@ -309,7 +311,8 @@ local function into(handle: work.Handle, built: compiler,
     return closing(handle, compile_trouble),
       reboot.compiler_moved(Store.meta("compiler"), tree_compiler)
   end
-  local database_path = build_paths.required(handle.root) .. "/cosmic.db"
+  local layout = build_paths.resolve(handle.root)
+  local database_path = layout.projection
   local written, write_trouble =
     writer.write_result(handle, database_path, result, tree_code)
   if not written then
@@ -319,7 +322,7 @@ local function into(handle: work.Handle, built: compiler,
   -- tree's: the projection it carries is signed by that writer, and a
   -- tool it wrote whose writer differs writes itself again on re-entry
   -- (`unsettled`).
-  local carried_path = build_paths.required(handle.root) .. "/carried.db"
+  local carried_path = layout.carried
   local carried, carry_trouble = writer.carried(database_path, carried_path)
   if not carried then
     return closing(handle, carry_trouble), false
@@ -356,10 +359,6 @@ end
 -- does: that may be a whole `cosmic test` run, and a holder that dies
 -- lets it go.
 
---- Where the holder of the rebuild lock sets aside the database of the
---- tool under o/ to read it (`replaced`).
-local probe_name = "/rebuild.lock.probe"
-
 --- The meta a tool's database carries that tells one written apart
 --- from another: a rebuild moves `boot_hash` (the tree's, which is why it
 --- rebuilt), and settling it moves `written_by` or `compiled_by`. The
@@ -381,7 +380,7 @@ local function replaced(root: string, out: string): boolean
   if parts == nil then
     return false
   end
-  local probe = build_paths.required(root) .. probe_name
+  local probe = build_paths.resolve(root).probe
   local written, _ = Fs.write(probe, parts.database)
   if not written then
     return false
@@ -524,7 +523,7 @@ function reboot.boot_into(root: string, argv: {integer:string},
     return "bin/zig build boot failed; fix what it reports and run this again"
   end
   environment[marker] = "1"
-  local _, exec_trouble = Proc.exec(reentry(build_paths.required(root) .. "/bin/cosmic", argv),
+  local _, exec_trouble = Proc.exec(reentry(build_paths.resolve(root).tool, argv),
     { env = environment })
   return exec_trouble
 end

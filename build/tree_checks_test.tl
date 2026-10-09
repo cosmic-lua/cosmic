@@ -180,6 +180,35 @@ local function test_an_unnamed_reader_of_the_compiler_is_refused(dir: string)
   assert(#found == 0, table.concat(found, "\n"))
 end
 
+--- A module that joins a path to `/o` spells the build directory by hand
+--- and is refused until an excuse names its file; a comment that does is
+--- not, nor a test, and an excuse for a file that no longer does is stale.
+--- The joins are spelled apart, so this module's own source holds none.
+local function test_a_build_directory_spelled_by_hand_is_refused(dir: string)
+  local join = ".. \"/o"
+  local db = fixture.database(dir, {
+    ["build/spells.tl"] = source(
+      "local root = \"/r\"",
+      "local out = root " .. join .. "\"",
+      "local tool = root " .. join .. "/bin/cosmic\"",
+      "return { out = out, tool = tool }"),
+    ["build/says.tl"] = source(
+      "-- root " .. join .. "\" is where it was",
+      "local outer = \"/r\" .. \"/other\"",
+      "return { outer = outer }"),
+    ["build/spells_test.tl"] = source(
+      "local out = \"/r\" " .. join .. "\"",
+      "assert(out)"),
+  })
+  local found = tree_checks.build_directory(db, {})
+  assert(#found == 2, table.concat(found, "\n"))
+  assert(found[1]:find("^build/spells%.tl:2: spells the build directory") ~= nil, found[1])
+  assert(found[2]:find("^build/spells%.tl:3: ") ~= nil, found[2])
+  assert(#tree_checks.build_directory(db, { ["build/spells.tl"] = "kept" }) == 0)
+  found = tree_checks.build_directory(db, { ["build/spells.tl"] = "kept", ["build/says.tl"] = "gone" })
+  assert(#found == 1 and found[1]:find("^build/says%.tl: excused") ~= nil, table.concat(found, "\n"))
+end
+
 --- A function whose doc comment names the command it stands in for is
 --- what `cosmic docs <command>` answers first; one whose doc comment
 --- stopped naming it is refused.

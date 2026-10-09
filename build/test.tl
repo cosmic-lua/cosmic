@@ -2018,7 +2018,7 @@ end
 --- import closures, each named by its address ([`build.closure_store`]'s
 --- `address`).
 local function stores_directory(root: string): string
-  return build_paths.required(root) .. "/stores"
+  return build_paths.resolve(root).stores
 end
 
 --- The name in the stores directory of the store of no module
@@ -2095,7 +2095,7 @@ end
 --- could not be made.
 local function extraction_for(rec: Recording): string | nil, string
   if rec.extraction ~= nil then return rec.extraction, "" end
-  local path = build_paths.required(rec.root) .. "/uses-by-source.db"
+  local path = build_paths.resolve(rec.root).uses
   local made, trouble = closure_store.extract(rec.projection, path)
   if not made then return nil, "the index of the uses by source module: " .. trouble end
   rec.extraction = path

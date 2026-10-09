@@ -126,13 +126,13 @@ function sql.source(root: string, parsed: Flags.Parsed): sql.Source | nil, strin
   local within = "; o/ is looked for only in the working directory, " ..
     "never above it"
   if parsed.set["--build"] then
-    return { name = "o/build.db", path = build_paths.required(root) .. "/build.db",
-      hint = build_paths.required(root) .. "/build.db" .. within }
+    local working = build_paths.resolve(root).working
+    return { name = "o/build.db", path = working, hint = working .. within }
   end
   if parsed.set["--store"] then
     return { name = "the binary's own database" }
   end
-  local project = build_paths.required(root) .. "/cosmic.db"
+  local project = build_paths.resolve(root).projection
   local present, trouble = Fs.exists(project)
   if present == nil then
     return nil, trouble

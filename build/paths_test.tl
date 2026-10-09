@@ -2,11 +2,18 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
+local Zig = require("build.zig")
 local paths = require("build.paths")
+local reboot = require("build.reboot")
+local rebuild_lock = require("build.rebuild_lock")
 local this_program = require("build.this_program")
+local work = require("build.work")
 local type _ = require("build.standalone")
 
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "build/paths.tl", letters = "r" } } }
+Test.policy{ profiles = { "cosmic" }, grants = {
+  { path = "build/paths.tl", letters = "r" },
+  { path = "build.zig", letters = "r" },
+} }
 
 local function test_resolution_makes_nothing(tmp: string)
   local root = tmp .. "/project"
@@ -52,4 +59,67 @@ local function test_an_empty_project_root_is_refused()
   assert(directory == nil and trouble == "project root is empty", trouble)
   local ok, raised = pcall(paths.required, "", {})
   assert(not ok and raised == trouble, tostring(raised))
+end
+
+--- Every path a build keeps is named under the one directory the
+--- resolver names, each apart from the others.
+local function test_the_layout_names_each_path_under_the_directory()
+  local root = "/project"
+  local layout = paths.resolve(root, {})
+  assert(layout.directory == paths.required(root, {}))
+  local seen: {string: string} = {}
+  for field, path in pairs(layout as {string: string}) do
+    if field ~= "directory" then
+      assert(path:sub(1, #layout.directory + 1) == layout.directory .. "/",
+        field .. " is outside the build directory: " .. path)
+      assert(seen[path] == nil, field .. " and " .. tostring(seen[path]) .. " name " .. path)
+      seen[path] = field
+    end
+  end
+  assert(layout.projection == layout.directory .. "/cosmic.db")
+  assert(layout.working == layout.directory .. "/build.db")
+  assert(layout.tool == layout.bin .. "/cosmic")
+  assert(layout.lock == layout.directory .. "/rebuild.lock")
+  assert(paths.core(layout, "x86_64-linux") == layout.cores .. "/x86_64-linux/cosmic-core")
+  local ok, raised = pcall(paths.resolve, "", {})
+  assert(not ok and tostring(raised) == "project root is empty", tostring(raised))
+end
+
+--- build.zig installs into the directory bin/zig hands it as its prefix,
+--- by names it spells itself: the raw cores the boot reads, and the
+--- sanitized build directory beneath it.
+local function test_build_zig_installs_where_the_layout_names()
+  local text = assert(Fs.read("build.zig"))
+  local layout = paths.under("")
+  local core = paths.core(layout, "{s}"):sub(2)
+  assert(text:find('"' .. core .. '"', 1, true) ~= nil,
+    "build.zig installs no core at " .. core)
+  local sanitized = layout.sanitized:sub(2)
+  assert(text:find('.sub_path = "' .. sanitized .. '"', 1, true) ~= nil,
+    "build.zig boots the checked core outside " .. sanitized)
+end
+
+--- A boot (bin/zig's lock and prefix), the verbs (the working database a
+--- build opens, the tool they re-enter) and the rebuild lock name one
+--- directory for a tree, and one lock in it.
+local function test_boot_verbs_and_lock_resolve_alike(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root))
+  local layout = paths.resolve(root)
+  local handle = assert(work.open(root))
+  local opened = handle.dir
+  assert(work.close(handle))
+  assert(opened == layout.directory, opened .. " against " .. layout.directory)
+  assert(Fs.exists(layout.working))
+  assert(rebuild_lock.hand({}, root).COSMIC_REBUILD_LOCK_HANDED == layout.lock)
+  assert(Fs.mkdirs(layout.bin))
+  assert(Fs.write(layout.tool, ""))
+  assert(reboot.own_tool(root, layout.tool) == true)
+  local status = Zig.with_lock(layout.directory, {}, function(env: {string:string}): integer
+    assert(env.COSMIC_REBUILD_LOCK_HANDED == layout.lock, env.COSMIC_REBUILD_LOCK_HANDED)
+    local holder = rebuild_lock.holder(root)
+    assert(holder:find("is rebuilding the tool", 1, true) ~= nil, holder)
+    return 7
+  end)
+  assert(status == 7)
 end

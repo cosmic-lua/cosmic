@@ -12,6 +12,7 @@
 --- function that writes `o/cosmic.db`.
 
 local Sqlite = require("cosmic.sqlite")
+local build_paths = require("build.paths")
 local importer = require("build.importer")
 local link_index = require("build.link_index")
 local teal = require("build.teal")
@@ -45,7 +46,7 @@ function docs_fixture.database(dir: string, files: {string: string}): Sqlite.Han
         "VALUES (?1, length(CAST(?2 AS BLOB)), 0, 0, 0, lower(hex(sha256(?2))), ?2)",
       { { text = path }, { text = files[path] } }))
   end
-  local handle: work.Handle = { db = db, root = dir, dir = dir .. "/o", run = 1, inside = false }
+  local handle: work.Handle = { db = db, root = dir, dir = build_paths.required(dir), run = 1, inside = false }
   local built = assert(teal.load())
   assert(importer.derive(handle, true, built))
   -- [`build.importer.compile`] plans each module under its key, beside
