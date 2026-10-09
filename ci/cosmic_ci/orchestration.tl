@@ -568,19 +568,24 @@ local performance_test_timeout_ns <const> = Clock.seconds(150)
 -- without that reparse; it is still sized for it.
 local checked_compile_timeout_ns <const> = Clock.seconds(300)
 
--- A whole `cosmic test` run of every test, sandboxed (about 4500 tests
--- since October 2026), is what a change to core/ runs, as no verdict
--- stands for it. On alpine-x86_64 it took 158 to 272 s whole, by the
--- runner (the build of up to 25 s where the tree is compiled cold, the
--- closure stores, and the tests): 270 s was passed twice in a queue's runs
--- (37630361708, 37632469834). The bound is about 1.6 times the slowest
--- run seen. Each test gets far less than the whole run, so a test that
--- hangs is ended and named by the runner, not hidden under a cancelled run.
--- TODO: a whole run happens only when the core changes, so the suite's
--- growth against this bound goes unseen until an unlucky PR meets it:
--- warn from `suite` when a run uses over 75% of the bound, or run the
--- whole suite on a schedule and report its elapsed time against it.
-local suite_timeout_ns <const> = Clock.seconds(450)
+-- A whole `cosmic test` run of every test, sandboxed (about 4750 tests
+-- in October 2026), is what a change to core/ runs, as no verdict stands
+-- for it, and what a merge-queue run that moves build/harness_epoch.tl
+-- runs (`stands`): 12 of the 22 queue runs on October 9. Its time follows
+-- the runner more than the tree. On alpine-x86_64 each whole suite took
+-- 192 to 309 s on runners where the driver's own tests took 73 to 120 s;
+-- on one where they took 135 s (37991854997), the local suite took 385 s
+-- and the portable suite, the step after it, ran past 450 s, the bound
+-- then. The bound is 1.6 times that, the slowest run seen, as #2834 sized
+-- it: were both of a leg's suites to take it whole, the leg would end in
+-- about 36 of the job's 45 minutes. Each test gets far less than the
+-- whole run, so a test that hangs is ended and named by the runner, not
+-- hidden under a cancelled run.
+-- TODO: the suite's growth, and a slow runner, against this bound go
+-- unseen until a run meets it: warn from `suite` when a run uses over 75%
+-- of the bound, or run the whole suite on a schedule and report its
+-- elapsed time against it.
+local suite_timeout_ns <const> = Clock.seconds(720)
 local suite_test_timeout_s <const> = "10"
 
 local function copy_flat_tl_dir(source: string, destination: string)
