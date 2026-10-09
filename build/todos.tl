@@ -15,6 +15,7 @@
 --- listed, with no commit.
 
 local Child = require("cosmic.child")
+local Signal = require("cosmic.signal")
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
@@ -294,7 +295,7 @@ end
 --- it ends every git and stops. With `run_git`, the calls are its
 --- answers, and no process starts.
 local function blame_all(root: string, lines: {string:{integer}}, order: {string},
-                         guard: Child.Guard | nil,
+                         guard: Signal.Guard | nil,
                          run_git: GitRunner | nil): {string:{integer:todos.Blame}}
   local out: {string:{integer:todos.Blame}} = {}
   local ignored = ignored_revs(root)
@@ -354,7 +355,7 @@ local function blame_all(root: string, lines: {string:{integer}}, order: {string
   return out
 end
 
---- [`blame_all`] under a [`Child.guard`]: SIGINT or SIGTERM ends every git
+--- [`blame_all`] under a [`Signal.guard`]: SIGINT or SIGTERM ends every git
 --- still running, then this process when the guard closes, as
 --- [`build.test`] does for its workers. Under a guard of its caller's
 --- (todos's `run` called in-process under one), the signal is left to
@@ -365,7 +366,7 @@ local function blame_files(root: string,
                            order: {string},
                            run_git: GitRunner | nil): {string:{integer:todos.Blame}}
   if run_git ~= nil then return blame_all(root, lines, order, nil, run_git) end
-  local opened, _ = Child.guard()
+  local opened, _ = Signal.guard()
   if opened == nil then return blame_all(root, lines, order, nil, nil) end
   local guard <close> = opened
   return blame_all(root, lines, order, guard, nil)

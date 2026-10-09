@@ -354,7 +354,7 @@ child when the block ends, however it ends -- by its last line, a
 a child still running. An opener answers `Handle | nil` and a reason,
 and the compiler refuses `<close>` on a type that may be nil, so
 `assert` narrows it first, raising the reason when there is no handle.
-The same line holds a [`Child.guard`], a [`cosmic.net`] socket or an
+The same line holds a [`Signal.guard`], a [`cosmic.net`] socket or an
 [`Http.open`] response. A descriptor from [`Fs.open_read`] is an
 integer, which `<close>` cannot hold: [`Fs.close`] closes it, and
 [`Fs.read`] reads a whole file without one.
@@ -386,7 +386,6 @@ names the fix. Write `local peak = 0.0`, or annotate `local peak: number = 0`,
 for a variable that holds floats. A function declared `: number` may still
 `return 0`: an integer is a number.
 
-[`Child.guard`]: ../../cosmic/child.tl
 [`Child.start`]: ../../cosmic/child.tl
 [`Child.wait_any`]: ../../cosmic/child.tl
 [`cosmic.child`]: ../../cosmic/child.tl
@@ -407,4 +406,5 @@ for a variable that holds floats. A function declared `: number` may still
 [`Json.select`]: ../../cosmic/json.tl
 [`Poll.TIMEOUT`]: ../../cosmic/poll.tl
 [`Proc.exit`]: ../../cosmic/proc.tl
+[`Signal.guard`]: ../../cosmic/signal.tl
 [`Store.seal`]: ../../cosmic/store.tl

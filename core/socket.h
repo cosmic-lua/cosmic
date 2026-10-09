@@ -3,7 +3,7 @@
  * sends and resolves names with, registered as the raw [`cosmic.internal.socket`]
  * module, which only that wrapper is handed. Every socket it makes is
  * closed on exec and nonblocking, so a wait is always `wait`'s, which
- * a deadline and a [`Child.guard`] end; reading is [`cosmic.sys`]'s `read`.
+ * a deadline and a [`Signal.guard`] end; reading is [`cosmic.sys`]'s `read`.
  * Each is answered as a `Socket` that owns its descriptor from the
  * moment it is made, so a raise before the caller has wrapped it --
  * memory running out -- leaks nothing: the collector closes it.
@@ -121,7 +121,7 @@ COSMIC_SYSCALL(accept, 1);
 COSMIC_SYSCALL(adopt, 1);
 
 /*
- * --- Connects a new stream socket to an address. A unix one fails ECONNREFUSED where nothing listens at a socket file and ENOENT where there is no file; where its listener's backlog is full, it fails at once: EAGAIN on Linux, and ECONNREFUSED on macOS, which cannot tell a busy listener from none. A caller that would wait for room asks again. A TCP one waits for the connection to be made, and fails with what refused it: ECONNREFUSED where nothing listens at the port. A failure the connect itself answers, rather than the wait, is answered at once, EAGAIN included (Linux's where it has no local port or other resource for the connection). A wait fails ETIMEDOUT once the time runs out, and EINTR once an open `Child.guard` catches a signal. A unix path too long to connect to whole is connected to from its directory, and raises where the process cannot return to its working directory after.
+ * --- Connects a new stream socket to an address. A unix one fails ECONNREFUSED where nothing listens at a socket file and ENOENT where there is no file; where its listener's backlog is full, it fails at once: EAGAIN on Linux, and ECONNREFUSED on macOS, which cannot tell a busy listener from none. A caller that would wait for room asks again. A TCP one waits for the connection to be made, and fails with what refused it: ECONNREFUSED where nothing listens at the port. A failure the connect itself answers, rather than the wait, is answered at once, EAGAIN included (Linux's where it has no local port or other resource for the connection). A wait fails ETIMEDOUT once the time runs out, and EINTR once an open `Signal.guard` catches a signal. A unix path too long to connect to whole is connected to from its directory, and raises where the process cannot return to its working directory after.
  * ---@param address Address where to connect
  * ---@param timeout_ms integer how long to wait at most, -1 for no limit
  * ---@return Socket|nil socket the connected socket, closed on exec and nonblocking, or nil on failure
@@ -208,7 +208,7 @@ COSMIC_SYSCALL(bound, 1);
 COSMIC_SYSCALL(shutdown, 2);
 
 /*
- * --- Waits until a descriptor can be read (a listener: accepted), or written, or the time runs out. A signal an open `Child.guard` catches ends the wait, EINTR, within a tenth of a second; any other signal does not.
+ * --- Waits until a descriptor can be read (a listener: accepted), or written, or the time runs out. A signal an open `Signal.guard` catches ends the wait, EINTR, within a tenth of a second; any other signal does not.
  * ---@param fd integer the descriptor
  * ---@param writable boolean true to wait until a write would not block, false until a read would not
  * ---@param timeout_ms integer how long to wait at most, -1 for no limit
@@ -237,7 +237,7 @@ COSMIC_SYSCALL(wait, 3);
  * --- A host name lookup in progress, which owns its c-ares channel and every socket c-ares holds for it: `close`, `<close>` or the collector ends the lookup and closes them, a query still pending among them. It never blocks by itself: the caller runs it with `step`, which reports the descriptors c-ares watches and when it next needs a call, and waits for them as it likes (a task of a poll loop, or `wait`).
  * ---@class Lookup: userdata
  * ---@field step fun(self:Lookup,fds:{integer}|nil,events:{integer}|nil):boolean,{integer},{integer},integer,{Want} hands c-ares what the caller found (`fds` and `events` pair, each event word poll's bits, a hang-up or an error reading as readable), runs its timers, and answers whether the lookup is done, the descriptors c-ares watches, the events it wants of each (poll's `POLLIN` and `POLLOUT` bits), how many milliseconds it may wait before it needs a call again (-1 for no timer, and once done), and the connects it has asked for since the last step, each told once. A descriptor of a connect waiting for its socket is not listed. Raises for fds and events that do not pair.
- * ---@field wait fun(self:Lookup,timeout_ms:integer):boolean,string,integer waits at most `timeout_ms` (-1 for no limit beyond a tenth of a second) for a descriptor c-ares watches or its timer, then hands it what happened: true, or false, what went wrong and the error number: EINTR where a `Child.guard` caught a signal. It returns after one slice, done or not, and listing nothing; `step` reports where the lookup is
+ * ---@field wait fun(self:Lookup,timeout_ms:integer):boolean,string,integer waits at most `timeout_ms` (-1 for no limit beyond a tenth of a second) for a descriptor c-ares watches or its timer, then hands it what happened: true, or false, what went wrong and the error number: EINTR where a `Signal.guard` caught a signal. It returns after one slice, done or not, and listing nothing; `step` reports where the lookup is
  * ---@field supply fun(self:Lookup,id:integer,fd:integer|nil,errno:integer|nil):boolean,string,integer answers the connect `id` that a step reported with the connected stream socket `fd`, which is copied in place of c-ares's stand-in (the caller closes its own), or with none, which leaves that server failing; `errno` ETIMEDOUT with none says the server went unanswered for want of time. True, or false, what went wrong and the error number: ENOENT for a connect c-ares has since given up on
  * ---@field result fun(self:Lookup):{Resolved}|nil,string,integer what the lookup answered once a step said it is done, as `lookup` lists the errors; a lookup not done is ETIMEDOUT
  * ---@field close fun(self:Lookup) ends the lookup; nothing once closed

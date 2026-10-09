@@ -46,18 +46,18 @@ local function test_help_names_the_verb_and_its_options(tmp: string)
   assert(out:find("cosmic fetch", 1, true) and out:find("--sha256", 1, true), out)
 end
 
---- The verb's own interrupt wiring, run as a process: a [`Child.guard`],
+--- The verb's own interrupt wiring, run as a process: a [`Signal.guard`],
 --- [`Http.download`] asking it between chunks, the guard closed after. The
 --- interrupt is sent from inside the download (its second ask, so a
 --- chunk is already written); the next test sends it from outside.
 local function test_an_interrupted_download_leaves_no_file_and_dies_of_the_signal(tmp: string)
   local fixture = tmp .. "/interrupted.tl"
   assert(Fs.write(fixture, [[
-local Child = require("cosmic.child")
 local Http = require("cosmic.http")
+local Signal = require("cosmic.signal")
 local sys = require("cosmic.sys")
 return function(argv: {string}): integer
-  local guard = assert(Child.guard())
+  local guard = assert(Signal.guard())
   local asked = 0
   local body = string.rep("z", 300000)
   local ok, why = Http.download("http://cosmic.test/", argv[1] .. "/target", {

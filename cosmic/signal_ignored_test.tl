@@ -1,6 +1,7 @@
---- A signal this process started ignoring stays ignored under a guard:
---- the one case of cosmic.child whose child starts with SIGINT ignored,
---- which only a shell's `trap '' INT` sets up here.
+--- A signal this process started ignoring stays ignored under a guard
+--- ([`Signal.guard`]): the one case of cosmic.signal whose fixture
+--- starts with SIGINT ignored, which only a shell's `trap '' INT` sets
+--- up here.
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -28,11 +29,11 @@ local function test_guard_leaves_an_ignored_signal_ignored(tmp: string)
   local report = tmp .. "/report"
   local fixture = tmp .. "/ignoring.tl"
   assert(Fs.write(fixture, [[
-local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Signal = require("cosmic.signal")
 local sys = require("cosmic.sys")
 return function(argv: {string}): integer
-  local guard = assert(Child.guard())
+  local guard = assert(Signal.guard())
   assert(sys.kill(sys.getpid(), sys.SIGINT))
   local caught = guard:cancelled()
   assert(guard:close())
@@ -43,7 +44,7 @@ end
 ]]))
   -- TODO: start the fixture with SIGINT ignored in cosmic, through
   -- build.this_program's `program`, once cosmic.sys can set a signal's
-  -- disposition, and move this case back to cosmic/child_test.tl.
+  -- disposition, and move this case to cosmic/signal_tool_test.tl.
   local r = assert(Child.run({ "/bin/sh", "-c", "trap '' INT; exec \"$0\" \"$@\"",
     assert(Proc.executable()), fixture, report },
     { env = nested_cosmic_environment(), stderr = "capture", timeout_ns = Clock.seconds(30) }))

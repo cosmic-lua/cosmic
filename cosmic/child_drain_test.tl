@@ -1,5 +1,6 @@
 --- Bounded output transfer preserves Reader errors and caller supervision.
 local Child = require("cosmic.child")
+local Signal = require("cosmic.signal")
 local _Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
@@ -89,16 +90,16 @@ end
 
 local function test_fresh_guard_event_is_not_consumed_and_old_reader_stays_failed()
   local h <close> = start([[
-local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-local guard = assert(Child.guard())
+local Signal = require("cosmic.signal")
+local guard = assert(Signal.guard())
 assert(Fs.put(1, "ready"))
 while guard:cancelled() == 0 do Clock.sleep_ns(Clock.ms(1)) end
 assert(Fs.put(1, "last"))
 assert(guard:release() ~= 0)]])
   assert(assert(h.stdout_stream):read() == "ready")
-  local guard = assert(Child.guard())
+  local guard = assert(Signal.guard())
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
   local reader = assert(h.stdout_stream)
   local data, old = reader:read()
@@ -190,7 +191,7 @@ end
 local function test_a_new_signal_wakes_a_parked_drain_without_taking_it()
   local h <close> = start('assert(require("cosmic.fs").take(0, 1))',
     { stdin = "stream", stdout = "stream" })
-  local guard = assert(Child.guard())
+  local guard = assert(Signal.guard())
   Poll.run(function()
     local got: Child.DrainResult
     local task = Poll.spawn(function() got = h:drain(options(Stream.collect())) end)
@@ -206,12 +207,12 @@ end
 local function test_closing_the_captured_guard_under_another_ends_the_wait()
   local h <close> = start('assert(require("cosmic.fs").take(0, 1))',
     { stdin = "stream", stdout = "stream" })
-  local outer = assert(Child.guard())
+  local outer = assert(Signal.guard())
   Poll.run(function()
     local got: Child.DrainResult
     local task = Poll.spawn(function() got = h:drain(options(Stream.collect())) end)
     assert(Poll.delay(0))
-    local inner = assert(Child.guard())
+    local inner = assert(Signal.guard())
     assert(outer:release() == 0)
     assert(task:join())
     assert(got.kind == "failed" and got.reason == "child: the guard is closed")

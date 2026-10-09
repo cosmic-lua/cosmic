@@ -63,7 +63,7 @@
 ---
 --- An interrupt (SIGINT or SIGTERM) during an `-o` download removes the
 --- temporary file, never creates the target, and exits by that signal:
---- the verb holds a [`Child.guard`] for the download, [`Http.download`]
+--- the verb holds a [`Signal.guard`] for the download, [`Http.download`]
 --- asks it between chunks and a wait for data ends when it catches one,
 --- and closing the guard delivers the signal again. A kill nothing can
 --- catch (SIGKILL) or that the verb does not hold (SIGHUP) leaves the
@@ -74,7 +74,7 @@
 --- off, and none will be added.
 
 local bare = require("build.bare")
-local Child = require("cosmic.child")
+local Signal = require("cosmic.signal")
 local Cli = require("cosmic.cli")
 local Codec = require("cosmic.codec")
 local Flags = require("cosmic.flags")
@@ -101,7 +101,7 @@ local record verb
     --- connection.
     script: {string}
     --- What `-o` asks between chunks, for a test: true ends the download
-    --- as an interrupt does. The verb's own is its [`Child.guard`]'s.
+    --- as an interrupt does. The verb's own is its [`Signal.guard`]'s.
     cancelled: function(): boolean
   end
   --- The schemes a redirect of `url` may lead to, for
@@ -319,7 +319,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     -- process still dies of it. A guard that cannot be had (no
     -- descriptor left for its pipe) leaves the download uninterruptible
     -- as it was.
-    local held, _ = Child.guard()
+    local held, _ = Signal.guard()
     if held == nil then
       return download(function(): boolean return false end)
     end

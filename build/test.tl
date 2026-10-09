@@ -93,6 +93,7 @@
 --- chooses, whatever stands.
 
 local Child = require("cosmic.child")
+local Signal = require("cosmic.signal")
 local Cli = require("cosmic.cli")
 local Clock = require("cosmic.clock")
 local Coverage = require("cosmic.coverage")
@@ -2840,7 +2841,7 @@ end
 --- to be ended by it when the guard closes. Without a guard, a signal
 --- acts as it would, and the return is 0.
 local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
-                        guard: Child.Guard | nil): integer
+                        guard: Signal.Guard | nil): integer
   if #jobs == 0 then return 0 end
   local start, start_trouble = worker.program()
   if start == nil then
@@ -4115,7 +4116,7 @@ local function execute(ctx: Run): integer | nil
     -- Whatever ends the run, an error escaping it included, takes out
     -- the directory of its sealed databases.
     local _removing <close>: Removal = setmetatable({ rec = rec }, removal_mt)
-    local opened, _ = Child.guard()
+    local opened, _ = Signal.guard()
     if opened == nil then
       run_jobs(rec, jobs, ctx.limits, nil)
     else

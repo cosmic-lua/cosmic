@@ -1,7 +1,7 @@
 --- The SQLite file the shared caches keep (build/shared_sqlite.tl):
 --- opened in write-ahead mode, with a bounded wait on other writers.
 
-local Child = require("cosmic.child")
+local Signal = require("cosmic.signal")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
@@ -123,7 +123,7 @@ local function test_a_captured_cancellation_stops_the_wal_retry(tmp: string)
   local path = tmp .. "/cache.db"
   local holder = assert(Sqlite.open(path, { writable = true }))
   assert(holder:exec("CREATE TABLE held (x); BEGIN EXCLUSIVE"))
-  local guard <close> = assert(Child.guard())
+  local guard <close> = assert(Signal.guard())
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
   local started = Clock.monotonic_ns()
   local db, trouble = shared_sqlite.open(path, prepare, Clock.seconds(2))

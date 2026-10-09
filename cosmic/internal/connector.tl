@@ -115,7 +115,7 @@ end
 --- Waits for `fd` to be readable, or writable, at most `timeout_ns`, which
 --- the caller has held to what a wait can last: in a
 --- task of a run, through it; anywhere else, in the raw wait, which
---- also ends at a signal the innermost [`Child.guard`] caught.
+--- also ends at a signal the innermost [`Signal.guard`] caught.
 local function waited(fd: integer, writable: boolean, timeout_ns: integer | nil): boolean, string
   -- TODO: wait through Poll.wait alone, and in `connection` too, once
   -- cosmic.poll has what the raw wait outside a task has: a core binding

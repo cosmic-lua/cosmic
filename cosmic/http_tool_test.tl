@@ -76,12 +76,12 @@ local function interrupted(tmp: string, body: string,
                            serve: function(Net.Conn, string)): string
   local script = tmp .. "/client.tl"
   assert(Fs.write(script, [[
-local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
+local Signal = require("cosmic.signal")
 return function(argv: {string}): integer
   local url, marker = argv[1], argv[2]
-  local guard = assert(Child.guard())
+  local guard = assert(Signal.guard())
 ]] .. body .. [[
   local caught = assert(guard:release())
   Fs.put(Fs.stdout, " " .. tostring(caught))

@@ -3,7 +3,7 @@
 --- keeps running if a signal ends this process, which then never closes
 --- its handle -- unless a `sandbox` that unveils holds it, whose pid
 --- namespace ends with this process. Only [`Child.run`] holds SIGINT
---- and SIGTERM for you. A supervisor takes a [`Child.guard`] and asks
+--- and SIGTERM for you. A supervisor takes a [`Signal.guard`] and asks
 --- `g:cancelled()` after each round of [`Child.wait_any`] or
 --- `h:try_wait`, which do not read the guard. Once one is caught, it
 --- closes its handles, ending their children, and calls `g:release()`
@@ -72,7 +72,8 @@ local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local RelayConfig = require("cosmic.internal.relay_config")
 local RelayStart = require("cosmic.internal.relay_start")
-local SignalGuard = require("cosmic.internal.signal_guard")
+local Innermost = require("cosmic.internal.innermost_guard")
+local Signal = require("cosmic.signal")
 local Rules = require("cosmic.sandbox")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
@@ -703,7 +704,7 @@ local record Handle
   --- passes, whichever is first, a child still running is ended --
   --- SIGTERM, a grace period, then SIGKILL, its group included -- and
   --- the Result says `timed_out`; [`Child.wait_any`]'s timeout instead
-  --- leaves every child running. While a [`Child.guard`] is open, a
+  --- leaves every child running. While a [`Signal.guard`] is open, a
   --- SIGINT or SIGTERM it catches ends the wait, timed or not, the same
   --- way: a child that has not exited is ended and the wait answers nil
   --- and "child: cancelled by signal N"; the guard keeps the signal, and a
@@ -763,7 +764,7 @@ local INT_MAX <const> = 2147483647
 local CHUNK <const> = 65536
 local DEFAULT_CAPTURE_LIMIT <const> = 16 * 1024 * 1024
 
-local type Guard = SignalGuard.Guard
+local type Guard = Signal.Guard
 
 --- What a failure of this module's own, no system call's, answers: nil
 --- and `why` under the module's name. A system call's message is
@@ -1051,7 +1052,7 @@ local services: {Kind:Service} = {
   },
   wake = {
     live = function(e: Entry): boolean return raw.child_signal_fd() == e.fd end,
-    ready = SignalGuard.drain_wake,
+    ready = function(e: Entry) Innermost.drain_wake(e.fd) end,
     broken = nothing,
   },
 }
@@ -1117,7 +1118,7 @@ local function pump(entries: {Entry}, timeout_ns: integer,
   -- Drained only by a wait of the run's, or with no task about: a wait
   -- holding the thread in a task, draining it, would take the wake from
   -- a task waiting on it (`g:wait`) before the run could tell it.
-  if signalled and SignalGuard.active() ~= nil and (in_run or not Poll.in_task()) then
+  if signalled and Innermost.active() ~= nil and (in_run or not Poll.in_task()) then
     entries[#entries + 1] = { fd = raw.child_signal_fd(), events = sys.POLLIN, kind = "wake" }
   end
   local fds: {integer} = {}
@@ -1342,7 +1343,7 @@ local EXITED <const> = "child: the child has exited"
 --- Why a stream's wait should stop now, beyond its own data: the open
 --- guard caught a signal, or the child could not be asked about.
 local function interrupted(self: Handle): string
-  local active = SignalGuard.active()
+  local active = Innermost.active()
   if active ~= nil then
     local cancelled = active:cancelled()
     if cancelled ~= 0 then return cancelled_by(cancelled) end
@@ -1401,7 +1402,7 @@ end
 -- on a record's own table, reached through `__index`, with the state in
 -- fields: no closure each. A Reader or a Writer is a record of its own
 -- ([`PipeReader`], [`FeedWriter`]) implementing the interface it answers. A
--- handle is a public record itself, as cosmic.internal.signal_guard's
+-- handle is a public record itself, as cosmic.signal's
 -- guard is, whose fields the docs list, so its methods are assigned
 -- (`Handle.wait = function(self: Handle, ...)`) to the fields the record
 -- declares, with the docs on them: `function Handle:wait` would be listed
@@ -1622,7 +1623,7 @@ local function drain(self: Handle, opts: DrainOptions): DrainResult
   end
   local owner <close> = consume(pipes)
   local bytes = 0
-  local guard = SignalGuard.active()
+  local guard = Innermost.active()
   local stamp: integer
   local deadline = now() + timeout_ns
   local function result(kind: DrainKind, reason?: string): DrainResult
@@ -1731,7 +1732,7 @@ end
 Handle.wait = function(self: Handle, timeout_ns?: integer): Result | nil, string
   Poll.checked_ns(timeout_ns, "child", "timeout_ns", 2)
   if self._result then return self._result, "" end
-  if timeout_ns == nil and self._deadline == nil and SignalGuard.active() == nil and not self._streams and
+  if timeout_ns == nil and self._deadline == nil and Innermost.active() == nil and not self._streams and
       not self._input_fd and self._relay == nil and not through_run() then
     local status, trouble = exited(self, true)
     if not status then return nil, trouble end
@@ -1749,7 +1750,7 @@ Handle.wait = function(self: Handle, timeout_ns?: integer): Result | nil, string
     if status ~= nil then return end_child(self) end
     why = trouble
     if why ~= "" then break end
-    local active = SignalGuard.active()
+    local active = Innermost.active()
     if active ~= nil and active:cancelled() ~= 0 then
       why = cancelled_by(active:cancelled())
       break
@@ -1762,7 +1763,7 @@ Handle.wait = function(self: Handle, timeout_ns?: integer): Result | nil, string
       break
     end
   end
-  local active = SignalGuard.active()
+  local active = Innermost.active()
   local cancelled = active ~= nil and active:cancelled() or 0
   if cancelled ~= 0 then
     -- A wait the guard's signal ended leaves no child running. The
@@ -1865,61 +1866,25 @@ local record Child
   type DrainKind = DrainKind
   type DrainResult = DrainResult
   type Handle = Handle
+  --- [`Signal.Guard`] by another name, kept for [`Child.guard`]'s callers.
   type Guard = Guard
   type PtyStart = PtyStart
   type PtyOptions = PtyOptions
 end
 
---- Holds SIGINT and SIGTERM for this process while it supervises
---- children, so it can end them before it is ended itself. Until the
---- guard closes, either signal is caught rather than acted on:
---- `g:cancelled()` answers the last one delivered, 0 until one is.
---- Only `h:wait` reads the guard -- it ends its child and answers
---- "child: cancelled by signal N" once a signal is caught -- and a stream's
---- read or write, which fails with the same message and leaves the
---- child running; [`Child.wait_any`] and `h:try_wait` do not, so a loop
---- over them asks `g:cancelled()` each round. `g:take()` answers the
---- last signal delivered since the previous take, or 0, and clears it,
---- so a caller that passes signals on to its child passes each one on,
---- a repeat included; signals
---- delivered between two takes answer as the last of them. In a task
---- of [`Poll.run`], `g:wait(timeout_ns)` waits for the next signal to
---- take while the other tasks run, and takes it: the signal, or 0 and
---- why once `timeout_ns` passes, the task is cancelled, or the guard
---- closes. A signal this process ignores stays ignored.
----
---- Guards nest: one opened while another is open -- a [`Child.run`]'s
---- too -- is the innermost until it closes, and the waits (`h:wait`,
---- a stream's, [`cosmic.http`]'s) read the innermost. Each guard sees
---- the signals delivered since it opened, and none before: a guard
---- opened after a signal, to run a child during a shutdown, runs it.
---- What an inner guard sees and takes, the outer ones still see.
----
---- Closing the guard -- `g:close()`, or leaving the scope of a
---- `local g <close> = assert(Child.guard())` -- restores the
---- dispositions the process had and delivers the last signal caught
---- again, so a process that would have died of it dies of it then,
---- its children already ended. Only the last guard to close restores
---- and delivers: one closed while another is open leaves the signal to
---- the guards still open, and the last to close delivers it though it
---- opened after it. `close`
---- answers false and why when the dispositions could not be restored,
---- and again on every later close; the signal is not delivered then.
---- A guard never closed holds the signals for the rest of the
---- process's life: hold it in a `<close>` variable.
---- `g:release()` restores the dispositions as closing does but keeps
---- the last signal caught rather than delivering it, and answers it,
---- or 0: a caller that passed signals on to its child re-raises one
---- only if the child died of it, or never got it. It answers nil and
---- why when the dispositions could not be restored, and again on every
---- later release. A released guard is closed: closing it again, or
---- releasing it again, does nothing, and a release after a close
---- answers the signal the close delivered. The first guard fails, nil
---- and why, where the process has no descriptor left for the pipe
---- `g:wait` waits on. In [`Poll.run`], a wait another task began while no
---- guard was open is not ended by the signals of one opened after it.
+-- The release ci/cosmic-driver.pin names, which runs build/zig.tl
+-- (through bin/zig) and ci/, has no cosmic.signal: those call this.
+-- TODO: remove Child.guard and Child.Guard, moving build/zig.tl,
+-- ci/run_local.tl, ci/run_local_proof.tl, ci/run_local_test.tl and
+-- ci/cosmic_ci's cache_trim.tl, cache_trim_test.tl and fuzz.tl to
+-- Signal.guard and Signal.Guard, and give cosmic.removed's `members`
+-- entries for both, once ci/cosmic-driver.pin names a release carrying
+-- cosmic.signal.
+
+--- [`Signal.guard`] by another name, kept for programs written against
+--- a library without cosmic.signal; new code calls Signal.guard.
 function Child.guard(): Guard | nil, string
-  return SignalGuard.open()
+  return Signal.guard()
 end
 
 --- The status a shell reports for a child that ended as `result` says:
@@ -4284,11 +4249,11 @@ end
 --- The child owns a new process group by default, so timeout cleanup
 --- includes descendants.
 ---
---- While the child runs, SIGINT and SIGTERM are held in a [`Child.guard`]:
+--- While the child runs, SIGINT and SIGTERM are held in a [`Signal.guard`]:
 --- either one ends the child and its group, then the caller's
 --- dispositions are restored and the signal delivered again. The run
 --- then answers nil and "child: cancelled by signal N". A run made while the
---- caller holds a [`Child.guard`] holds one inside it: a signal the
+--- caller holds a [`Signal.guard`] holds one inside it: a signal the
 --- caller's guard caught before the run began does not end it, and one
 --- that ends it is left to the caller's guard rather than delivered.
 --- It also answers nil and why when the child cannot be started, and
@@ -4301,7 +4266,7 @@ function Child.run(argv: {string}, opts?: Options): Result | nil, string
   if opts.stdin == "stream" or opts.stdout == "stream" or opts.stderr == "stream" then
     error("child: a \"stream\" is read or written while the child runs: use Child.start", 2)
   end
-  local held, guard_trouble = SignalGuard.open()
+  local held, guard_trouble = Signal.guard()
   if held == nil then return refuse("signal guard: " .. guard_trouble) end
   -- Closed after the child is ended, as the run is left: the child is
   -- ended before the guard gives back the signals.

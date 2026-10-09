@@ -237,7 +237,7 @@ a task cannot yield), but not in a killed task's `<close>` handler, where every
 wait still raises (`poll_test.tl` holds it); [`Poll.delay`] and
 [`Poll.ready`] stay task-only for the same reason, so child's three branches
 and net's three (`waited`, `connection`, `locked`, whose waits outside a task
-end at a caught [`Child.guard`] signal, which only the core's socket waits and
+end at a caught [`Signal.guard`] signal, which only the core's socket waits and
 [`sys.flock`] see) remain, each with a `TODO:` naming what it waits on.
 the [`Child.wait_any`] exemption in [`build/contracts.tl`] stays too: it is for
 the handle answered beside a group's lingering-member trouble, not for the
@@ -447,7 +447,6 @@ description.
 [`build/sql.tl`]: ../../build/sql.tl
 [`build/test.tl`]: ../../build/test.tl
 [`Cell.kind`]: ../../cosmic/sqlite.tl
-[`Child.guard`]: ../../cosmic/child.tl
 [`Child.Options.stdin`]: ../../cosmic/child.tl
 [`Child.wait_any`]: ../../cosmic/child.tl
 [`Civil.nanosecond`]: ../../cosmic/time.tl
@@ -531,6 +530,7 @@ description.
 [`Shape.either`]: ../../cosmic/shape.tl
 [`Shape.failures`]: ../../cosmic/shape.tl
 [`Shape.record`]: ../../cosmic/shape.tl
+[`Signal.guard`]: ../../cosmic/signal.tl
 [`Spec.kind`]: ../../cosmic/shape.tl
 [`Sqlite.cell`]: ../../cosmic/sqlite.tl
 [`Sqlite.Query`]: ../../cosmic/sqlite.tl

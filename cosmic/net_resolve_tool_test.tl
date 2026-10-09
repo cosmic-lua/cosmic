@@ -95,11 +95,11 @@ end
 --- The same under a guard that a SIGINT, sent once the server has seen
 --- a query, ends the wait of: prints what it answered.
 local GUARDED <const> = [[
-local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
+local Signal = require("cosmic.signal")
 return function(argv: {string}): integer
-  local guard = assert(Child.guard())
+  local guard = assert(Signal.guard())
   local found, why = Net.resolve(argv[1],
     { servers = { { host = "127.0.0.1", port = assert(math.tointeger(argv[2])) } } })
   Fs.put(Fs.stdout, found == nil and "error " .. why or "found")

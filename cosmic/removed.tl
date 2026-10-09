@@ -133,6 +133,7 @@ local net <const> = 'local Net = require("cosmic.net")'
 local time <const> = 'local Time = require("cosmic.time")'
 local clock <const> = 'local Clock = require("cosmic.clock")'
 local child <const> = 'local Child = require("cosmic.child")'
+local signal <const> = 'local Signal = require("cosmic.signal")'
 local errors <const> = 'local Errors = require("cosmic.errors")'
 local codec <const> = 'local Codec = require("cosmic.codec")'
 local streamed <const> = "the streaming coders are `cosmic codec`'s, not the library's; " ..
@@ -341,13 +342,13 @@ local module: Module = {
     ["cosmic.sys.ignore_sigpipe"] = "Child.start(argv, { stdin = \"stream\" }), or " ..
       "{ input = bytes }, ignores SIGPIPE for this process, so a write to a child " ..
       "that has gone fails with EPIPE instead (" .. child .. ")",
-    ["cosmic.sys.guard_child_signals"] = "use Child.guard(), and hold it in a " ..
-      "<close> variable: local g <close> = assert(Child.guard()) (" .. child .. ")",
-    ["cosmic.sys.cancelled_child_signal"] = "use g:take() on the guard Child.guard() " ..
-      "answers, or g:cancelled() for the last signal caught (" .. child .. ")",
-    ["cosmic.sys.unguard_child_signals"] = "use g:release() on the guard Child.guard() " ..
+    ["cosmic.sys.guard_child_signals"] = "use Signal.guard(), and hold it in a " ..
+      "<close> variable: local g <close> = assert(Signal.guard()) (" .. signal .. ")",
+    ["cosmic.sys.cancelled_child_signal"] = "use g:take() on the guard Signal.guard() " ..
+      "answers, or g:cancelled() for the last signal caught (" .. signal .. ")",
+    ["cosmic.sys.unguard_child_signals"] = "use g:release() on the guard Signal.guard() " ..
       "answers to keep the signal caught, or g:close() to deliver it again (" ..
-      child .. ")",
+      signal .. ")",
     ["cosmic.sys.relaunch"] = "use Proc.relaunch() (" .. proc .. ")",
     ["cosmic.sys.Relaunch"] = "use Proc.Relaunch, what Proc.relaunch() answers (" ..
       proc .. ")",
