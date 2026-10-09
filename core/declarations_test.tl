@@ -312,6 +312,7 @@ local wrappers <const>: {string: string} = {
   ["cosmic.net"] = "socket",
   ["cosmic.proc"] = "process",
   ["cosmic.internal.relay_resolv"] = "socket",
+  ["cosmic.internal.signal_guard"] = "process",
   ["cosmic.internal.relay_start"] = "socket",
   ["cosmic.sandbox"] = "process",
   ["cosmic.sqlite"] = "sqlite",

@@ -72,6 +72,7 @@ local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local RelayConfig = require("cosmic.internal.relay_config")
 local RelayStart = require("cosmic.internal.relay_start")
+local SignalGuard = require("cosmic.internal.signal_guard")
 local Rules = require("cosmic.sandbox")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
@@ -762,50 +763,7 @@ local INT_MAX <const> = 2147483647
 local CHUNK <const> = 65536
 local DEFAULT_CAPTURE_LIMIT <const> = 16 * 1024 * 1024
 
---- SIGINT and SIGTERM held for this process while children are
---- supervised; see [`Child.guard`].
-local record Guard
-  metamethod __close: function(Guard)
-  --- The stamp the guard last read: a signal moves it.
-  _read: integer
-  --- The signal delivered last, 0 until one is.
-  _signal: integer
-  --- The signal delivered last since the last take, 0 when none was.
-  _fresh: integer
-  _closed: boolean
-  --- Why the dispositions could not be restored, "" when they were.
-  _trouble: string
-  --- The last SIGINT or SIGTERM caught, or 0 until one is. It is kept
-  --- after the guard closes.
-  cancelled: function(Guard): integer
-  --- The last signal caught since the previous take, or 0, and clears
-  --- it: the way to pass each signal on to a child.
-  take: function(Guard): integer
-  --- Closes the guard. The last guard open to close restores the
-  --- dispositions the process had and delivers the last signal caught
-  --- again; another leaves it to the guards still open. False and why
-  --- when they cannot be restored, and again on every later close.
-  close: function(Guard): boolean, string
-  --- Closes the guard as `close` does, but keeps the last signal caught
-  --- instead of delivering it, and answers that signal, or 0. Nil and
-  --- why when the dispositions cannot be restored.
-  release: function(Guard): integer | nil, string
-  --- In a task of [`Poll.run`], waits for a signal to take, and takes
-  --- it; 0 and why once `timeout_ns` passes or the task is cancelled
-  --- first, or the guard is closed.
-  wait: function(Guard, timeout_ns?: integer): integer, string
-end
-
---- The open guards, the innermost last.
-local open_guards: {Guard} = {}
-
---- The innermost open guard, if any: the one a wait reads.
-local active: Guard | nil
-
---- The stamp of the latest signal a guard caught and then closed on
---- while another stayed open, 0 when none: the last guard to close
---- delivers it, where that guard opened after it and so never saw it.
-local owed = 0
+local type Guard = SignalGuard.Guard
 
 --- What a failure of this module's own, no system call's, answers: nil
 --- and `why` under the module's name. A system call's message is
@@ -997,16 +955,6 @@ local function end_input(self: Handle)
   self._input_fd = nil
 end
 
---- Empties the wake pipe, which is readable while any byte a signal
---- wrote there is left.
-local function drain_wake()
-  local fd = raw.child_signal_fd()
-  while true do
-    local bytes, _ = sys.read(fd, 512)
-    if bytes == nil or #bytes < 512 then return end
-  end
-end
-
 --- Whether a wait here goes through [`Poll.run`]: in one of its tasks,
 --- where the task can yield -- not in a finalizer, say, which a handle's
 --- `__gc` runs in, and which waits on its own.
@@ -1103,7 +1051,7 @@ local services: {Kind:Service} = {
   },
   wake = {
     live = function(e: Entry): boolean return raw.child_signal_fd() == e.fd end,
-    ready = drain_wake,
+    ready = SignalGuard.drain_wake,
     broken = nothing,
   },
 }
@@ -1169,7 +1117,7 @@ local function pump(entries: {Entry}, timeout_ns: integer,
   -- Drained only by a wait of the run's, or with no task about: a wait
   -- holding the thread in a task, draining it, would take the wake from
   -- a task waiting on it (`g:wait`) before the run could tell it.
-  if signalled and active ~= nil and (in_run or not Poll.in_task()) then
+  if signalled and SignalGuard.active() ~= nil and (in_run or not Poll.in_task()) then
     entries[#entries + 1] = { fd = raw.child_signal_fd(), events = sys.POLLIN, kind = "wake" }
   end
   local fds: {integer} = {}
@@ -1394,6 +1342,7 @@ local EXITED <const> = "child: the child has exited"
 --- Why a stream's wait should stop now, beyond its own data: the open
 --- guard caught a signal, or the child could not be asked about.
 local function interrupted(self: Handle): string
+  local active = SignalGuard.active()
   if active ~= nil then
     local cancelled = active:cancelled()
     if cancelled ~= 0 then return cancelled_by(cancelled) end
@@ -1447,17 +1396,18 @@ local function take_chunk(pipe: Pipe, want: integer): string
   return chunk:sub(1, want)
 end
 
--- How an object of this module is made. A handle, a guard and the Reader
--- and Writer of a streamed pipe are each one table, whose methods live
--- once on a record's own table, reached through `__index`, with the state
--- in fields: no closure each. A Reader or a Writer is a record of its own
+-- How an object of this module is made. A handle and the Reader and
+-- Writer of a streamed pipe are each one table, whose methods live once
+-- on a record's own table, reached through `__index`, with the state in
+-- fields: no closure each. A Reader or a Writer is a record of its own
 -- ([`PipeReader`], [`FeedWriter`]) implementing the interface it answers. A
--- handle and a guard are public records themselves, whose fields the
--- docs list, so their methods are assigned (`Handle.wait = function(self:
--- Handle, ...)`) to the fields the record declares, with the docs on
--- them: `function Handle:wait` would be listed as an undocumented
--- function beside the documented field. The note on how an object is made
--- in cosmic/stream.tl says why Teal limits how that is written.
+-- handle is a public record itself, as cosmic.internal.signal_guard's
+-- guard is, whose fields the docs list, so its methods are assigned
+-- (`Handle.wait = function(self: Handle, ...)`) to the fields the record
+-- declares, with the docs on them: `function Handle:wait` would be listed
+-- as an undocumented function beside the documented field. The note on
+-- how an object is made in cosmic/stream.tl says why Teal limits how
+-- that is written.
 
 --- The Reader of a child's streamed output: it takes what `pump` queued,
 --- pumping every stream of the child while it waits.
@@ -1672,7 +1622,7 @@ local function drain(self: Handle, opts: DrainOptions): DrainResult
   end
   local owner <close> = consume(pipes)
   local bytes = 0
-  local guard = active
+  local guard = SignalGuard.active()
   local stamp: integer
   local deadline = now() + timeout_ns
   local function result(kind: DrainKind, reason?: string): DrainResult
@@ -1781,7 +1731,7 @@ end
 Handle.wait = function(self: Handle, timeout_ns?: integer): Result | nil, string
   Poll.checked_ns(timeout_ns, "child", "timeout_ns", 2)
   if self._result then return self._result, "" end
-  if timeout_ns == nil and self._deadline == nil and active == nil and not self._streams and
+  if timeout_ns == nil and self._deadline == nil and SignalGuard.active() == nil and not self._streams and
       not self._input_fd and self._relay == nil and not through_run() then
     local status, trouble = exited(self, true)
     if not status then return nil, trouble end
@@ -1799,6 +1749,7 @@ Handle.wait = function(self: Handle, timeout_ns?: integer): Result | nil, string
     if status ~= nil then return end_child(self) end
     why = trouble
     if why ~= "" then break end
+    local active = SignalGuard.active()
     if active ~= nil and active:cancelled() ~= 0 then
       why = cancelled_by(active:cancelled())
       break
@@ -1811,6 +1762,7 @@ Handle.wait = function(self: Handle, timeout_ns?: integer): Result | nil, string
       break
     end
   end
+  local active = SignalGuard.active()
   local cancelled = active ~= nil and active:cancelled() or 0
   if cancelled ~= 0 then
     -- A wait the guard's signal ended leaves no child running. The
@@ -1864,149 +1816,6 @@ local function make_handle(pid: integer, process_group: boolean, limit: integer,
   -- failure between the two leaves an unowned child with a finalizer, which waitpid still reaps.
   owned[pid] = true
   return h
-end
-
---- Takes `stamp`, a stamp the core answered, as what `g` has read: a
---- stamp that moved since the last is a signal caught, for both what
---- `cancelled` and what `take` answer.
-local function noted(g: Guard, stamp: integer)
-  if stamp ~= g._read then
-    local signal = stamp % raw.SIGNAL_STAMP_UNIT
-    g._signal, g._fresh, g._read = signal, signal, stamp
-  end
-end
-
-local function read_guard(self: Guard)
-  if self._closed then return end
-  noted(self, raw.child_signal_read(self == active))
-end
-
-Guard.cancelled = function(self: Guard): integer
-  read_guard(self)
-  return self._signal
-end
-
-Guard.take = function(self: Guard): integer
-  read_guard(self)
-  local signal = self._fresh
-  self._fresh = 0
-  return signal
-end
-
-Guard.wait = function(self: Guard, timeout_ns?: integer): integer, string
-  if not Poll.in_task() then error("child: g:wait waits in a task of Poll.run", 2) end
-  Poll.checked_ns(timeout_ns, "child", "timeout_ns", 2)
-  local deadline: integer
-  if timeout_ns ~= nil then deadline = now() + timeout_ns end
-  while true do
-    -- Asked before each wait and after each wake, never from the
-    -- pipe's bytes: another task waiting on it may have drained it.
-    local signal = self:take()
-    if signal ~= 0 then return signal, "" end
-    if self._closed then return 0, "child: the guard is closed" end
-    local left: integer
-    if deadline ~= nil then left = math.max(deadline - now(), 0) end
-    local woken, why = Poll.readable(raw.child_signal_fd(), left)
-    if not woken then return 0, why end
-    -- The last close wakes this wait having closed the pipe.
-    if not self._closed then drain_wake() end
-  end
-end
-
---- Closes the guard in the core, once: the last open restores the
---- caller's dispositions. Answers "" or why they could not be
---- restored, kept for every later close or release to answer again;
---- whether this was the last; and, for the last, the signal owed it.
-local function restore_guard(self: Guard): string, boolean, integer
-  self._closed = true
-  for i = #open_guards, 1, -1 do
-    if open_guards[i] == self then
-      table.remove(open_guards, i)
-      break
-    end
-  end
-  active = open_guards[#open_guards]
-  local last = active == nil
-  local owing = 0
-  if last then owing, owed = owed % raw.SIGNAL_STAMP_UNIT, 0 end
-  local fd = raw.child_signal_fd()
-  local stamp, trouble = raw.unguard_child_signals(active ~= nil and active._read or 0)
-  -- Every task waiting on the pipe looks again: one waiting on this
-  -- guard finds it closed and returns, and one waiting on a guard
-  -- still open finds its stamp unmoved and waits again.
-  Poll.closing(fd)
-  if stamp == nil then
-    self._trouble = trouble
-    return trouble, last, owing
-  end
-  noted(self, stamp)
-  return "", last, owing
-end
-
-Guard.close = function(self: Guard): boolean, string
-  if self._closed then
-    if self._trouble ~= "" then return false, self._trouble end
-    return true, ""
-  end
-  local trouble, last, owing = restore_guard(self)
-  if trouble ~= "" then return false, trouble end
-  if not last then
-    -- The caller's dispositions are not back yet: the guards still
-    -- open have seen the signal, if they opened before it, and the
-    -- last to close delivers it.
-    if self._signal ~= 0 and self._read > owed then owed = self._read end
-    return true, ""
-  end
-  local signal = self._signal ~= 0 and self._signal or owing
-  if signal ~= 0 then
-    -- The caller's own dispositions are back: deliver it as it came.
-    local _, _ = sys.kill(sys.getpid(), signal)
-  end
-  return true, ""
-end
-
-Guard.release = function(self: Guard): integer | nil, string
-  if self._closed then
-    if self._trouble ~= "" then return nil, self._trouble end
-    return self._signal, ""
-  end
-  local trouble, last, owing = restore_guard(self)
-  if trouble ~= "" then return nil, trouble end
-  if last and self._signal == 0 and owing ~= 0 then
-    local _, _ = sys.kill(sys.getpid(), owing)
-  end
-  return self._signal, ""
-end
-
-local guard_mt: metatable<Guard> = {
-  __index = Guard,
-  __close = function(self: Guard)
-    local _, _ = self:close()
-  end,
-}
-
---- A guard not yet open: [`opened`] opens it.
-local function make_guard(): Guard
-  local g: Guard = setmetatable({
-    _read = 0, _signal = 0, _fresh = 0, _closed = false, _trouble = "",
-  }, guard_mt)
-  return g
-end
-
---- Opens a guard, the innermost of those open. The guard is made, and
---- given its place, before the core opens it, so nothing between that
---- and the answer allocates.
-local function opened(): Guard | nil, string
-  local g = make_guard()
-  open_guards[#open_guards + 1] = g
-  local stamp, trouble = raw.guard_child_signals()
-  if stamp == nil then
-    open_guards[#open_guards] = nil
-    return nil, trouble
-  end
-  g._read = stamp
-  active = g
-  return g, ""
 end
 
 --- What [`Child.start_on_pty`] answers.
@@ -2110,7 +1919,7 @@ end
 --- `g:wait` waits on. In [`Poll.run`], a wait another task began while no
 --- guard was open is not ended by the signals of one opened after it.
 function Child.guard(): Guard | nil, string
-  return opened()
+  return SignalGuard.open()
 end
 
 --- The status a shell reports for a child that ended as `result` says:
@@ -4492,7 +4301,7 @@ function Child.run(argv: {string}, opts?: Options): Result | nil, string
   if opts.stdin == "stream" or opts.stdout == "stream" or opts.stderr == "stream" then
     error("child: a \"stream\" is read or written while the child runs: use Child.start", 2)
   end
-  local held, guard_trouble = opened()
+  local held, guard_trouble = SignalGuard.open()
   if held == nil then return refuse("signal guard: " .. guard_trouble) end
   -- Closed after the child is ended, as the run is left: the child is
   -- ended before the guard gives back the signals.

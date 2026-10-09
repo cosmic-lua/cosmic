@@ -25,7 +25,7 @@ local function raw_behind(wrapper: string): any
   error(wrapper .. " is handed no raw table")
 end
 
-local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
+local process = raw_behind("cosmic.internal.connector") as raw_process -- cast: holds the table core/process.h declares, beside the socket table
 local socket = raw_behind("cosmic.net") as raw_socket -- cast: the table core/socket.h declares
 
 --- How many connections one connector process makes at once, as the core says.

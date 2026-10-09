@@ -34,10 +34,6 @@
 --- connection, run for each one accepted at any of its listeners, whose
 --- failure closes that connection alone.
 
--- TODO: drop this require, and with it cosmic.child's sandbox, relay_start and
--- relay_config from a plain `require("cosmic.net")`, once Child.guard (what Net.serve
--- holds SIGINT and SIGTERM with) lives in a module of its own that cosmic.child re-exports.
-local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
@@ -45,6 +41,7 @@ local sys = require("cosmic.sys")
 local errors = require("cosmic.internal.errors")
 local Resolv = require("cosmic.internal.relay_resolv")
 local Connection = require("cosmic.internal.connection")
+local SignalGuard = require("cosmic.internal.signal_guard")
 local Leaf = require("cosmic.internal.connector")
 
 --- The raw module behind this one lives under the reserved
@@ -994,7 +991,7 @@ local record Serving
   --- Waits for `stop` to cancel it.
   waiter: Poll.Task
   --- Holds SIGINT and SIGTERM for the run.
-  guard: Child.Guard
+  guard: SignalGuard.Guard
   --- Waits on `guard`: its first signal stops the server, and the next
   --- ends the grace.
   watcher: Poll.Task
@@ -1169,7 +1166,7 @@ local function serving(spec: Net.ServeSpec): boolean, string
     signalled = false,
   }
   local s <close> = setmetatable(state, serving_mt)
-  local guard, guard_trouble = Child.guard()
+  local guard, guard_trouble = SignalGuard.open()
   if guard == nil then return false, "net: signal guard: " .. guard_trouble end
   s.guard = guard
   local addresses: {Net.Address} = {}
