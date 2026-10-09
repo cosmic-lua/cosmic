@@ -439,6 +439,12 @@ local function test_every_raw_module_has_a_declaration()
   for wrapper, names in pairs(merged) do
     assert(in_c[wrapper] ~= nil, wrapper .. " is no wrapper of core/store.c's raw_modules")
     local combined = assert(raw_behind(wrapper), wrapper .. " is handed no raw value") as {string: any} -- cast: a raw value is a table of fields
+    -- A name two of the raw values share must be one value, or the
+    -- combined table (core/store.c's wrapper_raw) refuses to load.
+    local first = raw_module(names[1]) as {string: any} -- cast: as above
+    for key, value in pairs(raw_module(names[2]) as {string: any}) do -- cast: as above
+      assert(first[key] == nil or rawequal(first[key], value), wrapper .. ": " .. key .. " differs between the raw values")
+    end
     for _, name in ipairs(names) do
       for key, value in pairs(raw_module(name) as {string: any}) do -- cast: as above
         assert(combined[key] == value, wrapper .. " is handed no " .. key .. " of cosmic.internal." .. name)

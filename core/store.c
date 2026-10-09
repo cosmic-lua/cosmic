@@ -175,10 +175,19 @@ static int raw_value (lua_State *L, const char *name) {
 }
 
 /* Copies every field of the table at `from` into the table at `into`,
- * both absolute stack indices. */
-static void copy_fields (lua_State *L, int into, int from) {
+ * both absolute stack indices, for the wrapper `name`. A key `into`
+ * already holds with another value raises: two raw tables that disagree
+ * on a name would hand the wrapper whichever came last. */
+static void copy_fields (lua_State *L, int into, int from, const char *name) {
   lua_pushnil(L);
   while (lua_next(L, from) != 0) {
+    lua_pushvalue(L, -2);
+    lua_rawget(L, into);
+    if (!lua_isnil(L, -1) && !lua_rawequal(L, -1, -2)) {
+      luaL_error(L, "raw_modules: the raw values of %s disagree on %s", name,
+                 lua_type(L, -3) == LUA_TSTRING ? lua_tostring(L, -3) : "a key");
+    }
+    lua_pop(L, 1);
     lua_pushvalue(L, -2);
     lua_insert(L, -2);
     lua_rawset(L, into);
@@ -187,8 +196,9 @@ static void copy_fields (lua_State *L, int into, int from) {
 
 /* The raw value handed to the loader of `name`: the value of its one row
  * in `raw_modules`, or, for a wrapper listed for two raw values, a new
- * table with the fields of both (a wrapper has at most two rows). Pushes it and returns 1, or pushes
- * nothing and returns 0 where no row of the wrapper has a value. */
+ * table with the fields of both. A wrapper has at most two rows; a third
+ * raises. Pushes it and returns 1, or pushes nothing and returns 0 where
+ * no row of the wrapper has a value. */
 static int wrapper_raw (lua_State *L, const char *name) {
   int rows = 0;
   for (size_t m = 0; m < RAW_MODULE_COUNT; m++) {
@@ -197,13 +207,16 @@ static int wrapper_raw (lua_State *L, const char *name) {
       continue;
     }
     rows++;
+    if (rows > 2) {
+      luaL_error(L, "raw_modules: %s lists more than two raw values", name);
+    }
     if (rows == 2) {
       /* The combined table replaces both values. */
       int first = lua_absindex(L, -2);
       lua_newtable(L);
       int combined = lua_absindex(L, -1);
-      copy_fields(L, combined, first);
-      copy_fields(L, combined, first + 1);
+      copy_fields(L, combined, first, name);
+      copy_fields(L, combined, first + 1, name);
       lua_replace(L, first);
       lua_settop(L, first);
     }
