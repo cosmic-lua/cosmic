@@ -86,8 +86,8 @@ local function nameserver_of(entry: string): resolv.Endpoint | nil
 end
 
 --- The name servers the system's configuration names, as [`Net.resolve`]
---- reads it (resolv.conf; on macOS, the system's DNS configuration
---- first), each a numeric endpoint at its TCP port, 53 for every server
+--- reads it (resolv.conf; on macOS, the system's DNS configuration alone,
+--- which `resolv_conf` does not replace), each a numeric endpoint at its TCP port, 53 for every server
 --- resolv.conf names: the table of a connector for
 --- [`Net.ResolveOptions.connector`] that reaches nothing else. With none
 --- configured, the resolver's default, 127.0.0.1 at 53. A link-local

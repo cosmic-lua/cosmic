@@ -180,7 +180,7 @@ local function test_a_lookup_through_an_ended_name_servers_connector_tells_lost(
     local http = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     local relay = Relay.start({
       http = http, grants = { "api.test:443" }, log = function(_: string) end,
-      resolve = { connector = dns, servers = { Net.udp("127.0.0.1", 53) } },
+      resolve = { connector = dns, servers = { { host = "127.0.0.1", port = 53 } } },
       connector = function(_: string, _: integer, _: integer): Net.Conn | nil, string
         return nil, "nothing is connected here"
       end,
@@ -255,7 +255,8 @@ local Poll = require("cosmic.poll")
 local Relay = require("cosmic.relay.server")
 local SandboxRelay = require("cosmic.sandbox").Relay
 return function(argv: {string}): integer
-  local servers: {Net.Endpoint} = { { host = "127.0.0.1", port = assert(math.tointeger(tonumber(argv[1]))) } }
+  local dns_port = assert(math.tointeger(tonumber(argv[1])))
+  local servers: {Net.Endpoint} = { { host = "127.0.0.1", port = dns_port } }
   local lines: {string} = {}
   Poll.run(function()
     local proxy = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
@@ -280,13 +281,13 @@ return function(argv: {string}): integer
     local plan = assert(SandboxRelay.plan({}, { https_proxy = "http://proxy.test:" .. proxy.address.port,
       no_proxy = "direct.test" }))
     local up = plan.upstream
-    local name_servers = assert(SandboxRelay.name_servers({ servers = servers }))
+    local name_servers = assert(SandboxRelay.name_servers({ servers = { { host = "127.0.0.1", port = dns_port } } }))
     local dns = assert(Child.start_connector(name_servers.servers, name_servers.wait_ns // 1000000))
     up.addresses = assert(SandboxRelay.upstream_addresses(up, { fd = dns.fd, name_servers = name_servers }, ""))
     assert(dns:close())
     lines[#lines + 1] = "upstream " .. table.concat(up.addresses, ",")
-    local resolve: Net.ResolveOptions = { servers = Relay.udp_servers(name_servers.servers),
-      connector = assert(Net.connector(name_servers.servers, { timeout_ns = name_servers.wait_ns })) }
+    local resolve: Net.ResolveOptions = { servers = servers,
+      connector = assert(Net.connector(servers, { timeout_ns = name_servers.wait_ns })) }
     local http = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     local relay = Relay.start({
       http = http, grants = { "api.test:443", "direct.test:443" }, upstream = up, resolve = resolve,

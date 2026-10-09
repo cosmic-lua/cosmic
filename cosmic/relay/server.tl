@@ -348,17 +348,6 @@ local function target(host: string, port: integer): string
   return host .. ":" .. port
 end
 
---- The name servers `servers`, each at its port, as the "udp" addresses
---- [`Net.ResolveOptions.servers`] takes: the list a lookup through a
---- connector of exactly those servers asks.
---- @param servers {Net.Endpoint} The connector's table
---- @return {Net.Address} The same servers
-function Relay.udp_servers(servers: {Net.Endpoint}): {Net.Address}
-  local out: {Net.Address} = {}
-  for i, server in ipairs(servers) do out[i] = Net.udp(server.host, server.port) end
-  return out
-end
-
 --- The [`Connector`] of the one connector a relay's starter handed it
 --- ([`cosmic.sandbox.relay`]): an address and port its table holds is
 --- reached through the table, and any other through its public lists,

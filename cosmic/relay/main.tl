@@ -117,19 +117,26 @@ local function started(spec: Relay.Spec): Relay.Serving | nil, string
   return server, ""
 end
 
+--- `rows` as the endpoints [`Net`] takes.
+local function endpoints_of(rows: {Config.Endpoint}): {Net.Endpoint}
+  local out: {Net.Endpoint} = {}
+  for i, row in ipairs(rows) do out[i] = { host = row.host, port = row.port } end
+  return out
+end
+
 --- The connector `config` says the relay is handed, adopted: what
 --- [`Relay.handed`] takes, and the name servers' connector, or nil where
 --- none is handed. Nil and why where one cannot be adopted.
 local function adopted(config: Config.Config): Relay.Handed | nil, Net.Connector | nil, string
   local handed: Relay.Handed = {}
   if config.table ~= nil or config.public then
-    local made, why = Net.connector_from(Config.connector_fd, config.table, config.public, Config.connect_ns)
+    local made, why = Net.connector_from(Config.connector_fd, config.table ~= nil and endpoints_of(config.table) or nil, config.public, Config.connect_ns)
     if made == nil then return nil, nil, "the connector: " .. why end
     handed.connector = made
   end
   local dns: Net.Connector
   if config.name_servers ~= nil then
-    local made, why = Net.connector_from(Config.name_server_fd, config.name_servers, false,
+    local made, why = Net.connector_from(Config.name_server_fd, endpoints_of(config.name_servers), false,
       config.name_server_wait_ns)
     if made == nil then return nil, nil, "the name servers' connector: " .. why end
     dns = made
@@ -214,7 +221,7 @@ local function serve(config: Config.Config): integer
     -- looked up, and the starter gives no why.
     local resolve: Net.ResolveOptions
     if dns ~= nil then
-      resolve = { connector = dns, servers = Relay.udp_servers(config.name_servers) }
+      resolve = { connector = dns, servers = endpoints_of(config.name_servers) }
     end
     local running, start_why = started({
       http = http, socks = socks, mixed = mixed, token = config.token, grants = config.grants, connector = connect,

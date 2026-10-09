@@ -144,10 +144,17 @@ local record Net
     metamethod __close: function(Conn)
   end
 
-  --- One numeric endpoint a native connector may reach: a canonical
+  --- One numeric endpoint, a DNS server of [`ResolveOptions.servers`] or
+  --- one a native connector may reach: a canonical
   --- IPv4 or IPv6 `host` (no name, no scope, no leading zeroes) and a
   --- `port`, 0 for any nonzero port at that host.
-  type Endpoint = Child.ConnectorEndpoint
+  record Endpoint
+    --- The numeric address, no name.
+    host: string
+    --- The port. A DNS server's is 1 to 65535; only a connector's table
+    --- takes 0, any nonzero port.
+    port: integer
+  end
 
   record ConnectorOptions
     --- The ceiling on how long any one connect waits, in nanoseconds, from
@@ -249,15 +256,15 @@ local record Net
     --- How long the lookup waits in all, in nanoseconds, from 0; nil for
     --- no limit beyond the resolver's own retries.
     timeout_ns: integer
-    --- Name servers to ask in place of the system's: one or more "udp"
-    --- addresses, from [`Net.udp`], which carry a port.
-    servers: {Address}
+    --- Name servers to ask in place of the system's: one or more
+    --- numeric [`Net.Endpoint`]s, such as [`Net.nameservers`] lists.
+    servers: {Endpoint}
     --- A hosts file to read in place of the system's.
     hosts_file: string
     --- Resolves over TCP alone, every socket of the lookup made by this
     --- connector, one [`Net.connector`] or [`Net.connector_from`] made with
     --- a table, and no datagram sent: the servers asked are `servers`, or
-    --- the system's ([`cosmic.relay`]'s `nameservers`), each of which the
+    --- the system's ([`Net.nameservers`]), each of which the
     --- connector's table must hold at its port. A connector built from
     --- those alone reaches nothing else, so the lookup's
     --- sockets reach nothing but the name servers. The lookup asks
@@ -784,24 +791,47 @@ function Net.resolve(name: string, opts?: Net.ResolveOptions): {Net.Resolved} | 
   local servers: string
   if opts.servers ~= nil then
     local listed = opts.servers
-    if not (listed is {Net.Address}) or #listed == 0 then
-      error("net: servers must be a list of udp addresses from Net.udp", 2)
+    if type(listed) ~= "table" or #listed == 0 then
+      error("net: servers must be a list of endpoints", 2)
     end
     local parts: {string} = {}
-    for _, address in ipairs(listed) do
-      checked_datagram_address(address, 2)
-      local host = address.host
+    for _, endpoint in ipairs(listed) do
+      if type(endpoint) ~= "table" then error("net: a server must be an endpoint", 2) end
+      local host, port = endpoint.host, endpoint.port
+      if not (host is string and port is integer and port >= 1 and port <= 65535) then
+        error("net: a server must be an endpoint with a string host and an integer port from 1 to 65535", 2)
+      end
       -- Only a host that holds none of the list's own punctuation may
       -- reach it, so one server cannot name another; the resolver
       -- refuses what is not an address.
       if host:find("[^%x:.]") then return nil, "Invalid argument" end
-      parts[#parts + 1] = host:find(":", 1, true) and ("[" .. host .. "]:" .. address.port) or
-        (host .. ":" .. address.port)
+      parts[#parts + 1] = host:find(":", 1, true) and ("[" .. host .. "]:" .. port) or
+        (host .. ":" .. port)
     end
     servers = table.concat(parts, ",")
   end
   if opts.connector ~= nil then return resolved_through(name, opts) end
   return Relay.lookup(name, { timeout_ns = opts.timeout_ns, servers = servers, hosts = hosts_file })
+end
+
+--- The system's DNS servers, each at port 53, as [`ResolveOptions.servers`]
+--- takes them and a connector's table holds them: as the system's resolver
+--- configuration gives them (resolv.conf on Linux, the system's DNS
+--- configuration on macOS). Where none is configured the resolver's
+--- default, 127.0.0.1, stands. A server written with an interface
+--- (`fe80::1%eth0`) is left out; the call fails where every server is.
+---
+---     local servers = assert(Net.nameservers())
+---     local found = assert(Net.resolve("localhost", { servers = servers }))
+---
+--- @return {Net.Endpoint}|nil The servers
+--- @return string Why there are none, "" otherwise
+function Net.nameservers(): {Net.Endpoint} | nil, string
+  local listed, why = Relay.nameservers()
+  if listed == nil then return nil, why end
+  local out: {Net.Endpoint} = {}
+  for i, server in ipairs(listed) do out[i] = { host = server.host, port = server.port } end
+  return out, ""
 end
 
 --- A socket connected to `address`, waiting at most `timeout_ns`: in a
@@ -1354,6 +1384,13 @@ local function endpoint_allows(entry: Net.Endpoint, port: integer): boolean
   return port >= 1 and port <= 65535
 end
 
+--- `endpoints` as the rows the core's connector takes.
+local function core_endpoints(endpoints: {Net.Endpoint}): {Child.ConnectorEndpoint}
+  local rows: {Child.ConnectorEndpoint} = {}
+  for i, entry in ipairs(endpoints) do rows[i] = { host = entry.host, port = entry.port } end
+  return rows
+end
+
 --- The stream of `self`'s process, started where it has none or lost
 --- its last and the process is this one's to start: nil and why where
 --- it cannot be.
@@ -1361,7 +1398,7 @@ local function served(self: SocketConnector): Channel | nil, string
   local channel = self.channel
   if channel ~= nil and channel.lost == nil then return channel, "" end
   if self.inherited then return nil, "net: the connector has ended" end
-  local started, why = Child.start_connector(self.endpoints, self.timeout_ms, self.public)
+  local started, why = Child.start_connector(core_endpoints(self.endpoints), self.timeout_ms, self.public)
   if started == nil then return nil, why end
   self.channel = channel_of(started)
   return self.channel, ""
@@ -1439,13 +1476,13 @@ resolved_through = function(name: string, opts: Net.ResolveOptions): {Net.Resolv
   if not through.open then return nil, "net: the connector is closed" end
   local listed: {Net.Endpoint} = {}
   if opts.servers ~= nil then
-    for i, address in ipairs(opts.servers) do
-      listed[i] = { host = address.host, port = address.port }
+    for i, server in ipairs(opts.servers) do
+      listed[i] = { host = server.host, port = server.port }
     end
   else
     local system, why = Relay.nameservers()
     if system == nil then return nil, why end
-    listed = system
+    for i, server in ipairs(system) do listed[i] = { host = server.host, port = server.port } end
   end
   if #listed > CONNECTOR_MAX_ENDPOINTS then
     return nil, "net: a lookup through a connector asks at most " .. CONNECTOR_MAX_ENDPOINTS ..
@@ -1584,7 +1621,7 @@ function Net.connector(endpoints: {Net.Endpoint}, opts?: Net.ConnectorOptions): 
     timeout_ms = timeout_ms, open = true, public = public, accepts_public = public ~= nil, endpoints = kept,
   }, socket_connector_mt)
   connectors_made[made] = made
-  local started, why = Child.start_connector(kept, timeout_ms, public)
+  local started, why = Child.start_connector(core_endpoints(kept), timeout_ms, public)
   if started == nil then return nil, why end
   made.channel = channel_of(started)
   return made, ""
