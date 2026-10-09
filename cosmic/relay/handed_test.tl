@@ -102,7 +102,7 @@ local function test_a_public_connect_that_hangs_holds_up_no_other()
     end)
     local stuck = stuck_port(held)
     local wait = Clock.seconds(1)
-    local public = assert(Net.connector(nil, { timeout_ns = wait, public = { deny = { "10.0.0.0/8" } } }))
+    local public = assert(Net.connector({}, { timeout_ns = wait, public = { deny = { "10.0.0.0/8" } } }))
     local connect = Relay.handed({ connector = public })
     local hung: string
     local hanging = Poll.spawn(function()

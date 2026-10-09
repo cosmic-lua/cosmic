@@ -126,8 +126,8 @@ local record Relay
   --- Connects to the numeric `address` and `port` the relay has checked,
   --- waiting at most `timeout_ns`: the connection, or nil and why
   --- ("Connection refused", [`Poll.TIMEOUT`], ...). The sandbox's is
-  --- the native connector ([`Net.connector`]), which connects nothing but the
-  --- numeric endpoint it is given: its [`Net.Connector.as_function`] is one.
+  --- the native connector ([`Net.connector`]), reached through
+  --- [`Relay.handed`], which connects nothing but numeric endpoints.
   type Connector = function(address: string, port: integer, timeout_ns: integer): Net.Conn | nil, string
 
   --- How long each wait may last, in nanoseconds; a nil field takes its
@@ -354,7 +354,7 @@ end
 --- which refuse what its deny list does; a table-only connector refuses
 --- every other address. It makes several connections at once, each asked
 --- with its own `timeout_ns`, so a connect that hangs holds up no other
---- until the connector's [`Net.CONNECTOR_FLIGHT`] are in use. Once it has
+--- until the connector's capacity is in use. Once it has
 --- ended, a connection fails saying so, and `handed.lost` is told the
 --- first time. A `handed` with no connector or a `lost` that is no
 --- function raises.
@@ -382,7 +382,7 @@ function Relay.handed(handed: Relay.Handed): Relay.Connector
     if connector:ended() then return nil, ended() end
     -- A connect raises only for arguments it refuses, which this module's
     -- own are not.
-    local conn, why = connector:connect(address, port, timeout_ns)
+    local conn, why = connector:connect(Net.tcp(address, port), { timeout_ns = timeout_ns })
     if conn ~= nil then return conn, "" end
     -- The connector ended under the request: why it did is the request's.
     if connector:ended() then ended() end

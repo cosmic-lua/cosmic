@@ -334,9 +334,9 @@ local function test_a_name_server_the_connector_lacks_is_refused_before_anything
   assert(found == nil and why == "net: the name server 127.0.0.1:5353 is not in the connector's table", why)
   found, why = Net.resolve("example.test", { connector = dns, servers = { { host = "192.0.2.53", port = 53 } } })
   assert(found == nil and why:find("is not in the connector's table", 1, true) ~= nil, why)
-  local each <close> = assert(Net.connector())
-  found, why = Net.resolve("example.test", { connector = each, servers = { { host = "127.0.0.1", port = 53 } } })
-  assert(found == nil and why:find("with a table", 1, true) ~= nil, why)
+  local public <close> = assert(Net.connector({}, { public = { deny = {} } }))
+  found, why = Net.resolve("example.test", { connector = public, servers = { { host = "127.0.0.1", port = 53 } } })
+  assert(found == nil and why:find("is not in the connector's table", 1, true) ~= nil, why)
   assert(dns:close())
   found, why = Net.resolve("example.test", { connector = dns, servers = { { host = "127.0.0.1", port = 53 } } })
   assert(found == nil and why == "net: the connector is closed", why)
@@ -357,9 +357,9 @@ local function test_the_name_servers_connector_refuses_what_is_no_name_server(tm
   local table_rows: {Net.Endpoint} = {}
   for i, server in ipairs(servers) do table_rows[i] = { host = server.host, port = server.port } end
   local dns <close> = assert(Net.connector(table_rows))
-  local conn, why = dns:connect("127.0.0.1", 80, Clock.seconds(5))
+  local conn, why = dns:connect(Net.tcp("127.0.0.1", 80), { timeout_ns = Clock.seconds(5) })
   assert(conn == nil and why:find("is not in the connector's table", 1, true) ~= nil, tostring(why))
-  conn, why = dns:connect("192.0.2.1", 53, Clock.seconds(5))
+  conn, why = dns:connect(Net.tcp("192.0.2.1", 53), { timeout_ns = Clock.seconds(5) })
   assert(conn == nil and why:find("is not in the connector's table", 1, true) ~= nil, tostring(why))
   -- The process itself, asked past the checks of its Lua side.
   local started <close> = assert(Child.start_connector(rows, 1000))

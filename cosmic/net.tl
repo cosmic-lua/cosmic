@@ -84,7 +84,10 @@ local record Net
     --- "Resource temporarily unavailable (the listener is busy: its
     --- backlog is full)" on Linux and "Connection refused" on macOS,
     --- which cannot tell a busy listener from none. A caller that would
-    --- wait for room connects again.
+    --- wait for room connects again. A [`Connector.connect`] waits
+    --- `min(timeout_ns, ceiling)` to connect instead, the ceiling being
+    --- [`ConnectorOptions.timeout_ns`], and a nil `timeout_ns` waits the
+    --- ceiling; the connection's reads and writes wait `timeout_ns` as here.
     timeout_ns: integer
   end
 
@@ -154,15 +157,16 @@ local record Net
   end
 
   record ConnectorOptions
-    --- The longest the connector process waits to make each connection,
-    --- in nanoseconds, from 1 millisecond to 60 seconds (10 seconds by
-    --- default). It is fixed when the process starts; a request's own
-    --- `timeout_ns`, where shorter, bounds its connect instead (see
-    --- [`Connector.connect`]).
+    --- The ceiling on how long any one connect waits, in nanoseconds, from
+    --- 1 millisecond to 60 seconds (10 seconds by default), fixed when the
+    --- process starts. A connect waits `min(opts.timeout_ns, ceiling)`
+    --- ([`ConnectOptions.timeout_ns`] of the call), and a call with no
+    --- `timeout_ns` waits the ceiling.
     timeout_ns: integer
     --- Makes the connector public: it also connects to an address its
-    --- table lacks, judged by the process itself against the lists given
-    --- here (see [`Net.connector`]).
+    --- endpoints lack, judged by the process itself against the lists given
+    --- here (see [`Net.connector`]). Without it, the endpoints are the
+    --- connector's whole authority.
     public: PublicOptions
   end
 
@@ -174,44 +178,35 @@ local record Net
   --- An IPv6 address outside 2000::/3 is refused besides, whatever is listed.
   type PublicOptions = Child.ConnectorPublic
 
-  --- Connects to numeric addresses through the sandbox's native connector
-  --- process, answered by [`Net.connector`]: a process confined to a
-  --- fixed set of endpoints, which connects a socket and passes it back
-  --- over a private stream. Tasks of a [`Poll.run`] share one: its
-  --- process makes up to [`Net.CONNECTOR_FLIGHT`] connections at once,
-  --- answering each as it is made, so a connect that hangs holds up no
-  --- other. A connector with a table and public lists keeps 16 of those
-  --- for each kind of request against the other (see
-  --- [`Connector.connect`]), so a flood of one never keeps the other
-  --- waiting.
+  --- Connects to numeric TCP addresses through the sandbox's native
+  --- connector process, answered by [`Net.connector`]: a process confined
+  --- to the endpoints it was given and, if so made, to a public list,
+  --- which connects a socket and passes it back over a private stream.
+  --- Tasks of a [`Poll.run`] share one: its process makes many
+  --- connections at once (64), answering each as it is made, so a connect
+  --- that hangs holds up no other. A connector with endpoints and a public
+  --- list keeps 16 of those for each kind of request against the other, so
+  --- a flood of one never keeps the other waiting.
   interface Connector
-    --- Connects to `target` at `port` within `timeout_ns` nanoseconds: the
-    --- connection, or nil and why ([`Poll.TIMEOUT`], "Connection
-    --- refused", the connector's own refusal of an endpoint not in its
-    --- table, ...). `target` is the numeric address as the table wrote
-    --- it, or the table's 1-based index of an endpoint; `port` is that
-    --- endpoint's, or any nonzero one where its port is 0. The process
-    --- connects for at most `timeout_ns` (or its own wait, where shorter),
-    --- and its answer is waited for a second more. A request past the
-    --- [`Net.CONNECTOR_FLIGHT`] the process is making waits for one of them
-    --- to end, within its `timeout_ns`; one given up on still counts until
-    --- the process answers it. A connector whose process ended, or whose
-    --- stream fell out of step, fails every request waiting on it, and is
-    --- started again for the next, unless [`Net.connector_from`] adopted
-    --- it. A `timeout_ns` that is no integer from 0 raises, and so does an
-    --- address that is no numeric one where the connector has no table. A
-    --- public connector (see [`Net.connector`]) also connects to a numeric
-    --- `target` its table lacks, unless its process refuses the address
-    --- ("net: ... is refused by the connector's deny list"); one with a
-    --- table too holds 16 of its [`Net.CONNECTOR_FLIGHT`] back from each
-    --- kind for the other, so that neither the table's requests nor the
-    --- public ones wait behind the other's that hang: at most 48 of
-    --- either are in flight at once.
-    connect: function(Connector, target: integer | string, port: integer, timeout_ns: integer): Conn | nil, string
-    --- The connector as the relay takes one, `address, port, timeout_ns`
-    --- to a connection or nil and why: [`Connector.connect`] over a
-    --- numeric address, and no more.
-    as_function: function(Connector): function(address: string, port: integer, timeout_ns: integer): Conn | nil, string
+    --- Connects to `address`, a [`Net.tcp`] one: the connection, or nil
+    --- and why ([`Poll.TIMEOUT`], "Connection refused", the connector's
+    --- own refusal of an address it has no authority for, ...). An address
+    --- the connector's endpoints hold, by host and port (a numeric host in
+    --- any spelling of it; an endpoint at port 0 holds any nonzero port),
+    --- is reached through them; any other only by a public connector (see
+    --- [`Net.connector`]), unless its process refuses the address
+    --- ("net: ... is refused by the connector's deny list"). The connect
+    --- waits `min(opts.timeout_ns, ceiling)` (see
+    --- [`ConnectorOptions.timeout_ns`]), and its answer a second more;
+    --- `opts.timeout_ns` also sets the connection's later read and write
+    --- wait, as [`Net.connect`] does. A request past the process's
+    --- capacity waits for room within its wait; one given up on still
+    --- counts until the process answers it. A connector whose process
+    --- ended, or whose stream fell out of step, fails every request
+    --- waiting on it, and is started again for the next, unless
+    --- [`Net.connector_from`] adopted it. An `address` that is no tcp
+    --- [`Net.Address`], or a `timeout_ns` that is no integer from 0, raises.
+    connect: function(Connector, address: Address, opts?: ConnectOptions): Conn | nil, string
     --- Whether the connector serves no request any more: it is closed, or
     --- its process, one [`Net.connector_from`] adopted, has ended or its
     --- stream fell out of step, so it cannot be started again.
@@ -278,10 +273,6 @@ local record Net
     --- connector is.
     connector: Connector
   end
-
-  --- The most connections one [`Net.Connector`]'s process makes at once
-  --- (64).
-  CONNECTOR_FLIGHT: integer
 
 
   --- What [`Net.serve`] serves, and how. A field of the wrong shape, or
@@ -1025,7 +1016,8 @@ local CONNECTOR_GRACE_NS <const> = Clock.seconds(1)
 local TABLE_RESERVE <const> = 16
 local CONNECTOR_MAX_ENDPOINTS <const> = 128
 
-Net.CONNECTOR_FLIGHT = raw.CONNECTOR_FLIGHT
+-- The most connections one connector process makes at once.
+local CONNECTOR_FLIGHT <const> = raw.CONNECTOR_FLIGHT
 
 --- A request sent on a connector's stream whose reply has not been
 --- taken: what it asked for, so its socket is checked, and, once
@@ -1034,7 +1026,8 @@ Net.CONNECTOR_FLIGHT = raw.CONNECTOR_FLIGHT
 local record Pending
   host: string
   port: integer
-  timeout_ns: integer
+  -- The connection's later read and write wait; nil for none.
+  timeout_ns: integer | nil
   -- What a refusal by the connector's lists says.
   refusal: string
   given_up: boolean
@@ -1089,8 +1082,8 @@ local record Channel
 end
 
 local record SocketConnector is Net.Connector
-  -- The endpoints the process is confined to, in order; nil where each
-  -- connection starts a process of its own for the one endpoint it asks.
+  -- The endpoints the process is confined to, in order; empty for a
+  -- public-only connector.
   endpoints: {Net.Endpoint}
   -- The connector's wait to connect, in milliseconds.
   timeout_ms: integer
@@ -1107,8 +1100,7 @@ local record SocketConnector is Net.Connector
   -- this one's to start.
   channel: Channel
   open: boolean
-  connect: function(SocketConnector, target: integer | string, port: integer, timeout_ns: integer): Net.Conn | nil, string
-  as_function: function(SocketConnector): function(address: string, port: integer, timeout_ns: integer): Net.Conn | nil, string
+  connect: function(SocketConnector, address: Net.Address, opts?: Net.ConnectOptions): Net.Conn | nil, string
   ended: function(SocketConnector): boolean
   close: function(SocketConnector): boolean, string
 end
@@ -1170,7 +1162,7 @@ local function refused_why(status: integer, pending: Pending): string
   if status == raw.ETIMEDOUT then return Poll.TIMEOUT end
   if status == raw.CONNECTOR_DENIED and pending.refusal ~= "" then return pending.refusal end
   if status == raw.CONNECTOR_BUSY then
-    return "net: the connector is busy: it makes at most " .. raw.CONNECTOR_FLIGHT .. " connections at once"
+    return "net: the connector is busy: it makes at most " .. CONNECTOR_FLIGHT .. " connections at once"
   end
   return sys.errno_message(status)
 end
@@ -1337,11 +1329,11 @@ local asking_mt: metatable<Asking> = {
 --- stays pending until its reply comes, which the connector sends within
 --- the request's wait.
 local function ask(channel: Channel, body: string, host: string, port: integer, deadline: integer,
-                   timeout_ns: integer, refusal: string, kind: string): SocketConn | nil, string
+                   timeout_ns: integer | nil, refusal: string, kind: string): SocketConn | nil, string
   local room, waiting = await(channel, deadline, false, function(): boolean
-    return channel.lost == nil and channel.greeted and channel.count < raw.CONNECTOR_FLIGHT and
-      (kind ~= "table" or channel.table_count < raw.CONNECTOR_FLIGHT - TABLE_RESERVE) and
-      (kind ~= "public" or channel.public_count < raw.CONNECTOR_FLIGHT - TABLE_RESERVE)
+    return channel.lost == nil and channel.greeted and channel.count < CONNECTOR_FLIGHT and
+      (kind ~= "table" or channel.table_count < CONNECTOR_FLIGHT - TABLE_RESERVE) and
+      (kind ~= "public" or channel.public_count < CONNECTOR_FLIGHT - TABLE_RESERVE)
   end)
   if not room then return nil, waiting end
   local tag = channel.next_tag
@@ -1412,75 +1404,51 @@ local function served(self: SocketConnector): Channel | nil, string
   return self.channel, ""
 end
 
-function SocketConnector:connect(target: integer | string, port: integer, timeout_ns: integer): Net.Conn | nil, string
-  if math.type(timeout_ns) ~= "integer" or timeout_ns < 0 then
+function SocketConnector:connect(address: Net.Address, opts?: Net.ConnectOptions): Net.Conn | nil, string
+  local unusable = address_trouble(address)
+  if unusable ~= "" then error("net: address must be " .. unusable, 2) end
+  if address.kind ~= "tcp" then error("net: a connector connects tcp addresses", 2) end
+  local conn_ns = opts ~= nil and opts.timeout_ns or nil
+  if conn_ns ~= nil and (math.type(conn_ns) ~= "integer" or conn_ns < 0) then
     error("net: timeout_ns must be an integer from 0", 2)
   end
-  if math.type(port) ~= "integer" then error("net: port must be an integer", 2) end
   if not self.open then return nil, "net: the connector is closed" end
-  local deadline = Clock.monotonic_ns() + timeout_ns + CONNECTOR_GRACE_NS
-  if self.endpoints == nil then
-    -- A process for this connection alone, confined to this one endpoint.
-    if type(target) ~= "string" then
-      return nil, "net: a connector with no table connects to a numeric address"
-    end
-    if port < 1 or port > 65535 then return nil, "net: port must be from 1 to 65535" end
-    local ms = math.max(1, math.min(60000, (timeout_ns + 999999) // 1000000))
-    -- The core raises for a host that is no numeric address: a refusal here.
-    local called, started, why = pcall(Child.start_connector, { { host = target, port = port } }, ms)
-    if not called then return nil, "net: " .. target .. " is not a numeric address" end
-    if started == nil then return nil, why end
-    local alone <close> = started
-    return ask(channel_of(alone), request_body(1, port, timeout_ns), target, port, deadline, timeout_ns, "", "")
-  end
+  local target, port = address.host, address.port
+  -- The process holds the ceiling too; this wait is the one it is asked for.
+  local ceiling_ns = Clock.ms(self.timeout_ms)
+  local wait_ns = math.min(conn_ns or ceiling_ns, ceiling_ns)
+  local deadline = Clock.monotonic_ns() + wait_ns + CONNECTOR_GRACE_NS
   local index: integer
   local host: string
   local body: string
   local refusal = ""
   local kind = ""
-  if type(target) == "number" then
-    index = target
-    local entry = math.type(index) == "integer" and self.endpoints[index] or nil
-    if entry == nil then
-      return nil, "net: the connector has no endpoint " .. tostring(target)
-    end
-    if not endpoint_allows(entry, port) then
-      return nil, "net: port " .. port .. " is not endpoint " .. index .. "'s"
-    end
-    host = entry.host
-  else
-    for i, entry in ipairs(self.endpoints) do
-      if same_host(entry.host, target) and endpoint_allows(entry, port) then
-        index = i
-        host = entry.host
-        break
-      end
-    end
-    if index == nil then
-      if not self.accepts_public then
-        return nil, "net: " .. target .. ":" .. port .. " is not in the connector's table"
-      end
-      local bytes = Relay.Address.parse(target)
-      if bytes == nil then return nil, "net: " .. target .. " is not a numeric address" end
-      if port < 1 or port > 65535 then return nil, "net: port must be from 1 to 65535" end
-      host = target
-      -- The public index, 4294967295.
-      body = request_body(0xffffffff, port, timeout_ns, bytes)
-      if #self.endpoints > 0 then kind = "public" end
-      refusal = "net: " .. target .. " is refused by the connector's deny list"
+  for i, entry in ipairs(self.endpoints) do
+    if same_host(entry.host, target) and endpoint_allows(entry, port) then
+      index = i
+      host = entry.host
+      break
     end
   end
-  if index ~= nil and self.accepts_public then kind = "table" end
-  body = body or request_body(index, port, timeout_ns)
+  if index == nil then
+    if not self.accepts_public then
+      return nil, "net: " .. target .. ":" .. port .. " is not in the connector's table"
+    end
+    local bytes = Relay.Address.parse(target)
+    if bytes == nil then return nil, "net: " .. target .. " is not a numeric address" end
+    if port < 1 or port > 65535 then return nil, "net: port must be from 1 to 65535" end
+    host = target
+    -- The public index, 4294967295.
+    body = request_body(0xffffffff, port, wait_ns, bytes)
+    if #self.endpoints > 0 then kind = "public" end
+    refusal = "net: " .. target .. " is refused by the connector's deny list"
+  elseif self.accepts_public then
+    kind = "table"
+  end
+  body = body or request_body(index, port, wait_ns)
   local channel, why = served(self)
   if channel == nil then return nil, why end
-  return ask(channel, body, host, port, deadline, timeout_ns, refusal, kind)
-end
-
-function SocketConnector:as_function(): function(address: string, port: integer, timeout_ns: integer): Net.Conn | nil, string
-  return function(address: string, port: integer, timeout_ns: integer): Net.Conn | nil, string
-    return self:connect(address, port, timeout_ns)
-  end
+  return ask(channel, body, host, port, deadline, conn_ns, refusal, kind)
 end
 
 function SocketConnector:ended(): boolean
@@ -1506,9 +1474,6 @@ resolved_through = function(name: string, opts: Net.ResolveOptions): {Net.Resolv
     error("net: connector must be one Net.connector or Net.connector_from made", 3)
   end
   if not through.open then return nil, "net: the connector is closed" end
-  if through.endpoints == nil then
-    return nil, "net: a lookup goes through a connector with a table of the name servers"
-  end
   local listed: {Net.Endpoint} = {}
   if opts.servers ~= nil then
     for i, server in ipairs(opts.servers) do
@@ -1618,11 +1583,13 @@ end
 --- the network. Linux on x86_64 and aarch64 only: elsewhere it answers
 --- nil and why.
 ---
---- With `endpoints`, a table of at most 128 [`Net.Endpoint`], one process
---- is started now and serves every request of the connector, up to
---- [`Net.CONNECTOR_FLIGHT`] at once: it suits a fixed set of addresses,
---- such as a relay whose grants are numeric. An endpoint that is no numeric address or a table that is
---- empty or too long raises. An endpoint at port 0 stands for every port,
+--- Authority is explicit. `endpoints`, at most 128 [`Net.Endpoint`], is the
+--- fixed set of addresses the process may reach, such as a relay whose
+--- grants are numeric; it may be empty only with `opts.public`. With
+--- neither endpoints nor `opts.public` the call raises, as it does for an
+--- endpoint that is no numeric address or a table that is too long. One
+--- process is started now and serves every request of the connector, many
+--- at once. An endpoint at port 0 stands for every port,
 --- and its slots take 1 MiB of the table if the address is IPv4 and 2 MiB
 --- if IPv6: the port tables of all the endpoints are at most 32 MiB, so at
 --- most 32 IPv4 or 16 IPv6 addresses at port 0 in a table of those alone.
@@ -1630,17 +1597,10 @@ end
 --- starts at a 32-byte boundary) and a mix of the two change that count; a
 --- table past the limit raises.
 ---
---- With none, every [`Connector.connect`] starts a process of its own,
---- confined to the one address and port it is asked for, and ends it
---- with the connection made: the way for a connector whose addresses are
---- known only when it connects. Its cost is a process for each
---- connection, and what it confines is the process alone: the caller
---- chooses the endpoint.
----
---- With `opts.public`, one process is started now (with an empty table if
---- there are no `endpoints`) that also connects to any numeric address
---- its table lacks, which [`Connector.connect`] asks it for by address
---- and port. The process judges the address itself, with the lists
+--- With `opts.public` the process also connects to any numeric address
+--- the endpoints lack, which [`Connector.connect`] asks it for by address
+--- and port: public-only with no endpoints, mixed with some. The process
+--- judges the address itself, with the lists
 --- `public` carries -- `deny`, the numeric "address/bits" prefixes it
 --- refuses (at most 128; [`cosmic.relay`]'s `Address.deny_cidrs` is the
 --- relay's list), and `own`, the host's own addresses (at most 256) --
@@ -1649,18 +1609,18 @@ end
 --- check that stands if the caller's own is wrong, and the caller keeps
 --- its own as well. A refused address answers "net: ... is refused by the
 --- connector's deny list".
-function Net.connector(endpoints?: {Net.Endpoint}, opts?: Net.ConnectorOptions): Net.Connector | nil, string
+function Net.connector(endpoints: {Net.Endpoint}, opts?: Net.ConnectorOptions): Net.Connector | nil, string
   local timeout_ms = connector_timeout_ms(opts ~= nil and opts.timeout_ns or nil, 2)
   local public = opts ~= nil and opts.public or nil
   if public ~= nil then public = checked_public(public) end
+  if public == nil and (type(endpoints) ~= "table" or #endpoints == 0) then
+    error("net: a connector needs endpoints, opts.public, or both", 2)
+  end
+  local kept = copied_endpoints(endpoints, public ~= nil)
   local made: SocketConnector = setmetatable({
-    timeout_ms = timeout_ms, open = true, public = public, accepts_public = public ~= nil,
+    timeout_ms = timeout_ms, open = true, public = public, accepts_public = public ~= nil, endpoints = kept,
   }, socket_connector_mt)
   connectors_made[made] = made
-  if endpoints == nil and public == nil then return made, "" end
-  local kept: {Net.Endpoint} = {}
-  if endpoints ~= nil then kept = copied_endpoints(endpoints, public ~= nil) end
-  made.endpoints = kept
   local started, why = Child.start_connector(core_endpoints(kept), timeout_ms, public)
   if started == nil then return nil, why end
   made.channel = channel_of(started)
@@ -1672,7 +1632,7 @@ end
 --- across a spawn), which the connector then owns and `close` closes,
 --- and no process is signalled or waited for. `held`, the endpoints of
 --- the table the process was started with, in order, lets
---- [`Connector.connect`] name them by address or index as [`Net.connector`]'s
+--- [`Connector.connect`] matches them as [`Net.connector`]'s
 --- does; `public` says the process was started in public mode, so that
 --- it may be asked for an address the table lacks. Neither is
 --- checked against the process, which holds its own table and lists:

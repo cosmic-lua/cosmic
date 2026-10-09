@@ -112,9 +112,6 @@ for member, names in pairs(through_relay) do
       "name alone"
   end
 end
-allowed["cosmic.net.CONNECTOR_FLIGHT"] = "tested directly: how many connections one connector " ..
-  "makes at once, which Connector.connect's doc names for a caller that sizes its own concurrency; the " ..
-  "tree's callers go through the relay, which leaves the waiting to the connector"
 allowed["cosmic.net.connector"] = "tested directly: the library's face of the native connector, " ..
   "which ResolveOptions.connector takes; its callers in the tree start the process with " ..
   "Child.start_connector and adopt it with Net.connector_from instead"
