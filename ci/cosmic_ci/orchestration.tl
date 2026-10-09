@@ -315,25 +315,30 @@ end
 --- and restores, so it rides along. "0", none, where `env` names no
 --- absolute path or turns the cache off.
 ---
---- It is not the other suites' file. The portable artifact carries the
---- cores o/bin/cosmic does, from o/core (`ProductSetup`), so a test that
---- does not run the program (`tool`) may key the same under either: the
---- same runtime identity, and the same identity of what runs that core
---- (build/declared_key.tl's `launcher_identity`) wherever the two
---- artifacts' launchers and manifests are. In one file, the portable
---- suite would stand on the local suite's verdicts of minutes earlier
---- and run nothing under the portable build. Apart, it runs each such
---- test itself and stands only on earlier portable runs', whose keys
---- move with its launcher, cores and manifest as with anything else a
---- test is given.
+--- The portable suite has no file of its own: it keeps the native
+--- suite's, `env`'s. The portable artifact carries the cores o/bin/cosmic
+--- does, from o/core (`ProductSetup`), and a key holds what runs the
+--- core wherever a worker is started by a launcher
+--- (build/declared_key.tl's `launcher_identity`): a test that runs the
+--- program (`tool`) or opens the store (`store`) is keyed by the
+--- artifact it ran under, so it reruns under the portable build. A
+--- worker run on a sealed database of its closure never sees an
+--- artifact (build/test.tl's `seals`); its key holds the core and the
+--- sealed inputs in the launcher's place, so the same key under either
+--- artifact stands for the same run, and the portable suite stands on
+--- the native suite's verdict rather than running the test twice. A
+--- test module that reads the launcher or artifact without being
+--- unsealed fails `cosmic fix --check .` (build/tree_checks.tl's
+--- `sealed_launch`).
 ---
---- Nor is it the checked suite's (`checked`): the local suite's rows
---- would crowd the checked suite's toward the file's bound, and the
---- checked suite's census (`--census`) counts only its own suite's rows
---- when the file is its own.
+--- Nor is the checked suite's file either's (`checked`): the local
+--- suite's rows would crowd the checked suite's toward the file's bound,
+--- and the checked suite's census (`--census`) counts only its own
+--- suite's rows when the file is its own.
 function Orchestration.suite_verdicts(env: {string:string}, name: string): string
   local shared = env.COSMIC_VERDICT_CACHE or ""
   if shared:sub(1, 1) ~= "/" then return "0" end
+  if name == "portable" then return shared end
   return shared:match("^(.*)/[^/]*$") .. "/" .. name .. ".db"
 end
 
@@ -1379,16 +1384,15 @@ local function phase_portable(p: PlatformContext): integer
   -- same, which provenance holds), and the others set
   -- COSMIC_CI_PORTABLE_SUITE=skip; the scheduled run and a manual one
   -- keep it on every leg (ci.yml). A leg that skips it still
-  -- checks the artifact unchanged since assemble (attest), and its
-  -- portable.db keeps what was restored whole, since the run reached
-  -- none of it (cosmic_ci/verdicts.tl).
+  -- checks the artifact unchanged since assemble (attest).
   if Env.get("COSMIC_CI_PORTABLE_SUITE") == "skip" then
     Fs.put(Fs.stderr, "portable suite: skipped on this leg " ..
         "(COSMIC_CI_PORTABLE_SUITE=skip)\n")
   else
     -- Where the other suites stand on verdicts (`stands`), it stands on
-    -- its own ([`suite_verdicts`]), never on the local suite's;
-    -- elsewhere it runs every test, as they do.
+    -- the local suite's ([`suite_verdicts`]): a sealed worker's key is
+    -- the same under either artifact, and every other worker's holds
+    -- its launcher; elsewhere it runs every test, as they do.
     s = suite(portable_context, "portable", executable, portable_d,
       { COSMIC_PORTABLE_CACHE = portable_d .. "/portable-full-suite-cache",
         COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "portable") })

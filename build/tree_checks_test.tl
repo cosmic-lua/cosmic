@@ -513,6 +513,44 @@ local function test_the_declared_requirements_are_read_by_module()
   local _, _ = db:close()
 end
 
+--- A test that declares `tool` or `store`, or `requires` "portable", is
+--- the portable launcher's to read; the unsealed modules are those.
+local function test_the_unsealed_modules_are_those_declaring_a_launcher_reader()
+  local db = assert(Sqlite.open(":memory:", { writable = true }))
+  assert(db:exec("CREATE TABLE inputs (path TEXT, source_hash TEXT)"))
+  assert(db:exec("CREATE TABLE test_inputs (source_hash TEXT, ordinal INTEGER, field TEXT, value TEXT)"))
+  assert(db:exec("INSERT INTO inputs VALUES ('m.a_test', 'h1'), ('m.b_test', 'h2'), " ..
+      "('m.c_test', 'h3'), ('m.d_test', 'h4'), ('m.e_test', 'h5')"))
+  assert(db:exec("INSERT INTO test_inputs VALUES ('h1', 1, 'tool', 'true'), ('h2', 1, 'store', 'true'), " ..
+      "('h3', 1, 'requires', 'portable'), ('h4', 1, 'requires', 'proc'), ('h5', 1, 'nests', 'true')"))
+  local found = assert(tree_checks.unsealed(db))
+  assert(found["m.a_test"] and found["m.b_test"] and found["m.c_test"])
+  assert(not found["m.d_test"] and not found["m.e_test"])
+  local _, _ = db:close()
+end
+
+--- A sealed test that names the launcher's contract is refused until
+--- something keys it by the launcher (it declares it) or an allowance
+--- says it reads none, and an allowance for a test that no longer names
+--- it is stale. A comment and a call to Proc.relaunch are no mention.
+local function test_a_sealed_test_naming_the_launcher_is_refused(dir: string)
+  local db = fixture.database(dir, {
+    ["build/reads_test.tl"] = source("local env = os.getenv(\"COSMIC_PORTABLE_ARTIFACT_FD\")"),
+    ["build/argv_test.tl"] = source("local on = argv[2] == \"--artifact\""),
+    ["build/declared_test.tl"] = source("local fd = os.getenv(\"COSMIC_PORTABLE_CORE_FD\")"),
+    ["build/quiet_test.tl"] = source("-- COSMIC_PORTABLE_CORE_FD, said in a comment",
+      "local launched = Proc.relaunch()"),
+  })
+  local found = tree_checks.sealed_launch(db, { ["build.declared_test"] = true }, {})
+  assert(#found == 2, table.concat(found, "\n"))
+  assert(found[1]:find("^build%.argv_test names the portable launcher's contract") ~= nil, found[1])
+  assert(found[2]:find("^build%.reads_test names the portable launcher's contract") ~= nil, found[2])
+  found = tree_checks.sealed_launch(db, { ["build.declared_test"] = true },
+    { ["build.argv_test"] = "a made-up start", ["build.reads_test"] = "text only",
+      ["build.quiet_test"] = "wrongly excused" })
+  assert(#found == 1 and found[1]:find("^build%.quiet_test is excused") ~= nil, table.concat(found, "\n"))
+end
+
 --- Every check runs, each line named by its check: a projection with
 --- none of the tree's own anchors, stand-ins, docs or quieted records
 --- fails each check that expects them, and a public member with no doc

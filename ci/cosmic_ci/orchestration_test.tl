@@ -403,14 +403,14 @@ local function test_a_merge_queue_run_that_moves_the_epoch_runs_every_test(tmp: 
     "ci.yml's platform job names no merge queue base: " .. tostring(env.COSMIC_CI_BASE_SHA))
 end
 
---- The portable suite keeps its verdicts in a file of its own beside
---- the other suites', in the directory ci.yml caches, and none where
---- the driver names no absolute path or turns the cache off.
-local function test_the_portable_suite_keeps_verdicts_of_its_own()
+--- The portable suite keeps its verdicts in the native suite's file,
+--- the one the driver names, and none where the driver names no
+--- absolute path or turns the cache off.
+local function test_the_portable_suite_shares_the_native_suites_verdicts()
   local Orchestration = require("cosmic_ci.orchestration")
   for shared, portable in pairs({
-      ["/runner/_temp/verdicts/verdicts.db"] = "/runner/_temp/verdicts/portable.db",
-      ["/verdicts.db"] = "/portable.db",
+      ["/runner/_temp/verdicts/verdicts.db"] = "/runner/_temp/verdicts/verdicts.db",
+      ["/verdicts.db"] = "/verdicts.db",
       ["0"] = "0", [""] = "0", ["verdicts.db"] = "0",
   }) do
     local said = Orchestration.suite_verdicts({ COSMIC_VERDICT_CACHE = shared }, "portable")
@@ -419,8 +419,8 @@ local function test_the_portable_suite_keeps_verdicts_of_its_own()
   assert(Orchestration.suite_verdicts({}, "portable") == "0", "unset")
 end
 
---- So does the checked suite, apart from both the local suite's and the
---- portable suite's.
+--- The checked suite keeps a file of its own, apart from the local and
+--- portable suites' shared one.
 local function test_the_checked_suite_keeps_verdicts_of_its_own()
   local Orchestration = require("cosmic_ci.orchestration")
   local shared = { COSMIC_VERDICT_CACHE = "/runner/_temp/verdicts/verdicts.db" }
@@ -1243,10 +1243,10 @@ chmod 755 o/bin/cosmic
 end
 
 --- The portable suite stands on verdicts where the other suites do --
---- a Linux leg's push or merge queue run -- on those of its own file
---- ([`cosmic_ci.orchestration.suite_verdicts`]), never the local suite's; where
+--- a Linux leg's push or merge queue run -- on the local suite's file
+--- ([`cosmic_ci.orchestration.suite_verdicts`]); where
 --- they do not (main's scheduled run), it runs every test.
-local function test_the_portable_suite_stands_on_its_own_verdicts(tmp: string)
+local function test_the_portable_suite_stands_on_the_local_suites_verdicts(tmp: string)
   local base, project = command(tmp)
   for _, case in ipairs({
       { event = "merge_group", words = "test --census\n", shared = false },
@@ -1292,7 +1292,7 @@ exit 0
       local name, value = line:match("^([^=]+)=(.*)$")
       if name then env[name] = value end
     end
-    assert(env.COSMIC_VERDICT_CACHE == runner_temp .. "/verdicts/portable.db",
+    assert(env.COSMIC_VERDICT_CACHE == runner_temp .. "/verdicts/verdicts.db",
       case.event .. ": " .. tostring(env.COSMIC_VERDICT_CACHE))
     assert((env.COSMIC_TEST_NO_SHARED == "1") == case.shared,
       case.event .. ": COSMIC_TEST_NO_SHARED=" .. tostring(env.COSMIC_TEST_NO_SHARED))
