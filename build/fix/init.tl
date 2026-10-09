@@ -1185,8 +1185,12 @@ local function lay_out_c(ctx: Fix)
       failures[#failures + 1] = outcome.file .. ": " .. outcome.trouble
     else
       for _, f in ipairs(outcome.findings) do
+        -- Named only when the variants it was found in are not all that
+        -- its file was checked under.
+        local seen = f.variants ~= nil and #f.variants < #outcome.variants and
+          " [" .. table.concat(f.variants, ", ") .. "]" or ""
         failures[#failures + 1] = f.file .. ":" .. f.line .. ": " .. f.rule ..
-          " in " .. f.within .. ": " .. f.message
+          " in " .. f.within .. seen .. ": " .. f.message
       end
     end
   end

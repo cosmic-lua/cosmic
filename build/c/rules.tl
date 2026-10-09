@@ -92,6 +92,9 @@ local record rules
     --- The function it is in.
     within: string
     message: string
+    --- The names of the variants ([`build.c`]'s `variants`) whose syntax
+    --- tree it was found in; nil from `check`, which sees one tree.
+    variants: {string}
   end
 
   --- What one translation unit defines that a header declares, and
@@ -156,6 +159,10 @@ local exempt: {string: string} = {
   ["core/syscalls.h cosmic_sys_sandbox_platform true-alone"] =
     "its other branch, compiled off Linux, answers false with ENOSYS, which " ..
     "the check's Linux compile does not see",
+  ["core/promises.c cosmic_promises_apply constant-return"] =
+    "its Linux branch answers an errno or 0; the macOS compile, where no " ..
+    "seccomp filter exists, answers ENOSYS on every path, which is the " ..
+    "function's contract there",
   ["core/startup_hook.c cosmic_startup_test_pause constant-return"] =
     "a link-time seam: the product hook always lets startup go on, and " ..
     "test/portable/startup_hook.c, linked in its place, answers whether it may",
