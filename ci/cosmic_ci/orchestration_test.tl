@@ -603,10 +603,13 @@ end
 --- database too. Each
 --- unsandboxed one names each variable it and its children read
 --- ([`Fixture.inherited`] and the COSMIC_FIXTURE_* it requires) and
---- declares nothing else: nothing holds it to a declaration, and it
---- shares no verdict for one to key, but a release that keys every
---- unsandboxed run by declaration gives its worker only the variables it
---- declares.
+--- declares nothing else but `tool` where it needs it: nothing holds it
+--- to a declaration, and it shares no verdict for one to key, but a
+--- release that keys every unsandboxed run by declaration gives its
+--- worker only the variables it declares. Any fixture that asks
+--- cosmic_ci.build_paths for a directory starts the running program on the
+--- candidate's build/paths.tl, and so declares `tool`: a worker run on
+--- its closure alone lacks that resolver's modules.
 local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
   local _ = tmp
   local Orchestration = require("cosmic_ci.orchestration")
@@ -618,6 +621,13 @@ local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
   table.sort(names)
   local sandboxed = 0
   for _, name in ipairs(names) do
+    local code = code_of(name)
+    if code:find("BuildPaths.", 1, true) then
+      local policy = assert(code:match("\nTest%.policy%s*%(?%s*(%b{})"), name .. ": no Test.policy")
+      assert(policy:find('profiles = { "cosmic" }', 1, true) and
+          policy:find('{ path = "o/bin", letters = "rx" }', 1, true),
+        name .. ": a fixture that starts the running program on build/paths.tl does not declare tool")
+    end
     if Orchestration.sandboxed_fixtures[name] then
       sandboxed = sandboxed + 1
       local host = declared_reads(name)
@@ -641,7 +651,6 @@ local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
       -- by its own [`Fixture.required`] or by [`Fixture.source_tree`]), and each
       -- its children inherit, is named, and no other: never the whole
       -- environment.
-      local code = code_of(name)
       local policy = code:match("\nTest%.policy%s*%(?%s*(%b{})")
       assert(policy ~= nil, name .. ": an unsandboxed fixture declares no Test.policy")
       local env = assert(policy:match("env%s*=%s*(%b{})"), name .. ": no env")
