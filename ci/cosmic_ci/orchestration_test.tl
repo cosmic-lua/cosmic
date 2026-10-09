@@ -8,6 +8,7 @@ local Proc = require("cosmic.proc")
 local Shape = require("cosmic.shape")
 local Fixture = require("cosmic_ci.fixture")
 local Sqlite = require("cosmic.sqlite")
+local sys = require("cosmic.sys")
 local State = require("cosmic_ci.state")
 local Test = require("cosmic.test")
 
@@ -1581,4 +1582,171 @@ local function test_a_fixture_is_given_the_promises_its_carrier_knows(tmp: strin
   }, tmp .. "/tmp", tmp .. "/c.db")
   assert(unknown.COSMIC_TEST_PROMISES == "proc,future_requirement,checked",
     "the fixture discarded a promise its carrier must reject")
+end
+
+--- A bound for a group that should end at once: only a hang reaches it.
+local lane_hang_guard = Clock.seconds(20)
+
+--- Groups of `/bin/sh` scripts for `Orchestration.run_groups`, whose log
+--- goes to `sink` when it ends, with an `events` list of how each ended.
+local record LaneRig
+  events: {string}
+  sink: integer
+  group: function(name: string, script: string, timeout_ns?: integer): Orchestration.Group
+  serial: function(name: string, status: integer): Orchestration.Group
+end
+
+local function lane_rig(tmp: string): LaneRig
+  local Orchestration = require("cosmic_ci.orchestration")
+  local Runner = require("cosmic_ci.runner")
+  local candidate, state = tmp .. "/candidate", tmp .. "/state"
+  assert(Fs.mkdirs(candidate) and Fs.mkdirs(state) and Fs.mkdirs(tmp .. "/logs"))
+  local c: Runner.Context = { database = state .. "/operations.db", worker = "worker",
+    run = "run", attempt = "1", candidate = candidate }
+  local rig: LaneRig = { events = {}, sink = assert(Fs.open_write(tmp .. "/sink")) } as LaneRig
+  rig.group = function(name: string, script: string, timeout_ns?: integer): Orchestration.Group
+    local out, err = tmp .. "/logs/" .. name .. ".out", tmp .. "/logs/" .. name .. ".err"
+    return {
+      name = name,
+      run = function(): integer
+        table.insert(rig.events, "run:" .. name)
+        return 0
+      end,
+      start = function(): Runner.Running
+        table.insert(rig.events, "start:" .. name)
+        return Runner.spawn(c, name, { argv = { "/bin/sh", "-c", script }, cwd = candidate,
+          output = out, error = err, timeout_ns = timeout_ns or lane_hang_guard })
+      end,
+      finish = function(outcome: Runner.Outcome): integer
+        table.insert(rig.events, "finish:" .. name .. ":" .. outcome.status)
+        assert(Orchestration.replay(out, err, rig.sink, rig.sink))
+        return outcome.code
+      end,
+      abandon = function(outcome: Runner.Outcome)
+        table.insert(rig.events, "abandon:" .. name .. ":" .. outcome.status)
+        assert(Orchestration.replay(out, err, rig.sink, rig.sink))
+      end,
+    }
+  end
+  rig.serial = function(name: string, status: integer): Orchestration.Group
+    local group = rig.group(name, "exit 0")
+    group.run = function(): integer
+      table.insert(rig.events, "run:" .. name)
+      return status
+    end
+    return group
+  end
+  return rig
+end
+
+local function gone(pid: integer): boolean
+  return not sys.kill(pid, 0)
+end
+
+local function pid_of(path: string): integer
+  local waited = Clock.monotonic_ns()
+  while not Predicate.exists(path) and Clock.monotonic_ns() - waited < lane_hang_guard do
+    Clock.sleep_ns(Clock.ms(10))
+  end
+  return assert(math.tointeger(tonumber((assert(Fs.read(path)):gsub("%s", "")))))
+end
+
+local function test_a_failing_group_stops_the_other_lane_and_starts_nothing_after(tmp: string)
+  local Orchestration = require("cosmic_ci.orchestration")
+  for _, high_fails in ipairs({ false, true }) do
+    local dir = tmp .. (high_fails and "/high" or "/low")
+    local rig = lane_rig(dir)
+    local hang = "echo $$ > " .. dir .. "/hung.pid; (sleep 30) & wait"
+    local fail = "sleep 0.3; exit 7"
+    local high = rig.group("high", high_fails and fail or hang)
+    local first = rig.group("first", high_fails and hang or fail)
+    local after = rig.group("after", "touch " .. dir .. "/after.ran")
+    local started = Clock.monotonic_ns()
+    local status = Orchestration.run_groups(high, { first, after }, true)
+    assert(status == 7, "the failing group's status was not returned: " .. status)
+    assert(Clock.monotonic_ns() - started < Clock.seconds(10), "the hung group was waited out")
+    assert(gone(pid_of(dir .. "/hung.pid")), "the other lane's group was left running")
+    assert(not Predicate.exists(dir .. "/after.ran") and
+        not table.concat(rig.events, " "):find("start:after", 1, true),
+      "a group started after a failure")
+    local hung = high_fails and "first" or "high"
+    local failed = high_fails and "high" or "first"
+    local text = table.concat(rig.events, " ")
+    assert(text:find("finish:" .. failed .. ":exit", 1, true) and
+        text:find("abandon:" .. hung .. ":cancelled", 1, true),
+      "the stopped group was not reaped and reported: " .. text)
+  end
+end
+
+local function test_a_hung_group_meets_its_own_timeout_beside_a_running_lane(tmp: string)
+  local Orchestration = require("cosmic_ci.orchestration")
+  local rig = lane_rig(tmp)
+  local high = rig.group("high", "sleep 30", Clock.ms(300))
+  local long = rig.group("long", "sleep 30")
+  local started = Clock.monotonic_ns()
+  local status = Orchestration.run_groups(high, { long }, true)
+  assert(status == 124, "a timeout was not the group's status: " .. status)
+  assert(Clock.monotonic_ns() - started < Clock.seconds(10),
+    "the hung group ran past its own timeout")
+  local text = table.concat(rig.events, " ")
+  assert(text:find("finish:high:timeout", 1, true) and
+      text:find("abandon:long:cancelled", 1, true), text)
+  -- The low lane's group is bound by its own timeout as well, and it is
+  -- not lengthened for sharing the budget.
+  local rig_low = lane_rig(tmp .. "/low")
+  local quick = rig_low.group("high", "sleep 30")
+  local slow = rig_low.group("slow", "sleep 30", Clock.ms(300))
+  assert(Orchestration.run_groups(quick, { slow }, true) == 124)
+  assert(table.concat(rig_low.events, " "):find("finish:slow:timeout", 1, true))
+end
+
+local function test_group_logs_are_replayed_whole_and_in_the_order_the_groups_end(tmp: string)
+  local Orchestration = require("cosmic_ci.orchestration")
+  local rig = lane_rig(tmp)
+  local high = rig.group("high", "echo h1; sleep 1.5; echo h2; echo e1 >&2")
+  local one = rig.group("one", "echo a1; sleep 0.1; echo a2")
+  local two = rig.group("two", "echo b1; sleep 0.1; echo b2")
+  assert(Orchestration.run_groups(high, { one, two }, true) == 0)
+  assert(Fs.close(rig.sink))
+  assert(assert(Fs.read(tmp .. "/sink")) == "a1\na2\nb1\nb2\nh1\nh2\ne1\n",
+    "logs were interleaved or out of order: " .. assert(Fs.read(tmp .. "/sink")))
+  assert(table.concat(rig.events, " ") == "start:high start:one finish:one:success " ..
+      "start:two finish:two:success finish:high:success", table.concat(rig.events, " "))
+end
+
+local function test_without_lanes_the_groups_run_one_after_another_as_before(tmp: string)
+  local Orchestration = require("cosmic_ci.orchestration")
+  local rig = lane_rig(tmp)
+  local status = Orchestration.run_groups(rig.serial("high", 0),
+    { rig.serial("a", 0), rig.serial("b", 3), rig.serial("c", 0) }, false)
+  assert(status == 3 and table.concat(rig.events, " ") == "run:high run:a run:b",
+    "the serial path changed: " .. table.concat(rig.events, " "))
+  local ok = lane_rig(tmp .. "/ok")
+  assert(Orchestration.run_groups(ok.serial("high", 0), { ok.serial("a", 0) }, false) == 0)
+  assert(table.concat(ok.events, " ") == "run:high run:a")
+  assert(not table.concat(rig.events, " "):find("start:", 1, true), "the serial path spawned a group")
+end
+
+local function test_the_lanes_are_off_unless_asked_for_and_never_exceed_the_processors()
+  local Orchestration = require("cosmic_ci.orchestration")
+  assert(Orchestration.fixture_lanes({}, 8) == nil)
+  assert(Orchestration.fixture_lanes({ COSMIC_CI_FIXTURE_BUDGET = "skip" }, 8) == nil)
+  assert(Orchestration.fixture_lanes({ COSMIC_CI_FIXTURE_BUDGET = "run" }, 1) == nil,
+    "one processor was shared by two lanes")
+  for cpus = 2, 64 do
+    local high, low = Orchestration.fixture_lanes({ COSMIC_CI_FIXTURE_BUDGET = "run" }, cpus)
+    assert(high and low and low == 1 and high >= 1 and high + low == cpus,
+      "the lanes' workers are not the processors at " .. cpus)
+  end
+end
+
+local function test_only_the_two_linux_legs_ask_for_the_fixture_lanes()
+  local legs, env = platform_legs_and_env()
+  local value = assert(env.COSMIC_CI_FIXTURE_BUDGET, "ci.yml's platform job sets no COSMIC_CI_FIXTURE_BUDGET")
+  local one, two = value:match("^%${{ %(matrix%.name == '([%w_-]+)' || " ..
+      "matrix%.name == '([%w_-]+)'%) && 'run' || 'skip' }}$")
+  assert(one and two and legs[one] and legs[two] and
+      ((one == "linux-aarch64" and two == "alpine-x86_64") or
+        (two == "linux-aarch64" and one == "alpine-x86_64")),
+    "the fixture lanes run on other legs than linux-aarch64 and alpine-x86_64: " .. value)
 end

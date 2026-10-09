@@ -198,6 +198,11 @@
         # The slowest fixture, the same on every platform: one leg on a
         # gating run, every leg on the scheduled run (phase_fixtures).
         COSMIC_CI_FIXED_POINT: "${{ (matrix.name == 'linux-aarch64' || github.event_name == 'schedule') && 'run' || 'skip' }}",
+        # The small fixtures run beside the self-driven one, within one
+        # worker budget of the leg's processors (phase_fixtures,
+        # `fixture_lanes`), rather than after it: the two Linux legs
+        # whose fixture step the one-test self-driven case idles.
+        COSMIC_CI_FIXTURE_BUDGET: "${{ (matrix.name == 'linux-aarch64' || matrix.name == 'alpine-x86_64') && 'run' || 'skip' }}",
         # Rename, unlink and locking bugs show on glibc Linux and macOS:
         # those two legs on a gating run, every leg on the scheduled run.
         COSMIC_CI_SELF_REBUILD: "${{ (matrix.name == 'linux-x86_64' || matrix.name == 'macos-aarch64' || github.event_name == 'schedule') && 'run' || 'skip' }}",
