@@ -71,8 +71,8 @@ local function test_corrupt_active_file_suppresses_the_entire_save_set(tmp: stri
   local path = tmp .. "/verdicts.db"
   local bytes = string.rep("not a database ", 512)
   assert(Fs.write(path, bytes))
-  cache(tmp .. "/portable.db", { 1, 6 })
-  assert(Fs.write(tmp .. "/portable.db.corrupt-123", "retired"))
+  cache(tmp .. "/fixtures.db", { 1, 6 })
+  assert(Fs.write(tmp .. "/fixtures.db.corrupt-123", "retired"))
   for _, since in ipairs({ "5", "whole" }) do
     local code, _, err = Verdicts.command({ since },
       { COSMIC_VERDICT_CACHE = path, GITHUB_OUTPUT = tmp .. "/output" })
@@ -80,7 +80,7 @@ local function test_corrupt_active_file_suppresses_the_entire_save_set(tmp: stri
     assert(Fs.read(path) == bytes)
     assert(Fs.stat(tmp .. "/output") == nil)
   end
-  assert(Fs.stat(tmp .. "/portable.db.corrupt-123") == nil)
+  assert(Fs.stat(tmp .. "/fixtures.db.corrupt-123") == nil)
 end
 
 local function test_digest_depends_on_rows_not_usage_stamps(tmp: string)

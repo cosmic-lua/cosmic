@@ -1349,6 +1349,22 @@ local function promise_findings(root: string): {string}
   return out
 end
 
+--- The sealed test modules that name the portable launcher's contract
+--- ([`tree_checks.sealed_launch`]), over the projection `db` and the
+--- declarations the working database holds.
+local function sealed_launch_findings(root: string, db: Sqlite.Handle): {string}
+  local build, open_trouble = Sqlite.open(build_paths.required(root) .. "/build.db")
+  if build == nil then return { "tree checks: " .. open_trouble } end
+  local unsealed, unsealed_trouble = tree_checks.unsealed(build)
+  local _, _ = build:close()
+  if unsealed == nil then return { "tree checks: " .. unsealed_trouble } end
+  local out: {string} = {}
+  for _, line in ipairs(tree_checks.sealed_launch(db, unsealed)) do
+    out[#out + 1] = "sealed launch: " .. line
+  end
+  return out
+end
+
 --- Over the whole of cosmic's own tree, what only the whole tree can
 --- answer ([`build.tree_checks`]), asked of its projection built afresh:
 --- a finding is the tree's, not a file's, so it is counted apart.
@@ -1394,6 +1410,9 @@ local function run_tree_checks(ctx: Fix)
         end
       end
       for _, line in ipairs(promise_findings(root)) do
+        findings[#findings + 1] = line
+      end
+      for _, line in ipairs(sealed_launch_findings(root, db)) do
         findings[#findings + 1] = line
       end
       local closed, close_trouble = db:close()

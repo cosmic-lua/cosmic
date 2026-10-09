@@ -732,6 +732,100 @@ function tree_checks.requirements(build: Sqlite.Handle): {string:{string}} | nil
   return out
 end
 
+--- The test modules that run a program the portable launcher starts, or
+--- open the store, or require a portable host, by the module's path:
+--- the ones whose key holds the launcher, as the working database `build`
+--- (`o/build.db`) holds their declarations. Every other worker runs
+--- sealed ([`build.test`]'s `seals`).
+--- @param build the working database
+--- @return the module paths, as a set
+function tree_checks.unsealed(build: Sqlite.Handle): {string:boolean} | nil, string
+  local rows, trouble = Sqlite.text_rows(build,
+    "SELECT DISTINCT i.path FROM test_inputs t JOIN inputs i ON i.source_hash = t.source_hash " ..
+      "WHERE t.field IN ('tool', 'store') OR (t.field = 'requires' AND t.value = 'portable')")
+  if rows == nil then return nil, "reading the unsealed modules: " .. trouble end
+  local out: {string:boolean} = {}
+  for _, row in ipairs(rows) do out[row[1]] = true end
+  return out
+end
+
+--- The sealed test modules that name the portable launcher's contract
+--- -- `COSMIC_PORTABLE_*` or the `--artifact` argument -- though their
+--- worker never sees it, each with the reason it is no reader of it.
+--- Every other one is a finding of [`sealed_launch`].
+local launcher_allowed: {string: string} = {}
+launcher_allowed["build.caches_test"] = "names COSMIC_PORTABLE_CACHE as a key of the " ..
+  "environment it hands a pure function of the cache variables"
+launcher_allowed["build.test_sandbox_test"] = "names COSMIC_PORTABLE_CACHE in the environments " ..
+  "it hands the sandbox's pure functions, and reads none from its own process"
+launcher_allowed["build.test_worker_test"] = "hands the worker's pure start function a made-up " ..
+  "launcher start (\"--artifact\", COSMIC_PORTABLE_*_FD) and reads none from its own process"
+launcher_allowed["build.this_program_test"] = "replaces Proc.relaunch with a made-up launcher " ..
+  "start and holds this_program's reading of it, not this process's"
+launcher_allowed["build.tree_checks_test"] = "plants the names in the fixture sources of the check's " ..
+  "own test"
+launcher_allowed["build.workflows_test"] = "reads COSMIC_PORTABLE_CACHE in the text of a workflow " ..
+  "step, not from its own process"
+
+--- Each module of `db` that is a test of the tree, runs sealed (`unsealed`
+--- does not hold it) and names the portable launcher's contract in code
+--- -- `COSMIC_PORTABLE_*`, or the `"--artifact"` argument -- and no
+--- reason in `excused` (by default the tree's own), then each module
+--- `excused` names that does not.
+---
+--- ci/cosmic_ci/orchestration.tl's `suite_verdicts` lets the portable
+--- suite stand on the native suite's verdicts, which is sound while the
+--- key of a worker that can see the artifact holds the launcher
+--- ([`build.declared_key`]'s `launcher_identity`) and one that cannot
+--- (a sealed worker) holds the core in its place. A test that reads
+--- the launcher's contract must therefore be keyed by the launcher: it
+--- declares `tool` or `store`, or `requires = { "portable" }`, else it
+--- would pass under the native build and stand in the portable suite
+--- without the artifact it is about (or, run only on the portable
+--- build, skip in both). A call to Proc.relaunch is no finding: a
+--- sealed worker's description is the sealed start's, the same
+--- under either artifact.
+--- @param db the tree's projection
+--- @param unsealed the modules whose workers run unsealed ([`unsealed`])
+--- @param excused the modules that may, with the reason of each
+function tree_checks.sealed_launch(db: Sqlite.Handle, unsealed: {string:boolean},
+                                   excused?: {string: string}): {string}
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT path, CAST(inflate(source) AS TEXT) FROM modules WHERE path GLOB '*_test' ORDER BY path")
+  if rows == nil then return { "reading the modules' sources: " .. trouble } end
+  local allowed_here = excused or launcher_allowed
+  local out: {string} = {}
+  local seen: {string: boolean} = {}
+  for _, row in ipairs(rows) do
+    local named = false
+    for line in String.lines(row[2]) do
+      if line:find("^%s*%-%-") == nil and
+          (line:find("COSMIC_PORTABLE_", 1, true) ~= nil or line:find('"--artifact', 1, true) ~= nil) then
+        named = true
+        break
+      end
+    end
+    if named and not unsealed[row[1]] then
+      seen[row[1]] = true
+      if allowed_here[row[1]] == nil then
+        out[#out + 1] = row[1] .. " names the portable launcher's contract, but its worker runs " ..
+          "sealed and never sees the launcher: declare `tool` or `store`, or " ..
+          "`requires = { \"portable\" }`, or excuse it in build/tree_checks.tl's `launcher_allowed`"
+      end
+    end
+  end
+  local stale: {string} = {}
+  for name in pairs(allowed_here) do
+    if not seen[name] then
+      stale[#stale + 1] = name .. " is excused in build/tree_checks.tl's `launcher_allowed`, but " ..
+        "no longer names the portable launcher's contract in a sealed test -- remove it"
+    end
+  end
+  table.sort(stale)
+  for _, line in ipairs(stale) do out[#out + 1] = line end
+  return out
+end
+
 --- What ci/cosmic_ci/capabilities.tl returns.
 local record Capabilities
   legs: {string:{string}}

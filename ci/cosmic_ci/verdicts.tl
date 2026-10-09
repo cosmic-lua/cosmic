@@ -2,7 +2,7 @@
 --- directory of the file COSMIC_VERDICT_CACHE names
 --- (build/shared_verdicts.tl in the candidate), which ci.yml restores
 --- before the leg's suites and saves after them. It holds `verdicts.db`,
---- the native suite's; `portable.db` beside it, the portable suite's;
+--- the native suite's and the portable suite's alike;
 --- `fixtures.db`, the sandboxed fixtures' (cosmic_ci/orchestration.tl's
 --- `sandboxed_fixtures`); or, in ci.yml's checked job, which runs no
 --- other suite, `checked.db` alone, the checked suite's
@@ -23,10 +23,9 @@
 --- wrote with the time (`used_ns`), and take out a row whose test
 --- failed.
 ---
---- A file none of whose rows the run reached (the portable suite's, on
---- a run that has none, or on a leg that skips it,
---- COSMIC_CI_PORTABLE_SUITE; the fixtures', on a run whose scope runs
---- none) keeps them all: that is no sign they are dead. Like the suites, which never fail over the cache, a trim that
+--- A file none of whose rows the run reached (the fixtures', on a run
+--- whose scope runs none) keeps them all: that is no sign they are dead.
+--- Like the suites, which never fail over the cache, a trim that
 --- cannot read it never fails the leg (cosmic_ci/cache_trim.tl).
 
 local CacheTrim = require("cosmic_ci.cache_trim")

@@ -48,8 +48,7 @@ if [ "${1-}" = zig-cache ]; then
   # macOS leg keyed by declared inputs unenforced, as the tree's tool
   # and pinned driver key every unsandboxed run -- and none in a manual or
   # scheduled run.
-  # The portable suite keeps its own file beside this one
-  # (`suite_verdicts`), in the same cache.
+  # The portable suite stands on this file too (`suite_verdicts`).
   echo "COSMIC_VERDICT_CACHE=$RUNNER_TEMP/verdicts/verdicts.db" >> "$GITHUB_ENV"
   # The compiles and parses every build of the leg shares
   # (build/shared_compiles.tl), in a cache of their own that ci.yml
