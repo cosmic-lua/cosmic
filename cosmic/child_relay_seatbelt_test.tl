@@ -234,6 +234,9 @@ end
 
 --- What Seatbelt denied lately, as the system's log names it, which says
 --- what a profile lacks. Empty where the log cannot be read.
+-- TODO: bound the `log show` well under the time left to the test: its
+-- 60 s outlasts the test's 10 s timeout, so a check that fails on a busy
+-- runner can lose its message to the timeout.
 local function denials(): string
   local result = Child.run({ "/usr/bin/log", "show", "--last", "2m", "--style", "compact",
     "--predicate", "eventMessage CONTAINS \"Sandbox: \"" },
