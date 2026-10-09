@@ -11,13 +11,15 @@ database of compiled modules rather than reading files at run time.
 bin/zig build boot
 ```
 
-`boot` builds the cores it needs and stages the working database under `o/`.
+`boot` builds the cores it needs and stages the working database in the
+build directory (`o/`, which [`build/paths.tl`] names). [`bin/cosmic`] runs the
+tool built there, from any directory, and boots first if there is none.
 
 ## run a file
 
 ```sh
 echo 'print("hello from the database")' > hello.tl
-o/bin/cosmic hello.tl
+bin/cosmic hello.tl
 ```
 
 ```output
@@ -43,3 +45,6 @@ The tool documents itself, in a release binary too:
 what cosmic is for and how it is built lives in
 [doc/design.md](doc/design.md); how this documentation works, and what
 its examples promise, is [doc/meta.md](doc/meta.md).
+
+[`bin/cosmic`]: bin/cosmic
+[`build/paths.tl`]: build/paths.tl

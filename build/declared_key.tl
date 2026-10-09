@@ -37,7 +37,7 @@
 --- - what runs it: the runtime identity -- the core's digest, its
 ---   platform and configuration, and the Teal and Lua pins -- the
 ---   digest of the binary's data tables and the `sandboxed` mark
----   (`runtime`); and, where an artifact runs it (o/bin/cosmic, or a
+---   (`runtime`); and, where an artifact runs it (the tree's tool, or a
 ---   portable cosmic), what runs that core ([`launcher_identity`]);
 --- - the host it runs on ([`host_identity`]): its kernel and processor,
 ---   the user and capabilities the tests run with, which /proc a
@@ -238,7 +238,7 @@ local record declared_key
     --- The timeout its worker runs under, in nanoseconds.
     timeout_ns: integer
     --- The program a test that runs this program runs
-    --- ([`program_identity`]): o/bin/cosmic, or o/sanitized's, or a
+    --- ([`program_identity`]): the tree's tool, or the sanitized one, or a
     --- portable cosmic, whichever is running.
     program: string
     --- The host's identity ([`host_identity`]), which every key holds.
@@ -247,7 +247,7 @@ local record declared_key
     --- key of a module that declares `system` holds; nil for none.
     system: string
     --- Where an artifact runs the tests (Store.meta's
-    --- `runtime_context` "portable-v1": o/bin/cosmic, or a portable
+    --- `runtime_context` "portable-v1": the tree's tool, or a portable
     --- cosmic), what runs its core ([`launcher_identity`]); for a worker
     --- run on a sealed database, which no launcher starts, the identity of
     --- the core it runs; nil where a host program ("host-v1") or a core run
@@ -887,7 +887,7 @@ function declared_key.preimage(digests: declared_key.Digests,
     local answer = tree(digests, bin, true)
     if answer:sub(1, 8) == "refused " then return nil, answer:sub(9) end
     lines[#lines + 1] = part("tool", "o/bin", answer)
-    -- And what actually runs, which need not be o/bin/cosmic.
+    -- And what actually runs, which need not be the tree's tool.
     lines[#lines + 1] = part("program", spec.program or "", "")
   end
   -- The store its worker is given at o/cosmic.db: the whole projection,

@@ -1309,7 +1309,7 @@ local record Recording
   --- a worker's loads are held to ([`worker.judge`]).
   store_salt: string
   carried: {string:boolean}
-  --- Where an artifact runs the tests (o/bin/cosmic, or a
+  --- Where an artifact runs the tests (the tree's tool, or a
   --- portable cosmic), what runs its core
   --- ([`declared_key.launcher_identity`]), which every key holds; nil
   --- where a host program does.

@@ -61,6 +61,10 @@ end
 --- names as the tree-relative `reads` of the same path, so its key holds
 --- what is there. A child of the fixture, in a directory of its own,
 --- is given this path.
+-- TODO: name the virtual build directory apart from o/ with the
+-- symbolic test-policy grants, in #2864's step 3 (build/test_sandbox.tl's
+-- `of_tree`): sandboxed, o/ here is the worker's /tree/o, bound to the
+-- build directory; unsandboxed it is the project's own o/.
 function Fixture.placed(kind: string): string
   return (assert(Fs.absolute("o/fixtures/" .. kind)))
 end

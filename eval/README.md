@@ -27,12 +27,16 @@ Codex use the same task, journal, binary and grader, but each gets a new
 arena and a fresh agent. Do not show either agent another run's output.
 
 ```sh
-eval/arena notes o/bin/cosmic /tmp/cosmic-evals/notes/claude/run-001
-eval/arena notes o/bin/cosmic /tmp/cosmic-evals/notes/codex/run-001
+tool=$(bin/cosmic-bootstrap --standalone build/paths.tl "$PWD")/bin/cosmic
+eval/arena notes "$tool" /tmp/cosmic-evals/notes/claude/run-001
+eval/arena notes "$tool" /tmp/cosmic-evals/notes/codex/run-001
 ```
 
+The arena takes the tool itself, from the build directory build/paths.tl
+names, not this checkout's [`bin/cosmic`], a script that runs it.
+
 Choose new absolute paths outside the checkout; an existing destination
-is an error, never deleted. The arena contains [`bin/cosmic`],
+is an error, never deleted. The arena contains [`bin/cosmic`] (that tool),
 `project/TASK.md` (task plus journal contract), `tmp/` (the solver's
 `TMPDIR`, its one sanctioned place outside `project/`), `PROMPT.md` (the
 entire launch prompt), and `inputs.sha256`. Give the solver only PROMPT.md's

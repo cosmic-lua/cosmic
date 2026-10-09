@@ -202,7 +202,7 @@ local function archive_tree(tree: string)
   Fixture.source_tree(tree)
 end
 
--- Copies the fixture-only runtime into the archived tree's `o/bin/cosmic`,
+-- Copies the fixture-only runtime into the archived tree's tool,
 -- executable, and returns its path.
 local function place_runtime(fixture_dir: string, tree: string): string
   local program = BuildPaths.directory(tree) .. "/bin/cosmic"
@@ -664,7 +664,8 @@ local function test_self_rebuild_fix_verb(tmp: string)
     "fix: second invocation reported staleness though the tool is fresh")
 end
 
--- A stale cosmic that is not the tree's own tool (one outside `o/`, as a
+-- A stale cosmic that is not the tree's own tool (one outside its build
+-- directory, as a
 -- release, the bootstrap cache's or one on PATH is) refuses rather than
 -- rebuild, since the rebuild would write the tree's tool over its own
 -- file. `docs` meets the refusal in `build.reboot.stale_exit`, `test` and

@@ -10,6 +10,10 @@ COSMIC_PERF_CANDIDATE_COMMIT=<full-candidate-commit> \
 bin/perf /absolute/parent/o/bin/cosmic /absolute/candidate/o/bin/cosmic /new/result/directory
 ```
 
+Each executable is a checkout's own tool, in the build directory
+`bin/cosmic-bootstrap --standalone build/paths.tl <checkout>` prints (`o/` for
+now), not its [`bin/cosmic`], which is a script that runs it.
+
 [`bin/perf`] uses the pinned bootstrap as one fixed controller. It copies and hashes
 both executables, creates four independent fixture trees, and retains all
 inputs. The output directory must be new. Allow room for the binaries, working
@@ -118,4 +122,5 @@ The release suite keeps its 10-second per-test deadline; that deadline had
 interrupted these process-heavy correctness cases on Linux and macOS. The
 checked suite retains its separate 120-second per-test deadline.
 
+[`bin/cosmic`]: ../bin/cosmic
 [`ci/fixtures/performance_test.tl`]: ../ci/fixtures/performance_test.tl

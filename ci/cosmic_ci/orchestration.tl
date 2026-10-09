@@ -333,9 +333,9 @@ end
 --- absolute path or turns the cache off.
 ---
 --- The portable suite has no file of its own: it keeps the native
---- suite's, `env`'s. The portable artifact carries the cores o/bin/cosmic
---- does, from o/core (`ProductSetup`), and a key holds what runs the
---- core wherever a worker is started by a launcher
+--- suite's, `env`'s. The portable artifact carries the cores the tree's
+--- tool does, from its build directory's core/ (`ProductSetup`), and a
+--- key holds what runs the core wherever a worker is started by a launcher
 --- (build/declared_key.tl's `launcher_identity`): a test that runs the
 --- program (`tool`) or opens the store (`store`) is keyed by the
 --- artifact it ran under, so it reruns under the portable build. A
@@ -762,6 +762,11 @@ end
 --- Places each of `placements` beneath `project`'s o/fixtures
 --- ([`Placement`]). A copy, so a fixture is free to run what it is
 --- placed without touching the product the leg attests.
+-- TODO: place these in the build directory the driver names for
+-- `project` once ci/cosmic-driver.pin names a release whose resolver puts
+-- it outside the project (#2864's step 3): `project` is a copy of ci/,
+-- with no build/paths.tl of its own, built by the driver, so its build
+-- directory is the driver release's to name, and today that is its o/.
 local function place(project: string, placements: {Placement})
   for _, placement in ipairs(placements) do
     assert(placement.kind:match("^[%w_]+$"), "invalid fixture placement")
@@ -1523,7 +1528,7 @@ local function phase_portable(p: PlatformContext): integer
     attempt = c.attempt, root = fresh, driver = c.driver, phase = c.phase }
   local s = 0
   -- The suite reruns the local suite's tests under the portable build,
-  -- whose artifact carries the cores o/bin/cosmic does (`ProductSetup`);
+  -- whose artifact carries the cores the tree's tool does (`ProductSetup`);
   -- each leg's launcher, runtime and identity fixtures still run the
   -- portable product's launcher (phase_fixtures). So a push to main
   -- runs it on the two x86-64 legs, a glibc host and a musl one, the

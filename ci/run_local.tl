@@ -1,6 +1,7 @@
 --- Runs the checkout's CI phases from a private snapshot and CI copy.
 --- [`./run-local`] loads this file standalone on the pinned library;
---- the phase driver remains the checkout's built `o/bin/cosmic`.
+--- the phase driver remains the checkout's own tool, in the build
+--- directory build/paths.tl names.
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
@@ -286,6 +287,9 @@ local function execute(argv: {integer:string}): integer
 
   -- The phase project belongs to the driver, including its persistent
   -- database. Refresh every other entry, even on named-phase reruns.
+  -- TODO: stop keeping the project's o/ (and skipping ci/o/ in the copy)
+  -- once #2864's step 3 moves a project's build directory out of it: the
+  -- driver here is the checkout's own tool, whose resolver names it.
   owned_root(project)
   assert(Fs.mkdirs(project))
   reown(project, false)

@@ -14,6 +14,8 @@
 local Flags = require("cosmic.flags")
 
 --- One field per verb: the full text of `cosmic help <verb>`.
+-- TODO: say "the build directory" where these name a project's o/, and
+-- where that is, once #2864's step 3 moves it out of the project.
 local record Cli
   --- `cosmic <file.tl> [args...]`: builds the tree the file sits in --
   --- the working directory when the file is under it, so a file of a

@@ -5,20 +5,28 @@
   before building or switching branches: untracked test files can enter a build.
 - Keep `vendor/` unedited; express vendor changes as records under `patch/`.
   [`bin/vendor`] refetches a tree from its PIN, keeping only what the build reads.
-  Generated output under `o/` must not be committed.
+  Generated output in the build directory (`o/`, which [`build/paths.tl`]
+  names) must not be committed.
 - Workflows, and the local actions under `.github/actions/`, are YAML's
   flow style, in the subset [`build/workflows_test.tl`] holds them to and
-  the layout `o/bin/cosmic fix` writes ([`build/flow.tl`]): run `o/bin/cosmic
-  fix` and `o/bin/cosmic test build/workflows_test.tl` on a change under
+  the layout `bin/cosmic fix` writes ([`build/flow.tl`]): run `bin/cosmic
+  fix` and `bin/cosmic test build/workflows_test.tl` on a change under
   `.github/`. A step's script longer than a line or two lives under
   `.github/scripts/`. A job gets the pinned CI
   driver on its PATH with `uses: ./.github/actions/cosmic-driver`.
 
 ## Build, format, test
 
+[`bin/cosmic`] runs the tree's own tool from any directory, with the
+checkout at any path: it asks [`build/paths.tl`] where the build
+directory is (`o/` for now), passes its arguments and exit status
+through, and where there is no tool yet runs `bin/zig build boot` first
+(with `COSMIC_AUTO_BOOT=0`, refuses, exiting 3). Run the tool through it,
+never by its path in the build directory.
+
 1. Run `bin/zig build boot` in a fresh worktree. This builds the required cores
-   and stages the tree into `o/build.db`, the working database every later
-   build reads; copying an existing cosmic executable alone is insufficient to
+   and stages the tree into the build directory's `build.db`, the working
+   database every later build reads; copying an existing cosmic executable alone is insufficient to
    test a fresh checkout. zig's caches are shared by every checkout
    (`zig-project` and `zig-global` under `~/.cache/cosmic`, see
    [`build/zig.tl`]), and every C file compiles from a copy there, so a
@@ -28,18 +36,18 @@
    [`build/shared_compiles.tl`]):
    `COSMIC_BUILD_CACHE` names another file, `0` none, and a build line
    says how many modules and sources came from another checkout.
-   `o/bin/cosmic db` says what the
-   databases under `o/` hold -- `o/cosmic.db`, the tree's projection;
-   `o/carried.db`, that projection less the tree's own tests and
+   `bin/cosmic db` says what the
+   databases in the build directory hold -- `cosmic.db`, the tree's projection;
+   `carried.db`, that projection less the tree's own tests and
    examples and every doc but the public standard library's, which
-   the tool carries; `o/build.db`, the working
+   the tool carries; `build.db`, the working
    database -- and how the last few builds went;
-   `o/bin/cosmic sql [--build|--store|--db <path>] '<statement>'` runs one
+   `bin/cosmic sql [--build|--store|--db <path>] '<statement>'` runs one
    read-only query against one of them, with no script and no build;
-   `o/bin/cosmic docs <symbol>`
+   `bin/cosmic docs <symbol>`
    shows a symbol's signature, doc comment and use count, and
-   `o/bin/cosmic uses <symbol>` lists every `file:line` that refers to it.
-2. Edit source and tests, then run `o/bin/cosmic fix <changed-paths>`.
+   `bin/cosmic uses <symbol>` lists every `file:line` that refers to it.
+2. Edit source and tests, then run `bin/cosmic fix <changed-paths>`.
    `fix` checks syntax and tree equivalence, and builds the tree as
    `cosmic test` does: a type error or a break of
    [`build/contracts.tl`]'s rules fails it, saying why. A C
@@ -47,26 +55,27 @@
    checked against the rules in [`build/c/rules.tl`] (see C, below).
    The checks only the whole tree can answer ([`build/tree_checks.tl`]:
    every export earned, every doc anchor its own, and the like) run in
-   `o/bin/cosmic fix --check .`, as CI runs it, and not in a `fix` of
+   `bin/cosmic fix --check .`, as CI runs it, and not in a `fix` of
    some paths: run it before pushing a change to what they read. Since
    they read the tree's projection, that run also refuses a tree that
    does not build.
 3. A tool older than the tree rebuilds itself and re-enters the command the
-   moment it notices, so `o/bin/cosmic test` after an edit is enough. An
+   moment it notices, so `bin/cosmic test` after an edit is enough. An
    edit to Teal rebuilds its database; a change to the core's C under
    `core/`, to `build.zig`, [`build/launcher.tl`] or [`build/artifact.tl`], or
    to a vendored library's pin or patches runs `bin/zig build boot` first,
    its output on stderr.
    `COSMIC_AUTO_BOOT=0` makes the tool refuse instead, exiting 3 (CI's
    driver sets it). A boot that fails stops the command: check its exit
-   status rather than piping it away. Only the tree's own tool (under
-   `o/`) rebuilds or boots; another cosmic run in the tree when it is
+   status rather than piping it away. Only the tree's own tool (in the
+   build directory, as [`bin/cosmic`] runs it) rebuilds or boots; another
+   cosmic run in the tree when it is
    stale -- a release, the bootstrap cache's -- refuses, exiting 3.
    One `cosmic test` runs per checkout at a time: it holds
-   `o/rebuild.lock` ([`build/rebuild_lock.tl`]) for its whole run, and so
-   do a rebuild of the tool, a `bin/zig build boot` or `sanitized` (by
-   hand or not) and a write of `o/cosmic.db`. A run that finds another
-   holding it says which, what it is doing and the lock it waits for,
+   the build directory's `rebuild.lock` ([`build/rebuild_lock.tl`]) for
+   its whole run, and so do a rebuild of the tool, a `bin/zig build boot`
+   or `sanitized` (by hand or not) and a write of its `cosmic.db`. A run
+   that finds another holding it says which, what it is doing and the lock it waits for,
    waits for it, and says so again every few minutes; one that must
    rebuild re-enters on the tool that run wrote ([`build/reboot.tl`]). So
    `cosmic docs`, `cosmic uses` or `cosmic foo.tl` after an edit waits
@@ -75,7 +84,7 @@
    starts must run in a tree of its own, whose lock it takes: one run in
    this checkout would wait on the run that started it until the test
    timed out.
-4. Run `timeout 30 o/bin/cosmic test`. Its workers run sandboxed to each
+4. Run `timeout 30 bin/cosmic test`. Its workers run sandboxed to each
    test's declared inputs where the kernel can -- the default on Linux --
    and a test whose declared inputs, closure, core, harness epoch, timeout
    and host are what they were when it last passed is not run again
@@ -272,7 +281,7 @@
    `path:<abs>`, `program:<name>`, `unix_socket` (Unix stream socket creation,
    independently of permission to bind or connect) and the Linux-class `sandbox`,
    `landlock[:N]`, `userns`, `nest`, `own_proc`, `proc`;
-   `o/bin/cosmic docs cosmic.test`). Only what the module writes is
+   `bin/cosmic docs cosmic.test`). Only what the module writes is
    required: nothing is inferred from its promises or grants (the TODO
    in build/host_names.tl says what inferring `nest` would silence). The
    Linux-class names are allowed: each CI leg's promises are written
@@ -318,7 +327,7 @@
    promises (`path:`, `program:` of a tool a leg lacks) is skipped even
    there, and a run that is not held ignores the promises. Add a name to
    a leg's list in the same change that a module first requires it:
-   `o/bin/cosmic fix --check .` fails a requirement no leg promises,
+   `bin/cosmic fix --check .` fails a requirement no leg promises,
    since a module n/a or skipped on every leg would run nowhere
    ([`build/tree_checks.tl`]'s `promises`). The promised list moves no
    key. `COSMIC_TEST_PLATFORM=other`
@@ -368,7 +377,7 @@
    A test module declares what it is held to, and reads beyond its import
    closure, its fuzz corpora and a pinned environment, with a top-level
    `Test.policy { ... }` (`local Test = require("cosmic.test")`; see
-   `o/bin/cosmic docs cosmic.test`), in the fields of cosmic.sandbox's
+   `bin/cosmic docs cosmic.test`), in the fields of cosmic.sandbox's
    `Policy`. The harness translates it into the `needs` it stands for,
    whose fields these paragraphs name (`reads`, `host`, `env`, `network`,
    `system`, `tool`, `lua`, `nests`, `store`, `noexec`, `caches`): a grant
@@ -407,7 +416,7 @@
    system's own paths (/usr, /bin, /lib, /etc and the like) unless its
    module declares the profile "system" (`system`), as one that starts a
    host program --
-   a shell, `sleep`, a compiler, o/bin/cosmic's `#!/bin/sh` launcher --
+   a shell, `sleep`, a compiler, the tool's `#!/bin/sh` launcher or bin/cosmic --
    must; a test that starts cosmic's core past the launcher
    (build.this_program's `program`) needs none, and one that reads a file or two
    of the system grants them by their absolute paths. A grant of an
@@ -428,12 +437,13 @@
    timeout as a failure to investigate, and report it separately from an
    assertion failure. Do not silently raise the limit; inspect elapsed time and
    the slow work first. To benchmark full test execution, delete only the rows
-   from the `verdicts` table in `o/build.db` and run with
+   from the `verdicts` table in the build directory's `build.db` and run with
    `COSMIC_VERDICT_CACHE=0`; preserve the staged database and report the `ran`
    and `stood` counts with the elapsed time.
 
-`ci/` is a tree of its own, with its own `o/`. After editing it, run
-`../o/bin/cosmic fix --check` from `ci/`; that also builds and type-checks it.
+`ci/` is a tree of its own, with its own build directory (`ci/o/`, which
+the CI driver's release names). After editing it, run
+`../bin/cosmic fix --check` from `ci/`; that also builds and type-checks it.
 Its `fixtures/*_test.tl` run only under the CI driver, which builds every
 target: run [`ci/run-local`] (a few minutes) before pushing a change that
 touches the launcher, startup, the artifact format, or a fixture, and
@@ -489,7 +499,7 @@ written: write it in the code before naming it there.
 
 When the work is done, list every `TODO:` it added, with its `file:line` and
 what it waits on, in the summary and the PR description. Take the list from
-`o/bin/cosmic todos <changed-paths>`, which lists every `TODO:` under them
+`bin/cosmic todos <changed-paths>`, which lists every `TODO:` under them
 with the date and commit `git blame` gives its first line: the work's own are
 the ones with no commit yet or with a commit on this branch. Rather than
 writing "none" from memory, run it.
@@ -555,15 +565,20 @@ compiles each C file to clang's syntax tree and holds it to the items marked
 [`bin/zig`], [`bin/vendor`] and [`bin/verify-codesign`] each run
 their Teal ([`build/zig.tl`], ...) through [`bin/cosmic-bootstrap`], on the cosmic
 release [`ci/cosmic-driver.pin`] names, which it fetches once and caches by
-digest. `COSMIC_BOOTSTRAP=<path>` makes [`bin/cosmic-bootstrap`] answer another
-cosmic instead, such as a tree-built `o/bin/cosmic`, for all of them and for
+digest; [`bin/cosmic`] asks [`build/paths.tl`] for the build directory
+the same way, so what those files run is held to what that release has.
+`COSMIC_BOOTSTRAP=<path>` makes [`bin/cosmic-bootstrap`] answer another
+cosmic instead, such as the tree's own tool (by its path in the build
+directory: [`bin/cosmic`] itself, which asks the bootstrap where that is,
+is refused), for all of them and for
 CI's driver step alike.
 
 A change that moves ci/cosmic-driver.pin also takes up every `TODO:` the new release
-unblocks: `o/bin/cosmic todos '"cosmic-driver.pin"'` lists them.
+unblocks: `bin/cosmic todos '"cosmic-driver.pin"'` lists them.
 
 [`.claude/skills/comments/SKILL.md`]: .claude/skills/comments/SKILL.md
 [`bin/cosmic-bootstrap`]: bin/cosmic-bootstrap
+[`bin/cosmic`]: bin/cosmic
 [`bin/vendor`]: bin/vendor
 [`bin/verify-codesign`]: bin/verify-codesign
 [`bin/zig`]: bin/zig
@@ -582,6 +597,7 @@ unblocks: `o/bin/cosmic todos '"cosmic-driver.pin"'` lists them.
 [`build/host_names.tl`]: build/host_names.tl
 [`build/host_requires.tl`]: build/host_requires.tl
 [`build/launcher.tl`]: build/launcher.tl
+[`build/paths.tl`]: build/paths.tl
 [`build/reboot.tl`]: build/reboot.tl
 [`build/rebuild_lock.tl`]: build/rebuild_lock.tl
 [`build/sandboxed_verdicts_test.tl`]: build/sandboxed_verdicts_test.tl

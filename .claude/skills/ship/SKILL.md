@@ -26,7 +26,7 @@ dropped from what to change.
 ## 2. Implement
 
 - Before writing new API, look for it: a booted checkout's
-  `o/bin/cosmic docs <words>` searches every doc comment and example by
+  `bin/cosmic docs <words>` searches every doc comment and example by
   what it does (`cosmic docs find program path` answers [`Proc.find`]),
   and open PRs may already carry it.
 - One branch per PR, named for the change and cut fresh from
@@ -40,7 +40,7 @@ dropped from what to change.
   <branch>` pushes this worktree's commits and not another ref.
 - Follow AGENTS.md there: `bin/zig build boot`; the change with a test
   that fails without it; each `TODO:` written the moment it is due;
-  `o/bin/cosmic fix <changed-paths>`; `timeout 30 o/bin/cosmic test`; and
+  `bin/cosmic fix <changed-paths>`; `timeout 30 bin/cosmic test`; and
   its extra checks for C, `ci/`, and the launcher or fixtures
   ([`ci/run-local`]).
 - Commit.
@@ -63,7 +63,7 @@ review again after a large fix.
 ## 4. Record TODOs
 
 From the worktree root, run
-`o/bin/cosmic todos $(git diff --name-only --diff-filter=d origin/main...HEAD)`.
+`bin/cosmic todos $(git diff --name-only --diff-filter=d origin/main...HEAD)`.
 The change's own TODOs are those with no commit yet or with a commit on
 this branch. The ones it resolved are the removed lines in
 `git diff origin/main...HEAD | grep '^-.*TODO:'`.
@@ -103,7 +103,7 @@ release [`ci/cosmic-driver.pin`] names, not on the tree, so what a change
 adds reaches them only once the pin moves -- and it can only move after
 the change merges and main publishes its `next-<commit>` prerelease.
 When the change adds what a `TODO:` waiting on the pin needs
-(`o/bin/cosmic todos '"cosmic-driver.pin"'` lists them, whichever line of
+(`bin/cosmic todos '"cosmic-driver.pin"'` lists them, whichever line of
 the comment names the pin), or API those scripts would use now, open
 a follow-up once that prerelease exists: move the pin to it (its commit,
 URL and SHA-256, checked against the digest the release records) and
