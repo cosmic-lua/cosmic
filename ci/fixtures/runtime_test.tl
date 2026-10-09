@@ -172,6 +172,7 @@ end
 -- it. This checks the full captured stderr for exact equality rather than
 -- a substring.
 local function test_runtime_startup_phases(tmp: string)
+  Fixture.builds_beneath(tmp .. "/build")
   local fixture_dir = Fixture.placed("runtime")
   local work = tmp
   local diagnostics = work .. "/logs"
@@ -200,6 +201,7 @@ end
 --------------------------------------------------------------------------
 
 local function test_runtime_logical_paths(tmp: string)
+  Fixture.builds_beneath(tmp .. "/build")
   local fixture_dir = Fixture.placed("runtime")
   local work = tmp
   local diagnostics = work .. "/logs"
@@ -275,6 +277,7 @@ end
 -- positional argument and checks it against `COSMIC_PORTABLE_CACHE` in the
 -- real environment -- both are set to the same string here.
 local function test_runtime_environment_scrubbing(tmp: string)
+  Fixture.builds_beneath(tmp .. "/build")
   local fixture_dir = Fixture.placed("runtime")
   local work = tmp
   local diagnostics = work .. "/logs"
@@ -337,6 +340,7 @@ local function expect_contract_error(fixture_dir: string, work: string,
 end
 
 local function test_runtime_private_contract(tmp: string)
+  Fixture.builds_beneath(tmp .. "/build")
   local fixture_dir = Fixture.placed("runtime")
   local work = tmp
   local diagnostics = work .. "/logs"
@@ -409,6 +413,7 @@ end
 --------------------------------------------------------------------------
 
 local function test_runtime_corrupt_ranges(tmp: string)
+  Fixture.builds_beneath(tmp .. "/build")
   local fixture_dir = Fixture.placed("runtime")
   local work = tmp
   local diagnostics = work .. "/logs"
@@ -483,6 +488,7 @@ end
 -- on every host, including where the kernel would refuse a damaged signed
 -- core before startup could speak.
 local function test_runtime_warm_core_stamp_and_repair(tmp: string)
+  Fixture.builds_beneath(tmp .. "/build")
   local fixture_dir = Fixture.placed("runtime")
   local work = tmp
   local diagnostics = work .. "/logs"
@@ -531,6 +537,7 @@ end
 -- new pathname's database or prefix into the paused process. A subsequent
 -- launch selects all-new bytes.
 local function test_runtime_replace_while_paused(tmp: string)
+  Fixture.builds_beneath(tmp .. "/build")
   local fixture_dir = Fixture.placed("runtime")
   local work = tmp
   local diagnostics = work .. "/logs"
@@ -575,6 +582,7 @@ end
 -- Unlink after adoption also leaves database and private prefix reads on the
 -- retained descriptor.
 local function test_runtime_unlink_while_paused(tmp: string)
+  Fixture.builds_beneath(tmp .. "/build")
   local fixture_dir = Fixture.placed("runtime")
   local work = tmp
   local diagnostics = work .. "/logs"
@@ -610,6 +618,7 @@ end
 -- `COSMIC_PORTABLE_TEST_HOOK` mechanism, not `tool.tl
 -- retained-prefix-probe` from `tool`.
 local function test_runtime_mismatch_after_select(tmp: string)
+  Fixture.builds_beneath(tmp .. "/build")
   local fixture_dir = Fixture.placed("runtime")
   local work = tmp
   local diagnostics = work .. "/logs"

@@ -12,6 +12,10 @@ local sys = require("cosmic.sys")
 -- well under a second. Native decoder compilation opts into its larger bound.
 local default_child_timeout_ns <const> = Clock.seconds(30)
 
+--- Where this fixture's children build, once [`Fixture.builds_beneath`]
+--- names it; nil until then, for them to build where the environment says.
+local build_home: string | nil = nil
+
 local record Fixture
   inherited: {string}
 
@@ -76,6 +80,29 @@ function Fixture.placed(kind: string): string
     return home .. "/" .. Hash.hex_sha256(root) .. "/fixtures/" .. kind
   end
   return (assert(Fs.absolute("o/fixtures/" .. kind)))
+end
+
+--- Has every child this fixture starts build under `directory`
+--- (COSMIC_BUILD_HOME, [`environment_of`]), made 0700 where it is not
+--- there yet. A sandboxed fixture whose children build -- a project, a
+--- file run -- calls it first: its worker may write its own directory
+--- alone, and a driver whose harness hands its workers no
+--- COSMIC_BUILD_HOME leaves them the user's cache, which a sandbox does
+--- not give.
+function Fixture.builds_beneath(directory: string)
+  local made, trouble, errno = sys.mkdir(directory, 0x1c0)
+  assert(made or errno == sys.EEXIST, directory .. ": " .. tostring(trouble))
+  build_home = (assert(sys.realpath(directory)))
+end
+
+--- The build directory of the project at `project` that this fixture's
+--- children build in ([`builds_beneath`]), named as build/paths.tl's
+--- `in_home` names it, as [`placed`] does.
+-- TODO: ask build.paths for the directory, rather than spell its key, once
+-- ci/cosmic-driver.pin names a release that carries build/paths.tl.
+function Fixture.built(project: string): string
+  local home = assert(build_home, "Fixture.built: call Fixture.builds_beneath first")
+  return home .. "/" .. Hash.hex_sha256((assert(sys.realpath(project))))
 end
 
 function Fixture.mkdir(path: string)
@@ -219,6 +246,7 @@ function Fixture.environment_of(base: {string:string},
   for _, name in ipairs(Fixture.inherited) do
     if base[name] ~= nil then environment[name] = base[name] end
   end
+  if build_home ~= nil then environment.COSMIC_BUILD_HOME = build_home end
   environment.COSMIC_BUILD_CACHE = "0"
   environment.COSMIC_TEST_SANDBOX = "0"
   if extra then

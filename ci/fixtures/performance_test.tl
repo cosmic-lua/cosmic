@@ -3,9 +3,11 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Fixture = require("cosmic_ci.fixture")
 local Test = require("cosmic.test")
+local sys = require("cosmic.sys")
 
 --- The selected candidate, including its carried modules, and the controller
 --- source are both inputs. The CI driver is only the outer test supervisor;
@@ -64,7 +66,11 @@ local function test_independent_fixture_histories_match_through_warmups_and_samp
     assert(manifest[i].id == name and manifest[i].root == root .. "/" .. name)
   end
   for _, phase in ipairs({ "aa", "ab" }) do
-    local observations = assert(Json.decode((assert(Fs.read(tmp .. "/results/" .. phase .. "-a/o/perf/" .. phase .. "-uses.json"))))) as {{string:any}}
+    -- The fixture's build directory, beside it (the tree's build/perf.tl
+    -- gives each COSMIC_BUILD_HOME=<fixture>-build), as build/paths.tl names it.
+    local real = (assert(sys.realpath(tmp .. "/results")))
+    local built = real .. "/" .. phase .. "-a-build/" .. Hash.hex_sha256(real .. "/" .. phase .. "-a")
+    local observations = assert(Json.decode((assert(Fs.read(built .. "/perf/" .. phase .. "-uses.json"))))) as {{string:any}}
     assert(#observations == 2 * (pairs_sampled + 3))
     for i, observation in ipairs(observations) do
       local iteration = (i + 1) // 2
