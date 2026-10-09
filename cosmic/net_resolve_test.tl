@@ -1,6 +1,6 @@
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
-local sys = require("cosmic.sys")
+local Relay = require("cosmic.relay")
 
 --- The addresses `found` holds, one "family address" each, sorted.
 local function listed(found: {Net.Resolved}): {string}
@@ -30,22 +30,13 @@ local function test_a_hosts_file_answers_every_address_of_both_families(tmp: str
   assert(#only == 1 and only[1].address == "198.51.100.7" and only[1].family == "ipv4")
 end
 
-local function test_nameservers_lists_the_servers_of_a_resolv_conf_at_port_53(tmp: string)
-  local conf = tmp .. "/resolv.conf"
-  assert(Fs.write(conf, "nameserver 192.0.2.53\nnameserver 2001:db8::53\n"))
-  local servers = assert(Net.nameservers(conf))
-  if assert(sys.uname()).sysname == "Darwin" then
-    -- c-ares reads the system's configuration there and ignores the file.
-    assert(#servers >= 1, "the system names a server")
-    for _, server in ipairs(servers) do assert(server.port == 53, server.host) end
-    return
+local function test_nameservers_lists_numeric_servers_at_port_53()
+  local servers = assert(Net.nameservers())
+  assert(#servers >= 1, "at least the resolver's default")
+  for _, server in ipairs(servers) do
+    assert(Relay.Address.parse(server.host) ~= nil, server.host)
+    assert(server.port == 53, server.host .. ":" .. server.port)
   end
-  assert(#servers == 2, #servers)
-  assert(servers[1].host == "192.0.2.53" and servers[1].port == 53)
-  assert(servers[2].host == "2001:db8::53" and servers[2].port == 53)
-  local default = assert(Net.nameservers(tmp .. "/absent.conf"))
-  assert(#default == 1 and default[1].host == "127.0.0.1" and default[1].port == 53,
-    "a missing resolv.conf gives the resolver's default")
 end
 
 local function test_a_numeric_literal_answers_itself_without_a_query()

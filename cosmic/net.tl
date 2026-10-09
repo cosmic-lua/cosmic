@@ -824,22 +824,19 @@ function Net.resolve(name: string, opts?: Net.ResolveOptions): {Net.Resolved} | 
 end
 
 --- The system's DNS servers, each at port 53, as [`ResolveOptions.servers`]
---- takes them and a connector's table holds them. On Linux they come from
---- `/etc/resolv.conf`, or from `resolv_conf`, a file to read in place of it;
---- a file that is missing or names no server gives the resolver's default,
---- 127.0.0.1. On macOS they come from the system's DNS configuration and
---- `resolv_conf` is ignored, as c-ares reads no file there. A server
---- written with an interface (`fe80::1%eth0`) is left out; the call fails
---- where every server is.
+--- takes them and a connector's table holds them: as the system's resolver
+--- configuration gives them (resolv.conf on Linux, the system's DNS
+--- configuration on macOS). Where none is configured the resolver's
+--- default, 127.0.0.1, stands. A server written with an interface
+--- (`fe80::1%eth0`) is left out; the call fails where every server is.
 ---
 ---     local servers = assert(Net.nameservers())
 ---     local found = assert(Net.resolve("localhost", { servers = servers }))
 ---
---- @param resolv_conf string|nil A resolv.conf to read in place of the system's
 --- @return {Net.Endpoint}|nil The servers
 --- @return string Why there are none, "" otherwise
-function Net.nameservers(resolv_conf?: string): {Net.Endpoint} | nil, string
-  local listed, why = Relay.nameservers(resolv_conf)
+function Net.nameservers(): {Net.Endpoint} | nil, string
+  local listed, why = Relay.nameservers()
   if listed == nil then return nil, why end
   local out: {Net.Endpoint} = {}
   for i, server in ipairs(listed) do out[i] = { host = server.host, port = server.port } end

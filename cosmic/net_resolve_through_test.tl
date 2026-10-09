@@ -351,10 +351,12 @@ local function test_the_name_servers_connector_refuses_what_is_no_name_server(tm
   require_native_connector()
   local conf = tmp .. "/resolv.conf"
   assert(Fs.write(conf, "nameserver 127.0.0.1\n"))
-  local servers = assert(Net.nameservers(conf))
+  local servers = assert(Relay.nameservers(conf))
   assert(#servers == 1 and servers[1].host == "127.0.0.1" and servers[1].port == 53)
-  local rows = assert(Relay.nameservers(conf))
-  local dns <close> = assert(Net.connector(servers))
+  local rows = servers
+  local table_rows: {Net.Endpoint} = {}
+  for i, server in ipairs(servers) do table_rows[i] = { host = server.host, port = server.port } end
+  local dns <close> = assert(Net.connector(table_rows))
   local conn, why = dns:connect("127.0.0.1", 80, Clock.seconds(5))
   assert(conn == nil and why:find("is not in the connector's table", 1, true) ~= nil, tostring(why))
   conn, why = dns:connect("192.0.2.1", 53, Clock.seconds(5))
