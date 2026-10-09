@@ -1,5 +1,6 @@
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
+local sys = require("cosmic.sys")
 
 --- The addresses `found` holds, one "family address" each, sorted.
 local function listed(found: {Net.Resolved}): {string}
@@ -33,11 +34,18 @@ local function test_nameservers_lists_the_servers_of_a_resolv_conf_at_port_53(tm
   local conf = tmp .. "/resolv.conf"
   assert(Fs.write(conf, "nameserver 192.0.2.53\nnameserver 2001:db8::53\n"))
   local servers = assert(Net.nameservers(conf))
+  if assert(sys.uname()).sysname == "Darwin" then
+    -- c-ares reads the system's configuration there and ignores the file.
+    assert(#servers >= 1, "the system names a server")
+    for _, server in ipairs(servers) do assert(server.port == 53, server.host) end
+    return
+  end
   assert(#servers == 2, #servers)
   assert(servers[1].host == "192.0.2.53" and servers[1].port == 53)
   assert(servers[2].host == "2001:db8::53" and servers[2].port == 53)
-  local missing, why = Net.nameservers(tmp .. "/absent.conf")
-  assert(missing ~= nil or why ~= "", "an unreadable resolv.conf is not an empty list")
+  local default = assert(Net.nameservers(tmp .. "/absent.conf"))
+  assert(#default == 1 and default[1].host == "127.0.0.1" and default[1].port == 53,
+    "a missing resolv.conf gives the resolver's default")
 end
 
 local function test_a_numeric_literal_answers_itself_without_a_query()
@@ -76,6 +84,7 @@ local function test_a_name_the_resolver_cannot_take_fails_and_a_degenerate_argum
   assert(not pcall(Net.resolve, "example.test", { servers = text } as Net.ResolveOptions))
   assert(not pcall(Net.resolve, "example.test", { servers = {} }))
   assert(not pcall(Net.resolve, "example.test", { servers = { { host = "127.0.0.1", port = 70000 } } }))
+  assert(not pcall(Net.resolve, "example.test", { servers = { { host = "127.0.0.1", port = 0 } } }))
 end
 
 --- A name of 254 bytes (253 and a trailing dot) is the longest asked of

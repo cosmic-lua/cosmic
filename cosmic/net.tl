@@ -148,7 +148,8 @@ local record Net
   record Endpoint
     --- The numeric address, no name.
     host: string
-    --- The port, 0 to 65535; 0 in a connector's table is any nonzero port.
+    --- The port. A DNS server's is 1 to 65535; only a connector's table
+    --- takes 0, any nonzero port.
     port: integer
   end
 
@@ -806,8 +807,8 @@ function Net.resolve(name: string, opts?: Net.ResolveOptions): {Net.Resolved} | 
     for _, endpoint in ipairs(listed) do
       if type(endpoint) ~= "table" then error("net: a server must be an endpoint", 2) end
       local host, port = endpoint.host, endpoint.port
-      if not (host is string and port is integer and port >= 0 and port <= 65535) then
-        error("net: a server must be an endpoint with a string host and an integer port from 0 to 65535", 2)
+      if not (host is string and port is integer and port >= 1 and port <= 65535) then
+        error("net: a server must be an endpoint with a string host and an integer port from 1 to 65535", 2)
       end
       -- Only a host that holds none of the list's own punctuation may
       -- reach it, so one server cannot name another; the resolver
@@ -823,10 +824,13 @@ function Net.resolve(name: string, opts?: Net.ResolveOptions): {Net.Resolved} | 
 end
 
 --- The system's DNS servers, each at port 53, as [`ResolveOptions.servers`]
---- takes them and a connector's table holds them. They come from
---- `/etc/resolv.conf` (or `resolv_conf`, a file to read in place of it); a
---- server written with an interface (`fe80::1%eth0`) is left out, and the
---- call fails where none is left or the file cannot be read.
+--- takes them and a connector's table holds them. On Linux they come from
+--- `/etc/resolv.conf`, or from `resolv_conf`, a file to read in place of it;
+--- a file that is missing or names no server gives the resolver's default,
+--- 127.0.0.1. On macOS they come from the system's DNS configuration and
+--- `resolv_conf` is ignored, as c-ares reads no file there. A server
+--- written with an interface (`fe80::1%eth0`) is left out; the call fails
+--- where every server is.
 ---
 ---     local servers = assert(Net.nameservers())
 ---     local found = assert(Net.resolve("localhost", { servers = servers }))
