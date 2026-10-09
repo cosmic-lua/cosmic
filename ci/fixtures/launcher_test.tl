@@ -1,4 +1,3 @@
-local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Predicate = require("cosmic_ci.fs_predicate")
 local sys = require("cosmic.sys")
@@ -64,6 +63,7 @@ end
 
 local function test_launcher_cold_warm_and_default_paths(tmp: string)
   local ctx = setup(tmp)
+  local artifact_hash = Fixture.hash(ctx.artifact)
   local cache = ctx.work .. "/cache \\ override"
   local marker = ctx.work .. "/basic.marker"
   local input = ctx.work .. "/input"
@@ -181,6 +181,8 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
   local bare_made = assert(Fs.list(bare))
   assert(#bare_made == 1 and bare_made[1]:match("^cosmic%-cores%-%d+$") ~= nil,
     "an empty environment did not make its cache leaf in TMPDIR")
+  -- Cold, warm and every environment above ran the artifact; none wrote it.
+  assert(Fixture.hash(ctx.artifact) == artifact_hash, "launcher artifact changed")
 end
 
 --- Whether `path` took `mode`, which has a special bit. A worker under a
@@ -470,17 +472,3 @@ end
 
 -- The noexec case, which needs the host's own noexec mount, is
 -- launcher_noexec_test.tl's.
-local function test_launcher_timing_and_immutability(tmp: string)
-  local ctx = setup(tmp)
-  local before = Fixture.hash(ctx.artifact)
-  local timing = ctx.work .. "/timing cache"
-  local cold_started = Clock.monotonic_ns()
-  outcome_ok(run(ctx, "timing-cold", timing), "cold timing launch")
-  local cold_ms = (Clock.monotonic_ns() - cold_started) // 1000000
-  local warm_started = Clock.monotonic_ns()
-  outcome_ok(run(ctx, "timing-warm", timing), "warm timing launch")
-  local warm_ms = (Clock.monotonic_ns() - warm_started) // 1000000
-  assert(Fs.put(Fs.stderr, "portable launcher timing: cold=" ..
-      tostring(cold_ms) .. "ms warm=" .. tostring(warm_ms) .. "ms\n"))
-  assert(Fixture.hash(ctx.artifact) == before, "launcher artifact changed")
-end

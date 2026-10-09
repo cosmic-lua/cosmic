@@ -3,7 +3,6 @@
 --- Run as:
 ---   cosmic test/portable/tool.tl SUBCOMMAND ARGS...
 
-local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
@@ -359,31 +358,6 @@ local function write_runtime_fixture(argv: {string}): integer
   return 0
 end
 
---- Times one portable re-entry without a host `time` command.
-local function time_runtime(argv: {string}): integer
-  local marker = "COSMIC_FIXTURE_TIMING_STARTED"
-  local target, cache = argv[1], argv[2]
-  assert(target ~= nil and cache ~= nil and argv[3] == nil,
-    "usage: tool.tl time-runtime ARTIFACT CACHE")
-  local started = Env.get(marker)
-  if started ~= nil then
-    assert(assert(Proc.executable()) == target,
-      "runtime timing re-entry changed logical executable")
-    local before = assert(math.tointeger(tonumber(started)),
-      "runtime timing marker is invalid")
-    local after = Clock.monotonic_ns()
-    print(string.format("real %.6f", (after - before) / 1000000000))
-    return 0
-  end
-
-  local environment = Env.all()
-  environment[marker] = tostring(Clock.monotonic_ns())
-  environment["COSMIC_PORTABLE_CACHE"] = cache
-  local arguments = { target, argv[0], "time-runtime", target, cache }
-  local _, trouble = Proc.exec(arguments, { env = environment })
-  error(trouble)
-end
-
 --- Proves that VFS reads and the trusted private-prefix capability still work
 --- on a retained artifact descriptor, from inside a real Cosmic runtime.
 local function retained_prefix_probe(argv: {string}): integer
@@ -445,7 +419,6 @@ local subcommands: {string:function({string}):integer} = {
   ["write-format-fixture"] = write_format_fixture,
   ["write-launcher-fixture"] = write_launcher_fixture,
   ["write-runtime-fixture"] = write_runtime_fixture,
-  ["time-runtime"] = time_runtime,
   ["retained-prefix-probe"] = retained_prefix_probe,
   ["environment-clean"] = environment_clean,
 }
@@ -461,9 +434,8 @@ return function(argv: {string}): integer
     local _, _ = Fs.put(Fs.stderr, "subcommands: " .. table.concat(names, ", ") .. "\n")
     return 2
   end
-  -- Reindex argv[2:] down to [1:], keeping [0] (this script's own path) for
-  -- time-runtime's self re-exec.
-  local rest: {string} = { [0] = argv[0] }
+  -- Reindex argv[2:] down to [1:].
+  local rest: {string} = {}
   local at = 1
   while argv[at + 1] ~= nil do
     rest[at] = argv[at + 1]

@@ -253,6 +253,16 @@ local function test_runtime_logical_paths(tmp: string)
   assert(Fixture.small(script_run.out, 256) ==
       "script " .. release_hash .. " old\n",
     "probe script output did not match exactly")
+
+  -- The script replaces itself with the same artifact through Proc.exec
+  -- and the replacement still finds the artifact as its logical executable
+  -- (the probe asserts Proc.executable() and sys.executable() both times).
+  local reentered = Fixture.run("probe-script-reenter",
+    { work .. "/bin/cosmic-runtime", "probe.tl", release_hash, "old", "reenter" },
+    work .. "/run space", diagnostics, { COSMIC_PORTABLE_CACHE = cache })
+  assert(Fixture.small(reentered.out, 256) ==
+      "script " .. release_hash .. " old\n",
+    "re-entered probe script output did not match exactly")
 end
 
 --------------------------------------------------------------------------
@@ -629,39 +639,4 @@ local function test_runtime_mismatch_after_select(tmp: string)
       "mismatch-after-select: startup fell back to \"no tree to boot\" " ..
         "instead of rejecting the mismatched replacement")
   end)
-end
-
---------------------------------------------------------------------------
--- 7. Timing observations.
---------------------------------------------------------------------------
-
--- Records the real runtime.release entry cost, apart from the tiny launcher
--- payload timings. These observations are informational and set no
--- threshold.
-local function test_runtime_timing(tmp: string)
-  local fixture_dir = Fixture.placed("runtime")
-  local work = tmp
-  local diagnostics = work .. "/logs"
-  Fixture.mkdir(diagnostics)
-  local tool = Fixture.tool_tree(fixture_dir, work)
-
-  local runtime_bytes = #Fixture.read(fixture_dir .. "/runtime.release")
-  local driver_cache = work .. "/runtime-timing-driver-cache"
-  local timing_cache = work .. "/runtime-timing-cache"
-
-  local cold = Fixture.run("timing-cold", { fixture_dir .. "/runtime.release",
-    tool .. "/test/portable/tool.tl", "time-runtime",
-    fixture_dir .. "/runtime.release", timing_cache }, tool, diagnostics,
-    { COSMIC_PORTABLE_CACHE = driver_cache })
-  local warm = Fixture.run("timing-warm", { fixture_dir .. "/runtime.release",
-    tool .. "/test/portable/tool.tl", "time-runtime",
-    fixture_dir .. "/runtime.release", timing_cache }, tool, diagnostics,
-    { COSMIC_PORTABLE_CACHE = driver_cache })
-
-  assert(Fs.put(Fs.stderr, "portable runtime.release entry cold timing (" ..
-      tostring(runtime_bytes) .. " bytes): " ..
-      Fixture.small(cold.out, 256):gsub("\n", " ") .. "\n"))
-  assert(Fs.put(Fs.stderr, "portable runtime.release entry warm timing (" ..
-      tostring(runtime_bytes) .. " bytes): " ..
-      Fixture.small(warm.out, 256):gsub("\n", " ") .. "\n"))
 end
