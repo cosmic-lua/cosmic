@@ -193,6 +193,11 @@ local function execute(argv: {integer:string}): integer
     output.fd = -1
     assert(Fs.close(written))
     runtime.fd = assert(Fs.open_read(native))
+    -- Nor can it reach root's build directory, its user's alone (0700):
+    -- it runs a copy of the tool beside the core.
+    local tool = runtime.path .. "/cosmic"
+    assert(Fs.write(tool, assert(Fs.read(cosmic)), 0x1ed))
+    cosmic = tool
     assert(Fs.chmod(runtime.path, 0x1c9))
   end
   -- Every invocation gets new tables; Proc.relaunch is cached.

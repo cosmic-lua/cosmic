@@ -2677,15 +2677,26 @@ local function test_the_credential_proof_follows_the_native_database_boundary()
       runner["continue-on-error"] == nil, "local runner proof lost its required privileged Linux gate")
 end
 
---- Root must establish its own portable cache before starting the
---- bootstrap resolver, which otherwise meets the runner's cache owner.
-local function test_the_credential_proof_isolates_its_cache_before_resolving_paths()
+--- The proof runs as root with caches of its own, under which the
+--- resolver would name another build directory than the one the build
+--- step built the helper in (and would refuse the runner's): the build
+--- step publishes its directory, and the proof takes it from there and
+--- resolves none itself. Root sets up its own caches before it runs
+--- anything, and runs the proof driver standalone, building nothing.
+local function test_the_credential_proof_takes_the_build_steps_directory_and_its_own_caches()
+  local build = assert(Fs.read(SCRIPTS .. "/credentials-build.sh"))
+  assert(build:find("COSMIC_CREDENTIALS_BUILD=%s", 1, true) and build:find('>> "$GITHUB_ENV"', 1, true),
+    "the build step does not publish its build directory")
   local proof = assert(Fs.read(SCRIPTS .. "/credentials-proof.sh"))
+  assert(proof:find("output=${COSMIC_CREDENTIALS_BUILD:?", 1, true),
+    "the credential proof does not take the build step's directory")
+  assert(not proof:find("build/paths.tl", 1, true), "the credential proof resolves a build directory itself")
   local cache = assert(proof:find('export XDG_CACHE_HOME="$proof/cache"', 1, true))
   local portable = assert(proof:find('export COSMIC_PORTABLE_CACHE="$proof/cache/cores"', 1, true))
-  local resolver = assert(proof:find('output=$("$root/bin/cosmic-bootstrap"', 1, true))
-  assert(cache < resolver and portable < resolver,
-    "credential proof resolves paths before isolating root's caches")
+  local standalone = assert(proof:find("export COSMIC_STANDALONE=1", 1, true))
+  local run = assert(proof:find('"$output/credentials-probe" setup', 1, true))
+  assert(cache < run and portable < run and standalone < run,
+    "credential proof runs before isolating root's caches")
 end
 
 --- Each leg that runs a suite (the platform legs of a light and a full run,
