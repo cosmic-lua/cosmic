@@ -500,29 +500,32 @@ local self_rebuild_test_timeout_ns <const> = Clock.seconds(450)
 -- ([`seed_compiles`]), in seconds. The bound is above the case's own
 -- (`rebuild_timeout_ns` in fixtures/self_rebuild_test.tl, 150 s).
 local self_rebuild_per_test_timeout_s <const> = "180"
--- Each fixed-point test rebuilds the product twice from a fresh tree, and
--- shares no compiles ([`Fixture.environment`]): every rebuild compiles the
--- whole tree cold, about 43 s of one core at 11.9 MB of Teal, and the
--- compiler's three cases compile it twice over. Alone on a four-core host
--- a plain test took 90 to 99 s and a compiler case 214 to 220 s, 1020 s of
--- one core for the file: seven tests on four cores end in about 290 s at
--- best. The cost follows the tree: on linux-aarch64 the file took 200 s on
--- October 3 and 271 s on October 9, as the Teal grew from 8.6 to 11.9 MB.
--- The x86-64 legs take 1.3 to 1.55 times as long as aarch64 on the same
--- work (the self-rebuild file, 83 to 101 s against 65 s) and macOS has
--- three processors, so those legs are expected to need about 440 s. Every
--- scheduled run since October 3 ended the group on one of them at its old
--- 300 s bound (exit 124), or a compiler case at its own 150 s
--- (fixtures/fixed_point_test.tl). The bounds keep 1.4 to 1.65 times that
--- room, as #2834 did for the suite's: the group's 720 s, a test's 600 s
--- (two rebuilds) and a rebuild's 300 s, which names a hung one.
--- TODO: the file's cost follows the tree (about 5% a day this week), so
+-- Each fixed-point test rebuilds the product twice from a fresh tree. The
+-- compiler's three cases share no compiles (fixtures/fixed_point_test.tl
+-- says why) and compile the whole tree cold about three times, about 43 s
+-- of one core each at 11.9 MB of Teal: on a four-core x86-64 host each
+-- took 206 to 230 s beside the file's other tests, 213 s alone, 134 s of
+-- it the first rebuild. The other four share one file of compiles made
+-- afresh each run (COSMIC_FIXTURE_SHARED_COMPILES): the first compiles the
+-- tree cold in 90 s, and the rest, started after it, only what their
+-- edits move, in 23 to 34 s where cold they took 84 to 96 s. So the file
+-- ends about when its last compiler case does: 221 s on four workers
+-- (331 s cold) and 301 s on three (398 s cold). That host takes about 1.22
+-- times as long as linux-aarch64 (whose run took 271 s cold on October 9),
+-- and the x86-64 legs 1.3 to 1.55 times as long as linux-aarch64 on the
+-- same work (the self-rebuild file, 83 to 101 s against 65 s), so the
+-- slowest leg needs up to 1.27 times this host's time: about 380 s for the
+-- file on macOS's three processors, 275 s for a compiler case and 170 s
+-- for its first rebuild. The bounds keep 1.5 to 1.6 times that, as #2834
+-- did for the suite's: the group's 600 s, a test's 420 s, and a
+-- rebuild's 270 s (fixtures/fixed_point_test.tl), which names a hung one.
+-- TODO: the compiler cases still compile the whole tree cold, so the
+-- file's cost follows the tree (about 5% a day the week of October 3) and
 -- these bounds will be passed again: report the group's elapsed time
--- against its bound from [`fixture_run_spec`], or decide whether the cases
--- may share the compiles of one compiler (all but the first would then
--- not check their own).
-local fixed_point_test_timeout_ns <const> = Clock.seconds(720)
-local fixed_point_per_test_timeout_s <const> = "600"
+-- against its bound from [`fixture_run_spec`], so the growth shows before
+-- it fails a run.
+local fixed_point_test_timeout_ns <const> = Clock.seconds(600)
+local fixed_point_per_test_timeout_s <const> = "420"
 --- The whole suite on the checked core: see [`checked_suite`]'s comment
 --- for what it takes.
 local checked_suite_timeout_ns <const> = Clock.seconds(1200)
@@ -686,9 +689,11 @@ end
 --- (cosmic_ci/compiles.tl), so no fixture's rows are kept from one run
 --- to the next, nor the boot's work taken back. A child a fixture starts
 --- takes none ([`Fixture.environment`]): what a fresh tree compiles, and
---- what the tool built from it compiles again (fixed_point_test,
---- self_rebuild_test's docs verb), it must compile and parse. The other
---- self-rebuild cases take a copy of the leg's ([`seed_compiles`]).
+--- what the tool built from it compiles again (fixed_point_test's
+--- compiler cases, self_rebuild_test's docs verb), it must compile and
+--- parse. The other self-rebuild cases take a copy of the leg's
+--- ([`seed_compiles`]), and the other fixed-point cases share a file of
+--- their own, made afresh for each run (COSMIC_FIXTURE_SHARED_COMPILES).
 function Orchestration.fixture(env: {string:string}, tmpdir: string,
                                compiles: string, verdicts?: string): {string:string}
   -- The outer fixture runner is the pinned driver, whose requirement
@@ -1773,7 +1778,7 @@ local function phase_fixtures(p: PlatformContext): integer
     if s ~= 0 then return s end
   end
   -- The fixed-point regression is the slowest fixture on every leg
-  -- (about 270 to 440 s: `fixed_point_test_timeout_ns` says why), and what
+  -- (about 220 to 380 s: `fixed_point_test_timeout_ns` says why), and what
   -- it checks, that the compiler compiles itself to itself, is the same
   -- on every platform. So no gating run runs it (ci.yml sets
   -- COSMIC_CI_FIXED_POINT=skip); main's scheduled run runs it on every
@@ -1782,10 +1787,17 @@ local function phase_fixtures(p: PlatformContext): integer
     Fs.put(Fs.stderr, "fixture: fixed-point-regression: skipped on this leg " ..
         "(COSMIC_CI_FIXED_POINT=skip)\n")
   else
+    -- The compiles its sharing cases share, made afresh for each run.
+    local shared = work .. "/fixed-point-compiles"
+    s = step(c, "fixed-point compiles", function(): boolean, string
+      return Fs.remove_tree(shared)
+    end)
+    if s ~= 0 then return s end
     s = fixture_test(c, work, "fixed-point-regression", "fixed_point",
       fixed_point_test_timeout_ns, {
         COSMIC_FIXTURE_SOURCE = source,
         COSMIC_FIXTURE_PRODUCT = product,
+        COSMIC_FIXTURE_SHARED_COMPILES = shared .. "/cache.db",
         COSMIC_TEST_TIMEOUT = fixed_point_per_test_timeout_s,
       })
     if s ~= 0 then return s end
