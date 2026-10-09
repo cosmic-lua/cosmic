@@ -514,21 +514,9 @@ local function run_pairs(a: Fixture, b: Fixture, w: Workload, phase: string,
   return paired
 end
 
---- Run independently retained artifacts in new fixture directories. Status 1
---- means a command/counter failed; status 2 means a measured regression or an
---- unresolved comparison. Neither is a passing performance gate.
-function Perf.main(argv: {integer:string}): integer
-  if argv[1] == nil or argv[2] == nil or argv[3] == nil or argv[6] ~= nil then
-    print("usage: bin/perf <baseline> <candidate> <new-output-directory> [pairs=200] [workload]")
-    return 1
-  end
-  local count: integer = 200
-  if argv[4] ~= nil then
-    local parsed = tonumber(argv[4])
-    assert(parsed ~= nil, "pairs must be a number")
-    count = math.tointeger(parsed)
-  end
-  assert(count ~= nil and count >= 30 and count <= 2000, "pairs must be an integer from 30 to 2000")
+--- The shared body of [`Perf.main`] and [`Perf.lifecycle`]: `count` sample pairs
+--- after three discarded warmups, and `probes` timings of `/usr/bin/true`.
+local function experiment(argv: {integer:string}, count: integer, probes: integer): integer
   local selected: {Workload} = {}
   for _, w in ipairs(workloads()) do
     if argv[5] == nil or argv[5] == w.name then selected[#selected + 1] = w end
@@ -595,7 +583,7 @@ function Perf.main(argv: {integer:string}): integer
   local has_true, _ = Fs.exists("/usr/bin/true")
   if has_true then
     local supervisor: {number} = {}
-    for _ = 1, 30 do
+    for _ = 1, probes do
       local start = Clock.monotonic_ns()
       command({ "/usr/bin/true" }, a)
       supervisor[#supervisor + 1] = Clock.monotonic_ns() - start
@@ -629,6 +617,36 @@ function Perf.main(argv: {integer:string}): integer
     if #compared.reasons > 0 then print(w.name .. ": " .. table.concat(compared.reasons, ", ")) end
   end
   return failed and 2 or 0
+end
+
+--- Run independently retained artifacts in new fixture directories. Status 1
+--- means a command/counter failed; status 2 means a measured regression or an
+--- unresolved comparison. Neither is a passing performance gate.
+function Perf.main(argv: {integer:string}): integer
+  if argv[1] == nil or argv[2] == nil or argv[3] == nil or argv[6] ~= nil then
+    print("usage: bin/perf <baseline> <candidate> <new-output-directory> [pairs=200] [workload]")
+    return 1
+  end
+  local count: integer = 200
+  if argv[4] ~= nil then
+    local parsed = tonumber(argv[4])
+    assert(parsed ~= nil, "pairs must be a number")
+    count = math.tointeger(parsed)
+  end
+  assert(count ~= nil and count >= 30 and count <= 2000, "pairs must be an integer from 30 to 2000")
+  return experiment(argv, count, 30)
+end
+
+--- The same preparation, history, order and counter checks as [`Perf.main`],
+--- for tests of the fixture lifecycle, whose elapsed times are ignored. The
+--- pair count is `argv[4]` (required): six to 29, the fewest a median interval
+--- takes and below the benchmark's minimum. It draws six supervisor probes. It
+--- is no benchmark: only [`Perf.main`] validates a count fit to compare.
+function Perf.lifecycle(argv: {integer:string}): integer
+  local count = math.tointeger(tonumber(argv[4]))
+  assert(count ~= nil and count >= 6 and count < 30,
+    "lifecycle pairs must be an integer from 6 to 29")
+  return experiment(argv, count, 6)
 end
 
 return Perf

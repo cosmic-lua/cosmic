@@ -1,5 +1,5 @@
 --- Exercise the measurement fixture lifecycle; elapsed times are ignored and
---- thirty pairs are always exploratory, never performance acceptance evidence.
+--- a few pairs are always exploratory, never performance acceptance evidence.
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -18,13 +18,20 @@ Test.policy{
   profiles = { "system" },
 }
 
+-- The controller's entry is the lifecycle seam, which takes a few pairs where
+-- `Perf.main` refuses fewer than 30.
 local function controller(): string
-  return (assert(Fs.read(Fixture.placed("performance") .. "/perf.tl")))
+  local source = assert(Fs.read(Fixture.placed("performance") .. "/perf.tl"))
+  local changed, count = source:gsub("\nreturn Perf\n$", "\nPerf.main = Perf.lifecycle\nreturn Perf\n")
+  assert(count == 1)
+  return changed
 end
 
--- Four real timestamp-settlement waits add eight seconds of setup. The
--- checked core also executes 132 sampled commands; keep its child deadline
--- below the driver's 60-second per-test bound so diagnostics can be checked.
+-- Four real timestamp-settlement waits add eight seconds of setup. Six pairs
+-- still cross the three-warmup boundary and run both orders; the checked core
+-- executes 36 sampled commands. Keep its child deadline below the driver's
+-- 60-second per-test bound so diagnostics can be checked.
+local pairs_sampled <const> = 6
 local controller_timeout_ns <const> = Clock.seconds(45)
 
 local function diagnostic(result: Child.Result): string
@@ -40,7 +47,7 @@ local function run(tmp: string, source: string): Child.Result
   -- The sandbox exposes the shared core cache read-only; this candidate may
   -- carry a core the CI driver has never extracted.
   local env = Fixture.environment({ COSMIC_PORTABLE_CACHE = tmp .. "/cores" })
-  return (assert(Child.run({ binary, "--standalone", script, binary, binary, tmp .. "/results", "30", "uses" },
+  return (assert(Child.run({ binary, "--standalone", script, binary, binary, tmp .. "/results", tostring(pairs_sampled), "uses" },
     { cwd = tmp, env = env, stdout = "capture", stderr = "capture", timeout_ns = controller_timeout_ns })))
 end
 
@@ -58,7 +65,7 @@ local function test_independent_fixture_histories_match_through_warmups_and_samp
   end
   for _, phase in ipairs({ "aa", "ab" }) do
     local observations = assert(Json.decode((assert(Fs.read(tmp .. "/results/" .. phase .. "-a/o/perf/" .. phase .. "-uses.json"))))) as {{string:any}}
-    assert(#observations == 66)
+    assert(#observations == 2 * (pairs_sampled + 3))
     for i, observation in ipairs(observations) do
       local iteration = (i + 1) // 2
       local before, after = observation.before as {string}, observation.after as {string}
