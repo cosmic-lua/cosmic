@@ -593,7 +593,7 @@ overwritten and the exact key wins over a prefix, so a run of main that
 failed (the scheduled run's forced recheck can: it stands on no verdict)
 could not replace the entry under its commit, which still held the pass
 it took out of its own database. ci.yml's `invalidate` job therefore
-deletes every commit-keyed entry once a run of main that saves failed
+deletes the entries under that run's commit, every host's, once a run of main that saves failed
 (`driver.tl invalidate-commit-verdicts`), and the restore takes the
 newest by prefix, which is the failed run's own save. A run that failed keeps what it
 restored with what it reached (`whole`). The compiles are saved only

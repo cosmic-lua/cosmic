@@ -1630,7 +1630,7 @@
           name: "delete the verdicts saved under a commit",
           if: "github.ref == 'refs/heads/main' && contains(needs.*.result, 'failure')",
           "working-directory": "ci",
-          env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}"},
+          env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}", COMMIT: "${{ github.sha }}"},
           run: "cosmic-driver cosmic_ci/driver.tl invalidate-commit-verdicts",
         },
       ],

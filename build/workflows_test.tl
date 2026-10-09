@@ -2028,7 +2028,8 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
   end
   local command = isteps[3]
   assert(command.run == "cosmic-driver cosmic_ci/driver.tl invalidate-commit-verdicts" and
-      command["working-directory"] == "ci" and command["continue-on-error"] == nil,
+      command["working-directory"] == "ci" and command["continue-on-error"] == nil and
+      (command.env as {string: string}).COMMIT == "${{ github.sha }}",
     "invalidate runs another command: " .. tostring(command.run))
   assert(prune["if"] == "always() && github.event_name == 'push'",
     "prune runs on another event, or not after a failed job: " .. tostring(prune["if"]))
