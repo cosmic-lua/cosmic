@@ -80,6 +80,8 @@ allowed["cosmic.sandbox.seatbelt.credentials_unmet"] = "called through cosmic.sa
   "as `grants` is"
 allowed["cosmic.sandbox.policy.system_profile"] = "the seam that lets a test draw the " ..
   "other host's \"system\" profile; rules.profile calls it with this host's"
+allowed["build.c.variants"] = "the ways the C check dumps a file, written out as build.zig " ..
+  "has no form to read them from; build/c/variants_test.tl holds them to it"
 -- The same gap as the allowance above (its TODO): cosmic.child calls these
 -- through cosmic.sandbox's `Relay`.
 for _, name in ipairs({ "policy", "seatbelt_policy", "loopback_listeners", "name_servers", "plan", "upstream_addresses",

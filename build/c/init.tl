@@ -11,6 +11,13 @@
 --- core's first target and the one `COSMIC_TARGET_ID` names, on every
 --- host, so a header is the pinned zig's own rather than the host's.
 ---
+--- The code a preprocessor branch keeps differs with the target and the
+--- configuration, so a file is also dumped under each of the other
+--- `variants` -- the core's other targets, and the checked core's
+--- defines -- when it can differ: when its text, or the text of a header
+--- of the tree it includes, names a macro that tells them apart
+--- ([`sensitive`]). A finding says which variants reported it.
+---
 --- Each compiler starts under build.confine's `declaring`, given what it
 --- runs from and what it compiles, plus the system's paths:
 ---
@@ -56,7 +63,27 @@ local record c
     file: string
     findings: {rules.Finding}
     trouble: string
+    --- The names of the variants it was checked under, in order.
+    variants: {string}
   end
+
+  --- One way the core is built, as far as its C can tell: the compiler's
+  --- target and the defines the build gives it.
+  record Variant
+    name: string
+    target: string
+    defines: {string}
+    --- The macros whose appearance in a file's tree lets it differ from the first variant's.
+    tells: {string}
+  end
+
+  --- One compile: the file, by index, and the variant, by index.
+  record Job
+    file: integer
+    variant: integer
+  end
+
+  variants: {c.Variant}
 end
 
 --- How many compilers run at once.
@@ -91,23 +118,62 @@ local function include_dirs(root: string, cwd: string): {string}
   return out
 end
 
---- The compiler's command line for `file`.
-local function command(root: string, file: string, cwd: string): {string}
-  -- TODO: check the core for each of its targets, not the first alone:
-  -- the code under `__APPLE__` (core/executable.c's, core/syscalls.c's)
-  -- is checked on no host.
+--- The macros that tell a target from the first (the compiler's own, and
+--- the id and name the build defines), and the checked core from a
+--- release one: a file whose tree names none of them cannot differ.
+local target_tells <const>: {string} = {
+  "__APPLE__", "__MACH__", "__linux__", "__aarch64__", "__arm64__", "__x86_64__",
+  "__amd64__", "__NR_", "COSMIC_TARGET",
+}
+local checked_tells <const>: {string} = {
+  "COSMIC_CHECKED", "COSMIC_CONFIGURATION", "LUAI_ASSERT", "LUA_USE_APICHECK",
+}
+
+--- The defines the checked core adds to its own C (build.zig's
+--- `checked_flags`, `lua_checks`).
+local checked_defines <const>: {string} = {
+  "-DCOSMIC_TARGET_ID=1", "-DCOSMIC_TARGET_NAME=\"x86_64-linux-musl\"",
+  "-DCOSMIC_CHECKED", "-DLUAI_ASSERT", "-DLUA_USE_APICHECK",
+  "-DCOSMIC_CONFIGURATION_ID=2", "-DCOSMIC_CONFIGURATION_NAME=\"sanitized\"",
+}
+
+--- The ways the core is built whose C can differ, as build.zig's
+--- `targets` and `sanitized_configuration` have them, written out here
+--- like the includes (build/c/variants_test.tl holds them to build.zig's).
+--- The first is what every file is dumped under; the others only when
+--- [`sensitive`] says its tree can differ. The checked core is built for
+--- the host's target, which is any of the three; it is checked on the
+--- first, whose branches the other targets' checked cores share but for
+--- what the target variants already show.
+c.variants = {
+  { name = "x86_64-linux-musl", target = "x86_64-linux-musl", defines = {
+    "-DCOSMIC_TARGET_ID=1", "-DCOSMIC_TARGET_NAME=\"x86_64-linux-musl\"",
+    "-DCOSMIC_CONFIGURATION_ID=1", "-DCOSMIC_CONFIGURATION_NAME=\"release\"" },
+    tells = target_tells },
+  { name = "aarch64-linux-musl", target = "aarch64-linux-musl", defines = {
+    "-DCOSMIC_TARGET_ID=2", "-DCOSMIC_TARGET_NAME=\"aarch64-linux-musl\"",
+    "-DCOSMIC_CONFIGURATION_ID=1", "-DCOSMIC_CONFIGURATION_NAME=\"release\"" },
+    tells = target_tells },
+  { name = "aarch64-macos", target = "aarch64-macos", defines = {
+    "-DCOSMIC_TARGET_ID=3", "-DCOSMIC_TARGET_NAME=\"aarch64-macos\"",
+    "-DCOSMIC_CONFIGURATION_ID=1", "-DCOSMIC_CONFIGURATION_NAME=\"release\"" },
+    tells = target_tells },
+  { name = "x86_64-linux-musl checked", target = "x86_64-linux-musl", defines = checked_defines, tells = checked_tells },
+}
+
+--- The compiler's command line for `file` under `variant`.
+local function command(root: string, file: string, cwd: string, variant: c.Variant): {string}
   local out: {string} = {
-    root .. "/bin/zig", "cc", "-target", "x86_64-linux-musl",
+    root .. "/bin/zig", "cc", "-target", variant.target,
     "-E", "-o", "/dev/null", "-Xclang", "-ast-dump",
     "-fno-color-diagnostics", "-std=c11", "-Wno-unused-command-line-argument",
     "-DLUA_USE_POSIX", "-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES",
     "-DTF_PSA_CRYPTO_CONFIG_FILE=\"mbedtls_cosmic_config.h\"",
     "-DMBEDTLS_CONFIG_FILE=\"mbedtls_cosmic_config.h\"",
-    "-DCOSMIC_TARGET_ID=1", "-DCOSMIC_TARGET_NAME=\"check\"",
-    "-DCOSMIC_CONFIGURATION_ID=1", "-DCOSMIC_CONFIGURATION_NAME=\"check\"",
     "-DCOSMIC_PORTABLE_REQUIRED_TARGET_MASK=UINT64_C(1)",
     "-DCOSMIC_PORTABLE_RELEASE_CONFIGURATION_ID=1",
   }
+  for _, define in ipairs(variant.defines) do out[#out + 1] = define end
   for _, dir in ipairs(include_dirs(root, cwd)) do
     out[#out + 1] = "-I" .. dir
   end
@@ -266,6 +332,48 @@ local function whole(cwd: string, files: {string}): boolean
   return true
 end
 
+--- Whether the tree of `file` (a path relative to `cwd`) can differ under
+--- `variant` from the first's: its text, or that of a header of the tree it
+--- includes, names one of the variant's `tells`. A header is found as the compiler finds one of the
+--- tree's own, beside the including file or in core/; one it cannot read is
+--- taken to differ. `memo` keeps what each path answered.
+local function sensitive(root: string, cwd: string, file: string, variant: c.Variant,
+                         memo: {string: boolean}): boolean
+  local function visit(path: string, stack: {string: boolean}): boolean
+    if memo[path] ~= nil then return memo[path] end
+    if stack[path] then return false end
+    stack[path] = true
+    local text, _ = Fs.read(path)
+    local found = text == nil
+    if text ~= nil then
+      for _, name in ipairs(variant.tells) do
+        if text:find(name, 1, true) then
+          found = true
+          break
+        end
+      end
+    end
+    if not found and text ~= nil then
+      for name in ("\n" .. text):gmatch('\n%s*#%s*include%s*"([^"\n]+)"') do
+        for _, dir in ipairs({ Fs.dirname(path), root .. "/core" }) do
+          local header = dir .. "/" .. name
+          local present, _ = Fs.exists(header)
+          if present then
+            if visit(header, stack) then found = true end
+            break
+          end
+        end
+        if found then break end
+      end
+    end
+    stack[path] = nil
+    -- A header met inside a cycle is not final until the cycle's start is.
+    if found or next(stack) == nil then memo[path] = found end
+    return found
+  end
+  return visit(file:sub(1, 1) == "/" and file or cwd .. "/" .. file, {})
+end
+
 --- Checks every one of `files`, paths relative to `cwd` (by default
 --- `root`, cosmic's own tree), a few compilers at a time. The outcomes
 --- come back in the order of `files`. A header two of them include is
@@ -283,7 +391,26 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
   local units: {integer: rules.Unit} = {}
   local running: {Child.Handle} = {}
   local which: {Child.Handle: integer} = {}
-  local next_file = 1
+  -- One compile per file under the first variant, and one per file under
+  -- each of the others the file's tree can differ in.
+  local jobs: {c.Job} = {}
+  local ran: {integer: {integer}} = {}
+  local memo: {integer: {string: boolean}} = {}
+  for i, _ in ipairs(files) do
+    ran[i] = { 1 }
+    jobs[#jobs + 1] = { file = i, variant = 1 }
+  end
+  for v = 2, #c.variants do
+    memo[v] = {}
+    for i, file in ipairs(files) do
+      if sensitive(root, cwd, file, c.variants[v], memo[v]) then
+        ran[i][#ran[i] + 1] = v
+        jobs[#jobs + 1] = { file = i, variant = v }
+      end
+    end
+  end
+  local results: {integer: c.Outcome} = {}
+  local next_job = 1
   local env = environment()
   local install, runs_from = toolchain(root, env)
   local deps, deps_trouble = Fs.mkdtemp("cosmic-c-deps-")
@@ -302,19 +429,21 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
     return path:sub(1, 1) == "/" and path or cwd .. "/" .. path
   end
   local function compile()
-    while next_file <= #files or #running > 0 do
-      while next_file <= #files and #running < parallel do
-        local handle, trouble = Child.start(command(root, files[next_file], cwd), {
-          cwd = cwd, env = env, stdout = "capture", stderr = "capture",
-          capture_limit = limit or dump_limit,
-        })
+    while next_job <= #jobs or #running > 0 do
+      while next_job <= #jobs and #running < parallel do
+        local job = jobs[next_job]
+        local handle, trouble = Child.start(
+          command(root, files[job.file], cwd, c.variants[job.variant]), {
+            cwd = cwd, env = env, stdout = "capture", stderr = "capture",
+            capture_limit = limit or dump_limit,
+          })
         if handle == nil then
-          outcomes[next_file] = { file = files[next_file], trouble = trouble }
+          results[next_job] = { file = files[job.file], trouble = trouble }
         else
           running[#running + 1] = handle
-          which[handle] = next_file
+          which[handle] = next_job
         end
-        next_file = next_file + 1
+        next_job = next_job + 1
       end
       if #running > 0 then
         local done, trouble = Child.wait_any(running, Clock.seconds(120))
@@ -322,12 +451,13 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
           if trouble == Poll.TIMEOUT then trouble = "clang gave no answer in 120 seconds" end
           for _, handle in ipairs(running) do
             local _, _ = handle:close()
-            outcomes[which[handle]] = { file = files[which[handle]], trouble = trouble }
+            results[which[handle]] = { file = files[jobs[which[handle]].file], trouble = trouble }
           end
           running = {}
         else
           local result, wait_trouble = done:wait()
-          outcomes[which[done]], units[which[done]] = outcome(root, files[which[done]], result,
+          local job = jobs[which[done]]
+          results[which[done]], units[which[done]] = outcome(root, files[job.file], result,
             wait_trouble, declared, limit or dump_limit)
           local still: {Child.Handle} = {}
           for _, handle in ipairs(running) do
@@ -366,11 +496,62 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
   end)
   local _, _ = Fs.remove_tree(deps)
   if not compiled then error(trouble, 0) end
+  -- A file's outcome is the first variant's, with the findings of the
+  -- others added; a variant that could not be read fails the file, named
+  -- when it is not the first. Only the first variant's tree is shared
+  -- across files (below): the others are partial, and which functions a
+  -- file refers to is the first's to say.
+  -- TODO: share a function across files under every variant's units, not
+  -- the first's: a function only a macOS-only (or checked-only) file refers
+  -- to is read as referred to by none in the first variant, and a header
+  -- function only the other variants' files refer to is not flagged. This
+  -- waits on rules.single_file taking one unit per variant and file.
+  local first_unit: {integer: rules.Unit} = {}
+  local at: {string: rules.Finding} = {}
+  for i, file in ipairs(files) do
+    local out: c.Outcome = { file = file, variants = {} }
+    outcomes[i] = out
+    for _, v in ipairs(ran[i]) do
+      local job = 0
+      for j, candidate in ipairs(jobs) do
+        if candidate.file == i and candidate.variant == v then
+          job = j
+          break
+        end
+      end
+      local result = results[job]
+      local name = c.variants[v].name
+      out.variants[#out.variants + 1] = name
+      if result.findings == nil then
+        out.findings = nil
+        out.trouble = (v == 1 and "" or name .. ": ") .. result.trouble
+        break
+      end
+      if v == 1 then
+        out.findings = {}
+        first_unit[i] = units[job]
+      end
+      for _, f in ipairs(result.findings) do
+        local key = f.file .. ":" .. f.line .. ":" .. f.rule .. ":" .. f.within
+        local same = at[key]
+        if same == nil then
+          f.variants = { name }
+          at[key] = f
+          out.findings[#out.findings + 1] = f
+        else
+          same.variants[#same.variants + 1] = name
+        end
+      end
+    end
+    -- A file whose first variant could not be read has no findings to
+    -- keep from the others.
+    if out.trouble ~= nil then out.findings = nil end
+  end
   if whole(cwd, files) then
     local every: {rules.Unit} = {}
     local by_file: {string: c.Outcome} = {}
     for i = 1, #files do
-      if units[i] ~= nil then every[#every + 1] = units[i] end
+      if first_unit[i] ~= nil then every[#every + 1] = first_unit[i] end
       by_file[outcomes[i].file] = outcomes[i]
     end
     -- A file that could not be read refers to what is not known: its
@@ -380,6 +561,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
       for _, u in ipairs(every) do
         local o = by_file[u.file]
         if u.defines[f.within] ~= nil and o.findings ~= nil then
+          f.variants = { c.variants[1].name }
           o.findings[#o.findings + 1] = f
         end
       end
