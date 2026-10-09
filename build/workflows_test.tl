@@ -1114,8 +1114,8 @@ local function test_only_main_saves_a_cache_every_run_restores()
       assert(env.COSMIC_CI_SAVES == nil, "job " .. name .. " sets COSMIC_CI_SAVES again")
     end
   end
-  assert(main_saves(jobs.platform.steps as {{string: any}}) == 5,
-    "the verdicts (by content and by commit), compiles, zig outputs and driver marker")
+  assert(main_saves(jobs.platform.steps as {{string: any}}) == 6,
+    "the verdicts (by content and by commit), compiles, zig outputs, driver marker and pinned zig")
   assert(main_saves(jobs.checked.steps as {{string: any}}) == 2,
     "the checked job's verdicts, by content and by commit")
 end
@@ -1685,7 +1685,7 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
     for key, value in pairs(m) do same(where .. "'s " .. key, value, t[key]) end
   end
   for _, pair in ipairs({ { "start the leg's container" }, { "create the unprivileged builder" },
-      { "restore the pinned zig", "cache the pinned zig" },
+      { "restore the pinned zig" },
       { "name the zig build cache, and the run's start" }, { "restore zig build outputs" },
       { "restore zig build outputs of another vendor part" }, { "name the leg's host" },
       { "find the tree's base on main" }, { "restore test verdicts" }, { "restore compiles and parses" },
