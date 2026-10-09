@@ -9,15 +9,15 @@ local Relay = require("cosmic.relay.server")
 local type Net = require("cosmic.net")
 
 --- A stand-in for a connector, named `name`: it records each request in
---- `log` as "<name> <target> <timeout_ns>", holds it for `hold_ns`, and
+--- `log` as "<name> <host> <timeout_ns>", holds it for `hold_ns`, and
 --- then refuses it, or ends where it `dies`. One made `gone` has ended
 --- already.
 local function fake(name: string, log: {string}, hold_ns?: integer, dies?: boolean, gone?: boolean): Net.Connector
   local hold = hold_ns or 0
   local ended = gone or false
   local stand_in: any = {
-    connect = function(_: any, target: integer | string, _port: integer, timeout_ns: integer): any, string
-      log[#log + 1] = name .. " " .. tostring(target) .. " " .. timeout_ns
+    connect = function(_: any, address: Net.Address, opts: Net.ConnectOptions): any, string
+      log[#log + 1] = name .. " " .. address.host .. " " .. opts.timeout_ns
       if hold > 0 then
         local waited, why = Poll.delay(hold)
         if not waited then return nil, why end

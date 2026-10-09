@@ -1,7 +1,7 @@
 --- The relay over the sandbox's native connector (core/connector.c), by
---- `Net.connector`: with no table, one connector process for each
---- connection, started with the single numeric endpoint the relay has
---- checked, whose connected socket comes back over the control stream.
+--- `Net.connector`: a public-only connector, whose process connects the
+--- numeric endpoint the relay has checked and returns the socket over
+--- the control stream.
 local Clock = require("cosmic.clock")
 local Fixture = require("build.relay_wire_fixture")
 local Net = require("cosmic.net")
@@ -80,14 +80,13 @@ local function test_the_relay_connects_through_the_native_connector()
     local closed = free.address.port
     local _, _ = free:close()
     local asked = 0
-    local connector = assert(Net.connector())
-    local native = connector:as_function()
+    local connector = assert(Net.connector({}, { public = { deny = {} } }))
     local log: {string} = {}
     local relay = Relay.start({
       http = front, grants = { "127.0.0.1:" .. port, "127.0.0.1:" .. closed },
       connector = function(address: string, to: integer, timeout_ns: integer): Net.Conn | nil, string
         asked = asked + 1
-        return native(address, to, timeout_ns)
+        return connector:connect(Net.tcp(address, to), { timeout_ns = timeout_ns })
       end,
       log = function(line: string)
         log[#log + 1] = line
