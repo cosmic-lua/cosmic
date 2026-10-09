@@ -4,6 +4,7 @@
 --- and nothing else of this tree.
 
 local Child = require("cosmic.child")
+local Signal = require("cosmic.signal")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Proc = require("cosmic.proc")
@@ -24,7 +25,7 @@ local signals: {string:integer} = {
 
 --- The guard `trap` opened, the status it ends with, and whether it
 --- ends with it at all (`trap -` goes on).
-local guard: Child.Guard = nil
+local guard: Signal.Guard = nil
 local trapped = 0
 local ignoring = false
 
@@ -189,7 +190,7 @@ local verbs: {string:function(string, string): integer} = {
   end,
   trap = function(status: string): integer
     local opened, trouble = guard, ""
-    if opened == nil then opened, trouble = Child.guard() end
+    if opened == nil then opened, trouble = Signal.guard() end
     if opened == nil then return failed("trap", trouble) end
     guard, trapped, ignoring = opened, number(status) or 2, status == "-"
     return nil

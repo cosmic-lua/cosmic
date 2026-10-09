@@ -1,5 +1,6 @@
 --- Busy waits use real locks and signals from independent processes.
 local Child = require("cosmic.child")
+local Signal = require("cosmic.signal")
 local type _ = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Stream = require("cosmic.stream")
@@ -67,7 +68,7 @@ local function test_busy_wait_keeps_the_signal_and_clears_only_the_operations_fl
   -- 100 ms and a wake-up from, and within CI's 10 s per-test deadline:
   -- a wait the signal did not end answers BUSY, not cancelled.
   db:busy_timeout(Clock.seconds(6))
-  local guard <close> = assert(Child.guard())
+  local guard <close> = assert(Signal.guard())
   local sender <close> = interrupter()
   interrupt(sender)
   local cancelled = db:exec_result("BEGIN IMMEDIATE")
@@ -93,9 +94,9 @@ local function test_busy_wait_uses_the_innermost_unread_guard_notification(tmp: 
   local held <close> = holder(tmp .. "/db")
   local db = assert(Sqlite.open(tmp .. "/db", { writable = true }))
   db:busy_timeout(Clock.ms(20))
-  local outer <close> = assert(Child.guard())
+  local outer <close> = assert(Signal.guard())
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
-  local inner <close> = assert(Child.guard())
+  local inner <close> = assert(Signal.guard())
   local hidden = db:exec_result("BEGIN IMMEDIATE")
   local inner_signal = inner:release()
   local restored = db:exec_result("BEGIN IMMEDIATE")
@@ -116,7 +117,7 @@ local function test_pragma_replaces_the_custom_handler_and_the_method_reinstalls
   db:busy_timeout(Clock.seconds(5))
   assert(assert(Sqlite.text_rows(db, "PRAGMA busy_timeout"))[1][1] == "0")
   assert(db:exec("PRAGMA busy_timeout = 20"))
-  local guard <close> = assert(Child.guard())
+  local guard <close> = assert(Signal.guard())
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
   local replaced = db:exec_result("BEGIN IMMEDIATE")
   db:busy_timeout(Clock.seconds(5))
@@ -143,7 +144,7 @@ local function test_zero_short_and_prepared_waits_have_separate_budgets(tmp: str
     if ns >= Clock.ms(30) then assert(elapsed >= Clock.ms(10)) end
   end
   local statement = assert(db:prepare("INSERT INTO t VALUES (1)"))
-  local guard <close> = assert(Child.guard())
+  local guard <close> = assert(Signal.guard())
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
   local state, reason = statement:step()
   local signal = guard:take()
@@ -190,7 +191,7 @@ local function test_typed_step_captures_cancellation_before_finalize(tmp: string
   local held <close> = holder(tmp .. "/db")
   local db = assert(Sqlite.open(tmp .. "/db", { writable = true }))
   db:busy_timeout(Clock.seconds(5))
-  local guard <close> = assert(Child.guard())
+  local guard <close> = assert(Signal.guard())
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
   local cancelled = Sqlite.run_result(db, "INSERT INTO t VALUES (1)")
   local signal = guard:take()

@@ -4,12 +4,12 @@
 --- ([`Http.Options.script`]), where each connection curl opens reads a canned
 --- reply and records what curl sent.
 
-local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
+local Signal = require("cosmic.signal")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
@@ -845,7 +845,7 @@ local function test_a_download_cancelled_only_at_the_end_makes_no_target(tmp: st
 end
 
 local function test_a_caught_signal_ends_an_open_that_waits()
-  local guard = assert(Child.guard())
+  local guard = assert(Signal.guard())
   assert(sys.kill(sys.getpid(), sys.SIGINT))
   local response, why = Http.open(url, { script = { reply("200 OK", "", "x") } })
   local caught = assert(guard:release())
@@ -1054,7 +1054,7 @@ local function test_download_result_preserves_underlying_url_text_without_classi
 end
 
 local function test_download_result_guard_interruption_stays_available(tmp: string)
-  local guard = assert(Child.guard())
+  local guard = assert(Signal.guard())
   assert(sys.kill(sys.getpid(), sys.SIGINT))
   local result = Http.download_result(url, tmp .. "/got", { script = { reply("200 OK", "", "body") } })
   local caught = assert(guard:release())

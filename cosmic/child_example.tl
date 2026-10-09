@@ -7,6 +7,7 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
+local Signal = require("cosmic.signal")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
@@ -28,7 +29,7 @@ local Example = {}
 --- round asks whether one came, and leaving the guard's scope delivers
 --- it again once every child is gone.
 function Example.guard()
-  local guard <close> = assert(Child.guard())
+  local guard <close> = assert(Signal.guard())
   -- This program again, past its launcher, each child exiting with its i.
   local again = assert(Proc.relaunch())
   local running: {Child.Handle} = {}
@@ -62,7 +63,7 @@ end
 --- process before its report is out. The SIGTERM it sends itself
 --- stands in for a Ctrl-C or a `kill`.
 function Example.supervisor()
-  local guard <close> = assert(Child.guard())
+  local guard <close> = assert(Signal.guard())
   -- This program again, past its launcher, each child sleeping a minute.
   local again = assert(Proc.relaunch())
   local running: {Child.Handle} = {}
@@ -111,7 +112,7 @@ end
 --- and exited 0 leaves this process running. The last take follows the
 --- release, which keeps a signal that lands between them.
 function Example.release()
-  local guard <close> = assert(Child.guard())
+  local guard <close> = assert(Signal.guard())
   -- This program again, past its launcher, running an empty chunk.
   local again = assert(Proc.relaunch())
   local argv = { table.unpack(again.argv) }

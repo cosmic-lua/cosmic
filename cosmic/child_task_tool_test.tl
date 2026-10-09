@@ -278,7 +278,7 @@ end
 --- its pid in `report`.
 local function holding_term(report: string): string
   return 'local Fs = require("cosmic.fs") local sys = require("cosmic.sys") ' ..
-    'local _guard = assert(require("cosmic.child").guard()) ' ..
+    'local _guard = assert(require("cosmic.signal").guard()) ' ..
     'assert(Fs.write(' .. string.format("%q", report) .. ', tostring(sys.getpid()))) ' ..
     'while true do ' .. sleep(1000) .. 'end'
 end
@@ -508,9 +508,10 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
+local Signal = require("cosmic.signal")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
-local outer = assert(Child.guard())
+local outer = assert(Signal.guard())
 local answer = ""
 local ticks = 0
 local took = 0

@@ -37,7 +37,7 @@
 --- starts and again whenever it is seen to change.
 ---
 --- SIGNALS: SIGINT and SIGTERM sent to this process are caught by a
---- [`Child.guard`] and passed to the program's process group, and
+--- [`Signal.guard`] and passed to the program's process group, and
 --- delivered to this process again once the program has ended and the
 --- terminal is restored, as [`Child.run`] does; the terminal's own keys
 --- are not signals here, since raw mode hands ^C to the program as a byte
@@ -73,6 +73,7 @@
 --- dropped past that or on a signal.
 
 local Child = require("cosmic.child")
+local Signal = require("cosmic.signal")
 local sys = require("cosmic.sys")
 local TermFilter = require("build.term_filter")
 
@@ -273,7 +274,7 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
   if rows >= 0 then pty.rows, pty.columns = rows, columns end
   -- Held before the program starts, and closed after it has ended, so a
   -- signal that comes between never finds it unguarded.
-  local opened, guard_why = Child.guard()
+  local opened, guard_why = Signal.guard()
   if opened == nil then return nil, "terminal: " .. guard_why end
   local guard <close> = opened
   local started, start_why = Child.start_on_pty(argv, opts, pty)
@@ -312,7 +313,7 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
     restoring.saved = saved
   end
 
-  -- TODO: wake on SIGWINCH and catch SIGHUP, once Child.guard (or a
+  -- TODO: wake on SIGWINCH and catch SIGHUP, once Signal.guard (or a
   -- cosmic.sys binding) can hold signals beyond SIGINT and SIGTERM: the
   -- caller's window is looked at every TICK_MS instead of when it changes,
   -- and a SIGHUP sent to this process (a hangup of its terminal needs no
