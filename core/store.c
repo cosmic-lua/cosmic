@@ -89,9 +89,14 @@ static bool out_of_memory (int rc) { return (rc & 0xff) == SQLITE_NOMEM; }
  * [`cosmic.hash`]'s, so the code that computes a verdict key hashes
  * through no raw function a test can replace: it takes them as it
  * loads, and only a hasher's `update` and `digest`, in the runner alone,
- * are still looked up on its metatable. [`cosmic.sandbox.relay`] shares
- * [`cosmic.net`]'s socket table, to resolve the relay's upstream for
- * [`cosmic.child`], which cosmic.net requires and so cannot require, and
+ * are still looked up on its metatable. [`cosmic.internal.connector`],
+ * the one client of the native connector's wire protocol, is handed the
+ * process table (to start and reap the connector) and the socket table
+ * (to speak to it) together, as a table of both: a wrapper listed twice
+ * gets the fields of each of its raw values in one table. Its callers,
+ * [`cosmic.net`], [`cosmic.child`] and [`cosmic.sandbox.relay`], reach the
+ * protocol through it. cosmic.sandbox.relay shares cosmic.net's socket
+ * table to open the relay's loopback listeners, and
  * [`cosmic.relay.resolv`] shares it to list the name servers, which
  * cosmic.net and the relay's starter both read. */
 static const struct raw_module {
@@ -115,6 +120,8 @@ static const struct raw_module {
   {"cosmic.compress", "cosmic.internal.compress", cosmic_open_compress},
   {"cosmic.http", "cosmic.internal.http", cosmic_open_http},
   {"cosmic.net", "cosmic.internal.socket", cosmic_open_socket},
+  {"cosmic.internal.connector", "cosmic.internal.process", NULL},
+  {"cosmic.internal.connector", "cosmic.internal.socket", NULL},
   {"cosmic.sandbox.relay", "cosmic.internal.socket", NULL},
   {"cosmic.relay.resolv", "cosmic.internal.socket", NULL},
   {"cosmic.json", "cosmic.internal.json", cosmic_open_json},
@@ -165,6 +172,43 @@ static int raw_value (lua_State *L, const char *name) {
   }
   lua_remove(L, -2);
   return 1;
+}
+
+/* Copies every field of the table at `from` into the table at `into`,
+ * both absolute stack indices. */
+static void copy_fields (lua_State *L, int into, int from) {
+  lua_pushnil(L);
+  while (lua_next(L, from) != 0) {
+    lua_pushvalue(L, -2);
+    lua_insert(L, -2);
+    lua_rawset(L, into);
+  }
+}
+
+/* The raw value handed to the loader of `name`: the value of its one row
+ * in `raw_modules`, or, for a wrapper listed for two raw values, a new
+ * table with the fields of both (a wrapper has at most two rows). Pushes it and returns 1, or pushes
+ * nothing and returns 0 where no row of the wrapper has a value. */
+static int wrapper_raw (lua_State *L, const char *name) {
+  int rows = 0;
+  for (size_t m = 0; m < RAW_MODULE_COUNT; m++) {
+    if (strcmp(name, raw_modules[m].wrapper) != 0 ||
+        !raw_value(L, raw_modules[m].raw)) {
+      continue;
+    }
+    rows++;
+    if (rows == 2) {
+      /* The combined table replaces both values. */
+      int first = lua_absindex(L, -2);
+      lua_newtable(L);
+      int combined = lua_absindex(L, -1);
+      copy_fields(L, combined, first);
+      copy_fields(L, combined, first + 1);
+      lua_replace(L, first);
+      lua_settop(L, first);
+    }
+  }
+  return rows > 0;
 }
 
 /* A loader that answers with its own upvalue, ignoring whatever it was
@@ -282,11 +326,8 @@ static int store_searcher (lua_State *L) {
     int trusted = 0;
     int found = load_from(L, db, name, i == count, &trusted);
     if (found == 1) {
-      for (size_t m = 0; trusted && m < RAW_MODULE_COUNT; m++) {
-        if (strcmp(name, raw_modules[m].wrapper) == 0 &&
-            raw_value(L, raw_modules[m].raw)) {
-          return 2;
-        }
+      if (trusted && wrapper_raw(L, name)) {
+        return 2;
       }
       lua_pushstring(L, name);
       return 2;

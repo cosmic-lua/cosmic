@@ -76,6 +76,7 @@ local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local Stream = require("cosmic.stream")
 local Clock = require("cosmic.clock")
+local Connector = require("cosmic.internal.connector")
 
 local isatty = sys.isatty
 -- What holds a child by a policy on macOS, taken as this module loads.
@@ -2046,42 +2047,7 @@ local record PtyOptions
   columns: integer
 end
 
---- A native connector process, as [`Child.start_connector`] starts one.
-local record ConnectorProcess
-  --- The control stream's descriptor, nonblocking and the object's to
-  --- close, which speaks the protocol the core's `connector_start` says:
-  --- the connector's hello first, then a tagged reply to each request,
-  --- in the order the connects end. Valid until `close`.
-  fd: integer
-  --- The connector's process id, which `close` reaps: nil for a stream
-  --- adopted with [`Child.adopt_connector`], whose process is its starter's
-  --- to end.
-  pid: integer | nil
-  --- Whether `close` has not been called.
-  open: boolean
-  --- Ends the connector, which holds no state worth finishing, and reaps
-  --- it (an adopted one is only disconnected): true, and true again once closed. A connector dropped unclosed is
-  --- ended and reaped when it is collected.
-  close: function(ConnectorProcess): boolean
-  metamethod __close: function(ConnectorProcess)
-end
-
-local end_connector: function(ConnectorProcess, boolean)
-
-local connector_mt: metatable<ConnectorProcess> = {
-  __index = ConnectorProcess,
-  __close = function(self: ConnectorProcess)
-    local _ = self:close()
-  end,
-  __gc = function(self: ConnectorProcess)
-    end_connector(self, true)
-  end,
-}
-
 local record Child
-  type ConnectorProcess = ConnectorProcess
-  type ConnectorEndpoint = raw_process.ConnectorEndpoint
-  type ConnectorPublic = raw_process.ConnectorPublic
   type Result = Result
   type Options = Options
   type Credentials = Credentials
@@ -2148,104 +2114,6 @@ end
 --- guard was open is not ended by the signals of one opened after it.
 function Child.guard(): Guard | nil, string
   return opened()
-end
-
---- Ends `connector` and reaps it. A process this one adopted may already
---- have been reaped (`collect` takes every child), and its pid may be
---- another process's by now: it is signalled only while it is still this
---- one's unreaped child.
-end_connector = function(connector: ConnectorProcess, collecting: boolean)
-  if not connector.open then return end
-  connector.open = false
-  -- A task parked on the stream is woken, and the descriptor number is
-  -- not read again once another file may hold it. A collector must not
-  -- touch the run's state.
-  if not collecting then Poll.closing(connector.fd) end
-  local _, _ = sys.close(connector.fd)
-  if connector.pid == nil then return end
-  local seen, gone = raw.waitpid(connector.pid, true)
-  if seen == nil or gone ~= nil and gone ~= "" or seen.pid ~= 0 then return end
-  -- Nothing the connector is doing is worth waiting for: it may be in a
-  -- connect that would end only at its own timeout.
-  local _, _ = sys.kill(connector.pid, sys.SIGKILL)
-  local _, _ = raw.waitpid(connector.pid, false)
-end
-
---- Ends the connector and reaps it, waking a task waiting on its stream.
-function ConnectorProcess:close(): boolean
-  end_connector(self, false)
-  return true
-end
-
---- Plumbing behind [`Net.connector`], which is the supported face: its
---- wire protocol (the request and reply of the control stream, the
---- passed descriptor) may change with the core, and nothing else
---- should speak it.
----
---- Starts the sandbox's native TCP connector, confined to the numeric
---- `endpoints` (at most 128, each a canonical IPv4 or IPv6 `host` and a
---- `port`, 0 for any nonzero port at that address) and to nothing else:
---- no file, no exec, no other address. It connects, within `timeout_ms`
---- milliseconds (1 to 60000) each, to one endpoint a request names and
---- passes the connected socket back over its control stream; one
---- connector serves any number of requests, several at once, until it is
---- closed. It answers nil and why where this host cannot confine one:
---- Linux on x86_64 and aarch64 only. An `endpoints` that is no table of
---- such endpoints, or a `timeout_ms` outside 1 to 60000, raises.
----
----     local connector = assert(Child.start_connector({ { host = "127.0.0.1", port = 8080 } }, 5000))
----     -- read the hello from connector.fd, write a tagged request, read its reply
----     connector:close()
----
---- With `public` (`deny`, the numeric "address/bits" prefixes it refuses,
---- and `own`, the host's own addresses), the connector also connects to
---- an address its table lacks, once it has judged the address against
---- those lists itself, and `endpoints` may be empty.
--- TODO: confine the connector on macOS with Seatbelt's numeric remote rules
--- (#2820): core/connector.c's connector_start answers ENOSYS there.
-function Child.start_connector(endpoints: {raw_process.ConnectorEndpoint}, timeout_ms: integer,
-                               public?: raw_process.ConnectorPublic): ConnectorProcess | nil, string
-  local pair, why = raw.connector_pair()
-  if pair == nil then return nil, "child: " .. why end
-  local called, pid, trouble, errno = pcall(raw.connector_start, endpoints, pair[2], timeout_ms, public)
-  local _, _ = sys.close(pair[2])
-  if not called then
-    -- A table or a timeout the core refuses: the pair is not leaked by it.
-    local _, _ = sys.close(pair[1])
-    error(pid, 0)
-  end
-  if pid == nil then
-    local _, _ = sys.close(pair[1])
-    if errno == sys.ENOSYS or errno == sys.EOPNOTSUPP then
-      return nil, "child: the native connector is Linux only (x86_64 and aarch64): " .. trouble
-    end
-    return nil, "child: could not start the connector: " .. trouble
-  end
-  local ok, nonblocking = sys.set_nonblocking(pair[1], true)
-  if not ok then
-    local _, _ = sys.kill(pid, sys.SIGKILL)
-    local _, _ = raw.waitpid(pid, false)
-    local _, _ = sys.close(pair[1])
-    return nil, "child: " .. nonblocking
-  end
-  local started: ConnectorProcess = setmetatable({ fd = pair[1], pid = pid, open = true }, connector_mt)
-  return started
-end
-
---- Takes the control stream `fd` of a connector this process did not
---- start (it was inherited, its starter keeping the process) as a
---- [`Child.ConnectorProcess`] with no pid: the stream is made nonblocking,
---- and `close` closes it and does not signal or wait for anything. It
---- answers nil and why where the stream cannot be made nonblocking, and
---- leaves `fd` the caller's then.
---- @param fd integer A Unix stream descriptor the connector answers on
---- @return ConnectorProcess|nil The connector's stream
---- @return string Why not, when it is nil
-function Child.adopt_connector(fd: integer): ConnectorProcess | nil, string
-  local ok, nonblocking = sys.set_nonblocking(fd, true)
-  if not ok then return nil, "child: " .. nonblocking end
-  local adopted: ConnectorProcess = setmetatable({ fd = fd, open = true }, connector_mt)
-  return adopted, ""
 end
 
 --- The status a shell reports for a child that ended as `result` says:
@@ -3908,9 +3776,9 @@ end
 --- A connector of `endpoints` (and `public`'s lists, if given) waiting
 --- `wait_ns` for each connection, for the relay: the process, or nil and
 --- why. A table or list the core refuses is a why too.
-local function relay_connector(endpoints: {raw_process.ConnectorEndpoint}, wait_ns: integer,
-                               public?: raw_process.ConnectorPublic): ConnectorProcess | nil, string
-  local called, process, why = pcall(Child.start_connector, endpoints, (wait_ns + 999999) // 1000000, public)
+local function relay_connector(endpoints: {Connector.Endpoint}, wait_ns: integer,
+                               public?: Connector.Public): Connector.Process | nil, string
+  local called, process, why = pcall(Connector.start, endpoints, (wait_ns + 999999) // 1000000, public)
   if not called then return nil, (tostring(process):gsub("^.-:%d+: ", "")) end
   if process == nil then return nil, why end
   return process, ""
@@ -3941,7 +3809,7 @@ local function relay_handover(connect: {string}, own: {string}): RelayConfig.Han
   local planned, plan_why = SandboxRelay.plan(connect, env)
   if planned == nil then return nil, plan_why end
   local plan: Rules.Relay.Plan = planned
-  local processes: {ConnectorProcess} = {}
+  local processes: {Connector.Process} = {}
   local closed = false
   local function close()
     if closed then return end
@@ -3968,7 +3836,7 @@ local function relay_handover(connect: {string}, own: {string}): RelayConfig.Han
   local addresses: {string}
   if up ~= nil then
     local through: Rules.Relay.Through
-    local lookup: ConnectorProcess
+    local lookup: Connector.Process
     if upstream_named and servers ~= nil then
       local started, dns_why = relay_connector(servers.servers, servers.wait_ns)
       if started == nil then return fail("the name servers' connector: " .. dns_why) end

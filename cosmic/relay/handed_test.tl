@@ -8,6 +8,7 @@
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
+local Connector = require("cosmic.internal.connector")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
@@ -145,8 +146,8 @@ local function test_a_public_connector_that_ended_tells_lost()
       end
     end)
     local wait = Clock.seconds(1)
-    local process = assert(Child.start_connector({}, wait // 1000000, { deny = { "10.0.0.0/8" } }))
-    local connector = assert(Net.connector_from(assert(sys.dup(process.fd)), nil, true, wait))
+    local process = assert(Connector.start({}, wait // 1000000, { deny = { "10.0.0.0/8" } }))
+    local connector = assert(Connector.adopted(assert(sys.dup(process.fd)), nil, true, wait))
     local connect = Relay.handed({ connector = connector,
       lost = function(why: string) told[#told + 1] = why end })
     local conn, why = connect("127.0.0.1", port, Clock.seconds(5))
@@ -248,8 +249,8 @@ end
 --- before any lookup) and for direct.test (granted, reached directly, and so
 --- looked up). Prints each answer's status line, a line each.
 local SCRIPT <const> = [[
-local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
+local Connector = require("cosmic.internal.connector")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
@@ -283,7 +284,7 @@ return function(argv: {string}): integer
       no_proxy = "direct.test" }))
     local up = plan.upstream
     local name_servers = assert(SandboxRelay.name_servers({ servers = { { host = "127.0.0.1", port = dns_port } } }))
-    local dns = assert(Child.start_connector(name_servers.servers, name_servers.wait_ns // 1000000))
+    local dns = assert(Connector.start(name_servers.servers, name_servers.wait_ns // 1000000))
     up.addresses = assert(SandboxRelay.upstream_addresses(up, { fd = dns.fd, name_servers = name_servers }, ""))
     assert(dns:close())
     lines[#lines + 1] = "upstream " .. table.concat(up.addresses, ",")

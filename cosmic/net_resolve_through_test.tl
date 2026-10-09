@@ -9,6 +9,7 @@
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
+local Connector = require("cosmic.internal.connector")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
@@ -363,7 +364,7 @@ local function test_the_name_servers_connector_refuses_what_is_no_name_server(tm
   conn, why = dns:connect(Net.tcp("192.0.2.1", 53), { timeout_ns = Clock.seconds(5) })
   assert(conn == nil and why:find("is not in the connector's table", 1, true) ~= nil, tostring(why))
   -- The process itself, asked past the checks of its Lua side.
-  local started <close> = assert(Child.start_connector(rows, 1000))
+  local started <close> = assert(Connector.start(rows, 1000))
   local function read_whole(count: integer): string
     local reply = ""
     while #reply < count do
@@ -411,7 +412,7 @@ local function test_a_name_server_reset_as_it_is_made_leaves_the_stream_in_step(
   assert(sys.set_nonblocking(pair[1], true))
   assert(sys.set_nonblocking(pair[2], true))
   assert(sys.write(pair[2], string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
-  local dns <close> = assert(Net.connector_from(pair[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
+  local dns <close> = assert(Connector.adopted(pair[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
   local asked: string
   local found, why: {Net.Resolved} | nil, string
   Poll.run(function()
@@ -449,7 +450,7 @@ local function test_a_lookup_reads_the_connectors_hello_before_it_asks(tmp: stri
   assert(Fs.write(hosts, ""))
   local other = assert(process.connector_pair())
   assert(sys.write(other[2], string.pack(">I4", 0x434e4301)) == 4)
-  local dns <close> = assert(Net.connector_from(other[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
+  local dns <close> = assert(Connector.adopted(other[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
   local none, trouble = Net.resolve("hello.example.test", { timeout_ns = Clock.seconds(2), connector = dns,
     servers = { { host = "127.0.0.1", port = 53 } }, hosts_file = hosts })
   assert(none == nil and trouble == "net: the connector speaks another protocol than this program's: " ..
@@ -477,7 +478,7 @@ local function test_a_connector_that_passes_the_wrong_descriptor_is_given_up(tmp
     assert(sys.set_nonblocking(pair[1], true))
     assert(sys.set_nonblocking(pair[2], true))
     assert(sys.write(pair[2], string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
-    local dns <close> = assert(Net.connector_from(pair[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
+    local dns <close> = assert(Connector.adopted(pair[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
     local asked: string
     local found, why: {Net.Resolved} | nil, string
     Poll.run(function()
@@ -511,7 +512,7 @@ local function test_a_connector_that_never_replies_ends_the_lookup_and_is_not_as
   local peer = pair[2]
   assert(sys.write(peer, string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
   -- Its process would wait 100 ms to connect and a grace more: the lookup ends at its own deadline.
-  local dns <close> = assert(Net.connector_from(pair[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
+  local dns <close> = assert(Connector.adopted(pair[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
   local opts: Net.ResolveOptions = { timeout_ns = Clock.ms(200), connector = dns,
     servers = { { host = "127.0.0.1", port = 53 } } }
   local began = Clock.monotonic_ns()
@@ -644,13 +645,13 @@ local function test_three_silent_name_servers_time_the_lookup_out_within_its_bou
   silent_lookup(3, 1500)
 end
 
-local function test_name_servers_and_a_connector_from_refuse_what_is_out_of_range()
+local function test_name_servers_and_an_adopted_connector_refuse_what_is_out_of_range()
   local zero: any = 0
   assert(not pcall(Sandbox.Relay.name_servers, { resolve = zero as integer }))
   assert(not pcall(Sandbox.Relay.name_servers, { resolve = -1 }))
   local pair = assert(process.connector_pair())
-  assert(not pcall(Net.connector_from, pair[1], nil, false, 5))
-  assert(not pcall(Net.connector_from, pair[1], nil, false, Clock.seconds(61)))
+  assert(not pcall(Connector.adopted, pair[1], nil, false, 5))
+  assert(not pcall(Connector.adopted, pair[1], nil, false, Clock.seconds(61)))
   assert(sys.close(pair[1]))
   assert(sys.close(pair[2]))
 end
@@ -726,7 +727,7 @@ local function test_a_lookup_through_a_silent_connector_stalls_no_other_task(tmp
   assert(Fs.write(hosts, ""))
   local pair = assert(process.connector_pair())
   assert(sys.write(pair[2], string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
-  local dns <close> = assert(Net.connector_from(pair[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
+  local dns <close> = assert(Connector.adopted(pair[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
   local found, why: {Net.Resolved} | nil, string
   local worst, took = ticking_beside(function()
     found, why = Net.resolve("silent.example.test", { timeout_ns = Clock.ms(600), connector = dns,
@@ -785,7 +786,7 @@ local function test_a_cancelled_lookup_through_a_connector_closes_everything_it_
   assert(Fs.write(hosts, ""))
   local pair = assert(process.connector_pair())
   assert(sys.write(pair[2], string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
-  local dns <close> = assert(Net.connector_from(pair[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
+  local dns <close> = assert(Connector.adopted(pair[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
   local waited, outcome, before, after = cancelled_lookup({ timeout_ns = Clock.seconds(30), connector = dns,
     servers = { { host = "127.0.0.1", port = 53 } }, hosts_file = hosts })
   assert(outcome == Poll.CANCELLED, outcome)

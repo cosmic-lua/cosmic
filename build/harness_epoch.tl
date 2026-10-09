@@ -77,7 +77,7 @@ local record harness_epoch
   library: {string:string}
 end
 
-harness_epoch.epoch = "38-3ce9b8e0" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
+harness_epoch.epoch = "39-c7eacb64" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
 harness_epoch.acknowledged = {
 
   ["build.artifact"] = "4405196f6511a21a7493aa3d1ee196c6318d3ceec2e0202800494c46b9502745",
@@ -132,7 +132,7 @@ harness_epoch.acknowledged = {
 
   ["cmd.cosmic.main"] = "d00f469acf42d89c76c2e9ebabd40e73e20d00cb3a5ad6d9189716265fcdf9bf",
 
-  ["cosmic.child"] = "ce65ae409118101d11d4174afdea0d43513a1250835e47f8889ad275a88ad812",
+  ["cosmic.child"] = "ab3a3d104743e762774eba9b610852a7941fa337a2138d75204cba6b7eba615f",
 
   ["cosmic.coverage"] = "079fe202231c4ae3ee642e27f6703a37850132c28c2a6d1daf50c7eb1669ac9a",
 
@@ -227,6 +227,7 @@ harness_epoch.retired = {
   "3ef16d5d",
   "f1098f05",
   "65e16d68",
+  "3ce9b8e0",
 }
 
 return harness_epoch
