@@ -17,14 +17,15 @@ end
 
 --- [`positions.check`] over `files` (each file and what it requires), in a
 --- project tree or in cosmic's own.
-local function positioned(files: {{string}}, own_tree: boolean): boolean, string
+local function positioned(files: {{string}}, own_tree: boolean,
+                          carried?: function(name: string): boolean): boolean, string
   local modules: {positions.Module} = {}
   for _, row in ipairs(files) do
     local requires: {string} = {}
     for i = 2, #row do requires[#requires + 1] = row[i] end
     modules[#modules + 1] = module_at(row[1], requires)
   end
-  return positions.check(modules, own_tree)
+  return positions.check(modules, own_tree, carried)
 end
 
 --- A directory's own `init.tl` is the one path in from outside: a
@@ -163,4 +164,41 @@ local function test_position_lets_a_closed_directory_import_an_open_namespace()
     { "app/init.tl" }, { "app/part.tl" }, { "lib/fs.tl", "app.part" },
   }, false)
   assert(not ok and trouble:find("lib/fs.tl: app.part is private to app/", 1, true), trouble)
+end
+
+--- A Teal module directly in `cosmic/internal/` is shared machinery: the
+--- tree's own `cosmic/`, `build/`, `cmd/` and tests import it, though
+--- its home has a slash, and anything else in cosmic's own tree does not.
+local function test_position_opens_cosmic_internal_to_the_trees_own_modules()
+  local ok, trouble = positioned({
+    { "cosmic/internal/shared.tl" },
+    { "cosmic/net.tl", "cosmic.internal.shared" },
+    { "build/user.tl", "cosmic.internal.shared" },
+    { "cmd/tool/main.tl", "cosmic.internal.shared" },
+    { "cosmic/internal/shared_test.tl", "cosmic.internal.shared" },
+    { "ci/user_test.tl", "cosmic.internal.shared" },
+  }, true)
+  assert(ok, trouble)
+  ok, trouble = positioned({
+    { "cosmic/internal/shared.tl" }, { "ci/user.tl", "cosmic.internal.shared" },
+  }, true)
+  assert(not ok and trouble:find("ci/user.tl: cosmic.internal.shared is internal to cosmic",
+    1, true), trouble)
+end
+
+--- A project tree may not require a `cosmic.internal.*` name, whether its
+--- own file or the library's: the rule is named in the refusal.
+local function test_position_refuses_cosmic_internal_in_a_project_tree()
+  local ok, trouble = positioned({
+    { "cosmic/internal/shared.tl" }, { "cosmic/net.tl", "cosmic.internal.shared" },
+  }, false)
+  assert(not ok and trouble:find("cosmic/net.tl: cosmic.internal.shared is internal to " ..
+      "cosmic's own tree", 1, true), trouble)
+  -- A Teal module the binary carries is refused; a raw table, which it
+  -- holds no row of, is the reserved namespace's to guard.
+  local function carries(name: string): boolean return name == "cosmic.internal.wire" end
+  ok, trouble = positioned({ { "app/main.tl", "cosmic.internal.wire" } }, false, carries)
+  assert(not ok and trouble:find("a project may not require it", 1, true), trouble)
+  ok, trouble = positioned({ { "app/main.tl", "cosmic.internal.json" } }, false, carries)
+  assert(ok, trouble)
 end

@@ -235,7 +235,8 @@ allowed["build.writer.signature"] = "tested directly: the test signs a database 
 ---
 --- What counts as an export: a function or a value field of a module's
 --- returned record, in a module whose file is in `build/`, `cmd/` or
---- `eval/`, or in `cosmic/` outside `cosmic/internal/`. Left out:
+--- `eval/`, or in `cosmic/`, a Teal module of `cosmic/internal/` among
+--- them. Left out:
 ---
 --- - a record, enum or type the module declares, and a field naming
 ---   one (`Module: Module`, a type's CamelCase name): a type is a
@@ -246,7 +247,8 @@ allowed["build.writer.signature"] = "tested directly: the test signs a database 
 --- - `main`, which `cosmic <file>` and `cosmic --standalone` call on a
 ---   module that returns a record carrying one, and a module that
 ---   returns a function ([`build/boot.tl`]), which its loader calls;
---- - a declaration file (`*.d.tl`) and [`cosmic.sys`], whose members are
+--- - a declaration file (`*.d.tl`, as every raw table of
+---   `cosmic/internal/`) and [`cosmic.sys`], whose members are
 ---   declared in C ([`core/syscalls.h`]), not in Teal.
 ---
 --- What earns one: a use from another module that is not a `*_test.tl`;
@@ -285,7 +287,7 @@ local function unearned(db: Sqlite.Handle): {string} | nil, string
       "AND d.symbol <> 'main' " ..
       "AND NOT (d.kind = 'function' AND d.symbol = d.source_symbol) " ..
       "AND (d.file GLOB 'build/*' OR d.file GLOB 'cmd/*' OR d.file GLOB 'eval/*' " ..
-      "OR (d.file GLOB 'cosmic/*' AND d.file NOT GLOB 'cosmic/internal/*')) " ..
+      "OR d.file GLOB 'cosmic/*') " ..
       "AND d.file GLOB '*.tl' AND d.file NOT GLOB '*.d.tl' " ..
       "AND NOT EXISTS (SELECT 1 FROM uses u " ..
       "WHERE u.module = d.module AND u.symbol = d.symbol " ..

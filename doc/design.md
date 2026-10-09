@@ -318,9 +318,17 @@ positional privacy and is where every raw C binding that is not
 itself the public surface belongs, not only these three: the process
 table behind [`cosmic.child`] and [`cosmic.proc`], and the hash table
 behind [`cosmic.hash`], are the same shape. `internal` means not
-declared or documented for a program to use, not unreachable: a
-caller that asks `package.searchers` for a wrapper by hand is handed
-its raw table too, which is no escalation, since that table reaches
+declared or documented for a program to use, not unreachable. Teal
+modules live there too, as `cosmic/internal/<name>.tl`, the machinery
+cosmic's own modules share and a user should not see. They are ordinary
+modules, with rows, closures and tests of their own, and
+`cosmic.internal.<name>` reaches one at runtime by name like any module
+of `cosmic.*`; but they are not documented, no part of the public API,
+and each export is still held to be used. Only cosmic's own `cosmic/`,
+`build/`, `cmd/`, `test/` and tests may require one, and a project
+tree's module requiring a Teal one is refused
+([`build.positions`]). A caller that asks `package.searchers` for a
+raw wrapper by hand is handed its raw table too, which is no escalation, since that table reaches
 nothing its wrapper does not. what keeps a raw call off the public
 surface is that nothing names it -- no type, no doc row -- and nothing
 the checker accepts reaches it by accident. [`cosmic.internal.testing`]
@@ -1110,6 +1118,7 @@ in [roadmap.md](roadmap.md).
 [`build.identity`]: ../build/identity.tl
 [`build.importer.analyzer_identity`]: ../build/importer.tl
 [`build.importer`]: ../build/importer.tl
+[`build.positions`]: ../build/positions.tl
 [`build.reboot.own_tool`]: ../build/reboot.tl
 [`build.work`]: ../build/work.tl
 [`build.writer`]: ../build/writer.tl

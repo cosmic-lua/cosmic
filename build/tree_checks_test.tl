@@ -7,6 +7,7 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local fixture = require("build.docs_fixture")
 local schema = require("build.schema")
+local symbols = require("build.symbols")
 local ast = require("build.ast")
 local teal = require("build.teal")
 local tree_checks = require("build.tree_checks")
@@ -40,6 +41,59 @@ local function test_an_unearned_export_and_a_stale_allowance_are_refused(dir: st
     ["build.thing.used"] = "no longer needed" })
   assert(#found == 1 and found[1]:find("^build%.thing%.used: allowed, but") ~= nil,
     table.concat(found, "\n"))
+end
+
+--- A Teal module of `cosmic/internal/` is held to the rule a public one
+--- is: an export no other module calls is flagged, one a `cosmic/` module
+--- calls is earned, and a raw declaration beside them is left out.
+local function test_an_unused_export_of_an_internal_module_is_flagged(dir: string)
+  local db = fixture.database(dir, {
+    ["cosmic/internal/shared.tl"] = source(
+      "local record shared",
+      "end",
+      "function shared.used() end",
+      "function shared.alone() end",
+      "return shared"),
+    ["cosmic/internal/raw.d.tl"] = source(
+      "local record raw",
+      "  poke: function()",
+      "end",
+      "return raw"),
+    ["cosmic/user.tl"] = source(
+      "local shared = require(\"cosmic.internal.shared\")",
+      "shared.used()",
+      "return {}"),
+  })
+  local found = tree_checks.exports(db, {})
+  assert(#found == 1 and found[1]:find("^cosmic/internal/shared%.tl:4: " ..
+      "cosmic%.internal%.shared%.alone: nothing outside") ~= nil, table.concat(found, "\n"))
+end
+
+--- A Teal module of `cosmic/internal/` has rows in the projection but is
+--- not in the public documentation set, as no raw table is.
+local function test_an_internal_module_is_absent_from_the_public_docs(dir: string)
+  local db = fixture.database(dir, {
+    ["cosmic/internal/shared.tl"] = source(
+      "local record shared",
+      "end",
+      "--- Does the shared thing.",
+      "function shared.used() end",
+      "return shared"),
+    ["cosmic/fs.tl"] = source(
+      "local record fs",
+      "end",
+      "--- Does the public thing.",
+      "function fs.read() end",
+      "return fs"),
+  })
+  local all = assert(Sqlite.text_rows(db, "SELECT DISTINCT module FROM docs ORDER BY module"))
+  local public = assert(Sqlite.text_rows(db, "SELECT DISTINCT module FROM docs WHERE " ..
+      symbols.public_only("module", true) .. " ORDER BY module"))
+  assert(#all == 2 and all[1][1] == "cosmic.fs" and all[2][1] == "cosmic.internal.shared",
+    #all .. " modules")
+  assert(#public == 1 and public[1][1] == "cosmic.fs")
+  assert(symbols.is_public_module("cosmic.fs"))
+  assert(not symbols.is_public_module("cosmic.internal.shared"))
 end
 
 --- A module that exports `spec` is a verb's entry, as one that exports
