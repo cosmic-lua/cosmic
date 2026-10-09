@@ -8,7 +8,10 @@
 --- The program is told of the relay through the variables a proxy client
 --- reads (`HTTPS_PROXY`, `ALL_PROXY` and their lower-case spellings); a
 --- policy with `connect` that sets any of them for itself is refused, since
---- the program would then be pointed past the relay or off it.
+--- the program would then be pointed past the relay or off it. The program
+--- has no DNS of its own: a client that honours the variables hands the
+--- relay the name, which is checked against the grants before anything
+--- resolves it, and one that ignores them reaches nothing.
 ---
 ---     local env = relay_config.proxy_env({ "127.0.0.2" })
 ---     print(env.HTTPS_PROXY) -- http://127.0.0.1:3128

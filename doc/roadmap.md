@@ -85,6 +85,32 @@ a `connect` target on the alias, the relay resolving it to 127.0.0.1 (and
 ::1) of the host and refusing it as a name nowhere else, and `NO_PROXY`
 untouched. Both meanings could then coexist.
 
+The sandbox's own next steps, none of which a caller needs yet:
+
+- hold a sandbox's memory and CPU as a whole, by a cgroup of its own.
+  [`Sandbox.Limits`] sets rlimits on each process and counts the
+  sandbox's processes by its user namespace; nothing bounds what the
+  processes spend together.
+- read a policy from a file. A file is input from elsewhere, so it may
+  only narrow what the command line grants, and is judged on the policy
+  after its profiles and paths resolve, not on the names it writes.
+  `cosmic sandbox` takes none until then (build/sandbox.tl).
+- forward plain HTTP. The relay ([`cosmic.internal.relay_server`]) takes
+  only CONNECT and SOCKS5's CONNECT, and answers a proxy request for an
+  `http://` URL 405.
+- a transparent network mode, for a program that ignores the proxy
+  variables: its connections carried to the relay without them, where
+  today such a program reaches nothing.
+- a DNS stub in the sandbox that answers the names the policy grants, for
+  a program that resolves a name before it uses the proxy. The sandbox has
+  no DNS of its own ([`cosmic.internal.relay_config`]).
+- nested sandboxes through a broker outside the sandbox, which starts a
+  narrower one on the program's behalf. Today a program builds its own
+  under the `nest` promise, which needs `isolate` "file" and gives up
+  Landlock's hold.
+- a report mode that allows what the policy would refuse and logs each
+  refusal, to learn the grants a program needs.
+
 Add a CI leg that runs the suite as root. Every leg's runner is
 unprivileged, so the path a root runner takes -- each sandboxed worker run
 as a user of its own, mapped from outside (cosmic.sandbox's `user_id`),
@@ -359,6 +385,8 @@ four-producer provenance join.
 [`core/json.c`]: ../core/json.c
 [`cosmic.html`]: ../cosmic/html.tl
 [`cosmic.http`]: ../cosmic/http/init.tl
+[`cosmic.internal.relay_config`]: ../cosmic/internal/relay_config.tl
+[`cosmic.internal.relay_server`]: ../cosmic/internal/relay_server.tl
 [`cosmic.internal.relay_start`]: ../cosmic/internal/relay_start.tl
 [`cosmic.net`]: ../cosmic/net.tl
 [`cosmic.relay`]: ../cosmic/relay/init.tl
@@ -376,6 +404,7 @@ four-producer provenance join.
 [`Json.decode`]: ../cosmic/json.tl
 [`Net.serve`]: ../cosmic/net.tl
 [`receivers.record_named`]: ../build/receivers.tl
+[`Sandbox.Limits`]: ../cosmic/sandbox/init.tl
 [`Sandbox.Policy`]: ../cosmic/sandbox/init.tl
 [`Server.none_match`]: ../cosmic/http/server.tl
 [`Server.range`]: ../cosmic/http/server.tl

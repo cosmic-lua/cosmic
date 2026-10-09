@@ -15,8 +15,9 @@
 --- THE POLICY is each flag's field of a [`Sandbox.Policy`], written as the
 --- JSON a policy holds and read back by [`PolicyJson.decode`], so a flag is
 --- judged by the strict decoder, which names what it refuses by JSON
---- Pointer. There are no policy files: they wait on the design's
---- narrow-only form, since a file is input from elsewhere.
+--- Pointer. There are no policy files: a file is input from elsewhere, so
+--- one waits on a form that can only narrow what the command line grants
+--- (doc/roadmap.md).
 ---
 --- A SEALED RUN: `--database`, `--modules` and `--closure` each name the
 --- database the program runs on ([`Sandbox.Policy`]'s `database`), the
@@ -39,8 +40,8 @@
 --- [`build.term_filter`] (build/term_filter.tl) on its way to the caller's
 --- terminal, and where stdin is the terminal it is held raw for the run
 --- and put back as it was. A stream that is a pipe or a file is the
---- program's own, unfiltered. Linux only: elsewhere the start fails, saying so, until the
---- design's phase 8 gives a program held by Seatbelt a controlling terminal.
+--- program's own, unfiltered. On macOS the program's Seatbelt profile
+--- grants it that pty ([`Child.start_on_pty`]).
 ---
 --- THE RELAY: a `--connect` starts the network relay of [`Child.start`], whose
 --- decision line for each connection it allows or refuses (a refusal naming

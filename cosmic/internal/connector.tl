@@ -620,8 +620,8 @@ end
 --- and `own`, the host's own addresses), the connector also connects to
 --- an address its table lacks, once it has judged the address against
 --- those lists itself, and `endpoints` may be empty.
--- TODO: confine the connector on macOS with Seatbelt's numeric remote rules
--- (#2820): core/connector.c's connector_start answers ENOSYS there.
+-- TODO: confine the connector on macOS with Seatbelt's numeric remote rules:
+-- core/connector.c's connector_start answers ENOSYS there.
 --- @param endpoints {raw_process.ConnectorEndpoint} The addresses the connector may reach
 --- @param timeout_ms integer Its wait to connect, 1 to 60000
 --- @param public raw_process.ConnectorPublic|nil The lists of a public connector

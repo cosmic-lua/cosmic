@@ -530,9 +530,10 @@ end
 --- `nests` ([`cosmic.test`]). False and why where there is no Landlock.
 -- TODO: replace this with [`Sandbox.restrict`] ([`cosmic.sandbox`]), which
 -- holds the running process to a policy's grants, promises and limits for
--- good, and hold the worker by the policy the test declares, once the
--- harness moves to [`Test.policy`] (the design's test phase): this holds
--- a worker by a ruleset of its own making, which only the harness uses.
+-- good, and hold the worker by the policy its test declares
+-- ([`Test.policy`]), as the TODO on [`Sandbox.restrict`] in
+-- build/test_policy.tl has it: this holds a worker by a ruleset of its own
+-- making, which only the harness uses.
 -- TODO: let build/confine_tool_test.tl declare `nests` alone,
 -- dropping the `tool` it declares only to start what it confines,
 -- once a confined process is given only what its worker has, `confine`

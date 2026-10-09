@@ -491,8 +491,8 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- What a module declares it reads of the tree it may run too, as it may
   -- unsandboxed, whose files are all runnable.
   -- TODO: run only the paths a test declares it runs, once [`Test.policy`]
-  -- grants `x` (step (c) of the sandbox plan): today a policy's grant of a
-  -- path takes only "r", and a path a test starts must be run.
+  -- takes a grant of `x` on a path of the tree: today such a grant takes
+  -- only "r", and a path a test starts must be run.
   for _, relative in ipairs(effective.reads) do of_tree(relative, true) end
   -- The tool is in the build directory's bin, `o/bin` as a module
   -- declares it, given as the directory it is in: where

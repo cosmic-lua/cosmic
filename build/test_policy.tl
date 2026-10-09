@@ -1,10 +1,9 @@
 --- The policy of each of `cosmic test`'s workers wherever they are
---- sandboxed: each starts under a [`cosmic.sandbox`] policy by
---- [`Child.start`], as the design's test phase has it: a policy of its own
---- that names the tree at /tree, the scratch directory with `rwxc`, the
---- store at o/cosmic.db, the core, and what the module declares, with
---- `isolate` "file" and a /proc of the sandbox's own. Where nothing the
---- module declares puts a directory of the host in the root
+--- sandboxed: each starts by [`Child.start`] under a [`cosmic.sandbox`]
+--- policy of its own that names the tree at /tree, the scratch directory
+--- with `rwxc`, the store at o/cosmic.db, the core, and what the module
+--- declares, with `isolate` "file" and a /proc of the sandbox's own.
+--- Where nothing the module declares puts a directory of the host in the root
 --- ([`test_sandbox.Plan`]'s `own_scratch`), the scratch directory is not a
 --- bind of the host's either but a directory the worker makes in the
 --- sandbox's own /tmp (`tmp`, with "/tmp" granted `rwxc`): a root of files
@@ -36,10 +35,9 @@
 
 -- TODO: let a worker hold itself with [`Sandbox.restrict`] to what its
 -- module declares, with the runner's own reads (the store, the core, the
--- report) granted only to the start, as a step after the policy path
--- became the default (#2621's doc/plans/sandbox.md): today the worker is
--- held from its first instruction by the whole policy it is started
--- under, which is all that it and its test may reach.
+-- report) granted only to the start: today the worker is held from its
+-- first instruction by the whole policy it is started under, which is all
+-- that it and its test may reach.
 
 local Sandbox = require("cosmic.sandbox")
 local sys = require("cosmic.sys")
