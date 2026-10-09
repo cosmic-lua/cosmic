@@ -217,9 +217,9 @@ never by its path in the build directory.
    one module may read the store so: a check over the whole tree is no
    test, and goes in [`build/tree_checks.tl`].
    Each sandboxed worker starts under a [`cosmic.sandbox`] policy
-   ([`build/test_policy.tl`]), held by a Landlock ruleset and a seccomp filter
-   of the promises it declares, as step (c) and (d) of #2621's
-   doc/plans/sandbox.md have it. A root that lacks CAP_SETUID, CAP_SETGID or
+   ([`build/test_policy.tl`]), held by a Landlock ruleset (none where its
+   module declares `nests`) and a seccomp filter of the promises "fork",
+   "jit" and "fattr" ("nest" too for `nests`). A root that lacks CAP_SETUID, CAP_SETGID or
    CAP_SETFCAP cannot map the user a policy runs as (a program of a policy
    never runs as root), nor can a host with no user namespaces or Landlock
    start one: where no worker can be started under a policy, the run's

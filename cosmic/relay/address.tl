@@ -1,7 +1,7 @@
---- Which destination addresses the sandbox relay may connect to: the
---- pure half of its address checks (the sandbox plan, #2621, "The relay and
---- the terminal"). A granted name is resolved once; [`relay_address.permitted`]
---- classifies every answer and keeps the allowed ones in order, so a name
+--- Which destination addresses the sandbox's network relay
+--- ([`cosmic.relay`]) may connect to: the pure half of its address checks.
+--- A granted name is resolved once; [`relay_address.permitted`] classifies
+--- every answer and keeps the allowed ones in order, so a name
 --- whose answers mix allowed and forbidden addresses is connected to at an
 --- allowed one, never a forbidden one.
 ---
@@ -59,7 +59,7 @@
 local Grant = require("cosmic.relay.grant")
 
 local record relay_address
-  --- One answer of a name, as the resolver of #2816 returns it.
+  --- One answer of a name, as [`Net.resolve`] returns it.
   record Answer
     --- The numeric address text.
     address: string

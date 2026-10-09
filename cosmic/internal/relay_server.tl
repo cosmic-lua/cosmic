@@ -1,11 +1,13 @@
---- The sandbox relay's serving core (the sandbox plan, #2621, "The relay
---- and the terminal"): the program's only way out, an HTTP CONNECT and a
+--- The sandbox relay's serving core: the only way out of a program held
+--- by a [`cosmic.sandbox`] policy with `connect`, an HTTP CONNECT and a
 --- SOCKS5 listener whose requests it matches against the policy's `connect`
 --- grants, resolves, checks and connects, and then carries bytes for. It
 --- runs in the tasks of one [`Poll.run`] and holds no host socket of its
 --- own that is not yet connected: a connection leaves through the
 --- `connector` it is given, which is handed only addresses the relay has
---- checked.
+--- checked. The relay parses what the untrusted program sends, so a flaw
+--- in that parsing finds no socket it could aim at an address the checks
+--- refused.
 ---
 --- Each connection is decided in this order, and the decision is one line
 --- on the relay's log, naming the remedy of a refusal

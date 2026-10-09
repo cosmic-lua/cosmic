@@ -14,8 +14,9 @@ local type _ = require("cosmic.child")
 
 Test.policy{ loopback = { "127.0.0.1" }, promises = { "fork" } }
 
--- TODO: run this on macOS once Seatbelt confines the connector by numeric remote
--- rules (#2820, the sandbox plan's phase 8): the connector is Linux x86_64 and aarch64
+-- TODO: run this on macOS once the native connector runs there, confined by
+-- Seatbelt's numeric remote rules (the TODO on `start` in
+-- cosmic/internal/connector.tl): the connector is Linux x86_64 and aarch64
 -- only, and the test skips elsewhere.
 
 local type Searcher = function(string): any, any
