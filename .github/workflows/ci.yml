@@ -195,9 +195,10 @@
         # checked_suite). The format check runs on one leg, first thing
         # in assemble; a branch push's (`light`) runs in the checked job.
         COSMIC_CI_CHECKED_SUITE: "skip",
-        # The slowest fixture, the same on every platform: one leg on a
-        # gating run, every leg on the scheduled run (phase_fixtures).
-        COSMIC_CI_FIXED_POINT: "${{ (matrix.name == 'linux-aarch64' || github.event_name == 'schedule') && 'run' || 'skip' }}",
+        # The slowest fixture, the same on every platform: no gating run
+        # (some 270 s on linux-aarch64), every leg on the scheduled run
+        # (phase_fixtures).
+        COSMIC_CI_FIXED_POINT: "${{ github.event_name == 'schedule' && 'run' || 'skip' }}",
         # The small fixtures run beside the self-driven one, within one
         # worker budget of the leg's processors (phase_fixtures,
         # `fixture_lanes`), rather than after it: the two Linux legs

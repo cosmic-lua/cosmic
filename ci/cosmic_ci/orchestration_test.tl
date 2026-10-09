@@ -1044,15 +1044,12 @@ local function platform_legs_and_env(): {string: {string: string}}, {string: str
 end
 
 --- The fixed-point regression, the slowest fixture on every leg, runs
---- on one leg of a gating run (COSMIC_CI_FIXED_POINT), and on every leg
---- of the scheduled run.
-local function test_the_fixed_point_fixture_runs_on_one_leg_and_on_every_scheduled_one()
-  local legs, env = platform_legs_and_env()
+--- on no gating run (COSMIC_CI_FIXED_POINT), only on the scheduled one.
+local function test_the_fixed_point_fixture_runs_only_on_the_scheduled_run()
+  local _, env = platform_legs_and_env()
   local value = assert(env.COSMIC_CI_FIXED_POINT, "ci.yml's platform job sets no COSMIC_CI_FIXED_POINT")
-  local one = value:match("^%${{ %(matrix%.name == '([%w_-]+)' || " ..
-      "github%.event_name == 'schedule'%) && 'run' || 'skip' }}$")
-  assert(one and legs[one], "the fixed-point fixture runs on no one leg of the matrix, " ..
-      "or not on every leg of the scheduled run: " .. value)
+  assert(value == "${{ github.event_name == 'schedule' && 'run' || 'skip' }}",
+    "the fixed-point fixture runs on more than the scheduled run, or not on it: " .. value)
 end
 
 --- The self-rebuild regression runs on two legs of a gating run
