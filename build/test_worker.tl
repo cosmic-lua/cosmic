@@ -18,7 +18,7 @@ local type Sandbox = require("cosmic.sandbox")
 local Coverage = require("cosmic.coverage")
 local Fs = require("cosmic.fs")
 local build_paths = require("build.paths")
-local build_directory = build_paths.required
+local build_layout = build_paths.resolve
 local Proc = require("cosmic.proc")
 local type raw_store = require("cosmic.internal.store")
 local sys = require("cosmic.sys")
@@ -820,7 +820,7 @@ function worker.run(argv: {integer:string}): integer
       return 2
     end
   end
-  local db_path = build_directory(root) .. "/cosmic.db"
+  local db_path = build_layout(root).projection
   if argv[first] == "--store" then
     if argv[first + 1] == nil then
       complain("test --worker: --store needs a path")

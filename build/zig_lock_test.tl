@@ -10,6 +10,7 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 local Zig = require("build.zig")
+local build_paths = require("build.paths")
 local this_program = require("build.this_program")
 local type _ = require("build.standalone")
 
@@ -69,7 +70,7 @@ end
 local function test_a_boot_excludes_a_sqlite_only_tool_and_releases_on_return(tmp: string)
   local root = tree(tmp)
   local env = { KEPT = "value", COSMIC_REBUILD_LOCK_HANDED = "/stale" }
-  local status = Zig.with_lock(root, env, function(handed: {string:string}): integer
+  local status = Zig.with_lock(build_paths.required(root), env, function(handed: {string:string}): integer
     assert(probe(root) == "busy", "a SQL-only tool entered the boot's lock")
     assert(handed.KEPT == "value")
     assert(handed.COSMIC_REBUILD_LOCK_HANDED == root .. "/o/rebuild.lock")
@@ -94,7 +95,7 @@ require("build.zig").with_lock(%q, { COSMIC_REBUILD_LOCK_HANDED = %q }, function
   return 0
 end)
 ]]
-  local started = this_program.program({ "-e", script:format(root, tmp .. "/other-lock") },
+  local started = this_program.program({ "-e", script:format(build_paths.required(root), tmp .. "/other-lock") },
     { stdin = "stream", stdout = "stream", stderr = "stream" })
   local boot = assert(Child.start(started.argv, started.options))
   local waiting = Stream.lines(assert(boot.stderr_stream)):read()
@@ -113,7 +114,7 @@ local function test_a_handoff_uses_file_identity_and_keeps_the_parents_hold(tmp:
   local old, said = start(root, -1)
   assert(said == "held", said)
   local ok, trouble: boolean, any = pcall(function()
-    assert(Zig.with_lock(root, { COSMIC_REBUILD_LOCK_HANDED = root .. "/./o/rebuild.lock" },
+    assert(Zig.with_lock(build_paths.required(root), { COSMIC_REBUILD_LOCK_HANDED = root .. "/./o/rebuild.lock" },
       function(env: {string:string}): integer
         assert(env.COSMIC_REBUILD_LOCK_HANDED == root .. "/o/rebuild.lock")
         assert(probe(root) == "busy", "handoff released its parent's hold")
@@ -129,7 +130,7 @@ end
 local function test_an_exception_releases_the_lock_before_it_is_rethrown(tmp: string)
   local root = tree(tmp)
   local marker = {}
-  local ok, trouble: boolean, any = pcall(Zig.with_lock, root, {}, function(): integer
+  local ok, trouble: boolean, any = pcall(Zig.with_lock, build_paths.required(root), {}, function(): integer
     assert(probe(root) == "busy")
     error(marker)
   end)
@@ -145,7 +146,7 @@ local function test_an_exception_during_acquisition_releases_the_lock(tmp: strin
   Fs.write = function(): boolean, string
     error("holder write failed", 0)
   end
-  local ok, trouble: boolean, any = pcall(Zig.with_lock, root, {}, function(): integer
+  local ok, trouble: boolean, any = pcall(Zig.with_lock, build_paths.required(root), {}, function(): integer
     error("a build ran after acquisition raised")
   end)
   Fs.write = write
@@ -177,7 +178,7 @@ end
 
 local function test_a_boot_holds_flock_and_releases_it_on_return(tmp: string)
   local root = tree(tmp)
-  assert(Zig.with_lock(root, {}, function(): integer
+  assert(Zig.with_lock(build_paths.required(root), {}, function(): integer
     local child, said = start(root, 0, true)
     finish(child)
     assert(said == "busy", "a flock-only process entered the boot's lock")
@@ -192,7 +193,7 @@ local function test_a_handoff_keeps_a_flock_only_parents_hold(tmp: string)
   local root = tree(tmp)
   local old, said = start(root, -1, true)
   assert(said == "held")
-  assert(Zig.with_lock(root, { COSMIC_REBUILD_LOCK_HANDED = root .. "/./o/rebuild.lock" },
+  assert(Zig.with_lock(build_paths.required(root), { COSMIC_REBUILD_LOCK_HANDED = root .. "/./o/rebuild.lock" },
     function(): integer
       local child, probe_said = start(root, 0, true)
       finish(child)
@@ -223,7 +224,7 @@ assert(status == 1 and signal == sys.SIGTERM)
 print("cancelled")
 Fs.take(Fs.stdin, 1)
 ]]
-  local command = this_program.program({ "-e", script:format(root) },
+  local command = this_program.program({ "-e", script:format(build_paths.required(root)) },
     { stdin = "stream", stdout = "stream", stderr = "stream" })
   local boot <close> = assert(Child.start(command.argv, command.options))
   local waiting = Stream.lines(assert(boot.stderr_stream)):read()

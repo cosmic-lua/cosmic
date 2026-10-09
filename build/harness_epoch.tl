@@ -92,7 +92,7 @@ harness_epoch.acknowledged = {
 
   ["build.caches"] = "57bac59a121d7520f3d30b9052a6f6c5d67a51e8785c5a75d021760317fb9312",
 
-  ["build.confine"] = "8a099027ad9a259232504f7dee7c7588d7ce819428276cd505f6409876e2520a",
+  ["build.confine"] = "fd2f68a0a74082f5f3979f8805d7808048f916520ea4bc17a7fe81114f820b50",
 
   ["build.core_image"] = "dfc18e0e6316237ab9fb11a957df68d6217e42cffc6f2f3a767018c5313700ac",
 
@@ -108,7 +108,7 @@ harness_epoch.acknowledged = {
 
   ["build.launcher"] = "1bddaa2b691f6aa90da3256d045fc69f38d12c935e981a231841d94c2157b224",
 
-  ["build.paths"] = "2a27cf798c71beeeddaed027f7f3b11af8a5f25f7c082841c19d7cef310aa9f0",
+  ["build.paths"] = "1bc5315b0f8032ddc8f5f02f6e62fb04e235e63130f0a7037e674482a8bc55d4",
 
   ["build.plural"] = "08b0e817376c03fe90737c8bb26d6ae1400dadd9d61b23d00c1b0f1051ad8771",
 
@@ -116,19 +116,19 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "516c08e34d1fc392de5363af92b6d669344fc3c8b504c469ae3771a424d0db6b",
 
-  ["build.test"] = "cbf0a166cad10966c3b1ea5417ff913a55a6f535651921d4fe21b0c039deb05a",
+  ["build.test"] = "bb82e25f13b5d1ca65b43b2c4a424856c456dc269f8666e0c6e628163b222203",
 
   ["build.test_inputs"] = "f4be19a303d0b582b5fa3635a6629134f4aea2aa6c9d94b0f41f0371ea5bee6c",
 
   ["build.test_policy"] = "f4d98a90f54c4ba29b6ce6d50c0cf08a5efc02e225dbd2382af84dee78da8557",
 
-  ["build.test_sandbox"] = "19ff6af7330dad09c1c7d35c58f46d5b5b426751676a44f10a0fb2d68aec4c67",
+  ["build.test_sandbox"] = "67dbcb885500c30ef70eb943dc9960584e7123c44470753d5c7e204742455cbc",
 
-  ["build.test_worker"] = "890221f4f18944b3bab309427d80337b117a4a3170f319264277d508e4432e24",
+  ["build.test_worker"] = "425c44018bdf17814a352d4764314121fbf2426c7d5eff7f3d0830b698ed2722",
 
   ["build.this_program"] = "d111ef81b6f2303b92612c6db23abd195ef08c0216f4c53fc1040140cfb50894",
 
-  ["build.zig_caches"] = "255a9e814a29dd8fe6bf40900f0ee34a7f64267f4f0bee3a2367a3d687e299e1",
+  ["build.zig_caches"] = "5b8c2ba2dcbaa96ecf82948dd09165b36ba517734d835fdf91b1166ccfe1eabc",
 
   ["cmd.cosmic.main"] = "d00f469acf42d89c76c2e9ebabd40e73e20d00cb3a5ad6d9189716265fcdf9bf",
 

@@ -488,27 +488,31 @@ function writer.write_result(handle: work.Handle, out: string,
   -- a holder waiting for that database is not waited on in turn.
   local took = false
   local held_fd: integer = nil
-  if out == build_paths.required(handle.root) .. "/cosmic.db" then
+  local own = build_paths.under(handle.dir)
+  if out == build_paths.resolve(handle.root).projection then
     local taken, lock_trouble = rebuild_lock.hold(handle.root, "write", "o/cosmic.db")
     if taken == nil then
       local _, _ = db:exec("DETACH out")
       return false, lock_trouble
     end
     took = taken
-  elseif out == handle.dir .. "/cosmic.db" then
+  elseif out == own.projection then
     -- A build in a directory of its own (build/dispatch.tl's private one)
     -- has no checkout's lock; one in the directory keeps two runs from
     -- writing its one `.building` at once.
-    local fd, open_trouble = sys.open(handle.dir .. "/.write.lock", sys.O_RDWR | sys.O_CREAT, 0x180)
+    -- TODO: take the rebuild lock here too once #2864's step 2 builds
+    -- every project in the directory build.paths names, so one lock
+    -- domain guards each build directory.
+    local fd, open_trouble = sys.open(own.write_lock, sys.O_RDWR | sys.O_CREAT, 0x180)
     if fd == nil then
       local _, _ = db:exec("DETACH out")
-      return false, handle.dir .. "/.write.lock: " .. open_trouble
+      return false, own.write_lock .. ": " .. open_trouble
     end
     local locked, lock_trouble = sys.flock(fd, "exclusive", -1)
     if not locked then
       local _, _ = sys.close(fd)
       local _, _ = db:exec("DETACH out")
-      return false, handle.dir .. "/.write.lock: " .. lock_trouble
+      return false, own.write_lock .. ": " .. lock_trouble
     end
     held_fd = fd
   end

@@ -70,7 +70,7 @@ local test_inputs = require("build.test_inputs")
 local caches = require("build.caches")
 local String = require("cosmic.string")
 
-local build_directory = build_paths.required
+local build_layout = build_paths.resolve
 
 local record test_sandbox
   --- Where a sandboxed worker has the tree, and runs.
@@ -281,7 +281,7 @@ local function program_name(root: string): string | nil, boolean
   local program = confine.executable()
   if program == nil then return nil, false end
   local real = confine.resolution(program)
-  if real ~= "" and real == confine.resolution(build_directory(root) .. "/bin/cosmic") then
+  if real ~= "" and real == confine.resolution(build_layout(root).tool) then
     return test_sandbox.tree .. "/o/bin/cosmic", true
   end
   if Fs.within(program, test_sandbox.tree) then
@@ -392,8 +392,9 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
       runs[path] = true
     end
   end
-  local output = build_directory(root)
-  local store = output .. "/cosmic.db"
+  local layout = build_layout(root)
+  local output = layout.directory
+  local store = layout.projection
   -- The store at o/cosmic.db is the one its worker attaches to load
   -- every module of the closure ([`build.test_worker`]): `closure_store`
   -- where the module does not declare `store`, and the whole projection
@@ -435,6 +436,8 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
       local source = root .. "/" .. plain
       -- o is the worker's stable virtual build directory; the host's output
       -- may live elsewhere, and only the declared entry is bound.
+      -- TODO: name the virtual directory and the policy grants that stand
+      -- for it (o/cosmic.db, o/bin) apart from o/ in #2864's step 3.
       if plain == "o" then
         source = output
       elseif plain:sub(1, 2) == "o/" then

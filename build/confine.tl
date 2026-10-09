@@ -37,7 +37,7 @@ local sandbox_platform, may_map_ids, own_proc, landlock_abi = process.sandbox_pl
 local own_spawn = process.spawn
 local unix_socket, close_socket = process.unix_socket, sys.close
 
-local build_directory = build_paths.required
+local build_layout = build_paths.resolve
 
 local record confine
   --- What a test declares the processes it starts need, beyond the
@@ -508,7 +508,7 @@ function confine.worker_unveil(tree: string, cwd: string | nil, scratch: string,
   for _, path in ipairs(confine.itself()) do
     if path ~= withheld then add(path) end
   end
-  add(build_directory(tree) .. "/cosmic.db")
+  add(build_layout(tree).projection)
   if cwd ~= nil then add(cwd) end
   return { reads = reads, writes = { scratch } }
 end

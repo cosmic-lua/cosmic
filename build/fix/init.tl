@@ -869,7 +869,7 @@ function fix.link_context(root: string, whole: boolean, own: boolean,
   end
   local function unbuilt(): string | nil
     if own then return nil end
-    local built_before, _ = Fs.exists(build_paths.required(root) .. "/cosmic.db")
+    local built_before, _ = Fs.exists(build_paths.resolve(root).projection)
     if built_before then return nil end
     return "the project has no o/cosmic.db yet (`cosmic build` or `cosmic test` makes one)"
   end
@@ -1332,7 +1332,7 @@ end
 --- test modules declare ([`tree_checks.promises`]), the declarations read
 --- from the working database the projection just wrote.
 local function promise_findings(root: string): {string}
-  local build, open_trouble = Sqlite.open(build_paths.required(root) .. "/build.db")
+  local build, open_trouble = Sqlite.open(build_paths.resolve(root).working)
   if build == nil then return { "tree checks: " .. open_trouble } end
   local declared, declared_trouble = tree_checks.requirements(build)
   local _, _ = build:close()
@@ -1353,7 +1353,7 @@ end
 --- ([`tree_checks.sealed_launch`]), over the projection `db` and the
 --- declarations the working database holds.
 local function sealed_launch_findings(root: string, db: Sqlite.Handle): {string}
-  local build, open_trouble = Sqlite.open(build_paths.required(root) .. "/build.db")
+  local build, open_trouble = Sqlite.open(build_paths.resolve(root).working)
   if build == nil then return { "tree checks: " .. open_trouble } end
   local unsealed, unsealed_trouble = tree_checks.unsealed(build)
   local _, _ = build:close()
@@ -1382,8 +1382,8 @@ local function run_tree_checks(ctx: Fix)
       if guide == nil then
         findings[#findings + 1] = "tree checks: " .. guide_trouble
       end
-      local carried, carried_trouble = docs_checks.carried(build_paths.required(root) .. "/cosmic.db",
-        build_paths.required(root) .. "/docs-check.db")
+      local carried, carried_trouble = docs_checks.carried(build_paths.resolve(root).projection,
+        build_paths.resolve(root).docs_check)
       if carried == nil then
         findings[#findings + 1] = "tree checks: " .. carried_trouble
       end

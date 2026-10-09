@@ -334,11 +334,12 @@ function embed.database(project: string, main: string): string | nil, string
   return bytes
 end
 
---- Builds the tree at `root` and writes `root/o/bin/<name>` for every
---- `cmd/<name>/main.tl` it holds: a portable program, or with `host` a host
---- program -- this binary's own core with the program's database appended,
---- which the kernel runs directly, with no launcher, only where this core
---- runs. Returns the names written, none for a tree with no `cmd/`.
+--- Builds the tree at `root` and writes `bin/<name>` in its build
+--- directory ([`build.paths`]) for every `cmd/<name>/main.tl` it holds: a
+--- portable program, or with `host` a host program -- this binary's own
+--- core with the program's database appended, which the kernel runs
+--- directly, with no launcher, only where this core runs. Returns the
+--- names written, none for a tree with no `cmd/`.
 --- @param under paths relative to `root` that narrow it to the programs
 ---   whose `main.tl` is under one; each must hold one. None, or nil, is
 ---   every program
@@ -363,7 +364,7 @@ function embed.tree(root: string, host?: boolean, under?: {string}): {string} | 
     local _, _ = work.close(handle)
     return nil, load_trouble
   end
-  local project = build_paths.required(root) .. "/cosmic.db"
+  local project = build_paths.resolve(root).projection
   local result, compile_trouble =
     importer.compile(handle, built, Store.meta("compiler") or "", false,
       shared_compiles.for_build())
@@ -413,7 +414,8 @@ function embed.tree(root: string, host?: boolean, under?: {string}): {string} | 
   if prefix == nil and core == nil then
     return nil, source_trouble
   end
-  local made, mkdir_trouble = Fs.mkdirs(build_paths.required(root) .. "/bin")
+  local bin = build_paths.resolve(root).bin
+  local made, mkdir_trouble = Fs.mkdirs(bin)
   if not made then
     return nil, mkdir_trouble
   end
@@ -427,7 +429,7 @@ function embed.tree(root: string, host?: boolean, under?: {string}): {string} | 
     if database == nil then
       return nil, name .. ": " .. database_trouble
     end
-    local out = build_paths.required(root) .. "/bin/" .. name
+    local out = bin .. "/" .. name
     local program, program_trouble: string, string
     if core ~= nil then
       program, program_trouble = artifact.host_program(core, database)
@@ -469,6 +471,8 @@ local function run(argv: {integer:string}): integer
     return 1
   end
   local outputs: {string} = {}
+  -- TODO: report where the build directory is once #2864's step 2 moves
+  -- it out of the tree, where o/ no longer names it.
   for _, name in ipairs(names) do
     outputs[#outputs + 1] = "o/bin/" .. name .. (host and " (host)" or "")
   end

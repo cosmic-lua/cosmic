@@ -29,12 +29,13 @@ end
 --- at `root`, as `environment` names them, with nothing made or
 --- checked: COSMIC_ZIG_GLOBAL_CACHE and COSMIC_ZIG_CACHE when set, else
 --- `zig-global` and `zig-project` in the user's cosmic cache
---- directory, else `root`/o's `zig-global` and `zig-cache`.
+--- directory, else `zig-global` and `zig-cache` in `root`'s build
+--- directory ([`build.paths`]).
 function zig_caches.paths(root: string, environment: {string:string}): {string}
-  local output = build_paths.required(root, environment)
+  local layout = build_paths.resolve(root, environment)
   return {
-    located("COSMIC_ZIG_GLOBAL_CACHE", "zig-global", output .. "/zig-global", environment),
-    located("COSMIC_ZIG_CACHE", "zig-project", output .. "/zig-cache", environment),
+    located("COSMIC_ZIG_GLOBAL_CACHE", "zig-global", layout.zig_global, environment),
+    located("COSMIC_ZIG_CACHE", "zig-project", layout.zig_cache, environment),
   }
 end
 

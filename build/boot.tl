@@ -12,6 +12,7 @@ local Log = require("cosmic.log")
 local identity = require("build.identity")
 local clock = require("build.clock")
 local artifact = require("build.artifact")
+local build_paths = require("build.paths")
 local compiler = require("build.compiler")
 local derivation = require("build.derivation")
 local importer = require("build.importer")
@@ -34,12 +35,18 @@ local log = Log.new("cosmic")
 local function boot(root: string, argv: {integer:string},
                     compiler_source: string): integer
   local started = Clock.monotonic_ns()
-  local working = argv[6] or root .. "/o"
   local host = argv[4]
   if host == nil or host == "" then
     log:verdict("boot", false, "the command line names no host target")
     return 1
   end
+  -- The build directory bin/zig resolved and handed zig as its prefix.
+  local working_directory = argv[6]
+  if working_directory == nil or working_directory == "" then
+    log:verdict("boot", false, "the command line names no working directory")
+    return 1
+  end
+  local working = build_paths.under(working_directory)
 
   local records_path = argv[5]
   if records_path == nil or records_path == "" then
@@ -65,7 +72,7 @@ local function boot(root: string, argv: {integer:string},
       log:verdict("boot", false, "invalid generated release target record")
       return 1
     end
-    local path = working .. "/core/" .. target .. "/cosmic-core"
+    local path = build_paths.core(working, target)
     local image, failure = Fs.read(path)
     if image == nil then
       log:verdict("boot", false, failure)
@@ -86,7 +93,7 @@ local function boot(root: string, argv: {integer:string},
     return 1
   end
 
-  local output = argv[9] or working
+  local output = argv[9] ~= nil and build_paths.under(argv[9]) or working
   local selected_configuration = 1
   local manifest_records = records
   if argv[7] ~= nil then
@@ -126,12 +133,12 @@ local function boot(root: string, argv: {integer:string},
     return 1
   end
 
-  local made, mkdir_trouble = Fs.mkdirs(output .. "/bin")
+  local made, mkdir_trouble = Fs.mkdirs(output.bin)
   if not made then
     log:verdict("boot", false, mkdir_trouble)
     return 1
   end
-  local handle, open_trouble = work.open(root, working)
+  local handle, open_trouble = work.open(root, working.directory)
   if handle == nil then
     log:verdict("boot", false, open_trouble)
     return 1
@@ -182,7 +189,7 @@ local function boot(root: string, argv: {integer:string},
     log:say("boot: FAIL\n" .. compile_trouble)
     return 1
   end
-  local database_path = output .. "/cosmic.db"
+  local database_path = output.projection
   local written, write_trouble =
     writer.write_result(handle, database_path, result)
   local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled,
@@ -194,8 +201,8 @@ local function boot(root: string, argv: {integer:string},
   end
 
   -- The tool carries the projection without the tree's own tests and
-  -- examples, which `cosmic test` reads from `o/cosmic.db` itself.
-  local carried_path = output .. "/carried.db"
+  -- examples, which `cosmic test` reads from the projection itself.
+  local carried_path = output.carried
   local carried, carry_trouble = writer.carried(database_path, carried_path)
   if not carried then
     local _, _ = work.close(handle)
@@ -227,7 +234,7 @@ local function boot(root: string, argv: {integer:string},
     return 1
   end
   local published, publish_trouble =
-    Fs.write(output .. "/bin/cosmic", program, 0x1ed)
+    Fs.write(output.tool, program, 0x1ed)
   if not published then
     log:verdict("boot", false, publish_trouble)
     return 1

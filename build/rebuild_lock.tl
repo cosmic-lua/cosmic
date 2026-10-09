@@ -75,14 +75,8 @@ local record rebuild_lock
   end
 end
 
-local lock_name = "/rebuild.lock"
-
 --- One millisecond, which [`sys.flock`] and SQLite count their waits in.
 local MS <const> = Clock.ms(1)
-
---- Where the holder writes its process id and role, a line each, for
---- a waiting run to name it. build/zig.tl writes and reads it too.
-local holder_name = "/rebuild.lock.pid"
 
 --- What a role's holder is doing, as a waiting run says it. build/zig.tl
 --- keeps a copy (build/zig_test.tl holds the two alike).
@@ -129,7 +123,10 @@ local lock_mt: metatable<Lock> = {
 --- The lock this process holds, kept here so it lives as long as the
 --- process does, or until the exec that replaces it.
 local held: Lock | nil = nil
-local held_root: string | nil = nil
+--- The path of the lock `held` holds, as [`build.paths`] names it, so
+--- two spellings of a root that resolve to one build directory hold one
+--- lock.
+local held_lock: string | nil = nil
 
 --- Takes SQLite's half of the lock on `path` into `lock`, waiting up to
 --- `wait_ns`. Answers "held", "busy", or nil and why.
@@ -163,14 +160,15 @@ function rebuild_lock.take(root: string, wait_ns: integer,
   if wait_ns < 0 or wait_ns > Poll.MOST_NS then
     error("rebuild_lock.take: the wait is out of range", 2)
   end
+  local layout = build_paths.resolve(root)
+  local path = layout.lock
   if held ~= nil then
-    if held_root == root then
+    if held_lock == path then
       return "held", ""
     end
-    return nil, "this process holds " .. build_paths.required(tostring(held_root)) .. lock_name ..
+    return nil, "this process holds " .. tostring(held_lock) ..
       " and cannot take another checkout's too"
   end
-  local path = build_paths.required(root) .. lock_name
   local started_ns = Clock.monotonic_ns()
   -- For writing, which an exclusive flock over NFS or SMB needs.
   local fd, open_trouble = sys.open(path, sys.O_RDWR | sys.O_CREAT, 0x1a4)
@@ -205,26 +203,26 @@ function rebuild_lock.take(root: string, wait_ns: integer,
   local holding: Lock = { fd = taking.fd, db = taking.db }
   taking.fd, taking.db = nil, nil
   setmetatable(holding, lock_mt)
-  held, held_root = holding, root
+  held, held_lock = holding, path
   -- Written aside and moved into place, so a waiting run reads a whole
   -- one or the one before.
-  local aside = build_paths.required(root) .. holder_name .. "." .. tostring(sys.getpid())
+  local aside = layout.holder .. "." .. tostring(sys.getpid())
   local written, _ = Fs.write(aside, tostring(sys.getpid()) .. "\n" .. (role or "rebuild") .. "\n")
   if written then
-    local _, _ = Fs.rename(aside, build_paths.required(root) .. holder_name)
+    local _, _ = Fs.rename(aside, layout.holder)
   end
   return "held", ""
 end
 
 --- Whether this process holds the rebuild lock of `root`.
 function rebuild_lock.holds(root: string): boolean
-  return held ~= nil and held_root == root
+  return held ~= nil and held_lock == build_paths.resolve(root).lock
 end
 
 --- Lets go of the rebuild lock this process holds, if it holds it.
 function rebuild_lock.release()
   local lock = held
-  held, held_root = nil, nil
+  held, held_lock = nil, nil
   if lock ~= nil then
     local _letting <close> = lock
   end
@@ -241,7 +239,7 @@ end
 --- A holder that names no role, as a tool from before roles did, is
 --- taken to be rebuilding.
 function rebuild_lock.holder(root: string): string
-  local text, _ = Fs.read(build_paths.required(root) .. holder_name)
+  local text, _ = Fs.read(build_paths.resolve(root).holder)
   local pid: integer | nil = nil
   local role = "rebuild"
   if text ~= nil then
@@ -263,7 +261,7 @@ end
 
 --- What a waiting run's line ends with: the lock it waits for.
 function rebuild_lock.suffix(root: string): string
-  return " (one run at a time holds " .. build_paths.required(root) .. lock_name .. ")"
+  return " (one run at a time holds " .. build_paths.resolve(root).lock .. ")"
 end
 
 --- `environment` with the lock of `root`, which this process holds,
@@ -271,7 +269,7 @@ end
 function rebuild_lock.hand(environment: {string:string}, root: string): {string:string}
   local out: {string:string} = {}
   for name, value in pairs(environment) do out[name] = value end
-  out[handed_variable] = build_paths.required(root) .. lock_name
+  out[handed_variable] = build_paths.resolve(root).lock
   return out
 end
 
@@ -295,7 +293,7 @@ local function handed(root: string): boolean
     return false
   end
   local given, _ = sys.stat(named)
-  local own, _ = sys.stat(build_paths.required(root) .. lock_name)
+  local own, _ = sys.stat(build_paths.resolve(root).lock)
   return given ~= nil and own ~= nil and given.dev == own.dev and given.ino == own.ino
 end
 
@@ -338,9 +336,10 @@ function rebuild_lock.hold(root: string, role: rebuild_lock.Role,
   if rebuild_lock.holds(root) then
     return false, ""
   end
-  local made, made_trouble = Fs.mkdirs(build_paths.required(root))
+  local directory = build_paths.required(root)
+  local made, made_trouble = Fs.mkdirs(directory)
   if not made then
-    return nil, build_paths.required(root) .. ": " .. made_trouble
+    return nil, directory .. ": " .. made_trouble
   end
   local taken, trouble = rebuild_lock.take(root, 0, role)
   if taken == nil then

@@ -146,13 +146,14 @@ local source_columns = { "file", "from_file", "path", "source_hash", "sha256" }
 --- and `o/build.db`'s derived rows and staged files.
 local function module_files(root: string): {string:string} | nil, string
   local files: {string:string} = {}
+  local layout = build_paths.resolve(root)
   for _, source in ipairs({
-      { "cosmic.db", "SELECT path, file FROM modules" },
-      { "build.db", "SELECT path, file FROM derived" },
-      { "build.db", "SELECT source_hash, file FROM derived" },
-      { "build.db", "SELECT sha256, path FROM files" },
+      { layout.projection, "SELECT path, file FROM modules" },
+      { layout.working, "SELECT path, file FROM derived" },
+      { layout.working, "SELECT source_hash, file FROM derived" },
+      { layout.working, "SELECT sha256, path FROM files" },
   }) do
-    local path = build_paths.required(root) .. "/" .. source[1]
+    local path = source[1]
     local present, present_trouble = Fs.exists(path)
     if present == nil then
       return nil, present_trouble
@@ -273,8 +274,8 @@ local function run(argv: {integer:string}): integer
   local seen = 0
   local tables = 0
   local rows = 0
-  for _, name in ipairs({ "cosmic.db", "carried.db", "build.db" }) do
-    local path = build_paths.required(root) .. "/" .. name
+  local layout = build_paths.resolve(root)
+  for _, path in ipairs({ layout.projection, layout.carried, layout.working }) do
     local present, present_trouble = Fs.exists(path)
     if present == nil then
       log:complain(present_trouble)
@@ -297,7 +298,7 @@ local function run(argv: {integer:string}): integer
       else
         tables = tables + counted
       end
-      if name == "build.db" then
+      if path == layout.working then
         if #paths == 0 then
           local ok, build_trouble = builds(path)
           if not ok then
@@ -319,7 +320,7 @@ local function run(argv: {integer:string}): integer
   -- build.test's `base_name`), which the census digests and no worker
   -- is given.
   if #paths == 0 then
-    local stores = build_paths.required(root) .. "/stores"
+    local stores = layout.stores
     local listed, _ = Fs.list(stores)
     local count, bytes = 0, 0
     for _, entry in ipairs(listed or {}) do
@@ -333,7 +334,7 @@ local function run(argv: {integer:string}): integer
     end
   end
   if seen == 0 then
-    log:verdict("db", false, "no database under " .. build_paths.required(root) .. "; build first, " ..
+    log:verdict("db", false, "no database under " .. layout.directory .. "; build first, " ..
         clock.took(started))
     return 1
   end

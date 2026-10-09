@@ -32,14 +32,16 @@
 --- and unpacks is no part of this module's import closure, which
 --- build.c, and every test that reaches it, holds.
 ---
---- `build` gets a prefix flag naming the repository's `o/` (the root is
---- found from this script's own path) and flags naming zig's two caches.
+--- `build` gets a prefix flag naming the repository's build directory,
+--- as build/paths.tl names it (the root is found from this script's own
+--- path), and flags naming zig's two caches.
 --- The global cache holds what zig builds of its own (libc, compiler-rt,
 --- the standard library); the project cache holds what this build
 --- compiles. Both are keyed by content, and every checkout shares them:
 --- `COSMIC_ZIG_GLOBAL_CACHE` and `COSMIC_ZIG_CACHE` when set, else
 --- `zig-global` and `zig-project` in this user's cosmic cache directory,
---- else (no cache directory at all) `o/zig-global` and `o/zig-cache`.
+--- else (no cache directory at all) `zig-global` and `zig-cache` in the
+--- build directory.
 --- zig keys a C object by its source's path, and a file in a checkout
 --- has an absolute path of its own, so build.zig compiles every C file,
 --- vendor/'s and the tree's own, from copies in the project cache, and a
@@ -166,7 +168,8 @@ function Zig.build_jobs(cpus: integer): integer
 end
 
 --- `argv` as zig gets it: `build` gains its flags ahead of the caller's
---- own arguments, installing under `output` (default `root/o`), with zig's project cache at
+--- own arguments, installing under `output`, the build directory
+--- build/paths.tl names, with zig's project cache at
 --- `project`, and running [`build_jobs`] steps at once for `cpus`
 --- processors unless the caller passes `-j`; anything else passes
 --- through unchanged. `zig build` takes no flag for its global cache,
@@ -186,15 +189,15 @@ end
 --- libraries again. patch/zig-lib/05 fixes that for a bare `zig build`;
 --- this keeps it fixed where zig runs without that library (`COSMIC_ZIG`,
 --- a `ZIG_LIB_DIR` of the caller's).
-function Zig.build_args(root: string, project: string,
-                        argv: {string}, cpus: integer, defines?: {string}, output?: string): {string}
+function Zig.build_args(root: string, project: string, output: string,
+                        argv: {string}, cpus: integer, defines?: {string}): {string}
   local out: {string} = {}
   if argv[1] == "build" then
     out = {
       "build",
       "--build-file", root .. "/build.zig",
       "--cache-dir", project,
-      "--prefix", output or root .. "/o",
+      "--prefix", output,
       "--cache-poison=disallowed",
     }
     for _, define in ipairs(defines or {}) do
@@ -492,16 +495,17 @@ end
 
 --- Where zig keeps its global cache: `COSMIC_ZIG_GLOBAL_CACHE` when
 --- set, else `zig-global` in this user's cosmic cache directory, made
---- if need be, else `output/zig-global` (`root/o` when no output is given).
-function Zig.global_cache(root: string, environment?: {string:string}, output?: string): string
-  return located("COSMIC_ZIG_GLOBAL_CACHE", "zig-global", (output or root .. "/o") .. "/zig-global", environment)
+--- if need be, else `zig-global` in `output`, the build directory.
+function Zig.global_cache(output: string, environment?: {string:string}): string
+  return located("COSMIC_ZIG_GLOBAL_CACHE", "zig-global", output .. "/zig-global", environment)
 end
 
 --- Where zig keeps this build's own cache: `COSMIC_ZIG_CACHE` when set,
 --- else `zig-project` in this user's cosmic cache directory, shared by
---- every checkout and made if need be, else `output/zig-cache` (`root/o` by default).
-function Zig.project_cache(root: string, environment?: {string:string}, output?: string): string
-  return located("COSMIC_ZIG_CACHE", "zig-project", (output or root .. "/o") .. "/zig-cache", environment)
+--- every checkout and made if need be, else `zig-cache` in `output`, the
+--- build directory.
+function Zig.project_cache(output: string, environment?: {string:string}): string
+  return located("COSMIC_ZIG_CACHE", "zig-project", output .. "/zig-cache", environment)
 end
 
 --- The environment a zig command other than `build` runs in --
@@ -511,15 +515,15 @@ end
 --- either itself. Without them `zig cc` would keep a global cache of its
 --- own under the user's cache directory, `zig` there, which neither CI
 --- restores nor a sandboxed test is given ([`build.caches`]).
-function Zig.passthrough_environment(root: string,
-                                     environment: {string:string}, output?: string): {string:string}
+function Zig.passthrough_environment(output: string,
+                                     environment: {string:string}): {string:string}
   local out: {string:string} = {}
   for name, value in pairs(environment) do out[name] = value end
   if (out.ZIG_GLOBAL_CACHE_DIR or "") == "" then
-    out.ZIG_GLOBAL_CACHE_DIR = Zig.global_cache(root, environment, output)
+    out.ZIG_GLOBAL_CACHE_DIR = Zig.global_cache(output, environment)
   end
   if (out.ZIG_LOCAL_CACHE_DIR or "") == "" then
-    out.ZIG_LOCAL_CACHE_DIR = Zig.project_cache(root, environment, output)
+    out.ZIG_LOCAL_CACHE_DIR = Zig.project_cache(output, environment)
   end
   return out
 end
@@ -836,7 +840,9 @@ local function patch(root: string, project: string): string | nil, string
   return manifest, ""
 end
 
---- The checkout's rebuild lock, as build/rebuild_lock.tl holds it.
+--- The checkout's rebuild lock, as build/rebuild_lock.tl holds it, by
+--- its names in the build directory (build/paths.tl's `Layout`, which
+--- build/paths_test.tl holds these to).
 --- This standalone entry point takes flock first and SQLite's transaction
 --- only where flock_kind says the two lock kinds are apart. The SQL half
 --- remains for older checkouts and bisects, whose tools take it alone.
@@ -861,8 +867,9 @@ local doing: {string:string} = {
 local reminder_ns <const> = Clock.minutes(5)
 
 --- Whether `given`, the words after bin/zig, is a build of a step that
---- boots, writing the working database under o/ beside a tool: `boot`,
---- and `sanitized`, which boots the checked core into o/sanitized.
+--- boots, writing the working database in the build directory beside a
+--- tool: `boot`, and `sanitized`, which boots the checked core into the
+--- build directory's `sanitized`.
 function Zig.boots(given: {string}): boolean
   if given[1] ~= "build" then
     return false
@@ -875,10 +882,10 @@ function Zig.boots(given: {string}): boolean
   return false
 end
 
---- The run holding the lock of `root`, and what it is doing, as
---- build/rebuild_lock.tl's `holder` names them.
-function Zig.holder(root: string, output?: string): string
-  local text, _ = Fs.read((output or root .. "/o") .. holder_name)
+--- The run holding the lock in the build directory `output`, and what it
+--- is doing, as build/rebuild_lock.tl's `holder` names them.
+function Zig.holder(output: string): string
+  local text, _ = Fs.read(output .. holder_name)
   local pid: integer | nil = nil
   local role = "rebuild"
   if text ~= nil then
@@ -953,9 +960,9 @@ end
 
 --- Takes the boot's lock, or accepts a parent's handoff only when it
 --- names the held descriptor's inode. One wait budget covers both halves.
-function Zig.with_lock(root: string, environment: {string:string},
-                       run: function({string:string}): integer, output?: string): integer
-  local out = output or root .. "/o"
+function Zig.with_lock(output: string, environment: {string:string},
+                       run: function({string:string}): integer): integer
+  local out = output
   local made, made_trouble = Fs.mkdirs(out)
   if not made then
     log:complain(out .. ": " .. made_trouble)
@@ -979,7 +986,7 @@ function Zig.with_lock(root: string, environment: {string:string},
       handed = given ~= nil and own ~= nil and given.dev == own.dev and given.ino == own.ino
     end
     if not handed then
-      log:complain(Zig.holder(root, out) .. "; waiting for it (one run at a time holds " .. path .. ")")
+      log:complain(Zig.holder(out) .. "; waiting for it (one run at a time holds " .. path .. ")")
       local waited_ns = 0
       while taken == "busy" do
         taken, trouble = take(lock, path, reminder_ns)
@@ -988,7 +995,7 @@ function Zig.with_lock(root: string, environment: {string:string},
           local minutes = waited_ns // Clock.minutes(1)
           log:complain("still waiting, " .. tostring(minutes) ..
               (minutes == 1 and " minute" or " minutes") .. " on: " ..
-              Zig.holder(root, out) .. " (one run at a time holds " .. path .. ")")
+              Zig.holder(out) .. " (one run at a time holds " .. path .. ")")
         end
       end
     end
@@ -1066,8 +1073,8 @@ function Zig.main(argv: {integer:string}): integer
     log:complain("build/paths.tl named no output directory")
     return 1
   end
-  local project = Zig.project_cache(root, environment, output)
-  local shared = Zig.global_cache(root, environment, output)
+  local project = Zig.project_cache(output, environment)
+  local shared = Zig.global_cache(output, environment)
   if given[1] == "build" then
     -- The vendored trees are patched once the snapshot is taken, so a
     -- vendored file edited while they are is caught as any source is.
@@ -1080,26 +1087,26 @@ function Zig.main(argv: {integer:string}): integer
           return nil
         end
         local build_argv: {string} = { program }
-        for _, a in ipairs(Zig.build_args(root, project,
+        for _, a in ipairs(Zig.build_args(root, project, output,
             given, Proc.cpu_count(),
-            { "-Dpatched=" .. manifest }, output)) do
+            { "-Dpatched=" .. manifest })) do
           build_argv[#build_argv + 1] = a
         end
         return build_argv
       end)
     end
     if Zig.boots(given) then
-      return Zig.with_lock(root, environment, build, output)
+      return Zig.with_lock(output, environment, build)
     end
     return build()
   end
   local exec_argv: {string} = { zig }
-  for _, a in ipairs(Zig.build_args(root, project, given,
+  for _, a in ipairs(Zig.build_args(root, project, output, given,
       Proc.cpu_count())) do
     exec_argv[#exec_argv + 1] = a
   end
   local _, trouble, number = sys.execve(program, exec_argv,
-    Zig.passthrough_environment(root, environment, output))
+    Zig.passthrough_environment(output, environment))
   log:complain(program .. ": " .. tostring(trouble))
   return Zig.exec_status(math.tointeger(number) or 0)
 end
