@@ -459,7 +459,7 @@ description.
 [`Compress.deflate`]: ../../cosmic/compress.tl
 [`Compress.inflate`]: ../../cosmic/compress.tl
 [`Compress.Stream`]: ../../cosmic/compress.tl
-[`Conn.write`]: ../../cosmic/net.tl
+[`Conn.write`]: ../../cosmic/internal/connection.tl
 [`Conn:peer`]: ../../cosmic/net.tl
 [`Conn:writer`]: ../../cosmic/net.tl
 [`core/allocation_test.tl`]: ../../core/allocation_test.tl
@@ -508,7 +508,7 @@ description.
 [`Json.layout`]: ../../cosmic/json.tl
 [`ListenOptions.reclaim`]: ../../cosmic/net.tl
 [`Net.Address`]: ../../cosmic/net.tl
-[`Net.Conn.read`]: ../../cosmic/net.tl
+[`Net.Conn.read`]: ../../cosmic/internal/connection.tl
 [`Net.Conn`]: ../../cosmic/net.tl
 [`Net.listen`]: ../../cosmic/net.tl
 [`Net.pair`]: ../../cosmic/net.tl

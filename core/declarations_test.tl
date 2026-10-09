@@ -33,6 +33,7 @@ local type _confine = require("build.confine")
 local type _fuzz = require("build.fuzz")
 local type _coverage_hits = require("build.coverage_hits")
 local type _child = require("cosmic.child")
+local type _connector = require("cosmic.internal.connector")
 local type _compress = require("cosmic.compress")
 local type _coverage = require("cosmic.coverage")
 local type _hash = require("cosmic.hash")
@@ -317,6 +318,13 @@ local wrappers <const>: {string: string} = {
   ["cosmic.store"] = "store",
 }
 
+--- The wrappers core/store.c lists for several raw values, which the
+--- loader is handed as one table of all their fields, and the raw
+--- modules they are handed, in the order `raw_modules` lists them.
+local merged <const>: {string: {string}} = {
+  ["cosmic.internal.connector"] = { "process", "socket" },
+}
+
 --- The raw module a declaration names, as the running core registers it.
 local function raw_module(name: string): any
   if preloaded[name] then
@@ -382,21 +390,22 @@ local function test_every_declaration_is_what_the_core_registers()
       testing.configuration .. " core):\n  " .. table.concat(problems, "\n  "))
 end
 
---- The `raw_modules` table of core/store.c's `source`: the raw module
+--- The `raw_modules` table of core/store.c's `source`: the raw modules
 --- each wrapper is handed, by the wrapper's name, less the
---- `cosmic.internal.` prefix; or nil and why when the table is not all
+--- `cosmic.internal.` prefix, in the order listed; or nil and why when the table is not all
 --- entries of the shape this reads -- a macro, a comment, an entry
 --- spelled otherwise -- rather than answer part of it.
-local function raw_modules_in(source: string): {string: string} | nil, string
+local function raw_modules_in(source: string): {string: {string}} | nil, string
   local body = source:match("%} raw_modules%[%] = {\n(.-)\n};")
   if body == nil then
     return nil, "core/store.c declares no raw_modules table this test can read"
   end
-  local out: {string: string} = {}
+  local out: {string: {string}} = {}
   local read = 0
   local entry = '{"([%w_.]+)",%s*"cosmic%.internal%.([%w_]+)",%s*[%w_]+%s*},'
   for wrapper, raw in body:gmatch(entry) do
-    out[wrapper] = raw
+    out[wrapper] = out[wrapper] or {}
+    table.insert(out[wrapper], raw)
     read = read + 1
   end
   local rest = body:gsub(entry, ""):gsub("%s", "")
@@ -416,14 +425,31 @@ end
 --- each one its raw value.
 local function test_every_raw_module_has_a_declaration()
   local in_c = assert(raw_modules_in((assert(Fs.read("core/store.c")))))
-  for wrapper, raw in pairs(in_c) do
-    assert(wrappers[wrapper] == raw, wrapper .. " is handed cosmic.internal." .. raw ..
-        ", which `wrappers` here names as " .. tostring(wrappers[wrapper]))
+  for wrapper, raws in pairs(in_c) do
+    local expected = merged[wrapper] or { wrappers[wrapper] }
+    assert(table.concat(raws, ",") == table.concat(expected, ","), wrapper .. " is handed cosmic.internal." ..
+        table.concat(raws, ", cosmic.internal.") .. ", which `wrappers` and `merged` here name as " ..
+        table.concat(expected, ", "))
   end
   for wrapper in pairs(wrappers) do
     assert(in_c[wrapper] ~= nil, wrapper .. " is no wrapper of core/store.c's raw_modules")
     assert(raw_behind(wrapper) ~= nil, wrapper .. " is handed no raw value " ..
         "(require it with `local type` at the top so it is in the closure)")
+  end
+  for wrapper, names in pairs(merged) do
+    assert(in_c[wrapper] ~= nil, wrapper .. " is no wrapper of core/store.c's raw_modules")
+    local combined = assert(raw_behind(wrapper), wrapper .. " is handed no raw value") as {string: any} -- cast: a raw value is a table of fields
+    -- A name two of the raw values share must be one value, or the
+    -- combined table (core/store.c's wrapper_raw) refuses to load.
+    local first = raw_module(names[1]) as {string: any} -- cast: as above
+    for key, value in pairs(raw_module(names[2]) as {string: any}) do -- cast: as above
+      assert(first[key] == nil or rawequal(first[key], value), wrapper .. ": " .. key .. " differs between the raw values")
+    end
+    for _, name in ipairs(names) do
+      for key, value in pairs(raw_module(name) as {string: any}) do -- cast: as above
+        assert(combined[key] == value, wrapper .. " is handed no " .. key .. " of cosmic.internal." .. name)
+      end
+    end
   end
 end
 

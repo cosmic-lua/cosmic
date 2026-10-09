@@ -9,7 +9,7 @@
 ---   out of it ([`Net.receive_listeners`] adopts them);
 --- - from descriptor 4, where the config says it is handed them, the
 ---   control streams of the connectors its starter started
----   ([`cosmic.sandbox.relay`]), which it adopts ([`Net.connector_from`]):
+---   ([`cosmic.sandbox.relay`]), which it adopts:
 ---   at 4 the name servers'; at 5 the table's, of the addresses a grant
 ---   names literally and the upstream proxy's; and at 6 the public one,
 ---   for what a granted name resolves to;
@@ -52,6 +52,7 @@
 --- never: it is told the addresses its starter resolved.
 
 local Config = require("cosmic.relay.config")
+local Connector = require("cosmic.internal.connector")
 local Log = require("cosmic.log")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
@@ -124,19 +125,27 @@ local function endpoints_of(rows: {Config.Endpoint}): {Net.Endpoint}
   return out
 end
 
+--- `rows` as the table a connector was started with.
+local function table_of(rows: {Config.Endpoint}): {Connector.Endpoint}
+  local out: {Connector.Endpoint} = {}
+  for i, row in ipairs(rows) do out[i] = { host = row.host, port = row.port } end
+  return out
+end
+
 --- The connector `config` says the relay is handed, adopted: what
 --- [`Relay.handed`] takes, and the name servers' connector, or nil where
 --- none is handed. Nil and why where one cannot be adopted.
 local function adopted(config: Config.Config): Relay.Handed | nil, Net.Connector | nil, string
   local handed: Relay.Handed = {}
   if config.table ~= nil or config.public then
-    local made, why = Net.connector_from(Config.connector_fd, config.table ~= nil and endpoints_of(config.table) or nil, config.public, Config.connect_ns)
+    local made, why = Connector.adopted(Config.connector_fd, config.table ~= nil and table_of(config.table) or nil, config.public,
+      Config.connect_ns)
     if made == nil then return nil, nil, "the connector: " .. why end
     handed.connector = made
   end
   local dns: Net.Connector
   if config.name_servers ~= nil then
-    local made, why = Net.connector_from(Config.name_server_fd, endpoints_of(config.name_servers), false,
+    local made, why = Connector.adopted(Config.name_server_fd, table_of(config.name_servers), false,
       config.name_server_wait_ns)
     if made == nil then return nil, nil, "the name servers' connector: " .. why end
     dns = made

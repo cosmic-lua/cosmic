@@ -106,7 +106,7 @@ for member, names in pairs(through_relay) do
 end
 allowed["cosmic.net.connector"] = "tested directly: the library's face of the native connector, " ..
   "which ResolveOptions.connector takes; its callers in the tree start the process with " ..
-  "Child.start_connector and adopt it with Net.connector_from instead"
+  "cosmic.internal.connector and adopt it there instead"
 allowed["cosmic.sandbox.restrict"] = "tested directly: it holds the process that calls it " ..
   "for good, so a worked example would hold the run that shows it; the test restricts " ..
   "a child of this program, and the harness holds its workers with it once the " ..
