@@ -6,6 +6,7 @@ local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Relay = require("cosmic.relay.server")
 local Test = require("cosmic.test")
+local Udp = require("build.udp_fixture")
 
 Test.policy{ loopback = { "127.0.0.1" } }
 
@@ -603,7 +604,7 @@ end
 local function test_a_lookup_that_is_not_answered_times_out(tmp: string)
   Poll.run(function()
     -- A socket nothing reads: the query is sent and never answered.
-    local silent = assert(Net.datagram(Net.udp("127.0.0.1", 0)))
+    local silent = assert(Udp.bind("127.0.0.1", 0))
     local rig = start(tmp, { grants = { "slow.test:80" }, timeouts = { resolve = Clock.ms(200) },
       resolve = { hosts_file = tmp .. "/hosts", servers = { { host = "127.0.0.1", port = silent.address.port } } } })
     local conn, head = connect_to(rig, "slow.test:80")
@@ -613,7 +614,7 @@ local function test_a_lookup_that_is_not_answered_times_out(tmp: string)
     local socks, code = socks_to(rig, "slow.test", 80)
     assert(code == 6, code)
     local _, _ = socks:close()
-    local _, _ = silent:close()
+    Udp.close(silent)
     finish(rig)
   end)
 end
@@ -623,7 +624,7 @@ end
 --- relay stops without waiting for the lookup's time.
 local function test_a_lookup_that_is_not_answered_stalls_only_its_own_connection(tmp: string)
   Poll.run(function()
-    local silent = assert(Net.datagram(Net.udp("127.0.0.1", 0)))
+    local silent = assert(Udp.bind("127.0.0.1", 0))
     local server = origin(echo)
     local port = server.port
     local rig = start(tmp, { grants = { "slow.test:80", "127.0.0.1:" .. port },
@@ -655,7 +656,7 @@ local function test_a_lookup_that_is_not_answered_stalls_only_its_own_connection
     local stopped = (Clock.monotonic_ns() - stopping) // 1000000
     assert(stopped < 1500, "the relay took " .. stopped .. " ms to stop with a lookup pending")
     waiting:cancel()
-    local _, _ = silent:close()
+    Udp.close(silent)
   end)
 end
 
@@ -663,7 +664,7 @@ end
 --- while another connection's lookup is answered at once.
 local function test_a_lookup_out_of_time_is_refused_while_another_is_answered(tmp: string)
   Poll.run(function()
-    local silent = assert(Net.datagram(Net.udp("127.0.0.1", 0)))
+    local silent = assert(Udp.bind("127.0.0.1", 0))
     local server = origin(echo)
     local port = server.port
     local rig = start(tmp, { grants = { "slow.test:80", "svc.test:" .. port, "127.0.0.1:" .. port },
@@ -686,7 +687,7 @@ local function test_a_lookup_out_of_time_is_refused_while_another_is_answered(tm
     assert(line:find("^HTTP/1.1 504 ") and line:find("resolving slow.test timed out after 300 milliseconds", 1, true), line)
     assert(waiting:join())
     local _, _ = conn:close()
-    local _, _ = silent:close()
+    Udp.close(silent)
     finish(rig, server)
   end)
 end

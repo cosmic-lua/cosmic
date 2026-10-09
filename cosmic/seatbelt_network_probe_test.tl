@@ -21,6 +21,7 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Test = require("cosmic.test")
+local Udp = require("build.udp_fixture")
 local sys = require("cosmic.sys")
 local type raw_process = require("cosmic.internal.process")
 
@@ -314,10 +315,9 @@ local function test_a_port_rule_reaches_its_port_and_no_other(tmp: string)
 end
 
 --- Whether a datagram one tool sent under `text` reached `socket`.
-local function udp_arrives(socket: Net.Datagram, text: string, tmp: string, port: integer, host: string): string
+local function udp_arrives(socket: Udp.Bound, text: string, tmp: string, port: integer, host: string): string
   local sent = run_under(tmp, text, {}, { "/bin/bash", "-c", "echo ping > /dev/udp/$1/$2", "bash", host, tostring(port) })
-  socket:set_timeout(Clock.ms(400))
-  local packet = socket:receive()
+  local packet = Udp.receive(socket, Clock.ms(400))
   return (packet ~= nil and packet.data:find("ping", 1, true) and "DELIVERED" or "not delivered") ..
     " (" .. verdict(sent) .. ")"
 end
@@ -325,9 +325,9 @@ end
 local function test_a_port_rule_and_udp(tmp: string)
   macos_only()
   local report = new_report()
-  local allowed <close> = assert(Net.datagram(Net.udp("127.0.0.1", 0)))
+  local allowed <close> = assert(Udp.bind("127.0.0.1", 0))
   local allowed_port = port_of(allowed.address)
-  local other <close> = assert(Net.datagram(Net.udp("127.0.0.1", 0)))
+  local other <close> = assert(Udp.bind("127.0.0.1", 0))
   local other_port = port_of(other.address)
   local text = profile(BASE, forms(allowed_port)[1].lines)
   local bare = profile(BASE, {})
@@ -340,18 +340,17 @@ local function test_a_port_rule_and_udp(tmp: string)
   assert(to_other:find("^not delivered") and to_other:find("DENIED"), "udp to another port was not denied\n" ..
       table.concat(report, "\n"))
   report[#report + 1] = "udp, no rule: " .. udp_arrives(allowed, bare, tmp, allowed_port, "127.0.0.1")
-  local v6 = Net.datagram(Net.udp("::1", allowed_port))
+  local v6 = Udp.bind("::1", allowed_port)
   if v6 ~= nil then
     report[#report + 1] = "udp [::1]:" .. allowed_port .. " (rule's number): " ..
       udp_arrives(v6, text, tmp, allowed_port, "::1")
-    v6:close()
+    Udp.close(v6)
   else
     report[#report + 1] = "udp ::1: no socket to send to"
   end
   -- nc speaks UDP too, which says whether it is the tool or the rule.
   local nc = run_under(tmp, text, {}, { "/bin/sh", "-c", "echo ping | /usr/bin/nc -n -u -w 1 127.0.0.1 " .. allowed_port })
-  allowed:set_timeout(Clock.ms(400))
-  local packet = allowed:receive()
+  local packet = Udp.receive(allowed, Clock.ms(400))
   report[#report + 1] = "nc -u to the rule's port: " .. (packet ~= nil and "DELIVERED" or "not delivered") ..
     " (" .. verdict(nc) .. ")"
   -- The control shows the sending works at all on this host.

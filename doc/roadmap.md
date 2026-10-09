@@ -237,10 +237,10 @@ promises lean on come first:
   already carries) where a "tcp" `Address` takes a numeric one; TLS
   over a connection, for the
   loopback server build/fetch_test.tl's https `TODO:` waits on;
-  datagrams ("udp", "unixgram") as a
-  socket of their own with `send_to` and `receive_from` over the same
-  `Address`; a [`Net.serve`] listener taking a listen's own options
-  (`backlog`); a listen that takes over a socket file a listener left
+  datagrams ("udp", "unixgram"): UDP sockets return with a design,
+  once an application caller needs them (the UDP a test needs
+  lives in build/udp_fixture.tl); a [`Net.serve`] listener taking a
+  listen's own options (`backlog`); a listen that takes over a socket file a listener left
   behind (`reclaim`, for a daemon restarting at its socket file); a
   [`Net.serve`] in several processes of this program, which take
   connections from the listeners it hands them; a connection's `peer`

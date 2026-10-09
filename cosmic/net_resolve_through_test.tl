@@ -17,6 +17,7 @@ local Sandbox = require("cosmic.sandbox")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
+local Udp = require("build.udp_fixture")
 local _ = require("build.standalone")
 local type raw_process = require("cosmic.internal.process")
 local type raw_socket = require("cosmic.internal.socket")
@@ -178,7 +179,7 @@ local function served(tmp: string, name: string, wait_ms: integer | string, befo
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     local port = listener.address.port
     -- The same port for UDP, where a lookup that sent a datagram would.
-    local udp = assert(Net.datagram(Net.udp("127.0.0.1", port), { timeout_ns = Clock.ms(20) }))
+    local udp = assert(Udp.bind("127.0.0.1", port))
     local serving = Poll.spawn(function()
       while true do
         local conn = listener:accept()
@@ -201,7 +202,7 @@ local function served(tmp: string, name: string, wait_ms: integer | string, befo
     end)
     local watching = Poll.spawn(function()
       while true do
-        local packet, why = udp:receive()
+        local packet, why = Udp.receive(udp, Clock.ms(20))
         if packet ~= nil then
           out.datagrams = out.datagrams + 1
         elseif why ~= Poll.TIMEOUT then
@@ -235,7 +236,7 @@ local function served(tmp: string, name: string, wait_ms: integer | string, befo
     serving:cancel()
     watching:cancel()
     assert(listener:close())
-    assert(udp:close())
+    Udp.close(udp)
   end)
   table.sort(out.queries)
   return out
@@ -703,13 +704,13 @@ end
 local function test_a_lookup_nobody_answers_stalls_no_other_task(tmp: string)
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, ""))
-  local silent = assert(Net.datagram(Net.udp("127.0.0.1", 0)))
+  local silent = assert(Udp.bind("127.0.0.1", 0))
   local found, why: {Net.Resolved} | nil, string
   local worst, took = ticking_beside(function()
     found, why = Net.resolve("silent.example.test", { timeout_ns = Clock.ms(600), servers = { { host = "127.0.0.1", port = silent.address.port } },
       hosts_file = hosts })
   end)
-  assert(silent:close())
+  Udp.close(silent)
   assert(found == nil and why == Poll.TIMEOUT, tostring(why))
   assert(took >= 500 and took < 4000, took .. " ms")
   assert(worst < 450, "another task waited " .. worst .. " ms behind the lookup")
@@ -765,13 +766,13 @@ end
 local function test_a_cancelled_lookup_closes_everything_it_held(tmp: string)
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, ""))
-  local silent = assert(Net.datagram(Net.udp("127.0.0.1", 0)))
+  local silent = assert(Udp.bind("127.0.0.1", 0))
   local waited, outcome, before, after = cancelled_lookup(
     { timeout_ns = Clock.seconds(30), servers = { { host = "127.0.0.1", port = silent.address.port } }, hosts_file = hosts })
   assert(outcome == Poll.CANCELLED, outcome)
   assert(waited < 1500, "a cancelled lookup took " .. waited .. " ms to end")
   assert(after == before, "a cancelled lookup left a descriptor open")
-  assert(silent:close())
+  Udp.close(silent)
 end
 
 --- The same through a connector, whose stand-ins for the sockets it was
