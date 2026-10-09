@@ -1206,11 +1206,9 @@
           if: "env.COSMIC_CI_SCOPE == 'full'",
           run: "cosmic-driver cosmic_ci/driver.tl platform checked",
         },
-        {
-          name: "check performance fixture histories on the checked core",
-          if: "env.COSMIC_CI_SCOPE == 'full'",
-          run: "cosmic-driver cosmic_ci/driver.tl platform performance-checked",
-        },
+        # Published before the performance fixture, whose verdicts go to
+        # fixtures.db: the run behind need not wait for it, and its failing
+        # leaves these verdicts, each keyed alone, reusable.
         {
           name: "keep the suite's verdicts for the run behind in the queue",
           if: "env.COSMIC_CI_SCOPE == 'full' && github.event_name == 'merge_group' && steps.checked-suite.outcome == 'success'",
@@ -1223,6 +1221,11 @@
             "retention-days": 1,
             overwrite: true,
           },
+        },
+        {
+          name: "check performance fixture histories on the checked core",
+          if: "env.COSMIC_CI_SCOPE == 'full'",
+          run: "cosmic-driver cosmic_ci/driver.tl platform performance-checked",
         },
         # A run that failed keeps what it restored too (`whole`).
         {
@@ -1592,6 +1595,46 @@
           "continue-on-error": true,
           env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}"},
           run: "cosmic-driver cosmic_ci/driver.tl prune-commit-verdicts",
+        },
+      ],
+    },
+
+    # The copies of main's verdicts under a commit, all of them, after a
+    # run of main's that saves verdicts failed
+    # (driver.tl invalidate-commit-verdicts): a cache entry is never
+    # overwritten, and a branch restores the entry under its base's
+    # commit before any other, so the pass a nightly's forced recheck
+    # took out of its database would still stand for every branch based
+    # on that commit. The legs' own saves have finished (`needs`), so the
+    # restore by prefix then takes the failed run's. Beside `prune`: the
+    # one other job whose token may write the cache.
+    invalidate: {
+      needs: ["platform", "checked", "seed"],
+      if: "always() && (github.event_name == 'push' || github.event_name == 'schedule')",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 5,
+      permissions: {contents: "read", actions: "write"},
+      steps: [
+        {
+          if: "github.ref == 'refs/heads/main' && contains(needs.*.result, 'failure')",
+          uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
+          with: {
+            "sparse-checkout": "/ci/\n/bin/cosmic-bootstrap\n/.github/scripts/cosmic-driver.sh\n/.github/actions/cosmic-driver/\n",
+            "sparse-checkout-cone-mode": false,
+            "persist-credentials": false,
+          },
+        },
+        {
+          name: "bootstrap the pinned CI driver",
+          if: "github.ref == 'refs/heads/main' && contains(needs.*.result, 'failure')",
+          uses: "./.github/actions/cosmic-driver",
+        },
+        {
+          name: "delete the verdicts saved under a commit",
+          if: "github.ref == 'refs/heads/main' && contains(needs.*.result, 'failure')",
+          "working-directory": "ci",
+          env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}", COMMIT: "${{ github.sha }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl invalidate-commit-verdicts",
         },
       ],
     },

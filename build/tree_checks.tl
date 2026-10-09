@@ -90,6 +90,8 @@ allowed["cosmic.sandbox.seatbelt.credentials_unmet"] = "called through cosmic.sa
   "as `grants` is"
 allowed["cosmic.sandbox.policy.system_profile"] = "the seam that lets a test draw the " ..
   "other host's \"system\" profile; rules.profile calls it with this host's"
+allowed["build.c.variants"] = "the ways the C check dumps a file, written out as build.zig " ..
+  "has no form to read them from; build/c/variants_test.tl holds them to it"
 allowed["cosmic.net.connector"] = "tested directly: the library's face of the native connector, " ..
   "which ResolveOptions.connector takes; its callers in the tree start the process with " ..
   "cosmic.internal.connector and adopt it there instead"

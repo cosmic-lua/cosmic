@@ -674,3 +674,53 @@ local function test_a_compiler_reads_no_path_it_was_not_given(tmp: string)
   assert(outcome.findings == nil, "the header was read")
   assert(outcome.trouble:find("AGENTS.md' file not found", 1, true), outcome.trouble)
 end
+
+--- A violation under a guard of one target or of the checked core is
+--- found there, with the variants it was found under named.
+local function guarded(tmp: string, condition: string): c.Outcome
+  assert(Fs.write(tmp .. "/case.c", '#include "lauxlib.h"\n#if ' .. condition ..
+      '\nint f(lua_State *L) { return (int)luaL_checkinteger(L, 1); }\n#endif\n'))
+  return c.check(root, { "case.c" }, tmp)[1]
+end
+
+local function test_a_violation_under_each_target_is_found(tmp: string)
+  for condition, variant in pairs({
+      ["1"] = "x86_64-linux-musl",
+      ["defined(__APPLE__)"] = "aarch64-macos",
+      ["defined(__aarch64__) && defined(__linux__)"] = "aarch64-linux-musl",
+      ["defined(COSMIC_CHECKED)"] = "x86_64-linux-musl checked",
+  }) do
+    local outcome = guarded(tmp, condition)
+    assert(outcome.findings ~= nil, outcome.trouble)
+    local found = only(outcome.findings, "narrowed-integer")
+    assert(#found == 1, condition .. ": " .. #found .. " findings")
+    local named = table.concat(found[1].variants, ",")
+    assert(named:find(variant, 1, true), condition .. " was found under " .. named)
+  end
+end
+
+--- Code no variant sees is checked once; a header's guard counts for the
+--- file that includes it.
+local function test_a_file_no_guard_reaches_is_checked_once(tmp: string)
+  assert(Fs.write(tmp .. "/case.c", "int total(void) { return 1; }\n"))
+  local outcome = c.check(root, { "case.c" }, tmp)[1]
+  assert(#outcome.variants == 1, table.concat(outcome.variants, ","))
+  assert(Fs.write(tmp .. "/guard.h", "#ifdef __APPLE__\n#endif\n"))
+  assert(Fs.write(tmp .. "/case.c", '#include "guard.h"\nint total(void) { return 1; }\n'))
+  outcome = c.check(root, { "case.c" }, tmp)[1]
+  assert(#outcome.variants == #c.variants - 1, table.concat(outcome.variants, ","))
+  assert(Fs.write(tmp .. "/guard.h", "#ifdef COSMIC_CHECKED\n#endif\n"))
+  outcome = c.check(root, { "case.c" }, tmp)[1]
+  assert(outcome.variants[#outcome.variants] == c.variants[#c.variants].name,
+    table.concat(outcome.variants, ","))
+  assert(#outcome.variants == 2, table.concat(outcome.variants, ","))
+end
+
+--- A target that cannot compile the file fails it, naming the target.
+local function test_a_variant_that_cannot_compile_a_file_is_named(tmp: string)
+  assert(Fs.write(tmp .. "/case.c",
+    "#ifdef __APPLE__\nint broken = ;\n#endif\nint total(void) { return 1; }\n"))
+  local outcome = c.check(root, { "case.c" }, tmp)[1]
+  assert(outcome.findings == nil)
+  assert(outcome.trouble:find("aarch64-macos: ", 1, true), outcome.trouble)
+end

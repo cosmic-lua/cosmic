@@ -132,6 +132,8 @@ local commands: {string:Command} = {
     usage = "", handler = ChangedPaths.command },
   ["prune-commit-verdicts"] = { about = "delete main's commit-keyed verdicts and the branches' compiles a day old",
     usage = "", handler = CommitVerdicts.prune_command },
+  ["invalidate-commit-verdicts"] = { about = "delete main's verdicts keyed by COMMIT, after that commit's run that saves them failed",
+    usage = "", handler = CommitVerdicts.invalidate_command },
   ["place-tree"] = { about = "move the checkout to the path this commit and leg choose, or back",
     usage = "[--name | --restore]", spec = PlaceTree.spec, options = PlaceTree.command },
   platform = { about = "run one phase of this worker's platform job",
