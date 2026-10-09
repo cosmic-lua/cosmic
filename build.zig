@@ -172,9 +172,9 @@ const own_c = [_][]const u8{ "-std=c11", debug_dir } ++ own_warnings;
 /// crypto subtree, the TLS and X.509 layer, curl's mbedtls backend and
 /// the core's own C -- is compiled with exactly these flags, so none of
 /// them can see a struct laid out differently from the one the library
-/// was built with. An edit to the header rebuilds every object that
-/// includes it: the compiler's dependency list, not the flag text, is
-/// what puts a header in a compile's cache key.
+/// was built with. Its directory is named by its contents, so an edit to
+/// it compiles again every file given that directory: mbedtls, curl and
+/// the core's own C ([`vendorLibraries`], [`core`]).
 const mbedtls_config = [_][]const u8{
     "-DTF_PSA_CRYPTO_CONFIG_FILE=\"mbedtls_cosmic_config.h\"",
     "-DMBEDTLS_CONFIG_FILE=\"mbedtls_cosmic_config.h\"",
@@ -433,6 +433,21 @@ const crypto_include_dirs = [_][]const u8{
     "drivers/builtin/src", "dispatch", "utilities",
     "platform",            "extras",
 };
+
+/// Those of [`crypto_include_dirs`] that hold the crypto library's public
+/// headers, all that curl and the core's own C read of it.
+const crypto_public_dirs = [_][]const u8{ "include", "drivers/builtin/include" };
+
+/// `names`, directories under `crypto`, the library's `tf-psa-crypto`.
+fn cryptoIncludes(
+    b: *std.Build,
+    crypto: std.Build.LazyPath,
+    comptime names: []const []const u8,
+) [names.len]std.Build.LazyPath {
+    var dirs: [names.len]std.Build.LazyPath = undefined;
+    for (&dirs, names) |*dir, name| dir.* = crypto.path(b, name);
+    return dirs;
+}
 
 const core_sources = [_][]const u8{
     "assertions.c",
@@ -875,7 +890,7 @@ pub fn build(b: *std.Build) void {
 
     for (targets) |t| {
         const resolved = b.resolveTargetQuery(t.query);
-        const vendor = vendorLibrary(b, t, release_configuration, resolved, sources);
+        const vendor = vendorLibraries(b, t, release_configuration, resolved, sources);
         const exe = observedCore(b, mapper, cores, t, release_configuration, resolved, sources, vendor);
         const out = b.addInstallFile(
             exe.getEmittedBin(),
@@ -957,7 +972,7 @@ pub fn build(b: *std.Build) void {
     sanitized.dependOn(analyzed);
     const checked_target = hostTarget(b);
     const checked_host = baselineTarget(b, checked_target.query);
-    const checked_vendor = vendorLibrary(b, checked_target, sanitized_configuration, checked_host, sources);
+    const checked_vendor = vendorLibraries(b, checked_target, sanitized_configuration, checked_host, sources);
     const checked = observedCore(b, mapper, sanitized, checked_target, sanitized_configuration, checked_host, sources, checked_vendor);
     const checked_install = b.addInstallFile(
         checked.getEmittedBin(),
@@ -1163,7 +1178,6 @@ fn analyze(
 /// with: the warnings, defines and include directories a core is built
 /// with, but for the tree's own, which a file finds beside it.
 fn addSyntaxFlags(b: *std.Build, run: *std.Build.Step.Run, sources: Sources) void {
-    const crypto = sources.mbedtls.path(b, "tf-psa-crypto");
     run.addArgs(&own_c);
     // `zig cc` passes options the analyzer has no use for.
     run.addArg("-Wno-unused-command-line-argument");
@@ -1179,18 +1193,7 @@ fn addSyntaxFlags(b: *std.Build, run: *std.Build.Step.Run, sources: Sources) voi
         b.fmt("-DCOSMIC_PORTABLE_RELEASE_CONFIGURATION_ID={d}", .{release_configuration.id}),
     });
     run.addDirectoryArg2(sources.config.mbedtls, .{ .prefix = "-I" });
-    run.addDirectoryArg2(sources.lua.path(b, "src"), .{ .prefix = "-I" });
-    run.addDirectoryArg2(sources.sqlite, .{ .prefix = "-I" });
-    run.addDirectoryArg2(sources.miniz, .{ .prefix = "-I" });
-    for (crypto_include_dirs) |dir| {
-        run.addDirectoryArg2(crypto.path(b, dir), .{ .prefix = "-I" });
-    }
-    run.addDirectoryArg2(sources.mbedtls.path(b, "include"), .{ .prefix = "-I" });
-    run.addDirectoryArg2(sources.bzip2, .{ .prefix = "-I" });
-    run.addDirectoryArg2(sources.xz.path(b, "src/liblzma/api"), .{ .prefix = "-I" });
-    run.addDirectoryArg2(sources.cares.path(b, "include"), .{ .prefix = "-I" });
-    run.addDirectoryArg2(sources.curl.path(b, "include"), .{ .prefix = "-I" });
-    run.addDirectoryArg2(sources.yyjson.path(b, "src"), .{ .prefix = "-I" });
+    for (libraryIncludes(b, sources)) |dir| run.addDirectoryArg2(dir, .{ .prefix = "-I" });
 }
 
 /// Every C file of the tree a core, a check or a helper is built from.
@@ -1321,7 +1324,7 @@ fn observedCore(
     configuration: Configuration,
     target: std.Build.ResolvedTarget,
     sources: Sources,
-    vendor: *std.Build.Step.Compile,
+    vendor: []const *std.Build.Step.Compile,
 ) *std.Build.Step.Compile {
     const first = core(b, target_record, configuration, target, sources, vendor, false, .first_link);
     const write_map = b.addRunArtifact(mapper);
@@ -1342,18 +1345,26 @@ fn observedCore(
     return second;
 }
 
-/// The vendored libraries of one core, compiled once for a target and
-/// configuration and linked by every core built from them: both links of
-/// an observed core, and the test fixture's hooked core. They are never
-/// instrumented, and never carry debug information even where the core's
-/// own C does (a first link), so no core's build compiles them again.
-fn vendorLibrary(
+/// One vendored library of a core, a static library of its own, appended
+/// to `libraries`: the module its C is added to, with only the include
+/// directories `includes` names, in order. An include directory is a flag
+/// of every file of its module, and a configuration header's is named by
+/// the header's contents, so a library that does not read a header is not
+/// compiled again when it changes.
+///
+/// A library is a compile of its own rather than a module imported into
+/// one compile: zig 0.17 keys a compilation by its root module's include
+/// directories, not by those of the C-only modules it imports, so a
+/// library imported as a module would not be compiled again when its
+/// configuration header's directory moves.
+fn vendorPart(
     b: *std.Build,
-    target_record: Target,
+    libraries: *std.ArrayList(*std.Build.Step.Compile),
     configuration: Configuration,
     target: std.Build.ResolvedTarget,
-    sources: Sources,
-) *std.Build.Step.Compile {
+    name: []const u8,
+    includes: []const std.Build.LazyPath,
+) *std.Build.Module {
     const mod = b.createModule(.{
         .target = target,
         .optimize = coreOptimize(configuration),
@@ -1361,16 +1372,37 @@ fn vendorLibrary(
         .strip = !configuration.sanitize,
         .sanitize_c = if (configuration.sanitize) .full else .off,
     });
-    vendorIncludes(b, mod, target_record, sources);
-    // c-ares, curl and mbedtls read their configuration headers from here.
-    // TODO: compile each vendored library as a module of its own, with only
-    // the include directories it reads: they are one module's flags now, so
-    // an edit to core/ares_config.h or core/curl_config.h still compiles
-    // all of vendor/ again, though the compiler's dependency list would
-    // recompile only the files that include it.
-    mod.addIncludePath(sources.config.ares);
-    mod.addIncludePath(sources.config.curl);
-    mod.addIncludePath(sources.config.mbedtls);
+    for (includes) |dir| mod.addIncludePath(dir);
+    const lib = b.addLibrary(.{
+        .name = b.fmt("cosmic-{s}", .{name}),
+        .linkage = .static,
+        .root_module = mod,
+    });
+    // See the core's own, at the end of `core`.
+    lib.link_function_sections = true;
+    lib.link_data_sections = true;
+    libraries.append(b.allocator, lib) catch @panic("OOM");
+    return mod;
+}
+
+/// The vendored libraries of one core, compiled once for a target and
+/// configuration and linked by every core built from them: both links of
+/// an observed core, and the test fixture's hooked core. They are never
+/// instrumented, and never carry debug information even where the core's
+/// own C does (a first link), so no core's build compiles them again.
+/// Each is a library of its own ([`vendorPart`]), with the include
+/// directories it reads: an edit to core/curl_config.h compiles curl
+/// again, to core/ares_config.h c-ares, and to
+/// core/mbedtls_cosmic_config.h mbedtls and curl, which reads its headers.
+fn vendorLibraries(
+    b: *std.Build,
+    target_record: Target,
+    configuration: Configuration,
+    target: std.Build.ResolvedTarget,
+    sources: Sources,
+) []const *std.Build.Step.Compile {
+    var libraries: std.ArrayList(*std.Build.Step.Compile) = .empty;
+    const config = sources.config;
     const lua = sources.lua;
     const sqlite = sources.sqlite;
     const miniz = sources.miniz;
@@ -1380,11 +1412,12 @@ fn vendorLibrary(
     const cares = sources.cares;
     const curl = sources.curl;
     const yyjson = sources.yyjson;
+    const crypto = mbedtls.path(b, "tf-psa-crypto");
 
-    // zig starts a library's files in the order they are added, so the
-    // longest go first: SQLite's amalgamation is the longest single compile
-    // by far (over 20 s released, 80 s under the checked core's sanitizer),
-    // then yyjson. Added after Lua's, they would start late and finish last.
+    // The libraries' compiles run beside one another; the longest are
+    // added first, so they are not the last to start: SQLite's
+    // amalgamation is the longest single compile by far (over 20 s
+    // released, 80 s under the checked core's sanitizer), then yyjson.
     //
     // SQLite's compile-time configuration, as flags rather than a
     // configuration header: a flag is part of the compile's cache key,
@@ -1417,7 +1450,7 @@ fn vendorLibrary(
         "-DSQLITE_ENABLE_DBSTAT_VTAB=1",
         "-DSQLITE_ENABLE_FTS5=1",
     };
-    mod.addCSourceFiles(.{
+    vendorPart(b, &libraries, configuration, target, "sqlite", &.{sqlite}).addCSourceFiles(.{
         .root = sqlite,
         .files = &.{"sqlite3.c"},
         .flags = sqlite_flags,
@@ -1428,8 +1461,9 @@ fn vendorLibrary(
     // compiled out: the incremental reader, file and FILE* I/O, and
     // JSON Pointer and Patch. The non-standard extensions stay, for
     // the JSON5 a caller asks for by name; every other read is RFC 8259.
-    mod.addCSourceFiles(.{
-        .root = yyjson.path(b, "src"),
+    const yyjson_src = yyjson.path(b, "src");
+    vendorPart(b, &libraries, configuration, target, "yyjson", &.{yyjson_src}).addCSourceFiles(.{
+        .root = yyjson_src,
         .files = &.{"yyjson.c"},
         .flags = &.{
             "-std=c11",
@@ -1465,8 +1499,9 @@ fn vendorLibrary(
     const lua_checked = lua_base ++ lua_checks;
     const lua_flags: []const []const u8 =
         if (configuration.sanitize) &lua_checked else &lua_base;
-    mod.addCSourceFiles(.{
-        .root = lua.path(b, "src"),
+    const lua_src = lua.path(b, "src");
+    vendorPart(b, &libraries, configuration, target, "lua", &.{lua_src}).addCSourceFiles(.{
+        .root = lua_src,
         .files = &lua_sources,
         .flags = lua_flags,
     });
@@ -1474,7 +1509,7 @@ fn vendorLibrary(
     // miniz reaches for fseeko/ftello, which are POSIX rather than C11.
     // Its zlib-compatible aliases are off: the core calls the mz_ names,
     // and the aliases are static wrappers every including file warns on.
-    mod.addCSourceFiles(.{
+    vendorPart(b, &libraries, configuration, target, "miniz", &.{miniz}).addCSourceFiles(.{
         .root = miniz,
         .files = &.{"miniz.c"},
         .flags = &.{
@@ -1496,7 +1531,7 @@ fn vendorLibrary(
     // nothing reachable calls BZ2_bzCompress. The K&R-flavored source predates
     // -Wall/-Wextra/-Werror by a wide margin, so it gets its own quiet
     // flag set rather than the core's.
-    mod.addCSourceFiles(.{
+    vendorPart(b, &libraries, configuration, target, "bzip2", &.{bzip2}).addCSourceFiles(.{
         .root = bzip2,
         .files = &.{
             "bzlib.c",   "blocksort.c", "compress.c",  "decompress.c",
@@ -1509,9 +1544,20 @@ fn vendorLibrary(
     // x86/arm64 BCJ filters, and the CRC-32/CRC-64/SHA-256 checks) --
     // see core/xz_config for why: the tree vendors no config.h of its
     // own, autoconf's usual job, so core/xz_config/config.h stands in
-    // for it, on an include path scoped to just these files.
+    // for it, on an include path of this library's alone.
     const xz_src = xz.path(b, "src");
-    mod.addCSourceFiles(.{
+    vendorPart(b, &libraries, configuration, target, "xz", &.{
+        config.xz,
+        xz_src.path(b, "common"),
+        xz_src.path(b, "liblzma/api"),
+        xz_src.path(b, "liblzma/common"),
+        xz_src.path(b, "liblzma/check"),
+        xz_src.path(b, "liblzma/lzma"),
+        xz_src.path(b, "liblzma/lz"),
+        xz_src.path(b, "liblzma/rangecoder"),
+        xz_src.path(b, "liblzma/delta"),
+        xz_src.path(b, "liblzma/simple"),
+    }).addCSourceFiles(.{
         .root = xz_src,
         .files = &.{
             "liblzma/check/check.c",
@@ -1555,8 +1601,12 @@ fn vendorLibrary(
     // [`mbedtls_config`]). The crypto files below are the ones that hold
     // code under that configuration; every other one compiles to nothing.
     const mbedtls_flags = [_][]const u8{ "-std=c11", debug_dir } ++ mbedtls_config;
-    const crypto = mbedtls.path(b, "tf-psa-crypto");
-    mod.addCSourceFiles(.{
+    const mbedtls_part = vendorPart(b, &libraries, configuration, target, "mbedtls", &(cryptoIncludes(b, crypto, &crypto_include_dirs) ++ [_]std.Build.LazyPath{
+        mbedtls.path(b, "include"),
+        mbedtls.path(b, "library"),
+        config.mbedtls,
+    }));
+    mbedtls_part.addCSourceFiles(.{
         .root = crypto,
         .files = &.{
             "core/psa_crypto.c",
@@ -1620,7 +1670,7 @@ fn vendorLibrary(
         },
         .flags = &mbedtls_flags,
     });
-    mod.addCSourceFiles(.{
+    mbedtls_part.addCSourceFiles(.{
         .root = mbedtls.path(b, "library"),
         .files = &mbedtls_tls_sources,
         .flags = &mbedtls_flags,
@@ -1640,7 +1690,14 @@ fn vendorLibrary(
         "-DHAVE_CONFIG_H",   "-D_GNU_SOURCE",
         "-D_DEFAULT_SOURCE",
     };
-    mod.addCSourceFiles(.{
+    const cares_part = vendorPart(b, &libraries, configuration, target, "cares", &.{
+        cares.path(b, "include"),
+        cares.path(b, "src/lib"),
+        cares.path(b, "src/lib/include"),
+        config.ares,
+    });
+    if (target_record.query.os_tag == .macos) cares_part.addIncludePath(config.darwin_compat);
+    cares_part.addCSourceFiles(.{
         .root = cares.path(b, "src/lib"),
         .files = &cares_sources,
         .flags = &cares_flags,
@@ -1660,62 +1717,37 @@ fn vendorLibrary(
         "-DHAVE_CONFIG_H", "-DBUILDING_LIBCURL",
         "-D_GNU_SOURCE",   "-D_DEFAULT_SOURCE",
     } ++ mbedtls_config;
-    mod.addCSourceFiles(.{
+    vendorPart(b, &libraries, configuration, target, "curl", &(cryptoIncludes(b, crypto, &crypto_public_dirs) ++ [_]std.Build.LazyPath{
+        mbedtls.path(b, "include"),
+        cares.path(b, "include"),
+        curl.path(b, "lib"),
+        curl.path(b, "include"),
+        config.curl,
+        config.mbedtls,
+    })).addCSourceFiles(.{
         .root = curl.path(b, "lib"),
         .files = &curl_sources,
         .flags = &curl_flags,
     });
-
-    const lib = b.addLibrary(.{
-        .name = "cosmic-vendor",
-        .linkage = .static,
-        .root_module = mod,
-    });
-    // See the core's own, at the end of `core`.
-    lib.link_function_sections = true;
-    lib.link_data_sections = true;
-    return lib;
+    return libraries.items;
 }
 
-/// Every include directory of the vendored libraries: the library's own
-/// compile reads them, and so does the core's C, which calls into them.
-fn vendorIncludes(
-    b: *std.Build,
-    mod: *std.Build.Module,
-    target_record: Target,
-    sources: Sources,
-) void {
-    mod.addIncludePath(sources.lua.path(b, "src"));
-    mod.addIncludePath(sources.sqlite);
-    mod.addIncludePath(sources.miniz);
-    mod.addIncludePath(sources.yyjson.path(b, "src"));
-    mod.addIncludePath(sources.bzip2);
-    // xz's own config.h stands in for autoconf's; see [`vendorLibrary`].
-    const xz_src = sources.xz.path(b, "src");
-    mod.addIncludePath(sources.config.xz);
-    mod.addIncludePath(sources.xz.path(b, "src/common"));
-    mod.addIncludePath(xz_src.path(b, "liblzma/api"));
-    mod.addIncludePath(xz_src.path(b, "liblzma/common"));
-    mod.addIncludePath(xz_src.path(b, "liblzma/check"));
-    mod.addIncludePath(xz_src.path(b, "liblzma/lzma"));
-    mod.addIncludePath(xz_src.path(b, "liblzma/lz"));
-    mod.addIncludePath(xz_src.path(b, "liblzma/rangecoder"));
-    mod.addIncludePath(xz_src.path(b, "liblzma/delta"));
-    mod.addIncludePath(xz_src.path(b, "liblzma/simple"));
-    const crypto = sources.mbedtls.path(b, "tf-psa-crypto");
-    for (crypto_include_dirs) |dir| {
-        mod.addIncludePath(crypto.path(b, dir));
-    }
-    mod.addIncludePath(sources.mbedtls.path(b, "include"));
-    mod.addIncludePath(sources.mbedtls.path(b, "library"));
-    mod.addIncludePath(sources.cares.path(b, "include"));
-    mod.addIncludePath(sources.cares.path(b, "src/lib"));
-    mod.addIncludePath(sources.cares.path(b, "src/lib/include"));
-    if (target_record.query.os_tag == .macos) {
-        mod.addIncludePath(sources.config.darwin_compat);
-    }
-    mod.addIncludePath(sources.curl.path(b, "lib"));
-    mod.addIncludePath(sources.curl.path(b, "include"));
+/// The include directories of the vendored libraries' public headers, which
+/// the core's own C reads to call into them, in the order a name is looked
+/// up. mbedtls's configuration header is not among them ([`core`]).
+fn libraryIncludes(b: *std.Build, sources: Sources) [crypto_public_dirs.len + 9]std.Build.LazyPath {
+    return [_]std.Build.LazyPath{
+        sources.lua.path(b, "src"),
+        sources.sqlite,
+        sources.miniz,
+        sources.yyjson.path(b, "src"),
+        sources.bzip2,
+        sources.xz.path(b, "src/liblzma/api"),
+    } ++ cryptoIncludes(b, sources.mbedtls.path(b, "tf-psa-crypto"), &crypto_public_dirs) ++ [_]std.Build.LazyPath{
+        sources.mbedtls.path(b, "include"),
+        sources.cares.path(b, "include"),
+        sources.curl.path(b, "include"),
+    };
 }
 
 /// The tree's own C files a core compiles, in order, before its block
@@ -1746,7 +1778,7 @@ fn core(
     configuration: Configuration,
     target: std.Build.ResolvedTarget,
     sources: Sources,
-    vendor: *std.Build.Step.Compile,
+    vendor: []const *std.Build.Step.Compile,
     portable_startup_test_hooks: bool,
     native_coverage: NativeCoverage,
 ) *std.Build.Step.Compile {
@@ -1762,12 +1794,20 @@ fn core(
         .strip = !configuration.sanitize and native_coverage != .first_link,
         .sanitize_c = if (configuration.sanitize) .full else .off,
     });
-    vendorIncludes(b, mod, target_record, sources);
+    for (libraryIncludes(b, sources)) |dir| mod.addIncludePath(dir);
     // mbedtls's headers name the library's configuration header, which is
     // not beside them. Only it: an edit to any other header of core/ is no
     // flag of this module, and moves no object it does not include.
+    // TODO: give the header's directory only to the files that include
+    // mbedtls's headers, in a module of their own, once zig keys a
+    // compilation by the include directories of a C-only module it imports
+    // (zig 0.17 keys only the root module's; see [`vendorPart`]): an edit
+    // to the header compiles every file of the core again, where only
+    // those read it.
     mod.addIncludePath(sources.config.mbedtls);
-    mod.linkLibrary(vendor);
+    // As archives, not `linkLibrary`, which would add each library's (empty)
+    // tree of installed headers to the include path of every file here.
+    for (vendor) |library| mod.addObjectFile(library.getEmittedBin());
 
     // The core sees the library through the same configuration it was
     // built with, or the headers would describe another library.

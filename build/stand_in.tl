@@ -42,7 +42,7 @@
 ---                      takes it, or `@F` for the one file F holds, and
 ---                      goes on. 0 and -1, which name no one process or
 ---                      group, fail
----     trap N           holds SIGINT and SIGTERM (`Child.guard`) and ends
+---     trap N           holds SIGINT and SIGTERM (`Signal.guard`) and ends
 ---                      with status N once one arrives: checked between
 ---                      commands and while it sleeps or waits; `trap -`
 ---                      holds them and goes on, as a shell's `trap ''`

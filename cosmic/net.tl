@@ -21,7 +21,7 @@
 --- most the object's timeout (no limit by default; [`set_timeout`]
 --- changes it), failing with [`Poll.TIMEOUT`], and ends with
 --- "interrupted", within a tenth of a second, when the innermost open
---- [`Child.guard`] catches SIGINT or SIGTERM, as [`cosmic.http`]'s do.
+--- [`Signal.guard`] catches SIGINT or SIGTERM, as [`cosmic.http`]'s do.
 ---
 --- In a task of [`Poll.run`] ([`cosmic.poll`]), a wait to connect, to
 --- accept, to read or to write waits through the run, so its other
@@ -41,7 +41,7 @@ local sys = require("cosmic.sys")
 local errors = require("cosmic.internal.errors")
 local Resolv = require("cosmic.internal.relay_resolv")
 local Connection = require("cosmic.internal.connection")
-local SignalGuard = require("cosmic.internal.signal_guard")
+local Signal = require("cosmic.signal")
 local Leaf = require("cosmic.internal.connector")
 
 --- The raw module behind this one lives under the reserved
@@ -327,7 +327,7 @@ end
 -- Stream.from_fd and Stream.to_fd answer over the socket
 -- ({ nonblocking = true, timeout_ns }), collapsing the write loop here into
 -- theirs, once the TODO in `waited` (cosmic/internal/connector.tl) is done: a wait outside a task here
--- ends at a signal a Child.guard caught ("interrupted", which net_test's
+-- ends at a signal a Signal.guard caught ("interrupted", which net_test's
 -- cases hold), which Poll.wait cannot see. Their `wait` option could
 -- carry `waited`, but `write` also sends through raw.send, which never
 -- raises SIGPIPE where sys.write may, and reads the timeout [`set_timeout`]
@@ -553,7 +553,7 @@ local resolved_through: function(name: string, opts: Net.ResolveOptions): {Net.R
 ---
 --- Fails with "name not found" (no such name), "name has no address",
 --- "name server failed" (an error or malformed answer),
---- [`Poll.TIMEOUT`], "interrupted" (an open [`Child.guard`] caught a
+--- [`Poll.TIMEOUT`], "interrupted" (an open [`Signal.guard`] caught a
 --- signal), or the system's words ("Connection refused" where every
 --- server refuses). A `name` that is empty, over 254 bytes or holds a
 --- NUL or a "%", and a `servers` list or `hosts_file` the resolver
@@ -991,7 +991,7 @@ local record Serving
   --- Waits for `stop` to cancel it.
   waiter: Poll.Task
   --- Holds SIGINT and SIGTERM for the run.
-  guard: SignalGuard.Guard
+  guard: Signal.Guard
   --- Waits on `guard`: its first signal stops the server, and the next
   --- ends the grace.
   watcher: Poll.Task
@@ -1166,7 +1166,7 @@ local function serving(spec: Net.ServeSpec): boolean, string
     signalled = false,
   }
   local s <close> = setmetatable(state, serving_mt)
-  local guard, guard_trouble = SignalGuard.open()
+  local guard, guard_trouble = Signal.guard()
   if guard == nil then return false, "net: signal guard: " .. guard_trouble end
   s.guard = guard
   local addresses: {Net.Address} = {}
@@ -1243,12 +1243,12 @@ end
 --- task of the run and Net.serve's return, until it waits.
 ---
 --- SIGINT and SIGTERM stop the server as [`Server.stop`] does: it holds
---- a [`Child.guard`] for its run, and the first signal of either kind
+--- a [`Signal.guard`] for its run, and the first signal of either kind
 --- stops it. One more while it drains ends `grace_ns` at once, the
 --- connections still open killed and closed. Where a signal stopped
 --- it, the guard is released, not closed, so Net.serve returns true
 --- without the signal delivered again; a caller that would know of it,
---- or die of it, holds a [`Child.guard`] of its own around the call,
+--- or die of it, holds a [`Signal.guard`] of its own around the call,
 --- which sees it too. A signal the server did not stop on, one in a
 --- drain [`Server.stop`] began, is delivered again as the guard closes,
 --- as it would be without it; so is any signal caught where a listener

@@ -212,11 +212,11 @@ local function test_a_wait_for_a_sql_only_tool_can_be_cancelled_without_consumin
   local old <close>, held = start(root, -1)
   assert(held == "held")
   local script = [[
-local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Signal = require("cosmic.signal")
 local sys = require("cosmic.sys")
 local Zig = require("build.zig")
-local guard <close> = assert(Child.guard())
+local guard <close> = assert(Signal.guard())
 local status = Zig.with_lock(%q, {}, function() error("entered a held lock") end)
 local signal = guard:take()
 guard:release()

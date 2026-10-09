@@ -1,5 +1,6 @@
 --- Source-tree database waits stop at a guard signal and release their locks.
 local Child = require("cosmic.child")
+local Signal = require("cosmic.signal")
 local type _ = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Stream = require("cosmic.stream")
@@ -64,7 +65,7 @@ local function test_work_begin_stops_the_long_wait_and_can_be_used_again(tmp: st
   local handle = assert(work.open(tmp))
   assert(work.commit(handle))
   local holder <close> = hold(tmp .. "/o/build.db")
-  local guard <close> = assert(Child.guard())
+  local guard <close> = assert(Signal.guard())
   local sender <close> = signaller()
   signal(sender)
   local begun, reason = work.begin(handle)
@@ -92,7 +93,7 @@ local function test_work_open_does_not_retry_a_cancelled_first_or_second_begin(t
   local complain = log.complain
   for _, retried in ipairs({ false, true }) do
     local notices = 0
-    local guard <close> = assert(Child.guard())
+    local guard <close> = assert(Signal.guard())
     local sender: Child.Handle | nil
     if retried then
       sender = signaller()
@@ -127,7 +128,7 @@ local function test_rebuild_sqlite_wait_releases_the_flock_after_cancellation(tm
   -- A local flock is apart from SQLite's fcntl lock. Other filesystems
   -- use the flock itself to exclude the SQLite holder, so either wait
   -- must still end at the guard and leave neither half held.
-  local guard <close> = assert(Child.guard())
+  local guard <close> = assert(Signal.guard())
   local sender <close> = signaller()
   signal(sender)
   -- Long past the signal, which the ready handshake leaves only its

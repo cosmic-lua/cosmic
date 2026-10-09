@@ -503,7 +503,7 @@ end
 --- one [`sys.poll`] for the whole time left, called again only where it
 --- returns early with nothing ready (a signal). With no `timeout_ns`,
 --- then, nothing ends the wait but the descriptor, a signal a
---- [`Child.guard`] caught included; a caller that needs one to break it
+--- [`Signal.guard`] caught included; a caller that needs one to break it
 --- waits as [`cosmic.net`] does outside a task, in the core's own wait.
 --- In a `<close>` handler of a task the run is ending -- killed, or
 --- closed as the run fails -- it raises, as every wait but a finalizer's
@@ -732,7 +732,7 @@ local function poll_once(timeout: integer)
   if #loop.fds == 0 and timeout < 0 then
     error("poll: every task waits on another: none can go on", 0)
   end
-  -- A signal a Child.guard catches only cuts this poll short, and the
+  -- A signal a Signal.guard catches only cuts this poll short, and the
   -- loop waits on: what one means -- end every wait, or stop taking
   -- work and drain it, as Net.serve does -- is the run's to say, by a
   -- task that waits on the guard (`g:wait`).

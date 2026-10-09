@@ -59,7 +59,7 @@ local record Http
   --- and the redirect refused fails the request. An empty list or any
   --- other entry raises (`follow = false` is how to take no redirect).
   ---
-  --- While the innermost open [`Child.guard`] has caught SIGINT or SIGTERM, an
+  --- While the innermost open [`Signal.guard`] has caught SIGINT or SIGTERM, an
   --- open still waiting for its response fails with "interrupted", and
   --- so does a body's `read` that has no data to give. The signal stays
   --- the guard's to read.
@@ -130,10 +130,10 @@ local record Http
     --- when it answers true the download stops, removes its temporary
     --- file, never creates `path`, and fails with "interrupted", the
     --- word a caught signal's failure says. It is how a caller holding
-    --- a [`Child.guard`] ends a download on SIGINT while data keeps
+    --- a [`Signal.guard`] ends a download on SIGINT while data keeps
     --- coming, which the guard alone ends only at a wait for it.
     -- TODO: drop `cancelled` once cosmic.internal.http's `open` and
-    -- `read` check the innermost Child.guard whenever they are called, not
+    -- `read` check the innermost Signal.guard whenever they are called, not
     -- only while they wait for data, so a guard alone ends a download
     -- whose body never makes them wait: the C waits do not read the
     -- guard when data is already there.

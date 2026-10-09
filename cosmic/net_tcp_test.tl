@@ -1,4 +1,4 @@
-local Child = require("cosmic.child")
+local Signal = require("cosmic.signal")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
@@ -94,7 +94,7 @@ local function test_a_connection_to_a_full_backlog_times_out_or_is_interrupted()
   end
   local at = "127.0.0.1:" .. server.address.port .. ": "
   assert(why == at .. Poll.TIMEOUT, why)
-  local guard = assert(Child.guard())
+  local guard = assert(Signal.guard())
   assert(sys.kill(sys.getpid(), sys.SIGINT))
   local conn, interrupted = Net.connect(server.address)
   assert(assert(guard:release()) == sys.SIGINT)

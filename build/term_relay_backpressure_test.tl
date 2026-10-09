@@ -5,7 +5,7 @@
 --- process, on a pty pair of the test's making; the program signals this
 --- process itself, as a user's kill would.
 
-local Child = require("cosmic.child")
+local Signal = require("cosmic.signal")
 local Clock = require("cosmic.clock")
 local Poll = require("cosmic.poll")
 local Test = require("cosmic.test")
@@ -65,7 +65,7 @@ end
 --- is gone and the blocking mode is as it was.
 local function test_a_signal_is_served_while_the_terminal_takes_no_output()
   local caller = caller_pty()
-  local outer <close> = assert(Child.guard())
+  local outer <close> = assert(Signal.guard())
   local script = string.format("(sleep 0.3; kill -TERM %d) & exec yes", sys.getpid())
   local started = Clock.monotonic_ns()
   local result, why = TermRelay.run({ "/bin/sh", "-c", script }, { timeout_ns = Clock.ms(BOUND_MS) },
