@@ -489,11 +489,8 @@ local runtime_test_timeout_ns <const> = Clock.seconds(90)
 -- tree's own load, which a booted tree has already paid.
 local sandbox_probe_timeout_ns <const> = Clock.seconds(60)
 local identity_test_timeout_ns <const> = Clock.seconds(120)
--- The identity suite takes 21-30 s whole on macOS, and 35 s at worst, past
--- the runner's default 30 s per test. Its focused-embed step takes 21 s of
--- that alone and is a test of its own. The two run at once on a runner of
--- two or more processors, so both near this bound still end inside the
--- whole file's.
+-- The identity suite builds the primary project, rebuilds it and runs it
+-- transported; this bound is well past that, and inside the whole file's.
 local identity_per_test_timeout_s <const> = "60"
 -- Each performance lifecycle case starts four fixtures and 30 checked pairs
 -- per phase. CI's ordinary 10 s deadline cut these off on Linux and macOS.

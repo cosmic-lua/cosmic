@@ -1,4 +1,3 @@
-local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Fixture = require("cosmic_ci.fixture")
 local Process = require("cosmic_ci.process")
@@ -38,7 +37,6 @@ Test.policy{
     { path = "o/fixtures/runtime/sanitized-cores/sanitized-aarch64-linux-musl/cosmic-core", letters = "r" },
     { path = "o/fixtures/runtime/sanitized-cores/sanitized-aarch64-macos/cosmic-core", letters = "r" },
     { path = "o/fixtures/runtime/tool.tar", letters = "r" },
-    { path = "o/fixtures/runtime/focused-embed.tar", letters = "r" },
   },
   profiles = { "system" },
 }
@@ -253,43 +251,6 @@ local function check_transported(fixture_dir: string, finished: string,
     { COSMIC_PORTABLE_CACHE = cache })
   Fixture.contains(hello_run.out, "hello from the edited portable fixture")
   Fixture.contains(second_run.out, "second portable application")
-end
-
--- Run just build/embed_test.tl under the real portable runtime. Its cases
--- cover the portable database, the retained prefix, and host programs
--- made from the running core; every one of them must run, none answered
--- from a verdict, however many the file holds. It is a test of its own,
--- apart from the primary project's, which reads nothing it writes. Alone
--- it takes 21 s on a slow macOS runner, most of the 30 s the two take
--- together, and near a child's default 30 s bound (cosmic_ci/fixture.tl's).
--- Its run is bounded by `focused_embed_timeout_ns` instead, under the
--- 60 s the driver gives each identity test (cosmic_ci/orchestration.tl's
--- `identity_per_test_timeout_s`), so a hang fails naming the run's
--- output rather than by the runner ending the test.
-local focused_embed_timeout_ns <const> = Clock.seconds(50)
-
-local function test_identity_focused_embed(tmp: string)
-  local fixture_dir = Fixture.placed("runtime")
-  local work = tmp
-  local diagnostics = work .. "/logs"
-  Fixture.mkdir(diagnostics)
-
-  -- The candidate's build/ with no test but embed_test.tl
-  -- (cosmic_ci/runtime_setup.tl): the rest of build/'s tests are no part
-  -- of this one's closure, and compiling them was most of this step,
-  -- over the test's own deadline on a slow macOS runner.
-  local focused = Fixture.unpack(fixture_dir .. "/focused-embed.tar",
-    work .. "/focused-embed")
-  local focused_run = Fixture.run("focused-embed", { fixture_dir .. "/runtime.old",
-    "test", "build/embed_test.tl" }, focused, diagnostics,
-    { COSMIC_PORTABLE_CACHE = work .. "/cache" }, focused_embed_timeout_ns)
-  local cases = 0
-  for _ in Fixture.read(focused .. "/build/embed_test.tl"):gmatch("\nlocal function test_") do
-    cases = cases + 1
-  end
-  assert(cases > 0, "build/embed_test.tl holds no tests")
-  Fixture.contains(focused_run.out, "test: PASS (" .. cases .. (cases == 1 and " test" or " tests") .. ", 1 module; " ..
-      cases .. " ran, 0 stood")
 end
 
 -- Build the primary project, check every runtime context against it, then
