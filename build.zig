@@ -482,7 +482,7 @@ const core_sources = [_][]const u8{
 /// `#include` lines, whether or not a `#if` keeps them, so a copy holds
 /// at least what any configuration reads; a quoted name found neither
 /// beside the includer nor in core/ is a library's, which an include path
-/// of the library's own tree finds (and keys). `closureCheck` holds the
+/// of the library's own tree finds (and keys). [`closureChecks`] holds the
 /// scan to the compiler's own list, in `analyze`.
 ///
 /// Only a quoted `#include` of a name is followed: one of a macro, a
@@ -1217,7 +1217,6 @@ fn closureChecks(b: *std.Build, step: *std.Build.Step, sources: Sources) void {
             .optimize = .debug,
         }),
     });
-    const root = std.fs.path.dirname(b.root.joinString(b.allocator, "build.zig") catch @panic("OOM")).?;
     const variants = [_]struct { name: []const u8, flags: []const []const u8 }{
         .{ .name = "host", .flags = &.{} },
         .{ .name = "aarch64-linux-musl", .flags = &.{ "-target", "aarch64-linux-musl" } },
@@ -1232,16 +1231,19 @@ fn closureChecks(b: *std.Build, step: *std.Build.Step, sources: Sources) void {
         deps.addArgs(variant.flags);
         addSyntaxFlags(b, deps, sources);
         // A file outside core/ finds core/'s headers as its copy does, by
-        // the header beside it that includes them.
-        if (!std.mem.startsWith(u8, path, "core/")) deps.addArg(b.fmt("-I{s}/core", .{root}));
+        // the header beside it that includes them. Each path of the tree
+        // is a lazy one, resolved where the tree is when the step runs: zig
+        // reuses a configured graph from another checkout (its key holds no
+        // build root), so a string naming the root would name that one.
+        if (!std.mem.startsWith(u8, path, "core/")) deps.addDirectoryArg2(b.path("core"), .{ .prefix = "-I", .make_absolute = true });
         deps.addArg("-MF");
         const list = deps.addOutputFileArg2(b.fmt("{s}-{s}.d", .{ variant.name, std.fs.path.basename(path) }), .{});
-        deps.addFileArg2(b.path(path), .{});
+        deps.addFileArg2(b.path(path), .{ .make_absolute = true });
         // The headers it reads are no input of this step, so it asks again
         // each run; the check below stands on the list.
         deps.has_side_effects = true;
         const check = b.addRunArtifact(checker);
-        check.addArg(root);
+        check.addFileArg2(b.path(path), .{ .make_absolute = true });
         check.addArg(path);
         check.addFileArg2(list, .{});
         check.addArgs(sources.own.closure(path).files);
