@@ -83,7 +83,7 @@ int cosmic_open_process (lua_State *L);
  * `relaunch`'s `cwd`. */
 void cosmic_process_entered (void);
 
-/* Whether the innermost open [`Child.guard`] has yet to read a SIGINT
+/* Whether the innermost open [`Signal.guard`] has yet to read a SIGINT
  * or SIGTERM caught since it opened or last read (`child_signal_read`):
  * a wait of core/http.c's asks it each round, so a signal ends a read
  * or an open that no data would. It reads the signal without taking

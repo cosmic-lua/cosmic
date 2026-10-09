@@ -9,6 +9,7 @@
 --- guard -- are in cosmic/child_test.tl.
 
 local Child = require("cosmic.child")
+local Signal = require("cosmic.signal")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
@@ -168,7 +169,7 @@ end
 
 local function test_non_group_timeout_returns_graceful_term_status(tmp: string)
   local ready = tmp .. "/ready"
-  local h = assert(Child.start(lua('local g = assert(require("cosmic.child").guard()) ' ..
+  local h = assert(Child.start(lua('local g = assert(require("cosmic.signal").guard()) ' ..
       FS .. 'assert(Fs.write((...), "ready")) while g:cancelled() == 0 do ' .. sleep(10) ..
       'end return 19', { ready }, { process_group = false })))
   local deadline = Clock.monotonic_ns() + Clock.seconds(10)
@@ -736,7 +737,7 @@ end
 --- A run made while the caller holds a guard, and nothing is sent,
 --- runs as it would alone, and the caller's guard catches nothing.
 local function test_a_run_inside_a_guard_runs()
-  local guard = assert(Child.guard())
+  local guard = assert(Signal.guard())
   local r = assert(Child.run(lua("return 5")))
   assert(r.code == 5, tostring(r.code))
   assert(guard:cancelled() == 0)

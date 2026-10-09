@@ -155,7 +155,7 @@ end
 --- holds it -- at once when it already does -- "busy" when another run
 --- held it past the wait, or nil and why when the lock could not be
 --- asked for at all (its file cannot be opened for writing, a
---- [`Child.guard`] caught a signal during the wait, this process holds
+--- [`Signal.guard`] caught a signal during the wait, this process holds
 --- another checkout's). A half taken is let go again whenever the
 --- other is not.
 function rebuild_lock.take(root: string, wait_ns: integer,

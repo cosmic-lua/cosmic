@@ -186,7 +186,7 @@ end
 --- ([`raw_socket.Lookup`]) to its end. In a task of [`Poll.run`] every
 --- wait goes through the run, so only that task waits for the lookup, up
 --- to `request.timeout_ns`; anywhere else it holds the thread, and a
---- signal an open [`Child.guard`] catches ends it. The lookup, and every
+--- signal an open [`Signal.guard`] catches ends it. The lookup, and every
 --- socket c-ares holds for it, is closed however the call ends, a task
 --- cancelled in its wait included.
 --- @param name string The host name or numeric address

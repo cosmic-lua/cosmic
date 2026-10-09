@@ -1155,7 +1155,7 @@ end
 --- signals while it does, are the raw process table's, and not the
 --- public [`cosmic.sys`]'s: a public `waitpid(-1)` would take the status
 --- of a child a `Child` handle owns from under it, and a public signal
---- guard would be a second one beside [`Child.guard`]'s. `poll` and
+--- guard would be a second one beside [`Signal.guard`]'s. `poll` and
 --- `set_nonblocking`, which wait on any descriptor, are the public
 --- table's alone.
 local function test_the_process_calls_are_off_the_public_table()

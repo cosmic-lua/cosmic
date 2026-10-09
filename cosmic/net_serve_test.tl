@@ -1,4 +1,4 @@
-local Child = require("cosmic.child")
+local Signal = require("cosmic.signal")
 local unix_socket = require("build.unix_socket")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -516,7 +516,7 @@ local function sigterm_stops_the_server_and_it_drains_at(path: string | nil)
   local answer = ""
   -- Closed only where an assertion fails first, which delivers the
   -- signal: released below otherwise.
-  local outer <close> = assert(Child.guard())
+  local outer <close> = assert(Signal.guard())
   local ok, why = Net.serve{
     listeners = { listener_at(path) },
     serve = function(conn: Net.Conn)
@@ -559,7 +559,7 @@ local function a_second_signal_ends_the_grace_at(path: string | nil)
   local stuck_why = ""
   local stuck: Client
   -- Closed only where an assertion fails first: released below otherwise.
-  local outer <close> = assert(Child.guard())
+  local outer <close> = assert(Signal.guard())
   assert(Net.serve{
     listeners = { listener_at(path) },
     serve = function(conn: Net.Conn)
@@ -685,7 +685,7 @@ end
 local function on_stop_runs_once_at_sigterm_at(path: string | nil)
   local calls = 0
   -- Closed only where an assertion fails first: released below otherwise.
-  local outer <close> = assert(Child.guard())
+  local outer <close> = assert(Signal.guard())
   assert(Net.serve{
     listeners = { listener_at(path) },
     serve = echo,
@@ -801,7 +801,7 @@ end
 local function a_second_signal_cancels_on_stops_wait_at(path: string | nil)
   local waited = ""
   -- Closed only where an assertion fails first: released below otherwise.
-  local outer <close> = assert(Child.guard())
+  local outer <close> = assert(Signal.guard())
   assert(Net.serve{
     listeners = { listener_at(path) },
     serve = echo,

@@ -11,6 +11,7 @@
 --- [`eval/arena`] runs eval/arena.tl: it requires `cosmic.*` modules
 --- only.
 local Child = require("cosmic.child")
+local Signal = require("cosmic.signal")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
@@ -367,7 +368,7 @@ function Solve.main(argv: {integer: string}): integer
   local started = Time.monotonic_ns()
   -- The run's own guard holds a SIGINT or SIGTERM until finished_at and
   -- exit_code are written, then delivers it as it closes.
-  local guard <close> = assert(Child.guard())
+  local guard <close> = assert(Signal.guard())
   local result, trouble = Child.run(command, {
     env = env,
     cwd = arena .. "/project",

@@ -1,7 +1,7 @@
 --- Maintenance of explicitly named shared-cache files. The running tool owns
 --- their formats; neither a candidate project nor a cache writer is loaded.
 
-local Child = require("cosmic.child")
+local Signal = require("cosmic.signal")
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
@@ -326,7 +326,7 @@ end
 --- Canonical rows, not pages. This framing is the existing CI save identity:
 --- file basename, columns in cid order, tables/rows sorted, SQLite cell kinds.
 --- A partial traversal never produces a fallback byte digest.
-local function feed_rows(hasher: Hash.Hasher, path: string, guard: Child.Guard): boolean, string
+local function feed_rows(hasher: Hash.Hasher, path: string, guard: Signal.Guard): boolean, string
   local opened, open_why = Sqlite.open(path, { writable = true, create = false })
   if opened == nil then return false, open_why end
   local database <close> = owned(opened)
@@ -378,7 +378,7 @@ local function feed_rows(hasher: Hash.Hasher, path: string, guard: Child.Guard):
   return close(database)
 end
 
-local function digest(paths: {string}, guard: Child.Guard): string | nil, string
+local function digest(paths: {string}, guard: Signal.Guard): string | nil, string
   if #paths == 0 then return nil, "" end
   local hasher = assert(Hash.hasher("sha256"))
   for _, path in ipairs(paths) do
@@ -392,7 +392,7 @@ end
 
 --- Merge two ordered key cursors; memory holds at most one key from each.
 local function new_keys(db: Sqlite.Handle, restored: Sqlite.Handle,
-                        name: string, guard: Child.Guard): integer | nil, string
+                        name: string, guard: Signal.Guard): integer | nil, string
   if restored == nil then return count(db, "SELECT count(*) FROM " .. quoted(name)) end
   local there, there_why = count(restored,
     "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = ?1", { { text = name } })
@@ -425,7 +425,7 @@ local function new_keys(db: Sqlite.Handle, restored: Sqlite.Handle,
 end
 
 local function fresh_keys(path: string, restored: string, expected: {string:Shape},
-                          guard: Child.Guard): integer | nil, string
+                          guard: Signal.Guard): integer | nil, string
   local opened, why = Sqlite.open(path, { writable = true, create = false })
   if opened == nil then return nil, why end
   local live <close> = owned(opened)
@@ -474,7 +474,7 @@ end
 --- this operation and the caller's save; a transaction cannot enforce that lease.
 function maintenance.run(options: maintenance.Options): maintenance.Result
   local report: maintenance.Report = { version = 1, files = {}, warnings = {} }
-  local guard, guard_why = Child.guard()
+  local guard, guard_why = Signal.guard()
   if guard == nil then
     report.warnings[1] = guard_why
     return { report = report, complete = false }
