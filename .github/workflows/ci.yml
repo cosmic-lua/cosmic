@@ -1206,11 +1206,9 @@
           if: "env.COSMIC_CI_SCOPE == 'full'",
           run: "cosmic-driver cosmic_ci/driver.tl platform checked",
         },
-        {
-          name: "check performance fixture histories on the checked core",
-          if: "env.COSMIC_CI_SCOPE == 'full'",
-          run: "cosmic-driver cosmic_ci/driver.tl platform performance-checked",
-        },
+        # Published before the performance fixture, whose verdicts go to
+        # fixtures.db: the run behind need not wait for it, and its failing
+        # leaves these verdicts, each keyed alone, reusable.
         {
           name: "keep the suite's verdicts for the run behind in the queue",
           if: "env.COSMIC_CI_SCOPE == 'full' && github.event_name == 'merge_group' && steps.checked-suite.outcome == 'success'",
@@ -1223,6 +1221,11 @@
             "retention-days": 1,
             overwrite: true,
           },
+        },
+        {
+          name: "check performance fixture histories on the checked core",
+          if: "env.COSMIC_CI_SCOPE == 'full'",
+          run: "cosmic-driver cosmic_ci/driver.tl platform performance-checked",
         },
         # A run that failed keeps what it restored too (`whole`).
         {
