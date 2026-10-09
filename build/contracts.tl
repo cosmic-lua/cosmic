@@ -180,6 +180,10 @@ local casts: {string: string} = {
     "the store's searcher hands cosmic.net's loader the raw socket " ..
     "table as its extra value, untyped as package.searchers returns it; " ..
     "cosmic.internal.socket declares that table, core/socket.h defines it",
+  ["build/udp_fixture.tl:raw_table"] =
+    "the store's searcher hands cosmic.net's loader the raw socket " ..
+    "table as its extra value, untyped as package.searchers returns it; " ..
+    "cosmic.internal.socket declares that table, core/socket.h defines it",
   ["build/confine.tl:policy_kind"] =
     "a record read raw, as the core reads it, so no metamethod answers for a field",
   ["build/confine.tl:plain_sandbox"] =

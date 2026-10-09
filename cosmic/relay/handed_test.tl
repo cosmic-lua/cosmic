@@ -13,6 +13,7 @@ local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Relay = require("cosmic.relay.server")
 local Test = require("cosmic.test")
+local Udp = require("build.udp_fixture")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 local _ = require("build.standalone")
@@ -346,7 +347,7 @@ local function test_the_upstream_is_resolved_once_and_an_ungranted_name_never(tm
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     local port = listener.address.port
-    local udp = assert(Net.datagram(Net.udp("127.0.0.1", port), { timeout_ns = Clock.ms(20) }))
+    local udp = assert(Udp.bind("127.0.0.1", port))
     local serving = Poll.spawn(function()
       while true do
         local conn = listener:accept()
@@ -368,7 +369,7 @@ local function test_the_upstream_is_resolved_once_and_an_ungranted_name_never(tm
     end)
     local watching = Poll.spawn(function()
       while true do
-        local packet, why = udp:receive()
+        local packet, why = Udp.receive(udp, Clock.ms(20))
         if packet ~= nil then
           datagrams = datagrams + 1
         elseif why ~= Poll.TIMEOUT then
@@ -393,7 +394,7 @@ local function test_the_upstream_is_resolved_once_and_an_ungranted_name_never(tm
     serving:cancel()
     watching:cancel()
     assert(listener:close())
-    assert(udp:close())
+    Udp.close(udp)
   end)
   table.sort(queries)
   assert(table.concat(lines, "|") == "upstream 127.0.0.1|api.test:443 200|api.test:443 200|api.test:443 200|" ..

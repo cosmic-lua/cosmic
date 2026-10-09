@@ -61,14 +61,6 @@ end
 --- uses them, by `<module>.<member>`, and why each is kept.
 local allowed: {string: string} = {}
 
--- TODO: remove this allowance once the sandbox resolver uses UDP.
-allowed["cosmic.net.datagram"] = "tested directly: the namespace DNS stub's UDP " ..
-  "prerequisite lands separately from the resolver that calls it"
-
--- TODO: remove this allowance with Net.udp, in the change that removes the
--- public datagram surface (#2859).
-allowed["cosmic.net.udp"] = "tested directly: the address Net.datagram takes, which only " ..
-  "tests build now that a resolver's servers are endpoints"
 allowed["cosmic.net.nameservers"] = "the public way to list the system's DNS servers for " ..
   "callers outside this tree; tested directly over a resolv.conf"
 

@@ -6,11 +6,12 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-local Net = require("cosmic.net")
+local _ = require("cosmic.net") -- in the closure: the scripts require it
 local Poll = require("cosmic.poll")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
+local Udp = require("build.udp_fixture")
 local _ = require("build.standalone")
 
 --- The program itself, which runs the lookup; a loopback alone answers.
@@ -115,7 +116,7 @@ local function lookup(tmp: string, name: string, timeout_ms: integer,
                       guarded?: boolean): {string}, {string}
   local script = tmp .. "/resolve.tl"
   assert(Fs.write(script, guarded and GUARDED or SCRIPT))
-  local server <close> = assert(Net.datagram(Net.udp("127.0.0.1", 0), { timeout_ns = Clock.ms(20) }))
+  local server <close> = assert(Udp.bind("127.0.0.1", 0))
   local started = this_program.program({ "--standalone", script, name,
     tostring(server.address.port), tostring(timeout_ms) },
     { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
@@ -127,7 +128,7 @@ local function lookup(tmp: string, name: string, timeout_ms: integer,
     if state.finished then
       result = state.result
     else
-      local packet, why = server:receive()
+      local packet, why = Udp.receive(server, Clock.ms(20))
       if packet ~= nil then
         local asked, qtype, question_end = question(packet.data)
         assert(asked ~= nil, "a malformed query")
@@ -135,7 +136,7 @@ local function lookup(tmp: string, name: string, timeout_ms: integer,
         if guarded and #seen == 1 then assert(child:stop(sys.SIGINT)) end
         local reply = serve(asked, qtype)
         if reply ~= nil then
-          assert(server:send(response(packet.data, reply, question_end), packet.address))
+          assert(Udp.send(server, response(packet.data, reply, question_end), packet.address))
         end
       else
         assert(why == Poll.TIMEOUT, why)
