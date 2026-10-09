@@ -1,6 +1,7 @@
 --- The verdicts main saves under each commit, for a branch based on it:
 --- [`merge_base`], which finds the main commit a run's tree grew from, and
---- `prune`, which deletes those entries a day on, against the API's JSON
+--- `prune`, which deletes those entries a day on, and [`CommitVerdicts.invalidate`],
+--- which deletes them all once a run that saves them failed, against the API's JSON
 --- as the API answers it (cosmic_ci/github_fake.tl).
 local CommitVerdicts = require("cosmic_ci.commit_verdicts")
 local GithubFake = require("cosmic_ci.github_fake")
@@ -179,4 +180,45 @@ local function test_an_unreadable_environment_is_refused()
   end
   local fake = GithubFake.new(function(): string | nil return nil end)
   assert(CommitVerdicts.merge_base({ CALL_SECONDS = "soon" }, fake.host) == 2 and #fake.calls == 0)
+end
+
+--- The failed recheck's case: the entry the commit's first run saved is
+--- a minute old and still holds the pass the recheck took out of its own
+--- database, so `prune`, which waits a day, leaves it where a branch
+--- based on the commit restores it. `invalidate` deletes it, every host's
+--- (checked's too) and every commit's, and no entry keyed by content nor
+--- another cache's, which a restore by prefix takes after the exact key.
+local function test_an_invalidate_deletes_every_commit_keyed_verdict_entry()
+  local listed = pages(listing(
+    entry(1, "verdicts-leg-0123456789abcdef-f-sha-" .. SHA, 0.01),
+    entry(2, "verdicts-leg-0123456789abcdef-f-sha-" .. BASE, 200),
+    entry(3, "verdicts-leg-0123456789abcdef-f-d0d0d0", 50),
+    entry(4, "verdicts-leg-checked-0123456789abcdef-f-sha-" .. SHA, 2),
+    entry(5, "verdicts-leg-0123456789abcdef-f-sha-abc", 2),
+    entry(6, "compiles-branch-leg-0123abcd-d0d0d0", 50)))
+  local pruned = prune({}, listed)
+  assert(deleted(pruned) == "2 6", "prune keeps what is under a day old: " .. table.concat(pruned.calls, "\n"))
+  local fake = GithubFake.new(function(): string | nil return listed end)
+  local code = CommitVerdicts.invalidate({ REPOSITORY = "o/r" }, fake.host)
+  local said = GithubFake.text(fake.printed)
+  assert(code == 0, said)
+  assert(fake.calls[1] == "GET repos/o/r/actions/caches?key=verdicts-&per_page=100", fake.calls[1])
+  assert(deleted(fake) == "1 2 4", table.concat(fake.calls, "\n"))
+  assert(#fake.calls == 4, "it asks only for the verdicts: " .. table.concat(fake.calls, "\n"))
+  assert(said:find("pruned 3 commit-keyed verdict entries whatever their age (0 failed)", 1, true), said)
+end
+
+--- A listing it cannot read, or a delete that fails, fails nothing; an
+--- unreadable step refuses, asking nothing.
+local function test_a_failed_invalidate_fails_nothing()
+  local fake = GithubFake.new(function(): string | nil return nil end)
+  local code = CommitVerdicts.invalidate({ REPOSITORY = "o/r" }, fake.host)
+  assert(code == 0 and deleted(fake) == "" and GithubFake.text(fake.printed):find("none pruned", 1, true))
+  fake = GithubFake.new(function(): string | nil
+    return pages(listing(entry(1, "verdicts-leg-h-f-sha-" .. SHA, 1), entry(2, "verdicts-leg-h-f-sha-" .. BASE, 1)))
+  end, { "1" })
+  code = CommitVerdicts.invalidate({ REPOSITORY = "o/r" }, fake.host)
+  assert(code == 0 and deleted(fake) == "1 2" and GithubFake.text(fake.printed):find("(1 failed)", 1, true))
+  fake = GithubFake.new(function(): string | nil return nil end)
+  assert(CommitVerdicts.invalidate({ CALL_SECONDS = "soon" }, fake.host) == 2 and #fake.calls == 0)
 end

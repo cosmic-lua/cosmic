@@ -1,6 +1,7 @@
 --- The verdicts main saves under each commit, for a branch based on it:
 --- `merge-base`, which finds the main commit a run's tree grew from,
---- and `prune`, which deletes those entries a day on. Both ask the API
+--- `prune`, which deletes those entries a day on, and `invalidate`, which
+--- deletes them all after a failed run. All ask the API
 --- through [`Github.Host`] and never fail their step: a base not found,
 --- or an entry left, costs time or space, never a result.
 ---
@@ -35,6 +36,21 @@
 --- push to main (GH_TOKEN, with actions: write), against REPOSITORY. Each
 --- call is cut off after CALL_SECONDS. An entry left is only space, which
 --- the cache's own eviction reclaims.
+--- `invalidate`: deletes every copy of main's verdicts keyed by a commit,
+--- whatever its age, after a run that saves them failed. A cache entry
+--- cannot be overwritten, and the restore takes the exact key of a
+--- branch's base before any prefix: a forced recheck (the scheduled run
+--- stands on no verdict) that finds a test failing takes its passing row
+--- out of its own database, but its save under `<prefix>sha-<commit>`
+--- finds the key taken by the entry the commit's first run saved, which
+--- still holds the pass, and a branch based on the commit would restore
+--- that pass and stand on it. With the entries gone the restore takes
+--- the newest by prefix, which is the failed run's own save (the newest
+--- entry of the prefix, and so the one a main run restores). Every
+--- host's entries go, not only the failed leg's: the job cannot tell
+--- which leg failed, and an entry deleted costs a branch some verdicts
+--- to run again, never a result. ci.yml's `invalidate` job runs it after
+--- every job that saves.
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Github = require("cosmic_ci.github")
@@ -44,10 +60,12 @@ local Time = require("cosmic.time")
 local record CommitVerdicts
   merge_base: function(env: {string:string}, host: Github.Host): integer
   prune: function(env: {string:string}, host: Github.Host): integer
-  --- `driver.tl merge-base` and `prune-commit-verdicts`, in the process's
-  --- environment.
+  invalidate: function(env: {string:string}, host: Github.Host): integer
+  --- `driver.tl merge-base`, `prune-commit-verdicts` and
+  --- `invalidate-commit-verdicts`, in the process's environment.
   merge_base_command: function(argv: {string}): integer
   prune_command: function(argv: {string}): integer
+  invalidate_command: function(argv: {string}): integer
 end
 
 --- A whole number of `name` in `env`, `default` where it names none, nil
@@ -91,7 +109,7 @@ end
 --- names (by id), and says how many as `entry`, in the plural `entries`.
 --- `wanted` answers whether an entry of the listing is to go, nil where
 --- it cannot tell.
-local function prune(host: Github.Host, repository: string, call: integer, hours: integer,
+local function prune(host: Github.Host, repository: string, call: integer, age: string,
                      prefix: string, entry: string, entries: string, wanted: function(entry: {string:any}): boolean | nil)
   local pages = Github.ask(host, "repos/" .. repository .. "/actions/caches?key=" .. prefix .. "&per_page=100", true, call)
   local ids: {string} = {}
@@ -133,7 +151,7 @@ local function prune(host: Github.Host, repository: string, call: integer, hours
       failed = failed + 1
     end
   end
-  host.print("pruned " .. Plural.count(deleted, entry, entries) .. " older than " .. hours .. " h (" .. failed ..
+  host.print("pruned " .. Plural.count(deleted, entry, entries) .. " " .. age .. " (" .. failed ..
       " failed)")
 end
 
@@ -164,17 +182,31 @@ function CommitVerdicts.prune(env: {string:string}, host: Github.Host): integer
   end
   local repository = env.REPOSITORY or ""
   local cutoff = host.now() - hours * 3600
-  prune(host, repository, call, hours, "verdicts-", "commit-keyed verdict entry", "commit-keyed verdict entries", function(entry: {string:any}): boolean | nil
+  prune(host, repository, call, "older than " .. hours .. " h", "verdicts-", "commit-keyed verdict entry", "commit-keyed verdict entries", function(entry: {string:any}): boolean | nil
     local key = entry.key
     if not (key is string) then return nil end
     if not under_a_commit(key) then return false end
     return older(entry, cutoff)
   end)
-  prune(host, repository, call, hours, "compiles-branch-", "branch compiles entry", "branch compiles entries", function(entry: {string:any}): boolean | nil
+  prune(host, repository, call, "older than " .. hours .. " h", "compiles-branch-", "branch compiles entry", "branch compiles entries", function(entry: {string:any}): boolean | nil
     local key = entry.key
     if not (key is string) then return nil end
     if key:sub(1, 16) ~= "compiles-branch-" then return false end
     return older(entry, cutoff)
+  end)
+  return 0
+end
+
+function CommitVerdicts.invalidate(env: {string:string}, host: Github.Host): integer
+  local call, why = whole(env, "CALL_SECONDS", 15)
+  if call == nil then
+    local _, _ = Fs.put(Fs.stderr, "invalidate-commit-verdicts: " .. why .. "\n")
+    return 2
+  end
+  prune(host, env.REPOSITORY or "", call, "whatever their age", "verdicts-", "commit-keyed verdict entry", "commit-keyed verdict entries", function(entry: {string:any}): boolean | nil
+    local key = entry.key
+    if not (key is string) then return nil end
+    return under_a_commit(key)
   end)
   return 0
 end
@@ -187,6 +219,11 @@ end
 function CommitVerdicts.prune_command(_argv: {string}): integer
   local env = Env.all()
   return CommitVerdicts.prune(env, Github.live(env))
+end
+
+function CommitVerdicts.invalidate_command(_argv: {string}): integer
+  local env = Env.all()
+  return CommitVerdicts.invalidate(env, Github.live(env))
 end
 
 return CommitVerdicts

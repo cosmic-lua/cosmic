@@ -588,7 +588,14 @@ within days and evict the zig outputs (below), so ci.yml's `prune`
 job deletes those more than a day old on each push to main
 (`driver.tl prune-commit-verdicts`, with the one token in
 ci.yml that may write the cache, `actions: write`); a branch based on
-an older commit restores main's newest. A run that failed keeps what it
+an older commit restores main's newest. A cache entry is never
+overwritten and the exact key wins over a prefix, so a run of main that
+failed (the scheduled run's forced recheck can: it stands on no verdict)
+could not replace the entry under its commit, which still held the pass
+it took out of its own database. ci.yml's `invalidate` job therefore
+deletes every commit-keyed entry once a run of main that saves failed
+(`driver.tl invalidate-commit-verdicts`), and the restore takes the
+newest by prefix, which is the failed run's own save. A run that failed keeps what it
 restored with what it reached (`whole`). The compiles are saved only
 where the native build and suite passed.
 

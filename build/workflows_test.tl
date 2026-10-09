@@ -1998,8 +1998,38 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
     "prune cannot prune the cache, or may do more")
   for name, job in pairs(jobs) do
     local p = job.permissions as {string: string}
-    assert(name == "prune" or p == nil or p.actions ~= "write", "job " .. name .. " may write the cache")
+    assert(name == "prune" or name == "invalidate" or p == nil or p.actions ~= "write",
+      "job " .. name .. " may write the cache")
   end
+
+  -- The invalidate: the prune's twin for a failed run of main. A cache
+  -- entry is never overwritten and the restore takes the exact key of a
+  -- branch's base first, so the entry under a commit that a failed
+  -- recheck could not replace is deleted, once every job that saves
+  -- has finished, whatever its result, by main's push or the scheduled
+  -- run, and only where a job failed.
+  local invalidate = jobs.invalidate
+  assert(invalidate ~= nil, "no job deletes the verdicts under a commit after a failed run")
+  local ipermissions = invalidate.permissions as {string: string}
+  assert(ipermissions.actions == "write" and ipermissions.contents == "read",
+    "invalidate cannot delete from the cache, or may do more")
+  assert(invalidate["if"] == "always() && (github.event_name == 'push' || github.event_name == 'schedule')",
+    "invalidate runs on another event, or not after a failed job: " .. tostring(invalidate["if"]))
+  assert(table.concat(invalidate.needs as {string}, ",") == "platform,checked,seed",
+    "invalidate runs before a job that saves")
+  for _, need in ipairs(jobs.ci.needs as {string}) do
+    assert(need ~= "invalidate", "the join waits on invalidate")
+  end
+  local isteps = invalidate.steps as {{string: any}}
+  assert(#isteps == 3, "invalidate runs more than its checkout, its driver and its command")
+  for _, step in ipairs(isteps) do
+    assert(step["if"] == "github.ref == 'refs/heads/main' && contains(needs.*.result, 'failure')",
+      "invalidate runs a step off main or where no job failed: " .. tostring(step["if"]))
+  end
+  local command = isteps[3]
+  assert(command.run == "cosmic-driver cosmic_ci/driver.tl invalidate-commit-verdicts" and
+      command["working-directory"] == "ci" and command["continue-on-error"] == nil,
+    "invalidate runs another command: " .. tostring(command.run))
   assert(prune["if"] == "always() && github.event_name == 'push'",
     "prune runs on another event, or not after a failed job: " .. tostring(prune["if"]))
   assert(table.concat(prune.needs as {string}, ",") == "platform,checked,seed",
