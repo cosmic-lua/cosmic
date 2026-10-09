@@ -91,29 +91,32 @@ local function test_stage_keeps_what_main_would_save(tmp: string)
   assert(Fs.read(seed .. "/verdicts/verdicts.db") == "v" and not Fs.exists(seed .. "/build-cache"))
 end
 
---- The verdicts are kept under the commit too (`verdicts-sha`), the key
---- main's push saves them under for a branch based on it. That copy is
---- kept even where their digest names the entry the run restored, which
---- main saves under no key of its own; a run whose trim named no digest
---- keeps none.
-local function test_stage_keeps_the_verdicts_under_the_commit(tmp: string)
+--- The verdicts' entry is named under the commit too (`verdicts-sha`):
+--- a file of its key, under the key main's push saves it under for a
+--- branch based on it, which ends in the digest. That name is kept even
+--- where the digest names the entry the run restored, whose rows are
+--- then kept not at all, as main saves them under no key of their own;
+--- a run whose trim named no digest keeps none.
+local function test_stage_names_the_verdicts_under_the_commit(tmp: string)
   local seed, keys = stage(tmp, {
     VERDICTS_PREFIX = "verdicts-leg-h-f-", VERDICTS_DIGEST = "d0", VERDICTS_RESTORED = "verdicts-leg-h-f-d0",
     SHA = SHA,
   }, false)
-  assert(keys == "verdicts-sha=verdicts-leg-h-f-sha-" .. SHA .. "\n", keys)
-  assert(Fs.read(seed .. "/verdicts/verdicts.db") == "v")
+  assert(keys == "verdicts-sha=verdicts-leg-h-f-sha-" .. SHA .. "-d0\n", keys)
+  assert(Fs.read(seed .. "/verdicts-commit/key") == "verdicts-leg-h-f-d0\n")
+  assert(not Fs.exists(seed .. "/verdicts"), "the rows restored are kept again")
 
   seed, keys = stage(tmp, {
     VERDICTS_PREFIX = "verdicts-leg-h-f-", VERDICTS_DIGEST = "d1", VERDICTS_RESTORED = "verdicts-leg-h-f-d0",
     SHA = SHA,
   }, true)
   assert(keys == "verdicts=verdicts-leg-h-f-d1\nverdicts-sha=verdicts-leg-h-f-sha-" .. SHA ..
-      "\ndriver-checked=driver-checked-v2-leg-x\n", keys)
+      "-d1\ndriver-checked=driver-checked-v2-leg-x\n", keys)
   assert(Fs.read(seed .. "/verdicts/verdicts.db") == "v")
+  assert(Fs.read(seed .. "/verdicts-commit/key") == "verdicts-leg-h-f-d1\n")
 
   seed, keys = stage(tmp, { VERDICTS_PREFIX = "verdicts-leg-h-f-", VERDICTS_DIGEST = "", SHA = SHA }, false)
-  assert(keys == "" and not Fs.exists(seed .. "/verdicts"), keys)
+  assert(keys == "" and not Fs.exists(seed .. "/verdicts") and not Fs.exists(seed .. "/verdicts-commit"), keys)
 end
 
 local ZIG <const> = "zig-build-leg-v1-"
@@ -403,8 +406,9 @@ local function test_seed_reads_every_key_each_leg_stages(tmp: string)
       end
     end
     local _, keys = stage(tmp, env, marker ~= nil, marker)
-    -- Each cache the leg saves is named: the verdicts twice, and where
-    -- the leg is a platform one its compiles, zig outputs and marker.
+    -- Each cache the leg saves is named: the verdicts and their name
+    -- under the commit, and where the leg is a platform one its
+    -- compiles, zig outputs and marker.
     local _, count = keys:gsub("\n", "")
     assert(count == (leg.checked and 2 or 6), name .. ": " .. keys)
     local read = read_keys(tmp, ci, name, keys)
