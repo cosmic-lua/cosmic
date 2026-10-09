@@ -177,6 +177,24 @@ function embed.database(project: string, main: string): string | nil, string
     if not copied then
       return false, copy_trouble
     end
+    -- A binary written before `decl_imports` existed has no such table,
+    -- and one written by a tool that lacked the rows has an empty one:
+    -- the project's own rows fill in below for any module it holds
+    -- byte for byte.
+    local has_edges, edges_trouble = Sqlite.text_rows(binary,
+      "SELECT 1 FROM sqlite_master WHERE name = 'decl_imports'")
+    if has_edges == nil then
+      return false, edges_trouble
+    end
+    if #has_edges > 0 then
+      copied, copy_trouble = copy_rows(binary, out, "decl_imports",
+        { "path", "requires" },
+        "SELECT path, requires FROM decl_imports WHERE path LIKE 'cosmic.%' " ..
+          "ORDER BY path, requires")
+      if not copied then
+        return false, copy_trouble
+      end
+    end
     copied, copy_trouble = copy_rows(binary, out, "decls",
       { "path", "source" }, "SELECT path, source FROM decls ORDER BY path")
     if not copied then
@@ -259,6 +277,15 @@ function embed.database(project: string, main: string): string | nil, string
       "INSERT OR IGNORE INTO imports SELECT * FROM project.imports " ..
         "WHERE path IN (SELECT path FROM main.modules) " ..
         "ORDER BY path, requires",
+      "INSERT OR IGNORE INTO decl_imports SELECT d.path, d.requires " ..
+        "FROM project.decl_imports d WHERE " ..
+        "CASE WHEN EXISTS (SELECT 1 FROM main.decls x WHERE x.path = d.path) " ..
+        "THEN EXISTS (SELECT 1 FROM main.decls x JOIN project.decls y " ..
+        "ON y.path = x.path AND y.source = x.source WHERE x.path = d.path) " ..
+        "ELSE EXISTS (SELECT 1 FROM main.modules m JOIN project.modules p " ..
+        "ON p.path = m.path AND p.source_hash = m.source_hash " ..
+        "WHERE m.path = d.path) END " ..
+        "ORDER BY d.path, d.requires",
       "INSERT INTO catalog (kind, module, symbol, message, text, file, " ..
         "line) SELECT kind, module, symbol, message, " ..
         guidance_text:gsub("FROM docs", "FROM project.docs") .. ", file, line " ..

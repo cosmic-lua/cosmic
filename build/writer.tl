@@ -80,6 +80,25 @@ local insert_imports =
   "JOIN requires r ON r.source_hash = i.source_hash " ..
   "WHERE r.name IN (SELECT path FROM plan) ORDER BY p.path, r.ordinal"
 
+--- Every edge of the source the checker reads for a planned module or a
+--- declaration ([`build.schema`]'s `decl_imports`): the declaration's
+--- where there is one, as in [`insert_bound`], so the edges include those
+--- to names the plan does not hold. Each path also has the row with the
+--- empty name, so that a path with no edge is told from one the table
+--- knows nothing of.
+local insert_decl_imports =
+  "INSERT OR IGNORE INTO out.decl_imports (path, requires) " ..
+  "SELECT m.path, '' FROM (SELECT path FROM plan UNION SELECT path " ..
+  "FROM inputs WHERE kind = 'decl') m " ..
+  "UNION ALL " ..
+  "SELECT m.path, r.name FROM (SELECT path FROM plan UNION SELECT path " ..
+  "FROM inputs WHERE kind = 'decl') m " ..
+  "JOIN inputs i ON i.path = m.path " ..
+  "AND (i.kind = 'decl' OR NOT EXISTS (SELECT 1 FROM inputs d " ..
+  "WHERE d.path = i.path AND d.kind = 'decl')) " ..
+  "JOIN requires r ON r.source_hash = i.source_hash " ..
+  "ORDER BY 1, 2"
+
 --- A paired declaration supplies the documented interface and its aliases,
 --- just as it supplies the types a caller checks against. The implementation
 --- alone supplies executable rows, import edges, uses and errors.
@@ -311,6 +330,7 @@ local function project(handle: work.Handle,
   end
   statements[#statements + 1] = insert_modules
   statements[#statements + 1] = insert_imports
+  statements[#statements + 1] = insert_decl_imports
   statements[#statements + 1] = insert_bound
   statements[#statements + 1] =
     "INSERT INTO out.decls (path, source) SELECT path, deflate(source) FROM inputs " ..
@@ -568,6 +588,8 @@ local carry: {string} = {
   dropped_modules .. "INSERT INTO main.imports SELECT * FROM whole.imports " ..
     "WHERE path NOT IN dropped AND requires NOT IN dropped " ..
     "ORDER BY path, requires",
+  dropped_modules .. "INSERT INTO main.decl_imports SELECT * FROM whole.decl_imports " ..
+    "WHERE path NOT IN dropped ORDER BY path, requires",
   dropped_modules .. "INSERT INTO main.bound SELECT * FROM whole.bound " ..
     "WHERE path NOT IN dropped ORDER BY path, name",
   "INSERT INTO main.decls SELECT * FROM whole.decls ORDER BY path",

@@ -8,6 +8,8 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
+local ast = require("build.ast")
+local type Compiler = require("build.compiler")
 local docs = require("build.docs")
 local importer = require("build.importer")
 local teal = require("build.teal")
@@ -276,4 +278,105 @@ local function test_an_answered_error_names_no_docs()
   assert(trouble:find("argument 2: got number, expected integer -- 'as integer' converts", 1, true) ~= nil,
     trouble)
   assert(trouble:find("cosmic docs", 1, true) == nil, trouble)
+end
+
+--- A closure over what the program loads leaves out the names only a
+--- declaration requires: `decl_imports` is the checker's, and no
+--- closure reads it.
+local function test_a_closure_leaves_out_the_names_only_a_declaration_requires()
+  local databases = Store.databases()
+  local binary = databases[#databases]
+  local only = assert(Sqlite.text_rows(binary,
+    "SELECT DISTINCT d.requires FROM decl_imports d WHERE d.requires <> '' " ..
+      "AND NOT EXISTS (SELECT 1 FROM imports i WHERE i.requires = d.requires) " ..
+      "AND NOT EXISTS (SELECT 1 FROM modules m WHERE m.path = d.requires)"))
+  assert(#only > 0, "every name a declaration requires is a module the program holds")
+  local reached: {string:boolean} = {}
+  for _, name in ipairs(Store.closure({ "cosmic.json", "cosmic.archive" }, { types = true })) do
+    reached[name] = true
+  end
+  for _, row in ipairs(only) do
+    assert(not reached[row[1]], row[1] .. " is in a closure of modules it is no import of")
+  end
+end
+
+--- The stored edges are the ones the source holds: what parsing a
+--- standard-library module for its requires finds is what its rows say.
+local function test_stored_edges_equal_the_parsed_ones()
+  local databases = Store.databases()
+  local binary = databases[#databases]
+  local paths = assert(Sqlite.text_rows(binary,
+    "SELECT path FROM modules WHERE path LIKE 'cosmic.%' " ..
+      "UNION SELECT path FROM decls WHERE path LIKE 'cosmic.%' ORDER BY path"))
+  assert(#paths > 0)
+  for _, row in ipairs(paths) do
+    local name = row[1]
+    local source = assert(Store.source(name))
+    local parsed = assert(ast.parse(built, source, name))
+    local found = assert(ast.all_requires(built, parsed))
+    local set: {string:boolean} = {}
+    for _, required in ipairs(found) do set[required] = true end
+    local wanted: {string} = {}
+    for required in pairs(set) do wanted[#wanted + 1] = required end
+    table.sort(wanted)
+    local stored = assert(Sqlite.text_rows(binary,
+      "SELECT requires FROM decl_imports WHERE path = ?1 AND requires <> '' " ..
+        "ORDER BY requires",
+      { { text = name } }))
+    local got: {string} = {}
+    for index, edge in ipairs(stored) do got[index] = edge[1] end
+    assert(table.concat(got, ",") == table.concat(wanted, ","),
+      name .. ": stored " .. table.concat(got, ",") .. ", parsed " .. table.concat(wanted, ","))
+  end
+end
+
+--- A compile that reaches a standard-library module parses none of
+--- them to learn what they require, cold or warm.
+local function test_a_compile_does_not_parse_the_standard_library()
+  local root = assert(write_fixture("no-embedded-parse", {
+    ["main.tl"] = 'local Json = require("cosmic.json")\nreturn Json\n',
+  }))
+  local parse = ast.parse
+  local parsed: {string} = {}
+  ast.parse = function(compiler: Compiler, source: string, name: string)
+    if name:sub(1, 7) == "cosmic." then parsed[#parsed + 1] = name end
+    return parse(compiler, source, name)
+  end
+  local first, first_trouble = compile_fixture(root)
+  local second, second_trouble = compile_fixture(root)
+  ast.parse = parse
+  assert(first ~= nil, tostring(first_trouble))
+  assert(second ~= nil, tostring(second_trouble))
+  assert(#parsed == 0, "parsed " .. table.concat(parsed, ", "))
+end
+
+--- An edit to a standard-library source moves the key of a module that
+--- reaches it, whether it requires that module or a module that does, by
+--- the stored edges.
+local function test_an_edit_to_an_embedded_source_moves_the_key_of_what_reaches_it()
+  local function key_with(edited: string | nil): string
+    local root = assert(write_fixture("embedded-edit" .. tostring(edited), {
+      ["main.tl"] = 'local Json = require("cosmic.json")\nreturn Json\n',
+    }))
+    local source = Store.source
+    Store.source = function(name: string): string | nil, string
+      local text, trouble = source(name)
+      if text ~= nil and name == edited then
+        return text .. "\n-- edited\n", ""
+      end
+      return text, trouble
+    end
+    local result, trouble = compile_fixture(root)
+    Store.source = source
+    assert(result ~= nil, tostring(trouble))
+    for _, m in ipairs(result.modules) do
+      if m.path == "main" then return m.key end
+    end
+    error("main is not among the compiled modules")
+  end
+  local plain = key_with(nil)
+  assert(key_with(nil) == plain, "an unchanged tree moved a key")
+  assert(key_with("cosmic.json") ~= plain, "an edit to a required module kept the key")
+  assert(key_with("cosmic.internal.json") ~= plain,
+    "an edit to a module required by a required module kept the key")
 end
