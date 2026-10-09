@@ -64,6 +64,13 @@ local allowed: {string: string} = {}
 allowed["cosmic.net.nameservers"] = "the public way to list the system's DNS servers for " ..
   "callers outside this tree; tested directly over a resolv.conf"
 
+-- TODO: remove this allowance with Net.udp, in the change that removes the
+-- public datagram surface (#2859).
+allowed["cosmic.net.udp"] = "tested directly: the address Net.datagram takes, which only " ..
+  "tests build now that a resolver's servers are endpoints"
+allowed["cosmic.net.nameservers"] = "the public way to list the system's DNS servers for " ..
+  "callers outside this tree; tested directly over a resolv.conf"
+
 allowed["cosmic.relay.config.parse_addresses"] = "tested directly: the reading of Linux's " ..
   "interface tables over fixture text, which host_addresses makes of the host's own"
 -- TODO: drop this allowance and the next once build.analyzer and build.receivers attribute a
