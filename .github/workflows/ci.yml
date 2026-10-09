@@ -274,9 +274,15 @@
           run: "${{ matrix.prepare }}",
         },
 
+        # Restored by every run, saved by main's push and scheduled runs
+        # alone (COSMIC_CI_SAVES, "save the pinned zig" below), once per
+        # key: a branch or queue run that misses, as one that moves the pin
+        # does, fetches zig and keeps nothing, where a save per ref wrote a
+        # copy only that ref could read.
         {
-          name: "cache the pinned zig",
-          uses: "actions/cache@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          name: "restore the pinned zig",
+          id: "zig-restore",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/cache/cosmic/zig",
             # v2: installs are named by the pin's sha too (build/zig.tl's
@@ -676,6 +682,17 @@
           },
         },
 
+        # The install assemble verified, where main's run found none.
+        {
+          name: "save the pinned zig",
+          if: "always() && steps.driver.outcome == 'success' && steps.assemble.outcome == 'success' && env.COSMIC_CI_SAVES == 'true' && steps.zig-restore.outputs.cache-hit != 'true'",
+          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/cache/cosmic/zig",
+            key: "${{ steps.zig-restore.outputs.cache-primary-key }}",
+          },
+        },
+
         # Only after a check that ran and passed where no marker was found.
         {
           name: "save the CI driver check's marker",
@@ -1001,6 +1018,7 @@
         # What linux-x86_64's leg restores and saves, restored alone.
         {
           name: "restore the pinned zig",
+          id: "zig-restore",
           uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/cache/cosmic/zig",

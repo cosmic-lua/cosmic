@@ -47,9 +47,15 @@
   runs: {
     using: "composite",
     steps: [
+      # Every run restores it; only main's push and scheduled runs save it
+      # (below), so a branch's miss, as a branch that moves the pin has,
+      # fetches the driver and keeps nothing, where a save per branch and
+      # queue ref wrote a copy no other ref could read. GitHub lets a
+      # branch read main's caches but main read none of a branch's.
       {
-        name: "cache the pinned CI driver",
-        uses: "actions/cache@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+        name: "restore the pinned CI driver",
+        id: "restore",
+        uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
         with: {
           path: "${{ runner.temp }}/cache/cosmic/bootstrap",
           key: "cosmic-bootstrap-${{ hashFiles('ci/cosmic-driver.pin') }}",
@@ -70,6 +76,17 @@
         "working-directory": "ci",
         shell: "${{ inputs.shell }}",
         run: "sh ../.github/scripts/cosmic-driver.sh${{ inputs.zig-cache == 'true' && ' zig-cache' || '' }}",
+      },
+
+      # After the bootstrap has fetched and verified what was missing.
+      {
+        name: "save the pinned CI driver",
+        if: "steps.restore.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule')",
+        uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+        with: {
+          path: "${{ runner.temp }}/cache/cosmic/bootstrap",
+          key: "cosmic-bootstrap-${{ hashFiles('ci/cosmic-driver.pin') }}",
+        },
       },
     ],
   },
