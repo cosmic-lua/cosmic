@@ -189,9 +189,10 @@ Fixture.inherited = {
 --- other fixtures (`Orchestration.fixture`), but a tree a child builds (a
 --- fresh checkout's boot, the product rebuilding itself) is what a
 --- fixture checks compiles, and work another child or fixture left in
---- that file would stand in for it (fixed_point_test, self_rebuild_test's
---- docs verb). A case that checks a rebuild's way and not its compile
---- names a file of its own (self_rebuild_test's `seeded_compiles`).
+--- that file would stand in for it (fixed_point_test's compiler cases,
+--- self_rebuild_test's docs verb). A case that checks a rebuild's way and
+--- not its compile names a file of its own (self_rebuild_test's
+--- `seeded_compiles`, fixed_point_test's COSMIC_FIXTURE_SHARED_COMPILES).
 ---
 --- Nor does a `cosmic test` the child runs sandbox its workers
 --- (COSMIC_TEST_SANDBOX=0): what a fixture asserts of such a run is its
