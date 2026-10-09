@@ -24,6 +24,19 @@ local Plural = require("cosmic_ci.plural")
 local String = require("cosmic.string")
 
 local record Orchestration
+  --- A unit of fixture work for [`run_groups`]. `run` does it whole in this
+  --- process, in order with the rest (the serial path). `start` spawns it
+  --- ([`Runner.spawn`]) for the lanes; once it has ended `finish` is
+  --- given its reaped outcome, replays its retained log whole and records
+  --- it, and answers its status; `abandon` is given the outcome of a group
+  --- stopped before it ended, and replays what it logged.
+  record Group
+    name: string
+    run: function(): integer
+    start: function(): Runner.Running
+    finish: function(outcome: Runner.Outcome): integer
+    abandon: function(outcome: Runner.Outcome)
+  end
   stands: function(env: {string:string}): boolean
   harness_moved: function(root: string, base: string): boolean, string
   test_words: function(env: {string:string}): {string}
@@ -40,6 +53,10 @@ local record Orchestration
   darwin_modules: function(text: string): {string}
   darwin_words: function(words: {string}, modules: {string}): {string} | nil
   native_ran_every: function(text: string, code: integer): boolean
+  replay: function(out: string, err: string, to_out?: integer, to_err?: integer): boolean
+  fixture_lanes: function(env: {string:string}, cpus: integer): integer | nil, integer | nil
+  run_groups: function(high: Orchestration.Group, low: {Orchestration.Group},
+    lanes: boolean): integer
 end
 
 local function mkdir(path: string) assert(Fs.mkdirs(path)) end
@@ -361,9 +378,9 @@ local function named(name: string): string | nil
   return value
 end
 
-local function operation(c: Context, phase: string, command: {string},
-                         timeout: integer, cwd?: string, env?: {string:string}, output?: string,
-                         error_output?: string): integer
+local function request_for(c: Context, command: {string}, timeout: integer,
+                           cwd?: string, env?: {string:string}, output?: string,
+                           error_output?: string): Runner.Context, Runner.Request
   local runner: Runner.Context = { database = c.db, worker = c.worker,
     run = c.run, attempt = c.attempt, candidate = c.root }
   local child_environment: {string:string}
@@ -384,9 +401,16 @@ local function operation(c: Context, phase: string, command: {string},
   if not child_environment.COSMIC_AUTO_BOOT then
     child_environment.COSMIC_AUTO_BOOT = "0"
   end
-  return Runner.operation(runner, phase, { argv = command, cwd = cwd or c.root,
+  return runner, { argv = command, cwd = cwd or c.root,
     env = child_environment, timeout_ns = timeout,
-    output = output, error = error_output }).code
+    output = output, error = error_output }
+end
+
+local function operation(c: Context, phase: string, command: {string},
+                         timeout: integer, cwd?: string, env?: {string:string}, output?: string,
+                         error_output?: string): integer
+  local runner, request = request_for(c, command, timeout, cwd, env, output, error_output)
+  return Runner.operation(runner, phase, request).code
 end
 
 -- Work done in this process, recorded as an operation as a command is.
@@ -402,14 +426,26 @@ local function checked(c: Context, phase: string, command: {string},
   return operation(c, phase, command, timeout or 0, cwd, env)
 end
 
+--- Says a retained log whole, stdout then stderr (to `to_out` and `to_err`,
+--- the process's own by default), as `logged` does after its command. False,
+--- with the trouble said on stderr, when it could not.
+function Orchestration.replay(out: string, err: string, to_out?: integer,
+                              to_err?: integer): boolean
+  local replay_ok = Env.get("COSMIC_CI_SELFTEST_REPLAY_FAILURE") ~= "true"
+  if replay_ok then
+    replay_ok = Fs.put(to_out or Fs.stdout, read(out)) and
+      Fs.put(to_err or Fs.stderr, read(err))
+  end
+  if not replay_ok then Fs.put(Fs.stderr, "could not replay retained output\n") end
+  return replay_ok
+end
+
+local replay = Orchestration.replay
+
 local function logged(c: Context, phase: string, command: {string}, out: string,
                       err: string, timeout: integer, cwd?: string, env?: {string:string}): integer
   local status = operation(c, phase, command, timeout, cwd, env, out, err)
-  local replay_ok = Env.get("COSMIC_CI_SELFTEST_REPLAY_FAILURE") ~= "true"
-  if replay_ok then
-    replay_ok = Fs.put(Fs.stdout, read(out)) and Fs.put(Fs.stderr, read(err))
-  end
-  if not replay_ok then Fs.put(Fs.stderr, "could not replay retained output\n") end
+  local replay_ok = replay(out, err)
   if status ~= 0 then return status end
   assert(replay_ok, "could not replay retained output")
   return status
@@ -542,8 +578,11 @@ local function copy_flat_tl_dir(source: string, destination: string)
   end
 end
 
-local function fixture_project(c: Context, work: string): string
-  local project = work .. "/fixture-project"
+--- The fixture project beneath `work`, made afresh: the shared one, or
+--- where `group` is given (a fixture's source name) the group's own, so
+--- groups running at once never remove one another's.
+local function fixture_project(c: Context, work: string, group?: string): string
+  local project = work .. "/fixture-project" .. (group and "-" .. group or "")
   local driver_namespace = Fs.dirname(c.driver)
   local fixtures_source = Fs.dirname(driver_namespace) .. "/fixtures"
   assert(Fs.remove_tree(project))
@@ -716,41 +755,124 @@ local function place(project: string, placements: {Placement})
   end
 end
 
-local function fixture_test(c: Context, work: string, name: string,
-                            source: string, timeout_ns: integer, extra: {string:string},
-                            placements?: {Placement}): integer
+local record FixtureSpec
+  name: string
+  source: string
+  timeout_ns: integer
+  extra: {string:string}
+  placements: {Placement} | nil
+  --- Work done in this process just before the fixture starts.
+  setup: function() | nil
+end
+
+--- What a fixture's `cosmic test` is run with: made afresh by
+--- [`prepare_fixture`].
+local record Prepared
+  project: string
+  command: {string}
+  env: {string:string}
+  out: string
+  err: string
+end
+
+--- Makes the fixture `spec`'s project (a group's own where `group` is
+--- given, [`fixture_project`]), places its inputs and its diagnostics
+--- directory, and says what to run: `jobs` workers where given, else the
+--- runner's default of one per processor.
+local function prepare_fixture(c: Context, work: string, spec: FixtureSpec,
+                               group?: string, jobs?: integer): Prepared
+  local name, source = spec.name, spec.source
   assert(name:match("^[%w-]+$"), "invalid fixture test name")
   assert(source:match("^[%w_]+$"), "invalid fixture test source")
-  local project = fixture_project(c, work)
-  place(project, placements or {})
+  if spec.setup then spec.setup() end
+  local project = fixture_project(c, work, group)
+  place(project, spec.placements or {})
   local diagnostics = work .. "/fixture-test-diagnostics/" .. name
   mkdir(diagnostics)
   mkdir(diagnostics .. "/tmp")
-  local out, err = diagnostics .. "/test.out", diagnostics .. "/test.err"
   -- No --census: a fixture's run holds too few tests for its key parts
   -- to say much, and an unsandboxed one's are keyed by nothing.
-  local env = environment(extra)
-  local status = logged(c, "fixture: " .. name,
-    { assert(Proc.executable()), "test",
-      "fixtures/" .. source .. "_test.tl" }, out, err, timeout_ns, project,
-    Orchestration.fixture_run(source, env, diagnostics .. "/tmp",
-      work .. "/fixture-compiles.db"))
-  record_suite(c, "fixture " .. name, status, out)
+  local env = environment(spec.extra)
+  local command = { assert(Proc.executable()), "test" }
+  if jobs then
+    command[#command + 1] = "--jobs"
+    command[#command + 1] = tostring(jobs)
+  end
+  command[#command + 1] = "fixtures/" .. source .. "_test.tl"
+  return { project = project, command = command,
+    out = diagnostics .. "/test.out", err = diagnostics .. "/test.err",
+    env = Orchestration.fixture_run(source, env, diagnostics .. "/tmp",
+      work .. "/fixture-compiles.db") }
+end
+
+local function fixture_run_spec(c: Context, work: string, spec: FixtureSpec): integer
+  local prepared = prepare_fixture(c, work, spec)
+  local status = logged(c, "fixture: " .. spec.name, prepared.command,
+    prepared.out, prepared.err, spec.timeout_ns, prepared.project, prepared.env)
+  record_suite(c, "fixture " .. spec.name, status, prepared.out)
   return status
+end
+
+local function fixture_test(c: Context, work: string, name: string,
+                            source: string, timeout_ns: integer, extra: {string:string},
+                            placements?: {Placement}): integer
+  return fixture_run_spec(c, work, { name = name, source = source,
+    timeout_ns = timeout_ns, extra = extra, placements = placements })
+end
+
+--- The fixture `spec` as a [`Orchestration.Group`] for [`run_groups`]. Its
+--- project is its own (named for its source), and its `cosmic test` runs
+--- `jobs` workers where given. Its log is retained in files and said whole
+--- when the group ends, as `logged` says it, so the suite summary a reader
+--- or [`record_suite`] parses is unbroken by another group's output.
+local function fixture_group(c: Context, work: string, spec: FixtureSpec,
+                             jobs?: integer): Orchestration.Group
+  local prepared: Prepared | nil = nil
+  return {
+    name = spec.name,
+    run = function(): integer return fixture_run_spec(c, work, spec) end,
+    start = function(): Runner.Running
+      local made = prepare_fixture(c, work, spec, spec.source, jobs)
+      prepared = made
+      local runner, request = request_for(c, made.command, spec.timeout_ns,
+        made.project, made.env, made.out, made.err)
+      return Runner.spawn(runner, "fixture: " .. spec.name, request)
+    end,
+    finish = function(outcome: Runner.Outcome): integer
+      local made = assert(prepared, "fixture group finished before it started")
+      local replay_ok = replay(made.out, made.err)
+      if outcome.code == 0 then
+        assert(replay_ok, "could not replay retained output")
+      end
+      record_suite(c, "fixture " .. spec.name, outcome.code, made.out)
+      return outcome.code
+    end,
+    abandon = function(_: Runner.Outcome)
+      if prepared then replay(prepared.out, prepared.err) end
+    end,
+  }
 end
 
 -- Copy the exact selected candidate and controller into declared external
 -- inputs. Full program bytes key this fixture: it exercises carried modules,
 -- not only the native prefix. Release and checked runs keep distinct inputs.
+local function performance_spec(c: Context, work: string, kind: string, program: string): FixtureSpec
+  return {
+    name = "performance-" .. kind .. "-regression", source = "performance",
+    timeout_ns = performance_test_timeout_ns,
+    extra = { COSMIC_TEST_TIMEOUT = performance_per_test_timeout_s },
+    placements = { { kind = "performance", from = work .. "/performance-" .. kind .. "-inputs" } },
+    setup = function()
+      local inputs = work .. "/performance-" .. kind .. "-inputs"
+      mkdir(inputs)
+      assert(Fs.write(inputs .. "/program", read(program), 0x1ed))
+      write(inputs .. "/perf.tl", read(c.root .. "/build/perf.tl"))
+    end,
+  }
+end
+
 local function performance_fixture(c: Context, work: string, kind: string, program: string): integer
-  local inputs = work .. "/performance-" .. kind .. "-inputs"
-  mkdir(inputs)
-  assert(Fs.write(inputs .. "/program", read(program), 0x1ed))
-  write(inputs .. "/perf.tl", read(c.root .. "/build/perf.tl"))
-  return fixture_test(c, work, "performance-" .. kind .. "-regression", "performance",
-    performance_test_timeout_ns, {
-      COSMIC_TEST_TIMEOUT = performance_per_test_timeout_s,
-    }, { { kind = "performance", from = inputs } })
+  return fixture_run_spec(c, work, performance_spec(c, work, kind, program))
 end
 
 --- The checked core, verified on every leg -- its manifest entry in the
@@ -1521,6 +1643,86 @@ function Orchestration.seed_compiles(env: {string:string},
   return true, ""
 end
 
+--- The workers of the two lanes the fixtures run in at once
+--- ([`run_groups`]), high and low, when `env` asks for them
+--- (COSMIC_CI_FIXTURE_BUDGET=run) and `cpus` allow two: the high lane's
+--- `--jobs` is all processors but one, the low lane's one, so together they
+--- never claim more workers than processors. Nil when the fixtures run one
+--- after another, as they always did.
+function Orchestration.fixture_lanes(env: {string:string}, cpus: integer): integer | nil, integer | nil
+  if env.COSMIC_CI_FIXTURE_BUDGET ~= "run" or cpus < 2 then return nil, nil end
+  return cpus - 1, 1
+end
+
+--- Runs `high`, then each of `low`, one after another, and returns the first
+--- nonzero status (0 for all well), the rest not started. With `lanes`, `high`
+--- runs beside the low groups, which run in turn: whichever of the two
+--- lanes' groups ends first is reaped and its log said whole, so output
+--- never interleaves. Each group keeps the timeout it was spawned
+--- with. A nonzero status, a timeout or an error in either lane stops the
+--- other lane's group, process group included, and reaps it
+--- ([`Runner.stop`]) before this returns or raises; no group is left
+--- running or unobserved, and nothing is started after a failure. The caller
+--- does what must follow every group (the product's checks, attest)
+--- only on a 0.
+function Orchestration.run_groups(high: Orchestration.Group,
+                                  low: {Orchestration.Group}, lanes: boolean): integer
+  if not lanes then
+    local status = high.run()
+    if status ~= 0 then return status end
+    for _, group in ipairs(low) do
+      status = group.run()
+      if status ~= 0 then return status end
+    end
+    return 0
+  end
+  local active: {Runner.Running} = {}
+  local owner: {Runner.Running:Orchestration.Group} = {}
+  local in_low: {Runner.Running:boolean} = {}
+  local function begin(group: Orchestration.Group, is_low: boolean)
+    local running = group.start()
+    active[#active + 1] = running
+    owner[running] = group
+    in_low[running] = is_low
+  end
+  local status = 0
+  local next_low = 1
+  local ran, failure = pcall(function(): boolean
+    begin(high, false)
+    if low[1] then
+      begin(low[1], true)
+      next_low = 2
+    end
+    while #active > 0 and status == 0 do
+      local done = Runner.wait_any(active)
+      for index, running in ipairs(active) do
+        if running == done then
+          table.remove(active, index)
+          break
+        end
+      end
+      local group = owner[done]
+      status = group.finish(Runner.reap(done))
+      if status == 0 and in_low[done] and low[next_low] then
+        local following = low[next_low]
+        next_low = next_low + 1
+        begin(following, true)
+      end
+    end
+    return true
+  end)
+  for _, running in ipairs(active) do
+    local outcome = Runner.stop(running)
+    local abandoned, trouble = pcall(function(): boolean
+      owner[running].abandon(outcome)
+      return true
+    end)
+    if not abandoned and ran then ran, failure = false, trouble end
+  end
+  if not ran then error(failure, 0) end
+  return status
+end
+
 local function phase_fixtures(p: PlatformContext): integer
   local c = p.operation
   local target = p.target
@@ -1574,39 +1776,48 @@ local function phase_fixtures(p: PlatformContext): integer
       })
     if s ~= 0 then return s end
   end
-  s = fixture_test(c, work, "self-driven-regression", "self_driven",
-    self_driven_test_timeout_ns, {
+  -- What is left is independent of one another: each fixture has a
+  -- project of its own ([`fixture_group`]) and reads prepared inputs. Run
+  -- one after another, the one-test self-driven fixture leaves the
+  -- processors idle beside the small groups' tail (#2778); with
+  -- COSMIC_CI_FIXTURE_BUDGET=run it runs beside them in a lane of
+  -- processors - 1 workers, and they in one of 1, the total never more
+  -- than the processors ([`fixture_lanes`]). Each keeps its own timeout.
+  local high_jobs, low_jobs = Orchestration.fixture_lanes(Env.all(), Proc.cpu_count())
+  local launcher_placements: {Placement} = {
+    { kind = "product", from = product, only = { "prefix" } },
+    { kind = "launcher", from = contract .. "/launcher" } }
+  local high = fixture_group(c, work, { name = "self-driven-regression",
+    source = "self_driven", timeout_ns = self_driven_test_timeout_ns, extra = {
       COSMIC_FIXTURE_SOURCE = source,
       COSMIC_FIXTURE_PRODUCT = product,
       COSMIC_TEST_TIMEOUT = self_driven_per_test_timeout_s,
-    })
-  if s ~= 0 then return s end
-  s = fixture_test(c, work, "runtime-regression", "runtime",
-    runtime_test_timeout_ns, {},
-    { { kind = "product", from = product, only = { "prefix" } },
-      { kind = "runtime", from = runtime } })
-  if s ~= 0 then return s end
-  s = fixture_test(c, work, "launcher-regression", "launcher",
-    launcher_test_timeout_ns, {
-      COSMIC_FIXTURE_TARGET = target,
-    }, { { kind = "product", from = product, only = { "prefix" } },
-      { kind = "launcher", from = contract .. "/launcher" } })
-  if s ~= 0 then return s end
-  if Orchestration.noexec_fixture(target) then
-    s = fixture_test(c, work, "launcher-noexec-regression", "launcher_noexec",
-      launcher_noexec_test_timeout_ns, {
-        COSMIC_FIXTURE_TARGET = target,
-      }, { { kind = "product", from = product, only = { "prefix" } },
-        { kind = "launcher", from = contract .. "/launcher" } })
-    if s ~= 0 then return s end
+    } }, high_jobs)
+  local low: {Orchestration.Group} = {}
+  local function add(spec: FixtureSpec)
+    low[#low + 1] = fixture_group(c, work, spec, low_jobs)
   end
-  s = fixture_test(c, work, "identity-regression", "identity",
-    identity_test_timeout_ns, {
-      COSMIC_TEST_TIMEOUT = identity_per_test_timeout_s,
-    }, { { kind = "product", from = product, only = { "prefix" } },
-      { kind = "runtime", from = runtime } })
-  if s ~= 0 then return s end
-  s = performance_fixture(c, work, "release", product .. "/cosmic")
+  add({ name = "runtime-regression", source = "runtime",
+    timeout_ns = runtime_test_timeout_ns, extra = {},
+    placements = { { kind = "product", from = product, only = { "prefix" } },
+      { kind = "runtime", from = runtime } } })
+  add({ name = "launcher-regression", source = "launcher",
+    timeout_ns = launcher_test_timeout_ns,
+    extra = { COSMIC_FIXTURE_TARGET = target },
+    placements = launcher_placements })
+  if Orchestration.noexec_fixture(target) then
+    add({ name = "launcher-noexec-regression", source = "launcher_noexec",
+      timeout_ns = launcher_noexec_test_timeout_ns,
+      extra = { COSMIC_FIXTURE_TARGET = target },
+      placements = launcher_placements })
+  end
+  add({ name = "identity-regression", source = "identity",
+    timeout_ns = identity_test_timeout_ns,
+    extra = { COSMIC_TEST_TIMEOUT = identity_per_test_timeout_s },
+    placements = { { kind = "product", from = product, only = { "prefix" } },
+      { kind = "runtime", from = runtime } } })
+  add(performance_spec(c, work, "release", product .. "/cosmic"))
+  s = Orchestration.run_groups(high, low, high_jobs ~= nil)
   if s ~= 0 then return s end
   -- The product fixture ran on these bytes in assemble
   -- (product-verification); run again on the same bytes and inputs, it
