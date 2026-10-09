@@ -23,12 +23,15 @@
 --- THE CALLER'S TERMINAL is, where stdin is one, saved, put in raw mode
 --- for the run and restored on every way out: the program's exit, a
 --- failure, a raise and a signal this process catches. First the
---- sequences that undo what the filter let the program set (attributes,
---- scroll region, hidden cursor, alternate screen and the rest of the
---- private modes) are written, then the saved termios is put back;
---- nothing is flushed with `tcflush` -- see the TODO in `restore`. A
---- process ended by SIGKILL restores nothing, as with any program that
---- sets a terminal raw.
+--- saved termios is put back, then the sequences that undo what the filter
+--- let the program set (attributes, scroll region, hidden cursor,
+--- alternate screen and the rest of the private modes) are written for as
+--- long as the terminal takes them, `RESET_MS` at most, so a terminal that
+--- stopped taking output cannot keep it raw; nothing is flushed with
+--- `tcflush` -- see the TODO in `restore`. A process ended by SIGKILL (or
+--- a crash) restores nothing, as with any program that sets a terminal
+--- raw, and leaves the caller's output O_NONBLOCK as the run set it: the
+--- open file is shared with the caller's shell.
 ---
 --- THE WINDOW SIZE is the terminal's, set on the pty before the program
 --- starts and again whenever it is seen to change.
@@ -55,8 +58,19 @@
 --- The loop waits in [`sys.poll`] at most `TICK_MS` at a time, which is
 --- what every check that no descriptor announces is made at: the
 --- program's exit, a signal the guard caught and the caller's window.
---- Writes to the caller's terminal wait for it, so a terminal that stops
---- taking output (flow control) stops the loop; see the TODO in `run`.
+--- THE CALLER'S OUTPUT is non-blocking for the run (the open file's mode
+--- is put back as it was found, for it is shared with the caller's shell):
+--- what the program wrote and the notes are queued, at most `MOST_QUEUED`
+--- bytes, and written as the terminal takes them, in order. Above that
+--- nothing more is read from the program's pty or the notes pipe, so a
+--- terminal that stops taking output (flow control) makes the program wait
+--- on its own pty and leaves the loop serving signals, the program's exit
+--- and the window. Once a signal has been passed on, the program's output
+--- is read and dropped while the queue is full, for a program blocked on
+--- its pty cannot end where closing a tty waits for its output (macOS).
+--- After the program has ended, what is queued is written
+--- for as long as the terminal makes progress, `STALL_MS` at most, and
+--- dropped past that or on a signal.
 
 local Child = require("cosmic.child")
 local sys = require("cosmic.sys")
@@ -76,6 +90,15 @@ local MOST_PENDING <const> = 65536
 --- a program's last words, however much a process that kept the pty open
 --- goes on writing.
 local MOST_AFTER_EXIT <const> = 1024 * 1024
+--- The most bytes queued for the caller's terminal before nothing more is
+--- read for it.
+local MOST_QUEUED <const> = 1024 * 1024
+--- How long, once the program has ended, the queue may wait on a terminal
+--- that takes nothing before what is left is dropped.
+local STALL_MS <const> = 1000
+--- How long the sequences that undo the program's terminal modes are
+--- offered to a terminal that takes nothing.
+local RESET_MS <const> = 200
 
 --- The caller's own standard streams, as descriptors.
 local record Terminal
@@ -162,38 +185,49 @@ local record Restoring
   output: integer
   --- The pty's master, closed last.
   master: integer
+  --- The descriptors of the caller's output that `run` made non-blocking,
+  --- which are put back to blocking.
+  made_nonblocking: {integer}
   --- The caller's termios as it was, or nil until `run` has put the
   --- terminal in raw mode.
   saved: string | nil
   filter: TermFilter.Filter
 end
 
---- Writes all of `data` to `fd`, waiting when it is not ready. False and
---- why when `fd` fails.
-local function write_all(fd: integer, data: string): boolean, string
+--- Writes `data` to the non-blocking `fd`, waiting for room at most `limit_ms`
+--- in all: how much was written.
+local function write_within(fd: integer, data: string, limit_ms: integer): integer
   local at = 1
+  local waited = 0
   while at <= #data do
-    local count, why, errno = sys.write(fd, at == 1 and data or data:sub(at))
+    local count, _, errno = sys.write(fd, data:sub(at))
     if count ~= nil then
       at = at + count
     elseif errno == sys.EAGAIN then
+      if waited >= limit_ms then break end
       local _, _ = sys.poll({ fd }, { sys.POLLOUT }, TICK_MS)
+      waited = waited + TICK_MS
     elseif errno ~= sys.EINTR then
-      return false, why
+      break
     end
   end
-  return true, ""
+  return at - 1
 end
 
 local restoring_mt: metatable<Restoring> = {
   __close = function(self: Restoring)
-    local resets = self.filter:restore()
-    if resets ~= "" then
-      local _, _ = write_all(self.output, resets)
-    end
+    -- The termios first, which waits for nothing; the resets after, for
+    -- as long as the terminal takes them.
     if self.saved ~= nil then
       local _, _ = sys.tcsetattr(self.input, self.saved)
       self.saved = nil
+    end
+    local resets = self.filter:restore()
+    if resets ~= "" then
+      local _ = write_within(self.output, resets, RESET_MS)
+    end
+    for _, fd in ipairs(self.made_nonblocking) do
+      local _, _ = sys.set_nonblocking(fd, false)
     end
     local _, _ = sys.close(self.master)
     -- TODO: discard the caller's typed-ahead input here, once
@@ -249,24 +283,35 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
   local filter = TermFilter.new()
   local restoring <close>: Restoring = setmetatable({
     input = input, output = shown, master = master, saved = nil, filter = filter,
+    made_nonblocking = {},
   }, restoring_mt)
   local running <close> = started.child
   local nonblocking, nonblocking_why = sys.set_nonblocking(master, true)
   if not nonblocking then return nil, "terminal: " .. nonblocking_why end
+  -- The caller's output belongs to an open file shared with its shell and
+  -- every process beside it: its mode is put back as found (`restoring`),
+  -- and only a descriptor found blocking is touched.
+  local outputs: {integer} = { shown }
+  if notes ~= nil and errors ~= shown then outputs[2] = errors end
+  local found: {boolean} = {}
+  for number, fd in ipairs(outputs) do
+    local status, status_why = sys.fd_status(fd)
+    if status == nil then return nil, "terminal: " .. status_why end
+    found[number] = status & sys.O_NONBLOCK ~= 0
+  end
+  for number, fd in ipairs(outputs) do
+    if not found[number] then
+      local set, set_why = sys.set_nonblocking(fd, true)
+      if not set then return nil, "terminal: " .. set_why end
+      restoring.made_nonblocking[#restoring.made_nonblocking + 1] = fd
+    end
+  end
   if keys then
     local raw, raw_why = sys.tcraw(input)
     if not raw then return nil, "terminal: " .. raw_why end
     restoring.saved = saved
   end
 
-  -- TODO: make the caller's output non-blocking for the run, and restore
-  -- it, once cosmic.sys can read a descriptor's O_NONBLOCK (fd_flags
-  -- answers the descriptor's flags alone): the terminal's open file
-  -- description is shared with the caller's shell and every process
-  -- beside it, so setting the flag with no way to put back what it was
-  -- risks leaving the shell's terminal non-blocking. Until then a write
-  -- to a terminal that has stopped taking output (flow control) stops
-  -- this loop, signals included, until it takes it again.
   -- TODO: wake on SIGWINCH and catch SIGHUP, once Child.guard (or a
   -- cosmic.sys binding) can hold signals beyond SIGINT and SIGTERM: the
   -- caller's window is looked at every TICK_MS instead of when it changes,
@@ -282,6 +327,52 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
   -- Where only stdin is a terminal, a write that fails (a terminal open
   -- for reading alone) loses an echo, and ends nothing.
   local echo_only = shown == input and not sys.isatty(output) and not sys.isatty(errors)
+
+  -- What is to be shown the caller, in the order it came: the program's
+  -- output (`fatal`: a failing terminal ends the run) and the notes.
+  local record Queued
+    fd: integer
+    data: string
+    fatal: boolean
+  end
+  local queue: {Queued} = {}
+  local queued = 0
+
+  --- Writes what the caller's terminal takes of the queue, without waiting.
+  --- A write that fails drops its bytes, and ends the run where it was the
+  --- program's output and not an echo.
+  local function flush_queue(): integer
+    local written = 0
+    while queue[1] ~= nil do
+      local item = queue[1]
+      local count, why, errno = sys.write(item.fd, item.data)
+      if count ~= nil then
+        written = written + count
+        queued = queued - count
+        if count < #item.data then
+          item.data = item.data:sub(count + 1)
+          break
+        end
+        table.remove(queue, 1)
+      elseif errno == sys.EAGAIN then
+        break
+      elseif errno ~= sys.EINTR then
+        queued = queued - #item.data
+        table.remove(queue, 1)
+        if item.fatal and not echo_only then
+          failure = "terminal: writing the program's output: " .. why
+          break
+        end
+      end
+    end
+    return written
+  end
+
+  local function enqueue(fd: integer, data: string, fatal: boolean)
+    queue[#queue + 1] = { fd = fd, data = data, fatal = fatal }
+    queued = queued + #data
+    local _ = flush_queue()
+  end
 
   --- Writes what the master will take of `pending`.
   local function flush_pending(): boolean
@@ -316,12 +407,14 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
     if #answers > 0 and #pending + #answers <= MOST_PENDING then
       pending = pending .. answers
     end
-    if passed ~= "" then
-      local written, why = write_all(shown, passed)
-      if not written and not echo_only then
-        failure = "terminal: writing the program's output: " .. why
-        return -1
-      end
+    -- Once a signal is passed on, a full queue drops the program's output
+    -- instead of holding the program on its pty: a tty's last close waits
+    -- for its output to drain on macOS, so a program that cannot close its
+    -- pty cannot end, and the terminal that stopped taking output would
+    -- keep the run alive for good.
+    if passed ~= "" and not (signals > 0 and queued >= MOST_QUEUED) then
+      enqueue(shown, passed, true)
+      if failure ~= nil then return -1 end
     end
     return #data
   end
@@ -345,9 +438,7 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
     end
     local lines = TermRelay.note_lines(note_tail, data)
     note_tail = lines.tail
-    if lines.text ~= "" then
-      local _, _ = write_all(errors, lines.text)
-    end
+    if lines.text ~= "" then enqueue(errors, lines.text, false) end
     return #data
   end
 
@@ -379,11 +470,17 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
       break
     end
     local keys_fd = keys_open and #pending < MOST_PENDING and input or -1
-    local master_fd = (master_open or #pending > 0) and master or -1
-    local master_events = (master_open and sys.POLLIN or 0) | (#pending > 0 and sys.POLLOUT or 0)
-    local notes_fd = notes_open and notes or -1
-    local ready, poll_why = sys.poll({ keys_fd, master_fd, notes_fd }, { sys.POLLIN, master_events, sys.POLLIN },
-      TICK_MS)
+    -- Nothing is read for a terminal that has a full queue of output
+    -- waiting: the program waits on its pty instead. After a signal the
+    -- program's output is read and dropped (`relay_output`).
+    local room = queued < MOST_QUEUED
+    local reading_output = room or signals > 0
+    local master_events = (master_open and reading_output and sys.POLLIN or 0) | (#pending > 0 and sys.POLLOUT or 0)
+    local master_fd = master_events ~= 0 and master or -1
+    local notes_fd = notes_open and room and notes or -1
+    local out_fd = queue[1] ~= nil and queue[1].fd or -1
+    local ready, poll_why = sys.poll({ keys_fd, master_fd, notes_fd, out_fd },
+      { sys.POLLIN, master_events, sys.POLLIN, sys.POLLOUT }, TICK_MS)
     if ready == nil then
       failure = "terminal: waiting: " .. poll_why
       break
@@ -392,12 +489,15 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
       if ready[2] & sys.POLLOUT ~= 0 and #pending > 0 then
         local _ = flush_pending()
       end
-      if master_open and ready[2] & (sys.POLLIN | sys.POLLHUP | sys.POLLERR) ~= 0 then
+      if master_open and reading_output and ready[2] & (sys.POLLIN | sys.POLLHUP | sys.POLLERR) ~= 0 then
         local _ = relay_output()
       end
     end
     if ready[3] ~= 0 then
       local _ = relay_notes()
+    end
+    if ready[4] ~= 0 then
+      local _ = flush_queue()
     end
     if ready[1] ~= 0 then
       local typed, _, errno = sys.read(input, CHUNK)
@@ -412,28 +512,45 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
       end
     end
   end
-  if result ~= nil and master_open then
-    -- What the program wrote last is still in the master.
-    local budget = MOST_AFTER_EXIT
-    while budget > 0 do
-      local count = relay_output()
-      if count <= 0 then break end
-      budget = budget - count
-    end
-  end
-  if result ~= nil and notes_open then
+  -- The queue is written once the program has ended, and what the program
+  -- wrote last and the notes after it are read first. A terminal that
+  -- takes nothing for `STALL_MS`, or a signal, drops what is left.
+  local function settle(drain: boolean)
+    local out_budget = drain and result ~= nil and master_open and MOST_AFTER_EXIT or 0
     -- The program is settled, and its relay ended with it: what it wrote
-    -- last is in the pipe, which the caller's end of keeps open.
-    local budget = MOST_AFTER_EXIT
-    while budget > 0 do
-      local count = relay_notes()
-      if count <= 0 then break end
-      budget = budget - count
+    -- last is in the notes pipe, which the caller's end of keeps open.
+    local notes_budget = drain and result ~= nil and notes_open and MOST_AFTER_EXIT or 0
+    local stalled = 0
+    while true do
+      if guard:take() ~= 0 then break end
+      if failure == nil and queued < MOST_QUEUED then
+        if out_budget > 0 then
+          local count = relay_output()
+          out_budget = count > 0 and out_budget - count or 0
+        elseif notes_budget > 0 then
+          local count = relay_notes()
+          notes_budget = count > 0 and notes_budget - count or 0
+        end
+      end
+      local reading = out_budget > 0 or notes_budget > 0
+      if queue[1] == nil and not reading then break end
+      if failure ~= nil and queue[1] == nil then break end
+      if flush_queue() > 0 then
+        stalled = 0
+      elseif queue[1] ~= nil and (queued >= MOST_QUEUED or not reading) then
+        if stalled >= STALL_MS then break end
+        local _, _ = sys.poll({ queue[1].fd }, { sys.POLLOUT }, TICK_MS)
+        stalled = stalled + TICK_MS
+      end
     end
+    queue = {}
+    queued = 0
   end
+  settle(true)
   if note_tail ~= "" then
     -- A last line the relay did not end.
-    local _, _ = write_all(errors, TermRelay.note_lines(note_tail, "\n").text)
+    enqueue(errors, TermRelay.note_lines(note_tail, "\n").text, false)
+    settle(false)
   end
   if failure ~= nil then return nil, failure end
   return result, ""

@@ -283,4 +283,29 @@ do
   finish(caller)
 end
 
+-- A SIGTERM while the caller's terminal takes no output: the program floods
+-- it and nobody reads, so the relay's writes cannot be delivered. The signal
+-- is still served, the terminal's mode is as it was, and the terminal is
+-- restored without waiting for the output to drain.
+do
+  local caller = new_caller()
+  local blocking_before = (assert(sys.fd_status(caller.slave))) & sys.O_NONBLOCK
+  local child = start("echo flooding\nexec yes", { stdin = caller.slave, stdout = caller.slave, stderr = caller.slave })
+  -- The terminal's queue fills while nothing reads it; what the program wrote
+  -- before that is read here to know the run has begun.
+  wait_for(caller, "flooding", 30)
+  assert(sys.nanosleep(Clock.ms(500)))
+  assert(not restored(caller))
+  assert(child:stop(sys.SIGTERM))
+  local waited = Clock.monotonic_ns()
+  local result = assert(child:wait(Clock.seconds(10)))
+  assert(result.signal == sys.SIGTERM and not result.timed_out, "the sandbox did not end by SIGTERM while " ..
+      "the terminal took no output: " .. tostring(result.signal) .. "/" .. tostring(result.code))
+  assert(Clock.monotonic_ns() - waited < Clock.seconds(10))
+  assert(restored(caller), termios_note(caller, "the caller's termios was not restored"))
+  assert((assert(sys.fd_status(caller.slave))) & sys.O_NONBLOCK == blocking_before,
+    "the terminal's blocking mode was not put back")
+  finish(caller)
+end
+
 print("relay: PASS")

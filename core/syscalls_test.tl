@@ -102,6 +102,20 @@ local function test_open_and_close(tmp: string)
   failed(sys.close(fd))
 end
 
+--- `fd_status` shows O_NONBLOCK as `set_nonblocking` sets it, so a caller can
+--- put back what it found, and a closed descriptor fails with its errno.
+local function test_fd_status_shows_what_set_nonblocking_set(tmp: string)
+  local fd = assert(sys.open(tmp .. "/mode", sys.O_CREAT | sys.O_RDWR, 420))
+  assert((assert(sys.fd_status(fd))) & sys.O_NONBLOCK == 0)
+  assert(sys.set_nonblocking(fd, true))
+  assert((assert(sys.fd_status(fd))) & sys.O_NONBLOCK ~= 0)
+  assert(sys.set_nonblocking(fd, false))
+  assert((assert(sys.fd_status(fd))) & sys.O_NONBLOCK == 0)
+  assert(sys.close(fd))
+  local flags, why, errno = sys.fd_status(fd)
+  assert(flags == nil and why ~= "" and errno == sys.EBADF, tostring(why))
+end
+
 local function test_open_refuses_a_missing_path(tmp: string)
   failed_with(sys.ENOENT, sys.open(tmp .. "/missing", sys.O_RDONLY))
 end
