@@ -13,8 +13,16 @@ local importer = require("build.importer")
 local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
+local build_paths = require("build.paths")
 
 Test.policy{ grants = { { path = "core", letters = "r" }, { path = "o/cosmic.db", letters = "r" } } }
+
+--- `root`'s build directory ([`build.paths`]), made, with `root` made
+--- first where it is not there yet.
+local function build_dir(root: string): string
+  assert(Fs.mkdirs(root))
+  return (assert(build_paths.prepare(root)))
+end
 
 local built, load_trouble = teal.load()
 if built == nil then
@@ -70,9 +78,9 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
   assert(importer.derive(handle, true, built))
   local identities = assert(identity.record_identities(handle.db))
   local result = assert(importer.compile(handle, built, identities.compiler))
-  assert(writer.write_result(handle, root .. "/o/cosmic.db", result))
+  assert(writer.write_result(handle, build_dir(root) .. "/cosmic.db", result))
   work.close(handle)
-  local out = assert(Sqlite.open(root .. "/o/cosmic.db"))
+  local out = assert(Sqlite.open(build_dir(root) .. "/cosmic.db"))
   local compiled_by = assert(Sqlite.text_rows(out,
     "SELECT value FROM meta WHERE key = 'compiler'"))
   local binary: importer.Code = {

@@ -225,7 +225,8 @@ reads its words from the function it returns (`argv[1]`, `argv[2]`), runs
 as `--standalone` does and writes nothing beside it; add a `--write` for
 the output it makes. Standalone, it finds `cosmic.*` modules only: a script
 with modules of its own beside it takes `--set-env COSMIC_STANDALONE=0
---write .`, which builds the tree around it into `o/`.
+--write ~/.cache/cosmic/trees`, which builds the tree around it in its
+build directory there (under `COSMIC_BUILD_HOME` when that is set).
 
 `--closure` holds a script to the modules it needs and nothing of this
 program's own file: `cosmic sandbox --closure -- cosmic convert.tl in.csv

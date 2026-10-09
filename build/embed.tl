@@ -5,10 +5,10 @@
 --- with no `cosmic` beside it.
 ---
 --- A binary is a directory under `cmd/`: `cmd/<name>/main.tl` compiles
---- as `kind = "main"`, and `cosmic build` writes `o/bin/<name>` for
+--- as `kind = "main"`, and `cosmic build` writes `bin/<name>` in its build directory for
 --- each one the tree holds, after building the tree as `cosmic test`
 --- does; a tree with no `cmd/` builds and writes nothing. The project's
---- own projection, `o/cosmic.db`, carries the project and nothing of
+--- own projection, `cosmic.db`, carries the project and nothing of
 --- cosmic's; what the standard library needs at run time is read out of
 --- the running binary's own database, by handle, so no format of the
 --- executable is parsed here.
@@ -449,7 +449,7 @@ function embed.tree(root: string, host?: boolean, under?: {string}): {string} | 
 end
 
 --- `cosmic build [--host] [path...]`: the tree in the working directory,
---- and its executables under `o/bin/` -- only those whose `main.tl` is
+--- and its executables in its build directory's `bin/` -- only those whose `main.tl` is
 --- under one of the paths, when there are any. Ends in a verdict line
 --- that names what was written, or says why nothing was.
 local function run(argv: {integer:string}): integer
@@ -471,10 +471,9 @@ local function run(argv: {integer:string}): integer
     return 1
   end
   local outputs: {string} = {}
-  -- TODO: report where the build directory is once #2864's step 2 moves
-  -- it out of the tree, where o/ no longer names it.
+  local bin = build_paths.resolve(root).bin
   for _, name in ipairs(names) do
-    outputs[#outputs + 1] = "o/bin/" .. name .. (host and " (host)" or "")
+    outputs[#outputs + 1] = bin .. "/" .. name .. (host and " (host)" or "")
   end
   local wrote = #outputs > 0 and table.concat(outputs, ", ") or
     "no executable: no cmd/<name>/main.tl in the tree"

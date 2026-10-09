@@ -2,7 +2,7 @@
 --- sandboxed worker of a test whose module does not declare `store` is
 --- given at o/cosmic.db in the projection's place ([`build.test_sandbox`]),
 --- derived from the projection [`build.writer`] writes and kept by
---- `cosmic test` under o/stores by its address ([`build.test`]), so an
+--- `cosmic test` under the build directory's stores/ by its address ([`build.test`]), so an
 --- edit to a module outside the closure leaves the store as it was. A
 --- test's key holds the store by the digest of its bytes
 --- ([`build.declared_key`]'s `store_digest`), not by its address: the

@@ -18,7 +18,7 @@ local record coverage
 end
 
 --- Every executable line of `m`'s own source, hit or not: the form a
---- caller writes into `o/build.db`'s `coverage` table, one row per line,
+--- caller writes into `build.db`'s `coverage` table, one row per line,
 --- so a line never hit can be named and a percentage is a plain count
 --- over the result (`hit`/`#total`). The lines come from
 --- [`lines.executable_cached`], keyed by `m.source_hash` in `db`'s

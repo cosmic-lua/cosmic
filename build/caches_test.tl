@@ -22,8 +22,8 @@ local function test_a_cache_is_where_its_tool_puts_it()
     COSMIC_ZIG_GLOBAL_CACHE = "/g", ZIG_LOCAL_CACHE_DIR = "/l", COSMIC_PORTABLE_CACHE = "/p" })
   assert(table.concat(moved, " ") == "/h/.cache/cosmic/zig /g /h/.cache/cosmic/zig-project " ..
       "/l /h/.cache/cosmic/bootstrap /p", table.concat(moved, " "))
-  -- With no cache directory, zig's caches are the tree's own, under o/:
-  -- none of them is a host cache.
+  -- With no cache directory there is no build directory either, unless
+  -- COSMIC_BUILD_HOME names one, and so no zig cache.
   assert(#caches.all({ "zig" }, "/repo", {}) == 0)
   assert(#caches.all({ "nothing" }, "/repo", env) == 0)
 end

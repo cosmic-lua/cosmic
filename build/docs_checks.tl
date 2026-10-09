@@ -3,7 +3,7 @@
 --- renders (`rendered`), and the names those pages and the guides and
 --- help texts refer to (`references`).
 ---
---- Both read the tree's projection, `o/cosmic.db`, through
+--- Both read the tree's projection, `cosmic.db`, through
 --- [`build.docs`]'s own view marked as a public source: the view a
 --- project sees of the binary it builds with, so a page here is the
 --- page a user gets, made by the code that makes it.

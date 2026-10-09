@@ -14,9 +14,17 @@ local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 local String = require("cosmic.string")
 local Clock = require("cosmic.clock")
+local build_paths = require("build.paths")
 
 --- The program itself, which its tests start.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+
+--- `root`'s build directory ([`build.paths`]), made, with `root` made
+--- first where it is not there yet.
+local function build_dir(root: string): string
+  assert(Fs.mkdirs(root))
+  return (assert(build_paths.prepare(root)))
+end
 
 --- Every row `sql` answers of the database at `path`, a line each, and
 --- every row of every parse table of a working database.
@@ -132,7 +140,7 @@ end
 
 --- `parse_rows` of the checkout at `root`.
 local function parse_rows_of(root: string): string
-  local db = assert(Sqlite.open(root .. "/o/build.db"))
+  local db = assert(Sqlite.open(build_dir(root) .. "/build.db"))
   local out = parse_rows(db)
   assert(db:close())
   return out
@@ -140,7 +148,7 @@ end
 
 --- The line `cosmic docs` gives `symbol` of the checkout at `root`.
 local function doc_line(root: string, symbol: string): string
-  return dump(root .. "/o/build.db", "SELECT d.line FROM docs d JOIN inputs i " ..
+  return dump(build_dir(root) .. "/build.db", "SELECT d.line FROM docs d JOIN inputs i " ..
       "ON i.source_hash = d.source_hash WHERE d.symbol = '" .. symbol .. "'")
 end
 
@@ -165,11 +173,11 @@ local function test_a_second_checkout_parses_nothing_the_first_parsed(tmp: strin
     "SELECT * FROM imports ORDER BY 1, 2",
   }
   for _, query in ipairs(projection) do
-    local one = dump(tmp .. "/first/o/cosmic.db", query)
-    local other = dump(tmp .. "/second/o/cosmic.db", query)
+    local one = dump(build_dir(tmp .. "/first") .. "/cosmic.db", query)
+    local other = dump(build_dir(tmp .. "/second") .. "/cosmic.db", query)
     assert(one == other, query .. "\n" .. one .. "\n--\n" .. other)
   end
-  assert(dump(tmp .. "/second/o/cosmic.db", "SELECT count(*) FROM docs") ~= "0")
+  assert(dump(build_dir(tmp .. "/second") .. "/cosmic.db", "SELECT count(*) FROM docs") ~= "0")
   -- The guide's example is at its line in the guide.
   assert(doc_line(tmp .. "/second", "example_1") == "5", doc_line(tmp .. "/second", "example_1"))
   -- Its own now: a build again takes nothing, and parses nothing.
@@ -193,7 +201,7 @@ local function test_a_mapped_parse_stands_only_for_a_mapped_one(tmp: string)
   local env, path = environment(tmp)
   checkout(tmp .. "/doc")
   built_as(tmp .. "/doc", env, "4 sources parsed;")
-  local generated = dump(tmp .. "/doc/o/build.db",
+  local generated = dump(build_dir(tmp .. "/doc") .. "/build.db",
     "SELECT source FROM derived WHERE file = 'doc/guides/guide.md'")
   local own_line = 0
   local number = 0
@@ -227,8 +235,8 @@ local function test_a_damaged_parse_is_parsed_again_and_replaced(tmp: string)
   local env, path = environment(tmp)
   checkout(tmp .. "/first")
   built_as(tmp .. "/first", env, "4 sources parsed;")
-  local c_hash = dump(tmp .. "/first/o/build.db", "SELECT source_hash FROM inputs WHERE path = 'c'")
-  local b_hash = dump(tmp .. "/first/o/build.db", "SELECT source_hash FROM inputs WHERE path = 'b'")
+  local c_hash = dump(build_dir(tmp .. "/first") .. "/build.db", "SELECT source_hash FROM inputs WHERE path = 'c'")
+  local b_hash = dump(build_dir(tmp .. "/first") .. "/build.db", "SELECT source_hash FROM inputs WHERE path = 'b'")
   local cache = assert(Sqlite.open(path, { writable = true }))
   -- `b`'s rows become `c`'s, and `c`'s become no stream at all.
   assert(Sqlite.run(cache, "UPDATE parsed_v1 SET rows = (SELECT rows FROM parsed_v1 " ..

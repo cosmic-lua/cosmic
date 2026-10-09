@@ -17,6 +17,7 @@ local embed = require("build.embed")
 local Test = require("cosmic.test")
 local String = require("cosmic.string")
 local Time = require("cosmic.time")
+local build_paths = require("build.paths")
 
 --- This program's database, which every executable's is joined from.
 --- The programs these tests run are built `--host`, so no launcher --
@@ -26,6 +27,13 @@ Test.policy{
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" }, { path = "o/cosmic.db", letters = "r" } },
 }
+
+--- `root`'s build directory ([`build.paths`]), made, with `root` made
+--- first where it is not there yet.
+local function build_dir(root: string): string
+  assert(Fs.mkdirs(root))
+  return (assert(build_paths.prepare(root)))
+end
 
 local main_source = [[
 local Fs = require("cosmic.fs")
@@ -68,7 +76,7 @@ local function test_a_project_becomes_an_executable(tmp: string)
   assert(names ~= nil, trouble)
   assert(#names == 1 and names[1] == "hello")
 
-  local out = tmp .. "/o/bin/hello"
+  local out = build_dir(tmp) .. "/bin/hello"
   local st = assert(Fs.stat(out))
   assert(st.mode & 0x49 == 0x49, "the executable bit is set for everyone")
   local bytes = assert(Fs.read(out))
@@ -82,7 +90,7 @@ end
 local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
   write_project(tmp)
   assert(embed.tree(tmp))
-  local database = assert(embed.database(tmp .. "/o/cosmic.db", "cmd.hello.main"))
+  local database = assert(embed.database(build_dir(tmp) .. "/cosmic.db", "cmd.hello.main"))
   local path = tmp .. "/carried.db"
   assert(Fs.write(path, database))
 
@@ -168,10 +176,10 @@ local function test_the_carried_database_leaves_tests_and_examples_out(tmp: stri
     "",
   }, "\n")))
   assert(embed.tree(tmp))
-  local projected = rows_of(tmp .. "/o/cosmic.db",
+  local projected = rows_of(build_dir(tmp) .. "/cosmic.db",
     "SELECT count(*) FROM modules WHERE path IN ('greet_test', 'greet_example')")
   assert(projected[1][1] == "2", "the project's own projection keeps both")
-  local database = assert(embed.database(tmp .. "/o/cosmic.db", "cmd.hello.main"))
+  local database = assert(embed.database(build_dir(tmp) .. "/cosmic.db", "cmd.hello.main"))
   local path = tmp .. "/carried.db"
   assert(Fs.write(path, database))
 
@@ -215,7 +223,7 @@ local function test_a_test_or_example_the_program_requires_is_carried(tmp: strin
     "",
   }, "\n")))
   assert(embed.tree(tmp))
-  local database = assert(embed.database(tmp .. "/o/cosmic.db", "cmd.hello.main"))
+  local database = assert(embed.database(build_dir(tmp) .. "/cosmic.db", "cmd.hello.main"))
   local path = tmp .. "/carried.db"
   assert(Fs.write(path, database))
 
@@ -254,7 +262,7 @@ local function test_a_host_program_is_the_core_itself(tmp: string)
   assert(Fs.write(tmp .. "/cmd/who/main.tl", identity_source))
   local names, trouble = embed.tree(tmp, true)
   assert(names ~= nil and names[1] == "who", trouble)
-  local out = tmp .. "/o/bin/who"
+  local out = build_dir(tmp) .. "/bin/who"
   local bytes = assert(Fs.read(out))
   local core = assert(artifact.trusted_core())
   assert(String.starts_with(bytes, core.bytes), "the file starts with the running core")
@@ -267,7 +275,7 @@ local function test_a_host_program_is_the_core_itself(tmp: string)
     assert(Store.meta("runtime")) }, "\t") .. "\t"
   local printed = assert(r.stdout)
   assert(String.starts_with(printed, expected), printed .. " ~= " .. expected)
-  assert(String.ends_with(printed, "/o/bin/who\n"), printed)
+  assert(String.ends_with(printed, "/bin/who\n"), printed)
 end
 
 --- A host program's arguments are its own, a first one that reads as the
@@ -283,7 +291,7 @@ end
 ]]))
   local names, trouble = embed.tree(tmp, true)
   assert(names ~= nil and names[1] == "echo", trouble)
-  local r = assert(Child.run({ tmp .. "/o/bin/echo", "--artifact=x", "y" }, {
+  local r = assert(Child.run({ build_dir(tmp) .. "/bin/echo", "--artifact=x", "y" }, {
     stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   assert(r.stdout == "--artifact=x|y\n", tostring(r.stdout))
@@ -296,7 +304,7 @@ local function test_a_host_program_names_no_identity_it_cannot_prove(tmp: string
   assert(Fs.mkdirs(tmp .. "/cmd/who"))
   assert(Fs.write(tmp .. "/cmd/who/main.tl", identity_source))
   assert(embed.tree(tmp, true))
-  local out = tmp .. "/o/bin/who"
+  local out = build_dir(tmp) .. "/bin/who"
   local bytes = assert(Fs.read(out))
   local core = assert(artifact.trusted_core())
   local at = bytes:find(core.digest, #core.bytes + 1, true)
@@ -327,7 +335,7 @@ end
 ]]))
   local names, trouble = embed.tree(tmp, true)
   assert(names ~= nil and names[1] == "boom", trouble)
-  local r = run_program(tmp .. "/o/bin/boom")
+  local r = run_program(build_dir(tmp) .. "/bin/boom")
   assert(r.code == 1, "exit " .. tostring(r.code))
   assert(r.stdout == "1970-01-01T05:30:00+05:30[Asia/Kolkata]\n",
     "a program reads the zones it carries: " .. tostring(r.stdout))
@@ -349,7 +357,7 @@ end
 ]]))
   local names, trouble = embed.tree(tmp, true)
   assert(names ~= nil and names[1] == "boom", trouble)
-  local r = run_program(tmp .. "/o/bin/boom")
+  local r = run_program(build_dir(tmp) .. "/bin/boom")
   assert(r.code == 1, "exit " .. tostring(r.code))
   -- Its report is one line and nothing beneath it.
   local reported: {string} = {}
@@ -382,7 +390,7 @@ return lib
 ]]))
   local names, trouble = embed.tree(tmp, true)
   assert(names ~= nil and names[1] == "boom", trouble)
-  local r = run_program(tmp .. "/o/bin/boom")
+  local r = run_program(build_dir(tmp) .. "/bin/boom")
   assert(r.code == 1, "exit " .. tostring(r.code))
   local err = assert(r.stderr)
   assert(err:find('cosmic: at lib.tl:4: error("kaboom from lib")', 1, true),
@@ -394,8 +402,8 @@ end
 local function test_the_embedded_database_is_reproducible(tmp: string)
   write_project(tmp)
   assert(embed.tree(tmp))
-  local one = assert(embed.database(tmp .. "/o/cosmic.db", "cmd.hello.main"))
-  local two = assert(embed.database(tmp .. "/o/cosmic.db", "cmd.hello.main"))
+  local one = assert(embed.database(build_dir(tmp) .. "/cosmic.db", "cmd.hello.main"))
+  local two = assert(embed.database(build_dir(tmp) .. "/cosmic.db", "cmd.hello.main"))
   assert(one == two, "repeating the embed changed its database")
 end
 
@@ -417,7 +425,7 @@ end
   local names, trouble = embed.tree(tmp, true)
   assert(names ~= nil and names[1] == "refuse", trouble)
   assert(Fs.write(tmp .. "/some.db", "a file, which is all the policy's check asks"))
-  local r = assert(Child.run({ tmp .. "/o/bin/refuse", tmp .. "/some.db" }, {
+  local r = assert(Child.run({ build_dir(tmp) .. "/bin/refuse", tmp .. "/some.db" }, {
     stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   local printed = assert(r.stdout)

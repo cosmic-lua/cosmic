@@ -11,6 +11,7 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
+local build_paths = require("build.paths")
 local this_program = require("build.this_program")
 local worker = require("build.test_worker")
 -- The module the worker below runs, which its store must hold.
@@ -32,7 +33,8 @@ local function test_a_worker_loads_what_worker_loads_names(tmp: string)
   local root = assert(Fs.absolute("."))
   assert(Fs.mkdirs(tmp .. "/tmp"))
   local started = this_program.program({ "test", "--worker", root, "build.key_parts",
-    "test_none", tmp .. "/tmp", tmp .. "/children" }, {
+    "test_none", tmp .. "/tmp", tmp .. "/children", "", "--store",
+    build_paths.resolve(root).projection }, {
       cwd = root, stdin = "null", stdout = "capture", stderr = "stdout",
       fds = { [worker.report_fd] = "capture" }, timeout_ns = Clock.seconds(30),
     })
@@ -59,10 +61,9 @@ local function test_a_worker_loads_what_worker_loads_names(tmp: string)
   end
 end
 
---- Given `--store`, a worker attaches that store in place of the
---- tree's o/cosmic.db, as an unsandboxed worker keyed by declarations
---- is given the store of its closure: one that is not there fails it
---- before anything loads, naming it.
+--- A worker attaches the store `--store` names, as the runner names it
+--- where it is given one: one that is not there fails it before anything
+--- loads, naming it, and so does a worker given none.
 local function test_a_worker_attaches_the_store_it_is_given(tmp: string)
   local root = assert(Fs.absolute("."))
   assert(Fs.mkdirs(tmp .. "/tmp"))
@@ -76,10 +77,10 @@ local function test_a_worker_attaches_the_store_it_is_given(tmp: string)
   local result = assert(Child.run(started.argv, started.options))
   assert(result.code == 2, tostring(result.code) .. ": " .. tostring(result.stdout))
   assert(tostring(result.stdout):find(missing, 1, true), tostring(result.stdout))
-  -- Without it, the same worker attaches the tree's own and runs.
+  -- Given the tree's own projection, the same worker attaches it and runs.
   started = this_program.program({ "test", "--worker", root, "build.key_parts",
-    "test_none", tmp .. "/tmp", tmp .. "/children-again", "",
-    "build.key_parts", "--tree", "build.key_parts" }, {
+    "test_none", tmp .. "/tmp", tmp .. "/children-again", "", "--store",
+    build_paths.resolve(root).projection, "build.key_parts", "--tree", "build.key_parts" }, {
       cwd = root, stdin = "null", stdout = "capture", stderr = "stdout",
       fds = { [worker.report_fd] = "capture" }, timeout_ns = Clock.seconds(30),
     })
@@ -87,4 +88,14 @@ local function test_a_worker_attaches_the_store_it_is_given(tmp: string)
   local report = worker.decode(result.captured[worker.report_fd])
   assert(report ~= nil, tostring(result.stdout))
   assert(report.message == "build.key_parts has no test named test_none", report.message)
+  -- Given none, it resolves no build directory of its own: it refuses.
+  started = this_program.program({ "test", "--worker", root, "build.key_parts",
+    "test_none", tmp .. "/tmp", tmp .. "/children-none", "",
+    "build.key_parts", "--tree", "build.key_parts" }, {
+      cwd = root, stdin = "null", stdout = "capture", stderr = "stdout",
+      fds = { [worker.report_fd] = "capture" }, timeout_ns = Clock.seconds(30),
+    })
+  result = assert(Child.run(started.argv, started.options))
+  assert(result.code == 2, tostring(result.code) .. ": " .. tostring(result.stdout))
+  assert(tostring(result.stdout):find("--store needs a path", 1, true), tostring(result.stdout))
 end

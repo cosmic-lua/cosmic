@@ -3,26 +3,28 @@
 --- at its root is the root's, not a new tree of `greet/`'s own, whose
 --- `require("greet")` finds nothing.
 ---
---- A tree is established where a build wrote `o/cosmic.db`, and a
---- working directory is in one when that tree's last build also staged
---- a source at or under it (`o/build.db`'s `files`). `o/build.db` alone
---- is left by a run that failed, in the wrong directory too, so it names
---- no tree; and a new project made below a built tree has staged
---- nothing there, so it stays a root of its own. The working directory
---- that holds `o/cosmic.db` is the tree; else the nearest ancestor that
---- holds one and staged the working directory is, never the home
---- directory or anything above it; and where none does, the working
---- directory is the tree as before -- a first `cosmic test` starts a
---- project where it is run. `COSMIC_TREE=<dir>` names the root instead,
---- `.` for the working directory.
+--- A tree is established where its build directory ([`build.paths`])
+--- holds the projection, `cosmic.db`, and a working directory is in one
+--- when that tree's last build also staged a source at or under it
+--- (`build.db`'s `files`). Nothing in the tree marks it: the climb asks
+--- the resolver of each ancestor in turn. `build.db` alone is left by a
+--- run that failed, in the wrong directory too, so it names no tree; and
+--- a new project made below a built tree has staged nothing there, so it
+--- stays a root of its own. The working directory whose build directory
+--- holds a projection is the tree; else the nearest ancestor that holds
+--- one and staged the working directory is, never the home directory or
+--- anything above it; and where none does, the working directory is the
+--- tree as before -- a first `cosmic test` starts a project where it is
+--- run. `COSMIC_TREE=<dir>` names the root instead, `.` for the working
+--- directory.
 ---
 --- A word a `test` or `todos` line gives that names an existing path
 --- is taken as that path, read from where the verb was started, and not
 --- as a module name or search words.
 ---
 --- `cosmic <file.tl>` (build.dispatch's `run`) does not choose this way:
---- run in a subdirectory it still writes an `o/` there, which then makes
---- that directory a root of its own.
+--- run in a subdirectory it builds that directory as a project, which
+--- then makes it a root of its own.
 
 local build_paths = require("build.paths")
 local Flags = require("cosmic.flags")
@@ -52,19 +54,24 @@ local record tree_root
   end
 end
 
---- Whether a build wrote a database under `dir`'s `o/`.
+--- Whether a build wrote the projection of the project rooted at `dir`.
+--- A directory with no build directory to have one in -- one the base
+--- lies within, as an ancestor of COSMIC_BUILD_HOME does -- or whose
+--- build directory cannot be named is no tree.
 local function established(dir: string): boolean
-  local found, _ = Fs.exists(build_paths.resolve(dir).projection)
+  local directory, _ = build_paths.optional(dir)
+  if directory == nil then return false end
+  local found, _ = Fs.exists(build_paths.under(directory).projection)
   return found == true
 end
 
 --- Whether `root`'s last build staged a source at `path` or under it,
---- `path` relative to `root`; nil and why when its `o/build.db` cannot
+--- `path` relative to `root`; nil and why when its `build.db` cannot
 --- be read, which is not an answer either way.
 -- TODO: climb from a directory the last build staged no Teal under --
 -- prose alone (`doc/`, whose Markdown the walk skips), or one made
 -- since -- which is now a root of its own: `cosmic fix` there fails
--- `../x.tl` as outside the project and writes an `o/` there. The fix is
+-- `../x.tl` as outside the project and builds it as one. The fix is
 -- for the build to record the directories it walked, less the trees of
 -- their own within it (`ci/`, [`build.identity.is_foreign_tree`]), and to climb
 -- on that record.

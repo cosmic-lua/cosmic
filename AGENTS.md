@@ -5,8 +5,9 @@
   before building or switching branches: untracked test files can enter a build.
 - Keep `vendor/` unedited; express vendor changes as records under `patch/`.
   [`bin/vendor`] refetches a tree from its PIN, keeping only what the build reads.
-  Generated output in the build directory (`o/`, which [`build/paths.tl`]
-  names) must not be committed.
+  Generated output lives in the build directory, outside the checkout
+  (below); a checkout's `o/` from an older tool is stale, never read,
+  and may be deleted.
 - Workflows, and the local actions under `.github/actions/`, are YAML's
   flow style, in the subset [`build/workflows_test.tl`] holds them to and
   the layout `bin/cosmic fix` writes ([`build/flow.tl`]): run `bin/cosmic
@@ -17,9 +18,21 @@
 
 ## Build, format, test
 
+Every build of a project -- its databases, rebuild lock, cores and
+executables -- goes in its build directory, which [`build/paths.tl`]
+names: `$XDG_CACHE_HOME/cosmic/trees/<key>` (`~/.cache/cosmic/trees/<key>`),
+`<key>` the SHA-256 of the project root's canonical path, so each
+worktree has its own and a link to a root names the root's.
+`COSMIC_BUILD_HOME=/absolute/path` puts the `<key>` directories there
+instead. A relative base, one that would put the directory inside the
+project, or a base or directory another user owns or may write, fails,
+naming it; nothing falls back to `o/`. `bin/cosmic db` names the
+directory's databases by their paths. Delete a worktree's directory
+when you delete the worktree.
+
 [`bin/cosmic`] runs the tree's own tool from any directory, with the
 checkout at any path: it asks [`build/paths.tl`] where the build
-directory is (`o/` for now), passes its arguments and exit status
+directory is, passes its arguments and exit status
 through, and where there is no tool yet runs `bin/zig build boot` first
 (with `COSMIC_AUTO_BOOT=0`, refuses, exiting 3). Run the tool through it,
 never by its path in the build directory.
@@ -159,10 +172,11 @@ never by its path in the build directory.
    socket. Any other host, `::1` and `localhost` are refused, for this
    tree and every project, naming the rule. A test that needs a service starts
    its own on 127.0.0.1. A
-   worker, and every process it starts, is given at o/cosmic.db the
+   worker, and every process it starts, is given at its build
+   directory's cosmic.db the
    store of its module's import closure alone, keyed by its bytes (an
    unsandboxed worker attaches that store in the projection's place, though
-   what it starts reads o/cosmic.db). What a test reads is what the
+   what it starts reads the projection). What a test reads is what the
    sandbox gives it: the worker holds only `require` to the closure, which
    refuses a module of the tree outside it
    ([`build/test_worker.tl`]'s `hold_requires`), and no lookup in the store.
@@ -196,7 +210,7 @@ never by its path in the build directory.
    require(...)` for a declaration a type-checked snippet needs), and read
    no other that way; declare `store = true` where a test reads rows of
    modules outside its closure (their docs, catalog or bytecode, that way,
-   through a verb run in-process, or by opening o/cosmic.db itself), and
+   through a verb run in-process, or by opening the projection itself), and
    only there -- in a module of its own, if the rest of its tests need
    not -- since that test runs again on every edit to the tree. A module
    left declaring `store` says why above its declaration. Only a test of
@@ -387,6 +401,9 @@ never by its path in the build directory.
    promise "nest" is `nests`, `loopback` is `network`, the grant
    `{ path = "o/cosmic.db", letters = "r" }` is `store`; what has no
    `needs` (a grant to write, `isolate`, `limits`, `set_env`) is refused.
+   `o/` in a grant names the build directory wherever it is, as a name of
+   the policy language; a test reaches what is there by the path
+   [`build/paths.tl`]'s `resolve(".")` names, never by `o/...`.
    Nothing lists what a test reads
    undeclared: sandboxed, such a read finds nothing, and the test fails
    with its own error (a file not found, a program that could not
@@ -411,7 +428,10 @@ never by its path in the build directory.
    require(...)` of its own.
    Each worker runs sandboxed to those inputs ([`build/test_sandbox.tl`]),
    wherever the kernel can sandbox one: the tree at /tree, its directory
-   beneath /tmp, and nothing else of either, with every process it starts, so
+   beneath /tmp, with `COSMIC_BUILD_HOME` beneath that, where the
+   tree's build directory is given and a project the test builds is
+   built (unsandboxed, its scratch directory is so too, the tree's a link
+   to the host's), and nothing else of either, with every process it starts, so
    a test that reads what it does not declare fails. Nor has it the
    system's own paths (/usr, /bin, /lib, /etc and the like) unless its
    module declares the profile "system" (`system`), as one that starts a
@@ -441,8 +461,9 @@ never by its path in the build directory.
    `COSMIC_VERDICT_CACHE=0`; preserve the staged database and report the `ran`
    and `stood` counts with the elapsed time.
 
-`ci/` is a tree of its own, with its own build directory (`ci/o/`, which
-the CI driver's release names). After editing it, run
+`ci/` is a tree of its own, with its own build directory (`ci/o/` while
+the CI driver's release, which builds it, names that; this tree's tool
+builds it in a directory of its own as it does any project). After editing it, run
 `../bin/cosmic fix --check` from `ci/`; that also builds and type-checks it.
 Its `fixtures/*_test.tl` run only under the CI driver, which builds every
 target: run [`ci/run-local`] (a few minutes) before pushing a change that

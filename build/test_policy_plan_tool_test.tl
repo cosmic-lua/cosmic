@@ -22,12 +22,20 @@ local test_inputs = require("build.test_inputs")
 local test_policy = require("build.test_policy")
 local test_sandbox = require("build.test_sandbox")
 local this_program = require("build.this_program")
+local build_paths = require("build.paths")
 
 --- The program itself, which the case that starts it runs.
 Test.policy{
   profiles = { "cosmic", "system" },
   grants = { { path = "o/bin", letters = "rx" } },
 }
+
+--- `root`'s build directory ([`build.paths`]), made, with `root` made
+--- first where it is not there yet.
+local function build_dir(root: string): string
+  assert(Fs.mkdirs(root))
+  return (assert(build_paths.prepare(root)))
+end
 
 --- An `Effective` holding `files` of the tree and nothing else declared.
 local function effective(files: {string}): test_inputs.Effective
@@ -61,8 +69,8 @@ end
 --- reads that are run, and a worker that declares `tool` runs o/bin.
 local function test_a_plan_for_the_policy_leaves_the_system_and_proc_to_the_policy(tmp: string)
   local root, scratch = tmp .. "/root", scratch_in(tmp)
-  assert(Fs.mkdirs(root .. "/o/bin"))
-  assert(Fs.write(root .. "/o/cosmic.db", "x"))
+  assert(Fs.mkdirs(build_dir(root) .. "/bin"))
+  assert(Fs.write(build_dir(root) .. "/cosmic.db", "x"))
   local inputs = effective({})
   inputs.system, inputs.tool = true, true
   inputs.host = { "/proc", "/dev/urandom" }
@@ -73,7 +81,7 @@ local function test_a_plan_for_the_policy_leaves_the_system_and_proc_to_the_poli
     table.concat(reads, " "))
   assert(holds(reads, "/dev/urandom") and holds(reads, "/dev/null"))
   assert(policy.sandbox.user == nil, "a policy chooses the user")
-  assert(policy.runs[root .. "/o/bin"] == true)
+  assert(policy.runs[build_dir(root) .. "/bin"] == true)
 end
 
 --- The plan of one module made once a run is rebound to the scratch
@@ -82,8 +90,8 @@ end
 --- plan's path of, and a copy that shares nothing with the first.
 local function test_a_plan_rebound_to_another_scratch_is_the_plan_made_for_it(tmp: string)
   local root = tmp .. "/root"
-  assert(Fs.mkdirs(root .. "/o/bin"))
-  assert(Fs.write(root .. "/o/cosmic.db", "x"))
+  assert(Fs.mkdirs(build_dir(root) .. "/bin"))
+  assert(Fs.write(build_dir(root) .. "/cosmic.db", "x"))
   assert(Fs.write(root .. "/a.tl", "x"))
   for _, own in ipairs({ true, false }) do
     local inputs = effective({ "a.tl" })
@@ -196,8 +204,8 @@ local function test_a_plan_for_a_nesting_worker_grants_the_artifact_only_with_st
   end
   local artifact = launched.argv[3]
   local root, scratch = tmp .. "/root", scratch_in(tmp)
-  assert(Fs.mkdirs(root .. "/o/bin"))
-  assert(Fs.write(root .. "/o/cosmic.db", "x"))
+  assert(Fs.mkdirs(build_dir(root) .. "/bin"))
+  assert(Fs.write(build_dir(root) .. "/cosmic.db", "x"))
   local bare = effective({})
   bare.nests = true
   local storing = effective({})
@@ -221,9 +229,9 @@ end
 --- Any of those declarations gives the plan the host's directory, and says which.
 local function test_a_plan_gives_a_scratch_of_its_own_only_where_no_host_directory_is_declared(tmp: string)
   local root, scratch = tmp .. "/root", scratch_in(tmp)
-  assert(Fs.mkdirs(root .. "/o/bin"))
+  assert(Fs.mkdirs(build_dir(root) .. "/bin"))
   assert(Fs.mkdirs(root .. "/data"))
-  assert(Fs.write(root .. "/o/cosmic.db", "x"))
+  assert(Fs.write(build_dir(root) .. "/cosmic.db", "x"))
   assert(Fs.write(root .. "/file.txt", "x"))
   local function planned(inputs: test_inputs.Effective): test_sandbox.Plan
     local made = test_sandbox.plan(root, scratch, inputs, {})

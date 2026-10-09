@@ -71,9 +71,10 @@ local tree_marker <const> = "\0tree"
 
 --- A path as a key names it, the same in every checkout of one tree:
 --- one under `tree` -- as written, not climbing with ".." -- by its name
---- below it after a marker no path holds, and any other as it is. The
---- tree's own location is no input to what a test does there, so two
---- checkouts of the same content key the same read alike.
+--- below it after a marker no path holds, one under `output`, the
+--- tree's build directory, as `o` below that marker, and any other as it
+--- is. The tree's own location is no input to what a test does there, so
+--- two checkouts of the same content key the same read alike.
 ---
 --- That is a rule, not an accident of keying: a test may not turn on
 --- where the tree is -- a path length limit, a name it prints and
@@ -97,8 +98,16 @@ local tree_marker <const> = "\0tree"
 --- only on a run that runs the test: every run while CI stands only on
 --- what it runs itself, and once it stands on shared verdicts, only a
 --- run where the test's key changed.
-function key_parts.tree_name(path: string, tree: string): string
+function key_parts.tree_name(path: string, tree: string, output?: string): string
   if ("/" .. path .. "/"):find("/%.%./") ~= nil then return path end
+  -- The build directory, outside the tree, by the name a declaration
+  -- gives it (`o`), as a sandbox gives it wherever the host has it.
+  if output ~= nil then
+    local built, _ = relative(path, output)
+    if built ~= nil then
+      return tree_marker .. "/o" .. (built == "." and "" or "/" .. built)
+    end
+  end
   local rest, _ = relative(path, tree)
   if rest == nil then return path end
   if rest == "." then return tree_marker end

@@ -94,14 +94,17 @@ function Grader.failed_in_cosmic(err: string): boolean
   return err:find("^cosmic") ~= nil or err:find("\ncosmic") ~= nil
 end
 
---- Whether `cosmic build`'s output names o/bin/<name> among the
---- executables it wrote: `build: PASS (o/bin/notes, 433 ms)`.
+--- Whether `cosmic build`'s output names bin/<name> among the
+--- executables it wrote: `build: PASS (/home/u/.cache/cosmic/trees/<key>/bin/notes,
+--- 433 ms)`, or as a tool that built into the project's o/ named it,
+--- `build: PASS (o/bin/notes, 433 ms)`.
 function Grader.built(output: string, name: string): boolean
   for line in output:gmatch("[^\n]+") do
     local wrote = line:match("^build: PASS %((.*)%)$")
     if wrote ~= nil then
       for each in wrote:gmatch("[^,]+") do
-        if String.trim(each) == "o/bin/" .. name then
+        local path = String.trim(each)
+        if path == "o/bin/" .. name or String.ends_with(path, "/bin/" .. name) then
           return true
         end
       end
@@ -2085,6 +2088,20 @@ local TASKS <const>: {string: Task} = {
     api = true },
 }
 
+--- Where the arena's cosmic at `cosmic` builds the project at `project`,
+--- asked of that cosmic, since the arena holds a bare binary and no
+--- checkout whose bin/cosmic could answer: its own build/paths.tl's
+--- answer, or, for one that carries none, or answers nothing (a
+--- stand-in), the project's o/, where a cosmic from before it built.
+function Grader.build_directory(cosmic: string, project: string): string
+  local asked, _ = Child.run({ cosmic, "-e", [[
+local Store = require("cosmic.store")
+if Store.source("build.paths") ~= nil then print(require("build.paths").required(...)) end
+]], project }, { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
+  local answer = asked ~= nil and asked.ok and (asked.stdout or ""):match("^(/[^\n]+)\n$") or nil
+  return answer or project .. "/o"
+end
+
 --- Grades the arena at `dir` for the task `name`, with the hidden API
 --- tests in `testdata`, printing a line per check and PASS or FAIL
 --- last; 0 when everything passed.
@@ -2099,12 +2116,8 @@ function Grader.grade(name: string, dir: string, testdata: string): integer
     say("FAIL")
     return 1
   end
-  -- TODO: ask the arena's cosmic where it built the project (`cosmic db`
-  -- names its databases there) once #2864's step 3 moves a project's
-  -- build directory out of it: here and below the grader spells it as
-  -- the project's o/. The checkout's bin/cosmic cannot answer it, since
-  -- the arena holds a bare binary and no checkout.
-  local g: Grade = { dir = dir, name = name, exe = project .. "/o/bin/" .. name,
+  local built = Grader.build_directory(cosmic, project)
+  local g: Grade = { dir = dir, name = name, exe = built .. "/bin/" .. name,
     empty = dir .. "/empty", steps = 0, failed = false,
     timeout_ns = Clock.seconds(task.timeout), null_stdin = task.null_stdin, own_group = task.own_group }
   local set_aside = put_back_journal(g, project)
@@ -2113,7 +2126,7 @@ function Grader.grade(name: string, dir: string, testdata: string): integer
   for _, file in ipairs(task.stale) do
     local _, _ = Fs.remove(project .. "/" .. file)
   end
-  local db = project .. "/o/build.db"
+  local db = built .. "/build.db"
   step(g, "evidence reset " .. db, function(out: integer): boolean
     local reset, trouble = Grader.reset_evidence(db)
     if not reset then
@@ -2137,17 +2150,17 @@ function Grader.grade(name: string, dir: string, testdata: string): integer
     hidden_api(g, cosmic, project, testdata .. "/" .. name .. "_api_test.tl")
   end
   local passed = command_step(g, { cosmic, "build" }, project)
-  -- Only a build that passed and names o/bin/<name> among what it wrote
+  -- Only a build that passed and names bin/<name> among what it wrote
   -- vouches for the file: after a failed build, or one that no longer
-  -- builds it (cmd/<name> renamed away), an o/bin/<name> still there
+  -- builds it (cmd/<name> renamed away), a bin/<name> still there
   -- is an earlier build's. It stays in place -- it is the solver's
   -- deliverable, not the grader's to delete -- but it is not run.
   -- A build log that cannot be read names no binary.
   local read, _ = Fs.read(g.dir .. "/check-" .. g.steps .. ".out")
   if not passed then
-    say("skip o/bin/" .. name .. ": cosmic build failed; not running an earlier build's binary")
+    say("skip " .. g.exe .. ": cosmic build failed; not running an earlier build's binary")
   elseif not Grader.built(read or "", name) or not is_executable(g.exe) then
-    fail(g, "cosmic build did not produce o/bin/" .. name .. "; a binary is cmd/<name>/main.tl")
+    fail(g, "cosmic build did not produce " .. g.exe .. "; a binary is cmd/<name>/main.tl")
   else
     local bytes, trouble = Fs.read(g.exe)
     local copied = bytes ~= nil

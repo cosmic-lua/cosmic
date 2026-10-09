@@ -285,16 +285,16 @@ local function execute(argv: {integer:string}): integer
     if assert(Fs.stat(zig_global)).uid ~= credentials.user then reown(zig_global, true) end
   end
 
-  -- The phase project belongs to the driver, including its persistent
-  -- database. Refresh every other entry, even on named-phase reruns.
-  -- TODO: stop keeping the project's o/ (and skipping ci/o/ in the copy)
-  -- once #2864's step 3 moves a project's build directory out of it: the
-  -- driver here is the checkout's own tool, whose resolver names it.
+  -- The phase project belongs to the driver, which is the checkout's own
+  -- tool and so builds it in a build directory under the phases'
+  -- XDG_CACHE_HOME, kept from run to run. Refresh every entry of the
+  -- project, even on named-phase reruns; ci/'s o/, the pinned driver's
+  -- build of ci/, is no input and is not copied.
   owned_root(project)
   assert(Fs.mkdirs(project))
   reown(project, false)
   successful(probe("local F=require('cosmic.fs'); local p=" .. string.format("%q", project) ..
-      "; for _,n in ipairs(assert(F.list(p))) do if n~='o' then assert(F.remove_tree(p..'/'..n)) end end; " ..
+      "; for _,n in ipairs(assert(F.list(p))) do assert(F.remove_tree(p..'/'..n)) end; " ..
       "local s=" .. string.format("%q", root .. "/ci") ..
       "; for _,n in ipairs(assert(F.list(s))) do if n~='o' then assert(F.copy_tree(s..'/'..n,p..'/'..n)) end end", env), "CI copy")
   local phases: {string} = {}

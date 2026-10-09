@@ -99,7 +99,7 @@ local function test_a_failed_build_does_not_run_an_earlier_binary(dir: string)
   -- The stand-in cosmic ran, and failed the build alone.
   assert(said:find("check: ok   " .. dir .. "/bin/cosmic test\n", 1, true), said)
   assert(said:find("check: FAIL " .. dir .. "/bin/cosmic build\n", 1, true), said)
-  assert(said:find("skip o/bin/notes: cosmic build failed", 1, true), said)
+  assert(said:find("skip " .. dir .. "/project/o/bin/notes: cosmic build failed", 1, true), said)
   assert(not Fs.exists(dir .. "/empty"), "the earlier binary was run")
   assert(Fs.exists(dir .. "/project/o/bin/notes"), "the solver's binary was removed")
 end
@@ -117,14 +117,27 @@ local function test_a_build_that_did_not_write_notes_does_not_run_an_earlier_one
   assert(status == 1, said)
   -- The stand-in cosmic ran, and passed the build without naming notes.
   assert(said:find("check: ok   " .. dir .. "/bin/cosmic build\n", 1, true), said)
-  assert(said:find("check: FAIL cosmic build did not produce o/bin/notes", 1, true), said)
+  assert(said:find("check: FAIL cosmic build did not produce " .. dir .. "/project/o/bin/notes", 1, true),
+    said)
   assert(not Fs.exists(dir .. "/empty"), "the earlier binary was run")
+end
+
+--- The grader asks the arena's cosmic where it builds the project, and
+--- takes the project's o/ from one that answers nothing.
+local function test_the_build_directory_is_the_arena_cosmics_answer(dir: string)
+  local probe = assert(stand_in.build(dir .. "/stand-in"))
+  assert(stand_in.place(probe, dir .. "/answers", "print /elsewhere/trees/key"))
+  assert(Grader.build_directory(dir .. "/answers", dir .. "/project") == "/elsewhere/trees/key")
+  assert(stand_in.place(probe, dir .. "/quiet", "exit 0"))
+  assert(Grader.build_directory(dir .. "/quiet", dir .. "/project") == dir .. "/project/o")
 end
 
 local function test_built_reads_the_build_line()
   assert(Grader.built("build: 4 modules\nbuild: PASS (o/bin/notes, 433 ms)\n", "notes"))
   assert(Grader.built("build: PASS (o/bin/hello, o/bin/notes, 12 ms)\n", "notes"))
   assert(not Grader.built("build: PASS (o/bin/notes2, 12 ms)\n", "notes"))
+  assert(Grader.built("build: PASS (/c/cosmic/trees/k/bin/notes, 12 ms)\n", "notes"))
+  assert(not Grader.built("build: PASS (/c/cosmic/trees/k/bin/notesy, 12 ms)\n", "notes"))
   assert(not Grader.built("build: PASS (no executable: no cmd/<name>/main.tl)\n", "notes"))
   assert(not Grader.built("build: FAIL\n", "notes"))
 end
@@ -148,7 +161,7 @@ local function test_a_failed_build_runs_no_binary_for_any_task(dir: string)
     assert(stand_in.place(probe, dir .. "/project/o/bin/" .. name, "print 1"))
     local status, said = graded(name, dir)
     assert(status == 1, said)
-    assert(said:find("skip o/bin/" .. name .. ": cosmic build failed", 1, true), said)
+    assert(said:find("skip " .. dir .. "/project/o/bin/" .. name .. ": cosmic build failed", 1, true), said)
     -- A copy of the checked core is 39.5 MB and a worker's directory is in
     -- a 256 MiB tmpfs: one task's stand-in at a time stays inside it.
     assert(Fs.remove(dir .. "/project/o/bin/" .. name))

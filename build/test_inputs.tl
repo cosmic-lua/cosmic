@@ -114,7 +114,7 @@ for _, name in ipairs(this_program.runtime_environment) do pinned_env[#pinned_en
 -- prints none, silently, where another prints the catalog's.
 test_inputs.lua_loads = {
   "build.dispatch", "build.exit_status", "build.help_source", "build.paths", "build.verdict",
-  "cmd.cosmic.main", "cosmic.env", "cosmic.fs", "cosmic.log",
+  "cmd.cosmic.main", "cosmic.codec", "cosmic.env", "cosmic.fs", "cosmic.hash", "cosmic.log",
 }
 
 --- What `cosmic --standalone` loads beyond `lua_loads` before the file
@@ -134,7 +134,7 @@ test_inputs.lua_loads = {
 test_inputs.standalone_loads = {
   "build.ast", "build.ast.match", "build.ast.match_cast", "build.ast.node",
   "build.ast.requires", "build.ast.rewrite", "build.ast.walk", "build.standalone",
-  "build.teal", "cosmic.codec", "cosmic.hash", "cosmic.sqlite", "cosmic.store",
+  "build.teal", "cosmic.sqlite", "cosmic.store",
 }
 
 --- The names of `closure`, the import closure of a module that declares

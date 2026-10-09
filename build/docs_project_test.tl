@@ -5,8 +5,10 @@
 --- tests of the verbs' contract (build/verbs_store_test.tl) stand while
 --- the build's cache is out of their keys.
 
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
+local build_paths = require("build.paths")
 local invoke = require("build.invoke")
 
 Test.policy{
@@ -17,7 +19,8 @@ Test.policy{
 --- `cosmic <args>` in `dir`, built without the shared cache, which lives
 --- outside the test's own directory.
 local function cosmic(dir: string, args: {string}): invoke.Result
-  return invoke.run(args, { cwd = dir, env = { COSMIC_BUILD_CACHE = "0" } })
+  return invoke.run(args, { cwd = dir,
+    env = { COSMIC_BUILD_CACHE = "0", COSMIC_BUILD_HOME = Env.get("COSMIC_BUILD_HOME") } })
 end
 
 local function docs_in(dir: string, ...: string): string
@@ -48,22 +51,22 @@ local function test_docs_answers_from_the_tree_as_it_stands(tmp: string)
   local empty = tmp .. "/nothing"
   assert(Fs.mkdirs(empty))
   local _ = cosmic(empty, { "docs", "Fs.read" })
-  local made, made_trouble = Fs.exists(empty .. "/o")
+  local made, made_trouble = Fs.exists(build_paths.required(empty))
   assert(made ~= nil, made_trouble)
-  assert(not made, "a directory of no project gets no o/")
+  assert(not made, "a directory of no project gets a build directory")
 end
 
 --- A directory no build has been made of is not built by a lookup, even
---- one holding a stray `.tl`: it gets no `o/`, and is told to build.
+--- one holding a stray `.tl`: it gets no build directory, and is told to build.
 local function test_a_lookup_builds_nothing_in_an_unbuilt_directory(tmp: string)
   local stray = tmp .. "/stray"
   assert(Fs.mkdirs(stray))
   assert(Fs.write(stray .. "/notes.tl", "--- Notes.\nlocal record Notes\nend\nreturn Notes\n"))
   local result = cosmic(stray, { "docs", "Fs.read" })
   assert(result.code == 0, result.stdout .. result.stderr)
-  local made, made_trouble = Fs.exists(stray .. "/o")
+  local made, made_trouble = Fs.exists(build_paths.required(stray))
   assert(made ~= nil, made_trouble)
-  assert(not made, "a directory never built gets no o/")
+  assert(not made, "a directory never built gets a build directory")
   assert(result.stderr:find("has not been built", 1, true), result.stderr)
   assert(not result.stdout:find("Notes", 1, true), result.stdout)
 end

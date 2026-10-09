@@ -18,6 +18,7 @@ local shared_verdicts = require("build.shared_verdicts")
 local confine = require("build.confine")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
+local build_paths = require("build.paths")
 
 --- The program itself, which its tests start, roots of their own for
 --- the sandboxed workers of the runs they start (`nests`), and the
@@ -28,6 +29,13 @@ Test.policy{
   promises = { "nest" },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
 }
+
+--- `root`'s build directory ([`build.paths`]), made, with `root` made
+--- first where it is not there yet.
+local function build_dir(root: string): string
+  assert(Fs.mkdirs(root))
+  return (assert(build_paths.prepare(root)))
+end
 
 --- Runs `cosmic test` on `root` with `words` after it, answering what
 --- it printed.
@@ -408,15 +416,22 @@ local function test_reads_an_attached_database()
 end
 ]]))
     assert(Fs.write(root .. "/suite/working_test.tl", [[
+local Env = require("cosmic.env")
+local Hash = require("cosmic.hash")
+local sys = require("cosmic.sys")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 
 Test.policy { grants = { { path = "o/build.db", letters = "r" } } }
 
+-- The tree's build directory, named as build/paths.tl names it, under
+-- the base the runner gives a worker.
+local built = assert(Env.get("COSMIC_BUILD_HOME")) .. "/" .. Hash.hex_sha256((assert(sys.realpath("."))))
+
 -- Through the store's own lookup, which searches a database the test
 -- attached ahead of the rest.
 local function test_reads_the_working_database()
-  assert(Store.attach("o/build.db"))
+  assert(Store.attach(built .. "/build.db"))
   assert(Store.meta("schema") ~= nil, "the working database records its schema")
 end
 ]]))
@@ -466,11 +481,12 @@ end
   assert(again:find("0 ran, 1 stood", 1, true), again)
 end
 
---- What the build left under o/ is an input like any file of the tree:
---- a checkout whose o/ holds the same bytes stands on a sibling's
---- verdict of a test that read it, one whose o/ holds other bytes runs
---- it, and a test that read the working database, which every run
---- rewrites, runs every time.
+--- What the build left in its build directory, which a grant names
+--- `o/`, is an input like any file of the tree: a checkout whose build
+--- directory holds the same bytes stands on a sibling's verdict of a
+--- test that read it, one whose holds other bytes runs it, and a test
+--- that read the working database, which every run rewrites, runs
+--- every time.
 local function test_a_read_of_the_builds_output_is_keyed_by_its_bytes(tmp: string)
   local env = environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
@@ -479,27 +495,42 @@ local function test_a_read_of_the_builds_output_is_keyed_by_its_bytes(tmp: strin
   local function said(name: string, tool: string, wanted: string): string
     local root = tmp .. "/" .. name
     assert(Fs.mkdirs(root .. "/suite"))
-    assert(Fs.mkdirs(root .. "/o/bin"))
-    assert(Fs.write(root .. "/o/bin/tool", tool))
+    assert(Fs.mkdirs(build_dir(root) .. "/bin"))
+    assert(Fs.write(build_dir(root) .. "/bin/tool", tool))
     assert(Fs.write(root .. "/suite/output_test.tl", [[
+local Env = require("cosmic.env")
+local Hash = require("cosmic.hash")
+local sys = require("cosmic.sys")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
 Test.policy { grants = { { path = "o/bin/tool", letters = "r" } } }
 
+-- The tree's build directory, named as build/paths.tl names it, under
+-- the base the runner gives a worker.
+local built = assert(Env.get("COSMIC_BUILD_HOME")) .. "/" .. Hash.hex_sha256((assert(sys.realpath("."))))
+
 local function test_reads_the_tool()
-  assert(Fs.read("o/bin/tool") ~= nil)
-  assert(Fs.stat("o/bin/tool") ~= nil)
+  local tool = built .. "/bin/tool"
+  assert(Fs.read(tool) ~= nil)
+  assert(Fs.stat(tool) ~= nil)
 end
 ]]))
     assert(Fs.write(root .. "/suite/working_test.tl", [[
+local Env = require("cosmic.env")
+local Hash = require("cosmic.hash")
+local sys = require("cosmic.sys")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
 Test.policy { grants = { { path = "o/build.db", letters = "r" } } }
 
+-- The tree's build directory, named as build/paths.tl names it, under
+-- the base the runner gives a worker.
+local built = assert(Env.get("COSMIC_BUILD_HOME")) .. "/" .. Hash.hex_sha256((assert(sys.realpath("."))))
+
 local function test_reads_the_working_database()
-  assert(Fs.read("o/build.db") ~= nil)
+  assert(Fs.read(built .. "/build.db") ~= nil)
 end
 ]]))
     local text = run(root, tmp .. "/" .. name .. ".out", env)
@@ -637,8 +668,9 @@ local function test_a_touched_file_runs_nothing_again(tmp: string)
   assert(alone:find("0 ran, 4 stood", 1, true), alone)
 end
 
---- A checkout made again at the path of one removed is another
---- checkout: it stands on what the removed one reached.
+--- A checkout made again at the path of one removed, with its build
+--- directory, is another checkout: it stands on what the removed one
+--- reached.
 local function test_a_checkout_made_again_at_the_same_path_stands_on_the_last(tmp: string)
   local env = environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
@@ -649,6 +681,7 @@ local function test_a_checkout_made_again_at_the_same_path_stands_on_the_last(tm
   local first = run(tmp .. "/here", tmp .. "/first.out", env, words)
   assert(first:find("4 ran, 0 stood", 1, true), first)
   if not shares(first) then return end
+  assert(Fs.remove_tree(build_paths.required(tmp .. "/here")))
   assert(Fs.remove_tree(tmp .. "/here"))
   checkout(tmp .. "/here", "one\n")
   local again = run(tmp .. "/here", tmp .. "/again.out", env, words)

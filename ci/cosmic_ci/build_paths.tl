@@ -11,18 +11,11 @@ end
 
 local directories: {string:string} = {}
 
---- The generated directory for `root` under `environment`. `source`
---- names the checkout whose resolver applies when root is an application
---- project, which does not contain the build system itself.
-function BuildPaths.directory(root: string, environment?: {string:string}, source?: string): string
-  local values = environment or Env.all()
-  local resolver = (source or root) .. "/build/paths.tl"
-  local parts = { resolver, root }
-  for _, name in ipairs({ "COSMIC_BUILD_HOME", "XDG_CACHE_HOME", "HOME" }) do
-    parts[#parts + 1] = name .. "=" .. (values[name] or "")
-  end
-  local key = Hash.hex_sha256(table.concat(parts, "\0"))
-  if directories[key] then return directories[key] end
+--- A command line of the driver that is already running, past its
+--- launcher where it has one, with `words` after it, and the environment
+--- and descriptors to start it with.
+local function driver(words: {string}, values: {string:string}):
+    {string}, {string:string}, {integer:integer | string}
   local argv: {string} = {}
   local env: {string:string} = {}
   local fds: {integer:integer | string} = {}
@@ -35,7 +28,43 @@ function BuildPaths.directory(root: string, environment?: {string:string}, sourc
   else
     argv[1] = assert(Proc.executable())
   end
-  argv[#argv + 1], argv[#argv + 2], argv[#argv + 3] = "--standalone", resolver, root
+  for _, word in ipairs(words) do argv[#argv + 1] = word end
+  return argv, env, fds
+end
+
+--- Where the running driver builds the project at `root`, which a
+--- `cosmic test` it runs there reads what is placed for it from: its own
+--- build.paths' answer, or `root`/o for a driver that carries none.
+-- TODO: take this from build.paths alone, and drop the o/ of a driver that
+-- carries none, once ci/cosmic-driver.pin names a release that carries
+-- build/paths.tl and puts the build directory outside the project.
+function BuildPaths.driven(root: string): string
+  local argv, env, fds = driver({ "-e", [[
+local Store = require("cosmic.store")
+if Store.source("build.paths") ~= nil then print(require("build.paths").required(...)) end
+]], root }, Env.all())
+  local answer, why = Child.run(argv,
+    { env = env, fds = fds, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
+  assert(answer, why)
+  assert(answer.ok, "build directory: " .. (answer.stderr or ""))
+  local said = answer.stdout or ""
+  if said == "" then return root .. "/o" end
+  return (assert(said:match("^(/[^\n]+)\n$"), "the driver named no build directory: " .. said))
+end
+
+--- The generated directory for `root` under `environment`. `source`
+--- names the checkout whose resolver applies when root is an application
+--- project, which does not contain the build system itself.
+function BuildPaths.directory(root: string, environment?: {string:string}, source?: string): string
+  local values = environment or Env.all()
+  local resolver = (source or root) .. "/build/paths.tl"
+  local parts = { resolver, root }
+  for _, name in ipairs({ "COSMIC_BUILD_HOME", "XDG_CACHE_HOME", "HOME" }) do
+    parts[#parts + 1] = name .. "=" .. (values[name] or "")
+  end
+  local key = Hash.hex_sha256(table.concat(parts, "\0"))
+  if directories[key] then return directories[key] end
+  local argv, env, fds = driver({ "--standalone", resolver, root }, values)
   local answer, why = Child.run(argv,
     { env = env, fds = fds, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   assert(answer, why)

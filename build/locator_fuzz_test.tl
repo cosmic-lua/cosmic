@@ -13,6 +13,7 @@ local embed = require("build.embed")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
+local build_paths = require("build.paths")
 
 --- The program itself, which its tests start.
 --- `store`: [`embed.tree`] joins every `cosmic.*` module's rows.
@@ -20,6 +21,13 @@ Test.policy{
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" }, { path = "o/cosmic.db", letters = "r" } },
 }
+
+--- `root`'s build directory ([`build.paths`]), made, with `root` made
+--- first where it is not there yet.
+local function build_dir(root: string): string
+  assert(Fs.mkdirs(root))
+  return (assert(build_paths.prepare(root)))
+end
 
 local TRAILER <const> = 48
 local MANIFEST <const> = 4096
@@ -106,7 +114,7 @@ local function test_a_corrupt_host_program_is_refused_by_name(tmp: string)
   assert(Fs.mkdirs(tree .. "/cmd/ok"))
   assert(Fs.write(tree .. "/cmd/ok/main.tl", 'return function(): integer print("ok") return 0 end\n'))
   assert(embed.tree(tree, true))
-  local tail = split((assert(Fs.read(tree .. "/o/bin/ok"))))
+  local tail = split((assert(Fs.read(build_dir(tree) .. "/bin/ok"))))
   local program = tmp .. "/program"
   -- The core is written once; each input rewrites only what follows it
   -- and cuts the file to its own length, since an input can be shorter.

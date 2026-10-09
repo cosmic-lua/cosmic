@@ -12,8 +12,12 @@ bin/zig build boot
 ```
 
 `boot` builds the cores it needs and stages the working database in the
-build directory (`o/`, which [`build/paths.tl`] names). [`bin/cosmic`] runs the
-tool built there, from any directory, and boots first if there is none.
+build directory, outside the checkout: `~/.cache/cosmic/trees/<key>`
+(under `$XDG_CACHE_HOME` when set), `<key>` the SHA-256 of the checkout's
+canonical path, or under the absolute base `COSMIC_BUILD_HOME` names
+([`build/paths.tl`]). [`bin/cosmic`] runs the tool built there, from any
+directory, and boots first if there is none; `bin/cosmic db` names its
+databases.
 
 ## run a file
 

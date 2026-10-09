@@ -17,6 +17,13 @@ local rebuild_lock = require("build.rebuild_lock")
 local stand_in = require("build.stand_in")
 local Zig = require("build.zig")
 
+--- `root`'s build directory ([`build.paths`]), made, with `root` made
+--- first where it is not there yet.
+local function build_dir(root: string): string
+  assert(Fs.mkdirs(root))
+  return (assert(build_paths.prepare(root)))
+end
+
 local function test_read_pin_parses_version_and_hosts()
   local pin = assert(Zig.read_pin(
     "version 0.16.0\n" ..
@@ -344,14 +351,14 @@ end
 --- no process answers to or this one's own.
 local function test_a_boot_names_a_holder_as_the_tool_does(tmp: string)
   local root = tmp .. "/tree"
-  assert(Fs.mkdirs(root .. "/o"))
+  assert(build_dir(root))
   local contents: {string} = { "1\nnone\n", "1\n", "", "x\ntest\n",
     tostring(sys.getpid()) .. "\ntest\n" }
   for _, role in ipairs({ "test", "rebuild", "write" }) do
     contents[#contents + 1] = "1\n" .. role .. "\n"
   end
   for _, text in ipairs(contents) do
-    assert(Fs.write(root .. "/o/rebuild.lock.pid", text))
+    assert(Fs.write(build_dir(root) .. "/rebuild.lock.pid", text))
     local output = build_paths.required(root)
     assert(Zig.holder(output) == rebuild_lock.holder(root), text .. ": " ..
         Zig.holder(output) .. " against " .. rebuild_lock.holder(root))
@@ -364,9 +371,9 @@ end
 --- to see.
 local function test_a_boot_refuses_a_lock_file_it_cannot_write(tmp: string)
   local root = tmp .. "/tree"
-  assert(Fs.mkdirs(root .. "/o"))
-  assert(Fs.write(root .. "/o/rebuild.lock", "", 0x124))
-  local fd, _ = sys.open(root .. "/o/rebuild.lock", sys.O_RDWR, 0)
+  assert(build_dir(root))
+  assert(Fs.write(build_dir(root) .. "/rebuild.lock", "", 0x124))
+  local fd, _ = sys.open(build_dir(root) .. "/rebuild.lock", sys.O_RDWR, 0)
   if fd ~= nil then
     assert(sys.close(fd))
     return
@@ -428,7 +435,7 @@ local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: st
       }
       return fake as Sqlite.Handle, ""
     end
-    statuses[i] = Zig.with_lock(build_paths.required(tmp .. "/" .. i), {}, function(_env: {string:string}): integer
+    statuses[i] = Zig.with_lock(build_dir(tmp .. "/" .. i), {}, function(_env: {string:string}): integer
       return 7
     end)
     attempts[i], closures[i] = calls, closes

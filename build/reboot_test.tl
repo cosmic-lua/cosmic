@@ -39,6 +39,7 @@ end
 --- good); one started by a run that holds none is handed nothing.
 local function test_boot_into_hands_on_the_lock_it_holds(tmp: string)
   local root = tmp .. "/tree"
+  assert(Fs.mkdirs(root))
   local layout = paths.resolve(root)
   assert(Fs.mkdirs(root .. "/bin") and Fs.mkdirs(layout.directory))
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
@@ -151,6 +152,7 @@ end
 --- tool of its own to judge.
 local function test_own_tool_is_a_binary_under_the_trees_outputs(tmp: string)
   local root = tmp .. "/tree"
+  assert(Fs.mkdirs(root))
   local layout = paths.resolve(root)
   local sanitized = paths.under(layout.sanitized)
   assert(Fs.mkdirs(layout.bin))

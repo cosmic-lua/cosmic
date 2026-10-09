@@ -25,12 +25,12 @@ local record Entrypoint
   --- length or loop starts before 1
   argv: string
   --- a binary is cmd/<name>/main.tl, its own directory under cmd/.
-  --- `cosmic build` writes o/bin/<name> for each one a tree holds,
+  --- `cosmic build` writes bin/<name> in the tree's build directory for each one a tree holds,
   --- requiring the file and calling what it returns -- see argv --
   --- with the tree built the same way `cosmic test` builds it
   cmd: string
   --- cmd/<name>/main.tl is a binary's own file: `cosmic build` writes
-  --- o/bin/<name> from it -- see cmd -- and if what it returns is a
+  --- bin/<name> in the build directory from it -- see cmd -- and if what it returns is a
   --- function, that function is the entry point called with the
   --- command line -- see argv
   main: string

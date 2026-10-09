@@ -1050,7 +1050,7 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
   -- Where a hint ([`with_docs_hint`]) looks up the name a refused module
   -- could not resolve, as [`docs.databases`] builds the same list for
   -- `cosmic docs`:
-  -- * This tree's last projection, `o/cosmic.db`, unrestricted. It is
+  -- * This tree's last projection, `cosmic.db`, unrestricted. It is
   --   the only place cosmic's own `build.*` symbols are documented,
   --   since the tool carries only the public standard library's
   --   ([`writer.carried`]).

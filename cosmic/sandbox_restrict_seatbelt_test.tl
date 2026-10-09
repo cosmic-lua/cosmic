@@ -10,6 +10,7 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
+local build_paths = require("build.paths")
 local Proc = require("cosmic.proc")
 -- The child loads these from the store; cosmic.csv is the one it loads
 -- only after it is restricted.
@@ -185,7 +186,7 @@ local function test_an_attached_database_in_wal_mode_refuses_the_restriction(tmp
   local said = in_child(string.format([[
 local Sqlite = require("cosmic.sqlite")
 local copy = %q .. "/copy.db"
-local source = assert(sys.open("o/cosmic.db", sys.O_RDONLY))
+local source = assert(sys.open(%q, sys.O_RDONLY))
 local target = assert(sys.open(copy, sys.O_WRONLY | sys.O_CREAT, 420))
 while true do
   local chunk = sys.read(source, 65536)
@@ -200,7 +201,7 @@ assert(Store.attach(copy))
 say("restrict", Sandbox.restrict({}))
 local loaded, csv = pcall(require, "cosmic.csv")
 say("loaded", loaded, type(csv) == "table" and csv.parse("a,b")[1][2] or csv)
-]], tmp))
+]], tmp, build_paths.resolve(".").projection))
   assert(said.lines.mode == "wal", said.raw)
   assert(said.lines.restrict:find("^false sandbox: restrict: the store's database .*copy%.db " ..
       "is in WAL mode"), said.raw)

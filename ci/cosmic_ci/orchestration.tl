@@ -754,18 +754,15 @@ local record Placement
   only: {string}
 end
 
---- Places each of `placements` beneath `project`'s o/fixtures
---- ([`Placement`]). A copy, so a fixture is free to run what it is
---- placed without touching the product the leg attests.
--- TODO: place these in the build directory the driver names for
--- `project` once ci/cosmic-driver.pin names a release whose resolver puts
--- it outside the project (#2864's step 3): `project` is a copy of ci/,
--- with no build/paths.tl of its own, built by the driver, so its build
--- directory is the driver release's to name, and today that is its o/.
+--- Places each of `placements` in the `fixtures` directory of the
+--- build directory the driver builds `project` in ([`Placement`],
+--- [`BuildPaths.driven`]), which a fixture declares as `o/fixtures`. A
+--- copy, so a fixture is free to run what it is placed without touching
+--- the product the leg attests.
 local function place(project: string, placements: {Placement})
   for _, placement in ipairs(placements) do
     assert(placement.kind:match("^[%w_]+$"), "invalid fixture placement")
-    local where = project .. "/o/fixtures/" .. placement.kind
+    local where = BuildPaths.driven(project) .. "/fixtures/" .. placement.kind
     assert(Fs.mkdirs(Fs.dirname(where)))
     if placement.only == nil then
       assert(Fs.copy_tree(placement.from, where))

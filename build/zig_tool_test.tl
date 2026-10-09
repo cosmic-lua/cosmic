@@ -5,6 +5,7 @@
 --- moves.
 
 local Child = require("cosmic.child")
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local this_program = require("build.this_program")
@@ -16,6 +17,7 @@ local Test = require("cosmic.test")
 -- The script bin/zig runs, which its tests copy and start: of the
 -- closure, so its source is there to read.
 local Zig = require("build.zig")
+local build_paths = require("build.paths")
 
 --- A source whose build a test interrupts, and the program itself, which
 --- its tests start. bin/zig is started with an environment of the
@@ -151,7 +153,7 @@ end
 
 --- A build of the boot step holds the checkout's rebuild lock while zig
 --- runs, so a `cosmic test` run or a rebuild in the checkout waits for
---- it, and hands it on to zig, whose bridge writes o/cosmic.db holding
+--- it, and hands it on to zig, whose bridge writes the projection holding
 --- it (build/writer.tl): the stand-in zig records the variable, and
 --- waits while this test finds the lock busy.
 local function test_a_boot_holds_the_lock_and_hands_it_on(tmp: string)
@@ -161,7 +163,8 @@ local function test_a_boot_holds_the_lock_and_hands_it_on(tmp: string)
   assert(stand_in.place(probe, tmp .. "/zig-for-test",
     "write $DIR/handed [$COSMIC_REBUILD_LOCK_HANDED]; wait-for $DIR/go; exit 0"))
   local started = this_program.program({ "--standalone", script, "build", "boot" }, {
-    env = { COSMIC_ZIG = "zig-for-test", PATH = tmp, XDG_CACHE_HOME = tmp .. "/cache" },
+    env = { COSMIC_ZIG = "zig-for-test", PATH = tmp, XDG_CACHE_HOME = tmp .. "/cache",
+      COSMIC_BUILD_HOME = Env.get("COSMIC_BUILD_HOME") },
     stdout = "capture", stderr = "capture",
   })
   local h = assert(Child.start(started.argv, started.options))
@@ -178,7 +181,7 @@ local function test_a_boot_holds_the_lock_and_hands_it_on(tmp: string)
   assert(result.ok, tostring(result.stderr))
   local named = tostring(handed):match("^%[(.*)%]\n$")
   local given, _ = sys.stat(named or "")
-  local own, _ = sys.stat(root .. "/o/rebuild.lock")
+  local own, _ = sys.stat(build_paths.resolve(root).lock)
   assert(given ~= nil and own ~= nil and given.ino == own.ino and given.dev == own.dev,
     "the boot handed on no lock of its tree: " .. tostring(handed))
   assert(taken == "busy", "the boot's lock was taken under it: " .. tostring(taken) .. " " .. trouble)
@@ -209,7 +212,7 @@ local function test_a_build_repairs_a_manifest_whose_contents_do_not_match_its_n
   local project = tmp .. "/project"
   local started = this_program.program({ "--standalone", script, "build" }, {
     env = { COSMIC_ZIG = tmp .. "/zig-for-test", COSMIC_ZIG_CACHE = project,
-      COSMIC_ZIG_GLOBAL_CACHE = tmp .. "/global" },
+      COSMIC_ZIG_GLOBAL_CACHE = tmp .. "/global", COSMIC_BUILD_HOME = tmp .. "/builds" },
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
   })
   local first = assert(Child.run(started.argv, started.options))

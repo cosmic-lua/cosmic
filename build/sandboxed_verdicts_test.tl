@@ -24,6 +24,7 @@ local confine = require("build.confine")
 local this_program = require("build.this_program")
 local harness_epoch = require("build.harness_epoch")
 local Test = require("cosmic.test")
+local build_paths = require("build.paths")
 
 --- What a sandboxed run of `cosmic test` needs of the host, the
 --- program it runs, roots of their own for its workers (`nests`), and
@@ -34,6 +35,13 @@ Test.policy{
   promises = { "nest" },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
 }
+
+--- `root`'s build directory ([`build.paths`]), made, with `root` made
+--- first where it is not there yet.
+local function build_dir(root: string): string
+  assert(Fs.mkdirs(root))
+  return (assert(build_paths.prepare(root)))
+end
 
 -- What these tests start is this very program.
 confine.confine({ reads = confine.itself() })
@@ -277,8 +285,8 @@ end
 --- program's core is among.
 local function tool_checkout(root: string)
   assert(Fs.mkdirs(root .. "/suite"))
-  assert(Fs.mkdirs(root .. "/o/bin"))
-  assert(Fs.write(root .. "/o/bin/stand-in", "one\n"))
+  assert(Fs.mkdirs(build_dir(root) .. "/bin"))
+  assert(Fs.write(build_dir(root) .. "/bin/stand-in", "one\n"))
   -- Each starts this program past its launcher by hand, as
   -- [`this_program.program`] would: another project cannot reach build/.
   -- TODO: start it through [`this_program.program`] once that moves to
@@ -366,7 +374,7 @@ local function test_a_sandboxed_test_runs_the_tool_only_declared(tmp: string)
   local again = run(root, tmp .. "/again.out", env)
   assert(again:find("0 ran, 3 stood", 1, true), again)
   -- The tool rebuilt: what declares it runs again.
-  assert(Fs.write(root .. "/o/bin/stand-in", "two\n"))
+  assert(Fs.write(build_dir(root) .. "/bin/stand-in", "two\n"))
   local rebuilt = run(root, tmp .. "/rebuilt.out", env)
   assert(rebuilt:find("1 ran, 2 stood", 1, true), rebuilt)
 end
@@ -404,7 +412,7 @@ end
 local function tool_project(tmp: string): function(string), function(string): string
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/suite"))
-  assert(Fs.mkdirs(root .. "/o/bin"))
+  assert(Fs.mkdirs(build_dir(root) .. "/bin"))
   -- Its worker does not start the tool, which a sandbox nested in this
   -- test's confinement could not find at its name under this test's
   -- /tmp: what it declares is all its key turns on.
@@ -412,7 +420,7 @@ local function tool_project(tmp: string): function(string), function(string): st
     "local Test = require(\"cosmic.test\")\n\nTest.policy { profiles = { \"cosmic\" }, grants = { { path = \"o/bin\", letters = \"rx\" } } }\n\n" ..
       "local function test_tool()\n  assert(true)\nend\n"))
   assert(Fs.write(root .. "/suite/plain_test.tl", "local function test_plain()\n  assert(true)\nend\n"))
-  local tool = root .. "/o/bin/cosmic"
+  local tool = build_dir(root) .. "/bin/cosmic"
   local function rebuild(statements: string)
     rebuilt(tmp, tool, statements)
   end
@@ -628,7 +636,7 @@ end
   env.COSMIC_TEST_COMPILER_SALT = "another compiler"
   local moved = run(root, tmp .. "/moved.out", env)
   assert(moved:find("1 ran, 1 stood", 1, true), moved)
-  local db = assert(Sqlite.open(root .. "/o/build.db"))
+  local db = assert(Sqlite.open(build_dir(root) .. "/build.db"))
   local rows = assert(Sqlite.text_rows(db,
     "SELECT group_concat(path, ' ') FROM (SELECT path FROM runs " ..
       "WHERE run_at_ns = (SELECT max(run_at_ns) FROM runs) ORDER BY path)"))
@@ -650,7 +658,7 @@ local function test_a_test_is_given_the_store_of_its_closure_alone(tmp: string)
   -- (build/test.tl's `base_name`).
   local function closure_stores(): {string}
     local out: {string} = {}
-    local listed: {string} = assert(Fs.list(root .. "/o/stores"))
+    local listed: {string} = assert(Fs.list(build_dir(root) .. "/stores"))
     for _, name in ipairs(listed) do
       if name:sub(1, 5) ~= "base-" then out[#out + 1] = name end
     end
@@ -688,14 +696,14 @@ end
   local first = run(root, tmp .. "/first.out", env, nil, true)
   if unsandboxed(first) then return end
   assert(first:find("test: PASS", 1, true) and first:find("1 ran, 0 stood", 1, true), first)
-  local projection = assert(Fs.read(root .. "/o/cosmic.db"))
+  local projection = assert(Fs.read(build_dir(root) .. "/cosmic.db"))
   local stores = closure_stores()
   assert(#stores == 1, table.concat(stores, " "))
   -- Outside the closure: the projection moves, the verdict stands.
   assert(Fs.write(root .. "/suite/other.tl", "return { value = 2 }\n"))
   local outside = run(root, tmp .. "/outside.out", env)
   assert(outside:find("0 ran, 1 stood", 1, true), outside)
-  assert(assert(Fs.read(root .. "/o/cosmic.db")) ~= projection, "the projection did not move")
+  assert(assert(Fs.read(build_dir(root) .. "/cosmic.db")) ~= projection, "the projection did not move")
   -- A module added: it stands, on the same store; told to look, it
   -- finds a `require` of the new module refused.
   assert(Fs.write(root .. "/suite/added.tl", "return {}\n"))
@@ -750,7 +758,7 @@ local function test_a_store_is_keyed_by_its_bytes_not_its_address(tmp: string)
   local second = run(tmp .. "/second", tmp .. "/second.out", env)
   assert(second:find("0 ran, 3 stood", 1, true) and
       not second:find("closure store", 1, true), second)
-  local stores, _ = Fs.list(tmp .. "/second/o/stores")
+  local stores, _ = Fs.list(build_dir(tmp .. "/second") .. "/stores")
   assert(stores == nil or #stores == 0, "a checkout that stood wrote a store")
 end
 
@@ -810,7 +818,7 @@ local function test_a_store_whose_bytes_differ_from_its_kept_digest_fails_the_ru
   assert(second:find("must follow from its address alone", 1, true) and
       second:find("test: FAIL", 1, true), second)
   local kept_aside = false
-  for _, entry in ipairs(Fs.list(tmp .. "/second/o/stores") or {}) do
+  for _, entry in ipairs(Fs.list(build_dir(tmp .. "/second") .. "/stores") or {}) do
     if entry:match("%.mismatch%.db$") then kept_aside = true end
   end
   assert(kept_aside, "the store whose bytes differ was not kept aside")
@@ -829,11 +837,11 @@ local function test_a_run_that_writes_no_store_checks_one(tmp: string)
   -- Every store, and what the shared verdicts keep of it, made to agree
   -- on bytes no write makes.
   local db = assert(Sqlite.open(tmp .. "/cache/verdicts.db", { writable = true }))
-  local listed: {string} = assert(Fs.list(root .. "/o/stores"))
+  local listed: {string} = assert(Fs.list(build_dir(root) .. "/stores"))
   for _, entry in ipairs(listed) do
     local address = entry:match("^base%-(%x+)%.db$") or entry:match("^(%x+)%.db$")
     if address ~= nil then
-      local path = root .. "/o/stores/" .. entry
+      local path = build_dir(root) .. "/stores/" .. entry
       local data = assert(Fs.read(path)) .. "tampered"
       assert(Fs.write(path, data))
       assert(Sqlite.run(db, "UPDATE stores_v1 SET digest = ?1 WHERE address = ?2",
