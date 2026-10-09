@@ -1,4 +1,4 @@
---- The verdicts main saves under each commit, for a branch based on it:
+--- The verdicts main names under each commit, for a branch based on it:
 --- [`merge_base`], which finds the main commit a run's tree grew from, and
 --- `prune`, which deletes those entries a day on, and [`CommitVerdicts.invalidate`],
 --- which deletes them all once a run that saves them failed, against the API's JSON
@@ -106,20 +106,24 @@ local function prune(env: {string: string}, answer: string | nil, refuse?: {stri
   return fake, GithubFake.text(fake.printed), code
 end
 
---- Only the verdicts under a commit, a day old, are deleted: not those
---- under their content, nor a newer commit's, nor another cache's.
+--- Only the names under a commit, a day old, are deleted, and the whole
+--- copies once saved there: not the entries under their content, which
+--- a name leads to, nor a newer commit's, nor another cache's.
 local function test_the_prune_deletes_only_old_verdicts_under_a_commit()
   local fake, said, code = prune({}, pages(listing(
-    entry(1, "verdicts-leg-0123456789abcdef-f-sha-" .. SHA, 30),
-    entry(2, "verdicts-leg-0123456789abcdef-f-sha-" .. BASE, 2),
+    entry(1, "verdicts-leg-0123456789abcdef-f-sha-" .. SHA .. "-d0d0d0", 30),
+    entry(2, "verdicts-leg-0123456789abcdef-f-sha-" .. BASE .. "-d0d0d0", 2),
     entry(3, "verdicts-leg-0123456789abcdef-f-d0d0d0", 50),
-    entry(4, "verdicts-leg-checked-0123456789abcdef-f-sha-" .. BASE, 25),
-    entry(5, "verdicts-leg-0123456789abcdef-f-sha-abc", 50),
-    entry(6, "verdicts-leg-0123456789abcdef-f-sha-0" .. SHA, 50))))
+    entry(4, "verdicts-leg-checked-0123456789abcdef-f-sha-" .. BASE .. "-d1d1d1", 25),
+    entry(5, "verdicts-leg-0123456789abcdef-f-sha-abc-d0d0d0", 50),
+    entry(6, "verdicts-leg-0123456789abcdef-f-sha-0" .. SHA .. "-d0d0d0", 50),
+    entry(7, "verdicts-leg-0123456789abcdef-f-sha-" .. BASE, 30),
+    entry(8, "verdicts-leg-0123456789abcdef-f-sha-" .. SHA .. "-", 50),
+    entry(9, "verdicts-leg-0123456789abcdef-f-sha-" .. SHA:upper() .. "-d0d0d0", 50))))
   assert(code == 0, said)
   assert(fake.calls[1] == "GET repos/o/r/actions/caches?key=verdicts-&per_page=100", fake.calls[1])
-  assert(deleted(fake) == "1 4", table.concat(fake.calls, "\n"))
-  assert(said:find("pruned 2 commit-keyed verdict entries older than 24 h (0 failed)", 1, true), said)
+  assert(deleted(fake) == "1 4 7", table.concat(fake.calls, "\n"))
+  assert(said:find("pruned 3 commit-keyed verdict entries older than 24 h (0 failed)", 1, true), said)
   -- HOURS moves the cutoff.
   fake = prune({ HOURS = "1" }, pages(listing(entry(2, "verdicts-leg-h-f-sha-" .. BASE, 2))))
   assert(deleted(fake) == "2", table.concat(fake.calls, "\n"))
@@ -182,20 +186,25 @@ local function test_an_unreadable_environment_is_refused()
   assert(CommitVerdicts.merge_base({ CALL_SECONDS = "soon" }, fake.host) == 2 and #fake.calls == 0)
 end
 
---- The failed recheck's case: the entry the commit's first run saved is
---- a minute old and still holds the pass the recheck took out of its own
---- database, so `prune`, which waits a day, leaves it where a branch
---- based on the commit restores it. [`CommitVerdicts.invalidate`] deletes
---- the entries under that commit, every host's (checked's too), and no
---- other commit's, nor any keyed by content, nor another cache's.
+--- The failed recheck's case: the name the commit's first run saved is
+--- a minute old and leads to the entry that still holds the pass the
+--- recheck took out of its own database, so `prune`, which waits a day,
+--- leaves it where a branch based on the commit restores by it.
+--- [`CommitVerdicts.invalidate`] deletes the names under that commit,
+--- every host's (checked's too), the failed run's own among them, and a
+--- whole copy once saved there; no other commit's, nor any entry keyed by
+--- content, the failed run's rows among them, nor another cache's.
 local function test_an_invalidate_deletes_the_failed_commits_verdict_entries()
   local listed = pages(listing(
-    entry(1, "verdicts-leg-0123456789abcdef-f-sha-" .. SHA, 0.01),
-    entry(2, "verdicts-leg-0123456789abcdef-f-sha-" .. BASE, 200),
+    entry(1, "verdicts-leg-0123456789abcdef-f-sha-" .. SHA .. "-d0d0d0", 0.5),
+    entry(2, "verdicts-leg-0123456789abcdef-f-sha-" .. BASE .. "-d0d0d0", 200),
     entry(3, "verdicts-leg-0123456789abcdef-f-d0d0d0", 50),
-    entry(4, "verdicts-leg-checked-0123456789abcdef-f-sha-" .. SHA, 2),
-    entry(5, "verdicts-leg-0123456789abcdef-f-sha-" .. BASE, 2),
-    entry(6, "compiles-branch-leg-0123abcd-d0d0d0", 50)))
+    entry(4, "verdicts-leg-checked-0123456789abcdef-f-sha-" .. SHA .. "-c0c0c0", 2),
+    entry(5, "verdicts-leg-0123456789abcdef-f-sha-" .. BASE .. "-d1d1d1", 2),
+    entry(6, "compiles-branch-leg-0123abcd-d0d0d0", 50),
+    entry(7, "verdicts-leg-0123456789abcdef-f-sha-" .. SHA .. "-d1d1d1", 0.01),
+    entry(8, "verdicts-leg-0123456789abcdef-f-d1d1d1", 0.01),
+    entry(9, "verdicts-leg-0123456789abcdef-f-sha-" .. SHA, 2)))
   local pruned = prune({}, listed)
   assert(deleted(pruned) == "2 6", "prune keeps what is under a day old: " .. table.concat(pruned.calls, "\n"))
   local fake = GithubFake.new(function(): string | nil return listed end)
@@ -203,9 +212,9 @@ local function test_an_invalidate_deletes_the_failed_commits_verdict_entries()
   local said = GithubFake.text(fake.printed)
   assert(code == 0, said)
   assert(fake.calls[1] == "GET repos/o/r/actions/caches?key=verdicts-&per_page=100", fake.calls[1])
-  assert(deleted(fake) == "1 4", "another commit's entry stays: " .. table.concat(fake.calls, "\n"))
-  assert(#fake.calls == 3, "it asks only for the verdicts: " .. table.concat(fake.calls, "\n"))
-  assert(said:find("pruned 2 commit-keyed verdict entries under commit " .. SHA .. " (0 failed)", 1, true), said)
+  assert(deleted(fake) == "1 4 7 9", "another commit's entry stays: " .. table.concat(fake.calls, "\n"))
+  assert(#fake.calls == 5, "it asks only for the verdicts: " .. table.concat(fake.calls, "\n"))
+  assert(said:find("pruned 4 commit-keyed verdict entries under commit " .. SHA .. " (0 failed)", 1, true), said)
 end
 
 --- A listing it cannot read, or a delete that fails, fails nothing; an

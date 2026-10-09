@@ -576,26 +576,31 @@ reaches; trimmed, 8 to 13 MB. Runtime changes and harness epoch bumps
 move every verdict key. Other edits move the keys whose declared inputs
 or import closures change. The cost: main's saved file holds only its
 newest commit's keys, so a branch based on an older main may need verdicts
-that were trimmed away. So main also saves each job's
-verdicts under its commit, `<prefix>sha-<commit>`, even where their
-content is an entry's already (`seed` too, from the key
-`driver.tl queue-stage` names), and each restore asks first for the
-entry of the tree's base on main (`driver.tl merge-base`: a
+that were trimmed away. So main also names, under its commit, the
+entry each job's verdicts are in, whether it saved it or restored it:
+a tiny entry whose key, `<prefix>sha-<commit>-<digest>`, ends in that
+entry's digest (`seed` too, from the key `driver.tl queue-stage`
+names), saved from a path of its own, so of another version, which the
+verdicts' restore by prefix never takes. Each restore asks first for
+the entry of the tree's base on main (`driver.tl merge-base`: a
 branch's merge base with main, through the API; the merge queue's
-base), then the newest. Those copies, one a leg and the checked job
-each main push (some 11 MB each), would fill the repository's 10 GB
-within days and evict the zig outputs (below), so ci.yml's `prune`
-job deletes those more than a day old on each push to main
+base): it looks up `<prefix>sha-<base>-`, which downloads nothing and
+takes the newest name, takes the digest from the key found and
+restores `<prefix><digest>`, then the newest. So a commit's verdicts
+are stored once, by content. ci.yml's `prune` job deletes the
+names more than a day old on each push to main
 (`driver.tl prune-commit-verdicts`, with the one token in
 ci.yml that may write the cache, `actions: write`); a branch based on
 an older commit restores main's newest. A cache entry is never
-overwritten and the exact key wins over a prefix, so a run of main that
-failed (the scheduled run's forced recheck can: it stands on no verdict)
-could not replace the entry under its commit, which still held the pass
-it took out of its own database. ci.yml's `invalidate` job therefore
-deletes the entries under that run's commit, every host's, once a run of main that saves failed
-(`driver.tl invalidate-commit-verdicts`), and the restore takes the
-newest by prefix, which is the failed run's own save. A run that failed keeps what it
+overwritten, so a run of main that failed (the scheduled run's forced
+recheck can: it stands on no verdict) saves its rows, less the pass it
+took out of its own database, under a new digest and names them under
+its commit beside the name its commit's first run saved; but a leg that
+stopped before its trim names none. ci.yml's `invalidate` job therefore
+deletes the names under that run's commit, every host's, once a run
+of main that saves failed (`driver.tl invalidate-commit-verdicts`),
+and the restore takes the newest by prefix, which is the failed run's
+own save, kept as the failure's evidence. A run that failed keeps what it
 restored with what it reached (`whole`). The compiles are saved only
 where the native build and suite passed.
 

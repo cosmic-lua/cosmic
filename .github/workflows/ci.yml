@@ -397,14 +397,40 @@
         # Every run restores the verdicts main saved for this host at the
         # tree's base, else the newest, and only main saves
         # (COSMIC_CI_SAVES). A restore decides how many tests stand, never
-        # whether a verdict is right.
+        # whether a verdict is right. Main names the entry its run of a
+        # commit saved, or took, by a tiny one under the commit whose key
+        # ends in that entry's digest (`<prefix>sha-<commit>-<digest>`,
+        # below): a lookup by prefix downloads nothing, and takes the
+        # newest, a failed recheck's over its commit's first run's. Its
+        # path, which an entry's version hashes, keeps it from the
+        # verdicts' restore by prefix.
+        {
+          name: "look up the verdicts entry of the tree's base",
+          id: "verdicts-base-lookup",
+          if: "steps.merge-base.outputs.sha != ''",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/verdicts-commit",
+            key: "${{ format('{0}sha-{1}-', steps.host-id.outputs.verdicts, steps.merge-base.outputs.sha) }}",
+            "restore-keys": "${{ format('{0}sha-{1}-', steps.host-id.outputs.verdicts, steps.merge-base.outputs.sha) }}\n",
+            "lookup-only": true,
+          },
+        },
+        {
+          name: "name the verdicts entry of the tree's base",
+          id: "verdicts-base",
+          if: "steps.verdicts-base-lookup.outputs.cache-matched-key != ''",
+          shell: "sh",
+          env: {PREFIX: "${{ steps.host-id.outputs.verdicts }}", BASE: "${{ format('{0}sha-{1}-', steps.host-id.outputs.verdicts, steps.merge-base.outputs.sha) }}", FOUND: "${{ steps.verdicts-base-lookup.outputs.cache-matched-key }}"},
+          run: "echo \"key=$PREFIX${FOUND#\"$BASE\"}\" >> \"$GITHUB_OUTPUT\"",
+        },
         {
           name: "restore test verdicts",
           id: "verdicts-restore",
           uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/verdicts",
-            key: "${{ steps.merge-base.outputs.sha && format('{0}sha-{1}', steps.host-id.outputs.verdicts, steps.merge-base.outputs.sha) || steps.host-id.outputs.verdicts }}",
+            key: "${{ steps.verdicts-base.outputs.key || steps.host-id.outputs.verdicts }}",
             "restore-keys": "${{ steps.host-id.outputs.verdicts }}\n",
           },
         },
@@ -537,7 +563,7 @@
         {
           name: "find the run ahead in the queue",
           id: "ahead",
-          if: "github.event_name == 'merge_group' && steps.verdicts-restore.outputs.cache-matched-key != format('{0}sha-{1}', steps.host-id.outputs.verdicts, github.event.merge_group.base_sha)",
+          if: "github.event_name == 'merge_group' && (steps.verdicts-base.outputs.key == '' || steps.verdicts-restore.outputs.cache-matched-key != steps.verdicts-base.outputs.key)",
           shell: "sh",
           "continue-on-error": true,
           "timeout-minutes": 2,
@@ -893,34 +919,15 @@
           run: "cosmic-driver cosmic_ci/driver.tl place-tree --restore",
         },
 
-        # The same rows under this commit, for a branch based on it
-        # (driver.tl merge-base), whatever was restored; saved first, so a main
-        # run's restore by prefix takes the entry keyed by content where
-        # both were saved. `prune` deletes these after a day.
-        # TODO: skip the save by content (and queue-stage's key
-        # for it) on the digest of the rows restored rather than on the
-        # key matched, once verdicts-trim names that digest too: a
-        # restore of the base's entry, or a main run's restore by prefix
-        # that takes this copy where no save by content followed, matches
-        # a key under a commit, so the save by content runs where its
-        # rows are an entry's already, and warns that the key exists.
-        # Neither save runs for the macOS leg's scheduled run: its keys
-        # hold the tree's path, which that run chooses by the commit
-        # (driver.tl place-tree), so its rows would answer no gating run, whose
-        # path the leg alone chooses, and one that restored them would
-        # run every test.
-        {
-          name: "save test verdicts under this commit",
-          if: "always() && steps.verdicts-trim.outputs.digest != '' && env.COSMIC_CI_SAVES == 'true' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1')",
-          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
-          with: {
-            path: "${{ runner.temp }}/verdicts",
-            key: "${{ steps.host-id.outputs.verdicts }}sha-${{ github.sha }}",
-          },
-        },
-
         # Whatever failed (a failing verdict takes a passing one out),
-        # where the rows differ from the entry restored.
+        # where the rows differ from the entry restored, which is always
+        # one keyed by content: the entry under a commit is saved from
+        # another path. Neither this save nor the one under the commit
+        # runs for the macOS leg's scheduled run: its keys hold the
+        # tree's path, which that run chooses by the commit (driver.tl
+        # place-tree), so its rows would answer no gating run, whose path
+        # the leg alone chooses, and one that restored them would run
+        # every test.
         {
           name: "save test verdicts",
           if: "always() && steps.verdicts-trim.outputs.digest != '' && env.COSMIC_CI_SAVES == 'true' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
@@ -928,6 +935,27 @@
           with: {
             path: "${{ runner.temp }}/verdicts",
             key: "${{ steps.host-id.outputs.verdicts }}${{ steps.verdicts-trim.outputs.digest }}",
+          },
+        },
+
+        # The entry of those rows, named under this commit for a branch
+        # based on it (driver.tl merge-base), whatever was restored: a
+        # file of its key, under a key ending in its digest, which is all
+        # a branch's restore reads. `prune` deletes these after a day, and
+        # `invalidate` those of a commit whose run failed.
+        {
+          name: "name the verdicts entry of this commit",
+          if: "always() && steps.verdicts-trim.outputs.digest != '' && env.COSMIC_CI_SAVES == 'true' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1')",
+          shell: "sh",
+          run: "mkdir -p \"$RUNNER_TEMP/verdicts-commit\" && echo \"${{ steps.host-id.outputs.verdicts }}${{ steps.verdicts-trim.outputs.digest }}\" > \"$RUNNER_TEMP/verdicts-commit/key\"",
+        },
+        {
+          name: "save test verdicts under this commit",
+          if: "always() && steps.verdicts-trim.outputs.digest != '' && env.COSMIC_CI_SAVES == 'true' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1')",
+          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/verdicts-commit",
+            key: "${{ steps.host-id.outputs.verdicts }}sha-${{ github.sha }}-${{ steps.verdicts-trim.outputs.digest }}",
           },
         },
 
@@ -1096,13 +1124,33 @@
           run: "cosmic-driver cosmic_ci/driver.tl changed-paths",
         },
         {
+          name: "look up the verdicts entry of the tree's base",
+          id: "verdicts-base-lookup",
+          if: "env.COSMIC_CI_SCOPE == 'full' && steps.merge-base.outputs.sha != ''",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/verdicts-commit",
+            key: "${{ format('{0}sha-{1}-', steps.host-id.outputs.verdicts, steps.merge-base.outputs.sha) }}",
+            "restore-keys": "${{ format('{0}sha-{1}-', steps.host-id.outputs.verdicts, steps.merge-base.outputs.sha) }}\n",
+            "lookup-only": true,
+          },
+        },
+        {
+          name: "name the verdicts entry of the tree's base",
+          id: "verdicts-base",
+          if: "env.COSMIC_CI_SCOPE == 'full' && steps.verdicts-base-lookup.outputs.cache-matched-key != ''",
+          shell: "sh",
+          env: {PREFIX: "${{ steps.host-id.outputs.verdicts }}", BASE: "${{ format('{0}sha-{1}-', steps.host-id.outputs.verdicts, steps.merge-base.outputs.sha) }}", FOUND: "${{ steps.verdicts-base-lookup.outputs.cache-matched-key }}"},
+          run: "echo \"key=$PREFIX${FOUND#\"$BASE\"}\" >> \"$GITHUB_OUTPUT\"",
+        },
+        {
           name: "restore test verdicts",
           id: "verdicts-restore",
           if: "env.COSMIC_CI_SCOPE == 'full'",
           uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/verdicts",
-            key: "${{ steps.merge-base.outputs.sha && format('{0}sha-{1}', steps.host-id.outputs.verdicts, steps.merge-base.outputs.sha) || steps.host-id.outputs.verdicts }}",
+            key: "${{ steps.verdicts-base.outputs.key || steps.host-id.outputs.verdicts }}",
             "restore-keys": "${{ steps.host-id.outputs.verdicts }}\n",
           },
         },
@@ -1188,7 +1236,7 @@
         {
           name: "find the run ahead in the queue",
           id: "ahead",
-          if: "env.COSMIC_CI_SCOPE == 'full' && github.event_name == 'merge_group' && steps.verdicts-restore.outputs.cache-matched-key != format('{0}sha-{1}', steps.host-id.outputs.verdicts, github.event.merge_group.base_sha)",
+          if: "env.COSMIC_CI_SCOPE == 'full' && github.event_name == 'merge_group' && (steps.verdicts-base.outputs.key == '' || steps.verdicts-restore.outputs.cache-matched-key != steps.verdicts-base.outputs.key)",
           shell: "sh",
           "continue-on-error": true,
           "timeout-minutes": 4,
@@ -1337,21 +1385,27 @@
           run: "cosmic-driver cosmic_ci/driver.tl place-tree --restore",
         },
         {
-          name: "save test verdicts under this commit",
-          if: "always() && steps.verdicts-trim.outputs.digest != '' && env.COSMIC_CI_SAVES == 'true'",
-          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
-          with: {
-            path: "${{ runner.temp }}/verdicts",
-            key: "${{ steps.host-id.outputs.verdicts }}sha-${{ github.sha }}",
-          },
-        },
-        {
           name: "save test verdicts",
           if: "always() && steps.verdicts-trim.outputs.digest != '' && env.COSMIC_CI_SAVES == 'true' && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/verdicts",
             key: "${{ steps.host-id.outputs.verdicts }}${{ steps.verdicts-trim.outputs.digest }}",
+          },
+        },
+        {
+          name: "name the verdicts entry of this commit",
+          if: "always() && steps.verdicts-trim.outputs.digest != '' && env.COSMIC_CI_SAVES == 'true'",
+          shell: "sh",
+          run: "mkdir -p \"$RUNNER_TEMP/verdicts-commit\" && echo \"${{ steps.host-id.outputs.verdicts }}${{ steps.verdicts-trim.outputs.digest }}\" > \"$RUNNER_TEMP/verdicts-commit/key\"",
+        },
+        {
+          name: "save test verdicts under this commit",
+          if: "always() && steps.verdicts-trim.outputs.digest != '' && env.COSMIC_CI_SAVES == 'true'",
+          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/verdicts-commit",
+            key: "${{ steps.host-id.outputs.verdicts }}sha-${{ github.sha }}-${{ steps.verdicts-trim.outputs.digest }}",
           },
         },
       ],
@@ -1407,20 +1461,21 @@
           name: "read the keys the queue's leg named",
           id: "keys",
           shell: "sh",
-          run: "grep -E '^(verdicts=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-[0-9a-f]+|verdicts-sha=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-sha-${{ github.sha }}|compiles=compiles-${{ matrix.name }}-[0-9a-f]+|zig-build=zig-build-${{ matrix.name }}-[0-9a-f]+-full-[0-9a-f]+-[0-9]+-[0-9]+|zig-build-exact=zig-build-${{ matrix.name }}-[0-9a-f]+-full-[0-9a-f]+-|driver-checked=driver-checked-v2-${{ matrix.name }}-[A-Za-z0-9._-]+-verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+)$' \"$RUNNER_TEMP/seed.keys\" >> \"$GITHUB_OUTPUT\" || :",
+          run: "grep -E '^(verdicts=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-[0-9a-f]+|verdicts-sha=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-sha-${{ github.sha }}-[0-9a-f]+|compiles=compiles-${{ matrix.name }}-[0-9a-f]+|zig-build=zig-build-${{ matrix.name }}-[0-9a-f]+-full-[0-9a-f]+-[0-9]+-[0-9]+|zig-build-exact=zig-build-${{ matrix.name }}-[0-9a-f]+-full-[0-9a-f]+-|driver-checked=driver-checked-v2-${{ matrix.name }}-[A-Za-z0-9._-]+-verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+)$' \"$RUNNER_TEMP/seed.keys\" >> \"$GITHUB_OUTPUT\" || :",
         },
-        # Under the commit first, as a leg saves them.
-        {
-          name: "save test verdicts under this commit",
-          if: "steps.keys.outputs.verdicts-sha != ''",
-          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
-          with: {path: "${{ runner.temp }}/verdicts", key: "${{ steps.keys.outputs.verdicts-sha }}"},
-        },
+        # The rows first, then their name under the commit, as a leg
+        # saves them.
         {
           name: "save test verdicts",
           if: "steps.keys.outputs.verdicts != ''",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {path: "${{ runner.temp }}/verdicts", key: "${{ steps.keys.outputs.verdicts }}"},
+        },
+        {
+          name: "save test verdicts under this commit",
+          if: "steps.keys.outputs.verdicts-sha != ''",
+          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {path: "${{ runner.temp }}/verdicts-commit", key: "${{ steps.keys.outputs.verdicts-sha }}"},
         },
         {
           name: "save compiles and parses",

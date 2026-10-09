@@ -10,10 +10,12 @@
 --- $RUNNER_TEMP/build-cache), each as <X>_PREFIX and <X>_DIGEST, where
 --- the digest is not empty and the key is not <X>_RESTORED, the entry the
 --- run restored (a job that saves no compiles, ci.yml's `checked`, sets
---- no COMPILES_*); `verdicts-sha`, the verdicts' copy keyed by the commit,
---- <VERDICTS_PREFIX>sha-<SHA>, where the digest is not empty, even where it
---- names the entry restored (the commit's own key is saved on every push
---- to main, for a branch based on it: `driver.tl merge-base`); and
+--- no COMPILES_*); `verdicts-sha`, the name of the verdicts' entry under
+--- the commit, <VERDICTS_PREFIX>sha-<SHA>-<VERDICTS_DIGEST>, from
+--- $RUNNER_TEMP/seed/verdicts-commit, a file `key` of that entry's own key,
+--- where the digest is not empty, even where it names the entry restored
+--- (every push to main names its entry under the commit, for a branch
+--- based on it: `driver.tl merge-base`); and
 --- `driver-checked` (from $RUNNER_TEMP/driver-checked), the key its marker
 --- holds, where the driver check ran and passed; and `zig-build` (from
 --- $RUNNER_TEMP/zig-build, as $RUNNER_TEMP/seed-zig/zig-build.tar, an
@@ -182,11 +184,13 @@ function QueueStage.stage(env: {string:string}, host: QueueStage.Host): integer
   if line == nil then return failed(why) end
   keys[#keys + 1] = line
   if verdicts_digest ~= "" and get("SHA") ~= "" then
-    if not Fs.is_dir(seed .. "/verdicts") then
-      ok, why = Fs.copy_tree(temp .. "/verdicts", seed .. "/verdicts")
-      if not ok then return failed(why) end
+    ok, why = Fs.mkdirs(seed .. "/verdicts-commit")
+    if ok then
+      ok, why = Fs.write(seed .. "/verdicts-commit/key", get("VERDICTS_PREFIX") .. verdicts_digest .. "\n")
     end
-    keys[#keys + 1] = "verdicts-sha=" .. get("VERDICTS_PREFIX") .. "sha-" .. get("SHA") .. "\n"
+    if not ok then return failed(why) end
+    keys[#keys + 1] = "verdicts-sha=" .. get("VERDICTS_PREFIX") .. "sha-" .. get("SHA") .. "-" ..
+      verdicts_digest .. "\n"
   end
   keys[#keys + 1] = zig_build(host, temp, zig, get("ZIG_BUILD_KEY"), get("ZIG_BUILD_EXACT"),
     get("ZIG_BUILD_RESTORED"))
