@@ -1018,7 +1018,12 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
   if modules == nil then
     return nil, trouble
   end
-  local positioned, position_trouble = positions.check(modules, own_tree)
+  local positioned, position_trouble = positions.check(modules, own_tree,
+    function(name: string): boolean
+      -- A declaration has a source but no bytecode.
+      local bytecode, _ = Store.bytecode(name)
+      return bytecode ~= nil
+    end)
   if not positioned then
     return nil, position_trouble
   end

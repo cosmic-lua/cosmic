@@ -206,7 +206,8 @@ end
 --- rows record it requiring, and theirs in turn. A raw
 --- `cosmic.internal.*` value is no row of any database, since the core
 --- hands each wrapper its own (core/store.c's `raw_modules`), so those
---- are left out.
+--- are left out; a Teal module of `cosmic/internal/` has its row and is
+--- carried like any other.
 local function carried(): {Carried} | nil, string
   local order: {Carried} = {}
   local seen: {string:boolean} = {}
@@ -214,7 +215,9 @@ local function carried(): {Carried} | nil, string
   for _, name in ipairs(core_requires) do pending[#pending + 1] = name end
   while #pending > 0 do
     local name = table.remove(pending, 1)
-    if not seen[name] and not String.starts_with(name, "cosmic.internal.") then
+    local row, _ = Store.bytecode(name)
+    local raw = String.starts_with(name, "cosmic.internal.") and row == nil
+    if not seen[name] and not raw then
       seen[name] = true
       local requires, trouble = Store.requires(name)
       if requires == nil then return nil, name .. ": " .. trouble end
