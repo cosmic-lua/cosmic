@@ -1,6 +1,6 @@
---- A checkout's rebuild lock, `o/rebuild.lock`: what makes one run at a
---- time rebuild or boot the tool, run the tree's tests, or write its
---- projection, `o/cosmic.db`.
+--- A project's rebuild lock, `rebuild.lock` in its build directory
+--- ([`build.paths`]): what makes one run at a time rebuild or boot the
+--- tool, run the tree's tests, or write a projection there, `cosmic.db`.
 ---
 --- `cosmic test` holds it for its whole run ([`build.test`]), so a second
 --- run in the checkout waits for the first: one run's closure stores,
@@ -12,11 +12,11 @@
 --- of the projection while it writes ([`build.writer`]'s `write_result`).
 --- Without it, two runs in one checkout that both find the tool stale
 --- (an editor, a watcher and a terminal, say) would rebuild it at once:
---- each writes o/cosmic.db and o/carried.db aside through the same
+--- each writes cosmic.db and carried.db aside through the same
 --- fixed `.building` name ([`writer.write_result`], [`writer.carried`]),
 --- which the other removes and writes into under it.
 ---
---- It is a `flock` of `o/rebuild.lock` and, on Linux, an SQLite write
+--- It is a `flock` of `rebuild.lock` and, on Linux, an SQLite write
 --- lock on the same file as an empty database, a transaction nothing
 --- writes. A tool from before the flock takes only SQLite's, which is an
 --- fcntl lock. Linux keeps the two kinds of lock apart, so a run holding
@@ -83,7 +83,7 @@ local MS <const> = Clock.ms(1)
 local doing: {string:string} = {
   test = "is running its tests",
   rebuild = "is rebuilding the tool",
-  write = "is writing o/cosmic.db",
+  write = "is writing its projection",
 }
 
 --- Set by a holder in the environment of a child that would take the
@@ -160,7 +160,9 @@ function rebuild_lock.take(root: string, wait_ns: integer,
   if wait_ns < 0 or wait_ns > Poll.MOST_NS then
     error("rebuild_lock.take: the wait is out of range", 2)
   end
-  local layout = build_paths.resolve(root)
+  local directory, directory_trouble = build_paths.directory(root)
+  if directory == nil then return nil, directory_trouble end
+  local layout = build_paths.under(directory)
   local path = layout.lock
   if held ~= nil then
     if held_lock == path then
@@ -336,10 +338,9 @@ function rebuild_lock.hold(root: string, role: rebuild_lock.Role,
   if rebuild_lock.holds(root) then
     return false, ""
   end
-  local directory = build_paths.required(root)
-  local made, made_trouble = Fs.mkdirs(directory)
-  if not made then
-    return nil, directory .. ": " .. made_trouble
+  local directory, made_trouble = build_paths.prepare(root)
+  if directory == nil then
+    return nil, made_trouble
   end
   local taken, trouble = rebuild_lock.take(root, 0, role)
   if taken == nil then

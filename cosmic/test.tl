@@ -144,13 +144,14 @@ local record Test
     --- interpreting or copying the bytes elsewhere remains possible.
     --- Unsupported hosts skip these tests; a held-sandbox run fails them.
     noexec: boolean
-    --- Whether the tests read the tree's projection, `o/cosmic.db`, or
+    --- Whether the tests read the tree's projection, `cosmic.db` in its
+    --- build directory (`o/cosmic.db`, as a grant names it), or
     --- the rows of modules of the tree outside their import closure.
-    --- Without it, a sandboxed worker is given at o/cosmic.db the store
+    --- Without it, a sandboxed worker is given there the store
     --- of its module's import closure alone, which its key holds, and a
     --- `require` reaches only that closure; unsandboxed, the worker
     --- attaches that store in the projection's place, though what it
-    --- starts reads o/cosmic.db. A test that type-checks a snippet reads
+    --- starts reads the projection. A test that type-checks a snippet reads
     --- `cosmic.*` sources and declarations from that store: a module the
     --- snippet requires goes in the test's closure
     --- (`local type _ = require(...)`), or the test declares `store`.
@@ -344,6 +345,14 @@ local NOT_YET <const> = "is not yet taken: a worker is held to, and a key made o
 --- cache written at its own name. [`Test.needs_of`] and the build's read
 --- of a policy both take them as the field, and refuse other letters or
 --- a `from` on their paths.
+---
+--- `o/` in a grant is a name of the policy language for the tree's build
+--- directory, not a path in the tree: the harness gives what it names
+--- from wherever build/paths.tl puts that directory, the sandbox at its
+--- own fixed place. It stays `o/` for good: every module that declares
+--- `store` or `tool` spells it, and every verdict key holds it, so
+--- another name would move every such key and every such declaration for
+--- no change in what a test is given.
 local STORE_PATH <const> = "o/cosmic.db"
 local NOEXEC_PATH <const> = "/noexec"
 local STORE_FORM <const> = ".path o/cosmic.db is the store, granted " ..

@@ -70,7 +70,7 @@ local probe_timeout_ns <const> = Clock.seconds(30)
 local function least_policy(program: string, scratch: string,
                             environment: {string:string}): Sandbox.Policy
   local reads: {string} = {}
-  for _, path in ipairs(confine.worker_unveil(scratch, nil, scratch).reads) do
+  for _, path in ipairs(confine.worker_unveil(nil, scratch).reads) do
     -- A policy's sandbox has a /proc of its own.
     if path ~= "/proc" then reads[#reads + 1] = path end
   end

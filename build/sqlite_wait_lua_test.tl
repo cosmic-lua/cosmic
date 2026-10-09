@@ -1,19 +1,27 @@
 --- Source-tree database waits stop at a guard signal and release their locks.
 local Child = require("cosmic.child")
 local Signal = require("cosmic.signal")
-local type _ = require("cosmic.fs")
+local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
 local type Log = require("cosmic.log")
+local build_paths = require("build.paths")
 local rebuild_lock = require("build.rebuild_lock")
 local this_program = require("build.this_program")
 local verdict = require("build.verdict")
 local work = require("build.work")
 
 Test.policy{ profiles = { "cosmic" } }
+
+--- `root`'s build directory ([`build.paths`]), made, with `root` made
+--- first where it is not there yet.
+local function build_dir(root: string): string
+  assert(Fs.mkdirs(root))
+  return (assert(build_paths.prepare(root)))
+end
 
 local function child(script: string): Child.Handle
   local command = this_program.program({ "-e", script },
@@ -43,6 +51,8 @@ local function signaller(): Child.Handle
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
+local build_paths = require("build.paths")
+
 print("ready")
 Fs.take(Fs.stdin, 1)
 Clock.sleep_ns(%d)
@@ -64,7 +74,7 @@ end
 local function test_work_begin_stops_the_long_wait_and_can_be_used_again(tmp: string)
   local handle = assert(work.open(tmp))
   assert(work.commit(handle))
-  local holder <close> = hold(tmp .. "/o/build.db")
+  local holder <close> = hold(build_dir(tmp) .. "/build.db")
   local guard <close> = assert(Signal.guard())
   local sender <close> = signaller()
   signal(sender)
@@ -83,7 +93,7 @@ end
 local function test_work_open_does_not_retry_a_cancelled_first_or_second_begin(tmp: string)
   local initial = assert(work.open(tmp))
   assert(work.close(initial))
-  local holder <close> = hold(tmp .. "/o/build.db")
+  local holder <close> = hold(build_dir(tmp) .. "/build.db")
   -- One signal meets the first brief BEGIN; the other meets its long
   -- retry after the one-second notice. Neither may become another retry.
   -- The first is caught before the open, which its first BEGIN then
@@ -123,7 +133,7 @@ end
 local function test_rebuild_sqlite_wait_releases_the_flock_after_cancellation(tmp: string)
   local initial = assert(work.open(tmp))
   assert(work.close(initial))
-  local path = tmp .. "/o/rebuild.lock"
+  local path = build_dir(tmp) .. "/rebuild.lock"
   local holder <close> = hold(path)
   -- A local flock is apart from SQLite's fcntl lock. Other filesystems
   -- use the flock itself to exclude the SQLite holder, so either wait

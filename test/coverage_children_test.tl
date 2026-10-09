@@ -48,20 +48,24 @@ end
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Coverage = require("cosmic.coverage")
+local Env = require("cosmic.env")
 local Proc = require("cosmic.proc")
 return function(argv: {string}): integer
   Coverage.children(argv[1])
   -- This program again, past its launcher, as `this_program.program`
   -- starts it (a file run cannot reach build/), in an empty environment
-  -- but for how to start the core: only the core can carry the
-  -- directory.
+  -- but for how to start the core and where to build its file: only the
+  -- core can carry the directory.
   local relaunch = Proc.relaunch()
   local words: {string} = {}
   for _, word in ipairs(relaunch ~= nil and relaunch.argv or { assert(Proc.executable()) }) do
     words[#words + 1] = word
   end
   words[#words + 1] = argv[2]
-  local r = assert(Child.run(words, { env = relaunch ~= nil and relaunch.env or {},
+  local env: {string:string} = {}
+  for name, value in pairs(relaunch ~= nil and relaunch.env or {}) do env[name] = value end
+  env.COSMIC_BUILD_HOME = Env.get("COSMIC_BUILD_HOME")
+  local r = assert(Child.run(words, { env = env,
     fds = relaunch ~= nil and relaunch.fds or {}, cwd = argv[3], stdout = "capture",
     stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(r.ok, tostring(r.stderr))

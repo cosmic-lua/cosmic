@@ -1,6 +1,6 @@
 --- The compiles and parses every checkout shares: a SQLite database
 --- under the cosmic cache directory, beside the `compiled` table and the
---- parse tables each checkout keeps in `o/build.db`. The file is
+--- parse tables each checkout keeps in `build.db`. The file is
 --- `build/cache.db` in [`Fs.cache_dir`]'s `$XDG_CACHE_HOME/cosmic`
 --- (`~/.cache/cosmic`) by default, or the absolute path
 --- `COSMIC_BUILD_CACHE` names; `0` turns the cache off. A module's key

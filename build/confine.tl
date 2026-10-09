@@ -8,7 +8,6 @@
 --- (`resolution`).
 
 local Fs = require("cosmic.fs")
-local build_paths = require("build.paths")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 
@@ -36,8 +35,6 @@ local sandbox_platform, may_map_ids, own_proc, landlock_abi = process.sandbox_pl
 --- stand-in for it (see `enter`) is put in its place.
 local own_spawn = process.spawn
 local unix_socket, close_socket = process.unix_socket, sys.close
-
-local build_layout = build_paths.resolve
 
 local record confine
   --- What a test declares the processes it starts need, beyond the
@@ -350,7 +347,7 @@ end
 --- `path` as a grant can name it: as given where it has no `.` or `..`
 --- segment, else where it resolves, since a grant may not contain "..".
 --- A program started by a relative name from beside its tree
---- (`../o/bin/cosmic`, run in ci/) has its launcher's `$PWD/$0` and the
+--- (`../build/bin/cosmic`, run in ci/) has its launcher's `$PWD/$0` and the
 --- artifact path of its relaunch named so.
 function confine.grantable(path: string): string
   if not (path:find("/%.%./", 1) or path:find("/%.%.$") or path:find("/%./", 1) or
@@ -450,7 +447,7 @@ end
 
 --- What a sandboxed worker of this very program -- `cosmic test`'s,
 --- started as [`Proc.relaunch`] says, in `cwd` -- has to be given to start
---- and run a test of the tree at `tree`, beside what the test itself
+--- and run a test of a tree, beside what the test itself
 --- reads: to read, `runtime_paths` (/proc and /dev/null among them),
 --- and with `with_system`, for a module that declares `system`,
 --- `system_paths` too, each where this host has it; the core and the
@@ -460,16 +457,17 @@ end
 --- worker whose test does not declare `tool` has no name to read it by
 --- (its relaunch hands it the artifact as a descriptor, which the core
 --- refuses to its Lua: core/check.h's `cosmic_checkfd`); the
---- tree's store (o/cosmic.db, which a worker attaches), and `cwd`,
---- where given; to change, `scratch`, its temporary directory. Each is
+--- tree's store, `projection` (which a worker attaches), and `cwd`,
+--- each where given; to change, `scratch`, its temporary directory. Each is
 --- there as it is given, so each may be handed to [`process.spawn`]'s
 --- `unveil` whole. The worker can confine what its test starts in
 --- turn, having a /proc of its own -- but where the kernel refuses it
 --- one and its /proc is the host's, read-only. `cosmic test`'s sandbox
 --- (build/test_sandbox.tl) gives a worker these, and what its test's
 --- module reads.
-function confine.worker_unveil(tree: string, cwd: string | nil, scratch: string,
-                               with_system?: boolean, with_program?: boolean): raw_process.Unveil
+function confine.worker_unveil(cwd: string | nil, scratch: string,
+                               with_system?: boolean, with_program?: boolean,
+                               projection?: string): raw_process.Unveil
   local reads: {string} = {}
   local seen: {string:boolean} = {}
   local stat = asked.stat
@@ -508,7 +506,7 @@ function confine.worker_unveil(tree: string, cwd: string | nil, scratch: string,
   for _, path in ipairs(confine.itself()) do
     if path ~= withheld then add(path) end
   end
-  add(build_layout(tree).projection)
+  if projection ~= nil then add(projection) end
   if cwd ~= nil then add(cwd) end
   return { reads = reads, writes = { scratch } }
 end

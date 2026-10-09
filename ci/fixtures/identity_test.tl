@@ -46,6 +46,13 @@ local start, finish, supervised = Process.start, Process.finish, Process.supervi
 local fifo, await_ready, release = Process.fifo, Process.await_ready, Process.release
 local chmod, host_uname = Process.chmod, Process.host_uname
 
+-- Checks that the build line in `out` names the two programs it wrote, in
+-- the build directory of `project`.
+local function built_both(out: string, project: string)
+  local bin = Fixture.built(project) .. "/bin"
+  Fixture.contains(out, "build: PASS (" .. bin .. "/hello, " .. bin .. "/second, ")
+end
+
 -- Compares the first `length` bytes of two files, each of which must hold at
 -- least that many.
 local function compare_file_prefixes(left: string, right: string,
@@ -143,9 +150,9 @@ local function run_build_race(project: string, cache: string,
 
     local result = finish(child)
     assert(result.ok, action .. ": build did not exit successfully")
-    Fixture.contains(child.out, "build: PASS (o/bin/hello, o/bin/second")
+    built_both(child.out, project)
     compare_file_prefixes(runtime_prefix,
-      Fixture.read(project .. "/o/bin/hello"), prefix_length)
+      Fixture.read(Fixture.built(project) .. "/bin/hello"), prefix_length)
   end)
 end
 
@@ -207,7 +214,8 @@ end
 
 -- Restoring into a new project location invalidates the old verdict: the first
 -- run reruns and the immediate repeat stands. The assertions also ensure that
--- relocation preserves the application database and exact executable bytes.
+-- relocation, the build directory moved with the project, preserves the
+-- application database and exact executable bytes.
 -- It runs on the finished primary project, from inside the same test: each
 -- test runs in a process of its own, so no other test can hand it one.
 local function check_transported(fixture_dir: string, finished: string,
@@ -215,15 +223,18 @@ local function check_transported(fixture_dir: string, finished: string,
   -- The destination must not exist so this creates a fresh relocated project.
   local project = work .. "/transported-project"
   copy_tree("restore-transported-state", finished, project)
+  -- Its build directory, outside it, goes with it, as one kept in the
+  -- project would have.
+  copy_tree("restore-transported-build", Fixture.built(finished), Fixture.built(project))
   local counter = project .. "/test-runs"
   local cache = work .. "/transported-cache"
 
-  local projection_before = Fixture.hash(project .. "/o/cosmic.db")
+  local projection_before = Fixture.hash(Fixture.built(project) .. "/cosmic.db")
   expect_tally(run_release(project, cache, counter, diagnostics,
     fixture_dir .. "/runtime.old", "transported"), 1, 0)
   expect_tally(run_release(project, cache, counter, diagnostics,
     fixture_dir .. "/runtime.old", "transported-repeat"), 0, 1)
-  assert(Fixture.hash(project .. "/o/cosmic.db") == projection_before,
+  assert(Fixture.hash(Fixture.built(project) .. "/cosmic.db") == projection_before,
     "transported: a same-context re-run changed the application database")
 
   -- These are the canonical application bytes transported with the work
@@ -232,22 +243,22 @@ local function check_transported(fixture_dir: string, finished: string,
     project .. "/portable-hello.sha256", 256):match("^(%S+)"))
   local expected_second = assert(Fixture.small(
     project .. "/portable-second.sha256", 256):match("^(%S+)"))
-  assert(Fixture.hash(project .. "/o/bin/hello") == expected_hello,
+  assert(Fixture.hash(Fixture.built(project) .. "/bin/hello") == expected_hello,
     "transported hello bytes differ from the recorded hash")
-  assert(Fixture.hash(project .. "/o/bin/second") == expected_second,
+  assert(Fixture.hash(Fixture.built(project) .. "/bin/second") == expected_second,
     "transported second bytes differ from the recorded hash")
 
   -- GitHub artifact transport normalizes executable modes; restore only the
   -- launch permission after proving the transported bytes are unchanged.
   -- A local copy preserves modes, but real artifact transport may not.
-  chmod(project .. "/o/bin/hello", 0x1ed)
-  chmod(project .. "/o/bin/second", 0x1ed)
+  chmod(Fixture.built(project) .. "/bin/hello", 0x1ed)
+  chmod(Fixture.built(project) .. "/bin/second", 0x1ed)
 
   local hello_run = Fixture.run("transported-hello",
-    { project .. "/o/bin/hello" }, project, diagnostics,
+    { Fixture.built(project) .. "/bin/hello" }, project, diagnostics,
     { COSMIC_PORTABLE_CACHE = cache })
   local second_run = Fixture.run("transported-second",
-    { project .. "/o/bin/second" }, project, diagnostics,
+    { Fixture.built(project) .. "/bin/second" }, project, diagnostics,
     { COSMIC_PORTABLE_CACHE = cache })
   Fixture.contains(hello_run.out, "hello from the edited portable fixture")
   Fixture.contains(second_run.out, "second portable application")
@@ -258,6 +269,7 @@ end
 local function test_identity_primary(tmp: string)
   local fixture_dir = Fixture.placed("runtime")
   local work = tmp
+  Fixture.builds_beneath(work .. "/build")
   local diagnostics = work .. "/logs"
   Fixture.mkdir(diagnostics)
   local tool = Fixture.tool_tree(fixture_dir, work)
@@ -274,12 +286,12 @@ local function test_identity_primary(tmp: string)
 
   local build1 = Fixture.run("build", { fixture_dir .. "/runtime.old", "build" },
     project, diagnostics, { COSMIC_PORTABLE_CACHE = cache })
-  Fixture.contains(build1.out, "build: PASS (o/bin/hello, o/bin/second")
+  built_both(build1.out, project)
 
   local prefix_length = read_prefix_length(fixture_dir)
   local runtime_prefix = Fixture.read(fixture_dir .. "/runtime.old.prefix")
   for _, application in ipairs({ "hello", "second" }) do
-    local output = project .. "/o/bin/" .. application
+    local output = Fixture.built(project) .. "/bin/" .. application
     Fixture.assert_executable(output)
     local bytes = Fixture.read(output)
     assert(bytes:sub(1, 10):find("#!/bin/sh", 1, true),
@@ -287,7 +299,7 @@ local function test_identity_primary(tmp: string)
     compare_file_prefixes(runtime_prefix, bytes, prefix_length)
   end
 
-  local hello_before_edit = Fixture.read(project .. "/o/bin/hello")
+  local hello_before_edit = Fixture.read(Fixture.built(project) .. "/bin/hello")
   local hello_source = Fixture.read(fixture_dir .. "/hello_main.tl")
   local edited = hello_source:gsub("hello from the portable fixture",
     "hello from the edited portable fixture")
@@ -296,8 +308,8 @@ local function test_identity_primary(tmp: string)
   Fixture.write(project .. "/cmd/hello/main.tl", edited)
   local rebuild = Fixture.run("rebuild", { fixture_dir .. "/runtime.old", "build" },
     project, diagnostics, { COSMIC_PORTABLE_CACHE = cache })
-  Fixture.contains(rebuild.out, "build: PASS (o/bin/hello, o/bin/second")
-  local hello_after_edit = Fixture.read(project .. "/o/bin/hello")
+  built_both(rebuild.out, project)
+  local hello_after_edit = Fixture.read(Fixture.built(project) .. "/bin/hello")
   compare_file_prefixes(hello_before_edit, hello_after_edit, prefix_length)
   assert(hello_before_edit ~= hello_after_edit,
     "portable identity: application edit did not change its suffix")
@@ -325,12 +337,12 @@ local function test_identity_primary(tmp: string)
     "corrupt-core build unexpectedly succeeded")
   Fixture.contains(corrupt_outcome.err, "retained portable core range ")
   Fixture.contains(corrupt_outcome.err, " digest differs from manifest")
-  assert(Fs.exists(corrupt_project .. "/o/bin/hello") == false,
+  assert(Fs.exists(Fixture.built(corrupt_project) .. "/bin/hello") == false,
     "corrupt-core build produced an application")
 
-  local hello_run = Fixture.run("hello", { project .. "/o/bin/hello" }, project,
+  local hello_run = Fixture.run("hello", { Fixture.built(project) .. "/bin/hello" }, project,
     diagnostics, { COSMIC_PORTABLE_CACHE = cache })
-  local second_run = Fixture.run("second", { project .. "/o/bin/second" }, project,
+  local second_run = Fixture.run("second", { Fixture.built(project) .. "/bin/second" }, project,
     diagnostics, { COSMIC_PORTABLE_CACHE = cache })
   Fixture.contains(hello_run.out, "hello from the edited portable fixture")
   Fixture.contains(second_run.out, "second portable application")
@@ -339,9 +351,9 @@ local function test_identity_primary(tmp: string)
     "portable cache must contain exactly one file, found " ..
       tostring(cache_files))
   Fixture.write(project .. "/portable-hello.sha256",
-    Fixture.hash(project .. "/o/bin/hello") .. "\n")
+    Fixture.hash(Fixture.built(project) .. "/bin/hello") .. "\n")
   Fixture.write(project .. "/portable-second.sha256",
-    Fixture.hash(project .. "/o/bin/second") .. "\n")
+    Fixture.hash(Fixture.built(project) .. "/bin/second") .. "\n")
 
   expect_tally(run_release(project, cache, counter, diagnostics,
     fixture_dir .. "/runtime.old", "release"), 1, 0)
@@ -366,7 +378,7 @@ local function test_identity_primary(tmp: string)
   -- tree for them to find.
   Fixture.run("spoof-database", { fixture_dir .. "/runtime.old",
     tool .. "/test/portable/tool.tl", "spoof-database",
-    project .. "/o/cosmic.db" }, tool, diagnostics,
+    Fixture.built(project) .. "/cosmic.db" }, tool, diagnostics,
     { COSMIC_PORTABLE_CACHE = cache })
 
   expect_tally(run_release(project, cache, counter, diagnostics,
@@ -376,7 +388,7 @@ local function test_identity_primary(tmp: string)
 
   Fixture.run("verify-verdicts", { fixture_dir .. "/runtime.old",
     tool .. "/test/portable/tool.tl", "verify-verdicts",
-    project .. "/o/build.db", counter }, tool, diagnostics,
+    Fixture.built(project) .. "/build.db", counter }, tool, diagnostics,
     { COSMIC_PORTABLE_CACHE = cache })
 
   local missing = work .. "/missing-project"

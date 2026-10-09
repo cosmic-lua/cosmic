@@ -125,8 +125,8 @@ local function test_a_worker_is_started_as_its_command_line_says()
     })
     assert(held.argv[3] == flag, hold .. ": " .. table.concat(held.argv, " "))
   end
-  -- Given the store of its closure, it names it ahead of the closure;
-  -- one given none, which has the projection at o/cosmic.db, names none.
+  -- Given a store, it names it ahead of the closure; one given none
+  -- names none, which the worker refuses.
   for _, store in ipairs({ "/stores/a.db", "" }) do
     local given = worker.invocation({
       start = { argv = { "/bin/cosmic" }, env = {}, fds = {} }, env = {}, root = "/tree",

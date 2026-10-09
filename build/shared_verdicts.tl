@@ -1,6 +1,6 @@
 --- The passing test verdicts every checkout of a tree shares: a SQLite
 --- database under the cosmic cache directory, beside the one each
---- checkout keeps in `o/build.db`. The file is `verdicts/verdicts.db` by
+--- checkout keeps in `build.db`. The file is `verdicts/verdicts.db` by
 --- default, or the absolute path `COSMIC_VERDICT_CACHE` names; `0` turns
 --- the cache off. A sandboxed run's verdicts are shared. Its key is the
 --- digest of everything its test was given ([`build.declared_key`]) and

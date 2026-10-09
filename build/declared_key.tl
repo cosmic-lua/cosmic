@@ -116,7 +116,7 @@
 --- that can alter a pass or a fail: a version of this code that maps a
 --- test's inputs to the key another version computes for other inputs
 --- -- a digest that misses a rewrite of the same size and times --
---- keeps its verdict under that key, in o/build.db and in the verdicts
+--- keeps its verdict under that key, in build.db and in the verdicts
 --- every checkout shares, where it would stand after the fix unless
 --- the epoch moves with it; so, too, does a pass a test earned through
 --- a hole in its sandbox, where a fix that tightens a hold or a bind
@@ -154,7 +154,7 @@
 --- Files are hashed once a run, and a file whose `lstat` says the same
 --- as when a run last hashed it is not read at all: [`Digests`] remembers
 --- each hash by what `lstat` said of the file, its change time included,
---- and o/build.db keeps them from run to run.
+--- and build.db keeps them from run to run.
 
 local Fs = require("cosmic.fs")
 local build_paths = require("build.paths")
@@ -200,6 +200,10 @@ local record declared_key
     root: string
     --- `root` with its links resolved.
     real_root: string
+    --- `root`'s build directory ([`build.paths`]), outside the tree,
+    --- which a declaration of `o` names, and where it resolves.
+    output: string
+    real_output: string
     --- Each file's hash by its absolute path, with what `lstat` said of
     --- it when it was hashed: `signature` .. "\0" .. hex sha256.
     hashed: {string:string}
@@ -359,7 +363,10 @@ function declared_key.digests(root: string, remembered?: {{string}}): declared_k
   local hashed: {string:string} = {}
   for _, row in ipairs(remembered or {}) do hashed[row[1]] = row[2] .. "\0" .. row[3] end
   local real, _ = sys.realpath(root)
-  return { root = root, real_root = real or root, hashed = hashed, used = {}, this_run = {},
+  local output = build_directory(root)
+  local real_output, _ = sys.realpath(output)
+  return { root = root, real_root = real or root, output = output,
+    real_output = real_output or output, hashed = hashed, used = {}, this_run = {},
     read = 0, spent_ns = 0 }
 end
 
@@ -572,7 +579,7 @@ local function program(digests: declared_key.Digests, path: string, st: sys.Stat
       local image = core_image.digest(data)
       return hex_sha256(image ~= nil and ("image\n" .. image) or ("file\n" .. data))
     end
-    -- TODO: remember this beyond one tree's o/build.db, keyed by the
+    -- TODO: remember this beyond one tree's build.db, keyed by the
     -- program's bytes, as shared_verdicts' `stores_v1` remembers a
     -- store's digest by its address: every fresh tree digests the whole
     -- carried database again (~0.25 s on a 4-core host, several times
@@ -703,7 +710,7 @@ end
 --- sandbox gives and a key holds.
 local function leads_out(digests: declared_key.Digests, path: string,
                          directory: string, bounds?: {string}): string | nil
-  local within = bounds or { digests.root, digests.real_root }
+  local within = bounds or { digests.root, digests.real_root, digests.output, digests.real_output }
   local what = bounds ~= nil and within[1] or "the tree"
   local function inside(candidate: string): boolean
     for _, bound in ipairs(within) do
@@ -793,11 +800,11 @@ local function of_tree(digests: declared_key.Digests, relative: string): string,
   local plain = test_inputs.plain(relative)
   if plain == "." then return plain, digests.root end
   if plain:sub(1, 1) == "/" or plain == ".." or plain:sub(1, 3) == "../" then return plain, "" end
-  -- Declarations keep the worker's virtual o names. Digest the physical
-  -- output entries that its sandbox binds there.
-  if plain == "o" then return plain, build_directory(digests.root) end
+  -- `o` in a declaration names the build directory, wherever it is;
+  -- what the sandbox gives there is digested where the host has it.
+  if plain == "o" then return plain, digests.output end
   if plain:sub(1, 2) == "o/" then
-    return plain, build_directory(digests.root) .. plain:sub(2)
+    return plain, digests.output .. plain:sub(2)
   end
   return plain, digests.root .. "/" .. plain
 end
@@ -825,12 +832,13 @@ end
 
 --- A variable's value as a key holds it: each of its `:`-separated
 --- parts that is a path of the tree by its name there
---- (`tree_name`), as PATH's are: what is there is keyed by its
---- contents, and its place is no more an input than the tree's.
-local function held_value(value: string, root: string): string
+--- (`tree_name`), as PATH's are, or of its build directory: what is
+--- there is keyed by its contents, and its place is no more an input
+--- than the tree's.
+local function held_value(value: string, digests: declared_key.Digests): string
   local parts: {string} = {}
   for part in (value .. ":"):gmatch("([^:]*):") do
-    parts[#parts + 1] = tree_name(part, root)
+    parts[#parts + 1] = tree_name(part, digests.root, digests.output)
   end
   return table.concat(parts, ":")
 end
@@ -931,7 +939,7 @@ function declared_key.preimage(digests: declared_key.Digests,
   for name in pairs(spec.environment) do names[#names + 1] = name end
   table.sort(names)
   for _, name in ipairs(names) do
-    lines[#lines + 1] = part("e", name, held_value(spec.environment[name], digests.root))
+    lines[#lines + 1] = part("e", name, held_value(spec.environment[name], digests))
   end
   return table.concat(lines, "\n"), ""
 end

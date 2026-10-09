@@ -8,7 +8,7 @@
 --- declares promised by a CI leg, every verb's spec listed and
 --- readable, no public doc citing the build or carrying a TODO, and no
 --- literal plural after a number. Each asks the tree's projection,
---- `o/cosmic.db`, which holds every module's docs, uses, imports,
+--- `cosmic.db`, which holds every module's docs, uses, imports,
 --- examples and source.
 ---
 --- A test reads its own module's closure and no more (the rule the
@@ -507,7 +507,8 @@ end
 --- The files of the tree that may spell a path under the build directory
 --- themselves rather than ask [`build.paths`], each with why.
 local spelled: {string: string} = {
-  ["build/paths.tl"] = "the resolver itself",
+  ["build/key_parts.tl"] = "names the build directory in a verdict key by the name a " ..
+    "declaration gives it, `o` below the tree's marker, wherever the host keeps it",
   ["build/perf.tl"] = "asks a baseline artifact from before build.paths for its build " ..
     "directory, which that artifact can only name by the rule it was built with",
   ["build/identity.tl"] = "skips a checkout-local o/ of a tree of its own (ci/o) from the " ..
@@ -515,10 +516,6 @@ local spelled: {string: string} = {
     "directory goes",
   ["eval/check/grade.tl"] = "runs standalone on the cosmic.* modules alone, and grades a " ..
     "project the arena's own cosmic built",
-  -- TODO: drop this once #2864's step 3 names the sandbox's virtual
-  -- build directory apart from o/.
-  ["build/test_sandbox.tl"] = "names where a sandboxed worker finds the build directory " ..
-    "in its own tree, /tree/o, which policies grant as o/ wherever the host's is",
 }
 
 --- Whether `line`, code rather than a comment, joins a path to `/o`: a
@@ -776,7 +773,7 @@ end
 
 --- The requirements each test module of the tree declares
 --- ([`Test.policy`]'s `requires`), by the module's path, as the working
---- database `build` (`o/build.db`) holds them: the projection has no
+--- database `build` (`build.db`) holds them: the projection has no
 --- declarations.
 --- @param build the working database
 --- @return the names a module declares, for each that declares any
@@ -800,7 +797,7 @@ end
 --- The test modules that run a program the portable launcher starts, or
 --- open the store, or require a portable host, by the module's path:
 --- the ones whose key holds the launcher, as the working database `build`
---- (`o/build.db`) holds their declarations. Every other worker runs
+--- (`build.db`) holds their declarations. Every other worker runs
 --- sealed ([`build.test`]'s `seals`).
 --- @param build the working database
 --- @return the module paths, as a set
@@ -970,7 +967,7 @@ function tree_checks.standard(path: string): boolean
 end
 
 --- Builds the tree at `root`, cosmic's own, into its projection,
---- `o/cosmic.db`, as `cosmic test` does before any test reads it, and
+--- `cosmic.db`, as `cosmic test` does before any test reads it, and
 --- opens it. `cosmic fix` rebuilds the tool it runs as when that is
 --- stale, but not the projection, which holds what the tool does not
 --- carry (its tests and examples among it). A module the build refuses

@@ -3,7 +3,7 @@
 ---
 --- The index is built by the build itself: [`build.work.stage`] scans each
 --- file it stages ([`build.todo_scan`]) as it reads it, into `todos` in
---- `o/build.db`. That covers what the build consumes (Teal and, in
+--- `build.db`. That covers what the build consumes (Teal and, in
 --- cosmic's own tree, the C core, build.zig, bin/zig and the patch
 --- records, whose notes and replace blocks alone are the tree's own:
 --- [`build.todo_scan.scan_record`]) and, through

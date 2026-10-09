@@ -1,6 +1,6 @@
 --- What the database says about a symbol: `cosmic docs` and `cosmic
 --- uses`, read off the shipped `docs`, `uses` and `links` tables of every
---- database the store searches, and of a project's own `o/cosmic.db`
+--- database the store searches, and of a project's own `cosmic.db`
 --- when the working directory holds one.
 ---
 --- A query is a symbol first -- [`Fs.read`], `read`, [`cosmic.fs`] -- and
@@ -934,7 +934,7 @@ local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {docs
 end
 
 --- The databases a lookup reads, in order: the working directory's own
---- `o/cosmic.db` when there is one, then every database the store
+--- `cosmic.db` when there is one, then every database the store
 --- searches. A module found in an earlier one hides the same module in
 --- a later one, so a project's build answers for its own modules and
 --- the binary answers for the standard library.
@@ -946,9 +946,16 @@ function docs.databases(store?: {Sqlite.Handle}): docs.Sources
   local opened: {Sqlite.Handle} = {}
   local root, root_trouble = Fs.absolute(".")
   assert(root ~= nil, root_trouble)
-  local own_path = build_paths.resolve(root).projection
-  local own_exists, own_trouble = Fs.exists(own_path)
-  assert(own_exists ~= nil, own_trouble)
+  -- A directory with no build directory to have one in has no build of
+  -- its own; one whose build directory cannot be named is answered from
+  -- the binary's databases too, as a stale build is below.
+  local directory, _ = build_paths.optional(root)
+  local own_path = build_paths.under(directory or "/nonexistent").projection
+  local own_exists, own_trouble = false, ""
+  if directory ~= nil then
+    own_exists, own_trouble = Fs.exists(own_path)
+    assert(own_exists ~= nil, own_trouble)
+  end
   if own_exists then
     -- The project's own build is best effort: one that cannot be opened
     -- or read (a directory, a file that is not a database, one a build

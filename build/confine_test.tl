@@ -119,7 +119,7 @@ local function sandboxed_worker(tmp: string): {string} | nil
   assert(Fs.write(given .. "/f", "in"))
   assert(Fs.write(hidden .. "/f", "secret"))
   local tree = assert(sys.getcwd())
-  local unveil = confine.worker_unveil(tree, tree, tmp)
+  local unveil = confine.worker_unveil(tree, tmp)
   -- Given no environment but the relaunch's, as `cosmic test` gives
   -- its worker none but what it pins.
   local worker = this_program.program({ "-e", worker_chunk, given, hidden, probe }, { env = {} })

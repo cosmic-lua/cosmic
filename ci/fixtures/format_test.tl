@@ -11,8 +11,13 @@ local Test = require("cosmic.test")
 --- driver says where the candidate and its products are
 --- (COSMIC_FIXTURE_*) and what the children it starts read
 --- ([`Fixture.inherited`], which each of them hands on and no more, and
---- which cosmic_ci/orchestration_test.tl holds this list to).
+--- which cosmic_ci/orchestration_test.tl holds this list to). It
+--- declares `tool`, as [`BuildPaths.directory`] starts the running
+--- program on the candidate's build/paths.tl, whose modules a worker run
+--- on its closure alone would lack.
 Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "o/bin", letters = "rx" } },
   env = {
     "COSMIC_FIXTURE_FORMAT",
     "COSMIC_FIXTURE_ROOT",

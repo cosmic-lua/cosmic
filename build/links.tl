@@ -44,7 +44,7 @@
 --- 3. a file or directory of the tree, relative to the linking file's
 ---    directory and then to the project's root (a leading `/`: the root
 ---    alone), inside the root once links are followed and not under
----    the root's `o/` (the build's output). An `#anchor` must name a
+---    the root's `o/` (a stale build directory an older tool wrote). An `#anchor` must name a
 ---    Markdown file's heading, `#` or underlined, or an `<a id>` or
 ---    `<a name>`, as GitHub makes anchors; `#anchor` alone names the
 ---    linking file's own. A `?query` is left off and `%XX` read.

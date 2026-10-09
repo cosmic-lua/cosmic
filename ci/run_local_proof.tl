@@ -135,11 +135,17 @@ printf 'error: fixture phase\n'
       local st = assert(sys.lstat(path))
       assert(st.kind == "link" and st.uid == account.uid)
     end
-    assert(Fs.mkdirs(state .. "/ci/o") and Fs.write(state .. "/ci/o/keep", "kept"))
+    -- An o/ an older driver left in the project, its user's: the refresh
+    -- removes it with the rest, the driver's database being in its build
+    -- directory outside the project.
+    assert(Fs.mkdirs(state .. "/ci/o") and Fs.write(state .. "/ci/o/stale", "stale"))
+    for _, path in ipairs({ state .. "/ci/o", state .. "/ci/o/stale" }) do
+      assert(sys.chown(path, account.uid, account.gid))
+    end
     assert(Fs.write(root .. "/ci/.hidden", "edited") and Fs.write(root .. "/tracked", "later"))
     good(run({ "fixtures" }))
     assert(Fs.read(candidate .. "/tracked") == "working" and Fs.read(state .. "/ci/.hidden") == "edited")
-    assert(Fs.read(state .. "/ci/o/keep") == "kept")
+    assert(Fs.exists(state .. "/ci/o") == false, "the refresh kept a stale o/")
     local failed = run({ "failure", "later" })
     assert(failed.code == 23 and Fs.read(candidate .. "/phases") == "build\nfixtures\nfixtures\nfailure\n")
     assert(Fs.read(state .. "/logs/failure.log") == "error: fixture phase\n")

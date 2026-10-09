@@ -17,6 +17,7 @@
 --- starts a sandboxed run is in `declared_sandboxed_test.tl`.
 
 local Fs = require("cosmic.fs")
+local build_paths = require("build.paths")
 local fixture = require("build.declared_unenforced_fixture")
 local Test = require("cosmic.test")
 
@@ -37,6 +38,15 @@ local checkout, environment, says = fixture.checkout, fixture.environment, fixtu
 
 --- Runs `cosmic test` on `root`, answering its exit status and what it
 --- printed, which must say it started.
+--- Moves the checkout at `from` to `to` with its build directory, as a
+--- checkout that kept its build in it moved: what is left at `from` is
+--- no checkout, and a new one made there is another.
+local function move(from: string, to: string, env: {string:string})
+  local built = build_paths.required(from, env)
+  assert(Fs.rename(from, to))
+  assert(Fs.rename(built, build_paths.required(to, env)))
+end
+
 local function run(root: string, output: string, env: {string:string}): integer, string
   local ran = fixture.run(root, output, env)
   return ran.code, ran.text
@@ -57,7 +67,7 @@ local function test_an_unenforced_verdict_stands_again_and_in_another_checkout(t
   says(tmp .. "/first", tmp .. "/again.out", env, "0 ran, 2 stood")
   -- Another checkout where the first was, which has none of the
   -- first's own verdicts: it stands on those it shared.
-  assert(Fs.rename(tmp .. "/first", tmp .. "/moved"))
+  move(tmp .. "/first", tmp .. "/moved", env)
   checkout(tmp .. "/first")
   local second = says(tmp .. "/first", tmp .. "/second.out", env,
     "0 ran, 2 stood, 2 of them on another checkout's verdict")
@@ -115,7 +125,7 @@ local function test_an_unenforced_run_shares_only_through_a_named_cache(tmp: str
   local first = says(tmp .. "/first", tmp .. "/first.out", env, "2 ran, 0 stood")
   assert(first:find(UNSHARED, 1, true), first)
   says(tmp .. "/first", tmp .. "/again.out", env, "0 ran, 2 stood")
-  assert(Fs.rename(tmp .. "/first", tmp .. "/moved"))
+  move(tmp .. "/first", tmp .. "/moved", env)
   checkout(tmp .. "/first")
   says(tmp .. "/first", tmp .. "/second.out", env, "2 ran, 0 stood")
   assert(Fs.stat(tmp .. "/xdg/cosmic/verdicts/verdicts.db") == nil,
@@ -123,30 +133,37 @@ local function test_an_unenforced_run_shares_only_through_a_named_cache(tmp: str
 end
 
 --- Its worker attaches the store of its module's closure, not the
---- tree's projection at o/cosmic.db: the database it holds open is
---- under o/stores/. The store names nothing of where it is, so the case
---- reads the worker's descriptors from /proc instead -- where there is
---- one: macOS has none, and a Linux leg checks it.
+--- tree's projection in its build directory: the database it holds open
+--- is under the build directory's stores/. The store names nothing of
+--- where it is, so the case reads the worker's descriptors from /proc
+--- instead -- where there is one: macOS has none, and a Linux leg checks it.
 local function test_an_unenforced_worker_attaches_its_closure_store(tmp: string)
   local env = environment(tmp .. "/cache/verdicts.db")
   local root = tmp .. "/root"
   checkout(root)
   assert(Fs.write(root .. "/suite/store_test.tl", [[
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
+local sys = require("cosmic.sys")
 
 local function test_the_store_it_attached()
   local listed = Fs.list("/proc/self/fd")
   if listed == nil then return end
+  -- The tree's build directory, named as build/paths.tl names it, under
+  -- the base the runner gives a worker, where it resolves.
+  local named = assert(Env.get("COSMIC_BUILD_HOME")) .. "/" .. Hash.hex_sha256((assert(sys.realpath("."))))
+  local built = (assert(sys.realpath(named)))
   local attached: {string} = {}
   for _, fd in ipairs(listed) do
     local link = Fs.readlink("/proc/self/fd/" .. fd)
-    if link ~= nil and link:find("/o/", 1, true) ~= nil and link:sub(-3) == ".db" then
+    if link ~= nil and Fs.within(link, built) and link:sub(-3) == ".db" then
       attached[#attached + 1] = link
     end
   end
   assert(#attached > 0, "it holds no database of the tree open")
   for _, link in ipairs(attached) do
-    assert(link:find("/o/stores/", 1, true) ~= nil, "it attached " .. link)
+    assert(Fs.within(link, built .. "/stores"), "it attached " .. link)
   end
 end
 ]]))

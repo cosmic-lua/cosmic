@@ -9,6 +9,7 @@ local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 local cache_formats = require("build.cache_formats")
+local build_paths = require("build.paths")
 
 local declared = cache_formats.declared
 
@@ -16,6 +17,13 @@ Test.policy{
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" } },
 }
+
+--- `root`'s build directory ([`build.paths`]), made, with `root` made
+--- first where it is not there yet.
+local function build_dir(root: string): string
+  assert(Fs.mkdirs(root))
+  return (assert(build_paths.prepare(root)))
+end
 
 local function snapshot(path: string, query: string): string
   local db = assert(Sqlite.open(path))
@@ -68,7 +76,7 @@ local function test_d_unstarted() assert(true) end
   end
   local passed = run("prime", { "work_test.tl:test_b_observed_failure", "work_test.tl:test_d_unstarted" }, true)
   assert(passed:find("2 ran, 0 stood", 1, true), passed)
-  local records = root .. "/o/build.db"
+  local records = build_dir(root) .. "/build.db"
   local key = snapshot(cache, "SELECT key FROM " .. declared .. " WHERE test = 'work_test test_b_observed_failure'")
   assert(key ~= "")
   local histories: {string:string} = {}
@@ -107,11 +115,11 @@ local function test_d_unstarted() assert(true) end
   assert(snapshot(cache, "SELECT key FROM " .. declared .. " WHERE key = '" .. key .. "'") == "", "shared pass survived")
   -- Unsandboxed keys include the checkout path. Temporarily set aside
   -- its working database so a fresh consumer meets exactly the same key.
-  assert(Fs.rename(root .. "/o", tmp .. "/saved-o"))
+  assert(Fs.rename(build_dir(root), tmp .. "/saved-o"))
   local fresh = run("fresh", { "work_test.tl:test_b_observed_failure" }, false)
   assert(fresh:find("1 of 1 failed, 0 infrastructure errors", 1, true), fresh)
-  assert(Fs.remove_tree(root .. "/o"))
-  assert(Fs.rename(tmp .. "/saved-o", root .. "/o"))
+  assert(Fs.remove_tree(build_dir(root)))
+  assert(Fs.rename(tmp .. "/saved-o", build_dir(root)))
   -- Another checkout may subsequently share a pass. The local failure
   -- still wins: deletion alone would allow this replacement to stand.
   local shared = assert(Sqlite.open(cache, { writable = true }))

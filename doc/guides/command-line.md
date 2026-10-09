@@ -121,10 +121,12 @@ for _, word in ipairs({ "build", "--host", "cmd/hi" }) do argv[#argv + 1] = word
 local built = assert(Child.run(argv,
   { env = env, fds = relaunch.fds, cwd = tmp, stdout = "capture", timeout_ns = Clock.seconds(60) }))
 print("exit " .. tostring(built.code))
-local hi, _ = Fs.exists(tmp .. "/o/bin/hi")
-local bye, _ = Fs.exists(tmp .. "/o/bin/bye")
-print("hi: " .. tostring(hi) .. ", bye: " .. tostring(bye))
-local ran = assert(Child.run({ tmp .. "/o/bin/hi" }, { stdout = "capture", timeout_ns = Clock.seconds(10) }))
+-- The build line names each program it wrote, in the build directory.
+local program = assert((built.stdout or ""):match("build: PASS %((/[^ ,]+)"))
+local hi, _ = Fs.exists(program)
+local bye, _ = Fs.exists(Fs.dirname(program) .. "/bye")
+print(Fs.basename(program) .. ": " .. tostring(hi) .. ", bye: " .. tostring(bye))
+local ran = assert(Child.run({ program }, { stdout = "capture", timeout_ns = Clock.seconds(10) }))
 print(((ran.stdout or ""):gsub("\n$", "")))
 ```
 

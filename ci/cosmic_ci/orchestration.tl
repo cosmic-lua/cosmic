@@ -387,11 +387,12 @@ local function request_for(c: Context, command: {string}, timeout: integer,
   if env then child_environment = env else child_environment = environment() end
   -- bin/zig shares one project cache among checkouts unless told otherwise
   -- (build/zig.tl). A candidate uses the zig-cache under
-  -- COSMIC_ZIG_CACHE_SEED where CI restored it, else keeps its own under
-  -- o/, which the build phase seeds. zig keys what it compiles by its
-  -- own cache's path too, and CI puts the checkout at a path of the commit's
-  -- own (ci/cosmic_ci/place_tree.tl), so a cache under o/ would never
-  -- be reused there: CI saves the seed's as it stands.
+  -- COSMIC_ZIG_CACHE_SEED where CI restored it, else keeps its own in
+  -- its build directory, which the build phase seeds. zig keys what it
+  -- compiles by its own cache's path too, and CI puts the checkout at a
+  -- path of the commit's own (ci/cosmic_ci/place_tree.tl), whose build
+  -- directory is new with it, so a cache there would never be reused:
+  -- CI saves the seed's as it stands.
   if (child_environment.COSMIC_ZIG_CACHE or "") == "" then
     local seed = named("COSMIC_ZIG_CACHE_SEED")
     child_environment.COSMIC_ZIG_CACHE = seed and seed .. "/zig-cache" or BuildPaths.directory(c.root, child_environment) .. "/zig-cache"
@@ -682,8 +683,8 @@ end
 --- it reaches itself. It reads the candidate and its products where
 --- variables of `env` say (COSMIC_FIXTURE_*), which no key of its holds,
 --- so it neither reads nor writes the shared verdicts, whatever the
---- event. Nor can a verdict of its own stand: its project, and the o/
---- under it, is made afresh for each run, and it names the file it
+--- event. Nor can a verdict of its own stand: its project, and its
+--- build directory, is made afresh for each run, and it names the file it
 --- runs, so none is assumed.
 ---
 --- Its compiles and parses (COSMIC_BUILD_CACHE) are the file `compiles`
@@ -747,7 +748,7 @@ end
 --- What a sandboxed fixture reads of a setup's output, `from` (the
 --- product, the runtime setup's directory, the launcher contract's, the
 --- format decoders', the performance inputs), placed at `kind` under
---- o/fixtures of the project it runs in: the fixture declares each path
+--- `fixtures` of the build directory of the project it runs in: the fixture declares each path
 --- it reads there with [`Test.policy`], a grant, so its
 --- key holds what each holds, not where the leg keeps it. Only `only`, the
 --- names beneath `from` it reads, are copied where it is given: a fixture
@@ -759,18 +760,15 @@ local record Placement
   only: {string}
 end
 
---- Places each of `placements` beneath `project`'s o/fixtures
---- ([`Placement`]). A copy, so a fixture is free to run what it is
---- placed without touching the product the leg attests.
--- TODO: place these in the build directory the driver names for
--- `project` once ci/cosmic-driver.pin names a release whose resolver puts
--- it outside the project (#2864's step 3): `project` is a copy of ci/,
--- with no build/paths.tl of its own, built by the driver, so its build
--- directory is the driver release's to name, and today that is its o/.
+--- Places each of `placements` in the `fixtures` directory of the
+--- build directory the driver builds `project` in ([`Placement`],
+--- [`BuildPaths.driven`]), which a fixture declares as `o/fixtures`. A
+--- copy, so a fixture is free to run what it is placed without touching
+--- the product the leg attests.
 local function place(project: string, placements: {Placement})
   for _, placement in ipairs(placements) do
     assert(placement.kind:match("^[%w_]+$"), "invalid fixture placement")
-    local where = project .. "/o/fixtures/" .. placement.kind
+    local where = BuildPaths.driven(project) .. "/fixtures/" .. placement.kind
     assert(Fs.mkdirs(Fs.dirname(where)))
     if placement.only == nil then
       assert(Fs.copy_tree(placement.from, where))
@@ -963,7 +961,7 @@ local function checked_suite(c: Context, target: string, work: string,
   -- such as an assert's __FILE__, would move every key each run and
   -- stand on none. These are plain finds over the core already read
   -- above, some 35 ms for 38 MB. The tree root may be named under the
-  -- checkout's own zig cache (run-local's `o/zig-cache`, whose vendored
+  -- checkout's own zig cache (run-local's, in its build directory, whose vendored
   -- trees' paths the core's assert strings hold; build.zig's
   -- `debug_dir`), which is no path CI's builds name.
   -- TODO: hold each compile unit's DW_AT_comp_dir to "." here, reading
@@ -1065,7 +1063,7 @@ local function checked_suite(c: Context, target: string, work: string,
   -- ([`suite_verdicts`]), and says which key parts a run that stands on
   -- none reached (`--census`, build/test.tl).
   -- --all where it stands on no verdict (`stands`): CI answers for
-  -- every test then, whatever o/ holds.
+  -- every test then, whatever its build directory holds.
   local checked_argv: {string} = { cosmic }
   local checked_words, checked_environment = Orchestration.suite_run({
     COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "checked"),
@@ -1210,7 +1208,7 @@ local function boot(p: PlatformContext): integer
   -- zig's caches are used where CI restored them: its global cache
   -- (COSMIC_ZIG_GLOBAL_CACHE, build/zig.tl) and the project cache, the
   -- zig-cache under COSMIC_ZIG_CACHE_SEED (see `operation`). Only a
-  -- local run's is copied into o/, from the project cache
+  -- local run's is copied into the build directory, from the project cache
   -- COSMIC_ZIG_CACHE_FROM names, a developer's shared one.
   local seed = named("COSMIC_ZIG_CACHE_SEED")
   local from = named("COSMIC_ZIG_CACHE_FROM")
@@ -1597,7 +1595,7 @@ end
 
 --- The candidate's tracked source, unpacked afresh at `destination`
 --- from the `git archive` assemble made of it (`archive`, beside
---- `p.fresh`, where the portable suite has written its o/ since): the
+--- `p.fresh`, where the portable suite has built since): the
 --- tree a fixture that boots or rebuilds one copies
 --- (COSMIC_FIXTURE_SOURCE, [`Fixture.source_tree`]), the one the product
 --- was booted from.

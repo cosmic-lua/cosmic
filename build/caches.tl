@@ -30,8 +30,8 @@ end
 --- the variables that locate it: each directory, absolute, whether it is
 --- there yet or not; nothing is made or looked at. None for a name that
 --- is no cache, or where neither XDG_CACHE_HOME nor HOME names a cache
---- directory (build/zig.tl then keeps zig's caches under `root`/o, the
---- tree's own).
+--- directory (build/zig.tl then keeps zig's caches in the tree's build
+--- directory, which COSMIC_BUILD_HOME alone can name then).
 -- TODO: take the bootstrap cosmic's and the launcher's cores directory
 -- from the code that decides them, once either is Teal: today
 -- bin/cosmic-bootstrap and build/launcher.tl's shell each spell

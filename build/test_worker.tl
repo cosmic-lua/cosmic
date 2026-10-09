@@ -16,9 +16,9 @@
 local type Child = require("cosmic.child")
 local type Sandbox = require("cosmic.sandbox")
 local Coverage = require("cosmic.coverage")
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
-local build_paths = require("build.paths")
-local build_layout = build_paths.resolve
+local env_get = Env.get
 local Proc = require("cosmic.proc")
 local type raw_store = require("cosmic.internal.store")
 local sys = require("cosmic.sys")
@@ -103,10 +103,10 @@ local record worker
     needs: string
     --- How its Landlock ruleset holds it (`hold_flag`).
     hold: worker.Hold
-    --- The store of its module's closure it attaches in place of the
-    --- projection at `root`/o/cosmic.db (`--store`), for a worker no
-    --- sandbox gives it there; nil for none, as for a module that
-    --- declares `store`.
+    --- The store it attaches (`--store`): where its sandbox gives it
+    --- one, or, unsandboxed, the store of its module's closure, or the
+    --- projection for a module that declares `store`. The runner names
+    --- it, so the worker resolves no build directory itself.
     store: string
     --- The names of the module's import closure and of every module of
     --- the tree (see `run`).
@@ -216,10 +216,10 @@ local SECOND_NS <const> = 1000 * 1000 * 1000
 --- table, which follows `local type` requires Teal erases and requires
 --- inside functions no worker calls.
 worker.loads = {
-  "build.assertions", "build.cache_names", "build.confine", "build.key_parts", "build.paths",
+  "build.assertions", "build.cache_names", "build.confine", "build.key_parts",
   "build.test_inputs",
-  "build.test_worker", "build.this_program", "cmd.cosmic.main", "cosmic.coverage", "cosmic.env",
-  "cosmic.fs", "cosmic.proc", "cosmic.test",
+  "build.test_worker", "build.this_program", "cmd.cosmic.main", "cosmic.coverage",
+  "cosmic.env", "cosmic.fs", "cosmic.proc", "cosmic.test",
 }
 
 -- Taken at load, ahead of any test that could replace them on the
@@ -517,7 +517,7 @@ end
 --- The command line and the start options of the worker `given`
 --- describes: `start`'s program (`program`), then `test --worker
 --- <root> <module> <test> <scratch>/tmp <scratch>/children <needs>
---- [--sandboxed [--runs <count> <path>...]] [--store <store>] <closure>... --tree <tree>...`
+--- [--sandboxed [--runs <count> <path>...]] --store <store> <closure>... --tree <tree>...`
 --- (`run`), with the report captured at `report_fd`,
 --- and its environment `env` with `start`'s variables added and
 --- coverage collected from its first instruction (core/coverage.c,
@@ -723,7 +723,7 @@ end
 --- written.
 ---
 --- @param argv `cosmic test --worker <root> <module> <test> <tmp> <children>
---- <needs> [--sandboxed] [--store <store>] <closure>... --tree <tree>...`:
+--- <needs> [--sandboxed] --store <store> <closure>... --tree <tree>...`:
 ---
 --- - `children` is a directory, not yet there, to collect the coverage
 ---   of the processes the test starts in.
@@ -742,11 +742,12 @@ end
 ---   beyond its closure, and a key need not hold them: a name there
 ---   only turns a `require` of a module outside the closure into a
 ---   refusal, never into a load.
---- - `--store <store>` ahead of the closure names the store of the
----   module's closure ([`build.closure_store`]) to attach in place of
----   `<root>/o/cosmic.db`: an unsandboxed worker's, whose key holds the
----   store it is given by that store's address, as a sandboxed one is
----   given it at o/cosmic.db.
+--- - `--store <store>` ahead of the closure names the store to attach:
+---   where a sandboxed worker's sandbox gives it, or, unsandboxed, the
+---   store of the module's closure ([`build.closure_store`]), whose key
+---   holds it by that store's address, or the projection for a module
+---   that declares `store`. A worker resolves no build directory itself
+---   ([`worker.loads`] holds no hashing but the key's own).
 ---
 --- `--worker-no-tool` in place of `--worker` holds the worker, before
 --- anything of the test loads, to running anything but this very
@@ -765,8 +766,7 @@ function worker.run(argv: {integer:string}): integer
     complain("test --worker needs a root, a module, a test and two directories")
     return 2
   end
-  -- The closure's names start after `--open`, or `--store` and its
-  -- path, where either is given.
+  -- The closure's names start after `--store` and its path.
   local first = 9
   local sandboxed = argv[first] == "--sandboxed"
   local runs: {string} = nil
@@ -820,14 +820,12 @@ function worker.run(argv: {integer:string}): integer
       return 2
     end
   end
-  local db_path = build_layout(root).projection
-  if argv[first] == "--store" then
-    if argv[first + 1] == nil then
-      complain("test --worker: --store needs a path")
-      return 2
-    end
-    db_path, first = argv[first + 1], first + 2
+  if argv[first] ~= "--store" or argv[first + 1] == nil then
+    complain("test --worker: --store needs a path")
+    return 2
   end
+  local db_path = argv[first + 1]
+  first = first + 2
   local attached, attach_trouble = store.attach(db_path)
   if not attached then
     complain(db_path .. ": " .. attach_trouble)
@@ -873,6 +871,15 @@ function worker.run(argv: {integer:string}): integer
   local resolved_tmp, _ = Fs.absolute(tmp)
   if resolved_tmp ~= nil then own[#own + 1] = resolved_tmp end
   if children ~= nil then own[#own + 1] = children end
+  -- The base of the build directories its runner gave it
+  -- (COSMIC_BUILD_HOME, beneath its scratch directory): a project the
+  -- test builds, or a process it starts builds, is built there, so what
+  -- one process builds the next finds.
+  local home = env_get("COSMIC_BUILD_HOME")
+  if home ~= nil and home ~= "" then
+    local made_home, _ = Fs.mkdirs(home)
+    if made_home then own[#own + 1] = home end
+  end
   -- What the module's `policy` call stands for as it loads, through the
   -- hook [`cosmic.test`] leaves for a runner; once it has loaded, a call
   -- is refused.

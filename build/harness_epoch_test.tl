@@ -13,10 +13,12 @@ local Compress = require("cosmic.compress")
 local Rand = require("cosmic.rand")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
+local build_paths = require("build.paths")
 local harness_epoch = require("build.harness_epoch")
 local test = require("build.test")
 
---- The harness is read from the projection, o/cosmic.db: its modules
+--- The harness is read from the projection, in the tree's build
+--- directory (`o/cosmic.db`, as a grant names it): its modules
 --- are the tree's, most of them outside this module's closure, and so
 --- is the `imports` table `key_code`'s closure is walked by. Declared
 --- `store`, the key holds the projection by its contents, so every
@@ -24,6 +26,8 @@ local test = require("build.test")
 --- them, and so does a compiler that makes other bytecode of it; it
 --- is this module alone that pays that.
 Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
+
+local projection = build_paths.resolve(".").projection
 
 --- The line of build/harness_epoch.tl's `acknowledged` that holds
 --- `name` at `digest`, as the file lays it out: each such line between
@@ -153,7 +157,7 @@ local function unacknowledged(found: {string:string}, acknowledged: {string:stri
 end
 
 local function test_the_harness_is_acknowledged()
-  local db = assert(Sqlite.open("o/cosmic.db"))
+  local db = assert(Sqlite.open(projection))
   local found, trouble = test.harness(db)
   db:close()
   assert(found ~= nil, trouble)
@@ -165,7 +169,7 @@ end
 --- Presentation edits need no acknowledgment; the runner's judgment remains
 --- held whole, even though its reporting dependency is not followed.
 local function test_the_runner_is_acknowledged_without_its_reporter()
-  local db = assert(Sqlite.open("o/cosmic.db"))
+  local db = assert(Sqlite.open(projection))
   local found, trouble = test.harness(db)
   db:close()
   assert(found ~= nil, trouble)
@@ -274,7 +278,7 @@ end
 --- is the whole edit and git merges two changes to different modules,
 --- even two that sort next to each other.
 local function test_the_file_holds_its_entries_as_the_guard_prints_them()
-  local db = assert(Sqlite.open("o/cosmic.db"))
+  local db = assert(Sqlite.open(projection))
   local rows = assert(Sqlite.rows(db, "SELECT source FROM modules WHERE path = ?1",
     { { text = "build.harness_epoch" } }))
   db:close()
@@ -307,7 +311,7 @@ local unfollowed: {string:{string:boolean}} = {
 --- nor the digest. build/zig.tl, which build.caches requires, is such a
 --- module: it decides where a declared cache is bound from.
 local function test_the_harness_holds_what_it_runs_requires()
-  local db = assert(Sqlite.open("o/cosmic.db"))
+  local db = assert(Sqlite.open(projection))
   local found, trouble = test.harness(db)
   assert(found ~= nil, trouble)
   local named: {string:boolean} = {}
@@ -352,7 +356,7 @@ local unheld_split: {string:string} = {
 --- says why not.
 --- Otherwise an edit to the part split off would move no digest.
 local function test_what_is_split_off_a_module_of_the_harness_is_held()
-  local db = assert(Sqlite.open("o/cosmic.db"))
+  local db = assert(Sqlite.open(projection))
   local found, trouble = test.harness(db)
   assert(found ~= nil, trouble)
   local by_value = assert(test.value_imports(db))
@@ -396,7 +400,7 @@ end
 --- for a clock the raw binding gives -- fails here with the rule,
 --- rather than passing once its digest is acknowledged.
 local function test_the_harness_names_its_library()
-  local db = assert(Sqlite.open("o/cosmic.db"))
+  local db = assert(Sqlite.open(projection))
   local found, trouble = test.harness(db)
   db:close()
   assert(found ~= nil, trouble)

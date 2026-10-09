@@ -1,7 +1,7 @@
 --- Runs every test the tree defines that a stored verdict does not
 --- already answer for, each in a process of its own, and records each
---- verdict into the working database, `o/build.db`, which never ships
---- and is never carried in `o/cosmic.db`.
+--- verdict into the working database, `build.db`, which never ships
+--- and is never carried in the projection, `cosmic.db`.
 ---
 --- A test runs in a worker, [`build.test_worker`]: this binary again,
 --- started with the test's module, name, and temporary directory, in a
@@ -929,7 +929,7 @@ local harness_alone <const>: {string} = { "cosmic.child", "cosmic.sandbox",
 --- A key is looked up by its value, but that is not enough. A version
 --- of this code that maps some inputs to the key another version
 --- computes for other inputs (a digest that misses a rewrite, say)
---- keeps a verdict under that key, in o/build.db and in the verdicts
+--- keeps a verdict under that key, in build.db and in the verdicts
 --- every checkout shares, which would stand after a fix. So a fix to it
 --- bumps the epoch (build/harness_epoch.tl), which every key holds.
 --- Every version of it is in the harness's digests, which
@@ -1345,7 +1345,7 @@ local record Recording
   --- `require` of outside its closure ([`build.test_worker`]).
   tree_names: {string}
   --- The address of the store of each module's import closure its
-  --- workers are given at o/cosmic.db, or attach unsandboxed
+  --- workers are given at their build directory's cosmic.db, or attach unsandboxed
   --- ([`build.closure_store`]'s `write`), by path, for every test and
   --- example module of the tree that does not declare `store`; the
   --- projection that store is derived from, its basis, and each store
@@ -1456,7 +1456,7 @@ local function caches_of(rec: Recording, m: importer.Module): {string}
 end
 
 --- What names this checkout among the shared rows: an id made the
---- first time its o/build.db is asked for one and kept in its `meta`,
+--- first time its build.db is asked for one and kept in its `meta`,
 --- so a checkout made again at the same path is another checkout, and
 --- one whose o/ is removed is too.
 local function checkout_id(records: Sqlite.Handle, root: string, now_ns: integer): string
@@ -2649,8 +2649,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     finish(rec, job, nil, "", limits, false, effective.noexec_trouble)
     return false
   end
-  -- The store of its closure an unsandboxed worker attaches in place
-  -- of the projection ([`worker.Invocation`]'s `store`): nil for none.
+  -- The store its worker attaches ([`worker.Invocation`]'s `store`).
   local attached: string = nil
   -- The sealed database of its closure its worker runs on ([`sealed_for`]):
   -- nil for none.
@@ -2697,6 +2696,8 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
       return false
     end
     job.plan = plan
+    -- Where its sandbox gives it the store, whichever that is.
+    attached = build_paths.under(test_sandbox.output).projection
     if plan.own_scratch then
       -- Its worker makes its directory in a tmpfs of its own, where no
       -- host directory is in its root: the runner keeps none, and nothing
@@ -2733,15 +2734,15 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     -- namespace: a reach past loopback goes unnoticed here, and a Linux
     -- leg's sandbox, which runs it offline, is what fails it.
     --
-    -- It attaches the store of its closure, as a sandbox gives it at
-    -- o/cosmic.db ([`given_store`]), and runs the core on the sealed
+    -- It attaches the store of its closure, as a sandbox gives it at its
+    -- build directory's cosmic.db ([`given_store`]), and runs the core on the sealed
     -- database of its closure ([`sealed_for`]); nothing keeps it from the
     -- program's own file, which only a sandbox hides.
     -- TODO: hand that store on to what the test starts, once a cosmic
     -- run can be told which store to read in place of its tree's
-    -- o/cosmic.db (a variable build.tree_root reads): today a process
-    -- the test starts, which a sandbox would give the closure store at
-    -- o/cosmic.db, reads the whole projection there, which its key holds
+    -- projection (a variable build.tree_root reads): today a process
+    -- the test starts, which a sandbox would give the closure store in
+    -- place of the projection, reads the whole projection, which its key holds
     -- only by the closure store's bytes; a Linux leg's sandbox
     -- enforces what macOS trusts.
     local store, store_trouble = given_store(rec, job.m)
@@ -2749,13 +2750,18 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
       finish(rec, job, nil, store_trouble, limits)
       return false
     end
-    attached = store
+    attached = store or build_paths.resolve(rec.root).projection
     -- Unsandboxed too it starts the core on the sealed database of its
     -- closure, so what it and its starts read of the program is what its
     -- key holds; only a sandbox keeps it from the program's own file.
     sealed, sealed_trouble = sealed_for(rec, job.m)
     if sealed == nil and sealed_trouble ~= "" then
       finish(rec, job, nil, sealed_trouble, limits)
+      return false
+    end
+    local homed, home_trouble = test_sandbox.unenforced_home(rec.root, scratch)
+    if not homed then
+      finish(rec, job, nil, home_trouble, limits)
       return false
     end
     env = test_sandbox.unenforced_environment(worker_view(), rec.effective[job.m.path], scratch)

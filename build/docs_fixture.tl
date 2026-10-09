@@ -9,7 +9,7 @@
 --- staged into a working database as [`build.work`] stages a tree, parsed
 --- by [`build.importer.derive`] -- the same [`build.analyzer`] analysis a
 --- build runs -- and projected by [`build.writer.write_result`], the
---- function that writes `o/cosmic.db`.
+--- function that writes `cosmic.db`.
 
 local Sqlite = require("cosmic.sqlite")
 local build_paths = require("build.paths")

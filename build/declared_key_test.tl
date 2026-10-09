@@ -17,6 +17,7 @@ local test_inputs = require("build.test_inputs")
 local Test = require("cosmic.test")
 local type positions = require("build.positions")
 local Clock = require("cosmic.clock")
+local build_paths = require("build.paths")
 
 --- What the host's identity reads ([`declared_key.host_identity`]), on
 --- whichever system this is, what the host says of itself, and a file a
@@ -36,6 +37,13 @@ Test.policy{
   },
   env = { "COSMIC_HOST_ID", "COSMIC_SYSTEM_ID" },
 }
+
+--- `root`'s build directory ([`build.paths`]), made, with `root` made
+--- first where it is not there yet.
+local function build_dir(root: string): string
+  assert(Fs.mkdirs(root))
+  return (assert(build_paths.prepare(root)))
+end
 
 --- A tree at `root` holding a module, the module it requires, a
 --- declared data directory, and a file nothing declares.
@@ -84,8 +92,8 @@ local function test_a_key_is_the_same_while_nothing_declared_changes(tmp: string
   assert(key_of(one, spec({ DECLARED = one .. "/suite", TMPDIR = "/tmp" })) ==
       key_of(two, spec({ DECLARED = two .. "/suite", TMPDIR = "/tmp" })))
   -- Every part of a PATH-like value, not only its first.
-  assert(key_of(one, spec({ DECLARED = "/usr/bin:" .. one .. "/o/bin:" .. one .. "/bin",
-    TMPDIR = "/tmp" })) == key_of(two, spec({ DECLARED = "/usr/bin:" .. two .. "/o/bin:" ..
+  assert(key_of(one, spec({ DECLARED = "/usr/bin:" .. build_dir(one) .. "/bin:" .. one .. "/bin",
+    TMPDIR = "/tmp" })) == key_of(two, spec({ DECLARED = "/usr/bin:" .. build_dir(two) .. "/bin:" ..
         two .. "/bin", TMPDIR = "/tmp" })))
 end
 
@@ -112,8 +120,8 @@ end
 --- `lua_loads`, moves it.
 local function test_a_lua_module_is_keyed_by_its_closure_not_the_program(tmp: string)
   tree(tmp)
-  assert(Fs.mkdirs(tmp .. "/o/bin"))
-  assert(Fs.write(tmp .. "/o/bin/cosmic", "one program"))
+  assert(Fs.mkdirs(build_dir(tmp) .. "/bin"))
+  assert(Fs.write(build_dir(tmp) .. "/bin/cosmic", "one program"))
   local function lua_spec(program: string, store: string): declared_key.Spec
     local s = spec()
     s.effective.lua = true
@@ -123,7 +131,7 @@ local function test_a_lua_module_is_keyed_by_its_closure_not_the_program(tmp: st
     return s
   end
   local before = key_of(tmp, lua_spec("one program", "one store"))
-  assert(Fs.write(tmp .. "/o/bin/cosmic", "another program"))
+  assert(Fs.write(build_dir(tmp) .. "/bin/cosmic", "another program"))
   assert(key_of(tmp, lua_spec("another program", "one store")) == before)
   assert(key_of(tmp, lua_spec("one program", "another store")) ~= before)
   -- A module that declares `tool` is keyed by the program, as ever.
@@ -651,8 +659,8 @@ local function test_a_host_path_is_keyed_by_what_it_holds(tmp: string)
   local base = assert(Fs.absolute(tmp))
   local function product(where: string, contents: string): string
     local dir = base .. "/" .. where
-    assert(Fs.mkdirs(dir .. "/o/bin"))
-    assert(Fs.write(dir .. "/o/bin/cosmic", contents))
+    assert(Fs.mkdirs(build_dir(dir) .. "/bin"))
+    assert(Fs.write(build_dir(dir) .. "/bin/cosmic", contents))
     return dir
   end
   local function resolved(declared: string): declared_key.Spec
@@ -668,19 +676,19 @@ local function test_a_host_path_is_keyed_by_what_it_holds(tmp: string)
     return key_of(root, s)
   end
   local one, two = product("one", "cosmic\n"), product("two", "cosmic\n")
-  local file = one .. "/o/bin/cosmic"
+  local file = build_dir(one) .. "/bin/cosmic"
   local before = key_at(file)
   assert(key_at(file) == before)
   assert(Fs.write(file, "another cosmic\n"))
   assert(key_at(file) ~= before, "the file's contents")
   -- A link declared is held by what it leads to, wherever that is.
-  assert(Fs.symlink("../../two/o/bin/cosmic", one .. "/o/linked"))
-  local linked = key_at(one .. "/o/linked")
-  assert(Fs.write(two .. "/o/bin/cosmic", "a third cosmic\n"))
-  assert(key_at(one .. "/o/linked") ~= linked, "what the link leads to")
+  assert(Fs.symlink(build_dir(two) .. "/bin/cosmic", build_dir(one) .. "/linked"))
+  local linked = key_at(build_dir(one) .. "/linked")
+  assert(Fs.write(build_dir(two) .. "/bin/cosmic", "a third cosmic\n"))
+  assert(key_at(build_dir(one) .. "/linked") ~= linked, "what the link leads to")
   -- A directory is refused; /proc, which no key could hold by what it
   -- holds, and what is beneath it, are given.
-  for _, declared in ipairs({ one, one .. "/o" }) do
+  for _, declared in ipairs({ one, build_dir(one) }) do
     local refused = resolved(declared).effective.unresolved
     assert(refused:find(string.format("Test.policy grant of the host path %q: ", declared), 1, true) and
         refused:find(" is a directory; a grant of the host names files, or /proc", 1, true), refused)
@@ -1068,9 +1076,9 @@ end
 --- o/bin, while a carried module or the core moves it.
 local function test_a_program_is_keyed_by_what_it_runs_as(tmp: string)
   tree(tmp)
-  assert(Fs.mkdirs(tmp .. "/o/bin"))
+  assert(Fs.mkdirs(build_dir(tmp) .. "/bin"))
   local root = assert(Fs.absolute(tmp))
-  local tool = root .. "/o/bin/cosmic"
+  local tool = build_dir(root) .. "/bin/cosmic"
   local s = spec()
   s.effective.tool = true
   local function keys(): string, string
@@ -1117,10 +1125,10 @@ local function test_a_program_is_keyed_by_what_it_runs_as(tmp: string)
   -- A file in o/bin that is no artifact is keyed by its contents.
   program_at(tool, "core one", meta, "bytecode one")
   assert(select(2, keys()) == key)
-  assert(Fs.write(root .. "/o/bin/other", "one"))
+  assert(Fs.write(build_dir(root) .. "/bin/other", "one"))
   local other = select(2, keys()) as string
   assert(other ~= key, "a file added to o/bin left the key")
-  assert(Fs.write(root .. "/o/bin/other", "two"))
+  assert(Fs.write(build_dir(root) .. "/bin/other", "two"))
   assert(select(2, keys()) ~= other, "a file of o/bin's contents left the key")
 end
 
@@ -1208,15 +1216,15 @@ end
 --- an edit outside the closure moves only the first.
 local function test_the_store_given_is_keyed_as_it_is_given(tmp: string)
   tree(tmp)
-  assert(Fs.mkdirs(tmp .. "/o"))
-  assert(Fs.write(tmp .. "/o/cosmic.db", "one"))
+  assert(build_dir(tmp))
+  assert(Fs.write(build_dir(tmp) .. "/cosmic.db", "one"))
   local closed = spec()
   closed.closure_store = "address"
   local whole = spec()
   whole.effective.store = true
   whole.closure_store = "address"
   local closed_before, whole_before = key_of(tmp, closed), key_of(tmp, whole)
-  assert(Fs.write(tmp .. "/o/cosmic.db", "two"))
+  assert(Fs.write(build_dir(tmp) .. "/cosmic.db", "two"))
   assert(key_of(tmp, closed) == closed_before, "the projection moved a closure store's key")
   assert(key_of(tmp, whole) ~= whole_before, "the projection left a declared store's key")
 end

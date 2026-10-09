@@ -21,6 +21,7 @@ local embed = require("build.embed")
 local invoke = require("build.invoke")
 local refresh = require("build.refresh")
 local Clock = require("cosmic.clock")
+local build_paths = require("build.paths")
 
 --- The vendored bundle and zones a refresh replaces, and this program,
 --- whose core a program it builds runs on.
@@ -35,6 +36,13 @@ Test.policy{
     { path = "o/cosmic.db", letters = "r" },
   },
 }
+
+--- `root`'s build directory ([`build.paths`]), made, with `root` made
+--- first where it is not there yet.
+local function build_dir(root: string): string
+  assert(Fs.mkdirs(root))
+  return (assert(build_paths.prepare(root)))
+end
 
 local bundle <const> = "vendor/cacert/cacert.pem"
 local zones <const> = "vendor/tzdata/zoneinfo"
@@ -60,7 +68,7 @@ local function program(tmp: string, host?: boolean): string
   assert(Fs.mkdirs(tree .. "/cmd/ok"))
   assert(Fs.write(tree .. "/cmd/ok/main.tl", 'return function(): integer print("ok") return 0 end\n'))
   assert(embed.tree(tree, host))
-  return tree .. "/o/bin/ok"
+  return build_dir(tree) .. "/bin/ok"
 end
 
 --- The database the artifact at `path` carries, opened from a copy.

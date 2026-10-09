@@ -322,6 +322,9 @@ local function fixture(binary: string, root: string): Fixture
   env.COSMIC_VERDICT_CACHE = "0"
   env.COSMIC_TEST_SANDBOX = "0"
   env.COSMIC_PORTABLE_CACHE = root .. "/portable-cache"
+  -- Beside the fixture, so its build directory, and the logs kept there,
+  -- stay in the result directory rather than the user's cache.
+  env.COSMIC_BUILD_HOME = root .. "-build"
   local f: Fixture = { binary = binary, root = root, host = root .. "/host",
     portable = root .. "/portable", host_tool = root .. "/host-tool",
     logs = "", output = "", env = env }

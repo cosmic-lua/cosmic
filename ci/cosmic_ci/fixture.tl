@@ -6,10 +6,15 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Runner = require("cosmic_ci.runner")
 local Plural = require("cosmic_ci.plural")
+local sys = require("cosmic.sys")
 
 -- Candidate scripts, applications, and decoder executions normally finish in
 -- well under a second. Native decoder compilation opts into its larger bound.
 local default_child_timeout_ns <const> = Clock.seconds(30)
+
+--- Where this fixture's children build, once [`Fixture.builds_beneath`]
+--- names it; nil until then, for them to build where the environment says.
+local build_home: string | nil = nil
 
 local record Fixture
   inherited: {string}
@@ -56,17 +61,48 @@ function Fixture.required(name: string): string
 end
 
 --- Where the driver placed what a setup made for this fixture to read:
---- the absolute path of o/fixtures/`kind` in the project the fixture runs
---- in (cosmic_ci/orchestration.tl's `place`), which its declaration
---- names as the tree-relative `reads` of the same path, so its key holds
---- what is there. A child of the fixture, in a directory of its own,
---- is given this path.
--- TODO: name the virtual build directory apart from o/ with the
--- symbolic test-policy grants, in #2864's step 3 (build/test_sandbox.tl's
--- `of_tree`): sandboxed, o/ here is the worker's /tree/o, bound to the
--- build directory; unsandboxed it is the project's own o/.
+--- the absolute path of `fixtures/<kind>` in the build directory of the
+--- project the fixture runs in (cosmic_ci/orchestration.tl's `place`),
+--- which its declaration names as the grant of `o/fixtures/<kind>`, so
+--- its key holds what is there. A child of the fixture, in a directory
+--- of its own, is given this path. A driver that sets COSMIC_BUILD_HOME
+--- in its workers has the project's build directory beneath it, named
+--- as build/paths.tl's `in_home` names it; one that sets none builds
+--- the project in its o/.
+-- TODO: ask build.paths for the directory, rather than spell its key and
+-- the o/ of a driver that has none, once ci/cosmic-driver.pin names a
+-- release that carries build/paths.tl and puts the build directory
+-- outside the project.
 function Fixture.placed(kind: string): string
+  local home = Env.get("COSMIC_BUILD_HOME")
+  if home ~= nil and home ~= "" then
+    local root = assert(sys.realpath("."))
+    return home .. "/" .. Hash.hex_sha256(root) .. "/fixtures/" .. kind
+  end
   return (assert(Fs.absolute("o/fixtures/" .. kind)))
+end
+
+--- Has every child this fixture starts build under `directory`
+--- (COSMIC_BUILD_HOME, [`environment_of`]), made 0700 where it is not
+--- there yet. A sandboxed fixture whose children build -- a project, a
+--- file run -- calls it first: its worker may write its own directory
+--- alone, and a driver whose harness hands its workers no
+--- COSMIC_BUILD_HOME leaves them the user's cache, which a sandbox does
+--- not give.
+function Fixture.builds_beneath(directory: string)
+  local made, trouble, errno = sys.mkdir(directory, 0x1c0)
+  assert(made or errno == sys.EEXIST, directory .. ": " .. tostring(trouble))
+  build_home = (assert(sys.realpath(directory)))
+end
+
+--- The build directory of the project at `project` that this fixture's
+--- children build in ([`builds_beneath`]), named as build/paths.tl's
+--- `in_home` names it, as [`placed`] does.
+-- TODO: ask build.paths for the directory, rather than spell its key, once
+-- ci/cosmic-driver.pin names a release that carries build/paths.tl.
+function Fixture.built(project: string): string
+  local home = assert(build_home, "Fixture.built: call Fixture.builds_beneath first")
+  return home .. "/" .. Hash.hex_sha256((assert(sys.realpath(project))))
 end
 
 function Fixture.mkdir(path: string)
@@ -210,6 +246,7 @@ function Fixture.environment_of(base: {string:string},
   for _, name in ipairs(Fixture.inherited) do
     if base[name] ~= nil then environment[name] = base[name] end
   end
+  if build_home ~= nil then environment.COSMIC_BUILD_HOME = build_home end
   environment.COSMIC_BUILD_CACHE = "0"
   environment.COSMIC_TEST_SANDBOX = "0"
   if extra then

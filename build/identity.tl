@@ -52,7 +52,8 @@ end
 
 local text = bind.text
 
---- What is never an input: the build's own output, the upstream
+--- What is never an input: `o`, the checkout-local build directory
+--- older tools wrote, which a checkout may still hold, stale; the upstream
 --- sources and the records that patch them, prose, and anything
 --- hidden. `doc` is handled on its own: almost all of it is prose with
 --- no examples, but `doc/guides/*.md` is the one place doc/meta.md's
@@ -298,7 +299,7 @@ end
 --- that only wants to know whether the tool it is running still matches
 --- the tree (paired with [`build.work.tool_moved`] to know the `tool` table is
 --- accurate), not to restage anything itself. `nil, ""` when the
---- database holds no such row yet: a fresh `o/`, or one nothing has
+--- database holds no such row yet: a fresh build directory, or one nothing has
 --- staged for.
 function identity.recorded_boot_hash(db: Sqlite.Handle): string | nil, string
   local rows, trouble = Sqlite.text_rows(db,

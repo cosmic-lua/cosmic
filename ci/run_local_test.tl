@@ -111,19 +111,22 @@ local function test_snapshot_keeps_tracked_and_force_added_ignored_files(tmp: st
   assert(Fs.read(root .. "/.git/index") == index, "private snapshot changed the actual index")
 end
 
-local function test_named_rerun_refreshes_ci_but_keeps_candidate_and_database(tmp: string)
+--- A named rerun copies ci/ afresh, the candidate kept; the driver's
+--- database is in the project's build directory, outside the copy, and
+--- an o/ an older driver left in it goes with the rest.
+local function test_named_rerun_refreshes_ci_but_keeps_candidate(tmp: string)
   local root, env = checkout(tmp)
   assert(invoke(root, env, { "build" }) == 0)
   local state = env.COSMIC_CI_LOCAL
   assert(Fs.mkdirs(state .. "/ci/o"))
-  assert(Fs.write(state .. "/ci/o/sentinel", "persistent"))
+  assert(Fs.write(state .. "/ci/o/sentinel", "stale"))
   assert(Fs.write(state .. "/ci/obsolete", "remove"))
   assert(Fs.write(root .. "/ci/cosmic_ci/driver.tl", "edited fixture\n"))
   assert(Fs.write(root .. "/tracked", "later\n"))
   assert(invoke(root, env, { "fixtures" }) == 0)
   assert(Fs.read(state .. "/candidate/tracked") == "old\n")
   assert(Fs.read(state .. "/ci/cosmic_ci/driver.tl") == "edited fixture\n")
-  assert(Fs.read(state .. "/ci/o/sentinel") == "persistent")
+  assert(Fs.exists(state .. "/ci/o") == false)
   assert(Fs.exists(state .. "/ci/obsolete") == false)
   assert(Fs.read(env.TRACE) == "build\nfixtures\n")
 end

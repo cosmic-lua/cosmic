@@ -13,6 +13,7 @@ local Proc = require("cosmic.proc")
 local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
 local searchable = require("build.searchable")
+local build_paths = require("build.paths")
 
 --- The temporary directory, and this program, which the child runs. Every
 --- test starts a child under a policy, which a host with no sandbox to give
@@ -109,18 +110,24 @@ local function test_a_file_runs_standalone_on_a_grant_to_read(tmp: string)
 end
 
 --- COSMIC_STANDALONE=0 in the policy builds the tree around the file, as
---- a run outside one does: its own modules beside it are found, and o/ is
---- written, which a grant to read alone refuses, saying where.
+--- a run outside one does: its own modules beside it are found, and its
+--- build directory, under the base the policy gives it, is written; a
+--- grant to read alone refuses, saying where.
 local function test_a_policy_may_build_the_tree_around_the_file(tmp: string)
   local work = scripted(tmp, 'local helper = require("helper")\n' ..
       'return function(argv: {string}): integer\n  print(helper .. argv[1])\n  return 0\nend\n')
   assert(Fs.write(work .. "/helper.tl", 'return "from "\n'))
   searchable.share(work .. "/helper.tl")
+  local home = assert(Fs.absolute(tmp)) .. "/builds"
+  assert(Fs.mkdirs(home))
   local built = ran({ work .. "/run.tl", "beside" }, { profiles = { "cosmic" }, set_env = {
-    COSMIC_STANDALONE = "0" }, grants = { { path = work, letters = "rwc" } } }, work)
+    COSMIC_STANDALONE = "0", COSMIC_BUILD_HOME = home }, grants = {
+      { path = work, letters = "rwc" }, { path = home, letters = "rwc" } } }, work)
   assert(built.code == 0 and built.stdout == "from beside\n", tostring(built.code) .. ": " ..
       tostring(built.stdout) .. tostring(built.stderr))
-  assert(Fs.exists(work .. "/o/build.db"), "the tree was not built into o/")
+  assert(Fs.exists(build_paths.required(work, { COSMIC_BUILD_HOME = home }) .. "/build.db"),
+    "the tree was not built in its build directory")
+  assert(not Fs.exists(work .. "/o"), "the tree was built into o/")
   local refused = ran({ work .. "/run.tl", "beside" }, { profiles = { "cosmic" }, grants = {
     { path = work, letters = "r" } } }, work)
   assert(refused.code ~= 0 and tostring(refused.stderr):find("COSMIC_STANDALONE=0", 1, true),

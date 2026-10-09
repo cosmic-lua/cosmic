@@ -1,6 +1,6 @@
 --- Writing a compiled tree out as the shipped database.
 ---
---- `o/cosmic.db` is a projection of the working database: a fresh schema
+--- `cosmic.db` is a projection of the working database: a fresh schema
 --- attached in memory and filled in one transaction by queries over rows
 --- the build already holds, then written by `VACUUM INTO`, so a second
 --- build of the same tree is byte-identical. The rows are this run's plan
@@ -15,7 +15,6 @@
 
 local build_paths = require("build.paths")
 local Fs = require("cosmic.fs")
-local sys = require("cosmic.sys")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local identity = require("build.identity")
@@ -480,41 +479,23 @@ function writer.write_result(handle: work.Handle, out: string,
   end
 
   -- Written aside under `out`'s one fixed `.building` name, which no
-  -- other run in this checkout writes meanwhile: the checkout's own
-  -- projection is written holding its rebuild lock, which a `cosmic
-  -- test` run and a rebuild of the tool hold already, and a boot's
-  -- bridge is handed by the `bin/zig build boot` that holds it. Taken
-  -- only now, with the working database's transaction ended above, so
-  -- a holder waiting for that database is not waited on in turn.
+  -- other run writes meanwhile: a projection in the build directory --
+  -- the project's own, or the checked boot's beneath it -- is written
+  -- holding the project's rebuild lock, the one lock of that directory,
+  -- which a `cosmic test` run and a rebuild of the tool hold already,
+  -- and a boot's bridge is handed by the `bin/zig build` that holds it.
+  -- Taken only now, with the working database's transaction ended
+  -- above, so a holder waiting for that database is not waited on in
+  -- turn.
   local took = false
-  local held_fd: integer = nil
-  local own = build_paths.under(handle.dir)
-  if out == build_paths.resolve(handle.root).projection then
-    local taken, lock_trouble = rebuild_lock.hold(handle.root, "write", "o/cosmic.db")
+  local directory = build_paths.resolve(handle.root).directory
+  if Fs.within(out, directory) then
+    local taken, lock_trouble = rebuild_lock.hold(handle.root, "write", out)
     if taken == nil then
       local _, _ = db:exec("DETACH out")
       return false, lock_trouble
     end
     took = taken
-  elseif out == own.projection then
-    -- A build in a directory of its own (build/dispatch.tl's private one)
-    -- has no checkout's lock; one in the directory keeps two runs from
-    -- writing its one `.building` at once.
-    -- TODO: take the rebuild lock here too once #2864's step 2 builds
-    -- every project in the directory build.paths names, so one lock
-    -- domain guards each build directory.
-    local fd, open_trouble = sys.open(own.write_lock, sys.O_RDWR | sys.O_CREAT, 0x180)
-    if fd == nil then
-      local _, _ = db:exec("DETACH out")
-      return false, own.write_lock .. ": " .. open_trouble
-    end
-    local locked, lock_trouble = sys.flock(fd, "exclusive", -1)
-    if not locked then
-      local _, _ = sys.close(fd)
-      local _, _ = db:exec("DETACH out")
-      return false, own.write_lock .. ": " .. lock_trouble
-    end
-    held_fd = fd
   end
   local _, _ = Fs.remove(out .. ".building")
   local ok, trouble = Sqlite.run(db, "VACUUM out INTO ?1", { text(out .. ".building") })
@@ -524,9 +505,6 @@ function writer.write_result(handle: work.Handle, out: string,
   end
   if took then
     rebuild_lock.release()
-  end
-  if held_fd ~= nil then
-    local _, _ = sys.close(held_fd)
   end
   if not ok then
     return false, trouble

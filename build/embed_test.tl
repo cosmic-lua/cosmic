@@ -10,6 +10,14 @@ local Fs = require("cosmic.fs")
 local artifact = require("build.artifact")
 local embed = require("build.embed")
 local Clock = require("cosmic.clock")
+local build_paths = require("build.paths")
+
+--- `root`'s build directory ([`build.paths`]), made, with `root` made
+--- first where it is not there yet.
+local function build_dir(root: string): string
+  assert(Fs.mkdirs(root))
+  return (assert(build_paths.prepare(root)))
+end
 
 local greet_source = [[
 local record greet
@@ -27,10 +35,10 @@ local function test_a_tree_without_a_main_builds_and_writes_nothing(tmp: string)
   local names, trouble = embed.tree(tmp)
   assert(names ~= nil, trouble)
   assert(#names == 0, "a library tree has no executable to write")
-  local database_exists, exists_trouble = Fs.exists(tmp .. "/o/cosmic.db")
+  local database_exists, exists_trouble = Fs.exists(build_dir(tmp) .. "/cosmic.db")
   assert(database_exists ~= nil, exists_trouble)
   assert(database_exists, "but it was built")
-  assert(Fs.exists(tmp .. "/o/bin") == false)
+  assert(Fs.exists(build_dir(tmp) .. "/bin") == false)
 end
 
 local function test_cosmic_s_own_tree_is_refused(tmp: string)

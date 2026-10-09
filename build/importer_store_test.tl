@@ -20,11 +20,19 @@ local schema = require("build.schema")
 -- build.teal loads by no `require` a parse records: required here, it
 -- is in this test's closure, which the worker lets it load.
 local _ = require("cosmic.removed")
+local build_paths = require("build.paths")
 
 --- The projection, asked directly, and whether the tree is cosmic's own.
 Test.policy{
   grants = { { path = "core", letters = "r" }, { path = "o/cosmic.db", letters = "r" } },
 }
+
+--- `root`'s build directory ([`build.paths`]), made, with `root` made
+--- first where it is not there yet.
+local function build_dir(root: string): string
+  assert(Fs.mkdirs(root))
+  return (assert(build_paths.prepare(root)))
+end
 
 local built, load_trouble = teal.load()
 if built == nil then
@@ -92,8 +100,8 @@ local function test_project_keeps_uses_of_bundled_symbols()
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
   local result = assert(importer.compile(handle, built, "importer-test"))
-  assert(writer.write_result(handle, root .. "/o/cosmic.db", result))
-  local shipped = assert(Sqlite.open(root .. "/o/cosmic.db"))
+  assert(writer.write_result(handle, build_dir(root) .. "/cosmic.db", result))
+  local shipped = assert(Sqlite.open(build_dir(root) .. "/cosmic.db"))
   local rows = assert(Sqlite.text_rows(shipped,
     "SELECT module, symbol, from_module, line FROM uses ORDER BY module, symbol"))
   assert(#rows == 1, tostring(#rows))
@@ -176,8 +184,8 @@ local function test_a_hint_names_what_the_tree_s_own_projection_documents()
   local root = assert(write_fixture("projection-hint", {
     ["thing.tl"] = "return function(): integer\n  return greeter.count()\nend\n",
   }))
-  assert(Fs.mkdirs(root .. "/o"))
-  local projection = assert(Sqlite.open(root .. "/o/cosmic.db", { writable = true }))
+  assert(build_dir(root))
+  local projection = assert(Sqlite.open(build_dir(root) .. "/cosmic.db", { writable = true }))
   for _, statement in ipairs(schema.create("")) do assert(projection:exec(statement)) end
   assert(projection:exec("INSERT INTO docs (module, symbol, source_symbol, exported, " ..
       "kind, signature, text, file, line) VALUES ('greeter', '', 'greeter', 1, " ..

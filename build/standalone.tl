@@ -2,13 +2,13 @@
 --- this binary's own embedded standard library and nothing else.
 ---
 --- `cosmic <file.tl>` builds the tree the file sits in first -- stages
---- it into `o/`, compiles every module it holds, and refuses to go on
+--- it into its build directory, compiles every module it holds, and refuses to go on
 --- when the running binary is stale against that tree. That is right
 --- for a project, and wrong for a script whose job is to repair the
 --- tree: [`bin/zig`], which rebuilds a stale core, cannot itself need a
 --- fresh one. A standalone run reads the one file, checks and compiles
 --- it in memory with the embedded compiler, and calls it. Nothing is
---- staged, nothing under `o/` is written, the tree around the file is
+--- staged, no build directory is written, the tree around the file is
 --- never read, and the binary's age against that tree does not matter.
 ---
 --- Checking a file types every standard module it requires, which

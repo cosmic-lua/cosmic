@@ -848,7 +848,7 @@ end
 --- a link first names a symbol. A run over part of the tree builds the
 --- project first (`rebuild_here`), so an edit is seen; a `whole` run
 --- reads the projection its tree checks just wrote. Outside cosmic's
---- own tree (`own`), a project with no `o/cosmic.db` once that build
+--- own tree (`own`), a project with no projection once that build
 --- has run (one that failed, or a `rebuild_here` that made none) has no
 --- symbols of its own yet, which the context says rather than failing
 --- links to them. `close` closes what was opened. A build that fails
@@ -871,7 +871,7 @@ function fix.link_context(root: string, whole: boolean, own: boolean,
     if own then return nil end
     local built_before, _ = Fs.exists(build_paths.resolve(root).projection)
     if built_before then return nil end
-    return "the project has no o/cosmic.db yet (`cosmic build` or `cosmic test` makes one)"
+    return "the project has no projection yet (`cosmic build` or `cosmic test` makes one)"
   end
   local function close()
     if opened ~= nil then

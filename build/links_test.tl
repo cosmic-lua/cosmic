@@ -529,7 +529,7 @@ local function test_a_file_resolves_from_its_directory_then_the_root()
   same(checked(context, "/p/doc/a.md", "markdown", lines(
     "[b](b.md) [x](build/x.tl) [up](../build/x.tl) [dir](../build/) [top](/doc/b.md)",
     "[out](../o/bin/y) [gone](c.md) [far](../../q/z.md)")), {
-      "/p/doc/a.md:2: link: ../o/bin/y does not resolve (it is under o/, the build's output)",
+      "/p/doc/a.md:2: link: ../o/bin/y does not resolve (it is under o/, a stale build directory)",
       "/p/doc/a.md:2: link: c.md does not resolve (no declaration, symbol or file by that name)",
       "/p/doc/a.md:2: link: ../../q/z.md does not resolve (it lies outside the project's root)",
     })
@@ -627,7 +627,7 @@ local function test_a_path_is_unescaped_and_its_query_dropped()
   same(checked(context, "/p/a.md", "markdown", "[a](my%20file.md) [b](README.md?plain=1)\n"), {})
 end
 
---- Only the root's `o/` is the build's output; a link that leads out of
+--- Only the root's `o/`, a stale build directory, is refused as such; a link that leads out of
 --- the root is refused, and so is a path that climbs out of it.
 local function test_only_the_roots_output_and_the_outside_are_refused()
   local context = world({
@@ -638,7 +638,7 @@ local function test_only_the_roots_output_and_the_outside_are_refused()
   }, {}, {}, { ["/p/out"] = "/elsewhere" })
   same(checked(context, "/p/a.md", "markdown",
     "[x](sub/o/x.md) [y](o/y.md) [z](out/z.md) [up](../)\n"), {
-      "/p/a.md:1: link: o/y.md does not resolve (it is under o/, the build's output)",
+      "/p/a.md:1: link: o/y.md does not resolve (it is under o/, a stale build directory)",
       "/p/a.md:1: link: out/z.md does not resolve (a symbolic link leads it out of the project)",
       "/p/a.md:1: link: ../ does not resolve (it lies outside the project's root)",
     })
@@ -656,8 +656,8 @@ local function test_the_roots_output_is_never_looked_at()
     return kind(path)
   end
   same(checked(context, "/p/a.md", "markdown", "[y](o/y.md) [z](o/z.md)\n"), {
-    "/p/a.md:1: link: o/y.md does not resolve (it is under o/, the build's output)",
-    "/p/a.md:1: link: o/z.md does not resolve (it is under o/, the build's output)",
+    "/p/a.md:1: link: o/y.md does not resolve (it is under o/, a stale build directory)",
+    "/p/a.md:1: link: o/z.md does not resolve (it is under o/, a stale build directory)",
   })
   for _, path in ipairs(asked) do
     assert(path:sub(1, 5) ~= "/p/o/", "asked after " .. path)

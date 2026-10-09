@@ -157,8 +157,9 @@ local text = bind.text
 --- Every link the parse recorded in a planned module or a declaration
 --- -- preferring a paired declaration, as the documented interface does
 --- ([`build.writer`]'s `insert_docs`), each under the module its docs name -- in file and
---- line order. A source under o/, the build's output (the compiler a
---- boot puts in), is the tree's by no link.
+--- line order. A source named under o/ -- the compiler a boot puts in,
+--- which [`build.derivation`] names `o/vendor/tl/tl.tl` wherever the
+--- build directory is -- is the tree's by no link.
 --- Then every link the stage read of a file that is no module (`linked`).
 local raw_links =
   "SELECT m.path, i.file, l.line, l.column, l.form, " ..

@@ -579,8 +579,8 @@ local watched_trees: {string:boolean} = {
 }
 
 --- Whether a walk of the root passes by `entry` (bare name `name`):
---- anything hidden, the build's own output, and `ci/`, a tree of its
---- own the boot never stages.
+--- anything hidden, `o`, the checkout-local build directory older tools
+--- wrote, and `ci/`, a tree of its own the boot never stages.
 local function unwatched(entry: string, name: string): boolean
   return name:sub(1, 1) == "." or entry == "o" or entry == "ci"
 end
@@ -860,7 +860,7 @@ local handed_variable <const> = "COSMIC_REBUILD_LOCK_HANDED"
 local doing: {string:string} = {
   test = "is running its tests",
   rebuild = "is rebuilding the tool",
-  write = "is writing o/cosmic.db",
+  write = "is writing its projection",
 }
 
 --- How long a waiting boot waits in one go before it says it still is.
@@ -1063,15 +1063,28 @@ function Zig.main(argv: {integer:string}): integer
       end
     end
   end
-  local selected, selection_trouble = standalone(root, "build/paths.tl", { root })
-  if selected == nil or not selected.ok then
-    log:complain(selected == nil and selection_trouble or "build/paths.tl failed")
-    return 1
+  -- A build makes the build directory, which nothing else here writes.
+  -- Another command asks for it only where zig's caches fall back to it:
+  -- with neither a variable nor a cache directory to name them.
+  local function named(variable: string, tool: string): boolean
+    if (environment[variable] or "") ~= "" then return true end
+    local directory, _ = Fs.cache_dir(tool, { environment = environment, make = false })
+    return directory ~= nil
   end
-  local output = (selected.stdout or ""):gsub("\n$", "")
-  if output == "" then
-    log:complain("build/paths.tl named no output directory")
-    return 1
+  local output = ""
+  if given[1] == "build" or not (named("COSMIC_ZIG_GLOBAL_CACHE", "zig-global") and
+      named("COSMIC_ZIG_CACHE", "zig-project")) then
+    local words = given[1] == "build" and { "--prepare", root } or { root }
+    local selected, selection_trouble = standalone(root, "build/paths.tl", words)
+    if selected == nil or not selected.ok then
+      log:complain(selected == nil and selection_trouble or "build/paths.tl failed")
+      return 1
+    end
+    output = (selected.stdout or ""):gsub("\n$", "")
+    if output == "" then
+      log:complain("build/paths.tl named no output directory")
+      return 1
+    end
   end
   local project = Zig.project_cache(output, environment)
   local shared = Zig.global_cache(output, environment)

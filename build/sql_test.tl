@@ -1,11 +1,21 @@
 local Fs = require("cosmic.fs")
+local String = require("cosmic.string")
 local Sqlite = require("cosmic.sqlite")
 local sql = require("build.sql")
---- A temporary root whose o/cosmic.db holds one small table.
+local build_paths = require("build.paths")
+
+--- `root`'s build directory ([`build.paths`]), made, with `root` made
+--- first where it is not there yet.
+local function build_dir(root: string): string
+  assert(Fs.mkdirs(root))
+  return (assert(build_paths.prepare(root)))
+end
+
+--- A temporary root whose projection holds one small table.
 local function project(): string
   local root = assert(Fs.mkdtemp("cosmic-sql-test-"))
-  assert(Fs.mkdirs(root .. "/o"))
-  local db = assert(Sqlite.open(root .. "/o/cosmic.db", { writable = true }))
+  assert(build_dir(root))
+  local db = assert(Sqlite.open(build_dir(root) .. "/cosmic.db", { writable = true }))
   assert(db:exec("CREATE TABLE t (a, b); INSERT INTO t VALUES " ..
       "(1, 'one'), (NULL, x'00ff'), (1.5, 'tab' || char(9) || 'and\\'), (2.0, ''), " ..
       "(3, char(27) || '[31m' || char(127) || '\\N')"))
@@ -57,7 +67,7 @@ end
 
 local function test_rows_come_back_one_line_each_with_cells_escaped()
   local root = project()
-  local path = root .. "/o/cosmic.db"
+  local path = build_dir(root) .. "/cosmic.db"
   local lines = assert(query(path, "SELECT a, b FROM t ORDER BY rowid"))
   assert(#lines == 6, #lines)
   assert(lines[1] == "a\tb", lines[1])
@@ -77,7 +87,8 @@ local function test_rows_come_back_one_line_each_with_cells_escaped()
   assert(#written.out == 3 and written.out[1] == "a" and written.out[2] == "1.5" and
       written.out[3] == "2.0", table.concat(written.out, "|"))
   assert(#written.err == 0, table.concat(written.err, "|"))
-  assert(written.verdict:find("^sql: PASS %(2 rows from o/cosmic.db, ") ~= nil, written.verdict)
+  assert(String.starts_with(written.verdict, "sql: PASS (2 rows from " .. build_dir(root) .. "/cosmic.db, "),
+    written.verdict)
   code, written = run(root, { "SELECT a FROM t WHERE 0" })
   assert(code == 0 and #written.out == 1 and written.out[1] == "a")
   assert(written.verdict:find("^sql: PASS %(0 rows") ~= nil, written.verdict)
@@ -97,7 +108,7 @@ end
 
 local function test_sqlite_refuses_every_write()
   local root = project()
-  local path = root .. "/o/cosmic.db"
+  local path = build_dir(root) .. "/cosmic.db"
   local before = assert(Fs.read(path))
   for _, statement in ipairs({
       "INSERT INTO t VALUES (3, 'three')",
@@ -236,27 +247,29 @@ end
 
 local function test_a_missing_database_and_bad_sql_fail()
   local root = project()
-  local missing = root .. "/o/nothing.db"
+  local missing = build_dir(root) .. "/nothing.db"
   local opened, trouble = sql.open({ name = missing, path = missing })
   assert(opened == nil and trouble == "no such database: " .. missing, trouble)
   assert(run(root, { "--db", missing, "SELECT 1" }) == 1)
-  -- A missing o/build.db is named in full, with where o/ was looked for.
+  -- A missing build.db is named in full, with whose build directory was
+  -- looked in.
+  local working = build_dir(root) .. "/build.db"
   local code, written = run(root, { "--build", "SELECT 1" })
   assert(code == 1 and #written.out == 0)
-  assert(written.err[1] == "cosmic: sql: o/build.db: no such database: " .. root ..
-      "/o/build.db; o/ is looked for only in the working directory, never above it",
+  assert(written.err[1] == "cosmic: sql: " .. working .. ": no such database: " .. working ..
+      "; the build directory is the working directory's, never a project's above it",
     written.err[1])
-  assert(written.verdict:find("^sql: FAIL %(o/build.db, ") ~= nil, written.verdict)
+  assert(String.starts_with(written.verdict, "sql: FAIL (" .. working .. ", "), written.verdict)
   assert(Fs.exists(missing) == false, "opening made the file")
-  local lines, why = query(root .. "/o/cosmic.db", "SELEC 1")
+  local lines, why = query(build_dir(root) .. "/cosmic.db", "SELEC 1")
   assert(lines == nil and why:find("syntax error", 1, true) ~= nil, why)
   assert(run(root, { "SELECT nope FROM t" }) == 1)
   -- Anything but a regular file is refused before SQLite opens it: a
   -- FIFO would block the open forever. A link to a database is followed.
-  local dir, why_dir = sql.open({ name = "o", path = root .. "/o" })
+  local dir, why_dir = sql.open({ name = "o", path = build_dir(root) })
   assert(dir == nil and why_dir == "not a regular file (its kind is dir), so not a database", why_dir)
-  assert(run(root, { "--db", root .. "/o", "SELECT 1" }) == 1)
-  assert(Fs.symlink(root .. "/o/cosmic.db", root .. "/link.db"))
+  assert(run(root, { "--db", build_dir(root), "SELECT 1" }) == 1)
+  assert(Fs.symlink(build_dir(root) .. "/cosmic.db", root .. "/link.db"))
   assert(run(root, { "--db", root .. "/link.db", "SELECT count(*) FROM t" }) == 0)
   assert(Fs.remove_tree(root))
 end
