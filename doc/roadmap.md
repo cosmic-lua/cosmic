@@ -61,17 +61,6 @@ Contain a dead worker's escaped descendants on macOS. Linux adopts them as a
 child subreaper and [`Child.end_strays`] ends them; macOS has no subreaper, so a
 process group a timed-out test started for itself is left to launchd.
 
-Add build and test sandbox fencing: a [`cosmic.sandbox`] module and conformance
-matrix implementing the portable policy in design.md, required in CI, with
-degraded or skipped enforcement reported on hosts that cannot provide a section.
-[`cosmic.http`] now gives the core network egress, which makes the fence's
-network section matter sooner.
-
-Per-host egress policy is a separate Linux extension. Landlock can restrict a
-port but not a remote address. old's `cosmic/quicksand/` is a reference for a
-network namespace, guarded proxy, and declarative child runner; it should not
-be folded into the portable sandbox contract.
-
 Name the host's loopback for a sandboxed program, so that a service of the
 host and a service of the sandbox's own can share 127.0.0.1. Today a
 `connect` target at 127.0.0.1 or ::1 is the host's service and leaves
@@ -95,6 +84,9 @@ The sandbox's own next steps, none of which a caller needs yet:
   only narrow what the command line grants, and is judged on the policy
   after its profiles and paths resolve, not on the names it writes.
   `cosmic sandbox` takes none until then (build/sandbox.tl).
+- carry UDP to the hosts `connect` grants. The relay takes only TCP: it
+  refuses SOCKS5's UDP ASSOCIATE, so a program held to `connect` reaches no
+  host over UDP.
 - forward plain HTTP. The relay ([`cosmic.internal.relay_server`]) takes
   only CONNECT and SOCKS5's CONNECT, and answers a proxy request for an
   `http://` URL 405.
