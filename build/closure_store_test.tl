@@ -438,7 +438,8 @@ local function test_a_closure_store_is_the_same_bytes_each_time_it_is_written(tm
         "signature, text, file, line) VALUES ('greet', 'greet.wave', 'greet.wave', 1, " ..
         "'function', 'function(): string', 'Waves at the world.', 'greet.tl', 2); " ..
         "INSERT INTO uses (module, symbol, from_module, from_file, line) VALUES " ..
-        "('greet', 'hello', 'greet_test', 'greet_test.tl', 99); " ..
+        "('greet', 'hello', 'greet_test', 'greet_test.tl', 99), " ..
+        "('greet', 'hello', 'other_test', 'other_test.tl', 7); " ..
         "INSERT INTO catalog (kind, module, symbol, message, text, file, line) VALUES " ..
         "('error', 'greet', 'greet.hello', 'no world to greet', 'Raised with none.', " ..
         "'greet.tl', 4); " ..
@@ -460,6 +461,13 @@ local function test_a_closure_store_is_the_same_bytes_each_time_it_is_written(tm
     "a second write of the same rows moved the store's bytes")
   assert(assert(Fs.read(tmp .. "/three.db")) == one,
     "a write from the projection written afresh moved the store's bytes")
+  -- Found by source module in the extraction, the closure's uses are
+  -- the same rows in the same order, and a module outside it adds none.
+  assert(closure_store.extract(tmp .. "/whole.db", tmp .. "/extraction.db"))
+  assert(closure_store.write(tmp .. "/whole.db", tmp .. "/four.db", names, again,
+    tmp .. "/extraction.db"))
+  assert(assert(Fs.read(tmp .. "/four.db")) == one,
+    "a write from the uses keyed by source module moved the store's bytes")
   local db = assert(Sqlite.open(tmp .. "/one.db"))
   local counts = assert(Sqlite.text_rows(db, "SELECT (SELECT count(*) FROM docs_fts " ..
       "WHERE docs_fts MATCH 'waves'), (SELECT count(*) FROM catalog_fts WHERE catalog_fts " ..

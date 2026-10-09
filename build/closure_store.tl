@@ -339,41 +339,87 @@ end
 --- (and file) first, then in the projection's order within one, which
 --- the address digests; the projection's order across modules, which
 --- the projection's writer decides and no digest holds, sets no id.
-local closed: {string} = {
-  "INSERT INTO main.meta SELECT * FROM whole.meta WHERE key IN " .. closure_meta ..
-    " ORDER BY key",
-  -- Every column but the key, which holds the compiler's identity: no
-  -- worker reads a store's keys, and its address holds what the
-  -- compiler made instead ([`Basis`]).
-  "INSERT INTO main.modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
-    "SELECT path, file, kind, source_hash, X'', bytecode, tests, source FROM whole.modules " ..
-    "WHERE path IN temp.wanted ORDER BY path",
-  "INSERT INTO main.imports SELECT * FROM whole.imports " ..
-    "WHERE path IN temp.wanted AND requires IN temp.wanted ORDER BY path, requires",
-  "INSERT INTO main.bound SELECT * FROM whole.bound " ..
-    "WHERE path IN temp.wanted OR path IN temp.declared ORDER BY path, name",
-  "INSERT INTO main.decls SELECT * FROM whole.decls WHERE path IN temp.declared " ..
-    "ORDER BY path",
-  "INSERT INTO main.docs (module, symbol, source_symbol, exported, kind, signature, " ..
-    "text, file, line) SELECT module, symbol, source_symbol, exported, kind, signature, " ..
-    "text, file, line FROM whole.docs WHERE module IN temp.wanted " ..
-    "OR module IN temp.declared ORDER BY module, id",
-  "INSERT INTO main.uses SELECT * FROM whole.uses WHERE from_module IN temp.wanted " ..
-    "ORDER BY module, symbol, from_module, line",
-  -- The links its modules and declarations make, as the uses: one from
-  -- a Markdown, C or Zig file (from_module "") is no module's, so no
-  -- closure's.
-  "INSERT INTO main.links SELECT * FROM whole.links WHERE from_module IN temp.wanted " ..
-    "OR from_module IN temp.declared " ..
-    "ORDER BY module, symbol, path, anchor, from_file, line, column",
-  "INSERT INTO main.examples (module, name, text, file, line, source) " ..
-    "SELECT module, name, text, file, line, source FROM whole.examples " ..
-    "WHERE file IN (SELECT file FROM whole.modules WHERE path IN temp.wanted) " ..
-    "ORDER BY module, file, id",
-  "INSERT INTO main.catalog (kind, module, symbol, message, text, file, line) " ..
-    "SELECT kind, module, symbol, message, text, file, line FROM whole.catalog " ..
-    "WHERE module IN temp.wanted ORDER BY module, id",
-}
+local function closed(uses_from: string): {string}
+  return {
+    "INSERT INTO main.meta SELECT * FROM whole.meta WHERE key IN " .. closure_meta ..
+      " ORDER BY key",
+    -- Every column but the key, which holds the compiler's identity: no
+    -- worker reads a store's keys, and its address holds what the
+    -- compiler made instead ([`Basis`]).
+    "INSERT INTO main.modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
+      "SELECT path, file, kind, source_hash, X'', bytecode, tests, source FROM whole.modules " ..
+      "WHERE path IN temp.wanted ORDER BY path",
+    "INSERT INTO main.imports SELECT * FROM whole.imports " ..
+      "WHERE path IN temp.wanted AND requires IN temp.wanted ORDER BY path, requires",
+    "INSERT INTO main.bound SELECT * FROM whole.bound " ..
+      "WHERE path IN temp.wanted OR path IN temp.declared ORDER BY path, name",
+    "INSERT INTO main.decls SELECT * FROM whole.decls WHERE path IN temp.declared " ..
+      "ORDER BY path",
+    "INSERT INTO main.docs (module, symbol, source_symbol, exported, kind, signature, " ..
+      "text, file, line) SELECT module, symbol, source_symbol, exported, kind, signature, " ..
+      "text, file, line FROM whole.docs WHERE module IN temp.wanted " ..
+      "OR module IN temp.declared ORDER BY module, id",
+    -- `uses_from` names the table the rows come from: the projection's
+    -- own, keyed by the referenced symbol first, or [`closure_store.extract`]'s,
+    -- which a closure finds by source module without scanning the rest.
+    "INSERT INTO main.uses SELECT * FROM " .. uses_from .. " WHERE from_module IN temp.wanted " ..
+      "ORDER BY module, symbol, from_module, line",
+    -- The links its modules and declarations make, as the uses: one from
+    -- a Markdown, C or Zig file (from_module "") is no module's, so no
+    -- closure's.
+    "INSERT INTO main.links SELECT * FROM whole.links WHERE from_module IN temp.wanted " ..
+      "OR from_module IN temp.declared " ..
+      "ORDER BY module, symbol, path, anchor, from_file, line, column",
+    "INSERT INTO main.examples (module, name, text, file, line, source) " ..
+      "SELECT module, name, text, file, line, source FROM whole.examples " ..
+      "WHERE file IN (SELECT file FROM whole.modules WHERE path IN temp.wanted) " ..
+      "ORDER BY module, file, id",
+    "INSERT INTO main.catalog (kind, module, symbol, message, text, file, line) " ..
+      "SELECT kind, module, symbol, message, text, file, line FROM whole.catalog " ..
+      "WHERE module IN temp.wanted ORDER BY module, id",
+  }
+end
+
+--- Writes at `path` a database holding the projection's `uses` rows
+--- keyed by the module that makes them, for [`closure_store.write`] to
+--- find a closure's by that module: the projection's own table is keyed by
+--- the symbol referred to, so each closure's selection scans every row.
+--- It is an auxiliary of one run's extraction and not a store, so the
+--- index costs no store or shipped database any bytes. A function of the
+--- projection's rows alone; replaces a file already at `path`.
+function closure_store.extract(whole: string, path: string): boolean, string
+  local _, _ = Fs.remove(path)
+  local opened, open_trouble = Sqlite.open(path, { writable = true, create = true })
+  if opened == nil then return false, open_trouble end
+  local db: Sqlite.Handle = opened
+  local function fill(handle: Sqlite.Handle): boolean, string
+    local attached, attach_trouble = Sqlite.run(handle, "ATTACH DATABASE ?1 AS whole",
+      { text(whole) })
+    if not attached then return false, attach_trouble end
+    local statements = {
+      "PRAGMA journal_mode = OFF",
+      "PRAGMA synchronous = OFF",
+      "CREATE TABLE main.uses (module TEXT NOT NULL, symbol TEXT NOT NULL, " ..
+        "from_module TEXT NOT NULL, from_file TEXT NOT NULL, line INTEGER NOT NULL, " ..
+        "PRIMARY KEY (from_module, module, symbol, line)) WITHOUT ROWID",
+      "INSERT INTO main.uses (module, symbol, from_module, from_file, line) " ..
+        "SELECT module, symbol, from_module, from_file, line FROM whole.uses",
+      "DETACH whole",
+    }
+    for _, statement in ipairs(statements) do
+      local ok, failure = handle:exec(statement)
+      if not ok then return false, failure end
+    end
+    return true, ""
+  end
+  local ok, trouble = fill(db)
+  local _, _ = db:close()
+  if not ok then
+    local _, _ = Fs.remove(path)
+    return false, trouble
+  end
+  return true, ""
+end
 
 --- Flushes the file at `path` to the disk: `VACUUM INTO` leaves its
 --- output unsynced, and a store cut short by a crash after its rename
@@ -399,7 +445,7 @@ end
 --- the same bytes); and synced before it is moved into place, since a
 --- store is written once and read as it is from then on.
 function closure_store.write(whole: string, out: string, names: {string},
-                             basis: closure_store.Basis): boolean, string
+                             basis: closure_store.Basis, extraction?: string): boolean, string
   local function fill(db: Sqlite.Handle): boolean, string
     local statements: {string} = {}
     for _, statement in ipairs(schema.settings("")) do statements[#statements + 1] = statement end
@@ -423,8 +469,18 @@ function closure_store.write(whole: string, out: string, names: {string},
     local attached, attach_trouble = Sqlite.run(db, "ATTACH DATABASE ?1 AS whole",
       { text(whole) })
     if not attached then return false, attach_trouble end
+    local uses_from = "whole.uses"
+    if extraction ~= nil then
+      local extracted, extract_trouble = Sqlite.run(db, "ATTACH DATABASE ?1 AS extracted",
+        { text(extraction) })
+      if not extracted then
+        local _, _ = db:exec("DETACH whole")
+        return false, extract_trouble
+      end
+      uses_from = "extracted.uses"
+    end
     local made, refused = Sqlite.transact(db, function(): boolean, string
-      for _, statement in ipairs(closed) do
+      for _, statement in ipairs(closed(uses_from)) do
         local ok, failure = db:exec(statement)
         if not ok then return false, failure end
       end
@@ -435,6 +491,7 @@ function closure_store.write(whole: string, out: string, names: {string},
       return true, ""
     end)
     local _, _ = db:exec("DETACH whole")
+    if extraction ~= nil then local _, _ = db:exec("DETACH extracted") end
     if not made then return false, refused end
     -- Written aside under `out`'s one fixed `.building` name, which no
     -- other run writes or sweeps meanwhile: only `cosmic test` writes a
