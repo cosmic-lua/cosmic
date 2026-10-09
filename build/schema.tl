@@ -44,6 +44,20 @@ local tables: {{string}} = {
                   requires TEXT NOT NULL,
                   PRIMARY KEY (path, requires)) WITHOUT ROWID]] },
 
+  -- Every module the source the checker reads for a path requires by a
+  -- literal name, its declaration's where it has one, whether or not
+  -- the projection holds the name as a module. The type checker
+  -- follows these (a declaration is checked, never loaded), so
+  -- [`build.compilation`]'s `dependency_keys` reads them instead of
+  -- parsing an embedded source again. Nothing that decides what loads
+  -- reads this table: a closure over it would make a declaration-only
+  -- module loadable. Each module has a row with the empty name beside
+  -- its edges, so a module that requires nothing is told from one the
+  -- table was written without.
+  { "decl_imports", [[(path TEXT NOT NULL,
+                       requires TEXT NOT NULL,
+                       PRIMARY KEY (path, requires)) WITHOUT ROWID]] },
+
   -- Each name a module's own block binds to another module, once and to
   -- nothing else ([`build.analyzer.Bound`]): what a type the module
   -- declares means by `name.Member` (`record Entry is

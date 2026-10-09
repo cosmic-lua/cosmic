@@ -513,6 +513,37 @@ local function test_paired_declaration_projects_each_source_in_its_role(tmp: str
   assert(db:close())
 end
 
+--- A module's edge to a name the plan does not ship, a declaration with
+--- no implementation, is kept for the checker in `decl_imports` and
+--- left out of `imports`, which the program's closures are made of.
+local function test_an_edge_to_a_declaration_is_kept_beside_the_runtime_edges(tmp: string)
+  local db = fixture.database(tmp, {
+    ["only.d.tl"] = "local record Only\n  n: integer\nend\nreturn Only\n",
+    ["dep.tl"] = "local record Dep\nend\nreturn Dep\n",
+    ["paired.d.tl"] = 'local type Dep = require("dep")\nlocal record Paired\n  dep: Dep\nend\nreturn Paired\n',
+    ["paired.tl"] = "local record Paired\nend\nreturn Paired\n",
+    ["foo.tl"] = 'local type Only = require("only")\nlocal Dep = require("dep")\n' ..
+      "local record Foo\n  only: Only\nend\nreturn Foo\n",
+  })
+  local function names(table_name: string): string
+    local rows = assert(Sqlite.text_rows(db,
+      "SELECT requires FROM " .. table_name .. " WHERE path = 'foo' AND requires <> '' " ..
+        "ORDER BY requires"))
+    local out: {string} = {}
+    for index, row in ipairs(rows) do out[index] = row[1] end
+    return table.concat(out, ",")
+  end
+  assert(names("imports") == "dep", names("imports"))
+  assert(names("decl_imports") == "dep,only", names("decl_imports"))
+  local paired = assert(Sqlite.text_rows(db,
+    "SELECT requires FROM decl_imports WHERE path = 'paired' AND requires <> ''"))
+  assert(#paired == 1 and paired[1][1] == "dep", "a pair keeps its declaration's edges")
+  local leaf = assert(Sqlite.text_rows(db,
+    "SELECT requires FROM decl_imports WHERE path = 'dep'"))
+  assert(#leaf == 1 and leaf[1][1] == "", "a module with no edge has the empty row")
+  assert(db:close())
+end
+
 --- A projection failure rolls back the working transaction and discards
 --- the attached snapshot, so the same handle can stage and publish again.
 local function test_a_failed_projection_can_be_retried(tmp: string)

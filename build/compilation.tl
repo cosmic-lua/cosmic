@@ -128,6 +128,27 @@ local record Dependency
   requires: {string}
 end
 
+--- The names the standard-library module `name` requires, from the
+--- `decl_imports` rows of the binary's own database, where
+--- [`Store.source`] reads it. Nil when that database has no such rows
+--- to read, as one written before the table existed.
+local function embedded_edges(name: string): {string} | nil
+  local databases = Store.databases()
+  local rows, _ = Sqlite.text_rows(databases[#databases],
+    "SELECT requires FROM decl_imports WHERE path = ?1 ORDER BY requires",
+    { text(name) })
+  if rows == nil or #rows == 0 then
+    return nil
+  end
+  local out: {string} = {}
+  for _, row in ipairs(rows) do
+    if row[1] ~= "" then
+      out[#out + 1] = row[1]
+    end
+  end
+  return out
+end
+
 --- The identity of every source the checker can load from this tree.
 --- A declaration wins over a source of the same name, just as
 --- [`build.teal`]'s module search does. Embedded standard-library sources
@@ -174,21 +195,21 @@ function compilation.dependency_keys(db: Sqlite.Handle, modules: {Module},
       if source == nil then
         return nil, source_trouble
       end
-      -- TODO: every compile parses each standard-library module its
-      -- project reaches, again in every fixture a test compiles: about
-      -- half the time of a compile that reaches cosmic.json, on the
-      -- checked core. Read the binary's own edges ([`Store.requires`])
-      -- instead, once its `imports` also keeps a module's edge to a
-      -- declaration, which build/writer.tl's `insert_imports` drops
-      -- (cosmic.json's to cosmic.internal.json).
-      local parsed, parse_trouble = ast.parse(built, source, name)
-      if parsed == nil then
-        return nil, parse_trouble
-      end
-      local embedded_requires, embedded_requires_trouble =
-        ast.all_requires(built, parsed)
+      -- A database written before `decl_imports` existed has no edges
+      -- to read, so the source is parsed for them.
+      -- TODO: drop this parse once ci/cosmic-driver.pin names a release
+      -- whose database carries `decl_imports`.
+      local embedded_requires = embedded_edges(name)
       if embedded_requires == nil then
-        return nil, embedded_requires_trouble
+        local parsed, parse_trouble = ast.parse(built, source, name)
+        if parsed == nil then
+          return nil, parse_trouble
+        end
+        local parsed_requires, parsed_trouble = ast.all_requires(built, parsed)
+        if parsed_requires == nil then
+          return nil, parsed_trouble
+        end
+        embedded_requires = parsed_requires
       end
       dependency = {
         kind = "embedded", source_hash = Hash.hex_sha256(source),
