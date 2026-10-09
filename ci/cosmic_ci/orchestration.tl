@@ -501,12 +501,28 @@ local self_rebuild_test_timeout_ns <const> = Clock.seconds(450)
 -- (`rebuild_timeout_ns` in fixtures/self_rebuild_test.tl, 150 s).
 local self_rebuild_per_test_timeout_s <const> = "180"
 -- Each fixed-point test rebuilds the product twice from a fresh tree, and
--- the compiler's cases -- the compiler's own, its identity redefined, and
--- that redefined with the fingerprint -- each compile the whole tree
--- about twice over (80 s alone on four cores; the combined case, the last of
--- these, adds about 20 to 30 s to the fixture), so each runs apart from
--- the self-rebuild file's.
-local fixed_point_test_timeout_ns <const> = Clock.seconds(300)
+-- shares no compiles ([`Fixture.environment`]): every rebuild compiles the
+-- whole tree cold, about 43 s of one core at 11.9 MB of Teal, and the
+-- compiler's three cases compile it twice over. Alone on a four-core host
+-- a plain test took 90 to 99 s and a compiler case 214 to 220 s, 1020 s of
+-- one core for the file: seven tests on four cores end in about 290 s at
+-- best. The cost follows the tree: on linux-aarch64 the file took 200 s on
+-- October 3 and 271 s on October 9, as the Teal grew from 8.6 to 11.9 MB.
+-- The x86-64 legs take 1.3 to 1.55 times as long as aarch64 on the same
+-- work (the self-rebuild file, 83 to 101 s against 65 s) and macOS has
+-- three processors, so those legs are expected to need about 440 s. Every
+-- scheduled run since October 3 ended the group on one of them at its old
+-- 300 s bound (exit 124), or a compiler case at its own 150 s
+-- (fixtures/fixed_point_test.tl). The bounds keep 1.4 to 1.65 times that
+-- room, as #2834 did for the suite's: the group's 720 s, a test's 600 s
+-- (two rebuilds) and a rebuild's 300 s, which names a hung one.
+-- TODO: the file's cost follows the tree (about 5% a day this week), so
+-- these bounds will be passed again: report the group's elapsed time
+-- against its bound from [`fixture_run_spec`], or decide whether the cases
+-- may share the compiles of one compiler (all but the first would then
+-- not check their own).
+local fixed_point_test_timeout_ns <const> = Clock.seconds(720)
+local fixed_point_per_test_timeout_s <const> = "600"
 --- The whole suite on the checked core: see [`checked_suite`]'s comment
 --- for what it takes.
 local checked_suite_timeout_ns <const> = Clock.seconds(1200)
@@ -517,7 +533,6 @@ local checked_suite_timeout_ns <const> = Clock.seconds(1200)
 -- the runner's default 30 s on CI's checked job when no verdict stood),
 -- and doubled for a loaded runner.
 local checked_suite_test_timeout_s <const> = "120"
-local fixed_point_per_test_timeout_s <const> = "240"
 -- A boot the product drives from another path compiles no C again (it
 -- compiles from copies in zig's cache, build.zig's `Own`), only the tree:
 -- about 110 s for the whole fixture in a local run on four cores, loaded.
@@ -1758,8 +1773,7 @@ local function phase_fixtures(p: PlatformContext): integer
     if s ~= 0 then return s end
   end
   -- The fixed-point regression is the slowest fixture on every leg
-  -- (about 90 to 180 s: each of its seven tests rebuilds the product twice
-  -- from a fresh tree, and three compile the tree twice over), and what
+  -- (about 270 to 440 s: `fixed_point_test_timeout_ns` says why), and what
   -- it checks, that the compiler compiles itself to itself, is the same
   -- on every platform. So a gating run runs it on one leg, and the
   -- others set COSMIC_CI_FIXED_POINT=skip; the scheduled run keeps it on
