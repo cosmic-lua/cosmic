@@ -1,6 +1,6 @@
 --- The network relay's process: what [`Child.start`] runs, as this program's
 --- core on a database sealed with this module as its main, for a policy
---- whose `connect` the relay serves ([`cosmic.relay.server`]).
+--- whose `connect` the relay serves ([`cosmic.internal.relay_server`]).
 ---
 --- It is handed, by the process that starts it:
 ---
@@ -9,18 +9,18 @@
 ---   out of it ([`Net.receive_listeners`] adopts them);
 --- - from descriptor 4, where the config says it is handed them, the
 ---   control streams of the connectors its starter started
----   ([`cosmic.sandbox.relay`]), which it adopts:
+---   ([`cosmic.internal.relay_start`]), which it adopts:
 ---   at 4 the name servers'; at 5 the table's, of the addresses a grant
 ---   names literally and the upstream proxy's; and at 6 the public one,
 ---   for what a granted name resolves to;
---- - standard input: one line of JSON, a [`cosmic.relay.config`] `Config`,
+--- - standard input: one line of JSON, a [`cosmic.internal.relay_config`] `Config`,
 ---   and then nothing more until the process is to end. The grants, a
 ---   proxy's password and the rest are never in the arguments or the
 ---   environment, which other users' processes can read.
 ---
---- A `direct` config (macOS's start, [`cosmic.relay.config`]'s `direct`) hands it
+--- A `direct` config (macOS's start, [`cosmic.internal.relay_config`]'s `direct`) hands it
 --- neither: from descriptor 3 it is handed the listening sockets its
---- starter bound at one port of 127.0.0.1 and ::1 ([`cosmic.sandbox.relay`]'s
+--- starter bound at one port of 127.0.0.1 and ::1 ([`cosmic.internal.relay_start`]'s
 --- `loopback_listeners`), each for both protocols, which it serves behind
 --- the config's token, refusing a config without one; and it connects and
 --- resolves itself, as the profile it is held by allows.
@@ -41,9 +41,9 @@
 --- program says plainly that its network is gone.
 ---
 --- On Linux the process runs offline: its filter refuses every socket it would
---- make ([`cosmic.sandbox.relay`]'s `policy`), so what it reaches is what
+--- make ([`cosmic.internal.relay_start`]'s `policy`), so what it reaches is what
 --- the connectors it is handed reach. Every connection is checked against
---- the grants and the address classes by [`cosmic.relay.server`] and made by its
+--- the grants and the address classes by [`cosmic.internal.relay_server`] and made by its
 --- one connector ([`Relay.handed`]), and every name is resolved, once a grant
 --- names it, over TCP through the name servers' connector, whose table
 --- the starter read once. Where it had none to hand -- the name servers
@@ -51,12 +51,12 @@
 --- refusing every name and saying why. It resolves the upstream proxy
 --- never: it is told the addresses its starter resolved.
 
-local Config = require("cosmic.relay.config")
+local Config = require("cosmic.internal.relay_config")
 local Connector = require("cosmic.internal.connector")
 local Log = require("cosmic.log")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
-local Relay = require("cosmic.relay.server")
+local Relay = require("cosmic.internal.relay_server")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 

@@ -1,4 +1,4 @@
---- What the relay's starter reads and decides (cosmic/sandbox/relay.tl):
+--- What the relay's starter reads and decides (cosmic/internal/relay_start.tl):
 --- what a policy's `connect` targets open, the cap on the addresses a
 --- table holds, the name servers and the wait for each, and the upstream
 --- proxy resolved once. What the relay does with the connectors it is
@@ -6,7 +6,7 @@
 
 local Clock = require("cosmic.clock")
 local Net = require("cosmic.net")
-local SandboxRelay = require("cosmic.sandbox.relay")
+local SandboxRelay = require("cosmic.internal.relay_start")
 local Test = require("cosmic.test")
 
 Test.policy{ promises = { "fork" } }
@@ -142,7 +142,7 @@ local function core_takes(rows: {Net.Endpoint}): boolean, string
   return false, tostring(ok and why or made)
 end
 
---- The plan-time count of the port tables (cosmic/sandbox/relay.tl) agrees
+--- The plan-time count of the port tables (cosmic/internal/relay_start.tl) agrees
 --- with the core's (core/connector.c) at the 32 MiB boundary: 32 IPv4 and
 --- 16 IPv6 addresses at any port start, one more of either is refused by
 --- both, and so is a table whose alignment padding is what reaches the limit.

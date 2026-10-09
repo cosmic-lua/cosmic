@@ -11,7 +11,7 @@
 --- follows is the tunnel's, not the request's), or a refusal. The answer is
 --- final: a later feed answers it again. A prefix is refused only when every
 --- longer input is refused for the same reason, and an input answers the same
---- wherever its feeds split (cosmic/relay/wire_fuzz_test.tl). Total work is
+--- wherever its feeds split (cosmic/internal/relay_wire_fuzz_test.tl). Total work is
 --- linear in the bytes fed: the HTTP and TLS readers keep an offset and
 --- the unfinished line or record, never reading a byte twice; a SOCKS message
 --- is at most 513 bytes, so its reader re-reads what it holds, which is
@@ -43,7 +43,9 @@
 --- relay's policy for that status decides whether they connect.
 
 local String = require("cosmic.string")
-local Grant = require("cosmic.relay.grant")
+local Relay = require("cosmic.relay")
+
+local Grant = Relay.Grant
 
 local record relay_wire
   --- What a reader has decided so far.

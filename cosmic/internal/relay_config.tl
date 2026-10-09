@@ -1,9 +1,9 @@
 --- What [`Child.start`] and the network relay's process agree on, for a
---- policy whose `connect` the relay serves ([`cosmic.relay.main`]): the
+--- policy whose `connect` the relay serves ([`cosmic.internal.relay_main`]): the
 --- ports the program reaches the relay at, the proxy environment it is
 --- given, the host's own addresses the relay refuses, the config the
 --- relay is handed on its standard input, and the descriptors its
---- connectors' control streams are handed at ([`cosmic.sandbox.relay`]).
+--- connectors' control streams are handed at ([`cosmic.internal.relay_start`]).
 ---
 --- The program is told of the relay through the variables a proxy client
 --- reads (`HTTPS_PROXY`, `ALL_PROXY` and their lower-case spellings); a
@@ -13,14 +13,16 @@
 ---     local env = relay_config.proxy_env({ "127.0.0.2" })
 ---     print(env.HTTPS_PROXY) -- http://127.0.0.1:3128
 
-local Address = require("cosmic.relay.address")
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
-local Grant = require("cosmic.relay.grant")
 local Json = require("cosmic.json")
+local Relay = require("cosmic.relay")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 local type raw_process = require("cosmic.internal.process")
+
+local Address = Relay.Address
+local Grant = Relay.Grant
 
 local record relay_config
   --- One numeric endpoint of a connector's table: a numeric `host` and a
@@ -43,7 +45,7 @@ local record relay_config
     --- (the sandbox's relay is told them by its starter, which put them in
     --- its connector's table): connected to in their order, as a name's
     --- answers are, and `host` is resolved never. Nil to resolve `host`
-    --- for each connection through it ([`cosmic.relay.server`]).
+    --- for each connection through it ([`cosmic.internal.relay_server`]).
     addresses: {string}
   end
 
@@ -52,7 +54,7 @@ local record relay_config
     --- The policy's `connect` targets, `host:port`.
     grants: {string}
     --- The upstream proxy the relay reaches the network through
-    --- ([`cosmic.relay.server`]'s `upstream`), parsed once by the starter
+    --- ([`cosmic.internal.relay_server`]'s `upstream`), parsed once by the starter
     --- ([`relay_config.upstream`]) with its `addresses` resolved; nil for
     --- none. [`decode`] refuses a record without them.
     upstream: Upstream
@@ -90,13 +92,13 @@ local record relay_config
     --- descriptor 3: 1 or 2.
     listeners: integer
     --- The per-sandbox token every connection must present
-    --- ([`cosmic.relay.server`]'s `token`), or nil for none: a `direct`
+    --- ([`cosmic.internal.relay_server`]'s `token`), or nil for none: a `direct`
     --- relay's listener is one every user of the host can reach.
     token: string
   end
 
   --- What the relay's starter, [`Child.start`], makes for it before the
-  --- relay starts, from what [`cosmic.sandbox.relay`] answers.
+  --- relay starts, from what [`cosmic.internal.relay_start`] answers.
   record Handover
     --- What the relay is told of what it is handed: `upstream`,
     --- `table`, `public`, `name_servers`, `name_server_wait_ns`

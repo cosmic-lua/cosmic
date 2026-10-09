@@ -6,7 +6,7 @@
 
 local Fuzz = require("build.fuzz")
 local Grant = require("cosmic.relay.grant")
-local Wire = require("cosmic.relay.wire")
+local Wire = require("cosmic.internal.relay_wire")
 
 local HOSTS <const>: {string} = { "example.com", "EXAMPLE.Com.", "a-b.c", "x1.y2.z3", "127.0.0.1",
   "1.2.3.4", "[::1]", "[2001:DB8::1]", "[0:0:0:0:0:0:0:1]", "[::ffff:1.2.3.4]", "*", "*.example.com",

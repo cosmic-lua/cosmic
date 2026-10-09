@@ -1,11 +1,11 @@
 --- What [`Child.start`] and the relay's process agree on
---- (cosmic/relay/config.tl): the proxy environment a program is given, the
+--- (cosmic/internal/relay_config.tl): the proxy environment a program is given, the
 --- variables a policy with `connect` may not set, the host's own addresses
 --- read from Linux's tables, and the config the relay is handed. These are
 --- pure: the live relay is in cosmic/child_relay_test.tl.
 
 local Json = require("cosmic.json")
-local RelayConfig = require("cosmic.relay.config")
+local RelayConfig = require("cosmic.internal.relay_config")
 
 local function test_the_environment_points_every_proxy_client_at_the_relay()
   local env = RelayConfig.proxy_env({})

@@ -1,4 +1,4 @@
---- Fuzz properties for [`cosmic.relay.wire`], whose readers take the bytes
+--- Fuzz properties for [`cosmic.internal.relay_wire`], whose readers take the bytes
 --- an untrusted program sends the relay: none raises on any bytes, none
 --- reports more bytes consumed than it was given, a read in pieces
 --- (every prefix of an input) agrees with the read of the whole, and a
@@ -8,7 +8,7 @@
 
 local Fixture = require("build.relay_wire_fixture")
 local Fuzz = require("build.fuzz")
-local Wire = require("cosmic.relay.wire")
+local Wire = require("cosmic.internal.relay_wire")
 
 --- What a reader answered, reduced to what the properties compare.
 local record Answer

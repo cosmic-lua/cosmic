@@ -1,14 +1,15 @@
 --- What the sandbox relay's starter reads and decides before the relay
---- starts (the relay's own side is [`cosmic.relay.main`]), a member of
---- cosmic.sandbox reached outside it as [`Sandbox.Relay`] by cosmic.child,
---- which starts the relay. It holds the relay's policy, the name servers and the
+--- starts (the relay's own side is [`cosmic.internal.relay_main`]), which
+--- cosmic.child calls to start the relay. It holds the relay's policy, the name servers and the
 --- connector's wait for each, what a policy's `connect` targets open, the
 --- table of the connector of the addresses they name literally and the
 --- upstream proxy's, and the one lookup of the upstream's host. It sits
 --- here, not in cosmic.relay, because what it makes is the sandbox's: a
 --- [`rules.Policy`] for the relay and the connectors cosmic.child starts.
 --- cosmic.relay's entry holds what the relay and this starter share, and
---- requires nothing of cosmic.sandbox.
+--- requires nothing of cosmic.sandbox. `handover` and [`direct_handover`]
+--- make the connectors and config the relay is handed, and [`hold_loopback`]
+--- the listeners of a relay on the host's loopback.
 ---
 --- On macOS no connector runs: the relay is held by Seatbelt under
 --- [`relay.seatbelt_policy`], connects and resolves itself, and is told the
@@ -45,8 +46,10 @@
 
 local Clock = require("cosmic.clock")
 local Connector = require("cosmic.internal.connector")
+local Config = require("cosmic.internal.relay_config")
 local Relay = require("cosmic.relay")
-local rules = require("cosmic.sandbox.policy")
+local Resolv = require("cosmic.internal.relay_resolv")
+local type rules = require("cosmic.sandbox")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 
@@ -64,11 +67,10 @@ else
 end
 
 local Address = Relay.Address
-local Config = Relay.Config
 
 local record relay
   --- What a policy's `connect` targets open, as the relay reads them
-  --- ([`cosmic.relay.server`]), and the upstream proxy the caller names.
+  --- ([`cosmic.internal.relay_server`]), and the upstream proxy the caller names.
   record Plan
     --- The endpoints of the addresses the targets name literally, each
     --- once, in the form a connector's table takes, a port of "*" as 0.
@@ -299,7 +301,7 @@ function relay.name_servers(opts?: relay.NameServerOptions): relay.NameServers |
   end
   local listed = opts.servers
   if listed == nil then
-    local read, why = Relay.nameservers(opts.resolv_conf)
+    local read, why = Resolv.nameservers(opts.resolv_conf)
     if read == nil then return nil, why end
     listed = read
   end
@@ -322,7 +324,7 @@ end
 
 --- What the `connect` targets `grants` open, as the relay reads them, and
 --- the upstream proxy `env` names (`https_proxy`, `no_proxy` and their
---- upper-case spellings; [`cosmic.relay.config`]'s `upstream`). A target
+--- upper-case spellings; [`cosmic.internal.relay_config`]'s `upstream`). A target
 --- that opens nothing is in neither. Nil and why where the upstream cannot
 --- be used, or the targets name more addresses literally than a connector
 --- holds (128 endpoints, 32 MiB of port tables; a fixed port of an address
@@ -378,7 +380,7 @@ function relay.upstream_addresses(up: Config.Upstream, through: relay.Through | 
     servers[i] = { host = server.host, port = server.port, index = i }
   end
   local reply_ns = through.name_servers.wait_ns + Clock.ms(REPLY_GRACE_MS)
-  local found, trouble = Relay.lookup(up.host, {
+  local found, trouble = Resolv.lookup(up.host, {
     timeout_ns = RESOLVE_NS,
     through = servers,
     connect = Connector.connects(through.fd, servers, reply_ns),
@@ -401,7 +403,7 @@ end
 function relay.resolved_upstream(up: Config.Upstream): {string} | nil, string
   local bytes = Address.parse(up.host)
   if bytes ~= nil then return { numeric(bytes) }, "" end
-  local found, trouble = Relay.lookup(up.host, { timeout_ns = RESOLVE_NS })
+  local found, trouble = Resolv.lookup(up.host, { timeout_ns = RESOLVE_NS })
   if found == nil then
     return nil, "https_proxy's host " .. up.host .. " does not resolve: " .. trouble
   end
@@ -440,6 +442,156 @@ end
 --- @return raw_process.ConnectorPublic The lists
 function relay.public(own: {string}): raw_process.ConnectorPublic
   return { deny = Address.deny_cidrs(), own = own }
+end
+
+--- `up` with the numeric `addresses` its host resolved to, the value the
+--- relay is handed.
+local function completed_upstream(up: Config.Upstream, addresses: {string}): Config.Upstream
+  return { host = up.host, port = up.port, authorization = up.authorization, no_proxy = up.no_proxy,
+    addresses = addresses }
+end
+
+--- A connector of `endpoints` (and `public`'s lists, if given) waiting
+--- `wait_ns` for each connection, for the relay: the process, or nil and
+--- why. A table or list the core refuses is a why too.
+local function relay_connector(endpoints: {Connector.Endpoint}, wait_ns: integer,
+                               public?: Connector.Public): Connector.Process | nil, string
+  local called, process, why = pcall(Connector.start, endpoints, (wait_ns + 999999) // 1000000, public)
+  if not called then return nil, (tostring(process):gsub("^.-:%d+: ", "")) end
+  if process == nil then return nil, why end
+  return process, ""
+end
+
+--- The connectors the relay of the `connect` targets `connect` is handed
+--- ([`cosmic.internal.relay_start`]), started in this process and network: one
+--- with a table of the addresses a target names literally and the upstream
+--- proxy's; and, for a target that names a host the relay reaches
+--- directly (no upstream, or one `no_proxy` bypasses for some), also
+--- public (refusing the relay's deny list and `own`, the host's own
+--- addresses), and a name servers' connector beside it. Each makes
+--- several connections at once; the first keeps 16 of its flights for each
+--- of its table's and its public requests.
+--- The upstream's host is resolved once, here, through a name servers'
+--- connector of its own, closed after: a stream handed to the relay is
+--- handed as its connector started it, what it says first unread, for
+--- the relay to check. Nil and why, with nothing left running, where the
+--- upstream cannot be used or resolved, the table would be past 128, or a
+--- connector cannot start. Name servers that cannot be read are no
+--- failure: the relay is told why, is handed a connector that is not public, and
+--- reaches only what a target names literally, and the upstream.
+function relay.handover(connect: {string}, own: {string}): Config.Handover | nil, string
+  local env: {string: string} = {}
+  for _, name in ipairs({ "https_proxy", "HTTPS_PROXY", "no_proxy", "NO_PROXY" }) do
+    env[name] = sys.getenv(name)
+  end
+  local planned, plan_why = relay.plan(connect, env)
+  if planned == nil then return nil, plan_why end
+  local plan: relay.Plan = planned
+  local processes: {Connector.Process} = {}
+  local closed = false
+  local function close()
+    if closed then return end
+    closed = true
+    for _, process in ipairs(processes) do local _ = process:close() end
+  end
+  local function fail(why: string): nil, string
+    close()
+    return nil, why
+  end
+  local config: Config.Config = { grants = connect, own_addresses = own, log = "null", public = false }
+  local fds: {integer: integer} = {}
+  local up = plan.upstream
+  local servers: relay.NameServers
+  local unresolved = ""
+  -- A name is reached directly, and so resolved and connected by the relay
+  -- itself, only with no upstream or one that no_proxy bypasses for some.
+  local direct = plan.names and (up == nil or #up.no_proxy > 0)
+  local upstream_named = up ~= nil and Address.parse(up.host) == nil
+  if direct or upstream_named then
+    local listed, servers_why = relay.name_servers()
+    if listed == nil then unresolved = servers_why else servers = listed end
+  end
+  local addresses: {string}
+  if up ~= nil then
+    local through: relay.Through
+    local lookup: Connector.Process
+    if upstream_named and servers ~= nil then
+      local started, dns_why = relay_connector(servers.servers, servers.wait_ns)
+      if started == nil then return fail("the name servers' connector: " .. dns_why) end
+      lookup = started
+      through = { fd = started.fd, name_servers = servers }
+    end
+    local found, found_why = relay.upstream_addresses(up, through, unresolved)
+    if lookup ~= nil then local _ = lookup:close() end
+    if found == nil then return fail(found_why) end
+    addresses = found
+    config.upstream = completed_upstream(up, found)
+  end
+  local rows, rows_why = relay.table(plan, addresses)
+  if rows == nil then return fail(rows_why) end
+  -- No name resolves without the name servers: a public connector would
+  -- reach nothing.
+  local public = direct and servers ~= nil
+  if direct and servers == nil then config.unresolved = unresolved end
+  if #rows > 0 or public then
+    if #rows > 0 then config.table = rows end
+    -- One connector holds the table and, where public, the lists, asking
+    -- the table first: a literal grant reaches what the public lists
+    -- refuse, and a table-only relay reaches nothing else.
+    local process, why = relay_connector(rows, Config.connect_ns, public and relay.public(own) or nil)
+    if process == nil then return fail("the connector: " .. why) end
+    processes[#processes + 1] = process
+    config.public, fds[Config.connector_fd] = public, process.fd
+  end
+  if public then
+    local dns, dns_why = relay_connector(servers.servers, servers.wait_ns)
+    if dns == nil then return fail("the name servers' connector: " .. dns_why) end
+    processes[#processes + 1] = dns
+    fds[Config.name_server_fd] = dns.fd
+    config.name_servers, config.name_server_wait_ns = servers.servers, servers.wait_ns
+  end
+  return { config = config, fds = fds, close = close }, ""
+end
+
+--- What a relay that connects and resolves itself, as macOS's does, is
+--- told of the network: no connector, and the upstream proxy's addresses,
+--- resolved once, here. Nil and why where the upstream cannot be used or
+--- does not resolve.
+function relay.direct_handover(connect: {string}, own: {string}): Config.Handover | nil, string
+  local env: {string: string} = {}
+  for _, name in ipairs({ "https_proxy", "HTTPS_PROXY", "no_proxy", "NO_PROXY" }) do
+    env[name] = sys.getenv(name)
+  end
+  local up, up_why = Config.upstream(env)
+  if up == nil and up_why ~= "" then return nil, up_why end
+  local config: Config.Config = { grants = connect, own_addresses = own, log = "null", public = false,
+    direct = true }
+  if up ~= nil then
+    local found, found_why = relay.resolved_upstream(up)
+    if found == nil then return nil, found_why end
+    config.upstream = completed_upstream(up, found)
+  end
+  return { config = config, fds = {}, close = function() end }, ""
+end
+
+--- Binds the listening sockets of a relay on the host's loopback
+--- ([`cosmic.internal.relay_start`]'s [`loopback_listeners`]) into `handover`: its config's
+--- `listeners`, its descriptors from 3, and its `close`, which closes this
+--- process's own hold of the port once the relay ends, as a connector's
+--- would; the relay and the program hold it beside. The port, or nil and why.
+function relay.hold_loopback(handover: Config.Handover): integer | nil, string
+  local loopback, trouble = relay.loopback_listeners()
+  if loopback == nil then return nil, trouble end
+  local sockets, port = loopback.sockets, loopback.port
+  handover.config.listeners = #sockets
+  for i, socket in ipairs(sockets) do handover.fds[2 + i] = socket:fd() end
+  local closed = false
+  handover.close = function()
+    if closed then return end
+    closed = true
+    for _, socket in ipairs(sockets) do local _, _ = socket:close() end
+  end
+  return port, ""
 end
 
 return relay
