@@ -17,7 +17,7 @@
 --- or `*` for any. A pattern such as `*.example.com` is none of these: the
 --- relay matches whole names, so a grant of it would open nothing, and it is
 --- refused. Every host a target accepts, but `*`, is one the relay's CONNECT
---- and SOCKS readers ([`cosmic.relay.wire`]) can carry as a request's.
+--- and SOCKS readers can carry as a request's.
 ---
 --- The numeric and name grammars are this module's alone: the relay's
 --- readers and its address checks read through it, so a host the policy

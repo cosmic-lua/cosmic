@@ -1,8 +1,9 @@
 local Grant = require("cosmic.relay.grant")
 local Sandbox = require("cosmic.sandbox")
+local RelayStart = require("cosmic.internal.relay_start")
 local Relay = require("cosmic.relay")
 
-local Wire = Relay.Wire
+local Wire = require("cosmic.internal.relay_wire")
 local Address = Relay.Address
 
 --- The text of a target that parses, else a failed assert naming `text`.
@@ -88,10 +89,10 @@ local function test_every_accepted_name_is_a_request_host()
 end
 
 local function test_consumers_read_one_canonical_meaning()
-  local plan = assert(Sandbox.Relay.plan({ "[0:0:0:0:0:0:0:1]:80", "[::1]:80", "Example.COM.:443" }, {}))
+  local plan = assert(RelayStart.plan({ "[0:0:0:0:0:0:0:1]:80", "[::1]:80", "Example.COM.:443" }, {}))
   assert(#plan.literals == 1 and plan.names, "one literal, however it is spelt")
   -- Targets the request readers always refuse open no name (the plan once took them for names).
-  local none = assert(Sandbox.Relay.plan({ "bad_name:443", "-bad.example:443", ".:443", "*.example.com:443" }, {}))
+  local none = assert(RelayStart.plan({ "bad_name:443", "-bad.example:443", ".:443", "*.example.com:443" }, {}))
   assert(not none.names and #none.literals == 0)
   assert(Address.granted("::1", 80, { "[0:0:0:0:0:0:0:1]:80" }))
   assert(not Address.granted("::1", 81, { "[::1]:80" }))

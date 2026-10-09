@@ -4,7 +4,7 @@ local Fixture = require("build.relay_wire_fixture")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
-local Relay = require("cosmic.relay.server")
+local Relay = require("cosmic.internal.relay_server")
 local Test = require("cosmic.test")
 local Udp = require("build.udp_fixture")
 

@@ -11,7 +11,7 @@
 --- on the relay's log, naming the remedy of a refusal
 --- ("not granted: --connect api.github.com:443"):
 ---
---- 1. The request is read by [`cosmic.relay.wire`]'s readers. Within the
+--- 1. The request is read by [`cosmic.internal.relay_wire`]'s readers. Within the
 ---    `head` timeout and `header_bytes`, or it is refused saying so.
 --- 2. A host that is a name must be named by a grant of `host:port`, or of
 ---    `*:port`, `host:*` or `*:*`; the host matches exactly, as the reader
@@ -96,7 +96,7 @@
 --- is any value: a SOCKS5 one must be 1 to 255 bytes (RFC 1929) and an empty
 --- one is refused; `cosmic sandbox connect` sends "cosmic" for an empty one.
 --- macOS's start draws one for each sandbox, whose relay listens on the
---- host's loopback ([`cosmic.relay.main`]).
+--- host's loopback ([`cosmic.internal.relay_main`]).
 ---
 --- A `mixed` listener serves both protocols at its port: a connection whose
 --- first byte is 5, SOCKS5's version, is read as SOCKS5, and any other as
@@ -116,11 +116,13 @@ local Hash = require("cosmic.hash")
 local Log = require("cosmic.log")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
-local Address = require("cosmic.relay.address")
-local Config = require("cosmic.relay.config")
-local Wire = require("cosmic.relay.wire")
-local Grant = require("cosmic.relay.grant")
+local Config = require("cosmic.internal.relay_config")
+local Wire = require("cosmic.internal.relay_wire")
+local Shared = require("cosmic.relay")
 local String = require("cosmic.string")
+
+local Address = Shared.Address
+local Grant = Shared.Grant
 
 local record Relay
   --- Connects to the numeric `address` and `port` the relay has checked,
@@ -152,7 +154,7 @@ local record Relay
   record Limits
     --- Connections open at once (64).
     connections: integer
-    --- Bytes of a request head (16384, the most [`cosmic.relay.wire`] reads).
+    --- Bytes of a request head (16384, the most [`cosmic.internal.relay_wire`] reads).
     header_bytes: integer
     --- Connections served in all, the relay's life being the sandbox's
     --- (100000).
@@ -165,7 +167,7 @@ local record Relay
 
 
   --- The proxy a caller's `https_proxy` names, and the hosts `no_proxy`
-  --- says to reach directly ([`cosmic.relay.config`]'s [`Upstream`]).
+  --- says to reach directly ([`cosmic.internal.relay_config`]'s [`Upstream`]).
   type Upstream = Config.Upstream
 
   --- The connector a relay was handed by its starter, which
@@ -180,7 +182,7 @@ local record Relay
     connector: Net.Connector
     --- Told why the first time a request finds the connector has ended:
     --- nothing it reaches can be reached again, as no connector is started
-    --- anew. The relay's process ends then ([`cosmic.relay.main`]). Nil to
+    --- anew. The relay's process ends then ([`cosmic.internal.relay_main`]). Nil to
     --- fail each such request alone.
     lost: function(why: string)
   end
@@ -204,7 +206,7 @@ local record Relay
     --- The resolver's options ([`Net.ResolveOptions`]): `servers`,
     --- `hosts_file` and `connector`, which are the trusted caller's own.
     --- The sandbox's relay resolves through a connector of the name
-    --- servers alone, over TCP ([`cosmic.sandbox.relay`]). Its `timeout_ns`
+    --- servers alone, over TCP ([`cosmic.internal.relay_start`]). Its `timeout_ns`
     --- is [`Timeouts.resolve`]'s.
     resolve: Net.ResolveOptions
     --- Why no name can be resolved, or nil: set, every name fails with it
@@ -234,7 +236,7 @@ local record Relay
     --- Told why, once, the first time a lookup fails through a `resolve`
     --- connector that has ended: no name can be resolved again, as no
     --- connector is started anew. The relay's process ends then
-    --- ([`cosmic.relay.main`]). Nil to fail each such lookup alone.
+    --- ([`cosmic.internal.relay_main`]). Nil to fail each such lookup alone.
     lost: function(why: string)
   end
 
@@ -325,7 +327,7 @@ local function name_grants(grants: {string}): {NameGrant}, {string}
     if parsed == nil then
       notes[#notes + 1] = ("grant \"%s\" opens nothing: %s"):format(grant, why)
     elseif parsed.kind == "any" or parsed.kind == "name" then
-      -- An address is matched literally, by [`Address.granted`].
+      -- An address is matched literally, by [`cosmic.relay.address`]'s `granted`.
       names[#names + 1] = { host = parsed.host, port = parsed.port }
     end
   end
@@ -349,7 +351,7 @@ local function target(host: string, port: integer): string
 end
 
 --- The [`Connector`] of the one connector a relay's starter handed it
---- ([`cosmic.sandbox.relay`]): an address and port its table holds is
+--- ([`cosmic.internal.relay_start`]): an address and port its table holds is
 --- reached through the table, and any other through its public lists,
 --- which refuse what its deny list does; a table-only connector refuses
 --- every other address. It makes several connections at once, each asked
@@ -1292,7 +1294,7 @@ end
 
 --- Starts serving `spec`'s listeners in the calling task's run, and
 --- returns once they are taken. [`Child.start`] runs it for a policy's
---- `connect`, in a process of its own ([`cosmic.relay.main`]) whose
+--- `connect`, in a process of its own ([`cosmic.internal.relay_main`]) whose
 --- listeners the sandbox bound in the program's network. Raises where the spec is no spec: no
 --- listener or `connector`, a grant that is no string, a timeout or limit
 --- that is no positive integer, an own address that is no address.

@@ -92,16 +92,11 @@ local function test_the_runtime_setup_packs_a_closure_the_same_each_time(tmp: st
   assert(Fs.write(root .. "/test/portable/init.tl", 'local a = require("build.a")\n'))
   assert(Fs.write(root .. "/build/a.tl", 'local b = require("build.b")\n', 0x1ed))
   assert(Fs.write(root .. "/build/b.tl", "return {}\n"))
-  assert(Fs.write(root .. "/build/b_test.tl", "local _ = 1\n"))
-  assert(Fs.write(root .. "/build/c_test.tl", "local _ = 2\n"))
   assert(Fs.write(root .. "/cosmic/fs.tl", "return {}\n"))
   local closure = RuntimeSetup.closure(root, "test/portable/tool.tl")
   assert(table.concat(closure, " ") ==
       "build/a.tl build/b.tl test/portable/init.tl test/portable/tool.tl",
     table.concat(closure, " "))
-  local files = RuntimeSetup.files_but_tests(root, "build", "build/c_test.tl")
-  assert(table.concat(files, " ") == "build/a.tl build/b.tl build/c_test.tl",
-    table.concat(files, " "))
   -- The files' times move between the two packs, as a checkout's do
   -- from one run to the next: the tars must not.
   for _, relative in ipairs(closure) do

@@ -1,5 +1,5 @@
 --- [`Relay.handed`], which routes the relay's connections over the
---- connectors its starter handed it (cosmic/sandbox/relay.tl), and a relay
+--- connectors its starter handed it (cosmic/internal/relay_start.tl), and a relay
 --- behind an upstream the starter resolved once. A relay whose lookups a
 --- name server of this test's own answers holds its thread while it looks
 --- up, so it runs in a process of its own (this program, standalone) while
@@ -12,7 +12,7 @@ local Connector = require("cosmic.internal.connector")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
-local Relay = require("cosmic.relay.server")
+local Relay = require("cosmic.internal.relay_server")
 local Test = require("cosmic.test")
 local Udp = require("build.udp_fixture")
 local sys = require("cosmic.sys")
@@ -254,8 +254,8 @@ local Connector = require("cosmic.internal.connector")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
-local Relay = require("cosmic.relay.server")
-local SandboxRelay = require("cosmic.sandbox").Relay
+local Relay = require("cosmic.internal.relay_server")
+local SandboxRelay = require("cosmic.internal.relay_start")
 return function(argv: {string}): integer
   local dns_port = assert(math.tointeger(tonumber(argv[1])))
   local servers: {Net.Endpoint} = { { host = "127.0.0.1", port = dns_port } }

@@ -3,7 +3,7 @@
 --- stream of one a starter made, and speaks the connector's wire protocol
 --- over that stream. [`cosmic.net`] and the relay answer a [`Net.Connector`] over it,
 --- [`cosmic.child`] starts the connectors a relay is handed, and
---- [`cosmic.sandbox.relay`] asks one for the connections of a lookup, so
+--- [`cosmic.internal.relay_start`] asks one for the connections of a lookup, so
 --- the binary protocol (the connector's hello, a tagged request and its
 --- tagged reply, and the one socket passed after a success) is spoken here
 --- and nowhere else.
@@ -16,6 +16,7 @@
 local Clock = require("cosmic.clock")
 local Poll = require("cosmic.poll")
 local Relay = require("cosmic.relay")
+local type Resolv = require("cosmic.internal.relay_resolv")
 local sys = require("cosmic.sys")
 
 local Connection = require("cosmic.internal.connection")
@@ -555,7 +556,7 @@ local record Leaf
     Connection.Connector | nil, string
   served: function(connector: Connection.Connector): Served | nil
   connects: function(fd: integer, servers: {raw_socket.ThroughServer}, reply_ns: integer):
-    function(index: integer, port: integer, deadline: integer | nil): Relay.Connection | nil, string
+    function(index: integer, port: integer, deadline: integer | nil): Resolv.Connection | nil, string
   waited: function(fd: integer, writable: boolean, timeout_ns: integer | nil): boolean, string
 end
 
@@ -813,10 +814,10 @@ end
 --- @param reply_ns integer The least a connect is waited for, in nanoseconds
 --- @return function The connect a lookup takes
 function Leaf.connects(fd: integer, servers: {raw_socket.ThroughServer}, reply_ns: integer):
-    function(index: integer, port: integer, deadline: integer | nil): Relay.Connection | nil, string
+    function(index: integer, port: integer, deadline: integer | nil): Resolv.Connection | nil, string
   local borrowed: Process = setmetatable({ fd = fd, open = true, borrowed = true }, process_mt)
   local channel = channel_of(borrowed)
-  return function(index: integer, port: integer, deadline: integer | nil): Relay.Connection | nil, string
+  return function(index: integer, port: integer, deadline: integer | nil): Resolv.Connection | nil, string
     local until_ns = Clock.monotonic_ns() + reply_ns
     if deadline ~= nil and deadline > until_ns then until_ns = deadline end
     local socket, why = ask(channel, own_wait_body(index, port), servers[index].host, port, until_ns, "", "")

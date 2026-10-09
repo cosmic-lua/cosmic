@@ -1,4 +1,4 @@
---- Fuzz properties for the client's side of [`cosmic.relay.wire`], whose
+--- Fuzz properties for the client's side of [`cosmic.internal.relay_wire`], whose
 --- readers take what a SOCKS5 server answers: none raises on any bytes,
 --- none reports more bytes taken than it was given, a read in pieces agrees
 --- with the read of the whole, and a request the client writes is read back
@@ -7,7 +7,7 @@
 
 local Fixture = require("build.relay_wire_fixture")
 local Fuzz = require("build.fuzz")
-local Wire = require("cosmic.relay.wire")
+local Wire = require("cosmic.internal.relay_wire")
 
 --- A reader of one format, made afresh, as a function that feeds the next
 --- bytes and answers a status, a count of bytes taken and every field the

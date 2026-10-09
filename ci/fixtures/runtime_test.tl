@@ -361,6 +361,13 @@ local function test_runtime_private_contract(tmp: string)
   assert(not partial.result.ok, "partial-artifact boot unexpectedly succeeded")
   Fixture.contains(partial.err, "portable startup names no artifact")
 
+  -- The hooked core started on its own, with no database and no tree
+  -- to boot from, says so and exits 2 rather than running anything.
+  local bare = Fixture.call_with_environment("bare-core", { wrong_core }, work, diagnostics,
+    Fixture.environment({}))
+  assert(bare.result.code == 2, "bare core: exit " .. tostring(bare.result.code))
+  Fixture.contains(bare.err, "no database attached")
+
   -- Startup accepts representable nonstandard descriptors, while standard,
   -- equal, and unrepresentable fields are rejected before descriptor
   -- adoption.

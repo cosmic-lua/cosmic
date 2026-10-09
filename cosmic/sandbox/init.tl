@@ -42,7 +42,6 @@
 
 local Proc = require("cosmic.proc")
 local rules = require("cosmic.sandbox.policy")
-local Relay = require("cosmic.sandbox.relay")
 local Seatbelt = require("cosmic.sandbox.seatbelt")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
@@ -92,15 +91,6 @@ local record Sandbox
   --- by it, and [`Sandbox.restrict`] the running process.
   Seatbelt: Seatbelt
 
-  --- What the starter of a policy's network relay reads and decides before
-  --- the relay runs: the package's [`cosmic.sandbox.relay`], whose `policy`
-  --- is the relay's own (`seatbelt_policy` on macOS), `plan` what a policy's `connect` targets open,
-  --- `table` and `public` the one connector's rows and lists, and
-  --- `name_servers` the name servers' connector, which [`Child.start`]
-  --- hands the relay, and `upstream_addresses` the one lookup of the
-  --- upstream proxy (`resolved_upstream` on macOS), each documented there.
-  Relay: Relay
-
   --- What [`Sandbox.reach`] finds.
   record Reach
     --- Who gives the user its rights: "user" (its own bits, as owner or
@@ -121,7 +111,6 @@ local record Sandbox
 end
 
 Sandbox.Seatbelt = Seatbelt
-Sandbox.Relay = Relay
 
 --- What a failure of this module answers: nil and `why` under its name.
 local function refuse(why: string): nil, string

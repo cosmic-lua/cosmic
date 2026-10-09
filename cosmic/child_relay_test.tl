@@ -1,5 +1,5 @@
 --- [`Child.start`]'s `policy` with `connect` (cosmic/child.tl), on live
---- children: the network relay it starts for the grants (cosmic/relay/main.tl,
+--- children: the network relay it starts for the grants (cosmic/internal/relay_main.tl,
 --- this program's core on a database sealed for it), the proxy environment
 --- the program is given, and what the relay does to a flow it is asked for.
 --- The program is this program's core on a database sealed for it, which sends
@@ -18,8 +18,8 @@ local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
-local Relay = require("cosmic.relay")
-local Sandbox = require("cosmic.sandbox")
+local RelayConfig = require("cosmic.internal.relay_config")
+local RelayStart = require("cosmic.internal.relay_start")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
@@ -298,7 +298,7 @@ end
 --- reads, and its own network (the policy's loopback) is left direct.
 local function test_the_program_is_given_the_proxy_environment(tmp: string)
   local said = flows(tmp)
-  for name, value in pairs(Relay.Config.proxy_env({}, nil, nil, { "127.0.0.2:1" })) do
+  for name, value in pairs(RelayConfig.proxy_env({}, nil, nil, { "127.0.0.2:1" })) do
     assert(said["env_" .. name] == value, name .. " is " .. tostring(said["env_" .. name]))
   end
   assert(said.env_HTTPS_PROXY == "http://127.0.0.1:3128" and said.env_ALL_PROXY == "socks5h://127.0.0.1:1080" and
@@ -355,7 +355,7 @@ end
 
 --- The host's own addresses the relay is told include the worker's loopback.
 local function test_the_hosts_own_addresses_are_read_from_proc(_tmp: string)
-  local found = assert(Relay.Config.host_addresses())
+  local found = assert(RelayConfig.host_addresses())
   local seen = false
   for _, address in ipairs(found) do
     if address == "127.0.0.1" then seen = true end
@@ -650,7 +650,7 @@ local function test_no_connect_means_no_relay_and_no_extra_descriptors(tmp: stri
 end
 
 --- The relay runs offline: a program under the very policy its process is
---- started under ([`cosmic.sandbox.relay`]'s `policy`) cannot connect to a
+--- started under ([`cosmic.internal.relay_start`]'s `policy`) cannot connect to a
 --- server this process reaches, as its filter refuses the socket, so the
 --- relay reaches nothing but through the connectors it is handed.
 local function test_the_relays_policy_gives_it_no_network_of_its_own(tmp: string)
@@ -661,7 +661,7 @@ local function test_the_relays_policy_gives_it_no_network_of_its_own(tmp: string
     local reached = assert(Net.connect(Net.tcp("127.0.0.2", granted), { timeout_ns = Clock.seconds(5) }))
     assert(reached:close())
     local result, why = Child.run({ assert(Proc.executable()), "dial", "127.0.0.2", tostring(granted) },
-      { policy = Sandbox.Relay.policy(database, digest), stdout = "capture", stderr = "capture",
+      { policy = RelayStart.policy(database, digest), stdout = "capture", stderr = "capture",
         timeout_ns = Clock.seconds(60) })
     if result == nil then
       assert(unsandboxable(why), "the start was refused: " .. why)

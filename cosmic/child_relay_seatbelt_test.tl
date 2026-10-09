@@ -1,6 +1,6 @@
 --- [`Child.start`]'s `policy` with `connect` on macOS (cosmic/child.tl),
 --- where Seatbelt holds the program and its network relay
---- (cosmic/relay/main.tl): the relay listens at a port of the host's
+--- (cosmic/internal/relay_main.tl): the relay listens at a port of the host's
 --- loopback behind a token drawn for the start, and the program's profile
 --- lets it reach that port and nothing else. The program is this program's
 --- core on a database sealed for it, which speaks to the relay through the
@@ -16,7 +16,7 @@ local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
-local Sandbox = require("cosmic.sandbox")
+local RelayStart = require("cosmic.internal.relay_start")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
@@ -651,7 +651,7 @@ end
 --- with no write.
 local function test_the_relays_policy_grants_reads_alone(_tmp: string)
   macos_only()
-  local policy = Sandbox.Relay.seatbelt_policy("/tmp/relay.db", string.rep("0", 64))
+  local policy = RelayStart.seatbelt_policy("/tmp/relay.db", string.rep("0", 64))
   assert(policy.database.path == "/tmp/relay.db" and policy.profiles[1] == "system")
   for _, grant in ipairs(policy.grants) do
     assert(grant.letters == "r", grant.path .. " is granted " .. grant.letters)

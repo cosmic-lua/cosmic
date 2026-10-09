@@ -1,6 +1,6 @@
---- The relay's process with a `direct` config ([`cosmic.relay.main`]), as
+--- The relay's process with a `direct` config ([`cosmic.internal.relay_main`]), as
 --- macOS's start runs it: it serves the listening sockets it is handed from
---- descriptor 3, which [`cosmic.sandbox.relay`]'s `loopback_listeners` binds
+--- descriptor 3, which [`cosmic.internal.relay_start`]'s `loopback_listeners` binds
 --- at one port of 127.0.0.1 and ::1, each for both protocols behind the
 --- config's token, and connects itself. It runs here as this program,
 --- standalone, unconfined: what holds it on macOS is
@@ -12,13 +12,13 @@ local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
-local RelayConfig = require("cosmic.relay.config")
-local Sandbox = require("cosmic.sandbox")
+local RelayConfig = require("cosmic.internal.relay_config")
+local RelayStart = require("cosmic.internal.relay_start")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 local _ = require("build.standalone")
-local _ = require("cosmic.relay.main")
+local _ = require("cosmic.internal.relay_main")
 
 --- The program itself, which runs the relay; its servers and its listener
 --- are on the loopback.
@@ -26,7 +26,7 @@ Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" } }
 
 --- The relay's main, as a standalone script runs it.
 local SCRIPT <const> = [[
-return require("cosmic.relay.main")
+return require("cosmic.internal.relay_main")
 ]]
 
 local TOKEN <const> = string.rep("5a", 32)
@@ -62,7 +62,7 @@ end
 local function test_a_direct_relay_without_a_token_does_not_start(tmp: string)
   local script = tmp .. "/relay.tl"
   assert(Fs.write(script, SCRIPT))
-  local loopback = assert(Sandbox.Relay.loopback_listeners())
+  local loopback = assert(RelayStart.loopback_listeners())
   local fds: {integer:integer} = {}
   for i, socket in ipairs(loopback.sockets) do fds[2 + i] = socket:fd() end
   Poll.run(function()
@@ -101,7 +101,7 @@ local function test_a_direct_relay_listens_itself_and_serves_both_protocols_behi
       end
     end)
     local granted, ungranted = server.address.port, other.address.port
-    local loopback = assert(Sandbox.Relay.loopback_listeners())
+    local loopback = assert(RelayStart.loopback_listeners())
     local port = loopback.port
     local fds: {integer:integer} = {}
     for i, socket in ipairs(loopback.sockets) do fds[2 + i] = socket:fd() end

@@ -270,8 +270,7 @@ end
 --- An IPv4-mapped entry is reduced to the IPv4 address it carries, so an
 --- own address is refused however an answer spells it. Raises for an entry
 --- that is no numeric address: a list of the host's own addresses is the
---- caller's, never untrusted: the relay's starter lists them
---- ([`cosmic.relay.config`]'s `host_addresses`).
+--- caller's, never untrusted: the relay's starter lists them.
 --- @param own {string} The addresses, as text
 --- @return {{integer}} Each one's bytes
 function relay_address.own_addresses(own: {string}): {{integer}}

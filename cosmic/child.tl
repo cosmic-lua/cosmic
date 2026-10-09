@@ -70,20 +70,17 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
-local Relay = require("cosmic.relay")
+local RelayConfig = require("cosmic.internal.relay_config")
+local RelayStart = require("cosmic.internal.relay_start")
 local Rules = require("cosmic.sandbox")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local Stream = require("cosmic.stream")
 local Clock = require("cosmic.clock")
-local Connector = require("cosmic.internal.connector")
 
 local isatty = sys.isatty
 -- What holds a child by a policy on macOS, taken as this module loads.
 local Seatbelt = Rules.Seatbelt
-local SandboxRelay = Rules.Relay
-local Address = Relay.Address
-local RelayConfig = Relay.Config
 
 -- The calls that start, feed and reap a child, and hold this process's
 -- signals while it does, live in the raw process table, under the
@@ -394,11 +391,11 @@ local record Options
   ---   always has.
   --- - `connect` gives the child a network namespace of its own, with
   ---   its loopback up and inet sockets, whose only way out is the network
-  ---   relay this start runs (cosmic/relay/main.tl): a process of this
+  ---   relay this start runs: a process of this
   ---   program's core on a database sealed for it, held by a pid namespace
   ---   and the files its resolver reads, which makes no socket of its own.
   ---   It reaches the network only through the native connectors this
-  ---   process starts and hands it ([`cosmic.sandbox.relay`]): one whose
+  ---   process starts and hands it: one whose
   ---   table holds the addresses a target names literally (at most 128, with
   ---   the upstream proxy's: a policy with more fails to start, saying so),
   ---   and, where a target names a host the relay reaches directly, one that
@@ -421,7 +418,7 @@ local record Options
   ---   request only where a `connect` target names its host and port,
   ---   resolves a name itself only then, and refuses an address of the host
   ---   or a private, loopback or metadata one unless a target names that
-  ---   address literally ([`cosmic.relay.server`]). It reaches the network through
+  ---   address literally. It reaches the network through
   ---   this process's `https_proxy`, and its `no_proxy`, where they are set:
   ---   the proxy's host is resolved once, as the start runs, and a host that
   ---   does not resolve fails the start. It lives as long
@@ -431,7 +428,7 @@ local record Options
   ---   anew. A relay that
   ---   will not start fails the start, naming why, and ends the child. The
   ---   relay's decision lines go where `relay_log` says. It needs this
-  ---   program to carry [`cosmic.relay.main`] and [`cosmic.sandbox.relay`]
+  ---   program to carry the relay's modules
   ---   and to be a cosmic core, which
   ---   the start says where it is not. On macOS the relay runs as below.
   ---
@@ -3697,9 +3694,9 @@ local function nest_descriptors(slots: {integer:integer}): string
 end
 
 --- The module the network relay's process runs: the main of a database
---- sealed for it ([`cosmic.relay.main`]), which this module cannot require
+--- sealed for it ([`cosmic.internal.relay_main`]), which this module cannot require
 --- (it and what it requires start children through this one).
-local RELAY_MAIN <const> = "cosmic.relay.main"
+local RELAY_MAIN <const> = "cosmic.internal.relay_main"
 
 --- How long a relay has to say it serves, from its start.
 local RELAY_READY_NS <const> = Clock.seconds(30)
@@ -3720,7 +3717,7 @@ local record RelayPrep
   --- relay never starts, and the relay's handle once it has.
   handover: RelayConfig.Handover
   --- Whether the relay is held by Seatbelt and listens on the host's
-  --- loopback itself, as on macOS ([`cosmic.relay.config`]'s `direct`).
+  --- loopback itself, as on macOS ([`cosmic.internal.relay_config`]'s `direct`).
   seatbelt: boolean
   --- The token the program presents to a relay on the host's loopback; nil
   --- for Linux's, whose listeners are in the program's own network.
@@ -3764,156 +3761,6 @@ local function seal_relay(): RelayProgram | nil, string
   local shared, share_trouble = sys.chmod(path, 0x1a4)
   if not shared then return fail(path .. ": " .. share_trouble) end
   return { dir = dir, path = path, digest = digest }, ""
-end
-
---- `up` with the numeric `addresses` its host resolved to, the value the
---- relay is handed.
-local function completed_upstream(up: RelayConfig.Upstream, addresses: {string}): RelayConfig.Upstream
-  return { host = up.host, port = up.port, authorization = up.authorization, no_proxy = up.no_proxy,
-    addresses = addresses }
-end
-
---- A connector of `endpoints` (and `public`'s lists, if given) waiting
---- `wait_ns` for each connection, for the relay: the process, or nil and
---- why. A table or list the core refuses is a why too.
-local function relay_connector(endpoints: {Connector.Endpoint}, wait_ns: integer,
-                               public?: Connector.Public): Connector.Process | nil, string
-  local called, process, why = pcall(Connector.start, endpoints, (wait_ns + 999999) // 1000000, public)
-  if not called then return nil, (tostring(process):gsub("^.-:%d+: ", "")) end
-  if process == nil then return nil, why end
-  return process, ""
-end
-
---- The connectors the relay of the `connect` targets `connect` is handed
---- ([`cosmic.sandbox.relay`]), started in this process and network: one
---- with a table of the addresses a target names literally and the upstream
---- proxy's; and, for a target that names a host the relay reaches
---- directly (no upstream, or one `no_proxy` bypasses for some), also
---- public (refusing the relay's deny list and `own`, the host's own
---- addresses), and a name servers' connector beside it. Each makes
---- several connections at once; the first keeps 16 of its flights for each
---- of its table's and its public requests.
---- The upstream's host is resolved once, here, through a name servers'
---- connector of its own, closed after: a stream handed to the relay is
---- handed as its connector started it, what it says first unread, for
---- the relay to check. Nil and why, with nothing left running, where the
---- upstream cannot be used or resolved, the table would be past 128, or a
---- connector cannot start. Name servers that cannot be read are no
---- failure: the relay is told why, is handed a connector that is not public, and
---- reaches only what a target names literally, and the upstream.
-local function relay_handover(connect: {string}, own: {string}): RelayConfig.Handover | nil, string
-  local env: {string: string} = {}
-  for _, name in ipairs({ "https_proxy", "HTTPS_PROXY", "no_proxy", "NO_PROXY" }) do
-    env[name] = sys.getenv(name)
-  end
-  local planned, plan_why = SandboxRelay.plan(connect, env)
-  if planned == nil then return nil, plan_why end
-  local plan: Rules.Relay.Plan = planned
-  local processes: {Connector.Process} = {}
-  local closed = false
-  local function close()
-    if closed then return end
-    closed = true
-    for _, process in ipairs(processes) do local _ = process:close() end
-  end
-  local function fail(why: string): nil, string
-    close()
-    return nil, why
-  end
-  local config: RelayConfig.Config = { grants = connect, own_addresses = own, log = "null", public = false }
-  local fds: {integer: integer} = {}
-  local up = plan.upstream
-  local servers: Rules.Relay.NameServers
-  local unresolved = ""
-  -- A name is reached directly, and so resolved and connected by the relay
-  -- itself, only with no upstream or one that no_proxy bypasses for some.
-  local direct = plan.names and (up == nil or #up.no_proxy > 0)
-  local upstream_named = up ~= nil and Address.parse(up.host) == nil
-  if direct or upstream_named then
-    local listed, servers_why = SandboxRelay.name_servers()
-    if listed == nil then unresolved = servers_why else servers = listed end
-  end
-  local addresses: {string}
-  if up ~= nil then
-    local through: Rules.Relay.Through
-    local lookup: Connector.Process
-    if upstream_named and servers ~= nil then
-      local started, dns_why = relay_connector(servers.servers, servers.wait_ns)
-      if started == nil then return fail("the name servers' connector: " .. dns_why) end
-      lookup = started
-      through = { fd = started.fd, name_servers = servers }
-    end
-    local found, found_why = SandboxRelay.upstream_addresses(up, through, unresolved)
-    if lookup ~= nil then local _ = lookup:close() end
-    if found == nil then return fail(found_why) end
-    addresses = found
-    config.upstream = completed_upstream(up, found)
-  end
-  local rows, rows_why = SandboxRelay.table(plan, addresses)
-  if rows == nil then return fail(rows_why) end
-  -- No name resolves without the name servers: a public connector would
-  -- reach nothing.
-  local public = direct and servers ~= nil
-  if direct and servers == nil then config.unresolved = unresolved end
-  if #rows > 0 or public then
-    if #rows > 0 then config.table = rows end
-    -- One connector holds the table and, where public, the lists, asking
-    -- the table first: a literal grant reaches what the public lists
-    -- refuse, and a table-only relay reaches nothing else.
-    local process, why = relay_connector(rows, RelayConfig.connect_ns, public and SandboxRelay.public(own) or nil)
-    if process == nil then return fail("the connector: " .. why) end
-    processes[#processes + 1] = process
-    config.public, fds[RelayConfig.connector_fd] = public, process.fd
-  end
-  if public then
-    local dns, dns_why = relay_connector(servers.servers, servers.wait_ns)
-    if dns == nil then return fail("the name servers' connector: " .. dns_why) end
-    processes[#processes + 1] = dns
-    fds[RelayConfig.name_server_fd] = dns.fd
-    config.name_servers, config.name_server_wait_ns = servers.servers, servers.wait_ns
-  end
-  return { config = config, fds = fds, close = close }, ""
-end
-
---- What a relay that connects and resolves itself, as macOS's does, is
---- told of the network: no connector, and the upstream proxy's addresses,
---- resolved once, here. Nil and why where the upstream cannot be used or
---- does not resolve.
-local function direct_handover(connect: {string}, own: {string}): RelayConfig.Handover | nil, string
-  local env: {string: string} = {}
-  for _, name in ipairs({ "https_proxy", "HTTPS_PROXY", "no_proxy", "NO_PROXY" }) do
-    env[name] = sys.getenv(name)
-  end
-  local up, up_why = RelayConfig.upstream(env)
-  if up == nil and up_why ~= "" then return nil, up_why end
-  local config: RelayConfig.Config = { grants = connect, own_addresses = own, log = "null", public = false,
-    direct = true }
-  if up ~= nil then
-    local found, found_why = SandboxRelay.resolved_upstream(up)
-    if found == nil then return nil, found_why end
-    config.upstream = completed_upstream(up, found)
-  end
-  return { config = config, fds = {}, close = function() end }, ""
-end
-
---- Binds the listening sockets of a relay on the host's loopback
---- ([`cosmic.sandbox.relay`]'s `loopback_listeners`) into `handover`: its config's
---- `listeners`, its descriptors from 3, and its `close`, which closes this
---- process's own hold of the port once the relay ends, as a connector's
---- would; the relay and the program hold it beside. The port, or nil and why.
-local function hold_loopback(handover: RelayConfig.Handover): integer | nil, string
-  local loopback, trouble = SandboxRelay.loopback_listeners()
-  if loopback == nil then return nil, trouble end
-  local sockets, port = loopback.sockets, loopback.port
-  handover.config.listeners = #sockets
-  for i, socket in ipairs(sockets) do handover.fds[2 + i] = socket:fd() end
-  local closed = false
-  handover.close = function()
-    if closed then return end
-    closed = true
-    for _, socket in ipairs(sockets) do local _, _ = socket:close() end
-  end
-  return port, ""
 end
 
 --- A token for a relay on the host's loopback, which every user of the host
@@ -3961,9 +3808,9 @@ local function prepare_relay(connect: {string}, opts: Options, seatbelt: boolean
   if program == nil then return nil, seal_trouble end
   local handover, handover_trouble: RelayConfig.Handover, string
   if seatbelt then
-    handover, handover_trouble = direct_handover(connect, addresses)
+    handover, handover_trouble = RelayStart.direct_handover(connect, addresses)
   else
-    handover, handover_trouble = relay_handover(connect, addresses)
+    handover, handover_trouble = RelayStart.handover(connect, addresses)
   end
   if handover == nil then
     local _, _ = Fs.remove_tree(program.dir)
@@ -3971,7 +3818,7 @@ local function prepare_relay(connect: {string}, opts: Options, seatbelt: boolean
   end
   local port: integer
   if seatbelt then
-    local held_port, loopback_trouble = hold_loopback(handover)
+    local held_port, loopback_trouble = RelayStart.hold_loopback(handover)
     if held_port == nil then
       local _, _ = Fs.remove_tree(program.dir)
       return nil, loopback_trouble
@@ -3984,8 +3831,8 @@ local function prepare_relay(connect: {string}, opts: Options, seatbelt: boolean
   config.token = token
   -- `program.digest` is the hex SHA-256 [`Store.seal`] hashed the file to,
   -- which is what `/database/sha256` holds; [`Rules.merge`] checks it anyway.
-  local policy = seatbelt and SandboxRelay.seatbelt_policy(program.path, program.digest) or
-    SandboxRelay.policy(program.path, program.digest)
+  local policy = seatbelt and RelayStart.seatbelt_policy(program.path, program.digest) or
+    RelayStart.policy(program.path, program.digest)
   return { dir = program.dir, policy = policy, config = RelayConfig.encode(config), log = log,
     handover = handover, seatbelt = seatbelt, token = token, port = port }, ""
 end

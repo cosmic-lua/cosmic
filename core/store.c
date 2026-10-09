@@ -94,10 +94,10 @@ static bool out_of_memory (int rc) { return (rc & 0xff) == SQLITE_NOMEM; }
  * process table (to start and reap the connector) and the socket table
  * (to speak to it) together, as a table of both: a wrapper listed twice
  * gets the fields of each of its raw values in one table. Its callers,
- * [`cosmic.net`], [`cosmic.child`] and [`cosmic.sandbox.relay`], reach the
- * protocol through it. cosmic.sandbox.relay shares cosmic.net's socket
+ * [`cosmic.net`], [`cosmic.child`] and [`cosmic.internal.relay_start`], reach the
+ * protocol through it. cosmic.internal.relay_start shares cosmic.net's socket
  * table to open the relay's loopback listeners, and
- * [`cosmic.relay.resolv`] shares it to list the name servers, which
+ * [`cosmic.internal.relay_resolv`] shares it to list the name servers, which
  * cosmic.net and the relay's starter both read. */
 static const struct raw_module {
   const char *wrapper;
@@ -122,8 +122,8 @@ static const struct raw_module {
   {"cosmic.net", "cosmic.internal.socket", cosmic_open_socket},
   {"cosmic.internal.connector", "cosmic.internal.process", NULL},
   {"cosmic.internal.connector", "cosmic.internal.socket", NULL},
-  {"cosmic.sandbox.relay", "cosmic.internal.socket", NULL},
-  {"cosmic.relay.resolv", "cosmic.internal.socket", NULL},
+  {"cosmic.internal.relay_start", "cosmic.internal.socket", NULL},
+  {"cosmic.internal.relay_resolv", "cosmic.internal.socket", NULL},
   {"cosmic.json", "cosmic.internal.json", cosmic_open_json},
   {"build.fuzz", "cosmic.internal.budget", cosmic_open_budget},
   {"build.assertions", "cosmic.internal.assertions", cosmic_open_assertions},

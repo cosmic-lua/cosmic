@@ -34,13 +34,16 @@
 --- connection, run for each one accepted at any of its listeners, whose
 --- failure closes that connection alone.
 
+-- TODO: drop this require, and with it cosmic.child's sandbox, relay_start and
+-- relay_config from a plain `require("cosmic.net")`, once Child.guard (what Net.serve
+-- holds SIGINT and SIGTERM with) lives in a module of its own that cosmic.child re-exports.
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local sys = require("cosmic.sys")
 local errors = require("cosmic.internal.errors")
-local Relay = require("cosmic.relay")
+local Resolv = require("cosmic.internal.relay_resolv")
 local Connection = require("cosmic.internal.connection")
 local Leaf = require("cosmic.internal.connector")
 
@@ -594,7 +597,7 @@ function Net.resolve(name: string, opts?: Net.ResolveOptions): {Net.Resolved} | 
     servers = table.concat(parts, ",")
   end
   if opts.connector ~= nil then return resolved_through(name, opts) end
-  return Relay.lookup(name, { timeout_ns = opts.timeout_ns, servers = servers, hosts = hosts_file })
+  return Resolv.lookup(name, { timeout_ns = opts.timeout_ns, servers = servers, hosts = hosts_file })
 end
 
 --- The system's DNS servers, each at port 53, as [`ResolveOptions.servers`]
@@ -610,7 +613,7 @@ end
 --- @return {Net.Endpoint}|nil The servers
 --- @return string Why there are none, "" otherwise
 function Net.nameservers(): {Net.Endpoint} | nil, string
-  local listed, why = Relay.nameservers()
+  local listed, why = Resolv.nameservers()
   if listed == nil then return nil, why end
   local out: {Net.Endpoint} = {}
   for i, server in ipairs(listed) do out[i] = { host = server.host, port = server.port } end
@@ -802,7 +805,7 @@ resolved_through = function(name: string, opts: Net.ResolveOptions): {Net.Resolv
       listed[i] = { host = server.host, port = server.port }
     end
   else
-    local system, why = Relay.nameservers()
+    local system, why = Resolv.nameservers()
     if system == nil then return nil, why end
     for i, server in ipairs(system) do listed[i] = { host = server.host, port = server.port } end
   end
@@ -819,12 +822,12 @@ resolved_through = function(name: string, opts: Net.ResolveOptions): {Net.Resolv
     end
     servers[#servers + 1] = { host = served.endpoints[index].host, port = server.port, index = index }
   end
-  local found, trouble = Relay.lookup(name, {
+  local found, trouble = Resolv.lookup(name, {
     timeout_ns = opts.timeout_ns,
     hosts = opts.hosts_file,
     through = servers,
     connect = function(index: integer, port: integer, deadline: integer | nil):
-      Relay.Connection | nil, string
+      Resolv.Connection | nil, string
       local socket, why = served:through(index, port, deadline)
       if socket == nil then return nil, why end
       return { fd = socket:fd(), release = function() local _, _ = socket:close() end }, ""

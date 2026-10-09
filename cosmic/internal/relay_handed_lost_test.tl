@@ -5,7 +5,7 @@
 --- as long as a test says, and connect nothing.
 local Clock = require("cosmic.clock")
 local Poll = require("cosmic.poll")
-local Relay = require("cosmic.relay.server")
+local Relay = require("cosmic.internal.relay_server")
 local type Net = require("cosmic.net")
 
 --- A stand-in for a connector, named `name`: it records each request in

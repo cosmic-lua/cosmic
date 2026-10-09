@@ -55,8 +55,8 @@ local record Seatbelt
     --- The port of the host's loopback the network relay accepts at, for
     --- the relay's own profile; nil for any other. The relay may connect to
     --- any address and port (Seatbelt cannot name one by number, so the
-    --- relay's own checks of the grants decide where it connects,
-    --- [`cosmic.relay.server`]), accept at that port of the loopback and bind
+    --- relay's own checks of the grants decide where it connects),
+    --- accept at that port of the loopback and bind
     --- nothing (its starter binds its listeners and hands them over), look up
     --- the system's DNS configuration, the one Mach service the resolver
     --- reaches, and run no program but `core`: the rest of what it is granted
@@ -299,7 +299,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
   end
   if relay_port ~= nil then
     -- `localhost` is ::1 at the port as well: the start holds the port
-    -- there too ([`cosmic.sandbox.relay`]'s `loopback_listeners`).
+    -- there too ([`cosmic.internal.relay_start`]'s `loopback_listeners`).
     text[#text + 1] = '(allow network-outbound (remote tcp "localhost:' .. relay_port .. '"))'
   end
   if serves ~= nil then

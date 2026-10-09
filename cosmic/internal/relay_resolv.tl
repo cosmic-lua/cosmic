@@ -3,12 +3,10 @@
 --- asks through a connector when its caller names none, and what the
 --- relay's starter hands the relay a connector of; and the loop that
 --- runs a lookup, which [`Net.resolve`] and the relay's starter share.
---- A member of cosmic.relay, reached outside it as [`cosmic.relay`]'s
---- `nameservers` and `lookup`.
 
 local Clock = require("cosmic.clock")
 local Poll = require("cosmic.poll")
-local relay_address = require("cosmic.relay.address")
+local Relay = require("cosmic.relay")
 
 --- The raw socket module, cosmic.net's too: it arrives as the second
 --- argument `require` passes this chunk's loader.
@@ -79,7 +77,7 @@ local function nameserver_of(entry: string): resolv.Endpoint | nil
   end
   if host == nil or rest ~= "" then return nil end
   local number = math.tointeger(tonumber(port))
-  if number == nil or number < 1 or number > 65535 or relay_address.parse(host) == nil then
+  if number == nil or number < 1 or number > 65535 or Relay.Address.parse(host) == nil then
     return nil
   end
   return { host = host, port = number }

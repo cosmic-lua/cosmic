@@ -10,6 +10,7 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local Relay = require("cosmic.relay")
+local RelayConfig = require("cosmic.internal.relay_config")
 local sys = require("cosmic.sys")
 
 -- Taken at load: a test that replaces a member of the library table does not
@@ -248,7 +249,7 @@ end
 --- hold each address once, sorted, it is the entry of the merged list.
 local function loopback_conflict(loopback: {string}, connect: {string}, joined: boolean): string
   for i, address in ipairs(loopback) do
-    local target = Relay.Config.naming(connect, address)
+    local target = RelayConfig.naming(connect, address)
     if target ~= "" then
       return "pointer \"/loopback/" .. (i - 1) .. "\"" .. (joined and " of the merged policy" or "") .. ": \"" .. address .. "\" is also the host address that " ..
         "connect \"" .. target .. "\" names, and a proxy client cannot tell the two apart by port: " ..

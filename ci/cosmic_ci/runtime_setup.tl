@@ -79,28 +79,6 @@ function RuntimeSetup.closure(root: string, entry: string): {string}
   return out
 end
 
---- Every file beneath `root`'s directory `directory`, relative to
---- `root` and sorted, but a test module (`*_test.tl`) other than
---- `keep`, a path relative to `root`.
-function RuntimeSetup.files_but_tests(root: string, directory: string,
-                                      keep: string): {string}
-  local out: {string} = {}
-  local function walk(relative: string)
-    for _, name in ipairs((assert(Fs.list(root .. "/" .. relative)))) do
-      local path = relative .. "/" .. name
-      local kind = assert(Fs.stat(root .. "/" .. path)).kind
-      if kind == "dir" then
-        walk(path)
-      elseif kind == "file" and (path == keep or not name:match("_test%.tl$")) then
-        out[#out + 1] = path
-      end
-    end
-  end
-  walk(directory)
-  table.sort(out)
-  return out
-end
-
 --- Writes `out`, a tar of each of `files` beneath `root`, at its path
 --- relative to it, in order, each with its mode and time: the writer is
 --- `deterministic`, so every time is written as 0 and the same files make
@@ -237,15 +215,11 @@ function RuntimeSetup.build(root: string, prebuilt: string, writer: string,
   -- What the fixtures would otherwise read of the candidate's tree, which
   -- a sandboxed fixture is given none of (ci/fixtures/*_test.tl's
   -- [`Test.policy`]): test/portable/tool.tl with the modules of the tree it
-  -- requires, and build/ with no test but embed_test.tl, the focused
-  -- build identity_test.tl runs under the runtime. Each is one file, a
-  -- tar a fixture unpacks where it writes ([`Fixture.unpack`]), so its
-  -- declaration names one path whatever the closure holds, and its key
-  -- moves only with what the tar holds.
+  -- requires. It is one file, a tar a fixture unpacks where it writes
+  -- ([`Fixture.unpack`]), so its declaration names one path whatever the
+  -- closure holds, and its key moves only with what the tar holds.
   RuntimeSetup.pack(root, RuntimeSetup.closure(root, "test/portable/tool.tl"),
     out .. "/tool.tar")
-  RuntimeSetup.pack(root, RuntimeSetup.files_but_tests(root, "build", "build/embed_test.tl"),
-    out .. "/focused-embed.tar")
 
   -- Normalize every finished artifact to an executable mode. Some helpers set
   -- it already, but callers should not depend on which helper produced a file.

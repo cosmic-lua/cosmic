@@ -64,15 +64,25 @@ local allowed: {string: string} = {}
 allowed["cosmic.net.nameservers"] = "the public way to list the system's DNS servers for " ..
   "callers outside this tree; tested directly over a resolv.conf"
 
-allowed["cosmic.relay.config.parse_addresses"] = "tested directly: the reading of Linux's " ..
+allowed["cosmic.internal.relay_config.parse_addresses"] = "tested directly: the reading of Linux's " ..
   "interface tables over fixture text, which host_addresses makes of the host's own"
--- TODO: drop this allowance and the next once build.analyzer and build.receivers attribute a
+-- TODO: drop these allowances and the next once build.analyzer and build.receivers attribute a
 -- call made through a value taken from a module's field (cosmic.child's
--- `local Seatbelt = Rules.Seatbelt`, cosmic.sandbox.policy's `Relay.Config.naming`)
+-- `local Seatbelt = Rules.Seatbelt`, the relay's starter's [`Relay.Address`])
 -- to the module it names: today neither this check nor `cosmic uses` follows
 -- one, so `uses Seatbelt.compile` lists none of cosmic.child's calls.
-allowed["cosmic.relay.config.naming"] = "called through cosmic.sandbox.policy's `Relay.Config`, " ..
-  "the entry's field, which the check does not follow"
+for member, names in pairs({ address = { "deny_cidrs", "granted" }, grant = { "ipv6_text", "name", "port" } }) do
+  for _, name in ipairs(names) do
+    allowed["cosmic.relay." .. member .. "." .. name] = "called through cosmic.relay's `Address` and " ..
+      "`Grant`, the package's one path to them from outside, which the relay's starter, wire and " ..
+      "server take; the check reads a call by the module's own name alone"
+  end
+end
+for _, name in ipairs({ "plan", "name_servers", "upstream_addresses", "resolved_upstream", "table", "public",
+    "loopback_listeners" }) do
+  allowed["cosmic.internal.relay_start." .. name] = "tested directly: a step of `handover` and " ..
+    "`direct_handover`, which are composed from it, each tested over fixtures of its own"
+end
 allowed["cosmic.sandbox.seatbelt.grants"] = "called through cosmic.sandbox's `Seatbelt`, " ..
   "the package's one path to it from outside, which cosmic.child takes; the check reads a " ..
   "call by the module's own name alone"
@@ -82,30 +92,6 @@ allowed["cosmic.sandbox.policy.system_profile"] = "the seam that lets a test dra
   "other host's \"system\" profile; rules.profile calls it with this host's"
 allowed["build.c.variants"] = "the ways the C check dumps a file, written out as build.zig " ..
   "has no form to read them from; build/c/variants_test.tl holds them to it"
--- The same gap as the allowance above (its TODO): cosmic.child calls these
--- through cosmic.sandbox's `Relay`.
-for _, name in ipairs({ "policy", "seatbelt_policy", "loopback_listeners", "name_servers", "plan", "upstream_addresses",
-    "resolved_upstream", "table", "public" }) do
-  allowed["cosmic.sandbox.relay." .. name] = "called through cosmic.sandbox's `Relay`, the " ..
-    "package's one path to it from outside, which cosmic.child takes; the check reads a call by " ..
-    "the module's own name alone"
-end
--- The same gap as the allowance above (its TODO): cosmic.child, the relay's
--- starter and `cosmic sandbox connect` call these through cosmic.relay's
--- `Address`, `Config` and `Wire`.
-local through_relay: {string: {string}} = {
-  address = { "deny_cidrs" },
-  config = { "proxy_env", "reserved", "host_addresses", "encode", "upstream" },
-  wire = { "socks_client_greeting", "socks_client_auth", "socks_client_request", "socks_method_reader",
-    "socks_auth_status_reader", "socks_answer_reader", "socks_reply_meaning" },
-}
-for member, names in pairs(through_relay) do
-  for _, name in ipairs(names) do
-    allowed["cosmic.relay." .. member .. "." .. name] = "called through cosmic.relay's entry, " ..
-      "the package's one path to it from outside; the check reads a call by the module's own " ..
-      "name alone"
-  end
-end
 allowed["cosmic.net.connector"] = "tested directly: the library's face of the native connector, " ..
   "which ResolveOptions.connector takes; its callers in the tree start the process with " ..
   "cosmic.internal.connector and adopt it there instead"

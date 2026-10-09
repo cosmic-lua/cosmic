@@ -1,5 +1,5 @@
 --- The raw `lookup` and its `Lookup` (core/socket.h): stepped by hand,
---- the way cosmic/relay/resolv.tl runs one, against a hosts file and
+--- the way cosmic/internal/relay_resolv.tl runs one, against a hosts file and
 --- against connects parked for a socket the test supplies.
 
 local Fs = require("cosmic.fs")

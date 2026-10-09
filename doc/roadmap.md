@@ -76,7 +76,7 @@ Name the host's loopback for a sandboxed program, so that a service of the
 host and a service of the sandbox's own can share 127.0.0.1. Today a
 `connect` target at 127.0.0.1 or ::1 is the host's service and leaves
 `NO_PROXY`, so the sandbox's own services use another 127.x address and a
-policy naming both is refused (cosmic/relay/config.tl's `proxy_env`,
+policy naming both is refused (cosmic/internal/relay_config.tl's `proxy_env`,
 cosmic/sandbox/policy.tl). A grant of `localhost:P` does not move `localhost`
 out of `NO_PROXY`; only a literal 127.0.0.1 does. A reserved alias, such as `host.cosmic.internal`,
 that the relay maps to the host's loopback would let a program say which it
@@ -100,6 +100,15 @@ own, with a grant it cannot use idmapped or refused
 design.md's core tier names modules the tree does not have yet. the ones the
 promises lean on come first:
 
+- a public relay API. the relay's startup and wire machinery are internal
+  (relay_start, relay_config and relay_wire in cosmic/internal), and
+  [`cosmic.relay`] carries only `Address` and `Grant`. add a thin public
+  `start` in the entry of cosmic/relay over [`cosmic.internal.relay_start`], taking a
+  narrow input (connect grants, the upstream proxy, a log destination) rather
+  than a [`Sandbox.Policy`], so that [`cosmic.relay`] never loads [`cosmic.sandbox`]
+  and the import cycle of #2841 does not return. where it must name a sandbox
+  type, it uses a type-only import (`local type`). no caller outside the tree
+  needs it yet.
 - convert the sites that still read a decoded JSON value without a
   [`cosmic.shape`] check. None casts it in a function that
   [`build/contracts.tl`]'s `casts` names; what is left:
@@ -350,7 +359,9 @@ four-producer provenance join.
 [`core/json.c`]: ../core/json.c
 [`cosmic.html`]: ../cosmic/html.tl
 [`cosmic.http`]: ../cosmic/http/init.tl
+[`cosmic.internal.relay_start`]: ../cosmic/internal/relay_start.tl
 [`cosmic.net`]: ../cosmic/net.tl
+[`cosmic.relay`]: ../cosmic/relay/init.tl
 [`cosmic.sandbox`]: ../cosmic/sandbox/init.tl
 [`cosmic.shape`]: ../cosmic/shape.tl
 [`cosmic.template`]: ../cosmic/template/init.tl
@@ -365,6 +376,7 @@ four-producer provenance join.
 [`Json.decode`]: ../cosmic/json.tl
 [`Net.serve`]: ../cosmic/net.tl
 [`receivers.record_named`]: ../build/receivers.tl
+[`Sandbox.Policy`]: ../cosmic/sandbox/init.tl
 [`Server.none_match`]: ../cosmic/http/server.tl
 [`Server.range`]: ../cosmic/http/server.tl
 [`Server.serve`]: ../cosmic/http/server.tl

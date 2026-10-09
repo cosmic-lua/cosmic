@@ -77,7 +77,7 @@ local record harness_epoch
   library: {string:string}
 end
 
-harness_epoch.epoch = "39-c7eacb64" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
+harness_epoch.epoch = "40-aabf64e1" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
 harness_epoch.acknowledged = {
 
   ["build.artifact"] = "4405196f6511a21a7493aa3d1ee196c6318d3ceec2e0202800494c46b9502745",
@@ -132,7 +132,7 @@ harness_epoch.acknowledged = {
 
   ["cmd.cosmic.main"] = "d00f469acf42d89c76c2e9ebabd40e73e20d00cb3a5ad6d9189716265fcdf9bf",
 
-  ["cosmic.child"] = "ab3a3d104743e762774eba9b610852a7941fa337a2138d75204cba6b7eba615f",
+  ["cosmic.child"] = "f8cc5543418b72624d5ff362c0bd592a3974a22a2326e6accbf5434c0ec5c0b5",
 
   ["cosmic.coverage"] = "079fe202231c4ae3ee642e27f6703a37850132c28c2a6d1daf50c7eb1669ac9a",
 
@@ -142,9 +142,9 @@ harness_epoch.acknowledged = {
 
   ["cosmic.proc"] = "1f2f124e7478daaf5955a2043d03a379d8dbc657ffe938ac71d221376f677bcf",
 
-  ["cosmic.sandbox"] = "060efc4ef369427f7a73b0ba75ce791d1ca182dcfb019d9d1b0c25f5d67dc42b",
+  ["cosmic.sandbox"] = "2bf478a77edffb4154f011535dc1e95f08259f8aff369ca675858cddf6f9eb63",
 
-  ["cosmic.sandbox.policy"] = "06dee459b27c6bf4efe69bc6f68a51a05ca1a434bf0e216896eee2dc939ecd42",
+  ["cosmic.sandbox.policy"] = "7d17eb803602b3148338e4616c6284090e11953844d5a7af8a4cbd74dbaa9267",
 
   ["cosmic.sqlite"] = "ac3fd16dd89251feaee572e4e4b1d29257037afeca3b5c9b141557f2ce732390",
 
@@ -228,6 +228,7 @@ harness_epoch.retired = {
   "f1098f05",
   "65e16d68",
   "3ce9b8e0",
+  "c7eacb64",
 }
 
 return harness_epoch
