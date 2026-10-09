@@ -1367,6 +1367,10 @@ local record Recording
   sealed_bytes: integer
   sealed_ns: integer
   projection: string
+  --- The path of the projection's `uses` keyed by source module, made
+  --- by the first store this run writes ([`extraction_for`]); nil
+  --- until then.
+  extraction: string | nil
   basis: closure_store.Basis
   built: {string:string}
   --- The address of the store of no module, which holds what every
@@ -2082,6 +2086,29 @@ local function sweep_stores(rec: Recording)
   end
 end
 
+--- The database the closure stores of this run are extracted with: the
+--- projection's `uses` keyed by the module that makes them
+--- ([`closure_store.extract`]), made on the first store written, so a
+--- run that stands on every store makes none, and removed when the run
+--- ends ([`drop_extraction`]). Apart from the stores directory, whose
+--- every other entry [`sweep_stores`] takes out. Nil and why where it
+--- could not be made.
+local function extraction_for(rec: Recording): string | nil, string
+  if rec.extraction ~= nil then return rec.extraction, "" end
+  local path = build_paths.required(rec.root) .. "/uses-by-source.db"
+  local made, trouble = closure_store.extract(rec.projection, path)
+  if not made then return nil, "the index of the uses by source module: " .. trouble end
+  rec.extraction = path
+  return path, ""
+end
+
+--- Removes the database [`extraction_for`] made, if it made one.
+local function drop_extraction(rec: Recording)
+  if rec.extraction == nil then return end
+  local _, _ = Fs.remove(rec.extraction)
+  rec.extraction = nil
+end
+
 --- The path of the closure store at `address`, of the import closure
 --- `names`, made from the projection where it is not there yet --
 --- written aside and moved into place, so a store there is whole; nil
@@ -2098,7 +2125,10 @@ local function store_at(rec: Recording, address: string, names: {string},
     local made, trouble = Fs.mkdirs(directory)
     if not made then return nil, directory .. ": " .. trouble end
     local started = Clock.monotonic_ns()
-    local written, write_trouble = closure_store.write(rec.projection, path, names, rec.basis)
+    local extraction, extraction_trouble = extraction_for(rec)
+    if extraction == nil then return nil, extraction_trouble end
+    local written, write_trouble = closure_store.write(rec.projection, path, names, rec.basis,
+      extraction)
     if not written then return nil, "the store of its closure: " .. write_trouble end
     if not base then
       rec.writing_ns = rec.writing_ns + (Clock.monotonic_ns() - started)
@@ -2528,8 +2558,13 @@ local function verify_sample(rec: Recording)
   local made, _ = Fs.mkdirs(stores_directory(rec.root))
   local written, trouble = false, "no stores directory"
   if made then
-    written, trouble = closure_store.write(rec.projection, path, rec.store_names[address],
-      rec.basis)
+    local extraction, extraction_trouble = extraction_for(rec)
+    if extraction == nil then
+      written, trouble = false, extraction_trouble
+    else
+      written, trouble = closure_store.write(rec.projection, path, rec.store_names[address],
+        rec.basis, extraction)
+    end
   end
   if not written then
     rec.errors[#rec.errors + 1] = "the closure store at address " .. address ..
@@ -3992,6 +4027,7 @@ local function look_up_verdicts(ctx: Run)
     end
   end
   verify_sample(rec)
+  drop_extraction(rec)
   -- From here each key looks again: a verdict is kept only under a
   -- key its inputs still reach once its test has run.
   declared_key.thaw(rec.digests)
