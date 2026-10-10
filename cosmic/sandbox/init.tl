@@ -147,16 +147,18 @@ end
 --- the first host's paths; "cosmic"
 --- grants `rx` on the path this program is started by ([`Proc.executable`]),
 --- which is its launcher where it has one: what [`Child.start`] runs as
---- this program's core, by a relaunch; "proc" is this process's view of
---- the kernel's process information: `r` on /proc on Linux, and nothing
+--- this program's core, by a relaunch; "proc" is the kernel's process
+--- information: `r` on /proc, where the host has one (Linux), and nothing
 --- on macOS, where sysctl answers with no file to grant, so a policy that
---- names it reads the same on both.
+--- names it reads the same on both. That is every process's entries
+--- there, not this one's alone; `isolate` "proc" is the other thing, a
+--- /proc of the sandbox's own.
 --- Nil and why for a name it has not, or one this host cannot give.
 ---
 ---     local system = assert(Sandbox.profile("system"))
 ---     print(system.grants[1].path, system.grants[1].letters) -- /usr  rx (Linux and macOS)
 ---     local proc = assert(Sandbox.profile("proc"))
----     print(#(proc.grants or {}) <= 1) -- true (/proc on Linux, none on macOS)
+---     print(proc.grants and proc.grants[1].path) -- /proc (nil on macOS)
 function Sandbox.profile(name: string): Sandbox.Policy | nil, string
   return rules.profile(name)
 end

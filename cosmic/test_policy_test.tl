@@ -295,6 +295,7 @@ local function test_a_requirement_that_breaks_a_rule_fails_the_build()
   for _, call in ipairs({
       'Test.policy { requires = { "path:/etc/hosts" }, grants = { { path = "/etc/hosts", letters = "r" } } }',
       'Test.policy { requires = { "path:/proc/self/status" }, grants = { { path = "/proc", letters = "r" } } }',
+      'Test.policy { requires = { "path:/proc/self/status" }, profiles = { "proc" } }',
       'Test.policy { requires = { "program:jq" }, profiles = { "system" }, env = { "PATH" } }',
       'Test.policy { requires = { "root", "portable" } }',
       'Test.policy { requires = { "sandbox", "landlock", "landlock:3", "userns", "nest", "own_proc", "proc" } }',

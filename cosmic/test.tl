@@ -224,8 +224,8 @@ local record Test
   record Policy
     --- Named policies to join in: "system" (`system` of [`Needs`]),
     --- "cosmic" (`lua`; `tool` with the grant of o/bin beside it) and
-    --- "proc" (the host file /proc, read, in `host` of [`Needs`]: the
-    --- process information a stand-in or the runtime finds itself by).
+    --- "proc" (the host path /proc, read, in `host` of [`Needs`]: the
+    --- kernel's process information, every process's entries).
     profiles: {string}
     --- The paths the tests read: a grant of "r" on a path of the tree is
     --- a read of it, on an absolute path a host file.
@@ -255,8 +255,9 @@ local record Test
     user: integer
     --- The group the tests run as. Refused, as `user` is.
     group: integer
-    --- The database the tests' program runs on. Refused: every worker runs
-    --- on the sealed database the harness gives it.
+    --- The database the tests' program runs on. Refused: the harness
+    --- chooses it (a sealed one of the closure, or the program's whole for
+    --- `store` and `tool`).
     database: string
     --- What the tests need of the host that no other field says, by name
     --- from a closed table: `portable`, `root`, `unix_socket` (Unix stream
@@ -622,8 +623,8 @@ function Test.needs_of(given: any): Test.Needs | nil, string
   -- the harness gives every worker, which the core's `--database` cannot
   -- layer (doc/roadmap.md holds the shape, should one be wanted).
   if policy.database ~= nil then
-    return nil, "database is refused: every worker runs on the sealed database the " ..
-      "harness gives it, which a module cannot replace or add to"
+    return nil, "database is refused: the harness chooses the database a worker runs on " ..
+      "(a sealed one of its closure, or the whole program's for `store` and `tool`)"
   end
   if policy.tmp == false then
     return nil, "tmp = false " .. NOT_YET .. "; every test has a temporary directory today"
@@ -680,9 +681,9 @@ end
 --- table written out as a literal, once, at the top of the module. A
 --- grant with a path of the tree is a read of it, an absolute
 --- path a read of that host file; the profile "system" is `system`,
---- "cosmic" is `lua`, "proc" is the host file /proc (what the grant
---- `{ path = "/proc", letters = "r" }` is, and none on macOS, which has no
---- /proc: a host path not there is given and keyed as none); the promise "nest" is `nests`; `loopback` is
+--- "cosmic" is `lua`, "proc" is the host path /proc (the grant
+--- `{ path = "/proc", letters = "r" }`; on macOS, which has no /proc, a host
+--- path not there is given and keyed as none); the promise "nest" is `nests`; `loopback` is
 --- `network`. Four grants, written exactly so, are the fields they
 --- stand for rather than reads: `{ path = "o/cosmic.db", letters = "r" }`
 --- is `store = true`, `{ path = "/noexec", letters = "rwc" }` is

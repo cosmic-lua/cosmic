@@ -1682,8 +1682,8 @@ local function policy_declared(data: PolicyData, line: integer): analyzer.Declar
   end
   -- A limit decided for good, as cosmic/test.tl's `needs_of` says.
   if data.database ~= nil then
-    return nil, "database is refused: every worker runs on the sealed database the " ..
-      "harness gives it, which a module cannot replace or add to"
+    return nil, "database is refused: the harness chooses the database a worker runs on " ..
+      "(a sealed one of its closure, or the whole program's for `store` and `tool`)"
   end
   if data.tmp == false then
     return nil, "tmp = false" .. not_yet .. "; every test has a temporary directory today"

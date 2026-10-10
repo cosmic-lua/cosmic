@@ -397,10 +397,10 @@ never by its path in the build directory.
    `system`, `tool`, `lua`, `nests`, `store`, `noexec`, `caches`): a grant
    "r" of a path of the tree is a read and of an absolute path a host
    file, the profile "system" is `system`, "proc" is the host path /proc
-   (this process's view of the kernel's process information: a read
-   grant of /proc on Linux, as written by hand before, and nothing on
-   macOS, where sysctl needs no file; declare `profiles = { "proc" }`,
-   not the grant), "cosmic" is `lua`, and `tool`
+   (the kernel's process information, read: [`Sandbox.profile`]'s gives
+   it on Linux and nothing on macOS; a test declares `profiles = {
+   "proc" }`, not the grant, and on macOS names a path that is not there,
+   which gives and keys nothing), "cosmic" is `lua`, and `tool`
    with the grant `{ path = "o/bin", letters = "rx" }` beside it, the
    promise "nest" is `nests`, `loopback` is `network`, the grant
    `{ path = "o/cosmic.db", letters = "r" }` is `store`; what has no
@@ -649,6 +649,7 @@ unblocks: `bin/cosmic todos '"cosmic-driver.pin"'` lists them.
 [`Fuzz.label`]: build/fuzz/init.tl
 [`Fuzz.more`]: build/fuzz/init.tl
 [`harness_epoch.library`]: build/harness_epoch.tl
+[`Sandbox.profile`]: cosmic/sandbox/init.tl
 [`Store.bytecode`]: cosmic/store.tl
 [`Store.databases()`]: cosmic/store.tl
 [`Store.meta`]: cosmic/store.tl

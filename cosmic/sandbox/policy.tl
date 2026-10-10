@@ -536,11 +536,12 @@ local function cosmic_profile(): rules.Policy | nil, string
   return { grants = { { path = path, letters = "rx" } } }, ""
 end
 
---- The "proc" profile: this process's view of the kernel's process
---- information, which is `/proc` read on Linux and nothing on macOS, where
---- sysctl answers with no file to grant.
+--- The "proc" profile: `r` on the host's /proc where there is one (Linux),
+--- the kernel's process information, and nothing on macOS, where sysctl
+--- answers with no file to grant. As the "system" profile does, it grants
+--- only a path the host has, so a Linux host with no /proc mounted gets none.
 local function proc_profile(): rules.Policy
-  if on_darwin() then return {} end
+  if on_darwin() or not present("/proc") then return {} end
   return { grants = { { path = "/proc", letters = "r" } } }
 end
 
