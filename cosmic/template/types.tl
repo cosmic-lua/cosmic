@@ -16,12 +16,14 @@ local record Types
   --- What an interpolation's value is made into where it lands.
   --- `plain` is any slot of a `text` template: it is spliced as it is.
   --- `text`, `rtext` (the text of `<title>` and `<textarea>`, which
-  --- takes no markup), `attr` and `url` are the places a slot can stand in
-  --- an `html` template (see `markup`).
+  --- takes no markup), `ftext` (text inside `<svg>`, `<math>` or
+  --- `<select>`, which takes no markup either), `attr` and `url` are the
+  --- places a slot can stand in an `html` template (see `markup`).
   enum Slot
     "plain"
     "text"
     "rtext"
+    "ftext"
     "attr"
     "url"
   end

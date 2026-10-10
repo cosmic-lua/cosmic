@@ -65,7 +65,13 @@ local SLOTS <const>: {{string}} = {
   { "<title>{{.x}}</TITLE>", "_rtext(" },
   { "<svg/><textarea><a href=\"{{.x}}\"></textarea>", "_rtext(" },
   { "<svg><textarea>{{.x}}</textarea></svg>", "_rtext(" },
-  { "<svg><text>{{.x}}</text></svg>", "_text(" },
+  { "<svg><text>{{.x}}</text></svg>", "_ftext(" },
+  { "<math>{{.x}}</math>", "_ftext(" },
+  { "<svg><g>{{if .a}}<g/>{{end}}{{.x}}</g></svg>", "_ftext(" },
+  { "<select>{{.x}}</select>", "_ftext(" },
+  { "<select><option>{{.x}}</option></select>", "_ftext(" },
+  { "<select><option title=\"{{.x}}\">a</option></select>", "_attr(" },
+  { "<select><textarea>{{.x}}</textarea></select>", "_rtext(" },
   { "<svg><g><a href=\"{{.x}}\"><path d=\"M0\"/></a></g></svg>", "_url(" },
   { "<svg viewBox=\"0 0 1 1\"><circle r=\"1\"/></svg><p>{{.x}}</p>", "_text(" },
   { "<svg {{if .a}}class=\"b\"{{end}}><g/></svg>{{.x}}", "_text(" },
@@ -103,7 +109,7 @@ local function test_each_slot_is_escaped_for_the_place_it_stands_in()
   for _, case in ipairs(SLOTS) do
     local out = compiled(HEAD .. case[1])
     assert(out:find(case[2], 1, true), case[1] .. " did not use " .. case[2])
-    for _, other in ipairs({ "_text(", "_attr(", "_url(" }) do
+    for _, other in ipairs({ "_text(", "_ftext(", "_attr(", "_url(" }) do
       if other ~= case[2] then
         local _, uses = out:gsub("parts%[#parts %+ 1%] = " .. other:gsub("%p", "%%%0"), "")
         assert(uses == 0, case[1] .. " used " .. other)
@@ -449,6 +455,14 @@ local function test_a_block_inside_and_after_svg_keeps_its_place()
   assert(why:find("t.tmpl:2:6: the arms of this {{if}}", 1, true), why)
 end
 
+local function test_text_inside_svg_math_or_select_takes_a_string_or_a_number_and_no_markup()
+  local out = compiled(HEAD .. "<p>{{.x}}</p><svg>{{.x}}</svg>")
+  assert(out:find("do local v: string | number = d.x parts[#parts + 1] = _ftext(v) end", 1, true), out)
+  assert(out:find("local function _ftext(v: string | number): string " ..
+      "if v is number then return tostring(v) end return html.raw(html.escape(v)) end", 1, true), out)
+  assert(out:find("do local v: string | number | html.SafeHtml = d.x parts[#parts + 1] = _text(v) end", 1, true), out)
+end
+
 local function test_an_html_template_must_end_in_plain_text_since_another_splices_it_into_text()
   -- A SafeHtml goes verbatim into another template's text slot: an inner
   -- template left in a URL would make the outer one's next slot a URL
@@ -637,7 +651,7 @@ local function test_raw_text_the_select_mode_reads_still_takes_a_slot()
   }) do
     for _, cut in ipairs(cuts(src)) do
       local out = compiled(HEAD .. cut)
-      assert(out:find("_rtext(v)", 1, true) or out:find("_text(v)", 1, true), cut)
+      assert(out:find("_rtext(v)", 1, true) or out:find("_text(v)", 1, true) or out:find("_ftext(v)", 1, true), cut)
     end
   end
   assert(refused(HEAD .. "<frameset><frame src=\"a\"></frameset>"):find("inside <frameset>", 1, true))

@@ -155,7 +155,8 @@ local record Markup
     --- after `<frameset>`.
     murky: boolean
     --- Whether a `<select>` is open in HTML, where an `<svg>`, a `<template>`
-    --- and most raw text or RCDATA tags make the place murky.
+    --- and most raw text or RCDATA tags make the place murky, and text
+    --- takes no markup (`ftext`).
     select: boolean
     --- Whether a `<frameset>` has started in HTML. A parser in frameset
     --- stays there to the end of the document and ignores most tags.
@@ -1047,12 +1048,18 @@ local function slot(p: Place): types.Slot | nil, string
   elseif p.murky then
     return nil, "a slot after markup in <svg>, <math>, <noscript>, <select> or <frameset> that a browser may read differently from the tracker here (see the notes in markup.tl)"
   elseif phase == "text" then
-    -- TODO: a `SafeHtml` in a text slot inside `<select>`, `<svg>` or
-    -- `<math>` is read in that mode, though the template that made it was
-    -- checked from plain text: `<title><img src=x onerror="{{.x}}"></title>`
-    -- in `<svg>` is a live handler in every browser, and a `<title>` opens
-    -- nothing in a classic parser's select. Give such a slot a kind of its
-    -- own in types.Slot that takes a string or a number only.
+    -- Another template's `SafeHtml` was checked as markup in plain HTML
+    -- text. Inside `<svg>` or `<math>` the browser reads it by foreign
+    -- content's rules (`<svg><title><img onerror=...>` makes a live
+    -- `<img>`), and inside `<select>` or after `<frameset>` a classic
+    -- parser reads it in that mode, so text there takes no markup. No
+    -- slot inside foreign content is in HTML content (`<foreignObject>`,
+    -- `<title>`, ...), which could take it, and none in a `<select>` is
+    -- in a `<template>`, which a parser reads HTML in: either element
+    -- makes the place murky.
+    if p.stack ~= "" or p.select or p.frameset then
+      return "ftext", ""
+    end
     return "text", ""
   elseif phase == "rcdata" then
     if p.raw_tail ~= "" then

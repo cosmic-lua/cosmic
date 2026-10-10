@@ -354,6 +354,41 @@ local function test_a_title_takes_no_markup(tmp: string)
   assert(area:find("page.tmpl:2:", 1, true), area)
 end
 
+--- A template that holds an `<img onerror>` in the RCDATA of a `<title>`,
+--- as its own checks allow.
+local TITLED <const> = HEAD .. '<title><img src=x onerror="{{.title}}"></title>'
+
+local function test_markup_from_another_template_is_a_type_error_inside_svg_math_and_select(tmp: string)
+  -- In `<svg>` a `<title>` is an integration point, so the `<img>` in it
+  -- would be an element whose `onerror` runs; in `<select>` a classic
+  -- parser reads it so too.
+  for index, outer in ipairs({ "<svg>{{. | inner.render}}</svg>", "<math>{{. | inner.render}}</math>",
+      "<select>{{. | inner.render}}</select>", "<svg><g>{{.h}}</g></svg>" }) do
+    local lua, trouble = build(tmp, "foreign" .. index, { ["data.tl"] = DATA, ["inner.tmpl"] = TITLED,
+      ["page.tmpl"] = HEAD .. "ok\n" .. outer })
+    assert(lua == nil, outer .. ": built")
+    assert(trouble:find("page.tmpl:3:", 1, true) and trouble:find("SafeHtml", 1, true), outer .. ": " .. trouble)
+  end
+  local page: {string: any} = { title = "<b>&", n = 2 }
+  local out = render(tmp, "foreign-text", HEAD ..
+      "<svg><text>{{.title}} {{.n}}</text></svg><math>{{.title}}</math><select><option>{{.title}}</option></select>",
+    page)
+  assert(out == "\n<svg><text>&lt;b&gt;&amp; 2</text></svg><math>&lt;b&gt;&amp;</math>" ..
+      "<select><option>&lt;b&gt;&amp;</option></select>", out)
+end
+
+local function test_markup_from_another_template_goes_into_text_outside_svg_math_and_select(tmp: string)
+  local lua, trouble = build(tmp, "composed", { ["data.tl"] = DATA, ["inner.tmpl"] = TITLED,
+    ["page.tmpl"] = HEAD .. "<p>{{. | inner.render}}</p><svg></svg><select></select>{{. | inner.render}}" })
+  assert(lua ~= nil, trouble)
+  local mod = load_module(lua, "page")
+  assert(mod is Loaded, "page exports no render")
+  local made = mod.render({ title = "a\"b" })
+  assert(made is Html.SafeHtml, "render answered a " .. type(made))
+  local inner = '\n<title><img src=x onerror="a&quot;b"></title>'
+  assert(Html.raw(made) == "\n<p>" .. inner .. "</p><svg></svg><select></select>" .. inner, Html.raw(made))
+end
+
 local function test_a_range_over_strings_and_a_with_over_an_optional_field(tmp: string)
   local page: {string: any} = { list = { "a", "<" }, user = { name = "u&" } }
   local out = render(tmp, "range-strings", HEAD .. "{{range .list}}[{{.}}]{{end}}" ..

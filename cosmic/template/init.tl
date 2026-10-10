@@ -62,21 +62,26 @@
 ---
 --- In `html` mode, which returns a [`cosmic.html`] `SafeHtml`, a value is
 --- escaped by where it lands in the markup around it, which the compiler
---- follows with the tokenizer a browser uses: as text, a slot takes a
+--- follows with the tokenizer a browser uses. As text, a slot takes a
 --- string, a number or a `SafeHtml` (strings are escaped, a `SafeHtml` is
---- taken as it is); in a quoted attribute value, a string, a number or a
---- `SafeAttr`; in a quoted URL attribute value (`href`, `src`, `action`
---- and the like, at the start of the value), a string (checked by
---- [`html.href`], which allows a web or mail link or a relative reference
---- and else answers `about:invalid`) or a `SafeUrl`. Another type there is
---- a type error naming the template's line. Where there is no escaping to
---- be had the template is refused, with its line and column: after `<`, in
---- a tag or attribute name, in an unquoted value, in a comment, in an
---- `on...` or `style` attribute, in `<script>` or `<style>`, and a few
---- like them (cosmic/template/markup.tl lists them). An `html` template must
---- also end in plain text, since its `SafeHtml` can go into another's text
---- slot. `{{mode text}}` returns a `string` and escapes nothing, for
---- anything that is not HTML; a slot there takes a string or a number.
+--- taken as it is). In `<title>` and `<textarea>`, whose text is never
+--- markup, and in text inside `<svg>`, `<math>` or `<select>`, where the
+--- browser reads markup by other rules than those a `SafeHtml` was checked
+--- by (in `<svg>`, an `<img onerror>` inside a `<title>` is a live
+--- element), it takes a string or a number. In a quoted attribute value,
+--- a slot takes a string, a number or a `SafeAttr`; in a quoted URL
+--- attribute value (`href`, `src`, `action` and the like, at the start of
+--- the value), a string (checked by [`html.href`], which allows a web or
+--- mail link or a relative reference and else answers `about:invalid`) or
+--- a `SafeUrl`. Another type there is a type error naming the template's
+--- line. Where there is no escaping to be had the template is refused,
+--- with its line and column: after `<`, in a tag or attribute name, in
+--- an unquoted value, in a comment, in an `on...` or `style` attribute, in
+--- `<script>` or `<style>`, and a few like them (cosmic/template/markup.tl
+--- lists them). An `html` template must also end in plain text, since its
+--- `SafeHtml` can go into another's text slot. `{{mode text}}` returns a
+--- `string` and escapes nothing, for anything that is not HTML; a slot
+--- there takes a string or a number.
 ---
 --- `{{` always starts an action. To write it as text, write an action
 --- that is one double-quoted string, as Go's templates do: its bytes are
