@@ -525,6 +525,59 @@
           run: "cosmic-driver cosmic_ci/driver.tl place-tree",
         },
 
+        # Main saves the marker only once a commit lands, some minutes
+        # after its queue run began its check, so the runs queued behind a
+        # change to what the key hashes (ci/ and the rest) all missed and
+        # checked again (2026-10-10, behind a change to ci/ in the
+        # queue). The run ahead in the queue keeps the key its leg checked
+        # (or found, or took) for the run behind to read, as the verdicts
+        # are (below): an exact match is the same check on the same host
+        # (the key holds both), by a run that passed it. Not waited for
+        # beyond the leg ahead's start of its boot, which follows the
+        # upload; where none is found, or the key differs, the check runs.
+        {
+          name: "find the CI driver check of the run ahead in the queue",
+          id: "driver-ahead",
+          if: "env.COSMIC_CI_SCOPE == 'full' && github.event_name == 'merge_group' && steps.driver-check-restore.outputs.cache-hit != 'true'",
+          shell: "sh",
+          "continue-on-error": true,
+          "timeout-minutes": 2,
+          env: {
+            GH_TOKEN: "${{ github.token }}",
+            REPOSITORY: "${{ github.repository }}",
+            BASE: "${{ github.event.merge_group.base_sha }}",
+            JOB: "${{ matrix.name }}",
+            ARTIFACT: "driver-checked-${{ matrix.name }}",
+            WITHIN_SECONDS: "30",
+            WAIT_SECONDS: "15",
+            SUITE_STEP: "build release Cosmic",
+          },
+          run: "cosmic-driver cosmic_ci/driver.tl queue-ahead",
+        },
+        {
+          name: "download the CI driver check of the run ahead",
+          id: "driver-ahead-download",
+          if: "steps.driver-ahead.outputs.run != ''",
+          "continue-on-error": true,
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {
+            name: "driver-checked-${{ matrix.name }}",
+            path: "${{ runner.temp }}/driver-ahead",
+            "run-id": "${{ steps.driver-ahead.outputs.run }}",
+            "github-token": "${{ github.token }}",
+          },
+        },
+        # Only the key this leg's own lookup computed counts.
+        {
+          name: "take the CI driver check of the run ahead",
+          id: "driver-ahead-take",
+          if: "steps.driver-ahead-download.outcome == 'success'",
+          "continue-on-error": true,
+          shell: "sh",
+          env: {KEY: "${{ steps.driver-check-restore.outputs.cache-primary-key }}"},
+          run: "[ -n \"$KEY\" ] && [ -f \"$RUNNER_TEMP/driver-ahead/key\" ] && [ \"$(cat \"$RUNNER_TEMP/driver-ahead/key\")\" = \"$KEY\" ] && echo hit=true >> \"$GITHUB_OUTPUT\" || :",
+        },
+
         # --all, unsandboxed: it shares no verdicts, and cosmic_ci's tests
         # read the checkout around ci/ (the TODO above). On every leg of
         # a full run, the merge queue's too, since those tests start the
@@ -533,9 +586,35 @@
         {
           name: "check the pinned CI driver",
           id: "driver-check",
-          if: "env.COSMIC_CI_SCOPE == 'full' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || steps.driver-check-restore.outputs.cache-hit != 'true')",
+          if: "env.COSMIC_CI_SCOPE == 'full' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (steps.driver-check-restore.outputs.cache-hit != 'true' && steps.driver-ahead-take.outputs.hit != 'true'))",
           env: {COSMIC_VERDICT_CACHE: "0", COSMIC_TEST_SANDBOX: "0"},
           run: "cosmic-driver test cosmic_ci && mkdir -p \"$RUNNER_TEMP/driver-checked\" && echo \"${{ steps.driver-check-restore.outputs.cache-primary-key }}\" > \"$RUNNER_TEMP/driver-checked/key\"",
+        },
+
+        # The marker for the run behind in the queue (above), where this
+        # leg's check passed or its key was found: never a failed check's.
+        # Not the marker main saves: queue-stage stages that from
+        # driver-checked/, written by the check alone.
+        {
+          name: "keep the CI driver check for the run behind in the queue",
+          if: "env.COSMIC_CI_SCOPE == 'full' && github.event_name == 'merge_group' && (steps.driver-check.outcome == 'success' || steps.driver-check-restore.outputs.cache-hit == 'true' || steps.driver-ahead-take.outputs.hit == 'true')",
+          "continue-on-error": true,
+          shell: "sh",
+          env: {KEY: "${{ steps.driver-check-restore.outputs.cache-primary-key }}"},
+          run: "[ -n \"$KEY\" ] && mkdir -p \"$RUNNER_TEMP/driver-relay\" && echo \"$KEY\" > \"$RUNNER_TEMP/driver-relay/key\"",
+        },
+        {
+          name: "upload the CI driver check for the run behind in the queue",
+          if: "env.COSMIC_CI_SCOPE == 'full' && github.event_name == 'merge_group' && (steps.driver-check.outcome == 'success' || steps.driver-check-restore.outputs.cache-hit == 'true' || steps.driver-ahead-take.outputs.hit == 'true')",
+          "continue-on-error": true,
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "driver-checked-${{ matrix.name }}",
+            path: "${{ runner.temp }}/driver-relay",
+            "if-no-files-found": "error",
+            overwrite: true,
+            "retention-days": 1,
+          },
         },
 
         # The boot, apart from the native suite, so that the wait below
