@@ -72,6 +72,9 @@ local record fmt
   markup: function(s: string): html.SafeHtml
   attr: function(s: string): html.SafeAttr
   url: function(s: string): html.SafeUrl
+  pair: function(s: string): string, string
+  join: function(s: string, sep?: string): string
+  spread: function(s: string): string...
   ["end"]: function(s: string): string
 end
 function fmt.upper(s: string): string
@@ -88,6 +91,15 @@ function fmt.attr(s: string): html.SafeAttr
 end
 function fmt.url(s: string): html.SafeUrl
   return html.href(s)
+end
+function fmt.pair(s: string): string, string
+  return s, "second"
+end
+function fmt.spread(s: string): string...
+  return s, "second"
+end
+function fmt.join(s: string, sep?: string): string
+  return s .. "|" .. (sep or "none")
 end
 fmt["end"] = fmt.bracket
 return fmt
@@ -384,4 +396,23 @@ local function test_a_repeated_attribute_is_judged_each_time(tmp: string)
   local page: {string: any} = { url = "javascript:x" }
   local out = render(tmp, "dup", HEAD .. '<a href="x" href="{{.url}}">', page)
   assert(out == '\n<a href="x" href="' .. esc_attr("about:invalid") .. '">', out)
+end
+
+local function test_a_stage_answering_more_than_one_value_is_refused_in_every_position(tmp: string)
+  for index, action in ipairs({ "{{.title | fmt.pair}}", "{{.title | fmt.pair | fmt.join}}",
+      "{{.title | fmt.pair | fmt.upper}}", "{{if .title | fmt.pair}}x{{end}}",
+      "{{with .title | fmt.pair}}{{.}}{{end}}", "{{range .title | fmt.pair}}x{{end}}" }) do
+    local trouble = refused(tmp, "pair-" .. index, "{{type Page from data}}{{mode text}}\nfine\n" .. action)
+    assert(trouble:find("page.tmpl:3:", 1, true), action .. ": " .. trouble)
+    assert(trouble:find("wrong number of arguments", 1, true), action .. ": " .. trouble)
+  end
+end
+
+--- The checker lets a stage declared to answer `string...` through, so
+--- what holds it to one value at run time is the generated code.
+local function test_a_stage_is_given_one_value_when_the_one_before_answers_more(tmp: string)
+  local out = render(tmp, "spread",
+    "{{type Page from data}}{{mode text}}{{.title | fmt.spread | fmt.join}} {{.title | fmt.upper | fmt.join}}",
+    { title = "a" })
+  assert(out == "a|none A|none", out)
 end

@@ -385,7 +385,7 @@ end
 
 local function test_a_condition_chain_is_one_if()
   local out = compiled(HEAD .. "{{if .a}}1{{else if .b | m.f}}2{{else}}3{{end}}")
-  assert(out:find("if d.a then", 1, true) and out:find("elseif m.f(d.b) then", 1, true) and
+  assert(out:find("if d.a then", 1, true) and out:find("elseif _one(m.f(d.b)) then", 1, true) and
       out:find(" else ", 1, true), out)
   assert(out:find('require("m")', 1, true), out)
 end
@@ -404,7 +404,7 @@ end
 
 local function test_a_module_is_named_by_its_last_word_unless_that_is_taken()
   local out = compiled("{{type Page from site.table}}\n{{.a | site.html.f}}{{.b | other.html.g}}{{.c | a.d.v}}{{.e | b.d.d1}}")
-  assert(out:find('local table_2 = require("site.table")', 1, true), out)
+  assert(out:find('local type table_2 = require("site.table")', 1, true), out)
   assert(out:find('local html = require("cosmic.html")', 1, true), out)
   assert(out:find('local html_2 = require("site.html")', 1, true), out)
   assert(out:find('local html_3 = require("other.html")', 1, true), out)
@@ -578,4 +578,15 @@ local function test_text_in_runs_is_read_as_it_is_whole()
       '<svg><style></sty{{if .a}}{{end}}le></svg>{{.x}}', '<math><script></scr{{"ipt>"}}</math>{{.x}}' }) do
     assert(compiled(HEAD .. src):find("_text(v)", 1, true), src)
   end
+end
+
+local function test_the_records_module_is_required_for_its_types_unless_a_stage_reads_it()
+  local typed = compiled("{{type T from m.t}}{{mode text}}{{.x}}")
+  assert(typed:find('local type t = require("m.t")', 1, true), typed)
+  assert(not typed:find("_one", 1, true), typed)
+  local both = compiled("{{type T from m.t}}{{mode text}}{{.x | m.t.f}}")
+  assert(both:find('local t = require("m.t")', 1, true), both)
+  assert(not both:find("local type", 1, true), both)
+  assert(both:find("local function _one<T>(v: T): T return v end", 1, true), both)
+  assert(both:find("= _one(t.f(d.x))", 1, true), both)
 end
