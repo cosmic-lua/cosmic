@@ -1014,6 +1014,16 @@ local function slot(p: Place): types.Slot | nil, string
   elseif p.murky then
     return nil, "a slot after markup in <svg>, <math> or <noscript> that a browser may read differently from the tracker here (see the notes in markup.tl)"
   elseif phase == "text" then
+    -- Another template's `SafeHtml` was checked as markup in plain HTML
+    -- text. Inside `<svg>` or `<math>` the browser reads it by foreign
+    -- content's rules (`<svg><title><img onerror=...>` makes a live
+    -- `<img>`), and inside `<select>` a parser may read it by that
+    -- element's, so text there takes no markup. No slot inside foreign
+    -- content is in HTML content (`<foreignObject>`, `<title>`, ...),
+    -- which could take it: such an element makes the place murky.
+    if p.stack ~= "" or p.select then
+      return "ftext", ""
+    end
     return "text", ""
   elseif phase == "rcdata" then
     if p.raw_tail ~= "" then
