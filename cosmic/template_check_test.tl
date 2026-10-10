@@ -385,3 +385,23 @@ local function test_a_repeated_attribute_is_judged_each_time(tmp: string)
   local out = render(tmp, "dup", HEAD .. '<a href="x" href="{{.url}}">', page)
   assert(out == '\n<a href="x" href="' .. esc_attr("about:invalid") .. '">', out)
 end
+
+local function test_a_block_that_adds_a_bare_attribute_renders_it_only_when_its_condition_holds(tmp: string)
+  local lua, trouble = project(tmp, "bare", HEAD ..
+      '<input type="checkbox"{{if .flag}} checked{{end}} name="a"><input{{if .flag}} disabled{{end}}>\n' ..
+      '<option {{if .flag}}selected {{end}}value="{{.cls}}">x</option><br{{if .flag}} hidden{{end}}/>\n' ..
+      '<input{{if .flag}} required{{else}} readonly{{end}} name="b">')
+  assert(lua ~= nil, trouble)
+  local mod = load_module(lua, "page")
+  assert(mod is Loaded, "page exports no render")
+  local on_made = mod.render({ flag = true, cls = "c\"" })
+  assert(on_made is Html.SafeHtml, "render answered a " .. type(on_made))
+  local on = Html.raw(on_made)
+  assert(on == '\n<input type="checkbox" checked name="a"><input disabled>\n' ..
+      '<option selected value="c&#34;">x</option><br hidden/>\n<input required name="b">', on)
+  local off_made = mod.render({ flag = false, cls = "c\"" })
+  assert(off_made is Html.SafeHtml, "render answered a " .. type(off_made))
+  local off = Html.raw(off_made)
+  assert(off == '\n<input type="checkbox" name="a"><input>\n' ..
+      '<option value="c&#34;">x</option><br/>\n<input readonly name="b">', off)
+end

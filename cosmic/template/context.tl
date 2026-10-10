@@ -72,7 +72,7 @@ walk = function(name: string, body: {types.Node}, from: markup.Place): markup.Pl
   local at = markup.copy(from)
   for _, node in ipairs(body) do
     if node.kind == "text" then
-      markup.feed(at, node.text)
+      markup.feed(at, node.text, node.line, node.col)
       if at.colon then
         return nil, refuse(name, node.line, node.col,
           "text after a URL slot, before its first / ? or #, holds a ':' and could complete a scheme")
