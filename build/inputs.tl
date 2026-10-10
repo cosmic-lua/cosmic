@@ -30,7 +30,7 @@
 --- A doc guide, whose examples cannot `require` before the doc's first
 --- block, declares its examples' in a line of its own outside any
 --- fence, which renders as nothing: `<!-- policy: env = { "A" } -->`
---- (doc/meta.md), which [`build.doctest`] turns into the call.
+--- (doc/writing.md), which [`build.doctest`] turns into the call.
 
 local type Test = require("cosmic.test")
 

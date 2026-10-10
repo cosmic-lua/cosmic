@@ -379,6 +379,34 @@ test: PASS
 tally (tally.tl)
 ```
 
+## a generic record
+
+A generic record nested in another is declared with its type parameters
+(`record Lru<K, V>`), and a function of it takes them on its own name and
+`self` as an explicit first parameter. `function Kv.Lru:get(k: K): V` is
+refused with `missing type arguments in record<K, V> Lru`, and Teal has no
+`function Kv.Lru<K, V>:get`. A generic record at the top of its file
+takes `function Lru:get(k: K): V` as any record does.
+
+```teal
+local record Kv
+  record Lru<K, V>
+    map: {K: V}
+  end
+end
+
+function Kv.Lru.get<K, V>(self: Kv.Lru<K, V>, key: K): V
+  return self.map[key]
+end
+
+local cache: Kv.Lru<string, integer> = { map = { a = 1 } }
+print(Kv.Lru.get(cache, "a"))
+```
+
+```output
+1
+```
+
 [`cosmic.child`]: ../../cosmic/child.tl
 [`cosmic.flags`]: ../../cosmic/flags.tl
 [`cosmic.log`]: ../../cosmic/log.tl
