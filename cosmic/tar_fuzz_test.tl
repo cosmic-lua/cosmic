@@ -4,7 +4,6 @@
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
 local Fuzz = require("build.fuzz")
-local Hash = require("cosmic.hash")
 local Stream = require("cosmic.stream")
 local Tar = require("cosmic.tar")
 
@@ -290,7 +289,8 @@ local function header(src: Fuzz.Source, typeflag: string, size: integer): string
     string.rep("\0", 12),
   }
   local block = table.concat(parts)
-  local sum = Hash.byte_sum(block)
+  local sum = 0
+  for i = 1, #block do sum = sum + block:byte(i) end
   if src:int(0, 15) == 0 then sum = sum + src:int(1, 64) end
   return block:sub(1, 148) .. ("%06o\0 "):format(sum) .. block:sub(157)
 end

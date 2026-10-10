@@ -1064,6 +1064,63 @@ local function test_a_type_beside_a_module_s_record_is_told_to_nest()
       "file's alone)", 1, true) ~= nil, compile_trouble)
 end
 
+--- The refusal of a `local type` require of `module_source`, a module
+--- `ledger` returning a value, from a `main.tl` that names
+--- `Ledger.Month` through it and declares `local n: integer = "Ledger.x"`.
+local function type_require_refusal(case: string, module_source: string): string
+  local root = assert(write_fixture(case, {
+    ["ledger.tl"] = module_source,
+    ["main.tl"] = 'local type Ledger = require("ledger")\nlocal n: integer = "Ledger.x"\n' ..
+      "return function(m: Ledger.Month): integer\n  return m.days + n\nend\n",
+  }))
+  local result, compile_trouble = compile_fixture(root)
+  assert(result == nil, "expected the type require of a value to refuse the compile")
+  return compile_trouble
+end
+
+local LEDGER_RECORD <const> = "local record Ledger\n  record Month\n    days: integer\n  end\nend\n"
+
+local REFUSAL_HINT <const> = " -- ledger returns a value of its record, not the record type: " ..
+  "a `local type` require needs the type, as `local record M ... end return M` or a `.d.tl` " ..
+  "does; or require it as a value"
+
+local VALUE_HINT <const> = " -- ledger returns a value, not a type: a `local type` require " ..
+  "needs the module to return one, as `local record M ... end return M` or a `.d.tl` does"
+
+--- A `local type` require of a module that returns a value of its record
+--- is told what the module must return. The checker's other errors stand
+--- as they are, but `unknown type Ledger.Month` is told no hint that
+--- Ledger lacks Month: its record may well declare it.
+local function test_a_type_require_of_a_value_is_told_what_the_module_must_return()
+  local trouble = type_require_refusal("type-require-of-value",
+    LEDGER_RECORD .. "local ledger: Ledger = {}\nreturn ledger\n")
+  assert(trouble == "main.tl: the compiler refused it\n" ..
+      "main.tl:1:21: 'require' did not return a type, got record Ledger" .. REFUSAL_HINT .. "\n" ..
+      "main.tl:2:20: in local declaration: n: got string \"Ledger.x\", expected integer\n" ..
+      "main.tl:3:20: unknown type Ledger.Month\n" ..
+      "main.tl:4:12: cannot index key 'days' in variable 'm' of type Ledger.Month",
+    trouble)
+end
+
+--- A module that returns a value other than a record (a function taking
+--- its record, a map of it, a number) is told to return a type, and not
+--- to require it as a value, whose type would hold none of the record's.
+--- The refusal is said though it names `Ledger.Month` itself.
+local function test_a_type_require_of_a_value_not_a_record_is_told_to_return_a_type()
+  for _, value in ipairs({
+      LEDGER_RECORD .. "return function(m: Ledger.Month): integer\n  return m.days\nend\n",
+      LEDGER_RECORD .. "local by_name: {string: Ledger.Month} = {}\nreturn by_name\n",
+      "return 1\n",
+  }) do
+    local trouble = type_require_refusal("type-require-of-value-" .. #value, value)
+    local refusal = trouble:match("main%.tl:1:21: 'require' did not return a type, got [^\n]*")
+    assert(refusal ~= nil and refusal:sub(-#VALUE_HINT) == VALUE_HINT, trouble)
+    assert(value == "return 1\n" or refusal:find("Ledger.Month", 1, true) ~= nil, refusal)
+    assert(trouble:find('n: got string "Ledger.x", expected integer', 1, true) ~= nil, trouble)
+    assert(trouble:find("has no type", 1, true) == nil, trouble)
+  end
+end
+
 --- `ci/` is the pinned CI driver's own project, walked and built by
 --- the pinned host with cwd `ci/`, never by cosmic's own build: staging
 --- cosmic's own tree must record nothing under `ci/`, and deriving

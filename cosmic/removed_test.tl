@@ -11,6 +11,7 @@ local modules <const>: {string:any} = {
   ["cosmic.clock"] = require("cosmic.clock"),
   ["cosmic.cli"] = require("cosmic.cli"),
   ["cosmic.codec"] = require("cosmic.codec"),
+  ["cosmic.compress"] = require("cosmic.compress"),
   ["cosmic.csv"] = require("cosmic.csv"),
   ["cosmic.coverage"] = require("cosmic.coverage"),
   ["cosmic.env"] = require("cosmic.env"),

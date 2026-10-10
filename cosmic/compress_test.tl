@@ -229,26 +229,6 @@ local function test_the_ratio_check_passes_deflates_most_compressible_stream()
   end
 end
 
-local function test_crc32_matches_the_known_value_and_continues()
-  -- crc32("hello, cosmic!") from Python's binascii.crc32.
-  local whole = Compress.crc32("hello, cosmic!")
-  local half = Compress.crc32("hello, ")
-  local continued = Compress.crc32("cosmic!", half)
-  assert(whole == continued)
-  assert(whole == 3327618652, tostring(whole))
-  assert(Compress.crc32("") == 0)
-  -- Long, and at an unaligned start: the hardware paths fold 16 bytes
-  -- at a time and handle the ragged ends apart (binascii.crc32 again).
-  local bytes: {string} = {}
-  for i = 0, 255 do bytes[#bytes + 1] = string.char(i) end
-  local long = table.concat(bytes):rep(40)
-  assert(Compress.crc32(long) == 3150855069)
-  assert(Compress.crc32(long:sub(4, 1000)) == 2769185661)
-  local folded = 0
-  for i = 1, #long, 37 do folded = Compress.crc32(long:sub(i, i + 36), folded) end
-  assert(folded == 3150855069)
-end
-
 local function test_bz2_known_vector_decodes_one_byte_at_a_time()
   -- `printf 'hello, cosmic!' | bzip2 -9`
   local vector = "\66\90\104\57\49\65\89\38\83\89\153\84\167\133\0\0\3\17\128\96\4\10\102\136\0\32\0\34\0\30\160\128\105\166\135\131\39\44\211\152\60\93\201\20\225\66\66\101\82\158\20"
@@ -665,8 +645,6 @@ local function test_argument_shape_errors_raise()
   assert(not pcall(Compress.deflater, "raw", 11))
   assert(not pcall(Compress.deflater, "raw", -1))
   assert(not pcall(Compress.xz_decoder, 0))
-  assert(not pcall(Compress.crc32, "x", -1))
-  assert(not pcall(Compress.crc32, "x", 1 << 32))
   local dec = assert(Compress.inflater("raw"))
   assert(not pcall(dec.update, dec, "x", 0))
   assert((Compress.deflater("raw", 0)))

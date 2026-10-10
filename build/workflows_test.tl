@@ -2050,9 +2050,9 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
 
   -- The prune: a job of its own, the one whose token may write the
   -- cache, after every job that saves, whatever their result; on every
-  -- push (a branch's shows it run), its steps on main's alone, running
-  -- the pinned driver on ci/'s sources alone, from a main-only checkout
-  -- that keeps no token.
+  -- push to main (the job's `if`, so a branch push starts no runner for
+  -- steps it would all skip), running the pinned driver on ci/'s
+  -- sources alone, from a main-only checkout that keeps no token.
   -- The join, the check a ruleset requires, waits on none of it.
   local prune = jobs.prune
   assert(prune ~= nil, "no job prunes the verdicts under a commit")
@@ -2076,7 +2076,8 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
   local ipermissions = invalidate.permissions as {string: string}
   assert(ipermissions.actions == "write" and ipermissions.contents == "read",
     "invalidate cannot delete from the cache, or may do more")
-  assert(invalidate["if"] == "always() && (github.event_name == 'push' || github.event_name == 'schedule')",
+  assert(invalidate["if"] == "always() && contains(needs.*.result, 'failure') && " ..
+      "(github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))",
     "invalidate runs on another event, or not after a failed job: " .. tostring(invalidate["if"]))
   assert(table.concat(invalidate.needs as {string}, ",") == "platform,checked,seed",
     "invalidate runs before a job that saves")
@@ -2086,15 +2087,14 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
   local isteps = invalidate.steps as {{string: any}}
   assert(#isteps == 3, "invalidate runs more than its checkout, its driver and its command")
   for _, step in ipairs(isteps) do
-    assert(step["if"] == "github.ref == 'refs/heads/main' && contains(needs.*.result, 'failure')",
-      "invalidate runs a step off main or where no job failed: " .. tostring(step["if"]))
+    assert(step["if"] == nil, "invalidate gates a step its job's `if` already gates: " .. tostring(step["if"]))
   end
   local command = isteps[3]
   assert(command.run == "cosmic-driver cosmic_ci/driver.tl invalidate-commit-verdicts" and
       command["working-directory"] == "ci" and command["continue-on-error"] == nil and
       (command.env as {string: string}).COMMIT == "${{ github.sha }}",
     "invalidate runs another command: " .. tostring(command.run))
-  assert(prune["if"] == "always() && github.event_name == 'push'",
+  assert(prune["if"] == "always() && github.event_name == 'push' && github.ref == 'refs/heads/main'",
     "prune runs on another event, or not after a failed job: " .. tostring(prune["if"]))
   assert(table.concat(prune.needs as {string}, ",") == "platform,checked,seed",
     "prune runs before a job that saves")
@@ -2104,7 +2104,7 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
   local psteps = prune.steps as {{string: any}}
   assert(#psteps == 3, "prune runs more than its checkout, its driver and its command")
   for _, step in ipairs(psteps) do
-    assert(step["if"] == "github.ref == 'refs/heads/main'", "prune runs a step off main: " .. tostring(step["if"]))
+    assert(step["if"] == nil, "prune gates a step its job's `if` already gates: " .. tostring(step["if"]))
   end
   local checkout = psteps[1].with as {string: any}
   assert((psteps[1].uses as string):find("actions/checkout@", 1, true) == 1 and
@@ -2262,11 +2262,16 @@ end
 --- ci.yml's `seed`, whose TODO says what would end the exception, and
 --- its `reuse`, which runs on a push to main alone: run on a branch push
 --- with nothing to do, it held the legs, which need it, for a runner's
---- start (some 6 s, up to about 100 s in a burst).
+--- start (some 6 s, up to about 100 s in a burst). Its `prune` and
+--- `invalidate` are too: run on a branch push with every step skipped,
+--- each took a runner's start (up to about 170 s in a burst) to show a
+--- check that did nothing.
 local BRANCH_SKIPS <const> = { "refs/heads/main", "ref_name == 'main'", "event_name != 'push'" }
 local SKIPPED_ON_A_BRANCH <const>: {string: boolean} = {
   [DIR .. "/ci.yml seed"] = true,
   [DIR .. "/ci.yml reuse"] = true,
+  [DIR .. "/ci.yml prune"] = true,
+  [DIR .. "/ci.yml invalidate"] = true,
 }
 
 local function test_a_branch_push_starts_no_job_it_skips()
@@ -2397,6 +2402,90 @@ local function test_a_queue_run_takes_the_verdicts_of_the_run_ahead()
       where .. " merges something else, or fails for it: " .. tostring(merge.run))
   end
   assert(names.platform ~= names.checked, "the legs and the checked job keep their verdicts under one name")
+end
+
+--- A queue run's leg skips its driver check on the key the run ahead
+--- kept, not only on main's marker, which main saves only once a commit
+--- lands: the runs queued behind a change to ci/ all checked again.
+--- Each leg keeps the key it checked, found or took, as
+--- `driver-checked-<leg>`, only where that holds; finds the run ahead by
+--- its own name and after its check; and takes the key only if it is
+--- the one its lookup computed. The check still runs on the scheduled
+--- and manual runs, and saves nothing off main.
+local function test_a_queue_leg_takes_the_driver_check_of_the_run_ahead()
+  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
+  local steps = ((ci.jobs as {string: {string: any}}).platform).steps as {{string: any}}
+  local at: {string: integer} = {}
+  local keep, upload: {string: any}, {string: any}
+  for i, step in ipairs(steps) do
+    if step.id ~= nil then at[step.id as string] = i end
+    if step.name == "keep the CI driver check for the run behind in the queue" then
+      keep, at.keep = step, i
+    end
+    if step.name == "upload the CI driver check for the run behind in the queue" then
+      upload, at.upload = step, i
+    end
+  end
+  assert(keep ~= nil and upload ~= nil, "the platform job keeps no driver check for the run behind")
+  local order = { "driver-check-restore", "driver-ahead", "driver-ahead-download", "driver-ahead-take",
+    "driver-check", "keep", "upload", "boot" }
+  for n = 2, #order do
+    assert(at[order[n - 1]] ~= nil and at[order[n]] ~= nil and at[order[n - 1]] < at[order[n]],
+      order[n - 1] .. " does not come before " .. order[n])
+  end
+
+  local check = steps[at["driver-check"]]
+  local condition = check["if"] as string
+  assert(condition:find("github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (", 1, true) and
+      condition:find("steps.driver-check-restore.outputs.cache-hit != 'true' && " ..
+          "steps.driver-ahead-take.outputs.hit != 'true')", 1, true),
+    "the check skips on the run ahead's key where it must run, or runs where the key is found: " .. condition)
+
+  local find = steps[at["driver-ahead"]]
+  local env = find.env as {string: string}
+  assert(find.run == "cosmic-driver cosmic_ci/driver.tl queue-ahead" and find["continue-on-error"] == true and
+      (find["if"] as string):find("github.event_name == 'merge_group'", 1, true) and
+      env.JOB == "${{ matrix.name }}" and env.ARTIFACT == "driver-checked-${{ matrix.name }}" and
+      env.BASE == "${{ github.event.merge_group.base_sha }}" and
+      env.SUITE_STEP == steps[at.boot].name,
+    "the lookup of the run ahead names another job, artifact or step, or fails for it")
+  local within = math.tointeger(tonumber(env.WITHIN_SECONDS))
+  assert(within ~= nil and within <= 30, "the lookup waits too long on a leg ahead: " .. tostring(env.WITHIN_SECONDS))
+
+  local download = steps[at["driver-ahead-download"]]
+  local with = download.with as {string: string}
+  assert(with.name == env.ARTIFACT and with["run-id"] == "${{ steps.driver-ahead.outputs.run }}" and
+      download["continue-on-error"] == true, "the download takes another artifact or run than the one found")
+
+  local take = steps[at["driver-ahead-take"]]
+  assert((take.env as {string: string}).KEY == "${{ steps.driver-check-restore.outputs.cache-primary-key }}" and
+      (take.run as string):find('= "$KEY"', 1, true) and (take.run as string):find(with.path:gsub("^%${{ runner.temp }}", "$RUNNER_TEMP"), 1, true),
+    "a key is taken that is not the one the leg's lookup computed")
+
+  local kept = upload.with as {string: any}
+  for _, relay in ipairs({ keep, upload, take }) do
+    local when = (relay["if"] as string) or ""
+    for _, loose in ipairs({ "always()", "!cancelled()", "failure()", "cancelled()" }) do
+      assert(not when:find(loose, 1, true), "the key is kept or taken after a failed or cancelled step: " .. when)
+    end
+    if relay ~= take then
+      assert(when:find("github.event_name == 'merge_group'", 1, true) and
+          when:find("steps.driver-check.outcome == 'success'", 1, true) and
+          when:find("steps.driver-check-restore.outputs.cache-hit == 'true'", 1, true) and
+          when:find("steps.driver-ahead-take.outputs.hit == 'true'", 1, true),
+        "the key is kept where no check passed or key was found: " .. when)
+    end
+  end
+  local written = keep.run as string
+  assert(written:find("driver-relay/key", 1, true) and not written:find("driver-checked", 1, true) and
+      written:find('[ -n "$KEY" ]', 1, true), "the kept key goes to main's marker's path, or may be empty")
+  assert((take.run as string):find('[ -n "$KEY" ]', 1, true), "an empty key can match an empty one")
+  assert(kept.name == env.ARTIFACT and kept.overwrite == true, "the key is kept under another name, or not replaced")
+  for _, step in ipairs(steps) do
+    local saves = (step.uses as string or ""):find("actions/cache/save@", 1, true) ~= nil
+    local from = step.with and (step.with as {string: any}).path as string or ""
+    assert(not (saves and from:find("driver-relay", 1, true)), "the relayed key is saved as main's marker")
+  end
 end
 
 --- A value of a workflow expression: a string, or a comparison's
