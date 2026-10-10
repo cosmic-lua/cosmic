@@ -1229,6 +1229,30 @@ local function missing_key(msg: string): MissingKey | nil
   return { key = key, owner = owner }
 end
 
+--- What to write for a vararg given a name (`...names: string`), when the
+--- syntax error at `y`:`x` is on that name: the text before it ends in
+--- `...` and an identifier starts there, followed by `:`, `?`, `,` or `)`.
+--- The type is the one the line spells when it is a plain name
+--- (`string`, `Http.Request`), else `T`. nil for any other `expected one
+--- of: ')', ','` error.
+local function vararg_name_hint(source: string, y: integer, x: integer): string | nil
+  local line = line_at(source, y)
+  if line == nil or x < 1 then
+    return nil
+  end
+  if line:sub(1, x - 1):match("%.%.%.%s*$") == nil then
+    return nil
+  end
+  local rest = line:sub(x)
+  local name = rest:match("^[%a_][%w_]*")
+  if name == nil or rest:sub(#name + 1):match("^%s*[:?,)]") == nil then
+    return nil
+  end
+  local typed = rest:sub(#name + 1):match("^%s*:%s*([%a_][%w_%.]*)%s*[,)]") or "T"
+  return "a vararg takes no name: write `...: " .. typed ..
+    "` and read it as `{ ... }`, or `select(\"#\", ...)` where a nil may be among them"
+end
+
 --- What to write instead, when `msg` is the checker refusing a name
 --- [`environment_for`] stripped or a member [`cosmic.removed`] lists; nil
 --- for any other message, and for those where the catalog cannot be
@@ -1293,6 +1317,11 @@ end
 --- them, spelled alike; nothing when one does not, since then the call
 --- is short, nor when the file declares no function the call reaches.
 ---
+--- A vararg given a name (`local function f(...names: string)`, the
+--- parser's `syntax error, expected one of: ')', ','` at the name) is told
+--- it takes none and to write `...: string` ([`vararg_name_hint`]); any other
+--- such error is told nothing.
+---
 --- One nominal type refused for another of the same last name
 --- (`Store is not a Kv.Store`) is told they are two types, and an
 --- `unknown type Kv.Kv` whose `Kv` `source` binds to a `require` that
@@ -1309,6 +1338,9 @@ function teal.replacement(msg: string, source: string, y: integer, x: integer,
     local inferred = msg == "in assignment: got number, expected integer" and
       integer_hint(source, y, x) or nil
     return inferred or integer_conversion
+  end
+  if msg == "syntax error, expected one of: ')', ','" then
+    return vararg_name_hint(source, y, x)
   end
   local passed, takes = msg:match("^wrong number of arguments %(given (%d+), expects (%d+)%)$")
   local short = passed ~= nil and math.tointeger(tonumber(passed)) or nil
