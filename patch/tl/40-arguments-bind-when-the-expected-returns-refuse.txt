@@ -1,0 +1,65 @@
+file: tl.tl
+note: a call whose expected result type fixes a type variable its arguments then fail is checked again with the arguments first, so `return setmetatable(t, mt)` in a function returning `R | nil` or an interface `R` implements checks the result against what the arguments made of T; the call stands only if the second order passes whole
+--- find
+               if expected_rets then
+                  expected_rets = self:infer_at(w, expected_rets)
+                  infer_emptytables(self, w, nil, expected_rets, frets, 0)
+
+                  rets_ok = check_func_type_list(self, w, nil, frets, expected_rets, 1, 0, "covariant", "return")
+               end
+
+               args_ok, args_errs = check_func_type_list(self, w, wargs, fargs, args, from, argdelta, "contravariant", "argument")
+               if (not args_ok) or (not rets_ok) then
+                  return nil, args_errs or {}
+               end
+--- replace
+               -- The call's type variables are bound in the innermost scope,
+               -- the call's own transaction: what is bound before the first
+               -- order runs is restored for the second.
+               local scope = self.st[#self.st]
+               local before: {string:Variable} = {}
+               if expected_rets then
+                  for name, var in pairs(scope.vars) do
+                     before[name] = var
+                  end
+               end
+
+               if expected_rets then
+                  expected_rets = self:infer_at(w, expected_rets)
+                  infer_emptytables(self, w, nil, expected_rets, frets, 0)
+
+                  rets_ok = check_func_type_list(self, w, nil, frets, expected_rets, 1, 0, "covariant", "return")
+               end
+
+               args_ok, args_errs = check_func_type_list(self, w, wargs, fargs, args, from, argdelta, "contravariant", "argument")
+               if (not args_ok) or (not rets_ok) then
+                  if expected_rets and scope.is_transaction then
+                     -- The expected type bound a type variable before the
+                     -- arguments did: bind it from them and check the result
+                     -- against that.
+                     local failed: {string:Variable} = {}
+                     for name, var in pairs(scope.vars) do
+                        failed[name] = var
+                        scope.vars[name] = nil
+                     end
+                     for name, var in pairs(before) do
+                        scope.vars[name] = var
+                     end
+                     local args_ok2, args_errs2 = check_func_type_list(self, w, wargs, fargs, args, from, argdelta, "contravariant", "argument")
+                     if args_ok2 and check_func_type_list(self, w, nil, frets, expected_rets, 1, 0, "covariant", "return") then
+                        infer_emptytables(self, w, wargs, args, fargs, argdelta)
+                        return true
+                     end
+                     if not args_ok2 then
+                        return nil, args_errs2 or {}
+                     end
+                     for name in pairs(scope.vars) do
+                        scope.vars[name] = nil
+                     end
+                     for name, var in pairs(failed) do
+                        scope.vars[name] = var
+                     end
+                  end
+                  return nil, args_errs or {}
+               end
+--- end
