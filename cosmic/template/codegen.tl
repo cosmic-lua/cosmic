@@ -204,6 +204,13 @@ end
 local function block(g: Gen, node: types.Node, dot: Dot)
   to_line(g, node.line)
   if node.kind == "range" then
+    -- While its body runs, a range holds five of the function's locals (the
+    -- loop's three hidden ones, `_` and dot), six with an `else`, and Lua
+    -- allows a function 200: a module whose ranges nest about 40 deep (33
+    -- with an `else`) does not load, Lua naming the template's line ("too
+    -- many local variables"). That stays: no template nests so deep, and a
+    -- function per body, which would lift the limit, costs a closure each
+    -- time a range runs.
     local arm = node.branches[1]
     local other = node.branches[2]
     local inner = new_dot(g)

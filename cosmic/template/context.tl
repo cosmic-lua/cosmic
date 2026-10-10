@@ -126,6 +126,9 @@ local function block(w: Walk, node: types.Node, from: markup.Place, marks: Marks
     outcomes = {}
     w.seen[node] = outcomes
   end
+  -- The key holds fields `same` ignores (the tag and attribute outside the
+  -- phases that read them), so two places that would judge alike can be
+  -- walked apart: a walk too many, never a wrong one.
   local at = markup.key(from)
   local outcome = outcomes[at]
   if outcome == nil then

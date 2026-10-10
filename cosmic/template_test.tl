@@ -469,8 +469,9 @@ end
 
 -- Each range walks its body twice, so walking every body again from each
 -- place would take time exponential in the depth: 64 levels would never
--- finish.
-local function test_deeply_nested_ranges_compile_in_time_linear_in_their_depth()
+-- finish. The source is not loaded: Lua's limit on locals is met first
+-- (see codegen's block).
+local function test_deeply_nested_ranges_compile_without_walking_each_body_again_per_level()
   local out = compiled(HEAD .. "<p title=\"" .. nested_ranges(64, "{{.x}}") .. "\">" .. nested_ranges(64, "<b>{{.y}}</b>"))
   local _, attrs = out:gsub("= _attr%(v%)", "")
   local _, texts = out:gsub("= _text%(v%)", "")
