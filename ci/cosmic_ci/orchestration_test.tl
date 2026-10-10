@@ -13,34 +13,25 @@ local sys = require("cosmic.sys")
 local State = require("cosmic_ci.state")
 local Test = require("cosmic.test")
 
--- The fixture modules, whose sources [`code_of`] reads (their declarations
+-- The driver's namespace, which `command` copies into a project of its
+-- own, and the fixture modules, whose sources [`code_of`] reads (their declarations
 -- are what [`test_every_sandboxed_fixture_is_keyed_by_the_product`]
--- checks), so an edit to one moves this module's key.
+-- checks), so an edit to one moves this module's key; and the workflow
+-- the tests read of the checkout around ci/.
+-- TODO: declare the directories these read of that checkout (build/,
+-- .github/) and the git history a clone reads once a grant can name a
+-- directory above the project; /parent/ grants name files only, so an
+-- edit to those is met by a keyed run only with --all.
 Test.policy{
-  profiles = { "cosmic" },
-  grants = { { path = "fixtures/", letters = "r" }, { path = "o/bin", letters = "rx" } },
+  profiles = { "cosmic", "system" },
+  grants = {
+    { path = "cosmic_ci/", letters = "r" },
+    { path = "fixtures/", letters = "r" },
+    { path = "o/bin", letters = "rx" },
+    { path = "testdata/portable/work_db_integrity.tl", letters = "r" },
+    { path = "/parent/.github/workflows/ci.yml", letters = "r" },
+  },
 }
-
--- TODO: declare the files these tests read of the checkout around ci/
--- (.github/workflows/ci.yml above all) in a [`Test.policy`] as
--- `/parent/` grants, read through cosmic.test's `parent`, once
--- ci/cosmic-driver.pin names a release whose Test.policy takes `/parent/`
--- grants. A grant names files only, so the directories these read (build/,
--- .github/) and the git history a clone reads stay undeclared even then,
--- until a grant can name a directory above the project. Until then a keyed run stands on a verdict
--- these reached before an edit to ci.yml (a probe edit left all 32
--- standing); run them with --all after one, and after an edit to the
--- history. CI's driver check
--- keeps no verdicts (COSMIC_VERDICT_CACHE=0, a fresh checkout), so
--- only a local run meets it. The TODO on ci.yml's "move the tree to a
--- path of its own" names the same gap.
-
---- The candidate checkout root: this test's cwd is `<checkout>/ci`, so
---- its parent is the checkout the self-check runs against.
-local function checkout_root(): string
-  local cwd = assert(Fs.absolute("."))
-  return (assert(cwd:match("^(.*)/[^/]+$"), cwd .. ": no parent directory"))
-end
 
 --- The self-check holds a write transaction on `ci/`'s `build.db` while
 --- tests run, so `driver.tl` must never run with project root `ci/`
@@ -175,7 +166,7 @@ local function test_platform_protects_paths_and_retains_primary_failure(tmp: str
       Fs.mkdirs(tmp .. "/temporary"))
   assert(Fs.write(seed .. "/build.db", "poison"))
   assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
-  Fixture.copy(checkout_root() .. "/ci/testdata/portable/work_db_integrity.tl",
+  Fixture.copy("testdata/portable/work_db_integrity.tl",
     fake .. "/ci/testdata/portable/work_db_integrity.tl")
   Fixture.write(fake .. "/bin/zig", [[#!/bin/sh
 set -eu
@@ -399,7 +390,7 @@ local function test_a_merge_queue_run_that_moves_the_epoch_runs_every_test(tmp: 
   assert(Orchestration.harness_moved(root, ""), "no base")
   assert(Orchestration.harness_moved(tmp .. "/none", base), "no checkout")
   -- ci.yml names the base, and checks out the merge's parent with it.
-  local text = assert(Fs.read(checkout_root() .. "/.github/workflows/ci.yml"))
+  local text = assert(Fs.read(Test.parent(".github/workflows/ci.yml")))
   local ci = assert(Json.decode_object(text, { json5 = true, hash_comments = true }))
   local platform = (ci.jobs as {string: {string: any}}).platform
   local env = platform.env as {string: string}
@@ -1020,7 +1011,7 @@ end
 --- on one, in a full run's assemble; a branch push's light run makes it
 --- in the checked job after its boot, off the legs' path.
 local function test_the_checked_suite_runs_in_its_own_job_and_the_format_check_on_one_leg()
-  local text = assert(Fs.read(checkout_root() .. "/.github/workflows/ci.yml"))
+  local text = assert(Fs.read(Test.parent(".github/workflows/ci.yml")))
   local ci = assert(Json.decode_object(text, { json5 = true, hash_comments = true }))
   local jobs = ci.jobs as {string: {string: any}}
   local platform = jobs.platform
@@ -1049,7 +1040,7 @@ end
 
 --- ci.yml's platform job's legs, by name, and its environment.
 local function platform_legs_and_env(): {string: {string: string}}, {string: string}
-  local text = assert(Fs.read(checkout_root() .. "/.github/workflows/ci.yml"))
+  local text = assert(Fs.read(Test.parent(".github/workflows/ci.yml")))
   local ci = assert(Json.decode_object(text, { json5 = true, hash_comments = true }))
   local platform = (ci.jobs as {string: {string: any}}).platform
   return full_run_legs(platform), platform.env as {string: string}

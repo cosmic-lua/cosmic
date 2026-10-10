@@ -506,27 +506,24 @@
         # on the tree's path fails some run (driver.tl place-tree); on the macOS
         # leg's gating runs, whose keys hold the path, of the leg's alone.
         # TODO: move it on the macOS leg alone once "check the pinned CI
-        # driver" runs cosmic_ci's tests sandboxed:
-        # the tree's own suites here already see it at /tree wherever it
-        # is (COSMIC_TEST_SANDBOX=1), and the pinned release sandboxes
-        # its workers by default and knows `system`, but cosmic_ci's
-        # tests read the checkout around ci/ (bin/cosmic-bootstrap,
-        # build/, .github/), which a worker held to ci/ is not given and
-        # which a `/parent/` grant names file by file once
-        # ci/cosmic-driver.pin names a release whose Test.policy takes
-        # `/parent/` grants (the TODO in ci/cosmic_ci/orchestration_test.tl);
-        # the macOS leg has no sandbox at all. Then too, the
-        # cosmic_ci tests that start the system's own programs
-        # (bootstrap_test, fixture_test and runner_test start /bin/sh,
-        # fuzz_test /bin/cp) declare the profile "system" in their
-        # `Test.policy`.
+        # driver" runs cosmic_ci's tests sandboxed: the tree's own suites
+        # here already see it at /tree wherever it is (COSMIC_TEST_SANDBOX=1),
+        # and the pinned release sandboxes its workers by default, knows
+        # `system` and takes `/parent/` grants (orchestration_test and
+        # queue_stage_test declare theirs), but a sandboxed `cosmic test
+        # cosmic_ci` from ci/ still fails tests of bootstrap_test,
+        # cache_trim_test, cache_trim_tool_test, compiles_test, fixture_test,
+        # fuzz_test, images_test, process_test, runner_test, verdicts_test
+        # and zig_prune_test, for the host programs they start and the files
+        # they read without declaring them (`system` profiles, grants); the
+        # macOS leg has no sandbox at all.
         {
           name: "move the tree to a path of its own",
           run: "cosmic-driver cosmic_ci/driver.tl place-tree",
         },
 
         # --all, unsandboxed: it shares no verdicts, and cosmic_ci's tests
-        # read the checkout around ci/ (the TODO above). On every leg of
+        # are not all declared to run sandboxed (the TODO above). On every leg of
         # a full run, the merge queue's too, since those tests start the
         # host's own programs (/bin/sh, cp), which the marker's key holds
         # by the leg's container, or on macOS by the runner's image.
