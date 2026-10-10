@@ -63,7 +63,12 @@
 --- is not the innermost open element's (`</g>` after `<svg><a>`); an
 --- `<svg>` or `<math>` in a `<select>`; and the text of a `<script>`,
 --- `<style>`, `<textarea>` or `<title>` in foreign content when it holds a
---- `<`, and `<noscript>` text with a comment in it. A tag that carries a
+--- `<`, and `<noscript>` text with a comment in it. So does a start tag of
+--- raw text or RCDATA in a `<select>` other than `<script>` and
+--- `<textarea>`, or after a `<frameset>` other than `<noframes>`: a parser
+--- in the classic "in select" or "in frameset" mode ignores it and reads
+--- the markup in its text as tags, where a newer one opens the element
+--- (`<select><title><option onclick="{{.x}}">`). A tag that carries a
 --- `/` across a block boundary (`<svg {{if .a}}/{{end}}>`) is a place of
 --- its own, so the arms of a block that differ in it are refused.
 ---
@@ -146,10 +151,14 @@ local record Markup
     --- Set when the browser may read what follows by rules this tracker
     --- does not follow, so every later slot is refused: raw text or
     --- RCDATA inside `<svg>` or `<math>` that holds a `<`, `<noscript>`
-    --- text that holds a comment.
+    --- text that holds a comment, most raw text or RCDATA in `<select>` or
+    --- after `<frameset>`.
     murky: boolean
     --- Whether a `<select>` is open in HTML, where an `<svg>` may be ignored.
     select: boolean
+    --- Whether a `<frameset>` has started in HTML. A parser in frameset
+    --- stays there to the end of the document and ignores most tags.
+    frameset: boolean
     --- Whether the `<font>` being read has `color`, `face` or `size`.
     fontattr: boolean
     --- Whether the last byte read was the `/` of a tag, which a `>` at the
@@ -305,7 +314,7 @@ local ANIMATION <const>: {string: boolean} = {
 
 local function start(): Place
   return { phase = "text", tag = "", attr = "", closing = false, fresh = false, stack = "", murky = false,
-    select = false, fontattr = false, slash = false, after_url = false, colon = false, bare = false, rooted = false,
+    select = false, frameset = false, fontattr = false, slash = false, after_url = false, colon = false, bare = false, rooted = false,
     equiv = false,
     meta_line = 0, meta_col = 0, late = "", late_line = 0, late_col = 0, raw_tail = "",
     escaped = false, double = false, split = false, alts = "" }
@@ -313,7 +322,7 @@ end
 
 local function copy(p: Place): Place
   return { phase = p.phase, tag = p.tag, attr = p.attr, closing = p.closing, fresh = p.fresh, stack = p.stack,
-    murky = p.murky, select = p.select, fontattr = p.fontattr, slash = p.slash, after_url = p.after_url, colon = p.colon, bare = p.bare,
+    murky = p.murky, select = p.select, frameset = p.frameset, fontattr = p.fontattr, slash = p.slash, after_url = p.after_url, colon = p.colon, bare = p.bare,
     rooted = p.rooted, equiv = p.equiv,
     meta_line = p.meta_line, meta_col = p.meta_col, late = p.late, late_line = p.late_line,
     late_col = p.late_col, raw_tail = p.raw_tail,
@@ -321,8 +330,8 @@ local function copy(p: Place): Place
 end
 
 local function key(p: Place): string
-  return string.format("%s %q %q %s %s %q %s %s %s %s %s %s %s %s %s %d %d %q %d %d %q %s %s %s %q", p.phase, p.tag,
-    p.attr, p.closing, p.fresh, p.stack, p.murky, p.select, p.fontattr, p.slash, p.after_url, p.colon, p.bare,
+  return string.format("%s %q %q %s %s %q %s %s %s %s %s %s %s %s %s %s %d %d %q %d %d %q %s %s %s %q", p.phase, p.tag,
+    p.attr, p.closing, p.fresh, p.stack, p.murky, p.select, p.frameset, p.fontattr, p.slash, p.after_url, p.colon, p.bare,
     p.rooted, p.equiv, p.meta_line, p.meta_col, p.late, p.late_line, p.late_col, p.raw_tail, p.escaped, p.double, p.split, p.alts)
 end
 
@@ -340,7 +349,8 @@ local ATTRIBUTED <const>: {Phase: boolean} = {
 
 --- Whether `a` and `b` are one place, alternatives aside.
 local function alike(a: Place, b: Place): boolean
-  if a.phase ~= b.phase or a.stack ~= b.stack or a.murky ~= b.murky or a.select ~= b.select or a.slash ~= b.slash then
+  if a.phase ~= b.phase or a.stack ~= b.stack or a.murky ~= b.murky or a.select ~= b.select or a.frameset ~= b.frameset or
+      a.slash ~= b.slash then
     return false
   end
   if TAGGED[a.phase] and (a.tag ~= b.tag or a.closing ~= b.closing or a.equiv ~= b.equiv or a.fontattr ~= b.fontattr or
@@ -367,7 +377,7 @@ local BOUNDARY <const>: {string: Phase} = {
 --- agrees.
 local function apart(a: Place, b: Place): boolean
   return BOUNDARY[a.phase] ~= nil and BOUNDARY[b.phase] ~= nil and a.tag == b.tag and a.closing == b.closing and
-    a.stack == b.stack and a.murky == b.murky and a.select == b.select and a.slash == b.slash and
+    a.stack == b.stack and a.murky == b.murky and a.select == b.select and a.frameset == b.frameset and a.slash == b.slash and
     a.equiv == b.equiv and a.fontattr == b.fontattr and (a.meta_line > 0) == (b.meta_line > 0) and
     not a.split and not b.split
 end
@@ -595,6 +605,8 @@ local function count(p: Place, selfclosed: boolean)
   if p.stack == "" then
     if tag == "select" then
       p.select = not p.closing
+    elseif tag == "frameset" and not p.closing then
+      p.frameset = true
     elseif (tag == "svg" or tag == "math") and not p.closing then
       if p.select then
         p.murky = true
@@ -620,6 +632,18 @@ local function count(p: Place, selfclosed: boolean)
   end
 end
 
+--- Whether a parser in the classic "in select" or "in frameset" mode may
+--- ignore the raw text or RCDATA start tag just read, and read its text as
+--- markup, where a newer one opens the element. "in select" reads only
+--- `<script>` (by the rules in head) and `<textarea>` (which closes the
+--- select), and "in frameset" only `<noframes>`.
+local function ignored(p: Place): boolean
+  if p.stack ~= "" then
+    return false
+  end
+  return (p.select and p.tag ~= "script" and p.tag ~= "textarea") or (p.frameset and p.tag ~= "noframes")
+end
+
 --- Ends the tag just read, at the `>` before `from` (after a value with no
 --- quotes, which a `/` ends nothing in): into the text of a raw text
 --- element if it opens one, else into text. Answers where reading goes on.
@@ -638,6 +662,9 @@ local function end_tag(p: Place, text: string, from: integer, unquoted: boolean)
     p.late_col = p.meta_col
   end
   local phase = RAW_TAGS[p.tag]
+  if phase ~= nil and not p.closing and ignored(p) then
+    p.murky = true
+  end
   p.phase = (p.closing or phase == nil) and "text" or phase
   return from
 end
@@ -1012,8 +1039,13 @@ local function slot(p: Place): types.Slot | nil, string
   if p.alts ~= "" then
     return nil, "a slot after a block whose arms leave this tag at different attributes"
   elseif p.murky then
-    return nil, "a slot after markup in <svg>, <math> or <noscript> that a browser may read differently from the tracker here (see the notes in markup.tl)"
+    return nil, "a slot after markup in <svg>, <math>, <noscript>, <select> or <frameset> that a browser may read differently from the tracker here (see the notes in markup.tl)"
   elseif phase == "text" then
+    -- TODO: a `SafeHtml` in a text slot inside `<select>`, `<svg>` or
+    -- `<math>`, or after `<frameset>`, is read in that mode, though the
+    -- template that made it was checked from plain text: a `<title>` in it
+    -- opens nothing in a classic parser's select. Give such a slot a kind
+    -- of its own in types.Slot that takes a string or a number only.
     return "text", ""
   elseif phase == "rcdata" then
     if p.raw_tail ~= "" then
@@ -1080,11 +1112,13 @@ end
 
 local function ending(p: Place): string
   if p.murky then
-    return "in markup in <svg>, <math> or <noscript> that the tracker could not follow"
+    return "in markup in <svg>, <math>, <noscript>, <select> or <frameset> that the tracker could not follow"
   elseif p.stack ~= "" then
     return "inside <" .. p.stack:match("%S+") .. ">"
   elseif p.select then
     return "inside <select>"
+  elseif p.frameset then
+    return "inside <frameset>"
   end
   local phase = p.phase
   if phase == "text" then
