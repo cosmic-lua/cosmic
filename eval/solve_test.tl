@@ -5,7 +5,7 @@ local Solve = require("eval.solve")
 local function test_the_command_line_takes_an_arena_and_a_model()
   local options = assert(Solve.parse({ "/a", "--model", "m" }))
   assert(options.arena == "/a" and options.model == "m")
-  assert(options.max_turns == 60 and options.timeout == 600)
+  assert(options.max_turns == 150 and options.timeout == 600)
   options = assert(Solve.parse({ "--timeout", "30", "/a", "--max-turns", "3", "--model", "m" }))
   assert(options.max_turns == 3 and options.timeout == 30)
 end

@@ -65,7 +65,10 @@ of the solver's project. The prompt varies only in arena paths.
 - **Bounded.** Use a 600-second solver deadline. Claude's timeout enforces
   it; the Work parent monitors elapsed time and interrupts at the deadline.
   Record actual elapsed time and enforcement method. A turn cap is an
-  additional runner-specific limit, not a claim of equal model budgets.
+  additional runner-specific limit, not a claim of equal model budgets;
+  eval/solve sets it (150) high enough that the deadline binds first, as
+  a run at several seconds a turn that hits the cap leaves a journal no
+  one asked to be short.
 - **Independent grading.** After the solver stops, run
   `timeout 30 eval/check/<task> <absolute-arena>` (`timeout 60` for jobs,
   mirror and relay, whose checks wait out timeouts of their own) and save
@@ -96,7 +99,7 @@ for an arena in a sandbox, and writes `transcript.jsonl`, `stderr`,
 `started_at`, `finished_at` and `exit_code` beside PROMPT.md:
 
 ```sh
-eval/solve "$dir" --model "$model"    # --max-turns 60 --timeout 600 by default
+eval/solve "$dir" --model "$model"    # --max-turns 150 --timeout 600 by default
 ```
 
 The sandbox is cosmic.child's (`unveil`, as `cosmic test` holds its
@@ -166,7 +169,7 @@ cd "$dir/project" && env -u CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD \
   --tools "Bash,Read,Write,Edit,Glob,Grep" \
   --allowedTools "Bash,Read,Write,Edit,Glob,Grep" \
   --disallowedTools "Skill,WebSearch,WebFetch,Agent,Task,ToolSearch,SearchSkills,ListSkills,SearchPlugins,ListPlugins,SearchMcpRegistry,Workflow,SendMessage,Artifact,NotebookEdit,SendUserFile" \
-  --max-turns 60 --output-format stream-json --verbose \
+  --max-turns 150 --output-format stream-json --verbose \
   < /dev/null > "$dir/transcript.jsonl" 2> "$dir/stderr"
 ```
 
@@ -351,9 +354,11 @@ solver's arena must never be able to reach one.
 
 ## reading a journal
 
-The summary at the end ranks what slowed the agent, with the log
-entries it refers to; read those entries, not the ranking alone. A
-journal written once at the end (`journal_writes` of one or two) is a
+The summary at the top ranks what slowed the agent, with the log
+entries it refers to; read those entries, not the ranking alone. The
+solver rewrites it after every entry, so a run stopped at the deadline
+or the turn cap still has one, current as of its last write. A journal
+written once at the end (`journal_writes` of one or two) is a
 retelling: weigh the transcript and [`eval/summarize`]'s counts over its
 ranking. Then:
 
