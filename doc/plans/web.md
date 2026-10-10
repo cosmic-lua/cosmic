@@ -67,11 +67,15 @@ the ones the parts settle on; the typed-route signature waits on the
 generics spike (core.md, section 6.2).
 
 ```teal
+local Html = require("cosmic.html")
 local Web = require("cosmic.web")
 local Htmx = require("cosmic.web.htmx")
+local Input = require("cosmic.web.input")
 local Session = require("cosmic.web.session")
+local SessionCookie = require("cosmic.web.session.cookie")
+local Secret = require("cosmic.web.secret")
 local Csrf = require("cosmic.web.csrf")
-local Static = require("cosmic.web.static")
+local StaticFiles = require("cosmic.web.static")
 local Shape = require("cosmic.shape")
 local Net = require("cosmic.net")
 local pages = require("pages")             -- pages/*.tmpl, `{{use htmx}}`
@@ -82,7 +86,9 @@ local NEW <const> = Shape.record_of("NewItem")
 
 local function items(req: Web.Request): Web.Response
   local fragment = pages.items.render({ items = db.items() })
-  return Htmx.page(req, fragment, pages.layout.render)  -- whole page unless HX-Request
+  return Htmx.page(req, fragment, function(body: Html.SafeHtml): Html.SafeHtml
+    return pages.layout.render({ title = "Items", head = Htmx.head(), body = body })
+  end)  -- the fragment alone for an htmx request, else the whole page
 end
 
 local function create(req: Web.Request, _: Web.None, _: Web.None, b: NewItem): Web.Response
@@ -94,16 +100,18 @@ local app = Web.app{
   routes = {
     Web.get("/", items, { name = "items" }),
     Web.post_typed("/items", Web.input(Web.NONE, Web.NONE, Web.form_body(NEW)), create, {
-      on_invalid = function(req: Web.Request, bad: Web.Invalid): Web.Response
+      on_invalid = function(req: Web.Request, bad: Input.Invalid): Web.Response
         return Web.html(pages.item_form.render(bad), { status = 422 })
       end,
     }),
-    Web.mount("/static", Static.routes(), { name = "static" }),
+    StaticFiles.mount("/static", {}),           -- named "static"
     Web.mount("/api", require("app.api").routes, { name = "api" }),
   },
   middleware = {
-    Web.logging(),
-    Session.middleware(Session.signed(assert(Session.keys_from_env()))),
+    Web.access_log(),
+    Session.middleware{
+      store = SessionCookie.store{ keys = assert(Secret.keys_from_env("COSMIC_SESSION_KEYS")) },
+    },
     Csrf.middleware(),
   },
 }
@@ -125,14 +133,14 @@ path segment; `#item-{{.id}}` is a selector, escaped as a CSS identifier;
 `{{.title}}` is text. A slot in `hx-on:click` or `hx-vars` is refused at
 compile time whether or not the template uses the dialect.
 
-The layout writes `{{.head}}`, which a handler fills with `Htmx.head()`:
+The layout writes `{{.head}}`, which the handler above fills with `Htmx.head()`:
 the `<meta name="htmx-config">` and the `<script>` tags, with SRI, for the
 htmx built into the binary and served under `/_web/`.
 
 A test drives the app in-process:
 
 ```teal
-local client = Testing.client(app)
+local client = Web.test_client(app)
 local reply = client:post("/items", { form = { title = "x", qty = "two" },
   headers = { ["HX-Request"] = "true" } })
 assert(reply.status == 422 and reply.text:find("qty", 1, true))
@@ -143,14 +151,18 @@ assert(reply.status == 422 and reply.text:find("qty", 1, true))
 - `cosmic.web`: Request, Response constructors, Route, Mount, Router,
   typed routes, middleware composition, the exception layer, App, serve,
   lifespan, typed per-request keys (`Web.key<T>`).
-- `cosmic.web.input`: binding strings and JSON to a spec, every field's
-  error collected (`Web.Invalid`).
-- `cosmic.web.cookies`, `cosmic.web.session`, `cosmic.web.csrf`,
-  `cosmic.web.cors`, `cosmic.web.headers` (security headers and CSP).
+- `cosmic.web.input`: query, form and JSON decoding, and binding them to
+  a spec with every field's error collected (`Input.Invalid`).
+- `cosmic.web.mime`: content types by file name.
+- `cosmic.web.cookies`, `cosmic.web.session` (with its stores
+  `cosmic.web.session.cookie` and `cosmic.web.session.sqlite`),
+  `cosmic.web.secret` (keys from the environment, weak ones refused),
+  `cosmic.web.csrf`, `cosmic.web.cors`, `cosmic.web.headers` (security
+  headers and CSP).
 - `cosmic.web.htmx`: HX-* request headers, HX-* response headers,
   `Htmx.page` (fragment or whole page, `Vary: HX-Request`), `Htmx.head`.
-- `cosmic.web.static`: `StaticFiles` over embedded or on-disk assets,
-  fingerprinted URLs.
+- `cosmic.web.static` and `cosmic.web.assets`: `StaticFiles` over
+  embedded or on-disk assets, fingerprinted URLs.
 - `cosmic.web.sse`: `Event`, `EventStream`, `Hub`.
 - `cosmic.web.testing`: the in-process client and the loopback one.
 - `cosmic.web.dev`: a supervisor that restarts the app on an edit and
@@ -293,7 +305,11 @@ Each has a recommendation; the parts list smaller ones of their own.
 7. **The dev loop as a library or a verb.** Recommendation: a library
    (`cosmic.web.dev`) in v1; a `cosmic web dev` verb needs its own entry,
    guide and tests for little more.
-8. **htmx 2.0.11 or 4.x.** 4.0.0 is npm's `next` tag, with SSE built in.
+8. **A gzip middleware.** input.md and assets.md assume one that leaves
+   event streams and precompressed assets alone; core.md (open question 13)
+   sketches it. Recommendation: a small `Web.gzip` in step 3, or none in
+   v1 and a reverse proxy compresses.
+9. **htmx 2.0.11 or 4.x.** 4.0.0 is npm's `next` tag, with SSE built in.
    Recommendation: 2.0.11 and the SSE extension 2.2.4 now; revisit when 4
    is `latest`.
 
