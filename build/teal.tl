@@ -387,10 +387,9 @@ local record Declarations
   --- Each `local type` require, by the position of its `require`
   --- (`"<y>:<x>"`), which is where the checker reports a refused one.
   typed: {string: TypeRequire}
-  --- The module each local is bound to by a `require` of its own.
+  --- The module each local is bound to by a `require` of its own; none
+  --- for a local bound to more than one.
   bound: {string: string}
-  --- The locals bound to more than one module, which `bound` leaves out.
-  ambiguous: {string: boolean}
   --- The kind of each type declared at the top level, as its keyword
   --- says: "record", "enum", "interface" or "type"; the first where a
   --- name is declared twice.
@@ -413,33 +412,44 @@ local function required_module(n: ast.Node | nil): string | nil, ast.Node | nil
   return argument.conststr, callee
 end
 
+--- The expression a local's value `n` binds it to the module of: the
+--- left side of an `or` (`require("m") or {}`), whose record the checker
+--- still names the value after, and what parentheses hold.
+local function bound_value(n: ast.Node | nil): ast.Node | nil
+  local op = n ~= nil and n.op or nil
+  while n ~= nil and (n.kind == "paren" or (op ~= nil and op.op == "or")) do
+    n = n.e1
+    op = n ~= nil and n.op or nil
+  end
+  return n
+end
+
 --- The source [`declarations_of`] last parsed, and what it found there.
 local parsed_source: string | nil = nil
-local parsed_declarations: Declarations = { typed = {}, bound = {}, ambiguous = {}, kinds = {} }
+local parsed_declarations: Declarations | nil = nil
 
 --- The requires and top-level types `source` parses into, however each
 --- is spelt: over several lines, without parentheses (`require "x"`),
 --- with comments between its tokens; text in a string or a comment is
 --- none. A `local type` require under a `.` (`require("x").T`) is in
---- `typed` but binds its name to no module, since the name is the type it
---- reaches, as is a local declared with a type (`local X: T =
---- require("x")`). A template's module requires every module on its
---- `{{type}}`'s line ([`cosmic.template`]), so a declaration need not
---- start its line. Empty when `source` does not parse. The last source's
---- answer is kept: a compile asks for each refusal's hint, and the hints
---- of a file share one parse.
+--- `typed` but binds no module, since its name is the type it reaches;
+--- nor does a local declared with a type (`local X: T = require("x")`).
+--- Empty when `source` does not parse. The last source's answer is kept:
+--- a compile asks for each refusal's hint, and the hints of a file share
+--- one parse.
 local function declarations_of(source: string): Declarations
-  if source == parsed_source then
+  if source == parsed_source and parsed_declarations ~= nil then
     return parsed_declarations
   end
-  local found: Declarations = { typed = {}, bound = {}, ambiguous = {}, kinds = {} }
+  local found: Declarations = { typed = {}, bound = {}, kinds = {} }
+  local ambiguous: {string: boolean} = {}
   local function bind(name: string | nil, module: string | nil)
-    if name == nil or module == nil or found.ambiguous[name] then
+    if name == nil or module == nil or ambiguous[name] then
       return
     end
     local before = found.bound[name]
     if before ~= nil and before ~= module then
-      found.bound[name], found.ambiguous[name] = nil, true
+      found.bound[name], ambiguous[name] = nil, true
     else
       found.bound[name] = module
     end
@@ -470,7 +480,7 @@ local function declarations_of(source: string): Declarations
         local written = n.decltuple ~= nil and n.decltuple.tuple or nil
         if written == nil or #written == 0 then
           for i, name in ipairs(n.vars) do
-            bind(name.tk, (required_module(n.exps[i])))
+            bind(name.tk, (required_module(bound_value(n.exps[i]))))
           end
         end
       end
@@ -1724,11 +1734,11 @@ end
 --- The checker names a module's record after the local its `require` was
 --- first bound to, whatever alias reads it now; one whose record is a local
 --- of its own ([`cosmic.cli`]'s) is `of type record Module`, and the alias
---- answers for it. There is no answer for a
---- record of the program's own, a name bound to more than one module, a
---- module bound among several names (`local A, Hash = ...`) or by a line
---- that does not start with its `local` (`do local Hash = ...`). Scope is
---- not read: a `require` in a nested block counts as the file's own.
+--- answers for it. There is no answer for a record of the program's own,
+--- a name bound to more than one module, or a binding whose value is more
+--- than the `require` (`local Hash: T = ...`, a `global`, `require("m").sub`),
+--- though the left side of an `or` and parentheses are read through. Scope
+--- is not read: a `require` in a nested block counts as the file's own.
 ---
 --- `argument 2: got boolean, expected Sqlite.OpenOptions` is answered from
 --- [`cosmic.removed`]'s `arguments` the same way: a type that replaced a
