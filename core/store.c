@@ -91,7 +91,11 @@ static bool out_of_memory (int rc) { return (rc & 0xff) == SQLITE_NOMEM; }
  * [`cosmic.hash`]'s, so the code that computes a verdict key hashes
  * through no raw function a test can replace: it takes them as it
  * loads, and only a hasher's `update` and `digest`, in the runner alone,
- * are still looked up on its metatable. [`cosmic.internal.connector`],
+ * are still looked up on its metatable. [`cosmic.zip`] shares
+ * [`cosmic.compress`]'s, for the CRC-32 of a body, and [`cosmic.tar`]
+ * shares [`cosmic.hash`]'s, for a header's byte sum: neither is a
+ * compressor's or a hash, so neither Compress nor Hash exports it.
+ * [`cosmic.internal.connector`],
  * the one client of the native connector's wire protocol, is handed the
  * process table (to start and reap the connector) and the socket table
  * (to speak to it) together, as a table of both: a wrapper listed twice
@@ -121,6 +125,8 @@ static const struct raw_module {
   {"build.confine", "cosmic.internal.process", NULL},
   {"cosmic.signal", "cosmic.internal.process", NULL},
   {"cosmic.compress", "cosmic.internal.compress", cosmic_open_compress},
+  {"cosmic.zip", "cosmic.internal.compress", NULL},
+  {"cosmic.tar", "cosmic.internal.hash", NULL},
   {"cosmic.http", "cosmic.internal.http", cosmic_open_http},
   {"cosmic.net", "cosmic.internal.socket", cosmic_open_socket},
   {"cosmic.internal.connector", "cosmic.internal.process", NULL},

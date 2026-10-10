@@ -147,15 +147,4 @@ function Compress.bz2_decoder(): Compress.Stream | nil, string
   return raw.bz2_decoder()
 end
 
---- The running CRC-32 (IEEE) of `data`. Pass the previous value as
---- `crc` to continue it over more than one call; raises when `crc` is
---- outside 0 to 0xffffffff.
-function Compress.crc32(data: string, crc?: integer): integer
-  -- TODO: a zip's checksum is no compressor's, and [`cosmic.zip`] is this
-  -- function's one caller: move it there once a module can be handed
-  -- another module's `cosmic.internal.` table, as this one is handed its
-  -- own (the C sum is what keeps a body's bytes off the Lua loop).
-  return raw.crc32(data, crc)
-end
-
 return Compress

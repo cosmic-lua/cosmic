@@ -97,6 +97,26 @@ local function test_a_key_is_the_same_while_nothing_declared_changes(tmp: string
         two .. "/bin", TMPDIR = "/tmp" })))
 end
 
+--- A file above the project is keyed by its relative path and contents:
+--- the same file in another checkout at another place keys the same, and
+--- an edit to it, or a missing file, moves the key.
+local function test_a_file_above_the_project_is_keyed_by_contents_not_place(tmp: string)
+  for _, where in ipairs({ "one", "two" }) do
+    tree(tmp .. "/" .. where .. "/root")
+    assert(Fs.write(tmp .. "/" .. where .. "/up.txt", "above\n"))
+  end
+  local function key_in(where: string, relative: string): string
+    local s = spec()
+    s.effective.parent = { relative }
+    return key_of(tmp .. "/" .. where .. "/root", s)
+  end
+  assert(key_in("one", "up.txt") == key_in("two", "up.txt"), "the place moved the key")
+  assert(key_in("one", "up.txt") ~= key_of(tmp .. "/one/root"), "the grant left the key")
+  assert(Fs.write(tmp .. "/one/up.txt", "changed\n"))
+  assert(key_in("one", "up.txt") ~= key_in("two", "up.txt"), "the contents left the key")
+  assert(key_in("two", "up.txt") ~= key_in("two", "absent.txt"), "a missing file keyed as one there")
+end
+
 --- A file of the tree nothing declares, and the host's caches, are no
 --- part of it.
 local function test_an_undeclared_file_does_not_move_it(tmp: string)
@@ -395,7 +415,7 @@ local function full_spec(hostdir: string): declared_key.Spec
     env = { DECLARED = true }, network = { ["127.0.0.1"] = true },
     tool = true, lua = true, nests = true, noexec = true,
     noexec_ready = true, noexec_trouble = "no reason", store = true, system = true,
-    caches = { "zig" }, cache_paths = { hostdir .. "/cache" },
+    caches = { "zig" }, cache_paths = { hostdir .. "/cache" }, parent = { "absent.txt" },
     unresolved = "no reason",
   }
   return {
@@ -476,6 +496,9 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
       change = function(s: declared_key.Spec) s.effective.tool = false end },
     store = { change = function(s: declared_key.Spec) s.effective.store = false end },
     system = { change = function(s: declared_key.Spec) s.effective.system = false end },
+    parent = { change = function(s: declared_key.Spec)
+      table.insert(s.effective.parent, "up.txt")
+    end },
   }
   local declaration = "what the module declares, which `declaration` keys as " ..
     "`test_inputs.canonical` spells it"

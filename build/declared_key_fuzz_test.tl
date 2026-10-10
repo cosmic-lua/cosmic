@@ -211,6 +211,10 @@ end
 --- runs the tool (`program`), is given the system (`system`), and is
 --- given the store of its closure rather than the projection
 --- (`closure_store`).
+-- TODO: draw the files above the project (`effective.parent`) too, so the
+-- fuzz holds the key's `up` lines distinct from its other parts; the
+-- cases of build/declared_key_test.tl hold their contents and relative
+-- paths to the key alone.
 local function spec_of(d: Drawn, host: string): declared_key.Spec
   local files: {string:boolean} = {}
   for _, file in ipairs(d.lists.files) do files[file] = true end
