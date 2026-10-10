@@ -303,10 +303,15 @@ supported system and the program appended. On a host's first run the
 launcher copies that host's core into a private cache
 (`~/.cache/cosmic/cores`, `~/Library/Caches/cosmic/cores` on macOS, or
 `/tmp/cosmic-cores-<uid>` with no `HOME`; `cosmic help build` lists the
-rest) and runs it from there. `cosmic build --host` writes instead a
-native executable for this system alone, which needs no shell and writes
-no cache: the choice for a container with no /bin/sh, or a host with
-nowhere to write.
+rest) and runs it from there; the launcher then `exec`s the core, so the process
+you start is the program's own and signals reach it directly. The file
+is in the project's build directory, `$XDG_CACHE_HOME/cosmic/trees/<key>/bin/tally`
+(`~/.cache/cosmic/trees/<key>/bin/tally`; `COSMIC_BUILD_HOME` moves the
+`<key>` directories), and `cosmic build` prints its path. `cosmic build
+--host` writes instead a native executable for this system alone, which
+needs no shell and writes no cache: the choice for a container with no
+/bin/sh, or a host with nowhere to write. It writes the same
+`bin/tally`, replacing the launcher build.
 
 ## trying it
 

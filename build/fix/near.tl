@@ -72,6 +72,10 @@ local record near
     source_symbol: string
     text: string
     line: integer
+    --- Whether it is called on a value (`Lru:unlink`, or a first
+    --- parameter `self`): a method named for a command does not stand
+    --- in for it.
+    method: boolean
   end
 end
 
@@ -233,7 +237,7 @@ function near.notes(module: string, candidates: {near.Candidate},
         end
       end
     end
-    local commands = COMMANDS[name] and
+    local commands = COMMANDS[name] and not mine.method and
       (named_all[name] or 0) - (named_in ~= nil and named_in[name] or 0) == 0
     -- A pair that shares no words can only be noted as a command's
     -- stand-in, so only then is every library function looked at.
