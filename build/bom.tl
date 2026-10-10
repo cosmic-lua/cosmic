@@ -70,8 +70,11 @@ local record bom
     version: string
     url: string
     --- The upstream archive's, as fetched; "" when the record names
-    --- none (a component cosmic does not fetch itself).
+    --- none (a component cosmic does not fetch itself, or one whose
+    --- upstream publishes another digest).
     sha256: string
+    --- As `sha256`, for the upstream that publishes SHA3-256.
+    sha3_256: string
     license: string
     notices: {bom.Notice}
   end
@@ -84,6 +87,7 @@ local record bom
     license: string
     url: string
     sha256: string
+    sha3_256: string
     --- `patch/<name>/<file> <sha256>`, one per line, in name order; ""
     --- for a component shipped as published.
     patches: string
@@ -110,15 +114,15 @@ local function notice_of(value: string): bom.Notice | nil, string
 end
 
 --- A record's text as a component named `name`: `version`, `url` and
---- `license` must be present; `sha256` and `kind` may be absent. Keys
---- this grammar does not know -- `strip`, `keep` and the rest
---- [`bin/vendor`] reads -- are skipped.
+--- `license` must be present; `sha256`, `sha3-256` and `kind` may be
+--- absent. Keys this grammar does not know -- `strip`, `keep` and the
+--- rest [`bin/vendor`] reads -- are skipped.
 function bom.parse(name: string, source: string): bom.Component | nil, string
   local component: bom.Component = { name = name, kind = "library", version = "",
-    url = "", sha256 = "", license = "", notices = {} }
+    url = "", sha256 = "", sha3_256 = "", license = "", notices = {} }
   local seen: {string:boolean} = {}
   for line in String.lines(source) do
-    local key, value = line:match("^([%w_]+)%s+(.-)%s*$")
+    local key, value = line:match("^([%w_%-]+)%s+(.-)%s*$")
     if key ~= nil and key ~= "notice" then
       if seen[key] then
         key = nil
@@ -134,15 +138,17 @@ function bom.parse(name: string, source: string): bom.Component | nil, string
       component.notices[#component.notices + 1] = notice
     elseif key == "license" then
       component.license = value
-    elseif key == "version" or key == "url" or key == "sha256" then
+    elseif key == "version" or key == "url" or key == "sha256" or key == "sha3-256" then
       -- The first word, as [`bin/vendor`] reads these.
       local word = value:match("^%S+")
       if key == "version" then
         component.version = word
       elseif key == "url" then
         component.url = word
-      else
+      elseif key == "sha256" then
         component.sha256 = word:lower()
+      else
+        component.sha3_256 = word:lower()
       end
     elseif key == "kind" then
       if not kinds[value] then
@@ -296,10 +302,10 @@ function bom.fill(db: Sqlite.Handle, root: string, qualifier: string): boolean, 
       end
       local inserted, insert_trouble = Sqlite.run(db,
         "INSERT INTO " .. qualifier .. "components (name, kind, version, license, url, " ..
-          "sha256, patches) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+          "sha256, sha3_256, patches) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         { text(name), text(component.kind), text(component.version),
           text(component.license), text(component.url), text(component.sha256),
-          text(patches) })
+          text(component.sha3_256), text(patches) })
       if not inserted then
         return false, insert_trouble
       end
@@ -324,7 +330,7 @@ end
 --- Every component `db` holds, by name.
 function bom.rows(db: Sqlite.Handle): {bom.Row} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
-    "SELECT name, kind, version, license, url, sha256, patches " ..
+    "SELECT name, kind, version, license, url, sha256, sha3_256, patches " ..
       "FROM components ORDER BY name")
   if rows == nil then
     return nil, trouble
@@ -332,7 +338,7 @@ function bom.rows(db: Sqlite.Handle): {bom.Row} | nil, string
   local out: {bom.Row} = {}
   for _, row in ipairs(rows) do
     out[#out + 1] = { name = row[1], kind = row[2], version = row[3],
-      license = row[4], url = row[5], sha256 = row[6], patches = row[7] }
+      license = row[4], url = row[5], sha256 = row[6], sha3_256 = row[7], patches = row[8] }
   end
   return out
 end
@@ -397,8 +403,15 @@ function bom.cyclonedx(rows: {bom.Row}, subject: string, version: string): strin
   local components: {any} = {}
   for _, row in ipairs(rows) do
     local reference: {string:any} = { type = "distribution", url = row.url }
+    local hashes: {any} = {}
     if row.sha256 ~= "" then
-      reference.hashes = { { alg = "SHA-256", content = row.sha256 } }
+      hashes[#hashes + 1] = { alg = "SHA-256", content = row.sha256 }
+    end
+    if row.sha3_256 ~= "" then
+      hashes[#hashes + 1] = { alg = "SHA3-256", content = row.sha3_256 }
+    end
+    if #hashes > 0 then
+      reference.hashes = hashes
     end
     local component: {string:any} = {
       type = row.kind,

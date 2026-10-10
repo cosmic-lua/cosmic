@@ -512,8 +512,10 @@
         # its workers by default and knows `system`, but cosmic_ci's
         # tests read the checkout around ci/ (bin/cosmic-bootstrap,
         # build/, .github/), which a worker held to ci/ is not given and
-        # `Test.policy` names only as a host grant written out in the
-        # source; the macOS leg has no sandbox at all. Then too, the
+        # which a `/parent/` grant names file by file once
+        # ci/cosmic-driver.pin names a release whose Test.policy takes
+        # `/parent/` grants (the TODO in ci/cosmic_ci/orchestration_test.tl);
+        # the macOS leg has no sandbox at all. Then too, the
         # cosmic_ci tests that start the system's own programs
         # (bootstrap_test, fixture_test and runner_test start /bin/sh,
         # fuzz_test /bin/cp) declare the profile "system" in their
@@ -1498,9 +1500,10 @@
     # On the leg's own runner: an entry's version hashes its path, which
     # is the runner's. Seeds stand only on a run whose every leg passed.
     # TODO: a branch push shows this job as a skipped check, one of the
-    # two exceptions build/workflows_test.tl's
+    # exceptions build/workflows_test.tl's
     # test_a_branch_push_starts_no_job_it_skips names (`reuse`, whose
-    # runner a branch push's legs would wait on, is the other). Moving it, with a
+    # runner a branch push's legs would wait on, `prune` and `invalidate`
+    # are the others). Moving it, with a
     # lookup of its own, to a workflow on a push to main alone would end
     # that, at the cost of a second lookup that could disagree with
     # this one's and saves no longer in this run's concurrency group.
@@ -1721,18 +1724,17 @@
     # checkout that keeps no credentials. After every job
     # that saves, whatever their result, so a red push to main prunes
     # too; beside the join, so the check a ruleset requires waits on
-    # none of it. Every push runs it, a branch's with its steps skipped,
-    # so a branch push shows it run rather than skipped: off the legs'
-    # path, it costs a branch push nothing but a runner.
+    # none of it. The job's `if` holds every condition, so a branch push,
+    # which has nothing to prune, starts no runner for it and shows it as
+    # a skipped check.
     prune: {
       needs: ["platform", "checked", "seed"],
-      if: "always() && github.event_name == 'push'",
+      if: "always() && github.event_name == 'push' && github.ref == 'refs/heads/main'",
       "runs-on": "ubuntu-24.04",
       "timeout-minutes": 5,
       permissions: {contents: "read", actions: "write"},
       steps: [
         {
-          if: "github.ref == 'refs/heads/main'",
           uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
           with: {
             "sparse-checkout": "/ci/\n/bin/cosmic-bootstrap\n/.github/scripts/cosmic-driver.sh\n/.github/actions/cosmic-driver/\n",
@@ -1742,13 +1744,11 @@
         },
         {
           name: "bootstrap the pinned CI driver",
-          if: "github.ref == 'refs/heads/main'",
           "continue-on-error": true,
           uses: "./.github/actions/cosmic-driver",
         },
         {
           name: "prune verdicts saved under a commit, and branches' compiles",
-          if: "github.ref == 'refs/heads/main'",
           "working-directory": "ci",
           "continue-on-error": true,
           env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}"},
@@ -1765,16 +1765,17 @@
     # took out of its database would still stand for every branch based
     # on that commit. The legs' own saves have finished (`needs`), so the
     # restore by prefix then takes the failed run's. Beside `prune`: the
-    # one other job whose token may write the cache.
+    # one other job whose token may write the cache. The job's `if` holds
+    # every condition, so a green run, and a branch push, start no
+    # runner for it; a scheduled run is on the default branch.
     invalidate: {
       needs: ["platform", "checked", "seed"],
-      if: "always() && (github.event_name == 'push' || github.event_name == 'schedule')",
+      if: "always() && contains(needs.*.result, 'failure') && (github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))",
       "runs-on": "ubuntu-24.04",
       "timeout-minutes": 5,
       permissions: {contents: "read", actions: "write"},
       steps: [
         {
-          if: "github.ref == 'refs/heads/main' && contains(needs.*.result, 'failure')",
           uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
           with: {
             "sparse-checkout": "/ci/\n/bin/cosmic-bootstrap\n/.github/scripts/cosmic-driver.sh\n/.github/actions/cosmic-driver/\n",
@@ -1784,12 +1785,10 @@
         },
         {
           name: "bootstrap the pinned CI driver",
-          if: "github.ref == 'refs/heads/main' && contains(needs.*.result, 'failure')",
           uses: "./.github/actions/cosmic-driver",
         },
         {
           name: "delete the verdicts saved under a commit",
-          if: "github.ref == 'refs/heads/main' && contains(needs.*.result, 'failure')",
           "working-directory": "ci",
           env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}", COMMIT: "${{ github.sha }}"},
           run: "cosmic-driver cosmic_ci/driver.tl invalidate-commit-verdicts",

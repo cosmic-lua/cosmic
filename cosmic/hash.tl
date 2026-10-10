@@ -130,18 +130,4 @@ function Hash.siphash(key: string, data: string, options?: Hash.SipHashOptions):
   return raw.siphash(key, data, o.compression, o.finalization, o.size)
 end
 
---- The sum of the unsigned bytes of `data` from `first` through `last`
---- (1-based and inclusive; the whole string by default), as a tar
---- header checksum adds them up. It is a tar helper, no hash: nothing
---- else needs it. Raises when `first` is below 1, `last` is past the
---- end, or `first` is more than one past `last`; an empty range sums
---- to 0.
-function Hash.byte_sum(data: string, first?: integer, last?: integer): integer
-  -- TODO: a tar header checksum is no hash, and [`cosmic.tar`] is this
-  -- function's one caller: move it there once a module can be handed
-  -- another module's `cosmic.internal.` table, as this one is handed its
-  -- own (the C sum is what keeps a header's 512 bytes off the Lua loop).
-  return raw.byte_sum(data, first, last)
-end
-
 return Hash

@@ -94,6 +94,10 @@ local function test_inputs_by_hash(db: Sqlite.Handle): {string:analyzer.Declared
       one.system = true
     elseif field == "caches" then
       one.caches[#one.caches + 1] = value
+    elseif field == "parent" then
+      local list = one.parent or {}
+      one.parent = list
+      list[#list + 1] = value
     elseif field == "requires" then
       one.requires[#one.requires + 1] = value
     end

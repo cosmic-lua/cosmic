@@ -606,3 +606,28 @@ local function test_a_failing_underlying_writer_is_answered_as_it_said_it()
   ok, trouble = w:close()
   assert(not ok and trouble == "disk full", trouble)
 end
+
+local function test_a_header_checksum_counts_unsigned_bytes_and_its_own_field_as_spaces()
+  local name = ("\255"):rep(20) .. "x"
+  local c = Stream.collect()
+  local w = Tar.writer(c)
+  assert(w:add_file(name, "data"))
+  assert(w:close())
+  local block = c:result():sub(1, 512)
+  local expected = 8 * 32
+  for i = 1, 512 do
+    if i < 149 or i > 156 then expected = expected + block:byte(i) end
+  end
+  assert(expected > 20 * 255)
+  assert(tonumber(block:sub(149, 154), 8) == expected, block:sub(149, 156))
+  local r = Tar.reader(Stream.from_string(c:result()))
+  local entry = assert(r:next())
+  assert(entry.path == name, entry.path)
+end
+
+local function test_a_header_with_a_checksum_over_high_bytes_is_read()
+  local block = header(("\200"):rep(30), "0", 0)
+  local r = Tar.reader(Stream.from_string(block .. END))
+  local entry = assert(r:next())
+  assert(entry.path == ("\200"):rep(30), entry.path)
+end
