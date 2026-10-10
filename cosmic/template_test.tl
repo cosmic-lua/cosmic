@@ -296,7 +296,7 @@ local SYNTAX <const>: {{string}} = {
   { HEAD .. "x{{else}}", "2", "2", "without a block" },
   { HEAD .. "{{if .a}}{{else}}{{else}}{{end}}", "2", "18", "after {{else}}" },
   { HEAD .. "{{if .a}}{{else}}{{else if .b}}{{end}}", "2", "18", "after {{else}}" },
-  { HEAD .. "{{range .a}}{{else}}{{end}}", "2", "13", "not supported" },
+  { HEAD .. "{{range .a}}{{else if .b}}{{end}}", "2", "20", "nest an {{if}}" },
   { HEAD .. "{{with .a}}{{else if .b}}{{end}}", "2", "19", "nest an {{if}}" },
   { HEAD .. "{{if .a}}{{else foo}}{{end}}", "2", "17", "takes nothing" },
   { HEAD .. "{{if .a}}{{end x}}", "2", "10", "takes nothing" },
