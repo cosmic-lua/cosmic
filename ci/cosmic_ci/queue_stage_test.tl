@@ -9,7 +9,15 @@ local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local QueueStage = require("cosmic_ci.queue_stage")
 local sys = require("cosmic.sys")
+local Test = require("cosmic.test")
 local Time = require("cosmic.time")
+
+-- The workflow `workflow` decodes, of the checkout around ci/; the
+-- system's `sh` and `grep` run the "seed" job's script.
+Test.policy{
+  profiles = { "system" },
+  grants = { { path = "/parent/.github/workflows/ci.yml", letters = "r" } },
+}
 
 local SHA <const> = "0123456789abcdef0123456789abcdef01234567"
 
@@ -263,7 +271,7 @@ end
 
 --- ci.yml, decoded.
 local function workflow(): {string: {string: any}}
-  local text = assert(Fs.read("../.github/workflows/ci.yml"))
+  local text = assert(Fs.read(Test.parent(".github/workflows/ci.yml")))
   return (assert(Json.decode_object(text, { json5 = true, hash_comments = true }))) as {string: {string: any}}
 end
 
@@ -362,14 +370,6 @@ local function read_keys(tmp: string, ci: {string: {string: any}}, leg: string, 
   assert(result.code == 0, (result.stdout or "") .. (result.stderr or ""))
   return Fs.read(dir .. "/output") or ""
 end
-
--- TODO: declare what this test reads of the checkout around ci/
--- (.github/workflows/ci.yml) as a `/parent/` grant in a [`Test.policy`],
--- read through cosmic.test's `parent`, and the system's `sh` and `grep` it
--- runs with the profile "system", once ci/cosmic-driver.pin names a release
--- whose Test.policy takes `/parent/` grants. Until then it fails
--- sandboxed, and CI's driver check runs it unsandboxed
--- (orchestration_test.tl's TODO names the same gap).
 
 --- Every key a leg's `stage` names, run as ci.yml runs it on that leg
 --- (its env, and the driver check's marker under the key ci.yml builds
