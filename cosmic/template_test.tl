@@ -296,7 +296,7 @@ local SYNTAX <const>: {{string}} = {
   { HEAD .. "x{{else}}", "2", "2", "without a block" },
   { HEAD .. "{{if .a}}{{else}}{{else}}{{end}}", "2", "18", "after {{else}}" },
   { HEAD .. "{{if .a}}{{else}}{{else if .b}}{{end}}", "2", "18", "after {{else}}" },
-  { HEAD .. "{{range .a}}{{else}}{{end}}", "2", "13", "not supported" },
+  { HEAD .. "{{range .a}}{{else if .b}}{{end}}", "2", "20", "nest an {{if}}" },
   { HEAD .. "{{with .a}}{{else if .b}}{{end}}", "2", "19", "nest an {{if}}" },
   { HEAD .. "{{if .a}}{{else foo}}{{end}}", "2", "17", "takes nothing" },
   { HEAD .. "{{if .a}}{{end x}}", "2", "10", "takes nothing" },
@@ -460,6 +460,87 @@ local function test_an_html_template_must_end_in_plain_text_since_another_splice
   compiled(HEAD .. "<svg><g/></svg>")
   compiled(HEAD .. "<select><option>a</option></select>")
   compiled("{{type T from m.t}}{{mode text}}\n<a href=\"")
+end
+
+--- `inner` inside `depth` nested ranges, each over `.l`.
+local function nested_ranges(depth: integer, inner: string): string
+  return string.rep("{{range .l}}", depth) .. inner .. string.rep("{{end}}", depth)
+end
+
+-- Each range walks its body twice, so walking every body again from each
+-- place would take time exponential in the depth: 64 levels would never
+-- finish. The source is not loaded: Lua's limit on locals is met first
+-- (see codegen's block).
+local function test_deeply_nested_ranges_compile_without_walking_each_body_again_per_level()
+  local out = compiled(HEAD .. "<p title=\"" .. nested_ranges(64, "{{.x}}") .. "\">" .. nested_ranges(64, "<b>{{.y}}</b>"))
+  local _, attrs = out:gsub("= _attr%(v%)", "")
+  local _, texts = out:gsub("= _text%(v%)", "")
+  assert(attrs == 1 and texts == 1, out)
+  local _, loops = out:gsub("for _, ", "")
+  assert(loops == 128, loops)
+end
+
+local function test_nested_ranges_refuse_a_body_that_does_not_end_where_it_began_at_depth()
+  local why = refused(HEAD .. nested_ranges(40, "<b class=\"") .. "\">")
+  assert(why:find("^t.tmpl:2:469: the body of this {{range}} ends where it did not begin"), why)
+  -- The innermost body ends where it began, but a second time round its
+  -- URL slot no longer begins the value.
+  local url = refused(HEAD .. "<a href=\"" .. nested_ranges(40, "{{.u}}") .. "\">")
+  assert(url:find("^t.tmpl:2:490: a slot in a URL must begin"), url)
+end
+
+local function test_a_range_takes_an_else_run_when_the_list_is_empty()
+  local out = compiled(HEAD .. "{{range .a}}<b>{{.x}}</b>{{else}}<i>{{.y}}</i>{{end}}{{.z}}")
+  assert(out:find("do local d2 = d.a if d2[1] ~= nil then for _, d1 in ipairs(d2) do", 1, true), out)
+  assert(out:find("end else", 1, true) and out:find("= d.y parts", 1, true) and out:find("end end", 1, true), out)
+  assert(out:find("= d1.x parts", 1, true) and out:find("= d.z parts", 1, true), out)
+  local unread = compiled(HEAD .. "{{range .a}}x{{else}}y{{end}}")
+  assert(unread:find("do local d2 = d.a if d2[1] ~= nil then for _, _ in ipairs(d2) do", 1, true), unread)
+end
+
+local function test_a_range_else_keeps_the_templates_lines()
+  local src = "{{type T from m.t}}{{mode text}}\n{{range .a}}\nL3 {{.x}}\n{{else}}\nL5 {{.y}}\n{{end}}\nL7"
+  local out = compiled(src)
+  assert(newlines(out) == newlines(src) + 1, out)
+  local lines: {string} = {}
+  for line in out:gmatch("([^\n]*)\n") do
+    lines[#lines + 1] = line
+  end
+  assert(lines[2]:find("ipairs(d2) do", 1, true), lines[2])
+  assert(lines[3]:find('"L3 "', 1, true) and lines[3]:find("d1.x", 1, true), lines[3])
+  assert(lines[4]:find("end else", 1, true), lines[4])
+  assert(lines[5]:find('"L5 "', 1, true) and lines[5]:find("d.y", 1, true), lines[5])
+  assert(lines[6]:find("end end", 1, true), lines[6])
+  assert(lines[7]:find('"L7"', 1, true), lines[7])
+end
+
+local function test_a_range_else_is_judged_from_where_the_range_begins()
+  local slots = compiled(HEAD .. "<p title=\"{{range .l}}{{.a}}{{else}}{{.b}}{{end}}\">{{range .l}}<b>{{.c}}</b>" ..
+      "{{else}}<i>{{.d}}</i>{{end}}{{.e}}")
+  local _, attrs = slots:gsub("= _attr%(v%)", "")
+  local _, texts = slots:gsub("= _text%(v%)", "")
+  assert(attrs == 2 and texts == 3, slots)
+  -- The else arm begins the URL value, as the loop's first time round does.
+  local url = compiled(HEAD .. "<a href=\"{{range .l}}/a{{else}}{{.u}}{{end}}\">")
+  assert(url:find("_url(v)", 1, true), url)
+  local arms = refused(HEAD .. "{{range .l}}x{{else}}<b class=\"{{end}}\">")
+  assert(arms:find("^t.tmpl:2:1: the arms of this {{range}} end in different places"), arms)
+  local body = refused(HEAD .. "{{range .l}}<b class=\"{{else}}<b class=\"{{end}}\">")
+  assert(body:find("^t.tmpl:2:1: the body of this {{range}} ends where it did not begin"), body)
+  -- The body runs again after itself, so its URL slot no longer begins the
+  -- value; the else arm does not run again.
+  local again = refused(HEAD .. "<a href=\"{{range .l}}{{.u}}{{else}}/x{{end}}\">")
+  assert(again:find("^t.tmpl:2:22: a slot in a URL must begin"), again)
+  -- What follows is judged from where the else arm leaves off too.
+  local after = refused(HEAD .. "<a href=\"{{range .l}}x{{else}}{{.u}}{{end}}/evil\">")
+  assert(after:find("^t.tmpl:2:44: ") and after:find("protocol-relative", 1, true), after)
+end
+
+local function test_a_range_takes_one_else_and_no_else_if()
+  local chained = refused(HEAD .. "{{range .a}}{{else if .b}}{{end}}")
+  assert(chained:find("^t.tmpl:2:20: {{else}} in a {{range}} takes nothing: nest an {{if}}"), chained)
+  local twice = refused(HEAD .. "{{range .a}}{{else}}{{else}}{{end}}")
+  assert(twice:find("^t.tmpl:2:21: {{else}} after {{else}}"), twice)
 end
 
 local function test_the_records_module_is_required_for_its_types_unless_a_stage_reads_it()
