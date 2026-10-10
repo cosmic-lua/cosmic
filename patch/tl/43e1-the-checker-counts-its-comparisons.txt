@@ -1,5 +1,5 @@
 file: tl.tl
-note: the checker counts the comparisons it has open, so that 40e5 can tell the outermost
+note: the checker counts the comparisons it has open, so that 43e5 can tell the outermost
 --- find
       cache_std_metatable_type: Type
 --- replace

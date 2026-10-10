@@ -1,5 +1,5 @@
 file: tl.tl
-note: a record function or method declared `: never` has a type that never returns, so it is held to its field (40e3): a field declared without `: never` refuses it, and the reverse
+note: a record function or method declared `: never` has a type that never returns, so it is held to its field (43e3): a field declared without `: never` refuses it, and the reverse
 --- find
                rets = self.get_rets(rets),
                is_record_function = true,

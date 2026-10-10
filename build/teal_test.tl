@@ -981,7 +981,7 @@ local function assert_refused(source: string, text: string)
 end
 
 --- `: never` is a return list that says a function does not return
---- (patch/tl's 40b3): it parses on a declaration, a method, a function
+--- (patch/tl's 43b3): it parses on a declaration, a method, a function
 --- type and a function-typed parameter that another follows, and the
 --- Lua it generates is the Lua of the same function without it.
 local function test_never_is_a_return_list()
@@ -999,7 +999,7 @@ end
 
 --- `never` is the flag only as the whole of an unparenthesized return
 --- list: in a list, in parentheses, in a union, as a vararg, as a
---- parameter or in a container it is a name no type has (40b3).
+--- parameter or in a container it is a name no type has (43b3).
 local function test_never_is_only_the_whole_return_list()
   assert_refused("local function f(): never, string error('x') end\nprint(f)\n",
     "'never' is the whole return list")
@@ -1027,7 +1027,7 @@ local function test_never_followed_by_a_dot_or_arguments_is_a_name()
 end
 
 --- No type is named `never`: a declaration of one would have `: never`
---- silently mean something else (40c1). Another name that starts with
+--- silently mean something else (43c1). Another name that starts with
 --- the word is a type like any.
 local function test_no_type_is_named_never()
   for _, source in ipairs({
@@ -1051,7 +1051,7 @@ end
 local never_fail = "local function fail(m: string): never\n  error(m)\nend\n"
 
 --- A function that never returns stands for a function of any returns
---- (patch/tl's 40e2), `pcall`'s parameter among them; one that may return
+--- (patch/tl's 43e2), `pcall`'s parameter among them; one that may return
 --- does not stand for one that never does, which would make `f("x")` end
 --- a block that `print` returns from.
 local function test_a_never_function_is_a_subtype_of_any_function()
@@ -1063,7 +1063,7 @@ local function test_a_never_function_is_a_subtype_of_any_function()
 end
 
 --- Two function types are the same type only when both or neither
---- never return (40e3): a record function is held to its field, which
+--- never return (43e3): a record function is held to its field, which
 --- must say `: never` as the function does, and the reverse.
 local function test_a_record_function_agrees_with_its_field_on_never()
   local record_with_field = "local record Guard\n  die: function(why: string)%s\nend\n"
@@ -1076,8 +1076,8 @@ local function test_a_record_function_agrees_with_its_field_on_never()
 end
 
 --- An overloaded function stands for one that never returns only when
---- every overload does (40e4); the overload a call picks decides
---- whether the call ends a block (40f1).
+--- every overload does (43e4); the overload a call picks decides
+--- whether the call ends a block (43f1).
 local function test_a_poly_function_is_never_only_when_every_overload_is()
   local poly = "local record P\n  f: function(string): never\n  f: function(%s)%s\nend\nlocal p: P\n"
   assert_accepted(poly:format("integer", ": never") .. "local g: function(any): never = p.f\nprint(g)\n")
@@ -1088,7 +1088,7 @@ end
 --- A type nested in another keeps its never-ness: a function that never
 --- returns does not stand for one that may inside an array, a map, a
 --- record, a union, an alias or a generic's type argument, as a
---- parameter or as a return, in either direction (40e5). Teal compares
+--- parameter or as a return, in either direction (43e5). Teal compares
 --- what is nested through is_a in whichever direction passes, so
 --- without this `{function(): never}` stood for `{function(): string}`.
 local function test_never_agrees_when_nested()
@@ -1154,7 +1154,7 @@ end
 
 --- A function declared `: never` contains no `return`, not even a bare
 --- one, and must not reach its end: its last statement ends the block
---- (40g). A closure inside has its own returns.
+--- (43g). A closure inside has its own returns.
 local function test_a_never_function_neither_returns_nor_reaches_its_end()
   assert_refused("local function f(m: string): never\n  if m == '' then return end\n  error(m)\nend\n",
     "cannot return")
@@ -1178,7 +1178,7 @@ local function test_a_never_function_neither_returns_nor_reaches_its_end()
 end
 
 --- A function literal that omits its return list takes `never` from its
---- context as it takes the returns (40h): it must not return and must not
+--- context as it takes the returns (43h): it must not return and must not
 --- reach its end, and its type never returns. The seam shape:
 --- `sys.exit = function(_?: integer) refuse("sys.exit") end`.
 local function test_a_literal_takes_never_from_its_context()
@@ -1196,14 +1196,14 @@ local function test_a_literal_takes_never_from_its_context()
 end
 
 --- A macroexp declared `: never` must be a call that never returns, which
---- replaces the call of it (40g3).
+--- replaces the call of it (43g3).
 local function test_a_never_macroexp_is_a_never_call()
   assert_accepted("local macroexp die(m: string): never return error(m) end\ndie('x')\n")
   assert_refused("local macroexp die(m: string): never return m end\n", "its expression is no call")
   assert_refused("local macroexp die(m: string): never return (error(m)) end\n", "its expression is no call")
 end
 
---- The standard `error` never returns (patch/tl's 41a): it stands for a
+--- The standard `error` never returns (patch/tl's 44a): it stands for a
 --- never-function, and a variable holding it keeps that.
 local function test_error_is_a_never_function()
   assert_accepted("local e: function(string): never = error\nlocal f = error\nprint(e, f)\n")
@@ -1277,7 +1277,7 @@ local function test_a_generic_cannot_write_a_returning_function_into_a_never_con
 end
 
 --- A macroexp field declared `never` is held to the rule of a macroexp: its
---- expression must be a call that never returns (40g3).
+--- expression must be a call that never returns (43g3).
 local function test_a_never_macroexp_field_is_a_never_call()
   local record_with = "local record Guard\n  die: function(why: string): never = macroexp(why: string): never\n" ..
     "    return %s\n  end\nend\nprint(Guard)\n"
@@ -1294,7 +1294,7 @@ local function test_never_or_nil_is_told_to_name_the_function_type()
 end
 
 --- A poly value stands for a function type when some overload is a subtype
---- of it (patch/tl's 40e6): `string -> nothing` overloads do not stand for a
+--- of it (patch/tl's 43e6): `string -> nothing` overloads do not stand for a
 --- function that returns a string, which the row used to accept by asking
 --- for the reverse.
 local function test_a_poly_function_stands_for_what_an_overload_stands_for()

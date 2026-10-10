@@ -1,5 +1,5 @@
 file: tl.tl
-note: two function types are the same type only when both or neither never return: this is the comparison of a generic type argument, an invariant parameter or return, and the type a record function declares against its field, so `function Guard.die(): never` is refused when the field `die` is declared without `: never`, and the reverse (40d5)
+note: two function types are the same type only when both or neither never return: this is the comparison of a generic type argument, an invariant parameter or return, and the type a record function declares against its field, so `function Guard.die(): never` is refused when the field `die` is declared without `: never`, and the reverse (43d5)
 --- find
          ["function"] = function(self:TypeChecker, a: FunctionType, b: FunctionType): boolean, {Error}
             local argdelta = a.is_method and 1 or 0

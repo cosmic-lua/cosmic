@@ -1,7 +1,0 @@
-file: tl.tl
-note: the standard `error` never returns, so a call of it ends a block by the general rule (40f1) and not by 25's test of its name, and `pcall(error, ...)`, `local f = error` and `f = print` follow the subtyping rules (40e2). `os.exit` stays undeclared: cosmic/removed.tl bans it
---- find
-      error: function(? any, ? integer)
---- replace
-      error: function(? any, ? integer): never
---- end

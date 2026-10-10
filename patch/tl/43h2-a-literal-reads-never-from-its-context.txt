@@ -1,5 +1,5 @@
 file: tl.tl
-note: the literal reads whether its context never returns (40h1) beside the returns it expects, from the same function type (37c)
+note: the literal reads whether its context never returns (43h1) beside the returns it expects, from the same function type (37c)
 --- find
                if node.rets_omitted and not has_unbound_typevars(self, context.rets) then
 --- replace

@@ -690,7 +690,7 @@ print(upper(1))
 end
 
 --- `local error = error` has the type of `error`, so it narrows as `error`
---- does (patch/tl's 41a, 41b): the guarantee is checked where the variable
+--- does (patch/tl's 44a, 44b): the guarantee is checked where the variable
 --- is written, and assigning it a function that may return is refused.
 local function test_a_local_holding_error_narrows(tmp: string)
   local ok, trouble = try_build(tmp, "error-localized", entry_prelude .. [[
@@ -732,7 +732,7 @@ print(size("a"))
 end
 
 --- A call of a function declared `: never` ends its block as `error(...)`
---- does (patch/tl's 40f1), so the guard narrows below it. The helper is
+--- does (patch/tl's 43f1), so the guard narrows below it. The helper is
 --- declared as a local function, a record field, a method, a `__call`
 --- and a generic; each case declares `fail` and the guard is the same.
 local never_guard = [[

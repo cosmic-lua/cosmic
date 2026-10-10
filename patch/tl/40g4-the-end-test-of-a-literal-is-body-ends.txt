@@ -1,7 +1,0 @@
-file: tl.tl
-note: the test 37f makes of a function literal that must return a value, that its last statement ends the block, is body_ends (40g3), which a literal declared to never return is held to as well, and one expected to (40h4)
---- find
-               if required > 0 and not (#body > 0 and body[#body].block_returns) then
---- replace
-               if required > 0 and not body_ends(body) then
---- end

@@ -1,5 +1,5 @@
 file: tl.tl
-note: `local record never`, `local interface never` and `local enum never` (and with `global`) declare no type named `never` (40c1)
+note: `local record never`, `local interface never` and `local enum never` (and with `global`) declare no type named `never` (43c1)
 --- find
    i, asgn.var = verify_kind(ps, i, "identifier")
    if not asgn.var then

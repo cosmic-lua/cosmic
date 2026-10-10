@@ -1,5 +1,5 @@
 file: tl.tl
-note: the literal under a context that never returns is a function that never returns, and is refused if it can reach its end, as one declared so is (40g3). Its omitted returns are the context's, none
+note: the literal under a context that never returns is a function that never returns, and is refused if it can reach its end, as one declared so is (43g3). Its omitted returns are the context's, none
 --- find
                if required > 0 and not body_ends(body) then
                   self.errs:add(node, "missing return: this function can reach its end, where %s is expected of it: return a value there, or declare its return types", rets)

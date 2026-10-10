@@ -1,5 +1,5 @@
 file: tl.tl
-note: Teal compares what is nested in a type through is_a in whichever direction passes (a function's parameters and returns bivariantly, arrays, maps, records and unions covariantly), so the rule of 40e2 and 40e3, which holds at the root of a comparison, would let a function that never returns stand for one that may inside another type, and a call through the second ends a block it returns from: `{function(): never}` for `{function(): string}`, and a function taking a never-callback for one taking a callback that returns. The outermost is_a or same_type therefore walks both types in step, through function parameters and returns, array elements, map keys and values, tuple entries, record fields and metafields, union members and the type arguments of a name, and refuses a pair of function types anywhere but at the root that disagrees on `never`, in either direction. A union at the root keeps its members at the root, and an overloaded function counts as one that never returns when every overload does. This also refuses the sound `{function(): never}` for `{function()}`: never-ness must agree wherever a type is nested. A name not resolved yet is not looked into (resolving it here could report an error the comparison reports, or settle it for the wrong scope), and the walk reports nothing and changes nothing but its answer
+note: Teal compares what is nested in a type through is_a in whichever direction passes (a function's parameters and returns bivariantly, arrays, maps, records and unions covariantly), so the rule of 43e2 and 43e3, which holds at the root of a comparison, would let a function that never returns stand for one that may inside another type, and a call through the second ends a block it returns from: `{function(): never}` for `{function(): string}`, and a function taking a never-callback for one taking a callback that returns. The outermost is_a or same_type therefore walks both types in step, through function parameters and returns, array elements, map keys and values, tuple entries, record fields and metafields, union members and the type arguments of a name, and refuses a pair of function types anywhere but at the root that disagrees on `never`, in either direction. A union at the root keeps its members at the root, and an overloaded function counts as one that never returns when every overload does. This also refuses the sound `{function(): never}` for `{function()}`: never-ness must agree wherever a type is nested. A name not resolved yet is not looked into (resolving it here could report an error the comparison reports, or settle it for the wrong scope), and the walk reports nothing and changes nothing but its answer
 --- find
    -- subtyping comparison
    function TypeChecker:is_a(t1: Type, t2: Type): boolean, {Error}
@@ -62,7 +62,7 @@ note: Teal compares what is nested in a type through is_a in whichever direction
    -- Walks a and b in step, as a comparison of them would reach their
    -- parts, and answers the first two function types it meets in the same
    -- place that disagree on whether the function never returns, or nil.
-   -- The pair at the root is the comparison's own to judge (40e2): `root`
+   -- The pair at the root is the comparison's own to judge (43e2): `root`
    -- holds while the walk has gone through nothing but names and unions.
    local function never_mismatch(a: Type, b: Type, root: boolean, seen: {Type:{Type:boolean}}): Type, Type
       a, b = walk_target(a), walk_target(b)
@@ -223,7 +223,7 @@ note: Teal compares what is nested in a type through is_a in whichever direction
 
    -- compare_types, once the outermost comparison has found that the two
    -- types agree on which of their nested functions never return. A
-   -- comparison made inside another (by a relation of 40e2's kind) is not
+   -- comparison made inside another (by a relation of 43e2's kind) is not
    -- the outermost, and walks nothing: the walk covered it.
    local function compare_agreeing(self: TypeChecker, relations: TypeRelations, t1: Type, t2: Type): boolean, {Error}
       local depth = self.compare_depth or 0

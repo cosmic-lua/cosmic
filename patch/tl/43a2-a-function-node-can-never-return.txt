@@ -1,0 +1,12 @@
+file: tl.tl
+note: a function, macroexp or function declaration says it never returns (43b3 reads `: never` into it, 43b5 and 43b6) in a field beside its empty `rets`, which 43d puts into the function type the checker builds from it
+--- find
+   args: Node
+   rets: TupleType
+   body: Node
+--- replace
+   args: Node
+   rets: TupleType
+   never: boolean
+   body: Node
+--- end

@@ -1,5 +1,5 @@
 file: tl.tl
-note: a `record`, `interface` or `enum` declared inside a record declares no type named `never` (40c1)
+note: a `record`, `interface` or `enum` declared inside a record declares no type named `never` (43c1)
 --- find
    i, v = verify_kind(ps, i, "identifier", "type_identifier")
    if not v then

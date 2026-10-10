@@ -1,5 +1,5 @@
 file: tl.tl
-note: `local type never = ...` and `global type never = ...` (and the same inside a record) declare no type named `never` (40c1)
+note: `local type never = ...` and `global type never = ...` (and the same inside a record) declare no type named `never` (43c1)
 --- find
    local itypeargs = i
 --- replace
