@@ -38,6 +38,19 @@ function Example.lines()
   end
 end
 
+--- `records` is `parse` with each record's line, so a caller can skip a
+--- ragged record, saying where it was, instead of refusing the file as
+--- `table` does.
+function Example.records()
+  local rows = assert(Csv.records('id,name\n1\n\n2,"Bo\nb"\n'))
+  for _, row in ipairs(rows) do
+    if #row.fields ~= 2 then
+      print("line " .. row.line .. ": skipped") -- line 2: skipped
+    end
+  end
+  assert(#rows == 3 and rows[3].line == 4 and rows[3].fields[2] == "Bo\nb")
+end
+
 --- A tab-separated file is the same reader with another delimiter.
 function Example.tsv()
   local records = assert(Csv.parse("a\tb,c\n1\t\n", { delimiter = "\t" }))

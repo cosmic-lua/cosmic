@@ -181,9 +181,9 @@ function Vendor.fetch(url: string, path: string, digests: {{Hash.Algorithm, stri
     return path, ""
   end
   local _, _ = Fs.remove(path)
-  -- TODO: pass sha3-256 to Http.download too, so a mismatch never
-  -- reaches the cache, once Http.download checks it and
-  -- ci/cosmic-driver.pin names a release that carries that.
+  -- TODO: pass sha3-256 to Http.download as `sha3_256`, so a mismatch
+  -- never reaches the cache, and drop the check after it, once
+  -- ci/cosmic-driver.pin names a release whose Http.download checks it.
   local sha256: string = nil
   for _, digest in ipairs(digests) do
     if digest[1] == "sha256" then
