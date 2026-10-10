@@ -20,6 +20,12 @@ defines the target; once something ships, it leaves this file.
   raises (and [`Proc.exit`]) narrows below a guard as `error` does:
   [doc/plans/teal-never.md](plans/teal-never.md) has the design and the
   patch series.
+- declare cosmic.stream's interface methods with a named receiver
+  (`read: function(self: Reader, ...)`) and drop each implementing record's
+  redeclaration of them: the documented signatures then read as
+  `records_interfaces_methods` teaches, and the design note above
+  `FromStringReader` in [`cosmic/stream.tl`] shrinks. every interface of the
+  module and every record that implements one changes together.
 - add earned lint rules and their fixes to [`build/fix/rule.tl`]'s rule list.
   the rewrite stage is in place and the list is still empty.
 - add a floor for line coverage, C included: `cosmic test --min PCT
@@ -82,6 +88,14 @@ untouched. Both meanings could then coexist.
 
 The sandbox's own next steps, none of which a caller needs yet:
 
+- let a test module's [`Test.policy`] name a `database` of its own. None needs
+  one, and the only coherent meaning is an overlay on the sealed database the
+  harness gives every worker, which the core's `--database` cannot layer. The
+  shape would be a path of the tree, whose digest is a `reads` entry of the
+  module's key, plus a core that opens a second database as a layer over the
+  first. [`Test.needs_of`] and build/analyzer.tl refuse the field until then.
+- add a `--proc` flag to `cosmic sandbox` for the profile "proc", beside
+  `--system` and `--cosmic`; `--path r:/proc` says it today.
 - hold a sandbox's memory and CPU as a whole, by a cgroup of its own.
   [`Sandbox.Limits`] sets rlimits on each process and counts the
   sandbox's processes by its user namespace; nothing bounds what the
@@ -396,6 +410,7 @@ four-producer provenance join.
 [`cosmic/errors.tl`]: ../cosmic/errors.tl
 [`cosmic/json_fuzz_test.tl`]: ../cosmic/json_fuzz_test.tl
 [`cosmic/shape_example.tl`]: ../cosmic/shape_example.tl
+[`cosmic/stream.tl`]: ../cosmic/stream.tl
 [`cosmic/template/markup.tl`]: ../cosmic/template/markup.tl
 [`Errors.guidance`]: ../cosmic/errors.tl
 [`eval/summarize.tl`]: ../eval/summarize.tl
@@ -413,6 +428,8 @@ four-producer provenance join.
 [`Shape.record`]: ../cosmic/shape.tl
 [`Shape.Spec`]: ../cosmic/shape.tl
 [`Shape.strict_record`]: ../cosmic/shape.tl
+[`Test.needs_of`]: ../cosmic/test.tl
+[`Test.policy`]: ../cosmic/test.tl
 [`Typed.spec`]: ../cosmic/shape.tl
 [`Url.parse`]: ../cosmic/url.tl
 [`Url.Parts`]: ../cosmic/url.tl

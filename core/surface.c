@@ -87,12 +87,15 @@ static int surface_trace (lua_State *L) {
 
 /* The traceback of the coroutine at 1, from its top: where one that
  * raised stopped, of which `coroutine.resume` answers only the error.
- * The running coroutine's starts at its caller, as `trace`'s does. */
+ * The running coroutine's starts at the frame `level` (argument 3,
+ * default 1) counts up from the binding, 1 being its caller as in
+ * `trace`; another's is from its top. */
 static int surface_trace_of (lua_State *L) {
   luaL_checktype(L, 1, LUA_TTHREAD);
   lua_State *co = lua_tothread(L, 1);
   const char *message = luaL_optstring(L, 2, NULL);
-  luaL_traceback(L, co, message, co == L ? 1 : 0);
+  int level = cosmic_optint(L, 3, 1);
+  luaL_traceback(L, co, message, co == L ? level : 0);
   return 1;
 }
 

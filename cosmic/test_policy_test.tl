@@ -53,6 +53,14 @@ local SAME: {{string}} = {
   { '{ lua = true, host = { "/proc" }, nests = true, network = { "127.0.0.1" } }',
     'Test.policy { profiles = { "cosmic" }, grants = { { path = "/proc", letters = "r" } }, ' ..
       'promises = { "nest" }, loopback = { "127.0.0.1" } }' },
+  -- The profile "proc" is the grant of /proc by hand, to the key.
+  { '{ host = { "/proc" } }', 'Test.policy { profiles = { "proc" } }' },
+  { '{ lua = true, host = { "/proc" }, nests = true, network = { "127.0.0.1" } }',
+    'Test.policy { profiles = { "cosmic", "proc" }, promises = { "nest" }, ' ..
+      'loopback = { "127.0.0.1" } }' },
+  { '{ system = true, tool = true, host = { "/etc/hosts", "/proc" } }',
+    'Test.policy { profiles = { "system", "cosmic", "proc" }, grants = { { path = "o/bin", letters = "rx" }, ' ..
+      '{ path = "/etc/hosts", letters = "r" } } }' },
   { "{ tool = true }",
     'Test.policy { profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }' },
   { '{ tool = true, store = true, reads = { "a" } }',
@@ -178,6 +186,7 @@ local function test_a_policy_with_no_needs_is_refused()
       "test.policy: grants[1].letters takes letters of rwxcu, in that order" },
     { 'Test.policy { grants = { { letters = "r" } } }', "test.policy: grants[1].path takes a path" },
     { 'Test.policy { profiles = { "net" } }', "test.policy: profiles: no profile net" },
+    { 'Test.policy { database = "x.db" }', "test.policy: database is refused" },
     { 'Test.policy { promises = { "exec" } }', "test.policy: promises: no promise exec" },
     { "Test.policy { reeds = {} }", "test.policy: has no field reeds; it has connect, database, env" },
     { 'Test.policy { env = "PATH" }', "test.policy: env takes a list of string literals, written out" },
@@ -286,6 +295,7 @@ local function test_a_requirement_that_breaks_a_rule_fails_the_build()
   for _, call in ipairs({
       'Test.policy { requires = { "path:/etc/hosts" }, grants = { { path = "/etc/hosts", letters = "r" } } }',
       'Test.policy { requires = { "path:/proc/self/status" }, grants = { { path = "/proc", letters = "r" } } }',
+      'Test.policy { requires = { "path:/proc/self/status" }, profiles = { "proc" } }',
       'Test.policy { requires = { "program:jq" }, profiles = { "system" }, env = { "PATH" } }',
       'Test.policy { requires = { "root", "portable" } }',
       'Test.policy { requires = { "sandbox", "landlock", "landlock:3", "userns", "nest", "own_proc", "proc" } }',

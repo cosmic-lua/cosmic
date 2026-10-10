@@ -23,7 +23,7 @@ local function probe_in(tmp: string): string
   return (assert(stand_in.build(tmp .. "/probe")))
 end
 
-Test.policy{ grants = { { path = "/proc", letters = "r" } }, requires = { "proc" } }
+Test.policy{ profiles = { "proc" }, requires = { "proc" } }
 
 --- Linux exposes the inherited SIGPIPE disposition and the ignore this
 --- process installs in /proc. A spawned child keeps only the inherited one.

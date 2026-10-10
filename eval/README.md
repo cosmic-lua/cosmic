@@ -65,7 +65,9 @@ of the solver's project. The prompt varies only in arena paths.
 - **Bounded.** Use a 600-second solver deadline. Claude's timeout enforces
   it; the Work parent monitors elapsed time and interrupts at the deadline.
   Record actual elapsed time and enforcement method. A turn cap is an
-  additional runner-specific limit, not a claim of equal model budgets.
+  additional runner-specific limit, not a claim of equal model budgets;
+  eval/solve sets it to 150 so that, at the several seconds a turn
+  solvers have taken, the deadline usually binds first.
 - **Independent grading.** After the solver stops, run
   `timeout 30 eval/check/<task> <absolute-arena>` (`timeout 60` for jobs,
   mirror and relay, whose checks wait out timeouts of their own) and save
@@ -96,7 +98,7 @@ for an arena in a sandbox, and writes `transcript.jsonl`, `stderr`,
 `started_at`, `finished_at` and `exit_code` beside PROMPT.md:
 
 ```sh
-eval/solve "$dir" --model "$model"    # --max-turns 60 --timeout 600 by default
+eval/solve "$dir" --model "$model"    # --max-turns 150 --timeout 600 by default
 ```
 
 The sandbox is cosmic.child's (`unveil`, as `cosmic test` holds its
@@ -125,8 +127,8 @@ directory (`/mnt/skills`, `/home/claude/.claude/skills`), other arena or
 user config is there to read. Its environment is the proxy variables,
 the CA bundle variables, any Anthropic credential or endpoint variable
 the host sets, and its own PATH (the arena's `bin/` first), `HOME`,
-`CLAUDE_CONFIG_DIR` and `TMPDIR`, and nothing else: the variables a
-cloud session sets that bring the checkout's instructions or a synced
+`CLAUDE_CONFIG_DIR`, `TMPDIR` and `COSMIC_TEST_SANDBOX=0`, and nothing
+else: the variables a cloud session sets that bring the checkout's instructions or a synced
 skill back in (`CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD`,
 `CLAUDE_ADDITIONAL_DIRECTORIES`, `CLAUDE_CODE_SYNC_SKILLS`) are never
 passed. It does not isolate the network: the solver reaches the API
@@ -134,7 +136,11 @@ through the host's network and proxy, and so could fetch anything the
 proxy allows; the prompt's rule and the transcript still govern that.
 The solver runs as the caller's user, in a user namespace of its own,
 holding no capability, with every path but the arena's four mounted
-read-only.
+read-only. With no capability, cosmic cannot sandbox a test worker
+there (build/test_policy.tl's `unmet`), so the environment also carries
+`COSMIC_TEST_SANDBOX=0`: the solver's `cosmic test` runs its workers
+unsandboxed, which it would do anyway, and says so. The grader runs
+under the same pin (below).
 
 The sandbox needs Linux with user namespaces the caller may make: where
 `cosmic test` sandboxes its workers, eval/solve sandboxes the solver. A
@@ -155,13 +161,14 @@ trusting the setup.
 config=$(mktemp -d)
 cd "$dir/project" && env -u CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD \
   -u CLAUDE_ADDITIONAL_DIRECTORIES -u CLAUDE_CODE_SYNC_SKILLS \
-  CLAUDE_CONFIG_DIR="$config" TMPDIR="$dir/tmp" PATH="$dir/bin:$PATH" timeout 600 \
+  CLAUDE_CONFIG_DIR="$config" TMPDIR="$dir/tmp" PATH="$dir/bin:$PATH" \
+  COSMIC_TEST_SANDBOX=0 timeout 600 \
   claude -p "$(cat "$dir/PROMPT.md")" \
   --model "$model" --disable-slash-commands \
   --tools "Bash,Read,Write,Edit,Glob,Grep" \
   --allowedTools "Bash,Read,Write,Edit,Glob,Grep" \
   --disallowedTools "Skill,WebSearch,WebFetch,Agent,Task,ToolSearch,SearchSkills,ListSkills,SearchPlugins,ListPlugins,SearchMcpRegistry,Workflow,SendMessage,Artifact,NotebookEdit,SendUserFile" \
-  --max-turns 60 --output-format stream-json --verbose \
+  --max-turns 150 --output-format stream-json --verbose \
   < /dev/null > "$dir/transcript.jsonl" 2> "$dir/stderr"
 ```
 
@@ -173,9 +180,16 @@ as well as what the manual launch let through.
 `eval/summarize <transcript.jsonl>` is specifically a Claude stream-json
 reader. Beyond turns, tool calls, minutes and cost it counts failed tool
 calls, `cosmic docs` lookups with no exact match, the call at which
-`cosmic test` first passed and the journal's writes, then lists every
-path a tool call named outside the arena and flags any that named this
-checkout or a skills directory. Keep it for Claude; do not feed Work results into it. `--bare`
+`cosmic test` first passed (a Bash call that ran it, its result holding a
+line `test: PASS`) and the journal's writes, then lists the paths a tool
+call named outside the arena, as `BREACH` (this checkout, `.claude`, a
+skills directory, CLAUDE.md, AGENTS.md, a home directory, another arena),
+a `sandbox-tmp` count (the rest of /tmp, private to the solver) and
+`outside-arena` (a `~/` or `$HOME/` path shows here, not as `BREACH`: the
+solver's home is inside its arena, a manual launch's is the user's, and the
+summary cannot tell which), and flags any call that named this checkout or a skills
+directory. The lists are advisory, read from the command text; the sandbox
+is the enforcement. Keep it for Claude; do not feed Work results into it. `--bare`
 previously dropped the credential helper, and bypassing permissions was
 refused; neither is required for this eval.
 
@@ -294,14 +308,15 @@ modules only. For each task it
    in it, as the journal contract asks -- what it says is the
    reader's to judge, not the grader's;
 2. clears the runs `project/o/build.db` records, runs the arena's own
-   `bin/cosmic test`, and requires a passing test and a passing example
-   (or doctest) among the runs that test recorded;
+   `bin/cosmic test` (workers unsandboxed, as for step 4), and requires
+   a passing test and a passing example (or doctest) among the runs
+   that test recorded;
 3. runs `cosmic fix --check` with `JOURNAL.md` set aside;
 4. for a task that names a library API, copies the project, but for
    its `o/`, into a temporary directory, adds the task's hidden test,
    [`eval/check/testdata/<task>_api_test.tl`](check/testdata), and runs
-   `cosmic test` on that file alone there: each test that fails, or
-   each line the compiler refuses (a module, type or method missing, a
+   `cosmic test` on that file alone there (unsandboxed, as step 2):
+   each test that fails, or each line the compiler refuses (a module, type or method missing, a
    type that does not fit), is a `check: FAIL hidden api: ...` line.
    The solver never sees the test, the project never holds it, and
    the copy is removed afterward; its output is kept as a
@@ -311,6 +326,17 @@ modules only. For each task it
    alone into the arena's `empty/`, and runs the task's checks there,
    the executable with an empty environment but for a variable a check
    names.
+
+Both `cosmic test` steps run with `COSMIC_TEST_SANDBOX=0`, and
+`COSMIC_SANDBOX` and `COSMIC_CI_REQUIRE_SANDBOX` removed, whatever the
+grader's own environment holds: the solver is uid 0 of a user namespace
+without capabilities, where cosmic cannot sandbox a worker, so its
+`cosmic test` ran unsandboxed, while the grader's host can sandbox. Left
+to the host, a test that reached the network or a socket file without
+declaring it in [`Test.policy`] would pass for the solver and fail at
+grading. The hidden tests still declare what they use
+([`eval/check/testdata_test.tl`] holds them to it), so they also pass
+sandboxed.
 
 Each step's output is kept in the arena as `check-<n>.out`, and a server
 task's as `check-serve.out` (relay's as `check-relay*.out`). Every check
@@ -334,9 +360,11 @@ solver's arena must never be able to reach one.
 
 ## reading a journal
 
-The summary at the end ranks what slowed the agent, with the log
-entries it refers to; read those entries, not the ranking alone. A
-journal written once at the end (`journal_writes` of one or two) is a
+The summary at the top ranks what slowed the agent, with the log
+entries it refers to; read those entries, not the ranking alone. The
+solver rewrites it after every entry, so a run stopped at the deadline
+or the turn cap still has one, current as of its last write. A journal
+written once at the end (`journal_writes` of one or two) is a
 retelling: weigh the transcript and [`eval/summarize`]'s counts over its
 ranking. Then:
 
@@ -354,6 +382,8 @@ ranking. Then:
 [`eval/arena_test.tl`]: arena_test.tl
 [`eval/arena`]: arena
 [`eval/check/grade.tl`]: check/grade.tl
+[`eval/check/testdata_test.tl`]: check/testdata_test.tl
 [`eval/journal.md`]: journal.md
 [`eval/solve`]: solve
 [`eval/summarize`]: summarize
+[`Test.policy`]: ../cosmic/test.tl

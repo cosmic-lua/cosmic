@@ -21,10 +21,6 @@ local type raw_hash = require("cosmic.internal.hash")
 local type raw_process = require("cosmic.internal.process")
 local stand_in = require("build.stand_in")
 
--- TODO: declare /proc for Linux alone once a declaration can name a
--- host path per platform (a `host` entry for Linux and one for macOS):
--- macOS has no /proc, so there this declares a path that is not there,
--- which gives and keys nothing but says what the tests need wrongly.
 --- What the syscall table is tested on: /proc. A stand-in program
 --- (build/stand_in.tl) is what a child here runs, reading nothing of the system's. The cases
 --- that start this program itself to run a chunk, or unveil a child's
@@ -33,7 +29,7 @@ local stand_in = require("build.stand_in")
 --- core/syscalls_tool_test.tl's, and the one that reads the program's
 --- own path core/artifact_fd_tool_test.tl's.
 Test.policy{
-  grants = { { path = "/proc", letters = "r" } },
+  profiles = { "proc" },
   loopback = { "127.0.0.1" },
 }
 

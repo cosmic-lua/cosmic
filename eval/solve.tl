@@ -91,10 +91,10 @@ local function positive(text: string): integer
 end
 
 --- Reads the command line: the arena, then `--model` (required),
---- `--max-turns` (60 by default) and `--timeout` (600 seconds by
+--- `--max-turns` (150 by default) and `--timeout` (600 seconds by
 --- default), as eval/README.md's manual launch has them.
 function Solve.parse(argv: {integer: string}): Solve.Options | nil, string
-  local options: Solve.Options = { max_turns = 60, timeout = 600 }
+  local options: Solve.Options = { max_turns = 150, timeout = 600 }
   local i = 1
   while argv[i] ~= nil do
     local word = argv[i]
@@ -140,7 +140,7 @@ end
 --- The solver's whole environment: `passed` from `host`, and its own
 --- HOME, CLAUDE_CONFIG_DIR, TMPDIR and PATH inside `arena`, PATH
 --- putting the arena's bin/ first, then `extra` (an interpreter's
---- directories), then the system's.
+--- directories), then the system's, and COSMIC_TEST_SANDBOX=0.
 function Solve.environment(host: {string:string}, arena: string, extra: {string}): {string:string}
   local env: {string:string} = {}
   for _, name in ipairs(passed) do
@@ -153,6 +153,15 @@ function Solve.environment(host: {string:string}, arena: string, extra: {string}
   env.HOME = arena .. "/home"
   env.CLAUDE_CONFIG_DIR = arena .. "/config"
   env.TMPDIR = arena .. "/tmp"
+  -- The solver is uid 0 of a user namespace holding no capability, where
+  -- cosmic cannot sandbox a test worker and would run it unsandboxed
+  -- anyway; pinning that states the regime, and eval/check/grade.tl
+  -- grades under it.
+  -- TODO: once the solver gets a mapped non-root user (or capabilities)
+  -- in cosmic.child's sandbox, and a way to pass the CLI's root-only
+  -- OAuth token to it, drop this pin so the solver meets the sandboxed
+  -- regime a host grades in, and drop the grader's.
+  env.COSMIC_TEST_SANDBOX = "0"
   return env
 end
 

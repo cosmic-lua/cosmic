@@ -222,8 +222,10 @@ local record Test
   --- cosmic.sandbox -- every worker would load it -- so the record is
   --- written out here, and a test holds it to the same fields.
   record Policy
-    --- Named policies to join in: "system" (`system` of [`Needs`]) and
-    --- "cosmic" (`lua`; `tool` with the grant of o/bin beside it).
+    --- Named policies to join in: "system" (`system` of [`Needs`]),
+    --- "cosmic" (`lua`; `tool` with the grant of o/bin beside it) and
+    --- "proc" (the host path /proc, read, in `host` of [`Needs`]: the
+    --- kernel's process information, every process's entries).
     profiles: {string}
     --- The paths the tests read: a grant of "r" on a path of the tree is
     --- a read of it, on an absolute path a host file.
@@ -253,8 +255,9 @@ local record Test
     user: integer
     --- The group the tests run as. Refused, as `user` is.
     group: integer
-    --- The database the tests' program runs on. Refused: no worker runs
-    --- on one yet.
+    --- The database the tests' program runs on. Refused: the harness
+    --- chooses it (a sealed one of the closure, or the program's whole for
+    --- `store` and `tool`).
     database: string
     --- What the tests need of the host that no other field says, by name
     --- from a closed table: `portable`, `root`, `unix_socket` (Unix stream
@@ -378,8 +381,9 @@ local LUA_FIX <const> = "; grant { path = \"o/bin\", letters = \"rx\" } beside t
 
 --- The profiles a policy joins in, and the flag each stands for: "system"
 --- is `system`; "cosmic" is `lua`, the program run from an artifact of the module's closure,
---- and `tool`, the program itself, where the grant of o/bin is made beside.
-local PROFILE_FLAGS <const>: {string:string} = { system = "system", cosmic = "cosmic" }
+--- and `tool`, the program itself, where the grant of o/bin is made beside;
+--- "proc" is the host path /proc, as the grant of it by hand is.
+local PROFILE_FLAGS <const>: {string:string} = { system = "system", cosmic = "cosmic", proc = "proc" }
 
 --- The promises a policy makes, and whether one has a `needs` field.
 local PROMISE_FIELDS <const>: {string:string} = {
@@ -561,7 +565,7 @@ function Test.needs_of(given: any): Test.Needs | nil, string
   for _, profile in ipairs(policy.profiles or {}) do
     local flag = PROFILE_FLAGS[profile]
     if flag == nil then
-      return nil, "profiles: no profile " .. profile .. "; the profiles are cosmic, system"
+      return nil, "profiles: no profile " .. profile .. "; the profiles are cosmic, proc, system"
     end
     flags[flag] = true
   end
@@ -614,11 +618,13 @@ function Test.needs_of(given: any): Test.Needs | nil, string
     return nil, "connect is refused: no test reaches a host but loopback, whose answer no " ..
       "key holds; declare the addresses in loopback and start the service in the test"
   end
-  -- TODO: take `database` once a module's [`Test.policy`] may name a database
-  -- of its own, whose digest the key then holds: the harness gives every
-  -- worker its own sealed database already, which a module's cannot replace.
+  -- A module's own `database` is a limit decided for good: no test needs
+  -- one, and the only coherent meaning is an overlay on the sealed database
+  -- the harness gives every worker, which the core's `--database` cannot
+  -- layer (doc/roadmap.md holds the shape, should one be wanted).
   if policy.database ~= nil then
-    return nil, "database " .. NOT_YET .. "; a module cannot declare a database of its own yet"
+    return nil, "database is refused: the harness chooses the database a worker runs on " ..
+      "(a sealed one of its closure, or the whole program's for `store` and `tool`)"
   end
   if policy.tmp == false then
     return nil, "tmp = false " .. NOT_YET .. "; every test has a temporary directory today"
@@ -639,6 +645,7 @@ function Test.needs_of(given: any): Test.Needs | nil, string
     if beside ~= nil then return nil, LUA_BESIDE .. beside .. LUA_FIX end
   end
   out.system, out.nests = flags.system, flags.nests
+  if flags.proc then host[#host + 1] = "/proc" end
   if #reads > 0 then out.reads = reads end
   if #host > 0 then out.host = host end
   if #caches > 0 then out.caches = caches end
@@ -674,7 +681,9 @@ end
 --- table written out as a literal, once, at the top of the module. A
 --- grant with a path of the tree is a read of it, an absolute
 --- path a read of that host file; the profile "system" is `system`,
---- "cosmic" is `lua`; the promise "nest" is `nests`; `loopback` is
+--- "cosmic" is `lua`, "proc" is the host path /proc (the grant
+--- `{ path = "/proc", letters = "r" }`; on macOS, which has no /proc, a host
+--- path not there is given and keyed as none); the promise "nest" is `nests`; `loopback` is
 --- `network`. Four grants, written exactly so, are the fields they
 --- stand for rather than reads: `{ path = "o/cosmic.db", letters = "r" }`
 --- is `store = true`, `{ path = "/noexec", letters = "rwc" }` is

@@ -319,7 +319,7 @@ never by its path in the build directory.
    one written twice fails it, naming the rule.
    What the worker sees is what its module grants, not what the runner
    found, so a `path:` needs a `host` grant of the same path (or a
-   /proc grant above it), and a `program:` the profile "system" and
+   /proc grant above it, or the profile "proc"), and a `program:` the profile "system" and
    `env = { "PATH" }`; it is probed only under the system's paths
    ([`build.confine`]'s `system_paths`) a worker with that profile is
    given, so one found only elsewhere is skipped. The requirements of a
@@ -396,7 +396,11 @@ never by its path in the build directory.
    whose fields these paragraphs name (`reads`, `host`, `env`, `network`,
    `system`, `tool`, `lua`, `nests`, `store`, `noexec`, `caches`): a grant
    "r" of a path of the tree is a read and of an absolute path a host
-   file, the profile "system" is `system`, "cosmic" is `lua`, and `tool`
+   file, the profile "system" is `system`, "proc" is the host path /proc
+   (the kernel's process information, read: [`Sandbox.profile`]'s gives
+   it on Linux and nothing on macOS; a test declares `profiles = {
+   "proc" }`, not the grant, and on macOS names a path that is not there,
+   which gives and keys nothing), "cosmic" is `lua`, and `tool`
    with the grant `{ path = "o/bin", letters = "rx" }` beside it, the
    promise "nest" is `nests`, `loopback` is `network`, the grant
    `{ path = "o/cosmic.db", letters = "r" }` is `store`; what has no
@@ -645,6 +649,7 @@ unblocks: `bin/cosmic todos '"cosmic-driver.pin"'` lists them.
 [`Fuzz.label`]: build/fuzz/init.tl
 [`Fuzz.more`]: build/fuzz/init.tl
 [`harness_epoch.library`]: build/harness_epoch.tl
+[`Sandbox.profile`]: cosmic/sandbox/init.tl
 [`Store.bytecode`]: cosmic/store.tl
 [`Store.databases()`]: cosmic/store.tl
 [`Store.meta`]: cosmic/store.tl

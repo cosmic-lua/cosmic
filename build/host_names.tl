@@ -229,8 +229,12 @@ function host_names.check(declared: {string}, inputs: host_names.Inputs): boolea
         if grants(path, spec.argument) then granted = true end
       end
       if not granted then
+        local grant = string.format("grants = { { path = %q, letters = \"r\" } }", spec.argument)
+        if spec.argument == "/proc" or spec.argument:sub(1, 6) == "/proc/" then
+          grant = "profiles = { \"proc\" }"
+        end
         return false, string.format("requires: %q needs a host grant of the path, which is what the " ..
-            "worker sees of it: grants = { { path = %q, letters = \"r\" } }", name, spec.argument)
+            "worker sees of it: %s", name, grant)
       end
     elseif spec.base == "program" then
       local path_named = false

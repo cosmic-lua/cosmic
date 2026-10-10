@@ -1194,4 +1194,26 @@ local function test_error_is_a_never_function()
   assert_accepted("print(pcall(error, 'x'))\nlocal g: function(any) = error\nprint(g)\n")
   assert_refused("local f = error\nf = print\n", "may return, where")
   assert(#syntax_errors("local g: function(string): never = error\n") == 0)
+
+--- A record's method refused against an interface method with an unnamed
+--- receiver is told to name the receiver `self`.
+local function test_an_unnamed_interface_receiver_is_told_to_name_self()
+  local msg = "type signature of 'm' does not match its declaration in R: " ..
+    "argument 0: R is not a I"
+  local hint = teal.replacement(msg, "function R:m(s: string): string end\n", 1, 1)
+  assert(hint ~= nil and hint:find("m: function(self: I, ...)", 1, true) ~= nil, tostring(hint))
+  assert(hint:find("function R:m", 1, true) ~= nil, hint)
+  assert(teal.replacement("type signature of 'm' does not match its declaration in R: " ..
+      "argument 0: S is not a I", "", 1, 1) == nil)
+  assert(teal.replacement("type signature of 'm' does not match its declaration in R: " ..
+      "argument 1: R is not a I", "", 1, 1) == nil)
+end
+
+--- A type parameter the expected result fixed is told to bind it in a local.
+local function test_a_fixed_type_parameter_is_told_to_bind_in_a_local()
+  local hint = teal.replacement("argument 2: type parameter <T>: R is not a I", "", 1, 1)
+  assert(hint ~= nil and hint:find("local v: R = setmetatable(t, mt)", 1, true) ~= nil,
+    tostring(hint))
+  assert(teal.replacement("argument 2: type parameter <T>: got R, expected R | nil", "", 1, 1) ~= nil)
+  assert(teal.replacement("argument 2: got R, expected S", "", 1, 1) == nil)
 end
