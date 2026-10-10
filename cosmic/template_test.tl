@@ -503,6 +503,11 @@ local APART <const>: {{string}} = {
   { '<input{{if .a}} name=n{{end}}/>', "2", "30", "reads differently" },
   { '<input{{range .l}} checked{{end}}=x>', "2", "34", "reads differently" },
   { '<meta{{if .a}} http-equiv{{end}} content="{{.c}}">', "2", "33", "reads differently" },
+  -- The arm that names http-equiv is the one the `>` ends, not the place kept.
+  { '<meta content="{{.c}}"{{if .a}}{{else}} http-equiv{{end}}>', "2", "16", "could be a redirect" },
+  { '<input{{range .l}} {{end}}name=x>', "2", "27", "a block before this text" },
+  -- Run again, the body's own `a` carries on the `a` the run before wrote.
+  { '<input {{range .l}}a{{end}}>', "2", "20", "the {{range}} it is in" },
   { '<input{{if .a}} checked{{end}}{{.x}}>', "2", "31", "a slot" },
   { '<input{{if .a}} checked{{end}}', "2", "31", "the template ends inside a tag" },
   { '<in{{if .a}}put checked{{end}}>', "2", "4", "end in different places" },

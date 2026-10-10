@@ -342,9 +342,9 @@ local function alike(a: Place, b: Place): boolean
   return not ATTRIBUTED[a.phase] or a.attr == b.attr
 end
 
---- The phases at a boundary between attributes, or in a name or unquoted
---- value that a space, `/` or `>` would end, where a tag may stand after
---- a block that adds a whole attribute to it.
+--- The phases at a boundary between attributes, in a name that a space,
+--- `/` or `>` would end, or in an unquoted value that a space or `>` would
+--- end, where a tag may stand after a block that adds a whole attribute to it.
 local BOUNDARY <const>: {string: Phase} = {
   tag_name = "tag_name", before_attr = "before_attr", attr_name = "attr_name", after_attr = "after_attr",
   value_unq = "value_unq",
@@ -949,9 +949,10 @@ local function settle(p: Place, text: string, line: integer, col: integer): inte
       end
       p.alts = alts_of(p, set)
     else
-      p.late = "the arms of a block before this text leave the tag at different attributes, and this text " ..
-        "reads differently after each: in one and not another it carries on a name or value, gives an attribute " ..
-        "a value, or ends a name that changes the tag (http-equiv, or color in <font>)"
+      p.late = "a block before this text, or the {{range}} it is in, may leave the tag at different attributes, " ..
+        "and this text reads differently after each: in one and not another it carries on a name or value, " ..
+        "gives an attribute a value, or ends a name that changes the tag (http-equiv, or color, face or size " ..
+        "in <font>)"
       p.late_line, p.late_col = locate(text, i, line, col)
       return #text + 1
     end
