@@ -20,7 +20,7 @@ all of it. the sections after add what docs, comments and links need.
    way: no "used to", "previously", "no longer", "we changed", no
    commit, PR or issue numbers, no story of a debugging session. a
    `TODO:` is not history: it names a gap and what it waits on
-   ([`AGENTS.md`]), and stays.
+   ([todo comments](#todo-comments)), and stays.
 
 ## docs are always right
 
@@ -229,6 +229,31 @@ a comment kept as it is, because it says why, which the code cannot:
 -- holds past that, or for a file that does not say (a pipe, /proc).
 ```
 
+## todo comments
+
+leave a `TODO:` the moment one is due, not at the end of the work. one
+is due when a change settles for less than the right fix because
+something is missing (an API, a binding, a module, a patch the bootstrap
+pin lacks): put it where the better fix would go and name what it waits
+on ("once cosmic.sys carries ftruncate"), so the workaround can be found
+and undone. one is also due for a gap met along the way and left alone:
+say what is wrong and what the fix would be.
+
+a `TODO:` whose fix cannot be made yet still goes in now, naming the
+unmet dependency ("once #2011 merges"). one that waits on the bootstrap
+pin says "once ci/cosmic-driver.pin names ...", word for word, so the
+change that moves the pin finds it. in a doc comment, a `TODO:` is a
+separate `--` comment set off from the doc by a blank line.
+
+a feature no caller needs yet is no `TODO:`: it goes in
+[`doc/roadmap.md`]. a limit decided for good is a plain comment with the
+reason it stays. a gap named anywhere else (a reply, a summary, a "known
+limits" line in a PR description) is a `TODO:` not yet written: write it
+in the code first.
+
+when the work is done, list every `TODO:` it added in the summary and
+the PR description ([`doc/contributing.md`]).
+
 ## links
 
 a comment or a Markdown file links to what it names with `` [`x`] ``,
@@ -267,10 +292,10 @@ resolution and what counts as prose.
    comments`. its description gives the kinds of change made with a few
    examples, any refactor, and any defect found.
 
-[`AGENTS.md`]: ../AGENTS.md
 [`build/harness_epoch.tl`]: ../build/harness_epoch.tl
 [`build/harness_epoch_test.tl`]: ../build/harness_epoch_test.tl
 [`build/links.tl`]: ../build/links.tl
 [`cosmic.fs.read`]: ../cosmic/fs.tl
 [`cosmic.test`]: ../cosmic/test.tl
 [`doc/contributing.md`]: contributing.md
+[`doc/roadmap.md`]: roadmap.md

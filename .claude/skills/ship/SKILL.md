@@ -54,7 +54,7 @@ Check, against the code rather than the diff's story:
   that passes without the fix is BLOCKING.
 - Cases the change gets wrong: edge inputs, failure paths, other
   callers (`bin/cosmic uses <symbol>`).
-- Rules in AGENTS.md, including the C checklist when C changed, and
+- Rules in AGENTS.md, including doc/c.md's checklist when C changed, and
   TODO policy: a gap left with no `TODO:` naming what it waits on.
 - Comments against doc/writing.md: correct, necessary, no narrative.
 - A harness module changed without the epoch or acknowledged digests

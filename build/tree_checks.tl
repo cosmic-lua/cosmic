@@ -1378,7 +1378,7 @@ local doc_rules: {DocRule} = {
 --- A doc is what `cosmic docs` shows a caller ([`link_text.unlinked`]:
 --- no definition a code span's link reads), in a binary that carries
 --- neither the build nor the C. A TODO belongs in a `--` comment set
---- off from the doc by a blank line (AGENTS.md); a path or a `build.`
+--- off from the doc by a blank line (doc/writing.md); a path or a `build.`
 --- module is a fact about the implementation, which the doc says as
 --- what a caller can rely on. The paths refused are `build/`, a
 --- `build.<module>` the tree has, `core/`, `cosmic.internal`,

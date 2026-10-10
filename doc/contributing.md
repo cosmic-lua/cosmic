@@ -31,7 +31,11 @@ conflict with the parent's squash.
    work from that worktree's root by absolute path, and keep `<branch>`
    the PR's branch name so `git push -u origin <branch>` pushes this
    worktree's commits.
-4. `bin/zig build boot` there.
+4. `bin/zig build boot` there. zig's caches and the Teal compile cache
+   (`COSMIC_BUILD_CACHE` names another file, `0` none) are shared by
+   every checkout, so a fresh worktree compiles little. only the tree's
+   own tool rebuilds or boots: another cosmic (a release) run in a stale
+   tree refuses and exits 3.
 
 ## check before pushing
 
@@ -42,7 +46,13 @@ conflict with the parent's squash.
 - a change under `.github/`: `bin/cosmic test build/workflows_test.tl`.
 - a change to C, `ci/`, the launcher, startup, the artifact format or a
   fixture: [`ci/run-local`] (`ci/run-local fixtures` to re-run edited
-  fixtures), and the C checklist in [`AGENTS.md`].
+  fixtures), and for C the checklist in [`doc/c.md`]. a change to `ci/`
+  also needs `../bin/cosmic fix --check` from `ci/`, a tree of its own
+  with its own build directory. its `fixtures/*_test.tl` run only under
+  the CI driver. run as root, [`ci/run-local`] runs the driver as an
+  unprivileged user (`COSMIC_CI_LOCAL_USER`), as CI's runners are. the
+  launcher fixture's core is a stand-in that checks nothing: a case about
+  the real core belongs in `runtime_test.tl`.
 - a change to a harness module can alter what a pass or fail means:
   see "changing the harness" in [`doc/testing.md`].
 - a documentation-only edit needs no test run, but still
@@ -64,7 +74,12 @@ review again after a large fix.
 
 ## TODOs
 
-the policy is in [`AGENTS.md`]. at the end, from the worktree root:
+the policy is in [`doc/writing.md`]
+([todo comments](writing.md#todo-comments)): leave each TODO the moment it
+is due. when the work is done, list every `TODO:` it added, with
+`file:line` and what it waits on, in the summary and the PR description.
+take the list from this, from the worktree root, and do not write "none"
+from memory:
 
 ```text
 bin/cosmic todos $(git diff --name-only --diff-filter=d origin/main...HEAD)
@@ -115,6 +130,15 @@ adds reaches them only once the pin moves, and it can only move after
 the change merges and main publishes its `next-<commit>` prerelease
 ([`ci/README.md`]).
 
+[`bin/zig`], [`bin/vendor`] and [`bin/verify-codesign`] each run their
+Teal ([`build/zig.tl`], ...) through [`bin/cosmic-bootstrap`], which
+fetches that release once and caches it by digest. [`bin/cosmic`] asks
+[`build/paths.tl`] for the build directory the same way.
+`COSMIC_BOOTSTRAP=<path>` makes [`bin/cosmic-bootstrap`] answer another
+cosmic instead, such as the tree's own tool (by its path in the build
+directory; [`bin/cosmic`] itself is refused), for all of them and for CI's
+driver step alike.
+
 when a change adds what a `TODO:` waiting on the pin needs, or API those
 scripts would use, open a follow-up once that prerelease exists. move
 the pin to it (its commit, URL and SHA-256, checked against the digest
@@ -124,12 +148,17 @@ the PR that the pin was left alone.
 
 [`.github/workflows/ci.yml`]: ../.github/workflows/ci.yml
 [`AGENTS.md`]: ../AGENTS.md
+[`bin/cosmic-bootstrap`]: ../bin/cosmic-bootstrap
+[`bin/cosmic`]: ../bin/cosmic
 [`bin/vendor`]: ../bin/vendor
+[`bin/verify-codesign`]: ../bin/verify-codesign
 [`bin/zig`]: ../bin/zig
 [`build/paths.tl`]: ../build/paths.tl
+[`build/zig.tl`]: ../build/zig.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
 [`ci/README.md`]: ../ci/README.md
 [`ci/run-local`]: ../ci/run-local
+[`doc/c.md`]: c.md
 [`doc/testing.md`]: testing.md
 [`doc/writing.md`]: writing.md
 [`Proc.find`]: ../cosmic/proc.tl
