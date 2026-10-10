@@ -1069,6 +1069,12 @@ local function nesting_hint(source: string, owner: string, member: string): stri
   -- missing field is told them: it waits on the checker giving this
   -- error the required record's types, as patch/tl/33a gives a missing
   -- key's fields.
+  -- TODO: give no hint where the `local type` require binding `owner`
+  -- was refused ("'require' did not return a type"): the module returns
+  -- a value of its record, which may declare `member`, so the hint
+  -- misleads. It waits on [`teal.replacement`] seeing the compile's
+  -- other errors (build/importer.tl and build/standalone.tl pass it one
+  -- error at a time).
   return owner .. " has no type " .. member .. ": check its spelling, or declare `record " ..
     member .. " ... end` inside the record " .. module .. " returns (a `local record " ..
     member .. "` beside that record is its file's alone)"
