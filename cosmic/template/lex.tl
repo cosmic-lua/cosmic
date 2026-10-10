@@ -2,8 +2,10 @@
 --- applying the trim markers as it goes. Private to [`cosmic.template`].
 ---
 --- Outside an action everything is literal text, byte for byte. Inside
---- one, words are separated by whitespace, `|` and `"`; a word that starts
---- with `.` is a field path and any other a bare word. A `"` starts a
+--- one, words are separated by whitespace and by `|`, `,`, `:=` and `"`,
+--- and each of `|`, `,` and `:=` is a word of its own; a word that starts with
+--- `.` is a field path, one that starts with `$` a variable, and any other
+--- a bare word. A `"` starts a
 --- string, one token through the next unescaped `"`, so a `}}` in it does
 --- not end the action: its value is its bytes, where `\"` stands for `"`
 --- and `\\` for `\`. Any other backslash, and a newline before the
@@ -131,6 +133,12 @@ local function words(src: string, cur: Cursor, tokens: {types.Token}, name: stri
     elseif b == 124 then
       tokens[#tokens + 1] = { kind = "pipe", value = "|", line = line, col = col }
       cur.pos = cur.pos + 1
+    elseif b == 44 then
+      tokens[#tokens + 1] = { kind = "comma", value = ",", line = line, col = col }
+      cur.pos = cur.pos + 1
+    elseif b == 58 and src:byte(cur.pos + 1) == 61 then
+      tokens[#tokens + 1] = { kind = "declare", value = ":=", line = line, col = col }
+      cur.pos = cur.pos + 2
     elseif b == 34 then
       local value, why = quoted(src, cur, name)
       if value == nil then
@@ -141,14 +149,21 @@ local function words(src: string, cur: Cursor, tokens: {types.Token}, name: stri
       local stop = cur.pos
       while stop <= n do
         local c = src:byte(stop)
-        if blank(c) or c == 124 or c == 34 or (c == 125 and src:byte(stop + 1) == 125) then
+        if blank(c) or c == 124 or c == 34 or c == 44 or (c == 58 and src:byte(stop + 1) == 61) or
+            (c == 125 and src:byte(stop + 1) == 125) then
           break
         end
         stop = stop + 1
       end
       local word = src:sub(cur.pos, stop - 1)
-      tokens[#tokens + 1] = { kind = word:byte(1) == 46 and "field" or "word", value = word,
-        line = line, col = col }
+      local first = word:byte(1)
+      local kind: types.Part = "word"
+      if first == 46 then
+        kind = "field"
+      elseif first == 36 then
+        kind = "variable"
+      end
+      tokens[#tokens + 1] = { kind = kind, value = word, line = line, col = col }
       cur.pos = stop
     end
   end

@@ -44,15 +44,19 @@
 --- line is what the build maps back, and a column map is not worth its
 --- cost until something reads columns.
 ---
---- The names the module declares are `render`, `parts`, `d` and `d1`, `d2`
---- and so on (dot in each `range` and `with`, and the list of a `range`
---- that has an `else`), `v` (a slot's value, in a block of its own, and
+--- The names the module declares are `render`, `parts`, `d` (the value
+--- `render` is given, which `$` names) and `d1`, `d2` and so on (dot in each
+--- `range` and `with`, which a range's element variable names too, a
+--- range's index variable, and the list of a `range` that has an `else`),
+--- so a template's variable is never declared under its own name and can
+--- shadow nothing; `v` (a slot's value, in a block of its own, and
 --- `_one`'s parameter), `T` (`_one`'s type parameter), and the helpers
 --- `_one`, `_text`, `_rtext`, `_attr` and `_url`; a module that is required
 --- is named by the last word of its path, or that word, `_` and a number
 --- when the name is taken, reserved, or a keyword, so a name is never
 --- declared twice. A name a
 --- loop or `with` does not read is written `_`, which is not a warning.
+--- A range's index is `ipairs`'s, an integer from 1.
 
 local types = require("cosmic.template.types")
 
@@ -107,6 +111,10 @@ local record Gen
   helpers: {types.Slot: boolean}
   staged: boolean
   dots: integer
+  --- What `$` names.
+  root: Dot
+  --- The template's variables in scope, by name without the `$`.
+  vars: {string: Dot}
 end
 
 --- The start of a statement that adds to the output.
@@ -156,11 +164,21 @@ local function member(base: string, name: string): string
   return base .. "." .. name
 end
 
---- The expression for `pipe` at `dot`: its path of fields, each stage
---- wrapped round what is before it and held to one value by `_one`.
+--- The expression for `pipe` at `dot`: its path of fields from its head,
+--- each stage wrapped round what is before it and held to one value by
+--- `_one`.
 local function value(g: Gen, pipe: types.Pipeline, dot: Dot): string
-  dot.used = true
-  local expr = dot.name
+  local head = dot
+  if pipe.head == "root" then
+    head = g.root
+  elseif pipe.head == "variable" then
+    head = g.vars[pipe.name]
+    if head == nil then
+      error("cosmic.template: codegen met $" .. pipe.name .. ", which the parser let through unbound")
+    end
+  end
+  head.used = true
+  local expr = head.name
   for _, field in ipairs(pipe.path) do
     expr = member(expr, field)
   end
@@ -232,16 +250,27 @@ local function block(g: Gen, node: types.Node, dot: Dot)
   to_line(g, node.line)
   if node.kind == "range" then
     -- While its body runs, a range holds five of the function's locals (the
-    -- loop's three hidden ones, `_` and dot), six with an `else`, and Lua
-    -- allows a function 200: a module whose ranges nest about 40 deep (33
-    -- with an `else`) does not load, Lua naming the template's line ("too
-    -- many local variables"). That stays: no template nests so deep, and a
-    -- function per body, which would lift the limit, costs a closure each
-    -- time a range runs.
+    -- loop's three hidden ones, the index or `_`, and dot), six with an
+    -- `else`, and Lua allows a function 200: a module whose ranges nest
+    -- about 40 deep (33 with an `else`) does not load, Lua naming the
+    -- template's line ("too many local variables"). That stays: no template
+    -- nests so deep, and a function per body, which would lift the limit,
+    -- costs a closure each time a range runs.
     local arm = node.branches[1]
     local other = node.branches[2]
     local inner = new_dot(g)
+    local index: Dot = { name = "_", used = false }
+    if arm.index ~= "" then
+      index = new_dot(g)
+    end
+    -- The list is read where the range stands, before its variables are.
     local source = value(g, arm.pipeline, dot)
+    if arm.index ~= "" then
+      g.vars[arm.index] = index
+    end
+    if arm.element ~= "" then
+      g.vars[arm.element] = inner
+    end
     local opening = ""
     if other ~= nil then
       -- The list is read once, then tested for a first element: ipairs
@@ -252,8 +281,10 @@ local function block(g: Gen, node: types.Node, dot: Dot)
     end
     local head = put(g, "")
     emit(g, arm.body, inner)
-    g.pieces[head] = g.pieces[head] .. opening .. "for _, " .. (inner.used and inner.name or "_") ..
-      " in ipairs(" .. source .. ") do"
+    g.vars[arm.index] = nil
+    g.vars[arm.element] = nil
+    g.pieces[head] = g.pieces[head] .. opening .. "for " .. (index.used and index.name or "_") .. ", " ..
+      (inner.used and inner.name or "_") .. " in ipairs(" .. source .. ") do"
     if other ~= nil then
       to_line(g, other.line)
       put(g, "end else")
@@ -346,13 +377,12 @@ end
 function Codegen.generate(template: types.Template): string
   local g: Gen = { pieces = {}, line = 1, started = false, mode = template.mode,
     imports = { order = {}, alias_of = {}, taken = {}, as_value = {} }, html = "", helpers = {}, staged = false,
-    dots = 0 }
+    dots = 0, root = { name = "d", used = false }, vars = {} }
   local type_alias = alias_for(g, template.import_path)
   if template.mode == "html" then
     g.html = value_alias(g, "cosmic.html")
   end
-  local root: Dot = { name = "d", used = false }
-  emit(g, template.body, root)
+  emit(g, template.body, g.root)
 
   -- TODO: put the requires and `render`'s header on the `{{type}}`'s line,
   -- not line 1: blank lines may come before it, and an error in the header
@@ -373,7 +403,7 @@ function Codegen.generate(template: types.Template): string
     end
   end
   local result = template.mode == "html" and g.html .. ".SafeHtml" or "string"
-  head[#head + 1] = "local function render(" .. (root.used and "d" or "_") .. ": " .. type_alias .. "." ..
+  head[#head + 1] = "local function render(" .. (g.root.used and "d" or "_") .. ": " .. type_alias .. "." ..
     template.type_name .. "): " .. result
   head[#head + 1] = "local parts: {string} = {}"
 

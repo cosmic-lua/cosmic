@@ -14,10 +14,13 @@
 ---                                       exported as `Page` by `site.page`
 ---     {{mode text}}                     optional, next: `html` is the default
 ---     <h1>{{.title}}</h1>               a value: fields from dot, `.` for dot
+---     {{$.title}}  {{$}}                fields from `$`, the record itself
 ---     {{.when | site.fmt.date}}         then each stage `| module.path.func`
 ---     {{if .admin}}..{{else if .user}}..{{else}}..{{end}}
 ---     {{range .items}}<li>{{.name}}</li>{{end}}   dot is each element
 ---     {{range .items}}..{{else}}none{{end}}       `none` when there is no element
+---     {{range $x := .items}}{{$x.name}}{{end}}    `$x` is each element, as dot is
+---     {{range $i, $x := .items}}{{$i}}{{end}}     `$i` its index: 1, 2, ...
 ---     {{with .owner}}{{.name}}{{else}}nobody{{end}}  dot is the value, if truthy
 ---     {{"{{"}}                          literal text: writes {{
 ---
@@ -34,6 +37,24 @@
 --- above one is a type error on the template's line, so a function that can fail (`nil, reason`) is wrapped by
 --- the caller into a stage that answers a value. Truthiness is Lua's: only `nil` and
 --- `false` are false, not `""` or `0`.
+---
+--- A value starts from dot, from `$` or from a variable. `range` and `with`
+--- make dot the element or the value, so `$` is how a block reaches the
+--- record `render` is given: `$` is that record everywhere, so
+--- `{{range .items}}{{.name}} of {{$.title}}{{end}}` needs no copy of the
+--- title in each item. A range may bind its element to a variable
+--- (`{{range $x := .items}}`), or its index and its element
+--- (`{{range $i, $x := .items}}`); the index is an `integer` counted from
+--- 1, as `ipairs` counts. A variable is seen in the range's body and in
+--- everything nested in it, `with` and other ranges included, so an
+--- inner range reaches each enclosing element and index by its name:
+--- `{{range $r := .rows}}{{range $c := $.cols}}{{$r.name}}/{{$c}}{{end}}{{end}}`.
+--- It is not seen in the range's `{{else}}`, which runs when there is no
+--- element, nor after its `{{end}}`. A variable used where it is not seen,
+--- or misspelled, is refused with its line and column; one bound where a
+--- variable of its name is already seen is refused too, so a name means
+--- one value wherever it stands. A field after a variable is checked as
+--- one after dot is. `with` binds no variable.
 ---
 --- `{{-` drops the whitespace before an action (newlines too) and `-}}`
 --- the whitespace after it; each needs a space inside it.

@@ -52,6 +52,21 @@ function Example.blocks()
   assert(source:find("for _, d1 in ipairs(d.items) do", 1, true))
 end
 
+--- `$` is the record `render` is given, wherever it stands, so a loop
+--- reaches the page's own fields; `{{range $i, $x := ...}}` binds each
+--- element's index (an integer from 1) and the element, which an inner
+--- loop reaches by name.
+function Example.variables()
+  local source = assert(Template.compile([[
+{{type Page from site.page}}{{mode text}}
+{{range $i, $row := .rows}}{{$i}}. {{$row.name}} in {{$.title}}:
+{{range $.cols}}  {{$row.name}}/{{.}}
+{{end}}{{end}}
+]], "grid.tmpl"))
+  assert(source:find("for d2, d1 in ipairs(d.rows) do", 1, true))
+  assert(source:find("for _, d3 in ipairs(d.cols) do", 1, true))
+end
+
 --- `{{` always starts an action, so literal braces are written as an
 --- action that is one string, whose bytes are text: here a help page
 --- that shows template syntax.

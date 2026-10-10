@@ -48,7 +48,7 @@ The tool documents itself, in a release binary too:
 
 what cosmic is for and how it is built lives in
 [doc/design.md](doc/design.md); how this documentation works, and what
-its examples promise, is [doc/meta.md](doc/meta.md).
+its examples promise, is [doc/writing.md](doc/writing.md).
 
 [`bin/cosmic`]: bin/cosmic
 [`build/paths.tl`]: build/paths.tl

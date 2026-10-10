@@ -42,6 +42,8 @@ local ACTIONS <const> = {
   "{{else if .b}}", "{{end}}", "{{range .l}}", "{{with .w}}", "{{- ", " -}}", "{{-", "-}}", "{{ . }}", "{{.end}}",
   "{{", "}}", "{{foo}}", "{{.a..b}}", "{{.a |}}", "{{.a | f}}", "{{}}", '{{"{{"}}', '{{"}}"}}', '{{ "a\\"b\\\\" }}',
   '{{"', '{{"\\q"}}', '{{- "x" -}}', '{{"x" | m.f}}', '{{if "x"}}', '"',
+  "{{$}}", "{{$.a}}", "{{$x}}", "{{$x.a | m.f}}", "{{range $x := .l}}", "{{range $i, $x := .l}}", "{{range $ := .l}}",
+  "{{with $x := .w}}", "{{$x := .a}}", "{{range $i $x := .l}}", ",", ":=", "{{$.}}", "{{$1}}",
 }
 
 --- What only the first line may hold, which a template that has a type
@@ -54,8 +56,8 @@ local SAMPLES <const> = {
   "{{type T from m.t}}\n<script>var x = 1;</script>{{with .w}}{{.}}{{end}}\n",
 }
 
---- Appends a well-formed run of nodes: markup, slots and blocks (to
---- `depth` deep, the arms of each cut at random places in the markup).
+--- What [`gen_nodes`] draws from: markup, slots, and the actions drawn
+--- in place of a block below the deepest.
 local record Kit
   markup: {string}
   slots: {string}
@@ -73,41 +75,72 @@ local PLAIN <const>: Kit = {
   loose = SLOTS,
 }
 
-local function gen_nodes(src: Fuzz.Source, depth: integer, out: {string}, kit: Kit)
+--- A slot whose value starts from `$` or from a variable of `bound`.
+local function gen_variable_slot(src: Fuzz.Source, bound: {string}): string
+  local heads: {string} = { "$", "$.a" }
+  for _, name in ipairs(bound) do
+    heads[#heads + 1] = name
+    heads[#heads + 1] = name .. ".a"
+  end
+  local slot = "{{" .. Fuzz.pick(src, heads)
+  return slot .. (src:int(0, 2) == 0 and " | m.f}}" or "}}")
+end
+
+--- The variables `{{range}}` at `depth` binds, none, one or two, named for
+--- the depth so that a nested range never binds a name already seen.
+local function gen_bindings(src: Fuzz.Source, depth: integer): {string}
+  local kind = src:int(0, 2)
+  if kind == 0 then
+    return {}
+  elseif kind == 1 then
+    return { "$x" .. depth }
+  end
+  return { "$i" .. depth, "$x" .. depth }
+end
+
+--- Appends a well-formed run of nodes: markup, slots and blocks (to
+--- `depth` deep, the arms of each cut at random places in the markup), in
+--- which the variables of `bound` are seen.
+local function gen_nodes(src: Fuzz.Source, depth: integer, out: {string}, kit: Kit, bound: {string})
   while Fuzz.more(src, #out, 14) do
     local kind = src:int(0, 9)
     if kind <= 4 then
       out[#out + 1] = Fuzz.pick(src, kit.markup)
     elseif kind <= 6 then
-      out[#out + 1] = Fuzz.pick(src, kit.slots)
+      out[#out + 1] = src:int(0, 3) == 0 and gen_variable_slot(src, bound) or Fuzz.pick(src, kit.slots)
     elseif depth >= 3 then
       out[#out + 1] = Fuzz.pick(src, kit.loose)
     elseif kind == 7 then
       out[#out + 1] = "{{if .a}}"
-      gen_nodes(src, depth + 1, out, kit)
+      gen_nodes(src, depth + 1, out, kit, bound)
       if src:int(0, 1) == 0 then
         out[#out + 1] = "{{else if .b}}"
-        gen_nodes(src, depth + 1, out, kit)
+        gen_nodes(src, depth + 1, out, kit, bound)
       end
       if src:int(0, 1) == 0 then
         out[#out + 1] = "{{else}}"
-        gen_nodes(src, depth + 1, out, kit)
+        gen_nodes(src, depth + 1, out, kit, bound)
       end
       out[#out + 1] = "{{end}}"
     elseif kind == 8 then
-      out[#out + 1] = "{{range .l}}"
-      gen_nodes(src, depth + 1, out, kit)
+      local names = gen_bindings(src, depth)
+      local inner: {string} = { table.unpack(bound) }
+      for _, name in ipairs(names) do
+        inner[#inner + 1] = name
+      end
+      out[#out + 1] = #names == 0 and "{{range .l}}" or "{{range " .. table.concat(names, ", ") .. " := .l}}"
+      gen_nodes(src, depth + 1, out, kit, inner)
       if src:int(0, 1) == 0 then
         out[#out + 1] = "{{else}}"
-        gen_nodes(src, depth + 1, out, kit)
+        gen_nodes(src, depth + 1, out, kit, bound)
       end
       out[#out + 1] = "{{end}}"
     else
       out[#out + 1] = "{{with .w}}"
-      gen_nodes(src, depth + 1, out, kit)
+      gen_nodes(src, depth + 1, out, kit, bound)
       if src:int(0, 1) == 0 then
         out[#out + 1] = "{{else}}"
-        gen_nodes(src, depth + 1, out, kit)
+        gen_nodes(src, depth + 1, out, kit, bound)
       end
       out[#out + 1] = "{{end}}"
     end
@@ -127,7 +160,7 @@ local function gen_body(src: Fuzz.Source): string
         src:int(0, 1) == 0 and Fuzz.pick(src, MARKUP) or Fuzz.pick(src, ACTIONS)
     end
   else
-    gen_nodes(src, 0, out, ANY)
+    gen_nodes(src, 0, out, ANY, {})
     out[#out + 1] = Fuzz.pick(src, CLOSERS)
   end
   return table.concat(out)
@@ -137,7 +170,7 @@ end
 --- follows or precedes it is judged for its markup.
 local function gen_sound_nodes(src: Fuzz.Source): string
   local out: {string} = {}
-  gen_nodes(src, 0, out, ANY)
+  gen_nodes(src, 0, out, ANY, {})
   out[#out + 1] = Fuzz.pick(src, CLOSERS)
   return table.concat(out)
 end
@@ -152,7 +185,7 @@ local function gen_template(src: Fuzz.Source): string
     return Fuzz.pick(src, HEADS) .. gen_body(src) .. Fuzz.pick(src, HEADERS) .. gen_body(src)
   elseif kind == 5 then
     local out: {string} = {}
-    gen_nodes(src, 0, out, PLAIN)
+    gen_nodes(src, 0, out, PLAIN, {})
     return Fuzz.pick(src, HEADS) .. table.concat(out)
   elseif kind == 2 or kind == 4 then
     return Fuzz.pick(src, HTML_HEADS) .. Fuzz.pick(src, REFUSING) .. gen_sound_nodes(src)
@@ -180,7 +213,7 @@ local function test_compile_is_total_and_keeps_the_lines_on_any_bytes(tmp: strin
     name = "template total",
     dir = tmp,
     gen = gen_template,
-    requires = { "compiled", "syntax", "slot", "arms", "block", "text mode", "multiline" },
+    requires = { "compiled", "syntax", "slot", "arms", "block", "text mode", "multiline", "bound" },
     shares = { compiled = 0.05, syntax = 0.05, slot = 0.01 },
     check = function(input: string): boolean, string
       local ok, out, why = pcall(Template.compile, input, "t.tmpl")
@@ -221,6 +254,9 @@ local function test_compile_is_total_and_keeps_the_lines_on_any_bytes(tmp: strin
       end
       if input:find("{{mode text}}", 1, true) then Fuzz.label("text mode") end
       if input:find("\n.*{{") then Fuzz.label("multiline") end
+      -- `{{` always starts an action, so this is never literal text, and a
+      -- range that opens so compiles only as one that binds.
+      if input:find("{{range %$[%a_][%w_]*%s*[,:]") then Fuzz.label("bound") end
       return true, ""
     end,
   })
@@ -451,14 +487,24 @@ local function gen_sound(src: Fuzz.Source): string
       first = Fuzz.pick(src, of)
     end
     local wrap = src:int(0, 5)
+    -- A slot reads `.a` of dot, `$` (the render argument) or the element a
+    -- range binds, which all hold the payload.
+    local first_text = first[1]
+    local head = "{{range .l}}"
+    if (wrap == 2 or wrap == 4) and src:int(0, 1) == 0 then
+      head = src:int(0, 1) == 0 and "{{range $x := .l}}" or "{{range $i, $x := .l}}"
+      first_text = (first_text:gsub("{{%.a}}", "{{$x.a}}"))
+    elseif src:int(0, 2) == 0 then
+      first_text = (first_text:gsub("{{%.a}}", "{{$.a}}"))
+    end
     if wrap == 1 or wrap == 4 then
       local second = Fuzz.pick(src, pool)
-      local open = wrap == 1 and "{{if .a}}" or "{{range .l}}"
-      body[#body + 1] = open .. first[1] .. "{{else}}" .. second[1] .. "{{end}}"
+      local open = wrap == 1 and "{{if .a}}" or head
+      body[#body + 1] = open .. first_text .. "{{else}}" .. second[1] .. "{{end}}"
       kinds[#kinds + 1] = first[2] .. second[2]
     else
-      local open = wrap == 2 and "{{range .l}}" or wrap == 3 and "{{with .w}}" or ""
-      body[#body + 1] = open .. first[1] .. (open ~= "" and "{{end}}" or "")
+      local open = wrap == 2 and head or wrap == 3 and "{{with .w}}" or ""
+      body[#body + 1] = open .. first_text .. (open ~= "" and "{{end}}" or "")
       kinds[#kinds + 1] = first[2]
     end
   end
@@ -524,7 +570,7 @@ local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
     name = "template sound",
     dir = tmp,
     gen = gen_sound,
-    requires = { "refused", "text", "rtext", "attr", "url", "block", "assembled url" },
+    requires = { "refused", "text", "rtext", "attr", "url", "block", "assembled url", "root", "range binding" },
     shares = { refused = 0.01, text = 0.05, rtext = 0.01, attr = 0.01, url = 0.01 },
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
@@ -619,6 +665,12 @@ local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
       end
       if body:find("{{range", 1, true) or body:find("{{if", 1, true) or body:find("{{with", 1, true) then
         Fuzz.label("block")
+      end
+      if body:find("{{$.a}}", 1, true) then
+        Fuzz.label("root")
+      end
+      if body:find("{{range $", 1, true) then
+        Fuzz.label("range binding")
       end
       return true, ""
     end,
@@ -1075,6 +1127,17 @@ local function test_a_block_in_a_tag_adds_only_the_attributes_it_writes(tmp: str
       local block = kind == "range" and "{{range .l}}" .. arm .. "{{end}}" or
         kind == "else" and "{{if .a}}" .. arm .. "{{else}}" .. other .. "{{end}}" or "{{if .a}}" .. arm .. "{{end}}"
       local body = lead .. open .. before .. block .. after .. closer
+      -- What was drawn is labelled before it is compiled: only about one
+      -- input in four compiles, too few for every seed's 64 draws to meet a
+      -- compiled range, else, <meta> or <svg><font>, and `added`'s share and
+      -- `slot` hold the property to compiled inputs that exercise it.
+      Fuzz.label(kind)
+      if open == "<meta" then
+        Fuzz.label("meta")
+      end
+      if lead ~= "" then
+        Fuzz.label("font in svg")
+      end
       local source = Template.compile("{{type T from m.t}}" .. body, "t.tmpl") or ""
       if source == "" then
         Fuzz.label("refused")
@@ -1113,7 +1176,6 @@ local function test_a_block_in_a_tag_adds_only_the_attributes_it_writes(tmp: str
         tags[i] = tag
         local text = "text"
         if lead ~= "" then
-          Fuzz.label("font in svg")
           for _, a in ipairs(tag.attrs) do
             if FONT_BREAKS[a:match("^[^=]*")] then
               text = "refuse"
@@ -1135,9 +1197,6 @@ local function test_a_block_in_a_tag_adds_only_the_attributes_it_writes(tmp: str
             Fuzz.label("slot")
           end
         end
-        if tag.name == "meta" then
-          Fuzz.label("meta")
-        end
       end
       local state = read_tag(open .. n_before).state
       if state ~= "tag_name" and state ~= "before_attr" and state ~= "attr_name" and state ~= "after_attr" and
@@ -1158,7 +1217,6 @@ local function test_a_block_in_a_tag_adds_only_the_attributes_it_writes(tmp: str
       end
       if arm:find("%a") then
         Fuzz.label("added")
-        Fuzz.label(kind)
       end
       return true, ""
     end,
