@@ -16,15 +16,16 @@
 --- directory only when every one of these holds:
 ---
 --- - its name is a SHA-256 in lower-case hex, and it is a directory (not a
----   link) of this user's, in the base the caller's own directory is in;
+---   link) of this user's, holding a build's files, in the base the
+---   caller's own directory is in, which is this user's and writable by no
+---   one else;
 --- - its `used` file is a regular file last modified over thirty days
 ---   ago, read again once the lock is held;
 --- - its rebuild lock ([`build.rebuild_lock`]) is taken, so no run is
 ---   building, testing or writing there, and stays held to the end;
 --- - the directory is renamed aside before anything is removed, and put
 ---   back if a use was recorded in the meantime, so a run that records
----   its use and then takes the lock finds the directory whole or gone,
----   never half removed.
+---   its use before the pass reads it is never pruned.
 ---
 --- A directory without a `used` file that holds a build's files is not
 --- removed, only dated from now, so one made before the rule began lives
@@ -32,11 +33,24 @@
 --- base is touched, and a removal never follows a link
 --- ([`Fs.remove_tree`]).
 ---
---- A run that uses a directory without recording it -- a tool left
---- running for thirty days with no other `cosmic` run in the checkout --
---- is not excluded; the directory is removed from under it as a file is
---- from under a process that has it open, and the next build makes it
---- again.
+--- A pass stops starting removals after five seconds and runs again at
+--- the next `cosmic test`, so one run is not held up by a base of many
+--- large directories; it spares its base for a day only once it has
+--- walked all of it.
+
+-- TODO: close the window between a run's `prepare` and its taking the
+-- lock, in which a pass that read the record before the run wrote it
+-- moves the directory aside and the run's lock file cannot be opened
+-- (the run fails with a missing file, and is run again): take the lock
+-- inside `prepare` and check the locked file is still the directory's
+-- own, once a caller of `prepare` that takes no lock (a verb that only
+-- opens the working database) can hold one.
+-- TODO: keep a directory a run uses without the rebuild lock for over
+-- thirty days (a tool left running, with no other `cosmic` run in the
+-- checkout) by recording its use again while it runs, once a verb has a
+-- loop to record it in: the directory is removed from under it as a
+-- file is from under a process that has it open, and the next build
+-- makes it again.
 
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -54,7 +68,7 @@ local record cache_lifetime
     --- What it could not do, one line each; a failure keeps what it
     --- touched.
     troubles: {string}
-    --- Whether it ran: not when the base was pruned in the day before.
+    --- Whether it began: not when the base was pruned in the day before.
     ran: boolean
   end
 end
@@ -68,6 +82,9 @@ local spared_s <const> = 24 * 3600
 
 --- Where a build directory is set aside to be removed: its name and this.
 local aside_infix <const> = ".pruning-"
+
+--- How long a pass goes on starting removals.
+local budget_ns <const> = Clock.seconds(5)
 
 --- The file whose modification time dates the last pass over a base.
 local pass_name <const> = ".pruned"
@@ -159,6 +176,7 @@ local function consider(base: string, name: string, now: integer,
     return
   end
   if dated ~= "stale" then return end
+  if not built(layout) then return end
   local lock, lock_why = rebuild_lock.claim(path)
   if lock == nil then
     if lock_why == "" then
@@ -191,13 +209,15 @@ end
 
 --- Prunes the build directories beside `own`, the one a run of this
 --- checkout holds the lock of ([`rebuild_lock.hold`]), as the rules above
---- say, at `now` (default the present). Never removes `own`.
-function cache_lifetime.prune(own: string, now?: integer): cache_lifetime.Report
+--- say, at `now` (default the present), starting no removal after `budget`
+--- nanoseconds (default five seconds). Never removes `own`.
+function cache_lifetime.prune(own: string, now?: integer, budget?: integer): cache_lifetime.Report
   local report: cache_lifetime.Report = { removed = {}, busy = {}, troubles = {}, ran = false }
   now = now or (Clock.now_ns() // 1000000000)
   local base = Fs.dirname(own)
   local base_stat = look(base)
-  if base_stat == nil or base_stat.kind ~= "dir" or base_stat.uid ~= sys.getuid() then
+  if base_stat == nil or base_stat.kind ~= "dir" or base_stat.uid ~= sys.getuid() or
+      base_stat.mode & 0x12 ~= 0 then
     return report
   end
   local pass = base .. "/" .. pass_name
@@ -212,15 +232,23 @@ function cache_lifetime.prune(own: string, now?: integer): cache_lifetime.Report
   end
   report.ran = true
   local own_name = Fs.basename(own)
+  local started_ns = Clock.monotonic_ns()
+  local finished = true
   for _, name in ipairs(names) do
+    if Clock.monotonic_ns() - started_ns >= (budget or budget_ns) then
+      finished = false
+      break
+    end
     if named(name) and name ~= own_name then
       consider(base, name, now, report)
-    elseif named(name:sub(1, 64)) and name:sub(65, 64 + #aside_infix) == aside_infix then
+    elseif named(name:sub(1, 64)) and name:sub(65):find("^" .. aside_infix:gsub("%p", "%%%0") .. "%d+$") then
       sweep(base, name, now, report)
     end
   end
-  local written, write_why = Fs.write(pass, "", 0x180)
-  if not written then report.troubles[#report.troubles + 1] = write_why end
+  if finished then
+    local written, write_why = Fs.write(pass, "", 0x180)
+    if not written then report.troubles[#report.troubles + 1] = write_why end
+  end
   return report
 end
 

@@ -142,3 +142,59 @@ local function test_a_directory_set_aside_is_finished(tmp: string)
   assert(exists(kept .. "/build.db"), "a used directory set aside went")
   assert(#report.troubles == 0)
 end
+
+--- A record that is no regular file or is dated in the future is no
+--- proof of disuse, and a directory without a build's files is not a
+--- build directory, whatever its record says.
+local function test_an_odd_record_proves_nothing(tmp: string)
+  local base = base_of(tmp)
+  local own = made(base, "own", 0)
+  local linked = made(base, "linked", 90)
+  local target = assert(sys.realpath(tmp)) .. "/old-record"
+  assert(Fs.write(target, ""))
+  assert(sys.utimensat(target, nil, nil, (Clock.now_ns() // 1000000000) - 90 * DAY, 0))
+  assert(Fs.remove(linked .. "/used"))
+  assert(sys.symlink(target, linked .. "/used"))
+  local future = made(base, "future", -5)
+  local bare = build_paths.in_home("/projects/bare", base)
+  assert(Fs.mkdirs(bare))
+  assert(Fs.write(bare .. "/used", ""))
+  assert(sys.utimensat(bare .. "/used", nil, nil, (Clock.now_ns() // 1000000000) - 90 * DAY, 0))
+  local report = cache_lifetime.prune(own)
+  assert(#report.removed == 0 and #report.troubles == 0)
+  assert(exists(linked .. "/build.db") and exists(future .. "/build.db") and exists(bare .. "/used"))
+end
+
+--- A base another user could write into is not pruned.
+local function test_a_base_others_can_write_is_not_pruned(tmp: string)
+  local base = base_of(tmp)
+  local own = made(base, "own", 0)
+  local old = made(base, "old", 90)
+  assert(sys.chmod(base, 0x1ff))
+  local report = cache_lifetime.prune(own)
+  assert(not report.ran and exists(old .. "/build.db"))
+end
+
+--- A pass past its budget starts no removal and does not spare its
+--- base, so the next one goes on.
+local function test_a_pass_past_its_budget_goes_on_next_time(tmp: string)
+  local base = base_of(tmp)
+  local own = made(base, "own", 0)
+  local old = made(base, "old", 90)
+  local report = cache_lifetime.prune(own, nil, 0)
+  assert(report.ran and #report.removed == 0 and exists(old .. "/build.db"))
+  report = cache_lifetime.prune(own)
+  assert(report.removed[1] == old)
+end
+
+--- Only a name a pass gives its set-aside directories is finished.
+local function test_a_directory_named_otherwise_is_not_swept(tmp: string)
+  local base = base_of(tmp)
+  local own = made(base, "own", 0)
+  local mine = made(base, "mine", 1)
+  local stranger = mine .. ".pruning-x"
+  assert(Fs.rename(mine, stranger))
+  assert(Fs.remove(stranger .. "/used"))
+  local report = cache_lifetime.prune(own)
+  assert(#report.removed == 0 and exists(stranger .. "/build.db"))
+end
