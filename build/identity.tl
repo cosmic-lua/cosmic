@@ -56,7 +56,7 @@ local text = bind.text
 --- older tools wrote, which a checkout may still hold, stale; the upstream
 --- sources and the records that patch them, prose, and anything
 --- hidden. `doc` is handled on its own: almost all of it is prose with
---- no examples, but `doc/guides/*.md` is the one place doc/meta.md's
+--- no examples, but `doc/guides/*.md` is the one place doc/writing.md's
 --- grammar applies, and the build has to see those files to run
 --- [`build.doctest`] over them. In cosmic's own tree the patches, the
 --- vendor pins and the zig wrapper are walked after all, as inputs to
@@ -128,7 +128,7 @@ end
 
 --- Whether `file` is a doc this tree extracts runnable examples from --
 --- exactly `doc/guides/*.md`, never a markdown file anywhere else in
---- the tree ([`doc/design.md`], [`doc/roadmap.md`], and [`doc/meta.md`] are
+--- the tree ([`doc/design.md`], [`doc/roadmap.md`], and [`doc/writing.md`] are
 --- prose with no examples, and stay out of scope on purpose).
 local function is_doc_guide(file: string): boolean
   return file:match("^doc/guides/[^/]+%.md$") ~= nil
