@@ -216,9 +216,29 @@ local function step(g: Grade, label: string, work: function(out: integer): boole
   return false
 end
 
-local function command_step(g: Grade, argv: {string}, cwd: string): boolean
+--- `env` (the caller's) for a `cosmic test` step: its workers run
+--- unsandboxed, whatever `env` asks, exactly as the solver's did.
+--- The solver is uid 0 of a user namespace with no capabilities
+--- (eval/solve.tl), where cosmic cannot sandbox a worker and runs it
+--- unsandboxed, so a test that reached for the network or a socket file
+--- without declaring it passed there and would fail sandboxed on the
+--- host. COSMIC_SANDBOX and COSMIC_CI_REQUIRE_SANDBOX, which hold a run
+--- to sandboxing, are dropped with it.
+function Grader.unsandboxed(env: {string:string}): {string:string}
+  local pinned: {string:string} = {}
+  for name, value in pairs(env) do
+    pinned[name] = value
+  end
+  pinned.COSMIC_TEST_SANDBOX = "0"
+  pinned.COSMIC_SANDBOX = nil
+  pinned.COSMIC_CI_REQUIRE_SANDBOX = nil
+  return pinned
+end
+
+local function command_step(g: Grade, argv: {string}, cwd: string,
+                            env?: {string:string}): boolean
   return step(g, table.concat(argv, " "), function(out: integer): boolean
-    local result, trouble = Child.run(argv, { cwd = cwd, stdout = out, stderr = "stdout",
+    local result, trouble = Child.run(argv, { cwd = cwd, env = env, stdout = out, stderr = "stdout",
       timeout_ns = Clock.seconds(120) })
     if result == nil then
       local _, _ = Fs.put(out, trouble .. "\n")
@@ -381,7 +401,7 @@ local function hidden_api(g: Grade, cosmic: string, project: string, test: strin
     -- the copy; no shared cache keeps the test's compile or verdict
     -- where a solver run by hand, with this HOME, could read it. A test
     -- that hangs is cut short well within the grading's own budget.
-    local env = Env.all()
+    local env = Grader.unsandboxed(Env.all())
     env.TMPDIR = scratch .. "/tmp"
     env.COSMIC_BUILD_CACHE = "0"
     env.COSMIC_VERDICT_CACHE = "0"
@@ -2134,7 +2154,7 @@ function Grader.grade(name: string, dir: string, testdata: string): integer
     end
     return reset
   end)
-  command_step(g, { cosmic, "test" }, project)
+  command_step(g, { cosmic, "test" }, project, Grader.unsandboxed(Env.all()))
   step(g, "evidence check " .. db, function(out: integer): boolean
     local evidence, trouble = Grader.evidence(db)
     if evidence == nil then

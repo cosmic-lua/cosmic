@@ -340,6 +340,17 @@ local function test_a_hidden_test_runs_on_a_copy_and_reports_each_failure(dir: s
   assert(copy ~= dir .. "/project" and not Fs.exists(copy), "the copy is left at " .. copy)
 end
 
+local function test_cosmic_test_steps_run_unsandboxed_whatever_the_caller_holds()
+  local held: {string:string} = { PATH = "/bin", COSMIC_TEST_SANDBOX = "1", COSMIC_SANDBOX = "must",
+    COSMIC_CI_REQUIRE_SANDBOX = "1" }
+  local env = Grader.unsandboxed(held)
+  assert(env.COSMIC_TEST_SANDBOX == "0", tostring(env.COSMIC_TEST_SANDBOX))
+  assert(env.COSMIC_SANDBOX == nil and env.COSMIC_CI_REQUIRE_SANDBOX == nil, "a held run stayed")
+  assert(env.PATH == "/bin", "the rest of the environment is kept")
+  assert(held.COSMIC_TEST_SANDBOX == "1" and held.COSMIC_SANDBOX == "must", "the input was changed")
+  assert(Grader.unsandboxed({}).COSMIC_TEST_SANDBOX == "0")
+end
+
 local function test_a_hidden_test_that_passes_is_one_check_that_passes(dir: string)
   local _, said = graded_api(dir, { "test: PASS (3 tests, 1 module, 3 ran)" }, 0)
   assert(said:find("check: ok   hidden api: kv_api_test.tl passes\n", 1, true), said)
