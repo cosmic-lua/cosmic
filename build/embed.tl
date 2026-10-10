@@ -228,8 +228,8 @@ function embed.database(project: string, main: string): string | nil, string
     -- database bytes. [`artifact.split`] finds a file's database from its
     -- trailer, as `cosmic refresh --binary` does: open that.
     copied, copy_trouble = copy_rows(binary, out, "components",
-      { "name", "kind", "version", "license", "url", "sha256", "patches" },
-      "SELECT name, kind, version, license, url, sha256, patches " ..
+      { "name", "kind", "version", "license", "url", "sha256", "sha3_256", "patches" },
+      "SELECT name, kind, version, license, url, sha256, sha3_256, patches " ..
         "FROM components ORDER BY name")
     if not copied then
       return false, copy_trouble
