@@ -92,6 +92,16 @@ local function test_a_refused_option_names_the_caller_s_line()
   end
 end
 
+--- The enums of the stream options are named through the module, so a
+--- caller can type a variable that holds one.
+local function test_the_stream_enums_are_named_through_the_module()
+  local stdin: integer | Child.Stdin = "null"
+  local stdout: integer | Child.Stdout = "stream"
+  local stderr: integer | Child.Stderr = "capture"
+  local opts: Child.Options = { stdin = stdin, stdout = stdout, stderr = stderr }
+  assert(opts.stdin == "null" and opts.stdout == "stream" and opts.stderr == "capture")
+end
+
 --- A raise names its module and says why: an empty argv, a wait for no
 --- handle, and an option of no valid value.
 local function test_a_raise_names_the_module()

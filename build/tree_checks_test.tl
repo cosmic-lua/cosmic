@@ -43,6 +43,57 @@ local function test_an_unearned_export_and_a_stale_allowance_are_refused(dir: st
     table.concat(found, "\n"))
 end
 
+--- A type the API names must itself be a member of the returned record:
+--- one left local is refused, naming the module and the line, whether it
+--- is reached directly, through a field of an exported type, as a return
+--- value only, or through a method declared outside its record; the same
+--- types exported (one under another name) pass.
+local function test_a_type_the_api_names_but_does_not_export_is_refused(dir: string)
+  local function tree(exported: boolean): Sqlite.Handle
+    return fixture.database(dir, {
+      ["cosmic/thing.tl"] = source(
+        "local enum Where",
+        "  \"here\"",
+        "end",
+        "",
+        "local record Made",
+        "end",
+        "",
+        "local record Gone",
+        "end",
+        "",
+        "local record Options",
+        "  place: Where",
+        "end",
+        "",
+        "local record Handle",
+        "end",
+        "",
+        "local record Thing",
+        "  type Opts = Options",
+        "  type Handle = Handle",
+        exported and "  type Where = Where" or "",
+        exported and "  type Made = Made" or "",
+        exported and "  type Alias = Gone" or "",
+        "end",
+        "",
+        "function Thing.run(options: Options) end",
+        "function Thing.make(): Made end",
+        "function Handle:go(gone: Gone) end",
+        "return Thing"),
+    })
+  end
+  local found = tree_checks.unnamed_types(tree(false))
+  local text = table.concat(found, "\n")
+  assert(#found == 3, text)
+  assert(found[1]:find("^cosmic/thing%.tl:8: cosmic%.thing: Gone is named .* add `type Gone = Gone` " ..
+      "to Thing, so a caller can write Thing%.Gone") ~= nil, text)
+  assert(found[2]:find("^cosmic/thing%.tl:5: cosmic%.thing: Made is named") ~= nil, text)
+  assert(found[3]:find("^cosmic/thing%.tl:1: cosmic%.thing: Where is named") ~= nil, text)
+  found = tree_checks.unnamed_types(tree(true))
+  assert(#found == 0, table.concat(found, "\n"))
+end
+
 --- A Teal module of `cosmic/internal/` is held to the rule a public one
 --- is: an export no other module calls is flagged, one a `cosmic/` module
 --- calls is earned, and a raw declaration beside them is left out.
