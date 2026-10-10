@@ -149,30 +149,24 @@ function Vendor.digests(pin: Vendor.Pin): {{Hash.Algorithm, string}}
   return digests
 end
 
---- The first of `digests` that `data` does not have, said as
---- [`Http.download`] says one; nil when it has them all.
-local function mismatch(data: string, digests: {{Hash.Algorithm, string}}): string | nil
-  for _, digest in ipairs(digests) do
-    local got = Codec.hex(Hash.digest(digest[1], data))
-    if got ~= digest[2]:lower() then
-      return digest[1] .. " mismatch: want " .. digest[2]:lower() .. ", got " .. got
-    end
-  end
-  return nil
-end
-
 --- True when `path` exists and has every one of `digests`, at least one.
 function Vendor.matches(path: string, digests: {{Hash.Algorithm, string}}): boolean
   local data, _ = Fs.read(path)
   if data == nil or #digests == 0 then
     return false
   end
-  return mismatch(data, digests) == nil
+  for _, digest in ipairs(digests) do
+    if Codec.hex(Hash.digest(digest[1], data)) ~= digest[2]:lower() then
+      return false
+    end
+  end
+  return true
 end
 
 --- `path`, downloading `url` into it first unless it is already there
 --- with every one of `digests`: a stale or corrupt cached file is
---- refetched, never reused, and a download that lacks one is removed.
+--- refetched, never reused, and [`Http.download`] checks each digest as
+--- it writes, so a download that lacks one never lands.
 function Vendor.fetch(url: string, path: string, digests: {{Hash.Algorithm, string}}): string | nil, string
   if #digests == 0 then
     return nil, url .. ": no digest to check it against"
@@ -181,27 +175,17 @@ function Vendor.fetch(url: string, path: string, digests: {{Hash.Algorithm, stri
     return path, ""
   end
   local _, _ = Fs.remove(path)
-  -- TODO: pass sha3-256 to Http.download as `sha3_256`, so a mismatch
-  -- never reaches the cache, and drop the check after it, once
-  -- ci/cosmic-driver.pin names a release whose Http.download checks it.
-  local sha256: string = nil
+  local options: Http.Options = {}
   for _, digest in ipairs(digests) do
     if digest[1] == "sha256" then
-      sha256 = digest[2]
+      options.sha256 = digest[2]
+    elseif digest[1] == "sha3-256" then
+      options.sha3_256 = digest[2]
     end
   end
-  local ok, trouble = Http.download(url, path, { sha256 = sha256 })
+  local ok, trouble = Http.download(url, path, options)
   if not ok then
     return nil, trouble
-  end
-  local data, read_trouble = Fs.read(path)
-  if data == nil then
-    return nil, read_trouble
-  end
-  local wrong = mismatch(data, digests)
-  if wrong ~= nil then
-    local _, _ = Fs.remove(path)
-    return nil, url .. ": " .. wrong
   end
   return path, ""
 end
