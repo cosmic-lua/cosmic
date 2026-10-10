@@ -46,10 +46,11 @@ worktree's build directory when you delete the worktree.
    executable is not a substitute.
 2. Edit source and tests, then run `bin/cosmic fix <changed-paths>`. It
    checks syntax and builds the tree as `cosmic test` does, so a type
-   error or a broken contract fails it, saying why. The checks only the
-   whole tree can answer ([`build/tree_checks.tl`]) run in
-   `bin/cosmic fix --check .`, as CI runs it: run it before pushing a
-   change to what they read.
+   error or a broken contract fails it, saying why. It writes a C file
+   back in Lua's own layout ([`doc/c.md`]). The checks only the whole tree
+   can answer ([`build/tree_checks.tl`]) run in `bin/cosmic fix --check .`,
+   as CI runs it, which also refuses a tree that does not build: run it
+   before pushing a change to what they read.
 3. A tool older than the tree rebuilds itself and re-enters the command
    the moment it notices, so `bin/cosmic test` after an edit is enough. A
    change to the core's C, `build.zig`, the launcher or artifact format,
@@ -58,6 +59,8 @@ worktree's build directory when you delete the worktree.
    it). A boot that fails stops the command: check its exit status, do
    not pipe it away.
 4. Run `timeout 30 bin/cosmic test`.
+5. Commit, push and open the pull request as [`doc/contributing.md`]
+   says.
 
 One `cosmic test` runs per checkout at a time, holding the build
 directory's `rebuild.lock` ([`build/rebuild_lock.tl`]), as do a rebuild
@@ -88,28 +91,32 @@ words>`, `uses <symbol>`, `db`, `sql '<statement>'`, `todos <paths>`.
 
 Leave a `TODO:` the moment one is due, not at the end of the work: when a
 change settles for less than the right fix, or a gap is met and left
-alone. Name what it waits on. A comment says what the code cannot (a
-reason, an invariant, a contract, a hazard): [`doc/writing.md`] holds the
-standard. One that waits on the bootstrap pin says
+alone. Name what it waits on. One that waits on the bootstrap pin says
 "once ci/cosmic-driver.pin names ...", word for word. List every `TODO:`
 the work adds in the summary and the PR description, from `bin/cosmic
-todos <changed-paths>`, never from memory. The rules are in
-[`doc/writing.md`](doc/writing.md#todo-comments).
+todos <changed-paths>`, never from memory. A comment says what the code
+cannot (a reason, an invariant, a contract, a hazard). [`doc/writing.md`]
+holds the standard for both, the TODO rules in
+[its own section](doc/writing.md#todo-comments).
 
 ## C
 
 The core's own C builds with warnings as errors, and `cosmic fix` holds it
 to the items marked (checked) in [`doc/c.md`]. Read that before writing C.
 
-## Bootstrap
+## bootstrap
 
-[`bin/zig`], [`bin/vendor`] and [`bin/verify-codesign`] run on the cosmic
-release [`ci/cosmic-driver.pin`] names, not on the tree, so what a change
-adds reaches them only once the pin moves. A change that moves the pin
-also takes up every `TODO:` the new release unblocks: `bin/cosmic todos
-'"cosmic-driver.pin"'` lists them ([`doc/contributing.md`] has the
-procedure, and `COSMIC_BOOTSTRAP`).
+[`bin/zig`], [`bin/vendor`] and [`bin/verify-codesign`] run through
+[`bin/cosmic-bootstrap`] on the cosmic release [`ci/cosmic-driver.pin`]
+names, not on the tree, so what a change adds reaches them only once the
+pin moves. `COSMIC_BOOTSTRAP=<path>` makes them run another cosmic
+instead, such as the tree's own tool by its path in the build directory
+([`bin/cosmic`] itself is refused). A change that moves the pin also takes
+up every `TODO:` the new release unblocks: `bin/cosmic todos
+'"cosmic-driver.pin"'` lists them, and [`doc/contributing.md`] has the
+procedure.
 
+[`bin/cosmic-bootstrap`]: bin/cosmic-bootstrap
 [`bin/cosmic`]: bin/cosmic
 [`bin/vendor`]: bin/vendor
 [`bin/verify-codesign`]: bin/verify-codesign

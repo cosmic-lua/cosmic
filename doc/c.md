@@ -14,7 +14,8 @@ because the core's calls take const-dropping casts by design.
 
 ## what `cosmic fix` checks
 
-`cosmic fix` holds each C file to the items marked (checked) below, as
+`cosmic fix` writes each C file back in Lua's own layout
+([`build/c/layout.tl`]), then holds it to the items marked (checked) below, as
 [`build/c/rules.tl`] defines them. A case a rule cannot see past goes in
 `exempt` there, with its reason.
 
@@ -60,6 +61,7 @@ When writing or reviewing C, check for:
 
 A change to C also runs [`ci/run-local`] ([`doc/contributing.md`]).
 
+[`build/c/layout.tl`]: ../build/c/layout.tl
 [`build/c/rules.tl`]: ../build/c/rules.tl
 [`build/c_functions.tl`]: ../build/c_functions.tl
 [`ci/run-local`]: ../ci/run-local
