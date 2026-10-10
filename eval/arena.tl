@@ -24,10 +24,13 @@ function Arena.prompt(dir: string): string
     "sub-agents or coaching. Use the binary as your only source about cosmic.\n"
 end
 
---- Lays out a new arena at `dir` for `task`, with eval/ at `eval`,
---- answering the arena's absolute path. `dir` must not exist yet, and
---- must be outside the repository eval/ sits in, links resolved.
-function Arena.lay(eval: string, task: string, binary: string, dir: string): string | nil, string
+--- The TASK.md an arena for `task` holds: eval/task/<task>.md with
+--- eval/journal.md after it, `eval` being eval/; nil and why when
+--- there is no such task. It sits in the solver's project, whose
+--- `cosmic fix --check` the grader runs, so it is text `fix` leaves as
+--- written whatever the project declares: it makes a link of no code
+--- span in it.
+function Arena.task_text(eval: string, task: string): string | nil, string
   if task:find("/", 1, true) then
     return nil, "no task eval/task/" .. task .. ".md"
   end
@@ -35,6 +38,21 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
   local task_text, _ = Fs.read(eval .. "/task/" .. task .. ".md")
   if task_text == nil then
     return nil, "no task eval/task/" .. task .. ".md"
+  end
+  local journal, jtrouble = Fs.read(eval .. "/journal.md")
+  if journal == nil then
+    return nil, jtrouble
+  end
+  return task_text .. journal, ""
+end
+
+--- Lays out a new arena at `dir` for `task`, with eval/ at `eval`,
+--- answering the arena's absolute path. `dir` must not exist yet, and
+--- must be outside the repository eval/ sits in, links resolved.
+function Arena.lay(eval: string, task: string, binary: string, dir: string): string | nil, string
+  local task_text, task_trouble = Arena.task_text(eval, task)
+  if task_text == nil then
+    return nil, task_trouble
   end
   local st, stat_trouble = Fs.stat(binary)
   if st == nil then
@@ -111,13 +129,9 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
   if binary_bytes == nil then
     return nil, btrouble
   end
-  local journal, jtrouble = Fs.read(eval .. "/journal.md")
-  if journal == nil then
-    return nil, jtrouble
-  end
   local files: {{string}} = {
     { "bin/cosmic", binary_bytes },
-    { "project/TASK.md", task_text .. journal },
+    { "project/TASK.md", task_text },
     { "PROMPT.md", Arena.prompt(dir) },
   }
   for _, sub in ipairs({ "bin", "project", "tmp" }) do
