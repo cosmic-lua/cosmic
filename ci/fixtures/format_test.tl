@@ -1,4 +1,3 @@
-local BuildPaths = require("cosmic_ci.build_paths")
 local Clock = require("cosmic.clock")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
@@ -11,14 +10,10 @@ local Test = require("cosmic.test")
 --- driver says where the candidate and its products are
 --- (COSMIC_FIXTURE_*) and what the children it starts read
 --- ([`Fixture.inherited`], which each of them hands on and no more, and
---- which cosmic_ci/orchestration_test.tl holds this list to). It
---- declares `tool`, as [`BuildPaths.directory`] starts the running
---- program on the candidate's build/paths.tl, whose modules a worker run
---- on its closure alone would lack.
+--- which cosmic_ci/orchestration_test.tl holds this list to).
 Test.policy{
-  profiles = { "cosmic" },
-  grants = { { path = "o/bin", letters = "rx" } },
   env = {
+    "COSMIC_FIXTURE_BUILD",
     "COSMIC_FIXTURE_FORMAT",
     "COSMIC_FIXTURE_ROOT",
     "COSMIC_FIXTURE_TARGET",
@@ -85,19 +80,25 @@ end
 
 local function test_portable_format_contract(tmp: string)
   local root = Fixture.required("COSMIC_FIXTURE_ROOT")
+  -- The candidate's build directory, as the driver that built it names
+  -- it: this worker's own COSMIC_BUILD_HOME, which its harness sets
+  -- beneath its scratch directory, names another. The children that
+  -- build the candidate are given the base that names this one.
+  local build = Fixture.required("COSMIC_FIXTURE_BUILD")
+  local candidate = { COSMIC_BUILD_HOME = (assert(build:match("^(/.+)/[^/]+$"), build)) }
   local publish = Fixture.required("COSMIC_FIXTURE_FORMAT")
   local publish_target = Fixture.required("COSMIC_FIXTURE_TARGET")
-  local cosmic = BuildPaths.directory(root) .. "/bin/cosmic"
+  local cosmic = build .. "/bin/cosmic"
   local program = tmp .. "/program"
   local diagnostics = tmp .. "/logs"
   Fixture.run("fixture-write", { cosmic, root .. "/test/portable/tool.tl",
-    "write-format-fixture", BuildPaths.directory(root) .. "/targets.tsv", BuildPaths.directory(root) .. "/core",
-    program }, root, diagnostics)
+    "write-format-fixture", build .. "/targets.tsv", build .. "/core",
+    program }, root, diagnostics, candidate)
   Fixture.run("native-decoder-build", { root .. "/bin/zig", "build",
-    "portable-format-native" }, root, diagnostics, nil,
+    "portable-format-native" }, root, diagnostics, candidate,
     native_build_timeout_ns)
   local decoder = tmp .. "/format-test"
-  Fixture.copy(BuildPaths.directory(root) .. "/portable-fixture/format/format-test-native",
+  Fixture.copy(build .. "/portable-fixture/format/format-test-native",
     decoder, 0x1ed)
   Fixture.run("malformed-mutations", { decoder, program .. ".a" }, root,
     diagnostics)
@@ -105,13 +106,13 @@ local function test_portable_format_contract(tmp: string)
     program .. ".a" }, root, diagnostics)
   local decoded = Fixture.inspection(inspection.out)
   local artifact = Fixture.read(program .. ".a")
-  local targets = Fixture.targets(BuildPaths.directory(root) .. "/targets.tsv")
+  local targets = Fixture.targets(build .. "/targets.tsv")
   assert(decoded.entry_count == #targets, "format entry count differs")
   for _, target in ipairs(targets) do
     assert(target.kind == "release", "format target is not release")
     local entry = assert(Fixture.entry(decoded, target.id, target.configuration),
       "missing format entry for " .. target.name)
-    local core = Fixture.read(BuildPaths.directory(root) .. "/core/" .. target.name .. "/cosmic-core")
+    local core = Fixture.read(build .. "/core/" .. target.name .. "/cosmic-core")
     local host_path = program .. ".host-" .. target.name
     local host_inspection = Fixture.run("host-inspection-" .. target.name,
       { decoder, "--inspect-host", host_path }, root, diagnostics)
@@ -150,7 +151,7 @@ local function test_portable_format_contract(tmp: string)
   assert(artifact ~= other, "fixture programs unexpectedly match")
 
   local supported = false
-  for _, target in ipairs(Fixture.targets(BuildPaths.directory(root) .. "/targets.tsv")) do
+  for _, target in ipairs(Fixture.targets(build .. "/targets.tsv")) do
     if target.name == publish_target then supported = true end
   end
   assert(supported, "unsupported target: " .. publish_target)
@@ -158,10 +159,10 @@ local function test_portable_format_contract(tmp: string)
   assert(not publish_exists, "format output already exists: " .. publish)
   Fixture.mkdir(publish)
   Fixture.copy(program .. ".a", publish .. "/program")
-  Fixture.copy(BuildPaths.directory(root) .. "/targets.tsv", publish .. "/targets.tsv")
+  Fixture.copy(build .. "/targets.tsv", publish .. "/targets.tsv")
   Fixture.run("target-decoder-build", { root .. "/bin/zig", "build",
-    "portable-format-" .. publish_target }, root, diagnostics, nil,
+    "portable-format-" .. publish_target }, root, diagnostics, candidate,
     native_build_timeout_ns)
-  Fixture.copy(BuildPaths.directory(root) .. "/portable-fixture/format/format-test-" ..
+  Fixture.copy(build .. "/portable-fixture/format/format-test-" ..
       publish_target, publish .. "/format-test-" .. publish_target, 0x1ed)
 end
