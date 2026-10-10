@@ -292,8 +292,12 @@ local module: Module = {
   },
   members = {
     ["cosmic.hash.hex"] = "use Codec.hex(digest) (" .. codec .. ")",
+    ["cosmic.hash.byte_sum"] = "moved into cosmic.tar, which needs it for a header's " ..
+      "checksum, with no public replacement",
     ["cosmic.hash.Mac"] = "use Hash.Hasher, which Hash.hmac_hasher answers as " ..
       "Hash.hasher does (" .. hash .. ")",
+    ["cosmic.compress.crc32"] = "moved into cosmic.zip, which needs it for a " ..
+      "body's checksum, with no public replacement",
     ["cosmic.json.lines"] = "use Stream.lines(reader) and Json.decode(line) on each " ..
       "line it reads, skipping a blank one (" .. stream .. "; " .. json .. ")",
     ["cosmic.json.Lines"] = "use Stream.Lines, what Stream.lines(reader) answers, " ..

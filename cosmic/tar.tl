@@ -9,9 +9,20 @@
 --- [`Stream.Reader`]/[`Stream.Writer`] before it reaches this module --
 --- see [`cosmic.archive`].
 
-local Hash = require("cosmic.hash")
 local Stream = require("cosmic.stream")
 local String = require("cosmic.string")
+
+-- `byte_sum` lives in the raw hash table, under the reserved
+-- `cosmic.internal.` namespace -- see cosmic/store.tl for why.
+local type raw_hash = require("cosmic.internal.hash")
+
+local handed: any = select(2, ...)
+local sums: raw_hash
+if type(handed) == "table" then
+  sums = handed as raw_hash
+else
+  sums = require("cosmic.internal.hash")
+end
 
 local record Tar
   --- A tar's entry: a [`Stream.ArchiveEntry`] that also says who owns it
@@ -164,7 +175,7 @@ end
 --- The header checksum: every byte summed, the checksum field itself
 --- (bytes 149 to 156) counted as eight spaces.
 local function header_sum(block: string): integer
-  return Hash.byte_sum(block, 1, 148) + Hash.byte_sum(block, 157, BLOCK) + 256
+  return sums.byte_sum(block, 1, 148) + sums.byte_sum(block, 157, BLOCK) + 256
 end
 
 ------------------------------------------------------------------

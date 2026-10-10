@@ -15,6 +15,18 @@ local Stream = require("cosmic.stream")
 local Time = require("cosmic.time")
 local String = require("cosmic.string")
 
+-- `crc32` lives in the raw compress table, under the reserved
+-- `cosmic.internal.` namespace -- see cosmic/store.tl for why.
+local type raw_compress = require("cosmic.internal.compress")
+
+local handed: any = select(2, ...)
+local sums: raw_compress
+if type(handed) == "table" then
+  sums = handed as raw_compress
+else
+  sums = require("cosmic.internal.compress")
+end
+
 local record Zip
   --- A zip's entry: a [`Stream.ArchiveEntry`] that also says how its body
   --- is stored. Its `kind` is only ever "file", "dir" or "symlink" (an
@@ -373,7 +385,7 @@ function CheckedReader:read(max_bytes?: integer): string | nil, string
     self.failed = "zip: entry is larger than its recorded size of " .. String.counted(self.size, "byte")
     return nil, self.failed
   end
-  self.state = Compress.crc32(chunk, self.state)
+  self.state = sums.crc32(chunk, self.state)
   return chunk, ""
 end
 
@@ -870,7 +882,7 @@ end
 local function write_whole(self: EntryWriter, path: string, data: string, method: integer,
                            dos_time: integer, dos_date: integer, done: Written): boolean, string
   local payload = data
-  done.crc, done.usize = Compress.crc32(data), #data
+  done.crc, done.usize = sums.crc32(data), #data
   if method == 8 then
     local packed, dtrouble = Compress.deflate("raw", data)
     if packed == nil then return false, dtrouble end
@@ -913,7 +925,7 @@ function FeedWriter:write(chunk: string): boolean, string
   local done = self.done
   done.usize = done.usize + #chunk
   if not self.wide and done.usize >= U32_MAX then return self.owner.sink:fail(self.too_big) end
-  done.crc = Compress.crc32(chunk, done.crc)
+  done.crc = sums.crc32(chunk, done.crc)
   local deflater = self.deflater
   if deflater == nil then return emit(self, chunk) end
   local out, etrouble = deflater:update(chunk)

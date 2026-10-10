@@ -5,7 +5,6 @@
 --- external program.
 
 local Codec = require("cosmic.codec")
-local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
 local Time = require("cosmic.time")
@@ -13,6 +12,19 @@ local Zip = require("cosmic.zip")
 
 local ZIP_B64 <const> =
   "UEsDBAoAAAAAADItN13z+cmLFAAAABQAAAANABwAc3JjL3Nob3J0LnR4dFVUCQADkGazapBms2p1eAsAAQQAAAAABAAAAABzaG9ydCBmaWxlIGNvbnRlbnRzClBLAwQKAAAAAAAyLTddI9j0uAkAAAAJAAAADgAcAHNyYy9hZGlyL2FsaW5rVVQJAAOQZrNqkGazanV4CwABBAAAAAAEAAAAAHNob3J0LnR4dFBLAwQUAAAACAA4LTdd0RXq2CAAAACZCAAACwAcAHNyYy9iaWcudHh0VVQJAAOcZrNqn2azanV4CwABBAAAAAAEAAAAAEtJTctJLElVyE1VSBlljjJHmaPMUeYoc5Q5yhxIJhcAUEsDBAoAAAAAADgtN13z+cmLFAAAABQAAAAUABwAc3JjL3Nob3J0X3N0b3JlZC50eHRVVAkAA5xms2qfZrNqdXgLAAEEAAAAAAQAAAAAc2hvcnQgZmlsZSBjb250ZW50cwpQSwECHgMKAAAAAAAyLTdd8/nJixQAAAAUAAAADQAYAAAAAAABAAAApIEAAAAAc3JjL3Nob3J0LnR4dFVUBQADkGazanV4CwABBAAAAAAEAAAAAFBLAQIeAwoAAAAAADItN10j2PS4CQAAAAkAAAAOABgAAAAAAAAAAAD/oVsAAABzcmMvYWRpci9hbGlua1VUBQADkGazanV4CwABBAAAAAAEAAAAAFBLAQIeAxQAAAAIADgtN13RFerYIAAAAJkIAAALABgAAAAAAAEAAACkgawAAABzcmMvYmlnLnR4dFVUBQADnGazanV4CwABBAAAAAAEAAAAAFBLAQIeAwoAAAAAADgtN13z+cmLFAAAABQAAAAUABgAAAAAAAAAAACkgREBAABzcmMvc2hvcnRfc3RvcmVkLnR4dFVUBQADnGazanV4CwABBAAAAAAEAAAAAFBLBQYAAAAABAAEAFIBAABzAQAAAAA="
+
+--- The CRC-32 (IEEE) of `data`, continued from `crc`, a byte at a time:
+--- a reference that shares nothing with the core's.
+local function crc32_reference(data: string, crc?: integer): integer
+  local c = (crc or 0) ~ 0xFFFFFFFF
+  for i = 1, #data do
+    c = c ~ data:byte(i)
+    for _ = 1, 8 do
+      c = (c >> 1) ~ (0xEDB88320 & -(c & 1))
+    end
+  end
+  return c ~ 0xFFFFFFFF
+end
 
 --- Every entry of `r`, which has no reason to fail here.
 local function entries_of(r: Zip.Reader): {Zip.Entry}
@@ -438,7 +450,7 @@ end
 --- extra field of `extra_len` bytes that the central directory's does
 --- not.
 local function zip_with_local_extra(name: string, body: string, extra_len: integer): string
-  local crc = Compress.crc32(body)
+  local crc = crc32_reference(body)
   local extra = extra_len > 0 and (le16(0xCAFE) .. le16(extra_len - 4) ..
     string.rep("x", extra_len - 4)) or ""
   local lfh = "PK\3\4" .. le16(20) .. le16(0) .. le16(0) .. le16(0) .. le16(0x21) ..
@@ -511,7 +523,7 @@ local function test_a_streamed_body_round_trips_through_the_reader()
     assert(Stream.read_all((assert(by_path(entries, "plain"):open()))) == "after a stream", method)
     assert(Stream.read_all((assert(by_path(entries, "sized"):open()))) == whole, method)
     local a = by_path(entries, "a")
-    assert(a.size == #whole and a.crc32 == Compress.crc32(whole))
+    assert(a.size == #whole and a.crc32 == crc32_reference(whole))
     assert(a.method == (method == "store" and 0 or 8))
     if method == "deflate" then assert(a.compressed_size < #whole // 10) end
   end
@@ -533,7 +545,7 @@ local function test_a_streamed_entry_carries_a_data_descriptor_after_its_body()
   -- directory records.
   local at = 31 + #"d.txt" + #body
   assert(bytes:sub(at, at + 3) == "PK\7\8", "data descriptor signature")
-  assert(rd32(bytes, at + 4) == Compress.crc32(body))
+  assert(rd32(bytes, at + 4) == crc32_reference(body))
   assert(rd32(bytes, at + 8) == #body and rd32(bytes, at + 12) == #body)
   local r = assert(Zip.open_string(bytes))
   local entry = by_path(entries_of(r), "d.txt")
@@ -784,4 +796,36 @@ local function test_a_failing_underlying_writer_is_answered_as_it_said_it()
   assert(not ok and trouble == "disk full", trouble)
   ok, trouble = w:close()
   assert(not ok and trouble == "disk full", trouble)
+end
+
+--- The CRC-32 a zip records for `body` written whole as a string, or,
+--- with `rounds`, streamed as that many copies of it.
+local function recorded_crc(body: string, rounds?: integer): integer
+  local c = Stream.collect()
+  local w = Zip.writer(c)
+  local data: string | Stream.Reader = body
+  if rounds ~= nil then data = repeating(body, rounds) end
+  assert(w:add_file("f", data, { method = "store" }))
+  assert(w:close())
+  return by_path(entries_of((assert(Zip.open_string(c:result())))), "f").crc32
+end
+
+local function test_the_recorded_crc32_matches_the_known_value_and_continues()
+  -- crc32("hello, cosmic!") from Python's binascii.crc32.
+  assert(recorded_crc("hello, cosmic!") == 3327618652)
+  assert(recorded_crc("") == 0)
+  -- Long, and at an unaligned start: the hardware paths fold 16 bytes
+  -- at a time and handle the ragged ends apart (binascii.crc32 again).
+  local bytes: {string} = {}
+  for i = 0, 255 do bytes[#bytes + 1] = string.char(i) end
+  local block = table.concat(bytes)
+  local long = block:rep(40)
+  assert(recorded_crc(long) == 3150855069)
+  assert(recorded_crc(long:sub(4, 1000)) == 2769185661)
+  -- Streamed in 256-byte reads, each continuing the last's sum.
+  assert(recorded_crc(block, 40) == 3150855069)
+  assert(recorded_crc("hello, ", 1) == crc32_reference("hello, "))
+  assert(recorded_crc("cosmic!", 3) == crc32_reference("cosmic!cosmic!cosmic!"))
+  assert(crc32_reference("hello, cosmic!") == 3327618652)
+  assert(crc32_reference(long) == 3150855069)
 end

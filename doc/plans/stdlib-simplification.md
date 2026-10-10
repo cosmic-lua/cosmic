@@ -199,8 +199,6 @@ helper per module. [`Zip.Reader.entries`] reports failure as `next` does.
 [`Archive.list`] takes a path or a Reader, as `extract` does;
 [`Archive.open`] (no direct caller) stays as `list`'s and `extract`'s entry.
 [`ExtractOptions.unsupported`], `.mtimes`, `.max_bytes` (no caller) go.
-[`Hash.byte_sum`] and [`Compress.crc32`] stay, each with the `TODO:` naming
-what moving them waits on.
 
 ### wave 4: process and network I/O
 
@@ -414,8 +412,6 @@ land goes to [`doc/roadmap.md`] under "shape", with the reason.
 - `Fs`'s path-prefixing wrappers over `sys`: the prefix is the contract
   [`cosmic.errno`] documents. the build's direct `sys` calls are left; a
   sweep to `Fs` is a follow-up when it pays.
-- [`Hash.byte_sum`], [`Compress.crc32`]: moving them waits on a module being
-  handed another module's internal table; their `TODO:`s say so.
 - `Env`: 28 lines, but the replacement the removed-globals mapping names.
 - the object styles (closures in a table against a shared method table):
   each module keeps the one it has; a tree-wide choice is a separate
@@ -454,7 +450,6 @@ description.
 [`Codec.decoder`]: ../../cosmic/codec.tl
 [`Codec.encoder`]: ../../cosmic/codec.tl
 [`Codec.Name`]: ../../cosmic/codec.tl
-[`Compress.crc32`]: ../../cosmic/compress.tl
 [`Compress.deflate`]: ../../cosmic/compress.tl
 [`Compress.inflate`]: ../../cosmic/compress.tl
 [`Compress.Stream`]: ../../cosmic/compress.tl
@@ -499,7 +494,6 @@ description.
 [`Fs.truncate`]: ../../cosmic/fs.tl
 [`Fs.walk`]: ../../cosmic/fs.tl
 [`Fs.write`]: ../../cosmic/fs.tl
-[`Hash.byte_sum`]: ../../cosmic/hash.tl
 [`Hash.Hasher`]: ../../cosmic/hash.tl
 [`Hash.Mac`]: ../../cosmic/hash.tl
 [`Http.download`]: ../../cosmic/http/init.tl
