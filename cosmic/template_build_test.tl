@@ -73,8 +73,9 @@ local function project(tmp: string, case: string, files: {string: string}): {str
 end
 
 --- The module `path` of `lua`, run against the real [`cosmic.html`].
-local function load_module(lua: {string: string}, path: string): any
-  local loaded: {string: any} = {}
+--- Each module it loads is set in `loaded`, when given.
+local function load_module(lua: {string: string}, path: string, loaded?: {string: any}): any
+  loaded = loaded or {}
   local function req(name: string): any
     if name == "cosmic.html" then
       return Html
@@ -200,4 +201,38 @@ local function test_a_template_of_the_tree_is_a_module_the_tree_requires()
   assert(out:find(Html.raw_attr(Html.escape_attr("about:invalid")), 1, true), out)
   assert(out:find(Html.raw_attr(Html.escape_attr("/home")), 1, true), out)
   assert(not out:find("javascript", 1, true), out)
+end
+
+local function test_a_template_whose_data_is_a_declaration_builds_and_renders(tmp: string)
+  local lua, trouble = project(tmp, "declared", {
+    ["types.d.tl"] = "local record types\n  record Page\n    title: string\n  end\nend\nreturn types\n",
+    ["page.tmpl"] = "{{type Page from types}}{{mode text}}{{.title}}" })
+  assert(lua ~= nil, trouble)
+  local mod = load_module(lua, "page")
+  assert(mod is Loaded and mod.render({ title = "t" }) == "t")
+end
+
+local function test_a_data_module_is_not_loaded_for_its_type_alone(tmp: string)
+  local lua, trouble = project(tmp, "effects", {
+    ["data.tl"] = "local record data\n  record Page\n    title: string\n  end\nend\n" ..
+      "error(\"data was loaded\")\nreturn data\n",
+    ["page.tmpl"] = "{{type Page from data}}{{mode text}}{{.title}}" })
+  assert(lua ~= nil, trouble)
+  local loaded: {string: any} = {}
+  local mod = load_module(lua, "page", loaded)
+  assert(mod is Loaded and mod.render({ title = "t" }) == "t")
+  assert(loaded.data == nil)
+end
+
+local function test_a_data_module_a_stage_reads_is_required_once_as_a_value(tmp: string)
+  local lua, trouble = project(tmp, "both", {
+    ["data.tl"] = "local record data\n  record Page\n    title: string\n  end\n" ..
+      "  shout: function(s: string): string\nend\nfunction data.shout(s: string): string\n" ..
+      "  return s:upper()\nend\nreturn data\n",
+    ["page.tmpl"] = "{{type Page from data}}{{mode text}}{{.title | data.shout}}" })
+  assert(lua ~= nil, trouble)
+  local _, requires = lua.page:gsub('require%("data"%)', "")
+  assert(requires == 1, lua.page)
+  local mod = load_module(lua, "page")
+  assert(mod is Loaded and mod.render({ title = "t" }) == "T")
 end
