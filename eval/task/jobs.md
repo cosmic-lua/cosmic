@@ -97,14 +97,14 @@ The project's library module is named `jobs`, `require("jobs")`, and
 exports at least this API, which the project's own program uses and
 which is checked through these names and types:
 
-- `jobs.Status`, an enum of the five statuses above: `"ok"`,
+- `jobs.Status`: an enum of the five statuses above: `"ok"`,
   `"failed"`, `"timeout"`, `"skipped"` and `"interrupted"`.
-- `jobs.Job`, a record of one job as checked: `name: string` (its
+- `jobs.Job`: a record of one job as checked: `name: string` (its
   key), `cmd: {string}`, `needs: {string}` (empty when absent),
   `timeout: number` (nil when absent), `retries: integer` (0 when
   absent), `env: {string: string}` (empty when absent) and
   `cwd: string` (nil when absent).
-- `jobs.Plan`, a record: `jobs: {string: jobs.Job}` by name, and
+- `jobs.Plan`: a record with `jobs: {string: jobs.Job}` by name, and
   `order: {string}`, every job's name once, each after every job it
   needs, choosing at each step the name first in byte order among
   those whose needs are all listed already.
