@@ -1112,7 +1112,7 @@ same change.
    places; `html` base dialect holding the always-on `hx-on` refusals.
 4. The `htmx` dialect data and its tests, including the pinned-file test
    once the vendored file exists (assets.md section 4.2).
-5. `Json.EncodeOptions.ascii` (core/json.c and json.tl).
+5. [`Json.EncodeOptions.ascii`] (core/json.c and json.tl).
 6. `cosmic.web.htmx` once the core types exist; `Htmx.head` once the
    vendored files and `Store.web_asset` exist (assets.md section 4).
 
@@ -1150,7 +1150,7 @@ same change.
 7. Should `Htmx.page` set `Cache-Control: no-cache`? Recommend yes by
    default (it prevents the fragment-on-Back bug even when a proxy ignores
    `Vary`), overridable by the handler setting its own.
-8. `Json.EncodeOptions.ascii` in the core encoder (section 5.3) versus a
+8. [`Json.EncodeOptions.ascii`] in the core encoder (section 5.3) versus a
    Teal post-pass. Recommend the core option: it is one flag, and the
    Teal fallback is kept only until it lands (a `TODO:` at the post-pass).
 9. Names: `urlpart` vs `url_part`; `url_local` vs `local_url`; whether
@@ -1166,7 +1166,7 @@ is):
   hatch, waiting on a CSS string escaper (roadmap item for JS and CSS).
 - In the htmx dialect: `hx-trigger` slots, waiting on a `SafeTrigger`.
 - In `cosmic.web.htmx`: the Teal ASCII-JSON post-pass, once
-  `Json.EncodeOptions.ascii` lands.
+  [`Json.EncodeOptions.ascii`] lands.
 - In the template's `ident` rule: `\`-escaped identifiers written in the
   literal text are treated as the end of an identifier; waiting on a
   CSS-aware scan if anyone writes them.
@@ -1186,6 +1186,7 @@ is):
 [`Html.trust`]: ../../../cosmic/html.tl
 [`Json.decode`]: ../../../cosmic/json.tl
 [`Json.encode`]: ../../../cosmic/json.tl
+[`Json.EncodeOptions.ascii`]: ../../../cosmic/json.tl
 [`Json.EncodeOptions`]: ../../../cosmic/json.tl
 [`Template.compile`]: ../../../cosmic/template/init.tl
 [`Test.policy`]: ../../../cosmic/test.tl

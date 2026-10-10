@@ -156,6 +156,28 @@ static int hash_byte_sum (lua_State *L) {
   return 1;
 }
 
+/* Whether two strings hold the same bytes, in a time that depends on their
+ * length alone: every byte is compared and the differences accumulate, with
+ * no branch on a byte. The accumulator is volatile so the compiler cannot
+ * stop the loop at the first difference. Different lengths answer false at
+ * once; a length is not a secret (a MAC's is fixed by its algorithm). */
+static int hash_equal (lua_State *L) {
+  size_t a_len;
+  size_t b_len;
+  const unsigned char *a =
+      (const unsigned char *)luaL_checklstring(L, 1, &a_len);
+  const unsigned char *b =
+      (const unsigned char *)luaL_checklstring(L, 2, &b_len);
+  if (a_len != b_len) {
+    lua_pushboolean(L, 0);
+    return 1;
+  }
+  volatile unsigned char difference = 0;
+  for (size_t i = 0; i < a_len; i++) difference |= a[i] ^ b[i];
+  lua_pushboolean(L, difference == 0);
+  return 1;
+}
+
 /* An algorithm nobody has heard of is an argument-shape error and
  * raises; the library refusing a hash it advertises is a bug, and
  * raises too. Neither is a runtime failure a caller could handle. */
@@ -282,6 +304,7 @@ static const luaL_Reg module[] = {
   {"hasher", hash_hasher},
   {"hmac_hasher", hash_hmac_hasher},
   {"byte_sum", hash_byte_sum},
+  {"equal", hash_equal},
   {"siphash", hash_siphash},
   {NULL, NULL},
 };

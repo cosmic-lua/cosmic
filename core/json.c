@@ -954,6 +954,9 @@ struct encoding {
   /* Whether to lay the text out over lines, two spaces a level. */
   int pretty;
   int max_depth;
+  /* Whether to write every non-ASCII character as \uXXXX escapes, a
+   * surrogate pair above U+FFFF, so the text is ASCII throughout. */
+  int ascii;
   /* Why the value cannot be encoded, once it cannot. */
   char failure[160];
   /* Where. `out_of_memory` says the failure was not the value's, so no
@@ -1053,6 +1056,29 @@ static int put_string (struct encoding *e, const char *s, size_t n) {
   size_t start = 0;
   for (size_t i = 0; i < n; i++) {
     unsigned char c = (unsigned char)s[i];
+    if (e->ascii && c >= 0x80) {
+      /* [`is_utf8`] accepted the string, so the sequence is whole. */
+      if (put(e, s + start, i - start) < 0) return -1;
+      uint32_t code;
+      size_t extra = c >= 0xf0 ? 3 : c >= 0xe0 ? 2 : 1;
+      code = c & (0x3f >> extra);
+      for (size_t k = 1; k <= extra; k++) {
+        code = code << 6 | ((unsigned char)s[i + k] & 0x3f);
+      }
+      i += extra;
+      start = i + 1;
+      char escape[12];
+      size_t length = 6;
+      if (code >= 0x10000) {
+        uint32_t high = 0xd800 + ((code - 0x10000) >> 10);
+        code = 0xdc00 + ((code - 0x10000) & 0x3ff);
+        snprintf(escape, sizeof escape, "\\u%04x", (unsigned)high);
+        if (put(e, escape, length) < 0) return -1;
+      }
+      snprintf(escape, sizeof escape, "\\u%04x", (unsigned)code);
+      if (put(e, escape, length) < 0) return -1;
+      continue;
+    }
     if (c >= 0x20 && c != '"' && c != '\\') continue;
     if (put(e, s + start, i - start) < 0) return -1;
     start = i + 1;
@@ -1298,8 +1324,8 @@ static int put_value (struct encoding *e, int idx, int depth) {
   }
 }
 
-/* encode(value, pretty?, max_depth?): `value` as JSON text, and "". nil and
- * a message when it holds something JSON cannot say. */
+/* encode(value, pretty?, max_depth?, ascii?): `value` as JSON text, and "".
+ * nil and a message when it holds something JSON cannot say. */
 static int json_encode (lua_State *L) {
   luaL_checkany(L, 1);
   struct encoding e;
@@ -1307,7 +1333,8 @@ static int json_encode (lua_State *L) {
   e.L = L;
   e.pretty = lua_toboolean(L, 2);
   e.max_depth = checked_depth(L, 3);
-  lua_settop(L, 3);
+  e.ascii = lua_toboolean(L, 4);
+  lua_settop(L, 4);
   lua_getfield(L, LUA_REGISTRYINDEX, NULL_KEY);
   e.null_index = lua_gettop(L);
   e.guard = cosmic_guard_push(L, cosmic_free);

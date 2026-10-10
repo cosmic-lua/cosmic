@@ -1313,7 +1313,7 @@ the roadmap (nobody needs it with sessions present).
 different-looking token and a compressed response that reflects it
 (gzip middleware, v1) does not leak the secret through BREACH-style length
 oracles. `check(token)` unmasks (xor of the halves) and compares with
-`Hash.equal` against the session secret. XOR over 32 bytes is a small pure
+[`Hash.equal`] against the session secret. XOR over 32 bytes is a small pure
 Teal loop (`string.byte`/`char` over the pair); the secret itself never
 leaves the session.
 
@@ -1720,7 +1720,7 @@ declaration, everything else declares nothing.
   remove the corresponding roadmap bullet (doc/roadmap.md:243-249 partially).
   The module comment says "Nothing here raises on its text", which stays true.
 - cosmic/http/wire.tl:434: join `cookie` with `"; "`.
-- cosmic/hash.tl: `Hash.equal` (constant-time).
+- cosmic/hash.tl: [`Hash.equal`] (constant-time).
 - cosmic/http/multipart.tl: new (section 4; step 7 of ../web.md's order).
 - cosmic/http/server.tl: only what core.md section 13 changes for multi-valued
   `Reply.headers` (server.tl:91, :343); nothing else for this file.
@@ -1784,7 +1784,7 @@ declaration, everything else declares nothing.
 9. CSP reporting (`report-to`, a `/csp-report` endpoint). Recommendation:
    leave out of v1; `csp_report_only` is enough to trial a policy by the
    browser console.
-10. `Hash.equal` in pure Teal vs a C binding. Recommendation: Teal now with
+10. [`Hash.equal`] in pure Teal vs a C binding. Recommendation: Teal now with
     the `TODO:` naming cosmic.sys; the C binding needs the [`core/syscalls.h`]
     contract and a test that enters it, so it is a separate change.
 11. Should `Session.middleware` fall back to an ephemeral key in dev without
@@ -1805,6 +1805,7 @@ declaration, everything else declares nothing.
 [`Fs.rename`]: ../../../cosmic/fs.tl
 [`Fuzz.label`]: ../../../build/fuzz/init.tl
 [`Hash.digest`]: ../../../cosmic/hash.tl
+[`Hash.equal`]: ../../../cosmic/hash.tl
 [`Json.decode`]: ../../../cosmic/json.tl
 [`Json.encode`]: ../../../cosmic/json.tl
 [`Json.from_pointer`]: ../../../cosmic/json.tl

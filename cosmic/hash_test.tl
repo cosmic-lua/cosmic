@@ -39,6 +39,40 @@ local macs: {{string}} = {
       "82f948a549f7b791a5b41915ee4d1ec3935357e4e2317250d0372afa2ebeeb3a" },
 }
 
+local function test_equal_compares_every_byte()
+  local mac = Hash.hmac("sha256", "key", fox)
+  assert(Hash.equal(mac, mac))
+  assert(Hash.equal(mac, Hash.hmac("sha256", "key", fox)))
+  assert(Hash.equal("", ""))
+  assert(Hash.equal("a\0b", "a\0b"))
+  assert(not Hash.equal("a\0b", "a\0c"))
+  -- Each byte position decides: a flip at the first, a middle and the
+  -- last byte, and in the high bit, is unequal.
+  for _, at in ipairs({ 1, 16, 32 }) do
+    for _, flip in ipairs({ 1, 0x80, 0xff }) do
+      local bytes = { mac:byte(1, -1) }
+      bytes[at] = bytes[at] ~ flip
+      assert(not Hash.equal(mac, string.char(table.unpack(bytes))),
+        "byte " .. at .. " flipped by " .. flip)
+    end
+  end
+end
+
+local function test_equal_refuses_a_length_mismatch()
+  assert(not Hash.equal("abc", "ab"))
+  assert(not Hash.equal("ab", "abc"))
+  assert(not Hash.equal("", "a"))
+  assert(not Hash.equal("a\0", "a"))
+end
+
+local function test_equal_raises_on_a_non_string()
+  local equal = Hash.equal as function(any, any): boolean
+  local ok = pcall(equal, {}, "1")
+  assert(not ok)
+  ok = pcall(equal, "1", nil)
+  assert(not ok)
+end
+
 local function test_digests_match_published_vectors()
   for _, v in ipairs(vectors) do
     local algorithm = v[1] as Hash.Algorithm
