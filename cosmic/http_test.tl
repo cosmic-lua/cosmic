@@ -885,6 +885,23 @@ local function test_a_download_with_only_a_sha512_checks_that_alone(tmp: string)
   assert(Fs.stat(other) == nil, "the target was created")
 end
 
+--- A sha3-256, the digest sqlite.org publishes alone, is checked as the
+--- others are: a wrong one fails naming it and leaves no file.
+local function test_a_download_with_a_sha3_256_checks_it(tmp: string)
+  local path = tmp .. "/sha3.bin"
+  local sha3 = Codec.hex(Hash.digest("sha3-256", "hello"))
+  local ok, why = Http.download(url, path, { script = { reply("200 OK", "", "hello") },
+    sha3_256 = sha3:upper() })
+  assert(ok, why)
+  assert(Fs.read(path) == "hello")
+  local other = tmp .. "/wrong-sha3.bin"
+  local zeros = string.rep("0", 64)
+  local bad, bad_why = Http.download(url, other, { script = { reply("200 OK", "", "hello") },
+    sha256 = Hash.hex_sha256("hello"), sha3_256 = zeros })
+  assert(not bad and bad_why:find("sha3-256 mismatch: want " .. zeros .. ", got " .. sha3, 1, true), bad_why)
+  assert(Fs.stat(other) == nil, "the target was created")
+end
+
 local function test_download_result_success_has_no_failure_fields(tmp: string)
   local path = tmp .. "/got"
   assert(Fs.write(path, "old"))

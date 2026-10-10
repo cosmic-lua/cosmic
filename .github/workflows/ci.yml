@@ -527,34 +527,110 @@
         # on the tree's path fails some run (driver.tl place-tree); on the macOS
         # leg's gating runs, whose keys hold the path, of the leg's alone.
         # TODO: move it on the macOS leg alone once "check the pinned CI
-        # driver" runs cosmic_ci's tests sandboxed:
-        # the tree's own suites here already see it at /tree wherever it
-        # is (COSMIC_TEST_SANDBOX=1), and the pinned release sandboxes
-        # its workers by default and knows `system`, but cosmic_ci's
-        # tests read the checkout around ci/ (bin/cosmic-bootstrap,
-        # build/, .github/), which a worker held to ci/ is not given and
-        # `Test.policy` names only as a host grant written out in the
-        # source; the macOS leg has no sandbox at all. Then too, the
-        # cosmic_ci tests that start the system's own programs
-        # (bootstrap_test, fixture_test and runner_test start /bin/sh,
-        # fuzz_test /bin/cp) declare the profile "system" in their
-        # `Test.policy`.
+        # driver" runs cosmic_ci's tests sandboxed: the tree's own suites
+        # here already see it at /tree wherever it is (COSMIC_TEST_SANDBOX=1),
+        # and the pinned release sandboxes its workers by default, knows
+        # `system` and takes `/parent/` grants (orchestration_test and
+        # queue_stage_test declare theirs), but a sandboxed `cosmic test
+        # cosmic_ci` from ci/ still fails tests, for the host programs they
+        # start and the files they read without declaring them (`system`
+        # profiles, grants), which that run lists; the macOS leg has no
+        # sandbox at all.
         {
           name: "move the tree to a path of its own",
           run: "cosmic-driver cosmic_ci/driver.tl place-tree",
         },
 
+        # Main saves the marker only once a commit lands, some minutes
+        # after its queue run began its check, so the runs queued behind a
+        # change to what the key hashes (ci/ and the rest) all missed and
+        # checked again (2026-10-10, behind a change to ci/ in the
+        # queue). The run ahead in the queue keeps the key its leg checked
+        # (or found, or took) for the run behind to read, as the verdicts
+        # are (below): an exact match is the same check on the same host
+        # (the key holds both), by a run that passed it. Not waited for
+        # beyond the leg ahead's start of its boot, which follows the
+        # upload; where none is found, or the key differs, the check runs.
+        {
+          name: "find the CI driver check of the run ahead in the queue",
+          id: "driver-ahead",
+          if: "env.COSMIC_CI_SCOPE == 'full' && github.event_name == 'merge_group' && steps.driver-check-restore.outputs.cache-hit != 'true'",
+          shell: "sh",
+          "continue-on-error": true,
+          "timeout-minutes": 2,
+          env: {
+            GH_TOKEN: "${{ github.token }}",
+            REPOSITORY: "${{ github.repository }}",
+            BASE: "${{ github.event.merge_group.base_sha }}",
+            JOB: "${{ matrix.name }}",
+            ARTIFACT: "driver-checked-${{ matrix.name }}",
+            WITHIN_SECONDS: "30",
+            WAIT_SECONDS: "15",
+            SUITE_STEP: "build release Cosmic",
+          },
+          run: "cosmic-driver cosmic_ci/driver.tl queue-ahead",
+        },
+        {
+          name: "download the CI driver check of the run ahead",
+          id: "driver-ahead-download",
+          if: "steps.driver-ahead.outputs.run != ''",
+          "continue-on-error": true,
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {
+            name: "driver-checked-${{ matrix.name }}",
+            path: "${{ runner.temp }}/driver-ahead",
+            "run-id": "${{ steps.driver-ahead.outputs.run }}",
+            "github-token": "${{ github.token }}",
+          },
+        },
+        # Only the key this leg's own lookup computed counts.
+        {
+          name: "take the CI driver check of the run ahead",
+          id: "driver-ahead-take",
+          if: "steps.driver-ahead-download.outcome == 'success'",
+          "continue-on-error": true,
+          shell: "sh",
+          env: {KEY: "${{ steps.driver-check-restore.outputs.cache-primary-key }}"},
+          run: "[ -n \"$KEY\" ] && [ -f \"$RUNNER_TEMP/driver-ahead/key\" ] && [ \"$(cat \"$RUNNER_TEMP/driver-ahead/key\")\" = \"$KEY\" ] && echo hit=true >> \"$GITHUB_OUTPUT\" || :",
+        },
+
         # --all, unsandboxed: it shares no verdicts, and cosmic_ci's tests
-        # read the checkout around ci/ (the TODO above). On every leg of
+        # are not all declared to run sandboxed (the TODO above). On every leg of
         # a full run, the merge queue's too, since those tests start the
         # host's own programs (/bin/sh, cp), which the marker's key holds
         # by the leg's container, or on macOS by the runner's image.
         {
           name: "check the pinned CI driver",
           id: "driver-check",
-          if: "env.COSMIC_CI_SCOPE == 'full' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || steps.driver-check-restore.outputs.cache-hit != 'true')",
+          if: "env.COSMIC_CI_SCOPE == 'full' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (steps.driver-check-restore.outputs.cache-hit != 'true' && steps.driver-ahead-take.outputs.hit != 'true'))",
           env: {COSMIC_VERDICT_CACHE: "0", COSMIC_TEST_SANDBOX: "0"},
           run: "cosmic-driver test cosmic_ci && mkdir -p \"$RUNNER_TEMP/driver-checked\" && echo \"${{ steps.driver-check-restore.outputs.cache-primary-key }}\" > \"$RUNNER_TEMP/driver-checked/key\"",
+        },
+
+        # The marker for the run behind in the queue (above), where this
+        # leg's check passed or its key was found: never a failed check's.
+        # Not the marker main saves: queue-stage stages that from
+        # driver-checked/, written by the check alone.
+        {
+          name: "keep the CI driver check for the run behind in the queue",
+          if: "env.COSMIC_CI_SCOPE == 'full' && github.event_name == 'merge_group' && (steps.driver-check.outcome == 'success' || steps.driver-check-restore.outputs.cache-hit == 'true' || steps.driver-ahead-take.outputs.hit == 'true')",
+          "continue-on-error": true,
+          shell: "sh",
+          env: {KEY: "${{ steps.driver-check-restore.outputs.cache-primary-key }}"},
+          run: "[ -n \"$KEY\" ] && mkdir -p \"$RUNNER_TEMP/driver-relay\" && echo \"$KEY\" > \"$RUNNER_TEMP/driver-relay/key\"",
+        },
+        {
+          name: "upload the CI driver check for the run behind in the queue",
+          if: "env.COSMIC_CI_SCOPE == 'full' && github.event_name == 'merge_group' && (steps.driver-check.outcome == 'success' || steps.driver-check-restore.outputs.cache-hit == 'true' || steps.driver-ahead-take.outputs.hit == 'true')",
+          "continue-on-error": true,
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "driver-checked-${{ matrix.name }}",
+            path: "${{ runner.temp }}/driver-relay",
+            "if-no-files-found": "error",
+            overwrite: true,
+            "retention-days": 1,
+          },
         },
 
         # The boot, apart from the native suite, so that the wait below
@@ -1455,9 +1531,10 @@
     # On the leg's own runner: an entry's version hashes its path, which
     # is the runner's. Seeds stand only on a run whose every leg passed.
     # TODO: a branch push shows this job as a skipped check, one of the
-    # two exceptions build/workflows_test.tl's
+    # exceptions build/workflows_test.tl's
     # test_a_branch_push_starts_no_job_it_skips names (`reuse`, whose
-    # runner a branch push's legs would wait on, is the other). Moving it, with a
+    # runner a branch push's legs would wait on, `prune` and `invalidate`
+    # are the others). Moving it, with a
     # lookup of its own, to a workflow on a push to main alone would end
     # that, at the cost of a second lookup that could disagree with
     # this one's and saves no longer in this run's concurrency group.
@@ -1678,18 +1755,17 @@
     # checkout that keeps no credentials. After every job
     # that saves, whatever their result, so a red push to main prunes
     # too; beside the join, so the check a ruleset requires waits on
-    # none of it. Every push runs it, a branch's with its steps skipped,
-    # so a branch push shows it run rather than skipped: off the legs'
-    # path, it costs a branch push nothing but a runner.
+    # none of it. The job's `if` holds every condition, so a branch push,
+    # which has nothing to prune, starts no runner for it and shows it as
+    # a skipped check.
     prune: {
       needs: ["platform", "checked", "seed"],
-      if: "always() && github.event_name == 'push'",
+      if: "always() && github.event_name == 'push' && github.ref == 'refs/heads/main'",
       "runs-on": "ubuntu-24.04",
       "timeout-minutes": 5,
       permissions: {contents: "read", actions: "write"},
       steps: [
         {
-          if: "github.ref == 'refs/heads/main'",
           uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
           with: {
             "sparse-checkout": "/ci/\n/bin/cosmic-bootstrap\n/.github/scripts/cosmic-driver.sh\n/.github/actions/cosmic-driver/\n",
@@ -1699,13 +1775,11 @@
         },
         {
           name: "bootstrap the pinned CI driver",
-          if: "github.ref == 'refs/heads/main'",
           "continue-on-error": true,
           uses: "./.github/actions/cosmic-driver",
         },
         {
           name: "prune verdicts saved under a commit, and branches' compiles",
-          if: "github.ref == 'refs/heads/main'",
           "working-directory": "ci",
           "continue-on-error": true,
           env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}"},
@@ -1722,16 +1796,17 @@
     # took out of its database would still stand for every branch based
     # on that commit. The legs' own saves have finished (`needs`), so the
     # restore by prefix then takes the failed run's. Beside `prune`: the
-    # one other job whose token may write the cache.
+    # one other job whose token may write the cache. The job's `if` holds
+    # every condition, so a green run, and a branch push, start no
+    # runner for it; a scheduled run is on the default branch.
     invalidate: {
       needs: ["platform", "checked", "seed"],
-      if: "always() && (github.event_name == 'push' || github.event_name == 'schedule')",
+      if: "always() && contains(needs.*.result, 'failure') && (github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))",
       "runs-on": "ubuntu-24.04",
       "timeout-minutes": 5,
       permissions: {contents: "read", actions: "write"},
       steps: [
         {
-          if: "github.ref == 'refs/heads/main' && contains(needs.*.result, 'failure')",
           uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
           with: {
             "sparse-checkout": "/ci/\n/bin/cosmic-bootstrap\n/.github/scripts/cosmic-driver.sh\n/.github/actions/cosmic-driver/\n",
@@ -1741,12 +1816,10 @@
         },
         {
           name: "bootstrap the pinned CI driver",
-          if: "github.ref == 'refs/heads/main' && contains(needs.*.result, 'failure')",
           uses: "./.github/actions/cosmic-driver",
         },
         {
           name: "delete the verdicts saved under a commit",
-          if: "github.ref == 'refs/heads/main' && contains(needs.*.result, 'failure')",
           "working-directory": "ci",
           env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}", COMMIT: "${{ github.sha }}"},
           run: "cosmic-driver cosmic_ci/driver.tl invalidate-commit-verdicts",

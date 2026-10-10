@@ -250,12 +250,77 @@ local function test_a_module_named_like_the_helpers_parameter_or_type_is_renamed
   end
 end
 
+local VALUE_REFUSAL <const> = " -- data, which {{type Page from data}} names, must return its " ..
+  "record type, as `local record M ... end return M` or a `.d.tl` does, not a value"
+
+--- The record's module is required for its type alone, which Teal
+--- refuses when the module returns a value of its record: the refusal
+--- says, on the `{{type}}`'s line, what the module must return. The
+--- checker's errors that follow stand, but `unknown type data.Page` is
+--- told no hint that data lacks Page: its record declares it.
 local function test_a_records_module_that_returns_a_value_of_it_is_refused(tmp: string)
   local lua, trouble = project(tmp, "value", {
     ["data.tl"] = "local record Data\n  record Page\n    title: string\n  end\nend\n" ..
       "local data: Data = {}\nreturn data\n",
     ["page.tmpl"] = "{{type Page from data}}{{mode text}}{{.title}}" })
   assert(lua == nil, "built a record's module that returns a value")
-  assert(trouble:find("page.tmpl:1:", 1, true), trouble)
-  assert(trouble:find("'require' did not return a type, got record Data", 1, true), trouble)
+  local lines: {string} = {}
+  for line in trouble:gmatch("[^\n]+") do
+    lines[#lines + 1] = line
+  end
+  assert(#lines == 4 and lines[1] == "page.tmpl: the compiler refused it", trouble)
+  assert(lines[2]:match("^page%.tmpl:1:%d+: 'require' did not return a type, got record Data") ~= nil and
+      lines[2]:sub(-#VALUE_REFUSAL) == VALUE_REFUSAL, trouble)
+  assert(lines[3]:match("^page%.tmpl:1:%d+: unknown type data%.Page$") ~= nil, trouble)
+  assert(lines[4]:match("^page%.tmpl:1:%d+: cannot index key 'title' in variable 'd' of type data%.Page$") ~= nil,
+    trouble)
+end
+
+--- A data module whose value's type names its record is refused with the
+--- same answer, though the refusal names `data.Page` itself.
+local function test_a_records_module_that_returns_a_function_of_it_is_refused(tmp: string)
+  local lua, trouble = project(tmp, "value-function", {
+    ["data.tl"] = "local record data\n  record Page\n    title: string\n  end\nend\n" ..
+      "return function(p: data.Page): string\n  return p.title\nend\n",
+    ["page.tmpl"] = "{{type Page from data}}{{mode text}}{{.title}}" })
+  assert(lua == nil, "built a record's module that returns a function")
+  local refusal = trouble:match("page%.tmpl:1:%d+: 'require' did not return a type, got [^\n]*")
+  assert(refusal ~= nil and refusal:find("data.Page", 1, true) ~= nil and
+      refusal:sub(-#VALUE_REFUSAL) == VALUE_REFUSAL, trouble)
+  assert(trouble:find("has no type", 1, true) == nil, trouble)
+end
+
+--- Blank lines before the `{{type}}` keep line N of the template line N
+--- of the module: the refusal of its record's module names the
+--- `{{type}}`'s line, and a slot's error its own.
+local function test_blank_lines_before_the_type_keep_each_line(tmp: string)
+  local value, value_trouble = project(tmp, "blank-value", {
+    ["data.tl"] = "local record Data\n  record Page\n    title: string\n  end\nend\n" ..
+      "local data: Data = {}\nreturn data\n",
+    ["page.tmpl"] = "\n\n{{type Page from data}}{{mode text}}{{.title}}" })
+  assert(value == nil, "built a record's module that returns a value")
+  assert(value_trouble:match("\npage%.tmpl:3:%d+: 'require' did not return a type") ~= nil, value_trouble)
+  local slot, slot_trouble = project(tmp, "blank-slot", { ["data.tl"] = DATA,
+    ["page.tmpl"] = "\n\n{{type Page from data}}{{mode text}}\n{{.nope}}" })
+  assert(slot == nil and slot_trouble:match("\npage%.tmpl:4:%d+: ") ~= nil, tostring(slot_trouble))
+  local lua, trouble = project(tmp, "blank-ok", { ["data.tl"] = DATA,
+    ["page.tmpl"] = "\n\n{{type Page from data}}{{mode text}}\n{{.title}}" })
+  assert(lua ~= nil, trouble)
+  local mod = load_module(lua, "page")
+  assert(mod is Loaded and mod.render({ title = "t" }) == "\nt", tostring(mod is Loaded and mod.render({ title = "t" })))
+end
+
+--- A stage that reads the record's module requires it as a value, whose
+--- type names the record's types: a module that returns a value of its
+--- record builds then.
+local function test_a_records_module_that_returns_a_value_builds_when_a_stage_reads_it(tmp: string)
+  local lua, trouble = project(tmp, "value-read", {
+    ["data.tl"] = "local record Data\n  record Page\n    title: string\n  end\n" ..
+      "  shout: function(s: string): string\nend\n" ..
+      "local data: Data = { shout = function(s: string): string return s:upper() end }\n" ..
+      "return data\n",
+    ["page.tmpl"] = "{{type Page from data}}{{mode text}}{{.title | data.shout}}" })
+  assert(lua ~= nil, trouble)
+  local mod = load_module(lua, "page")
+  assert(mod is Loaded and mod.render({ title = "t" }) == "T")
 end

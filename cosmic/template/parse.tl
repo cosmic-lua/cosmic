@@ -436,8 +436,8 @@ function Parse.parse(src: string, name: string): types.Template | nil, string
   if stray ~= nil then
     return nil, refuse(p, stray.line, stray.col, "{{" .. keyword(stray) .. "}} without a block to close")
   end
-  return { type_name = type_name, import_path = import_path, mode = mode, body = body,
-    lines = lexed.lines }, ""
+  return { type_name = type_name, import_path = import_path, line = head.line, mode = mode,
+    body = body, lines = lexed.lines }, ""
 end
 
 return Parse

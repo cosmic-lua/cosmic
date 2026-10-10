@@ -189,6 +189,15 @@ local record Test
     --- worker has each writable at its own path, with the variables that
     --- locate it.
     caches: {string}
+    --- Files of the project root's parent directory the tests read, each
+    --- a path relative to that directory of plain names (none empty, `.` or
+    --- `..`, and no `$` anywhere) with no trailing "/": for a project that lives in a directory of
+    --- another (the CI driver's `ci/`) and reads that tree's files. A
+    --- sandboxed worker has each, read-only, at its fixed place beside
+    --- /tree ([`Test.parent`] names it), and its key holds the file's
+    --- contents and its relative path, never where the project is. A file
+    --- the host lacks fails the module's tests.
+    parent: {string}
   end
 
   --- One path a test may reach, and how: [`cosmic.sandbox`]'s [`Grant`].
@@ -291,6 +300,10 @@ local function runner_in(module: any): {string:any}
   return nil
 end
 
+--- The files of the parent directory this module's policy declared
+--- ([`Needs.parent`]), by their relative paths.
+local declared_parents: {string:boolean} = {}
+
 --- Where the one `policy` call came from, once it has come.
 local called_at: string = nil
 
@@ -315,6 +328,8 @@ local function declare(needs: Test.Needs)
         "a test module never requires another that calls it", 3)
   end
   called_at = caller()
+  declared_parents = {}
+  for _, relative in ipairs(needs.parent or {}) do declared_parents[relative] = true end
   local handed = installed ~= nil and installed.handed or nil
   if handed is function(Test.Needs) then handed(needs) end
 end
@@ -364,6 +379,24 @@ local NOEXEC_FORM <const> = ".path /noexec is the private scratch the harness gi
   "granted { path = \"/noexec\", letters = \"rwc\" }: writable, never executable, with no from"
 local CACHE_FORM <const> = ".path /cache/<name> is a host cache, granted " ..
   "{ path = \"/cache/<name>\", letters = \"rwxc\" } with no from"
+local PARENT_FORM <const> = ".path /parent/<file> is a file of the project root's parent " ..
+  "directory, granted { path = \"/parent/<file>\", letters = \"r\" } with no from"
+
+--- Why `relative`, the part of a `/parent/` grant after the prefix, names no
+--- file of the parent directory a grant may hold, or "": it is a plain
+--- relative path of files, with no empty, `.` or `..` name, no `$`, no
+--- trailing "/" and no NUL.
+local function parent_fault(relative: string): string
+  if relative == "" then return "names no file" end
+  if relative:find("\0", 1, true) then return "holds a NUL" end
+  if relative:find("$", 1, true) then return "holds a $" end
+  if relative:sub(-1) == "/" then return "ends in a \"/\": it names a file, not a directory" end
+  for name in (relative .. "/"):gmatch("([^/]*)/") do
+    if name == "" then return "has an empty name" end
+    if name == "." or name == ".." then return "has a \"" .. name .. "\" name" end
+  end
+  return ""
+end
 
 --- The grant that turns the profile "cosmic" from `lua` into `tool`: the
 --- directory o/bin the program is in, read and run.
@@ -560,6 +593,7 @@ function Test.needs_of(given: any): Test.Needs | nil, string
   local reads: {string} = {}
   local host: {string} = {}
   local caches: {string} = {}
+  local parents: {string} = {}
   local flags: {string:boolean} = {}
   local bin = false
   for _, profile in ipairs(policy.profiles or {}) do
@@ -577,6 +611,7 @@ function Test.needs_of(given: any): Test.Needs | nil, string
       return nil, at .. ".letters takes letters of rwxcu, in that order"
     end
     local named = path:match("^/cache/(.*)$")
+    local above = path:match("^/parent/(.*)$")
     if path == STORE_PATH then
       if letters ~= "r" or grant.from ~= nil then return nil, at .. STORE_FORM end
       out.store = true
@@ -590,6 +625,11 @@ function Test.needs_of(given: any): Test.Needs | nil, string
       if letters ~= "rwxc" or grant.from ~= nil then return nil, at .. CACHE_FORM end
       if named == "" then return nil, at .. ".path /cache/ names no cache" end
       caches[#caches + 1] = named
+    elseif above ~= nil then
+      if letters ~= "r" or grant.from ~= nil then return nil, at .. PARENT_FORM end
+      local fault = parent_fault(above)
+      if fault ~= "" then return nil, at .. ".path /parent/" .. above .. " " .. fault end
+      parents[#parents + 1] = above
     else
       if grant.from ~= nil then return nil, at .. ".from " .. NOT_YET end
       if letters ~= "r" then
@@ -649,6 +689,7 @@ function Test.needs_of(given: any): Test.Needs | nil, string
   if #reads > 0 then out.reads = reads end
   if #host > 0 then out.host = host end
   if #caches > 0 then out.caches = caches end
+  if #parents > 0 then out.parent = parents end
   for _, name in ipairs(policy.env or {}) do
     if name == "*" then
       return nil, 'env: a policy names each variable it passes through; no wildcard "*" in a policy'
@@ -684,17 +725,20 @@ end
 --- "cosmic" is `lua`, "proc" is the host path /proc (the grant
 --- `{ path = "/proc", letters = "r" }`; on macOS, which has no /proc, a host
 --- path not there is given and keyed as none); the promise "nest" is `nests`; `loopback` is
---- `network`. Four grants, written exactly so, are the fields they
+--- `network`. Five grants, written exactly so, are the fields they
 --- stand for rather than reads: `{ path = "o/cosmic.db", letters = "r" }`
 --- is `store = true`, `{ path = "/noexec", letters = "rwc" }` is
 --- `noexec = true`, `{ path = "/cache/<name>", letters = "rwxc" }`
 --- is `caches = { "<name>" }` for a cache [`Needs.caches`] names (the
---- variables that locate it are passed as they are for `caches`), and
+--- variables that locate it are passed as they are for `caches`),
+--- `{ path = "/parent/<file>", letters = "r" }` is `parent = { "<file>" }`,
+--- a file of the project root's parent directory ([`Test.parent`] says where
+--- the worker reads it), and
 --- `{ path = "o/bin", letters = "rx" }`, the directory the program is in,
 --- makes `tool` of the "cosmic" profile and is refused without it, which
 --- is `lua` without the grant: refused beside the store, the system or
 --- a cache, as `lua` is. Each refuses other letters and a `from`.
---- "/noexec", "/cache/..." and "o/bin" are paths the test harness
+--- "/noexec", "/cache/...", "/parent/..." and "o/bin" are paths the test harness
 --- reserves: no other grant is made at them. What
 --- has no `needs` to stand for -- any other grant to write, run or
 --- connect to, `isolate`, `limits`, `set_env`, `connect` -- fails the
@@ -713,6 +757,36 @@ function Test.policy(policy: Test.Policy)
     error("test: policy " .. trouble, 2)
   end
   declare(needs)
+end
+
+--- Where this worker reads `relative`, a file of the project root's parent
+--- directory that the module's policy declared with a grant
+--- `{ path = "/parent/<relative>", letters = "r" }`: for the project `ci/`
+--- of the main tree, `Test.parent(".github/workflows/ci.yml")` is the main
+--- tree's workflow. A sandboxed worker has it read-only at a fixed place
+--- beside /tree; an unsandboxed one has it in the real parent directory.
+--- Raises for a path the module did not declare, which is a mistake of the
+--- test, and outside a runner, where no parent is given.
+---
+---     local Test = require("cosmic.test")
+---     Test.policy { grants = { { path = "/parent/bin/zig", letters = "r" } } }
+---     local function test_names_the_parents_zig()
+---       local path = Test.parent("bin/zig") -- "/tree-up/bin/zig" sandboxed
+---     end
+--- @param relative the file, as the grant spells it after "/parent/"
+--- @return the path the worker reads it at
+function Test.parent(relative: string): string
+  if not (relative is string) then error("test: parent takes a string", 2) end
+  if not declared_parents[relative] then
+    error(string.format("test: parent(%q) is not declared; grant " ..
+        "{ path = \"/parent/%s\", letters = \"r\" } in Test.policy", relative, relative), 2)
+  end
+  local installed = runner_in(Test)
+  local base = installed ~= nil and installed.parent or nil
+  if not (base is string) then
+    error("test: parent is given by a runner only, and this one gives none", 2)
+  end
+  return base .. "/" .. relative
 end
 
 --- Ends the running test as skipped: this host cannot check what it
