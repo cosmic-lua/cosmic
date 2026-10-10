@@ -689,15 +689,31 @@ print(upper(1))
       "another function, so a test of it must not narrow")
 end
 
-local function test_a_reassignable_local_error_does_not_narrow(tmp: string)
+--- `local error = error` has the type of `error`, so it narrows as `error`
+--- does (patch/tl's 41a, 41b): the guarantee is checked where the variable
+--- is written, and assigning it a function that may return is refused.
+local function test_a_local_holding_error_narrows(tmp: string)
   local ok, trouble = try_build(tmp, "error-localized", entry_prelude .. [[
 local error = error
 local e = next_entry()
 if e == nil then error("x") end
 print(e.size)
 ]])
-  assert(refused_nil_index(ok, trouble), "`local error = error` can be assigned " ..
-      "a function that returns, so calling it must not narrow")
+  assert(ok, "`local error = error` holds a function that never returns, so calling it " ..
+      "should narrow, but: " .. tostring(trouble))
+end
+
+local function test_a_local_holding_error_cannot_be_given_a_function_that_returns(tmp: string)
+  local ok, trouble = try_build(tmp, "error-reassigned", entry_prelude .. [[
+local error = error
+error = print
+local e = next_entry()
+if e == nil then error("x") end
+print(e.size)
+]])
+  assert(not ok and trouble:find("may return, where", 1, true) ~= nil,
+    "a function that may return given to a variable of error's type must be refused, but: " ..
+      tostring(trouble))
 end
 
 local function test_type_test_with_an_interface_member_does_not_narrow(tmp: string)

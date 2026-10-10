@@ -1187,3 +1187,11 @@ local function test_a_never_macroexp_is_a_never_call()
   assert_refused("local macroexp die(m: string): never return (error(m)) end\n", "its expression is no call")
 end
 
+--- The standard `error` never returns (patch/tl's 41a): it stands for a
+--- never-function, and a variable holding it keeps that.
+local function test_error_is_a_never_function()
+  assert_accepted("local e: function(string): never = error\nlocal f = error\nprint(e, f)\n")
+  assert_accepted("print(pcall(error, 'x'))\nlocal g: function(any) = error\nprint(g)\n")
+  assert_refused("local f = error\nf = print\n", "may return, where")
+  assert(#syntax_errors("local g: function(string): never = error\n") == 0)
+end

@@ -1,10 +1,13 @@
 # a bottom return type for Teal
 
-this document proposes `: never`, a return list that says a function does
-not return, as a series of records under `patch/tl/`. nothing here is
-built. every claim was checked against [`vendor/tl/tl.tl`] (Teal 0.24.8,
-unpatched; line numbers are its) and the records `patch/tl/21` through
-`39d`.
+this document describes `: never`, a return list that says a function does
+not return, as a series of records under `patch/tl/` (`40a1` through `41b`).
+the series is built; what is not (the declarations of [`Proc.exit`] and
+[`sys.exit`], `refuse`, the generator and the dummy returns they let go) is
+listed under "declarations". every claim was checked against
+[`vendor/tl/tl.tl`] (Teal 0.24.8, unpatched; line numbers are its) and the
+records `patch/tl/21` through `39d`; where the first draft of this plan was
+wrong about the code, the text below says what the code does.
 
 ## the problem
 
@@ -59,14 +62,18 @@ end
 unknown type. the parenthesized form goes through `parse_type_list` (3046)
 as a list and is therefore refused. no type named `never` exists in the
 tree (`grep -w never` finds only prose). a program that declared one would
-see `: never` silently mean "does not return", with an empty `rets`, so 40b
-also refuses the declaration of a type by that name, anywhere, with a
-message naming the bottom type.
+see `: never` silently mean "does not return", with an empty `rets`, so 40c
+also refuses the declaration of a type by that name, anywhere (`local` or
+`global` `type`, `record`, `interface`, `enum`, the same nested in a record,
+and a type argument), with a message naming the return list.
 
 the representation is a flag, not a type: `FunctionType` (1992) gains
 `never: boolean`, and the parser gives the function an empty `rets` tuple,
 as for a function that declares no returns. emitted Lua is unchanged, since
-it never mentions return types.
+it never mentions return types. `parse_return_types` answers the flag as a
+third value; a `,` after `never` that no parameter follows is a syntax
+error (`'never' is the whole return list`), and the list is then read as
+types, so the parse goes on.
 
 every site that builds a function type from a node must carry the flag,
 or the type disagrees with the declaration. in `a_function` calls: the
@@ -74,10 +81,11 @@ recursion pre-declaration `add_function_definition_for_recursion` (10878),
 the local, global and record function declarations (13473, 13501, 13547,
 13624), the literal (13725) and the `macroexp` (13750). the pre-declaration matters
 because `local function spin(): never spin() end` sees that type, not the
-final one, inside its body. `map_type`'s `resolve` (8182; its function branch, 8262,
-copies each field by hand) must copy it, and `show_type_base` (7225) print
-it; otherwise a never-function is forgotten after one generic
-instantiation.
+final one, inside its body. a `local macroexp` keeps its definition on
+`node.macrodef`, so its flag is `node.macrodef.never`. `map_type`'s
+`resolve` (8182; its function branch, 8262, copies each field by hand)
+must copy it, and `show_type_base` (7225) print it; otherwise a
+never-function is forgotten after one generic instantiation.
 
 ## the call site
 
@@ -111,16 +119,20 @@ type, the guarantee is checked where the variable is written:
   print` is then a function that may return assigned to a never-function,
   which the subtype rule refuses. today it is accepted, which is why 25
   needs the scope test.
-- `error = print` on the global is refused the same way.
+- `error = print` on the global was claimed to be refused the same way; it
+  is refused already, as an assignment to a `<const>` (the standard
+  library's globals are), so the tests assign `print` to a `local f =
+  error` instead.
 - passing a never-function where `function(): T` is expected loses the
   flag, the safe direction.
 
 so 25's scope test goes and `local error = error` narrows. in
 [`test/narrowing_test.tl`], `test_error_narrows_below_the_guard` and
 `test_a_local_error_does_not_narrow` (a local `error` of another type)
-pass unchanged. `test_a_reassignable_local_error_does_not_narrow` (692) is
-inverted: `local error = error` now narrows, and a new case shows that
-assigning it a function that may return is refused.
+pass unchanged. `test_a_reassignable_local_error_does_not_narrow` is
+inverted into `test_a_local_holding_error_narrows`, and
+`test_a_local_holding_error_cannot_be_given_a_function_that_returns` shows
+that assigning such a local a function that may return is refused.
 
 41 cannot delete 24a, 24b and 25. 36a's find text contains 24a's `"error"`
 enum entry and 36c's contains 24b's `set_special_function` line, and
@@ -134,9 +146,11 @@ of this series.
 the holes. an `as` cast returns its target type unchecked (13867), so
 `print as function(): never` forges the guarantee; so does `if v is
 function(): never` on an `any`, with no cast. the cast policy in
-[`doc/roadmap.md`] closes the first; the second needs the same restriction
-on `is`. a call through `any` carries no flag, and a declaration that says
-`never` and returns is a bug in the declaration.
+[`doc/roadmap.md`] closes the first, and its entry now says it covers `is`
+on a function type too; until then the hole is accepted, and
+`test_is_on_a_function_type_is_not_restricted` in [`build/teal_test.tl`]
+pins the accepting behavior. a call through `any` carries no flag, and a
+declaration that says `never` and returns is a bug in the declaration.
 
 ## subtyping
 
@@ -150,6 +164,13 @@ where `function(): string` is expected. the rule:
 - `b.never`, not `a.never`: an error. without it, `local f: function():
   never = print` makes `f("x")` end a block that `print` returns from.
 - both: arguments compare as before.
+- a poly value (an overloaded function) given where a never-function is
+  expected: `subtype_relations["poly"]["*"]` (9942) asks for `b <: t` of
+  some overload `t`, the reverse of what its comment says, which would
+  accept a poly with an overload that returns. 40e4 asks for every
+  overload to be never first, and leaves the rest of the row as it is.
+  the other poly row (`a <: poly`, all overloads) needs nothing: each
+  overload is compared with the function rule.
 
 this must hold at the root of a comparison only. Teal compares nested
 types with `is_a` in whichever direction passes: `arg_check` is
@@ -167,17 +188,32 @@ expected, is called with a callback that returns.
 
 the rule, chosen over making `arg_check` non-bivariant for such pairs
 (which would also change how every ordinary pair compares): the outermost
-`is_a` (a depth counter, as the `TL_DEBUG` wrapper at 10053 already wraps
-it) walks the two types in step, resolving nominals and aliases, through
-function parameters and returns, array elements, map keys and values,
-record fields and union members, with a seen-set for recursive records.
-a pair of function types that disagrees on `never` anywhere but the root
-pair is an error, in either direction. the walk is skipped when neither
-side reaches a never-function, memoized per type. the cost is a walk per
-outermost comparison that involves one; the compatibility cost is that
+`is_a` or `same_type` (40e5; a depth counter, `compare_depth`, tells it
+from the comparisons its relations make) walks the two types in step,
+through names already resolved, aliases, generics' bodies, function
+parameters and returns, tuple entries, array elements, map keys and
+values, record fields and metafields, union members and the type
+arguments of a name, with a seen-set for recursive records. a pair of
+function types that disagrees on `never` anywhere but the root pair is an
+error, in either direction. the root pair is the comparison's own to
+judge, and names and unions at the root keep their members at the root,
+so `local g: nil | function(): integer = fail` is fine. an overloaded
+function counts as a never-function when every overload is. the walk
+is cheap where a type has no structure (it returns at once, and the
+wrapper skips two types that both have none), and it is not memoized as
+the first draft planned: types change while they are checked (a record
+gains a function field), so a negative answer kept per type could go
+stale and let a forged pair through. a name not resolved when the walk
+reaches it is not looked into, since resolving it there could report an
+error the comparison reports itself or settle it for the wrong scope. the
+compatibility cost, accepted by the maintainer (option (a) of the first
+draft), is that never-ness must agree under every nested comparison, so
+`{function(): never}` no longer converts to `{function()}` and
 `function(): {function(): never}` no longer converts to `function():
-{function(): string}`, which is sound only for a value never written
-through, and has no user today.
+{function(): string}`, though both are sound for a value never written
+through. a table literal checked against its declared type is not
+affected, since each of its items is checked against the field's type
+directly.
 
 `eqtype_relations["function"]["function"]` (9535) is reached only through
 `same_type`: generic type arguments, invariant `arg_check`, and the record
@@ -191,7 +227,7 @@ shape.
 one use shows the rule biting. [`build/invoke.tl`] replaces [`sys.exit`] in a
 test seam with `function(_?: integer) refuse("sys.exit") end`. once
 [`sys.exit`] is `never`, that literal must be one. 37d and 37f give a literal
-that omits its return list the returns of its context; 40g makes that
+that omits its return list the returns of its context; 40h makes that
 include the flag. its body ends in `refuse(...)`, so `refuse` must be
 declared `: never`. the `execve` and `attach` stubs below it keep a dummy `return` after
 `refuse(...)`; Teal accepts a declared-returns function that falls through,
@@ -207,15 +243,22 @@ a function declared `never`:
   `@never`, true or false, so that a closure inside a never-function checks
   its own `return`s against its own declaration.
 - must not reach its end: its last statement must have `block_returns`, the
-  test 37f applies to a literal whose context expects values. 21 through 25,
+  test 37f applies to a literal whose context expects values (now the
+  local function `body_ends`, which `end_function_scope` applies to every
+  declaration, and the `function` visitor to a literal). 21 through 25,
   39a through 39d and the call rule put that flag on a statement, so a body
   may end in a never-call, a `while true` with no `break`, a `do` that
   ends, or an `if` with an `else` whose every block ends. an `if` without
-  an `else` does not count (21), nor does `assert(false)` (open question 3).
+  an `else` does not count (21), nor does `assert(false)` (decision 3).
 
-37f checks only `required > 0`, and only for a literal with a context. 40f
-moves the end test into a local function, and 40g calls it also for a
-literal whose context is a never-function (required is 0 there). a
+37f checks only `required > 0`, and only for a literal with a context. 40g4
+moves the end test into `body_ends`, and 40h4 calls it also for a literal
+whose context is a never-function (required is 0 there).
+a macroexp's body is one expression, so a macroexp declared `never` must
+be a call that never returns (its `exp.block_returns`): the call of the
+macroexp is replaced by that expression, which then ends the block. a
+`local macroexp` is checked on its `local_macroexp` node, whose children
+are the definition's parts. a
 recursive call counts, once the pre-declaration carries the flag (above):
 `local function spin(): never spin() end` is accepted, and does not return.
 
@@ -234,78 +277,101 @@ unchanged.
 
 ## declarations
 
-- stdlib `error` (442): `function(? any, ? integer): never`. `os.exit` (320)
-  could be too; [`cosmic/removed.tl`] bans it (open question 2).
+- stdlib `error` (442): `function(? any, ? integer): never` (41a). `os.exit`
+  (320) stays undeclared: [`cosmic/removed.tl`] bans it, and the checker
+  withholds `os` from the tree's code.
+
+what is left, for a change of its own after this series lands:
+
 - [`Proc.exit`] ([`cosmic/proc.tl`], 73): `(status: integer): never`; its body
   `sys.exit(status)` is then a never-call that ends it.
 - `sys.exit`: [`core/syscalls.h`] declares it with no `@return`, which
   [`build/gen_syscalls.tl`] already reads as "never returns (0)". `signature`
   writes `: never` for zero results instead of no list. `exit` is the only
   binding without `@return` in `syscalls.h`, `process.h` and `socket.h`.
+- `refuse` in [`build/invoke.tl`] declared `: never`, and the dummy `return`s
+  after calls of the helpers above removed.
+- deleting this plan.
 
 ## patch list
 
-continuing after `39d`, each a record in `patch/tl/` with a `note:`:
+continuing after `39d`, each a record in `patch/tl/` with a `note:`. a
+record holds one find and one replace, so the series is split into one
+record per edit, a digit after the group's letter (the names sort in the
+order they apply):
 
 ```text
-40a-a-function-type-can-never-return.txt          FunctionType.never, Node.never
-40b-never-is-a-return-list.txt                    parse_return_types; no declared type never
-40c-a-never-function-is-copied-and-shown.txt      every a_function site, resolve, show_type
-40d-a-never-function-is-a-bottom-subtype.txt      subtype, eqtype, the outermost-is_a walk
-40e-a-never-call-ends-a-block.txt                 the rule in type_check_function_call
-40f-a-never-function-does-not-return.txt          own @never, no return, no reachable end
-40g-a-literal-takes-never-from-its-context.txt    37d and 37f read the flag
-41-error-is-never.txt                             stdlib error: never; 25's handler forwards
+40a1  FunctionType.never
+40a2  Node.never
+40b1  starts_parameter, the test of 30 as a function
+40b2  parse_trying_list uses it
+40b3  parse_return_types reads `: never`, answers the flag
+40b4  a function type takes it        40b5  a declaration takes it
+40b6  a macroexp takes it
+40c1  refuse_type_named_never, and a typearg named never
+40c2  local/global type               40c3  local/global record, interface, enum
+40c4  a type nested in a record
+40d1  the recursion pre-declaration   40d2  local function
+40d3  local macroexp                  40d4  global function
+40d5  record function and method      40d6  function literal
+40d7  macroexp                        40d8  map_type's copy
+40d9  show_type prints `: never`
+40e1  TypeChecker.compare_depth
+40e2  subtype row: a.never skips the returns, b.never alone is an error
+40e3  eqtype row: both or neither
+40e4  the poly row: every overload never
+40e5  never_mismatch, the outermost walk, is_a and same_type wrapped
+40f1  the call rule in type_check_function_call
+40g1  @never in every function's scope
+40g2  a `return` in a never-function is an error
+40g3  body_ends, and end_function_scope refuses a reachable end
+40g4  37f's test calls body_ends
+40h1  Node.context_never              40h2  the literal reads it from its context
+40h3  @never for such a literal       40h4  its end test
+40h5  its type carries the flag
+41a   stdlib error: never
+41b   25's handler only forwards
 ```
 
-until 41 lands `error` is not declared `never`, so 25 alone handles it.
-[`sys.exit`], [`Proc.exit`] and `refuse` change in the tree after it.
+until 41a lands `error` is not declared `never`, so 25 alone handles it.
+the records from 40f1 on need nothing before them but the flag (40a through
+40d); 40e5 needs 40e1.
 
 tests, in [`test/narrowing_test.tl`]'s style (a one-file project compiled
-with [`build.importer`]; [`build/teal_test.tl`] holds compiler tests of the
-same shape):
+with [`build.importer`]) for what narrows, and [`build/teal_test.tl`]'s
+(`built.gen` on a string) for what parses and what is refused:
 
-- 40b: `: never` parses on a declaration, a method, a function type and a
-  function-typed parameter followed by another (`function(f: function():
-  never, x: integer)`);
-  `(never)`, `never, string`, `{never}`, `never | nil`, a `never` parameter
-  and each declaration of the name (`local record never`, `local type
-  never`, an `enum`, an `interface`, a typearg `<never>`) are refused;
-  `: never.x` and `: never<T>` still parse as a nominal type.
-- 40d: `local g: function(string) = fail` and `pcall(fail, "x")` compile;
-  `local f: function(): never = print`, `f = print` after `local f = error`,
-  and `function Guard.die(): never` against a field without `: never` are
-  each refused. the nested rule is a table of cases, each a `never` pair
-  disagreeing inside an array, a map, a record field, a union member, an
-  alias and a generic's type argument, each placed in a parameter and in a
-  return, and each refused in both directions (12 cases, and the matching
-  agreeing pairs, which compile). `if v is function(): never` on an `any` is
-  accepted, and the test says so (open question 6).
-- 40e: a `fail` helper narrows below `if x == nil then fail("no") end` as a
-  local function, a record field, a method, a `__call` and a generic; a
-  poly overload narrows only where the chosen overload is never; a never
-  iterator in a `for ... in` and a never operator metamethod do not mark
-  the loop or the expression as ending a block; an `if` without an `else`
-  still does not end the block; `pcall(fail, ...)` does not narrow.
-- 40f: a bare `return`, `return 1`, a body falling off its end, and a last
-  `if` without an `else` are refused; a body ending in a never-call, `while
-  true` or a recursive call is accepted; a closure with a `return` inside a
-  never-function is accepted, and a `return` in the never-function itself
-  is refused.
-- 40g: the `sys.exit = function(_?: integer) refuse(...) end` shape; a
-  literal under a never context whose body falls through is refused.
-- 41: the first two tests of 25 pass unchanged; the third inverted;
-  `error = print` is refused.
-- generator ([`build/gen_syscalls_test.tl`]): a block with no `@return`
-  writes `: never`; one with a return does not.
+- 40b, 40c: `test_never_is_a_return_list`,
+  `test_never_is_only_the_whole_return_list`,
+  `test_never_followed_by_a_dot_or_arguments_is_a_name` and
+  `test_no_type_is_named_never`.
+- 40e: `test_a_never_function_is_a_subtype_of_any_function`,
+  `test_a_record_function_agrees_with_its_field_on_never`,
+  `test_a_poly_function_is_never_only_when_every_overload_is`,
+  `test_never_agrees_when_nested` (six kinds, in a parameter and in a
+  return, both directions refused, and the agreeing pairs compiled),
+  `test_never_agrees_in_a_callback_parameter` and
+  `test_is_on_a_function_type_is_not_restricted`.
+- 40f: `test_a_never_function_narrows_below_its_guard` (a local function,
+  a record field, a method, a `__call`, a generic, a recursive one, a poly
+  overload, a macroexp and an instantiated generic) and
+  `test_what_does_not_end_a_block_keeps_its_guard_open` (a function that may
+  return, the overload that returns, an inner `if`, `pcall`, a `for`
+  iterator, an operator metamethod).
+- 40g, 40h: `test_a_never_function_neither_returns_nor_reaches_its_end`,
+  `test_a_literal_takes_never_from_its_context` and
+  `test_a_never_macroexp_is_a_never_call`.
+- 41: `test_error_is_a_never_function`; in [`test/narrowing_test.tl`] the first
+  two tests of 25 pass unchanged and the third is inverted (above).
+- generator ([`build/gen_syscalls_test.tl`]), with the follow-up: a block
+  with no `@return` writes `: never`; one with a return does not.
 
 ## open edges
 
 generics work once `resolve` copies the flag, which lives on the inner
-`FunctionType`. assigning a poly value to a `function(): never` should
-require every overload to be never; the poly row of `subtype_relations`
-must be read before this is promised. an `unknown` callee in lax mode (`.lua`
-files) carries no flag.
+`FunctionType`. an `unknown` callee in lax mode (`.lua` files) carries no
+flag, and a lax-mode function type gets its empty `rets` as `unknown...`
+(`get_rets`), which the flag makes no difference to.
 
 ## cost, unlocks, alternatives
 
@@ -324,20 +390,22 @@ the reassignment hole and a patch per name, and leaves a project's own
 nothing here needs and which reaches every table in the checker; inferring
 `never` from a body, rejected above.
 
-## open questions
+## decisions
 
-1. is a flag on the function enough, or is a bottom type wanted later, such
-   as `T | never` in a generic's return?
-2. should `os.exit` be declared `never` for programs outside the tree, or
-   left alone since [`cosmic/removed.tl`] bans it?
-3. should `assert(false, msg)` end a block? it would need a handler of its
-   own, since `assert`'s type does not carry the fact.
-4. should `local x = fail()` say that `fail` never returns instead of the
-   generic missing-initializer message?
-5. is refusing the declaration of a type named `never` acceptable to
-   downstream projects, or should the bottom type take another spelling?
-6. should `is` on a function type be restricted along with `as`, or is the
-   hole accepted until the cast policy lands?
+the first draft's open questions, as the maintainer decided them:
+
+1. a flag on the function type is enough; no bottom type.
+2. `os.exit` stays undeclared (the checker withholds `os`).
+3. `assert(false, msg)` does not end a block, and has no handler.
+4. a better message for `local x = fail()` comes later, as a
+   [`teal.replacement`] hint, not in this series.
+5. declaring a type named `never` is refused (40c).
+6. the `is` hole is accepted, pinned by a test, and listed in
+   [`doc/roadmap.md`]'s cast-policy entry.
+7. a poly value is accepted where a never-function is expected only when
+   every overload is never (40e4).
+8. never-ness must agree under every nested comparison (40e5), refusing even
+   the sound `{function(): never}` for `{function()}`.
 
 [`build.importer`]: ../../build/importer.tl
 [`build/flow.tl`]: ../../build/flow.tl
@@ -354,5 +422,6 @@ nothing here needs and which reaches every table in the checker; inferring
 [`patch/tl/25-error-ends-a-block.txt`]: ../../patch/tl/25-error-ends-a-block.txt
 [`Proc.exit`]: ../../cosmic/proc.tl
 [`sys.exit`]: ../../core/syscalls.h
+[`teal.replacement`]: ../../build/teal.tl
 [`test/narrowing_test.tl`]: ../../test/narrowing_test.tl
 [`vendor/tl/tl.tl`]: ../../vendor/tl/tl.tl

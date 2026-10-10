@@ -1,0 +1,11 @@
+file: tl.tl
+note: the special-function handler of `error` (24a, 24b) only forwards to the call check, which ends a block by the callee's type (40f1): 25's test of the name and of the variable holding it is not needed once a variable holding `error` has its type, which an assignment of a function that may return to it refuses (40e2). 24a and 24b stay, because 36a's and 36c's finds hold their text, and a registered special function needs a handler
+--- find
+         local _, scope, attribute = self:find_var("error", "check_only")
+         if node.e1.kind == "variable" and node.e1.tk == "error" and (scope == 1 or attribute == "const") then
+            node.block_returns = true
+         end
+         return (self:type_check_function_call(node, a, b, argdelta))
+--- replace
+         return (self:type_check_function_call(node, a, b, argdelta))
+--- end
