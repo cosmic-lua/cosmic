@@ -132,3 +132,19 @@ local function test_trace_of_the_running_coroutine_starts_at_trace_of()
   assert(first ~= nil and first:find("trace_of", 1, true) ~= nil, tostring(first))
   assert(second ~= nil and second:find("caller_frame", 1, true) ~= nil, tostring(second))
 end
+
+--- The default level 1 is the caller: the first frame is the line that
+--- called `trace`, not `trace` itself; each level after skips one more.
+local function test_trace_starts_at_its_caller()
+  local function here(level?: integer): string
+    local text = Errors.trace(nil, level)
+    return text
+  end
+  local first, second = here():match("stack traceback:\n\t([^\n]*)\n\t([^\n]*)")
+  assert(first ~= nil and first:find("'here'", 1, true) ~= nil, tostring(first))
+  assert(first:find("errors.tl", 1, true) == nil, first)
+  assert(second ~= nil and second:find("test_trace_starts_at_its_caller", 1, true) ~= nil,
+    tostring(second))
+  local skipped = here(2):match("stack traceback:\n\t([^\n]*)")
+  assert(skipped ~= nil and skipped:find("'here'", 1, true) == nil, tostring(skipped))
+end

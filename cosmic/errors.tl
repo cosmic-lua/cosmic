@@ -211,12 +211,9 @@ end
 
 --- The call stack as text, with `message` at the top when one is given.
 --- `level` says how many frames to skip; 1, the default, is the caller.
--- TODO: `level` counts this wrapper's own frame, so the default 1 starts
--- at `trace` and not at its caller, as cosmic/test.tl's level 4 (one more
--- than the frames it means to skip) compensates. Pass `level + 1` to the
--- binding and drop the compensation there once no caller depends on it.
 function Errors.trace(message?: string, level?: integer): string
-  return errors.trace(message, level or 1)
+  -- The binding counts this frame as level 1.
+  return errors.trace(message, (level or 1) + 1)
 end
 
 --- The call stack of coroutine `co` as text, from its top, with
@@ -226,6 +223,10 @@ end
 --- closed. One that returned, or was closed, has no frames: the text is
 --- just `stack traceback:`. For the running coroutine the first frame is
 --- [`trace_of`] itself, the caller's next.
+-- TODO: unlike [`trace`], which starts at its caller, this starts at the
+-- wrapper for the running coroutine, as the binding's [`trace_of`] takes no
+-- level. Once `surface_trace_of` in core/surface.c takes one, pass 2 here
+-- for the running coroutine and say the caller's frame is the first.
 function Errors.trace_of(co: thread, message?: string): string
   return errors.trace_of(co, message)
 end
