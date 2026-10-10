@@ -5,7 +5,6 @@ local Hash = require("cosmic.hash")
 local Test = require("cosmic.test")
 local Zig = require("build.zig")
 local paths = require("build.paths")
-local Project = require("cosmic.project")
 local reboot = require("build.reboot")
 local rebuild_lock = require("build.rebuild_lock")
 local sys = require("cosmic.sys")
@@ -183,64 +182,6 @@ local function test_bootstrap_refuses_missing_and_extra_roots(tmp: string)
     assert(result.stdout == "", tostring(result.stdout))
     assert(tostring(result.stderr):find("usage:", 1, true) ~= nil, tostring(result.stderr))
   end
-end
-
---- [`cosmic.project`] names the directory this module does, says there
---- is none where this module finds none ([`paths.optional`]), and
---- refuses what it refuses in the same words, for every root and
---- environment: this module keeps its own copy only for the bootstrap
---- release, whose cosmic.project answers no Location (the TODO in
---- build/paths.tl).
-local function test_the_public_resolver_agrees(tmp: string)
-  local root, home = project(tmp)
-  local real = assert(sys.realpath(tmp))
-  assert(sys.symlink(root, tmp .. "/alias"))
-  assert(Fs.write(tmp .. "/file", ""))
-  local open = real .. "/open"
-  assert(sys.mkdir(open, 0x1ff))
-  assert(sys.chmod(open, 0x1ff))
-  local shared = real .. "/shared"
-  assert(Fs.mkdirs(shared))
-  assert(sys.mkdir(paths.in_home(root, shared), 0x1ff))
-  assert(sys.chmod(paths.in_home(root, shared), 0x1ff))
-  local cases: {{string:string}} = {
-    { root = root, COSMIC_BUILD_HOME = home },
-    { root = tmp .. "/alias/.", COSMIC_BUILD_HOME = home .. "/" },
-    { root = root, XDG_CACHE_HOME = real .. "/xdg", HOME = real .. "/h" },
-    { root = root, HOME = real .. "/h", COSMIC_BUILD_HOME = "" },
-    { root = root, HOME = "", XDG_CACHE_HOME = "" },
-    { root = root, COSMIC_BUILD_HOME = "relative/home" },
-    { root = root, COSMIC_BUILD_HOME = root .. "/builds" },
-    { root = root, COSMIC_BUILD_HOME = tmp .. "/file/below" },
-    { root = root, COSMIC_BUILD_HOME = tmp .. "/file" },
-    { root = root, COSMIC_BUILD_HOME = open },
-    { root = root, COSMIC_BUILD_HOME = shared },
-    { root = tmp .. "/missing", COSMIC_BUILD_HOME = home },
-    { root = tmp .. "/file", COSMIC_BUILD_HOME = home },
-    { root = "", COSMIC_BUILD_HOME = home },
-  }
-  local nones = 0
-  for _, case in ipairs(cases) do
-    local env: {string:string} = {}
-    for name, value in pairs(case) do
-      if name ~= "root" then env[name] = value end
-    end
-    local want, want_trouble = paths.directory(case.root, env)
-    local optional, optional_trouble = paths.optional(case.root, env)
-    local got, got_trouble = Project.directory(case.root, env)
-    local said = case.root .. ": " .. tostring(want) .. " (" .. want_trouble .. ") but " ..
-      (got and got.directory .. " (none: " .. got.none .. ")" or "nil") .. " (" .. got_trouble .. ")"
-    if want ~= nil then
-      assert(got ~= nil and got.directory == want and got.none == "" and got_trouble == "", said)
-    elseif optional == nil and optional_trouble == "" then
-      nones = nones + 1
-      assert(got ~= nil and got.directory == "" and got.none == want_trouble and
-          got_trouble == "", said)
-    else
-      assert(got == nil and got_trouble == want_trouble, said)
-    end
-  end
-  assert(nones == 2, "cases with no build directory to be had: " .. nones)
 end
 
 local function test_an_empty_project_root_is_refused()

@@ -108,7 +108,7 @@ harness_epoch.acknowledged = {
 
   ["build.launcher"] = "1bddaa2b691f6aa90da3256d045fc69f38d12c935e981a231841d94c2157b224",
 
-  ["build.paths"] = "11c81cf7f85b741b211133b9fb5d1627b4d87ef04465fcd9edc0dcf2262f6e9b",
+  ["build.paths"] = "02232811d7a8e2b9e709f3a28371a51a41a48ac7de041e7caef77dd8b3b0e763",
 
   ["build.plural"] = "08b0e817376c03fe90737c8bb26d6ae1400dadd9d61b23d00c1b0f1051ad8771",
 
@@ -146,6 +146,8 @@ harness_epoch.acknowledged = {
 
   ["cosmic.proc"] = "1f2f124e7478daaf5955a2043d03a379d8dbc657ffe938ac71d221376f677bcf",
 
+  ["cosmic.project"] = "ac898dd16fd051e08c47be1dea7b86c8ea4159517e6fde765162a9f7d6678364",
+
   ["cosmic.sandbox"] = "2bf478a77edffb4154f011535dc1e95f08259f8aff369ca675858cddf6f9eb63",
 
   ["cosmic.sandbox.policy"] = "7d17eb803602b3148338e4616c6284090e11953844d5a7af8a4cbd74dbaa9267",
@@ -176,6 +178,8 @@ harness_epoch.library = {
     "not declare `tool` is held from running; and finds a program a module requires " ..
     "of the host (`find`) and whether a portable artifact can start again " ..
     "(`relaunch`) for `build.host_requires`",
+  ["cosmic.project"] = "`build.paths` asks its `directory` where a project's build " ..
+    "directory is, where the worker finds its tree's and builds its own",
   ["cosmic.sandbox"] = "`merge` resolves a policy's profiles into the grants a worker " ..
     "is held to (`build.test_policy`'s `runs`); held alone, what it requires is not walked",
   ["cosmic.sandbox.policy"] = "the policy layer cosmic.sandbox answers under its own " ..

@@ -5,6 +5,7 @@ local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
+local Project = require("cosmic.project")
 
 local record BuildPaths
 end
@@ -33,21 +34,13 @@ local function driver(words: {string}, values: {string:string}):
 end
 
 --- Where the running driver builds the project at `root`, which a
---- `cosmic test` it runs there reads what is placed for it from: its own
---- build.paths' answer. A child asks it, since build.paths is the
---- driver's and no module of this project can require it.
--- TODO: ask cosmic.project's `directory` in this process instead, once
--- ci/cosmic-driver.pin names a release whose cosmic.project returns a
--- Location: the driver that names is the one this runs on.
+--- `cosmic test` it runs there reads what is placed for it from: its
+--- cosmic.project's answer, which its build.paths gives too.
 function BuildPaths.driven(root: string): string
-  local argv, env, fds = driver({ "-e", 'print(require("build.paths").required(...))', root },
-    Env.all())
-  local answer, why = Child.run(argv,
-    { env = env, fds = fds, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
-  assert(answer, why)
-  assert(answer.ok, "build directory: " .. (answer.stderr or ""))
-  local said = answer.stdout or ""
-  return (assert(said:match("^(/[^\n]+)\n$"), "the driver named no build directory: " .. said))
+  local location, trouble = Project.directory(root)
+  assert(location, "build directory: " .. trouble)
+  assert(location.none == "", "build directory: " .. location.none)
+  return location.directory
 end
 
 --- The generated directory for `root` under `environment`. `source`
