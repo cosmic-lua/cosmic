@@ -45,6 +45,8 @@ local type _proc = require("cosmic.proc")
 local type _sandbox = require("cosmic.sandbox")
 local type _sqlite = require("cosmic.sqlite")
 local type _store = require("cosmic.store")
+local type _tar = require("cosmic.tar")
+local type _zip = require("cosmic.zip")
 
 --- Every declaration of the core's raw modules, the headers the process
 --- and socket tables' are derived from, and core/store.c, whose `raw_modules` names
@@ -317,6 +319,8 @@ local wrappers <const>: {string: string} = {
   ["cosmic.signal"] = "process",
   ["cosmic.sqlite"] = "sqlite",
   ["cosmic.store"] = "store",
+  ["cosmic.tar"] = "hash",
+  ["cosmic.zip"] = "compress",
 }
 
 --- The wrappers core/store.c lists for several raw values, which the

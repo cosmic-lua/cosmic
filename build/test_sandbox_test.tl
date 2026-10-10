@@ -39,11 +39,11 @@ local function test_an_unenforced_worker_has_the_hosts_cores()
   inputs.caches = { "bootstrap" }
   local sandboxed = test_sandbox.environment({ PATH = "/bin" }, inputs)
   assert(sandboxed.COSMIC_PORTABLE_CACHE ~= nil)
-  local env = test_sandbox.unenforced_environment({ PATH = "/bin" }, inputs, "/host/scratch")
+  local env = test_sandbox.unenforced_environment({ PATH = "/bin" }, inputs, "/host/scratch", "/host/tree")
   assert(env.TMPDIR == "/host/scratch" and env.COSMIC_PORTABLE_CACHE == nil,
     tostring(env.COSMIC_PORTABLE_CACHE))
   local named = test_sandbox.unenforced_environment({ COSMIC_PORTABLE_CACHE = "/host/cores" },
-    inputs, "/host/scratch")
+    inputs, "/host/scratch", "/host/tree")
   assert(named.COSMIC_PORTABLE_CACHE == "/host/cores", tostring(named.COSMIC_PORTABLE_CACHE))
 end
 
@@ -92,7 +92,7 @@ local function test_only_a_granted_noexec_capability_supplies_its_environment()
   assert(granted.COSMIC_TEST_NOEXEC == "/noexec")
   assert(granted.TMPDIR == test_sandbox.scratch)
   assert(test_sandbox.unenforced_view(host, inputs).COSMIC_TEST_NOEXEC == nil)
-  assert(test_sandbox.unenforced_environment(host, inputs, "/scratch").COSMIC_TEST_NOEXEC == nil)
+  assert(test_sandbox.unenforced_environment(host, inputs, "/scratch", "/tree").COSMIC_TEST_NOEXEC == nil)
 end
 
 local function test_noexec_does_not_probe_an_ordinary_or_unsandboxed_worker()

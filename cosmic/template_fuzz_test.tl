@@ -383,7 +383,8 @@ local function test_modes_agree_on_syntax_and_text_takes_what_html_does(tmp: str
 end
 
 --- Self-contained fragments, each with the kinds its slots must be judged
---- as, in order: `t` text, `r` RCDATA text, `a` attribute, `u` URL, and
+--- as, in order: `t` text, `r` RCDATA text, `f` text inside `<svg>`,
+--- `<math>` or `<select>`, `a` attribute, `u` URL, and
 --- `x` for one the compiler must refuse. Each leaves the markup in text,
 --- so the kinds of a template are those of its fragments, whatever order
 --- they come in. What each says about markup is written down here, apart
@@ -418,7 +419,9 @@ local UNITS <const>: {{string}} = {
   { "<math><svg></math>{{.a}}", "x" },
   { "<math><svg></svg></math>{{.a}}", "t" },
   { "<svg><math></svg>{{.a}}", "x" },
-  { "<svg><text>{{.a}}</text></svg>", "t" },
+  { "<svg><text>{{.a}}</text></svg>", "f" },
+  { "<math>{{.a}}</math>", "f" },
+  { "<select><option>{{.a}}</option></select>", "f" },
   { "<svg><g><a href=\"{{.a}}\"><path d=\"M0\"/></a></g></svg>", "u" },
   { "<svg><![CDATA[ > <!-- ]]><a href=\" --> {{.a}}\">", "x" },
   { "<svg {{if .a}}/{{end}}><style><a href=\"</style>{{.a}}\">", "x" },
@@ -462,7 +465,7 @@ local UNITS <const>: {{string}} = {
 local function gen_sound(src: Fuzz.Source): string
   local body: {string} = {}
   local kinds: {string} = {}
-  local want = Fuzz.pick(src, { "t", "r", "a", "u", "x" })
+  local want = Fuzz.pick(src, { "t", "r", "f", "a", "u", "x" })
   local drawn = 0
   -- Only a template drawn to be refused holds a fragment that is, so the kinds
   -- that compile are not starved by one stray refusal in five.
@@ -513,7 +516,7 @@ local function gen_sound(src: Fuzz.Source): string
     table.concat(kinds), table.concat(body) })
 end
 
-local HELPER_KIND <const>: {string: string} = { _text = "t", _rtext = "r", _attr = "a", _url = "u" }
+local HELPER_KIND <const>: {string: string} = { _text = "t", _rtext = "r", _ftext = "f", _attr = "a", _url = "u" }
 
 local function esc(s: any): string
   if not s is string then
@@ -570,8 +573,8 @@ local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
     name = "template sound",
     dir = tmp,
     gen = gen_sound,
-    requires = { "refused", "text", "rtext", "attr", "url", "block", "assembled url", "root", "range binding" },
-    shares = { refused = 0.01, text = 0.05, rtext = 0.01, attr = 0.01, url = 0.01 },
+    requires = { "refused", "text", "rtext", "ftext", "attr", "url", "block", "assembled url", "root", "range binding" },
+    shares = { refused = 0.01, text = 0.05, rtext = 0.01, ftext = 0.01, attr = 0.01, url = 0.01 },
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
       local payload = fields[1] or ""
@@ -596,6 +599,7 @@ local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
         return false, "slots judged as " .. table.concat(made_kinds) .. ", not " .. kinds .. ": " .. body
       end
       if kinds:find("r", 1, true) then Fuzz.label("rtext") end
+      if kinds:find("f", 1, true) then Fuzz.label("ftext") end
       local env: {string: any} = {
         require = function(name: string): any
           if name == "cosmic.html" then
@@ -687,7 +691,9 @@ local RAW_PIECES <const> = {
   -- A whole element, so that a cut inside its tags is drawn at default counts.
   "<textarea></textarea><script>", "<title></title><script>", "<style></style><script>",
   "<script><!--<script></script>", "<script><!--<script></script>--></script>", "<script></script><textarea>", "<noscript><!--</noscript>", "<noscript><!-", "--</noscript>",
-  "<svg><style></style></svg>",
+  "<noscript><style></noscript>", "<noscript><st", "<p title=\"</noscript>", "<?",
+  "<svg><style></style></svg>", "<select>", "</select>", "<frameset>", "<noframes>", "</noframes>",
+  "<select><title></title></select>",
 }
 
 --- The actions that cut a literal run: blocks that emit nothing, one whose
@@ -1174,7 +1180,9 @@ local function test_a_block_in_a_tag_adds_only_the_attributes_it_writes(tmp: str
       for i, run in ipairs(runs) do
         local tag = read_tag(open .. n_before .. run .. n_after .. n_closer)
         tags[i] = tag
-        local text = "text"
+        -- The text after the tag is inside `<svg>` unless the tag is an
+        -- `<svg>` that closes itself.
+        local text = (lead ~= "" or (tag.name == "svg" and not tag.selfclosing)) and "ftext" or "text"
         if lead ~= "" then
           for _, a in ipairs(tag.attrs) do
             if FONT_BREAKS[a:match("^[^=]*")] then
@@ -1193,7 +1201,7 @@ local function test_a_block_in_a_tag_adds_only_the_attributes_it_writes(tmp: str
           elseif made ~= want then
             return false, "slot " .. slot[1] .. " is " .. tostring(made) .. ", not " .. want .. ": " .. body
           end
-          if want ~= "text" then
+          if want ~= text then
             Fuzz.label("slot")
           end
         end

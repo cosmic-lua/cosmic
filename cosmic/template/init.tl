@@ -26,16 +26,18 @@
 ---
 --- A name in a field path is a field of the record: a typo is a type
 --- error, not an empty hole. The record's module is required for its types
---- alone, so a declaration file (`.d.tl`) may export it and its body does not
---- run, unless a stage reads it too. It must return the record type itself,
---- as a `.d.tl` or `local record M ... end return M` does: one that returns
---- a value of it is refused. A stage is a function by import path,
---- whose module the generated source requires; composing one template in
---- another is a stage naming its `render`. A stage answers exactly one value,
---- wherever it stands: one declared to answer a fixed number of values
---- above one is a type error on the template's line, so a function that can fail (`nil, reason`) is wrapped by
---- the caller into a stage that answers a value. Truthiness is Lua's: only `nil` and
---- `false` are false, not `""` or `0`.
+--- alone, so a declaration file (`.d.tl`) may export it and its body does
+--- not run, unless a stage reads it too. It must return the record type
+--- itself, as a `.d.tl` or `local record M ... end return M` does: one that
+--- returns a value is refused on the `{{type}}`'s line, saying so.
+---
+--- A stage is a function by import path, whose module the generated
+--- source requires; composing one template in another is a stage naming
+--- its `render`. A stage answers exactly one value, wherever it stands:
+--- one declared to answer a fixed number of values above one is a type
+--- error on the template's line, so a function that can fail (`nil,
+--- reason`) is wrapped by the caller into a stage that answers a value.
+--- Truthiness is Lua's: only `nil` and `false` are false, not `""` or `0`.
 ---
 --- A value starts from dot, from `$` or from a variable. `range` and `with`
 --- make dot the element or the value, so `$` is how a block reaches the
@@ -60,21 +62,26 @@
 ---
 --- In `html` mode, which returns a [`cosmic.html`] `SafeHtml`, a value is
 --- escaped by where it lands in the markup around it, which the compiler
---- follows with the tokenizer a browser uses: as text, a slot takes a
+--- follows with the tokenizer a browser uses. As text, a slot takes a
 --- string, a number or a `SafeHtml` (strings are escaped, a `SafeHtml` is
---- taken as it is); in a quoted attribute value, a string, a number or a
---- `SafeAttr`; in a quoted URL attribute value (`href`, `src`, `action`
---- and the like, at the start of the value), a string (checked by
---- [`html.href`], which allows a web or mail link or a relative reference
---- and else answers `about:invalid`) or a `SafeUrl`. Another type there is
---- a type error naming the template's line. Where there is no escaping to
---- be had the template is refused, with its line and column: after `<`, in
---- a tag or attribute name, in an unquoted value, in a comment, in an
---- `on...` or `style` attribute, in `<script>` or `<style>`, and a few
---- like them (cosmic/template/markup.tl lists them). An `html` template must
---- also end in plain text, since its `SafeHtml` can go into another's text
---- slot. `{{mode text}}` returns a `string` and escapes nothing, for
---- anything that is not HTML; a slot there takes a string or a number.
+--- taken as it is). In `<title>` and `<textarea>`, whose text is never
+--- markup, and in text inside `<svg>`, `<math>` or `<select>`, where the
+--- browser reads markup by other rules than those a `SafeHtml` was checked
+--- by (in `<svg>`, an `<img onerror>` inside a `<title>` is a live
+--- element), it takes a string or a number. In a quoted attribute value,
+--- a slot takes a string, a number or a `SafeAttr`; in a quoted URL
+--- attribute value (`href`, `src`, `action` and the like, at the start of
+--- the value), a string (checked by [`html.href`], which allows a web or
+--- mail link or a relative reference and else answers `about:invalid`) or
+--- a `SafeUrl`. Another type there is a type error naming the template's
+--- line. Where there is no escaping to be had the template is refused,
+--- with its line and column: after `<`, in a tag or attribute name, in
+--- an unquoted value, in a comment, in an `on...` or `style` attribute, in
+--- `<script>` or `<style>`, and a few like them (cosmic/template/markup.tl
+--- lists them). An `html` template must also end in plain text, since its
+--- `SafeHtml` can go into another's text slot. `{{mode text}}` returns a
+--- `string` and escapes nothing, for anything that is not HTML; a slot
+--- there takes a string or a number.
 ---
 --- `{{` always starts an action. To write it as text, write an action
 --- that is one double-quoted string, as Go's templates do: its bytes are
