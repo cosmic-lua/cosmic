@@ -32,11 +32,14 @@
 --- can export the record, and a module's body does not run for its types.
 --- The module must return the record type itself, as a `.d.tl` or `local
 --- record M ... end return M` does: one that returns a value of it is
---- refused, since `require` then answers no type.
+--- refused at the `{{type}}`'s line, since `require` then answers no
+--- type.
 ---
 --- Line N of the template is line N of the module. The requires, the
---- helpers, `render`'s header and `local parts` share line 1 with the
---- template's first line; each line of literal text, and each action,
+--- helpers, `render`'s header and `local parts` share the `{{type}}`'s
+--- line, after a blank line for each blank line before it, so an error
+--- in them (a refused require, an unknown record type) names that line;
+--- each line of literal text, and each action,
 --- is written on its line, with the newlines of a multi-line action and
 --- of trimmed whitespace kept as blank ones; the `return` is on the
 --- template's last line. So a checker or run-time error names the
@@ -375,7 +378,7 @@ end
 --- @param template types.Template The tree, its slots' places set
 --- @return string Source that has as many lines as the template
 function Codegen.generate(template: types.Template): string
-  local g: Gen = { pieces = {}, line = 1, started = false, mode = template.mode,
+  local g: Gen = { pieces = {}, line = template.line, started = false, mode = template.mode,
     imports = { order = {}, alias_of = {}, taken = {}, as_value = {} }, html = "", helpers = {}, staged = false,
     dots = 0, root = { name = "d", used = false }, vars = {} }
   local type_alias = alias_for(g, template.import_path)
@@ -384,11 +387,6 @@ function Codegen.generate(template: types.Template): string
   end
   emit(g, template.body, g.root)
 
-  -- TODO: put the requires and `render`'s header on the `{{type}}`'s line,
-  -- not line 1: blank lines may come before it, and an error in the header
-  -- (a refused require, an unknown record type) then names a blank line.
-  -- The fix is the declaration's line in types.Template, and the module
-  -- begun with a newline for each line before it.
   local head: {string} = {}
   for _, path in ipairs(g.imports.order) do
     head[#head + 1] = (g.imports.as_value[path] and "local " or "local type ") .. g.imports.alias_of[path] ..
@@ -410,7 +408,8 @@ function Codegen.generate(template: types.Template): string
   to_line(g, template.lines)
   put(g, "return " .. (template.mode == "html" and g.html .. ".trust(table.concat(parts))" or
     "table.concat(parts)") .. " end return {render = render}")
-  return table.concat(head, " ") .. " " .. table.concat(g.pieces) .. "\n"
+  return string.rep("\n", template.line - 1) .. table.concat(head, " ") .. " " ..
+    table.concat(g.pieces) .. "\n"
 end
 
 return Codegen

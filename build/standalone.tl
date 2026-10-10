@@ -102,12 +102,15 @@ local function generate(file: string, source: string, built?: compiler): string 
   local code, result = built.gen(source, env, nil, "tl")
   local lines: {string} = {}
   if result ~= nil then
-    for _, e in ipairs(teal.reported(file, source, result)) do
-      local where = (e.filename == nil or e.filename == "") and file or e.filename
-      local instead = where == file and
-        teal.replacement(e.msg, source, e.y, e.x, e.fields, file) or nil
-      lines[#lines + 1] = where .. ":" .. e.y .. ":" .. e.x .. ": " .. e.msg ..
-        (instead ~= nil and " -- " .. instead or "")
+    local refused = teal.refused_type_requires(file, source, result)
+    for _, group in ipairs({ result.syntax_errors, result.type_errors, result.warnings }) do
+      for _, e in ipairs(group or {}) do
+        local where = (e.filename == nil or e.filename == "") and file or e.filename
+        local instead = where == file and
+          teal.replacement(e.msg, source, e.y, e.x, e.fields, file, refused) or nil
+        lines[#lines + 1] = where .. ":" .. e.y .. ":" .. e.x .. ": " .. e.msg ..
+          (instead ~= nil and " -- " .. instead or "")
+      end
     end
   end
   if code == nil or #lines > 0 then

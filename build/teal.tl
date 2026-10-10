@@ -1055,7 +1055,12 @@ end
 --- The `local type` require on line `y` of `source` whose `require` is
 --- at column `x`, where the checker reports a refused one: nil when there
 --- is none. The line need not start with it: a template's module
---- requires every module on its first line ([`cosmic.template`]).
+--- requires every module on its `{{type}}`'s line ([`cosmic.template`]).
+--- One written over several lines (`local type X =` and `require("x")`
+--- below it) or without parentheses (`require "x"`) is not found, so its
+--- refusal gets no hint and its owner's types keep [`nesting_hint`]'s:
+--- the checker's own words still stand, and the compile is refused all
+--- the same.
 local function type_require_at(source: string, y: integer, x: integer): TypeRequire | nil
   local line = line_at(source, y)
   if line == nil or x < 1 then
@@ -1073,50 +1078,24 @@ end
 --- returns no type.
 local not_a_type <const> = "^'require' did not return a type, got "
 
---- The errors of `result` to report for `file`, syntax errors first,
---- then type errors, then warnings, less each type error of `file` that
---- follows from a `local type` require of it the checker refused
---- ("'require' did not return a type"): one that names a type through
---- the name that require binds (`unknown type Ledger.Month`, `... of type
---- Ledger.Month`). The name holds no type, so each would blame a type the
---- module's record may declare, while the refusal itself says what is
---- wrong ([`teal.replacement`]). Errors are told apart by their text, so
---- this decides what is said, never whether a compile is accepted: the
---- refusal stays.
-function teal.reported(file: string, source: string, result: compiler.Result): {compiler.Error}
-  local function own(e: compiler.Error): boolean
-    return e.filename == nil or e.filename == "" or e.filename == file
-  end
-  local refused: {string} = {}
+--- The names `source` binds by a `local type` require the checker
+--- refused in `result` ("'require' did not return a type"), for
+--- [`teal.replacement`]'s `refused`: the module returns a value, so no
+--- type is reached through the name, and a hint that blames a type it
+--- names would mislead. Only the errors of `file` itself count.
+function teal.refused_type_requires(file: string, source: string,
+                                    result: compiler.Result): {string:boolean}
+  local refused: {string:boolean} = {}
   for _, e in ipairs(result.type_errors or {}) do
-    if own(e) and e.msg:match(not_a_type) ~= nil then
+    if (e.filename == nil or e.filename == "" or e.filename == file) and
+        e.msg:match(not_a_type) ~= nil then
       local bound = type_require_at(source, e.y, e.x)
       if bound ~= nil then
-        refused[#refused + 1] = bound.name
+        refused[bound.name] = true
       end
     end
   end
-  local function follows(e: compiler.Error): boolean
-    for _, name in ipairs(refused) do
-      if own(e) and e.msg:find("%f[%w_.]" .. name .. "%.[%a_]") ~= nil then
-        return true
-      end
-    end
-    return false
-  end
-  local out: {compiler.Error} = {}
-  for _, e in ipairs(result.syntax_errors or {}) do
-    out[#out + 1] = e
-  end
-  for _, e in ipairs(result.type_errors or {}) do
-    if not follows(e) then
-      out[#out + 1] = e
-    end
-  end
-  for _, e in ipairs(result.warnings or {}) do
-    out[#out + 1] = e
-  end
-  return out
+  return refused
 end
 
 --- What the refused `local type` require `bound`, on line `y` of
@@ -1142,9 +1121,12 @@ end
 --- declares both at its top level, and, where `source` binds `Owner` to
 --- the `require` of a module of the program's own, that the name is
 --- misspelt or that module must declare it inside the record it
---- returns; nil otherwise, and for a `cosmic.*` module, whose types the
---- catalog answers.
-local function nesting_hint(source: string, owner: string, member: string): string | nil
+--- returns; nil otherwise, for a `cosmic.*` module, whose types the
+--- catalog answers, and where `refused` holds `Owner`: its `local type`
+--- require was refused, since the module returns a value, and that
+--- value's record may well declare the member.
+local function nesting_hint(source: string, owner: string, member: string,
+                            refused: {string:boolean}): string | nil
   local kind = declared_kind(source, member)
   if kind ~= nil and declared_kind(source, owner) ~= nil then
     local declared = kind == "type" and "type " .. member .. " = ..." or
@@ -1153,7 +1135,7 @@ local function nesting_hint(source: string, owner: string, member: string): stri
       "` into `local record " .. owner .. " ... end` to name it " .. owner .. "." .. member
   end
   local module = module_bound(source, owner)
-  if module == nil or module:match("^cosmic%.") ~= nil then
+  if module == nil or module:match("^cosmic%.") ~= nil or refused[owner] then
     return nil
   end
   -- TODO: name the members the module's record does declare, as a
@@ -1562,9 +1544,12 @@ end
 --- a `.tmpl`) that require is the one its `{{type Page from ledger}}`
 --- makes, and the module is told to return the record type: a template
 --- requires its record's module as a value only for a stage that reads it.
---- [`teal.reported`] leaves out the errors that follow from the refusal.
+--- An `unknown type Ledger.Month` that follows from such a refusal is
+--- told nothing where `refused` ([`teal.refused_type_requires`]) holds
+--- `Ledger`, since the module's record may declare `Month`.
 function teal.replacement(msg: string, source: string, y: integer, x: integer,
-                          fields?: {string}, file?: string): string | nil
+                          fields?: {string}, file?: string,
+                          refused?: {string:boolean}): string | nil
   if msg:match(not_a_type) ~= nil then
     local bound = type_require_at(source, y, x)
     return bound ~= nil and type_require_hint(file or "", source, y, bound) or nil
@@ -1663,7 +1648,7 @@ function teal.replacement(msg: string, source: string, y: integer, x: integer,
   end
   local holder, held = msg:match("^unknown type ([%a_][%w_]*)%.([%a_][%w_]*)$")
   if holder ~= nil then
-    local nested = nesting_hint(source, holder, held)
+    local nested = nesting_hint(source, holder, held, refused or {})
     if nested ~= nil then
       return nested
     end

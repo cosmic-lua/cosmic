@@ -1064,27 +1064,56 @@ local function test_a_type_beside_a_module_s_record_is_told_to_nest()
       "file's alone)", 1, true) ~= nil, compile_trouble)
 end
 
---- A `local type` require of a module that returns a value of its record
---- is refused, told what the module must return; the errors that follow
---- from it, each naming a type through the refused name, go unsaid, since
---- each would blame a type the record may well declare. An error that
---- names no such type is still said.
-local function test_a_type_require_of_a_value_is_told_what_the_module_must_return()
-  local root = assert(write_fixture("type-require-of-value", {
-    ["ledger.tl"] = "local record Ledger\n  record Month\n    days: integer\n  end\nend\n" ..
-      "local ledger: Ledger = {}\nreturn ledger\n",
-    ["main.tl"] = 'local type Ledger = require("ledger")\n' ..
-      "local n: integer = \"one\"\n" ..
+--- The refusal of a `local type` require of `module_source`, a module
+--- `ledger` returning a value, from a `main.tl` that names
+--- `Ledger.Month` through it and declares `local n: integer = "Ledger.x"`.
+local function type_require_refusal(case: string, module_source: string): string
+  local root = assert(write_fixture(case, {
+    ["ledger.tl"] = module_source,
+    ["main.tl"] = 'local type Ledger = require("ledger")\nlocal n: integer = "Ledger.x"\n' ..
       "return function(m: Ledger.Month): integer\n  return m.days + n\nend\n",
   }))
   local result, compile_trouble = compile_fixture(root)
   assert(result == nil, "expected the type require of a value to refuse the compile")
-  assert(compile_trouble == "main.tl: the compiler refused it\n" ..
-      "main.tl:1:21: 'require' did not return a type, got record Ledger -- ledger returns a " ..
-      "value, not a type: a `local type` require needs the module to return its record type, as " ..
-      "`local record M ... end return M` or a `.d.tl` does; or require it as a value\n" ..
-      "main.tl:2:20: in local declaration: n: got string \"one\", expected integer",
-    compile_trouble)
+  return compile_trouble
+end
+
+local LEDGER_RECORD <const> = "local record Ledger\n  record Month\n    days: integer\n  end\nend\n"
+
+local REFUSAL_HINT <const> = " -- ledger returns a value, not a type: a `local type` require " ..
+  "needs the module to return its record type, as `local record M ... end return M` or a " ..
+  "`.d.tl` does; or require it as a value"
+
+--- A `local type` require of a module that returns a value of its record
+--- is told what the module must return. The checker's other errors stand
+--- as they are, but `unknown type Ledger.Month` is told no hint that
+--- Ledger lacks Month: its record may well declare it.
+local function test_a_type_require_of_a_value_is_told_what_the_module_must_return()
+  local trouble = type_require_refusal("type-require-of-value",
+    LEDGER_RECORD .. "local ledger: Ledger = {}\nreturn ledger\n")
+  assert(trouble == "main.tl: the compiler refused it\n" ..
+      "main.tl:1:21: 'require' did not return a type, got record Ledger" .. REFUSAL_HINT .. "\n" ..
+      "main.tl:2:20: in local declaration: n: got string \"Ledger.x\", expected integer\n" ..
+      "main.tl:3:20: unknown type Ledger.Month\n" ..
+      "main.tl:4:12: cannot index key 'days' in variable 'm' of type Ledger.Month",
+    trouble)
+end
+
+--- A module whose value's type names its record (a function taking it, a
+--- map of it) is refused with the same answer: the refusal names
+--- `Ledger.Month` itself.
+local function test_a_type_require_of_a_value_naming_its_record_is_told_the_same()
+  for _, value in ipairs({
+      "return function(m: Ledger.Month): integer\n  return m.days\nend\n",
+      "local by_name: {string: Ledger.Month} = {}\nreturn by_name\n",
+  }) do
+    local trouble = type_require_refusal("type-require-of-value-" .. #value, LEDGER_RECORD .. value)
+    local refusal = trouble:match("main%.tl:1:21: 'require' did not return a type, got [^\n]*")
+    assert(refusal ~= nil and refusal:find("Ledger.Month", 1, true) ~= nil and
+        refusal:sub(-#REFUSAL_HINT) == REFUSAL_HINT, trouble)
+    assert(trouble:find('n: got string "Ledger.x", expected integer', 1, true) ~= nil, trouble)
+    assert(trouble:find("has no type", 1, true) == nil, trouble)
+  end
 end
 
 --- `ci/` is the pinned CI driver's own project, walked and built by

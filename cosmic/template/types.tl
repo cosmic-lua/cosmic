@@ -179,6 +179,8 @@ local record Types
     type_name: string
     --- The module's import path.
     import_path: string
+    --- The line of the `{{type}}` action, after any blank lines.
+    line: integer
     --- What the template makes.
     mode: Mode
     --- The nodes after the declaration.
