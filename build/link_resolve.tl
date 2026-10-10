@@ -217,8 +217,9 @@ end
 --- `from`: relative to its directory, then to the root (and a path
 --- that starts with `/` to the root alone). Nil and why when there is
 --- none there: the reason the first place gives, of none, the root's
---- `o/` (a stale build directory an older tool wrote), a place outside the root, or a link that
---- leads out of it.
+--- `o/` (a stale build directory an older tool wrote), the root's `.git`
+--- (git's own data, a directory in a clone and a file in a worktree), a
+--- place outside the root, or a link that leads out of it.
 local function located(resolver: link_resolve.Resolver, from: string, target: string): string | nil, string
   local root = resolver.context.root
   local bases: {string} = { root }
@@ -236,6 +237,10 @@ local function located(resolver: link_resolve.Resolver, from: string, target: st
       -- Refused before it is looked at, so a stale build's output
       -- never enters what a projection is signed by ([`build.link_index`]).
       reason = "it is under o/, a stale build directory"
+    elseif relative == ".git" or relative:sub(1, 5) == ".git/" then
+      -- Not of the tree: a link there would resolve in a clone and
+      -- not in a worktree, and `cosmic fix` would write one.
+      reason = "it is under .git, git's own data"
     elseif kind_at(resolver, path) ~= nil then
       if resolver.real_root == nil then
         resolver.real_root = resolver.context.real(root) or root

@@ -1149,3 +1149,18 @@ local function test_a_lowercase_name_written_as_a_call_links()
   same(linked, { "/p/a.tl:7: link: `render()` would link to render" })
   same(checked(linking_world(), "/p/a.tl", "teal", got), {})
 end
+
+--- The root's `.git` is git's own data, a directory in a clone and a
+--- file in a worktree: a link there is refused, and a code span naming
+--- it is prose, so `cosmic fix` writes no link that resolves in one
+--- checkout and not another.
+local function test_the_roots_git_data_is_refused_and_never_linked()
+  local context = world({ ["/p/.git/config"] = "", ["/p/.gitignore"] = "" })
+  same(checked(context, "/p/a.md", "markdown", "[c](.git/config) [i](.gitignore)\n"), {
+    "/p/a.md:1: link: .git/config does not resolve (it is under .git, git's own data)",
+  })
+  local source = "Directory mode stops `/.git/config`.\n"
+  local got, linked = rewritten(context, "/p/a.md", "markdown", source)
+  same({ got }, { source })
+  same(linked, {})
+end
