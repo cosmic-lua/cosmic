@@ -104,7 +104,10 @@ static bool out_of_memory (int rc) { return (rc & 0xff) == SQLITE_NOMEM; }
  * protocol through it. cosmic.internal.relay_start shares cosmic.net's socket
  * table to open the relay's loopback listeners, and
  * [`cosmic.internal.relay_resolv`] shares it to list the name servers, which
- * cosmic.net and the relay's starter both read. */
+ * cosmic.net and the relay's starter both read. [`cosmic.html`] is
+ * handed the JSON raw value beside its own, so that checking a template
+ * that imports it loads no `cosmic.json`, whose types reach
+ * [`cosmic.stream`]. */
 static const struct raw_module {
   const char *wrapper;
   const char *raw;
@@ -134,6 +137,7 @@ static const struct raw_module {
   {"cosmic.internal.relay_start", "cosmic.internal.socket", NULL},
   {"cosmic.internal.relay_resolv", "cosmic.internal.socket", NULL},
   {"cosmic.json", "cosmic.internal.json", cosmic_open_json},
+  {"cosmic.html", "cosmic.internal.json", NULL},
   {"build.fuzz", "cosmic.internal.budget", cosmic_open_budget},
   {"build.assertions", "cosmic.internal.assertions", cosmic_open_assertions},
 };
