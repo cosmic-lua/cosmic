@@ -86,10 +86,10 @@ relative to the source's top, its parts joined by `/`, with no `/` at
 either end: `""` is the top itself, `"sub/b.bin"` a file under it. A
 path with an empty, `.` or `..` part names nothing.
 
-- `mirror.Kind`, an enum: `"file"` or `"dir"`.
-- `mirror.Info`, a record: `kind: mirror.Kind`, and `size: integer`,
+- `mirror.Kind`: an enum of `"file"` or `"dir"`.
+- `mirror.Info`: a record with `kind: mirror.Kind`, and `size: integer`,
   a file's length in bytes (0 for a directory).
-- `mirror.Source`, an interface, which both kinds of source implement,
+- `mirror.Source`: an interface, which both kinds of source implement,
   with these methods, each answering nil and a message for a path
   that names nothing of that kind:
   - `stat(path: string): mirror.Info | nil, string`;
@@ -101,7 +101,8 @@ path with an empty, `.` or `..` part names nothing.
   why it is neither.
 - `mirror.listing(source: mirror.Source, path: string): string | nil,
   string`: the JSON listing `serve` answers for the directory at
-  `path` of any `mirror.Source`, the project's own or another.
+  `path` of any source that implements the interface above, the
+  project's own or another.
 
 The project must have all four of these:
 
