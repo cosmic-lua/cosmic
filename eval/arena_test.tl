@@ -90,7 +90,8 @@ end
 -- `America/New_York` would be linked in a project holding such a
 -- file, failing the grader's `fix --check` on TASK.md; quote them as
 -- values (`"sub/b.bin"`) or lay TASK.md outside project/, and claim
--- every such file here.
+-- every such file here. Pack's `data.bin` likewise links in a project
+-- with a module `data` declaring `bin`.
 
 --- A project at /p whose module `task` declares every name asked of
 --- it (`jobs.Plan`, `jobs.anything`), in <task>.tl, and whose every
@@ -145,7 +146,7 @@ end
 --- before a `:`, where a link would read as a definition.
 local function test_fix_links_nothing_in_any_task()
   local built = assert(teal.load())
-  -- Such a project links the form tasks took before this rule.
+  -- Such a project links an API named mid-sentence, or heading a list item with no `:` after it.
   assert(#would_link(built, "jobs", "- `jobs.Status`, an enum.\n") == 1)
   assert(#would_link(built, "jobs", "Each `Plan.order` is sorted.\n") == 1)
   local tasks = assert(Fs.list("eval/task"))
