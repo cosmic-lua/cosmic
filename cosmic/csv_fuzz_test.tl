@@ -3,7 +3,8 @@
 --- `parse` and `table` are total on any bytes, and what they read is a fixed point
 --- of writing and reading again; and a defect put into well-formed text is
 --- refused naming the line and column it was put at; and `table` answers
---- the line each row was written to begin on.
+--- the line each row was written to begin on; `records` agrees with `parse` and
+--- its lines rise.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
 local Csv = require("cosmic.csv")
@@ -186,6 +187,15 @@ local function test_parse_and_table_are_total_on_any_bytes(tmp: string)
         return true, ""
       end
       Fuzz.label("read")
+      local located = Csv.records(fields[2], options)
+      if located == nil or #located ~= #records then
+        return false, "records disagrees with parse"
+      end
+      for index, row in ipairs(located) do
+        if not same({ row.fields }, { records[index] }) or (index > 1 and row.line <= located[index - 1].line) then
+          return false, "records differs from parse at record " .. index
+        end
+      end
       local text = assert(encode(records, fields[1]))
       local again = Csv.parse(text, options)
       if again == nil or not same(again, records) then
