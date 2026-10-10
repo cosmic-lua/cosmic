@@ -37,18 +37,19 @@ local record Types
   end
 
   --- What a word inside an action is: a dotted field path starting with
-  --- `.`, a bare word, or the `|` between pipeline stages.
+  --- `.`, a bare word, the `|` between pipeline stages, or a quoted string.
   enum Part
     "field"
     "word"
     "pipe"
+    "string"
   end
 
   --- One word of an action, with where it began (a byte column, from 1).
   record Token
     --- What the word is.
     kind: Part
-    --- The word as written.
+    --- The word as written; a string's bytes, its quotes and escapes gone.
     value: string
     --- Where it begins: its line, from 1.
     line: integer

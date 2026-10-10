@@ -6,6 +6,7 @@
 ---     {{type Name from import.path}}     first, after blank text only
 ---     {{mode html}}  {{mode text}}       optional, directly after it
 ---     {{.}}  {{.a.b}}  {{.a | m.f}}      a value, put into the output
+---     {{"{{"}}                           a string's bytes, as literal text
 ---     {{if P}} .. {{else if P}} .. {{else}} .. {{end}}
 ---     {{range P}} .. {{else}} .. {{end}} dot is each element, in order; the
 ---                                        else, if any, runs when there is none
@@ -15,7 +16,10 @@
 --- and then stages `| import.path.func`, each applied to what is before
 --- it. A path's names and a stage's module and function are identifiers;
 --- the module is reached by `require` of its path, and what it is called
---- is the name after the last dot.
+--- is the name after the last dot. A string (`"` to `"`, with `\"` and
+--- `\\` its only escapes) stands only as the whole of an action, never in
+--- a pipeline: its bytes are literal text, the same as if written outside
+--- an action, so `html` mode tracks them as markup and escapes nothing.
 ---
 --- Every refusal reads `name:line:col: reason`, where line and column are
 --- the offending word's, or its action's `{{` for one about the block.
@@ -48,6 +52,18 @@ local function dotted(s: string, min: integer): boolean
   return count >= min
 end
 
+--- Why a string is refused anywhere but as the whole of an action.
+local STRING_ALONE <const> = "a string is not a value: it stands alone, as {{\"{{\"}}, to write its bytes as literal text"
+
+--- A hint for a word that starts with the `-` of a trim marker written
+--- without the space it needs, or "".
+local function trim_hint(token: types.Token): string
+  if token.kind == "word" and token.value:sub(1, 1) == "-" then
+    return ": a trim marker takes a space, as {{- and -}}"
+  end
+  return ""
+end
+
 --- The pipeline `tokens[first ..]` spell, which is all that is left of
 --- the action.
 local function pipeline(p: Parser, item: types.Item, first: integer): types.Pipeline | nil, string
@@ -57,7 +73,13 @@ local function pipeline(p: Parser, item: types.Item, first: integer): types.Pipe
     return nil, refuse(p, item.line, item.col, "expected a value: a field path such as . or .name")
   end
   if head.kind ~= "field" or (head.value ~= "." and not dotted(head.value:sub(2), 1)) then
-    return nil, refuse(p, head.line, head.col, "'" .. head.value .. "' is not a field path such as . or .a.b")
+    return nil, refuse(p, head.line, head.col, head.kind == "string" and STRING_ALONE or
+        "'" .. head.value .. "' is not a field path such as . or .a.b" .. trim_hint(head))
+  end
+  for at = first + 1, #tokens do
+    if tokens[at].kind == "string" then
+      return nil, refuse(p, tokens[at].line, tokens[at].col, STRING_ALONE)
+    end
   end
   local path: {string} = {}
   if head.value ~= "." then
@@ -181,6 +203,23 @@ nodes = function(p: Parser): {types.Node} | nil, string
       elseif word == "type" or word == "mode" then
         return nil, refuse(p, item.line, item.col, word == "type" and
             "{{type}} must be the first action" or "{{mode}} must directly follow {{type}}")
+      elseif item.tokens[1] ~= nil and item.tokens[1].kind == "string" then
+        local literal = item.tokens[1]
+        local extra = item.tokens[2]
+        if extra ~= nil then
+          return nil, refuse(p, extra.line, extra.col,
+            "a string stands alone in its action: {{\"...\"}} writes its bytes and takes nothing after them" ..
+              trim_hint(extra))
+        end
+        -- An empty string writes nothing: no node, as the lexer makes none
+        -- for an empty run of text. The text's first byte stands just past
+        -- the opening quote, where a refusal of it points; one past an escape
+        -- is a column early.
+        if literal.value ~= "" then
+          out[#out + 1] = { kind = "text", line = literal.line, col = literal.col + 1, end_line = literal.line,
+            close_line = literal.line, text = literal.value, branches = {}, ctx = "plain" }
+        end
+        p.pos = p.pos + 1
       else
         local pipe, why = pipeline(p, item, 1)
         if pipe == nil then
@@ -204,7 +243,7 @@ end
 --- is from.
 local function declaration(p: Parser, item: types.Item): string | nil, string
   local tokens = item.tokens
-  if #tokens ~= 4 or tokens[3].value ~= "from" then
+  if #tokens ~= 4 or tokens[3].kind ~= "word" or tokens[3].value ~= "from" then
     return nil, refuse(p, item.line, item.col, "write {{type Name from import.path}}")
   end
   local name = tokens[2]

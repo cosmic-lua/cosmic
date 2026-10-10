@@ -10,7 +10,7 @@ local Test = require("cosmic.test")
 
 Test.policy{
   requires = { "checked", "path:/proc/thread-self/children" },
-  grants = { { path = "/proc", letters = "r" } },
+  profiles = { "proc" },
 }
 
 local type Searcher = function(string): any, any

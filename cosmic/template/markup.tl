@@ -33,9 +33,11 @@
 ---   `embed`, `base`, `use`), or one not at the start of the value.
 ---
 --- The state is the tokenizer's in full, carried over every action: text
---- split by one that emits nothing (`</text{{if .a}}{{end}}area>`) is read
---- as it would be whole, so an end tag, a comment or a script's escape
---- states cut short at an action are completed by the text after it.
+--- fed in runs is read as it would be whole, whether an action that emits
+--- nothing splits it (`</text{{if .a}}{{end}}area>`) or a string action
+--- is one of the runs (`</text{{"area>"}}`), so an end tag, a comment or
+--- a script's escape states cut short between runs are completed by the
+--- run after.
 ---
 --- A slot in a template's end must leave it in plain text: see `ending`.
 ---
@@ -178,12 +180,12 @@ local record Markup
     late_line: integer
     --- Its column.
     late_col: integer
-    --- In the text of a raw text or RCDATA element, the literal text since
-    --- the last point that could still begin something the tokenizer acts
-    --- on (`<`, `</`, `</tex`; in a `<script>` also `<!-`, `<scr`, `-`,
-    --- `--`): the next run of text, which a block that emits nothing may
-    --- have put between, is read after it, and a slot after it could
-    --- complete the tag.
+    --- In the text of a raw text or RCDATA element, the longest end of its
+    --- text that the next run could complete into something read here: a
+    --- start of `</tag` (`<`, `</`, `</tex`); in `<noscript>` also of `<!--`
+    --- (`<!`, `<!-`); in `<script>` also `<scr`, `-`, `--`. The next run,
+    --- after a block that emits nothing or a string action, is read after
+    --- it, and a slot after it could complete the tag.
     raw_tail: string
     --- In the text of a `<script>`, whether a `<!--` has opened (and no `-->`
     --- has closed) the escaped state, in which a `<script` opens a nested
@@ -491,6 +493,21 @@ local function plain_end(text: string, from: integer, tag: string): integer | ni
     end
     at = lt + 1
   end
+end
+
+--- The longest end of `region`, in the text of `tag`, that the next run
+--- could complete into something read here: the start of `</tag` (whole
+--- too, as it needs the delimiter after it) or, in `<noscript>`, a proper
+--- start of `<!--`.
+local function plain_tail(region: string, tag: string): string
+  local close = "</" .. tag
+  for len = math.min(#region, #close), 1, -1 do
+    local tail = region:sub(-len):lower()
+    if close:sub(1, len) == tail or (tag == "noscript" and len < 4 and ("<!--"):sub(1, len) == tail) then
+      return region:sub(-len)
+    end
+  end
+  return ""
 end
 
 --- What a `<script>` acts on in its text, of which [`script_tail`] keeps the
@@ -875,18 +892,26 @@ local function scan(p: Place, text: string)
         found = plain_end(text, i, p.tag)
       end
       local region = text:sub(i, (found or n + 1) - 1)
-      if (p.stack ~= "" and region:find("<", 1, true)) or (p.tag == "noscript" and region:find("<!--", 1, true)) then
+      local tail = ""
+      if found == nil then
+        tail = p.tag == "script" and script_tail(region, p.escaped) or plain_tail(region, p.tag)
+      end
+      -- The tail is judged with the run that completes it, as it would be
+      -- whole: `</sty` that becomes `</style>` holds no `<` of the text.
+      local settled = region:sub(1, #region - #tail)
+      -- TODO: `<noscript>` is read as raw text, as a browser with scripting
+      -- on reads it; with scripting off its text is markup, so
+      -- `<noscript><style></noscript>{{.x}}</style>` puts the slot in
+      -- `<style>` (or `<xmp>`, `<textarea>`, ...) with only the text
+      -- escaper. In noscript text, a `<` before a raw text or RCDATA tag
+      -- name (style, script, textarea, title, xmp, iframe, noembed,
+      -- noframes, plaintext), or a `<!` or `<?`, should make the place
+      -- murky, as `<!--` does.
+      if (p.stack ~= "" and settled:find("<", 1, true)) or (p.tag == "noscript" and settled:find("<!--", 1, true)) then
         p.murky = true
       end
       if found == nil then
-        if p.tag == "script" then
-          p.raw_tail = script_tail(region, p.escaped)
-        else
-          local last = region:match(".*()<")
-          local tail = last and region:sub(last) or ""
-          local close = "</" .. p.tag
-          p.raw_tail = (#tail <= #close and close:sub(1, #tail) == tail:lower()) and tail or ""
-        end
+        p.raw_tail = tail
         return
       end
       p.phase = "text"
@@ -972,6 +997,10 @@ local function settle(p: Place, text: string, line: integer, col: integer): inte
 end
 
 local function feed(p: Place, text: string, line: integer, col: integer)
+  -- Empty text moves nothing; past here it would forget a tag's last `/`.
+  if text == "" then
+    return
+  end
   p.split = p.split or continues(p.phase, text:byte(1))
   local from = p.alts ~= "" and settle(p, text, line, col) or 1
   scan(p, from == 1 and text or text:sub(from))
