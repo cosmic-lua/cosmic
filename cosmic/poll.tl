@@ -69,6 +69,47 @@ local record Poll
     kill: function(Task)
   end
 
+  --- A place tasks of one run wait for a notice from another. It belongs
+  --- to the run that made it: after that run ends [`notify_one`] and
+  --- [`notify_all`] do nothing, and `wait` in another run raises.
+  ---
+  --- A notice is not remembered: one sent while nothing waits is lost.
+  --- A waiter therefore checks its condition, then waits, and waits again
+  --- until the condition holds; tasks switch only at waits, so nothing
+  --- sent between the check and the wait is missed:
+  ---
+  ---     while #queue == 0 do
+  ---       local ok, why = notifier:wait()
+  ---       if not ok then return nil, why end
+  ---     end
+  ---     local item = table.remove(queue, 1)
+  ---
+  --- and the sender queues its item, then calls [`notify_one`]. A wait
+  --- that answers true is no promise that the condition holds: another
+  --- task may have run first.
+  interface Notifier
+    --- Waits for a notice, at most `timeout_ns` nanoseconds (no limit
+    --- when nil): true and "" once one came, false and [`Poll.TIMEOUT`]
+    --- once `timeout_ns` passes first, false and [`Poll.CANCELLED`] once
+    --- the task is cancelled. Waiters are woken in the order they began
+    --- to wait. Like [`Poll.delay`] it raises outside a task, and in a
+    --- `<close>` handler of a task being ended.
+    wait: function(Notifier, timeout_ns?: integer): boolean, string
+    --- Wakes the task that has waited longest, if any: a no-op when none
+    --- waits. The woken task runs on the run's next turn, so it is
+    --- callable from any code of the run -- a task, a `<close>` handler,
+    --- a finalizer -- and never waits. A woken task that is killed before
+    --- it runs hands the notice to the next waiter; one cancelled before
+    --- it runs still answers true, having been noticed first.
+    notify_one: function(Notifier)
+    --- Wakes every task waiting now, in the order they began to wait,
+    --- as [`notify_one`] does. A task that begins to wait afterwards is
+    --- not woken.
+    notify_all: function(Notifier)
+    --- How many tasks wait now.
+    waiting: function(Notifier): integer
+  end
+
   --- What a wait answers once its `timeout_ns` passes first: the one
   --- word every module that waits answers, [`cosmic.child`] and
   --- [`cosmic.net`] included.
@@ -119,6 +160,8 @@ local record Wait
   in_heap: boolean
   --- The task a join waits on.
   joined: State
+  --- The notifier a wait for a notice is in the waiters of, until it ends.
+  gate: NotifierState
   --- Set once a poll, or a descriptor closing, has answered it.
   hit: boolean
   --- What the wait answers once `at` is reached: a delay's success, or
@@ -182,11 +225,27 @@ end
 
 local state_mt: metatable<State> = { __index = State }
 
+--- What a run keeps of a notifier, which [`Poll.notifier`] answers.
+local record NotifierState is Poll.Notifier
+  loop: Loop
+  --- The waits in it, longest first.
+  waiters: {Wait}
+  wait: function(NotifierState, timeout_ns?: integer): boolean, string
+  notify_one: function(NotifierState)
+  notify_all: function(NotifierState)
+  waiting: function(NotifierState): integer
+end
+
+local notifier_mt: metatable<NotifierState> = { __index = NotifierState }
+
 --- A task to resume, with what its wait answers.
 local record Wake
   task: State
   ok: boolean
   why: string
+  --- The notifier whose [`notify_one`] made this wake, so that a task
+  --- ended before it resumes passes the notice to the next waiter.
+  notice: NotifierState
 end
 
 --- A [`Poll.shielded`] call's hold on its task, let go as the call
@@ -337,6 +396,19 @@ local function unjoin(w: Wait)
   end
 end
 
+--- Takes a notifier wait from its waiters, the rest left in their order.
+--- Linear in the waiters, as is the removal in [`notify_one`]: a list is
+--- the tasks parked on one condition, and a wake costs more than the shift.
+local function ungate(w: Wait)
+  local waiters = w.gate.waiters
+  for i = 1, #waiters do
+    if waiters[i] == w then
+      table.remove(waiters, i)
+      return
+    end
+  end
+end
+
 --- Marks `w` answered: it leaves what is polled now, and the joiners of
 --- a task still running; and the timer heap once it reaches the top,
 --- or once the done waits there outnumber the live ones and the heap is
@@ -346,6 +418,7 @@ local function finish(w: Wait)
   -- A task that has ended answers its joiners while it walks them, and
   -- is marked ended first, so none is taken from under the walk.
   if w.joined ~= nil and not w.joined.ended then unjoin(w) end
+  if w.gate ~= nil then ungate(w) end
   if w.watches ~= nil then
     for _, watch in ipairs(w.watches) do leave(watch) end
     w.watches = nil
@@ -357,11 +430,11 @@ local function finish(w: Wait)
 end
 
 --- Answers `w`, once: the run resumes its task with `ok` and `why`.
-local function wake(w: Wait, ok: boolean, why: string)
+local function wake(w: Wait, ok: boolean, why: string, notice?: NotifierState)
   if w.done then return end
   finish(w)
   w.task.parked = nil
-  loop.ready[#loop.ready + 1] = { task = w.task, ok = ok, why = why }
+  loop.ready[#loop.ready + 1] = { task = w.task, ok = ok, why = why, notice = notice }
 end
 
 local function began_first(a: Wait, b: Wait): boolean
@@ -581,10 +654,16 @@ local function close_task(task: State)
     task.parked = nil
   end
   local ready: {Wake} = {}
+  local lost: {NotifierState} = {}
   for _, wakened in ipairs(loop.ready) do
-    if wakened.task ~= task then ready[#ready + 1] = wakened end
+    if wakened.task ~= task then
+      ready[#ready + 1] = wakened
+    elseif wakened.notice ~= nil then
+      lost[#lost + 1] = wakened.notice
+    end
   end
   loop.ready = ready
+  for _, notifier in ipairs(lost) do notifier:notify_one() end
   local closed, err: boolean, any = coroutine.close(task.co)
   task.ended = true
   loop.tasks[task.co] = nil
@@ -614,6 +693,48 @@ function State:kill()
   if self.loop ~= loop or self.ended then return end
   if self == current("Task:kill", 2) then error("poll: a task cannot kill itself", 2) end
   close_task(self)
+end
+
+--- A new notifier for the tasks of the running [`Poll.run`] to wait on
+--- and notify, as [`Poll.Notifier`] says. It raises outside a run.
+function Poll.notifier(): Poll.Notifier
+  if loop == nil then error("poll: Poll.notifier outside Poll.run", 2) end
+  local notifier: NotifierState = setmetatable({ loop = loop, waiters = {} }, notifier_mt)
+  return notifier
+end
+
+function NotifierState:wait(timeout_ns?: integer): boolean, string
+  local task = current("Notifier:wait", 2)
+  Poll.checked_ns(timeout_ns, "poll", "timeout_ns", 2)
+  if self.loop ~= loop then error("poll: Notifier:wait on a notifier of another run", 2) end
+  local w: Wait = { task = task, gate = self }
+  self.waiters[#self.waiters + 1] = w
+  return park(task, w, timeout_ns)
+end
+
+--- Answers `w`, taken from its notifier's waiters already so that `wake`
+--- need not search for it.
+local function notice(w: Wait, one?: NotifierState)
+  w.gate = nil
+  wake(w, true, "", one)
+end
+
+function NotifierState:notify_one()
+  if self.loop ~= loop or loop.closing then return end
+  local first = table.remove(self.waiters, 1)
+  if first ~= nil then notice(first, self) end
+end
+
+function NotifierState:notify_all()
+  if self.loop ~= loop or loop.closing then return end
+  local woken = self.waiters
+  self.waiters = {}
+  for _, w in ipairs(woken) do notice(w) end
+end
+
+function NotifierState:waiting(): integer
+  if self.loop ~= loop then return 0 end
+  return #self.waiters
 end
 
 --- A new task running `fn`, ready to run.
@@ -779,7 +900,11 @@ local function turn()
     loop.ready = {}
     for _, wakened in ipairs(batch) do
       -- One killed by a task earlier in the batch is passed by.
-      if not wakened.task.ended then step(wakened.task, wakened.ok, wakened.why) end
+      if not wakened.task.ended then
+        step(wakened.task, wakened.ok, wakened.why)
+      elseif wakened.notice ~= nil then
+        wakened.notice:notify_one()
+      end
     end
     if loop.live == 0 then break end
     poll_once(next_timeout())

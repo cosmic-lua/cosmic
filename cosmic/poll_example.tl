@@ -136,4 +136,31 @@ function Example.kill()
   end)
 end
 
+--- A producer queues work and notifies; the consumer checks its queue,
+--- waits only when it is empty, and checks again on waking, so a notice
+--- sent while it was busy is not lost.
+function Example.notifier()
+  local queue: {string} = {}
+  local handled: {string} = {}
+  Poll.run(function()
+    local notifier = Poll.notifier()
+    local consumer = Poll.spawn(function()
+      while #handled < 3 do
+        while #queue == 0 do
+          if not notifier:wait(Clock.seconds(5)) then return end
+        end
+        handled[#handled + 1] = table.remove(queue, 1)
+      end
+    end)
+    for _, job in ipairs({ "a", "b", "c" }) do
+      queue[#queue + 1] = job
+      notifier:notify_one()
+      assert(Poll.delay(0))
+    end
+    assert(consumer:join(Clock.seconds(5)))
+  end)
+  print(table.concat(handled, ", "))
+  assert(table.concat(handled, ", ") == "a, b, c")
+end
+
 return Example
