@@ -1075,6 +1075,17 @@ local function test_a_block_in_a_tag_adds_only_the_attributes_it_writes(tmp: str
       local block = kind == "range" and "{{range .l}}" .. arm .. "{{end}}" or
         kind == "else" and "{{if .a}}" .. arm .. "{{else}}" .. other .. "{{end}}" or "{{if .a}}" .. arm .. "{{end}}"
       local body = lead .. open .. before .. block .. after .. closer
+      -- What was drawn is labelled before it is compiled: only about one
+      -- input in four compiles, too few for every seed's 64 draws to meet a
+      -- compiled range, else, <meta> or <svg><font>, and `added`'s share and
+      -- `slot` hold the property to compiled inputs that exercise it.
+      Fuzz.label(kind)
+      if open == "<meta" then
+        Fuzz.label("meta")
+      end
+      if lead ~= "" then
+        Fuzz.label("font in svg")
+      end
       local source = Template.compile("{{type T from m.t}}" .. body, "t.tmpl") or ""
       if source == "" then
         Fuzz.label("refused")
@@ -1113,7 +1124,6 @@ local function test_a_block_in_a_tag_adds_only_the_attributes_it_writes(tmp: str
         tags[i] = tag
         local text = "text"
         if lead ~= "" then
-          Fuzz.label("font in svg")
           for _, a in ipairs(tag.attrs) do
             if FONT_BREAKS[a:match("^[^=]*")] then
               text = "refuse"
@@ -1135,9 +1145,6 @@ local function test_a_block_in_a_tag_adds_only_the_attributes_it_writes(tmp: str
             Fuzz.label("slot")
           end
         end
-        if tag.name == "meta" then
-          Fuzz.label("meta")
-        end
       end
       local state = read_tag(open .. n_before).state
       if state ~= "tag_name" and state ~= "before_attr" and state ~= "attr_name" and state ~= "after_attr" and
@@ -1158,7 +1165,6 @@ local function test_a_block_in_a_tag_adds_only_the_attributes_it_writes(tmp: str
       end
       if arm:find("%a") then
         Fuzz.label("added")
-        Fuzz.label(kind)
       end
       return true, ""
     end,
