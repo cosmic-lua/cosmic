@@ -203,7 +203,7 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
   -- A bill of materials, as cosmic's own tree's projection holds one.
   local whole_db = assert(Sqlite.open(tmp .. "/whole.db", { writable = true }))
   assert(whole_db:exec("INSERT INTO components VALUES ('zlib', 'library', '1.3', 'Zlib', " ..
-      "'https://zlib.net/z.tar.gz', '', ''); INSERT INTO notices VALUES ('zlib', 1, " ..
+      "'https://zlib.net/z.tar.gz', '', '', ''); INSERT INTO notices VALUES ('zlib', 1, " ..
       "'LICENSE', '(C) 1995 Jean-loup Gailly and Mark Adler' || char(10)); " ..
       "INSERT INTO ca_roots VALUES (sha256(x'0506'), 'A Root', x'0506')"))
   assert(whole_db:close())

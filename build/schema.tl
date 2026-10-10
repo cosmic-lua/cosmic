@@ -143,6 +143,7 @@ local tables: {{string}} = {
                      license TEXT NOT NULL,
                      url TEXT NOT NULL,
                      sha256 TEXT NOT NULL,
+                     sha3_256 TEXT NOT NULL,
                      patches TEXT NOT NULL) WITHOUT ROWID]] },
 
   { "notices", [[(component TEXT NOT NULL,
