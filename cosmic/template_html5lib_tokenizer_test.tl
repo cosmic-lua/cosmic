@@ -687,7 +687,7 @@ local URL_ATTRS <const>: {string: boolean} = {
 
 --- What a slot is, from the Teal the template compiles to.
 local function kind_of(out: string): string
-  for _, kind in ipairs({ "text", "rtext", "attr", "url" }) do
+  for _, kind in ipairs({ "text", "rtext", "ftext", "attr", "url" }) do
     if out:find("parts[#parts + 1] = _" .. kind .. "(", 1, true) then
       return kind
     end
@@ -704,12 +704,13 @@ end
 
 --- Whether a slot of `kind` may stand where the tokenizer is in `state`
 --- (reading the attribute `attr`, when in a quoted value): in text, one
---- the escaper for text is right for; in RCDATA, the one for it; in a
---- quoted attribute value, a URL's where the attribute takes one and an
---- attribute's elsewhere, and never in one that is code; nowhere else.
+--- the escaper for text is right for (`ftext` too, which takes less); in
+--- RCDATA, the one for it; in a quoted attribute value, a URL's where the
+--- attribute takes one and an attribute's elsewhere, and never in one
+--- that is code; nowhere else.
 local function allowed(state: string, kind: string, attr: string, tail: string, tag: string): boolean
   if state == "data" then
-    return kind == "text"
+    return kind == "text" or kind == "ftext"
   elseif state == "rcdata" then
     return kind == "rtext"
   elseif state == "rcdata_lt" or state == "rcdata_end_open" or state == "rcdata_end_name" then

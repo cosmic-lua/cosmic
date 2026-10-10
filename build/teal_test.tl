@@ -561,12 +561,19 @@ local function test_two_types_of_one_name_are_told_apart()
 end
 
 --- `Kv.Kv` for a module bound to `Kv` is told `Kv` is the type; a name
---- no `require` binds is not.
+--- no `require` binds is not, nor one whose `local type` require the
+--- compile refused.
 local function test_a_module_type_named_twice_is_told_its_name()
   local source = 'local Kv = require("kv")\nlocal k: Kv.Kv = Kv\nreturn k\n'
   assert(teal.replacement("unknown type Kv.Kv", source, 2, 10) ==
       "Kv is itself the type of the record its module returns: write Kv, not Kv.Kv")
   assert(teal.replacement("unknown type Kv.Kv", "local Kv = {}\nlocal k: Kv.Kv\n", 2, 10) == nil)
+  -- A `local type` require the compile refused holds no type at all.
+  local typed = 'local type Kv = require("kv")\nlocal k: Kv.Kv\n'
+  assert(teal.replacement("unknown type Kv.Kv", typed, 2, 10) ==
+      "Kv is itself the type of the record its module returns: write Kv, not Kv.Kv")
+  local answer = teal.replacement("unknown type Kv.Kv", typed, 2, 10, nil, "main.tl", { Kv = true })
+  assert(answer == nil, answer)
   -- Another type of the module is told what the module must declare.
   assert(teal.replacement("unknown type Kv.Store", source, 2, 10) ==
       "Kv has no type Store: check its spelling, or declare `record Store ... end` " ..

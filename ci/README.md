@@ -383,7 +383,8 @@ saves and still carries the products, both taken from the queue's run:
   for a runner's start with nothing to do (seconds, up to about 100 s
   in a burst of runs); the legs' `!cancelled()` runs them past a
   skipped `reuse` as past one that found nothing. `seed` too shows as
-  a skipped check on a branch push (a `TODO:`).
+  a skipped check on a branch push (a `TODO:`), as do `prune` and
+  `invalidate`, which act on main alone.
 
 What the push gives up is a second run of the same commit: a flake the
 queue's run missed is no longer caught on main, where the nightly run
@@ -674,6 +675,13 @@ nothing is saved, so every main run builds vendor/ cold until one
 passes assemble or the nightly saves; a branch stays warm through the
 restore of another vendor part.
 
+A run of main or the queue that restored an entry of its own vendor and
+core part still grew it by tens of megabytes. Such a run marks the cache
+right after the restore and lists, before the prune, the runner's CPU and
+what the build wrote since (`.github/scripts/zig-build-writes.sh`, the
+step "list what the build wrote to the zig build cache"), for the `TODO:`
+on the restore in ci.yml.
+
 actions/cache archives with `tar -C $GITHUB_WORKSPACE` and a path
 relative to it (`../../_temp/...`), which names nothing through the
 link `place-tree` leaves were the tree more than one directory deep.
@@ -713,7 +721,16 @@ runs on the runner's own userland, so its key holds the runner's image
 saves again. So a full run checks on each leg where its key moved. A branch
 push checks only in the checked job, on linux-x86_64's host. It looks
 up main's marker and skips the check on an exact hit, but saves no marker
-of its own. The queue checks each leg before anything lands.
+of its own. Before anything lands, some trusted run has checked each key: main's earlier marker, the queue run ahead's, or the queue run's own check. Main saves
+a marker only once its commit lands, so the queue runs behind a change to
+what the key hashes would all check again: a queue leg that finds no
+marker looks for the run ahead's, as it does the verdicts (`driver-ahead`
+steps), and skips the check where that run's leg kept the same key as
+`driver-checked-<leg>` after a check that passed, a marker found or one
+taken. It waits only 30 s, and not at all for a leg ahead that has not
+begun its boot (which follows its check), so queue entries that start
+together still each check; the artifact is not main's marker, which `seed` saves
+from the run's staged `driver-checked/` as before.
 
 ### artifacts
 

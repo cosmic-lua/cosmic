@@ -40,6 +40,7 @@ local function test_a_record_names_its_license()
   assert(component.license == "MIT AND APSL-2.0", component.license)
   assert(component.kind == "library")
   assert(component.sha256 == "abc", "a digest is kept in lower case")
+  assert(component.sha3_256 == "")
   assert(#component.notices == 2)
   assert(component.notices[1].file == "LICENSE" and component.notices[1].first == nil)
   assert(component.notices[2].file == "src/lua.h" and component.notices[2].first == 524 and
@@ -75,7 +76,7 @@ local function test_fill_reads_every_record_and_its_notices(tmp: string)
   assert(Fs.mkdirs(tmp .. "/build/bom"))
   assert(Fs.mkdirs(tmp .. "/patch/zlib"))
   assert(Fs.write(tmp .. "/vendor/zlib/PIN", "version 1.3\nurl https://zlib.net/z.tar.gz\n" ..
-      "sha256 00ff\nlicense Zlib\nnotice zlib.h:2-3\n"))
+      "sha256 00ff\nsha3-256 11EE\nlicense Zlib\nnotice zlib.h:2-3\n"))
   assert(Fs.write(tmp .. "/vendor/zlib/zlib.h", "/*\n (C) Jean-loup Gailly\n Mark Adler\n*/\n"))
   assert(Fs.write(tmp .. "/patch/zlib/01-fix.txt", "a patch"))
   assert(Fs.write(tmp .. "/patch/zlib/.01-fix.txt.swp", "an editor's"))
@@ -95,7 +96,7 @@ local function test_fill_reads_every_record_and_its_notices(tmp: string)
   assert(#rows == 3, "a directory with no PIN, or a PIN of kind test, is no component")
   assert(rows[1].name == "libc" and rows[1].sha256 == "" and rows[1].patches == "")
   assert(rows[2].name == "roots" and rows[2].kind == "data")
-  assert(rows[3].name == "zlib" and rows[3].sha256 == "00ff")
+  assert(rows[3].name == "zlib" and rows[3].sha256 == "00ff" and rows[3].sha3_256 == "11ee")
   assert(rows[3].patches == "patch/zlib/01-fix.txt " .. Hash.hex_sha256("a patch"),
     "only a patch record counts, not a file beside one: " .. rows[3].patches)
   local notices = assert(bom.notices(db))
@@ -163,9 +164,11 @@ local DOCUMENT <const> = Shape.record_of("Document")
 local function test_the_json_is_a_cyclonedx_document()
   local document = assert(bom.cyclonedx({
     { name = "zlib", kind = "library", version = "1.3", license = "Zlib",
-      url = "https://zlib.net/z 1.tar.gz", sha256 = "00ff", patches = "patch/zlib/a 01" },
+      url = "https://zlib.net/z 1.tar.gz", sha256 = "00ff", sha3_256 = "", patches = "patch/zlib/a 01" },
     { name = "roots", kind = "data", version = "1", license = "MPL-2.0",
-      url = "https://example.com/r.pem", sha256 = "", patches = "" },
+      url = "https://example.com/r.pem", sha256 = "", sha3_256 = "", patches = "" },
+    { name = "sqlite", kind = "library", version = "3", license = "blessing",
+      url = "https://sqlite.org/s.zip", sha256 = "", sha3_256 = "11ee", patches = "" },
   }, "cosmic", "abc"))
   local decoded, why = DOCUMENT:decode_into(document)
   assert(decoded ~= nil, tostring(why))
@@ -182,6 +185,8 @@ local function test_the_json_is_a_cyclonedx_document()
   local roots = components[2]
   assert(roots.type == "data" and roots.pedigree == nil)
   assert(roots.externalReferences[1].hashes == nil, "no digest is named when the record has none")
+  local sqlite = components[3].externalReferences[1].hashes
+  assert(sqlite ~= nil and #sqlite == 1 and sqlite[1].alg == "SHA3-256" and sqlite[1].content == "11ee")
 end
 
 -- TODO: hold build/bom/musl.pin's version and both notices copied

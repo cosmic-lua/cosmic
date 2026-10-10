@@ -12,7 +12,12 @@
 ---     attr  string | number | html.SafeAttr       likewise, for an attribute
 ---     url   string | html.SafeUrl                 `html.href`, then attribute-escaped
 ---     rtext string | number                       `<title>`, `<textarea>`: escaped, no markup
+---     ftext string | number                       text in `<svg>`, `<math>`, `<select>`: likewise
 ---     plain string | number                       a `text` template: as it is
+---
+--- A `SafeHtml` is markup checked as plain HTML text, so only a `text`
+--- slot takes one: inside `<svg>`, `<math>` or `<select>` the browser
+--- reads markup by other rules.
 ---
 --- A number is written with `tostring`: no digit, sign, point, exponent
 --- or `inf`/`nan` is a byte HTML treats as markup. A union of one userdata
@@ -32,11 +37,14 @@
 --- can export the record, and a module's body does not run for its types.
 --- The module must return the record type itself, as a `.d.tl` or `local
 --- record M ... end return M` does: one that returns a value of it is
---- refused, since `require` then answers no type.
+--- refused at the `{{type}}`'s line, since `require` then answers no
+--- type.
 ---
 --- Line N of the template is line N of the module. The requires, the
---- helpers, `render`'s header and `local parts` share line 1 with the
---- template's first line; each line of literal text, and each action,
+--- helpers, `render`'s header and `local parts` share the `{{type}}`'s
+--- line, after a blank line for each blank line before it, so an error
+--- in them (a refused require, an unknown record type) names that line;
+--- each line of literal text, and each action,
 --- is written on its line, with the newlines of a multi-line action and
 --- of trimmed whitespace kept as blank ones; the `return` is on the
 --- template's last line. So a checker or run-time error names the
@@ -51,10 +59,10 @@
 --- so a template's variable is never declared under its own name and can
 --- shadow nothing; `v` (a slot's value, in a block of its own, and
 --- `_one`'s parameter), `T` (`_one`'s type parameter), and the helpers
---- `_one`, `_text`, `_rtext`, `_attr` and `_url`; a module that is required
---- is named by the last word of its path, or that word, `_` and a number
---- when the name is taken, reserved, or a keyword, so a name is never
---- declared twice. A name a
+--- `_one`, `_text`, `_rtext`, `_ftext`, `_attr` and `_url`; a module that
+--- is required is named by the last word of its path, or that word, `_`
+--- and a number when the name is taken, reserved, or a keyword, so a name
+--- is never declared twice. A name a
 --- loop or `with` does not read is written `_`, which is not a warning.
 --- A range's index is `ipairs`'s, an integer from 1.
 
@@ -64,7 +72,7 @@ local types = require("cosmic.template.types")
 --- module is never named.
 local RESERVED <const>: {string: boolean} = {}
 for _, word in ipairs({
-    "parts", "render", "d", "v", "T", "_", "_one", "_text", "_rtext", "_attr", "_url", "record", "enum", "type", "global",
+    "parts", "render", "d", "v", "T", "_", "_one", "_text", "_rtext", "_ftext", "_attr", "_url", "record", "enum", "type", "global",
     "interface", "is", "as", "where", "self", "macroexp",
     -- The standard library and its globals, which a required module must
     -- not shadow (a module named `string` would break every `string.format`
@@ -79,7 +87,7 @@ for _, word in ipairs({
 end
 
 --- The helpers, in the order they are declared.
-local HELPER_ORDER <const>: {types.Slot} = { "plain", "text", "rtext", "attr", "url" }
+local HELPER_ORDER <const>: {types.Slot} = { "plain", "text", "rtext", "ftext", "attr", "url" }
 
 --- A name the template takes, and whether the loop or `with` that made
 --- it has read it.
@@ -235,6 +243,8 @@ local function slot_statement(g: Gen, ctx: types.Slot, expr: string): string
     helper_name = "_attr"
   elseif ctx == "rtext" then
     helper_name = "_rtext"
+  elseif ctx == "ftext" then
+    helper_name = "_ftext"
   end
   return "do local v: " .. accepts(g, ctx) .. " = " .. expr .. " " .. APPEND .. helper_name .. "(v) end"
 end
@@ -354,8 +364,8 @@ local function helper(g: Gen, ctx: types.Slot): string
     return "local function _text(v: string | number | " .. html .. ".SafeHtml): string " ..
       "if v is string then return " .. html .. ".raw(" .. html .. ".escape(v)) end " ..
       "if v is number then return tostring(v) end return " .. html .. ".raw(v) end"
-  elseif ctx == "rtext" then
-    return "local function _rtext(v: string | number): string " ..
+  elseif ctx == "rtext" or ctx == "ftext" then
+    return "local function _" .. ctx .. "(v: string | number): string " ..
       "if v is number then return tostring(v) end return " .. html .. ".raw(" .. html .. ".escape(v)) end"
   elseif ctx == "attr" then
     return "local function _attr(v: string | number | " .. html .. ".SafeAttr): string " ..
@@ -375,7 +385,7 @@ end
 --- @param template types.Template The tree, its slots' places set
 --- @return string Source that has as many lines as the template
 function Codegen.generate(template: types.Template): string
-  local g: Gen = { pieces = {}, line = 1, started = false, mode = template.mode,
+  local g: Gen = { pieces = {}, line = template.line, started = false, mode = template.mode,
     imports = { order = {}, alias_of = {}, taken = {}, as_value = {} }, html = "", helpers = {}, staged = false,
     dots = 0, root = { name = "d", used = false }, vars = {} }
   local type_alias = alias_for(g, template.import_path)
@@ -405,7 +415,8 @@ function Codegen.generate(template: types.Template): string
   to_line(g, template.lines)
   put(g, "return " .. (template.mode == "html" and g.html .. ".trust(table.concat(parts))" or
     "table.concat(parts)") .. " end return {render = render}")
-  return table.concat(head, " ") .. " " .. table.concat(g.pieces) .. "\n"
+  return string.rep("\n", template.line - 1) .. table.concat(head, " ") .. " " ..
+    table.concat(g.pieces) .. "\n"
 end
 
 return Codegen

@@ -11,11 +11,13 @@
 --- With no archive argument it fetches for itself. Every `name` (every
 --- `vendor/*/PIN` by default) is downloaded from its PIN's `url` into
 --- `$XDG_CACHE_HOME/cosmic/vendor` (default `$HOME/.cache/cosmic/vendor`;
---- see [`Fs.cache_dir`]), checked against the PIN's sha256 by
---- [`Http.download`], and then rewritten exactly as the two-argument form
---- does. A cached file is reused only when its sha256 still matches the
---- PIN's. This is what [`bin/vendor`] runs; the repository is found from
---- this script's own path, so it works from any working directory.
+--- see [`Fs.cache_dir`]), checked against every digest the PIN names --
+--- `sha256`, `sha3-256` or both, at least one -- and then rewritten
+--- exactly as the two-argument form does. A PIN names the digest its
+--- upstream publishes: sqlite.org publishes SHA3-256 alone. A cached
+--- file is reused only when every digest still matches the PIN's. This
+--- is what [`bin/vendor`] runs; the repository is found from this
+--- script's own path, so it works from any working directory.
 ---
 --- The two-argument form rewrites one tree directly from an archive
 --- already on disk, without fetching or verifying it. The archive is
@@ -35,6 +37,7 @@
 ---
 --- Everything else in the tree but PIN is removed.
 local Archive = require("cosmic.archive")
+local Codec = require("cosmic.codec")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -47,6 +50,7 @@ local record Vendor
   record Pin
     url: string
     sha256: string
+    sha3_256: string
     strip: string
     --- The name a single-file PIN vendors its download as; empty for
     --- an archive.
@@ -63,10 +67,11 @@ local log = Log.new("vendor")
 --- of it; `keep` and `drop` accumulate, and for every other key the
 --- first line naming it wins.
 function Vendor.read_pin(text: string): Vendor.Pin
-  local pin: Vendor.Pin = { url = "", sha256 = "", strip = "", file = "", keep = {}, drop = {} }
+  local pin: Vendor.Pin = { url = "", sha256 = "", sha3_256 = "", strip = "", file = "",
+    keep = {}, drop = {} }
   local seen: {string:boolean} = {}
   for line in text:gmatch("[^\n]+") do
-    local key, value = line:match("^([%w_]+)%s+(%S+)")
+    local key, value = line:match("^([%w_%-]+)%s+(%S+)")
     if key == "keep" then
       pin.keep[#pin.keep + 1] = value
     elseif key == "drop" then
@@ -77,6 +82,8 @@ function Vendor.read_pin(text: string): Vendor.Pin
         pin.url = value
       elseif key == "sha256" then
         pin.sha256 = value
+      elseif key == "sha3-256" then
+        pin.sha3_256 = value
       elseif key == "strip" then
         pin.strip = value
       elseif key == "file" then
@@ -130,26 +137,71 @@ function Vendor.all_names(root: string): {string} | nil, string
   return names, ""
 end
 
---- True when `path` exists and its sha256 is `sha256`.
-function Vendor.matches(path: string, sha256: string): boolean
+--- The digests `pin` names, as algorithm and hex, in a fixed order.
+function Vendor.digests(pin: Vendor.Pin): {{Hash.Algorithm, string}}
+  local digests: {{Hash.Algorithm, string}} = {}
+  if pin.sha256 ~= "" then
+    digests[#digests + 1] = { "sha256", pin.sha256 }
+  end
+  if pin.sha3_256 ~= "" then
+    digests[#digests + 1] = { "sha3-256", pin.sha3_256 }
+  end
+  return digests
+end
+
+--- The first of `digests` that `data` does not have, said as
+--- [`Http.download`] says one; nil when it has them all.
+local function mismatch(data: string, digests: {{Hash.Algorithm, string}}): string | nil
+  for _, digest in ipairs(digests) do
+    local got = Codec.hex(Hash.digest(digest[1], data))
+    if got ~= digest[2]:lower() then
+      return digest[1] .. " mismatch: want " .. digest[2]:lower() .. ", got " .. got
+    end
+  end
+  return nil
+end
+
+--- True when `path` exists and has every one of `digests`, at least one.
+function Vendor.matches(path: string, digests: {{Hash.Algorithm, string}}): boolean
   local data, _ = Fs.read(path)
-  if data == nil then
+  if data == nil or #digests == 0 then
     return false
   end
-  return Hash.hex_sha256(data) == sha256:lower()
+  return mismatch(data, digests) == nil
 end
 
 --- `path`, downloading `url` into it first unless it is already there
---- with the right sha256: a stale or corrupt cached file is refetched,
---- never reused.
-function Vendor.fetch(url: string, path: string, sha256: string): string | nil, string
-  if Vendor.matches(path, sha256) then
+--- with every one of `digests`: a stale or corrupt cached file is
+--- refetched, never reused, and a download that lacks one is removed.
+function Vendor.fetch(url: string, path: string, digests: {{Hash.Algorithm, string}}): string | nil, string
+  if #digests == 0 then
+    return nil, url .. ": no digest to check it against"
+  end
+  if Vendor.matches(path, digests) then
     return path, ""
   end
   local _, _ = Fs.remove(path)
+  -- TODO: pass sha3-256 to Http.download as `sha3_256`, so a mismatch
+  -- never reaches the cache, and drop the check after it, once
+  -- ci/cosmic-driver.pin names a release whose Http.download checks it.
+  local sha256: string = nil
+  for _, digest in ipairs(digests) do
+    if digest[1] == "sha256" then
+      sha256 = digest[2]
+    end
+  end
   local ok, trouble = Http.download(url, path, { sha256 = sha256 })
   if not ok then
     return nil, trouble
+  end
+  local data, read_trouble = Fs.read(path)
+  if data == nil then
+    return nil, read_trouble
+  end
+  local wrong = mismatch(data, digests)
+  if wrong ~= nil then
+    local _, _ = Fs.remove(path)
+    return nil, url .. ": " .. wrong
   end
   return path, ""
 end
@@ -363,7 +415,7 @@ local function rewrite(tree: string, path: string): integer | nil, string
 end
 
 --- Fetches `name`'s PIN's download into `cache` (reusing it when its
---- sha256 still matches) and rewrites `vendor/<name>` from it.
+--- digests still match) and rewrites `vendor/<name>` from it.
 local function fetch_and_rewrite(root: string, cache: string, name: string): integer | nil, string
   local tree = root .. "/vendor/" .. name
   local text, pin_trouble = Fs.read(tree .. "/PIN")
@@ -374,11 +426,12 @@ local function fetch_and_rewrite(root: string, cache: string, name: string): int
   if pin.url == "" then
     return nil, tree .. "/PIN names no url"
   end
-  if pin.sha256 == "" then
-    return nil, tree .. "/PIN names no sha256"
+  local digests = Vendor.digests(pin)
+  if #digests == 0 then
+    return nil, tree .. "/PIN names no sha256 or sha3-256"
   end
   local base = pin.url:match("([^/]+)$") or name
-  local fetched, ftrouble = Vendor.fetch(pin.url, cache .. "/" .. base, pin.sha256)
+  local fetched, ftrouble = Vendor.fetch(pin.url, cache .. "/" .. base, digests)
   if fetched == nil then
     return nil, ftrouble
   end
