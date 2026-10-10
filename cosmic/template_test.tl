@@ -145,6 +145,7 @@ local REFUSALS <const>: {{string}} = {
   { "<svg><br><textarea>{{.x}}", "2", "20", "differently" },
   { "<svg><font size=1><textarea>{{.x}}", "2", "29", "differently" },
   { "<select><svg><textarea>{{.x}}", "2", "24", "differently" },
+  { "<frameset><title></title>{{.x}}", "2", "26", "differently" },
   { "<math><svg></math><textarea>{{.x}}", "2", "29", "differently" },
   { "<svg><math></svg><textarea>{{.x}}", "2", "28", "differently" },
   { "<svg></math><textarea>{{.x}}", "2", "23", "differently" },
@@ -598,8 +599,9 @@ end
 -- A parser in the classic "in select" mode ignores a start tag of raw text
 -- or RCDATA other than `<script>` and `<textarea>`, and one in "in frameset"
 -- every one but `<noframes>`, and reads the markup inside as tags; a newer
--- one opens the element. A slot after such a tag is refused, as is one in
--- the same text cut into runs.
+-- one opens the element. A `<template>` in a select hides a `</select>` from
+-- the classic parser, which is in select again after `</template>`. A slot
+-- after such a tag is refused, as is one in the same text cut into runs.
 local function test_raw_text_in_select_or_frameset_is_refused()
   local wrong: {string} = {}
   for _, src in ipairs({
@@ -611,6 +613,9 @@ local function test_raw_text_in_select_or_frameset_is_refused()
       '<html><head></head><frameset><title><frame src="about:blank" onload="{{.x}}"></title></frameset>',
       '<frameset><textarea></textarea>{{.x}}',
       '<frameset><script></script>{{.x}}',
+      '<select><template></select></template><title><option onclick="{{.x}}"></title>',
+      '<select><template><div><select></select></template><title><option onclick="{{.x}}"></title>',
+      '<select><template></select></template><style><option onclick="</style>{{.x}}">',
   }) do
     for _, cut in ipairs(cuts(src)) do
       local out = Template.compile(HEAD .. cut, "t.tmpl")

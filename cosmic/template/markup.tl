@@ -61,7 +61,7 @@
 --- size=1>`, ...); a tag the browser reads HTML in (`<foreignObject>`,
 --- `<desc>`, `<title>`, `<annotation-xml>`, `<mi>`, ...); an end tag that
 --- is not the innermost open element's (`</g>` after `<svg><a>`); an
---- `<svg>` or `<math>` in a `<select>`; and the text of a `<script>`,
+--- `<svg>`, `<math>` or `<template>` in a `<select>`; and the text of a `<script>`,
 --- `<style>`, `<textarea>` or `<title>` in foreign content when it holds a
 --- `<`, and `<noscript>` text with a comment in it. So does a start tag of
 --- raw text or RCDATA in a `<select>` other than `<script>` and
@@ -154,7 +154,8 @@ local record Markup
     --- text that holds a comment, most raw text or RCDATA in `<select>` or
     --- after `<frameset>`.
     murky: boolean
-    --- Whether a `<select>` is open in HTML, where an `<svg>` may be ignored.
+    --- Whether a `<select>` is open in HTML, where an `<svg>`, a `<template>`
+    --- and most raw text or RCDATA tags make the place murky.
     select: boolean
     --- Whether a `<frameset>` has started in HTML. A parser in frameset
     --- stays there to the end of the document and ignores most tags.
@@ -600,6 +601,9 @@ end
 --- tell where the browser comes out of it: a breakout tag, a tag the
 --- browser reads HTML in, an end tag that is not the innermost element's,
 --- and an `<svg>` or `<math>` in a `<select>`, which the parser may ignore.
+--- In HTML it notes a `<select>` opened or closed and a `<frameset>`
+--- started, and makes a `<template>` in a `<select>` murky: a classic
+--- parser ignores a `</select>` in it and is in select again after it.
 local function count(p: Place, selfclosed: boolean)
   local tag = p.tag
   if p.stack == "" then
@@ -607,6 +611,8 @@ local function count(p: Place, selfclosed: boolean)
       p.select = not p.closing
     elseif tag == "frameset" and not p.closing then
       p.frameset = true
+    elseif tag == "template" and not p.closing and p.select then
+      p.murky = true
     elseif (tag == "svg" or tag == "math") and not p.closing then
       if p.select then
         p.murky = true
@@ -1042,10 +1048,11 @@ local function slot(p: Place): types.Slot | nil, string
     return nil, "a slot after markup in <svg>, <math>, <noscript>, <select> or <frameset> that a browser may read differently from the tracker here (see the notes in markup.tl)"
   elseif phase == "text" then
     -- TODO: a `SafeHtml` in a text slot inside `<select>`, `<svg>` or
-    -- `<math>`, or after `<frameset>`, is read in that mode, though the
-    -- template that made it was checked from plain text: a `<title>` in it
-    -- opens nothing in a classic parser's select. Give such a slot a kind
-    -- of its own in types.Slot that takes a string or a number only.
+    -- `<math>` is read in that mode, though the template that made it was
+    -- checked from plain text: `<title><img src=x onerror="{{.x}}"></title>`
+    -- in `<svg>` is a live handler in every browser, and a `<title>` opens
+    -- nothing in a classic parser's select. Give such a slot a kind of its
+    -- own in types.Slot that takes a string or a number only.
     return "text", ""
   elseif phase == "rcdata" then
     if p.raw_tail ~= "" then
