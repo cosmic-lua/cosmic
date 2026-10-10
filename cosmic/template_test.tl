@@ -596,6 +596,9 @@ local NOSCRIPT_MARKUP <const>: {string} = {
   "<noscript><img src=x onerror=\"</noscript>{{.x}}\">",
   "<noscript></p title=\"</noscript>{{.x}}\">",
   "<noscript><svg><style><p title=\"</style></noscript>{{.x}}\">",
+  -- With scripting off the frameset pops the noscript, and the classic
+  -- "in frameset" mode then ignores `<title>`.
+  "<noscript><frameset></noscript><title><frame onload=\"{{.x}}\"></title>",
   -- An arm that leaves the scripting-off reading in a tag where the text
   -- after it reads differently, joined with an arm that does not.
   "<noscript>{{if .a}}<a>{{else}}<a{{if .b}} style{{end}}=\"{{if .c}}{{end}}>{{end}}</noscript>{{.x}}\">",

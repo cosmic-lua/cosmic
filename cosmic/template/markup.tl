@@ -689,6 +689,7 @@ local function end_tag(p: Place, text: string, from: integer, unquoted: boolean)
   if p.phase == "raw" and p.tag == "noscript" then
     p.off = start()
     p.off.select = p.select
+    p.off.frameset = p.frameset
   end
   return from
 end
@@ -717,10 +718,10 @@ end
 --- Whether `off`, the scripting-off reading of a `<noscript>`'s text up to
 --- its `</noscript>`, leaves that end tag where the tracker's reading does:
 --- in plain text (or after a `<`, which the `<` of the end tag makes text),
---- with no foreign element open, and inside a `<select>` only if `outer`
---- is. Arms of a block left apart (`alts`) stand in a tag, which the phase
---- refuses; text that read differently in them made the place murky as it
---- was read.
+--- with no foreign element open, and inside a `<select>` or after a
+--- `<frameset>` only if `outer` is. Arms of a block left apart (`alts`)
+--- stand in a tag, which the phase refuses; text that read differently in
+--- them made the place murky as it was read.
 ---
 --- A browser with scripting on reads the text as raw text, as the tracker
 --- does; with scripting off (a DOMParser, a sanitizer's parse) it is markup,
@@ -731,7 +732,7 @@ end
 --- tag, and what follows it, read alike either way.
 local function noscript_clean(off: Place, outer: Place): boolean
   return (off.phase == "text" or off.phase == "lt") and not off.murky and off.stack == "" and
-    off.select == outer.select
+    off.select == outer.select and off.frameset == outer.frameset
 end
 
 local feed: function(p: Place, text: string, line: integer, col: integer)
