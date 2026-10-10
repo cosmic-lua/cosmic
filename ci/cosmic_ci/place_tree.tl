@@ -7,7 +7,7 @@
 ---                                      $GITHUB_WORKSPACE's parent
 ---     driver.tl place-tree --restore   move it back, if it moved
 ---
---- A test must not depend on where the tree is (AGENTS.md): a verdict is
+--- A test must not depend on where the tree is (doc/testing.md): a verdict is
 --- shared between checkouts, which key an in-tree path by its name under
 --- the tree. So the tree moves beside $GITHUB_WORKSPACE, to a directory
 --- whose name, its length and its digits, a sha256 of the commit
