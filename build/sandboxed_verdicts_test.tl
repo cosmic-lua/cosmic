@@ -30,8 +30,8 @@ local build_paths = require("build.paths")
 --- program it runs, roots of their own for its workers (`nests`), and
 --- the variables `unsandboxed` reads, which hold a run to sandboxing.
 Test.policy{
-  profiles = { "cosmic" },
-  grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" }, { path = "/proc", letters = "r" } },
+  profiles = { "cosmic", "proc" },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" } },
   promises = { "nest" },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
 }

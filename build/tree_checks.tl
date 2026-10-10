@@ -1,5 +1,6 @@
 --- The checks over cosmic's whole tree, which no one module's test can
---- make: every export earned, no two doc anchors sharing a name, every
+--- make: every export earned, every type an API names a member of its
+--- module, no two doc anchors sharing a name, every
 --- reader of the compiler's identity named, every familiar command
 --- finding what stands in for it, every docs query a compile advertises
 --- answered, every quieted method one a module declares, every member
@@ -90,6 +91,10 @@ allowed["cosmic.sandbox.seatbelt.credentials_unmet"] = "called through cosmic.sa
   "as `grants` is"
 allowed["cosmic.sandbox.policy.system_profile"] = "the seam that lets a test draw the " ..
   "other host's \"system\" profile; rules.profile calls it with this host's"
+allowed["build.teal.withheld"] = "the names `strip` takes from the checker, spelled in this " ..
+  "module for its compiler identity; build/teal_catalog_test.tl holds them to the catalog's"
+allowed["build.teal.withheld_package"] = "the fields of `package` `strip` takes from the checker, " ..
+  "spelled here as `withheld` is; build/teal_catalog_test.tl holds them to the catalog's"
 allowed["build.c.variants"] = "the ways the C check dumps a file, written out as build.zig " ..
   "has no form to read them from; build/c/variants_test.tl holds them to it"
 allowed["cosmic.net.connector"] = "tested directly: the library's face of the native connector, " ..
@@ -330,6 +335,153 @@ function tree_checks.exports(db: Sqlite.Handle, excused?: {string: string}): {st
   end
   table.sort(stale)
   for _, line in ipairs(stale) do out[#out + 1] = line end
+  return out
+end
+
+--- The name of the record `source` returns, or nil for none: the returned
+--- name is the record itself (`return Child`), a record declared beside it
+--- (`local module: Module`) or its capitalized form (`return module`).
+local function returned_record(source: string): string | nil
+  local returned = source:match("\nreturn ([%w_]+)%s*$")
+  if returned == nil then return nil end
+  local record = source:match("\nlocal " .. returned .. "%s*:%s*([%w_]+)")
+  if record == nil then
+    if source:find("\nlocal record " .. returned .. "%f[^%w_]") ~= nil then
+      record = returned
+    else
+      record = returned:sub(1, 1):upper() .. returned:sub(2)
+    end
+  end
+  return record
+end
+
+--- The text of the declaration of the record `record` in `source`, or nil
+--- where it is not declared there.
+local function record_body(source: string, record: string): string | nil
+  local from = source:find("\nlocal record " .. record .. "%f[^%w_]")
+  if from == nil then return nil end
+  local to = source:find("\nend\n", from, true)
+  return source:sub(from, to or #source)
+end
+
+--- Whether the returned record `record` (with `body`, its text) has the
+--- type `name` as a member: `type Any = Name` or a nested declaration in
+--- its body, or an assignment `record.Name = ...` beside it. Where the body
+--- cannot be found the whole of `source` stands in for it.
+local function member_type(source: string, record: string | nil, body: string | nil,
+                           name: string): boolean
+  for line in (body or source):gmatch("[^\n]+") do
+    if line:find("^%s+type [%w_]+%s*=%s*" .. name .. "%f[^%w_]") ~= nil or
+        line:find("^%s+record " .. name .. "%f[^%w_]") ~= nil or
+        line:find("^%s+enum " .. name .. "%f[^%w_]") ~= nil or
+        line:find("^%s+interface " .. name .. "%f[^%w_]") ~= nil then
+      return true
+    end
+  end
+  if record ~= nil then
+    return source:find("\n" .. record .. "%." .. name .. "%s*=") ~= nil
+  end
+  return false
+end
+
+--- Every type a public `cosmic/` module's API names that the module does
+--- not export as `Module.Name`, as `<file>:<line>: <module>: <Name> ...`.
+---
+--- A caller writes `local stream: integer | Child.Stdout`; a type that
+--- the module declares `local` and its record does not re-export is
+--- listed by `cosmic docs` and named in a type error, but [`Child.Stdout`]
+--- is "unknown type". The types reached are those of the module's own
+--- top level (a record, enum, interface or type) that a signature of an
+--- exported member names, and then those that a member of such a type
+--- names, a method declared outside its record included and a member
+--- whose name starts with `_` (private by convention) left out. The returned
+--- record itself is no member of itself, and `cosmic/internal/` is not
+--- asked.
+---
+--- A member is found by text, not by resolving the name: `type Any = Name`
+--- in the returned record's body, a nested declaration there, or
+--- `Record.Name = ...`.
+function tree_checks.unnamed_types(db: Sqlite.Handle): {string}
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT d.module, d.symbol, d.kind, d.signature, d.file, d.line, d.exported " ..
+      "FROM docs d WHERE d.file GLOB 'cosmic/*.tl' " ..
+      "AND d.file NOT GLOB 'cosmic/internal/*' AND d.file NOT GLOB '*_test.tl' " ..
+      "AND d.file NOT GLOB '*.d.tl' ORDER BY d.module, d.line")
+  if rows == nil then
+    return { "reading the docs: " .. trouble }
+  end
+  local sources, why = Sqlite.text_rows(db,
+    "SELECT path, CAST(inflate(source) AS TEXT) FROM modules")
+  if sources == nil then
+    return { "reading the modules: " .. why }
+  end
+  local text: {string:string} = {}
+  for _, row in ipairs(sources) do text[row[1]] = row[2] end
+  local by_module: {string:{{string}}} = {}
+  local order: {string} = {}
+  for _, row in ipairs(rows) do
+    if by_module[row[1]] == nil then
+      by_module[row[1]] = {}
+      order[#order + 1] = row[1]
+    end
+    table.insert(by_module[row[1]], row)
+  end
+  local out: {string} = {}
+  for _, module in ipairs(order) do
+    local members = by_module[module]
+    local source = text[module] or ""
+    local record = returned_record(source)
+    local body = record ~= nil and record_body(source, record) or nil
+    local tops: {string:{string}} = {}
+    for _, row in ipairs(members) do
+      if row[2] ~= "" and not row[2]:find("[.:]") and row[2] ~= record and
+          (row[3] == "record" or row[3] == "enum" or row[3] == "interface" or
+              row[3] == "type") then
+        tops[row[2]] = row
+      end
+    end
+    local reached: {string:boolean} = {}
+    local pending: {string} = {}
+    local function names_in(signature: string)
+      for name in pairs(tops) do
+        if not reached[name] and signature:find("%f[%w_.]" .. name .. "%f[^%w_]") ~= nil then
+          reached[name] = true
+          pending[#pending + 1] = name
+        end
+      end
+    end
+    for _, row in ipairs(members) do
+      if row[7] == "1" and row[2] ~= "" and not row[2]:find("[.:]") and
+          (row[3] == "function" or row[3] == "method" or row[3] == "field" or
+              row[3] == "value") then
+        names_in(row[4])
+      end
+    end
+    while #pending > 0 do
+      local name = pending[#pending]
+      pending[#pending] = nil
+      for _, row in ipairs(members) do
+        local head = row[2]:sub(1, #name + 1)
+        if (head == name .. "." or head == name .. ":") and
+            row[2]:sub(#name + 2, #name + 2) ~= "_" and
+            (row[3] == "function" or row[3] == "method" or row[3] == "field") then
+          names_in(row[4])
+        end
+      end
+    end
+    local unnamed: {string} = {}
+    for name in pairs(reached) do
+      if not member_type(source, record, body, name) then unnamed[#unnamed + 1] = name end
+    end
+    table.sort(unnamed)
+    for _, name in ipairs(unnamed) do
+      local row = tops[name]
+      local owner = record or module:match("[^.]+$")
+      out[#out + 1] = row[5] .. ":" .. row[6] .. ": " .. module .. ": " .. name ..
+        " is named by the API but is no member of the module: add `type " .. name .. " = " ..
+        name .. "` to " .. owner .. ", so a caller can write " .. owner .. "." .. name
+    end
+  end
   return out
 end
 
@@ -1721,6 +1873,7 @@ function tree_checks.run(db: Sqlite.Handle, quickstart: string | nil, built?: co
   if built ~= nil then plurals = tree_checks.plurals(db, built, extra, nil, read) end
   for _, check in ipairs({
       { name = "exports", lines = tree_checks.exports(db) },
+      { name = "unnamed types", lines = tree_checks.unnamed_types(db) },
       { name = "doc anchors", lines = tree_checks.anchors(db) },
       { name = "compiler readers", lines = tree_checks.compiler_readers(db) },
       { name = "build directory", lines = tree_checks.build_directory(db) },

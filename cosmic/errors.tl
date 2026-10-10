@@ -117,13 +117,35 @@ local function guidance_lines(head: string, text: string): string
   return table.concat(lines, "\n") .. "\n"
 end
 
+--- Whether the first line of `message`, less a `chunk:line: ` location,
+--- is one of the runtime messages the Lua VM and its argument checks write:
+--- `attempt to ...`, `module '...' not found` or `bad argument #n to ...`
+--- (whose `X expected, got Y` is theirs too), which cosmic's own bindings
+--- raise as well. They share ordinary words with doc comments the catalog
+--- holds, and no row answers them (none matched the `bad argument`
+--- messages cosmic's bindings raise); [`Errors.hint`] answers what it can. The location is `file:N: `, or `[string "..."]:N: ` for a
+--- chunk `load` made; a file name with a space in it is not seen.
+local function lua_wrote(message: string): boolean
+  local line = message:match("^[^\n]*")
+  line = line:gsub("^%S+:%d+: ", "", 1)
+  line = line:gsub('^%[string ".-"%]:%d+: ', "", 1)
+  return line:find("^attempt to ") ~= nil or
+    line:find("^module '.-' not found") ~= nil or
+    line:find("^bad argument #%d+ to ") ~= nil
+end
+
 --- What the catalog of the one database `handle` says beneath an
 --- uncaught error's `message`, in the lines [`Errors.guidance`] prints: the
 --- best row's guidance, or nil when it has none -- no catalog, no row
 --- sharing two or more significant words with the message, or no
---- guidance on the row it shares them with. [`Errors.guidance`] asks each
---- database the store holds in turn.
+--- guidance on the row it shares them with. A message Lua itself wrote
+--- (`attempt to ...`, `module '...' not found`, `bad argument #n to ...`)
+--- has none: the catalog is for the messages cosmic's own code raises.
+--- [`Errors.guidance`] asks each database the store holds in turn.
 function Errors.guidance_in(handle: Sqlite.Handle, message: string): string | nil
+  if lua_wrote(message) then
+    return nil
+  end
   local query = catalog_query(message)
   if query == nil then
     return nil
@@ -201,9 +223,28 @@ function Errors.guidance(message: string): string | nil
 end
 
 --- The call stack as text, with `message` at the top when one is given.
---- `level` says how many frames to skip; 1, the default, is the caller.
+--- `level` says how many frames to skip; 1, the default, is the caller,
+--- and a level past the stack gives just `stack traceback:`. A `level`
+--- below 1 raises: it would name this wrapper or the binding's own frame.
 function Errors.trace(message?: string, level?: integer): string
-  return errors.trace(message, level or 1)
+  local skip = level or 1
+  if skip < 1 then
+    error("trace: level must be at least 1, got " .. tostring(skip), 2)
+  end
+  -- The binding counts this frame as level 1.
+  return errors.trace(message, skip + 1)
+end
+
+--- The call stack of coroutine `co` as text, from its top, with
+--- `message` at the top when one is given. For a coroutine that raised,
+--- it is where it raised, which `coroutine.resume` does not say (it
+--- answers only the error) and which stays until the coroutine is
+--- closed. One that returned, or was closed, has no frames: the text is
+--- just `stack traceback:`. For the running coroutine the first frame is
+--- the caller's, as [`trace`]'s is.
+function Errors.trace_of(co: thread, message?: string): string
+  -- The binding counts this frame as level 1.
+  return errors.trace_of(co, message, 2)
 end
 
 return Errors

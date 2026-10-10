@@ -1868,6 +1868,9 @@ local record Child
   type Handle = Handle
   type PtyStart = PtyStart
   type PtyOptions = PtyOptions
+  type Stdin = Stdin
+  type Stdout = Stdout
+  type Stderr = Stderr
 end
 
 --- The status a shell reports for a child that ended as `result` says:

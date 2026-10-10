@@ -52,4 +52,14 @@ function Example.blocks()
   assert(source:find("for _, d1 in ipairs(d.items) do", 1, true))
 end
 
+--- `{{` always starts an action, so literal braces are written as an
+--- action that is one string, whose bytes are text: here a help page
+--- that shows template syntax.
+function Example.literal()
+  local source = assert(Template.compile(
+    '{{type Page from site.page}}{{mode text}}\nWrite {{"{{.name}}"}} for the name.\n', "help.tmpl"))
+  assert(source:find('parts[#parts + 1] = "{{.name}}"', 1, true))
+  assert(not source:find("d.name", 1, true))
+end
+
 return Example

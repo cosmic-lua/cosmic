@@ -33,9 +33,11 @@
 ---   `embed`, `base`, `use`), or one not at the start of the value.
 ---
 --- The state is the tokenizer's in full, carried over every action: text
---- split by one that emits nothing (`</text{{if .a}}{{end}}area>`) is read
---- as it would be whole, so an end tag, a comment or a script's escape
---- states cut short at an action are completed by the text after it.
+--- fed in runs is read as it would be whole, whether an action that emits
+--- nothing splits it (`</text{{if .a}}{{end}}area>`) or a string action
+--- is one of the runs (`</text{{"area>"}}`), so an end tag, a comment or
+--- a script's escape states cut short between runs are completed by the
+--- run after.
 ---
 --- A slot in a template's end must leave it in plain text: see `ending`.
 ---
@@ -64,6 +66,19 @@
 --- `<`, and `<noscript>` text with a comment in it. A tag that carries a
 --- `/` across a block boundary (`<svg {{if .a}}/{{end}}>`) is a place of
 --- its own, so the arms of a block that differ in it are refused.
+---
+--- The arms of a block may leave a tag at different boundaries between its
+--- attributes, as one that adds a whole attribute does
+--- (`<input{{if .a}} checked{{end}} name=n>`, `<input {{if .a}}checked {{end}}name=n>`).
+--- The place is then each of them, and the text after the block is read in
+--- each until they agree, at a byte that begins a new attribute or ends the
+--- tag. Text that carries a name or value on in one of them, or gives an
+--- attribute a value (`<input{{if .a}} checked{{end}}=x>`,
+--- `<input {{if .a}}chec{{end}}ked>`), is refused, as is a slot or the end of
+--- the template before they agree. So is a block whose arms end apart in a
+--- tag where text carried a name or unquoted value on, or gave an attribute
+--- a value, across an action (`<input a{{if .b}}c d{{end}}>`): an arm may have
+--- ended the attribute the block cut or not.
 --- A slot in RCDATA is escaped as text and takes no markup, which is safe
 --- in either reading, except after a `<` or a partial end tag (`</tex`) in
 --- it, where the slot could complete the end tag and the place after it is
@@ -165,12 +180,12 @@ local record Markup
     late_line: integer
     --- Its column.
     late_col: integer
-    --- In the text of a raw text or RCDATA element, the literal text since
-    --- the last point that could still begin something the tokenizer acts
-    --- on (`<`, `</`, `</tex`; in a `<script>` also `<!-`, `<scr`, `-`,
-    --- `--`): the next run of text, which a block that emits nothing may
-    --- have put between, is read after it, and a slot after it could
-    --- complete the tag.
+    --- In the text of a raw text or RCDATA element, the longest end of its
+    --- text that the next run could complete into something read here: a
+    --- start of `</tag` (`<`, `</`, `</tex`); in `<noscript>` also of `<!--`
+    --- (`<!`, `<!-`); in `<script>` also `<scr`, `-`, `--`. The next run,
+    --- after a block that emits nothing or a string action, is read after
+    --- it, and a slot after it could complete the tag.
     raw_tail: string
     --- In the text of a `<script>`, whether a `<!--` has opened (and no `-->`
     --- has closed) the escaped state, in which a `<script` opens a nested
@@ -178,6 +193,19 @@ local record Markup
     escaped: boolean
     --- Whether that nested script is open.
     double: boolean
+    --- Whether a name or an unquoted value in this tag went on, or an
+    --- attribute took a value, across an action (`<input a{{if .b}}c{{end}}>`,
+    --- `<input a{{if .b}}=c{{end}}>`), which a block's arms may then have done
+    --- in ways their places do not show: such a tag is never left apart
+    --- (see `apart`).
+    split: boolean
+    --- The other places this one may be, where the arms of a block left
+    --- one tag at different attribute boundaries (`<input{{if .a}} checked{{end}}`):
+    --- each as its phase, a `:` and its attribute (empty where the phase
+    --- does not read one), sorted and joined by spaces; "" for none. They
+    --- share every other field with this place. The text after the block
+    --- is read in each until they agree (see `settle`).
+    alts: string
   end
 
   --- A new place: the start of the template, in text.
@@ -186,11 +214,19 @@ local record Markup
   --- A copy of a place.
   copy: function(p: Place): Place
 
-  --- Whether two places are the same one.
+  --- A string that two places give alike only when every field of the two
+  --- is alike.
+  key: function(p: Place): string
+
+  --- Whether two places are the same one, or are in one tag at boundaries
+  --- between its attributes, which `join` holds as one place until the
+  --- text after them decides.
   same: function(a: Place, b: Place): boolean
 
-  --- Moves a place over literal template text.
-  feed: function(p: Place, text: string)
+  --- Moves a place over literal template text, whose first byte stands at
+  --- `line` and `col`: where the text reads differently in the places it
+  --- may be, `late` says so, at the byte where it does.
+  feed: function(p: Place, text: string, line: integer, col: integer)
 
   --- What a slot at a place is, or why there is none.
   slot: function(p: Place): types.Slot | nil, string
@@ -210,8 +246,8 @@ local record Markup
   differ: function(a: Place, b: Place): string
 
   --- Folds the place `b`, which `same` found the same as `a`, into `a`: a
-  --- value is fresh only if it is in both, and a URL slot or a pending
-  --- `<meta>` slot in either is kept.
+  --- value is fresh only if it is in both, a URL slot or a pending
+  --- `<meta>` slot in either is kept, and `a` may be any place either may.
   join: function(a: Place, b: Place)
 end
 
@@ -272,7 +308,7 @@ local function start(): Place
     select = false, fontattr = false, slash = false, after_url = false, colon = false, bare = false, rooted = false,
     equiv = false,
     meta_line = 0, meta_col = 0, late = "", late_line = 0, late_col = 0, raw_tail = "",
-    escaped = false, double = false }
+    escaped = false, double = false, split = false, alts = "" }
 end
 
 local function copy(p: Place): Place
@@ -281,7 +317,13 @@ local function copy(p: Place): Place
     rooted = p.rooted, equiv = p.equiv,
     meta_line = p.meta_line, meta_col = p.meta_col, late = p.late, late_line = p.late_line,
     late_col = p.late_col, raw_tail = p.raw_tail,
-    escaped = p.escaped, double = p.double }
+    escaped = p.escaped, double = p.double, split = p.split, alts = p.alts }
+end
+
+local function key(p: Place): string
+  return string.format("%s %q %q %s %s %q %s %s %s %s %s %s %s %s %s %d %d %q %d %d %q %s %s %s %q", p.phase, p.tag,
+    p.attr, p.closing, p.fresh, p.stack, p.murky, p.select, p.fontattr, p.slash, p.after_url, p.colon, p.bare,
+    p.rooted, p.equiv, p.meta_line, p.meta_col, p.late, p.late_line, p.late_col, p.raw_tail, p.escaped, p.double, p.split, p.alts)
 end
 
 --- The phases in which the tag and whether it is an end tag mean something;
@@ -296,12 +338,8 @@ local ATTRIBUTED <const>: {Phase: boolean} = {
   attr_name = true, after_attr = true, before_value = true, value_dq = true, value_sq = true,
 }
 
-local function same(a: Place, b: Place): boolean
-  -- TODO: a conditional bare attribute as the first attribute
-  -- (`<input{{if .a}} checked{{end}} name=n>`) is refused because the arms
-  -- end in different places (`attr_name` against the tag's start): once
-  -- this treats the places between attributes (before_attr, after_attr, a
-  -- name ended by a space or `>`) as one, such a template compiles.
+--- Whether `a` and `b` are one place, alternatives aside.
+local function alike(a: Place, b: Place): boolean
   if a.phase ~= b.phase or a.stack ~= b.stack or a.murky ~= b.murky or a.select ~= b.select or a.slash ~= b.slash then
     return false
   end
@@ -314,6 +352,58 @@ local function same(a: Place, b: Place): boolean
     return false
   end
   return not ATTRIBUTED[a.phase] or a.attr == b.attr
+end
+
+--- The phases at a boundary between attributes, in a name that a space,
+--- `/` or `>` would end, or in an unquoted value that a space or `>` would
+--- end, where a tag may stand after a block that adds a whole attribute to it.
+local BOUNDARY <const>: {string: Phase} = {
+  tag_name = "tag_name", before_attr = "before_attr", attr_name = "attr_name", after_attr = "after_attr",
+  value_unq = "value_unq",
+}
+
+--- Whether `a` and `b` stand in one tag at boundaries that the text after
+--- them may yet bring together: everything but the phase and the attribute
+--- agrees.
+local function apart(a: Place, b: Place): boolean
+  return BOUNDARY[a.phase] ~= nil and BOUNDARY[b.phase] ~= nil and a.tag == b.tag and a.closing == b.closing and
+    a.stack == b.stack and a.murky == b.murky and a.select == b.select and a.slash == b.slash and
+    a.equiv == b.equiv and a.fontattr == b.fontattr and (a.meta_line > 0) == (b.meta_line > 0) and
+    not a.split and not b.split
+end
+
+--- `p`'s phase and attribute as `alts` holds them.
+local function alt_key(p: Place): string
+  return p.phase .. ":" .. (ATTRIBUTED[p.phase] and p.attr or "")
+end
+
+--- The keys in `set` other than `p`'s own, as `alts` holds them.
+local function alts_of(p: Place, set: {string: boolean}): string
+  local list: {string} = {}
+  for k in pairs(set) do
+    if k ~= alt_key(p) then
+      list[#list + 1] = k
+    end
+  end
+  table.sort(list)
+  return table.concat(list, " ")
+end
+
+--- `p` as the alternative `k` of it.
+local function as_alt(p: Place, k: string): Place
+  local q = copy(p)
+  local phase, attr = k:match("^([^:]*):(.*)$")
+  q.phase = BOUNDARY[phase]
+  q.attr = attr
+  q.alts = ""
+  return q
+end
+
+local function same(a: Place, b: Place): boolean
+  if a.alts == "" and b.alts == "" and alike(a, b) then
+    return true
+  end
+  return apart(a, b)
 end
 
 --- Where a place stands in the text of a raw text or RCDATA element.
@@ -342,10 +432,34 @@ local function join(a: Place, b: Place)
   a.fresh = a.fresh and b.fresh
   a.after_url = a.after_url or b.after_url
   a.bare = a.bare or b.bare
+  a.split = a.split or b.split
   if a.meta_line == 0 then
     a.meta_line = b.meta_line
     a.meta_col = b.meta_col
   end
+  local set: {string: boolean} = { [alt_key(a)] = true, [alt_key(b)] = true }
+  for _, alts in ipairs({ a.alts, b.alts }) do
+    for k in alts:gmatch("%S+") do
+      set[k] = true
+    end
+  end
+  if alts_of(a, set) == "" then
+    return
+  end
+  -- Closed under what a run of spaces or a `/` makes of each, so the body
+  -- of a `{{range}}` walked from the set ends in it and a third walk finds
+  -- what the second did. The places added refuse no text the others take.
+  local ended: {string} = { "before_attr:" }
+  for k in pairs(set) do
+    local name = k:match("^attr_name:(.*)$")
+    if name ~= nil then
+      ended[#ended + 1] = "after_attr:" .. name
+    end
+  end
+  for _, k in ipairs(ended) do
+    set[k] = true
+  end
+  a.alts = alts_of(a, set)
 end
 
 --- Whether byte `b` is an HTML space.
@@ -379,6 +493,21 @@ local function plain_end(text: string, from: integer, tag: string): integer | ni
     end
     at = lt + 1
   end
+end
+
+--- The longest end of `region`, in the text of `tag`, that the next run
+--- could complete into something read here: the start of `</tag` (whole
+--- too, as it needs the delimiter after it) or, in `<noscript>`, a proper
+--- start of `<!--`.
+local function plain_tail(region: string, tag: string): string
+  local close = "</" .. tag
+  for len = math.min(#region, #close), 1, -1 do
+    local tail = region:sub(-len):lower()
+    if close:sub(1, len) == tail or (tag == "noscript" and len < 4 and ("<!--"):sub(1, len) == tail) then
+      return region:sub(-len)
+    end
+  end
+  return ""
 end
 
 --- What a `<script>` acts on in its text, of which [`script_tail`] keeps the
@@ -531,6 +660,7 @@ local function open_tag(p: Place, closing: boolean)
   p.fontattr = false
   p.meta_line = 0
   p.meta_col = 0
+  p.split = false
 end
 
 --- Moves `p` over `text` one state at a time. A run of text ends where a
@@ -762,18 +892,26 @@ local function scan(p: Place, text: string)
         found = plain_end(text, i, p.tag)
       end
       local region = text:sub(i, (found or n + 1) - 1)
-      if (p.stack ~= "" and region:find("<", 1, true)) or (p.tag == "noscript" and region:find("<!--", 1, true)) then
+      local tail = ""
+      if found == nil then
+        tail = p.tag == "script" and script_tail(region, p.escaped) or plain_tail(region, p.tag)
+      end
+      -- The tail is judged with the run that completes it, as it would be
+      -- whole: `</sty` that becomes `</style>` holds no `<` of the text.
+      local settled = region:sub(1, #region - #tail)
+      -- TODO: `<noscript>` is read as raw text, as a browser with scripting
+      -- on reads it; with scripting off its text is markup, so
+      -- `<noscript><style></noscript>{{.x}}</style>` puts the slot in
+      -- `<style>` (or `<xmp>`, `<textarea>`, ...) with only the text
+      -- escaper. In noscript text, a `<` before a raw text or RCDATA tag
+      -- name (style, script, textarea, title, xmp, iframe, noembed,
+      -- noframes, plaintext), or a `<!` or `<?`, should make the place
+      -- murky, as `<!--` does.
+      if (p.stack ~= "" and settled:find("<", 1, true)) or (p.tag == "noscript" and settled:find("<!--", 1, true)) then
         p.murky = true
       end
       if found == nil then
-        if p.tag == "script" then
-          p.raw_tail = script_tail(region, p.escaped)
-        else
-          local last = region:match(".*()<")
-          local tail = last and region:sub(last) or ""
-          local close = "</" .. p.tag
-          p.raw_tail = (#tail <= #close and close:sub(1, #tail) == tail:lower()) and tail or ""
-        end
+        p.raw_tail = tail
         return
       end
       p.phase = "text"
@@ -784,14 +922,96 @@ local function scan(p: Place, text: string)
   end
 end
 
-local function feed(p: Place, text: string)
-  scan(p, text)
+--- Whether byte `b` carries on the tag name, attribute name or unquoted
+--- value that `phase` is reading, or gives the attribute just named a value,
+--- rather than leaving it whole.
+local function continues(phase: Phase, b: integer | nil): boolean
+  if b == nil or space(b) or b == 62 then
+    return false
+  elseif phase == "value_unq" then
+    return true
+  elseif phase == "after_attr" then
+    return b == 61
+  end
+  return (phase == "tag_name" or phase == "attr_name") and b ~= 47
+end
+
+--- Where the byte at `i` of `text`, whose first byte stands at `line` and
+--- `col`, stands.
+local function locate(text: string, i: integer, line: integer, col: integer): integer, integer
+  local before = text:sub(1, i - 1)
+  local _, lines = before:gsub("\n", "")
+  if lines == 0 then
+    return line, col + i - 1
+  end
+  return line + lines, i - before:match(".*()\n")
+end
+
+--- Reads `text` a byte at a time in each place `p` may be, until they are
+--- one place, and answers where the rest of it begins. Each must read the
+--- same thing: a byte that continues a name or value in one (`ked` after
+--- `{{if .a}}chec{{end}}`) or brings a value (`=`), or that leaves them apart
+--- in more than phase and attribute (`http-equiv` named in one), makes
+--- `late` a refusal at that byte. Until one byte begins a new attribute
+--- or ends the tag, they stay apart.
+local function settle(p: Place, text: string, line: integer, col: integer): integer
+  local i = 1
+  while p.alts ~= "" and i <= #text do
+    local c = text:sub(i, i)
+    local places: {Place} = { p }
+    for k in p.alts:gmatch("%S+") do
+      places[#places + 1] = as_alt(p, k)
+    end
+    p.alts = ""
+    local one, together, extended = true, true, false
+    for _, q in ipairs(places) do
+      extended = extended or continues(q.phase, c:byte())
+      scan(q, c)
+      q.slash = q.phase == "before_attr" and c == "/"
+      one = one and alike(p, q)
+      together = together and apart(p, q)
+    end
+    if not extended and one then
+      for _, q in ipairs(places) do
+        if p.late == "" and q.late ~= "" then
+          p.late, p.late_line, p.late_col = q.late, q.late_line, q.late_col
+        end
+      end
+    elseif not extended and together then
+      local set: {string: boolean} = {}
+      for _, q in ipairs(places) do
+        set[alt_key(q)] = true
+      end
+      p.alts = alts_of(p, set)
+    else
+      p.late = "a block before this text, or the {{range}} it is in, may leave the tag at different attributes, " ..
+        "and this text reads differently after each: in one and not another it carries on a name or value, " ..
+        "gives an attribute a value, or ends a name that changes the tag (http-equiv, or color, face or size " ..
+        "in <font>)"
+      p.late_line, p.late_col = locate(text, i, line, col)
+      return #text + 1
+    end
+    i = i + 1
+  end
+  return i
+end
+
+local function feed(p: Place, text: string, line: integer, col: integer)
+  -- Empty text moves nothing; past here it would forget a tag's last `/`.
+  if text == "" then
+    return
+  end
+  p.split = p.split or continues(p.phase, text:byte(1))
+  local from = p.alts ~= "" and settle(p, text, line, col) or 1
+  scan(p, from == 1 and text or text:sub(from))
   p.slash = p.phase == "before_attr" and text:byte(#text) == 47
 end
 
 local function slot(p: Place): types.Slot | nil, string
   local phase = p.phase
-  if p.murky then
+  if p.alts ~= "" then
+    return nil, "a slot after a block whose arms leave this tag at different attributes"
+  elseif p.murky then
     return nil, "a slot after markup in <svg>, <math> or <noscript> that a browser may read differently from the tracker here (see the notes in markup.tl)"
   elseif phase == "text" then
     return "text", ""
@@ -881,5 +1101,5 @@ local function ending(p: Place): string
 end
 
 local M: Markup = { start = start, ending = ending, copy = copy, same = same, differ = differ, join = join, feed = feed,
-  slot = slot, wrote = wrote }
+  slot = slot, wrote = wrote, key = key }
 return M

@@ -69,6 +69,10 @@ local record paths
     --- Where the lock's holder sets the tool's database aside to read
     --- it ([`build.reboot`]).
     probe: string
+    --- The record of the directory's last use: a file whose
+    --- modification time [`prepare`] sets, which [`build.cache_lifetime`]
+    --- prunes the directory by.
+    used: string
     --- zig's global cache where the user has no cache directory.
     zig_global: string
     --- zig's project cache where the user has no cache directory.
@@ -95,6 +99,7 @@ function paths.under(directory: string): paths.Layout
     lock = directory .. "/rebuild.lock",
     holder = directory .. "/rebuild.lock.pid",
     probe = directory .. "/rebuild.lock.probe",
+    used = directory .. "/used",
     zig_global = directory .. "/zig-global",
     zig_cache = directory .. "/zig-cache",
   }
@@ -184,11 +189,11 @@ end
 
 --- `root`'s build directory, made where it is missing -- the base too,
 --- each new one 0700 -- and checked to be this user's alone. A directory
---- that fails the check is never repaired, only refused.
--- TODO: remove a build directory no run has used for a while, once the
--- caches under $XDG_CACHE_HOME/cosmic share a rule to prune by: each
--- worktree, and each project a test builds outside a sandbox's scratch
--- directory, keeps one, which outlives the tree it was made for.
+--- that fails the check is never repaired, only refused. It records the
+--- use ([`Layout.used`]), which is what keeps the directory from
+--- [`build.cache_lifetime`]'s pruning: it is written whole beside the
+--- rest, and a failure to record it, in a directory a sandbox holds
+--- read-only, is no failure to prepare.
 function paths.prepare(root: string, environment?: {string:string}): string | nil, string
   local selected, trouble = location(root, environment)
   if selected == nil then return nil, trouble end
@@ -213,6 +218,7 @@ function paths.prepare(root: string, environment?: {string:string}): string | ni
   end
   local valid, out_trouble = trusted(out)
   if not valid then return nil, "build directory " .. out_trouble end
+  local _, _ = Fs.write(under(out).used, "", 0x180)
   return out, ""
 end
 local prepare = paths.prepare

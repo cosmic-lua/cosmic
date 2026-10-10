@@ -87,6 +87,10 @@ The rules:
   test that starts a host program (a shell, `sleep`, a compiler, the
   `#!/bin/sh` launcher, [`bin/cosmic`]) needs it. A test that only reads a
   file or two of the system names them as absolute grants.
+- The profile `"proc"` gives /proc, the kernel's process information, on
+  Linux and nothing on macOS. A test that reads /proc declares
+  `profiles = { "proc" }`, not a grant of /proc: on macOS the grant names
+  a path that is not there.
 - The harness refuses a field it has no key for, and the build fails
   naming it: a grant to write, run or connect to, `isolate`, `limits`,
   `set_env`, `set_env_digests`, `connect`, `database`, `tmp = false`,
@@ -193,7 +197,8 @@ Requirements are all or nothing for a module. A test that needs one
 only some of the time goes in a module of its own.
 
 What the worker sees is what its module grants, not what the runner
-found. A `path:` needs a `host` grant of the same path. A `program:`
+found. A `path:` needs a `host` grant of the same path, or of /proc
+above it, or the profile `"proc"`. A `program:`
 needs the profile `"system"` and `env = { "PATH" }`.
 
 A test of what only the checked (sanitized) core reaches, such as a

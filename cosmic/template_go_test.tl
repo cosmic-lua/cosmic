@@ -108,6 +108,7 @@ local ACCEPTED <const>: {{string}} = {
   { "TestEscape: withBody", "{{with .x}}{{.}}{{end}}", "", "text" },
   { "TestEscape: withElse", "{{with .e}}{{.}}{{else}}{{.x}}{{end}}", "", "text" },
   { "TestEscape: rangeBody", "{{range .l}}{{.}}{{end}}", "", "text" },
+  { "TestEscape: rangeElse", "{{range .e}}{{.}}{{else}}{{.x}}{{end}}", "", "text" },
   { "TestEscape: nonStringValue", "{{.t}}", "", "text" },
   { "TestEscape: urlStartRel, urlStartAbsOk, protocolRelativeURLStart, dangerousURLStart (one template; the values are in RENDERED)", "<a href='{{.x}}'>", "", "url" },
   { "TestEscape: pathRelativeURLStart", "<a href=\"{{.x}}\">", "", "url" },
@@ -154,6 +155,10 @@ local ACCEPTED <const>: {{string}} = {
   { "TestErrors: = after tag name", "<a=foo>", "", "none" },
   { "TestErrors: script template literal if 3", "<script>var a = `{{if .x}}a{{else}}b{{end}}`</script>", "", "none" },
   { "attrs: conditional attribute after a value", "<a href=\"x\" {{if .t}}class=\"b\"{{end}}>{{.x}}", "", "text" },
+  { "TestEscape: conditional valueless attr name", "<input{{if .t}} checked{{end}} name=n>{{.x}}", "", "text" },
+  { "attrs: space before and after a conditional valueless name", "<input {{if .t}}checked {{end}}name=n>{{.x}}", "",
+    "text" },
+  { "attrs: conditional attribute with a value", "<input{{if .t}} checked=\"\"{{end}} name=n>{{.x}}", "", "text" },
   { "attrs: double quote inside a single-quoted value", "<a title='a\"b' href=\"{{.x}}\">", "", "url" },
   { "attrs: single quote inside a double-quoted value", "<a title=\"a'b\" href='{{.x}}'>", "", "url" },
   { "attrs: unquoted value before a URL", "<a title=a href=\"{{.x}}\">", "", "url" },
@@ -398,7 +403,6 @@ local REFUSED <const>: {{string}} = {
   { "TestEscapeText[152]", "<script>`${ `}{{.x}}", "2", "15", "<script>" },
   { "TestEscapeText[153]", "<script>`${1}${ {{.x}}", "2", "17", "<script>" },
   { "TestEscapeText[154]", "<script>`${`${1}${ {{.x}}", "2", "20", "<script>" },
-  { "TestEscape: rangeElse", "{{range .e}}{{.}}{{else}}{{.x}}{{end}}", "2", "18", "not supported" },
   { "TestEscape: constant", "<a href=\"/search?q={{.x}}\">", "2", "20", "must begin" },
   { "TestEscape: multipleAttrs", "<a b=1 c={{.x}}>", "2", "10", "unquoted" },
   { "TestEscape: nonHierURL", "<a href={{.x}}>", "2", "9", "unquoted" },
@@ -457,8 +461,9 @@ local REFUSED <const>: {{string}} = {
   { "TestEscape: No comment injection", "<{{.x}}", "2", "2", "tag name" },
   { "TestEscape: No RCDATA end tag injection", "<textarea><{{.x}}...</textarea>", "2", "12", "complete its end tag" },
   { "TestEscape: optional attrs", "<img class=\"{{.x}}\"{{if .t}} id=\"{{.x}}\"{{end}} src={{if .t}}\"?{{.x}}\"{{else}}\"images/cleardot.gif\"{{end}}{{if .t}}title=\"{{.x}}\"{{end}} alt=\"{{if .t}}{{.x}}{{else}}{{if .f}}{{.y}}{{end}}{{end}}\">", "2", "64", "must begin" },
-  { "TestEscape: conditional valueless attr name", "<input{{if .t}} checked{{end}} name=n>", "2", "7", "the arms" },
-  { "TestEscape: conditional valueless attr name (space after)", "<input{{if .t}} checked {{end}}name=n>", "2", "7", "the arms" },
+  -- Without the arm, the tag is `<inputname=n>`.
+  { "TestEscape: conditional valueless attr name (space after)", "<input{{if .t}} checked {{end}}name=n>", "2", "32",
+    "reads differently" },
   { "TestEscape: conditional dynamic valueless attr name 1", "<input{{if .t}} {{.x}}{{end}} name=n>", "2", "17", "attribute" },
   { "TestEscape: conditional dynamic valueless attr name 2", "<input {{if .t}}{{.x}} {{end}}name=n>", "2", "17", "attribute" },
   { "TestEscape: dynamic attribute name", "<img on{{.x}}=\"alert({{.y}})\">", "2", "8", "attribute" },
@@ -512,8 +517,6 @@ local REFUSED <const>: {{string}} = {
   { "TestErrors: escaper in unquoted attr", "<div class={{.x}}>Hello<div>", "2", "12", "unquoted" },
   { "TestErrors: script template literal if 1", "<script>var a = `{{if .x}}`{{end}}", "2", "35", "the template ends" },
   { "TestErrors: script template literal if 2", "<script>var a = `{{if .x}}a{{else}}`{{end}}", "2", "44", "the template ends" },
-  { "attrs: space before and after a conditional valueless name", "<input {{if .t}}checked {{end}}name=n>", "2", "8", "the arms" },
-  { "attrs: conditional attribute with a value", "<input{{if .t}} checked=\"\"{{end}} name=n>", "2", "7", "the arms" },
   { "attrs: upper-case event handler", "<IMG ONERROR=\"{{.x}}\">", "2", "15", "event handler" },
   { "attrs: mixed-case style", "<a StYlE=\"{{.x}}\">", "2", "11", "'style'" },
   { "attrs: mixed-case srcset", "<img SrcSet=\"{{.x}}\">", "2", "14", "list of URLs" },
@@ -540,7 +543,7 @@ local REFUSED <const>: {{string}} = {
   { "RCDATA end tag: slot after '<' across an if", "<textarea><{{if .a}}b{{end}}{{.x}}", "2", "12", "the arms" },
   { "RCDATA end tag: end tag then a space: out of RCDATA", "<textarea></textarea {{.x}}>", "2", "22", "attribute" },
   { "RCDATA end tag: end tag with a tab", "<textarea></textarea\t{{.x}}>", "2", "22", "attribute" },
-  { "RCDATA end tag: foreign content: textarea after '<'", "<svg><textarea></textarea{{.x}}></textarea></svg>", "2", "26", "differently" },
+  { "RCDATA end tag: foreign content: textarea after '<'", "<svg><textarea></textarea{{.x}}></textarea></svg>", "2", "26", "complete its end tag" },
   { "RCDATA end tag: foreign content: title after '</'", "<svg><title></{{.x}}></title></svg>", "2", "15", "differently" },
   { "RCDATA end tag: text '<' then slot", "a <{{.x}}", "2", "4", "tag name" },
   { "RCDATA end tag: text '</' then slot", "a </{{.x}}>", "2", "5", "tag name" },
@@ -722,6 +725,12 @@ local function test_a_number_is_a_text_slot_as_go_prints_a_non_string_value()
   assert(render("{{.n}}", { n = 42 }) == "42")
   assert(render("<p>{{.n}}</p>", { n = 7 }) == "<p>7</p>")
   assert(render("<p title=\"{{.n}}\">", { n = 7 }) == "<p title=\"" .. attr("7") .. "\">")
+end
+
+local function test_a_range_else_renders_as_go_renders_it()
+  -- TestEscape: rangeElse, whose list is empty.
+  assert(render("{{range .e}}{{.}}{{else}}{{.x}}{{end}}", { e = {}, x = "<Hello>" }) == "&lt;Hello&gt;")
+  assert(render("{{range .e}}{{.}}{{else}}{{.x}}{{end}}", { e = { "<a>", "b" }, x = "c" }) == "&lt;a&gt;b")
 end
 
 local function test_hostile_values_are_rendered_for_the_place_they_land_in()

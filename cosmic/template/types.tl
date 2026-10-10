@@ -26,8 +26,8 @@ local record Types
     "url"
   end
 
-  --- What a node of the tree is. `if` and `with` hold their branches,
-  --- `range` its body; `interp` is a `{{.a.b}}` and `text` literal text.
+  --- What a node of the tree is. `if`, `with` and `range` hold their
+  --- branches; `interp` is a `{{.a.b}}` and `text` literal text.
   enum Kind
     "text"
     "interp"
@@ -37,18 +37,19 @@ local record Types
   end
 
   --- What a word inside an action is: a dotted field path starting with
-  --- `.`, a bare word, or the `|` between pipeline stages.
+  --- `.`, a bare word, the `|` between pipeline stages, or a quoted string.
   enum Part
     "field"
     "word"
     "pipe"
+    "string"
   end
 
   --- One word of an action, with where it began (a byte column, from 1).
   record Token
     --- What the word is.
     kind: Part
-    --- The word as written.
+    --- The word as written; a string's bytes, its quotes and escapes gone.
     value: string
     --- Where it begins: its line, from 1.
     line: integer
@@ -101,8 +102,8 @@ local record Types
     stages: {Stage}
   end
 
-  --- One arm of an `if` or `with`: its condition (none for `else`), its
-  --- body and where its action stands.
+  --- One arm of an `if`, `with` or `range`: its condition (none for
+  --- `else`), its body and where its action stands.
   record Branch
     --- The condition or value, nil for `else`.
     pipeline: Pipeline
@@ -134,7 +135,8 @@ local record Types
     text: string
     --- An interpolation's value.
     pipeline: Pipeline
-    --- A block's arms: `if`'s in order, `with`'s and `range`'s first.
+    --- A block's arms in order: a `with` or `range` has its own first and
+    --- then its `else`, if any.
     branches: {Branch}
     --- Where an interpolation's value lands, once `context` has run.
     ctx: Slot

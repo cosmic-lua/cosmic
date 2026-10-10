@@ -17,12 +17,21 @@
 ---     {{.when | site.fmt.date}}         then each stage `| module.path.func`
 ---     {{if .admin}}..{{else if .user}}..{{else}}..{{end}}
 ---     {{range .items}}<li>{{.name}}</li>{{end}}   dot is each element
+---     {{range .items}}..{{else}}none{{end}}       `none` when there is no element
 ---     {{with .owner}}{{.name}}{{else}}nobody{{end}}  dot is the value, if truthy
+---     {{"{{"}}                          literal text: writes {{
 ---
 --- A name in a field path is a field of the record: a typo is a type
---- error, not an empty hole. A stage is a function by import path, whose
---- module the generated source requires; composing one template in another
---- is a stage naming its `render`. Truthiness is Lua's: only `nil` and
+--- error, not an empty hole. The record's module is required for its types
+--- alone, so a declaration file (`.d.tl`) may export it and its body does not
+--- run, unless a stage reads it too. It must return the record type itself,
+--- as a `.d.tl` or `local record M ... end return M` does: one that returns
+--- a value of it is refused. A stage is a function by import path,
+--- whose module the generated source requires; composing one template in
+--- another is a stage naming its `render`. A stage answers exactly one value,
+--- wherever it stands: one declared to answer a fixed number of values
+--- above one is a type error on the template's line, so a function that can fail (`nil, reason`) is wrapped by
+--- the caller into a stage that answers a value. Truthiness is Lua's: only `nil` and
 --- `false` are false, not `""` or `0`.
 ---
 --- `{{-` drops the whitespace before an action (newlines too) and `-}}`
@@ -46,14 +55,23 @@
 --- slot. `{{mode text}}` returns a `string` and escapes nothing, for
 --- anything that is not HTML; a slot there takes a string or a number.
 ---
---- `{{` always starts an action: it cannot be written as literal text
---- (a stage that answers the string is the way). Attributes that
---- frameworks read as code (`hx-*`, `x-on:`, `@click`, `ng-*`) are not
---- recognised; and a slot in any attribute whose name begins with `on`
---- is refused (a literal `onclick="..."` compiles).
+--- `{{` always starts an action. To write it as text, write an action
+--- that is one double-quoted string, as Go's templates do: its bytes are
+--- literal text, so `{{"{{"}}` writes `{{` and `{{"{{.name}}"}}` writes
+--- `{{.name}}`. `\"` and `\\` are its only escapes, it is on one line,
+--- and it takes no stage and stands in no condition. It is text, not a
+--- slot: `html` mode escapes nothing in it and reads it as markup, as it
+--- does the text around it.
 ---
---- `{{range}}` has no `{{else}}`, and `{{with}}` takes `{{else}}` but no
---- `{{else if}}`: nest an `{{if}}`.
+--- Attributes that frameworks read as code (`hx-*`, `x-on:`, `@click`,
+--- `ng-*`) are not recognised; and a slot in any attribute whose name
+--- begins with `on` is refused (a literal `onclick="..."` compiles).
+---
+--- `{{range}}` and `{{with}}` take one `{{else}}` but no `{{else if}}`:
+--- nest an `{{if}}`. A range's `{{else}}` runs when the list has no first
+--- element, and dot there is what it is outside the range; the list is
+--- read once. It is the way to say "none": `{{if .items}}` is true of an
+--- empty list, which is a table.
 ---
 --- Line N of the template is line N of the source, so a type error reads
 --- as `page.tmpl:12: ...`.
@@ -72,7 +90,7 @@ end
 
 --- Compiles a template to the source of a Teal module that exports
 --- `render`, requiring [`cosmic.html`] in an `html` template, the record's
---- module, and each stage's.
+--- module (for its types alone, unless a stage reads it), and each stage's.
 --- @param src string The template source
 --- @param name string The template's name (its file), which heads each reason
 --- @return string|nil The module source, with line N the template's line N

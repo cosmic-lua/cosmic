@@ -72,6 +72,9 @@ local record fmt
   markup: function(s: string): html.SafeHtml
   attr: function(s: string): html.SafeAttr
   url: function(s: string): html.SafeUrl
+  pair: function(s: string): string, string
+  join: function(s: string, sep?: string): string
+  spread: function(s: string): string...
   ["end"]: function(s: string): string
 end
 function fmt.upper(s: string): string
@@ -88,6 +91,15 @@ function fmt.attr(s: string): html.SafeAttr
 end
 function fmt.url(s: string): html.SafeUrl
   return html.href(s)
+end
+function fmt.pair(s: string): string, string
+  return s, "second"
+end
+function fmt.spread(s: string): string...
+  return s, "second"
+end
+function fmt.join(s: string, sep?: string): string
+  return s .. "|" .. (sep or "none")
 end
 fmt["end"] = fmt.bracket
 return fmt
@@ -209,16 +221,11 @@ local function test_a_type_error_in_a_text_template_is_on_the_templates_line(tmp
 end
 
 local function test_a_slot_takes_what_its_place_accepts(tmp: string)
-  local lua, trouble = project(tmp, "accepts", HEAD .. [[
-<h1 class="{{.cls}}" title='{{.a}}'>{{.title}} {{.n}} {{.h}} {{.cls | fmt.upper}}</h1>
-<a href="{{.url}}">{{.user.name}}</a><a href="{{.u}}"></a><a href=" {{.url | fmt.bracket}}">x</a>
-{{range .items}}<i title="{{.n}}">{{.name}}</i>{{else}}{{end}}
-]])
-  assert(lua == nil and trouble:find("{{else}} in a {{range}}", 1, true), tostring(trouble))
   local ok, why = project(tmp, "accepts", HEAD .. [[
 <h1 class="{{.cls}}" title='{{.a}}'>{{.title}} {{.n}} {{.h}} {{.cls | fmt.upper}}</h1>
 <a href="{{.url}}">{{.user.name}}</a><a href="{{.u}}"></a><a href="{{.url | fmt.bracket}}">x</a>
 {{range .items}}<i title="{{.n}}">{{.name}}</i>{{end}}
+{{range .items}}<i title="{{.n}}">{{.name}}</i>{{else}}<i title="{{.title}}">{{.h}}</i>{{end}}
 {{if .flag}}{{.h}}{{else if .title}}a{{else}}b{{end}}
 {{with .user}}{{.name}}{{end}}{{with .user}}x{{else}}{{.title}}{{end}}
 ]])
@@ -384,4 +391,94 @@ local function test_a_repeated_attribute_is_judged_each_time(tmp: string)
   local page: {string: any} = { url = "javascript:x" }
   local out = render(tmp, "dup", HEAD .. '<a href="x" href="{{.url}}">', page)
   assert(out == '\n<a href="x" href="' .. esc_attr("about:invalid") .. '">', out)
+end
+
+local function test_a_block_that_adds_a_bare_attribute_renders_it_only_when_its_condition_holds(tmp: string)
+  local lua, trouble = project(tmp, "bare", HEAD ..
+      '<input type="checkbox"{{if .flag}} checked{{end}} name="a"><input{{if .flag}} disabled{{end}}>\n' ..
+      '<option {{if .flag}}selected {{end}}value="{{.cls}}">x</option><br{{if .flag}} hidden{{end}}/>\n' ..
+      '<input{{if .flag}} required{{else}} readonly{{end}} name="b">')
+  assert(lua ~= nil, trouble)
+  local mod = load_module(lua, "page")
+  assert(mod is Loaded, "page exports no render")
+  local on_made = mod.render({ flag = true, cls = "c\"" })
+  assert(on_made is Html.SafeHtml, "render answered a " .. type(on_made))
+  local on = Html.raw(on_made)
+  assert(on == '\n<input type="checkbox" checked name="a"><input disabled>\n' ..
+      '<option selected value="c&#34;">x</option><br hidden/>\n<input required name="b">', on)
+  local off_made = mod.render({ flag = false, cls = "c\"" })
+  assert(off_made is Html.SafeHtml, "render answered a " .. type(off_made))
+  local off = Html.raw(off_made)
+  assert(off == '\n<input type="checkbox" name="a"><input>\n' ..
+      '<option value="c&#34;">x</option><br/>\n<input readonly name="b">', off)
+end
+
+--- A stage that counts its calls, and one that answers the count.
+local COUNTER <const> = [[
+local record counter
+  calls: integer
+  each: function(l: {string}): {string}
+  count: function(s: string): string
+end
+counter.calls = 0
+function counter.each(l: {string}): {string}
+  counter.calls = counter.calls + 1
+  return l
+end
+function counter.count(_: string): string
+  return tostring(counter.calls)
+end
+return counter
+]]
+
+local function test_a_range_runs_its_else_when_the_list_is_empty_and_reads_the_list_once(tmp: string)
+  local lua, trouble = build(tmp, "range-else", { ["data.tl"] = DATA, ["counter.tl"] = COUNTER,
+    ["page.tmpl"] = HEAD .. "<ul>{{range .list | counter.each}}<li>{{.}}</li>{{else}}<p>{{.title}}</p>{{end}}</ul>" ..
+      "{{.title | counter.count}}" })
+  assert(lua ~= nil, trouble)
+  local full = load_module(lua, "page")
+  assert(full is Loaded, "page exports no render")
+  local listed = full.render({ list = { "a", "<" }, title = "none" })
+  assert(listed is Html.SafeHtml and Html.raw(listed) == "\n<ul><li>a</li><li>&lt;</li></ul>1", tostring(listed))
+  local empty = load_module(lua, "page")
+  assert(empty is Loaded, "page exports no render")
+  local none = empty.render({ list = {}, title = "<none>" })
+  assert(none is Html.SafeHtml and Html.raw(none) == "\n<ul><p>&lt;none&gt;</p></ul>1", tostring(none))
+end
+
+local function test_a_range_else_reads_the_enclosing_dot(tmp: string)
+  local lua, trouble = project(tmp, "else-dot", HEAD ..
+      "{{range .items}}{{.name}};{{else}}{{range .list}}{{.}}{{else}}{{.title}}{{end}}{{end}}")
+  assert(lua ~= nil, trouble)
+  local mod = load_module(lua, "page")
+  assert(mod is Loaded, "page exports no render")
+  for _, case in ipairs({
+      { { items = { { name = "a", n = 1 }, { name = "b", n = 2 } } } as {string: any}, "\na;b;" },
+      { { items = {}, list = { "x", "y" } } as {string: any}, "\nxy" },
+      { { items = {}, list = {}, title = "t<" } as {string: any}, "\nt&lt;" },
+  } as {{any}}) do
+    local out = mod.render(case[1] as {string: any})
+    assert(out is Html.SafeHtml and Html.raw(out) == case[2], tostring(case[2]))
+  end
+  local wrong = refused(tmp, "else-dot-wrong", HEAD .. "{{range .items}}{{.name}}\n{{else}}{{.name}}{{end}}")
+  assert(wrong:find("page.tmpl:3:", 1, true) and wrong:find("name", 1, true), wrong)
+end
+
+local function test_a_stage_answering_more_than_one_value_is_refused_in_every_position(tmp: string)
+  for index, action in ipairs({ "{{.title | fmt.pair}}", "{{.title | fmt.pair | fmt.join}}",
+      "{{.title | fmt.pair | fmt.upper}}", "{{if .title | fmt.pair}}x{{end}}",
+      "{{with .title | fmt.pair}}{{.}}{{end}}", "{{range .title | fmt.pair}}x{{end}}" }) do
+    local trouble = refused(tmp, "pair-" .. index, "{{type Page from data}}{{mode text}}\nfine\n" .. action)
+    assert(trouble:find("page.tmpl:3:", 1, true), action .. ": " .. trouble)
+    assert(trouble:find("wrong number of arguments", 1, true), action .. ": " .. trouble)
+  end
+end
+
+--- The checker lets a stage declared to answer `string...` through, so
+--- what holds it to one value at run time is the generated code.
+local function test_a_stage_is_given_one_value_when_the_one_before_answers_more(tmp: string)
+  local out = render(tmp, "spread",
+    "{{type Page from data}}{{mode text}}{{.title | fmt.spread | fmt.join}} {{.title | fmt.upper | fmt.join}}",
+    { title = "a" })
+  assert(out == "a|none A|none", out)
 end

@@ -224,6 +224,18 @@ local function test_profile_names_what_it_holds_and_refuses_what_it_has_not()
   assert(none == nil and why:find("unknown profile \"bogus\"", 1, true), why)
 end
 
+local function test_proc_profile_is_proc_on_linux_and_nothing_on_macos()
+  local proc = assert(Sandbox.profile("proc"))
+  local names = assert(sys.uname())
+  if names.sysname == "Darwin" then
+    assert(proc.grants == nil or #proc.grants == 0)
+  else
+    assert(#proc.grants == 1 and proc.grants[1].path == "/proc" and proc.grants[1].letters == "r")
+  end
+  local both = assert(Sandbox.merge({ profiles = { "proc" } }, { grants = { { path = "/proc", letters = "r" } } }))
+  assert(both.profiles == nil and #both.grants == 1 and both.grants[1].path == "/proc")
+end
+
 local function test_loaders_names_a_static_program_alone(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local files = assert(Sandbox.loaders(probe))

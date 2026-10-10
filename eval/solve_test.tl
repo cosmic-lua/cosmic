@@ -5,7 +5,7 @@ local Solve = require("eval.solve")
 local function test_the_command_line_takes_an_arena_and_a_model()
   local options = assert(Solve.parse({ "/a", "--model", "m" }))
   assert(options.arena == "/a" and options.model == "m")
-  assert(options.max_turns == 60 and options.timeout == 600)
+  assert(options.max_turns == 150 and options.timeout == 600)
   options = assert(Solve.parse({ "--timeout", "30", "/a", "--max-turns", "3", "--model", "m" }))
   assert(options.max_turns == 3 and options.timeout == 30)
 end
@@ -48,10 +48,11 @@ local function test_the_environment_keeps_only_what_the_cli_needs()
   local names: {string} = {}
   for name in pairs(env) do names[#names + 1] = name end
   table.sort(names)
-  assert(table.concat(names, " ") == "CLAUDE_CONFIG_DIR HOME HTTPS_PROXY PATH SSL_CERT_FILE TMPDIR",
+  assert(table.concat(names, " ") == "CLAUDE_CONFIG_DIR COSMIC_TEST_SANDBOX HOME HTTPS_PROXY PATH SSL_CERT_FILE TMPDIR",
     table.concat(names, " "))
   assert(env.PATH == "/r/bin:/opt/node/bin:/usr/local/bin:/usr/bin:/bin", env.PATH)
   assert(env.HOME == "/r/home" and env.CLAUDE_CONFIG_DIR == "/r/config" and env.TMPDIR == "/r/tmp")
+  assert(env.COSMIC_TEST_SANDBOX == "0", "the solver's tests run unsandboxed")
 end
 
 local function test_a_native_cli_is_given_alone_and_a_script_with_its_interpreter()

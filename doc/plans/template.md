@@ -99,8 +99,9 @@ As built (`cosmic/template/`), where it differs from the above:
   `SafeUrl`.
 - `<title>` and `<textarea>` slots take a string or a number, escaped,
   never `SafeHtml`: trusted markup would end the element.
-- `{{with}}` runs its body when the value is truthy and takes
-  `{{else}}`; `{{range}}{{else}}` and `{{with}}{{else if}}` are refused.
+- `{{with}}` runs its body when the value is truthy. `{{with}}` and
+  `{{range}}` take one `{{else}}` (a range's runs when the list has no
+  first element); `{{else if}}` in them is refused.
 - Refused as well as the places above: `srcdoc`, `srcset` and `ping`
   attributes; the `content` of a `<meta>` that has `http-equiv` (anywhere
   in the tag) and the `charset` of a `<meta>`; every attribute of

@@ -246,7 +246,8 @@ end
 
 --- Records are nominal table types; interfaces are structural requirements.
 --- `record R is I` states conformance. Colon methods receive self; dot access
---- is an ordinary field/function access.
+--- is an ordinary field/function access. An interface method that a record
+--- implements with `function R:m` declares its receiver as `self: I`.
 function Example.records_interfaces_methods()
   local interface Named
     name: string
@@ -263,6 +264,27 @@ function Example.records_interfaces_methods()
   }
   local named: Named = user
   assert(named.name == "Ada" and user:label() == "Ada:7")
+
+  -- An interface method names its receiver, `function(self: Greeter, ...)`:
+  -- `self` is then whatever implements Greeter, so a record's own
+  -- `function Friendly:greet` satisfies it. Unnamed, `function(Greeter, ...)`
+  -- takes Greeter itself, which `function Friendly:greet` does not match.
+  local interface Greeter
+    greet: function(self: Greeter, who: string): string
+  end
+  local record Friendly is Greeter
+    mood: string
+  end
+  function Friendly:greet(who: string): string
+    return self.mood .. ", " .. who
+  end
+  local friendly_mt: metatable<Friendly> = { __index = Friendly }
+  -- setmetatable may be returned where an implemented interface is expected.
+  local function friend(mood: string): Greeter
+    local made: Friendly = { mood = mood }
+    return setmetatable(made, friendly_mt)
+  end
+  assert(friend("hello"):greet("Ada") == "hello, Ada")
 end
 
 --- Enums are closed sets of literal strings. `{T}` is an array, `{K:V}` a map,

@@ -23,8 +23,8 @@ local Test = require("cosmic.test")
 --- roots of their own for the sandboxed workers it starts (`nests`), and
 --- the variables the runs set, which choose how their workers are held.
 Test.policy{
-  profiles = { "cosmic" },
-  grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" }, { path = "/proc", letters = "r" } },
+  profiles = { "cosmic", "proc" },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" } },
   promises = { "nest" },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
   requires = { "nest" },

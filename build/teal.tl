@@ -25,6 +25,15 @@ local record teal
   --- the catalog -- the replacements a refusal quotes -- compiles
   --- nothing again.
   withheld: {string}
+  --- The fields of `package` the runtime removes
+  --- ([`core/surface.c`]'s `clear_field` calls), which the checker is
+  --- stripped of the same way. They are spelled here for the reason
+  --- `withheld` is, and build/teal_catalog_test.tl holds them to the
+  --- catalog's `package_fields`.
+  withheld_package: {string}
+  --- Removes from `env` the names [`withheld`] and `withheld_package`
+  --- list, so the checker refuses each of them.
+  strip: function(env: compiler.Env)
 
   --- What `io.open` gives back. It reads whole files and writes
   --- strings; the compiler asks nothing else of a handle.
@@ -285,6 +294,41 @@ local function serve(built: compiler, db: Sqlite.Handle, root: string)
 end
 
 teal.withheld = { "io", "os", "debug", "dofile", "loadfile" }
+teal.withheld_package = { "path", "cpath", "loadlib", "searchpath" }
+
+function teal.strip(env: compiler.Env)
+  for _, name in ipairs(teal.withheld) do
+    env.globals[name] = nil
+    env.modules[name] = nil
+  end
+  -- new_env hands every environment the same `package` record (tl
+  -- builds its standard globals once per process and copies them by
+  -- reference), so this edits it for all of them, where the removal of
+  -- `io` above touches only `env`. That is harmless while every
+  -- environment cosmic makes is stripped, and the edit is idempotent; one
+  -- made unstripped later in the same process would find the fields gone.
+  --
+  -- tl declares `package` as a global record; its fields are the
+  -- declaration's `def.fields` and, in declaration order, `field_order`, and a
+  -- key it lacks is refused as `invalid key 'path' in record 'package'`.
+  local declared = env.globals["package"]
+  local declaration = declared ~= nil and declared.t or nil
+  local record_type = declaration ~= nil and declaration.def or nil
+  local fields = record_type ~= nil and record_type.fields or nil
+  local order = record_type ~= nil and record_type.field_order or nil
+  for _, field in ipairs(teal.withheld_package) do
+    if fields ~= nil then
+      fields[field] = nil
+    end
+    if order ~= nil then
+      for i = #order, 1, -1 do
+        if order[i] == field then
+          table.remove(order, i)
+        end
+      end
+    end
+  end
+end
 
 --- A checker environment pointed at a staged tree (see `serve`), with
 --- the strictness this project holds itself to and without the names
@@ -314,10 +358,7 @@ function teal.environment_for(built: compiler, db: Sqlite.Handle,
   if env == nil then
     return nil, trouble
   end
-  for _, name in ipairs(teal.withheld) do
-    env.globals[name] = nil
-    env.modules[name] = nil
-  end
+  teal.strip(env)
   return env
 end
 
@@ -1028,6 +1069,12 @@ local function nesting_hint(source: string, owner: string, member: string): stri
   -- missing field is told them: it waits on the checker giving this
   -- error the required record's types, as patch/tl/33a gives a missing
   -- key's fields.
+  -- TODO: give no hint where the `local type` require binding `owner`
+  -- was refused ("'require' did not return a type"): the module returns
+  -- a value of its record, which may declare `member`, so the hint
+  -- misleads. It waits on [`teal.replacement`] seeing the compile's
+  -- other errors (build/importer.tl and build/standalone.tl pass it one
+  -- error at a time).
   return owner .. " has no type " .. member .. ": check its spelling, or declare `record " ..
     member .. " ... end` inside the record " .. module .. " returns (a `local record " ..
     member .. "` beside that record is its file's alone)"
@@ -1035,6 +1082,7 @@ end
 
 --- What [`replacement`] reads of [`cosmic.removed`].
 local record Catalog
+  replacements: {string:string}
   names: {string:string}
   members: {string:string}
   arguments: {string:string}
@@ -1061,9 +1109,13 @@ local function catalog(): Catalog | nil
     return nil
   end
   local names, members, arguments, message = loaded.names, loaded.members, loaded.arguments, loaded.message
+  local replacements = loaded.replacements
   if names is {string:string} and members is {string:string} and arguments is {string:string} and
-      message is function(string, string): string then
-    return { names = names, members = members, arguments = arguments, message = message }
+      replacements is {string:string} and message is function(string, string): string then
+    return {
+      names = names, members = members, arguments = arguments,
+      replacements = replacements, message = message,
+    }
   end
   return nil
 end
@@ -1229,6 +1281,115 @@ local function missing_key(msg: string): MissingKey | nil
   return { key = key, owner = owner }
 end
 
+--- Whether `before`, the text of a line up to a `...`, ends inside a
+--- function's parameter list: its nearest unmatched `(` follows `function`,
+--- `function name`, `function a.b`, `function a:b`, with or without a
+--- generic `<...>` after the name. A `(` of a call does not.
+local function in_parameters(before: string): boolean
+  local depth = 0
+  for i = #before, 1, -1 do
+    local c = before:sub(i, i)
+    if c == ")" then
+      depth = depth + 1
+    elseif c == "(" then
+      if depth == 0 then
+        local head = before:sub(1, i - 1):gsub("%s+$", "")
+        head = head:gsub("%b<>$", "")
+        return head:match("%f[%w_]function$") ~= nil or
+          head:match("%f[%w_]function%s+[%a_][%w_]*[%.:]?[%w_%.:]*$") ~= nil
+      end
+      depth = depth - 1
+    end
+  end
+  return false
+end
+
+--- The type text of a parameter whose `:` starts `rest`, up to the `,` or
+--- `)` that ends it outside any brackets; nil when none does on the line.
+local function type_text(rest: string): string | nil
+  local depth = 0
+  local from = rest:match("^%s*:%s*()")
+  if from == nil then
+    return nil
+  end
+  for i = from, #rest do
+    local c = rest:sub(i, i)
+    if c == "(" or c == "{" or c == "[" or c == "<" then
+      depth = depth + 1
+    elseif depth > 0 and (c == ")" or c == "}" or c == "]" or c == ">") then
+      depth = depth - 1
+    elseif depth == 0 and (c == "," or c == ")") then
+      local text = rest:sub(from, i - 1):gsub("%s+$", "")
+      return text ~= "" and text or nil
+    end
+  end
+  return nil
+end
+
+--- What to write for a vararg given a name (`...names: string`), when the
+--- syntax error at `y`:`x` is on that name: the text before it on the line
+--- ends in `...` inside a function's parameter list ([`in_parameters`]) and
+--- an identifier starts there, followed by `:`, `?`, `,` or `)`. The type
+--- is the one the line spells ([`type_text`]), else `<type>`. nil for any
+--- other `expected one of: ')', ','` error, including a `...` that is an
+--- expression (`f(...x)`) and a list whose `...` and name are on different
+--- lines.
+local function vararg_name_hint(source: string, y: integer, x: integer): string | nil
+  local line = line_at(source, y)
+  if line == nil or x < 1 then
+    return nil
+  end
+  local before = line:sub(1, x - 1):match("^(.-)%.%.%.%s*$")
+  if before == nil or not in_parameters(before) then
+    return nil
+  end
+  local rest = line:sub(x)
+  local name = rest:match("^[%a_][%w_]*")
+  if name == nil or rest:sub(#name + 1):match("^%s*[:?,)]") == nil then
+    return nil
+  end
+  local after = rest:sub(#name + 1):gsub("^%s*%?", "")
+  local typed = type_text(after) or "<type>"
+  return "a vararg takes no name: write `...: " .. typed ..
+    "` and read it as `{ ... }`, or `select(\"#\", ...)` where a nil may be among them"
+end
+
+--- What to write for an interface method declared with an unnamed
+--- receiver, when `msg` is a record's `function Rec:m` refused against it
+--- (`type signature of 'm' does not match its declaration in Rec: argument
+--- 0: Rec is not a Iface`): the unnamed `m: function(Iface, ...)` takes
+--- the interface itself, which a method of the record taking the record is
+--- no substitute for; `m: function(self: Iface, ...)` takes whatever
+--- implements it. nil for any other message, and for one whose argument 0
+--- is not the record named in it.
+local function interface_self_hint(msg: string): string | nil
+  local method, record, given, interface = msg:match(
+    "^type signature of '([%a_][%w_]*)' does not match its declaration in " ..
+      "([%a_][%w_%.]*): argument 0: ([%a_][%w_%.]*) is not an? ([%a_][%w_%.]*)$")
+  if method == nil or record ~= given then
+    return nil
+  end
+  return "if " .. interface .. " declares `" .. method .. "` with an unnamed receiver, that is " ..
+    interface .. " itself, not the record that implements it: declare it in " .. interface ..
+    " as `" .. method .. ": function(self: " .. interface .. ", ...)` so each implementer's " ..
+    "`function " .. record .. ":" .. method .. "` is checked with its own type as self"
+end
+
+--- What to try for a call refused on a type parameter (`argument 2: type
+--- parameter <T>: got R, expected R | nil`, `... R is not a I`): where the
+--- call's result is expected to have a type, the checker may have bound the
+--- parameter to it before the arguments, and patch/tl/40 could not bind it
+--- from them instead. The hint says so conditionally, since the arguments
+--- may simply disagree. nil for any other message.
+local function type_parameter_hint(msg: string): string | nil
+  if msg:match("^argument %d+: type parameter <[%w_]+>: ") == nil then
+    return nil
+  end
+  return "if this call's result is expected to have a type (a return type or a declaration), " ..
+    "that may have fixed the type parameter before the arguments did: bind the result in a local " ..
+    "of the arguments' type (`local v: R = setmetatable(t, mt)`) and use that"
+end
+
 --- What to write instead, when `msg` is the checker refusing a name
 --- [`environment_for`] stripped or a member [`cosmic.removed`] lists; nil
 --- for any other message, and for those where the catalog cannot be
@@ -1293,6 +1454,17 @@ end
 --- them, spelled alike; nothing when one does not, since then the call
 --- is short, nor when the file declares no function the call reaches.
 ---
+--- A vararg given a name (`local function f(...names: string)`, the
+--- parser's `syntax error, expected one of: ')', ','` at the name) is told
+--- it takes none and to write `...: string` ([`vararg_name_hint`]); any other
+--- such error is told nothing, nor is a name on a later line than its `...`.
+---
+--- A record's `function Rec:m` refused against an interface method declared
+--- with an unnamed receiver (`m: function(Iface, ...)`) is told to declare
+--- it `function(self: Iface, ...)` ([`interface_self_hint`]), and a call
+--- whose type parameter the expected result type fixed before its arguments
+--- is told to bind it in a local ([`type_parameter_hint`]).
+---
 --- One nominal type refused for another of the same last name
 --- (`Store is not a Kv.Store`) is told they are two types, and an
 --- `unknown type Kv.Kv` whose `Kv` `source` binds to a `require` that
@@ -1309,6 +1481,13 @@ function teal.replacement(msg: string, source: string, y: integer, x: integer,
     local inferred = msg == "in assignment: got number, expected integer" and
       integer_hint(source, y, x) or nil
     return inferred or integer_conversion
+  end
+  if msg == "syntax error, expected one of: ')', ','" then
+    return vararg_name_hint(source, y, x)
+  end
+  local self_hint = interface_self_hint(msg) or type_parameter_hint(msg)
+  if self_hint ~= nil then
+    return self_hint
   end
   local passed, takes = msg:match("^wrong number of arguments %(given (%d+), expects (%d+)%)$")
   local short = passed ~= nil and math.tointeger(tonumber(passed)) or nil
@@ -1354,6 +1533,14 @@ function teal.replacement(msg: string, source: string, y: integer, x: integer,
   end
   local key, alias, typename = msg:match(
     "^invalid key '([%a_][%w_]*)' in record '([%a_][%w_]*)' of type ([%a_][%w_]*)$")
+  if key ~= nil and alias == "package" and typename == "package" then
+    -- tl's `package` has no field the runtime removed ([`strip`]), and
+    -- the catalog says what to write for each.
+    local removed = catalog()
+    if removed ~= nil and removed.replacements["package." .. key] ~= nil then
+      return removed.message("package", key)
+    end
+  end
   if key == nil then
     -- A module whose record is a local of its own (cosmic.cli's) is
     -- named by its description, `record Module`, not by the alias; the

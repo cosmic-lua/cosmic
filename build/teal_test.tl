@@ -910,3 +910,61 @@ local function test_a_module_type_is_told_to_nest_inside_the_record()
   assert(teal.replacement("unknown type Http.Address", 'local Http = require("cosmic.http")\n',
     1, 1) == nil)
 end
+
+--- What [`teal.replacement`] says of the first syntax error in `source`.
+local function syntax_hint(source: string): string | nil
+  local built = assert(teal.load(true))
+  local _, result = built.gen(source, nil, nil, "tl")
+  local e = assert(assert(result).syntax_errors[1], source)
+  assert(e.msg == "syntax error, expected one of: ')', ','", e.msg)
+  return teal.replacement(e.msg, source, e.y, e.x)
+end
+
+--- A vararg given a name is refused by the parser with only its list of
+--- expected tokens; the hint says a vararg takes none.
+local function test_a_named_vararg_is_told_it_takes_no_name()
+  local hint = syntax_hint("local function f(...names: string) end\n")
+  assert(hint ~= nil and hint:find("write `...: string`", 1, true) ~= nil, tostring(hint))
+  hint = syntax_hint("local M = {}\nfunction M.f(a: integer, ...rest: string) end\n")
+  assert(hint ~= nil and hint:find("write `...: string`", 1, true) ~= nil, tostring(hint))
+  hint = syntax_hint("local function f(... rest: {string}) end\n")
+  assert(hint ~= nil and hint:find("write `...: {string}`", 1, true) ~= nil, tostring(hint))
+  hint = syntax_hint("local function f(...rest?: string | nil, b: integer) end\n")
+  assert(hint ~= nil and hint:find("write `...: string | nil`", 1, true) ~= nil, tostring(hint))
+  hint = syntax_hint("local function f(...names: function(string): string) end\n")
+  assert(hint ~= nil and hint:find("write `...: function(string): string`", 1, true) ~= nil,
+    tostring(hint))
+  hint = syntax_hint("local f = function<T>(...names: Map<T>) end\n")
+  assert(hint ~= nil and hint:find("write `...: Map<T>`", 1, true) ~= nil, tostring(hint))
+end
+
+--- Other `expected one of: ')', ','` errors are not about a vararg.
+local function test_other_missing_comma_errors_get_no_vararg_hint()
+  assert(syntax_hint("local function f(a b) end\n") == nil)
+  assert(syntax_hint("f(a b)\n") == nil)
+  assert(syntax_hint("local function g(...: string) print(... x) end\n") == nil)
+  assert(syntax_hint("f(...x)\n") == nil)
+end
+
+--- A record's method refused against an interface method with an unnamed
+--- receiver is told to name the receiver `self`.
+local function test_an_unnamed_interface_receiver_is_told_to_name_self()
+  local msg = "type signature of 'm' does not match its declaration in R: " ..
+    "argument 0: R is not a I"
+  local hint = teal.replacement(msg, "function R:m(s: string): string end\n", 1, 1)
+  assert(hint ~= nil and hint:find("m: function(self: I, ...)", 1, true) ~= nil, tostring(hint))
+  assert(hint:find("function R:m", 1, true) ~= nil, hint)
+  assert(teal.replacement("type signature of 'm' does not match its declaration in R: " ..
+      "argument 0: S is not a I", "", 1, 1) == nil)
+  assert(teal.replacement("type signature of 'm' does not match its declaration in R: " ..
+      "argument 1: R is not a I", "", 1, 1) == nil)
+end
+
+--- A type parameter the expected result fixed is told to bind it in a local.
+local function test_a_fixed_type_parameter_is_told_to_bind_in_a_local()
+  local hint = teal.replacement("argument 2: type parameter <T>: R is not a I", "", 1, 1)
+  assert(hint ~= nil and hint:find("local v: R = setmetatable(t, mt)", 1, true) ~= nil,
+    tostring(hint))
+  assert(teal.replacement("argument 2: type parameter <T>: got R, expected R | nil", "", 1, 1) ~= nil)
+  assert(teal.replacement("argument 2: got R, expected S", "", 1, 1) == nil)
+end
