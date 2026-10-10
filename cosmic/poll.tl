@@ -98,7 +98,9 @@ local record Poll
     --- Wakes the task that has waited longest, if any: a no-op when none
     --- waits. The woken task runs on the run's next turn, so it is
     --- callable from any code of the run -- a task, a `<close>` handler,
-    --- a finalizer -- and never waits.
+    --- a finalizer -- and never waits. A woken task that is killed before
+    --- it runs hands the notice to the next waiter; one cancelled before
+    --- it runs still answers true, having been noticed first.
     notify_one: function(Notifier)
     --- Wakes every task waiting now, in the order they began to wait,
     --- as [`notify_one`] does. A task that begins to wait afterwards is
@@ -241,6 +243,9 @@ local record Wake
   task: State
   ok: boolean
   why: string
+  --- The notifier whose [`notify_one`] made this wake, so that a task
+  --- ended before it resumes passes the notice to the next waiter.
+  notice: NotifierState
 end
 
 --- A [`Poll.shielded`] call's hold on its task, let go as the call
@@ -392,6 +397,8 @@ local function unjoin(w: Wait)
 end
 
 --- Takes a notifier wait from its waiters, the rest left in their order.
+--- Linear in the waiters, as is the removal in [`notify_one`]: a list is
+--- the tasks parked on one condition, and a wake costs more than the shift.
 local function ungate(w: Wait)
   local waiters = w.gate.waiters
   for i = 1, #waiters do
@@ -423,11 +430,11 @@ local function finish(w: Wait)
 end
 
 --- Answers `w`, once: the run resumes its task with `ok` and `why`.
-local function wake(w: Wait, ok: boolean, why: string)
+local function wake(w: Wait, ok: boolean, why: string, notice?: NotifierState)
   if w.done then return end
   finish(w)
   w.task.parked = nil
-  loop.ready[#loop.ready + 1] = { task = w.task, ok = ok, why = why }
+  loop.ready[#loop.ready + 1] = { task = w.task, ok = ok, why = why, notice = notice }
 end
 
 local function began_first(a: Wait, b: Wait): boolean
@@ -647,10 +654,16 @@ local function close_task(task: State)
     task.parked = nil
   end
   local ready: {Wake} = {}
+  local lost: {NotifierState} = {}
   for _, wakened in ipairs(loop.ready) do
-    if wakened.task ~= task then ready[#ready + 1] = wakened end
+    if wakened.task ~= task then
+      ready[#ready + 1] = wakened
+    elseif wakened.notice ~= nil then
+      lost[#lost + 1] = wakened.notice
+    end
   end
   loop.ready = ready
+  for _, notifier in ipairs(lost) do notifier:notify_one() end
   local closed, err: boolean, any = coroutine.close(task.co)
   task.ended = true
   loop.tasks[task.co] = nil
@@ -701,15 +714,15 @@ end
 
 --- Answers `w`, taken from its notifier's waiters already so that `wake`
 --- need not search for it.
-local function notice(w: Wait)
+local function notice(w: Wait, one?: NotifierState)
   w.gate = nil
-  wake(w, true, "")
+  wake(w, true, "", one)
 end
 
 function NotifierState:notify_one()
   if self.loop ~= loop or loop.closing then return end
   local first = table.remove(self.waiters, 1)
-  if first ~= nil then notice(first) end
+  if first ~= nil then notice(first, self) end
 end
 
 function NotifierState:notify_all()
@@ -887,7 +900,11 @@ local function turn()
     loop.ready = {}
     for _, wakened in ipairs(batch) do
       -- One killed by a task earlier in the batch is passed by.
-      if not wakened.task.ended then step(wakened.task, wakened.ok, wakened.why) end
+      if not wakened.task.ended then
+        step(wakened.task, wakened.ok, wakened.why)
+      elseif wakened.notice ~= nil then
+        wakened.notice:notify_one()
+      end
     end
     if loop.live == 0 then break end
     poll_once(next_timeout())
