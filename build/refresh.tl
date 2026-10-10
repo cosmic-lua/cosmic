@@ -404,6 +404,8 @@ local function apply(db: Sqlite.Handle, dataset: refresh.Dataset, source: refres
     if not written then
       return false, write_trouble
     end
+    -- sha3_256 is left as it was: no dataset's upstream publishes one,
+    -- and a binary older than that column has none to set.
     return Sqlite.run(db,
       "UPDATE components SET version = ?1, url = ?2, sha256 = ?3 WHERE name = ?4",
       { bind.text(version), bind.text(url), bind.text(sha256), bind.text(dataset.name) })
