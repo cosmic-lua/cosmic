@@ -1,0 +1,7 @@
+file: tl.tl
+note: the literal under a context that never returns sets `@never`, so a `return` in it is refused (40g2)
+--- find
+      self:add_var(nil, "@never", a_type(node, node.never and "any" or "nil", {}))
+--- replace
+      self:add_var(nil, "@never", a_type(node, (node.never or node.context_never) and "any" or "nil", {}))
+--- end

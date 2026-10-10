@@ -1136,3 +1136,54 @@ local function test_is_on_a_function_type_is_not_restricted()
       "    v()\n  end\n  return 1\nend\nprint(f)\n")
 end
 
+--- A function declared `: never` contains no `return`, not even a bare
+--- one, and must not reach its end: its last statement ends the block
+--- (40g). A closure inside has its own returns.
+local function test_a_never_function_neither_returns_nor_reaches_its_end()
+  assert_refused("local function f(m: string): never\n  if m == '' then return end\n  error(m)\nend\n",
+    "cannot return")
+  assert_refused("local function f(): never\n  return 1\nend\n", "cannot return")
+  assert_refused("local function f(m: string): never\n  print(m)\nend\n", "can reach its end")
+  assert_refused("local function f(n: integer): never\n  if n > 1 then error('a') end\nend\n",
+    "can reach its end")
+  assert_refused("local function f(): never\n  while true do break end\nend\n", "can reach its end")
+  assert_refused("local record R\nend\nfunction R.f(): never\n  print('x')\nend\n", "can reach its end")
+  assert_accepted("local function a(): never\n  error('x')\nend\n" ..
+      "local function b(): never\n  while true do end\nend\n" ..
+      "local function c(): never\n  c()\nend\n" ..
+      "local function d(): never\n  repeat until false\nend\n" ..
+      "local function e(n: integer): never\n  if n > 1 then error('a') else error('b') end\nend\n" ..
+      "local function g(): never\n  do error('x') end\nend\n" ..
+      "local function h(m: string): never\n  local k = function(): integer return 1 end\n" ..
+      "  print(k())\n  error(m)\nend\nprint(a, b, c, d, e, g, h)\n")
+  -- the type inside its own body carries the flag, and so does a method's
+  assert_accepted("local record R\n  die: function(self: R): never\nend\n" ..
+      "function R:die(): never\n  self:die()\nend\nprint(R)\n")
+end
+
+--- A function literal that omits its return list takes `never` from its
+--- context as it takes the returns (40h): it must not return and must not
+--- reach its end, and its type never returns. The seam shape:
+--- `sys.exit = function(_?: integer) refuse("sys.exit") end`.
+local function test_a_literal_takes_never_from_its_context()
+  local seam = "local record Seam\n  exit: function(status?: integer)%s\nend\n"
+  local refuse = "local function refuse(m: string): never error(m) end\n"
+  assert_accepted(seam:format(": never") .. refuse ..
+      "local s: Seam = { exit = function(_?: integer) refuse('exit') end }\n" ..
+      "s.exit = function(_?: integer) error('y') end\nprint(s)\n")
+  assert_refused(seam:format(": never") ..
+      "local s: Seam = { exit = function(_?: integer) print('x') end }\n", "missing never")
+  assert_refused(seam:format(": never") ..
+      "local s: Seam = { exit = function(_?: integer) return end }\n", "cannot return")
+  -- A context that may return asks nothing of the literal.
+  assert_accepted(seam:format("") .. "local s: Seam = { exit = function(_?: integer) print('x') end }\nprint(s)\n")
+end
+
+--- A macroexp declared `: never` must be a call that never returns, which
+--- replaces the call of it (40g3).
+local function test_a_never_macroexp_is_a_never_call()
+  assert_accepted("local macroexp die(m: string): never return error(m) end\ndie('x')\n")
+  assert_refused("local macroexp die(m: string): never return m end\n", "its expression is no call")
+  assert_refused("local macroexp die(m: string): never return (error(m)) end\n", "its expression is no call")
+end
+

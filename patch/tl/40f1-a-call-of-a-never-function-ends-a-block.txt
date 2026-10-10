@@ -1,0 +1,23 @@
+file: tl.tl
+note: a call of a function whose type says it never returns ends the block holding it, as `return` does, so what follows `if x == nil then fail("no") end` sees x as the guard left it. The rule is in the call check, where the callee is resolved, not in the visitor of a call, which never sees the callee: the function a call resolves to is the overload chosen for an overloaded one, the method for `obj:method()` and the `__call` of a record. Only a call that is a statement can end a block, so a call made for an operator metamethod, or for the iterator of a `for`, is left alone; `pcall(fail, x)` checks its inner call on a node of its own, so the flag lands there, not on the `pcall`
+--- find
+         if errs then
+            self.errs:collect(errs)
+         end
+
+         if g then
+            mark_invalid_typeargs(self, typeargs)
+         end
+--- replace
+         if errs then
+            self.errs:collect(errs)
+         end
+
+         if f and f.never and node_is_funcall(node) then
+            node.block_returns = true
+         end
+
+         if g then
+            mark_invalid_typeargs(self, typeargs)
+         end
+--- end

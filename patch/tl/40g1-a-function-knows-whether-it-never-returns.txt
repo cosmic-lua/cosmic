@@ -1,0 +1,8 @@
+file: tl.tl
+note: every function sets `@never` in its own scope, true or false, as `@is_va` is set, so a `return` finds the declaration of the function it is in and not an enclosing one: a closure inside a function that never returns has its own
+--- find
+      self:add_var(nil, "@is_va", a_type(node, args.is_va and "any" or "nil", {}))
+--- replace
+      self:add_var(nil, "@is_va", a_type(node, args.is_va and "any" or "nil", {}))
+      self:add_var(nil, "@never", a_type(node, node.never and "any" or "nil", {}))
+--- end

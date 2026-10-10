@@ -1,0 +1,29 @@
+file: tl.tl
+note: a function declared `: never` must not reach its end: its last statement must end the block, which a call that never returns, a `while true` no `break` leaves, a `do` that ends, or an `if` with an `else` whose every block ends does (21 through 25, 39a through 39d and 40f1). An `if` without an `else` does not. The test is the one 37f makes of a literal that must return values (40g4). A macroexp, whose body is one expression, must be a call that never returns: a call of it is replaced by that expression, which then ends the block. A recursive call counts, since the type the function has inside its own body carries the flag (40d1)
+--- find
+   function TypeChecker:end_function_scope(node: Node)
+      self.errs:fail_unresolved_labels(self.st[#self.st])
+      self:end_scope(node)
+   end
+--- replace
+   -- Whether control cannot go past the last of `body`'s statements: that
+   -- one ends the block.
+   local function body_ends(body: Node): boolean
+      return #body > 0 and not not body[#body].block_returns
+   end
+
+   function TypeChecker:end_function_scope(node: Node)
+      self.errs:fail_unresolved_labels(self.st[#self.st])
+      self:end_scope(node)
+      local def = node.kind == "local_macroexp" and node.macrodef or node
+      if def.never then
+         if def.kind == "macroexp" then
+            if not def.exp.block_returns then
+               self.errs:add(node, "this macroexp is declared 'never', but its expression is no call that never returns")
+            end
+         elseif not body_ends(node.body) then
+            self.errs:add(node, "this function is declared 'never', but can reach its end: end it with a call that never returns, such as error(...)")
+         end
+      end
+   end
+--- end
