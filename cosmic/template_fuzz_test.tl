@@ -269,9 +269,10 @@ local function test_literal_text_is_rendered_byte_for_byte(tmp: string)
       if body:find('["\\\\]') then Fuzz.label("quote") end
       if body:find("[%c]") then Fuzz.label("control") end
       if body:find("[\128-\255]") then Fuzz.label("high byte") end
-      -- What Teal strikes out to leave Lua: the annotations, in the one
-      -- shape a template with no action has.
-      local lua = out:gsub("%(_: t%.T%): [%w%.]+", "()"):gsub("local parts: {string}", "local parts")
+      -- What Teal strikes out to leave Lua: the type require and the
+      -- annotations, in the one shape a template with no action has.
+      local lua = out:gsub("^local type t = require%b() ", "")
+      lua = lua:gsub("%(_: t%.T%): [%w%.]+", "()"):gsub("local parts: {string}", "local parts")
       local env: {string: any} = {
         require = function(name: string): any
           if name == "cosmic.html" then
@@ -495,9 +496,11 @@ local STAND_IN <const>: {string: function} = {
 }
 
 --- The generated source with Teal's types struck out, in the shapes the
---- generator writes, to run as Lua.
+--- generator writes, to run as Lua. Those templates have no stage, so
+--- `_one` and its `<T>` are never there to strike.
 local function lua_of(source: string): string
-  local lua = source:gsub("%(([%a_][%w_]*): [^()]-%)", "(%1)")
+  local lua = source:gsub("local type [%w_]+ = require%b() ", "")
+  lua = lua:gsub("%(([%a_][%w_]*): [^()]-%)", "(%1)")
   lua = lua:gsub("%): [%w%.]+ ", ") ")
   lua = lua:gsub("local v: [^=]+= ", "local v = ")
   lua = lua:gsub("local parts: {string} = {}", "local parts = {}")

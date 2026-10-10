@@ -20,6 +20,20 @@
 --- two userdata types is not, which is why a slot is never given
 --- `SafeHtml | SafeAttr`.
 ---
+--- A stage answers one value. Each stage's call is the argument of `_one`,
+--- an identity of one parameter, so the checker refuses a stage declared to
+--- answer a fixed number of values above one, whether a slot, a condition
+--- or another stage takes it. Teal reads a variadic result (`T...`) as one
+--- argument, so a stage declared so passes the checker, and what holds it
+--- to one value is `_one` dropping the rest at run time.
+---
+--- The record's module is required with `local type`, which loads nothing
+--- at run time, unless a stage reads it too: so a declaration (`.d.tl`)
+--- can export the record, and a module's body does not run for its types.
+--- The module must return the record type itself, as a `.d.tl` or `local
+--- record M ... end return M` does: one that returns a value of it is
+--- refused, since `require` then answers no type.
+---
 --- Line N of the template is line N of the module. The requires, the
 --- helpers, `render`'s header and `local parts` share line 1 with the
 --- template's first line; each line of literal text, and each action,
@@ -32,10 +46,11 @@
 ---
 --- The names the module declares are `render`, `parts`, `d` and `d1`, `d2`
 --- and so on (dot in each `range` and `with`), `v` (a slot's value, in a
---- block of its own), and the helpers
---- `_text`, `_attr` and `_url`; a module that is required is named by the last
---- word of its path, or that word, `_` and a number when the name is taken,
---- reserved, or a keyword, so a name is never declared twice. A name a
+--- block of its own, and `_one`'s parameter), `T` (`_one`'s type
+--- parameter), and the helpers `_one`, `_text`, `_rtext`, `_attr` and
+--- `_url`; a module that is required is named by the last word of its
+--- path, or that word, `_` and a number when the name is taken, reserved,
+--- or a keyword, so a name is never declared twice. A name a
 --- loop or `with` does not read is written `_`, which is not a warning.
 
 local types = require("cosmic.template.types")
@@ -44,7 +59,7 @@ local types = require("cosmic.template.types")
 --- module is never named.
 local RESERVED <const>: {string: boolean} = {}
 for _, word in ipairs({
-    "parts", "render", "d", "v", "_", "_text", "_rtext", "_attr", "_url", "record", "enum", "type", "global",
+    "parts", "render", "d", "v", "T", "_", "_one", "_text", "_rtext", "_attr", "_url", "record", "enum", "type", "global",
     "interface", "is", "as", "where", "self", "macroexp",
     -- The standard library and its globals, which a required module must
     -- not shadow (a module named `string` would break every `string.format`
@@ -69,15 +84,18 @@ local record Dot
 end
 
 --- The modules the generated source requires, in the order first needed,
---- each with the name it is given.
+--- each with the name it is given, and those whose value it reads. The
+--- rest it requires as `local type`, which loads nothing at run time.
 local record Imports
   order: {string}
   alias_of: {string: string}
   taken: {string: boolean}
+  as_value: {string: boolean}
 end
 
 --- What generation carries: the text so far, the generated line it is
---- on, the modules and helpers needed, and the name counter.
+--- on, the modules and helpers needed, whether a stage needs `_one`, and
+--- the name counter.
 local record Gen
   pieces: {string}
   line: integer
@@ -86,6 +104,7 @@ local record Gen
   imports: Imports
   html: string
   helpers: {types.Slot: boolean}
+  staged: boolean
   dots: integer
 end
 
@@ -101,7 +120,8 @@ local function quote(text: string): string
   end) .. '"'
 end
 
---- The name `module_path` is required as.
+--- The name `module_path` is required as; required as a type unless
+--- [`value_alias`] also asks for it.
 local function alias_for(g: Gen, module_path: string): string
   local imports = g.imports
   local existing = imports.alias_of[module_path]
@@ -121,6 +141,12 @@ local function alias_for(g: Gen, module_path: string): string
   return alias
 end
 
+--- The name `module_path` is required as, for its value.
+local function value_alias(g: Gen, module_path: string): string
+  g.imports.as_value[module_path] = true
+  return alias_for(g, module_path)
+end
+
 --- `base` then the field `name`: `.name`, or `["name"]` for a keyword.
 local function member(base: string, name: string): string
   if types.keywords[name] then
@@ -130,7 +156,7 @@ local function member(base: string, name: string): string
 end
 
 --- The expression for `pipe` at `dot`: its path of fields, each stage
---- wrapped round what is before it.
+--- wrapped round what is before it and held to one value by `_one`.
 local function value(g: Gen, pipe: types.Pipeline, dot: Dot): string
   dot.used = true
   local expr = dot.name
@@ -138,7 +164,8 @@ local function value(g: Gen, pipe: types.Pipeline, dot: Dot): string
     expr = member(expr, field)
   end
   for _, stage in ipairs(pipe.stages) do
-    expr = member(alias_for(g, stage.module_path), stage.func) .. "(" .. expr .. ")"
+    g.staged = true
+    expr = "_one(" .. member(value_alias(g, stage.module_path), stage.func) .. "(" .. expr .. "))"
   end
   return expr
 end
@@ -293,17 +320,22 @@ end
 --- @return string Source that has as many lines as the template
 function Codegen.generate(template: types.Template): string
   local g: Gen = { pieces = {}, line = 1, started = false, mode = template.mode,
-    imports = { order = {}, alias_of = {}, taken = {} }, html = "", helpers = {}, dots = 0 }
+    imports = { order = {}, alias_of = {}, taken = {}, as_value = {} }, html = "", helpers = {}, staged = false,
+    dots = 0 }
   local type_alias = alias_for(g, template.import_path)
   if template.mode == "html" then
-    g.html = alias_for(g, "cosmic.html")
+    g.html = value_alias(g, "cosmic.html")
   end
   local root: Dot = { name = "d", used = false }
   emit(g, template.body, root)
 
   local head: {string} = {}
   for _, path in ipairs(g.imports.order) do
-    head[#head + 1] = "local " .. g.imports.alias_of[path] .. " = require(\"" .. path .. "\")"
+    head[#head + 1] = (g.imports.as_value[path] and "local " or "local type ") .. g.imports.alias_of[path] ..
+      " = require(\"" .. path .. "\")"
+  end
+  if g.staged then
+    head[#head + 1] = "local function _one<T>(v: T): T return v end"
   end
   for _, ctx in ipairs(HELPER_ORDER) do
     if g.helpers[ctx] then

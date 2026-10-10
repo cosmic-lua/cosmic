@@ -273,6 +273,14 @@ something the agent was never told. Beyond that bar, what has worked:
   `<close>`-able value -- that a hidden test (below) compiles against
   and calls, so a type the project exports as `any`, or a value cast
   rather than checked, fails it.
+- **Write it as `cosmic fix` leaves it, whatever the project
+  declares.** The task is the solver's TASK.md, inside the project
+  whose `cosmic fix --check` the grader runs. Name the API as a list
+  item's head before a `:` (`` - `jobs.Plan`: a record ``), and write
+  no other code span spelling a name in the module (a file named
+  `notes.db`, under notes, spells its `db`): `fix` would link it once
+  the project declares it ([`eval/arena_test.tl`] holds every task to
+  this).
 
 ## grading
 
@@ -343,6 +351,7 @@ ranking. Then:
 
 [`bin/cosmic-bootstrap`]: ../bin/cosmic-bootstrap
 [`bin/cosmic`]: ../bin/cosmic
+[`eval/arena_test.tl`]: arena_test.tl
 [`eval/arena`]: arena
 [`eval/check/grade.tl`]: check/grade.tl
 [`eval/journal.md`]: journal.md
