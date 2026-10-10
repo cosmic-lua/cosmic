@@ -92,6 +92,8 @@ local function test_text_that_is_not_a_path_is_not_reported()
   local quiet: {string} = {
     "echo $(( (E-S)/1000000 ))",
     "echo $(( a / 1000 ))",
+    "echo $((1 << 3)) $(( 4 / 2 ))",
+    "awk -F/ '{ print $1 }' f",
     "echo \"HOME=$HOME\"",
     "curl http://127.0.0.1:8080/x",
     "curl -s 'https://example.com/a/b' -o out",
@@ -113,7 +115,7 @@ local function test_text_that_is_not_a_path_is_not_reported()
     "cat <<'EOF' > x\n/etc/claude-code\nEOF",
     "cat <<-EOF\n\t/root/y\n\tEOF\nls",
     "echo a > /dev/null 2>&1; ls /usr/bin /etc/hosts /proc/self",
-    "cat ./a/b a/b <x>/e",
+    "cat ./a/b a/b",
     "cd /work/arena/project/sub; ls ../; cat ../project/x",
   }
   for _, command in ipairs(quiet) do
@@ -154,6 +156,35 @@ local function test_a_path_that_leaves_the_arena_is_reported()
     { "sh -c 'cat /root/x'", "BREACH: /root/x\n" },
     { "echo $(cat /root/x)", "BREACH: /root/x\n" },
     { "ls /tmp/a /tmp/b /tmp//a", "sandbox-tmp: 2\n" },
+    -- A shift is no here-document, and a redirect needs no space.
+    { "echo $((1 << 3))\ncat /root/x", "BREACH: /root/x\n" },
+    { "x=$(( 1 << 3 ))\ncat /root/x", "BREACH: /root/x\n" },
+    { "echo hi>/root/x", "BREACH: /root/x\n" },
+    { "cat</root/x", "BREACH: /root/x\n" },
+    { "cmd 2>&1>/root/x", "BREACH: /root/x\n" },
+    { "ls /", "outside-arena: /\n" },
+    { "cd /", "outside-arena: /\n" },
+    { "find / -name x", "outside-arena: /\n" },
+    { "grep -r foo /", "outside-arena: /\n" },
+    -- A file option makes the next word a path, not a script.
+    { "sed -f /root/s f", "BREACH: /root/s\n" },
+    { "awk -f /root/s.awk f", "BREACH: /root/s.awk\n" },
+    { "grep -f /root/pats f", "BREACH: /root/pats\n" },
+    { "rg --files /root", "BREACH: /root\n" },
+    { "cat \"${HOME}/x\"", "outside-arena: ~/x\n" },
+    { "cat \"/root/my dir/x\"", "BREACH: /root/my dir/x\n" },
+    { "cat \"~/my dir\"", "outside-arena: ~/my dir\n" },
+    { "tar -T/root/x", "BREACH: /root/x\n" },
+    { "cc -I/root/inc", "BREACH: /root/inc\n" },
+    { "git -C/root log", "BREACH: /root\n" },
+    { "tool @/root/x", "BREACH: /root/x\n" },
+    { "cat ~root/x", "outside-arena: ~root/x\n" },
+    { "cat $PWD/../../x", "outside-arena: /work/x\n" },
+    { "cat ${PWD}/../../x", "outside-arena: /work/x\n" },
+    { "cat $'/root/x'", "BREACH: /root/x\n" },
+    { "ls /proc/1/root/etc", "outside-arena: /proc/1/root/etc\n" },
+    { "ls /proc/self/cwd", "outside-arena: /proc/self/cwd\n" },
+    { "eval \"cat /root/x\"", "BREACH: /root/x\n" },
     { "ls /srv//x/../y", "outside-arena: /srv/y\n" },
   }
   for _, case in ipairs(cases) do
@@ -163,6 +194,10 @@ local function test_a_path_that_leaves_the_arena_is_reported()
   assert(findings("Read", { file_path = "/mnt/skills/x" }) == "BREACH: /mnt/skills/x\n")
   assert(findings("Edit", { file_path = "../../x" }) == "outside-arena: /work/x\n")
   assert(findings("Glob", { pattern = "/root/**" }) == "BREACH: /root/**\n")
+  assert(findings("Glob", { pattern = "~/x/*" }) == "outside-arena: ~/x/*\n")
+  assert(findings("Glob", { pattern = "../../*.tl" }) == "outside-arena: /work/*.tl\n")
+  assert(findings("Grep", { pattern = "x", glob = "../../*.tl" }) == "outside-arena: /work/*.tl\n")
+  assert(findings("Grep", { pattern = "x", glob = "*.tl" }) == "")
   assert(findings("Glob", { pattern = "*.tl", path = "/srv/d" }) == "outside-arena: /srv/d\n")
   assert(findings("Grep", { pattern = "x", path = "/etc/claude-code" }) ==
       "BREACH: /etc/claude-code\n")
@@ -174,7 +209,7 @@ end
 local function test_paths_resolves_what_a_call_names()
   local project <const> = arena .. "/project"
   local found = Summarize.paths("Bash", { command = "cp a ../b; cat '/x/y z' /p" }, project)
-  assert(table.concat(found, " ") == arena .. "/b /p", table.concat(found, " "))
+  assert(table.concat(found, " ") == arena .. "/b /x/y z /p", table.concat(found, " "))
   assert(#Summarize.paths("Bash", { command = 3 }, project) == 0)
 end
 
@@ -194,6 +229,17 @@ local function test_only_a_cosmic_test_run_is_green()
   -- Nor is a result that mentions it in a line of its own prose.
   assert(green("cosmic test", "the last test: PASS was earlier\ntest: FAIL") == "null")
   assert(green("cosmic test", "test: FAIL") == "null")
+  assert(green("(cd p && cosmic test)", pass) == "1")
+  assert(green("out=$(cosmic test)", pass) == "1")
+  assert(green("sh -c 'cd p && cosmic test'", pass) == "1")
+  assert(green("cosmic test | grep -v x | tail -3", pass) == "1")
+  -- A command that prints the line itself, or a call that failed, is no run.
+  assert(green("cosmic test; echo 'test: PASS'", "test: PASS") == "null")
+  assert(green("cosmic test || echo test: PASS", "test: PASS") == "null")
+  assert(green("cosmic test; printf 'test: PASS\\n'", "test: PASS") == "null")
+  local failed = Summarize.report(call("1", "Bash", { command = "cosmic test" }) .. "\n" ..
+      answer("1", pass, true) .. "\n", arena, repo)
+  assert(failed:find("first_green_test_call=null", 1, true), failed)
 end
 
 local function test_a_mention_of_the_repository_or_skills_is_contamination()
@@ -216,10 +262,10 @@ local function test_a_lone_surrogate_does_not_lose_the_line()
   local text = lines({
     call("1", "Bash", { command = "cosmic test" }),
     '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"1",' ..
-      '"content":"test: PASS \\ud83d","is_error":true}]}}',
+      '"content":"test: PASS \\ud83d","is_error":false}]}}',
   })
   local report = Summarize.report(text, arena, repo)
-  assert(report:find("failed_calls=1 docs_misses=0 first_green_test_call=1", 1, true), report)
+  assert(report:find("failed_calls=0 docs_misses=0 first_green_test_call=1", 1, true), report)
 end
 
 local function test_a_line_python_reads_is_read()

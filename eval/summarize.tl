@@ -69,35 +69,48 @@ local function count(text: string, needle: string): integer
   end
 end
 
---- One word of a shell command: its text with quotes removed, and
---- whether it can be a path -- false when a quoted part held whitespace
---- or a pattern's metacharacters, which makes it prose or a regex.
+--- One word of a shell command: its text with quotes removed; whether
+--- it can be a path -- false when a quoted part held a pattern's
+--- metacharacters, which makes it a regex; whether a quoted part held
+--- whitespace, which makes it prose unless it starts like a path; and
+--- whether it lies inside `$(( ... ))`, where `/` divides.
 local record Word
   text: string
   literal: boolean
+  spaced: boolean
+  arith: boolean
 end
 
+--- Whether a quoted piece holds a regex's or an expression's
+--- metacharacters. A `${NAME}` is not one, though it holds braces.
 local function is_prose(piece: string): boolean
-  return piece:find("[%s%(%)%[%]{}|%^%*%+%?\\]") ~= nil
+  return (piece:gsub("%${[%w_]+}", "")):find("[%(%)%[%]{}|%^%*%+%?\\]") ~= nil
 end
 
 --- The word starting at `from` and where it ends: at whitespace or one
---- of `;|&`, outside quotes.
+--- of `;|&<>`, outside quotes.
 local function read_word(src: string, from: integer): Word, integer
   local buf: {string} = {}
-  local literal = true
+  local literal, spaced = true, false
   local i, n = from, #src
   while i <= n do
     local ch = src:sub(i, i)
-    if ch:find("[%s;|&]") then
+    if ch:find("[%s;|&<>]") then
       break
-    elseif ch == "'" or ch == '"' then
+    elseif ch == "'" or ch == '"' or (ch == "$" and src:sub(i + 1, i + 1) == "'") then
+      -- $'...' reads a backslash as an escape, as "..." does.
+      local escapes = ch ~= "'"
+      if ch == "$" then
+        i = i + 1
+        ch = "'"
+      end
       local close = i + 1
       while close <= n and src:sub(close, close) ~= ch do
-        close = close + (ch == '"' and src:sub(close, close) == "\\" and 2 or 1)
+        close = close + (escapes and src:sub(close, close) == "\\" and 2 or 1)
       end
       local piece = src:sub(i + 1, close - 1)
       literal = literal and not is_prose(piece)
+      spaced = spaced or piece:find("%s") ~= nil
       buf[#buf + 1] = ch == '"' and (piece:gsub("\\([\"\\$`])", "%1")) or piece
       i = close + 1
     elseif ch == "\\" then
@@ -110,18 +123,20 @@ local function read_word(src: string, from: integer): Word, integer
       i = i + 1
     end
   end
-  return { text = table.concat(buf), literal = literal }, i
+  return { text = table.concat(buf), literal = literal, spaced = spaced, arith = false }, i
 end
 
 --- The simple commands of a shell script as lists of words. Comments
---- and here-document bodies are left out; a command substitution or
---- subshell is not entered (its words join the command around it),
+--- and here-document bodies are left out, and redirection operators:
+--- the word after one is a word like any other. A command substitution
+--- or subshell is not entered (its words join the command around it),
 --- which is enough for an advisory list.
 local function lex(src: string): {{Word}}
   local commands: {{Word}} = {}
   local current: {Word} = {}
   local delims: {string} = {}
   local dashed: {boolean} = {}
+  local arith = false
   local i, n = 1, #src
   local function flush()
     if #current > 0 then
@@ -133,6 +148,7 @@ local function lex(src: string): {{Word}}
     local ch = src:sub(i, i)
     if ch == "\n" then
       flush()
+      arith = false
       i = i + 1
       for d = 1, #delims do
         while i <= n do
@@ -155,22 +171,41 @@ local function lex(src: string): {{Word}}
     elseif ch == ";" or ch == "|" or ch == "&" then
       flush()
       i = i + 1
-    elseif src:sub(i, i + 1) == "<<" and src:sub(i + 2, i + 2) ~= "<" then
-      i = i + 2
-      local dash = src:sub(i, i) == "-"
+    elseif ch == "<" or ch == ">" then
+      -- `<<` opens a here-document only before a word that can be a
+      -- delimiter: `$((1 << 3))` shifts.
+      local j = i + 2
+      local dash = src:sub(j, j) == "-"
       if dash then
-        i = i + 1
+        j = j + 1
       end
-      while src:sub(i, i):find("^[ \t]") do
-        i = i + 1
+      while src:sub(j, j):find("^[ \t]") do
+        j = j + 1
       end
-      local word: Word
-      word, i = read_word(src, i)
-      delims[#delims + 1] = word.text
-      dashed[#dashed + 1] = dash
+      if src:sub(i, i + 1) == "<<" and src:sub(i + 2, i + 2) ~= "<" and
+          src:sub(j, j):find("^[%a_'\"\\]") then
+        local word: Word
+        word, i = read_word(src, j)
+        delims[#delims + 1] = word.text
+        dashed[#dashed + 1] = dash
+      else
+        while src:sub(i, i):find("^[<>]") do
+          i = i + 1
+        end
+        if src:sub(i, i) == "&" then
+          i = i + 1
+        end
+      end
     else
       local word: Word
       word, i = read_word(src, i)
+      if not arith and word.text:find("^%$?%(%(") then
+        arith = true
+      end
+      word.arith = arith
+      if arith and word.text:find("%)%)") then
+        arith = false
+      end
       current[#current + 1] = word
     end
   end
@@ -187,7 +222,8 @@ local script_flags <const>: {string: string} = {
 }
 
 --- Programs whose first argument that is no option is the script or
---- pattern when no flag gave one.
+--- pattern when no flag gave one, and which `-f` / `--file` / `--files`
+--- turn into readers of a file: the next word is then a path.
 local script_first <const>: {string: boolean} = {
   sed = true, awk = true, gawk = true, grep = true, egrep = true, fgrep = true, rg = true,
 }
@@ -198,39 +234,67 @@ local shells <const>: {string: boolean} = { sh = true, bash = true, dash = true 
 --- grep's options that take a number as a separate word.
 local counts <const>: {string: boolean} = { ["-m"] = true, ["-A"] = true, ["-B"] = true, ["-C"] = true }
 
---- What follows `$HOME`, `${HOME}` or `~` in `word` when it starts with
---- one, else nil.
-local function home_rest(word: string): string
-  for _, home in ipairs({ "~", "${HOME}", "$HOME" }) do
+--- What follows `$HOME`, `${HOME}` or `~user` in `word` when it starts
+--- with one, and the part that was; else nil.
+local function home_rest(word: string): string, string
+  for _, home in ipairs({ "${HOME}", "$HOME" }) do
     if word == home or String.starts_with(word, home .. "/") then
-      return word:sub(#home + 1)
+      return word:sub(#home + 1), "~"
     end
   end
-  return nil
+  local user = word:match("^(~[%w_%-]*)")
+  if user ~= nil then
+    local rest = word:sub(#user + 1)
+    if rest == "" or rest:sub(1, 1) == "/" then
+      return rest, user
+    end
+  end
+  return nil, nil
+end
+
+--- A word as a bare one, for a field that holds a path or glob.
+local function plain(text: string): Word
+  return { text = text, literal = true, spaced = false, arith = false }
 end
 
 --- `word` as a path to look at, or nil when it is not one: it starts
 --- with `/`, `~`, `$HOME`, `${HOME}` or `..`, or climbs through `/../`.
---- Redirection and `VAR=` / `--opt=` prefixes come off first. A URL is
---- no path, nor is a lone `/` or `/12`, which an arithmetic expression
---- divides by, nor a bare `VAR=$HOME`, which names the variable's value
---- without opening anything.
+--- `VAR=`, `--opt=`, `-X` and `@` prefixes come off first, and `$PWD` is
+--- `.`. A URL is no path; nor is a `/` or `/12` inside `$(( ))`, which
+--- divides; nor a bare `VAR=$HOME`, which names the variable's value
+--- without opening anything; nor prose, a quoted word with whitespace
+--- that does not start like a path.
 local function candidate(word: Word): string
   if not word.literal then
     return nil
   end
   local text = word.text
-  text = text:gsub("^%d*[<>]+&?", "")
   local assigned = text:find("^[%w_]+=") ~= nil
   text = text:gsub("^[%w_]+=", "")
   text = text:gsub("^%-%-[%w%-]+=", "")
+  local attached = text:match("^%-%a([/~%$%.].*)$") or text:match("^@(/.*)$")
+  if attached ~= nil then
+    -- awk's -F/ separates by a slash.
+    if attached == "/" then
+      return nil
+    end
+    text = attached
+  end
   text = text:gsub("^%$?%(+", "")
   text = text:gsub("^`", "")
   text = text:gsub("[%)`]+$", "")
+  for _, pwd in ipairs({ "${PWD}", "$PWD" }) do
+    if text == pwd or String.starts_with(text, pwd .. "/") then
+      text = "." .. text:sub(#pwd + 1)
+    end
+  end
   if assigned and home_rest(text) == "" then
     return nil
   end
-  if text:find("://", 1, true) or text == "/" or text:find("^/%d+$") then
+  if text:find("://", 1, true) or (word.arith and (text == "/" or text:find("^/%d+$"))) then
+    return nil
+  end
+  if word.spaced and not (text:find("^/") or home_rest(text) ~= nil) then
     return nil
   end
   if home_rest(text) ~= nil or text:find("^/") or text == ".." or text:find("^%.%./") or
@@ -241,9 +305,12 @@ local function candidate(word: Word): string
 end
 
 --- Every path-like word of the shell script `src`, in order, unresolved.
---- The script argument of `sed`, `grep`, `python -c` and the like is
---- not looked at, and `sh -c`'s is read as a script of its own. Words
---- inside `"$(...)"` are not found: a limit, as the list is advisory.
+--- The script argument of `sed`, `grep` and the like is not looked at,
+--- and `sh -c`'s and `eval`'s is read as a script of its own. Limits of
+--- advisory evidence, left as they are: `python -c` and `node -e`
+--- scripts are not read; nor is `"$(...)"` inside double quotes; nor
+--- is a relative path after a `cd` to somewhere else, taken for one in
+--- the project.
 local function shell_words(src: string, found: {string}, nested: boolean)
   for _, words in ipairs(lex(src)) do
     local first = 1
@@ -255,7 +322,7 @@ local function shell_words(src: string, found: {string}, nested: boolean)
     local letters = script_flags[program]
     local skipped: {integer: boolean} = {}
     local scripts: {string} = {}
-    local flagged = false
+    local flagged, filed = false, false
     local bare: integer = nil
     if letters ~= nil then
       local k = first + 1
@@ -267,6 +334,9 @@ local function shell_words(src: string, found: {string}, nested: boolean)
           skipped[k + 1] = true
           scripts[#scripts + 1] = words[k + 1].text
           k = k + 1
+        elseif script_first[program] and (text == "--file" or text == "--files" or
+            text:find("^%-%-file=") or (group ~= nil and group:find("f", 1, true))) then
+          filed = true
         elseif (program == "grep" or program == "rg") and counts[text] then
           skipped[k + 1] = true
           k = k + 1
@@ -275,9 +345,15 @@ local function shell_words(src: string, found: {string}, nested: boolean)
         end
         k = k + 1
       end
-      if not flagged and bare ~= nil and script_first[program] then
+      if not flagged and not filed and bare ~= nil and script_first[program] then
         skipped[bare] = true
       end
+    elseif program == "eval" then
+      local parts: {string} = {}
+      for k = first + 1, #words do
+        parts[#parts + 1] = words[k].text
+      end
+      scripts[1] = table.concat(parts, " ")
     end
     for k, word in ipairs(words) do
       local path = not skipped[k] and candidate(word) or nil
@@ -285,7 +361,7 @@ local function shell_words(src: string, found: {string}, nested: boolean)
         found[#found + 1] = path
       end
     end
-    if shells[program] and not nested then
+    if (shells[program] or program == "eval") and not nested then
       for _, script in ipairs(scripts) do
         shell_words(script, found, true)
       end
@@ -293,17 +369,47 @@ local function shell_words(src: string, found: {string}, nested: boolean)
   end
 end
 
---- Whether a shell command runs `cosmic test`: a word naming `cosmic`
---- followed by `test`, as `timeout 30 bin/cosmic test` has it.
-local function runs_cosmic_test(command: string): boolean
+--- A word as a command names it: without a leading `(`, `{`, `$(` or
+--- backtick, an assignment before it, or a closing `)`, `}` after.
+local function bare_word(text: string): string
+  text = text:gsub("^[%w_]+=", "")
+  text = text:gsub("^[%$%({`]+", "")
+  text = text:gsub("[%)}`]+$", "")
+  return text
+end
+
+--- Whether a shell command runs `cosmic test` (a word naming `cosmic`
+--- followed by `test`, as `timeout 30 bin/cosmic test`, `(cd p && cosmic
+--- test)`, `out=$(cosmic test)` and `sh -c '...'` have it), and whether
+--- it itself prints a `PASS`, with `echo` or `printf`: that line then is
+--- not the run's.
+local function scans_cosmic_test(command: string, nested: boolean): boolean, boolean
+  local ran, printed = false, false
   for _, words in ipairs(lex(command)) do
-    for k = 1, #words - 1 do
-      if words[k].text:match("[^/]*$") == "cosmic" and words[k + 1].text == "test" then
-        return true
+    local texts: {string} = {}
+    for k, word in ipairs(words) do
+      texts[k] = bare_word(word.text)
+    end
+    for k = 1, #texts do
+      local program = texts[k]:match("[^/]*$")
+      if program == "cosmic" and texts[k + 1] == "test" then
+        ran = true
+      elseif program == "echo" or program == "printf" then
+        for j = k + 1, #texts do
+          printed = printed or texts[j]:find("PASS", 1, true) ~= nil
+        end
+      elseif shells[program] and not nested then
+        for j = k + 1, #texts - 1 do
+          if texts[j]:find("^%-%a*c$") then
+            local inner_ran, inner_printed = scans_cosmic_test(words[j + 1].text, true)
+            ran = ran or inner_ran
+            printed = printed or inner_printed
+          end
+        end
       end
     end
   end
-  return false
+  return ran, printed
 end
 
 --- `path` with its `.` and `..` segments resolved and slashes
@@ -325,10 +431,10 @@ end
 --- solver's own is inside its arena, a manual launch's is the user's),
 --- so `~/x` and `$HOME/x` stay as `~/x`.
 local function resolve(word: string, project: string): string
-  local rest = home_rest(word)
+  local rest, home = home_rest(word)
   if rest ~= nil then
     local tail = normalize(rest)
-    return tail == "/" and "~" or "~" .. tail
+    return tail == "/" and home or home .. tail
   end
   return normalize(word:sub(1, 1) == "/" and word or project .. "/" .. word)
 end
@@ -336,7 +442,7 @@ end
 --- The paths a tool call names, in order, resolved: what its input says
 --- about where it acts, never what it writes. Read, Write and Edit name
 --- a file; Glob a directory, and a pattern if absolute; Grep a directory
---- (its pattern is a regex); Bash a command, whose words are read as a
+--- (its pattern is a regex, its glob may name a place); Bash a command, whose words are read as a
 --- shell would split them.
 function Summarize.paths(name: string, input: {string: any}, project: string): {string}
   local raw: {string} = {}
@@ -348,9 +454,10 @@ function Summarize.paths(name: string, input: {string: any}, project: string): {
     shell_words(field("command"), raw, false)
   elseif name == "Grep" then
     raw[1] = field("path")
+    raw[2] = candidate(plain(field("glob"))) or ""
   elseif name == "Glob" then
     raw[1] = field("path")
-    raw[2] = field("pattern"):sub(1, 1) == "/" and field("pattern") or ""
+    raw[2] = candidate(plain(field("pattern"))) or ""
   else
     raw[1] = field("file_path")
     raw[2] = field("notebook_path")
@@ -402,6 +509,10 @@ local function tier_of(path: string, arena: string, repo: string): string
     if Fs.within(path, root) then
       return "breach"
     end
+  end
+  -- Another process's root or working directory is its filesystem.
+  if path:find("^/proc/[^/]+/root") or path:find("^/proc/[^/]+/cwd") then
+    return "outside"
   end
   if is_system(path) then
     return nil
@@ -523,10 +634,12 @@ function Summarize.report(transcript: string, arena: string, repo: string): stri
       failed = failed + 1
     end
     docs_misses = docs_misses + count(text, "No exact symbol match") + count(text, "docs: FAIL")
-    if first_green == nil and call.name == "Bash" and
-        runs_cosmic_test(as_text(call.input["command"])) and
-        ("\n" .. text):find("\ntest: PASS", 1, true) then
-      first_green = index
+    if first_green == nil and call.name == "Bash" and answer ~= nil and
+        not answer.error and ("\n" .. text):find("\ntest: PASS", 1, true) then
+      local ran, printed = scans_cosmic_test(as_text(call.input["command"]), false)
+      if ran and not printed then
+        first_green = index
+      end
     end
     if writes_journal(call) then
       journal_writes = journal_writes + 1

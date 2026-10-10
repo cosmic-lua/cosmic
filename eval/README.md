@@ -178,7 +178,9 @@ line `test: PASS`) and the journal's writes, then lists the paths a tool
 call named outside the arena, as `BREACH` (this checkout, `.claude`, a
 skills directory, CLAUDE.md, AGENTS.md, a home directory, another arena),
 a `sandbox-tmp` count (the rest of /tmp, private to the solver) and
-`outside-arena`, and flags any call that named this checkout or a skills
+`outside-arena` (a `~/` or `$HOME/` path shows here, not as `BREACH`: the
+solver's home is inside its arena, a manual launch's is the user's, and the
+summary cannot tell which), and flags any call that named this checkout or a skills
 directory. The lists are advisory, read from the command text; the sandbox
 is the enforcement. Keep it for Claude; do not feed Work results into it. `--bare`
 previously dropped the credential helper, and bypassing permissions was
