@@ -128,20 +128,53 @@ print(open)
     "the retry's own errors are not added, but: " .. tostring(trouble))
 end
 
--- A table literal as the first argument is typed from the expected result
--- before the call is checked, so an interface return types it as the
--- interface and the metatable of its record then disagrees.
--- TODO: accept `return setmetatable({ ... }, thing_mt)` in a function
--- returning an interface Thing implements: it waits on the checker typing a
--- call's table-literal argument after the call's type variables are bound,
--- which patch/tl/40's retry cannot do once the literal has its type.
-local function test_a_table_literal_for_an_interface_return_is_still_refused(tmp: string)
+-- A table literal argument is typed from its parameter's type, so a call's
+-- type variables are bound from the variable arguments before the expected
+-- result binds them when it would refuse one (patch/tl/41).
+local function test_a_table_literal_for_an_interface_return_takes_the_metatable_s_record(tmp: string)
   local ok, trouble = compiles(tmp, "literal-interface", prelude .. [[
 local function named(): Named
   return setmetatable({ name = "a" }, thing_mt)
 end
+local function maybe(): Thing | nil, string
+  return setmetatable({ name = "a" }, thing_mt), ""
+end
+print(named, maybe)
+]])
+  assert(ok, "a literal for thing_mt is a Thing, which a Named return takes, but: " ..
+      tostring(trouble))
+end
+
+local function test_a_table_literal_that_does_not_fit_its_record_is_still_refused(tmp: string)
+  local ok, trouble = compiles(tmp, "literal-missing", prelude .. [[
+local function named(): Named
+  return setmetatable({ nome = "a" }, thing_mt)
+end
 print(named)
 ]])
-  assert(refused(ok, trouble, "Thing is not a Named"),
-    "known limit: a literal takes the interface's type first, but: " .. tostring(trouble))
+  assert(refused(ok, trouble, "nome"), "a Thing has no field nome, but: " .. tostring(trouble))
+  ok, trouble = compiles(tmp, "literal-wrong-type", prelude .. [[
+local function named(): Named
+  return setmetatable({ name = 1 }, thing_mt)
+end
+print(named)
+]])
+  assert(not ok, "a Thing's name is a string, but the compile passed")
+end
+
+local function test_a_table_literal_with_the_wrong_metatable_is_still_refused(tmp: string)
+  local ok, trouble = compiles(tmp, "literal-wrong-mt", prelude .. [[
+local function named(): Named
+  return setmetatable({ name = "a" }, other_mt)
+end
+print(named)
+]])
+  assert(not ok, "an Other's metatable does not make a Named, but the compile passed: " .. tostring(trouble))
+  ok, trouble = compiles(tmp, "literal-wrong-result", prelude .. [[
+local function open(): Other
+  return setmetatable({ name = "a" }, thing_mt)
+end
+print(open)
+]])
+  assert(not ok, "a Thing is no Other, but the compile passed: " .. tostring(trouble))
 end
