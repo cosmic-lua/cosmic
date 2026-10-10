@@ -304,7 +304,8 @@ local function test_a_written_request_reads_back(tmp: string)
       local expected: {string:string} = {}
       for _, pair in ipairs(r.headers) do
         local name = pair[1]:lower()
-        expected[name] = expected[name] ~= nil and expected[name] .. ", " .. pair[2] or pair[2]
+        local joiner = name == "cookie" and "; " or ", "
+        expected[name] = expected[name] ~= nil and expected[name] .. joiner .. pair[2] or pair[2]
       end
       expected["host"] = target[4]
       if framing == "length" then expected["content-length"] = tostring(#body) end
@@ -356,18 +357,26 @@ local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
         -- A Content-Length the handler gives: none, the body's size, or
         -- one more.
         Fuzz.pick(src, { "", "", "same", "more" }), Fuzz.pick(src, LENGTH_NAMES),
+        -- Set-Cookie values the handler gives as a list: none to two.
+        tostring(src:int(0, 2)),
       })
     end,
     check = function(input: string): boolean, string
       local f = Fuzz.unpack(input)
       local method, status, version, kind, text = f[1], math.tointeger(tonumber(f[2])), f[3], f[4], f[5]
       local given, given_name = f[6] or "", f[7] or "Content-Length"
+      local cookies = math.tointeger(tonumber(f[8] or "0")) or 0
       local reply: wire.Reply = { status = status, headers = { ["X-A"] = "1" }, method = method,
         version = version, date = "Thu, 01 Jan 1970 00:00:00 GMT" }
       if kind == "string" then reply.body = text end
       if kind == "reader" then reply.body = Stream.from_string(text) end
       if kind == "sized" then reply.body, reply.length = Stream.from_string(text), #text end
       if kind == SHORT then reply.body, reply.length = Stream.from_string(text), #text + 3 end
+      if cookies > 0 then
+        local list: {string} = {}
+        for i = 1, cookies do list[i] = ("c%d=v; Expires=Wed, 21 Oct 2026"):format(i) end
+        reply.headers["Set-Cookie"] = list
+      end
       local declared: integer = nil
       if given ~= "" then
         declared = given == "same" and #text or #text + 1
@@ -406,12 +415,22 @@ local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
       if stop == nil then return false, "no head" end
       local head, rest = out:sub(1, stop + 1), out:sub(stop + 4)
       local headers: {string:string} = {}
+      local lines = 0
       for name, value in head:gmatch("\r\n([^:]+): ([^\r]*)") do
-        if headers[name:lower()] ~= nil then
+        if name == "Set-Cookie" then
+          lines = lines + 1
+          if value ~= ("c%d=v; Expires=Wed, 21 Oct 2026"):format(lines) then
+            return false, "Set-Cookie line " .. lines .. " is " .. value
+          end
+        elseif headers[name:lower()] ~= nil then
           return false, "header " .. name .. " is written twice"
         end
         headers[name:lower()] = value
       end
+      if lines ~= cookies then
+        return false, ("%d Set-Cookie lines given, %d written"):format(cookies, lines)
+      end
+      if cookies > 0 then Fuzz.label("set-cookie") end
       if declared ~= nil and headers["content-length"] ~= tostring(declared) then
         return false, ("a Content-Length of %d was sent as %s"):format(declared,
           tostring(headers["content-length"]))
