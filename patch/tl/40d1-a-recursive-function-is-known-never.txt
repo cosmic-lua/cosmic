@@ -1,0 +1,10 @@
+file: tl.tl
+note: the type a function has inside its own body (it is declared before the body is checked, for recursion) carries the `never` its declaration says, so a recursive call in a function that never returns ends a block, and `local function spin(): never spin() end` is accepted
+--- find
+         rets = self.get_rets(node.rets),
+      })))
+--- replace
+         rets = self.get_rets(node.rets),
+         never = node.never,
+      })))
+--- end

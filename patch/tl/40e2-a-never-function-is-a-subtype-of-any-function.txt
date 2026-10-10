@@ -1,0 +1,15 @@
+file: tl.tl
+note: a function that never returns has no returns to give, so it stands for a function of any returns (`pcall(fail, x)`, `local g: function(string): integer = fail`): the return check is skipped. The reverse is refused, because a call of the one expected to never return ends a block that a function that may return would carry on from. The arguments compare as they did. This holds at the root of a comparison only: 40e5 holds what is nested to agree
+--- find
+            local ar, br = a.rets.tuple, b.rets.tuple
+            local diff_by_va = #br - #ar == 1 and b.rets.is_va
+            if #ar < #br and not diff_by_va then
+--- replace
+            local ar, br = a.rets.tuple, b.rets.tuple
+            local diff_by_va = #br - #ar == 1 and b.rets.is_va
+            if b.never and not a.never then
+               table.insert(errs, Err("%s may return, where %s never returns", a, b))
+            elseif a.never then
+               -- it returns nothing, so it fits any list of returns
+            elseif #ar < #br and not diff_by_va then
+--- end

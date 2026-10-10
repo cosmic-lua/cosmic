@@ -1,0 +1,10 @@
+file: tl.tl
+note: a local macroexp declared `: never` has a type that never returns
+--- find
+               rets = self.get_rets(rets),
+               macroexp = node.macrodef,
+--- replace
+               rets = self.get_rets(rets),
+               never = node.macrodef.never,
+               macroexp = node.macrodef,
+--- end

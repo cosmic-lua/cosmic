@@ -1041,3 +1041,98 @@ local function test_no_type_is_named_never()
       "local n: nevermore = { x = 1 }\nprint(n)\n")
 end
 
+local never_fail = "local function fail(m: string): never\n  error(m)\nend\n"
+
+--- A function that never returns stands for a function of any returns
+--- (patch/tl's 40e2), `pcall`'s parameter among them; one that may return
+--- does not stand for one that never does, which would make `f("x")` end
+--- a block that `print` returns from.
+local function test_a_never_function_is_a_subtype_of_any_function()
+  assert_accepted(never_fail .. "local g: function(string) = fail\n" ..
+      "local h: function(string): integer = fail\nprint(pcall(fail, 'x'))\nprint(g, h)\n")
+  assert_refused("local f: function(): never = print\nprint(f)\n", "may return, where")
+  assert_refused(never_fail .. "local f: function(string): never = fail\n" ..
+      "local g: function(string) = print\nf = g\n", "may return, where")
+end
+
+--- Two function types are the same type only when both or neither
+--- never return (40e3): a record function is held to its field, which
+--- must say `: never` as the function does, and the reverse.
+local function test_a_record_function_agrees_with_its_field_on_never()
+  local record_with_field = "local record Guard\n  die: function(why: string)%s\nend\n"
+  assert_refused(record_with_field:format("") ..
+      "function Guard.die(why: string): never error(why) end\n", "only one of them never returns")
+  assert_refused(record_with_field:format(": never") ..
+      "function Guard.die(why: string) print(why) end\n", "only one of them never returns")
+  assert_accepted(record_with_field:format(": never") ..
+      "function Guard.die(why: string): never error(why) end\nprint(Guard)\n")
+end
+
+--- An overloaded function stands for one that never returns only when
+--- every overload does (40e4); the overload a call picks decides
+--- whether the call ends a block (40f1).
+local function test_a_poly_function_is_never_only_when_every_overload_is()
+  local poly = "local record P\n  f: function(string): never\n  f: function(%s)%s\nend\nlocal p: P\n"
+  assert_accepted(poly:format("integer", ": never") .. "local g: function(any): never = p.f\nprint(g)\n")
+  assert_refused(poly:format("integer", ": string") .. "local g: function(string): never = p.f\nprint(g)\n",
+    "polymorphic function with an overload that may return")
+end
+
+--- A type nested in another keeps its never-ness: a function that never
+--- returns does not stand for one that may inside an array, a map, a
+--- record, a union, an alias or a generic's type argument, as a
+--- parameter or as a return, in either direction (40e5). Teal compares
+--- what is nested through is_a in whichever direction passes, so
+--- without this `{function(): never}` stood for `{function(): string}`.
+local function test_never_agrees_when_nested()
+  local prelude = "local record Box<X>\n  v: X\nend\n" ..
+    "local record RecN\n  f: function(): never\nend\nlocal record RecS\n  f: function(): string\nend\n" ..
+    "local type AliasN = {function(): never}\nlocal type AliasS = {function(): string}\n"
+  local kinds: {string:{string}} = {
+    array = { "{function(): never}", "{function(): string}" },
+    map = { "{string:function(): never}", "{string:function(): string}" },
+    union = { "nil | function(): never", "nil | function(): string" },
+    alias = { "AliasN", "AliasS" },
+    generic = { "Box<function(): never>", "Box<function(): string>" },
+    record = { "RecN", "RecS" },
+  }
+  local seen = 0
+  for _, pair in pairs(kinds) do
+    for _, place in ipairs({ "param", "return" }) do
+      local function declared(t: string): string
+        return place == "param" and "function(p: " .. t .. ")" or "function(): " .. t
+      end
+      for _, direction in ipairs({ { 1, 2 }, { 2, 1 } }) do
+        local source = prelude .. "local a: " .. declared(pair[direction[1]]) ..
+          "\nlocal b: " .. declared(pair[direction[2]]) .. "\nb = a\nprint(a, b)\n"
+        assert_refused(source, "do not stand for each other inside another type")
+        seen = seen + 1
+      end
+      for i = 1, 2 do
+        assert_accepted(prelude .. "local a: " .. declared(pair[i]) .. "\nlocal b: " ..
+            declared(pair[i]) .. "\nb = a\nprint(a, b)\n")
+      end
+    end
+  end
+  assert(seen == 24, tostring(seen))
+end
+
+--- A parameter that is itself a never-function compares with the callback
+--- a function expects: the forward direction forges too (a function taking
+--- a never-callback stands for one taking a callback that returns).
+local function test_never_agrees_in_a_callback_parameter()
+  assert_refused("local a: function(cb: function(): never)\n" ..
+      "local b: function(cb: function(): string)\nb = a\n",
+    "got function(): never, expected function(): string: a function that never returns")
+  assert_refused("local a: function(cb: function(): string)\n" ..
+      "local b: function(cb: function(): never)\nb = a\n", "do not stand for each other")
+end
+
+--- `is` on a function type narrows an `any` to a never-function without
+--- a check, as `as` does: the hole is accepted until doc/roadmap.md's
+--- cast policy closes both, and this pins what the compiler does today.
+local function test_is_on_a_function_type_is_not_restricted()
+  assert_accepted("local function f(v: any): integer\n  if v is function(): never then\n" ..
+      "    v()\n  end\n  return 1\nend\nprint(f)\n")
+end
+
